@@ -34,6 +34,19 @@ namespace dungeon::gfx {
 // scene.hlsl (the palette is a fixed-size cbuffer).
 inline constexpr u32 kMaxSkinJoints = 128;
 
+// Everything material-related for one draw. Textures may be null (baseColor
+// only); `normalMap` (xyz = tangent-space normal, w = height) enables bump
+// mapping, and `heightScale` > 0 adds parallax on top. Specular defaults suit
+// dry stone; raise strength for wet/glossy things (slime, polished metal).
+struct MaterialParams {
+	const Texture* albedo = nullptr;
+	const Texture* normalMap = nullptr;
+	Vec4 baseColor{1, 1, 1, 1};
+	float heightScale = 0.0f;
+	float specStrength = 0.05f;
+	float specPower = 24.0f;
+};
+
 // Forward 3D pass: one pipeline, per-frame light constants, optional texture
 // and optional GPU skinning per draw.
 class Renderer {
@@ -44,14 +57,10 @@ public:
 	void BeginScene(ID3D12GraphicsCommandList* list, const Camera& camera,
 					const LightSet& lights);
 
-	// Draws a mesh. `texture` may be null (uses baseColor only); `palette` is
-	// empty for static meshes or the skinning palette for skinned ones.
-	// `normalMap` (xyz = tangent-space normal, w = height) enables bump
-	// mapping, and `heightScale` > 0 adds parallax displacement.
+	// Draws a mesh; `palette` is empty for static meshes or the skinning
+	// palette for skinned ones.
 	void DrawMesh(ID3D12GraphicsCommandList* list, const Mesh& mesh, const Mat4& world,
-				  const Texture* texture, const Vec4& baseColor,
-				  std::span<const Mat4> palette = {},
-				  const Texture* normalMap = nullptr, float heightScale = 0.0f);
+				  const MaterialParams& material, std::span<const Mat4> palette = {});
 
 	// Call when the device frame index advances (resets that frame's allocator).
 	void NewFrame(u32 frameIndex);

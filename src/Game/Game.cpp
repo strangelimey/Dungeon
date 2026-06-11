@@ -422,11 +422,14 @@ void Game::Update(float dt) {
 
 void Game::DrawSurface(ID3D12GraphicsCommandList* list, const Surface& surface) {
 	const Mat4 identity = Mat4Identity();
-	const Vec4 white{1, 1, 1, 1};
 	for (size_t i = 0; i < surface.meshes.size(); ++i) {
 		if (!surface.meshes[i]) continue;
-		m_renderer.DrawMesh(list, *surface.meshes[i], identity, surface.albedo[i].get(),
-							white, {}, surface.normal[i].get(), surface.heightScale);
+		gfx::MaterialParams material;
+		material.albedo = surface.albedo[i].get();
+		material.normalMap = surface.normal[i].get();
+		material.heightScale = surface.heightScale;
+		// Dry, matte stone (the MaterialParams specular defaults).
+		m_renderer.DrawMesh(list, *surface.meshes[i], identity, material);
 	}
 }
 
@@ -436,23 +439,31 @@ void Game::RenderScene(ID3D12GraphicsCommandList* list) {
 	DrawSurface(list, m_floors);
 	DrawSurface(list, m_ceilings);
 
-	// Pillar.
+	// Pillar — polished jade, distinctly glossier than the stonework.
 	Mat4 pillarWorld = Mat4Identity();
 	pillarWorld._41 = m_pillarPos.x;
 	pillarWorld._43 = m_pillarPos.z;
-	m_renderer.DrawMesh(list, *m_pillarMesh, pillarWorld, nullptr,
-						m_pillarModel.materials[0].baseColorFactor,
+	gfx::MaterialParams pillarMaterial;
+	pillarMaterial.baseColor = m_pillarModel.materials[0].baseColorFactor;
+	pillarMaterial.specStrength = 0.45f;
+	pillarMaterial.specPower = 48.0f;
+	m_renderer.DrawMesh(list, *m_pillarMesh, pillarWorld, pillarMaterial,
 						m_pillarAnimator.Palette());
 
-	// Monsters.
+	// Monsters. Bone and bandages are matte; the blob glistens wetly.
 	for (const Monster& monster : m_monsters) {
 		const MonsterKind& kind = *m_monsterKinds.at(monster.kind);
 		const Vec3 pos = m_map.CellCenter(monster.x, monster.z);
 		Mat4 world;
 		XMStoreFloat4x4(&world, XMMatrixRotationY(monster.yaw) *
 									XMMatrixTranslation(pos.x, 0, pos.z));
-		m_renderer.DrawMesh(list, *kind.mesh, world, nullptr,
-							kind.model.materials[0].baseColorFactor,
+		gfx::MaterialParams material;
+		material.baseColor = kind.model.materials[0].baseColorFactor;
+		if (monster.kind == 'B') {
+			material.specStrength = 0.55f;
+			material.specPower = 32.0f;
+		}
+		m_renderer.DrawMesh(list, *kind.mesh, world, material,
 							monster.animator.Palette());
 	}
 }

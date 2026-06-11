@@ -38,6 +38,9 @@ struct ObjectConstants {
 	u32 skinned;
 	u32 useNormalMap;
 	float heightScale;
+	float specStrength;
+	float specPower;
+	float pad[2];
 };
 
 } // namespace
@@ -198,18 +201,19 @@ void Renderer::BeginScene(ID3D12GraphicsCommandList* list, const Camera& camera,
 }
 
 void Renderer::DrawMesh(ID3D12GraphicsCommandList* list, const Mesh& mesh,
-						const Mat4& world, const Texture* texture, const Vec4& baseColor,
-						std::span<const Mat4> palette, const Texture* normalMap,
-						float heightScale) {
+						const Mat4& world, const MaterialParams& material,
+						std::span<const Mat4> palette) {
 	UploadAllocator& allocator = *m_frameAllocators[m_frameIndex];
 
 	ObjectConstants object{};
 	object.world = world;
-	object.baseColor = baseColor;
-	object.useTexture = texture != nullptr ? 1u : 0u;
+	object.baseColor = material.baseColor;
+	object.useTexture = material.albedo != nullptr ? 1u : 0u;
 	object.skinned = palette.empty() ? 0u : 1u;
-	object.useNormalMap = normalMap != nullptr ? 1u : 0u;
-	object.heightScale = heightScale;
+	object.useNormalMap = material.normalMap != nullptr ? 1u : 0u;
+	object.heightScale = material.heightScale;
+	object.specStrength = material.specStrength;
+	object.specPower = material.specPower;
 	UploadAllocation objAlloc = allocator.Allocate(sizeof(ObjectConstants));
 	std::memcpy(objAlloc.cpu, &object, sizeof(object));
 	list->SetGraphicsRootConstantBufferView(1, objAlloc.gpu);
@@ -224,9 +228,10 @@ void Renderer::DrawMesh(ID3D12GraphicsCommandList* list, const Mesh& mesh,
 		list->SetGraphicsRootConstantBufferView(2, objAlloc.gpu);
 	}
 
-	const Texture* bound = texture ? texture : m_whiteTexture.get();
+	const Texture* bound = material.albedo ? material.albedo : m_whiteTexture.get();
 	list->SetGraphicsRootDescriptorTable(3, bound->GpuHandle());
-	const Texture* boundNormal = normalMap ? normalMap : m_flatNormalMap.get();
+	const Texture* boundNormal =
+		material.normalMap ? material.normalMap : m_flatNormalMap.get();
 	list->SetGraphicsRootDescriptorTable(4, boundNormal->GpuHandle());
 
 	mesh.Bind(list);
