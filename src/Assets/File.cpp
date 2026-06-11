@@ -1,6 +1,7 @@
 #include "Assets/File.h"
 
 #include <cstdio>
+#include <filesystem>
 #include <format>
 
 namespace dungeon::assets {
@@ -19,6 +20,17 @@ std::expected<std::vector<u8>, std::string> ReadBinaryFile(const std::string& pa
 	}
 	std::fclose(f);
 	return data;
+}
+
+bool WriteBinaryFile(const std::string& path, const void* data, size_t size) {
+	std::error_code ec;
+	std::filesystem::create_directories(std::filesystem::path(path).parent_path(), ec);
+
+	std::FILE* f = nullptr;
+	if (fopen_s(&f, path.c_str(), "wb") != 0 || !f) return false;
+	const bool ok = std::fwrite(data, 1, size, f) == size;
+	std::fclose(f);
+	return ok;
 }
 
 } // namespace dungeon::assets
