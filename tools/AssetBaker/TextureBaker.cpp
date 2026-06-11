@@ -14,7 +14,7 @@ namespace dungeon::baker {
 
 namespace {
 
-constexpr u32 kSize = 512;
+constexpr u32 kSize = 1024;
 
 // --- noise helpers -----------------------------------------------------------
 
@@ -63,7 +63,8 @@ bool SavePng(const std::string& path, const std::vector<u8>& rgba) {
     return ok != 0;
 }
 
-// Albedo = per-pixel color function modulated by height-based shading.
+// Albedo = per-pixel color function modulated by height-based shading plus
+// fine per-pixel grain so the surface stays detailed under magnification.
 bool SaveAlbedo(const std::string& path, const HeightField& height,
                 const std::function<Rgb(u32, u32, float)>& colorAt) {
     std::vector<u8> rgba(kSize * kSize * 4);
@@ -71,8 +72,10 @@ bool SaveAlbedo(const std::string& path, const HeightField& height,
         for (u32 x = 0; x < kSize; ++x) {
             const float h = height.Get(x, y);
             Rgb c = colorAt(x, y, h);
-            // Crevice darkening: lower areas collect grime.
-            const float shade = 0.55f + 0.45f * h;
+            // Crevice darkening plus speckle grain.
+            const float grain = (Hash(x, y, 97u) - 0.5f) * 0.10f +
+                                (ValueNoise(x * 0.45f, y * 0.45f, 98u) - 0.5f) * 0.12f;
+            const float shade = 0.45f + 0.55f * h + grain;
             const size_t i = (static_cast<size_t>(y) * kSize + x) * 4;
             rgba[i + 0] = static_cast<u8>(std::clamp(c.r * shade, 0.0f, 1.0f) * 255);
             rgba[i + 1] = static_cast<u8>(std::clamp(c.g * shade, 0.0f, 1.0f) * 255);
@@ -116,7 +119,7 @@ float Plateau(float v, float extent, float edge) {
 void BrickHeight(HeightField& hf, u32 rows, u32 cols, u32 seed) {
     const float bw = static_cast<float>(kSize) / cols;
     const float bh = static_cast<float>(kSize) / rows;
-    const float edge = kSize / 110.0f;
+    const float edge = kSize / 240.0f; // tight ramp keeps mortar lines crisp
     for (u32 y = 0; y < kSize; ++y) {
         for (u32 x = 0; x < kSize; ++x) {
             const u32 row = static_cast<u32>(y / bh);
@@ -125,7 +128,7 @@ void BrickHeight(HeightField& hf, u32 rows, u32 cols, u32 seed) {
             const u32 col = static_cast<u32>(xs / bw);
             const float top = 0.75f + Hash(col, row, seed) * 0.2f; // per-brick height
             float h = top * std::min(Plateau(bx, bw, edge), Plateau(by, bh, edge));
-            h += (Fbm(x * 0.05f, y * 0.05f, seed + 9) - 0.5f) * 0.18f;
+            h += (Fbm(x * 0.05f, y * 0.05f, seed + 9, 6) - 0.5f) * 0.20f;
             hf.At(x, y) = std::clamp(h, 0.0f, 1.0f);
         }
     }
