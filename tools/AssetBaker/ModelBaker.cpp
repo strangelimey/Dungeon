@@ -78,7 +78,16 @@ Quat QuatFromEuler(float pitch, float yaw, float roll) {
 
 constexpr float kWallH = 2.5f;
 
-Vec2 WallUv(float x, float y) { return {(x + 1.0f) * 0.5f, (kWallH - y) * 0.5f}; }
+// Planar UV projection chosen by the face normal's dominant axis, with a
+// consistent texel scale (one texture tile per 2 world units). Faces that
+// point sideways or up/down (panel reveals, pillar flanks) get their own
+// in-plane projection instead of a smeared front projection.
+Vec2 WallFaceUv(const Vec3& p, const Vec3& n) {
+    const float ax = std::fabs(n.x), ay = std::fabs(n.y), az = std::fabs(n.z);
+    if (az >= ax && az >= ay) return {(p.x + 1.0f) * 0.5f, (kWallH - p.y) * 0.5f};
+    if (ay >= ax) return {(p.x + 1.0f) * 0.5f, (p.z + 1.0f) * 0.5f};
+    return {(p.z + 1.0f) * 0.5f, (kWallH - p.y) * 0.5f};
+}
 
 assets::ModelData BuildWallBlock() {
     assets::ModelData model;
@@ -91,8 +100,8 @@ assets::ModelData BuildWallBlock() {
 
     auto wq = [&](const Vec3& a, const Vec3& b, const Vec3& c, const Vec3& d,
                   const Vec3& n) {
-        AddQuad(mesh, a, b, c, d, n, WallUv(a.x, a.y), WallUv(b.x, b.y),
-                WallUv(c.x, c.y), WallUv(d.x, d.y));
+        AddQuad(mesh, a, b, c, d, n, WallFaceUv(a, n), WallFaceUv(b, n),
+                WallFaceUv(c, n), WallFaceUv(d, n));
     };
 
     // Recessed center panel.
