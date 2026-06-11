@@ -5,23 +5,24 @@
 namespace dungeon::game {
 
 namespace {
-// '#' wall, '.' floor, 'T' floor with a wall torch, 'P' party start.
+// '#' wall, '.' floor, 'T' floor with a wall torch, 'P' party start,
+// 'S' skeleton, 'M' mummy, 'B' blob (all monster cells are floor).
 const char* kLayout[] = {
     "################",
-    "#P.....T#......#",
+    "#P....ST#......#",
     "#.######.#.###.#",
     "#.#....#.#.#T#.#",
     "#.#.##.#.#.#.#.#",
     "#.#.#T.#.#.#.#.#",
     "#.#.####.#.#.#.#",
-    "#.#......#...#.#",
+    "#.#..B...#...#.#",
     "#.########.###.#",
-    "#........#.#...#",
+    "#...M....#.#...#",
     "########.#.#.###",
-    "#T.......#.#..T#",
+    "#T...S...#.#..T#",
     "#.#######..##..#",
     "#.#....T#.#..#.#",
-    "#......#...#...#",
+    "#..B...#...#...#",
     "################",
 };
 } // namespace
@@ -36,9 +37,9 @@ DungeonMap::DungeonMap() {
         DN_ASSERT(static_cast<int>(row.size()) == m_width, "ragged map row");
         for (int x = 0; x < m_width; ++x) {
             const char c = row[static_cast<size_t>(x)];
-            Cell cell = Cell::Wall;
-            if (c == '.' || c == 'T' || c == 'P') cell = Cell::Floor;
+            Cell cell = c == '#' ? Cell::Wall : Cell::Floor;
             if (c == 'T') m_torches.emplace_back(x, z);
+            if (c == 'S' || c == 'M' || c == 'B') m_monsters.push_back({c, x, z});
             if (c == 'P') {
                 m_startX = x;
                 m_startZ = z;

@@ -99,8 +99,10 @@ std::unordered_map<const cgltf_node*, int> BuildSkeleton(const cgltf_skin* skin,
     return nodeToJoint;
 }
 
+// `slotRemap` maps glTF skin-slot indices to our topologically ordered joint
+// indices (empty for unskinned models).
 void ReadPrimitive(const cgltf_primitive* prim, MeshData& mesh,
-                   const std::unordered_map<const cgltf_node*, int>* /*joints*/) {
+                   const std::vector<u32>& slotRemap) {
     const cgltf_accessor* position = nullptr;
     const cgltf_accessor* normal = nullptr;
     const cgltf_accessor* texcoord = nullptr;
@@ -138,7 +140,8 @@ void ReadPrimitive(const cgltf_primitive* prim, MeshData& mesh,
         if (jointsAcc && weightsAcc) {
             cgltf_uint ji[4] = {};
             cgltf_accessor_read_uint(jointsAcc, v, ji, 4);
-            for (int k = 0; k < 4; ++k) vert.joints[k] = ji[k];
+            for (int k = 0; k < 4; ++k)
+                vert.joints[k] = ji[k] < slotRemap.size() ? slotRemap[ji[k]] : 0;
             cgltf_accessor_read_float(weightsAcc, v, tmp, 4);
             for (int k = 0; k < 4; ++k) vert.weights[k] = tmp[k];
             mesh.skinned = true;
@@ -190,8 +193,14 @@ std::optional<ModelData> LoadGltf(const std::string& path) {
 
     // Skeleton from the first skin, if any.
     std::unordered_map<const cgltf_node*, int> nodeToJoint;
-    if (data->skins_count > 0)
+    std::vector<u32> slotRemap;
+    if (data->skins_count > 0) {
         nodeToJoint = BuildSkeleton(&data->skins[0], model.skeleton);
+        const cgltf_skin* skin = &data->skins[0];
+        slotRemap.resize(skin->joints_count, 0);
+        for (cgltf_size i = 0; i < skin->joints_count; ++i)
+            slotRemap[i] = static_cast<u32>(nodeToJoint[skin->joints[i]]);
+    }
 
     // Meshes: one MeshData per node-with-mesh per primitive material group.
     for (cgltf_size n = 0; n < data->nodes_count; ++n) {
@@ -206,7 +215,7 @@ std::optional<ModelData> LoadGltf(const std::string& path) {
             mesh.material = prim.material
                                 ? static_cast<int>(prim.material - data->materials)
                                 : -1;
-            ReadPrimitive(&prim, mesh, &nodeToJoint);
+            ReadPrimitive(&prim, mesh, slotRemap);
             if (!mesh.vertices.empty()) model.meshes.push_back(std::move(mesh));
         }
     }

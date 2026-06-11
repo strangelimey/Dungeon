@@ -66,8 +66,19 @@ Platform::Window::PumpMessages
   → Renderer::EndFrame       (present)
 ```
 
+## Asset pipeline
+
+All binary assets (PNG textures with normal/height companions, WAV sounds,
+glTF block/prop/monster models) live under `assets/` and are produced offline
+by `tools/AssetBaker`. The game never generates assets at runtime; the engine
+loads them through the Assets module (cgltf / stb_image / dr_wav). The
+renderer applies bump + parallax mapping from the `_n` maps' normal (RGB) and
+height (A) channels using a derivative-based tangent frame, so meshes carry no
+tangent attributes.
+
 ## Build
 
 `build.cmd [debug|release]` — uses the Visual Studio 2026 bundled CMake + Ninja.
 Outputs land in `build/<config>/bin/Dungeon.exe`. Assets are referenced
 relative to the executable via a copied `assets/` directory.
+`gen-vs.cmd` produces `build/vs/Dungeon.slnx` for Visual Studio work.

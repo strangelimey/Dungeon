@@ -34,6 +34,10 @@ public:
     std::function<void()> onBlocked;
     std::function<void()> onTurn;
 
+    // Extra occupancy check (monsters, props). Return true to block the step;
+    // the callback is responsible for its own feedback (onBlocked not fired).
+    std::function<bool(int, int)> isOccupied;
+
 private:
     bool TryStep(int dx, int dz);
 
@@ -53,6 +57,7 @@ private:
     bool m_turning = false;
 
     float m_bobPhase = 0.0f;
+    float m_blockCooldown = 0.0f; // throttles repeated blocked-move feedback
 };
 
 } // namespace dungeon::game

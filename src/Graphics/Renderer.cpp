@@ -32,7 +32,8 @@ struct ObjectConstants {
     Vec4 baseColor;
     u32 useTexture;
     u32 skinned;
-    u32 pad[2];
+    u32 useNormalMap;
+    float heightScale;
 };
 
 } // namespace
@@ -43,12 +44,15 @@ Renderer::Renderer(GraphicsDevice& device) : m_device(device) {
     //   1: b1 object constants (CBV)
     //   2: b2 skinning palette (CBV)
     //   3: t0 base color texture (table)
-    D3D12_DESCRIPTOR_RANGE srvRange{};
-    srvRange.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
-    srvRange.NumDescriptors = 1;
-    srvRange.BaseShaderRegister = 0;
+    //   4: t1 normal+height map (table)
+    D3D12_DESCRIPTOR_RANGE srvRange0{};
+    srvRange0.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
+    srvRange0.NumDescriptors = 1;
+    srvRange0.BaseShaderRegister = 0;
+    D3D12_DESCRIPTOR_RANGE srvRange1 = srvRange0;
+    srvRange1.BaseShaderRegister = 1;
 
-    D3D12_ROOT_PARAMETER params[4]{};
+    D3D12_ROOT_PARAMETER params[5]{};
     for (int i = 0; i < 3; ++i) {
         params[i].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
         params[i].Descriptor.ShaderRegister = static_cast<UINT>(i);
@@ -56,8 +60,12 @@ Renderer::Renderer(GraphicsDevice& device) : m_device(device) {
     }
     params[3].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
     params[3].DescriptorTable.NumDescriptorRanges = 1;
-    params[3].DescriptorTable.pDescriptorRanges = &srvRange;
+    params[3].DescriptorTable.pDescriptorRanges = &srvRange0;
     params[3].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+    params[4].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+    params[4].DescriptorTable.NumDescriptorRanges = 1;
+    params[4].DescriptorTable.pDescriptorRanges = &srvRange1;
+    params[4].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
 
     D3D12_STATIC_SAMPLER_DESC sampler{};
     sampler.Filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
@@ -68,7 +76,7 @@ Renderer::Renderer(GraphicsDevice& device) : m_device(device) {
     sampler.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
 
     D3D12_ROOT_SIGNATURE_DESC rsDesc{};
-    rsDesc.NumParameters = 4;
+    rsDesc.NumParameters = 5;
     rsDesc.pParameters = params;
     rsDesc.NumStaticSamplers = 1;
     rsDesc.pStaticSamplers = &sampler;
@@ -133,6 +141,12 @@ Renderer::Renderer(GraphicsDevice& device) : m_device(device) {
     white.width = white.height = 1;
     white.pixels = {255, 255, 255, 255};
     m_whiteTexture = std::make_unique<Texture>(m_device, white);
+
+    // Flat tangent-space normal (0,0,1) with zero height.
+    assets::ImageData flat;
+    flat.width = flat.height = 1;
+    flat.pixels = {128, 128, 255, 0};
+    m_flatNormalMap = std::make_unique<Texture>(m_device, flat);
 }
 
 void Renderer::NewFrame(u32 frameIndex) {
@@ -173,7 +187,8 @@ void Renderer::BeginScene(ID3D12GraphicsCommandList* list, const Camera& camera,
 
 void Renderer::DrawMesh(ID3D12GraphicsCommandList* list, const Mesh& mesh,
                         const Mat4& world, const Texture* texture, const Vec4& baseColor,
-                        std::span<const Mat4> palette) {
+                        std::span<const Mat4> palette, const Texture* normalMap,
+                        float heightScale) {
     UploadAllocator& allocator = *m_frameAllocators[m_frameIndex];
 
     ObjectConstants object{};
@@ -181,6 +196,8 @@ void Renderer::DrawMesh(ID3D12GraphicsCommandList* list, const Mesh& mesh,
     object.baseColor = baseColor;
     object.useTexture = texture != nullptr ? 1u : 0u;
     object.skinned = palette.empty() ? 0u : 1u;
+    object.useNormalMap = normalMap != nullptr ? 1u : 0u;
+    object.heightScale = heightScale;
     UploadAllocation objAlloc = allocator.Allocate(sizeof(ObjectConstants));
     std::memcpy(objAlloc.cpu, &object, sizeof(object));
     list->SetGraphicsRootConstantBufferView(1, objAlloc.gpu);
@@ -197,6 +214,8 @@ void Renderer::DrawMesh(ID3D12GraphicsCommandList* list, const Mesh& mesh,
 
     const Texture* bound = texture ? texture : m_whiteTexture.get();
     list->SetGraphicsRootDescriptorTable(3, bound->GpuHandle());
+    const Texture* boundNormal = normalMap ? normalMap : m_flatNormalMap.get();
+    list->SetGraphicsRootDescriptorTable(4, boundNormal->GpuHandle());
 
     mesh.Bind(list);
     list->DrawIndexedInstanced(mesh.IndexCount(), 1, 0, 0, 0);

@@ -11,12 +11,15 @@
 #include "UI/Controls.h"
 #include "UI/UIContext.h"
 
+#include <map>
 #include <memory>
+#include <vector>
 
 namespace dungeon::game {
 
-// The dungeon-crawler itself: owns the map, party, lights, HUD, sounds, and
-// drives the per-frame update/render flow on top of the engine modules.
+// The dungeon-crawler itself: owns the map, party, monsters, lights, HUD, and
+// drives the per-frame update/render flow. All textures, models, and sounds
+// load from the assets/ directory (regenerate them with tools/AssetBaker).
 class Game {
 public:
     Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
@@ -26,9 +29,37 @@ public:
     void Render(ID3D12GraphicsCommandList* list);
 
 private:
+    // A texture variant set: parallel albedo / normal+height pairs plus the
+    // batched mesh bucket per variant.
+    struct Surface {
+        std::vector<std::unique_ptr<gfx::Texture>> albedo;
+        std::vector<std::unique_ptr<gfx::Texture>> normal;
+        std::vector<std::unique_ptr<gfx::Mesh>> meshes; // null where bucket empty
+        float heightScale = 0.0f;
+    };
+
+    // Per-kind monster assets (shared) and per-instance state.
+    struct MonsterKind {
+        assets::ModelData model; // must outlive the Animators pointing into it
+        std::unique_ptr<gfx::Mesh> mesh;
+        const char* name;
+    };
+    struct Monster {
+        char kind;
+        int x, z;
+        float yaw = 0.0f;
+        bool announced = false;
+        anim::Animator animator;
+    };
+
+    void LoadSurfaces();
+    void LoadMonsters();
     void BuildHud();
     void UpdateLights(float time);
+    void UpdateMonsters(float dt);
     void ApplyTorchPalette(int index);
+    void DrawSurface(ID3D12GraphicsCommandList* list, const Surface& surface);
+    bool MonsterAt(int x, int z) const;
 
     Window& m_window;
     gfx::GraphicsDevice& m_device;
@@ -41,33 +72,29 @@ private:
     gfx::Camera m_camera;
     gfx::LightSet m_lights;
 
-    // Dungeon geometry + textures.
-    std::unique_ptr<gfx::Mesh> m_wallMesh;
-    std::unique_ptr<gfx::Mesh> m_floorMesh;
-    std::unique_ptr<gfx::Mesh> m_ceilingMesh;
-    std::unique_ptr<gfx::Texture> m_wallTexture;
-    std::unique_ptr<gfx::Texture> m_floorTexture;
-    std::unique_ptr<gfx::Texture> m_ceilingTexture;
+    Surface m_walls;
+    Surface m_floors;
+    Surface m_ceilings;
 
-    // Animated showpiece (skinned + animated through the Animation module).
     assets::ModelData m_pillarModel;
     std::unique_ptr<gfx::Mesh> m_pillarMesh;
     anim::Animator m_pillarAnimator;
     Vec3 m_pillarPos{};
 
-    // Sounds (synthesized at startup).
+    std::map<char, std::unique_ptr<MonsterKind>> m_monsterKinds;
+    std::vector<Monster> m_monsters;
+
     assets::SoundData m_sfxFootstep;
     assets::SoundData m_sfxBump;
     assets::SoundData m_sfxTurn;
     assets::SoundData m_sfxClick;
+    assets::SoundData m_sfxMonster;
 
-    // HUD.
     ui::UIContext m_ui;
     ui::TextOutput* m_log = nullptr;
     ui::Label* m_compass = nullptr;
     ui::Label* m_position = nullptr;
 
-    // Torch palette selected via the drop-down.
     Vec3 m_torchColor{1.0f, 0.62f, 0.28f};
     float m_time = 0.0f;
 };

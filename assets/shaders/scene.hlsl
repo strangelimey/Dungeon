@@ -26,7 +26,8 @@ cbuffer ObjectConstants : register(b1) {
     float4 gBaseColor;
     uint gUseTexture;
     uint gSkinned;
-    uint2 _pad1;
+    uint gUseNormalMap;
+    float gHeightScale;
 };
 
 cbuffer SkinConstants : register(b2) {
@@ -34,6 +35,7 @@ cbuffer SkinConstants : register(b2) {
 };
 
 Texture2D gBaseTexture : register(t0);
+Texture2D gNormalMap : register(t1); // xyz = tangent-space normal, w = height
 SamplerState gSampler : register(s0);
 
 struct VSInput {
@@ -116,12 +118,62 @@ float3 Shade(float3 albedo, float3 normal, float3 worldPos) {
     return color;
 }
 
+// Per-pixel tangent frame from screen-space derivatives (no vertex tangents
+// needed). Rows are T, B, N.
+float3x3 CotangentFrame(float3 N, float3 p, float2 uv) {
+    const float3 dp1 = ddx(p);
+    const float3 dp2 = ddy(p);
+    const float2 duv1 = ddx(uv);
+    const float2 duv2 = ddy(uv);
+    const float3 dp2perp = cross(dp2, N);
+    const float3 dp1perp = cross(N, dp1);
+    float3 T = dp2perp * duv1.x + dp1perp * duv2.x;
+    float3 B = dp2perp * duv1.y + dp1perp * duv2.y;
+    const float invmax = rsqrt(max(dot(T, T), max(dot(B, B), 1e-8)));
+    return float3x3(T * invmax, B * invmax, N);
+}
+
+// Steep parallax: march the view ray through the height field.
+float2 Parallax(float2 uv, float3 viewTS) {
+    const int kSteps = 12;
+    const float layer = 1.0 / kSteps;
+    // viewTS.z is the component along the normal; guard grazing angles.
+    const float2 delta = viewTS.xy / max(viewTS.z, 0.25) * gHeightScale * layer;
+
+    float depth = 0.0;
+    float2 current = uv;
+    // Height map stores "up" (1 = proud surface); convert to depth (0 = top).
+    // SampleLevel: gradient sampling is not allowed in a divergent loop.
+    float surfaceDepth = 1.0 - gNormalMap.SampleLevel(gSampler, current, 0).a;
+    [unroll]
+    for (int i = 0; i < kSteps; ++i) {
+        if (depth >= surfaceDepth) break;
+        current -= delta;
+        depth += layer;
+        surfaceDepth = 1.0 - gNormalMap.SampleLevel(gSampler, current, 0).a;
+    }
+    return current;
+}
+
 float4 PSMain(PSInput input) : SV_TARGET {
+    float2 uv = input.uv;
+    float3 normal = normalize(input.normal);
+
+    if (gUseNormalMap != 0) {
+        const float3x3 tbn = CotangentFrame(normal, input.worldPos, uv);
+        if (gHeightScale > 0.0) {
+            const float3 viewDir = normalize(gCameraPos.xyz - input.worldPos);
+            const float3 viewTS = mul(tbn, viewDir); // (T.V, B.V, N.V)
+            uv = Parallax(uv, viewTS);
+        }
+        float3 nTS = gNormalMap.Sample(gSampler, uv).xyz * 2.0 - 1.0;
+        normal = normalize(mul(nTS, tbn)); // rows: nTS.x*T + nTS.y*B + nTS.z*N
+    }
+
     float4 albedo = gBaseColor;
     if (gUseTexture != 0)
-        albedo *= gBaseTexture.Sample(gSampler, input.uv);
+        albedo *= gBaseTexture.Sample(gSampler, uv);
 
-    const float3 normal = normalize(input.normal);
     float3 color = Shade(albedo.rgb, normal, input.worldPos);
 
     // Simple tonemap + gamma (back buffer is UNORM).

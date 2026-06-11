@@ -35,6 +35,13 @@ public:
     int StartZ() const { return m_startZ; }
     const std::vector<std::pair<int, int>>& TorchCells() const { return m_torches; }
 
+    // Monster spawn points: kind is 'S' skeleton, 'M' mummy, 'B' blob.
+    struct MonsterSpawn {
+        char kind;
+        int x, z;
+    };
+    const std::vector<MonsterSpawn>& MonsterSpawns() const { return m_monsters; }
+
 private:
     int m_width = 0;
     int m_height = 0;
@@ -42,6 +49,7 @@ private:
     int m_startZ = 1;
     std::vector<Cell> m_cells;
     std::vector<std::pair<int, int>> m_torches;
+    std::vector<MonsterSpawn> m_monsters;
 };
 
 } // namespace dungeon::game

@@ -1,5 +1,6 @@
 #include "Game/Party.h"
 
+#include <algorithm>
 #include <cmath>
 
 namespace dungeon::game {
@@ -37,6 +38,7 @@ bool Party::TryStep(int dx, int dz) {
         if (onBlocked) onBlocked();
         return false;
     }
+    if (isOccupied && isOccupied(nx, nz)) return false;
     m_x = nx;
     m_z = nz;
     m_moveFrom = m_currentPos;
@@ -49,18 +51,23 @@ bool Party::TryStep(int dx, int dz) {
 
 void Party::HandleInput(const Input& input) {
     if (IsMoving()) return; // one action at a time keeps the grid feel
+    if (m_blockCooldown > 0.0f) return;
+
+    auto step = [this](int dx, int dz) {
+        if (!TryStep(dx, dz)) m_blockCooldown = 0.4f;
+    };
 
     const int f = m_facing;
     if (input.IsKeyDown('W')) {
-        TryStep(kDirX[f], kDirZ[f]);
+        step(kDirX[f], kDirZ[f]);
     } else if (input.IsKeyDown('S')) {
-        TryStep(-kDirX[f], -kDirZ[f]);
+        step(-kDirX[f], -kDirZ[f]);
     } else if (input.IsKeyDown('A')) { // strafe left
         const int left = (f + 3) & 3;
-        TryStep(kDirX[left], kDirZ[left]);
+        step(kDirX[left], kDirZ[left]);
     } else if (input.IsKeyDown('D')) { // strafe right
         const int right = (f + 1) & 3;
-        TryStep(kDirX[right], kDirZ[right]);
+        step(kDirX[right], kDirZ[right]);
     } else if (input.WasKeyPressed('Q')) {
         m_facing = (m_facing + 3) & 3;
         m_targetYaw = m_currentYaw + kPi * 0.5f;
@@ -75,6 +82,7 @@ void Party::HandleInput(const Input& input) {
 }
 
 void Party::Update(float dt) {
+    m_blockCooldown = std::max(0.0f, m_blockCooldown - dt);
     if (m_moving) {
         m_moveT += dt / kMoveDuration;
         if (m_moveT >= 1.0f) {
