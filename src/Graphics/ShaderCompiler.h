@@ -13,6 +13,6 @@
 
 namespace dungeon::gfx {
 ComPtr<ID3DBlob> CompileShader(const std::string& path, const char* entry,
-                               const char* target);
+							   const char* target);
 
 } // namespace dungeon::gfx

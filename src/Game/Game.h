@@ -32,86 +32,86 @@
 namespace dungeon::game {
 class Game {
 public:
-    Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
-         gfx::SpriteBatch& spriteBatch, audio::AudioEngine& audio);
+	Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
+		 gfx::SpriteBatch& spriteBatch, audio::AudioEngine& audio);
 
-    void Update(float dt);
-    void Render(ID3D12GraphicsCommandList* list);
+	void Update(float dt);
+	void Render(ID3D12GraphicsCommandList* list);
 
 private:
-    // A texture variant set: parallel albedo / normal+height pairs plus the
-    // batched mesh bucket per variant.
-    struct Surface {
-        std::vector<std::unique_ptr<gfx::Texture>> albedo;
-        std::vector<std::unique_ptr<gfx::Texture>> normal;
-        std::vector<std::unique_ptr<gfx::Mesh>> meshes; // null where bucket empty
-        float heightScale = 0.0f;
-    };
+	// A texture variant set: parallel albedo / normal+height pairs plus the
+	// batched mesh bucket per variant.
+	struct Surface {
+		std::vector<std::unique_ptr<gfx::Texture>> albedo;
+		std::vector<std::unique_ptr<gfx::Texture>> normal;
+		std::vector<std::unique_ptr<gfx::Mesh>> meshes; // null where bucket empty
+		float heightScale = 0.0f;
+	};
 
-    // Per-kind monster assets (shared) and per-instance state.
-    struct MonsterKind {
-        assets::ModelData model; // must outlive the Animators pointing into it
-        std::unique_ptr<gfx::Mesh> mesh;
-        const char* name;
-    };
-    struct Monster {
-        char kind;
-        int x, z;
-        float yaw = 0.0f;
-        bool announced = false;
-        anim::Animator animator;
-    };
+	// Per-kind monster assets (shared) and per-instance state.
+	struct MonsterKind {
+		assets::ModelData model; // must outlive the Animators pointing into it
+		std::unique_ptr<gfx::Mesh> mesh;
+		const char* name;
+	};
+	struct Monster {
+		char kind;
+		int x, z;
+		float yaw = 0.0f;
+		bool announced = false;
+		anim::Animator animator;
+	};
 
-    void LoadSurfaces();
-    void LoadMonsters();
-    void BuildHud();
-    void UpdateLights(float time);
-    void UpdateMonsters(float dt);
-    void ApplyTorchPalette(int index);
-    void DrawSurface(ID3D12GraphicsCommandList* list, const Surface& surface);
-    bool MonsterAt(int x, int z) const;
+	void LoadSurfaces();
+	void LoadMonsters();
+	void BuildHud();
+	void UpdateLights(float time);
+	void UpdateMonsters(float dt);
+	void ApplyTorchPalette(int index);
+	void DrawSurface(ID3D12GraphicsCommandList* list, const Surface& surface);
+	bool MonsterAt(int x, int z) const;
 
-    Window& m_window;
-    gfx::GraphicsDevice& m_device;
-    gfx::Renderer& m_renderer;
-    gfx::SpriteBatch& m_spriteBatch;
-    audio::AudioEngine& m_audio;
+	Window& m_window;
+	gfx::GraphicsDevice& m_device;
+	gfx::Renderer& m_renderer;
+	gfx::SpriteBatch& m_spriteBatch;
+	audio::AudioEngine& m_audio;
 
-    DungeonMap m_map;
-    Party m_party;
-    gfx::Camera m_camera;
-    gfx::LightSet m_lights;
+	DungeonMap m_map;
+	Party m_party;
+	gfx::Camera m_camera;
+	gfx::LightSet m_lights;
 
-    Surface m_walls;
-    Surface m_floors;
-    Surface m_ceilings;
+	Surface m_walls;
+	Surface m_floors;
+	Surface m_ceilings;
 
-    assets::ModelData m_pillarModel;
-    std::unique_ptr<gfx::Mesh> m_pillarMesh;
-    anim::Animator m_pillarAnimator;
-    Vec3 m_pillarPos{};
+	assets::ModelData m_pillarModel;
+	std::unique_ptr<gfx::Mesh> m_pillarMesh;
+	anim::Animator m_pillarAnimator;
+	Vec3 m_pillarPos{};
 
-    std::flat_map<char, std::unique_ptr<MonsterKind>> m_monsterKinds;
-    std::vector<Monster> m_monsters;
+	std::flat_map<char, std::unique_ptr<MonsterKind>> m_monsterKinds;
+	std::vector<Monster> m_monsters;
 
-    assets::SoundData m_sfxFootstep;
-    assets::SoundData m_sfxBump;
-    assets::SoundData m_sfxTurn;
-    assets::SoundData m_sfxClick;
-    assets::SoundData m_sfxMonster;
+	assets::SoundData m_sfxFootstep;
+	assets::SoundData m_sfxBump;
+	assets::SoundData m_sfxTurn;
+	assets::SoundData m_sfxClick;
+	assets::SoundData m_sfxMonster;
 
-    ui::UIContext m_ui;
-    ui::TextOutput* m_log = nullptr;
-    ui::Label* m_compass = nullptr;
-    ui::Label* m_position = nullptr;
+	ui::UIContext m_ui;
+	ui::TextOutput* m_log = nullptr;
+	ui::Label* m_compass = nullptr;
+	ui::Label* m_position = nullptr;
 
-    Vec3 m_torchColor{1.0f, 0.62f, 0.28f};
-    float m_time = 0.0f;
+	Vec3 m_torchColor{1.0f, 0.62f, 0.28f};
+	float m_time = 0.0f;
 
-    // Last values shown in the HUD labels (reformat only on change).
-    int m_lastFacing = -1;
-    int m_lastGridX = -1;
-    int m_lastGridZ = -1;
+	// Last values shown in the HUD labels (reformat only on change).
+	int m_lastFacing = -1;
+	int m_lastGridX = -1;
+	int m_lastGridZ = -1;
 };
 
 } // namespace dungeon::game

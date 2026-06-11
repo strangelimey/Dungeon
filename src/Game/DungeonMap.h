@@ -30,38 +30,38 @@ enum class Cell : u8 { Wall, Floor };
 // cell center is ((x + 0.5) * kCellSize, 0, (z + 0.5) * kCellSize).
 class DungeonMap {
 public:
-    DungeonMap();
+	DungeonMap();
 
-    int Width() const { return m_width; }
-    int Height() const { return m_height; }
+	int Width() const { return m_width; }
+	int Height() const { return m_height; }
 
-    bool IsWalkable(int x, int z) const;
-    Cell At(int x, int z) const;
+	bool IsWalkable(int x, int z) const;
+	Cell At(int x, int z) const;
 
-    Vec3 CellCenter(int x, int z, float y = 0.0f) const {
-        return {(static_cast<float>(x) + 0.5f) * kCellSize, y,
-                (static_cast<float>(z) + 0.5f) * kCellSize};
-    }
+	Vec3 CellCenter(int x, int z, float y = 0.0f) const {
+		return {(static_cast<float>(x) + 0.5f) * kCellSize, y,
+				(static_cast<float>(z) + 0.5f) * kCellSize};
+	}
 
-    int StartX() const { return m_startX; }
-    int StartZ() const { return m_startZ; }
-    const std::vector<std::pair<int, int>>& TorchCells() const { return m_torches; }
+	int StartX() const { return m_startX; }
+	int StartZ() const { return m_startZ; }
+	const std::vector<std::pair<int, int>>& TorchCells() const { return m_torches; }
 
-    // Monster spawn points: kind is 'S' skeleton, 'M' mummy, 'B' blob.
-    struct MonsterSpawn {
-        char kind;
-        int x, z;
-    };
-    const std::vector<MonsterSpawn>& MonsterSpawns() const { return m_monsters; }
+	// Monster spawn points: kind is 'S' skeleton, 'M' mummy, 'B' blob.
+	struct MonsterSpawn {
+		char kind;
+		int x, z;
+	};
+	const std::vector<MonsterSpawn>& MonsterSpawns() const { return m_monsters; }
 
 private:
-    int m_width = 0;
-    int m_height = 0;
-    int m_startX = 1;
-    int m_startZ = 1;
-    std::vector<Cell> m_cells;
-    std::vector<std::pair<int, int>> m_torches;
-    std::vector<MonsterSpawn> m_monsters;
+	int m_width = 0;
+	int m_height = 0;
+	int m_startX = 1;
+	int m_startZ = 1;
+	std::vector<Cell> m_cells;
+	std::vector<std::pair<int, int>> m_torches;
+	std::vector<MonsterSpawn> m_monsters;
 };
 
 } // namespace dungeon::game

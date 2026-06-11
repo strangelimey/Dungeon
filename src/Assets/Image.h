@@ -14,9 +14,9 @@ namespace dungeon::assets {
 
 // CPU-side image, always RGBA8.
 struct ImageData {
-    u32 width = 0;
-    u32 height = 0;
-    std::vector<u8> pixels; // width * height * 4
+	u32 width = 0;
+	u32 height = 0;
+	std::vector<u8> pixels; // width * height * 4
 };
 
 std::expected<ImageData, std::string> LoadImageFile(const std::string& path);

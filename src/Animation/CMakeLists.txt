@@ -1,4 +1,4 @@
 add_library(Animation STATIC
-    Animator.cpp
+	Animator.cpp
 )
 target_link_libraries(Animation PUBLIC Core Assets)

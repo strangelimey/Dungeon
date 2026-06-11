@@ -22,28 +22,28 @@
 namespace dungeon::ui {
 class Font {
 public:
-    // Tries `path` first, then common Windows fonts as fallback.
-    Font(gfx::GraphicsDevice& device, const std::string& path, float pixelHeight);
+	// Tries `path` first, then common Windows fonts as fallback.
+	Font(gfx::GraphicsDevice& device, const std::string& path, float pixelHeight);
 
-    float Height() const { return m_pixelHeight; }
-    float LineAdvance() const { return m_pixelHeight * 1.25f; }
-    float MeasureWidth(std::string_view text) const;
+	float Height() const { return m_pixelHeight; }
+	float LineAdvance() const { return m_pixelHeight * 1.25f; }
+	float MeasureWidth(std::string_view text) const;
 
-    void Draw(gfx::SpriteBatch& batch, std::string_view text, float x, float y,
-              const Vec4& color) const;
+	void Draw(gfx::SpriteBatch& batch, std::string_view text, float x, float y,
+			  const Vec4& color) const;
 
 private:
-    struct Glyph {
-        gfx::Rect uv;      // normalized atlas coordinates
-        Vec2 offset;       // placement relative to the pen position
-        Vec2 size;         // pixel size of the quad
-        float advance = 0;
-    };
+	struct Glyph {
+		gfx::Rect uv;      // normalized atlas coordinates
+		Vec2 offset;       // placement relative to the pen position
+		Vec2 size;         // pixel size of the quad
+		float advance = 0;
+	};
 
-    std::unique_ptr<gfx::Texture> m_atlas;
-    std::vector<Glyph> m_glyphs; // index = codepoint - 32
-    float m_pixelHeight = 0;
-    float m_ascent = 0;
+	std::unique_ptr<gfx::Texture> m_atlas;
+	std::vector<Glyph> m_glyphs; // index = codepoint - 32
+	float m_pixelHeight = 0;
+	float m_ascent = 0;
 };
 
 } // namespace dungeon::ui

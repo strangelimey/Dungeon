@@ -7,16 +7,16 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 # Windows-wide defines
 add_compile_definitions(
-    UNICODE
-    _UNICODE
-    NOMINMAX
-    WIN32_LEAN_AND_MEAN
+	UNICODE
+	_UNICODE
+	NOMINMAX
+	WIN32_LEAN_AND_MEAN
 )
 
 if(MSVC)
-    add_compile_options(/W4 /EHsc /MP /utf-8)
-    # Treat the most dangerous warnings as errors without being draconian.
-    add_compile_options(/we4715) # not all control paths return a value
+	add_compile_options(/W4 /EHsc /MP /utf-8)
+	# Treat the most dangerous warnings as errors without being draconian.
+	add_compile_options(/we4715) # not all control paths return a value
 endif()
 
 set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)

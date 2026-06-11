@@ -12,10 +12,10 @@
 
 #include <cstdlib>
 #define DN_ASSERT(cond, msg)                                                     \
-    do {                                                                         \
-        if (!(cond)) {                                                           \
-            ::dungeon::log::Error("Assertion failed: {} ({}:{}) — {}", #cond,    \
-                                  __FILE__, __LINE__, msg);                      \
-            std::abort();                                                        \
-        }                                                                        \
-    } while (0)
+	do {                                                                         \
+		if (!(cond)) {                                                           \
+			::dungeon::log::Error("Assertion failed: {} ({}:{}) — {}", #cond,    \
+								  __FILE__, __LINE__, msg);                      \
+			std::abort();                                                        \
+		}                                                                        \
+	} while (0)

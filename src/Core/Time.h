@@ -8,17 +8,17 @@ namespace dungeon {
 // Windows).
 class Timer {
 public:
-    Timer() : m_last(std::chrono::steady_clock::now()) {}
+	Timer() : m_last(std::chrono::steady_clock::now()) {}
 
-    // Advances the timer; returns the delta time in seconds, clamped to avoid
-    // huge steps after debugger pauses or window drags.
-    float Tick();
+	// Advances the timer; returns the delta time in seconds, clamped to avoid
+	// huge steps after debugger pauses or window drags.
+	float Tick();
 
-    double TotalSeconds() const { return m_total; }
+	double TotalSeconds() const { return m_total; }
 
 private:
-    std::chrono::steady_clock::time_point m_last;
-    double m_total = 0.0;
+	std::chrono::steady_clock::time_point m_last;
+	double m_total = 0.0;
 };
 
 } // namespace dungeon
