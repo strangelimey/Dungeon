@@ -55,7 +55,7 @@ public:
 
 	// Writes the per-frame constants and binds the scene pipeline.
 	void BeginScene(ID3D12GraphicsCommandList* list, const Camera& camera,
-					const LightSet& lights);
+					const LightSet& lights, const Atmosphere& atmosphere = {});
 
 	// Draws a mesh; `palette` is empty for static meshes or the skinning
 	// palette for skinned ones.
@@ -72,6 +72,7 @@ private:
 	std::unique_ptr<UploadAllocator> m_frameAllocators[kFrameCount];
 	std::unique_ptr<Texture> m_whiteTexture;
 	std::unique_ptr<Texture> m_flatNormalMap;
+	std::unique_ptr<Texture> m_blackTexture; // "clear air" turbidity fallback
 	u32 m_frameIndex = 0;
 };
 

@@ -112,6 +112,8 @@ private:
 	Party m_party;
 	gfx::Camera m_camera;
 	gfx::LightSet m_lights;
+	gfx::Atmosphere m_atmosphere; // per-cell air turbidity (dust)
+	std::unique_ptr<gfx::Texture> m_turbidityMap;
 
 	Surface m_walls;
 	Surface m_floors;

@@ -112,6 +112,29 @@ void Game::BuildLoadTasks() {
 			 m_sfxClick = LoadSound("click.wav");
 			 m_sfxMonster = LoadSound("monster.wav");
 		 }},
+		{"Stirring the dust",
+		 [this] {
+			 // Per-cell turbidity as a top-down density grid: one texel per
+			 // dungeon cell, R channel; bilinear filtering blends region
+			 // borders. The scene shader raymarches it (see scene.hlsl).
+			 assets::ImageData grid;
+			 grid.width = static_cast<u32>(m_map.Width());
+			 grid.height = static_cast<u32>(m_map.Height());
+			 grid.pixels.resize(static_cast<size_t>(grid.width) * grid.height * 4);
+			 for (int z = 0; z < m_map.Height(); ++z) {
+				 for (int x = 0; x < m_map.Width(); ++x) {
+					 const size_t i =
+						 (static_cast<size_t>(z) * grid.width + x) * 4;
+					 grid.pixels[i + 0] =
+						 static_cast<u8>(m_map.Turbidity(x, z) * 255.0f);
+					 grid.pixels[i + 3] = 255;
+				 }
+			 }
+			 m_turbidityMap = std::make_unique<gfx::Texture>(m_device, grid);
+			 m_atmosphere.turbidityMap = m_turbidityMap.get();
+			 m_atmosphere.worldExtent = {m_map.Width() * kCellSize,
+										 m_map.Height() * kCellSize};
+		 }},
 		{"Painting the title",
 		 [this] {
 			 auto image = assets::LoadImageFile(paths::Asset("textures\\title_bg.png"));
@@ -434,7 +457,7 @@ void Game::DrawSurface(ID3D12GraphicsCommandList* list, const Surface& surface) 
 }
 
 void Game::RenderScene(ID3D12GraphicsCommandList* list) {
-	m_renderer.BeginScene(list, m_camera, m_lights);
+	m_renderer.BeginScene(list, m_camera, m_lights, m_atmosphere);
 	DrawSurface(list, m_walls);
 	DrawSurface(list, m_floors);
 	DrawSurface(list, m_ceilings);

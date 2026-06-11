@@ -36,4 +36,21 @@ struct LightSet {
 	std::vector<PointLight> points; // first kMaxPointLights are used
 };
 
+class Texture;
+
+// Air turbidity for the scene. `turbidityMap` is a top-down density grid
+// (R channel, one texel per dungeon cell, bilinear-blended); the scene
+// shader raymarches it for extinction and torch-lit in-scattering. A null
+// map means perfectly clear air.
+struct Atmosphere {
+	const Texture* turbidityMap = nullptr;
+	Vec2 worldExtent{1.0f, 1.0f};      // world size the map covers (x, z)
+	// Dust albedo tint, deliberately well below 1: it also acts as the
+	// global in-scatter scale so torches make dust glow without washing
+	// the whole frame out.
+	Vec3 hazeColor{0.50f, 0.42f, 0.30f};
+	float density = 0.12f;             // optical depth per meter at turbidity 1
+	float hazeAmbient = 1.2f;          // how much ambient light the dust catches
+};
+
 } // namespace dungeon::gfx

@@ -38,6 +38,12 @@ public:
 	bool IsWalkable(int x, int z) const;
 	Cell At(int x, int z) const;
 
+	// Air turbidity 0 (clear) .. 1 (thick dust) for a cell; walls return 0.
+	float Turbidity(int x, int z) const {
+		if (x < 0 || z < 0 || x >= m_width || z >= m_height) return 0.0f;
+		return m_turbidity[static_cast<size_t>(z) * m_width + x];
+	}
+
 	Vec3 CellCenter(int x, int z, float y = 0.0f) const {
 		return {(static_cast<float>(x) + 0.5f) * kCellSize, y,
 				(static_cast<float>(z) + 0.5f) * kCellSize};
@@ -60,6 +66,7 @@ private:
 	int m_startX = 1;
 	int m_startZ = 1;
 	std::vector<Cell> m_cells;
+	std::vector<float> m_turbidity; // parallel to m_cells
 	std::vector<std::pair<int, int>> m_torches;
 	std::vector<MonsterSpawn> m_monsters;
 };

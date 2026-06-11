@@ -18,6 +18,8 @@ cbuffer FrameConstants : register(b0) {
 	float4 gDirColor;
 	uint gPointLightCount;
 	uint3 _pad0;
+	float4 gFogGrid;   // xy = 1 / atmosphere world extent, z = density/m, w = haze ambient
+	float4 gHazeColor; // rgb = dust albedo tint
 	PointLight gPointLights[MAX_POINT_LIGHTS];
 };
 
@@ -41,7 +43,9 @@ cbuffer SkinConstants : register(b2) {
 
 Texture2D gBaseTexture : register(t0);
 Texture2D gNormalMap : register(t1); // xyz = tangent-space normal, w = height
+Texture2D gTurbidity : register(t2); // top-down per-cell dust density (R)
 SamplerState gSampler : register(s0);
+SamplerState gClampSampler : register(s1);
 
 struct VSInput {
 	float3 position : POSITION;
@@ -125,6 +129,60 @@ float3 Shade(float3 albedo, float3 normal, float3 worldPos) {
 	return color;
 }
 
+// ---------------------------------------------------------------------------
+// Air turbidity. The dungeon's dust density lives in a small top-down grid
+// (one texel per cell, bilinear-blended at region borders). The eye→surface
+// ray is marched through it accumulating
+//   * extinction: optical depth tau dims the shaded surface by exp(-tau)
+//   * in-scattering: each dusty segment glows with the light that reaches it
+//     (ambient + the same point torches as the surface shading), attenuated
+//     by the dust between it and the eye
+// so clear squares stay crisp while dusty squares haze up and catch
+// torchlight as glowing motes.
+// ---------------------------------------------------------------------------
+
+float DustDensity(float3 worldPos) {
+	const float2 uv = worldPos.xz * gFogGrid.xy;
+	return gTurbidity.SampleLevel(gClampSampler, uv, 0).r * gFogGrid.z;
+}
+
+float3 ApplyDust(float3 surfaceColor, float3 worldPos) {
+	if (gFogGrid.z <= 0.0) return surfaceColor; // atmosphere disabled
+
+	const float3 toSurface = worldPos - gCameraPos.xyz;
+	const float rayLen = max(length(toSurface), 1e-4);
+	const float3 dir = toSurface / rayLen;
+
+	const int kSteps = 12;
+	const float seg = rayLen / kSteps;
+
+	float tau = 0.0;
+	float3 inscatter = 0.0;
+	for (int s = 0; s < kSteps; ++s) {
+		const float3 p = gCameraPos.xyz + dir * (seg * (s + 0.5));
+		const float density = DustDensity(p);
+		if (density <= 0.0001) continue;
+
+		// Light arriving at this bit of dust (isotropic scattering).
+		float3 dustLight = gAmbient.rgb * gFogGrid.w;
+		for (uint i = 0; i < gPointLightCount; ++i) {
+			const PointLight light = gPointLights[i];
+			const float3 toLight = light.positionRadius.xyz - p;
+			const float d = length(toLight);
+			if (d >= light.positionRadius.w) continue;
+			const float window =
+				pow(saturate(1.0 - pow(d / light.positionRadius.w, 4.0)), 2.0);
+			dustLight += light.colorIntensity.rgb * light.colorIntensity.w * window /
+						 (1.0 + d * d);
+		}
+
+		const float segTau = density * seg;
+		inscatter += gHazeColor.rgb * dustLight * segTau * exp(-tau);
+		tau += segTau;
+	}
+	return surfaceColor * exp(-tau) + inscatter;
+}
+
 // Per-pixel tangent frame from screen-space derivatives (no vertex tangents
 // needed). Rows are T, B, N.
 float3x3 CotangentFrame(float3 N, float3 p, float2 uv) {
@@ -182,6 +240,7 @@ float4 PSMain(PSInput input) : SV_TARGET {
 		albedo *= gBaseTexture.Sample(gSampler, uv);
 
 	float3 color = Shade(albedo.rgb, normal, input.worldPos);
+	color = ApplyDust(color, input.worldPos);
 
 	// Simple tonemap + gamma (back buffer is UNORM).
 	color = color / (color + 1.0);

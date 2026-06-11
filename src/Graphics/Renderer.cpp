@@ -28,6 +28,8 @@ struct FrameConstants {
 	Vec4 dirColor;
 	u32 pointLightCount;
 	u32 pad[3];
+	Vec4 fogGrid;   // xy = 1 / atmosphere world extent, z = density, w = haze ambient
+	Vec4 hazeColor; // rgb = dust albedo tint
 	GpuPointLight pointLights[kMaxPointLights];
 };
 
@@ -55,42 +57,53 @@ Renderer::Renderer(GraphicsDevice& device) : m_device(device) {
 	//   2: b2 skinning palette (CBV)
 	//   3: t0 base color texture (table)
 	//   4: t1 normal+height map (table)
+	//   5: t2 air turbidity grid (table)
 	D3D12_DESCRIPTOR_RANGE srvRange0{};
 	srvRange0.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
 	srvRange0.NumDescriptors = 1;
 	srvRange0.BaseShaderRegister = 0;
 	D3D12_DESCRIPTOR_RANGE srvRange1 = srvRange0;
 	srvRange1.BaseShaderRegister = 1;
+	D3D12_DESCRIPTOR_RANGE srvRange2 = srvRange0;
+	srvRange2.BaseShaderRegister = 2;
 
-	D3D12_ROOT_PARAMETER params[5]{};
+	D3D12_ROOT_PARAMETER params[6]{};
 	for (int i = 0; i < 3; ++i) {
 		params[i].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
 		params[i].Descriptor.ShaderRegister = static_cast<UINT>(i);
 		params[i].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
 	}
-	params[3].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
-	params[3].DescriptorTable.NumDescriptorRanges = 1;
-	params[3].DescriptorTable.pDescriptorRanges = &srvRange0;
-	params[3].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
-	params[4].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
-	params[4].DescriptorTable.NumDescriptorRanges = 1;
-	params[4].DescriptorTable.pDescriptorRanges = &srvRange1;
-	params[4].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+	const D3D12_DESCRIPTOR_RANGE* ranges[3] = {&srvRange0, &srvRange1, &srvRange2};
+	for (int i = 3; i < 6; ++i) {
+		params[i].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+		params[i].DescriptorTable.NumDescriptorRanges = 1;
+		params[i].DescriptorTable.pDescriptorRanges = ranges[i - 3];
+		params[i].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+	}
 
-	D3D12_STATIC_SAMPLER_DESC sampler{};
-	sampler.Filter = D3D12_FILTER_ANISOTROPIC;
-	sampler.MaxAnisotropy = 8;
-	sampler.AddressU = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
-	sampler.AddressV = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
-	sampler.AddressW = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
-	sampler.MaxLOD = D3D12_FLOAT32_MAX;
-	sampler.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+	D3D12_STATIC_SAMPLER_DESC samplers[2]{};
+	samplers[0].Filter = D3D12_FILTER_ANISOTROPIC;
+	samplers[0].MaxAnisotropy = 8;
+	samplers[0].AddressU = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+	samplers[0].AddressV = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+	samplers[0].AddressW = D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+	samplers[0].MaxLOD = D3D12_FLOAT32_MAX;
+	samplers[0].ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+	// s1: clamped bilinear for the turbidity grid (wrap would leak dust
+	// from one map edge to the other).
+	samplers[1] = samplers[0];
+	samplers[1].Filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
+	samplers[1].MaxAnisotropy = 0;
+	samplers[1].AddressU = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+	samplers[1].AddressV = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+	samplers[1].AddressW = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+	samplers[1].ShaderRegister = 1;
 
 	D3D12_ROOT_SIGNATURE_DESC rsDesc{};
-	rsDesc.NumParameters = 5;
+	rsDesc.NumParameters = 6;
 	rsDesc.pParameters = params;
-	rsDesc.NumStaticSamplers = 1;
-	rsDesc.pStaticSamplers = &sampler;
+	rsDesc.NumStaticSamplers = 2;
+	rsDesc.pStaticSamplers = samplers;
 	rsDesc.Flags = D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT;
 
 	ComPtr<ID3DBlob> blob, errors;
@@ -158,6 +171,12 @@ Renderer::Renderer(GraphicsDevice& device) : m_device(device) {
 	flat.width = flat.height = 1;
 	flat.pixels = {128, 128, 255, 0};
 	m_flatNormalMap = std::make_unique<Texture>(m_device, flat);
+
+	// Zero-turbidity fallback: perfectly clear air when no map is supplied.
+	assets::ImageData black;
+	black.width = black.height = 1;
+	black.pixels = {0, 0, 0, 255};
+	m_blackTexture = std::make_unique<Texture>(m_device, black);
 }
 
 // ============================================================================
@@ -170,12 +189,18 @@ void Renderer::NewFrame(u32 frameIndex) {
 }
 
 void Renderer::BeginScene(ID3D12GraphicsCommandList* list, const Camera& camera,
-						  const LightSet& lights) {
+						  const LightSet& lights, const Atmosphere& atmosphere) {
 	FrameConstants frame{};
 	frame.viewProj = camera.ViewProj();
 	const Vec3& cam = camera.Position();
 	frame.cameraPos = {cam.x, cam.y, cam.z, 1.0f};
 	frame.ambient = {lights.ambient.x, lights.ambient.y, lights.ambient.z, 1.0f};
+	frame.fogGrid = {1.0f / std::max(atmosphere.worldExtent.x, 1e-3f),
+					 1.0f / std::max(atmosphere.worldExtent.y, 1e-3f),
+					 atmosphere.turbidityMap ? atmosphere.density : 0.0f,
+					 atmosphere.hazeAmbient};
+	frame.hazeColor = {atmosphere.hazeColor.x, atmosphere.hazeColor.y,
+					   atmosphere.hazeColor.z, 0.0f};
 	frame.dirDirection = {lights.directional.direction.x, lights.directional.direction.y,
 						  lights.directional.direction.z, 0.0f};
 	frame.dirColor = {lights.directional.color.x, lights.directional.color.y,
@@ -198,6 +223,10 @@ void Renderer::BeginScene(ID3D12GraphicsCommandList* list, const Camera& camera,
 	list->SetPipelineState(m_pso.Get());
 	list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 	list->SetGraphicsRootConstantBufferView(0, alloc.gpu);
+
+	const Texture* turbidity =
+		atmosphere.turbidityMap ? atmosphere.turbidityMap : m_blackTexture.get();
+	list->SetGraphicsRootDescriptorTable(5, turbidity->GpuHandle());
 }
 
 void Renderer::DrawMesh(ID3D12GraphicsCommandList* list, const Mesh& mesh,
