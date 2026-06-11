@@ -110,6 +110,12 @@ void Game::BuildLoadTasks() {
 			 m_sfxClick = LoadSound("click.wav");
 			 m_sfxMonster = LoadSound("monster.wav");
 		 }},
+		{"Painting the title",
+		 [this] {
+			 auto image = assets::LoadImageFile(paths::Asset("textures\\title_bg.png"));
+			 DN_ASSERT(image.has_value(), image.error() + " — run AssetBaker over assets/");
+			 m_titleBackground = std::make_unique<gfx::Texture>(m_device, *image);
+		 }},
 		{"Lighting the torches",
 		 [this] {
 			 BuildHud();
@@ -375,13 +381,8 @@ void Game::Update(float dt) {
 		return;
 
 	case AppState::Menu:
-		// The dungeon idles behind the menu: torches flicker, the pillar
-		// sways, monsters shuffle in place.
+		// The menu sits on baked title art; nothing in the world simulates.
 		m_menuUi.Update(m_window.GetInput());
-		m_pillarAnimator.Update(dt);
-		for (Monster& monster : m_monsters) monster.animator.Update(dt);
-		UpdateLights(m_time);
-		UpdateCamera();
 		return;
 
 	case AppState::Playing:
@@ -486,8 +487,11 @@ void Game::RenderMenuOverlay() {
 	const float h = static_cast<float>(m_device.Height());
 	const ui::Theme& theme = m_menuUi.GetTheme();
 
-	// Darken the idle dungeon behind the menu.
-	m_spriteBatch.DrawRect({0, 0, w, h}, {0, 0, 0, 0.55f});
+	// Baked title art, stretched to the window, with a light darkening wash
+	// so the menu text stays readable over the bright portal.
+	m_spriteBatch.DrawSprite({0, 0, w, h}, {0, 0, 1, 1}, *m_titleBackground,
+							 {1, 1, 1, 1});
+	m_spriteBatch.DrawRect({0, 0, w, h}, {0, 0, 0, 0.30f});
 
 	// Title + subtitle.
 	const char* title = "DUNGEON";
@@ -507,8 +511,8 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 	m_renderer.NewFrame(m_device.FrameIndex());
 	m_spriteBatch.NewFrame(m_device.FrameIndex());
 
-	// 3D scene exists once loading has finished.
-	if (m_state != AppState::Loading) RenderScene(list);
+	// The 3D scene only draws during play; Loading and Menu are 2D-only.
+	if (m_state == AppState::Playing) RenderScene(list);
 
 	// 2D pass.
 	m_spriteBatch.Begin(list, m_device.Width(), m_device.Height());

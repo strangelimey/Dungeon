@@ -7,8 +7,8 @@
 //
 //   Loading  — assets load one step per frame so a progress screen can
 //              render between steps (loading is staged, not threaded)
-//   Menu     — landing page over the torch-lit dungeon; mouse hover or
-//              keyboard selects an entry
+//   Menu     — landing page over baked title art (assets/textures/
+//              title_bg.png); mouse hover or keyboard selects an entry
 //   Playing  — the crawler: UI input → party movement → animators → lights
 //
 // Everything binary loads from the assets/ directory next to the exe
@@ -137,6 +137,7 @@ private:
 	ui::UIContext m_ui;       // in-game HUD (17px font)
 	ui::UIContext m_menuUi;   // landing page (28px font)
 	ui::Font m_titleFont;     // big face for "DUNGEON" titles
+	std::unique_ptr<gfx::Texture> m_titleBackground; // landing-page art
 	ui::TextOutput* m_log = nullptr;
 	ui::Label* m_compass = nullptr;
 	ui::Label* m_position = nullptr;

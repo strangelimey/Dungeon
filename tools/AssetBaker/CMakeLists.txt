@@ -7,5 +7,6 @@ add_executable(AssetBaker
 	ModelBaker.cpp
 	SoundBaker.cpp
 	TextureBaker.cpp
+	TitleBaker.cpp
 )
 target_link_libraries(AssetBaker PRIVATE Core Assets ThirdPartyImpl)

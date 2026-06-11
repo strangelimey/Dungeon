@@ -5,6 +5,7 @@
 #include "ModelBaker.h"
 #include "SoundBaker.h"
 #include "TextureBaker.h"
+#include "TitleBaker.h"
 
 #include <filesystem>
 #include <string>
@@ -23,6 +24,7 @@ int main(int argc, char** argv) {
 
 	bool ok = true;
 	ok &= baker::BakeTextures(assets + "\\textures");
+	ok &= baker::BakeTitleImage(assets + "\\textures");
 	ok &= baker::BakeSounds(assets + "\\sounds");
 	ok &= baker::BakeModels(assets + "\\models");
 	if (ok) log::Info("Asset bake complete.");
