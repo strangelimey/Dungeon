@@ -11,65 +11,77 @@
 
 namespace dungeon::audio {
 
-// One playing sound: owns a copy of the samples (so the caller's SoundData
-// may be transient) and the XAudio2 source voice.
-class PlayingVoice : public IXAudio2VoiceCallback {
-public:
-    PlayingVoice(IXAudio2* xaudio, const assets::SoundData& sound, float volume,
-                 float pan, float pitch) {
-        m_samples = sound.samples;
+namespace {
+constexpr size_t kMaxVoices = 32;
+} // namespace
 
+// A reusable XAudio2 source voice. The voice object (and its OS resources)
+// lives for the engine's lifetime and is restarted for each playback —
+// nothing is allocated per Play, and sample memory is referenced, not copied.
+class PooledVoice : public IXAudio2VoiceCallback {
+public:
+    PooledVoice(IXAudio2* xaudio, u32 channels, u32 sampleRate)
+        : m_channels(channels), m_sampleRate(sampleRate) {
         WAVEFORMATEX fmt{};
         fmt.wFormatTag = WAVE_FORMAT_PCM;
-        fmt.nChannels = static_cast<WORD>(sound.channels);
-        fmt.nSamplesPerSec = sound.sampleRate;
+        fmt.nChannels = static_cast<WORD>(channels);
+        fmt.nSamplesPerSec = sampleRate;
         fmt.wBitsPerSample = 16;
         fmt.nBlockAlign = fmt.nChannels * fmt.wBitsPerSample / 8;
         fmt.nAvgBytesPerSec = fmt.nSamplesPerSec * fmt.nBlockAlign;
-
         if (FAILED(xaudio->CreateSourceVoice(&m_voice, &fmt, 0, XAUDIO2_MAX_FREQ_RATIO,
-                                             this))) {
-            m_done = true;
-            return;
-        }
+                                             this)))
+            m_voice = nullptr;
+    }
 
+    ~PooledVoice() {
+        if (m_voice) m_voice->DestroyVoice();
+    }
+
+    bool IsValid() const { return m_voice != nullptr; }
+    bool IsIdle() const { return m_idle.load(std::memory_order_acquire); }
+    bool MatchesFormat(u32 channels, u32 sampleRate) const {
+        return channels == m_channels && sampleRate == m_sampleRate;
+    }
+
+    void Start(const assets::SoundData& sound, float volume, float pan, float pitch) {
+        m_voice->Stop(0);
+        m_voice->FlushSourceBuffers();
         m_voice->SetVolume(volume);
         m_voice->SetFrequencyRatio(pitch);
-        if (sound.channels == 1 && pan != 0.0f) {
+        if (m_channels == 1) {
             // Constant-power pan for mono sources into a stereo master.
             const float angle = (pan * 0.5f + 0.5f) * 1.5707963f;
-            float matrix[2] = {std::cos(angle), std::sin(angle)};
+            const float matrix[2] = {std::cos(angle), std::sin(angle)};
             m_voice->SetOutputMatrix(nullptr, 1, 2, matrix);
         }
 
         XAUDIO2_BUFFER buffer{};
-        buffer.AudioBytes = static_cast<UINT32>(m_samples.size() * sizeof(i16));
-        buffer.pAudioData = reinterpret_cast<const BYTE*>(m_samples.data());
+        buffer.AudioBytes = static_cast<UINT32>(sound.samples.size() * sizeof(i16));
+        buffer.pAudioData = reinterpret_cast<const BYTE*>(sound.samples.data());
         buffer.Flags = XAUDIO2_END_OF_STREAM;
-        if (FAILED(m_voice->SubmitSourceBuffer(&buffer)) || FAILED(m_voice->Start())) {
-            m_done = true;
-        }
+
+        m_idle.store(false, std::memory_order_release);
+        if (FAILED(m_voice->SubmitSourceBuffer(&buffer)) || FAILED(m_voice->Start()))
+            m_idle.store(true, std::memory_order_release);
     }
 
-    ~PlayingVoice() {
-        if (m_voice) m_voice->DestroyVoice();
-    }
-
-    bool IsDone() const { return m_done.load(); }
-
-    // IXAudio2VoiceCallback
-    void __stdcall OnStreamEnd() override { m_done = true; }
+    // IXAudio2VoiceCallback (audio thread)
+    void __stdcall OnStreamEnd() override { m_idle.store(true, std::memory_order_release); }
     void __stdcall OnVoiceProcessingPassStart(UINT32) override {}
     void __stdcall OnVoiceProcessingPassEnd() override {}
     void __stdcall OnBufferStart(void*) override {}
     void __stdcall OnBufferEnd(void*) override {}
     void __stdcall OnLoopEnd(void*) override {}
-    void __stdcall OnVoiceError(void*, HRESULT) override { m_done = true; }
+    void __stdcall OnVoiceError(void*, HRESULT) override {
+        m_idle.store(true, std::memory_order_release);
+    }
 
 private:
     IXAudio2SourceVoice* m_voice = nullptr;
-    std::vector<i16> m_samples;
-    std::atomic<bool> m_done{false};
+    u32 m_channels;
+    u32 m_sampleRate;
+    std::atomic<bool> m_idle{true};
 };
 
 AudioEngine::AudioEngine() {
@@ -86,7 +98,8 @@ AudioEngine::AudioEngine() {
         m_xaudio = nullptr;
         return;
     }
-    log::Info("Audio engine initialized");
+    m_voices.reserve(kMaxVoices);
+    log::Info("Audio engine initialized (voice pool, max {})", kMaxVoices);
 }
 
 AudioEngine::~AudioEngine() {
@@ -98,18 +111,39 @@ AudioEngine::~AudioEngine() {
 void AudioEngine::Play(const assets::SoundData& sound, float volume, float pan,
                        float pitch) {
     if (!m_xaudio || sound.samples.empty()) return;
-    m_voices.push_back(std::make_unique<PlayingVoice>(
-        m_xaudio, sound, std::clamp(volume, 0.0f, 1.0f), std::clamp(pan, -1.0f, 1.0f),
-        std::clamp(pitch, 0.05f, 4.0f)));
+    volume = std::clamp(volume, 0.0f, 1.0f);
+    pan = std::clamp(pan, -1.0f, 1.0f);
+    pitch = std::clamp(pitch, 0.05f, 4.0f);
+
+    // Reuse an idle voice with a matching format.
+    for (auto& voice : m_voices) {
+        if (voice->IsIdle() && voice->MatchesFormat(sound.channels, sound.sampleRate)) {
+            voice->Start(sound, volume, pan, pitch);
+            return;
+        }
+    }
+
+    // Grow the pool, or recycle an idle voice of a different format.
+    std::unique_ptr<PooledVoice>* slot = nullptr;
+    if (m_voices.size() < kMaxVoices) {
+        slot = &m_voices.emplace_back();
+    } else {
+        const auto it = std::ranges::find_if(
+            m_voices, [](const auto& v) { return v->IsIdle(); });
+        if (it == m_voices.end()) return; // every voice busy — drop the sound
+        slot = &*it;
+    }
+    *slot = std::make_unique<PooledVoice>(m_xaudio, sound.channels, sound.sampleRate);
+    if (!(*slot)->IsValid()) {
+        m_voices.erase(m_voices.begin() + (slot - m_voices.data()));
+        return;
+    }
+    (*slot)->Start(sound, volume, pan, pitch);
 }
 
 void AudioEngine::SetMasterVolume(float volume) {
     m_masterVolume = std::clamp(volume, 0.0f, 1.0f);
     if (m_master) m_master->SetVolume(m_masterVolume);
-}
-
-void AudioEngine::Update() {
-    std::erase_if(m_voices, [](const auto& v) { return v->IsDone(); });
 }
 
 } // namespace dungeon::audio

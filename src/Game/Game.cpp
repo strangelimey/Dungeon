@@ -73,6 +73,8 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
                      100.0f);
     m_lights.ambient = {0.035f, 0.032f, 0.045f};
     m_lights.directional.color = {0, 0, 0}; // no sun underground
+    // Rebuilt every frame into retained capacity — no steady-state allocation.
+    m_lights.points.reserve(gfx::kMaxPointLights);
 
     BuildHud();
 
@@ -278,7 +280,6 @@ void Game::Update(float dt) {
     m_pillarAnimator.Update(dt);
     UpdateMonsters(dt);
     UpdateLights(m_time);
-    m_audio.Update();
 
     m_camera.SetPosition(m_party.EyePosition());
     m_camera.SetYawPitch(m_party.Yaw(), 0.0f);
@@ -287,9 +288,17 @@ void Game::Update(float dt) {
                          static_cast<float>(m_device.Height()),
                      0.05f, 100.0f);
 
-    m_compass->text = std::format("Facing: {}", Party::FacingName(m_party.Facing()));
-    m_position->text =
-        std::format("Position: {}, {}", m_party.GridX(), m_party.GridZ());
+    // Reformat the status labels only when they actually change; per-frame
+    // string formatting is needless heap churn.
+    if (m_party.Facing() != m_lastFacing) {
+        m_lastFacing = m_party.Facing();
+        m_compass->text = std::format("Facing: {}", Party::FacingName(m_lastFacing));
+    }
+    if (m_party.GridX() != m_lastGridX || m_party.GridZ() != m_lastGridZ) {
+        m_lastGridX = m_party.GridX();
+        m_lastGridZ = m_party.GridZ();
+        m_position->text = std::format("Position: {}, {}", m_lastGridX, m_lastGridZ);
+    }
 }
 
 void Game::DrawSurface(ID3D12GraphicsCommandList* list, const Surface& surface) {

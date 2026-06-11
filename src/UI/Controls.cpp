@@ -116,9 +116,14 @@ void Slider::Update(UIContext& ctx) {
         const float value = m_min + t * (m_max - m_min);
         if (value != m_value) {
             m_value = value;
+            RefreshDisplay();
             if (onChange) onChange(m_value);
         }
     }
+}
+
+void Slider::RefreshDisplay() {
+    m_display = std::format("{}: {:.2f}", label, m_value);
 }
 
 void Slider::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
@@ -126,8 +131,7 @@ void Slider::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
     Font& font = ctx.GetFont();
 
     // Label above the track.
-    font.Draw(batch, std::format("{}: {:.2f}", label, m_value), bounds.x,
-              bounds.y - font.LineAdvance(), theme.textDim);
+    font.Draw(batch, m_display, bounds.x, bounds.y - font.LineAdvance(), theme.textDim);
 
     // Track.
     const float trackH = 4.0f;

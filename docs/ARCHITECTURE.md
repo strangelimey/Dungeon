@@ -67,6 +67,30 @@ Platform::Window::PumpMessages
   → Renderer::EndFrame       (present)
 ```
 
+## Memory strategy
+
+Steady-state frames perform no heap allocation. The patterns, by subsystem:
+
+- **GPU transient data — linear arena.** `gfx::UploadAllocator` is a per-frame
+  bump allocator over a persistently mapped upload buffer (one per frame in
+  flight, reset at frame start). All per-draw constant buffers, skinning
+  palettes, and the UI's dynamic vertex stream come from it; nothing per-draw
+  touches the heap or creates D3D12 resources.
+- **Audio — object pool.** `audio::AudioEngine` keeps a pool of XAudio2 source
+  voices reused by sample format (capped at 32). Playback references the
+  caller's PCM memory directly instead of copying it, so `Play` allocates
+  nothing once the pool is warm. Sounds passed to `Play` must outlive
+  playback; the game's sounds live for the app's lifetime.
+- **Per-frame containers — retained capacity.** Containers rebuilt every frame
+  (light list, sprite batch vertices, animator pose/palette buffers) are
+  long-lived members that are cleared, never destroyed, and reserved up front,
+  which makes them de-facto pools of their elements.
+- **Strings.** HUD label text is reformatted only when the underlying value
+  changes, never per frame.
+- **Load-time data** (mesh/image/clip vectors, D3D resource creation, the
+  one-shot `ExecuteImmediate` upload path) deliberately uses plain ownership —
+  it runs once at startup, where clarity beats allocator ceremony.
+
 ## Asset pipeline
 
 All binary assets (PNG textures with normal/height companions, WAV sounds,

@@ -97,6 +97,10 @@ SpriteBatch::SpriteBatch(GraphicsDevice& device) : m_device(device) {
     white.width = white.height = 1;
     white.pixels = {255, 255, 255, 255};
     m_white = std::make_unique<Texture>(m_device, white);
+
+    // The pending list empties on every flush but keeps its capacity; reserve
+    // enough for a busy HUD so steady-state frames never allocate.
+    m_pending.reserve(8 * 1024);
 }
 
 void SpriteBatch::NewFrame(u32 frameIndex) {

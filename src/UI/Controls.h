@@ -75,6 +75,7 @@ public:
         : label(std::move(label)), m_min(min), m_max(max), m_value(value),
           onChange(std::move(onChange)) {
         bounds = rect;
+        RefreshDisplay();
     }
 
     float Value() const { return m_value; }
@@ -85,7 +86,10 @@ public:
     std::function<void(float)> onChange;
 
 private:
+    void RefreshDisplay(); // caches the "label: value" text (not per-frame)
+
     float m_min, m_max, m_value;
+    std::string m_display;
     bool m_dragging = false;
 };
 

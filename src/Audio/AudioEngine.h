@@ -11,10 +11,13 @@ struct IXAudio2MasteringVoice;
 
 namespace dungeon::audio {
 
-class PlayingVoice;
+class PooledVoice;
 
-// XAudio2-backed sound-effect playback. Sounds are fire-and-forget; call
-// Update() once per frame to reclaim finished voices.
+// XAudio2-backed sound-effect playback. Source voices are pooled and reused
+// by format, and playback references the caller's sample memory directly
+// (zero copy) — so a SoundData passed to Play must stay alive until the
+// sound finishes. Game-owned sounds live for the app's lifetime, which
+// satisfies this trivially.
 class AudioEngine {
 public:
     AudioEngine();
@@ -32,13 +35,11 @@ public:
     void SetMasterVolume(float volume);
     float MasterVolume() const { return m_masterVolume; }
 
-    void Update();
-
 private:
     IXAudio2* m_xaudio = nullptr;
     IXAudio2MasteringVoice* m_master = nullptr;
     float m_masterVolume = 1.0f;
-    std::vector<std::unique_ptr<PlayingVoice>> m_voices;
+    std::vector<std::unique_ptr<PooledVoice>> m_voices; // grows up to kMaxVoices
 };
 
 } // namespace dungeon::audio

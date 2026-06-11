@@ -97,6 +97,11 @@ private:
 
     Vec3 m_torchColor{1.0f, 0.62f, 0.28f};
     float m_time = 0.0f;
+
+    // Last values shown in the HUD labels (reformat only on change).
+    int m_lastFacing = -1;
+    int m_lastGridX = -1;
+    int m_lastGridZ = -1;
 };
 
 } // namespace dungeon::game
