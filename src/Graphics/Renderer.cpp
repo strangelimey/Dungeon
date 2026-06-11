@@ -18,6 +18,7 @@ namespace {
 struct GpuPointLight {
 	Vec4 positionRadius;
 	Vec4 colorIntensity;
+	Vec4 shadow; // x = shadow cube slot (-1 = unshadowed)
 };
 
 struct FrameConstants {
@@ -28,10 +29,31 @@ struct FrameConstants {
 	Vec4 dirColor;
 	u32 pointLightCount;
 	u32 pad[3];
-	Vec4 fogGrid;   // xy = 1 / atmosphere world extent, z = density, w = haze ambient
-	Vec4 hazeColor; // rgb = dust albedo tint
+	Vec4 fogGrid;     // xy = 1 / atmosphere world extent, z = density, w = haze ambient
+	Vec4 hazeColor;   // rgb = dust albedo tint
+	Vec4 shadowLight; // shadow pass only: xyz = light pos, w = 1 / radius
 	GpuPointLight pointLights[kMaxPointLights];
 };
+
+// View-projection for one face of a point light's shadow cube (standard D3D
+// cube face order/orientation, 90-degree FOV, far plane at the light radius).
+Mat4 CubeFaceViewProj(u32 face, const Vec3& lightPos, float radius) {
+	using namespace DirectX;
+	static const XMVECTORF32 kDirs[6] = {
+		{{1, 0, 0, 0}}, {{-1, 0, 0, 0}}, {{0, 1, 0, 0}},
+		{{0, -1, 0, 0}}, {{0, 0, 1, 0}}, {{0, 0, -1, 0}},
+	};
+	static const XMVECTORF32 kUps[6] = {
+		{{0, 1, 0, 0}}, {{0, 1, 0, 0}}, {{0, 0, -1, 0}},
+		{{0, 0, 1, 0}}, {{0, 1, 0, 0}}, {{0, 1, 0, 0}},
+	};
+	const XMVECTOR eye = XMVectorSet(lightPos.x, lightPos.y, lightPos.z, 1.0f);
+	const XMMATRIX view = XMMatrixLookToLH(eye, kDirs[face], kUps[face]);
+	const XMMATRIX proj = XMMatrixPerspectiveFovLH(XM_PIDIV2, 1.0f, 0.05f, radius);
+	Mat4 out;
+	XMStoreFloat4x4(&out, view * proj);
+	return out;
+}
 
 struct ObjectConstants {
 	Mat4 world;
@@ -58,6 +80,7 @@ Renderer::Renderer(GraphicsDevice& device) : m_device(device) {
 	//   3: t0 base color texture (table)
 	//   4: t1 normal+height map (table)
 	//   5: t2 air turbidity grid (table)
+	//   6: t3..t6 shadow cubes (one table, contiguous descriptors)
 	D3D12_DESCRIPTOR_RANGE srvRange0{};
 	srvRange0.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
 	srvRange0.NumDescriptors = 1;
@@ -66,15 +89,19 @@ Renderer::Renderer(GraphicsDevice& device) : m_device(device) {
 	srvRange1.BaseShaderRegister = 1;
 	D3D12_DESCRIPTOR_RANGE srvRange2 = srvRange0;
 	srvRange2.BaseShaderRegister = 2;
+	D3D12_DESCRIPTOR_RANGE srvRangeShadow = srvRange0;
+	srvRangeShadow.BaseShaderRegister = 3;
+	srvRangeShadow.NumDescriptors = kShadowSlots;
 
-	D3D12_ROOT_PARAMETER params[6]{};
+	D3D12_ROOT_PARAMETER params[7]{};
 	for (int i = 0; i < 3; ++i) {
 		params[i].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
 		params[i].Descriptor.ShaderRegister = static_cast<UINT>(i);
 		params[i].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
 	}
-	const D3D12_DESCRIPTOR_RANGE* ranges[3] = {&srvRange0, &srvRange1, &srvRange2};
-	for (int i = 3; i < 6; ++i) {
+	const D3D12_DESCRIPTOR_RANGE* ranges[4] = {&srvRange0, &srvRange1, &srvRange2,
+											   &srvRangeShadow};
+	for (int i = 3; i < 7; ++i) {
 		params[i].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
 		params[i].DescriptorTable.NumDescriptorRanges = 1;
 		params[i].DescriptorTable.pDescriptorRanges = ranges[i - 3];
@@ -100,7 +127,7 @@ Renderer::Renderer(GraphicsDevice& device) : m_device(device) {
 	samplers[1].ShaderRegister = 1;
 
 	D3D12_ROOT_SIGNATURE_DESC rsDesc{};
-	rsDesc.NumParameters = 6;
+	rsDesc.NumParameters = 7;
 	rsDesc.pParameters = params;
 	rsDesc.NumStaticSamplers = 2;
 	rsDesc.pStaticSamplers = samplers;
@@ -157,6 +184,18 @@ Renderer::Renderer(GraphicsDevice& device) : m_device(device) {
 
 	DN_HR(m_device.Device()->CreateGraphicsPipelineState(&pso, IID_PPV_ARGS(&m_pso)));
 
+	// Shadow pass pipeline: same root signature and input layout, writing
+	// normalized light->fragment distance into an R16_FLOAT cube face.
+	const std::string shadowPath = paths::Asset("shaders\\shadow.hlsl");
+	ComPtr<ID3DBlob> shadowVs = CompileShader(shadowPath, "VSMain", "vs_5_1");
+	ComPtr<ID3DBlob> shadowPs = CompileShader(shadowPath, "PSMain", "ps_5_1");
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC shadowPsoDesc = pso;
+	shadowPsoDesc.VS = {shadowVs->GetBufferPointer(), shadowVs->GetBufferSize()};
+	shadowPsoDesc.PS = {shadowPs->GetBufferPointer(), shadowPs->GetBufferSize()};
+	shadowPsoDesc.RTVFormats[0] = DXGI_FORMAT_R16_FLOAT;
+	DN_HR(m_device.Device()->CreateGraphicsPipelineState(&shadowPsoDesc,
+														 IID_PPV_ARGS(&m_shadowPso)));
+
 	for (u32 i = 0; i < kFrameCount; ++i)
 		m_frameAllocators[i] =
 			std::make_unique<UploadAllocator>(m_device.Device(), 4 * 1024 * 1024);
@@ -177,6 +216,92 @@ Renderer::Renderer(GraphicsDevice& device) : m_device(device) {
 	black.width = black.height = 1;
 	black.pixels = {0, 0, 0, 255};
 	m_blackTexture = std::make_unique<Texture>(m_device, black);
+
+	CreateShadowResources();
+}
+
+void Renderer::CreateShadowResources() {
+	ID3D12Device* device = m_device.Device();
+
+	D3D12_DESCRIPTOR_HEAP_DESC rtvDesc{};
+	rtvDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
+	rtvDesc.NumDescriptors = kShadowSlots * 6;
+	DN_HR(device->CreateDescriptorHeap(&rtvDesc, IID_PPV_ARGS(&m_shadowRtvHeap)));
+
+	D3D12_DESCRIPTOR_HEAP_DESC dsvDesc{};
+	dsvDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
+	dsvDesc.NumDescriptors = kShadowSlots;
+	DN_HR(device->CreateDescriptorHeap(&dsvDesc, IID_PPV_ARGS(&m_shadowDsvHeap)));
+
+	const u32 rtvSize = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+	const u32 dsvSize = device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_DSV);
+
+	for (u32 slot = 0; slot < kShadowSlots; ++slot) {
+		const u32 res = kShadowResolution[slot];
+
+		// Distance cube: 6-slice array, viewed as a cube by the scene pass.
+		D3D12_RESOURCE_DESC cube{};
+		cube.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+		cube.Width = res;
+		cube.Height = res;
+		cube.DepthOrArraySize = 6;
+		cube.MipLevels = 1;
+		cube.Format = DXGI_FORMAT_R16_FLOAT;
+		cube.SampleDesc.Count = 1;
+		cube.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+
+		D3D12_CLEAR_VALUE cubeClear{};
+		cubeClear.Format = DXGI_FORMAT_R16_FLOAT;
+		cubeClear.Color[0] = 1.0f; // max distance = nothing occludes
+
+		const D3D12_HEAP_PROPERTIES heap = HeapProps(D3D12_HEAP_TYPE_DEFAULT);
+		DN_HR(device->CreateCommittedResource(
+			&heap, D3D12_HEAP_FLAG_NONE, &cube,
+			D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, &cubeClear,
+			IID_PPV_ARGS(&m_shadowCube[slot])));
+
+		// One RTV per face.
+		for (u32 face = 0; face < 6; ++face) {
+			D3D12_RENDER_TARGET_VIEW_DESC rtv{};
+			rtv.Format = DXGI_FORMAT_R16_FLOAT;
+			rtv.ViewDimension = D3D12_RTV_DIMENSION_TEXTURE2DARRAY;
+			rtv.Texture2DArray.FirstArraySlice = face;
+			rtv.Texture2DArray.ArraySize = 1;
+			D3D12_CPU_DESCRIPTOR_HANDLE handle =
+				m_shadowRtvHeap->GetCPUDescriptorHandleForHeapStart();
+			handle.ptr += static_cast<size_t>(slot * 6 + face) * rtvSize;
+			device->CreateRenderTargetView(m_shadowCube[slot].Get(), &rtv, handle);
+		}
+
+		// Shared per-slot depth buffer (reused for each face).
+		D3D12_RESOURCE_DESC depth = cube;
+		depth.DepthOrArraySize = 1;
+		depth.Format = DXGI_FORMAT_D32_FLOAT;
+		depth.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
+		D3D12_CLEAR_VALUE depthClear{};
+		depthClear.Format = DXGI_FORMAT_D32_FLOAT;
+		depthClear.DepthStencil.Depth = 1.0f;
+		DN_HR(device->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &depth,
+											  D3D12_RESOURCE_STATE_DEPTH_WRITE,
+											  &depthClear,
+											  IID_PPV_ARGS(&m_shadowDepth[slot])));
+		D3D12_CPU_DESCRIPTOR_HANDLE dsv =
+			m_shadowDsvHeap->GetCPUDescriptorHandleForHeapStart();
+		dsv.ptr += static_cast<size_t>(slot) * dsvSize;
+		device->CreateDepthStencilView(m_shadowDepth[slot].Get(), nullptr, dsv);
+	}
+
+	// Cube SRVs — allocated back to back so all four bind as ONE root table.
+	for (u32 slot = 0; slot < kShadowSlots; ++slot) {
+		m_shadowSrv[slot] = m_device.AllocateSrv();
+		D3D12_SHADER_RESOURCE_VIEW_DESC srv{};
+		srv.Format = DXGI_FORMAT_R16_FLOAT;
+		srv.ViewDimension = D3D12_SRV_DIMENSION_TEXTURECUBE;
+		srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+		srv.TextureCube.MipLevels = 1;
+		device->CreateShaderResourceView(m_shadowCube[slot].Get(), &srv,
+										 m_shadowSrv[slot].cpu);
+	}
 }
 
 // ============================================================================
@@ -213,6 +338,7 @@ void Renderer::BeginScene(ID3D12GraphicsCommandList* list, const Camera& camera,
 											   l.radius};
 		frame.pointLights[i].colorIntensity = {l.color.x, l.color.y, l.color.z,
 											   l.intensity};
+		frame.pointLights[i].shadow = {static_cast<float>(l.shadowSlot), 0, 0, 0};
 	}
 
 	UploadAllocation alloc =
@@ -227,6 +353,74 @@ void Renderer::BeginScene(ID3D12GraphicsCommandList* list, const Camera& camera,
 	const Texture* turbidity =
 		atmosphere.turbidityMap ? atmosphere.turbidityMap : m_blackTexture.get();
 	list->SetGraphicsRootDescriptorTable(5, turbidity->GpuHandle());
+	list->SetGraphicsRootDescriptorTable(6, m_shadowSrv[0].gpu); // t3..t6
+}
+
+// ============================================================================
+// Shadow pass
+// ============================================================================
+
+void Renderer::BeginShadowFace(ID3D12GraphicsCommandList* list, u32 slot, u32 face,
+							   const Vec3& lightPos, float radius) {
+	DN_ASSERT(slot < kShadowSlots && face < 6, "shadow slot/face out of range");
+
+	if (!m_shadowInRtState[slot]) {
+		const auto barrier = Transition(m_shadowCube[slot].Get(),
+										D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+										D3D12_RESOURCE_STATE_RENDER_TARGET);
+		list->ResourceBarrier(1, &barrier);
+		m_shadowInRtState[slot] = true;
+	}
+
+	ID3D12Device* device = m_device.Device();
+	D3D12_CPU_DESCRIPTOR_HANDLE rtv = m_shadowRtvHeap->GetCPUDescriptorHandleForHeapStart();
+	rtv.ptr += static_cast<size_t>(slot * 6 + face) *
+			   device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+	D3D12_CPU_DESCRIPTOR_HANDLE dsv = m_shadowDsvHeap->GetCPUDescriptorHandleForHeapStart();
+	dsv.ptr += static_cast<size_t>(slot) *
+			   device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_DSV);
+
+	list->OMSetRenderTargets(1, &rtv, FALSE, &dsv);
+	const float clear[4] = {1.0f, 1.0f, 1.0f, 1.0f}; // max distance
+	list->ClearRenderTargetView(rtv, clear, 0, nullptr);
+	list->ClearDepthStencilView(dsv, D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, nullptr);
+
+	const float res = static_cast<float>(kShadowResolution[slot]);
+	const D3D12_VIEWPORT viewport{0, 0, res, res, 0.0f, 1.0f};
+	const D3D12_RECT scissor{0, 0, static_cast<LONG>(res), static_cast<LONG>(res)};
+	list->RSSetViewports(1, &viewport);
+	list->RSSetScissorRects(1, &scissor);
+
+	// Per-face constants: the face view-projection + light for distance write.
+	FrameConstants frame{};
+	frame.viewProj = CubeFaceViewProj(face, lightPos, radius);
+	frame.shadowLight = {lightPos.x, lightPos.y, lightPos.z, 1.0f / radius};
+	UploadAllocation alloc =
+		m_frameAllocators[m_frameIndex]->Allocate(sizeof(FrameConstants));
+	std::memcpy(alloc.cpu, &frame, sizeof(frame));
+
+	list->SetGraphicsRootSignature(m_rootSignature.Get());
+	list->SetPipelineState(m_shadowPso.Get());
+	list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+	list->SetGraphicsRootConstantBufferView(0, alloc.gpu);
+	// The shadow shaders read no textures, but bind safe defaults anyway so
+	// every root table is valid.
+	list->SetGraphicsRootDescriptorTable(3, m_whiteTexture->GpuHandle());
+	list->SetGraphicsRootDescriptorTable(4, m_flatNormalMap->GpuHandle());
+	list->SetGraphicsRootDescriptorTable(5, m_blackTexture->GpuHandle());
+}
+
+void Renderer::EndShadows(ID3D12GraphicsCommandList* list) {
+	D3D12_RESOURCE_BARRIER barriers[kShadowSlots];
+	u32 count = 0;
+	for (u32 slot = 0; slot < kShadowSlots; ++slot) {
+		if (!m_shadowInRtState[slot]) continue;
+		barriers[count++] = Transition(m_shadowCube[slot].Get(),
+									   D3D12_RESOURCE_STATE_RENDER_TARGET,
+									   D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+		m_shadowInRtState[slot] = false;
+	}
+	if (count > 0) list->ResourceBarrier(count, barriers);
 }
 
 void Renderer::DrawMesh(ID3D12GraphicsCommandList* list, const Mesh& mesh,

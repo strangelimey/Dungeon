@@ -8,6 +8,7 @@
 struct PointLight {
 	float4 positionRadius;  // xyz = world pos, w = radius
 	float4 colorIntensity;  // rgb = color, w = intensity
+	float4 shadow;          // x = shadow cube slot (-1 = unshadowed)
 };
 
 cbuffer FrameConstants : register(b0) {
@@ -18,8 +19,9 @@ cbuffer FrameConstants : register(b0) {
 	float4 gDirColor;
 	uint gPointLightCount;
 	uint3 _pad0;
-	float4 gFogGrid;   // xy = 1 / atmosphere world extent, z = density/m, w = haze ambient
-	float4 gHazeColor; // rgb = dust albedo tint
+	float4 gFogGrid;     // xy = 1 / atmosphere world extent, z = density/m, w = haze ambient
+	float4 gHazeColor;   // rgb = dust albedo tint
+	float4 gShadowLight; // shadow pass only (see shadow.hlsl)
 	PointLight gPointLights[MAX_POINT_LIGHTS];
 };
 
@@ -44,8 +46,58 @@ cbuffer SkinConstants : register(b2) {
 Texture2D gBaseTexture : register(t0);
 Texture2D gNormalMap : register(t1); // xyz = tangent-space normal, w = height
 Texture2D gTurbidity : register(t2); // top-down per-cell dust density (R)
+// Point-light shadow cubes (light->fragment distance / radius). Slot 0 is
+// the light nearest the camera at the highest resolution; slots fall off in
+// resolution with distance — detailed shadows up close, coarser far away.
+TextureCube gShadowCube0 : register(t3);
+TextureCube gShadowCube1 : register(t4);
+TextureCube gShadowCube2 : register(t5);
+TextureCube gShadowCube3 : register(t6);
 SamplerState gSampler : register(s0);
 SamplerState gClampSampler : register(s1);
+
+float SampleShadowCube(int slot, float3 dir) {
+	switch (slot) {
+	case 0:  return gShadowCube0.SampleLevel(gClampSampler, dir, 0).r;
+	case 1:  return gShadowCube1.SampleLevel(gClampSampler, dir, 0).r;
+	case 2:  return gShadowCube2.SampleLevel(gClampSampler, dir, 0).r;
+	default: return gShadowCube3.SampleLevel(gClampSampler, dir, 0).r;
+	}
+}
+
+// 1 = fully lit, 0 = fully shadowed. The nearest light (slot 0) gets 4-tap
+// PCF for soft, detailed edges; farther slots use one tap of an already
+// lower-resolution cube.
+float ShadowFactor(PointLight light, float3 worldPos) {
+	const int slot = (int)light.shadow.x;
+	if (slot < 0) return 1.0;
+
+	const float3 toFrag = worldPos - light.positionRadius.xyz;
+	const float dist = length(toFrag) / light.positionRadius.w; // normalized
+	const float bias = 0.012;
+
+	if (slot == 0) {
+		// Two axes perpendicular to the lookup direction for the PCF kernel.
+		const float3 absDir = abs(toFrag);
+		const float3 up = (absDir.y > absDir.x && absDir.y > absDir.z)
+							  ? float3(1, 0, 0)
+							  : float3(0, 1, 0);
+		const float3 t1 = normalize(cross(toFrag, up));
+		const float3 t2 = cross(normalize(toFrag), t1);
+		const float spread = 0.015 * length(toFrag);
+
+		const float2 offsets[4] = {float2(-1, -1), float2(1, -1), float2(-1, 1),
+								   float2(1, 1)};
+		float lit = 0.0;
+		[unroll]
+		for (int i = 0; i < 4; ++i) {
+			const float3 dir = toFrag + (offsets[i].x * t1 + offsets[i].y * t2) * spread;
+			lit += dist - bias <= SampleShadowCube(0, dir) ? 1.0 : 0.0;
+		}
+		return lit * 0.25;
+	}
+	return dist - bias <= SampleShadowCube(slot, toFrag) ? 1.0 : 0.0;
+}
 
 struct VSInput {
 	float3 position : POSITION;
@@ -123,7 +175,8 @@ float3 Shade(float3 albedo, float3 normal, float3 worldPos) {
 		const float3 halfway = normalize(lightDir + viewDir);
 		const float spec = pow(saturate(dot(normal, halfway)), gSpecPower) * gSpecStrength;
 
-		color += light.colorIntensity.rgb * light.colorIntensity.w * atten *
+		const float shadow = ShadowFactor(light, worldPos);
+		color += light.colorIntensity.rgb * light.colorIntensity.w * atten * shadow *
 				 (albedo * ndl + spec * ndl);
 	}
 	return color;

@@ -60,6 +60,10 @@ public:
 	ID3D12GraphicsCommandList* BeginFrame(const float clearColor[4]);
 	void EndFrame(); // close, execute, present, signal
 
+	// Re-binds the back buffer RT/DSV + full viewport after an offscreen pass
+	// (e.g. shadow rendering) redirected the output merger. No clear.
+	void BindBackBuffer(ID3D12GraphicsCommandList* list);
+
 	void Resize(u32 width, u32 height);
 	void WaitIdle();
 

@@ -88,7 +88,11 @@ private:
 	void ApplyTorchPalette(int index);
 
 	// --- rendering -------------------------------------------------------------
+	void AssignShadowSlots();
+	void RenderShadowMaps(ID3D12GraphicsCommandList* list);
 	void RenderScene(ID3D12GraphicsCommandList* list);
+	// All 3D draw calls, shared verbatim by the shadow and main passes.
+	void SubmitSceneGeometry(ID3D12GraphicsCommandList* list);
 	void DrawSurface(ID3D12GraphicsCommandList* list, const Surface& surface);
 	void RenderLoadingScreen();
 	void RenderMenuOverlay();

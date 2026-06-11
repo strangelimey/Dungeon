@@ -23,6 +23,10 @@ struct PointLight {
 	float radius = 8.0f;     // attenuation reaches zero here
 	Vec3 color{1, 1, 1};
 	float intensity = 1.0f;
+	// Shadow cube slot assigned for this frame (-1 = casts no shadows).
+	// Slot 0 is highest resolution; the game gives slots to the lights
+	// nearest the camera so shadow detail falls off with distance.
+	int shadowSlot = -1;
 };
 
 struct DirectionalLight {

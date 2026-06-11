@@ -5,6 +5,7 @@
 #include "Core/Paths.h"
 #include "Game/DungeonMeshBuilder.h"
 
+#include <algorithm>
 #include <cmath>
 #include <format>
 
@@ -367,6 +368,36 @@ void Game::UpdateLights(float time) {
 	glow.color = {0.3f, 0.9f, 0.6f};
 	glow.intensity = 1.2f + 0.2f * std::sin(time * 2.2f);
 	m_lights.points.push_back(glow);
+
+	AssignShadowSlots();
+}
+
+// Hands the kShadowSlots shadow cubes to the lights nearest the camera —
+// slot 0 (highest resolution + PCF) to the closest, coarser slots outward,
+// nothing beyond that. The carried torch (index 0) never casts shadows: it
+// sits at the eye, so its shadows hide behind their casters anyway.
+void Game::AssignShadowSlots() {
+	const Vec3 eye = m_party.EyePosition();
+
+	struct Candidate {
+		float distSq;
+		size_t index;
+	};
+	std::vector<Candidate> candidates; // small; capacity retained across calls
+	static_assert(gfx::kShadowSlots <= gfx::kMaxPointLights);
+	candidates.reserve(m_lights.points.size());
+
+	for (size_t i = 0; i < m_lights.points.size(); ++i) {
+		m_lights.points[i].shadowSlot = -1;
+		if (i == 0) continue; // carried torch
+		const Vec3 d = Sub(m_lights.points[i].position, eye);
+		candidates.push_back({d.x * d.x + d.y * d.y + d.z * d.z, i});
+	}
+	std::ranges::sort(candidates, {}, &Candidate::distSq);
+
+	const size_t count = std::min<size_t>(candidates.size(), gfx::kShadowSlots);
+	for (size_t slot = 0; slot < count; ++slot)
+		m_lights.points[candidates[slot].index].shadowSlot = static_cast<int>(slot);
 }
 
 void Game::UpdateMonsters(float dt) {
@@ -456,8 +487,28 @@ void Game::DrawSurface(ID3D12GraphicsCommandList* list, const Surface& surface) 
 	}
 }
 
+// Renders the cube shadow maps for every light that holds a slot this frame.
+// Runs before the main pass; the same geometry submission is reused with the
+// renderer's shadow pipeline bound.
+void Game::RenderShadowMaps(ID3D12GraphicsCommandList* list) {
+	for (const gfx::PointLight& light : m_lights.points) {
+		if (light.shadowSlot < 0) continue;
+		for (u32 face = 0; face < 6; ++face) {
+			m_renderer.BeginShadowFace(list, static_cast<u32>(light.shadowSlot), face,
+									   light.position, light.radius);
+			SubmitSceneGeometry(list);
+		}
+	}
+	m_renderer.EndShadows(list);
+	m_device.BindBackBuffer(list); // the shadow pass redirected the OM
+}
+
 void Game::RenderScene(ID3D12GraphicsCommandList* list) {
 	m_renderer.BeginScene(list, m_camera, m_lights, m_atmosphere);
+	SubmitSceneGeometry(list);
+}
+
+void Game::SubmitSceneGeometry(ID3D12GraphicsCommandList* list) {
 	DrawSurface(list, m_walls);
 	DrawSurface(list, m_floors);
 	DrawSurface(list, m_ceilings);
@@ -548,7 +599,10 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 	m_spriteBatch.NewFrame(m_device.FrameIndex());
 
 	// The 3D scene only draws during play; Loading and Menu are 2D-only.
-	if (m_state == AppState::Playing) RenderScene(list);
+	if (m_state == AppState::Playing) {
+		RenderShadowMaps(list);
+		RenderScene(list);
+	}
 
 	// 2D pass.
 	m_spriteBatch.Begin(list, m_device.Width(), m_device.Height());

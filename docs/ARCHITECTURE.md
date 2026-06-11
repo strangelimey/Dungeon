@@ -61,10 +61,13 @@ and dependencies flow in one direction only — a module may depend on modules
 ```
 Platform::Window::PumpMessages
   → Game::Update(dt)         (input → party movement → animation → UI state)
-  → Renderer::BeginFrame
-  → Game::Render             (3D pass: dungeon, props; lights from torches)
+  → GraphicsDevice::BeginFrame
+  → Game::RenderShadowMaps   (cube distance maps for the lights nearest the
+                              camera; resolution falls off with distance)
+  → Game::RenderScene        (3D pass: dungeon, props; torch lights with
+                              shadows + per-cell dust scattering)
   → UI::Context::Render      (2D pass: HUD, message log, controls)
-  → Renderer::EndFrame       (present)
+  → GraphicsDevice::EndFrame (present)
 ```
 
 ## Memory strategy

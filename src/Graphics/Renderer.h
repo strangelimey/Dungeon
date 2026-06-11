@@ -34,6 +34,11 @@ namespace dungeon::gfx {
 // scene.hlsl (the palette is a fixed-size cbuffer).
 inline constexpr u32 kMaxSkinJoints = 128;
 
+// Point-light shadow cube slots, resolution falling off with slot index —
+// the game assigns slot 0 to the light nearest the camera.
+inline constexpr u32 kShadowSlots = 4;
+inline constexpr u32 kShadowResolution[kShadowSlots] = {512, 256, 256, 128};
+
 // Everything material-related for one draw. Textures may be null (baseColor
 // only); `normalMap` (xyz = tangent-space normal, w = height) enables bump
 // mapping, and `heightScale` > 0 adds parallax on top. Specular defaults suit
@@ -57,6 +62,15 @@ public:
 	void BeginScene(ID3D12GraphicsCommandList* list, const Camera& camera,
 					const LightSet& lights, const Atmosphere& atmosphere = {});
 
+	// --- shadow pass ---------------------------------------------------------
+	// Renders cube distance maps before the scene pass. For each light that
+	// holds a shadow slot, call BeginShadowFace for faces 0..5 and submit the
+	// scene geometry between calls (DrawMesh works unchanged); finish with
+	// EndShadows, then rebind the back buffer before BeginScene.
+	void BeginShadowFace(ID3D12GraphicsCommandList* list, u32 slot, u32 face,
+						 const Vec3& lightPos, float radius);
+	void EndShadows(ID3D12GraphicsCommandList* list);
+
 	// Draws a mesh; `palette` is empty for static meshes or the skinning
 	// palette for skinned ones.
 	void DrawMesh(ID3D12GraphicsCommandList* list, const Mesh& mesh, const Mat4& world,
@@ -66,13 +80,25 @@ public:
 	void NewFrame(u32 frameIndex);
 
 private:
+	void CreateShadowResources();
+
 	GraphicsDevice& m_device;
 	ComPtr<ID3D12RootSignature> m_rootSignature;
 	ComPtr<ID3D12PipelineState> m_pso;
+	ComPtr<ID3D12PipelineState> m_shadowPso;
 	std::unique_ptr<UploadAllocator> m_frameAllocators[kFrameCount];
 	std::unique_ptr<Texture> m_whiteTexture;
 	std::unique_ptr<Texture> m_flatNormalMap;
 	std::unique_ptr<Texture> m_blackTexture; // "clear air" turbidity fallback
+
+	// Shadow cube targets (R16_FLOAT distance) + shared per-slot depth.
+	ComPtr<ID3D12Resource> m_shadowCube[kShadowSlots];
+	ComPtr<ID3D12Resource> m_shadowDepth[kShadowSlots];
+	ComPtr<ID3D12DescriptorHeap> m_shadowRtvHeap; // kShadowSlots * 6 faces
+	ComPtr<ID3D12DescriptorHeap> m_shadowDsvHeap; // one per slot
+	SrvHandle m_shadowSrv[kShadowSlots];          // contiguous (one root table)
+	bool m_shadowInRtState[kShadowSlots]{};
+
 	u32 m_frameIndex = 0;
 };
 

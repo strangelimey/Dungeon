@@ -197,6 +197,21 @@ ID3D12GraphicsCommandList* GraphicsDevice::BeginFrame(const float clearColor[4])
 	return m_commandList.Get();
 }
 
+void GraphicsDevice::BindBackBuffer(ID3D12GraphicsCommandList* list) {
+	D3D12_CPU_DESCRIPTOR_HANDLE rtv = m_rtvHeap->GetCPUDescriptorHandleForHeapStart();
+	rtv.ptr += static_cast<size_t>(m_frameIndex) * m_rtvSize;
+	const D3D12_CPU_DESCRIPTOR_HANDLE dsv =
+		m_dsvHeap->GetCPUDescriptorHandleForHeapStart();
+	list->OMSetRenderTargets(1, &rtv, FALSE, &dsv);
+
+	const D3D12_VIEWPORT viewport{0.0f, 0.0f, static_cast<float>(m_width),
+								  static_cast<float>(m_height), 0.0f, 1.0f};
+	const D3D12_RECT scissor{0, 0, static_cast<LONG>(m_width),
+							 static_cast<LONG>(m_height)};
+	list->RSSetViewports(1, &viewport);
+	list->RSSetScissorRects(1, &scissor);
+}
+
 void GraphicsDevice::EndFrame() {
 	const auto barrier = Transition(m_backBuffers[m_frameIndex].Get(),
 									D3D12_RESOURCE_STATE_RENDER_TARGET,
