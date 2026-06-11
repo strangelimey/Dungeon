@@ -1,11 +1,14 @@
 #pragma once
 
+#include <chrono>
+
 namespace dungeon {
 
-// High-resolution frame timer based on QueryPerformanceCounter.
+// High-resolution frame timer (std::chrono::steady_clock is QPC-backed on
+// Windows).
 class Timer {
 public:
-    Timer();
+    Timer() : m_last(std::chrono::steady_clock::now()) {}
 
     // Advances the timer; returns the delta time in seconds, clamped to avoid
     // huge steps after debugger pauses or window drags.
@@ -14,8 +17,7 @@ public:
     double TotalSeconds() const { return m_total; }
 
 private:
-    long long m_frequency = 0;
-    long long m_last = 0;
+    std::chrono::steady_clock::time_point m_last;
     double m_total = 0.0;
 };
 

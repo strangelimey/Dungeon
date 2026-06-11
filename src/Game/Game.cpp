@@ -16,13 +16,14 @@ namespace {
 
 assets::ModelData LoadModelOrDie(const std::string& name) {
     auto model = assets::LoadModel(paths::Asset("models\\" + name));
-    DN_ASSERT(model.has_value(), "missing model — run AssetBaker over assets/");
+    DN_ASSERT(model.has_value(), model.error() + " — run AssetBaker over assets/");
     return std::move(*model);
 }
 
 assets::SoundData LoadSound(const std::string& name) {
     auto sound = assets::LoadWavFile(paths::Asset("sounds\\" + name));
-    return sound.value_or(assets::SoundData{}); // silent fallback
+    if (!sound) log::Warn("{} (running silent)", sound.error());
+    return std::move(sound).value_or(assets::SoundData{});
 }
 
 } // namespace
@@ -96,7 +97,9 @@ void Game::LoadSurfaces() {
                 paths::Asset(std::format("textures\\{}.png", name)));
             auto normal = assets::LoadImageFile(
                 paths::Asset(std::format("textures\\{}_n.png", name)));
-            DN_ASSERT(albedo && normal, "missing texture — run AssetBaker over assets/");
+            DN_ASSERT(albedo && normal,
+                      (albedo ? normal : albedo).error() +
+                          " — run AssetBaker over assets/");
             surface.albedo.push_back(std::make_unique<gfx::Texture>(m_device, *albedo));
             surface.normal.push_back(std::make_unique<gfx::Texture>(m_device, *normal));
         }

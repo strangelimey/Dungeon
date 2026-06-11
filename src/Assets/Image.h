@@ -2,7 +2,7 @@
 
 #include "Core/Types.h"
 
-#include <optional>
+#include <expected>
 #include <string>
 #include <vector>
 
@@ -15,7 +15,7 @@ struct ImageData {
     std::vector<u8> pixels; // width * height * 4
 };
 
-std::optional<ImageData> LoadImageFile(const std::string& path);
-std::optional<ImageData> LoadImageMemory(const u8* bytes, size_t size);
+std::expected<ImageData, std::string> LoadImageFile(const std::string& path);
+std::expected<ImageData, std::string> LoadImageMemory(const u8* bytes, size_t size);
 
 } // namespace dungeon::assets

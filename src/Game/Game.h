@@ -11,7 +11,7 @@
 #include "UI/Controls.h"
 #include "UI/UIContext.h"
 
-#include <map>
+#include <flat_map>
 #include <memory>
 #include <vector>
 
@@ -81,7 +81,7 @@ private:
     anim::Animator m_pillarAnimator;
     Vec3 m_pillarPos{};
 
-    std::map<char, std::unique_ptr<MonsterKind>> m_monsterKinds;
+    std::flat_map<char, std::unique_ptr<MonsterKind>> m_monsterKinds;
     std::vector<Monster> m_monsters;
 
     assets::SoundData m_sfxFootstep;

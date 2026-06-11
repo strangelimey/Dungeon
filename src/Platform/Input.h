@@ -3,6 +3,7 @@
 #include "Core/Types.h"
 
 #include <array>
+#include <utility>
 
 namespace dungeon {
 
@@ -17,9 +18,9 @@ public:
     bool WasKeyPressed(int vkey) const { return m_keysPressed[vkey & 0xFF]; }
     bool WasKeyReleased(int vkey) const { return m_keysReleased[vkey & 0xFF]; }
 
-    bool IsMouseDown(MouseButton b) const { return m_mouse[static_cast<int>(b)]; }
-    bool WasMousePressed(MouseButton b) const { return m_mousePressed[static_cast<int>(b)]; }
-    bool WasMouseReleased(MouseButton b) const { return m_mouseReleased[static_cast<int>(b)]; }
+    bool IsMouseDown(MouseButton b) const { return m_mouse[std::to_underlying(b)]; }
+    bool WasMousePressed(MouseButton b) const { return m_mousePressed[std::to_underlying(b)]; }
+    bool WasMouseReleased(MouseButton b) const { return m_mouseReleased[std::to_underlying(b)]; }
 
     float MouseX() const { return m_mouseX; }
     float MouseY() const { return m_mouseY; }

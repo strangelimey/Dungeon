@@ -4,9 +4,9 @@
 
 #include <Windows.h>
 
-#include <chrono>
 #include <cstdio>
 #include <mutex>
+#include <print>
 
 namespace dungeon::log {
 
@@ -29,7 +29,7 @@ void Write(Level level, std::string_view message) {
     std::string line = Prefix(level);
     line.append(message);
     line.push_back('\n');
-    std::fputs(line.c_str(), level >= Level::Warn ? stderr : stdout);
+    std::print(level >= Level::Warn ? stderr : stdout, "{}", line);
     OutputDebugStringW(str::Widen(line).c_str());
 }
 

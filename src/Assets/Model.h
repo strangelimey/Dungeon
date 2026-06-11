@@ -4,7 +4,7 @@
 #include "Core/MathTypes.h"
 #include "Core/Types.h"
 
-#include <optional>
+#include <expected>
 #include <string>
 #include <vector>
 
@@ -72,10 +72,10 @@ struct ModelData {
 };
 
 // Loads .gltf / .glb (full features) or .obj (static geometry only).
-std::optional<ModelData> LoadModel(const std::string& path);
+std::expected<ModelData, std::string> LoadModel(const std::string& path);
 
 // Internal entry points, split by format.
-std::optional<ModelData> LoadGltf(const std::string& path);
-std::optional<ModelData> LoadObj(const std::string& path);
+std::expected<ModelData, std::string> LoadGltf(const std::string& path);
+std::expected<ModelData, std::string> LoadObj(const std::string& path);
 
 } // namespace dungeon::assets

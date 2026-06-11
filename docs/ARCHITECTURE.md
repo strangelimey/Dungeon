@@ -3,7 +3,8 @@
 ## Overview
 
 Dungeon is a grid-based dungeon crawler (in the tradition of Dungeon Master and
-Legend of Grimrock) built in C++20 on DirectX 12. The codebase is split into
+Legend of Grimrock) built in C++23 on DirectX 12. Fallible loaders return
+`std::expected<T, std::string>` so failures carry their reason to the caller. The codebase is split into
 strictly layered static-library modules. Each module owns one responsibility,
 and dependencies flow in one direction only — a module may depend on modules
 *below* it in the diagram, never sideways or upward.

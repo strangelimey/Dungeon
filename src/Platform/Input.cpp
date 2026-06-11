@@ -10,7 +10,7 @@ void Input::OnKey(int vkey, bool down) {
 }
 
 void Input::OnMouseButton(MouseButton b, bool down) {
-    const int i = static_cast<int>(b);
+    const auto i = std::to_underlying(b);
     if (down && !m_mouse[i]) m_mousePressed[i] = true;
     if (!down && m_mouse[i]) m_mouseReleased[i] = true;
     m_mouse[i] = down;

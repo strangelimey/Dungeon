@@ -3,6 +3,7 @@
 #include "Core/Log.h"
 
 #include <cstdio>
+#include <format>
 #include <sstream>
 #include <string>
 
@@ -10,12 +11,10 @@ namespace dungeon::assets {
 
 // Minimal Wavefront OBJ loader: v / vn / vt / f (triangles or fans).
 // Materials are ignored; the result is a single mesh with the default material.
-std::optional<ModelData> LoadObj(const std::string& path) {
+std::expected<ModelData, std::string> LoadObj(const std::string& path) {
     std::FILE* f = nullptr;
-    if (fopen_s(&f, path.c_str(), "r") != 0 || !f) {
-        log::Error("Could not open OBJ: {}", path);
-        return std::nullopt;
-    }
+    if (fopen_s(&f, path.c_str(), "r") != 0 || !f)
+        return std::unexpected(std::format("could not open OBJ: {}", path));
 
     std::vector<Vec3> positions;
     std::vector<Vec3> normals;
@@ -75,10 +74,8 @@ std::optional<ModelData> LoadObj(const std::string& path) {
     }
     std::fclose(f);
 
-    if (mesh.vertices.empty()) {
-        log::Error("OBJ contained no geometry: {}", path);
-        return std::nullopt;
-    }
+    if (mesh.vertices.empty())
+        return std::unexpected(std::format("OBJ contained no geometry: {}", path));
 
     ModelData model;
     model.materials.push_back({});

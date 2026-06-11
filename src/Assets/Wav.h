@@ -2,7 +2,7 @@
 
 #include "Core/Types.h"
 
-#include <optional>
+#include <expected>
 #include <string>
 #include <vector>
 
@@ -15,6 +15,6 @@ struct SoundData {
     std::vector<i16> samples;
 };
 
-std::optional<SoundData> LoadWavFile(const std::string& path);
+std::expected<SoundData, std::string> LoadWavFile(const std::string& path);
 
 } // namespace dungeon::assets

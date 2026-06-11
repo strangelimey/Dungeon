@@ -16,7 +16,7 @@ constexpr int kCharCount = 96;
 
 Font::Font(gfx::GraphicsDevice& device, const std::string& path, float pixelHeight)
     : m_pixelHeight(pixelHeight) {
-    std::optional<std::vector<u8>> ttf = assets::ReadBinaryFile(path);
+    auto ttf = assets::ReadBinaryFile(path);
     if (!ttf) {
         for (const char* fallback :
              {"C:\\Windows\\Fonts\\consola.ttf", "C:\\Windows\\Fonts\\segoeui.ttf",

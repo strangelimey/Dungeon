@@ -1,7 +1,7 @@
 # Dungeon
 
 An old-school grid-based dungeon crawler (Dungeon Master / Legend of Grimrock
-style) with modern rendering — C++20, DirectX 12, dynamic lighting, skeletal
+style) with modern rendering — C++23, DirectX 12, dynamic lighting, skeletal
 animation, and XAudio2 sound.
 
 ## Building

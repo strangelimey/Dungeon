@@ -3,6 +3,7 @@
 #include <DirectXMath.h>
 
 #include <cmath>
+#include <numbers>
 
 namespace dungeon {
 
@@ -14,7 +15,7 @@ using Vec4 = DirectX::XMFLOAT4;
 using Mat4 = DirectX::XMFLOAT4X4;
 using Quat = DirectX::XMFLOAT4;
 
-inline constexpr float kPi = 3.14159265358979323846f;
+inline constexpr float kPi = std::numbers::pi_v<float>;
 
 inline Mat4 Mat4Identity() {
     Mat4 m;

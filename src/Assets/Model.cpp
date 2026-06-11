@@ -30,7 +30,8 @@ struct ImageCache {
         if (!image) return -1;
         if (auto it = indices.find(image); it != indices.end()) return it->second;
 
-        std::optional<ImageData> loaded;
+        std::expected<ImageData, std::string> loaded =
+            std::unexpected(std::string("image has no data source"));
         if (image->buffer_view && image->buffer_view->buffer->data) {
             const auto* bytes = static_cast<const u8*>(image->buffer_view->buffer->data) +
                                 image->buffer_view->offset;
@@ -44,8 +45,7 @@ struct ImageCache {
             index = static_cast<int>(model->images.size());
             model->images.push_back(std::move(*loaded));
         } else {
-            log::Warn("glTF: could not load an image (uri: {})",
-                      image->uri ? image->uri : "<embedded>");
+            log::Warn("glTF image skipped: {}", loaded.error());
         }
         indices[image] = index;
         return index;
@@ -64,14 +64,14 @@ std::unordered_map<const cgltf_node*, int> BuildSkeleton(const cgltf_skin* skin,
     std::vector<const cgltf_node*> ordered;
     ordered.reserve(skin->joints_count);
     std::unordered_map<const cgltf_node*, bool> visited;
-    auto visit = [&](auto&& self, const cgltf_node* node) -> void {
+    auto visit = [&](this auto&& self, const cgltf_node* node) -> void {
         if (!node || !nodeToSlot.contains(node) || visited[node]) return;
         visited[node] = true;
-        self(self, node->parent);
+        self(node->parent);
         ordered.push_back(node);
     };
     for (cgltf_size i = 0; i < skin->joints_count; ++i)
-        visit(visit, skin->joints[i]);
+        visit(skin->joints[i]);
 
     std::unordered_map<const cgltf_node*, int> nodeToJoint;
     for (size_t i = 0; i < ordered.size(); ++i) nodeToJoint[ordered[i]] = static_cast<int>(i);
@@ -161,17 +161,14 @@ void ReadPrimitive(const cgltf_primitive* prim, MeshData& mesh,
 
 } // namespace
 
-std::optional<ModelData> LoadGltf(const std::string& path) {
+std::expected<ModelData, std::string> LoadGltf(const std::string& path) {
     cgltf_options options{};
     cgltf_data* data = nullptr;
-    if (cgltf_parse_file(&options, path.c_str(), &data) != cgltf_result_success) {
-        log::Error("Failed to parse glTF: {}", path);
-        return std::nullopt;
-    }
+    if (cgltf_parse_file(&options, path.c_str(), &data) != cgltf_result_success)
+        return std::unexpected(std::format("failed to parse glTF: {}", path));
     if (cgltf_load_buffers(&options, data, path.c_str()) != cgltf_result_success) {
-        log::Error("Failed to load glTF buffers: {}", path);
         cgltf_free(data);
-        return std::nullopt;
+        return std::unexpected(std::format("failed to load glTF buffers: {}", path));
     }
 
     ModelData model;
@@ -264,14 +261,13 @@ std::optional<ModelData> LoadGltf(const std::string& path) {
     return model;
 }
 
-std::optional<ModelData> LoadModel(const std::string& path) {
+std::expected<ModelData, std::string> LoadModel(const std::string& path) {
     auto ext = std::filesystem::path(path).extension().string();
-    std::transform(ext.begin(), ext.end(), ext.begin(),
-                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    std::ranges::transform(ext, ext.begin(),
+                           [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
     if (ext == ".gltf" || ext == ".glb") return LoadGltf(path);
     if (ext == ".obj") return LoadObj(path);
-    log::Error("Unsupported model format: {}", path);
-    return std::nullopt;
+    return std::unexpected(std::format("unsupported model format: {}", path));
 }
 
 } // namespace dungeon::assets
