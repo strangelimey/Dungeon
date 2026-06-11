@@ -15,6 +15,17 @@ build.cmd release    # optimized build
 
 Run `build\debug\bin\Dungeon.exe`.
 
+### Visual Studio
+
+```
+gen-vs.cmd           # generates build\vs\Dungeon.slnx
+```
+
+Open `build\vs\Dungeon.slnx` in Visual Studio — the Dungeon executable is the
+startup project, so F5 builds and runs the game. Regenerate after adding or
+removing source files (or just build; the solution refreshes itself through
+ZERO_CHECK).
+
 ## Controls
 
 - **W / S** — step forward / back

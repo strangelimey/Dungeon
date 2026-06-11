@@ -34,3 +34,6 @@ add_subdirectory(src/UI)
 add_subdirectory(src/Audio)
 add_subdirectory(src/Game)
 add_subdirectory(src/Main)
+
+# Visual Studio solution: open with the game as the startup project.
+set_property(DIRECTORY ${CMAKE_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT Dungeon)
