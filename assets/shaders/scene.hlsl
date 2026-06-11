@@ -91,7 +91,7 @@ float3 Shade(float3 albedo, float3 normal, float3 worldPos) {
 		const float3 lightDir = normalize(-gDirDirection.xyz);
 		const float ndl = saturate(dot(normal, lightDir));
 		const float3 halfway = normalize(lightDir + viewDir);
-		const float spec = pow(saturate(dot(normal, halfway)), 32.0) * 0.3;
+		const float spec = pow(saturate(dot(normal, halfway)), 24.0) * 0.05;
 		color += gDirColor.rgb * (albedo * ndl + spec);
 	}
 
@@ -109,8 +109,11 @@ float3 Shade(float3 albedo, float3 normal, float3 worldPos) {
 		const float window = pow(saturate(1.0 - pow(dist / light.positionRadius.w, 4.0)), 2.0);
 		const float atten = window / (1.0 + dist * dist);
 
+		// Faint, broad sheen only — dungeon stone is dry and matte, and the
+		// carried torch sits near the camera, which would otherwise paint a
+		// big wet-looking highlight on every surface the player faces.
 		const float3 halfway = normalize(lightDir + viewDir);
-		const float spec = pow(saturate(dot(normal, halfway)), 48.0) * 0.4;
+		const float spec = pow(saturate(dot(normal, halfway)), 24.0) * 0.05;
 
 		color += light.colorIntensity.rgb * light.colorIntensity.w * atten *
 				 (albedo * ndl + spec * ndl);
