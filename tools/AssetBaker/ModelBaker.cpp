@@ -142,15 +142,30 @@ assets::ModelData BuildWallBlock() {
 	for (const float side : {-1.0f, 1.0f}) {
 		const float cx = side * (1.0f - (1.0f - panelX) * 0.5f);
 		const float hw = (1.0f - panelX) * 0.5f;
-		// Front face + inner side + outer cap; the back is buried in the wall.
 		const float x0 = cx - hw, x1 = cx + hw;
+
+		// Front face.
 		wq({x0, 0, pillarOut}, {x1, 0, pillarOut}, {x1, kWallH, pillarOut},
 		   {x0, kWallH, pillarOut}, {0, 0, 1});
+
+		// Inner side, toward the panel.
 		const float inner = side < 0 ? x1 : x0;
 		const Vec3 n = side < 0 ? Vec3{1, 0, 0} : Vec3{-1, 0, 0};
 		wq({inner, 0, side < 0 ? pillarOut : 0.0f}, {inner, 0, side < 0 ? 0.0f : pillarOut},
 		   {inner, kWallH, side < 0 ? 0.0f : pillarOut},
 		   {inner, kWallH, side < 0 ? pillarOut : 0.0f}, n);
+
+		// Outer side cap at the block edge. Along a straight wall the next
+		// block's pillar hides it, but at an outside corner of a solid block
+		// nothing else covers this strip — without it there is a see-through
+		// notch at every convex wall corner.
+		const float outer = side < 0 ? x0 : x1; // == ±1
+		wq({outer, 0, 0}, {outer, 0, pillarOut}, {outer, kWallH, pillarOut},
+		   {outer, kWallH, 0}, {side, 0, 0});
+
+		// Backing strip on the wall plane behind the pillar, sealing the
+		// gap between the panel borders (|x| <= panelX) and the block edge.
+		wq({x0, 0, 0}, {x1, 0, 0}, {x1, kWallH, 0}, {x0, kWallH, 0}, {0, 0, 1});
 	}
 
 	model.meshes.push_back(std::move(mesh));
