@@ -28,9 +28,9 @@ ZERO_CHECK).
 
 ## Controls
 
-Landing page: mouse hover, arrow keys / W/S, or gamepad d-pad / left stick to
-select; click, Enter/Space, or the A button to activate. "Start New Game"
-begins a run (the other entries are placeholders for now).
+Landing page: mouse hover or arrow keys / W/S to select; click or Enter/Space
+to activate. "Start New Game" begins a run (the other entries are
+placeholders for now).
 
 In game:
 

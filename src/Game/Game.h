@@ -7,8 +7,8 @@
 //
 //   Loading  — assets load one step per frame so a progress screen can
 //              render between steps (loading is staged, not threaded)
-//   Menu     — landing page over the torch-lit dungeon; mouse hover,
-//              keyboard, or gamepad select an entry
+//   Menu     — landing page over the torch-lit dungeon; mouse hover or
+//              keyboard selects an entry
 //   Playing  — the crawler: UI input → party movement → animators → lights
 //
 // Everything binary loads from the assets/ directory next to the exe

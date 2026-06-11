@@ -259,17 +259,11 @@ void MenuList::Update(UIContext& ctx) {
 		}
 	}
 
-	// Keyboard and gamepad: move the selection, Enter/Space/A activates.
+	// Keyboard: arrows / W/S move the selection, Enter/Space activates.
 	constexpr int kVkUp = 0x26, kVkDown = 0x28, kVkReturn = 0x0D, kVkSpace = 0x20;
-	if (input->WasKeyPressed(kVkUp) || input->WasKeyPressed('W') ||
-		input->WasPadPressed(PadButton::Up))
-		MoveSelection(-1);
-	if (input->WasKeyPressed(kVkDown) || input->WasKeyPressed('S') ||
-		input->WasPadPressed(PadButton::Down))
-		MoveSelection(+1);
-	if (input->WasKeyPressed(kVkReturn) || input->WasKeyPressed(kVkSpace) ||
-		input->WasPadPressed(PadButton::A))
-		Activate();
+	if (input->WasKeyPressed(kVkUp) || input->WasKeyPressed('W')) MoveSelection(-1);
+	if (input->WasKeyPressed(kVkDown) || input->WasKeyPressed('S')) MoveSelection(+1);
+	if (input->WasKeyPressed(kVkReturn) || input->WasKeyPressed(kVkSpace)) Activate();
 }
 
 void MenuList::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {

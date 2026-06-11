@@ -133,10 +133,10 @@ private:
 };
 
 // Vertical list of selectable menu entries (the landing page). One entry is
-// always "selected"; the mouse selects by hover, keyboard (arrows / W/S +
-// Enter/Space) and gamepad (d-pad / left stick + A) move the selection and
-// activate it, so the highlight works identically for all input methods.
-// Entries with no callback still highlight but do nothing when activated.
+// always "selected"; the mouse selects by hover, and the keyboard (arrows /
+// W/S + Enter/Space) moves the selection and activates it, so the highlight
+// works identically for both input methods. Entries with no callback still
+// highlight but do nothing when activated.
 class MenuList : public Widget {
 public:
 	MenuList(const gfx::Rect& rect, float itemHeight) : m_itemHeight(itemHeight) {
