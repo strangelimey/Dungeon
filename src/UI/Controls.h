@@ -1,3 +1,16 @@
+// ============================================================================
+// UI/Controls.h — the control library.
+//
+//   Panel       framed background rectangle (add first so it draws beneath)
+//   Label       single line of text; `dim` switches to the muted color
+//   TextOutput  scrolling message log; AddLine appends, wheel scrolls
+//   Button      click callback; hot/held visual states
+//   Slider      horizontal drag, value in [min, max], change callback
+//   DropDown    popup list; overlay-drawn so it covers later widgets
+//
+// All coordinates are absolute pixels (the HUD is laid out once in
+// Game::BuildHud from the window size). Colors come from the shared Theme.
+// ============================================================================
 #pragma once
 
 #include "UI/UIContext.h"

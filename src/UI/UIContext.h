@@ -1,3 +1,16 @@
+// ============================================================================
+// UI/UIContext.h — the retained-mode widget tree.
+//
+// The game creates widgets once (UIContext::Add<T>) and keeps raw pointers to
+// the ones it updates (labels, the message log); the context owns them all.
+// Per frame:
+//   Update(input): widgets get input in REVERSE add order (topmost first).
+//     A widget that uses the mouse calls ConsumeMouse() so widgets beneath it
+//     ignore the same event. Keyboard input is not consumed — the party
+//     always receives movement keys.
+//   Render(batch): widgets draw in add order, then a second DrawOverlay pass
+//     lets popups (open drop-downs) paint above everything.
+// ============================================================================
 #pragma once
 
 #include "Platform/Input.h"

@@ -1,3 +1,24 @@
+// ============================================================================
+// Graphics/GraphicsDevice.h — D3D12 device ownership and frame plumbing.
+//
+// This class owns everything that exists once per application:
+//   * the device, the direct command queue, and the swapchain
+//     (kFrameCount = 3 back buffers, flip-discard, vsync'd Present)
+//   * descriptor heaps: RTV (back buffers), DSV (one depth buffer), and one
+//     shader-visible CBV/SRV heap that all textures allocate slots from
+//   * frame synchronization (see BeginFrame) and a blocking one-shot command
+//     path for load-time uploads (ExecuteImmediate)
+//
+// FRAME SYNC MODEL: there are kFrameCount "frame slots", each with its own
+// command allocator and fence value. EndFrame signals the fence; BeginFrame
+// waits until the GPU finished the *previous* use of the new slot before
+// resetting its allocator. CPU and GPU therefore overlap up to kFrameCount-1
+// frames, and any per-frame resource (see UploadAllocator) must exist once
+// per slot.
+//
+// Renderer and SpriteBatch build passes on top of this; nothing above the
+// Graphics module ever touches D3D12 directly.
+// ============================================================================
 #pragma once
 
 #include "Core/Types.h"

@@ -1,3 +1,7 @@
+// ============================================================================
+// UI/Widget.h — base class for all controls. See UIContext.h for the
+// update/draw/overlay flow and input-consumption rules.
+// ============================================================================
 #pragma once
 
 #include "Graphics/SpriteBatch.h"

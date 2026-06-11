@@ -1,3 +1,20 @@
+// ============================================================================
+// Graphics/Renderer.h — the forward 3D scene pass.
+//
+// One root signature, one PSO. Per frame: BeginScene writes the camera +
+// light constants once, then each DrawMesh allocates its object constants
+// (and skinning palette, if any) from the frame's UploadAllocator arena and
+// issues one draw. Shading lives in assets/shaders/scene.hlsl (compiled at
+// startup — edit the .hlsl and relaunch, no C++ rebuild needed).
+//
+// Root signature layout (must match scene.hlsl):
+//   0  b0  frame constants   (root CBV — camera, ambient, lights)
+//   1  b1  object constants  (root CBV — world, color, flags, height scale)
+//   2  b2  skinning palette  (root CBV — kMaxSkinJoints matrices)
+//   3  t0  base color texture     (descriptor table)
+//   4  t1  normal+height map      (descriptor table; A = height for parallax)
+//   s0     static anisotropic wrap sampler
+// ============================================================================
 #pragma once
 
 #include "Core/MathTypes.h"
@@ -13,6 +30,8 @@
 
 namespace dungeon::gfx {
 
+// Hard cap on joints per skinned mesh; must match MAX_SKIN_JOINTS in
+// scene.hlsl (the palette is a fixed-size cbuffer).
 inline constexpr u32 kMaxSkinJoints = 128;
 
 // Forward 3D pass: one pipeline, per-frame light constants, optional texture

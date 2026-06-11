@@ -52,6 +52,11 @@ bool Window::PumpMessages() {
     return !m_closed;
 }
 
+// ----------------------------------------------------------------------------
+// Message routing. Win32 calls a free function; we stash the Window* in the
+// window's user data during WM_NCCREATE (it arrives via CREATESTRUCT from the
+// CreateWindowExW lpParam) and forward every later message to HandleMessage.
+// ----------------------------------------------------------------------------
 i64 __stdcall Window::WndProcThunk(HWND__* hwnd, u32 msg, u64 wparam, i64 lparam) {
     Window* self = nullptr;
     if (msg == WM_NCCREATE) {

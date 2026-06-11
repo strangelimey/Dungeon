@@ -1,3 +1,11 @@
+// ============================================================================
+// Platform/Window.h — the Win32 application window and message pump.
+//
+// Owns the single game window. Raw window messages are translated in
+// Window::HandleMessage and fed into the Input object, which the game polls;
+// nothing outside the Platform module ever sees a WM_* constant. Resize is
+// surfaced through the onResize callback (Main wires it to the swapchain).
+// ============================================================================
 #pragma once
 
 #include "Core/Types.h"

@@ -7,10 +7,14 @@
 
 namespace dungeon::gfx {
 
+// ============================================================================
+// GPU constant layouts
+// ============================================================================
 namespace {
 
-// Must match the cbuffer layouts in scene.hlsl. Matrices are uploaded
-// row-major and the shaders use mul(matrix, vector) throughout.
+// Must match the cbuffer layouts in scene.hlsl byte for byte (b0/b1 below).
+// Mind HLSL packing: each field group pads to 16 bytes. Matrices are
+// uploaded row-major and the shaders use mul(matrix, vector) throughout.
 struct GpuPointLight {
     Vec4 positionRadius;
     Vec4 colorIntensity;
@@ -38,6 +42,9 @@ struct ObjectConstants {
 
 } // namespace
 
+// ============================================================================
+// Pipeline construction: root signature, shader compile, PSO, fallbacks.
+// ============================================================================
 Renderer::Renderer(GraphicsDevice& device) : m_device(device) {
     // Root signature:
     //   0: b0 frame constants (CBV)
@@ -150,9 +157,13 @@ Renderer::Renderer(GraphicsDevice& device) : m_device(device) {
     m_flatNormalMap = std::make_unique<Texture>(m_device, flat);
 }
 
+// ============================================================================
+// Per-frame drawing
+// ============================================================================
+
 void Renderer::NewFrame(u32 frameIndex) {
     m_frameIndex = frameIndex;
-    m_frameAllocators[m_frameIndex]->Reset();
+    m_frameAllocators[m_frameIndex]->Reset(); // reclaim last use of this slot
 }
 
 void Renderer::BeginScene(ID3D12GraphicsCommandList* list, const Camera& camera,

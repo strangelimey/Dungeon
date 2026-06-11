@@ -1,3 +1,14 @@
+// ============================================================================
+// Graphics/SpriteBatch.h — batched 2D pass for the UI.
+//
+// Pixel-space quads (origin top-left), alpha-blended, no depth — drawn AFTER
+// the 3D scene so the HUD overlays it. Quads accumulate into one vertex list
+// and flush as a single draw; a flush is forced whenever the texture or the
+// scissor rect changes, so submission order == draw order. Vertices live in
+// the per-frame UploadAllocator arena (nothing persists between frames).
+// Text rendering sits one level up: ui::Font turns glyphs into DrawSprite
+// calls against its atlas texture.
+// ============================================================================
 #pragma once
 
 #include "Core/MathTypes.h"

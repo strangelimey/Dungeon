@@ -1,11 +1,15 @@
+// ============================================================================
+// Graphics/Camera.h — perspective camera.
+//
+// Left-handed, +Y up; yaw 0 looks down +Z and forward = (sin yaw, 0, cos yaw)
+// (matches Party facing math). The dungeon crawler drives position + yaw;
+// pitch stays available for effects (head bob, look up/down).
+// ============================================================================
 #pragma once
 
 #include "Core/MathTypes.h"
 
 namespace dungeon::gfx {
-
-// Simple perspective camera. The dungeon crawler drives position + yaw;
-// pitch stays available for effects (head bob, look up/down).
 class Camera {
 public:
     void SetPosition(const Vec3& position) { m_position = position; }

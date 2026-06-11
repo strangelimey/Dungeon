@@ -1,3 +1,16 @@
+// ============================================================================
+// TextureBaker.cpp — procedural stone textures.
+//
+// Every material starts as a HEIGHT FIELD (bricks = plateaus with tight edge
+// ramps, cobbles = jittered domes, rough stone = fBm). From the same field
+// we derive both outputs, which is what keeps lighting coherent:
+//   <name>.png    albedo: a color function shaded by height (crevices
+//                 darken) plus per-pixel grain for close-up detail
+//   <name>_n.png  RGB = tangent-space normal from the height gradient,
+//                 A = the height itself (drives parallax in scene.hlsl)
+// All noise is hash-based and seeded — output is deterministic, and every
+// texture tiles (lookups wrap at kSize).
+// ============================================================================
 #include "TextureBaker.h"
 
 #include "Core/Log.h"

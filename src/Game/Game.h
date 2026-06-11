@@ -1,3 +1,17 @@
+// ============================================================================
+// Game/Game.h — the dungeon crawler itself.
+//
+// Game is the only class that sees every engine module at once. It owns the
+// world (map, party, monsters, lights), the HUD, and the loaded assets, and
+// drives the per-frame flow:
+//
+//   Update(dt):  UI input → party input/movement → animators → lights → HUD
+//   Render():    3D pass (dungeon surfaces, pillar, monsters) → 2D HUD pass
+//
+// Everything binary loads from the assets/ directory next to the exe
+// (regenerate with tools/AssetBaker). Engine modules know nothing about
+// dungeons — all gameplay rules live in this module.
+// ============================================================================
 #pragma once
 
 #include "Animation/Animator.h"
@@ -16,10 +30,6 @@
 #include <vector>
 
 namespace dungeon::game {
-
-// The dungeon-crawler itself: owns the map, party, monsters, lights, HUD, and
-// drives the per-frame update/render flow. All textures, models, and sounds
-// load from the assets/ directory (regenerate them with tools/AssetBaker).
 class Game {
 public:
     Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,

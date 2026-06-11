@@ -1,3 +1,12 @@
+// ============================================================================
+// Graphics/Texture.h — immutable GPU texture.
+//
+// Construction does everything: builds a CPU mip chain (box filter), uploads
+// all levels through a transient staging buffer, and creates an SRV in the
+// device's shader-visible heap. Upload blocks until the GPU copy finishes
+// (load-time only — never construct one mid-frame). Always RGBA8; for
+// normal+height maps the alpha channel carries the parallax height field.
+// ============================================================================
 #pragma once
 
 #include "Assets/Image.h"
@@ -5,8 +14,6 @@
 #include "Graphics/GraphicsDevice.h"
 
 namespace dungeon::gfx {
-
-// GPU texture (RGBA8) with an SRV in the device's shader-visible heap.
 class Texture {
 public:
     Texture(GraphicsDevice& device, const assets::ImageData& image);

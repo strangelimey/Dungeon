@@ -155,6 +155,12 @@ void GraphicsDevice::Resize(u32 width, u32 height) {
     CreateSizeDependentResources();
 }
 
+// ----------------------------------------------------------------------------
+// Frame loop. BeginFrame/EndFrame bracket all rendering for one frame:
+//   BeginFrame: throttle on the slot's fence → reset allocator/list →
+//               back buffer to RENDER_TARGET → clear → bind RT/viewport/heap
+//   EndFrame:   back buffer to PRESENT → execute → Present(vsync) → signal
+// ----------------------------------------------------------------------------
 ID3D12GraphicsCommandList* GraphicsDevice::BeginFrame(const float clearColor[4]) {
     // Wait until the GPU has finished the previous frame that used this slot.
     if (m_fence->GetCompletedValue() < m_fenceValues[m_frameIndex]) {

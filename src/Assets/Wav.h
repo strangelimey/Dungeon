@@ -1,3 +1,8 @@
+// ============================================================================
+// Assets/Wav.h — WAV loading (dr_wav). Any input format is converted to
+// 16-bit interleaved PCM; audio::AudioEngine plays it as-is (zero copy, so
+// keep the SoundData alive while it plays).
+// ============================================================================
 #pragma once
 
 #include "Core/Types.h"

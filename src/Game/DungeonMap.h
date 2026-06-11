@@ -1,3 +1,14 @@
+// ============================================================================
+// Game/DungeonMap.h — the level definition.
+//
+// The dungeon is an ASCII grid (see kLayout in the .cpp): '#' rock, '.'
+// floor, 'T' wall torch, 'P' party start, 'S'/'M'/'B' monster spawns.
+// Cell (x, z) maps to world space as center ((x+0.5), 0, (z+0.5)) * kCellSize
+// with +X = east and +Z = south (row index grows southward).
+//
+// To author a new level today: edit kLayout. The geometry builder, torch
+// lights, and monster spawns all derive from it.
+// ============================================================================
 #pragma once
 
 #include "Core/MathTypes.h"
@@ -8,9 +19,10 @@
 
 namespace dungeon::game {
 
-inline constexpr float kCellSize = 2.0f;
-inline constexpr float kWallHeight = 2.5f;
-inline constexpr float kEyeHeight = 1.55f;
+// World-space dimensions shared by geometry, lighting, and the camera.
+inline constexpr float kCellSize = 2.0f;   // square cells, 2m on a side
+inline constexpr float kWallHeight = 2.5f; // floor to ceiling
+inline constexpr float kEyeHeight = 1.55f; // camera height above the floor
 
 enum class Cell : u8 { Wall, Floor };
 

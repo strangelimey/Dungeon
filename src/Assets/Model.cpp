@@ -1,3 +1,25 @@
+// ============================================================================
+// Assets/Model.cpp — glTF 2.0 loader (via cgltf) + format dispatch.
+//
+// glTF crash course for the reader:
+//   * A file holds buffers (raw bytes), bufferViews (slices), and accessors
+//     (typed views: "N vec3 floats at offset X"). cgltf resolves all of that;
+//     we read through cgltf_accessor_read_* and never touch offsets ourselves.
+//   * Meshes hang off NODES, which form a transform hierarchy. We bake each
+//     node's world transform into MeshData::worldTransform (static geometry)
+//     instead of keeping a scene graph.
+//   * A SKIN lists joint nodes + inverse bind matrices. Vertex JOINTS_0
+//     attributes index into the skin's joint LIST ORDER ("slots"), not into
+//     any sorted order — hence the slot remap below.
+//   * ANIMATIONS are channels (target node + path: T/R/S) sampled by paired
+//     input (time) / output (value) accessors. We keep them as raw keyframes
+//     and interpolate at runtime in anim::Animator.
+//
+// Matrix layout note: glTF stores matrices column-major for column vectors;
+// DirectXMath row-major for row vectors. Those two conventions produce the
+// SAME 16-float memory order for the same transform, so plain memcpy is
+// correct here (see ToMat4 / the inverse-bind read).
+// ============================================================================
 #include "Assets/Model.h"
 
 #include "Core/Log.h"
@@ -52,8 +74,13 @@ struct ImageCache {
     }
 };
 
-// Topologically orders the skin's joints parent-before-child and fills
-// SkeletonData. Returns node→joint index mapping.
+// ----------------------------------------------------------------------------
+// Skeleton extraction.
+// Topologically orders the skin's joints parent-before-child (the order the
+// Animator's single-pass global-transform computation requires) and fills
+// SkeletonData. Returns the node→joint index mapping; LoadGltf derives the
+// slot→joint remap for vertex weights from it.
+// ----------------------------------------------------------------------------
 std::unordered_map<const cgltf_node*, int> BuildSkeleton(const cgltf_skin* skin,
                                                          SkeletonData& skeleton) {
     std::unordered_map<const cgltf_node*, int> nodeToSlot; // original slot in skin
@@ -99,8 +126,12 @@ std::unordered_map<const cgltf_node*, int> BuildSkeleton(const cgltf_skin* skin,
     return nodeToJoint;
 }
 
-// `slotRemap` maps glTF skin-slot indices to our topologically ordered joint
-// indices (empty for unskinned models).
+// ----------------------------------------------------------------------------
+// Geometry extraction. One glTF primitive appends into one MeshData:
+// positions/normals/uvs always, joints/weights when skinned. `slotRemap`
+// maps glTF skin-slot indices to our topologically ordered joint indices
+// (empty for unskinned models).
+// ----------------------------------------------------------------------------
 void ReadPrimitive(const cgltf_primitive* prim, MeshData& mesh,
                    const std::vector<u32>& slotRemap) {
     const cgltf_accessor* position = nullptr;

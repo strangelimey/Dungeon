@@ -1,3 +1,13 @@
+// ============================================================================
+// Audio/AudioEngine.h — fire-and-forget sound effects over XAudio2.
+//
+// THREADING: XAudio2 runs its own mixing thread. Voice-state flags are
+// written from its callbacks, hence the atomics in PooledVoice. Everything
+// public here is called from the game thread only.
+//
+// Failure is graceful: with no audio device the engine logs a warning and
+// every Play becomes a no-op (the game runs silent rather than crashing).
+// ============================================================================
 #pragma once
 
 #include "Assets/Wav.h"

@@ -1,3 +1,10 @@
+// ============================================================================
+// SoundBaker.cpp — synthesized sound effects, written as 22.05kHz mono WAVs.
+//
+// Each effect is a few lines of additive synthesis: a sine "body" plus
+// low-passed ("brown") noise, shaped by an exponential or half-sine
+// envelope. Deterministic (fixed RNG seed) so rebakes are reproducible.
+// ============================================================================
 #include "SoundBaker.h"
 
 #include "Core/Log.h"

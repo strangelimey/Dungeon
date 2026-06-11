@@ -1,3 +1,12 @@
+// ============================================================================
+// Platform/Input.h — polled keyboard/mouse state with per-frame edges.
+//
+// The Window feeds this from its message loop; game and UI code only read it.
+// "Down" queries reflect the current physical state; "Pressed"/"Released"
+// queries are edge-triggered and valid for exactly one frame — Main calls
+// EndFrame() once per loop iteration to clear them. Key codes are Win32
+// virtual-key values ('W', VK_ESCAPE, ...).
+// ============================================================================
 #pragma once
 
 #include "Core/Types.h"

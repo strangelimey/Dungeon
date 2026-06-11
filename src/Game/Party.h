@@ -1,3 +1,16 @@
+// ============================================================================
+// Game/Party.h — grid-locked party movement, Grimrock-style.
+//
+// The party occupies exactly one cell and faces one of four directions
+// (0 = north/-Z, 1 = east/+X, 2 = south/+Z, 3 = west/-X). Moves and turns
+// are discrete — the LOGICAL position snaps instantly, then the VISUAL
+// position/yaw interpolates over ~0.3s (smoothstep + head bob), which is
+// what gives the genre its feel. One action at a time; blocked attempts set
+// a short cooldown so holding a key doesn't spam bump feedback.
+//
+// The Party knows the map (walls) but not monsters; the Game injects
+// occupancy checks through the isOccupied callback.
+// ============================================================================
 #pragma once
 
 #include "Core/MathTypes.h"
@@ -7,9 +20,6 @@
 #include <functional>
 
 namespace dungeon::game {
-
-// Grid-locked party with smooth interpolated movement, Grimrock-style.
-// Facing: 0 = north (-Z), 1 = east (+X), 2 = south (+Z), 3 = west (-X).
 class Party {
 public:
     Party(const DungeonMap& map, int x, int z);

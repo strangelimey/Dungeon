@@ -1,3 +1,18 @@
+// ============================================================================
+// GltfWriter.cpp — serializes a ModelData to a self-contained .gltf file.
+//
+// Output structure (single mesh, optional skin + animations):
+//   * one buffer holding every accessor's bytes, embedded as a base64 data
+//     URI so the file has no sidecar .bin
+//   * node 0 is the mesh node; nodes 1..N are the joints (parent-before-
+//     child, matching SkeletonData order, so JOINTS_0 needs no remap on load)
+//   * accessors: POSITION (with required min/max), NORMAL, TEXCOORD_0,
+//     JOINTS_0 (u16), WEIGHTS_0, indices (u32), inverse binds (MAT4),
+//     and per-channel time/value pairs for animations
+//
+// Matrix layout: our row-major Mat4 bytes equal glTF's column-major layout
+// for the same transform, so inverse binds are written verbatim.
+// ============================================================================
 #include "GltfWriter.h"
 
 #include "Core/Log.h"

@@ -1,3 +1,7 @@
+// ============================================================================
+// Assets/Image.h — CPU-side image loading (stb_image: PNG, JPG, TGA, ...).
+// Everything is normalized to RGBA8 on load; gfx::Texture uploads it.
+// ============================================================================
 #pragma once
 
 #include "Core/Types.h"

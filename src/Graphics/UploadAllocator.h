@@ -1,3 +1,15 @@
+// ============================================================================
+// Graphics/UploadAllocator.h — per-frame linear (arena) GPU allocator.
+//
+// The cornerstone of the engine's "no heap traffic per frame" rule: a bump
+// pointer over a persistently mapped upload-heap buffer. Allocate() is a few
+// instructions; Reset() reclaims everything at frame start. Owners keep one
+// allocator per frame-in-flight (kFrameCount), so the GPU can still be
+// reading frame N's data while the CPU writes frame N+1's.
+//
+// SAFETY: an allocation is valid for one frame only — never cache the
+// returned pointers. Default alignment is 256 (D3D12's CBV requirement).
+// ============================================================================
 #pragma once
 
 #include "Core/Types.h"
@@ -6,12 +18,10 @@
 namespace dungeon::gfx {
 
 struct UploadAllocation {
-    void* cpu = nullptr;
-    D3D12_GPU_VIRTUAL_ADDRESS gpu = 0;
+    void* cpu = nullptr;                   // write your data here...
+    D3D12_GPU_VIRTUAL_ADDRESS gpu = 0;     // ...and bind this address
 };
 
-// Per-frame linear allocator over a persistently mapped upload buffer; used
-// for transient constant buffers and dynamic vertex data. Reset each frame.
 class UploadAllocator {
 public:
     UploadAllocator(ID3D12Device* device, u64 capacity);

@@ -1,3 +1,17 @@
+// ============================================================================
+// Animation/Animator.h — skeletal animation playback.
+//
+// One Animator = one animated instance. It borrows (does NOT own) the
+// skeleton and clip data, so several instances can share one ModelData —
+// every monster of a kind animates from the same clips with its own time.
+// LIFETIME: the ModelData must outlive every Animator pointing into it.
+//
+// Per Update the pipeline is:
+//   rest pose ─► overlay animated channels ─► local TRS per joint
+//             ─► globals (parents first)    ─► palette = invBind * global
+// The palette feeds straight into the skinning constant buffer (b2) in
+// assets/shaders/scene.hlsl.
+// ============================================================================
 #pragma once
 
 #include "Assets/Model.h"
@@ -7,9 +21,6 @@
 #include <vector>
 
 namespace dungeon::anim {
-
-// Plays one clip at a time over a skeleton and produces the skinning palette
-// (jointGlobal * inverseBind) consumed by the GPU skinning shader.
 class Animator {
 public:
     Animator() = default;

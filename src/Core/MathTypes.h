@@ -1,3 +1,17 @@
+// ============================================================================
+// Core/MathTypes.h — math storage types and small helpers.
+//
+// Conventions used across the whole engine (worth memorizing):
+//   * DirectXMath, row-vector convention: a point transforms as  v' = v * M,
+//     so matrices compose left-to-right (world = S * R * T) and the
+//     translation lives in the fourth ROW of a Mat4 (_41.._43).
+//   * Matrices are stored row-major (XMFLOAT4X4) and uploaded to the GPU
+//     as-is; HLSL then uses mul(matrix, vector) — see assets/shaders/*.hlsl.
+//   * Coordinate system: left-handed, +Y up, the camera looks down +Z when
+//     yaw == 0 (forward = (sin yaw, 0, cos yaw)).
+//   * Vec2/3/4 and Quat are plain storage structs (XMFLOATn). Load into
+//     XMVECTOR/XMMATRIX for arithmetic-heavy code.
+// ============================================================================
 #pragma once
 
 #include <DirectXMath.h>
@@ -6,9 +20,6 @@
 #include <numbers>
 
 namespace dungeon {
-
-// DirectXMath is the de-facto math library for D3D12; we alias the storage
-// types and add the small helpers the engine needs.
 using Vec2 = DirectX::XMFLOAT2;
 using Vec3 = DirectX::XMFLOAT3;
 using Vec4 = DirectX::XMFLOAT4;

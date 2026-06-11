@@ -1,3 +1,11 @@
+// ============================================================================
+// Graphics/Mesh.h — immutable GPU mesh.
+//
+// Uploads an assets::MeshData's vertex/index arrays to default-heap buffers
+// at construction (blocking; load-time only). The single engine-wide vertex
+// layout (position/normal/uv/joints/weights) is declared in the Renderer's
+// input layout — change assets::Vertex and that layout together.
+// ============================================================================
 #pragma once
 
 #include "Assets/Model.h"
@@ -6,8 +14,6 @@
 namespace dungeon::gfx {
 
 class GraphicsDevice;
-
-// GPU mesh: immutable vertex/index buffers on the default heap.
 class Mesh {
 public:
     Mesh(GraphicsDevice& device, const assets::MeshData& data);

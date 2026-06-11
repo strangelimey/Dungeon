@@ -1,3 +1,13 @@
+// ============================================================================
+// Game/DungeonMeshBuilder.h — bakes the map into batched render geometry.
+//
+// Runs once at load. For every floor cell it stamps copies of the block
+// models (wall/floor/ceiling .gltf) into big combined vertex buffers — CPU
+// "instancing" that turns ~700 block placements into at most
+// (#texture variants) draw calls per surface type per frame. Each cell picks
+// its texture variant with a position hash, so the mix of brick/stone/mossy
+// walls is varied but identical on every run.
+// ============================================================================
 #pragma once
 
 #include "Assets/Model.h"

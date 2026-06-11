@@ -12,8 +12,13 @@ using namespace DirectX;
 
 namespace dungeon::game {
 
+// ============================================================================
+// Asset loading helpers
+// ============================================================================
 namespace {
 
+// Required assets fail hard with the loader's reason — a missing model means
+// the assets/ directory wasn't baked or copied next to the exe.
 assets::ModelData LoadModelOrDie(const std::string& name) {
     auto model = assets::LoadModel(paths::Asset("models\\" + name));
     DN_ASSERT(model.has_value(), model.error() + " — run AssetBaker over assets/");
@@ -28,6 +33,9 @@ assets::SoundData LoadSound(const std::string& name) {
 
 } // namespace
 
+// ============================================================================
+// Construction — load everything, wire the party callbacks, build the HUD.
+// ============================================================================
 Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
            gfx::SpriteBatch& spriteBatch, audio::AudioEngine& audio)
     : m_window(window), m_device(device), m_renderer(renderer),
@@ -86,6 +94,8 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
               m_monsters.size());
 }
 
+// Loads the block models + texture variant sets, bakes the map into batched
+// meshes (one per surface type per variant), and uploads them to the GPU.
 void Game::LoadSurfaces() {
     const assets::MeshData wallBlock = LoadModelOrDie("wall_block.gltf").meshes[0];
     const assets::MeshData floorBlock = LoadModelOrDie("floor_block.gltf").meshes[0];
@@ -128,6 +138,9 @@ void Game::LoadSurfaces() {
     upload(m_ceilings, geo.ceilings);
 }
 
+// Loads each monster model once (shared per kind) and creates one animator
+// per spawn. The shared ModelData must stay alive for the animators' sake —
+// it lives in m_monsterKinds for the app's lifetime.
 void Game::LoadMonsters() {
     auto kindOf = [this](char kind) -> MonsterKind& {
         auto it = m_monsterKinds.find(kind);
@@ -164,6 +177,11 @@ bool Game::MonsterAt(int x, int z) const {
     return false;
 }
 
+// ============================================================================
+// HUD — laid out once in absolute pixels from the initial window size.
+// Widgets the game updates later are kept as raw pointers (m_log, m_compass,
+// m_position); the UIContext owns all widgets.
+// ============================================================================
 void Game::BuildHud() {
     const float w = static_cast<float>(m_window.Width());
     const float h = static_cast<float>(m_window.Height());
@@ -216,6 +234,13 @@ void Game::ApplyTorchPalette(int index) {
     }
 }
 
+// ============================================================================
+// Per-frame simulation
+// ============================================================================
+
+// Rebuilds the light list every frame: the carried torch follows the camera,
+// wall torches flicker with independent phases, the pillar glows. All
+// flicker is product-of-sines — cheap, deterministic, and aperiodic enough.
 void Game::UpdateLights(float time) {
     m_lights.points.clear();
 
@@ -312,6 +337,10 @@ void Game::DrawSurface(ID3D12GraphicsCommandList* list, const Surface& surface) 
     }
 }
 
+// ============================================================================
+// Rendering — 3D scene first, HUD on top. The command list arrives from
+// GraphicsDevice::BeginFrame already cleared and bound to the back buffer.
+// ============================================================================
 void Game::Render(ID3D12GraphicsCommandList* list) {
     m_renderer.NewFrame(m_device.FrameIndex());
     m_spriteBatch.NewFrame(m_device.FrameIndex());

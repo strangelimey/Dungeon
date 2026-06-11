@@ -1,3 +1,19 @@
+// ============================================================================
+// ModelBaker.cpp — procedural model construction.
+//
+// Builds assets::ModelData in code and hands it to WriteGltf:
+//   * dungeon blocks — wall (recessed panel + edge pillars, authored facing
+//     +Z over x∈[-1,1], y∈[0,2.5]), flat floor, flat ceiling (facing down,
+//     placed at wall height by the game)
+//   * serpent pillar — skinned cylinder, 4-joint chain, looping sway clip
+//   * monsters — skeleton & mummy share a 7-joint humanoid rig (root→spine→
+//     head/arms, root→legs) with box limbs and an idle clip; the blob is a
+//     2-joint sphere with a squash-and-stretch scale clip
+//
+// Conventions: joints are emitted parent-before-child; inverse binds are
+// pure translations (-joint global position); rigid box limbs weight fully
+// to one joint, while cylinders/spheres blend between neighboring joints.
+// ============================================================================
 #include "ModelBaker.h"
 
 #include "Core/MathTypes.h"

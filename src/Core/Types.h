@@ -1,3 +1,9 @@
+// ============================================================================
+// Core/Types.h — fixed-width integer and float aliases used engine-wide.
+//
+// Every module spells sized types the same way (u32, i16, f32...) so that
+// serialization, GPU layouts, and audio sample formats read unambiguously.
+// ============================================================================
 #pragma once
 
 #include <cstdint>

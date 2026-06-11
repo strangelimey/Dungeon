@@ -73,6 +73,11 @@ KeyLerp FindKeys(const std::vector<float>& times, float time) {
 
 } // namespace
 
+// ----------------------------------------------------------------------------
+// Pose evaluation. Channels are sparse: a clip may animate only some joints
+// and only some paths (T/R/S), so we always start from the rest pose and let
+// channels overwrite what they own. Rotations slerp; T/S lerp.
+// ----------------------------------------------------------------------------
 void Animator::SamplePose(float time) {
     const auto& joints = m_skeleton->joints;
 

@@ -1,3 +1,12 @@
+// ============================================================================
+// UI/Font.h — TTF font baked to a glyph atlas.
+//
+// stb_truetype rasterizes ASCII 32..126 at a fixed pixel height into one
+// 512x512 alpha atlas (stored as white RGBA so glyphs tint via vertex color).
+// Draw() walks a string and emits one SpriteBatch quad per glyph. If the
+// requested font file is missing it falls back to standard Windows fonts
+// (Consolas → Segoe UI → Arial). Glyphs outside ASCII are skipped.
+// ============================================================================
 #pragma once
 
 #include "Core/MathTypes.h"
@@ -11,8 +20,6 @@
 #include <vector>
 
 namespace dungeon::ui {
-
-// TTF font baked to a glyph atlas (ASCII 32..126) via stb_truetype.
 class Font {
 public:
     // Tries `path` first, then common Windows fonts as fallback.

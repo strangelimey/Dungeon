@@ -1,3 +1,8 @@
+// ============================================================================
+// Graphics/D3DUtil.h — small D3D12 conveniences shared by the module:
+// ComPtr alias, the DN_HR fatal-HRESULT check, and one-line builders for the
+// verbose descriptor structs (heap properties, buffer descs, barriers).
+// ============================================================================
 #pragma once
 
 #include "Core/Assert.h"

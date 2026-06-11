@@ -1,3 +1,11 @@
+// ============================================================================
+// Core/Log.h — leveled logging with std::format-style messages.
+//
+// Usage:  log::Info("loaded {} meshes", count);
+// Output goes to stdout/stderr (visible in the debug console) and to
+// OutputDebugString (visible in the Visual Studio Output window).
+// Thread-safe; cheap enough for load-time chatter, too hot for per-frame use.
+// ============================================================================
 #pragma once
 
 #include <format>

@@ -1,3 +1,18 @@
+// ============================================================================
+// Assets/Model.h — CPU-side model data and the loaders that produce it.
+//
+// ModelData is the engine's one interchange format: the glTF and OBJ loaders
+// produce it, the AssetBaker writes it, gfx::Mesh uploads its geometry, and
+// anim::Animator plays its skeleton + clips. Everything here is plain data —
+// no D3D12, no file handles — so it can be built or inspected anywhere.
+//
+// Data flow:   file (.gltf/.glb/.obj)
+//                └─ LoadModel ──► ModelData
+//                                   ├─ meshes[]    ──► gfx::Mesh (GPU upload)
+//                                   ├─ images[]    ──► gfx::Texture
+//                                   ├─ skeleton    ──┐
+//                                   └─ clips[]     ──┴► anim::Animator
+// ============================================================================
 #pragma once
 
 #include "Assets/Image.h"
@@ -38,14 +53,20 @@ struct MeshData {
 struct JointData {
     std::string name;
     int parent = -1;          // index into SkeletonData::joints, -1 = root
+    // Maps a bind-pose model-space position into this joint's local space.
+    // The skinning palette is inverseBind * jointGlobal (row convention).
     Mat4 inverseBind = Mat4Identity();
+    // Local rest transform (used for joints no animation channel touches).
     Vec3 restTranslation{};
     Quat restRotation{0, 0, 0, 1};
     Vec3 restScale{1, 1, 1};
 };
 
+// INVARIANT: joints are sorted parent-before-child, so a single forward pass
+// can compute global transforms. The glTF loader topologically sorts on load
+// and remaps vertex joint indices to match.
 struct SkeletonData {
-    std::vector<JointData> joints; // sorted parent-before-child
+    std::vector<JointData> joints;
 };
 
 enum class ChannelPath { Translation, Rotation, Scale };
