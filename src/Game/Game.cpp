@@ -81,9 +81,11 @@ void Game::BuildLoadTasks() {
 	m_loadTasks = {
 		{"Quarrying stone blocks",
 		 [this] {
-			 m_wallBlock = LoadModelOrDie("wall_block.gltf").meshes[0];
-			 m_floorBlock = LoadModelOrDie("floor_block.gltf").meshes[0];
-			 m_ceilingBlock = LoadModelOrDie("ceiling_block.gltf").meshes[0];
+			 // The old dungeon uses the worn, crumbling block set; the clean
+			 // *_block.gltf models remain baked for newer areas of the game.
+			 m_wallBlock = LoadModelOrDie("wall_block_worn.gltf").meshes[0];
+			 m_floorBlock = LoadModelOrDie("floor_block_worn.gltf").meshes[0];
+			 m_ceilingBlock = LoadModelOrDie("ceiling_block_worn.gltf").meshes[0];
 		 }},
 		{"Weaving wall textures",
 		 [this] { LoadTextureSet(m_walls, {"wall_brick", "wall_stone", "wall_moss"}, 0.055f); }},

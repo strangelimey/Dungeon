@@ -18,6 +18,7 @@
 
 #include "Core/MathTypes.h"
 #include "GltfWriter.h"
+#include "Noise.h"
 
 #include <algorithm>
 #include <cmath>
@@ -105,13 +106,55 @@ Vec2 WallFaceUv(const Vec3& p, const Vec3& n) {
 	return {(p.z + 1.0f) * 0.5f, (kWallH - p.y) * 0.5f};
 }
 
+constexpr float kPanelX = 0.80f;     // panel half-width (between pillars)
+constexpr float kPillarOut = 0.085f; // pillar protrusion
+
+// Edge pillars plus the corner seals (outer cap + wall-plane backing strip).
+// Shared by the clean and worn wall blocks so both stay watertight at convex
+// corners — see the corner-notch fix notes on the cap below.
+void AddWallPillars(assets::MeshData& mesh) {
+	auto wq = [&](const Vec3& a, const Vec3& b, const Vec3& c, const Vec3& d,
+				  const Vec3& n) {
+		AddQuad(mesh, a, b, c, d, n, WallFaceUv(a, n), WallFaceUv(b, n),
+				WallFaceUv(c, n), WallFaceUv(d, n));
+	};
+
+	for (const float side : {-1.0f, 1.0f}) {
+		const float cx = side * (1.0f - (1.0f - kPanelX) * 0.5f);
+		const float hw = (1.0f - kPanelX) * 0.5f;
+		const float x0 = cx - hw, x1 = cx + hw;
+
+		// Front face.
+		wq({x0, 0, kPillarOut}, {x1, 0, kPillarOut}, {x1, kWallH, kPillarOut},
+		   {x0, kWallH, kPillarOut}, {0, 0, 1});
+
+		// Inner side, toward the panel.
+		const float inner = side < 0 ? x1 : x0;
+		const Vec3 n = side < 0 ? Vec3{1, 0, 0} : Vec3{-1, 0, 0};
+		wq({inner, 0, side < 0 ? kPillarOut : 0.0f}, {inner, 0, side < 0 ? 0.0f : kPillarOut},
+		   {inner, kWallH, side < 0 ? 0.0f : kPillarOut},
+		   {inner, kWallH, side < 0 ? kPillarOut : 0.0f}, n);
+
+		// Outer side cap at the block edge. Along a straight wall the next
+		// block's pillar hides it, but at an outside corner of a solid block
+		// nothing else covers this strip — without it there is a see-through
+		// notch at every convex wall corner.
+		const float outer = side < 0 ? x0 : x1; // == ±1
+		wq({outer, 0, 0}, {outer, 0, kPillarOut}, {outer, kWallH, kPillarOut},
+		   {outer, kWallH, 0}, {side, 0, 0});
+
+		// Backing strip on the wall plane behind the pillar, sealing the
+		// gap between the panel borders (|x| <= panelX) and the block edge.
+		wq({x0, 0, 0}, {x1, 0, 0}, {x1, kWallH, 0}, {x0, kWallH, 0}, {0, 0, 1});
+	}
+}
+
 assets::ModelData BuildWallBlock() {
 	assets::ModelData model;
 	assets::MeshData mesh;
 
 	const float panelZ = -0.10f;     // recess depth
-	const float pillarOut = 0.085f;  // pillar protrusion
-	const float panelX = 0.80f;      // panel half-width (between pillars)
+	const float panelX = kPanelX;
 	const float borderY0 = 0.14f, borderY1 = kWallH - 0.14f;
 
 	auto wq = [&](const Vec3& a, const Vec3& b, const Vec3& c, const Vec3& d,
@@ -138,35 +181,8 @@ assets::ModelData BuildWallBlock() {
 	wq({panelX, borderY0, 0}, {panelX, borderY1, 0}, {panelX, borderY1, panelZ},
 	   {panelX, borderY0, panelZ}, {-1, 0, 0});
 
-	// Edge pillars (boxes spanning the cell seam, slightly proud of the wall).
-	for (const float side : {-1.0f, 1.0f}) {
-		const float cx = side * (1.0f - (1.0f - panelX) * 0.5f);
-		const float hw = (1.0f - panelX) * 0.5f;
-		const float x0 = cx - hw, x1 = cx + hw;
-
-		// Front face.
-		wq({x0, 0, pillarOut}, {x1, 0, pillarOut}, {x1, kWallH, pillarOut},
-		   {x0, kWallH, pillarOut}, {0, 0, 1});
-
-		// Inner side, toward the panel.
-		const float inner = side < 0 ? x1 : x0;
-		const Vec3 n = side < 0 ? Vec3{1, 0, 0} : Vec3{-1, 0, 0};
-		wq({inner, 0, side < 0 ? pillarOut : 0.0f}, {inner, 0, side < 0 ? 0.0f : pillarOut},
-		   {inner, kWallH, side < 0 ? 0.0f : pillarOut},
-		   {inner, kWallH, side < 0 ? pillarOut : 0.0f}, n);
-
-		// Outer side cap at the block edge. Along a straight wall the next
-		// block's pillar hides it, but at an outside corner of a solid block
-		// nothing else covers this strip — without it there is a see-through
-		// notch at every convex wall corner.
-		const float outer = side < 0 ? x0 : x1; // == ±1
-		wq({outer, 0, 0}, {outer, 0, pillarOut}, {outer, kWallH, pillarOut},
-		   {outer, kWallH, 0}, {side, 0, 0});
-
-		// Backing strip on the wall plane behind the pillar, sealing the
-		// gap between the panel borders (|x| <= panelX) and the block edge.
-		wq({x0, 0, 0}, {x1, 0, 0}, {x1, kWallH, 0}, {x0, kWallH, 0}, {0, 0, 1});
-	}
+	// Edge pillars + corner seals (shared with the worn wall).
+	AddWallPillars(mesh);
 
 	model.meshes.push_back(std::move(mesh));
 	model.materials.push_back({{1, 1, 1, 1}, -1});
@@ -189,6 +205,189 @@ assets::ModelData BuildCeilingBlock() {
 	assets::MeshData mesh;
 	AddQuad(mesh, {-1, 0, 1}, {1, 0, 1}, {1, 0, -1}, {-1, 0, -1}, {0, -1, 0}, {0, 0},
 			{1, 0}, {1, 1}, {0, 1});
+	model.meshes.push_back(std::move(mesh));
+	model.materials.push_back({{1, 1, 1, 1}, -1});
+	return model;
+}
+
+// --- worn dungeon blocks -----------------------------------------------------------
+// A second block set with real displaced geometry for old, crumbling areas:
+// tessellated grids whose vertices are pushed by brick/slab-aware wear noise,
+// with normals derived analytically from the displacement gradient. All
+// displacement is pinned to zero at block edges so adjacent cells (and the
+// clean set, if mixed) always meet watertight. The clean blocks remain for
+// newer, well-kept areas of the dungeon.
+
+// Smooth 0→1 ramp within `width` of a boundary at 0.
+float PinRamp(float distance, float width) {
+	const float t = std::clamp(distance / width, 0.0f, 1.0f);
+	return t * t * (3.0f - 2.0f * t);
+}
+
+// Erosion depth (into the rock) for the worn wall surface, in wall-local
+// coordinates (x across [-1,1], y up [0,kWallH]).
+float WallWearDepth(float x, float y) {
+	const float u = x + 1.0f;       // 0..2 along the wall
+	const float v = kWallH - y;     // 0..2.5 down the wall
+
+	// Brick grid matching the texture proportions (0.5 x 0.3125).
+	const float bw = 0.50f, bh = 0.3125f;
+	const u32 row = static_cast<u32>(v / bh);
+	const float us = u + (row % 2 ? bw * 0.5f : 0.0f);
+	const u32 col = static_cast<u32>(us / bw);
+	const float bx = std::fmod(us, bw), by = std::fmod(v, bh);
+
+	// Eroded mortar joints.
+	const float joint = std::min({bx, bw - bx, by, bh - by});
+	const float mortar = std::clamp(1.0f - joint / 0.05f, 0.0f, 1.0f) * 0.035f;
+
+	// Some bricks are recessed or broken; most just vary slightly.
+	const float r = Hash(col, row, 101u);
+	const float brick = r > 0.78f ? (r - 0.78f) * 0.32f : r * 0.02f;
+
+	// Large undulation (bowed masonry) + fine roughness + ground-level wear.
+	const float undulation = (Fbm(u * 0.9f, v * 0.9f, 103u) - 0.5f) * 0.05f;
+	const float rough = (Fbm(u * 4.0f, v * 4.0f, 105u) - 0.5f) * 0.022f;
+	const float low = std::clamp(1.0f - y, 0.0f, 1.0f) * 0.02f;
+
+	const float depth = mortar + brick + undulation + rough + low;
+	// Pin to the flat plane at every block edge so seams stay closed.
+	const float pin = PinRamp(1.0f - std::fabs(x), 0.12f) * PinRamp(y, 0.10f) *
+					  PinRamp(kWallH - y, 0.10f);
+	return std::clamp(depth, 0.0f, 0.12f) * pin;
+}
+
+// Height offset for the worn floor: sunken, tilted slabs with eroded joints.
+float FloorWearHeight(float x, float z) {
+	const float u = x + 1.0f, v = z + 1.0f; // 0..2, slabs are 1m
+	const u32 col = static_cast<u32>(u), row = static_cast<u32>(v);
+
+	const float sink = -Hash(col + 17u, row + 9u, 201u) * 0.035f;
+	const float tiltX = (Hash(col, row, 203u) - 0.5f) * 0.06f;
+	const float tiltZ = (Hash(col, row, 205u) - 0.5f) * 0.06f;
+	const float lx = std::fmod(u, 1.0f) - 0.5f, lz = std::fmod(v, 1.0f) - 0.5f;
+	float h = sink + tiltX * lx + tiltZ * lz;
+
+	// Joint gaps between slabs + general unevenness.
+	const float ju = std::min(std::fmod(u, 1.0f), 1.0f - std::fmod(u, 1.0f));
+	const float jv = std::min(std::fmod(v, 1.0f), 1.0f - std::fmod(v, 1.0f));
+	h -= std::clamp(1.0f - std::min(ju, jv) / 0.06f, 0.0f, 1.0f) * 0.02f;
+	h += (Fbm(u * 2.2f, v * 2.2f, 207u) - 0.5f) * 0.03f;
+
+	const float pin = PinRamp(1.0f - std::fabs(x), 0.10f) * PinRamp(1.0f - std::fabs(z), 0.10f);
+	return std::clamp(h, -0.07f, 0.035f) * pin;
+}
+
+// Erosion pockets (upward, into the rock) for the worn ceiling.
+float CeilingWearDepth(float x, float z) {
+	const float u = x + 1.0f, v = z + 1.0f;
+	float d = std::max(0.0f, Fbm(u * 1.5f, v * 1.5f, 301u) - 0.42f) * 0.20f;
+	d += (Fbm(u * 4.0f, v * 4.0f, 303u) - 0.5f) * 0.015f;
+	const float pin = PinRamp(1.0f - std::fabs(x), 0.10f) * PinRamp(1.0f - std::fabs(z), 0.10f);
+	return std::clamp(d, 0.0f, 0.10f) * pin;
+}
+
+assets::ModelData BuildWornWallBlock() {
+	assets::ModelData model;
+	assets::MeshData mesh;
+
+	// Displaced surface replacing the clean block's panel/border relief.
+	constexpr int kNx = 28, kNy = 36;
+	constexpr float kEps = 0.02f; // finite-difference step for normals
+	for (int j = 0; j <= kNy; ++j) {
+		const float y = kWallH * static_cast<float>(j) / kNy;
+		for (int i = 0; i <= kNx; ++i) {
+			const float x = -1.0f + 2.0f * static_cast<float>(i) / kNx;
+			const float d = WallWearDepth(x, y);
+			// Surface z = -d; tangent cross product gives (dd/dx, dd/dy, 1).
+			const float ddx = (WallWearDepth(x + kEps, y) - WallWearDepth(x - kEps, y)) / (2 * kEps);
+			const float ddy = (WallWearDepth(x, y + kEps) - WallWearDepth(x, y - kEps)) / (2 * kEps);
+			const float inv = 1.0f / std::sqrt(ddx * ddx + ddy * ddy + 1.0f);
+
+			assets::Vertex vert;
+			vert.position = {x, y, -d};
+			vert.normal = {ddx * inv, ddy * inv, inv};
+			vert.uv = {(x + 1.0f) * 0.5f, (kWallH - y) * 0.5f};
+			mesh.vertices.push_back(vert);
+		}
+	}
+	const u32 stride = kNx + 1;
+	for (u32 j = 0; j < kNy; ++j)
+		for (u32 i = 0; i < kNx; ++i) {
+			const u32 a = j * stride + i, b = a + 1, c = a + stride, d2 = c + 1;
+			mesh.indices.insert(mesh.indices.end(), {a, b, d2, a, d2, c});
+		}
+
+	AddWallPillars(mesh);
+	model.meshes.push_back(std::move(mesh));
+	model.materials.push_back({{1, 1, 1, 1}, -1});
+	return model;
+}
+
+assets::ModelData BuildWornFloorBlock() {
+	assets::ModelData model;
+	assets::MeshData mesh;
+
+	constexpr int kN = 28;
+	constexpr float kEps = 0.02f;
+	for (int j = 0; j <= kN; ++j) {
+		const float z = -1.0f + 2.0f * static_cast<float>(j) / kN;
+		for (int i = 0; i <= kN; ++i) {
+			const float x = -1.0f + 2.0f * static_cast<float>(i) / kN;
+			const float h = FloorWearHeight(x, z);
+			const float hx = (FloorWearHeight(x + kEps, z) - FloorWearHeight(x - kEps, z)) / (2 * kEps);
+			const float hz = (FloorWearHeight(x, z + kEps) - FloorWearHeight(x, z - kEps)) / (2 * kEps);
+			const float inv = 1.0f / std::sqrt(hx * hx + hz * hz + 1.0f);
+
+			assets::Vertex vert;
+			vert.position = {x, h, z};
+			vert.normal = {-hx * inv, inv, -hz * inv};
+			vert.uv = {(x + 1.0f) * 0.5f, (z + 1.0f) * 0.5f};
+			mesh.vertices.push_back(vert);
+		}
+	}
+	const u32 stride = kN + 1;
+	for (u32 j = 0; j < kN; ++j)
+		for (u32 i = 0; i < kN; ++i) {
+			const u32 a = j * stride + i, b = a + 1, c = a + stride, d2 = c + 1;
+			mesh.indices.insert(mesh.indices.end(), {a, d2, b, a, c, d2});
+		}
+
+	model.meshes.push_back(std::move(mesh));
+	model.materials.push_back({{1, 1, 1, 1}, -1});
+	return model;
+}
+
+assets::ModelData BuildWornCeilingBlock() {
+	assets::ModelData model;
+	assets::MeshData mesh;
+
+	// Authored at y=0 facing down (like the clean block); erosion goes up.
+	constexpr int kN = 24;
+	constexpr float kEps = 0.02f;
+	for (int j = 0; j <= kN; ++j) {
+		const float z = -1.0f + 2.0f * static_cast<float>(j) / kN;
+		for (int i = 0; i <= kN; ++i) {
+			const float x = -1.0f + 2.0f * static_cast<float>(i) / kN;
+			const float d = CeilingWearDepth(x, z);
+			const float dx = (CeilingWearDepth(x + kEps, z) - CeilingWearDepth(x - kEps, z)) / (2 * kEps);
+			const float dz = (CeilingWearDepth(x, z + kEps) - CeilingWearDepth(x, z - kEps)) / (2 * kEps);
+			const float inv = 1.0f / std::sqrt(dx * dx + dz * dz + 1.0f);
+
+			assets::Vertex vert;
+			vert.position = {x, d, z};
+			vert.normal = {dx * inv, -inv, dz * inv};
+			vert.uv = {(x + 1.0f) * 0.5f, (z + 1.0f) * 0.5f};
+			mesh.vertices.push_back(vert);
+		}
+	}
+	const u32 stride = kN + 1;
+	for (u32 j = 0; j < kN; ++j)
+		for (u32 i = 0; i < kN; ++i) {
+			const u32 a = j * stride + i, b = a + 1, c = a + stride, d2 = c + 1;
+			mesh.indices.insert(mesh.indices.end(), {a, b, d2, a, d2, c});
+		}
+
 	model.meshes.push_back(std::move(mesh));
 	model.materials.push_back({{1, 1, 1, 1}, -1});
 	return model;
@@ -450,6 +649,9 @@ bool BakeModels(const std::string& dir) {
 	ok &= WriteGltf(BuildWallBlock(), dir + "\\wall_block.gltf");
 	ok &= WriteGltf(BuildFloorBlock(), dir + "\\floor_block.gltf");
 	ok &= WriteGltf(BuildCeilingBlock(), dir + "\\ceiling_block.gltf");
+	ok &= WriteGltf(BuildWornWallBlock(), dir + "\\wall_block_worn.gltf");
+	ok &= WriteGltf(BuildWornFloorBlock(), dir + "\\floor_block_worn.gltf");
+	ok &= WriteGltf(BuildWornCeilingBlock(), dir + "\\ceiling_block_worn.gltf");
 	ok &= WriteGltf(BuildSerpentPillar(), dir + "\\pillar.gltf");
 	ok &= WriteGltf(BuildHumanoid({{0.93f, 0.90f, 0.80f, 1.0f}, 0.85f, 3.2f, 0.0f, 0.12f}),
 					dir + "\\skeleton.gltf");

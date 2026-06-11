@@ -56,8 +56,10 @@ dependency rules.
 The game loads only files from `assets/` — nothing is generated at runtime.
 Textures come in albedo + `_n` pairs (`_n` holds the tangent-space normal in
 RGB and a height field in alpha, used for bump and parallax mapping). Dungeon
-cells are instanced from `wall_block.gltf` / `floor_block.gltf` /
-`ceiling_block.gltf`; monsters (`skeleton`, `mummy`, `blob`) are skinned glTF
+cells are instanced from block models in two sets: the `*_block_worn.gltf`
+set (tessellated, displaced geometry — crumbling bricks, sunken slabs) used
+by the current dungeon, and the clean `*_block.gltf` set reserved for newer,
+well-kept areas. Monsters (`skeleton`, `mummy`, `blob`) are skinned glTF
 models with an `idle` clip. To regenerate everything:
 
 ```
