@@ -24,6 +24,10 @@ class Party {
 public:
 	Party(const DungeonMap& map, int x, int z);
 
+	// Snaps the party back to a cell facing south, clearing all interpolation
+	// state. Callbacks stay wired — used by "Start New Game".
+	void Reset(int x, int z);
+
 	void HandleInput(const Input& input);
 	void Update(float dt);
 

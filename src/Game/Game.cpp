@@ -34,30 +34,17 @@ assets::SoundData LoadSound(const std::string& name) {
 } // namespace
 
 // ============================================================================
-// Construction — load everything, wire the party callbacks, build the HUD.
+// Construction — cheap setup only; the heavy asset work is queued as load
+// tasks that run one per frame behind the loading screen (see Update).
 // ============================================================================
 Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 		   gfx::SpriteBatch& spriteBatch, audio::AudioEngine& audio)
 	: m_window(window), m_device(device), m_renderer(renderer),
 	  m_spriteBatch(spriteBatch), m_audio(audio),
 	  m_party(m_map, m_map.StartX(), m_map.StartZ()),
-	  m_ui(device, "", 17.0f) {
-	LoadSurfaces();
-	LoadMonsters();
-
-	// Animated pillar two cells south of the start.
-	m_pillarModel = LoadModelOrDie("pillar.gltf");
-	m_pillarMesh = std::make_unique<gfx::Mesh>(device, m_pillarModel.meshes[0]);
-	m_pillarAnimator = anim::Animator(&m_pillarModel.skeleton, &m_pillarModel.clips);
-	m_pillarAnimator.Play("sway");
-	m_pillarPos = m_map.CellCenter(m_map.StartX(), m_map.StartZ() + 2);
-
-	m_sfxFootstep = LoadSound("footstep.wav");
-	m_sfxBump = LoadSound("bump.wav");
-	m_sfxTurn = LoadSound("turn.wav");
-	m_sfxClick = LoadSound("click.wav");
-	m_sfxMonster = LoadSound("monster.wav");
-
+	  m_ui(device, "", 17.0f), m_menuUi(device, "", 28.0f),
+	  m_titleFont(device, "", 64.0f) {
+	// Party event hooks (survive Party::Reset).
 	m_party.onStep = [this] { m_audio.Play(m_sfxFootstep, 0.8f); };
 	m_party.onBlocked = [this] {
 		m_audio.Play(m_sfxBump, 0.9f);
@@ -76,62 +63,90 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 		return false;
 	};
 
-	m_camera.SetLens(70.0f * kPi / 180.0f,
-					 static_cast<float>(window.Width()) / window.Height(), 0.05f,
-					 100.0f);
 	m_lights.ambient = {0.035f, 0.032f, 0.045f};
 	m_lights.directional.color = {0, 0, 0}; // no sun underground
 	// Rebuilt every frame into retained capacity — no steady-state allocation.
 	m_lights.points.reserve(gfx::kMaxPointLights);
 
-	BuildHud();
-
-	m_log->AddLine("You descend into the dungeon...");
-	m_log->AddLine("Something shuffles in the dark.");
-	m_log->AddLine("W/S move, A/D strafe, Q/E turn.");
-	log::Info("Game initialized: {}x{} dungeon, {} torches, {} monsters",
-			  m_map.Width(), m_map.Height(), m_map.TorchCells().size(),
-			  m_monsters.size());
+	BuildMenu();
+	BuildLoadTasks();
 }
 
-// Loads the block models + texture variant sets, bakes the map into batched
-// meshes (one per surface type per variant), and uploads them to the GPU.
-void Game::LoadSurfaces() {
-	const assets::MeshData wallBlock = LoadModelOrDie("wall_block.gltf").meshes[0];
-	const assets::MeshData floorBlock = LoadModelOrDie("floor_block.gltf").meshes[0];
-	const assets::MeshData ceilBlock = LoadModelOrDie("ceiling_block.gltf").meshes[0];
-
-	auto loadSet = [&](Surface& surface, std::initializer_list<const char*> names,
-					   float heightScale) {
-		surface.heightScale = heightScale;
-		for (const char* name : names) {
-			auto albedo = assets::LoadImageFile(
-				paths::Asset(std::format("textures\\{}.png", name)));
-			auto normal = assets::LoadImageFile(
-				paths::Asset(std::format("textures\\{}_n.png", name)));
-			DN_ASSERT(albedo && normal,
-					  (albedo ? normal : albedo).error() +
-						  " — run AssetBaker over assets/");
-			surface.albedo.push_back(std::make_unique<gfx::Texture>(m_device, *albedo));
-			surface.normal.push_back(std::make_unique<gfx::Texture>(m_device, *normal));
-		}
+// ============================================================================
+// Staged loading. Each task is one frame's worth of blocking work; the
+// loading screen renders between tasks. Order matters: textures register
+// their variant counts before the geometry task buckets cells by variant.
+// ============================================================================
+void Game::BuildLoadTasks() {
+	m_loadTasks = {
+		{"Quarrying stone blocks",
+		 [this] {
+			 m_wallBlock = LoadModelOrDie("wall_block.gltf").meshes[0];
+			 m_floorBlock = LoadModelOrDie("floor_block.gltf").meshes[0];
+			 m_ceilingBlock = LoadModelOrDie("ceiling_block.gltf").meshes[0];
+		 }},
+		{"Weaving wall textures",
+		 [this] { LoadTextureSet(m_walls, {"wall_brick", "wall_stone", "wall_moss"}, 0.055f); }},
+		{"Laying floors and ceilings",
+		 [this] {
+			 LoadTextureSet(m_floors, {"floor_slabs", "floor_cobble"}, 0.045f);
+			 LoadTextureSet(m_ceilings, {"ceiling_rough", "ceiling_cracked"}, 0.035f);
+		 }},
+		{"Raising the dungeon", [this] { BuildDungeonMeshes(); }},
+		{"Carving the serpent pillar",
+		 [this] {
+			 m_pillarModel = LoadModelOrDie("pillar.gltf");
+			 m_pillarMesh = std::make_unique<gfx::Mesh>(m_device, m_pillarModel.meshes[0]);
+			 m_pillarAnimator = anim::Animator(&m_pillarModel.skeleton, &m_pillarModel.clips);
+			 m_pillarAnimator.Play("sway");
+			 m_pillarPos = m_map.CellCenter(m_map.StartX(), m_map.StartZ() + 2);
+		 }},
+		{"Waking the monsters", [this] { LoadMonsters(); }},
+		{"Tuning the echoes",
+		 [this] {
+			 m_sfxFootstep = LoadSound("footstep.wav");
+			 m_sfxBump = LoadSound("bump.wav");
+			 m_sfxTurn = LoadSound("turn.wav");
+			 m_sfxClick = LoadSound("click.wav");
+			 m_sfxMonster = LoadSound("monster.wav");
+		 }},
+		{"Lighting the torches",
+		 [this] {
+			 BuildHud();
+			 log::Info("Game loaded: {}x{} dungeon, {} torches, {} monsters",
+					   m_map.Width(), m_map.Height(), m_map.TorchCells().size(),
+					   m_monsters.size());
+		 }},
 	};
-	loadSet(m_walls, {"wall_brick", "wall_stone", "wall_moss"}, 0.055f);
-	loadSet(m_floors, {"floor_slabs", "floor_cobble"}, 0.045f);
-	loadSet(m_ceilings, {"ceiling_rough", "ceiling_cracked"}, 0.035f);
+}
 
+void Game::LoadTextureSet(Surface& surface, std::initializer_list<const char*> names,
+						  float heightScale) {
+	surface.heightScale = heightScale;
+	for (const char* name : names) {
+		auto albedo =
+			assets::LoadImageFile(paths::Asset(std::format("textures\\{}.png", name)));
+		auto normal =
+			assets::LoadImageFile(paths::Asset(std::format("textures\\{}_n.png", name)));
+		DN_ASSERT(albedo && normal,
+				  (albedo ? normal : albedo).error() + " — run AssetBaker over assets/");
+		surface.albedo.push_back(std::make_unique<gfx::Texture>(m_device, *albedo));
+		surface.normal.push_back(std::make_unique<gfx::Texture>(m_device, *normal));
+	}
+}
+
+void Game::BuildDungeonMeshes() {
 	const DungeonGeometry geo = BuildDungeonGeometry(
-		m_map, wallBlock, floorBlock, ceilBlock,
+		m_map, m_wallBlock, m_floorBlock, m_ceilingBlock,
 		static_cast<u32>(m_walls.albedo.size()),
 		static_cast<u32>(m_floors.albedo.size()),
 		static_cast<u32>(m_ceilings.albedo.size()));
 
 	auto upload = [&](Surface& surface, const std::vector<assets::MeshData>& buckets) {
 		for (const assets::MeshData& bucket : buckets)
-			surface.meshes.push_back(
-				bucket.vertices.empty()
-					? nullptr
-					: std::make_unique<gfx::Mesh>(m_device, bucket));
+			surface.meshes.push_back(bucket.vertices.empty()
+										 ? nullptr
+										 : std::make_unique<gfx::Mesh>(m_device, bucket));
 	};
 	upload(m_walls, geo.walls);
 	upload(m_floors, geo.floors);
@@ -178,6 +193,44 @@ bool Game::MonsterAt(int x, int z) const {
 }
 
 // ============================================================================
+// Landing page — title plus a MenuList; entries highlight on mouse hover or
+// keyboard/gamepad selection. Only "Start New Game" is wired up for now.
+// ============================================================================
+void Game::BuildMenu() {
+	const float w = static_cast<float>(m_window.Width());
+	const float h = static_cast<float>(m_window.Height());
+
+	const float menuW = 420.0f;
+	const float itemH = 58.0f;
+	auto* menu = m_menuUi.Add<ui::MenuList>(
+		gfx::Rect{(w - menuW) * 0.5f, h * 0.42f, menuW, itemH * 5}, itemH);
+
+	menu->AddItem("Continue");           // not implemented yet
+	menu->AddItem("Start New Game", [this] {
+		m_audio.Play(m_sfxClick, 0.6f);
+		StartNewGame();
+	});
+	menu->AddItem("Load");               // not implemented yet
+	menu->AddItem("Save");               // not implemented yet
+	menu->AddItem("Settings");           // not implemented yet
+}
+
+void Game::StartNewGame() {
+	m_party.Reset(m_map.StartX(), m_map.StartZ());
+	for (Monster& monster : m_monsters) monster.announced = false;
+	ApplyTorchPalette(0);
+
+	m_log->Clear();
+	m_log->AddLine("You descend into the dungeon...");
+	m_log->AddLine("Something shuffles in the dark.");
+	m_log->AddLine("W/S move, A/D strafe, Q/E turn.");
+
+	m_lastFacing = m_lastGridX = m_lastGridZ = -1; // force HUD label refresh
+	m_state = AppState::Playing;
+	log::Info("New game started");
+}
+
+// ============================================================================
 // HUD — laid out once in absolute pixels from the initial window size.
 // Widgets the game updates later are kept as raw pointers (m_log, m_compass,
 // m_position); the UIContext owns all widgets.
@@ -186,21 +239,23 @@ void Game::BuildHud() {
 	const float w = static_cast<float>(m_window.Width());
 	const float h = static_cast<float>(m_window.Height());
 
+	// Message log, bottom-left.
 	m_log = m_ui.Add<ui::TextOutput>(gfx::Rect{16, h - 200, 520, 184});
 
+	// Status labels, top-left.
 	m_ui.Add<ui::Panel>(gfx::Rect{16, 16, 240, 64});
 	m_compass = m_ui.Add<ui::Label>(gfx::Rect{28, 26, 220, 20}, "Facing: South");
 	m_position = m_ui.Add<ui::Label>(gfx::Rect{28, 50, 220, 20}, "Position: -");
 	m_position->dim = true;
 
+	// Options panel, top-right.
 	const float panelW = 250;
 	const float px = w - panelW - 16;
 	m_ui.Add<ui::Panel>(gfx::Rect{px, 16, panelW, 240});
 	m_ui.Add<ui::Label>(gfx::Rect{px + 14, 26, panelW - 28, 20}, "Options");
 
-	m_ui.Add<ui::Slider>(
-		gfx::Rect{px + 14, 84, panelW - 28, 18}, "Volume", 0.0f, 1.0f, 1.0f,
-		[this](float v) { m_audio.SetMasterVolume(v); });
+	m_ui.Add<ui::Slider>(gfx::Rect{px + 14, 84, panelW - 28, 18}, "Volume", 0.0f, 1.0f,
+						 1.0f, [this](float v) { m_audio.SetMasterVolume(v); });
 
 	m_ui.Add<ui::Label>(gfx::Rect{px + 14, 116, panelW - 28, 20}, "Torchlight")->dim =
 		true;
@@ -217,8 +272,8 @@ void Game::BuildHud() {
 							 m_audio.Play(m_sfxClick, 0.5f);
 							 m_log->AddLine("You wait. The torches gutter.");
 						 });
-	m_ui.Add<ui::Button>(gfx::Rect{px + 24 + (panelW - 38) / 2, 180,
-								   (panelW - 38) / 2, 28},
+	m_ui.Add<ui::Button>(gfx::Rect{px + 24 + (panelW - 38) / 2, 180, (panelW - 38) / 2,
+								   28},
 						 "Help", [this] {
 							 m_audio.Play(m_sfxClick, 0.5f);
 							 m_log->AddLine("W/S move, A/D strafe, Q/E turn.");
@@ -237,6 +292,15 @@ void Game::ApplyTorchPalette(int index) {
 // ============================================================================
 // Per-frame simulation
 // ============================================================================
+
+void Game::UpdateCamera() {
+	m_camera.SetPosition(m_party.EyePosition());
+	m_camera.SetYawPitch(m_party.Yaw(), 0.0f);
+	m_camera.SetLens(70.0f * kPi / 180.0f,
+					 static_cast<float>(m_device.Width()) /
+						 static_cast<float>(m_device.Height()),
+					 0.05f, 100.0f);
+}
 
 // Rebuilds the light list every frame: the carried torch follows the camera,
 // wall torches flicker with independent phases, the pillar glows. All
@@ -299,19 +363,40 @@ void Game::UpdateMonsters(float dt) {
 void Game::Update(float dt) {
 	m_time += dt;
 
+	switch (m_state) {
+	case AppState::Loading:
+		// Run one load task per frame, but only after the loading screen has
+		// been presented at least once.
+		if (m_framesRendered > 0 && m_loadIndex < m_loadTasks.size()) {
+			m_loadTasks[m_loadIndex].second();
+			++m_loadIndex;
+			if (m_loadIndex == m_loadTasks.size()) m_state = AppState::Menu;
+		}
+		return;
+
+	case AppState::Menu:
+		// The dungeon idles behind the menu: torches flicker, the pillar
+		// sways, monsters shuffle in place.
+		m_menuUi.Update(m_window.GetInput());
+		m_pillarAnimator.Update(dt);
+		for (Monster& monster : m_monsters) monster.animator.Update(dt);
+		UpdateLights(m_time);
+		UpdateCamera();
+		return;
+
+	case AppState::Playing:
+		break;
+	}
+
+	// --- Playing -------------------------------------------------------------
+	// UI first so it can consume the mouse; keyboard always reaches the party.
 	m_ui.Update(m_window.GetInput());
 	m_party.HandleInput(m_window.GetInput());
 	m_party.Update(dt);
 	m_pillarAnimator.Update(dt);
 	UpdateMonsters(dt);
 	UpdateLights(m_time);
-
-	m_camera.SetPosition(m_party.EyePosition());
-	m_camera.SetYawPitch(m_party.Yaw(), 0.0f);
-	m_camera.SetLens(70.0f * kPi / 180.0f,
-					 static_cast<float>(m_device.Width()) /
-						 static_cast<float>(m_device.Height()),
-					 0.05f, 100.0f);
+	UpdateCamera();
 
 	// Reformat the status labels only when they actually change; per-frame
 	// string formatting is needless heap churn.
@@ -326,26 +411,23 @@ void Game::Update(float dt) {
 	}
 }
 
+// ============================================================================
+// Rendering — the command list arrives from GraphicsDevice::BeginFrame
+// already cleared and bound. Loading shows a 2D-only screen; Menu draws the
+// idle dungeon behind a darkened overlay; Playing draws the scene + HUD.
+// ============================================================================
+
 void Game::DrawSurface(ID3D12GraphicsCommandList* list, const Surface& surface) {
 	const Mat4 identity = Mat4Identity();
 	const Vec4 white{1, 1, 1, 1};
 	for (size_t i = 0; i < surface.meshes.size(); ++i) {
 		if (!surface.meshes[i]) continue;
-		m_renderer.DrawMesh(list, *surface.meshes[i], identity,
-							surface.albedo[i].get(), white, {},
-							surface.normal[i].get(), surface.heightScale);
+		m_renderer.DrawMesh(list, *surface.meshes[i], identity, surface.albedo[i].get(),
+							white, {}, surface.normal[i].get(), surface.heightScale);
 	}
 }
 
-// ============================================================================
-// Rendering — 3D scene first, HUD on top. The command list arrives from
-// GraphicsDevice::BeginFrame already cleared and bound to the back buffer.
-// ============================================================================
-void Game::Render(ID3D12GraphicsCommandList* list) {
-	m_renderer.NewFrame(m_device.FrameIndex());
-	m_spriteBatch.NewFrame(m_device.FrameIndex());
-
-	// --- 3D scene ---------------------------------------------------------
+void Game::RenderScene(ID3D12GraphicsCommandList* list) {
 	m_renderer.BeginScene(list, m_camera, m_lights);
 	DrawSurface(list, m_walls);
 	DrawSurface(list, m_floors);
@@ -370,11 +452,74 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 							kind.model.materials[0].baseColorFactor,
 							monster.animator.Palette());
 	}
+}
 
-	// --- HUD ----------------------------------------------------------------
+void Game::RenderLoadingScreen() {
+	const float w = static_cast<float>(m_device.Width());
+	const float h = static_cast<float>(m_device.Height());
+	const ui::Theme& theme = m_menuUi.GetTheme();
+
+	// Title.
+	const char* title = "DUNGEON";
+	const float titleW = m_titleFont.MeasureWidth(title);
+	m_titleFont.Draw(m_spriteBatch, title, (w - titleW) * 0.5f, h * 0.32f, theme.accent);
+
+	// Progress bar.
+	const float total = static_cast<float>(m_loadTasks.size());
+	const float progress = total > 0 ? static_cast<float>(m_loadIndex) / total : 1.0f;
+	const gfx::Rect bar{w * 0.3f, h * 0.52f, w * 0.4f, 14.0f};
+	m_spriteBatch.DrawRect(bar, theme.control);
+	m_spriteBatch.DrawRect({bar.x, bar.y, bar.w * progress, bar.h}, theme.accent);
+	ui::DrawBorder(m_spriteBatch, bar, theme.panelBorder);
+
+	// Current step name under the bar.
+	const char* step = m_loadIndex < m_loadTasks.size()
+						   ? m_loadTasks[m_loadIndex].first
+						   : "Entering the dungeon...";
+	ui::Font& font = m_menuUi.GetFont();
+	const float stepW = font.MeasureWidth(step);
+	font.Draw(m_spriteBatch, step, (w - stepW) * 0.5f, bar.y + 28.0f, theme.textDim);
+}
+
+void Game::RenderMenuOverlay() {
+	const float w = static_cast<float>(m_device.Width());
+	const float h = static_cast<float>(m_device.Height());
+	const ui::Theme& theme = m_menuUi.GetTheme();
+
+	// Darken the idle dungeon behind the menu.
+	m_spriteBatch.DrawRect({0, 0, w, h}, {0, 0, 0, 0.55f});
+
+	// Title + subtitle.
+	const char* title = "DUNGEON";
+	const float titleW = m_titleFont.MeasureWidth(title);
+	m_titleFont.Draw(m_spriteBatch, title, (w - titleW) * 0.5f, h * 0.16f, theme.accent);
+
+	const char* subtitle = "an old-school crawler";
+	ui::Font& font = m_menuUi.GetFont();
+	const float subW = font.MeasureWidth(subtitle);
+	font.Draw(m_spriteBatch, subtitle, (w - subW) * 0.5f, h * 0.16f + 74.0f,
+			  theme.textDim);
+
+	m_menuUi.Render(m_spriteBatch);
+}
+
+void Game::Render(ID3D12GraphicsCommandList* list) {
+	m_renderer.NewFrame(m_device.FrameIndex());
+	m_spriteBatch.NewFrame(m_device.FrameIndex());
+
+	// 3D scene exists once loading has finished.
+	if (m_state != AppState::Loading) RenderScene(list);
+
+	// 2D pass.
 	m_spriteBatch.Begin(list, m_device.Width(), m_device.Height());
-	m_ui.Render(m_spriteBatch);
+	switch (m_state) {
+	case AppState::Loading: RenderLoadingScreen(); break;
+	case AppState::Menu:    RenderMenuOverlay(); break;
+	case AppState::Playing: m_ui.Render(m_spriteBatch); break;
+	}
 	m_spriteBatch.End();
+
+	++m_framesRendered;
 }
 
 } // namespace dungeon::game

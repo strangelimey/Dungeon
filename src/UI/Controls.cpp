@@ -28,6 +28,11 @@ void Label::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
 
 // --- TextOutput ----------------------------------------------------------
 
+void TextOutput::Clear() {
+	m_lines.clear();
+	m_scroll = 0.0f;
+}
+
 void TextOutput::AddLine(std::string line) {
 	m_lines.push_back(std::move(line));
 	while (m_lines.size() > m_maxLines) m_lines.pop_front();
@@ -212,6 +217,87 @@ void DropDown::DrawOverlay(UIContext& ctx, gfx::SpriteBatch& batch) {
 		DrawBorder(batch, rect, theme.panelBorder);
 		font.Draw(batch, items[i], rect.x + 8, rect.y + (rect.h - font.Height()) * 0.5f,
 				  static_cast<int>(i) == m_selected ? theme.accent : theme.text);
+	}
+}
+
+// --- MenuList --------------------------------------------------------------
+
+void MenuList::AddItem(std::string label, std::function<void()> onActivate) {
+	m_items.push_back({std::move(label), std::move(onActivate)});
+}
+
+gfx::Rect MenuList::ItemRect(size_t index) const {
+	return {bounds.x, bounds.y + m_itemHeight * static_cast<float>(index), bounds.w,
+			m_itemHeight - 8.0f}; // 8px gap between entries
+}
+
+void MenuList::MoveSelection(int delta) {
+	if (m_items.empty()) return;
+	const int count = static_cast<int>(m_items.size());
+	m_selected = (m_selected + delta + count) % count; // wrap around
+}
+
+void MenuList::Activate() {
+	if (m_selected >= 0 && m_selected < static_cast<int>(m_items.size())) {
+		const auto& onActivate = m_items[static_cast<size_t>(m_selected)].onActivate;
+		if (onActivate) onActivate();
+	}
+}
+
+void MenuList::Update(UIContext& ctx) {
+	const Input* input = ctx.CurrentInput();
+	if (!input) return;
+
+	// Mouse: hovering selects, clicking activates.
+	if (!ctx.IsMouseConsumed()) {
+		for (size_t i = 0; i < m_items.size(); ++i) {
+			if (!ItemRect(i).Contains(input->MouseX(), input->MouseY())) continue;
+			m_selected = static_cast<int>(i);
+			ctx.ConsumeMouse();
+			if (input->WasMousePressed(MouseButton::Left)) Activate();
+			break;
+		}
+	}
+
+	// Keyboard and gamepad: move the selection, Enter/Space/A activates.
+	constexpr int kVkUp = 0x26, kVkDown = 0x28, kVkReturn = 0x0D, kVkSpace = 0x20;
+	if (input->WasKeyPressed(kVkUp) || input->WasKeyPressed('W') ||
+		input->WasPadPressed(PadButton::Up))
+		MoveSelection(-1);
+	if (input->WasKeyPressed(kVkDown) || input->WasKeyPressed('S') ||
+		input->WasPadPressed(PadButton::Down))
+		MoveSelection(+1);
+	if (input->WasKeyPressed(kVkReturn) || input->WasKeyPressed(kVkSpace) ||
+		input->WasPadPressed(PadButton::A))
+		Activate();
+}
+
+void MenuList::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
+	const Theme& theme = ctx.GetTheme();
+	Font& font = ctx.GetFont();
+
+	for (size_t i = 0; i < m_items.size(); ++i) {
+		const gfx::Rect rect = ItemRect(i);
+		const bool selected = static_cast<int>(i) == m_selected;
+
+		if (selected) {
+			// Highlight: warm translucent bar + accent border + side markers.
+			Vec4 fill = theme.accent;
+			fill.w = 0.22f;
+			batch.DrawRect(rect, fill);
+			DrawBorder(batch, rect, theme.accent);
+		}
+
+		const std::string& label = m_items[i].label;
+		const float textW = font.MeasureWidth(label);
+		const float textX = rect.x + (rect.w - textW) * 0.5f;
+		const float textY = rect.y + (rect.h - font.Height()) * 0.5f;
+		font.Draw(batch, label, textX, textY, selected ? theme.accent : theme.text);
+
+		if (selected) {
+			font.Draw(batch, ">", rect.x + 16, textY, theme.accent);
+			font.Draw(batch, "<", rect.x + rect.w - 24, textY, theme.accent);
+		}
 	}
 }
 

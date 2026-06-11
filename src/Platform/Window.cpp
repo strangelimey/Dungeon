@@ -44,6 +44,7 @@ Window::~Window() {
 }
 
 bool Window::PumpMessages() {
+	m_input.PollGamepad();
 	MSG msg{};
 	while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {
 		TranslateMessage(&msg);

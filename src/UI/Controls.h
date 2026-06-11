@@ -53,6 +53,7 @@ public:
 	}
 
 	void AddLine(std::string line);
+	void Clear();
 	void Update(UIContext& ctx) override;
 	void Draw(UIContext& ctx, gfx::SpriteBatch& batch) override;
 
@@ -129,6 +130,38 @@ private:
 	int m_hoverItem = -1;
 	bool m_open = false;
 	bool m_hot = false;
+};
+
+// Vertical list of selectable menu entries (the landing page). One entry is
+// always "selected"; the mouse selects by hover, keyboard (arrows / W/S +
+// Enter/Space) and gamepad (d-pad / left stick + A) move the selection and
+// activate it, so the highlight works identically for all input methods.
+// Entries with no callback still highlight but do nothing when activated.
+class MenuList : public Widget {
+public:
+	MenuList(const gfx::Rect& rect, float itemHeight) : m_itemHeight(itemHeight) {
+		bounds = rect;
+	}
+
+	void AddItem(std::string label, std::function<void()> onActivate = {});
+
+	int Selected() const { return m_selected; }
+	void Update(UIContext& ctx) override;
+	void Draw(UIContext& ctx, gfx::SpriteBatch& batch) override;
+
+private:
+	struct Item {
+		std::string label;
+		std::function<void()> onActivate;
+	};
+
+	gfx::Rect ItemRect(size_t index) const;
+	void MoveSelection(int delta);
+	void Activate();
+
+	std::vector<Item> m_items;
+	float m_itemHeight;
+	int m_selected = 0;
 };
 
 // Draws a 1px border around a rectangle.

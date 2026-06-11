@@ -22,6 +22,19 @@ Party::Party(const DungeonMap& map, int x, int z) : m_map(map), m_x(x), m_z(z) {
 	m_currentYaw = m_targetYaw = YawForFacing(m_facing);
 }
 
+void Party::Reset(int x, int z) {
+	m_x = x;
+	m_z = z;
+	m_facing = 2; // south, into the dungeon
+	m_currentPos = m_targetPos = m_moveFrom = m_map.CellCenter(x, z);
+	m_currentYaw = m_targetYaw = YawForFacing(m_facing);
+	m_moving = false;
+	m_turning = false;
+	m_moveT = 0.0f;
+	m_bobPhase = 0.0f;
+	m_blockCooldown = 0.0f;
+}
+
 const char* Party::FacingName(int facing) {
 	switch (facing & 3) {
 	case 0: return "North";
