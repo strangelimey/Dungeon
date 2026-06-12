@@ -19,16 +19,25 @@ void DrawStatBar(gfx::SpriteBatch& batch, const gfx::Rect& rect, float fraction,
 
 // Baked portrait texture when present; otherwise the tinted square with the
 // character's initial as a fallback (fresh checkout before AssetBaker runs).
+// The border is the character's identity color, matching the HandSlot
+// stripe — doubled so the color coding actually reads at party-bar size.
+void DrawIdentityBorder(gfx::SpriteBatch& batch, const gfx::Rect& rect,
+						const Character& character) {
+	ui::DrawBorder(batch, rect, character.portraitColor);
+	ui::DrawBorder(batch, {rect.x + 1, rect.y + 1, rect.w - 2, rect.h - 2},
+				   character.portraitColor);
+}
+
 void DrawPortrait(gfx::SpriteBatch& batch, const gfx::Rect& rect,
 				  const Character& character, const ui::Font& font,
 				  const ui::Theme& theme) {
 	if (character.portrait) {
 		batch.DrawSprite(rect, {0, 0, 1, 1}, *character.portrait, {1, 1, 1, 1});
-		ui::DrawBorder(batch, rect, theme.panelBorder);
+		DrawIdentityBorder(batch, rect, character);
 		return;
 	}
 	batch.DrawRect(rect, character.portraitColor);
-	ui::DrawBorder(batch, rect, theme.panelBorder);
+	DrawIdentityBorder(batch, rect, character);
 	const std::string_view initial = std::string_view(character.name).substr(0, 1);
 	const float initialW = font.MeasureWidth(initial);
 	font.Draw(batch, initial, rect.x + (rect.w - initialW) * 0.5f,
