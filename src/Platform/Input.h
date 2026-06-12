@@ -12,6 +12,7 @@
 #include "Core/Types.h"
 
 #include <array>
+#include <string>
 #include <utility>
 
 namespace dungeon {
@@ -26,6 +27,15 @@ public:
 	bool IsKeyDown(int vkey) const { return m_keys[vkey & 0xFF]; }
 	bool WasKeyPressed(int vkey) const { return m_keysPressed[vkey & 0xFF]; }
 	bool WasKeyReleased(int vkey) const { return m_keysReleased[vkey & 0xFF]; }
+
+	// First keyboard key that went down this frame (virtual-key code), or -1.
+	// Lets the UI capture "press any key" rebinding. Starts at VK_BACK (0x08)
+	// so the low mouse-button codes can never alias as keys.
+	int FirstPressedKey() const {
+		for (int vkey = 0x08; vkey < 256; ++vkey)
+			if (m_keysPressed[static_cast<size_t>(vkey)]) return vkey;
+		return -1;
+	}
 
 	bool IsMouseDown(MouseButton b) const { return m_mouse[std::to_underlying(b)]; }
 	bool WasMousePressed(MouseButton b) const { return m_mousePressed[std::to_underlying(b)]; }
@@ -55,5 +65,9 @@ private:
 	float m_mouseY = 0.0f;
 	float m_wheel = 0.0f;
 };
+
+// Human-readable name for a virtual-key code ("W", "Space", "Caps Lock"),
+// from the active keyboard layout — what the Settings key-bind boxes show.
+std::string KeyName(int vkey);
 
 } // namespace dungeon

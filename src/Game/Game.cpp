@@ -100,6 +100,23 @@ constexpr BarField kBarFields[] = {
 	{"mana", "Mana", &ResourceBarColors::mana},
 };
 
+// And for the movement keys (MoveKeys, master copy Game::m_moveKeys; ini
+// keys key_<action>=vkey). Order is the Settings → Game tab's row order and
+// must match Game::m_keyBinds.
+struct KeyField {
+	const char* key;
+	const char* label;
+	int MoveKeys::*field;
+};
+constexpr KeyField kKeyFields[] = {
+	{"forward", "Move forward", &MoveKeys::forward},
+	{"back", "Move back", &MoveKeys::back},
+	{"strafeleft", "Strafe left", &MoveKeys::strafeLeft},
+	{"straferight", "Strafe right", &MoveKeys::strafeRight},
+	{"turnleft", "Turn left", &MoveKeys::turnLeft},
+	{"turnright", "Turn right", &MoveKeys::turnRight},
+};
+
 // Reads key=r,g,b,a from the ini text. The color only applies if all four
 // channels parse (a malformed line keeps the caller's default).
 void ParseIniColor(const std::string& text, const std::string& key, Vec4& color) {
@@ -425,6 +442,19 @@ void Game::LoadSettings() {
 	for (const BarField& field : kBarFields)
 		ParseIniColor(text, std::format("bar_{}=", field.key),
 					  m_barColors.*(field.field));
+
+	for (const KeyField& field : kKeyFields) {
+		const std::string key = std::format("key_{}=", field.key);
+		const size_t pos = text.find(key);
+		if (pos == std::string::npos) continue;
+		int vkey = 0;
+		if (std::from_chars(text.data() + pos + key.size(),
+							text.data() + text.size(), vkey)
+					.ec == std::errc{} &&
+			vkey >= 0x08 && vkey <= 0xFE) // keyboard range (no mouse codes)
+			m_moveKeys.*(field.field) = vkey;
+	}
+	m_party.SetKeys(m_moveKeys);
 	ApplyTheme();
 }
 
@@ -449,9 +479,25 @@ void Game::SaveSettings() const {
 		text += std::format("bar_{}={:.3f},{:.3f},{:.3f},{:.3f}\n", field.key,
 							c.x, c.y, c.z, c.w);
 	}
+	for (const KeyField& field : kKeyFields)
+		text += std::format("key_{}={}\n", field.key, m_moveKeys.*(field.field));
 	if (!assets::WriteBinaryFile(paths::ExecutableDir() + "\\settings.ini",
 								 text.data(), text.size()))
 		log::Warn("Could not write settings.ini");
+}
+
+bool Game::KeyCaptureActive() const {
+	for (const ui::KeyBind* bind : m_keyBinds)
+		if (bind->IsCapturing()) return true;
+	return false;
+}
+
+std::string Game::MoveKeysHelp() const {
+	return std::format("{}/{} move, {}/{} strafe, {}/{} turn.",
+					   KeyName(m_moveKeys.forward), KeyName(m_moveKeys.back),
+					   KeyName(m_moveKeys.strafeLeft),
+					   KeyName(m_moveKeys.strafeRight),
+					   KeyName(m_moveKeys.turnLeft), KeyName(m_moveKeys.turnRight));
 }
 
 // Loads one material's albedo + normal pair at the current quality tier and
@@ -644,10 +690,35 @@ void Game::BuildMenu() {
 	const float pad = 24.0f;
 	const float rowW = page.w - 2 * pad;
 
-	// Game: nothing to configure yet.
+	// Game: movement key bindings (kKeyFields). Click a key box, press the
+	// new key; binding a key another action already uses hands that action
+	// the old key (swap) so the set stays conflict-free. Each rebind goes
+	// straight into the Party and persists.
 	tabs->AddChild<ui::Label>(tabGame, Norm({pad, pad, rowW, 28}, page),
-							  "Nothing here yet.")
-		->dim = true;
+							  "Movement Keys");
+	m_keyBinds.clear();
+	for (size_t i = 0; i < std::size(kKeyFields); ++i) {
+		const KeyField& field = kKeyFields[i];
+		auto* bind = tabs->AddChild<ui::KeyBind>(
+			tabGame,
+			Norm({pad, pad + 52 + 48.0f * static_cast<float>(i), rowW, 36}, page),
+			field.label, m_moveKeys.*(field.field),
+			[this, member = field.field](int vkey) {
+				m_audio.Play(m_sfxClick, 0.5f);
+				const int old = m_moveKeys.*member;
+				for (size_t j = 0; j < std::size(kKeyFields); ++j) {
+					int MoveKeys::*other = kKeyFields[j].field;
+					if (other != member && m_moveKeys.*other == vkey) {
+						m_moveKeys.*other = old;
+						m_keyBinds[j]->SetKey(old);
+					}
+				}
+				m_moveKeys.*member = vkey;
+				m_party.SetKeys(m_moveKeys);
+				SaveSettings();
+			});
+		m_keyBinds.push_back(bind);
+	}
 
 	// Video: quality tier (hot-swaps meshes/textures in place).
 	tabs->AddChild<ui::Label>(tabVideo, Norm({pad, pad, rowW, 28}, page), "Quality")
@@ -831,7 +902,7 @@ void Game::StartNewGame() {
 	m_log->Clear();
 	m_log->AddLine("You descend into the dungeon...");
 	m_log->AddLine("Something shuffles in the dark.");
-	m_log->AddLine("W/S move, A/D strafe, Q/E turn.");
+	m_log->AddLine(MoveKeysHelp());
 
 	m_lastFacing = m_lastGridX = m_lastGridZ = -1; // force HUD label refresh
 	m_state = AppState::Playing;
@@ -919,7 +990,7 @@ void Game::BuildHud() {
 			 window),
 		"Help", [this] {
 			m_audio.Play(m_sfxClick, 0.5f);
-			m_log->AddLine("W/S move, A/D strafe, Q/E turn.");
+			m_log->AddLine(MoveKeysHelp());
 			m_log->AddLine("Mouse wheel scrolls this log.");
 		}));
 
@@ -1110,8 +1181,9 @@ void Game::Update(float dt) {
 
 	case AppState::Menu:
 		// The menu sits on baked title art; nothing in the world simulates.
-		// Esc backs out of settings, or quits from the landing list.
-		if (input.WasKeyPressed(VK_ESCAPE)) {
+		// Esc backs out of settings, or quits from the landing list — unless
+		// a key-bind box is armed, where Esc just cancels the capture.
+		if (input.WasKeyPressed(VK_ESCAPE) && !KeyCaptureActive()) {
 			if (m_menuPage == MenuPage::Settings) m_menuPage = MenuPage::Main;
 			else m_quitRequested = true;
 		}
@@ -1129,8 +1201,9 @@ void Game::Update(float dt) {
 
 	case AppState::Paused:
 		// The world is frozen — only the pause menu (or the shared settings
-		// page) updates. Esc backs out of settings, or resumes play.
-		if (input.WasKeyPressed(VK_ESCAPE)) {
+		// page) updates. Esc backs out of settings (but an armed key-bind box
+		// gets it first, as its cancel), or resumes play.
+		if (input.WasKeyPressed(VK_ESCAPE) && !KeyCaptureActive()) {
 			m_audio.Play(m_sfxClick, 0.5f);
 			if (m_menuPage == MenuPage::Settings) m_menuPage = MenuPage::Main;
 			else m_state = AppState::Playing;

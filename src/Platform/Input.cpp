@@ -1,5 +1,9 @@
 #include "Platform/Input.h"
 
+#include <Windows.h>
+
+#include <format>
+
 namespace dungeon {
 
 void Input::OnKey(int vkey, bool down) {
@@ -22,6 +26,25 @@ void Input::OnMouseMove(float x, float y) {
 }
 
 void Input::OnWheel(float delta) { m_wheel += delta; }
+
+std::string KeyName(int vkey) {
+	vkey &= 0xFF;
+	LONG scan = static_cast<LONG>(MapVirtualKeyA(static_cast<UINT>(vkey),
+												 MAPVK_VK_TO_VSC))
+				<< 16;
+	switch (vkey) {
+	// Navigation keys share scan codes with the numpad; without the extended
+	// bit GetKeyNameText would report e.g. VK_LEFT as "Num 4".
+	case VK_LEFT: case VK_RIGHT: case VK_UP: case VK_DOWN:
+	case VK_PRIOR: case VK_NEXT: case VK_HOME: case VK_END:
+	case VK_INSERT: case VK_DELETE: case VK_DIVIDE: case VK_NUMLOCK:
+		scan |= 1 << 24;
+		break;
+	}
+	char name[64];
+	if (scan && GetKeyNameTextA(scan, name, sizeof(name)) > 0) return name;
+	return std::format("Key {:#04x}", vkey);
+}
 
 void Input::EndFrame() {
 	m_keysPressed.fill(false);

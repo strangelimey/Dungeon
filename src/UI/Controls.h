@@ -8,6 +8,7 @@
 //   Slider      horizontal drag, value in [min, max], change callback
 //   DropDown    popup list; overlay-drawn so it covers later widgets
 //   ColorPicker labeled swatch; click opens an R/G/B/A slider popup
+//   KeyBind     labeled key box; click arms it, the next key press rebinds
 //   MenuList    vertical menu; hover or arrows/W/S select, click/Enter fire
 //   TabControl  tab strip + framed page; owns child widgets per tab
 //
@@ -172,6 +173,37 @@ private:
 	bool m_open = false;
 	bool m_hot = false;
 	int m_dragChannel = -1; // 0..3 while a channel slider drags
+};
+
+// Labeled key-binding row. The box at the right end shows the current key's
+// name; clicking it arms capture ("press a key...") and the next key press
+// rebinds — Esc or any mouse click cancels. onChange fires with the new
+// Win32 virtual-key code; the armed box owns the mouse like an open popup.
+class KeyBind : public Widget {
+public:
+	KeyBind(const gfx::Rect& rect, std::string label, int vkey,
+			std::function<void(int)> onChange);
+
+	int Key() const { return m_vkey; }
+	// External rebind (e.g. the owner swapping a duplicate); no onChange.
+	void SetKey(int vkey);
+	// While armed the owner should suppress its own Esc handling — Esc is
+	// the capture's cancel.
+	bool IsCapturing() const { return m_capturing; }
+
+	void Update(UIContext& ctx) override;
+	void Draw(UIContext& ctx, gfx::SpriteBatch& batch) override;
+
+	std::string label;
+	std::function<void(int)> onChange;
+
+private:
+	gfx::Rect BoxRect() const; // the clickable key box (right end)
+
+	int m_vkey;
+	std::string m_keyName; // cached display name for m_vkey
+	bool m_capturing = false;
+	bool m_hot = false;
 };
 
 // Vertical list of selectable menu entries (the landing page). One entry is

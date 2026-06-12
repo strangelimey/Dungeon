@@ -20,6 +20,20 @@
 #include <functional>
 
 namespace dungeon::game {
+
+// User-configurable movement keys (Win32 virtual-key codes; defaults are the
+// classic QWEASD layout). The Game owns the master copy — persisted in
+// settings.ini and edited on the Settings → Game tab — and pushes it here
+// via SetKeys.
+struct MoveKeys {
+	int forward = 'W';
+	int back = 'S';
+	int strafeLeft = 'A';
+	int strafeRight = 'D';
+	int turnLeft = 'Q';
+	int turnRight = 'E';
+};
+
 class Party {
 public:
 	Party(const DungeonMap& map, int x, int z);
@@ -34,6 +48,8 @@ public:
 	// Pace multiplier from the slowest party member (1 = baseline). Scales
 	// both the step rate (shortens/stretches kMoveDuration) and kTurnSpeed.
 	void SetSpeed(float speed) { m_speed = speed; }
+
+	void SetKeys(const MoveKeys& keys) { m_moveKeys = keys; }
 
 	// Camera pose (eye position includes a subtle head bob while moving).
 	Vec3 EyePosition() const;
@@ -77,6 +93,7 @@ private:
 	float m_bobPhase = 0.0f;
 	float m_blockCooldown = 0.0f; // throttles repeated blocked-move feedback
 	float m_speed = 1.0f;         // pace multiplier (slowest member)
+	MoveKeys m_moveKeys;
 };
 
 } // namespace dungeon::game

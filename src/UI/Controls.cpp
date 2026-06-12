@@ -376,6 +376,72 @@ void ColorPicker::DrawOverlay(UIContext& ctx, gfx::SpriteBatch& batch) {
 	}
 }
 
+// --- KeyBind -----------------------------------------------------------------
+
+KeyBind::KeyBind(const gfx::Rect& rect, std::string label, int vkey,
+				 std::function<void(int)> onChange)
+	: label(std::move(label)), onChange(std::move(onChange)) {
+	bounds = rect;
+	SetKey(vkey);
+}
+
+void KeyBind::SetKey(int vkey) {
+	m_vkey = vkey & 0xFF;
+	m_keyName = KeyName(m_vkey);
+}
+
+gfx::Rect KeyBind::BoxRect() const {
+	const gfx::Rect& px = Pixel();
+	const float w = std::min(200.0f, px.w * 0.45f);
+	return {px.x + px.w - w, px.y, w, px.h};
+}
+
+void KeyBind::Update(UIContext& ctx) {
+	const Input* input = ctx.CurrentInput();
+	if (!input) return;
+
+	if (m_capturing) {
+		constexpr int kVkEscape = 0x1B;
+		if (input->WasMousePressed(MouseButton::Left) ||
+			input->WasKeyPressed(kVkEscape)) {
+			m_capturing = false; // any click (incl. the box) or Esc cancels
+		} else if (const int vkey = input->FirstPressedKey(); vkey >= 0) {
+			m_capturing = false;
+			SetKey(vkey);
+			if (onChange) onChange(m_vkey);
+		}
+		ctx.ConsumeMouse(); // the armed box owns the mouse entirely
+		return;
+	}
+
+	m_hot = !ctx.IsMouseConsumed() &&
+			BoxRect().Contains(input->MouseX(), input->MouseY());
+	if (m_hot) {
+		ctx.ConsumeMouse();
+		if (input->WasMousePressed(MouseButton::Left)) m_capturing = true;
+	}
+}
+
+void KeyBind::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
+	const Theme& theme = ctx.GetTheme();
+	Font& font = ctx.GetFont();
+	const gfx::Rect& px = Pixel();
+
+	font.Draw(batch, label, px.x, px.y + (px.h - font.Height()) * 0.5f,
+			  theme.textDim);
+
+	const gfx::Rect box = BoxRect();
+	batch.DrawRect(box, m_capturing ? theme.controlActive
+									: (m_hot ? theme.controlHot : theme.control));
+	DrawBorder(batch, box, m_capturing || m_hot ? theme.accent : theme.panelBorder);
+
+	const std::string text = m_capturing ? "press a key..." : m_keyName;
+	const float textW = font.MeasureWidth(text);
+	font.Draw(batch, text, box.x + (box.w - textW) * 0.5f,
+			  box.y + (box.h - font.Height()) * 0.5f,
+			  m_capturing ? theme.accent : theme.text);
+}
+
 // --- MenuList --------------------------------------------------------------
 
 void MenuList::AddItem(std::string label, std::function<void()> onActivate) {

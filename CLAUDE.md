@@ -112,10 +112,16 @@ colors — Game owns the master m_theme, ApplyTheme pushes it into all five
 UIContexts live) and Resource Bars (health/stamina/mana fills,
 ResourceBarColors in PartyHud.h — the HUD widgets point at Game::m_barColors).
 The ColorPicker control's swatch opens an R/G/B/A slider popup; kThemeFields/
-kBarFields in Game.cpp drive both grids and the ini round-trip. Game tab
-empty so far. All persist to settings.ini next to exe (quality=0..3,
-volume=0..1, barscale, baropacity, theme_<name>= and bar_<name>=r,g,b,a;
-sliders save on release, pickers when their popup closes). Quality hot-swaps in place (WaitIdle +
+kBarFields in Game.cpp drive both grids and the ini round-trip. Game tab:
+movement key bindings via ui::KeyBind rows (click the key box, press the new
+key; Esc/click cancels — Game::KeyCaptureActive suppresses the page's own Esc
+while armed; binding a key another action holds swaps the two). kKeyFields
+drives the rows and the ini round-trip; MoveKeys (Party.h) is pushed into the
+Party via SetKeys, and dungeon::KeyName (Platform/Input) renders vkey names.
+All persist to settings.ini next to exe (quality=0..3,
+volume=0..1, barscale, baropacity, theme_<name>= and bar_<name>=r,g,b,a,
+key_<action>=vkey; sliders save on release, pickers when their popup closes,
+key binds immediately). Quality hot-swaps in place (WaitIdle +
 rebuild); Ultra falls back per-material to 2k with a warning if 4k not
 installed.
 
@@ -142,8 +148,10 @@ StartNewGame resets members in place.
 ## Workflow conventions used so far
 
 - Verify changes by launching the exe and driving it with PostMessage
-  keystrokes + CopyFromScreen screenshots into docs/ (see git history for
-  the PowerShell pattern). Menu nav: Down/Enter; allow ~10s+ load on
+  keystrokes + CopyFromScreen screenshots into docs/ (dot-source
+  docs/drive.ps1: Key/Click/Shot helpers, client coords; ALWAYS send the
+  keyup or the next keydown of that key won't register as pressed).
+  Menu nav: Down/Enter; allow ~10s+ load on
   High/Ultra cold cache before sending keys.
 - Commit per feature with detailed messages; push to origin/main. Long
   commit messages via a temp file + `git commit -F` (PowerShell mangles

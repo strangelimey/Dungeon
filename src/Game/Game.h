@@ -130,10 +130,17 @@ private:
 	void LoadAllSurfaceTextures();   // loads the texture sets for m_quality
 	void SetQuality(Quality quality);
 	// settings.ini next to the exe: quality=0..3, volume=0..1,
-	// barscale=0.5..1.5, baropacity=0..1, theme_<name>=r,g,b,a and
-	// bar_<name>=r,g,b,a (see kThemeFields / kBarFields in Game.cpp).
+	// barscale=0.5..1.5, baropacity=0..1, theme_<name>=r,g,b,a,
+	// bar_<name>=r,g,b,a and key_<action>=vkey (see kThemeFields /
+	// kBarFields / kKeyFields in Game.cpp).
 	void LoadSettings();
 	void SaveSettings() const;
+	// True while a Settings key-bind box is armed ("press a key...") — Esc
+	// then cancels the capture instead of leaving the settings page.
+	bool KeyCaptureActive() const;
+	// The log's movement help line ("W/S move, A/D strafe, Q/E turn."),
+	// built from the live bindings.
+	std::string MoveKeysHelp() const;
 	// Pushes m_theme into every UIContext (each owns a copy).
 	void ApplyTheme();
 	const char* QualitySuffix() const;        // "low" / "med" / "high" (meshes)
@@ -253,6 +260,12 @@ private:
 	// User-editable HUD resource-bar fills (same tab); the party-bar panels
 	// and the sheet point at this, so edits show on their next draw.
 	ResourceBarColors m_barColors;
+	// User-editable movement keys (Settings → Game tab, persisted); pushed
+	// into the Party via SetKeys whenever a binding changes.
+	MoveKeys m_moveKeys;
+	// The Game tab's key-bind rows, parallel to kKeyFields — kept so a
+	// rebind can swap a duplicate key out of its old row.
+	std::vector<ui::KeyBind*> m_keyBinds;
 	std::unique_ptr<gfx::Texture> m_titleBackground; // landing-page art
 	ui::TextOutput* m_log = nullptr;
 	ui::Label* m_compass = nullptr;
