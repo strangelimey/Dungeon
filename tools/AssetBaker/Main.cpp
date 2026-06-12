@@ -19,11 +19,15 @@
 //       Regenerates only the .gltf models (fast — skips the texture, sound,
 //       and mip bakes). The worn blocks sample the installed texture height
 //       maps, so re-run this after FetchTextures.ps1 or an import.
+//
+//   AssetBaker portraits <assets-dir>
+//       Regenerates only the party portraits and their mip chains (fast).
 
 #include "Core/Log.h"
 #include "ImportTextures.h"
 #include "MipBaker.h"
 #include "ModelBaker.h"
+#include "PortraitBaker.h"
 #include "SoundBaker.h"
 #include "TextureBaker.h"
 #include "TitleBaker.h"
@@ -60,6 +64,17 @@ int main(int argc, char** argv) {
 		return baker::BakeModels(assets + "\\models", assets + "\\textures") ? 0 : 1;
 	}
 
+	if (argc >= 3 && std::string(argv[1]) == "portraits") {
+		const std::string texturesDir = std::string(argv[2]) + "\\textures";
+		if (!baker::BakePortraits(texturesDir)) return 1;
+		bool ok = true;
+		for (const char* name : {"portrait_brand", "portrait_sera",
+								 "portrait_maren", "portrait_tilo"})
+			ok &= baker::BakeMipChain(texturesDir + "\\" + name + ".png",
+									  texturesDir + "\\" + name + ".dds");
+		return ok ? 0 : 1;
+	}
+
 	if (argc < 2) {
 		log::Error("usage: AssetBaker <assets-dir>  |  AssetBaker import ...");
 		return 1;
@@ -73,6 +88,7 @@ int main(int argc, char** argv) {
 	bool ok = true;
 	ok &= baker::BakeTextures(assets + "\\textures");
 	ok &= baker::BakeTitleImage(assets + "\\textures");
+	ok &= baker::BakePortraits(assets + "\\textures");
 	ok &= baker::BakeSounds(assets + "\\sounds");
 	ok &= baker::BakeModels(assets + "\\models", assets + "\\textures");
 	ok &= baker::BakeAllMips(assets + "\\textures");

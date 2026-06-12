@@ -3,8 +3,9 @@
 //
 // One Character per party slot (up to four). Pure data for now — combat
 // doesn't exist yet, so the numbers only feed the HUD party bar and the
-// character sheet (see PartyHud.h). Portraits are placeholder tinted squares
-// stamped with the character's initial until authored art exists.
+// character sheet (see PartyHud.h). Portraits are baked by AssetBaker
+// (portrait_<name>.png); the tinted square stamped with the character's
+// initial remains as the fallback when the texture is missing.
 // ============================================================================
 #pragma once
 
@@ -12,6 +13,10 @@
 
 #include <string>
 #include <vector>
+
+namespace dungeon::gfx {
+class Texture;
+}
 
 namespace dungeon::game {
 
@@ -29,7 +34,10 @@ struct Character {
 	int vitality = 10;
 	int willpower = 10;
 
-	// Placeholder portrait tint (see file banner).
+	// Baked portrait (portrait_<name>.png), wired by the Game after the
+	// texture loads; null draws the tinted-initial fallback instead.
+	const gfx::Texture* portrait = nullptr;
+	// Fallback portrait tint, also the slot's identity color.
 	Vec4 portraitColor{0.3f, 0.3f, 0.3f, 1.0f};
 };
 

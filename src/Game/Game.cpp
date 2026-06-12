@@ -8,6 +8,7 @@
 #include "Game/DungeonMeshBuilder.h"
 
 #include <algorithm>
+#include <cctype>
 #include <charconv>
 #include <cmath>
 #include <format>
@@ -225,6 +226,21 @@ void Game::BuildGameLoadTasks() {
 		m_atmosphere.turbidityMap = m_turbidityMap.get();
 		m_atmosphere.worldExtent = {m_map.Width() * kCellSize,
 									m_map.Height() * kCellSize};
+	});
+	m_loadTasks.emplace_back("Painting the party", [this] {
+		m_portraitTextures.clear();
+		for (Character& member : m_characters) {
+			std::string stem = "portrait_" + member.name;
+			std::ranges::transform(stem, stem.begin(), [](char c) {
+				return static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+			});
+			auto texture =
+				TryLoadTextureFile(m_device, paths::Asset("textures\\" + stem));
+			if (!texture)
+				log::Warn("missing {}.png — falling back to the initial tile", stem);
+			member.portrait = texture.get();
+			m_portraitTextures.push_back(std::move(texture));
+		}
 	});
 	m_loadTasks.emplace_back("Lighting the torches", [this] {
 		BuildHud();
@@ -642,10 +658,14 @@ void Game::StartNewGame() {
 	ApplyTorchPalette(0);
 
 	// Fresh stats for the same roster — element-wise so the addresses the
-	// party-bar panels and the sheet point at stay valid.
+	// party-bar panels and the sheet point at stay valid, keeping the loaded
+	// portrait (the defaults carry a null one).
 	const std::vector<Character> fresh = CreateDefaultParty();
-	for (size_t i = 0; i < m_characters.size() && i < fresh.size(); ++i)
+	for (size_t i = 0; i < m_characters.size() && i < fresh.size(); ++i) {
+		const gfx::Texture* portrait = m_characters[i].portrait;
 		m_characters[i] = fresh[i];
+		m_characters[i].portrait = portrait;
+	}
 	m_sheet->SetCharacter(m_characters[m_sheetIndex]);
 
 	m_log->Clear();

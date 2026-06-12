@@ -50,8 +50,8 @@ at launch with an on-disk cache (shadercache/, hash-invalidated) — edit
 ## Asset pipeline (everything loads from assets/, nothing generated at runtime)
 
 - `AssetBaker <assets>` — regenerates all procedural assets (block models
-  incl. worn tiers, monsters, sconce/brazier, pillar, sounds, title art)
-  and ends with a mip bake.
+  incl. worn tiers, monsters, sconce/brazier, pillar, sounds, title art,
+  party portraits) and ends with a mip bake.
 - `AssetBaker import <folder> <assets> <name> [--flip-green]` — packs a
   downloaded PBR set (auto-detects maps by filename; flips GL normals;
   AO→albedo; height→normal alpha; bakes BC7 DDS).
@@ -60,6 +60,10 @@ at launch with an on-disk cache (shadercache/, hash-invalidated) — edit
 - `AssetBaker models <assets>` — rebakes only the .gltf models (fast). Worn
   blocks sample the installed texture height maps, so rerun after
   FetchTextures.ps1 or a texture import.
+- `AssetBaker portraits <assets>` — rebakes only the party portraits
+  (portrait_<name>.png, 256², PortraitBaker.cpp: SDF-mask busts, one
+  headpiece per class) and their mip chains. Names must match the roster
+  in src/Game/Character.cpp.
 - Textures: PNG = source, .dds = derived BC7 mip chains (gitignored).
   Scanned sets (7 Poly Haven CC0 materials × 1k/2k/4k) are NOT in git:
   raw downloads live in OneDrive\DungeonAssets\<res>\<material>\ and
@@ -133,8 +137,9 @@ StartNewGame resets members in place.
   (save system not started).
 - No combat: monsters are static blockers that announce + face the party.
   Character stats (Character.h) are static placeholder data — nothing
-  drains health/stamina/mana yet; portraits are tinted initials pending
-  authored art.
+  drains health/stamina/mana yet. Portraits are simple baked busts
+  (AssetBaker portraits); the tinted-initial fallback still draws if the
+  textures are missing.
 - Monster models are box-rigs; authored glTF would drop in via LoadModel
   (JOINTS_0 remap already handled).
 - BC7 encoder is mode-6 only (slight banding possible on smooth gradients).

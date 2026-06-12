@@ -20,11 +20,16 @@ void DrawStatBar(gfx::SpriteBatch& batch, const gfx::Rect& rect, float fraction,
 	ui::DrawBorder(batch, rect, theme.panelBorder);
 }
 
-// Tinted square with the character's initial — the stand-in until authored
-// portrait art exists.
+// Baked portrait texture when present; otherwise the tinted square with the
+// character's initial as a fallback (fresh checkout before AssetBaker runs).
 void DrawPortrait(gfx::SpriteBatch& batch, const gfx::Rect& rect,
 				  const Character& character, const ui::Font& font,
 				  const ui::Theme& theme) {
+	if (character.portrait) {
+		batch.DrawSprite(rect, {0, 0, 1, 1}, *character.portrait, {1, 1, 1, 1});
+		ui::DrawBorder(batch, rect, theme.panelBorder);
+		return;
+	}
 	batch.DrawRect(rect, character.portraitColor);
 	ui::DrawBorder(batch, rect, theme.panelBorder);
 	const std::string_view initial = std::string_view(character.name).substr(0, 1);

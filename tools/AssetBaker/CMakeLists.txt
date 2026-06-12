@@ -8,6 +8,7 @@ add_executable(AssetBaker
 	Main.cpp
 	MipBaker.cpp
 	ModelBaker.cpp
+	PortraitBaker.cpp
 	SoundBaker.cpp
 	TextureBaker.cpp
 	TitleBaker.cpp

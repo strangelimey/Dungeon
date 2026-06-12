@@ -175,6 +175,9 @@ private:
 	// resized — the party-bar panels and the sheet hold pointers into it, so
 	// StartNewGame resets the members in place.
 	std::vector<Character> m_characters;
+	// Baked portrait textures, parallel to m_characters (entries may be null
+	// when the asset is missing; Character::portrait points in here).
+	std::vector<std::unique_ptr<gfx::Texture>> m_portraitTextures;
 	size_t m_sheetIndex = 0; // member shown by the character sheet
 	gfx::Camera m_camera;
 	gfx::LightSet m_lights;
