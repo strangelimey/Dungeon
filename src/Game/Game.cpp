@@ -74,6 +74,7 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	: m_window(window), m_device(device), m_renderer(renderer),
 	  m_spriteBatch(spriteBatch), m_audio(audio),
 	  m_map(paths::Asset("maps\\level1.map")),
+	  m_entities(paths::Asset("maps\\level1.ent"), m_map),
 	  m_party(m_map, m_map.StartX(), m_map.StartZ()),
 	  m_ui(device, "", 17.0f), m_menuUi(device, "", 28.0f),
 	  m_settingsUi(device, "", 28.0f), m_titleFont(device, "", 64.0f) {
@@ -90,7 +91,7 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 			if (monster.x == x && monster.z == z) {
 				m_audio.Play(m_sfxMonster, 0.8f);
 				m_log->AddLine(std::format("The {} blocks your way!",
-										   m_monsterKinds.at(monster.kind)->name));
+										   monster.kind->name));
 				return true;
 			}
 		}
@@ -111,39 +112,18 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	m_shadowCandidates.reserve(gfx::kMaxPointLights);
 
 	BuildMenu();
-	BuildLoadTasks();
+	BuildBootLoadTasks();
 }
 
 // ============================================================================
-// Staged loading. Each task is one frame's worth of blocking work; the
-// loading screen renders between tasks. Order matters: textures register
-// their variant counts before the geometry task buckets cells by variant.
+// Staged loading. Each task is one frame's worth of blocking work; a loading
+// screen renders between tasks. The boot list is the bare minimum to reach
+// the landing page fast; the heavy dungeon load runs later, behind its own
+// progress screen, when the player first starts a game.
 // ============================================================================
-void Game::BuildLoadTasks() {
+
+void Game::BuildBootLoadTasks() {
 	m_loadTasks = {
-		{"Quarrying stone blocks", [this] { LoadDungeonBlocks(); }},
-		{"Weaving the stonework", [this] { LoadAllSurfaceTextures(); }},
-		{"Raising the dungeon", [this] { BuildDungeonMeshes(); }},
-		{"Carving the serpent pillar",
-		 [this] {
-			 m_pillarModel = LoadModelOrDie("pillar.gltf");
-			 m_pillarMesh = std::make_unique<gfx::Mesh>(m_device, m_pillarModel.meshes[0]);
-			 m_pillarAnimator = anim::Animator(&m_pillarModel.skeleton, &m_pillarModel.clips);
-			 m_pillarAnimator.Play("sway");
-			 m_pillarPos = m_map.CellCenter(m_map.StartX(), m_map.StartZ() + 2);
-		 }},
-		{"Waking the monsters", [this] { LoadMonsters(); }},
-		{"Kindling the fires",
-		 [this] {
-			 auto sconce = LoadModelOrDie("sconce.gltf");
-			 m_sconceMesh = std::make_unique<gfx::Mesh>(m_device, sconce.meshes[0]);
-			 m_sconceColor = sconce.materials[0].baseColorFactor;
-			 auto brazier = LoadModelOrDie("brazier.gltf");
-			 m_brazierMesh = std::make_unique<gfx::Mesh>(m_device, brazier.meshes[0]);
-			 m_brazierColor = brazier.materials[0].baseColorFactor;
-			 m_particleBatch = std::make_unique<gfx::ParticleBatch>(m_device);
-			 BuildFires();
-		 }},
 		{"Tuning the echoes",
 		 [this] {
 			 m_sfxFootstep = LoadSound("footstep.wav");
@@ -152,42 +132,99 @@ void Game::BuildLoadTasks() {
 			 m_sfxClick = LoadSound("click.wav");
 			 m_sfxMonster = LoadSound("monster.wav");
 		 }},
-		{"Stirring the dust",
-		 [this] {
-			 // Per-cell turbidity as a top-down density grid: one texel per
-			 // dungeon cell, R channel; bilinear filtering blends region
-			 // borders. The scene shader raymarches it (see scene.hlsl).
-			 assets::ImageData grid;
-			 grid.width = static_cast<u32>(m_map.Width());
-			 grid.height = static_cast<u32>(m_map.Height());
-			 grid.pixels.resize(static_cast<size_t>(grid.width) * grid.height * 4);
-			 for (int z = 0; z < m_map.Height(); ++z) {
-				 for (int x = 0; x < m_map.Width(); ++x) {
-					 const size_t i =
-						 (static_cast<size_t>(z) * grid.width + x) * 4;
-					 grid.pixels[i + 0] =
-						 static_cast<u8>(m_map.Turbidity(x, z) * 255.0f);
-					 grid.pixels[i + 3] = 255;
-				 }
-			 }
-			 m_turbidityMap = std::make_unique<gfx::Texture>(m_device, grid);
-			 m_atmosphere.turbidityMap = m_turbidityMap.get();
-			 m_atmosphere.worldExtent = {m_map.Width() * kCellSize,
-										 m_map.Height() * kCellSize};
-		 }},
 		{"Painting the title",
 		 [this] {
 			 m_titleBackground =
 				 LoadTextureFile(m_device, paths::Asset("textures\\title_bg"));
 		 }},
-		{"Lighting the torches",
-		 [this] {
-			 BuildHud();
-			 log::Info("Game loaded: {}x{} dungeon, {} torches, {} monsters",
-					   m_map.Width(), m_map.Height(), m_map.TorchCells().size(),
-					   m_monsters.size());
-		 }},
 	};
+}
+
+// Order matters: textures register their variant counts before the geometry
+// task buckets cells by variant. The texture work is split one task per
+// material — the scanned sets are the bulk of the load (~300 MB at Ultra),
+// and per-material tasks keep the progress bar moving through them.
+void Game::BuildGameLoadTasks() {
+	m_loadTasks.clear();
+	m_loadTasks.emplace_back("Quarrying stone blocks", [this] { LoadDungeonBlocks(); });
+
+	auto addTextureTasks = [this](Surface& surface, std::span<const char* const> names,
+								  float heightScale) {
+		for (size_t i = 0; i < names.size(); ++i) {
+			const char* name = names[i];
+			const bool first = i == 0; // first material resets the set
+			std::string label = std::format("Weaving the stonework ({})", name);
+			std::ranges::replace(label, '_', ' ');
+			m_loadTasks.emplace_back(
+				std::move(label), [this, &surface, name, heightScale, first] {
+					if (first) {
+						surface.albedo.clear();
+						surface.normal.clear();
+						surface.heightScale = heightScale;
+					}
+					LoadSurfaceMaterial(surface, name);
+				});
+		}
+	};
+	addTextureTasks(m_walls, kWallTextures, 0.055f);
+	addTextureTasks(m_floors, kFloorTextures, 0.045f);
+	addTextureTasks(m_ceilings, kCeilingTextures, 0.035f);
+
+	m_loadTasks.emplace_back("Raising the dungeon", [this] { BuildDungeonMeshes(); });
+	m_loadTasks.emplace_back("Carving the serpent pillar", [this] {
+		m_pillarModel = LoadModelOrDie("pillar.gltf");
+		m_pillarMesh = std::make_unique<gfx::Mesh>(m_device, m_pillarModel.meshes[0]);
+		m_pillarAnimator = anim::Animator(&m_pillarModel.skeleton, &m_pillarModel.clips);
+		m_pillarAnimator.Play("sway");
+		m_pillarPos = m_map.CellCenter(m_map.StartX(), m_map.StartZ() + 2);
+	});
+	m_loadTasks.emplace_back("Waking the monsters", [this] { LoadMonsters(); });
+	m_loadTasks.emplace_back("Kindling the fires", [this] {
+		auto sconce = LoadModelOrDie("sconce.gltf");
+		m_sconceMesh = std::make_unique<gfx::Mesh>(m_device, sconce.meshes[0]);
+		m_sconceColor = sconce.materials[0].baseColorFactor;
+		auto brazier = LoadModelOrDie("brazier.gltf");
+		m_brazierMesh = std::make_unique<gfx::Mesh>(m_device, brazier.meshes[0]);
+		m_brazierColor = brazier.materials[0].baseColorFactor;
+		m_particleBatch = std::make_unique<gfx::ParticleBatch>(m_device);
+		BuildFires();
+	});
+	m_loadTasks.emplace_back("Stirring the dust", [this] {
+		// Per-cell turbidity as a top-down density grid: one texel per
+		// dungeon cell, R channel; bilinear filtering blends region
+		// borders. The scene shader raymarches it (see scene.hlsl).
+		assets::ImageData grid;
+		grid.width = static_cast<u32>(m_map.Width());
+		grid.height = static_cast<u32>(m_map.Height());
+		grid.pixels.resize(static_cast<size_t>(grid.width) * grid.height * 4);
+		for (int z = 0; z < m_map.Height(); ++z) {
+			for (int x = 0; x < m_map.Width(); ++x) {
+				const size_t i = (static_cast<size_t>(z) * grid.width + x) * 4;
+				grid.pixels[i + 0] = static_cast<u8>(m_map.Turbidity(x, z) * 255.0f);
+				grid.pixels[i + 3] = 255;
+			}
+		}
+		m_turbidityMap = std::make_unique<gfx::Texture>(m_device, grid);
+		m_atmosphere.turbidityMap = m_turbidityMap.get();
+		m_atmosphere.worldExtent = {m_map.Width() * kCellSize,
+									m_map.Height() * kCellSize};
+	});
+	m_loadTasks.emplace_back("Lighting the torches", [this] {
+		BuildHud();
+		log::Info("Game loaded: {}x{} dungeon, {} torches, {} monsters",
+				  m_map.Width(), m_map.Height(), m_map.TorchCells().size(),
+				  m_monsters.size());
+	});
+}
+
+// Runs one queued task per rendered frame (never before the current loading
+// screen has been presented once); returns true when the queue is done.
+bool Game::RunLoadTasks() {
+	if (m_framesRendered > m_stateFrameMark && m_loadIndex < m_loadTasks.size()) {
+		m_loadTasks[m_loadIndex].second();
+		++m_loadIndex;
+	}
+	return m_loadIndex == m_loadTasks.size();
 }
 
 // ============================================================================
@@ -284,25 +321,29 @@ void Game::SaveQualitySetting() const {
 		log::Warn("Could not write settings.ini");
 }
 
+// Loads one material's albedo + normal pair at the current quality tier and
+// appends it to the surface's variant arrays.
+void Game::LoadSurfaceMaterial(Surface& surface, const char* name) {
+	const char* res = QualityTextureSuffix();
+	std::string stem = paths::Asset(std::format("textures\\{}_{}", name, res));
+	auto albedo = TryLoadTextureFile(m_device, stem);
+	if (!albedo) {
+		// Ultra's 4K sets are fetchable content (tools/FetchTextures.ps1);
+		// drop to the always-present 2K set when they aren't installed.
+		log::Warn("{} not found at {} — falling back to 2k", name, res);
+		stem = paths::Asset(std::format("textures\\{}_2k", name));
+		albedo = LoadTextureFile(m_device, stem);
+	}
+	surface.albedo.push_back(std::move(albedo));
+	surface.normal.push_back(LoadTextureFile(m_device, stem + "_n"));
+}
+
 void Game::LoadTextureSet(Surface& surface, std::span<const char* const> names,
 						  float heightScale) {
 	surface.albedo.clear(); // quality hot-swap reuses the same Surface objects
 	surface.normal.clear();
 	surface.heightScale = heightScale;
-	const char* res = QualityTextureSuffix();
-	for (const char* name : names) {
-		std::string stem = paths::Asset(std::format("textures\\{}_{}", name, res));
-		auto albedo = TryLoadTextureFile(m_device, stem);
-		if (!albedo) {
-			// Ultra's 4K sets are fetchable content (tools/FetchTextures.ps1);
-			// drop to the always-present 2K set when they aren't installed.
-			log::Warn("{} not found at {} — falling back to 2k", name, res);
-			stem = paths::Asset(std::format("textures\\{}_2k", name));
-			albedo = LoadTextureFile(m_device, stem);
-		}
-		surface.albedo.push_back(std::move(albedo));
-		surface.normal.push_back(LoadTextureFile(m_device, stem + "_n"));
-	}
+	for (const char* name : names) LoadSurfaceMaterial(surface, name);
 }
 
 void Game::LoadAllSurfaceTextures() {
@@ -330,28 +371,27 @@ void Game::BuildDungeonMeshes() {
 // per spawn. The shared ModelData must stay alive for the animators' sake —
 // it lives in m_monsterKinds for the app's lifetime.
 void Game::LoadMonsters() {
-	auto kindOf = [this](char kind) -> MonsterKind& {
-		auto it = m_monsterKinds.find(kind);
+	auto kindOf = [this](const std::string& type) -> MonsterKind& {
+		auto it = m_monsterKinds.find(type);
 		if (it == m_monsterKinds.end()) {
 			auto assets = std::make_unique<MonsterKind>();
-			switch (kind) {
-			case 'S': assets->model = LoadModelOrDie("skeleton.gltf"); assets->name = "skeleton"; break;
-			case 'M': assets->model = LoadModelOrDie("mummy.gltf"); assets->name = "mummy"; break;
-			default:  assets->model = LoadModelOrDie("blob.gltf"); assets->name = "blob"; break;
-			}
+			assets->model = LoadModelOrDie(type + ".gltf");
+			assets->name = type;
 			assets->mesh = std::make_unique<gfx::Mesh>(m_device, assets->model.meshes[0]);
-			it = m_monsterKinds.emplace(kind, std::move(assets)).first;
+			it = m_monsterKinds.emplace(type, std::move(assets)).first;
 		}
 		return *it->second;
 	};
 
 	int phase = 0;
-	for (const DungeonMap::MonsterSpawn& spawn : m_map.MonsterSpawns()) {
-		MonsterKind& kind = kindOf(spawn.kind);
+	for (const Entity& spawn : m_entities.All()) {
+		if (spawn.kind != EntityKind::Monster) continue;
+		MonsterKind& kind = kindOf(spawn.type);
 		Monster monster;
-		monster.kind = spawn.kind;
+		monster.kind = &kind;
 		monster.x = spawn.x;
 		monster.z = spawn.z;
+		monster.yaw = DirYaw(spawn.facing);
 		monster.animator = anim::Animator(&kind.model.skeleton, &kind.model.clips);
 		monster.animator.Play("idle");
 		monster.animator.Update(static_cast<float>(phase++) * 0.7f); // desync idles
@@ -422,7 +462,16 @@ void Game::BuildMenu() {
 	menu->AddItem("Continue");           // not implemented yet
 	menu->AddItem("Start New Game", [this] {
 		m_audio.Play(m_sfxClick, 0.6f);
-		StartNewGame();
+		if (m_gameLoaded) {
+			StartNewGame();
+		} else {
+			// First start: the boot load only fetched menu essentials, so
+			// the dungeon loads now behind its own progress screen.
+			BuildGameLoadTasks();
+			m_loadIndex = 0;
+			m_state = AppState::LoadingGame;
+			m_stateFrameMark = m_framesRendered;
+		}
 	});
 	menu->AddItem("Load");               // not implemented yet
 	menu->AddItem("Save");               // not implemented yet
@@ -619,7 +668,7 @@ void Game::UpdateMonsters(float dt) {
 
 		// Face the party (blobs don't care).
 		const Vec3 pos = m_map.CellCenter(monster.x, monster.z);
-		if (monster.kind != 'B')
+		if (monster.kind->name != "blob")
 			monster.yaw = std::atan2(partyPos.x - pos.x, partyPos.z - pos.z);
 
 		// Announce once when the party first comes within one cell.
@@ -627,8 +676,7 @@ void Game::UpdateMonsters(float dt) {
 		const int dz = std::abs(monster.z - m_party.GridZ());
 		if (!monster.announced && std::max(dx, dz) <= 1) {
 			monster.announced = true;
-			const char* name = m_monsterKinds.at(monster.kind)->name;
-			m_log->AddLine(std::format("A {} stirs before you!", name));
+			m_log->AddLine(std::format("A {} stirs before you!", monster.kind->name));
 			m_audio.Play(m_sfxMonster, 0.7f);
 		}
 	}
@@ -639,19 +687,20 @@ void Game::Update(float dt) {
 
 	switch (m_state) {
 	case AppState::Loading:
-		// Run one load task per frame, but only after the loading screen has
-		// been presented at least once.
-		if (m_framesRendered > 0 && m_loadIndex < m_loadTasks.size()) {
-			m_loadTasks[m_loadIndex].second();
-			++m_loadIndex;
-			if (m_loadIndex == m_loadTasks.size()) m_state = AppState::Menu;
-		}
+		if (RunLoadTasks()) m_state = AppState::Menu;
 		return;
 
 	case AppState::Menu:
 		// The menu sits on baked title art; nothing in the world simulates.
 		(m_menuPage == MenuPage::Main ? m_menuUi : m_settingsUi)
 			.Update(m_window.GetInput());
+		return;
+
+	case AppState::LoadingGame:
+		if (RunLoadTasks()) {
+			m_gameLoaded = true;
+			StartNewGame(); // sets AppState::Playing
+		}
 		return;
 
 	case AppState::Playing:
@@ -699,8 +748,8 @@ void Game::Update(float dt) {
 
 // ============================================================================
 // Rendering — the command list arrives from GraphicsDevice::BeginFrame
-// already cleared and bound. Loading shows a 2D-only screen; Menu draws the
-// idle dungeon behind a darkened overlay; Playing draws the scene + HUD.
+// already cleared and bound. Loading, Menu, and LoadingGame are 2D-only
+// (title art / progress screens); Playing draws the 3D scene + HUD.
 // ============================================================================
 
 void Game::DrawSurface(ID3D12GraphicsCommandList* list, const Surface& surface) {
@@ -757,14 +806,14 @@ void Game::SubmitSceneGeometry(ID3D12GraphicsCommandList* list) {
 
 	// Monsters. Bone and bandages are matte; the blob glistens wetly.
 	for (const Monster& monster : m_monsters) {
-		const MonsterKind& kind = *m_monsterKinds.at(monster.kind);
+		const MonsterKind& kind = *monster.kind;
 		const Vec3 pos = m_map.CellCenter(monster.x, monster.z);
 		Mat4 world;
 		XMStoreFloat4x4(&world, XMMatrixRotationY(monster.yaw) *
 									XMMatrixTranslation(pos.x, 0, pos.z));
 		gfx::MaterialParams material;
 		material.baseColor = kind.model.materials[0].baseColorFactor;
-		if (monster.kind == 'B') {
+		if (kind.name == "blob") {
 			material.specStrength = 0.55f;
 			material.specPower = 32.0f;
 		}
@@ -783,31 +832,60 @@ void Game::SubmitSceneGeometry(ID3D12GraphicsCommandList* list) {
 	}
 }
 
+// Progress bar + current step name, shared by both loading screens.
+void Game::DrawLoadProgress(float barY) {
+	const float w = static_cast<float>(m_device.Width());
+	const ui::Theme& theme = m_menuUi.GetTheme();
+
+	const float total = static_cast<float>(m_loadTasks.size());
+	const float progress = total > 0 ? static_cast<float>(m_loadIndex) / total : 1.0f;
+	const gfx::Rect bar{w * 0.3f, barY, w * 0.4f, 14.0f};
+	m_spriteBatch.DrawRect(bar, theme.control);
+	m_spriteBatch.DrawRect({bar.x, bar.y, bar.w * progress, bar.h}, theme.accent);
+	ui::DrawBorder(m_spriteBatch, bar, theme.panelBorder);
+
+	const std::string_view step = m_loadIndex < m_loadTasks.size()
+									  ? std::string_view(m_loadTasks[m_loadIndex].first)
+									  : std::string_view("Entering the dungeon...");
+	ui::Font& font = m_menuUi.GetFont();
+	const float stepW = font.MeasureWidth(step);
+	font.Draw(m_spriteBatch, step, (w - stepW) * 0.5f, bar.y + 28.0f, theme.textDim);
+}
+
 void Game::RenderLoadingScreen() {
 	const float w = static_cast<float>(m_device.Width());
 	const float h = static_cast<float>(m_device.Height());
 	const ui::Theme& theme = m_menuUi.GetTheme();
 
-	// Title.
 	const char* title = "DUNGEON";
 	const float titleW = m_titleFont.MeasureWidth(title);
 	m_titleFont.Draw(m_spriteBatch, title, (w - titleW) * 0.5f, h * 0.32f, theme.accent);
 
-	// Progress bar.
-	const float total = static_cast<float>(m_loadTasks.size());
-	const float progress = total > 0 ? static_cast<float>(m_loadIndex) / total : 1.0f;
-	const gfx::Rect bar{w * 0.3f, h * 0.52f, w * 0.4f, 14.0f};
-	m_spriteBatch.DrawRect(bar, theme.control);
-	m_spriteBatch.DrawRect({bar.x, bar.y, bar.w * progress, bar.h}, theme.accent);
-	ui::DrawBorder(m_spriteBatch, bar, theme.panelBorder);
+	DrawLoadProgress(h * 0.52f);
+}
 
-	// Current step name under the bar.
-	const char* step = m_loadIndex < m_loadTasks.size()
-						   ? m_loadTasks[m_loadIndex].first
-						   : "Entering the dungeon...";
+// Shown between "Start New Game" and Playing: the title art again, washed
+// darker than the menu so the bar and step names read clearly.
+void Game::RenderGameLoadingScreen() {
+	const float w = static_cast<float>(m_device.Width());
+	const float h = static_cast<float>(m_device.Height());
+	const ui::Theme& theme = m_menuUi.GetTheme();
+
+	m_spriteBatch.DrawSprite({0, 0, w, h}, {0, 0, 1, 1}, *m_titleBackground,
+							 {1, 1, 1, 1});
+	m_spriteBatch.DrawRect({0, 0, w, h}, {0, 0, 0, 0.55f});
+
+	const char* title = "DUNGEON";
+	const float titleW = m_titleFont.MeasureWidth(title);
+	m_titleFont.Draw(m_spriteBatch, title, (w - titleW) * 0.5f, h * 0.16f, theme.accent);
+
+	const char* subtitle = "descending...";
 	ui::Font& font = m_menuUi.GetFont();
-	const float stepW = font.MeasureWidth(step);
-	font.Draw(m_spriteBatch, step, (w - stepW) * 0.5f, bar.y + 28.0f, theme.textDim);
+	const float subW = font.MeasureWidth(subtitle);
+	font.Draw(m_spriteBatch, subtitle, (w - subW) * 0.5f, h * 0.16f + 74.0f,
+			  theme.textDim);
+
+	DrawLoadProgress(h * 0.56f);
 }
 
 void Game::RenderMenuOverlay() {
@@ -850,9 +928,10 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 	// 2D pass.
 	m_spriteBatch.Begin(list, m_device.Width(), m_device.Height());
 	switch (m_state) {
-	case AppState::Loading: RenderLoadingScreen(); break;
-	case AppState::Menu:    RenderMenuOverlay(); break;
-	case AppState::Playing: m_ui.Render(m_spriteBatch); break;
+	case AppState::Loading:     RenderLoadingScreen(); break;
+	case AppState::Menu:        RenderMenuOverlay(); break;
+	case AppState::LoadingGame: RenderGameLoadingScreen(); break;
+	case AppState::Playing:     m_ui.Render(m_spriteBatch); break;
 	}
 	m_spriteBatch.End();
 

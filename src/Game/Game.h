@@ -5,11 +5,16 @@
 // world (map, party, monsters, lights), the menus and HUD, the loaded
 // assets, and a small app state machine:
 //
-//   Loading  — assets load one step per frame so a progress screen can
-//              render between steps (loading is staged, not threaded)
-//   Menu     — landing page over baked title art (assets/textures/
-//              title_bg.png); mouse hover or keyboard selects an entry
-//   Playing  — the crawler: UI input → party movement → animators → lights
+//   Loading     — boot load: just the menu essentials (title art, click
+//                 sounds), one step per frame, so the landing page appears
+//                 fast even on a cold cache
+//   Menu        — landing page over baked title art (assets/textures/
+//                 title_bg.png); mouse hover or keyboard selects an entry
+//   LoadingGame — the heavy dungeon load (meshes, scanned textures, world
+//                 build), entered from "Start New Game" the first time;
+//                 staged one task per frame behind its own progress screen
+//   Playing     — the crawler: UI input → party movement → animators →
+//                 lights (loading is staged, not threaded, in both states)
 //
 // Everything binary loads from the assets/ directory next to the exe
 // (regenerate with tools/AssetBaker). Engine modules know nothing about
@@ -19,6 +24,7 @@
 
 #include "Animation/Animator.h"
 #include "Audio/AudioEngine.h"
+#include "Game/DungeonEntities.h"
 #include "Game/DungeonMap.h"
 #include "Game/FireEffect.h"
 #include "Game/Party.h"
@@ -34,6 +40,7 @@
 #include <functional>
 #include <memory>
 #include <span>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -48,7 +55,7 @@ public:
 	void Render(ID3D12GraphicsCommandList* list);
 
 private:
-	enum class AppState { Loading, Menu, Playing };
+	enum class AppState { Loading, Menu, LoadingGame, Playing };
 	enum class MenuPage { Main, Settings };
 
 	// Quality tiers, selected in Settings (persisted to settings.ini next to
@@ -67,22 +74,26 @@ private:
 		float heightScale = 0.0f;
 	};
 
-	// Per-kind monster assets (shared) and per-instance state.
+	// Per-kind monster assets (shared) and per-instance state. Kinds are
+	// entity type names from the .ent file ("skeleton" loads skeleton.gltf).
 	struct MonsterKind {
 		assets::ModelData model; // must outlive the Animators pointing into it
 		std::unique_ptr<gfx::Mesh> mesh;
-		const char* name;
+		std::string name;
 	};
 	struct Monster {
-		char kind;
+		const MonsterKind* kind = nullptr; // points into m_monsterKinds (stable)
 		int x, z;
 		float yaw = 0.0f;
 		bool announced = false;
 		anim::Animator animator;
 	};
 
-	// --- loading (one task per frame while the loading screen shows) -------
-	void BuildLoadTasks();
+	// --- loading (one task per frame while a loading screen shows) ---------
+	void BuildBootLoadTasks(); // menu essentials, run before the landing page
+	void BuildGameLoadTasks(); // the dungeon itself, run on first game start
+	bool RunLoadTasks();       // executes one task per frame; true when done
+	void LoadSurfaceMaterial(Surface& surface, const char* name);
 	void LoadTextureSet(Surface& surface, std::span<const char* const> names,
 						float heightScale);
 	void BuildDungeonMeshes();
@@ -116,7 +127,9 @@ private:
 	// All 3D draw calls, shared verbatim by the shadow and main passes.
 	void SubmitSceneGeometry(ID3D12GraphicsCommandList* list);
 	void DrawSurface(ID3D12GraphicsCommandList* list, const Surface& surface);
-	void RenderLoadingScreen();
+	void RenderLoadingScreen();     // boot: black screen, title, progress
+	void RenderGameLoadingScreen(); // game load: title art + progress
+	void DrawLoadProgress(float barY); // shared bar + step label
 	void RenderMenuOverlay();
 
 	Window& m_window;
@@ -127,12 +140,17 @@ private:
 
 	// --- app state -------------------------------------------------------------
 	AppState m_state = AppState::Loading;
-	std::vector<std::pair<const char*, std::function<void()>>> m_loadTasks;
+	std::vector<std::pair<std::string, std::function<void()>>> m_loadTasks;
 	size_t m_loadIndex = 0;
+	bool m_gameLoaded = false; // dungeon assets resident (first start done)
 	u32 m_framesRendered = 0;
+	// Frame count when the current loading state was entered; tasks only run
+	// once its screen has been presented at least once.
+	u32 m_stateFrameMark = 0;
 
 	// --- world -----------------------------------------------------------------
-	DungeonMap m_map;
+	DungeonMap m_map;          // static layer (.map): structure, fixtures
+	DungeonEntities m_entities; // dynamic layer (.ent): monsters, items, buttons
 	Party m_party;
 	gfx::Camera m_camera;
 	gfx::LightSet m_lights;
@@ -154,7 +172,7 @@ private:
 	anim::Animator m_pillarAnimator;
 	Vec3 m_pillarPos{};
 
-	std::flat_map<char, std::unique_ptr<MonsterKind>> m_monsterKinds;
+	std::flat_map<std::string, std::unique_ptr<MonsterKind>> m_monsterKinds;
 	std::vector<Monster> m_monsters;
 
 	// Fires: wall sconces (at 'T' cells, mounted on the adjacent wall) and

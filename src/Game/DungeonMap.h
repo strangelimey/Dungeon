@@ -1,20 +1,26 @@
 // ============================================================================
-// Game/DungeonMap.h — the level definition, loaded from a data file.
+// Game/DungeonMap.h — the STATIC layer of a level: everything that never
+// changes during play, so a save system never needs to store it.
 //
 // Levels are ASCII grid text files under assets/maps/ (see level1.map for
 // the glyph legend: '#' rock, '.' floor, 'D' dust, 'T' sconce, 'F' brazier,
-// 'P' start, 'S'/'M'/'B' monsters; ';' lines are comments). The constructor
-// parses and validates the file — unknown glyphs, ragged rows, or a missing
-// start cell fail hard with the file name and position.
+// 'P' start; ';' lines are comments). Below the grid, lines starting with a
+// lowercase letter are static entity records — decorations with a type and
+// facing (format in Entity.h); grid glyphs are never lowercase, so the two
+// can't collide. Dynamic content (monsters, items, buttons) lives in the
+// .ent file next to the .map — see DungeonEntities.h. The constructor parses
+// and validates the file — unknown glyphs, ragged rows, or a missing start
+// cell fail hard with the file name and position.
 //
 // Cell (x, z) maps to world space as center ((x+0.5), 0, (z+0.5)) * kCellSize
 // with +X = east and +Z = south (row index grows southward). The geometry
-// builder, fires, turbidity grid, and monster spawns all derive from this.
+// builder, fires, turbidity grid, and entity placement all derive from this.
 // ============================================================================
 #pragma once
 
 #include "Core/MathTypes.h"
 #include "Core/Types.h"
+#include "Game/Entity.h"
 
 #include <string>
 #include <vector>
@@ -22,7 +28,10 @@
 namespace dungeon::game {
 
 // World-space dimensions shared by geometry, lighting, and the camera.
-inline constexpr float kCellSize = 2.0f;   // square cells, 2m on a side
+inline constexpr float kCellSize = 2.4f;   // square cells, 2.4m on a side
+// Block meshes are authored at this exact size (AssetBaker's kCellHalf in
+// tools/AssetBaker/ModelBaker.cpp must equal kCellSize/2) — changing it
+// means rebaking models: AssetBaker models <assets>.
 inline constexpr float kWallHeight = 2.5f; // floor to ceiling
 inline constexpr float kEyeHeight = 1.55f; // camera height above the floor
 
@@ -57,12 +66,8 @@ public:
 	const std::vector<std::pair<int, int>>& TorchCells() const { return m_torches; }
 	const std::vector<std::pair<int, int>>& BrazierCells() const { return m_braziers; }
 
-	// Monster spawn points: kind is 'S' skeleton, 'M' mummy, 'B' blob.
-	struct MonsterSpawn {
-		char kind;
-		int x, z;
-	};
-	const std::vector<MonsterSpawn>& MonsterSpawns() const { return m_monsters; }
+	// Static decoration records (banners, rubble, ...) from the .map file.
+	const std::vector<Entity>& Decorations() const { return m_decorations; }
 
 private:
 	void AddFireTurbidity(int x, int z, float amount);
@@ -75,7 +80,7 @@ private:
 	std::vector<float> m_turbidity; // parallel to m_cells
 	std::vector<std::pair<int, int>> m_torches;
 	std::vector<std::pair<int, int>> m_braziers;
-	std::vector<MonsterSpawn> m_monsters;
+	std::vector<Entity> m_decorations;
 };
 
 } // namespace dungeon::game

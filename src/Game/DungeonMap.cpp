@@ -10,32 +10,18 @@
 
 namespace dungeon::game {
 
-namespace {
-
-// Splits the raw map file into grid rows: strips '\r', drops blank lines and
-// ';' comment lines. The grid is everything that remains, in order.
-std::vector<std::string> ReadGridRows(const std::vector<u8>& bytes) {
-	std::vector<std::string> rows;
-	std::string line;
-	auto flush = [&] {
-		if (!line.empty() && line.back() == '\r') line.pop_back();
-		if (!line.empty() && line[0] != ';') rows.push_back(line);
-		line.clear();
-	};
-	for (const u8 byte : bytes) {
-		if (static_cast<char>(byte) == '\n') flush();
-		else line.push_back(static_cast<char>(byte));
-	}
-	flush();
-	return rows;
-}
-
-} // namespace
-
 DungeonMap::DungeonMap(const std::string& path) {
 	auto bytes = assets::ReadBinaryFile(path);
 	DN_ASSERT(bytes.has_value(), bytes.error());
-	const std::vector<std::string> rows = ReadGridRows(*bytes);
+
+	// Grid rows vs. entity records: records start with a lowercase letter
+	// (grid glyphs never do — keep new glyphs out of 'a'..'z').
+	std::vector<std::string> rows;
+	std::vector<std::string> records;
+	for (std::string& line : ReadLevelLines(*bytes)) {
+		if (line[0] >= 'a' && line[0] <= 'z') records.push_back(std::move(line));
+		else rows.push_back(std::move(line));
+	}
 	DN_ASSERT(!rows.empty(), "map file has no grid rows: " + path);
 
 	m_height = static_cast<int>(rows.size());
@@ -56,9 +42,6 @@ DungeonMap::DungeonMap(const std::string& path) {
 			case 'D': m_turbidity[static_cast<size_t>(z) * m_width + x] = 1.0f; break;
 			case 'T': m_torches.emplace_back(x, z); break;
 			case 'F': m_braziers.emplace_back(x, z); break;
-			case 'S':
-			case 'M':
-			case 'B': m_monsters.push_back({c, x, z}); break;
 			case 'P':
 				DN_ASSERT(!foundStart,
 						  std::format("multiple 'P' start cells in {}", path));
@@ -76,13 +59,25 @@ DungeonMap::DungeonMap(const std::string& path) {
 	}
 	DN_ASSERT(foundStart, "map has no 'P' start cell: " + path);
 
+	// Static decoration records below the grid.
+	for (const std::string& record : records) {
+		Entity e = ParseEntityRecord(record, path);
+		DN_ASSERT(e.kind == EntityKind::Decoration,
+				  std::format("only decorations are static — move \"{}\" to the .ent file ({})",
+							  record, path));
+		DN_ASSERT(IsWalkable(e.x, e.z),
+				  std::format("decoration out of bounds or in solid rock: \"{}\" in {}",
+							  record, path));
+		m_decorations.push_back(std::move(e));
+	}
+
 	// Fires thicken the air around them (braziers more than sconces).
 	for (const auto& [bx, bz] : m_braziers) AddFireTurbidity(bx, bz, 0.55f);
 	for (const auto& [tx, tz] : m_torches) AddFireTurbidity(tx, tz, 0.28f);
 
-	log::Info("Loaded map {}: {}x{}, {} torches, {} braziers, {} monsters", path,
-			  m_width, m_height, m_torches.size(), m_braziers.size(),
-			  m_monsters.size());
+	log::Info("Loaded map {}: {}x{}, {} torches, {} braziers, {} decorations",
+			  path, m_width, m_height, m_torches.size(), m_braziers.size(),
+			  m_decorations.size());
 }
 
 // Fires raise the air turbidity of their own square and the squares nearby

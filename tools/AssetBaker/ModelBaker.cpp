@@ -3,7 +3,7 @@
 //
 // Builds assets::ModelData in code and hands it to WriteGltf:
 //   * dungeon blocks — wall (recessed panel + edge pillars, authored facing
-//     +Z over x∈[-1,1], y∈[0,2.5]), flat floor, flat ceiling (facing down,
+//     +Z over x∈[±kCellHalf], y∈[0,2.5]), flat floor, flat ceiling (facing down,
 //     placed at wall height by the game); worn variants per surface texture,
 //     displaced by that texture's scanned height map (see the worn section)
 //   * serpent pillar — skinned cylinder, 4-joint chain, looping sway clip
@@ -94,24 +94,28 @@ Quat QuatFromEuler(float pitch, float yaw, float roll) {
 }
 
 // --- dungeon blocks --------------------------------------------------------------
-// Wall block: authored facing +Z (the room side), x in [-1,1], y in [0,2.5].
-// A recessed center panel framed by edge pillars gives real 3D relief that
-// the parallax-mapped textures then deepen.
+// Wall block: authored facing +Z (the room side), x in [-kCellHalf, kCellHalf],
+// y in [0,2.5]. A recessed center panel framed by edge pillars gives real 3D
+// relief that the parallax-mapped textures then deepen.
 
-constexpr float kWallH = 2.5f;
+constexpr float kWallH = 2.5f;    // must match game::kWallHeight (DungeonMap.h)
+constexpr float kCellHalf = 1.2f; // half of game::kCellSize (DungeonMap.h)
+constexpr float kUvScale = 1.0f / (2.0f * kCellHalf); // one texture tile per cell
 
 // Planar UV projection chosen by the face normal's dominant axis, with a
-// consistent texel scale (one texture tile per 2 world units). Faces that
-// point sideways or up/down (panel reveals, pillar flanks) get their own
-// in-plane projection instead of a smeared front projection.
+// consistent texel scale (one texture tile per cell width, so adjacent
+// blocks tile seamlessly). Faces that point sideways or up/down (panel
+// reveals, pillar flanks) get their own in-plane projection instead of a
+// smeared front projection.
 Vec2 WallFaceUv(const Vec3& p, const Vec3& n) {
 	const float ax = std::fabs(n.x), ay = std::fabs(n.y), az = std::fabs(n.z);
-	if (az >= ax && az >= ay) return {(p.x + 1.0f) * 0.5f, (kWallH - p.y) * 0.5f};
-	if (ay >= ax) return {(p.x + 1.0f) * 0.5f, (p.z + 1.0f) * 0.5f};
-	return {(p.z + 1.0f) * 0.5f, (kWallH - p.y) * 0.5f};
+	if (az >= ax && az >= ay)
+		return {(p.x + kCellHalf) * kUvScale, (kWallH - p.y) * kUvScale};
+	if (ay >= ax) return {(p.x + kCellHalf) * kUvScale, (p.z + kCellHalf) * kUvScale};
+	return {(p.z + kCellHalf) * kUvScale, (kWallH - p.y) * kUvScale};
 }
 
-constexpr float kPanelX = 0.80f;     // panel half-width (between pillars)
+constexpr float kPanelX = 0.80f * kCellHalf; // panel half-width (between pillars)
 constexpr float kPillarOut = 0.085f; // pillar protrusion
 
 // Edge pillars plus the corner seals (outer cap + wall-plane backing strip).
@@ -125,8 +129,8 @@ void AddWallPillars(assets::MeshData& mesh) {
 	};
 
 	for (const float side : {-1.0f, 1.0f}) {
-		const float cx = side * (1.0f - (1.0f - kPanelX) * 0.5f);
-		const float hw = (1.0f - kPanelX) * 0.5f;
+		const float cx = side * (kCellHalf - (kCellHalf - kPanelX) * 0.5f);
+		const float hw = (kCellHalf - kPanelX) * 0.5f;
 		const float x0 = cx - hw, x1 = cx + hw;
 
 		// Front face.
@@ -144,7 +148,7 @@ void AddWallPillars(assets::MeshData& mesh) {
 		// block's pillar hides it, but at an outside corner of a solid block
 		// nothing else covers this strip — without it there is a see-through
 		// notch at every convex wall corner.
-		const float outer = side < 0 ? x0 : x1; // == ±1
+		const float outer = side < 0 ? x0 : x1; // == ±kCellHalf
 		wq({outer, 0, 0}, {outer, 0, kPillarOut}, {outer, kWallH, kPillarOut},
 		   {outer, kWallH, 0}, {side, 0, 0});
 
@@ -197,7 +201,8 @@ assets::ModelData BuildWallBlock() {
 assets::ModelData BuildFloorBlock() {
 	assets::ModelData model;
 	assets::MeshData mesh;
-	AddQuad(mesh, {-1, 0, -1}, {1, 0, -1}, {1, 0, 1}, {-1, 0, 1}, {0, 1, 0}, {0, 0},
+	const float c = kCellHalf;
+	AddQuad(mesh, {-c, 0, -c}, {c, 0, -c}, {c, 0, c}, {-c, 0, c}, {0, 1, 0}, {0, 0},
 			{1, 0}, {1, 1}, {0, 1});
 	model.meshes.push_back(std::move(mesh));
 	model.materials.push_back({{1, 1, 1, 1}, -1});
@@ -208,7 +213,8 @@ assets::ModelData BuildCeilingBlock() {
 	// Authored at y=0 facing down; placed at wall height by the game.
 	assets::ModelData model;
 	assets::MeshData mesh;
-	AddQuad(mesh, {-1, 0, 1}, {1, 0, 1}, {1, 0, -1}, {-1, 0, -1}, {0, -1, 0}, {0, 0},
+	const float c = kCellHalf;
+	AddQuad(mesh, {-c, 0, c}, {c, 0, c}, {c, 0, -c}, {-c, 0, -c}, {0, -1, 0}, {0, 0},
 			{1, 0}, {1, 1}, {0, 1});
 	model.meshes.push_back(std::move(mesh));
 	model.materials.push_back({{1, 1, 1, 1}, -1});
@@ -298,9 +304,9 @@ private:
 // --- procedural wear (fallback when the scanned sets are not installed) ----
 
 // Erosion depth (into the rock) for the worn wall surface, in wall-local
-// coordinates (x across [-1,1], y up [0,kWallH]).
+// coordinates (x across [-kCellHalf, kCellHalf], y up [0,kWallH]).
 float WallWearDepth(float x, float y) {
-	const float u = x + 1.0f;       // 0..2 along the wall
+	const float u = x + kCellHalf;  // 0..cell width along the wall, in meters
 	const float v = kWallH - y;     // 0..2.5 down the wall
 
 	// Generic brick grid (0.5 x 0.3125) — only an approximation of the
@@ -326,14 +332,14 @@ float WallWearDepth(float x, float y) {
 
 	const float depth = mortar + brick + undulation + rough + low;
 	// Pin to the flat plane at every block edge so seams stay closed.
-	const float pin = PinRamp(1.0f - std::fabs(x), 0.12f) * PinRamp(y, 0.10f) *
+	const float pin = PinRamp(kCellHalf - std::fabs(x), 0.12f) * PinRamp(y, 0.10f) *
 					  PinRamp(kWallH - y, 0.10f);
 	return std::clamp(depth, 0.0f, 0.12f) * pin;
 }
 
 // Height offset for the worn floor: sunken, tilted slabs with eroded joints.
 float FloorWearHeight(float x, float z) {
-	const float u = x + 1.0f, v = z + 1.0f; // 0..2, slabs are 1m
+	const float u = x + kCellHalf, v = z + kCellHalf; // meters, slabs are 1m
 	const u32 col = static_cast<u32>(u), row = static_cast<u32>(v);
 
 	const float sink = -Hash(col + 17u, row + 9u, 201u) * 0.035f;
@@ -348,16 +354,18 @@ float FloorWearHeight(float x, float z) {
 	h -= std::clamp(1.0f - std::min(ju, jv) / 0.06f, 0.0f, 1.0f) * 0.02f;
 	h += (Fbm(u * 2.2f, v * 2.2f, 207u) - 0.5f) * 0.03f;
 
-	const float pin = PinRamp(1.0f - std::fabs(x), 0.10f) * PinRamp(1.0f - std::fabs(z), 0.10f);
+	const float pin = PinRamp(kCellHalf - std::fabs(x), 0.10f) *
+					  PinRamp(kCellHalf - std::fabs(z), 0.10f);
 	return std::clamp(h, -0.07f, 0.035f) * pin;
 }
 
 // Erosion pockets (upward, into the rock) for the worn ceiling.
 float CeilingWearDepth(float x, float z) {
-	const float u = x + 1.0f, v = z + 1.0f;
+	const float u = x + kCellHalf, v = z + kCellHalf;
 	float d = std::max(0.0f, Fbm(u * 1.5f, v * 1.5f, 301u) - 0.42f) * 0.20f;
 	d += (Fbm(u * 4.0f, v * 4.0f, 303u) - 0.5f) * 0.015f;
-	const float pin = PinRamp(1.0f - std::fabs(x), 0.10f) * PinRamp(1.0f - std::fabs(z), 0.10f);
+	const float pin = PinRamp(kCellHalf - std::fabs(x), 0.10f) *
+					  PinRamp(kCellHalf - std::fabs(z), 0.10f);
 	return std::clamp(d, 0.0f, 0.10f) * pin;
 }
 
@@ -370,15 +378,15 @@ float CeilingWearDepth(float x, float z) {
 WearField TextureWallWear(const TextureHeight& height, float relief, int gridX,
 						  int gridY, u32 seed) {
 	const float du = 1.0f / gridX;
-	const float dv = (kWallH / gridY) * 0.5f;
+	const float dv = (kWallH / gridY) * kUvScale;
 	return [&height, relief, du, dv, seed](float x, float y) {
-		const float u = (x + 1.0f) * 0.5f;
-		const float v = (kWallH - y) * 0.5f;
+		const float u = (x + kCellHalf) * kUvScale;
+		const float v = (kWallH - y) * kUvScale;
 		// Low texture height = recessed surface (mortar, broken bricks).
 		float d = (1.0f - height.SampleBox(u, v, du, dv)) * relief;
 		d += (Fbm(u * 1.8f, v * 1.8f, seed) - 0.5f) * 0.045f; // bowed masonry
 		d += std::clamp(1.0f - y, 0.0f, 1.0f) * 0.018f;       // ground-level wear
-		const float pin = PinRamp(1.0f - std::fabs(x), 0.12f) * PinRamp(y, 0.10f) *
+		const float pin = PinRamp(kCellHalf - std::fabs(x), 0.12f) * PinRamp(y, 0.10f) *
 						  PinRamp(kWallH - y, 0.10f);
 		return std::clamp(d, 0.0f, relief + 0.05f) * pin;
 	};
@@ -388,11 +396,11 @@ WearField TextureFloorWear(const TextureHeight& height, float relief, int grid,
 						   u32 seed) {
 	const float du = 0.5f / grid, dv = 0.5f / grid;
 	return [&height, relief, du, dv, seed](float x, float z) {
-		const float u = (x + 1.0f) * 0.5f, v = (z + 1.0f) * 0.5f;
+		const float u = (x + kCellHalf) * kUvScale, v = (z + kCellHalf) * kUvScale;
 		float h = (height.SampleBox(u, v, du, dv) - 0.5f) * relief;
 		h += (Fbm(u * 2.2f, v * 2.2f, seed) - 0.5f) * 0.02f; // general unevenness
-		const float pin =
-			PinRamp(1.0f - std::fabs(x), 0.10f) * PinRamp(1.0f - std::fabs(z), 0.10f);
+		const float pin = PinRamp(kCellHalf - std::fabs(x), 0.10f) *
+						  PinRamp(kCellHalf - std::fabs(z), 0.10f);
 		return std::clamp(h, -0.07f, 0.05f) * pin;
 	};
 }
@@ -401,12 +409,12 @@ WearField TextureCeilingWear(const TextureHeight& height, float relief, int grid
 							 u32 seed) {
 	const float du = 0.5f / grid, dv = 0.5f / grid;
 	return [&height, relief, du, dv, seed](float x, float z) {
-		const float u = (x + 1.0f) * 0.5f, v = (z + 1.0f) * 0.5f;
+		const float u = (x + kCellHalf) * kUvScale, v = (z + kCellHalf) * kUvScale;
 		// Low texture height = deeper erosion pocket (upward, into the rock).
 		float d = (1.0f - height.SampleBox(u, v, du, dv)) * relief;
 		d += (Fbm(u * 3.0f, v * 3.0f, seed) - 0.5f) * 0.015f;
-		const float pin =
-			PinRamp(1.0f - std::fabs(x), 0.10f) * PinRamp(1.0f - std::fabs(z), 0.10f);
+		const float pin = PinRamp(kCellHalf - std::fabs(x), 0.10f) *
+						  PinRamp(kCellHalf - std::fabs(z), 0.10f);
 		return std::clamp(d, 0.0f, relief) * pin;
 	};
 }
@@ -423,7 +431,7 @@ assets::ModelData BuildWornWallBlock(int kNx, int kNy, const WearField& wear) {
 	for (int j = 0; j <= kNy; ++j) {
 		const float y = kWallH * static_cast<float>(j) / kNy;
 		for (int i = 0; i <= kNx; ++i) {
-			const float x = -1.0f + 2.0f * static_cast<float>(i) / kNx;
+			const float x = kCellHalf * (2.0f * static_cast<float>(i) / kNx - 1.0f);
 			const float d = wear(x, y);
 			// Surface z = -d; tangent cross product gives (dd/dx, dd/dy, 1).
 			const float ddx = (wear(x + kEps, y) - wear(x - kEps, y)) / (2 * kEps);
@@ -433,7 +441,7 @@ assets::ModelData BuildWornWallBlock(int kNx, int kNy, const WearField& wear) {
 			assets::Vertex vert;
 			vert.position = {x, y, -d};
 			vert.normal = {ddx * inv, ddy * inv, inv};
-			vert.uv = {(x + 1.0f) * 0.5f, (kWallH - y) * 0.5f};
+			vert.uv = {(x + kCellHalf) * kUvScale, (kWallH - y) * kUvScale};
 			mesh.vertices.push_back(vert);
 		}
 	}
@@ -456,9 +464,9 @@ assets::ModelData BuildWornFloorBlock(int kN, const WearField& wear) {
 
 	constexpr float kEps = 0.02f;
 	for (int j = 0; j <= kN; ++j) {
-		const float z = -1.0f + 2.0f * static_cast<float>(j) / kN;
+		const float z = kCellHalf * (2.0f * static_cast<float>(j) / kN - 1.0f);
 		for (int i = 0; i <= kN; ++i) {
-			const float x = -1.0f + 2.0f * static_cast<float>(i) / kN;
+			const float x = kCellHalf * (2.0f * static_cast<float>(i) / kN - 1.0f);
 			const float h = wear(x, z);
 			const float hx = (wear(x + kEps, z) - wear(x - kEps, z)) / (2 * kEps);
 			const float hz = (wear(x, z + kEps) - wear(x, z - kEps)) / (2 * kEps);
@@ -467,7 +475,7 @@ assets::ModelData BuildWornFloorBlock(int kN, const WearField& wear) {
 			assets::Vertex vert;
 			vert.position = {x, h, z};
 			vert.normal = {-hx * inv, inv, -hz * inv};
-			vert.uv = {(x + 1.0f) * 0.5f, (z + 1.0f) * 0.5f};
+			vert.uv = {(x + kCellHalf) * kUvScale, (z + kCellHalf) * kUvScale};
 			mesh.vertices.push_back(vert);
 		}
 	}
@@ -490,9 +498,9 @@ assets::ModelData BuildWornCeilingBlock(int kN, const WearField& wear) {
 	// Authored at y=0 facing down (like the clean block); erosion goes up.
 	constexpr float kEps = 0.02f;
 	for (int j = 0; j <= kN; ++j) {
-		const float z = -1.0f + 2.0f * static_cast<float>(j) / kN;
+		const float z = kCellHalf * (2.0f * static_cast<float>(j) / kN - 1.0f);
 		for (int i = 0; i <= kN; ++i) {
-			const float x = -1.0f + 2.0f * static_cast<float>(i) / kN;
+			const float x = kCellHalf * (2.0f * static_cast<float>(i) / kN - 1.0f);
 			const float d = wear(x, z);
 			const float dx = (wear(x + kEps, z) - wear(x - kEps, z)) / (2 * kEps);
 			const float dz = (wear(x, z + kEps) - wear(x, z - kEps)) / (2 * kEps);
@@ -501,7 +509,7 @@ assets::ModelData BuildWornCeilingBlock(int kN, const WearField& wear) {
 			assets::Vertex vert;
 			vert.position = {x, d, z};
 			vert.normal = {dx * inv, -inv, dz * inv};
-			vert.uv = {(x + 1.0f) * 0.5f, (z + 1.0f) * 0.5f};
+			vert.uv = {(x + kCellHalf) * kUvScale, (z + kCellHalf) * kUvScale};
 			mesh.vertices.push_back(vert);
 		}
 	}
@@ -816,10 +824,12 @@ bool BakeModels(const std::string& dir, const std::string& texturesDir) {
 		const char* suffix;
 		int wallX, wallY, floor, ceiling;
 	};
+	// In-plane counts cover kCellSize (2.4m), wallY covers kWallH (2.5m);
+	// all chosen for roughly equal vertex spacing per tier.
 	const Tier tiers[] = {
-		{"low", 12, 16, 12, 10},
-		{"med", 28, 36, 28, 24},
-		{"high", 44, 56, 44, 36},
+		{"low", 14, 16, 14, 12},
+		{"med", 34, 36, 34, 29},
+		{"high", 53, 56, 53, 43},
 	};
 	enum class Kind { Wall, Floor, Ceiling };
 	struct WornSpec {

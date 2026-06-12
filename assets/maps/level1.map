@@ -1,29 +1,33 @@
-; Dungeon — level 1.
+; Dungeon — level 1, static layer (structure and fixtures).
 ; One character per cell; every row must be the same width.
 ; Lines starting with ';' and blank lines are ignored.
 ;
 ;   #  solid rock          .  floor
 ;   P  party start         D  dusty floor (air turbidity 1)
 ;   T  wall torch sconce   F  fire brazier (blocks movement)
-;   S  skeleton            M  mummy            B  blob
+;
+; Grid glyphs are never lowercase: lines starting with a lowercase letter
+; are static decoration records (see Entity.h for the format), e.g.
+;   decoration banner 4 2 north
+; Dynamic content — monsters, items, buttons — lives in level1.ent.
 ;
 ; Fires raise the air turbidity of their own and nearby squares.
 ; The lower-left block (rows 12-14) is the dust-shaft showcase: a dusty
 ; chamber with two freestanding columns, a wall torch behind them, and
 ; the mummy backlit beside it.
 ################
-#P....ST#......#
+#P.....T#......#
 #.#####..#.###.#
 #.#....#.#.#T#.#
 #.#.##.#.#.#.#.#
 #.#.#TF#.#.#.#.#
 #.#.####.#.#.#.#
-#....B...#...#.#
+#........#...#.#
 #.########.###.#
 #DDD.....#.#..F#
 ########D#.#.###
-#TDDDSDDD#.#..T#
-#DDDDDMD#..##..#
+#TDDD.DDD#.#..T#
+#DDDDD.D#..##..#
 #DD#D#DT#.#..#.#
-#DDBDDD#..F#...#
+#DD.DDD#..F#...#
 ################

@@ -65,9 +65,17 @@ at launch with an on-disk cache (shadercache/, hash-invalidated) — edit
   raw downloads live in OneDrive\DungeonAssets\<res>\<material>\ and
   `tools\FetchTextures.ps1 [-Resolutions 1k,2k,4k]` imports them. A full
   pre-history-rewrite git bundle also lives there.
-- Maps: assets/maps/level1.map — ASCII grid, ';' comments, glyphs:
-  '#' rock '.' floor 'D' dusty 'T' sconce 'F' brazier (blocks movement)
-  'P' start 'S'/'M'/'B' monsters. Edit + relaunch, no rebuild.
+- Maps are two files per level, split static vs dynamic for the future
+  save system (saves will only ever store the dynamic side):
+  - assets/maps/level1.map — STATIC layer (DungeonMap): ASCII grid, ';'
+    comments, glyphs '#' rock '.' floor 'D' dusty 'T' sconce 'F' brazier
+    (blocks movement) 'P' start. Lines starting lowercase are decoration
+    records (grid glyphs are never lowercase).
+  - assets/maps/level1.ent — DYNAMIC layer (DungeonEntities): monsters,
+    items, buttons; one record per line, `<kind> <type> <x> <z> [facing]
+    [key=value ...]` (Entity.h). Monster type → model: <type>.gltf.
+    Records validate against the map at load (bounds, walkability,
+    buttons face a wall). Edit + relaunch, no rebuild.
 - Worn block meshes are baked PER SURFACE TEXTURE at 3 tiers
   (worn_<texture>_<low|med|high>.gltf), displaced by that texture's scanned
   height map (normal-map alpha) so geometric relief matches the painted

@@ -1,0 +1,17 @@
+; Dungeon — level 1, dynamic layer (everything that changes during play).
+; One record per line:
+;
+;   <kind> <type> <x> <z> [facing] [key=value ...]
+;
+; Kinds: monster, item, button (decorations are static — they go in the
+; .map file). type names the asset/behavior: a monster's model is
+; <type>.gltf. x/z are grid cells of level1.map, (0,0) top-left, x grows
+; east, z grows south. facing is north/east/south/west (default south);
+; buttons must face a solid wall. Examples of upcoming kinds:
+;   item torch 4 1
+;   button lever 9 5 east target=door_a
+monster skeleton 6 1
+monster blob 5 7
+monster skeleton 5 11
+monster mummy 6 12
+monster blob 3 14
