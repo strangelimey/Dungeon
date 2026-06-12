@@ -71,6 +71,9 @@ constexpr float kFontDesignWindowH = 900.0f;
 constexpr float kHudFontH = 17.0f;
 constexpr float kMenuFontH = 28.0f;
 constexpr float kTitleFontH = 64.0f;
+// Re-bakes wait for the window height to hold still this long, so an
+// interactive resize drag doesn't drain the GPU on every size change.
+constexpr float kFontSettleDelay = 0.25f;
 
 } // namespace
 
@@ -750,14 +753,22 @@ void Game::Update(float dt) {
 	m_time += dt;
 
 	// Keep fonts in step with the window height so text scales with the
-	// normalized UI. SetHeight is a no-op until the rounded size changes,
-	// and re-bakes between frames (never while a command list records).
-	const float fontScale =
-		static_cast<float>(m_window.Height()) / kFontDesignWindowH;
-	m_ui.GetFont().SetHeight(kHudFontH * fontScale);
-	m_menuUi.GetFont().SetHeight(kMenuFontH * fontScale);
-	m_settingsUi.GetFont().SetHeight(kMenuFontH * fontScale);
-	m_titleFont.SetHeight(kTitleFontH * fontScale);
+	// normalized UI. Re-bakes are debounced until the height has settled
+	// for kFontSettleDelay (each one drains the GPU), then run between
+	// frames (never while a command list records); until then text simply
+	// renders at the old size inside the already-scaled widgets.
+	const float windowH = static_cast<float>(m_window.Height());
+	if (windowH != m_fontWindowH) {
+		m_fontWindowH = windowH;
+		m_fontSettle = 0.0f;
+	} else if (m_fontSettle < kFontSettleDelay &&
+			   (m_fontSettle += dt) >= kFontSettleDelay) {
+		const float fontScale = windowH / kFontDesignWindowH;
+		m_ui.GetFont().SetHeight(kHudFontH * fontScale);
+		m_menuUi.GetFont().SetHeight(kMenuFontH * fontScale);
+		m_settingsUi.GetFont().SetHeight(kMenuFontH * fontScale);
+		m_titleFont.SetHeight(kTitleFontH * fontScale);
+	}
 
 	switch (m_state) {
 	case AppState::Loading:

@@ -216,6 +216,10 @@ private:
 
 	Vec3 m_torchColor{1.0f, 0.62f, 0.28f};
 	float m_time = 0.0f;
+	// Font re-bake debounce: last seen window height and how long it has
+	// held (fonts re-bake once it settles — see the top of Update).
+	float m_fontWindowH = 0.0f;
+	float m_fontSettle = 0.0f;
 
 	// Last values shown in the HUD labels (reformat only on change).
 	int m_lastFacing = -1;
