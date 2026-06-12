@@ -2,3 +2,6 @@ build/
 out/
 .vs/
 *.user
+
+# Derived mip-chain textures (regenerate with AssetBaker mips)
+assets/textures/*.dds

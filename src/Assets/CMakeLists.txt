@@ -1,4 +1,5 @@
 add_library(Assets STATIC
+	Dds.cpp
 	File.cpp
 	Image.cpp
 	Model.cpp

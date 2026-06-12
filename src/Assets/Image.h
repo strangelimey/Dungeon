@@ -19,6 +19,14 @@ struct ImageData {
 	std::vector<u8> pixels; // width * height * 4
 };
 
+// A full pre-built mip pyramid (level 0 = full resolution). Produced at bake
+// time by AssetBaker (DDS files) so the game never filters mips at load.
+struct MipChain {
+	u32 width = 0;
+	u32 height = 0;
+	std::vector<ImageData> levels;
+};
+
 std::expected<ImageData, std::string> LoadImageFile(const std::string& path);
 std::expected<ImageData, std::string> LoadImageMemory(const u8* bytes, size_t size);
 

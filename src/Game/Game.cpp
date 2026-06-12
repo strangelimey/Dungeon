@@ -1,5 +1,6 @@
 #include "Game/Game.h"
 
+#include "Assets/Dds.h"
 #include "Assets/File.h"
 #include "Core/Assert.h"
 #include "Core/Log.h"
@@ -31,6 +32,18 @@ assets::SoundData LoadSound(const std::string& name) {
 	auto sound = assets::LoadWavFile(paths::Asset("sounds\\" + name));
 	if (!sound) log::Warn("{} (running silent)", sound.error());
 	return std::move(sound).value_or(assets::SoundData{});
+}
+
+// Loads a texture by stem (no extension), preferring the baked .dds mip
+// chain (no runtime filtering); falls back to the PNG + runtime mips so a
+// fresh checkout still works before `AssetBaker mips` has run.
+std::unique_ptr<gfx::Texture> LoadTextureFile(gfx::GraphicsDevice& device,
+											  const std::string& stemPath) {
+	if (auto mips = assets::LoadDdsFile(stemPath + ".dds"))
+		return std::make_unique<gfx::Texture>(device, *mips);
+	auto image = assets::LoadImageFile(stemPath + ".png");
+	DN_ASSERT(image.has_value(), image.error() + " — run AssetBaker over assets/");
+	return std::make_unique<gfx::Texture>(device, *image);
 }
 
 } // namespace
@@ -146,9 +159,8 @@ void Game::BuildLoadTasks() {
 		 }},
 		{"Painting the title",
 		 [this] {
-			 auto image = assets::LoadImageFile(paths::Asset("textures\\title_bg.png"));
-			 DN_ASSERT(image.has_value(), image.error() + " — run AssetBaker over assets/");
-			 m_titleBackground = std::make_unique<gfx::Texture>(m_device, *image);
+			 m_titleBackground =
+				 LoadTextureFile(m_device, paths::Asset("textures\\title_bg"));
 		 }},
 		{"Lighting the torches",
 		 [this] {
@@ -247,14 +259,10 @@ void Game::LoadTextureSet(Surface& surface, std::initializer_list<const char*> n
 	surface.heightScale = heightScale;
 	const char* res = QualityTextureSuffix();
 	for (const char* name : names) {
-		auto albedo = assets::LoadImageFile(
-			paths::Asset(std::format("textures\\{}_{}.png", name, res)));
-		auto normal = assets::LoadImageFile(
-			paths::Asset(std::format("textures\\{}_{}_n.png", name, res)));
-		DN_ASSERT(albedo && normal,
-				  (albedo ? normal : albedo).error() + " — run AssetBaker over assets/");
-		surface.albedo.push_back(std::make_unique<gfx::Texture>(m_device, *albedo));
-		surface.normal.push_back(std::make_unique<gfx::Texture>(m_device, *normal));
+		const std::string stem =
+			paths::Asset(std::format("textures\\{}_{}", name, res));
+		surface.albedo.push_back(LoadTextureFile(m_device, stem));
+		surface.normal.push_back(LoadTextureFile(m_device, stem + "_n"));
 	}
 }
 

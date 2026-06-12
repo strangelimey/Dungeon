@@ -10,9 +10,14 @@
 //       <name>_n.png (normal RGB + height in alpha). Maps are found by
 //       filename convention; OpenGL-style normals are flipped automatically
 //       when detectable, or forced with --flip-green.
+//
+//   AssetBaker mips <assets-dir>
+//       Regenerates the derived .dds mip chains (gitignored) for every PNG in
+//       assets/textures, so the game never filters mips at load time.
 
 #include "Core/Log.h"
 #include "ImportTextures.h"
+#include "MipBaker.h"
 #include "ModelBaker.h"
 #include "SoundBaker.h"
 #include "TextureBaker.h"
@@ -32,10 +37,18 @@ int main(int argc, char** argv) {
 		}
 		const bool flipGreen = argc >= 6 && std::string(argv[5]) == "--flip-green";
 		const std::string texturesDir = std::string(argv[3]) + "\\textures";
-		return baker::ImportPbrTextureSet(argv[2], texturesDir, argv[4], flipGreen)
-				   ? 0
-				   : 1;
+		const std::string name = argv[4];
+		if (!baker::ImportPbrTextureSet(argv[2], texturesDir, name, flipGreen)) return 1;
+		// Bake mip chains for the freshly imported pair right away.
+		bool ok = baker::BakeMipChain(texturesDir + "\\" + name + ".png",
+									  texturesDir + "\\" + name + ".dds");
+		ok &= baker::BakeMipChain(texturesDir + "\\" + name + "_n.png",
+								  texturesDir + "\\" + name + "_n.dds");
+		return ok ? 0 : 1;
 	}
+
+	if (argc >= 3 && std::string(argv[1]) == "mips")
+		return baker::BakeAllMips(std::string(argv[2]) + "\\textures") ? 0 : 1;
 
 	if (argc < 2) {
 		log::Error("usage: AssetBaker <assets-dir>  |  AssetBaker import ...");
@@ -52,6 +65,7 @@ int main(int argc, char** argv) {
 	ok &= baker::BakeTitleImage(assets + "\\textures");
 	ok &= baker::BakeSounds(assets + "\\sounds");
 	ok &= baker::BakeModels(assets + "\\models");
+	ok &= baker::BakeAllMips(assets + "\\textures");
 	if (ok) log::Info("Asset bake complete.");
 	else log::Error("Asset bake FAILED.");
 	return ok ? 0 : 1;

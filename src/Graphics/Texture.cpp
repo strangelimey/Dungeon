@@ -49,17 +49,29 @@ u32 MipCount(u32 width, u32 height) {
 
 Texture::Texture(GraphicsDevice& device, const assets::ImageData& image)
 	: m_width(image.width), m_height(image.height) {
-	// Build the full CPU mip chain.
+	// Build the full CPU mip chain on the spot (runtime-generated textures;
+	// file textures arrive pre-mipped via the MipChain constructor).
 	const u32 mipCount = MipCount(image.width, image.height);
 	std::vector<assets::ImageData> mips;
 	mips.reserve(mipCount);
 	mips.push_back(image);
 	for (u32 m = 1; m < mipCount; ++m) mips.push_back(Downsample(mips.back()));
+	Upload(device, mips);
+}
+
+Texture::Texture(GraphicsDevice& device, const assets::MipChain& chain)
+	: m_width(chain.width), m_height(chain.height) {
+	DN_ASSERT(!chain.levels.empty(), "empty mip chain");
+	Upload(device, chain.levels);
+}
+
+void Texture::Upload(GraphicsDevice& device, const std::vector<assets::ImageData>& mips) {
+	const u32 mipCount = static_cast<u32>(mips.size());
 
 	D3D12_RESOURCE_DESC desc{};
 	desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
-	desc.Width = image.width;
-	desc.Height = image.height;
+	desc.Width = m_width;
+	desc.Height = m_height;
 	desc.DepthOrArraySize = 1;
 	desc.MipLevels = static_cast<UINT16>(mipCount);
 	desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;

@@ -5,6 +5,7 @@ add_executable(AssetBaker
 	GltfWriter.cpp
 	ImportTextures.cpp
 	Main.cpp
+	MipBaker.cpp
 	ModelBaker.cpp
 	SoundBaker.cpp
 	TextureBaker.cpp
