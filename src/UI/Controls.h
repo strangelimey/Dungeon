@@ -144,6 +144,8 @@ public:
 	}
 
 	void AddItem(std::string label, std::function<void()> onActivate = {});
+	// Replaces an entry's label (e.g. "Quality: Medium" cycling in place).
+	void SetLabel(size_t index, std::string label);
 
 	int Selected() const { return m_selected; }
 	void Update(UIContext& ctx) override;

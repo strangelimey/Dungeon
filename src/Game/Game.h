@@ -47,6 +47,12 @@ public:
 
 private:
 	enum class AppState { Loading, Menu, Playing };
+	enum class MenuPage { Main, Settings };
+
+	// Mesh complexity tiers: the worn dungeon blocks are baked at three
+	// tessellation levels; the user picks one in Settings (persisted to
+	// settings.ini next to the exe) and it hot-swaps without a restart.
+	enum class Quality { Low, Medium, High };
 
 	// A texture variant set: parallel albedo / normal+height pairs plus the
 	// batched mesh bucket per variant.
@@ -82,6 +88,14 @@ private:
 	void BuildMenu();
 	void BuildHud();
 	void StartNewGame();
+
+	// --- quality ---------------------------------------------------------------
+	void LoadDungeonBlocks(); // loads the worn block set for m_quality
+	void SetQuality(Quality quality);
+	void LoadQualitySetting();
+	void SaveQualitySetting() const;
+	const char* QualitySuffix() const; // "low" / "med" / "high"
+	const char* QualityLabel() const;  // "Low" / "Medium" / "High"
 
 	// --- per-frame ------------------------------------------------------------
 	void UpdateCamera();
@@ -160,9 +174,14 @@ private:
 	assets::SoundData m_sfxClick;
 	assets::SoundData m_sfxMonster;
 
+	Quality m_quality = Quality::Medium;
+	MenuPage m_menuPage = MenuPage::Main;
+
 	// --- UI ---------------------------------------------------------------------
-	ui::UIContext m_ui;       // in-game HUD (17px font)
-	ui::UIContext m_menuUi;   // landing page (28px font)
+	ui::UIContext m_ui;        // in-game HUD (17px font)
+	ui::UIContext m_menuUi;    // landing page (28px font)
+	ui::UIContext m_settingsUi; // settings page (28px font)
+	ui::MenuList* m_settingsMenu = nullptr; // item 0 is the quality entry
 	ui::Font m_titleFont;     // big face for "DUNGEON" titles
 	std::unique_ptr<gfx::Texture> m_titleBackground; // landing-page art
 	ui::TextOutput* m_log = nullptr;

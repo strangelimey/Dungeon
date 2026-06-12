@@ -287,12 +287,14 @@ float CeilingWearDepth(float x, float z) {
 	return std::clamp(d, 0.0f, 0.10f) * pin;
 }
 
-assets::ModelData BuildWornWallBlock() {
+// Grid resolutions are parameters: the baker emits each worn block at three
+// complexity tiers (low/med/high) so the game can trade geometric detail for
+// performance via the Settings menu.
+assets::ModelData BuildWornWallBlock(int kNx, int kNy) {
 	assets::ModelData model;
 	assets::MeshData mesh;
 
 	// Displaced surface replacing the clean block's panel/border relief.
-	constexpr int kNx = 28, kNy = 36;
 	constexpr float kEps = 0.02f; // finite-difference step for normals
 	for (int j = 0; j <= kNy; ++j) {
 		const float y = kWallH * static_cast<float>(j) / kNy;
@@ -311,9 +313,9 @@ assets::ModelData BuildWornWallBlock() {
 			mesh.vertices.push_back(vert);
 		}
 	}
-	const u32 stride = kNx + 1;
-	for (u32 j = 0; j < kNy; ++j)
-		for (u32 i = 0; i < kNx; ++i) {
+	const u32 stride = static_cast<u32>(kNx) + 1;
+	for (u32 j = 0; j < static_cast<u32>(kNy); ++j)
+		for (u32 i = 0; i < static_cast<u32>(kNx); ++i) {
 			const u32 a = j * stride + i, b = a + 1, c = a + stride, d2 = c + 1;
 			mesh.indices.insert(mesh.indices.end(), {a, b, d2, a, d2, c});
 		}
@@ -324,11 +326,10 @@ assets::ModelData BuildWornWallBlock() {
 	return model;
 }
 
-assets::ModelData BuildWornFloorBlock() {
+assets::ModelData BuildWornFloorBlock(int kN) {
 	assets::ModelData model;
 	assets::MeshData mesh;
 
-	constexpr int kN = 28;
 	constexpr float kEps = 0.02f;
 	for (int j = 0; j <= kN; ++j) {
 		const float z = -1.0f + 2.0f * static_cast<float>(j) / kN;
@@ -346,9 +347,9 @@ assets::ModelData BuildWornFloorBlock() {
 			mesh.vertices.push_back(vert);
 		}
 	}
-	const u32 stride = kN + 1;
-	for (u32 j = 0; j < kN; ++j)
-		for (u32 i = 0; i < kN; ++i) {
+	const u32 stride = static_cast<u32>(kN) + 1;
+	for (u32 j = 0; j < static_cast<u32>(kN); ++j)
+		for (u32 i = 0; i < static_cast<u32>(kN); ++i) {
 			const u32 a = j * stride + i, b = a + 1, c = a + stride, d2 = c + 1;
 			mesh.indices.insert(mesh.indices.end(), {a, d2, b, a, c, d2});
 		}
@@ -358,12 +359,11 @@ assets::ModelData BuildWornFloorBlock() {
 	return model;
 }
 
-assets::ModelData BuildWornCeilingBlock() {
+assets::ModelData BuildWornCeilingBlock(int kN) {
 	assets::ModelData model;
 	assets::MeshData mesh;
 
 	// Authored at y=0 facing down (like the clean block); erosion goes up.
-	constexpr int kN = 24;
 	constexpr float kEps = 0.02f;
 	for (int j = 0; j <= kN; ++j) {
 		const float z = -1.0f + 2.0f * static_cast<float>(j) / kN;
@@ -381,9 +381,9 @@ assets::ModelData BuildWornCeilingBlock() {
 			mesh.vertices.push_back(vert);
 		}
 	}
-	const u32 stride = kN + 1;
-	for (u32 j = 0; j < kN; ++j)
-		for (u32 i = 0; i < kN; ++i) {
+	const u32 stride = static_cast<u32>(kN) + 1;
+	for (u32 j = 0; j < static_cast<u32>(kN); ++j)
+		for (u32 i = 0; i < static_cast<u32>(kN); ++i) {
 			const u32 a = j * stride + i, b = a + 1, c = a + stride, d2 = c + 1;
 			mesh.indices.insert(mesh.indices.end(), {a, b, d2, a, d2, c});
 		}
@@ -683,9 +683,24 @@ bool BakeModels(const std::string& dir) {
 	ok &= WriteGltf(BuildWallBlock(), dir + "\\wall_block.gltf");
 	ok &= WriteGltf(BuildFloorBlock(), dir + "\\floor_block.gltf");
 	ok &= WriteGltf(BuildCeilingBlock(), dir + "\\ceiling_block.gltf");
-	ok &= WriteGltf(BuildWornWallBlock(), dir + "\\wall_block_worn.gltf");
-	ok &= WriteGltf(BuildWornFloorBlock(), dir + "\\floor_block_worn.gltf");
-	ok &= WriteGltf(BuildWornCeilingBlock(), dir + "\\ceiling_block_worn.gltf");
+	// Worn blocks at three complexity tiers (selectable in-game).
+	struct Tier {
+		const char* suffix;
+		int wallX, wallY, floor, ceiling;
+	};
+	const Tier tiers[] = {
+		{"low", 12, 16, 12, 10},
+		{"med", 28, 36, 28, 24},
+		{"high", 44, 56, 44, 36},
+	};
+	for (const Tier& tier : tiers) {
+		const std::string sfx = std::string("_") + tier.suffix + ".gltf";
+		ok &= WriteGltf(BuildWornWallBlock(tier.wallX, tier.wallY),
+						dir + "\\wall_block_worn" + sfx);
+		ok &= WriteGltf(BuildWornFloorBlock(tier.floor), dir + "\\floor_block_worn" + sfx);
+		ok &= WriteGltf(BuildWornCeilingBlock(tier.ceiling),
+						dir + "\\ceiling_block_worn" + sfx);
+	}
 	ok &= WriteGltf(BuildSconce(), dir + "\\sconce.gltf");
 	ok &= WriteGltf(BuildBrazier(), dir + "\\brazier.gltf");
 	ok &= WriteGltf(BuildSerpentPillar(), dir + "\\pillar.gltf");

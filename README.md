@@ -29,8 +29,9 @@ ZERO_CHECK).
 ## Controls
 
 Landing page: mouse hover or arrow keys / W/S to select; click or Enter/Space
-to activate. "Start New Game" begins a run (the other entries are
-placeholders for now).
+to activate. "Start New Game" begins a run; "Settings" selects the mesh
+complexity tier (Low/Medium/High, persisted to settings.ini, applied without
+restart). Continue/Load/Save are placeholders for now.
 
 In game:
 

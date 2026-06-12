@@ -226,6 +226,10 @@ void MenuList::AddItem(std::string label, std::function<void()> onActivate) {
 	m_items.push_back({std::move(label), std::move(onActivate)});
 }
 
+void MenuList::SetLabel(size_t index, std::string label) {
+	if (index < m_items.size()) m_items[index].label = std::move(label);
+}
+
 gfx::Rect MenuList::ItemRect(size_t index) const {
 	return {bounds.x, bounds.y + m_itemHeight * static_cast<float>(index), bounds.w,
 			m_itemHeight - 8.0f}; // 8px gap between entries

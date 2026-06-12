@@ -1,5 +1,6 @@
 #include "Game/Game.h"
 
+#include "Assets/File.h"
 #include "Core/Assert.h"
 #include "Core/Log.h"
 #include "Core/Paths.h"
@@ -45,7 +46,8 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	  m_map(paths::Asset("maps\\level1.map")),
 	  m_party(m_map, m_map.StartX(), m_map.StartZ()),
 	  m_ui(device, "", 17.0f), m_menuUi(device, "", 28.0f),
-	  m_titleFont(device, "", 64.0f) {
+	  m_settingsUi(device, "", 28.0f), m_titleFont(device, "", 64.0f) {
+	LoadQualitySetting();
 	// Party event hooks (survive Party::Reset).
 	m_party.onStep = [this] { m_audio.Play(m_sfxFootstep, 0.8f); };
 	m_party.onBlocked = [this] {
@@ -88,14 +90,7 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 // ============================================================================
 void Game::BuildLoadTasks() {
 	m_loadTasks = {
-		{"Quarrying stone blocks",
-		 [this] {
-			 // The old dungeon uses the worn, crumbling block set; the clean
-			 // *_block.gltf models remain baked for newer areas of the game.
-			 m_wallBlock = LoadModelOrDie("wall_block_worn.gltf").meshes[0];
-			 m_floorBlock = LoadModelOrDie("floor_block_worn.gltf").meshes[0];
-			 m_ceilingBlock = LoadModelOrDie("ceiling_block_worn.gltf").meshes[0];
-		 }},
+		{"Quarrying stone blocks", [this] { LoadDungeonBlocks(); }},
 		{"Weaving wall textures",
 		 [this] { LoadTextureSet(m_walls, {"wall_brick", "wall_stone", "wall_moss"}, 0.055f); }},
 		{"Laying floors and ceilings",
@@ -169,6 +164,75 @@ void Game::BuildLoadTasks() {
 					   m_monsters.size());
 		 }},
 	};
+}
+
+// ============================================================================
+// Quality tiers. The worn dungeon blocks exist at three baked tessellation
+// levels; switching quality reloads them and rebuilds the batched dungeon
+// meshes in place (textures, monsters, and fires are unaffected).
+// ============================================================================
+
+const char* Game::QualitySuffix() const {
+	switch (m_quality) {
+	case Quality::Low:  return "low";
+	case Quality::High: return "high";
+	default:            return "med";
+	}
+}
+
+const char* Game::QualityLabel() const {
+	switch (m_quality) {
+	case Quality::Low:  return "Low";
+	case Quality::High: return "High";
+	default:            return "Medium";
+	}
+}
+
+void Game::LoadDungeonBlocks() {
+	// The old dungeon uses the worn, crumbling block set; the clean
+	// *_block.gltf models remain baked for newer areas of the game.
+	const std::string sfx = std::format("_{}.gltf", QualitySuffix());
+	m_wallBlock = LoadModelOrDie("wall_block_worn" + sfx).meshes[0];
+	m_floorBlock = LoadModelOrDie("floor_block_worn" + sfx).meshes[0];
+	m_ceilingBlock = LoadModelOrDie("ceiling_block_worn" + sfx).meshes[0];
+}
+
+void Game::SetQuality(Quality quality) {
+	if (quality == m_quality) return;
+	m_quality = quality;
+	SaveQualitySetting();
+	if (m_settingsMenu)
+		m_settingsMenu->SetLabel(0, std::format("Quality: {}", QualityLabel()));
+
+	// Hot-swap the dungeon meshes if they are already built. The GPU may
+	// still be reading the old ones, so drain it first.
+	if (!m_walls.meshes.empty()) {
+		m_device.WaitIdle();
+		m_walls.meshes.clear();
+		m_floors.meshes.clear();
+		m_ceilings.meshes.clear();
+		LoadDungeonBlocks();
+		BuildDungeonMeshes();
+		log::Info("Quality switched to {}", QualityLabel());
+	}
+}
+
+void Game::LoadQualitySetting() {
+	auto bytes = assets::ReadBinaryFile(paths::ExecutableDir() + "\\settings.ini");
+	if (!bytes) return; // first run: keep the default
+	const std::string text(bytes->begin(), bytes->end());
+	const size_t pos = text.find("quality=");
+	if (pos == std::string::npos || pos + 8 >= text.size()) return;
+	const char digit = text[pos + 8];
+	if (digit >= '0' && digit <= '2')
+		m_quality = static_cast<Quality>(digit - '0');
+}
+
+void Game::SaveQualitySetting() const {
+	const std::string text = std::format("quality={}\n", static_cast<int>(m_quality));
+	if (!assets::WriteBinaryFile(paths::ExecutableDir() + "\\settings.ini",
+								 text.data(), text.size()))
+		log::Warn("Could not write settings.ini");
 }
 
 void Game::LoadTextureSet(Surface& surface, std::initializer_list<const char*> names,
@@ -310,7 +374,24 @@ void Game::BuildMenu() {
 	});
 	menu->AddItem("Load");               // not implemented yet
 	menu->AddItem("Save");               // not implemented yet
-	menu->AddItem("Settings");           // not implemented yet
+	menu->AddItem("Settings", [this] {
+		m_audio.Play(m_sfxClick, 0.5f);
+		m_menuPage = MenuPage::Settings;
+	});
+
+	// Settings page: mesh complexity (cycles through the baked tiers) + back.
+	const float settingsH = itemH * 2;
+	m_settingsMenu = m_settingsUi.Add<ui::MenuList>(
+		gfx::Rect{(w - menuW) * 0.5f, h * 0.46f, menuW, settingsH}, itemH);
+	m_settingsMenu->AddItem(std::format("Quality: {}", QualityLabel()), [this] {
+		m_audio.Play(m_sfxClick, 0.5f);
+		SetQuality(static_cast<Quality>((static_cast<int>(m_quality) + 1) % 3));
+		m_settingsMenu->SetLabel(0, std::format("Quality: {}", QualityLabel()));
+	});
+	m_settingsMenu->AddItem("Back", [this] {
+		m_audio.Play(m_sfxClick, 0.5f);
+		m_menuPage = MenuPage::Main;
+	});
 }
 
 void Game::StartNewGame() {
@@ -517,7 +598,8 @@ void Game::Update(float dt) {
 
 	case AppState::Menu:
 		// The menu sits on baked title art; nothing in the world simulates.
-		m_menuUi.Update(m_window.GetInput());
+		(m_menuPage == MenuPage::Main ? m_menuUi : m_settingsUi)
+			.Update(m_window.GetInput());
 		return;
 
 	case AppState::Playing:
@@ -692,13 +774,14 @@ void Game::RenderMenuOverlay() {
 	const float titleW = m_titleFont.MeasureWidth(title);
 	m_titleFont.Draw(m_spriteBatch, title, (w - titleW) * 0.5f, h * 0.16f, theme.accent);
 
-	const char* subtitle = "an old-school crawler";
+	const char* subtitle =
+		m_menuPage == MenuPage::Settings ? "settings" : "an old-school crawler";
 	ui::Font& font = m_menuUi.GetFont();
 	const float subW = font.MeasureWidth(subtitle);
 	font.Draw(m_spriteBatch, subtitle, (w - subW) * 0.5f, h * 0.16f + 74.0f,
 			  theme.textDim);
 
-	m_menuUi.Render(m_spriteBatch);
+	(m_menuPage == MenuPage::Main ? m_menuUi : m_settingsUi).Render(m_spriteBatch);
 }
 
 void Game::Render(ID3D12GraphicsCommandList* list) {
