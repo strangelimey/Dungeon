@@ -15,15 +15,16 @@ void DrawBorder(gfx::SpriteBatch& batch, const gfx::Rect& rect, const Vec4& colo
 // --- Panel -------------------------------------------------------------
 
 void Panel::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
-	batch.DrawRect(bounds, ctx.GetTheme().panel);
-	DrawBorder(batch, bounds, ctx.GetTheme().panelBorder);
+	batch.DrawRect(Pixel(), ctx.GetTheme().panel);
+	DrawBorder(batch, Pixel(), ctx.GetTheme().panelBorder);
 }
 
 // --- Label -------------------------------------------------------------
 
 void Label::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
 	const Theme& theme = ctx.GetTheme();
-	ctx.GetFont().Draw(batch, text, bounds.x, bounds.y, dim ? theme.textDim : theme.text);
+	ctx.GetFont().Draw(batch, text, Pixel().x, Pixel().y,
+					   dim ? theme.textDim : theme.text);
 }
 
 // --- TextOutput ----------------------------------------------------------
@@ -42,11 +43,11 @@ void TextOutput::AddLine(std::string line) {
 void TextOutput::Update(UIContext& ctx) {
 	const Input* input = ctx.CurrentInput();
 	if (!input || ctx.IsMouseConsumed()) return;
-	if (bounds.Contains(input->MouseX(), input->MouseY()) && input->WheelDelta() != 0) {
+	if (Pixel().Contains(input->MouseX(), input->MouseY()) && input->WheelDelta() != 0) {
 		m_scroll += input->WheelDelta() * 3.0f;
 		const float maxScroll =
 			std::max(0.0f, static_cast<float>(m_lines.size()) -
-							   bounds.h / ctx.GetFont().LineAdvance());
+							   Pixel().h / ctx.GetFont().LineAdvance());
 		m_scroll = std::clamp(m_scroll, 0.0f, maxScroll);
 		ctx.ConsumeMouse();
 	}
@@ -55,14 +56,14 @@ void TextOutput::Update(UIContext& ctx) {
 void TextOutput::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
 	const Theme& theme = ctx.GetTheme();
 	Font& font = ctx.GetFont();
+	const gfx::Rect& px = Pixel();
 
-	batch.DrawRect(bounds, theme.panel);
-	DrawBorder(batch, bounds, theme.panelBorder);
+	batch.DrawRect(px, theme.panel);
+	DrawBorder(batch, px, theme.panelBorder);
 
 	const float lineHeight = font.LineAdvance();
 	const float pad = 6.0f;
-	const gfx::Rect inner{bounds.x + pad, bounds.y + pad, bounds.w - 2 * pad,
-						  bounds.h - 2 * pad};
+	const gfx::Rect inner{px.x + pad, px.y + pad, px.w - 2 * pad, px.h - 2 * pad};
 	batch.SetScissor(&inner);
 
 	const int visibleLines = static_cast<int>(inner.h / lineHeight) + 1;
@@ -81,7 +82,7 @@ void TextOutput::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
 void Button::Update(UIContext& ctx) {
 	const Input* input = ctx.CurrentInput();
 	if (!input) return;
-	m_hot = !ctx.IsMouseConsumed() && bounds.Contains(input->MouseX(), input->MouseY());
+	m_hot = !ctx.IsMouseConsumed() && Pixel().Contains(input->MouseX(), input->MouseY());
 	if (m_hot) {
 		if (input->WasMousePressed(MouseButton::Left)) m_held = true;
 		ctx.ConsumeMouse();
@@ -94,14 +95,15 @@ void Button::Update(UIContext& ctx) {
 
 void Button::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
 	const Theme& theme = ctx.GetTheme();
+	const gfx::Rect& px = Pixel();
 	const Vec4& fill = m_held ? theme.controlActive : (m_hot ? theme.controlHot : theme.control);
-	batch.DrawRect(bounds, fill);
-	DrawBorder(batch, bounds, theme.panelBorder);
+	batch.DrawRect(px, fill);
+	DrawBorder(batch, px, theme.panelBorder);
 
 	Font& font = ctx.GetFont();
 	const float textW = font.MeasureWidth(text);
-	font.Draw(batch, text, bounds.x + (bounds.w - textW) * 0.5f,
-			  bounds.y + (bounds.h - font.Height()) * 0.5f, theme.text);
+	font.Draw(batch, text, px.x + (px.w - textW) * 0.5f,
+			  px.y + (px.h - font.Height()) * 0.5f, theme.text);
 }
 
 // --- Slider --------------------------------------------------------------
@@ -110,7 +112,7 @@ void Slider::Update(UIContext& ctx) {
 	const Input* input = ctx.CurrentInput();
 	if (!input) return;
 	const bool hovered =
-		!ctx.IsMouseConsumed() && bounds.Contains(input->MouseX(), input->MouseY());
+		!ctx.IsMouseConsumed() && Pixel().Contains(input->MouseX(), input->MouseY());
 	if (hovered && input->WasMousePressed(MouseButton::Left)) m_dragging = true;
 	if (m_dragging && !input->IsMouseDown(MouseButton::Left)) {
 		m_dragging = false;
@@ -119,8 +121,8 @@ void Slider::Update(UIContext& ctx) {
 	if (hovered || m_dragging) ctx.ConsumeMouse();
 
 	if (m_dragging) {
-		const float t =
-			std::clamp((input->MouseX() - bounds.x) / std::max(bounds.w, 1.0f), 0.0f, 1.0f);
+		const float t = std::clamp(
+			(input->MouseX() - Pixel().x) / std::max(Pixel().w, 1.0f), 0.0f, 1.0f);
 		const float value = m_min + t * (m_max - m_min);
 		if (value != m_value) {
 			m_value = value;
@@ -137,29 +139,30 @@ void Slider::RefreshDisplay() {
 void Slider::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
 	const Theme& theme = ctx.GetTheme();
 	Font& font = ctx.GetFont();
+	const gfx::Rect& px = Pixel();
 
 	// Label above the track.
-	font.Draw(batch, m_display, bounds.x, bounds.y - font.LineAdvance(), theme.textDim);
+	font.Draw(batch, m_display, px.x, px.y - font.LineAdvance(), theme.textDim);
 
 	// Track.
 	const float trackH = 4.0f;
-	const float trackY = bounds.y + (bounds.h - trackH) * 0.5f;
-	batch.DrawRect({bounds.x, trackY, bounds.w, trackH}, theme.control);
+	const float trackY = px.y + (px.h - trackH) * 0.5f;
+	batch.DrawRect({px.x, trackY, px.w, trackH}, theme.control);
 
 	// Filled portion + thumb.
 	const float t = (m_value - m_min) / std::max(m_max - m_min, 1e-6f);
-	batch.DrawRect({bounds.x, trackY, bounds.w * t, trackH}, theme.accent);
-	const float thumbX = bounds.x + bounds.w * t - 5.0f;
-	batch.DrawRect({thumbX, bounds.y, 10.0f, bounds.h},
+	batch.DrawRect({px.x, trackY, px.w * t, trackH}, theme.accent);
+	const float thumbX = px.x + px.w * t - 5.0f;
+	batch.DrawRect({thumbX, px.y, 10.0f, px.h},
 				   m_dragging ? theme.controlActive : theme.controlHot);
-	DrawBorder(batch, {thumbX, bounds.y, 10.0f, bounds.h}, theme.panelBorder);
+	DrawBorder(batch, {thumbX, px.y, 10.0f, px.h}, theme.panelBorder);
 }
 
 // --- DropDown ------------------------------------------------------------
 
 gfx::Rect DropDown::ItemRect(size_t index) const {
-	return {bounds.x, bounds.y + bounds.h * static_cast<float>(index + 1), bounds.w,
-			bounds.h};
+	const gfx::Rect& px = Pixel();
+	return {px.x, px.y + px.h * static_cast<float>(index + 1), px.w, px.h};
 }
 
 void DropDown::Update(UIContext& ctx) {
@@ -185,7 +188,7 @@ void DropDown::Update(UIContext& ctx) {
 		return;
 	}
 
-	m_hot = !ctx.IsMouseConsumed() && bounds.Contains(input->MouseX(), input->MouseY());
+	m_hot = !ctx.IsMouseConsumed() && Pixel().Contains(input->MouseX(), input->MouseY());
 	if (m_hot) {
 		ctx.ConsumeMouse();
 		if (input->WasMousePressed(MouseButton::Left)) m_open = true;
@@ -195,18 +198,19 @@ void DropDown::Update(UIContext& ctx) {
 void DropDown::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
 	const Theme& theme = ctx.GetTheme();
 	Font& font = ctx.GetFont();
+	const gfx::Rect& px = Pixel();
 
-	batch.DrawRect(bounds, m_hot || m_open ? theme.controlHot : theme.control);
-	DrawBorder(batch, bounds, theme.panelBorder);
+	batch.DrawRect(px, m_hot || m_open ? theme.controlHot : theme.control);
+	DrawBorder(batch, px, theme.panelBorder);
 	const std::string& current =
 		(m_selected >= 0 && m_selected < static_cast<int>(items.size()))
 			? items[static_cast<size_t>(m_selected)]
 			: "";
-	font.Draw(batch, current, bounds.x + 8,
-			  bounds.y + (bounds.h - font.Height()) * 0.5f, theme.text);
+	font.Draw(batch, current, px.x + 8, px.y + (px.h - font.Height()) * 0.5f,
+			  theme.text);
 	// Arrow indicator.
-	font.Draw(batch, m_open ? "^" : "v", bounds.x + bounds.w - 18,
-			  bounds.y + (bounds.h - font.Height()) * 0.5f, theme.accent);
+	font.Draw(batch, m_open ? "^" : "v", px.x + px.w - 18,
+			  px.y + (px.h - font.Height()) * 0.5f, theme.accent);
 }
 
 void DropDown::DrawOverlay(UIContext& ctx, gfx::SpriteBatch& batch) {
@@ -234,8 +238,10 @@ void MenuList::SetLabel(size_t index, std::string label) {
 }
 
 gfx::Rect MenuList::ItemRect(size_t index) const {
-	return {bounds.x, bounds.y + m_itemHeight * static_cast<float>(index), bounds.w,
-			m_itemHeight - 8.0f}; // 8px gap between entries
+	const gfx::Rect& px = Pixel();
+	const float itemH = m_itemHeight * px.h;
+	return {px.x, px.y + itemH * static_cast<float>(index), px.w,
+			itemH - 8.0f}; // 8px gap between entries
 }
 
 void MenuList::MoveSelection(int delta) {
@@ -314,9 +320,15 @@ void TabControl::SetActiveTab(int index) {
 }
 
 gfx::Rect TabControl::TabRect(size_t index) const {
-	const float tabW =
-		bounds.w / static_cast<float>(std::max<size_t>(m_tabs.size(), 1));
-	return {bounds.x + tabW * static_cast<float>(index), bounds.y, tabW, m_tabHeight};
+	const gfx::Rect& px = Pixel();
+	const float tabW = px.w / static_cast<float>(std::max<size_t>(m_tabs.size(), 1));
+	return {px.x + tabW * static_cast<float>(index), px.y, tabW, m_tabHeight * px.h};
+}
+
+gfx::Rect TabControl::PageRect() const {
+	const gfx::Rect& px = Pixel();
+	const float stripH = m_tabHeight * px.h;
+	return {px.x, px.y + stripH, px.w, px.h - stripH};
 }
 
 void TabControl::Update(UIContext& ctx) {
@@ -326,9 +338,13 @@ void TabControl::Update(UIContext& ctx) {
 	// Active page children first, in reverse add order — same topmost-first
 	// claim on the mouse as UIContext itself.
 	if (m_active >= 0 && m_active < static_cast<int>(m_tabs.size())) {
+		const gfx::Rect page = PageRect();
 		auto& children = m_tabs[static_cast<size_t>(m_active)].children;
-		for (auto it = children.rbegin(); it != children.rend(); ++it)
-			if ((*it)->visible) (*it)->Update(ctx);
+		for (auto it = children.rbegin(); it != children.rend(); ++it) {
+			if (!(*it)->visible) continue;
+			(*it)->Layout(page);
+			(*it)->Update(ctx);
+		}
 	}
 
 	// Tab strip.
@@ -370,12 +386,17 @@ void TabControl::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
 				  active ? theme.accent : theme.text);
 	}
 
-	if (m_active >= 0 && m_active < static_cast<int>(m_tabs.size()))
-		for (auto& child : m_tabs[static_cast<size_t>(m_active)].children)
-			if (child->visible) child->Draw(ctx, batch);
+	if (m_active >= 0 && m_active < static_cast<int>(m_tabs.size())) {
+		for (auto& child : m_tabs[static_cast<size_t>(m_active)].children) {
+			if (!child->visible) continue;
+			child->Layout(page);
+			child->Draw(ctx, batch);
+		}
+	}
 }
 
 void TabControl::DrawOverlay(UIContext& ctx, gfx::SpriteBatch& batch) {
+	// Children were laid out by Draw earlier in the same render pass.
 	if (m_active < 0 || m_active >= static_cast<int>(m_tabs.size())) return;
 	for (auto& child : m_tabs[static_cast<size_t>(m_active)].children)
 		if (child->visible) child->DrawOverlay(ctx, batch);

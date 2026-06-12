@@ -3,13 +3,15 @@
 //
 // The game creates widgets once (UIContext::Add<T>) and keeps raw pointers to
 // the ones it updates (labels, the message log); the context owns them all.
-// Per frame:
-//   Update(input): widgets get input in REVERSE add order (topmost first).
-//     A widget that uses the mouse calls ConsumeMouse() so widgets beneath it
-//     ignore the same event. Keyboard input is not consumed — the party
-//     always receives movement keys.
-//   Render(batch): widgets draw in add order, then a second DrawOverlay pass
-//     lets popups (open drop-downs) paint above everything.
+// Widget bounds are normalized (fractions of the window — see Widget.h), so
+// both passes take the current window size and resolve pixel rects on the
+// fly; the UI scales with the screen. Per frame:
+//   Update(input, w, h): widgets get input in REVERSE add order (topmost
+//     first). A widget that uses the mouse calls ConsumeMouse() so widgets
+//     beneath it ignore the same event. Keyboard input is not consumed — the
+//     party always receives movement keys.
+//   Render(batch, w, h): widgets draw in add order, then a second
+//     DrawOverlay pass lets popups (open drop-downs) paint above everything.
 // ============================================================================
 #pragma once
 
@@ -50,8 +52,8 @@ public:
 		return raw;
 	}
 
-	void Update(const Input& input);
-	void Render(gfx::SpriteBatch& batch);
+	void Update(const Input& input, float width, float height);
+	void Render(gfx::SpriteBatch& batch, float width, float height);
 
 	Font& GetFont() { return m_font; }
 	const Theme& GetTheme() const { return m_theme; }

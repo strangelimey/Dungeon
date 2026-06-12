@@ -462,14 +462,25 @@ void Game::BuildFires() {
 // keyboard selection. Start New Game and Settings are wired up; Continue /
 // Load / Save wait on the save system.
 // ============================================================================
+// Widget bounds are normalized fractions of their container (see Widget.h).
+// Layouts here are still authored in design pixels for readability and
+// converted with this helper; they scale with the live window size.
+static gfx::Rect Norm(const gfx::Rect& designPx, const gfx::Rect& container) {
+	return {(designPx.x - container.x) / container.w,
+			(designPx.y - container.y) / container.h, designPx.w / container.w,
+			designPx.h / container.h};
+}
+
 void Game::BuildMenu() {
 	const float w = static_cast<float>(m_window.Width());
 	const float h = static_cast<float>(m_window.Height());
+	const gfx::Rect window{0, 0, w, h};
 
 	const float menuW = 420.0f;
 	const float itemH = 58.0f;
 	auto* menu = m_menuUi.Add<ui::MenuList>(
-		gfx::Rect{(w - menuW) * 0.5f, h * 0.42f, menuW, itemH * 5}, itemH);
+		Norm({(w - menuW) * 0.5f, h * 0.42f, menuW, itemH * 5}, window),
+		1.0f / 5.0f); // item height: one fifth of the list
 
 	menu->AddItem("Continue");           // not implemented yet
 	menu->AddItem("Start New Game", [this] {
@@ -493,32 +504,32 @@ void Game::BuildMenu() {
 	});
 
 	// Settings page: Game / Video / Audio tabs over a shared page area, with
-	// a Back button beneath. Pages are laid out inside the tab control's
-	// PageRect; each control row leaves room for the 28px settings font.
+	// a Back button beneath. Tab children are fractions of the PAGE (the
+	// area below the strip); each row leaves room for the 28px settings font.
 	const float tabsW = 520.0f;
 	const float tabsH = 340.0f;
+	const float stripH = 48.0f;
 	const float tabsX = (w - tabsW) * 0.5f;
 	const float tabsY = h * 0.34f;
 	auto* tabs = m_settingsUi.Add<ui::TabControl>(
-		gfx::Rect{tabsX, tabsY, tabsW, tabsH}, 48.0f);
+		Norm({tabsX, tabsY, tabsW, tabsH}, window), stripH / tabsH);
 	const size_t tabGame = tabs->AddTab("Game");
 	const size_t tabVideo = tabs->AddTab("Video");
 	const size_t tabAudio = tabs->AddTab("Audio");
-	const gfx::Rect page = tabs->PageRect();
+	const gfx::Rect page{0, 0, tabsW, tabsH - stripH}; // child design space
 	const float pad = 24.0f;
 	const float rowW = page.w - 2 * pad;
 
 	// Game: nothing to configure yet.
-	tabs->AddChild<ui::Label>(tabGame, gfx::Rect{page.x + pad, page.y + pad, rowW, 28},
+	tabs->AddChild<ui::Label>(tabGame, Norm({pad, pad, rowW, 28}, page),
 							  "Nothing here yet.")
 		->dim = true;
 
 	// Video: quality tier (hot-swaps meshes/textures in place).
-	tabs->AddChild<ui::Label>(tabVideo, gfx::Rect{page.x + pad, page.y + pad, rowW, 28},
-							  "Quality")
+	tabs->AddChild<ui::Label>(tabVideo, Norm({pad, pad, rowW, 28}, page), "Quality")
 		->dim = true;
 	tabs->AddChild<ui::DropDown>(
-		tabVideo, gfx::Rect{page.x + pad, page.y + pad + 38, rowW, 40},
+		tabVideo, Norm({pad, pad + 38, rowW, 40}, page),
 		std::vector<std::string>{"Low", "Medium", "High", "Ultra"},
 		static_cast<int>(m_quality), [this](int index) {
 			m_audio.Play(m_sfxClick, 0.5f);
@@ -528,14 +539,14 @@ void Game::BuildMenu() {
 	// Audio: master volume (the slider draws its own label above the track).
 	// Live while dragging; persisted once on release.
 	auto* volume = tabs->AddChild<ui::Slider>(
-		tabAudio, gfx::Rect{page.x + pad, page.y + pad + 38, rowW, 22}, "Volume",
-		0.0f, 1.0f, m_audio.MasterVolume(),
-		[this](float v) { m_audio.SetMasterVolume(v); });
+		tabAudio, Norm({pad, pad + 38, rowW, 22}, page), "Volume", 0.0f, 1.0f,
+		m_audio.MasterVolume(), [this](float v) { m_audio.SetMasterVolume(v); });
 	volume->onRelease = [this] { SaveSettings(); };
 
 	const float backW = 220.0f;
 	m_settingsUi.Add<ui::Button>(
-		gfx::Rect{(w - backW) * 0.5f, tabsY + tabsH + 28, backW, 44}, "Back", [this] {
+		Norm({(w - backW) * 0.5f, tabsY + tabsH + 28, backW, 44}, window), "Back",
+		[this] {
 			m_audio.Play(m_sfxClick, 0.5f);
 			m_menuPage = MenuPage::Main;
 		});
@@ -557,32 +568,34 @@ void Game::StartNewGame() {
 }
 
 // ============================================================================
-// HUD — laid out once in absolute pixels from the initial window size.
-// Widgets the game updates later are kept as raw pointers (m_log, m_compass,
-// m_position); the UIContext owns all widgets.
+// HUD — authored in design pixels from the initial window size, stored as
+// window fractions (Norm), so it scales with the screen. Widgets the game
+// updates later are kept as raw pointers (m_log, m_compass, m_position); the
+// UIContext owns all widgets.
 // ============================================================================
 void Game::BuildHud() {
 	const float w = static_cast<float>(m_window.Width());
 	const float h = static_cast<float>(m_window.Height());
+	const gfx::Rect window{0, 0, w, h};
 
 	// Message log, bottom-left.
-	m_log = m_ui.Add<ui::TextOutput>(gfx::Rect{16, h - 200, 520, 184});
+	m_log = m_ui.Add<ui::TextOutput>(Norm({16, h - 200, 520, 184}, window));
 
 	// Status labels, top-left.
-	m_ui.Add<ui::Panel>(gfx::Rect{16, 16, 240, 64});
-	m_compass = m_ui.Add<ui::Label>(gfx::Rect{28, 26, 220, 20}, "Facing: South");
-	m_position = m_ui.Add<ui::Label>(gfx::Rect{28, 50, 220, 20}, "Position: -");
+	m_ui.Add<ui::Panel>(Norm({16, 16, 240, 64}, window));
+	m_compass = m_ui.Add<ui::Label>(Norm({28, 26, 220, 20}, window), "Facing: South");
+	m_position = m_ui.Add<ui::Label>(Norm({28, 50, 220, 20}, window), "Position: -");
 	m_position->dim = true;
 
 	// Options panel, top-right.
 	const float panelW = 250;
 	const float px = w - panelW - 16;
-	m_ui.Add<ui::Panel>(gfx::Rect{px, 16, panelW, 176});
-	m_ui.Add<ui::Label>(gfx::Rect{px + 14, 26, panelW - 28, 20}, "Options");
+	m_ui.Add<ui::Panel>(Norm({px, 16, panelW, 176}, window));
+	m_ui.Add<ui::Label>(Norm({px + 14, 26, panelW - 28, 20}, window), "Options");
 
-	m_ui.Add<ui::Label>(gfx::Rect{px + 14, 56, panelW - 28, 20}, "Torchlight")->dim =
-		true;
-	m_ui.Add<ui::DropDown>(gfx::Rect{px + 14, 80, panelW - 28, 26},
+	m_ui.Add<ui::Label>(Norm({px + 14, 56, panelW - 28, 20}, window), "Torchlight")
+		->dim = true;
+	m_ui.Add<ui::DropDown>(Norm({px + 14, 80, panelW - 28, 26}, window),
 						   std::vector<std::string>{"Warm flame", "Cold moonfire",
 													"Eerie emberlight"},
 						   0, [this](int index) {
@@ -590,18 +603,18 @@ void Game::BuildHud() {
 							   ApplyTorchPalette(index);
 						   });
 
-	m_ui.Add<ui::Button>(gfx::Rect{px + 14, 120, (panelW - 38) / 2, 28}, "Wait",
+	m_ui.Add<ui::Button>(Norm({px + 14, 120, (panelW - 38) / 2, 28}, window), "Wait",
 						 [this] {
 							 m_audio.Play(m_sfxClick, 0.5f);
 							 m_log->AddLine("You wait. The torches gutter.");
 						 });
-	m_ui.Add<ui::Button>(gfx::Rect{px + 24 + (panelW - 38) / 2, 120, (panelW - 38) / 2,
-								   28},
-						 "Help", [this] {
-							 m_audio.Play(m_sfxClick, 0.5f);
-							 m_log->AddLine("W/S move, A/D strafe, Q/E turn.");
-							 m_log->AddLine("Mouse wheel scrolls this log.");
-						 });
+	m_ui.Add<ui::Button>(
+		Norm({px + 24 + (panelW - 38) / 2, 120, (panelW - 38) / 2, 28}, window),
+		"Help", [this] {
+			m_audio.Play(m_sfxClick, 0.5f);
+			m_log->AddLine("W/S move, A/D strafe, Q/E turn.");
+			m_log->AddLine("Mouse wheel scrolls this log.");
+		});
 }
 
 void Game::ApplyTorchPalette(int index) {
@@ -736,7 +749,8 @@ void Game::Update(float dt) {
 	case AppState::Menu:
 		// The menu sits on baked title art; nothing in the world simulates.
 		(m_menuPage == MenuPage::Main ? m_menuUi : m_settingsUi)
-			.Update(m_window.GetInput());
+			.Update(m_window.GetInput(), static_cast<float>(m_window.Width()),
+					static_cast<float>(m_window.Height()));
 		return;
 
 	case AppState::LoadingGame:
@@ -752,7 +766,8 @@ void Game::Update(float dt) {
 
 	// --- Playing -------------------------------------------------------------
 	// UI first so it can consume the mouse; keyboard always reaches the party.
-	m_ui.Update(m_window.GetInput());
+	m_ui.Update(m_window.GetInput(), static_cast<float>(m_window.Width()),
+				static_cast<float>(m_window.Height()));
 	m_party.HandleInput(m_window.GetInput());
 	m_party.Update(dt);
 	m_pillarAnimator.Update(dt);
@@ -954,7 +969,8 @@ void Game::RenderMenuOverlay() {
 	font.Draw(m_spriteBatch, subtitle, (w - subW) * 0.5f, h * 0.16f + 74.0f,
 			  theme.textDim);
 
-	(m_menuPage == MenuPage::Main ? m_menuUi : m_settingsUi).Render(m_spriteBatch);
+	(m_menuPage == MenuPage::Main ? m_menuUi : m_settingsUi)
+		.Render(m_spriteBatch, w, h);
 }
 
 void Game::Render(ID3D12GraphicsCommandList* list) {
@@ -974,7 +990,10 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 	case AppState::Loading:     RenderLoadingScreen(); break;
 	case AppState::Menu:        RenderMenuOverlay(); break;
 	case AppState::LoadingGame: RenderGameLoadingScreen(); break;
-	case AppState::Playing:     m_ui.Render(m_spriteBatch); break;
+	case AppState::Playing:
+		m_ui.Render(m_spriteBatch, static_cast<float>(m_device.Width()),
+					static_cast<float>(m_device.Height()));
+		break;
 	}
 	m_spriteBatch.End();
 

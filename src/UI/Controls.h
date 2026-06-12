@@ -10,8 +10,10 @@
 //   MenuList    vertical menu; hover or arrows/W/S select, click/Enter fire
 //   TabControl  tab strip + framed page; owns child widgets per tab
 //
-// All coordinates are absolute pixels (the HUD is laid out once in
-// Game::BuildHud from the window size). Colors come from the shared Theme.
+// All bounds are normalized fractions (0..1) of the containing widget or
+// window (see Widget.h) — the UI scales with the screen. Fixed-pixel detail
+// (1px borders, text padding, the slider thumb) and font sizes do NOT scale.
+// Colors come from the shared Theme.
 // ============================================================================
 #pragma once
 
@@ -145,6 +147,8 @@ private:
 // highlight but do nothing when activated.
 class MenuList : public Widget {
 public:
+	// itemHeight is a fraction of the list's own height (e.g. 0.2 for five
+	// evenly spaced entries).
 	MenuList(const gfx::Rect& rect, float itemHeight) : m_itemHeight(itemHeight) {
 		bounds = rect;
 	}
@@ -173,11 +177,12 @@ private:
 };
 
 // Tab strip across the top of the bounds plus a framed page area below it.
-// Each tab owns its child widgets (absolute pixel coordinates, like every
-// other control — lay pages out inside PageRect()); only the active tab's
-// children receive input and draw.
+// Each tab owns its child widgets; child bounds are fractions of the PAGE
+// area (the rect below the strip), and only the active tab's children
+// receive input and draw.
 class TabControl : public Widget {
 public:
+	// tabHeight is a fraction of the control's own height.
 	TabControl(const gfx::Rect& rect, float tabHeight) : m_tabHeight(tabHeight) {
 		bounds = rect;
 	}
@@ -195,11 +200,6 @@ public:
 		return raw;
 	}
 
-	// The framed page area below the tab strip.
-	gfx::Rect PageRect() const {
-		return {bounds.x, bounds.y + m_tabHeight, bounds.w, bounds.h - m_tabHeight};
-	}
-
 	int ActiveTab() const { return m_active; }
 	void SetActiveTab(int index);
 
@@ -214,6 +214,9 @@ private:
 	};
 
 	gfx::Rect TabRect(size_t index) const;
+	// The page area below the tab strip, in pixels (children's container);
+	// only valid after Layout().
+	gfx::Rect PageRect() const;
 
 	std::vector<Tab> m_tabs;
 	float m_tabHeight;
