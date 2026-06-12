@@ -250,9 +250,12 @@ void Renderer::CreateShadowResources() {
 		cube.SampleDesc.Count = 1;
 		cube.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
 
+		// Must match the clear in BeginShadowFace exactly (all four channels,
+		// even though R16_FLOAT keeps only red) or the fast-clear path is lost.
 		D3D12_CLEAR_VALUE cubeClear{};
 		cubeClear.Format = DXGI_FORMAT_R16_FLOAT;
-		cubeClear.Color[0] = 1.0f; // max distance = nothing occludes
+		cubeClear.Color[0] = cubeClear.Color[1] = 1.0f; // max distance = no occluder
+		cubeClear.Color[2] = cubeClear.Color[3] = 1.0f;
 
 		const D3D12_HEAP_PROPERTIES heap = HeapProps(D3D12_HEAP_TYPE_DEFAULT);
 		DN_HR(device->CreateCommittedResource(
