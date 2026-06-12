@@ -91,13 +91,7 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 void Game::BuildLoadTasks() {
 	m_loadTasks = {
 		{"Quarrying stone blocks", [this] { LoadDungeonBlocks(); }},
-		{"Weaving wall textures",
-		 [this] { LoadTextureSet(m_walls, {"wall_brick", "wall_stone", "wall_moss"}, 0.055f); }},
-		{"Laying floors and ceilings",
-		 [this] {
-			 LoadTextureSet(m_floors, {"floor_slabs", "floor_cobble"}, 0.045f);
-			 LoadTextureSet(m_ceilings, {"ceiling_rough", "ceiling_cracked"}, 0.035f);
-		 }},
+		{"Weaving the stonework", [this] { LoadAllSurfaceTextures(); }},
 		{"Raising the dungeon", [this] { BuildDungeonMeshes(); }},
 		{"Carving the serpent pillar",
 		 [this] {
@@ -168,8 +162,9 @@ void Game::BuildLoadTasks() {
 
 // ============================================================================
 // Quality tiers. The worn dungeon blocks exist at three baked tessellation
-// levels; switching quality reloads them and rebuilds the batched dungeon
-// meshes in place (textures, monsters, and fires are unaffected).
+// levels and the scanned textures at two resolutions; switching quality
+// reloads both and rebuilds the batched dungeon meshes in place (monsters
+// and fires are unaffected).
 // ============================================================================
 
 const char* Game::QualitySuffix() const {
@@ -178,6 +173,11 @@ const char* Game::QualitySuffix() const {
 	case Quality::High: return "high";
 	default:            return "med";
 	}
+}
+
+const char* Game::QualityTextureSuffix() const {
+	// Low and Medium use the 1K scans; High gets the 2K versions.
+	return m_quality == Quality::High ? "2k" : "1k";
 }
 
 const char* Game::QualityLabel() const {
@@ -199,21 +199,26 @@ void Game::LoadDungeonBlocks() {
 
 void Game::SetQuality(Quality quality) {
 	if (quality == m_quality) return;
+	const bool textureResChanged =
+		(quality == Quality::High) != (m_quality == Quality::High);
 	m_quality = quality;
 	SaveQualitySetting();
 	if (m_settingsMenu)
 		m_settingsMenu->SetLabel(0, std::format("Quality: {}", QualityLabel()));
 
-	// Hot-swap the dungeon meshes if they are already built. The GPU may
-	// still be reading the old ones, so drain it first.
+	// Hot-swap the dungeon meshes (and textures, when crossing the 1K/2K
+	// boundary) if they are already built. The GPU may still be reading the
+	// old resources, so drain it first.
 	if (!m_walls.meshes.empty()) {
 		m_device.WaitIdle();
 		m_walls.meshes.clear();
 		m_floors.meshes.clear();
 		m_ceilings.meshes.clear();
 		LoadDungeonBlocks();
+		if (textureResChanged) LoadAllSurfaceTextures();
 		BuildDungeonMeshes();
-		log::Info("Quality switched to {}", QualityLabel());
+		log::Info("Quality switched to {} ({} meshes, {} textures)", QualityLabel(),
+				  QualitySuffix(), QualityTextureSuffix());
 	}
 }
 
@@ -237,17 +242,26 @@ void Game::SaveQualitySetting() const {
 
 void Game::LoadTextureSet(Surface& surface, std::initializer_list<const char*> names,
 						  float heightScale) {
+	surface.albedo.clear(); // quality hot-swap reuses the same Surface objects
+	surface.normal.clear();
 	surface.heightScale = heightScale;
+	const char* res = QualityTextureSuffix();
 	for (const char* name : names) {
-		auto albedo =
-			assets::LoadImageFile(paths::Asset(std::format("textures\\{}.png", name)));
-		auto normal =
-			assets::LoadImageFile(paths::Asset(std::format("textures\\{}_n.png", name)));
+		auto albedo = assets::LoadImageFile(
+			paths::Asset(std::format("textures\\{}_{}.png", name, res)));
+		auto normal = assets::LoadImageFile(
+			paths::Asset(std::format("textures\\{}_{}_n.png", name, res)));
 		DN_ASSERT(albedo && normal,
 				  (albedo ? normal : albedo).error() + " — run AssetBaker over assets/");
 		surface.albedo.push_back(std::make_unique<gfx::Texture>(m_device, *albedo));
 		surface.normal.push_back(std::make_unique<gfx::Texture>(m_device, *normal));
 	}
+}
+
+void Game::LoadAllSurfaceTextures() {
+	LoadTextureSet(m_walls, {"wall_brick", "wall_stone", "wall_moss"}, 0.055f);
+	LoadTextureSet(m_floors, {"floor_slabs", "floor_cobble"}, 0.045f);
+	LoadTextureSet(m_ceilings, {"ceiling_rough", "ceiling_cracked"}, 0.035f);
 }
 
 void Game::BuildDungeonMeshes() {

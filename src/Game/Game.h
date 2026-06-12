@@ -90,12 +90,14 @@ private:
 	void StartNewGame();
 
 	// --- quality ---------------------------------------------------------------
-	void LoadDungeonBlocks(); // loads the worn block set for m_quality
+	void LoadDungeonBlocks();        // loads the worn block set for m_quality
+	void LoadAllSurfaceTextures();   // loads the texture sets for m_quality
 	void SetQuality(Quality quality);
 	void LoadQualitySetting();
 	void SaveQualitySetting() const;
-	const char* QualitySuffix() const; // "low" / "med" / "high"
-	const char* QualityLabel() const;  // "Low" / "Medium" / "High"
+	const char* QualitySuffix() const;        // "low" / "med" / "high" (meshes)
+	const char* QualityTextureSuffix() const; // "1k" / "2k" (texture sets)
+	const char* QualityLabel() const;         // "Low" / "Medium" / "High"
 
 	// --- per-frame ------------------------------------------------------------
 	void UpdateCamera();
