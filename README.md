@@ -31,10 +31,8 @@ ZERO_CHECK).
 Landing page: mouse hover or arrow keys / W/S to select; click or Enter/Space
 to activate. "Start New Game" begins a run; "Settings" selects the quality
 tier (Low/Medium/High/Ultra — mesh tessellation plus texture resolution:
-1K, 1K, 2K, 4K — persisted to settings.ini, applied without restart). The
-Ultra 4K texture sets are fetchable content: run
-`tools\FetchUltraTextures.ps1` once to install them (the game falls back to
-2K otherwise). Continue/Load/Save are placeholders for now.
+1K, 1K, 2K, 4K — persisted to settings.ini, applied without restart).
+Continue/Load/Save are placeholders for now.
 
 In game:
 
@@ -60,6 +58,13 @@ dependency rules.
 The game loads only files from `assets/` — nothing is generated at runtime.
 Levels are plain ASCII text under `assets/maps/` (see `level1.map` for the
 glyph legend) — edit the file and relaunch, no rebuild needed.
+
+The scanned texture sets are not committed: the raw Poly Haven downloads
+live in `OneDrive\DungeonAssets\<1k|2k|4k>\<material>\`, and
+`tools\FetchTextures.ps1` imports them all into `assets/textures` (packed
+PNG + BC7 DDS). Run it once after cloning (optionally
+`-Resolutions 1k,2k` to skip the 4K Ultra sets — the game falls back to 2K
+when they are absent).
 
 Textures come in albedo + `_n` pairs (`_n` holds the tangent-space normal in
 RGB and a height field in alpha, used for bump and parallax mapping). Dungeon
