@@ -90,7 +90,9 @@ at launch with an on-disk cache (shadercache/, hash-invalidated) — edit
 
 ## Quality system
 
-Settings page (landing page) is tabbed Game/Video/Audio/UI via ui::TabControl:
+Settings page (landing page) is tabbed Game/Video/Audio/UI via ui::TabControl
+(pages scroll: children authored past the page bottom — bounds fraction > 1 —
+trigger a per-tab scrollbar, wheel or thumb drag, page-scissored):
 quality dropdown on Video (Low/Medium/High/Ultra: mesh tier low/med/high/high
 + textures 1k/1k/2k/4k), master-volume slider on Audio, party-bar sliders on
 UI (scale 0.5–1.5 resizes the bar about its top center and shifts the panels

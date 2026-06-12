@@ -214,6 +214,14 @@ private:
 // Each tab owns its child widgets; child bounds are fractions of the PAGE
 // area (the rect below the strip), and only the active tab's children
 // receive input and draw.
+//
+// Pages scroll vertically when their content overflows: children authored
+// below the page bottom simply have bounds.y + bounds.h > 1, and the control
+// detects that, clips the page while drawing, and shows a scrollbar at the
+// page's right edge (mouse wheel over the page, or drag the thumb). Each tab
+// keeps its own scroll position. Children scrolled fully out of view are
+// skipped for input and drawing; popups can't scroll out from under the
+// user because an open popup consumes the mouse, which blocks scrolling.
 class TabControl : public Widget {
 public:
 	// tabHeight is a fraction of the control's own height.
@@ -245,17 +253,27 @@ private:
 	struct Tab {
 		std::string label;
 		std::vector<std::unique_ptr<Widget>> children;
+		float scroll = 0.0f; // pixels scrolled down, clamped every frame
 	};
 
 	gfx::Rect TabRect(size_t index) const;
 	// The page area below the tab strip, in pixels (children's container);
 	// only valid after Layout().
 	gfx::Rect PageRect() const;
+	// Content height as a multiple of the page height: the lowest child
+	// bottom edge, never less than 1 (> 1 means the page scrolls).
+	static float ContentFraction(const Tab& tab);
+	gfx::Rect ScrollTrackRect(const gfx::Rect& page) const;
+	gfx::Rect ScrollThumbRect(const gfx::Rect& page, const Tab& tab,
+							  float maxScroll) const;
 
 	std::vector<Tab> m_tabs;
 	float m_tabHeight;
 	int m_active = 0;
 	int m_hover = -1;
+	bool m_scrollHot = false;
+	bool m_scrollDragging = false;
+	float m_scrollGrab = 0.0f; // pointer offset within the thumb while dragging
 };
 
 // Draws a 1px border around a rectangle.
