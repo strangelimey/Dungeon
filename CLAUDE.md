@@ -34,6 +34,14 @@ Key conventions (memorize, they bite):
   heap (docs/ARCHITECTURE.md "Memory strategy").
 - Constants that must match HLSL: kMaxPointLights=16, kMaxSkinJoints=128,
   root signature layout in Renderer.h header comment.
+- The Game lib is split by category: Game.cpp is just the app state machine
+  + wiring; GameSettings (ini round-trip, quality tier, the kThemeFields/
+  kBarFields/kKeyFields tables), SoundBank, LoadQueue (staged loading),
+  DungeonWorld (world state, simulation, both render passes), GameUI (all
+  five UIContexts: menus, settings page, HUD, sheet, overlays), AssetUtil
+  (load-or-die helpers). World→log feedback flows through
+  DungeonWorld::onMessage; UI→state-machine actions through GameUI's on*
+  callbacks, both wired in the Game constructor.
 
 ## Renderer features (assets/shaders/scene.hlsl)
 
@@ -105,19 +113,20 @@ trigger a per-tab scrollbar, wheel or thumb drag, page-scissored):
 quality dropdown on Video (Low/Medium/High/Ultra: mesh tier low/med/high/high
 + textures 1k/1k/2k/4k), master-volume slider on Audio, party-bar sliders on
 UI (scale 0.5–1.5 resizes the bar about its top center and shifts the panels
-beneath it — Game::ApplyPartyBarScale; width is pinned at the window span, so
-above 1 the bar only grows taller; background opacity 0–1 fades the slot
+beneath it — GameUI::ApplyPartyBarScale; width is pinned at the window span,
+so above 1 the bar only grows taller; background opacity 0–1 fades the slot
 fills only) plus color-picker grids for Theme Colors (the 8 ui::Theme
-colors — Game owns the master m_theme, ApplyTheme pushes it into all five
-UIContexts live) and Resource Bars (health/stamina/mana fills,
-ResourceBarColors in PartyHud.h — the HUD widgets point at Game::m_barColors).
-The ColorPicker control's swatch opens an R/G/B/A slider popup; kThemeFields/
-kBarFields in Game.cpp drive both grids and the ini round-trip. Game tab:
-movement key bindings via ui::KeyBind rows (click the key box, press the new
-key; Esc/click cancels — Game::KeyCaptureActive suppresses the page's own Esc
-while armed; binding a key another action holds swaps the two). kKeyFields
-drives the rows and the ini round-trip; MoveKeys (Party.h) is pushed into the
-Party via SetKeys, and dungeon::KeyName (Platform/Input) renders vkey names.
+colors — GameSettings owns the master theme, GameUI::ApplyTheme pushes it
+into all five UIContexts live) and Resource Bars (health/stamina/mana fills,
+ResourceBarColors in PartyHud.h — the HUD widgets point at
+GameSettings::barColors). The ColorPicker control's swatch opens an R/G/B/A
+slider popup; kThemeFields/kBarFields in GameSettings.h drive both grids and
+the ini round-trip. Game tab: movement key bindings via ui::KeyBind rows
+(click the key box, press the new key; Esc/click cancels —
+GameUI::KeyCaptureActive suppresses the page's own Esc while armed; binding a
+key another action holds swaps the two). kKeyFields drives the rows and the
+ini round-trip; MoveKeys (Party.h) is pushed into the Party via SetKeys, and
+dungeon::KeyName (Platform/Input) renders vkey names.
 All persist to settings.ini next to exe (quality=0..3,
 volume=0..1, barscale, baropacity, theme_<name>= and bar_<name>=r,g,b,a,
 key_<action>=vkey; sliders save on release, pickers when their popup closes,
