@@ -65,6 +65,16 @@ float SampleShadowCube(int slot, float3 dir) {
 	}
 }
 
+// Single-tap shadow test (no PCF) — used for points in mid-air by the dust
+// raymarch, and as the far-slot path of ShadowFactor.
+float ShadowVisibility(PointLight light, float3 worldPos) {
+	const int slot = (int)light.shadow.x;
+	if (slot < 0) return 1.0;
+	const float3 toFrag = worldPos - light.positionRadius.xyz;
+	const float dist = length(toFrag) / light.positionRadius.w;
+	return dist - 0.012 <= SampleShadowCube(slot, toFrag) ? 1.0 : 0.0;
+}
+
 // 1 = fully lit, 0 = fully shadowed. The nearest light (slot 0) gets 4-tap
 // PCF for soft, detailed edges; farther slots use one tap of an already
 // lower-resolution cube.
@@ -96,7 +106,7 @@ float ShadowFactor(PointLight light, float3 worldPos) {
 		}
 		return lit * 0.25;
 	}
-	return dist - bias <= SampleShadowCube(slot, toFrag) ? 1.0 : 0.0;
+	return ShadowVisibility(light, worldPos);
 }
 
 struct VSInput {
@@ -216,7 +226,9 @@ float3 ApplyDust(float3 surfaceColor, float3 worldPos) {
 		const float density = DustDensity(p);
 		if (density <= 0.0001) continue;
 
-		// Light arriving at this bit of dust (isotropic scattering).
+		// Light arriving at this bit of dust (isotropic scattering). Each
+		// torch's contribution is shadow-tested at the sample point, so
+		// occluders carve visible shafts (god rays) through the haze.
 		float3 dustLight = gAmbient.rgb * gFogGrid.w;
 		for (uint i = 0; i < gPointLightCount; ++i) {
 			const PointLight light = gPointLights[i];
@@ -225,8 +237,8 @@ float3 ApplyDust(float3 surfaceColor, float3 worldPos) {
 			if (d >= light.positionRadius.w) continue;
 			const float window =
 				pow(saturate(1.0 - pow(d / light.positionRadius.w, 4.0)), 2.0);
-			dustLight += light.colorIntensity.rgb * light.colorIntensity.w * window /
-						 (1.0 + d * d);
+			dustLight += light.colorIntensity.rgb * light.colorIntensity.w * window *
+						 ShadowVisibility(light, p) / (1.0 + d * d);
 		}
 
 		const float segTau = density * seg;
