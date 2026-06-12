@@ -448,10 +448,12 @@ void GameUI::BuildHud() {
 	const float px = w - panelW - 16.0f;
 	const float pad = 14.0f;
 	const float innerW = panelW - 2 * pad;
-	below(m_hudUi.Add<ui::Panel>(Norm({px, belowBar, panelW, 466}, window)));
+	const float panelBottom = h - 16.0f; // the panel runs to the window bottom
+	below(m_hudUi.Add<ui::Panel>(
+		Norm({px, belowBar, panelW, panelBottom - belowBar}, window)));
 
 	// Movement arrows: turn left / forward / turn right over strafe left /
-	// back / strafe right (the classic six).
+	// back / strafe right (the classic six), square, three across.
 	const struct {
 		const char* glyph;
 		MoveAction action;
@@ -464,16 +466,19 @@ void GameUI::BuildHud() {
 	for (size_t i = 0; i < std::size(moves); ++i) {
 		below(m_hudUi.Add<ui::Button>(
 			Norm({px + pad + (moveW + 8.0f) * static_cast<float>(i % 3),
-				  belowBar + 12 + 42.0f * static_cast<float>(i / 3), moveW, 34},
+				  belowBar + 12 + (moveW + 8.0f) * static_cast<float>(i / 3),
+				  moveW, moveW},
 				 window),
 			moves[i].glyph,
 			[this, action = moves[i].action] { onMoveAction(action); }));
 	}
 
 	// Four hand pairs, one per member: the name over a left and a right hand
-	// box. The slots stay empty until items exist; clicking one logs that.
-	const float handW = (innerW - 8.0f) / 2.0f;
-	float setTop = belowBar + 100.0f;
+	// box (square, centered). The slots stay empty until items exist;
+	// clicking one logs that.
+	const float handW = 72.0f;
+	const float handX = px + (panelW - (2 * handW + 8.0f)) * 0.5f;
+	float setTop = belowBar + 12 + 2 * moveW + 8 + 14;
 	for (size_t i = 0; i < m_characters.size() && i < 4; ++i) {
 		auto* name = m_hudUi.Add<ui::Label>(
 			Norm({px + pad, setTop, innerW, 18}, window), m_characters[i].name);
@@ -481,8 +486,8 @@ void GameUI::BuildHud() {
 		below(name);
 		for (int hand = 0; hand < 2; ++hand) {
 			below(m_hudUi.Add<HandSlot>(
-				Norm({px + pad + (handW + 8.0f) * static_cast<float>(hand),
-					  setTop + 20, handW, 38},
+				Norm({handX + (handW + 8.0f) * static_cast<float>(hand),
+					  setTop + 20, handW, handW},
 					 window),
 				&m_characters[i], [this, i] {
 					Click();
@@ -490,15 +495,18 @@ void GameUI::BuildHud() {
 						loc::Format("log.hands_empty", m_characters[i].name));
 				}));
 		}
-		setTop += 66.0f;
+		setTop += 20 + handW + 8;
 	}
 
-	// Reserved magic area (spellcasting comes later).
-	below(m_hudUi.Add<ui::Label>(Norm({px + pad, belowBar + 364, innerW, 20}, window),
+	// Reserved magic area (spellcasting comes later) — it takes whatever the
+	// panel has left down to the window bottom.
+	below(m_hudUi.Add<ui::Label>(Norm({px + pad, setTop + 8, innerW, 20}, window),
 								 loc::Tr("hud.magic")));
-	below(m_hudUi.Add<ui::Panel>(Norm({px + pad, belowBar + 388, innerW, 64}, window)));
+	below(m_hudUi.Add<ui::Panel>(
+		Norm({px + pad, setTop + 32, innerW, panelBottom - pad - (setTop + 32)},
+			 window)));
 	auto* magicNone = m_hudUi.Add<ui::Label>(
-		Norm({px + pad + 10, belowBar + 410, innerW - 20, 20}, window),
+		Norm({px + pad + 10, setTop + 44, innerW - 20, 20}, window),
 		loc::Tr("hud.magic_none"));
 	magicNone->dim = true;
 	below(magicNone);
