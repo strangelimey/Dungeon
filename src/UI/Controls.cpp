@@ -227,6 +227,155 @@ void DropDown::DrawOverlay(UIContext& ctx, gfx::SpriteBatch& batch) {
 	}
 }
 
+// --- ColorPicker -------------------------------------------------------------
+
+namespace {
+
+// Popup geometry (fixed pixels, like all control detail). Four channel rows,
+// each: letter | track | 0..255 value.
+constexpr float kPickerPopupW = 320.0f;
+constexpr float kPickerPopupPad = 12.0f;
+constexpr float kPickerRowPitch = 36.0f;
+constexpr float kPickerRowH = 28.0f;
+constexpr float kPickerPopupH =
+	kPickerPopupPad * 2 + kPickerRowPitch * 3 + kPickerRowH;
+
+float& Channel(Vec4& color, int index) {
+	switch (index) {
+	case 0: return color.x;
+	case 1: return color.y;
+	case 2: return color.z;
+	default: return color.w;
+	}
+}
+
+gfx::Rect PickerRow(const gfx::Rect& popup, int index) {
+	return {popup.x + kPickerPopupPad,
+			popup.y + kPickerPopupPad + kPickerRowPitch * static_cast<float>(index),
+			popup.w - 2 * kPickerPopupPad, kPickerRowH};
+}
+
+gfx::Rect PickerTrack(const gfx::Rect& row) {
+	return {row.x + 26.0f, row.y, row.w - 26.0f - 56.0f, row.h};
+}
+
+} // namespace
+
+gfx::Rect ColorPicker::SwatchRect() const {
+	const gfx::Rect& px = Pixel();
+	const float w = std::min(64.0f, px.w * 0.45f);
+	return {px.x + px.w - w, px.y, w, px.h};
+}
+
+gfx::Rect ColorPicker::PopupRect(const UIContext& ctx) const {
+	const gfx::Rect swatch = SwatchRect();
+	const float x = std::clamp(swatch.x + swatch.w - kPickerPopupW, 0.0f,
+							   std::max(0.0f, ctx.Width() - kPickerPopupW));
+	float y = swatch.y + swatch.h + 4.0f;
+	if (y + kPickerPopupH > ctx.Height()) // no room below: open above instead
+		y = swatch.y - 4.0f - kPickerPopupH;
+	return {x, y, kPickerPopupW, kPickerPopupH};
+}
+
+void ColorPicker::Update(UIContext& ctx) {
+	const Input* input = ctx.CurrentInput();
+	if (!input) return;
+	const float mx = input->MouseX();
+	const float my = input->MouseY();
+
+	if (m_open) {
+		constexpr int kVkEscape = 0x1B;
+		const gfx::Rect popup = PopupRect(ctx);
+		if (m_dragChannel >= 0 && !input->IsMouseDown(MouseButton::Left))
+			m_dragChannel = -1;
+		if (m_dragChannel < 0 && input->WasMousePressed(MouseButton::Left)) {
+			if (popup.Contains(mx, my)) {
+				for (int i = 0; i < 4; ++i)
+					if (PickerRow(popup, i).Contains(mx, my)) m_dragChannel = i;
+			} else {
+				m_open = false; // click anywhere else (incl. the swatch) closes
+				if (onClose) onClose();
+			}
+		}
+		if (m_open && input->WasKeyPressed(kVkEscape)) {
+			m_dragChannel = -1;
+			m_open = false;
+			if (onClose) onClose();
+		}
+		if (m_dragChannel >= 0) {
+			const gfx::Rect track = PickerTrack(PickerRow(popup, m_dragChannel));
+			const float t =
+				std::clamp((mx - track.x) / std::max(track.w, 1.0f), 0.0f, 1.0f);
+			float& value = Channel(m_color, m_dragChannel);
+			if (t != value) {
+				value = t;
+				if (onChange) onChange(m_color);
+			}
+		}
+		ctx.ConsumeMouse(); // the open popup owns the mouse entirely
+		return;
+	}
+
+	m_hot = !ctx.IsMouseConsumed() && SwatchRect().Contains(mx, my);
+	if (m_hot) {
+		ctx.ConsumeMouse();
+		if (input->WasMousePressed(MouseButton::Left)) m_open = true;
+	}
+}
+
+void ColorPicker::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
+	const Theme& theme = ctx.GetTheme();
+	Font& font = ctx.GetFont();
+	const gfx::Rect& px = Pixel();
+
+	font.Draw(batch, label, px.x, px.y + (px.h - font.Height()) * 0.5f,
+			  theme.textDim);
+
+	const gfx::Rect swatch = SwatchRect();
+	batch.DrawRect(swatch, {0, 0, 0, 1}); // opaque base so alpha reads as darkness
+	batch.DrawRect(swatch, m_color);
+	DrawBorder(batch, swatch, m_hot || m_open ? theme.accent : theme.panelBorder);
+}
+
+void ColorPicker::DrawOverlay(UIContext& ctx, gfx::SpriteBatch& batch) {
+	if (!m_open) return;
+	const Theme& theme = ctx.GetTheme();
+	Font& font = ctx.GetFont();
+	const gfx::Rect popup = PopupRect(ctx);
+
+	Vec4 background = theme.panel;
+	background.w = 1.0f; // opaque so the page beneath doesn't bleed through
+	batch.DrawRect(popup, background);
+	DrawBorder(batch, popup, theme.panelBorder);
+
+	static constexpr const char* kChannelNames[4] = {"R", "G", "B", "A"};
+	static constexpr Vec4 kChannelTints[4] = {{0.9f, 0.3f, 0.3f, 1.0f},
+											  {0.3f, 0.85f, 0.3f, 1.0f},
+											  {0.35f, 0.55f, 1.0f, 1.0f},
+											  {0.8f, 0.8f, 0.8f, 1.0f}};
+	for (int i = 0; i < 4; ++i) {
+		const gfx::Rect row = PickerRow(popup, i);
+		const gfx::Rect track = PickerTrack(row);
+		const float value = Channel(m_color, i);
+		const float textY = row.y + (row.h - font.Height()) * 0.5f;
+
+		font.Draw(batch, kChannelNames[i], row.x, textY, theme.textDim);
+
+		const float trackH = 4.0f;
+		const float trackY = track.y + (track.h - trackH) * 0.5f;
+		batch.DrawRect({track.x, trackY, track.w, trackH}, theme.control);
+		batch.DrawRect({track.x, trackY, track.w * value, trackH}, kChannelTints[i]);
+		const gfx::Rect thumb{track.x + track.w * value - 4.0f, track.y + 2.0f, 8.0f,
+							  track.h - 4.0f};
+		batch.DrawRect(thumb,
+					   m_dragChannel == i ? theme.controlActive : theme.controlHot);
+		DrawBorder(batch, thumb, theme.panelBorder);
+
+		font.Draw(batch, std::format("{}", static_cast<int>(value * 255.0f + 0.5f)),
+				  track.x + track.w + 10.0f, textY, theme.text);
+	}
+}
+
 // --- MenuList --------------------------------------------------------------
 
 void MenuList::AddItem(std::string label, std::function<void()> onActivate) {

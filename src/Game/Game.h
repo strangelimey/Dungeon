@@ -127,9 +127,12 @@ private:
 	void LoadAllSurfaceTextures();   // loads the texture sets for m_quality
 	void SetQuality(Quality quality);
 	// settings.ini next to the exe: quality=0..3, volume=0..1,
-	// barscale=0.5..1.5, baropacity=0..1.
+	// barscale=0.5..1.5, baropacity=0..1, theme_<name>=r,g,b,a (see
+	// kThemeFields in Game.cpp).
 	void LoadSettings();
 	void SaveSettings() const;
+	// Pushes m_theme into every UIContext (each owns a copy).
+	void ApplyTheme();
 	const char* QualitySuffix() const;        // "low" / "med" / "high" (meshes)
 	const char* QualityTextureSuffix() const; // "1k" / "2k" / "4k" (texture sets)
 	const char* QualityLabel() const;         // "Low" / "Medium" / "High" / "Ultra"
@@ -241,6 +244,9 @@ private:
 	ui::UIContext m_pauseUi;   // pause menu (28px font)
 	ui::UIContext m_sheetUi;   // character sheet (22px font)
 	ui::Font m_titleFont;     // big face for "DUNGEON" titles
+	// User-editable control colors (Settings → UI tab, persisted); the master
+	// copy every context's theme is set from — see ApplyTheme.
+	ui::Theme m_theme;
 	std::unique_ptr<gfx::Texture> m_titleBackground; // landing-page art
 	ui::TextOutput* m_log = nullptr;
 	ui::Label* m_compass = nullptr;

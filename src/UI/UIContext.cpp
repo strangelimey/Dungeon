@@ -11,6 +11,8 @@ UIContext::UIContext(gfx::GraphicsDevice& device, const std::string& fontPath,
 void UIContext::Update(const Input& input, float width, float height) {
 	m_input = &input;
 	m_mouseConsumed = false;
+	m_width = width;
+	m_height = height;
 	const gfx::Rect window{0, 0, width, height};
 	// Reverse order: widgets drawn on top get first claim on the mouse.
 	for (auto it = m_widgets.rbegin(); it != m_widgets.rend(); ++it) {
@@ -22,6 +24,8 @@ void UIContext::Update(const Input& input, float width, float height) {
 }
 
 void UIContext::Render(gfx::SpriteBatch& batch, float width, float height) {
+	m_width = width;
+	m_height = height;
 	const gfx::Rect window{0, 0, width, height};
 	for (auto& widget : m_widgets) {
 		if (!widget->visible) continue;

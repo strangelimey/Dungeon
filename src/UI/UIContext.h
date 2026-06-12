@@ -57,6 +57,12 @@ public:
 
 	Font& GetFont() { return m_font; }
 	const Theme& GetTheme() const { return m_theme; }
+	void SetTheme(const Theme& theme) { m_theme = theme; }
+
+	// Window size from the most recent Update/Render — lets widgets clamp
+	// popups to the screen.
+	float Width() const { return m_width; }
+	float Height() const { return m_height; }
 
 	// Input routing state (used by widgets during Update).
 	const Input* CurrentInput() const { return m_input; }
@@ -69,6 +75,8 @@ private:
 	std::vector<std::unique_ptr<Widget>> m_widgets;
 	const Input* m_input = nullptr;
 	bool m_mouseConsumed = false;
+	float m_width = 1.0f;
+	float m_height = 1.0f;
 };
 
 } // namespace dungeon::ui

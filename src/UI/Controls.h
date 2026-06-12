@@ -7,6 +7,7 @@
 //   Button      click callback; hot/held visual states
 //   Slider      horizontal drag, value in [min, max], change callback
 //   DropDown    popup list; overlay-drawn so it covers later widgets
+//   ColorPicker labeled swatch; click opens an R/G/B/A slider popup
 //   MenuList    vertical menu; hover or arrows/W/S select, click/Enter fire
 //   TabControl  tab strip + framed page; owns child widgets per tab
 //
@@ -138,6 +139,39 @@ private:
 	int m_hoverItem = -1;
 	bool m_open = false;
 	bool m_hot = false;
+};
+
+// Labeled color swatch. Clicking the swatch opens a popup with one slider per
+// R/G/B/A channel (overlay-drawn, like DropDown, so it covers later widgets;
+// clamped to the window). onChange fires per tick while a channel drags;
+// onClose fires once when the popup closes — persist there.
+class ColorPicker : public Widget {
+public:
+	ColorPicker(const gfx::Rect& rect, std::string label, const Vec4& color,
+				std::function<void(const Vec4&)> onChange)
+		: label(std::move(label)), m_color(color), onChange(std::move(onChange)) {
+		bounds = rect;
+	}
+
+	const Vec4& Color() const { return m_color; }
+	void SetColor(const Vec4& color) { m_color = color; }
+
+	void Update(UIContext& ctx) override;
+	void Draw(UIContext& ctx, gfx::SpriteBatch& batch) override;
+	void DrawOverlay(UIContext& ctx, gfx::SpriteBatch& batch) override;
+
+	std::string label;
+	std::function<void(const Vec4&)> onChange;
+	std::function<void()> onClose;
+
+private:
+	gfx::Rect SwatchRect() const; // the clickable color square (right end)
+	gfx::Rect PopupRect(const UIContext& ctx) const;
+
+	Vec4 m_color;
+	bool m_open = false;
+	bool m_hot = false;
+	int m_dragChannel = -1; // 0..3 while a channel slider drags
 };
 
 // Vertical list of selectable menu entries (the landing page). One entry is

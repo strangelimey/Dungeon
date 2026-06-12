@@ -77,6 +77,24 @@ constexpr float kTitleFontH = 64.0f;
 // interactive resize drag doesn't drain the GPU on every size change.
 constexpr float kFontSettleDelay = 0.25f;
 
+// The user-editable theme colors (Settings → UI tab). One table drives the
+// ini round-trip (theme_<key>=r,g,b,a) and the color-picker grid.
+struct ThemeField {
+	const char* key;
+	const char* label;
+	Vec4 ui::Theme::*field;
+};
+constexpr ThemeField kThemeFields[] = {
+	{"panel", "Panel", &ui::Theme::panel},
+	{"panelborder", "Border", &ui::Theme::panelBorder},
+	{"control", "Control", &ui::Theme::control},
+	{"controlhot", "Hot", &ui::Theme::controlHot},
+	{"controlactive", "Active", &ui::Theme::controlActive},
+	{"text", "Text", &ui::Theme::text},
+	{"textdim", "Dim text", &ui::Theme::textDim},
+	{"accent", "Accent", &ui::Theme::accent},
+};
+
 } // namespace
 
 // ============================================================================
@@ -372,13 +390,50 @@ void Game::LoadSettings() {
 				.ec == std::errc{})
 			m_partyBarOpacity = std::clamp(opacity, 0.0f, 1.0f);
 	}
+
+	// Theme colors: theme_<key>=r,g,b,a — a color only applies if all four
+	// channels parse (a malformed line keeps that entry's default).
+	for (const ThemeField& field : kThemeFields) {
+		const std::string key = std::format("theme_{}=", field.key);
+		const size_t pos = text.find(key);
+		if (pos == std::string::npos) continue;
+		Vec4 color = m_theme.*(field.field);
+		size_t cursor = pos + key.size();
+		bool ok = true;
+		for (int i = 0; i < 4 && ok; ++i) {
+			float value = 0.0f;
+			const auto result = std::from_chars(text.data() + cursor,
+												text.data() + text.size(), value);
+			ok = result.ec == std::errc{};
+			if (!ok) break;
+			(&color.x)[i] = std::clamp(value, 0.0f, 1.0f);
+			cursor = static_cast<size_t>(result.ptr - text.data());
+			if (i < 3) {
+				ok = cursor < text.size() && text[cursor] == ',';
+				++cursor;
+			}
+		}
+		if (ok) m_theme.*(field.field) = color;
+	}
+	ApplyTheme();
+}
+
+void Game::ApplyTheme() {
+	for (ui::UIContext* ctx :
+		 {&m_ui, &m_menuUi, &m_settingsUi, &m_pauseUi, &m_sheetUi})
+		ctx->SetTheme(m_theme);
 }
 
 void Game::SaveSettings() const {
-	const std::string text =
+	std::string text =
 		std::format("quality={}\nvolume={:.2f}\nbarscale={:.2f}\nbaropacity={:.2f}\n",
 					static_cast<int>(m_quality), m_audio.MasterVolume(),
 					m_partyBarScale, m_partyBarOpacity);
+	for (const ThemeField& field : kThemeFields) {
+		const Vec4& c = m_theme.*(field.field);
+		text += std::format("theme_{}={:.3f},{:.3f},{:.3f},{:.3f}\n", field.key,
+							c.x, c.y, c.z, c.w);
+	}
 	if (!assets::WriteBinaryFile(paths::ExecutableDir() + "\\settings.ini",
 								 text.data(), text.size()))
 		log::Warn("Could not write settings.ini");
@@ -557,7 +612,7 @@ void Game::BuildMenu() {
 	// a Back button beneath. Tab children are fractions of the PAGE (the
 	// area below the strip); each row leaves room for the 28px settings font.
 	const float tabsW = 520.0f;
-	const float tabsH = 340.0f;
+	const float tabsH = 484.0f; // tall enough for the UI tab's theme grid
 	const float stripH = 48.0f;
 	const float tabsX = (w - tabsW) * 0.5f;
 	const float tabsY = h * 0.34f;
@@ -614,6 +669,27 @@ void Game::BuildMenu() {
 				panel->backgroundOpacity = v;
 		});
 	barOpacity->onRelease = [this] { SaveSettings(); };
+
+	// UI → Theme Colors: the eight shared control colors (kThemeFields), two
+	// pickers per row. Edits recolor every context live (ApplyTheme) and
+	// persist once when a picker's popup closes.
+	tabs->AddChild<ui::Label>(tabUi, Norm({pad, pad + 172, rowW, 28}, page),
+							  "Theme Colors");
+	const float colW = (rowW - 16.0f) * 0.5f;
+	size_t themeIndex = 0;
+	for (const ThemeField& field : kThemeFields) {
+		const gfx::Rect cell{pad + (colW + 16.0f) * static_cast<float>(themeIndex % 2),
+							 pad + 216.0f + 46.0f * static_cast<float>(themeIndex / 2),
+							 colW, 36.0f};
+		auto* picker = tabs->AddChild<ui::ColorPicker>(
+			tabUi, Norm(cell, page), field.label, m_theme.*(field.field),
+			[this, member = field.field](const Vec4& color) {
+				m_theme.*member = color;
+				ApplyTheme();
+			});
+		picker->onClose = [this] { SaveSettings(); };
+		++themeIndex;
+	}
 
 	const float backW = 220.0f;
 	m_settingsUi.Add<ui::Button>(
