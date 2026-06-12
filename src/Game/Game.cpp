@@ -148,6 +148,7 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	  m_sheetUi(device, "", kSheetFontH), m_titleFont(device, "", kTitleFontH) {
 	LoadSettings();
 	m_characters = CreateDefaultParty();
+	ApplyPartySpeed();
 	// Party event hooks (survive Party::Reset).
 	m_party.onStep = [this] { m_audio.Play(m_sfxFootstep, 0.8f); };
 	m_party.onBlocked = [this] {
@@ -809,6 +810,15 @@ void Game::OpenCharacterSheet(size_t index) {
 	m_state = AppState::CharacterSheet;
 }
 
+// The party moves as fast as its slowest member: take the roster minimum and
+// hand it to the Party, which scales its step and turn rates by it.
+void Game::ApplyPartySpeed() {
+	float slowest = m_characters.empty() ? 1.0f : m_characters[0].moveSpeed;
+	for (const Character& member : m_characters)
+		slowest = std::min(slowest, member.moveSpeed);
+	m_party.SetSpeed(slowest);
+}
+
 void Game::StartNewGame() {
 	m_party.Reset(m_map.StartX(), m_map.StartZ());
 	for (Monster& monster : m_monsters) monster.announced = false;
@@ -824,6 +834,7 @@ void Game::StartNewGame() {
 		m_characters[i].portrait = portrait;
 	}
 	m_sheet->SetCharacter(m_characters[m_sheetIndex]);
+	ApplyPartySpeed();
 
 	m_log->Clear();
 	m_log->AddLine("You descend into the dungeon...");

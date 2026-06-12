@@ -31,6 +31,10 @@ public:
 	void HandleInput(const Input& input);
 	void Update(float dt);
 
+	// Pace multiplier from the slowest party member (1 = baseline). Scales
+	// both the step rate (shortens/stretches kMoveDuration) and kTurnSpeed.
+	void SetSpeed(float speed) { m_speed = speed; }
+
 	// Camera pose (eye position includes a subtle head bob while moving).
 	Vec3 EyePosition() const;
 	float Yaw() const { return m_currentYaw; }
@@ -72,6 +76,7 @@ private:
 
 	float m_bobPhase = 0.0f;
 	float m_blockCooldown = 0.0f; // throttles repeated blocked-move feedback
+	float m_speed = 1.0f;         // pace multiplier (slowest member)
 };
 
 } // namespace dungeon::game

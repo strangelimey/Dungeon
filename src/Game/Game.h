@@ -121,6 +121,9 @@ private:
 	void BuildCharacterSheet();
 	void OpenCharacterSheet(size_t index); // freezes the world, shows the page
 	void StartNewGame();
+	// Feeds the slowest member's moveSpeed into the Party as its pace
+	// multiplier; call whenever the roster's stats are (re)filled.
+	void ApplyPartySpeed();
 
 	// --- quality ---------------------------------------------------------------
 	void LoadDungeonBlocks();        // loads the worn block set for m_quality

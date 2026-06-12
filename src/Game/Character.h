@@ -34,6 +34,11 @@ struct Character {
 	int vitality = 10;
 	int willpower = 10;
 
+	// Movement-pace multiplier (1 = baseline, lower = slower). The party
+	// moves at the pace of its slowest member: the Game feeds the roster
+	// minimum into Party::SetSpeed, which scales step and turn rates.
+	float moveSpeed = 1.0f;
+
 	// Baked portrait (portrait_<name>.png), wired by the Game after the
 	// texture loads; null draws the tinted-initial fallback instead.
 	const gfx::Texture* portrait = nullptr;

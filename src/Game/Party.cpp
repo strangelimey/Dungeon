@@ -101,7 +101,7 @@ void Party::HandleInput(const Input& input) {
 void Party::Update(float dt) {
 	m_blockCooldown = std::max(0.0f, m_blockCooldown - dt);
 	if (m_moving) {
-		m_moveT += dt / kMoveDuration;
+		m_moveT += dt * m_speed / kMoveDuration;
 		if (m_moveT >= 1.0f) {
 			m_moveT = 1.0f;
 			m_moving = false;
@@ -116,7 +116,7 @@ void Party::Update(float dt) {
 
 	if (m_turning) {
 		const float diff = m_targetYaw - m_currentYaw;
-		const float step = kTurnSpeed * dt;
+		const float step = kTurnSpeed * m_speed * dt;
 		if (std::fabs(diff) <= step) {
 			m_currentYaw = m_targetYaw;
 			m_turning = false;
