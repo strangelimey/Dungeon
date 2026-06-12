@@ -8,6 +8,7 @@
 //   Slider      horizontal drag, value in [min, max], change callback
 //   DropDown    popup list; overlay-drawn so it covers later widgets
 //   MenuList    vertical menu; hover or arrows/W/S select, click/Enter fire
+//   TabControl  tab strip + framed page; owns child widgets per tab
 //
 // All coordinates are absolute pixels (the HUD is laid out once in
 // Game::BuildHud from the window size). Colors come from the shared Theme.
@@ -19,6 +20,7 @@
 
 #include <deque>
 #include <functional>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -165,6 +167,55 @@ private:
 	std::vector<Item> m_items;
 	float m_itemHeight;
 	int m_selected = 0;
+};
+
+// Tab strip across the top of the bounds plus a framed page area below it.
+// Each tab owns its child widgets (absolute pixel coordinates, like every
+// other control — lay pages out inside PageRect()); only the active tab's
+// children receive input and draw.
+class TabControl : public Widget {
+public:
+	TabControl(const gfx::Rect& rect, float tabHeight) : m_tabHeight(tabHeight) {
+		bounds = rect;
+	}
+
+	// Returns the new tab's index, used as the `tab` argument to AddChild.
+	size_t AddTab(std::string label);
+
+	// Creates a widget on the given tab; the control owns it (same contract
+	// as UIContext::Add, but scoped to one page).
+	template <typename T, typename... Args>
+	T* AddChild(size_t tab, Args&&... args) {
+		auto widget = std::make_unique<T>(std::forward<Args>(args)...);
+		T* raw = widget.get();
+		m_tabs[tab].children.push_back(std::move(widget));
+		return raw;
+	}
+
+	// The framed page area below the tab strip.
+	gfx::Rect PageRect() const {
+		return {bounds.x, bounds.y + m_tabHeight, bounds.w, bounds.h - m_tabHeight};
+	}
+
+	int ActiveTab() const { return m_active; }
+	void SetActiveTab(int index);
+
+	void Update(UIContext& ctx) override;
+	void Draw(UIContext& ctx, gfx::SpriteBatch& batch) override;
+	void DrawOverlay(UIContext& ctx, gfx::SpriteBatch& batch) override;
+
+private:
+	struct Tab {
+		std::string label;
+		std::vector<std::unique_ptr<Widget>> children;
+	};
+
+	gfx::Rect TabRect(size_t index) const;
+
+	std::vector<Tab> m_tabs;
+	float m_tabHeight;
+	int m_active = 0;
+	int m_hover = -1;
 };
 
 // Draws a 1px border around a rectangle.

@@ -207,7 +207,6 @@ private:
 	ui::UIContext m_ui;        // in-game HUD (17px font)
 	ui::UIContext m_menuUi;    // landing page (28px font)
 	ui::UIContext m_settingsUi; // settings page (28px font)
-	ui::MenuList* m_settingsMenu = nullptr; // item 0 is the quality entry
 	ui::Font m_titleFont;     // big face for "DUNGEON" titles
 	std::unique_ptr<gfx::Texture> m_titleBackground; // landing-page art
 	ui::TextOutput* m_log = nullptr;

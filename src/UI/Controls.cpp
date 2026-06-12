@@ -299,4 +299,83 @@ void MenuList::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
 	}
 }
 
+// --- TabControl ------------------------------------------------------------
+
+size_t TabControl::AddTab(std::string label) {
+	m_tabs.push_back({std::move(label), {}});
+	return m_tabs.size() - 1;
+}
+
+void TabControl::SetActiveTab(int index) {
+	if (index >= 0 && index < static_cast<int>(m_tabs.size())) m_active = index;
+}
+
+gfx::Rect TabControl::TabRect(size_t index) const {
+	const float tabW =
+		bounds.w / static_cast<float>(std::max<size_t>(m_tabs.size(), 1));
+	return {bounds.x + tabW * static_cast<float>(index), bounds.y, tabW, m_tabHeight};
+}
+
+void TabControl::Update(UIContext& ctx) {
+	const Input* input = ctx.CurrentInput();
+	if (!input) return;
+
+	// Active page children first, in reverse add order — same topmost-first
+	// claim on the mouse as UIContext itself.
+	if (m_active >= 0 && m_active < static_cast<int>(m_tabs.size())) {
+		auto& children = m_tabs[static_cast<size_t>(m_active)].children;
+		for (auto it = children.rbegin(); it != children.rend(); ++it)
+			if ((*it)->visible) (*it)->Update(ctx);
+	}
+
+	// Tab strip.
+	m_hover = -1;
+	if (ctx.IsMouseConsumed()) return;
+	for (size_t i = 0; i < m_tabs.size(); ++i) {
+		if (!TabRect(i).Contains(input->MouseX(), input->MouseY())) continue;
+		m_hover = static_cast<int>(i);
+		ctx.ConsumeMouse();
+		if (input->WasMousePressed(MouseButton::Left)) m_active = static_cast<int>(i);
+		break;
+	}
+}
+
+void TabControl::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
+	const Theme& theme = ctx.GetTheme();
+	Font& font = ctx.GetFont();
+
+	// Page frame first so the active tab can open into it.
+	const gfx::Rect page = PageRect();
+	batch.DrawRect(page, theme.panel);
+	DrawBorder(batch, page, theme.panelBorder);
+
+	for (size_t i = 0; i < m_tabs.size(); ++i) {
+		const gfx::Rect rect = TabRect(i);
+		const bool active = static_cast<int>(i) == m_active;
+		batch.DrawRect(rect, active ? theme.panel
+									: (static_cast<int>(i) == m_hover ? theme.controlHot
+																	  : theme.control));
+		DrawBorder(batch, rect, theme.panelBorder);
+		if (active) // erase the tab's bottom edge and the page's top border
+			batch.DrawRect({rect.x + 1, rect.y + rect.h - 1, rect.w - 2, 2},
+						   theme.panel);
+
+		const std::string& label = m_tabs[i].label;
+		const float textW = font.MeasureWidth(label);
+		font.Draw(batch, label, rect.x + (rect.w - textW) * 0.5f,
+				  rect.y + (rect.h - font.Height()) * 0.5f,
+				  active ? theme.accent : theme.text);
+	}
+
+	if (m_active >= 0 && m_active < static_cast<int>(m_tabs.size()))
+		for (auto& child : m_tabs[static_cast<size_t>(m_active)].children)
+			if (child->visible) child->Draw(ctx, batch);
+}
+
+void TabControl::DrawOverlay(UIContext& ctx, gfx::SpriteBatch& batch) {
+	if (m_active < 0 || m_active >= static_cast<int>(m_tabs.size())) return;
+	for (auto& child : m_tabs[static_cast<size_t>(m_active)].children)
+		if (child->visible) child->DrawOverlay(ctx, batch);
+}
+
 } // namespace dungeon::ui

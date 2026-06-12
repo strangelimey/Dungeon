@@ -284,8 +284,6 @@ void Game::SetQuality(Quality quality) {
 	m_quality = quality;
 	const bool textureResChanged = oldTextureSuffix != QualityTextureSuffix();
 	SaveQualitySetting();
-	if (m_settingsMenu)
-		m_settingsMenu->SetLabel(0, std::format("Quality: {}", QualityLabel()));
 
 	// Hot-swap the dungeon meshes (and textures, when crossing the 1K/2K
 	// boundary) if they are already built. The GPU may still be reading the
@@ -480,19 +478,51 @@ void Game::BuildMenu() {
 		m_menuPage = MenuPage::Settings;
 	});
 
-	// Settings page: quality tier (cycles Low/Medium/High/Ultra) + back.
-	const float settingsH = itemH * 2;
-	m_settingsMenu = m_settingsUi.Add<ui::MenuList>(
-		gfx::Rect{(w - menuW) * 0.5f, h * 0.46f, menuW, settingsH}, itemH);
-	m_settingsMenu->AddItem(std::format("Quality: {}", QualityLabel()), [this] {
-		m_audio.Play(m_sfxClick, 0.5f);
-		// SetQuality refreshes the menu label itself.
-		SetQuality(static_cast<Quality>((static_cast<int>(m_quality) + 1) % 4));
-	});
-	m_settingsMenu->AddItem("Back", [this] {
-		m_audio.Play(m_sfxClick, 0.5f);
-		m_menuPage = MenuPage::Main;
-	});
+	// Settings page: Game / Video / Audio tabs over a shared page area, with
+	// a Back button beneath. Pages are laid out inside the tab control's
+	// PageRect; each control row leaves room for the 28px settings font.
+	const float tabsW = 520.0f;
+	const float tabsH = 340.0f;
+	const float tabsX = (w - tabsW) * 0.5f;
+	const float tabsY = h * 0.34f;
+	auto* tabs = m_settingsUi.Add<ui::TabControl>(
+		gfx::Rect{tabsX, tabsY, tabsW, tabsH}, 48.0f);
+	const size_t tabGame = tabs->AddTab("Game");
+	const size_t tabVideo = tabs->AddTab("Video");
+	const size_t tabAudio = tabs->AddTab("Audio");
+	const gfx::Rect page = tabs->PageRect();
+	const float pad = 24.0f;
+	const float rowW = page.w - 2 * pad;
+
+	// Game: nothing to configure yet.
+	tabs->AddChild<ui::Label>(tabGame, gfx::Rect{page.x + pad, page.y + pad, rowW, 28},
+							  "Nothing here yet.")
+		->dim = true;
+
+	// Video: quality tier (hot-swaps meshes/textures in place).
+	tabs->AddChild<ui::Label>(tabVideo, gfx::Rect{page.x + pad, page.y + pad, rowW, 28},
+							  "Quality")
+		->dim = true;
+	tabs->AddChild<ui::DropDown>(
+		tabVideo, gfx::Rect{page.x + pad, page.y + pad + 38, rowW, 40},
+		std::vector<std::string>{"Low", "Medium", "High", "Ultra"},
+		static_cast<int>(m_quality), [this](int index) {
+			m_audio.Play(m_sfxClick, 0.5f);
+			SetQuality(static_cast<Quality>(index));
+		});
+
+	// Audio: master volume (the slider draws its own label above the track).
+	tabs->AddChild<ui::Slider>(tabAudio,
+							   gfx::Rect{page.x + pad, page.y + pad + 38, rowW, 22},
+							   "Volume", 0.0f, 1.0f, 1.0f,
+							   [this](float v) { m_audio.SetMasterVolume(v); });
+
+	const float backW = 220.0f;
+	m_settingsUi.Add<ui::Button>(
+		gfx::Rect{(w - backW) * 0.5f, tabsY + tabsH + 28, backW, 44}, "Back", [this] {
+			m_audio.Play(m_sfxClick, 0.5f);
+			m_menuPage = MenuPage::Main;
+		});
 }
 
 void Game::StartNewGame() {
@@ -531,15 +561,12 @@ void Game::BuildHud() {
 	// Options panel, top-right.
 	const float panelW = 250;
 	const float px = w - panelW - 16;
-	m_ui.Add<ui::Panel>(gfx::Rect{px, 16, panelW, 240});
+	m_ui.Add<ui::Panel>(gfx::Rect{px, 16, panelW, 176});
 	m_ui.Add<ui::Label>(gfx::Rect{px + 14, 26, panelW - 28, 20}, "Options");
 
-	m_ui.Add<ui::Slider>(gfx::Rect{px + 14, 84, panelW - 28, 18}, "Volume", 0.0f, 1.0f,
-						 1.0f, [this](float v) { m_audio.SetMasterVolume(v); });
-
-	m_ui.Add<ui::Label>(gfx::Rect{px + 14, 116, panelW - 28, 20}, "Torchlight")->dim =
+	m_ui.Add<ui::Label>(gfx::Rect{px + 14, 56, panelW - 28, 20}, "Torchlight")->dim =
 		true;
-	m_ui.Add<ui::DropDown>(gfx::Rect{px + 14, 140, panelW - 28, 26},
+	m_ui.Add<ui::DropDown>(gfx::Rect{px + 14, 80, panelW - 28, 26},
 						   std::vector<std::string>{"Warm flame", "Cold moonfire",
 													"Eerie emberlight"},
 						   0, [this](int index) {
@@ -547,12 +574,12 @@ void Game::BuildHud() {
 							   ApplyTorchPalette(index);
 						   });
 
-	m_ui.Add<ui::Button>(gfx::Rect{px + 14, 180, (panelW - 38) / 2, 28}, "Wait",
+	m_ui.Add<ui::Button>(gfx::Rect{px + 14, 120, (panelW - 38) / 2, 28}, "Wait",
 						 [this] {
 							 m_audio.Play(m_sfxClick, 0.5f);
 							 m_log->AddLine("You wait. The torches gutter.");
 						 });
-	m_ui.Add<ui::Button>(gfx::Rect{px + 24 + (panelW - 38) / 2, 180, (panelW - 38) / 2,
+	m_ui.Add<ui::Button>(gfx::Rect{px + 24 + (panelW - 38) / 2, 120, (panelW - 38) / 2,
 								   28},
 						 "Help", [this] {
 							 m_audio.Play(m_sfxClick, 0.5f);
