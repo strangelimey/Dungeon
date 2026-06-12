@@ -53,7 +53,7 @@ struct Atmosphere {
 	// global in-scatter scale so torches make dust glow without washing
 	// the whole frame out.
 	Vec3 hazeColor{0.50f, 0.42f, 0.30f};
-	float density = 0.12f;             // optical depth per meter at turbidity 1
+	float density = 0.09f;             // optical depth per meter at turbidity 1
 	float hazeAmbient = 1.2f;          // how much ambient light the dust catches
 };
 
