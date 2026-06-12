@@ -490,8 +490,8 @@ void Game::BuildMenu() {
 	const float menuW = 420.0f;
 	const float itemH = 58.0f;
 	auto* menu = m_menuUi.Add<ui::MenuList>(
-		Norm({(w - menuW) * 0.5f, h * 0.42f, menuW, itemH * 5}, window),
-		1.0f / 5.0f); // item height: one fifth of the list
+		Norm({(w - menuW) * 0.5f, h * 0.42f, menuW, itemH * 4}, window),
+		1.0f / 4.0f); // item height: one quarter of the list
 
 	menu->AddItem("Continue");           // not implemented yet
 	menu->AddItem("Start New Game", [this] {
@@ -508,7 +508,6 @@ void Game::BuildMenu() {
 		}
 	});
 	menu->AddItem("Load");               // not implemented yet
-	menu->AddItem("Save");               // not implemented yet
 	menu->AddItem("Settings", [this] {
 		m_audio.Play(m_sfxClick, 0.5f);
 		m_menuPage = MenuPage::Settings;

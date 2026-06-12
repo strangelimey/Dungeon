@@ -97,7 +97,7 @@ installed.
 ## Game state machine
 
 Loading (staged tasks, one per frame, progress screen) → Menu (baked title
-art title_bg, MenuList: Continue/Start New Game/Load/Save/Settings — only
+art title_bg, MenuList: Continue/Start New Game/Load/Settings — only
 Start New Game and Settings work) → Playing. Esc quits the app. Monsters
 block movement (no combat yet); fires are sconces at 'T' (wall-mounted,
 light at flame) and braziers at 'F', each with FireEffect particles
@@ -119,7 +119,7 @@ fire-driven turbidity rings around them.
 
 ## Known gaps / natural next steps
 
-- Continue/Load/Save menu entries are inert (save system not started).
+- Continue/Load menu entries are inert (save system not started).
 - No combat: monsters are static blockers that announce + face the party.
 - Monster models are box-rigs; authored glTF would drop in via LoadModel
   (JOINTS_0 remap already handled).
