@@ -818,8 +818,12 @@ void Game::ApplyPartyBarScale() {
 	const float h = m_hudDesignH;
 	const gfx::Rect window{0, 0, w, h};
 	const float s = m_partyBarScale;
-	const float slotGap = 10.0f * s;
-	const float slotW = (w - 2 * 16.0f - 3 * 10.0f) / 4.0f * s;
+	// The bar already spans the full window at scale 1, so width is pinned
+	// there: scales above 1 grow the bar vertically only (the portraits and
+	// resource bars follow the slot height).
+	const float ws = std::min(s, 1.0f);
+	const float slotGap = 10.0f * ws;
+	const float slotW = (w - 2 * 16.0f - 3 * 10.0f) / 4.0f * ws;
 	const float barX = (w - 4 * slotW - 3 * slotGap) * 0.5f;
 	for (size_t i = 0; i < m_partyPanels.size(); ++i)
 		m_partyPanels[i]->bounds =
