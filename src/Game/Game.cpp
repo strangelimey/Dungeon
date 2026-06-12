@@ -422,7 +422,7 @@ void Game::UpdateLights(float time) {
 	// shadows themselves dance the way real firelight does.
 	for (const Fire& fire : m_fires) {
 		gfx::PointLight light;
-		const float amp = fire.brazier ? 0.085f : 0.055f;
+		const float amp = fire.brazier ? 0.042f : 0.028f;
 		const float wx = amp * std::sin(time * 7.3f + fire.phase) *
 						 std::sin(time * 3.1f + fire.phase * 2.0f);
 		const float wy = amp * 0.6f * std::sin(time * 9.1f + fire.phase * 1.3f);
