@@ -1,19 +1,24 @@
 // ============================================================================
-// Graphics/Renderer.h — the forward 3D scene pass.
+// Graphics/Renderer.h — the forward 3D scene pass + point-light shadow pass.
 //
-// One root signature, one PSO. Per frame: BeginScene writes the camera +
-// light constants once, then each DrawMesh allocates its object constants
-// (and skinning palette, if any) from the frame's UploadAllocator arena and
-// issues one draw. Shading lives in assets/shaders/scene.hlsl (compiled at
-// startup — edit the .hlsl and relaunch, no C++ rebuild needed).
+// One root signature shared by two PSOs (scene and shadow). Per frame: the
+// shadow pass renders cube distance maps for the slotted lights, then
+// BeginScene writes the camera + light constants once and each DrawMesh
+// allocates its object constants (and skinning palette, if any) from the
+// frame's UploadAllocator arena and issues one draw. Shading lives in
+// assets/shaders/scene.hlsl and shadow.hlsl (compiled at startup — edit the
+// .hlsl and relaunch, no C++ rebuild needed).
 //
-// Root signature layout (must match scene.hlsl):
-//   0  b0  frame constants   (root CBV — camera, ambient, lights)
+// Root signature layout (must match scene.hlsl / shadow.hlsl):
+//   0  b0  frame constants   (root CBV — camera, ambient, lights, fog)
 //   1  b1  object constants  (root CBV — world, color, flags, height scale)
 //   2  b2  skinning palette  (root CBV — kMaxSkinJoints matrices)
 //   3  t0  base color texture     (descriptor table)
 //   4  t1  normal+height map      (descriptor table; A = height for parallax)
+//   5  t2  air turbidity grid     (descriptor table; dust raymarch density)
+//   6  t3..t6  shadow cubes       (one table, kShadowSlots contiguous SRVs)
 //   s0     static anisotropic wrap sampler
+//   s1     static clamped bilinear sampler (turbidity grid + shadow cubes)
 // ============================================================================
 #pragma once
 

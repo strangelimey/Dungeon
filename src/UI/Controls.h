@@ -7,6 +7,7 @@
 //   Button      click callback; hot/held visual states
 //   Slider      horizontal drag, value in [min, max], change callback
 //   DropDown    popup list; overlay-drawn so it covers later widgets
+//   MenuList    vertical menu; hover or arrows/W/S select, click/Enter fire
 //
 // All coordinates are absolute pixels (the HUD is laid out once in
 // Game::BuildHud from the window size). Colors come from the shared Theme.

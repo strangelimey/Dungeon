@@ -33,6 +33,7 @@
 #include <flat_map>
 #include <functional>
 #include <memory>
+#include <utility>
 #include <vector>
 
 namespace dungeon::game {
@@ -52,7 +53,7 @@ private:
 	// Quality tiers, selected in Settings (persisted to settings.ini next to
 	// the exe, hot-swapped without restart). Meshes: low/med/high worn-block
 	// tessellation (Ultra reuses high). Textures: 1K (Low/Medium), 2K (High),
-	// 4K (Ultra — fetchable content, see tools/FetchUltraTextures.ps1; falls
+	// 4K (Ultra — fetchable content, see tools/FetchTextures.ps1; falls
 	// back to 2K with a warning when the 4K sets are absent).
 	enum class Quality { Low, Medium, High, Ultra };
 
@@ -98,8 +99,8 @@ private:
 	void LoadQualitySetting();
 	void SaveQualitySetting() const;
 	const char* QualitySuffix() const;        // "low" / "med" / "high" (meshes)
-	const char* QualityTextureSuffix() const; // "1k" / "2k" (texture sets)
-	const char* QualityLabel() const;         // "Low" / "Medium" / "High"
+	const char* QualityTextureSuffix() const; // "1k" / "2k" / "4k" (texture sets)
+	const char* QualityLabel() const;         // "Low" / "Medium" / "High" / "Ultra"
 
 	// --- per-frame ------------------------------------------------------------
 	void UpdateCamera();
@@ -116,8 +117,6 @@ private:
 	void DrawSurface(ID3D12GraphicsCommandList* list, const Surface& surface);
 	void RenderLoadingScreen();
 	void RenderMenuOverlay();
-
-	bool MonsterAt(int x, int z) const;
 
 	Window& m_window;
 	gfx::GraphicsDevice& m_device;
@@ -136,6 +135,9 @@ private:
 	Party m_party;
 	gfx::Camera m_camera;
 	gfx::LightSet m_lights;
+	// Scratch reused by AssignShadowSlots: (distance², light index), sorted
+	// nearest-first each frame into retained capacity.
+	std::vector<std::pair<float, size_t>> m_shadowCandidates;
 	gfx::Atmosphere m_atmosphere; // per-cell air turbidity (dust)
 	std::unique_ptr<gfx::Texture> m_turbidityMap;
 

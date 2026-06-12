@@ -427,7 +427,7 @@ assets::ModelData BuildBrazier() {
 	return model;
 }
 
-// --- serpent pillar (moved from the old in-game AnimatedProp) ---------------------
+// --- serpent pillar ----------------------------------------------------------------
 
 assets::ModelData BuildSerpentPillar() {
 	constexpr int kJoints = 4;

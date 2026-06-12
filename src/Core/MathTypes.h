@@ -43,12 +43,4 @@ inline Vec3 Lerp(const Vec3& a, const Vec3& b, float t) {
 	return {Lerp(a.x, b.x, t), Lerp(a.y, b.y, t), Lerp(a.z, b.z, t)};
 }
 
-// Shortest-arc angle interpolation in radians (for smooth turning).
-inline float LerpAngle(float a, float b, float t) {
-	float diff = std::fmod(b - a, 2.0f * kPi);
-	if (diff > kPi) diff -= 2.0f * kPi;
-	if (diff < -kPi) diff += 2.0f * kPi;
-	return a + diff * t;
-}
-
 } // namespace dungeon

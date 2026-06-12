@@ -100,6 +100,7 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	m_lights.directional.color = {0, 0, 0}; // no sun underground
 	// Rebuilt every frame into retained capacity — no steady-state allocation.
 	m_lights.points.reserve(gfx::kMaxPointLights);
+	m_shadowCandidates.reserve(gfx::kMaxPointLights);
 
 	BuildMenu();
 	BuildLoadTasks();
@@ -276,7 +277,7 @@ void Game::LoadTextureSet(Surface& surface, std::initializer_list<const char*> n
 		std::string stem = paths::Asset(std::format("textures\\{}_{}", name, res));
 		auto albedo = TryLoadTextureFile(m_device, stem);
 		if (!albedo) {
-			// Ultra's 4K sets are fetchable content (FetchUltraTextures.ps1);
+			// Ultra's 4K sets are fetchable content (tools/FetchTextures.ps1);
 			// drop to the always-present 2K set when they aren't installed.
 			log::Warn("{} not found at {} — falling back to 2k", name, res);
 			stem = paths::Asset(std::format("textures\\{}_2k", name));
@@ -348,7 +349,6 @@ void Game::LoadMonsters() {
 // the first solid neighbor wall and face into the room; braziers stand at
 // the cell center. Flame origins match the baked models (see ModelBaker).
 void Game::BuildFires() {
-	using namespace DirectX;
 	u32 seed = 1234;
 
 	for (const auto& [tx, tz] : m_map.TorchCells()) {
@@ -391,15 +391,10 @@ void Game::BuildFires() {
 			  m_map.TorchCells().size(), m_map.BrazierCells().size());
 }
 
-bool Game::MonsterAt(int x, int z) const {
-	for (const Monster& monster : m_monsters)
-		if (monster.x == x && monster.z == z) return true;
-	return false;
-}
-
 // ============================================================================
 // Landing page — title plus a MenuList; entries highlight on mouse hover or
-// keyboard/gamepad selection. Only "Start New Game" is wired up for now.
+// keyboard selection. Start New Game and Settings are wired up; Continue /
+// Load / Save wait on the save system.
 // ============================================================================
 void Game::BuildMenu() {
 	const float w = static_cast<float>(m_window.Width());
@@ -422,14 +417,14 @@ void Game::BuildMenu() {
 		m_menuPage = MenuPage::Settings;
 	});
 
-	// Settings page: mesh complexity (cycles through the baked tiers) + back.
+	// Settings page: quality tier (cycles Low/Medium/High/Ultra) + back.
 	const float settingsH = itemH * 2;
 	m_settingsMenu = m_settingsUi.Add<ui::MenuList>(
 		gfx::Rect{(w - menuW) * 0.5f, h * 0.46f, menuW, settingsH}, itemH);
 	m_settingsMenu->AddItem(std::format("Quality: {}", QualityLabel()), [this] {
 		m_audio.Play(m_sfxClick, 0.5f);
+		// SetQuality refreshes the menu label itself.
 		SetQuality(static_cast<Quality>((static_cast<int>(m_quality) + 1) % 4));
-		m_settingsMenu->SetLabel(0, std::format("Quality: {}", QualityLabel()));
 	});
 	m_settingsMenu->AddItem("Back", [this] {
 		m_audio.Play(m_sfxClick, 0.5f);
@@ -577,30 +572,30 @@ void Game::UpdateLights(float time) {
 
 // Hands the kShadowSlots shadow cubes to the lights nearest the camera —
 // slot 0 (highest resolution + PCF) to the closest, coarser slots outward,
-// nothing beyond that. The carried torch sits at the eye so it always wins
-// slot 0: its surface shadows mostly hide behind their casters, but it is
-// exactly what carves shafts through dusty air around nearby pillars.
+// nothing beyond that. Only lights the renderer will upload (the first
+// kMaxPointLights) compete, so a slot is never spent on a dropped light.
+// The carried torch sits at the eye so it always wins slot 0: its surface
+// shadows mostly hide behind their casters, but it is exactly what carves
+// shafts through dusty air around nearby pillars.
 void Game::AssignShadowSlots() {
+	static_assert(gfx::kShadowSlots <= gfx::kMaxPointLights);
 	const Vec3 eye = m_party.EyePosition();
 
-	struct Candidate {
-		float distSq;
-		size_t index;
-	};
-	std::vector<Candidate> candidates; // small; capacity retained across calls
-	static_assert(gfx::kShadowSlots <= gfx::kMaxPointLights);
-	candidates.reserve(m_lights.points.size());
+	for (gfx::PointLight& light : m_lights.points) light.shadowSlot = -1;
 
-	for (size_t i = 0; i < m_lights.points.size(); ++i) {
-		m_lights.points[i].shadowSlot = -1;
+	m_shadowCandidates.clear();
+	const size_t lightCount =
+		std::min<size_t>(m_lights.points.size(), gfx::kMaxPointLights);
+	for (size_t i = 0; i < lightCount; ++i) {
 		const Vec3 d = Sub(m_lights.points[i].position, eye);
-		candidates.push_back({d.x * d.x + d.y * d.y + d.z * d.z, i});
+		m_shadowCandidates.emplace_back(d.x * d.x + d.y * d.y + d.z * d.z, i);
 	}
-	std::ranges::sort(candidates, {}, &Candidate::distSq);
+	std::ranges::sort(m_shadowCandidates);
 
-	const size_t count = std::min<size_t>(candidates.size(), gfx::kShadowSlots);
+	const size_t count = std::min<size_t>(m_shadowCandidates.size(), gfx::kShadowSlots);
 	for (size_t slot = 0; slot < count; ++slot)
-		m_lights.points[candidates[slot].index].shadowSlot = static_cast<int>(slot);
+		m_lights.points[m_shadowCandidates[slot].second].shadowSlot =
+			static_cast<int>(slot);
 }
 
 void Game::UpdateMonsters(float dt) {
