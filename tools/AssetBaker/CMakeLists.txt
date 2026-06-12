@@ -3,6 +3,7 @@
 #   AssetBaker.exe <path-to-assets-dir>
 add_executable(AssetBaker
 	GltfWriter.cpp
+	ImportTextures.cpp
 	Main.cpp
 	ModelBaker.cpp
 	SoundBaker.cpp

@@ -71,3 +71,19 @@ build\debug\bin\AssetBaker.exe assets
 
 Hand-authored replacements work too — drop in any glTF 2.0 file with the same
 name and clip names.
+
+### Importing downloaded PBR texture sets
+
+Real scanned materials (Poly Haven, ambientCG, Megascans/Fab, ...) can be
+packed into the engine format with the import mode:
+
+```
+AssetBaker.exe import <downloaded-folder> assets <output-name> [--flip-green]
+```
+
+It finds the albedo/normal/height/AO maps by filename convention, multiplies
+AO into the albedo, flips OpenGL-style normals to the DirectX convention
+(automatic when the filename says GL, forced with --flip-green), and packs
+height into the normal map's alpha for parallax. Use an existing material
+name (e.g. `wall_brick`) as the output to replace a procedural texture, or a
+new name and add it to a texture set in Game::LoadSurfaces.
