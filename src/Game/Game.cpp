@@ -416,10 +416,20 @@ void Game::UpdateLights(float time) {
 	m_lights.points.push_back(torch);
 
 	// One flickering light per fire, sitting just above its flame. Braziers
-	// burn bigger and a touch redder than the wall sconces.
+	// burn bigger and a touch redder than the wall sconces. The light
+	// POSITION wanders too (incommensurate sine products, per-fire phase):
+	// the shadow cubes re-render from the moved origin every frame, so the
+	// shadows themselves dance the way real firelight does.
 	for (const Fire& fire : m_fires) {
 		gfx::PointLight light;
-		light.position = {fire.flamePos.x, fire.flamePos.y + 0.15f, fire.flamePos.z};
+		const float amp = fire.brazier ? 0.085f : 0.055f;
+		const float wx = amp * std::sin(time * 7.3f + fire.phase) *
+						 std::sin(time * 3.1f + fire.phase * 2.0f);
+		const float wy = amp * 0.6f * std::sin(time * 9.1f + fire.phase * 1.3f);
+		const float wz = amp * std::sin(time * 6.7f + fire.phase * 0.7f) *
+						 std::sin(time * 2.6f + fire.phase);
+		light.position = {fire.flamePos.x + wx, fire.flamePos.y + 0.15f + wy,
+						  fire.flamePos.z + wz};
 		light.radius = fire.brazier ? 7.5f : 7.0f;
 		light.color = fire.brazier
 						  ? Vec3{m_torchColor.x, m_torchColor.y * 0.85f, m_torchColor.z * 0.8f}
