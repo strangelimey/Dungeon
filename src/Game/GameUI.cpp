@@ -473,20 +473,24 @@ void GameUI::BuildHud() {
 			[this, action = moves[i].action] { onMoveAction(action); }));
 	}
 
-	// Four hand pairs, one per member: the name over a left and a right hand
-	// box (square, centered). The slots stay empty until items exist;
-	// clicking one logs that.
-	const float handW = 72.0f;
-	const float handX = px + (panelW - (2 * handW + 8.0f)) * 0.5f;
-	float setTop = belowBar + 12 + 2 * moveW + 8 + 14;
+	// Hand pairs, two members side by side per row (so the four-member
+	// roster makes a 2x2 grid of sets): the name over a left and a right
+	// hand box, square. The slots stay empty until items exist; clicking one
+	// logs that.
+	const float setW = (innerW - 8.0f) / 2.0f;
+	const float handW = (setW - 4.0f) / 2.0f;
+	const float setH = 20 + handW + 8;
+	const float handsTop = belowBar + 12 + 2 * moveW + 8 + 14;
 	for (size_t i = 0; i < m_characters.size() && i < 4; ++i) {
+		const float setX = px + pad + (setW + 8.0f) * static_cast<float>(i % 2);
+		const float setTop = handsTop + setH * static_cast<float>(i / 2);
 		auto* name = m_hudUi.Add<ui::Label>(
-			Norm({px + pad, setTop, innerW, 18}, window), m_characters[i].name);
+			Norm({setX, setTop, setW, 18}, window), m_characters[i].name);
 		name->dim = true;
 		below(name);
 		for (int hand = 0; hand < 2; ++hand) {
 			below(m_hudUi.Add<HandSlot>(
-				Norm({handX + (handW + 8.0f) * static_cast<float>(hand),
+				Norm({setX + (handW + 4.0f) * static_cast<float>(hand),
 					  setTop + 20, handW, handW},
 					 window),
 				&m_characters[i], [this, i] {
@@ -495,18 +499,19 @@ void GameUI::BuildHud() {
 						loc::Format("log.hands_empty", m_characters[i].name));
 				}));
 		}
-		setTop += 20 + handW + 8;
 	}
+	const size_t handRows = (std::min<size_t>(m_characters.size(), 4) + 1) / 2;
+	const float magicTop = handsTop + setH * static_cast<float>(handRows);
 
 	// Reserved magic area (spellcasting comes later) — it takes whatever the
 	// panel has left down to the window bottom.
-	below(m_hudUi.Add<ui::Label>(Norm({px + pad, setTop + 8, innerW, 20}, window),
+	below(m_hudUi.Add<ui::Label>(Norm({px + pad, magicTop + 8, innerW, 20}, window),
 								 loc::Tr("hud.magic")));
 	below(m_hudUi.Add<ui::Panel>(
-		Norm({px + pad, setTop + 32, innerW, panelBottom - pad - (setTop + 32)},
+		Norm({px + pad, magicTop + 32, innerW, panelBottom - pad - (magicTop + 32)},
 			 window)));
 	auto* magicNone = m_hudUi.Add<ui::Label>(
-		Norm({px + pad + 10, setTop + 44, innerW - 20, 20}, window),
+		Norm({px + pad + 10, magicTop + 44, innerW - 20, 20}, window),
 		loc::Tr("hud.magic_none"));
 	magicNone->dim = true;
 	below(magicNone);
