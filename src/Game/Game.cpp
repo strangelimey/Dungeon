@@ -8,6 +8,7 @@
 #include "Game/DungeonMeshBuilder.h"
 
 #include <algorithm>
+#include <charconv>
 #include <cmath>
 #include <format>
 
@@ -78,7 +79,7 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	  m_party(m_map, m_map.StartX(), m_map.StartZ()),
 	  m_ui(device, "", 17.0f), m_menuUi(device, "", 28.0f),
 	  m_settingsUi(device, "", 28.0f), m_titleFont(device, "", 64.0f) {
-	LoadQualitySetting();
+	LoadSettings();
 	// Party event hooks (survive Party::Reset).
 	m_party.onStep = [this] { m_audio.Play(m_sfxFootstep, 0.8f); };
 	m_party.onBlocked = [this] {
@@ -283,7 +284,7 @@ void Game::SetQuality(Quality quality) {
 	const std::string oldTextureSuffix = QualityTextureSuffix();
 	m_quality = quality;
 	const bool textureResChanged = oldTextureSuffix != QualityTextureSuffix();
-	SaveQualitySetting();
+	SaveSettings();
 
 	// Hot-swap the dungeon meshes (and textures, when crossing the 1K/2K
 	// boundary) if they are already built. The GPU may still be reading the
@@ -301,19 +302,32 @@ void Game::SetQuality(Quality quality) {
 	}
 }
 
-void Game::LoadQualitySetting() {
+void Game::LoadSettings() {
 	auto bytes = assets::ReadBinaryFile(paths::ExecutableDir() + "\\settings.ini");
-	if (!bytes) return; // first run: keep the default
+	if (!bytes) return; // first run: keep the defaults
 	const std::string text(bytes->begin(), bytes->end());
-	const size_t pos = text.find("quality=");
-	if (pos == std::string::npos || pos + 8 >= text.size()) return;
-	const char digit = text[pos + 8];
-	if (digit >= '0' && digit <= '3')
-		m_quality = static_cast<Quality>(digit - '0');
+
+	const size_t qpos = text.find("quality=");
+	if (qpos != std::string::npos && qpos + 8 < text.size()) {
+		const char digit = text[qpos + 8];
+		if (digit >= '0' && digit <= '3')
+			m_quality = static_cast<Quality>(digit - '0');
+	}
+
+	const size_t vpos = text.find("volume=");
+	if (vpos != std::string::npos) {
+		float volume = 1.0f;
+		if (std::from_chars(text.data() + vpos + 7, text.data() + text.size(),
+							volume)
+				.ec == std::errc{})
+			m_audio.SetMasterVolume(std::clamp(volume, 0.0f, 1.0f));
+	}
 }
 
-void Game::SaveQualitySetting() const {
-	const std::string text = std::format("quality={}\n", static_cast<int>(m_quality));
+void Game::SaveSettings() const {
+	const std::string text =
+		std::format("quality={}\nvolume={:.2f}\n", static_cast<int>(m_quality),
+					m_audio.MasterVolume());
 	if (!assets::WriteBinaryFile(paths::ExecutableDir() + "\\settings.ini",
 								 text.data(), text.size()))
 		log::Warn("Could not write settings.ini");
@@ -512,10 +526,12 @@ void Game::BuildMenu() {
 		});
 
 	// Audio: master volume (the slider draws its own label above the track).
-	tabs->AddChild<ui::Slider>(tabAudio,
-							   gfx::Rect{page.x + pad, page.y + pad + 38, rowW, 22},
-							   "Volume", 0.0f, 1.0f, 1.0f,
-							   [this](float v) { m_audio.SetMasterVolume(v); });
+	// Live while dragging; persisted once on release.
+	auto* volume = tabs->AddChild<ui::Slider>(
+		tabAudio, gfx::Rect{page.x + pad, page.y + pad + 38, rowW, 22}, "Volume",
+		0.0f, 1.0f, m_audio.MasterVolume(),
+		[this](float v) { m_audio.SetMasterVolume(v); });
+	volume->onRelease = [this] { SaveSettings(); };
 
 	const float backW = 220.0f;
 	m_settingsUi.Add<ui::Button>(

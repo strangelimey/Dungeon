@@ -112,7 +112,10 @@ void Slider::Update(UIContext& ctx) {
 	const bool hovered =
 		!ctx.IsMouseConsumed() && bounds.Contains(input->MouseX(), input->MouseY());
 	if (hovered && input->WasMousePressed(MouseButton::Left)) m_dragging = true;
-	if (!input->IsMouseDown(MouseButton::Left)) m_dragging = false;
+	if (m_dragging && !input->IsMouseDown(MouseButton::Left)) {
+		m_dragging = false;
+		if (onRelease) onRelease();
+	}
 	if (hovered || m_dragging) ctx.ConsumeMouse();
 
 	if (m_dragging) {

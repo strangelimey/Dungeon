@@ -108,8 +108,9 @@ private:
 	void LoadDungeonBlocks();        // loads the worn block set for m_quality
 	void LoadAllSurfaceTextures();   // loads the texture sets for m_quality
 	void SetQuality(Quality quality);
-	void LoadQualitySetting();
-	void SaveQualitySetting() const;
+	// settings.ini next to the exe: quality=0..3, volume=0..1.
+	void LoadSettings();
+	void SaveSettings() const;
 	const char* QualitySuffix() const;        // "low" / "med" / "high" (meshes)
 	const char* QualityTextureSuffix() const; // "1k" / "2k" / "4k" (texture sets)
 	const char* QualityLabel() const;         // "Low" / "Medium" / "High" / "Ultra"

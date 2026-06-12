@@ -101,6 +101,9 @@ public:
 
 	std::string label;
 	std::function<void(float)> onChange;
+	// Fires once when a drag ends — for side effects too costly per tick
+	// (e.g. persisting the value to disk).
+	std::function<void()> onRelease;
 
 private:
 	void RefreshDisplay(); // caches the "label: value" text (not per-frame)
