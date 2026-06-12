@@ -4,7 +4,8 @@
 // Builds assets::ModelData in code and hands it to WriteGltf:
 //   * dungeon blocks — wall (recessed panel + edge pillars, authored facing
 //     +Z over x∈[-1,1], y∈[0,2.5]), flat floor, flat ceiling (facing down,
-//     placed at wall height by the game)
+//     placed at wall height by the game); worn variants per surface texture,
+//     displaced by that texture's scanned height map (see the worn section)
 //   * serpent pillar — skinned cylinder, 4-joint chain, looping sway clip
 //   * monsters — skeleton & mummy share a 7-joint humanoid rig (root→spine→
 //     head/arms, root→legs) with box limbs and an idle clip; the blob is a
@@ -16,12 +17,16 @@
 // ============================================================================
 #include "ModelBaker.h"
 
+#include "Assets/Image.h"
+#include "Core/Log.h"
 #include "Core/MathTypes.h"
 #include "GltfWriter.h"
 #include "Noise.h"
 
 #include <algorithm>
 #include <cmath>
+#include <format>
+#include <functional>
 #include <string>
 
 using namespace DirectX;
@@ -212,11 +217,22 @@ assets::ModelData BuildCeilingBlock() {
 
 // --- worn dungeon blocks -----------------------------------------------------------
 // A second block set with real displaced geometry for old, crumbling areas:
-// tessellated grids whose vertices are pushed by brick/slab-aware wear noise,
-// with normals derived analytically from the displacement gradient. All
+// tessellated grids whose vertices are pushed by a wear field, with normals
+// derived from the displacement gradient by central differences. All
 // displacement is pinned to zero at block edges so adjacent cells (and the
 // clean set, if mixed) always meet watertight. The clean blocks remain for
 // newer, well-kept areas of the dungeon.
+//
+// One worn set is baked PER SURFACE TEXTURE (worn_<texture>_<tier>.gltf):
+// the wear field samples that texture's scanned height map (packed into the
+// alpha of <texture>_1k_n.png by the importer), so the mortar lines, broken
+// bricks, and slab joints in the geometry land exactly where the texture
+// shows them. When the scanned sets are not installed (fresh checkout before
+// tools/FetchTextures.ps1), procedural wear keeps the bake whole.
+
+// A wear field maps block-local surface coordinates to a signed displacement
+// (depth into walls/ceilings, height offset for floors), pin ramps included.
+using WearField = std::function<float(float, float)>;
 
 // Smooth 0→1 ramp within `width` of a boundary at 0.
 float PinRamp(float distance, float width) {
@@ -224,13 +240,71 @@ float PinRamp(float distance, float width) {
 	return t * t * (3.0f - 2.0f * t);
 }
 
+// Samples the height channel (alpha) of a packed normal+height texture:
+// bilinear, wrapping, and box-filtered to the mesh grid spacing so coarse
+// tiers don't alias detail finer than their vertices.
+class TextureHeight {
+public:
+	explicit TextureHeight(const std::string& packedNormalPath) {
+		if (auto image = assets::LoadImageFile(packedNormalPath))
+			m_image = std::move(*image);
+		// A (near-)constant alpha means the set shipped no real displacement
+		// (the importer packs 255 for those) — report invalid so the bake
+		// falls back to procedural wear instead of a featureless recess.
+		u8 lo = 255, hi = 0;
+		for (size_t i = 3; i < m_image.pixels.size(); i += 4) {
+			lo = std::min(lo, m_image.pixels[i]);
+			hi = std::max(hi, m_image.pixels[i]);
+		}
+		m_valid = m_image.width > 0 && hi - lo >= 8;
+	}
+
+	bool IsValid() const { return m_valid; }
+
+	float Sample(float u, float v) const {
+		const int w = static_cast<int>(m_image.width);
+		const int h = static_cast<int>(m_image.height);
+		const float x = (u - std::floor(u)) * w - 0.5f;
+		const float y = (v - std::floor(v)) * h - 0.5f;
+		const int x0 = static_cast<int>(std::floor(x));
+		const int y0 = static_cast<int>(std::floor(y));
+		const float fx = x - x0, fy = y - y0;
+		auto at = [&](int px, int py) {
+			px = (px % w + w) % w;
+			py = (py % h + h) % h;
+			return m_image.pixels[(static_cast<size_t>(py) * w + px) * 4 + 3] / 255.0f;
+		};
+		const float top = at(x0, y0) + (at(x0 + 1, y0) - at(x0, y0)) * fx;
+		const float bottom = at(x0, y0 + 1) + (at(x0 + 1, y0 + 1) - at(x0, y0 + 1)) * fx;
+		return top + (bottom - top) * fy;
+	}
+
+	// Averages kTaps² samples over one (du, dv) grid-cell footprint.
+	float SampleBox(float u, float v, float du, float dv) const {
+		constexpr int kTaps = 4;
+		float sum = 0.0f;
+		for (int j = 0; j < kTaps; ++j)
+			for (int i = 0; i < kTaps; ++i)
+				sum += Sample(u + du * ((i + 0.5f) / kTaps - 0.5f),
+							  v + dv * ((j + 0.5f) / kTaps - 0.5f));
+		return sum / (kTaps * kTaps);
+	}
+
+private:
+	assets::ImageData m_image;
+	bool m_valid = false;
+};
+
+// --- procedural wear (fallback when the scanned sets are not installed) ----
+
 // Erosion depth (into the rock) for the worn wall surface, in wall-local
 // coordinates (x across [-1,1], y up [0,kWallH]).
 float WallWearDepth(float x, float y) {
 	const float u = x + 1.0f;       // 0..2 along the wall
 	const float v = kWallH - y;     // 0..2.5 down the wall
 
-	// Brick grid matching the texture proportions (0.5 x 0.3125).
+	// Generic brick grid (0.5 x 0.3125) — only an approximation of the
+	// scanned textures; the texture-driven fields below replace this.
 	const float bw = 0.50f, bh = 0.3125f;
 	const u32 row = static_cast<u32>(v / bh);
 	const float us = u + (row % 2 ? bw * 0.5f : 0.0f);
@@ -287,10 +361,60 @@ float CeilingWearDepth(float x, float z) {
 	return std::clamp(d, 0.0f, 0.10f) * pin;
 }
 
+// --- texture-driven wear ----------------------------------------------------
+// Each field samples the matching texture's height map with the SAME UV
+// mapping the mesh (and therefore the renderer) uses, so geometric relief
+// lines up with the painted bricks/slabs. `relief` is the world-space
+// displacement amplitude; du/dv pass the grid footprint to SampleBox.
+
+WearField TextureWallWear(const TextureHeight& height, float relief, int gridX,
+						  int gridY, u32 seed) {
+	const float du = 1.0f / gridX;
+	const float dv = (kWallH / gridY) * 0.5f;
+	return [&height, relief, du, dv, seed](float x, float y) {
+		const float u = (x + 1.0f) * 0.5f;
+		const float v = (kWallH - y) * 0.5f;
+		// Low texture height = recessed surface (mortar, broken bricks).
+		float d = (1.0f - height.SampleBox(u, v, du, dv)) * relief;
+		d += (Fbm(u * 1.8f, v * 1.8f, seed) - 0.5f) * 0.045f; // bowed masonry
+		d += std::clamp(1.0f - y, 0.0f, 1.0f) * 0.018f;       // ground-level wear
+		const float pin = PinRamp(1.0f - std::fabs(x), 0.12f) * PinRamp(y, 0.10f) *
+						  PinRamp(kWallH - y, 0.10f);
+		return std::clamp(d, 0.0f, relief + 0.05f) * pin;
+	};
+}
+
+WearField TextureFloorWear(const TextureHeight& height, float relief, int grid,
+						   u32 seed) {
+	const float du = 0.5f / grid, dv = 0.5f / grid;
+	return [&height, relief, du, dv, seed](float x, float z) {
+		const float u = (x + 1.0f) * 0.5f, v = (z + 1.0f) * 0.5f;
+		float h = (height.SampleBox(u, v, du, dv) - 0.5f) * relief;
+		h += (Fbm(u * 2.2f, v * 2.2f, seed) - 0.5f) * 0.02f; // general unevenness
+		const float pin =
+			PinRamp(1.0f - std::fabs(x), 0.10f) * PinRamp(1.0f - std::fabs(z), 0.10f);
+		return std::clamp(h, -0.07f, 0.05f) * pin;
+	};
+}
+
+WearField TextureCeilingWear(const TextureHeight& height, float relief, int grid,
+							 u32 seed) {
+	const float du = 0.5f / grid, dv = 0.5f / grid;
+	return [&height, relief, du, dv, seed](float x, float z) {
+		const float u = (x + 1.0f) * 0.5f, v = (z + 1.0f) * 0.5f;
+		// Low texture height = deeper erosion pocket (upward, into the rock).
+		float d = (1.0f - height.SampleBox(u, v, du, dv)) * relief;
+		d += (Fbm(u * 3.0f, v * 3.0f, seed) - 0.5f) * 0.015f;
+		const float pin =
+			PinRamp(1.0f - std::fabs(x), 0.10f) * PinRamp(1.0f - std::fabs(z), 0.10f);
+		return std::clamp(d, 0.0f, relief) * pin;
+	};
+}
+
 // Grid resolutions are parameters: the baker emits each worn block at three
 // complexity tiers (low/med/high) so the game can trade geometric detail for
 // performance via the Settings menu.
-assets::ModelData BuildWornWallBlock(int kNx, int kNy) {
+assets::ModelData BuildWornWallBlock(int kNx, int kNy, const WearField& wear) {
 	assets::ModelData model;
 	assets::MeshData mesh;
 
@@ -300,10 +424,10 @@ assets::ModelData BuildWornWallBlock(int kNx, int kNy) {
 		const float y = kWallH * static_cast<float>(j) / kNy;
 		for (int i = 0; i <= kNx; ++i) {
 			const float x = -1.0f + 2.0f * static_cast<float>(i) / kNx;
-			const float d = WallWearDepth(x, y);
+			const float d = wear(x, y);
 			// Surface z = -d; tangent cross product gives (dd/dx, dd/dy, 1).
-			const float ddx = (WallWearDepth(x + kEps, y) - WallWearDepth(x - kEps, y)) / (2 * kEps);
-			const float ddy = (WallWearDepth(x, y + kEps) - WallWearDepth(x, y - kEps)) / (2 * kEps);
+			const float ddx = (wear(x + kEps, y) - wear(x - kEps, y)) / (2 * kEps);
+			const float ddy = (wear(x, y + kEps) - wear(x, y - kEps)) / (2 * kEps);
 			const float inv = 1.0f / std::sqrt(ddx * ddx + ddy * ddy + 1.0f);
 
 			assets::Vertex vert;
@@ -326,7 +450,7 @@ assets::ModelData BuildWornWallBlock(int kNx, int kNy) {
 	return model;
 }
 
-assets::ModelData BuildWornFloorBlock(int kN) {
+assets::ModelData BuildWornFloorBlock(int kN, const WearField& wear) {
 	assets::ModelData model;
 	assets::MeshData mesh;
 
@@ -335,9 +459,9 @@ assets::ModelData BuildWornFloorBlock(int kN) {
 		const float z = -1.0f + 2.0f * static_cast<float>(j) / kN;
 		for (int i = 0; i <= kN; ++i) {
 			const float x = -1.0f + 2.0f * static_cast<float>(i) / kN;
-			const float h = FloorWearHeight(x, z);
-			const float hx = (FloorWearHeight(x + kEps, z) - FloorWearHeight(x - kEps, z)) / (2 * kEps);
-			const float hz = (FloorWearHeight(x, z + kEps) - FloorWearHeight(x, z - kEps)) / (2 * kEps);
+			const float h = wear(x, z);
+			const float hx = (wear(x + kEps, z) - wear(x - kEps, z)) / (2 * kEps);
+			const float hz = (wear(x, z + kEps) - wear(x, z - kEps)) / (2 * kEps);
 			const float inv = 1.0f / std::sqrt(hx * hx + hz * hz + 1.0f);
 
 			assets::Vertex vert;
@@ -359,7 +483,7 @@ assets::ModelData BuildWornFloorBlock(int kN) {
 	return model;
 }
 
-assets::ModelData BuildWornCeilingBlock(int kN) {
+assets::ModelData BuildWornCeilingBlock(int kN, const WearField& wear) {
 	assets::ModelData model;
 	assets::MeshData mesh;
 
@@ -369,9 +493,9 @@ assets::ModelData BuildWornCeilingBlock(int kN) {
 		const float z = -1.0f + 2.0f * static_cast<float>(j) / kN;
 		for (int i = 0; i <= kN; ++i) {
 			const float x = -1.0f + 2.0f * static_cast<float>(i) / kN;
-			const float d = CeilingWearDepth(x, z);
-			const float dx = (CeilingWearDepth(x + kEps, z) - CeilingWearDepth(x - kEps, z)) / (2 * kEps);
-			const float dz = (CeilingWearDepth(x, z + kEps) - CeilingWearDepth(x, z - kEps)) / (2 * kEps);
+			const float d = wear(x, z);
+			const float dx = (wear(x + kEps, z) - wear(x - kEps, z)) / (2 * kEps);
+			const float dz = (wear(x, z + kEps) - wear(x, z - kEps)) / (2 * kEps);
 			const float inv = 1.0f / std::sqrt(dx * dx + dz * dz + 1.0f);
 
 			assets::Vertex vert;
@@ -678,12 +802,16 @@ assets::ModelData BuildBlob() {
 
 } // namespace
 
-bool BakeModels(const std::string& dir) {
+bool BakeModels(const std::string& dir, const std::string& texturesDir) {
 	bool ok = true;
 	ok &= WriteGltf(BuildWallBlock(), dir + "\\wall_block.gltf");
 	ok &= WriteGltf(BuildFloorBlock(), dir + "\\floor_block.gltf");
 	ok &= WriteGltf(BuildCeilingBlock(), dir + "\\ceiling_block.gltf");
-	// Worn blocks at three complexity tiers (selectable in-game).
+
+	// Worn blocks: one set per surface texture, each at three complexity
+	// tiers (selectable in-game). The texture names and their order must
+	// match the surface sets in Game::LoadAllSurfaceTextures — the game
+	// pairs worn_<texture>_<tier>.gltf with <texture>_<res> by position.
 	struct Tier {
 		const char* suffix;
 		int wallX, wallY, floor, ceiling;
@@ -693,14 +821,66 @@ bool BakeModels(const std::string& dir) {
 		{"med", 28, 36, 28, 24},
 		{"high", 44, 56, 44, 36},
 	};
-	for (const Tier& tier : tiers) {
-		const std::string sfx = std::string("_") + tier.suffix + ".gltf";
-		ok &= WriteGltf(BuildWornWallBlock(tier.wallX, tier.wallY),
-						dir + "\\wall_block_worn" + sfx);
-		ok &= WriteGltf(BuildWornFloorBlock(tier.floor), dir + "\\floor_block_worn" + sfx);
-		ok &= WriteGltf(BuildWornCeilingBlock(tier.ceiling),
-						dir + "\\ceiling_block_worn" + sfx);
+	enum class Kind { Wall, Floor, Ceiling };
+	struct WornSpec {
+		Kind kind;
+		const char* texture;
+		float relief; // world-space displacement amplitude (meters)
+		u32 seed;
+	};
+	const WornSpec specs[] = {
+		{Kind::Wall, "wall_brick", 0.060f, 911u},
+		{Kind::Wall, "wall_stone", 0.055f, 921u},
+		{Kind::Wall, "wall_moss", 0.040f, 931u},
+		{Kind::Floor, "floor_slabs", 0.050f, 941u},
+		{Kind::Floor, "floor_cobble", 0.045f, 951u},
+		{Kind::Ceiling, "ceiling_rough", 0.100f, 961u},
+		{Kind::Ceiling, "ceiling_cracked", 0.080f, 971u},
+	};
+	for (const WornSpec& spec : specs) {
+		const TextureHeight height(
+			std::format("{}\\{}_1k_n.png", texturesDir, spec.texture));
+		if (!height.IsValid())
+			log::Warn("{}: no packed height map — baking procedural wear "
+					  "(run tools/FetchTextures.ps1, then rebake models)",
+					  spec.texture);
+		for (const Tier& tier : tiers) {
+			const std::string out =
+				std::format("{}\\worn_{}_{}.gltf", dir, spec.texture, tier.suffix);
+			switch (spec.kind) {
+			case Kind::Wall:
+				ok &= WriteGltf(
+					BuildWornWallBlock(
+						tier.wallX, tier.wallY,
+						height.IsValid()
+							? TextureWallWear(height, spec.relief, tier.wallX,
+											  tier.wallY, spec.seed)
+							: WearField(WallWearDepth)),
+					out);
+				break;
+			case Kind::Floor:
+				ok &= WriteGltf(
+					BuildWornFloorBlock(
+						tier.floor,
+						height.IsValid()
+							? TextureFloorWear(height, spec.relief, tier.floor, spec.seed)
+							: WearField(FloorWearHeight)),
+					out);
+				break;
+			case Kind::Ceiling:
+				ok &= WriteGltf(
+					BuildWornCeilingBlock(
+						tier.ceiling,
+						height.IsValid()
+							? TextureCeilingWear(height, spec.relief, tier.ceiling,
+												 spec.seed)
+							: WearField(CeilingWearDepth)),
+					out);
+				break;
+			}
+		}
 	}
+
 	ok &= WriteGltf(BuildSconce(), dir + "\\sconce.gltf");
 	ok &= WriteGltf(BuildBrazier(), dir + "\\brazier.gltf");
 	ok &= WriteGltf(BuildSerpentPillar(), dir + "\\pillar.gltf");

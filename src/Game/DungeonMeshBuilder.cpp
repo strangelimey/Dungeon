@@ -35,26 +35,28 @@ void AppendTransformed(assets::MeshData& dst, const assets::MeshData& src,
 } // namespace
 
 DungeonGeometry BuildDungeonGeometry(const DungeonMap& map,
-									 const assets::MeshData& wallBlock,
-									 const assets::MeshData& floorBlock,
-									 const assets::MeshData& ceilingBlock,
-									 u32 wallVariants, u32 floorVariants,
-									 u32 ceilingVariants) {
+									 std::span<const assets::MeshData> wallBlocks,
+									 std::span<const assets::MeshData> floorBlocks,
+									 std::span<const assets::MeshData> ceilingBlocks) {
+	const u32 wallVariants = static_cast<u32>(wallBlocks.size());
+	const u32 floorVariants = static_cast<u32>(floorBlocks.size());
+	const u32 ceilingVariants = static_cast<u32>(ceilingBlocks.size());
+
 	DungeonGeometry geo;
-	geo.walls.resize(std::max(wallVariants, 1u));
-	geo.floors.resize(std::max(floorVariants, 1u));
-	geo.ceilings.resize(std::max(ceilingVariants, 1u));
+	geo.walls.resize(wallVariants);
+	geo.floors.resize(floorVariants);
+	geo.ceilings.resize(ceilingVariants);
 
 	for (int z = 0; z < map.Height(); ++z) {
 		for (int x = 0; x < map.Width(); ++x) {
 			if (!map.IsWalkable(x, z)) continue;
 			const Vec3 center = map.CellCenter(x, z);
 
-			AppendTransformed(geo.floors[VariantFor(x, z, 1u, floorVariants)],
-							  floorBlock,
+			const u32 floorVariant = VariantFor(x, z, 1u, floorVariants);
+			AppendTransformed(geo.floors[floorVariant], floorBlocks[floorVariant],
 							  XMMatrixTranslation(center.x, 0, center.z));
-			AppendTransformed(geo.ceilings[VariantFor(x, z, 2u, ceilingVariants)],
-							  ceilingBlock,
+			const u32 ceilingVariant = VariantFor(x, z, 2u, ceilingVariants);
+			AppendTransformed(geo.ceilings[ceilingVariant], ceilingBlocks[ceilingVariant],
 							  XMMatrixTranslation(center.x, kWallHeight, center.z));
 
 			// Wall blocks are authored facing +Z; rotate so the face points
@@ -76,7 +78,7 @@ DungeonGeometry BuildDungeonGeometry(const DungeonMap& map,
 				if (map.IsWalkable(x + e.dx, z + e.dz)) continue;
 				const XMMATRIX m = XMMatrixRotationY(e.yaw) *
 								   XMMatrixTranslation(e.pos.x, e.pos.y, e.pos.z);
-				AppendTransformed(geo.walls[wallVariant], wallBlock, m);
+				AppendTransformed(geo.walls[wallVariant], wallBlocks[wallVariant], m);
 			}
 		}
 	}

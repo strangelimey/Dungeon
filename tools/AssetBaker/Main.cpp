@@ -14,6 +14,11 @@
 //   AssetBaker mips <assets-dir>
 //       Regenerates the derived .dds mip chains (gitignored) for every PNG in
 //       assets/textures, so the game never filters mips at load time.
+//
+//   AssetBaker models <assets-dir>
+//       Regenerates only the .gltf models (fast — skips the texture, sound,
+//       and mip bakes). The worn blocks sample the installed texture height
+//       maps, so re-run this after FetchTextures.ps1 or an import.
 
 #include "Core/Log.h"
 #include "ImportTextures.h"
@@ -50,6 +55,11 @@ int main(int argc, char** argv) {
 	if (argc >= 3 && std::string(argv[1]) == "mips")
 		return baker::BakeAllMips(std::string(argv[2]) + "\\textures") ? 0 : 1;
 
+	if (argc >= 3 && std::string(argv[1]) == "models") {
+		const std::string assets = argv[2];
+		return baker::BakeModels(assets + "\\models", assets + "\\textures") ? 0 : 1;
+	}
+
 	if (argc < 2) {
 		log::Error("usage: AssetBaker <assets-dir>  |  AssetBaker import ...");
 		return 1;
@@ -64,7 +74,7 @@ int main(int argc, char** argv) {
 	ok &= baker::BakeTextures(assets + "\\textures");
 	ok &= baker::BakeTitleImage(assets + "\\textures");
 	ok &= baker::BakeSounds(assets + "\\sounds");
-	ok &= baker::BakeModels(assets + "\\models");
+	ok &= baker::BakeModels(assets + "\\models", assets + "\\textures");
 	ok &= baker::BakeAllMips(assets + "\\textures");
 	if (ok) log::Info("Asset bake complete.");
 	else log::Error("Asset bake FAILED.");

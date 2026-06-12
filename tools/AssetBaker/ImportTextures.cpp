@@ -19,12 +19,14 @@
 #include "Core/Log.h"
 #include "Core/Types.h"
 
+#include <stb_image.h>
 #include <stb_image_write.h>
 
 #include <algorithm>
 #include <cctype>
 #include <filesystem>
 #include <initializer_list>
+#include <optional>
 #include <vector>
 
 namespace dungeon::baker {
@@ -41,6 +43,56 @@ bool ContainsAny(const std::string& haystack, std::initializer_list<const char*>
 	for (const char* needle : needles)
 		if (haystack.find(needle) != std::string::npos) return true;
 	return false;
+}
+
+// Height (displacement) maps need special handling: download sites ship them
+// as 16-bit grayscale PNGs whose useful range may occupy a tiny slice of
+// [0,1] — an 8-bit load can flatten such a map to a constant (Poly Haven's
+// medieval_blocks_03 does exactly that). Load at full depth and normalize the
+// actual min..max range to 0..1; absolute displacement scale is applied
+// downstream anyway (heightScale for parallax, the relief amplitudes in
+// ModelBaker for the worn block meshes).
+struct HeightMap {
+	u32 width = 0, height = 0;
+	std::vector<float> values; // normalized 0..1
+};
+
+std::optional<HeightMap> LoadHeightMap(const std::string& path) {
+	int w = 0, h = 0, comp = 0;
+	stbi_us* data = stbi_load_16(path.c_str(), &w, &h, &comp, 1);
+	if (!data) return std::nullopt;
+
+	const size_t count = static_cast<size_t>(w) * h;
+	const auto [minIt, maxIt] = std::minmax_element(data, data + count);
+	const float lo = *minIt;
+	const float range = static_cast<float>(*maxIt) - lo;
+	if (range < 656.0f) { // < 1% of 16-bit: a flat export, no usable relief
+		stbi_image_free(data);
+		log::Warn("Height map is (near-)constant, treating as absent: {}", path);
+		return std::nullopt;
+	}
+
+	HeightMap map;
+	map.width = static_cast<u32>(w);
+	map.height = static_cast<u32>(h);
+	map.values.resize(count);
+	for (size_t i = 0; i < count; ++i) map.values[i] = (data[i] - lo) / range;
+	stbi_image_free(data);
+	return map;
+}
+
+// Bilinear sample of a normalized height map.
+float SampleHeight(const HeightMap& map, float u, float v) {
+	const float x = u * (map.width - 1), y = v * (map.height - 1);
+	const u32 x0 = static_cast<u32>(x), y0 = static_cast<u32>(y);
+	const u32 x1 = std::min(x0 + 1, map.width - 1), y1 = std::min(y0 + 1, map.height - 1);
+	const float fx = x - x0, fy = y - y0;
+	auto at = [&](u32 px, u32 py) {
+		return map.values[static_cast<size_t>(py) * map.width + px];
+	};
+	const float top = at(x0, y0) + (at(x1, y0) - at(x0, y0)) * fx;
+	const float bottom = at(x0, y1) + (at(x1, y1) - at(x0, y1)) * fx;
+	return top + (bottom - top) * fy;
 }
 
 // Bilinear sample of one channel, with the source possibly a different size.
@@ -192,24 +244,29 @@ bool ImportPbrTextureSet(const std::string& sourceDir, const std::string& textur
 		for (size_t i = 1; i < normal.pixels.size(); i += 4)
 			normal.pixels[i] = static_cast<u8>(255 - normal.pixels[i]);
 
-	// Height into the alpha channel (resampled to the normal map's size).
+	// Height into the alpha channel, normalized to the map's real range and
+	// resampled to the normal map's size (see LoadHeightMap).
 	if (!found.height.empty()) {
-		auto height = assets::LoadImageFile(found.height);
+		auto height = LoadHeightMap(found.height);
 		if (height) {
-			log::Info("Height: {} (packed into normal alpha)", found.height);
+			log::Info("Height: {} (normalized, packed into normal alpha)", found.height);
 			for (u32 y = 0; y < normal.height; ++y) {
 				for (u32 x = 0; x < normal.width; ++x) {
 					const float u = static_cast<float>(x) / (normal.width - 1);
 					const float v = static_cast<float>(y) / (normal.height - 1);
 					normal.pixels[(static_cast<size_t>(y) * normal.width + x) * 4 + 3] =
-						static_cast<u8>(SampleChannel(*height, 0, u, v));
+						static_cast<u8>(SampleHeight(*height, u, v) * 255.0f + 0.5f);
 				}
 			}
 		} else {
-			log::Warn("Could not load height map: {}", height.error());
+			// LoadHeightMap already logged why; render the material flat.
+			log::Warn("No usable height data — parallax will be flat");
+			for (size_t i = 3; i < normal.pixels.size(); i += 4) normal.pixels[i] = 255;
 		}
 	} else {
-		for (size_t i = 3; i < normal.pixels.size(); i += 4) normal.pixels[i] = 0;
+		// 255 = fully proud surface: the parallax march exits immediately, so
+		// the material renders flat (0 would smear the whole tile sideways).
+		for (size_t i = 3; i < normal.pixels.size(); i += 4) normal.pixels[i] = 255;
 	}
 
 	// --- write the packed pair ------------------------------------------------

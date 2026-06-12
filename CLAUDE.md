@@ -57,6 +57,9 @@ at launch with an on-disk cache (shadercache/, hash-invalidated) — edit
   AO→albedo; height→normal alpha; bakes BC7 DDS).
 - `AssetBaker mips <assets>` — rebakes derived .dds (BC7 mode-6 encoder in
   tools/AssetBaker/Bc7Encoder.cpp; use the RELEASE baker, encode is slow).
+- `AssetBaker models <assets>` — rebakes only the .gltf models (fast). Worn
+  blocks sample the installed texture height maps, so rerun after
+  FetchTextures.ps1 or a texture import.
 - Textures: PNG = source, .dds = derived BC7 mip chains (gitignored).
   Scanned sets (7 Poly Haven CC0 materials × 1k/2k/4k) are NOT in git:
   raw downloads live in OneDrive\DungeonAssets\<res>\<material>\ and
@@ -65,7 +68,13 @@ at launch with an on-disk cache (shadercache/, hash-invalidated) — edit
 - Maps: assets/maps/level1.map — ASCII grid, ';' comments, glyphs:
   '#' rock '.' floor 'D' dusty 'T' sconce 'F' brazier (blocks movement)
   'P' start 'S'/'M'/'B' monsters. Edit + relaunch, no rebuild.
-- Worn block models exist at 3 mesh tiers (_low/_med/_high).
+- Worn block meshes are baked PER SURFACE TEXTURE at 3 tiers
+  (worn_<texture>_<low|med|high>.gltf), displaced by that texture's scanned
+  height map (normal-map alpha) so geometric relief matches the painted
+  bricks/slabs; DungeonMeshBuilder stamps the mesh matching each cell's
+  texture variant. wall_stone's Poly Haven displacement export is flat
+  (detected at import), so it uses procedural wear — its 0.5x0.31 block
+  grid happens to fit that texture's large blocks anyway.
 
 ## Quality system
 

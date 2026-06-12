@@ -33,6 +33,7 @@
 #include <flat_map>
 #include <functional>
 #include <memory>
+#include <span>
 #include <utility>
 #include <vector>
 
@@ -82,7 +83,7 @@ private:
 
 	// --- loading (one task per frame while the loading screen shows) -------
 	void BuildLoadTasks();
-	void LoadTextureSet(Surface& surface, std::initializer_list<const char*> names,
+	void LoadTextureSet(Surface& surface, std::span<const char* const> names,
 						float heightScale);
 	void BuildDungeonMeshes();
 	void LoadMonsters();
@@ -144,8 +145,9 @@ private:
 	Surface m_walls;
 	Surface m_floors;
 	Surface m_ceilings;
-	// Block model geometry held between the texture and mesh-build tasks.
-	assets::MeshData m_wallBlock, m_floorBlock, m_ceilingBlock;
+	// Worn block geometry, one mesh per texture variant (same order as the
+	// surface texture sets), held between the load and mesh-build tasks.
+	std::vector<assets::MeshData> m_wallBlocks, m_floorBlocks, m_ceilingBlocks;
 
 	assets::ModelData m_pillarModel;
 	std::unique_ptr<gfx::Mesh> m_pillarMesh;

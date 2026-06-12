@@ -55,6 +55,14 @@ std::unique_ptr<gfx::Texture> LoadTextureFile(gfx::GraphicsDevice& device,
 	return texture;
 }
 
+// Surface texture sets. Order defines the variant index everywhere: the
+// texture arrays, the worn block meshes (worn_<name>_<tier>.gltf), and the
+// geometry buckets all pair up by position. Must match the worn specs in
+// AssetBaker's ModelBaker.cpp.
+constexpr const char* kWallTextures[] = {"wall_brick", "wall_stone", "wall_moss"};
+constexpr const char* kFloorTextures[] = {"floor_slabs", "floor_cobble"};
+constexpr const char* kCeilingTextures[] = {"ceiling_rough", "ceiling_cracked"};
+
 } // namespace
 
 // ============================================================================
@@ -216,12 +224,21 @@ const char* Game::QualityLabel() const {
 }
 
 void Game::LoadDungeonBlocks() {
-	// The old dungeon uses the worn, crumbling block set; the clean
+	// The old dungeon uses the worn, crumbling block set — one mesh per
+	// texture variant, displaced at bake time by that texture's height map
+	// so geometry relief matches the painted bricks/slabs. The clean
 	// *_block.gltf models remain baked for newer areas of the game.
-	const std::string sfx = std::format("_{}.gltf", QualitySuffix());
-	m_wallBlock = LoadModelOrDie("wall_block_worn" + sfx).meshes[0];
-	m_floorBlock = LoadModelOrDie("floor_block_worn" + sfx).meshes[0];
-	m_ceilingBlock = LoadModelOrDie("ceiling_block_worn" + sfx).meshes[0];
+	auto load = [&](std::vector<assets::MeshData>& blocks,
+					std::span<const char* const> names) {
+		blocks.clear();
+		for (const char* name : names)
+			blocks.push_back(
+				LoadModelOrDie(std::format("worn_{}_{}.gltf", name, QualitySuffix()))
+					.meshes[0]);
+	};
+	load(m_wallBlocks, kWallTextures);
+	load(m_floorBlocks, kFloorTextures);
+	load(m_ceilingBlocks, kCeilingTextures);
 }
 
 void Game::SetQuality(Quality quality) {
@@ -267,7 +284,7 @@ void Game::SaveQualitySetting() const {
 		log::Warn("Could not write settings.ini");
 }
 
-void Game::LoadTextureSet(Surface& surface, std::initializer_list<const char*> names,
+void Game::LoadTextureSet(Surface& surface, std::span<const char* const> names,
 						  float heightScale) {
 	surface.albedo.clear(); // quality hot-swap reuses the same Surface objects
 	surface.normal.clear();
@@ -289,17 +306,14 @@ void Game::LoadTextureSet(Surface& surface, std::initializer_list<const char*> n
 }
 
 void Game::LoadAllSurfaceTextures() {
-	LoadTextureSet(m_walls, {"wall_brick", "wall_stone", "wall_moss"}, 0.055f);
-	LoadTextureSet(m_floors, {"floor_slabs", "floor_cobble"}, 0.045f);
-	LoadTextureSet(m_ceilings, {"ceiling_rough", "ceiling_cracked"}, 0.035f);
+	LoadTextureSet(m_walls, kWallTextures, 0.055f);
+	LoadTextureSet(m_floors, kFloorTextures, 0.045f);
+	LoadTextureSet(m_ceilings, kCeilingTextures, 0.035f);
 }
 
 void Game::BuildDungeonMeshes() {
-	const DungeonGeometry geo = BuildDungeonGeometry(
-		m_map, m_wallBlock, m_floorBlock, m_ceilingBlock,
-		static_cast<u32>(m_walls.albedo.size()),
-		static_cast<u32>(m_floors.albedo.size()),
-		static_cast<u32>(m_ceilings.albedo.size()));
+	const DungeonGeometry geo =
+		BuildDungeonGeometry(m_map, m_wallBlocks, m_floorBlocks, m_ceilingBlocks);
 
 	auto upload = [&](Surface& surface, const std::vector<assets::MeshData>& buckets) {
 		for (const assets::MeshData& bucket : buckets)

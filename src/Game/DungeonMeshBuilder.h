@@ -13,6 +13,7 @@
 #include "Assets/Model.h"
 #include "Game/DungeonMap.h"
 
+#include <span>
 #include <vector>
 
 namespace dungeon::game {
@@ -24,14 +25,14 @@ struct DungeonGeometry {
 	std::vector<assets::MeshData> ceilings;
 };
 
-// Instances the baked block models (assets/models/*_block.gltf) over every
-// floor cell: floor + ceiling per cell and a wall block on each edge that
-// borders solid rock. Each cell picks a texture variant by a stable hash.
+// Instances the baked block models over every floor cell: floor + ceiling
+// per cell and a wall block on each edge that borders solid rock. Each block
+// span holds one mesh per texture variant; a cell picks its variant by a
+// stable hash and stamps the MATCHING mesh into that variant's bucket, so
+// geometric relief always pairs with the texture drawn over it.
 DungeonGeometry BuildDungeonGeometry(const DungeonMap& map,
-									 const assets::MeshData& wallBlock,
-									 const assets::MeshData& floorBlock,
-									 const assets::MeshData& ceilingBlock,
-									 u32 wallVariants, u32 floorVariants,
-									 u32 ceilingVariants);
+									 std::span<const assets::MeshData> wallBlocks,
+									 std::span<const assets::MeshData> floorBlocks,
+									 std::span<const assets::MeshData> ceilingBlocks);
 
 } // namespace dungeon::game
