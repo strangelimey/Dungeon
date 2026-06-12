@@ -42,15 +42,19 @@ public:
 									 static_cast<float>(m_tasks.size());
 	}
 
+	// The closing line CurrentLabel shows once every task has run; localized
+	// by whoever builds the queue (this header stays loc-free).
+	void SetDoneLabel(std::string label) { m_doneLabel = std::move(label); }
+
 	// The step name the loading screens show; the closing line once done.
 	std::string_view CurrentLabel() const {
-		return m_index < m_tasks.size()
-				   ? std::string_view(m_tasks[m_index].first)
-				   : std::string_view("Entering the dungeon...");
+		return m_index < m_tasks.size() ? std::string_view(m_tasks[m_index].first)
+										: std::string_view(m_doneLabel);
 	}
 
 private:
 	std::vector<std::pair<std::string, std::function<void()>>> m_tasks;
+	std::string m_doneLabel;
 	size_t m_index = 0;
 };
 

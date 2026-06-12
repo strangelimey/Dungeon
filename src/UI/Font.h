@@ -1,14 +1,15 @@
 // ============================================================================
 // UI/Font.h — TTF font baked to a glyph atlas.
 //
-// stb_truetype rasterizes ASCII 32..126 at a pixel height into one alpha
+// stb_truetype rasterizes Latin-1 (32..255) at a pixel height into one alpha
 // atlas (stored as white RGBA so glyphs tint via vertex color), sized to fit
-// the glyphs. Draw() walks a string and emits one SpriteBatch quad per
+// the glyphs. Draw() decodes UTF-8 and emits one SpriteBatch quad per
 // glyph. The UI is normalized (see Widget.h), so SetHeight() re-bakes the
 // atlas when the window height changes and text scales with everything
 // else. If the requested font file is missing it falls back to standard
-// Windows fonts (Consolas → Segoe UI → Arial). Glyphs outside ASCII are
-// skipped.
+// Windows fonts (Consolas → Segoe UI → Arial). Codepoints outside Latin-1
+// are skipped (extend kCharCount / the bake range before adding languages
+// that need them).
 // ============================================================================
 #pragma once
 

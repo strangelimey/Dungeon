@@ -1,5 +1,7 @@
 #include "Game/PartyHud.h"
 
+#include "Core/Loc.h"
+
 #include <algorithm>
 #include <format>
 
@@ -113,23 +115,29 @@ constexpr float kSheetDesignH = 520.0f;
 
 CharacterSheet::CharacterSheet(const gfx::Rect& rect, const ui::Font* portraitFont,
 							   const ResourceBarColors* barColors)
-	: m_portraitFont(portraitFont), m_barColors(barColors) {
+	: m_portraitFont(portraitFont), m_barColors(barColors),
+	  m_healthLabel(loc::Tr("bar.health")), m_staminaLabel(loc::Tr("bar.stamina")),
+	  m_manaLabel(loc::Tr("bar.mana")),
+	  m_attributesLabel(loc::Tr("sheet.attributes")),
+	  m_equipmentLabel(loc::Tr("sheet.equipment")),
+	  m_nothingCarried(loc::Tr("sheet.nothing_carried")) {
 	bounds = rect;
 }
 
 void CharacterSheet::SetCharacter(const Character& character) {
 	m_character = &character;
-	m_subtitle = std::format("Level {} {}", character.level, character.className);
+	m_subtitle = loc::Format("sheet.subtitle", character.level,
+							 loc::Tr(character.classKey));
 	m_healthText = std::format("{} / {}", static_cast<int>(character.health),
 							   static_cast<int>(character.maxHealth));
 	m_staminaText = std::format("{} / {}", static_cast<int>(character.stamina),
 								static_cast<int>(character.maxStamina));
 	m_manaText = std::format("{} / {}", static_cast<int>(character.mana),
 							 static_cast<int>(character.maxMana));
-	m_attributes = {{{"Strength", std::to_string(character.strength)},
-					 {"Dexterity", std::to_string(character.dexterity)},
-					 {"Vitality", std::to_string(character.vitality)},
-					 {"Willpower", std::to_string(character.willpower)}}};
+	m_attributes = {{{loc::Tr("attr.strength"), std::to_string(character.strength)},
+					 {loc::Tr("attr.dexterity"), std::to_string(character.dexterity)},
+					 {loc::Tr("attr.vitality"), std::to_string(character.vitality)},
+					 {loc::Tr("attr.willpower"), std::to_string(character.willpower)}}};
 }
 
 void CharacterSheet::Update(ui::UIContext& ctx) {
@@ -163,16 +171,16 @@ void CharacterSheet::Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 
 	// Resource bars with centered value text.
 	const struct {
-		const char* label;
+		const std::string& label;
 		float value, max;
 		const Vec4& color;
 		const std::string& text;
 	} rows[] = {
-		{"Health", m_character->health, m_character->maxHealth,
+		{m_healthLabel, m_character->health, m_character->maxHealth,
 		 m_barColors->health, m_healthText},
-		{"Stamina", m_character->stamina, m_character->maxStamina,
+		{m_staminaLabel, m_character->stamina, m_character->maxStamina,
 		 m_barColors->stamina, m_staminaText},
-		{"Mana", m_character->mana, m_character->maxMana, m_barColors->mana,
+		{m_manaLabel, m_character->mana, m_character->maxMana, m_barColors->mana,
 		 m_manaText},
 	};
 	float y = 150.0f;
@@ -189,15 +197,15 @@ void CharacterSheet::Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	}
 
 	// Attributes (left) and an equipment placeholder (right).
-	font.Draw(batch, "Attributes", px.x + 24 * sx, px.y + 280 * sy, theme.accent);
+	font.Draw(batch, m_attributesLabel, px.x + 24 * sx, px.y + 280 * sy, theme.accent);
 	float ay = 320.0f;
 	for (const AttributeLine& attr : m_attributes) {
 		font.Draw(batch, attr.label, px.x + 24 * sx, px.y + ay * sy, theme.textDim);
 		font.Draw(batch, attr.value, px.x + 180 * sx, px.y + ay * sy, theme.text);
 		ay += 36.0f;
 	}
-	font.Draw(batch, "Equipment", px.x + 290 * sx, px.y + 280 * sy, theme.accent);
-	font.Draw(batch, "Nothing carried.", px.x + 290 * sx, px.y + 320 * sy,
+	font.Draw(batch, m_equipmentLabel, px.x + 290 * sx, px.y + 280 * sy, theme.accent);
+	font.Draw(batch, m_nothingCarried, px.x + 290 * sx, px.y + 320 * sy,
 			  theme.textDim);
 }
 

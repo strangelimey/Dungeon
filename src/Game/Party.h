@@ -60,6 +60,8 @@ public:
 	int Facing() const { return m_facing; }
 	bool IsMoving() const { return m_moving || m_turning; }
 
+	// The compass direction as a loc:: key ("facing.north"); callers pass it
+	// through loc::Tr for display.
 	static const char* FacingName(int facing);
 
 	// Fired on completed steps / blocked moves so the game can play sounds

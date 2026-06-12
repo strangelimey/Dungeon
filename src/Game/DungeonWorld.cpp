@@ -4,6 +4,7 @@
 #include "Game/DungeonWorld.h"
 
 #include "Assets/Image.h"
+#include "Core/Loc.h"
 #include "Core/Log.h"
 #include "Core/Paths.h"
 #include "Game/AssetUtil.h"
@@ -33,21 +34,22 @@ DungeonWorld::DungeonWorld(gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	m_party.onStep = [this] { m_audio.Play(m_sounds.footstep, 0.8f); };
 	m_party.onBlocked = [this] {
 		m_audio.Play(m_sounds.bump, 0.9f);
-		onMessage("You bump into a wall.");
+		onMessage(loc::Tr("log.bump"));
 	};
 	m_party.onTurn = [this] { m_audio.Play(m_sounds.turn, 0.6f); };
 	m_party.isOccupied = [this](int x, int z) {
 		for (const Monster& monster : m_monsters) {
 			if (monster.x == x && monster.z == z) {
 				m_audio.Play(m_sounds.monster, 0.8f);
-				onMessage(std::format("The {} blocks your way!", monster.kind->name));
+				onMessage(loc::Format("log.monster_blocks",
+									  loc::Tr("monster." + monster.kind->name)));
 				return true;
 			}
 		}
 		for (const auto& [bx, bz] : m_map.BrazierCells()) {
 			if (bx == x && bz == z) {
 				m_audio.Play(m_sounds.bump, 0.7f);
-				onMessage("A burning brazier bars your way.");
+				onMessage(loc::Tr("log.brazier_blocks"));
 				return true;
 			}
 		}
@@ -66,7 +68,7 @@ DungeonWorld::DungeonWorld(gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 // ============================================================================
 
 void DungeonWorld::AppendLoadTasks(LoadQueue& queue) {
-	queue.Add("Quarrying stone blocks", [this] { LoadDungeonBlocks(); });
+	queue.Add(loc::Tr("load.blocks"), [this] { LoadDungeonBlocks(); });
 
 	auto addTextureTasks = [this, &queue](Surface& surface,
 										  std::span<const std::string> names,
@@ -74,8 +76,9 @@ void DungeonWorld::AppendLoadTasks(LoadQueue& queue) {
 		for (size_t i = 0; i < names.size(); ++i) {
 			const std::string& name = names[i];
 			const bool first = i == 0; // first material resets the set
-			std::string label = std::format("Weaving the stonework ({})", name);
-			std::ranges::replace(label, '_', ' ');
+			std::string spaced = name; // asset id, shown with the '_'s opened up
+			std::ranges::replace(spaced, '_', ' ');
+			std::string label = loc::Format("load.surface", spaced);
 			queue.Add(std::move(label),
 					  [this, &surface, name, heightScale, first] {
 						  if (first) {
@@ -91,16 +94,16 @@ void DungeonWorld::AppendLoadTasks(LoadQueue& queue) {
 	addTextureTasks(m_floors, m_map.FloorTextures(), 0.045f);
 	addTextureTasks(m_ceilings, m_map.CeilingTextures(), 0.035f);
 
-	queue.Add("Raising the dungeon", [this] { BuildDungeonMeshes(); });
-	queue.Add("Carving the serpent pillar", [this] {
+	queue.Add(loc::Tr("load.dungeon"), [this] { BuildDungeonMeshes(); });
+	queue.Add(loc::Tr("load.pillar"), [this] {
 		m_pillarModel = LoadModelOrDie("pillar.gltf");
 		m_pillarMesh = std::make_unique<gfx::Mesh>(m_device, m_pillarModel.meshes[0]);
 		m_pillarAnimator = anim::Animator(&m_pillarModel.skeleton, &m_pillarModel.clips);
 		m_pillarAnimator.Play("sway");
 		m_pillarPos = m_map.CellCenter(m_map.StartX(), m_map.StartZ() + 2);
 	});
-	queue.Add("Waking the monsters", [this] { LoadMonsters(); });
-	queue.Add("Kindling the fires", [this] {
+	queue.Add(loc::Tr("load.monsters"), [this] { LoadMonsters(); });
+	queue.Add(loc::Tr("load.fires"), [this] {
 		auto sconce = LoadModelOrDie("sconce.gltf");
 		m_sconceMesh = std::make_unique<gfx::Mesh>(m_device, sconce.meshes[0]);
 		m_sconceColor = sconce.materials[0].baseColorFactor;
@@ -110,7 +113,7 @@ void DungeonWorld::AppendLoadTasks(LoadQueue& queue) {
 		m_particleBatch = std::make_unique<gfx::ParticleBatch>(m_device);
 		BuildFires();
 	});
-	queue.Add("Stirring the dust", [this] { BuildTurbidityMap(); });
+	queue.Add(loc::Tr("load.dust"), [this] { BuildTurbidityMap(); });
 }
 
 void DungeonWorld::LoadDungeonBlocks() {
@@ -312,9 +315,9 @@ void DungeonWorld::ResetForNewGame() {
 
 void DungeonWorld::SetTorchPalette(int index) {
 	switch (index) {
-	case 1:  m_torchColor = {0.45f, 0.65f, 1.0f}; onMessage("The flames turn cold and blue."); break;
-	case 2:  m_torchColor = {0.55f, 1.0f, 0.45f}; onMessage("An eerie green light spreads."); break;
-	default: m_torchColor = {1.0f, 0.62f, 0.28f}; onMessage("Warm firelight returns."); break;
+	case 1:  m_torchColor = {0.45f, 0.65f, 1.0f}; onMessage(loc::Tr("log.torch_cold")); break;
+	case 2:  m_torchColor = {0.55f, 1.0f, 0.45f}; onMessage(loc::Tr("log.torch_eerie")); break;
+	default: m_torchColor = {1.0f, 0.62f, 0.28f}; onMessage(loc::Tr("log.torch_warm")); break;
 	}
 }
 
@@ -446,7 +449,8 @@ void DungeonWorld::UpdateMonsters(float dt) {
 		const int dz = std::abs(monster.z - m_party.GridZ());
 		if (!monster.announced && std::max(dx, dz) <= 1) {
 			monster.announced = true;
-			onMessage(std::format("A {} stirs before you!", monster.kind->name));
+			onMessage(loc::Format("log.monster_stirs",
+								  loc::Tr("monster." + monster.kind->name)));
 			m_audio.Play(m_sounds.monster, 0.7f);
 		}
 	}

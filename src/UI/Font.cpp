@@ -11,9 +11,33 @@
 namespace dungeon::ui {
 
 namespace {
+// Latin-1 coverage (ASCII + the 0xC0..0xFF accented range) so Western
+// European translations render; the 0x7F..0x9F controls bake as empty
+// glyphs, which is harmless.
 constexpr int kFirstChar = 32;
-constexpr int kCharCount = 96;
+constexpr int kCharCount = 224;
 constexpr int kMaxAtlasSize = 4096;
+
+// Decodes the next UTF-8 codepoint of `text`, advancing `i` past it.
+// Malformed bytes decode as '?' (one byte consumed) so bad input stays
+// visible without desyncing the rest of the string.
+u32 NextCodepoint(std::string_view text, size_t& i) {
+	const u32 lead = static_cast<unsigned char>(text[i++]);
+	if (lead < 0x80) return lead;
+	u32 cp = 0;
+	int continuations = 0;
+	if ((lead & 0xE0) == 0xC0) { cp = lead & 0x1F; continuations = 1; }
+	else if ((lead & 0xF0) == 0xE0) { cp = lead & 0x0F; continuations = 2; }
+	else if ((lead & 0xF8) == 0xF0) { cp = lead & 0x07; continuations = 3; }
+	else return '?';
+	while (continuations-- > 0) {
+		if (i >= text.size() ||
+			(static_cast<unsigned char>(text[i]) & 0xC0) != 0x80)
+			return '?';
+		cp = (cp << 6) | (static_cast<unsigned char>(text[i++]) & 0x3F);
+	}
+	return cp;
+}
 } // namespace
 
 Font::Font(gfx::GraphicsDevice& device, const std::string& path, float pixelHeight)
@@ -47,11 +71,11 @@ void Font::SetHeight(float pixelHeight) {
 void Font::Bake(float pixelHeight) {
 	m_pixelHeight = pixelHeight;
 
-	// Size the atlas to the glyph height (~96 glyphs of avg width ~0.6h pack
-	// well within an 8h x 8h square); if a bake still comes back partial
+	// Size the atlas to the glyph height (~224 glyphs of avg width ~0.6h pack
+	// well within a 14h x 14h square); if a bake still comes back partial
 	// (negative row count), double and retry.
 	int atlasSize = 256;
-	while (atlasSize < static_cast<int>(pixelHeight * 8.0f) &&
+	while (atlasSize < static_cast<int>(pixelHeight * 14.0f) &&
 		   atlasSize < kMaxAtlasSize)
 		atlasSize *= 2;
 
@@ -101,8 +125,8 @@ void Font::Bake(float pixelHeight) {
 
 float Font::MeasureWidth(std::string_view text) const {
 	float width = 0;
-	for (const char c : text) {
-		const int index = static_cast<unsigned char>(c) - kFirstChar;
+	for (size_t i = 0; i < text.size();) {
+		const int index = static_cast<int>(NextCodepoint(text, i)) - kFirstChar;
 		if (index >= 0 && index < kCharCount) width += m_glyphs[index].advance;
 	}
 	return width;
@@ -113,8 +137,8 @@ void Font::Draw(gfx::SpriteBatch& batch, std::string_view text, float x, float y
 	// y is the top of the text box; pen baseline sits one ascent below.
 	float penX = x;
 	const float baseline = y + m_ascent;
-	for (const char c : text) {
-		const int index = static_cast<unsigned char>(c) - kFirstChar;
+	for (size_t i = 0; i < text.size();) {
+		const int index = static_cast<int>(NextCodepoint(text, i)) - kFirstChar;
 		if (index < 0 || index >= kCharCount) continue;
 		const Glyph& g = m_glyphs[index];
 		if (g.size.x > 0 && g.size.y > 0) {

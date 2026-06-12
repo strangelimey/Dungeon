@@ -78,6 +78,12 @@ private:
 	void StartNewGame();
 	void OpenCharacterSheet(size_t index); // freezes the world, shows the page
 	void SetQuality(Quality quality);      // persists + hot-swaps the world
+	// Loads the settings' language file (falling back to English when it is
+	// missing); rebuild=true also re-creates every UI page in the new
+	// language. The language dropdown only records m_pendingLanguage —
+	// Update applies it at the top of the next frame, after the dropdown's
+	// callback has fully unwound (the rebuild destroys the dropdown).
+	void ApplyLanguage(bool rebuild);
 	// Feeds the slowest member's moveSpeed into the Party as its pace
 	// multiplier; call whenever the roster's stats are (re)filled.
 	void ApplyPartySpeed();
@@ -98,6 +104,9 @@ private:
 	u32 m_stateFrameMark = 0;
 	bool m_quitRequested = false;
 	float m_time = 0.0f;
+	// Language code picked in Settings this frame, applied (strings reloaded,
+	// UI rebuilt) at the top of the next Update; empty = no change pending.
+	std::string m_pendingLanguage;
 
 	// --- modules (construction order matters: settings load first, the world
 	// and UI reference settings/sounds/characters) -------------------------------

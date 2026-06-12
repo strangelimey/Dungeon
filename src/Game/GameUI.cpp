@@ -3,6 +3,7 @@
 // ============================================================================
 #include "Game/GameUI.h"
 
+#include "Core/Loc.h"
 #include "Core/Paths.h"
 #include "Game/AssetUtil.h"
 
@@ -83,13 +84,13 @@ void GameUI::BuildMenu() {
 		Norm({(w - menuW) * 0.5f, h * 0.42f, menuW, itemH * 4}, window),
 		1.0f / 4.0f); // item height: one quarter of the list
 
-	menu->AddItem("Continue");           // not implemented yet
-	menu->AddItem("Start New Game", [this] {
+	menu->AddItem(loc::Tr("menu.continue")); // not implemented yet
+	menu->AddItem(loc::Tr("menu.start"), [this] {
 		Click(0.6f);
 		onStartNewGame();
 	});
-	menu->AddItem("Load");               // not implemented yet
-	menu->AddItem("Settings", [this] {
+	menu->AddItem(loc::Tr("menu.load"));     // not implemented yet
+	menu->AddItem(loc::Tr("menu.settings"), [this] {
 		Click();
 		m_menuPage = MenuPage::Settings;
 	});
@@ -107,27 +108,51 @@ void GameUI::BuildMenu() {
 	const float tabsY = h * 0.29f;
 	auto* tabs = m_settingsUi.Add<ui::TabControl>(
 		Norm({tabsX, tabsY, tabsW, tabsH}, window), stripH / tabsH);
-	const size_t tabGame = tabs->AddTab("Game");
-	const size_t tabVideo = tabs->AddTab("Video");
-	const size_t tabAudio = tabs->AddTab("Audio");
-	const size_t tabUi = tabs->AddTab("UI");
+	const size_t tabGame = tabs->AddTab(loc::Tr("settings.tab.game"));
+	const size_t tabVideo = tabs->AddTab(loc::Tr("settings.tab.video"));
+	const size_t tabAudio = tabs->AddTab(loc::Tr("settings.tab.audio"));
+	const size_t tabUi = tabs->AddTab(loc::Tr("settings.tab.ui"));
 	const gfx::Rect page{0, 0, tabsW, tabsH - stripH}; // child design space
 	const float pad = 24.0f;
 	const float rowW = page.w - 2 * pad;
 
-	// Game: movement key bindings (kKeyFields). Click a key box, press the
+	// Game: language, then movement keys. The language list is whatever
+	// assets/lang holds; selecting one defers to Game (settings save + string
+	// reload + RebuildForLanguage at the top of the next frame — rebuilding
+	// here would destroy this dropdown mid-callback).
+	tabs->AddChild<ui::Label>(tabGame, Norm({pad, pad, rowW, 28}, page),
+							  loc::Tr("settings.language"))
+		->dim = true;
+	m_languages = loc::ScanLanguages(paths::Asset("lang"));
+	std::vector<std::string> languageNames;
+	int languageIndex = 0;
+	for (size_t i = 0; i < m_languages.size(); ++i) {
+		languageNames.push_back(m_languages[i].name);
+		if (m_languages[i].code == m_settings.language)
+			languageIndex = static_cast<int>(i);
+	}
+	tabs->AddChild<ui::DropDown>(
+		tabGame, Norm({pad, pad + 38, rowW, 40}, page), std::move(languageNames),
+		languageIndex, [this](int index) {
+			Click();
+			if (index >= 0 && index < static_cast<int>(m_languages.size()) &&
+				m_languages[static_cast<size_t>(index)].code != m_settings.language)
+				onLanguageSelected(m_languages[static_cast<size_t>(index)].code);
+		});
+
+	// Movement key bindings (kKeyFields). Click a key box, press the
 	// new key; binding a key another action already uses hands that action
 	// the old key (swap) so the set stays conflict-free. Each rebind goes
 	// straight into the Party (onKeysChanged) and persists.
-	tabs->AddChild<ui::Label>(tabGame, Norm({pad, pad, rowW, 28}, page),
-							  "Movement Keys");
+	tabs->AddChild<ui::Label>(tabGame, Norm({pad, pad + 102, rowW, 28}, page),
+							  loc::Tr("settings.movement_keys"));
 	m_keyBinds.clear();
 	for (size_t i = 0; i < std::size(kKeyFields); ++i) {
 		const KeyField& field = kKeyFields[i];
 		auto* bind = tabs->AddChild<ui::KeyBind>(
 			tabGame,
-			Norm({pad, pad + 52 + 48.0f * static_cast<float>(i), rowW, 36}, page),
-			field.label, m_settings.moveKeys.*(field.field),
+			Norm({pad, pad + 154 + 48.0f * static_cast<float>(i), rowW, 36}, page),
+			loc::Tr(field.labelKey), m_settings.moveKeys.*(field.field),
 			[this, member = field.field](int vkey) {
 				Click();
 				MoveKeys& keys = m_settings.moveKeys;
@@ -143,15 +168,19 @@ void GameUI::BuildMenu() {
 				onKeysChanged();
 				m_settings.Save();
 			});
+		bind->capturePrompt = loc::Tr("settings.press_a_key");
 		m_keyBinds.push_back(bind);
 	}
 
 	// Video: quality tier (hot-swaps meshes/textures in place).
-	tabs->AddChild<ui::Label>(tabVideo, Norm({pad, pad, rowW, 28}, page), "Quality")
+	tabs->AddChild<ui::Label>(tabVideo, Norm({pad, pad, rowW, 28}, page),
+							  loc::Tr("settings.quality"))
 		->dim = true;
 	tabs->AddChild<ui::DropDown>(
 		tabVideo, Norm({pad, pad + 38, rowW, 40}, page),
-		std::vector<std::string>{"Low", "Medium", "High", "Ultra"},
+		std::vector<std::string>{
+			loc::Tr("settings.quality.low"), loc::Tr("settings.quality.medium"),
+			loc::Tr("settings.quality.high"), loc::Tr("settings.quality.ultra")},
 		static_cast<int>(m_settings.quality), [this](int index) {
 			Click();
 			onQualitySelected(index);
@@ -160,8 +189,8 @@ void GameUI::BuildMenu() {
 	// Audio: master volume (the slider draws its own label above the track).
 	// Live while dragging; persisted once on release.
 	auto* volume = tabs->AddChild<ui::Slider>(
-		tabAudio, Norm({pad, pad + 38, rowW, 22}, page), "Volume", 0.0f, 1.0f,
-		m_settings.volume, [this](float v) {
+		tabAudio, Norm({pad, pad + 38, rowW, 22}, page), loc::Tr("settings.volume"),
+		0.0f, 1.0f, m_settings.volume, [this](float v) {
 			m_settings.volume = v;
 			m_audio.SetMasterVolume(v);
 		});
@@ -171,16 +200,18 @@ void GameUI::BuildMenu() {
 	// opacity fades the slot backgrounds. Both apply while dragging and
 	// persist on release; safe before the HUD exists (the panel list is empty
 	// until the first game load).
-	tabs->AddChild<ui::Label>(tabUi, Norm({pad, pad, rowW, 28}, page), "Party Bar");
+	tabs->AddChild<ui::Label>(tabUi, Norm({pad, pad, rowW, 28}, page),
+							  loc::Tr("settings.party_bar"));
 	auto* barScale = tabs->AddChild<ui::Slider>(
-		tabUi, Norm({pad, pad + 70, rowW, 22}, page), "Scale", 0.5f, 1.5f,
-		m_settings.partyBarScale, [this](float v) {
+		tabUi, Norm({pad, pad + 70, rowW, 22}, page), loc::Tr("settings.bar_scale"),
+		0.5f, 1.5f, m_settings.partyBarScale, [this](float v) {
 			m_settings.partyBarScale = v;
 			ApplyPartyBarScale();
 		});
 	barScale->onRelease = [this] { m_settings.Save(); };
 	auto* barOpacity = tabs->AddChild<ui::Slider>(
-		tabUi, Norm({pad, pad + 126, rowW, 22}, page), "Background opacity", 0.0f,
+		tabUi, Norm({pad, pad + 126, rowW, 22}, page),
+		loc::Tr("settings.bar_opacity"), 0.0f,
 		1.0f, m_settings.partyBarOpacity, [this](float v) {
 			m_settings.partyBarOpacity = v;
 			for (CharacterPanel* panel : m_partyPanels)
@@ -200,11 +231,11 @@ void GameUI::BuildMenu() {
 					page);
 	};
 	tabs->AddChild<ui::Label>(tabUi, Norm({pad, pad + 172, rowW, 28}, page),
-							  "Theme Colors");
+							  loc::Tr("settings.theme_colors"));
 	size_t themeIndex = 0;
 	for (const ThemeField& field : kThemeFields) {
 		auto* picker = tabs->AddChild<ui::ColorPicker>(
-			tabUi, pickerCell(themeIndex++, pad + 216.0f), field.label,
+			tabUi, pickerCell(themeIndex++, pad + 216.0f), loc::Tr(field.labelKey),
 			m_settings.theme.*(field.field),
 			[this, member = field.field](const Vec4& color) {
 				m_settings.theme.*member = color;
@@ -213,11 +244,11 @@ void GameUI::BuildMenu() {
 		picker->onClose = [this] { m_settings.Save(); };
 	}
 	tabs->AddChild<ui::Label>(tabUi, Norm({pad, pad + 368, rowW, 28}, page),
-							  "Resource Bars");
+							  loc::Tr("settings.resource_bars"));
 	size_t barIndex = 0;
 	for (const BarField& field : kBarFields) {
 		auto* picker = tabs->AddChild<ui::ColorPicker>(
-			tabUi, pickerCell(barIndex++, pad + 412.0f), field.label,
+			tabUi, pickerCell(barIndex++, pad + 412.0f), loc::Tr(field.labelKey),
 			m_settings.barColors.*(field.field),
 			[this, member = field.field](const Vec4& color) {
 				m_settings.barColors.*member = color;
@@ -227,8 +258,8 @@ void GameUI::BuildMenu() {
 
 	const float backW = 220.0f;
 	m_settingsUi.Add<ui::Button>(
-		Norm({(w - backW) * 0.5f, tabsY + tabsH + 28, backW, 44}, window), "Back",
-		[this] {
+		Norm({(w - backW) * 0.5f, tabsY + tabsH + 28, backW, 44}, window),
+		loc::Tr("menu.back"), [this] {
 			Click();
 			m_menuPage = MenuPage::Main;
 		});
@@ -248,17 +279,17 @@ void GameUI::BuildPauseMenu() {
 	auto* menu = m_pauseUi.Add<ui::MenuList>(
 		Norm({(w - menuW) * 0.5f, h * 0.42f, menuW, itemH * 5}, window),
 		1.0f / 5.0f);
-	menu->AddItem("Save");               // not implemented yet
-	menu->AddItem("Load");               // not implemented yet
-	menu->AddItem("Settings", [this] {
+	menu->AddItem(loc::Tr("menu.save")); // not implemented yet
+	menu->AddItem(loc::Tr("menu.load")); // not implemented yet
+	menu->AddItem(loc::Tr("menu.settings"), [this] {
 		Click();
 		m_menuPage = MenuPage::Settings;
 	});
-	menu->AddItem("Exit", [this] {
+	menu->AddItem(loc::Tr("menu.exit"), [this] {
 		Click();
 		onQuit();
 	});
-	menu->AddItem("Back", [this] {
+	menu->AddItem(loc::Tr("menu.back"), [this] {
 		Click();
 		onResume();
 	});
@@ -290,10 +321,33 @@ void GameUI::BuildCharacterSheet() {
 											  m_characters.size());
 							  });
 	m_sheetUi.Add<ui::Button>(Norm({(w - 180.0f) * 0.5f, btnY, 180, 40}, window),
-							  "Back", [this] {
+							  loc::Tr("menu.back"), [this] {
 								  Click();
 								  onResume();
 							  });
+}
+
+// Rebuilds every page in the active language (loc:: was just reloaded). The
+// builders re-Add into cleared contexts, so all the raw widget pointers
+// (m_sheet, m_keyBinds, m_log, ...) are re-pointed here. Rebuilding the HUD
+// clears the message log; the movement help line is restored so the log
+// isn't empty mid-game. Deferred to the top of a frame by Game — never run
+// this from inside a widget callback.
+void GameUI::RebuildForLanguage() {
+	m_menuUi.Clear();
+	m_settingsUi.Clear();
+	m_pauseUi.Clear();
+	m_sheetUi.Clear();
+	BuildMenu();
+	BuildPauseMenu();
+	BuildCharacterSheet();
+	if (!m_characters.empty()) m_sheet->SetCharacter(m_characters[m_sheetIndex]);
+	if (m_log) {
+		m_hudUi.Clear();
+		BuildHud();
+		AddLogLine(m_settings.MoveKeysHelp());
+		ResetHudStatus();
+	}
 }
 
 void GameUI::ShowSheet(size_t index) {
@@ -343,13 +397,12 @@ void GameUI::BuildHud() {
 	// Message log, bottom-left.
 	m_log = m_hudUi.Add<ui::TextOutput>(Norm({16, h - 200, 520, 184}, window));
 
-	// Status labels, below the party bar on the left.
+	// Status labels, below the party bar on the left. Their text arrives via
+	// SetHudStatus before the HUD's first visible frame.
 	below(m_hudUi.Add<ui::Panel>(Norm({16, belowBar, 240, 64}, window)));
-	m_compass = m_hudUi.Add<ui::Label>(Norm({28, belowBar + 10, 220, 20}, window),
-									   "Facing: South");
+	m_compass = m_hudUi.Add<ui::Label>(Norm({28, belowBar + 10, 220, 20}, window), "");
 	below(m_compass);
-	m_position = m_hudUi.Add<ui::Label>(Norm({28, belowBar + 34, 220, 20}, window),
-										"Position: -");
+	m_position = m_hudUi.Add<ui::Label>(Norm({28, belowBar + 34, 220, 20}, window), "");
 	m_position->dim = true;
 	below(m_position);
 
@@ -358,34 +411,36 @@ void GameUI::BuildHud() {
 	const float px = w - panelW - 16;
 	below(m_hudUi.Add<ui::Panel>(Norm({px, belowBar, panelW, 176}, window)));
 	below(m_hudUi.Add<ui::Label>(Norm({px + 14, belowBar + 10, panelW - 28, 20}, window),
-								 "Options"));
+								 loc::Tr("hud.options")));
 
 	auto* torchLabel = m_hudUi.Add<ui::Label>(
-		Norm({px + 14, belowBar + 40, panelW - 28, 20}, window), "Torchlight");
+		Norm({px + 14, belowBar + 40, panelW - 28, 20}, window),
+		loc::Tr("hud.torchlight"));
 	torchLabel->dim = true;
 	below(torchLabel);
 	below(m_hudUi.Add<ui::DropDown>(
 		Norm({px + 14, belowBar + 64, panelW - 28, 26}, window),
-		std::vector<std::string>{"Warm flame", "Cold moonfire",
-								 "Eerie emberlight"},
-		0, [this](int index) {
+		std::vector<std::string>{loc::Tr("torch.warm"), loc::Tr("torch.cold"),
+								 loc::Tr("torch.eerie")},
+		m_torchPalette, [this](int index) {
 			Click();
+			m_torchPalette = index;
 			onTorchPalette(index);
 		}));
 
 	below(m_hudUi.Add<ui::Button>(
-		Norm({px + 14, belowBar + 104, (panelW - 38) / 2, 28}, window), "Wait",
-		[this] {
+		Norm({px + 14, belowBar + 104, (panelW - 38) / 2, 28}, window),
+		loc::Tr("hud.wait"), [this] {
 			Click();
-			m_log->AddLine("You wait. The torches gutter.");
+			m_log->AddLine(loc::Tr("log.wait"));
 		}));
 	below(m_hudUi.Add<ui::Button>(
 		Norm({px + 24 + (panelW - 38) / 2, belowBar + 104, (panelW - 38) / 2, 28},
 			 window),
-		"Help", [this] {
+		loc::Tr("hud.help"), [this] {
 			Click();
 			m_log->AddLine(m_settings.MoveKeysHelp());
-			m_log->AddLine("Mouse wheel scrolls this log.");
+			m_log->AddLine(loc::Tr("log.scroll_hint"));
 		}));
 
 	ApplyPartyBarScale();
@@ -472,12 +527,13 @@ void GameUI::UpdateHud(const Input& input) {
 void GameUI::SetHudStatus(int facing, int gridX, int gridZ) {
 	if (facing != m_lastFacing) {
 		m_lastFacing = facing;
-		m_compass->text = std::format("Facing: {}", Party::FacingName(facing));
+		m_compass->text =
+			loc::Format("hud.facing", loc::Tr(Party::FacingName(facing)));
 	}
 	if (gridX != m_lastGridX || gridZ != m_lastGridZ) {
 		m_lastGridX = gridX;
 		m_lastGridZ = gridZ;
-		m_position->text = std::format("Position: {}, {}", gridX, gridZ);
+		m_position->text = loc::Format("hud.position", gridX, gridZ);
 	}
 }
 
@@ -529,7 +585,7 @@ void GameUI::RenderLoadingScreen(const LoadQueue& queue) {
 	const float h = static_cast<float>(m_device.Height());
 	const ui::Theme& theme = m_menuUi.GetTheme();
 
-	const char* title = "DUNGEON";
+	const std::string title = loc::Tr("title");
 	const float titleW = m_titleFont.MeasureWidth(title);
 	m_titleFont.Draw(m_spriteBatch, title, (w - titleW) * 0.5f, h * 0.32f, theme.accent);
 
@@ -547,11 +603,11 @@ void GameUI::RenderGameLoadingScreen(const LoadQueue& queue) {
 							 {1, 1, 1, 1});
 	m_spriteBatch.DrawRect({0, 0, w, h}, {0, 0, 0, 0.55f});
 
-	const char* title = "DUNGEON";
+	const std::string title = loc::Tr("title");
 	const float titleW = m_titleFont.MeasureWidth(title);
 	m_titleFont.Draw(m_spriteBatch, title, (w - titleW) * 0.5f, h * 0.16f, theme.accent);
 
-	const char* subtitle = "descending...";
+	const std::string subtitle = loc::Tr("loading.descending");
 	ui::Font& font = m_menuUi.GetFont();
 	const float subW = font.MeasureWidth(subtitle);
 	font.Draw(m_spriteBatch, subtitle, (w - subW) * 0.5f,
@@ -572,12 +628,12 @@ void GameUI::RenderMenuOverlay() {
 	m_spriteBatch.DrawRect({0, 0, w, h}, {0, 0, 0, 0.30f});
 
 	// Title + subtitle.
-	const char* title = "DUNGEON";
+	const std::string title = loc::Tr("title");
 	const float titleW = m_titleFont.MeasureWidth(title);
 	m_titleFont.Draw(m_spriteBatch, title, (w - titleW) * 0.5f, h * 0.16f, theme.accent);
 
-	const char* subtitle =
-		m_menuPage == MenuPage::Settings ? "settings" : "an old-school crawler";
+	const std::string subtitle = loc::Tr(
+		m_menuPage == MenuPage::Settings ? "menu.subtitle_settings" : "menu.subtitle");
 	ui::Font& font = m_menuUi.GetFont();
 	const float subW = font.MeasureWidth(subtitle);
 	font.Draw(m_spriteBatch, subtitle, (w - subW) * 0.5f,
@@ -597,13 +653,13 @@ void GameUI::RenderPauseOverlay() {
 
 	m_spriteBatch.DrawRect({0, 0, w, h}, {0, 0, 0, 0.55f});
 
-	const char* title = "PAUSED";
+	const std::string title = loc::Tr("pause.title");
 	const float titleW = m_titleFont.MeasureWidth(title);
 	m_titleFont.Draw(m_spriteBatch, title, (w - titleW) * 0.5f, h * 0.16f,
 					 theme.accent);
 
 	if (m_menuPage == MenuPage::Settings) {
-		const char* subtitle = "settings";
+		const std::string subtitle = loc::Tr("menu.subtitle_settings");
 		ui::Font& font = m_pauseUi.GetFont();
 		const float subW = font.MeasureWidth(subtitle);
 		font.Draw(m_spriteBatch, subtitle, (w - subW) * 0.5f,

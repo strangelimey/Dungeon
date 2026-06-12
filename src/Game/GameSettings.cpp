@@ -4,11 +4,13 @@
 #include "Game/GameSettings.h"
 
 #include "Assets/File.h"
+#include "Core/Loc.h"
 #include "Core/Log.h"
 #include "Core/Paths.h"
 #include "Platform/Input.h" // KeyName
 
 #include <algorithm>
+#include <cctype>
 #include <charconv>
 #include <format>
 
@@ -50,6 +52,15 @@ void GameSettings::Load() {
 		const char digit = text[qpos + 8];
 		if (digit >= '0' && digit <= '3')
 			quality = static_cast<Quality>(digit - '0');
+	}
+
+	const size_t lpos = text.find("language=");
+	if (lpos != std::string::npos) {
+		size_t end = lpos + 9;
+		while (end < text.size() && (std::isalnum(static_cast<unsigned char>(text[end])) ||
+									 text[end] == '-' || text[end] == '_'))
+			++end;
+		if (end > lpos + 9) language = text.substr(lpos + 9, end - (lpos + 9));
 	}
 
 	const size_t vpos = text.find("volume=");
@@ -100,10 +111,10 @@ void GameSettings::Load() {
 }
 
 void GameSettings::Save() const {
-	std::string text =
-		std::format("quality={}\nvolume={:.2f}\nbarscale={:.2f}\nbaropacity={:.2f}\n",
-					static_cast<int>(quality), volume, partyBarScale,
-					partyBarOpacity);
+	std::string text = std::format(
+		"quality={}\nlanguage={}\nvolume={:.2f}\nbarscale={:.2f}\nbaropacity={:.2f}\n",
+		static_cast<int>(quality), language, volume, partyBarScale,
+		partyBarOpacity);
 	for (const ThemeField& field : kThemeFields) {
 		const Vec4& c = theme.*(field.field);
 		text += std::format("theme_{}={:.3f},{:.3f},{:.3f},{:.3f}\n", field.key,
@@ -148,10 +159,10 @@ const char* GameSettings::QualityLabel() const {
 }
 
 std::string GameSettings::MoveKeysHelp() const {
-	return std::format("{}/{} move, {}/{} strafe, {}/{} turn.",
-					   KeyName(moveKeys.forward), KeyName(moveKeys.back),
-					   KeyName(moveKeys.strafeLeft), KeyName(moveKeys.strafeRight),
-					   KeyName(moveKeys.turnLeft), KeyName(moveKeys.turnRight));
+	return loc::Format("log.movekeys", KeyName(moveKeys.forward),
+					   KeyName(moveKeys.back), KeyName(moveKeys.strafeLeft),
+					   KeyName(moveKeys.strafeRight), KeyName(moveKeys.turnLeft),
+					   KeyName(moveKeys.turnRight));
 }
 
 } // namespace dungeon::game

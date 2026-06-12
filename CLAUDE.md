@@ -42,6 +42,21 @@ Key conventions (memorize, they bite):
   (load-or-die helpers). World→log feedback flows through
   DungeonWorld::onMessage; UI→state-machine actions through GameUI's on*
   callbacks, both wired in the Game constructor.
+- ALL user-facing text goes through Core/Loc (loc::Tr(key) /
+  loc::Format(key, args...) for {} placeholders), loaded from
+  assets/lang/<code>.lang (UTF-8 key=value, ';' comments; en.lang is the
+  reference — add new strings there). Missing keys render as the key
+  itself (visible, never fatal); a missing language file falls back to
+  en.lang. Dev-facing text (log::, DN_ASSERT, asset names, ini keys) stays
+  English. Dynamic ids map to keys by convention: monster.<ent type>,
+  class.* (Character.classKey), facing.* (Party::FacingName returns the
+  key). Settings → Game has a Language dropdown (loc::ScanLanguages; each
+  file self-names via lang.name); switching saves language=<code>, reloads
+  strings, and rebuilds every page next frame (GameUI::RebuildForLanguage —
+  deferred via Game::m_pendingLanguage because the rebuild destroys the
+  dropdown; an in-game switch clears the HUD message log). ui::Font bakes
+  Latin-1 (32..255) and Draw/MeasureWidth decode UTF-8, so Western European
+  scripts work out of the box; other scripts need a wider bake range.
 
 ## Renderer features (assets/shaders/scene.hlsl)
 
@@ -127,10 +142,11 @@ GameUI::KeyCaptureActive suppresses the page's own Esc while armed; binding a
 key another action holds swaps the two). kKeyFields drives the rows and the
 ini round-trip; MoveKeys (Party.h) is pushed into the Party via SetKeys, and
 dungeon::KeyName (Platform/Input) renders vkey names.
-All persist to settings.ini next to exe (quality=0..3,
+Game tab also hosts the Language dropdown (see the Core/Loc bullet above).
+All persist to settings.ini next to exe (quality=0..3, language=<code>,
 volume=0..1, barscale, baropacity, theme_<name>= and bar_<name>=r,g,b,a,
 key_<action>=vkey; sliders save on release, pickers when their popup closes,
-key binds immediately). Quality hot-swaps in place (WaitIdle +
+key binds and language immediately). Quality hot-swaps in place (WaitIdle +
 rebuild); Ultra falls back per-material to 2k with a warning if 4k not
 installed.
 

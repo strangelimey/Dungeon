@@ -196,6 +196,9 @@ public:
 
 	std::string label;
 	std::function<void(int)> onChange;
+	// Shown in the box while armed; the owner localizes it (the UI layer has
+	// no access to the language table).
+	std::string capturePrompt = "press a key...";
 
 private:
 	gfx::Rect BoxRect() const; // the clickable key box (right end)

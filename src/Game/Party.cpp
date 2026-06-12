@@ -37,10 +37,10 @@ void Party::Reset(int x, int z) {
 
 const char* Party::FacingName(int facing) {
 	switch (facing & 3) {
-	case 0: return "North";
-	case 1: return "East";
-	case 2: return "South";
-	default: return "West";
+	case 0: return "facing.north";
+	case 1: return "facing.east";
+	case 2: return "facing.south";
+	default: return "facing.west";
 	}
 }
 

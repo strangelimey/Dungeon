@@ -52,6 +52,11 @@ public:
 		return raw;
 	}
 
+	// Destroys every widget (e.g. to rebuild a page in a new language). Any
+	// raw pointers handed out by Add are dead; never call from inside a
+	// widget callback — the widget is still on the Update stack.
+	void Clear() { m_widgets.clear(); }
+
 	void Update(const Input& input, float width, float height);
 	void Render(gfx::SpriteBatch& batch, float width, float height);
 

@@ -1,7 +1,8 @@
 // ============================================================================
 // Game/GameSettings.h — user options, persisted to settings.ini next to the
-// exe (quality=0..3, volume=0..1, barscale=0.5..1.5, baropacity=0..1,
-// theme_<name>=r,g,b,a, bar_<name>=r,g,b,a, key_<action>=vkey).
+// exe (quality=0..3, language=<code>, volume=0..1, barscale=0.5..1.5,
+// baropacity=0..1, theme_<name>=r,g,b,a, bar_<name>=r,g,b,a,
+// key_<action>=vkey).
 //
 // This struct is the master copy of everything user-tunable: GameUI copies
 // the theme into every UIContext (ApplyTheme), the HUD widgets point at
@@ -28,54 +29,56 @@ namespace dungeon::game {
 enum class Quality { Low, Medium, High, Ultra };
 
 // The user-editable theme colors (Settings → UI tab). One table drives the
-// ini round-trip (theme_<key>=r,g,b,a) and the color-picker grid.
+// ini round-trip (theme_<key>=r,g,b,a) and the color-picker grid. labelKey
+// is a loc:: key (assets/lang) — GameUI translates it when building the row.
 struct ThemeField {
 	const char* key;
-	const char* label;
+	const char* labelKey;
 	Vec4 ui::Theme::*field;
 };
 inline constexpr ThemeField kThemeFields[] = {
-	{"panel", "Panel", &ui::Theme::panel},
-	{"panelborder", "Border", &ui::Theme::panelBorder},
-	{"control", "Control", &ui::Theme::control},
-	{"controlhot", "Hot", &ui::Theme::controlHot},
-	{"controlactive", "Active", &ui::Theme::controlActive},
-	{"text", "Text", &ui::Theme::text},
-	{"textdim", "Dim text", &ui::Theme::textDim},
-	{"accent", "Accent", &ui::Theme::accent},
+	{"panel", "theme.panel", &ui::Theme::panel},
+	{"panelborder", "theme.border", &ui::Theme::panelBorder},
+	{"control", "theme.control", &ui::Theme::control},
+	{"controlhot", "theme.hot", &ui::Theme::controlHot},
+	{"controlactive", "theme.active", &ui::Theme::controlActive},
+	{"text", "theme.text", &ui::Theme::text},
+	{"textdim", "theme.textdim", &ui::Theme::textDim},
+	{"accent", "theme.accent", &ui::Theme::accent},
 };
 
 // Same idea for the HUD resource-bar fills (PartyHud's ResourceBarColors;
 // ini keys bar_<key>=r,g,b,a).
 struct BarField {
 	const char* key;
-	const char* label;
+	const char* labelKey;
 	Vec4 ResourceBarColors::*field;
 };
 inline constexpr BarField kBarFields[] = {
-	{"health", "Health", &ResourceBarColors::health},
-	{"stamina", "Stamina", &ResourceBarColors::stamina},
-	{"mana", "Mana", &ResourceBarColors::mana},
+	{"health", "bar.health", &ResourceBarColors::health},
+	{"stamina", "bar.stamina", &ResourceBarColors::stamina},
+	{"mana", "bar.mana", &ResourceBarColors::mana},
 };
 
 // And for the movement keys (MoveKeys; ini keys key_<action>=vkey). Order is
 // the Settings → Game tab's row order and must match GameUI's key-bind rows.
 struct KeyField {
 	const char* key;
-	const char* label;
+	const char* labelKey;
 	int MoveKeys::*field;
 };
 inline constexpr KeyField kKeyFields[] = {
-	{"forward", "Move forward", &MoveKeys::forward},
-	{"back", "Move back", &MoveKeys::back},
-	{"strafeleft", "Step left", &MoveKeys::strafeLeft},
-	{"straferight", "Step right", &MoveKeys::strafeRight},
-	{"turnleft", "Turn left", &MoveKeys::turnLeft},
-	{"turnright", "Turn right", &MoveKeys::turnRight},
+	{"forward", "settings.key.forward", &MoveKeys::forward},
+	{"back", "settings.key.back", &MoveKeys::back},
+	{"strafeleft", "settings.key.strafeleft", &MoveKeys::strafeLeft},
+	{"straferight", "settings.key.straferight", &MoveKeys::strafeRight},
+	{"turnleft", "settings.key.turnleft", &MoveKeys::turnLeft},
+	{"turnright", "settings.key.turnright", &MoveKeys::turnRight},
 };
 
 struct GameSettings {
 	Quality quality = Quality::Medium;
+	std::string language = "en";  // assets/lang/<code>.lang stem
 	float volume = 1.0f;          // master volume, pushed into the AudioEngine
 	float partyBarScale = 1.0f;   // HUD party bar: 0.5–1.5 about its top center
 	float partyBarOpacity = 1.0f; // HUD party bar: slot background alpha

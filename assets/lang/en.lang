@@ -1,0 +1,125 @@
+; ============================================================================
+; English — the reference language file. One key=text per line, ';' comments.
+; UTF-8; the font atlas covers Latin-1 (accented Western European text works,
+; other scripts need a Font glyph-range extension first).
+; {} are std::format placeholders — keep the same count and order per entry.
+; A translation lives at assets/lang/<code>.lang and names itself via
+; lang.name; the game lists every such file in Settings -> Game -> Language.
+; ============================================================================
+
+lang.name=English
+
+; --- titles / page chrome ---------------------------------------------------
+title=DUNGEON
+pause.title=PAUSED
+menu.subtitle=an old-school crawler
+menu.subtitle_settings=settings
+loading.descending=descending...
+
+; --- landing + pause menus --------------------------------------------------
+menu.continue=Continue
+menu.start=Start New Game
+menu.load=Load
+menu.save=Save
+menu.settings=Settings
+menu.exit=Exit
+menu.back=Back
+
+; --- loading steps ------------------------------------------------------------
+load.echoes=Tuning the echoes
+load.title_art=Painting the title
+load.blocks=Quarrying stone blocks
+load.surface=Weaving the stonework ({})
+load.dungeon=Raising the dungeon
+load.pillar=Carving the serpent pillar
+load.monsters=Waking the monsters
+load.fires=Kindling the fires
+load.dust=Stirring the dust
+load.portraits=Painting the party
+load.hud=Lighting the torches
+load.done=Entering the dungeon...
+
+; --- settings page ------------------------------------------------------------
+settings.tab.game=Game
+settings.tab.video=Video
+settings.tab.audio=Audio
+settings.tab.ui=UI
+settings.language=Language
+settings.movement_keys=Movement Keys
+settings.key.forward=Move forward
+settings.key.back=Move back
+settings.key.strafeleft=Step left
+settings.key.straferight=Step right
+settings.key.turnleft=Turn left
+settings.key.turnright=Turn right
+settings.press_a_key=press a key...
+settings.quality=Quality
+settings.quality.low=Low
+settings.quality.medium=Medium
+settings.quality.high=High
+settings.quality.ultra=Ultra
+settings.volume=Volume
+settings.party_bar=Party Bar
+settings.bar_scale=Scale
+settings.bar_opacity=Background opacity
+settings.theme_colors=Theme Colors
+settings.resource_bars=Resource Bars
+theme.panel=Panel
+theme.border=Border
+theme.control=Control
+theme.hot=Hot
+theme.active=Active
+theme.text=Text
+theme.textdim=Dim text
+theme.accent=Accent
+
+; --- HUD ----------------------------------------------------------------------
+hud.facing=Facing: {}
+hud.position=Position: {}, {}
+hud.options=Options
+hud.torchlight=Torchlight
+hud.wait=Wait
+hud.help=Help
+torch.warm=Warm flame
+torch.cold=Cold moonfire
+torch.eerie=Eerie emberlight
+facing.north=North
+facing.east=East
+facing.south=South
+facing.west=West
+
+; --- message log ----------------------------------------------------------------
+log.descend=You descend into the dungeon...
+log.shuffle=Something shuffles in the dark.
+log.movekeys={}/{} move, {}/{} strafe, {}/{} turn.
+log.scroll_hint=Mouse wheel scrolls this log.
+log.wait=You wait. The torches gutter.
+log.bump=You bump into a wall.
+log.brazier_blocks=A burning brazier bars your way.
+log.monster_blocks=The {} blocks your way!
+log.monster_stirs=A {} stirs before you!
+log.torch_warm=Warm firelight returns.
+log.torch_cold=The flames turn cold and blue.
+log.torch_eerie=An eerie green light spreads.
+
+; --- monsters (key suffix = the .ent type) --------------------------------------
+monster.skeleton=skeleton
+monster.blob=blob
+monster.mummy=mummy
+
+; --- character sheet / party bar -------------------------------------------------
+class.fighter=Fighter
+class.rogue=Rogue
+class.cleric=Cleric
+class.mage=Mage
+sheet.subtitle=Level {} {}
+bar.health=Health
+bar.stamina=Stamina
+bar.mana=Mana
+sheet.attributes=Attributes
+attr.strength=Strength
+attr.dexterity=Dexterity
+attr.vitality=Vitality
+attr.willpower=Willpower
+sheet.equipment=Equipment
+sheet.nothing_carried=Nothing carried.

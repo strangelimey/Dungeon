@@ -34,7 +34,7 @@ and dependencies flow in one direction only — a module may depend on modules
 
 | Module    | Responsibility | May depend on |
 |-----------|----------------|---------------|
-| Core      | Logging, assertions, math (DirectXMath wrappers), timing, event dispatch | — |
+| Core      | Logging, assertions, math (DirectXMath wrappers), timing, event dispatch, localization (Loc: key=value language tables from assets/lang, loc::Tr / loc::Format) | — |
 | Platform  | Win32 window, message pump, keyboard/mouse input | Core |
 | Assets    | Loading CPU-side data: images (stb_image), glTF 2.0 / OBJ models (cgltf), WAV (dr_wav) | Core |
 | Animation | Skeletons, animation clips, pose sampling, skinning palettes | Core, Assets |

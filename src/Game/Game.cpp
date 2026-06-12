@@ -4,6 +4,7 @@
 // ============================================================================
 #include "Game/Game.h"
 
+#include "Core/Loc.h"
 #include "Core/Log.h"
 #include "Core/Paths.h"
 #include "Game/AssetUtil.h"
@@ -26,6 +27,7 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	  m_ui(window, device, spriteBatch, audio, m_sounds, m_settings,
 		   m_characters) {
 	m_settings.Load();
+	ApplyLanguage(false); // strings must exist before any UI builds
 	m_audio.SetMasterVolume(m_settings.volume);
 	m_world.GetParty().SetKeys(m_settings.moveKeys);
 
@@ -56,6 +58,11 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	m_ui.onKeysChanged = [this] {
 		m_world.GetParty().SetKeys(m_settings.moveKeys);
 	};
+	// Recorded only — the rebuild would destroy the dropdown mid-callback;
+	// Update applies it first thing next frame.
+	m_ui.onLanguageSelected = [this](const std::string& code) {
+		m_pendingLanguage = code;
+	};
 
 	m_ui.BuildStaticUi();
 	BuildBootLoadTasks();
@@ -70,15 +77,17 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 
 void Game::BuildBootLoadTasks() {
 	m_loadQueue.Clear();
-	m_loadQueue.Add("Tuning the echoes", [this] { m_sounds.Load(); });
-	m_loadQueue.Add("Painting the title", [this] { m_ui.LoadTitleArt(); });
+	m_loadQueue.SetDoneLabel(loc::Tr("load.done"));
+	m_loadQueue.Add(loc::Tr("load.echoes"), [this] { m_sounds.Load(); });
+	m_loadQueue.Add(loc::Tr("load.title_art"), [this] { m_ui.LoadTitleArt(); });
 }
 
 void Game::BuildGameLoadTasks() {
 	m_loadQueue.Clear();
+	m_loadQueue.SetDoneLabel(loc::Tr("load.done"));
 	m_world.AppendLoadTasks(m_loadQueue);
-	m_loadQueue.Add("Painting the party", [this] { LoadPortraits(); });
-	m_loadQueue.Add("Lighting the torches", [this] {
+	m_loadQueue.Add(loc::Tr("load.portraits"), [this] { LoadPortraits(); });
+	m_loadQueue.Add(loc::Tr("load.hud"), [this] {
 		m_ui.BuildHud();
 		log::Info("Game loaded: {}x{} dungeon, {} torches, {} monsters",
 				  m_world.Map().Width(), m_world.Map().Height(),
@@ -129,8 +138,8 @@ void Game::StartNewGame() {
 	ApplyPartySpeed();
 
 	m_ui.ClearLog();
-	m_ui.AddLogLine("You descend into the dungeon...");
-	m_ui.AddLogLine("Something shuffles in the dark.");
+	m_ui.AddLogLine(loc::Tr("log.descend"));
+	m_ui.AddLogLine(loc::Tr("log.shuffle"));
 	m_ui.AddLogLine(m_settings.MoveKeysHelp());
 
 	m_ui.ResetHudStatus();
@@ -153,6 +162,18 @@ void Game::ApplyPartySpeed() {
 	m_world.GetParty().SetSpeed(slowest);
 }
 
+void Game::ApplyLanguage(bool rebuild) {
+	if (!m_pendingLanguage.empty()) {
+		m_settings.language = m_pendingLanguage;
+		m_pendingLanguage.clear();
+		m_settings.Save();
+	}
+	if (!loc::LoadFile(paths::Asset("lang\\" + m_settings.language + ".lang")) &&
+		m_settings.language != "en")
+		loc::LoadFile(paths::Asset("lang\\en.lang"));
+	if (rebuild) m_ui.RebuildForLanguage();
+}
+
 void Game::SetQuality(Quality quality) {
 	if (quality == m_settings.quality) return;
 	const std::string oldTextureSuffix = m_settings.TextureSuffix();
@@ -168,6 +189,11 @@ void Game::SetQuality(Quality quality) {
 
 void Game::Update(float dt) {
 	m_time += dt;
+
+	// A language picked last frame applies now, before any widget updates —
+	// the rebuild destroys every widget, so none may be mid-callback.
+	if (!m_pendingLanguage.empty()) ApplyLanguage(true);
+
 	m_ui.UpdateFonts(dt);
 
 	const Input& input = m_window.GetInput();

@@ -15,6 +15,7 @@
 #pragma once
 
 #include "Audio/AudioEngine.h"
+#include "Core/Loc.h"
 #include "Game/Character.h"
 #include "Game/GameSettings.h"
 #include "Game/LoadQueue.h"
@@ -45,6 +46,11 @@ public:
 	void BuildStaticUi(); // theme + landing menu, pause menu, character sheet
 	void BuildHud();      // party bar, log, status/options panels (load task)
 	void LoadTitleArt();  // landing-page background (boot load task)
+	// Rebuilds every page in the (just reloaded) active language; the HUD too
+	// when it exists, which clears the message log. Never call from inside a
+	// widget callback — the widget would die under its own Update. Game defers
+	// the language change to the top of the next frame instead.
+	void RebuildForLanguage();
 
 	// --- per-frame updates (which page runs is the app state's call) ------------
 	// Keeps fonts in step with the window height so text scales with the
@@ -91,6 +97,9 @@ public:
 	std::function<void(int)> onQualitySelected; // Video tab dropdown
 	std::function<void(int)> onTorchPalette;    // HUD torchlight dropdown
 	std::function<void()> onKeysChanged;        // a movement key was rebound
+	// Game tab language dropdown. The receiver must NOT rebuild the UI from
+	// inside the callback (see RebuildForLanguage) — record and defer.
+	std::function<void(const std::string&)> onLanguageSelected;
 
 private:
 	enum class MenuPage { Main, Settings };
@@ -134,6 +143,14 @@ private:
 	// The Game tab's key-bind rows, parallel to kKeyFields — kept so a
 	// rebind can swap a duplicate key out of its old row.
 	std::vector<ui::KeyBind*> m_keyBinds;
+
+	// Installed languages (assets/lang scan), in the Game tab dropdown's
+	// order; maps the selection index back to a language code.
+	std::vector<loc::LanguageInfo> m_languages;
+
+	// Last torchlight dropdown selection, so a HUD rebuild (language change)
+	// recreates the dropdown showing the palette that is actually active.
+	int m_torchPalette = 0;
 
 	// Party-bar slots and the widgets authored beneath the bar with their
 	// design-pixel Y at scale 1; ApplyPartyBarScale resizes the slots and

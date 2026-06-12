@@ -21,8 +21,8 @@ class Texture;
 namespace dungeon::game {
 
 struct Character {
-	std::string name;
-	std::string className;
+	std::string name;     // proper noun — not localized
+	std::string classKey; // loc:: key ("class.fighter"); translated at display
 	int level = 1;
 
 	float health = 1.0f, maxHealth = 1.0f;

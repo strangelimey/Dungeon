@@ -435,7 +435,7 @@ void KeyBind::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
 									: (m_hot ? theme.controlHot : theme.control));
 	DrawBorder(batch, box, m_capturing || m_hot ? theme.accent : theme.panelBorder);
 
-	const std::string text = m_capturing ? "press a key..." : m_keyName;
+	const std::string& text = m_capturing ? capturePrompt : m_keyName;
 	const float textW = font.MeasureWidth(text);
 	font.Draw(batch, text, box.x + (box.w - textW) * 0.5f,
 			  box.y + (box.h - font.Height()) * 0.5f,

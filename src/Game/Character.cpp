@@ -8,7 +8,7 @@ std::vector<Character> CreateDefaultParty() {
 	std::vector<Character> party(4);
 
 	party[0].name = "Brand";
-	party[0].className = "Fighter";
+	party[0].classKey = "class.fighter";
 	party[0].maxHealth = 42;
 	party[0].maxStamina = 38;
 	party[0].maxMana = 8;
@@ -20,7 +20,7 @@ std::vector<Character> CreateDefaultParty() {
 	party[0].portraitColor = {0.42f, 0.20f, 0.14f, 1.0f}; // rust
 
 	party[1].name = "Sera";
-	party[1].className = "Rogue";
+	party[1].classKey = "class.rogue";
 	party[1].maxHealth = 30;
 	party[1].maxStamina = 44;
 	party[1].maxMana = 12;
@@ -32,7 +32,7 @@ std::vector<Character> CreateDefaultParty() {
 	party[1].portraitColor = {0.18f, 0.32f, 0.18f, 1.0f}; // moss
 
 	party[2].name = "Maren";
-	party[2].className = "Cleric";
+	party[2].classKey = "class.cleric";
 	party[2].maxHealth = 34;
 	party[2].maxStamina = 30;
 	party[2].maxMana = 36;
@@ -44,7 +44,7 @@ std::vector<Character> CreateDefaultParty() {
 	party[2].portraitColor = {0.42f, 0.34f, 0.14f, 1.0f}; // gold
 
 	party[3].name = "Tilo";
-	party[3].className = "Mage";
+	party[3].classKey = "class.mage";
 	party[3].maxHealth = 24;
 	party[3].maxStamina = 26;
 	party[3].maxMana = 48;

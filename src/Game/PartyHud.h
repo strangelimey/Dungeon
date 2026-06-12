@@ -71,7 +71,7 @@ public:
 
 private:
 	struct AttributeLine {
-		const char* label = "";
+		std::string label;
 		std::string value;
 	};
 
@@ -81,6 +81,10 @@ private:
 	std::string m_subtitle; // "Level 1 Rogue"
 	std::string m_healthText, m_staminaText, m_manaText; // "42 / 42"
 	std::array<AttributeLine, 4> m_attributes;
+	// Static page text, localized once at construction (the sheet is rebuilt
+	// on a language change) so Draw stays allocation-free.
+	std::string m_healthLabel, m_staminaLabel, m_manaLabel;
+	std::string m_attributesLabel, m_equipmentLabel, m_nothingCarried;
 };
 
 } // namespace dungeon::game
