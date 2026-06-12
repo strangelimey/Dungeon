@@ -57,4 +57,7 @@ Entity ParseEntityRecord(std::string_view line, std::string_view where);
 // and ';' comment lines. Shared by the .map and .ent loaders.
 std::vector<std::string> ReadLevelLines(const std::vector<u8>& bytes);
 
+// Splits one record line into whitespace-separated tokens (views into `line`).
+std::vector<std::string_view> SplitRecordTokens(std::string_view line);
+
 } // namespace dungeon::game

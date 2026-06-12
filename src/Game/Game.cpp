@@ -57,14 +57,6 @@ std::unique_ptr<gfx::Texture> LoadTextureFile(gfx::GraphicsDevice& device,
 	return texture;
 }
 
-// Surface texture sets. Order defines the variant index everywhere: the
-// texture arrays, the worn block meshes (worn_<name>_<tier>.gltf), and the
-// geometry buckets all pair up by position. Must match the worn specs in
-// AssetBaker's ModelBaker.cpp.
-constexpr const char* kWallTextures[] = {"wall_brick", "wall_stone", "wall_moss"};
-constexpr const char* kFloorTextures[] = {"floor_slabs", "floor_cobble"};
-constexpr const char* kCeilingTextures[] = {"ceiling_rough", "ceiling_cracked"};
-
 // Font pixel heights at the 900px-tall design window (the layouts in
 // BuildMenu/BuildHud are authored against the same design size). Game::Update
 // rescales them against the live window height so text tracks the UI.
@@ -220,10 +212,10 @@ void Game::BuildGameLoadTasks() {
 	m_loadTasks.clear();
 	m_loadTasks.emplace_back("Quarrying stone blocks", [this] { LoadDungeonBlocks(); });
 
-	auto addTextureTasks = [this](Surface& surface, std::span<const char* const> names,
+	auto addTextureTasks = [this](Surface& surface, std::span<const std::string> names,
 								  float heightScale) {
 		for (size_t i = 0; i < names.size(); ++i) {
-			const char* name = names[i];
+			const std::string& name = names[i];
 			const bool first = i == 0; // first material resets the set
 			std::string label = std::format("Weaving the stonework ({})", name);
 			std::ranges::replace(label, '_', ' ');
@@ -238,9 +230,9 @@ void Game::BuildGameLoadTasks() {
 				});
 		}
 	};
-	addTextureTasks(m_walls, kWallTextures, 0.055f);
-	addTextureTasks(m_floors, kFloorTextures, 0.045f);
-	addTextureTasks(m_ceilings, kCeilingTextures, 0.035f);
+	addTextureTasks(m_walls, m_map.WallTextures(), 0.055f);
+	addTextureTasks(m_floors, m_map.FloorTextures(), 0.045f);
+	addTextureTasks(m_ceilings, m_map.CeilingTextures(), 0.035f);
 
 	m_loadTasks.emplace_back("Raising the dungeon", [this] { BuildDungeonMeshes(); });
 	m_loadTasks.emplace_back("Carving the serpent pillar", [this] {
@@ -353,16 +345,16 @@ void Game::LoadDungeonBlocks() {
 	// so geometry relief matches the painted bricks/slabs. The clean
 	// *_block.gltf models remain baked for newer areas of the game.
 	auto load = [&](std::vector<assets::MeshData>& blocks,
-					std::span<const char* const> names) {
+					std::span<const std::string> names) {
 		blocks.clear();
-		for (const char* name : names)
+		for (const std::string& name : names)
 			blocks.push_back(
 				LoadModelOrDie(std::format("worn_{}_{}.gltf", name, QualitySuffix()))
 					.meshes[0]);
 	};
-	load(m_wallBlocks, kWallTextures);
-	load(m_floorBlocks, kFloorTextures);
-	load(m_ceilingBlocks, kCeilingTextures);
+	load(m_wallBlocks, m_map.WallTextures());
+	load(m_floorBlocks, m_map.FloorTextures());
+	load(m_ceilingBlocks, m_map.CeilingTextures());
 }
 
 void Game::SetQuality(Quality quality) {
@@ -464,7 +456,7 @@ void Game::SaveSettings() const {
 
 // Loads one material's albedo + normal pair at the current quality tier and
 // appends it to the surface's variant arrays.
-void Game::LoadSurfaceMaterial(Surface& surface, const char* name) {
+void Game::LoadSurfaceMaterial(Surface& surface, const std::string& name) {
 	const char* res = QualityTextureSuffix();
 	std::string stem = paths::Asset(std::format("textures\\{}_{}", name, res));
 	auto albedo = TryLoadTextureFile(m_device, stem);
@@ -479,18 +471,18 @@ void Game::LoadSurfaceMaterial(Surface& surface, const char* name) {
 	surface.normal.push_back(LoadTextureFile(m_device, stem + "_n"));
 }
 
-void Game::LoadTextureSet(Surface& surface, std::span<const char* const> names,
+void Game::LoadTextureSet(Surface& surface, std::span<const std::string> names,
 						  float heightScale) {
 	surface.albedo.clear(); // quality hot-swap reuses the same Surface objects
 	surface.normal.clear();
 	surface.heightScale = heightScale;
-	for (const char* name : names) LoadSurfaceMaterial(surface, name);
+	for (const std::string& name : names) LoadSurfaceMaterial(surface, name);
 }
 
 void Game::LoadAllSurfaceTextures() {
-	LoadTextureSet(m_walls, kWallTextures, 0.055f);
-	LoadTextureSet(m_floors, kFloorTextures, 0.045f);
-	LoadTextureSet(m_ceilings, kCeilingTextures, 0.035f);
+	LoadTextureSet(m_walls, m_map.WallTextures(), 0.055f);
+	LoadTextureSet(m_floors, m_map.FloorTextures(), 0.045f);
+	LoadTextureSet(m_ceilings, m_map.CeilingTextures(), 0.035f);
 }
 
 void Game::BuildDungeonMeshes() {

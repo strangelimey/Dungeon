@@ -105,8 +105,8 @@ private:
 	void BuildBootLoadTasks(); // menu essentials, run before the landing page
 	void BuildGameLoadTasks(); // the dungeon itself, run on first game start
 	bool RunLoadTasks();       // executes one task per frame; true when done
-	void LoadSurfaceMaterial(Surface& surface, const char* name);
-	void LoadTextureSet(Surface& surface, std::span<const char* const> names,
+	void LoadSurfaceMaterial(Surface& surface, const std::string& name);
+	void LoadTextureSet(Surface& surface, std::span<const std::string> names,
 						float heightScale);
 	void BuildDungeonMeshes();
 	void LoadMonsters();

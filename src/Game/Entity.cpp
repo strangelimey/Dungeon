@@ -39,9 +39,7 @@ const std::string* Entity::Param(std::string_view key) const {
 	return nullptr;
 }
 
-namespace {
-
-std::vector<std::string_view> SplitTokens(std::string_view line) {
+std::vector<std::string_view> SplitRecordTokens(std::string_view line) {
 	std::vector<std::string_view> tokens;
 	size_t i = 0;
 	while (i < line.size()) {
@@ -52,6 +50,8 @@ std::vector<std::string_view> SplitTokens(std::string_view line) {
 	}
 	return tokens;
 }
+
+namespace {
 
 bool ParseDirection(std::string_view token, Direction& out) {
 	if (token == "north") out = Direction::North;
@@ -65,7 +65,7 @@ bool ParseDirection(std::string_view token, Direction& out) {
 } // namespace
 
 Entity ParseEntityRecord(std::string_view line, std::string_view where) {
-	const std::vector<std::string_view> tokens = SplitTokens(line);
+	const std::vector<std::string_view> tokens = SplitRecordTokens(line);
 	DN_ASSERT(tokens.size() >= 4,
 			  std::format("entity record needs <kind> <type> <x> <z>: \"{}\" in {}",
 						  line, where));

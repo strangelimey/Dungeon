@@ -59,8 +59,12 @@ DungeonMap::DungeonMap(const std::string& path) {
 	}
 	DN_ASSERT(foundStart, "map has no 'P' start cell: " + path);
 
-	// Static decoration records below the grid.
+	// Records: texture palettes and static decorations.
 	for (const std::string& record : records) {
+		if (record.starts_with("textures")) {
+			ParseTextureRecord(record, path);
+			continue;
+		}
 		Entity e = ParseEntityRecord(record, path);
 		DN_ASSERT(e.kind == EntityKind::Decoration,
 				  std::format("only decorations are static — move \"{}\" to the .ent file ({})",
@@ -70,6 +74,10 @@ DungeonMap::DungeonMap(const std::string& path) {
 							  record, path));
 		m_decorations.push_back(std::move(e));
 	}
+	DN_ASSERT(!m_wallTextures.empty() && !m_floorTextures.empty() &&
+				  !m_ceilingTextures.empty(),
+			  "map must declare its texture palettes (textures <wall|floor|ceiling> "
+			  "<set> ...): " + path);
 
 	// Fires thicken the air around them (braziers more than sconces).
 	for (const auto& [bx, bz] : m_braziers) AddFireTurbidity(bx, bz, 0.55f);
@@ -78,6 +86,27 @@ DungeonMap::DungeonMap(const std::string& path) {
 	log::Info("Loaded map {}: {}x{}, {} torches, {} braziers, {} decorations",
 			  path, m_width, m_height, m_torches.size(), m_braziers.size(),
 			  m_decorations.size());
+}
+
+// "textures <wall|floor|ceiling> <set> [...]" — the level's surface texture
+// palette. The game loads only the sets named here (and their worn block
+// meshes), so a level pays for exactly the materials it uses.
+void DungeonMap::ParseTextureRecord(const std::string& record, const std::string& path) {
+	const std::vector<std::string_view> tokens = SplitRecordTokens(record);
+	DN_ASSERT(tokens.size() >= 3,
+			  std::format("texture record needs <wall|floor|ceiling> and at least "
+						  "one set: \"{}\" in {}", record, path));
+
+	std::vector<std::string>* list = nullptr;
+	if (tokens[1] == "wall") list = &m_wallTextures;
+	else if (tokens[1] == "floor") list = &m_floorTextures;
+	else if (tokens[1] == "ceiling") list = &m_ceilingTextures;
+	DN_ASSERT(list != nullptr,
+			  std::format("unknown surface \"{}\" (wall, floor, or ceiling): \"{}\" in {}",
+						  tokens[1], record, path));
+	DN_ASSERT(list->empty(),
+			  std::format("duplicate \"textures {}\" record in {}", tokens[1], path));
+	list->assign(tokens.begin() + 2, tokens.end());
 }
 
 // Fires raise the air turbidity of their own square and the squares nearby

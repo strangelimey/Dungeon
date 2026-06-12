@@ -65,16 +65,25 @@ at launch with an on-disk cache (shadercache/, hash-invalidated) — edit
   headpiece per class) and their mip chains. Names must match the roster
   in src/Game/Character.cpp.
 - Textures: PNG = source, .dds = derived BC7 mip chains (gitignored).
-  Scanned sets (7 Poly Haven CC0 materials × 1k/2k/4k) are NOT in git:
-  raw downloads live in OneDrive\DungeonAssets\<res>\<material>\ and
-  `tools\FetchTextures.ps1 [-Resolutions 1k,2k,4k]` imports them. A full
-  pre-history-rewrite git bundle also lives there.
+  Scanned sets are NOT in git: raw downloads live in
+  OneDrive\DungeonAssets\<1k|2k|4k>\<category>\<material>\ — the res folder
+  is the material's NATIVE resolution, categories mirror the FreePBR pack
+  (walls, floors, rocks, metals, ...) plus ceilings. Contents: 7 Poly Haven
+  CC0 sets (all three res) + the FreePBR Premium pack (~620 sets, almost
+  all 2k native; the models/ and bonus/ categories carry .obj prop meshes
+  with their textures). `tools\FetchTextures.ps1` imports ONLY the
+  materials the maps' `textures` records reference (override: -Materials
+  list, -All for everything — slow, hundreds of BC7 bakes; -Resolutions
+  1k,2k,4k). A full pre-history-rewrite git bundle also lives there.
 - Maps are two files per level, split static vs dynamic for the future
   save system (saves will only ever store the dynamic side):
   - assets/maps/level1.map — STATIC layer (DungeonMap): ASCII grid, ';'
     comments, glyphs '#' rock '.' floor 'D' dusty 'T' sconce 'F' brazier
-    (blocks movement) 'P' start. Lines starting lowercase are decoration
-    records (grid glyphs are never lowercase).
+    (blocks movement) 'P' start. Lines starting lowercase are records
+    (grid glyphs are never lowercase): `textures <wall|floor|ceiling>
+    <set> ...` declares the level's surface palette — MANDATORY, the game
+    loads only those sets + their worn meshes, order = variant index —
+    plus decoration records.
   - assets/maps/level1.ent — DYNAMIC layer (DungeonEntities): monsters,
     items, buttons; one record per line, `<kind> <type> <x> <z> [facing]
     [key=value ...]` (Entity.h). Monster type → model: <type>.gltf.

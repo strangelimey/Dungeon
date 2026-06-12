@@ -4,13 +4,16 @@
 //
 // Levels are ASCII grid text files under assets/maps/ (see level1.map for
 // the glyph legend: '#' rock, '.' floor, 'D' dust, 'T' sconce, 'F' brazier,
-// 'P' start; ';' lines are comments). Below the grid, lines starting with a
-// lowercase letter are static entity records — decorations with a type and
-// facing (format in Entity.h); grid glyphs are never lowercase, so the two
-// can't collide. Dynamic content (monsters, items, buttons) lives in the
-// .ent file next to the .map — see DungeonEntities.h. The constructor parses
-// and validates the file — unknown glyphs, ragged rows, or a missing start
-// cell fail hard with the file name and position.
+// 'P' start; ';' lines are comments). Lines starting with a lowercase letter
+// are records — grid glyphs are never lowercase, so the two can't collide:
+//   textures <wall|floor|ceiling> <set> [...]   surface texture palette
+//   decoration <type> <x> <z> [facing]          static entity (Entity.h)
+// Every level declares its texture palette; the game loads only those sets
+// (and their worn block meshes), nothing else. Dynamic content (monsters,
+// items, buttons) lives in the .ent file next to the .map — see
+// DungeonEntities.h. The constructor parses and validates the file — unknown
+// glyphs, ragged rows, a missing start cell, or a missing/duplicate texture
+// palette fail hard with the file name and position.
 //
 // Cell (x, z) maps to world space as center ((x+0.5), 0, (z+0.5)) * kCellSize
 // with +X = east and +Z = south (row index grows southward). The geometry
@@ -69,7 +72,16 @@ public:
 	// Static decoration records (banners, rubble, ...) from the .map file.
 	const std::vector<Entity>& Decorations() const { return m_decorations; }
 
+	// Surface texture palettes from the level's "textures" records. Order
+	// defines the variant index everywhere (texture arrays, worn block
+	// meshes, geometry buckets); every named set needs its worn block meshes
+	// baked (worn_<set>_<tier>.gltf — the worn specs in ModelBaker.cpp).
+	const std::vector<std::string>& WallTextures() const { return m_wallTextures; }
+	const std::vector<std::string>& FloorTextures() const { return m_floorTextures; }
+	const std::vector<std::string>& CeilingTextures() const { return m_ceilingTextures; }
+
 private:
+	void ParseTextureRecord(const std::string& record, const std::string& path);
 	void AddFireTurbidity(int x, int z, float amount);
 
 	int m_width = 0;
@@ -81,6 +93,9 @@ private:
 	std::vector<std::pair<int, int>> m_torches;
 	std::vector<std::pair<int, int>> m_braziers;
 	std::vector<Entity> m_decorations;
+	std::vector<std::string> m_wallTextures;
+	std::vector<std::string> m_floorTextures;
+	std::vector<std::string> m_ceilingTextures;
 };
 
 } // namespace dungeon::game

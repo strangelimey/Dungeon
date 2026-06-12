@@ -7,9 +7,16 @@
 ;   T  wall torch sconce   F  fire brazier (blocks movement)
 ;
 ; Grid glyphs are never lowercase: lines starting with a lowercase letter
-; are static decoration records (see Entity.h for the format), e.g.
+; are records. "textures" records declare the level's surface texture
+; palette — the game loads only the sets named here (each needs its worn
+; block meshes baked, see ModelBaker.cpp); "decoration" records are static
+; entities (see Entity.h for the format), e.g.
 ;   decoration banner 4 2 north
 ; Dynamic content — monsters, items, buttons — lives in level1.ent.
+
+textures wall wall_brick wall_stone wall_moss
+textures floor floor_slabs floor_cobble
+textures ceiling ceiling_rough ceiling_cracked
 ;
 ; Fires raise the air turbidity of their own and nearby squares.
 ; The lower-left block (rows 12-14) is the dust-shaft showcase: a dusty
