@@ -125,8 +125,9 @@ fire-driven turbidity rings around them.
   (JOINTS_0 remap already handled).
 - BC7 encoder is mode-6 only (slight banding possible on smooth gradients).
 - UI widget bounds are normalized (0..1 of container, see UI/Widget.h) and
-  resolve against the live window each frame, so the HUD scales on resize —
-  but fonts are baked at fixed pixel heights and do not scale with it.
+  resolve against the live window each frame, so the HUD scales on resize.
+  Fonts track the window height too (Font::SetHeight re-bakes the atlas,
+  driven from the top of Game::Update).
 - The clean (non-worn) block set is baked but unused — intended for newer
   dungeon areas, needs per-region block-set selection in DungeonMeshBuilder.
 - Roughness maps from imports are ignored (specular is per-material).

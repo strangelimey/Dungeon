@@ -64,6 +64,14 @@ constexpr const char* kWallTextures[] = {"wall_brick", "wall_stone", "wall_moss"
 constexpr const char* kFloorTextures[] = {"floor_slabs", "floor_cobble"};
 constexpr const char* kCeilingTextures[] = {"ceiling_rough", "ceiling_cracked"};
 
+// Font pixel heights at the 900px-tall design window (the layouts in
+// BuildMenu/BuildHud are authored against the same design size). Game::Update
+// rescales them against the live window height so text tracks the UI.
+constexpr float kFontDesignWindowH = 900.0f;
+constexpr float kHudFontH = 17.0f;
+constexpr float kMenuFontH = 28.0f;
+constexpr float kTitleFontH = 64.0f;
+
 } // namespace
 
 // ============================================================================
@@ -77,8 +85,8 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	  m_map(paths::Asset("maps\\level1.map")),
 	  m_entities(paths::Asset("maps\\level1.ent"), m_map),
 	  m_party(m_map, m_map.StartX(), m_map.StartZ()),
-	  m_ui(device, "", 17.0f), m_menuUi(device, "", 28.0f),
-	  m_settingsUi(device, "", 28.0f), m_titleFont(device, "", 64.0f) {
+	  m_ui(device, "", kHudFontH), m_menuUi(device, "", kMenuFontH),
+	  m_settingsUi(device, "", kMenuFontH), m_titleFont(device, "", kTitleFontH) {
 	LoadSettings();
 	// Party event hooks (survive Party::Reset).
 	m_party.onStep = [this] { m_audio.Play(m_sfxFootstep, 0.8f); };
@@ -741,6 +749,16 @@ void Game::UpdateMonsters(float dt) {
 void Game::Update(float dt) {
 	m_time += dt;
 
+	// Keep fonts in step with the window height so text scales with the
+	// normalized UI. SetHeight is a no-op until the rounded size changes,
+	// and re-bakes between frames (never while a command list records).
+	const float fontScale =
+		static_cast<float>(m_window.Height()) / kFontDesignWindowH;
+	m_ui.GetFont().SetHeight(kHudFontH * fontScale);
+	m_menuUi.GetFont().SetHeight(kMenuFontH * fontScale);
+	m_settingsUi.GetFont().SetHeight(kMenuFontH * fontScale);
+	m_titleFont.SetHeight(kTitleFontH * fontScale);
+
 	switch (m_state) {
 	case AppState::Loading:
 		if (RunLoadTasks()) m_state = AppState::Menu;
@@ -893,11 +911,12 @@ void Game::SubmitSceneGeometry(ID3D12GraphicsCommandList* list) {
 // Progress bar + current step name, shared by both loading screens.
 void Game::DrawLoadProgress(float barY) {
 	const float w = static_cast<float>(m_device.Width());
+	const float h = static_cast<float>(m_device.Height());
 	const ui::Theme& theme = m_menuUi.GetTheme();
 
 	const float total = static_cast<float>(m_loadTasks.size());
 	const float progress = total > 0 ? static_cast<float>(m_loadIndex) / total : 1.0f;
-	const gfx::Rect bar{w * 0.3f, barY, w * 0.4f, 14.0f};
+	const gfx::Rect bar{w * 0.3f, barY, w * 0.4f, h * (14.0f / kFontDesignWindowH)};
 	m_spriteBatch.DrawRect(bar, theme.control);
 	m_spriteBatch.DrawRect({bar.x, bar.y, bar.w * progress, bar.h}, theme.accent);
 	ui::DrawBorder(m_spriteBatch, bar, theme.panelBorder);
@@ -907,7 +926,8 @@ void Game::DrawLoadProgress(float barY) {
 									  : std::string_view("Entering the dungeon...");
 	ui::Font& font = m_menuUi.GetFont();
 	const float stepW = font.MeasureWidth(step);
-	font.Draw(m_spriteBatch, step, (w - stepW) * 0.5f, bar.y + 28.0f, theme.textDim);
+	font.Draw(m_spriteBatch, step, (w - stepW) * 0.5f, bar.y + bar.h * 2.0f,
+			  theme.textDim);
 }
 
 void Game::RenderLoadingScreen() {
@@ -940,8 +960,8 @@ void Game::RenderGameLoadingScreen() {
 	const char* subtitle = "descending...";
 	ui::Font& font = m_menuUi.GetFont();
 	const float subW = font.MeasureWidth(subtitle);
-	font.Draw(m_spriteBatch, subtitle, (w - subW) * 0.5f, h * 0.16f + 74.0f,
-			  theme.textDim);
+	font.Draw(m_spriteBatch, subtitle, (w - subW) * 0.5f,
+			  h * (0.16f + 74.0f / kFontDesignWindowH), theme.textDim);
 
 	DrawLoadProgress(h * 0.56f);
 }
@@ -966,8 +986,8 @@ void Game::RenderMenuOverlay() {
 		m_menuPage == MenuPage::Settings ? "settings" : "an old-school crawler";
 	ui::Font& font = m_menuUi.GetFont();
 	const float subW = font.MeasureWidth(subtitle);
-	font.Draw(m_spriteBatch, subtitle, (w - subW) * 0.5f, h * 0.16f + 74.0f,
-			  theme.textDim);
+	font.Draw(m_spriteBatch, subtitle, (w - subW) * 0.5f,
+			  h * (0.16f + 74.0f / kFontDesignWindowH), theme.textDim);
 
 	(m_menuPage == MenuPage::Main ? m_menuUi : m_settingsUi)
 		.Render(m_spriteBatch, w, h);
