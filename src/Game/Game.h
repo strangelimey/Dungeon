@@ -127,8 +127,8 @@ private:
 	void LoadAllSurfaceTextures();   // loads the texture sets for m_quality
 	void SetQuality(Quality quality);
 	// settings.ini next to the exe: quality=0..3, volume=0..1,
-	// barscale=0.5..1.5, baropacity=0..1, theme_<name>=r,g,b,a (see
-	// kThemeFields in Game.cpp).
+	// barscale=0.5..1.5, baropacity=0..1, theme_<name>=r,g,b,a and
+	// bar_<name>=r,g,b,a (see kThemeFields / kBarFields in Game.cpp).
 	void LoadSettings();
 	void SaveSettings() const;
 	// Pushes m_theme into every UIContext (each owns a copy).
@@ -247,6 +247,9 @@ private:
 	// User-editable control colors (Settings → UI tab, persisted); the master
 	// copy every context's theme is set from — see ApplyTheme.
 	ui::Theme m_theme;
+	// User-editable HUD resource-bar fills (same tab); the party-bar panels
+	// and the sheet point at this, so edits show on their next draw.
+	ResourceBarColors m_barColors;
 	std::unique_ptr<gfx::Texture> m_titleBackground; // landing-page art
 	ui::TextOutput* m_log = nullptr;
 	ui::Label* m_compass = nullptr;

@@ -95,6 +95,41 @@ constexpr ThemeField kThemeFields[] = {
 	{"accent", "Accent", &ui::Theme::accent},
 };
 
+// Same idea for the HUD resource-bar fills (PartyHud's ResourceBarColors,
+// master copy Game::m_barColors; ini keys bar_<key>=r,g,b,a).
+struct BarField {
+	const char* key;
+	const char* label;
+	Vec4 ResourceBarColors::*field;
+};
+constexpr BarField kBarFields[] = {
+	{"health", "Health", &ResourceBarColors::health},
+	{"stamina", "Stamina", &ResourceBarColors::stamina},
+	{"mana", "Mana", &ResourceBarColors::mana},
+};
+
+// Reads key=r,g,b,a from the ini text. The color only applies if all four
+// channels parse (a malformed line keeps the caller's default).
+void ParseIniColor(const std::string& text, const std::string& key, Vec4& color) {
+	const size_t pos = text.find(key);
+	if (pos == std::string::npos) return;
+	Vec4 parsed = color;
+	size_t cursor = pos + key.size();
+	for (int i = 0; i < 4; ++i) {
+		float value = 0.0f;
+		const auto result = std::from_chars(text.data() + cursor,
+											text.data() + text.size(), value);
+		if (result.ec != std::errc{}) return;
+		(&parsed.x)[i] = std::clamp(value, 0.0f, 1.0f);
+		cursor = static_cast<size_t>(result.ptr - text.data());
+		if (i < 3) {
+			if (cursor >= text.size() || text[cursor] != ',') return;
+			++cursor;
+		}
+	}
+	color = parsed;
+}
+
 } // namespace
 
 // ============================================================================
@@ -391,30 +426,12 @@ void Game::LoadSettings() {
 			m_partyBarOpacity = std::clamp(opacity, 0.0f, 1.0f);
 	}
 
-	// Theme colors: theme_<key>=r,g,b,a — a color only applies if all four
-	// channels parse (a malformed line keeps that entry's default).
-	for (const ThemeField& field : kThemeFields) {
-		const std::string key = std::format("theme_{}=", field.key);
-		const size_t pos = text.find(key);
-		if (pos == std::string::npos) continue;
-		Vec4 color = m_theme.*(field.field);
-		size_t cursor = pos + key.size();
-		bool ok = true;
-		for (int i = 0; i < 4 && ok; ++i) {
-			float value = 0.0f;
-			const auto result = std::from_chars(text.data() + cursor,
-												text.data() + text.size(), value);
-			ok = result.ec == std::errc{};
-			if (!ok) break;
-			(&color.x)[i] = std::clamp(value, 0.0f, 1.0f);
-			cursor = static_cast<size_t>(result.ptr - text.data());
-			if (i < 3) {
-				ok = cursor < text.size() && text[cursor] == ',';
-				++cursor;
-			}
-		}
-		if (ok) m_theme.*(field.field) = color;
-	}
+	for (const ThemeField& field : kThemeFields)
+		ParseIniColor(text, std::format("theme_{}=", field.key),
+					  m_theme.*(field.field));
+	for (const BarField& field : kBarFields)
+		ParseIniColor(text, std::format("bar_{}=", field.key),
+					  m_barColors.*(field.field));
 	ApplyTheme();
 }
 
@@ -432,6 +449,11 @@ void Game::SaveSettings() const {
 	for (const ThemeField& field : kThemeFields) {
 		const Vec4& c = m_theme.*(field.field);
 		text += std::format("theme_{}={:.3f},{:.3f},{:.3f},{:.3f}\n", field.key,
+							c.x, c.y, c.z, c.w);
+	}
+	for (const BarField& field : kBarFields) {
+		const Vec4& c = m_barColors.*(field.field);
+		text += std::format("bar_{}={:.3f},{:.3f},{:.3f},{:.3f}\n", field.key,
 							c.x, c.y, c.z, c.w);
 	}
 	if (!assets::WriteBinaryFile(paths::ExecutableDir() + "\\settings.ini",
@@ -673,25 +695,40 @@ void Game::BuildMenu() {
 		});
 	barOpacity->onRelease = [this] { SaveSettings(); };
 
-	// UI → Theme Colors: the eight shared control colors (kThemeFields), two
-	// pickers per row. Edits recolor every context live (ApplyTheme) and
-	// persist once when a picker's popup closes.
+	// UI → Theme Colors (kThemeFields) and Resource Bars (kBarFields): color
+	// pickers, three per row. Theme edits recolor every context live
+	// (ApplyTheme); bar edits show on the HUD widgets' next draw (they point
+	// at m_barColors). Both persist once when a picker's popup closes.
+	const float colW = (rowW - 2 * 16.0f) / 3.0f;
+	auto pickerCell = [&](size_t index, float top) {
+		return Norm({pad + (colW + 16.0f) * static_cast<float>(index % 3),
+					 top + 44.0f * static_cast<float>(index / 3), colW, 36.0f},
+					page);
+	};
 	tabs->AddChild<ui::Label>(tabUi, Norm({pad, pad + 172, rowW, 28}, page),
 							  "Theme Colors");
-	const float colW = (rowW - 16.0f) * 0.5f;
 	size_t themeIndex = 0;
 	for (const ThemeField& field : kThemeFields) {
-		const gfx::Rect cell{pad + (colW + 16.0f) * static_cast<float>(themeIndex % 2),
-							 pad + 216.0f + 46.0f * static_cast<float>(themeIndex / 2),
-							 colW, 36.0f};
 		auto* picker = tabs->AddChild<ui::ColorPicker>(
-			tabUi, Norm(cell, page), field.label, m_theme.*(field.field),
+			tabUi, pickerCell(themeIndex++, pad + 216.0f), field.label,
+			m_theme.*(field.field),
 			[this, member = field.field](const Vec4& color) {
 				m_theme.*member = color;
 				ApplyTheme();
 			});
 		picker->onClose = [this] { SaveSettings(); };
-		++themeIndex;
+	}
+	tabs->AddChild<ui::Label>(tabUi, Norm({pad, pad + 368, rowW, 28}, page),
+							  "Resource Bars");
+	size_t barIndex = 0;
+	for (const BarField& field : kBarFields) {
+		auto* picker = tabs->AddChild<ui::ColorPicker>(
+			tabUi, pickerCell(barIndex++, pad + 412.0f), field.label,
+			m_barColors.*(field.field),
+			[this, member = field.field](const Vec4& color) {
+				m_barColors.*member = color;
+			});
+		picker->onClose = [this] { SaveSettings(); };
 	}
 
 	const float backW = 220.0f;
@@ -746,7 +783,7 @@ void Game::BuildCharacterSheet() {
 	const float sx = (w - sheetW) * 0.5f;
 	const float sy = (h - sheetH) * 0.5f - 24.0f;
 	m_sheet = m_sheetUi.Add<CharacterSheet>(Norm({sx, sy, sheetW, sheetH}, window),
-											&m_titleFont);
+											&m_titleFont, &m_barColors);
 
 	const float btnY = sy + sheetH + 16.0f;
 	m_sheetUi.Add<ui::Button>(Norm({sx, btnY, 64, 40}, window), "<", [this] {
@@ -819,7 +856,7 @@ void Game::BuildHud() {
 	m_partyPanels.clear();
 	for (size_t i = 0; i < m_characters.size() && i < 4; ++i) {
 		auto* panel = m_ui.Add<CharacterPanel>(gfx::Rect{}, &m_characters[i],
-											   &m_titleFont,
+											   &m_titleFont, &m_barColors,
 											   [this, i] { OpenCharacterSheet(i); });
 		panel->backgroundOpacity = m_partyBarOpacity;
 		m_partyPanels.push_back(panel);

@@ -7,11 +7,6 @@ namespace dungeon::game {
 
 namespace {
 
-// Resource bar colors, shared by the party bar and the sheet.
-constexpr Vec4 kHealthColor{0.62f, 0.18f, 0.14f, 1.0f};
-constexpr Vec4 kStaminaColor{0.26f, 0.52f, 0.22f, 1.0f};
-constexpr Vec4 kManaColor{0.22f, 0.36f, 0.68f, 1.0f};
-
 void DrawStatBar(gfx::SpriteBatch& batch, const gfx::Rect& rect, float fraction,
 				 const Vec4& color, const ui::Theme& theme) {
 	batch.DrawRect(rect, theme.control);
@@ -44,8 +39,9 @@ void DrawPortrait(gfx::SpriteBatch& batch, const gfx::Rect& rect,
 
 CharacterPanel::CharacterPanel(const gfx::Rect& rect, const Character* character,
 							   const ui::Font* portraitFont,
+							   const ResourceBarColors* barColors,
 							   std::function<void()> onClick)
-	: m_character(character), m_portraitFont(portraitFont),
+	: m_character(character), m_portraitFont(portraitFont), m_barColors(barColors),
 	  m_onClick(std::move(onClick)) {
 	bounds = rect;
 }
@@ -95,9 +91,9 @@ void CharacterPanel::Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 		float value, max;
 		const Vec4& color;
 	} bars[] = {
-		{m_character->health, m_character->maxHealth, kHealthColor},
-		{m_character->stamina, m_character->maxStamina, kStaminaColor},
-		{m_character->mana, m_character->maxMana, kManaColor},
+		{m_character->health, m_character->maxHealth, m_barColors->health},
+		{m_character->stamina, m_character->maxStamina, m_barColors->stamina},
+		{m_character->mana, m_character->maxMana, m_barColors->mana},
 	};
 	float y = barsTop;
 	for (const auto& bar : bars) {
@@ -115,8 +111,9 @@ void CharacterPanel::Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 constexpr float kSheetDesignW = 620.0f;
 constexpr float kSheetDesignH = 520.0f;
 
-CharacterSheet::CharacterSheet(const gfx::Rect& rect, const ui::Font* portraitFont)
-	: m_portraitFont(portraitFont) {
+CharacterSheet::CharacterSheet(const gfx::Rect& rect, const ui::Font* portraitFont,
+							   const ResourceBarColors* barColors)
+	: m_portraitFont(portraitFont), m_barColors(barColors) {
 	bounds = rect;
 }
 
@@ -171,11 +168,12 @@ void CharacterSheet::Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 		const Vec4& color;
 		const std::string& text;
 	} rows[] = {
-		{"Health", m_character->health, m_character->maxHealth, kHealthColor,
-		 m_healthText},
-		{"Stamina", m_character->stamina, m_character->maxStamina, kStaminaColor,
-		 m_staminaText},
-		{"Mana", m_character->mana, m_character->maxMana, kManaColor, m_manaText},
+		{"Health", m_character->health, m_character->maxHealth,
+		 m_barColors->health, m_healthText},
+		{"Stamina", m_character->stamina, m_character->maxStamina,
+		 m_barColors->stamina, m_staminaText},
+		{"Mana", m_character->mana, m_character->maxMana, m_barColors->mana,
+		 m_manaText},
 	};
 	float y = 150.0f;
 	for (const auto& row : rows) {

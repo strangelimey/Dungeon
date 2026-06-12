@@ -96,13 +96,15 @@ quality dropdown on Video (Low/Medium/High/Ultra: mesh tier low/med/high/high
 UI (scale 0.5–1.5 resizes the bar about its top center and shifts the panels
 beneath it — Game::ApplyPartyBarScale; width is pinned at the window span, so
 above 1 the bar only grows taller; background opacity 0–1 fades the slot
-fills only) plus a Theme Colors grid (the 8 ui::Theme colors, edited with
-the ColorPicker control — swatch opens an R/G/B/A slider popup; Game owns
-the master m_theme, ApplyTheme pushes it into all five UIContexts live, and
-kThemeFields in Game.cpp drives both the grid and the ini round-trip), Game
+fills only) plus color-picker grids for Theme Colors (the 8 ui::Theme
+colors — Game owns the master m_theme, ApplyTheme pushes it into all five
+UIContexts live) and Resource Bars (health/stamina/mana fills,
+ResourceBarColors in PartyHud.h — the HUD widgets point at Game::m_barColors).
+The ColorPicker control's swatch opens an R/G/B/A slider popup; kThemeFields/
+kBarFields in Game.cpp drive both grids and the ini round-trip. Game tab
 empty so far. All persist to settings.ini next to exe (quality=0..3,
-volume=0..1, barscale, baropacity, theme_<name>=r,g,b,a; sliders save on
-release, pickers when their popup closes). Quality hot-swaps in place (WaitIdle +
+volume=0..1, barscale, baropacity, theme_<name>= and bar_<name>=r,g,b,a;
+sliders save on release, pickers when their popup closes). Quality hot-swaps in place (WaitIdle +
 rebuild); Ultra falls back per-material to 2k with a warning if 4k not
 installed.
 
