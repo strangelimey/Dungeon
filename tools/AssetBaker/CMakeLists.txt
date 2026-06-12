@@ -2,6 +2,7 @@
 # assets/ directory. Run manually after changing generation code:
 #   AssetBaker.exe <path-to-assets-dir>
 add_executable(AssetBaker
+	Bc7Encoder.cpp
 	GltfWriter.cpp
 	ImportTextures.cpp
 	Main.cpp

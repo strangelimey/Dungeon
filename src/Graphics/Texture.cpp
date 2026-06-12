@@ -35,38 +35,45 @@ assets::ImageData Downsample(const assets::ImageData& src) {
 	return dst;
 }
 
-u32 MipCount(u32 width, u32 height) {
-	u32 levels = 1;
-	u32 size = std::max(width, height);
-	while (size > 1) {
-		size /= 2;
-		++levels;
-	}
-	return levels;
-}
-
 } // namespace
 
-Texture::Texture(GraphicsDevice& device, const assets::ImageData& image)
-	: m_width(image.width), m_height(image.height) {
+Texture::Texture(GraphicsDevice& device, const assets::ImageData& image) {
 	// Build the full CPU mip chain on the spot (runtime-generated textures;
-	// file textures arrive pre-mipped via the MipChain constructor).
-	const u32 mipCount = MipCount(image.width, image.height);
-	std::vector<assets::ImageData> mips;
-	mips.reserve(mipCount);
-	mips.push_back(image);
-	for (u32 m = 1; m < mipCount; ++m) mips.push_back(Downsample(mips.back()));
-	Upload(device, mips);
+	// file textures arrive pre-mipped and BC7-compressed via the MipChain
+	// constructor).
+	assets::MipChain chain;
+	chain.width = image.width;
+	chain.height = image.height;
+	chain.format = assets::TextureFormat::Rgba8;
+
+	assets::ImageData level = image;
+	while (true) {
+		assets::TextureLevel out;
+		out.width = level.width;
+		out.height = level.height;
+		const bool last = level.width == 1 && level.height == 1;
+		assets::ImageData next;
+		if (!last) next = Downsample(level);
+		out.data = std::move(level.pixels);
+		chain.levels.push_back(std::move(out));
+		if (last) break;
+		level = std::move(next);
+	}
+	Upload(device, chain);
 }
 
-Texture::Texture(GraphicsDevice& device, const assets::MipChain& chain)
-	: m_width(chain.width), m_height(chain.height) {
+Texture::Texture(GraphicsDevice& device, const assets::MipChain& chain) {
 	DN_ASSERT(!chain.levels.empty(), "empty mip chain");
-	Upload(device, chain.levels);
+	Upload(device, chain);
 }
 
-void Texture::Upload(GraphicsDevice& device, const std::vector<assets::ImageData>& mips) {
-	const u32 mipCount = static_cast<u32>(mips.size());
+void Texture::Upload(GraphicsDevice& device, const assets::MipChain& chain) {
+	m_width = chain.width;
+	m_height = chain.height;
+	const u32 mipCount = static_cast<u32>(chain.levels.size());
+	const DXGI_FORMAT format = chain.format == assets::TextureFormat::Bc7
+								   ? DXGI_FORMAT_BC7_UNORM
+								   : DXGI_FORMAT_R8G8B8A8_UNORM;
 
 	D3D12_RESOURCE_DESC desc{};
 	desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
@@ -74,7 +81,7 @@ void Texture::Upload(GraphicsDevice& device, const std::vector<assets::ImageData
 	desc.Height = m_height;
 	desc.DepthOrArraySize = 1;
 	desc.MipLevels = static_cast<UINT16>(mipCount);
-	desc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+	desc.Format = format;
 	desc.SampleDesc.Count = 1;
 
 	const D3D12_HEAP_PROPERTIES defaultHeap = HeapProps(D3D12_HEAP_TYPE_DEFAULT);
@@ -82,7 +89,9 @@ void Texture::Upload(GraphicsDevice& device, const std::vector<assets::ImageData
 		&defaultHeap, D3D12_HEAP_FLAG_NONE, &desc, D3D12_RESOURCE_STATE_COPY_DEST,
 		nullptr, IID_PPV_ARGS(&m_resource)));
 
-	// One staging buffer holding every mip at its required alignment.
+	// One staging buffer holding every mip at its required alignment. The
+	// level data is tightly packed, so each source row is exactly
+	// rowSizes[m] bytes (for BC7 a "row" is a row of 4x4 blocks).
 	std::vector<D3D12_PLACED_SUBRESOURCE_FOOTPRINT> footprints(mipCount);
 	std::vector<UINT> rowCounts(mipCount);
 	std::vector<UINT64> rowSizes(mipCount);
@@ -103,10 +112,12 @@ void Texture::Upload(GraphicsDevice& device, const std::vector<assets::ImageData
 	DN_HR(staging->Map(0, &noRead, reinterpret_cast<void**>(&mapped)));
 	for (u32 m = 0; m < mipCount; ++m) {
 		const auto& fp = footprints[m];
-		const assets::ImageData& mip = mips[m];
+		const assets::TextureLevel& level = chain.levels[m];
+		DN_ASSERT(level.data.size() >= rowSizes[m] * rowCounts[m],
+				  "mip level smaller than its footprint");
 		for (u32 y = 0; y < rowCounts[m]; ++y)
 			std::memcpy(mapped + fp.Offset + static_cast<size_t>(y) * fp.Footprint.RowPitch,
-						mip.pixels.data() + static_cast<size_t>(y) * mip.width * 4,
+						level.data.data() + static_cast<size_t>(y) * rowSizes[m],
 						static_cast<size_t>(rowSizes[m]));
 	}
 	staging->Unmap(0, nullptr);
@@ -133,7 +144,7 @@ void Texture::Upload(GraphicsDevice& device, const std::vector<assets::ImageData
 
 	m_srv = device.AllocateSrv();
 	D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc{};
-	srvDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+	srvDesc.Format = format;
 	srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
 	srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
 	srvDesc.Texture2D.MipLevels = mipCount;

@@ -28,7 +28,7 @@ public:
 	u32 Height() const { return m_height; }
 
 private:
-	void Upload(GraphicsDevice& device, const std::vector<assets::ImageData>& mips);
+	void Upload(GraphicsDevice& device, const assets::MipChain& chain);
 
 	ComPtr<ID3D12Resource> m_resource;
 	SrvHandle m_srv;
