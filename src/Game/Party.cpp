@@ -75,20 +75,24 @@ void Party::HandleInput(const Input& input) {
 		step(kDirX[f], kDirZ[f]);
 	} else if (input.IsKeyDown('S')) {
 		step(-kDirX[f], -kDirZ[f]);
-	} else if (input.IsKeyDown('A')) { // strafe left
-		const int left = (f + 3) & 3;
+	} else if (input.IsKeyDown('A')) { // strafe left (screen-left)
+		// NOTE the camera convention: facing index +1 is the on-screen LEFT
+		// direction (forward = (sin yaw, cos yaw) with yaw decreasing per
+		// +1 facing step), so left/right use the opposite offsets from what
+		// a compass walk-through would suggest.
+		const int left = (f + 1) & 3;
 		step(kDirX[left], kDirZ[left]);
-	} else if (input.IsKeyDown('D')) { // strafe right
-		const int right = (f + 1) & 3;
+	} else if (input.IsKeyDown('D')) { // strafe right (screen-right)
+		const int right = (f + 3) & 3;
 		step(kDirX[right], kDirZ[right]);
-	} else if (input.WasKeyPressed('Q')) {
-		m_facing = (m_facing + 3) & 3;
-		m_targetYaw = m_currentYaw + kPi * 0.5f;
-		m_turning = true;
-		if (onTurn) onTurn();
-	} else if (input.WasKeyPressed('E')) {
+	} else if (input.WasKeyPressed('Q')) { // turn left (counter to screen-right)
 		m_facing = (m_facing + 1) & 3;
 		m_targetYaw = m_currentYaw - kPi * 0.5f;
+		m_turning = true;
+		if (onTurn) onTurn();
+	} else if (input.WasKeyPressed('E')) { // turn right
+		m_facing = (m_facing + 3) & 3;
+		m_targetYaw = m_currentYaw + kPi * 0.5f;
 		m_turning = true;
 		if (onTurn) onTurn();
 	}
