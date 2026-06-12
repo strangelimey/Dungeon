@@ -70,6 +70,7 @@ constexpr const char* kCeilingTextures[] = {"ceiling_rough", "ceiling_cracked"};
 constexpr float kFontDesignWindowH = 900.0f;
 constexpr float kHudFontH = 17.0f;
 constexpr float kMenuFontH = 28.0f;
+constexpr float kSheetFontH = 22.0f;
 constexpr float kTitleFontH = 64.0f;
 // Re-bakes wait for the window height to hold still this long, so an
 // interactive resize drag doesn't drain the GPU on every size change.
@@ -90,8 +91,9 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	  m_party(m_map, m_map.StartX(), m_map.StartZ()),
 	  m_ui(device, "", kHudFontH), m_menuUi(device, "", kMenuFontH),
 	  m_settingsUi(device, "", kMenuFontH), m_pauseUi(device, "", kMenuFontH),
-	  m_titleFont(device, "", kTitleFontH) {
+	  m_sheetUi(device, "", kSheetFontH), m_titleFont(device, "", kTitleFontH) {
 	LoadSettings();
+	m_characters = CreateDefaultParty();
 	// Party event hooks (survive Party::Reset).
 	m_party.onStep = [this] { m_audio.Play(m_sfxFootstep, 0.8f); };
 	m_party.onBlocked = [this] {
@@ -126,6 +128,7 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 
 	BuildMenu();
 	BuildPauseMenu();
+	BuildCharacterSheet();
 	BuildBootLoadTasks();
 }
 
@@ -594,10 +597,56 @@ void Game::BuildPauseMenu() {
 	});
 }
 
+// Character details page (clicking a party-bar portrait): the sheet widget
+// draws the page itself; prev/next buttons cycle the roster and Back (or
+// Esc) resumes play. Like the pause menu it overlays the frozen scene.
+void Game::BuildCharacterSheet() {
+	const float w = static_cast<float>(m_window.Width());
+	const float h = static_cast<float>(m_window.Height());
+	const gfx::Rect window{0, 0, w, h};
+
+	const float sheetW = 620.0f;
+	const float sheetH = 520.0f;
+	const float sx = (w - sheetW) * 0.5f;
+	const float sy = (h - sheetH) * 0.5f - 24.0f;
+	m_sheet = m_sheetUi.Add<CharacterSheet>(Norm({sx, sy, sheetW, sheetH}, window),
+											&m_titleFont);
+
+	const float btnY = sy + sheetH + 16.0f;
+	m_sheetUi.Add<ui::Button>(Norm({sx, btnY, 64, 40}, window), "<", [this] {
+		const size_t count = m_characters.size();
+		OpenCharacterSheet((m_sheetIndex + count - 1) % count);
+	});
+	m_sheetUi.Add<ui::Button>(Norm({sx + sheetW - 64, btnY, 64, 40}, window), ">",
+							  [this] {
+								  OpenCharacterSheet((m_sheetIndex + 1) %
+													 m_characters.size());
+							  });
+	m_sheetUi.Add<ui::Button>(Norm({(w - 180.0f) * 0.5f, btnY, 180, 40}, window),
+							  "Back", [this] {
+								  m_audio.Play(m_sfxClick, 0.5f);
+								  m_state = AppState::Playing;
+							  });
+}
+
+void Game::OpenCharacterSheet(size_t index) {
+	m_audio.Play(m_sfxClick, 0.5f);
+	m_sheetIndex = index;
+	m_sheet->SetCharacter(m_characters[index]);
+	m_state = AppState::CharacterSheet;
+}
+
 void Game::StartNewGame() {
 	m_party.Reset(m_map.StartX(), m_map.StartZ());
 	for (Monster& monster : m_monsters) monster.announced = false;
 	ApplyTorchPalette(0);
+
+	// Fresh stats for the same roster — element-wise so the addresses the
+	// party-bar panels and the sheet point at stay valid.
+	const std::vector<Character> fresh = CreateDefaultParty();
+	for (size_t i = 0; i < m_characters.size() && i < fresh.size(); ++i)
+		m_characters[i] = fresh[i];
+	m_sheet->SetCharacter(m_characters[m_sheetIndex]);
 
 	m_log->Clear();
 	m_log->AddLine("You descend into the dungeon...");
@@ -620,24 +669,42 @@ void Game::BuildHud() {
 	const float h = static_cast<float>(m_window.Height());
 	const gfx::Rect window{0, 0, w, h};
 
+	// Party bar across the top: one clickable slot per member (portrait,
+	// name, health/stamina/mana). Clicking opens the character sheet. The
+	// layout always reserves four slots so a short roster keeps its slot size.
+	const float barH = 96.0f;
+	const float slotGap = 10.0f;
+	const float slotW = (w - 2 * 16.0f - 3 * slotGap) / 4.0f;
+	for (size_t i = 0; i < m_characters.size() && i < 4; ++i) {
+		const float sx = 16.0f + static_cast<float>(i) * (slotW + slotGap);
+		m_ui.Add<CharacterPanel>(Norm({sx, 16, slotW, barH}, window),
+								 &m_characters[i], &m_titleFont,
+								 [this, i] { OpenCharacterSheet(i); });
+	}
+	const float belowBar = 16.0f + barH + 16.0f; // top edge for the side panels
+
 	// Message log, bottom-left.
 	m_log = m_ui.Add<ui::TextOutput>(Norm({16, h - 200, 520, 184}, window));
 
-	// Status labels, top-left.
-	m_ui.Add<ui::Panel>(Norm({16, 16, 240, 64}, window));
-	m_compass = m_ui.Add<ui::Label>(Norm({28, 26, 220, 20}, window), "Facing: South");
-	m_position = m_ui.Add<ui::Label>(Norm({28, 50, 220, 20}, window), "Position: -");
+	// Status labels, below the party bar on the left.
+	m_ui.Add<ui::Panel>(Norm({16, belowBar, 240, 64}, window));
+	m_compass = m_ui.Add<ui::Label>(Norm({28, belowBar + 10, 220, 20}, window),
+									"Facing: South");
+	m_position = m_ui.Add<ui::Label>(Norm({28, belowBar + 34, 220, 20}, window),
+									 "Position: -");
 	m_position->dim = true;
 
-	// Options panel, top-right.
+	// Options panel, below the party bar on the right.
 	const float panelW = 250;
 	const float px = w - panelW - 16;
-	m_ui.Add<ui::Panel>(Norm({px, 16, panelW, 176}, window));
-	m_ui.Add<ui::Label>(Norm({px + 14, 26, panelW - 28, 20}, window), "Options");
+	m_ui.Add<ui::Panel>(Norm({px, belowBar, panelW, 176}, window));
+	m_ui.Add<ui::Label>(Norm({px + 14, belowBar + 10, panelW - 28, 20}, window),
+						"Options");
 
-	m_ui.Add<ui::Label>(Norm({px + 14, 56, panelW - 28, 20}, window), "Torchlight")
+	m_ui.Add<ui::Label>(Norm({px + 14, belowBar + 40, panelW - 28, 20}, window),
+						"Torchlight")
 		->dim = true;
-	m_ui.Add<ui::DropDown>(Norm({px + 14, 80, panelW - 28, 26}, window),
+	m_ui.Add<ui::DropDown>(Norm({px + 14, belowBar + 64, panelW - 28, 26}, window),
 						   std::vector<std::string>{"Warm flame", "Cold moonfire",
 													"Eerie emberlight"},
 						   0, [this](int index) {
@@ -645,13 +712,15 @@ void Game::BuildHud() {
 							   ApplyTorchPalette(index);
 						   });
 
-	m_ui.Add<ui::Button>(Norm({px + 14, 120, (panelW - 38) / 2, 28}, window), "Wait",
-						 [this] {
-							 m_audio.Play(m_sfxClick, 0.5f);
-							 m_log->AddLine("You wait. The torches gutter.");
-						 });
 	m_ui.Add<ui::Button>(
-		Norm({px + 24 + (panelW - 38) / 2, 120, (panelW - 38) / 2, 28}, window),
+		Norm({px + 14, belowBar + 104, (panelW - 38) / 2, 28}, window), "Wait",
+		[this] {
+			m_audio.Play(m_sfxClick, 0.5f);
+			m_log->AddLine("You wait. The torches gutter.");
+		});
+	m_ui.Add<ui::Button>(
+		Norm({px + 24 + (panelW - 38) / 2, belowBar + 104, (panelW - 38) / 2, 28},
+			 window),
 		"Help", [this] {
 			m_audio.Play(m_sfxClick, 0.5f);
 			m_log->AddLine("W/S move, A/D strafe, Q/E turn.");
@@ -799,6 +868,7 @@ void Game::Update(float dt) {
 		m_menuUi.GetFont().SetHeight(kMenuFontH * fontScale);
 		m_settingsUi.GetFont().SetHeight(kMenuFontH * fontScale);
 		m_pauseUi.GetFont().SetHeight(kMenuFontH * fontScale);
+		m_sheetUi.GetFont().SetHeight(kSheetFontH * fontScale);
 		m_titleFont.SetHeight(kTitleFontH * fontScale);
 	}
 
@@ -843,6 +913,16 @@ void Game::Update(float dt) {
 			.Update(input, winW, windowH);
 		return;
 
+	case AppState::CharacterSheet:
+		// Frozen like Paused; only the sheet page updates. Esc resumes.
+		if (input.WasKeyPressed(VK_ESCAPE)) {
+			m_audio.Play(m_sfxClick, 0.5f);
+			m_state = AppState::Playing;
+			return;
+		}
+		m_sheetUi.Update(input, winW, windowH);
+		return;
+
 	case AppState::Playing:
 		break;
 	}
@@ -858,6 +938,9 @@ void Game::Update(float dt) {
 
 	// UI first so it can consume the mouse; keyboard always reaches the party.
 	m_ui.Update(input, winW, windowH);
+	// A portrait click may have opened the character sheet — freeze now
+	// rather than simulating one more frame.
+	if (m_state != AppState::Playing) return;
 	m_party.HandleInput(m_window.GetInput());
 	m_party.Update(dt);
 	m_pillarAnimator.Update(dt);
@@ -1092,14 +1175,25 @@ void Game::RenderPauseOverlay() {
 		.Render(m_spriteBatch, w, h);
 }
 
+// Portrait click: the frozen scene under a dark wash, with the sheet page
+// (and its prev/next/Back buttons) on top.
+void Game::RenderCharacterSheetOverlay() {
+	const float w = static_cast<float>(m_device.Width());
+	const float h = static_cast<float>(m_device.Height());
+
+	m_spriteBatch.DrawRect({0, 0, w, h}, {0, 0, 0, 0.55f});
+	m_sheetUi.Render(m_spriteBatch, w, h);
+}
+
 void Game::Render(ID3D12GraphicsCommandList* list) {
 	m_renderer.NewFrame(m_device.FrameIndex());
 	m_spriteBatch.NewFrame(m_device.FrameIndex());
 	if (m_particleBatch) m_particleBatch->NewFrame(m_device.FrameIndex());
 
-	// The 3D scene draws during play and under the pause menu (frozen);
-	// Loading and Menu are 2D-only.
-	if (m_state == AppState::Playing || m_state == AppState::Paused) {
+	// The 3D scene draws during play and under the pause/character-sheet
+	// overlays (frozen); Loading and Menu are 2D-only.
+	if (m_state == AppState::Playing || m_state == AppState::Paused ||
+		m_state == AppState::CharacterSheet) {
 		RenderShadowMaps(list);
 		RenderScene(list);
 	}
@@ -1115,6 +1209,7 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 					static_cast<float>(m_device.Height()));
 		break;
 	case AppState::Paused:      RenderPauseOverlay(); break;
+	case AppState::CharacterSheet: RenderCharacterSheetOverlay(); break;
 	}
 	m_spriteBatch.End();
 

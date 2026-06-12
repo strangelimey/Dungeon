@@ -18,6 +18,9 @@
 //   Paused      — Esc while playing: the world freezes (no simulation) and
 //                 a pause menu (Save/Load/Settings/Exit/Back) draws over
 //                 the frozen scene; Esc backs out / resumes
+//   CharacterSheet — clicking a party-bar portrait while playing: the world
+//                 freezes like Paused and the character details page draws
+//                 over it (prev/next cycle members, Esc/Back resumes)
 //
 // Everything binary loads from the assets/ directory next to the exe
 // (regenerate with tools/AssetBaker). Engine modules know nothing about
@@ -27,10 +30,12 @@
 
 #include "Animation/Animator.h"
 #include "Audio/AudioEngine.h"
+#include "Game/Character.h"
 #include "Game/DungeonEntities.h"
 #include "Game/DungeonMap.h"
 #include "Game/FireEffect.h"
 #include "Game/Party.h"
+#include "Game/PartyHud.h"
 #include "Graphics/Camera.h"
 #include "Graphics/ParticleBatch.h"
 #include "Graphics/Renderer.h"
@@ -62,7 +67,7 @@ public:
 	bool QuitRequested() const { return m_quitRequested; }
 
 private:
-	enum class AppState { Loading, Menu, LoadingGame, Playing, Paused };
+	enum class AppState { Loading, Menu, LoadingGame, Playing, Paused, CharacterSheet };
 	enum class MenuPage { Main, Settings };
 
 	// Quality tiers, selected in Settings (persisted to settings.ini next to
@@ -110,6 +115,8 @@ private:
 	void BuildMenu();
 	void BuildPauseMenu();
 	void BuildHud();
+	void BuildCharacterSheet();
+	void OpenCharacterSheet(size_t index); // freezes the world, shows the page
 	void StartNewGame();
 
 	// --- quality ---------------------------------------------------------------
@@ -141,6 +148,7 @@ private:
 	void DrawLoadProgress(float barY); // shared bar + step label
 	void RenderMenuOverlay();
 	void RenderPauseOverlay(); // dark wash + pause menu over the frozen scene
+	void RenderCharacterSheetOverlay(); // dark wash + the details page
 
 	Window& m_window;
 	gfx::GraphicsDevice& m_device;
@@ -163,6 +171,11 @@ private:
 	DungeonMap m_map;          // static layer (.map): structure, fixtures
 	DungeonEntities m_entities; // dynamic layer (.ent): monsters, items, buttons
 	Party m_party;
+	// Party roster (up to four). Filled once in the constructor and never
+	// resized — the party-bar panels and the sheet hold pointers into it, so
+	// StartNewGame resets the members in place.
+	std::vector<Character> m_characters;
+	size_t m_sheetIndex = 0; // member shown by the character sheet
 	gfx::Camera m_camera;
 	gfx::LightSet m_lights;
 	// Scratch reused by AssignShadowSlots: (distance², light index), sorted
@@ -219,11 +232,13 @@ private:
 	ui::UIContext m_menuUi;    // landing page (28px font)
 	ui::UIContext m_settingsUi; // settings page (28px font, shared by pause)
 	ui::UIContext m_pauseUi;   // pause menu (28px font)
+	ui::UIContext m_sheetUi;   // character sheet (22px font)
 	ui::Font m_titleFont;     // big face for "DUNGEON" titles
 	std::unique_ptr<gfx::Texture> m_titleBackground; // landing-page art
 	ui::TextOutput* m_log = nullptr;
 	ui::Label* m_compass = nullptr;
 	ui::Label* m_position = nullptr;
+	CharacterSheet* m_sheet = nullptr;
 
 	Vec3 m_torchColor{1.0f, 0.62f, 0.28f};
 	float m_time = 0.0f;

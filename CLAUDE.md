@@ -107,6 +107,13 @@ light at flame) and braziers at 'F', each with FireEffect particles
 (flame/spark/smoke via gfx::ParticleBatch premultiplied billboards) and
 fire-driven turbidity rings around them.
 
+The HUD's top bar shows the 4-member party (Character.h roster, widgets in
+PartyHud.h: portrait, name, health/stamina/mana bars); clicking a portrait
+freezes the world (AppState::CharacterSheet, like Paused) and opens the
+character details page (prev/next cycle members, Esc/Back resumes). Widgets
+hold pointers into Game::m_characters, so the roster is filled once and
+StartNewGame resets members in place.
+
 ## Workflow conventions used so far
 
 - Verify changes by launching the exe and driving it with PostMessage
@@ -125,6 +132,9 @@ fire-driven turbidity rings around them.
 - Continue/Load (landing) and Save/Load (pause menu) entries are inert
   (save system not started).
 - No combat: monsters are static blockers that announce + face the party.
+  Character stats (Character.h) are static placeholder data — nothing
+  drains health/stamina/mana yet; portraits are tinted initials pending
+  authored art.
 - Monster models are box-rigs; authored glTF would drop in via LoadModel
   (JOINTS_0 remap already handled).
 - BC7 encoder is mode-6 only (slight banding possible on smooth gradients).
