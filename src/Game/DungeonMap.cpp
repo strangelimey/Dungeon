@@ -19,14 +19,19 @@ const char* kLayout[] = {
 	"#.#.####.#.#.#.#",
 	"#.#..B...#...#.#",
 	"#.########.###.#",
-	"#DDDM....#.#...#",
+	"#DDD.....#.#...#",
 	"########D#.#.###",
 	"#TDDDSDDD#.#..T#",
-	"#D#######..##..#",
-	"#D#....T#.#..#.#",
-	"#DDB...#...#...#",
+	"#DDDDDMD#..##..#",
+	"#DD#D#DT#.#..#.#",
+	"#DDBDDD#...#...#",
 	"################",
 };
+// The lower-left block (rows 12-14) is the dust-shaft showcase: a dusty
+// chamber with two freestanding columns (3,13) and (5,13), a wall torch at
+// (7,13) behind them, and the mummy at (6,12) backlit beside it — the torch
+// beams through the column gaps and the mummy's shadow carve visible shafts
+// in the hanging dust.
 } // namespace
 
 DungeonMap::DungeonMap() {

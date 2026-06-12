@@ -374,8 +374,9 @@ void Game::UpdateLights(float time) {
 
 // Hands the kShadowSlots shadow cubes to the lights nearest the camera —
 // slot 0 (highest resolution + PCF) to the closest, coarser slots outward,
-// nothing beyond that. The carried torch (index 0) never casts shadows: it
-// sits at the eye, so its shadows hide behind their casters anyway.
+// nothing beyond that. The carried torch sits at the eye so it always wins
+// slot 0: its surface shadows mostly hide behind their casters, but it is
+// exactly what carves shafts through dusty air around nearby pillars.
 void Game::AssignShadowSlots() {
 	const Vec3 eye = m_party.EyePosition();
 
@@ -389,7 +390,6 @@ void Game::AssignShadowSlots() {
 
 	for (size_t i = 0; i < m_lights.points.size(); ++i) {
 		m_lights.points[i].shadowSlot = -1;
-		if (i == 0) continue; // carried torch
 		const Vec3 d = Sub(m_lights.points[i].position, eye);
 		candidates.push_back({d.x * d.x + d.y * d.y + d.z * d.z, i});
 	}
