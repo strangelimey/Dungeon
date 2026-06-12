@@ -36,14 +36,23 @@ assets::SoundData LoadSound(const std::string& name) {
 
 // Loads a texture by stem (no extension), preferring the baked .dds mip
 // chain (no runtime filtering); falls back to the PNG + runtime mips so a
-// fresh checkout still works before `AssetBaker mips` has run.
-std::unique_ptr<gfx::Texture> LoadTextureFile(gfx::GraphicsDevice& device,
-											  const std::string& stemPath) {
+// fresh checkout still works before `AssetBaker mips` has run. Returns null
+// if neither file exists.
+std::unique_ptr<gfx::Texture> TryLoadTextureFile(gfx::GraphicsDevice& device,
+												 const std::string& stemPath) {
 	if (auto mips = assets::LoadDdsFile(stemPath + ".dds"))
 		return std::make_unique<gfx::Texture>(device, *mips);
-	auto image = assets::LoadImageFile(stemPath + ".png");
-	DN_ASSERT(image.has_value(), image.error() + " — run AssetBaker over assets/");
-	return std::make_unique<gfx::Texture>(device, *image);
+	if (auto image = assets::LoadImageFile(stemPath + ".png"))
+		return std::make_unique<gfx::Texture>(device, *image);
+	return nullptr;
+}
+
+std::unique_ptr<gfx::Texture> LoadTextureFile(gfx::GraphicsDevice& device,
+											  const std::string& stemPath) {
+	auto texture = TryLoadTextureFile(device, stemPath);
+	DN_ASSERT(texture != nullptr,
+			  "missing texture " + stemPath + " — run AssetBaker over assets/");
+	return texture;
 }
 
 } // namespace
@@ -181,22 +190,27 @@ void Game::BuildLoadTasks() {
 
 const char* Game::QualitySuffix() const {
 	switch (m_quality) {
-	case Quality::Low:  return "low";
-	case Quality::High: return "high";
-	default:            return "med";
+	case Quality::Low:   return "low";
+	case Quality::High:
+	case Quality::Ultra: return "high"; // Ultra = high meshes + 4K textures
+	default:             return "med";
 	}
 }
 
 const char* Game::QualityTextureSuffix() const {
-	// Low and Medium use the 1K scans; High gets the 2K versions.
-	return m_quality == Quality::High ? "2k" : "1k";
+	switch (m_quality) {
+	case Quality::Ultra: return "4k";
+	case Quality::High:  return "2k";
+	default:             return "1k";
+	}
 }
 
 const char* Game::QualityLabel() const {
 	switch (m_quality) {
-	case Quality::Low:  return "Low";
-	case Quality::High: return "High";
-	default:            return "Medium";
+	case Quality::Low:   return "Low";
+	case Quality::High:  return "High";
+	case Quality::Ultra: return "Ultra";
+	default:             return "Medium";
 	}
 }
 
@@ -211,9 +225,9 @@ void Game::LoadDungeonBlocks() {
 
 void Game::SetQuality(Quality quality) {
 	if (quality == m_quality) return;
-	const bool textureResChanged =
-		(quality == Quality::High) != (m_quality == Quality::High);
+	const std::string oldTextureSuffix = QualityTextureSuffix();
 	m_quality = quality;
+	const bool textureResChanged = oldTextureSuffix != QualityTextureSuffix();
 	SaveQualitySetting();
 	if (m_settingsMenu)
 		m_settingsMenu->SetLabel(0, std::format("Quality: {}", QualityLabel()));
@@ -241,7 +255,7 @@ void Game::LoadQualitySetting() {
 	const size_t pos = text.find("quality=");
 	if (pos == std::string::npos || pos + 8 >= text.size()) return;
 	const char digit = text[pos + 8];
-	if (digit >= '0' && digit <= '2')
+	if (digit >= '0' && digit <= '3')
 		m_quality = static_cast<Quality>(digit - '0');
 }
 
@@ -259,9 +273,16 @@ void Game::LoadTextureSet(Surface& surface, std::initializer_list<const char*> n
 	surface.heightScale = heightScale;
 	const char* res = QualityTextureSuffix();
 	for (const char* name : names) {
-		const std::string stem =
-			paths::Asset(std::format("textures\\{}_{}", name, res));
-		surface.albedo.push_back(LoadTextureFile(m_device, stem));
+		std::string stem = paths::Asset(std::format("textures\\{}_{}", name, res));
+		auto albedo = TryLoadTextureFile(m_device, stem);
+		if (!albedo) {
+			// Ultra's 4K sets are fetchable content (FetchUltraTextures.ps1);
+			// drop to the always-present 2K set when they aren't installed.
+			log::Warn("{} not found at {} — falling back to 2k", name, res);
+			stem = paths::Asset(std::format("textures\\{}_2k", name));
+			albedo = LoadTextureFile(m_device, stem);
+		}
+		surface.albedo.push_back(std::move(albedo));
 		surface.normal.push_back(LoadTextureFile(m_device, stem + "_n"));
 	}
 }
@@ -407,7 +428,7 @@ void Game::BuildMenu() {
 		gfx::Rect{(w - menuW) * 0.5f, h * 0.46f, menuW, settingsH}, itemH);
 	m_settingsMenu->AddItem(std::format("Quality: {}", QualityLabel()), [this] {
 		m_audio.Play(m_sfxClick, 0.5f);
-		SetQuality(static_cast<Quality>((static_cast<int>(m_quality) + 1) % 3));
+		SetQuality(static_cast<Quality>((static_cast<int>(m_quality) + 1) % 4));
 		m_settingsMenu->SetLabel(0, std::format("Quality: {}", QualityLabel()));
 	});
 	m_settingsMenu->AddItem("Back", [this] {

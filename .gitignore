@@ -5,3 +5,7 @@ out/
 
 # Derived mip-chain textures (regenerate with AssetBaker mips)
 assets/textures/*.dds
+
+# Ultra (4K) texture sets are fetchable content - tools/FetchUltraTextures.ps1
+assets/textures/*_4k.png
+assets/textures/*_4k_n.png

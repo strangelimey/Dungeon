@@ -49,10 +49,12 @@ private:
 	enum class AppState { Loading, Menu, Playing };
 	enum class MenuPage { Main, Settings };
 
-	// Mesh complexity tiers: the worn dungeon blocks are baked at three
-	// tessellation levels; the user picks one in Settings (persisted to
-	// settings.ini next to the exe) and it hot-swaps without a restart.
-	enum class Quality { Low, Medium, High };
+	// Quality tiers, selected in Settings (persisted to settings.ini next to
+	// the exe, hot-swapped without restart). Meshes: low/med/high worn-block
+	// tessellation (Ultra reuses high). Textures: 1K (Low/Medium), 2K (High),
+	// 4K (Ultra — fetchable content, see tools/FetchUltraTextures.ps1; falls
+	// back to 2K with a warning when the 4K sets are absent).
+	enum class Quality { Low, Medium, High, Ultra };
 
 	// A texture variant set: parallel albedo / normal+height pairs plus the
 	// batched mesh bucket per variant.
