@@ -90,11 +90,13 @@ at launch with an on-disk cache (shadercache/, hash-invalidated) — edit
 
 ## Quality system
 
-Settings page (landing page) is tabbed Game/Video/Audio via ui::TabControl:
+Settings page (landing page) is tabbed Game/Video/Audio/UI via ui::TabControl:
 quality dropdown on Video (Low/Medium/High/Ultra: mesh tier low/med/high/high
-+ textures 1k/1k/2k/4k), master-volume slider on Audio, Game empty so far.
-Both persist to settings.ini next to exe (quality=0..3, volume=0..1;
-volume saves on slider release). Quality hot-swaps in place (WaitIdle +
++ textures 1k/1k/2k/4k), master-volume slider on Audio, party-bar sliders on
+UI (scale 0.5–1.5 resizes the bar about its top center and shifts the panels
+beneath it — Game::ApplyPartyBarScale; background opacity 0–1 fades the slot
+fills only), Game empty so far. All persist to settings.ini next to exe
+(quality=0..3, volume=0..1, barscale, baropacity; sliders save on release). Quality hot-swaps in place (WaitIdle +
 rebuild); Ultra falls back per-material to 2k with a warning if 4k not
 installed.
 

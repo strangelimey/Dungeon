@@ -354,12 +354,31 @@ void Game::LoadSettings() {
 				.ec == std::errc{})
 			m_audio.SetMasterVolume(std::clamp(volume, 0.0f, 1.0f));
 	}
+
+	const size_t spos = text.find("barscale=");
+	if (spos != std::string::npos) {
+		float scale = 1.0f;
+		if (std::from_chars(text.data() + spos + 9, text.data() + text.size(),
+							scale)
+				.ec == std::errc{})
+			m_partyBarScale = std::clamp(scale, 0.5f, 1.5f);
+	}
+
+	const size_t opos = text.find("baropacity=");
+	if (opos != std::string::npos) {
+		float opacity = 1.0f;
+		if (std::from_chars(text.data() + opos + 11, text.data() + text.size(),
+							opacity)
+				.ec == std::errc{})
+			m_partyBarOpacity = std::clamp(opacity, 0.0f, 1.0f);
+	}
 }
 
 void Game::SaveSettings() const {
 	const std::string text =
-		std::format("quality={}\nvolume={:.2f}\n", static_cast<int>(m_quality),
-					m_audio.MasterVolume());
+		std::format("quality={}\nvolume={:.2f}\nbarscale={:.2f}\nbaropacity={:.2f}\n",
+					static_cast<int>(m_quality), m_audio.MasterVolume(),
+					m_partyBarScale, m_partyBarOpacity);
 	if (!assets::WriteBinaryFile(paths::ExecutableDir() + "\\settings.ini",
 								 text.data(), text.size()))
 		log::Warn("Could not write settings.ini");
@@ -547,6 +566,7 @@ void Game::BuildMenu() {
 	const size_t tabGame = tabs->AddTab("Game");
 	const size_t tabVideo = tabs->AddTab("Video");
 	const size_t tabAudio = tabs->AddTab("Audio");
+	const size_t tabUi = tabs->AddTab("UI");
 	const gfx::Rect page{0, 0, tabsW, tabsH - stripH}; // child design space
 	const float pad = 24.0f;
 	const float rowW = page.w - 2 * pad;
@@ -573,6 +593,27 @@ void Game::BuildMenu() {
 		tabAudio, Norm({pad, pad + 38, rowW, 22}, page), "Volume", 0.0f, 1.0f,
 		m_audio.MasterVolume(), [this](float v) { m_audio.SetMasterVolume(v); });
 	volume->onRelease = [this] { SaveSettings(); };
+
+	// UI → Party Bar: scale resizes the bar live (about its top center) and
+	// opacity fades the slot backgrounds. Both apply while dragging and
+	// persist on release; safe before the HUD exists (the panel list is empty
+	// until the first game load).
+	tabs->AddChild<ui::Label>(tabUi, Norm({pad, pad, rowW, 28}, page), "Party Bar");
+	auto* barScale = tabs->AddChild<ui::Slider>(
+		tabUi, Norm({pad, pad + 70, rowW, 22}, page), "Scale", 0.5f, 1.5f,
+		m_partyBarScale, [this](float v) {
+			m_partyBarScale = v;
+			ApplyPartyBarScale();
+		});
+	barScale->onRelease = [this] { SaveSettings(); };
+	auto* barOpacity = tabs->AddChild<ui::Slider>(
+		tabUi, Norm({pad, pad + 126, rowW, 22}, page), "Background opacity", 0.0f,
+		1.0f, m_partyBarOpacity, [this](float v) {
+			m_partyBarOpacity = v;
+			for (CharacterPanel* panel : m_partyPanels)
+				panel->backgroundOpacity = v;
+		});
+	barOpacity->onRelease = [this] { SaveSettings(); };
 
 	const float backW = 220.0f;
 	m_settingsUi.Add<ui::Button>(
@@ -691,61 +732,104 @@ void Game::BuildHud() {
 
 	// Party bar across the top: one clickable slot per member (portrait,
 	// name, health/stamina/mana). Clicking opens the character sheet. The
-	// layout always reserves four slots so a short roster keeps its slot size.
-	const float barH = 96.0f;
-	const float slotGap = 10.0f;
-	const float slotW = (w - 2 * 16.0f - 3 * slotGap) / 4.0f;
+	// slot rects come from ApplyPartyBarScale (called below) so the Settings →
+	// UI scale slider can resize the bar at runtime; the layout always
+	// reserves four slots so a short roster keeps its slot size.
+	m_hudDesignW = w;
+	m_hudDesignH = h;
+	m_partyPanels.clear();
 	for (size_t i = 0; i < m_characters.size() && i < 4; ++i) {
-		const float sx = 16.0f + static_cast<float>(i) * (slotW + slotGap);
-		m_ui.Add<CharacterPanel>(Norm({sx, 16, slotW, barH}, window),
-								 &m_characters[i], &m_titleFont,
-								 [this, i] { OpenCharacterSheet(i); });
+		auto* panel = m_ui.Add<CharacterPanel>(gfx::Rect{}, &m_characters[i],
+											   &m_titleFont,
+											   [this, i] { OpenCharacterSheet(i); });
+		panel->backgroundOpacity = m_partyBarOpacity;
+		m_partyPanels.push_back(panel);
 	}
+	const float barH = 96.0f; // design height at scale 1
 	const float belowBar = 16.0f + barH + 16.0f; // top edge for the side panels
+
+	// Widgets under the bar register here so ApplyPartyBarScale can shift
+	// them when the bar grows or shrinks (design Y recovered from the
+	// fraction Norm just stored).
+	m_belowBarWidgets.clear();
+	auto below = [this, h](ui::Widget* widget) {
+		m_belowBarWidgets.push_back({widget, widget->bounds.y * h});
+	};
 
 	// Message log, bottom-left.
 	m_log = m_ui.Add<ui::TextOutput>(Norm({16, h - 200, 520, 184}, window));
 
 	// Status labels, below the party bar on the left.
-	m_ui.Add<ui::Panel>(Norm({16, belowBar, 240, 64}, window));
+	below(m_ui.Add<ui::Panel>(Norm({16, belowBar, 240, 64}, window)));
 	m_compass = m_ui.Add<ui::Label>(Norm({28, belowBar + 10, 220, 20}, window),
 									"Facing: South");
+	below(m_compass);
 	m_position = m_ui.Add<ui::Label>(Norm({28, belowBar + 34, 220, 20}, window),
 									 "Position: -");
 	m_position->dim = true;
+	below(m_position);
 
 	// Options panel, below the party bar on the right.
 	const float panelW = 250;
 	const float px = w - panelW - 16;
-	m_ui.Add<ui::Panel>(Norm({px, belowBar, panelW, 176}, window));
-	m_ui.Add<ui::Label>(Norm({px + 14, belowBar + 10, panelW - 28, 20}, window),
-						"Options");
+	below(m_ui.Add<ui::Panel>(Norm({px, belowBar, panelW, 176}, window)));
+	below(m_ui.Add<ui::Label>(Norm({px + 14, belowBar + 10, panelW - 28, 20}, window),
+							  "Options"));
 
-	m_ui.Add<ui::Label>(Norm({px + 14, belowBar + 40, panelW - 28, 20}, window),
-						"Torchlight")
-		->dim = true;
-	m_ui.Add<ui::DropDown>(Norm({px + 14, belowBar + 64, panelW - 28, 26}, window),
-						   std::vector<std::string>{"Warm flame", "Cold moonfire",
-													"Eerie emberlight"},
-						   0, [this](int index) {
-							   m_audio.Play(m_sfxClick, 0.5f);
-							   ApplyTorchPalette(index);
-						   });
+	auto* torchLabel = m_ui.Add<ui::Label>(
+		Norm({px + 14, belowBar + 40, panelW - 28, 20}, window), "Torchlight");
+	torchLabel->dim = true;
+	below(torchLabel);
+	below(m_ui.Add<ui::DropDown>(
+		Norm({px + 14, belowBar + 64, panelW - 28, 26}, window),
+		std::vector<std::string>{"Warm flame", "Cold moonfire",
+								 "Eerie emberlight"},
+		0, [this](int index) {
+			m_audio.Play(m_sfxClick, 0.5f);
+			ApplyTorchPalette(index);
+		}));
 
-	m_ui.Add<ui::Button>(
+	below(m_ui.Add<ui::Button>(
 		Norm({px + 14, belowBar + 104, (panelW - 38) / 2, 28}, window), "Wait",
 		[this] {
 			m_audio.Play(m_sfxClick, 0.5f);
 			m_log->AddLine("You wait. The torches gutter.");
-		});
-	m_ui.Add<ui::Button>(
+		}));
+	below(m_ui.Add<ui::Button>(
 		Norm({px + 24 + (panelW - 38) / 2, belowBar + 104, (panelW - 38) / 2, 28},
 			 window),
 		"Help", [this] {
 			m_audio.Play(m_sfxClick, 0.5f);
 			m_log->AddLine("W/S move, A/D strafe, Q/E turn.");
 			m_log->AddLine("Mouse wheel scrolls this log.");
-		});
+		}));
+
+	ApplyPartyBarScale();
+}
+
+// Re-derives the party-bar slot rects from m_partyBarScale — anchored to the
+// top center, so scale 1 reproduces the design layout above (16px margins,
+// 10px gaps, 96px tall) — and shifts the status/options widgets by the bar's
+// growth so they stay 16px clear of its bottom edge. No-op until BuildHud has
+// run (the settings sliders exist from boot, the HUD only after a game load).
+void Game::ApplyPartyBarScale() {
+	if (m_partyPanels.empty()) return;
+	const float w = m_hudDesignW;
+	const float h = m_hudDesignH;
+	const gfx::Rect window{0, 0, w, h};
+	const float s = m_partyBarScale;
+	const float slotGap = 10.0f * s;
+	const float slotW = (w - 2 * 16.0f - 3 * 10.0f) / 4.0f * s;
+	const float barX = (w - 4 * slotW - 3 * slotGap) * 0.5f;
+	for (size_t i = 0; i < m_partyPanels.size(); ++i)
+		m_partyPanels[i]->bounds =
+			Norm({barX + static_cast<float>(i) * (slotW + slotGap), 16.0f, slotW,
+				  96.0f * s},
+				 window);
+
+	const float shift = 96.0f * (s - 1.0f);
+	for (auto& [widget, designY] : m_belowBarWidgets)
+		widget->bounds.y = (designY + shift) / h;
 }
 
 void Game::ApplyTorchPalette(int index) {

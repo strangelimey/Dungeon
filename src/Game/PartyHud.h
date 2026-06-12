@@ -34,6 +34,10 @@ public:
 	void Update(ui::UIContext& ctx) override;
 	void Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) override;
 
+	// Multiplier on the slot background alpha (Settings → UI → Party Bar);
+	// the border, portrait, name, and bars stay fully opaque.
+	float backgroundOpacity = 1.0f;
+
 private:
 	const Character* m_character;
 	const ui::Font* m_portraitFont;

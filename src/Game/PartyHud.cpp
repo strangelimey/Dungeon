@@ -69,8 +69,10 @@ void CharacterPanel::Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	const ui::Theme& theme = ctx.GetTheme();
 	const gfx::Rect& px = Pixel();
 
-	batch.DrawRect(px, m_held ? theme.controlActive
-							  : (m_hot ? theme.controlHot : theme.panel));
+	Vec4 background =
+		m_held ? theme.controlActive : (m_hot ? theme.controlHot : theme.panel);
+	background.w *= backgroundOpacity;
+	batch.DrawRect(px, background);
 	ui::DrawBorder(batch, px, m_hot ? theme.accent : theme.panelBorder);
 
 	// Internals scale with the slot height (the slot itself is normalized).

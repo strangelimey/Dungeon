@@ -115,6 +115,9 @@ private:
 	void BuildMenu();
 	void BuildPauseMenu();
 	void BuildHud();
+	// Re-derives the party-bar slot rects from m_partyBarScale and shifts the
+	// widgets beneath the bar to match; no-op until BuildHud has run.
+	void ApplyPartyBarScale();
 	void BuildCharacterSheet();
 	void OpenCharacterSheet(size_t index); // freezes the world, shows the page
 	void StartNewGame();
@@ -123,7 +126,8 @@ private:
 	void LoadDungeonBlocks();        // loads the worn block set for m_quality
 	void LoadAllSurfaceTextures();   // loads the texture sets for m_quality
 	void SetQuality(Quality quality);
-	// settings.ini next to the exe: quality=0..3, volume=0..1.
+	// settings.ini next to the exe: quality=0..3, volume=0..1,
+	// barscale=0.5..1.5, baropacity=0..1.
 	void LoadSettings();
 	void SaveSettings() const;
 	const char* QualitySuffix() const;        // "low" / "med" / "high" (meshes)
@@ -242,6 +246,17 @@ private:
 	ui::Label* m_compass = nullptr;
 	ui::Label* m_position = nullptr;
 	CharacterSheet* m_sheet = nullptr;
+
+	// Party-bar appearance (Settings → UI tab, persisted). Scale resizes the
+	// slots about the bar's top center; opacity multiplies the slot background
+	// alpha (pushed into each panel's backgroundOpacity).
+	float m_partyBarScale = 1.0f;
+	float m_partyBarOpacity = 1.0f;
+	std::vector<CharacterPanel*> m_partyPanels; // owned by m_ui
+	// Widgets authored beneath the bar and their design-pixel Y at scale 1;
+	// ApplyPartyBarScale shifts them so they track the bar's bottom edge.
+	std::vector<std::pair<ui::Widget*, float>> m_belowBarWidgets;
+	float m_hudDesignW = 0.0f, m_hudDesignH = 0.0f; // window size at BuildHud
 
 	Vec3 m_torchColor{1.0f, 0.62f, 0.28f};
 	float m_time = 0.0f;
