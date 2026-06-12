@@ -98,7 +98,10 @@ installed.
 
 Loading (staged tasks, one per frame, progress screen) → Menu (baked title
 art title_bg, MenuList: Continue/Start New Game/Load/Settings — only
-Start New Game and Settings work) → Playing. Esc quits the app. Monsters
+Start New Game and Settings work) → Playing ⇄ Paused (Esc in-game freezes
+the world and shows Save/Load/Settings/Exit/Back over the scene; Esc backs
+out / resumes). Esc on the landing page quits; in-game quit is the pause
+menu's Exit (Game::QuitRequested polled by the main loop). Monsters
 block movement (no combat yet); fires are sconces at 'T' (wall-mounted,
 light at flame) and braziers at 'F', each with FireEffect particles
 (flame/spark/smoke via gfx::ParticleBatch premultiplied billboards) and
@@ -119,7 +122,8 @@ fire-driven turbidity rings around them.
 
 ## Known gaps / natural next steps
 
-- Continue/Load menu entries are inert (save system not started).
+- Continue/Load (landing) and Save/Load (pause menu) entries are inert
+  (save system not started).
 - No combat: monsters are static blockers that announce + face the party.
 - Monster models are box-rigs; authored glTF would drop in via LoadModel
   (JOINTS_0 remap already handled).

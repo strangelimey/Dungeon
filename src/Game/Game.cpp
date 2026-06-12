@@ -89,7 +89,8 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	  m_entities(paths::Asset("maps\\level1.ent"), m_map),
 	  m_party(m_map, m_map.StartX(), m_map.StartZ()),
 	  m_ui(device, "", kHudFontH), m_menuUi(device, "", kMenuFontH),
-	  m_settingsUi(device, "", kMenuFontH), m_titleFont(device, "", kTitleFontH) {
+	  m_settingsUi(device, "", kMenuFontH), m_pauseUi(device, "", kMenuFontH),
+	  m_titleFont(device, "", kTitleFontH) {
 	LoadSettings();
 	// Party event hooks (survive Party::Reset).
 	m_party.onStep = [this] { m_audio.Play(m_sfxFootstep, 0.8f); };
@@ -124,6 +125,7 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	m_shadowCandidates.reserve(gfx::kMaxPointLights);
 
 	BuildMenu();
+	BuildPauseMenu();
 	BuildBootLoadTasks();
 }
 
@@ -562,6 +564,36 @@ void Game::BuildMenu() {
 		});
 }
 
+// In-game pause menu (Esc while playing): same look as the landing list,
+// drawn over the frozen scene under a dark wash (RenderPauseOverlay).
+// Settings routes to the same shared page as the landing menu; Save/Load
+// wait on the save system.
+void Game::BuildPauseMenu() {
+	const float w = static_cast<float>(m_window.Width());
+	const float h = static_cast<float>(m_window.Height());
+	const gfx::Rect window{0, 0, w, h};
+
+	const float menuW = 420.0f;
+	const float itemH = 58.0f;
+	auto* menu = m_pauseUi.Add<ui::MenuList>(
+		Norm({(w - menuW) * 0.5f, h * 0.42f, menuW, itemH * 5}, window),
+		1.0f / 5.0f);
+	menu->AddItem("Save");               // not implemented yet
+	menu->AddItem("Load");               // not implemented yet
+	menu->AddItem("Settings", [this] {
+		m_audio.Play(m_sfxClick, 0.5f);
+		m_menuPage = MenuPage::Settings;
+	});
+	menu->AddItem("Exit", [this] {
+		m_audio.Play(m_sfxClick, 0.5f);
+		m_quitRequested = true;
+	});
+	menu->AddItem("Back", [this] {
+		m_audio.Play(m_sfxClick, 0.5f);
+		m_state = AppState::Playing;
+	});
+}
+
 void Game::StartNewGame() {
 	m_party.Reset(m_map.StartX(), m_map.StartZ());
 	for (Monster& monster : m_monsters) monster.announced = false;
@@ -766,26 +798,49 @@ void Game::Update(float dt) {
 		m_ui.GetFont().SetHeight(kHudFontH * fontScale);
 		m_menuUi.GetFont().SetHeight(kMenuFontH * fontScale);
 		m_settingsUi.GetFont().SetHeight(kMenuFontH * fontScale);
+		m_pauseUi.GetFont().SetHeight(kMenuFontH * fontScale);
 		m_titleFont.SetHeight(kTitleFontH * fontScale);
 	}
 
+	const Input& input = m_window.GetInput();
+	const float winW = static_cast<float>(m_window.Width());
+
 	switch (m_state) {
 	case AppState::Loading:
+		if (input.WasKeyPressed(VK_ESCAPE)) m_quitRequested = true;
 		if (RunLoadTasks()) m_state = AppState::Menu;
 		return;
 
 	case AppState::Menu:
 		// The menu sits on baked title art; nothing in the world simulates.
+		// Esc backs out of settings, or quits from the landing list.
+		if (input.WasKeyPressed(VK_ESCAPE)) {
+			if (m_menuPage == MenuPage::Settings) m_menuPage = MenuPage::Main;
+			else m_quitRequested = true;
+		}
 		(m_menuPage == MenuPage::Main ? m_menuUi : m_settingsUi)
-			.Update(m_window.GetInput(), static_cast<float>(m_window.Width()),
-					static_cast<float>(m_window.Height()));
+			.Update(input, winW, windowH);
 		return;
 
 	case AppState::LoadingGame:
+		if (input.WasKeyPressed(VK_ESCAPE)) m_quitRequested = true;
 		if (RunLoadTasks()) {
 			m_gameLoaded = true;
 			StartNewGame(); // sets AppState::Playing
 		}
+		return;
+
+	case AppState::Paused:
+		// The world is frozen — only the pause menu (or the shared settings
+		// page) updates. Esc backs out of settings, or resumes play.
+		if (input.WasKeyPressed(VK_ESCAPE)) {
+			m_audio.Play(m_sfxClick, 0.5f);
+			if (m_menuPage == MenuPage::Settings) m_menuPage = MenuPage::Main;
+			else m_state = AppState::Playing;
+			return;
+		}
+		(m_menuPage == MenuPage::Main ? m_pauseUi : m_settingsUi)
+			.Update(input, winW, windowH);
 		return;
 
 	case AppState::Playing:
@@ -793,9 +848,16 @@ void Game::Update(float dt) {
 	}
 
 	// --- Playing -------------------------------------------------------------
+	// Esc freezes the world and opens the pause menu.
+	if (input.WasKeyPressed(VK_ESCAPE)) {
+		m_audio.Play(m_sfxClick, 0.5f);
+		m_menuPage = MenuPage::Main;
+		m_state = AppState::Paused;
+		return;
+	}
+
 	// UI first so it can consume the mouse; keyboard always reaches the party.
-	m_ui.Update(m_window.GetInput(), static_cast<float>(m_window.Width()),
-				static_cast<float>(m_window.Height()));
+	m_ui.Update(input, winW, windowH);
 	m_party.HandleInput(m_window.GetInput());
 	m_party.Update(dt);
 	m_pillarAnimator.Update(dt);
@@ -1003,13 +1065,41 @@ void Game::RenderMenuOverlay() {
 		.Render(m_spriteBatch, w, h);
 }
 
+// Esc pause: the frozen scene stays up behind a dark wash, with a menu list
+// like the landing page. The settings page is the same one the landing menu
+// uses (m_menuPage routes both).
+void Game::RenderPauseOverlay() {
+	const float w = static_cast<float>(m_device.Width());
+	const float h = static_cast<float>(m_device.Height());
+	const ui::Theme& theme = m_pauseUi.GetTheme();
+
+	m_spriteBatch.DrawRect({0, 0, w, h}, {0, 0, 0, 0.55f});
+
+	const char* title = "PAUSED";
+	const float titleW = m_titleFont.MeasureWidth(title);
+	m_titleFont.Draw(m_spriteBatch, title, (w - titleW) * 0.5f, h * 0.16f,
+					 theme.accent);
+
+	if (m_menuPage == MenuPage::Settings) {
+		const char* subtitle = "settings";
+		ui::Font& font = m_pauseUi.GetFont();
+		const float subW = font.MeasureWidth(subtitle);
+		font.Draw(m_spriteBatch, subtitle, (w - subW) * 0.5f,
+				  h * (0.16f + 74.0f / kFontDesignWindowH), theme.textDim);
+	}
+
+	(m_menuPage == MenuPage::Main ? m_pauseUi : m_settingsUi)
+		.Render(m_spriteBatch, w, h);
+}
+
 void Game::Render(ID3D12GraphicsCommandList* list) {
 	m_renderer.NewFrame(m_device.FrameIndex());
 	m_spriteBatch.NewFrame(m_device.FrameIndex());
 	if (m_particleBatch) m_particleBatch->NewFrame(m_device.FrameIndex());
 
-	// The 3D scene only draws during play; Loading and Menu are 2D-only.
-	if (m_state == AppState::Playing) {
+	// The 3D scene draws during play and under the pause menu (frozen);
+	// Loading and Menu are 2D-only.
+	if (m_state == AppState::Playing || m_state == AppState::Paused) {
 		RenderShadowMaps(list);
 		RenderScene(list);
 	}
@@ -1024,6 +1114,7 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 		m_ui.Render(m_spriteBatch, static_cast<float>(m_device.Width()),
 					static_cast<float>(m_device.Height()));
 		break;
+	case AppState::Paused:      RenderPauseOverlay(); break;
 	}
 	m_spriteBatch.End();
 

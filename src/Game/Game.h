@@ -15,6 +15,9 @@
 //                 staged one task per frame behind its own progress screen
 //   Playing     — the crawler: UI input → party movement → animators →
 //                 lights (loading is staged, not threaded, in both states)
+//   Paused      — Esc while playing: the world freezes (no simulation) and
+//                 a pause menu (Save/Load/Settings/Exit/Back) draws over
+//                 the frozen scene; Esc backs out / resumes
 //
 // Everything binary loads from the assets/ directory next to the exe
 // (regenerate with tools/AssetBaker). Engine modules know nothing about
@@ -54,8 +57,12 @@ public:
 	void Update(float dt);
 	void Render(ID3D12GraphicsCommandList* list);
 
+	// Set by the pause menu's Exit entry (and Esc outside of play); the
+	// main loop polls it to leave cleanly.
+	bool QuitRequested() const { return m_quitRequested; }
+
 private:
-	enum class AppState { Loading, Menu, LoadingGame, Playing };
+	enum class AppState { Loading, Menu, LoadingGame, Playing, Paused };
 	enum class MenuPage { Main, Settings };
 
 	// Quality tiers, selected in Settings (persisted to settings.ini next to
@@ -101,6 +108,7 @@ private:
 
 	// --- menu / HUD ---------------------------------------------------------
 	void BuildMenu();
+	void BuildPauseMenu();
 	void BuildHud();
 	void StartNewGame();
 
@@ -132,6 +140,7 @@ private:
 	void RenderGameLoadingScreen(); // game load: title art + progress
 	void DrawLoadProgress(float barY); // shared bar + step label
 	void RenderMenuOverlay();
+	void RenderPauseOverlay(); // dark wash + pause menu over the frozen scene
 
 	Window& m_window;
 	gfx::GraphicsDevice& m_device;
@@ -148,6 +157,7 @@ private:
 	// Frame count when the current loading state was entered; tasks only run
 	// once its screen has been presented at least once.
 	u32 m_stateFrameMark = 0;
+	bool m_quitRequested = false;
 
 	// --- world -----------------------------------------------------------------
 	DungeonMap m_map;          // static layer (.map): structure, fixtures
@@ -207,7 +217,8 @@ private:
 	// --- UI ---------------------------------------------------------------------
 	ui::UIContext m_ui;        // in-game HUD (17px font)
 	ui::UIContext m_menuUi;    // landing page (28px font)
-	ui::UIContext m_settingsUi; // settings page (28px font)
+	ui::UIContext m_settingsUi; // settings page (28px font, shared by pause)
+	ui::UIContext m_pauseUi;   // pause menu (28px font)
 	ui::Font m_titleFont;     // big face for "DUNGEON" titles
 	std::unique_ptr<gfx::Texture> m_titleBackground; // landing-page art
 	ui::TextOutput* m_log = nullptr;

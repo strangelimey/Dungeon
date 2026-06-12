@@ -51,7 +51,9 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
 
 		window.GetInput().EndFrame();
 
-		if (window.GetInput().IsKeyDown(VK_ESCAPE)) break;
+		// Esc is state-dependent (pause in-game, back out of menus); the
+		// game raises this when it actually means quit.
+		if (game.QuitRequested()) break;
 	}
 
 	device.WaitIdle();
