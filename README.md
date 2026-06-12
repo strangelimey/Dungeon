@@ -54,6 +54,8 @@ dependency rules.
 ## Asset pipeline
 
 The game loads only files from `assets/` — nothing is generated at runtime.
+Levels are plain ASCII text under `assets/maps/` (see `level1.map` for the
+glyph legend) — edit the file and relaunch, no rebuild needed.
 Textures come in albedo + `_n` pairs (`_n` holds the tangent-space normal in
 RGB and a height field in alpha, used for bump and parallax mapping). Dungeon
 cells are instanced from block models in two sets: the `*_block_worn.gltf`

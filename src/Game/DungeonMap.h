@@ -1,13 +1,15 @@
 // ============================================================================
-// Game/DungeonMap.h — the level definition.
+// Game/DungeonMap.h — the level definition, loaded from a data file.
 //
-// The dungeon is an ASCII grid (see kLayout in the .cpp): '#' rock, '.'
-// floor, 'T' wall torch, 'P' party start, 'S'/'M'/'B' monster spawns.
+// Levels are ASCII grid text files under assets/maps/ (see level1.map for
+// the glyph legend: '#' rock, '.' floor, 'D' dust, 'T' sconce, 'F' brazier,
+// 'P' start, 'S'/'M'/'B' monsters; ';' lines are comments). The constructor
+// parses and validates the file — unknown glyphs, ragged rows, or a missing
+// start cell fail hard with the file name and position.
+//
 // Cell (x, z) maps to world space as center ((x+0.5), 0, (z+0.5)) * kCellSize
-// with +X = east and +Z = south (row index grows southward).
-//
-// To author a new level today: edit kLayout. The geometry builder, torch
-// lights, and monster spawns all derive from it.
+// with +X = east and +Z = south (row index grows southward). The geometry
+// builder, fires, turbidity grid, and monster spawns all derive from this.
 // ============================================================================
 #pragma once
 
@@ -30,7 +32,8 @@ enum class Cell : u8 { Wall, Floor };
 // cell center is ((x + 0.5) * kCellSize, 0, (z + 0.5) * kCellSize).
 class DungeonMap {
 public:
-	DungeonMap();
+	// Loads and validates a .map file; failures are fatal with a clear message.
+	explicit DungeonMap(const std::string& path);
 
 	int Width() const { return m_width; }
 	int Height() const { return m_height; }

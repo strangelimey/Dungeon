@@ -42,6 +42,7 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 		   gfx::SpriteBatch& spriteBatch, audio::AudioEngine& audio)
 	: m_window(window), m_device(device), m_renderer(renderer),
 	  m_spriteBatch(spriteBatch), m_audio(audio),
+	  m_map(paths::Asset("maps\\level1.map")),
 	  m_party(m_map, m_map.StartX(), m_map.StartZ()),
 	  m_ui(device, "", 17.0f), m_menuUi(device, "", 28.0f),
 	  m_titleFont(device, "", 64.0f) {

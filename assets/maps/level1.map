@@ -1,0 +1,29 @@
+; Dungeon — level 1.
+; One character per cell; every row must be the same width.
+; Lines starting with ';' and blank lines are ignored.
+;
+;   #  solid rock          .  floor
+;   P  party start         D  dusty floor (air turbidity 1)
+;   T  wall torch sconce   F  fire brazier (blocks movement)
+;   S  skeleton            M  mummy            B  blob
+;
+; Fires raise the air turbidity of their own and nearby squares.
+; The lower-left block (rows 12-14) is the dust-shaft showcase: a dusty
+; chamber with two freestanding columns, a wall torch behind them, and
+; the mummy backlit beside it.
+################
+#P....ST#......#
+#.#####..#.###.#
+#.#....#.#.#T#.#
+#.#.##.#.#.#.#.#
+#.#.#TF#.#.#.#.#
+#.#.####.#.#.#.#
+#....B...#...#.#
+#.########.###.#
+#DDD.....#.#..F#
+########D#.#.###
+#TDDDSDDD#.#..T#
+#DDDDDMD#..##..#
+#DD#D#DT#.#..#.#
+#DDBDDD#..F#...#
+################

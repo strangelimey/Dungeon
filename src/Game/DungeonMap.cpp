@@ -1,70 +1,88 @@
 #include "Game/DungeonMap.h"
 
+#include "Assets/File.h"
 #include "Core/Assert.h"
+#include "Core/Log.h"
 
 #include <algorithm>
 #include <cmath>
+#include <format>
 
 namespace dungeon::game {
 
 namespace {
-// '#' wall, '.' floor, 'T' floor with a wall torch (sconce), 'F' floor with
-// a fire brazier, 'P' party start, 'S' skeleton, 'M' mummy, 'B' blob (all
-// monster cells are floor), 'D' dusty floor (air turbidity 1). Every fire
-// additionally raises the turbidity of its own and nearby squares — smoke
-// hangs around flames even in otherwise clear halls.
-const char* kLayout[] = {
-	"################",
-	"#P....ST#......#",
-	"#.#####..#.###.#",
-	"#.#....#.#.#T#.#",
-	"#.#.##.#.#.#.#.#",
-	"#.#.#TF#.#.#.#.#",
-	"#.#.####.#.#.#.#",
-	"#....B...#...#.#",
-	"#.########.###.#",
-	"#DDD.....#.#..F#",
-	"########D#.#.###",
-	"#TDDDSDDD#.#..T#",
-	"#DDDDDMD#..##..#",
-	"#DD#D#DT#.#..#.#",
-	"#DDBDDD#..F#...#",
-	"################",
-};
-// The lower-left block (rows 12-14) is the dust-shaft showcase: a dusty
-// chamber with two freestanding columns (3,13) and (5,13), a wall torch at
-// (7,13) behind them, and the mummy at (6,12) backlit beside it — the torch
-// beams through the column gaps and the mummy's shadow carve visible shafts
-// in the hanging dust.
+
+// Splits the raw map file into grid rows: strips '\r', drops blank lines and
+// ';' comment lines. The grid is everything that remains, in order.
+std::vector<std::string> ReadGridRows(const std::vector<u8>& bytes) {
+	std::vector<std::string> rows;
+	std::string line;
+	auto flush = [&] {
+		if (!line.empty() && line.back() == '\r') line.pop_back();
+		if (!line.empty() && line[0] != ';') rows.push_back(line);
+		line.clear();
+	};
+	for (const u8 byte : bytes) {
+		if (static_cast<char>(byte) == '\n') flush();
+		else line.push_back(static_cast<char>(byte));
+	}
+	flush();
+	return rows;
+}
+
 } // namespace
 
-DungeonMap::DungeonMap() {
-	m_height = static_cast<int>(std::size(kLayout));
-	m_width = static_cast<int>(std::string(kLayout[0]).size());
+DungeonMap::DungeonMap(const std::string& path) {
+	auto bytes = assets::ReadBinaryFile(path);
+	DN_ASSERT(bytes.has_value(), bytes.error());
+	const std::vector<std::string> rows = ReadGridRows(*bytes);
+	DN_ASSERT(!rows.empty(), "map file has no grid rows: " + path);
+
+	m_height = static_cast<int>(rows.size());
+	m_width = static_cast<int>(rows[0].size());
 	m_cells.resize(static_cast<size_t>(m_width) * m_height, Cell::Wall);
 	m_turbidity.resize(m_cells.size(), 0.0f);
 
+	bool foundStart = false;
 	for (int z = 0; z < m_height; ++z) {
-		const std::string row = kLayout[z];
-		DN_ASSERT(static_cast<int>(row.size()) == m_width, "ragged map row");
+		const std::string& row = rows[static_cast<size_t>(z)];
+		DN_ASSERT(static_cast<int>(row.size()) == m_width,
+				  std::format("ragged map row {} in {}", z, path));
 		for (int x = 0; x < m_width; ++x) {
 			const char c = row[static_cast<size_t>(x)];
-			Cell cell = c == '#' ? Cell::Wall : Cell::Floor;
-			if (c == 'D') m_turbidity[static_cast<size_t>(z) * m_width + x] = 1.0f;
-			if (c == 'T') m_torches.emplace_back(x, z);
-			if (c == 'F') m_braziers.emplace_back(x, z);
-			if (c == 'S' || c == 'M' || c == 'B') m_monsters.push_back({c, x, z});
-			if (c == 'P') {
+			switch (c) {
+			case '#': break; // solid rock (the default)
+			case '.': break;
+			case 'D': m_turbidity[static_cast<size_t>(z) * m_width + x] = 1.0f; break;
+			case 'T': m_torches.emplace_back(x, z); break;
+			case 'F': m_braziers.emplace_back(x, z); break;
+			case 'S':
+			case 'M':
+			case 'B': m_monsters.push_back({c, x, z}); break;
+			case 'P':
+				DN_ASSERT(!foundStart,
+						  std::format("multiple 'P' start cells in {}", path));
 				m_startX = x;
 				m_startZ = z;
+				foundStart = true;
+				break;
+			default:
+				DN_ASSERT(false, std::format("unknown map glyph '{}' at column {}, row {} in {}",
+											 c, x, z, path));
 			}
-			m_cells[static_cast<size_t>(z) * m_width + x] = cell;
+			m_cells[static_cast<size_t>(z) * m_width + x] =
+				c == '#' ? Cell::Wall : Cell::Floor;
 		}
 	}
+	DN_ASSERT(foundStart, "map has no 'P' start cell: " + path);
 
 	// Fires thicken the air around them (braziers more than sconces).
 	for (const auto& [bx, bz] : m_braziers) AddFireTurbidity(bx, bz, 0.55f);
 	for (const auto& [tx, tz] : m_torches) AddFireTurbidity(tx, tz, 0.28f);
+
+	log::Info("Loaded map {}: {}x{}, {} torches, {} braziers, {} monsters", path,
+			  m_width, m_height, m_torches.size(), m_braziers.size(),
+			  m_monsters.size());
 }
 
 // Fires raise the air turbidity of their own square and the squares nearby
