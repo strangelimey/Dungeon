@@ -89,9 +89,10 @@ at launch with an on-disk cache (shadercache/, hash-invalidated) — edit
 Settings page (landing page) is tabbed Game/Video/Audio via ui::TabControl:
 quality dropdown on Video (Low/Medium/High/Ultra: mesh tier low/med/high/high
 + textures 1k/1k/2k/4k), master-volume slider on Audio, Game empty so far.
-Quality persists to settings.ini next to exe (quality=0..3); hot-swaps in
-place (WaitIdle + rebuild). Ultra falls back per-material to 2k with a
-warning if 4k not installed.
+Both persist to settings.ini next to exe (quality=0..3, volume=0..1;
+volume saves on slider release). Quality hot-swaps in place (WaitIdle +
+rebuild); Ultra falls back per-material to 2k with a warning if 4k not
+installed.
 
 ## Game state machine
 
