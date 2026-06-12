@@ -168,7 +168,14 @@ PartyHud.h: portrait, name, health/stamina/mana bars); clicking a portrait
 freezes the world (AppState::CharacterSheet, like Paused) and opens the
 character details page (prev/next cycle members, Esc/Back resumes). Widgets
 hold pointers into Game::m_characters, so the roster is filled once and
-StartNewGame resets members in place.
+StartNewGame resets members in place. Left column under the bar: the
+facing/position panel, then the Options panel (torchlight dropdown,
+Wait/Help). Right edge: a Dungeon Master-style control panel — six movement
+arrow buttons (turn/forward over strafe/back; GameUI::onMoveAction →
+Party::Act(MoveAction), the same discrete actions the bound keys map to in
+HandleInput), a left+right HandSlot (PartyHud.h) pair per member (empty
+boxes with the character's identity stripe; clicking logs "hands are empty"
+until items exist), and a reserved Magic area below.
 
 ## Workflow conventions used so far
 

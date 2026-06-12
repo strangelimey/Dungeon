@@ -105,6 +105,41 @@ void CharacterPanel::Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	}
 }
 
+// --- HandSlot ------------------------------------------------------------------
+
+HandSlot::HandSlot(const gfx::Rect& rect, const Character* character,
+				   std::function<void()> onClick)
+	: m_character(character), m_onClick(std::move(onClick)) {
+	bounds = rect;
+}
+
+void HandSlot::Update(ui::UIContext& ctx) {
+	const Input* input = ctx.CurrentInput();
+	if (!input) return;
+	m_hot = !ctx.IsMouseConsumed() &&
+			Pixel().Contains(input->MouseX(), input->MouseY());
+	if (m_hot) {
+		if (input->WasMousePressed(MouseButton::Left)) m_held = true;
+		ctx.ConsumeMouse();
+	}
+	if (m_held && input->WasMouseReleased(MouseButton::Left)) {
+		if (m_hot && m_onClick) m_onClick();
+		m_held = false;
+	}
+}
+
+void HandSlot::Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
+	const ui::Theme& theme = ctx.GetTheme();
+	const gfx::Rect& px = Pixel();
+	batch.DrawRect(px, m_held ? theme.controlActive
+							  : (m_hot ? theme.controlHot : theme.control));
+	// Identity stripe along the bottom edge — the slot is otherwise empty
+	// until items exist to draw in it.
+	batch.DrawRect({px.x + 1, px.y + px.h - 4, px.w - 2, 3},
+				   m_character->portraitColor);
+	ui::DrawBorder(batch, px, m_hot ? theme.accent : theme.panelBorder);
+}
+
 // --- CharacterSheet ----------------------------------------------------------
 
 // The sheet is authored at 620x520 design pixels and scaled to the live rect

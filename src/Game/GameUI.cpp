@@ -406,20 +406,19 @@ void GameUI::BuildHud() {
 	m_position->dim = true;
 	below(m_position);
 
-	// Options panel, below the party bar on the right.
-	const float panelW = 250;
-	const float px = w - panelW - 16;
-	below(m_hudUi.Add<ui::Panel>(Norm({px, belowBar, panelW, 176}, window)));
-	below(m_hudUi.Add<ui::Label>(Norm({px + 14, belowBar + 10, panelW - 28, 20}, window),
+	// Options panel (torchlight + wait/help), on the left under the status
+	// panel — the right edge belongs to the control panel.
+	const float optTop = belowBar + 76;
+	below(m_hudUi.Add<ui::Panel>(Norm({16, optTop, 240, 144}, window)));
+	below(m_hudUi.Add<ui::Label>(Norm({30, optTop + 10, 212, 20}, window),
 								 loc::Tr("hud.options")));
 
 	auto* torchLabel = m_hudUi.Add<ui::Label>(
-		Norm({px + 14, belowBar + 40, panelW - 28, 20}, window),
-		loc::Tr("hud.torchlight"));
+		Norm({30, optTop + 40, 212, 20}, window), loc::Tr("hud.torchlight"));
 	torchLabel->dim = true;
 	below(torchLabel);
 	below(m_hudUi.Add<ui::DropDown>(
-		Norm({px + 14, belowBar + 64, panelW - 28, 26}, window),
+		Norm({30, optTop + 64, 212, 26}, window),
 		std::vector<std::string>{loc::Tr("torch.warm"), loc::Tr("torch.cold"),
 								 loc::Tr("torch.eerie")},
 		m_torchPalette, [this](int index) {
@@ -428,20 +427,81 @@ void GameUI::BuildHud() {
 			onTorchPalette(index);
 		}));
 
-	below(m_hudUi.Add<ui::Button>(
-		Norm({px + 14, belowBar + 104, (panelW - 38) / 2, 28}, window),
-		loc::Tr("hud.wait"), [this] {
-			Click();
-			m_log->AddLine(loc::Tr("log.wait"));
-		}));
-	below(m_hudUi.Add<ui::Button>(
-		Norm({px + 24 + (panelW - 38) / 2, belowBar + 104, (panelW - 38) / 2, 28},
-			 window),
-		loc::Tr("hud.help"), [this] {
-			Click();
-			m_log->AddLine(m_settings.MoveKeysHelp());
-			m_log->AddLine(loc::Tr("log.scroll_hint"));
-		}));
+	below(m_hudUi.Add<ui::Button>(Norm({30, optTop + 104, 101, 28}, window),
+								  loc::Tr("hud.wait"), [this] {
+									  Click();
+									  m_log->AddLine(loc::Tr("log.wait"));
+								  }));
+	below(m_hudUi.Add<ui::Button>(Norm({141, optTop + 104, 101, 28}, window),
+								  loc::Tr("hud.help"), [this] {
+									  Click();
+									  m_log->AddLine(m_settings.MoveKeysHelp());
+									  m_log->AddLine(loc::Tr("log.scroll_hint"));
+								  }));
+
+	// Control panel down the right edge, Dungeon Master style: movement
+	// arrows on top, then each member's two hands, then the (future) magic
+	// area. The arrows feed the same discrete Party actions as the bound
+	// keys — the world's own step/turn/bump feedback covers the audio, so
+	// they skip the UI click.
+	const float panelW = 250.0f;
+	const float px = w - panelW - 16.0f;
+	const float pad = 14.0f;
+	const float innerW = panelW - 2 * pad;
+	below(m_hudUi.Add<ui::Panel>(Norm({px, belowBar, panelW, 466}, window)));
+
+	// Movement arrows: turn left / forward / turn right over strafe left /
+	// back / strafe right (the classic six).
+	const struct {
+		const char* glyph;
+		MoveAction action;
+	} moves[] = {
+		{"«", MoveAction::TurnLeft}, {"^", MoveAction::Forward},
+		{"»", MoveAction::TurnRight}, {"<", MoveAction::StrafeLeft},
+		{"v", MoveAction::Back},      {">", MoveAction::StrafeRight},
+	};
+	const float moveW = (innerW - 2 * 8.0f) / 3.0f;
+	for (size_t i = 0; i < std::size(moves); ++i) {
+		below(m_hudUi.Add<ui::Button>(
+			Norm({px + pad + (moveW + 8.0f) * static_cast<float>(i % 3),
+				  belowBar + 12 + 42.0f * static_cast<float>(i / 3), moveW, 34},
+				 window),
+			moves[i].glyph,
+			[this, action = moves[i].action] { onMoveAction(action); }));
+	}
+
+	// Four hand pairs, one per member: the name over a left and a right hand
+	// box. The slots stay empty until items exist; clicking one logs that.
+	const float handW = (innerW - 8.0f) / 2.0f;
+	float setTop = belowBar + 100.0f;
+	for (size_t i = 0; i < m_characters.size() && i < 4; ++i) {
+		auto* name = m_hudUi.Add<ui::Label>(
+			Norm({px + pad, setTop, innerW, 18}, window), m_characters[i].name);
+		name->dim = true;
+		below(name);
+		for (int hand = 0; hand < 2; ++hand) {
+			below(m_hudUi.Add<HandSlot>(
+				Norm({px + pad + (handW + 8.0f) * static_cast<float>(hand),
+					  setTop + 20, handW, 38},
+					 window),
+				&m_characters[i], [this, i] {
+					Click();
+					m_log->AddLine(
+						loc::Format("log.hands_empty", m_characters[i].name));
+				}));
+		}
+		setTop += 66.0f;
+	}
+
+	// Reserved magic area (spellcasting comes later).
+	below(m_hudUi.Add<ui::Label>(Norm({px + pad, belowBar + 364, innerW, 20}, window),
+								 loc::Tr("hud.magic")));
+	below(m_hudUi.Add<ui::Panel>(Norm({px + pad, belowBar + 388, innerW, 64}, window)));
+	auto* magicNone = m_hudUi.Add<ui::Label>(
+		Norm({px + pad + 10, belowBar + 410, innerW - 20, 20}, window),
+		loc::Tr("hud.magic_none"));
+	magicNone->dim = true;
+	below(magicNone);
 
 	ApplyPartyBarScale();
 }

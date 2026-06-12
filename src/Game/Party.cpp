@@ -63,38 +63,64 @@ bool Party::TryStep(int dx, int dz) {
 }
 
 void Party::HandleInput(const Input& input) {
+	if (input.IsKeyDown(m_moveKeys.forward)) {
+		Act(MoveAction::Forward);
+	} else if (input.IsKeyDown(m_moveKeys.back)) {
+		Act(MoveAction::Back);
+	} else if (input.IsKeyDown(m_moveKeys.strafeLeft)) {
+		Act(MoveAction::StrafeLeft);
+	} else if (input.IsKeyDown(m_moveKeys.strafeRight)) {
+		Act(MoveAction::StrafeRight);
+	} else if (input.WasKeyPressed(m_moveKeys.turnLeft)) {
+		Act(MoveAction::TurnLeft);
+	} else if (input.WasKeyPressed(m_moveKeys.turnRight)) {
+		Act(MoveAction::TurnRight);
+	}
+}
+
+void Party::Act(MoveAction action) {
 	if (IsMoving()) return; // one action at a time keeps the grid feel
 	if (m_blockCooldown > 0.0f) return;
 
 	auto step = [this](int dx, int dz) {
 		if (!TryStep(dx, dz)) m_blockCooldown = 0.4f;
 	};
+	auto turn = [this](float deltaYaw) {
+		m_targetYaw = m_currentYaw + deltaYaw;
+		m_turning = true;
+		if (onTurn) onTurn();
+	};
 
 	const int f = m_facing;
-	if (input.IsKeyDown(m_moveKeys.forward)) {
+	switch (action) {
+	case MoveAction::Forward:
 		step(kDirX[f], kDirZ[f]);
-	} else if (input.IsKeyDown(m_moveKeys.back)) {
+		break;
+	case MoveAction::Back:
 		step(-kDirX[f], -kDirZ[f]);
-	} else if (input.IsKeyDown(m_moveKeys.strafeLeft)) { // strafe left (screen-left)
+		break;
+	case MoveAction::StrafeLeft: { // strafe left (screen-left)
 		// NOTE the camera convention: facing index +1 is the on-screen LEFT
 		// direction (forward = (sin yaw, cos yaw) with yaw decreasing per
 		// +1 facing step), so left/right use the opposite offsets from what
 		// a compass walk-through would suggest.
 		const int left = (f + 1) & 3;
 		step(kDirX[left], kDirZ[left]);
-	} else if (input.IsKeyDown(m_moveKeys.strafeRight)) { // strafe right (screen-right)
+		break;
+	}
+	case MoveAction::StrafeRight: { // strafe right (screen-right)
 		const int right = (f + 3) & 3;
 		step(kDirX[right], kDirZ[right]);
-	} else if (input.WasKeyPressed(m_moveKeys.turnLeft)) { // turn left (counter to screen-right)
+		break;
+	}
+	case MoveAction::TurnLeft: // turn left (counter to screen-right)
 		m_facing = (m_facing + 1) & 3;
-		m_targetYaw = m_currentYaw - kPi * 0.5f;
-		m_turning = true;
-		if (onTurn) onTurn();
-	} else if (input.WasKeyPressed(m_moveKeys.turnRight)) { // turn right
+		turn(-kPi * 0.5f);
+		break;
+	case MoveAction::TurnRight: // turn right
 		m_facing = (m_facing + 3) & 3;
-		m_targetYaw = m_currentYaw + kPi * 0.5f;
-		m_turning = true;
-		if (onTurn) onTurn();
+		turn(kPi * 0.5f);
+		break;
 	}
 }
 

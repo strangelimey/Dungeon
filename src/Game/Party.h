@@ -34,6 +34,10 @@ struct MoveKeys {
 	int turnRight = 'E';
 };
 
+// One discrete party action. HandleInput maps the bound keys onto these; the
+// HUD's movement buttons feed them straight into Party::Act.
+enum class MoveAction { Forward, Back, StrafeLeft, StrafeRight, TurnLeft, TurnRight };
+
 class Party {
 public:
 	Party(const DungeonMap& map, int x, int z);
@@ -43,6 +47,10 @@ public:
 	void Reset(int x, int z);
 
 	void HandleInput(const Input& input);
+	// Requests one discrete action under the same rules as a key press:
+	// ignored while a move or turn is in flight or during the blocked-move
+	// cooldown, so a mashed HUD button can't outrun the grid.
+	void Act(MoveAction action);
 	void Update(float dt);
 
 	// Pace multiplier from the slowest party member (1 = baseline). Scales

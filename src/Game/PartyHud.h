@@ -4,6 +4,11 @@
 //   CharacterPanel  one slot of the top party bar: placeholder portrait,
 //                   name, and health/stamina/mana bars. Hover highlights;
 //                   clicking fires onClick (the Game opens the sheet).
+//   HandSlot        one hand box of the HUD control panel (each member gets
+//                   a left and a right hand, Dungeon Master style). Items
+//                   don't exist yet, so it draws an empty framed box with
+//                   the character's identity color along the bottom edge;
+//                   clicking fires onClick (the HUD logs feedback).
 //   CharacterSheet  the character details page: large portrait, name, class,
 //                   stat bars with values, and attributes. Drawn over the
 //                   frozen scene in AppState::CharacterSheet; the Game pairs
@@ -53,6 +58,21 @@ private:
 	const Character* m_character;
 	const ui::Font* m_portraitFont;
 	const ResourceBarColors* m_barColors;
+	std::function<void()> m_onClick;
+	bool m_hot = false;
+	bool m_held = false;
+};
+
+class HandSlot : public ui::Widget {
+public:
+	HandSlot(const gfx::Rect& rect, const Character* character,
+			 std::function<void()> onClick);
+
+	void Update(ui::UIContext& ctx) override;
+	void Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) override;
+
+private:
+	const Character* m_character;
 	std::function<void()> m_onClick;
 	bool m_hot = false;
 	bool m_held = false;

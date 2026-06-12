@@ -55,6 +55,9 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 		SetQuality(static_cast<Quality>(index));
 	};
 	m_ui.onTorchPalette = [this](int index) { m_world.SetTorchPalette(index); };
+	m_ui.onMoveAction = [this](MoveAction action) {
+		m_world.GetParty().Act(action);
+	};
 	m_ui.onKeysChanged = [this] {
 		m_world.GetParty().SetKeys(m_settings.moveKeys);
 	};

@@ -19,6 +19,7 @@
 #include "Game/Character.h"
 #include "Game/GameSettings.h"
 #include "Game/LoadQueue.h"
+#include "Game/Party.h"
 #include "Game/PartyHud.h"
 #include "Game/SoundBank.h"
 #include "Graphics/SpriteBatch.h"
@@ -96,6 +97,7 @@ public:
 	std::function<void(size_t)> onOpenSheet;    // portrait click, prev/next
 	std::function<void(int)> onQualitySelected; // Video tab dropdown
 	std::function<void(int)> onTorchPalette;    // HUD torchlight dropdown
+	std::function<void(MoveAction)> onMoveAction; // HUD movement buttons
 	std::function<void()> onKeysChanged;        // a movement key was rebound
 	// Game tab language dropdown. The receiver must NOT rebuild the UI from
 	// inside the callback (see RebuildForLanguage) — record and defer.
