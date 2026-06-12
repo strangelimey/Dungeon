@@ -611,11 +611,14 @@ void Game::BuildMenu() {
 	// Settings page: Game / Video / Audio tabs over a shared page area, with
 	// a Back button beneath. Tab children are fractions of the PAGE (the
 	// area below the strip); each row leaves room for the 28px settings font.
-	const float tabsW = 520.0f;
-	const float tabsH = 484.0f; // tall enough for the UI tab's theme grid
+	// Sized generously — settings keep accumulating. The block spans from
+	// just under the subtitle (ends ~246 design px) to just above the Back
+	// button, which itself must clear the 900px design window.
+	const float tabsW = 760.0f;
+	const float tabsH = 540.0f;
 	const float stripH = 48.0f;
 	const float tabsX = (w - tabsW) * 0.5f;
-	const float tabsY = h * 0.34f;
+	const float tabsY = h * 0.29f;
 	auto* tabs = m_settingsUi.Add<ui::TabControl>(
 		Norm({tabsX, tabsY, tabsW, tabsH}, window), stripH / tabsH);
 	const size_t tabGame = tabs->AddTab("Game");
