@@ -2,29 +2,33 @@
 
 #include "Core/Assert.h"
 
+#include <algorithm>
+#include <cmath>
+
 namespace dungeon::game {
 
 namespace {
-// '#' wall, '.' floor, 'T' floor with a wall torch, 'P' party start,
-// 'S' skeleton, 'M' mummy, 'B' blob (all monster cells are floor),
-// 'D' dusty floor (air turbidity 1 — the lower halls haven't been swept
-// in centuries; bilinear filtering blends the haze at region borders).
+// '#' wall, '.' floor, 'T' floor with a wall torch (sconce), 'F' floor with
+// a fire brazier, 'P' party start, 'S' skeleton, 'M' mummy, 'B' blob (all
+// monster cells are floor), 'D' dusty floor (air turbidity 1). Every fire
+// additionally raises the turbidity of its own and nearby squares — smoke
+// hangs around flames even in otherwise clear halls.
 const char* kLayout[] = {
 	"################",
 	"#P....ST#......#",
-	"#.######.#.###.#",
+	"#.#####..#.###.#",
 	"#.#....#.#.#T#.#",
 	"#.#.##.#.#.#.#.#",
-	"#.#.#T.#.#.#.#.#",
+	"#.#.#TF#.#.#.#.#",
 	"#.#.####.#.#.#.#",
-	"#.#..B...#...#.#",
+	"#....B...#...#.#",
 	"#.########.###.#",
-	"#DDD.....#.#...#",
+	"#DDD.....#.#..F#",
 	"########D#.#.###",
 	"#TDDDSDDD#.#..T#",
 	"#DDDDDMD#..##..#",
 	"#DD#D#DT#.#..#.#",
-	"#DDBDDD#...#...#",
+	"#DDBDDD#..F#...#",
 	"################",
 };
 // The lower-left block (rows 12-14) is the dust-shaft showcase: a dusty
@@ -48,12 +52,32 @@ DungeonMap::DungeonMap() {
 			Cell cell = c == '#' ? Cell::Wall : Cell::Floor;
 			if (c == 'D') m_turbidity[static_cast<size_t>(z) * m_width + x] = 1.0f;
 			if (c == 'T') m_torches.emplace_back(x, z);
+			if (c == 'F') m_braziers.emplace_back(x, z);
 			if (c == 'S' || c == 'M' || c == 'B') m_monsters.push_back({c, x, z});
 			if (c == 'P') {
 				m_startX = x;
 				m_startZ = z;
 			}
 			m_cells[static_cast<size_t>(z) * m_width + x] = cell;
+		}
+	}
+
+	// Fires thicken the air around them (braziers more than sconces).
+	for (const auto& [bx, bz] : m_braziers) AddFireTurbidity(bx, bz, 0.55f);
+	for (const auto& [tx, tz] : m_torches) AddFireTurbidity(tx, tz, 0.28f);
+}
+
+// Fires raise the air turbidity of their own square and the squares nearby
+// (smoke hangs around flames). Chebyshev rings: full / half / quarter.
+void DungeonMap::AddFireTurbidity(int x, int z, float amount) {
+	for (int dz = -2; dz <= 2; ++dz) {
+		for (int dx = -2; dx <= 2; ++dx) {
+			const int cx = x + dx, cz = z + dz;
+			if (!IsWalkable(cx, cz)) continue;
+			const int ring = std::max(std::abs(dx), std::abs(dz));
+			const float weight = ring == 0 ? 1.0f : (ring == 1 ? 0.5f : 0.22f);
+			float& cell = m_turbidity[static_cast<size_t>(cz) * m_width + cx];
+			cell = std::min(1.0f, cell + amount * weight);
 		}
 	}
 }

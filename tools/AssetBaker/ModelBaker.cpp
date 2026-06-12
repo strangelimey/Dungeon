@@ -393,6 +393,40 @@ assets::ModelData BuildWornCeilingBlock() {
 	return model;
 }
 
+// --- fire props --------------------------------------------------------------------
+// Iron sconce (wall torch holder) and floor brazier. Both are simple box
+// assemblies — the drama comes from the particle flames and the point light
+// the game attaches at the flame origin (sconce: local (0, 1.78, 0.22);
+// brazier: local (0, 0.72, 0)).
+
+assets::ModelData BuildSconce() {
+	// Authored against a wall at z=0, arm reaching into the room (+Z).
+	assets::ModelData model;
+	assets::MeshData mesh;
+	AddBox(mesh, {0, 1.45f, 0.02f}, {0.07f, 0.16f, 0.02f});   // mounting plate
+	AddBox(mesh, {0, 1.52f, 0.12f}, {0.025f, 0.025f, 0.10f}); // arm
+	AddBox(mesh, {0, 1.58f, 0.22f}, {0.06f, 0.05f, 0.06f});   // cup
+	AddBox(mesh, {0, 1.70f, 0.22f}, {0.022f, 0.10f, 0.022f}); // torch shaft
+	mesh.material = 0;
+	model.meshes.push_back(std::move(mesh));
+	model.materials.push_back({{0.35f, 0.32f, 0.30f, 1.0f}, -1}); // dark iron
+	return model;
+}
+
+assets::ModelData BuildBrazier() {
+	assets::ModelData model;
+	assets::MeshData mesh;
+	AddBox(mesh, {0, 0.05f, 0}, {0.26f, 0.05f, 0.26f}); // base slab
+	AddBox(mesh, {0, 0.25f, 0}, {0.07f, 0.16f, 0.07f}); // stem
+	AddBox(mesh, {0, 0.47f, 0}, {0.20f, 0.07f, 0.20f}); // bowl underside
+	AddBox(mesh, {0, 0.58f, 0}, {0.26f, 0.06f, 0.26f}); // bowl rim
+	AddBox(mesh, {0, 0.65f, 0}, {0.18f, 0.025f, 0.18f}); // coal bed
+	mesh.material = 0;
+	model.meshes.push_back(std::move(mesh));
+	model.materials.push_back({{0.38f, 0.33f, 0.29f, 1.0f}, -1}); // bronzed iron
+	return model;
+}
+
 // --- serpent pillar (moved from the old in-game AnimatedProp) ---------------------
 
 assets::ModelData BuildSerpentPillar() {
@@ -652,6 +686,8 @@ bool BakeModels(const std::string& dir) {
 	ok &= WriteGltf(BuildWornWallBlock(), dir + "\\wall_block_worn.gltf");
 	ok &= WriteGltf(BuildWornFloorBlock(), dir + "\\floor_block_worn.gltf");
 	ok &= WriteGltf(BuildWornCeilingBlock(), dir + "\\ceiling_block_worn.gltf");
+	ok &= WriteGltf(BuildSconce(), dir + "\\sconce.gltf");
+	ok &= WriteGltf(BuildBrazier(), dir + "\\brazier.gltf");
 	ok &= WriteGltf(BuildSerpentPillar(), dir + "\\pillar.gltf");
 	ok &= WriteGltf(BuildHumanoid({{0.93f, 0.90f, 0.80f, 1.0f}, 0.85f, 3.2f, 0.0f, 0.12f}),
 					dir + "\\skeleton.gltf");

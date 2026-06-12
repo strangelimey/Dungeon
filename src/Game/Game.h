@@ -20,8 +20,10 @@
 #include "Animation/Animator.h"
 #include "Audio/AudioEngine.h"
 #include "Game/DungeonMap.h"
+#include "Game/FireEffect.h"
 #include "Game/Party.h"
 #include "Graphics/Camera.h"
+#include "Graphics/ParticleBatch.h"
 #include "Graphics/Renderer.h"
 #include "Graphics/SpriteBatch.h"
 #include "Platform/Window.h"
@@ -132,6 +134,25 @@ private:
 
 	std::flat_map<char, std::unique_ptr<MonsterKind>> m_monsterKinds;
 	std::vector<Monster> m_monsters;
+
+	// Fires: wall sconces (at 'T' cells, mounted on the adjacent wall) and
+	// floor braziers ('F' cells). Each carries a flickering point light at
+	// its flame origin and a FireEffect particle simulation.
+	struct Fire {
+		bool brazier = false;
+		Mat4 world;        // prop transform
+		Vec3 flamePos;     // particle + light origin
+		float phase = 0;   // flicker phase
+		FireEffect effect;
+	};
+	void BuildFires();
+	std::vector<Fire> m_fires;
+	std::unique_ptr<gfx::Mesh> m_sconceMesh;
+	std::unique_ptr<gfx::Mesh> m_brazierMesh;
+	Vec4 m_sconceColor{1, 1, 1, 1};
+	Vec4 m_brazierColor{1, 1, 1, 1};
+	std::unique_ptr<gfx::ParticleBatch> m_particleBatch;
+	std::vector<gfx::ParticleInstance> m_particleScratch;
 
 	assets::SoundData m_sfxFootstep;
 	assets::SoundData m_sfxBump;

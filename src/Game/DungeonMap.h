@@ -52,6 +52,7 @@ public:
 	int StartX() const { return m_startX; }
 	int StartZ() const { return m_startZ; }
 	const std::vector<std::pair<int, int>>& TorchCells() const { return m_torches; }
+	const std::vector<std::pair<int, int>>& BrazierCells() const { return m_braziers; }
 
 	// Monster spawn points: kind is 'S' skeleton, 'M' mummy, 'B' blob.
 	struct MonsterSpawn {
@@ -61,6 +62,8 @@ public:
 	const std::vector<MonsterSpawn>& MonsterSpawns() const { return m_monsters; }
 
 private:
+	void AddFireTurbidity(int x, int z, float amount);
+
 	int m_width = 0;
 	int m_height = 0;
 	int m_startX = 1;
@@ -68,6 +71,7 @@ private:
 	std::vector<Cell> m_cells;
 	std::vector<float> m_turbidity; // parallel to m_cells
 	std::vector<std::pair<int, int>> m_torches;
+	std::vector<std::pair<int, int>> m_braziers;
 	std::vector<MonsterSpawn> m_monsters;
 };
 

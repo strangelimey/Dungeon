@@ -1,6 +1,7 @@
 add_library(Graphics STATIC
 	GraphicsDevice.cpp
 	Mesh.cpp
+	ParticleBatch.cpp
 	Renderer.cpp
 	ShaderCompiler.cpp
 	SpriteBatch.cpp

@@ -61,6 +61,13 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 				return true;
 			}
 		}
+		for (const auto& [bx, bz] : m_map.BrazierCells()) {
+			if (bx == x && bz == z) {
+				m_audio.Play(m_sfxBump, 0.7f);
+				m_log->AddLine("A burning brazier bars your way.");
+				return true;
+			}
+		}
 		return false;
 	};
 
@@ -105,6 +112,17 @@ void Game::BuildLoadTasks() {
 			 m_pillarPos = m_map.CellCenter(m_map.StartX(), m_map.StartZ() + 2);
 		 }},
 		{"Waking the monsters", [this] { LoadMonsters(); }},
+		{"Kindling the fires",
+		 [this] {
+			 auto sconce = LoadModelOrDie("sconce.gltf");
+			 m_sconceMesh = std::make_unique<gfx::Mesh>(m_device, sconce.meshes[0]);
+			 m_sconceColor = sconce.materials[0].baseColorFactor;
+			 auto brazier = LoadModelOrDie("brazier.gltf");
+			 m_brazierMesh = std::make_unique<gfx::Mesh>(m_device, brazier.meshes[0]);
+			 m_brazierColor = brazier.materials[0].baseColorFactor;
+			 m_particleBatch = std::make_unique<gfx::ParticleBatch>(m_device);
+			 BuildFires();
+		 }},
 		{"Tuning the echoes",
 		 [this] {
 			 m_sfxFootstep = LoadSound("footstep.wav");
@@ -216,6 +234,53 @@ void Game::LoadMonsters() {
 		monster.animator.Update(static_cast<float>(phase++) * 0.7f); // desync idles
 		m_monsters.push_back(std::move(monster));
 	}
+}
+
+// Places one Fire per sconce ('T') and brazier ('F') cell. Sconces mount on
+// the first solid neighbor wall and face into the room; braziers stand at
+// the cell center. Flame origins match the baked models (see ModelBaker).
+void Game::BuildFires() {
+	using namespace DirectX;
+	u32 seed = 1234;
+
+	for (const auto& [tx, tz] : m_map.TorchCells()) {
+		// Pick the wall this sconce hangs on.
+		int dx = 0, dz = -1;
+		if (!m_map.IsWalkable(tx, tz - 1)) { dx = 0; dz = -1; }
+		else if (!m_map.IsWalkable(tx + 1, tz)) { dx = 1; dz = 0; }
+		else if (!m_map.IsWalkable(tx, tz + 1)) { dx = 0; dz = 1; }
+		else if (!m_map.IsWalkable(tx - 1, tz)) { dx = -1; dz = 0; }
+
+		const Vec3 center = m_map.CellCenter(tx, tz);
+		const Vec3 mount{center.x + dx * (kCellSize * 0.5f - 0.02f), 0.0f,
+						 center.z + dz * (kCellSize * 0.5f - 0.02f)};
+		// Authored facing +Z; rotate so +Z points away from the wall.
+		const float yaw = std::atan2(static_cast<float>(-dx), static_cast<float>(-dz));
+
+		Fire fire;
+		fire.brazier = false;
+		XMStoreFloat4x4(&fire.world, XMMatrixRotationY(yaw) *
+										 XMMatrixTranslation(mount.x, 0, mount.z));
+		// Flame local offset (0, 1.78, 0.22) rotated by yaw.
+		fire.flamePos = {mount.x + std::sin(yaw) * 0.22f, 1.78f,
+						 mount.z + std::cos(yaw) * 0.22f};
+		fire.phase = static_cast<float>(seed) * 1.7f;
+		fire.effect = FireEffect(fire.flamePos, 0.55f, seed++);
+		m_fires.push_back(std::move(fire));
+	}
+
+	for (const auto& [bx, bz] : m_map.BrazierCells()) {
+		const Vec3 center = m_map.CellCenter(bx, bz);
+		Fire fire;
+		fire.brazier = true;
+		XMStoreFloat4x4(&fire.world, XMMatrixTranslation(center.x, 0, center.z));
+		fire.flamePos = {center.x, 0.72f, center.z};
+		fire.phase = static_cast<float>(seed) * 1.7f;
+		fire.effect = FireEffect(fire.flamePos, 1.0f, seed++);
+		m_fires.push_back(std::move(fire));
+	}
+	log::Info("Lit {} fires ({} sconces, {} braziers)", m_fires.size(),
+			  m_map.TorchCells().size(), m_map.BrazierCells().size());
 }
 
 bool Game::MonsterAt(int x, int z) const {
@@ -350,16 +415,19 @@ void Game::UpdateLights(float time) {
 	torch.intensity = 2.6f * flicker;
 	m_lights.points.push_back(torch);
 
-	int phase = 0;
-	for (const auto& [tx, tz] : m_map.TorchCells()) {
-		const float p = static_cast<float>(phase++) * 1.7f;
-		gfx::PointLight wall;
-		wall.position = m_map.CellCenter(tx, tz, kWallHeight - 0.6f);
-		wall.radius = 7.0f;
-		wall.color = m_torchColor;
-		wall.intensity =
-			1.8f * (0.9f + 0.1f * std::sin(time * 11.0f + p) * std::sin(time * 7.3f + p));
-		m_lights.points.push_back(wall);
+	// One flickering light per fire, sitting just above its flame. Braziers
+	// burn bigger and a touch redder than the wall sconces.
+	for (const Fire& fire : m_fires) {
+		gfx::PointLight light;
+		light.position = {fire.flamePos.x, fire.flamePos.y + 0.15f, fire.flamePos.z};
+		light.radius = fire.brazier ? 7.5f : 7.0f;
+		light.color = fire.brazier
+						  ? Vec3{m_torchColor.x, m_torchColor.y * 0.85f, m_torchColor.z * 0.8f}
+						  : m_torchColor;
+		const float base = fire.brazier ? 2.3f : 1.8f;
+		light.intensity = base * (0.9f + 0.1f * std::sin(time * 11.0f + fire.phase) *
+											 std::sin(time * 7.3f + fire.phase));
+		m_lights.points.push_back(light);
 	}
 
 	gfx::PointLight glow;
@@ -455,6 +523,22 @@ void Game::Update(float dt) {
 	UpdateLights(m_time);
 	UpdateCamera();
 
+	// Advance the fires and gather their particles, sorted back-to-front so
+	// the alpha-blended smoke composites correctly (additive flames are
+	// order-independent).
+	m_particleScratch.clear();
+	for (Fire& fire : m_fires) {
+		fire.effect.Update(dt);
+		fire.effect.AppendParticles(m_particleScratch);
+	}
+	const Vec3 eye = m_party.EyePosition();
+	const Vec3 fwd = m_camera.Forward();
+	std::ranges::sort(m_particleScratch, std::greater{},
+					  [&](const gfx::ParticleInstance& p) {
+						  const Vec3 d = Sub(p.position, eye);
+						  return d.x * fwd.x + d.y * fwd.y + d.z * fwd.z;
+					  });
+
 	// Reformat the status labels only when they actually change; per-frame
 	// string formatting is needless heap churn.
 	if (m_party.Facing() != m_lastFacing) {
@@ -506,6 +590,8 @@ void Game::RenderShadowMaps(ID3D12GraphicsCommandList* list) {
 void Game::RenderScene(ID3D12GraphicsCommandList* list) {
 	m_renderer.BeginScene(list, m_camera, m_lights, m_atmosphere);
 	SubmitSceneGeometry(list);
+	// Transparent flame/spark/smoke billboards last, over the opaque scene.
+	m_particleBatch->Render(list, m_camera, m_particleScratch);
 }
 
 void Game::SubmitSceneGeometry(ID3D12GraphicsCommandList* list) {
@@ -539,6 +625,16 @@ void Game::SubmitSceneGeometry(ID3D12GraphicsCommandList* list) {
 		}
 		m_renderer.DrawMesh(list, *kind.mesh, world, material,
 							monster.animator.Palette());
+	}
+
+	// Fire props (sconces + braziers): slightly speculative iron.
+	for (const Fire& fire : m_fires) {
+		gfx::MaterialParams iron;
+		iron.baseColor = fire.brazier ? m_brazierColor : m_sconceColor;
+		iron.specStrength = 0.18f;
+		iron.specPower = 28.0f;
+		m_renderer.DrawMesh(list, fire.brazier ? *m_brazierMesh : *m_sconceMesh,
+							fire.world, iron);
 	}
 }
 
@@ -597,6 +693,7 @@ void Game::RenderMenuOverlay() {
 void Game::Render(ID3D12GraphicsCommandList* list) {
 	m_renderer.NewFrame(m_device.FrameIndex());
 	m_spriteBatch.NewFrame(m_device.FrameIndex());
+	if (m_particleBatch) m_particleBatch->NewFrame(m_device.FrameIndex());
 
 	// The 3D scene only draws during play; Loading and Menu are 2D-only.
 	if (m_state == AppState::Playing) {
