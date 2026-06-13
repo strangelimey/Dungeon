@@ -41,6 +41,7 @@ load.done=Entering the dungeon...
 
 ; --- settings page ------------------------------------------------------------
 settings.tab.game=Game
+settings.tab.controls=Controls
 settings.tab.video=Video
 settings.tab.audio=Audio
 settings.tab.ui=UI

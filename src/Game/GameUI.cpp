@@ -109,6 +109,7 @@ void GameUI::BuildMenu() {
 	auto* tabs = m_settingsUi.Add<ui::TabControl>(
 		Norm({tabsX, tabsY, tabsW, tabsH}, window), stripH / tabsH);
 	const size_t tabGame = tabs->AddTab(loc::Tr("settings.tab.game"));
+	const size_t tabControls = tabs->AddTab(loc::Tr("settings.tab.controls"));
 	const size_t tabVideo = tabs->AddTab(loc::Tr("settings.tab.video"));
 	const size_t tabAudio = tabs->AddTab(loc::Tr("settings.tab.audio"));
 	const size_t tabUi = tabs->AddTab(loc::Tr("settings.tab.ui"));
@@ -116,10 +117,10 @@ void GameUI::BuildMenu() {
 	const float pad = 24.0f;
 	const float rowW = page.w - 2 * pad;
 
-	// Game: language, then movement keys. The language list is whatever
-	// assets/lang holds; selecting one defers to Game (settings save + string
-	// reload + RebuildForLanguage at the top of the next frame — rebuilding
-	// here would destroy this dropdown mid-callback).
+	// Game: language. The language list is whatever assets/lang holds;
+	// selecting one defers to Game (settings save + string reload +
+	// RebuildForLanguage at the top of the next frame — rebuilding here
+	// would destroy this dropdown mid-callback).
 	tabs->AddChild<ui::Label>(tabGame, Norm({pad, pad, rowW, 28}, page),
 							  loc::Tr("settings.language"))
 		->dim = true;
@@ -140,18 +141,18 @@ void GameUI::BuildMenu() {
 				onLanguageSelected(m_languages[static_cast<size_t>(index)].code);
 		});
 
-	// Movement key bindings (kKeyFields). Click a key box, press the
-	// new key; binding a key another action already uses hands that action
-	// the old key (swap) so the set stays conflict-free. Each rebind goes
-	// straight into the Party (onKeysChanged) and persists.
-	tabs->AddChild<ui::Label>(tabGame, Norm({pad, pad + 102, rowW, 28}, page),
+	// Controls: movement key bindings (kKeyFields). Click a key box, press
+	// the new key; binding a key another action already uses hands that
+	// action the old key (swap) so the set stays conflict-free. Each rebind
+	// goes straight into the Party (onKeysChanged) and persists.
+	tabs->AddChild<ui::Label>(tabControls, Norm({pad, pad, rowW, 28}, page),
 							  loc::Tr("settings.movement_keys"));
 	m_keyBinds.clear();
 	for (size_t i = 0; i < std::size(kKeyFields); ++i) {
 		const KeyField& field = kKeyFields[i];
 		auto* bind = tabs->AddChild<ui::KeyBind>(
-			tabGame,
-			Norm({pad, pad + 154 + 48.0f * static_cast<float>(i), rowW, 36}, page),
+			tabControls,
+			Norm({pad, pad + 52 + 48.0f * static_cast<float>(i), rowW, 36}, page),
 			loc::Tr(field.labelKey), m_settings.moveKeys.*(field.field),
 			[this, member = field.field](int vkey) {
 				Click();

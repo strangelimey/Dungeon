@@ -122,7 +122,8 @@ at launch with an on-disk cache (shadercache/, hash-invalidated) — edit
 
 ## Quality system
 
-Settings page (landing page) is tabbed Game/Video/Audio/UI via ui::TabControl
+Settings page (landing page) is tabbed Game/Controls/Video/Audio/UI via
+ui::TabControl
 (pages scroll: children authored past the page bottom — bounds fraction > 1 —
 trigger a per-tab scrollbar, wheel or thumb drag, page-scissored):
 quality dropdown on Video (Low/Medium/High/Ultra: mesh tier low/med/high/high
@@ -136,13 +137,13 @@ into all five UIContexts live) and Resource Bars (health/stamina/mana fills,
 ResourceBarColors in PartyHud.h — the HUD widgets point at
 GameSettings::barColors). The ColorPicker control's swatch opens an R/G/B/A
 slider popup; kThemeFields/kBarFields in GameSettings.h drive both grids and
-the ini round-trip. Game tab: movement key bindings via ui::KeyBind rows
+the ini round-trip. Controls tab: movement key bindings via ui::KeyBind rows
 (click the key box, press the new key; Esc/click cancels —
 GameUI::KeyCaptureActive suppresses the page's own Esc while armed; binding a
 key another action holds swaps the two). kKeyFields drives the rows and the
 ini round-trip; MoveKeys (Party.h) is pushed into the Party via SetKeys, and
 dungeon::KeyName (Platform/Input) renders vkey names.
-Game tab also hosts the Language dropdown (see the Core/Loc bullet above).
+Game tab hosts the Language dropdown (see the Core/Loc bullet above).
 All persist to settings.ini next to exe (quality=0..3, language=<code>,
 volume=0..1, barscale, baropacity, theme_<name>= and bar_<name>=r,g,b,a,
 key_<action>=vkey; sliders save on release, pickers when their popup closes,
