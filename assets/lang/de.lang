@@ -1,0 +1,130 @@
+; ============================================================================
+; German. Mirrors en.lang — keep keys in sync with it ({} count and order
+; must match). Conventions specific to this file:
+;  - Monster names CARRY their definite article ("Das Skelett") because German
+;    articles are gendered; every log entry using a monster name is therefore
+;    written placeholder-first so the capitalized article opens the sentence.
+;  - Class names are gendered to the fixed roster (Sera/Maren are women).
+;  - The party addresses the player as "Ihr/Euch" (classic RPG diction).
+; ============================================================================
+
+lang.name=Deutsch
+
+; --- titles / page chrome ---------------------------------------------------
+title=DUNGEON
+pause.title=PAUSE
+menu.subtitle=ein Dungeon-Crawler der alten Schule
+menu.subtitle_settings=Einstellungen
+loading.descending=Abstieg...
+
+; --- landing + pause menus --------------------------------------------------
+menu.continue=Fortsetzen
+menu.start=Neues Spiel
+menu.load=Laden
+menu.save=Speichern
+menu.settings=Einstellungen
+menu.exit=Beenden
+menu.back=Zurück
+
+; --- loading steps ------------------------------------------------------------
+load.echoes=Echos werden gestimmt
+load.title_art=Das Titelbild wird gemalt
+load.blocks=Steinblöcke werden gebrochen
+load.surface=Das Mauerwerk wird gefügt ({})
+load.dungeon=Das Verlies wird errichtet
+load.pillar=Die Schlangensäule wird gemeißelt
+load.monsters=Die Monster werden geweckt
+load.fires=Die Feuer werden entfacht
+load.dust=Der Staub wird aufgewirbelt
+load.portraits=Die Gruppe wird gemalt
+load.hud=Die Fackeln werden entzündet
+load.done=Ihr betretet das Verlies...
+
+; --- settings page ------------------------------------------------------------
+settings.tab.game=Spiel
+settings.tab.controls=Steuerung
+settings.tab.video=Grafik
+settings.tab.audio=Audio
+settings.tab.ui=Oberfläche
+settings.language=Sprache
+settings.movement_keys=Bewegungstasten
+settings.key.forward=Vorwärts
+settings.key.back=Rückwärts
+settings.key.strafeleft=Schritt nach links
+settings.key.straferight=Schritt nach rechts
+settings.key.turnleft=Nach links drehen
+settings.key.turnright=Nach rechts drehen
+settings.press_a_key=Taste drücken...
+settings.quality=Qualität
+settings.quality.low=Niedrig
+settings.quality.medium=Mittel
+settings.quality.high=Hoch
+settings.quality.ultra=Ultra
+settings.volume=Lautstärke
+settings.party_bar=Gruppenleiste
+settings.bar_scale=Größe
+settings.bar_opacity=Hintergrund-Deckkraft
+settings.theme_colors=Farbschema
+settings.resource_bars=Ressourcenbalken
+theme.panel=Panel
+theme.border=Rahmen
+theme.control=Element
+theme.hot=Hover
+theme.active=Aktiv
+theme.text=Text
+theme.textdim=Matter Text
+theme.accent=Akzent
+
+; --- HUD ----------------------------------------------------------------------
+hud.facing=Blickrichtung: {}
+hud.position=Position: {}, {}
+hud.options=Optionen
+hud.torchlight=Fackelschein
+hud.wait=Warten
+hud.help=Hilfe
+hud.magic=Magie
+hud.magic_none=Keine Zauber bekannt.
+torch.warm=Warme Flamme
+torch.cold=Kaltes Mondfeuer
+torch.eerie=Schaurige Glut
+facing.north=Norden
+facing.east=Osten
+facing.south=Süden
+facing.west=Westen
+
+; --- message log ----------------------------------------------------------------
+log.descend=Ihr steigt hinab ins Verlies...
+log.shuffle=Etwas schlurft im Dunkeln.
+log.movekeys={}/{} gehen, {}/{} seitwärts, {}/{} drehen.
+log.scroll_hint=Das Mausrad scrollt dieses Protokoll.
+log.wait=Ihr wartet. Die Fackeln flackern.
+log.hands_empty={}s Hände sind leer.
+log.bump=Ihr stoßt gegen eine Wand.
+log.brazier_blocks=Ein brennendes Kohlebecken versperrt euch den Weg.
+log.monster_blocks={} versperrt euch den Weg!
+log.monster_stirs={} regt sich vor euch!
+log.torch_warm=Warmer Feuerschein kehrt zurück.
+log.torch_cold=Die Flammen werden kalt und blau.
+log.torch_eerie=Ein unheimliches grünes Licht breitet sich aus.
+
+; --- monsters (key suffix = the .ent type; article included, see header) ---------
+monster.skeleton=Das Skelett
+monster.blob=Der Schleim
+monster.mummy=Die Mumie
+
+; --- character sheet / party bar -------------------------------------------------
+class.fighter=Krieger
+class.rogue=Schurkin
+class.cleric=Klerikerin
+class.mage=Magier
+sheet.subtitle=Stufe {} {}
+bar.health=Leben
+bar.stamina=Ausdauer
+bar.mana=Mana
+sheet.attributes=Attribute
+attr.strength=Stärke
+attr.dexterity=Geschick
+attr.vitality=Vitalität
+attr.willpower=Willenskraft
+sheet.equipment=Ausrüstung
+sheet.nothing_carried=Nichts dabei.
