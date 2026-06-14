@@ -93,8 +93,9 @@ void GameUI::BuildMenu() {
 		Norm({(w - menuW) * 0.5f, h * 0.42f, menuW, itemH * itemCount}, window),
 		1.0f / static_cast<float>(itemCount));
 
-	// Continue loads the most recent save outright (no browser).
-	if (hasSaves)
+	// Order: Continue / Load (only when a save exists), then Start New Game just
+	// above Settings. Continue loads the most recent save outright (no browser).
+	if (hasSaves) {
 		menu->AddItem(loc::Tr("menu.continue"), [this] {
 			const std::vector<SaveSlot> slots = ListSaves();
 			if (slots.empty()) return; // raced with a deletion
@@ -102,15 +103,15 @@ void GameUI::BuildMenu() {
 			m_menuPage = MenuPage::Main;
 			onLoadSave(slots.front().path); // ListSaves is newest-first
 		});
-	menu->AddItem(loc::Tr("menu.start"), [this] {
-		Click(0.6f);
-		onStartNewGame();
-	});
-	if (hasSaves)
 		menu->AddItem(loc::Tr("menu.load"), [this] {
 			Click();
 			OpenSavesPage(SavesMode::Load);
 		});
+	}
+	menu->AddItem(loc::Tr("menu.start"), [this] {
+		Click(0.6f);
+		onStartNewGame();
+	});
 	menu->AddItem(loc::Tr("menu.settings"), [this] {
 		Click();
 		m_menuPage = MenuPage::Settings;
