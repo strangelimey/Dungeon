@@ -50,6 +50,11 @@ public:
 		return -1;
 	}
 
+	// Printable characters typed this frame (WM_CHAR), UTF-8/ASCII; valid for
+	// one frame like the press edges. Lets a text field (the dev console)
+	// accumulate input without decoding virtual keys itself.
+	const std::string& TypedChars() const { return m_typed; }
+
 	bool IsMouseDown(MouseButton b) const { return m_mouse[std::to_underlying(b)]; }
 	bool WasMousePressed(MouseButton b) const { return m_mousePressed[std::to_underlying(b)]; }
 	bool WasMouseReleased(MouseButton b) const { return m_mouseReleased[std::to_underlying(b)]; }
@@ -60,6 +65,7 @@ public:
 
 	// --- driven by Window --------------------------------------------------
 	void OnKey(int vkey, bool down);
+	void OnChar(unsigned int codepoint); // WM_CHAR: appends printable chars
 	void OnMouseButton(MouseButton b, bool down);
 	void OnMouseMove(float x, float y);
 	void OnWheel(float delta);
@@ -74,6 +80,7 @@ private:
 	std::array<bool, 3> m_mouse{};
 	std::array<bool, 3> m_mousePressed{};
 	std::array<bool, 3> m_mouseReleased{};
+	std::string m_typed; // printable chars this frame (WM_CHAR)
 	float m_mouseX = 0.0f;
 	float m_mouseY = 0.0f;
 	float m_wheel = 0.0f;

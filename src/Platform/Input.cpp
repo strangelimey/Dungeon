@@ -13,6 +13,13 @@ void Input::OnKey(int vkey, bool down) {
 	m_keys[vkey] = down;
 }
 
+void Input::OnChar(unsigned int codepoint) {
+	// Keep printable characters only; control codes (Enter, Backspace, Esc,
+	// Tab) reach the consumer through the edge-triggered key queries instead.
+	if (codepoint >= 32 && codepoint != 127)
+		m_typed.push_back(static_cast<char>(codepoint & 0xFF));
+}
+
 void Input::OnMouseButton(MouseButton b, bool down) {
 	const auto i = std::to_underlying(b);
 	if (down && !m_mouse[i]) m_mousePressed[i] = true;
@@ -51,6 +58,7 @@ void Input::EndFrame() {
 	m_keysReleased.fill(false);
 	m_mousePressed.fill(false);
 	m_mouseReleased.fill(false);
+	m_typed.clear();
 	m_wheel = 0.0f;
 }
 

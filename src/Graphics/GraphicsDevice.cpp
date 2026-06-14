@@ -33,7 +33,9 @@ GraphicsDevice::GraphicsDevice(HWND__* hwnd, u32 width, u32 height)
 		if (desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) continue;
 		if (SUCCEEDED(D3D12CreateDevice(adapter.Get(), D3D_FEATURE_LEVEL_11_0,
 										IID_PPV_ARGS(&m_device)))) {
-			log::Info("GPU: {}", str::Narrow(desc.Description));
+			m_adapterName = str::Narrow(desc.Description);
+			adapter.As(&m_adapter); // IDXGIAdapter3 for QueryVideoMemoryInfo
+			log::Info("GPU: {}", m_adapterName);
 			break;
 		}
 	}
@@ -42,6 +44,8 @@ GraphicsDevice::GraphicsDevice(HWND__* hwnd, u32 width, u32 height)
 		DN_HR(m_factory->EnumWarpAdapter(IID_PPV_ARGS(&warp)));
 		DN_HR(D3D12CreateDevice(warp.Get(), D3D_FEATURE_LEVEL_11_0,
 								IID_PPV_ARGS(&m_device)));
+		warp.As(&m_adapter);
+		m_adapterName = "WARP (software)";
 		log::Warn("Using WARP software rasterizer");
 	}
 
@@ -263,6 +267,19 @@ void GraphicsDevice::ExecuteImmediate(
 	ID3D12CommandList* lists[] = {list.Get()};
 	m_queue->ExecuteCommandLists(1, lists);
 	WaitIdle();
+}
+
+GraphicsDevice::GpuMemoryInfo GraphicsDevice::QueryGpuMemory() const {
+	GpuMemoryInfo info{};
+	if (m_adapter) {
+		DXGI_QUERY_VIDEO_MEMORY_INFO vram{};
+		if (SUCCEEDED(m_adapter->QueryVideoMemoryInfo(
+				0, DXGI_MEMORY_SEGMENT_GROUP_LOCAL, &vram))) {
+			info.usedBytes = vram.CurrentUsage;
+			info.budgetBytes = vram.Budget;
+		}
+	}
+	return info;
 }
 
 } // namespace dungeon::gfx

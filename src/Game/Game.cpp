@@ -11,6 +11,8 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdlib>
+#include <format>
 #include <string>
 
 namespace dungeon::game {
@@ -25,7 +27,8 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	  m_spriteBatch(spriteBatch), m_audio(audio),
 	  m_world(device, renderer, audio, m_sounds, m_settings),
 	  m_ui(window, device, spriteBatch, audio, m_sounds, m_settings,
-		   m_characters) {
+		   m_characters),
+	  m_console(device) {
 	m_settings.Load();
 	ApplyLanguage(false); // strings must exist before any UI builds
 	m_audio.SetMasterVolume(m_settings.volume);
@@ -66,6 +69,178 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	m_ui.onLanguageSelected = [this](const std::string& code) {
 		m_pendingLanguage = code;
 	};
+
+	// Developer console commands (dev-facing, English). The generic ones
+	// (help/clear/echo) live in DevConsole; these reach into the app state.
+	m_console.Register("quit", "exit the game",
+					   [this](const std::vector<std::string>&) { m_quitRequested = true; });
+	m_console.Register("exit", "exit the game",
+					   [this](const std::vector<std::string>&) { m_quitRequested = true; });
+	m_console.Register("fps", "print the current frame rate",
+					   [this](const std::vector<std::string>&) {
+						   m_console.Print(std::format("{:.1f} fps", m_console.Fps()));
+					   });
+	m_console.Register("quality", "set quality tier 0-3 (low/med/high/ultra)",
+					   [this](const std::vector<std::string>& args) {
+						   if (args.empty()) {
+							   m_console.Print("usage: quality <0-3>");
+							   return;
+						   }
+						   const int q = std::atoi(args[0].c_str());
+						   if (q < 0 || q > 3) {
+							   m_console.Print("quality must be 0-3");
+							   return;
+						   }
+						   SetQuality(static_cast<Quality>(q));
+						   m_console.Print(std::format("quality set to {}", q));
+					   });
+	m_console.Register("lang", "switch language by code (e.g. en, de)",
+					   [this](const std::vector<std::string>& args) {
+						   if (args.empty()) {
+							   m_console.Print("usage: lang <code>");
+							   return;
+						   }
+						   m_pendingLanguage = args[0]; // applied next frame
+						   m_console.Print("language: " + args[0]);
+					   });
+	m_console.Register("tp", "teleport the party to a cell",
+					   [this](const std::vector<std::string>& args) {
+						   if (args.size() < 2) {
+							   m_console.Print("usage: tp <x> <z>");
+							   return;
+						   }
+						   const int x = std::atoi(args[0].c_str());
+						   const int z = std::atoi(args[1].c_str());
+						   if (m_world.GetParty().SetGridPosition(x, z))
+							   m_console.Print(std::format("teleported to {},{}", x, z));
+						   else
+							   m_console.Print(std::format("{},{} is not walkable", x, z));
+					   });
+
+	// --- diagnostics (read-only) ---
+	m_console.Register("pos", "print party position and facing",
+					   [this](const std::vector<std::string>&) {
+						   const Party& p = m_world.GetParty();
+						   static const char* kDirs[] = {"north", "east", "south", "west"};
+						   m_console.Print(std::format("{},{} facing {}", p.GridX(),
+													   p.GridZ(), kDirs[p.Facing() & 3]));
+					   });
+	m_console.Register("mapinfo", "print dungeon size and counts",
+					   [this](const std::vector<std::string>&) {
+						   const DungeonMap& map = m_world.Map();
+						   m_console.Print(std::format(
+							   "{}x{} map, {} monsters, {} torches", map.Width(),
+							   map.Height(), m_world.MonsterCount(),
+							   map.TorchCells().size()));
+					   });
+	m_console.Register("monsters", "list monsters and their cells",
+					   [this](const std::vector<std::string>&) {
+						   const std::vector<std::string> list = m_world.MonsterList();
+						   if (list.empty()) {
+							   m_console.Print("no monsters");
+							   return;
+						   }
+						   for (const std::string& l : list) m_console.Print("  " + l);
+					   });
+	m_console.Register("lights", "print active point-light count",
+					   [this](const std::vector<std::string>&) {
+						   m_console.Print(std::format("{} active point lights",
+													   m_world.ActiveLightCount()));
+					   });
+	m_console.Register("ver", "print build and GPU info",
+					   [this](const std::vector<std::string>&) {
+#ifdef _DEBUG
+						   const char* cfg = "debug";
+#else
+						   const char* cfg = "release";
+#endif
+						   m_console.Print(std::format("Dungeon ({}) built {} - {}", cfg,
+													   __DATE__, m_device.AdapterName()));
+					   });
+
+	// --- navigation ---
+	m_console.Register("face", "turn the party to n/e/s/w",
+					   [this](const std::vector<std::string>& args) {
+						   if (args.empty()) {
+							   m_console.Print("usage: face <n|e|s|w>");
+							   return;
+						   }
+						   int facing = -1;
+						   switch (std::tolower(static_cast<unsigned char>(args[0][0]))) {
+						   case 'n': facing = 0; break;
+						   case 'e': facing = 1; break;
+						   case 's': facing = 2; break;
+						   case 'w': facing = 3; break;
+						   }
+						   if (facing < 0) {
+							   m_console.Print("direction must be n/e/s/w");
+							   return;
+						   }
+						   m_world.GetParty().SetFacing(facing);
+						   m_console.Print("facing set");
+					   });
+	m_console.Register("home", "teleport the party to the start cell",
+					   [this](const std::vector<std::string>&) {
+						   const DungeonMap& map = m_world.Map();
+						   m_world.GetParty().SetGridPosition(map.StartX(), map.StartZ());
+						   m_console.Print(std::format("home at {},{}", map.StartX(),
+													   map.StartZ()));
+					   });
+	m_console.Register("speed", "set party pace multiplier",
+					   [this](const std::vector<std::string>& args) {
+						   if (args.empty()) {
+							   m_console.Print("usage: speed <mult>");
+							   return;
+						   }
+						   const float v = static_cast<float>(std::atof(args[0].c_str()));
+						   if (v <= 0.0f) {
+							   m_console.Print("speed must be > 0");
+							   return;
+						   }
+						   m_world.GetParty().SetSpeed(v);
+						   m_console.Print(std::format("speed x{:.2f}", v));
+					   });
+	m_console.Register("timescale", "scale sim speed (1 normal, 0 freeze)",
+					   [this](const std::vector<std::string>& args) {
+						   if (args.empty()) {
+							   m_console.Print(std::format("timescale {:.2f}", m_timeScale));
+							   return;
+						   }
+						   const float v = static_cast<float>(std::atof(args[0].c_str()));
+						   if (v < 0.0f) {
+							   m_console.Print("timescale must be >= 0");
+							   return;
+						   }
+						   m_timeScale = v;
+						   m_console.Print(std::format("timescale {:.2f}", v));
+					   });
+	m_console.Register("noclip", "toggle walking through walls",
+					   [this](const std::vector<std::string>&) {
+						   Party& p = m_world.GetParty();
+						   p.SetNoclip(!p.Noclip());
+						   m_console.Print(p.Noclip() ? "noclip on" : "noclip off");
+					   });
+
+	// --- render debug ---
+	m_console.Register("shadows", "toggle shadow rendering (on/off)",
+					   [this](const std::vector<std::string>& args) {
+						   if (!args.empty())
+							   m_world.SetShadowsEnabled(args[0] == "on" || args[0] == "1");
+						   m_console.Print(m_world.ShadowsEnabled() ? "shadows on"
+																	: "shadows off");
+					   });
+	m_console.Register("dust", "toggle volumetric dust (on/off)",
+					   [this](const std::vector<std::string>& args) {
+						   if (!args.empty())
+							   m_world.SetDustEnabled(args[0] == "on" || args[0] == "1");
+						   m_console.Print(m_world.DustEnabled() ? "dust on" : "dust off");
+					   });
+	m_console.Register("fov", "set camera field of view in degrees (default 70)",
+					   [this](const std::vector<std::string>& args) {
+						   if (!args.empty())
+							   m_world.SetFov(static_cast<float>(std::atof(args[0].c_str())));
+						   m_console.Print(std::format("fov {:.0f}", m_world.Fov()));
+					   });
 
 	m_ui.BuildStaticUi();
 	BuildBootLoadTasks();
@@ -191,7 +366,8 @@ void Game::SetQuality(Quality quality) {
 // ============================================================================
 
 void Game::Update(float dt) {
-	m_time += dt;
+	const float wdt = dt * m_timeScale; // world dt (dev console `timescale`)
+	m_time += wdt;
 
 	// A language picked last frame applies now, before any widget updates —
 	// the rebuild destroys every widget, so none may be mid-callback.
@@ -200,6 +376,26 @@ void Game::Update(float dt) {
 	m_ui.UpdateFonts(dt);
 
 	const Input& input = m_window.GetInput();
+
+	// The dev console toggles with `~` and overlays any state. While it is
+	// open it captures input (so the party can't move) but the world keeps
+	// simulating — it does NOT pause the game. The FPS sampler ticks every
+	// frame regardless.
+	const bool consoleWasOpen = m_console.IsOpen();
+	if (input.WasKeyPressed(VK_OEM_3)) m_console.Toggle();
+	m_console.Update(input, dt, static_cast<float>(m_window.Width()),
+					 static_cast<float>(m_window.Height()));
+	// The console owns the whole frame's input if it was open at the start (or
+	// just opened) — so the very keystroke that closes it (Esc or `~`) never
+	// also reaches the pause menu / HUD this frame.
+	if (m_console.IsOpen() || consoleWasOpen) {
+		if (m_state == AppState::Playing) {
+			m_world.Update(input, wdt, m_time, /*acceptInput=*/false);
+			Party& party = m_world.GetParty();
+			m_ui.SetHudStatus(party.Facing(), party.GridX(), party.GridZ());
+		}
+		return;
+	}
 
 	switch (m_state) {
 	case AppState::Loading:
@@ -265,7 +461,7 @@ void Game::Update(float dt) {
 	// A portrait click may have opened the character sheet — freeze now
 	// rather than simulating one more frame.
 	if (m_state != AppState::Playing) return;
-	m_world.Update(input, dt, m_time);
+	m_world.Update(input, wdt, m_time);
 
 	Party& party = m_world.GetParty();
 	m_ui.SetHudStatus(party.Facing(), party.GridX(), party.GridZ());
@@ -299,6 +495,9 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 	case AppState::Paused:      m_ui.RenderPauseOverlay(); break;
 	case AppState::CharacterSheet: m_ui.RenderCharacterSheetOverlay(); break;
 	}
+	if (m_console.IsOpen())
+		m_console.Render(m_spriteBatch, m_device, static_cast<float>(m_device.Width()),
+						 static_cast<float>(m_device.Height()));
 	m_spriteBatch.End();
 
 	++m_framesRendered;

@@ -97,6 +97,9 @@ i64 Window::HandleMessage(u32 msg, u64 wparam, i64 lparam) {
 	case WM_SYSKEYUP:
 		m_input.OnKey(static_cast<int>(wparam), false);
 		return 0;
+	case WM_CHAR:
+		m_input.OnChar(static_cast<unsigned int>(wparam));
+		return 0;
 
 	case WM_LBUTTONDOWN: m_input.OnMouseButton(MouseButton::Left, true); SetCapture(m_hwnd); return 0;
 	case WM_LBUTTONUP:   m_input.OnMouseButton(MouseButton::Left, false); ReleaseCapture(); return 0;

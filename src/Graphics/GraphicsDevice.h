@@ -27,6 +27,7 @@
 #include <dxgi1_6.h>
 
 #include <functional>
+#include <string>
 
 namespace dungeon::gfx {
 
@@ -54,6 +55,16 @@ public:
 	u32 Width() const { return m_width; }
 	u32 Height() const { return m_height; }
 	u32 FrameIndex() const { return m_frameIndex; } // 0..kFrameCount-1
+
+	// Diagnostics for the dev console. Adapter name from DXGI_ADAPTER_DESC1;
+	// local (dedicated) video memory current usage vs. the OS-provided budget,
+	// both in bytes (zero when no adapter was retained).
+	const std::string& AdapterName() const { return m_adapterName; }
+	struct GpuMemoryInfo {
+		u64 usedBytes = 0;
+		u64 budgetBytes = 0;
+	};
+	GpuMemoryInfo QueryGpuMemory() const;
 
 	// Begins the frame: waits for this slot's previous use, resets the command
 	// list, transitions the back buffer, clears, and binds RT + viewport.
@@ -84,6 +95,8 @@ private:
 	u32 m_height = 0;
 
 	ComPtr<IDXGIFactory6> m_factory;
+	ComPtr<IDXGIAdapter3> m_adapter; // retained for video-memory queries
+	std::string m_adapterName;
 	ComPtr<ID3D12Device> m_device;
 	ComPtr<ID3D12CommandQueue> m_queue;
 	ComPtr<IDXGISwapChain3> m_swapchain;

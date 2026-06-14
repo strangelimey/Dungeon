@@ -39,6 +39,7 @@
 
 #include "Audio/AudioEngine.h"
 #include "Game/Character.h"
+#include "Game/DevConsole.h"
 #include "Game/DungeonWorld.h"
 #include "Game/GameSettings.h"
 #include "Game/GameUI.h"
@@ -104,6 +105,8 @@ private:
 	u32 m_stateFrameMark = 0;
 	bool m_quitRequested = false;
 	float m_time = 0.0f;
+	// Dev console `timescale`: multiplies the world's dt (1 = normal, 0 = freeze).
+	float m_timeScale = 1.0f;
 	// Language code picked in Settings this frame, applied (strings reloaded,
 	// UI rebuilt) at the top of the next Update; empty = no change pending.
 	std::string m_pendingLanguage;
@@ -121,6 +124,8 @@ private:
 	std::vector<std::unique_ptr<gfx::Texture>> m_portraitTextures;
 	DungeonWorld m_world;
 	GameUI m_ui;
+	// Fullscreen dev overlay (toggle with `~`); does not pause the world.
+	DevConsole m_console;
 };
 
 } // namespace dungeon::game

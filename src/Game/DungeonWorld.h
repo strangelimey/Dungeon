@@ -66,7 +66,11 @@ public:
 	// One simulation step: party input/movement, animators, monster
 	// announcements, lights (with shadow-slot assignment), camera, and the
 	// fire particles (gathered back-to-front for the smoke blend).
-	void Update(const Input& input, float dt, float time);
+	// acceptInput=false simulates the world but ignores party movement keys —
+	// used while the dev console is open (the world keeps running, the party
+	// stays put). Everything else (physics, monsters, lights, particles)
+	// updates regardless.
+	void Update(const Input& input, float dt, float time, bool acceptInput = true);
 
 	// Per-frame arena rotation for the world-owned batches (safe pre-load).
 	void NewFrame(u32 frameIndex);
@@ -81,6 +85,21 @@ public:
 	Party& GetParty() { return m_party; }
 	const DungeonMap& Map() const { return m_map; }
 	size_t MonsterCount() const { return m_monsters.size(); }
+
+	// --- dev console hooks ---------------------------------------------------
+	// "kind @ x,z" for each live monster.
+	std::vector<std::string> MonsterList() const;
+	// Point lights submitted this frame (after UpdateLights).
+	size_t ActiveLightCount() const { return m_lights.points.size(); }
+	// Camera vertical FOV in degrees (clamped); UpdateCamera applies it.
+	void SetFov(float degrees);
+	float Fov() const { return m_fovDegrees; }
+	// Toggle the shadow pass (off = lights still lit, just unshadowed).
+	void SetShadowsEnabled(bool on) { m_shadowsEnabled = on; }
+	bool ShadowsEnabled() const { return m_shadowsEnabled; }
+	// Toggle volumetric dust (off feeds the renderer clear air).
+	void SetDustEnabled(bool on) { m_dustEnabled = on; }
+	bool DustEnabled() const { return m_dustEnabled; }
 
 	// HUD log feedback (bump lines, monster announcements, palette flavor).
 	// Set before play starts; the party/monster callbacks route through it.
@@ -194,6 +213,11 @@ private:
 	std::vector<gfx::ParticleInstance> m_particleScratch;
 
 	Vec3 m_torchColor{1.0f, 0.62f, 0.28f};
+
+	// Dev console toggles (see the hooks above).
+	float m_fovDegrees = 70.0f;
+	bool m_shadowsEnabled = true;
+	bool m_dustEnabled = true;
 };
 
 } // namespace dungeon::game

@@ -1,6 +1,7 @@
 add_library(Game STATIC
 	AssetUtil.cpp
 	Character.cpp
+	DevConsole.cpp
 	DungeonEntities.cpp
 	DungeonMap.cpp
 	DungeonMeshBuilder.cpp

@@ -35,6 +35,24 @@ void Party::Reset(int x, int z) {
 	m_blockCooldown = 0.0f;
 }
 
+void Party::SetFacing(int facing) {
+	m_facing = facing & 3;
+	m_currentYaw = m_targetYaw = YawForFacing(m_facing);
+	m_turning = false;
+}
+
+bool Party::SetGridPosition(int x, int z) {
+	if (!m_map.IsWalkable(x, z)) return false;
+	m_x = x;
+	m_z = z;
+	m_currentPos = m_targetPos = m_moveFrom = m_map.CellCenter(x, z);
+	m_moving = false;
+	m_turning = false;
+	m_moveT = 0.0f;
+	m_blockCooldown = 0.0f;
+	return true;
+}
+
 const char* Party::FacingName(int facing) {
 	switch (facing & 3) {
 	case 0: return "facing.north";
@@ -47,11 +65,13 @@ const char* Party::FacingName(int facing) {
 bool Party::TryStep(int dx, int dz) {
 	const int nx = m_x + dx;
 	const int nz = m_z + dz;
-	if (!m_map.IsWalkable(nx, nz)) {
-		if (onBlocked) onBlocked();
-		return false;
+	if (!m_noclip) {
+		if (!m_map.IsWalkable(nx, nz)) {
+			if (onBlocked) onBlocked();
+			return false;
+		}
+		if (isOccupied && isOccupied(nx, nz)) return false;
 	}
-	if (isOccupied && isOccupied(nx, nz)) return false;
 	m_x = nx;
 	m_z = nz;
 	m_moveFrom = m_currentPos;

@@ -46,6 +46,19 @@ public:
 	// state. Callbacks stay wired — used by "Start New Game".
 	void Reset(int x, int z);
 
+	// Teleports to a cell, keeping the current facing, clearing interpolation.
+	// Returns false (and does nothing) if the cell is not walkable — used by
+	// the dev console's `tp` command.
+	bool SetGridPosition(int x, int z);
+
+	// Snaps to a compass facing (0=N 1=E 2=S 3=W), no turn animation — the dev
+	// console's `face` command.
+	void SetFacing(int facing);
+
+	// Dev console `noclip`: when set, TryStep ignores walls and occupancy.
+	void SetNoclip(bool on) { m_noclip = on; }
+	bool Noclip() const { return m_noclip; }
+
 	void HandleInput(const Input& input);
 	// Requests one discrete action under the same rules as a key press:
 	// ignored while a move or turn is in flight or during the blocked-move
@@ -103,6 +116,7 @@ private:
 	float m_bobPhase = 0.0f;
 	float m_blockCooldown = 0.0f; // throttles repeated blocked-move feedback
 	float m_speed = 1.0f;         // pace multiplier (slowest member)
+	bool m_noclip = false;        // dev console: walk through walls
 	MoveKeys m_moveKeys;
 };
 

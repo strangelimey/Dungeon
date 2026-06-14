@@ -332,8 +332,8 @@ void DungeonWorld::SetTorchPalette(int index) {
 	}
 }
 
-void DungeonWorld::Update(const Input& input, float dt, float time) {
-	m_party.HandleInput(input);
+void DungeonWorld::Update(const Input& input, float dt, float time, bool acceptInput) {
+	if (acceptInput) m_party.HandleInput(input);
 	m_party.Update(dt);
 	m_pillarAnimator.Update(dt);
 	UpdateMonsters(dt);
@@ -357,10 +357,22 @@ void DungeonWorld::Update(const Input& input, float dt, float time) {
 					  });
 }
 
+void DungeonWorld::SetFov(float degrees) {
+	m_fovDegrees = std::clamp(degrees, 20.0f, 140.0f);
+}
+
+std::vector<std::string> DungeonWorld::MonsterList() const {
+	std::vector<std::string> out;
+	out.reserve(m_monsters.size());
+	for (const Monster& m : m_monsters)
+		out.push_back(std::format("{} @ {},{}", m.kind ? m.kind->name : "?", m.x, m.z));
+	return out;
+}
+
 void DungeonWorld::UpdateCamera() {
 	m_camera.SetPosition(m_party.EyePosition());
 	m_camera.SetYawPitch(m_party.Yaw(), 0.0f);
-	m_camera.SetLens(70.0f * kPi / 180.0f,
+	m_camera.SetLens(m_fovDegrees * kPi / 180.0f,
 					 static_cast<float>(m_device.Width()) /
 						 static_cast<float>(m_device.Height()),
 					 0.05f, 100.0f);
@@ -429,6 +441,7 @@ void DungeonWorld::AssignShadowSlots() {
 	const Vec3 eye = m_party.EyePosition();
 
 	for (gfx::PointLight& light : m_lights.points) light.shadowSlot = -1;
+	if (!m_shadowsEnabled) return; // dev console: lights stay lit, just unshadowed
 
 	m_shadowCandidates.clear();
 	const size_t lightCount =
@@ -493,7 +506,8 @@ void DungeonWorld::RenderShadowMaps(ID3D12GraphicsCommandList* list) {
 }
 
 void DungeonWorld::RenderScene(ID3D12GraphicsCommandList* list) {
-	m_renderer.BeginScene(list, m_camera, m_lights, m_atmosphere);
+	m_renderer.BeginScene(list, m_camera, m_lights,
+						  m_dustEnabled ? m_atmosphere : gfx::Atmosphere{});
 	SubmitSceneGeometry(list);
 	// Transparent flame/spark/smoke billboards last, over the opaque scene.
 	m_particleBatch->Render(list, m_camera, m_particleScratch);
