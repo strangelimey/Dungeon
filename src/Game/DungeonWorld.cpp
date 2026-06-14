@@ -67,19 +67,29 @@ DungeonWorld::DungeonWorld(gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 // Staged loading — one queued task per frame (see LoadQueue).
 // ============================================================================
 
+// The three surface texture sets and the height scales their parallax uses —
+// the single source of those constants, shared by the staged loader and the
+// quality hot-swap (LoadAllSurfaceTextures).
+std::array<DungeonWorld::SurfaceDef, 3> DungeonWorld::SurfaceDefs() {
+	return {{{m_walls, m_map.WallTextures(), 0.055f},
+			 {m_floors, m_map.FloorTextures(), 0.045f},
+			 {m_ceilings, m_map.CeilingTextures(), 0.035f}}};
+}
+
 void DungeonWorld::AppendLoadTasks(LoadQueue& queue) {
 	queue.Add(loc::Tr("load.blocks"), [this] { LoadDungeonBlocks(); });
 
-	auto addTextureTasks = [this, &queue](Surface& surface,
-										  std::span<const std::string> names,
-										  float heightScale) {
-		for (size_t i = 0; i < names.size(); ++i) {
-			const std::string& name = names[i];
+	// One task per material (the scanned sets dominate the load); the first
+	// material of each set resets the surface, exactly as LoadTextureSet does.
+	for (const SurfaceDef& def : SurfaceDefs()) {
+		Surface& surface = def.surface;
+		const float heightScale = def.heightScale;
+		for (size_t i = 0; i < def.names.size(); ++i) {
+			const std::string& name = def.names[i];
 			const bool first = i == 0; // first material resets the set
 			std::string spaced = name; // asset id, shown with the '_'s opened up
 			std::ranges::replace(spaced, '_', ' ');
-			std::string label = loc::Format("load.surface", spaced);
-			queue.Add(std::move(label),
+			queue.Add(loc::Format("load.surface", spaced),
 					  [this, &surface, name, heightScale, first] {
 						  if (first) {
 							  surface.albedo.clear();
@@ -89,10 +99,7 @@ void DungeonWorld::AppendLoadTasks(LoadQueue& queue) {
 						  LoadSurfaceMaterial(surface, name);
 					  });
 		}
-	};
-	addTextureTasks(m_walls, m_map.WallTextures(), 0.055f);
-	addTextureTasks(m_floors, m_map.FloorTextures(), 0.045f);
-	addTextureTasks(m_ceilings, m_map.CeilingTextures(), 0.035f);
+	}
 
 	queue.Add(loc::Tr("load.dungeon"), [this] { BuildDungeonMeshes(); });
 	queue.Add(loc::Tr("load.pillar"), [this] {
@@ -152,19 +159,16 @@ void DungeonWorld::LoadSurfaceMaterial(Surface& surface, const std::string& name
 	surface.normal.push_back(LoadTextureFile(m_device, stem + "_n"));
 }
 
-void DungeonWorld::LoadTextureSet(Surface& surface,
-								  std::span<const std::string> names,
-								  float heightScale) {
-	surface.albedo.clear(); // quality hot-swap reuses the same Surface objects
-	surface.normal.clear();
-	surface.heightScale = heightScale;
-	for (const std::string& name : names) LoadSurfaceMaterial(surface, name);
+void DungeonWorld::LoadTextureSet(const SurfaceDef& def) {
+	def.surface.albedo.clear(); // quality hot-swap reuses the same Surface objects
+	def.surface.normal.clear();
+	def.surface.heightScale = def.heightScale;
+	for (const std::string& name : def.names)
+		LoadSurfaceMaterial(def.surface, name);
 }
 
 void DungeonWorld::LoadAllSurfaceTextures() {
-	LoadTextureSet(m_walls, m_map.WallTextures(), 0.055f);
-	LoadTextureSet(m_floors, m_map.FloorTextures(), 0.045f);
-	LoadTextureSet(m_ceilings, m_map.CeilingTextures(), 0.035f);
+	for (const SurfaceDef& def : SurfaceDefs()) LoadTextureSet(def);
 }
 
 void DungeonWorld::BuildDungeonMeshes() {
@@ -220,13 +224,20 @@ void DungeonWorld::LoadMonsters() {
 void DungeonWorld::BuildFires() {
 	u32 seed = 1234;
 
+	// Sconce mount: the first solid neighbor (N, E, S, W), defaulting to north.
+	constexpr int kNeighborX[4] = {0, 1, 0, -1};
+	constexpr int kNeighborZ[4] = {-1, 0, 1, 0};
+
 	for (const auto& [tx, tz] : m_map.TorchCells()) {
 		// Pick the wall this sconce hangs on.
-		int dx = 0, dz = -1;
-		if (!m_map.IsWalkable(tx, tz - 1)) { dx = 0; dz = -1; }
-		else if (!m_map.IsWalkable(tx + 1, tz)) { dx = 1; dz = 0; }
-		else if (!m_map.IsWalkable(tx, tz + 1)) { dx = 0; dz = 1; }
-		else if (!m_map.IsWalkable(tx - 1, tz)) { dx = -1; dz = 0; }
+		int dx = kNeighborX[0], dz = kNeighborZ[0];
+		for (int n = 0; n < 4; ++n) {
+			if (!m_map.IsWalkable(tx + kNeighborX[n], tz + kNeighborZ[n])) {
+				dx = kNeighborX[n];
+				dz = kNeighborZ[n];
+				break;
+			}
+		}
 
 		const Vec3 center = m_map.CellCenter(tx, tz);
 		const Vec3 mount{center.x + dx * (kCellSize * 0.5f - 0.02f), 0.0f,

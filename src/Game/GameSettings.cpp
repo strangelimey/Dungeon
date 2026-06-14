@@ -40,6 +40,19 @@ void ParseIniColor(const std::string& text, const std::string& key, Vec4& color)
 	color = parsed;
 }
 
+// Reads key=<float> from the ini text, clamped to [min, max]. A missing or
+// malformed value keeps the caller's default.
+void ParseIniFloat(const std::string& text, const std::string& key, float& value,
+				   float min, float max) {
+	const size_t pos = text.find(key);
+	if (pos == std::string::npos) return;
+	float parsed = value;
+	if (std::from_chars(text.data() + pos + key.size(), text.data() + text.size(),
+						parsed)
+			.ec == std::errc{})
+		value = std::clamp(parsed, min, max);
+}
+
 } // namespace
 
 void GameSettings::Load() {
@@ -63,32 +76,9 @@ void GameSettings::Load() {
 		if (end > lpos + 9) language = text.substr(lpos + 9, end - (lpos + 9));
 	}
 
-	const size_t vpos = text.find("volume=");
-	if (vpos != std::string::npos) {
-		float parsed = 1.0f;
-		if (std::from_chars(text.data() + vpos + 7, text.data() + text.size(),
-							parsed)
-				.ec == std::errc{})
-			volume = std::clamp(parsed, 0.0f, 1.0f);
-	}
-
-	const size_t spos = text.find("barscale=");
-	if (spos != std::string::npos) {
-		float scale = 1.0f;
-		if (std::from_chars(text.data() + spos + 9, text.data() + text.size(),
-							scale)
-				.ec == std::errc{})
-			partyBarScale = std::clamp(scale, 0.5f, 1.5f);
-	}
-
-	const size_t opos = text.find("baropacity=");
-	if (opos != std::string::npos) {
-		float opacity = 1.0f;
-		if (std::from_chars(text.data() + opos + 11, text.data() + text.size(),
-							opacity)
-				.ec == std::errc{})
-			partyBarOpacity = std::clamp(opacity, 0.0f, 1.0f);
-	}
+	ParseIniFloat(text, "volume=", volume, 0.0f, 1.0f);
+	ParseIniFloat(text, "barscale=", partyBarScale, 0.5f, 1.5f);
+	ParseIniFloat(text, "baropacity=", partyBarOpacity, 0.0f, 1.0f);
 
 	for (const ThemeField& field : kThemeFields)
 		ParseIniColor(text, std::format("theme_{}=", field.key),

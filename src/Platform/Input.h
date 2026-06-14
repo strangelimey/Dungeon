@@ -17,6 +17,19 @@
 
 namespace dungeon {
 
+// The handful of Win32 virtual-key codes the UI and game logic compare
+// against by value. Centralized here so code that must not pull in <Windows.h>
+// (the UI library) still has names instead of bare hex literals; matches the
+// VK_* macros Win32-facing code uses.
+namespace vk {
+inline constexpr int Back = 0x08;
+inline constexpr int Return = 0x0D;
+inline constexpr int Escape = 0x1B;
+inline constexpr int Space = 0x20;
+inline constexpr int Up = 0x26;
+inline constexpr int Down = 0x28;
+} // namespace vk
+
 enum class MouseButton { Left, Right, Middle, Count };
 
 // Keyboard/mouse state with per-frame edge detection. The Window feeds this
@@ -32,7 +45,7 @@ public:
 	// Lets the UI capture "press any key" rebinding. Starts at VK_BACK (0x08)
 	// so the low mouse-button codes can never alias as keys.
 	int FirstPressedKey() const {
-		for (int vkey = 0x08; vkey < 256; ++vkey)
+		for (int vkey = vk::Back; vkey < 256; ++vkey)
 			if (m_keysPressed[static_cast<size_t>(vkey)]) return vkey;
 		return -1;
 	}

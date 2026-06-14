@@ -28,6 +28,7 @@
 #include "Graphics/ParticleBatch.h"
 #include "Graphics/Renderer.h"
 
+#include <array>
 #include <flat_map>
 #include <functional>
 #include <memory>
@@ -122,10 +123,19 @@ private:
 	};
 
 	// --- loading ---------------------------------------------------------------
+	// One surface's texture set + the height scale its parallax uses. The three
+	// SurfaceDefs (walls/floors/ceilings) are the single source of those scales,
+	// shared by the staged loader and the quality hot-swap.
+	struct SurfaceDef {
+		Surface& surface;
+		std::span<const std::string> names;
+		float heightScale;
+	};
+	std::array<SurfaceDef, 3> SurfaceDefs();
+
 	void LoadDungeonBlocks();      // loads the worn block set for the quality tier
 	void LoadSurfaceMaterial(Surface& surface, const std::string& name);
-	void LoadTextureSet(Surface& surface, std::span<const std::string> names,
-						float heightScale);
+	void LoadTextureSet(const SurfaceDef& def); // resets, then loads the set
 	void LoadAllSurfaceTextures(); // reloads every set (quality hot-swap)
 	void BuildDungeonMeshes();
 	void LoadMonsters();

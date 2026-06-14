@@ -115,7 +115,25 @@ private:
 	// the widgets beneath the bar to match; no-op until BuildHud has run.
 	void ApplyPartyBarScale();
 	void DrawLoadProgress(const LoadQueue& queue, float barY); // shared bar
+	// Title face centered horizontally at y (accent color); returns y so a
+	// subtitle can be placed relative to it. Shared by every title screen.
+	void DrawCenteredTitle(const std::string& text, float y);
 	void Click(float volume = 0.5f); // UI click feedback
+
+	// Live window/device dimensions as floats (the UI authors in floats and
+	// the window and back buffer track the same size).
+	float WindowW() const { return static_cast<float>(m_window.Width()); }
+	float WindowH() const { return static_cast<float>(m_window.Height()); }
+	float DeviceW() const { return static_cast<float>(m_device.Width()); }
+	float DeviceH() const { return static_cast<float>(m_device.Height()); }
+	// The menu/pause pages share one settings page; the active context depends
+	// on whether the settings page is open over the list.
+	ui::UIContext& MenuContext() {
+		return m_menuPage == MenuPage::Main ? m_menuUi : m_settingsUi;
+	}
+	ui::UIContext& PauseContext() {
+		return m_menuPage == MenuPage::Main ? m_pauseUi : m_settingsUi;
+	}
 
 	Window& m_window;
 	gfx::GraphicsDevice& m_device;

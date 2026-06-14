@@ -284,7 +284,6 @@ void ColorPicker::Update(UIContext& ctx) {
 	const float my = input->MouseY();
 
 	if (m_open) {
-		constexpr int kVkEscape = 0x1B;
 		const gfx::Rect popup = PopupRect(ctx);
 		if (m_dragChannel >= 0 && !input->IsMouseDown(MouseButton::Left))
 			m_dragChannel = -1;
@@ -297,7 +296,7 @@ void ColorPicker::Update(UIContext& ctx) {
 				if (onClose) onClose();
 			}
 		}
-		if (m_open && input->WasKeyPressed(kVkEscape)) {
+		if (m_open && input->WasKeyPressed(vk::Escape)) {
 			m_dragChannel = -1;
 			m_open = false;
 			if (onClose) onClose();
@@ -401,9 +400,8 @@ void KeyBind::Update(UIContext& ctx) {
 	if (!input) return;
 
 	if (m_capturing) {
-		constexpr int kVkEscape = 0x1B;
 		if (input->WasMousePressed(MouseButton::Left) ||
-			input->WasKeyPressed(kVkEscape)) {
+			input->WasKeyPressed(vk::Escape)) {
 			m_capturing = false; // any click (incl. the box) or Esc cancels
 		} else if (const int vkey = input->FirstPressedKey(); vkey >= 0) {
 			m_capturing = false;
@@ -488,10 +486,9 @@ void MenuList::Update(UIContext& ctx) {
 	}
 
 	// Keyboard: arrows / W/S move the selection, Enter/Space activates.
-	constexpr int kVkUp = 0x26, kVkDown = 0x28, kVkReturn = 0x0D, kVkSpace = 0x20;
-	if (input->WasKeyPressed(kVkUp) || input->WasKeyPressed('W')) MoveSelection(-1);
-	if (input->WasKeyPressed(kVkDown) || input->WasKeyPressed('S')) MoveSelection(+1);
-	if (input->WasKeyPressed(kVkReturn) || input->WasKeyPressed(kVkSpace)) Activate();
+	if (input->WasKeyPressed(vk::Up) || input->WasKeyPressed('W')) MoveSelection(-1);
+	if (input->WasKeyPressed(vk::Down) || input->WasKeyPressed('S')) MoveSelection(+1);
+	if (input->WasKeyPressed(vk::Return) || input->WasKeyPressed(vk::Space)) Activate();
 }
 
 void MenuList::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {

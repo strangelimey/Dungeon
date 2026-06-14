@@ -577,25 +577,19 @@ void GameUI::UpdateFonts(float dt) {
 }
 
 void GameUI::UpdateMenu(const Input& input) {
-	(m_menuPage == MenuPage::Main ? m_menuUi : m_settingsUi)
-		.Update(input, static_cast<float>(m_window.Width()),
-				static_cast<float>(m_window.Height()));
+	MenuContext().Update(input, WindowW(), WindowH());
 }
 
 void GameUI::UpdatePause(const Input& input) {
-	(m_menuPage == MenuPage::Main ? m_pauseUi : m_settingsUi)
-		.Update(input, static_cast<float>(m_window.Width()),
-				static_cast<float>(m_window.Height()));
+	PauseContext().Update(input, WindowW(), WindowH());
 }
 
 void GameUI::UpdateSheet(const Input& input) {
-	m_sheetUi.Update(input, static_cast<float>(m_window.Width()),
-					 static_cast<float>(m_window.Height()));
+	m_sheetUi.Update(input, WindowW(), WindowH());
 }
 
 void GameUI::UpdateHud(const Input& input) {
-	m_hudUi.Update(input, static_cast<float>(m_window.Width()),
-				   static_cast<float>(m_window.Height()));
+	m_hudUi.Update(input, WindowW(), WindowH());
 }
 
 void GameUI::SetHudStatus(int facing, int gridX, int gridZ) {
@@ -637,8 +631,8 @@ void GameUI::ClearLog() { m_log->Clear(); }
 
 // Progress bar + current step name, shared by both loading screens.
 void GameUI::DrawLoadProgress(const LoadQueue& queue, float barY) {
-	const float w = static_cast<float>(m_device.Width());
-	const float h = static_cast<float>(m_device.Height());
+	const float w = DeviceW();
+	const float h = DeviceH();
 	const ui::Theme& theme = m_menuUi.GetTheme();
 
 	const gfx::Rect bar{w * 0.3f, barY, w * 0.4f, h * (14.0f / kFontDesignWindowH)};
@@ -654,32 +648,32 @@ void GameUI::DrawLoadProgress(const LoadQueue& queue, float barY) {
 			  theme.textDim);
 }
 
+// Title face, horizontally centered at y in the accent color — every title
+// screen draws "DUNGEON" this way.
+void GameUI::DrawCenteredTitle(const std::string& text, float y) {
+	const float titleW = m_titleFont.MeasureWidth(text);
+	m_titleFont.Draw(m_spriteBatch, text, (DeviceW() - titleW) * 0.5f, y,
+					 m_menuUi.GetTheme().accent);
+}
+
 void GameUI::RenderLoadingScreen(const LoadQueue& queue) {
-	const float w = static_cast<float>(m_device.Width());
-	const float h = static_cast<float>(m_device.Height());
-	const ui::Theme& theme = m_menuUi.GetTheme();
-
-	const std::string title = loc::Tr("title");
-	const float titleW = m_titleFont.MeasureWidth(title);
-	m_titleFont.Draw(m_spriteBatch, title, (w - titleW) * 0.5f, h * 0.32f, theme.accent);
-
+	const float h = DeviceH();
+	DrawCenteredTitle(loc::Tr("title"), h * 0.32f);
 	DrawLoadProgress(queue, h * 0.52f);
 }
 
 // Shown between "Start New Game" and Playing: the title art again, washed
 // darker than the menu so the bar and step names read clearly.
 void GameUI::RenderGameLoadingScreen(const LoadQueue& queue) {
-	const float w = static_cast<float>(m_device.Width());
-	const float h = static_cast<float>(m_device.Height());
+	const float w = DeviceW();
+	const float h = DeviceH();
 	const ui::Theme& theme = m_menuUi.GetTheme();
 
 	m_spriteBatch.DrawSprite({0, 0, w, h}, {0, 0, 1, 1}, *m_titleBackground,
 							 {1, 1, 1, 1});
 	m_spriteBatch.DrawRect({0, 0, w, h}, {0, 0, 0, 0.55f});
 
-	const std::string title = loc::Tr("title");
-	const float titleW = m_titleFont.MeasureWidth(title);
-	m_titleFont.Draw(m_spriteBatch, title, (w - titleW) * 0.5f, h * 0.16f, theme.accent);
+	DrawCenteredTitle(loc::Tr("title"), h * 0.16f);
 
 	const std::string subtitle = loc::Tr("loading.descending");
 	ui::Font& font = m_menuUi.GetFont();
@@ -691,8 +685,8 @@ void GameUI::RenderGameLoadingScreen(const LoadQueue& queue) {
 }
 
 void GameUI::RenderMenuOverlay() {
-	const float w = static_cast<float>(m_device.Width());
-	const float h = static_cast<float>(m_device.Height());
+	const float w = DeviceW();
+	const float h = DeviceH();
 	const ui::Theme& theme = m_menuUi.GetTheme();
 
 	// Baked title art, stretched to the window, with a light darkening wash
@@ -702,9 +696,7 @@ void GameUI::RenderMenuOverlay() {
 	m_spriteBatch.DrawRect({0, 0, w, h}, {0, 0, 0, 0.30f});
 
 	// Title + subtitle.
-	const std::string title = loc::Tr("title");
-	const float titleW = m_titleFont.MeasureWidth(title);
-	m_titleFont.Draw(m_spriteBatch, title, (w - titleW) * 0.5f, h * 0.16f, theme.accent);
+	DrawCenteredTitle(loc::Tr("title"), h * 0.16f);
 
 	const std::string subtitle = loc::Tr(
 		m_menuPage == MenuPage::Settings ? "menu.subtitle_settings" : "menu.subtitle");
@@ -713,24 +705,20 @@ void GameUI::RenderMenuOverlay() {
 	font.Draw(m_spriteBatch, subtitle, (w - subW) * 0.5f,
 			  h * (0.16f + 74.0f / kFontDesignWindowH), theme.textDim);
 
-	(m_menuPage == MenuPage::Main ? m_menuUi : m_settingsUi)
-		.Render(m_spriteBatch, w, h);
+	MenuContext().Render(m_spriteBatch, w, h);
 }
 
 // Esc pause: the frozen scene stays up behind a dark wash, with a menu list
 // like the landing page. The settings page is the same one the landing menu
 // uses (m_menuPage routes both).
 void GameUI::RenderPauseOverlay() {
-	const float w = static_cast<float>(m_device.Width());
-	const float h = static_cast<float>(m_device.Height());
+	const float w = DeviceW();
+	const float h = DeviceH();
 	const ui::Theme& theme = m_pauseUi.GetTheme();
 
 	m_spriteBatch.DrawRect({0, 0, w, h}, {0, 0, 0, 0.55f});
 
-	const std::string title = loc::Tr("pause.title");
-	const float titleW = m_titleFont.MeasureWidth(title);
-	m_titleFont.Draw(m_spriteBatch, title, (w - titleW) * 0.5f, h * 0.16f,
-					 theme.accent);
+	DrawCenteredTitle(loc::Tr("pause.title"), h * 0.16f);
 
 	if (m_menuPage == MenuPage::Settings) {
 		const std::string subtitle = loc::Tr("menu.subtitle_settings");
@@ -740,23 +728,21 @@ void GameUI::RenderPauseOverlay() {
 				  h * (0.16f + 74.0f / kFontDesignWindowH), theme.textDim);
 	}
 
-	(m_menuPage == MenuPage::Main ? m_pauseUi : m_settingsUi)
-		.Render(m_spriteBatch, w, h);
+	PauseContext().Render(m_spriteBatch, w, h);
 }
 
 // Portrait click: the frozen scene under a dark wash, with the sheet page
 // (and its prev/next/Back buttons) on top.
 void GameUI::RenderCharacterSheetOverlay() {
-	const float w = static_cast<float>(m_device.Width());
-	const float h = static_cast<float>(m_device.Height());
+	const float w = DeviceW();
+	const float h = DeviceH();
 
 	m_spriteBatch.DrawRect({0, 0, w, h}, {0, 0, 0, 0.55f});
 	m_sheetUi.Render(m_spriteBatch, w, h);
 }
 
 void GameUI::RenderHud() {
-	m_hudUi.Render(m_spriteBatch, static_cast<float>(m_device.Width()),
-				   static_cast<float>(m_device.Height()));
+	m_hudUi.Render(m_spriteBatch, DeviceW(), DeviceH());
 }
 
 } // namespace dungeon::game
