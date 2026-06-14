@@ -11,6 +11,7 @@ add_library(Game STATIC
 	Game.cpp
 	GameSettings.cpp
 	GameUI.cpp
+	MapView.cpp
 	Party.cpp
 	PartyHud.cpp
 	SoundBank.cpp

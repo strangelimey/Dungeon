@@ -44,6 +44,7 @@
 #include "Game/GameSettings.h"
 #include "Game/GameUI.h"
 #include "Game/LoadQueue.h"
+#include "Game/MapView.h"
 #include "Game/SoundBank.h"
 #include "Graphics/Renderer.h"
 #include "Graphics/SpriteBatch.h"
@@ -124,8 +125,19 @@ private:
 	std::vector<std::unique_ptr<gfx::Texture>> m_portraitTextures;
 	DungeonWorld m_world;
 	GameUI m_ui;
+	// Map/editor overlay (toggle with `M` while playing). Like the console it
+	// does NOT pause the world — the party keeps walking; the overlay only
+	// claims the mouse for panning/zooming/editing.
+	MapView m_mapView;
 	// Fullscreen dev overlay (toggle with `~`); does not pause the world.
 	DevConsole m_console;
+
+	// The map overlay's panel, an 80%-centered rect in the given surface's
+	// pixel space (window pixels for input, device pixels for drawing).
+	static gfx::Rect MapPanel(float surfaceW, float surfaceH) {
+		const float pw = surfaceW * 0.8f, ph = surfaceH * 0.8f;
+		return {(surfaceW - pw) * 0.5f, (surfaceH - ph) * 0.5f, pw, ph};
+	}
 };
 
 } // namespace dungeon::game

@@ -84,7 +84,21 @@ public:
 
 	Party& GetParty() { return m_party; }
 	const DungeonMap& Map() const { return m_map; }
+	const DungeonEntities& Entities() const { return m_entities; }
 	size_t MonsterCount() const { return m_monsters.size(); }
+
+	// --- fog of war (dynamic/save-side state, not in DungeonMap) -------------
+	// Whether a cell has been revealed (the party has stood on it or an
+	// adjacent cell). The map overlay draws only seen cells. This belongs to
+	// the dynamic layer — a future save serializes it, never the .map file.
+	bool IsSeen(int x, int z) const;
+
+	// --- map editor seam (driven by MapView) --------------------------------
+	// Paints a cell to a new type, revealing it and rebuilding the affected
+	// surface geometry. Drains the GPU, so it is an interactive edit, not a
+	// per-frame call. Structural only: fixtures, turbidity, and decorations
+	// are not recomputed (matches DungeonMap::SetCell).
+	void EditCell(int x, int z, Cell cell);
 
 	// --- dev console hooks ---------------------------------------------------
 	// "kind @ x,z" for each live monster.
@@ -167,6 +181,11 @@ private:
 	void UpdateMonsters(float dt);
 	void AssignShadowSlots();
 
+	// Reveals a cell and its eight neighbors in the fog-of-war set.
+	void MarkSeen(int x, int z);
+	// Re-bakes the surface meshes after a map edit (WaitIdle + rebuild).
+	void RebuildGeometry();
+
 	// --- rendering --------------------------------------------------------------
 	// All 3D draw calls, shared verbatim by the shadow and main passes.
 	void SubmitSceneGeometry(ID3D12GraphicsCommandList* list);
@@ -181,6 +200,7 @@ private:
 	DungeonMap m_map;           // static layer (.map): structure, fixtures
 	DungeonEntities m_entities; // dynamic layer (.ent): monsters, items, buttons
 	Party m_party;
+	std::vector<u8> m_seen;     // fog of war, parallel to map cells (1 = revealed)
 	gfx::Camera m_camera;
 	gfx::LightSet m_lights;
 	// Scratch reused by AssignShadowSlots: (distance², light index), sorted

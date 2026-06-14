@@ -131,4 +131,12 @@ Cell DungeonMap::At(int x, int z) const {
 
 bool DungeonMap::IsWalkable(int x, int z) const { return At(x, z) == Cell::Floor; }
 
+void DungeonMap::SetCell(int x, int z, Cell cell) {
+	if (x < 0 || z < 0 || x >= m_width || z >= m_height) return;
+	Cell& slot = m_cells[static_cast<size_t>(z) * m_width + x];
+	if (slot == cell) return;
+	slot = cell;
+	++m_revision;
+}
+
 } // namespace dungeon::game

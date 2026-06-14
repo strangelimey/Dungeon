@@ -43,6 +43,20 @@ public:
 	void DrawSprite(const Rect& dst, const Rect& uv, const Texture& texture,
 					const Vec4& color);
 
+	// Quad rotated `radians` clockwise about `center` (screen Y is down, so
+	// positive angles turn toward +X→+Y). `size` is the unrotated width/height.
+	// Used for direction markers the axis-aligned path can't express (the map's
+	// party/entity facing arrows).
+	void DrawSpriteRotated(const Vec2& center, const Vec2& size, float radians,
+						   const Rect& uv, const Texture& texture, const Vec4& color);
+	void DrawRectRotated(const Vec2& center, const Vec2& size, float radians,
+						 const Vec4& color);
+
+	// Solid-color triangle (the map's party/entity facing markers). Winding is
+	// irrelevant — the UI PSO culls nothing.
+	void DrawTriangle(const Vec2& a, const Vec2& b, const Vec2& c,
+					  const Vec4& color);
+
 	// Pixel-space clipping for scrolling panels. Pass nullptr to reset.
 	void SetScissor(const Rect* rect);
 

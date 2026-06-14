@@ -53,6 +53,16 @@ public:
 	bool IsWalkable(int x, int z) const;
 	Cell At(int x, int z) const;
 
+	// --- editing seam (in-game map editor) ----------------------------------
+	// Sets a cell's type, bumping Revision() when the value actually changes so
+	// the world can rebuild geometry. Out-of-bounds writes are ignored (the
+	// grid is fixed-size). Fixtures/turbidity are NOT recomputed here — the
+	// editor owns those edits separately; this is the structural layer only.
+	void SetCell(int x, int z, Cell cell);
+	// Monotonic edit counter; 0 at load. A geometry watcher rebuilds when it
+	// changes (see DungeonWorld).
+	u32 Revision() const { return m_revision; }
+
 	// Air turbidity 0 (clear) .. 1 (thick dust) for a cell; walls return 0.
 	float Turbidity(int x, int z) const {
 		if (x < 0 || z < 0 || x >= m_width || z >= m_height) return 0.0f;
@@ -88,6 +98,8 @@ private:
 	int m_height = 0;
 	int m_startX = 1;
 	int m_startZ = 1;
+	u32 m_revision = 0; // bumped by SetCell; 0 at load
+
 	std::vector<Cell> m_cells;
 	std::vector<float> m_turbidity; // parallel to m_cells
 	std::vector<std::pair<int, int>> m_torches;

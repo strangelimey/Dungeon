@@ -31,7 +31,10 @@ DungeonWorld::DungeonWorld(gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	  m_party(m_map, m_map.StartX(), m_map.StartZ()) {
 	// Party event hooks (survive Party::Reset). Feedback goes out through the
 	// shared sound bank and the onMessage log line.
-	m_party.onStep = [this] { m_audio.Play(m_sounds.footstep, 0.8f); };
+	m_party.onStep = [this] {
+		m_audio.Play(m_sounds.footstep, 0.8f);
+		MarkSeen(m_party.GridX(), m_party.GridZ());
+	};
 	m_party.onBlocked = [this] {
 		m_audio.Play(m_sounds.bump, 0.9f);
 		onMessage(loc::Tr("log.bump"));
@@ -55,6 +58,11 @@ DungeonWorld::DungeonWorld(gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 		}
 		return false;
 	};
+
+	// Fog of war: nothing revealed until the party stands somewhere. Seed the
+	// start cell so the map isn't blank the moment it opens.
+	m_seen.assign(static_cast<size_t>(m_map.Width()) * m_map.Height(), 0);
+	MarkSeen(m_party.GridX(), m_party.GridZ());
 
 	m_lights.ambient = {0.035f, 0.032f, 0.045f};
 	m_lights.directional.color = {0, 0, 0}; // no sun underground
@@ -321,7 +329,42 @@ void DungeonWorld::ApplyQuality(bool textureResChanged) {
 void DungeonWorld::ResetForNewGame() {
 	m_party.Reset(m_map.StartX(), m_map.StartZ());
 	for (Monster& monster : m_monsters) monster.announced = false;
+	std::fill(m_seen.begin(), m_seen.end(), static_cast<u8>(0));
+	MarkSeen(m_party.GridX(), m_party.GridZ());
 	SetTorchPalette(0);
+}
+
+bool DungeonWorld::IsSeen(int x, int z) const {
+	if (x < 0 || z < 0 || x >= m_map.Width() || z >= m_map.Height()) return false;
+	return m_seen[static_cast<size_t>(z) * m_map.Width() + x] != 0;
+}
+
+void DungeonWorld::EditCell(int x, int z, Cell cell) {
+	const u32 rev = m_map.Revision();
+	m_map.SetCell(x, z, cell);
+	if (m_map.Revision() == rev) return; // unchanged
+	MarkSeen(x, z);
+	RebuildGeometry();
+}
+
+void DungeonWorld::RebuildGeometry() {
+	if (m_walls.meshes.empty()) return; // not built yet
+	m_device.WaitIdle();                // GPU may still read the old meshes
+	m_walls.meshes.clear();
+	m_floors.meshes.clear();
+	m_ceilings.meshes.clear();
+	BuildDungeonMeshes();
+}
+
+void DungeonWorld::MarkSeen(int x, int z) {
+	for (int dz = -1; dz <= 1; ++dz) {
+		for (int dx = -1; dx <= 1; ++dx) {
+			const int cx = x + dx, cz = z + dz;
+			if (cx < 0 || cz < 0 || cx >= m_map.Width() || cz >= m_map.Height())
+				continue;
+			m_seen[static_cast<size_t>(cz) * m_map.Width() + cx] = 1;
+		}
+	}
 }
 
 void DungeonWorld::SetTorchPalette(int index) {

@@ -127,3 +127,11 @@ attr.vitality=Vitality
 attr.willpower=Willpower
 sheet.equipment=Equipment
 sheet.nothing_carried=Nothing carried.
+
+; --- map overlay / editor --------------------------------------------------------
+map.title=Map
+map.position={}, {}
+map.tool.view=View
+map.tool.floor=Paint floor
+map.tool.wall=Paint wall
+map.hint=Drag to pan, wheel to zoom

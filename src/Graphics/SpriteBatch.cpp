@@ -3,6 +3,7 @@
 #include "Core/Paths.h"
 #include "Graphics/ShaderCompiler.h"
 
+#include <cmath>
 #include <cstring>
 
 namespace dungeon::gfx {
@@ -143,6 +144,52 @@ void SpriteBatch::DrawSprite(const Rect& dst, const Rect& uv, const Texture& tex
 	m_pending.push_back(v0);
 	m_pending.push_back(v2);
 	m_pending.push_back(v3);
+}
+
+void SpriteBatch::DrawRectRotated(const Vec2& center, const Vec2& size,
+								  float radians, const Vec4& color) {
+	DrawSpriteRotated(center, size, radians, {0, 0, 1, 1}, *m_white, color);
+}
+
+void SpriteBatch::DrawSpriteRotated(const Vec2& center, const Vec2& size,
+									float radians, const Rect& uv,
+									const Texture& texture, const Vec4& color) {
+	if (!m_list) return;
+	if (m_pendingTexture.ptr != texture.GpuHandle().ptr && !m_pending.empty()) Flush();
+	m_pendingTexture = texture.GpuHandle();
+
+	const float c = std::cos(radians), s = std::sin(radians);
+	const float hx = size.x * 0.5f, hy = size.y * 0.5f;
+	// Corner offsets from the center, in unrotated local space (CW from top-left).
+	const Vec2 local[4] = {{-hx, -hy}, {hx, -hy}, {hx, hy}, {-hx, hy}};
+	const Rect uvs{uv.x, uv.y, uv.w, uv.h};
+	SpriteVertex v[4];
+	for (int i = 0; i < 4; ++i) {
+		v[i].position = {center.x + local[i].x * c - local[i].y * s,
+						 center.y + local[i].x * s + local[i].y * c};
+		v[i].color = color;
+	}
+	v[0].uv = {uvs.x, uvs.y};
+	v[1].uv = {uvs.x + uvs.w, uvs.y};
+	v[2].uv = {uvs.x + uvs.w, uvs.y + uvs.h};
+	v[3].uv = {uvs.x, uvs.y + uvs.h};
+	m_pending.push_back(v[0]);
+	m_pending.push_back(v[1]);
+	m_pending.push_back(v[2]);
+	m_pending.push_back(v[0]);
+	m_pending.push_back(v[2]);
+	m_pending.push_back(v[3]);
+}
+
+void SpriteBatch::DrawTriangle(const Vec2& a, const Vec2& b, const Vec2& c,
+							   const Vec4& color) {
+	if (!m_list) return;
+	const Texture& white = *m_white;
+	if (m_pendingTexture.ptr != white.GpuHandle().ptr && !m_pending.empty()) Flush();
+	m_pendingTexture = white.GpuHandle();
+	m_pending.push_back({{a.x, a.y}, {0, 0}, color});
+	m_pending.push_back({{b.x, b.y}, {1, 0}, color});
+	m_pending.push_back({{c.x, c.y}, {1, 1}, color});
 }
 
 void SpriteBatch::SetScissor(const Rect* rect) {

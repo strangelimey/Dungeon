@@ -178,6 +178,45 @@ HandleInput), a left+right HandSlot (PartyHud.h) pair per member (empty
 boxes with the character's identity stripe; clicking logs "hands are empty"
 until items exist), and a reserved Magic area below.
 
+## Map overlay / editor (MapView)
+
+A stylized top-down map, toggled with `M` while Playing. Like the dev
+console it is NOT an AppState — Game owns m_mapView and, while it is open,
+keeps calling m_world.Update, so the world simulates and the party still
+walks on the keyboard; the overlay only claims the MOUSE (pan/zoom/edit).
+Esc or `M` closes it (handled before the Esc→Paused branch in Game::Update);
+the toggle key is hardcoded (kKeyFields is MoveKeys-only — a bindable map key
+needs a separate UI-keybinds table). Drawn over the HUD in an 80%-centered
+panel (Game::MapPanel) behind a dim wash, after RenderHud and before the
+console.
+
+MapView (Game lib) is the renderer AND the seed of the in-game dungeon
+editor — one view transform + one pick math drive both. Cells render as
+filled blocks (walls = bright stone ink, floors recede), fixtures/entities
+as colored square markers (torch/brazier from the map; monster/item/button
+from DungeonEntities), the start cell as an accent outline, and the party as
+a rotated triangle (facing*90° CW from north-up; screen Y is down so it
+matches the compass — uses SpriteBatch::DrawTriangle). The transform is
+resolution-independent (pan = fraction of panel, zoom = unitless, fit-whole-
+map at zoom 1), so Update (window-pixel panel, matches mouse coords) and
+Render (device-pixel panel) agree; zoom is cursor-anchored. CellAt is the
+inverse pick. A stub tool palette (View/Paint floor/Paint wall) proves the
+edit seam: a paint click → DungeonWorld::EditCell → DungeonMap::SetCell
+(bumps Revision()) → MarkSeen → RebuildGeometry (WaitIdle + re-bake, same as
+the quality hot-swap) → the wall appears in-world immediately. Edits are
+in-memory only (no .map/.ent serialization yet). All overlay text goes
+through Loc (map.* keys).
+
+Fog of war is on day one: DungeonWorld::m_seen is a per-cell bitset
+(dynamic/save-side state, NEVER baked into DungeonMap), revealed via
+MarkSeen (a cell + its 8 neighbors) on every Party::onStep and on edits,
+seeded at the start cell; MapView draws only IsSeen cells. A future save
+serializes this alongside the .ent layer.
+
+SpriteBatch gained DrawTriangle (the markers) and DrawSpriteRotated/
+DrawRectRotated (rotate the 4 corner verts; for future textured/rotated
+editor icons) — the axis-aligned DrawRect/DrawSprite couldn't express them.
+
 ## Workflow conventions used so far
 
 - Verify changes by launching the exe and driving it with PostMessage

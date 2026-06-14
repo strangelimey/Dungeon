@@ -28,6 +28,7 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	  m_world(device, renderer, audio, m_sounds, m_settings),
 	  m_ui(window, device, spriteBatch, audio, m_sounds, m_settings,
 		   m_characters),
+	  m_mapView(device, m_world),
 	  m_console(device) {
 	m_settings.Load();
 	ApplyLanguage(false); // strings must exist before any UI builds
@@ -448,6 +449,23 @@ void Game::Update(float dt) {
 	}
 
 	// --- Playing -------------------------------------------------------------
+	// Map overlay: a toggle that never pauses the world. While it is open the
+	// party still walks (keyboard) — the overlay only claims the mouse for
+	// panning/zooming/editing, and Esc/M closes it instead of pausing.
+	if (input.WasKeyPressed('M')) m_mapView.Toggle();
+	if (m_mapView.IsOpen()) {
+		if (input.WasKeyPressed(VK_ESCAPE)) {
+			m_mapView.Close();
+			return;
+		}
+		m_mapView.Update(input, MapPanel(static_cast<float>(m_window.Width()),
+										 static_cast<float>(m_window.Height())));
+		m_world.Update(input, wdt, m_time); // keyboard still moves the party
+		Party& party = m_world.GetParty();
+		m_ui.SetHudStatus(party.Facing(), party.GridX(), party.GridZ());
+		return;
+	}
+
 	// Esc freezes the world and opens the pause menu.
 	if (input.WasKeyPressed(VK_ESCAPE)) {
 		m_audio.Play(m_sounds.click, 0.5f);
@@ -491,7 +509,18 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 	case AppState::Loading:     m_ui.RenderLoadingScreen(m_loadQueue); break;
 	case AppState::Menu:        m_ui.RenderMenuOverlay(); break;
 	case AppState::LoadingGame: m_ui.RenderGameLoadingScreen(m_loadQueue); break;
-	case AppState::Playing:     m_ui.RenderHud(); break;
+	case AppState::Playing:
+		m_ui.RenderHud();
+		if (m_mapView.IsOpen()) {
+			// Dim the scene behind the panel, then draw the map over the HUD.
+			m_spriteBatch.DrawRect({0, 0, static_cast<float>(m_device.Width()),
+									static_cast<float>(m_device.Height())},
+								   {0, 0, 0, 0.45f});
+			m_mapView.Render(m_spriteBatch, m_settings.theme,
+							 MapPanel(static_cast<float>(m_device.Width()),
+									  static_cast<float>(m_device.Height())));
+		}
+		break;
 	case AppState::Paused:      m_ui.RenderPauseOverlay(); break;
 	case AppState::CharacterSheet: m_ui.RenderCharacterSheetOverlay(); break;
 	}
