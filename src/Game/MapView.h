@@ -1,20 +1,21 @@
 // ============================================================================
-// Game/MapView.h — the in-game map overlay, and the seed of the future
-// dungeon editor.
+// Game/MapView.h — the in-game map overlay, and the in-game dungeon editor.
 //
-// A stylized top-down view of the level, drawn into a large panel (~80% of the
-// screen) OVER the running game. Like the dev console it is a toggle, not an
-// app state: while it is open the world keeps simulating and the party still
-// walks (the overlay only claims the mouse, for panning/zooming/editing).
+// A stylized top-down view of the level drawn OVER the running game. Like the
+// dev console it is a toggle, not an app state: while it is open the world
+// keeps simulating and the party still walks (the overlay only claims the
+// mouse, for panning/zooming/editing). Two modes:
+//   Player (M key)       — an 80%-centered overlay; fog of war (only revealed
+//                          cells and their contents draw, DungeonWorld::IsSeen).
+//   Editor (`editor` cmd)— full-screen and drawn alone; the whole map and
+//                          every creature/item draw regardless of fog, with a
+//                          brush palette docked left and a symbol key docked
+//                          right. Both docks collapse to a single flip-arrow
+//                          button (state persisted in GameSettings).
 //
-// Walls and floors render as filled cells, fixtures and entities as glyph
-// icons, and the party as a facing triangle. Only fog-of-war-revealed cells
-// draw (DungeonWorld::IsSeen) — the seen set is dynamic, save-side state, never
-// baked into the .map file.
-//
-// The same view is the substrate for editing: a paint tool turns a clicked
-// cell wall/floor through DungeonWorld::EditCell, picked via CellAt. The
-// minimap (Tool::None) and the editor are the one renderer plus one pick math.
+// Walls and floors render as filled cells, fixtures and entities as colored
+// markers, and the party as a facing triangle. Editing paints a clicked cell
+// wall/floor through DungeonWorld::EditCell, picked via CellAt.
 //
 // Coordinate note: the map is +X east / +Z south with row index growing
 // southward (DungeonMap.h), and screen Y grows downward too, so cell→screen is
@@ -23,6 +24,7 @@
 #pragma once
 
 #include "Game/DungeonWorld.h"
+#include "Game/GameSettings.h" // collapse-state persistence
 #include "Graphics/GraphicsDevice.h"
 #include "Graphics/SpriteBatch.h"
 #include "Platform/Input.h"
@@ -46,7 +48,8 @@ public:
 	// Editor — left paints, right-drag pans, wheel zooms.
 	enum class Brush { Floor, Wall };
 
-	MapView(gfx::GraphicsDevice& device, DungeonWorld& world);
+	MapView(gfx::GraphicsDevice& device, DungeonWorld& world,
+			GameSettings& settings);
 
 	bool IsOpen() const { return m_open; }
 	Mode CurrentMode() const { return m_mode; }
@@ -107,23 +110,29 @@ private:
 	bool CellVisible(int x, int z) const;
 
 	// The grid-drawing area within the panel: the whole panel in Player mode,
-	// the panel minus the left dock in Editor mode. The transform and CellAt
-	// work in this rect so the map never draws under the dock.
+	// the panel minus BOTH docks in Editor mode. The transform and CellAt work
+	// in this rect so the map never draws under a dock.
 	gfx::Rect GridArea(const gfx::Rect& panel) const;
 
-	// Left-dock brush palette (Editor mode). Brush(i) is the i-th button's
-	// brush; DockRect / BrushButtonRect resolve pixel rects from the panel
-	// (resolution independent — sized from the panel, so Update and Render
-	// agree); BrushSwatch/BrushLabelKey describe a brush for the button.
+	// Editor docks (resolution independent — all sized from the panel, so Update
+	// and Render agree). Each dock's width collapses to a thin strip showing
+	// only its flip-arrow button; the collapsed flags live in GameSettings.
+	gfx::Rect LeftDockRect(const gfx::Rect& panel) const;   // brush palette
+	gfx::Rect RightDockRect(const gfx::Rect& panel) const;  // symbol key
+	gfx::Rect LeftCollapseButton(const gfx::Rect& panel) const;
+	gfx::Rect RightCollapseButton(const gfx::Rect& panel) const;
+
+	// Left-dock brush palette. Brush(i) is the i-th button's brush;
+	// BrushSwatch/BrushLabelKey describe a brush for its button.
 	static constexpr int kBrushCount = 2;
 	static Brush BrushForButton(int index);
 	static const char* BrushLabelKey(Brush brush);
 	static Vec4 BrushSwatch(Brush brush);
-	gfx::Rect DockRect(const gfx::Rect& panel) const;
 	gfx::Rect BrushButtonRect(const gfx::Rect& panel, int index) const;
 
 	gfx::GraphicsDevice& m_device;
 	DungeonWorld& m_world;
+	GameSettings& m_settings; // owns the persisted dock-collapse flags
 	ui::Font m_font; // glyph icons + labels (own atlas, like the dev console)
 
 	bool m_open = false;

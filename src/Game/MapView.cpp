@@ -35,10 +35,26 @@ const Vec4 kButton{0.42f, 0.62f, 0.95f, 1.0f};
 
 // Font px at the design window height (re-baked to track the real height).
 constexpr float kFontH = 18.0f;
+
+// Editor dock metrics, all derived from the panel so Update (window pixels)
+// and Render (device pixels) agree.
+float DockPad(const gfx::Rect& p) { return std::clamp(p.h * 0.010f, 3.0f, 9.0f); }
+float DockBtnH(const gfx::Rect& p) { return std::clamp(p.h * 0.06f, 28.0f, 56.0f); }
+float CollapsedDockW(const gfx::Rect& p) { return std::clamp(p.w * 0.032f, 34.0f, 60.0f); }
+float ExpandedLeftW(const gfx::Rect& p) { return std::clamp(p.w * 0.16f, 120.0f, 260.0f); }
+float ExpandedRightW(const gfx::Rect& p) { return std::clamp(p.w * 0.18f, 150.0f, 300.0f); }
+
+// Y of the first item below a dock's collapse button + header line.
+float DockBodyTop(const gfx::Rect& dock, const gfx::Rect& panel) {
+	const float pad = DockPad(panel), h = DockBtnH(panel);
+	return dock.y + pad + h + pad + h * 0.7f + pad;
+}
 } // namespace
 
-MapView::MapView(gfx::GraphicsDevice& device, DungeonWorld& world)
-	: m_device(device), m_world(world), m_font(device, "", kFontH) {}
+MapView::MapView(gfx::GraphicsDevice& device, DungeonWorld& world,
+				 GameSettings& settings)
+	: m_device(device), m_world(world), m_settings(settings),
+	  m_font(device, "", kFontH) {}
 
 MapView::Transform MapView::ComputeTransform(const gfx::Rect& panel) const {
 	const gfx::Rect g = GridArea(panel); // panel minus the dock in Editor mode
@@ -67,22 +83,39 @@ Vec4 MapView::BrushSwatch(Brush brush) {
 
 gfx::Rect MapView::GridArea(const gfx::Rect& panel) const {
 	if (m_mode != Mode::Editor) return panel;
-	const gfx::Rect dock = DockRect(panel);
-	return {panel.x + dock.w, panel.y, panel.w - dock.w, panel.h};
+	const float l = LeftDockRect(panel).w, r = RightDockRect(panel).w;
+	return {panel.x + l, panel.y, panel.w - l - r, panel.h};
 }
 
-gfx::Rect MapView::DockRect(const gfx::Rect& panel) const {
-	const float w = std::clamp(panel.w * 0.16f, 120.0f, 260.0f);
+gfx::Rect MapView::LeftDockRect(const gfx::Rect& panel) const {
+	const float w = m_settings.mapPaletteCollapsed ? CollapsedDockW(panel)
+												   : ExpandedLeftW(panel);
 	return {panel.x, panel.y, w, panel.h};
 }
 
+gfx::Rect MapView::RightDockRect(const gfx::Rect& panel) const {
+	const float w = m_settings.mapLegendCollapsed ? CollapsedDockW(panel)
+												  : ExpandedRightW(panel);
+	return {panel.x + panel.w - w, panel.y, w, panel.h};
+}
+
+gfx::Rect MapView::LeftCollapseButton(const gfx::Rect& panel) const {
+	const gfx::Rect d = LeftDockRect(panel);
+	const float pad = DockPad(panel);
+	return {d.x + pad, d.y + pad, d.w - 2 * pad, DockBtnH(panel)};
+}
+
+gfx::Rect MapView::RightCollapseButton(const gfx::Rect& panel) const {
+	const gfx::Rect d = RightDockRect(panel);
+	const float pad = DockPad(panel);
+	return {d.x + pad, d.y + pad, d.w - 2 * pad, DockBtnH(panel)};
+}
+
 gfx::Rect MapView::BrushButtonRect(const gfx::Rect& panel, int index) const {
-	const gfx::Rect dock = DockRect(panel);
-	const float pad = std::clamp(panel.h * 0.012f, 4.0f, 14.0f);
-	const float h = std::clamp(panel.h * 0.06f, 28.0f, 56.0f);
-	// Leave a header line above the first button.
-	const float top = dock.y + pad + h * 0.6f + pad;
-	return {dock.x + pad, top + index * (h + pad), dock.w - 2 * pad, h};
+	const gfx::Rect d = LeftDockRect(panel);
+	const float pad = DockPad(panel), h = DockBtnH(panel);
+	const float top = DockBodyTop(d, panel);
+	return {d.x + pad, top + index * (h + pad), d.w - 2 * pad, h};
 }
 
 bool MapView::CellVisible(int x, int z) const {
@@ -131,15 +164,27 @@ bool MapView::Update(const Input& input, const gfx::Rect& panel) {
 		m_pan.y = (my - fz * cell - grid.y - (grid.h - gridH) * 0.5f) / grid.h;
 	}
 
-	// Left dock (Editor): a left-click on a brush button selects it and claims
-	// the click (so it never also pans or paints).
+	// Editor dock interactions, each claiming the click so it never also
+	// pans or paints.
 	if (editor && input.WasMousePressed(MouseButton::Left)) {
-		for (int i = 0; i < kBrushCount; ++i) {
-			if (BrushButtonRect(panel, i).Contains(mx, my)) {
-				m_brush = BrushForButton(i);
-				return true;
-			}
+		// Collapse buttons (work in either state — they flip it). Persist.
+		if (LeftCollapseButton(panel).Contains(mx, my)) {
+			m_settings.mapPaletteCollapsed = !m_settings.mapPaletteCollapsed;
+			m_settings.Save();
+			return true;
 		}
+		if (RightCollapseButton(panel).Contains(mx, my)) {
+			m_settings.mapLegendCollapsed = !m_settings.mapLegendCollapsed;
+			m_settings.Save();
+			return true;
+		}
+		// Brush palette (only when the left dock is expanded).
+		if (!m_settings.mapPaletteCollapsed)
+			for (int i = 0; i < kBrushCount; ++i)
+				if (BrushButtonRect(panel, i).Contains(mx, my)) {
+					m_brush = BrushForButton(i);
+					return true;
+				}
 	}
 
 	// In Editor a brush is always armed: left paints, so pan with the right
@@ -253,27 +298,86 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 	const float pad = std::clamp(panel.w * 0.012f, 4.0f, 16.0f);
 
 	if (m_mode == Mode::Editor) {
-		// Left dock: a header, then a brush button per paintable thing (a color
-		// swatch + label, the active one highlighted). Doors/creatures/items
-		// are the next entries — extend kBrushCount and the Brush enum.
-		const gfx::Rect dock = DockRect(panel);
-		batch.DrawRect(dock, theme.panel);
-		ui::DrawBorder(batch, dock, theme.panelBorder);
-		const float dpad = std::clamp(panel.h * 0.012f, 4.0f, 14.0f);
-		m_font.Draw(batch, loc::Tr("map.brushes"), dock.x + dpad, dock.y + dpad,
-					theme.textDim);
-		for (int i = 0; i < kBrushCount; ++i) {
-			const Brush brush = BrushForButton(i);
-			const gfx::Rect b = BrushButtonRect(panel, i);
-			const bool active = brush == m_brush;
-			batch.DrawRect(b, active ? theme.controlActive : theme.control);
-			ui::DrawBorder(batch, b, theme.panelBorder);
-			const float sw = b.h - dpad * 2;
-			batch.DrawRect({b.x + dpad, b.y + dpad, sw, sw}, BrushSwatch(brush));
-			const std::string label = loc::Tr(BrushLabelKey(brush));
-			m_font.Draw(batch, label, b.x + dpad * 2 + sw,
-						b.y + (b.h - m_font.Height()) * 0.5f,
-						active ? theme.text : theme.textDim);
+		const float dpad = DockPad(panel);
+		const float btnH = DockBtnH(panel);
+
+		// A dock = its panel background + a collapse button showing flip arrows.
+		auto drawDockFrame = [&](const gfx::Rect& dock, const gfx::Rect& btn,
+								 const char* arrow) {
+			batch.DrawRect(dock, theme.panel);
+			ui::DrawBorder(batch, dock, theme.panelBorder);
+			batch.DrawRect(btn, theme.control);
+			ui::DrawBorder(batch, btn, theme.panelBorder);
+			m_font.Draw(batch, arrow,
+						btn.x + (btn.w - m_font.MeasureWidth(arrow)) * 0.5f,
+						btn.y + (btn.h - m_font.Height()) * 0.5f, theme.text);
+		};
+
+		// --- Left dock: the brush palette (collapsed -> only the ">>" button).
+		const gfx::Rect ld = LeftDockRect(panel);
+		drawDockFrame(ld, LeftCollapseButton(panel),
+					  m_settings.mapPaletteCollapsed ? ">>" : "<<");
+		if (!m_settings.mapPaletteCollapsed) {
+			m_font.Draw(batch, loc::Tr("map.brushes"), ld.x + dpad,
+						ld.y + dpad + btnH + dpad, theme.textDim);
+			for (int i = 0; i < kBrushCount; ++i) {
+				const Brush brush = BrushForButton(i);
+				const gfx::Rect b = BrushButtonRect(panel, i);
+				const bool active = brush == m_brush;
+				batch.DrawRect(b, active ? theme.controlActive : theme.control);
+				ui::DrawBorder(batch, b, theme.panelBorder);
+				const float sw = b.h - dpad * 2;
+				batch.DrawRect({b.x + dpad, b.y + dpad, sw, sw}, BrushSwatch(brush));
+				const std::string label = loc::Tr(BrushLabelKey(brush));
+				m_font.Draw(batch, label, b.x + dpad * 2 + sw,
+							b.y + (b.h - m_font.Height()) * 0.5f,
+							active ? theme.text : theme.textDim);
+			}
+		}
+
+		// --- Right dock: the symbol key (collapsed -> only the "<<" button).
+		const gfx::Rect rd = RightDockRect(panel);
+		drawDockFrame(rd, RightCollapseButton(panel),
+					  m_settings.mapLegendCollapsed ? "<<" : ">>");
+		if (!m_settings.mapLegendCollapsed) {
+			m_font.Draw(batch, loc::Tr("map.key"), rd.x + dpad,
+						rd.y + dpad + btnH + dpad, theme.textDim);
+			// A swatch (filled / outlined / triangle) + label per symbol. Party
+			// and start use the live theme accent, so the table is built here.
+			enum class Sym { Filled, Outline, Triangle };
+			struct Row { Sym sym; Vec4 color; const char* key; };
+			const Row rows[] = {
+				{Sym::Triangle, theme.accent, "map.key.party"},
+				{Sym::Outline, theme.accent, "map.key.start"},
+				{Sym::Filled, kWall, "map.key.wall"},
+				{Sym::Filled, kFloor, "map.key.floor"},
+				{Sym::Filled, kTorch, "map.key.torch"},
+				{Sym::Filled, kBrazier, "map.key.brazier"},
+				{Sym::Filled, kMonster, "map.key.monster"},
+				{Sym::Filled, kItem, "map.key.item"},
+				{Sym::Filled, kButton, "map.key.button"},
+			};
+			const gfx::Rect rclip{rd.x + 2, rd.y + 2, rd.w - 4, rd.h - 4};
+			batch.SetScissor(&rclip);
+			const float rowH = std::clamp(panel.h * 0.05f, 22.0f, 44.0f);
+			float y = DockBodyTop(rd, panel);
+			for (const Row& row : rows) {
+				const float sw = rowH - dpad * 2;
+				const gfx::Rect box{rd.x + dpad, y + dpad, sw, sw};
+				switch (row.sym) {
+				case Sym::Filled: batch.DrawRect(box, row.color); break;
+				case Sym::Outline: ui::DrawBorder(batch, box, row.color); break;
+				case Sym::Triangle:
+					batch.DrawTriangle({box.x + sw * 0.5f, box.y},
+									   {box.x, box.y + sw}, {box.x + sw, box.y + sw},
+									   row.color);
+					break;
+				}
+				m_font.Draw(batch, loc::Tr(row.key), box.x + sw + dpad,
+							y + (rowH - m_font.Height()) * 0.5f, theme.text);
+				y += rowH;
+			}
+			batch.SetScissor(nullptr);
 		}
 	} else {
 		const std::string title = loc::Tr("map.title");
@@ -282,7 +386,8 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 					panel.y + pad, theme.text);
 	}
 
-	// Footer (within the grid area): pan/zoom hint (left) + party cell (right).
+	// Footer (kept within the grid area, clear of the docks): pan/zoom hint
+	// (left) + party cell (right).
 	const float footY = panel.y + panel.h - m_font.Height() - pad;
 	const char* hintKey = m_mode == Mode::Editor ? "map.hint.editor" : "map.hint";
 	m_font.Draw(batch, loc::Tr(hintKey), grid.x + pad, footY, theme.textDim);
@@ -290,7 +395,7 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 	const Party& party = m_world.GetParty();
 	const std::string pos =
 		loc::Format("map.position", party.GridX(), party.GridZ());
-	m_font.Draw(batch, pos, panel.x + panel.w - m_font.MeasureWidth(pos) - pad,
+	m_font.Draw(batch, pos, grid.x + grid.w - m_font.MeasureWidth(pos) - pad,
 				footY, theme.textDim);
 }
 

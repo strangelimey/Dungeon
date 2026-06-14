@@ -28,7 +28,7 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	  m_world(device, renderer, audio, m_sounds, m_settings),
 	  m_ui(window, device, spriteBatch, audio, m_sounds, m_settings,
 		   m_characters),
-	  m_mapView(device, m_world),
+	  m_mapView(device, m_world, m_settings),
 	  m_console(device) {
 	m_settings.Load();
 	ApplyLanguage(false); // strings must exist before any UI builds

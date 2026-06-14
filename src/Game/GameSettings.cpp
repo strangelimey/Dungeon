@@ -53,6 +53,15 @@ void ParseIniFloat(const std::string& text, const std::string& key, float& value
 		value = std::clamp(parsed, min, max);
 }
 
+// Reads key=<0/1> from the ini text. A missing value keeps the caller's
+// default; any non-'0' character reads as true.
+void ParseIniBool(const std::string& text, const std::string& key, bool& value) {
+	const size_t pos = text.find(key);
+	if (pos == std::string::npos) return;
+	const size_t i = pos + key.size();
+	if (i < text.size()) value = text[i] != '0';
+}
+
 } // namespace
 
 void GameSettings::Load() {
@@ -79,6 +88,8 @@ void GameSettings::Load() {
 	ParseIniFloat(text, "volume=", volume, 0.0f, 1.0f);
 	ParseIniFloat(text, "barscale=", partyBarScale, 0.5f, 1.5f);
 	ParseIniFloat(text, "baropacity=", partyBarOpacity, 0.0f, 1.0f);
+	ParseIniBool(text, "map_palette_collapsed=", mapPaletteCollapsed);
+	ParseIniBool(text, "map_legend_collapsed=", mapLegendCollapsed);
 
 	for (const ThemeField& field : kThemeFields)
 		ParseIniColor(text, std::format("theme_{}=", field.key),
@@ -117,6 +128,8 @@ void GameSettings::Save() const {
 	}
 	for (const KeyField& field : kKeyFields)
 		text += std::format("key_{}={}\n", field.key, moveKeys.*(field.field));
+	text += std::format("map_palette_collapsed={}\nmap_legend_collapsed={}\n",
+						mapPaletteCollapsed ? 1 : 0, mapLegendCollapsed ? 1 : 0);
 	if (!assets::WriteBinaryFile(paths::ExecutableDir() + "\\settings.ini",
 								 text.data(), text.size()))
 		log::Warn("Could not write settings.ini");

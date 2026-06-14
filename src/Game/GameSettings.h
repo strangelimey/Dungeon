@@ -85,6 +85,8 @@ struct GameSettings {
 	ui::Theme theme;              // the 8 user-editable control colors
 	ResourceBarColors barColors;  // health/stamina/mana fills
 	MoveKeys moveKeys;            // movement key bindings (vkeys)
+	bool mapPaletteCollapsed = false; // map editor: left brush dock collapsed
+	bool mapLegendCollapsed = false;  // map editor: right key dock collapsed
 
 	// settings.ini round-trip (the exe's directory). Load keeps the defaults
 	// for anything missing or malformed; a first run with no file is fine.

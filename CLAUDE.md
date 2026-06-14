@@ -196,10 +196,14 @@ rect comes from Game::MapPanel (mode-aware).
   dungeon-builder. FULL-SCREEN and drawn alone — Game skips the shadow/scene
   passes and the HUD while it is up (editorMap flag in Render), so nothing
   renders behind it. The WHOLE map and EVERY creature/item draw regardless of
-  fog. A brush palette docks down the LEFT side (MapView::DockRect); the map
-  grid lives in the remaining GridArea (panel minus dock) so it never draws
-  under the dock. SetMode flips an open map's mode in place; Open(mode) resets
-  the view to fit-whole-map.
+  fog. Two docks: a brush palette LEFT (MapView::LeftDockRect) and a symbol
+  KEY/legend RIGHT (RightDockRect); the map grid lives in GridArea (panel minus
+  BOTH docks) so it never draws under a dock. Each dock collapses to a thin
+  strip showing only its flip-arrow button (left `<<`/`>>`, right `>>`/`<<`);
+  the two collapsed flags persist in settings.ini (map_palette_collapsed,
+  map_legend_collapsed) — MapView holds a GameSettings& and Save()s on toggle.
+  SetMode flips an open map's mode in place; Open(mode) resets the view to
+  fit-whole-map.
 
 MapView (Game lib) is the one renderer + one pick math behind both modes.
 Cells render as filled blocks (walls = bright stone ink, floors recede),
