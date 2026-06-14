@@ -134,6 +134,19 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 							   map.Height(), m_world.MonsterCount(),
 							   map.TorchCells().size()));
 					   });
+	m_console.Register("editor", "open the map in editor mode (off = player map)",
+					   [this](const std::vector<std::string>& args) {
+						   if (!args.empty() && args[0] == "off") {
+							   m_mapView.SetMode(MapView::Mode::Player);
+							   m_console.Print("map: player mode");
+							   return;
+						   }
+						   if (m_mapView.IsOpen())
+							   m_mapView.SetMode(MapView::Mode::Editor);
+						   else
+							   m_mapView.Open(MapView::Mode::Editor);
+						   m_console.Print("map: editor mode");
+					   });
 	m_console.Register("monsters", "list monsters and their cells",
 					   [this](const std::vector<std::string>&) {
 						   const std::vector<std::string> list = m_world.MonsterList();

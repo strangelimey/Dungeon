@@ -180,38 +180,50 @@ until items exist), and a reserved Magic area below.
 
 ## Map overlay / editor (MapView)
 
-A stylized top-down map, toggled with `M` while Playing. Like the dev
-console it is NOT an AppState — Game owns m_mapView and, while it is open,
-keeps calling m_world.Update, so the world simulates and the party still
-walks on the keyboard; the overlay only claims the MOUSE (pan/zoom/edit).
-Esc or `M` closes it (handled before the Esc→Paused branch in Game::Update);
-the toggle key is hardcoded (kKeyFields is MoveKeys-only — a bindable map key
-needs a separate UI-keybinds table). Drawn over the HUD in an 80%-centered
-panel (Game::MapPanel) behind a dim wash, after RenderHud and before the
-console.
+A stylized top-down map with two modes (MapView::Mode), drawn over the HUD in
+an 80%-centered panel (Game::MapPanel) behind a dim wash, after RenderHud and
+before the console. Like the dev console it is NOT an AppState — Game owns
+m_mapView and, while it is open, keeps calling m_world.Update, so the world
+simulates and the party still walks on the keyboard; the overlay only claims
+the MOUSE (pan/zoom/edit).
+- Player mode (`M` toggles open/closed; Esc also closes — both handled before
+  the Esc→Paused branch in Game::Update): the in-game map. Fog of war — only
+  revealed cells and their contents draw — plus a centered title, no tools.
+  The `M` key is hardcoded (kKeyFields is MoveKeys-only; a bindable map key
+  needs a separate UI-keybinds table).
+- Editor mode (dev console: `editor` opens/flips into it, `editor off` returns
+  to Player without disturbing the view; reachable in all builds): the
+  dungeon-builder. The WHOLE map and EVERY creature/item draw regardless of
+  fog, and the tool palette + cell painting turn on. SetMode flips an open
+  map's mode in place; Open(mode) resets the view to fit-whole-map.
 
-MapView (Game lib) is the renderer AND the seed of the in-game dungeon
-editor — one view transform + one pick math drive both. Cells render as
-filled blocks (walls = bright stone ink, floors recede), fixtures/entities
-as colored square markers (torch/brazier from the map; monster/item/button
-from DungeonEntities), the start cell as an accent outline, and the party as
-a rotated triangle (facing*90° CW from north-up; screen Y is down so it
-matches the compass — uses SpriteBatch::DrawTriangle). The transform is
+MapView (Game lib) is the one renderer + one pick math behind both modes.
+Cells render as filled blocks (walls = bright stone ink, floors recede),
+fixtures/entities as colored square markers (torch/brazier from the map;
+monster/item/button from DungeonEntities — repoint at live runtime state once
+monsters move and projectiles exist; Editor is meant to show all of them, in
+flight or not), the start cell as an accent outline, and the party as a
+rotated triangle (facing*90° CW from north-up; screen Y is down so it matches
+the compass — uses SpriteBatch::DrawTriangle). Visibility goes through
+MapView::CellVisible (always true in Editor, else IsSeen). The transform is
 resolution-independent (pan = fraction of panel, zoom = unitless, fit-whole-
 map at zoom 1), so Update (window-pixel panel, matches mouse coords) and
 Render (device-pixel panel) agree; zoom is cursor-anchored. CellAt is the
-inverse pick. A stub tool palette (View/Paint floor/Paint wall) proves the
+inverse pick. The stub tool palette (View/Paint floor/Paint wall) proves the
 edit seam: a paint click → DungeonWorld::EditCell → DungeonMap::SetCell
 (bumps Revision()) → MarkSeen → RebuildGeometry (WaitIdle + re-bake, same as
 the quality hot-swap) → the wall appears in-world immediately. Edits are
 in-memory only (no .map/.ent serialization yet). All overlay text goes
 through Loc (map.* keys).
 
-Fog of war is on day one: DungeonWorld::m_seen is a per-cell bitset
-(dynamic/save-side state, NEVER baked into DungeonMap), revealed via
+Fog of war (Player mode) is on day one: DungeonWorld::m_seen is a per-cell
+bitset (dynamic/save-side state, NEVER baked into DungeonMap), revealed via
 MarkSeen (a cell + its 8 neighbors) on every Party::onStep and on edits,
-seeded at the start cell; MapView draws only IsSeen cells. A future save
-serializes this alongside the .ent layer.
+seeded at the start cell. The planned reveal items (map fragments, reveal
+spells) just feed the same set — MarkSeen over a region — so they need no
+MapView change; a detect-monsters effect would instead be an entity-only
+override layered on CellVisible. A future save serializes m_seen alongside
+the .ent layer.
 
 SpriteBatch gained DrawTriangle (the markers) and DrawSpriteRotated/
 DrawRectRotated (rotate the 4 corner verts; for future textured/rotated

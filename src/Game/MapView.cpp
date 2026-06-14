@@ -1,5 +1,13 @@
 // ============================================================================
 // Game/MapView.cpp — see MapView.h.
+//
+// Two modes share one renderer and one pick math:
+//   Player (M key)        — fog of war: only DungeonWorld::IsSeen cells and
+//                           their contents draw. The eventual map-fragment /
+//                           reveal-spell items just feed the same fog set
+//                           (MarkSeen), so they need nothing here.
+//   Editor (`editor` cmd) — the whole map and every creature/item draw,
+//                           ignoring fog, plus the tool palette and painting.
 // ============================================================================
 #include "Game/MapView.h"
 
@@ -67,6 +75,10 @@ gfx::Rect MapView::ButtonRect(const gfx::Rect& panel, int index) const {
 	return {panel.x + pad + index * (w + pad), panel.y + pad, w, h};
 }
 
+bool MapView::CellVisible(int x, int z) const {
+	return m_mode == Mode::Editor || m_world.IsSeen(x, z);
+}
+
 bool MapView::CellAt(float px, float py, const gfx::Rect& panel, int& outX,
 					 int& outZ) const {
 	const Transform t = ComputeTransform(panel);
@@ -107,9 +119,12 @@ bool MapView::Update(const Input& input, const gfx::Rect& panel) {
 		m_pan.y = (my - fz * cell - panel.y - (panel.h - gridH) * 0.5f) / panel.h;
 	}
 
+	// Editing is Editor-mode only; Player mode is view-only (left-drag pans).
+	const bool editor = m_mode == Mode::Editor;
+
 	// Tool palette: a left-click on a button selects its tool and claims the
 	// click (so it never also pans or paints).
-	if (inside && input.WasMousePressed(MouseButton::Left)) {
+	if (editor && inside && input.WasMousePressed(MouseButton::Left)) {
 		for (int i = 0; i < kToolCount; ++i) {
 			if (ButtonRect(panel, i).Contains(mx, my)) {
 				m_tool = ToolForButton(i);
@@ -118,10 +133,10 @@ bool MapView::Update(const Input& input, const gfx::Rect& panel) {
 		}
 	}
 
-	// Pan with the button that isn't painting: left in view mode, right while a
-	// paint tool is armed (so the left button is free to paint).
-	const MouseButton panBtn =
-		m_tool == Tool::None ? MouseButton::Left : MouseButton::Right;
+	// Pan with the button that isn't painting: while a paint tool is armed the
+	// left button paints, so pan with the right; otherwise pan with the left.
+	const bool painting = editor && m_tool != Tool::None;
+	const MouseButton panBtn = painting ? MouseButton::Right : MouseButton::Left;
 	if (inside && input.WasMousePressed(panBtn)) {
 		m_panning = true;
 		m_lastMouse = {mx, my};
@@ -135,7 +150,7 @@ bool MapView::Update(const Input& input, const gfx::Rect& panel) {
 
 	// Paint while the left button is held (EditCell no-ops on unchanged cells,
 	// so holding over one cell is cheap; dragging paints a stroke).
-	if (m_tool != Tool::None && inside && input.IsMouseDown(MouseButton::Left)) {
+	if (painting && inside && input.IsMouseDown(MouseButton::Left)) {
 		int cx, cz;
 		if (CellAt(mx, my, panel, cx, cz)) {
 			const Cell target =
@@ -177,27 +192,29 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 		batch.DrawRect({ctr.x - h, ctr.y - h, h * 2, h * 2}, c);
 	};
 
-	// 1) Floors and walls (only fog-of-war-revealed cells).
+	// 1) Floors and walls (Player: only revealed cells; Editor: all).
 	for (int z = 0; z < map.Height(); ++z)
 		for (int x = 0; x < map.Width(); ++x) {
-			if (!m_world.IsSeen(x, z)) continue;
+			if (!CellVisible(x, z)) continue;
 			batch.DrawRect(cellRect(x, z),
 						   map.At(x, z) == Cell::Wall ? kWall : kFloor);
 		}
 
 	// 2) Start cell — an accent outline.
-	if (m_world.IsSeen(map.StartX(), map.StartZ()))
+	if (CellVisible(map.StartX(), map.StartZ()))
 		ui::DrawBorder(batch, cellRect(map.StartX(), map.StartZ()), theme.accent);
 
 	// 3) Fixtures (from the static map).
 	for (const auto& [x, z] : map.TorchCells())
-		if (m_world.IsSeen(x, z)) marker(x, z, 0.32f, kTorch);
+		if (CellVisible(x, z)) marker(x, z, 0.32f, kTorch);
 	for (const auto& [x, z] : map.BrazierCells())
-		if (m_world.IsSeen(x, z)) marker(x, z, 0.46f, kBrazier);
+		if (CellVisible(x, z)) marker(x, z, 0.46f, kBrazier);
 
-	// 4) Dynamic entities (from the .ent layer).
+	// 4) Dynamic entities. From the .ent layer for now; once monsters move at
+	// runtime (and projectiles/spells exist) this loop repoints at the live
+	// world state — Editor mode is meant to show all of them, in flight or not.
 	for (const Entity& e : m_world.Entities().All()) {
-		if (!m_world.IsSeen(e.x, e.z)) continue;
+		if (!CellVisible(e.x, e.z)) continue;
 		switch (e.kind) {
 		case EntityKind::Monster: marker(e.x, e.z, 0.5f, kMonster); break;
 		case EntityKind::Item:    marker(e.x, e.z, 0.34f, kItem); break;
@@ -224,20 +241,29 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 	batch.SetScissor(nullptr);
 	ui::DrawBorder(batch, panel, theme.panelBorder);
 
-	// Tool palette (top-left): a button per tool, the active one highlighted.
-	for (int i = 0; i < kToolCount; ++i) {
-		const Tool tool = ToolForButton(i);
-		const gfx::Rect b = ButtonRect(panel, i);
-		batch.DrawRect(b, tool == m_tool ? theme.controlActive : theme.control);
-		ui::DrawBorder(batch, b, theme.panelBorder);
-		const std::string label = loc::Tr(ToolLabelKey(tool));
-		m_font.Draw(batch, label, b.x + (b.w - m_font.MeasureWidth(label)) * 0.5f,
-					b.y + (b.h - m_font.Height()) * 0.5f,
-					tool == m_tool ? theme.text : theme.textDim);
+	const float pad = std::clamp(panel.w * 0.012f, 4.0f, 16.0f);
+
+	// Top band: the tool palette in Editor mode, otherwise a centered title.
+	if (m_mode == Mode::Editor) {
+		for (int i = 0; i < kToolCount; ++i) {
+			const Tool tool = ToolForButton(i);
+			const gfx::Rect b = ButtonRect(panel, i);
+			batch.DrawRect(b, tool == m_tool ? theme.controlActive : theme.control);
+			ui::DrawBorder(batch, b, theme.panelBorder);
+			const std::string label = loc::Tr(ToolLabelKey(tool));
+			m_font.Draw(batch, label,
+						b.x + (b.w - m_font.MeasureWidth(label)) * 0.5f,
+						b.y + (b.h - m_font.Height()) * 0.5f,
+						tool == m_tool ? theme.text : theme.textDim);
+		}
+	} else {
+		const std::string title = loc::Tr("map.title");
+		m_font.Draw(batch, title,
+					panel.x + (panel.w - m_font.MeasureWidth(title)) * 0.5f,
+					panel.y + pad, theme.text);
 	}
 
 	// Footer: pan/zoom hint (left) + party cell (right).
-	const float pad = std::clamp(panel.w * 0.012f, 4.0f, 16.0f);
 	const float footY = panel.y + panel.h - m_font.Height() - pad;
 	m_font.Draw(batch, loc::Tr("map.hint"), panel.x + pad, footY, theme.textDim);
 

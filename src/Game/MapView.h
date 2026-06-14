@@ -33,25 +33,39 @@ namespace dungeon::game {
 
 class MapView {
 public:
-	// Editing tools. None = view mode (drag pans, wheel zooms, party still
-	// walks). The paint tools write cells through DungeonWorld::EditCell.
+	// Two modes (see the file banner). Player: fog of war (only revealed cells
+	// and their contents draw), no editing — the in-game map. Editor: the whole
+	// map and every creature/item draw regardless of fog, plus the tool palette
+	// and cell painting — the dungeon-building tool, reached via the dev
+	// console's `editor` command.
+	enum class Mode { Player, Editor };
+
+	// Editing tools (Editor mode only). None = view (drag pans, wheel zooms).
+	// The paint tools write cells through DungeonWorld::EditCell.
 	enum class Tool { None, PaintFloor, PaintWall };
 
 	MapView(gfx::GraphicsDevice& device, DungeonWorld& world);
 
 	bool IsOpen() const { return m_open; }
-	// Opening resets the view to fit-the-whole-map, so the overlay is
-	// predictable each time rather than wherever it was last panned.
-	void Open() {
+	Mode CurrentMode() const { return m_mode; }
+
+	// Opens the overlay in `mode`, resetting the view to fit-the-whole-map so
+	// it is predictable each time rather than wherever it was last panned.
+	void Open(Mode mode = Mode::Player) {
 		m_open = true;
+		m_mode = mode;
 		m_zoom = 1.0f;
 		m_pan = {0.0f, 0.0f};
 	}
 	void Close() { m_open = false; }
+	// The M-key player-map toggle: open in Player mode, or close.
 	void Toggle() {
 		if (m_open) Close();
-		else Open();
+		else Open(Mode::Player);
 	}
+	// Flips an already-open map's mode without disturbing the view (the dev
+	// console's `editor` / `editor off`).
+	void SetMode(Mode mode) { m_mode = mode; }
 
 	Tool CurrentTool() const { return m_tool; }
 	void SetTool(Tool tool) { m_tool = tool; }
@@ -86,6 +100,12 @@ private:
 	// Pixel → cell. Returns false when the point is outside the grid bounds.
 	bool CellAt(float px, float py, const gfx::Rect& panel, int& outX,
 				int& outZ) const;
+	// Whether a cell (and its contents) should draw: always in Editor mode,
+	// only once revealed in Player mode. The future map-fragment / reveal-spell
+	// mechanics feed the same fog set (DungeonWorld::MarkSeen), so they need no
+	// change here; monster-detection effects would be a separate entity-only
+	// override layered on top.
+	bool CellVisible(int x, int z) const;
 
 	// The editor tool palette. Tool(i) is the tool the i-th button selects;
 	// ButtonRect resolves a button's pixel rect from the panel (resolution
@@ -100,6 +120,7 @@ private:
 	ui::Font m_font; // glyph icons + labels (own atlas, like the dev console)
 
 	bool m_open = false;
+	Mode m_mode = Mode::Player;
 	Tool m_tool = Tool::None;
 
 	// View state. m_pan is a fraction of the panel size so it is independent of
