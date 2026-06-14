@@ -189,8 +189,11 @@ rect comes from Game::MapPanel (mode-aware).
   the Esc→Paused branch in Game::Update): the in-game map. An 80%-centered
   panel drawn over the HUD behind a dim wash (so the scene shows around it).
   Fog of war — only revealed cells and their contents draw — plus a centered
-  title, no tools. The `M` key is hardcoded (kKeyFields is MoveKeys-only; a
-  bindable map key needs a separate UI-keybinds table).
+  title and a right-docked symbol KEY (a trimmed subset: party/start/torch/
+  brazier/monster/item/button, dropping the obvious wall/floor rows). The key
+  collapses like the editor docks (own persisted flag map_player_key_collapsed).
+  No brush dock / editing. The `M` key is hardcoded (kKeyFields is MoveKeys-
+  only; a bindable map key needs a separate UI-keybinds table).
 - Editor mode (dev console: `editor` opens/flips into it, `editor off` returns
   to Player without disturbing the view; reachable in all builds): the
   dungeon-builder. FULL-SCREEN and drawn alone — Game skips the shadow/scene

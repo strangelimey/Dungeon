@@ -7,11 +7,13 @@
 // mouse, for panning/zooming/editing). Two modes:
 //   Player (M key)       — an 80%-centered overlay; fog of war (only revealed
 //                          cells and their contents draw, DungeonWorld::IsSeen).
+//                          Carries a right-docked symbol key (a trimmed subset
+//                          of the editor's), collapsible like the editor docks.
 //   Editor (`editor` cmd)— full-screen and drawn alone; the whole map and
 //                          every creature/item draw regardless of fog, with a
-//                          brush palette docked left and a symbol key docked
-//                          right. Both docks collapse to a single flip-arrow
-//                          button (state persisted in GameSettings).
+//                          brush palette docked left and a full symbol key
+//                          docked right. Every dock collapses to a single
+//                          flip-arrow button (state persisted in GameSettings).
 //
 // Walls and floors render as filled cells, fixtures and entities as colored
 // markers, and the party as a facing triangle. Editing paints a clicked cell
@@ -114,13 +116,17 @@ private:
 	// in this rect so the map never draws under a dock.
 	gfx::Rect GridArea(const gfx::Rect& panel) const;
 
-	// Editor docks (resolution independent — all sized from the panel, so Update
-	// and Render agree). Each dock's width collapses to a thin strip showing
-	// only its flip-arrow button; the collapsed flags live in GameSettings.
+	// Docks (resolution independent — all sized from the panel, so Update and
+	// Render agree). Each collapses to a thin strip showing only its flip-arrow
+	// button. The left brush palette is Editor-only; the right symbol key shows
+	// in both modes (full set in Editor, trimmed in Player). Collapse flags live
+	// in GameSettings — the right key's flag is per mode, via Legend*().
 	gfx::Rect LeftDockRect(const gfx::Rect& panel) const;   // brush palette
 	gfx::Rect RightDockRect(const gfx::Rect& panel) const;  // symbol key
 	gfx::Rect LeftCollapseButton(const gfx::Rect& panel) const;
 	gfx::Rect RightCollapseButton(const gfx::Rect& panel) const;
+	bool LegendCollapsed() const; // the right key dock's collapse flag for the mode
+	void ToggleLegend();          // flips that flag and persists
 
 	// Left-dock brush palette. Brush(i) is the i-th button's brush;
 	// BrushSwatch/BrushLabelKey describe a brush for its button.

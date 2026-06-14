@@ -90,6 +90,7 @@ void GameSettings::Load() {
 	ParseIniFloat(text, "baropacity=", partyBarOpacity, 0.0f, 1.0f);
 	ParseIniBool(text, "map_palette_collapsed=", mapPaletteCollapsed);
 	ParseIniBool(text, "map_legend_collapsed=", mapLegendCollapsed);
+	ParseIniBool(text, "map_player_key_collapsed=", mapPlayerKeyCollapsed);
 
 	for (const ThemeField& field : kThemeFields)
 		ParseIniColor(text, std::format("theme_{}=", field.key),
@@ -128,8 +129,10 @@ void GameSettings::Save() const {
 	}
 	for (const KeyField& field : kKeyFields)
 		text += std::format("key_{}={}\n", field.key, moveKeys.*(field.field));
-	text += std::format("map_palette_collapsed={}\nmap_legend_collapsed={}\n",
-						mapPaletteCollapsed ? 1 : 0, mapLegendCollapsed ? 1 : 0);
+	text += std::format(
+		"map_palette_collapsed={}\nmap_legend_collapsed={}\nmap_player_key_collapsed={}\n",
+		mapPaletteCollapsed ? 1 : 0, mapLegendCollapsed ? 1 : 0,
+		mapPlayerKeyCollapsed ? 1 : 0);
 	if (!assets::WriteBinaryFile(paths::ExecutableDir() + "\\settings.ini",
 								 text.data(), text.size()))
 		log::Warn("Could not write settings.ini");

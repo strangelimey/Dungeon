@@ -82,8 +82,10 @@ Vec4 MapView::BrushSwatch(Brush brush) {
 }
 
 gfx::Rect MapView::GridArea(const gfx::Rect& panel) const {
-	if (m_mode != Mode::Editor) return panel;
-	const float l = LeftDockRect(panel).w, r = RightDockRect(panel).w;
+	// The right key dock is present in both modes; the left brush dock is
+	// Editor-only.
+	const float l = m_mode == Mode::Editor ? LeftDockRect(panel).w : 0.0f;
+	const float r = RightDockRect(panel).w;
 	return {panel.x + l, panel.y, panel.w - l - r, panel.h};
 }
 
@@ -94,9 +96,21 @@ gfx::Rect MapView::LeftDockRect(const gfx::Rect& panel) const {
 }
 
 gfx::Rect MapView::RightDockRect(const gfx::Rect& panel) const {
-	const float w = m_settings.mapLegendCollapsed ? CollapsedDockW(panel)
-												  : ExpandedRightW(panel);
+	const float w = LegendCollapsed() ? CollapsedDockW(panel)
+									  : ExpandedRightW(panel);
 	return {panel.x + panel.w - w, panel.y, w, panel.h};
+}
+
+bool MapView::LegendCollapsed() const {
+	return m_mode == Mode::Editor ? m_settings.mapLegendCollapsed
+								  : m_settings.mapPlayerKeyCollapsed;
+}
+
+void MapView::ToggleLegend() {
+	bool& flag = m_mode == Mode::Editor ? m_settings.mapLegendCollapsed
+										: m_settings.mapPlayerKeyCollapsed;
+	flag = !flag;
+	m_settings.Save();
 }
 
 gfx::Rect MapView::LeftCollapseButton(const gfx::Rect& panel) const {
@@ -164,27 +178,27 @@ bool MapView::Update(const Input& input, const gfx::Rect& panel) {
 		m_pan.y = (my - fz * cell - grid.y - (grid.h - gridH) * 0.5f) / grid.h;
 	}
 
-	// Editor dock interactions, each claiming the click so it never also
-	// pans or paints.
-	if (editor && input.WasMousePressed(MouseButton::Left)) {
-		// Collapse buttons (work in either state — they flip it). Persist.
-		if (LeftCollapseButton(panel).Contains(mx, my)) {
-			m_settings.mapPaletteCollapsed = !m_settings.mapPaletteCollapsed;
-			m_settings.Save();
-			return true;
-		}
+	// Dock interactions, each claiming the click so it never also pans/paints.
+	if (input.WasMousePressed(MouseButton::Left)) {
+		// Right key dock collapse — both modes (flips the mode's own flag).
 		if (RightCollapseButton(panel).Contains(mx, my)) {
-			m_settings.mapLegendCollapsed = !m_settings.mapLegendCollapsed;
-			m_settings.Save();
+			ToggleLegend();
 			return true;
 		}
-		// Brush palette (only when the left dock is expanded).
-		if (!m_settings.mapPaletteCollapsed)
-			for (int i = 0; i < kBrushCount; ++i)
-				if (BrushButtonRect(panel, i).Contains(mx, my)) {
-					m_brush = BrushForButton(i);
-					return true;
-				}
+		// Left brush dock (Editor only): collapse button + brush selection.
+		if (editor) {
+			if (LeftCollapseButton(panel).Contains(mx, my)) {
+				m_settings.mapPaletteCollapsed = !m_settings.mapPaletteCollapsed;
+				m_settings.Save();
+				return true;
+			}
+			if (!m_settings.mapPaletteCollapsed)
+				for (int i = 0; i < kBrushCount; ++i)
+					if (BrushButtonRect(panel, i).Contains(mx, my)) {
+						m_brush = BrushForButton(i);
+						return true;
+					}
+		}
 	}
 
 	// In Editor a brush is always armed: left paints, so pan with the right
@@ -297,23 +311,23 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 
 	const float pad = std::clamp(panel.w * 0.012f, 4.0f, 16.0f);
 
+	const float dpad = DockPad(panel);
+	const float btnH = DockBtnH(panel);
+
+	// A dock = its panel background + a collapse button showing flip arrows.
+	auto drawDockFrame = [&](const gfx::Rect& dock, const gfx::Rect& btn,
+							 const char* arrow) {
+		batch.DrawRect(dock, theme.panel);
+		ui::DrawBorder(batch, dock, theme.panelBorder);
+		batch.DrawRect(btn, theme.control);
+		ui::DrawBorder(batch, btn, theme.panelBorder);
+		m_font.Draw(batch, arrow,
+					btn.x + (btn.w - m_font.MeasureWidth(arrow)) * 0.5f,
+					btn.y + (btn.h - m_font.Height()) * 0.5f, theme.text);
+	};
+
+	// --- Left brush dock (Editor only; collapsed -> only the ">>" button).
 	if (m_mode == Mode::Editor) {
-		const float dpad = DockPad(panel);
-		const float btnH = DockBtnH(panel);
-
-		// A dock = its panel background + a collapse button showing flip arrows.
-		auto drawDockFrame = [&](const gfx::Rect& dock, const gfx::Rect& btn,
-								 const char* arrow) {
-			batch.DrawRect(dock, theme.panel);
-			ui::DrawBorder(batch, dock, theme.panelBorder);
-			batch.DrawRect(btn, theme.control);
-			ui::DrawBorder(batch, btn, theme.panelBorder);
-			m_font.Draw(batch, arrow,
-						btn.x + (btn.w - m_font.MeasureWidth(arrow)) * 0.5f,
-						btn.y + (btn.h - m_font.Height()) * 0.5f, theme.text);
-		};
-
-		// --- Left dock: the brush palette (collapsed -> only the ">>" button).
 		const gfx::Rect ld = LeftDockRect(panel);
 		drawDockFrame(ld, LeftCollapseButton(panel),
 					  m_settings.mapPaletteCollapsed ? ">>" : "<<");
@@ -334,34 +348,39 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 							active ? theme.text : theme.textDim);
 			}
 		}
+	}
 
-		// --- Right dock: the symbol key (collapsed -> only the "<<" button).
+	// --- Right key dock (BOTH modes; collapsed -> only the "<<" button). The
+	// Player key is a trimmed subset (the obvious wall/floor rows are dropped).
+	{
 		const gfx::Rect rd = RightDockRect(panel);
 		drawDockFrame(rd, RightCollapseButton(panel),
-					  m_settings.mapLegendCollapsed ? "<<" : ">>");
-		if (!m_settings.mapLegendCollapsed) {
+					  LegendCollapsed() ? "<<" : ">>");
+		if (!LegendCollapsed()) {
 			m_font.Draw(batch, loc::Tr("map.key"), rd.x + dpad,
 						rd.y + dpad + btnH + dpad, theme.textDim);
-			// A swatch (filled / outlined / triangle) + label per symbol. Party
-			// and start use the live theme accent, so the table is built here.
+			// A swatch (filled / outlined / triangle) + label per symbol; the
+			// `player` flag drops a row from the Player key. Party and start use
+			// the live theme accent, so the table is built here.
 			enum class Sym { Filled, Outline, Triangle };
-			struct Row { Sym sym; Vec4 color; const char* key; };
+			struct Row { Sym sym; Vec4 color; const char* key; bool player; };
 			const Row rows[] = {
-				{Sym::Triangle, theme.accent, "map.key.party"},
-				{Sym::Outline, theme.accent, "map.key.start"},
-				{Sym::Filled, kWall, "map.key.wall"},
-				{Sym::Filled, kFloor, "map.key.floor"},
-				{Sym::Filled, kTorch, "map.key.torch"},
-				{Sym::Filled, kBrazier, "map.key.brazier"},
-				{Sym::Filled, kMonster, "map.key.monster"},
-				{Sym::Filled, kItem, "map.key.item"},
-				{Sym::Filled, kButton, "map.key.button"},
+				{Sym::Triangle, theme.accent, "map.key.party", true},
+				{Sym::Outline, theme.accent, "map.key.start", true},
+				{Sym::Filled, kWall, "map.key.wall", false},
+				{Sym::Filled, kFloor, "map.key.floor", false},
+				{Sym::Filled, kTorch, "map.key.torch", true},
+				{Sym::Filled, kBrazier, "map.key.brazier", true},
+				{Sym::Filled, kMonster, "map.key.monster", true},
+				{Sym::Filled, kItem, "map.key.item", true},
+				{Sym::Filled, kButton, "map.key.button", true},
 			};
 			const gfx::Rect rclip{rd.x + 2, rd.y + 2, rd.w - 4, rd.h - 4};
 			batch.SetScissor(&rclip);
 			const float rowH = std::clamp(panel.h * 0.05f, 22.0f, 44.0f);
 			float y = DockBodyTop(rd, panel);
 			for (const Row& row : rows) {
+				if (m_mode == Mode::Player && !row.player) continue;
 				const float sw = rowH - dpad * 2;
 				const gfx::Rect box{rd.x + dpad, y + dpad, sw, sw};
 				switch (row.sym) {
@@ -379,10 +398,13 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 			}
 			batch.SetScissor(nullptr);
 		}
-	} else {
+	}
+
+	// Player title, centered over the grid area (clear of the key dock).
+	if (m_mode == Mode::Player) {
 		const std::string title = loc::Tr("map.title");
 		m_font.Draw(batch, title,
-					panel.x + (panel.w - m_font.MeasureWidth(title)) * 0.5f,
+					grid.x + (grid.w - m_font.MeasureWidth(title)) * 0.5f,
 					panel.y + pad, theme.text);
 	}
 
