@@ -11,9 +11,11 @@
 
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 #include <cstdlib>
 #include <format>
 #include <string>
+#include <utility>
 
 namespace dungeon::game {
 
@@ -54,6 +56,22 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	};
 	m_ui.onQuit = [this] { m_quitRequested = true; };
 	m_ui.onResume = [this] { m_state = AppState::Playing; };
+	m_ui.onLoadSave = [this](const std::string& path) {
+		if (m_gameLoaded) {
+			LoadGame(path); // dungeon resident (pause-menu Load): apply now
+		} else {
+			// Landing-page Load/Continue on a cold start: stage the dungeon
+			// load first, then apply the save when it finishes (see Update).
+			m_pendingLoadPath = path;
+			BuildGameLoadTasks();
+			m_state = AppState::LoadingGame;
+			m_stateFrameMark = m_framesRendered;
+		}
+	};
+	m_ui.onSaveSlot = [this](const std::string& name) {
+		SaveGame(name);
+		m_state = AppState::Playing; // resume play after saving from the pause menu
+	};
 	m_ui.onOpenSheet = [this](size_t index) { OpenCharacterSheet(index); };
 	m_ui.onQualitySelected = [this](int index) {
 		SetQuality(static_cast<Quality>(index));
@@ -116,6 +134,43 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 							   m_console.Print(std::format("teleported to {},{}", x, z));
 						   else
 							   m_console.Print(std::format("{},{} is not walkable", x, z));
+					   });
+
+	// --- save / load ---
+	m_console.Register("save", "save the game to a named slot (default quicksave)",
+					   [this](const std::vector<std::string>& args) {
+						   if (!m_gameLoaded) {
+							   m_console.Print("no game loaded");
+							   return;
+						   }
+						   // Join args so slot names may contain spaces.
+						   std::string name;
+						   for (const std::string& a : args)
+							   name += (name.empty() ? "" : " ") + a;
+						   if (name.empty()) name = "quicksave";
+						   SaveGame(name);
+						   m_console.Print("saved: " + name);
+					   });
+	m_console.Register("load", "load a save by name (no arg lists saves)",
+					   [this](const std::vector<std::string>& args) {
+						   if (args.empty()) {
+							   const std::vector<SaveSlot> slots = ListSaves();
+							   if (slots.empty()) {
+								   m_console.Print("no saves");
+								   return;
+							   }
+							   for (const SaveSlot& s : slots)
+								   m_console.Print(std::format("  {} [{}] {}", s.name,
+															   s.level, s.timestamp));
+							   return;
+						   }
+						   std::string name;
+						   for (const std::string& a : args)
+							   name += (name.empty() ? "" : " ") + a;
+						   if (LoadGame(SaveSlotPath(name)))
+							   m_console.Print("loaded: " + name);
+						   else
+							   m_console.Print("load failed (see log)");
 					   });
 
 	// --- diagnostics (read-only) ---
@@ -314,18 +369,20 @@ void Game::LoadPortraits() {
 // State transitions
 // ============================================================================
 
-void Game::StartNewGame() {
-	m_world.ResetForNewGame();
-
-	// Fresh stats for the same roster — element-wise so the addresses the
-	// party-bar panels and the sheet point at stay valid, keeping the loaded
-	// portrait (the defaults carry a null one).
+void Game::ResetRoster() {
+	// Element-wise so the addresses the party-bar panels and the sheet point at
+	// stay valid, keeping each slot's loaded portrait (the defaults carry null).
 	const std::vector<Character> fresh = CreateDefaultParty();
 	for (size_t i = 0; i < m_characters.size() && i < fresh.size(); ++i) {
 		const gfx::Texture* portrait = m_characters[i].portrait;
 		m_characters[i] = fresh[i];
 		m_characters[i].portrait = portrait;
 	}
+}
+
+void Game::StartNewGame() {
+	m_world.ResetForNewGame();
+	ResetRoster();
 	m_ui.RefreshSheet();
 	ApplyPartySpeed();
 
@@ -337,6 +394,59 @@ void Game::StartNewGame() {
 	m_ui.ResetHudStatus();
 	m_state = AppState::Playing;
 	log::Info("New game started");
+}
+
+void Game::SaveGame(const std::string& name) {
+	if (!m_gameLoaded) {
+		log::Warn("SaveGame: no game loaded");
+		return;
+	}
+	SaveData data;
+	data.name = name;
+	data.level = "level1"; // only level today; the loader keys off this later
+	data.timestamp = std::format("{:%Y-%m-%d %H:%M:%S}",
+								 std::chrono::floor<std::chrono::seconds>(
+									 std::chrono::system_clock::now()));
+	m_world.CaptureState(data);
+	for (const Character& member : m_characters)
+		data.characters.push_back({member.health, member.maxHealth, member.stamina,
+								   member.maxStamina, member.mana, member.maxMana});
+	WriteSave(data, SaveSlotPath(name));
+}
+
+bool Game::LoadGame(const std::string& path) {
+	if (!m_gameLoaded) {
+		log::Warn("LoadGame: dungeon not loaded yet");
+		return false;
+	}
+	auto data = ReadSave(path);
+	if (!data) {
+		log::Warn("LoadGame: could not read {}", path);
+		return false;
+	}
+
+	// Rebuild the baseline (party home, fog cleared, monsters at spawn, palette
+	// reset), then lay the save on top.
+	m_world.ResetForNewGame();
+	ResetRoster();
+	for (size_t i = 0; i < m_characters.size() && i < data->characters.size(); ++i) {
+		const SaveData::CharState& c = data->characters[i];
+		m_characters[i].health = c.health;     m_characters[i].maxHealth = c.maxHealth;
+		m_characters[i].stamina = c.stamina;   m_characters[i].maxStamina = c.maxStamina;
+		m_characters[i].mana = c.mana;         m_characters[i].maxMana = c.maxMana;
+	}
+	m_world.ApplyState(*data);
+
+	m_ui.RefreshSheet();
+	ApplyPartySpeed();
+	m_ui.ClearLog(); // SetTorchPalette logged a line during ApplyState
+	m_ui.AddLogLine(loc::Tr("log.descend"));
+	const Party& party = m_world.GetParty();
+	m_ui.ResetHudStatus();
+	m_ui.SetHudStatus(party.Facing(), party.GridX(), party.GridZ());
+	m_state = AppState::Playing;
+	log::Info("Loaded game from {}", path);
+	return true;
 }
 
 void Game::OpenCharacterSheet(size_t index) {
@@ -431,7 +541,15 @@ void Game::Update(float dt) {
 		if (input.WasKeyPressed(VK_ESCAPE)) m_quitRequested = true;
 		if (RunLoadTasks()) {
 			m_gameLoaded = true;
-			StartNewGame(); // sets AppState::Playing
+			if (!m_pendingLoadPath.empty()) {
+				const std::string path = std::exchange(m_pendingLoadPath, {});
+				if (!LoadGame(path)) { // bad/corrupt file: fall back to the menu
+					m_state = AppState::Menu;
+					m_ui.ResetToMainPage();
+				}
+			} else {
+				StartNewGame(); // sets AppState::Playing
+			}
 		}
 		return;
 

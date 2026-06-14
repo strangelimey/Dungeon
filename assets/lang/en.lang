@@ -14,6 +14,8 @@ title=DUNGEON
 pause.title=PAUSED
 menu.subtitle=an old-school crawler
 menu.subtitle_settings=settings
+menu.subtitle_load=choose a saved game
+menu.subtitle_save=name your save
 loading.descending=descending...
 
 ; --- landing + pause menus --------------------------------------------------
@@ -24,6 +26,20 @@ menu.save=Save
 menu.settings=Settings
 menu.exit=Exit
 menu.back=Back
+
+; --- save / load browser ----------------------------------------------------
+saves.none=No saved games yet.
+; {0} = save name, {1} = timestamp
+saves.slot={}   ·   {}
+; {0} = next slot number
+saves.default_name=Save {}
+saves.name_placeholder=enter a name
+saves.untitled=Save
+saves.overwrite_label=or overwrite an existing save:
+saves.overwrite_confirm=Click again to overwrite
+saves.delete=Delete
+saves.cancel=Cancel
+saves.delete_prompt=Delete this save?
 
 ; --- loading steps ------------------------------------------------------------
 load.echoes=Tuning the echoes

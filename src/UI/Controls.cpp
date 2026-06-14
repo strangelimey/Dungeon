@@ -440,6 +440,274 @@ void KeyBind::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
 			  m_capturing ? theme.accent : theme.text);
 }
 
+// --- TextField -------------------------------------------------------------
+
+void TextField::Update(UIContext& ctx) {
+	const Input* input = ctx.CurrentInput();
+	if (!input) return;
+
+	m_hot = !ctx.IsMouseConsumed() && Pixel().Contains(input->MouseX(), input->MouseY());
+	if (input->WasMousePressed(MouseButton::Left)) {
+		if (m_hot) {
+			m_focused = true;
+			ctx.ConsumeMouse();
+		} else if (!Pixel().Contains(input->MouseX(), input->MouseY())) {
+			m_focused = false; // a click elsewhere drops focus (don't consume it)
+		}
+	} else if (m_hot) {
+		ctx.ConsumeMouse();
+	}
+	if (!m_focused) return;
+
+	bool changed = false;
+	for (const char c : input->TypedChars()) {
+		if (text.size() >= maxLength) break;
+		text.push_back(c); // OnChar already filtered to printable characters
+		changed = true;
+	}
+	if (input->WasKeyPressed(vk::Back) && !text.empty()) {
+		text.pop_back();
+		changed = true;
+	}
+	if (input->WasKeyPressed(vk::Return) && onSubmit) onSubmit();
+	if (changed && onChange) onChange();
+}
+
+void TextField::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
+	const Theme& theme = ctx.GetTheme();
+	Font& font = ctx.GetFont();
+	const gfx::Rect& px = Pixel();
+
+	batch.DrawRect(px, m_focused ? theme.controlActive
+								 : (m_hot ? theme.controlHot : theme.control));
+	DrawBorder(batch, px, m_focused || m_hot ? theme.accent : theme.panelBorder);
+
+	const float pad = 8.0f;
+	const float ty = px.y + (px.h - font.Height()) * 0.5f;
+	if (text.empty() && !m_focused) {
+		font.Draw(batch, placeholder, px.x + pad, ty, theme.textDim);
+	} else {
+		font.Draw(batch, text, px.x + pad, ty, theme.text);
+		if (m_focused) {
+			const float caretX = px.x + pad + font.MeasureWidth(text) + 1.0f;
+			batch.DrawRect({caretX, px.y + 6.0f, 2.0f, px.h - 12.0f}, theme.accent);
+		}
+	}
+}
+
+// --- SlotList ----------------------------------------------------------------
+
+float SlotList::MaxScroll() const {
+	return std::max(0.0f, ContentHeight() - Pixel().h);
+}
+
+gfx::Rect SlotList::RowRect(size_t index) const {
+	const gfx::Rect& px = Pixel();
+	const float gutter = 14.0f; // leaves room for the scrollbar on the right
+	return {px.x + 4.0f, px.y + rowHeight * static_cast<float>(index) - m_scroll,
+			px.w - 4.0f - gutter, rowHeight - 6.0f};
+}
+
+gfx::Rect SlotList::DeleteRect(const gfx::Rect& row) const {
+	const float s = row.h - 14.0f; // square icon button at the row's right end
+	return {row.x + row.w - s - 8.0f, row.y + (row.h - s) * 0.5f, s, s};
+}
+
+gfx::Rect SlotList::ConfirmRect(const UIContext& ctx) const {
+	const float w = 380.0f, h = 168.0f;
+	return {(ctx.Width() - w) * 0.5f, (ctx.Height() - h) * 0.5f, w, h};
+}
+
+gfx::Rect SlotList::ConfirmButton(const UIContext& ctx, bool deleteButton) const {
+	const gfx::Rect d = ConfirmRect(ctx);
+	const float bw = (d.w - 60.0f) * 0.5f, bh = 44.0f;
+	const float by = d.y + d.h - bh - 20.0f;
+	return deleteButton ? gfx::Rect{d.x + 20.0f, by, bw, bh}
+						: gfx::Rect{d.x + d.w - 20.0f - bw, by, bw, bh};
+}
+
+gfx::Rect SlotList::ScrollTrackRect() const {
+	const gfx::Rect& px = Pixel();
+	const float barW = 10.0f;
+	return {px.x + px.w - barW - 2.0f, px.y + 2.0f, barW, px.h - 4.0f};
+}
+
+gfx::Rect SlotList::ScrollThumbRect(float maxScroll) const {
+	const gfx::Rect track = ScrollTrackRect();
+	const gfx::Rect& px = Pixel();
+	const float thumbH = std::max(track.h * px.h / (px.h + maxScroll), 24.0f);
+	const float t = maxScroll > 0.0f ? m_scroll / maxScroll : 0.0f;
+	return {track.x, track.y + (track.h - thumbH) * t, track.w, thumbH};
+}
+
+void SlotList::Update(UIContext& ctx) {
+	const Input* input = ctx.CurrentInput();
+	if (!input) return;
+	const float mx = input->MouseX(), my = input->MouseY();
+
+	// Modal confirm dialog: it owns the mouse entirely until Delete/Cancel (or
+	// a click outside it). Runs first so the rest of the page can't be touched
+	// behind it — the owner adds this list last so its ConsumeMouse wins.
+	if (m_confirmRow >= 0) {
+		ctx.ConsumeMouse();
+		const gfx::Rect del = ConfirmButton(ctx, true);
+		const gfx::Rect cancel = ConfirmButton(ctx, false);
+		m_confirmHot = del.Contains(mx, my) ? 0 : (cancel.Contains(mx, my) ? 1 : -1);
+		if (input->WasMousePressed(MouseButton::Left)) {
+			if (m_confirmHot == 0) {
+				// Copy first: onDelete may (deferred) rebuild the page, which
+				// destroys this widget — touch nothing after.
+				auto fn = static_cast<size_t>(m_confirmRow) < m_rows.size()
+							  ? m_rows[static_cast<size_t>(m_confirmRow)].onDelete
+							  : std::function<void()>{};
+				m_confirmRow = -1;
+				if (fn) fn();
+				return;
+			}
+			if (m_confirmHot == 1 || !ConfirmRect(ctx).Contains(mx, my))
+				m_confirmRow = -1; // Cancel button or a click outside the dialog
+		}
+		return;
+	}
+
+	const gfx::Rect& px = Pixel();
+	const float maxScroll = MaxScroll();
+	m_scroll = std::clamp(m_scroll, 0.0f, maxScroll);
+
+	m_hotRow = m_hotDelete = -1;
+	if (!ctx.IsMouseConsumed() && px.Contains(mx, my)) {
+		for (size_t i = 0; i < m_rows.size(); ++i) {
+			const gfx::Rect row = RowRect(i);
+			if (row.y + row.h <= px.y || row.y >= px.y + px.h) continue; // clipped
+			if (!row.Contains(mx, my)) continue;
+			m_hotRow = static_cast<int>(i);
+			const bool onDel = m_rows[i].onDelete &&
+							   DeleteRect(row).Contains(mx, my);
+			if (onDel) m_hotDelete = static_cast<int>(i);
+			ctx.ConsumeMouse();
+			if (input->WasMousePressed(MouseButton::Left)) {
+				if (onDel) {
+					m_confirmRow = static_cast<int>(i); // open the confirm dialog
+				} else if (auto fn = m_rows[i].onActivate) {
+					fn();
+					return;
+				}
+			}
+			break;
+		}
+	}
+
+	// Scrollbar after the rows, so a row hover can't block the thumb (the rows
+	// stop short of the scrollbar gutter, so the two never overlap anyway).
+	m_scrollHot = false;
+	if (maxScroll > 0.0f) {
+		const gfx::Rect track = ScrollTrackRect();
+		const gfx::Rect thumb = ScrollThumbRect(maxScroll);
+		if (m_scrollDragging && !input->IsMouseDown(MouseButton::Left))
+			m_scrollDragging = false;
+		if (!ctx.IsMouseConsumed() || m_scrollDragging) {
+			m_scrollHot = thumb.Contains(mx, my);
+			if (m_scrollHot && input->WasMousePressed(MouseButton::Left)) {
+				m_scrollDragging = true;
+				m_scrollGrab = my - thumb.y;
+			}
+			if (m_scrollDragging) {
+				const float range = track.h - thumb.h;
+				if (range > 0.0f)
+					m_scroll = std::clamp(
+						(my - m_scrollGrab - track.y) / range * maxScroll, 0.0f,
+						maxScroll);
+			}
+			if (m_scrollHot || m_scrollDragging) ctx.ConsumeMouse();
+		}
+		if (!ctx.IsMouseConsumed() && px.Contains(mx, my) &&
+			input->WheelDelta() != 0.0f) {
+			m_scroll = std::clamp(m_scroll - input->WheelDelta() * 48.0f, 0.0f,
+								  maxScroll);
+			ctx.ConsumeMouse();
+		}
+	} else {
+		m_scrollDragging = false;
+	}
+}
+
+void SlotList::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
+	const Theme& theme = ctx.GetTheme();
+	Font& font = ctx.GetFont();
+	const gfx::Rect& px = Pixel();
+	const float maxScroll = MaxScroll();
+
+	if (maxScroll > 0.0f) batch.SetScissor(&px);
+	for (size_t i = 0; i < m_rows.size(); ++i) {
+		const gfx::Rect row = RowRect(i);
+		if (row.y + row.h <= px.y || row.y >= px.y + px.h) continue; // clipped
+		const Row& r = m_rows[i];
+		const bool hot = static_cast<int>(i) == m_hotRow;
+		batch.DrawRect(row, hot ? theme.controlHot : theme.control);
+		DrawBorder(batch, row, theme.panelBorder);
+
+		const float ty = row.y + (row.h - font.Height()) * 0.5f;
+		font.Draw(batch, r.primary, row.x + 12.0f, ty, theme.text);
+
+		const gfx::Rect del = DeleteRect(row);
+		if (!r.secondary.empty()) {
+			const float sw = font.MeasureWidth(r.secondary);
+			const float sx = (r.onDelete ? del.x : row.x + row.w) - sw - 16.0f;
+			font.Draw(batch, r.secondary, sx, ty, theme.textDim);
+		}
+		if (r.onDelete) {
+			const bool dhot = static_cast<int>(i) == m_hotDelete;
+			if (deleteIcon) {
+				batch.DrawSprite(del, {0, 0, 1, 1}, *deleteIcon,
+								 {1, 1, 1, dhot ? 1.0f : 0.8f});
+			} else { // fallback: an "X" glyph in the accent color
+				const float xw = font.MeasureWidth("X");
+				font.Draw(batch, "X", del.x + (del.w - xw) * 0.5f,
+						  del.y + (del.h - font.Height()) * 0.5f, theme.accent);
+			}
+		}
+	}
+	if (maxScroll > 0.0f) {
+		batch.SetScissor(nullptr);
+		batch.DrawRect(ScrollTrackRect(), theme.control);
+		const gfx::Rect thumb = ScrollThumbRect(maxScroll);
+		batch.DrawRect(thumb, m_scrollDragging || m_scrollHot ? theme.controlActive
+															  : theme.controlHot);
+		DrawBorder(batch, thumb, theme.panelBorder);
+	}
+}
+
+void SlotList::DrawOverlay(UIContext& ctx, gfx::SpriteBatch& batch) {
+	if (m_confirmRow < 0 || static_cast<size_t>(m_confirmRow) >= m_rows.size())
+		return;
+	const Theme& theme = ctx.GetTheme();
+	Font& font = ctx.GetFont();
+
+	// Dim the whole surface, then the dialog on top.
+	batch.DrawRect({0, 0, ctx.Width(), ctx.Height()}, {0, 0, 0, 0.55f});
+	const gfx::Rect d = ConfirmRect(ctx);
+	batch.DrawRect(d, theme.panel);
+	DrawBorder(batch, d, theme.panelBorder);
+
+	const float pw = font.MeasureWidth(confirmPrompt);
+	font.Draw(batch, confirmPrompt, d.x + (d.w - pw) * 0.5f, d.y + 28.0f, theme.text);
+	const std::string& name = m_rows[static_cast<size_t>(m_confirmRow)].primary;
+	const float nw = font.MeasureWidth(name);
+	font.Draw(batch, name, d.x + (d.w - nw) * 0.5f, d.y + 66.0f, theme.accent);
+
+	auto button = [&](const gfx::Rect& b, const std::string& label, bool hot,
+					  bool danger) {
+		batch.DrawRect(b, hot ? theme.controlActive : theme.control);
+		DrawBorder(batch, b, hot || danger ? theme.accent : theme.panelBorder);
+		const float lw = font.MeasureWidth(label);
+		font.Draw(batch, label, b.x + (b.w - lw) * 0.5f,
+				  b.y + (b.h - font.Height()) * 0.5f,
+				  danger ? theme.accent : theme.text);
+	};
+	button(ConfirmButton(ctx, true), deleteLabel, m_confirmHot == 0, true);
+	button(ConfirmButton(ctx, false), cancelLabel, m_confirmHot == 1, false);
+}
+
 // --- MenuList --------------------------------------------------------------
 
 void MenuList::AddItem(std::string label, std::function<void()> onActivate) {

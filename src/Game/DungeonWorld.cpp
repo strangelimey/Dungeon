@@ -216,8 +216,9 @@ void DungeonWorld::LoadMonsters() {
 		MonsterKind& kind = kindOf(spawn.type);
 		Monster monster;
 		monster.kind = &kind;
-		monster.x = spawn.x;
-		monster.z = spawn.z;
+		monster.id = spawn.id;
+		monster.x = monster.spawnX = spawn.x;
+		monster.z = monster.spawnZ = spawn.z;
 		monster.yaw = DirYaw(spawn.facing);
 		monster.animator = anim::Animator(&kind.model.skeleton, &kind.model.clips);
 		monster.animator.Play("idle");
@@ -334,6 +335,45 @@ void DungeonWorld::ResetForNewGame() {
 	SetTorchPalette(0);
 }
 
+void DungeonWorld::CaptureState(SaveData& out) const {
+	out.partyX = m_party.GridX();
+	out.partyZ = m_party.GridZ();
+	out.partyFacing = m_party.Facing();
+	out.torchPalette = m_torchPalette;
+
+	out.seen.clear();
+	for (int z = 0; z < m_map.Height(); ++z)
+		for (int x = 0; x < m_map.Width(); ++x)
+			if (m_seen[static_cast<size_t>(z) * m_map.Width() + x])
+				out.seen.emplace_back(x, z);
+
+	// Diff against the .ent baseline: only monsters that have left their spawn
+	// cell get an override (none do today — monsters don't roam yet).
+	out.entities.clear();
+	for (const Monster& m : m_monsters)
+		if (m.x != m.spawnX || m.z != m.spawnZ)
+			out.entities.push_back({m.id, m.x, m.z});
+}
+
+void DungeonWorld::ApplyState(const SaveData& in) {
+	m_party.SetGridPosition(in.partyX, in.partyZ); // keeps facing, clears interp
+	m_party.SetFacing(in.partyFacing);
+	SetTorchPalette(in.torchPalette);
+
+	std::fill(m_seen.begin(), m_seen.end(), static_cast<u8>(0));
+	for (const auto& [x, z] : in.seen)
+		if (x >= 0 && z >= 0 && x < m_map.Width() && z < m_map.Height())
+			m_seen[static_cast<size_t>(z) * m_map.Width() + x] = 1;
+
+	for (const SaveData::EntityState& e : in.entities)
+		for (Monster& m : m_monsters)
+			if (m.id == e.id) {
+				m.x = e.x;
+				m.z = e.z;
+				break;
+			}
+}
+
 bool DungeonWorld::IsSeen(int x, int z) const {
 	if (x < 0 || z < 0 || x >= m_map.Width() || z >= m_map.Height()) return false;
 	return m_seen[static_cast<size_t>(z) * m_map.Width() + x] != 0;
@@ -368,6 +408,7 @@ void DungeonWorld::MarkSeen(int x, int z) {
 }
 
 void DungeonWorld::SetTorchPalette(int index) {
+	m_torchPalette = index;
 	switch (index) {
 	case 1:  m_torchColor = {0.45f, 0.65f, 1.0f}; onMessage(loc::Tr("log.torch_cold")); break;
 	case 2:  m_torchColor = {0.55f, 1.0f, 0.45f}; onMessage(loc::Tr("log.torch_eerie")); break;

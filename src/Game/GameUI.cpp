@@ -6,8 +6,10 @@
 #include "Core/Loc.h"
 #include "Core/Paths.h"
 #include "Game/AssetUtil.h"
+#include "Game/SaveGame.h"
 
 #include <algorithm>
+#include <filesystem>
 #include <format>
 #include <iterator>
 
@@ -46,8 +48,8 @@ GameUI::GameUI(Window& window, gfx::GraphicsDevice& device,
 	  m_audio(audio), m_sounds(sounds), m_settings(settings),
 	  m_characters(characters), m_hudUi(device, "", kHudFontH),
 	  m_menuUi(device, "", kMenuFontH), m_settingsUi(device, "", kMenuFontH),
-	  m_pauseUi(device, "", kMenuFontH), m_sheetUi(device, "", kSheetFontH),
-	  m_titleFont(device, "", kTitleFontH) {}
+	  m_pauseUi(device, "", kMenuFontH), m_savesUi(device, "", kMenuFontH),
+	  m_sheetUi(device, "", kSheetFontH), m_titleFont(device, "", kTitleFontH) {}
 
 void GameUI::BuildStaticUi() {
 	ApplyTheme();
@@ -58,11 +60,13 @@ void GameUI::BuildStaticUi() {
 
 void GameUI::LoadTitleArt() {
 	m_titleBackground = LoadTextureFile(m_device, paths::Asset("textures\\title_bg"));
+	// Small UI glyph; optional (the SlotList falls back to a text "X").
+	m_deleteIcon = TryLoadTextureFile(m_device, paths::Asset("ui\\delete"));
 }
 
 void GameUI::ApplyTheme() {
 	for (ui::UIContext* ctx :
-		 {&m_hudUi, &m_menuUi, &m_settingsUi, &m_pauseUi, &m_sheetUi})
+		 {&m_hudUi, &m_menuUi, &m_settingsUi, &m_pauseUi, &m_savesUi, &m_sheetUi})
 		ctx->SetTheme(m_settings.theme);
 }
 
@@ -78,18 +82,35 @@ void GameUI::BuildMenu() {
 	const float h = static_cast<float>(m_window.Height());
 	const gfx::Rect window{0, 0, w, h};
 
+	// Continue and Load only appear when at least one save exists, so the list
+	// is sized to whatever entries are present (one quarter each with all four,
+	// half each with just Start + Settings).
+	const bool hasSaves = !ListSaves().empty();
+	const int itemCount = hasSaves ? 4 : 2;
 	const float menuW = 420.0f;
 	const float itemH = 58.0f;
 	auto* menu = m_menuUi.Add<ui::MenuList>(
-		Norm({(w - menuW) * 0.5f, h * 0.42f, menuW, itemH * 4}, window),
-		1.0f / 4.0f); // item height: one quarter of the list
+		Norm({(w - menuW) * 0.5f, h * 0.42f, menuW, itemH * itemCount}, window),
+		1.0f / static_cast<float>(itemCount));
 
-	menu->AddItem(loc::Tr("menu.continue")); // not implemented yet
+	// Continue loads the most recent save outright (no browser).
+	if (hasSaves)
+		menu->AddItem(loc::Tr("menu.continue"), [this] {
+			const std::vector<SaveSlot> slots = ListSaves();
+			if (slots.empty()) return; // raced with a deletion
+			Click(0.6f);
+			m_menuPage = MenuPage::Main;
+			onLoadSave(slots.front().path); // ListSaves is newest-first
+		});
 	menu->AddItem(loc::Tr("menu.start"), [this] {
 		Click(0.6f);
 		onStartNewGame();
 	});
-	menu->AddItem(loc::Tr("menu.load"));     // not implemented yet
+	if (hasSaves)
+		menu->AddItem(loc::Tr("menu.load"), [this] {
+			Click();
+			OpenSavesPage(SavesMode::Load);
+		});
 	menu->AddItem(loc::Tr("menu.settings"), [this] {
 		Click();
 		m_menuPage = MenuPage::Settings;
@@ -280,8 +301,14 @@ void GameUI::BuildPauseMenu() {
 	auto* menu = m_pauseUi.Add<ui::MenuList>(
 		Norm({(w - menuW) * 0.5f, h * 0.42f, menuW, itemH * 5}, window),
 		1.0f / 5.0f);
-	menu->AddItem(loc::Tr("menu.save")); // not implemented yet
-	menu->AddItem(loc::Tr("menu.load")); // not implemented yet
+	menu->AddItem(loc::Tr("menu.save"), [this] {
+		Click();
+		OpenSavesPage(SavesMode::Save);
+	});
+	menu->AddItem(loc::Tr("menu.load"), [this] {
+		Click();
+		OpenSavesPage(SavesMode::Load);
+	});
 	menu->AddItem(loc::Tr("menu.settings"), [this] {
 		Click();
 		m_menuPage = MenuPage::Settings;
@@ -294,6 +321,152 @@ void GameUI::BuildPauseMenu() {
 		Click();
 		onResume();
 	});
+}
+
+// Save-slot browser, shared by the landing/pause Load entries and the pause
+// Save entry. Unlike the static pages this is rebuilt from disk every time it
+// opens (saves come and go) — and again after a deletion (deferred, see
+// m_savesDirty). Both modes show the slots in a scrolling SlotList with a
+// per-row Delete: Load activates a row to load it; Save fills the name field
+// from a row to overwrite it, above the name field + Save button.
+void GameUI::OpenSavesPage(SavesMode mode) {
+	m_savesMode = mode;
+	m_overwriteArmed = false;
+	m_saveField = nullptr;
+	m_saveButton = nullptr;
+	m_savesUi.Clear();
+	const float w = static_cast<float>(m_window.Width());
+	const float h = static_cast<float>(m_window.Height());
+	const gfx::Rect window{0, 0, w, h};
+
+	const std::vector<SaveSlot> slots = ListSaves();
+
+	const float colW = 720.0f;
+	const float colX = (w - colW) * 0.5f;
+
+	// Builds the slots into a fixed-height scroll box at [ly, ly+lh]. In Save
+	// mode a row fills the name field (overwrite target); in Load mode it loads.
+	// Every row's Delete opens a confirm dialog, then removes the file and flags
+	// a deferred rebuild. Added LAST by the caller so its modal dialog claims
+	// the mouse ahead of the page's other widgets.
+	auto buildList = [&](float ly, float lh) {
+		auto* list = m_savesUi.Add<ui::SlotList>(Norm({colX, ly, colW, lh}, window));
+		list->deleteIcon = m_deleteIcon.get();
+		list->confirmPrompt = loc::Tr("saves.delete_prompt");
+		list->deleteLabel = loc::Tr("saves.delete");
+		list->cancelLabel = loc::Tr("saves.cancel");
+		for (const SaveSlot& slot : slots) {
+			ui::SlotList::Row row;
+			row.primary = slot.name;
+			row.secondary = slot.timestamp;
+			if (mode == SavesMode::Save)
+				row.onActivate = [this, name = slot.name] {
+					if (m_saveField) {
+						m_saveField->text = name;
+						m_saveField->SetFocused(true);
+					}
+					DisarmOverwrite();
+				};
+			else
+				row.onActivate = [this, path = slot.path] {
+					Click();
+					m_menuPage = MenuPage::Main;
+					onLoadSave(path);
+				};
+			row.onDelete = [this, path = slot.path] {
+				Click(0.4f);
+				std::error_code ec;
+				std::filesystem::remove(path, ec);
+				m_savesDirty = true; // rebuilt next frame (UpdateMenu/UpdatePause)
+			};
+			list->AddRow(std::move(row));
+		}
+	};
+
+	// Layout pass: place every widget except the slot list, recording the list's
+	// box so it can be added last (below).
+	float backY = 0.0f;
+	bool wantList = false;
+	float listY = 0.0f, listH = 0.0f;
+	if (mode == SavesMode::Save) {
+		float y = h * 0.16f;
+		m_saveField = m_savesUi.Add<ui::TextField>(
+			Norm({colX, y, colW, 44}, window),
+			loc::Format("saves.default_name", slots.size() + 1));
+		m_saveField->placeholder = loc::Tr("saves.name_placeholder");
+		m_saveField->onChange = [this] { DisarmOverwrite(); };
+		m_saveField->onSubmit = [this] { CommitSave(); };
+		m_saveField->SetFocused(true);
+		y += 60.0f;
+
+		m_saveButton = m_savesUi.Add<ui::Button>(
+			Norm({colX, y, colW, 44}, window), loc::Tr("menu.save"),
+			[this] { CommitSave(); });
+		y += 76.0f;
+
+		if (slots.empty()) {
+			backY = y;
+		} else {
+			m_savesUi.Add<ui::Label>(Norm({colX, y, colW, 28}, window),
+									 loc::Tr("saves.overwrite_label"))
+				->dim = true;
+			listY = y + 36.0f;
+			listH = h * 0.40f;
+			wantList = true;
+			backY = listY + listH + 16.0f;
+		}
+	} else {
+		listY = h * 0.24f;
+		if (slots.empty()) {
+			m_savesUi.Add<ui::Label>(Norm({colX, listY, colW, 28}, window),
+									 loc::Tr("saves.none"))
+				->dim = true;
+			backY = listY + 56.0f;
+		} else {
+			listH = h * 0.52f;
+			wantList = true;
+			backY = listY + listH + 16.0f;
+		}
+	}
+
+	const float backW = 220.0f;
+	m_savesUi.Add<ui::Button>(
+		Norm({(w - backW) * 0.5f, backY, backW, 44}, window), loc::Tr("menu.back"),
+		[this] {
+			Click();
+			m_menuPage = MenuPage::Main;
+		});
+
+	// The list goes last so its modal confirm dialog claims the mouse before
+	// the Back button / name field beneath it (UIContext updates topmost-first).
+	if (wantList) buildList(listY, listH);
+
+	m_menuPage = MenuPage::Saves;
+}
+
+// Save page: write the named slot, arming a one-shot overwrite confirm first
+// if a save of that name already exists (the button label flips; a second
+// click — or editing the name — clears it). Empty names fall back to a
+// default so the file is never just ".dsav".
+void GameUI::CommitSave() {
+	if (!m_saveField) return;
+	std::string name = m_saveField->text;
+	if (name.empty()) name = loc::Tr("saves.untitled");
+
+	if (std::filesystem::exists(SaveSlotPath(name)) && !m_overwriteArmed) {
+		m_overwriteArmed = true;
+		if (m_saveButton) m_saveButton->text = loc::Tr("saves.overwrite_confirm");
+		return;
+	}
+	Click(0.6f);
+	m_menuPage = MenuPage::Main;
+	onSaveSlot(name);
+}
+
+void GameUI::DisarmOverwrite() {
+	if (!m_overwriteArmed) return;
+	m_overwriteArmed = false;
+	if (m_saveButton) m_saveButton->text = loc::Tr("menu.save");
 }
 
 // Character details page (clicking a party-bar portrait): the sheet widget
@@ -338,10 +511,14 @@ void GameUI::RebuildForLanguage() {
 	m_menuUi.Clear();
 	m_settingsUi.Clear();
 	m_pauseUi.Clear();
+	m_savesUi.Clear();
 	m_sheetUi.Clear();
 	BuildMenu();
 	BuildPauseMenu();
 	BuildCharacterSheet();
+	// The saves page is built on demand; repopulate it in the new language if
+	// it happens to be open (OpenSavesPage leaves m_menuPage on Saves).
+	if (m_menuPage == MenuPage::Saves) OpenSavesPage(m_savesMode);
 	if (!m_characters.empty()) m_sheet->SetCharacter(m_characters[m_sheetIndex]);
 	if (m_log) {
 		m_hudUi.Clear();
@@ -576,11 +753,22 @@ void GameUI::UpdateFonts(float dt) {
 	}
 }
 
+// A deletion last frame asks for a fresh page; rebuild here, before any widget
+// updates, so the list isn't cleared from inside its own callback.
+void GameUI::RefreshSavesIfDirty() {
+	if (m_savesDirty && m_menuPage == MenuPage::Saves) {
+		m_savesDirty = false;
+		OpenSavesPage(m_savesMode);
+	}
+}
+
 void GameUI::UpdateMenu(const Input& input) {
+	RefreshSavesIfDirty();
 	MenuContext().Update(input, WindowW(), WindowH());
 }
 
 void GameUI::UpdatePause(const Input& input) {
+	RefreshSavesIfDirty();
 	PauseContext().Update(input, WindowW(), WindowH());
 }
 
@@ -607,8 +795,11 @@ void GameUI::SetHudStatus(int facing, int gridX, int gridZ) {
 
 void GameUI::ResetHudStatus() { m_lastFacing = m_lastGridX = m_lastGridZ = -1; }
 
+// Backs out of any open sub-page (Settings or Saves) to the main list,
+// returning true; false means the list itself is showing and the caller owns
+// the Esc (quit / resume).
 bool GameUI::CloseSettingsPage() {
-	if (m_menuPage != MenuPage::Settings) return false;
+	if (m_menuPage == MenuPage::Main) return false;
 	m_menuPage = MenuPage::Main;
 	return true;
 }
@@ -698,8 +889,12 @@ void GameUI::RenderMenuOverlay() {
 	// Title + subtitle.
 	DrawCenteredTitle(loc::Tr("title"), h * 0.16f);
 
-	const std::string subtitle = loc::Tr(
-		m_menuPage == MenuPage::Settings ? "menu.subtitle_settings" : "menu.subtitle");
+	const char* subKey = "menu.subtitle";
+	if (m_menuPage == MenuPage::Settings) subKey = "menu.subtitle_settings";
+	else if (m_menuPage == MenuPage::Saves)
+		subKey = m_savesMode == SavesMode::Save ? "menu.subtitle_save"
+												: "menu.subtitle_load";
+	const std::string subtitle = loc::Tr(subKey);
 	ui::Font& font = m_menuUi.GetFont();
 	const float subW = font.MeasureWidth(subtitle);
 	font.Draw(m_spriteBatch, subtitle, (w - subW) * 0.5f,
@@ -720,8 +915,11 @@ void GameUI::RenderPauseOverlay() {
 
 	DrawCenteredTitle(loc::Tr("pause.title"), h * 0.16f);
 
-	if (m_menuPage == MenuPage::Settings) {
-		const std::string subtitle = loc::Tr("menu.subtitle_settings");
+	if (m_menuPage != MenuPage::Main) {
+		const char* subKey = "menu.subtitle_load";
+		if (m_menuPage == MenuPage::Settings) subKey = "menu.subtitle_settings";
+		else if (m_savesMode == SavesMode::Save) subKey = "menu.subtitle_save";
+		const std::string subtitle = loc::Tr(subKey);
 		ui::Font& font = m_pauseUi.GetFont();
 		const float subW = font.MeasureWidth(subtitle);
 		font.Draw(m_spriteBatch, subtitle, (w - subW) * 0.5f,

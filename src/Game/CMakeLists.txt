@@ -14,6 +14,7 @@ add_library(Game STATIC
 	MapView.cpp
 	Party.cpp
 	PartyHud.cpp
+	SaveGame.cpp
 	SoundBank.cpp
 )
 target_link_libraries(Game PUBLIC Core Platform Assets Animation Graphics UI Audio)

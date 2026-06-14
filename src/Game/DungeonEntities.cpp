@@ -30,6 +30,7 @@ DungeonEntities::DungeonEntities(const std::string& path, const DungeonMap& map)
 					  std::format("button must face a solid wall: \"{}\" in {}", line, path));
 		}
 		++counts[static_cast<size_t>(e.kind)];
+		e.id = static_cast<int>(m_entities.size()); // file order = stable save id
 		m_entities.push_back(std::move(e));
 	}
 

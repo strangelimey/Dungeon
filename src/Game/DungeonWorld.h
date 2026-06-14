@@ -23,6 +23,7 @@
 #include "Game/GameSettings.h"
 #include "Game/LoadQueue.h"
 #include "Game/Party.h"
+#include "Game/SaveGame.h"
 #include "Game/SoundBank.h"
 #include "Graphics/Camera.h"
 #include "Graphics/ParticleBatch.h"
@@ -93,6 +94,17 @@ public:
 	// the dynamic layer — a future save serializes it, never the .map file.
 	bool IsSeen(int x, int z) const;
 
+	// --- save / load --------------------------------------------------------
+	// Gathers the world's dynamic state into `out`: party pose, torch palette,
+	// fog of war (whole), and per-monster grid overrides (only monsters that
+	// have moved from their .ent spawn — empty today, monsters don't roam yet).
+	// The character roster is the Game's half, filled separately.
+	void CaptureState(SaveData& out) const;
+	// Applies a loaded save onto a freshly-built level (call after
+	// ResetForNewGame): snaps the party, restores fog + palette, and moves any
+	// overridden entities by id. Out-of-range/unknown ids are ignored.
+	void ApplyState(const SaveData& in);
+
 	// --- map editor seam (driven by MapView) --------------------------------
 	// Paints a cell to a new type, revealing it and rebuilding the affected
 	// surface geometry. Drains the GPU, so it is an interactive edit, not a
@@ -138,7 +150,9 @@ private:
 	};
 	struct Monster {
 		const MonsterKind* kind = nullptr; // points into m_monsterKinds (stable)
+		int id = -1; // source Entity::id, for save overrides
 		int x, z;
+		int spawnX = 0, spawnZ = 0; // .ent baseline, for the save diff
 		float yaw = 0.0f;
 		bool announced = false;
 		anim::Animator animator;
@@ -233,6 +247,7 @@ private:
 	std::vector<gfx::ParticleInstance> m_particleScratch;
 
 	Vec3 m_torchColor{1.0f, 0.62f, 0.28f};
+	int m_torchPalette = 0; // index behind m_torchColor (saved/restored)
 
 	// Dev console toggles (see the hooks above).
 	float m_fovDegrees = 70.0f;

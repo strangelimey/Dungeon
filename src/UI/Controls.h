@@ -209,6 +209,92 @@ private:
 	bool m_hot = false;
 };
 
+// Single-line text input. Click to focus; while focused it takes printable
+// characters (WM_CHAR via Input::TypedChars), Backspace deletes the last one,
+// and Enter fires onSubmit. Clicking outside the box unfocuses it. A solid
+// caret marks focus (no blink — widget Update has no time step). The owner
+// reads/sets `text` directly; onChange fires whenever it changes by input.
+class TextField : public Widget {
+public:
+	TextField(const gfx::Rect& rect, std::string text = "")
+		: text(std::move(text)) {
+		bounds = rect;
+	}
+
+	bool Focused() const { return m_focused; }
+	void SetFocused(bool on) { m_focused = on; }
+
+	void Update(UIContext& ctx) override;
+	void Draw(UIContext& ctx, gfx::SpriteBatch& batch) override;
+
+	std::string text;
+	std::string placeholder;          // shown dimmed when text is empty
+	size_t maxLength = 32;
+	std::function<void()> onChange;   // text changed via keyboard
+	std::function<void()> onSubmit;   // Enter while focused
+
+private:
+	bool m_focused = false;
+	bool m_hot = false;
+};
+
+// A scrolling list of save-slot rows. Each row shows a primary label (name)
+// and a secondary label (timestamp); the row body is clickable (onActivate),
+// and a red Delete icon at the right end opens a modal confirm dialog with
+// Delete / Cancel buttons (drawn in the overlay pass, owning the mouse until
+// resolved). Overflow scrolls (wheel or thumb drag), clipped to the bounds,
+// the same way TabControl scrolls a page.
+//
+// onDelete typically deletes the file and asks the owner to rebuild the page;
+// because that rebuild destroys this widget, the owner must DEFER it (not
+// rebuild from inside the callback). Update returns immediately after firing a
+// row callback so it touches no members afterward.
+class SlotList : public Widget {
+public:
+	struct Row {
+		std::string primary;
+		std::string secondary;
+		std::function<void()> onActivate;
+		std::function<void()> onDelete; // null hides the row's Delete icon
+	};
+
+	explicit SlotList(const gfx::Rect& rect) { bounds = rect; }
+	void AddRow(Row row) { m_rows.push_back(std::move(row)); }
+
+	void Update(UIContext& ctx) override;
+	void Draw(UIContext& ctx, gfx::SpriteBatch& batch) override;
+	void DrawOverlay(UIContext& ctx, gfx::SpriteBatch& batch) override;
+
+	float rowHeight = 48.0f;                  // pixels (fixed, like borders/fonts)
+	const gfx::Texture* deleteIcon = nullptr; // red X; a text "X" is the fallback
+	// Confirmation dialog strings (the owner localizes them).
+	std::string confirmPrompt = "Delete this save?";
+	std::string deleteLabel = "Delete";
+	std::string cancelLabel = "Cancel";
+
+private:
+	float ContentHeight() const {
+		return rowHeight * static_cast<float>(m_rows.size());
+	}
+	float MaxScroll() const;
+	gfx::Rect RowRect(size_t index) const; // pixel space, scroll applied
+	gfx::Rect DeleteRect(const gfx::Rect& row) const;
+	gfx::Rect ScrollTrackRect() const;
+	gfx::Rect ScrollThumbRect(float maxScroll) const;
+	gfx::Rect ConfirmRect(const UIContext& ctx) const; // centered dialog
+	gfx::Rect ConfirmButton(const UIContext& ctx, bool deleteButton) const;
+
+	std::vector<Row> m_rows;
+	float m_scroll = 0.0f;
+	int m_hotRow = -1;
+	int m_hotDelete = -1;
+	int m_confirmRow = -1; // row whose confirm dialog is open (-1 = none)
+	int m_confirmHot = -1; // dialog button under the mouse: 0 delete, 1 cancel
+	bool m_scrollHot = false;
+	bool m_scrollDragging = false;
+	float m_scrollGrab = 0.0f;
+};
+
 // Vertical list of selectable menu entries (the landing page). One entry is
 // always "selected"; the mouse selects by hover, and the keyboard (arrows /
 // W/S + Enter/Space) moves the selection and activates it, so the highlight

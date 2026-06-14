@@ -44,6 +44,12 @@ struct Entity {
 	Direction facing = Direction::South;
 	std::vector<std::pair<std::string, std::string>> params; // key=value extras
 
+	// Stable spawn id, assigned in .ent file order by DungeonEntities (which
+	// then sorts by cell, scrambling file order). The save system keys per-
+	// entity overrides off this so a save survives the sort. -1 = not a
+	// dynamic-layer entity (decorations from the .map keep the default).
+	int id = -1;
+
 	// Returns the value for `key`, or nullptr when the record doesn't have it.
 	const std::string* Param(std::string_view key) const;
 };

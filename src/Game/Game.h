@@ -78,6 +78,17 @@ private:
 
 	// --- state transitions --------------------------------------------------
 	void StartNewGame();
+	// Resets the roster to a fresh default party in place (keeping each slot's
+	// loaded portrait), so the panel/sheet pointers into m_characters stay
+	// valid. Shared by StartNewGame and LoadGame.
+	void ResetRoster();
+	// Captures the live world + roster to a named slot under SaveDir. Requires
+	// the dungeon to be loaded (m_gameLoaded); no-op otherwise.
+	void SaveGame(const std::string& name);
+	// Loads a save file: rebuilds the level baseline, applies the save on top,
+	// and enters Playing. Requires the dungeon already loaded (the deferred
+	// first-load path is wired by the menu, step 2). Returns false on failure.
+	bool LoadGame(const std::string& path);
 	void OpenCharacterSheet(size_t index); // freezes the world, shows the page
 	void SetQuality(Quality quality);      // persists + hot-swaps the world
 	// Loads the settings' language file (falling back to English when it is
@@ -111,6 +122,10 @@ private:
 	// Language code picked in Settings this frame, applied (strings reloaded,
 	// UI rebuilt) at the top of the next Update; empty = no change pending.
 	std::string m_pendingLanguage;
+	// Save chosen from the landing page before the dungeon was resident: the
+	// heavy load runs first (LoadingGame), then this save is applied instead of
+	// starting fresh. Empty = the load should StartNewGame as usual.
+	std::string m_pendingLoadPath;
 
 	// --- modules (construction order matters: settings load first, the world
 	// and UI reference settings/sounds/characters) -------------------------------

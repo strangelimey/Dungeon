@@ -3,8 +3,12 @@
 #include "Core/StringUtil.h"
 
 #include <Windows.h>
+#include <ShlObj.h>
 
 #include <filesystem>
+
+#pragma comment(lib, "Shell32.lib")
+#pragma comment(lib, "Ole32.lib")
 
 namespace dungeon::paths {
 
@@ -19,6 +23,18 @@ const std::string& ExecutableDir() {
 
 std::string Asset(const std::string& relative) {
 	return ExecutableDir() + "\\assets\\" + relative;
+}
+
+const std::string& SaveDir() {
+	static const std::string dir = [] {
+		PWSTR path = nullptr;
+		std::string result;
+		if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Documents, 0, nullptr, &path)))
+			result = std::filesystem::path(path).string() + "\\DungeonSaves";
+		if (path) CoTaskMemFree(path);
+		return result;
+	}();
+	return dir;
 }
 
 } // namespace dungeon::paths

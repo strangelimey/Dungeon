@@ -94,6 +94,13 @@ public:
 	std::function<void()> onStartNewGame;       // landing "Start New Game"
 	std::function<void()> onQuit;               // pause "Exit"
 	std::function<void()> onResume;             // pause/sheet "Back"
+	// A save slot was chosen to load (landing Continue/Load, pause Load). The
+	// receiver loads it — from the landing page that may first stage the
+	// dungeon load. Argument is the full .dsav path.
+	std::function<void(const std::string&)> onLoadSave;
+	// The player named and confirmed a save (pause Save). Argument is the
+	// display name; the receiver writes it and resumes play.
+	std::function<void(const std::string&)> onSaveSlot;
 	std::function<void(size_t)> onOpenSheet;    // portrait click, prev/next
 	std::function<void(int)> onQualitySelected; // Video tab dropdown
 	std::function<void(int)> onTorchPalette;    // HUD torchlight dropdown
@@ -104,11 +111,25 @@ public:
 	std::function<void(const std::string&)> onLanguageSelected;
 
 private:
-	enum class MenuPage { Main, Settings };
+	enum class MenuPage { Main, Settings, Saves };
+	// The Saves sub-page serves two jobs: Load (a list of slots to load) and
+	// Save (a name field + existing slots to overwrite). m_savesMode picks.
+	enum class SavesMode { Load, Save };
 
 	void BuildMenu(); // landing list + the shared settings page
 	void BuildPauseMenu();
 	void BuildCharacterSheet();
+	// Rebuilds the (dynamic) save-slot browser from the files on disk and
+	// switches to the Saves page in the given mode. Shared by the landing/pause
+	// Load entries and the pause Save entry; widgets live in m_savesUi.
+	void OpenSavesPage(SavesMode mode);
+	// Save page helpers: commit the named save (arming an overwrite confirm
+	// first if the name collides), and clear that armed confirm.
+	void CommitSave();
+	void DisarmOverwrite();
+	// Rebuilds the Saves page if a deletion flagged it dirty (deferred so the
+	// SlotList isn't cleared from inside its own row callback).
+	void RefreshSavesIfDirty();
 	// Pushes the settings theme into every UIContext (each owns a copy).
 	void ApplyTheme();
 	// Re-derives the party-bar slot rects from the settings scale and shifts
@@ -126,13 +147,21 @@ private:
 	float WindowH() const { return static_cast<float>(m_window.Height()); }
 	float DeviceW() const { return static_cast<float>(m_device.Width()); }
 	float DeviceH() const { return static_cast<float>(m_device.Height()); }
-	// The menu/pause pages share one settings page; the active context depends
-	// on whether the settings page is open over the list.
+	// The menu/pause flows share the Settings and Saves sub-pages; the active
+	// context depends on which sub-page (if any) is open over the list.
 	ui::UIContext& MenuContext() {
-		return m_menuPage == MenuPage::Main ? m_menuUi : m_settingsUi;
+		switch (m_menuPage) {
+		case MenuPage::Settings: return m_settingsUi;
+		case MenuPage::Saves:    return m_savesUi;
+		default:                 return m_menuUi;
+		}
 	}
 	ui::UIContext& PauseContext() {
-		return m_menuPage == MenuPage::Main ? m_pauseUi : m_settingsUi;
+		switch (m_menuPage) {
+		case MenuPage::Settings: return m_settingsUi;
+		case MenuPage::Saves:    return m_savesUi;
+		default:                 return m_pauseUi;
+		}
 	}
 
 	Window& m_window;
@@ -147,11 +176,24 @@ private:
 	ui::UIContext m_menuUi;     // landing page (28px font)
 	ui::UIContext m_settingsUi; // settings page (28px font, shared by pause)
 	ui::UIContext m_pauseUi;    // pause menu (28px font)
+	ui::UIContext m_savesUi;    // save-slot browser (28px font, shared by both)
 	ui::UIContext m_sheetUi;    // character sheet (22px font)
 	ui::Font m_titleFont;       // big face for "DUNGEON" titles
 	std::unique_ptr<gfx::Texture> m_titleBackground; // landing-page art
+	std::unique_ptr<gfx::Texture> m_deleteIcon;      // red X for the save browser
 
 	MenuPage m_menuPage = MenuPage::Main;
+	SavesMode m_savesMode = SavesMode::Load;
+	// Save page widgets (live in m_savesUi, valid only while it is built): the
+	// name field and the Save button, plus whether a second click is needed to
+	// confirm overwriting an existing slot of the same name.
+	ui::TextField* m_saveField = nullptr;
+	ui::Button* m_saveButton = nullptr;
+	bool m_overwriteArmed = false;
+	// A slot was deleted this frame; the Saves page is rebuilt from disk at the
+	// top of the next Update (rebuilding inside the row callback would destroy
+	// the list mid-iteration).
+	bool m_savesDirty = false;
 
 	// Widgets the game updates later; the UIContexts own them.
 	ui::TextOutput* m_log = nullptr;
