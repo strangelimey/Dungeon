@@ -347,12 +347,13 @@ void DungeonWorld::CaptureState(SaveData& out) const {
 			if (m_seen[static_cast<size_t>(z) * m_map.Width() + x])
 				out.seen.emplace_back(x, z);
 
-	// Diff against the .ent baseline: only monsters that have left their spawn
-	// cell get an override (none do today — monsters don't roam yet).
+	// Diff against the .ent baseline: a monster gets an override row once it
+	// has moved off its spawn cell or has announced itself (its position is the
+	// spawn until monsters roam, but `announced` flips on approach).
 	out.entities.clear();
 	for (const Monster& m : m_monsters)
-		if (m.x != m.spawnX || m.z != m.spawnZ)
-			out.entities.push_back({m.id, m.x, m.z});
+		if (m.x != m.spawnX || m.z != m.spawnZ || m.announced)
+			out.entities.push_back({m.id, m.x, m.z, m.announced});
 }
 
 void DungeonWorld::ApplyState(const SaveData& in) {
@@ -365,11 +366,14 @@ void DungeonWorld::ApplyState(const SaveData& in) {
 		if (x >= 0 && z >= 0 && x < m_map.Width() && z < m_map.Height())
 			m_seen[static_cast<size_t>(z) * m_map.Width() + x] = 1;
 
+	// Runs after ResetForNewGame cleared every monster's announced flag, so the
+	// rows here restore both the moved cell and the announced state.
 	for (const SaveData::EntityState& e : in.entities)
 		for (Monster& m : m_monsters)
 			if (m.id == e.id) {
 				m.x = e.x;
 				m.z = e.z;
+				m.announced = e.announced;
 				break;
 			}
 }

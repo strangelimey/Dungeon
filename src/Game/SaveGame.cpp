@@ -54,7 +54,7 @@ bool WriteSave(const SaveData& data, const std::string& path) {
 						 c.maxMana);
 	}
 	for (const SaveData::EntityState& e : data.entities)
-		t += std::format("ent {} {} {}\n", e.id, e.x, e.z);
+		t += std::format("ent {} {} {} {}\n", e.id, e.x, e.z, e.announced ? 1 : 0);
 
 	if (!data.seen.empty()) {
 		t += "seen";
@@ -112,6 +112,7 @@ std::optional<SaveData> ReadSave(const std::string& path) {
 			e.id = IntOf(tok[1]);
 			e.x = IntOf(tok[2]);
 			e.z = IntOf(tok[3]);
+			if (tok.size() >= 5) e.announced = IntOf(tok[4]) != 0; // older saves omit it
 			data.entities.push_back(e);
 		} else if (kw == "seen") {
 			for (size_t i = 1; i < tok.size(); ++i) {

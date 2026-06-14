@@ -51,11 +51,13 @@ struct SaveData {
 	std::vector<CharState> characters;
 
 	// Per-entity overrides, keyed by Entity::id — only entities that differ
-	// from their .ent spawn are present (monsters today carry only a moved
-	// grid cell; combat/inventory fields extend this struct later).
+	// from their .ent spawn are present (monsters carry a moved grid cell and
+	// whether they have announced themselves; combat/inventory fields extend
+	// this struct later).
 	struct EntityState {
 		int id = -1;
 		int x = 0, z = 0;
+		bool announced = false;
 	};
 	std::vector<EntityState> entities;
 };
