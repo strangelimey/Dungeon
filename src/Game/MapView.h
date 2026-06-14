@@ -40,9 +40,11 @@ public:
 	// console's `editor` command.
 	enum class Mode { Player, Editor };
 
-	// Editing tools (Editor mode only). None = view (drag pans, wheel zooms).
-	// The paint tools write cells through DungeonWorld::EditCell.
-	enum class Tool { None, PaintFloor, PaintWall };
+	// What the left-dock palette paints (Editor mode only). The cell brushes
+	// write through DungeonWorld::EditCell; door/creature/item brushes are the
+	// next entries (they will place entities). A brush is always selected in
+	// Editor — left paints, right-drag pans, wheel zooms.
+	enum class Brush { Floor, Wall };
 
 	MapView(gfx::GraphicsDevice& device, DungeonWorld& world);
 
@@ -66,9 +68,6 @@ public:
 	// Flips an already-open map's mode without disturbing the view (the dev
 	// console's `editor` / `editor off`).
 	void SetMode(Mode mode) { m_mode = mode; }
-
-	Tool CurrentTool() const { return m_tool; }
-	void SetTool(Tool tool) { m_tool = tool; }
 
 	// Re-bakes the icon font when the window height changes (the overlay text
 	// scales with the screen like the rest of the UI).
@@ -107,13 +106,21 @@ private:
 	// override layered on top.
 	bool CellVisible(int x, int z) const;
 
-	// The editor tool palette. Tool(i) is the tool the i-th button selects;
-	// ButtonRect resolves a button's pixel rect from the panel (resolution
-	// independent — sized from the panel, so Update and Render agree).
-	static constexpr int kToolCount = 3;
-	static Tool ToolForButton(int index);
-	static const char* ToolLabelKey(Tool tool);
-	gfx::Rect ButtonRect(const gfx::Rect& panel, int index) const;
+	// The grid-drawing area within the panel: the whole panel in Player mode,
+	// the panel minus the left dock in Editor mode. The transform and CellAt
+	// work in this rect so the map never draws under the dock.
+	gfx::Rect GridArea(const gfx::Rect& panel) const;
+
+	// Left-dock brush palette (Editor mode). Brush(i) is the i-th button's
+	// brush; DockRect / BrushButtonRect resolve pixel rects from the panel
+	// (resolution independent — sized from the panel, so Update and Render
+	// agree); BrushSwatch/BrushLabelKey describe a brush for the button.
+	static constexpr int kBrushCount = 2;
+	static Brush BrushForButton(int index);
+	static const char* BrushLabelKey(Brush brush);
+	static Vec4 BrushSwatch(Brush brush);
+	gfx::Rect DockRect(const gfx::Rect& panel) const;
+	gfx::Rect BrushButtonRect(const gfx::Rect& panel, int index) const;
 
 	gfx::GraphicsDevice& m_device;
 	DungeonWorld& m_world;
@@ -121,7 +128,7 @@ private:
 
 	bool m_open = false;
 	Mode m_mode = Mode::Player;
-	Tool m_tool = Tool::None;
+	Brush m_brush = Brush::Wall; // selected dock brush (Editor mode)
 
 	// View state. m_pan is a fraction of the panel size so it is independent of
 	// the pass's pixel resolution; m_zoom multiplies the fit-to-panel cell size.

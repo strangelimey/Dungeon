@@ -132,9 +132,12 @@ private:
 	// Fullscreen dev overlay (toggle with `~`); does not pause the world.
 	DevConsole m_console;
 
-	// The map overlay's panel, an 80%-centered rect in the given surface's
-	// pixel space (window pixels for input, device pixels for drawing).
-	static gfx::Rect MapPanel(float surfaceW, float surfaceH) {
+	// The map overlay's panel in the given surface's pixel space (window pixels
+	// for input, device pixels for drawing): full-screen in Editor mode (it
+	// covers everything), else an 80%-centered rect for the player map.
+	gfx::Rect MapPanel(float surfaceW, float surfaceH) const {
+		if (m_mapView.CurrentMode() == MapView::Mode::Editor)
+			return {0.0f, 0.0f, surfaceW, surfaceH};
 		const float pw = surfaceW * 0.8f, ph = surfaceH * 0.8f;
 		return {(surfaceW - pw) * 0.5f, (surfaceH - ph) * 0.5f, pw, ph};
 	}

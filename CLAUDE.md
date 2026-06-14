@@ -180,22 +180,26 @@ until items exist), and a reserved Magic area below.
 
 ## Map overlay / editor (MapView)
 
-A stylized top-down map with two modes (MapView::Mode), drawn over the HUD in
-an 80%-centered panel (Game::MapPanel) behind a dim wash, after RenderHud and
-before the console. Like the dev console it is NOT an AppState — Game owns
-m_mapView and, while it is open, keeps calling m_world.Update, so the world
-simulates and the party still walks on the keyboard; the overlay only claims
-the MOUSE (pan/zoom/edit).
+A stylized top-down map with two modes (MapView::Mode). Like the dev console
+it is NOT an AppState — Game owns m_mapView and, while it is open, keeps
+calling m_world.Update, so the world simulates and the party still walks on
+the keyboard; the overlay only claims the MOUSE (pan/zoom/edit). The panel
+rect comes from Game::MapPanel (mode-aware).
 - Player mode (`M` toggles open/closed; Esc also closes — both handled before
-  the Esc→Paused branch in Game::Update): the in-game map. Fog of war — only
-  revealed cells and their contents draw — plus a centered title, no tools.
-  The `M` key is hardcoded (kKeyFields is MoveKeys-only; a bindable map key
-  needs a separate UI-keybinds table).
+  the Esc→Paused branch in Game::Update): the in-game map. An 80%-centered
+  panel drawn over the HUD behind a dim wash (so the scene shows around it).
+  Fog of war — only revealed cells and their contents draw — plus a centered
+  title, no tools. The `M` key is hardcoded (kKeyFields is MoveKeys-only; a
+  bindable map key needs a separate UI-keybinds table).
 - Editor mode (dev console: `editor` opens/flips into it, `editor off` returns
   to Player without disturbing the view; reachable in all builds): the
-  dungeon-builder. The WHOLE map and EVERY creature/item draw regardless of
-  fog, and the tool palette + cell painting turn on. SetMode flips an open
-  map's mode in place; Open(mode) resets the view to fit-whole-map.
+  dungeon-builder. FULL-SCREEN and drawn alone — Game skips the shadow/scene
+  passes and the HUD while it is up (editorMap flag in Render), so nothing
+  renders behind it. The WHOLE map and EVERY creature/item draw regardless of
+  fog. A brush palette docks down the LEFT side (MapView::DockRect); the map
+  grid lives in the remaining GridArea (panel minus dock) so it never draws
+  under the dock. SetMode flips an open map's mode in place; Open(mode) resets
+  the view to fit-whole-map.
 
 MapView (Game lib) is the one renderer + one pick math behind both modes.
 Cells render as filled blocks (walls = bright stone ink, floors recede),
@@ -206,15 +210,17 @@ flight or not), the start cell as an accent outline, and the party as a
 rotated triangle (facing*90° CW from north-up; screen Y is down so it matches
 the compass — uses SpriteBatch::DrawTriangle). Visibility goes through
 MapView::CellVisible (always true in Editor, else IsSeen). The transform is
-resolution-independent (pan = fraction of panel, zoom = unitless, fit-whole-
-map at zoom 1), so Update (window-pixel panel, matches mouse coords) and
-Render (device-pixel panel) agree; zoom is cursor-anchored. CellAt is the
-inverse pick. The stub tool palette (View/Paint floor/Paint wall) proves the
-edit seam: a paint click → DungeonWorld::EditCell → DungeonMap::SetCell
-(bumps Revision()) → MarkSeen → RebuildGeometry (WaitIdle + re-bake, same as
-the quality hot-swap) → the wall appears in-world immediately. Edits are
-in-memory only (no .map/.ent serialization yet). All overlay text goes
-through Loc (map.* keys).
+resolution-independent (pan = fraction of the grid area, zoom = unitless,
+fit-whole-map at zoom 1) and resolves against GridArea, so Update (window-
+pixel panel, matches mouse coords) and Render (device-pixel panel) agree;
+zoom is cursor-anchored. CellAt is the inverse pick. The left-dock brush
+palette (MapView::Brush — Floor/Wall now; doors/creatures/items are the next
+entries, extend the enum + kBrushCount) proves the edit seam: a brush is
+always armed in Editor, left paints, right-drag pans. A paint click →
+DungeonWorld::EditCell → DungeonMap::SetCell (bumps Revision()) → MarkSeen →
+RebuildGeometry (WaitIdle + re-bake, same as the quality hot-swap) → the wall
+appears in-world immediately. Edits are in-memory only (no .map/.ent
+serialization yet). All overlay text goes through Loc (map.* keys).
 
 Fog of war (Player mode) is on day one: DungeonWorld::m_seen is a per-cell
 bitset (dynamic/save-side state, NEVER baked into DungeonMap), revealed via

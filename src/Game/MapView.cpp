@@ -24,7 +24,7 @@ namespace {
 constexpr float kPi = 3.14159265f;
 
 // Map palette (stylized, not the UI theme — these are the dungeon's own ink).
-const Vec4 kMapBg{0.04f, 0.04f, 0.06f, 0.96f}; // panel fill (near-opaque)
+const Vec4 kMapBg{0.04f, 0.04f, 0.06f, 1.0f}; // panel fill (opaque: full-screen editor covers all)
 const Vec4 kWall{0.46f, 0.42f, 0.36f, 1.0f};   // solid structure (the bright ink)
 const Vec4 kFloor{0.13f, 0.13f, 0.16f, 1.0f};  // walkable (recedes)
 const Vec4 kTorch{1.0f, 0.62f, 0.28f, 1.0f};
@@ -41,38 +41,48 @@ MapView::MapView(gfx::GraphicsDevice& device, DungeonWorld& world)
 	: m_device(device), m_world(world), m_font(device, "", kFontH) {}
 
 MapView::Transform MapView::ComputeTransform(const gfx::Rect& panel) const {
+	const gfx::Rect g = GridArea(panel); // panel minus the dock in Editor mode
 	const DungeonMap& map = m_world.Map();
 	const float mw = static_cast<float>(map.Width());
 	const float mh = static_cast<float>(map.Height());
-	const float fit = std::min(panel.w / mw, panel.h / mh); // whole map fits at zoom 1
+	const float fit = std::min(g.w / mw, g.h / mh); // whole map fits at zoom 1
 	const float cell = fit * m_zoom;
 	const float gridW = mw * cell, gridH = mh * cell;
-	const float ox = panel.x + (panel.w - gridW) * 0.5f + m_pan.x * panel.w;
-	const float oy = panel.y + (panel.h - gridH) * 0.5f + m_pan.y * panel.h;
+	const float ox = g.x + (g.w - gridW) * 0.5f + m_pan.x * g.w;
+	const float oy = g.y + (g.h - gridH) * 0.5f + m_pan.y * g.h;
 	return {cell, ox, oy};
 }
 
-MapView::Tool MapView::ToolForButton(int index) {
-	switch (index) {
-	case 1:  return Tool::PaintFloor;
-	case 2:  return Tool::PaintWall;
-	default: return Tool::None;
-	}
+MapView::Brush MapView::BrushForButton(int index) {
+	return index == 1 ? Brush::Wall : Brush::Floor;
 }
 
-const char* MapView::ToolLabelKey(Tool tool) {
-	switch (tool) {
-	case Tool::PaintFloor: return "map.tool.floor";
-	case Tool::PaintWall:  return "map.tool.wall";
-	default:               return "map.tool.view";
-	}
+const char* MapView::BrushLabelKey(Brush brush) {
+	return brush == Brush::Wall ? "map.brush.wall" : "map.brush.floor";
 }
 
-gfx::Rect MapView::ButtonRect(const gfx::Rect& panel, int index) const {
-	const float h = std::clamp(panel.h * 0.05f, 16.0f, 40.0f);
-	const float w = std::clamp(panel.w * 0.13f, 64.0f, 180.0f);
-	const float pad = std::clamp(panel.w * 0.012f, 4.0f, 16.0f);
-	return {panel.x + pad + index * (w + pad), panel.y + pad, w, h};
+Vec4 MapView::BrushSwatch(Brush brush) {
+	return brush == Brush::Wall ? kWall : kFloor;
+}
+
+gfx::Rect MapView::GridArea(const gfx::Rect& panel) const {
+	if (m_mode != Mode::Editor) return panel;
+	const gfx::Rect dock = DockRect(panel);
+	return {panel.x + dock.w, panel.y, panel.w - dock.w, panel.h};
+}
+
+gfx::Rect MapView::DockRect(const gfx::Rect& panel) const {
+	const float w = std::clamp(panel.w * 0.16f, 120.0f, 260.0f);
+	return {panel.x, panel.y, w, panel.h};
+}
+
+gfx::Rect MapView::BrushButtonRect(const gfx::Rect& panel, int index) const {
+	const gfx::Rect dock = DockRect(panel);
+	const float pad = std::clamp(panel.h * 0.012f, 4.0f, 14.0f);
+	const float h = std::clamp(panel.h * 0.06f, 28.0f, 56.0f);
+	// Leave a header line above the first button.
+	const float top = dock.y + pad + h * 0.6f + pad;
+	return {dock.x + pad, top + index * (h + pad), dock.w - 2 * pad, h};
 }
 
 bool MapView::CellVisible(int x, int z) const {
@@ -103,58 +113,56 @@ bool MapView::Update(const Input& input, const gfx::Rect& panel) {
 	m_font.SetHeight(std::clamp(panel.h * 0.030f, 11.0f, 30.0f));
 
 	const float mx = input.MouseX(), my = input.MouseY();
-	const bool inside = panel.Contains(mx, my);
 	const DungeonMap& map = m_world.Map();
+	const bool editor = m_mode == Mode::Editor;
+	const gfx::Rect grid = GridArea(panel); // panel minus the dock in Editor
+	const bool overGrid = grid.Contains(mx, my);
 
 	// Wheel zooms about the cursor: keep the map point under the pointer fixed.
-	if (inside && input.WheelDelta() != 0.0f && map.Width() > 0) {
+	if (overGrid && input.WheelDelta() != 0.0f && map.Width() > 0) {
 		const Transform t0 = ComputeTransform(panel);
 		const float fx = (mx - t0.ox) / t0.cell; // map point (in cells) at cursor
 		const float fz = (my - t0.oy) / t0.cell;
 		m_zoom = std::clamp(m_zoom * std::pow(1.2f, input.WheelDelta()), 1.0f, 10.0f);
-		const float fit = std::min(panel.w / map.Width(), panel.h / map.Height());
+		const float fit = std::min(grid.w / map.Width(), grid.h / map.Height());
 		const float cell = fit * m_zoom;
 		const float gridW = map.Width() * cell, gridH = map.Height() * cell;
-		m_pan.x = (mx - fx * cell - panel.x - (panel.w - gridW) * 0.5f) / panel.w;
-		m_pan.y = (my - fz * cell - panel.y - (panel.h - gridH) * 0.5f) / panel.h;
+		m_pan.x = (mx - fx * cell - grid.x - (grid.w - gridW) * 0.5f) / grid.w;
+		m_pan.y = (my - fz * cell - grid.y - (grid.h - gridH) * 0.5f) / grid.h;
 	}
 
-	// Editing is Editor-mode only; Player mode is view-only (left-drag pans).
-	const bool editor = m_mode == Mode::Editor;
-
-	// Tool palette: a left-click on a button selects its tool and claims the
-	// click (so it never also pans or paints).
-	if (editor && inside && input.WasMousePressed(MouseButton::Left)) {
-		for (int i = 0; i < kToolCount; ++i) {
-			if (ButtonRect(panel, i).Contains(mx, my)) {
-				m_tool = ToolForButton(i);
+	// Left dock (Editor): a left-click on a brush button selects it and claims
+	// the click (so it never also pans or paints).
+	if (editor && input.WasMousePressed(MouseButton::Left)) {
+		for (int i = 0; i < kBrushCount; ++i) {
+			if (BrushButtonRect(panel, i).Contains(mx, my)) {
+				m_brush = BrushForButton(i);
 				return true;
 			}
 		}
 	}
 
-	// Pan with the button that isn't painting: while a paint tool is armed the
-	// left button paints, so pan with the right; otherwise pan with the left.
-	const bool painting = editor && m_tool != Tool::None;
-	const MouseButton panBtn = painting ? MouseButton::Right : MouseButton::Left;
-	if (inside && input.WasMousePressed(panBtn)) {
+	// In Editor a brush is always armed: left paints, so pan with the right
+	// button. Player mode is view-only, so pan with the left.
+	const MouseButton panBtn = editor ? MouseButton::Right : MouseButton::Left;
+	if (overGrid && input.WasMousePressed(panBtn)) {
 		m_panning = true;
 		m_lastMouse = {mx, my};
 	}
 	if (m_panning && input.IsMouseDown(panBtn)) {
-		m_pan.x += (mx - m_lastMouse.x) / panel.w;
-		m_pan.y += (my - m_lastMouse.y) / panel.h;
+		m_pan.x += (mx - m_lastMouse.x) / grid.w;
+		m_pan.y += (my - m_lastMouse.y) / grid.h;
 		m_lastMouse = {mx, my};
 	}
 	if (input.WasMouseReleased(panBtn)) m_panning = false;
 
-	// Paint while the left button is held (EditCell no-ops on unchanged cells,
-	// so holding over one cell is cheap; dragging paints a stroke).
-	if (painting && inside && input.IsMouseDown(MouseButton::Left)) {
+	// Paint while the left button is held over the grid (EditCell no-ops on
+	// unchanged cells, so holding over one cell is cheap; dragging paints a
+	// stroke).
+	if (editor && overGrid && input.IsMouseDown(MouseButton::Left)) {
 		int cx, cz;
 		if (CellAt(mx, my, panel, cx, cz)) {
-			const Cell target =
-				m_tool == Tool::PaintWall ? Cell::Wall : Cell::Floor;
+			const Cell target = m_brush == Brush::Wall ? Cell::Wall : Cell::Floor;
 			const Party& party = m_world.GetParty();
 			const bool wouldTrapParty = target == Cell::Wall &&
 										cx == party.GridX() && cz == party.GridZ();
@@ -162,7 +170,7 @@ bool MapView::Update(const Input& input, const gfx::Rect& panel) {
 		}
 	}
 
-	return inside;
+	return panel.Contains(mx, my);
 }
 
 void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
@@ -171,12 +179,13 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 
 	const DungeonMap& map = m_world.Map();
 	const Transform t = ComputeTransform(panel);
+	const gfx::Rect grid = GridArea(panel); // panel minus the dock in Editor
 
-	// Panel base + a one-cell-inset interior the grid is clipped to, so a
-	// panned/zoomed map never spills over the frame.
+	// Panel base, then clip the map to the grid area (inset a touch) so a
+	// panned/zoomed map never spills over the frame or under the dock.
 	batch.DrawRect(panel, kMapBg);
-	const gfx::Rect interior{panel.x + 2, panel.y + 2, panel.w - 4, panel.h - 4};
-	batch.SetScissor(&interior);
+	const gfx::Rect clip{grid.x + 2, grid.y + 2, grid.w - 4, grid.h - 4};
+	batch.SetScissor(&clip);
 
 	const float inset = std::clamp(t.cell * 0.08f, 0.5f, 2.0f); // grid gaps
 	auto cellRect = [&](int x, int z) -> gfx::Rect {
@@ -243,18 +252,28 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 
 	const float pad = std::clamp(panel.w * 0.012f, 4.0f, 16.0f);
 
-	// Top band: the tool palette in Editor mode, otherwise a centered title.
 	if (m_mode == Mode::Editor) {
-		for (int i = 0; i < kToolCount; ++i) {
-			const Tool tool = ToolForButton(i);
-			const gfx::Rect b = ButtonRect(panel, i);
-			batch.DrawRect(b, tool == m_tool ? theme.controlActive : theme.control);
+		// Left dock: a header, then a brush button per paintable thing (a color
+		// swatch + label, the active one highlighted). Doors/creatures/items
+		// are the next entries — extend kBrushCount and the Brush enum.
+		const gfx::Rect dock = DockRect(panel);
+		batch.DrawRect(dock, theme.panel);
+		ui::DrawBorder(batch, dock, theme.panelBorder);
+		const float dpad = std::clamp(panel.h * 0.012f, 4.0f, 14.0f);
+		m_font.Draw(batch, loc::Tr("map.brushes"), dock.x + dpad, dock.y + dpad,
+					theme.textDim);
+		for (int i = 0; i < kBrushCount; ++i) {
+			const Brush brush = BrushForButton(i);
+			const gfx::Rect b = BrushButtonRect(panel, i);
+			const bool active = brush == m_brush;
+			batch.DrawRect(b, active ? theme.controlActive : theme.control);
 			ui::DrawBorder(batch, b, theme.panelBorder);
-			const std::string label = loc::Tr(ToolLabelKey(tool));
-			m_font.Draw(batch, label,
-						b.x + (b.w - m_font.MeasureWidth(label)) * 0.5f,
+			const float sw = b.h - dpad * 2;
+			batch.DrawRect({b.x + dpad, b.y + dpad, sw, sw}, BrushSwatch(brush));
+			const std::string label = loc::Tr(BrushLabelKey(brush));
+			m_font.Draw(batch, label, b.x + dpad * 2 + sw,
 						b.y + (b.h - m_font.Height()) * 0.5f,
-						tool == m_tool ? theme.text : theme.textDim);
+						active ? theme.text : theme.textDim);
 		}
 	} else {
 		const std::string title = loc::Tr("map.title");
@@ -263,9 +282,10 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 					panel.y + pad, theme.text);
 	}
 
-	// Footer: pan/zoom hint (left) + party cell (right).
+	// Footer (within the grid area): pan/zoom hint (left) + party cell (right).
 	const float footY = panel.y + panel.h - m_font.Height() - pad;
-	m_font.Draw(batch, loc::Tr("map.hint"), panel.x + pad, footY, theme.textDim);
+	const char* hintKey = m_mode == Mode::Editor ? "map.hint.editor" : "map.hint";
+	m_font.Draw(batch, loc::Tr(hintKey), grid.x + pad, footY, theme.textDim);
 
 	const Party& party = m_world.GetParty();
 	const std::string pos =

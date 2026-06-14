@@ -131,7 +131,8 @@ sheet.nothing_carried=Nothing carried.
 ; --- map overlay / editor --------------------------------------------------------
 map.title=Map
 map.position={}, {}
-map.tool.view=View
-map.tool.floor=Paint floor
-map.tool.wall=Paint wall
 map.hint=Drag to pan, wheel to zoom
+map.hint.editor=Right-drag pan, wheel zoom, left to paint
+map.brushes=Paint
+map.brush.floor=Floor
+map.brush.wall=Wall

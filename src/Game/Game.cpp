@@ -508,10 +508,16 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 	m_spriteBatch.NewFrame(m_device.FrameIndex());
 	m_world.NewFrame(m_device.FrameIndex());
 
+	// The full-screen editor map covers everything, so skip the 3D scene (and
+	// the HUD below) while it is up — nothing else needs drawing behind it.
+	const bool editorMap = m_state == AppState::Playing && m_mapView.IsOpen() &&
+						   m_mapView.CurrentMode() == MapView::Mode::Editor;
+
 	// The 3D scene draws during play and under the pause/character-sheet
 	// overlays (frozen); Loading and Menu are 2D-only.
-	if (m_state == AppState::Playing || m_state == AppState::Paused ||
-		m_state == AppState::CharacterSheet) {
+	if ((m_state == AppState::Playing || m_state == AppState::Paused ||
+		 m_state == AppState::CharacterSheet) &&
+		!editorMap) {
 		m_world.RenderShadowMaps(list);
 		m_world.RenderScene(list);
 	}
@@ -522,18 +528,22 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 	case AppState::Loading:     m_ui.RenderLoadingScreen(m_loadQueue); break;
 	case AppState::Menu:        m_ui.RenderMenuOverlay(); break;
 	case AppState::LoadingGame: m_ui.RenderGameLoadingScreen(m_loadQueue); break;
-	case AppState::Playing:
-		m_ui.RenderHud();
-		if (m_mapView.IsOpen()) {
-			// Dim the scene behind the panel, then draw the map over the HUD.
-			m_spriteBatch.DrawRect({0, 0, static_cast<float>(m_device.Width()),
-									static_cast<float>(m_device.Height())},
-								   {0, 0, 0, 0.45f});
-			m_mapView.Render(m_spriteBatch, m_settings.theme,
-							 MapPanel(static_cast<float>(m_device.Width()),
-									  static_cast<float>(m_device.Height())));
+	case AppState::Playing: {
+		const float dw = static_cast<float>(m_device.Width());
+		const float dh = static_cast<float>(m_device.Height());
+		if (editorMap) {
+			// Full-screen editor — drawn alone, no HUD or scene behind it.
+			m_mapView.Render(m_spriteBatch, m_settings.theme, MapPanel(dw, dh));
+		} else {
+			m_ui.RenderHud();
+			if (m_mapView.IsOpen()) {
+				// Player map: dim the scene behind the 80% panel, over the HUD.
+				m_spriteBatch.DrawRect({0, 0, dw, dh}, {0, 0, 0, 0.45f});
+				m_mapView.Render(m_spriteBatch, m_settings.theme, MapPanel(dw, dh));
+			}
 		}
 		break;
+	}
 	case AppState::Paused:      m_ui.RenderPauseOverlay(); break;
 	case AppState::CharacterSheet: m_ui.RenderCharacterSheetOverlay(); break;
 	}
