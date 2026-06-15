@@ -71,7 +71,10 @@ DungeonWorld::DungeonWorld(gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	m_seen.assign(static_cast<size_t>(m_map.Width()) * m_map.Height(), 0);
 	MarkSeen(m_party.GridX(), m_party.GridZ());
 
-	m_lights.ambient = {0.035f, 0.032f, 0.045f};
+	// Lifted from {0.035,0.032,0.045} after the albedo sRGB switch: textures now
+	// decode darker, so the unlit fill needs more to keep corridors from reading
+	// pitch-black. Cool tint preserved (no sun underground).
+	m_lights.ambient = {0.052f, 0.048f, 0.064f};
 	m_lights.directional.color = {0, 0, 0}; // no sun underground
 	// Rebuilt every frame into retained capacity — no steady-state allocation.
 	m_lights.points.reserve(gfx::kMaxPointLights);

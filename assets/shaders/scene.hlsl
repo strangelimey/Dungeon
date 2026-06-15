@@ -273,6 +273,11 @@ float3 ApplyDust(float3 surfaceColor, float3 worldPos) {
 		inscatter += gHazeColor.rgb * dustLight * segTau * exp(-tau);
 		tau += segTau;
 	}
+	// Soft-knee the in-scatter so the dustiest chambers near a brazier no longer
+	// clip to a solid orange wash (the sum over fires is otherwise unbounded).
+	// Below ~1 this is near-linear, so ordinary haze is untouched; only the
+	// blown-out highlights roll off.
+	inscatter = inscatter / (1.0 + 0.5 * inscatter);
 	return surfaceColor * exp(-tau) + inscatter;
 }
 

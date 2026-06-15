@@ -188,8 +188,8 @@ installed.
 ## Game state machine
 
 Loading (staged tasks, one per frame, progress screen) → Menu (baked title
-art title_bg, MenuList: Continue/Start New Game/Load/Settings — only
-Start New Game and Settings work) → Playing ⇄ Paused (Esc in-game freezes
+art title_bg, MenuList: Continue/Load/Start New Game/Settings — Continue/Load
+appear only when a save exists; all entries work) → Playing ⇄ Paused (Esc in-game freezes
 the world and shows Save/Load/Settings/Exit/Back over the scene; Esc backs
 out / resumes). Esc on the landing page quits; in-game quit is the pause
 menu's Exit (Game::QuitRequested polled by the main loop). Monsters
@@ -293,8 +293,6 @@ editor icons) — the axis-aligned DrawRect/DrawSprite couldn't express them.
 
 ## Known gaps / natural next steps
 
-- Continue/Load (landing) and Save/Load (pause menu) entries are inert
-  (save system not started).
 - No combat: monsters are static blockers that announce + face the party.
   Character stats (Character.h) are static placeholder data — nothing
   drains health/stamina/mana yet. Portraits are simple baked busts
@@ -309,9 +307,6 @@ editor icons) — the axis-aligned DrawRect/DrawSprite couldn't express them.
   driven from the top of Game::Update).
 - The clean (non-worn) block set is baked but unused — intended for newer
   dungeon areas, needs per-region block-set selection in DungeonMeshBuilder.
-- Texture sets were re-imported at 2k only (with the new ORM maps); the 1k/4k
-  PNGs are still the old AO-in-albedo format, so Low/Medium/Ultra fall back to
-  2k. Re-run FetchTextures.ps1 (all resolutions) to regenerate them.
-- PBR lighting wasn't re-tuned after the sRGB switch — the dungeon reads a
-  touch moodier and the dustiest chambers can blow out orange; ambient / light
-  intensities (DungeonWorld::UpdateLights, gAmbient) are the knobs.
+- Texture sets are now installed at 1k/2k/4k with ORM maps, so Low/Medium and
+  Ultra use their native resolution (no 2k fallback). The .dds are gitignored,
+  so a fresh clone still runs FetchTextures.ps1 to regenerate them.

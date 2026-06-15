@@ -74,8 +74,8 @@ void GameUI::Click(float volume) { m_audio.Play(m_sounds.click, volume); }
 
 // ============================================================================
 // Landing page — title plus a MenuList; entries highlight on mouse hover or
-// keyboard selection. Start New Game and Settings are wired up; Continue /
-// Load / Save wait on the save system.
+// keyboard selection. All entries are wired: Continue loads the newest save,
+// Load opens the saves browser, Start New Game and Settings work as labeled.
 // ============================================================================
 void GameUI::BuildMenu() {
 	const float w = static_cast<float>(m_window.Width());
