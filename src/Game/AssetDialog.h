@@ -39,6 +39,7 @@ public:
 	// The gathered form, handed to onCreate (P4c bakes + writes the catalog).
 	struct CreateRequest {
 		std::string category;   // display label, e.g. "Decoration"
+		std::string catalogKey;  // which project catalog ("decorations", "walls"...)
 		bool textureSet = false; // true = a folder of texture maps, else a model
 		std::string name;        // catalog id / asset name the user typed
 		std::string sourcePath;  // picked model file or texture folder
@@ -48,10 +49,15 @@ public:
 	AssetDialog(gfx::GraphicsDevice& device, Window& window);
 
 	bool IsOpen() const { return m_open; }
-	// Opens for a category (display label); textureSet picks the folder vs file
-	// browse mode. `theme` styles the form to match the rest of the UI.
-	void Open(const std::string& category, bool textureSet, const ui::Theme& theme);
-	void Close() { m_open = false; }
+	// Opens for a category (display label + project catalog key); textureSet
+	// picks the folder vs file browse mode. `theme` styles the form.
+	void Open(const std::string& category, const std::string& catalogKey,
+			  bool textureSet, const ui::Theme& theme);
+	void Close() { m_open = false; m_busy = false; }
+
+	// The owner sets this while the bake subprocess runs: the form is frozen and
+	// a "baking…" notice covers it.
+	void SetBusy(bool busy) { m_busy = busy; }
 
 	// Modal input (the owner routes nothing else while open) + preview spin.
 	void Update(const Input& input, float width, float height, float dt);
@@ -78,7 +84,9 @@ private:
 	std::unique_ptr<ui::UIContext> m_ui;
 
 	bool m_open = false;
+	bool m_busy = false; // a bake is running; freeze the form
 	std::string m_category;
+	std::string m_catalogKey;
 	bool m_textureSet = false;
 	std::string m_name;
 	std::string m_sourcePath;

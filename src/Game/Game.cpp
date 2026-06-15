@@ -125,16 +125,38 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	// (Walls/Floors/Ceilings import a texture folder; the rest import a model).
 	m_mapView.onNewAsset = [this](MapView::PaletteCat cat) {
 		using C = MapView::PaletteCat;
+		const char* key = nullptr;
+		switch (cat) {
+		case C::Walls:       key = "walls"; break;
+		case C::Floors:      key = "floors"; break;
+		case C::Ceilings:    key = "ceilings"; break;
+		case C::Decorations: key = "decorations"; break;
+		case C::Fixtures:    key = "fixtures"; break;
+		case C::Monsters:    key = "monsters"; break;
+		case C::Doors:       key = "doors"; break;
+		case C::Stairs:      key = "stairs"; break;
+		case C::Items:       key = "items"; break;
+		default:             return; // Tools/Structure aren't creatable
+		}
 		const bool textureSet = cat == C::Walls || cat == C::Floors || cat == C::Ceilings;
-		m_assetDialog.Open(loc::Tr(MapView::CategoryNameKey(cat)), textureSet,
+		m_assetDialog.Open(loc::Tr(MapView::CategoryNameKey(cat)), key, textureSet,
 						   m_settings.theme);
 	};
-	// Create is stubbed until P4c wires AssetBaker; log the gathered request.
+	// Create runs AssetBaker on the picked source (P4c); the dialog stays open in
+	// a "baking…" state until Update sees the subprocess finish.
 	m_assetDialog.onCreate = [this](const AssetDialog::CreateRequest& req) {
-		log::Info("asset create (stub): category='{}' name='{}' source='{}' "
-				  "textureSet={} metallic={:.2f} roughness={:.2f}",
-				  req.category, req.name, req.sourcePath, req.textureSet,
-				  req.material.metallic, req.material.roughness);
+		if (req.name.empty() || req.sourcePath.empty()) {
+			log::Warn("asset create: need a name and a source");
+			return;
+		}
+		m_bakeReq = req;
+		m_bakeStep = 0;
+		if (StartBakeStep()) {
+			m_baking = true;
+			m_assetDialog.SetBusy(true);
+		} else {
+			log::Warn("asset create: could not launch AssetBaker");
+		}
 	};
 
 	// Developer console commands (dev-facing, English). The generic ones
@@ -437,6 +459,52 @@ void Game::BeginLevelTransition(const std::string& stem, int x, int z,
 	m_stateFrameMark = m_framesRendered;
 }
 
+// Launches the AssetBaker command for the current bake step (P4c). Models are a
+// single import-model; texture sets import the maps (step 0) then rebake the
+// worn block meshes that sample them (step 1).
+bool Game::StartBakeStep() {
+	const std::string baker = paths::ExecutableDir() + "\\AssetBaker.exe";
+	const std::string assets = paths::ExecutableDir() + "\\assets";
+	const auto q = [](const std::string& s) { return "\"" + s + "\""; };
+
+	std::string cmd;
+	if (!m_bakeReq.textureSet)
+		cmd = q(baker) + " import-model " + q(m_bakeReq.sourcePath) + " " + q(assets) +
+			  " " + m_bakeReq.name;
+	else if (m_bakeStep == 0)
+		cmd = q(baker) + " import " + q(m_bakeReq.sourcePath) + " " + q(assets) + " " +
+			  m_bakeReq.name;
+	else
+		cmd = q(baker) + " models " + q(assets);
+	log::Info("AssetBaker: {}", cmd);
+	return m_bake.Start(cmd);
+}
+
+// The bake succeeded: append the new entry to the right project catalog and save
+// (so the type is usable — model kinds load lazily on first placement). Writes go
+// to the asset copy next to the exe, not the git source tree.
+void Game::FinishBake() {
+	if (Catalog* cat = m_project.CatalogForKey(m_bakeReq.catalogKey)) {
+		CatalogEntry e;
+		e.id = m_bakeReq.name;
+		e.Set("display", m_bakeReq.name);
+		if (m_bakeReq.textureSet) {
+			e.Set("texture", m_bakeReq.name);
+			e.Set("height_scale", std::format("{:.3f}", m_bakeReq.material.heightScale));
+		} else {
+			e.Set("model", m_bakeReq.name);
+			e.Set("texture", m_bakeReq.name);
+			e.Set("authored", "1");
+			e.Set("solid", "1");
+		}
+		cat->Add(std::move(e));
+		m_project.Save();
+		log::Info("Created asset '{}' in {}", m_bakeReq.name, m_bakeReq.catalogKey);
+	}
+	m_assetDialog.SetBusy(false);
+	m_assetDialog.Close();
+}
+
 // Runs one queued task per rendered frame (never before the current loading
 // screen has been presented once); returns true when the queue is done.
 bool Game::RunLoadTasks() {
@@ -617,6 +685,26 @@ void Game::Update(float dt) {
 
 	m_ui.UpdateFonts(dt);
 	if (m_previewMesh) m_previewOrbit += dt * 0.6f; // spin the editor 3D preview
+
+	// Poll the asset bake (P4c): non-blocking, so the "baking…" dialog stays
+	// responsive. A texture import runs a second step (worn meshes) before it's
+	// done; on success FinishBake writes the catalog entry.
+	if (m_baking && !m_bake.Running()) {
+		if (m_bake.ExitCode() != 0) {
+			log::Warn("AssetBaker failed (exit {})", m_bake.ExitCode());
+			m_baking = false;
+			m_assetDialog.SetBusy(false);
+		} else if (m_bakeReq.textureSet && m_bakeStep == 0) {
+			m_bakeStep = 1; // textures imported — now rebake worn block meshes
+			if (!StartBakeStep()) {
+				m_baking = false;
+				m_assetDialog.SetBusy(false);
+			}
+		} else {
+			FinishBake();
+			m_baking = false;
+		}
+	}
 
 	const Input& input = m_window.GetInput();
 

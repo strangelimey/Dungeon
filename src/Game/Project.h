@@ -42,6 +42,10 @@ struct Project {
 	Catalog decorations, fixtures, monsters;
 	Catalog doors, stairs, items;
 
+	// The catalog for a kind key ("walls", "floors", "ceilings", "decorations",
+	// "fixtures", "monsters", "doors", "stairs", "items"), or null if unknown.
+	Catalog* CatalogForKey(const std::string& key);
+
 	// Loads the project rooted at `folder` (reads project.ini + catalog/*.cat).
 	// A missing manifest or catalog is tolerated (empty), so a brand-new project
 	// folder loads cleanly; the caller validates what it needs.

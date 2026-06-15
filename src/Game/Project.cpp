@@ -97,6 +97,19 @@ bool Project::Save() const {
 	return ok;
 }
 
+Catalog* Project::CatalogForKey(const std::string& key) {
+	if (key == "walls") return &walls;
+	if (key == "floors") return &floors;
+	if (key == "ceilings") return &ceilings;
+	if (key == "decorations") return &decorations;
+	if (key == "fixtures") return &fixtures;
+	if (key == "monsters") return &monsters;
+	if (key == "doors") return &doors;
+	if (key == "stairs") return &stairs;
+	if (key == "items") return &items;
+	return nullptr;
+}
+
 std::string Project::LevelMapPath(const std::string& stem) const {
 	return std::format("{}\\levels\\{}.map", folder, stem);
 }

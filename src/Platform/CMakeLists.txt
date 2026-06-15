@@ -1,5 +1,6 @@
 add_library(Platform STATIC
 	FileDialog.cpp
+	Process.cpp
 	Window.cpp
 	Input.cpp
 	PerfMonitor.cpp

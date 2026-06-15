@@ -51,6 +51,7 @@
 #include "Graphics/ModelPreview.h"
 #include "Graphics/Renderer.h"
 #include "Graphics/SpriteBatch.h"
+#include "Platform/Process.h"
 #include "Platform/Window.h"
 
 #include <memory>
@@ -84,6 +85,11 @@ private:
 	// --- loading (one task per frame while a loading screen shows) ---------
 	void BuildBootLoadTasks(); // menu essentials, run before the landing page
 	void BuildGameLoadTasks(); // the dungeon itself, run on first game start
+
+	// Asset bake (P4c): launch the AssetBaker command for the current step; and,
+	// when the bake finishes, write the new catalog entry + save the project.
+	bool StartBakeStep();
+	void FinishBake();
 
 	// Starts a mid-game level transition (P6): swaps the world to `stem`, stages
 	// its load behind the loading screen, and arrives at (x,z,facing) when done
@@ -186,6 +192,13 @@ private:
 
 	// Asset-creation dialog (P4b), opened from the palette's "+ New".
 	AssetDialog m_assetDialog;
+	// Asset bake (P4c): the AssetBaker subprocess for the dialog's Create. A
+	// texture-set import is two steps (import textures, then rebake worn meshes);
+	// a model import is one. Polled in Update so the frame never blocks.
+	platform::Process m_bake;
+	AssetDialog::CreateRequest m_bakeReq;
+	bool m_baking = false;
+	int m_bakeStep = 0;
 
 	// The map overlay's panel in the given surface's pixel space (window pixels
 	// for input, device pixels for drawing): full-screen in Editor mode (it

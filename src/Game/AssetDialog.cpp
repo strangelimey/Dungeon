@@ -18,10 +18,12 @@ AssetDialog::AssetDialog(gfx::GraphicsDevice& device, Window& window)
 	m_ui = std::make_unique<ui::UIContext>(device, "", 18.0f);
 }
 
-void AssetDialog::Open(const std::string& category, bool textureSet,
-					   const ui::Theme& theme) {
+void AssetDialog::Open(const std::string& category, const std::string& catalogKey,
+					   bool textureSet, const ui::Theme& theme) {
 	m_open = true;
+	m_busy = false;
 	m_category = category;
+	m_catalogKey = catalogKey;
 	m_textureSet = textureSet;
 	m_name.clear();
 	m_sourcePath.clear();
@@ -73,6 +75,7 @@ void AssetDialog::Rebuild(const ui::Theme& theme) {
 						  loc::Tr("newasset.create"), [this] {
 							  CreateRequest req;
 							  req.category = m_category;
+							  req.catalogKey = m_catalogKey;
 							  req.textureSet = m_textureSet;
 							  req.name = m_nameField ? m_nameField->text : std::string();
 							  req.sourcePath = m_sourcePath;
@@ -115,6 +118,7 @@ void AssetDialog::Browse() {
 void AssetDialog::Update(const Input& input, float width, float height, float dt) {
 	if (!m_open) return;
 	m_orbit += dt * 0.6f;
+	if (m_busy) return; // a bake is running — ignore form input until it finishes
 	m_ui->Update(input, width, height);
 }
 
@@ -133,6 +137,15 @@ void AssetDialog::Render(gfx::SpriteBatch& batch, float width, float height) {
 	ui::DrawBorder(batch, pv, th.panelBorder);
 
 	m_ui->Render(batch, width, height);
+
+	// While baking, freeze the form behind a notice (the owner runs AssetBaker).
+	if (m_busy) {
+		batch.DrawRect(panel, {0.0f, 0.0f, 0.0f, 0.55f});
+		const std::string msg = loc::Tr("newasset.baking");
+		ui::Font& font = m_ui->GetFont();
+		font.Draw(batch, msg, panel.x + (panel.w - font.MeasureWidth(msg)) * 0.5f,
+				  panel.y + panel.h * 0.5f - font.Height() * 0.5f, th.accent);
+	}
 }
 
 } // namespace dungeon::game

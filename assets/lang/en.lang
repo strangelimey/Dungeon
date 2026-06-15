@@ -202,3 +202,4 @@ newasset.height=Height
 newasset.color=Color
 newasset.create=Create
 newasset.cancel=Cancel
+newasset.baking=Baking... (running AssetBaker)
