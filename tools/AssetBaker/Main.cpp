@@ -85,6 +85,15 @@ int main(int argc, char** argv) {
 		return baker::BakeModels(assets + "\\models", assets + "\\textures") ? 0 : 1;
 	}
 
+	if (argc >= 2 && std::string(argv[1]) == "wornblock") {
+		if (argc < 5) {
+			log::Error("usage: AssetBaker wornblock <wall|floor|ceiling> <name> "
+					   "<assets-dir>");
+			return 1;
+		}
+		return baker::BakeWornBlocks(argv[2], argv[3], argv[4]) ? 0 : 1;
+	}
+
 	if (argc >= 3 && std::string(argv[1]) == "portraits") {
 		const std::string texturesDir = std::string(argv[2]) + "\\textures";
 		if (!baker::BakePortraits(texturesDir)) return 1;

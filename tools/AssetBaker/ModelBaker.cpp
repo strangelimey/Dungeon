@@ -1319,6 +1319,52 @@ assets::ModelData BuildStairs() {
 	return FinishProp(std::move(mesh), {0.55f, 0.53f, 0.50f, 1.0f});
 }
 
+// Bakes the three worn-block tiers (low/med/high) for one surface texture set,
+// displaced by that texture's packed height map (procedural wear when absent).
+// kind: 0 = wall, 1 = floor, 2 = ceiling. Shared by the full bake and the
+// editor's per-set import (so a newly imported set gets its worn meshes).
+bool BakeWornTiers(int kind, const std::string& texture, float relief, u32 seed,
+				   const std::string& modelsDir, const std::string& texturesDir) {
+	struct Tier {
+		const char* suffix;
+		int wallX, wallY, floor, ceiling;
+	};
+	static const Tier tiers[] = {
+		{"low", 14, 16, 14, 12}, {"med", 34, 36, 34, 29}, {"high", 53, 56, 53, 43}};
+
+	const TextureHeight height(std::format("{}\\{}_1k_n.png", texturesDir, texture));
+	if (!height.IsValid())
+		log::Warn("{}: no packed height map — baking procedural wear "
+				  "(run tools/FetchTextures.ps1, then rebake)", texture);
+	bool ok = true;
+	for (const Tier& tier : tiers) {
+		const std::string out =
+			std::format("{}\\worn_{}_{}.gltf", modelsDir, texture, tier.suffix);
+		if (kind == 0)
+			ok &= WriteGltf(BuildWornWallBlock(tier.wallX, tier.wallY,
+											   height.IsValid()
+												   ? TextureWallWear(height, relief, tier.wallX,
+																	 tier.wallY, seed)
+												   : WearField(WallWearDepth)),
+							out);
+		else if (kind == 1)
+			ok &= WriteGltf(BuildWornFloorBlock(tier.floor,
+												height.IsValid()
+													? TextureFloorWear(height, relief,
+																	   tier.floor, seed)
+													: WearField(FloorWearHeight)),
+							out);
+		else
+			ok &= WriteGltf(BuildWornCeilingBlock(tier.ceiling,
+												  height.IsValid()
+													  ? TextureCeilingWear(height, relief,
+																		   tier.ceiling, seed)
+													  : WearField(CeilingWearDepth)),
+							out);
+	}
+	return ok;
+}
+
 } // namespace
 
 bool BakeModels(const std::string& dir, const std::string& texturesDir) {
@@ -1327,80 +1373,24 @@ bool BakeModels(const std::string& dir, const std::string& texturesDir) {
 	ok &= WriteGltf(BuildFloorBlock(), dir + "\\floor_block.gltf");
 	ok &= WriteGltf(BuildCeilingBlock(), dir + "\\ceiling_block.gltf");
 
-	// Worn blocks: one set per surface texture, each at three complexity
-	// tiers (selectable in-game). The texture names and their order must
-	// match the surface sets in Game::LoadAllSurfaceTextures — the game
-	// pairs worn_<texture>_<tier>.gltf with <texture>_<res> by position.
-	struct Tier {
-		const char* suffix;
-		int wallX, wallY, floor, ceiling;
-	};
-	// In-plane counts cover kCellSize (2.4m), wallY covers kWallH (2.5m);
-	// all chosen for roughly equal vertex spacing per tier.
-	const Tier tiers[] = {
-		{"low", 14, 16, 14, 12},
-		{"med", 34, 36, 34, 29},
-		{"high", 53, 56, 53, 43},
-	};
-	enum class Kind { Wall, Floor, Ceiling };
+	// Worn blocks: one set per surface texture (0=wall/1=floor/2=ceiling), each
+	// at three complexity tiers — see BakeWornTiers. The texture names and their
+	// order must match the surface sets a level's palette references.
 	struct WornSpec {
-		Kind kind;
+		int kind;
 		const char* texture;
 		float relief; // world-space displacement amplitude (meters)
 		u32 seed;
 	};
 	const WornSpec specs[] = {
-		{Kind::Wall, "wall_brick", 0.060f, 911u},
-		{Kind::Wall, "wall_stone", 0.055f, 921u},
-		{Kind::Wall, "wall_moss", 0.040f, 931u},
-		{Kind::Floor, "floor_slabs", 0.050f, 941u},
-		{Kind::Floor, "floor_cobble", 0.045f, 951u},
-		{Kind::Ceiling, "ceiling_rough", 0.100f, 961u},
-		{Kind::Ceiling, "ceiling_cracked", 0.080f, 971u},
+		{0, "wall_brick", 0.060f, 911u},   {0, "wall_stone", 0.055f, 921u},
+		{0, "wall_moss", 0.040f, 931u},    {1, "floor_slabs", 0.050f, 941u},
+		{1, "floor_cobble", 0.045f, 951u}, {2, "ceiling_rough", 0.100f, 961u},
+		{2, "ceiling_cracked", 0.080f, 971u},
 	};
-	for (const WornSpec& spec : specs) {
-		const TextureHeight height(
-			std::format("{}\\{}_1k_n.png", texturesDir, spec.texture));
-		if (!height.IsValid())
-			log::Warn("{}: no packed height map — baking procedural wear "
-					  "(run tools/FetchTextures.ps1, then rebake models)",
-					  spec.texture);
-		for (const Tier& tier : tiers) {
-			const std::string out =
-				std::format("{}\\worn_{}_{}.gltf", dir, spec.texture, tier.suffix);
-			switch (spec.kind) {
-			case Kind::Wall:
-				ok &= WriteGltf(
-					BuildWornWallBlock(
-						tier.wallX, tier.wallY,
-						height.IsValid()
-							? TextureWallWear(height, spec.relief, tier.wallX,
-											  tier.wallY, spec.seed)
-							: WearField(WallWearDepth)),
-					out);
-				break;
-			case Kind::Floor:
-				ok &= WriteGltf(
-					BuildWornFloorBlock(
-						tier.floor,
-						height.IsValid()
-							? TextureFloorWear(height, spec.relief, tier.floor, spec.seed)
-							: WearField(FloorWearHeight)),
-					out);
-				break;
-			case Kind::Ceiling:
-				ok &= WriteGltf(
-					BuildWornCeilingBlock(
-						tier.ceiling,
-						height.IsValid()
-							? TextureCeilingWear(height, spec.relief, tier.ceiling,
-												 spec.seed)
-							: WearField(CeilingWearDepth)),
-					out);
-				break;
-			}
-		}
-	}
+	for (const WornSpec& spec : specs)
+		ok &= BakeWornTiers(spec.kind, spec.texture, spec.relief, spec.seed, dir,
+							texturesDir);
 
 	ok &= WriteGltf(BuildSconce(), dir + "\\sconce.gltf");
 	ok &= WriteGltf(BuildBrazier(), dir + "\\brazier.gltf");
@@ -1424,6 +1414,15 @@ bool BakeModels(const std::string& dir, const std::string& texturesDir) {
 					dir + "\\mummy.gltf");
 	ok &= WriteGltf(BuildBlob(), dir + "\\blob.gltf");
 	return ok;
+}
+
+bool BakeWornBlocks(const std::string& kind, const std::string& name,
+					const std::string& assetsDir) {
+	const int k = kind == "floor" ? 1 : (kind == "ceiling" ? 2 : 0);
+	const float relief = k == 2 ? 0.08f : (k == 1 ? 0.045f : 0.055f);
+	const u32 seed = static_cast<u32>(std::hash<std::string>{}(name)) | 1u;
+	return BakeWornTiers(k, name, relief, seed, assetsDir + "\\models",
+						 assetsDir + "\\textures");
 }
 
 } // namespace dungeon::baker

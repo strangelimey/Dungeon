@@ -499,8 +499,13 @@ bool Game::StartBakeStep() {
 	else if (m_bakeStep == 0)
 		cmd = q(baker) + " import " + q(m_bakeReq.sourcePath) + " " + q(assets) + " " +
 			  m_bakeReq.name;
-	else
-		cmd = q(baker) + " models " + q(assets);
+	else {
+		// Bake worn block meshes for just the new set (its kind = the catalog).
+		const std::string kind = m_bakeReq.catalogKey == "floors"    ? "floor"
+								 : m_bakeReq.catalogKey == "ceilings" ? "ceiling"
+																	  : "wall";
+		cmd = q(baker) + " wornblock " + kind + " " + m_bakeReq.name + " " + q(assets);
+	}
 	log::Info("AssetBaker: {}", cmd);
 	return m_bake.Start(cmd);
 }

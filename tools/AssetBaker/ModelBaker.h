@@ -10,4 +10,10 @@ namespace dungeon::baker {
 // with a warning when a set is not installed.
 bool BakeModels(const std::string& modelsDir, const std::string& texturesDir);
 
+// Bakes the worn block meshes (3 tiers) for a single surface texture set —
+// `kind` is "wall", "floor", or "ceiling". Used after importing a new texture
+// set so a level can reference it. `assetsDir` holds models/ and textures/.
+bool BakeWornBlocks(const std::string& kind, const std::string& name,
+					const std::string& assetsDir);
+
 } // namespace dungeon::baker
