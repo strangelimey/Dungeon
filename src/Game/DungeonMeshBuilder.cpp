@@ -1,5 +1,8 @@
 #include "Game/DungeonMeshBuilder.h"
 
+#include <algorithm>
+#include <utility>
+
 using namespace DirectX;
 
 namespace dungeon::game {
@@ -34,6 +37,33 @@ void AppendTransformed(assets::MeshData& dst, const assets::MeshData& src,
 
 } // namespace
 
+namespace {
+
+// Collects the non-empty (chunk, variant) buckets into cullable GeometryChunks,
+// computing each one's world AABB from its vertices.
+void Collect(std::vector<assets::MeshData>& buckets, u32 variants,
+			 std::vector<GeometryChunk>& out) {
+	for (size_t b = 0; b < buckets.size(); ++b) {
+		assets::MeshData& mesh = buckets[b];
+		if (mesh.vertices.empty()) continue;
+		GeometryChunk chunk;
+		chunk.variant = static_cast<int>(b % variants);
+		Vec3 lo{1e9f, 1e9f, 1e9f}, hi{-1e9f, -1e9f, -1e9f};
+		for (const assets::Vertex& v : mesh.vertices) {
+			lo = {std::min(lo.x, v.position.x), std::min(lo.y, v.position.y),
+				  std::min(lo.z, v.position.z)};
+			hi = {std::max(hi.x, v.position.x), std::max(hi.y, v.position.y),
+				  std::max(hi.z, v.position.z)};
+		}
+		chunk.boundsMin = lo;
+		chunk.boundsMax = hi;
+		chunk.mesh = std::move(mesh);
+		out.push_back(std::move(chunk));
+	}
+}
+
+} // namespace
+
 DungeonGeometry BuildDungeonGeometry(const DungeonMap& map,
 									 std::span<const assets::MeshData> wallBlocks,
 									 std::span<const assets::MeshData> floorBlocks,
@@ -42,21 +72,31 @@ DungeonGeometry BuildDungeonGeometry(const DungeonMap& map,
 	const u32 floorVariants = static_cast<u32>(floorBlocks.size());
 	const u32 ceilingVariants = static_cast<u32>(ceilingBlocks.size());
 
-	DungeonGeometry geo;
-	geo.walls.resize(wallVariants);
-	geo.floors.resize(floorVariants);
-	geo.ceilings.resize(ceilingVariants);
+	const int chunksX = (map.Width() + kChunkCells - 1) / kChunkCells;
+	const int chunksZ = (map.Height() + kChunkCells - 1) / kChunkCells;
+	const int chunkCount = chunksX * chunksZ;
+	const auto chunkOf = [&](int x, int z) {
+		return (z / kChunkCells) * chunksX + (x / kChunkCells);
+	};
+
+	// Temp buckets indexed [chunk * variants + variant]; collected at the end.
+	std::vector<assets::MeshData> wallB(chunkCount * wallVariants);
+	std::vector<assets::MeshData> floorB(chunkCount * floorVariants);
+	std::vector<assets::MeshData> ceilB(chunkCount * ceilingVariants);
 
 	for (int z = 0; z < map.Height(); ++z) {
 		for (int x = 0; x < map.Width(); ++x) {
 			if (!map.IsWalkable(x, z)) continue;
 			const Vec3 center = map.CellCenter(x, z);
+			const int chunk = chunkOf(x, z);
 
 			const u32 floorVariant = VariantFor(x, z, 1u, floorVariants);
-			AppendTransformed(geo.floors[floorVariant], floorBlocks[floorVariant],
+			AppendTransformed(floorB[chunk * floorVariants + floorVariant],
+							  floorBlocks[floorVariant],
 							  XMMatrixTranslation(center.x, 0, center.z));
 			const u32 ceilingVariant = VariantFor(x, z, 2u, ceilingVariants);
-			AppendTransformed(geo.ceilings[ceilingVariant], ceilingBlocks[ceilingVariant],
+			AppendTransformed(ceilB[chunk * ceilingVariants + ceilingVariant],
+							  ceilingBlocks[ceilingVariant],
 							  XMMatrixTranslation(center.x, kWallHeight, center.z));
 
 			// Wall blocks are authored facing +Z; rotate so the face points
@@ -78,10 +118,16 @@ DungeonGeometry BuildDungeonGeometry(const DungeonMap& map,
 				if (map.IsWalkable(x + e.dx, z + e.dz)) continue;
 				const XMMATRIX m = XMMatrixRotationY(e.yaw) *
 								   XMMatrixTranslation(e.pos.x, e.pos.y, e.pos.z);
-				AppendTransformed(geo.walls[wallVariant], wallBlocks[wallVariant], m);
+				AppendTransformed(wallB[chunk * wallVariants + wallVariant],
+								  wallBlocks[wallVariant], m);
 			}
 		}
 	}
+
+	DungeonGeometry geo;
+	Collect(wallB, wallVariants, geo.walls);
+	Collect(floorB, floorVariants, geo.floors);
+	Collect(ceilB, ceilingVariants, geo.ceilings);
 	return geo;
 }
 

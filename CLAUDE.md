@@ -60,7 +60,14 @@ Key conventions (memorize, they bite):
 
 ## Renderer features (assets/shaders/scene.hlsl)
 
-Forward pass: Blinn-Phong with per-material specular (MaterialParams),
+Forward pass: metallic-roughness PBR (Cook-Torrance GGX in scene.hlsl's
+BRDF()), driven per-draw by MaterialParams (metallic/roughness factors +
+optional ORM map at t7: R=occlusion, G=roughness, B=metallic, glTF order;
+factors scale the map). Albedo textures are sampled sRGB (Texture's srgb
+flag → *_SRGB DXGI format); normal/height/ORM stay linear. Two scene PSOs:
+m_pso (CULL_NONE, default for hand-built procedural geometry) and m_psoCull
+(CULL_BACK, for authored/imported meshes — MaterialParams::doubleSided=false;
+DrawMesh swaps PSO per draw, never during the shadow pass). Plus
 normal + steep-parallax mapping (derivative cotangent frame, height in
 normal-map alpha), per-cell volumetric dust (turbidity grid texture t2,
 raymarched extinction + in-scattering), point-light cube shadows with
@@ -70,14 +77,41 @@ god rays), fire light positions wander so shadows flicker. Shaders compile
 at launch with an on-disk cache (shadercache/, hash-invalidated) — edit
 .hlsl and relaunch, no rebuild.
 
+Per-frame efficiency (DungeonWorld + Renderer): surface geometry is split
+into spatial chunks (DungeonMeshBuilder GeometryChunk, kChunkCells=4, each
+with an AABB + texture variant), so the main pass frustum-culls off-screen
+chunks (DungeonWorld::ViewCull, Gribb-Hartmann from Camera::ViewProj) and
+each shadow cube sphere-culls out-of-range chunks; discrete meshes (props/
+monsters/fires/pillar) cull by bounding sphere too. Shadow cubes are CACHED
+per slot (ShadowSlotCache): a cube re-renders only when its light changed/
+moved (>2cm), a flicker tick is due (fire cubes throttle to half rate via
+PointLight::flickerShadow), geometry changed (map Revision), or an animating
+caster (monster/pillar) is in range — otherwise the cube stays in its SRV
+state and is reused (the per-slot RT/SRV barrier guard makes the skip safe).
+DrawMesh skips redundant PSO swaps and, in the shadow pass, the texture-table
+binds; skinning palettes upload once per frame (cached by the animator's
+buffer, reused across all ~25 submissions).
+
 ## Asset pipeline (everything loads from assets/, nothing generated at runtime)
 
 - `AssetBaker <assets>` — regenerates all procedural assets (block models
   incl. worn tiers, monsters, sconce/brazier, pillar, sounds, title art,
   party portraits) and ends with a mip bake.
 - `AssetBaker import <folder> <assets> <name> [--flip-green]` — packs a
-  downloaded PBR set (auto-detects maps by filename; flips GL normals;
-  AO→albedo; height→normal alpha; bakes BC7 DDS).
+  downloaded PBR set into three files: <name>.png (albedo), <name>_n.png
+  (normal, height in alpha), <name>_mr.png (ORM: R=occlusion, G=roughness,
+  B=metallic). Auto-detects maps by filename; flips GL normals; bakes all
+  three to BC7 DDS. (AO is no longer multiplied into albedo — it rides the
+  ORM map.)
+- `AssetBaker import-model <model-file|folder> <assets> <name> [--height M]
+  [--yaw deg] [--up y|z]` — imports an authored/bought model (.gltf/.glb/.obj):
+  merges all meshes into one (WriteGltf is single-mesh), normalizes scale
+  (--height, or auto-fit largest extent to ~2 m), orientation (--up z does
+  Z-up→Y-up; --yaw), grounds (min y=0) and centers XZ, then writes
+  assets/models/<name>.gltf and imports the folder's PBR maps as the texture
+  set <name>. The game binds prop textures by name, so the decoration loader
+  (DungeonWorld::LoadDecorations) auto-uses the <name> set for an imported
+  type and renders it back-face culled (authored=true).
 - `AssetBaker mips <assets>` — rebakes derived .dds (BC7 mode-6 encoder in
   tools/AssetBaker/Bc7Encoder.cpp; use the RELEASE baker, encode is slow).
 - `AssetBaker models <assets>` — rebakes only the .gltf models (fast). Worn
@@ -275,4 +309,9 @@ editor icons) — the axis-aligned DrawRect/DrawSprite couldn't express them.
   driven from the top of Game::Update).
 - The clean (non-worn) block set is baked but unused — intended for newer
   dungeon areas, needs per-region block-set selection in DungeonMeshBuilder.
-- Roughness maps from imports are ignored (specular is per-material).
+- Texture sets were re-imported at 2k only (with the new ORM maps); the 1k/4k
+  PNGs are still the old AO-in-albedo format, so Low/Medium/Ultra fall back to
+  2k. Re-run FetchTextures.ps1 (all resolutions) to regenerate them.
+- PBR lighting wasn't re-tuned after the sRGB switch — the dungeon reads a
+  touch moodier and the dustiest chambers can blow out orange; ambient / light
+  intensities (DungeonWorld::UpdateLights, gAmbient) are the knobs.

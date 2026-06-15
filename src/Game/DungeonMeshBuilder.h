@@ -18,12 +18,28 @@
 
 namespace dungeon::game {
 
-// Batched dungeon geometry, bucketed by texture variant (outer index).
-struct DungeonGeometry {
-	std::vector<assets::MeshData> walls;
-	std::vector<assets::MeshData> floors;
-	std::vector<assets::MeshData> ceilings;
+// One spatial chunk of batched geometry: the cells of a fixed map region that
+// share a texture variant, combined into one mesh with its world AABB. Chunking
+// (instead of one level-wide mesh per variant) lets the renderer frustum-cull
+// off-screen regions in the main pass and sphere-cull out-of-range regions per
+// shadow cube, at the cost of a few more draw calls.
+struct GeometryChunk {
+	int variant = 0; // index into the surface's parallel texture arrays
+	assets::MeshData mesh;
+	Vec3 boundsMin{}, boundsMax{};
 };
+
+// Batched dungeon geometry as cullable chunks (variant carried per chunk).
+struct DungeonGeometry {
+	std::vector<GeometryChunk> walls;
+	std::vector<GeometryChunk> floors;
+	std::vector<GeometryChunk> ceilings;
+};
+
+// Map cells per chunk edge (chunk = kChunkCells x kChunkCells cells). Sized so
+// a chunk (~9.6 m at kCellSize) is a bit larger than a light radius — small
+// enough that a shadow cube touches only a handful of chunks.
+inline constexpr int kChunkCells = 4;
 
 // Instances the baked block models over every floor cell: floor + ceiling
 // per cell and a wall block on each edge that borders solid rock. Each block

@@ -56,6 +56,13 @@ DungeonWorld::DungeonWorld(gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 				return true;
 			}
 		}
+		for (const Decoration& deco : m_decorations) {
+			if (deco.solid && deco.x == x && deco.z == z) {
+				m_audio.Play(m_sounds.bump, 0.7f);
+				onMessage(loc::Tr("log.decoration_blocks"));
+				return true;
+			}
+		}
 		return false;
 	};
 
@@ -102,6 +109,7 @@ void DungeonWorld::AppendLoadTasks(LoadQueue& queue) {
 						  if (first) {
 							  surface.albedo.clear();
 							  surface.normal.clear();
+							  surface.mr.clear();
 							  surface.heightScale = heightScale;
 						  }
 						  LoadSurfaceMaterial(surface, name);
@@ -118,6 +126,7 @@ void DungeonWorld::AppendLoadTasks(LoadQueue& queue) {
 		m_pillarPos = m_map.CellCenter(m_map.StartX(), m_map.StartZ() + 2);
 	});
 	queue.Add(loc::Tr("load.monsters"), [this] { LoadMonsters(); });
+	queue.Add(loc::Tr("load.decorations"), [this] { LoadDecorations(); });
 	queue.Add(loc::Tr("load.fires"), [this] {
 		auto sconce = LoadModelOrDie("sconce.gltf");
 		m_sconceMesh = std::make_unique<gfx::Mesh>(m_device, sconce.meshes[0]);
@@ -155,21 +164,25 @@ void DungeonWorld::LoadDungeonBlocks() {
 void DungeonWorld::LoadSurfaceMaterial(Surface& surface, const std::string& name) {
 	const char* res = m_settings.TextureSuffix();
 	std::string stem = paths::Asset(std::format("textures\\{}_{}", name, res));
-	auto albedo = TryLoadTextureFile(m_device, stem);
+	auto albedo = TryLoadTextureFile(m_device, stem, /*srgb*/ true);
 	if (!albedo) {
 		// Ultra's 4K sets are fetchable content (tools/FetchTextures.ps1);
 		// drop to the always-present 2K set when they aren't installed.
 		log::Warn("{} not found at {} — falling back to 2k", name, res);
 		stem = paths::Asset(std::format("textures\\{}_2k", name));
-		albedo = LoadTextureFile(m_device, stem);
+		albedo = LoadTextureFile(m_device, stem, /*srgb*/ true);
 	}
 	surface.albedo.push_back(std::move(albedo));
-	surface.normal.push_back(LoadTextureFile(m_device, stem + "_n"));
+	surface.normal.push_back(LoadTextureFile(m_device, stem + "_n")); // linear
+	// ORM (occlusion/roughness/metallic) — present once the set is re-imported;
+	// null until then (the renderer falls back to a neutral default).
+	surface.mr.push_back(TryLoadTextureFile(m_device, stem + "_mr"));
 }
 
 void DungeonWorld::LoadTextureSet(const SurfaceDef& def) {
 	def.surface.albedo.clear(); // quality hot-swap reuses the same Surface objects
 	def.surface.normal.clear();
+	def.surface.mr.clear();
 	def.surface.heightScale = def.heightScale;
 	for (const std::string& name : def.names)
 		LoadSurfaceMaterial(def.surface, name);
@@ -183,11 +196,16 @@ void DungeonWorld::BuildDungeonMeshes() {
 	const DungeonGeometry geo =
 		BuildDungeonGeometry(m_map, m_wallBlocks, m_floorBlocks, m_ceilingBlocks);
 
-	auto upload = [&](Surface& surface, const std::vector<assets::MeshData>& buckets) {
-		for (const assets::MeshData& bucket : buckets)
-			surface.meshes.push_back(bucket.vertices.empty()
-										 ? nullptr
-										 : std::make_unique<gfx::Mesh>(m_device, bucket));
+	auto upload = [&](Surface& surface, const std::vector<GeometryChunk>& chunks) {
+		surface.chunks.clear();
+		for (const GeometryChunk& gc : chunks) {
+			SurfaceChunk sc;
+			sc.variant = gc.variant;
+			sc.boundsMin = gc.boundsMin;
+			sc.boundsMax = gc.boundsMax;
+			sc.mesh = std::make_unique<gfx::Mesh>(m_device, gc.mesh);
+			surface.chunks.push_back(std::move(sc));
+		}
 	};
 	upload(m_walls, geo.walls);
 	upload(m_floors, geo.floors);
@@ -225,6 +243,78 @@ void DungeonWorld::LoadMonsters() {
 		monster.animator.Update(static_cast<float>(phase++) * 0.7f); // desync idles
 		m_monsters.push_back(std::move(monster));
 	}
+}
+
+// Loads each decoration model once (shared per type, like monsters) and bakes
+// one placed instance per .map "decoration" record. Authored facing +Z, so a
+// record's facing rotates the prop the same way a monster's does. Everything
+// is solid (blocks the party) except open passages like the archway; a
+// "solid=0"/"solid=1" param on the record overrides the default.
+void DungeonWorld::LoadDecorations() {
+	// The built-in procedural props (the rest are imported authored models).
+	auto isProcedural = [](const std::string& t) {
+		return t == "column" || t == "archway" || t == "fountain" || t == "statue" ||
+			   t == "door" || t == "barrel" || t == "crate" || t == "chest";
+	};
+	// Texture set per prop type: wooden props get planks, the stone ones a
+	// dungeon-stone set; imported models carry their own same-named set.
+	auto setForType = [&](const std::string& type) -> std::string {
+		if (type == "door" || type == "barrel" || type == "crate" || type == "chest")
+			return "wood_planks";
+		if (isProcedural(type)) return "wall_stone";
+		return type; // imported model: <name>_<res> texture set
+	};
+	// Loads a texture set once (shared across kinds): sRGB albedo + linear
+	// normal/height + ORM, with the same res→2k fallback as the surfaces.
+	auto texForSet = [this](const std::string& set) -> const PropTextures* {
+		auto it = m_propTextures.find(set);
+		if (it == m_propTextures.end()) {
+			auto pt = std::make_unique<PropTextures>();
+			const char* res = m_settings.TextureSuffix();
+			std::string stem = paths::Asset(std::format("textures\\{}_{}", set, res));
+			pt->albedo = TryLoadTextureFile(m_device, stem, /*srgb*/ true);
+			if (!pt->albedo) {
+				stem = paths::Asset(std::format("textures\\{}_2k", set));
+				pt->albedo = LoadTextureFile(m_device, stem, /*srgb*/ true);
+			}
+			pt->normal = LoadTextureFile(m_device, stem + "_n");
+			pt->mr = TryLoadTextureFile(m_device, stem + "_mr");
+			pt->heightScale = 0.03f;
+			it = m_propTextures.emplace(set, std::move(pt)).first;
+		}
+		return it->second.get();
+	};
+
+	auto kindOf = [&](const std::string& type) -> DecorationKind& {
+		auto it = m_decorationKinds.find(type);
+		if (it == m_decorationKinds.end()) {
+			auto kind = std::make_unique<DecorationKind>();
+			kind->model = LoadModelOrDie(type + ".gltf");
+			kind->mesh = std::make_unique<gfx::Mesh>(m_device, kind->model.meshes[0]);
+			kind->color = kind->model.materials[0].baseColorFactor;
+			kind->tex = texForSet(setForType(type));
+			kind->authored = !isProcedural(type);
+			it = m_decorationKinds.emplace(type, std::move(kind)).first;
+		}
+		return *it->second;
+	};
+
+	for (const Entity& record : m_map.Decorations()) {
+		DecorationKind& kind = kindOf(record.type);
+		Decoration deco;
+		deco.kind = &kind;
+		deco.x = record.x;
+		deco.z = record.z;
+		deco.solid = record.type != "archway"; // passages let the party through
+		if (const std::string* s = record.Param("solid")) deco.solid = *s != "0";
+
+		const Vec3 pos = m_map.CellCenter(deco.x, deco.z);
+		XMStoreFloat4x4(&deco.world, XMMatrixRotationY(DirYaw(record.facing)) *
+										 XMMatrixTranslation(pos.x, 0, pos.z));
+		m_decorations.push_back(std::move(deco));
+	}
+	log::Info("Placed {} decorations ({} kinds)", m_decorations.size(),
+			  m_decorationKinds.size());
 }
 
 // Places one Fire per sconce ('T') and brazier ('F') cell. Sconces mount on
@@ -308,13 +398,13 @@ void DungeonWorld::BuildTurbidityMap() {
 // meshes in place (monsters and fires are unaffected).
 // ============================================================================
 void DungeonWorld::ApplyQuality(bool textureResChanged) {
-	if (m_walls.meshes.empty()) return; // not built yet — the load tasks will
+	if (m_walls.chunks.empty()) return; // not built yet — the load tasks will
 
 	// The GPU may still be reading the old resources, so drain it first.
 	m_device.WaitIdle();
-	m_walls.meshes.clear();
-	m_floors.meshes.clear();
-	m_ceilings.meshes.clear();
+	m_walls.chunks.clear();
+	m_floors.chunks.clear();
+	m_ceilings.chunks.clear();
 	LoadDungeonBlocks();
 	if (textureResChanged) LoadAllSurfaceTextures();
 	BuildDungeonMeshes();
@@ -392,11 +482,11 @@ void DungeonWorld::EditCell(int x, int z, Cell cell) {
 }
 
 void DungeonWorld::RebuildGeometry() {
-	if (m_walls.meshes.empty()) return; // not built yet
+	if (m_walls.chunks.empty()) return; // not built yet
 	m_device.WaitIdle();                // GPU may still read the old meshes
-	m_walls.meshes.clear();
-	m_floors.meshes.clear();
-	m_ceilings.meshes.clear();
+	m_walls.chunks.clear();
+	m_floors.chunks.clear();
+	m_ceilings.chunks.clear();
 	BuildDungeonMeshes();
 }
 
@@ -504,6 +594,7 @@ void DungeonWorld::UpdateLights(float time) {
 		const float base = fire.brazier ? 2.3f : 1.8f;
 		light.intensity = base * (0.9f + 0.1f * std::sin(time * 11.0f + fire.phase) *
 											 std::sin(time * 7.3f + fire.phase));
+		light.flickerShadow = true; // wandering origin → throttle its shadow cube
 		m_lights.points.push_back(light);
 	}
 
@@ -573,21 +664,127 @@ void DungeonWorld::UpdateMonsters(float dt) {
 // already cleared and bound.
 // ============================================================================
 
+// --- view culling -----------------------------------------------------------
+
+DungeonWorld::ViewCull DungeonWorld::ViewCull::FromFrustum(const Mat4& m) {
+	// Gribb-Hartmann from a row-vector view-proj (clip = p * M): the clip
+	// components read the COLUMNS of M, so planes are column sums/differences.
+	const Vec4 c1{m._11, m._21, m._31, m._41};
+	const Vec4 c2{m._12, m._22, m._32, m._42};
+	const Vec4 c3{m._13, m._23, m._33, m._43};
+	const Vec4 c4{m._14, m._24, m._34, m._44};
+	auto add = [](const Vec4& a, const Vec4& b) {
+		return Vec4{a.x + b.x, a.y + b.y, a.z + b.z, a.w + b.w};
+	};
+	auto sub = [](const Vec4& a, const Vec4& b) {
+		return Vec4{a.x - b.x, a.y - b.y, a.z - b.z, a.w - b.w};
+	};
+	ViewCull cull;
+	cull.isSphere = false;
+	const Vec4 raw[6] = {add(c4, c1), sub(c4, c1), add(c4, c2),
+						 sub(c4, c2), c3,          sub(c4, c3)}; // L R B T near far
+	for (int i = 0; i < 6; ++i) {
+		Vec4 p = raw[i];
+		const float len = std::sqrt(p.x * p.x + p.y * p.y + p.z * p.z);
+		if (len > 1e-8f) { p.x /= len; p.y /= len; p.z /= len; p.w /= len; }
+		cull.planes[i] = p;
+	}
+	return cull;
+}
+
+DungeonWorld::ViewCull DungeonWorld::ViewCull::FromSphere(const Vec3& center,
+														 float radius) {
+	ViewCull cull;
+	cull.isSphere = true;
+	cull.sphereC = center;
+	cull.sphereR = radius;
+	return cull;
+}
+
+bool DungeonWorld::ViewCull::TestSphere(const Vec3& c, float r) const {
+	if (isSphere) {
+		const Vec3 d = Sub(c, sphereC);
+		const float reach = sphereR + r;
+		return d.x * d.x + d.y * d.y + d.z * d.z <= reach * reach;
+	}
+	for (const Vec4& p : planes)
+		if (p.x * c.x + p.y * c.y + p.z * c.z + p.w < -r) return false; // outside
+	return true;
+}
+
+bool DungeonWorld::ViewCull::TestAABB(const Vec3& lo, const Vec3& hi) const {
+	if (isSphere) {
+		// Squared distance from the sphere center to the AABB.
+		auto axis = [](float c, float l, float h) {
+			const float v = c < l ? l - c : (c > h ? c - h : 0.0f);
+			return v * v;
+		};
+		const float d2 = axis(sphereC.x, lo.x, hi.x) + axis(sphereC.y, lo.y, hi.y) +
+						 axis(sphereC.z, lo.z, hi.z);
+		return d2 <= sphereR * sphereR;
+	}
+	for (const Vec4& p : planes) {
+		// Positive vertex: the AABB corner farthest along the plane normal. If
+		// it is outside, the whole box is (conservative — no false negatives).
+		const float px = p.x >= 0 ? hi.x : lo.x;
+		const float py = p.y >= 0 ? hi.y : lo.y;
+		const float pz = p.z >= 0 ? hi.z : lo.z;
+		if (p.x * px + p.y * py + p.z * pz + p.w < 0.0f) return false;
+	}
+	return true;
+}
+
 void DungeonWorld::NewFrame(u32 frameIndex) {
 	if (m_particleBatch) m_particleBatch->NewFrame(frameIndex);
 }
 
+bool DungeonWorld::AnimatedCasterNear(const gfx::PointLight& light) const {
+	auto inReach = [&](const Vec3& c, float r) {
+		const Vec3 d = Sub(c, light.position);
+		const float reach = light.radius + r;
+		return d.x * d.x + d.y * d.y + d.z * d.z <= reach * reach;
+	};
+	if (inReach({m_pillarPos.x, 1.2f, m_pillarPos.z}, 1.2f)) return true; // sway
+	for (const Monster& m : m_monsters) {
+		const Vec3 c = m_map.CellCenter(m.x, m.z);
+		if (inReach({c.x, 1.0f, c.z}, 1.5f)) return true;
+	}
+	return false;
+}
+
 // Renders the cube shadow maps for every light that holds a slot this frame.
-// Runs before the main pass; the same geometry submission is reused with the
-// renderer's shadow pipeline bound.
+// Runs before the main pass with the shadow pipeline bound. A slot's cube is
+// reused from the previous frame (left in its SRV state, the barrier guard
+// skips it) unless the light changed/moved, a flicker tick is due, geometry
+// changed, or an animating caster sits within the light.
 void DungeonWorld::RenderShadowMaps(ID3D12GraphicsCommandList* list) {
-	for (const gfx::PointLight& light : m_lights.points) {
+	++m_frameCounter;
+	constexpr u64 kFlickerInterval = 2;  // re-render wandering fire cubes at half rate
+	constexpr float kPosEps2 = 0.0004f;  // 2 cm: a steady light re-renders once it moves
+	const u32 rev = m_map.Revision();
+
+	for (size_t i = 0; i < m_lights.points.size(); ++i) {
+		const gfx::PointLight& light = m_lights.points[i];
 		if (light.shadowSlot < 0) continue;
+		const int slot = light.shadowSlot;
+		ShadowSlotCache& cache = m_shadowCache[slot];
+
+		const Vec3 d = Sub(light.position, cache.pos);
+		const bool moved = d.x * d.x + d.y * d.y + d.z * d.z > kPosEps2;
+		const bool flickerDue =
+			(m_frameCounter + static_cast<u64>(slot)) % kFlickerInterval == 0;
+		const bool needsRender = cache.lightId != static_cast<int>(i) ||
+								 cache.revision != rev || AnimatedCasterNear(light) ||
+								 (light.flickerShadow ? flickerDue : moved);
+		if (!needsRender) continue; // reuse the cube already bound as an SRV
+
+		const ViewCull cull = ViewCull::FromSphere(light.position, light.radius);
 		for (u32 face = 0; face < 6; ++face) {
-			m_renderer.BeginShadowFace(list, static_cast<u32>(light.shadowSlot), face,
+			m_renderer.BeginShadowFace(list, static_cast<u32>(slot), face,
 									   light.position, light.radius);
-			SubmitSceneGeometry(list);
+			SubmitSceneGeometry(list, &cull);
 		}
+		cache = {static_cast<int>(i), light.position, rev};
 	}
 	m_renderer.EndShadows(list);
 	m_device.BindBackBuffer(list); // the shadow pass redirected the OM
@@ -596,66 +793,106 @@ void DungeonWorld::RenderShadowMaps(ID3D12GraphicsCommandList* list) {
 void DungeonWorld::RenderScene(ID3D12GraphicsCommandList* list) {
 	m_renderer.BeginScene(list, m_camera, m_lights,
 						  m_dustEnabled ? m_atmosphere : gfx::Atmosphere{});
-	SubmitSceneGeometry(list);
+	const ViewCull cull = ViewCull::FromFrustum(m_camera.ViewProj());
+	SubmitSceneGeometry(list, &cull);
 	// Transparent flame/spark/smoke billboards last, over the opaque scene.
 	m_particleBatch->Render(list, m_camera, m_particleScratch);
 }
 
-void DungeonWorld::SubmitSceneGeometry(ID3D12GraphicsCommandList* list) {
-	DrawSurface(list, m_walls);
-	DrawSurface(list, m_floors);
-	DrawSurface(list, m_ceilings);
+void DungeonWorld::SubmitSceneGeometry(ID3D12GraphicsCommandList* list,
+									  const ViewCull* cull) {
+	// A discrete mesh draws only if its bounding sphere passes the cull (camera
+	// frustum in the main pass, light reach in the shadow pass).
+	auto visible = [&](const Vec3& c, float r) {
+		return !cull || cull->TestSphere(c, r);
+	};
+
+	DrawSurface(list, m_walls, cull);
+	DrawSurface(list, m_floors, cull);
+	DrawSurface(list, m_ceilings, cull);
 
 	// Pillar — polished jade, distinctly glossier than the stonework.
-	Mat4 pillarWorld = Mat4Identity();
-	pillarWorld._41 = m_pillarPos.x;
-	pillarWorld._43 = m_pillarPos.z;
-	gfx::MaterialParams pillarMaterial;
-	pillarMaterial.baseColor = m_pillarModel.materials[0].baseColorFactor;
-	pillarMaterial.specStrength = 0.45f;
-	pillarMaterial.specPower = 48.0f;
-	m_renderer.DrawMesh(list, *m_pillarMesh, pillarWorld, pillarMaterial,
-						m_pillarAnimator.Palette());
+	if (visible({m_pillarPos.x, 1.2f, m_pillarPos.z}, 1.8f)) {
+		Mat4 pillarWorld = Mat4Identity();
+		pillarWorld._41 = m_pillarPos.x;
+		pillarWorld._43 = m_pillarPos.z;
+		gfx::MaterialParams pillarMaterial;
+		pillarMaterial.baseColor = m_pillarModel.materials[0].baseColorFactor;
+		pillarMaterial.roughness = 0.22f; // polished jade
+		m_renderer.DrawMesh(list, *m_pillarMesh, pillarWorld, pillarMaterial,
+							m_pillarAnimator.Palette());
+	}
+
+	// Static architecture decorations (columns, archways, fountains, ...):
+	// textured stone/wood with bump + parallax + ORM, falling back to the flat
+	// glTF material color if the texture set is missing.
+	for (const Decoration& deco : m_decorations) {
+		// radius 2.0 covers the widest prop (the archway spans the full cell).
+		if (!visible({deco.world._41, 1.2f, deco.world._43}, 2.0f)) continue;
+		gfx::MaterialParams material;
+		material.doubleSided = !deco.kind->authored; // authored meshes back-cull
+		const PropTextures* tex = deco.kind->tex;
+		if (tex && tex->albedo) {
+			material.albedo = tex->albedo.get();
+			material.normalMap = tex->normal.get();
+			material.heightScale = tex->heightScale;
+			if (tex->mr) {
+				material.metalRough = tex->mr.get();
+				material.metallic = 1.0f;
+				material.roughness = 1.0f;
+			}
+		} else {
+			material.baseColor = deco.kind->color;
+			material.roughness = 0.85f;
+		}
+		m_renderer.DrawMesh(list, *deco.kind->mesh, deco.world, material);
+	}
 
 	// Monsters. Bone and bandages are matte; the blob glistens wetly.
 	for (const Monster& monster : m_monsters) {
 		const MonsterKind& kind = *monster.kind;
 		const Vec3 pos = m_map.CellCenter(monster.x, monster.z);
+		if (!visible({pos.x, 1.0f, pos.z}, 1.5f)) continue;
 		Mat4 world;
 		XMStoreFloat4x4(&world, XMMatrixRotationY(monster.yaw) *
 									XMMatrixTranslation(pos.x, 0, pos.z));
 		gfx::MaterialParams material;
 		material.baseColor = kind.model.materials[0].baseColorFactor;
-		if (kind.name == "blob") {
-			material.specStrength = 0.55f;
-			material.specPower = 32.0f;
-		}
+		if (kind.name == "blob") material.roughness = 0.18f; // wet glisten
 		m_renderer.DrawMesh(list, *kind.mesh, world, material,
 							monster.animator.Palette());
 	}
 
-	// Fire props (sconces + braziers): slightly speculative iron.
+	// Fire props (sconces + braziers): bare iron.
 	for (const Fire& fire : m_fires) {
+		if (!visible(fire.flamePos, 1.2f)) continue;
 		gfx::MaterialParams iron;
 		iron.baseColor = fire.brazier ? m_brazierColor : m_sconceColor;
-		iron.specStrength = 0.18f;
-		iron.specPower = 28.0f;
+		iron.metallic = 1.0f;
+		iron.roughness = 0.5f;
 		m_renderer.DrawMesh(list, fire.brazier ? *m_brazierMesh : *m_sconceMesh,
 							fire.world, iron);
 	}
 }
 
 void DungeonWorld::DrawSurface(ID3D12GraphicsCommandList* list,
-							   const Surface& surface) {
+							   const Surface& surface, const ViewCull* cull) {
 	const Mat4 identity = Mat4Identity();
-	for (size_t i = 0; i < surface.meshes.size(); ++i) {
-		if (!surface.meshes[i]) continue;
+	for (const SurfaceChunk& chunk : surface.chunks) {
+		if (cull && !cull->TestAABB(chunk.boundsMin, chunk.boundsMax)) continue;
+		const int v = chunk.variant;
 		gfx::MaterialParams material;
-		material.albedo = surface.albedo[i].get();
-		material.normalMap = surface.normal[i].get();
+		material.albedo = surface.albedo[v].get();
+		material.normalMap = surface.normal[v].get();
 		material.heightScale = surface.heightScale;
-		// Dry, matte stone (the MaterialParams specular defaults).
-		m_renderer.DrawMesh(list, *surface.meshes[i], identity, material);
+		// When the set has an ORM map it drives roughness/metallic per-texel
+		// (factors at 1.0 = pass through); otherwise dry matte stone.
+		if (surface.mr[v]) {
+			material.metalRough = surface.mr[v].get();
+			material.metallic = 1.0f;
+			material.roughness = 1.0f;
+		}
+		m_renderer.DrawMesh(list, *chunk.mesh, identity, material);
 	}
 }
 

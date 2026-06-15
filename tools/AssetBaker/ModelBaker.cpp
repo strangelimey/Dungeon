@@ -28,6 +28,7 @@
 #include <format>
 #include <functional>
 #include <string>
+#include <vector>
 
 using namespace DirectX;
 
@@ -77,6 +78,73 @@ void AddBox(assets::MeshData& mesh, const Vec3& center, const Vec3& halfExtents,
 			u0, u1, u2, u3, joint); // top
 	AddQuad(mesh, {x0, y0, z0}, {x1, y0, z0}, {x1, y0, z1}, {x0, y0, z1}, {0, -1, 0},
 			u0, u1, u2, u3, joint); // bottom
+}
+
+// Flat horizontal ring at height y (a fountain rim, or a solid disk cap when
+// rInner == 0). Normal faces up or down per `faceUp`.
+void AddAnnulus(assets::MeshData& mesh, float cx, float cz, float y, float rInner,
+				float rOuter, int sides, bool faceUp) {
+	const u32 base = static_cast<u32>(mesh.vertices.size());
+	const Vec3 n{0, faceUp ? 1.0f : -1.0f, 0};
+	for (int s = 0; s <= sides; ++s) {
+		const float a = static_cast<float>(s) / sides * 2.0f * kPi;
+		const float ca = std::cos(a), sa = std::sin(a);
+		for (const float rad : {rInner, rOuter}) {
+			assets::Vertex v;
+			v.position = {cx + ca * rad, y, cz + sa * rad};
+			v.normal = n;
+			v.uv = {0.5f + 0.5f * ca, 0.5f + 0.5f * sa};
+			mesh.vertices.push_back(v);
+		}
+	}
+	for (int s = 0; s < sides; ++s) {
+		const u32 a = base + s * 2, b = a + 1, c = a + 2, d = a + 3;
+		mesh.indices.insert(mesh.indices.end(), {a, b, d, a, d, c});
+	}
+}
+
+// Surface of revolution about a vertical axis at (cx, cz), from a profile of
+// (radius, y) rings ordered bottom to top. Side normals come from the profile
+// slope; `inward` flips them for interior walls (a fountain basin). The scene
+// pipeline draws double-sided (CULL_MODE_NONE), so winding is cosmetic —
+// normals carry the lighting. Optional flat disk caps close the first/last ring.
+void AddRevolution(assets::MeshData& mesh, float cx, float cz,
+				   const std::vector<Vec2>& profile, int sides, bool capBottom,
+				   bool capTop, bool inward = false) {
+	const u32 base = static_cast<u32>(mesh.vertices.size());
+	const int rings = static_cast<int>(profile.size());
+	const float flip = inward ? -1.0f : 1.0f;
+	for (int r = 0; r < rings; ++r) {
+		const Vec2& cur = profile[r];
+		const Vec2& prev = profile[std::max(0, r - 1)];
+		const Vec2& next = profile[std::min(rings - 1, r + 1)];
+		// Profile tangent (dr, dy); outward surface normal is (dy, -dr).
+		const float dr = next.x - prev.x, dy = next.y - prev.y;
+		const float nlen = std::sqrt(dr * dr + dy * dy);
+		const float nr = nlen > 1e-6f ? dy / nlen : 1.0f;
+		const float ny = nlen > 1e-6f ? -dr / nlen : 0.0f;
+		for (int s = 0; s <= sides; ++s) {
+			const float a = static_cast<float>(s) / sides * 2.0f * kPi;
+			const float ca = std::cos(a), sa = std::sin(a);
+			assets::Vertex v;
+			v.position = {cx + ca * cur.x, cur.y, cz + sa * cur.x};
+			v.normal = {ca * nr * flip, ny * flip, sa * nr * flip};
+			v.uv = {static_cast<float>(s) / sides, static_cast<float>(r) / (rings - 1)};
+			mesh.vertices.push_back(v);
+		}
+	}
+	const u32 stride = static_cast<u32>(sides) + 1;
+	for (int r = 0; r < rings - 1; ++r)
+		for (int s = 0; s < sides; ++s) {
+			const u32 a = base + r * stride + s, b = a + 1, c = a + stride, d = c + 1;
+			mesh.indices.insert(mesh.indices.end(), {a, c, b, b, c, d});
+		}
+
+	// Disk caps so the ends read solid (a barrel lid, a column footing).
+	if (capBottom && profile.front().x > 1e-5f)
+		AddAnnulus(mesh, cx, cz, profile.front().y, 0.0f, profile.front().x, sides, false);
+	if (capTop && profile.back().x > 1e-5f)
+		AddAnnulus(mesh, cx, cz, profile.back().y, 0.0f, profile.back().x, sides, true);
 }
 
 Mat4 InverseBindForGlobal(const Vec3& globalPos) {
@@ -559,6 +627,233 @@ assets::ModelData BuildBrazier() {
 	return model;
 }
 
+// --- architecture decorations ------------------------------------------------
+// Static, single-material props placed by the .map "decoration <type> x z
+// [facing]" records (DungeonWorld loads <type>.gltf). All are authored facing
+// +Z (the default Direction::South), centered on the cell, resting on the
+// floor (y up from 0), and sized to sit inside one 2.4 m cell. One combined
+// mesh + one baseColorFactor each — WriteGltf takes a single mesh, and the
+// decoration renderer reads the color straight off the glTF material.
+
+// Finalizes a prop: reprojects UVs to world-aligned tiles so textures repeat
+// at a fixed real-world size (instead of one stretched tile per prop), then
+// wraps the mesh in a single-material model. The projection picks the plane
+// from each vertex's dominant normal axis (same idea as the wall blocks'
+// WallFaceUv) — good enough for stone/wood tiling on these simple shapes.
+assets::ModelData FinishProp(assets::MeshData&& mesh, const Vec4& color,
+							 float tileMeters = 0.6f) {
+	const float inv = 1.0f / tileMeters;
+	for (assets::Vertex& v : mesh.vertices) {
+		const float ax = std::fabs(v.normal.x), ay = std::fabs(v.normal.y),
+					az = std::fabs(v.normal.z);
+		Vec2 p;
+		if (ay >= ax && ay >= az) p = {v.position.x, v.position.z};  // up/down faces
+		else if (ax >= az)        p = {v.position.z, v.position.y};  // x-facing
+		else                      p = {v.position.x, v.position.y};  // z-facing
+		v.uv = {p.x * inv, p.y * inv};
+	}
+	assets::ModelData model;
+	mesh.material = 0;
+	model.meshes.push_back(std::move(mesh));
+	model.materials.push_back({color, -1});
+	return model;
+}
+
+// Doric-ish stone column: plinth, swelling shaft (entasis), flared capital.
+// Stands ~2.45 m, just shy of the 2.5 m ceiling.
+assets::ModelData BuildColumn() {
+	const std::vector<Vec2> profile = {
+		{0.36f, 0.00f}, {0.36f, 0.10f}, {0.30f, 0.14f}, {0.27f, 0.20f},
+		{0.225f, 0.30f}, {0.23f, 1.10f}, {0.22f, 1.90f}, {0.205f, 2.10f},
+		{0.255f, 2.24f}, {0.32f, 2.34f}, {0.34f, 2.38f}, {0.34f, 2.45f}};
+	assets::MeshData mesh;
+	AddRevolution(mesh, 0, 0, profile, 18, true, true);
+	return FinishProp(std::move(mesh), {0.66f, 0.64f, 0.60f, 1.0f});
+}
+
+// Stone archway: a full-cell wall slab with an arched opening cut through it,
+// so the jambs run out to the flanking walls and a spandrel fills the corners
+// above the curve up to the ceiling — no gaps to see around. A shallow voussoir
+// ring framing the opening keeps the arch relief. Authored facing +Z (passage
+// along Z); placed facing East/West it spans the corridor between its walls.
+assets::ModelData BuildArchway() {
+	constexpr float kIn = 0.62f;       // opening half-width / soffit radius
+	constexpr float kOut = 0.92f;      // voussoir ring outer radius
+	constexpr float kSpring = 1.55f;   // springline height
+	constexpr float kD = 0.20f;        // wall half-thickness
+	constexpr float kProud = 0.06f;    // ring relief proud of the wall face
+	constexpr float kDf = kD + kProud; // ring face / opening reveal half-depth
+	constexpr int kN = 22;             // arch segments
+	assets::MeshData mesh;
+
+	auto quad = [&](const Vec3& a, const Vec3& b, const Vec3& c, const Vec3& d,
+					const Vec3& n) {
+		AddQuad(mesh, a, b, c, d, n, {0, 0}, {1, 0}, {1, 1}, {0, 1});
+	};
+	// Arch outline point at radius r, angle theta (0 = +x spring, pi = -x).
+	auto arc = [&](float r, float th) {
+		return Vec2{r * std::cos(th), kSpring + r * std::sin(th)};
+	};
+	// Radial projection from the springline center onto the cell-top box
+	// (|x| <= kOut, y in [kSpring, kWallH]) — the outer edge of the spandrel.
+	auto box = [&](float th) {
+		const float c = std::cos(th), s = std::sin(th);
+		float t = 1e9f;
+		if (s > 1e-4f) t = std::min(t, (kWallH - kSpring) / s);
+		if (c > 1e-4f) t = std::min(t, kOut / c);
+		else if (c < -1e-4f) t = std::min(t, -kOut / c);
+		return Vec2{c * t, kSpring + s * t};
+	};
+
+	for (const float side : {1.0f, -1.0f}) {
+		const Vec3 nz{0, 0, side};
+		const float zw = side * kD, zr = side * kDf;
+		// Flat wall: full-height panels beyond the ring + the top spandrel.
+		quad({-kCellHalf, 0, zw}, {-kOut, 0, zw}, {-kOut, kWallH, zw},
+			 {-kCellHalf, kWallH, zw}, nz);
+		quad({kOut, 0, zw}, {kCellHalf, 0, zw}, {kCellHalf, kWallH, zw},
+			 {kOut, kWallH, zw}, nz);
+		for (int k = 0; k < kN; ++k) {
+			const float t0 = kPi * k / kN, t1 = kPi * (k + 1) / kN;
+			const Vec2 o0 = arc(kOut, t0), o1 = arc(kOut, t1);
+			const Vec2 p0 = box(t0), p1 = box(t1);
+			quad({o0.x, o0.y, zw}, {o1.x, o1.y, zw}, {p1.x, p1.y, zw}, {p0.x, p0.y, zw}, nz);
+		}
+		// Voussoir ring face (proud of the wall): straight jambs + arch band.
+		quad({kIn, 0, zr}, {kOut, 0, zr}, {kOut, kSpring, zr}, {kIn, kSpring, zr}, nz);
+		quad({-kOut, 0, zr}, {-kIn, 0, zr}, {-kIn, kSpring, zr}, {-kOut, kSpring, zr}, nz);
+		for (int k = 0; k < kN; ++k) {
+			const float t0 = kPi * k / kN, t1 = kPi * (k + 1) / kN;
+			const Vec2 i0 = arc(kIn, t0), i1 = arc(kIn, t1);
+			const Vec2 o0 = arc(kOut, t0), o1 = arc(kOut, t1);
+			quad({i0.x, i0.y, zr}, {o0.x, o0.y, zr}, {o1.x, o1.y, zr}, {i1.x, i1.y, zr}, nz);
+		}
+		// Ring outer side wall: steps from the wall plane up to the proud face.
+		quad({kOut, 0, zw}, {kOut, kSpring, zw}, {kOut, kSpring, zr}, {kOut, 0, zr}, {1, 0, 0});
+		quad({-kOut, 0, zw}, {-kOut, kSpring, zw}, {-kOut, kSpring, zr}, {-kOut, 0, zr}, {-1, 0, 0});
+		for (int k = 0; k < kN; ++k) {
+			const float t0 = kPi * k / kN, t1 = kPi * (k + 1) / kN;
+			const Vec2 o0 = arc(kOut, t0), o1 = arc(kOut, t1);
+			const Vec3 rn{std::cos(t0), std::sin(t0), 0};
+			quad({o0.x, o0.y, zw}, {o1.x, o1.y, zw}, {o1.x, o1.y, zr}, {o0.x, o0.y, zr}, rn);
+		}
+	}
+
+	// Opening interior (through the full ±kDf depth): soffit + jamb reveals.
+	for (int k = 0; k < kN; ++k) {
+		const float t0 = kPi * k / kN, t1 = kPi * (k + 1) / kN;
+		const Vec2 a0 = arc(kIn, t0), a1 = arc(kIn, t1);
+		const Vec3 n{-std::cos(t0), -std::sin(t0), 0};
+		quad({a0.x, a0.y, kDf}, {a0.x, a0.y, -kDf}, {a1.x, a1.y, -kDf}, {a1.x, a1.y, kDf}, n);
+	}
+	quad({kIn, 0, kDf}, {kIn, 0, -kDf}, {kIn, kSpring, -kDf}, {kIn, kSpring, kDf}, {-1, 0, 0});
+	quad({-kIn, 0, -kDf}, {-kIn, 0, kDf}, {-kIn, kSpring, kDf}, {-kIn, kSpring, -kDf}, {1, 0, 0});
+
+	// Slab outer edges so the sides meet the walls and the top meets the ceiling.
+	quad({-kCellHalf, 0, kD}, {-kCellHalf, kWallH, kD}, {-kCellHalf, kWallH, -kD}, {-kCellHalf, 0, -kD}, {-1, 0, 0});
+	quad({kCellHalf, 0, -kD}, {kCellHalf, kWallH, -kD}, {kCellHalf, kWallH, kD}, {kCellHalf, 0, kD}, {1, 0, 0});
+	quad({-kCellHalf, kWallH, kD}, {-kCellHalf, kWallH, -kD}, {kCellHalf, kWallH, -kD}, {kCellHalf, kWallH, kD}, {0, 1, 0});
+
+	return FinishProp(std::move(mesh), {0.60f, 0.58f, 0.55f, 1.0f});
+}
+
+// Closed wooden door in a timber frame (facing +Z blocks Z-passage): jambs,
+// lintel, a plank leaf with battens, two iron straps, and a ring handle.
+assets::ModelData BuildDoor() {
+	assets::MeshData mesh;
+	AddBox(mesh, {-0.55f, 1.05f, 0}, {0.12f, 1.05f, 0.14f}); // left jamb
+	AddBox(mesh, {0.55f, 1.05f, 0}, {0.12f, 1.05f, 0.14f});  // right jamb
+	AddBox(mesh, {0, 2.16f, 0}, {0.67f, 0.10f, 0.14f});      // lintel
+	AddBox(mesh, {0, 1.02f, 0}, {0.42f, 1.02f, 0.05f});      // leaf
+	for (const float px : {-0.28f, 0.0f, 0.28f})             // plank grooves
+		AddBox(mesh, {px, 1.02f, 0.055f}, {0.015f, 1.0f, 0.01f});
+	for (const float py : {0.45f, 1.6f})                     // iron straps
+		AddBox(mesh, {0, py, 0.06f}, {0.40f, 0.05f, 0.012f});
+	AddBox(mesh, {0.30f, 1.02f, 0.075f}, {0.05f, 0.05f, 0.02f}); // handle
+	return FinishProp(std::move(mesh), {0.40f, 0.27f, 0.16f, 1.0f});
+}
+
+// Two-tier stone fountain: a low octagon-smooth basin with a recessed pool, a
+// central pedestal, and a small upper bowl.
+assets::ModelData BuildFountain() {
+	constexpr int kS = 20;
+	assets::MeshData mesh;
+	// Outer wall + plinth.
+	AddRevolution(mesh, 0, 0, {{0.98f, 0.0f}, {0.98f, 0.10f}, {0.92f, 0.14f},
+							   {0.92f, 0.46f}, {0.96f, 0.50f}},
+				  kS, true, false);
+	AddAnnulus(mesh, 0, 0, 0.50f, 0.80f, 0.96f, kS, true);  // rim
+	// Inner basin wall (inward-facing) down to the pool floor.
+	AddRevolution(mesh, 0, 0, {{0.80f, 0.50f}, {0.80f, 0.18f}}, kS, false, false, true);
+	AddAnnulus(mesh, 0, 0, 0.18f, 0.18f, 0.80f, kS, true);  // pool floor
+	// Central pedestal + upper bowl + finial.
+	AddRevolution(mesh, 0, 0, {{0.18f, 0.18f}, {0.13f, 0.30f}, {0.12f, 0.72f}}, kS,
+				  false, false);
+	AddRevolution(mesh, 0, 0, {{0.12f, 0.72f}, {0.34f, 0.80f}, {0.34f, 0.86f},
+							   {0.30f, 0.88f}, {0.10f, 0.84f}, {0.06f, 0.96f}},
+				  kS, false, true);
+	return FinishProp(std::move(mesh), {0.52f, 0.55f, 0.58f, 1.0f});
+}
+
+// Pedestal statue of a robed figure, pale marble. Built from a square plinth
+// and blocked-out body so it reads at dungeon scale.
+assets::ModelData BuildStatue() {
+	assets::MeshData mesh;
+	AddBox(mesh, {0, 0.18f, 0}, {0.36f, 0.18f, 0.36f});  // plinth
+	AddBox(mesh, {0, 0.40f, 0}, {0.30f, 0.04f, 0.30f});  // cap slab
+	AddBox(mesh, {0, 0.86f, 0}, {0.21f, 0.42f, 0.16f});  // robe / legs
+	AddBox(mesh, {0, 1.34f, 0}, {0.23f, 0.22f, 0.16f});  // torso
+	AddBox(mesh, {-0.27f, 1.24f, 0.02f}, {0.07f, 0.30f, 0.08f}); // arm L
+	AddBox(mesh, {0.27f, 1.24f, 0.02f}, {0.07f, 0.30f, 0.08f});  // arm R
+	AddRevolution(mesh, 0, 0,
+				  {{0.0f, 1.52f}, {0.10f, 1.56f}, {0.13f, 1.66f}, {0.10f, 1.76f},
+				   {0.0f, 1.80f}},
+				  14, false, false); // head
+	return FinishProp(std::move(mesh), {0.76f, 0.74f, 0.70f, 1.0f});
+}
+
+// Wooden barrel: a bulged body of revolution with two proud iron hoops.
+assets::ModelData BuildBarrel() {
+	assets::MeshData mesh;
+	AddRevolution(mesh, 0, 0,
+				  {{0.24f, 0.0f}, {0.30f, 0.05f}, {0.34f, 0.22f}, {0.355f, 0.43f},
+				   {0.34f, 0.64f}, {0.30f, 0.81f}, {0.24f, 0.86f}},
+				  16, true, true);
+	for (const float y : {0.20f, 0.62f}) // hoops
+		AddRevolution(mesh, 0, 0, {{0.365f, y}, {0.365f, y + 0.05f}}, 16, false, false);
+	return FinishProp(std::move(mesh), {0.45f, 0.31f, 0.18f, 1.0f});
+}
+
+// Wooden crate: a solid box wrapped by battens along all twelve edges.
+assets::ModelData BuildCrate() {
+	constexpr float s = 0.36f, t = 0.05f;
+	assets::MeshData mesh;
+	AddBox(mesh, {0, s, 0}, {s, s, s}); // body (sits 0..2s)
+	for (const float zside : {-s, s})   // X-edge battens (top & bottom)
+		for (const float yside : {0.0f, 2 * s})
+			AddBox(mesh, {0, yside, zside}, {s + 0.02f, t, t});
+	for (const float xside : {-s, s})   // Z-edge battens
+		for (const float yside : {0.0f, 2 * s})
+			AddBox(mesh, {xside, yside, 0}, {t, t, s + 0.02f});
+	for (const float xside : {-s, s})   // vertical corner battens
+		for (const float zside : {-s, s})
+			AddBox(mesh, {xside, s, zside}, {t, s + 0.02f, t});
+	return FinishProp(std::move(mesh), {0.50f, 0.36f, 0.22f, 1.0f});
+}
+
+// Treasure chest: a box body, a flat lid, two iron straps, and a lock plate.
+assets::ModelData BuildChest() {
+	assets::MeshData mesh;
+	AddBox(mesh, {0, 0.22f, 0}, {0.42f, 0.22f, 0.28f});  // body
+	AddBox(mesh, {0, 0.50f, 0}, {0.42f, 0.08f, 0.28f});  // lid
+	for (const float xs : {-0.20f, 0.20f}) {             // straps over the front
+		AddBox(mesh, {xs, 0.22f, 0.285f}, {0.04f, 0.22f, 0.012f});
+		AddBox(mesh, {xs, 0.585f, 0}, {0.04f, 0.012f, 0.28f});
+	}
+	AddBox(mesh, {0, 0.44f, 0.29f}, {0.07f, 0.07f, 0.02f}); // lock plate
+	return FinishProp(std::move(mesh), {0.43f, 0.30f, 0.18f, 1.0f});
+}
+
 // --- serpent pillar ----------------------------------------------------------------
 
 assets::ModelData BuildSerpentPillar() {
@@ -894,6 +1189,17 @@ bool BakeModels(const std::string& dir, const std::string& texturesDir) {
 	ok &= WriteGltf(BuildSconce(), dir + "\\sconce.gltf");
 	ok &= WriteGltf(BuildBrazier(), dir + "\\brazier.gltf");
 	ok &= WriteGltf(BuildSerpentPillar(), dir + "\\pillar.gltf");
+
+	// Static architecture decorations (placed by .map "decoration" records).
+	ok &= WriteGltf(BuildColumn(), dir + "\\column.gltf");
+	ok &= WriteGltf(BuildArchway(), dir + "\\archway.gltf");
+	ok &= WriteGltf(BuildDoor(), dir + "\\door.gltf");
+	ok &= WriteGltf(BuildFountain(), dir + "\\fountain.gltf");
+	ok &= WriteGltf(BuildStatue(), dir + "\\statue.gltf");
+	ok &= WriteGltf(BuildBarrel(), dir + "\\barrel.gltf");
+	ok &= WriteGltf(BuildCrate(), dir + "\\crate.gltf");
+	ok &= WriteGltf(BuildChest(), dir + "\\chest.gltf");
+
 	ok &= WriteGltf(BuildHumanoid({{0.93f, 0.90f, 0.80f, 1.0f}, 0.85f, 3.2f, 0.0f, 0.12f}),
 					dir + "\\skeleton.gltf");
 	ok &= WriteGltf(BuildHumanoid({{0.72f, 0.65f, 0.48f, 1.0f}, 1.45f, 5.0f, 1.05f, 0.07f}),

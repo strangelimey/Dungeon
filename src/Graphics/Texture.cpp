@@ -37,7 +37,7 @@ assets::ImageData Downsample(const assets::ImageData& src) {
 
 } // namespace
 
-Texture::Texture(GraphicsDevice& device, const assets::ImageData& image) {
+Texture::Texture(GraphicsDevice& device, const assets::ImageData& image, bool srgb) {
 	// Build the full CPU mip chain on the spot (runtime-generated textures;
 	// file textures arrive pre-mipped and BC7-compressed via the MipChain
 	// constructor).
@@ -59,21 +59,22 @@ Texture::Texture(GraphicsDevice& device, const assets::ImageData& image) {
 		if (last) break;
 		level = std::move(next);
 	}
-	Upload(device, chain);
+	Upload(device, chain, srgb);
 }
 
-Texture::Texture(GraphicsDevice& device, const assets::MipChain& chain) {
+Texture::Texture(GraphicsDevice& device, const assets::MipChain& chain, bool srgb) {
 	DN_ASSERT(!chain.levels.empty(), "empty mip chain");
-	Upload(device, chain);
+	Upload(device, chain, srgb);
 }
 
-void Texture::Upload(GraphicsDevice& device, const assets::MipChain& chain) {
+void Texture::Upload(GraphicsDevice& device, const assets::MipChain& chain, bool srgb) {
 	m_width = chain.width;
 	m_height = chain.height;
 	const u32 mipCount = static_cast<u32>(chain.levels.size());
-	const DXGI_FORMAT format = chain.format == assets::TextureFormat::Bc7
-								   ? DXGI_FORMAT_BC7_UNORM
-								   : DXGI_FORMAT_R8G8B8A8_UNORM;
+	const bool bc7 = chain.format == assets::TextureFormat::Bc7;
+	const DXGI_FORMAT format =
+		bc7 ? (srgb ? DXGI_FORMAT_BC7_UNORM_SRGB : DXGI_FORMAT_BC7_UNORM)
+			: (srgb ? DXGI_FORMAT_R8G8B8A8_UNORM_SRGB : DXGI_FORMAT_R8G8B8A8_UNORM);
 
 	D3D12_RESOURCE_DESC desc{};
 	desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;

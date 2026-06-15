@@ -122,7 +122,7 @@ bool SavePng(const std::string& path, const assets::ImageData& image) {
 
 // What we managed to find in the source folder.
 struct FoundMaps {
-	std::string albedo, normal, height, ao, roughness;
+	std::string albedo, normal, height, ao, roughness, metallic;
 	bool normalLooksGl = false;
 };
 
@@ -153,6 +153,9 @@ FoundMaps DiscoverMaps(const std::string& sourceDir) {
 			found.height = path;
 		} else if (found.roughness.empty() && ContainsAny(stem, {"rough"})) {
 			found.roughness = path;
+		} else if (found.metallic.empty() &&
+				   ContainsAny(stem, {"metallic", "metalness", "metal", "_met"})) {
+			found.metallic = path;
 		} else if (found.albedo.empty() &&
 				   ContainsAny(stem, {"albedo", "basecolor", "base_color", "diffuse",
 									  "color", "_col", "_diff"})) {
@@ -179,37 +182,14 @@ bool ImportPbrTextureSet(const std::string& sourceDir, const std::string& textur
 		log::Warn("No normal map found — a flat normal will be generated");
 	if (found.height.empty())
 		log::Warn("No height/displacement map found — parallax will be flat");
-	if (!found.roughness.empty())
-		log::Warn("Roughness map found but not used yet (specular is per-material): {}",
-				  found.roughness);
 
-	// --- albedo, with AO baked in ------------------------------------------
+	// --- albedo (pure base color; AO now lives in the ORM map) --------------
 	auto albedo = assets::LoadImageFile(found.albedo);
 	if (!albedo) {
 		log::Error("{}", albedo.error());
 		return false;
 	}
 	log::Info("Albedo: {} ({}x{})", found.albedo, albedo->width, albedo->height);
-
-	if (!found.ao.empty()) {
-		auto ao = assets::LoadImageFile(found.ao);
-		if (ao) {
-			log::Info("AO: {} (multiplied into albedo)", found.ao);
-			for (u32 y = 0; y < albedo->height; ++y) {
-				for (u32 x = 0; x < albedo->width; ++x) {
-					const float u = static_cast<float>(x) / (albedo->width - 1);
-					const float v = static_cast<float>(y) / (albedo->height - 1);
-					const float occlusion = SampleChannel(*ao, 0, u, v) / 255.0f;
-					const size_t i = (static_cast<size_t>(y) * albedo->width + x) * 4;
-					for (int c = 0; c < 3; ++c)
-						albedo->pixels[i + c] =
-							static_cast<u8>(albedo->pixels[i + c] * occlusion);
-				}
-			}
-		} else {
-			log::Warn("Could not load AO map: {}", ao.error());
-		}
-	}
 
 	// --- normal + height ---------------------------------------------------------
 	assets::ImageData normal;
@@ -269,11 +249,42 @@ bool ImportPbrTextureSet(const std::string& sourceDir, const std::string& textur
 		for (size_t i = 3; i < normal.pixels.size(); i += 4) normal.pixels[i] = 255;
 	}
 
-	// --- write the packed pair ------------------------------------------------
+	// --- ORM map: R = occlusion, G = roughness, B = metallic (glTF order) -----
+	// Built at the albedo's resolution; each source channel is resampled and
+	// defaults to a neutral value when its map is absent (AO 1, rough 1, metal 0).
+	assets::ImageData orm;
+	orm.width = albedo->width;
+	orm.height = albedo->height;
+	orm.pixels.assign(static_cast<size_t>(orm.width) * orm.height * 4, 255);
+	auto loadOpt = [](const std::string& p) -> std::optional<assets::ImageData> {
+		if (p.empty()) return std::nullopt;
+		if (auto img = assets::LoadImageFile(p)) return std::move(*img);
+		return std::nullopt;
+	};
+	const auto ao = loadOpt(found.ao);
+	const auto rough = loadOpt(found.roughness);
+	const auto metal = loadOpt(found.metallic);
+	if (ao) log::Info("Occlusion: {} (ORM.r)", found.ao);
+	if (rough) log::Info("Roughness: {} (ORM.g)", found.roughness);
+	if (metal) log::Info("Metallic: {} (ORM.b)", found.metallic);
+	for (u32 y = 0; y < orm.height; ++y) {
+		for (u32 x = 0; x < orm.width; ++x) {
+			const float u = static_cast<float>(x) / (orm.width - 1);
+			const float v = static_cast<float>(y) / (orm.height - 1);
+			const size_t i = (static_cast<size_t>(y) * orm.width + x) * 4;
+			orm.pixels[i + 0] = ao ? static_cast<u8>(SampleChannel(*ao, 0, u, v)) : 255;
+			orm.pixels[i + 1] = rough ? static_cast<u8>(SampleChannel(*rough, 0, u, v)) : 255;
+			orm.pixels[i + 2] = metal ? static_cast<u8>(SampleChannel(*metal, 0, u, v)) : 0;
+			orm.pixels[i + 3] = 255;
+		}
+	}
+
+	// --- write the packed set (albedo / normal+height / ORM) ------------------
 	std::error_code ec;
 	std::filesystem::create_directories(texturesDir, ec);
 	bool ok = SavePng(texturesDir + "\\" + outputName + ".png", *albedo);
 	ok &= SavePng(texturesDir + "\\" + outputName + "_n.png", normal);
+	ok &= SavePng(texturesDir + "\\" + outputName + "_mr.png", orm);
 	if (ok)
 		log::Info("Imported '{}' — reference it from the game's texture sets or "
 				  "overwrite an existing name to replace a procedural material.",

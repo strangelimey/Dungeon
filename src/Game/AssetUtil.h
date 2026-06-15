@@ -26,12 +26,15 @@ assets::SoundData LoadSound(const std::string& name);
 
 // Loads a texture by stem (no extension), preferring the baked .dds mip
 // chain (no runtime filtering); falls back to the PNG + runtime mips.
-// Returns null if neither file exists.
+// Returns null if neither file exists. `srgb` selects an sRGB view (set it for
+// albedo/color maps; leave false for normal/height/ORM linear data).
 std::unique_ptr<gfx::Texture> TryLoadTextureFile(gfx::GraphicsDevice& device,
-												 const std::string& stemPath);
+												 const std::string& stemPath,
+												 bool srgb = false);
 
 // As TryLoadTextureFile, but the texture is required — missing aborts.
 std::unique_ptr<gfx::Texture> LoadTextureFile(gfx::GraphicsDevice& device,
-											  const std::string& stemPath);
+											  const std::string& stemPath,
+											  bool srgb = false);
 
 } // namespace dungeon::game

@@ -27,6 +27,10 @@ struct PointLight {
 	// Slot 0 is highest resolution; the game gives slots to the lights
 	// nearest the camera so shadow detail falls off with distance.
 	int shadowSlot = -1;
+	// This light's position jitters every frame for flicker (fires). The shadow
+	// cache throttles such cubes on a frame interval instead of re-rendering on
+	// every sub-pixel wander; steady lights (torch, glow) cache until they move.
+	bool flickerShadow = false;
 };
 
 struct DirectionalLight {

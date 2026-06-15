@@ -27,6 +27,7 @@
 #include "ImportTextures.h"
 #include "MipBaker.h"
 #include "ModelBaker.h"
+#include "ModelImport.h"
 #include "PortraitBaker.h"
 #include "SoundBaker.h"
 #include "TextureBaker.h"
@@ -48,12 +49,32 @@ int main(int argc, char** argv) {
 		const std::string texturesDir = std::string(argv[3]) + "\\textures";
 		const std::string name = argv[4];
 		if (!baker::ImportPbrTextureSet(argv[2], texturesDir, name, flipGreen)) return 1;
-		// Bake mip chains for the freshly imported pair right away.
+		// Bake mip chains for the freshly imported set right away (albedo,
+		// normal+height, and the ORM occlusion/roughness/metallic map).
 		bool ok = baker::BakeMipChain(texturesDir + "\\" + name + ".png",
 									  texturesDir + "\\" + name + ".dds");
 		ok &= baker::BakeMipChain(texturesDir + "\\" + name + "_n.png",
 								  texturesDir + "\\" + name + "_n.dds");
+		ok &= baker::BakeMipChain(texturesDir + "\\" + name + "_mr.png",
+								  texturesDir + "\\" + name + "_mr.dds");
 		return ok ? 0 : 1;
+	}
+
+	if (argc >= 2 && std::string(argv[1]) == "import-model") {
+		if (argc < 5) {
+			log::Error("usage: AssetBaker import-model <model-file|folder> "
+					   "<assets-dir> <name> [--height M] [--yaw deg] [--up y|z]");
+			return 1;
+		}
+		float height = 0.0f, yaw = 0.0f;
+		char up = 'y';
+		for (int i = 5; i < argc; ++i) {
+			const std::string a = argv[i];
+			if (a == "--height" && i + 1 < argc) height = std::stof(argv[++i]);
+			else if (a == "--yaw" && i + 1 < argc) yaw = std::stof(argv[++i]);
+			else if (a == "--up" && i + 1 < argc) up = argv[++i][0];
+		}
+		return baker::ImportModel(argv[2], argv[3], argv[4], height, yaw, up) ? 0 : 1;
 	}
 
 	if (argc >= 3 && std::string(argv[1]) == "mips")

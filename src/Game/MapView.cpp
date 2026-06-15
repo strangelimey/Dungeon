@@ -32,6 +32,7 @@ const Vec4 kBrazier{1.0f, 0.45f, 0.16f, 1.0f};
 const Vec4 kMonster{0.85f, 0.22f, 0.22f, 1.0f};
 const Vec4 kItem{0.42f, 0.85f, 0.42f, 1.0f};
 const Vec4 kButton{0.42f, 0.62f, 0.95f, 1.0f};
+const Vec4 kDecoration{0.74f, 0.54f, 0.92f, 1.0f}; // static props (columns, fountains, ...)
 
 // Font px at the design window height (re-baked to track the real height).
 constexpr float kFontH = 18.0f;
@@ -272,11 +273,13 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 	if (CellVisible(map.StartX(), map.StartZ()))
 		ui::DrawBorder(batch, cellRect(map.StartX(), map.StartZ()), theme.accent);
 
-	// 3) Fixtures (from the static map).
+	// 3) Fixtures and static decorations (both from the static map layer).
 	for (const auto& [x, z] : map.TorchCells())
 		if (CellVisible(x, z)) marker(x, z, 0.32f, kTorch);
 	for (const auto& [x, z] : map.BrazierCells())
 		if (CellVisible(x, z)) marker(x, z, 0.46f, kBrazier);
+	for (const Entity& deco : map.Decorations())
+		if (CellVisible(deco.x, deco.z)) marker(deco.x, deco.z, 0.38f, kDecoration);
 
 	// 4) Dynamic entities. From the .ent layer for now; once monsters move at
 	// runtime (and projectiles/spells exist) this loop repoints at the live
@@ -287,7 +290,7 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 		case EntityKind::Monster: marker(e.x, e.z, 0.5f, kMonster); break;
 		case EntityKind::Item:    marker(e.x, e.z, 0.34f, kItem); break;
 		case EntityKind::Button:  marker(e.x, e.z, 0.3f, kButton); break;
-		case EntityKind::Decoration: break; // structural flavor; skip on the map
+		case EntityKind::Decoration: break; // static; drawn from the map layer above
 		}
 	}
 
@@ -374,6 +377,7 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 				{Sym::Filled, kMonster, "map.key.monster", true},
 				{Sym::Filled, kItem, "map.key.item", true},
 				{Sym::Filled, kButton, "map.key.button", true},
+				{Sym::Filled, kDecoration, "map.key.decoration", true},
 			};
 			const gfx::Rect rclip{rd.x + 2, rd.y + 2, rd.w - 4, rd.h - 4};
 			batch.SetScissor(&rclip);

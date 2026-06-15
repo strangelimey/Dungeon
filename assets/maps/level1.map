@@ -38,3 +38,19 @@ textures ceiling ceiling_rough ceiling_cracked
 #DD#D#DT#.#..#.#
 #DD.DDD#..F#...#
 ################
+;
+; Static decorations (see ModelBaker.cpp for the prop set; <type>.gltf).
+; Format: decoration <type> <x> <z> [facing] [key=value]. All props block the
+; party except open passages (the archway); add solid=0 to make any prop walk-
+; through. The lower-left dusty chamber is furnished as a showcase.
+decoration archway 4 1 east solid=0
+decoration fountain 3 12 south
+decoration column 1 12 south
+decoration column 5 11 south
+decoration statue 6 12 west
+decoration chest 1 13 south
+decoration barrel 1 14 south
+decoration crate 2 14 south
+decoration door 8 4 south
+; imported authored model (AssetBaker import-model) — textured + back-culled
+decoration ancient_pot 6 1 south

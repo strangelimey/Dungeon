@@ -32,11 +32,13 @@ cbuffer ObjectConstants : register(b1) {
 	uint gSkinned;
 	uint gUseNormalMap;
 	float gHeightScale;
-	// Per-material Blinn-Phong sheen: ~0.05/24 for dry stone, higher for
-	// wet or polished surfaces (slime, jade, metal).
-	float gSpecStrength;
-	float gSpecPower;
-	float2 _pad1;
+	// Metallic-roughness PBR factors. When gUseMRMap is set the ORM texture
+	// (t7) supplies per-texel occlusion/roughness/metallic and these scale it;
+	// otherwise they are used directly (dry stone ~ rough 0.9 / metal 0).
+	float gMetallic;
+	float gRoughness;
+	uint gUseMRMap;
+	float _pad1;
 };
 
 cbuffer SkinConstants : register(b2) {
@@ -46,6 +48,7 @@ cbuffer SkinConstants : register(b2) {
 Texture2D gBaseTexture : register(t0);
 Texture2D gNormalMap : register(t1); // xyz = tangent-space normal, w = height
 Texture2D gTurbidity : register(t2); // top-down per-cell dust density (R)
+Texture2D gMetalRough : register(t7); // R = occlusion, G = roughness, B = metallic
 // Point-light shadow cubes (light->fragment distance / radius). Slot 0 is
 // the light nearest the camera at the highest resolution; slots fall off in
 // resolution with distance — detailed shadows up close, coarser far away.
@@ -153,17 +156,48 @@ PSInput VSMain(VSInput input) {
 	return output;
 }
 
-float3 Shade(float3 albedo, float3 normal, float3 worldPos) {
+static const float PI = 3.14159265;
+
+// Cook-Torrance metallic-roughness BRDF for one light direction; returns the
+// outgoing radiance factor (already multiplied by N.L), to be scaled by the
+// light's incoming radiance. Diffuse keeps the engine's un-normalized albedo
+// brightness (no 1/PI) so the torchlit tuning carries over from Blinn-Phong.
+float3 BRDF(float3 albedo, float metallic, float roughness, float3 N, float3 V, float3 L) {
+	const float3 H = normalize(V + L);
+	const float NdotL = saturate(dot(N, L));
+	const float NdotV = saturate(dot(N, V)) + 1e-4;
+	const float NdotH = saturate(dot(N, H));
+	const float VdotH = saturate(dot(V, H));
+
+	const float a = roughness * roughness;
+	const float a2 = a * a;
+	const float d = NdotH * NdotH * (a2 - 1.0) + 1.0;
+	const float D = a2 / max(PI * d * d, 1e-6);             // GGX normal distribution
+
+	float k = roughness + 1.0;
+	k = k * k / 8.0;                                        // Schlick-GGX (direct)
+	const float gv = NdotV / (NdotV * (1.0 - k) + k);
+	const float gl = NdotL / (NdotL * (1.0 - k) + k);
+	const float G = gv * gl;                               // Smith geometry
+
+	const float3 F0 = lerp(float3(0.04, 0.04, 0.04), albedo, metallic);
+	const float3 F = F0 + (1.0 - F0) * pow(1.0 - VdotH, 5.0); // Fresnel-Schlick
+
+	const float3 spec = D * G * F / max(4.0 * NdotV * NdotL, 1e-4);
+	const float3 kd = (1.0 - F) * (1.0 - metallic);
+	const float3 diffuse = kd * albedo;
+	return (diffuse + spec) * NdotL;
+}
+
+float3 Shade(float3 albedo, float metallic, float roughness, float ao, float3 normal,
+			 float3 worldPos) {
 	const float3 viewDir = normalize(gCameraPos.xyz - worldPos);
-	float3 color = gAmbient.rgb * albedo;
+	float3 color = gAmbient.rgb * albedo * ao;
 
 	// Directional light.
 	if (any(gDirColor.rgb > 0.0)) {
 		const float3 lightDir = normalize(-gDirDirection.xyz);
-		const float ndl = saturate(dot(normal, lightDir));
-		const float3 halfway = normalize(lightDir + viewDir);
-		const float spec = pow(saturate(dot(normal, halfway)), gSpecPower) * gSpecStrength;
-		color += gDirColor.rgb * (albedo * ndl + spec);
+		color += gDirColor.rgb * BRDF(albedo, metallic, roughness, normal, viewDir, lightDir);
 	}
 
 	// Dynamic point lights with smooth radius falloff.
@@ -174,20 +208,14 @@ float3 Shade(float3 albedo, float3 normal, float3 worldPos) {
 		if (dist >= light.positionRadius.w) continue;
 
 		const float3 lightDir = toLight / max(dist, 1e-4);
-		const float ndl = saturate(dot(normal, lightDir));
 
 		// Inverse-square with a smooth window to zero at the radius.
 		const float window = pow(saturate(1.0 - pow(dist / light.positionRadius.w, 4.0)), 2.0);
 		const float atten = window / (1.0 + dist * dist);
 
-		// Per-material sheen (see ObjectConstants): dungeon stone stays dry
-		// and matte; wet/polished materials raise gSpecStrength.
-		const float3 halfway = normalize(lightDir + viewDir);
-		const float spec = pow(saturate(dot(normal, halfway)), gSpecPower) * gSpecStrength;
-
 		const float shadow = ShadowFactor(light, worldPos);
 		color += light.colorIntensity.rgb * light.colorIntensity.w * atten * shadow *
-				 (albedo * ndl + spec * ndl);
+				 BRDF(albedo, metallic, roughness, normal, viewDir, lightDir);
 	}
 	return color;
 }
@@ -304,7 +332,20 @@ float4 PSMain(PSInput input) : SV_TARGET {
 	if (gUseTexture != 0)
 		albedo *= gBaseTexture.Sample(gSampler, uv);
 
-	float3 color = Shade(albedo.rgb, normal, input.worldPos);
+	// Occlusion / roughness / metallic: per-texel from the ORM map (scaled by
+	// the factors) or the factors alone.
+	float metallic = gMetallic;
+	float roughness = gRoughness;
+	float ao = 1.0;
+	if (gUseMRMap != 0) {
+		const float3 orm = gMetalRough.Sample(gSampler, uv).rgb;
+		ao = orm.r;
+		roughness *= orm.g;
+		metallic *= orm.b;
+	}
+	roughness = clamp(roughness, 0.04, 1.0);
+
+	float3 color = Shade(albedo.rgb, metallic, roughness, ao, normal, input.worldPos);
 	color = ApplyDust(color, input.worldPos);
 
 	// Simple tonemap + gamma (back buffer is UNORM).

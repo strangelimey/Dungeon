@@ -17,6 +17,7 @@
 //   4  t1  normal+height map      (descriptor table; A = height for parallax)
 //   5  t2  air turbidity grid     (descriptor table; dust raymarch density)
 //   6  t3..t6  shadow cubes       (one table, kShadowSlots contiguous SRVs)
+//   7  t7  occlusion/rough/metal  (descriptor table; ORM map for PBR)
 //   s0     static anisotropic wrap sampler
 //   s1     static clamped bilinear sampler (turbidity grid + shadow cubes)
 // ============================================================================
@@ -32,6 +33,8 @@
 
 #include <memory>
 #include <span>
+#include <utility>
+#include <vector>
 
 namespace dungeon::gfx {
 
@@ -46,15 +49,22 @@ inline constexpr u32 kShadowResolution[kShadowSlots] = {512, 256, 256, 128};
 
 // Everything material-related for one draw. Textures may be null (baseColor
 // only); `normalMap` (xyz = tangent-space normal, w = height) enables bump
-// mapping, and `heightScale` > 0 adds parallax on top. Specular defaults suit
-// dry stone; raise strength for wet/glossy things (slime, polished metal).
+// mapping, and `heightScale` > 0 adds parallax on top. `metalRough` is the ORM
+// map (R = occlusion, G = roughness, B = metallic) and, when set, scales the
+// `metallic`/`roughness` factors per-texel. Defaults suit dry matte stone;
+// lower roughness for wet/polished things, metallic = 1 for bare metal.
+// `doubleSided` = true keeps CULL_MODE_NONE (hand-built procedural geometry
+// that may have inconsistent winding); authored, consistently-wound meshes set
+// it false to enable back-face culling.
 struct MaterialParams {
 	const Texture* albedo = nullptr;
 	const Texture* normalMap = nullptr;
+	const Texture* metalRough = nullptr;
 	Vec4 baseColor{1, 1, 1, 1};
 	float heightScale = 0.0f;
-	float specStrength = 0.05f;
-	float specPower = 24.0f;
+	float metallic = 0.0f;
+	float roughness = 0.9f;
+	bool doubleSided = true;
 };
 
 // Forward 3D pass: one pipeline, per-frame light constants, optional texture
@@ -89,12 +99,20 @@ private:
 
 	GraphicsDevice& m_device;
 	ComPtr<ID3D12RootSignature> m_rootSignature;
-	ComPtr<ID3D12PipelineState> m_pso;
+	ComPtr<ID3D12PipelineState> m_pso;       // scene, CULL_NONE (double-sided)
+	ComPtr<ID3D12PipelineState> m_psoCull;   // scene, CULL_BACK (authored meshes)
 	ComPtr<ID3D12PipelineState> m_shadowPso;
 	std::unique_ptr<UploadAllocator> m_frameAllocators[kFrameCount];
 	std::unique_ptr<Texture> m_whiteTexture;
 	std::unique_ptr<Texture> m_flatNormalMap;
-	std::unique_ptr<Texture> m_blackTexture; // "clear air" turbidity fallback
+	std::unique_ptr<Texture> m_blackTexture;   // "clear air" turbidity fallback
+	std::unique_ptr<Texture> m_defaultMRTexture; // AO=1, rough=1, metal=0
+	bool m_shadowPass = false;                 // DrawMesh skips PSO swap in shadow pass
+	ID3D12PipelineState* m_currentPso = nullptr; // bound PSO, to skip redundant swaps
+	// Skinning palettes uploaded once per frame: a skinned mesh is re-submitted
+	// up to 25x (shadow faces + scene) with the same pose, so cache the upload
+	// keyed by the animator's palette buffer and reuse the GPU address.
+	std::vector<std::pair<const void*, D3D12_GPU_VIRTUAL_ADDRESS>> m_paletteCache;
 
 	// Shadow cube targets (R16_FLOAT distance) + shared per-slot depth.
 	ComPtr<ID3D12Resource> m_shadowCube[kShadowSlots];

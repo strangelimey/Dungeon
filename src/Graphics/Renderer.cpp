@@ -62,9 +62,10 @@ struct ObjectConstants {
 	u32 skinned;
 	u32 useNormalMap;
 	float heightScale;
-	float specStrength;
-	float specPower;
-	float pad[2];
+	float metallic;
+	float roughness;
+	u32 useMRMap;
+	float pad;
 };
 
 } // namespace
@@ -81,6 +82,7 @@ Renderer::Renderer(GraphicsDevice& device) : m_device(device) {
 	//   4: t1 normal+height map (table)
 	//   5: t2 air turbidity grid (table)
 	//   6: t3..t6 shadow cubes (one table, contiguous descriptors)
+	//   7: t7 occlusion/roughness/metallic ORM map (table)
 	D3D12_DESCRIPTOR_RANGE srvRange0{};
 	srvRange0.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
 	srvRange0.NumDescriptors = 1;
@@ -92,16 +94,18 @@ Renderer::Renderer(GraphicsDevice& device) : m_device(device) {
 	D3D12_DESCRIPTOR_RANGE srvRangeShadow = srvRange0;
 	srvRangeShadow.BaseShaderRegister = 3;
 	srvRangeShadow.NumDescriptors = kShadowSlots;
+	D3D12_DESCRIPTOR_RANGE srvRangeMR = srvRange0;
+	srvRangeMR.BaseShaderRegister = 7;
 
-	D3D12_ROOT_PARAMETER params[7]{};
+	D3D12_ROOT_PARAMETER params[8]{};
 	for (int i = 0; i < 3; ++i) {
 		params[i].ParameterType = D3D12_ROOT_PARAMETER_TYPE_CBV;
 		params[i].Descriptor.ShaderRegister = static_cast<UINT>(i);
 		params[i].ShaderVisibility = D3D12_SHADER_VISIBILITY_ALL;
 	}
-	const D3D12_DESCRIPTOR_RANGE* ranges[4] = {&srvRange0, &srvRange1, &srvRange2,
-											   &srvRangeShadow};
-	for (int i = 3; i < 7; ++i) {
+	const D3D12_DESCRIPTOR_RANGE* ranges[5] = {&srvRange0, &srvRange1, &srvRange2,
+											   &srvRangeShadow, &srvRangeMR};
+	for (int i = 3; i < 8; ++i) {
 		params[i].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
 		params[i].DescriptorTable.NumDescriptorRanges = 1;
 		params[i].DescriptorTable.pDescriptorRanges = ranges[i - 3];
@@ -127,7 +131,7 @@ Renderer::Renderer(GraphicsDevice& device) : m_device(device) {
 	samplers[1].ShaderRegister = 1;
 
 	D3D12_ROOT_SIGNATURE_DESC rsDesc{};
-	rsDesc.NumParameters = 7;
+	rsDesc.NumParameters = 8;
 	rsDesc.pParameters = params;
 	rsDesc.NumStaticSamplers = 2;
 	rsDesc.pStaticSamplers = samplers;
@@ -184,6 +188,13 @@ Renderer::Renderer(GraphicsDevice& device) : m_device(device) {
 
 	DN_HR(m_device.Device()->CreateGraphicsPipelineState(&pso, IID_PPV_ARGS(&m_pso)));
 
+	// Back-face-culled variant for authored, consistently-wound meshes (imported
+	// models). Procedural geometry keeps the double-sided m_pso above.
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC culledPso = pso;
+	culledPso.RasterizerState.CullMode = D3D12_CULL_MODE_BACK;
+	DN_HR(m_device.Device()->CreateGraphicsPipelineState(&culledPso,
+														 IID_PPV_ARGS(&m_psoCull)));
+
 	// Shadow pass pipeline: same root signature and input layout, writing
 	// normalized light->fragment distance into an R16_FLOAT cube face.
 	const std::string shadowPath = paths::Asset("shaders\\shadow.hlsl");
@@ -216,6 +227,13 @@ Renderer::Renderer(GraphicsDevice& device) : m_device(device) {
 	black.width = black.height = 1;
 	black.pixels = {0, 0, 0, 255};
 	m_blackTexture = std::make_unique<Texture>(m_device, black);
+
+	// Neutral ORM (occlusion=1, roughness=1, metallic=0): bound when a draw has
+	// no ORM map, so the metallic/roughness factors pass through unscaled.
+	assets::ImageData orm;
+	orm.width = orm.height = 1;
+	orm.pixels = {255, 255, 0, 255};
+	m_defaultMRTexture = std::make_unique<Texture>(m_device, orm);
 
 	CreateShadowResources();
 }
@@ -314,6 +332,7 @@ void Renderer::CreateShadowResources() {
 void Renderer::NewFrame(u32 frameIndex) {
 	m_frameIndex = frameIndex;
 	m_frameAllocators[m_frameIndex]->Reset(); // reclaim last use of this slot
+	m_paletteCache.clear();                   // arena reset invalidates last frame's VAs
 }
 
 void Renderer::BeginScene(ID3D12GraphicsCommandList* list, const Camera& camera,
@@ -348,8 +367,10 @@ void Renderer::BeginScene(ID3D12GraphicsCommandList* list, const Camera& camera,
 		m_frameAllocators[m_frameIndex]->Allocate(sizeof(FrameConstants));
 	std::memcpy(alloc.cpu, &frame, sizeof(frame));
 
+	m_shadowPass = false;
 	list->SetGraphicsRootSignature(m_rootSignature.Get());
 	list->SetPipelineState(m_pso.Get());
+	m_currentPso = m_pso.Get();
 	list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 	list->SetGraphicsRootConstantBufferView(0, alloc.gpu);
 
@@ -402,8 +423,10 @@ void Renderer::BeginShadowFace(ID3D12GraphicsCommandList* list, u32 slot, u32 fa
 		m_frameAllocators[m_frameIndex]->Allocate(sizeof(FrameConstants));
 	std::memcpy(alloc.cpu, &frame, sizeof(frame));
 
+	m_shadowPass = true; // DrawMesh keeps the shadow PSO bound (no per-mat swap)
 	list->SetGraphicsRootSignature(m_rootSignature.Get());
 	list->SetPipelineState(m_shadowPso.Get());
+	m_currentPso = m_shadowPso.Get();
 	list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 	list->SetGraphicsRootConstantBufferView(0, alloc.gpu);
 	// The shadow shaders read no textures, but bind safe defaults anyway so
@@ -411,6 +434,7 @@ void Renderer::BeginShadowFace(ID3D12GraphicsCommandList* list, u32 slot, u32 fa
 	list->SetGraphicsRootDescriptorTable(3, m_whiteTexture->GpuHandle());
 	list->SetGraphicsRootDescriptorTable(4, m_flatNormalMap->GpuHandle());
 	list->SetGraphicsRootDescriptorTable(5, m_blackTexture->GpuHandle());
+	list->SetGraphicsRootDescriptorTable(7, m_defaultMRTexture->GpuHandle());
 }
 
 void Renderer::EndShadows(ID3D12GraphicsCommandList* list) {
@@ -431,6 +455,17 @@ void Renderer::DrawMesh(ID3D12GraphicsCommandList* list, const Mesh& mesh,
 						std::span<const Mat4> palette) {
 	UploadAllocator& allocator = *m_frameAllocators[m_frameIndex];
 
+	// Authored (single-sided) meshes back-face cull; procedural geometry stays
+	// double-sided. Never swap during the shadow pass (it owns m_shadowPso), and
+	// only issue a state change when the PSO actually differs.
+	if (!m_shadowPass) {
+		ID3D12PipelineState* want = material.doubleSided ? m_pso.Get() : m_psoCull.Get();
+		if (want != m_currentPso) {
+			list->SetPipelineState(want);
+			m_currentPso = want;
+		}
+	}
+
 	ObjectConstants object{};
 	object.world = world;
 	object.baseColor = material.baseColor;
@@ -438,27 +473,44 @@ void Renderer::DrawMesh(ID3D12GraphicsCommandList* list, const Mesh& mesh,
 	object.skinned = palette.empty() ? 0u : 1u;
 	object.useNormalMap = material.normalMap != nullptr ? 1u : 0u;
 	object.heightScale = material.heightScale;
-	object.specStrength = material.specStrength;
-	object.specPower = material.specPower;
+	object.metallic = material.metallic;
+	object.roughness = material.roughness;
+	object.useMRMap = material.metalRough != nullptr ? 1u : 0u;
 	UploadAllocation objAlloc = allocator.Allocate(sizeof(ObjectConstants));
 	std::memcpy(objAlloc.cpu, &object, sizeof(object));
 	list->SetGraphicsRootConstantBufferView(1, objAlloc.gpu);
 
 	// The palette CBV must always be bound; reuse the object CB when unskinned.
+	// A skinned mesh holds the same pose across all of a frame's submissions
+	// (shadow faces + scene), so upload its palette once and reuse the address.
 	if (!palette.empty()) {
-		const size_t count = std::min<size_t>(palette.size(), kMaxSkinJoints);
-		UploadAllocation skinAlloc = allocator.Allocate(kMaxSkinJoints * sizeof(Mat4));
-		std::memcpy(skinAlloc.cpu, palette.data(), count * sizeof(Mat4));
-		list->SetGraphicsRootConstantBufferView(2, skinAlloc.gpu);
+		D3D12_GPU_VIRTUAL_ADDRESS gpu = 0;
+		for (const auto& [key, va] : m_paletteCache)
+			if (key == palette.data()) { gpu = va; break; }
+		if (gpu == 0) {
+			const size_t count = std::min<size_t>(palette.size(), kMaxSkinJoints);
+			UploadAllocation skinAlloc = allocator.Allocate(kMaxSkinJoints * sizeof(Mat4));
+			std::memcpy(skinAlloc.cpu, palette.data(), count * sizeof(Mat4));
+			gpu = skinAlloc.gpu;
+			m_paletteCache.emplace_back(palette.data(), gpu);
+		}
+		list->SetGraphicsRootConstantBufferView(2, gpu);
 	} else {
 		list->SetGraphicsRootConstantBufferView(2, objAlloc.gpu);
 	}
 
-	const Texture* bound = material.albedo ? material.albedo : m_whiteTexture.get();
-	list->SetGraphicsRootDescriptorTable(3, bound->GpuHandle());
-	const Texture* boundNormal =
-		material.normalMap ? material.normalMap : m_flatNormalMap.get();
-	list->SetGraphicsRootDescriptorTable(4, boundNormal->GpuHandle());
+	// The shadow pass reads no material textures (BeginShadowFace already bound
+	// safe defaults to every table), so skip the per-draw texture binds there.
+	if (!m_shadowPass) {
+		const Texture* bound = material.albedo ? material.albedo : m_whiteTexture.get();
+		list->SetGraphicsRootDescriptorTable(3, bound->GpuHandle());
+		const Texture* boundNormal =
+			material.normalMap ? material.normalMap : m_flatNormalMap.get();
+		list->SetGraphicsRootDescriptorTable(4, boundNormal->GpuHandle());
+		const Texture* boundMR =
+			material.metalRough ? material.metalRough : m_defaultMRTexture.get();
+		list->SetGraphicsRootDescriptorTable(7, boundMR->GpuHandle());
+	}
 
 	mesh.Bind(list);
 	list->DrawIndexedInstanced(mesh.IndexCount(), 1, 0, 0, 0);

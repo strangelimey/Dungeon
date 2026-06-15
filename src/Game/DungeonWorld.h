@@ -134,10 +134,18 @@ public:
 private:
 	// A texture variant set: parallel albedo / normal+height pairs plus the
 	// batched mesh bucket per variant.
+	// One uploaded geometry chunk: a spatial region's mesh + its texture variant
+	// + world AABB, for per-chunk frustum/sphere culling (see DungeonMeshBuilder).
+	struct SurfaceChunk {
+		int variant = 0;
+		std::unique_ptr<gfx::Mesh> mesh;
+		Vec3 boundsMin{}, boundsMax{};
+	};
 	struct Surface {
 		std::vector<std::unique_ptr<gfx::Texture>> albedo;
 		std::vector<std::unique_ptr<gfx::Texture>> normal;
-		std::vector<std::unique_ptr<gfx::Mesh>> meshes; // null where bucket empty
+		std::vector<std::unique_ptr<gfx::Texture>> mr; // ORM map (null = none yet)
+		std::vector<SurfaceChunk> chunks;              // cullable, tagged by variant
 		float heightScale = 0.0f;
 	};
 
@@ -156,6 +164,30 @@ private:
 		float yaw = 0.0f;
 		bool announced = false;
 		anim::Animator animator;
+	};
+
+	// Static architecture decorations from the .map layer (column, archway,
+	// fountain, statue, barrel, ...). One shared model+mesh per type; instances
+	// are placed and oriented once at load and never move or animate, so they
+	// carry no per-frame state and stay out of the save (static = .map only).
+	// A textured material set shared by props (loaded once per set name). Mirrors
+	// Surface but single-variant: albedo (sRGB) + normal/height + ORM, linear.
+	struct PropTextures {
+		std::unique_ptr<gfx::Texture> albedo, normal, mr;
+		float heightScale = 0.0f;
+	};
+	struct DecorationKind {
+		assets::ModelData model; // kept alive for the shared mesh
+		std::unique_ptr<gfx::Mesh> mesh;
+		Vec4 color{1, 1, 1, 1};
+		const PropTextures* tex = nullptr; // points into m_propTextures (stable)
+		bool authored = false; // imported model: consistently wound -> back-cull
+	};
+	struct Decoration {
+		const DecorationKind* kind = nullptr; // points into m_decorationKinds
+		Mat4 world;                           // baked transform (cell + facing)
+		int x = 0, z = 0;
+		bool solid = true; // blocks the party (passages like archways do not)
 	};
 
 	// Fires: wall sconces (at 'T' cells, mounted on the adjacent wall) and
@@ -186,6 +218,7 @@ private:
 	void LoadAllSurfaceTextures(); // reloads every set (quality hot-swap)
 	void BuildDungeonMeshes();
 	void LoadMonsters();
+	void LoadDecorations();
 	void BuildFires();
 	void BuildTurbidityMap();
 
@@ -195,15 +228,37 @@ private:
 	void UpdateMonsters(float dt);
 	void AssignShadowSlots();
 
+	// True if a continuously-animating caster (a monster, or the swaying pillar)
+	// is within the light's reach — such a cube must re-render every frame.
+	bool AnimatedCasterNear(const gfx::PointLight& light) const;
+
 	// Reveals a cell and its eight neighbors in the fog-of-war set.
 	void MarkSeen(int x, int z);
 	// Re-bakes the surface meshes after a map edit (WaitIdle + rebuild).
 	void RebuildGeometry();
 
-	// --- rendering --------------------------------------------------------------
-	// All 3D draw calls, shared verbatim by the shadow and main passes.
-	void SubmitSceneGeometry(ID3D12GraphicsCommandList* list);
-	void DrawSurface(ID3D12GraphicsCommandList* list, const Surface& surface);
+	// --- rendering / culling ----------------------------------------------------
+	// One culler for both passes: a camera frustum (main pass) or a light sphere
+	// (shadow pass). Chunks test as AABBs, discrete meshes as bounding spheres.
+	// "Inside" for the frustum is plane·p >= 0 on all six planes.
+	struct ViewCull {
+		bool isSphere = false;
+		Vec4 planes[6]{}; // frustum planes, world space, normalized
+		Vec3 sphereC{};
+		float sphereR = 0.0f;
+		bool TestAABB(const Vec3& lo, const Vec3& hi) const;
+		bool TestSphere(const Vec3& c, float r) const;
+		static ViewCull FromFrustum(const Mat4& viewProj);
+		static ViewCull FromSphere(const Vec3& center, float radius);
+	};
+
+	// All 3D draw calls, shared by the shadow and main passes. `cull` skips
+	// chunks (AABB) and discrete meshes (sphere) outside the view/light; null
+	// draws everything.
+	void SubmitSceneGeometry(ID3D12GraphicsCommandList* list,
+							 const ViewCull* cull = nullptr);
+	void DrawSurface(ID3D12GraphicsCommandList* list, const Surface& surface,
+					 const ViewCull* cull);
 
 	gfx::GraphicsDevice& m_device;
 	gfx::Renderer& m_renderer;
@@ -237,6 +292,24 @@ private:
 
 	std::flat_map<std::string, std::unique_ptr<MonsterKind>> m_monsterKinds;
 	std::vector<Monster> m_monsters;
+
+	std::flat_map<std::string, std::unique_ptr<DecorationKind>> m_decorationKinds;
+	// unique_ptr so DecorationKind::tex stays valid as more sets are added
+	// (flat_map stores values contiguously and reallocates on insert).
+	std::flat_map<std::string, std::unique_ptr<PropTextures>> m_propTextures;
+	std::vector<Decoration> m_decorations;
+
+	// Shadow-cube cache: a slot's cube is reused across frames unless its light
+	// changed/moved, a flicker tick is due, geometry changed, or an animating
+	// caster is in range (see RenderShadowMaps). Keyed by the light's index in
+	// m_lights.points, which UpdateLights builds in a stable order.
+	struct ShadowSlotCache {
+		int lightId = -1; // index that last rendered this slot (-1 = stale)
+		Vec3 pos{};
+		u32 revision = 0xFFFFFFFFu; // map geometry revision at render time
+	};
+	ShadowSlotCache m_shadowCache[gfx::kShadowSlots];
+	u64 m_frameCounter = 0;
 
 	std::vector<Fire> m_fires;
 	std::unique_ptr<gfx::Mesh> m_sconceMesh;

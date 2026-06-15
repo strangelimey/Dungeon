@@ -24,17 +24,17 @@ assets::SoundData LoadSound(const std::string& name) {
 }
 
 std::unique_ptr<gfx::Texture> TryLoadTextureFile(gfx::GraphicsDevice& device,
-												 const std::string& stemPath) {
+												 const std::string& stemPath, bool srgb) {
 	if (auto mips = assets::LoadDdsFile(stemPath + ".dds"))
-		return std::make_unique<gfx::Texture>(device, *mips);
+		return std::make_unique<gfx::Texture>(device, *mips, srgb);
 	if (auto image = assets::LoadImageFile(stemPath + ".png"))
-		return std::make_unique<gfx::Texture>(device, *image);
+		return std::make_unique<gfx::Texture>(device, *image, srgb);
 	return nullptr;
 }
 
 std::unique_ptr<gfx::Texture> LoadTextureFile(gfx::GraphicsDevice& device,
-											  const std::string& stemPath) {
-	auto texture = TryLoadTextureFile(device, stemPath);
+											  const std::string& stemPath, bool srgb) {
+	auto texture = TryLoadTextureFile(device, stemPath, srgb);
 	DN_ASSERT(texture != nullptr,
 			  "missing texture " + stemPath + " — run AssetBaker over assets/");
 	return texture;

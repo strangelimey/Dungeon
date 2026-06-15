@@ -20,15 +20,17 @@
 namespace dungeon::gfx {
 class Texture {
 public:
-	Texture(GraphicsDevice& device, const assets::ImageData& image);
-	Texture(GraphicsDevice& device, const assets::MipChain& mips);
+	// `srgb` selects an sRGB view (gamma-decoded on sample) — set it for color
+	// (albedo) maps; leave it false for linear data (normal, height, ORM).
+	Texture(GraphicsDevice& device, const assets::ImageData& image, bool srgb = false);
+	Texture(GraphicsDevice& device, const assets::MipChain& mips, bool srgb = false);
 
 	D3D12_GPU_DESCRIPTOR_HANDLE GpuHandle() const { return m_srv.gpu; }
 	u32 Width() const { return m_width; }
 	u32 Height() const { return m_height; }
 
 private:
-	void Upload(GraphicsDevice& device, const assets::MipChain& chain);
+	void Upload(GraphicsDevice& device, const assets::MipChain& chain, bool srgb);
 
 	ComPtr<ID3D12Resource> m_resource;
 	SrvHandle m_srv;

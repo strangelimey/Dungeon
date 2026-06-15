@@ -10,7 +10,10 @@ assets/textures/*.dds
 # (tools/FetchTextures.ps1). The raw Poly Haven downloads live there too.
 assets/textures/*_1k.png
 assets/textures/*_1k_n.png
+assets/textures/*_1k_mr.png
 assets/textures/*_2k.png
 assets/textures/*_2k_n.png
+assets/textures/*_2k_mr.png
 assets/textures/*_4k.png
 assets/textures/*_4k_n.png
+assets/textures/*_4k_mr.png
