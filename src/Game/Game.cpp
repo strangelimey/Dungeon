@@ -62,7 +62,8 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 		   m_characters),
 	  m_mapView(device, m_world, m_settings),
 	  m_console(device),
-	  m_modelPreview(device, 512) {
+	  m_modelPreview(device, 512),
+	  m_assetDialog(device, window) {
 	m_settings.Load();
 	ApplyLanguage(false); // strings must exist before any UI builds
 	m_audio.SetMasterVolume(m_settings.volume);
@@ -118,6 +119,22 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	// Update applies it first thing next frame.
 	m_ui.onLanguageSelected = [this](const std::string& code) {
 		m_pendingLanguage = code;
+	};
+
+	// Editor: a palette "+ New" opens the asset-creation dialog for that category
+	// (Walls/Floors/Ceilings import a texture folder; the rest import a model).
+	m_mapView.onNewAsset = [this](MapView::PaletteCat cat) {
+		using C = MapView::PaletteCat;
+		const bool textureSet = cat == C::Walls || cat == C::Floors || cat == C::Ceilings;
+		m_assetDialog.Open(loc::Tr(MapView::CategoryNameKey(cat)), textureSet,
+						   m_settings.theme);
+	};
+	// Create is stubbed until P4c wires AssetBaker; log the gathered request.
+	m_assetDialog.onCreate = [this](const AssetDialog::CreateRequest& req) {
+		log::Info("asset create (stub): category='{}' name='{}' source='{}' "
+				  "textureSet={} metallic={:.2f} roughness={:.2f}",
+				  req.category, req.name, req.sourcePath, req.textureSet,
+				  req.material.metallic, req.material.roughness);
 	};
 
 	// Developer console commands (dev-facing, English). The generic ones
@@ -698,6 +715,14 @@ void Game::Update(float dt) {
 	}
 
 	// --- Playing -------------------------------------------------------------
+	// The asset-creation dialog is modal over the editor: while it is up it owns
+	// input and the world/overlay are frozen.
+	if (m_assetDialog.IsOpen()) {
+		m_assetDialog.Update(input, static_cast<float>(m_window.Width()),
+							 static_cast<float>(m_window.Height()), dt);
+		return;
+	}
+
 	// Map overlay: a toggle that never pauses the world. While it is open the
 	// party still walks (keyboard) — the overlay only claims the mouse for
 	// panning/zooming/editing, and Esc/M closes it instead of pausing.
@@ -758,17 +783,30 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 	const bool editorMap = m_state == AppState::Playing && m_mapView.IsOpen() &&
 						   m_mapView.CurrentMode() == MapView::Mode::Editor;
 
-	// The editor 3D preview (dev `preview`) renders one model to its offscreen
-	// target and replaces the scene; it redirects the OM, so rebind the back
-	// buffer for the 2D pass.
-	const bool preview = m_previewMesh != nullptr;
-	if (preview) {
-		m_modelPreview.Render(list, m_renderer, *m_previewMesh, m_previewMaterial,
-							  m_previewOrbit);
+	// The offscreen 3D preview feeds from the asset dialog's picked model (P4b)
+	// or the dev `preview` command (P4a). Render() redirects the OM, so rebind
+	// the back buffer for the 2D pass.
+	const gfx::Mesh* pvMesh = nullptr;
+	gfx::MaterialParams pvMat;
+	float pvOrbit = 0.0f;
+	if (m_assetDialog.IsOpen() && m_assetDialog.HasPreview()) {
+		pvMesh = &m_assetDialog.PreviewMesh();
+		pvMat = m_assetDialog.PreviewMaterial();
+		pvOrbit = m_assetDialog.Orbit();
+	} else if (m_previewMesh) {
+		pvMesh = m_previewMesh.get();
+		pvMat = m_previewMaterial;
+		pvOrbit = m_previewOrbit;
+	}
+	const bool devPreviewFullscreen = m_previewMesh && !m_assetDialog.IsOpen();
+
+	if (pvMesh) {
+		m_modelPreview.Render(list, m_renderer, *pvMesh, pvMat, pvOrbit);
 		m_device.BindBackBuffer(list);
 	}
 	// The 3D scene draws during play and under the pause/character-sheet
-	// overlays (frozen); Loading and Menu are 2D-only.
+	// overlays (frozen); Loading and Menu are 2D-only. The full-screen dev
+	// preview replaces it; the editor map and dialog skip it too.
 	else if ((m_state == AppState::Playing || m_state == AppState::Paused ||
 			  m_state == AppState::CharacterSheet) &&
 			 !editorMap) {
@@ -802,11 +840,17 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 	case AppState::Paused:      m_ui.RenderPauseOverlay(); break;
 	case AppState::CharacterSheet: m_ui.RenderCharacterSheetOverlay(); break;
 	}
-	// Editor 3D preview pane: dim the frame and blit the offscreen render (P4a;
-	// P4b will frame this inside the asset dialog instead of full-screen).
-	if (preview) {
-		const float dw = static_cast<float>(m_device.Width());
-		const float dh = static_cast<float>(m_device.Height());
+	const float dw = static_cast<float>(m_device.Width());
+	const float dh = static_cast<float>(m_device.Height());
+	if (m_assetDialog.IsOpen()) {
+		// The asset dialog overlays the editor; it draws its own frame, then we
+		// blit the rendered preview model into its preview pane.
+		m_assetDialog.Render(m_spriteBatch, dw, dh);
+		if (m_assetDialog.HasPreview())
+			m_spriteBatch.DrawSprite(m_assetDialog.PreviewRect(dw, dh), {0, 0, 1, 1},
+									 m_modelPreview.Srv(), {1, 1, 1, 1});
+	} else if (devPreviewFullscreen) {
+		// Dev `preview` command: dim the frame and blit the model full-screen.
 		m_spriteBatch.DrawRect({0, 0, dw, dh}, {0.04f, 0.04f, 0.06f, 1.0f});
 		const float s = std::min(dw, dh) * 0.85f;
 		m_spriteBatch.DrawSprite({(dw - s) * 0.5f, (dh - s) * 0.5f, s, s},

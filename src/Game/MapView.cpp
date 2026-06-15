@@ -223,6 +223,11 @@ void MapView::BuildPaletteRows(const gfx::Rect& panel, std::vector<PaletteRow>& 
 		out.push_back({PaletteRow::Kind::Header, cat, -1, {body.x, y, body.w, headerH}});
 		y += headerH;
 		if (m_catOpen[c]) {
+			if (Creatable(cat)) {
+				out.push_back({PaletteRow::Kind::NewButton, cat, -1,
+							   {body.x, y, body.w, itemH}});
+				y += itemH;
+			}
 			const std::vector<PaletteItem> items = CategoryItems(cat);
 			if (items.empty()) {
 				out.push_back({PaletteRow::Kind::Empty, cat, -1, {body.x, y, body.w, itemH}});
@@ -391,6 +396,8 @@ bool MapView::Update(const Input& input, const gfx::Rect& panel) {
 							!m_catOpen[static_cast<size_t>(r.cat)];
 					else if (r.kind == PaletteRow::Kind::Item)
 						m_sel = {r.cat, r.index};
+					else if (r.kind == PaletteRow::Kind::NewButton && onNewAsset)
+						onNewAsset(r.cat);
 					break;
 				}
 				return true; // a click anywhere in the dock body is the dock's
@@ -622,6 +629,10 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 								rc.x + dpad * 2 + arrowW, ty, theme.text);
 					break;
 				}
+				case PaletteRow::Kind::NewButton:
+					m_font.Draw(batch, loc::Tr("map.cat.new"), rc.x + dpad * 3, ty,
+								theme.accent);
+					break;
 				case PaletteRow::Kind::Empty:
 					m_font.Draw(batch, loc::Tr("map.cat.empty"), rc.x + dpad * 3, ty,
 								theme.textDim);

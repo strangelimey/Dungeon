@@ -188,3 +188,17 @@ map.key.item=Item
 map.key.button=Button
 map.key.decoration=Decoration
 map.key.stairs=Stairs
+map.cat.new=+ New...
+
+; --- asset-creation dialog -------------------------------------------------------
+newasset.title=New {}
+newasset.name=name
+newasset.browse_model=Browse Model...
+newasset.browse_folder=Browse Folder...
+newasset.none=(no source)
+newasset.metallic=Metallic
+newasset.roughness=Roughness
+newasset.height=Height
+newasset.color=Color
+newasset.create=Create
+newasset.cancel=Cancel

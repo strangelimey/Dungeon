@@ -34,6 +34,7 @@
 #include "UI/UIContext.h" // ui::Theme
 
 #include <array>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -65,6 +66,13 @@ public:
 
 	bool IsOpen() const { return m_open; }
 	Mode CurrentMode() const { return m_mode; }
+
+	// Fired when a category's "+ New..." row is clicked (the owner opens the
+	// asset-creation dialog for that category).
+	std::function<void(PaletteCat)> onNewAsset;
+
+	// The loc key for a category's display name (the owner labels the dialog).
+	static const char* CategoryNameKey(PaletteCat cat);
 
 	// Opens the overlay in `mode`, resetting the view to fit-the-whole-map so
 	// it is predictable each time rather than wherever it was last panned.
@@ -155,17 +163,21 @@ private:
 	// The items of a category: built-in (Tools/Structure) or resolved from the
 	// project's catalogs / the level palette (Walls/Floors/Ceilings/entities).
 	std::vector<PaletteItem> CategoryItems(PaletteCat cat) const;
-	static const char* CategoryNameKey(PaletteCat cat);
 
 	// Accordion layout, shared by Update (hit-test) and Render (draw): one row
 	// per category header, per visible item, and per empty-expanded placeholder.
 	// Rects are in panel pixel space with the scroll already applied.
 	struct PaletteRow {
-		enum class Kind { Header, Item, Empty } kind;
+		enum class Kind { Header, NewButton, Item, Empty } kind;
 		PaletteCat cat;
 		int index; // item index for Kind::Item
 		gfx::Rect rect;
 	};
+	// Categories that can author new assets (everything but the built-in tools
+	// and structure brushes) get a "+ New..." row that opens the asset dialog.
+	static bool Creatable(PaletteCat cat) {
+		return cat != PaletteCat::Tools && cat != PaletteCat::Structure;
+	}
 	void BuildPaletteRows(const gfx::Rect& panel, std::vector<PaletteRow>& out,
 						  float& contentHeight) const;
 	// The dock body rectangle the rows scroll within (below the header label).

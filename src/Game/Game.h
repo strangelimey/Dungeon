@@ -38,6 +38,7 @@
 #pragma once
 
 #include "Audio/AudioEngine.h"
+#include "Game/AssetDialog.h"
 #include "Game/Character.h"
 #include "Game/DevConsole.h"
 #include "Game/DungeonWorld.h"
@@ -182,6 +183,9 @@ private:
 	std::unique_ptr<gfx::Mesh> m_previewMesh;
 	gfx::MaterialParams m_previewMaterial;
 	float m_previewOrbit = 0.0f;
+
+	// Asset-creation dialog (P4b), opened from the palette's "+ New".
+	AssetDialog m_assetDialog;
 
 	// The map overlay's panel in the given surface's pixel space (window pixels
 	// for input, device pixels for drawing): full-screen in Editor mode (it
