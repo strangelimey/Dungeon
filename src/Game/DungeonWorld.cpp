@@ -408,6 +408,10 @@ void DungeonWorld::ApplyQuality(bool textureResChanged) {
 	LoadDungeonBlocks();
 	if (textureResChanged) LoadAllSurfaceTextures();
 	BuildDungeonMeshes();
+	// The surface tessellation changed but the map Revision did not, so force a
+	// re-render of every cached shadow cube (otherwise standing still after a
+	// quality swap leaves the torch/glow cubes showing the old geometry).
+	for (ShadowSlotCache& cache : m_shadowCache) cache.lightId = -1;
 	log::Info("Quality switched to {} ({} meshes, {} textures)",
 			  m_settings.QualityLabel(), m_settings.MeshSuffix(),
 			  m_settings.TextureSuffix());
