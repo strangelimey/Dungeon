@@ -47,6 +47,7 @@
 #include "Game/MapView.h"
 #include "Game/Project.h"
 #include "Game/SoundBank.h"
+#include "Graphics/ModelPreview.h"
 #include "Graphics/Renderer.h"
 #include "Graphics/SpriteBatch.h"
 #include "Platform/Window.h"
@@ -171,6 +172,16 @@ private:
 	MapView m_mapView;
 	// Fullscreen dev overlay (toggle with `~`); does not pause the world.
 	DevConsole m_console;
+
+	// Editor 3D model preview (P4a). The offscreen render target plus the model
+	// currently shown in it (dev `preview <model>`); a null mesh = inactive. The
+	// model spins by m_previewOrbit each frame. P4b embeds this in the asset
+	// dialog; for now it draws full-screen via the dev command.
+	gfx::ModelPreview m_modelPreview;
+	assets::ModelData m_previewModel;
+	std::unique_ptr<gfx::Mesh> m_previewMesh;
+	gfx::MaterialParams m_previewMaterial;
+	float m_previewOrbit = 0.0f;
 
 	// The map overlay's panel in the given surface's pixel space (window pixels
 	// for input, device pixels for drawing): full-screen in Editor mode (it

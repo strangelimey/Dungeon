@@ -4,6 +4,7 @@
 // ============================================================================
 #include "Game/Game.h"
 
+#include "Assets/File.h"
 #include "Core/Loc.h"
 #include "Core/Log.h"
 #include "Core/Paths.h"
@@ -60,7 +61,8 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	  m_ui(window, device, spriteBatch, audio, m_sounds, m_settings,
 		   m_characters),
 	  m_mapView(device, m_world, m_settings),
-	  m_console(device) {
+	  m_console(device),
+	  m_modelPreview(device, 512) {
 	m_settings.Load();
 	ApplyLanguage(false); // strings must exist before any UI builds
 	m_audio.SetMasterVolume(m_settings.volume);
@@ -248,6 +250,30 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 							   m_console.Print("saved level: " + m_world.CurrentLevel());
 						   else
 							   m_console.Print("save failed (see log)");
+					   });
+	m_console.Register("preview", "show a model in the 3D preview (off to close)",
+					   [this](const std::vector<std::string>& args) {
+						   if (!args.empty() && args[0] == "off") {
+							   m_previewMesh.reset();
+							   m_console.Print("preview off");
+							   return;
+						   }
+						   if (!Need(m_console, args, 1, "usage: preview <model> (off)"))
+							   return;
+						   const std::string name = JoinArgs(args);
+						   if (!assets::ReadBinaryFile(paths::Asset("models\\" + name + ".gltf"))) {
+							   m_console.Print("no model: " + name);
+							   return;
+						   }
+						   m_previewModel = LoadModelOrDie(name + ".gltf");
+						   m_previewMesh = std::make_unique<gfx::Mesh>(
+							   m_device, m_previewModel.meshes[0]);
+						   m_previewMaterial = {};
+						   if (!m_previewModel.materials.empty())
+							   m_previewMaterial.baseColor =
+								   m_previewModel.materials[0].baseColorFactor;
+						   m_previewOrbit = 0.0f;
+						   m_console.Print("preview: " + name);
 					   });
 	m_console.Register("monsters", "list monsters and their cells",
 					   [this](const std::vector<std::string>&) {
@@ -573,6 +599,7 @@ void Game::Update(float dt) {
 	if (!m_pendingLanguage.empty()) ApplyLanguage(true);
 
 	m_ui.UpdateFonts(dt);
+	if (m_previewMesh) m_previewOrbit += dt * 0.6f; // spin the editor 3D preview
 
 	const Input& input = m_window.GetInput();
 
@@ -731,11 +758,20 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 	const bool editorMap = m_state == AppState::Playing && m_mapView.IsOpen() &&
 						   m_mapView.CurrentMode() == MapView::Mode::Editor;
 
+	// The editor 3D preview (dev `preview`) renders one model to its offscreen
+	// target and replaces the scene; it redirects the OM, so rebind the back
+	// buffer for the 2D pass.
+	const bool preview = m_previewMesh != nullptr;
+	if (preview) {
+		m_modelPreview.Render(list, m_renderer, *m_previewMesh, m_previewMaterial,
+							  m_previewOrbit);
+		m_device.BindBackBuffer(list);
+	}
 	// The 3D scene draws during play and under the pause/character-sheet
 	// overlays (frozen); Loading and Menu are 2D-only.
-	if ((m_state == AppState::Playing || m_state == AppState::Paused ||
-		 m_state == AppState::CharacterSheet) &&
-		!editorMap) {
+	else if ((m_state == AppState::Playing || m_state == AppState::Paused ||
+			  m_state == AppState::CharacterSheet) &&
+			 !editorMap) {
 		m_world.RenderShadowMaps(list);
 		m_world.RenderScene(list);
 	}
@@ -765,6 +801,16 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 	}
 	case AppState::Paused:      m_ui.RenderPauseOverlay(); break;
 	case AppState::CharacterSheet: m_ui.RenderCharacterSheetOverlay(); break;
+	}
+	// Editor 3D preview pane: dim the frame and blit the offscreen render (P4a;
+	// P4b will frame this inside the asset dialog instead of full-screen).
+	if (preview) {
+		const float dw = static_cast<float>(m_device.Width());
+		const float dh = static_cast<float>(m_device.Height());
+		m_spriteBatch.DrawRect({0, 0, dw, dh}, {0.04f, 0.04f, 0.06f, 1.0f});
+		const float s = std::min(dw, dh) * 0.85f;
+		m_spriteBatch.DrawSprite({(dw - s) * 0.5f, (dh - s) * 0.5f, s, s},
+								 {0, 0, 1, 1}, m_modelPreview.Srv(), {1, 1, 1, 1});
 	}
 	if (m_console.IsOpen())
 		m_console.Render(m_spriteBatch, m_device, static_cast<float>(m_device.Width()),

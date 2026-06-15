@@ -130,9 +130,14 @@ void SpriteBatch::DrawRect(const Rect& dst, const Vec4& color) {
 
 void SpriteBatch::DrawSprite(const Rect& dst, const Rect& uv, const Texture& texture,
 							 const Vec4& color) {
+	DrawSprite(dst, uv, texture.GpuHandle(), color);
+}
+
+void SpriteBatch::DrawSprite(const Rect& dst, const Rect& uv,
+							 D3D12_GPU_DESCRIPTOR_HANDLE srv, const Vec4& color) {
 	if (!m_list) return;
-	if (m_pendingTexture.ptr != texture.GpuHandle().ptr && !m_pending.empty()) Flush();
-	m_pendingTexture = texture.GpuHandle();
+	if (m_pendingTexture.ptr != srv.ptr && !m_pending.empty()) Flush();
+	m_pendingTexture = srv;
 
 	const SpriteVertex v0{{dst.x, dst.y}, {uv.x, uv.y}, color};
 	const SpriteVertex v1{{dst.x + dst.w, dst.y}, {uv.x + uv.w, uv.y}, color};

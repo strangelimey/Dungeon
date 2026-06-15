@@ -42,6 +42,10 @@ public:
 	// Textured quad; uv in normalized texture coordinates.
 	void DrawSprite(const Rect& dst, const Rect& uv, const Texture& texture,
 					const Vec4& color);
+	// As above, but from a raw shader-visible SRV handle — for offscreen render
+	// targets (e.g. the editor's 3D model preview) that aren't a Texture.
+	void DrawSprite(const Rect& dst, const Rect& uv, D3D12_GPU_DESCRIPTOR_HANDLE srv,
+					const Vec4& color);
 
 	// Quad rotated `radians` clockwise about `center` (screen Y is down, so
 	// positive angles turn toward +X→+Y). `size` is the unrotated width/height.
