@@ -15,6 +15,7 @@
 #include "MipBaker.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <filesystem>
 
@@ -37,7 +38,9 @@ std::string ResolveModelFile(const std::string& sourcePath) {
 		std::ranges::sort(files);
 		for (const auto& f : files) {
 			std::string ext = f.extension().string();
-			std::ranges::transform(ext, ext.begin(), ::tolower);
+			std::ranges::transform(ext, ext.begin(), [](unsigned char c) {
+				return static_cast<char>(std::tolower(c));
+			});
 			if (ext == ".gltf" || ext == ".glb" || ext == ".obj") return f.string();
 		}
 	}

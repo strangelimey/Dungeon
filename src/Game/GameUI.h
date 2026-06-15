@@ -19,6 +19,7 @@
 #include "Game/Character.h"
 #include "Game/GameSettings.h"
 #include "Game/LoadQueue.h"
+#include "Game/MessageLog.h"
 #include "Game/Party.h"
 #include "Game/PartyHud.h"
 #include "Game/SoundBank.h"
@@ -60,7 +61,9 @@ public:
 	void UpdateMenu(const Input& input);  // landing list or settings page
 	void UpdatePause(const Input& input); // pause list or settings page
 	void UpdateSheet(const Input& input);
-	void UpdateHud(const Input& input);
+	// dt advances the message footer's fades / expand animation (real frame
+	// time, not world time).
+	void UpdateHud(const Input& input, float dt);
 	// Reformats the HUD compass/position labels when the values change
 	// (per-frame string formatting is needless heap churn).
 	void SetHudStatus(int facing, int gridX, int gridZ);
@@ -196,7 +199,7 @@ private:
 	bool m_savesDirty = false;
 
 	// Widgets the game updates later; the UIContexts own them.
-	ui::TextOutput* m_log = nullptr;
+	MessageLog* m_log = nullptr;
 	ui::Label* m_compass = nullptr;
 	ui::Label* m_position = nullptr;
 	CharacterSheet* m_sheet = nullptr;

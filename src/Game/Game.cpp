@@ -606,7 +606,7 @@ void Game::Update(float dt) {
 	}
 
 	// UI first so it can consume the mouse; keyboard always reaches the party.
-	m_ui.UpdateHud(input);
+	m_ui.UpdateHud(input, dt);
 	// A portrait click may have opened the character sheet — freeze now
 	// rather than simulating one more frame.
 	if (m_state != AppState::Playing) return;

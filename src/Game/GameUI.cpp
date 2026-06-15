@@ -573,8 +573,8 @@ void GameUI::BuildHud() {
 		m_belowBarWidgets.push_back({widget, widget->bounds.y * h});
 	};
 
-	// Message log, bottom-left.
-	m_log = m_hudUi.Add<ui::TextOutput>(Norm({16, h - 200, 520, 184}, window));
+	// The message log is a full-width footer added LAST (see the end of this
+	// function) so it sits on top of the control panel when it expands.
 
 	// Status labels, below the party bar on the left. Their text arrives via
 	// SetHudStatus before the HUD's first visible frame.
@@ -627,7 +627,10 @@ void GameUI::BuildHud() {
 	const float px = w - panelW - 16.0f;
 	const float pad = 14.0f;
 	const float innerW = panelW - 2 * pad;
-	const float panelBottom = h - 16.0f; // the panel runs to the window bottom
+	// The control panel stops short of the bottom so the full-width message
+	// footer (added last, flush to the bottom edge) has its collapsed strip.
+	const float footerReserve = 64.0f;
+	const float panelBottom = h - footerReserve;
 	below(m_hudUi.Add<ui::Panel>(
 		Norm({px, belowBar, panelW, panelBottom - belowBar}, window)));
 
@@ -694,6 +697,14 @@ void GameUI::BuildHud() {
 		loc::Tr("hud.magic_none"));
 	magicNone->dim = true;
 	below(magicNone);
+
+	// Full-width message footer, flush to the bottom edge. Added last so it is
+	// the topmost HUD widget — it claims the mouse first and draws over the
+	// control panel when the player hovers it open. It sizes itself from the
+	// window each frame, so its normalized bounds are nominal (full screen).
+	m_log = m_hudUi.Add<MessageLog>();
+	m_log->bounds = {0, 0, 1, 1};
+	m_log->restoreLabel = loc::Tr("hud.log_show");
 
 	ApplyPartyBarScale();
 }
@@ -777,8 +788,11 @@ void GameUI::UpdateSheet(const Input& input) {
 	m_sheetUi.Update(input, WindowW(), WindowH());
 }
 
-void GameUI::UpdateHud(const Input& input) {
+void GameUI::UpdateHud(const Input& input, float dt) {
 	m_hudUi.Update(input, WindowW(), WindowH());
+	// The log reads this frame's hover/scroll (set during Update above) to
+	// advance its fades and expand/collapse animation.
+	if (m_log) m_log->Tick(dt);
 }
 
 void GameUI::SetHudStatus(int facing, int gridX, int gridZ) {

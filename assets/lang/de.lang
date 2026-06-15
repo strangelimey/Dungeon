@@ -84,6 +84,7 @@ hud.wait=Warten
 hud.help=Hilfe
 hud.magic=Magie
 hud.magic_none=Keine Zauber bekannt.
+hud.log_show=Protokoll
 torch.warm=Warme Flamme
 torch.cold=Kaltes Mondfeuer
 torch.eerie=Schaurige Glut

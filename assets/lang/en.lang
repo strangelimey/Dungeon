@@ -100,6 +100,7 @@ hud.wait=Wait
 hud.help=Help
 hud.magic=Magic
 hud.magic_none=No spells known.
+hud.log_show=Log
 torch.warm=Warm flame
 torch.cold=Cold moonfire
 torch.eerie=Eerie emberlight
