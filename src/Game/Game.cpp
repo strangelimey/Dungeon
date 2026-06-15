@@ -187,7 +187,7 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 						   m_console.Print(std::format(
 							   "{}x{} map, {} monsters, {} torches", map.Width(),
 							   map.Height(), m_world.MonsterCount(),
-							   map.TorchCells().size()));
+							   map.Sconces().size()));
 					   });
 	m_console.Register("editor", "open the map in editor mode (off = player map)",
 					   [this](const std::vector<std::string>& args) {
@@ -338,7 +338,7 @@ void Game::BuildGameLoadTasks() {
 		m_ui.BuildHud();
 		log::Info("Game loaded: {}x{} dungeon, {} torches, {} monsters",
 				  m_world.Map().Width(), m_world.Map().Height(),
-				  m_world.Map().TorchCells().size(), m_world.MonsterCount());
+				  m_world.Map().Sconces().size(), m_world.MonsterCount());
 	});
 }
 

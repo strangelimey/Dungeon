@@ -260,6 +260,16 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 		const float h = t.cell * frac * 0.5f;
 		batch.DrawRect({ctr.x - h, ctr.y - h, h * 2, h * 2}, c);
 	};
+	// A marker pushed flush against the (dir) cell edge instead of the centre,
+	// so a wall fixture shows on its wall — leaving room for more than one per
+	// cell on different walls.
+	auto edgeMarker = [&](int x, int z, float frac, const Vec4& c, Vec2 dir) {
+		const Vec2 ctr = cellCenter(x, z);
+		const float h = t.cell * frac * 0.5f;
+		const float px = ctr.x + dir.x * (t.cell * 0.5f - h);
+		const float py = ctr.y + dir.y * (t.cell * 0.5f - h);
+		batch.DrawRect({px - h, py - h, h * 2, h * 2}, c);
+	};
 
 	// 1) Floors and walls (Player: only revealed cells; Editor: all).
 	for (int z = 0; z < map.Height(); ++z)
@@ -274,12 +284,21 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 		ui::DrawBorder(batch, cellRect(map.StartX(), map.StartZ()), theme.accent);
 
 	// 3) Fixtures and static decorations (both from the static map layer).
-	for (const auto& [x, z] : map.TorchCells())
-		if (CellVisible(x, z)) marker(x, z, 0.32f, kTorch);
+	for (const WallSconce& s : map.Sconces())
+		if (CellVisible(s.x, s.z))
+			edgeMarker(s.x, s.z, 0.30f, kTorch,
+					   {static_cast<float>(DirDX(s.wall)), static_cast<float>(DirDZ(s.wall))});
 	for (const auto& [x, z] : map.BrazierCells())
 		if (CellVisible(x, z)) marker(x, z, 0.46f, kBrazier);
-	for (const Entity& deco : map.Decorations())
-		if (CellVisible(deco.x, deco.z)) marker(deco.x, deco.z, 0.38f, kDecoration);
+	for (const Entity& deco : map.Decorations()) {
+		if (!CellVisible(deco.x, deco.z)) continue;
+		Direction wall = Direction::North;
+		if (const std::string* w = deco.Param("wall"); w && ParseDirection(*w, wall))
+			edgeMarker(deco.x, deco.z, 0.34f, kDecoration,
+					   {static_cast<float>(DirDX(wall)), static_cast<float>(DirDZ(wall))});
+		else
+			marker(deco.x, deco.z, 0.38f, kDecoration);
+	}
 
 	// 4) Dynamic entities. From the .ent layer for now; once monsters move at
 	// runtime (and projectiles/spells exist) this loop repoints at the live

@@ -1009,6 +1009,19 @@ assets::ModelData BuildChest() {
 	return FinishProp(std::move(mesh), {0.43f, 0.30f, 0.18f, 1.0f});
 }
 
+// Wall-mounted cloth banner: a hanging panel on a top rail, authored
+// back-against the wall (z~0) and reaching into the room (+Z) like the sconce,
+// so the game's wall-mount transform hangs it on a wall (decoration record
+// "wall=<dir>"). A swallowtail notch at the hem reads as heraldic cloth.
+assets::ModelData BuildBanner() {
+	assets::MeshData mesh;
+	AddBox(mesh, {0, 2.18f, 0.05f}, {0.40f, 0.035f, 0.05f}); // top rail
+	AddBox(mesh, {0, 1.55f, 0.03f}, {0.32f, 0.60f, 0.018f}); // cloth field
+	for (const float xs : {-0.16f, 0.16f})                   // two tails below
+		AddBox(mesh, {xs, 0.82f, 0.03f}, {0.13f, 0.13f, 0.018f});
+	return FinishProp(std::move(mesh), {0.55f, 0.11f, 0.13f, 1.0f}); // crimson
+}
+
 // --- serpent pillar ----------------------------------------------------------------
 
 assets::ModelData BuildSerpentPillar() {
@@ -1387,6 +1400,7 @@ bool BakeModels(const std::string& dir, const std::string& texturesDir) {
 	ok &= WriteGltf(BuildBarrel(), dir + "\\barrel.gltf");
 	ok &= WriteGltf(BuildCrate(), dir + "\\crate.gltf");
 	ok &= WriteGltf(BuildChest(), dir + "\\chest.gltf");
+	ok &= WriteGltf(BuildBanner(), dir + "\\banner.gltf");
 
 	ok &= WriteGltf(BuildHumanoid({{0.93f, 0.90f, 0.80f, 1.0f}, 0.85f, 3.2f, 0.0f, 0.12f}),
 					dir + "\\skeleton.gltf");

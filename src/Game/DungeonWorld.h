@@ -225,6 +225,14 @@ private:
 	void BuildDungeonMeshes();
 	void LoadMonsters();
 	void LoadDecorations();
+	// World-space mount for a prop hung flat against the `wall` of cell (x,z):
+	// origin pushed to the wall face, +Z (authored front) turned to face the
+	// room. Shared by wall sconces and wall-mounted decorations.
+	struct WallMount {
+		Vec3 pos;
+		float yaw;
+	};
+	WallMount MountOnWall(int x, int z, Direction wall) const;
 	// Loads (once, cached in m_propTextures) a prop PBR set by name: sRGB albedo
 	// + linear normal/height + ORM, with the same res→2k fallback as surfaces.
 	// Returns null only if even the 2k albedo is missing.

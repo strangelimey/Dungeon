@@ -31,6 +31,8 @@ enum class Direction : u8 { North, East, South, West };
 
 int DirDX(Direction d);
 int DirDZ(Direction d);
+// Parses "north"/"east"/"south"/"west" into `out`; false on anything else.
+bool ParseDirection(std::string_view token, Direction& out);
 // Yaw under the camera convention forward = (sin yaw, 0, cos yaw):
 // south = 0, east = +pi/2, north = pi, west = -pi/2.
 float DirYaw(Direction d);

@@ -12,6 +12,13 @@
 ; block meshes baked, see ModelBaker.cpp); "decoration" records are static
 ; entities (see Entity.h for the format), e.g.
 ;   decoration banner 4 2 north
+; "fixture <sconce|brazier> <x> <z> [facing]" places a wall sconce or floor
+; brazier explicitly — unlike the one-per-cell 'T'/'F' glyphs, several may
+; share a cell (e.g. two sconces on different walls). A sconce facing names
+; the wall it hangs on (must be solid); omit it to auto-pick the first solid
+; neighbour. A decoration can take "wall=<dir>" to hang flat on that wall
+; (offset to it, facing the room) instead of standing at the cell centre — so
+; a sconce, a banner and other wall props can all share one square.
 ; Dynamic content — monsters, items, buttons — lives in level1.ent.
 
 textures wall wall_brick wall_stone wall_moss
@@ -66,7 +73,13 @@ textures ceiling ceiling_rough ceiling_cracked
 decoration ancient_pot 2 2 south
 decoration barrel 7 6 south
 ;
-; Great pillared hall
+; Great pillared hall — the NW corner carries two sconces, one per wall, and
+; the NE corner a sconce plus a wall banner on the other wall: several wall
+; fixtures/decorations sharing one square.
+fixture sconce 11 2 north
+fixture sconce 11 2 west
+fixture sconce 21 2 north
+decoration banner 21 2 wall=east
 decoration column 12 3 south
 decoration column 20 3 south
 decoration column 12 8 south

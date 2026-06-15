@@ -339,12 +339,27 @@ void DungeonWorld::LoadDecorations() {
 		deco.kind = &kind;
 		deco.x = record.x;
 		deco.z = record.z;
-		deco.solid = record.type != "archway"; // passages let the party through
-		if (const std::string* s = record.Param("solid")) deco.solid = *s != "0";
 
-		const Vec3 pos = m_map.CellCenter(deco.x, deco.z);
-		XMStoreFloat4x4(&deco.world, XMMatrixRotationY(DirYaw(record.facing)) *
-										 XMMatrixTranslation(pos.x, 0, pos.z));
+		// "wall=<dir>" hangs the prop flat on that wall (offset to the wall face,
+		// turned to face the room) — the same mount sconces use, so several wall
+		// fixtures can share a cell on different walls. Such props sit on the
+		// wall, so they don't block the floor unless solid=1 is given. Without
+		// wall=, the prop stands at the cell centre with its facing rotation.
+		Direction wall = Direction::North;
+		const std::string* wallParam = record.Param("wall");
+		const bool wallMounted = wallParam && ParseDirection(*wallParam, wall);
+		if (wallMounted) {
+			const WallMount m = MountOnWall(deco.x, deco.z, wall);
+			XMStoreFloat4x4(&deco.world, XMMatrixRotationY(m.yaw) *
+											 XMMatrixTranslation(m.pos.x, 0, m.pos.z));
+			deco.solid = false;
+		} else {
+			const Vec3 pos = m_map.CellCenter(deco.x, deco.z);
+			XMStoreFloat4x4(&deco.world, XMMatrixRotationY(DirYaw(record.facing)) *
+											 XMMatrixTranslation(pos.x, 0, pos.z));
+			deco.solid = record.type != "archway"; // passages let the party through
+		}
+		if (const std::string* s = record.Param("solid")) deco.solid = *s != "0";
 		m_decorations.push_back(std::move(deco));
 	}
 	log::Info("Placed {} decorations ({} kinds)", m_decorations.size(),
@@ -354,37 +369,30 @@ void DungeonWorld::LoadDecorations() {
 // Places one Fire per sconce ('T') and brazier ('F') cell. Sconces mount on
 // the first solid neighbor wall and face into the room; braziers stand at
 // the cell center. Flame origins match the baked models (see ModelBaker).
+// Origin pushed to the wall face, +Z (authored front) turned to face the room.
+DungeonWorld::WallMount DungeonWorld::MountOnWall(int x, int z, Direction wall) const {
+	const int dx = DirDX(wall), dz = DirDZ(wall);
+	const Vec3 c = m_map.CellCenter(x, z);
+	return {{c.x + dx * (kCellSize * 0.5f - 0.02f), 0.0f,
+			 c.z + dz * (kCellSize * 0.5f - 0.02f)},
+			std::atan2(static_cast<float>(-dx), static_cast<float>(-dz))};
+}
+
 void DungeonWorld::BuildFires() {
 	u32 seed = 1234;
 
-	// Sconce mount: the first solid neighbor (N, E, S, W), defaulting to north.
-	constexpr int kNeighborX[4] = {0, 1, 0, -1};
-	constexpr int kNeighborZ[4] = {-1, 0, 1, 0};
-
-	for (const auto& [tx, tz] : m_map.TorchCells()) {
-		// Pick the wall this sconce hangs on.
-		int dx = kNeighborX[0], dz = kNeighborZ[0];
-		for (int n = 0; n < 4; ++n) {
-			if (!m_map.IsWalkable(tx + kNeighborX[n], tz + kNeighborZ[n])) {
-				dx = kNeighborX[n];
-				dz = kNeighborZ[n];
-				break;
-			}
-		}
-
-		const Vec3 center = m_map.CellCenter(tx, tz);
-		const Vec3 mount{center.x + dx * (kCellSize * 0.5f - 0.02f), 0.0f,
-						 center.z + dz * (kCellSize * 0.5f - 0.02f)};
-		// Authored facing +Z; rotate so +Z points away from the wall.
-		const float yaw = std::atan2(static_cast<float>(-dx), static_cast<float>(-dz));
+	for (const WallSconce& sconce : m_map.Sconces()) {
+		// Hang on the wall resolved at map load (shared with decorations).
+		const WallMount m = MountOnWall(sconce.x, sconce.z, sconce.wall);
+		const float yaw = m.yaw;
 
 		Fire fire;
 		fire.brazier = false;
 		XMStoreFloat4x4(&fire.world, XMMatrixRotationY(yaw) *
-										 XMMatrixTranslation(mount.x, 0, mount.z));
+										 XMMatrixTranslation(m.pos.x, 0, m.pos.z));
 		// Flame local offset (0, 1.78, 0.22) rotated by yaw.
-		fire.flamePos = {mount.x + std::sin(yaw) * 0.22f, 1.78f,
-						 mount.z + std::cos(yaw) * 0.22f};
+		fire.flamePos = {m.pos.x + std::sin(yaw) * 0.22f, 1.78f,
+						 m.pos.z + std::cos(yaw) * 0.22f};
 		fire.phase = static_cast<float>(seed) * 1.7f;
 		fire.effect = FireEffect(fire.flamePos, 0.55f, seed++);
 		m_fires.push_back(std::move(fire));
@@ -401,7 +409,7 @@ void DungeonWorld::BuildFires() {
 		m_fires.push_back(std::move(fire));
 	}
 	log::Info("Lit {} fires ({} sconces, {} braziers)", m_fires.size(),
-			  m_map.TorchCells().size(), m_map.BrazierCells().size());
+			  m_map.Sconces().size(), m_map.BrazierCells().size());
 }
 
 // Per-cell turbidity as a top-down density grid: one texel per dungeon cell,

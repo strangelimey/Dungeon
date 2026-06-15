@@ -143,7 +143,19 @@ buffer, reused across all ~25 submissions).
     (grid glyphs are never lowercase): `textures <wall|floor|ceiling>
     <set> ...` declares the level's surface palette — MANDATORY, the game
     loads only those sets + their worn meshes, order = variant index —
-    plus decoration records.
+    plus `decoration <type> <x> <z> [facing]` and `fixture <sconce|brazier>
+    <x> <z> [facing]` records. The 'T'/'F' glyphs are one-per-cell shorthand
+    for an auto-faced sconce/brazier; the fixture record places them
+    explicitly so several can share a cell (e.g. two sconces on different
+    walls — sconce facing names the solid wall it mounts on). Sconces resolve
+    their mount wall at load (DungeonMap::WallSconce). A decoration record can
+    also take `wall=<dir>` to hang flat on that wall instead of standing at the
+    cell centre, so a sconce + a banner + other wall props can share one square.
+    The wall mount (offset to the wall face, +Z turned to face the room) is one
+    helper, DungeonWorld::MountOnWall, shared by sconces and wall decorations;
+    the map overlay edge-draws both. Wall-mounted decorations default non-solid
+    (they're on the wall, floor stays clear). The `banner` model is authored
+    wall-backed for this; other wall-mounted props should be too.
   - assets/maps/level1.ent — DYNAMIC layer (DungeonEntities): monsters,
     items, buttons; one record per line, `<kind> <type> <x> <z> [facing]
     [key=value ...]` (Entity.h). Monster type → model: <type>.gltf.

@@ -51,8 +51,6 @@ std::vector<std::string_view> SplitRecordTokens(std::string_view line) {
 	return tokens;
 }
 
-namespace {
-
 bool ParseDirection(std::string_view token, Direction& out) {
 	if (token == "north") out = Direction::North;
 	else if (token == "east") out = Direction::East;
@@ -61,8 +59,6 @@ bool ParseDirection(std::string_view token, Direction& out) {
 	else return false;
 	return true;
 }
-
-} // namespace
 
 Entity ParseEntityRecord(std::string_view line, std::string_view where) {
 	const std::vector<std::string_view> tokens = SplitRecordTokens(line);

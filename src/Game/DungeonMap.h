@@ -8,6 +8,10 @@
 // are records — grid glyphs are never lowercase, so the two can't collide:
 //   textures <wall|floor|ceiling> <set> [...]   surface texture palette
 //   decoration <type> <x> <z> [facing]          static entity (Entity.h)
+//   fixture <sconce|brazier> <x> <z> [facing]   wall sconce / floor brazier
+// The 'T'/'F' glyphs are terse shorthand for a single auto-faced sconce/
+// brazier; the fixture record places them explicitly, so several can share a
+// cell (e.g. two sconces on different walls) — records always allow that.
 // Every level declares its texture palette; the game loads only those sets
 // (and their worn block meshes), nothing else. Dynamic content (monsters,
 // items, buttons) lives in the .ent file next to the .map — see
@@ -39,6 +43,14 @@ inline constexpr float kWallHeight = 2.5f; // floor to ceiling
 inline constexpr float kEyeHeight = 1.55f; // camera height above the floor
 
 enum class Cell : u8 { Wall, Floor };
+
+// A wall-mounted torch sconce: its cell plus the wall it hangs on (the
+// direction from the cell to the solid neighbour it mounts against). Several
+// sconces may share a cell on different walls.
+struct WallSconce {
+	int x = 0, z = 0;
+	Direction wall = Direction::North;
+};
 
 // Grid-based dungeon. Coordinates: x = column, z = row; world position of a
 // cell center is ((x + 0.5) * kCellSize, 0, (z + 0.5) * kCellSize).
@@ -76,7 +88,7 @@ public:
 
 	int StartX() const { return m_startX; }
 	int StartZ() const { return m_startZ; }
-	const std::vector<std::pair<int, int>>& TorchCells() const { return m_torches; }
+	const std::vector<WallSconce>& Sconces() const { return m_torches; }
 	const std::vector<std::pair<int, int>>& BrazierCells() const { return m_braziers; }
 
 	// Static decoration records (banners, rubble, ...) from the .map file.
@@ -102,7 +114,7 @@ private:
 
 	std::vector<Cell> m_cells;
 	std::vector<float> m_turbidity; // parallel to m_cells
-	std::vector<std::pair<int, int>> m_torches;
+	std::vector<WallSconce> m_torches;
 	std::vector<std::pair<int, int>> m_braziers;
 	std::vector<Entity> m_decorations;
 	std::vector<std::string> m_wallTextures;
