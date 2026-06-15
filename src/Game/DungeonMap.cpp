@@ -300,6 +300,29 @@ Cell DungeonMap::At(int x, int z) const {
 
 bool DungeonMap::IsWalkable(int x, int z) const { return At(x, z) == Cell::Floor; }
 
+bool DungeonMap::AddSconce(int x, int z) {
+	if (!IsWalkable(x, z)) return false;
+	// Mount on the first solid neighbour (N, E, S, W) — same rule as a 'T' glyph.
+	constexpr Direction kScan[4] = {Direction::North, Direction::East,
+									Direction::South, Direction::West};
+	for (const Direction d : kScan)
+		if (!IsWalkable(x + DirDX(d), z + DirDZ(d))) {
+			m_torches.push_back({x, z, d});
+			AddFireTurbidity(x, z, 0.28f);
+			++m_revision;
+			return true;
+		}
+	return false; // no wall to hang on
+}
+
+bool DungeonMap::AddBrazier(int x, int z) {
+	if (!IsWalkable(x, z)) return false;
+	m_braziers.emplace_back(x, z);
+	AddFireTurbidity(x, z, 0.55f);
+	++m_revision;
+	return true;
+}
+
 void DungeonMap::SetCell(int x, int z, Cell cell) {
 	if (x < 0 || z < 0 || x >= m_width || z >= m_height) return;
 	Cell& slot = m_cells[static_cast<size_t>(z) * m_width + x];

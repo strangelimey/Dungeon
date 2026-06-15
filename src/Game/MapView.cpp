@@ -291,14 +291,19 @@ void MapView::ApplyBrush(int cx, int cz, bool dragging) {
 		break;
 	}
 	case PaletteCat::Decorations:
-	case PaletteCat::Monsters: {
+	case PaletteCat::Monsters:
+	case PaletteCat::Fixtures: {
 		if (dragging) break; // placement is a single click
 		const std::vector<PaletteItem> items = CategoryItems(m_sel.cat);
 		if (m_sel.index < 0 || m_sel.index >= static_cast<int>(items.size())) break;
 		const std::string& id = items[m_sel.index].id;
-		const bool ok = m_sel.cat == PaletteCat::Monsters
-							? m_world.AddMonster(id, cx, cz, Direction::South)
-							: m_world.AddDecoration(id, cx, cz, Direction::South);
+		bool ok = false;
+		if (m_sel.cat == PaletteCat::Monsters)
+			ok = m_world.AddMonster(id, cx, cz, Direction::South);
+		else if (m_sel.cat == PaletteCat::Fixtures)
+			ok = m_world.AddFixture(id, cx, cz);
+		else
+			ok = m_world.AddDecoration(id, cx, cz, Direction::South);
 		log(loc::Format(ok ? "map.place.done" : "map.place.blocked",
 						items[m_sel.index].label));
 		break;

@@ -118,6 +118,14 @@ public:
 				(static_cast<float>(z) + 0.5f) * kCellSize};
 	}
 
+	// --- live fixture placement (editor) ------------------------------------
+	// A sconce auto-mounts on the first solid neighbour wall (fails if the cell
+	// has none); a brazier stands on the floor cell. Both add their dust and bump
+	// Revision(). Return false on an invalid cell. DungeonWorld rebuilds the
+	// fires/dust after; the .map writer reads these lists, so placements persist.
+	bool AddSconce(int x, int z);
+	bool AddBrazier(int x, int z);
+
 	int StartX() const { return m_startX; }
 	int StartZ() const { return m_startZ; }
 	const std::vector<WallSconce>& Sconces() const { return m_torches; }

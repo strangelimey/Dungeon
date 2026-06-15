@@ -165,6 +165,10 @@ public:
 	// already occupied. Edits are in-memory only (no .map/.ent write yet).
 	bool AddDecoration(const std::string& type, int x, int z, Direction facing);
 	bool AddMonster(const std::string& type, int x, int z, Direction facing);
+	// Places a fixture (sconce/brazier from fixtures.cat — `mount` decides wall vs
+	// floor) and rebuilds the fire instances + dust so it lights immediately and
+	// persists. Returns false on an invalid cell (e.g. a sconce with no wall).
+	bool AddFixture(const std::string& type, int x, int z);
 	// Removes the topmost runtime entity in a cell (a monster first, else a
 	// decoration). Returns true if something was removed.
 	bool RemoveEntityAt(int x, int z);

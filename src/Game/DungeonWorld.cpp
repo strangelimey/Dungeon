@@ -715,6 +715,22 @@ bool DungeonWorld::AddMonster(const std::string& type, int x, int z,
 	return true;
 }
 
+bool DungeonWorld::AddFixture(const std::string& type, int x, int z) {
+	if (!m_map.IsWalkable(x, z)) return false;
+	const CatalogEntry* def = m_project.fixtures.Find(type);
+	const std::string mount = def ? def->Get("mount", "floor") : "floor";
+	const bool ok = mount == "wall" ? m_map.AddSconce(x, z) : m_map.AddBrazier(x, z);
+	if (!ok) return false;
+	// Rebuild the fire instances + dust from the updated map (lights pick the new
+	// fire up next frame; the GPU may still read the old turbidity, so drain it).
+	m_device.WaitIdle();
+	m_fires.clear();
+	BuildFires();
+	BuildTurbidityMap();
+	MarkSeen(x, z);
+	return true;
+}
+
 bool DungeonWorld::RemoveEntityAt(int x, int z) {
 	for (auto it = m_monsters.begin(); it != m_monsters.end(); ++it)
 		if (it->x == x && it->z == z) {
