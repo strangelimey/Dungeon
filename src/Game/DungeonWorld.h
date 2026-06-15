@@ -449,6 +449,7 @@ private:
 	anim::Animator m_pillarAnimator;
 	Vec3 m_pillarPos{};
 	const PropTextures* m_pillarTex = nullptr; // peacock-ore set (pillar_<res>)
+	bool m_pillarActive = false; // the serpent pillar is level-1 flavor only
 
 	std::flat_map<std::string, std::unique_ptr<MonsterKind>> m_monsterKinds;
 	std::vector<Monster> m_monsters;

@@ -1304,6 +1304,21 @@ assets::ModelData BuildBlob() {
 	return model;
 }
 
+// A stone staircase: a flight of rising steps centred in the cell. The
+// stair/portal prop (the party transitions on stepping onto the tile).
+assets::ModelData BuildStairs() {
+	assets::MeshData mesh;
+	constexpr int kSteps = 7;
+	constexpr float kRise = 0.17f, kRun = 0.24f, kHalfX = 0.85f;
+	const float zBack = kSteps * kRun * 0.5f; // centre the flight along z
+	for (int i = 0; i < kSteps; ++i) {
+		const float top = (i + 1) * kRise; // tread height of step i
+		const float zc = zBack - kRun * 0.5f - i * kRun;
+		AddBox(mesh, {0.0f, top * 0.5f, zc}, {kHalfX, top * 0.5f, kRun * 0.5f});
+	}
+	return FinishProp(std::move(mesh), {0.55f, 0.53f, 0.50f, 1.0f});
+}
+
 } // namespace
 
 bool BakeModels(const std::string& dir, const std::string& texturesDir) {
@@ -1401,6 +1416,7 @@ bool BakeModels(const std::string& dir, const std::string& texturesDir) {
 	ok &= WriteGltf(BuildCrate(), dir + "\\crate.gltf");
 	ok &= WriteGltf(BuildChest(), dir + "\\chest.gltf");
 	ok &= WriteGltf(BuildBanner(), dir + "\\banner.gltf");
+	ok &= WriteGltf(BuildStairs(), dir + "\\stairs.gltf");
 
 	ok &= WriteGltf(BuildHumanoid({{0.93f, 0.90f, 0.80f, 1.0f}, 0.85f, 3.2f, 0.0f, 0.12f}),
 					dir + "\\skeleton.gltf");

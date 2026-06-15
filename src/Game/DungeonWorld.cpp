@@ -178,7 +178,8 @@ void DungeonWorld::AppendLoadTasks(LoadQueue& queue) {
 		m_pillarAnimator.Play("sway");
 		m_pillarPos = m_map.CellCenter(m_map.StartX(), m_map.StartZ() + 2);
 		m_pillarTex = LoadPropTextures("pillar"); // peacock-ore
-
+		// Flavor for the opening level only — don't spawn it on every level.
+		m_pillarActive = m_currentLevel == FirstLevel(m_project);
 	});
 	queue.Add(loc::Tr("load.monsters"), [this] { LoadMonsters(); });
 	queue.Add(loc::Tr("load.decorations"), [this] {
@@ -931,7 +932,7 @@ void DungeonWorld::SetTorchPalette(int index) {
 void DungeonWorld::Update(const Input& input, float dt, float time, bool acceptInput) {
 	if (acceptInput) m_party.HandleInput(input);
 	m_party.Update(dt);
-	m_pillarAnimator.Update(dt);
+	if (m_pillarActive) m_pillarAnimator.Update(dt);
 	UpdateMonsters(dt);
 	UpdateLights(time);
 	UpdateCamera();
@@ -1016,12 +1017,14 @@ void DungeonWorld::UpdateLights(float time) {
 		m_lights.points.push_back(light);
 	}
 
-	gfx::PointLight glow;
-	glow.position = {m_pillarPos.x, 1.3f, m_pillarPos.z};
-	glow.radius = 5.0f;
-	glow.color = {0.3f, 0.9f, 0.6f};
-	glow.intensity = 1.2f + 0.2f * std::sin(time * 2.2f);
-	m_lights.points.push_back(glow);
+	if (m_pillarActive) {
+		gfx::PointLight glow;
+		glow.position = {m_pillarPos.x, 1.3f, m_pillarPos.z};
+		glow.radius = 5.0f;
+		glow.color = {0.3f, 0.9f, 0.6f};
+		glow.intensity = 1.2f + 0.2f * std::sin(time * 2.2f);
+		m_lights.points.push_back(glow);
+	}
 
 	AssignShadowSlots();
 }
@@ -1162,7 +1165,8 @@ bool DungeonWorld::AnimatedCasterNear(const gfx::PointLight& light) const {
 		const float reach = light.radius + r;
 		return d.x * d.x + d.y * d.y + d.z * d.z <= reach * reach;
 	};
-	if (inReach({m_pillarPos.x, 1.2f, m_pillarPos.z}, 1.2f)) return true; // sway
+	if (m_pillarActive && inReach({m_pillarPos.x, 1.2f, m_pillarPos.z}, 1.2f))
+		return true; // sway
 	for (const Monster& m : m_monsters) {
 		const Vec3 c = m_map.CellCenter(m.x, m.z);
 		if (inReach({c.x, 1.0f, c.z}, 1.5f)) return true;
@@ -1230,7 +1234,7 @@ void DungeonWorld::SubmitSceneGeometry(ID3D12GraphicsCommandList* list,
 	DrawSurface(list, m_ceilings, cull);
 
 	// Pillar — peacock-ore stone (bump + parallax + ORM); polished jade fallback.
-	if (visible({m_pillarPos.x, 1.2f, m_pillarPos.z}, 1.8f)) {
+	if (m_pillarActive && visible({m_pillarPos.x, 1.2f, m_pillarPos.z}, 1.8f)) {
 		Mat4 pillarWorld = Mat4Identity();
 		pillarWorld._41 = m_pillarPos.x;
 		pillarWorld._43 = m_pillarPos.z;

@@ -25,6 +25,16 @@ std::string Asset(const std::string& relative) {
 	return ExecutableDir() + "\\assets\\" + relative;
 }
 
+const std::string& RepoAssetsDir() {
+	static const std::string dir =
+#ifdef DN_REPO_ASSETS
+		DN_REPO_ASSETS;
+#else
+		"";
+#endif
+	return dir;
+}
+
 const std::string& SaveDir() {
 	static const std::string dir = [] {
 		PWSTR path = nullptr;

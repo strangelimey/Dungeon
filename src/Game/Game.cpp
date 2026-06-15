@@ -14,6 +14,7 @@
 #include <cctype>
 #include <chrono>
 #include <cstdlib>
+#include <filesystem>
 #include <format>
 #include <string>
 #include <utility>
@@ -289,6 +290,30 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 							   m_console.Print("saved level: " + m_world.CurrentLevel());
 						   else
 							   m_console.Print("save failed (see log)");
+					   });
+	m_console.Register("synctosource",
+					   "copy the active project (edits) into the repo source tree",
+					   [this](const std::vector<std::string>&) {
+						   const std::string& repo = paths::RepoAssetsDir();
+						   if (repo.empty()) {
+							   m_console.Print("no source path baked in");
+							   return;
+						   }
+						   namespace fs = std::filesystem;
+						   const fs::path src = m_project.folder; // the build-copy project
+						   const fs::path dst =
+							   fs::path(repo) / "projects" / src.filename();
+						   std::error_code ec;
+						   fs::create_directories(dst, ec);
+						   fs::copy(src, dst,
+									fs::copy_options::recursive |
+										fs::copy_options::overwrite_existing,
+									ec);
+						   if (ec)
+							   m_console.Print("sync failed: " + ec.message());
+						   else
+							   m_console.Print("synced " + src.filename().string() +
+											   " -> source");
 					   });
 	m_console.Register("preview", "show a model in the 3D preview (off to close)",
 					   [this](const std::vector<std::string>& args) {
