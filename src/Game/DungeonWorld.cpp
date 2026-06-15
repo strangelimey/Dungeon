@@ -728,18 +728,22 @@ bool DungeonWorld::RemoveEntityAt(int x, int z) {
 	return false;
 }
 
-std::vector<std::pair<int, int>> DungeonWorld::MonsterCells() const {
-	std::vector<std::pair<int, int>> cells;
-	cells.reserve(m_monsters.size());
-	for (const Monster& m : m_monsters) cells.emplace_back(m.x, m.z);
-	return cells;
+std::vector<DungeonWorld::MapMarker> DungeonWorld::MonsterMarkers() const {
+	std::vector<MapMarker> markers;
+	markers.reserve(m_monsters.size());
+	for (const Monster& m : m_monsters)
+		markers.push_back({m.x, m.z, m.kind ? m.kind->name : std::string()});
+	return markers;
 }
 
-std::vector<std::pair<int, int>> DungeonWorld::DecorationCells() const {
-	std::vector<std::pair<int, int>> cells;
-	cells.reserve(m_decorations.size());
-	for (const Decoration& d : m_decorations) cells.emplace_back(d.x, d.z);
-	return cells;
+std::vector<DungeonWorld::MapMarker> DungeonWorld::DecorationMarkers() const {
+	std::vector<MapMarker> markers;
+	markers.reserve(m_decorations.size());
+	for (const Decoration& d : m_decorations) {
+		if (d.stair) continue; // stairs draw from their own (typed) marker
+		markers.push_back({d.x, d.z, d.kind ? d.kind->id : std::string()});
+	}
+	return markers;
 }
 
 void DungeonWorld::BeginLevelLoad(const std::string& stem, bool stashCurrent) {

@@ -40,6 +40,20 @@ const Vec4 kDoor{0.78f, 0.60f, 0.35f, 1.0f};       // door category
 const Vec4 kStair{0.60f, 0.72f, 0.78f, 1.0f};      // stair category
 const Vec4 kToolSelect{0.45f, 0.70f, 0.95f, 1.0f}; // Select tool
 const Vec4 kToolErase{0.90f, 0.40f, 0.40f, 1.0f};  // Erase tool
+const Vec4 kMarkerInk{0.96f, 0.96f, 0.98f, 1.0f};  // initials drawn over markers
+
+// Tints a base cell color by a surface variant index so painted texture types
+// read distinctly on the map. variant < 1 (unpainted, or the base palette slot)
+// keeps the base; higher indices add a stable hue so brick/stone/mossy differ.
+Vec4 VariantTint(const Vec4& base, int variant) {
+	if (variant < 1) return base;
+	static const Vec4 hue[] = {
+		{0.00f, 0.00f, 0.00f, 0.0f}, {0.10f, 0.22f, 0.06f, 0.0f},
+		{0.06f, 0.12f, 0.26f, 0.0f}, {0.26f, 0.10f, 0.06f, 0.0f}};
+	const Vec4& h = hue[static_cast<size_t>(variant) % 4];
+	const auto cl = [](float v) { return v < 0.0f ? 0.0f : (v > 1.0f ? 1.0f : v); };
+	return {cl(base.x + h.x), cl(base.y + h.y), cl(base.z + h.z), base.w};
+}
 
 // Font px at the design window height (re-baked to track the real height).
 constexpr float kFontH = 18.0f;
@@ -250,11 +264,11 @@ void MapView::ApplyBrush(int cx, int cz, bool dragging) {
 		if (m_sel.index == 0) { // Select: report the cell's contents
 			const char* base = map.At(cx, cz) == Cell::Wall ? "wall" : "floor";
 			int props = 0;
-			for (const auto& [px, pz] : m_world.DecorationCells())
-				if (px == cx && pz == cz) ++props;
+			for (const auto& m : m_world.DecorationMarkers())
+				if (m.x == cx && m.z == cz) ++props;
 			int mons = 0;
-			for (const auto& [px, pz] : m_world.MonsterCells())
-				if (px == cx && pz == cz) ++mons;
+			for (const auto& m : m_world.MonsterMarkers())
+				if (m.x == cx && m.z == cz) ++mons;
 			std::string details = base;
 			if (mons) details += std::format(", {} monster{}", mons, mons == 1 ? "" : "s");
 			if (props) details += std::format(", {} prop{}", props, props == 1 ? "" : "s");
@@ -450,13 +464,47 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 		const float py = ctr.y + dir.y * (t.cell * 0.5f - h);
 		batch.DrawRect({px - h, py - h, h * 2, h * 2}, c);
 	};
+	// A type initial centred on a marker (skipped when cells are too small to
+	// read); the upper-cased first letter of the catalog id.
+	auto label = [&](int x, int z, const std::string& type) {
+		if (type.empty() || t.cell < 16.0f) return;
+		char ch = type[0];
+		if (ch >= 'a' && ch <= 'z') ch -= 32;
+		const std::string s(1, ch);
+		const Vec2 c = cellCenter(x, z);
+		m_font.Draw(batch, s, c.x - m_font.MeasureWidth(s) * 0.5f,
+					c.y - m_font.Height() * 0.5f, kMarkerInk);
+	};
+	// A small stack-count badge ("x3") at the cell's bottom-right corner.
+	auto countBadge = [&](int x, int z, int n) {
+		if (n < 2 || t.cell < 20.0f) return;
+		const std::string s = "x" + std::to_string(n);
+		const Vec2 c = cellCenter(x, z);
+		m_font.Draw(batch, s, c.x + t.cell * 0.5f - m_font.MeasureWidth(s) - 1.0f,
+					c.y + t.cell * 0.5f - m_font.Height(), theme.text);
+	};
 
-	// 1) Floors and walls (Player: only revealed cells; Editor: all).
+	// A solid cell shows the wall-variant of an adjacent painted floor cell (walls
+	// belong to the floor cells they border), so a painted wall type tints the
+	// surrounding wall squares on the map.
+	auto wallCellVariant = [&](int x, int z) -> int {
+		const int n[4][2] = {{0, -1}, {0, 1}, {-1, 0}, {1, 0}};
+		for (const auto& d : n)
+			if (map.At(x + d[0], z + d[1]) == Cell::Floor) {
+				const int v = map.WallVariant(x + d[0], z + d[1]);
+				if (v >= 0) return v;
+			}
+		return -1;
+	};
+
+	// 1) Floors and walls, tinted by surface variant (Player: revealed only).
 	for (int z = 0; z < map.Height(); ++z)
 		for (int x = 0; x < map.Width(); ++x) {
 			if (!CellVisible(x, z)) continue;
-			batch.DrawRect(cellRect(x, z),
-						   map.At(x, z) == Cell::Wall ? kWall : kFloor);
+			const Vec4 col = map.At(x, z) == Cell::Wall
+								 ? VariantTint(kWall, wallCellVariant(x, z))
+								 : VariantTint(kFloor, map.FloorVariant(x, z));
+			batch.DrawRect(cellRect(x, z), col);
 		}
 
 	// 2) Start cell — an accent outline.
@@ -470,21 +518,34 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 					   {static_cast<float>(DirDX(s.wall)), static_cast<float>(DirDZ(s.wall))});
 	for (const auto& [x, z] : map.BrazierCells())
 		if (CellVisible(x, z)) marker(x, z, 0.46f, kBrazier);
-	// Decorations from the LIVE world list (so editor placements/removals show);
-	// drawn as centre markers (the wall-edge nicety the static records carried is
-	// dropped now that placement is live — restore via a stored wall dir later).
-	for (const auto& [x, z] : m_world.DecorationCells())
-		if (CellVisible(x, z)) marker(x, z, 0.38f, kDecoration);
+	// Decorations from the LIVE world list (so editor placements/removals show),
+	// labelled with their type initial.
+	for (const auto& m : m_world.DecorationMarkers()) {
+		if (!CellVisible(m.x, m.z)) continue;
+		marker(m.x, m.z, 0.38f, kDecoration);
+		label(m.x, m.z, m.type);
+	}
 
 	// Stairs (over the decoration marker they also occupy) — a distinct color.
 	for (const StairLink& s : m_world.Map().Stairs())
 		if (CellVisible(s.x, s.z)) marker(s.x, s.z, 0.44f, kStair);
 
-	// 4) Dynamic entities. Monsters come from the LIVE world list (placed/erased
-	// reflect immediately); items/buttons still come from the .ent layer until
-	// they too become live-editable.
-	for (const auto& [x, z] : m_world.MonsterCells())
-		if (CellVisible(x, z)) marker(x, z, 0.5f, kMonster);
+	// 4) Dynamic entities. Monsters come from the LIVE world list, drawn once per
+	// cell with a type initial and a stack count when several share a square;
+	// items/buttons still come from the .ent layer until they too are editable.
+	const std::vector<DungeonWorld::MapMarker> mons = m_world.MonsterMarkers();
+	for (size_t i = 0; i < mons.size(); ++i) {
+		bool firstInCell = true;
+		for (size_t j = 0; j < i; ++j)
+			if (mons[j].x == mons[i].x && mons[j].z == mons[i].z) { firstInCell = false; break; }
+		if (!firstInCell || !CellVisible(mons[i].x, mons[i].z)) continue;
+		int count = 0;
+		for (const auto& m : mons)
+			if (m.x == mons[i].x && m.z == mons[i].z) ++count;
+		marker(mons[i].x, mons[i].z, 0.5f, kMonster);
+		label(mons[i].x, mons[i].z, mons[i].type);
+		countBadge(mons[i].x, mons[i].z, count);
+	}
 	for (const Entity& e : m_world.Entities().All()) {
 		if (!CellVisible(e.x, e.z)) continue;
 		switch (e.kind) {

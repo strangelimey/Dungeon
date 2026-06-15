@@ -169,11 +169,15 @@ public:
 	// decoration). Returns true if something was removed.
 	bool RemoveEntityAt(int x, int z);
 
-	// Cells of the live monsters / decorations, for the editor map overlay (so
-	// placed/erased entities show immediately). Built fresh per call (editor-
-	// only, off the per-frame perf path).
-	std::vector<std::pair<int, int>> MonsterCells() const;
-	std::vector<std::pair<int, int>> DecorationCells() const;
+	// A live entity's cell + type, for the map overlay (placed/erased entities
+	// show immediately, and the marker can label its type + stack count). Built
+	// fresh per call (editor-only, off the per-frame perf path).
+	struct MapMarker {
+		int x = 0, z = 0;
+		std::string type; // catalog id (monster kind / decoration kind)
+	};
+	std::vector<MapMarker> MonsterMarkers() const;
+	std::vector<MapMarker> DecorationMarkers() const;
 
 	// Writes the active level back to the project's .map + .ent files,
 	// reconstructing records from the live state (grid + variant overrides +
