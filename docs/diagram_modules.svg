@@ -9,8 +9,8 @@
 <style>
 .box{rx:9;ry:9;stroke:var(--color-border-secondary,#7a7a7a);stroke-width:1.5;}
 .t{fill:var(--color-text-primary,#ececec);font-size:15px;font-weight:600;}
-.s{fill:var(--color-text-secondary,#9a9a9a);font-size:10.5px;}
-.lbl{fill:var(--color-text-secondary,#9a9a9a);font-size:11px;}
+.s{fill:var(--color-text-secondary,#cfcfcf);font-size:10.5px;}
+.lbl{fill:var(--color-text-secondary,#cfcfcf);font-size:11px;}
 .dep{stroke:var(--color-border-secondary,#6b6b6b);stroke-width:1.3;fill:none;marker-end:url(#ar);}
 .fillA{fill:var(--color-background-secondary,rgba(120,140,200,0.10));}
 .fillB{fill:var(--color-background-secondary,rgba(120,200,160,0.08));}
@@ -18,6 +18,8 @@
 .tier{fill:var(--color-text-info,#8aa6d6);font-size:10px;opacity:.8;}
 </style>
 </defs>
+
+<rect x="0" y="0" width="780" height="580" fill="var(--color-background-primary,#15151b)"/>
 
 <g class="dep">
 <path d="M390 70 L390 96"/>

@@ -9,15 +9,17 @@
 <style>
 .b{rx:9;ry:9;stroke:var(--color-border-secondary,#7a7a7a);stroke-width:1.5;}
 .t{fill:var(--color-text-primary,#ececec);font-size:14px;font-weight:600;}
-.s{fill:var(--color-text-secondary,#9a9a9a);font-size:11px;}
+.s{fill:var(--color-text-secondary,#cfcfcf);font-size:11px;}
 .fl{stroke:var(--color-border-secondary,#6b6b6b);stroke-width:1.4;fill:none;marker-end:url(#a2);}
 .phase{fill:var(--color-text-info,#8aa6d6);font-size:11px;font-weight:600;letter-spacing:.05em;}
 .f1{fill:var(--color-background-secondary,rgba(120,140,200,0.10));}
 .f2{fill:var(--color-background-secondary,rgba(120,200,160,0.08));}
 .fend{fill:var(--color-background-secondary,rgba(200,170,110,0.12));}
-.note{fill:var(--color-text-secondary,#9a9a9a);font-size:10.5px;font-style:italic;}
+.note{fill:var(--color-text-secondary,#cfcfcf);font-size:10.5px;font-style:italic;}
 </style>
 </defs>
+
+<rect x="0" y="0" width="760" height="660" fill="var(--color-background-primary,#15151b)"/>
 
 <text class="phase" x="40" y="34">1 · wWinMain (composition root)</text>
 <rect class="b f1" x="40" y="44" width="320" height="70"/>
