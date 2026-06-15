@@ -149,12 +149,18 @@ private:
 		float heightScale = 0.0f;
 	};
 
+	// A textured material set shared by props (defined in full below); forward-
+	// declared here so monster kinds can point at one before the definition.
+	struct PropTextures;
+
 	// Per-kind monster assets (shared) and per-instance state. Kinds are
 	// entity type names from the .ent file ("skeleton" loads skeleton.gltf).
 	struct MonsterKind {
 		assets::ModelData model; // must outlive the Animators pointing into it
 		std::unique_ptr<gfx::Mesh> mesh;
 		std::string name;
+		// PBR set bound by type name (skeleton_<res>, ...); null = flat material.
+		const PropTextures* tex = nullptr; // points into m_propTextures (stable)
 	};
 	struct Monster {
 		const MonsterKind* kind = nullptr; // points into m_monsterKinds (stable)
@@ -219,6 +225,15 @@ private:
 	void BuildDungeonMeshes();
 	void LoadMonsters();
 	void LoadDecorations();
+	// Loads (once, cached in m_propTextures) a prop PBR set by name: sRGB albedo
+	// + linear normal/height + ORM, with the same res→2k fallback as surfaces.
+	// Returns null only if even the 2k albedo is missing.
+	const PropTextures* LoadPropTextures(const std::string& set);
+	// Fills a draw's material from a prop set (albedo + bump/parallax + ORM), or
+	// a flat color + roughness when the set is missing. Shared by every textured
+	// prop draw (decorations, fires, pillar, monsters).
+	static void ApplyPropMaterial(gfx::MaterialParams& m, const PropTextures* tex,
+								  const Vec4& fallbackColor, float fallbackRoughness);
 	void BuildFires();
 	void BuildTurbidityMap();
 
@@ -289,6 +304,7 @@ private:
 	std::unique_ptr<gfx::Mesh> m_pillarMesh;
 	anim::Animator m_pillarAnimator;
 	Vec3 m_pillarPos{};
+	const PropTextures* m_pillarTex = nullptr; // peacock-ore set (pillar_<res>)
 
 	std::flat_map<std::string, std::unique_ptr<MonsterKind>> m_monsterKinds;
 	std::vector<Monster> m_monsters;
@@ -316,6 +332,8 @@ private:
 	std::unique_ptr<gfx::Mesh> m_brazierMesh;
 	Vec4 m_sconceColor{1, 1, 1, 1};
 	Vec4 m_brazierColor{1, 1, 1, 1};
+	const PropTextures* m_sconceTex = nullptr;  // worn-medieval iron (sconce_<res>)
+	const PropTextures* m_brazierTex = nullptr; // bronze (brazier_<res>)
 	std::unique_ptr<gfx::ParticleBatch> m_particleBatch;
 	std::vector<gfx::ParticleInstance> m_particleScratch;
 

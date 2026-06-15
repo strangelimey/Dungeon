@@ -593,11 +593,33 @@ assets::ModelData BuildWornCeilingBlock(int kN, const WearField& wear) {
 	return model;
 }
 
+// Reprojects a mesh's UVs to world-aligned tiles so a texture repeats at a
+// fixed real-world size (tileMeters per tile) regardless of the prop's overall
+// shape — each vertex projects onto the plane of its dominant normal axis (the
+// same triplanar-by-dominant-axis idea WallFaceUv uses). This keeps the texel
+// density even across a blocky prop's differently-sized faces, instead of the
+// one-stretched-tile-per-face that AddBox emits. Good for box assemblies;
+// curved surfaces (the pillar, the blob) keep their own natural UVs.
+void TileUvs(assets::MeshData& mesh, float tileMeters) {
+	const float inv = 1.0f / tileMeters;
+	for (assets::Vertex& v : mesh.vertices) {
+		const float ax = std::fabs(v.normal.x), ay = std::fabs(v.normal.y),
+					az = std::fabs(v.normal.z);
+		Vec2 p;
+		if (ay >= ax && ay >= az) p = {v.position.x, v.position.z};  // up/down faces
+		else if (ax >= az)        p = {v.position.z, v.position.y};  // x-facing
+		else                      p = {v.position.x, v.position.y};  // z-facing
+		v.uv = {p.x * inv, p.y * inv};
+	}
+}
+
 // --- fire props --------------------------------------------------------------------
 // Iron sconce (wall torch holder) and floor brazier. Both are simple box
 // assemblies — the drama comes from the particle flames and the point light
 // the game attaches at the flame origin (sconce: local (0, 1.78, 0.22);
-// brazier: local (0, 0.72, 0)).
+// brazier: local (0, 0.72, 0)). The game binds a worn-metal PBR set by name
+// (sconce_<res>, brazier_<res>), so the meshes carry world-aligned tiling UVs
+// for the albedo/normal/height/ORM maps; the glTF baseColor is the fallback.
 
 assets::ModelData BuildSconce() {
 	// Authored against a wall at z=0, arm reaching into the room (+Z).
@@ -607,6 +629,7 @@ assets::ModelData BuildSconce() {
 	AddBox(mesh, {0, 1.52f, 0.12f}, {0.025f, 0.025f, 0.10f}); // arm
 	AddBox(mesh, {0, 1.58f, 0.22f}, {0.06f, 0.05f, 0.06f});   // cup
 	AddBox(mesh, {0, 1.70f, 0.22f}, {0.022f, 0.10f, 0.022f}); // torch shaft
+	TileUvs(mesh, 0.30f); // worn-iron grain repeats every 30 cm
 	mesh.material = 0;
 	model.meshes.push_back(std::move(mesh));
 	model.materials.push_back({{0.35f, 0.32f, 0.30f, 1.0f}, -1}); // dark iron
@@ -621,6 +644,7 @@ assets::ModelData BuildBrazier() {
 	AddBox(mesh, {0, 0.47f, 0}, {0.20f, 0.07f, 0.20f}); // bowl underside
 	AddBox(mesh, {0, 0.58f, 0}, {0.26f, 0.06f, 0.26f}); // bowl rim
 	AddBox(mesh, {0, 0.65f, 0}, {0.18f, 0.025f, 0.18f}); // coal bed
+	TileUvs(mesh, 0.40f); // bronze pattern repeats every 40 cm
 	mesh.material = 0;
 	model.meshes.push_back(std::move(mesh));
 	model.materials.push_back({{0.38f, 0.33f, 0.29f, 1.0f}, -1}); // bronzed iron
@@ -642,16 +666,7 @@ assets::ModelData BuildBrazier() {
 // WallFaceUv) — good enough for stone/wood tiling on these simple shapes.
 assets::ModelData FinishProp(assets::MeshData&& mesh, const Vec4& color,
 							 float tileMeters = 0.6f) {
-	const float inv = 1.0f / tileMeters;
-	for (assets::Vertex& v : mesh.vertices) {
-		const float ax = std::fabs(v.normal.x), ay = std::fabs(v.normal.y),
-					az = std::fabs(v.normal.z);
-		Vec2 p;
-		if (ay >= ax && ay >= az) p = {v.position.x, v.position.z};  // up/down faces
-		else if (ax >= az)        p = {v.position.z, v.position.y};  // x-facing
-		else                      p = {v.position.x, v.position.y};  // z-facing
-		v.uv = {p.x * inv, p.y * inv};
-	}
+	TileUvs(mesh, tileMeters);
 	assets::ModelData model;
 	mesh.material = 0;
 	model.meshes.push_back(std::move(mesh));
@@ -968,6 +983,9 @@ assets::ModelData BuildHumanoid(const HumanoidStyle& style) {
 	AddBox(mesh, {0.33f, 1.30f, 0}, {0.05f * b, 0.26f, 0.05f * b}, 4);     // armR
 	AddBox(mesh, {-0.12f, 0.50f, 0}, {0.06f * b, 0.45f, 0.06f * b}, 5);    // legL
 	AddBox(mesh, {0.12f, 0.50f, 0}, {0.06f * b, 0.45f, 0.06f * b}, 6);     // legR
+	// World-aligned tiling so the bone/bandage set (skeleton_<res>, mummy_<res>)
+	// keeps an even grain across the limbs; the game binds the set by type name.
+	TileUvs(mesh, 0.55f);
 	mesh.material = 0;
 	model.meshes.push_back(std::move(mesh));
 	model.materials.push_back({style.color, -1});

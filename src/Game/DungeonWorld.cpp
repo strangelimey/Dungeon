@@ -127,6 +127,8 @@ void DungeonWorld::AppendLoadTasks(LoadQueue& queue) {
 		m_pillarAnimator = anim::Animator(&m_pillarModel.skeleton, &m_pillarModel.clips);
 		m_pillarAnimator.Play("sway");
 		m_pillarPos = m_map.CellCenter(m_map.StartX(), m_map.StartZ() + 2);
+		m_pillarTex = LoadPropTextures("pillar"); // peacock-ore
+
 	});
 	queue.Add(loc::Tr("load.monsters"), [this] { LoadMonsters(); });
 	queue.Add(loc::Tr("load.decorations"), [this] { LoadDecorations(); });
@@ -134,9 +136,11 @@ void DungeonWorld::AppendLoadTasks(LoadQueue& queue) {
 		auto sconce = LoadModelOrDie("sconce.gltf");
 		m_sconceMesh = std::make_unique<gfx::Mesh>(m_device, sconce.meshes[0]);
 		m_sconceColor = sconce.materials[0].baseColorFactor;
+		m_sconceTex = LoadPropTextures("sconce"); // worn-medieval iron
 		auto brazier = LoadModelOrDie("brazier.gltf");
 		m_brazierMesh = std::make_unique<gfx::Mesh>(m_device, brazier.meshes[0]);
 		m_brazierColor = brazier.materials[0].baseColorFactor;
+		m_brazierTex = LoadPropTextures("brazier"); // bronze
 		m_particleBatch = std::make_unique<gfx::ParticleBatch>(m_device);
 		BuildFires();
 	});
@@ -226,6 +230,7 @@ void DungeonWorld::LoadMonsters() {
 			assets->model = LoadModelOrDie(type + ".gltf");
 			assets->name = type;
 			assets->mesh = std::make_unique<gfx::Mesh>(m_device, assets->model.meshes[0]);
+			assets->tex = LoadPropTextures(type); // <type>_<res> PBR set, if present
 			it = m_monsterKinds.emplace(type, std::move(assets)).first;
 		}
 		return *it->second;
@@ -248,6 +253,53 @@ void DungeonWorld::LoadMonsters() {
 	}
 }
 
+// Loads a prop PBR set once and caches it (shared across decorations, fires,
+// the pillar, and monsters): sRGB albedo + linear normal/height + ORM, with the
+// same res→2k fallback the surfaces use (props ship at 2k, so higher tiers fall
+// back). Returns null only if even the 2k albedo is absent — callers then keep
+// their flat glTF material color.
+const DungeonWorld::PropTextures* DungeonWorld::LoadPropTextures(const std::string& set) {
+	auto it = m_propTextures.find(set);
+	if (it != m_propTextures.end()) return it->second.get();
+	auto pt = std::make_unique<PropTextures>();
+	const char* res = m_settings.TextureSuffix();
+	std::string stem = paths::Asset(std::format("textures\\{}_{}", set, res));
+	pt->albedo = TryLoadTextureFile(m_device, stem, /*srgb*/ true);
+	if (!pt->albedo) {
+		stem = paths::Asset(std::format("textures\\{}_2k", set));
+		pt->albedo = TryLoadTextureFile(m_device, stem, /*srgb*/ true);
+		if (!pt->albedo) {
+			log::Warn("prop texture set '{}' not found — using flat material", set);
+			return nullptr;
+		}
+	}
+	pt->normal = LoadTextureFile(m_device, stem + "_n");
+	pt->mr = TryLoadTextureFile(m_device, stem + "_mr");
+	pt->heightScale = 0.03f;
+	return m_propTextures.emplace(set, std::move(pt)).first->second.get();
+}
+
+// Fills a draw's material from a prop texture set (albedo + bump/parallax +
+// ORM-driven metallic/roughness), or falls back to a flat color + roughness
+// when the set is missing. Shared by every textured prop draw.
+void DungeonWorld::ApplyPropMaterial(gfx::MaterialParams& m,
+									 const PropTextures* tex,
+									 const Vec4& fallbackColor, float fallbackRoughness) {
+	if (tex && tex->albedo) {
+		m.albedo = tex->albedo.get();
+		m.normalMap = tex->normal.get();
+		m.heightScale = tex->heightScale;
+		if (tex->mr) {
+			m.metalRough = tex->mr.get();
+			m.metallic = 1.0f;
+			m.roughness = 1.0f;
+		}
+	} else {
+		m.baseColor = fallbackColor;
+		m.roughness = fallbackRoughness;
+	}
+}
+
 // Loads each decoration model once (shared per type, like monsters) and bakes
 // one placed instance per .map "decoration" record. Authored facing +Z, so a
 // record's facing rotates the prop the same way a monster's does. Everything
@@ -267,27 +319,6 @@ void DungeonWorld::LoadDecorations() {
 		if (isProcedural(type)) return "wall_stone";
 		return type; // imported model: <name>_<res> texture set
 	};
-	// Loads a texture set once (shared across kinds): sRGB albedo + linear
-	// normal/height + ORM, with the same res→2k fallback as the surfaces.
-	auto texForSet = [this](const std::string& set) -> const PropTextures* {
-		auto it = m_propTextures.find(set);
-		if (it == m_propTextures.end()) {
-			auto pt = std::make_unique<PropTextures>();
-			const char* res = m_settings.TextureSuffix();
-			std::string stem = paths::Asset(std::format("textures\\{}_{}", set, res));
-			pt->albedo = TryLoadTextureFile(m_device, stem, /*srgb*/ true);
-			if (!pt->albedo) {
-				stem = paths::Asset(std::format("textures\\{}_2k", set));
-				pt->albedo = LoadTextureFile(m_device, stem, /*srgb*/ true);
-			}
-			pt->normal = LoadTextureFile(m_device, stem + "_n");
-			pt->mr = TryLoadTextureFile(m_device, stem + "_mr");
-			pt->heightScale = 0.03f;
-			it = m_propTextures.emplace(set, std::move(pt)).first;
-		}
-		return it->second.get();
-	};
-
 	auto kindOf = [&](const std::string& type) -> DecorationKind& {
 		auto it = m_decorationKinds.find(type);
 		if (it == m_decorationKinds.end()) {
@@ -295,7 +326,7 @@ void DungeonWorld::LoadDecorations() {
 			kind->model = LoadModelOrDie(type + ".gltf");
 			kind->mesh = std::make_unique<gfx::Mesh>(m_device, kind->model.meshes[0]);
 			kind->color = kind->model.materials[0].baseColorFactor;
-			kind->tex = texForSet(setForType(type));
+			kind->tex = LoadPropTextures(setForType(type));
 			kind->authored = !isProcedural(type);
 			it = m_decorationKinds.emplace(type, std::move(kind)).first;
 		}
@@ -818,14 +849,14 @@ void DungeonWorld::SubmitSceneGeometry(ID3D12GraphicsCommandList* list,
 	DrawSurface(list, m_floors, cull);
 	DrawSurface(list, m_ceilings, cull);
 
-	// Pillar — polished jade, distinctly glossier than the stonework.
+	// Pillar — peacock-ore stone (bump + parallax + ORM); polished jade fallback.
 	if (visible({m_pillarPos.x, 1.2f, m_pillarPos.z}, 1.8f)) {
 		Mat4 pillarWorld = Mat4Identity();
 		pillarWorld._41 = m_pillarPos.x;
 		pillarWorld._43 = m_pillarPos.z;
 		gfx::MaterialParams pillarMaterial;
-		pillarMaterial.baseColor = m_pillarModel.materials[0].baseColorFactor;
-		pillarMaterial.roughness = 0.22f; // polished jade
+		ApplyPropMaterial(pillarMaterial, m_pillarTex,
+						  m_pillarModel.materials[0].baseColorFactor, 0.22f);
 		m_renderer.DrawMesh(list, *m_pillarMesh, pillarWorld, pillarMaterial,
 							m_pillarAnimator.Palette());
 	}
@@ -838,24 +869,12 @@ void DungeonWorld::SubmitSceneGeometry(ID3D12GraphicsCommandList* list,
 		if (!visible({deco.world._41, 1.2f, deco.world._43}, 2.0f)) continue;
 		gfx::MaterialParams material;
 		material.doubleSided = !deco.kind->authored; // authored meshes back-cull
-		const PropTextures* tex = deco.kind->tex;
-		if (tex && tex->albedo) {
-			material.albedo = tex->albedo.get();
-			material.normalMap = tex->normal.get();
-			material.heightScale = tex->heightScale;
-			if (tex->mr) {
-				material.metalRough = tex->mr.get();
-				material.metallic = 1.0f;
-				material.roughness = 1.0f;
-			}
-		} else {
-			material.baseColor = deco.kind->color;
-			material.roughness = 0.85f;
-		}
+		ApplyPropMaterial(material, deco.kind->tex, deco.kind->color, 0.85f);
 		m_renderer.DrawMesh(list, *deco.kind->mesh, deco.world, material);
 	}
 
-	// Monsters. Bone and bandages are matte; the blob glistens wetly.
+	// Monsters: bone/bandage/slime PBR sets, bound by type name. The flat-color
+	// fallback keeps the old look if a set is missing (blob glistens wetly).
 	for (const Monster& monster : m_monsters) {
 		const MonsterKind& kind = *monster.kind;
 		const Vec3 pos = m_map.CellCenter(monster.x, monster.z);
@@ -864,21 +883,24 @@ void DungeonWorld::SubmitSceneGeometry(ID3D12GraphicsCommandList* list,
 		XMStoreFloat4x4(&world, XMMatrixRotationY(monster.yaw) *
 									XMMatrixTranslation(pos.x, 0, pos.z));
 		gfx::MaterialParams material;
-		material.baseColor = kind.model.materials[0].baseColorFactor;
-		if (kind.name == "blob") material.roughness = 0.18f; // wet glisten
+		const float fallbackRough = kind.name == "blob" ? 0.18f : 0.9f;
+		ApplyPropMaterial(material, kind.tex,
+						  kind.model.materials[0].baseColorFactor, fallbackRough);
 		m_renderer.DrawMesh(list, *kind.mesh, world, material,
 							monster.animator.Palette());
 	}
 
-	// Fire props (sconces + braziers): bare iron.
+	// Fire props: worn iron sconce + bronze brazier (bump + parallax + ORM),
+	// falling back to flat metallic iron if the sets are missing.
 	for (const Fire& fire : m_fires) {
 		if (!visible(fire.flamePos, 1.2f)) continue;
-		gfx::MaterialParams iron;
-		iron.baseColor = fire.brazier ? m_brazierColor : m_sconceColor;
-		iron.metallic = 1.0f;
-		iron.roughness = 0.5f;
+		gfx::MaterialParams metal;
+		const Vec4 fallback = fire.brazier ? m_brazierColor : m_sconceColor;
+		ApplyPropMaterial(metal, fire.brazier ? m_brazierTex : m_sconceTex,
+						  fallback, 0.5f);
+		if (!metal.albedo) metal.metallic = 1.0f; // flat fallback reads as metal
 		m_renderer.DrawMesh(list, fire.brazier ? *m_brazierMesh : *m_sconceMesh,
-							fire.world, iron);
+							fire.world, metal);
 	}
 }
 

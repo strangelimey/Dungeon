@@ -128,10 +128,13 @@ buffer, reused across all ~25 submissions).
   (walls, floors, rocks, metals, ...) plus ceilings. Contents: 7 Poly Haven
   CC0 sets (all three res) + the FreePBR Premium pack (~620 sets, almost
   all 2k native; the models/ and bonus/ categories carry .obj prop meshes
-  with their textures). `tools\FetchTextures.ps1` imports ONLY the
-  materials the maps' `textures` records reference (override: -Materials
-  list, -All for everything — slow, hundreds of BC7 bakes; -Resolutions
-  1k,2k,4k). A full pre-history-rewrite git bundle also lives there.
+  with their textures). `tools\FetchTextures.ps1` imports the materials the
+  maps' `textures` records reference PLUS a fixed `$propSets` table — the
+  code-bound prop/creature sets (sconce/brazier/pillar/skeleton/mummy/blob,
+  renamed from their archive folders, 2k-native) — since those load by code
+  convention, not a map record (override: -Materials list skips props, -All
+  for everything — slow, hundreds of BC7 bakes; -Resolutions 1k,2k,4k). A
+  full pre-history-rewrite git bundle also lives there.
 - Maps are two files per level, split static vs dynamic for the future
   save system (saves will only ever store the dynamic side):
   - assets/maps/level1.map — STATIC layer (DungeonMap): ASCII grid, ';'
@@ -299,7 +302,12 @@ editor icons) — the axis-aligned DrawRect/DrawSprite couldn't express them.
   (AssetBaker portraits); the tinted-initial fallback still draws if the
   textures are missing.
 - Monster models are box-rigs; authored glTF would drop in via LoadModel
-  (JOINTS_0 remap already handled).
+  (JOINTS_0 remap already handled). They are now PBR-textured: each generated
+  prop binds a scanned set by name (DungeonWorld::LoadPropTextures, shared with
+  decorations) — sconce=worn-medieval iron, brazier=bronze, pillar=peacock-ore,
+  skeleton=carved limestone (bone), mummy=stained burlap, blob=alien-slime.
+  ModelBaker gives the box-built props world-aligned tiling UVs (TileUvs); the
+  glTF baseColor stays as the flat fallback if a set is missing.
 - BC7 encoder is mode-6 only (slight banding possible on smooth gradients).
 - UI widget bounds are normalized (0..1 of container, see UI/Widget.h) and
   resolve against the live window each frame, so the HUD scales on resize.

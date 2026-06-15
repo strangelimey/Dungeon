@@ -9,10 +9,11 @@
 # those files are committed - run after cloning, then build (the build
 # copies assets next to the exe).
 #
-# By default only the materials referenced by the levels' "textures" records
-# (assets\maps\*.map) are imported - the game never loads anything else.
-# Use -Materials to pull extra sets by name, or -All for the whole archive
-# (hundreds of sets - the BC7 bake will take a long time).
+# By default the materials referenced by the levels' "textures" records
+# (assets\maps\*.map) are imported, plus the fixed set of prop/creature sets
+# the game binds in code ($propSets below: sconce, brazier, pillar, monsters).
+# Use -Materials to pull specific sets by name (props are skipped then), or
+# -All for the whole archive (hundreds of sets - the BC7 bake takes a while).
 #
 # Usage:  powershell -File tools\FetchTextures.ps1 [-Resolutions 1k,2k,4k]
 #                    [-Materials name1,name2,...] [-All]
@@ -66,6 +67,33 @@ foreach ($res in $Resolutions) {
         }
     }
 }
+# Prop / creature PBR sets bound by code (DungeonWorld::LoadPropTextures), not
+# by a map "textures" record, so they are listed here explicitly: the source
+# archive folder is renamed to the output name the game loads by convention
+# (model/monster <name> -> texture set <name>). These are 2k-native, and the
+# loader falls back to the 2k set at every quality tier, so only the 2k variant
+# is imported. All carry OpenGL normals -> --flip-green. Skipped when the caller
+# scopes the fetch with -Materials.
+$propSets = @(
+    @{ Src = "metals\worn-medieval";        Name = "sconce" }   # iron torch holder
+    @{ Src = "metals\bronze";               Name = "brazier" }  # bronze fire bowl
+    @{ Src = "rocks\peacock-ore";           Name = "pillar" }   # serpent pillar
+    @{ Src = "rocks\carvedlimestoneground1"; Name = "skeleton" } # bone
+    @{ Src = "fabric\burlap-stained1";      Name = "mummy" }    # bandages
+    @{ Src = "organic\alien-slime1";        Name = "blob" }     # slime
+)
+if ($Materials.Count -eq 0) {
+    Write-Host "Importing the $($propSets.Count) code-bound prop/creature sets (2k)."
+    foreach ($prop in $propSets) {
+        $src = Join-Path (Join-Path $archive "2k") $prop.Src
+        if (-not (Test-Path $src)) { Write-Host "  $($prop.Src) missing - skipped"; continue }
+        Write-Host "Importing $($prop.Name)_2k..."
+        & $baker import $src $assets "$($prop.Name)_2k" --flip-green
+        if ($LASTEXITCODE -ne 0) { throw "Import failed for $($prop.Name)_2k" }
+        $imported++
+    }
+}
+
 if ($imported -eq 0) { throw "Nothing imported - check the material names against the archive" }
 
 Write-Host ""
