@@ -147,6 +147,14 @@ private:
 		std::vector<std::unique_ptr<gfx::Texture>> mr; // ORM map (null = none yet)
 		std::vector<SurfaceChunk> chunks;              // cullable, tagged by variant
 		float heightScale = 0.0f;
+		// Drops the texture variants (keeps the chunks) before a (re)load of the
+		// set — the staged loader and the quality hot-swap both reuse the Surface.
+		void ResetTextures(float hs) {
+			albedo.clear();
+			normal.clear();
+			mr.clear();
+			heightScale = hs;
+		}
 	};
 
 	// A textured material set shared by props (defined in full below); forward-
@@ -187,7 +195,8 @@ private:
 		std::unique_ptr<gfx::Mesh> mesh;
 		Vec4 color{1, 1, 1, 1};
 		const PropTextures* tex = nullptr; // points into m_propTextures (stable)
-		bool authored = false; // imported model: consistently wound -> back-cull
+		bool authored = false;     // imported model: consistently wound -> back-cull
+		bool solidDefault = true;  // floor-standing blocks the party (passages don't)
 	};
 	struct Decoration {
 		const DecorationKind* kind = nullptr; // points into m_decorationKinds
@@ -218,6 +227,18 @@ private:
 	};
 	std::array<SurfaceDef, 3> SurfaceDefs();
 
+	// One PBR material set's three maps (sRGB albedo + linear normal/height +
+	// ORM), the shared result of LoadPbrSet — surfaces append it into their
+	// variant arrays, props copy it into a PropTextures.
+	struct PbrMaps {
+		std::unique_ptr<gfx::Texture> albedo, normal, mr;
+	};
+	// Loads a PBR set by base name at the current quality tier, falling back to
+	// the always-present 2k set. `required` (surfaces) dies if even the albedo is
+	// missing; otherwise (props) returns maps with a null albedo so the caller
+	// keeps its flat material. The single source of the res→2k fallback.
+	PbrMaps LoadPbrSet(const std::string& name, bool required);
+
 	void LoadDungeonBlocks();      // loads the worn block set for the quality tier
 	void LoadSurfaceMaterial(Surface& surface, const std::string& name);
 	void LoadTextureSet(const SurfaceDef& def); // resets, then loads the set
@@ -237,6 +258,14 @@ private:
 	// + linear normal/height + ORM, with the same res→2k fallback as surfaces.
 	// Returns null only if even the 2k albedo is missing.
 	const PropTextures* LoadPropTextures(const std::string& set);
+	// Binds an albedo+normal+ORM trio onto a material (factors at 1.0 so the ORM
+	// drives metallic/roughness per-texel), or a flat color + roughness fallback
+	// when there is no albedo. The shared core of every textured draw — props and
+	// the per-variant surfaces both route through it.
+	static void ApplyPbr(gfx::MaterialParams& m, const gfx::Texture* albedo,
+						 const gfx::Texture* normal, const gfx::Texture* mr,
+						 float heightScale, const Vec4& fallbackColor,
+						 float fallbackRoughness);
 	// Fills a draw's material from a prop set (albedo + bump/parallax + ORM), or
 	// a flat color + roughness when the set is missing. Shared by every textured
 	// prop draw (decorations, fires, pillar, monsters).

@@ -109,12 +109,7 @@ void DungeonWorld::AppendLoadTasks(LoadQueue& queue) {
 			std::ranges::replace(spaced, '_', ' ');
 			queue.Add(loc::Format("load.surface", spaced),
 					  [this, &surface, name, heightScale, first] {
-						  if (first) {
-							  surface.albedo.clear();
-							  surface.normal.clear();
-							  surface.mr.clear();
-							  surface.heightScale = heightScale;
-						  }
+						  if (first) surface.ResetTextures(heightScale);
 						  LoadSurfaceMaterial(surface, name);
 					  });
 		}
@@ -166,31 +161,47 @@ void DungeonWorld::LoadDungeonBlocks() {
 	load(m_ceilingBlocks, m_map.CeilingTextures());
 }
 
-// Loads one material's albedo + normal pair at the current quality tier and
-// appends it to the surface's variant arrays.
-void DungeonWorld::LoadSurfaceMaterial(Surface& surface, const std::string& name) {
+// Loads a PBR set (albedo sRGB + normal/height + ORM) by base name at the
+// current quality tier. Higher tiers' sets are fetchable content
+// (tools/FetchTextures.ps1), so a missing one drops to the always-present 2k
+// set. `required` (surfaces) dies if even the albedo is absent; otherwise
+// (props) returns maps with a null albedo and the caller keeps its flat color.
+// The single source of the res→2k fallback, shared by surfaces and props.
+DungeonWorld::PbrMaps DungeonWorld::LoadPbrSet(const std::string& name, bool required) {
 	const char* res = m_settings.TextureSuffix();
 	std::string stem = paths::Asset(std::format("textures\\{}_{}", name, res));
-	auto albedo = TryLoadTextureFile(m_device, stem, /*srgb*/ true);
-	if (!albedo) {
-		// Ultra's 4K sets are fetchable content (tools/FetchTextures.ps1);
-		// drop to the always-present 2K set when they aren't installed.
-		log::Warn("{} not found at {} — falling back to 2k", name, res);
+	PbrMaps maps;
+	maps.albedo = TryLoadTextureFile(m_device, stem, /*srgb*/ true);
+	if (!maps.albedo) {
 		stem = paths::Asset(std::format("textures\\{}_2k", name));
-		albedo = LoadTextureFile(m_device, stem, /*srgb*/ true);
+		if (required) {
+			log::Warn("{} not found at {} — falling back to 2k", name, res);
+			maps.albedo = LoadTextureFile(m_device, stem, /*srgb*/ true); // dies if absent
+		} else {
+			maps.albedo = TryLoadTextureFile(m_device, stem, /*srgb*/ true);
+			if (!maps.albedo) {
+				log::Warn("texture set '{}' not found — using flat material", name);
+				return maps; // null albedo: caller falls back to a flat material
+			}
+		}
 	}
-	surface.albedo.push_back(std::move(albedo));
-	surface.normal.push_back(LoadTextureFile(m_device, stem + "_n")); // linear
+	maps.normal = LoadTextureFile(m_device, stem + "_n"); // linear
 	// ORM (occlusion/roughness/metallic) — present once the set is re-imported;
 	// null until then (the renderer falls back to a neutral default).
-	surface.mr.push_back(TryLoadTextureFile(m_device, stem + "_mr"));
+	maps.mr = TryLoadTextureFile(m_device, stem + "_mr");
+	return maps;
+}
+
+// Loads one material's PBR set and appends it to the surface's variant arrays.
+void DungeonWorld::LoadSurfaceMaterial(Surface& surface, const std::string& name) {
+	PbrMaps maps = LoadPbrSet(name, /*required*/ true);
+	surface.albedo.push_back(std::move(maps.albedo));
+	surface.normal.push_back(std::move(maps.normal));
+	surface.mr.push_back(std::move(maps.mr));
 }
 
 void DungeonWorld::LoadTextureSet(const SurfaceDef& def) {
-	def.surface.albedo.clear(); // quality hot-swap reuses the same Surface objects
-	def.surface.normal.clear();
-	def.surface.mr.clear();
-	def.surface.heightScale = def.heightScale;
+	def.surface.ResetTextures(def.heightScale); // hot-swap reuses the same Surface
 	for (const std::string& name : def.names)
 		LoadSurfaceMaterial(def.surface, name);
 }
@@ -261,36 +272,29 @@ void DungeonWorld::LoadMonsters() {
 const DungeonWorld::PropTextures* DungeonWorld::LoadPropTextures(const std::string& set) {
 	auto it = m_propTextures.find(set);
 	if (it != m_propTextures.end()) return it->second.get();
+	PbrMaps maps = LoadPbrSet(set, /*required*/ false);
+	if (!maps.albedo) return nullptr; // missing set: caller keeps its flat material
 	auto pt = std::make_unique<PropTextures>();
-	const char* res = m_settings.TextureSuffix();
-	std::string stem = paths::Asset(std::format("textures\\{}_{}", set, res));
-	pt->albedo = TryLoadTextureFile(m_device, stem, /*srgb*/ true);
-	if (!pt->albedo) {
-		stem = paths::Asset(std::format("textures\\{}_2k", set));
-		pt->albedo = TryLoadTextureFile(m_device, stem, /*srgb*/ true);
-		if (!pt->albedo) {
-			log::Warn("prop texture set '{}' not found — using flat material", set);
-			return nullptr;
-		}
-	}
-	pt->normal = LoadTextureFile(m_device, stem + "_n");
-	pt->mr = TryLoadTextureFile(m_device, stem + "_mr");
+	pt->albedo = std::move(maps.albedo);
+	pt->normal = std::move(maps.normal);
+	pt->mr = std::move(maps.mr);
 	pt->heightScale = 0.03f;
 	return m_propTextures.emplace(set, std::move(pt)).first->second.get();
 }
 
-// Fills a draw's material from a prop texture set (albedo + bump/parallax +
-// ORM-driven metallic/roughness), or falls back to a flat color + roughness
-// when the set is missing. Shared by every textured prop draw.
-void DungeonWorld::ApplyPropMaterial(gfx::MaterialParams& m,
-									 const PropTextures* tex,
-									 const Vec4& fallbackColor, float fallbackRoughness) {
-	if (tex && tex->albedo) {
-		m.albedo = tex->albedo.get();
-		m.normalMap = tex->normal.get();
-		m.heightScale = tex->heightScale;
-		if (tex->mr) {
-			m.metalRough = tex->mr.get();
+// Binds an albedo+normal+ORM trio onto a material (ORM drives metallic/roughness
+// per-texel, factors at 1.0), or a flat color + roughness fallback when there is
+// no albedo. The shared core of every textured draw (props and surfaces).
+void DungeonWorld::ApplyPbr(gfx::MaterialParams& m, const gfx::Texture* albedo,
+							const gfx::Texture* normal, const gfx::Texture* mr,
+							float heightScale, const Vec4& fallbackColor,
+							float fallbackRoughness) {
+	if (albedo) {
+		m.albedo = albedo;
+		m.normalMap = normal;
+		m.heightScale = heightScale;
+		if (mr) {
+			m.metalRough = mr;
 			m.metallic = 1.0f;
 			m.roughness = 1.0f;
 		}
@@ -300,34 +304,55 @@ void DungeonWorld::ApplyPropMaterial(gfx::MaterialParams& m,
 	}
 }
 
+// Fills a draw's material from a prop texture set, or falls back to a flat color
+// + roughness when the set is missing. Shared by every textured prop draw.
+void DungeonWorld::ApplyPropMaterial(gfx::MaterialParams& m,
+									 const PropTextures* tex,
+									 const Vec4& fallbackColor, float fallbackRoughness) {
+	ApplyPbr(m, tex ? tex->albedo.get() : nullptr, tex ? tex->normal.get() : nullptr,
+			 tex ? tex->mr.get() : nullptr, tex ? tex->heightScale : 0.0f,
+			 fallbackColor, fallbackRoughness);
+}
+
 // Loads each decoration model once (shared per type, like monsters) and bakes
 // one placed instance per .map "decoration" record. Authored facing +Z, so a
 // record's facing rotates the prop the same way a monster's does. Everything
 // is solid (blocks the party) except open passages like the archway; a
 // "solid=0"/"solid=1" param on the record overrides the default.
 void DungeonWorld::LoadDecorations() {
-	// The built-in procedural props (the rest are imported authored models).
-	auto isProcedural = [](const std::string& t) {
-		return t == "column" || t == "archway" || t == "fountain" || t == "statue" ||
-			   t == "door" || t == "barrel" || t == "crate" || t == "chest";
+	// The built-in procedural props: the texture set each uses (wooden props get
+	// planks, stone ones a dungeon-stone set) and whether a floor-standing one
+	// blocks the party (passages like the archway don't). Any type NOT listed
+	// here is an imported authored model that carries its own same-named PBR set,
+	// renders back-face culled, and defaults solid.
+	struct ProcDef {
+		std::string_view type;
+		std::string_view set;
+		bool solid;
 	};
-	// Texture set per prop type: wooden props get planks, the stone ones a
-	// dungeon-stone set; imported models carry their own same-named set.
-	auto setForType = [&](const std::string& type) -> std::string {
-		if (type == "door" || type == "barrel" || type == "crate" || type == "chest")
-			return "wood_planks";
-		if (isProcedural(type)) return "wall_stone";
-		return type; // imported model: <name>_<res> texture set
+	static constexpr ProcDef kProcedural[] = {
+		{"column", "wall_stone", true},   {"archway", "wall_stone", false},
+		{"fountain", "wall_stone", true}, {"statue", "wall_stone", true},
+		{"door", "wood_planks", true},    {"barrel", "wood_planks", true},
+		{"crate", "wood_planks", true},   {"chest", "wood_planks", true},
+	};
+	auto procedural = [](const std::string& t) -> const ProcDef* {
+		for (const ProcDef& d : kProcedural)
+			if (t == d.type) return &d;
+		return nullptr;
 	};
 	auto kindOf = [&](const std::string& type) -> DecorationKind& {
 		auto it = m_decorationKinds.find(type);
 		if (it == m_decorationKinds.end()) {
+			const ProcDef* proc = procedural(type);
 			auto kind = std::make_unique<DecorationKind>();
 			kind->model = LoadModelOrDie(type + ".gltf");
 			kind->mesh = std::make_unique<gfx::Mesh>(m_device, kind->model.meshes[0]);
 			kind->color = kind->model.materials[0].baseColorFactor;
-			kind->tex = LoadPropTextures(setForType(type));
-			kind->authored = !isProcedural(type);
+			// Imported model: <name>_<res> texture set; procedural: the table's set.
+			kind->tex = LoadPropTextures(proc ? std::string(proc->set) : type);
+			kind->authored = !proc;
+			kind->solidDefault = proc ? proc->solid : true; // imported props block
 			it = m_decorationKinds.emplace(type, std::move(kind)).first;
 		}
 		return *it->second;
@@ -357,7 +382,7 @@ void DungeonWorld::LoadDecorations() {
 			const Vec3 pos = m_map.CellCenter(deco.x, deco.z);
 			XMStoreFloat4x4(&deco.world, XMMatrixRotationY(DirYaw(record.facing)) *
 											 XMMatrixTranslation(pos.x, 0, pos.z));
-			deco.solid = record.type != "archway"; // passages let the party through
+			deco.solid = kind.solidDefault; // passages (archway) let the party through
 		}
 		if (const std::string* s = record.Param("solid")) deco.solid = *s != "0";
 		m_decorations.push_back(std::move(deco));
@@ -918,17 +943,11 @@ void DungeonWorld::DrawSurface(ID3D12GraphicsCommandList* list,
 	for (const SurfaceChunk& chunk : surface.chunks) {
 		if (cull && !cull->TestAABB(chunk.boundsMin, chunk.boundsMax)) continue;
 		const int v = chunk.variant;
+		// Surfaces always carry an albedo, so the fallback color/roughness are
+		// unused here; the ORM map (when present) drives roughness/metallic.
 		gfx::MaterialParams material;
-		material.albedo = surface.albedo[v].get();
-		material.normalMap = surface.normal[v].get();
-		material.heightScale = surface.heightScale;
-		// When the set has an ORM map it drives roughness/metallic per-texel
-		// (factors at 1.0 = pass through); otherwise dry matte stone.
-		if (surface.mr[v]) {
-			material.metalRough = surface.mr[v].get();
-			material.metallic = 1.0f;
-			material.roughness = 1.0f;
-		}
+		ApplyPbr(material, surface.albedo[v].get(), surface.normal[v].get(),
+				 surface.mr[v].get(), surface.heightScale, {}, 0.0f);
 		m_renderer.DrawMesh(list, *chunk.mesh, identity, material);
 	}
 }

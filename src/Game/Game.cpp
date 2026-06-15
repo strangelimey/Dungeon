@@ -19,6 +19,34 @@
 
 namespace dungeon::game {
 
+namespace {
+
+// Shared dev-console arg helpers (Game registers ~30 commands; these carry the
+// repeated guards/parsing so each command body is just its action).
+
+// Arg-count guard: prints `usage` and returns false when fewer than n args.
+bool Need(DevConsole& console, const std::vector<std::string>& args, size_t n,
+		  const char* usage) {
+	if (args.size() < n) {
+		console.Print(usage);
+		return false;
+	}
+	return true;
+}
+
+// Joins args into one space-separated string (save-slot names may have spaces).
+std::string JoinArgs(const std::vector<std::string>& args) {
+	std::string out;
+	for (const std::string& a : args)
+		out += (out.empty() ? "" : " ") + a;
+	return out;
+}
+
+// A toggle command's argument: "on"/"1" enable, anything else disables.
+bool ArgOn(const std::string& a) { return a == "on" || a == "1"; }
+
+} // namespace
+
 // ============================================================================
 // Construction — cheap setup only; the heavy asset work is queued as load
 // tasks that run one per frame behind the loading screen (see Update).
@@ -101,10 +129,7 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 					   });
 	m_console.Register("quality", "set quality tier 0-3 (low/med/high/ultra)",
 					   [this](const std::vector<std::string>& args) {
-						   if (args.empty()) {
-							   m_console.Print("usage: quality <0-3>");
-							   return;
-						   }
+						   if (!Need(m_console, args, 1, "usage: quality <0-3>")) return;
 						   const int q = std::atoi(args[0].c_str());
 						   if (q < 0 || q > 3) {
 							   m_console.Print("quality must be 0-3");
@@ -115,19 +140,13 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 					   });
 	m_console.Register("lang", "switch language by code (e.g. en, de)",
 					   [this](const std::vector<std::string>& args) {
-						   if (args.empty()) {
-							   m_console.Print("usage: lang <code>");
-							   return;
-						   }
+						   if (!Need(m_console, args, 1, "usage: lang <code>")) return;
 						   m_pendingLanguage = args[0]; // applied next frame
 						   m_console.Print("language: " + args[0]);
 					   });
 	m_console.Register("tp", "teleport the party to a cell",
 					   [this](const std::vector<std::string>& args) {
-						   if (args.size() < 2) {
-							   m_console.Print("usage: tp <x> <z>");
-							   return;
-						   }
+						   if (!Need(m_console, args, 2, "usage: tp <x> <z>")) return;
 						   const int x = std::atoi(args[0].c_str());
 						   const int z = std::atoi(args[1].c_str());
 						   if (m_world.GetParty().SetGridPosition(x, z))
@@ -143,10 +162,7 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 							   m_console.Print("no game loaded");
 							   return;
 						   }
-						   // Join args so slot names may contain spaces.
-						   std::string name;
-						   for (const std::string& a : args)
-							   name += (name.empty() ? "" : " ") + a;
+						   std::string name = JoinArgs(args);
 						   if (name.empty()) name = "quicksave";
 						   SaveGame(name);
 						   m_console.Print("saved: " + name);
@@ -164,9 +180,7 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 															   s.level, s.timestamp));
 							   return;
 						   }
-						   std::string name;
-						   for (const std::string& a : args)
-							   name += (name.empty() ? "" : " ") + a;
+						   const std::string name = JoinArgs(args);
 						   if (LoadGame(SaveSlotPath(name)))
 							   m_console.Print("loaded: " + name);
 						   else
@@ -230,10 +244,7 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	// --- navigation ---
 	m_console.Register("face", "turn the party to n/e/s/w",
 					   [this](const std::vector<std::string>& args) {
-						   if (args.empty()) {
-							   m_console.Print("usage: face <n|e|s|w>");
-							   return;
-						   }
+						   if (!Need(m_console, args, 1, "usage: face <n|e|s|w>")) return;
 						   int facing = -1;
 						   switch (std::tolower(static_cast<unsigned char>(args[0][0]))) {
 						   case 'n': facing = 0; break;
@@ -257,10 +268,7 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 					   });
 	m_console.Register("speed", "set party pace multiplier",
 					   [this](const std::vector<std::string>& args) {
-						   if (args.empty()) {
-							   m_console.Print("usage: speed <mult>");
-							   return;
-						   }
+						   if (!Need(m_console, args, 1, "usage: speed <mult>")) return;
 						   const float v = static_cast<float>(std::atof(args[0].c_str()));
 						   if (v <= 0.0f) {
 							   m_console.Print("speed must be > 0");
@@ -293,15 +301,13 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	// --- render debug ---
 	m_console.Register("shadows", "toggle shadow rendering (on/off)",
 					   [this](const std::vector<std::string>& args) {
-						   if (!args.empty())
-							   m_world.SetShadowsEnabled(args[0] == "on" || args[0] == "1");
+						   if (!args.empty()) m_world.SetShadowsEnabled(ArgOn(args[0]));
 						   m_console.Print(m_world.ShadowsEnabled() ? "shadows on"
 																	: "shadows off");
 					   });
 	m_console.Register("dust", "toggle volumetric dust (on/off)",
 					   [this](const std::vector<std::string>& args) {
-						   if (!args.empty())
-							   m_world.SetDustEnabled(args[0] == "on" || args[0] == "1");
+						   if (!args.empty()) m_world.SetDustEnabled(ArgOn(args[0]));
 						   m_console.Print(m_world.DustEnabled() ? "dust on" : "dust off");
 					   });
 	m_console.Register("fov", "set camera field of view in degrees (default 70)",

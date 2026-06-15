@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg viewBox="0 0 760 660" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, sans-serif" role="img">
+<title>Dungeon startup flow</title>
+<desc>From wWinMain to the landing menu. wWinMain creates the window and graphics modules, constructs Game (whose member initializers parse the map files and build the party), Game loads settings, wires callbacks, registers console commands, builds the static UI and the boot load tasks, then the main loop runs the boot tasks one per frame behind a progress screen until the state becomes Menu.</desc>
+<defs>
+<marker id="a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+<path d="M0 0 L10 5 L0 10 z" fill="var(--color-border-secondary, #6b6b6b)"/>
+</marker>
+<style>
+.b{rx:9;ry:9;stroke:var(--color-border-secondary,#7a7a7a);stroke-width:1.5;}
+.t{fill:var(--color-text-primary,#ececec);font-size:14px;font-weight:600;}
+.s{fill:var(--color-text-secondary,#9a9a9a);font-size:11px;}
+.fl{stroke:var(--color-border-secondary,#6b6b6b);stroke-width:1.4;fill:none;marker-end:url(#a2);}
+.phase{fill:var(--color-text-info,#8aa6d6);font-size:11px;font-weight:600;letter-spacing:.05em;}
+.f1{fill:var(--color-background-secondary,rgba(120,140,200,0.10));}
+.f2{fill:var(--color-background-secondary,rgba(120,200,160,0.08));}
+.fend{fill:var(--color-background-secondary,rgba(200,170,110,0.12));}
+.note{fill:var(--color-text-secondary,#9a9a9a);font-size:10.5px;font-style:italic;}
+</style>
+</defs>
+
+<text class="phase" x="40" y="34">1 · wWinMain (composition root)</text>
+<rect class="b f1" x="40" y="44" width="320" height="70"/>
+<text class="t" x="56" y="68">create Window + GraphicsDevice</text>
+<text class="s" x="56" y="86">Renderer · SpriteBatch · AudioEngine</text>
+<text class="s" x="56" y="103">wire window.onResize → device.Resize</text>
+
+<path class="fl" d="M200 114 L200 138"/>
+
+<text class="phase" x="40" y="160">2 · Game constructor</text>
+<rect class="b f1" x="40" y="170" width="320" height="158"/>
+<text class="s" x="56" y="192">settings.Load() + ApplyLanguage()</text>
+<text class="s" x="56" y="210">CreateDefaultParty() + ApplyPartySpeed()</text>
+<text class="s" x="56" y="228">wire callbacks: world ↔ UI ↔ states</text>
+<text class="s" x="56" y="246">register dev-console commands</text>
+<text class="s" x="56" y="264">ui.BuildStaticUi (theme/menu/pause/sheet)</text>
+<text class="s" x="56" y="282">BuildBootLoadTasks (sounds, title art)</text>
+<line x1="56" y1="294" x2="344" y2="294" stroke="var(--color-border-tertiary,#555)" stroke-dasharray="3 3"/>
+<text class="note" x="56" y="312">member init parses level1.map/.ent, builds Party</text>
+
+<rect class="b f2" x="420" y="170" width="300" height="90"/>
+<text class="t" x="436" y="192">DungeonWorld (member init)</text>
+<text class="s" x="436" y="212">parse map + entities · build Party</text>
+<text class="s" x="436" y="230">wire party hooks · seed fog of war</text>
+<text class="s" x="436" y="248">set ambient (no sun underground)</text>
+<path class="fl" d="M420 215 L362 215"/>
+
+<path class="fl" d="M200 328 L200 352"/>
+
+<text class="phase" x="40" y="374">3 · main loop · state = Loading</text>
+<rect class="b f2" x="40" y="384" width="680" height="92"/>
+<text class="t" x="56" y="408">boot load tasks — one per frame, behind progress screen</text>
+<rect class="b" x="60" y="420" width="200" height="42" stroke-dasharray="0"/>
+<text class="s" x="160" y="446" text-anchor="middle">load.echoes (SoundBank)</text>
+<rect class="b" x="280" y="420" width="200" height="42"/>
+<text class="s" x="380" y="446" text-anchor="middle">load.title_art</text>
+<path class="fl" d="M260 441 L278 441"/>
+
+<path class="fl" d="M200 476 L200 500"/>
+
+<text class="phase" x="40" y="522">4 · tasks done → state = Menu</text>
+<rect class="b fend" x="40" y="532" width="680" height="64"/>
+<text class="t" x="380" y="558" text-anchor="middle">Landing page</text>
+<text class="s" x="380" y="578" text-anchor="middle">baked title art + MenuList — Continue / Load / Start New Game / Settings</text>
+
+<text class="note" x="40" y="630">The dungeon is NOT loaded yet — that waits until the player starts a game (see Level Load).</text>
+</svg>
