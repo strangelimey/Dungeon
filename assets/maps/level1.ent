@@ -10,8 +10,18 @@
 ; buttons must face a solid wall. Examples of upcoming kinds:
 ;   item torch 4 1
 ;   button lever 9 5 east target=door_a
-monster skeleton 6 1
-monster blob 5 7
-monster skeleton 5 11
-monster mummy 6 12
-monster blob 3 14
+;
+; Monsters sprinkled one or two per room across the level.
+monster skeleton 15 7 west
+monster blob 27 4
+monster mummy 4 12 east
+monster skeleton 6 15 north
+monster skeleton 12 14 east
+monster blob 17 16
+monster mummy 27 13 west
+monster blob 5 22
+monster skeleton 8 28 north
+monster mummy 3 25 east
+monster skeleton 19 27 north
+monster mummy 17 24
+monster blob 27 27

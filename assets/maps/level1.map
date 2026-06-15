@@ -18,39 +18,101 @@ textures wall wall_brick wall_stone wall_moss
 textures floor floor_slabs floor_cobble
 textures ceiling ceiling_rough ceiling_cracked
 ;
-; Fires raise the air turbidity of their own and nearby squares.
-; The lower-left block (rows 12-14) is the dust-shaft showcase: a dusty
-; chamber with two freestanding columns, a wall torch behind them, and
-; the mummy backlit beside it.
-################
-#P.....T#......#
-#.#####..#.###.#
-#.#....#.#.#T#.#
-#.#.##.#.#.#.#.#
-#.#.#TF#.#.#.#.#
-#.#.####.#.#.#.#
-#........#...#.#
-#.########.###.#
-#DDD.....#.#..F#
-########D#.#.###
-#TDDD.DDD#.#..T#
-#DDDDD.D#..##..#
-#DD#D#DT#.#..#.#
-#DD.DDD#..F#...#
-################
+; 32x32 layout (4x the old map): a start room (NW) opening onto a great
+; pillared hall (N), a dusty fountain hall (centre), a tomb crypt (W), a
+; dusty cavern (SW), a treasure vault (S) and gallery/chambers (E/SE), all
+; tied together by a looping corridor network. The fountain hall and cavern
+; are dust-heavy showcases; the serpent pillar auto-spawns two cells south
+; of the start.
+################################
+################################
+##....T.###.T.......T.###.....##
+##.P....###...........###....T##
+##............................##
+##......###.....F.....###.....##
+##......###...........###.....##
+####.######...........#####.####
+####.######...........#####.####
+####.######...........###.....##
+##......########.########....T##
+##T.....########.########.....##
+##......###TDDDDDDDDD####.....##
+##......###DDDDDDDDDD####.....##
+##......###DDDDDDDDDD.........##
+##......###DDDDDDDDDT####.....##
+####.######DDDDDDDDDD####.....##
+####.######DDFDDDDDDD######.####
+####.######DDDDDDDDDD######.####
+##DDDDDDDD#DDDDDDDDDD######.####
+##DDDDDDDD######.########.....##
+##DDDDDDDD######.########....T##
+##DDDDDDDD######.########.....##
+##DDDDDDDD####.........##.....##
+##TDDFDDDD####.........##.....##
+##DDDDDDDD####....F....##..F..##
+##DDDDDDDD....................##
+##DDDDDDDD####.........##.....##
+##DDDDDDDD####.........##.....##
+##DDDDDDDD####........T##.....##
+################################
+################################
 ;
 ; Static decorations (see ModelBaker.cpp for the prop set; <type>.gltf).
 ; Format: decoration <type> <x> <z> [facing] [key=value]. All props block the
-; party except open passages (the archway); add solid=0 to make any prop walk-
-; through. The lower-left dusty chamber is furnished as a showcase.
-decoration archway 4 1 east solid=0
-decoration fountain 3 12 south
-decoration column 1 12 south
-decoration column 5 11 south
-decoration statue 6 12 west
-decoration chest 1 13 south
-decoration barrel 1 14 south
-decoration crate 2 14 south
-decoration door 8 4 south
-; imported authored model (AssetBaker import-model) — textured + back-culled
-decoration ancient_pot 6 1 south
+; party except open passages (add solid=0); imported authored meshes
+; (ancient_pot/boulder/mossy_rock/pot) carry their own texture set.
+;
+; Start room
+decoration ancient_pot 2 2 south
+decoration barrel 7 6 south
+;
+; Great pillared hall
+decoration column 12 3 south
+decoration column 20 3 south
+decoration column 12 8 south
+decoration column 20 8 south
+decoration statue 16 2 south
+decoration archway 10 4 east solid=0
+;
+; Fountain hall (dusty)
+decoration fountain 14 15 south
+decoration column 12 12 south
+decoration column 19 12 south
+decoration ancient_pot 12 18 south
+decoration pot 18 18 south
+decoration archway 16 11 south solid=0
+;
+; West crypt
+decoration statue 6 10 south
+decoration chest 2 15 south
+decoration ancient_pot 6 14 south
+decoration mossy_rock 3 12 east solid=0
+;
+; NE chamber (storage)
+decoration chest 25 2 south
+decoration barrel 29 2 south
+decoration crate 28 6 south
+;
+; East gallery
+decoration column 25 10 south
+decoration column 29 15 south
+decoration statue 28 9 south
+;
+; SW cavern (dusty rubble)
+decoration boulder 4 21 east solid=0
+decoration boulder 8 23 south solid=0
+decoration mossy_rock 7 27 south solid=0
+decoration pot 3 28 south
+;
+; South treasure vault
+decoration chest 15 23 south
+decoration chest 21 29 south
+decoration barrel 16 28 south
+decoration crate 20 24 south
+decoration statue 18 23 south
+decoration door 16 23 north solid=0
+;
+; SE chamber
+decoration crate 29 20 south
+decoration barrel 25 29 south
+decoration pot 27 22 south
