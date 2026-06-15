@@ -6,14 +6,18 @@
 //     +Z over x∈[±kCellHalf], y∈[0,2.5]), flat floor, flat ceiling (facing down,
 //     placed at wall height by the game); worn variants per surface texture,
 //     displaced by that texture's scanned height map (see the worn section)
-//   * serpent pillar — skinned cylinder, 4-joint chain, looping sway clip
+//   * serpent pillar — skinned cylinder with coil bulges, 4-joint chain,
+//     looping sway clip
 //   * monsters — skeleton & mummy share a 7-joint humanoid rig (root→spine→
-//     head/arms, root→legs) with box limbs and an idle clip; the blob is a
-//     2-joint sphere with a squash-and-stretch scale clip
+//     head/arms, root→legs) with tapered-tube limbs + a skull and an idle
+//     clip; the blob is a 2-joint lumpy sphere with a squash-stretch scale clip
 //
+// Geometry helpers: AddBox / AddRevolution (vertical axis) / AddStrut (a
+// tapered tube between two arbitrary points — splayed legs, forged arms,
+// skinned limbs) / AddSphere; TileUvs reprojects to world-aligned tiles.
 // Conventions: joints are emitted parent-before-child; inverse binds are
-// pure translations (-joint global position); rigid box limbs weight fully
-// to one joint, while cylinders/spheres blend between neighboring joints.
+// pure translations (-joint global position); rigid limbs weight fully to one
+// joint, while the pillar blends between neighboring joints.
 // ============================================================================
 #include "ModelBaker.h"
 
@@ -145,6 +149,110 @@ void AddRevolution(assets::MeshData& mesh, float cx, float cz,
 		AddAnnulus(mesh, cx, cz, profile.front().y, 0.0f, profile.front().x, sides, false);
 	if (capTop && profile.back().x > 1e-5f)
 		AddAnnulus(mesh, cx, cz, profile.back().y, 0.0f, profile.back().x, sides, true);
+}
+
+// --- vector helpers (MathTypes ships Add/Sub/Scale/Lerp only) ----------------
+float Dot(const Vec3& a, const Vec3& b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
+Vec3 Cross(const Vec3& a, const Vec3& b) {
+	return {a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x};
+}
+float Length(const Vec3& v) { return std::sqrt(Dot(v, v)); }
+Vec3 Normalize(const Vec3& v) {
+	const float l = Length(v);
+	return l > 1e-6f ? Scale(v, 1.0f / l) : Vec3{0, 1, 0};
+}
+
+// Tapered round tube between two arbitrary points (radius ra at a, rb at b),
+// `sides` around, with fan caps so the ends read solid. Rigidly bound to
+// `joint` if >= 0. Unlike AddRevolution this is not axis-locked, so it builds
+// splayed brazier legs, the sconce's forged arm, and skinned limbs. Normals
+// fold in the taper slope so cones still light correctly.
+void AddStrut(assets::MeshData& mesh, const Vec3& a, const Vec3& b, float ra,
+			  float rb, int sides, int joint = -1) {
+	const float len = std::max(Length(Sub(b, a)), 1e-6f);
+	const Vec3 axis = Scale(Sub(b, a), 1.0f / len);
+	const Vec3 ref = std::fabs(axis.y) < 0.9f ? Vec3{0, 1, 0} : Vec3{1, 0, 0};
+	const Vec3 u = Normalize(Cross(ref, axis));
+	const Vec3 w = Cross(axis, u);
+	const float slope = (ra - rb) / len; // d(radius)/d(length) -> axial normal tilt
+	const u32 base = static_cast<u32>(mesh.vertices.size());
+	auto setSkin = [&](assets::Vertex& v) {
+		if (joint >= 0) { v.joints[0] = static_cast<u32>(joint); v.weights[0] = 1.0f; }
+	};
+	for (int ring = 0; ring < 2; ++ring) {
+		const Vec3 c = ring ? b : a;
+		const float r = ring ? rb : ra;
+		for (int s = 0; s <= sides; ++s) {
+			const float ang = static_cast<float>(s) / sides * 2.0f * kPi;
+			const Vec3 dir = Add(Scale(u, std::cos(ang)), Scale(w, std::sin(ang)));
+			assets::Vertex v;
+			v.position = Add(c, Scale(dir, r));
+			v.normal = Normalize(Add(dir, Scale(axis, slope)));
+			v.uv = {static_cast<float>(s) / sides, static_cast<float>(ring)};
+			setSkin(v);
+			mesh.vertices.push_back(v);
+		}
+	}
+	const u32 stride = static_cast<u32>(sides) + 1;
+	for (int s = 0; s < sides; ++s) {
+		const u32 p = base + s, q = p + 1, c = p + stride, d = c + 1;
+		mesh.indices.insert(mesh.indices.end(), {p, c, q, q, c, d});
+	}
+	// Fan caps close each end (legs/limbs hide one end, but tube ends like the
+	// torch head or a claw foot show, so cap both).
+	auto cap = [&](const Vec3& c, const Vec3& n, float r, bool flip) {
+		const u32 cb = static_cast<u32>(mesh.vertices.size());
+		assets::Vertex center;
+		center.position = c;
+		center.normal = n;
+		center.uv = {0.5f, 0.5f};
+		setSkin(center);
+		mesh.vertices.push_back(center);
+		for (int s = 0; s <= sides; ++s) {
+			const float ang = static_cast<float>(s) / sides * 2.0f * kPi;
+			const float ca = std::cos(ang), sa = std::sin(ang);
+			const Vec3 dir = Add(Scale(u, ca), Scale(w, sa));
+			assets::Vertex v;
+			v.position = Add(c, Scale(dir, r));
+			v.normal = n;
+			v.uv = {0.5f + 0.5f * ca, 0.5f + 0.5f * sa};
+			setSkin(v);
+			mesh.vertices.push_back(v);
+		}
+		for (int s = 0; s < sides; ++s)
+			if (flip) mesh.indices.insert(mesh.indices.end(), {cb, cb + 2 + s, cb + 1 + s});
+			else mesh.indices.insert(mesh.indices.end(), {cb, cb + 1 + s, cb + 2 + s});
+	};
+	cap(a, Scale(axis, -1.0f), ra, false);
+	cap(b, axis, rb, true);
+}
+
+// UV sphere centered at `c`, optionally squashed per axis by `scale`, bound to
+// `joint` if >= 0. The skeleton's skull and a rounder monster head.
+void AddSphere(assets::MeshData& mesh, const Vec3& c, float radius, int lat,
+			   int lon, int joint = -1, const Vec3& scale = {1, 1, 1}) {
+	const u32 base = static_cast<u32>(mesh.vertices.size());
+	for (int i = 0; i <= lat; ++i) {
+		const float theta = kPi * static_cast<float>(i) / lat;
+		for (int j = 0; j <= lon; ++j) {
+			const float phi = 2.0f * kPi * static_cast<float>(j) / lon;
+			const Vec3 n{std::sin(theta) * std::cos(phi), std::cos(theta),
+						 std::sin(theta) * std::sin(phi)};
+			assets::Vertex v;
+			v.position = {c.x + n.x * radius * scale.x, c.y + n.y * radius * scale.y,
+						  c.z + n.z * radius * scale.z};
+			v.normal = Normalize({n.x / scale.x, n.y / scale.y, n.z / scale.z});
+			v.uv = {static_cast<float>(j) / lon, static_cast<float>(i) / lat};
+			if (joint >= 0) { v.joints[0] = static_cast<u32>(joint); v.weights[0] = 1.0f; }
+			mesh.vertices.push_back(v);
+		}
+	}
+	const u32 stride = static_cast<u32>(lon) + 1;
+	for (int i = 0; i < lat; ++i)
+		for (int j = 0; j < lon; ++j) {
+			const u32 a = base + i * stride + j, b = a + 1, cc = a + stride, d = cc + 1;
+			mesh.indices.insert(mesh.indices.end(), {a, b, cc, b, d, cc});
+		}
 }
 
 Mat4 InverseBindForGlobal(const Vec3& globalPos) {
@@ -622,13 +730,28 @@ void TileUvs(assets::MeshData& mesh, float tileMeters) {
 // for the albedo/normal/height/ORM maps; the glTF baseColor is the fallback.
 
 assets::ModelData BuildSconce() {
-	// Authored against a wall at z=0, arm reaching into the room (+Z).
+	// Authored against a wall at z=0, arm reaching into the room (+Z). Flame
+	// origin (the game's light/particles) is local (0, 1.78, 0.22).
 	assets::ModelData model;
 	assets::MeshData mesh;
-	AddBox(mesh, {0, 1.45f, 0.02f}, {0.07f, 0.16f, 0.02f});   // mounting plate
-	AddBox(mesh, {0, 1.52f, 0.12f}, {0.025f, 0.025f, 0.10f}); // arm
-	AddBox(mesh, {0, 1.58f, 0.22f}, {0.06f, 0.05f, 0.06f});   // cup
-	AddBox(mesh, {0, 1.70f, 0.22f}, {0.022f, 0.10f, 0.022f}); // torch shaft
+	// Iron escutcheon: a slab against the wall with a raised top/bottom frame
+	// and four corner rivets, so the mount reads forged rather than a flat box.
+	AddBox(mesh, {0, 1.45f, 0.015f}, {0.075f, 0.17f, 0.015f});  // back plate
+	AddBox(mesh, {0, 1.615f, 0.03f}, {0.08f, 0.014f, 0.014f});  // top frame bar
+	AddBox(mesh, {0, 1.285f, 0.03f}, {0.08f, 0.014f, 0.014f});  // bottom frame bar
+	for (float sx : {-0.062f, 0.062f})
+		for (float sy : {1.355f, 1.545f}) AddSphere(mesh, {sx, sy, 0.035f}, 0.013f, 5, 6);
+	// Forged bracket arm into the room, braced by a diagonal stay underneath.
+	AddStrut(mesh, {0, 1.50f, 0.03f}, {0, 1.55f, 0.20f}, 0.024f, 0.018f, 8); // arm
+	AddStrut(mesh, {0, 1.30f, 0.04f}, {0, 1.52f, 0.185f}, 0.015f, 0.010f, 6); // stay
+	// Flared cup cradling the torch, revolved about the cup center (z=0.22).
+	AddRevolution(mesh, 0, 0.22f,
+				  {{0.034f, 1.55f}, {0.05f, 1.59f}, {0.07f, 1.65f}, {0.072f, 1.67f},
+				   {0.052f, 1.66f}},
+				  12, true, false);
+	// Torch: a tapered shaft bound in cloth at the head (the flame caps it).
+	AddStrut(mesh, {0, 1.55f, 0.22f}, {0, 1.73f, 0.22f}, 0.017f, 0.021f, 8); // shaft
+	AddStrut(mesh, {0, 1.71f, 0.22f}, {0, 1.79f, 0.22f}, 0.046f, 0.034f, 8); // cloth head
 	TileUvs(mesh, 0.30f); // worn-iron grain repeats every 30 cm
 	mesh.material = 0;
 	model.meshes.push_back(std::move(mesh));
@@ -637,13 +760,30 @@ assets::ModelData BuildSconce() {
 }
 
 assets::ModelData BuildBrazier() {
+	// Tripod fire bowl, flame origin local (0, 0.72, 0).
 	assets::ModelData model;
 	assets::MeshData mesh;
-	AddBox(mesh, {0, 0.05f, 0}, {0.26f, 0.05f, 0.26f}); // base slab
-	AddBox(mesh, {0, 0.25f, 0}, {0.07f, 0.16f, 0.07f}); // stem
-	AddBox(mesh, {0, 0.47f, 0}, {0.20f, 0.07f, 0.20f}); // bowl underside
-	AddBox(mesh, {0, 0.58f, 0}, {0.26f, 0.06f, 0.26f}); // bowl rim
-	AddBox(mesh, {0, 0.65f, 0}, {0.18f, 0.025f, 0.18f}); // coal bed
+	// Three splayed legs with out-turned claw feet, set at 120° (offset so a leg
+	// doesn't sit dead-center-front).
+	for (int i = 0; i < 3; ++i) {
+		const float a = static_cast<float>(i) / 3.0f * 2.0f * kPi + 0.52f;
+		const float ca = std::cos(a), sa = std::sin(a);
+		const Vec3 foot{ca * 0.22f, 0.0f, sa * 0.22f};
+		AddStrut(mesh, foot, {ca * 0.10f, 0.42f, sa * 0.10f}, 0.022f, 0.034f, 7); // leg
+		AddStrut(mesh, {ca * 0.20f, 0.02f, sa * 0.20f},
+				 {ca * 0.30f, 0.05f, sa * 0.30f}, 0.03f, 0.018f, 6); // claw toe
+	}
+	// Binding collar where the legs gather under the bowl.
+	AddRevolution(mesh, 0, 0,
+				  {{0.11f, 0.40f}, {0.135f, 0.43f}, {0.115f, 0.46f}}, 14, false, false);
+	// Flared bowl with a thick rim.
+	AddRevolution(mesh, 0, 0,
+				  {{0.10f, 0.45f}, {0.17f, 0.52f}, {0.25f, 0.62f}, {0.27f, 0.66f},
+				   {0.255f, 0.665f}, {0.22f, 0.64f}},
+				  18, true, false);
+	// Domed coal bed sitting inside the bowl.
+	AddRevolution(mesh, 0, 0, {{0.0f, 0.605f}, {0.12f, 0.625f}, {0.205f, 0.635f}}, 18,
+				  false, true);
 	TileUvs(mesh, 0.40f); // bronze pattern repeats every 40 cm
 	mesh.material = 0;
 	model.meshes.push_back(std::move(mesh));
@@ -875,8 +1015,15 @@ assets::ModelData BuildSerpentPillar() {
 	constexpr int kJoints = 4;
 	constexpr float kSegment = 0.55f;
 	constexpr float kRadius = 0.14f;
-	constexpr int kRadial = 10, kRings = 16;
+	constexpr int kRadial = 18, kRings = 44; // smoother, enough rings for the coils
 	constexpr float kTotal = kSegment * kJoints;
+	constexpr float kCoils = 3.5f; // serpentine bulges up the shaft
+
+	// Tapered shaft with sinusoidal coil bulges, sampled (and its slope) by v.
+	auto radiusAt = [](float v) {
+		return kRadius * (1.0f - 0.30f * v) *
+			   (1.0f + 0.13f * std::sin(v * kCoils * 2.0f * kPi));
+	};
 
 	assets::ModelData model;
 	for (int j = 0; j < kJoints; ++j) {
@@ -893,7 +1040,14 @@ assets::ModelData BuildSerpentPillar() {
 	for (int ring = 0; ring <= kRings; ++ring) {
 		const float v = static_cast<float>(ring) / kRings;
 		const float y = v * kTotal;
-		const float radius = kRadius * (1.0f - 0.35f * v);
+		const float radius = radiusAt(v);
+		// Profile slope for lit coils: d(radius)/d(y) via a small central step.
+		const float dv = 0.5f / kRings;
+		const float dr = radiusAt(std::min(v + dv, 1.0f)) - radiusAt(std::max(v - dv, 0.0f));
+		const float dy = (std::min(v + dv, 1.0f) - std::max(v - dv, 0.0f)) * kTotal;
+		const float nlen = std::sqrt(dr * dr + dy * dy);
+		const float nr = nlen > 1e-6f ? dy / nlen : 1.0f;  // radial normal weight
+		const float ny = nlen > 1e-6f ? -dr / nlen : 0.0f; // vertical normal weight
 		const float jointPos = v * (kJoints - 1);
 		const u32 j0 = static_cast<u32>(jointPos);
 		const u32 j1 = std::min(j0 + 1, static_cast<u32>(kJoints - 1));
@@ -902,7 +1056,7 @@ assets::ModelData BuildSerpentPillar() {
 			const float a = static_cast<float>(seg) / kRadial * 2.0f * kPi;
 			assets::Vertex vert;
 			vert.position = {std::cos(a) * radius, y, std::sin(a) * radius};
-			vert.normal = {std::cos(a), 0, std::sin(a)};
+			vert.normal = {std::cos(a) * nr, ny, std::sin(a) * nr};
 			vert.uv = {static_cast<float>(seg) / kRadial, v * 4.0f};
 			vert.joints[0] = j0;
 			vert.joints[1] = j1;
@@ -976,13 +1130,21 @@ assets::ModelData BuildHumanoid(const HumanoidStyle& style) {
 	const float b = style.bulk;
 	assets::MeshData mesh;
 	mesh.skinned = true;
-	AddBox(mesh, {0, 1.02f, 0}, {0.16f * b, 0.06f, 0.085f * b}, 0);        // pelvis
-	AddBox(mesh, {0, 1.40f, 0}, {0.17f * b, 0.15f, 0.085f * b}, 1);        // torso
-	AddBox(mesh, {0, 1.80f, 0}, {0.095f * b, 0.11f, 0.095f * b}, 2);       // head
-	AddBox(mesh, {-0.33f, 1.30f, 0}, {0.05f * b, 0.26f, 0.05f * b}, 3);    // armL
-	AddBox(mesh, {0.33f, 1.30f, 0}, {0.05f * b, 0.26f, 0.05f * b}, 4);     // armR
-	AddBox(mesh, {-0.12f, 0.50f, 0}, {0.06f * b, 0.45f, 0.06f * b}, 5);    // legL
-	AddBox(mesh, {0.12f, 0.50f, 0}, {0.06f * b, 0.45f, 0.06f * b}, 6);     // legR
+	// Rounded limbs (tapered tubes) instead of boxes: hips, a ribcage tapering
+	// up to the shoulders, neck + skull, arms (shoulder->wrist) and legs
+	// (thigh->ankle) with feet. Each part rigidly follows the joint it deformed
+	// from before, so the idle clip below is unchanged.
+	AddStrut(mesh, {0, 0.94f, 0}, {0, 1.12f, 0}, 0.15f * b, 0.135f * b, 10, 0); // hips
+	AddStrut(mesh, {0, 1.12f, 0}, {0, 1.56f, 0}, 0.135f * b, 0.175f * b, 12, 1); // ribcage
+	AddStrut(mesh, {0, 1.56f, 0}, {0, 1.70f, 0}, 0.05f * b, 0.06f * b, 8, 2); // neck
+	AddSphere(mesh, {0, 1.80f, 0.005f}, 0.105f * b, 10, 12, 2, {0.92f, 1.0f, 1.02f}); // skull
+	AddStrut(mesh, {0, 1.73f, 0.05f}, {0, 1.69f, 0.08f}, 0.055f * b, 0.04f * b, 6, 2); // jaw
+	AddStrut(mesh, {-0.20f, 1.55f, 0}, {-0.31f, 1.04f, 0}, 0.058f * b, 0.034f * b, 8, 3); // armL
+	AddStrut(mesh, {0.20f, 1.55f, 0}, {0.31f, 1.04f, 0}, 0.058f * b, 0.034f * b, 8, 4);   // armR
+	AddStrut(mesh, {-0.12f, 0.95f, 0}, {-0.13f, 0.06f, 0}, 0.078f * b, 0.05f * b, 8, 5);  // legL
+	AddStrut(mesh, {0.12f, 0.95f, 0}, {0.13f, 0.06f, 0}, 0.078f * b, 0.05f * b, 8, 6);    // legR
+	AddStrut(mesh, {-0.13f, 0.05f, -0.02f}, {-0.13f, 0.035f, 0.13f}, 0.052f, 0.04f, 6, 5); // footL
+	AddStrut(mesh, {0.13f, 0.05f, -0.02f}, {0.13f, 0.035f, 0.13f}, 0.052f, 0.04f, 6, 6);   // footR
 	// World-aligned tiling so the bone/bandage set (skeleton_<res>, mummy_<res>)
 	// keeps an even grain across the limbs; the game binds the set by type name.
 	TileUvs(mesh, 0.55f);
@@ -1065,9 +1227,16 @@ assets::ModelData BuildBlob() {
 		model.skeleton.joints.push_back(joint);
 	}
 
-	// Sphere sitting on the floor, weights blending base->top by height.
+	// Lumpy droplet sitting on the floor, weights blending base->top by height.
+	// A few low-frequency lobes perturb the radius so the silhouette reads as a
+	// gelatinous blob rather than a perfect ball (the slime normal map carries
+	// the fine detail, so the base sphere normal is kept).
 	constexpr float kRadius = 0.42f;
-	constexpr int kLat = 12, kLon = 16;
+	constexpr int kLat = 16, kLon = 22;
+	auto lump = [](const Vec3& n) {
+		return 1.0f + 0.10f * std::sin(n.x * 4.0f + 1.3f) * std::cos(n.z * 3.0f) +
+			   0.06f * std::sin(n.y * 5.0f + 2.1f);
+	};
 	assets::MeshData mesh;
 	mesh.skinned = true;
 	for (int lat = 0; lat <= kLat; ++lat) {
@@ -1076,8 +1245,9 @@ assets::ModelData BuildBlob() {
 			const float phi = 2.0f * kPi * static_cast<float>(lon) / kLon;
 			const Vec3 n{std::sin(theta) * std::cos(phi), std::cos(theta),
 						 std::sin(theta) * std::sin(phi)};
+			const float r = kRadius * lump(n);
 			assets::Vertex v;
-			v.position = {n.x * kRadius, kRadius + n.y * kRadius, n.z * kRadius};
+			v.position = {n.x * r, kRadius + n.y * r, n.z * r};
 			v.normal = n;
 			v.uv = {static_cast<float>(lon) / kLon, static_cast<float>(lat) / kLat};
 			const float w1 =

@@ -81,6 +81,12 @@ $propSets = @(
     @{ Src = "rocks\carvedlimestoneground1"; Name = "skeleton" } # bone
     @{ Src = "fabric\burlap-stained1";      Name = "mummy" }    # bandages
     @{ Src = "organic\alien-slime1";        Name = "blob" }     # slime
+    # Authored decoration meshes (import-model writes the .gltf, committed; the
+    # PBR maps live in the same model folder and are gitignored, so re-pack them
+    # here too). Their normals are OGL like the rest.
+    @{ Src = "models\sharp-boulder1";       Name = "boulder" }     # rubble
+    @{ Src = "models\mossy-rock-model";     Name = "mossy_rock" }  # mossy rock
+    @{ Src = "models\primative-handled-pot"; Name = "pot" }        # clay pot
 )
 if ($Materials.Count -eq 0) {
     Write-Host "Importing the $($propSets.Count) code-bound prop/creature sets (2k)."

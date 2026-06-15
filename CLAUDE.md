@@ -301,13 +301,16 @@ editor icons) — the axis-aligned DrawRect/DrawSprite couldn't express them.
   drains health/stamina/mana yet. Portraits are simple baked busts
   (AssetBaker portraits); the tinted-initial fallback still draws if the
   textures are missing.
-- Monster models are box-rigs; authored glTF would drop in via LoadModel
-  (JOINTS_0 remap already handled). They are now PBR-textured: each generated
-  prop binds a scanned set by name (DungeonWorld::LoadPropTextures, shared with
-  decorations) — sconce=worn-medieval iron, brazier=bronze, pillar=peacock-ore,
-  skeleton=carved limestone (bone), mummy=stained burlap, blob=alien-slime.
-  ModelBaker gives the box-built props world-aligned tiling UVs (TileUvs); the
-  glTF baseColor stays as the flat fallback if a set is missing.
+- Monster models are still simple procedural rigs (tapered-tube limbs + a
+  skull for the humanoids, a lumpy sphere for the blob); a bought/authored
+  rigged glTF would drop in via LoadModel (JOINTS_0 remap already handled).
+  Everything is PBR-textured: each generated prop binds a scanned set by name
+  (DungeonWorld::LoadPropTextures, shared with decorations) — sconce=worn-
+  medieval iron, brazier=bronze, pillar=peacock-ore, skeleton=carved limestone
+  (bone), mummy=stained burlap, blob=alien-slime. ModelBaker gives the box-
+  built props world-aligned tiling UVs (TileUvs); the glTF baseColor stays as
+  the flat fallback if a set is missing. Bought authored decoration meshes
+  (boulder/mossy_rock/pot) ride the import-model path like ancient_pot.
 - BC7 encoder is mode-6 only (slight banding possible on smooth gradients).
 - UI widget bounds are normalized (0..1 of container, see UI/Widget.h) and
   resolve against the live window each frame, so the HUD scales on resize.
