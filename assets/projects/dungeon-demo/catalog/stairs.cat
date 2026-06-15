@@ -1,0 +1,21 @@
+; Stairs / portals. Stepping onto a stair tile transitions to the level its
+; .map record names (dest=/destx=/destz=/destfacing=). Fields:
+;   model    = stair mesh in assets/models (archway is a PLACEHOLDER until a
+;              real stair mesh is baked via the asset pipeline)
+;   texture  = PBR set
+;   solid    = 0 (the party must be able to step onto the tile)
+;   authored = 0 (procedural placeholder mesh, CULL_NONE)
+
+[stairs_down]
+display = Stairs Down
+model = archway
+texture = wall_stone
+solid = 0
+authored = 0
+
+[stairs_up]
+display = Stairs Up
+model = archway
+texture = wall_stone
+solid = 0
+authored = 0

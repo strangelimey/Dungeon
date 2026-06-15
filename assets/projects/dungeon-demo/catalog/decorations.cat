@@ -1,0 +1,101 @@
+; Decoration props. Fields:
+;   model    = assets/models/<model>.gltf
+;   texture  = PBR set in assets/textures (omit -> flat glTF material color)
+;   solid    = 1 blocks the party, 0 lets it pass (open passages); a level
+;              record's "solid=" overrides this default
+;   authored = 1 imported mesh (consistently wound -> back-face culled),
+;              0 procedural (CULL_NONE)
+; Procedural props (column/archway/fountain/statue/wood_door/barrel/crate/chest)
+; share dungeon-stone or wood-plank sets; the rest are authored imports that
+; carry their own same-named set.
+
+[column]
+display = Column
+model = column
+texture = wall_stone
+solid = 1
+authored = 0
+
+[archway]
+display = Archway
+model = archway
+texture = wall_stone
+solid = 0
+authored = 0
+
+[fountain]
+display = Fountain
+model = fountain
+texture = wall_stone
+solid = 1
+authored = 0
+
+[statue]
+display = Statue
+model = statue
+texture = wall_stone
+solid = 1
+authored = 0
+
+[wood_door]
+display = Wooden Door (prop)
+model = door
+texture = wood_planks
+solid = 1
+authored = 0
+
+[barrel]
+display = Barrel
+model = barrel
+texture = wood_planks
+solid = 1
+authored = 0
+
+[crate]
+display = Crate
+model = crate
+texture = wood_planks
+solid = 1
+authored = 0
+
+[chest]
+display = Chest
+model = chest
+texture = wood_planks
+solid = 1
+authored = 0
+
+[ancient_pot]
+display = Ancient Pot
+model = ancient_pot
+texture = ancient_pot
+solid = 1
+authored = 1
+
+[banner]
+display = Banner
+model = banner
+texture = banner
+solid = 1
+authored = 1
+
+[pot]
+display = Pot
+model = pot
+texture = pot
+solid = 1
+authored = 1
+
+[mossy_rock]
+display = Mossy Rock
+model = mossy_rock
+texture = mossy_rock
+solid = 1
+authored = 1
+
+[boulder]
+display = Boulder
+model = boulder
+texture = boulder
+solid = 1
+authored = 1

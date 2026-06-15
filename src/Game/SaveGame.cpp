@@ -42,7 +42,7 @@ bool WriteSave(const SaveData& data, const std::string& path) {
 	std::string t = "; Dungeon save — dynamic level state (see SaveGame.h)\n";
 	t += std::format("save version={}\n", data.version);
 	t += std::format("save name={}\n", data.name);
-	t += std::format("save level={}\n", data.level);
+	t += std::format("save current={}\n", data.currentLevel);
 	t += std::format("save time={}\n", data.timestamp);
 	t += std::format("party {} {} {}\n", data.partyX, data.partyZ, data.partyFacing);
 	t += std::format("torch {}\n", data.torchPalette);
@@ -53,13 +53,18 @@ bool WriteSave(const SaveData& data, const std::string& path) {
 						 c.health, c.maxHealth, c.stamina, c.maxStamina, c.mana,
 						 c.maxMana);
 	}
-	for (const SaveData::EntityState& e : data.entities)
-		t += std::format("ent {} {} {} {}\n", e.id, e.x, e.z, e.announced ? 1 : 0);
 
-	if (!data.seen.empty()) {
-		t += "seen";
-		for (const auto& [x, z] : data.seen) t += std::format(" {},{}", x, z);
-		t += '\n';
+	// One block per visited level: a "level <stem>" header, then its entity diff
+	// and revealed cells.
+	for (const SaveData::LevelState& lvl : data.levels) {
+		t += std::format("level {}\n", lvl.stem);
+		for (const SaveData::EntityState& e : lvl.entities)
+			t += std::format("ent {} {} {} {}\n", e.id, e.x, e.z, e.announced ? 1 : 0);
+		if (!lvl.seen.empty()) {
+			t += "seen";
+			for (const auto& [x, z] : lvl.seen) t += std::format(" {},{}", x, z);
+			t += '\n';
+		}
 	}
 
 	if (!assets::WriteBinaryFile(path, t.data(), t.size())) {
@@ -75,6 +80,19 @@ std::optional<SaveData> ReadSave(const std::string& path) {
 	if (!bytes) return std::nullopt;
 
 	SaveData data;
+	// The level block "ent"/"seen" lines attach to; created lazily so a legacy
+	// v1 save (top-level seen/ent, no "level" record) folds into one block named
+	// for the save's current level.
+	SaveData::LevelState* cur = nullptr;
+	auto currentBlock = [&]() -> SaveData::LevelState& {
+		if (!cur) {
+			data.levels.push_back({data.currentLevel.empty() ? "level1"
+															  : data.currentLevel, {}, {}});
+			cur = &data.levels.back();
+		}
+		return *cur;
+	};
+
 	for (const std::string& line : ReadLevelLines(*bytes)) {
 		// "save key=value" header lines (value may contain spaces, so don't
 		// tokenize — take everything after '=').
@@ -83,10 +101,11 @@ std::optional<SaveData> ReadSave(const std::string& path) {
 			if (eq == std::string::npos) continue;
 			const std::string key = line.substr(5, eq - 5);
 			const std::string val = line.substr(eq + 1);
-			if (key == "version")    data.version = std::atoi(val.c_str());
-			else if (key == "name")  data.name = val;
-			else if (key == "level") data.level = val;
-			else if (key == "time")  data.timestamp = val;
+			if (key == "version")      data.version = std::atoi(val.c_str());
+			else if (key == "name")    data.name = val;
+			else if (key == "current") data.currentLevel = val;
+			else if (key == "level")   data.currentLevel = val; // v1 legacy key
+			else if (key == "time")    data.timestamp = val;
 			continue;
 		}
 
@@ -107,19 +126,23 @@ std::optional<SaveData> ReadSave(const std::string& path) {
 			c.health = FloatOf(tok[2]);    c.maxHealth = FloatOf(tok[3]);
 			c.stamina = FloatOf(tok[4]);   c.maxStamina = FloatOf(tok[5]);
 			c.mana = FloatOf(tok[6]);      c.maxMana = FloatOf(tok[7]);
+		} else if (kw == "level" && tok.size() >= 2) {
+			data.levels.push_back({std::string(tok[1]), {}, {}});
+			cur = &data.levels.back();
 		} else if (kw == "ent" && tok.size() >= 4) {
 			SaveData::EntityState e;
 			e.id = IntOf(tok[1]);
 			e.x = IntOf(tok[2]);
 			e.z = IntOf(tok[3]);
 			if (tok.size() >= 5) e.announced = IntOf(tok[4]) != 0; // older saves omit it
-			data.entities.push_back(e);
+			currentBlock().entities.push_back(e);
 		} else if (kw == "seen") {
+			SaveData::LevelState& lvl = currentBlock();
 			for (size_t i = 1; i < tok.size(); ++i) {
 				const size_t comma = tok[i].find(',');
 				if (comma == std::string_view::npos) continue;
-				data.seen.emplace_back(IntOf(tok[i].substr(0, comma)),
-									   IntOf(tok[i].substr(comma + 1)));
+				lvl.seen.emplace_back(IntOf(tok[i].substr(0, comma)),
+									  IntOf(tok[i].substr(comma + 1)));
 			}
 		}
 	}
@@ -138,7 +161,7 @@ std::vector<SaveSlot> ListSaves() {
 			continue;
 		const std::string path = entry.path().string();
 		if (auto data = ReadSave(path))
-			slots.push_back({data->name, data->level, data->timestamp, path});
+			slots.push_back({data->name, data->currentLevel, data->timestamp, path});
 	}
 	// Newest first — the timestamp strings sort lexicographically by time.
 	std::ranges::sort(slots, std::ranges::greater{}, &SaveSlot::timestamp);

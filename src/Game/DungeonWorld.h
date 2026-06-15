@@ -23,6 +23,7 @@
 #include "Game/GameSettings.h"
 #include "Game/LoadQueue.h"
 #include "Game/Party.h"
+#include "Game/Project.h"
 #include "Game/SaveGame.h"
 #include "Game/SoundBank.h"
 #include "Graphics/Camera.h"
@@ -33,6 +34,7 @@
 #include <flat_map>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <span>
 #include <string>
 #include <utility>
@@ -44,7 +46,7 @@ class DungeonWorld {
 public:
 	DungeonWorld(gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 				 audio::AudioEngine& audio, const SoundBank& sounds,
-				 const GameSettings& settings);
+				 const GameSettings& settings, const Project& project);
 
 	// Appends the dungeon's load tasks (blocks, textures, batched meshes,
 	// pillar, monsters, fires, dust) to the staged loader. Order matters:
@@ -85,7 +87,43 @@ public:
 
 	Party& GetParty() { return m_party; }
 	const DungeonMap& Map() const { return m_map; }
+	const Project& GetProject() const { return m_project; }
 	const DungeonEntities& Entities() const { return m_entities; }
+	const std::string& CurrentLevel() const { return m_currentLevel; }
+
+	// --- level transitions (P6 multi-level) ---------------------------------
+	// Swaps the active level to `stem` and resets all per-level state (map,
+	// entities, fog, monster/decoration/fire instances, surface chunks, shadow
+	// cache), keeping the shared asset caches (kinds, prop textures) and the
+	// party object. The heavy rebuild is NOT done here: the caller re-stages the
+	// world's load tasks (AppendLoadTasks) behind a loading screen, then calls
+	// PlacePartyAt for the arrival cell. Drains the GPU first. Relies on m_map /
+	// m_entities being move-assignable into the existing objects so Party's map
+	// reference stays valid.
+	// `stashCurrent` saves the level being left into the in-memory per-level
+	// store (so returning restores its fog/progress); pass false when the active
+	// level is a throwaway baseline (e.g. loading a save onto a different level).
+	void BeginLevelLoad(const std::string& stem, bool stashCurrent = true);
+	// Places the party at a cell + facing (the stair arrival point), revealing it.
+	void PlacePartyAt(int x, int z, Direction facing);
+	// Restores the active level's saved dynamic state (fog + entity diffs) from
+	// the per-level store, if it was visited before, then drops that entry (the
+	// live state is now authoritative). Call after a level's load completes (the
+	// entity diffs need the monsters built). A no-op for a first visit.
+	void ApplyActiveSnapshot();
+
+	// A pending level transition: the destination level + arrival cell/facing,
+	// raised when the party steps onto a stair (see the .map "stairs" records).
+	struct LevelTransition {
+		std::string level;
+		int x = 0, z = 0;
+		Direction facing = Direction::South;
+	};
+	// Returns and clears a transition raised since the last call (the party
+	// stepped onto a stair this frame); nullopt otherwise. Game polls this after
+	// the world Update and drives the actual swap (BeginLevelTransition), so the
+	// map never changes mid-Update.
+	std::optional<LevelTransition> ConsumeLevelTransition();
 	size_t MonsterCount() const { return m_monsters.size(); }
 
 	// --- fog of war (dynamic/save-side state, not in DungeonMap) -------------
@@ -111,6 +149,37 @@ public:
 	// per-frame call. Structural only: fixtures, turbidity, and decorations
 	// are not recomputed (matches DungeonMap::SetCell).
 	void EditCell(int x, int z, Cell cell);
+
+	// Which surface a variant edit targets.
+	enum class SurfaceSel { Wall, Floor, Ceiling };
+	// Pins a floor cell's wall/floor/ceiling texture variant to a palette index
+	// (the variant index into the level's surface palette), then rebuilds like
+	// EditCell. No-op on solid cells (variants live on floor cells).
+	void EditVariant(int x, int z, SurfaceSel sel, int variant);
+
+	// Live entity placement (editor). type is a catalog id (decorations.cat /
+	// monsters.cat). Each instantiates the kind (loading its model/textures on
+	// first use — ExecuteImmediate uploads synchronously, so it is safe mid-
+	// frame) and appends a runtime instance that draws next frame. Returns false
+	// when the cell is solid, the type is unknown, or (monsters) the cell is
+	// already occupied. Edits are in-memory only (no .map/.ent write yet).
+	bool AddDecoration(const std::string& type, int x, int z, Direction facing);
+	bool AddMonster(const std::string& type, int x, int z, Direction facing);
+	// Removes the topmost runtime entity in a cell (a monster first, else a
+	// decoration). Returns true if something was removed.
+	bool RemoveEntityAt(int x, int z);
+
+	// Cells of the live monsters / decorations, for the editor map overlay (so
+	// placed/erased entities show immediately). Built fresh per call (editor-
+	// only, off the per-frame perf path).
+	std::vector<std::pair<int, int>> MonsterCells() const;
+	std::vector<std::pair<int, int>> DecorationCells() const;
+
+	// Writes the active level back to the project's .map + .ent files,
+	// reconstructing records from the live state (grid + variant overrides +
+	// palette/fixtures/stairs + decorations + monsters), so editor edits persist
+	// across a relaunch. Returns false if either file could not be written.
+	bool SaveLevel() const;
 
 	// --- dev console hooks ---------------------------------------------------
 	// "kind @ x,z" for each live monster.
@@ -176,6 +245,7 @@ private:
 		int x, z;
 		int spawnX = 0, spawnZ = 0; // .ent baseline, for the save diff
 		float yaw = 0.0f;
+		Direction facing = Direction::South; // for the .ent writer
 		bool announced = false;
 		anim::Animator animator;
 	};
@@ -195,6 +265,7 @@ private:
 		std::unique_ptr<gfx::Mesh> mesh;
 		Vec4 color{1, 1, 1, 1};
 		const PropTextures* tex = nullptr; // points into m_propTextures (stable)
+		std::string id;            // catalog id (the record type), for the writer
 		bool authored = false;     // imported model: consistently wound -> back-cull
 		bool solidDefault = true;  // floor-standing blocks the party (passages don't)
 	};
@@ -203,6 +274,11 @@ private:
 		Mat4 world;                           // baked transform (cell + facing)
 		int x = 0, z = 0;
 		bool solid = true; // blocks the party (passages like archways do not)
+		// Record-level fields, kept so the editor can write the .map back faithfully.
+		Direction facing = Direction::South;
+		bool wallMounted = false;        // hung on a wall (wall= record param)
+		Direction wall = Direction::North;
+		bool stair = false;              // a stair prop (written as a stairs record)
 	};
 
 	// Fires: wall sconces (at 'T' cells, mounted on the adjacent wall) and
@@ -217,15 +293,21 @@ private:
 	};
 
 	// --- loading ---------------------------------------------------------------
-	// One surface's texture set + the height scale its parallax uses. The three
-	// SurfaceDefs (walls/floors/ceilings) are the single source of those scales,
-	// shared by the staged loader and the quality hot-swap.
+	// One surface's texture sets + the height scale its parallax uses. The three
+	// SurfaceDefs (walls/floors/ceilings) point at the resolved palettes
+	// (m_wallSets/...) and scales filled by ResolveSurfacePalettes, shared by the
+	// staged loader and the quality hot-swap.
 	struct SurfaceDef {
 		Surface& surface;
 		std::span<const std::string> names;
 		float heightScale;
 	};
 	std::array<SurfaceDef, 3> SurfaceDefs();
+	// Resolves the map's palette ids (DungeonMap::WallPalette etc.) through the
+	// project's surface catalogs into texture set names + per-surface height
+	// scales. Called once at construction; the results drive both the texture
+	// load and the worn block mesh names (worn_<set>_<tier>.gltf).
+	void ResolveSurfacePalettes();
 
 	// One PBR material set's three maps (sRGB albedo + linear normal/height +
 	// ORM), the shared result of LoadPbrSet — surfaces append it into their
@@ -246,6 +328,13 @@ private:
 	void BuildDungeonMeshes();
 	void LoadMonsters();
 	void LoadDecorations();
+	void LoadStairs(); // places stair props (P6) from the map's stair links
+	// Lazily loads (and caches) the shared assets for a monster / decoration
+	// type (model + mesh + PBR set), resolved through `catalog` (decorations.cat
+	// for props, stairs.cat for stair props). Shared by the initial load and live
+	// editor placement.
+	MonsterKind& MonsterKindFor(const std::string& type);
+	DecorationKind& DecorationKindFor(const std::string& type, const Catalog& catalog);
 	// World-space mount for a prop hung flat against the `wall` of cell (x,z):
 	// origin pushed to the wall face, +Z (authored front) turned to face the
 	// room. Shared by wall sconces and wall-mounted decorations.
@@ -286,6 +375,13 @@ private:
 
 	// Reveals a cell and its eight neighbors in the fog-of-war set.
 	void MarkSeen(int x, int z);
+
+	// Captures the ACTIVE level's live dynamic state (revealed cells + monster
+	// diff) as a SaveData::LevelState. Shared by StashActive and CaptureState.
+	SaveData::LevelState SnapshotActive() const;
+	// Stashes the active level's live state into m_levelStates[m_currentLevel],
+	// so a later return (or a save) can restore it.
+	void StashActive();
 	// Re-bakes the surface meshes after a map edit (WaitIdle + rebuild).
 	void RebuildGeometry();
 
@@ -317,10 +413,12 @@ private:
 	audio::AudioEngine& m_audio;
 	const SoundBank& m_sounds;
 	const GameSettings& m_settings;
+	const Project& m_project;   // content catalogs + level paths
 
 	DungeonMap m_map;           // static layer (.map): structure, fixtures
 	DungeonEntities m_entities; // dynamic layer (.ent): monsters, items, buttons
 	Party m_party;
+	std::string m_currentLevel; // active level stem (for transitions + saves)
 	std::vector<u8> m_seen;     // fog of war, parallel to map cells (1 = revealed)
 	gfx::Camera m_camera;
 	gfx::LightSet m_lights;
@@ -333,6 +431,11 @@ private:
 	Surface m_walls;
 	Surface m_floors;
 	Surface m_ceilings;
+	// Resolved surface palettes: texture set names parallel to the map's palette
+	// ids, plus the per-surface parallax height scale — filled by
+	// ResolveSurfacePalettes, read by SurfaceDefs and LoadDungeonBlocks.
+	std::vector<std::string> m_wallSets, m_floorSets, m_ceilingSets;
+	float m_wallHeight = 0.055f, m_floorHeight = 0.045f, m_ceilingHeight = 0.035f;
 	// Worn block geometry, one mesh per texture variant (same order as the
 	// surface texture sets), held between the load and mesh-build tasks.
 	std::vector<assets::MeshData> m_wallBlocks, m_floorBlocks, m_ceilingBlocks;
@@ -351,6 +454,11 @@ private:
 	// (flat_map stores values contiguously and reallocates on insert).
 	std::flat_map<std::string, std::unique_ptr<PropTextures>> m_propTextures;
 	std::vector<Decoration> m_decorations;
+	std::optional<LevelTransition> m_pendingTransition; // raised by a stair step
+	// Dynamic state of INACTIVE visited levels (the active level's state is live
+	// in m_seen/m_monsters). Stashed on leave, restored on return; the source for
+	// a multi-level save (CaptureState) and filled by a load (ApplyState).
+	std::flat_map<std::string, SaveData::LevelState> m_levelStates;
 
 	// Shadow-cube cache: a slot's cube is reused across frames unless its light
 	// changed/moved, a flicker tick is due, geometry changed, or an animating

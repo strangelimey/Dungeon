@@ -29,6 +29,10 @@ DungeonMap::DungeonMap(const std::string& path) {
 	m_width = static_cast<int>(rows[0].size());
 	m_cells.resize(static_cast<size_t>(m_width) * m_height, Cell::Wall);
 	m_turbidity.resize(m_cells.size(), 0.0f);
+	m_dusty.resize(m_cells.size(), 0);
+	m_wallVar.resize(m_cells.size(), -1);
+	m_floorVar.resize(m_cells.size(), -1);
+	m_ceilingVar.resize(m_cells.size(), -1);
 
 	// Sconces are gathered raw (from 'T' glyphs and fixture records) and have
 	// their mount wall resolved once the whole grid is known — a glyph or an
@@ -50,7 +54,10 @@ DungeonMap::DungeonMap(const std::string& path) {
 			switch (c) {
 			case '#': break; // solid rock (the default)
 			case '.': break;
-			case 'D': m_turbidity[static_cast<size_t>(z) * m_width + x] = 1.0f; break;
+			case 'D':
+				m_turbidity[static_cast<size_t>(z) * m_width + x] = 1.0f;
+				m_dusty[static_cast<size_t>(z) * m_width + x] = 1;
+				break;
 			case 'T': rawSconces.push_back({x, z, false, Direction::North}); break;
 			case 'F': m_braziers.emplace_back(x, z); break;
 			case 'P':
@@ -70,10 +77,10 @@ DungeonMap::DungeonMap(const std::string& path) {
 	}
 	DN_ASSERT(foundStart, "map has no 'P' start cell: " + path);
 
-	// Records: texture palettes and static decorations.
+	// Records: surface palettes and static decorations.
 	for (const std::string& record : records) {
-		if (record.starts_with("textures")) {
-			ParseTextureRecord(record, path);
+		if (record.starts_with("palette")) {
+			ParsePaletteRecord(record, path);
 			continue;
 		}
 		if (record.starts_with("fixture")) {
@@ -112,6 +119,14 @@ DungeonMap::DungeonMap(const std::string& path) {
 			}
 			continue;
 		}
+		if (record.starts_with("stairs")) {
+			ParseStairRecord(record, path);
+			continue;
+		}
+		if (record.starts_with("variant")) {
+			ParseVariantRecord(record, path);
+			continue;
+		}
 		Entity e = ParseEntityRecord(record, path);
 		DN_ASSERT(e.kind == EntityKind::Decoration,
 				  std::format("only decorations are static — move \"{}\" to the .ent file ({})",
@@ -130,10 +145,10 @@ DungeonMap::DungeonMap(const std::string& path) {
 		}
 		m_decorations.push_back(std::move(e));
 	}
-	DN_ASSERT(!m_wallTextures.empty() && !m_floorTextures.empty() &&
-				  !m_ceilingTextures.empty(),
-			  "map must declare its texture palettes (textures <wall|floor|ceiling> "
-			  "<set> ...): " + path);
+	DN_ASSERT(!m_wallPalette.empty() && !m_floorPalette.empty() &&
+				  !m_ceilingPalette.empty(),
+			  "map must declare its surface palettes (palette <wall|floor|ceiling> "
+			  "<id> ...): " + path);
 
 	// Resolve each sconce's mount wall now the whole grid is known: an explicit
 	// facing must point at solid rock; otherwise take the first solid neighbour
@@ -166,25 +181,101 @@ DungeonMap::DungeonMap(const std::string& path) {
 			  m_decorations.size());
 }
 
-// "textures <wall|floor|ceiling> <set> [...]" — the level's surface texture
-// palette. The game loads only the sets named here (and their worn block
-// meshes), so a level pays for exactly the materials it uses.
-void DungeonMap::ParseTextureRecord(const std::string& record, const std::string& path) {
+// "palette <wall|floor|ceiling> <id> [...]" — the level's surface palette as a
+// list of catalog ids (project catalog/{walls,floors,ceilings}.cat). DungeonWorld
+// resolves each id to a texture set + worn block mesh, so a level pays for exactly
+// the materials it uses.
+void DungeonMap::ParsePaletteRecord(const std::string& record, const std::string& path) {
 	const std::vector<std::string_view> tokens = SplitRecordTokens(record);
 	DN_ASSERT(tokens.size() >= 3,
-			  std::format("texture record needs <wall|floor|ceiling> and at least "
-						  "one set: \"{}\" in {}", record, path));
+			  std::format("palette record needs <wall|floor|ceiling> and at least "
+						  "one id: \"{}\" in {}", record, path));
 
 	std::vector<std::string>* list = nullptr;
-	if (tokens[1] == "wall") list = &m_wallTextures;
-	else if (tokens[1] == "floor") list = &m_floorTextures;
-	else if (tokens[1] == "ceiling") list = &m_ceilingTextures;
+	if (tokens[1] == "wall") list = &m_wallPalette;
+	else if (tokens[1] == "floor") list = &m_floorPalette;
+	else if (tokens[1] == "ceiling") list = &m_ceilingPalette;
 	DN_ASSERT(list != nullptr,
 			  std::format("unknown surface \"{}\" (wall, floor, or ceiling): \"{}\" in {}",
 						  tokens[1], record, path));
 	DN_ASSERT(list->empty(),
-			  std::format("duplicate \"textures {}\" record in {}", tokens[1], path));
+			  std::format("duplicate \"palette {}\" record in {}", tokens[1], path));
 	list->assign(tokens.begin() + 2, tokens.end());
+}
+
+// "stairs <type> <x> <z> [facing] dest=<level> destx=<n> destz=<n>
+// [destfacing=<dir>]" — a portal on a floor cell that transitions to another
+// level when the party steps onto it (P6). `type` is a stairs.cat id.
+void DungeonMap::ParseStairRecord(const std::string& record, const std::string& path) {
+	const std::vector<std::string_view> tok = SplitRecordTokens(record);
+	DN_ASSERT(tok.size() >= 4,
+			  std::format("stairs needs <type> <x> <z>: \"{}\" in {}", record, path));
+	const auto coord = [&](std::string_view t) {
+		int v = 0;
+		const auto [end, ec] = std::from_chars(t.data(), t.data() + t.size(), v);
+		DN_ASSERT(ec == std::errc{} && end == t.data() + t.size(),
+				  std::format("bad stairs number \"{}\": \"{}\" in {}", t, record, path));
+		return v;
+	};
+
+	StairLink s;
+	s.type = std::string(tok[1]);
+	s.x = coord(tok[2]);
+	s.z = coord(tok[3]);
+	DN_ASSERT(IsWalkable(s.x, s.z),
+			  std::format("stairs out of bounds or in solid rock: \"{}\" in {}",
+						  record, path));
+
+	size_t i = 4;
+	// Optional facing: a bare direction token (key=value params have no facing).
+	if (tok.size() > i && tok[i].find('=') == std::string_view::npos) {
+		DN_ASSERT(ParseDirection(tok[i], s.facing),
+				  std::format("bad stairs facing \"{}\": \"{}\" in {}", tok[i], record, path));
+		++i;
+	}
+	for (; i < tok.size(); ++i) {
+		const std::string_view kv = tok[i];
+		const size_t eq = kv.find('=');
+		DN_ASSERT(eq != std::string_view::npos,
+				  std::format("stairs param needs key=value: \"{}\" in {}", kv, path));
+		const std::string_view key = kv.substr(0, eq), val = kv.substr(eq + 1);
+		if (key == "dest") s.destLevel = std::string(val);
+		else if (key == "destx") s.destX = coord(val);
+		else if (key == "destz") s.destZ = coord(val);
+		else if (key == "destfacing")
+			DN_ASSERT(ParseDirection(val, s.destFacing),
+					  std::format("bad destfacing \"{}\": \"{}\" in {}", val, record, path));
+		else
+			DN_ASSERT(false,
+					  std::format("unknown stairs param \"{}\": \"{}\" in {}", key, record, path));
+	}
+	DN_ASSERT(!s.destLevel.empty(),
+			  std::format("stairs needs dest=<level>: \"{}\" in {}", record, path));
+	m_stairs.push_back(std::move(s));
+}
+
+// "variant <wall|floor|ceiling> <x> <z> <index>" — a per-cell surface variant
+// override (the editor pins a cell to a specific palette index; the writer emits
+// these for painted cells). Parsed after the grid is built.
+void DungeonMap::ParseVariantRecord(const std::string& record, const std::string& path) {
+	const std::vector<std::string_view> tok = SplitRecordTokens(record);
+	DN_ASSERT(tok.size() >= 5,
+			  std::format("variant needs <wall|floor|ceiling> <x> <z> <index>: \"{}\" in {}",
+						  record, path));
+	const auto num = [&](std::string_view t) {
+		int v = 0;
+		const auto [end, ec] = std::from_chars(t.data(), t.data() + t.size(), v);
+		DN_ASSERT(ec == std::errc{} && end == t.data() + t.size(),
+				  std::format("bad variant number \"{}\": \"{}\" in {}", t, record, path));
+		return v;
+	};
+	const int x = num(tok[2]), z = num(tok[3]), idx = num(tok[4]);
+	if (tok[1] == "wall") SetWallVariant(x, z, idx);
+	else if (tok[1] == "floor") SetFloorVariant(x, z, idx);
+	else if (tok[1] == "ceiling") SetCeilingVariant(x, z, idx);
+	else
+		DN_ASSERT(false, std::format("unknown variant surface \"{}\": \"{}\" in {}",
+									 tok[1], record, path));
 }
 
 // Fires raise the air turbidity of their own square and the squares nearby

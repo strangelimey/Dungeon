@@ -1,5 +1,6 @@
 add_library(Game STATIC
 	AssetUtil.cpp
+	Catalog.cpp
 	Character.cpp
 	DevConsole.cpp
 	DungeonEntities.cpp
@@ -15,7 +16,9 @@ add_library(Game STATIC
 	MessageLog.cpp
 	Party.cpp
 	PartyHud.cpp
+	Project.cpp
 	SaveGame.cpp
+	Serialize.cpp
 	SoundBank.cpp
 )
 target_link_libraries(Game PUBLIC Core Platform Assets Animation Graphics UI Audio)

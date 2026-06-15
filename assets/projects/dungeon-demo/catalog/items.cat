@@ -1,0 +1,6 @@
+; Items (reserved — populated when the item system lands, plan phase P7).
+; Planned fields:
+;   category = weapon | armor | ammo | consumable | misc
+;   model    = world/ground mesh
+;   icon     = inventory icon
+;   texture  = PBR set

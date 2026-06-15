@@ -55,7 +55,8 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 		   gfx::SpriteBatch& spriteBatch, audio::AudioEngine& audio)
 	: m_window(window), m_device(device), m_renderer(renderer),
 	  m_spriteBatch(spriteBatch), m_audio(audio),
-	  m_world(device, renderer, audio, m_sounds, m_settings),
+	  m_project(Project::Load(paths::Asset("projects\\dungeon-demo"))),
+	  m_world(device, renderer, audio, m_sounds, m_settings, m_project),
 	  m_ui(window, device, spriteBatch, audio, m_sounds, m_settings,
 		   m_characters),
 	  m_mapView(device, m_world, m_settings),
@@ -216,6 +217,38 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 							   m_mapView.Open(MapView::Mode::Editor);
 						   m_console.Print("map: editor mode");
 					   });
+	m_console.Register("goto", "load another level by stem (e.g. goto level2)",
+					   [this](const std::vector<std::string>& args) {
+						   if (!Need(m_console, args, 1, "usage: goto <level-stem>"))
+							   return;
+						   if (m_state != AppState::Playing) {
+							   m_console.Print("goto only works in-game");
+							   return;
+						   }
+						   const std::string& stem = args[0];
+						   bool known = false;
+						   for (const std::string& l : m_project.levels)
+							   if (l == stem) known = true;
+						   if (!known) {
+							   m_console.Print("unknown level: " + stem);
+							   return;
+						   }
+						   // Arrive at the level's start cell (-1 = resolve after load).
+						   BeginLevelTransition(stem, -1, -1, Direction::South);
+						   m_console.Print("loading " + stem + "...");
+					   });
+	m_console.Register("savemap", "write the active level's .map/.ent to the project",
+					   [this](const std::vector<std::string>&) {
+						   if (!m_gameLoaded || (m_state != AppState::Playing &&
+												 m_state != AppState::Paused)) {
+							   m_console.Print("savemap only works in-game");
+							   return;
+						   }
+						   if (m_world.SaveLevel())
+							   m_console.Print("saved level: " + m_world.CurrentLevel());
+						   else
+							   m_console.Print("save failed (see log)");
+					   });
 	m_console.Register("monsters", "list monsters and their cells",
 					   [this](const std::vector<std::string>&) {
 						   const std::vector<std::string> list = m_world.MonsterList();
@@ -348,6 +381,19 @@ void Game::BuildGameLoadTasks() {
 	});
 }
 
+void Game::BeginLevelTransition(const std::string& stem, int x, int z,
+								Direction facing, bool stashCurrent) {
+	m_world.BeginLevelLoad(stem, stashCurrent); // swap + reset per-level state now
+	m_loadQueue.Clear();          // re-stage only the world rebuild (portraits /
+	m_loadQueue.SetDoneLabel(loc::Tr("load.done")); // HUD persist across levels)
+	m_world.AppendLoadTasks(m_loadQueue);
+	m_pendingLevelX = x;
+	m_pendingLevelZ = z;
+	m_pendingLevelFacing = facing;
+	m_state = AppState::LoadingLevel;
+	m_stateFrameMark = m_framesRendered;
+}
+
 // Runs one queued task per rendered frame (never before the current loading
 // screen has been presented once); returns true when the queue is done.
 bool Game::RunLoadTasks() {
@@ -392,6 +438,16 @@ void Game::StartNewGame() {
 	m_ui.RefreshSheet();
 	ApplyPartySpeed();
 
+	// A new game always begins on the first level; if a prior game left the world
+	// on a deeper level, load the first one fresh (the loading screen handles it).
+	const std::string first =
+		m_project.levels.empty() ? std::string("level1") : m_project.levels.front();
+	if (m_world.CurrentLevel() != first) {
+		BeginLevelTransition(first, -1, -1, Direction::South, /*stashCurrent=*/false);
+		log::Info("New game started (loading {})", first);
+		return; // the LoadingLevel done-handler resumes play
+	}
+
 	m_ui.ClearLog();
 	m_ui.AddLogLine(loc::Tr("log.descend"));
 	m_ui.AddLogLine(loc::Tr("log.shuffle"));
@@ -409,7 +465,6 @@ void Game::SaveGame(const std::string& name) {
 	}
 	SaveData data;
 	data.name = name;
-	data.level = "level1"; // only level today; the loader keys off this later
 	data.timestamp = std::format("{:%Y-%m-%d %H:%M:%S}",
 								 std::chrono::floor<std::chrono::seconds>(
 									 std::chrono::system_clock::now()));
@@ -441,10 +496,24 @@ bool Game::LoadGame(const std::string& path) {
 		m_characters[i].stamina = c.stamina;   m_characters[i].maxStamina = c.maxStamina;
 		m_characters[i].mana = c.mana;         m_characters[i].maxMana = c.maxMana;
 	}
-	m_world.ApplyState(*data);
+	m_world.ApplyState(*data); // fills the per-level store + party pose/torch
 
 	m_ui.RefreshSheet();
 	ApplyPartySpeed();
+
+	// Route to the saved level. If it is the one already active, restore its
+	// live state inline; otherwise load it (arriving at the saved pose, without
+	// stashing the throwaway baseline) and let the loader finish the restore.
+	if (m_world.CurrentLevel() != data->currentLevel) {
+		m_ui.ClearLog();
+		BeginLevelTransition(data->currentLevel, data->partyX, data->partyZ,
+							 static_cast<Direction>(data->partyFacing),
+							 /*stashCurrent=*/false);
+		log::Info("Loaded game from {} (loading {})", path, data->currentLevel);
+		return true;
+	}
+
+	m_world.ApplyActiveSnapshot(); // restore the active level's fog + entity diff
 	m_ui.ClearLog(); // SetTorchPalette logged a line during ApplyState
 	m_ui.AddLogLine(loc::Tr("log.descend"));
 	const Party& party = m_world.GetParty();
@@ -559,6 +628,22 @@ void Game::Update(float dt) {
 		}
 		return;
 
+	case AppState::LoadingLevel:
+		if (RunLoadTasks()) {
+			// Restore this level's saved fog/progress (if visited before — the
+			// monsters now exist for the entity diff), then place the party.
+			m_world.ApplyActiveSnapshot();
+			int px = m_pendingLevelX, pz = m_pendingLevelZ;
+			if (px < 0) { // sentinel: arrive at the new level's start cell
+				px = m_world.Map().StartX();
+				pz = m_world.Map().StartZ();
+			}
+			m_world.PlacePartyAt(px, pz, m_pendingLevelFacing);
+			m_ui.ClearLog();
+			m_state = AppState::Playing;
+		}
+		return;
+
 	case AppState::Paused:
 		// The world is frozen — only the pause menu (or the shared settings
 		// page) updates. Esc backs out of settings (but an armed key-bind box
@@ -598,6 +683,11 @@ void Game::Update(float dt) {
 		m_mapView.Update(input, MapPanel(static_cast<float>(m_window.Width()),
 										 static_cast<float>(m_window.Height())));
 		m_world.Update(input, wdt, m_time); // keyboard still moves the party
+		if (auto t = m_world.ConsumeLevelTransition()) {
+			m_mapView.Close(); // a stair step starts a new level load
+			BeginLevelTransition(t->level, t->x, t->z, t->facing);
+			return;
+		}
 		Party& party = m_world.GetParty();
 		m_ui.SetHudStatus(party.Facing(), party.GridX(), party.GridZ());
 		return;
@@ -617,6 +707,10 @@ void Game::Update(float dt) {
 	// rather than simulating one more frame.
 	if (m_state != AppState::Playing) return;
 	m_world.Update(input, wdt, m_time);
+	if (auto t = m_world.ConsumeLevelTransition()) {
+		BeginLevelTransition(t->level, t->x, t->z, t->facing);
+		return;
+	}
 
 	Party& party = m_world.GetParty();
 	m_ui.SetHudStatus(party.Facing(), party.GridX(), party.GridZ());
@@ -651,7 +745,8 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 	switch (m_state) {
 	case AppState::Loading:     m_ui.RenderLoadingScreen(m_loadQueue); break;
 	case AppState::Menu:        m_ui.RenderMenuOverlay(); break;
-	case AppState::LoadingGame: m_ui.RenderGameLoadingScreen(m_loadQueue); break;
+	case AppState::LoadingGame:  m_ui.RenderGameLoadingScreen(m_loadQueue); break;
+	case AppState::LoadingLevel: m_ui.RenderGameLoadingScreen(m_loadQueue); break;
 	case AppState::Playing: {
 		const float dw = static_cast<float>(m_device.Width());
 		const float dh = static_cast<float>(m_device.Height());

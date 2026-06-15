@@ -90,11 +90,20 @@ DungeonGeometry BuildDungeonGeometry(const DungeonMap& map,
 			const Vec3 center = map.CellCenter(x, z);
 			const int chunk = chunkOf(x, z);
 
-			const u32 floorVariant = VariantFor(x, z, 1u, floorVariants);
+			// An editor override (>= 0) pins the cell's variant; otherwise the
+			// stable position hash chooses it. Clamp to the loaded variant count.
+			const auto pick = [](int over, u32 hashed, u32 count) -> u32 {
+				if (over < 0) return hashed;
+				return count > 0 ? std::min(static_cast<u32>(over), count - 1) : 0u;
+			};
+			const u32 floorVariant = pick(map.FloorVariant(x, z),
+										   VariantFor(x, z, 1u, floorVariants), floorVariants);
 			AppendTransformed(floorB[chunk * floorVariants + floorVariant],
 							  floorBlocks[floorVariant],
 							  XMMatrixTranslation(center.x, 0, center.z));
-			const u32 ceilingVariant = VariantFor(x, z, 2u, ceilingVariants);
+			const u32 ceilingVariant = pick(map.CeilingVariant(x, z),
+											 VariantFor(x, z, 2u, ceilingVariants),
+											 ceilingVariants);
 			AppendTransformed(ceilB[chunk * ceilingVariants + ceilingVariant],
 							  ceilingBlocks[ceilingVariant],
 							  XMMatrixTranslation(center.x, kWallHeight, center.z));
@@ -113,7 +122,8 @@ DungeonGeometry BuildDungeonGeometry(const DungeonMap& map,
 				{-1, 0, kPi * 0.5f, {x * s, 0, center.z}},           // west
 				{+1, 0, -kPi * 0.5f, {(x + 1) * s, 0, center.z}},    // east
 			};
-			const u32 wallVariant = VariantFor(x, z, 3u, wallVariants);
+			const u32 wallVariant = pick(map.WallVariant(x, z),
+										  VariantFor(x, z, 3u, wallVariants), wallVariants);
 			for (const Edge& e : edges) {
 				if (map.IsWalkable(x + e.dx, z + e.dz)) continue;
 				const XMMATRIX m = XMMatrixRotationY(e.yaw) *

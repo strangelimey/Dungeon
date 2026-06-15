@@ -1,0 +1,24 @@
+; Dungeon Demo — level 2, static layer. A small test level for multi-level
+; transitions (P6): same palette as level1 (so its assets are already resident),
+; a central pillared block, one sconce and one brazier.
+
+palette wall wall_brick wall_stone wall_moss
+palette floor floor_slabs floor_cobble
+palette ceiling ceiling_rough ceiling_cracked
+
+##############
+#P...........#
+#............#
+#....####....#
+#....#..#....#
+#....#..#....#
+#....####....#
+#............#
+#....T....F..#
+##############
+;
+decoration column 5 1 south
+decoration barrel 11 8 south
+decoration statue 2 8 south
+; Stairs back up to level 1.
+stairs stairs_up 3 1 south dest=level1 destx=4 destz=5

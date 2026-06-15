@@ -3,6 +3,7 @@
 // ============================================================================
 #include "Game/DungeonWorld.h"
 
+#include "Assets/File.h"
 #include "Assets/Image.h"
 #include "Core/Loc.h"
 #include "Core/Log.h"
@@ -22,18 +23,38 @@ namespace dungeon::game {
 // Construction — cheap setup only (the map files parse fast); the heavy asset
 // work is queued by AppendLoadTasks and runs behind the loading screen.
 // ============================================================================
+// The project's first level stem (the one the game opens), falling back to
+// "level1" for a project whose manifest names no levels.
+static std::string FirstLevel(const Project& p) {
+	return p.levels.empty() ? std::string("level1") : p.levels.front();
+}
+
 DungeonWorld::DungeonWorld(gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 						   audio::AudioEngine& audio, const SoundBank& sounds,
-						   const GameSettings& settings)
+						   const GameSettings& settings, const Project& project)
 	: m_device(device), m_renderer(renderer), m_audio(audio), m_sounds(sounds),
-	  m_settings(settings), m_map(paths::Asset("maps\\level1.map")),
-	  m_entities(paths::Asset("maps\\level1.ent"), m_map),
+	  m_settings(settings), m_project(project),
+	  m_map(project.LevelMapPath(FirstLevel(project))),
+	  m_entities(project.LevelEntPath(FirstLevel(project)), m_map),
 	  m_party(m_map, m_map.StartX(), m_map.StartZ()) {
+	m_currentLevel = FirstLevel(project);
+	// Resolve the level's palette ids → texture set names + height scales before
+	// any load task runs (SurfaceDefs and LoadDungeonBlocks read the results).
+	ResolveSurfacePalettes();
 	// Party event hooks (survive Party::Reset). Feedback goes out through the
 	// shared sound bank and the onMessage log line.
 	m_party.onStep = [this] {
 		m_audio.Play(m_sounds.footstep, 0.8f);
-		MarkSeen(m_party.GridX(), m_party.GridZ());
+		const int px = m_party.GridX(), pz = m_party.GridZ();
+		MarkSeen(px, pz);
+		// Stepping onto a stair raises a pending transition; Game polls it after
+		// Update and drives the swap, so the level never changes mid-step.
+		for (const StairLink& s : m_map.Stairs())
+			if (s.x == px && s.z == pz) {
+				m_pendingTransition =
+					LevelTransition{s.destLevel, s.destX, s.destZ, s.destFacing};
+				break;
+			}
 	};
 	m_party.onBlocked = [this] {
 		m_audio.Play(m_sounds.bump, 0.9f);
@@ -89,9 +110,43 @@ DungeonWorld::DungeonWorld(gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 // the single source of those constants, shared by the staged loader and the
 // quality hot-swap (LoadAllSurfaceTextures).
 std::array<DungeonWorld::SurfaceDef, 3> DungeonWorld::SurfaceDefs() {
-	return {{{m_walls, m_map.WallTextures(), 0.055f},
-			 {m_floors, m_map.FloorTextures(), 0.045f},
-			 {m_ceilings, m_map.CeilingTextures(), 0.035f}}};
+	return {{{m_walls, m_wallSets, m_wallHeight},
+			 {m_floors, m_floorSets, m_floorHeight},
+			 {m_ceilings, m_ceilingSets, m_ceilingHeight}}};
+}
+
+// Resolves each surface palette id through its project catalog into a texture
+// set name (DungeonWorld loads <set>_<res> and worn_<set>_<tier>.gltf) and the
+// surface's parallax height scale (taken from the first entry — a surface's
+// entries share a scale). An unknown id falls back to using the id verbatim as
+// the set name, so a hand-edited level still loads something.
+void DungeonWorld::ResolveSurfacePalettes() {
+	struct Def {
+		const std::vector<std::string>& palette;
+		const Catalog& catalog;
+		std::vector<std::string>& sets;
+		float& height;
+		float fallbackHeight;
+	};
+	const Def defs[] = {
+		{m_map.WallPalette(), m_project.walls, m_wallSets, m_wallHeight, 0.055f},
+		{m_map.FloorPalette(), m_project.floors, m_floorSets, m_floorHeight, 0.045f},
+		{m_map.CeilingPalette(), m_project.ceilings, m_ceilingSets, m_ceilingHeight,
+		 0.035f},
+	};
+	for (const Def& d : defs) {
+		d.sets.clear();
+		bool first = true;
+		for (const std::string& id : d.palette) {
+			const CatalogEntry* e = d.catalog.Find(id);
+			d.sets.push_back(e ? e->Get("texture", id) : id);
+			if (first) {
+				d.height = e ? e->GetFloat("height_scale", d.fallbackHeight)
+							 : d.fallbackHeight;
+				first = false;
+			}
+		}
+	}
 }
 
 void DungeonWorld::AppendLoadTasks(LoadQueue& queue) {
@@ -126,16 +181,28 @@ void DungeonWorld::AppendLoadTasks(LoadQueue& queue) {
 
 	});
 	queue.Add(loc::Tr("load.monsters"), [this] { LoadMonsters(); });
-	queue.Add(loc::Tr("load.decorations"), [this] { LoadDecorations(); });
+	queue.Add(loc::Tr("load.decorations"), [this] {
+		LoadDecorations();
+		LoadStairs();
+	});
 	queue.Add(loc::Tr("load.fires"), [this] {
-		auto sconce = LoadModelOrDie("sconce.gltf");
-		m_sconceMesh = std::make_unique<gfx::Mesh>(m_device, sconce.meshes[0]);
-		m_sconceColor = sconce.materials[0].baseColorFactor;
-		m_sconceTex = LoadPropTextures("sconce"); // worn-medieval iron
-		auto brazier = LoadModelOrDie("brazier.gltf");
-		m_brazierMesh = std::make_unique<gfx::Mesh>(m_device, brazier.meshes[0]);
-		m_brazierColor = brazier.materials[0].baseColorFactor;
-		m_brazierTex = LoadPropTextures("brazier"); // bronze
+		// Resolve the sconce/brazier model + texture through the fixtures catalog
+		// (the ids the 'T'/'F' glyphs map to); fall back to the old names.
+		auto fixtureAssets = [this](const std::string& id, const char* fallback,
+									std::unique_ptr<gfx::Mesh>& mesh, Vec4& color,
+									const PropTextures*& tex) {
+			const CatalogEntry* def = m_project.fixtures.Find(id);
+			const std::string model = def ? def->Get("model", fallback) : fallback;
+			const std::string set = def ? def->Get("texture", fallback) : fallback;
+			auto data = LoadModelOrDie(model + ".gltf");
+			mesh = std::make_unique<gfx::Mesh>(m_device, data.meshes[0]);
+			color = data.materials[0].baseColorFactor;
+			tex = LoadPropTextures(set);
+		};
+		fixtureAssets(m_project.defaultSconce, "sconce", m_sconceMesh, m_sconceColor,
+					  m_sconceTex);   // worn-medieval iron
+		fixtureAssets(m_project.defaultBrazier, "brazier", m_brazierMesh,
+					  m_brazierColor, m_brazierTex); // bronze
 		m_particleBatch = std::make_unique<gfx::ParticleBatch>(m_device);
 		BuildFires();
 	});
@@ -156,9 +223,9 @@ void DungeonWorld::LoadDungeonBlocks() {
 					std::format("worn_{}_{}.gltf", name, m_settings.MeshSuffix()))
 					.meshes[0]);
 	};
-	load(m_wallBlocks, m_map.WallTextures());
-	load(m_floorBlocks, m_map.FloorTextures());
-	load(m_ceilingBlocks, m_map.CeilingTextures());
+	load(m_wallBlocks, m_wallSets);
+	load(m_floorBlocks, m_floorSets);
+	load(m_ceilingBlocks, m_ceilingSets);
 }
 
 // Loads a PBR set (albedo sRGB + normal/height + ORM) by base name at the
@@ -233,30 +300,36 @@ void DungeonWorld::BuildDungeonMeshes() {
 // Loads each monster model once (shared per kind) and creates one animator
 // per spawn. The shared ModelData must stay alive for the animators' sake —
 // it lives in m_monsterKinds for the app's lifetime.
-void DungeonWorld::LoadMonsters() {
-	auto kindOf = [this](const std::string& type) -> MonsterKind& {
-		auto it = m_monsterKinds.find(type);
-		if (it == m_monsterKinds.end()) {
-			auto assets = std::make_unique<MonsterKind>();
-			assets->model = LoadModelOrDie(type + ".gltf");
-			assets->name = type;
-			assets->mesh = std::make_unique<gfx::Mesh>(m_device, assets->model.meshes[0]);
-			assets->tex = LoadPropTextures(type); // <type>_<res> PBR set, if present
-			it = m_monsterKinds.emplace(type, std::move(assets)).first;
-		}
-		return *it->second;
-	};
+DungeonWorld::MonsterKind& DungeonWorld::MonsterKindFor(const std::string& type) {
+	auto it = m_monsterKinds.find(type);
+	if (it == m_monsterKinds.end()) {
+		// Resolve model + texture set through the monsters catalog; an unlisted
+		// type falls back to the old name convention (<type>.gltf).
+		const CatalogEntry* def = m_project.monsters.Find(type);
+		const std::string model = def ? def->Get("model", type) : type;
+		const std::string tex = def ? def->Get("texture", type) : type;
+		auto assets = std::make_unique<MonsterKind>();
+		assets->model = LoadModelOrDie(model + ".gltf");
+		assets->name = type; // catalog id — drives the monster.<id> loc key
+		assets->mesh = std::make_unique<gfx::Mesh>(m_device, assets->model.meshes[0]);
+		assets->tex = LoadPropTextures(tex); // <tex>_<res> PBR set, if present
+		it = m_monsterKinds.emplace(type, std::move(assets)).first;
+	}
+	return *it->second;
+}
 
+void DungeonWorld::LoadMonsters() {
 	int phase = 0;
 	for (const Entity& spawn : m_entities.All()) {
 		if (spawn.kind != EntityKind::Monster) continue;
-		MonsterKind& kind = kindOf(spawn.type);
+		MonsterKind& kind = MonsterKindFor(spawn.type);
 		Monster monster;
 		monster.kind = &kind;
 		monster.id = spawn.id;
 		monster.x = monster.spawnX = spawn.x;
 		monster.z = monster.spawnZ = spawn.z;
 		monster.yaw = DirYaw(spawn.facing);
+		monster.facing = spawn.facing;
 		monster.animator = anim::Animator(&kind.model.skeleton, &kind.model.clips);
 		monster.animator.Play("idle");
 		monster.animator.Update(static_cast<float>(phase++) * 0.7f); // desync idles
@@ -319,47 +392,35 @@ void DungeonWorld::ApplyPropMaterial(gfx::MaterialParams& m,
 // record's facing rotates the prop the same way a monster's does. Everything
 // is solid (blocks the party) except open passages like the archway; a
 // "solid=0"/"solid=1" param on the record overrides the default.
-void DungeonWorld::LoadDecorations() {
-	// The built-in procedural props: the texture set each uses (wooden props get
-	// planks, stone ones a dungeon-stone set) and whether a floor-standing one
-	// blocks the party (passages like the archway don't). Any type NOT listed
-	// here is an imported authored model that carries its own same-named PBR set,
-	// renders back-face culled, and defaults solid.
-	struct ProcDef {
-		std::string_view type;
-		std::string_view set;
-		bool solid;
-	};
-	static constexpr ProcDef kProcedural[] = {
-		{"column", "wall_stone", true},   {"archway", "wall_stone", false},
-		{"fountain", "wall_stone", true}, {"statue", "wall_stone", true},
-		{"door", "wood_planks", true},    {"barrel", "wood_planks", true},
-		{"crate", "wood_planks", true},   {"chest", "wood_planks", true},
-	};
-	auto procedural = [](const std::string& t) -> const ProcDef* {
-		for (const ProcDef& d : kProcedural)
-			if (t == d.type) return &d;
-		return nullptr;
-	};
-	auto kindOf = [&](const std::string& type) -> DecorationKind& {
-		auto it = m_decorationKinds.find(type);
-		if (it == m_decorationKinds.end()) {
-			const ProcDef* proc = procedural(type);
-			auto kind = std::make_unique<DecorationKind>();
-			kind->model = LoadModelOrDie(type + ".gltf");
-			kind->mesh = std::make_unique<gfx::Mesh>(m_device, kind->model.meshes[0]);
-			kind->color = kind->model.materials[0].baseColorFactor;
-			// Imported model: <name>_<res> texture set; procedural: the table's set.
-			kind->tex = LoadPropTextures(proc ? std::string(proc->set) : type);
-			kind->authored = !proc;
-			kind->solidDefault = proc ? proc->solid : true; // imported props block
-			it = m_decorationKinds.emplace(type, std::move(kind)).first;
-		}
-		return *it->second;
-	};
+// Each decoration type resolves through the decorations catalog: its model
+// (assets/models/<model>.gltf), its texture set (procedural props share a
+// dungeon-stone/wood-plank set, authored imports carry their own), whether it is
+// back-face culled (authored), and whether a floor-standing instance blocks the
+// party (passages like the archway don't). An unlisted type falls back to the
+// old convention: same-named model + set, authored, solid.
+DungeonWorld::DecorationKind& DungeonWorld::DecorationKindFor(const std::string& type,
+															 const Catalog& catalog) {
+	auto it = m_decorationKinds.find(type);
+	if (it == m_decorationKinds.end()) {
+		const CatalogEntry* def = catalog.Find(type);
+		const std::string model = def ? def->Get("model", type) : type;
+		const std::string tex = def ? def->Get("texture", type) : type;
+		auto kind = std::make_unique<DecorationKind>();
+		kind->model = LoadModelOrDie(model + ".gltf");
+		kind->mesh = std::make_unique<gfx::Mesh>(m_device, kind->model.meshes[0]);
+		kind->color = kind->model.materials[0].baseColorFactor;
+		kind->tex = LoadPropTextures(tex);
+		kind->id = type; // the record type, for the .map writer
+		kind->authored = def ? def->GetBool("authored", true) : true;
+		kind->solidDefault = def ? def->GetBool("solid", true) : true;
+		it = m_decorationKinds.emplace(type, std::move(kind)).first;
+	}
+	return *it->second;
+}
 
+void DungeonWorld::LoadDecorations() {
 	for (const Entity& record : m_map.Decorations()) {
-		DecorationKind& kind = kindOf(record.type);
+		DecorationKind& kind = DecorationKindFor(record.type, m_project.decorations);
 		Decoration deco;
 		deco.kind = &kind;
 		deco.x = record.x;
@@ -373,6 +434,9 @@ void DungeonWorld::LoadDecorations() {
 		Direction wall = Direction::North;
 		const std::string* wallParam = record.Param("wall");
 		const bool wallMounted = wallParam && ParseDirection(*wallParam, wall);
+		deco.facing = record.facing;
+		deco.wallMounted = wallMounted;
+		deco.wall = wall;
 		if (wallMounted) {
 			const WallMount m = MountOnWall(deco.x, deco.z, wall);
 			XMStoreFloat4x4(&deco.world, XMMatrixRotationY(m.yaw) *
@@ -389,6 +453,29 @@ void DungeonWorld::LoadDecorations() {
 	}
 	log::Info("Placed {} decorations ({} kinds)", m_decorations.size(),
 			  m_decorationKinds.size());
+}
+
+// Places a stair prop per map "stairs" record (P6). Stairs render through the
+// decoration machinery (kind resolved from stairs.cat) but are always non-solid
+// so the party can step onto them; the transition link itself lives in
+// DungeonMap::Stairs() and is consumed in the party step callback.
+void DungeonWorld::LoadStairs() {
+	for (const StairLink& s : m_map.Stairs()) {
+		DecorationKind& kind = DecorationKindFor(s.type, m_project.stairs);
+		Decoration deco;
+		deco.kind = &kind;
+		deco.x = s.x;
+		deco.z = s.z;
+		deco.facing = s.facing;
+		deco.stair = true; // written as a stairs record, not a decoration
+		const Vec3 pos = m_map.CellCenter(s.x, s.z);
+		XMStoreFloat4x4(&deco.world, XMMatrixRotationY(DirYaw(s.facing)) *
+										 XMMatrixTranslation(pos.x, 0, pos.z));
+		deco.solid = false; // the party walks onto a stair to use it
+		m_decorations.push_back(std::move(deco));
+	}
+	if (!m_map.Stairs().empty())
+		log::Info("Placed {} stairs", m_map.Stairs().size());
 }
 
 // Places one Fire per sconce ('T') and brazier ('F') cell. Sconces mount on
@@ -494,42 +581,38 @@ void DungeonWorld::ResetForNewGame() {
 	std::fill(m_seen.begin(), m_seen.end(), static_cast<u8>(0));
 	MarkSeen(m_party.GridX(), m_party.GridZ());
 	SetTorchPalette(0);
+	m_levelStates.clear(); // forget any explored levels
 }
 
-void DungeonWorld::CaptureState(SaveData& out) const {
-	out.partyX = m_party.GridX();
-	out.partyZ = m_party.GridZ();
-	out.partyFacing = m_party.Facing();
-	out.torchPalette = m_torchPalette;
-
-	out.seen.clear();
+SaveData::LevelState DungeonWorld::SnapshotActive() const {
+	SaveData::LevelState ls;
+	ls.stem = m_currentLevel;
 	for (int z = 0; z < m_map.Height(); ++z)
 		for (int x = 0; x < m_map.Width(); ++x)
 			if (m_seen[static_cast<size_t>(z) * m_map.Width() + x])
-				out.seen.emplace_back(x, z);
-
-	// Diff against the .ent baseline: a monster gets an override row once it
-	// has moved off its spawn cell or has announced itself (its position is the
-	// spawn until monsters roam, but `announced` flips on approach).
-	out.entities.clear();
+				ls.seen.emplace_back(x, z);
+	// Diff against the .ent baseline: a monster gets a row once it has moved off
+	// its spawn cell or has announced itself.
 	for (const Monster& m : m_monsters)
 		if (m.x != m.spawnX || m.z != m.spawnZ || m.announced)
-			out.entities.push_back({m.id, m.x, m.z, m.announced});
+			ls.entities.push_back({m.id, m.x, m.z, m.announced});
+	return ls;
 }
 
-void DungeonWorld::ApplyState(const SaveData& in) {
-	m_party.SetGridPosition(in.partyX, in.partyZ); // keeps facing, clears interp
-	m_party.SetFacing(in.partyFacing);
-	SetTorchPalette(in.torchPalette);
+void DungeonWorld::StashActive() {
+	m_levelStates[m_currentLevel] = SnapshotActive();
+}
+
+void DungeonWorld::ApplyActiveSnapshot() {
+	auto it = m_levelStates.find(m_currentLevel);
+	if (it == m_levelStates.end()) return; // first visit — nothing to restore
+	const SaveData::LevelState& ls = it->second;
 
 	std::fill(m_seen.begin(), m_seen.end(), static_cast<u8>(0));
-	for (const auto& [x, z] : in.seen)
+	for (const auto& [x, z] : ls.seen)
 		if (x >= 0 && z >= 0 && x < m_map.Width() && z < m_map.Height())
 			m_seen[static_cast<size_t>(z) * m_map.Width() + x] = 1;
-
-	// Runs after ResetForNewGame cleared every monster's announced flag, so the
-	// rows here restore both the moved cell and the announced state.
-	for (const SaveData::EntityState& e : in.entities)
+	for (const SaveData::EntityState& e : ls.entities)
 		for (Monster& m : m_monsters)
 			if (m.id == e.id) {
 				m.x = e.x;
@@ -537,6 +620,32 @@ void DungeonWorld::ApplyState(const SaveData& in) {
 				m.announced = e.announced;
 				break;
 			}
+	m_levelStates.erase(it); // the live state is authoritative now
+}
+
+void DungeonWorld::CaptureState(SaveData& out) const {
+	out.currentLevel = m_currentLevel;
+	out.partyX = m_party.GridX();
+	out.partyZ = m_party.GridZ();
+	out.partyFacing = m_party.Facing();
+	out.torchPalette = m_torchPalette;
+
+	// Every inactive visited level, plus the live one.
+	out.levels.clear();
+	for (const auto& [stem, ls] : m_levelStates) out.levels.push_back(ls);
+	out.levels.push_back(SnapshotActive());
+}
+
+void DungeonWorld::ApplyState(const SaveData& in) {
+	m_party.SetGridPosition(in.partyX, in.partyZ); // keeps facing, clears interp
+	m_party.SetFacing(in.partyFacing);
+	SetTorchPalette(in.torchPalette);
+
+	// Load every level's saved state into the per-level store. The active level's
+	// state is applied by ApplyActiveSnapshot once Game has routed to
+	// in.currentLevel (its entity diff needs the monsters built).
+	m_levelStates.clear();
+	for (const SaveData::LevelState& ls : in.levels) m_levelStates[ls.stem] = ls;
 }
 
 bool DungeonWorld::IsSeen(int x, int z) const {
@@ -550,6 +659,240 @@ void DungeonWorld::EditCell(int x, int z, Cell cell) {
 	if (m_map.Revision() == rev) return; // unchanged
 	MarkSeen(x, z);
 	RebuildGeometry();
+}
+
+void DungeonWorld::EditVariant(int x, int z, SurfaceSel sel, int variant) {
+	if (!m_map.IsWalkable(x, z)) return; // variants live on floor cells
+	const u32 rev = m_map.Revision();
+	switch (sel) {
+	case SurfaceSel::Wall:    m_map.SetWallVariant(x, z, variant); break;
+	case SurfaceSel::Floor:   m_map.SetFloorVariant(x, z, variant); break;
+	case SurfaceSel::Ceiling: m_map.SetCeilingVariant(x, z, variant); break;
+	}
+	if (m_map.Revision() == rev) return; // unchanged
+	MarkSeen(x, z);
+	RebuildGeometry();
+}
+
+bool DungeonWorld::AddDecoration(const std::string& type, int x, int z,
+								 Direction facing) {
+	if (!m_map.IsWalkable(x, z)) return false;
+	if (!m_project.decorations.Contains(type)) return false;
+	DecorationKind& kind = DecorationKindFor(type, m_project.decorations);
+	Decoration deco;
+	deco.kind = &kind;
+	deco.x = x;
+	deco.z = z;
+	deco.facing = facing;
+	const Vec3 pos = m_map.CellCenter(x, z);
+	XMStoreFloat4x4(&deco.world, XMMatrixRotationY(DirYaw(facing)) *
+									 XMMatrixTranslation(pos.x, 0, pos.z));
+	deco.solid = kind.solidDefault;
+	m_decorations.push_back(std::move(deco));
+	MarkSeen(x, z);
+	return true;
+}
+
+bool DungeonWorld::AddMonster(const std::string& type, int x, int z,
+							  Direction facing) {
+	if (!m_map.IsWalkable(x, z)) return false;
+	if (!m_project.monsters.Contains(type)) return false;
+	for (const Monster& m : m_monsters)
+		if (m.x == x && m.z == z) return false; // one monster per cell
+	MonsterKind& kind = MonsterKindFor(type);
+	Monster monster;
+	monster.kind = &kind;
+	monster.id = -1; // editor-placed (not from .ent); save handling comes later
+	monster.x = monster.spawnX = x;
+	monster.z = monster.spawnZ = z;
+	monster.yaw = DirYaw(facing);
+	monster.facing = facing;
+	monster.animator = anim::Animator(&kind.model.skeleton, &kind.model.clips);
+	monster.animator.Play("idle");
+	m_monsters.push_back(std::move(monster));
+	MarkSeen(x, z);
+	return true;
+}
+
+bool DungeonWorld::RemoveEntityAt(int x, int z) {
+	for (auto it = m_monsters.begin(); it != m_monsters.end(); ++it)
+		if (it->x == x && it->z == z) {
+			m_monsters.erase(it);
+			return true;
+		}
+	for (auto it = m_decorations.begin(); it != m_decorations.end(); ++it)
+		if (it->x == x && it->z == z) {
+			m_decorations.erase(it);
+			return true;
+		}
+	return false;
+}
+
+std::vector<std::pair<int, int>> DungeonWorld::MonsterCells() const {
+	std::vector<std::pair<int, int>> cells;
+	cells.reserve(m_monsters.size());
+	for (const Monster& m : m_monsters) cells.emplace_back(m.x, m.z);
+	return cells;
+}
+
+std::vector<std::pair<int, int>> DungeonWorld::DecorationCells() const {
+	std::vector<std::pair<int, int>> cells;
+	cells.reserve(m_decorations.size());
+	for (const Decoration& d : m_decorations) cells.emplace_back(d.x, d.z);
+	return cells;
+}
+
+void DungeonWorld::BeginLevelLoad(const std::string& stem, bool stashCurrent) {
+	m_device.WaitIdle(); // the GPU may still be reading the old level's meshes
+
+	// Save the level we're leaving so a later return restores its fog/progress
+	// (skip for a throwaway baseline being replaced by a save's level).
+	if (stashCurrent) StashActive();
+
+	// Move-assign the new level into the existing objects (Party holds a
+	// reference to m_map, so the object must persist — only its data changes).
+	m_map = DungeonMap(m_project.LevelMapPath(stem));
+	m_entities = DungeonEntities(m_project.LevelEntPath(stem), m_map);
+	m_currentLevel = stem;
+
+	// Reset per-level state. The shared caches (m_monsterKinds, m_decorationKinds,
+	// m_propTextures) persist — they are keyed by name and reused across levels.
+	// Instance lists must be cleared (LoadMonsters/LoadDecorations/BuildFires
+	// push_back); the surface chunks/blocks/textures self-reset when the caller
+	// re-runs AppendLoadTasks.
+	m_seen.assign(static_cast<size_t>(m_map.Width()) * m_map.Height(), 0);
+	m_monsters.clear();
+	m_decorations.clear();
+	m_fires.clear();
+	m_pendingTransition.reset();
+	for (ShadowSlotCache& slot : m_shadowCache) slot = ShadowSlotCache{};
+	ResolveSurfacePalettes();
+}
+
+std::optional<DungeonWorld::LevelTransition> DungeonWorld::ConsumeLevelTransition() {
+	std::optional<LevelTransition> t = std::move(m_pendingTransition);
+	m_pendingTransition.reset();
+	return t;
+}
+
+namespace {
+const char* DirName(Direction d) {
+	switch (d) {
+	case Direction::North: return "north";
+	case Direction::East:  return "east";
+	case Direction::West:  return "west";
+	default:               return "south";
+	}
+}
+const char* KindName(EntityKind k) {
+	switch (k) {
+	case EntityKind::Monster:    return "monster";
+	case EntityKind::Button:     return "button";
+	case EntityKind::Decoration: return "decoration";
+	default:                     return "item";
+	}
+}
+} // namespace
+
+bool DungeonWorld::SaveLevel() const {
+	const DungeonMap& map = m_map;
+
+	// --- static layer (.map) ------------------------------------------------
+	std::string m = std::format("; {} — written by the in-game editor.\n\n", m_currentLevel);
+	auto palette = [&](const char* surface, const std::vector<std::string>& ids) {
+		if (ids.empty()) return;
+		m += std::format("palette {}", surface);
+		for (const std::string& id : ids) m += " " + id;
+		m += '\n';
+	};
+	palette("wall", map.WallPalette());
+	palette("floor", map.FloorPalette());
+	palette("ceiling", map.CeilingPalette());
+	m += ";\n";
+
+	// Grid: 'P' start, '#' wall, 'D' authored-dusty floor, '.' floor. Fixtures
+	// are emitted as records below, so their cells stay plain floor.
+	for (int z = 0; z < map.Height(); ++z) {
+		std::string row(static_cast<size_t>(map.Width()), '.');
+		for (int x = 0; x < map.Width(); ++x) {
+			if (x == map.StartX() && z == map.StartZ()) row[x] = 'P';
+			else if (map.At(x, z) == Cell::Wall) row[x] = '#';
+			else if (map.AuthoredDusty(x, z)) row[x] = 'D';
+		}
+		m += row;
+		m += '\n';
+	}
+	m += ";\n";
+
+	for (const WallSconce& s : map.Sconces())
+		m += std::format("fixture sconce {} {} {}\n", s.x, s.z, DirName(s.wall));
+	for (const auto& [bx, bz] : map.BrazierCells())
+		m += std::format("fixture brazier {} {}\n", bx, bz);
+
+	for (const StairLink& s : map.Stairs())
+		m += std::format("stairs {} {} {} {} dest={} destx={} destz={} destfacing={}\n",
+						 s.type, s.x, s.z, DirName(s.facing), s.destLevel, s.destX,
+						 s.destZ, DirName(s.destFacing));
+
+	for (int z = 0; z < map.Height(); ++z)
+		for (int x = 0; x < map.Width(); ++x) {
+			if (map.WallVariant(x, z) >= 0)
+				m += std::format("variant wall {} {} {}\n", x, z, map.WallVariant(x, z));
+			if (map.FloorVariant(x, z) >= 0)
+				m += std::format("variant floor {} {} {}\n", x, z, map.FloorVariant(x, z));
+			if (map.CeilingVariant(x, z) >= 0)
+				m += std::format("variant ceiling {} {} {}\n", x, z, map.CeilingVariant(x, z));
+		}
+
+	// Decorations reconstructed from the live instances (so editor placements /
+	// removals persist); stair props are skipped — they are stairs records.
+	for (const Decoration& d : m_decorations) {
+		if (d.stair || !d.kind || d.kind->id.empty()) continue;
+		if (d.wallMounted) {
+			m += std::format("decoration {} {} {} wall={}", d.kind->id, d.x, d.z,
+							 DirName(d.wall));
+			if (d.solid) m += " solid=1";
+		} else {
+			m += std::format("decoration {} {} {} {}", d.kind->id, d.x, d.z,
+							 DirName(d.facing));
+			if (d.solid != d.kind->solidDefault)
+				m += std::format(" solid={}", d.solid ? 1 : 0);
+		}
+		m += '\n';
+	}
+
+	// --- dynamic layer (.ent) -----------------------------------------------
+	std::string e =
+		std::format("; {} — written by the in-game editor (dynamic layer).\n\n", m_currentLevel);
+	for (const Monster& mon : m_monsters)
+		e += std::format("monster {} {} {} {}\n",
+						 mon.kind ? mon.kind->name : std::string("?"), mon.x, mon.z,
+						 DirName(mon.facing));
+	// Items/buttons aren't editor-editable yet — carry the loaded records through.
+	for (const Entity& ent : m_entities.All()) {
+		if (ent.kind != EntityKind::Item && ent.kind != EntityKind::Button) continue;
+		e += std::format("{} {} {} {} {}", KindName(ent.kind), ent.type, ent.x, ent.z,
+						 DirName(ent.facing));
+		for (const auto& [k, v] : ent.params) e += std::format(" {}={}", k, v);
+		e += '\n';
+	}
+
+	const bool okMap =
+		assets::WriteBinaryFile(m_project.LevelMapPath(m_currentLevel), m.data(), m.size());
+	const bool okEnt =
+		assets::WriteBinaryFile(m_project.LevelEntPath(m_currentLevel), e.data(), e.size());
+	if (okMap && okEnt)
+		log::Info("Saved level {}: {} decorations, {} monsters", m_currentLevel,
+				  m_decorations.size(), m_monsters.size());
+	else
+		log::Warn("Failed to write level {} files", m_currentLevel);
+	return okMap && okEnt;
+}
+
+void DungeonWorld::PlacePartyAt(int x, int z, Direction facing) {
+	m_party.SetGridPosition(x, z);
+	m_party.SetFacing(static_cast<int>(facing));
+	MarkSeen(x, z);
 }
 
 void DungeonWorld::RebuildGeometry() {

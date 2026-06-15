@@ -45,6 +45,7 @@
 #include "Game/GameUI.h"
 #include "Game/LoadQueue.h"
 #include "Game/MapView.h"
+#include "Game/Project.h"
 #include "Game/SoundBank.h"
 #include "Graphics/Renderer.h"
 #include "Graphics/SpriteBatch.h"
@@ -68,11 +69,26 @@ public:
 	bool QuitRequested() const { return m_quitRequested; }
 
 private:
-	enum class AppState { Loading, Menu, LoadingGame, Playing, Paused, CharacterSheet };
+	enum class AppState {
+		Loading,
+		Menu,
+		LoadingGame,
+		LoadingLevel, // mid-game level transition (P6): re-stage the world load
+		Playing,
+		Paused,
+		CharacterSheet
+	};
 
 	// --- loading (one task per frame while a loading screen shows) ---------
 	void BuildBootLoadTasks(); // menu essentials, run before the landing page
 	void BuildGameLoadTasks(); // the dungeon itself, run on first game start
+
+	// Starts a mid-game level transition (P6): swaps the world to `stem`, stages
+	// its load behind the loading screen, and arrives at (x,z,facing) when done
+	// (x<0 = the level's start cell). `stashCurrent` saves the level being left
+	// for a later return; pass false when leaving a throwaway baseline (save load).
+	void BeginLevelTransition(const std::string& stem, int x, int z,
+							  Direction facing, bool stashCurrent = true);
 	bool RunLoadTasks();       // executes one task per frame; true when done
 	void LoadPortraits();      // baked party portraits (load task)
 
@@ -127,9 +143,18 @@ private:
 	// starting fresh. Empty = the load should StartNewGame as usual.
 	std::string m_pendingLoadPath;
 
+	// Pending level-transition arrival (set by BeginLevelTransition, applied when
+	// the LoadingLevel queue finishes): the cell + facing the party enters at.
+	int m_pendingLevelX = 0, m_pendingLevelZ = 0;
+	Direction m_pendingLevelFacing = Direction::South;
+
 	// --- modules (construction order matters: settings load first, the world
 	// and UI reference settings/sounds/characters) -------------------------------
 	GameSettings m_settings;
+	// The active project: content catalogs + levels (assets/projects/<name>).
+	// Loaded before the world (which reads it for level paths and catalogs);
+	// the editor will read and write it.
+	Project m_project;
 	SoundBank m_sounds;
 	// Party roster (up to four). Filled once in the constructor and never
 	// resized — the party-bar panels and the sheet hold pointers into it, so

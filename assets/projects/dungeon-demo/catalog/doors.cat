@@ -1,0 +1,8 @@
+; Doors (reserved — populated when functional doors land, plan phase P5).
+; Planned fields:
+;   model    = door mesh in assets/models
+;   texture  = PBR set
+;   mount    = edge the door occupies (between two cells)
+;   start    = open | closed
+; This is the FUNCTIONAL door (state, blocks movement until opened), distinct
+; from the cosmetic "wood_door" decoration prop in decorations.cat.

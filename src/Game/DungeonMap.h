@@ -6,7 +6,7 @@
 // the glyph legend: '#' rock, '.' floor, 'D' dust, 'T' sconce, 'F' brazier,
 // 'P' start; ';' lines are comments). Lines starting with a lowercase letter
 // are records — grid glyphs are never lowercase, so the two can't collide:
-//   textures <wall|floor|ceiling> <set> [...]   surface texture palette
+//   palette <wall|floor|ceiling> <id> [...]     surface palette (catalog ids)
 //   decoration <type> <x> <z> [facing]          static entity (Entity.h)
 //   fixture <sconce|brazier> <x> <z> [facing]   wall sconce / floor brazier
 // The 'T'/'F' glyphs are terse shorthand for a single auto-faced sconce/
@@ -52,6 +52,18 @@ struct WallSconce {
 	Direction wall = Direction::North;
 };
 
+// A stair/portal on a floor cell that, when the party steps onto it, transitions
+// to another level (P6). `type` is a stairs.cat catalog id (the prop model);
+// dest* name the arrival level + cell + facing.
+struct StairLink {
+	int x = 0, z = 0;
+	Direction facing = Direction::South;
+	std::string type;
+	std::string destLevel;
+	int destX = 0, destZ = 0;
+	Direction destFacing = Direction::South;
+};
+
 // Grid-based dungeon. Coordinates: x = column, z = row; world position of a
 // cell center is ((x + 0.5) * kCellSize, 0, (z + 0.5) * kCellSize).
 class DungeonMap {
@@ -75,6 +87,26 @@ public:
 	// changes (see DungeonWorld).
 	u32 Revision() const { return m_revision; }
 
+	// --- per-cell surface variant overrides (editor) -------------------------
+	// Each floor cell normally picks its wall/floor/ceiling texture variant by a
+	// position hash (DungeonMeshBuilder). The editor can pin a cell to a specific
+	// palette index; -1 (the default) means "use the hash". Stored on the static
+	// layer (a save never needs them — they live in the .map). Setters bump
+	// Revision() on change so the geometry rebuilds; out-of-bounds is ignored.
+	int WallVariant(int x, int z) const { return VariantAt(m_wallVar, x, z); }
+	int FloorVariant(int x, int z) const { return VariantAt(m_floorVar, x, z); }
+	int CeilingVariant(int x, int z) const { return VariantAt(m_ceilingVar, x, z); }
+	void SetWallVariant(int x, int z, int v) { SetVariant(m_wallVar, x, z, v); }
+	void SetFloorVariant(int x, int z, int v) { SetVariant(m_floorVar, x, z, v); }
+	void SetCeilingVariant(int x, int z, int v) { SetVariant(m_ceilingVar, x, z, v); }
+
+	// Whether a cell was authored dusty (the 'D' glyph), for the .map writer —
+	// distinct from runtime Turbidity(), which also folds in nearby fires.
+	bool AuthoredDusty(int x, int z) const {
+		if (x < 0 || z < 0 || x >= m_width || z >= m_height) return false;
+		return m_dusty[static_cast<size_t>(z) * m_width + x] != 0;
+	}
+
 	// Air turbidity 0 (clear) .. 1 (thick dust) for a cell; walls return 0.
 	float Turbidity(int x, int z) const {
 		if (x < 0 || z < 0 || x >= m_width || z >= m_height) return 0.0f;
@@ -94,17 +126,35 @@ public:
 	// Static decoration records (banners, rubble, ...) from the .map file.
 	const std::vector<Entity>& Decorations() const { return m_decorations; }
 
-	// Surface texture palettes from the level's "textures" records. Order
-	// defines the variant index everywhere (texture arrays, worn block
-	// meshes, geometry buckets); every named set needs its worn block meshes
-	// baked (worn_<set>_<tier>.gltf — the worn specs in ModelBaker.cpp).
-	const std::vector<std::string>& WallTextures() const { return m_wallTextures; }
-	const std::vector<std::string>& FloorTextures() const { return m_floorTextures; }
-	const std::vector<std::string>& CeilingTextures() const { return m_ceilingTextures; }
+	// Stair/portal links from the .map "stairs" records (P6 multi-level).
+	const std::vector<StairLink>& Stairs() const { return m_stairs; }
+
+	// Surface palettes from the level's "palette" records — lists of CATALOG
+	// IDs (project catalog/walls.cat, floors.cat, ceilings.cat). Order defines
+	// the variant index everywhere (texture arrays, worn block meshes, geometry
+	// buckets); DungeonWorld resolves each id to its texture set + height scale.
+	const std::vector<std::string>& WallPalette() const { return m_wallPalette; }
+	const std::vector<std::string>& FloorPalette() const { return m_floorPalette; }
+	const std::vector<std::string>& CeilingPalette() const { return m_ceilingPalette; }
 
 private:
-	void ParseTextureRecord(const std::string& record, const std::string& path);
+	void ParsePaletteRecord(const std::string& record, const std::string& path);
+	void ParseStairRecord(const std::string& record, const std::string& path);
+	void ParseVariantRecord(const std::string& record, const std::string& path);
 	void AddFireTurbidity(int x, int z, float amount);
+
+	// Shared body of the variant getters/setters (one grid per surface).
+	int VariantAt(const std::vector<int>& grid, int x, int z) const {
+		if (x < 0 || z < 0 || x >= m_width || z >= m_height) return -1;
+		return grid[static_cast<size_t>(z) * m_width + x];
+	}
+	void SetVariant(std::vector<int>& grid, int x, int z, int v) {
+		if (x < 0 || z < 0 || x >= m_width || z >= m_height) return;
+		int& slot = grid[static_cast<size_t>(z) * m_width + x];
+		if (slot == v) return;
+		slot = v;
+		++m_revision;
+	}
 
 	int m_width = 0;
 	int m_height = 0;
@@ -114,12 +164,16 @@ private:
 
 	std::vector<Cell> m_cells;
 	std::vector<float> m_turbidity; // parallel to m_cells
+	std::vector<u8> m_dusty;        // authored 'D' cells (for the writer)
+	// Per-cell variant overrides, parallel to m_cells; -1 = use the hash default.
+	std::vector<int> m_wallVar, m_floorVar, m_ceilingVar;
 	std::vector<WallSconce> m_torches;
 	std::vector<std::pair<int, int>> m_braziers;
 	std::vector<Entity> m_decorations;
-	std::vector<std::string> m_wallTextures;
-	std::vector<std::string> m_floorTextures;
-	std::vector<std::string> m_ceilingTextures;
+	std::vector<StairLink> m_stairs;
+	std::vector<std::string> m_wallPalette;   // catalog ids (walls.cat)
+	std::vector<std::string> m_floorPalette;  // catalog ids (floors.cat)
+	std::vector<std::string> m_ceilingPalette; // catalog ids (ceilings.cat)
 };
 
 } // namespace dungeon::game

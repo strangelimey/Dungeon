@@ -1,0 +1,135 @@
+; Dungeon Demo — level 1, static layer (structure and fixtures).
+; One character per cell; every row must be the same width.
+; Lines starting with ';' and blank lines are ignored.
+;
+;   #  solid rock          .  floor
+;   P  party start         D  dusty floor (air turbidity 1)
+;   T  wall torch sconce   F  fire brazier (blocks movement)
+;
+; Grid glyphs are never lowercase: lines starting with a lowercase letter
+; are records. "palette" records declare the level's surface palette by
+; CATALOG ID (project catalog/walls.cat, floors.cat, ceilings.cat); the game
+; loads only the sets those ids resolve to (each needs its worn block meshes
+; baked, see ModelBaker.cpp). "decoration" records are static entities whose
+; type is a catalog id (catalog/decorations.cat), e.g.
+;   decoration banner 4 2 north
+; "fixture <sconce|brazier> <x> <z> [facing]" places a wall sconce or floor
+; brazier explicitly (resolved through catalog/fixtures.cat) — unlike the
+; one-per-cell 'T'/'F' glyphs, several may share a cell (e.g. two sconces on
+; different walls). A sconce facing names the wall it hangs on (must be solid);
+; omit it to auto-pick the first solid neighbour. A decoration can take
+; "wall=<dir>" to hang flat on that wall (offset to it, facing the room)
+; instead of standing at the cell centre — so a sconce, a banner and other
+; wall props can all share one square.
+; Dynamic content — monsters, items, buttons — lives in level1.ent.
+
+palette wall wall_brick wall_stone wall_moss
+palette floor floor_slabs floor_cobble
+palette ceiling ceiling_rough ceiling_cracked
+;
+; 32x32 layout (4x the old map): a start room (NW) opening onto a great
+; pillared hall (N), a dusty fountain hall (centre), a tomb crypt (W), a
+; dusty cavern (SW), a treasure vault (S) and gallery/chambers (E/SE), all
+; tied together by a looping corridor network. The fountain hall and cavern
+; are dust-heavy showcases; the serpent pillar auto-spawns two cells south
+; of the start.
+################################
+################################
+##....T.###.T.......T.###.....##
+##.P....###...........###....T##
+##............................##
+##......###.....F.....###.....##
+##......###...........###.....##
+####.######...........#####.####
+####.######...........#####.####
+####.######...........###.....##
+##......########.########....T##
+##T.....########.########.....##
+##......###TDDDDDDDDD####.....##
+##......###DDDDDDDDDD####.....##
+##......###DDDDDDDDDD.........##
+##......###DDDDDDDDDT####.....##
+####.######DDDDDDDDDD####.....##
+####.######DDFDDDDDDD######.####
+####.######DDDDDDDDDD######.####
+##DDDDDDDD#DDDDDDDDDD######.####
+##DDDDDDDD######.########.....##
+##DDDDDDDD######.########....T##
+##DDDDDDDD######.########.....##
+##DDDDDDDD####.........##.....##
+##TDDFDDDD####.........##.....##
+##DDDDDDDD####....F....##..F..##
+##DDDDDDDD....................##
+##DDDDDDDD####.........##.....##
+##DDDDDDDD####.........##.....##
+##DDDDDDDD####........T##.....##
+################################
+################################
+;
+; Static decorations. Type is a catalog id (catalog/decorations.cat).
+; Format: decoration <type> <x> <z> [facing] [key=value]. All props block the
+; party except open passages (add solid=0); authored imports (ancient_pot/
+; boulder/mossy_rock/pot/banner) carry their own texture set.
+;
+; Start room
+decoration ancient_pot 2 2 south
+decoration barrel 7 6 south
+; Stairs down to level 2 (arrive next to level2's start).
+stairs stairs_down 4 4 south dest=level2 destx=2 destz=1
+;
+; Great pillared hall — the NW corner carries two sconces, one per wall, and
+; the NE corner a sconce plus a wall banner on the other wall: several wall
+; fixtures/decorations sharing one square.
+fixture sconce 11 2 north
+fixture sconce 11 2 west
+fixture sconce 21 2 north
+decoration banner 21 2 wall=east
+decoration column 12 3 south
+decoration column 20 3 south
+decoration column 12 8 south
+decoration column 20 8 south
+decoration statue 16 2 south
+decoration archway 10 4 east solid=0
+;
+; Fountain hall (dusty)
+decoration fountain 14 15 south
+decoration column 12 12 south
+decoration column 19 12 south
+decoration ancient_pot 12 18 south
+decoration pot 18 18 south
+decoration archway 16 11 south solid=0
+;
+; West crypt
+decoration statue 6 10 south
+decoration chest 2 15 south
+decoration ancient_pot 6 14 south
+decoration mossy_rock 3 12 east solid=0
+;
+; NE chamber (storage)
+decoration chest 25 2 south
+decoration barrel 29 2 south
+decoration crate 28 6 south
+;
+; East gallery
+decoration column 25 10 south
+decoration column 29 15 south
+decoration statue 28 9 south
+;
+; SW cavern (dusty rubble)
+decoration boulder 4 21 east solid=0
+decoration boulder 8 23 south solid=0
+decoration mossy_rock 7 27 south solid=0
+decoration pot 3 28 south
+;
+; South treasure vault
+decoration chest 15 23 south
+decoration chest 21 29 south
+decoration barrel 16 28 south
+decoration crate 20 24 south
+decoration statue 18 23 south
+decoration wood_door 16 23 north solid=0
+;
+; SE chamber
+decoration crate 29 20 south
+decoration barrel 25 29 south
+decoration pot 27 22 south

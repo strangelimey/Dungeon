@@ -33,6 +33,10 @@
 #include "UI/Font.h"
 #include "UI/UIContext.h" // ui::Theme
 
+#include <array>
+#include <string>
+#include <vector>
+
 namespace dungeon::game {
 
 class MapView {
@@ -44,11 +48,17 @@ public:
 	// console's `editor` command.
 	enum class Mode { Player, Editor };
 
-	// What the left-dock palette paints (Editor mode only). The cell brushes
-	// write through DungeonWorld::EditCell; door/creature/item brushes are the
-	// next entries (they will place entities). A brush is always selected in
-	// Editor — left paints, right-drag pans, wheel zooms.
-	enum class Brush { Floor, Wall };
+	// Left-dock palette categories (Editor mode), drawn as collapsible accordion
+	// sections. Tools is the built-in Select/Erase group; Structure toggles a
+	// cell solid/floor (DungeonWorld::EditCell); Walls/Floors/Ceilings pin a
+	// surface variant on the clicked floor cell (DungeonWorld::EditVariant); the
+	// rest place catalog entities (placement wiring lands in the next step). A
+	// selection is always armed — left paints/places, right-drag pans, wheel
+	// zooms. Keep Count last (it sizes the per-category open-state array).
+	enum class PaletteCat {
+		Tools, Structure, Walls, Floors, Ceilings,
+		Decorations, Fixtures, Monsters, Doors, Stairs, Items, Count
+	};
 
 	MapView(gfx::GraphicsDevice& device, DungeonWorld& world,
 			GameSettings& settings);
@@ -128,13 +138,42 @@ private:
 	bool LegendCollapsed() const; // the right key dock's collapse flag for the mode
 	void ToggleLegend();          // flips that flag and persists
 
-	// Left-dock brush palette. Brush(i) is the i-th button's brush;
-	// BrushSwatch/BrushLabelKey describe a brush for its button.
-	static constexpr int kBrushCount = 2;
-	static Brush BrushForButton(int index);
-	static const char* BrushLabelKey(Brush brush);
-	static Vec4 BrushSwatch(Brush brush);
-	gfx::Rect BrushButtonRect(const gfx::Rect& panel, int index) const;
+	// --- left-dock palette (Editor) -----------------------------------------
+	// The armed palette entry: a category plus an item index within it.
+	struct Selection {
+		PaletteCat cat = PaletteCat::Tools;
+		int index = 0;
+	};
+
+	// One resolved palette item, for display and dispatch. `id` is the catalog
+	// id (entity categories) or surface-palette id; empty for built-in tools.
+	struct PaletteItem {
+		std::string label;
+		Vec4 swatch{1, 1, 1, 1};
+		std::string id;
+	};
+	// The items of a category: built-in (Tools/Structure) or resolved from the
+	// project's catalogs / the level palette (Walls/Floors/Ceilings/entities).
+	std::vector<PaletteItem> CategoryItems(PaletteCat cat) const;
+	static const char* CategoryNameKey(PaletteCat cat);
+
+	// Accordion layout, shared by Update (hit-test) and Render (draw): one row
+	// per category header, per visible item, and per empty-expanded placeholder.
+	// Rects are in panel pixel space with the scroll already applied.
+	struct PaletteRow {
+		enum class Kind { Header, Item, Empty } kind;
+		PaletteCat cat;
+		int index; // item index for Kind::Item
+		gfx::Rect rect;
+	};
+	void BuildPaletteRows(const gfx::Rect& panel, std::vector<PaletteRow>& out,
+						  float& contentHeight) const;
+	// The dock body rectangle the rows scroll within (below the header label).
+	gfx::Rect PaletteBody(const gfx::Rect& panel) const;
+	// Applies the armed selection to cell (cx,cz): structural/variant paints,
+	// tool actions, or an entity-placement stub. `dragging` is true for held
+	// strokes (only the paint brushes act on a drag; clicks act once).
+	void ApplyBrush(int cx, int cz, bool dragging);
 
 	gfx::GraphicsDevice& m_device;
 	DungeonWorld& m_world;
@@ -143,7 +182,10 @@ private:
 
 	bool m_open = false;
 	Mode m_mode = Mode::Player;
-	Brush m_brush = Brush::Wall; // selected dock brush (Editor mode)
+	Selection m_sel;                  // armed palette entry (Editor mode)
+	// Per-category accordion expand state; Tools + Structure open by default.
+	std::array<bool, static_cast<size_t>(PaletteCat::Count)> m_catOpen{};
+	float m_paletteScroll = 0.0f;     // left-dock vertical scroll (pixels)
 
 	// View state. m_pan is a fraction of the panel size so it is independent of
 	// the pass's pixel resolution; m_zoom multiplies the fit-to-panel cell size.

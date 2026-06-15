@@ -1,0 +1,11 @@
+; Ceiling surface types: texture set + worn-block height displacement.
+
+[ceiling_rough]
+display = Rough
+texture = ceiling_rough
+height_scale = 0.035
+
+[ceiling_cracked]
+display = Cracked
+texture = ceiling_cracked
+height_scale = 0.035

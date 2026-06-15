@@ -28,19 +28,16 @@ namespace dungeon::game {
 
 // The serializable dynamic state of one in-progress game.
 struct SaveData {
-	int version = 1;
-	std::string name;      // display name (free text; may contain spaces)
-	std::string level;     // level stem the baseline loads from, e.g. "level1"
-	std::string timestamp; // human-readable local time, for the slot list
+	int version = 2;
+	std::string name;         // display name (free text; may contain spaces)
+	std::string currentLevel; // the level stem the party is on (where to resume)
+	std::string timestamp;    // human-readable local time, for the slot list
 
 	// --- party (no static baseline → stored whole) --------------------------
 	int partyX = 0, partyZ = 0;
 	int partyFacing = 2; // 0=N 1=E 2=S 3=W
 
 	int torchPalette = 0; // HUD torchlight index (0 warm, 1 cold, 2 eerie)
-
-	// Revealed cells (fog of war). No baseline — stored whole.
-	std::vector<std::pair<int, int>> seen;
 
 	// Per-roster-slot mutable resources, in roster order.
 	struct CharState {
@@ -59,7 +56,16 @@ struct SaveData {
 		int x = 0, z = 0;
 		bool announced = false;
 	};
-	std::vector<EntityState> entities;
+
+	// Dynamic state of one level: revealed cells (fog, stored whole) + the
+	// entity diff. One entry per VISITED level — the world keeps each level's
+	// state so leaving and returning preserves fog/progress (P6 multi-level).
+	struct LevelState {
+		std::string stem;
+		std::vector<std::pair<int, int>> seen;
+		std::vector<EntityState> entities;
+	};
+	std::vector<LevelState> levels;
 };
 
 // One save file's header, for the slot browser (cheap: parsed from the file).

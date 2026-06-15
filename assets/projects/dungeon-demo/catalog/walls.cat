@@ -1,0 +1,18 @@
+; Wall surface types: texture set (assets/textures/<texture>_<res>) + the
+; worn-block height displacement its parallax/relief uses. The worn mesh is
+; derived as worn_<texture>_<tier>.gltf. Level palettes reference these ids.
+
+[wall_brick]
+display = Brick
+texture = wall_brick
+height_scale = 0.055
+
+[wall_stone]
+display = Cut Stone
+texture = wall_stone
+height_scale = 0.055
+
+[wall_moss]
+display = Mossy Wall
+texture = wall_moss
+height_scale = 0.055

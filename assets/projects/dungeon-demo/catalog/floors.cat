@@ -1,0 +1,11 @@
+; Floor surface types: texture set + worn-block height displacement.
+
+[floor_slabs]
+display = Slabs
+texture = floor_slabs
+height_scale = 0.045
+
+[floor_cobble]
+display = Cobblestone
+texture = floor_cobble
+height_scale = 0.045

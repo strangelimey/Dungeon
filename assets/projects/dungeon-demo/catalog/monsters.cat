@@ -1,0 +1,19 @@
+; Monsters. Fields:
+;   model   = assets/models/<model>.gltf
+;   texture = PBR set in assets/textures (omit -> flat glTF material)
+; Level .ent monster records reference these ids.
+
+[skeleton]
+display = Skeleton
+model = skeleton
+texture = skeleton
+
+[blob]
+display = Blob
+model = blob
+texture = blob
+
+[mummy]
+display = Mummy
+model = mummy
+texture = mummy

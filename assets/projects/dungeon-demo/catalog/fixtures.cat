@@ -1,0 +1,17 @@
+; Fixtures: wall sconces and floor braziers. Fields:
+;   model   = assets/models/<model>.gltf
+;   texture = PBR set in assets/textures
+;   mount   = wall (hangs on a solid neighbour wall) | floor (stands centred)
+; The 'T'/'F' map glyphs resolve to project.ini's default_sconce/default_brazier.
+
+[sconce]
+display = Wall Sconce
+model = sconce
+texture = sconce
+mount = wall
+
+[brazier]
+display = Brazier
+model = brazier
+texture = brazier
+mount = floor
