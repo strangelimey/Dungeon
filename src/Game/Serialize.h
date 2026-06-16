@@ -31,16 +31,29 @@ struct Field {
 	std::string value;
 };
 
+// Field accessors over a raw field list — the one implementation shared by
+// serialize::Block and game::CatalogEntry (both are an id + a Field vector).
+const std::string* Find(const std::vector<Field>& fields, std::string_view key);
+std::string Get(const std::vector<Field>& fields, std::string_view key,
+				std::string_view fallback = {});
+float GetFloat(const std::vector<Field>& fields, std::string_view key, float fallback);
+bool GetBool(const std::vector<Field>& fields, std::string_view key, bool fallback);
+// Replaces the field's value if `key` exists, else appends it.
+void Set(std::vector<Field>& fields, std::string key, std::string value);
+
 struct Block {
 	std::string id; // "" for the leading unnamed block (the manifest)
 	std::vector<Field> fields;
 
-	// The value for `key`, or nullptr when the block has no such field.
-	const std::string* Find(std::string_view key) const;
-	// The value for `key`, or `fallback` when absent.
-	std::string Get(std::string_view key, std::string_view fallback = {}) const;
-	// Appends (does not replace) a field — callers build blocks in order.
-	void Set(std::string key, std::string value);
+	const std::string* Find(std::string_view key) const {
+		return serialize::Find(fields, key);
+	}
+	std::string Get(std::string_view key, std::string_view fallback = {}) const {
+		return serialize::Get(fields, key, fallback);
+	}
+	void Set(std::string key, std::string value) {
+		serialize::Set(fields, std::move(key), std::move(value));
+	}
 };
 
 // Parses block-format text. Fields before the first "[id]" go into a block with

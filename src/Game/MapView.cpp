@@ -96,22 +96,35 @@ MapView::Transform MapView::ComputeTransform(const gfx::Rect& panel) const {
 	return {cell, ox, oy};
 }
 
-const char* MapView::CategoryNameKey(PaletteCat cat) {
-	switch (cat) {
-	case PaletteCat::Tools:       return "map.cat.tools";
-	case PaletteCat::Structure:   return "map.cat.structure";
-	case PaletteCat::Walls:       return "map.cat.walls";
-	case PaletteCat::Floors:      return "map.cat.floors";
-	case PaletteCat::Ceilings:    return "map.cat.ceilings";
-	case PaletteCat::Decorations: return "map.cat.decorations";
-	case PaletteCat::Fixtures:    return "map.cat.fixtures";
-	case PaletteCat::Monsters:    return "map.cat.monsters";
-	case PaletteCat::Doors:       return "map.cat.doors";
-	case PaletteCat::Stairs:      return "map.cat.stairs";
-	case PaletteCat::Items:       return "map.cat.items";
-	default:                      return "";
-	}
+namespace {
+// One source of truth for each palette category: its display loc key, the
+// project catalog it authors into ("" = not creatable), and whether that catalog
+// is a texture set (folder import) vs a model. Indexed by PaletteCat, in enum
+// order (the static_assert guards drift).
+struct CatInfo {
+	const char* nameKey;
+	const char* catalogKey;
+	bool textureSet;
+};
+constexpr CatInfo kCategoryInfo[] = {
+	{"map.cat.tools", "", false},          {"map.cat.structure", "", false},
+	{"map.cat.walls", "walls", true},      {"map.cat.floors", "floors", true},
+	{"map.cat.ceilings", "ceilings", true}, {"map.cat.decorations", "decorations", false},
+	{"map.cat.fixtures", "fixtures", false}, {"map.cat.monsters", "monsters", false},
+	{"map.cat.doors", "doors", false},     {"map.cat.stairs", "stairs", false},
+	{"map.cat.items", "items", false},
+};
+static_assert(sizeof(kCategoryInfo) / sizeof(kCategoryInfo[0]) ==
+				  static_cast<size_t>(MapView::PaletteCat::Count),
+			  "kCategoryInfo must have one row per PaletteCat");
+const CatInfo& CatInfoFor(MapView::PaletteCat cat) {
+	return kCategoryInfo[static_cast<size_t>(cat)];
 }
+} // namespace
+
+const char* MapView::CategoryNameKey(PaletteCat cat) { return CatInfoFor(cat).nameKey; }
+const char* MapView::CategoryCatalogKey(PaletteCat cat) { return CatInfoFor(cat).catalogKey; }
+bool MapView::CategoryTextureSet(PaletteCat cat) { return CatInfoFor(cat).textureSet; }
 
 // Resolves a category's items: built-in tools/structure, the level's surface
 // palette (Walls/Floors/Ceilings, display names from the project's surface

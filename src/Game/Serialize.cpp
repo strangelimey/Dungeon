@@ -3,6 +3,7 @@
 // ============================================================================
 #include "Game/Serialize.h"
 
+#include <charconv>
 #include <format>
 
 namespace dungeon::game::serialize {
@@ -18,18 +19,38 @@ std::string_view Trim(std::string_view s) {
 
 } // namespace
 
-const std::string* Block::Find(std::string_view key) const {
+const std::string* Find(const std::vector<Field>& fields, std::string_view key) {
 	for (const Field& f : fields)
 		if (f.key == key) return &f.value;
 	return nullptr;
 }
 
-std::string Block::Get(std::string_view key, std::string_view fallback) const {
-	const std::string* v = Find(key);
+std::string Get(const std::vector<Field>& fields, std::string_view key,
+				std::string_view fallback) {
+	const std::string* v = Find(fields, key);
 	return v ? *v : std::string(fallback);
 }
 
-void Block::Set(std::string key, std::string value) {
+float GetFloat(const std::vector<Field>& fields, std::string_view key, float fallback) {
+	const std::string* v = Find(fields, key);
+	if (!v) return fallback;
+	float out = fallback;
+	std::from_chars(v->data(), v->data() + v->size(), out);
+	return out;
+}
+
+bool GetBool(const std::vector<Field>& fields, std::string_view key, bool fallback) {
+	const std::string* v = Find(fields, key);
+	if (!v || v->empty()) return fallback;
+	return v->front() != '0' && v->front() != 'f' && v->front() != 'F';
+}
+
+void Set(std::vector<Field>& fields, std::string key, std::string value) {
+	for (Field& f : fields)
+		if (f.key == key) {
+			f.value = std::move(value);
+			return;
+		}
 	fields.push_back({std::move(key), std::move(value)});
 }
 
@@ -55,8 +76,9 @@ std::vector<Block> ParseBlocks(std::string_view text) {
 		}
 		const size_t eq = line.find('=');
 		if (eq == std::string_view::npos) continue; // not a field
-		blocks.back().Set(std::string(Trim(line.substr(0, eq))),
-						   std::string(Trim(line.substr(eq + 1))));
+		// Append verbatim (don't dedupe) so a load → save round-trip is faithful.
+		blocks.back().fields.push_back({std::string(Trim(line.substr(0, eq))),
+										std::string(Trim(line.substr(eq + 1)))});
 	}
 
 	// Drop the leading unnamed block when it carried nothing, so catalogs (which

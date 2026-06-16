@@ -24,20 +24,40 @@
 namespace dungeon::game {
 
 // One content definition. `fields` is the raw record; the typed accessors read
-// the conventional keys (display, mesh, texture, height_scale, solid, ...).
+// the conventional keys (display, mesh, texture, height_scale, solid, ...) and
+// delegate to the shared serialize:: field helpers.
 struct CatalogEntry {
 	std::string id;
 	std::vector<serialize::Field> fields;
 
 	// Human-readable name (the "display" field, falling back to the id).
 	std::string Display() const;
-	std::string Get(std::string_view key, std::string_view fallback = {}) const;
-	float GetFloat(std::string_view key, float fallback) const;
-	bool GetBool(std::string_view key, bool fallback) const;
-
-	const std::string* Find(std::string_view key) const;
-	void Set(std::string key, std::string value);
+	std::string Get(std::string_view key, std::string_view fallback = {}) const {
+		return serialize::Get(fields, key, fallback);
+	}
+	float GetFloat(std::string_view key, float fallback) const {
+		return serialize::GetFloat(fields, key, fallback);
+	}
+	bool GetBool(std::string_view key, bool fallback) const {
+		return serialize::GetBool(fields, key, fallback);
+	}
+	const std::string* Find(std::string_view key) const {
+		return serialize::Find(fields, key);
+	}
+	void Set(std::string key, std::string value) {
+		serialize::Set(fields, std::move(key), std::move(value));
+	}
 };
+
+// Reads a field from a possibly-null catalog entry, falling back when the entry
+// or the field is absent — collapses the "def ? def->Get(...) : fallback" idiom.
+inline std::string CatalogGet(const CatalogEntry* e, std::string_view key,
+							  std::string_view fallback) {
+	return e ? e->Get(key, fallback) : std::string(fallback);
+}
+inline bool CatalogBool(const CatalogEntry* e, std::string_view key, bool fallback) {
+	return e ? e->GetBool(key, fallback) : fallback;
+}
 
 // An ordered set of entries with id lookup. Loading a missing file yields an
 // empty catalog (a project need not define every category).

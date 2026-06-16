@@ -125,23 +125,10 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	// Editor: a palette "+ New" opens the asset-creation dialog for that category
 	// (Walls/Floors/Ceilings import a texture folder; the rest import a model).
 	m_mapView.onNewAsset = [this](MapView::PaletteCat cat) {
-		using C = MapView::PaletteCat;
-		const char* key = nullptr;
-		switch (cat) {
-		case C::Walls:       key = "walls"; break;
-		case C::Floors:      key = "floors"; break;
-		case C::Ceilings:    key = "ceilings"; break;
-		case C::Decorations: key = "decorations"; break;
-		case C::Fixtures:    key = "fixtures"; break;
-		case C::Monsters:    key = "monsters"; break;
-		case C::Doors:       key = "doors"; break;
-		case C::Stairs:      key = "stairs"; break;
-		case C::Items:       key = "items"; break;
-		default:             return; // Tools/Structure aren't creatable
-		}
-		const bool textureSet = cat == C::Walls || cat == C::Floors || cat == C::Ceilings;
-		m_assetDialog.Open(loc::Tr(MapView::CategoryNameKey(cat)), key, textureSet,
-						   m_settings.theme);
+		const char* key = MapView::CategoryCatalogKey(cat);
+		if (!*key) return; // Tools/Structure aren't creatable
+		m_assetDialog.Open(loc::Tr(MapView::CategoryNameKey(cat)), key,
+						   MapView::CategoryTextureSet(cat), m_settings.theme);
 	};
 	// Create runs AssetBaker on the picked source (P4c); the dialog stays open in
 	// a "baking…" state until Update sees the subprocess finish.

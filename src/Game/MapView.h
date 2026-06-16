@@ -71,8 +71,12 @@ public:
 	// asset-creation dialog for that category).
 	std::function<void(PaletteCat)> onNewAsset;
 
-	// The loc key for a category's display name (the owner labels the dialog).
+	// Category metadata (one source of truth, see kCategoryInfo): the display loc
+	// key, the project catalog it authors into ("" = not creatable), and whether
+	// that catalog is a texture set (folder import) vs a model.
 	static const char* CategoryNameKey(PaletteCat cat);
+	static const char* CategoryCatalogKey(PaletteCat cat);
+	static bool CategoryTextureSet(PaletteCat cat);
 
 	// Opens the overlay in `mode`, resetting the view to fit-the-whole-map so
 	// it is predictable each time rather than wherever it was last panned.

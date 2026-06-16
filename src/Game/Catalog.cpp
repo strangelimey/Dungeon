@@ -6,50 +6,15 @@
 #include "Assets/File.h"
 #include "Core/Log.h"
 
-#include <charconv>
 #include <format>
 
 namespace dungeon::game {
 
-// --- CatalogEntry -----------------------------------------------------------
-
-const std::string* CatalogEntry::Find(std::string_view key) const {
-	for (const serialize::Field& f : fields)
-		if (f.key == key) return &f.value;
-	return nullptr;
-}
-
-void CatalogEntry::Set(std::string key, std::string value) {
-	for (serialize::Field& f : fields)
-		if (f.key == key) {
-			f.value = std::move(value);
-			return;
-		}
-	fields.push_back({std::move(key), std::move(value)});
-}
-
+// CatalogEntry's field accessors are inline (delegating to serialize::); only
+// the display fallback needs an out-of-line definition.
 std::string CatalogEntry::Display() const {
 	const std::string* v = Find("display");
 	return v && !v->empty() ? *v : id;
-}
-
-std::string CatalogEntry::Get(std::string_view key, std::string_view fallback) const {
-	const std::string* v = Find(key);
-	return v ? *v : std::string(fallback);
-}
-
-float CatalogEntry::GetFloat(std::string_view key, float fallback) const {
-	const std::string* v = Find(key);
-	if (!v) return fallback;
-	float out = fallback;
-	std::from_chars(v->data(), v->data() + v->size(), out);
-	return out;
-}
-
-bool CatalogEntry::GetBool(std::string_view key, bool fallback) const {
-	const std::string* v = Find(key);
-	if (!v || v->empty()) return fallback;
-	return v->front() != '0' && v->front() != 'f' && v->front() != 'F';
 }
 
 // --- Catalog ----------------------------------------------------------------

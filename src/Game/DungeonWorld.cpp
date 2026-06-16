@@ -29,6 +29,14 @@ static std::string FirstLevel(const Project& p) {
 	return p.levels.empty() ? std::string("level1") : p.levels.front();
 }
 
+// A catalog entry's model + texture asset names, both defaulting to `fallback`
+// (usually the id) when the entry or field is absent. Shared by the monster,
+// decoration, and fixture loaders.
+static std::pair<std::string, std::string> ModelAndTexture(const CatalogEntry* e,
+														   const std::string& fallback) {
+	return {CatalogGet(e, "model", fallback), CatalogGet(e, "texture", fallback)};
+}
+
 DungeonWorld::DungeonWorld(gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 						   audio::AudioEngine& audio, const SoundBank& sounds,
 						   const GameSettings& settings, const Project& project)
@@ -139,7 +147,7 @@ void DungeonWorld::ResolveSurfacePalettes() {
 		bool first = true;
 		for (const std::string& id : d.palette) {
 			const CatalogEntry* e = d.catalog.Find(id);
-			d.sets.push_back(e ? e->Get("texture", id) : id);
+			d.sets.push_back(CatalogGet(e, "texture", id));
 			if (first) {
 				d.height = e ? e->GetFloat("height_scale", d.fallbackHeight)
 							 : d.fallbackHeight;
@@ -193,8 +201,7 @@ void DungeonWorld::AppendLoadTasks(LoadQueue& queue) {
 									std::unique_ptr<gfx::Mesh>& mesh, Vec4& color,
 									const PropTextures*& tex) {
 			const CatalogEntry* def = m_project.fixtures.Find(id);
-			const std::string model = def ? def->Get("model", fallback) : fallback;
-			const std::string set = def ? def->Get("texture", fallback) : fallback;
+			const auto [model, set] = ModelAndTexture(def, fallback);
 			auto data = LoadModelOrDie(model + ".gltf");
 			mesh = std::make_unique<gfx::Mesh>(m_device, data.meshes[0]);
 			color = data.materials[0].baseColorFactor;
@@ -306,9 +313,7 @@ DungeonWorld::MonsterKind& DungeonWorld::MonsterKindFor(const std::string& type)
 	if (it == m_monsterKinds.end()) {
 		// Resolve model + texture set through the monsters catalog; an unlisted
 		// type falls back to the old name convention (<type>.gltf).
-		const CatalogEntry* def = m_project.monsters.Find(type);
-		const std::string model = def ? def->Get("model", type) : type;
-		const std::string tex = def ? def->Get("texture", type) : type;
+		const auto [model, tex] = ModelAndTexture(m_project.monsters.Find(type), type);
 		auto assets = std::make_unique<MonsterKind>();
 		assets->model = LoadModelOrDie(model + ".gltf");
 		assets->name = type; // catalog id — drives the monster.<id> loc key
@@ -404,16 +409,15 @@ DungeonWorld::DecorationKind& DungeonWorld::DecorationKindFor(const std::string&
 	auto it = m_decorationKinds.find(type);
 	if (it == m_decorationKinds.end()) {
 		const CatalogEntry* def = catalog.Find(type);
-		const std::string model = def ? def->Get("model", type) : type;
-		const std::string tex = def ? def->Get("texture", type) : type;
+		const auto [model, tex] = ModelAndTexture(def, type);
 		auto kind = std::make_unique<DecorationKind>();
 		kind->model = LoadModelOrDie(model + ".gltf");
 		kind->mesh = std::make_unique<gfx::Mesh>(m_device, kind->model.meshes[0]);
 		kind->color = kind->model.materials[0].baseColorFactor;
 		kind->tex = LoadPropTextures(tex);
 		kind->id = type; // the record type, for the .map writer
-		kind->authored = def ? def->GetBool("authored", true) : true;
-		kind->solidDefault = def ? def->GetBool("solid", true) : true;
+		kind->authored = CatalogBool(def, "authored", true);
+		kind->solidDefault = CatalogBool(def, "solid", true);
 		it = m_decorationKinds.emplace(type, std::move(kind)).first;
 	}
 	return *it->second;
@@ -717,8 +721,7 @@ bool DungeonWorld::AddMonster(const std::string& type, int x, int z,
 
 bool DungeonWorld::AddFixture(const std::string& type, int x, int z) {
 	if (!m_map.IsWalkable(x, z)) return false;
-	const CatalogEntry* def = m_project.fixtures.Find(type);
-	const std::string mount = def ? def->Get("mount", "floor") : "floor";
+	const std::string mount = CatalogGet(m_project.fixtures.Find(type), "mount", "floor");
 	const bool ok = mount == "wall" ? m_map.AddSconce(x, z) : m_map.AddBrazier(x, z);
 	if (!ok) return false;
 	// Rebuild the fire instances + dust from the updated map (lights pick the new
