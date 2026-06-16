@@ -383,6 +383,10 @@ private:
 	void LoadAllSurfaceTextures(); // reloads every set (quality hot-swap)
 	void BuildDungeonMeshes();
 	void LoadMonsters();
+	// Builds one monster instance (kind/id/cell/facing → stats + animator) ready
+	// to push into m_monsters. Shared by the initial .ent load, live editor
+	// placement, and save restore of editor-placed monsters. The caller pushes.
+	Monster MakeMonster(MonsterKind& kind, int id, int x, int z, Direction facing);
 	void LoadDecorations();
 	void LoadStairs(); // places stair props (P6) from the map's stair links
 	// Lazily loads (and caches) the shared assets for a monster / decoration

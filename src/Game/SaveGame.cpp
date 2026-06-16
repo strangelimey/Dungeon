@@ -58,9 +58,15 @@ bool WriteSave(const SaveData& data, const std::string& path) {
 	// and revealed cells.
 	for (const SaveData::LevelState& lvl : data.levels) {
 		t += std::format("level {}\n", lvl.stem);
-		for (const SaveData::EntityState& e : lvl.entities)
-			t += std::format("ent {} {} {} {} {:.3f}\n", e.id, e.x, e.z,
-							 e.announced ? 1 : 0, e.hp);
+		for (const SaveData::EntityState& e : lvl.entities) {
+			if (e.type.empty()) // baseline .ent monster: store the diff, keyed by id
+				t += std::format("ent {} {} {} {} {:.3f}\n", e.id, e.x, e.z,
+								 e.announced ? 1 : 0, e.hp);
+			else // editor-placed monster (no baseline): store it whole to recreate
+				t += std::format("monster {} {} {} {} {} {:.3f} {} {}\n", e.type, e.x,
+								 e.z, e.facing, e.announced ? 1 : 0, e.hp, e.spawnX,
+								 e.spawnZ);
+		}
 		if (!lvl.seen.empty()) {
 			t += "seen";
 			for (const auto& [x, z] : lvl.seen) t += std::format(" {},{}", x, z);
@@ -137,6 +143,19 @@ std::optional<SaveData> ReadSave(const std::string& path) {
 			e.z = IntOf(tok[3]);
 			if (tok.size() >= 5) e.announced = IntOf(tok[4]) != 0; // older saves omit it
 			if (tok.size() >= 6) e.hp = FloatOf(tok[5]);           // older saves omit it
+			currentBlock().entities.push_back(e);
+		} else if (kw == "monster" && tok.size() >= 9) {
+			// Whole editor-placed monster: type x z facing announced hp spawnX spawnZ.
+			SaveData::EntityState e;
+			e.id = -1; // editor-placed (no .ent baseline)
+			e.type = std::string(tok[1]);
+			e.x = IntOf(tok[2]);
+			e.z = IntOf(tok[3]);
+			e.facing = IntOf(tok[4]);
+			e.announced = IntOf(tok[5]) != 0;
+			e.hp = FloatOf(tok[6]);
+			e.spawnX = IntOf(tok[7]);
+			e.spawnZ = IntOf(tok[8]);
 			currentBlock().entities.push_back(e);
 		} else if (kw == "seen") {
 			SaveData::LevelState& lvl = currentBlock();

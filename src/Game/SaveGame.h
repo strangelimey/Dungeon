@@ -52,11 +52,19 @@ struct SaveData {
 	// whether they have announced themselves, and current hit points: a slain
 	// monster saves hp=0 so it stays down on load; inventory fields extend this
 	// struct later). hp = -1 means "not recorded" (older saves) → keep spawn hp.
+	//
+	// Editor-placed monsters have NO .ent baseline to diff against, so they save
+	// WHOLE: `type` is set (empty for a baseline diff row) and `spawnX/spawnZ/
+	// facing` carry what's needed to recreate the instance on load. Such rows
+	// serialize as a "monster" record; baseline diffs stay "ent" records.
 	struct EntityState {
 		int id = -1;
 		int x = 0, z = 0;
 		bool announced = false;
 		float hp = -1.0f;
+		std::string type;        // non-empty => recreate whole; empty => diff
+		int spawnX = 0, spawnZ = 0;
+		int facing = 2;          // Direction value (0=N 1=E 2=S 3=W)
 	};
 
 	// Dynamic state of one level: revealed cells (fog, stored whole) + the

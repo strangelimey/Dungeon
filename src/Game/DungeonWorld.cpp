@@ -342,22 +342,28 @@ DungeonWorld::MonsterKind& DungeonWorld::MonsterKindFor(const std::string& type)
 	return *it->second;
 }
 
+DungeonWorld::Monster DungeonWorld::MakeMonster(MonsterKind& kind, int id, int x,
+												int z, Direction facing) {
+	Monster monster;
+	monster.kind = &kind;
+	monster.id = id;
+	monster.x = monster.spawnX = x;
+	monster.z = monster.spawnZ = z;
+	monster.yaw = DirYaw(facing);
+	monster.facing = facing;
+	monster.hp = kind.maxHp;
+	monster.visualPos = m_map.CellCenter(x, z);
+	monster.animator = anim::Animator(&kind.model.skeleton, &kind.model.clips);
+	monster.animator.Play("idle");
+	return monster;
+}
+
 void DungeonWorld::LoadMonsters() {
 	int phase = 0;
 	for (const Entity& spawn : m_entities.All()) {
 		if (spawn.kind != EntityKind::Monster) continue;
 		MonsterKind& kind = MonsterKindFor(spawn.type);
-		Monster monster;
-		monster.kind = &kind;
-		monster.id = spawn.id;
-		monster.x = monster.spawnX = spawn.x;
-		monster.z = monster.spawnZ = spawn.z;
-		monster.yaw = DirYaw(spawn.facing);
-		monster.facing = spawn.facing;
-		monster.hp = kind.maxHp;
-		monster.visualPos = m_map.CellCenter(monster.x, monster.z);
-		monster.animator = anim::Animator(&kind.model.skeleton, &kind.model.clips);
-		monster.animator.Play("idle");
+		Monster monster = MakeMonster(kind, spawn.id, spawn.x, spawn.z, spawn.facing);
 		monster.animator.Update(static_cast<float>(phase++) * 0.7f); // desync idles
 		m_monsters.push_back(std::move(monster));
 	}
@@ -629,11 +635,19 @@ SaveData::LevelState DungeonWorld::SnapshotActive() const {
 		for (int x = 0; x < m_map.Width(); ++x)
 			if (m_seen[static_cast<size_t>(z) * m_map.Width() + x])
 				ls.seen.emplace_back(x, z);
-	// Diff against the .ent baseline: a monster gets a row once it has moved off
-	// its spawn cell, announced itself, or taken damage (incl. being slain).
-	for (const Monster& m : m_monsters)
-		if (m.x != m.spawnX || m.z != m.spawnZ || m.announced || m.hp != m.MaxHp())
+	// Two cases. A baseline (.ent) monster gets a DIFF row once it has moved off
+	// its spawn cell, announced itself, or taken damage (incl. being slain). An
+	// editor-placed monster (id < 0) has no baseline to diff against, so it is
+	// always stored WHOLE (type + spawn + facing) so a load can recreate it.
+	for (const Monster& m : m_monsters) {
+		if (m.id < 0)
+			ls.entities.push_back({m.id, m.x, m.z, m.announced, m.hp,
+								   m.kind ? m.kind->name : std::string(), m.spawnX,
+								   m.spawnZ, static_cast<int>(m.facing)});
+		else if (m.x != m.spawnX || m.z != m.spawnZ || m.announced ||
+				 m.hp != m.MaxHp())
 			ls.entities.push_back({m.id, m.x, m.z, m.announced, m.hp});
+	}
 	return ls;
 }
 
@@ -650,7 +664,28 @@ void DungeonWorld::ApplyActiveSnapshot() {
 	for (const auto& [x, z] : ls.seen)
 		if (x >= 0 && z >= 0 && x < m_map.Width() && z < m_map.Height())
 			m_seen[static_cast<size_t>(z) * m_map.Width() + x] = 1;
-	for (const SaveData::EntityState& e : ls.entities)
+	// Editor-placed monsters have no .ent baseline, so the snapshot's whole
+	// "monster" rows are authoritative: drop any live ones (e.g. placed earlier
+	// this session) and recreate them below — this also covers the case where
+	// LoadMonsters rebuilt only the baseline on a level (re)load.
+	std::erase_if(m_monsters, [](const Monster& m) { return m.id < 0; });
+
+	for (const SaveData::EntityState& e : ls.entities) {
+		if (!e.type.empty()) {
+			// Whole editor-placed monster — recreate at its spawn, then snap to
+			// the saved live cell/state.
+			if (!m_project.monsters.Contains(e.type)) continue;
+			MonsterKind& kind = MonsterKindFor(e.type);
+			Monster m = MakeMonster(kind, -1, e.spawnX, e.spawnZ,
+									static_cast<Direction>(e.facing));
+			m.x = e.x;
+			m.z = e.z;
+			m.announced = e.announced;
+			if (e.hp >= 0.0f) m.hp = e.hp; // -1 = older save → keep spawn hp
+			m.visualPos = m_map.CellCenter(m.x, m.z);
+			m_monsters.push_back(std::move(m));
+			continue;
+		}
 		for (Monster& m : m_monsters)
 			if (m.id == e.id) {
 				m.x = e.x;
@@ -662,6 +697,7 @@ void DungeonWorld::ApplyActiveSnapshot() {
 				m.visualPos = m_map.CellCenter(m.x, m.z);
 				break;
 			}
+	}
 	m_levelStates.erase(it); // the live state is authoritative now
 }
 
@@ -742,18 +778,10 @@ bool DungeonWorld::AddMonster(const std::string& type, int x, int z,
 	for (const Monster& m : m_monsters)
 		if (m.x == x && m.z == z) return false; // one monster per cell
 	MonsterKind& kind = MonsterKindFor(type);
-	Monster monster;
-	monster.kind = &kind;
-	monster.id = -1; // editor-placed (not from .ent); save handling comes later
-	monster.x = monster.spawnX = x;
-	monster.z = monster.spawnZ = z;
-	monster.yaw = DirYaw(facing);
-	monster.facing = facing;
-	monster.hp = kind.maxHp;
-	monster.visualPos = m_map.CellCenter(x, z);
-	monster.animator = anim::Animator(&kind.model.skeleton, &kind.model.clips);
-	monster.animator.Play("idle");
-	m_monsters.push_back(std::move(monster));
+	// id = -1 marks an editor-placed monster (no .ent baseline); the save layer
+	// stores these whole (a "monster" row) rather than as a diff, so they
+	// round-trip — see SnapshotActive / ApplyActiveSnapshot.
+	m_monsters.push_back(MakeMonster(kind, -1, x, z, facing));
 	MarkSeen(x, z);
 	return true;
 }
