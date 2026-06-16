@@ -269,14 +269,26 @@ MapView::CellVisible (always true in Editor, else IsSeen). The transform is
 resolution-independent (pan = fraction of the grid area, zoom = unitless,
 fit-whole-map at zoom 1) and resolves against GridArea, so Update (window-
 pixel panel, matches mouse coords) and Render (device-pixel panel) agree;
-zoom is cursor-anchored. CellAt is the inverse pick. The left-dock brush
-palette (MapView::Brush — Floor/Wall now; doors/creatures/items are the next
-entries, extend the enum + kBrushCount) proves the edit seam: a brush is
-always armed in Editor, left paints, right-drag pans. A paint click →
-DungeonWorld::EditCell → DungeonMap::SetCell (bumps Revision()) → MarkSeen →
-RebuildGeometry (WaitIdle + re-bake, same as the quality hot-swap) → the wall
-appears in-world immediately. Edits are in-memory only (no .map/.ent
-serialization yet). All overlay text goes through Loc (map.* keys).
+zoom is cursor-anchored. CellAt is the inverse pick. The left-dock palette is a
+catalog-driven collapsible accordion (MapView::PaletteCat + the kCategoryInfo
+table): Tools (Select/Erase), Structure (Wall/Floor), Walls/Floors/Ceilings
+(per-cell surface VARIANT paint via DungeonMap variant grids), and the entity
+categories Decorations/Fixtures/Monsters/Doors/Stairs/Items (live placement).
+Items in each category come from the active project's catalogs; a "+ New..." row
+opens the asset-creation dialog (see below). Left paints/places, right-drag pans.
+A structural paint → DungeonWorld::EditCell → DungeonMap::SetCell (bumps
+Revision()) → RebuildChunksAround(x,z), which rebuilds ONLY the touched chunk +
+its orthogonal-neighbour chunks (≤5), not the whole map — so paints are near-
+instant (the old whole-map RebuildGeometry is gone; BuildDungeonMeshes is the full
+bake for load/quality-swap). Placement appends to the live world lists (and
+DungeonMap for fixtures), drawn next frame. Markers draw from the LIVE world
+(MonsterMarkers/DecorationMarkers), so placed/erased entities show immediately.
+Edits are in-memory until written: DungeonWorld::SaveLevel reconstructs the .map +
+.ent from live state (dev console `savemap`), and `synctosource` copies the
+project to the git source tree. All overlay text goes through Loc (map.* keys).
+
+The editor edits a PROJECT (see "Project & catalogs" below), not hardcoded
+content — adding a category/type is data, not code.
 
 Fog of war (Player mode) is on day one: DungeonWorld::m_seen is a per-cell
 bitset (dynamic/save-side state, NEVER baked into DungeonMap), revealed via
@@ -289,7 +301,37 @@ the .ent layer.
 
 SpriteBatch gained DrawTriangle (the markers) and DrawSpriteRotated/
 DrawRectRotated (rotate the 4 corner verts; for future textured/rotated
-editor icons) — the axis-aligned DrawRect/DrawSprite couldn't express them.
+editor icons) — the axis-aligned DrawRect/DrawSprite couldn't express them, plus
+a DrawSprite overload taking a raw GPU SRV handle (for the asset preview RT).
+
+## Project & catalogs (the data model)
+
+Content is data, not hardcoded. A PROJECT is a folder under
+`assets/projects/<name>/` (default `dungeon-demo`) holding DEFINITIONS + LEVELS,
+separate from the shared baked asset POOL (`assets/textures`, `assets/models`,
+worn_*, lang, shaders — what AssetBaker emits):
+- `project.ini` — manifest (name, level list, default fixture ids), block format.
+- `catalog/*.cat` — one Catalog per category (walls/floors/ceilings/decorations/
+  fixtures/monsters/doors/stairs/items), block format: `[id]` headers + `key =
+  value` fields naming pool assets (model/texture) + params (solid/authored/
+  height_scale/mount). Levels reference catalog ids.
+- `levels/<stem>.map` + `.ent` — the level layers. The .map's surface palette is
+  a `palette <wall|floor|ceiling> <id>...` record (catalog ids), and it also
+  carries `stairs <type> <x> <z> [facing] dest= destx= destz= [destfacing=]` and
+  `variant <wall|floor|ceiling> <x> <z> <index>` records. (The old
+  `assets/maps/level1.*` with `textures` records is dead — superseded by the
+  project copies.)
+
+Serialize.* is the block (de)serialization primitive (free Find/Get/GetFloat/
+GetBool/Set over a Field vector; Block + CatalogEntry both delegate). Catalog.*
+adds CatalogGet/CatalogBool (null-safe). Project.* loads/saves the manifest +
+catalogs and maps a key→Catalog (CatalogForKey). DungeonWorld resolves catalog ids
+to model+texture at load (ModelAndTexture helper). Game owns the active Project,
+passes it to DungeonWorld; MapView reads it for the palette. NOTE: editor/asset/
+level WRITES go to the asset copy next to the exe (paths::Asset), not the git
+source — `synctosource` (or paths::RepoAssetsDir, compiled via DN_REPO_ASSETS)
+pushes them back. Full per-phase history + gotchas live in the editor-overhaul
+memory.
 
 ## Workflow conventions used so far
 
@@ -333,3 +375,11 @@ editor icons) — the axis-aligned DrawRect/DrawSprite couldn't express them.
 - Texture sets are now installed at 1k/2k/4k with ORM maps, so Low/Medium and
   Ultra use their native resolution (no 2k fallback). The .dds are gitignored,
   so a fresh clone still runs FetchTextures.ps1 to regenerate them.
+- Editor (data-driven, see "Project & catalogs" + the MapView section) is built
+  out: catalog palette, structural/variant paint, decoration/monster/fixture
+  placement, asset-creation dialog with 3D preview + AssetBaker bake, multi-level
+  stairs, per-level saves, .map/.ent writers, chunk-local edit rebuilds. Editor
+  next steps: Erase doesn't remove fixtures yet; stair/door placement is authored
+  in .map only (no editor brush); the dialog's material sliders are preview-only
+  for imported models (ORM map drives the real material); a "save to source" UI
+  button (vs the `synctosource` dev command); undo/redo for edits.
