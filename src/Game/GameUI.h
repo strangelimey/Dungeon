@@ -121,7 +121,7 @@ public:
 	std::function<void(int)> onFrameLimitSelected; // Video tab frame-rate dropdown
 	std::function<void(int)> onTorchPalette;    // HUD torchlight dropdown
 	std::function<void(MoveAction)> onMoveAction; // HUD movement buttons
-	std::function<void(size_t)> onHandAttack;   // HUD hand-slot click (member index)
+	std::function<void(size_t, size_t)> onHandAttack; // HUD hand-slot click (member, hand 0=L/1=R)
 	std::function<void()> onKeysChanged;        // a movement key was rebound
 	// Game tab language dropdown. The receiver must NOT rebuild the UI from
 	// inside the callback (see RebuildForLanguage) — record and defer.

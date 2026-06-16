@@ -38,9 +38,11 @@ struct Character {
 	int willpower = 10;
 
 	// --- combat (live) ------------------------------------------------------
-	// Seconds until this member can swing again; ticked down by DungeonWorld
-	// while playing. A hand-slot click only lands a blow when this is <= 0.
-	float attackCooldown = 0.0f;
+	// Seconds until each hand can swing again (index 0 = left, 1 = right),
+	// ticked down per-hand by DungeonWorld while playing. A hand-slot click only
+	// lands a blow when THAT hand's timer is <= 0, so the hands swing
+	// independently (dual-wield, weapon + shield, etc.).
+	float handCooldown[2] = {0.0f, 0.0f};
 
 	// Whether the member is still standing. health <= 0 = down (out of the
 	// fight, no longer a valid monster target) — there is no death/revive
@@ -55,8 +57,14 @@ struct Character {
 	float Accuracy() const { return 0.55f + static_cast<float>(dexterity) * 0.02f; }
 	float Evasion() const { return 0.05f + static_cast<float>(dexterity) * 0.015f; }
 	float Armor() const { return 0.0f; } // no equipment yet
-	// Seconds between swings — higher dexterity swings faster.
-	float AttackInterval() const {
+	// Seconds between swings for the given hand (0 = left, 1 = right). STUB: the
+	// real interval is computed from several inputs — the weapon held in that
+	// hand (its attack speed), an off-hand / two-handed penalty, and the
+	// member's stats — but with no inventory yet it only reflects dexterity and
+	// ignores `hand` (both hands swing alike). Higher dexterity swings faster.
+	// Fold the hand's weapon speed in here once items exist.
+	float AttackInterval(size_t hand) const {
+		(void)hand; // per-hand weapon speed plugs in here once items exist
 		const float t = 1.8f - static_cast<float>(dexterity) * 0.04f;
 		return t < 0.6f ? 0.6f : (t > 2.0f ? 2.0f : t);
 	}

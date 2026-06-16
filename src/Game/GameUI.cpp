@@ -1024,11 +1024,12 @@ void GameUI::BuildHud() {
 				Norm({setX + (handW + 4.0f) * static_cast<float>(hand),
 					  setTop + 20, handW, handW},
 					 window),
-				&m_characters[i], [this, i] {
+				&m_characters[i], [this, i, hand] {
 					Click();
 					// No weapons yet — a hand click is an unarmed strike at the
-					// monster ahead (the receiver logs hit/miss/no-target).
-					if (onHandAttack) onHandAttack(i);
+					// monster ahead (the receiver logs hit/miss/no-target). Each
+					// hand has its own cooldown, so pass which one was clicked.
+					if (onHandAttack) onHandAttack(i, static_cast<size_t>(hand));
 				}));
 		}
 	}

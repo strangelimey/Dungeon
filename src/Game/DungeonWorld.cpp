@@ -1271,10 +1271,11 @@ void DungeonWorld::AssignShadowSlots() {
 void DungeonWorld::UpdateMonsters(float dt) {
 	const Vec3 partyPos = m_party.EyePosition();
 
-	// Tick down each member's swing cooldown so hands free up over time.
+	// Tick down each member's per-hand swing cooldowns so hands free up over time.
 	if (m_roster)
 		for (Character& member : *m_roster)
-			if (member.attackCooldown > 0.0f) member.attackCooldown -= dt;
+			for (float& cd : member.handCooldown)
+				if (cd > 0.0f) cd -= dt;
 
 	for (size_t i = 0; i < m_monsters.size(); ++i) {
 		Monster& monster = m_monsters[i];
@@ -1436,10 +1437,10 @@ void DungeonWorld::MonsterAttack(Monster& monster) {
 	}
 }
 
-bool DungeonWorld::PartyAttack(size_t member) {
-	if (!m_roster || member >= m_roster->size()) return false;
+bool DungeonWorld::PartyAttack(size_t member, size_t hand) {
+	if (!m_roster || member >= m_roster->size() || hand > 1) return false;
 	Character& attacker = (*m_roster)[member];
-	if (!attacker.IsAlive() || attacker.attackCooldown > 0.0f) return false;
+	if (!attacker.IsAlive() || attacker.handCooldown[hand] > 0.0f) return false;
 
 	// The cell directly ahead of the party.
 	const Direction faced = static_cast<Direction>(m_party.Facing());
@@ -1450,7 +1451,7 @@ bool DungeonWorld::PartyAttack(size_t member) {
 	for (Monster& m : m_monsters)
 		if (m.Alive() && m.x == tx && m.z == tz) { target = &m; break; }
 
-	attacker.attackCooldown = attacker.AttackInterval();
+	attacker.handCooldown[hand] = attacker.AttackInterval(hand);
 	if (!target) {
 		onMessage(loc::Tr("log.attack_air"));
 		return true;

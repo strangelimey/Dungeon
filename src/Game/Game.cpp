@@ -140,7 +140,9 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	m_ui.onMoveAction = [this](MoveAction action) {
 		m_world.GetParty().Act(action);
 	};
-	m_ui.onHandAttack = [this](size_t member) { m_world.PartyAttack(member); };
+	m_ui.onHandAttack = [this](size_t member, size_t hand) {
+		m_world.PartyAttack(member, hand);
+	};
 	m_ui.onKeysChanged = [this] {
 		m_world.GetParty().SetKeys(m_settings.moveKeys);
 	};

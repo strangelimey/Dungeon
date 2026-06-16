@@ -96,11 +96,12 @@ public:
 	// so monster melee can drain member health and party melee can read each
 	// member's derived stats. Must be set before play; null = no combat.
 	void SetRoster(std::vector<Character>* roster) { m_roster = roster; }
-	// A hand-slot click: the given roster member swings at the monster in the
-	// cell directly ahead of the party. Resolves a strike when the member is
-	// up, off cooldown, and a live monster is there; logs the outcome and kills
-	// the monster at 0 hp. A no-op (returns false) otherwise.
-	bool PartyAttack(size_t member);
+	// A hand-slot click: the given roster member swings the given hand (0 = left,
+	// 1 = right) at the monster in the cell directly ahead of the party.
+	// Resolves a strike when the member is up, that hand is off cooldown, and a
+	// live monster is there; logs the outcome and kills the monster at 0 hp. A
+	// no-op (returns false) otherwise.
+	bool PartyAttack(size_t member, size_t hand);
 	// Fired once when the last standing member goes down (Game ends the run).
 	std::function<void()> onPartyWipe;
 
