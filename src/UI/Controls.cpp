@@ -19,6 +19,13 @@ void Panel::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
 	DrawBorder(batch, Pixel(), ctx.GetTheme().panelBorder);
 }
 
+// --- Separator ---------------------------------------------------------
+
+void Separator::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
+	const gfx::Rect& px = Pixel();
+	batch.DrawRect({px.x, px.y + px.h * 0.5f, px.w, 1.0f}, ctx.GetTheme().panelBorder);
+}
+
 // --- Label -------------------------------------------------------------
 
 void Label::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
@@ -141,21 +148,26 @@ void Slider::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
 	Font& font = ctx.GetFont();
 	const gfx::Rect& px = Pixel();
 
-	// Label above the track.
-	font.Draw(batch, m_display, px.x, px.y - font.LineAdvance(), theme.textDim);
+	// The whole control lives INSIDE its bounds: the label on the top line, the
+	// track + thumb in the band beneath it. (Previously the label was drawn above
+	// the bounds, so callers couldn't space sliders by their box — it collided
+	// with whatever sat above.) Bounds should be tall enough for both.
+	font.Draw(batch, m_display, px.x, px.y, theme.textDim);
+	const float bandY = px.y + font.LineAdvance();
+	const float bandH = std::max(px.h - font.LineAdvance(), 8.0f);
 
 	// Track.
 	const float trackH = 4.0f;
-	const float trackY = px.y + (px.h - trackH) * 0.5f;
+	const float trackY = bandY + (bandH - trackH) * 0.5f;
 	batch.DrawRect({px.x, trackY, px.w, trackH}, theme.control);
 
 	// Filled portion + thumb.
 	const float t = (m_value - m_min) / std::max(m_max - m_min, 1e-6f);
 	batch.DrawRect({px.x, trackY, px.w * t, trackH}, theme.accent);
 	const float thumbX = px.x + px.w * t - 5.0f;
-	batch.DrawRect({thumbX, px.y, 10.0f, px.h},
+	batch.DrawRect({thumbX, bandY, 10.0f, bandH},
 				   m_dragging ? theme.controlActive : theme.controlHot);
-	DrawBorder(batch, {thumbX, px.y, 10.0f, px.h}, theme.panelBorder);
+	DrawBorder(batch, {thumbX, bandY, 10.0f, bandH}, theme.panelBorder);
 }
 
 // --- DropDown ------------------------------------------------------------

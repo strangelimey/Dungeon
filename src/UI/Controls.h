@@ -2,6 +2,7 @@
 // UI/Controls.h — the control library.
 //
 //   Panel       framed background rectangle (add first so it draws beneath)
+//   Separator   horizontal rule (like HTML <hr>) dividing sections
 //   Label       single line of text; `dim` switches to the muted color
 //   TextOutput  scrolling message log; AddLine appends, wheel scrolls
 //   Button      click callback; hot/held visual states
@@ -34,6 +35,15 @@ namespace dungeon::ui {
 class Panel : public Widget {
 public:
 	explicit Panel(const gfx::Rect& rect) { bounds = rect; }
+	void Update(UIContext&) override {}
+	void Draw(UIContext& ctx, gfx::SpriteBatch& batch) override;
+};
+
+// Horizontal rule (like HTML <hr>): a 1px line centered in its bounds, spanning
+// its full width, in the dim border color. Divides sections; takes no input.
+class Separator : public Widget {
+public:
+	explicit Separator(const gfx::Rect& rect) { bounds = rect; }
 	void Update(UIContext&) override {}
 	void Draw(UIContext& ctx, gfx::SpriteBatch& batch) override;
 };

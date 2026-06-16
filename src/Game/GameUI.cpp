@@ -39,6 +39,31 @@ gfx::Rect Norm(const gfx::Rect& designPx, const gfx::Rect& container) {
 			designPx.h / container.h};
 }
 
+// Vertical stack with CSS-style collapsing margins: the gap between two items is
+// max(upper.marginBottom, lower.marginTop) — never the sum — so equal margins on
+// neighbours overlap into one. Place() returns the next item's design-px rect (a
+// fixed column x/width); Norm turns it into page fractions. The first item gets
+// no top margin (it sits at startY, like a block whose top margin collapses
+// through its parent's padding). Used to lay out the settings tabs.
+class Flow {
+public:
+	Flow(float x, float width, float startY) : m_x(x), m_w(width), m_y(startY) {}
+	gfx::Rect Place(float height, float marginTop, float marginBottom) {
+		if (m_started) m_y += std::max(m_prevBottom, marginTop);
+		m_started = true;
+		const gfx::Rect r{m_x, m_y, m_w, height};
+		m_y += height;
+		m_prevBottom = marginBottom;
+		return r;
+	}
+	float Cursor() const { return m_y; } // y just below the last item
+
+private:
+	float m_x, m_w, m_y;
+	float m_prevBottom = 0.0f;
+	bool m_started = false;
+};
+
 } // namespace
 
 GameUI::GameUI(Window& window, gfx::GraphicsDevice& device,
@@ -134,44 +159,55 @@ void GameUI::BuildSettings() {
 
 	// Settings page: Game / Video / Audio tabs over a shared page area, with
 	// a Back button beneath. Tab children are fractions of the PAGE (the
-	// area below the strip); each row leaves room for the 28px settings font.
-	// Sized generously — settings keep accumulating. The block spans from
-	// just under the subtitle (ends ~246 design px) to just above the Back
-	// button, which itself must clear the 900px design window.
-	const float tabsW = 760.0f;
-	// Taller header strip so longer tab labels have room; tabsH grows with it so
-	// the content area below keeps its height (tabsH - stripH = 492 design px).
+	// area below the strip); each row leaves room for the settings font.
+	//
+	// The page is authored in design pixels against a 900px-tall window and
+	// SCALED by the live window height (uiScale). The page fonts scale the SAME
+	// way (UpdateFonts: kMenuFontH * windowH / kFontDesignWindowH), so rows and
+	// text stay in step at any resolution — without this a taller window grows
+	// the font past its fixed-height row and the labels collide. `page` stays in
+	// unscaled design units (children keep their design-px layout); only the
+	// TabControl's pixel size scales, which scales every child with it.
+	const float uiScale = h / kFontDesignWindowH;
+	const float designW = 760.0f;
+	// Taller header strip so longer tab labels have room; designH grows with it so
+	// the content area below keeps its height (designH - stripH = 492 design px).
 	const float stripH = 60.0f;
-	const float tabsH = 552.0f;
-	const float tabsX = (w - tabsW) * 0.5f;
+	const float designH = 552.0f;
+	const float tabsWpx = designW * uiScale;
+	const float tabsHpx = designH * uiScale;
+	const float tabsX = (w - tabsWpx) * 0.5f;
 	const float tabsY = h * 0.29f;
 	auto* tabs = m_settingsUi.Add<ui::TabControl>(
-		Norm({tabsX, tabsY, tabsW, tabsH}, window), stripH / tabsH);
+		Norm({tabsX, tabsY, tabsWpx, tabsHpx}, window), stripH / designH);
 	m_settingsTabs = tabs; // kept so a Video repopulate restores the active tab
 	const size_t tabGame = tabs->AddTab(loc::Tr("settings.tab.game"));
 	const size_t tabControls = tabs->AddTab(loc::Tr("settings.tab.controls"));
 	const size_t tabVideo = tabs->AddTab(loc::Tr("settings.tab.video"));
 	const size_t tabAudio = tabs->AddTab(loc::Tr("settings.tab.audio"));
 	const size_t tabUi = tabs->AddTab(loc::Tr("settings.tab.ui"));
-	const gfx::Rect page{0, 0, tabsW, tabsH - stripH}; // child design space
+	const gfx::Rect page{0, 0, designW, designH - stripH}; // child design space
 	const float pad = 24.0f;
 	const float rowW = page.w - 2 * pad;
-	// A "setting" is a label stacked over its input control. These space them so
-	// neither the label nor the control crowds the next thing (all design px,
-	// turned into 0..1 page fractions by Norm). ctrlTop = label height + the gap
-	// below the label; rowH adds the control plus the gap below it before the
-	// next setting.
-	const float labelH = 28.0f;            // the label row
-	const float ctrlH = 40.0f;             // dropdown / button height
-	const float ctrlTop = labelH + 18.0f;  // control offset below its label
-	const float rowGap = 16.0f;            // gap below a control
-	const float rowH = ctrlTop + ctrlH + rowGap; // full label+control stride
+	// A "setting" is a label stacked over its input control. Tabs lay out with a
+	// Flow (collapsing-margin vertical stack, see the helper up top): mTight binds
+	// a control to the label above it, mGroup separates settings/sections, mRow
+	// paces the key-bind list. Margins collapse, so a control's mGroup bottom and
+	// the next label's mGroup top overlap into one mGroup gap (not the sum). All
+	// design px; Norm turns the Flow rects into 0..1 page fractions.
+	const float labelH = 28.0f;  // a label row
+	const float ctrlH = 40.0f;   // dropdown / button height
+	const float sliderH = 50.0f; // self-contained slider (label line + track band)
+	const float mTight = 12.0f;  // label -> its own control
+	const float mRow = 14.0f;    // between list rows (key binds)
+	const float mGroup = 24.0f;  // between settings / sections
 
 	// Game: language. The language list is whatever assets/lang holds;
 	// selecting one defers to Game (settings save + string reload +
 	// RebuildForLanguage at the top of the next frame — rebuilding here
 	// would destroy this dropdown mid-callback).
-	tabs->AddChild<ui::Label>(tabGame, Norm({pad, pad, rowW, labelH}, page),
+	Flow gf{pad, rowW, pad};
+	tabs->AddChild<ui::Label>(tabGame, Norm(gf.Place(labelH, mGroup, mTight), page),
 							  loc::Tr("settings.language"))
 		->dim = true;
 	m_languages = loc::ScanLanguages(paths::Asset("lang"));
@@ -183,7 +219,7 @@ void GameUI::BuildSettings() {
 			languageIndex = static_cast<int>(i);
 	}
 	tabs->AddChild<ui::DropDown>(
-		tabGame, Norm({pad, pad + ctrlTop, rowW, ctrlH}, page), std::move(languageNames),
+		tabGame, Norm(gf.Place(ctrlH, mTight, mGroup), page), std::move(languageNames),
 		languageIndex, [this](int index) {
 			Click();
 			if (index >= 0 && index < static_cast<int>(m_languages.size()) &&
@@ -195,14 +231,14 @@ void GameUI::BuildSettings() {
 	// the new key; binding a key another action already uses hands that
 	// action the old key (swap) so the set stays conflict-free. Each rebind
 	// goes straight into the Party (onKeysChanged) and persists.
-	tabs->AddChild<ui::Label>(tabControls, Norm({pad, pad, rowW, 28}, page),
+	Flow cf{pad, rowW, pad};
+	tabs->AddChild<ui::Label>(tabControls, Norm(cf.Place(labelH, mGroup, mRow), page),
 							  loc::Tr("settings.movement_keys"));
 	m_keyBinds.clear();
 	for (size_t i = 0; i < std::size(kKeyFields); ++i) {
 		const KeyField& field = kKeyFields[i];
 		auto* bind = tabs->AddChild<ui::KeyBind>(
-			tabControls,
-			Norm({pad, pad + 52 + 48.0f * static_cast<float>(i), rowW, 36}, page),
+			tabControls, Norm(cf.Place(36, mRow, mRow), page),
 			loc::Tr(field.labelKey), m_settings.moveKeys.*(field.field),
 			[this, member = field.field](int vkey) {
 				Click();
@@ -223,13 +259,11 @@ void GameUI::BuildSettings() {
 		m_keyBinds.push_back(bind);
 	}
 
-	// Video: the page runs longer than it's tall, so author it with a running
-	// y-cursor (the TabControl scrolls when content overflows). Each
-	// label-over-control block advances by rowH; a control alone (the Apply
-	// button) by ctrlH + rowGap.
-	float vy = pad;
+	// Video: the page overflows its height, so the TabControl scrolls. A Flow
+	// (collapsing-margin vertical stack) places each label-over-control setting.
+	Flow vf{pad, rowW, pad};
 	auto videoLabel = [&](const char* key) {
-		tabs->AddChild<ui::Label>(tabVideo, Norm({pad, vy, rowW, labelH}, page),
+		tabs->AddChild<ui::Label>(tabVideo, Norm(vf.Place(labelH, mGroup, mTight), page),
 								  loc::Tr(key))
 			->dim = true;
 	};
@@ -248,7 +282,7 @@ void GameUI::BuildSettings() {
 		std::vector<std::string> names;
 		for (const gfx::AdapterInfo& a : m_adapters) names.push_back(a.name);
 		tabs->AddChild<ui::DropDown>(
-			tabVideo, Norm({pad, vy + ctrlTop, rowW, ctrlH}, page), std::move(names),
+			tabVideo, Norm(vf.Place(ctrlH, mTight, mGroup), page), std::move(names),
 			m_selAdapter, [this](int index) {
 				Click();
 				if (index == m_selAdapter) return;
@@ -258,18 +292,16 @@ void GameUI::BuildSettings() {
 				m_videoRebuildPending = true;
 			});
 	} else {
-		tabs->AddChild<ui::Label>(tabVideo, Norm({pad, vy + ctrlTop, rowW, ctrlH}, page),
+		tabs->AddChild<ui::Label>(tabVideo, Norm(vf.Place(ctrlH, mTight, mGroup), page),
 								  selAdapter ? selAdapter->name : std::string("—"));
 	}
-	vy += rowH;
-
 	// Monitor (output) of the selected adapter.
 	videoLabel("settings.monitor");
 	if (selAdapter && selAdapter->outputs.size() > 1) {
 		std::vector<std::string> names;
 		for (const gfx::OutputInfo& o : selAdapter->outputs) names.push_back(o.name);
 		tabs->AddChild<ui::DropDown>(
-			tabVideo, Norm({pad, vy + ctrlTop, rowW, ctrlH}, page), std::move(names),
+			tabVideo, Norm(vf.Place(ctrlH, mTight, mGroup), page), std::move(names),
 			m_selOutput, [this](int index) {
 				Click();
 				if (index == m_selOutput) return;
@@ -278,11 +310,9 @@ void GameUI::BuildSettings() {
 				m_videoRebuildPending = true;
 			});
 	} else {
-		tabs->AddChild<ui::Label>(tabVideo, Norm({pad, vy + ctrlTop, rowW, ctrlH}, page),
+		tabs->AddChild<ui::Label>(tabVideo, Norm(vf.Place(ctrlH, mTight, mGroup), page),
 								  selOutput ? selOutput->name : std::string("—"));
 	}
-	vy += rowH;
-
 	// Resolution supported by the adapter/monitor combination.
 	videoLabel("settings.resolution");
 	{
@@ -292,38 +322,39 @@ void GameUI::BuildSettings() {
 				resOptions.push_back(std::format("{} x {}", m.width, m.height));
 		if (resOptions.empty()) resOptions.push_back("—");
 		tabs->AddChild<ui::DropDown>(
-			tabVideo, Norm({pad, vy + ctrlTop, rowW, ctrlH}, page), std::move(resOptions),
+			tabVideo, Norm(vf.Place(ctrlH, mTight, mGroup), page), std::move(resOptions),
 			m_selRes, [this](int index) {
 				Click();
 				m_selRes = index;
 			});
 	}
-	vy += rowH;
-
 	// Display mode: Windowed / Borderless / Exclusive full-screen.
 	videoLabel("settings.display_mode");
 	tabs->AddChild<ui::DropDown>(
-		tabVideo, Norm({pad, vy + ctrlTop, rowW, ctrlH}, page),
+		tabVideo, Norm(vf.Place(ctrlH, mTight, mGroup), page),
 		std::vector<std::string>{loc::Tr("mode.windowed"), loc::Tr("mode.borderless"),
 								 loc::Tr("mode.exclusive")},
 		static_cast<int>(m_selMode), [this](int index) {
 			Click();
 			m_selMode = static_cast<gfx::FullscreenMode>(index);
 		});
-	vy += rowH;
-
 	// Apply the staged display selection (the only Video control that isn't live).
-	tabs->AddChild<ui::Button>(tabVideo, Norm({pad, vy, 220, ctrlH}, page),
+	gfx::Rect applyRect = vf.Place(ctrlH, mTight, mGroup);
+	applyRect.w = 220.0f; // narrower than a full row, like a button
+	tabs->AddChild<ui::Button>(tabVideo, Norm(applyRect, page),
 							   loc::Tr("settings.apply"), [this] {
 								   Click();
 								   OnVideoApply();
 							   });
-	vy += ctrlH + rowGap;
+
+	// Divider between the display section above and the rendering section below.
+	tabs->AddChild<ui::Separator>(tabVideo,
+								  Norm(vf.Place(1.0f, mGroup, mGroup), page));
 
 	// Video: quality tier (hot-swaps meshes/textures in place).
 	videoLabel("settings.quality");
 	tabs->AddChild<ui::DropDown>(
-		tabVideo, Norm({pad, vy + ctrlTop, rowW, ctrlH}, page),
+		tabVideo, Norm(vf.Place(ctrlH, mTight, mGroup), page),
 		std::vector<std::string>{
 			loc::Tr("settings.quality.low"), loc::Tr("settings.quality.medium"),
 			loc::Tr("settings.quality.high"), loc::Tr("settings.quality.ultra")},
@@ -331,8 +362,6 @@ void GameUI::BuildSettings() {
 			Click();
 			onQualitySelected(index);
 		});
-	vy += rowH;
-
 	// Video: max dynamic lights. Quality resets this to its tier value (Low=16,
 	// up to Ultra=64; SyncMaxLights re-points the dropdown afterward); picking a
 	// value here overrides it until the next quality change.
@@ -340,14 +369,12 @@ void GameUI::BuildSettings() {
 	std::vector<std::string> lightOptions;
 	for (int budget : kLightBudgets) lightOptions.push_back(std::to_string(budget));
 	m_maxLightsDrop = tabs->AddChild<ui::DropDown>(
-		tabVideo, Norm({pad, vy + ctrlTop, rowW, ctrlH}, page), std::move(lightOptions),
+		tabVideo, Norm(vf.Place(ctrlH, mTight, mGroup), page), std::move(lightOptions),
 		GameSettings::LightBudgetIndex(m_settings.maxPointLights), [this](int index) {
 			Click();
 			m_settings.maxPointLights = kLightBudgets[index];
 			m_settings.Save();
 		});
-	vy += rowH;
-
 	// Video: frame-rate cap. Each option presents every Nth monitor vblank, so
 	// the rate is a tear-free divisor of the refresh (full = VSync, then half /
 	// third / quarter). Capping below refresh cuts GPU load. Labels show the
@@ -363,18 +390,19 @@ void GameUI::BuildSettings() {
 							  (refreshHz + static_cast<int>(interval) / 2) /
 								  static_cast<int>(interval)));
 	tabs->AddChild<ui::DropDown>(
-		tabVideo, Norm({pad, vy + ctrlTop, rowW, ctrlH}, page), std::move(fpsOptions),
+		tabVideo, Norm(vf.Place(ctrlH, mTight, mGroup), page), std::move(fpsOptions),
 		GameSettings::PresentIntervalIndex(m_settings.presentInterval),
 		[this](int index) {
 			Click();
 			onFrameLimitSelected(index);
 		});
 
-	// Audio: master volume (the slider draws its own label above the track).
+	// Audio: master volume (the slider's label + track live inside its bounds).
 	// Live while dragging; persisted once on release.
+	Flow af{pad, rowW, pad};
 	auto* volume = tabs->AddChild<ui::Slider>(
-		tabAudio, Norm({pad, pad + 38, rowW, 22}, page), loc::Tr("settings.volume"),
-		0.0f, 1.0f, m_settings.volume, [this](float v) {
+		tabAudio, Norm(af.Place(sliderH, mGroup, mGroup), page),
+		loc::Tr("settings.volume"), 0.0f, 1.0f, m_settings.volume, [this](float v) {
 			m_settings.volume = v;
 			m_audio.SetMasterVolume(v);
 		});
@@ -384,19 +412,21 @@ void GameUI::BuildSettings() {
 	// opacity fades the slot backgrounds. Both apply while dragging and
 	// persist on release; safe before the HUD exists (the panel list is empty
 	// until the first game load).
-	tabs->AddChild<ui::Label>(tabUi, Norm({pad, pad, rowW, 28}, page),
+	Flow uf{pad, rowW, pad};
+	tabs->AddChild<ui::Label>(tabUi, Norm(uf.Place(labelH, mGroup, mTight), page),
 							  loc::Tr("settings.party_bar"));
 	auto* barScale = tabs->AddChild<ui::Slider>(
-		tabUi, Norm({pad, pad + 70, rowW, 22}, page), loc::Tr("settings.bar_scale"),
-		0.5f, 1.5f, m_settings.partyBarScale, [this](float v) {
+		tabUi, Norm(uf.Place(sliderH, mTight, mGroup), page),
+		loc::Tr("settings.bar_scale"), 0.5f, 1.5f, m_settings.partyBarScale,
+		[this](float v) {
 			m_settings.partyBarScale = v;
 			ApplyPartyBarScale();
 		});
 	barScale->onRelease = [this] { m_settings.Save(); };
 	auto* barOpacity = tabs->AddChild<ui::Slider>(
-		tabUi, Norm({pad, pad + 126, rowW, 22}, page),
-		loc::Tr("settings.bar_opacity"), 0.0f,
-		1.0f, m_settings.partyBarOpacity, [this](float v) {
+		tabUi, Norm(uf.Place(sliderH, mGroup, mGroup), page),
+		loc::Tr("settings.bar_opacity"), 0.0f, 1.0f, m_settings.partyBarOpacity,
+		[this](float v) {
 			m_settings.partyBarOpacity = v;
 			for (CharacterPanel* panel : m_partyPanels)
 				panel->backgroundOpacity = v;
@@ -407,19 +437,28 @@ void GameUI::BuildSettings() {
 	// pickers, three per row. Theme edits recolor every context live
 	// (ApplyTheme); bar edits show on the HUD widgets' next draw (they point
 	// at the settings' barColors). Both persist once when a picker's popup
-	// closes.
+	// closes. Each grid is one Flow block (its rows are placed inside it).
 	const float colW = (rowW - 2 * 16.0f) / 3.0f;
-	auto pickerCell = [&](size_t index, float top) {
+	const float pickRowH = 44.0f; // per grid row (3 pickers across)
+	const float pickH = 36.0f;    // a picker swatch row
+	auto gridHeight = [&](size_t count) {
+		const size_t rows = (count + 2) / 3;
+		return rows == 0 ? 0.0f : static_cast<float>(rows - 1) * pickRowH + pickH;
+	};
+	auto pickerCell = [&](size_t index, float blockTop) {
 		return Norm({pad + (colW + 16.0f) * static_cast<float>(index % 3),
-					 top + 44.0f * static_cast<float>(index / 3), colW, 36.0f},
+					 blockTop + pickRowH * static_cast<float>(index / 3), colW, pickH},
 					page);
 	};
-	tabs->AddChild<ui::Label>(tabUi, Norm({pad, pad + 172, rowW, 28}, page),
+	tabs->AddChild<ui::Separator>(tabUi, Norm(uf.Place(1.0f, mGroup, mGroup), page));
+	tabs->AddChild<ui::Label>(tabUi, Norm(uf.Place(labelH, mGroup, mTight), page),
 							  loc::Tr("settings.theme_colors"));
+	const float themeTop =
+		uf.Place(gridHeight(std::size(kThemeFields)), mTight, mGroup).y;
 	size_t themeIndex = 0;
 	for (const ThemeField& field : kThemeFields) {
 		auto* picker = tabs->AddChild<ui::ColorPicker>(
-			tabUi, pickerCell(themeIndex++, pad + 216.0f), loc::Tr(field.labelKey),
+			tabUi, pickerCell(themeIndex++, themeTop), loc::Tr(field.labelKey),
 			m_settings.theme.*(field.field),
 			[this, member = field.field](const Vec4& color) {
 				m_settings.theme.*member = color;
@@ -427,12 +466,14 @@ void GameUI::BuildSettings() {
 			});
 		picker->onClose = [this] { m_settings.Save(); };
 	}
-	tabs->AddChild<ui::Label>(tabUi, Norm({pad, pad + 368, rowW, 28}, page),
+	tabs->AddChild<ui::Separator>(tabUi, Norm(uf.Place(1.0f, mGroup, mGroup), page));
+	tabs->AddChild<ui::Label>(tabUi, Norm(uf.Place(labelH, mGroup, mTight), page),
 							  loc::Tr("settings.resource_bars"));
+	const float barTop = uf.Place(gridHeight(std::size(kBarFields)), mTight, mGroup).y;
 	size_t barIndex = 0;
 	for (const BarField& field : kBarFields) {
 		auto* picker = tabs->AddChild<ui::ColorPicker>(
-			tabUi, pickerCell(barIndex++, pad + 412.0f), loc::Tr(field.labelKey),
+			tabUi, pickerCell(barIndex++, barTop), loc::Tr(field.labelKey),
 			m_settings.barColors.*(field.field),
 			[this, member = field.field](const Vec4& color) {
 				m_settings.barColors.*member = color;
@@ -440,9 +481,11 @@ void GameUI::BuildSettings() {
 		picker->onClose = [this] { m_settings.Save(); };
 	}
 
-	const float backW = 220.0f;
+	const float backW = 220.0f * uiScale;
 	m_settingsUi.Add<ui::Button>(
-		Norm({(w - backW) * 0.5f, tabsY + tabsH + 28, backW, 44}, window),
+		Norm({(w - backW) * 0.5f, tabsY + tabsHpx + 28.0f * uiScale, backW,
+			  44.0f * uiScale},
+			 window),
 		loc::Tr("menu.back"), [this] {
 			Click();
 			m_menuPage = MenuPage::Main;
@@ -791,23 +834,33 @@ void GameUI::OpenConfirm(const std::string& title, const std::string& body,
 	const float h = WindowH();
 	const gfx::Rect window{0, 0, w, h};
 
-	const float panelW = 540.0f, panelH = 220.0f;
+	// Scaled with the window height like the settings page (see BuildSettings).
+	const float uiScale = h / kFontDesignWindowH;
+	const float panelW = 540.0f * uiScale, panelH = 220.0f * uiScale;
 	const float px = (w - panelW) * 0.5f, py = (h - panelH) * 0.5f;
 	m_confirmUi.Add<ui::Panel>(Norm({px, py, panelW, panelH}, window));
-	m_confirmUi.Add<ui::Label>(Norm({px + 24, py + 28, panelW - 48, 32}, window), title);
-	m_confirmUi.Add<ui::Label>(Norm({px + 24, py + 84, panelW - 48, 28}, window), body)
+	m_confirmUi.Add<ui::Label>(
+		Norm({px + 24 * uiScale, py + 28 * uiScale, panelW - 48 * uiScale, 32 * uiScale},
+			 window),
+		title);
+	m_confirmUi.Add<ui::Label>(
+		Norm({px + 24 * uiScale, py + 84 * uiScale, panelW - 48 * uiScale, 28 * uiScale},
+			 window),
+		body)
 		->dim = true;
 
-	const float bw = 200.0f, bh = 44.0f, by = py + panelH - bh - 24.0f;
-	m_confirmUi.Add<ui::Button>(Norm({px + 24, by, bw, bh}, window),
+	const float bw = 200.0f * uiScale, bh = 44.0f * uiScale,
+				by = py + panelH - bh - 24.0f * uiScale;
+	m_confirmUi.Add<ui::Button>(Norm({px + 24 * uiScale, by, bw, bh}, window),
 								loc::Tr("confirm.yes"),
 								[this, onYes = std::move(onYes)] {
 									Click();
 									m_confirmActive = false;
 									onYes();
 								});
-	m_confirmUi.Add<ui::Button>(Norm({px + panelW - bw - 24, by, bw, bh}, window),
-								loc::Tr("confirm.no"), [this] {
+	m_confirmUi.Add<ui::Button>(
+		Norm({px + panelW - bw - 24 * uiScale, by, bw, bh}, window),
+		loc::Tr("confirm.no"), [this] {
 									Click();
 									m_confirmActive = false;
 								});
@@ -1056,6 +1109,7 @@ void GameUI::UpdateFonts(float dt) {
 		m_menuUi.GetFont().SetHeight(kMenuFontH * fontScale);
 		m_settingsUi.GetFont().SetHeight(kMenuFontH * fontScale);
 		m_pauseUi.GetFont().SetHeight(kMenuFontH * fontScale);
+		m_confirmUi.GetFont().SetHeight(kMenuFontH * fontScale);
 		m_sheetUi.GetFont().SetHeight(kSheetFontH * fontScale);
 		m_titleFont.SetHeight(kTitleFontH * fontScale);
 	}

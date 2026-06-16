@@ -174,7 +174,21 @@ buffer, reused across all ~25 submissions).
 ## Quality system
 
 Settings page (landing page) is tabbed Game/Controls/Video/Audio/UI via
-ui::TabControl
+ui::TabControl. The whole page is authored in design px against a 900px-tall
+window and SCALED by the live window height (GameUI::BuildSettings uiScale =
+h/kFontDesignWindowH) because the page fonts scale that same way (UpdateFonts);
+a fixed-pixel page would let the font outgrow its row at taller resolutions and
+collide — so any new settings geometry must scale by uiScale too (the `page`
+rect passed to children stays unscaled design units; only the TabControl's pixel
+size scales, carrying the children with it). The confirm modal scales likewise.
+Each tab stacks its rows with a Flow helper (GameUI.cpp, anon namespace) — a
+vertical layout with CSS-style COLLAPSING margins: the gap between two items is
+max(upper.marginBottom, lower.marginTop), not the sum, so equal margins on
+neighbours overlap into one (constants mTight label→control, mRow list rows,
+mGroup between settings/sections). ui::Slider is self-contained (label on the
+top line, track in the band beneath, all inside its bounds) so it lays out by
+its box like every other control. Sections are divided by ui::Separator (a 1px
+horizontal rule, like HTML <hr>, placed through the Flow with mGroup both sides).
 (pages scroll: children authored past the page bottom — bounds fraction > 1 —
 trigger a per-tab scrollbar, wheel or thumb drag, page-scissored; the strip
 sizes each tab to its label and grows + recenters the control to fit
