@@ -19,6 +19,8 @@
 // ============================================================================
 #pragma once
 
+#include "Core/Types.h"
+
 #include <optional>
 #include <string>
 #include <utility>
@@ -44,8 +46,13 @@ struct SaveData {
 		float health = 1, maxHealth = 1;
 		float stamina = 1, maxStamina = 1;
 		float mana = 1, maxMana = 1;
+		u32 knownSymbols = 0; // memorized spell symbols (SymbolBit mask)
 	};
 	std::vector<CharState> characters;
+
+	// Party rune satchel: symbols picked up but not yet committed to a member
+	// (SpellSymbol values as ints). Party-level, stored whole.
+	std::vector<int> satchel;
 
 	// Per-entity overrides, keyed by Entity::id — only entities that differ
 	// from their .ent spawn are present (monsters carry a moved grid cell,

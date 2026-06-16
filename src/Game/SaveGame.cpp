@@ -49,9 +49,14 @@ bool WriteSave(const SaveData& data, const std::string& path) {
 
 	for (size_t i = 0; i < data.characters.size(); ++i) {
 		const SaveData::CharState& c = data.characters[i];
-		t += std::format("char {} {:.3f} {:.3f} {:.3f} {:.3f} {:.3f} {:.3f}\n", i,
+		t += std::format("char {} {:.3f} {:.3f} {:.3f} {:.3f} {:.3f} {:.3f} {}\n", i,
 						 c.health, c.maxHealth, c.stamina, c.maxStamina, c.mana,
-						 c.maxMana);
+						 c.maxMana, c.knownSymbols);
+	}
+	if (!data.satchel.empty()) {
+		t += "satchel";
+		for (int s : data.satchel) t += std::format(" {}", s);
+		t += '\n';
 	}
 
 	// One block per visited level: a "level <stem>" header, then its entity diff
@@ -126,6 +131,9 @@ std::optional<SaveData> ReadSave(const std::string& path) {
 			data.partyFacing = IntOf(tok[3]);
 		} else if (kw == "torch" && tok.size() >= 2) {
 			data.torchPalette = IntOf(tok[1]);
+		} else if (kw == "satchel") {
+			for (size_t i = 1; i < tok.size(); ++i)
+				data.satchel.push_back(IntOf(tok[i]));
 		} else if (kw == "char" && tok.size() >= 8) {
 			const size_t idx = static_cast<size_t>(IntOf(tok[1]));
 			if (idx >= data.characters.size()) data.characters.resize(idx + 1);
@@ -133,6 +141,8 @@ std::optional<SaveData> ReadSave(const std::string& path) {
 			c.health = FloatOf(tok[2]);    c.maxHealth = FloatOf(tok[3]);
 			c.stamina = FloatOf(tok[4]);   c.maxStamina = FloatOf(tok[5]);
 			c.mana = FloatOf(tok[6]);      c.maxMana = FloatOf(tok[7]);
+			if (tok.size() >= 9) // older saves omit the spell mask
+				c.knownSymbols = static_cast<u32>(IntOf(tok[8]));
 		} else if (kw == "level" && tok.size() >= 2) {
 			data.levels.push_back({std::string(tok[1]), {}, {}});
 			cur = &data.levels.back();

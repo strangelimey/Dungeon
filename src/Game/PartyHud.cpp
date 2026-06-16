@@ -181,7 +181,9 @@ void CharacterSheet::SetCharacter(const Character& character) {
 	m_attributes = {{{loc::Tr("attr.strength"), std::to_string(character.strength)},
 					 {loc::Tr("attr.dexterity"), std::to_string(character.dexterity)},
 					 {loc::Tr("attr.vitality"), std::to_string(character.vitality)},
-					 {loc::Tr("attr.willpower"), std::to_string(character.willpower)}}};
+					 {loc::Tr("attr.willpower"), std::to_string(character.willpower)},
+					 {loc::Tr("attr.intelligence"),
+					  std::to_string(character.intelligence)}}};
 }
 
 void CharacterSheet::Update(ui::UIContext& ctx) {

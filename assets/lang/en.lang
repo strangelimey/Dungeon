@@ -169,8 +169,15 @@ attr.strength=Strength
 attr.dexterity=Dexterity
 attr.vitality=Vitality
 attr.willpower=Willpower
+attr.intelligence=Intelligence
 sheet.equipment=Equipment
 sheet.nothing_carried=Nothing carried.
+
+; --- spell symbols (tier 1: the four elements) ----------------------------------
+symbol.fire=Fire
+symbol.earth=Earth
+symbol.air=Air
+symbol.water=Water
 
 ; --- map overlay / editor --------------------------------------------------------
 map.title=Map

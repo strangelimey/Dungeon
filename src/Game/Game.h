@@ -175,6 +175,9 @@ private:
 	// resized — the party-bar panels and the sheet hold pointers into it, so
 	// StartNewGame resets the members in place.
 	std::vector<Character> m_characters;
+	// Rune satchel: symbols the party has picked up but not yet committed to a
+	// member (memorized via the character sheet). Party-level; saved whole.
+	std::vector<SpellSymbol> m_satchel;
 	// Baked portrait textures, parallel to m_characters (entries may be null
 	// when the asset is missing; Character::portrait points in here).
 	std::vector<std::unique_ptr<gfx::Texture>> m_portraitTextures;

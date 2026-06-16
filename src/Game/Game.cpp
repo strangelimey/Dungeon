@@ -417,6 +417,39 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 						   m_world.GetParty().SetSpeed(v);
 						   m_console.Print(std::format("speed x{:.2f}", v));
 					   });
+	m_console.Register("learn", "grant a spell symbol to a member (dev)",
+					   [this](const std::vector<std::string>& args) {
+						   if (!Need(m_console, args, 2,
+									 "usage: learn <member 0-3> <fire|earth|air|water>"))
+							   return;
+						   const size_t m = static_cast<size_t>(std::atoi(args[0].c_str()));
+						   SpellSymbol sym;
+						   if (m >= m_characters.size()) {
+							   m_console.Print("no such member");
+							   return;
+						   }
+						   if (!ParseSymbol(args[1], sym)) {
+							   m_console.Print("symbol must be fire/earth/air/water");
+							   return;
+						   }
+						   m_characters[m].Learn(sym);
+						   m_ui.RefreshSheet();
+						   m_console.Print(std::format("{} learned {}", m_characters[m].name,
+													   SymbolId(sym)));
+					   });
+	m_console.Register("rune", "drop a rune symbol into the party satchel (dev)",
+					   [this](const std::vector<std::string>& args) {
+						   if (!Need(m_console, args, 1,
+									 "usage: rune <fire|earth|air|water>"))
+							   return;
+						   SpellSymbol sym;
+						   if (!ParseSymbol(args[0], sym)) {
+							   m_console.Print("symbol must be fire/earth/air/water");
+							   return;
+						   }
+						   m_satchel.push_back(sym);
+						   m_console.Print(std::format("satchel += {}", SymbolId(sym)));
+					   });
 	m_console.Register("timescale", "scale sim speed (1 normal, 0 freeze)",
 					   [this](const std::vector<std::string>& args) {
 						   if (args.empty()) {
@@ -597,6 +630,7 @@ void Game::ResetRoster() {
 void Game::StartNewGame() {
 	m_world.ResetForNewGame();
 	ResetRoster();
+	m_satchel.clear(); // a fresh party has memorized nothing and holds no runes
 	m_ui.RefreshSheet();
 	ApplyPartySpeed();
 
@@ -633,7 +667,9 @@ void Game::SaveGame(const std::string& name) {
 	m_world.CaptureState(data);
 	for (const Character& member : m_characters)
 		data.characters.push_back({member.health, member.maxHealth, member.stamina,
-								   member.maxStamina, member.mana, member.maxMana});
+								   member.maxStamina, member.mana, member.maxMana,
+								   member.knownSymbols});
+	for (SpellSymbol s : m_satchel) data.satchel.push_back(static_cast<int>(s));
 	WriteSave(data, SaveSlotPath(name));
 }
 
@@ -657,7 +693,12 @@ bool Game::LoadGame(const std::string& path) {
 		m_characters[i].health = c.health;     m_characters[i].maxHealth = c.maxHealth;
 		m_characters[i].stamina = c.stamina;   m_characters[i].maxStamina = c.maxStamina;
 		m_characters[i].mana = c.mana;         m_characters[i].maxMana = c.maxMana;
+		m_characters[i].knownSymbols = c.knownSymbols;
 	}
+	m_satchel.clear();
+	for (int s : data->satchel)
+		if (s >= 0 && s < static_cast<int>(kSymbolCount))
+			m_satchel.push_back(static_cast<SpellSymbol>(s));
 	m_world.ApplyState(*data); // fills the per-level store + party pose/torch
 
 	m_ui.RefreshSheet();

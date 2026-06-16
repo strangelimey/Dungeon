@@ -22,5 +22,6 @@ add_library(Game STATIC
 	SaveGame.cpp
 	Serialize.cpp
 	SoundBank.cpp
+	Spells.cpp
 )
 target_link_libraries(Game PUBLIC Core Platform Assets Animation Graphics UI Audio)

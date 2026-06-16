@@ -16,6 +16,7 @@ std::vector<Character> CreateDefaultParty() {
 	party[0].dexterity = 11;
 	party[0].vitality = 15;
 	party[0].willpower = 8;
+	party[0].intelligence = 8; // fighter: slow mana
 	party[0].moveSpeed = 0.95f; // heavy gear, near baseline
 	party[0].portraitColor = {0.42f, 0.20f, 0.14f, 1.0f}; // rust
 
@@ -28,6 +29,7 @@ std::vector<Character> CreateDefaultParty() {
 	party[1].dexterity = 17;
 	party[1].vitality = 11;
 	party[1].willpower = 10;
+	party[1].intelligence = 11; // rogue: middling
 	party[1].moveSpeed = 1.2f; // fleet-footed
 	party[1].portraitColor = {0.18f, 0.32f, 0.18f, 1.0f}; // moss
 
@@ -40,6 +42,7 @@ std::vector<Character> CreateDefaultParty() {
 	party[2].dexterity = 9;
 	party[2].vitality = 13;
 	party[2].willpower = 16;
+	party[2].intelligence = 14; // cleric: strong
 	party[2].moveSpeed = 1.0f;
 	party[2].portraitColor = {0.42f, 0.34f, 0.14f, 1.0f}; // gold
 
@@ -52,6 +55,7 @@ std::vector<Character> CreateDefaultParty() {
 	party[3].dexterity = 12;
 	party[3].vitality = 9;
 	party[3].willpower = 18;
+	party[3].intelligence = 17; // mage: fast mana
 	party[3].moveSpeed = 0.9f; // the party's anchor — sets the pace
 	party[3].portraitColor = {0.22f, 0.22f, 0.44f, 1.0f}; // indigo
 

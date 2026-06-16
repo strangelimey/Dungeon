@@ -13,6 +13,7 @@
 #pragma once
 
 #include "Core/MathTypes.h"
+#include "Game/Spells.h"
 
 #include <string>
 #include <vector>
@@ -36,6 +37,7 @@ struct Character {
 	int dexterity = 10;
 	int vitality = 10;
 	int willpower = 10;
+	int intelligence = 10; // drives mana regen (see ManaRegenPerSec)
 
 	// --- combat (live) ------------------------------------------------------
 	// Seconds until each hand can swing again (index 0 = left, 1 = right),
@@ -48,6 +50,20 @@ struct Character {
 	// fight, no longer a valid monster target) — there is no death/revive
 	// system yet, so a downed member simply stops acting.
 	bool IsAlive() const { return health > 0.0f; }
+
+	// --- spells -------------------------------------------------------------
+	// Spell symbols this member has committed to memory (bitmask of SymbolBit).
+	// Empty at the start — a symbol is learned by memorizing a Rune item (see
+	// Spells.h / the rune satchel). Saved per slot (mutable runtime state).
+	u32 knownSymbols = 0;
+	bool Knows(SpellSymbol s) const { return (knownSymbols & SymbolBit(s)) != 0; }
+	void Learn(SpellSymbol s) { knownSymbols |= SymbolBit(s); }
+	// Mana points regenerated per second, scaled by intelligence. STUB: a real
+	// "mana draw efficiency / capacity" stat will drive this later; intelligence
+	// is the stand-in until that system is designed.
+	float ManaRegenPerSec() const {
+		return 0.4f + static_cast<float>(intelligence) * 0.08f;
+	}
 
 	// --- combat (derived from attributes; unarmed baseline) -----------------
 	// Weapons/spells will scale these later. Tuned so the class spreads read
