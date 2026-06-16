@@ -81,6 +81,7 @@ struct SaveData {
 		std::string stem;
 		std::vector<std::pair<int, int>> seen;
 		std::vector<EntityState> entities;
+		std::vector<int> collectedItems; // Entity::id of picked-up .ent items
 	};
 	std::vector<LevelState> levels;
 };

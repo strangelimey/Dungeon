@@ -1,6 +1,27 @@
-; Items (reserved — populated when the item system lands, plan phase P7).
-; Planned fields:
-;   category = weapon | armor | ammo | consumable | misc
-;   model    = world/ground mesh
-;   icon     = inventory icon
-;   texture  = PBR set
+; Items. Fields:
+;   display  = human-readable name
+;   category = rune (more categories — weapon/armor/consumable — land later)
+;   symbol   = (rune only) the spell symbol it teaches: fire|earth|air|water
+; A rune is picked up by stepping onto its cell; it adds its symbol to the
+; party satchel (memorize it onto a character from the sheet) and vanishes.
+; Level .ent `item <id> <x> <z>` records reference these ids.
+
+[rune_fire]
+display = Fire Rune
+category = rune
+symbol = fire
+
+[rune_earth]
+display = Earth Rune
+category = rune
+symbol = earth
+
+[rune_air]
+display = Air Rune
+category = rune
+symbol = air
+
+[rune_water]
+display = Water Rune
+category = rune
+symbol = water

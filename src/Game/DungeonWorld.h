@@ -104,6 +104,9 @@ public:
 	bool PartyAttack(size_t member, size_t hand);
 	// Fired once when the last standing member goes down (Game ends the run).
 	std::function<void()> onPartyWipe;
+	// Fired when the party steps onto a rune item: the symbol it teaches. Game
+	// adds it to the rune satchel and logs it. Set before play.
+	std::function<void(SpellSymbol)> onRunePickup;
 
 	const DungeonMap& Map() const { return m_map; }
 	const Project& GetProject() const { return m_project; }
@@ -307,6 +310,23 @@ private:
 		bool Alive() const { return hp > 0.0f; }
 	};
 
+	// Per-kind item behaviour (shared) and per-instance world state. MVP: the
+	// only items are RUNES — a glowing element billboard that, when the party
+	// steps onto its cell, teaches its symbol to the rune satchel and vanishes.
+	// Future items (weapons/consumables) add a mesh/icon here.
+	struct ItemKind {
+		std::string id;        // catalog id (the .ent record type)
+		bool isRune = false;
+		SpellSymbol runeSymbol = SpellSymbol::Fire;
+		Vec4 glow{1, 1, 1, 1}; // billboard tint (element colour)
+	};
+	struct Item {
+		const ItemKind* kind = nullptr; // points into m_itemKinds (stable)
+		int id = -1;                    // source Entity::id (>= 0 = .ent baseline)
+		int x = 0, z = 0;
+		bool collected = false; // picked up — hidden + saved so it stays gone
+	};
+
 	// Static architecture decorations from the .map layer (column, archway,
 	// fountain, statue, barrel, ...). One shared model+mesh per type; instances
 	// are placed and oriented once at load and never move or animate, so they
@@ -384,6 +404,16 @@ private:
 	void LoadAllSurfaceTextures(); // reloads every set (quality hot-swap)
 	void BuildDungeonMeshes();
 	void LoadMonsters();
+	void LoadItems(); // instantiates EntityKind::Item records (runes) from .ent
+	// Lazily loads (and caches) the shared behaviour for an item type, resolved
+	// through the items catalog (category=rune → symbol + element glow colour).
+	ItemKind& ItemKindFor(const std::string& type);
+	// Pickup: collects any uncollected item the party is standing on (fires
+	// onRunePickup for runes). Called each frame from Update.
+	void UpdateItems();
+	// Element glow colour for a rune billboard (premultiplied-additive: rgb is
+	// the emissive colour, alpha 0).
+	static Vec4 RuneGlow(SpellSymbol s);
 	// Builds one monster instance (kind/id/cell/facing → stats + animator) ready
 	// to push into m_monsters. Shared by the initial .ent load, live editor
 	// placement, and save restore of editor-placed monsters. The caller pushes.
@@ -536,6 +566,9 @@ private:
 
 	std::flat_map<std::string, std::unique_ptr<MonsterKind>> m_monsterKinds;
 	std::vector<Monster> m_monsters;
+
+	std::flat_map<std::string, std::unique_ptr<ItemKind>> m_itemKinds;
+	std::vector<Item> m_items;
 
 	// Combat: the Game's roster (not owned) + the strike RNG. UpdateMonsters
 	// ticks cooldowns and runs monster melee; PartyAttack runs the party's.

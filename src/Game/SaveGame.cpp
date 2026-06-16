@@ -72,6 +72,11 @@ bool WriteSave(const SaveData& data, const std::string& path) {
 								 e.z, e.facing, e.announced ? 1 : 0, e.hp, e.spawnX,
 								 e.spawnZ);
 		}
+		if (!lvl.collectedItems.empty()) {
+			t += "collected";
+			for (int id : lvl.collectedItems) t += std::format(" {}", id);
+			t += '\n';
+		}
 		if (!lvl.seen.empty()) {
 			t += "seen";
 			for (const auto& [x, z] : lvl.seen) t += std::format(" {},{}", x, z);
@@ -167,6 +172,10 @@ std::optional<SaveData> ReadSave(const std::string& path) {
 			e.spawnX = IntOf(tok[7]);
 			e.spawnZ = IntOf(tok[8]);
 			currentBlock().entities.push_back(e);
+		} else if (kw == "collected") {
+			SaveData::LevelState& lvl = currentBlock();
+			for (size_t i = 1; i < tok.size(); ++i)
+				lvl.collectedItems.push_back(IntOf(tok[i]));
 		} else if (kw == "seen") {
 			SaveData::LevelState& lvl = currentBlock();
 			for (size_t i = 1; i < tok.size(); ++i) {
