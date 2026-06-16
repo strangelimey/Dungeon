@@ -334,6 +334,8 @@ DungeonWorld::MonsterKind& DungeonWorld::MonsterKindFor(const std::string& type)
 			assets->attackInterval = def->GetFloat("attackcd", 1.6f);
 			assets->aggroRange = def->GetFloat("aggro", 6.0f);
 			assets->moveInterval = def->GetFloat("movecd", 0.6f);
+			assets->facesTarget = def->GetBool("faces", true);
+			assets->fallbackRoughness = def->GetFloat("roughness", 0.9f);
 		}
 		it = m_monsterKinds.emplace(type, std::move(assets)).first;
 	}
@@ -1276,9 +1278,9 @@ void DungeonWorld::UpdateMonsters(float dt) {
 		const int dist = std::max(dx, dz); // Chebyshev cells to the party
 		const bool engaged = static_cast<float>(dist) <= monster.kind->aggroRange;
 
-		// Turn to face the party once engaged (blobs don't bother). Based on the
-		// visual position so the turn glides with the step.
-		if (engaged && monster.kind->name != "blob")
+		// Turn to face the party once engaged (radial models opt out via the
+		// catalog `faces` field). Based on the visual position so the turn glides.
+		if (engaged && monster.kind->facesTarget)
 			monster.yaw = std::atan2(partyPos.x - monster.visualPos.x,
 									 partyPos.z - monster.visualPos.z);
 
@@ -1637,7 +1639,7 @@ void DungeonWorld::SubmitSceneGeometry(ID3D12GraphicsCommandList* list,
 		XMStoreFloat4x4(&world, XMMatrixRotationY(monster.yaw) *
 									XMMatrixTranslation(pos.x, 0, pos.z));
 		gfx::MaterialParams material;
-		const float fallbackRough = kind.name == "blob" ? 0.18f : 0.9f;
+		const float fallbackRough = kind.fallbackRoughness;
 		ApplyPropMaterial(material, kind.tex,
 						  kind.model.materials[0].baseColorFactor, fallbackRough);
 		m_renderer.DrawMesh(list, *kind.mesh, world, material,

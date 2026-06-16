@@ -274,6 +274,11 @@ private:
 		float attackInterval = 1.6f; // seconds between swings
 		float aggroRange = 6.0f;     // cells of party distance to engage at
 		float moveInterval = 0.6f;   // seconds per grid step while chasing
+		// Behaviour/appearance, data-driven from the catalog so AI and the
+		// flat-material fallback never branch on the type name.
+		bool facesTarget = true;     // turn to face the party once engaged
+		// (radially-symmetric models like the blob set faces=false to skip it)
+		float fallbackRoughness = 0.9f; // flat-material roughness when no PBR set
 	};
 	struct Monster {
 		const MonsterKind* kind = nullptr; // points into m_monsterKinds (stable)

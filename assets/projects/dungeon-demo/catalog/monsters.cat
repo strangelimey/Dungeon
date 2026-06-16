@@ -9,6 +9,10 @@
 ;   attackcd = seconds between the monster's swings
 ;   aggro    = cells of party distance at which it engages
 ;   movecd   = seconds per grid step while chasing (lower = faster)
+;   faces    = turn to face the party once engaged (default true; radially
+;              symmetric models like the blob set false to skip the rotation)
+;   roughness= flat-material roughness when no PBR texture set is installed
+;              (default 0.9 = matte; lower = glossier, e.g. wet slime)
 ; Level .ent monster records reference these ids.
 
 [skeleton]
@@ -36,6 +40,8 @@ armor = 1
 attackcd = 2.2
 aggro = 4
 movecd = 0.95
+faces = false
+roughness = 0.18
 
 [mummy]
 display = Mummy
