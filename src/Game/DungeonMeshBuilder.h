@@ -25,6 +25,7 @@ namespace dungeon::game {
 // shadow cube, at the cost of a few more draw calls.
 struct GeometryChunk {
 	int variant = 0; // index into the surface's parallel texture arrays
+	int chunk = 0;   // spatial chunk index (cz * chunksX + cx) this came from
 	assets::MeshData mesh;
 	Vec3 boundsMin{}, boundsMax{};
 };
@@ -50,5 +51,16 @@ DungeonGeometry BuildDungeonGeometry(const DungeonMap& map,
 									 std::span<const assets::MeshData> wallBlocks,
 									 std::span<const assets::MeshData> floorBlocks,
 									 std::span<const assets::MeshData> ceilingBlocks);
+
+// Builds just the geometry for one spatial chunk region (chunk coords
+// chunkX/chunkZ, each covering kChunkCells cells), with every returned chunk
+// tagged with its chunk index. The editor uses this to rebuild only the chunks
+// an edit touched instead of the whole map. BuildDungeonGeometry is this run
+// over every region.
+DungeonGeometry BuildDungeonRegion(const DungeonMap& map,
+								   std::span<const assets::MeshData> wallBlocks,
+								   std::span<const assets::MeshData> floorBlocks,
+								   std::span<const assets::MeshData> ceilingBlocks,
+								   int chunkX, int chunkZ);
 
 } // namespace dungeon::game

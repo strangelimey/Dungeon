@@ -42,6 +42,8 @@
 
 namespace dungeon::game {
 
+struct GeometryChunk; // DungeonMeshBuilder.h (MakeSurfaceChunk takes one by ref)
+
 class DungeonWorld {
 public:
 	DungeonWorld(gfx::GraphicsDevice& device, gfx::Renderer& renderer,
@@ -215,6 +217,7 @@ private:
 	// + world AABB, for per-chunk frustum/sphere culling (see DungeonMeshBuilder).
 	struct SurfaceChunk {
 		int variant = 0;
+		int chunk = 0; // spatial chunk index, for region-local edit rebuilds
 		std::unique_ptr<gfx::Mesh> mesh;
 		Vec3 boundsMin{}, boundsMax{};
 	};
@@ -390,8 +393,18 @@ private:
 	// Stashes the active level's live state into m_levelStates[m_currentLevel],
 	// so a later return (or a save) can restore it.
 	void StashActive();
-	// Re-bakes the surface meshes after a map edit (WaitIdle + rebuild).
-	void RebuildGeometry();
+	// Rebuilds only the surface chunks an edit at (x,z) touched — the cell's own
+	// chunk plus, via shared wall faces, its orthogonal neighbours' chunks — so a
+	// paint costs a handful of chunk uploads, not the whole map. Drains the GPU
+	// first (the old chunk meshes may still be in flight). No-op before the
+	// geometry is built. The full (re)bake lives in BuildDungeonMeshes (load /
+	// quality hot-swap).
+	void RebuildChunksAround(int x, int z);
+	// Rebuilds the single chunk region (chunkX, chunkZ) in place.
+	void RebuildChunkRegion(int chunkX, int chunkZ);
+	// GeometryChunk -> SurfaceChunk (uploads the mesh). Shared by the full bake
+	// and the region rebuild.
+	SurfaceChunk MakeSurfaceChunk(GeometryChunk& gc);
 
 	// --- rendering / culling ----------------------------------------------------
 	// One culler for both passes: a camera frustum (main pass) or a light sphere

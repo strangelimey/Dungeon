@@ -39,15 +39,17 @@ void AppendTransformed(assets::MeshData& dst, const assets::MeshData& src,
 
 namespace {
 
-// Collects the non-empty (chunk, variant) buckets into cullable GeometryChunks,
-// computing each one's world AABB from its vertices.
-void Collect(std::vector<assets::MeshData>& buckets, u32 variants,
+// Collects the non-empty per-variant buckets of one chunk region into cullable
+// GeometryChunks (computing each one's world AABB), tagging them with the
+// region's chunk index.
+void Collect(std::vector<assets::MeshData>& buckets, int chunkIndex,
 			 std::vector<GeometryChunk>& out) {
-	for (size_t b = 0; b < buckets.size(); ++b) {
-		assets::MeshData& mesh = buckets[b];
+	for (size_t variant = 0; variant < buckets.size(); ++variant) {
+		assets::MeshData& mesh = buckets[variant];
 		if (mesh.vertices.empty()) continue;
 		GeometryChunk chunk;
-		chunk.variant = static_cast<int>(b % variants);
+		chunk.variant = static_cast<int>(variant);
+		chunk.chunk = chunkIndex;
 		Vec3 lo{1e9f, 1e9f, 1e9f}, hi{-1e9f, -1e9f, -1e9f};
 		for (const assets::Vertex& v : mesh.vertices) {
 			lo = {std::min(lo.x, v.position.x), std::min(lo.y, v.position.y),
@@ -62,82 +64,103 @@ void Collect(std::vector<assets::MeshData>& buckets, u32 variants,
 	}
 }
 
+// Instances one floor cell — its floor, ceiling, and the wall blocks on edges
+// bordering solid rock — into per-variant bucket meshes (indexed by variant).
+void StampCell(const DungeonMap& map, int x, int z,
+			   std::span<const assets::MeshData> wallBlocks,
+			   std::span<const assets::MeshData> floorBlocks,
+			   std::span<const assets::MeshData> ceilingBlocks,
+			   std::vector<assets::MeshData>& wallB,
+			   std::vector<assets::MeshData>& floorB,
+			   std::vector<assets::MeshData>& ceilB) {
+	const u32 wallVariants = static_cast<u32>(wallBlocks.size());
+	const u32 floorVariants = static_cast<u32>(floorBlocks.size());
+	const u32 ceilingVariants = static_cast<u32>(ceilingBlocks.size());
+	const Vec3 center = map.CellCenter(x, z);
+
+	// An editor override (>= 0) pins the cell's variant; otherwise the stable
+	// position hash chooses it. Clamp to the loaded variant count.
+	const auto pick = [](int over, u32 hashed, u32 count) -> u32 {
+		if (over < 0) return hashed;
+		return count > 0 ? std::min(static_cast<u32>(over), count - 1) : 0u;
+	};
+	const u32 floorVariant = pick(map.FloorVariant(x, z),
+								   VariantFor(x, z, 1u, floorVariants), floorVariants);
+	AppendTransformed(floorB[floorVariant], floorBlocks[floorVariant],
+					  XMMatrixTranslation(center.x, 0, center.z));
+	const u32 ceilingVariant = pick(map.CeilingVariant(x, z),
+									 VariantFor(x, z, 2u, ceilingVariants), ceilingVariants);
+	AppendTransformed(ceilB[ceilingVariant], ceilingBlocks[ceilingVariant],
+					  XMMatrixTranslation(center.x, kWallHeight, center.z));
+
+	// Wall blocks are authored facing +Z; rotate so the face points into the
+	// room. Camera convention: forward = (sin yaw, 0, cos yaw).
+	struct Edge {
+		int dx, dz;
+		float yaw;
+		Vec3 pos;
+	};
+	const float s = kCellSize;
+	const Edge edges[4] = {
+		{0, -1, 0.0f, {center.x, 0, z * s}},              // north
+		{0, +1, kPi, {center.x, 0, (z + 1) * s}},         // south
+		{-1, 0, kPi * 0.5f, {x * s, 0, center.z}},        // west
+		{+1, 0, -kPi * 0.5f, {(x + 1) * s, 0, center.z}}, // east
+	};
+	const u32 wallVariant = pick(map.WallVariant(x, z),
+								  VariantFor(x, z, 3u, wallVariants), wallVariants);
+	for (const Edge& e : edges) {
+		if (map.IsWalkable(x + e.dx, z + e.dz)) continue;
+		const XMMATRIX m =
+			XMMatrixRotationY(e.yaw) * XMMatrixTranslation(e.pos.x, e.pos.y, e.pos.z);
+		AppendTransformed(wallB[wallVariant], wallBlocks[wallVariant], m);
+	}
+}
+
 } // namespace
+
+DungeonGeometry BuildDungeonRegion(const DungeonMap& map,
+								   std::span<const assets::MeshData> wallBlocks,
+								   std::span<const assets::MeshData> floorBlocks,
+								   std::span<const assets::MeshData> ceilingBlocks,
+								   int chunkX, int chunkZ) {
+	const int chunksX = (map.Width() + kChunkCells - 1) / kChunkCells;
+	const int chunkIndex = chunkZ * chunksX + chunkX;
+	const int x0 = chunkX * kChunkCells, z0 = chunkZ * kChunkCells;
+	const int x1 = std::min(x0 + kChunkCells, map.Width());
+	const int z1 = std::min(z0 + kChunkCells, map.Height());
+
+	std::vector<assets::MeshData> wallB(wallBlocks.size());
+	std::vector<assets::MeshData> floorB(floorBlocks.size());
+	std::vector<assets::MeshData> ceilB(ceilingBlocks.size());
+	for (int z = z0; z < z1; ++z)
+		for (int x = x0; x < x1; ++x)
+			if (map.IsWalkable(x, z))
+				StampCell(map, x, z, wallBlocks, floorBlocks, ceilingBlocks, wallB, floorB,
+						  ceilB);
+
+	DungeonGeometry geo;
+	Collect(wallB, chunkIndex, geo.walls);
+	Collect(floorB, chunkIndex, geo.floors);
+	Collect(ceilB, chunkIndex, geo.ceilings);
+	return geo;
+}
 
 DungeonGeometry BuildDungeonGeometry(const DungeonMap& map,
 									 std::span<const assets::MeshData> wallBlocks,
 									 std::span<const assets::MeshData> floorBlocks,
 									 std::span<const assets::MeshData> ceilingBlocks) {
-	const u32 wallVariants = static_cast<u32>(wallBlocks.size());
-	const u32 floorVariants = static_cast<u32>(floorBlocks.size());
-	const u32 ceilingVariants = static_cast<u32>(ceilingBlocks.size());
-
 	const int chunksX = (map.Width() + kChunkCells - 1) / kChunkCells;
 	const int chunksZ = (map.Height() + kChunkCells - 1) / kChunkCells;
-	const int chunkCount = chunksX * chunksZ;
-	const auto chunkOf = [&](int x, int z) {
-		return (z / kChunkCells) * chunksX + (x / kChunkCells);
-	};
-
-	// Temp buckets indexed [chunk * variants + variant]; collected at the end.
-	std::vector<assets::MeshData> wallB(chunkCount * wallVariants);
-	std::vector<assets::MeshData> floorB(chunkCount * floorVariants);
-	std::vector<assets::MeshData> ceilB(chunkCount * ceilingVariants);
-
-	for (int z = 0; z < map.Height(); ++z) {
-		for (int x = 0; x < map.Width(); ++x) {
-			if (!map.IsWalkable(x, z)) continue;
-			const Vec3 center = map.CellCenter(x, z);
-			const int chunk = chunkOf(x, z);
-
-			// An editor override (>= 0) pins the cell's variant; otherwise the
-			// stable position hash chooses it. Clamp to the loaded variant count.
-			const auto pick = [](int over, u32 hashed, u32 count) -> u32 {
-				if (over < 0) return hashed;
-				return count > 0 ? std::min(static_cast<u32>(over), count - 1) : 0u;
-			};
-			const u32 floorVariant = pick(map.FloorVariant(x, z),
-										   VariantFor(x, z, 1u, floorVariants), floorVariants);
-			AppendTransformed(floorB[chunk * floorVariants + floorVariant],
-							  floorBlocks[floorVariant],
-							  XMMatrixTranslation(center.x, 0, center.z));
-			const u32 ceilingVariant = pick(map.CeilingVariant(x, z),
-											 VariantFor(x, z, 2u, ceilingVariants),
-											 ceilingVariants);
-			AppendTransformed(ceilB[chunk * ceilingVariants + ceilingVariant],
-							  ceilingBlocks[ceilingVariant],
-							  XMMatrixTranslation(center.x, kWallHeight, center.z));
-
-			// Wall blocks are authored facing +Z; rotate so the face points
-			// into the room. Camera convention: forward = (sin yaw, 0, cos yaw).
-			struct Edge {
-				int dx, dz;
-				float yaw;
-				Vec3 pos;
-			};
-			const float s = kCellSize;
-			const Edge edges[4] = {
-				{0, -1, 0.0f, {center.x, 0, z * s}},                 // north
-				{0, +1, kPi, {center.x, 0, (z + 1) * s}},            // south
-				{-1, 0, kPi * 0.5f, {x * s, 0, center.z}},           // west
-				{+1, 0, -kPi * 0.5f, {(x + 1) * s, 0, center.z}},    // east
-			};
-			const u32 wallVariant = pick(map.WallVariant(x, z),
-										  VariantFor(x, z, 3u, wallVariants), wallVariants);
-			for (const Edge& e : edges) {
-				if (map.IsWalkable(x + e.dx, z + e.dz)) continue;
-				const XMMATRIX m = XMMatrixRotationY(e.yaw) *
-								   XMMatrixTranslation(e.pos.x, e.pos.y, e.pos.z);
-				AppendTransformed(wallB[chunk * wallVariants + wallVariant],
-								  wallBlocks[wallVariant], m);
-			}
-		}
-	}
-
 	DungeonGeometry geo;
-	Collect(wallB, wallVariants, geo.walls);
-	Collect(floorB, floorVariants, geo.floors);
-	Collect(ceilB, ceilingVariants, geo.ceilings);
+	for (int cz = 0; cz < chunksZ; ++cz)
+		for (int cx = 0; cx < chunksX; ++cx) {
+			DungeonGeometry r =
+				BuildDungeonRegion(map, wallBlocks, floorBlocks, ceilingBlocks, cx, cz);
+			for (GeometryChunk& c : r.walls) geo.walls.push_back(std::move(c));
+			for (GeometryChunk& c : r.floors) geo.floors.push_back(std::move(c));
+			for (GeometryChunk& c : r.ceilings) geo.ceilings.push_back(std::move(c));
+		}
 	return geo;
 }
 

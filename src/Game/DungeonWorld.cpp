@@ -285,20 +285,23 @@ void DungeonWorld::LoadAllSurfaceTextures() {
 	for (const SurfaceDef& def : SurfaceDefs()) LoadTextureSet(def);
 }
 
+DungeonWorld::SurfaceChunk DungeonWorld::MakeSurfaceChunk(GeometryChunk& gc) {
+	SurfaceChunk sc;
+	sc.variant = gc.variant;
+	sc.chunk = gc.chunk;
+	sc.boundsMin = gc.boundsMin;
+	sc.boundsMax = gc.boundsMax;
+	sc.mesh = std::make_unique<gfx::Mesh>(m_device, gc.mesh);
+	return sc;
+}
+
 void DungeonWorld::BuildDungeonMeshes() {
-	const DungeonGeometry geo =
+	DungeonGeometry geo =
 		BuildDungeonGeometry(m_map, m_wallBlocks, m_floorBlocks, m_ceilingBlocks);
 
-	auto upload = [&](Surface& surface, const std::vector<GeometryChunk>& chunks) {
+	auto upload = [&](Surface& surface, std::vector<GeometryChunk>& chunks) {
 		surface.chunks.clear();
-		for (const GeometryChunk& gc : chunks) {
-			SurfaceChunk sc;
-			sc.variant = gc.variant;
-			sc.boundsMin = gc.boundsMin;
-			sc.boundsMax = gc.boundsMax;
-			sc.mesh = std::make_unique<gfx::Mesh>(m_device, gc.mesh);
-			surface.chunks.push_back(std::move(sc));
-		}
+		for (GeometryChunk& gc : chunks) surface.chunks.push_back(MakeSurfaceChunk(gc));
 	};
 	upload(m_walls, geo.walls);
 	upload(m_floors, geo.floors);
@@ -663,7 +666,7 @@ void DungeonWorld::EditCell(int x, int z, Cell cell) {
 	m_map.SetCell(x, z, cell);
 	if (m_map.Revision() == rev) return; // unchanged
 	MarkSeen(x, z);
-	RebuildGeometry();
+	RebuildChunksAround(x, z);
 }
 
 void DungeonWorld::EditVariant(int x, int z, SurfaceSel sel, int variant) {
@@ -676,7 +679,7 @@ void DungeonWorld::EditVariant(int x, int z, SurfaceSel sel, int variant) {
 	}
 	if (m_map.Revision() == rev) return; // unchanged
 	MarkSeen(x, z);
-	RebuildGeometry();
+	RebuildChunksAround(x, z);
 }
 
 bool DungeonWorld::AddDecoration(const std::string& type, int x, int z,
@@ -919,13 +922,42 @@ void DungeonWorld::PlacePartyAt(int x, int z, Direction facing) {
 	MarkSeen(x, z);
 }
 
-void DungeonWorld::RebuildGeometry() {
-	if (m_walls.chunks.empty()) return; // not built yet
-	m_device.WaitIdle();                // GPU may still read the old meshes
-	m_walls.chunks.clear();
-	m_floors.chunks.clear();
-	m_ceilings.chunks.clear();
-	BuildDungeonMeshes();
+void DungeonWorld::RebuildChunkRegion(int chunkX, int chunkZ) {
+	const int chunksX = (m_map.Width() + kChunkCells - 1) / kChunkCells;
+	const int chunkIndex = chunkZ * chunksX + chunkX;
+	DungeonGeometry r = BuildDungeonRegion(m_map, m_wallBlocks, m_floorBlocks,
+										   m_ceilingBlocks, chunkX, chunkZ);
+	auto replace = [&](Surface& surface, std::vector<GeometryChunk>& fresh) {
+		std::erase_if(surface.chunks,
+					  [&](const SurfaceChunk& sc) { return sc.chunk == chunkIndex; });
+		for (GeometryChunk& gc : fresh) surface.chunks.push_back(MakeSurfaceChunk(gc));
+	};
+	replace(m_walls, r.walls);
+	replace(m_floors, r.floors);
+	replace(m_ceilings, r.ceilings);
+}
+
+void DungeonWorld::RebuildChunksAround(int x, int z) {
+	if (m_walls.chunks.empty()) return; // geometry not built yet
+	m_device.WaitIdle();                // old chunk meshes may still be in flight
+
+	// The edit changes (x,z) plus the wall faces its orthogonal neighbours share
+	// with it, so rebuild every distinct chunk those cells fall in (≤ 5).
+	const int n[5][2] = {{0, 0}, {1, 0}, {-1, 0}, {0, 1}, {0, -1}};
+	int doneX[5], doneZ[5], count = 0;
+	for (const auto& o : n) {
+		const int cx = x + o[0], cz = z + o[1];
+		if (cx < 0 || cz < 0 || cx >= m_map.Width() || cz >= m_map.Height()) continue;
+		const int rx = cx / kChunkCells, rz = cz / kChunkCells;
+		bool seen = false;
+		for (int i = 0; i < count; ++i)
+			if (doneX[i] == rx && doneZ[i] == rz) seen = true;
+		if (seen) continue;
+		doneX[count] = rx;
+		doneZ[count] = rz;
+		++count;
+		RebuildChunkRegion(rx, rz);
+	}
 }
 
 void DungeonWorld::MarkSeen(int x, int z) {
