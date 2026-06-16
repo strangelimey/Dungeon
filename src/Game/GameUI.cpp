@@ -1026,8 +1026,9 @@ void GameUI::BuildHud() {
 					 window),
 				&m_characters[i], [this, i] {
 					Click();
-					m_log->AddLine(
-						loc::Format("log.hands_empty", m_characters[i].name));
+					// No weapons yet — a hand click is an unarmed strike at the
+					// monster ahead (the receiver logs hit/miss/no-target).
+					if (onHandAttack) onHandAttack(i);
 				}));
 		}
 	}

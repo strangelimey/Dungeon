@@ -17,6 +17,8 @@
 #include "Animation/Animator.h"
 #include "Assets/Model.h"
 #include "Audio/AudioEngine.h"
+#include "Game/Character.h"
+#include "Game/Combat.h"
 #include "Game/DungeonEntities.h"
 #include "Game/DungeonMap.h"
 #include "Game/FireEffect.h"
@@ -88,6 +90,20 @@ public:
 	void SetTorchPalette(int index);
 
 	Party& GetParty() { return m_party; }
+
+	// --- combat -------------------------------------------------------------
+	// Points the world at the Game's party roster (filled once, reset in place)
+	// so monster melee can drain member health and party melee can read each
+	// member's derived stats. Must be set before play; null = no combat.
+	void SetRoster(std::vector<Character>* roster) { m_roster = roster; }
+	// A hand-slot click: the given roster member swings at the monster in the
+	// cell directly ahead of the party. Resolves a strike when the member is
+	// up, off cooldown, and a live monster is there; logs the outcome and kills
+	// the monster at 0 hp. A no-op (returns false) otherwise.
+	bool PartyAttack(size_t member);
+	// Fired once when the last standing member goes down (Game ends the run).
+	std::function<void()> onPartyWipe;
+
 	const DungeonMap& Map() const { return m_map; }
 	const Project& GetProject() const { return m_project; }
 	const DungeonEntities& Entities() const { return m_entities; }
@@ -249,6 +265,14 @@ private:
 		std::string name;
 		// PBR set bound by type name (skeleton_<res>, ...); null = flat material.
 		const PropTextures* tex = nullptr; // points into m_propTextures (stable)
+		// Combat stats from monsters.cat (fallbacks in MonsterKindFor).
+		float maxHp = 12.0f;
+		float damage = 4.0f;
+		float accuracy = 0.65f;
+		float evasion = 0.1f;
+		float armor = 0.0f;
+		float attackInterval = 1.6f; // seconds between swings
+		float aggroRange = 6.0f;     // cells of party distance to engage at
 	};
 	struct Monster {
 		const MonsterKind* kind = nullptr; // points into m_monsterKinds (stable)
@@ -258,7 +282,12 @@ private:
 		float yaw = 0.0f;
 		Direction facing = Direction::South; // for the .ent writer
 		bool announced = false;
+		float hp = 1.0f;          // current hit points (maxHp at spawn)
+		float attackCd = 0.0f;    // seconds until this monster can swing again
 		anim::Animator animator;
+
+		float MaxHp() const { return kind ? kind->maxHp : 1.0f; }
+		bool Alive() const { return hp > 0.0f; }
 	};
 
 	// Static architecture decorations from the .map layer (column, archway,
@@ -378,6 +407,9 @@ private:
 	void UpdateCamera();
 	void UpdateLights(float time);
 	void UpdateMonsters(float dt);
+	// One monster's melee strike against a random standing party member (called
+	// from UpdateMonsters when the monster is adjacent and off cooldown).
+	void MonsterAttack(Monster& monster);
 	void AssignShadowSlots();
 
 	// True if a continuously-animating caster (a monster, or the swaying pillar)
@@ -475,6 +507,12 @@ private:
 
 	std::flat_map<std::string, std::unique_ptr<MonsterKind>> m_monsterKinds;
 	std::vector<Monster> m_monsters;
+
+	// Combat: the Game's roster (not owned) + the strike RNG. UpdateMonsters
+	// ticks cooldowns and runs monster melee; PartyAttack runs the party's.
+	std::vector<Character>* m_roster = nullptr;
+	std::mt19937 m_combatRng{0xC0FFEEu};
+	bool m_partyWiped = false; // latches onPartyWipe so it fires once
 
 	std::flat_map<std::string, std::unique_ptr<DecorationKind>> m_decorationKinds;
 	// unique_ptr so DecorationKind::tex stays valid as more sets are added

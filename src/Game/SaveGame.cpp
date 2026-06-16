@@ -59,7 +59,8 @@ bool WriteSave(const SaveData& data, const std::string& path) {
 	for (const SaveData::LevelState& lvl : data.levels) {
 		t += std::format("level {}\n", lvl.stem);
 		for (const SaveData::EntityState& e : lvl.entities)
-			t += std::format("ent {} {} {} {}\n", e.id, e.x, e.z, e.announced ? 1 : 0);
+			t += std::format("ent {} {} {} {} {:.3f}\n", e.id, e.x, e.z,
+							 e.announced ? 1 : 0, e.hp);
 		if (!lvl.seen.empty()) {
 			t += "seen";
 			for (const auto& [x, z] : lvl.seen) t += std::format(" {},{}", x, z);
@@ -135,6 +136,7 @@ std::optional<SaveData> ReadSave(const std::string& path) {
 			e.x = IntOf(tok[2]);
 			e.z = IntOf(tok[3]);
 			if (tok.size() >= 5) e.announced = IntOf(tok[4]) != 0; // older saves omit it
+			if (tok.size() >= 6) e.hp = FloatOf(tok[5]);           // older saves omit it
 			currentBlock().entities.push_back(e);
 		} else if (kw == "seen") {
 			SaveData::LevelState& lvl = currentBlock();

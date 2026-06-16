@@ -71,7 +71,7 @@ DungeonWorld::DungeonWorld(gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	m_party.onTurn = [this] { m_audio.Play(m_sounds.turn, 0.6f); };
 	m_party.isOccupied = [this](int x, int z) {
 		for (const Monster& monster : m_monsters) {
-			if (monster.x == x && monster.z == z) {
+			if (monster.Alive() && monster.x == x && monster.z == z) {
 				m_audio.Play(m_sounds.monster, 0.8f);
 				onMessage(loc::Format("log.monster_blocks",
 									  loc::Tr("monster." + monster.kind->name)));
@@ -316,12 +316,23 @@ DungeonWorld::MonsterKind& DungeonWorld::MonsterKindFor(const std::string& type)
 	if (it == m_monsterKinds.end()) {
 		// Resolve model + texture set through the monsters catalog; an unlisted
 		// type falls back to the old name convention (<type>.gltf).
-		const auto [model, tex] = ModelAndTexture(m_project.monsters.Find(type), type);
+		const CatalogEntry* def = m_project.monsters.Find(type);
+		const auto [model, tex] = ModelAndTexture(def, type);
 		auto assets = std::make_unique<MonsterKind>();
 		assets->model = LoadModelOrDie(model + ".gltf");
 		assets->name = type; // catalog id — drives the monster.<id> loc key
 		assets->mesh = std::make_unique<gfx::Mesh>(m_device, assets->model.meshes[0]);
 		assets->tex = LoadPropTextures(tex); // <tex>_<res> PBR set, if present
+		// Combat stats (defaults keep an undescribed monster fightable).
+		if (def) {
+			assets->maxHp = def->GetFloat("hp", 12.0f);
+			assets->damage = def->GetFloat("damage", 4.0f);
+			assets->accuracy = def->GetFloat("accuracy", 0.65f);
+			assets->evasion = def->GetFloat("defense", 0.1f);
+			assets->armor = def->GetFloat("armor", 0.0f);
+			assets->attackInterval = def->GetFloat("attackcd", 1.6f);
+			assets->aggroRange = def->GetFloat("aggro", 6.0f);
+		}
 		it = m_monsterKinds.emplace(type, std::move(assets)).first;
 	}
 	return *it->second;
@@ -339,6 +350,7 @@ void DungeonWorld::LoadMonsters() {
 		monster.z = monster.spawnZ = spawn.z;
 		monster.yaw = DirYaw(spawn.facing);
 		monster.facing = spawn.facing;
+		monster.hp = kind.maxHp;
 		monster.animator = anim::Animator(&kind.model.skeleton, &kind.model.clips);
 		monster.animator.Play("idle");
 		monster.animator.Update(static_cast<float>(phase++) * 0.7f); // desync idles
@@ -585,7 +597,12 @@ void DungeonWorld::ApplyQuality(bool textureResChanged) {
 
 void DungeonWorld::ResetForNewGame() {
 	m_party.Reset(m_map.StartX(), m_map.StartZ());
-	for (Monster& monster : m_monsters) monster.announced = false;
+	for (Monster& monster : m_monsters) {
+		monster.announced = false;
+		monster.hp = monster.MaxHp();
+		monster.attackCd = 0.0f;
+	}
+	m_partyWiped = false;
 	std::fill(m_seen.begin(), m_seen.end(), static_cast<u8>(0));
 	MarkSeen(m_party.GridX(), m_party.GridZ());
 	SetTorchPalette(0);
@@ -600,10 +617,10 @@ SaveData::LevelState DungeonWorld::SnapshotActive() const {
 			if (m_seen[static_cast<size_t>(z) * m_map.Width() + x])
 				ls.seen.emplace_back(x, z);
 	// Diff against the .ent baseline: a monster gets a row once it has moved off
-	// its spawn cell or has announced itself.
+	// its spawn cell, announced itself, or taken damage (incl. being slain).
 	for (const Monster& m : m_monsters)
-		if (m.x != m.spawnX || m.z != m.spawnZ || m.announced)
-			ls.entities.push_back({m.id, m.x, m.z, m.announced});
+		if (m.x != m.spawnX || m.z != m.spawnZ || m.announced || m.hp != m.MaxHp())
+			ls.entities.push_back({m.id, m.x, m.z, m.announced, m.hp});
 	return ls;
 }
 
@@ -626,6 +643,7 @@ void DungeonWorld::ApplyActiveSnapshot() {
 				m.x = e.x;
 				m.z = e.z;
 				m.announced = e.announced;
+				if (e.hp >= 0.0f) m.hp = e.hp; // -1 = older save → keep spawn hp
 				break;
 			}
 	m_levelStates.erase(it); // the live state is authoritative now
@@ -715,6 +733,7 @@ bool DungeonWorld::AddMonster(const std::string& type, int x, int z,
 	monster.z = monster.spawnZ = z;
 	monster.yaw = DirYaw(facing);
 	monster.facing = facing;
+	monster.hp = kind.maxHp;
 	monster.animator = anim::Animator(&kind.model.skeleton, &kind.model.clips);
 	monster.animator.Play("idle");
 	m_monsters.push_back(std::move(monster));
@@ -755,7 +774,8 @@ std::vector<DungeonWorld::MapMarker> DungeonWorld::MonsterMarkers() const {
 	std::vector<MapMarker> markers;
 	markers.reserve(m_monsters.size());
 	for (const Monster& m : m_monsters)
-		markers.push_back({m.x, m.z, m.kind ? m.kind->name : std::string()});
+		if (m.Alive()) // a slain monster leaves no map marker
+			markers.push_back({m.x, m.z, m.kind ? m.kind->name : std::string()});
 	return markers;
 }
 
@@ -1205,24 +1225,125 @@ void DungeonWorld::AssignShadowSlots() {
 
 void DungeonWorld::UpdateMonsters(float dt) {
 	const Vec3 partyPos = m_party.EyePosition();
+
+	// Tick down each member's swing cooldown so hands free up over time.
+	if (m_roster)
+		for (Character& member : *m_roster)
+			if (member.attackCooldown > 0.0f) member.attackCooldown -= dt;
+
 	for (Monster& monster : m_monsters) {
+		if (!monster.Alive()) continue; // downed — no animation, no AI, not solid
 		monster.animator.Update(dt);
+		if (monster.attackCd > 0.0f) monster.attackCd -= dt;
 
-		// Face the party (blobs don't care).
-		const Vec3 pos = m_map.CellCenter(monster.x, monster.z);
-		if (monster.kind->name != "blob")
-			monster.yaw = std::atan2(partyPos.x - pos.x, partyPos.z - pos.z);
-
-		// Announce once when the party first comes within one cell.
 		const int dx = std::abs(monster.x - m_party.GridX());
 		const int dz = std::abs(monster.z - m_party.GridZ());
-		if (!monster.announced && std::max(dx, dz) <= 1) {
+		const int dist = std::max(dx, dz); // Chebyshev cells to the party
+
+		// Turn to face the party once it is within reach (blobs don't bother).
+		// Distant monsters idle in their spawn facing — this is the only thing
+		// the aggro range governs while monsters are stationary (AI v0).
+		const Vec3 pos = m_map.CellCenter(monster.x, monster.z);
+		const bool engaged = static_cast<float>(dist) <= monster.kind->aggroRange;
+		if (engaged && monster.kind->name != "blob")
+			monster.yaw = std::atan2(partyPos.x - pos.x, partyPos.z - pos.z);
+
+		// Announce once when the party first comes adjacent.
+		if (!monster.announced && dist <= 1) {
 			monster.announced = true;
 			onMessage(loc::Format("log.monster_stirs",
 								  loc::Tr("monster." + monster.kind->name)));
 			m_audio.Play(m_sounds.monster, 0.7f);
 		}
+
+		// Melee: adjacent + off cooldown -> swing at a random standing member.
+		if (dist <= 1 && monster.attackCd <= 0.0f) MonsterAttack(monster);
 	}
+}
+
+// One monster strike against a random standing party member. Sets the swing
+// cooldown whether or not it lands so a packed cell doesn't machine-gun.
+void DungeonWorld::MonsterAttack(Monster& monster) {
+	if (!m_roster || m_partyWiped) return;
+
+	// Pick uniformly among the members still up.
+	std::array<size_t, 4> alive;
+	size_t n = 0;
+	for (size_t i = 0; i < m_roster->size() && n < alive.size(); ++i)
+		if ((*m_roster)[i].IsAlive()) alive[n++] = i;
+	if (n == 0) return;
+
+	Character& target = (*m_roster)[alive[m_combatRng() % n]];
+	monster.attackCd = monster.kind->attackInterval;
+
+	const AttackProfile atk{monster.kind->damage, monster.kind->accuracy};
+	const DefenseProfile def{target.Evasion(), target.Armor()};
+	const AttackResult r = ResolveAttack(atk, def, m_combatRng);
+	const std::string name = loc::Tr("monster." + monster.kind->name);
+
+	if (!r.hit) {
+		onMessage(loc::Format("log.monster_misses", name, target.name));
+		return;
+	}
+	target.health -= r.damage;
+	if (target.health < 0.0f) target.health = 0.0f;
+	int dmg = static_cast<int>(r.damage + 0.5f);
+	onMessage(loc::Format("log.monster_hits", name, target.name, dmg));
+	m_audio.Play(m_sounds.monster, 0.6f);
+
+	if (!target.IsAlive()) onMessage(loc::Format("log.member_down", target.name));
+
+	// Party wipe: latch so the run ends exactly once.
+	bool anyUp = false;
+	for (const Character& m : *m_roster)
+		if (m.IsAlive()) { anyUp = true; break; }
+	if (!anyUp && !m_partyWiped) {
+		m_partyWiped = true;
+		onMessage(loc::Tr("log.party_wipe"));
+		if (onPartyWipe) onPartyWipe();
+	}
+}
+
+bool DungeonWorld::PartyAttack(size_t member) {
+	if (!m_roster || member >= m_roster->size()) return false;
+	Character& attacker = (*m_roster)[member];
+	if (!attacker.IsAlive() || attacker.attackCooldown > 0.0f) return false;
+
+	// The cell directly ahead of the party.
+	const Direction faced = static_cast<Direction>(m_party.Facing());
+	const int tx = m_party.GridX() + DirDX(faced);
+	const int tz = m_party.GridZ() + DirDZ(faced);
+
+	Monster* target = nullptr;
+	for (Monster& m : m_monsters)
+		if (m.Alive() && m.x == tx && m.z == tz) { target = &m; break; }
+
+	attacker.attackCooldown = attacker.AttackInterval();
+	if (!target) {
+		onMessage(loc::Tr("log.attack_air"));
+		return true;
+	}
+
+	const AttackProfile atk{attacker.AttackDamage(), attacker.Accuracy()};
+	const DefenseProfile def{target->kind->evasion, target->kind->armor};
+	const AttackResult r = ResolveAttack(atk, def, m_combatRng);
+	const std::string name = loc::Tr("monster." + target->kind->name);
+
+	if (!r.hit) {
+		onMessage(loc::Format("log.party_misses", attacker.name, name));
+		return true;
+	}
+	target->hp -= r.damage;
+	int dmg = static_cast<int>(r.damage + 0.5f);
+	onMessage(loc::Format("log.party_hits", attacker.name, name, dmg));
+	m_audio.Play(m_sounds.monster, 0.7f);
+
+	if (!target->Alive()) {
+		target->hp = 0.0f; // a downed monster stays in the list (so a new game /
+		// save can restore it) but renders, blocks, and acts as dead.
+		onMessage(loc::Format("log.monster_slain", name));
+	}
+	return true;
 }
 
 // ============================================================================
@@ -1313,6 +1434,7 @@ bool DungeonWorld::AnimatedCasterNear(const gfx::PointLight& light) const {
 	if (m_pillarActive && inReach({m_pillarPos.x, 1.2f, m_pillarPos.z}, 1.2f))
 		return true; // sway
 	for (const Monster& m : m_monsters) {
+		if (!m.Alive()) continue; // downed: no animation, can't dirty a cube
 		const Vec3 c = m_map.CellCenter(m.x, m.z);
 		if (inReach({c.x, 1.0f, c.z}, 1.5f)) return true;
 	}
@@ -1405,6 +1527,7 @@ void DungeonWorld::SubmitSceneGeometry(ID3D12GraphicsCommandList* list,
 	// Monsters: bone/bandage/slime PBR sets, bound by type name. The flat-color
 	// fallback keeps the old look if a set is missing (blob glistens wetly).
 	for (const Monster& monster : m_monsters) {
+		if (!monster.Alive()) continue; // downed monsters don't draw
 		const MonsterKind& kind = *monster.kind;
 		const Vec3 pos = m_map.CellCenter(monster.x, monster.z);
 		if (!visible({pos.x, 1.0f, pos.z}, 1.5f)) continue;

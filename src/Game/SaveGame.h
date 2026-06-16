@@ -48,13 +48,15 @@ struct SaveData {
 	std::vector<CharState> characters;
 
 	// Per-entity overrides, keyed by Entity::id — only entities that differ
-	// from their .ent spawn are present (monsters carry a moved grid cell and
-	// whether they have announced themselves; combat/inventory fields extend
-	// this struct later).
+	// from their .ent spawn are present (monsters carry a moved grid cell,
+	// whether they have announced themselves, and current hit points: a slain
+	// monster saves hp=0 so it stays down on load; inventory fields extend this
+	// struct later). hp = -1 means "not recorded" (older saves) → keep spawn hp.
 	struct EntityState {
 		int id = -1;
 		int x = 0, z = 0;
 		bool announced = false;
+		float hp = -1.0f;
 	};
 
 	// Dynamic state of one level: revealed cells (fog, stored whole) + the

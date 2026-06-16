@@ -3,6 +3,7 @@ add_library(Game STATIC
 	AssetUtil.cpp
 	Catalog.cpp
 	Character.cpp
+	Combat.cpp
 	DevConsole.cpp
 	DungeonEntities.cpp
 	DungeonMap.cpp

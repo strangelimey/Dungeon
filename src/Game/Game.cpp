@@ -74,10 +74,17 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 
 	m_characters = CreateDefaultParty();
 	ApplyPartySpeed();
+	m_world.SetRoster(&m_characters); // combat drains these; reset in place
 
 	// Wire the modules together: world feedback goes to the HUD log, UI
 	// actions drive the state machine.
 	m_world.onMessage = [this](const std::string& line) { m_ui.AddLogLine(line); };
+	// The party fell: end the run back at the title (Start New Game resets the
+	// roster + monsters in place).
+	m_world.onPartyWipe = [this] {
+		m_state = AppState::Menu;
+		m_ui.ResetToMainPage();
+	};
 	m_ui.onStartNewGame = [this] {
 		if (m_gameLoaded) {
 			StartNewGame();
@@ -133,6 +140,7 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	m_ui.onMoveAction = [this](MoveAction action) {
 		m_world.GetParty().Act(action);
 	};
+	m_ui.onHandAttack = [this](size_t member) { m_world.PartyAttack(member); };
 	m_ui.onKeysChanged = [this] {
 		m_world.GetParty().SetKeys(m_settings.moveKeys);
 	};

@@ -140,6 +140,15 @@ log.monster_stirs=A {} stirs before you!
 log.torch_warm=Warm firelight returns.
 log.torch_cold=The flames turn cold and blue.
 log.torch_eerie=An eerie green light spreads.
+; --- combat ({} args: see DungeonWorld PartyAttack / MonsterAttack) ---
+log.attack_air=You strike at empty air.
+log.party_hits={} hits the {} for {} damage.
+log.party_misses={} swings at the {} and misses.
+log.monster_slain=The {} is slain!
+log.monster_hits=The {} hits {} for {} damage.
+log.monster_misses=The {} swings at {} and misses.
+log.member_down={} has fallen!
+log.party_wipe=The party has been slain. Darkness takes you.
 
 ; --- monsters (key suffix = the .ent type) --------------------------------------
 monster.skeleton=skeleton

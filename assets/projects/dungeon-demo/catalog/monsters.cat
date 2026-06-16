@@ -1,19 +1,47 @@
 ; Monsters. Fields:
-;   model   = assets/models/<model>.gltf
-;   texture = PBR set in assets/textures (omit -> flat glTF material)
+;   model    = assets/models/<model>.gltf
+;   texture  = PBR set in assets/textures (omit -> flat glTF material)
+;   hp       = max hit points
+;   damage   = base melee damage per hit
+;   accuracy = 0..1 chance to land before the target's evasion
+;   defense  = 0..1 evasion subtracted from an attacker's accuracy
+;   armor    = flat damage soaked per hit
+;   attackcd = seconds between the monster's swings
+;   aggro    = cells of party distance at which it engages
 ; Level .ent monster records reference these ids.
 
 [skeleton]
 display = Skeleton
 model = skeleton
 texture = skeleton
+hp = 16
+damage = 5
+accuracy = 0.7
+defense = 0.1
+armor = 0
+attackcd = 1.6
+aggro = 6
 
 [blob]
 display = Blob
 model = blob
 texture = blob
+hp = 28
+damage = 4
+accuracy = 0.6
+defense = 0.0
+armor = 1
+attackcd = 2.2
+aggro = 4
 
 [mummy]
 display = Mummy
 model = mummy
 texture = mummy
+hp = 22
+damage = 8
+accuracy = 0.65
+defense = 0.05
+armor = 1
+attackcd = 2.0
+aggro = 5
