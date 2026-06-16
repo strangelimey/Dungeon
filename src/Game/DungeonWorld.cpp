@@ -1057,7 +1057,11 @@ void DungeonWorld::UpdateLights(float time) {
 						 std::sin(time * 2.6f + fire.phase);
 		light.position = {fire.flamePos.x + wx, fire.flamePos.y + 0.15f + wy,
 						  fire.flamePos.z + wz};
-		light.radius = fire.brazier ? 7.5f : 7.0f;
+		// Braziers reach ~6 cells (14.4 m) so their shadow has room to fade in
+		// gently over distance (AssignShadowSlots); inverse-square falloff keeps
+		// the far tail dim, so this widens the lit pool without blowing out up
+		// close. Wall sconces stay tighter.
+		light.radius = fire.brazier ? 14.4f : 7.0f;
 		light.color = fire.brazier
 						  ? Vec3{m_torchColor.x, m_torchColor.y * 0.85f, m_torchColor.z * 0.8f}
 						  : m_torchColor;
@@ -1074,6 +1078,10 @@ void DungeonWorld::UpdateLights(float time) {
 		glow.radius = 5.0f;
 		glow.color = {0.3f, 0.9f, 0.6f};
 		glow.intensity = 1.2f + 0.2f * std::sin(time * 2.2f);
+		// The glow casts the pillar's coil shadows from inside the mesh; that is
+		// a fixture of the scene, not a fire popping in, and its short range
+		// would otherwise fade the shadow out at any normal viewing distance.
+		glow.fadeShadow = false;
 		m_lights.points.push_back(glow);
 	}
 
@@ -1108,26 +1116,82 @@ void DungeonWorld::UpdateLights(float time) {
 // The carried torch sits at the eye so it always wins slot 0: its surface
 // shadows mostly hide behind their casters, but it is exactly what carves
 // shafts through dusty air around nearby pillars.
+// Two things smooth the hard slot boundary: assignment is hysteretic (a slot
+// holder resists being bumped by a marginally-closer rival), and each slotted
+// light gets a shadowStrength that fades 0->1 as it enters its shadow range,
+// so a shadow dissolves in rather than popping the instant the light wins a
+// slot (the original "shadow snaps on 3 squares away" artifact).
 void DungeonWorld::AssignShadowSlots() {
 	static_assert(gfx::kShadowSlots <= gfx::kMaxPointLights);
 	const Vec3 eye = m_party.EyePosition();
 
-	for (gfx::PointLight& light : m_lights.points) light.shadowSlot = -1;
-	if (!m_shadowsEnabled) return; // dev console: lights stay lit, just unshadowed
+	for (gfx::PointLight& light : m_lights.points) {
+		light.shadowSlot = -1;
+		light.shadowStrength = 1.0f;
+	}
+	if (!m_shadowsEnabled) { // dev console: lights stay lit, just unshadowed
+		m_prevShadowPos.clear();
+		return;
+	}
+
+	// Rank candidate lights by distance to the eye (linear, so the hysteresis
+	// margin below is in metres). A light that held a slot last frame gets a
+	// small discount so two near-equidistant fires don't trade slots — and the
+	// resolution tier that rides on the slot — back and forth as the party
+	// moves between them; the steadier slot also lets ShadowSlotCache reuse its
+	// cube more often. Incumbents are matched by POSITION, not index: the light
+	// list is rebuilt every frame and budget culling can shuffle indices, but a
+	// fire only wanders a few cm between frames.
+	constexpr float kHysteresis = 0.75f;   // metres of slack for a slot incumbent
+	constexpr float kReMatch2 = 0.25f;     // (0.5 m)²: "still the same light"
 
 	m_shadowCandidates.clear();
 	const size_t lightCount =
 		std::min<size_t>(m_lights.points.size(), gfx::kMaxPointLights);
 	for (size_t i = 0; i < lightCount; ++i) {
 		const Vec3 d = Sub(m_lights.points[i].position, eye);
-		m_shadowCandidates.emplace_back(d.x * d.x + d.y * d.y + d.z * d.z, i);
+		float dist = std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z);
+		for (const Vec3& prev : m_prevShadowPos) {
+			const Vec3 e = Sub(m_lights.points[i].position, prev);
+			if (e.x * e.x + e.y * e.y + e.z * e.z <= kReMatch2) {
+				dist -= kHysteresis; // incumbent: bias toward keeping its slot
+				break;
+			}
+		}
+		m_shadowCandidates.emplace_back(dist, i);
 	}
 	std::ranges::sort(m_shadowCandidates);
 
+	// The shadow fades in across most of the light's reach for a long, gentle
+	// ramp: it begins at the radius edge and reaches full a cell or so from the
+	// light. Anchored to a fraction of each light's OWN radius — a STABLE
+	// per-light distance, unlike the rank cutoff that drifts with how many
+	// lights are near — so a far-reaching brazier fades over many cells while a
+	// small glow fades over a few. Smoothstep (not linear) softens both ends.
+	constexpr float kFadeStartFrac = 0.12f; // inner edge = 12% of the radius
+
 	const size_t count = std::min<size_t>(m_shadowCandidates.size(), gfx::kShadowSlots);
-	for (size_t slot = 0; slot < count; ++slot)
-		m_lights.points[m_shadowCandidates[slot].second].shadowSlot =
-			static_cast<int>(slot);
+	m_prevShadowPos.clear();
+	for (size_t slot = 0; slot < count; ++slot) {
+		gfx::PointLight& light = m_lights.points[m_shadowCandidates[slot].second];
+		light.shadowSlot = static_cast<int>(slot);
+
+		// Persistent short-range lights (the pillar glow) keep full-strength
+		// shadows at any distance; only fade the fires that pop in on approach.
+		if (light.fadeShadow) {
+			// True distance, not the hysteresis-discounted sort key.
+			const Vec3 d = Sub(light.position, eye);
+			const float dist = std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z);
+			const float fadeEnd = light.radius;
+			const float fadeStart = fadeEnd * kFadeStartFrac;
+			const float t = (fadeEnd > fadeStart)
+				? std::clamp((fadeEnd - dist) / (fadeEnd - fadeStart), 0.0f, 1.0f)
+				: 1.0f;
+			light.shadowStrength = t * t * (3.0f - 2.0f * t); // smoothstep, gentler
+		}
+
+		m_prevShadowPos.push_back(light.position);
+	}
 }
 
 void DungeonWorld::UpdateMonsters(float dt) {

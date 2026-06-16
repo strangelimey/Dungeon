@@ -30,6 +30,16 @@ struct PointLight {
 	// Slot 0 is highest resolution; the game gives slots to the lights
 	// nearest the camera so shadow detail falls off with distance.
 	int shadowSlot = -1;
+	// How strongly this light's shadow applies (0 = unshadowed, 1 = full). The
+	// game ramps this 0->1 as the light comes within its shadow range so a
+	// shadow dissolves in instead of popping when the light wins a slot; the
+	// shader lerps toward "fully lit" by it (see AssignShadowSlots).
+	float shadowStrength = 1.0f;
+	// When false, shadowStrength stays 1 (no distance fade). Set for persistent,
+	// short-range lights whose shadow is part of the scene at any viewing range
+	// (e.g. the pillar glow casting its coil shadows) rather than a fire that
+	// should dissolve in as you approach.
+	bool fadeShadow = true;
 	// This light's position jitters every frame for flicker (fires). The shadow
 	// cache throttles such cubes on a frame interval instead of re-rendering on
 	// every sub-pixel wander; steady lights (torch, glow) cache until they move.

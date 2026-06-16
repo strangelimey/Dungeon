@@ -443,9 +443,14 @@ private:
 	std::vector<u8> m_seen;     // fog of war, parallel to map cells (1 = revealed)
 	gfx::Camera m_camera;
 	gfx::LightSet m_lights;
-	// Scratch reused by AssignShadowSlots: (distance², light index), sorted
+	// Scratch reused by AssignShadowSlots: (distance, light index), sorted
 	// nearest-first each frame into retained capacity.
 	std::vector<std::pair<float, size_t>> m_shadowCandidates;
+	// Positions of the lights that held shadow slots last frame. Slot
+	// assignment gives a small distance discount to a light still near one of
+	// these (matched by position, not index — the light list is rebuilt every
+	// frame), so two near-equidistant fires don't swap slots/resolution tiers.
+	std::vector<Vec3> m_prevShadowPos;
 	gfx::Atmosphere m_atmosphere; // per-cell air turbidity (dust)
 	std::unique_ptr<gfx::Texture> m_turbidityMap;
 

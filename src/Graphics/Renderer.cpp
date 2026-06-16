@@ -18,7 +18,7 @@ namespace {
 struct GpuPointLight {
 	Vec4 positionRadius;
 	Vec4 colorIntensity;
-	Vec4 shadow; // x = shadow cube slot (-1 = unshadowed)
+	Vec4 shadow; // x = shadow cube slot (-1 = unshadowed), y = shadow strength
 };
 
 struct FrameConstants {
@@ -365,7 +365,8 @@ void Renderer::BeginScene(ID3D12GraphicsCommandList* list, const Camera& camera,
 											   l.radius};
 		frame.pointLights[i].colorIntensity = {l.color.x, l.color.y, l.color.z,
 											   l.intensity};
-		frame.pointLights[i].shadow = {static_cast<float>(l.shadowSlot), 0, 0, 0};
+		frame.pointLights[i].shadow = {static_cast<float>(l.shadowSlot),
+									   l.shadowStrength, 0, 0};
 	}
 
 	UploadAllocation alloc =

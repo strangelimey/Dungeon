@@ -9,7 +9,7 @@
 struct PointLight {
 	float4 positionRadius;  // xyz = world pos, w = radius
 	float4 colorIntensity;  // rgb = color, w = intensity
-	float4 shadow;          // x = shadow cube slot (-1 = unshadowed)
+	float4 shadow;          // x = shadow cube slot (-1 = unshadowed), y = strength
 };
 
 cbuffer FrameConstants : register(b0) {
@@ -76,7 +76,10 @@ float ShadowVisibility(PointLight light, float3 worldPos) {
 	if (slot < 0) return 1.0;
 	const float3 toFrag = worldPos - light.positionRadius.xyz;
 	const float dist = length(toFrag) / light.positionRadius.w;
-	return dist - 0.012 <= SampleShadowCube(slot, toFrag) ? 1.0 : 0.0;
+	const float raw = dist - 0.012 <= SampleShadowCube(slot, toFrag) ? 1.0 : 0.0;
+	// Fade toward fully-lit by the light's shadow strength (the game ramps this
+	// in as the light enters its shadow range, so god rays dissolve in too).
+	return lerp(1.0, raw, light.shadow.y);
 }
 
 // 1 = fully lit, 0 = fully shadowed. The nearest light (slot 0) gets 4-tap
@@ -108,7 +111,9 @@ float ShadowFactor(PointLight light, float3 worldPos) {
 			const float3 dir = toFrag + (offsets[i].x * t1 + offsets[i].y * t2) * spread;
 			lit += dist - bias <= SampleShadowCube(0, dir) ? 1.0 : 0.0;
 		}
-		return lit * 0.25;
+		// Fade toward fully-lit by strength so the shadow dissolves in near its
+		// range instead of popping (the far slots fade via ShadowVisibility).
+		return lerp(1.0, lit * 0.25, light.shadow.y);
 	}
 	return ShadowVisibility(light, worldPos);
 }
