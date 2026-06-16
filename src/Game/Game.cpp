@@ -857,6 +857,7 @@ void Game::Update(float dt) {
 	if (input.WasKeyPressed(VK_ESCAPE)) {
 		m_audio.Play(m_sounds.click, 0.5f);
 		m_ui.ResetToMainPage();
+		m_ui.RebuildPauseMenu(); // Load entry tracks whether a save now exists
 		m_state = AppState::Paused;
 		return;
 	}

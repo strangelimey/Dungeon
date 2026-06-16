@@ -76,6 +76,10 @@ public:
 	// true); false means the caller owns the Esc (quit / resume).
 	bool CloseSettingsPage();
 	void ResetToMainPage();
+	// Rebuilds the pause list from current state so the Load entry tracks
+	// whether a save exists (saves come and go during play). Call before
+	// opening the pause menu.
+	void RebuildPauseMenu();
 	// True while a Settings key-bind box is armed ("press a key...") — Esc
 	// then cancels the capture instead of leaving the settings page.
 	bool KeyCaptureActive() const;

@@ -313,19 +313,25 @@ void GameUI::BuildPauseMenu() {
 	const float h = static_cast<float>(m_window.Height());
 	const gfx::Rect window{0, 0, w, h};
 
+	// Load only appears when at least one save exists; the list is sized to the
+	// entries actually present (five with Load, four without).
+	const bool hasSaves = !ListSaves().empty();
+	const int itemCount = hasSaves ? 5 : 4;
 	const float menuW = 420.0f;
 	const float itemH = 58.0f;
 	auto* menu = m_pauseUi.Add<ui::MenuList>(
-		Norm({(w - menuW) * 0.5f, h * 0.42f, menuW, itemH * 5}, window),
-		1.0f / 5.0f);
+		Norm({(w - menuW) * 0.5f, h * 0.42f, menuW, itemH * itemCount}, window),
+		1.0f / static_cast<float>(itemCount));
 	menu->AddItem(loc::Tr("menu.save"), [this] {
 		Click();
 		OpenSavesPage(SavesMode::Save);
 	});
-	menu->AddItem(loc::Tr("menu.load"), [this] {
-		Click();
-		OpenSavesPage(SavesMode::Load);
-	});
+	if (hasSaves) {
+		menu->AddItem(loc::Tr("menu.load"), [this] {
+			Click();
+			OpenSavesPage(SavesMode::Load);
+		});
+	}
 	menu->AddItem(loc::Tr("menu.settings"), [this] {
 		Click();
 		m_menuPage = MenuPage::Settings;
@@ -842,6 +848,13 @@ bool GameUI::CloseSettingsPage() {
 }
 
 void GameUI::ResetToMainPage() { m_menuPage = MenuPage::Main; }
+
+// Pause list is built once at construction (before any save exists); rebuild it
+// on demand so the Load entry appears/disappears as saves are written/deleted.
+void GameUI::RebuildPauseMenu() {
+	m_pauseUi.Clear();
+	BuildPauseMenu();
+}
 
 bool GameUI::KeyCaptureActive() const {
 	for (const ui::KeyBind* bind : m_keyBinds)
