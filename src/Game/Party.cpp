@@ -1,5 +1,7 @@
 #include "Game/Party.h"
 
+#include "Core/Easing.h"
+
 #include <algorithm>
 #include <cmath>
 
@@ -7,13 +9,28 @@ namespace dungeon::game {
 
 namespace {
 constexpr float kMoveDuration = 0.28f;  // seconds per step
-constexpr float kTurnSpeed = 7.0f;      // radians/s toward the target yaw
+constexpr float kTurnDuration = 0.25f;  // seconds per 90° turn
 constexpr int kDirX[4] = {0, 1, 0, -1}; // N E S W
 constexpr int kDirZ[4] = {-1, 0, 1, 0};
 
 float YawForFacing(int facing) {
 	// Camera forward is (sin(yaw), 0, cos(yaw)): N=-Z, E=+X, S=+Z, W=-X.
 	return kPi - static_cast<float>(facing) * (kPi * 0.5f);
+}
+
+bool IsTurnAction(MoveAction a) {
+	return a == MoveAction::TurnLeft || a == MoveAction::TurnRight;
+}
+
+// Picks the tween curve for a segment given whether its start and/or end abut a
+// same-kind neighbour (a chained step). A linear edge has the segment's average
+// velocity, so two linear edges meet without a velocity break; otherwise fall
+// back to the caller's base curve (the gentle EaseInOut by default).
+Easing ChainEasing(bool startLinear, bool endLinear, Easing base) {
+	if (startLinear && endLinear) return Easing::Linear;
+	if (startLinear) return Easing::LinearStart;
+	if (endLinear) return Easing::LinearEnd;
+	return base;
 }
 } // namespace
 
@@ -31,14 +48,17 @@ void Party::Reset(int x, int z) {
 	m_moving = false;
 	m_turning = false;
 	m_moveT = 0.0f;
+	m_turnT = 0.0f;
 	m_bobPhase = 0.0f;
 	m_blockCooldown = 0.0f;
+	m_buffered.reset();
 }
 
 void Party::SetFacing(int facing) {
 	m_facing = facing & 3;
 	m_currentYaw = m_targetYaw = YawForFacing(m_facing);
 	m_turning = false;
+	m_buffered.reset();
 }
 
 bool Party::SetGridPosition(int x, int z) {
@@ -49,7 +69,9 @@ bool Party::SetGridPosition(int x, int z) {
 	m_moving = false;
 	m_turning = false;
 	m_moveT = 0.0f;
+	m_turnT = 0.0f;
 	m_blockCooldown = 0.0f;
+	m_buffered.reset();
 	return true;
 }
 
@@ -83,68 +105,120 @@ bool Party::TryStep(int dx, int dz) {
 }
 
 void Party::HandleInput(const Input& input) {
-	if (input.IsKeyDown(m_moveKeys.forward)) {
-		Act(MoveAction::Forward);
-	} else if (input.IsKeyDown(m_moveKeys.back)) {
-		Act(MoveAction::Back);
-	} else if (input.IsKeyDown(m_moveKeys.strafeLeft)) {
-		Act(MoveAction::StrafeLeft);
-	} else if (input.IsKeyDown(m_moveKeys.strafeRight)) {
-		Act(MoveAction::StrafeRight);
-	} else if (input.WasKeyPressed(m_moveKeys.turnLeft)) {
-		Act(MoveAction::TurnLeft);
-	} else if (input.WasKeyPressed(m_moveKeys.turnRight)) {
-		Act(MoveAction::TurnRight);
+	// One action per frame, priority by listing order (matches the old else-if
+	// chain). Movement keys repeat while held (the idle branch below); turn
+	// keys fire once per press. A key that lands mid-motion is queued through
+	// Act's buffer, but only on a FRESH press — a held key must not keep
+	// re-arming a stale buffered step that would fire after release.
+	const struct {
+		int vk;
+		MoveAction act;
+	} binds[] = {
+		{m_moveKeys.forward, MoveAction::Forward},
+		{m_moveKeys.back, MoveAction::Back},
+		{m_moveKeys.strafeLeft, MoveAction::StrafeLeft},
+		{m_moveKeys.strafeRight, MoveAction::StrafeRight},
+		{m_moveKeys.turnLeft, MoveAction::TurnLeft},
+		{m_moveKeys.turnRight, MoveAction::TurnRight},
+	};
+	for (const auto& b : binds) {
+		const bool fresh = input.WasKeyPressed(b.vk);
+		const bool active = IsTurnAction(b.act) ? fresh : input.IsKeyDown(b.vk);
+		if (!active) continue;
+		if (IsMoving()) {
+			if (fresh) Act(b.act); // queue only a fresh press
+		} else {
+			Act(b.act); // grid free: start now
+		}
+		break;
 	}
 }
 
 void Party::Act(MoveAction action) {
-	if (IsMoving()) return; // one action at a time keeps the grid feel
+	if (IsMoving()) {
+		// A move/turn is in flight: queue this into the single-slot buffer (a
+		// newer key overwrites an older queued one) and replay it the instant
+		// the current motion finishes (see Update). Queuing a same-kind action
+		// also flattens the live tween's tail so it doesn't brake at the seam.
+		m_buffered = action;
+		RefreshChainEasing();
+		return;
+	}
 	if (m_blockCooldown > 0.0f) return;
+	BeginAction(action, false);
+}
 
-	auto step = [this](int dx, int dz) {
-		if (!TryStep(dx, dz)) m_blockCooldown = 0.4f;
+void Party::BeginAction(MoveAction action, bool startLinear) {
+	auto stepStart = [&](int dx, int dz) {
+		if (!TryStep(dx, dz)) {
+			m_blockCooldown = 0.4f;
+			return;
+		}
+		m_moveStartLinear = startLinear;
+		m_activeMoveEasing = ChainEasing(startLinear, false, m_moveEasing);
 	};
-	auto turn = [this](float deltaYaw) {
+	auto turnStart = [&](float deltaYaw) {
+		m_turnFrom = m_currentYaw;
 		m_targetYaw = m_currentYaw + deltaYaw;
 		m_turning = true;
+		m_turnT = 0.0f;
+		m_turnStartLinear = startLinear;
+		m_activeTurnEasing = ChainEasing(startLinear, false, m_turnEasing);
 		if (onTurn) onTurn();
 	};
 
 	const int f = m_facing;
 	switch (action) {
 	case MoveAction::Forward:
-		step(kDirX[f], kDirZ[f]);
+		stepStart(kDirX[f], kDirZ[f]);
 		break;
 	case MoveAction::Back:
-		step(-kDirX[f], -kDirZ[f]);
+		stepStart(-kDirX[f], -kDirZ[f]);
 		break;
 	case MoveAction::StrafeLeft: { // strafe left
 		// The camera is un-mirrored (Camera::ViewProj), so facing turns the
 		// natural way: +1 is clockwise (the on-screen RIGHT direction), -1
 		// (== +3) is counter-clockwise (left). Compass offsets apply directly.
 		const int left = (f + 3) & 3;
-		step(kDirX[left], kDirZ[left]);
+		stepStart(kDirX[left], kDirZ[left]);
 		break;
 	}
 	case MoveAction::StrafeRight: { // strafe right
 		const int right = (f + 1) & 3;
-		step(kDirX[right], kDirZ[right]);
+		stepStart(kDirX[right], kDirZ[right]);
 		break;
 	}
 	case MoveAction::TurnLeft: // turn left (counter-clockwise)
 		m_facing = (m_facing + 3) & 3;
-		turn(kPi * 0.5f);
+		turnStart(kPi * 0.5f);
 		break;
 	case MoveAction::TurnRight: // turn right (clockwise)
 		m_facing = (m_facing + 1) & 3;
-		turn(-kPi * 0.5f);
+		turnStart(-kPi * 0.5f);
 		break;
+	}
+}
+
+void Party::RefreshChainEasing() {
+	// Re-derive the in-flight tween's curve from whether a SAME-KIND action is
+	// queued behind it. A matching continuation flattens the tail to a linear
+	// exit so it meets the next step's linear lead-in without braking.
+	if (m_moving) {
+		const bool endLinear = m_buffered && !IsTurnAction(*m_buffered);
+		m_activeMoveEasing = ChainEasing(m_moveStartLinear, endLinear, m_moveEasing);
+	}
+	if (m_turning) {
+		const bool endLinear = m_buffered && IsTurnAction(*m_buffered);
+		m_activeTurnEasing = ChainEasing(m_turnStartLinear, endLinear, m_turnEasing);
 	}
 }
 
 void Party::Update(float dt) {
 	m_blockCooldown = std::max(0.0f, m_blockCooldown - dt);
+
+	const bool wasMoving = m_moving;
+	const bool wasTurning = m_turning;
+
 	if (m_moving) {
 		m_moveT += dt * m_speed / kMoveDuration;
 		if (m_moveT >= 1.0f) {
@@ -152,22 +226,38 @@ void Party::Update(float dt) {
 			m_moving = false;
 			m_currentPos = m_targetPos;
 		} else {
-			// Smoothstep for gentle acceleration/deceleration.
-			const float t = m_moveT * m_moveT * (3.0f - 2.0f * m_moveT);
-			m_currentPos = Lerp(m_moveFrom, m_targetPos, t);
+			m_currentPos = EaseLerp(m_activeMoveEasing, m_moveFrom, m_targetPos, m_moveT);
 		}
 		m_bobPhase += dt * 11.0f;
 	}
 
 	if (m_turning) {
-		const float diff = m_targetYaw - m_currentYaw;
-		const float step = kTurnSpeed * m_speed * dt;
-		if (std::fabs(diff) <= step) {
-			m_currentYaw = m_targetYaw;
+		m_turnT += dt * m_speed / kTurnDuration;
+		if (m_turnT >= 1.0f) {
+			m_turnT = 1.0f;
 			m_turning = false;
+			m_currentYaw = m_targetYaw;
 		} else {
-			m_currentYaw += (diff > 0 ? step : -step);
+			m_currentYaw = EaseLerp(m_activeTurnEasing, m_turnFrom, m_targetYaw, m_turnT);
 		}
+	}
+
+	// Replay the buffered action the moment the grid frees up, in the SAME
+	// frame the current motion ended so the two tweens meet with no gap. If
+	// that motion exited linearly (a same-kind chain), lead the next one in
+	// linearly too — Linear-End meets Linear-Start for a seamless glide.
+	if (m_buffered && !IsMoving() && m_blockCooldown <= 0.0f) {
+		const MoveAction next = *m_buffered;
+		m_buffered.reset();
+		bool startLinear = false;
+		if (wasMoving) {
+			startLinear =
+				m_activeMoveEasing == Easing::LinearEnd || m_activeMoveEasing == Easing::Linear;
+		} else if (wasTurning) {
+			startLinear =
+				m_activeTurnEasing == Easing::LinearEnd || m_activeTurnEasing == Easing::Linear;
+		}
+		BeginAction(next, startLinear);
 	}
 }
 

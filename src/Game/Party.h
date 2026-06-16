@@ -13,11 +13,13 @@
 // ============================================================================
 #pragma once
 
+#include "Core/Easing.h"
 #include "Core/MathTypes.h"
 #include "Game/DungeonMap.h"
 #include "Platform/Input.h"
 
 #include <functional>
+#include <optional>
 
 namespace dungeon::game {
 
@@ -72,6 +74,11 @@ public:
 
 	void SetKeys(const MoveKeys& keys) { m_moveKeys = keys; }
 
+	// Easing curves for the visual move/turn tweens (default EaseInOut — the
+	// gentle slow-start/slow-stop that gives the grid step its weight).
+	void SetMoveEasing(Easing e) { m_moveEasing = e; }
+	void SetTurnEasing(Easing e) { m_turnEasing = e; }
+
 	// Camera pose (eye position includes a subtle head bob while moving).
 	Vec3 EyePosition() const;
 	float Yaw() const { return m_currentYaw; }
@@ -97,6 +104,13 @@ public:
 
 private:
 	bool TryStep(int dx, int dz);
+	// Performs one action immediately (the grid must be free). startLinear
+	// leads the tween in at constant velocity (set when replaying a buffered
+	// same-kind continuation) instead of easing in from rest.
+	void BeginAction(MoveAction action, bool startLinear);
+	// Re-derives the in-flight tween's curve from the current buffer: a queued
+	// same-kind action flattens the tail to a linear exit.
+	void RefreshChainEasing();
 
 	const DungeonMap& m_map;
 	int m_x, m_z;
@@ -111,6 +125,8 @@ private:
 
 	float m_currentYaw = 0.0f;
 	float m_targetYaw = 0.0f;
+	float m_turnFrom = 0.0f;
+	float m_turnT = 0.0f;
 	bool m_turning = false;
 
 	float m_bobPhase = 0.0f;
@@ -118,6 +134,20 @@ private:
 	float m_speed = 1.0f;         // pace multiplier (slowest member)
 	bool m_noclip = false;        // dev console: walk through walls
 	MoveKeys m_moveKeys;
+
+	Easing m_moveEasing = Easing::EaseInOut; // base curve (overridable)
+	Easing m_turnEasing = Easing::EaseInOut;
+
+	// Single-slot input buffer: an action requested while a move/turn is in
+	// flight is held here (newest overwrites) and replayed the instant the
+	// grid frees up. The "active" easings are the curves the live tween is
+	// actually drawn with — the base curve, or a linear-edge variant while a
+	// same-kind action is chained in front of/behind it.
+	std::optional<MoveAction> m_buffered;
+	Easing m_activeMoveEasing = Easing::EaseInOut;
+	Easing m_activeTurnEasing = Easing::EaseInOut;
+	bool m_moveStartLinear = false; // current move began as a linear continuation
+	bool m_turnStartLinear = false;
 };
 
 } // namespace dungeon::game
