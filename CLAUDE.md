@@ -176,13 +176,39 @@ buffer, reused across all ~25 submissions).
 Settings page (landing page) is tabbed Game/Controls/Video/Audio/UI via
 ui::TabControl
 (pages scroll: children authored past the page bottom — bounds fraction > 1 —
-trigger a per-tab scrollbar, wheel or thumb drag, page-scissored):
+trigger a per-tab scrollbar, wheel or thumb drag, page-scissored; the strip
+sizes each tab to its label and grows + recenters the control to fit
+[TabControl::LayoutStrip], and the content area is inset from the frame
+[TabControl::ContentRect]):
 quality dropdown on Video (Low/Medium/High/Ultra: mesh tier low/med/high/high
 + textures 1k/1k/2k/4k + point-light budget 16/32/48/64) plus a Max Lights
 dropdown on Video (GameSettings::kLightBudgets; picking a quality resets the
 budget to its tier value via Game::SetQuality → GameUI::SyncMaxLights, then
 the dropdown can override it; DungeonWorld::UpdateLights keeps the nearest-to-
-eye lights up to the budget). master-volume slider on Audio, party-bar sliders on
+eye lights up to the budget) plus a Frame Rate dropdown (GameSettings::
+kPresentIntervals → GraphicsDevice::SetPresentInterval: present sync interval
+1..4 = full-refresh VSync down to refresh/4, a tear-free divisor cap that cuts
+GPU load; options labelled with the live rate from GraphicsDevice::RefreshHz;
+ini presentinterval=). Above quality/lights the Video tab has the
+DISPLAY block: adapter (GPU), monitor (DXGI output), resolution, and display
+mode (Windowed/Borderless/Exclusive fullscreen). The list comes from
+gfx::EnumerateAdapters (Graphics/DisplayEnum.*, a device-independent DXGI walk,
+also read by Main at boot); adapter/monitor render as a plain Label when only
+one exists, else a DropDown. The selection is STAGED (GameUI::m_selAdapter/
+Output/Res/Mode, separate from GameSettings) and committed by an Apply button —
+only Video uses Apply, every other control is live. A monitor/resolution/mode
+change applies in place (Game::ApplyDisplaySettings → Window::SetWindowed /
+SetBorderless or GraphicsDevice::SetFullscreen, all of which resize the
+swapchain through the usual onResize path). An adapter change can't be done in
+place (the device is bound to its GPU), so it pops a Yes/No confirm modal
+(GameUI::m_confirmUi, drawn over the page; Esc = No) and on confirm persists +
+relaunches the exe (Game::RestartApp via platform::Process); the new process
+binds the chosen adapter by LUID (GraphicsDevice ctor's preferredAdapterLuid).
+Changing the adapter/monitor dropdown also repopulates the dependent lists by
+rebuilding the settings page next frame (GameUI::m_videoRebuildPending →
+ApplyPendingVideoRebuild, deferred like the language switch since the rebuild
+destroys the live dropdown; BuildSettings is split out of BuildMenu for this).
+master-volume slider on Audio, party-bar sliders on
 UI (scale 0.5–1.5 resizes the bar about its top center and shifts the panels
 beneath it — GameUI::ApplyPartyBarScale; width is pinned at the window span,
 so above 1 the bar only grows taller; background opacity 0–1 fades the slot
@@ -200,11 +226,14 @@ ini round-trip; MoveKeys (Party.h) is pushed into the Party via SetKeys, and
 dungeon::KeyName (Platform/Input) renders vkey names.
 Game tab hosts the Language dropdown (see the Core/Loc bullet above).
 All persist to settings.ini next to exe (quality=0..3, maxlights=16/32/48/64,
-language=<code>, volume=0..1, barscale, baropacity, theme_<name>= and
-bar_<name>=r,g,b,a, key_<action>=vkey; sliders save on release, pickers when their popup closes,
-key binds and language immediately). Quality hot-swaps in place (WaitIdle +
-rebuild); Ultra falls back per-material to 2k with a warning if 4k not
-installed.
+presentinterval=1..4, language=<code>, volume=0..1, barscale, baropacity, theme_<name>= and
+bar_<name>=r,g,b,a, key_<action>=vkey, adapter=<packed LUID, 0=auto>,
+output=<index>, reswidth=/resheight=<0=window default>, fullscreen=0/1/2;
+sliders save on release, pickers when their popup closes, key binds and language
+immediately, display fields on Apply). Main reads the display fields BEFORE the
+window/device exist (its own GameSettings::Load, same file Game re-loads).
+Quality hot-swaps in place (WaitIdle + rebuild); Ultra falls back per-material
+to 2k with a warning if 4k not installed.
 
 ## Game state machine
 

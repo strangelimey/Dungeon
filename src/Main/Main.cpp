@@ -5,6 +5,7 @@
 #include "Core/Log.h"
 #include "Core/Time.h"
 #include "Game/Game.h"
+#include "Game/GameSettings.h"
 #include "Graphics/GraphicsDevice.h"
 #include "Graphics/Renderer.h"
 #include "Graphics/SpriteBatch.h"
@@ -25,11 +26,21 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
 
 	log::Info("Dungeon starting...");
 
+	// Display config is needed before the window/device exist, so read settings
+	// here too; Game loads its own (live) copy from the same file.
+	game::GameSettings boot;
+	boot.Load();
+
 	WindowDesc desc;
 	desc.title = "Dungeon";
+	if (boot.displayWidth > 0 && boot.displayHeight > 0) {
+		desc.width = static_cast<u32>(boot.displayWidth);
+		desc.height = static_cast<u32>(boot.displayHeight);
+	}
 	Window window(desc);
 
-	gfx::GraphicsDevice device(window.Handle(), window.Width(), window.Height());
+	gfx::GraphicsDevice device(window.Handle(), window.Width(), window.Height(),
+							   boot.adapterLuid);
 	gfx::Renderer renderer(device);
 	gfx::SpriteBatch spriteBatch(device);
 	audio::AudioEngine audioEngine;

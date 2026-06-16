@@ -13,9 +13,10 @@
 // ============================================================================
 #pragma once
 
-#include "Game/Party.h"    // MoveKeys
-#include "Game/PartyHud.h" // ResourceBarColors
-#include "UI/UIContext.h"  // ui::Theme
+#include "Game/Party.h"           // MoveKeys
+#include "Game/PartyHud.h"        // ResourceBarColors
+#include "Graphics/DisplayEnum.h" // gfx::FullscreenMode
+#include "UI/UIContext.h"         // ui::Theme
 
 #include <string>
 
@@ -35,6 +36,13 @@ enum class Quality { Low, Medium, High, Ultra };
 // dropdown; picking a quality resets the budget to its tier value, after which
 // the dropdown can override it.
 inline constexpr int kLightBudgets[] = {16, 32, 48, 64};
+
+// Present sync intervals offered by the Video tab's Frame Rate dropdown. Each
+// presents every Nth monitor vblank, so the cap is always a divisor of the
+// refresh rate and stays tear-free: 1 = full refresh, 2 = half, etc. (on a
+// 144 Hz panel: 144 / 72 / 48 / 36 FPS). Capping cuts GPU load, heat, and fan
+// noise. settings key presentinterval=.
+inline constexpr u32 kPresentIntervals[] = {1, 2, 3, 4};
 
 // The user-editable theme colors (Settings → UI tab). One table drives the
 // ini round-trip (theme_<key>=r,g,b,a) and the color-picker grid. labelKey
@@ -88,6 +96,8 @@ struct GameSettings {
 	Quality quality = Quality::Medium;
 	int maxPointLights = kLightBudgets[1]; // active light budget (defaults to the
 										   // Medium tier; ini key maxlights=)
+	u32 presentInterval = 1;      // 1 = VSync to refresh, 2/3/4 = divide it
+								  // (tear-free; ini presentinterval=)
 	std::string language = "en";  // assets/lang/<code>.lang stem
 	float volume = 1.0f;          // master volume, pushed into the AudioEngine
 	float partyBarScale = 1.0f;   // HUD party bar: 0.5–1.5 about its top center
@@ -98,6 +108,16 @@ struct GameSettings {
 	bool mapPaletteCollapsed = false;  // map editor: left brush dock collapsed
 	bool mapLegendCollapsed = false;   // map editor: right key dock collapsed
 	bool mapPlayerKeyCollapsed = false; // player map: right key dock collapsed
+
+	// --- display (Settings → Video) ---------------------------------------------
+	// The chosen GPU (packed LUID, 0 = auto), the monitor (output index on that
+	// adapter), the resolution (0 = the window default / the monitor's native for
+	// borderless), and the presentation mode. Read at boot by Main to construct
+	// the device/window; an adapter change is applied by relaunching the exe.
+	u64 adapterLuid = 0;
+	int displayOutput = 0;
+	int displayWidth = 0, displayHeight = 0;
+	gfx::FullscreenMode fullscreen = gfx::FullscreenMode::Windowed;
 
 	// settings.ini round-trip (the exe's directory). Load keeps the defaults
 	// for anything missing or malformed; a first run with no file is fine.
@@ -116,6 +136,10 @@ struct GameSettings {
 		return kLightBudgets[static_cast<int>(q)];
 	}
 	static int LightBudgetIndex(int value);
+
+	// Index of a present interval within kPresentIntervals (exact match, else 0 =
+	// full refresh) — drives the Video tab's Frame Rate dropdown selection.
+	static int PresentIntervalIndex(u32 interval);
 
 	// The log's movement help line ("W/S move, A/D strafe, Q/E turn."),
 	// built from the live bindings.

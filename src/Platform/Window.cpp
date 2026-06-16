@@ -43,6 +43,27 @@ Window::~Window() {
 	UnregisterClassW(kClassName, GetModuleHandleW(nullptr));
 }
 
+void Window::SetWindowed(u32 width, u32 height) {
+	const HWND hwnd = reinterpret_cast<HWND>(m_hwnd);
+	SetWindowLongPtrW(hwnd, GWL_STYLE, WS_OVERLAPPEDWINDOW);
+
+	RECT rect{0, 0, static_cast<LONG>(width), static_cast<LONG>(height)};
+	AdjustWindowRect(&rect, WS_OVERLAPPEDWINDOW, FALSE);
+	const int ww = rect.right - rect.left;
+	const int wh = rect.bottom - rect.top;
+	const int sw = GetSystemMetrics(SM_CXSCREEN);
+	const int sh = GetSystemMetrics(SM_CYSCREEN);
+	SetWindowPos(hwnd, HWND_TOP, (sw - ww) / 2, (sh - wh) / 2, ww, wh,
+				 SWP_FRAMECHANGED | SWP_SHOWWINDOW);
+}
+
+void Window::SetBorderless(int x, int y, u32 width, u32 height) {
+	const HWND hwnd = reinterpret_cast<HWND>(m_hwnd);
+	SetWindowLongPtrW(hwnd, GWL_STYLE, WS_POPUP | WS_VISIBLE);
+	SetWindowPos(hwnd, HWND_TOP, x, y, static_cast<int>(width),
+				 static_cast<int>(height), SWP_FRAMECHANGED | SWP_SHOWWINDOW);
+}
+
 bool Window::PumpMessages() {
 	MSG msg{};
 	while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {

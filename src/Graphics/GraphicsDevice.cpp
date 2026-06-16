@@ -2,13 +2,17 @@
 
 #include "Core/Log.h"
 #include "Core/StringUtil.h"
+#include "Graphics/DisplayEnum.h" // PackLuid
 
 #include <Windows.h>
 
+#include <algorithm>
+
 namespace dungeon::gfx {
 
-GraphicsDevice::GraphicsDevice(HWND__* hwnd, u32 width, u32 height)
-	: m_width(width), m_height(height) {
+GraphicsDevice::GraphicsDevice(HWND__* hwnd, u32 width, u32 height,
+							   u64 preferredAdapterLuid)
+	: m_width(width), m_height(height), m_hwnd(hwnd) {
 	UINT factoryFlags = 0;
 #ifdef _DEBUG
 	{
@@ -22,21 +26,48 @@ GraphicsDevice::GraphicsDevice(HWND__* hwnd, u32 width, u32 height)
 #endif
 	DN_HR(CreateDXGIFactory2(factoryFlags, IID_PPV_ARGS(&m_factory)));
 
-	// Prefer the highest-performance hardware adapter.
+	// Creates the device on `adapter` and records its identity; returns false
+	// for software adapters or a failed device create (caller tries the next).
 	ComPtr<IDXGIAdapter1> adapter;
-	for (UINT i = 0; m_factory->EnumAdapterByGpuPreference(
-						 i, DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE,
-						 IID_PPV_ARGS(&adapter)) != DXGI_ERROR_NOT_FOUND;
-		 ++i) {
+	auto tryAdapter = [&](IDXGIAdapter1* a) -> bool {
 		DXGI_ADAPTER_DESC1 desc;
-		adapter->GetDesc1(&desc);
-		if (desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) continue;
-		if (SUCCEEDED(D3D12CreateDevice(adapter.Get(), D3D_FEATURE_LEVEL_11_0,
+		a->GetDesc1(&desc);
+		if (desc.Flags & DXGI_ADAPTER_FLAG_SOFTWARE) return false;
+		if (SUCCEEDED(D3D12CreateDevice(a, D3D_FEATURE_LEVEL_11_0,
 										IID_PPV_ARGS(&m_device)))) {
 			m_adapterName = str::Narrow(desc.Description);
-			adapter.As(&m_adapter); // IDXGIAdapter3 for QueryVideoMemoryInfo
+			m_adapterLuid = PackLuid(desc.AdapterLuid.HighPart, desc.AdapterLuid.LowPart);
+			ComPtr<IDXGIAdapter1>(a).As(&m_adapter); // IDXGIAdapter3 for queries/outputs
 			log::Info("GPU: {}", m_adapterName);
-			break;
+			return true;
+		}
+		return false;
+	};
+
+	// A specific adapter was requested (Settings → Video): match it by LUID.
+	if (preferredAdapterLuid != 0) {
+		for (UINT i = 0; m_factory->EnumAdapters1(i, &adapter) != DXGI_ERROR_NOT_FOUND;
+			 ++i) {
+			DXGI_ADAPTER_DESC1 desc;
+			adapter->GetDesc1(&desc);
+			if (PackLuid(desc.AdapterLuid.HighPart, desc.AdapterLuid.LowPart) ==
+				preferredAdapterLuid) {
+				tryAdapter(adapter.Get());
+				break;
+			}
+			adapter.Reset();
+		}
+		if (!m_device) log::Warn("Requested adapter not found; using default");
+	}
+
+	// Otherwise (or on miss) prefer the highest-performance hardware adapter.
+	if (!m_device) {
+		for (UINT i = 0; m_factory->EnumAdapterByGpuPreference(
+							 i, DXGI_GPU_PREFERENCE_HIGH_PERFORMANCE,
+							 IID_PPV_ARGS(&adapter)) != DXGI_ERROR_NOT_FOUND;
+			 ++i) {
+			if (tryAdapter(adapter.Get())) break;
+			adapter.Reset();
 		}
 	}
 	if (!m_device) { // WARP fallback so the game still runs without a GPU
@@ -61,6 +92,10 @@ GraphicsDevice::GraphicsDevice(HWND__* hwnd, u32 width, u32 height)
 	scDesc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
 	scDesc.BufferCount = kFrameCount;
 	scDesc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
+	// ALLOW_MODE_SWITCH lets exclusive full-screen change the display mode; the
+	// same flag must be passed to every ResizeBuffers call afterwards.
+	m_swapFlags = DXGI_SWAP_CHAIN_FLAG_ALLOW_MODE_SWITCH;
+	scDesc.Flags = m_swapFlags;
 	ComPtr<IDXGISwapChain1> swap1;
 	DN_HR(m_factory->CreateSwapChainForHwnd(m_queue.Get(), reinterpret_cast<HWND>(hwnd),
 											&scDesc, nullptr, nullptr, &swap1));
@@ -107,6 +142,13 @@ GraphicsDevice::GraphicsDevice(HWND__* hwnd, u32 width, u32 height)
 
 GraphicsDevice::~GraphicsDevice() {
 	WaitIdle();
+	// DXGI requires leaving exclusive full-screen before the swapchain is
+	// released, or Release warns/asserts.
+	if (m_swapchain) {
+		BOOL fs = FALSE;
+		m_swapchain->GetFullscreenState(&fs, nullptr);
+		if (fs) m_swapchain->SetFullscreenState(FALSE, nullptr);
+	}
 	if (m_fenceEvent) CloseHandle(m_fenceEvent);
 }
 
@@ -155,15 +197,65 @@ void GraphicsDevice::Resize(u32 width, u32 height) {
 	ReleaseSizeDependentResources();
 	m_width = width;
 	m_height = height;
-	DN_HR(m_swapchain->ResizeBuffers(kFrameCount, width, height, kBackBufferFormat, 0));
+	DN_HR(m_swapchain->ResizeBuffers(kFrameCount, width, height, kBackBufferFormat,
+									 m_swapFlags));
 	CreateSizeDependentResources();
+}
+
+// ----------------------------------------------------------------------------
+// Full-screen control. Exclusive mode targets a specific output (monitor) of
+// the active adapter and optionally requests a display mode; the SetFullscreen
+// state change provokes a WM_SIZE → Resize, which rebuilds the back buffers.
+// Windowed/Borderless just drop any exclusive state — the window's geometry
+// (Window::SetWindowed / SetBorderless) does the rest.
+// ----------------------------------------------------------------------------
+void GraphicsDevice::SetFullscreen(bool exclusive, u32 outputIndex, u32 width,
+								   u32 height) {
+	WaitIdle();
+
+	BOOL currentlyFs = FALSE;
+	m_swapchain->GetFullscreenState(&currentlyFs, nullptr);
+
+	if (!exclusive) {
+		if (currentlyFs) {
+			m_swapchain->SetFullscreenState(FALSE, nullptr);
+			// A WM_SIZE follows from the restored window; nothing more to do.
+		}
+		return;
+	}
+
+	// Exclusive: pick the target output and (optionally) the display mode.
+	ComPtr<IDXGIOutput> output;
+	if (m_adapter) m_adapter->EnumOutputs(outputIndex, &output);
+
+	if (width > 0 && height > 0) {
+		DXGI_MODE_DESC mode{};
+		mode.Width = width;
+		mode.Height = height;
+		mode.Format = kBackBufferFormat;
+		m_swapchain->ResizeTarget(&mode); // size the window to the mode first
+	}
+	if (FAILED(m_swapchain->SetFullscreenState(TRUE, output.Get()))) {
+		log::Warn("Exclusive full-screen failed; staying windowed");
+		return;
+	}
+	// Re-issue the mode after the transition (recommended DXGI pattern) so the
+	// resolution actually takes; the resulting WM_SIZE rebuilds the buffers.
+	if (width > 0 && height > 0) {
+		DXGI_MODE_DESC mode{};
+		mode.Width = width;
+		mode.Height = height;
+		mode.Format = kBackBufferFormat;
+		m_swapchain->ResizeTarget(&mode);
+	}
 }
 
 // ----------------------------------------------------------------------------
 // Frame loop. BeginFrame/EndFrame bracket all rendering for one frame:
 //   BeginFrame: throttle on the slot's fence → reset allocator/list →
 //               back buffer to RENDER_TARGET → clear → bind RT/viewport/heap
-//   EndFrame:   back buffer to PRESENT → execute → Present(vsync) → signal
+//   EndFrame:   back buffer to PRESENT → execute → Present → signal
+//               (Present's sync interval divides the refresh; SetPresentInterval)
 // ----------------------------------------------------------------------------
 ID3D12GraphicsCommandList* GraphicsDevice::BeginFrame(const float clearColor[4]) {
 	// Wait until the GPU has finished the previous frame that used this slot.
@@ -225,13 +317,38 @@ void GraphicsDevice::EndFrame() {
 
 	ID3D12CommandList* lists[] = {m_commandList.Get()};
 	m_queue->ExecuteCommandLists(1, lists);
-	DN_HR(m_swapchain->Present(1, 0)); // vsync
+	// Sync interval 1 = present every vblank (full refresh); 2/3/4 present every
+	// Nth vblank, dividing the frame rate while staying vblank-aligned (tear-
+	// free). See SetPresentInterval / the Video tab's Frame Rate dropdown.
+	DN_HR(m_swapchain->Present(m_presentInterval, 0));
 
 	m_fenceValues[m_frameIndex] = m_nextFenceValue;
 	DN_HR(m_queue->Signal(m_fence.Get(), m_nextFenceValue));
 	++m_nextFenceValue;
 
 	m_frameIndex = m_swapchain->GetCurrentBackBufferIndex();
+}
+
+void GraphicsDevice::SetPresentInterval(u32 interval) {
+	m_presentInterval = std::clamp<u32>(interval, 1, 4);
+}
+
+int GraphicsDevice::RefreshHz() const {
+	// The refresh rate of the monitor the window currently sits on, read from
+	// the OS (DXGI has no direct query). Drives the Frame Rate dropdown's labels
+	// — the actual cap is the present interval, so a stale value is cosmetic.
+	HMONITOR mon = MonitorFromWindow(reinterpret_cast<HWND>(m_hwnd),
+									 MONITOR_DEFAULTTONEAREST);
+	MONITORINFOEXW info{};
+	info.cbSize = sizeof(info);
+	if (GetMonitorInfoW(mon, &info)) {
+		DEVMODEW dm{};
+		dm.dmSize = sizeof(dm);
+		if (EnumDisplaySettingsW(info.szDevice, ENUM_CURRENT_SETTINGS, &dm) &&
+			dm.dmDisplayFrequency > 1)
+			return static_cast<int>(dm.dmDisplayFrequency);
+	}
+	return 60; // safe default when the OS reports a placeholder (0/1) or fails
 }
 
 void GraphicsDevice::WaitIdle() {

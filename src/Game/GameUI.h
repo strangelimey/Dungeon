@@ -56,6 +56,10 @@ public:
 	// Re-point the Video tab's Max Lights dropdown at the current setting after
 	// a quality change reset the budget (Game calls this from SetQuality).
 	void SyncMaxLights();
+	// Rebuilds the settings page if a Video-tab adapter/monitor change staged one
+	// last frame (rebuilding from inside the dropdown callback would destroy it).
+	// Game calls this at the top of Update, like the deferred language switch.
+	void ApplyPendingVideoRebuild();
 
 	// --- per-frame updates (which page runs is the app state's call) ------------
 	// Keeps fonts in step with the window height so text scales with the
@@ -98,6 +102,7 @@ public:
 	void RenderMenuOverlay();
 	void RenderPauseOverlay(); // dark wash + pause menu over the frozen scene
 	void RenderCharacterSheetOverlay(); // dark wash + the details page
+	void RenderConfirmOverlay();        // dark wash + the Yes/No restart modal
 	void RenderHud();
 
 	// --- callbacks into the app state machine -------------------------------------
@@ -112,13 +117,18 @@ public:
 	// display name; the receiver writes it and resumes play.
 	std::function<void(const std::string&)> onSaveSlot;
 	std::function<void(size_t)> onOpenSheet;    // portrait click, prev/next
-	std::function<void(int)> onQualitySelected; // Video tab dropdown
+	std::function<void(int)> onQualitySelected; // Video tab quality dropdown
+	std::function<void(int)> onFrameLimitSelected; // Video tab frame-rate dropdown
 	std::function<void(int)> onTorchPalette;    // HUD torchlight dropdown
 	std::function<void(MoveAction)> onMoveAction; // HUD movement buttons
 	std::function<void()> onKeysChanged;        // a movement key was rebound
 	// Game tab language dropdown. The receiver must NOT rebuild the UI from
 	// inside the callback (see RebuildForLanguage) — record and defer.
 	std::function<void(const std::string&)> onLanguageSelected;
+	// Video tab Apply with only monitor/resolution/mode changed: apply in place.
+	std::function<void()> onVideoApply;
+	// Video tab Apply with the adapter changed (confirmed): persist + relaunch.
+	std::function<void()> onAdapterRestart;
 
 private:
 	enum class MenuPage { Main, Settings, Saves };
@@ -126,9 +136,20 @@ private:
 	// Save (a name field + existing slots to overwrite). m_savesMode picks.
 	enum class SavesMode { Load, Save };
 
-	void BuildMenu(); // landing list + the shared settings page
+	void BuildMenu();     // landing list (then BuildSettings for the shared page)
+	void BuildSettings(); // the tabbed settings page (Game/Controls/Video/Audio/UI)
 	void BuildPauseMenu();
 	void BuildCharacterSheet();
+	// Video tab: seed the staged adapter/monitor/resolution/mode selection from
+	// the live settings + enumerated hardware (call when opening/rebuilding the
+	// page for a fresh edit, not on the deferred repopulate).
+	void SeedVideoStaging();
+	// Commit the staged Video selection: in-place for monitor/res/mode, or open
+	// the restart-confirm dialog when the adapter changed.
+	void OnVideoApply();
+	// Builds the centered Yes/No modal (m_confirmUi) and arms it.
+	void OpenConfirm(const std::string& title, const std::string& body,
+					 std::function<void()> onYes);
 	// Rebuilds the (dynamic) save-slot browser from the files on disk and
 	// switches to the Saves page in the given mode. Shared by the landing/pause
 	// Load entries and the pause Save entry; widgets live in m_savesUi.
@@ -188,6 +209,7 @@ private:
 	ui::UIContext m_pauseUi;    // pause menu (28px font)
 	ui::UIContext m_savesUi;    // save-slot browser (28px font, shared by both)
 	ui::UIContext m_sheetUi;    // character sheet (22px font)
+	ui::UIContext m_confirmUi;  // modal Yes/No (adapter-change restart confirm)
 	ui::Font m_titleFont;       // big face for "DUNGEON" titles
 	std::unique_ptr<gfx::Texture> m_titleBackground; // landing-page art
 	std::unique_ptr<gfx::Texture> m_deleteIcon;      // red X for the save browser
@@ -219,6 +241,19 @@ private:
 	// The Video tab's Max Lights dropdown — kept so SyncMaxLights can re-point
 	// it when a quality change resets the light budget.
 	ui::DropDown* m_maxLightsDrop = nullptr;
+
+	// Video tab: the enumerated hardware (cached for the dropdowns + Apply), the
+	// settings TabControl (kept so a repopulate can restore the active tab), and
+	// the STAGED selection — held separately from m_settings so the Apply button
+	// commits it (and survives the deferred adapter/monitor repopulate).
+	std::vector<gfx::AdapterInfo> m_adapters;
+	ui::TabControl* m_settingsTabs = nullptr;
+	int m_selAdapter = 0;
+	int m_selOutput = 0;
+	int m_selRes = 0;
+	gfx::FullscreenMode m_selMode = gfx::FullscreenMode::Windowed;
+	bool m_videoRebuildPending = false; // adapter/monitor changed; rebuild next frame
+	bool m_confirmActive = false;       // the restart-confirm modal is up
 
 	// Installed languages (assets/lang scan), in the Game tab dropdown's
 	// order; maps the selection index back to a language code.

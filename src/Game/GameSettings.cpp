@@ -61,6 +61,19 @@ void ParseIniFloat(const std::string& text, const std::string& key, float& value
 		value = std::clamp(parsed, min, max);
 }
 
+// Reads key=<integer> from the ini text into any integral target. A missing or
+// malformed value keeps the caller's default.
+template <typename T>
+void ParseIniInt(const std::string& text, const std::string& key, T& value) {
+	const size_t pos = text.find(key);
+	if (pos == std::string::npos) return;
+	T parsed = value;
+	if (std::from_chars(text.data() + pos + key.size(), text.data() + text.size(),
+						parsed)
+			.ec == std::errc{})
+		value = parsed;
+}
+
 // Reads key=<0/1> from the ini text. A missing value keeps the caller's
 // default; any non-'0' character reads as true.
 void ParseIniBool(const std::string& text, const std::string& key, bool& value) {
@@ -104,12 +117,26 @@ void GameSettings::Load() {
 		if (end > lpos + 9) language = text.substr(lpos + 9, end - (lpos + 9));
 	}
 
+	// Present interval: accept only a value the dropdown can show (else full
+	// refresh).
+	u32 interval = presentInterval;
+	ParseIniInt(text, "presentinterval=", interval);
+	presentInterval = kPresentIntervals[PresentIntervalIndex(interval)];
+
 	ParseIniFloat(text, "volume=", volume, 0.0f, 1.0f);
 	ParseIniFloat(text, "barscale=", partyBarScale, 0.5f, 1.5f);
 	ParseIniFloat(text, "baropacity=", partyBarOpacity, 0.0f, 1.0f);
 	ParseIniBool(text, "map_palette_collapsed=", mapPaletteCollapsed);
 	ParseIniBool(text, "map_legend_collapsed=", mapLegendCollapsed);
 	ParseIniBool(text, "map_player_key_collapsed=", mapPlayerKeyCollapsed);
+
+	ParseIniInt(text, "adapter=", adapterLuid);
+	ParseIniInt(text, "output=", displayOutput);
+	ParseIniInt(text, "reswidth=", displayWidth);
+	ParseIniInt(text, "resheight=", displayHeight);
+	int fs = static_cast<int>(fullscreen);
+	ParseIniInt(text, "fullscreen=", fs);
+	if (fs >= 0 && fs <= 2) fullscreen = static_cast<gfx::FullscreenMode>(fs);
 
 	for (const ThemeField& field : kThemeFields)
 		ParseIniColor(text, std::format("theme_{}=", field.key),
@@ -133,9 +160,9 @@ void GameSettings::Load() {
 
 void GameSettings::Save() const {
 	std::string text = std::format(
-		"quality={}\nmaxlights={}\nlanguage={}\nvolume={:.2f}\nbarscale={:.2f}\nbaropacity={:.2f}\n",
-		static_cast<int>(quality), maxPointLights, language, volume, partyBarScale,
-		partyBarOpacity);
+		"quality={}\nmaxlights={}\npresentinterval={}\nlanguage={}\nvolume={:.2f}\nbarscale={:.2f}\nbaropacity={:.2f}\n",
+		static_cast<int>(quality), maxPointLights, presentInterval, language, volume,
+		partyBarScale, partyBarOpacity);
 	for (const ThemeField& field : kThemeFields) {
 		const Vec4& c = theme.*(field.field);
 		text += std::format("theme_{}={:.3f},{:.3f},{:.3f},{:.3f}\n", field.key,
@@ -152,6 +179,10 @@ void GameSettings::Save() const {
 		"map_palette_collapsed={}\nmap_legend_collapsed={}\nmap_player_key_collapsed={}\n",
 		mapPaletteCollapsed ? 1 : 0, mapLegendCollapsed ? 1 : 0,
 		mapPlayerKeyCollapsed ? 1 : 0);
+	text += std::format(
+		"adapter={}\noutput={}\nreswidth={}\nresheight={}\nfullscreen={}\n",
+		adapterLuid, displayOutput, displayWidth, displayHeight,
+		static_cast<int>(fullscreen));
 	if (!assets::WriteBinaryFile(paths::ExecutableDir() + "\\settings.ini",
 								 text.data(), text.size()))
 		log::Warn("Could not write settings.ini");
@@ -180,6 +211,12 @@ int GameSettings::LightBudgetIndex(int value) {
 		if (std::abs(kLightBudgets[i] - value) < std::abs(kLightBudgets[best] - value))
 			best = i;
 	return best;
+}
+
+int GameSettings::PresentIntervalIndex(u32 interval) {
+	for (int i = 0; i < static_cast<int>(std::size(kPresentIntervals)); ++i)
+		if (kPresentIntervals[i] == interval) return i;
+	return 0; // unknown value → full refresh
 }
 
 const char* GameSettings::QualityLabel() const {

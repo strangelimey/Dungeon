@@ -44,6 +44,14 @@ public:
 	Input& GetInput() { return m_input; }
 	const Input& GetInput() const { return m_input; }
 
+	// Display-mode geometry (Settings → Video). SetWindowed restores a bordered,
+	// resizable window of the given client size, centered on the primary monitor;
+	// SetBorderless makes a frameless window covering the given desktop rect (a
+	// monitor's virtual-screen coordinates). Both raise WM_SIZE, so the swapchain
+	// resizes through the usual onResize path.
+	void SetWindowed(u32 width, u32 height);
+	void SetBorderless(int x, int y, u32 width, u32 height);
+
 	// Invoked when the client area changes size (not called for minimize).
 	std::function<void(u32, u32)> onResize;
 

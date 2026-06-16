@@ -9,6 +9,7 @@
 #include "Core/Log.h"
 #include "Core/Paths.h"
 #include "Game/AssetUtil.h"
+#include "Graphics/DisplayEnum.h"
 
 #include <algorithm>
 #include <cctype>
@@ -68,6 +69,7 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	m_settings.Load();
 	ApplyLanguage(false); // strings must exist before any UI builds
 	m_audio.SetMasterVolume(m_settings.volume);
+	m_device.SetPresentInterval(m_settings.presentInterval);
 	m_world.GetParty().SetKeys(m_settings.moveKeys);
 
 	m_characters = CreateDefaultParty();
@@ -108,6 +110,24 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	m_ui.onOpenSheet = [this](size_t index) { OpenCharacterSheet(index); };
 	m_ui.onQualitySelected = [this](int index) {
 		SetQuality(static_cast<Quality>(index));
+	};
+	// Video tab frame-rate cap: live (just a present-interval change on the
+	// device), persisted immediately like the language/key binds.
+	m_ui.onFrameLimitSelected = [this](int index) {
+		m_settings.presentInterval = kPresentIntervals[index];
+		m_device.SetPresentInterval(m_settings.presentInterval);
+		m_settings.Save();
+	};
+	// Video tab Apply: a monitor/resolution/mode change rebuilds the swapchain in
+	// place; an adapter change can't (the device is bound to its GPU), so it
+	// persists the choice and relaunches.
+	m_ui.onVideoApply = [this] {
+		m_settings.Save();
+		ApplyDisplaySettings();
+	};
+	m_ui.onAdapterRestart = [this] {
+		m_settings.Save();
+		RestartApp();
 	};
 	m_ui.onTorchPalette = [this](int index) { m_world.SetTorchPalette(index); };
 	m_ui.onMoveAction = [this](MoveAction action) {
@@ -429,6 +449,10 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 
 	m_ui.BuildStaticUi();
 	BuildBootLoadTasks();
+
+	// Honor a saved borderless/exclusive display mode now that the window and
+	// device exist (windowed at the default size needs nothing).
+	ApplyDisplaySettings();
 }
 
 // ============================================================================
@@ -691,6 +715,62 @@ void Game::SetQuality(Quality quality) {
 	m_world.ApplyQuality(textureResChanged);
 }
 
+void Game::ApplyDisplaySettings() {
+	// Resolve the active adapter's outputs so we can position a borderless window
+	// or target a monitor for exclusive full-screen.
+	const std::vector<gfx::AdapterInfo> adapters = gfx::EnumerateAdapters();
+	const gfx::AdapterInfo* active = nullptr;
+	for (const gfx::AdapterInfo& a : adapters)
+		if (a.luid == m_device.AdapterLuid()) {
+			active = &a;
+			break;
+		}
+	const int out = m_settings.displayOutput;
+	const gfx::OutputInfo* output =
+		(active && out >= 0 && out < static_cast<int>(active->outputs.size()))
+			? &active->outputs[static_cast<size_t>(out)]
+			: nullptr;
+
+	switch (m_settings.fullscreen) {
+	case gfx::FullscreenMode::Windowed: {
+		const u32 w = m_settings.displayWidth > 0 ? static_cast<u32>(m_settings.displayWidth)
+												  : m_window.Width();
+		const u32 h = m_settings.displayHeight > 0
+						  ? static_cast<u32>(m_settings.displayHeight)
+						  : m_window.Height();
+		m_device.SetFullscreen(false, 0, 0, 0); // drop any exclusive state first
+		m_window.SetWindowed(w, h);
+		break;
+	}
+	case gfx::FullscreenMode::Borderless: {
+		m_device.SetFullscreen(false, 0, 0, 0);
+		if (output)
+			m_window.SetBorderless(output->x, output->y,
+								   static_cast<u32>(output->width),
+								   static_cast<u32>(output->height));
+		break;
+	}
+	case gfx::FullscreenMode::Exclusive: {
+		u32 w = static_cast<u32>(m_settings.displayWidth);
+		u32 h = static_cast<u32>(m_settings.displayHeight);
+		if ((w == 0 || h == 0) && output) { // default to the monitor's native size
+			w = static_cast<u32>(output->width);
+			h = static_cast<u32>(output->height);
+		}
+		m_device.SetFullscreen(true, static_cast<u32>(out > 0 ? out : 0), w, h);
+		break;
+	}
+	}
+}
+
+void Game::RestartApp() {
+	// Leave any exclusive full-screen so the new process can claim the display.
+	m_device.SetFullscreen(false, 0, 0, 0);
+	if (!m_restart.Start("\"" + paths::ExecutableDir() + "\\Dungeon.exe\""))
+		log::Warn("Could not relaunch the game for the adapter change");
+	m_quitRequested = true;
+}
+
 // ============================================================================
 // The state machine
 // ============================================================================
@@ -702,6 +782,9 @@ void Game::Update(float dt) {
 	// A language picked last frame applies now, before any widget updates —
 	// the rebuild destroys every widget, so none may be mid-callback.
 	if (!m_pendingLanguage.empty()) ApplyLanguage(true);
+	// A Video-tab adapter/monitor change last frame repopulates the settings page
+	// now, for the same reason: the rebuild destroys the dropdown that triggered it.
+	m_ui.ApplyPendingVideoRebuild();
 
 	m_ui.UpdateFonts(dt);
 	if (m_previewMesh) m_previewOrbit += dt * 0.6f; // spin the editor 3D preview

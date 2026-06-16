@@ -23,6 +23,7 @@
 
 #include "Core/Types.h"
 #include "Graphics/D3DUtil.h"
+#include "Graphics/DisplayEnum.h" // FullscreenMode
 
 #include <dxgi1_6.h>
 
@@ -45,7 +46,9 @@ struct SrvHandle {
 // heaps. The Renderer drives passes on top of this.
 class GraphicsDevice {
 public:
-	GraphicsDevice(HWND__* hwnd, u32 width, u32 height);
+	// preferredAdapterLuid selects a specific GPU by packed LUID (see
+	// DisplayEnum::PackLuid); 0 = auto-pick the highest-performance adapter.
+	GraphicsDevice(HWND__* hwnd, u32 width, u32 height, u64 preferredAdapterLuid = 0);
 	~GraphicsDevice();
 
 	GraphicsDevice(const GraphicsDevice&) = delete;
@@ -60,6 +63,10 @@ public:
 	// local (dedicated) video memory current usage vs. the OS-provided budget,
 	// both in bytes (zero when no adapter was retained).
 	const std::string& AdapterName() const { return m_adapterName; }
+	// Packed LUID of the adapter the device is actually running on (the Video
+	// tab compares this to a staged choice to decide whether a restart is
+	// needed — switching adapters requires recreating the device).
+	u64 AdapterLuid() const { return m_adapterLuid; }
 	struct GpuMemoryInfo {
 		u64 usedBytes = 0;
 		u64 budgetBytes = 0;
@@ -71,11 +78,28 @@ public:
 	ID3D12GraphicsCommandList* BeginFrame(const float clearColor[4]);
 	void EndFrame(); // close, execute, present, signal
 
+	// Present sync interval (1..4): present every Nth vblank, so 1 = full refresh
+	// and 2/3/4 divide the frame rate while staying vblank-aligned (tear-free).
+	// This is how the Video tab's Frame Rate dropdown caps GPU load on a high-
+	// refresh display. Live; safe to call any frame.
+	void SetPresentInterval(u32 interval);
+	// The current monitor's refresh rate in Hz (read from the OS) — the dropdown
+	// labels the intervals with the resulting frame rates (refresh / interval).
+	int RefreshHz() const;
+
 	// Re-binds the back buffer RT/DSV + full viewport after an offscreen pass
 	// (e.g. shadow rendering) redirected the output merger. No clear.
 	void BindBackBuffer(ID3D12GraphicsCommandList* list);
 
 	void Resize(u32 width, u32 height);
+
+	// Enters/leaves DXGI exclusive full-screen on the given output index of the
+	// active adapter. Windowed and Borderless modes leave exclusive state and
+	// are driven by the window's geometry instead (the ensuing WM_SIZE calls
+	// Resize). For Exclusive, width/height request a display mode; 0,0 keeps the
+	// output's current mode. No-op transitions are cheap.
+	void SetFullscreen(bool exclusive, u32 outputIndex, u32 width, u32 height);
+
 	void WaitIdle();
 
 	// Allocates a slot in the shader-visible CBV/SRV heap (never freed; the
@@ -95,8 +119,11 @@ private:
 	u32 m_height = 0;
 
 	ComPtr<IDXGIFactory6> m_factory;
-	ComPtr<IDXGIAdapter3> m_adapter; // retained for video-memory queries
+	ComPtr<IDXGIAdapter3> m_adapter; // retained for video-memory queries + outputs
 	std::string m_adapterName;
+	u64 m_adapterLuid = 0;
+	HWND__* m_hwnd = nullptr;       // for full-screen window association
+	u32 m_swapFlags = 0;           // swapchain create + ResizeBuffers flags
 	ComPtr<ID3D12Device> m_device;
 	ComPtr<ID3D12CommandQueue> m_queue;
 	ComPtr<IDXGISwapChain3> m_swapchain;
@@ -120,6 +147,10 @@ private:
 	void* m_fenceEvent = nullptr;
 
 	u32 m_frameIndex = 0;
+
+	// Present sync interval (Settings → Video Frame Rate). 1 = every vblank
+	// (full refresh); 2/3/4 divide the rate tear-free. See SetPresentInterval.
+	u32 m_presentInterval = 1;
 };
 
 } // namespace dungeon::gfx

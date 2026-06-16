@@ -115,6 +115,13 @@ private:
 	bool LoadGame(const std::string& path);
 	void OpenCharacterSheet(size_t index); // freezes the world, shows the page
 	void SetQuality(Quality quality);      // persists + hot-swaps the world
+	// Applies m_settings' display mode (windowed/borderless/exclusive + monitor
+	// + resolution) to the window and swapchain in place. Called at boot and by
+	// the Video tab's Apply button for non-adapter changes.
+	void ApplyDisplaySettings();
+	// Relaunches the executable (a fresh process picks up the new adapter, the
+	// only way to switch GPUs) and flags this instance to quit.
+	void RestartApp();
 	// Loads the settings' language file (falling back to English when it is
 	// missing); rebuild=true also re-creates every UI page in the new
 	// language. The language dropdown only records m_pendingLanguage —
@@ -199,6 +206,10 @@ private:
 	AssetDialog::CreateRequest m_bakeReq;
 	bool m_baking = false;
 	int m_bakeStep = 0;
+
+	// Child process launched to restart the game on an adapter change (it
+	// outlives us; we quit right after).
+	platform::Process m_restart;
 
 	// The map overlay's panel in the given surface's pixel space (window pixels
 	// for input, device pixels for drawing): full-screen in Editor mode (it

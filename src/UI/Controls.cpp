@@ -206,11 +206,13 @@ void DropDown::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
 		(m_selected >= 0 && m_selected < static_cast<int>(items.size()))
 			? items[static_cast<size_t>(m_selected)]
 			: "";
-	font.Draw(batch, current, px.x + 8, px.y + (px.h - font.Height()) * 0.5f,
-			  theme.text);
-	// Arrow indicator.
-	font.Draw(batch, m_open ? "^" : "v", px.x + px.w - 18,
-			  px.y + (px.h - font.Height()) * 0.5f, theme.accent);
+	const float textY = px.y + (px.h - font.Height()) * 0.5f;
+	// Arrow indicator, right-aligned with a margin so the glyph clears the
+	// border at any font size (measure it rather than assume a fixed width).
+	const char* arrow = m_open ? "^" : "v";
+	const float arrowX = px.x + px.w - font.MeasureWidth(arrow) - 10.0f;
+	font.Draw(batch, current, px.x + 8, textY, theme.text);
+	font.Draw(batch, arrow, arrowX, textY, theme.accent);
 }
 
 void DropDown::DrawOverlay(UIContext& ctx, gfx::SpriteBatch& batch) {
@@ -799,16 +801,49 @@ void TabControl::SetActiveTab(int index) {
 	if (index >= 0 && index < static_cast<int>(m_tabs.size())) m_active = index;
 }
 
-gfx::Rect TabControl::TabRect(size_t index) const {
+void TabControl::LayoutStrip(UIContext& ctx) {
+	Font& font = ctx.GetFont();
 	const gfx::Rect& px = Pixel();
-	const float tabW = px.w / static_cast<float>(std::max<size_t>(m_tabs.size(), 1));
-	return {px.x + tabW * static_cast<float>(index), px.y, tabW, m_tabHeight * px.h};
+	const float count = static_cast<float>(std::max<size_t>(m_tabs.size(), 1));
+	const float evenW = px.w / count;
+	const float padX = 22.0f; // breathing room each side of the label
+	m_tabWidths.resize(m_tabs.size());
+	float total = 0.0f;
+	for (size_t i = 0; i < m_tabs.size(); ++i) {
+		// Never below the even split, so short labels keep the original look;
+		// a long one (e.g. "Controls") widens just its own tab.
+		m_tabWidths[i] = std::max(evenW, font.MeasureWidth(m_tabs[i].label) + 2.0f * padX);
+		total += m_tabWidths[i];
+	}
+	// Grow the control to the strip total and recenter on the authored center,
+	// so it expands symmetrically rather than off to one side.
+	m_effRect = {px.x - (total - px.w) * 0.5f, px.y, total, px.h};
+}
+
+gfx::Rect TabControl::TabRect(size_t index) const {
+	// Fallback to an even split before LayoutStrip has run (e.g. first frame).
+	if (m_tabWidths.size() != m_tabs.size()) {
+		const gfx::Rect& px = Pixel();
+		const float tabW = px.w / static_cast<float>(std::max<size_t>(m_tabs.size(), 1));
+		return {px.x + tabW * static_cast<float>(index), px.y, tabW, m_tabHeight * px.h};
+	}
+	float x = m_effRect.x;
+	for (size_t i = 0; i < index; ++i) x += m_tabWidths[i];
+	return {x, m_effRect.y, m_tabWidths[index], m_tabHeight * m_effRect.h};
 }
 
 gfx::Rect TabControl::PageRect() const {
-	const gfx::Rect& px = Pixel();
-	const float stripH = m_tabHeight * px.h;
-	return {px.x, px.y + stripH, px.w, px.h - stripH};
+	const gfx::Rect base = m_effRect.w > 0.0f ? m_effRect : Pixel();
+	const float stripH = m_tabHeight * base.h;
+	return {base.x, base.y + stripH, base.w, base.h - stripH};
+}
+
+gfx::Rect TabControl::ContentRect() const {
+	const gfx::Rect page = PageRect();
+	const float pad = 12.0f;
+	const float gutter = 14.0f; // scrollbar track + margin, reserved always so
+								// the layout doesn't shift when the bar appears
+	return {page.x + pad, page.y + pad, page.w - pad - gutter, page.h - 2.0f * pad};
 }
 
 float TabControl::ContentFraction(const Tab& tab) {
@@ -836,6 +871,7 @@ gfx::Rect TabControl::ScrollThumbRect(const gfx::Rect& page, const Tab& tab,
 void TabControl::Update(UIContext& ctx) {
 	const Input* input = ctx.CurrentInput();
 	if (!input) return;
+	LayoutStrip(ctx); // size the strip + control before any rect math
 	const float mx = input->MouseX();
 	const float my = input->MouseY();
 
@@ -844,18 +880,19 @@ void TabControl::Update(UIContext& ctx) {
 	// the page get neither layout-visible input nor draw.
 	if (m_active >= 0 && m_active < static_cast<int>(m_tabs.size())) {
 		const gfx::Rect page = PageRect();
+		const gfx::Rect inner = ContentRect();
 		Tab& tab = m_tabs[static_cast<size_t>(m_active)];
-		const float maxScroll = (ContentFraction(tab) - 1.0f) * page.h;
+		const float maxScroll = (ContentFraction(tab) - 1.0f) * inner.h;
 		tab.scroll = std::clamp(tab.scroll, 0.0f, maxScroll);
-		const gfx::Rect content{page.x, page.y - tab.scroll, page.w, page.h};
+		const gfx::Rect content{inner.x, inner.y - tab.scroll, inner.w, inner.h};
 
 		for (auto it = tab.children.rbegin(); it != tab.children.rend(); ++it) {
 			Widget& child = **it;
 			if (!child.visible) continue;
-			const float top = child.bounds.y * page.h - tab.scroll;
-			const float bottom = (child.bounds.y + child.bounds.h) * page.h -
+			const float top = child.bounds.y * inner.h - tab.scroll;
+			const float bottom = (child.bounds.y + child.bounds.h) * inner.h -
 								 tab.scroll;
-			if (bottom <= 0.0f || top >= page.h) continue;
+			if (bottom <= 0.0f || top >= inner.h) continue;
 			child.Layout(content);
 			child.Update(ctx);
 		}
@@ -911,6 +948,7 @@ void TabControl::Update(UIContext& ctx) {
 void TabControl::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
 	const Theme& theme = ctx.GetTheme();
 	Font& font = ctx.GetFont();
+	LayoutStrip(ctx); // size the strip + control before any rect math
 
 	// Page frame first so the active tab can open into it.
 	const gfx::Rect page = PageRect();
@@ -937,19 +975,20 @@ void TabControl::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
 
 	if (m_active >= 0 && m_active < static_cast<int>(m_tabs.size())) {
 		Tab& tab = m_tabs[static_cast<size_t>(m_active)];
-		const float maxScroll = (ContentFraction(tab) - 1.0f) * page.h;
+		const gfx::Rect inner = ContentRect();
+		const float maxScroll = (ContentFraction(tab) - 1.0f) * inner.h;
 		tab.scroll = std::clamp(tab.scroll, 0.0f, maxScroll);
-		const gfx::Rect content{page.x, page.y - tab.scroll, page.w, page.h};
+		const gfx::Rect content{inner.x, inner.y - tab.scroll, inner.w, inner.h};
 
-		// Clip to the page while content scrolls (sliders draw their labels
+		// Clip to the content area while it scrolls (sliders draw their labels
 		// above their bounds, so a row leaving the top clips cleanly).
-		if (maxScroll > 0.0f) batch.SetScissor(&page);
+		if (maxScroll > 0.0f) batch.SetScissor(&inner);
 		for (auto& child : tab.children) {
 			if (!child->visible) continue;
-			const float top = child->bounds.y * page.h - tab.scroll;
-			const float bottom = (child->bounds.y + child->bounds.h) * page.h -
+			const float top = child->bounds.y * inner.h - tab.scroll;
+			const float bottom = (child->bounds.y + child->bounds.h) * inner.h -
 								 tab.scroll;
-			if (bottom <= 0.0f || top >= page.h) continue;
+			if (bottom <= 0.0f || top >= inner.h) continue;
 			child->Layout(content);
 			child->Draw(ctx, batch);
 		}

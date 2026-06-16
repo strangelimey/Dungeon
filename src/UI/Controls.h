@@ -382,10 +382,20 @@ private:
 		float scroll = 0.0f; // pixels scrolled down, clamped every frame
 	};
 
+	// Measures each tab's label and sizes the strip: every tab is at least the
+	// even split, wider when its text needs it, and the control grows + recenters
+	// to the total. Caches m_tabWidths / m_effRect for the const rect helpers
+	// below; called at the top of Update and Draw (needs the font from ctx).
+	void LayoutStrip(UIContext& ctx);
+
 	gfx::Rect TabRect(size_t index) const;
-	// The page area below the tab strip, in pixels (children's container);
-	// only valid after Layout().
+	// The page area below the tab strip, in pixels (the panel frame); only
+	// valid after LayoutStrip().
 	gfx::Rect PageRect() const;
+	// The children's container: PageRect inset so content doesn't sit on the
+	// frame, with the right side clearing the scrollbar gutter. This is what
+	// child bounds resolve against (and the scroll/scissor math uses).
+	gfx::Rect ContentRect() const;
 	// Content height as a multiple of the page height: the lowest child
 	// bottom edge, never less than 1 (> 1 means the page scrolls).
 	static float ContentFraction(const Tab& tab);
@@ -394,6 +404,8 @@ private:
 							  float maxScroll) const;
 
 	std::vector<Tab> m_tabs;
+	std::vector<float> m_tabWidths; // per-tab strip width (LayoutStrip)
+	gfx::Rect m_effRect{};          // control rect grown to fit the strip
 	float m_tabHeight;
 	int m_active = 0;
 	int m_hover = -1;

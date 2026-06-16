@@ -7,6 +7,7 @@
 #include "Core/Paths.h"
 #include "Game/AssetUtil.h"
 #include "Game/SaveGame.h"
+#include "Graphics/DisplayEnum.h"
 
 #include <algorithm>
 #include <filesystem>
@@ -49,7 +50,8 @@ GameUI::GameUI(Window& window, gfx::GraphicsDevice& device,
 	  m_characters(characters), m_hudUi(device, "", kHudFontH),
 	  m_menuUi(device, "", kMenuFontH), m_settingsUi(device, "", kMenuFontH),
 	  m_pauseUi(device, "", kMenuFontH), m_savesUi(device, "", kMenuFontH),
-	  m_sheetUi(device, "", kSheetFontH), m_titleFont(device, "", kTitleFontH) {}
+	  m_sheetUi(device, "", kSheetFontH), m_confirmUi(device, "", kMenuFontH),
+	  m_titleFont(device, "", kTitleFontH) {}
 
 void GameUI::BuildStaticUi() {
 	ApplyTheme();
@@ -66,7 +68,8 @@ void GameUI::LoadTitleArt() {
 
 void GameUI::ApplyTheme() {
 	for (ui::UIContext* ctx :
-		 {&m_hudUi, &m_menuUi, &m_settingsUi, &m_pauseUi, &m_savesUi, &m_sheetUi})
+		 {&m_hudUi, &m_menuUi, &m_settingsUi, &m_pauseUi, &m_savesUi, &m_sheetUi,
+		  &m_confirmUi})
 		ctx->SetTheme(m_settings.theme);
 }
 
@@ -117,6 +120,18 @@ void GameUI::BuildMenu() {
 		m_menuPage = MenuPage::Settings;
 	});
 
+	SeedVideoStaging(); // fresh edit: stage = applied settings
+	BuildSettings();
+}
+
+// The shared settings page (landing + pause route to the same m_settingsUi).
+// Split out of BuildMenu so a Video-tab adapter/monitor change can rebuild just
+// this page (different dropdown structure) without touching the menu list.
+void GameUI::BuildSettings() {
+	const float w = static_cast<float>(m_window.Width());
+	const float h = static_cast<float>(m_window.Height());
+	const gfx::Rect window{0, 0, w, h};
+
 	// Settings page: Game / Video / Audio tabs over a shared page area, with
 	// a Back button beneath. Tab children are fractions of the PAGE (the
 	// area below the strip); each row leaves room for the 28px settings font.
@@ -124,12 +139,15 @@ void GameUI::BuildMenu() {
 	// just under the subtitle (ends ~246 design px) to just above the Back
 	// button, which itself must clear the 900px design window.
 	const float tabsW = 760.0f;
-	const float tabsH = 540.0f;
-	const float stripH = 48.0f;
+	// Taller header strip so longer tab labels have room; tabsH grows with it so
+	// the content area below keeps its height (tabsH - stripH = 492 design px).
+	const float stripH = 60.0f;
+	const float tabsH = 552.0f;
 	const float tabsX = (w - tabsW) * 0.5f;
 	const float tabsY = h * 0.29f;
 	auto* tabs = m_settingsUi.Add<ui::TabControl>(
 		Norm({tabsX, tabsY, tabsW, tabsH}, window), stripH / tabsH);
+	m_settingsTabs = tabs; // kept so a Video repopulate restores the active tab
 	const size_t tabGame = tabs->AddTab(loc::Tr("settings.tab.game"));
 	const size_t tabControls = tabs->AddTab(loc::Tr("settings.tab.controls"));
 	const size_t tabVideo = tabs->AddTab(loc::Tr("settings.tab.video"));
@@ -138,12 +156,22 @@ void GameUI::BuildMenu() {
 	const gfx::Rect page{0, 0, tabsW, tabsH - stripH}; // child design space
 	const float pad = 24.0f;
 	const float rowW = page.w - 2 * pad;
+	// A "setting" is a label stacked over its input control. These space them so
+	// neither the label nor the control crowds the next thing (all design px,
+	// turned into 0..1 page fractions by Norm). ctrlTop = label height + the gap
+	// below the label; rowH adds the control plus the gap below it before the
+	// next setting.
+	const float labelH = 28.0f;            // the label row
+	const float ctrlH = 40.0f;             // dropdown / button height
+	const float ctrlTop = labelH + 18.0f;  // control offset below its label
+	const float rowGap = 16.0f;            // gap below a control
+	const float rowH = ctrlTop + ctrlH + rowGap; // full label+control stride
 
 	// Game: language. The language list is whatever assets/lang holds;
 	// selecting one defers to Game (settings save + string reload +
 	// RebuildForLanguage at the top of the next frame — rebuilding here
 	// would destroy this dropdown mid-callback).
-	tabs->AddChild<ui::Label>(tabGame, Norm({pad, pad, rowW, 28}, page),
+	tabs->AddChild<ui::Label>(tabGame, Norm({pad, pad, rowW, labelH}, page),
 							  loc::Tr("settings.language"))
 		->dim = true;
 	m_languages = loc::ScanLanguages(paths::Asset("lang"));
@@ -155,7 +183,7 @@ void GameUI::BuildMenu() {
 			languageIndex = static_cast<int>(i);
 	}
 	tabs->AddChild<ui::DropDown>(
-		tabGame, Norm({pad, pad + 38, rowW, 40}, page), std::move(languageNames),
+		tabGame, Norm({pad, pad + ctrlTop, rowW, ctrlH}, page), std::move(languageNames),
 		languageIndex, [this](int index) {
 			Click();
 			if (index >= 0 && index < static_cast<int>(m_languages.size()) &&
@@ -195,12 +223,107 @@ void GameUI::BuildMenu() {
 		m_keyBinds.push_back(bind);
 	}
 
-	// Video: quality tier (hot-swaps meshes/textures in place).
-	tabs->AddChild<ui::Label>(tabVideo, Norm({pad, pad, rowW, 28}, page),
-							  loc::Tr("settings.quality"))
-		->dim = true;
+	// Video: the page runs longer than it's tall, so author it with a running
+	// y-cursor (the TabControl scrolls when content overflows). Each
+	// label-over-control block advances by rowH; a control alone (the Apply
+	// button) by ctrlH + rowGap.
+	float vy = pad;
+	auto videoLabel = [&](const char* key) {
+		tabs->AddChild<ui::Label>(tabVideo, Norm({pad, vy, rowW, labelH}, page),
+								  loc::Tr(key))
+			->dim = true;
+	};
+	const gfx::AdapterInfo* selAdapter =
+		(!m_adapters.empty() && m_selAdapter < static_cast<int>(m_adapters.size()))
+			? &m_adapters[static_cast<size_t>(m_selAdapter)]
+			: nullptr;
+	const gfx::OutputInfo* selOutput =
+		(selAdapter && m_selOutput < static_cast<int>(selAdapter->outputs.size()))
+			? &selAdapter->outputs[static_cast<size_t>(m_selOutput)]
+			: nullptr;
+
+	// Adapter (GPU): a dropdown when several exist, otherwise just its name.
+	videoLabel("settings.adapter");
+	if (m_adapters.size() > 1) {
+		std::vector<std::string> names;
+		for (const gfx::AdapterInfo& a : m_adapters) names.push_back(a.name);
+		tabs->AddChild<ui::DropDown>(
+			tabVideo, Norm({pad, vy + ctrlTop, rowW, ctrlH}, page), std::move(names),
+			m_selAdapter, [this](int index) {
+				Click();
+				if (index == m_selAdapter) return;
+				m_selAdapter = index; // monitor/resolution lists depend on it
+				m_selOutput = 0;
+				m_selRes = 0;
+				m_videoRebuildPending = true;
+			});
+	} else {
+		tabs->AddChild<ui::Label>(tabVideo, Norm({pad, vy + ctrlTop, rowW, ctrlH}, page),
+								  selAdapter ? selAdapter->name : std::string("—"));
+	}
+	vy += rowH;
+
+	// Monitor (output) of the selected adapter.
+	videoLabel("settings.monitor");
+	if (selAdapter && selAdapter->outputs.size() > 1) {
+		std::vector<std::string> names;
+		for (const gfx::OutputInfo& o : selAdapter->outputs) names.push_back(o.name);
+		tabs->AddChild<ui::DropDown>(
+			tabVideo, Norm({pad, vy + ctrlTop, rowW, ctrlH}, page), std::move(names),
+			m_selOutput, [this](int index) {
+				Click();
+				if (index == m_selOutput) return;
+				m_selOutput = index; // resolution list depends on the monitor
+				m_selRes = 0;
+				m_videoRebuildPending = true;
+			});
+	} else {
+		tabs->AddChild<ui::Label>(tabVideo, Norm({pad, vy + ctrlTop, rowW, ctrlH}, page),
+								  selOutput ? selOutput->name : std::string("—"));
+	}
+	vy += rowH;
+
+	// Resolution supported by the adapter/monitor combination.
+	videoLabel("settings.resolution");
+	{
+		std::vector<std::string> resOptions;
+		if (selOutput)
+			for (const gfx::DisplayMode& m : selOutput->modes)
+				resOptions.push_back(std::format("{} x {}", m.width, m.height));
+		if (resOptions.empty()) resOptions.push_back("—");
+		tabs->AddChild<ui::DropDown>(
+			tabVideo, Norm({pad, vy + ctrlTop, rowW, ctrlH}, page), std::move(resOptions),
+			m_selRes, [this](int index) {
+				Click();
+				m_selRes = index;
+			});
+	}
+	vy += rowH;
+
+	// Display mode: Windowed / Borderless / Exclusive full-screen.
+	videoLabel("settings.display_mode");
 	tabs->AddChild<ui::DropDown>(
-		tabVideo, Norm({pad, pad + 38, rowW, 40}, page),
+		tabVideo, Norm({pad, vy + ctrlTop, rowW, ctrlH}, page),
+		std::vector<std::string>{loc::Tr("mode.windowed"), loc::Tr("mode.borderless"),
+								 loc::Tr("mode.exclusive")},
+		static_cast<int>(m_selMode), [this](int index) {
+			Click();
+			m_selMode = static_cast<gfx::FullscreenMode>(index);
+		});
+	vy += rowH;
+
+	// Apply the staged display selection (the only Video control that isn't live).
+	tabs->AddChild<ui::Button>(tabVideo, Norm({pad, vy, 220, ctrlH}, page),
+							   loc::Tr("settings.apply"), [this] {
+								   Click();
+								   OnVideoApply();
+							   });
+	vy += ctrlH + rowGap;
+
+	// Video: quality tier (hot-swaps meshes/textures in place).
+	videoLabel("settings.quality");
+	tabs->AddChild<ui::DropDown>(
+		tabVideo, Norm({pad, vy + ctrlTop, rowW, ctrlH}, page),
 		std::vector<std::string>{
 			loc::Tr("settings.quality.low"), loc::Tr("settings.quality.medium"),
 			loc::Tr("settings.quality.high"), loc::Tr("settings.quality.ultra")},
@@ -208,21 +331,43 @@ void GameUI::BuildMenu() {
 			Click();
 			onQualitySelected(index);
 		});
+	vy += rowH;
 
 	// Video: max dynamic lights. Quality resets this to its tier value (Low=16,
 	// up to Ultra=64; SyncMaxLights re-points the dropdown afterward); picking a
 	// value here overrides it until the next quality change.
-	tabs->AddChild<ui::Label>(tabVideo, Norm({pad, pad + 92, rowW, 28}, page),
-							  loc::Tr("settings.maxlights"))
-		->dim = true;
+	videoLabel("settings.maxlights");
 	std::vector<std::string> lightOptions;
 	for (int budget : kLightBudgets) lightOptions.push_back(std::to_string(budget));
 	m_maxLightsDrop = tabs->AddChild<ui::DropDown>(
-		tabVideo, Norm({pad, pad + 130, rowW, 40}, page), std::move(lightOptions),
+		tabVideo, Norm({pad, vy + ctrlTop, rowW, ctrlH}, page), std::move(lightOptions),
 		GameSettings::LightBudgetIndex(m_settings.maxPointLights), [this](int index) {
 			Click();
 			m_settings.maxPointLights = kLightBudgets[index];
 			m_settings.Save();
+		});
+	vy += rowH;
+
+	// Video: frame-rate cap. Each option presents every Nth monitor vblank, so
+	// the rate is a tear-free divisor of the refresh (full = VSync, then half /
+	// third / quarter). Capping below refresh cuts GPU load. Labels show the
+	// resulting FPS from the live refresh rate; live (a present-interval change).
+	videoLabel("settings.framelimit");
+	const int refreshHz = m_device.RefreshHz();
+	std::vector<std::string> fpsOptions;
+	for (u32 interval : kPresentIntervals)
+		fpsOptions.push_back(
+			interval == 1
+				? loc::Format("settings.framelimit.vsync", refreshHz)
+				: loc::Format("settings.framelimit.fps",
+							  (refreshHz + static_cast<int>(interval) / 2) /
+								  static_cast<int>(interval)));
+	tabs->AddChild<ui::DropDown>(
+		tabVideo, Norm({pad, vy + ctrlTop, rowW, ctrlH}, page), std::move(fpsOptions),
+		GameSettings::PresentIntervalIndex(m_settings.presentInterval),
+		[this](int index) {
+			Click();
+			onFrameLimitSelected(index);
 		});
 
 	// Audio: master volume (the slider draws its own label above the track).
@@ -557,6 +702,129 @@ void GameUI::SyncMaxLights() {
 			GameSettings::LightBudgetIndex(m_settings.maxPointLights));
 }
 
+// ============================================================================
+// Video tab: adapter / monitor / resolution / display-mode selection.
+// ============================================================================
+
+// Stage = the live settings, resolved against the enumerated hardware. Called
+// when the page is built fresh (open or language rebuild) — NOT on the deferred
+// repopulate, which must preserve the user's in-progress choice.
+void GameUI::SeedVideoStaging() {
+	if (m_adapters.empty()) m_adapters = gfx::EnumerateAdapters();
+
+	// Adapter: the saved LUID, or (for "auto" = 0) the running device's adapter.
+	const u64 want =
+		m_settings.adapterLuid != 0 ? m_settings.adapterLuid : m_device.AdapterLuid();
+	m_selAdapter = 0;
+	for (size_t i = 0; i < m_adapters.size(); ++i)
+		if (m_adapters[i].luid == want) {
+			m_selAdapter = static_cast<int>(i);
+			break;
+		}
+
+	const gfx::AdapterInfo* a =
+		m_adapters.empty() ? nullptr : &m_adapters[static_cast<size_t>(m_selAdapter)];
+
+	// Monitor.
+	m_selOutput = 0;
+	if (a && m_settings.displayOutput >= 0 &&
+		m_settings.displayOutput < static_cast<int>(a->outputs.size()))
+		m_selOutput = m_settings.displayOutput;
+
+	// Resolution: match the saved size in the selected output's mode list.
+	m_selRes = 0;
+	if (a && m_selOutput < static_cast<int>(a->outputs.size())) {
+		const auto& modes = a->outputs[static_cast<size_t>(m_selOutput)].modes;
+		for (size_t i = 0; i < modes.size(); ++i)
+			if (static_cast<int>(modes[i].width) == m_settings.displayWidth &&
+				static_cast<int>(modes[i].height) == m_settings.displayHeight) {
+				m_selRes = static_cast<int>(i);
+				break;
+			}
+	}
+
+	m_selMode = m_settings.fullscreen;
+}
+
+void GameUI::OnVideoApply() {
+	if (m_adapters.empty() || m_selAdapter >= static_cast<int>(m_adapters.size()))
+		return;
+	const gfx::AdapterInfo& a = m_adapters[static_cast<size_t>(m_selAdapter)];
+
+	// Resolve the staged resolution to a concrete width/height.
+	u32 cw = 0, ch = 0;
+	if (m_selOutput < static_cast<int>(a.outputs.size())) {
+		const auto& modes = a.outputs[static_cast<size_t>(m_selOutput)].modes;
+		if (m_selRes >= 0 && m_selRes < static_cast<int>(modes.size())) {
+			cw = modes[static_cast<size_t>(m_selRes)].width;
+			ch = modes[static_cast<size_t>(m_selRes)].height;
+		}
+	}
+
+	if (a.luid != m_device.AdapterLuid()) {
+		// A GPU change can't be done in place; confirm, then persist + relaunch.
+		OpenConfirm(loc::Tr("confirm.restart.title"), loc::Tr("confirm.restart.body"),
+					[this, luid = a.luid, out = m_selOutput, cw, ch, mode = m_selMode] {
+						m_settings.adapterLuid = luid;
+						m_settings.displayOutput = out;
+						m_settings.displayWidth = static_cast<int>(cw);
+						m_settings.displayHeight = static_cast<int>(ch);
+						m_settings.fullscreen = mode;
+						onAdapterRestart();
+					});
+		return;
+	}
+
+	// Same GPU: monitor / resolution / mode apply in place.
+	m_settings.adapterLuid = a.luid;
+	m_settings.displayOutput = m_selOutput;
+	m_settings.displayWidth = static_cast<int>(cw);
+	m_settings.displayHeight = static_cast<int>(ch);
+	m_settings.fullscreen = m_selMode;
+	onVideoApply();
+}
+
+void GameUI::OpenConfirm(const std::string& title, const std::string& body,
+						 std::function<void()> onYes) {
+	m_confirmUi.Clear();
+	const float w = WindowW();
+	const float h = WindowH();
+	const gfx::Rect window{0, 0, w, h};
+
+	const float panelW = 540.0f, panelH = 220.0f;
+	const float px = (w - panelW) * 0.5f, py = (h - panelH) * 0.5f;
+	m_confirmUi.Add<ui::Panel>(Norm({px, py, panelW, panelH}, window));
+	m_confirmUi.Add<ui::Label>(Norm({px + 24, py + 28, panelW - 48, 32}, window), title);
+	m_confirmUi.Add<ui::Label>(Norm({px + 24, py + 84, panelW - 48, 28}, window), body)
+		->dim = true;
+
+	const float bw = 200.0f, bh = 44.0f, by = py + panelH - bh - 24.0f;
+	m_confirmUi.Add<ui::Button>(Norm({px + 24, by, bw, bh}, window),
+								loc::Tr("confirm.yes"),
+								[this, onYes = std::move(onYes)] {
+									Click();
+									m_confirmActive = false;
+									onYes();
+								});
+	m_confirmUi.Add<ui::Button>(Norm({px + panelW - bw - 24, by, bw, bh}, window),
+								loc::Tr("confirm.no"), [this] {
+									Click();
+									m_confirmActive = false;
+								});
+
+	m_confirmUi.SetTheme(m_settings.theme);
+	m_confirmActive = true;
+}
+
+void GameUI::ApplyPendingVideoRebuild() {
+	if (!m_videoRebuildPending) return;
+	m_videoRebuildPending = false;
+	const int active = m_settingsTabs ? m_settingsTabs->ActiveTab() : 0;
+	m_settingsUi.Clear();
+	BuildSettings(); // preserves the staged m_sel* (no SeedVideoStaging)
+	if (m_settingsTabs) m_settingsTabs->SetActiveTab(active);
+}
+
 void GameUI::ShowSheet(size_t index) {
 	m_sheetIndex = index;
 	m_sheet->SetCharacter(m_characters[index]);
@@ -804,11 +1072,19 @@ void GameUI::RefreshSavesIfDirty() {
 
 void GameUI::UpdateMenu(const Input& input) {
 	RefreshSavesIfDirty();
+	if (m_confirmActive) { // modal: freeze the page beneath it
+		m_confirmUi.Update(input, WindowW(), WindowH());
+		return;
+	}
 	MenuContext().Update(input, WindowW(), WindowH());
 }
 
 void GameUI::UpdatePause(const Input& input) {
 	RefreshSavesIfDirty();
+	if (m_confirmActive) {
+		m_confirmUi.Update(input, WindowW(), WindowH());
+		return;
+	}
 	PauseContext().Update(input, WindowW(), WindowH());
 }
 
@@ -842,6 +1118,10 @@ void GameUI::ResetHudStatus() { m_lastFacing = m_lastGridX = m_lastGridZ = -1; }
 // returning true; false means the list itself is showing and the caller owns
 // the Esc (quit / resume).
 bool GameUI::CloseSettingsPage() {
+	if (m_confirmActive) { // Esc cancels the restart confirm first
+		m_confirmActive = false;
+		return true;
+	}
 	if (m_menuPage == MenuPage::Main) return false;
 	m_menuPage = MenuPage::Main;
 	return true;
@@ -951,6 +1231,17 @@ void GameUI::RenderMenuOverlay() {
 			  h * (0.16f + 74.0f / kFontDesignWindowH), theme.textDim);
 
 	MenuContext().Render(m_spriteBatch, w, h);
+	RenderConfirmOverlay();
+}
+
+// The adapter-change restart confirm: a dark wash + the centered Yes/No modal,
+// drawn on top of whichever settings page raised it (menu or pause).
+void GameUI::RenderConfirmOverlay() {
+	if (!m_confirmActive) return;
+	const float w = DeviceW();
+	const float h = DeviceH();
+	m_spriteBatch.DrawRect({0, 0, w, h}, {0, 0, 0, 0.55f});
+	m_confirmUi.Render(m_spriteBatch, w, h);
 }
 
 // Esc pause: the frozen scene stays up behind a dark wash, with a menu list
@@ -977,6 +1268,7 @@ void GameUI::RenderPauseOverlay() {
 	}
 
 	PauseContext().Render(m_spriteBatch, w, h);
+	RenderConfirmOverlay();
 }
 
 // Portrait click: the frozen scene under a dark wash, with the sheet page
