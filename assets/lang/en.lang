@@ -76,6 +76,7 @@ settings.quality.low=Low
 settings.quality.medium=Medium
 settings.quality.high=High
 settings.quality.ultra=Ultra
+settings.maxlights=Max Lights
 settings.volume=Volume
 settings.party_bar=Party Bar
 settings.bar_scale=Scale

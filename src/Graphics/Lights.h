@@ -14,9 +14,12 @@
 
 namespace dungeon::gfx {
 
-// Hard cap baked into the frame constant buffer; must match MAX_POINT_LIGHTS
-// in scene.hlsl. Lights beyond the cap are silently dropped.
-inline constexpr u32 kMaxPointLights = 16;
+// Hard ceiling baked into the frame constant buffer (the array size); must
+// match MAX_POINT_LIGHTS in scene.hlsl and the top of GameSettings'
+// kLightBudgets (the Ultra tier). The per-frame light count is a runtime
+// budget (GameSettings::maxPointLights, Low=16 .. Ultra=64) the game caps to;
+// lights beyond it are dropped (nearest-to-camera kept — see UpdateLights).
+inline constexpr u32 kMaxPointLights = 64;
 
 struct PointLight {
 	Vec3 position{};

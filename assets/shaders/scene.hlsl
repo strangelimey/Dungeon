@@ -1,8 +1,9 @@
 // Forward scene pass: optional GPU skinning + Blinn-Phong with one
-// directional light and up to 16 dynamic point lights.
+// directional light and up to 64 dynamic point lights (only gPointLightCount
+// of them are looped, so the array size is just the Ultra-tier ceiling).
 // Matrices are uploaded row-major; all transforms use mul(matrix, vector).
 
-#define MAX_POINT_LIGHTS 16
+#define MAX_POINT_LIGHTS 64
 #define MAX_SKIN_JOINTS 128
 
 struct PointLight {

@@ -28,6 +28,14 @@ namespace dungeon::game {
 // a warning when the 4K sets are absent).
 enum class Quality { Low, Medium, High, Ultra };
 
+// Per-quality point-light budget (indexed by Quality: Low/Medium/High/Ultra).
+// The Ultra value is the renderer's hard ceiling (gfx::kMaxPointLights / the
+// shader's MAX_POINT_LIGHTS array size — kept in sync by a static_assert in
+// the .cpp). These are also the options shown by the Video tab's Max Lights
+// dropdown; picking a quality resets the budget to its tier value, after which
+// the dropdown can override it.
+inline constexpr int kLightBudgets[] = {16, 32, 48, 64};
+
 // The user-editable theme colors (Settings → UI tab). One table drives the
 // ini round-trip (theme_<key>=r,g,b,a) and the color-picker grid. labelKey
 // is a loc:: key (assets/lang) — GameUI translates it when building the row.
@@ -78,6 +86,8 @@ inline constexpr KeyField kKeyFields[] = {
 
 struct GameSettings {
 	Quality quality = Quality::Medium;
+	int maxPointLights = kLightBudgets[1]; // active light budget (defaults to the
+										   // Medium tier; ini key maxlights=)
 	std::string language = "en";  // assets/lang/<code>.lang stem
 	float volume = 1.0f;          // master volume, pushed into the AudioEngine
 	float partyBarScale = 1.0f;   // HUD party bar: 0.5–1.5 about its top center
@@ -98,6 +108,14 @@ struct GameSettings {
 	const char* MeshSuffix() const;    // "low" / "med" / "high" (worn blocks)
 	const char* TextureSuffix() const; // "1k" / "2k" / "4k" (texture sets)
 	const char* QualityLabel() const;  // "Low" / "Medium" / "High" / "Ultra"
+
+	// The light budget a quality tier resets to (kLightBudgets[quality]), and
+	// the index of a budget value within kLightBudgets (snapped to the nearest
+	// tier for the Max Lights dropdown). Both used by the Video tab.
+	static int QualityLightBudget(Quality q) {
+		return kLightBudgets[static_cast<int>(q)];
+	}
+	static int LightBudgetIndex(int value);
 
 	// The log's movement help line ("W/S move, A/D strafe, Q/E turn."),
 	// built from the live bindings.

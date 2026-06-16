@@ -192,6 +192,11 @@ Renderer::Renderer(GraphicsDevice& device) : m_device(device) {
 	// models). Procedural geometry keeps the double-sided m_pso above.
 	D3D12_GRAPHICS_PIPELINE_STATE_DESC culledPso = pso;
 	culledPso.RasterizerState.CullMode = D3D12_CULL_MODE_BACK;
+	// The scene camera mirrors clip-space X (Camera::ViewProj) so the first-person
+	// view matches the right-handed world compass; that flip reverses apparent
+	// winding, so front faces are now counter-clockwise. (The shadow pass uses its
+	// own non-mirrored projection and the CULL_NONE m_pso, so it is unaffected.)
+	culledPso.RasterizerState.FrontCounterClockwise = TRUE;
 	DN_HR(m_device.Device()->CreateGraphicsPipelineState(&culledPso,
 														 IID_PPV_ARGS(&m_psoCull)));
 

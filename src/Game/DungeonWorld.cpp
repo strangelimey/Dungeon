@@ -1077,6 +1077,27 @@ void DungeonWorld::UpdateLights(float time) {
 		m_lights.points.push_back(glow);
 	}
 
+	// The renderer uploads only the active light budget (Settings → Video → Max
+	// Lights, Low=16 .. Ultra=64) and shadow slots only consider those, so on a
+	// large level the fire count alone can crowd out a light pushed late (the
+	// pillar glow). Keep the ones NEAREST the eye instead of the first ones
+	// pushed; the carried torch sits at the eye, so it always survives (and
+	// still wins shadow slot 0 in AssignShadowSlots).
+	const size_t budget = static_cast<size_t>(
+		std::clamp(m_settings.maxPointLights, 1, static_cast<int>(gfx::kMaxPointLights)));
+	if (m_lights.points.size() > budget) {
+		auto distSq = [&](const gfx::PointLight& l) {
+			const Vec3 d = Sub(l.position, eye);
+			return d.x * d.x + d.y * d.y + d.z * d.z;
+		};
+		std::nth_element(m_lights.points.begin(),
+						 m_lights.points.begin() + budget, m_lights.points.end(),
+						 [&](const gfx::PointLight& a, const gfx::PointLight& b) {
+							 return distSq(a) < distSq(b);
+						 });
+		m_lights.points.resize(budget);
+	}
+
 	AssignShadowSlots();
 }
 

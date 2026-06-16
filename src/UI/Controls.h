@@ -126,6 +126,11 @@ public:
 	}
 
 	int Selected() const { return m_selected; }
+	// Reflect a selection chosen elsewhere (e.g. quality auto-setting the light
+	// budget); does not fire onSelect. Out-of-range values are ignored.
+	void SetSelected(int index) {
+		if (index >= 0 && index < static_cast<int>(items.size())) m_selected = index;
+	}
 	void Update(UIContext& ctx) override;
 	void Draw(UIContext& ctx, gfx::SpriteBatch& batch) override;
 	void DrawOverlay(UIContext& ctx, gfx::SpriteBatch& batch) override;

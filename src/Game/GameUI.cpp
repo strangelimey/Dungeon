@@ -209,6 +209,22 @@ void GameUI::BuildMenu() {
 			onQualitySelected(index);
 		});
 
+	// Video: max dynamic lights. Quality resets this to its tier value (Low=16,
+	// up to Ultra=64; SyncMaxLights re-points the dropdown afterward); picking a
+	// value here overrides it until the next quality change.
+	tabs->AddChild<ui::Label>(tabVideo, Norm({pad, pad + 92, rowW, 28}, page),
+							  loc::Tr("settings.maxlights"))
+		->dim = true;
+	std::vector<std::string> lightOptions;
+	for (int budget : kLightBudgets) lightOptions.push_back(std::to_string(budget));
+	m_maxLightsDrop = tabs->AddChild<ui::DropDown>(
+		tabVideo, Norm({pad, pad + 130, rowW, 40}, page), std::move(lightOptions),
+		GameSettings::LightBudgetIndex(m_settings.maxPointLights), [this](int index) {
+			Click();
+			m_settings.maxPointLights = kLightBudgets[index];
+			m_settings.Save();
+		});
+
 	// Audio: master volume (the slider draws its own label above the track).
 	// Live while dragging; persisted once on release.
 	auto* volume = tabs->AddChild<ui::Slider>(
@@ -527,6 +543,12 @@ void GameUI::RebuildForLanguage() {
 		AddLogLine(m_settings.MoveKeysHelp());
 		ResetHudStatus();
 	}
+}
+
+void GameUI::SyncMaxLights() {
+	if (m_maxLightsDrop)
+		m_maxLightsDrop->SetSelected(
+			GameSettings::LightBudgetIndex(m_settings.maxPointLights));
 }
 
 void GameUI::ShowSheet(size_t index) {

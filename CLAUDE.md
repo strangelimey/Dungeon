@@ -32,8 +32,10 @@ Key conventions (memorize, they bite):
 - Per-frame GPU transients come from UploadAllocator arenas (one per frame
   in flight, kFrameCount=3); steady-state frames allocate nothing on the
   heap (docs/ARCHITECTURE.md "Memory strategy").
-- Constants that must match HLSL: kMaxPointLights=16, kMaxSkinJoints=128,
-  root signature layout in Renderer.h header comment.
+- Constants that must match HLSL: kMaxPointLights=64 (the point-light array
+  CEILING = the Ultra tier; the per-frame count is a runtime budget,
+  GameSettings::maxPointLights, Low=16..Ultra=64 — see the quality system),
+  kMaxSkinJoints=128, root signature layout in Renderer.h header comment.
 - The Game lib is split by category: Game.cpp is just the app state machine
   + wiring; GameSettings (ini round-trip, quality tier, the kThemeFields/
   kBarFields/kKeyFields tables), SoundBank, LoadQueue (staged loading),
@@ -176,7 +178,11 @@ ui::TabControl
 (pages scroll: children authored past the page bottom — bounds fraction > 1 —
 trigger a per-tab scrollbar, wheel or thumb drag, page-scissored):
 quality dropdown on Video (Low/Medium/High/Ultra: mesh tier low/med/high/high
-+ textures 1k/1k/2k/4k), master-volume slider on Audio, party-bar sliders on
++ textures 1k/1k/2k/4k + point-light budget 16/32/48/64) plus a Max Lights
+dropdown on Video (GameSettings::kLightBudgets; picking a quality resets the
+budget to its tier value via Game::SetQuality → GameUI::SyncMaxLights, then
+the dropdown can override it; DungeonWorld::UpdateLights keeps the nearest-to-
+eye lights up to the budget). master-volume slider on Audio, party-bar sliders on
 UI (scale 0.5–1.5 resizes the bar about its top center and shifts the panels
 beneath it — GameUI::ApplyPartyBarScale; width is pinned at the window span,
 so above 1 the bar only grows taller; background opacity 0–1 fades the slot
@@ -193,9 +199,9 @@ key another action holds swaps the two). kKeyFields drives the rows and the
 ini round-trip; MoveKeys (Party.h) is pushed into the Party via SetKeys, and
 dungeon::KeyName (Platform/Input) renders vkey names.
 Game tab hosts the Language dropdown (see the Core/Loc bullet above).
-All persist to settings.ini next to exe (quality=0..3, language=<code>,
-volume=0..1, barscale, baropacity, theme_<name>= and bar_<name>=r,g,b,a,
-key_<action>=vkey; sliders save on release, pickers when their popup closes,
+All persist to settings.ini next to exe (quality=0..3, maxlights=16/32/48/64,
+language=<code>, volume=0..1, barscale, baropacity, theme_<name>= and
+bar_<name>=r,g,b,a, key_<action>=vkey; sliders save on release, pickers when their popup closes,
 key binds and language immediately). Quality hot-swaps in place (WaitIdle +
 rebuild); Ultra falls back per-material to 2k with a warning if 4k not
 installed.

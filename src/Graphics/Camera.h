@@ -36,8 +36,15 @@ public:
 		const XMMATRIX view = XMMatrixLookToLH(eye, dir, up);
 		const XMMATRIX proj =
 			XMMatrixPerspectiveFovLH(m_fovY, m_aspect, m_nearZ, m_farZ);
+		// The world compass is right-handed (east = +X, north = -Z, up = +Y), but
+		// LookToLH treats the basis as left-handed, which mirrors the view left/
+		// right (east would render on screen-left when facing north). Negate clip-
+		// space X to un-mirror so the first-person view matches the map overlay and
+		// the facing labels. NOTE: this flips apparent winding — the back-face-
+		// culled scene PSO compensates with FrontCounterClockwise (see Renderer.cpp).
+		const XMMATRIX mirrorX = XMMatrixScaling(-1.0f, 1.0f, 1.0f);
 		Mat4 out;
-		XMStoreFloat4x4(&out, view * proj);
+		XMStoreFloat4x4(&out, view * proj * mirrorX);
 		return out;
 	}
 

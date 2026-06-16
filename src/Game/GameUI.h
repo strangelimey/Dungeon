@@ -53,6 +53,9 @@ public:
 	// widget callback — the widget would die under its own Update. Game defers
 	// the language change to the top of the next frame instead.
 	void RebuildForLanguage();
+	// Re-point the Video tab's Max Lights dropdown at the current setting after
+	// a quality change reset the budget (Game calls this from SetQuality).
+	void SyncMaxLights();
 
 	// --- per-frame updates (which page runs is the app state's call) ------------
 	// Keeps fonts in step with the window height so text scales with the
@@ -208,6 +211,10 @@ private:
 	// The Game tab's key-bind rows, parallel to kKeyFields — kept so a
 	// rebind can swap a duplicate key out of its old row.
 	std::vector<ui::KeyBind*> m_keyBinds;
+
+	// The Video tab's Max Lights dropdown — kept so SyncMaxLights can re-point
+	// it when a quality change resets the light budget.
+	ui::DropDown* m_maxLightsDrop = nullptr;
 
 	// Installed languages (assets/lang scan), in the Game tab dropdown's
 	// order; maps the selection index back to a language code.

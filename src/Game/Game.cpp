@@ -684,6 +684,9 @@ void Game::SetQuality(Quality quality) {
 	const std::string oldTextureSuffix = m_settings.TextureSuffix();
 	m_settings.quality = quality;
 	const bool textureResChanged = oldTextureSuffix != m_settings.TextureSuffix();
+	// The light budget follows the tier; re-point the Video tab's dropdown at it.
+	m_settings.maxPointLights = GameSettings::QualityLightBudget(quality);
+	m_ui.SyncMaxLights();
 	m_settings.Save();
 	m_world.ApplyQuality(textureResChanged);
 }

@@ -119,27 +119,26 @@ void Party::Act(MoveAction action) {
 	case MoveAction::Back:
 		step(-kDirX[f], -kDirZ[f]);
 		break;
-	case MoveAction::StrafeLeft: { // strafe left (screen-left)
-		// NOTE the camera convention: facing index +1 is the on-screen LEFT
-		// direction (forward = (sin yaw, cos yaw) with yaw decreasing per
-		// +1 facing step), so left/right use the opposite offsets from what
-		// a compass walk-through would suggest.
-		const int left = (f + 1) & 3;
+	case MoveAction::StrafeLeft: { // strafe left
+		// The camera is un-mirrored (Camera::ViewProj), so facing turns the
+		// natural way: +1 is clockwise (the on-screen RIGHT direction), -1
+		// (== +3) is counter-clockwise (left). Compass offsets apply directly.
+		const int left = (f + 3) & 3;
 		step(kDirX[left], kDirZ[left]);
 		break;
 	}
-	case MoveAction::StrafeRight: { // strafe right (screen-right)
-		const int right = (f + 3) & 3;
+	case MoveAction::StrafeRight: { // strafe right
+		const int right = (f + 1) & 3;
 		step(kDirX[right], kDirZ[right]);
 		break;
 	}
-	case MoveAction::TurnLeft: // turn left (counter to screen-right)
-		m_facing = (m_facing + 1) & 3;
-		turn(-kPi * 0.5f);
-		break;
-	case MoveAction::TurnRight: // turn right
+	case MoveAction::TurnLeft: // turn left (counter-clockwise)
 		m_facing = (m_facing + 3) & 3;
 		turn(kPi * 0.5f);
+		break;
+	case MoveAction::TurnRight: // turn right (clockwise)
+		m_facing = (m_facing + 1) & 3;
+		turn(-kPi * 0.5f);
 		break;
 	}
 }

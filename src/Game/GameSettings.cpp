@@ -7,14 +7,22 @@
 #include "Core/Loc.h"
 #include "Core/Log.h"
 #include "Core/Paths.h"
-#include "Platform/Input.h" // KeyName
+#include "Graphics/Lights.h" // kMaxPointLights (the Ultra-tier ceiling)
+#include "Platform/Input.h"  // KeyName
 
 #include <algorithm>
 #include <cctype>
 #include <charconv>
+#include <cstdlib>
 #include <format>
+#include <iterator>
 
 namespace dungeon::game {
+
+// The Ultra budget IS the renderer's hard ceiling, and there is exactly one
+// budget per quality tier — keep both in sync at compile time.
+static_assert(kLightBudgets[std::size(kLightBudgets) - 1] == gfx::kMaxPointLights);
+static_assert(std::size(kLightBudgets) == static_cast<size_t>(Quality::Ultra) + 1);
 
 namespace {
 
@@ -76,6 +84,17 @@ void GameSettings::Load() {
 			quality = static_cast<Quality>(digit - '0');
 	}
 
+	// The light budget follows the quality tier unless explicitly overridden.
+	maxPointLights = QualityLightBudget(quality);
+	const size_t mlpos = text.find("maxlights=");
+	if (mlpos != std::string::npos) {
+		int parsed = 0;
+		if (std::from_chars(text.data() + mlpos + 10, text.data() + text.size(),
+							parsed)
+				.ec == std::errc{})
+			maxPointLights = kLightBudgets[LightBudgetIndex(parsed)];
+	}
+
 	const size_t lpos = text.find("language=");
 	if (lpos != std::string::npos) {
 		size_t end = lpos + 9;
@@ -114,8 +133,8 @@ void GameSettings::Load() {
 
 void GameSettings::Save() const {
 	std::string text = std::format(
-		"quality={}\nlanguage={}\nvolume={:.2f}\nbarscale={:.2f}\nbaropacity={:.2f}\n",
-		static_cast<int>(quality), language, volume, partyBarScale,
+		"quality={}\nmaxlights={}\nlanguage={}\nvolume={:.2f}\nbarscale={:.2f}\nbaropacity={:.2f}\n",
+		static_cast<int>(quality), maxPointLights, language, volume, partyBarScale,
 		partyBarOpacity);
 	for (const ThemeField& field : kThemeFields) {
 		const Vec4& c = theme.*(field.field);
@@ -153,6 +172,14 @@ const char* GameSettings::TextureSuffix() const {
 	case Quality::High:  return "2k";
 	default:             return "1k";
 	}
+}
+
+int GameSettings::LightBudgetIndex(int value) {
+	int best = 0;
+	for (int i = 1; i < static_cast<int>(std::size(kLightBudgets)); ++i)
+		if (std::abs(kLightBudgets[i] - value) < std::abs(kLightBudgets[best] - value))
+			best = i;
+	return best;
 }
 
 const char* GameSettings::QualityLabel() const {
