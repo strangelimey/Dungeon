@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <cmath>
 #include <format>
+#include <queue>
 
 using namespace DirectX;
 
@@ -332,6 +333,7 @@ DungeonWorld::MonsterKind& DungeonWorld::MonsterKindFor(const std::string& type)
 			assets->armor = def->GetFloat("armor", 0.0f);
 			assets->attackInterval = def->GetFloat("attackcd", 1.6f);
 			assets->aggroRange = def->GetFloat("aggro", 6.0f);
+			assets->moveInterval = def->GetFloat("movecd", 0.6f);
 		}
 		it = m_monsterKinds.emplace(type, std::move(assets)).first;
 	}
@@ -351,6 +353,7 @@ void DungeonWorld::LoadMonsters() {
 		monster.yaw = DirYaw(spawn.facing);
 		monster.facing = spawn.facing;
 		monster.hp = kind.maxHp;
+		monster.visualPos = m_map.CellCenter(monster.x, monster.z);
 		monster.animator = anim::Animator(&kind.model.skeleton, &kind.model.clips);
 		monster.animator.Play("idle");
 		monster.animator.Update(static_cast<float>(phase++) * 0.7f); // desync idles
@@ -601,6 +604,14 @@ void DungeonWorld::ResetForNewGame() {
 		monster.announced = false;
 		monster.hp = monster.MaxHp();
 		monster.attackCd = 0.0f;
+		// Monsters roam now (AI v1) — return them to their .ent spawn cell and
+		// clear any in-flight glide so a same-level new game starts clean.
+		monster.x = monster.spawnX;
+		monster.z = monster.spawnZ;
+		monster.moving = false;
+		monster.moveT = 0.0f;
+		monster.moveCd = 0.0f;
+		monster.visualPos = m_map.CellCenter(monster.x, monster.z);
 	}
 	m_partyWiped = false;
 	std::fill(m_seen.begin(), m_seen.end(), static_cast<u8>(0));
@@ -644,6 +655,9 @@ void DungeonWorld::ApplyActiveSnapshot() {
 				m.z = e.z;
 				m.announced = e.announced;
 				if (e.hp >= 0.0f) m.hp = e.hp; // -1 = older save → keep spawn hp
+				m.moving = false; // snap to the saved cell, no glide from origin
+				m.moveT = 0.0f;
+				m.visualPos = m_map.CellCenter(m.x, m.z);
 				break;
 			}
 	m_levelStates.erase(it); // the live state is authoritative now
@@ -734,6 +748,7 @@ bool DungeonWorld::AddMonster(const std::string& type, int x, int z,
 	monster.yaw = DirYaw(facing);
 	monster.facing = facing;
 	monster.hp = kind.maxHp;
+	monster.visualPos = m_map.CellCenter(x, z);
 	monster.animator = anim::Animator(&kind.model.skeleton, &kind.model.clips);
 	monster.animator.Play("idle");
 	m_monsters.push_back(std::move(monster));
@@ -1231,22 +1246,41 @@ void DungeonWorld::UpdateMonsters(float dt) {
 		for (Character& member : *m_roster)
 			if (member.attackCooldown > 0.0f) member.attackCooldown -= dt;
 
-	for (Monster& monster : m_monsters) {
+	for (size_t i = 0; i < m_monsters.size(); ++i) {
+		Monster& monster = m_monsters[i];
 		if (!monster.Alive()) continue; // downed — no animation, no AI, not solid
 		monster.animator.Update(dt);
 		if (monster.attackCd > 0.0f) monster.attackCd -= dt;
+		if (monster.moveCd > 0.0f) monster.moveCd -= dt;
+
+		// Advance an in-flight glide; the logical cell already moved when the
+		// step committed, so the tween just slides visualPos to the new centre.
+		if (monster.moving) {
+			monster.moveT += dt / std::max(monster.kind->moveInterval, 0.05f);
+			const Vec3 target = m_map.CellCenter(monster.x, monster.z);
+			if (monster.moveT >= 1.0f) {
+				monster.moving = false;
+				monster.moveT = 0.0f;
+				monster.visualPos = target;
+			} else {
+				const float s = monster.moveT * monster.moveT *
+								(3.0f - 2.0f * monster.moveT); // smoothstep
+				monster.visualPos = {monster.moveFrom.x + (target.x - monster.moveFrom.x) * s,
+									 monster.moveFrom.y + (target.y - monster.moveFrom.y) * s,
+									 monster.moveFrom.z + (target.z - monster.moveFrom.z) * s};
+			}
+		}
 
 		const int dx = std::abs(monster.x - m_party.GridX());
 		const int dz = std::abs(monster.z - m_party.GridZ());
 		const int dist = std::max(dx, dz); // Chebyshev cells to the party
-
-		// Turn to face the party once it is within reach (blobs don't bother).
-		// Distant monsters idle in their spawn facing — this is the only thing
-		// the aggro range governs while monsters are stationary (AI v0).
-		const Vec3 pos = m_map.CellCenter(monster.x, monster.z);
 		const bool engaged = static_cast<float>(dist) <= monster.kind->aggroRange;
+
+		// Turn to face the party once engaged (blobs don't bother). Based on the
+		// visual position so the turn glides with the step.
 		if (engaged && monster.kind->name != "blob")
-			monster.yaw = std::atan2(partyPos.x - pos.x, partyPos.z - pos.z);
+			monster.yaw = std::atan2(partyPos.x - monster.visualPos.x,
+									 partyPos.z - monster.visualPos.z);
 
 		// Announce once when the party first comes adjacent.
 		if (!monster.announced && dist <= 1) {
@@ -1256,9 +1290,77 @@ void DungeonWorld::UpdateMonsters(float dt) {
 			m_audio.Play(m_sounds.monster, 0.7f);
 		}
 
-		// Melee: adjacent + off cooldown -> swing at a random standing member.
-		if (dist <= 1 && monster.attackCd <= 0.0f) MonsterAttack(monster);
+		// Chase: engaged and not yet adjacent -> step one cell toward the party
+		// (logical cell snaps now, the glide above carries the visual). Adjacent
+		// and off cooldown -> swing at a random standing member instead.
+		if (dist <= 1) {
+			if (monster.attackCd <= 0.0f) MonsterAttack(monster);
+		} else if (engaged && !monster.moving && monster.moveCd <= 0.0f) {
+			int nx = 0, nz = 0;
+			if (NextStepToward(monster, i, nx, nz)) {
+				monster.moveFrom = monster.visualPos;
+				monster.x = nx;
+				monster.z = nz;
+				monster.moving = true;
+				monster.moveT = 0.0f;
+				monster.moveCd = monster.kind->moveInterval;
+			}
+		}
 	}
+}
+
+bool DungeonWorld::CellFreeForMonster(int x, int z, size_t self) const {
+	if (!m_map.IsWalkable(x, z)) return false;
+	if (x == m_party.GridX() && z == m_party.GridZ()) return false;
+	for (size_t i = 0; i < m_monsters.size(); ++i) {
+		if (i == self) continue;
+		const Monster& o = m_monsters[i];
+		if (o.Alive() && o.x == x && o.z == z) return false;
+	}
+	return true;
+}
+
+bool DungeonWorld::NextStepToward(const Monster& monster, size_t self, int& outX,
+								  int& outZ) {
+	const int W = m_map.Width(), H = m_map.Height();
+	if (W <= 0 || H <= 0) return false;
+	const int startIdx = monster.z * W + monster.x;
+	const int goalIdx = m_party.GridZ() * W + m_party.GridX();
+
+	m_pathFrom.assign(static_cast<size_t>(W) * H, -1);
+	std::queue<int> open;
+	m_pathFrom[startIdx] = startIdx; // self-parent = visited sentinel
+	open.push(startIdx);
+
+	static constexpr int kDX[4] = {1, -1, 0, 0};
+	static constexpr int kDZ[4] = {0, 0, 1, -1};
+	bool found = false;
+	while (!open.empty()) {
+		const int cur = open.front();
+		open.pop();
+		if (cur == goalIdx) { found = true; break; }
+		const int cx = cur % W, cz = cur / W;
+		for (int d = 0; d < 4; ++d) {
+			const int nx = cx + kDX[d], nz = cz + kDZ[d];
+			if (nx < 0 || nz < 0 || nx >= W || nz >= H) continue;
+			const int nidx = nz * W + nx;
+			if (m_pathFrom[nidx] != -1) continue; // already visited
+			// The goal (party cell) is reachable as the BFS target even though a
+			// monster can't stand on it; every other cell must be free to walk.
+			if (nidx != goalIdx && !CellFreeForMonster(nx, nz, self)) continue;
+			if (nidx == goalIdx && !m_map.IsWalkable(nx, nz)) continue;
+			m_pathFrom[nidx] = cur;
+			open.push(nidx);
+		}
+	}
+	if (!found) return false;
+
+	// Walk the predecessors back from the goal to the first step off the start.
+	int cur = goalIdx;
+	while (m_pathFrom[cur] != startIdx) cur = m_pathFrom[cur];
+	outX = cur % W;
+	outZ = cur / W;
+	return true;
 }
 
 // One monster strike against a random standing party member. Sets the swing
@@ -1529,7 +1631,7 @@ void DungeonWorld::SubmitSceneGeometry(ID3D12GraphicsCommandList* list,
 	for (const Monster& monster : m_monsters) {
 		if (!monster.Alive()) continue; // downed monsters don't draw
 		const MonsterKind& kind = *monster.kind;
-		const Vec3 pos = m_map.CellCenter(monster.x, monster.z);
+		const Vec3 pos = monster.visualPos; // glides between cells while chasing
 		if (!visible({pos.x, 1.0f, pos.z}, 1.5f)) continue;
 		Mat4 world;
 		XMStoreFloat4x4(&world, XMMatrixRotationY(monster.yaw) *

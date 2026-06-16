@@ -8,6 +8,7 @@
 ;   armor    = flat damage soaked per hit
 ;   attackcd = seconds between the monster's swings
 ;   aggro    = cells of party distance at which it engages
+;   movecd   = seconds per grid step while chasing (lower = faster)
 ; Level .ent monster records reference these ids.
 
 [skeleton]
@@ -21,6 +22,7 @@ defense = 0.1
 armor = 0
 attackcd = 1.6
 aggro = 6
+movecd = 0.45
 
 [blob]
 display = Blob
@@ -33,6 +35,7 @@ defense = 0.0
 armor = 1
 attackcd = 2.2
 aggro = 4
+movecd = 0.95
 
 [mummy]
 display = Mummy
@@ -45,3 +48,4 @@ defense = 0.05
 armor = 1
 attackcd = 2.0
 aggro = 5
+movecd = 0.7

@@ -273,6 +273,7 @@ private:
 		float armor = 0.0f;
 		float attackInterval = 1.6f; // seconds between swings
 		float aggroRange = 6.0f;     // cells of party distance to engage at
+		float moveInterval = 0.6f;   // seconds per grid step while chasing
 	};
 	struct Monster {
 		const MonsterKind* kind = nullptr; // points into m_monsterKinds (stable)
@@ -284,6 +285,16 @@ private:
 		bool announced = false;
 		float hp = 1.0f;          // current hit points (maxHp at spawn)
 		float attackCd = 0.0f;    // seconds until this monster can swing again
+
+		// Chase movement (AI v1). The logical cell (x,z) snaps the instant a step
+		// commits — like the party — so occupancy/blocking is atomic; visualPos
+		// glides from moveFrom to the new cell centre over moveInterval. moveCd
+		// gates the next step. Set visualPos = CellCenter(x,z) at spawn/load.
+		Vec3 visualPos{};
+		Vec3 moveFrom{};
+		float moveT = 0.0f;     // 0..1 tween progress while moving
+		float moveCd = 0.0f;    // seconds until the next step is allowed
+		bool moving = false;
 		anim::Animator animator;
 
 		float MaxHp() const { return kind ? kind->maxHp : 1.0f; }
@@ -410,6 +421,14 @@ private:
 	// One monster's melee strike against a random standing party member (called
 	// from UpdateMonsters when the monster is adjacent and off cooldown).
 	void MonsterAttack(Monster& monster);
+	// True if a monster may stand on (x,z): in bounds, walkable, not the party
+	// cell, and not occupied by another LIVE monster (self excluded by index).
+	bool CellFreeForMonster(int x, int z, size_t self) const;
+	// First grid step (4-connected BFS over walkable, monster-free cells) from
+	// `monster` toward the party cell; writes the next cell to outX/outZ and
+	// returns true when a path step exists. The party cell is the goal (never
+	// stepped onto — callers only move when not already adjacent).
+	bool NextStepToward(const Monster& monster, size_t self, int& outX, int& outZ);
 	void AssignShadowSlots();
 
 	// True if a continuously-animating caster (a monster, or the swaying pillar)
@@ -513,6 +532,9 @@ private:
 	std::vector<Character>* m_roster = nullptr;
 	std::mt19937 m_combatRng{0xC0FFEEu};
 	bool m_partyWiped = false; // latches onPartyWipe so it fires once
+	// BFS scratch reused across NextStepToward calls (sized to the map): the
+	// predecessor cell index per cell, -1 = unvisited. Avoids per-step allocs.
+	mutable std::vector<int> m_pathFrom;
 
 	std::flat_map<std::string, std::unique_ptr<DecorationKind>> m_decorationKinds;
 	// unique_ptr so DecorationKind::tex stays valid as more sets are added
