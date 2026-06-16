@@ -1069,6 +1069,8 @@ void DungeonWorld::UpdateLights(float time) {
 		light.intensity = base * (0.9f + 0.1f * std::sin(time * 11.0f + fire.phase) *
 											 std::sin(time * 7.3f + fire.phase));
 		light.flickerShadow = true; // wandering origin → throttle its shadow cube
+		light.longShadowFade = fire.brazier; // braziers fade over their long reach;
+											 // sconces keep near-field shadows crisp
 		m_lights.points.push_back(light);
 	}
 
@@ -1162,13 +1164,18 @@ void DungeonWorld::AssignShadowSlots() {
 	}
 	std::ranges::sort(m_shadowCandidates);
 
-	// The shadow fades in across most of the light's reach for a long, gentle
-	// ramp: it begins at the radius edge and reaches full a cell or so from the
-	// light. Anchored to a fraction of each light's OWN radius — a STABLE
-	// per-light distance, unlike the rank cutoff that drifts with how many
-	// lights are near — so a far-reaching brazier fades over many cells while a
-	// small glow fades over a few. Smoothstep (not linear) softens both ends.
-	constexpr float kFadeStartFrac = 0.12f; // inner edge = 12% of the radius
+	// Two fade profiles, both ending at the light's radius and smoothstepped
+	// (softer than linear), anchored to per-light distance (a STABLE quantity,
+	// unlike the rank cutoff that drifts with how many lights are near):
+	//   - longShadowFade (braziers): fade across most of the reach, from 12% of
+	//     the radius out — a long LOD ramp the big brazier radius is sized for.
+	//   - default (sconces, glows): keep full strength except in the outer band,
+	//     so a caster beside a normal-radius light still casts a visible shadow
+	//     at viewing distance instead of fading out under the brazier tuning.
+	constexpr float kFadeStartFrac = 0.12f;       // long ramp: inner edge = 12% of radius
+	constexpr float kEdgeFadeBand = 1.5f * kCellSize; // default: soften the outer ~1.5 cells
+													  // (wide enough that a sconce winning a
+													  // slot mostly ramps in rather than pops)
 
 	const size_t count = std::min<size_t>(m_shadowCandidates.size(), gfx::kShadowSlots);
 	m_prevShadowPos.clear();
@@ -1183,7 +1190,9 @@ void DungeonWorld::AssignShadowSlots() {
 			const Vec3 d = Sub(light.position, eye);
 			const float dist = std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z);
 			const float fadeEnd = light.radius;
-			const float fadeStart = fadeEnd * kFadeStartFrac;
+			const float fadeStart = light.longShadowFade
+				? fadeEnd * kFadeStartFrac
+				: std::max(0.0f, fadeEnd - kEdgeFadeBand);
 			const float t = (fadeEnd > fadeStart)
 				? std::clamp((fadeEnd - dist) / (fadeEnd - fadeStart), 0.0f, 1.0f)
 				: 1.0f;

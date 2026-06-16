@@ -40,6 +40,13 @@ struct PointLight {
 	// (e.g. the pillar glow casting its coil shadows) rather than a fire that
 	// should dissolve in as you approach.
 	bool fadeShadow = true;
+	// When true the shadow fades gradually across most of the light's reach (a
+	// long LOD ramp — used by braziers, which carry a large radius for it). When
+	// false only the outer edge of the reach softens, so a normal-radius light
+	// (a wall sconce) keeps full-strength shadows at typical viewing distance —
+	// a caster beside it still reads instead of fading out under the brazier
+	// tuning. Ignored when fadeShadow is false.
+	bool longShadowFade = false;
 	// This light's position jitters every frame for flicker (fires). The shadow
 	// cache throttles such cubes on a frame interval instead of re-rendering on
 	// every sub-pixel wander; steady lights (torch, glow) cache until they move.
