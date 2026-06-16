@@ -202,6 +202,19 @@ void GraphicsDevice::Resize(u32 width, u32 height) {
 	CreateSizeDependentResources();
 }
 
+// Flip-model swap chains REQUIRE a ResizeBuffers after every fullscreen<->
+// windowed transition, even when the pixel size is unchanged — otherwise the
+// next Present fails (DXGI MISCELLANEOUS ERROR #117). The transition's own
+// WM_SIZE can early-out of Resize() when the dimensions match, so SetFullscreen
+// calls this unconditionally after each SetFullscreenState.
+void GraphicsDevice::RecreateSwapChainBuffers() {
+	WaitIdle();
+	ReleaseSizeDependentResources();
+	DN_HR(m_swapchain->ResizeBuffers(kFrameCount, m_width, m_height, kBackBufferFormat,
+									 m_swapFlags));
+	CreateSizeDependentResources();
+}
+
 // ----------------------------------------------------------------------------
 // Full-screen control. Exclusive mode targets a specific output (monitor) of
 // the active adapter and optionally requests a display mode; the SetFullscreen
@@ -219,7 +232,10 @@ void GraphicsDevice::SetFullscreen(bool exclusive, u32 outputIndex, u32 width,
 	if (!exclusive) {
 		if (currentlyFs) {
 			m_swapchain->SetFullscreenState(FALSE, nullptr);
-			// A WM_SIZE follows from the restored window; nothing more to do.
+			// A WM_SIZE follows from the restored window, but it may report the
+			// same size and early-out of Resize(); the flip model still demands a
+			// ResizeBuffers post-transition. The caller resizes the window next.
+			RecreateSwapChainBuffers();
 		}
 		return;
 	}
@@ -248,6 +264,10 @@ void GraphicsDevice::SetFullscreen(bool exclusive, u32 outputIndex, u32 width,
 		mode.Format = kBackBufferFormat;
 		m_swapchain->ResizeTarget(&mode);
 	}
+	// Mandatory post-transition rebuild: the WM_SIZE above early-outs of Resize()
+	// when the fullscreen size matches the prior window size, so do it here or the
+	// next Present aborts (DXGI #117).
+	RecreateSwapChainBuffers();
 }
 
 // ----------------------------------------------------------------------------

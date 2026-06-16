@@ -114,6 +114,9 @@ public:
 private:
 	void CreateSizeDependentResources();
 	void ReleaseSizeDependentResources();
+	// Unconditional back-buffer rebuild at the current size — required by
+	// flip-model swap chains after every fullscreen<->windowed transition.
+	void RecreateSwapChainBuffers();
 
 	u32 m_width = 0;
 	u32 m_height = 0;
