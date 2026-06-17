@@ -200,6 +200,9 @@ private:
 	// A left-click landed on member `i`'s portrait: when holding a tablet, drop
 	// it into that member's first free backpack slot (else open the sheet).
 	void OnPortraitClick(size_t i);
+	// A right-click on member `i`'s portrait: opens the inventory focused on that
+	// member (so a carried tablet can be dropped into their backpack).
+	void OnPortraitRightClick(size_t i);
 	// A left-click landed on member `i`'s hand `hand`: place the held tablet
 	// there (swapping any occupant onto the cursor), else pick the hand's item up
 	// onto the cursor, else (empty hand, empty cursor) swing that hand.

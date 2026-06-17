@@ -119,6 +119,11 @@ void GameUI::OnPortraitClick(size_t i) {
 	onOpenSheet(i); // empty-handed: the portrait opens the sheet as before
 }
 
+void GameUI::OnPortraitRightClick(size_t i) {
+	if (i >= m_characters.size() || !m_inventory) return;
+	m_inventory->Open(static_cast<int>(i)); // that member's column, highlighted
+}
+
 void GameUI::OnHandLeftClick(size_t i, size_t hand) {
 	if (i >= m_characters.size() || hand > 1) return;
 	ItemSlot& slot = m_characters[i].inventory.hands[hand];
@@ -984,7 +989,8 @@ void GameUI::BuildHud() {
 	for (size_t i = 0; i < m_characters.size() && i < 4; ++i) {
 		auto* panel = m_hudUi.Add<CharacterPanel>(
 			gfx::Rect{}, &m_characters[i], &m_titleFont, &m_settings.barColors,
-			m_hitSplats, [this, i] { OnPortraitClick(i); });
+			m_hitSplats, [this, i] { OnPortraitClick(i); },
+			[this, i] { OnPortraitRightClick(i); });
 		panel->backgroundOpacity = m_settings.partyBarOpacity;
 		m_partyPanels.push_back(panel);
 	}

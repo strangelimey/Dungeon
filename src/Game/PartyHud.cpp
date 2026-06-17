@@ -52,9 +52,11 @@ CharacterPanel::CharacterPanel(const gfx::Rect& rect, const Character* character
 							   const ui::Font* portraitFont,
 							   const ResourceBarColors* barColors,
 							   const HitSplatIcons* hitSplats,
-							   std::function<void()> onClick)
+							   std::function<void()> onClick,
+							   std::function<void()> onRight)
 	: m_character(character), m_portraitFont(portraitFont), m_barColors(barColors),
-	  m_hitSplats(hitSplats), m_onClick(std::move(onClick)) {
+	  m_hitSplats(hitSplats), m_onClick(std::move(onClick)),
+	  m_onRight(std::move(onRight)) {
 	bounds = rect;
 }
 
@@ -65,11 +67,16 @@ void CharacterPanel::Update(ui::UIContext& ctx) {
 			Pixel().Contains(input->MouseX(), input->MouseY());
 	if (m_hot) {
 		if (input->WasMousePressed(MouseButton::Left)) m_held = true;
+		if (input->WasMousePressed(MouseButton::Right)) m_heldRight = true;
 		ctx.ConsumeMouse();
 	}
 	if (m_held && input->WasMouseReleased(MouseButton::Left)) {
 		if (m_hot && m_onClick) m_onClick();
 		m_held = false;
+	}
+	if (m_heldRight && input->WasMouseReleased(MouseButton::Right)) {
+		if (m_hot && m_onRight) m_onRight();
+		m_heldRight = false;
 	}
 }
 
@@ -193,22 +200,33 @@ InventoryWindow::InventoryWindow(std::vector<Character>* roster,
 	: m_roster(roster), m_icons(icons), m_held(held),
 	  m_title(loc::Tr("ui.inventory")) {}
 
+int InventoryWindow::DisplayCount() const {
+	if (m_solo >= 0) return 1;
+	return static_cast<int>(std::min<size_t>(m_roster->size(), 4));
+}
+
+size_t InventoryWindow::MemberAtColumn(int col) const {
+	return m_solo >= 0 ? static_cast<size_t>(m_solo) : static_cast<size_t>(col);
+}
+
 gfx::Rect InventoryWindow::PanelRect(const ui::UIContext& ctx) const {
-	const float w = std::min(ctx.Width() * 0.72f, 960.0f);
+	// A solo backpack is a slim panel; the whole party is a wide one.
+	const float w = m_solo >= 0 ? std::min(ctx.Width() * 0.22f, 320.0f)
+								 : std::min(ctx.Width() * 0.72f, 960.0f);
 	const float h = std::min(ctx.Height() * 0.54f, 560.0f);
 	return {(ctx.Width() - w) * 0.5f, (ctx.Height() - h) * 0.5f, w, h};
 }
 
-gfx::Rect InventoryWindow::SlotRect(const gfx::Rect& panel, size_t member,
-									int slot) const {
-	const size_t n = std::min<size_t>(m_roster->size(), 4);
-	const float colW = (panel.w - 2 * kInvPad) / static_cast<float>(std::max<size_t>(n, 1));
-	const float colX = panel.x + kInvPad + static_cast<float>(member) * colW;
+gfx::Rect InventoryWindow::SlotRect(const gfx::Rect& panel, int col, int slot) const {
+	const float colW = (panel.w - 2 * kInvPad) / static_cast<float>(DisplayCount());
+	const float colX = panel.x + kInvPad + static_cast<float>(col) * colW;
 	const float slotsTop = panel.y + kInvPad + kInvHeader + 24.0f; // title + name
 	const float innerW = colW - 12.0f;
-	const float slotW = (innerW - kInvGap) / static_cast<float>(kInvCols);
-	const int col = slot % kInvCols, row = slot / kInvCols;
-	return {colX + 6.0f + static_cast<float>(col) * (slotW + kInvGap),
+	// Cap the slot size so a wide (solo) column doesn't blow them up, and so all
+	// four backpack rows fit the panel height.
+	const float slotW = std::min((innerW - kInvGap) / static_cast<float>(kInvCols), 96.0f);
+	const int sc = slot % kInvCols, row = slot / kInvCols;
+	return {colX + 6.0f + static_cast<float>(sc) * (slotW + kInvGap),
 			slotsTop + static_cast<float>(row) * (slotW + kInvGap), slotW, slotW};
 }
 
@@ -217,16 +235,16 @@ void InventoryWindow::Update(ui::UIContext& ctx) {
 	const Input* input = ctx.CurrentInput();
 	if (!input) return;
 	const gfx::Rect panel = PanelRect(ctx);
-	const size_t n = std::min<size_t>(m_roster->size(), 4);
 	const bool left = input->WasMousePressed(MouseButton::Left);
 	const bool right = input->WasMousePressed(MouseButton::Right);
 	const float mx = input->MouseX(), my = input->MouseY();
 
 	if (left) {
-		for (size_t m = 0; m < n; ++m) {
+		for (int c = 0; c < DisplayCount(); ++c) {
+			const size_t member = MemberAtColumn(c);
 			for (int i = 0; i < kBackpackSlots; ++i) {
-				if (!SlotRect(panel, m, i).Contains(mx, my)) continue;
-				ItemSlot& s = (*m_roster)[m].inventory.backpack[i];
+				if (!SlotRect(panel, c, i).Contains(mx, my)) continue;
+				ItemSlot& s = (*m_roster)[member].inventory.backpack[i];
 				if (m_held && m_held->has_value()) {
 					// Place held tablet; any occupant goes back onto the cursor.
 					std::string incoming = **m_held;
@@ -258,17 +276,17 @@ void InventoryWindow::DrawOverlay(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	ui::DrawBorder(batch, panel, theme.panelBorder);
 	font.Draw(batch, m_title, panel.x + kInvPad, panel.y + kInvPad, theme.accent);
 
-	const size_t n = std::min<size_t>(m_roster->size(), 4);
-	const float colW = (panel.w - 2 * kInvPad) / static_cast<float>(std::max<size_t>(n, 1));
-	for (size_t m = 0; m < n; ++m) {
-		const float colX = panel.x + kInvPad + static_cast<float>(m) * colW;
-		font.Draw(batch, (*m_roster)[m].name, colX + 6.0f,
-				  panel.y + kInvPad + kInvHeader, theme.textDim);
+	const float colW = (panel.w - 2 * kInvPad) / static_cast<float>(DisplayCount());
+	for (int c = 0; c < DisplayCount(); ++c) {
+		const size_t member = MemberAtColumn(c);
+		const float colX = panel.x + kInvPad + static_cast<float>(c) * colW;
+		font.Draw(batch, (*m_roster)[member].name, colX + 6.0f,
+				  panel.y + kInvPad + kInvHeader, theme.text);
 		for (int i = 0; i < kBackpackSlots; ++i) {
-			const gfx::Rect r = SlotRect(panel, m, i);
+			const gfx::Rect r = SlotRect(panel, c, i);
 			batch.DrawRect(r, theme.control);
 			ui::DrawBorder(batch, r, theme.panelBorder);
-			const ItemSlot& s = (*m_roster)[m].inventory.backpack[i];
+			const ItemSlot& s = (*m_roster)[member].inventory.backpack[i];
 			if (!s.Empty() && m_icons) {
 				if (const gfx::Texture* icon = m_icons->For(s.typeId)) {
 					const float pad = r.w * 0.1f;

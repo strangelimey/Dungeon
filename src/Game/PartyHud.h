@@ -70,9 +70,12 @@ class CharacterPanel : public ui::Widget {
 public:
 	// portraitFont draws the big placeholder initial (the Game passes its
 	// title font, which tracks the window scale like everything else).
+	// onClick fires on a left click (open the sheet / place a held tablet);
+	// onRight on a right click (open this member's inventory).
 	CharacterPanel(const gfx::Rect& rect, const Character* character,
 				   const ui::Font* portraitFont, const ResourceBarColors* barColors,
-				   const HitSplatIcons* hitSplats, std::function<void()> onClick);
+				   const HitSplatIcons* hitSplats, std::function<void()> onClick,
+				   std::function<void()> onRight);
 
 	void Update(ui::UIContext& ctx) override;
 	void Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) override;
@@ -87,8 +90,10 @@ private:
 	const ResourceBarColors* m_barColors;
 	const HitSplatIcons* m_hitSplats; // may be null (icons not loaded)
 	std::function<void()> m_onClick;
+	std::function<void()> m_onRight;
 	bool m_hot = false;
-	bool m_held = false;
+	bool m_held = false;      // left-button press latched on this panel
+	bool m_heldRight = false; // right-button press latched on this panel
 };
 
 class HandSlot : public ui::Widget {
@@ -128,7 +133,10 @@ public:
 	InventoryWindow(std::vector<Character>* roster, const ItemIconBank* icons,
 					std::optional<std::string>* held);
 
-	void Open() { m_open = true; }
+	// member >= 0 shows ONLY that member's backpack (right-clicking their
+	// portrait); -1 shows the whole party, one column each (right-clicking the
+	// world while holding).
+	void Open(int member = -1) { m_open = true; m_solo = member; }
 	void Close() { m_open = false; }
 	bool IsOpen() const { return m_open; }
 
@@ -137,13 +145,18 @@ public:
 	void DrawOverlay(ui::UIContext& ctx, gfx::SpriteBatch& batch) override;
 
 private:
+	// Columns shown this open: 1 (solo) or the whole party.
+	int DisplayCount() const;
+	// The roster member behind display column `col`.
+	size_t MemberAtColumn(int col) const;
 	gfx::Rect PanelRect(const ui::UIContext& ctx) const;
-	gfx::Rect SlotRect(const gfx::Rect& panel, size_t member, int slot) const;
+	gfx::Rect SlotRect(const gfx::Rect& panel, int col, int slot) const;
 
 	std::vector<Character>* m_roster;
 	const ItemIconBank* m_icons;
 	std::optional<std::string>* m_held;
 	bool m_open = false;
+	int m_solo = -1;     // a single member's view (-1 = whole party)
 	std::string m_title; // localized once at construction
 };
 
