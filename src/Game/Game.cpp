@@ -86,10 +86,15 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 		m_state = AppState::Menu;
 		m_ui.ResetToMainPage();
 	};
-	// A rune was stepped on: hold it in the satchel until a member memorizes it.
+	// A rune was picked up: drop the tablet into the lead member's backpack.
+	// (Interim until P3 routes pickup onto the cursor; the rune's catalog id is
+	// rune_<symbol>.)
 	m_world.onRunePickup = [this](SpellSymbol s) {
-		m_satchel.push_back(s);
-		m_ui.AddLogLine(loc::Format("log.rune_found", loc::Tr(SymbolKey(s))));
+		const std::string typeId = std::format("rune_{}", SymbolId(s));
+		if (!m_characters.empty() && m_characters[0].inventory.AddToBackpack(typeId))
+			m_ui.AddLogLine(loc::Format("log.rune_found", loc::Tr(SymbolKey(s))));
+		else
+			m_ui.AddLogLine(loc::Tr("log.pack_full"));
 	};
 	m_ui.onStartNewGame = [this] {
 		if (m_gameLoaded) {
@@ -443,7 +448,7 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 						   m_console.Print(std::format("{} learned {}", m_characters[m].name,
 													   SymbolId(sym)));
 					   });
-	m_console.Register("rune", "drop a rune symbol into the party satchel (dev)",
+	m_console.Register("rune", "give a rune tablet to the lead member's pack (dev)",
 					   [this](const std::vector<std::string>& args) {
 						   if (!Need(m_console, args, 1,
 									 "usage: rune <fire|earth|air|water>"))
@@ -453,8 +458,12 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 							   m_console.Print("symbol must be fire/earth/air/water");
 							   return;
 						   }
-						   m_satchel.push_back(sym);
-						   m_console.Print(std::format("satchel += {}", SymbolId(sym)));
+						   const std::string typeId = std::format("rune_{}", SymbolId(sym));
+						   if (m_characters.empty() ||
+							   !m_characters[0].inventory.AddToBackpack(typeId))
+							   m_console.Print("pack full (or no party)");
+						   else
+							   m_console.Print(std::format("pack += {}", typeId));
 					   });
 	m_console.Register("timescale", "scale sim speed (1 normal, 0 freeze)",
 					   [this](const std::vector<std::string>& args) {
@@ -650,8 +659,7 @@ void Game::ResetRoster() {
 
 void Game::StartNewGame() {
 	m_world.ResetForNewGame();
-	ResetRoster();
-	m_satchel.clear(); // a fresh party has memorized nothing and holds no runes
+	ResetRoster(); // fresh members carry empty inventories + no known symbols
 	m_ui.RefreshSheet();
 	ApplyPartySpeed();
 
@@ -690,7 +698,7 @@ void Game::SaveGame(const std::string& name) {
 		data.characters.push_back({member.health, member.maxHealth, member.stamina,
 								   member.maxStamina, member.mana, member.maxMana,
 								   member.knownSymbols});
-	for (SpellSymbol s : m_satchel) data.satchel.push_back(static_cast<int>(s));
+	// (Per-character inventory + floor items are serialized in P7.)
 	WriteSave(data, SaveSlotPath(name));
 }
 
@@ -716,10 +724,6 @@ bool Game::LoadGame(const std::string& path) {
 		m_characters[i].mana = c.mana;         m_characters[i].maxMana = c.maxMana;
 		m_characters[i].knownSymbols = c.knownSymbols;
 	}
-	m_satchel.clear();
-	for (int s : data->satchel)
-		if (s >= 0 && s < static_cast<int>(kSymbolCount))
-			m_satchel.push_back(static_cast<SpellSymbol>(s));
 	m_world.ApplyState(*data); // fills the per-level store + party pose/torch
 
 	m_ui.RefreshSheet();

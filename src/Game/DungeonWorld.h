@@ -316,6 +316,7 @@ private:
 	// Future items (weapons/consumables) add a mesh/icon here.
 	struct ItemKind {
 		std::string id;        // catalog id (the .ent record type)
+		std::string nameKey;   // loc key for the display name ("item.rune_fire")
 		bool isRune = false;
 		SpellSymbol runeSymbol = SpellSymbol::Fire;
 		Vec4 glow{1, 1, 1, 1}; // accent-glow tint (element colour)

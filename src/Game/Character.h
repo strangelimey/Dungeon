@@ -13,6 +13,7 @@
 #pragma once
 
 #include "Core/MathTypes.h"
+#include "Game/Inventory.h"
 #include "Game/Spells.h"
 
 #include <string>
@@ -58,6 +59,12 @@ struct Character {
 	// fight, no longer a valid monster target) — there is no death/revive
 	// system yet, so a downed member simply stops acting.
 	bool IsAlive() const { return health > 0.0f; }
+
+	// --- items --------------------------------------------------------------
+	// Backpack + the two held-item hand slots (see Inventory.h). A rune lands
+	// here when dropped on this member's portrait / hand; memorizing one (the
+	// hand context menu) consumes it. Empty for a fresh party.
+	Inventory inventory;
 
 	// --- spells -------------------------------------------------------------
 	// Spell symbols this member has committed to memory (bitmask of SymbolBit).

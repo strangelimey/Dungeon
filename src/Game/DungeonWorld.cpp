@@ -390,6 +390,8 @@ DungeonWorld::ItemKind& DungeonWorld::ItemKindFor(const std::string& type) {
 		auto kind = std::make_unique<ItemKind>();
 		kind->id = type;
 		const CatalogEntry* def = m_project.items.Find(type);
+		// Display name: catalog `name` key, else item.<id> by convention.
+		kind->nameKey = CatalogGet(def, "name", std::format("item.{}", type));
 		// MVP: the only item behaviour is "rune" — category=rune, symbol=<sym>.
 		if (CatalogGet(def, "category", "") == "rune") {
 			SpellSymbol sym;
