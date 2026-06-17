@@ -105,6 +105,12 @@ public:
 	// also treat the click as a pick/drop). Valid after UpdateHud.
 	bool HudMouseConsumed() const { return m_hudUi.IsMouseConsumed(); }
 
+	// Party inventory window (right-click while holding). Non-modal; Game drives
+	// open/close (and routes Esc to close it before the pause menu).
+	void OpenInventory();
+	void CloseInventory();
+	bool InventoryOpen() const;
+
 	// --- character sheet ---------------------------------------------------------
 	void ShowSheet(size_t index); // re-points the sheet at the member
 	void RefreshSheet();          // re-caches after the roster resets in place
@@ -279,6 +285,8 @@ private:
 	// HUD right-click context menu (hand-slot item actions, e.g. Memorize).
 	// Reused: GameUI opens it with the actions for whatever was right-clicked.
 	ui::ContextMenu* m_handMenu = nullptr;
+	// Party inventory window (owned by m_hudUi); opened on right-click-while-holding.
+	InventoryWindow* m_inventory = nullptr;
 
 	// Video tab: the enumerated hardware (cached for the dropdowns + Apply), the
 	// settings TabControl (kept so a repopulate can restore the active tab), and

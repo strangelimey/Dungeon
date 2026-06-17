@@ -1133,12 +1133,18 @@ void GameUI::BuildHud() {
 	m_log->bounds = {0, 0, 1, 1};
 	m_log->restoreLabel = loc::Tr("hud.log_show");
 
-	// Right-click context menu, added last so it updates first (topmost) and its
-	// overlay draws over everything; closed until a hand slot opens it.
+	// Right-click context menu + the inventory window, added last so they update
+	// first (topmost) and their overlays draw over everything; both closed until
+	// opened. The inventory window claims the mouse while open.
 	m_handMenu = m_hudUi.Add<ui::ContextMenu>();
+	m_inventory = m_hudUi.Add<InventoryWindow>(&m_characters, m_itemIcons, m_held);
 
 	ApplyPartyBarScale();
 }
+
+void GameUI::OpenInventory() { if (m_inventory) m_inventory->Open(); }
+void GameUI::CloseInventory() { if (m_inventory) m_inventory->Close(); }
+bool GameUI::InventoryOpen() const { return m_inventory && m_inventory->IsOpen(); }
 
 // Re-derives the party-bar slot rects from the settings scale — anchored to
 // the top center, so scale 1 reproduces the design layout above (16px

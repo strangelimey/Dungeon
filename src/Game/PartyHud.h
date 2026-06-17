@@ -26,7 +26,9 @@
 #include <array>
 #include <flat_map>
 #include <functional>
+#include <optional>
 #include <string>
+#include <vector>
 
 namespace dungeon::game {
 
@@ -112,6 +114,37 @@ private:
 	bool m_hot = false;
 	bool m_held = false;       // left-button press latched on this slot
 	bool m_heldRight = false;  // right-button press latched on this slot
+};
+
+// The party inventory window: a centered panel with one backpack column per
+// member (the kBackpackSlots slots in a 2-wide grid). Opened by right-clicking
+// while carrying a tablet; non-modal (the world keeps running) but claims the
+// mouse like the map overlay. Click a slot to drop the held tablet in (swapping
+// any occupant onto the cursor) or, empty-handed, to pick the slot's item up;
+// click off the panel — or Esc (handled by Game) — closes it. Overlay-drawn so
+// it floats above the HUD; the held-cursor icon (drawn last) stays on top.
+class InventoryWindow : public ui::Widget {
+public:
+	InventoryWindow(std::vector<Character>* roster, const ItemIconBank* icons,
+					std::optional<std::string>* held);
+
+	void Open() { m_open = true; }
+	void Close() { m_open = false; }
+	bool IsOpen() const { return m_open; }
+
+	void Update(ui::UIContext& ctx) override;
+	void Draw(ui::UIContext&, gfx::SpriteBatch&) override {} // overlay-only
+	void DrawOverlay(ui::UIContext& ctx, gfx::SpriteBatch& batch) override;
+
+private:
+	gfx::Rect PanelRect(const ui::UIContext& ctx) const;
+	gfx::Rect SlotRect(const gfx::Rect& panel, size_t member, int slot) const;
+
+	std::vector<Character>* m_roster;
+	const ItemIconBank* m_icons;
+	std::optional<std::string>* m_held;
+	bool m_open = false;
+	std::string m_title; // localized once at construction
 };
 
 class CharacterSheet : public ui::Widget {

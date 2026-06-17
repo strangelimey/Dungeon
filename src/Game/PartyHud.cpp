@@ -178,6 +178,108 @@ void HandSlot::Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	ui::DrawBorder(batch, px, m_hot ? theme.accent : theme.panelBorder);
 }
 
+// --- InventoryWindow ---------------------------------------------------------
+
+namespace {
+constexpr float kInvPad = 16.0f;
+constexpr float kInvHeader = 30.0f; // title band
+constexpr float kInvGap = 8.0f;
+constexpr int kInvCols = 2; // backpack slots laid out 2 wide
+} // namespace
+
+InventoryWindow::InventoryWindow(std::vector<Character>* roster,
+								 const ItemIconBank* icons,
+								 std::optional<std::string>* held)
+	: m_roster(roster), m_icons(icons), m_held(held),
+	  m_title(loc::Tr("ui.inventory")) {}
+
+gfx::Rect InventoryWindow::PanelRect(const ui::UIContext& ctx) const {
+	const float w = std::min(ctx.Width() * 0.72f, 960.0f);
+	const float h = std::min(ctx.Height() * 0.54f, 560.0f);
+	return {(ctx.Width() - w) * 0.5f, (ctx.Height() - h) * 0.5f, w, h};
+}
+
+gfx::Rect InventoryWindow::SlotRect(const gfx::Rect& panel, size_t member,
+									int slot) const {
+	const size_t n = std::min<size_t>(m_roster->size(), 4);
+	const float colW = (panel.w - 2 * kInvPad) / static_cast<float>(std::max<size_t>(n, 1));
+	const float colX = panel.x + kInvPad + static_cast<float>(member) * colW;
+	const float slotsTop = panel.y + kInvPad + kInvHeader + 24.0f; // title + name
+	const float innerW = colW - 12.0f;
+	const float slotW = (innerW - kInvGap) / static_cast<float>(kInvCols);
+	const int col = slot % kInvCols, row = slot / kInvCols;
+	return {colX + 6.0f + static_cast<float>(col) * (slotW + kInvGap),
+			slotsTop + static_cast<float>(row) * (slotW + kInvGap), slotW, slotW};
+}
+
+void InventoryWindow::Update(ui::UIContext& ctx) {
+	if (!m_open) return;
+	const Input* input = ctx.CurrentInput();
+	if (!input) return;
+	const gfx::Rect panel = PanelRect(ctx);
+	const size_t n = std::min<size_t>(m_roster->size(), 4);
+	const bool left = input->WasMousePressed(MouseButton::Left);
+	const bool right = input->WasMousePressed(MouseButton::Right);
+	const float mx = input->MouseX(), my = input->MouseY();
+
+	if (left) {
+		for (size_t m = 0; m < n; ++m) {
+			for (int i = 0; i < kBackpackSlots; ++i) {
+				if (!SlotRect(panel, m, i).Contains(mx, my)) continue;
+				ItemSlot& s = (*m_roster)[m].inventory.backpack[i];
+				if (m_held && m_held->has_value()) {
+					// Place held tablet; any occupant goes back onto the cursor.
+					std::string incoming = **m_held;
+					if (s.Empty()) m_held->reset();
+					else *m_held = s.typeId;
+					s.typeId = std::move(incoming);
+				} else if (!s.Empty()) {
+					*m_held = s.typeId; // pick the slot's item up onto the cursor
+					s.Clear();
+				}
+				ctx.ConsumeMouse();
+				return;
+			}
+		}
+	}
+	// A click off the panel closes it; clicks inside (but not a slot) are
+	// swallowed. Either way the open window owns the mouse.
+	if ((left || right) && !panel.Contains(mx, my)) m_open = false;
+	ctx.ConsumeMouse();
+}
+
+void InventoryWindow::DrawOverlay(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
+	if (!m_open) return;
+	const ui::Theme& theme = ctx.GetTheme();
+	ui::Font& font = ctx.GetFont();
+	batch.DrawRect({0, 0, ctx.Width(), ctx.Height()}, {0, 0, 0, 0.5f}); // dim wash
+	const gfx::Rect panel = PanelRect(ctx);
+	batch.DrawRect(panel, theme.panel);
+	ui::DrawBorder(batch, panel, theme.panelBorder);
+	font.Draw(batch, m_title, panel.x + kInvPad, panel.y + kInvPad, theme.accent);
+
+	const size_t n = std::min<size_t>(m_roster->size(), 4);
+	const float colW = (panel.w - 2 * kInvPad) / static_cast<float>(std::max<size_t>(n, 1));
+	for (size_t m = 0; m < n; ++m) {
+		const float colX = panel.x + kInvPad + static_cast<float>(m) * colW;
+		font.Draw(batch, (*m_roster)[m].name, colX + 6.0f,
+				  panel.y + kInvPad + kInvHeader, theme.textDim);
+		for (int i = 0; i < kBackpackSlots; ++i) {
+			const gfx::Rect r = SlotRect(panel, m, i);
+			batch.DrawRect(r, theme.control);
+			ui::DrawBorder(batch, r, theme.panelBorder);
+			const ItemSlot& s = (*m_roster)[m].inventory.backpack[i];
+			if (!s.Empty() && m_icons) {
+				if (const gfx::Texture* icon = m_icons->For(s.typeId)) {
+					const float pad = r.w * 0.1f;
+					batch.DrawSprite({r.x + pad, r.y + pad, r.w - 2 * pad, r.h - 2 * pad},
+									 {0, 0, 1, 1}, *icon, {1, 1, 1, 1});
+				}
+			}
+		}
+	}
+}
+
 // --- CharacterSheet ----------------------------------------------------------
 
 // The sheet is authored at 620x520 design pixels and scaled to the live rect

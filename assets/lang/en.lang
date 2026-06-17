@@ -154,6 +154,7 @@ log.rune_found=You find a {} rune. (memorize it from a character's sheet)
 log.pack_full=The pack is full.
 log.memorize={} commits the {} rune to memory.
 ui.memorize=Memorize
+ui.inventory=Inventory
 
 ; --- monsters (key suffix = the .ent type) --------------------------------------
 monster.skeleton=skeleton

@@ -1020,6 +1020,12 @@ void Game::Update(float dt) {
 		return;
 	}
 
+	// Esc closes the inventory window first (if open), before it would pause.
+	if (m_ui.InventoryOpen() && input.WasKeyPressed(VK_ESCAPE)) {
+		m_ui.CloseInventory();
+		return;
+	}
+
 	// Esc freezes the world and opens the pause menu.
 	if (input.WasKeyPressed(VK_ESCAPE)) {
 		m_audio.Play(m_sounds.click, 0.5f);
@@ -1040,15 +1046,19 @@ void Game::Update(float dt) {
 	// up onto the cursor. Holding: a click drops it on the floor. Placement onto
 	// portraits / hands / inventory is handled by those widgets (P4+), which
 	// consume the mouse first.
-	if (!m_ui.HudMouseConsumed() && input.WasMousePressed(MouseButton::Left)) {
+	if (!m_ui.HudMouseConsumed()) {
 		const float mx = input.MouseX(), my = input.MouseY();
 		const float w = static_cast<float>(m_window.Width());
 		const float h = static_cast<float>(m_window.Height());
-		if (m_heldItem) {
-			m_world.DropItemAt(*m_heldItem, mx, my, w, h);
-			m_heldItem.reset();
-		} else if (auto picked = m_world.TryPickItem(mx, my, w, h)) {
-			m_heldItem = std::move(picked);
+		if (input.WasMousePressed(MouseButton::Left)) {
+			if (m_heldItem) {
+				m_world.DropItemAt(*m_heldItem, mx, my, w, h);
+				m_heldItem.reset();
+			} else if (auto picked = m_world.TryPickItem(mx, my, w, h)) {
+				m_heldItem = std::move(picked);
+			}
+		} else if (m_heldItem && input.WasMousePressed(MouseButton::Right)) {
+			m_ui.OpenInventory(); // right-click while holding opens the backpacks
 		}
 	}
 	m_world.Update(input, wdt, m_time);
