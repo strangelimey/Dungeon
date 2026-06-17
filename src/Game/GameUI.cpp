@@ -1115,6 +1115,17 @@ void GameUI::UpdateFonts(float dt) {
 		m_sheetUi.GetFont().SetHeight(kSheetFontH * fontScale);
 		m_titleFont.SetHeight(kTitleFontH * fontScale);
 	}
+
+	// Flush any glyphs cached during last frame's draw/measure to the GPU. Runs
+	// every frame (cheap no-op when nothing new was seen), before any widget
+	// draws this frame — the safe between-frames point the atlas upload needs.
+	m_hudUi.GetFont().Commit();
+	m_menuUi.GetFont().Commit();
+	m_settingsUi.GetFont().Commit();
+	m_pauseUi.GetFont().Commit();
+	m_confirmUi.GetFont().Commit();
+	m_sheetUi.GetFont().Commit();
+	m_titleFont.Commit();
 }
 
 // A deletion last frame asks for a fresh page; rebuild here, before any widget

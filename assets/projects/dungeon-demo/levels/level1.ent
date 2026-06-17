@@ -25,3 +25,10 @@ monster mummy 3 25 east
 monster skeleton 19 27 north
 monster mummy 17 24
 monster blob 27 27
+
+; Rune items — step onto one to add its symbol to the party satchel, then
+; memorize it onto a character from the sheet. A few near the start to find.
+item rune_fire 4 4
+item rune_air 5 4
+item rune_water 6 4
+item rune_earth 7 4

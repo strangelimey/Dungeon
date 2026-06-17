@@ -15,6 +15,8 @@ title=DUNGEON
 pause.title=PAUSE
 menu.subtitle=ein Dungeon-Crawler der alten Schule
 menu.subtitle_settings=Einstellungen
+menu.subtitle_load=einen Spielstand wählen
+menu.subtitle_save=Spielstand benennen
 loading.descending=Abstieg...
 
 ; --- landing + pause menus --------------------------------------------------
@@ -26,6 +28,20 @@ menu.settings=Einstellungen
 menu.exit=Beenden
 menu.back=Zurück
 
+; --- save / load browser ----------------------------------------------------
+saves.none=Noch keine Spielstände.
+; {0} = save name, {1} = timestamp
+saves.slot={}   ·   {}
+; {0} = next slot number
+saves.default_name=Spielstand {}
+saves.name_placeholder=Namen eingeben
+saves.untitled=Spielstand
+saves.overwrite_label=oder einen vorhandenen Spielstand überschreiben:
+saves.overwrite_confirm=Erneut klicken zum Überschreiben
+saves.delete=Löschen
+saves.cancel=Abbrechen
+saves.delete_prompt=Diesen Spielstand löschen?
+
 ; --- loading steps ------------------------------------------------------------
 load.echoes=Echos werden gestimmt
 load.title_art=Das Titelbild wird gemalt
@@ -34,6 +50,7 @@ load.surface=Das Mauerwerk wird gefügt ({})
 load.dungeon=Das Verlies wird errichtet
 load.pillar=Die Schlangensäule wird gemeißelt
 load.monsters=Die Monster werden geweckt
+load.decorations=Die Hallen werden geschmückt
 load.fires=Die Feuer werden entfacht
 load.dust=Der Staub wird aufgewirbelt
 load.portraits=Die Gruppe wird gemalt
@@ -55,11 +72,27 @@ settings.key.straferight=Schritt nach rechts
 settings.key.turnleft=Nach links drehen
 settings.key.turnright=Nach rechts drehen
 settings.press_a_key=Taste drücken...
+settings.adapter=Grafikkarte
+settings.monitor=Monitor
+settings.resolution=Auflösung
+settings.display_mode=Anzeigemodus
+settings.apply=Übernehmen
+mode.windowed=Fenster
+mode.borderless=Rahmenlos
+mode.exclusive=Vollbild
+confirm.restart.title=Neustart erforderlich
+confirm.restart.body=Das Ändern der Grafikkarte startet das Spiel neu. Fortfahren?
+confirm.yes=Neustart
+confirm.no=Abbrechen
 settings.quality=Qualität
 settings.quality.low=Niedrig
 settings.quality.medium=Mittel
 settings.quality.high=Hoch
 settings.quality.ultra=Ultra
+settings.maxlights=Max. Lichter
+settings.framelimit=Bildrate
+settings.framelimit.vsync=VSync ({} FPS)
+settings.framelimit.fps={} FPS
 settings.volume=Lautstärke
 settings.party_bar=Gruppenleiste
 settings.bar_scale=Größe
@@ -102,11 +135,24 @@ log.wait=Ihr wartet. Die Fackeln flackern.
 log.hands_empty={}s Hände sind leer.
 log.bump=Ihr stoßt gegen eine Wand.
 log.brazier_blocks=Ein brennendes Kohlebecken versperrt euch den Weg.
+log.decoration_blocks=Etwas Festes versperrt den Weg.
 log.monster_blocks={} versperrt euch den Weg!
 log.monster_stirs={} regt sich vor euch!
 log.torch_warm=Warmer Feuerschein kehrt zurück.
 log.torch_cold=Die Flammen werden kalt und blau.
 log.torch_eerie=Ein unheimliches grünes Licht breitet sich aus.
+; --- combat ({} args: see DungeonWorld PartyAttack / MonsterAttack) ---
+log.attack_air=Ihr schlagt ins Leere.
+log.party_hits={} trifft {} für {} Schaden.
+log.party_misses={} schlägt nach {} und verfehlt.
+log.monster_slain={} wurde erschlagen!
+log.monster_hits={} trifft {} für {} Schaden.
+log.monster_misses={} schlägt nach {} und verfehlt.
+log.member_down={} ist gefallen!
+log.party_wipe=Die Gruppe wurde vernichtet. Dunkelheit umfängt euch.
+
+; --- spells / runes -------------------------------------------------------------
+log.rune_found=Ihr findet eine {}-Rune. (im Charakterbogen einprägen)
 
 ; --- monsters (key suffix = the .ent type; article included, see header) ---------
 monster.skeleton=Das Skelett
@@ -127,5 +173,69 @@ attr.strength=Stärke
 attr.dexterity=Geschick
 attr.vitality=Vitalität
 attr.willpower=Willenskraft
+attr.intelligence=Intelligenz
 sheet.equipment=Ausrüstung
 sheet.nothing_carried=Nichts dabei.
+
+; --- spell symbols (tier 1: the four elements) ----------------------------------
+symbol.fire=Feuer
+symbol.earth=Erde
+symbol.air=Luft
+symbol.water=Wasser
+
+; --- map overlay / editor --------------------------------------------------------
+map.title=Karte
+map.position={}, {}
+map.hint=Ziehen zum Verschieben, Rad zum Zoomen
+map.hint.editor=Rechtsziehen verschiebt, Rad zoomt, links malt
+map.brushes=Palette
+map.brush.floor=Boden
+map.brush.wall=Wand
+map.tool.select=Auswählen
+map.tool.erase=Löschen
+map.cat.tools=Werkzeuge
+map.cat.structure=Struktur
+map.cat.walls=Wände
+map.cat.floors=Böden
+map.cat.ceilings=Decken
+map.cat.decorations=Dekorationen
+map.cat.fixtures=Vorrichtungen
+map.cat.monsters=Monster
+map.cat.doors=Türen
+map.cat.stairs=Treppen
+map.cat.items=Gegenstände
+map.cat.empty=(keine definiert)
+map.select.empty=Zelle {}, {}: leer {}
+map.select.contents=Zelle {}, {}: {}
+map.place.todo='{}' platzieren — Anbindung folgt
+map.place.done='{}' platziert
+map.place.blocked='{}' kann dort nicht platziert werden
+map.erase.removed=Eine Entität entfernt
+map.erase.reset=Oberflächen der Zelle {}, {} zurückgesetzt
+map.key=Legende
+map.key.party=Gruppe
+map.key.start=Start
+map.key.wall=Wand
+map.key.floor=Boden
+map.key.torch=Fackel
+map.key.brazier=Kohlebecken
+map.key.monster=Monster
+map.key.item=Gegenstand
+map.key.button=Knopf
+map.key.decoration=Dekoration
+map.key.stairs=Treppe
+map.cat.new=+ Neu...
+
+; --- asset-creation dialog -------------------------------------------------------
+newasset.title=Neu: {}
+newasset.name=Name
+newasset.browse_model=Modell durchsuchen...
+newasset.browse_folder=Ordner durchsuchen...
+newasset.none=(keine Quelle)
+newasset.metallic=Metallisch
+newasset.roughness=Rauheit
+newasset.height=Höhe
+newasset.color=Farbe
+newasset.create=Erstellen
+newasset.cancel=Abbrechen
+newasset.baking=Backen... (AssetBaker läuft)

@@ -190,7 +190,10 @@ void DungeonWorld::AppendLoadTasks(LoadQueue& queue) {
 		// Flavor for the opening level only — don't spawn it on every level.
 		m_pillarActive = m_currentLevel == FirstLevel(m_project);
 	});
-	queue.Add(loc::Tr("load.monsters"), [this] { LoadMonsters(); });
+	queue.Add(loc::Tr("load.monsters"), [this] {
+		LoadMonsters();
+		LoadItems();
+	});
 	queue.Add(loc::Tr("load.decorations"), [this] {
 		LoadDecorations();
 		LoadStairs();
@@ -366,6 +369,61 @@ void DungeonWorld::LoadMonsters() {
 		Monster monster = MakeMonster(kind, spawn.id, spawn.x, spawn.z, spawn.facing);
 		monster.animator.Update(static_cast<float>(phase++) * 0.7f); // desync idles
 		m_monsters.push_back(std::move(monster));
+	}
+}
+
+// Premultiplied-additive emissive colour per element (alpha 0 = pure additive,
+// like the flame billboards) — keeps the rune glowing through the dark.
+Vec4 DungeonWorld::RuneGlow(SpellSymbol s) {
+	switch (s) {
+	case SpellSymbol::Fire:  return {1.0f, 0.45f, 0.12f, 0.0f}; // ember orange
+	case SpellSymbol::Earth: return {0.45f, 0.85f, 0.30f, 0.0f}; // verdant green
+	case SpellSymbol::Air:   return {0.80f, 0.95f, 1.00f, 0.0f}; // pale sky
+	case SpellSymbol::Water: return {0.25f, 0.55f, 1.00f, 0.0f}; // deep blue
+	default:                 return {1.0f, 1.0f, 1.0f, 0.0f};
+	}
+}
+
+DungeonWorld::ItemKind& DungeonWorld::ItemKindFor(const std::string& type) {
+	auto it = m_itemKinds.find(type);
+	if (it == m_itemKinds.end()) {
+		auto kind = std::make_unique<ItemKind>();
+		kind->id = type;
+		const CatalogEntry* def = m_project.items.Find(type);
+		// MVP: the only item behaviour is "rune" — category=rune, symbol=<sym>.
+		if (CatalogGet(def, "category", "") == "rune") {
+			SpellSymbol sym;
+			if (ParseSymbol(CatalogGet(def, "symbol", "fire"), sym)) {
+				kind->isRune = true;
+				kind->runeSymbol = sym;
+				kind->glow = RuneGlow(sym);
+			} else {
+				log::Warn("item {}: unknown rune symbol '{}'", type,
+						  CatalogGet(def, "symbol", ""));
+			}
+		}
+		it = m_itemKinds.emplace(type, std::move(kind)).first;
+	}
+	return *it->second;
+}
+
+void DungeonWorld::LoadItems() {
+	for (const Entity& spawn : m_entities.All()) {
+		if (spawn.kind != EntityKind::Item) continue;
+		ItemKind& kind = ItemKindFor(spawn.type);
+		m_items.push_back({&kind, spawn.id, spawn.x, spawn.z, false});
+	}
+}
+
+// Pickup: the party occupies one cell, so any uncollected item sharing that cell
+// is grabbed. Runes teach their symbol through onRunePickup (Game → satchel).
+void DungeonWorld::UpdateItems() {
+	const int px = m_party.GridX(), pz = m_party.GridZ();
+	for (Item& item : m_items) {
+		if (item.collected || item.x != px || item.z != pz) continue;
+		item.collected = true;
+		m_audio.Play(m_sounds.click, 0.6f); // placeholder pickup cue (no rune sfx yet)
+		if (item.kind->isRune && onRunePickup) onRunePickup(item.kind->runeSymbol);
 	}
 }
 
@@ -622,6 +680,7 @@ void DungeonWorld::ResetForNewGame() {
 		monster.visualPos = m_map.CellCenter(monster.x, monster.z);
 	}
 	m_partyWiped = false;
+	for (Item& item : m_items) item.collected = false; // runes return on a new game
 	std::fill(m_seen.begin(), m_seen.end(), static_cast<u8>(0));
 	MarkSeen(m_party.GridX(), m_party.GridZ());
 	SetTorchPalette(0);
@@ -648,6 +707,9 @@ SaveData::LevelState DungeonWorld::SnapshotActive() const {
 				 m.hp != m.MaxHp())
 			ls.entities.push_back({m.id, m.x, m.z, m.announced, m.hp});
 	}
+	// Collected baseline (.ent) items, by id — so a picked-up rune stays gone.
+	for (const Item& item : m_items)
+		if (item.collected && item.id >= 0) ls.collectedItems.push_back(item.id);
 	return ls;
 }
 
@@ -698,6 +760,10 @@ void DungeonWorld::ApplyActiveSnapshot() {
 				break;
 			}
 	}
+	// Re-hide collected items (LoadItems rebuilt them all as uncollected).
+	for (int id : ls.collectedItems)
+		for (Item& item : m_items)
+			if (item.id == id) { item.collected = true; break; }
 	m_levelStates.erase(it); // the live state is authoritative now
 }
 
@@ -854,6 +920,7 @@ void DungeonWorld::BeginLevelLoad(const std::string& stem, bool stashCurrent) {
 	// re-runs AppendLoadTasks.
 	m_seen.assign(static_cast<size_t>(m_map.Width()) * m_map.Height(), 0);
 	m_monsters.clear();
+	m_items.clear();
 	m_decorations.clear();
 	m_fires.clear();
 	m_pendingTransition.reset();
@@ -1053,6 +1120,7 @@ void DungeonWorld::Update(const Input& input, float dt, float time, bool acceptI
 	m_party.Update(dt);
 	if (m_pillarActive) m_pillarAnimator.Update(dt);
 	UpdateMonsters(dt);
+	UpdateItems();
 	UpdateLights(time);
 	UpdateCamera();
 
@@ -1063,6 +1131,16 @@ void DungeonWorld::Update(const Input& input, float dt, float time, bool acceptI
 	for (Fire& fire : m_fires) {
 		fire.effect.Update(dt);
 		fire.effect.AppendParticles(m_particleScratch);
+	}
+	// Uncollected items glow as a bobbing additive billboard (runes for now).
+	for (const Item& item : m_items) {
+		if (item.collected) continue;
+		const Vec3 c = m_map.CellCenter(item.x, item.z);
+		const float bob = 0.5f + 0.12f * std::sin(time * 2.2f + static_cast<float>(item.id));
+		const float pulse = 0.75f + 0.25f * std::sin(time * 4.0f + static_cast<float>(item.id));
+		Vec4 col = item.kind->glow;
+		col.x *= pulse; col.y *= pulse; col.z *= pulse;
+		m_particleScratch.push_back({{c.x, bob, c.z}, 0.18f, col});
 	}
 	const Vec3 eye = m_party.EyePosition();
 	const Vec3 fwd = m_camera.Forward();

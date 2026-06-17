@@ -117,6 +117,7 @@ void AssetDialog::Browse() {
 
 void AssetDialog::Update(const Input& input, float width, float height, float dt) {
 	if (!m_open) return;
+	m_ui->GetFont().Commit(); // flush glyphs cached last frame, before this frame draws
 	m_orbit += dt * 0.6f;
 	if (m_busy) return; // a bake is running — ignore form input until it finishes
 	m_ui->Update(input, width, height);

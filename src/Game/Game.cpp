@@ -86,6 +86,11 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 		m_state = AppState::Menu;
 		m_ui.ResetToMainPage();
 	};
+	// A rune was stepped on: hold it in the satchel until a member memorizes it.
+	m_world.onRunePickup = [this](SpellSymbol s) {
+		m_satchel.push_back(s);
+		m_ui.AddLogLine(loc::Format("log.rune_found", loc::Tr(SymbolKey(s))));
+	};
 	m_ui.onStartNewGame = [this] {
 		if (m_gameLoaded) {
 			StartNewGame();
