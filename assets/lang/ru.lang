@@ -189,7 +189,15 @@ attr.vitality=Живучесть
 attr.willpower=Воля
 attr.intelligence=Интеллект
 sheet.equipment=Снаряжение
+sheet.backpack=Рюкзак
 sheet.nothing_carried=Ничего нет.
+equip.head=Голова
+equip.body=Тело
+equip.hands=Руки
+equip.feet=Ноги
+equip.cloak=Плащ
+equip.amulet=Амулет
+equip.ring=Кольцо
 
 ; --- spell symbols (tier 1: the four elements) ----------------------------------
 symbol.fire=Огонь

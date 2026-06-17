@@ -140,6 +140,7 @@ public:
 	// display name; the receiver writes it and resumes play.
 	std::function<void(const std::string&)> onSaveSlot;
 	std::function<void(size_t)> onOpenSheet;    // portrait click, prev/next
+	std::function<void()> onShowPartyInventory; // sheet "All" -> combined backpacks
 	std::function<void(int)> onQualitySelected; // Video tab quality dropdown
 	std::function<void(int)> onFrameLimitSelected; // Video tab frame-rate dropdown
 	std::function<void(int)> onTorchPalette;    // HUD torchlight dropdown
@@ -195,6 +196,7 @@ private:
 	// subtitle can be placed relative to it. Shared by every title screen.
 	void DrawCenteredTitle(const std::string& text, float y);
 	void Click(float volume = 0.5f); // UI click feedback
+	void DrawHeldCursor();           // the cursor-carried item icon (HUD + sheet)
 
 	// --- held-item placement (the cursor carries one tablet at a time) ----------
 	// A left-click landed on member `i`'s portrait: when holding a tablet, drop
@@ -205,7 +207,7 @@ private:
 	void OnPortraitRightClick(size_t i);
 	// A left-click landed on member `i`'s hand `hand`: place the held tablet
 	// there (swapping any occupant onto the cursor), else pick the hand's item up
-	// onto the cursor, else (empty hand, empty cursor) swing that hand.
+	// onto the cursor, else (empty hand, empty cursor) nothing happens (for now).
 	void OnHandLeftClick(size_t i, size_t hand);
 	// A right-click on member `i`'s hand `hand`: opens the item's action menu
 	// (for a rune: Memorize). No-op on an empty hand.

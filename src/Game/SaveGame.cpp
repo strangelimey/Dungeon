@@ -47,15 +47,20 @@ bool WriteSave(const SaveData& data, const std::string& path) {
 	t += std::format("party {} {} {}\n", data.partyX, data.partyZ, data.partyFacing);
 	t += std::format("torch {}\n", data.torchPalette);
 
-	// Empty item ids serialize as "-" so the slot positions are preserved.
+	// Empty item ids serialize as "-" so slot positions are preserved. Inventory
+	// is split into its own lines (hands/equip/pack) so the dynamic backpack and
+	// the equipment set can each vary in length without ambiguity.
 	auto itemTok = [](const std::string& s) { return s.empty() ? std::string("-") : s; };
 	for (size_t i = 0; i < data.characters.size(); ++i) {
 		const SaveData::CharState& c = data.characters[i];
-		t += std::format("char {} {:.3f} {:.3f} {:.3f} {:.3f} {:.3f} {:.3f} {}", i,
+		t += std::format("char {} {:.3f} {:.3f} {:.3f} {:.3f} {:.3f} {:.3f} {}\n", i,
 						 c.health, c.maxHealth, c.stamina, c.maxStamina, c.mana,
 						 c.maxMana, c.knownSymbols);
-		// Inventory: left hand, right hand, then the backpack slots in order.
-		t += std::format(" {} {}", itemTok(c.hands[0]), itemTok(c.hands[1]));
+		t += std::format("hands {} {} {}\n", i, itemTok(c.hands[0]), itemTok(c.hands[1]));
+		t += std::format("equip {}", i);
+		for (const std::string& e : c.equipment) t += " " + itemTok(e);
+		t += '\n';
+		t += std::format("pack {}", i);
 		for (const std::string& b : c.backpack) t += " " + itemTok(b);
 		t += '\n';
 	}
@@ -143,15 +148,22 @@ std::optional<SaveData> ReadSave(const std::string& path) {
 			c.mana = FloatOf(tok[6]);      c.maxMana = FloatOf(tok[7]);
 			if (tok.size() >= 9) // older saves omit the spell mask
 				c.knownSymbols = static_cast<u32>(IntOf(tok[8]));
-			// Inventory (v3+): hands then backpack; "-" is an empty slot.
+		} else if ((kw == "hands" || kw == "equip" || kw == "pack") &&
+				   tok.size() >= 2) {
+			// Inventory lines (v4): "-" is an empty slot.
+			const size_t idx = static_cast<size_t>(IntOf(tok[1]));
+			if (idx >= data.characters.size()) data.characters.resize(idx + 1);
+			SaveData::CharState& c = data.characters[idx];
 			auto detok = [](std::string_view sv) {
 				return sv == "-" ? std::string() : std::string(sv);
 			};
-			if (tok.size() >= 11) {
-				c.hands[0] = detok(tok[9]);
-				c.hands[1] = detok(tok[10]);
-				for (size_t i = 11; i < tok.size(); ++i)
-					c.backpack.push_back(detok(tok[i]));
+			if (kw == "hands" && tok.size() >= 4) {
+				c.hands[0] = detok(tok[2]);
+				c.hands[1] = detok(tok[3]);
+			} else if (kw == "equip") {
+				for (size_t i = 2; i < tok.size(); ++i) c.equipment.push_back(detok(tok[i]));
+			} else { // pack
+				for (size_t i = 2; i < tok.size(); ++i) c.backpack.push_back(detok(tok[i]));
 			}
 		} else if (kw == "level" && tok.size() >= 2) {
 			data.levels.push_back({std::string(tok[1]), {}, {}});

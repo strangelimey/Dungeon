@@ -104,24 +104,15 @@ void GameUI::Click(float volume) { m_audio.Play(m_sounds.click, volume); }
 // The HandSlot/CharacterPanel already consumed the mouse, so the world won't
 // also treat these clicks as a drop.
 
+// Either mouse button on a portrait opens that member's sheet — which is the
+// inventory now, so a carried tablet is dropped into its equipment/backpack
+// slots there (rather than auto-stowing).
 void GameUI::OnPortraitClick(size_t i) {
-	if (i >= m_characters.size()) return;
-	if (Holding()) {
-		// Stow the carried tablet in this member's pack (full → keep holding).
-		if (m_characters[i].inventory.AddToBackpack(**m_held)) {
-			Click();
-			m_held->reset();
-		} else {
-			AddLogLine(loc::Tr("log.pack_full"));
-		}
-		return;
-	}
-	onOpenSheet(i); // empty-handed: the portrait opens the sheet as before
+	if (i < m_characters.size()) onOpenSheet(i);
 }
 
 void GameUI::OnPortraitRightClick(size_t i) {
-	if (i >= m_characters.size() || !m_inventory) return;
-	m_inventory->Open(static_cast<int>(i)); // that member's column, highlighted
+	if (i < m_characters.size()) onOpenSheet(i);
 }
 
 void GameUI::OnHandLeftClick(size_t i, size_t hand) {
@@ -143,10 +134,8 @@ void GameUI::OnHandLeftClick(size_t i, size_t hand) {
 		Click();
 		return;
 	}
-	// Empty hand, empty cursor: an unarmed strike at the monster ahead (each
-	// hand has its own cooldown, so pass which one).
-	Click();
-	if (onHandAttack) onHandAttack(i, hand);
+	// Empty hand, empty cursor: nothing happens (for now). The hand's "activate"
+	// gesture (unarmed attack, onHandAttack) is being moved off the left click.
 }
 
 // "rune_fire" -> SpellSymbol::Fire; false for anything that is not a rune id.
@@ -770,12 +759,15 @@ void GameUI::BuildCharacterSheet() {
 	const float h = static_cast<float>(m_window.Height());
 	const gfx::Rect window{0, 0, w, h};
 
-	const float sheetW = 620.0f;
-	const float sheetH = 520.0f;
+	const float sheetW = 780.0f;
+	const float sheetH = 560.0f;
 	const float sx = (w - sheetW) * 0.5f;
 	const float sy = (h - sheetH) * 0.5f - 24.0f;
+	// Added FIRST so the buttons below it update on top (and consume their clicks
+	// before the sheet's slot hit-testing).
 	m_sheet = m_sheetUi.Add<CharacterSheet>(Norm({sx, sy, sheetW, sheetH}, window),
-											&m_titleFont, &m_settings.barColors);
+											&m_titleFont, &m_settings.barColors,
+											m_itemIcons, m_held);
 
 	const float btnY = sy + sheetH + 16.0f;
 	m_sheetUi.Add<ui::Button>(Norm({sx, btnY, 64, 40}, window), "<", [this] {
@@ -786,6 +778,12 @@ void GameUI::BuildCharacterSheet() {
 							  [this] {
 								  onOpenSheet((m_sheetIndex + 1) %
 											  m_characters.size());
+							  });
+	// "All" → the combined party-backpacks view (for cross-character swaps).
+	m_sheetUi.Add<ui::Button>(Norm({sx + 80, btnY, 100, 40}, window),
+							  loc::Tr("ui.inv_all"), [this] {
+								  Click();
+								  if (onShowPartyInventory) onShowPartyInventory();
 							  });
 	m_sheetUi.Add<ui::Button>(Norm({(w - 180.0f) * 0.5f, btnY, 180, 40}, window),
 							  loc::Tr("menu.back"), [this] {
@@ -1249,6 +1247,8 @@ void GameUI::UpdatePause(const Input& input) {
 
 void GameUI::UpdateSheet(const Input& input) {
 	m_sheetUi.Update(input, WindowW(), WindowH());
+	m_hudMouseX = input.MouseX(); // for the held-item cursor over the sheet
+	m_hudMouseY = input.MouseY();
 }
 
 void GameUI::UpdateHud(const Input& input, float dt) {
@@ -1440,20 +1440,23 @@ void GameUI::RenderCharacterSheetOverlay() {
 
 	m_spriteBatch.DrawRect({0, 0, w, h}, {0, 0, 0, 0.55f});
 	m_sheetUi.Render(m_spriteBatch, w, h);
+	DrawHeldCursor(); // a carried tablet can be dropped into the sheet's slots
+}
+
+// A carried tablet rides the cursor: paint its element icon at the mouse, over
+// everything. Shared by the HUD and the (frozen) sheet so dropping works on both.
+void GameUI::DrawHeldCursor() {
+	if (!m_held || !m_held->has_value() || !m_itemIcons) return;
+	if (const gfx::Texture* icon = m_itemIcons->For(**m_held)) {
+		const float s = DeviceH() * 0.06f;
+		const gfx::Rect dst{m_hudMouseX - s * 0.5f, m_hudMouseY - s * 0.5f, s, s};
+		m_spriteBatch.DrawSprite(dst, {0, 0, 1, 1}, *icon, {1, 1, 1, 1});
+	}
 }
 
 void GameUI::RenderHud() {
 	m_hudUi.Render(m_spriteBatch, DeviceW(), DeviceH());
-
-	// A carried tablet rides the cursor: paint its element icon at the mouse,
-	// over everything (the world drop / widget placement reads the same held id).
-	if (m_held && m_held->has_value() && m_itemIcons) {
-		if (const gfx::Texture* icon = m_itemIcons->For(**m_held)) {
-			const float s = DeviceH() * 0.06f; // scales with the HUD
-			const gfx::Rect dst{m_hudMouseX - s * 0.5f, m_hudMouseY - s * 0.5f, s, s};
-			m_spriteBatch.DrawSprite(dst, {0, 0, 1, 1}, *icon, {1, 1, 1, 1});
-		}
-	}
+	DrawHeldCursor();
 }
 
 } // namespace dungeon::game

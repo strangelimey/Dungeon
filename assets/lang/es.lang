@@ -185,7 +185,15 @@ attr.vitality=Vitalidad
 attr.willpower=Voluntad
 attr.intelligence=Inteligencia
 sheet.equipment=Equipo
+sheet.backpack=Mochila
 sheet.nothing_carried=No lleva nada.
+equip.head=Cabeza
+equip.body=Cuerpo
+equip.hands=Manos
+equip.feet=Pies
+equip.cloak=Capa
+equip.amulet=Amuleto
+equip.ring=Anillo
 
 ; --- spell symbols (tier 1: the four elements) ----------------------------------
 symbol.fire=Fuego

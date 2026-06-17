@@ -198,44 +198,27 @@ InventoryWindow::InventoryWindow(std::vector<Character>* roster,
 								 const ItemIconBank* icons,
 								 std::optional<std::string>* held)
 	: m_roster(roster), m_icons(icons), m_held(held),
-	  m_title(loc::Tr("ui.inventory")), m_allLabel(loc::Tr("ui.inv_all")) {}
+	  m_title(loc::Tr("ui.inv_all")) {}
 
-int InventoryWindow::DisplayCount() const {
-	if (m_solo >= 0) return 1;
+int InventoryWindow::MemberCount() const {
 	return static_cast<int>(std::min<size_t>(m_roster->size(), 4));
 }
 
-size_t InventoryWindow::MemberAtColumn(int col) const {
-	return m_solo >= 0 ? static_cast<size_t>(m_solo) : static_cast<size_t>(col);
-}
-
 gfx::Rect InventoryWindow::PanelRect(const ui::UIContext& ctx) const {
-	// A solo backpack is a slim panel; the whole party is a wide one.
-	const float w = m_solo >= 0 ? std::min(ctx.Width() * 0.22f, 320.0f)
-								 : std::min(ctx.Width() * 0.72f, 960.0f);
+	const float w = std::min(ctx.Width() * 0.72f, 960.0f);
 	const float h = std::min(ctx.Height() * 0.54f, 560.0f);
 	return {(ctx.Width() - w) * 0.5f, (ctx.Height() - h) * 0.5f, w, h};
 }
 
-gfx::Rect InventoryWindow::SlotRect(const gfx::Rect& panel, int col, int slot) const {
-	const float colW = (panel.w - 2 * kInvPad) / static_cast<float>(DisplayCount());
-	const float colX = panel.x + kInvPad + static_cast<float>(col) * colW;
+gfx::Rect InventoryWindow::SlotRect(const gfx::Rect& panel, int member, int slot) const {
+	const float colW = (panel.w - 2 * kInvPad) / static_cast<float>(MemberCount());
+	const float colX = panel.x + kInvPad + static_cast<float>(member) * colW;
 	const float slotsTop = panel.y + kInvPad + kInvHeader + 24.0f; // title + name
 	const float innerW = colW - 12.0f;
-	// Cap the slot size so a wide (solo) column doesn't blow them up, and so all
-	// four backpack rows fit the panel height.
-	const float slotW = std::min((innerW - kInvGap) / static_cast<float>(kInvCols), 96.0f);
+	const float slotW = std::min((innerW - kInvGap) / static_cast<float>(kInvCols), 88.0f);
 	const int sc = slot % kInvCols, row = slot / kInvCols;
 	return {colX + 6.0f + static_cast<float>(sc) * (slotW + kInvGap),
 			slotsTop + static_cast<float>(row) * (slotW + kInvGap), slotW, slotW};
-}
-
-gfx::Rect InventoryWindow::AllButtonRect(ui::UIContext& ctx,
-										 const gfx::Rect& panel) const {
-	ui::Font& font = ctx.GetFont();
-	const float w = font.MeasureWidth(m_allLabel) + 20.0f;
-	const float h = font.Height() + 8.0f;
-	return {panel.x + panel.w - kInvPad - w, panel.y + kInvPad - 4.0f, w, h};
 }
 
 void InventoryWindow::Update(ui::UIContext& ctx) {
@@ -247,19 +230,12 @@ void InventoryWindow::Update(ui::UIContext& ctx) {
 	const bool right = input->WasMousePressed(MouseButton::Right);
 	const float mx = input->MouseX(), my = input->MouseY();
 
-	// Solo view: the "All" button switches to the whole-party view in place.
-	if (m_solo >= 0 && left && AllButtonRect(ctx, panel).Contains(mx, my)) {
-		m_solo = -1;
-		ctx.ConsumeMouse();
-		return;
-	}
-
 	if (left) {
-		for (int c = 0; c < DisplayCount(); ++c) {
-			const size_t member = MemberAtColumn(c);
-			for (int i = 0; i < kBackpackSlots; ++i) {
-				if (!SlotRect(panel, c, i).Contains(mx, my)) continue;
-				ItemSlot& s = (*m_roster)[member].inventory.backpack[i];
+		for (int m = 0; m < MemberCount(); ++m) {
+			auto& pack = (*m_roster)[static_cast<size_t>(m)].inventory.backpack;
+			for (int i = 0; i < static_cast<int>(pack.size()); ++i) {
+				if (!SlotRect(panel, m, i).Contains(mx, my)) continue;
+				ItemSlot& s = pack[static_cast<size_t>(i)];
 				if (m_held && m_held->has_value()) {
 					// Place held tablet; any occupant goes back onto the cursor.
 					std::string incoming = **m_held;
@@ -291,29 +267,17 @@ void InventoryWindow::DrawOverlay(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	ui::DrawBorder(batch, panel, theme.panelBorder);
 	font.Draw(batch, m_title, panel.x + kInvPad, panel.y + kInvPad, theme.accent);
 
-	// Solo view: an "All" button (top-right) opens the whole-party view for
-	// swapping items between characters.
-	if (m_solo >= 0) {
-		const gfx::Rect btn = AllButtonRect(ctx, panel);
-		const Input* in = ctx.CurrentInput();
-		const bool hot = in && btn.Contains(in->MouseX(), in->MouseY());
-		batch.DrawRect(btn, hot ? theme.controlHot : theme.control);
-		ui::DrawBorder(batch, btn, theme.panelBorder);
-		font.Draw(batch, m_allLabel, btn.x + 10.0f,
-				  btn.y + (btn.h - font.Height()) * 0.5f, theme.text);
-	}
-
-	const float colW = (panel.w - 2 * kInvPad) / static_cast<float>(DisplayCount());
-	for (int c = 0; c < DisplayCount(); ++c) {
-		const size_t member = MemberAtColumn(c);
-		const float colX = panel.x + kInvPad + static_cast<float>(c) * colW;
-		font.Draw(batch, (*m_roster)[member].name, colX + 6.0f,
+	const float colW = (panel.w - 2 * kInvPad) / static_cast<float>(MemberCount());
+	for (int m = 0; m < MemberCount(); ++m) {
+		const auto& pack = (*m_roster)[static_cast<size_t>(m)].inventory.backpack;
+		const float colX = panel.x + kInvPad + static_cast<float>(m) * colW;
+		font.Draw(batch, (*m_roster)[static_cast<size_t>(m)].name, colX + 6.0f,
 				  panel.y + kInvPad + kInvHeader, theme.text);
-		for (int i = 0; i < kBackpackSlots; ++i) {
-			const gfx::Rect r = SlotRect(panel, c, i);
+		for (int i = 0; i < static_cast<int>(pack.size()); ++i) {
+			const gfx::Rect r = SlotRect(panel, m, i);
 			batch.DrawRect(r, theme.control);
 			ui::DrawBorder(batch, r, theme.panelBorder);
-			const ItemSlot& s = (*m_roster)[member].inventory.backpack[i];
+			const ItemSlot& s = pack[static_cast<size_t>(i)];
 			if (!s.Empty() && m_icons) {
 				if (const gfx::Texture* icon = m_icons->For(s.typeId)) {
 					const float pad = r.w * 0.1f;
@@ -327,24 +291,33 @@ void InventoryWindow::DrawOverlay(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 
 // --- CharacterSheet ----------------------------------------------------------
 
-// The sheet is authored at 620x520 design pixels and scaled to the live rect
-// every draw (x and y independently, so it stretches with the window aspect
-// like the rest of the normalized UI).
-constexpr float kSheetDesignW = 620.0f;
-constexpr float kSheetDesignH = 520.0f;
+// The sheet is authored in design pixels and scaled to the live rect every draw
+// (x and y independently). Layout: a stats band across the top, then the worn-
+// equipment slots on the LEFT and the backpack grid on the RIGHT.
+constexpr float kSheetDesignW = 780.0f;
+constexpr float kSheetDesignH = 560.0f;
+namespace {
+constexpr float kEquipSlot = 64.0f, kEquipX = 24.0f, kEquipY = 222.0f;
+constexpr float kPackSlot = 84.0f, kPackX = 300.0f, kPackY = 222.0f;
+constexpr float kSlotGap = 10.0f;
+constexpr int kPackCols = 4; // backpack laid out 4 wide
+} // namespace
 
 CharacterSheet::CharacterSheet(const gfx::Rect& rect, const ui::Font* portraitFont,
-							   const ResourceBarColors* barColors)
-	: m_portraitFont(portraitFont), m_barColors(barColors),
-	  m_healthLabel(loc::Tr("bar.health")), m_staminaLabel(loc::Tr("bar.stamina")),
-	  m_manaLabel(loc::Tr("bar.mana")),
+							   const ResourceBarColors* barColors,
+							   const ItemIconBank* icons,
+							   std::optional<std::string>* held)
+	: m_portraitFont(portraitFont), m_barColors(barColors), m_icons(icons),
+	  m_held(held), m_healthLabel(loc::Tr("bar.health")),
+	  m_staminaLabel(loc::Tr("bar.stamina")), m_manaLabel(loc::Tr("bar.mana")),
 	  m_attributesLabel(loc::Tr("sheet.attributes")),
 	  m_equipmentLabel(loc::Tr("sheet.equipment")),
-	  m_nothingCarried(loc::Tr("sheet.nothing_carried")) {
+	  m_backpackLabel(loc::Tr("sheet.backpack")) {
 	bounds = rect;
+	for (int i = 0; i < kEquipCount; ++i) m_equipLabels[i] = loc::Tr(kEquipLabels[i]);
 }
 
-void CharacterSheet::SetCharacter(const Character& character) {
+void CharacterSheet::SetCharacter(Character& character) {
 	m_character = &character;
 	m_subtitle = loc::Format("sheet.subtitle", character.level,
 							 loc::Tr(character.classKey));
@@ -362,12 +335,56 @@ void CharacterSheet::SetCharacter(const Character& character) {
 					  std::to_string(character.intelligence)}}};
 }
 
+gfx::Rect CharacterSheet::EquipRect(const gfx::Rect& px, float sx, float sy,
+									int i) const {
+	const float dx = kEquipX + static_cast<float>(i % 2) * (kEquipSlot + kSlotGap);
+	const float dy = kEquipY + static_cast<float>(i / 2) * (kEquipSlot + kSlotGap);
+	return {px.x + dx * sx, px.y + dy * sy, kEquipSlot * sx, kEquipSlot * sy};
+}
+
+gfx::Rect CharacterSheet::PackRect(const gfx::Rect& px, float sx, float sy,
+								   int i) const {
+	const float dx = kPackX + static_cast<float>(i % kPackCols) * (kPackSlot + kSlotGap);
+	const float dy = kPackY + static_cast<float>(i / kPackCols) * (kPackSlot + kSlotGap);
+	return {px.x + dx * sx, px.y + dy * sy, kPackSlot * sx, kPackSlot * sy};
+}
+
+void CharacterSheet::ClickSlot(ItemSlot& slot) {
+	if (!m_held) return;
+	if (m_held->has_value()) {
+		std::string incoming = **m_held; // place; any occupant returns to cursor
+		if (slot.Empty()) m_held->reset();
+		else *m_held = slot.typeId;
+		slot.typeId = std::move(incoming);
+	} else if (!slot.Empty()) {
+		*m_held = slot.typeId; // pick the slot's item up onto the cursor
+		slot.Clear();
+	}
+}
+
 void CharacterSheet::Update(ui::UIContext& ctx) {
-	// Swallow clicks over the page so nothing beneath reacts; the sheet's
-	// own buttons live later in the context and update first.
 	const Input* input = ctx.CurrentInput();
-	if (!input || ctx.IsMouseConsumed()) return;
-	if (Pixel().Contains(input->MouseX(), input->MouseY())) ctx.ConsumeMouse();
+	if (!input || ctx.IsMouseConsumed()) return; // sheet buttons update first
+	const gfx::Rect& px = Pixel();
+	const float mx = input->MouseX(), my = input->MouseY();
+	if (!px.Contains(mx, my)) return;
+	const float sx = px.w / kSheetDesignW, sy = px.h / kSheetDesignH;
+	if (m_character && input->WasMousePressed(MouseButton::Left)) {
+		for (int i = 0; i < kEquipCount; ++i)
+			if (EquipRect(px, sx, sy, i).Contains(mx, my)) {
+				ClickSlot(m_character->inventory.equipment[static_cast<size_t>(i)]);
+				ctx.ConsumeMouse();
+				return;
+			}
+		auto& pack = m_character->inventory.backpack;
+		for (int i = 0; i < static_cast<int>(pack.size()); ++i)
+			if (PackRect(px, sx, sy, i).Contains(mx, my)) {
+				ClickSlot(pack[static_cast<size_t>(i)]);
+				ctx.ConsumeMouse();
+				return;
+			}
+	}
+	ctx.ConsumeMouse(); // swallow other clicks over the sheet
 }
 
 void CharacterSheet::Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
@@ -383,21 +400,20 @@ void CharacterSheet::Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	auto R = [&](float x, float y, float w, float h) {
 		return gfx::Rect{px.x + x * sx, px.y + y * sy, w * sx, h * sy};
 	};
-
 	ui::Font& font = ctx.GetFont();
 
-	DrawPortrait(batch, R(24, 24, 128, 128), *m_character, *m_portraitFont, theme);
-	m_portraitFont->Draw(batch, m_character->name, px.x + 176 * sx,
-						 px.y + 24 * sy, theme.accent);
-	font.Draw(batch, m_subtitle, px.x + 176 * sx, px.y + 100 * sy, theme.textDim);
+	// --- stats band ---------------------------------------------------------
+	DrawPortrait(batch, R(24, 20, 100, 100), *m_character, *m_portraitFont, theme);
+	m_portraitFont->Draw(batch, m_character->name, px.x + 140 * sx, px.y + 22 * sy,
+						 theme.accent);
+	font.Draw(batch, m_subtitle, px.x + 140 * sx, px.y + 62 * sy, theme.textDim);
 
-	// Resource bars with centered value text.
 	const struct {
 		const std::string& label;
 		float value, max;
 		const Vec4& color;
 		const std::string& text;
-	} rows[] = {
+	} bars[] = {
 		{m_healthLabel, m_character->health, m_character->maxHealth,
 		 m_barColors->health, m_healthText},
 		{m_staminaLabel, m_character->stamina, m_character->maxStamina,
@@ -405,30 +421,62 @@ void CharacterSheet::Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 		{m_manaLabel, m_character->mana, m_character->maxMana, m_barColors->mana,
 		 m_manaText},
 	};
-	float y = 150.0f;
-	for (const auto& row : rows) {
-		const gfx::Rect bar = R(290, y, 306, 26);
-		font.Draw(batch, row.label, px.x + 176 * sx,
+	float by = 92.0f;
+	for (const auto& b : bars) {
+		const gfx::Rect bar = R(210, by, 230, 22);
+		font.Draw(batch, b.label, px.x + 140 * sx,
 				  bar.y + (bar.h - font.Height()) * 0.5f, theme.textDim);
-		DrawStatBar(batch, bar, row.value / std::max(row.max, 1.0f), row.color,
-					theme);
-		const float textW = font.MeasureWidth(row.text);
-		font.Draw(batch, row.text, bar.x + (bar.w - textW) * 0.5f,
+		DrawStatBar(batch, bar, b.value / std::max(b.max, 1.0f), b.color, theme);
+		const float tw = font.MeasureWidth(b.text);
+		font.Draw(batch, b.text, bar.x + (bar.w - tw) * 0.5f,
 				  bar.y + (bar.h - font.Height()) * 0.5f, theme.text);
-		y += 38.0f;
+		by += 30.0f;
+	}
+	// Attributes, top-right.
+	float ay = 24.0f;
+	for (const AttributeLine& attr : m_attributes) {
+		font.Draw(batch, attr.label, px.x + 500 * sx, px.y + ay * sy, theme.textDim);
+		font.Draw(batch, attr.value, px.x + 650 * sx, px.y + ay * sy, theme.text);
+		ay += 28.0f;
 	}
 
-	// Attributes (left) and an equipment placeholder (right).
-	font.Draw(batch, m_attributesLabel, px.x + 24 * sx, px.y + 280 * sy, theme.accent);
-	float ay = 320.0f;
-	for (const AttributeLine& attr : m_attributes) {
-		font.Draw(batch, attr.label, px.x + 24 * sx, px.y + ay * sy, theme.textDim);
-		font.Draw(batch, attr.value, px.x + 180 * sx, px.y + ay * sy, theme.text);
-		ay += 36.0f;
+	// --- equipment (left) ---------------------------------------------------
+	font.Draw(batch, m_equipmentLabel, px.x + kEquipX * sx, px.y + 196 * sy, theme.accent);
+	for (int i = 0; i < kEquipCount; ++i) {
+		const gfx::Rect r = EquipRect(px, sx, sy, i);
+		batch.DrawRect(r, theme.control);
+		ui::DrawBorder(batch, r, theme.panelBorder);
+		const ItemSlot& s = m_character->inventory.equipment[static_cast<size_t>(i)];
+		if (s.Empty()) {
+			// Empty slot shows its name so the doll reads even with no gear.
+			const float lw = font.MeasureWidth(m_equipLabels[i]);
+			font.Draw(batch, m_equipLabels[i], r.x + (r.w - lw) * 0.5f,
+					  r.y + (r.h - font.Height()) * 0.5f, theme.textDim);
+		} else if (m_icons) {
+			if (const gfx::Texture* icon = m_icons->For(s.typeId)) {
+				const float p = r.w * 0.1f;
+				batch.DrawSprite({r.x + p, r.y + p, r.w - 2 * p, r.h - 2 * p}, {0, 0, 1, 1},
+								 *icon, {1, 1, 1, 1});
+			}
+		}
 	}
-	font.Draw(batch, m_equipmentLabel, px.x + 290 * sx, px.y + 280 * sy, theme.accent);
-	font.Draw(batch, m_nothingCarried, px.x + 290 * sx, px.y + 320 * sy,
-			  theme.textDim);
+
+	// --- backpack (right, dynamic) ------------------------------------------
+	font.Draw(batch, m_backpackLabel, px.x + kPackX * sx, px.y + 196 * sy, theme.accent);
+	const auto& pack = m_character->inventory.backpack;
+	for (int i = 0; i < static_cast<int>(pack.size()); ++i) {
+		const gfx::Rect r = PackRect(px, sx, sy, i);
+		batch.DrawRect(r, theme.control);
+		ui::DrawBorder(batch, r, theme.panelBorder);
+		const ItemSlot& s = pack[static_cast<size_t>(i)];
+		if (!s.Empty() && m_icons) {
+			if (const gfx::Texture* icon = m_icons->For(s.typeId)) {
+				const float p = r.w * 0.1f;
+				batch.DrawSprite({r.x + p, r.y + p, r.w - 2 * p, r.h - 2 * p}, {0, 0, 1, 1},
+								 *icon, {1, 1, 1, 1});
+			}
+		}
+	}
 }
 
 } // namespace dungeon::game

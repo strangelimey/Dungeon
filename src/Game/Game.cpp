@@ -118,6 +118,12 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 		m_state = AppState::Playing; // resume play after saving from the pause menu
 	};
 	m_ui.onOpenSheet = [this](size_t index) { OpenCharacterSheet(index); };
+	// Sheet "All" button: leave the sheet and bring up the combined party
+	// backpacks (over the live world) for cross-character item swaps.
+	m_ui.onShowPartyInventory = [this] {
+		m_state = AppState::Playing;
+		m_ui.OpenInventory();
+	};
 	m_ui.onQualitySelected = [this](int index) {
 		SetQuality(static_cast<Quality>(index));
 	};
@@ -714,6 +720,7 @@ void Game::SaveGame(const std::string& name) {
 							  member.knownSymbols};
 		c.hands[0] = member.inventory.hands[0].typeId;
 		c.hands[1] = member.inventory.hands[1].typeId;
+		for (const ItemSlot& s : member.inventory.equipment) c.equipment.push_back(s.typeId);
 		for (const ItemSlot& s : member.inventory.backpack) c.backpack.push_back(s.typeId);
 		data.characters.push_back(std::move(c));
 	}
@@ -742,11 +749,14 @@ bool Game::LoadGame(const std::string& path) {
 		m_characters[i].stamina = c.stamina;   m_characters[i].maxStamina = c.maxStamina;
 		m_characters[i].mana = c.mana;         m_characters[i].maxMana = c.maxMana;
 		m_characters[i].knownSymbols = c.knownSymbols;
-		// Inventory (ResetRoster cleared it; lay the save's items back in).
+		// Inventory (ResetRoster gave a fresh one; lay the save's items back in).
 		Inventory& inv = m_characters[i].inventory;
 		inv.hands[0].typeId = c.hands[0];
 		inv.hands[1].typeId = c.hands[1];
-		for (size_t s = 0; s < c.backpack.size() && s < kBackpackSlots; ++s)
+		for (size_t e = 0; e < c.equipment.size() && e < static_cast<size_t>(kEquipCount); ++e)
+			inv.equipment[e].typeId = c.equipment[e];
+		if (!c.backpack.empty()) inv.backpack.assign(c.backpack.size(), {}); // restore capacity
+		for (size_t s = 0; s < c.backpack.size(); ++s)
 			inv.backpack[s].typeId = c.backpack[s];
 	}
 	m_world.ApplyState(*data); // fills the per-level store + party pose/torch

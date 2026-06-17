@@ -184,7 +184,15 @@ attr.vitality=Vitality
 attr.willpower=Willpower
 attr.intelligence=Intelligence
 sheet.equipment=Equipment
+sheet.backpack=Backpack
 sheet.nothing_carried=Nothing carried.
+equip.head=Head
+equip.body=Body
+equip.hands=Hands
+equip.feet=Feet
+equip.cloak=Cloak
+equip.amulet=Amulet
+equip.ring=Ring
 
 ; --- spell symbols (tier 1: the four elements) ----------------------------------
 symbol.fire=Fire

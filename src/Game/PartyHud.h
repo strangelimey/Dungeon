@@ -121,22 +121,20 @@ private:
 	bool m_heldRight = false;  // right-button press latched on this slot
 };
 
-// The party inventory window: a centered panel with one backpack column per
-// member (the kBackpackSlots slots in a 2-wide grid). Opened by right-clicking
-// while carrying a tablet; non-modal (the world keeps running) but claims the
-// mouse like the map overlay. Click a slot to drop the held tablet in (swapping
-// any occupant onto the cursor) or, empty-handed, to pick the slot's item up;
-// click off the panel — or Esc (handled by Game) — closes it. Overlay-drawn so
-// it floats above the HUD; the held-cursor icon (drawn last) stays on top.
+// The COMBINED party inventory: a centered panel with one backpack column per
+// member, for swapping items between characters at a glance. Opened by the
+// sheet's "All" button or by right-clicking the world while carrying a tablet;
+// non-modal (the world keeps running) but claims the mouse like the map overlay.
+// Click a slot to drop the held tablet in (swapping any occupant onto the
+// cursor) or, empty-handed, to pick the slot's item up; click off the panel —
+// or Esc (handled by Game) — closes it. Overlay-drawn so it floats above the
+// HUD; the held-cursor icon (drawn last) stays on top.
 class InventoryWindow : public ui::Widget {
 public:
 	InventoryWindow(std::vector<Character>* roster, const ItemIconBank* icons,
 					std::optional<std::string>* held);
 
-	// member >= 0 shows ONLY that member's backpack (right-clicking their
-	// portrait); -1 shows the whole party, one column each (right-clicking the
-	// world while holding).
-	void Open(int member = -1) { m_open = true; m_solo = member; }
+	void Open() { m_open = true; }
 	void Close() { m_open = false; }
 	bool IsOpen() const { return m_open; }
 
@@ -145,32 +143,32 @@ public:
 	void DrawOverlay(ui::UIContext& ctx, gfx::SpriteBatch& batch) override;
 
 private:
-	// Columns shown this open: 1 (solo) or the whole party.
-	int DisplayCount() const;
-	// The roster member behind display column `col`.
-	size_t MemberAtColumn(int col) const;
+	int MemberCount() const;
 	gfx::Rect PanelRect(const ui::UIContext& ctx) const;
-	gfx::Rect SlotRect(const gfx::Rect& panel, int col, int slot) const;
-	// The header "All" button (solo view only) that switches to the party view;
-	// sized to its label, top-right of the panel.
-	gfx::Rect AllButtonRect(ui::UIContext& ctx, const gfx::Rect& panel) const;
+	gfx::Rect SlotRect(const gfx::Rect& panel, int member, int slot) const;
 
 	std::vector<Character>* m_roster;
 	const ItemIconBank* m_icons;
 	std::optional<std::string>* m_held;
 	bool m_open = false;
-	int m_solo = -1;        // a single member's view (-1 = whole party)
-	std::string m_title;    // localized once at construction
-	std::string m_allLabel; // "All" button caption (solo -> party)
+	std::string m_title; // localized once at construction
 };
 
+// The character sheet, which doubles as the per-member INVENTORY: stats up top,
+// the worn-equipment paper doll on the left, and the (dynamic) backpack grid on
+// the right. Held-aware — a tablet carried on the cursor drops into an equipment
+// or backpack slot (swapping any occupant onto the cursor); empty-handed, a
+// click picks the slot's item up. icons resolves item art; held is Game's cursor
+// item (the overlay cursor is drawn by GameUI). The sheet is frozen-state, so it
+// edits its member live (mutable pointer).
 class CharacterSheet : public ui::Widget {
 public:
 	CharacterSheet(const gfx::Rect& rect, const ui::Font* portraitFont,
-				   const ResourceBarColors* barColors);
+				   const ResourceBarColors* barColors, const ItemIconBank* icons,
+				   std::optional<std::string>* held);
 
-	// Re-points the sheet and caches the formatted strings.
-	void SetCharacter(const Character& character);
+	// Re-points the sheet (mutable, for inventory edits) and caches strings.
+	void SetCharacter(Character& character);
 
 	void Update(ui::UIContext& ctx) override;
 	void Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) override;
@@ -180,17 +178,26 @@ private:
 		std::string label;
 		std::string value;
 	};
+	// Design-space rects for the worn-equipment and backpack slots (scaled to the
+	// live panel by Draw/Update). `scale` lets Update reuse the same geometry.
+	gfx::Rect EquipRect(const gfx::Rect& px, float sx, float sy, int i) const;
+	gfx::Rect PackRect(const gfx::Rect& px, float sx, float sy, int i) const;
+	// Applies a held-aware click to a slot: place / swap / pick up.
+	void ClickSlot(ItemSlot& slot);
 
-	const Character* m_character = nullptr;
+	Character* m_character = nullptr;
 	const ui::Font* m_portraitFont;
 	const ResourceBarColors* m_barColors;
+	const ItemIconBank* m_icons;
+	std::optional<std::string>* m_held;
 	std::string m_subtitle; // "Level 1 Rogue"
 	std::string m_healthText, m_staminaText, m_manaText; // "42 / 42"
 	std::array<AttributeLine, 5> m_attributes;
 	// Static page text, localized once at construction (the sheet is rebuilt
 	// on a language change) so Draw stays allocation-free.
 	std::string m_healthLabel, m_staminaLabel, m_manaLabel;
-	std::string m_attributesLabel, m_equipmentLabel, m_nothingCarried;
+	std::string m_attributesLabel, m_equipmentLabel, m_backpackLabel;
+	std::array<std::string, kEquipCount> m_equipLabels; // localized slot names
 };
 
 } // namespace dungeon::game

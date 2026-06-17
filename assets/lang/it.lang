@@ -185,7 +185,15 @@ attr.vitality=Vitalità
 attr.willpower=Volontà
 attr.intelligence=Intelligenza
 sheet.equipment=Equipaggiamento
+sheet.backpack=Zaino
 sheet.nothing_carried=Niente con sé.
+equip.head=Testa
+equip.body=Corpo
+equip.hands=Mani
+equip.feet=Piedi
+equip.cloak=Mantello
+equip.amulet=Amuleto
+equip.ring=Anello
 
 ; --- spell symbols (tier 1: the four elements) ----------------------------------
 symbol.fire=Fuoco
