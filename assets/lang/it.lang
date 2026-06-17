@@ -1,0 +1,241 @@
+; ============================================================================
+; Italian. Mirrors en.lang — keep keys in sync with it ({} count and order
+; must match). Conventions specific to this file:
+;  - Monster names CARRY their definite article ("lo scheletro") because
+;    Italian nouns are gendered; log lines using a monster name are written
+;    placeholder-first so the article opens the sentence (capitalized in play).
+;  - Class names are gendered to the fixed roster (Sera/Maren are women).
+;  - The party is addressed with "voi" diction (classic RPG voice).
+; ============================================================================
+
+lang.name=Italiano
+
+; --- titles / page chrome ---------------------------------------------------
+title=SOTTERRANEO
+pause.title=PAUSA
+menu.subtitle=un dungeon crawler alla vecchia maniera
+menu.subtitle_settings=impostazioni
+menu.subtitle_load=scegli una partita salvata
+menu.subtitle_save=dai un nome al salvataggio
+loading.descending=discesa...
+
+; --- landing + pause menus --------------------------------------------------
+menu.continue=Continua
+menu.start=Nuova partita
+menu.load=Carica
+menu.save=Salva
+menu.settings=Impostazioni
+menu.exit=Esci
+menu.back=Indietro
+
+; --- save / load browser ----------------------------------------------------
+saves.none=Nessuna partita salvata.
+; {0} = save name, {1} = timestamp
+saves.slot={}   ·   {}
+; {0} = next slot number
+saves.default_name=Salvataggio {}
+saves.name_placeholder=inserisci un nome
+saves.untitled=Salvataggio
+saves.overwrite_label=oppure sovrascrivi un salvataggio esistente:
+saves.overwrite_confirm=Clicca di nuovo per sovrascrivere
+saves.delete=Elimina
+saves.cancel=Annulla
+saves.delete_prompt=Eliminare questo salvataggio?
+
+; --- loading steps ------------------------------------------------------------
+load.echoes=Accordando gli echi
+load.title_art=Dipingendo il titolo
+load.blocks=Estraendo blocchi di pietra
+load.surface=Intrecciando la muratura ({})
+load.dungeon=Innalzando il sotterraneo
+load.pillar=Scolpendo la colonna serpente
+load.monsters=Risvegliando i mostri
+load.decorations=Adornando le sale
+load.fires=Accendendo i fuochi
+load.dust=Sollevando la polvere
+load.portraits=Ritraendo il gruppo
+load.hud=Accendendo le torce
+load.done=Entrando nel sotterraneo...
+
+; --- settings page ------------------------------------------------------------
+settings.tab.game=Gioco
+settings.tab.controls=Comandi
+settings.tab.video=Video
+settings.tab.audio=Audio
+settings.tab.ui=Interfaccia
+settings.language=Lingua
+settings.movement_keys=Tasti di movimento
+settings.key.forward=Avanti
+settings.key.back=Indietro
+settings.key.strafeleft=Passo a sinistra
+settings.key.straferight=Passo a destra
+settings.key.turnleft=Gira a sinistra
+settings.key.turnright=Gira a destra
+settings.press_a_key=premi un tasto...
+settings.adapter=Scheda grafica
+settings.monitor=Monitor
+settings.resolution=Risoluzione
+settings.display_mode=Modalità schermo
+settings.apply=Applica
+mode.windowed=Finestra
+mode.borderless=Senza bordi
+mode.exclusive=Schermo intero
+confirm.restart.title=Riavvio necessario
+confirm.restart.body=Cambiare la scheda grafica riavvia il gioco. Continuare?
+confirm.yes=Riavvia
+confirm.no=Annulla
+settings.quality=Qualità
+settings.quality.low=Bassa
+settings.quality.medium=Media
+settings.quality.high=Alta
+settings.quality.ultra=Ultra
+settings.maxlights=Luci max
+settings.framelimit=Frequenza
+settings.framelimit.vsync=VSync ({} FPS)
+settings.framelimit.fps={} FPS
+settings.volume=Volume
+settings.party_bar=Barra del gruppo
+settings.bar_scale=Dimensione
+settings.bar_opacity=Opacità dello sfondo
+settings.theme_colors=Colori del tema
+settings.resource_bars=Barre delle risorse
+theme.panel=Pannello
+theme.border=Bordo
+theme.control=Controllo
+theme.hot=Evidenziato
+theme.active=Attivo
+theme.text=Testo
+theme.textdim=Testo tenue
+theme.accent=Accento
+
+; --- HUD ----------------------------------------------------------------------
+hud.facing=Direzione: {}
+hud.position=Posizione: {}, {}
+hud.options=Opzioni
+hud.torchlight=Luce della torcia
+hud.wait=Attendi
+hud.help=Aiuto
+hud.magic=Magia
+hud.magic_none=Nessun incantesimo noto.
+hud.log_show=Registro
+torch.warm=Fiamma calda
+torch.cold=Freddo fuoco lunare
+torch.eerie=Brace spettrale
+facing.north=Nord
+facing.east=Est
+facing.south=Sud
+facing.west=Ovest
+
+; --- message log ----------------------------------------------------------------
+log.descend=Scendete nel sotterraneo...
+log.shuffle=Qualcosa striscia nel buio.
+log.movekeys={}/{} muovere, {}/{} laterale, {}/{} girare.
+log.scroll_hint=La rotellina del mouse scorre questo registro.
+log.wait=Attendete. Le torce tremolano.
+log.hands_empty=Le mani di {} sono vuote.
+log.bump=Sbattete contro un muro.
+log.brazier_blocks=Un braciere acceso vi sbarra la strada.
+log.decoration_blocks=Qualcosa di solido blocca il passaggio.
+log.monster_blocks={} vi sbarra la strada!
+log.monster_stirs={} si agita davanti a voi!
+log.torch_warm=Torna la calda luce del fuoco.
+log.torch_cold=Le fiamme si fanno fredde e blu.
+log.torch_eerie=Una sinistra luce verde si diffonde.
+; --- combat ({} args: see DungeonWorld PartyAttack / MonsterAttack) ---
+log.attack_air=Colpite l'aria vuota.
+log.party_hits={} colpisce {} per {} danni.
+log.party_misses={} attacca {} e manca.
+log.monster_slain={} soccombe!
+log.monster_hits={} colpisce {} per {} danni.
+log.monster_misses={} attacca {} e manca.
+log.member_down={} è caduto!
+log.party_wipe=Il gruppo è stato annientato. Le tenebre vi avvolgono.
+
+; --- spells / runes -------------------------------------------------------------
+log.rune_found=Trovate una runa di {}. (memorizzatela dalla scheda di un personaggio)
+
+; --- monsters (key suffix = the .ent type; article included, see header) ---------
+monster.skeleton=lo scheletro
+monster.blob=la melma
+monster.mummy=la mummia
+
+; --- character sheet / party bar -------------------------------------------------
+class.fighter=Guerriero
+class.rogue=Ladra
+class.cleric=Chierica
+class.mage=Mago
+sheet.subtitle=Livello {} {}
+bar.health=Salute
+bar.stamina=Vigore
+bar.mana=Mana
+sheet.attributes=Attributi
+attr.strength=Forza
+attr.dexterity=Destrezza
+attr.vitality=Vitalità
+attr.willpower=Volontà
+attr.intelligence=Intelligenza
+sheet.equipment=Equipaggiamento
+sheet.nothing_carried=Niente con sé.
+
+; --- spell symbols (tier 1: the four elements) ----------------------------------
+symbol.fire=Fuoco
+symbol.earth=Terra
+symbol.air=Aria
+symbol.water=Acqua
+
+; --- map overlay / editor --------------------------------------------------------
+map.title=Mappa
+map.position={}, {}
+map.hint=Trascina per spostare, rotellina per zoom
+map.hint.editor=Trascino destro sposta, rotellina zoom, sinistro dipinge
+map.brushes=Tavolozza
+map.brush.floor=Pavimento
+map.brush.wall=Muro
+map.tool.select=Seleziona
+map.tool.erase=Cancella
+map.cat.tools=Strumenti
+map.cat.structure=Struttura
+map.cat.walls=Muri
+map.cat.floors=Pavimenti
+map.cat.ceilings=Soffitti
+map.cat.decorations=Decorazioni
+map.cat.fixtures=Installazioni
+map.cat.monsters=Mostri
+map.cat.doors=Porte
+map.cat.stairs=Scale
+map.cat.items=Oggetti
+map.cat.empty=(nessuno definito)
+map.select.empty=Cella {}, {}: vuota {}
+map.select.contents=Cella {}, {}: {}
+map.place.todo=Posiziona '{}' — il collegamento arriverà dopo
+map.place.done='{}' posizionato
+map.place.blocked=Impossibile posizionare '{}' lì
+map.erase.removed=Entità rimossa
+map.erase.reset=Superfici della cella {}, {} ripristinate
+map.key=Legenda
+map.key.party=Gruppo
+map.key.start=Inizio
+map.key.wall=Muro
+map.key.floor=Pavimento
+map.key.torch=Torcia
+map.key.brazier=Braciere
+map.key.monster=Mostro
+map.key.item=Oggetto
+map.key.button=Pulsante
+map.key.decoration=Decorazione
+map.key.stairs=Scala
+map.cat.new=+ Nuovo...
+
+; --- asset-creation dialog -------------------------------------------------------
+newasset.title=Nuovo: {}
+newasset.name=nome
+newasset.browse_model=Sfoglia modello...
+newasset.browse_folder=Sfoglia cartella...
+newasset.none=(nessuna sorgente)
+newasset.metallic=Metallico
+newasset.roughness=Rugosità
+newasset.height=Altezza
+newasset.color=Colore
+newasset.create=Crea
+newasset.cancel=Annulla
+newasset.baking=Elaborazione... (AssetBaker in corso)

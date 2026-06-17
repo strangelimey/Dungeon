@@ -46,6 +46,14 @@ struct Character {
 	// independently (dual-wield, weapon + shield, etc.).
 	float handCooldown[2] = {0.0f, 0.0f};
 
+	// Hit-feedback splat shown over this member's portrait when a monster lands
+	// a blow: hitFlash counts down (seconds) while the party bar draws the icon,
+	// and hitSeverity picks which one (0 = small, 1 = medium, 2 = hard). The
+	// severity thresholds are placeholder — "what a hit means" is TBD. A fresh
+	// party (CreateDefaultParty) clears these.
+	float hitFlash = 0.0f;
+	int hitSeverity = 0;
+
 	// Whether the member is still standing. health <= 0 = down (out of the
 	// fight, no longer a valid monster target) — there is no death/revive
 	// system yet, so a downed member simply stops acting.

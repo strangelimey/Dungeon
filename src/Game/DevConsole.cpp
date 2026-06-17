@@ -103,6 +103,7 @@ void DevConsole::Update(const Input& input, float dt, float windowW, float windo
 	m_caretBlink += dt;
 	(void)windowW;
 	m_font.SetHeight(kFontH * (windowH / kDesignWindowH));
+	m_font.Commit(); // flush glyphs cached last frame (no-op unless new ones appeared)
 
 	// Typed characters (skip the toggle key so `~`/backtick never self-types).
 	for (char c : input.TypedChars())

@@ -51,9 +51,10 @@ void DrawPortrait(gfx::SpriteBatch& batch, const gfx::Rect& rect,
 CharacterPanel::CharacterPanel(const gfx::Rect& rect, const Character* character,
 							   const ui::Font* portraitFont,
 							   const ResourceBarColors* barColors,
+							   const HitSplatIcons* hitSplats,
 							   std::function<void()> onClick)
 	: m_character(character), m_portraitFont(portraitFont), m_barColors(barColors),
-	  m_onClick(std::move(onClick)) {
+	  m_hitSplats(hitSplats), m_onClick(std::move(onClick)) {
 	bounds = rect;
 }
 
@@ -87,6 +88,19 @@ void CharacterPanel::Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	const gfx::Rect portrait{px.x + pad, px.y + pad, px.h - 2 * pad,
 							 px.h - 2 * pad};
 	DrawPortrait(batch, portrait, *m_character, *m_portraitFont, theme);
+
+	// Hit feedback: a transient splat over the portrait while hitFlash > 0,
+	// fading out as the timer winds down (the world ticks it). No number — the
+	// icon alone conveys the hit. Slightly oversized so the spatter overhangs.
+	if (m_character->hitFlash > 0.0f && m_hitSplats) {
+		if (const gfx::Texture* splat = m_hitSplats->For(m_character->hitSeverity)) {
+			const float fade = std::clamp(m_character->hitFlash / 0.7f, 0.0f, 1.0f);
+			const float grow = portrait.w * 0.14f;
+			const gfx::Rect r{portrait.x - grow * 0.5f, portrait.y - grow * 0.5f,
+							  portrait.w + grow, portrait.h + grow};
+			batch.DrawSprite(r, {0, 0, 1, 1}, *splat, {1, 1, 1, fade});
+		}
+	}
 
 	ui::Font& font = ctx.GetFont();
 	const float left = portrait.x + portrait.w + pad;

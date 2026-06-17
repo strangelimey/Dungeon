@@ -39,13 +39,25 @@ struct ResourceBarColors {
 	Vec4 mana{0.22f, 0.36f, 0.68f, 1.0f};
 };
 
+// The three hit-feedback splat icons, indexed by severity (0 = small, 1 =
+// medium, 2 = hard), drawn over a struck member's portrait. The textures are
+// owned by Game (loaded from assets); the party panels point at this struct and
+// read it live, so a null entry (icon missing) simply draws no splat.
+// (Indexed rather than named because <windows.h> #defines `small` as char.)
+struct HitSplatIcons {
+	const gfx::Texture* icon[3] = {nullptr, nullptr, nullptr};
+	const gfx::Texture* For(int severity) const {
+		return icon[severity < 0 ? 0 : (severity > 2 ? 2 : severity)];
+	}
+};
+
 class CharacterPanel : public ui::Widget {
 public:
 	// portraitFont draws the big placeholder initial (the Game passes its
 	// title font, which tracks the window scale like everything else).
 	CharacterPanel(const gfx::Rect& rect, const Character* character,
 				   const ui::Font* portraitFont, const ResourceBarColors* barColors,
-				   std::function<void()> onClick);
+				   const HitSplatIcons* hitSplats, std::function<void()> onClick);
 
 	void Update(ui::UIContext& ctx) override;
 	void Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) override;
@@ -58,6 +70,7 @@ private:
 	const Character* m_character;
 	const ui::Font* m_portraitFont;
 	const ResourceBarColors* m_barColors;
+	const HitSplatIcons* m_hitSplats; // may be null (icons not loaded)
 	std::function<void()> m_onClick;
 	bool m_hot = false;
 	bool m_held = false;

@@ -1,0 +1,241 @@
+; ============================================================================
+; Spanish. Mirrors en.lang — keep keys in sync with it ({} count and order
+; must match). Conventions specific to this file:
+;  - Monster names CARRY their definite article ("el esqueleto") because
+;    Spanish nouns are gendered; log lines using a monster name are written
+;    placeholder-first so the article opens the sentence (capitalized in play).
+;  - Class names are gendered to the fixed roster (Sera/Maren are women).
+;  - The party is addressed with "vosotros" diction (classic RPG voice).
+; ============================================================================
+
+lang.name=Español
+
+; --- titles / page chrome ---------------------------------------------------
+title=MAZMORRA
+pause.title=PAUSA
+menu.subtitle=un calabozo a la vieja usanza
+menu.subtitle_settings=ajustes
+menu.subtitle_load=elige una partida guardada
+menu.subtitle_save=nombra tu partida
+loading.descending=descendiendo...
+
+; --- landing + pause menus --------------------------------------------------
+menu.continue=Continuar
+menu.start=Nueva partida
+menu.load=Cargar
+menu.save=Guardar
+menu.settings=Ajustes
+menu.exit=Salir
+menu.back=Atrás
+
+; --- save / load browser ----------------------------------------------------
+saves.none=Aún no hay partidas guardadas.
+; {0} = save name, {1} = timestamp
+saves.slot={}   ·   {}
+; {0} = next slot number
+saves.default_name=Partida {}
+saves.name_placeholder=escribe un nombre
+saves.untitled=Partida
+saves.overwrite_label=o sobrescribe una partida existente:
+saves.overwrite_confirm=Pulsa de nuevo para sobrescribir
+saves.delete=Eliminar
+saves.cancel=Cancelar
+saves.delete_prompt=¿Eliminar esta partida?
+
+; --- loading steps ------------------------------------------------------------
+load.echoes=Afinando los ecos
+load.title_art=Pintando el título
+load.blocks=Tallando bloques de piedra
+load.surface=Tejiendo la cantería ({})
+load.dungeon=Levantando la mazmorra
+load.pillar=Esculpiendo la columna serpiente
+load.monsters=Despertando a los monstruos
+load.decorations=Engalanando los salones
+load.fires=Prendiendo los fuegos
+load.dust=Removiendo el polvo
+load.portraits=Pintando al grupo
+load.hud=Encendiendo las antorchas
+load.done=Entrando en la mazmorra...
+
+; --- settings page ------------------------------------------------------------
+settings.tab.game=Juego
+settings.tab.controls=Controles
+settings.tab.video=Vídeo
+settings.tab.audio=Audio
+settings.tab.ui=Interfaz
+settings.language=Idioma
+settings.movement_keys=Teclas de movimiento
+settings.key.forward=Avanzar
+settings.key.back=Retroceder
+settings.key.strafeleft=Paso a la izquierda
+settings.key.straferight=Paso a la derecha
+settings.key.turnleft=Girar a la izquierda
+settings.key.turnright=Girar a la derecha
+settings.press_a_key=pulsa una tecla...
+settings.adapter=Tarjeta gráfica
+settings.monitor=Monitor
+settings.resolution=Resolución
+settings.display_mode=Modo de pantalla
+settings.apply=Aplicar
+mode.windowed=Ventana
+mode.borderless=Sin bordes
+mode.exclusive=Pantalla completa
+confirm.restart.title=Reinicio necesario
+confirm.restart.body=Cambiar la tarjeta gráfica reinicia el juego. ¿Continuar?
+confirm.yes=Reiniciar
+confirm.no=Cancelar
+settings.quality=Calidad
+settings.quality.low=Baja
+settings.quality.medium=Media
+settings.quality.high=Alta
+settings.quality.ultra=Ultra
+settings.maxlights=Luces máx.
+settings.framelimit=Frecuencia
+settings.framelimit.vsync=VSync ({} FPS)
+settings.framelimit.fps={} FPS
+settings.volume=Volumen
+settings.party_bar=Barra del grupo
+settings.bar_scale=Tamaño
+settings.bar_opacity=Opacidad del fondo
+settings.theme_colors=Colores del tema
+settings.resource_bars=Barras de recursos
+theme.panel=Panel
+theme.border=Borde
+theme.control=Control
+theme.hot=Resaltado
+theme.active=Activo
+theme.text=Texto
+theme.textdim=Texto tenue
+theme.accent=Acento
+
+; --- HUD ----------------------------------------------------------------------
+hud.facing=Orientación: {}
+hud.position=Posición: {}, {}
+hud.options=Opciones
+hud.torchlight=Antorcha
+hud.wait=Esperar
+hud.help=Ayuda
+hud.magic=Magia
+hud.magic_none=No conocéis hechizos.
+hud.log_show=Registro
+torch.warm=Llama cálida
+torch.cold=Fuego lunar frío
+torch.eerie=Brasa fantasmal
+facing.north=Norte
+facing.east=Este
+facing.south=Sur
+facing.west=Oeste
+
+; --- message log ----------------------------------------------------------------
+log.descend=Descendéis a la mazmorra...
+log.shuffle=Algo se arrastra en la oscuridad.
+log.movekeys={}/{} avanzar, {}/{} lateral, {}/{} girar.
+log.scroll_hint=La rueda del ratón desplaza este registro.
+log.wait=Esperáis. Las antorchas titilan.
+log.hands_empty=Las manos de {} están vacías.
+log.bump=Chocáis contra un muro.
+log.brazier_blocks=Un brasero encendido os corta el paso.
+log.decoration_blocks=Algo sólido bloquea el paso.
+log.monster_blocks={} os corta el paso!
+log.monster_stirs={} se agita ante vosotros!
+log.torch_warm=Vuelve la cálida luz del fuego.
+log.torch_cold=Las llamas se tornan frías y azules.
+log.torch_eerie=Una inquietante luz verde se extiende.
+; --- combat ({} args: see DungeonWorld PartyAttack / MonsterAttack) ---
+log.attack_air=Golpeáis el aire vacío.
+log.party_hits={} hiere a {} y causa {} de daño.
+log.party_misses={} ataca a {} y falla.
+log.monster_slain=¡{} sucumbe!
+log.monster_hits={} hiere a {} y causa {} de daño.
+log.monster_misses={} ataca a {} y falla.
+log.member_down=¡{} ha caído!
+log.party_wipe=El grupo ha sido aniquilado. La oscuridad os reclama.
+
+; --- spells / runes -------------------------------------------------------------
+log.rune_found=Encontráis una runa de {}. (memorizadla desde la hoja de un personaje)
+
+; --- monsters (key suffix = the .ent type; article included, see header) ---------
+monster.skeleton=el esqueleto
+monster.blob=la baba
+monster.mummy=la momia
+
+; --- character sheet / party bar -------------------------------------------------
+class.fighter=Guerrero
+class.rogue=Pícara
+class.cleric=Clériga
+class.mage=Mago
+sheet.subtitle=Nivel {} {}
+bar.health=Vida
+bar.stamina=Vigor
+bar.mana=Maná
+sheet.attributes=Atributos
+attr.strength=Fuerza
+attr.dexterity=Destreza
+attr.vitality=Vitalidad
+attr.willpower=Voluntad
+attr.intelligence=Inteligencia
+sheet.equipment=Equipo
+sheet.nothing_carried=No lleva nada.
+
+; --- spell symbols (tier 1: the four elements) ----------------------------------
+symbol.fire=Fuego
+symbol.earth=Tierra
+symbol.air=Aire
+symbol.water=Agua
+
+; --- map overlay / editor --------------------------------------------------------
+map.title=Mapa
+map.position={}, {}
+map.hint=Arrastra para mover, rueda para zoom
+map.hint.editor=Arrastre derecho mueve, rueda zoom, izquierdo pinta
+map.brushes=Paleta
+map.brush.floor=Suelo
+map.brush.wall=Muro
+map.tool.select=Seleccionar
+map.tool.erase=Borrar
+map.cat.tools=Herramientas
+map.cat.structure=Estructura
+map.cat.walls=Muros
+map.cat.floors=Suelos
+map.cat.ceilings=Techos
+map.cat.decorations=Decoraciones
+map.cat.fixtures=Instalaciones
+map.cat.monsters=Monstruos
+map.cat.doors=Puertas
+map.cat.stairs=Escaleras
+map.cat.items=Objetos
+map.cat.empty=(ninguno definido)
+map.select.empty=Celda {}, {}: vacía {}
+map.select.contents=Celda {}, {}: {}
+map.place.todo=Colocar '{}' — la conexión vendrá después
+map.place.done='{}' colocado
+map.place.blocked=No se puede colocar '{}' ahí
+map.erase.removed=Entidad eliminada
+map.erase.reset=Superficies de la celda {}, {} restablecidas
+map.key=Leyenda
+map.key.party=Grupo
+map.key.start=Inicio
+map.key.wall=Muro
+map.key.floor=Suelo
+map.key.torch=Antorcha
+map.key.brazier=Brasero
+map.key.monster=Monstruo
+map.key.item=Objeto
+map.key.button=Botón
+map.key.decoration=Decoración
+map.key.stairs=Escalera
+map.cat.new=+ Nuevo...
+
+; --- asset-creation dialog -------------------------------------------------------
+newasset.title=Nuevo: {}
+newasset.name=nombre
+newasset.browse_model=Buscar modelo...
+newasset.browse_folder=Buscar carpeta...
+newasset.none=(sin origen)
+newasset.metallic=Metálico
+newasset.roughness=Rugosidad
+newasset.height=Altura
+newasset.color=Color
+newasset.create=Crear
+newasset.cancel=Cancelar
+newasset.baking=Procesando... (ejecutando AssetBaker)

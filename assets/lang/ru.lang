@@ -1,0 +1,245 @@
+; ============================================================================
+; Russian. Mirrors en.lang — keep keys in sync with it ({} count and order
+; must match). Conventions specific to this file:
+;  - Russian has no articles and doesn't capitalize common nouns, so monster
+;    names are bare lowercase nouns in the nominative case ("скелет").
+;  - The engine substitutes one fixed form (no grammatical cases/declension),
+;    so log lines are phrased to keep every name in the nominative: party
+;    lines lead with the actor, and monster-subject lines are verb-first
+;    ("Удар наносит {}…") so a name never opens a sentence in lower case.
+;  - Class names are gendered to the fixed roster (Sera/Maren are women).
+;  - The party is addressed with "вы/вас" (classic RPG diction).
+;  - Needs the dynamic glyph atlas (UI/Font): Cyrillic is outside Latin-1.
+; ============================================================================
+
+lang.name=Русский
+
+; --- titles / page chrome ---------------------------------------------------
+title=ПОДЗЕМЕЛЬЕ
+pause.title=ПАУЗА
+menu.subtitle=олдскульный данжен-кроулер
+menu.subtitle_settings=настройки
+menu.subtitle_load=выберите сохранение
+menu.subtitle_save=назовите сохранение
+loading.descending=спуск...
+
+; --- landing + pause menus --------------------------------------------------
+menu.continue=Продолжить
+menu.start=Новая игра
+menu.load=Загрузить
+menu.save=Сохранить
+menu.settings=Настройки
+menu.exit=Выход
+menu.back=Назад
+
+; --- save / load browser ----------------------------------------------------
+saves.none=Сохранений пока нет.
+; {0} = save name, {1} = timestamp
+saves.slot={}   ·   {}
+; {0} = next slot number
+saves.default_name=Сохранение {}
+saves.name_placeholder=введите имя
+saves.untitled=Сохранение
+saves.overwrite_label=или перезапишите существующее сохранение:
+saves.overwrite_confirm=Нажмите ещё раз, чтобы перезаписать
+saves.delete=Удалить
+saves.cancel=Отмена
+saves.delete_prompt=Удалить это сохранение?
+
+; --- loading steps ------------------------------------------------------------
+load.echoes=Настраиваем эхо
+load.title_art=Рисуем заставку
+load.blocks=Высекаем каменные блоки
+load.surface=Плетём каменную кладку ({})
+load.dungeon=Возводим подземелье
+load.pillar=Высекаем змеиную колонну
+load.monsters=Пробуждаем монстров
+load.decorations=Украшаем залы
+load.fires=Разжигаем огни
+load.dust=Поднимаем пыль
+load.portraits=Рисуем отряд
+load.hud=Зажигаем факелы
+load.done=Входим в подземелье...
+
+; --- settings page ------------------------------------------------------------
+settings.tab.game=Игра
+settings.tab.controls=Управление
+settings.tab.video=Графика
+settings.tab.audio=Звук
+settings.tab.ui=Интерфейс
+settings.language=Язык
+settings.movement_keys=Клавиши движения
+settings.key.forward=Вперёд
+settings.key.back=Назад
+settings.key.strafeleft=Шаг влево
+settings.key.straferight=Шаг вправо
+settings.key.turnleft=Поворот влево
+settings.key.turnright=Поворот вправо
+settings.press_a_key=нажмите клавишу...
+settings.adapter=Видеокарта
+settings.monitor=Монитор
+settings.resolution=Разрешение
+settings.display_mode=Режим экрана
+settings.apply=Применить
+mode.windowed=Оконный
+mode.borderless=Без рамки
+mode.exclusive=Полный экран
+confirm.restart.title=Требуется перезапуск
+confirm.restart.body=Смена видеокарты перезапустит игру. Продолжить?
+confirm.yes=Перезапустить
+confirm.no=Отмена
+settings.quality=Качество
+settings.quality.low=Низкое
+settings.quality.medium=Среднее
+settings.quality.high=Высокое
+settings.quality.ultra=Ультра
+settings.maxlights=Макс. света
+settings.framelimit=Частота кадров
+settings.framelimit.vsync=Верт. синхр. ({} FPS)
+settings.framelimit.fps={} FPS
+settings.volume=Громкость
+settings.party_bar=Панель отряда
+settings.bar_scale=Размер
+settings.bar_opacity=Непрозрачность фона
+settings.theme_colors=Цвета темы
+settings.resource_bars=Полосы ресурсов
+theme.panel=Панель
+theme.border=Рамка
+theme.control=Элемент
+theme.hot=Наведение
+theme.active=Активный
+theme.text=Текст
+theme.textdim=Тусклый текст
+theme.accent=Акцент
+
+; --- HUD ----------------------------------------------------------------------
+hud.facing=Направление: {}
+hud.position=Позиция: {}, {}
+hud.options=Опции
+hud.torchlight=Свет факела
+hud.wait=Ждать
+hud.help=Помощь
+hud.magic=Магия
+hud.magic_none=Заклинаний нет.
+hud.log_show=Журнал
+torch.warm=Тёплое пламя
+torch.cold=Холодный лунный огонь
+torch.eerie=Жуткий свет углей
+facing.north=Север
+facing.east=Восток
+facing.south=Юг
+facing.west=Запад
+
+; --- message log ----------------------------------------------------------------
+log.descend=Вы спускаетесь в подземелье...
+log.shuffle=Что-то шуршит во тьме.
+log.movekeys={}/{} движение, {}/{} вбок, {}/{} поворот.
+log.scroll_hint=Колесо мыши прокручивает журнал.
+log.wait=Вы ждёте. Факелы трепещут.
+log.hands_empty={}: руки пусты.
+log.bump=Вы натыкаетесь на стену.
+log.brazier_blocks=Горящая жаровня преграждает вам путь.
+log.decoration_blocks=Что-то твёрдое преграждает путь.
+log.monster_blocks=Путь вам преграждает {}!
+log.monster_stirs=Перед вами шевелится {}!
+log.torch_warm=Возвращается тёплый свет огня.
+log.torch_cold=Пламя становится холодным и синим.
+log.torch_eerie=Расползается жуткий зелёный свет.
+; --- combat ({} args: see DungeonWorld PartyAttack / MonsterAttack) ---
+log.attack_air=Вы бьёте впустую.
+log.party_hits={} наносит удар, и {} получает {} урона.
+log.party_misses={} наносит удар, но {} уворачивается.
+log.monster_slain=Гибнет {}!
+log.monster_hits=Удар наносит {}: {} получает {} урона.
+log.monster_misses=Удар наносит {}, но {} уворачивается.
+log.member_down={} выбывает из боя!
+log.party_wipe=Отряд погиб. Тьма поглощает вас.
+
+; --- spells / runes -------------------------------------------------------------
+log.rune_found=Вы находите руну «{}». (запомните её в листе персонажа)
+
+; --- monsters (key suffix = the .ent type; bare nominative noun, see header) ------
+monster.skeleton=скелет
+monster.blob=слизь
+monster.mummy=мумия
+
+; --- character sheet / party bar -------------------------------------------------
+class.fighter=Воин
+class.rogue=Разбойница
+class.cleric=Жрица
+class.mage=Маг
+sheet.subtitle=Уровень {} {}
+bar.health=Здоровье
+bar.stamina=Выносливость
+bar.mana=Мана
+sheet.attributes=Характеристики
+attr.strength=Сила
+attr.dexterity=Ловкость
+attr.vitality=Живучесть
+attr.willpower=Воля
+attr.intelligence=Интеллект
+sheet.equipment=Снаряжение
+sheet.nothing_carried=Ничего нет.
+
+; --- spell symbols (tier 1: the four elements) ----------------------------------
+symbol.fire=Огонь
+symbol.earth=Земля
+symbol.air=Воздух
+symbol.water=Вода
+
+; --- map overlay / editor --------------------------------------------------------
+map.title=Карта
+map.position={}, {}
+map.hint=Тяните для перемещения, колесо для масштаба
+map.hint.editor=ПКМ — перемещение, колесо — масштаб, ЛКМ — рисование
+map.brushes=Палитра
+map.brush.floor=Пол
+map.brush.wall=Стена
+map.tool.select=Выбрать
+map.tool.erase=Стереть
+map.cat.tools=Инструменты
+map.cat.structure=Структура
+map.cat.walls=Стены
+map.cat.floors=Полы
+map.cat.ceilings=Потолки
+map.cat.decorations=Декорации
+map.cat.fixtures=Светильники
+map.cat.monsters=Монстры
+map.cat.doors=Двери
+map.cat.stairs=Лестницы
+map.cat.items=Предметы
+map.cat.empty=(не задано)
+map.select.empty=Ячейка {}, {}: пусто {}
+map.select.contents=Ячейка {}, {}: {}
+map.place.todo=Разместить «{}» — связывание далее
+map.place.done=«{}» размещено
+map.place.blocked=Нельзя разместить «{}» здесь
+map.erase.removed=Сущность удалена
+map.erase.reset=Поверхности ячейки {}, {} сброшены
+map.key=Легенда
+map.key.party=Отряд
+map.key.start=Старт
+map.key.wall=Стена
+map.key.floor=Пол
+map.key.torch=Факел
+map.key.brazier=Жаровня
+map.key.monster=Монстр
+map.key.item=Предмет
+map.key.button=Кнопка
+map.key.decoration=Декорация
+map.key.stairs=Лестница
+map.cat.new=+ Создать...
+
+; --- asset-creation dialog -------------------------------------------------------
+newasset.title=Новый: {}
+newasset.name=имя
+newasset.browse_model=Выбрать модель...
+newasset.browse_folder=Выбрать папку...
+newasset.none=(нет источника)
+newasset.metallic=Металличность
+newasset.roughness=Шероховатость
+newasset.height=Высота
+newasset.color=Цвет
+newasset.create=Создать
+newasset.cancel=Отмена
+newasset.baking=Обработка... (запущен AssetBaker)
