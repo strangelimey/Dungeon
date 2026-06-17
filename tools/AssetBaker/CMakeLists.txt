@@ -10,6 +10,7 @@ add_executable(AssetBaker
 	ModelBaker.cpp
 	ModelImport.cpp
 	PortraitBaker.cpp
+	RuneBaker.cpp
 	SoundBaker.cpp
 	SplatBaker.cpp
 	TextureBaker.cpp

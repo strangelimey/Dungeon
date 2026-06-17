@@ -397,6 +397,13 @@ DungeonWorld::ItemKind& DungeonWorld::ItemKindFor(const std::string& type) {
 				kind->isRune = true;
 				kind->runeSymbol = sym;
 				kind->glow = RuneGlow(sym);
+				// Shared tablet mesh (loaded once) + this element's carved set.
+				if (!m_runeMesh) {
+					m_runeModel = LoadModelOrDie("rune_tablet.gltf");
+					m_runeMesh = std::make_unique<gfx::Mesh>(m_device,
+															 m_runeModel.meshes[0]);
+				}
+				kind->tex = LoadPropTextures(std::format("rune_{}", SymbolId(sym)));
 			} else {
 				log::Warn("item {}: unknown rune symbol '{}'", type,
 						  CatalogGet(def, "symbol", ""));
@@ -1132,15 +1139,16 @@ void DungeonWorld::Update(const Input& input, float dt, float time, bool acceptI
 		fire.effect.Update(dt);
 		fire.effect.AppendParticles(m_particleScratch);
 	}
-	// Uncollected items glow as a bobbing additive billboard (runes for now).
+	// A soft element glow hovers just above each uncollected rune tablet (the
+	// tablet mesh itself draws in SubmitSceneGeometry) — marks it in the dark.
 	for (const Item& item : m_items) {
 		if (item.collected) continue;
 		const Vec3 c = m_map.CellCenter(item.x, item.z);
-		const float bob = 0.5f + 0.12f * std::sin(time * 2.2f + static_cast<float>(item.id));
-		const float pulse = 0.75f + 0.25f * std::sin(time * 4.0f + static_cast<float>(item.id));
+		const float bob = 0.58f + 0.06f * std::sin(time * 2.2f + static_cast<float>(item.id));
+		const float pulse = 0.70f + 0.30f * std::sin(time * 4.0f + static_cast<float>(item.id));
 		Vec4 col = item.kind->glow;
 		col.x *= pulse; col.y *= pulse; col.z *= pulse;
-		m_particleScratch.push_back({{c.x, bob, c.z}, 0.18f, col});
+		m_particleScratch.push_back({{c.x, bob, c.z}, 0.12f, col});
 	}
 	const Vec3 eye = m_party.EyePosition();
 	const Vec3 fwd = m_camera.Forward();
@@ -1744,6 +1752,25 @@ void DungeonWorld::SubmitSceneGeometry(ID3D12GraphicsCommandList* list,
 		material.doubleSided = !deco.kind->authored; // authored meshes back-cull
 		ApplyPropMaterial(material, deco.kind->tex, deco.kind->color, 0.85f);
 		m_renderer.DrawMesh(list, *deco.kind->mesh, deco.world, material);
+	}
+
+	// Rune items: the shared carved-stone tablet, drawn per element with its PBR
+	// set (parallax cuts the glyph in); a soft element glow above marks it (added
+	// to the particle batch in Update). Flat stone fallback if the set is missing.
+	if (m_runeMesh) {
+		for (const Item& item : m_items) {
+			if (item.collected || !item.kind->isRune) continue;
+			const Vec3 c = m_map.CellCenter(item.x, item.z);
+			if (!visible({c.x, 0.3f, c.z}, 0.8f)) continue;
+			Mat4 world = Mat4Identity();
+			world._41 = c.x;
+			world._43 = c.z;
+			gfx::MaterialParams material;
+			material.doubleSided = false; // authored slab: back-cull
+			ApplyPropMaterial(material, item.kind->tex,
+							  m_runeModel.materials[0].baseColorFactor, 0.85f);
+			m_renderer.DrawMesh(list, *m_runeMesh, world, material);
+		}
 	}
 
 	// Monsters: bone/bandage/slime PBR sets, bound by type name. The flat-color

@@ -25,6 +25,10 @@
 //
 //   AssetBaker splats <assets-dir>
 //       Regenerates only the hit-feedback splat icons (fast; PNG only).
+//
+//   AssetBaker runes <assets-dir>
+//       Regenerates the rune tablet model + carved per-element texture sets +
+//       icons (fast; PNG only — run `mips` after to derive the .dds).
 
 #include "Core/Log.h"
 #include "ImportTextures.h"
@@ -32,6 +36,7 @@
 #include "ModelBaker.h"
 #include "ModelImport.h"
 #include "PortraitBaker.h"
+#include "RuneBaker.h"
 #include "SoundBaker.h"
 #include "SplatBaker.h"
 #include "TextureBaker.h"
@@ -114,6 +119,12 @@ int main(int argc, char** argv) {
 		return baker::BakeHitSplats(std::string(argv[2]) + "\\textures") ? 0 : 1;
 	}
 
+	if (argc >= 3 && std::string(argv[1]) == "runes") {
+		// Tablet model + carved per-element texture sets + icons. PNG only — the
+		// _2k set loads fine without a .dds; run `mips` afterward to derive them.
+		return baker::BakeRunes(argv[2]) ? 0 : 1;
+	}
+
 	if (argc < 2) {
 		log::Error("usage: AssetBaker <assets-dir>  |  AssetBaker import ...");
 		return 1;
@@ -131,6 +142,7 @@ int main(int argc, char** argv) {
 	ok &= baker::BakeHitSplats(assets + "\\textures");
 	ok &= baker::BakeSounds(assets + "\\sounds");
 	ok &= baker::BakeModels(assets + "\\models", assets + "\\textures");
+	ok &= baker::BakeRunes(assets); // tablet + carved textures + icons (before mips)
 	ok &= baker::BakeAllMips(assets + "\\textures");
 	if (ok) log::Info("Asset bake complete.");
 	else log::Error("Asset bake FAILED.");

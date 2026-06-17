@@ -318,7 +318,10 @@ private:
 		std::string id;        // catalog id (the .ent record type)
 		bool isRune = false;
 		SpellSymbol runeSymbol = SpellSymbol::Fire;
-		Vec4 glow{1, 1, 1, 1}; // billboard tint (element colour)
+		Vec4 glow{1, 1, 1, 1}; // accent-glow tint (element colour)
+		// Carved-stone tablet look: the shared tablet mesh (m_runeMesh) drawn with
+		// this element's PBR set (rune_<elem>). null tex falls back to flat stone.
+		const PropTextures* tex = nullptr;
 	};
 	struct Item {
 		const ItemKind* kind = nullptr; // points into m_itemKinds (stable)
@@ -569,6 +572,10 @@ private:
 
 	std::flat_map<std::string, std::unique_ptr<ItemKind>> m_itemKinds;
 	std::vector<Item> m_items;
+	// Shared carved-stone tablet, loaded once on the first rune kind; every rune
+	// draws this mesh with its own element texture set.
+	assets::ModelData m_runeModel;
+	std::unique_ptr<gfx::Mesh> m_runeMesh;
 
 	// Combat: the Game's roster (not owned) + the strike RNG. UpdateMonsters
 	// ticks cooldowns and runs monster melee; PartyAttack runs the party's.
