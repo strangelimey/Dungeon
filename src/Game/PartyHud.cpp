@@ -198,7 +198,7 @@ InventoryWindow::InventoryWindow(std::vector<Character>* roster,
 								 const ItemIconBank* icons,
 								 std::optional<std::string>* held)
 	: m_roster(roster), m_icons(icons), m_held(held),
-	  m_title(loc::Tr("ui.inventory")) {}
+	  m_title(loc::Tr("ui.inventory")), m_allLabel(loc::Tr("ui.inv_all")) {}
 
 int InventoryWindow::DisplayCount() const {
 	if (m_solo >= 0) return 1;
@@ -230,6 +230,14 @@ gfx::Rect InventoryWindow::SlotRect(const gfx::Rect& panel, int col, int slot) c
 			slotsTop + static_cast<float>(row) * (slotW + kInvGap), slotW, slotW};
 }
 
+gfx::Rect InventoryWindow::AllButtonRect(ui::UIContext& ctx,
+										 const gfx::Rect& panel) const {
+	ui::Font& font = ctx.GetFont();
+	const float w = font.MeasureWidth(m_allLabel) + 20.0f;
+	const float h = font.Height() + 8.0f;
+	return {panel.x + panel.w - kInvPad - w, panel.y + kInvPad - 4.0f, w, h};
+}
+
 void InventoryWindow::Update(ui::UIContext& ctx) {
 	if (!m_open) return;
 	const Input* input = ctx.CurrentInput();
@@ -238,6 +246,13 @@ void InventoryWindow::Update(ui::UIContext& ctx) {
 	const bool left = input->WasMousePressed(MouseButton::Left);
 	const bool right = input->WasMousePressed(MouseButton::Right);
 	const float mx = input->MouseX(), my = input->MouseY();
+
+	// Solo view: the "All" button switches to the whole-party view in place.
+	if (m_solo >= 0 && left && AllButtonRect(ctx, panel).Contains(mx, my)) {
+		m_solo = -1;
+		ctx.ConsumeMouse();
+		return;
+	}
 
 	if (left) {
 		for (int c = 0; c < DisplayCount(); ++c) {
@@ -275,6 +290,18 @@ void InventoryWindow::DrawOverlay(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	batch.DrawRect(panel, theme.panel);
 	ui::DrawBorder(batch, panel, theme.panelBorder);
 	font.Draw(batch, m_title, panel.x + kInvPad, panel.y + kInvPad, theme.accent);
+
+	// Solo view: an "All" button (top-right) opens the whole-party view for
+	// swapping items between characters.
+	if (m_solo >= 0) {
+		const gfx::Rect btn = AllButtonRect(ctx, panel);
+		const Input* in = ctx.CurrentInput();
+		const bool hot = in && btn.Contains(in->MouseX(), in->MouseY());
+		batch.DrawRect(btn, hot ? theme.controlHot : theme.control);
+		ui::DrawBorder(batch, btn, theme.panelBorder);
+		font.Draw(batch, m_allLabel, btn.x + 10.0f,
+				  btn.y + (btn.h - font.Height()) * 0.5f, theme.text);
+	}
 
 	const float colW = (panel.w - 2 * kInvPad) / static_cast<float>(DisplayCount());
 	for (int c = 0; c < DisplayCount(); ++c) {

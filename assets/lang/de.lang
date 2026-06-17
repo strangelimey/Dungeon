@@ -158,6 +158,7 @@ log.pack_full=Der Rucksack ist voll.
 log.memorize={} prägt sich die {}-Rune ein.
 ui.memorize=Einprägen
 ui.inventory=Inventar
+ui.inv_all=Alle
 item.rune_fire=Feuerrune
 item.rune_earth=Erdrune
 item.rune_air=Luftrune

@@ -156,6 +156,7 @@ log.pack_full=The pack is full.
 log.memorize={} commits the {} rune to memory.
 ui.memorize=Memorize
 ui.inventory=Inventory
+ui.inv_all=All
 ; Item display names (ItemKind.nameKey; rune_<elem> -> item.rune_<elem>).
 item.rune_fire=Fire rune
 item.rune_earth=Earth rune

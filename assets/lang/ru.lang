@@ -162,6 +162,7 @@ log.pack_full=Рюкзак полон.
 log.memorize={} запоминает руну «{}».
 ui.memorize=Запомнить
 ui.inventory=Инвентарь
+ui.inv_all=Все
 item.rune_fire=Руна огня
 item.rune_earth=Руна земли
 item.rune_air=Руна воздуха

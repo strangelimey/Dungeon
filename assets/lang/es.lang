@@ -158,6 +158,7 @@ log.pack_full=La mochila está llena.
 log.memorize={} memoriza la runa de {}.
 ui.memorize=Memorizar
 ui.inventory=Inventario
+ui.inv_all=Todos
 item.rune_fire=Runa de fuego
 item.rune_earth=Runa de tierra
 item.rune_air=Runa de aire

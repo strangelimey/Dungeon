@@ -151,13 +151,17 @@ private:
 	size_t MemberAtColumn(int col) const;
 	gfx::Rect PanelRect(const ui::UIContext& ctx) const;
 	gfx::Rect SlotRect(const gfx::Rect& panel, int col, int slot) const;
+	// The header "All" button (solo view only) that switches to the party view;
+	// sized to its label, top-right of the panel.
+	gfx::Rect AllButtonRect(ui::UIContext& ctx, const gfx::Rect& panel) const;
 
 	std::vector<Character>* m_roster;
 	const ItemIconBank* m_icons;
 	std::optional<std::string>* m_held;
 	bool m_open = false;
-	int m_solo = -1;     // a single member's view (-1 = whole party)
-	std::string m_title; // localized once at construction
+	int m_solo = -1;        // a single member's view (-1 = whole party)
+	std::string m_title;    // localized once at construction
+	std::string m_allLabel; // "All" button caption (solo -> party)
 };
 
 class CharacterSheet : public ui::Widget {

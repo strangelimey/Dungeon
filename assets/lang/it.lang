@@ -158,6 +158,7 @@ log.pack_full=Lo zaino è pieno.
 log.memorize={} memorizza la runa di {}.
 ui.memorize=Memorizza
 ui.inventory=Inventario
+ui.inv_all=Tutti
 item.rune_fire=Runa del fuoco
 item.rune_earth=Runa della terra
 item.rune_air=Runa dell'aria
