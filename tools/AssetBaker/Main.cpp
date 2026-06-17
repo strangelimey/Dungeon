@@ -22,6 +22,9 @@
 //
 //   AssetBaker portraits <assets-dir>
 //       Regenerates only the party portraits and their mip chains (fast).
+//
+//   AssetBaker splats <assets-dir>
+//       Regenerates only the hit-feedback splat icons (fast; PNG only).
 
 #include "Core/Log.h"
 #include "ImportTextures.h"
@@ -30,6 +33,7 @@
 #include "ModelImport.h"
 #include "PortraitBaker.h"
 #include "SoundBaker.h"
+#include "SplatBaker.h"
 #include "TextureBaker.h"
 #include "TitleBaker.h"
 
@@ -105,6 +109,11 @@ int main(int argc, char** argv) {
 		return ok ? 0 : 1;
 	}
 
+	if (argc >= 3 && std::string(argv[1]) == "splats") {
+		// PNG only — no mip bake (see SplatBaker.cpp).
+		return baker::BakeHitSplats(std::string(argv[2]) + "\\textures") ? 0 : 1;
+	}
+
 	if (argc < 2) {
 		log::Error("usage: AssetBaker <assets-dir>  |  AssetBaker import ...");
 		return 1;
@@ -119,6 +128,7 @@ int main(int argc, char** argv) {
 	ok &= baker::BakeTextures(assets + "\\textures");
 	ok &= baker::BakeTitleImage(assets + "\\textures");
 	ok &= baker::BakePortraits(assets + "\\textures");
+	ok &= baker::BakeHitSplats(assets + "\\textures");
 	ok &= baker::BakeSounds(assets + "\\sounds");
 	ok &= baker::BakeModels(assets + "\\models", assets + "\\textures");
 	ok &= baker::BakeAllMips(assets + "\\textures");

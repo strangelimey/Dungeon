@@ -88,6 +88,11 @@ public:
 	// then cancels the capture instead of leaving the settings page.
 	bool KeyCaptureActive() const;
 
+	// Points the party bar at the hit-feedback splat icons (owned by Game,
+	// loaded from assets). The struct address must stay stable; the panels read
+	// it live, so it can be set before the textures finish loading.
+	void SetHitSplats(const HitSplatIcons* splats) { m_hitSplats = splats; }
+
 	// --- character sheet ---------------------------------------------------------
 	void ShowSheet(size_t index); // re-points the sheet at the member
 	void RefreshSheet();          // re-caches after the roster resets in place
@@ -268,6 +273,7 @@ private:
 	// design-pixel Y at scale 1; ApplyPartyBarScale resizes the slots and
 	// shifts the rest so they track the bar's bottom edge.
 	std::vector<CharacterPanel*> m_partyPanels; // owned by m_hudUi
+	const HitSplatIcons* m_hitSplats = nullptr; // hit-feedback icons (Game-owned)
 	std::vector<std::pair<ui::Widget*, float>> m_belowBarWidgets;
 	float m_hudDesignW = 0.0f, m_hudDesignH = 0.0f; // window size at BuildHud
 

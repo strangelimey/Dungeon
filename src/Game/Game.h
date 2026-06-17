@@ -99,6 +99,7 @@ private:
 							  Direction facing, bool stashCurrent = true);
 	bool RunLoadTasks();       // executes one task per frame; true when done
 	void LoadPortraits();      // baked party portraits (load task)
+	void LoadHitSplats();      // hit-feedback splat icons (load task)
 
 	// --- state transitions --------------------------------------------------
 	void StartNewGame();
@@ -181,6 +182,11 @@ private:
 	// Baked portrait textures, parallel to m_characters (entries may be null
 	// when the asset is missing; Character::portrait points in here).
 	std::vector<std::unique_ptr<gfx::Texture>> m_portraitTextures;
+	// Hit-feedback splat icons (small/medium/hard) + the pointer struct the
+	// party bar reads. The struct address is stable, handed to GameUI once at
+	// construction; LoadHitSplats fills it in during the staged load.
+	std::unique_ptr<gfx::Texture> m_hitSplatTextures[3];
+	HitSplatIcons m_hitSplats;
 	DungeonWorld m_world;
 	GameUI m_ui;
 	// Map/editor overlay (toggle with `M` while playing). Like the console it

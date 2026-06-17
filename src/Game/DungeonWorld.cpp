@@ -868,6 +868,9 @@ std::optional<DungeonWorld::LevelTransition> DungeonWorld::ConsumeLevelTransitio
 }
 
 namespace {
+// How long a hit-feedback splat stays over a struck member's portrait.
+constexpr float kHitFlashSeconds = 0.7f;
+
 const char* DirName(Direction d) {
 	switch (d) {
 	case Direction::North: return "north";
@@ -1271,11 +1274,14 @@ void DungeonWorld::AssignShadowSlots() {
 void DungeonWorld::UpdateMonsters(float dt) {
 	const Vec3 partyPos = m_party.EyePosition();
 
-	// Tick down each member's per-hand swing cooldowns so hands free up over time.
+	// Tick down each member's per-hand swing cooldowns so hands free up over
+	// time, and fade out the hit-feedback splat over its portrait.
 	if (m_roster)
-		for (Character& member : *m_roster)
+		for (Character& member : *m_roster) {
 			for (float& cd : member.handCooldown)
 				if (cd > 0.0f) cd -= dt;
+			if (member.hitFlash > 0.0f) member.hitFlash -= dt;
+		}
 
 	for (size_t i = 0; i < m_monsters.size(); ++i) {
 		Monster& monster = m_monsters[i];
@@ -1420,6 +1426,11 @@ void DungeonWorld::MonsterAttack(Monster& monster) {
 	}
 	target.health -= r.damage;
 	if (target.health < 0.0f) target.health = 0.0f;
+	// Flash a splat over the struck member's portrait. Severity by raw damage is
+	// a placeholder — "what a hit means" (relative to max hp / armor / etc.) is
+	// TBD; for now small < 5, medium < 10, hard otherwise.
+	target.hitFlash = kHitFlashSeconds;
+	target.hitSeverity = r.damage < 5.0f ? 0 : (r.damage < 10.0f ? 1 : 2);
 	int dmg = static_cast<int>(r.damage + 0.5f);
 	onMessage(loc::Format("log.monster_hits", name, target.name, dmg));
 	m_audio.Play(m_sounds.monster, 0.6f);

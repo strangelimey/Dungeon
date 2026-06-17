@@ -75,6 +75,7 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	m_characters = CreateDefaultParty();
 	ApplyPartySpeed();
 	m_world.SetRoster(&m_characters); // combat drains these; reset in place
+	m_ui.SetHitSplats(&m_hitSplats);  // stable address; LoadHitSplats fills it in
 
 	// Wire the modules together: world feedback goes to the HUD log, UI
 	// actions drive the state machine.
@@ -517,6 +518,7 @@ void Game::BuildGameLoadTasks() {
 	m_loadQueue.SetDoneLabel(loc::Tr("load.done"));
 	m_world.AppendLoadTasks(m_loadQueue);
 	m_loadQueue.Add(loc::Tr("load.portraits"), [this] { LoadPortraits(); });
+	m_loadQueue.Add(loc::Tr("load.portraits"), [this] { LoadHitSplats(); });
 	m_loadQueue.Add(loc::Tr("load.hud"), [this] {
 		m_ui.BuildHud();
 		log::Info("Game loaded: {}x{} dungeon, {} torches, {} monsters",
@@ -609,6 +611,20 @@ void Game::LoadPortraits() {
 			log::Warn("missing {}.png — falling back to the initial tile", stem);
 		member.portrait = texture.get();
 		m_portraitTextures.push_back(std::move(texture));
+	}
+}
+
+void Game::LoadHitSplats() {
+	// Three severity icons, drawn over a struck member's portrait. PNG only
+	// (no .dds) — see SplatBaker. A missing icon just leaves that severity null.
+	static const char* kStems[3] = {"hit_splat_small", "hit_splat_med",
+									"hit_splat_hard"};
+	for (int i = 0; i < 3; ++i) {
+		m_hitSplatTextures[i] =
+			TryLoadTextureFile(m_device, paths::Asset(std::string("textures\\") + kStems[i]));
+		if (!m_hitSplatTextures[i])
+			log::Warn("missing {}.png — no hit splat for that severity", kStems[i]);
+		m_hitSplats.icon[i] = m_hitSplatTextures[i].get();
 	}
 }
 
