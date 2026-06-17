@@ -464,9 +464,11 @@ std::optional<std::string> DungeonWorld::TryPickItem(float mx, float my, float w
 		}
 	}
 	if (best < 0) return std::nullopt;
-	m_items[static_cast<size_t>(best)].collected = true; // off the floor
-	m_audio.Play(m_sounds.click, 0.6f);                  // placeholder pickup cue
-	return m_items[static_cast<size_t>(best)].kind->id;
+	Item& picked = m_items[static_cast<size_t>(best)];
+	picked.collected = true; // off the floor
+	m_audio.Play(m_sounds.click, 0.6f); // placeholder pickup cue
+	if (onMessage) onMessage(loc::Format("log.take_rune", loc::Tr(picked.kind->nameKey)));
+	return picked.kind->id;
 }
 
 void DungeonWorld::DropItemAt(const std::string& typeId, float mx, float my,
@@ -488,6 +490,7 @@ void DungeonWorld::DropItemAt(const std::string& typeId, float mx, float my,
 	ItemKind& kind = ItemKindFor(typeId);
 	m_items.push_back({&kind, m_nextDropId--, cx, cz, false});
 	m_audio.Play(m_sounds.click, 0.5f);
+	if (onMessage) onMessage(loc::Format("log.drop_rune", loc::Tr(kind.nameKey)));
 }
 
 // Loads a prop PBR set once and caches it (shared across decorations, fires,

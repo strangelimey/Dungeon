@@ -150,11 +150,17 @@ log.monster_misses=The {} swings at {} and misses.
 log.member_down={} has fallen!
 log.party_wipe=The party has been slain. Darkness takes you.
 ; --- spells / runes ---
-log.rune_found=You find a {} rune. (memorize it from a character's sheet)
+log.take_rune=You take the {}.
+log.drop_rune=You set down the {}.
 log.pack_full=The pack is full.
 log.memorize={} commits the {} rune to memory.
 ui.memorize=Memorize
 ui.inventory=Inventory
+; Item display names (ItemKind.nameKey; rune_<elem> -> item.rune_<elem>).
+item.rune_fire=Fire rune
+item.rune_earth=Earth rune
+item.rune_air=Air rune
+item.rune_water=Water rune
 
 ; --- monsters (key suffix = the .ent type) --------------------------------------
 monster.skeleton=skeleton

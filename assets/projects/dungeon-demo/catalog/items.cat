@@ -1,27 +1,28 @@
 ; Items. Fields:
-;   display  = human-readable name
+;   name     = loc key for the display name (item.rune_fire -> "Fire rune")
 ;   category = rune (more categories — weapon/armor/consumable — land later)
 ;   symbol   = (rune only) the spell symbol it teaches: fire|earth|air|water
-; A rune is picked up by stepping onto its cell; it adds its symbol to the
-; party satchel (memorize it onto a character from the sheet) and vanishes.
-; Level .ent `item <id> <x> <z>` records reference these ids.
+; A rune is a carved-stone tablet the party picks up by clicking it; carry it on
+; the cursor and drop it into a hand, then right-click the hand and Memorize to
+; learn the symbol (the tablet is consumed). Level .ent `item <id> <x> <z>`
+; records reference these ids.
 
 [rune_fire]
-display = Fire Rune
+name = item.rune_fire
 category = rune
 symbol = fire
 
 [rune_earth]
-display = Earth Rune
+name = item.rune_earth
 category = rune
 symbol = earth
 
 [rune_air]
-display = Air Rune
+name = item.rune_air
 category = rune
 symbol = air
 
 [rune_water]
-display = Water Rune
+name = item.rune_water
 category = rune
 symbol = water

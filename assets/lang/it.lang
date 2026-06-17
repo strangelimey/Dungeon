@@ -152,7 +152,16 @@ log.member_down={} è caduto!
 log.party_wipe=Il gruppo è stato annientato. Le tenebre vi avvolgono.
 
 ; --- spells / runes -------------------------------------------------------------
-log.rune_found=Trovate una runa di {}. (memorizzatela dalla scheda di un personaggio)
+log.take_rune=Raccogliete {}.
+log.drop_rune=Posate {}.
+log.pack_full=Lo zaino è pieno.
+log.memorize={} memorizza la runa di {}.
+ui.memorize=Memorizza
+ui.inventory=Inventario
+item.rune_fire=Runa del fuoco
+item.rune_earth=Runa della terra
+item.rune_air=Runa dell'aria
+item.rune_water=Runa dell'acqua
 
 ; --- monsters (key suffix = the .ent type; article included, see header) ---------
 monster.skeleton=lo scheletro

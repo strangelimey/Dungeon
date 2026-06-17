@@ -156,7 +156,16 @@ log.member_down={} выбывает из боя!
 log.party_wipe=Отряд погиб. Тьма поглощает вас.
 
 ; --- spells / runes -------------------------------------------------------------
-log.rune_found=Вы находите руну «{}». (запомните её в листе персонажа)
+log.take_rune=Вы берёте {}.
+log.drop_rune=Вы кладёте {}.
+log.pack_full=Рюкзак полон.
+log.memorize={} запоминает руну «{}».
+ui.memorize=Запомнить
+ui.inventory=Инвентарь
+item.rune_fire=Руна огня
+item.rune_earth=Руна земли
+item.rune_air=Руна воздуха
+item.rune_water=Руна воды
 
 ; --- monsters (key suffix = the .ent type; bare nominative noun, see header) ------
 monster.skeleton=скелет
