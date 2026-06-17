@@ -91,17 +91,27 @@ private:
 
 class HandSlot : public ui::Widget {
 public:
-	HandSlot(const gfx::Rect& rect, const Character* character,
-			 std::function<void()> onClick);
+	// `hand` is 0 = left / 1 = right (which inventory.hands entry this box shows).
+	// `icons` (Game-owned, may be null) resolves the held item's icon to draw.
+	// onLeft fires on a left click, onRight on a right click — GameUI decides
+	// what each means given the held cursor (place / swap / pick up / attack /
+	// context menu).
+	HandSlot(const gfx::Rect& rect, const Character* character, int hand,
+			 const ItemIconBank* icons, std::function<void()> onLeft,
+			 std::function<void()> onRight);
 
 	void Update(ui::UIContext& ctx) override;
 	void Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) override;
 
 private:
 	const Character* m_character;
-	std::function<void()> m_onClick;
+	int m_hand;
+	const ItemIconBank* m_icons;
+	std::function<void()> m_onLeft;
+	std::function<void()> m_onRight;
 	bool m_hot = false;
-	bool m_held = false;
+	bool m_held = false;       // left-button press latched on this slot
+	bool m_heldRight = false;  // right-button press latched on this slot
 };
 
 class CharacterSheet : public ui::Widget {

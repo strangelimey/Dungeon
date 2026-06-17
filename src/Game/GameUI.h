@@ -97,9 +97,10 @@ public:
 	// Item icons (catalog id → texture), owned by Game; used to draw the held
 	// cursor + (later) hand/inventory slots. Stable address; set once.
 	void SetItemIcons(const ItemIconBank* icons) { m_itemIcons = icons; }
-	// The cursor-carried item (Game's m_heldItem). When set, RenderHud paints its
-	// icon at the mouse. Address stable; the value is read live.
-	void SetHeldItem(const std::optional<std::string>* held) { m_heldItem = held; }
+	// The cursor-carried item (Game's m_heldItem). RenderHud paints its icon at
+	// the mouse, and the held-aware portrait/hand handlers place INTO and pick
+	// OUT OF it, so the pointer is mutable. Address stable; value read/written live.
+	void SetHeldItem(std::optional<std::string>* held) { m_held = held; }
 	// True if a HUD widget consumed the mouse this frame (so the world should not
 	// also treat the click as a pick/drop). Valid after UpdateHud.
 	bool HudMouseConsumed() const { return m_hudUi.IsMouseConsumed(); }
@@ -188,6 +189,16 @@ private:
 	// subtitle can be placed relative to it. Shared by every title screen.
 	void DrawCenteredTitle(const std::string& text, float y);
 	void Click(float volume = 0.5f); // UI click feedback
+
+	// --- held-item placement (the cursor carries one tablet at a time) ----------
+	// A left-click landed on member `i`'s portrait: when holding a tablet, drop
+	// it into that member's first free backpack slot (else open the sheet).
+	void OnPortraitClick(size_t i);
+	// A left-click landed on member `i`'s hand `hand`: place the held tablet
+	// there (swapping any occupant onto the cursor), else pick the hand's item up
+	// onto the cursor, else (empty hand, empty cursor) swing that hand.
+	void OnHandLeftClick(size_t i, size_t hand);
+	bool Holding() const { return m_held && m_held->has_value(); }
 
 	// Live window/device dimensions as floats (the UI authors in floats and
 	// the window and back buffer track the same size).
@@ -286,9 +297,10 @@ private:
 	std::vector<CharacterPanel*> m_partyPanels; // owned by m_hudUi
 	const HitSplatIcons* m_hitSplats = nullptr; // hit-feedback icons (Game-owned)
 	const ItemIconBank* m_itemIcons = nullptr;  // item icons (Game-owned)
-	// Cursor-carried item + the last HUD mouse position (stashed in UpdateHud so
-	// RenderHud can draw the held icon, which has no Input).
-	const std::optional<std::string>* m_heldItem = nullptr;
+	// Cursor-carried item (Game owns the storage; placement handlers mutate it)
+	// + the last HUD mouse position (stashed in UpdateHud so RenderHud can draw
+	// the held icon, which has no Input).
+	std::optional<std::string>* m_held = nullptr;
 	float m_hudMouseX = 0.0f, m_hudMouseY = 0.0f;
 	std::vector<std::pair<ui::Widget*, float>> m_belowBarWidgets;
 	float m_hudDesignW = 0.0f, m_hudDesignH = 0.0f; // window size at BuildHud

@@ -100,6 +100,50 @@ void GameUI::ApplyTheme() {
 
 void GameUI::Click(float volume) { m_audio.Play(m_sounds.click, volume); }
 
+// --- held-item placement -----------------------------------------------------
+// The HandSlot/CharacterPanel already consumed the mouse, so the world won't
+// also treat these clicks as a drop.
+
+void GameUI::OnPortraitClick(size_t i) {
+	if (i >= m_characters.size()) return;
+	if (Holding()) {
+		// Stow the carried tablet in this member's pack (full → keep holding).
+		if (m_characters[i].inventory.AddToBackpack(**m_held)) {
+			Click();
+			m_held->reset();
+		} else {
+			AddLogLine(loc::Tr("log.pack_full"));
+		}
+		return;
+	}
+	onOpenSheet(i); // empty-handed: the portrait opens the sheet as before
+}
+
+void GameUI::OnHandLeftClick(size_t i, size_t hand) {
+	if (i >= m_characters.size() || hand > 1) return;
+	ItemSlot& slot = m_characters[i].inventory.hands[hand];
+	if (Holding()) {
+		// Place the carried tablet in this hand, swapping any occupant onto the
+		// cursor (so a click never silently destroys an item).
+		std::string incoming = **m_held;
+		if (slot.Empty()) m_held->reset();
+		else *m_held = slot.typeId;
+		slot.typeId = std::move(incoming);
+		Click();
+		return;
+	}
+	if (!slot.Empty()) { // empty-handed: pick this hand's item up onto the cursor
+		*m_held = slot.typeId;
+		slot.Clear();
+		Click();
+		return;
+	}
+	// Empty hand, empty cursor: an unarmed strike at the monster ahead (each
+	// hand has its own cooldown, so pass which one).
+	Click();
+	if (onHandAttack) onHandAttack(i, hand);
+}
+
 // ============================================================================
 // Landing page — title plus a MenuList; entries highlight on mouse hover or
 // keyboard selection. All entries are wired: Continue loads the newest save,
@@ -907,7 +951,7 @@ void GameUI::BuildHud() {
 	for (size_t i = 0; i < m_characters.size() && i < 4; ++i) {
 		auto* panel = m_hudUi.Add<CharacterPanel>(
 			gfx::Rect{}, &m_characters[i], &m_titleFont, &m_settings.barColors,
-			m_hitSplats, [this, i] { onOpenSheet(i); });
+			m_hitSplats, [this, i] { OnPortraitClick(i); });
 		panel->backgroundOpacity = m_settings.partyBarOpacity;
 		m_partyPanels.push_back(panel);
 	}
@@ -1024,13 +1068,12 @@ void GameUI::BuildHud() {
 				Norm({setX + (handW + 4.0f) * static_cast<float>(hand),
 					  setTop + 20, handW, handW},
 					 window),
-				&m_characters[i], [this, i, hand] {
-					Click();
-					// No weapons yet — a hand click is an unarmed strike at the
-					// monster ahead (the receiver logs hit/miss/no-target). Each
-					// hand has its own cooldown, so pass which one was clicked.
-					if (onHandAttack) onHandAttack(i, static_cast<size_t>(hand));
-				}));
+				&m_characters[i], hand, m_itemIcons,
+					// Left-click: place a held tablet here / pick this hand's item
+					// up / (empty-handed, empty slot) swing this hand. Right-click
+					// (a context menu) is wired in P6.
+					[this, i, hand] { OnHandLeftClick(i, static_cast<size_t>(hand)); },
+					[] {} ));
 		}
 	}
 	const size_t handRows = (std::min<size_t>(m_characters.size(), 4) + 1) / 2;
@@ -1355,8 +1398,8 @@ void GameUI::RenderHud() {
 
 	// A carried tablet rides the cursor: paint its element icon at the mouse,
 	// over everything (the world drop / widget placement reads the same held id).
-	if (m_heldItem && m_heldItem->has_value() && m_itemIcons) {
-		if (const gfx::Texture* icon = m_itemIcons->For(**m_heldItem)) {
+	if (m_held && m_held->has_value() && m_itemIcons) {
+		if (const gfx::Texture* icon = m_itemIcons->For(**m_held)) {
 			const float s = DeviceH() * 0.06f; // scales with the HUD
 			const gfx::Rect dst{m_hudMouseX - s * 0.5f, m_hudMouseY - s * 0.5f, s, s};
 			m_spriteBatch.DrawSprite(dst, {0, 0, 1, 1}, *icon, {1, 1, 1, 1});

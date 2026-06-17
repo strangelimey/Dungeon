@@ -130,9 +130,11 @@ void CharacterPanel::Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 
 // --- HandSlot ------------------------------------------------------------------
 
-HandSlot::HandSlot(const gfx::Rect& rect, const Character* character,
-				   std::function<void()> onClick)
-	: m_character(character), m_onClick(std::move(onClick)) {
+HandSlot::HandSlot(const gfx::Rect& rect, const Character* character, int hand,
+				   const ItemIconBank* icons, std::function<void()> onLeft,
+				   std::function<void()> onRight)
+	: m_character(character), m_hand(hand), m_icons(icons),
+	  m_onLeft(std::move(onLeft)), m_onRight(std::move(onRight)) {
 	bounds = rect;
 }
 
@@ -143,11 +145,16 @@ void HandSlot::Update(ui::UIContext& ctx) {
 			Pixel().Contains(input->MouseX(), input->MouseY());
 	if (m_hot) {
 		if (input->WasMousePressed(MouseButton::Left)) m_held = true;
+		if (input->WasMousePressed(MouseButton::Right)) m_heldRight = true;
 		ctx.ConsumeMouse();
 	}
 	if (m_held && input->WasMouseReleased(MouseButton::Left)) {
-		if (m_hot && m_onClick) m_onClick();
+		if (m_hot && m_onLeft) m_onLeft();
 		m_held = false;
+	}
+	if (m_heldRight && input->WasMouseReleased(MouseButton::Right)) {
+		if (m_hot && m_onRight) m_onRight();
+		m_heldRight = false;
 	}
 }
 
@@ -156,8 +163,16 @@ void HandSlot::Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	const gfx::Rect& px = Pixel();
 	batch.DrawRect(px, m_held ? theme.controlActive
 							  : (m_hot ? theme.controlHot : theme.control));
-	// Identity stripe along the bottom edge — the slot is otherwise empty
-	// until items exist to draw in it.
+	// The item held in this hand, if any, drawn inset from the border.
+	const ItemSlot& slot = m_character->inventory.hands[m_hand];
+	if (!slot.Empty() && m_icons) {
+		if (const gfx::Texture* icon = m_icons->For(slot.typeId)) {
+			const float pad = px.w * 0.12f;
+			batch.DrawSprite({px.x + pad, px.y + pad, px.w - 2 * pad, px.h - 2 * pad},
+							 {0, 0, 1, 1}, *icon, {1, 1, 1, 1});
+		}
+	}
+	// Identity stripe along the bottom edge.
 	batch.DrawRect({px.x + 1, px.y + px.h - 4, px.w - 2, 3},
 				   m_character->portraitColor);
 	ui::DrawBorder(batch, px, m_hot ? theme.accent : theme.panelBorder);
