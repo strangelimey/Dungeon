@@ -76,6 +76,8 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	ApplyPartySpeed();
 	m_world.SetRoster(&m_characters); // combat drains these; reset in place
 	m_ui.SetHitSplats(&m_hitSplats);  // stable address; LoadHitSplats fills it in
+	m_ui.SetItemIcons(&m_itemIcons);  // stable; LoadRuneIcons fills it in
+	m_ui.SetHeldItem(&m_heldItem);    // cursor icon reads the held catalog id
 
 	// Wire the modules together: world feedback goes to the HUD log, UI
 	// actions drive the state machine.
@@ -85,16 +87,6 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	m_world.onPartyWipe = [this] {
 		m_state = AppState::Menu;
 		m_ui.ResetToMainPage();
-	};
-	// A rune was picked up: drop the tablet into the lead member's backpack.
-	// (Interim until P3 routes pickup onto the cursor; the rune's catalog id is
-	// rune_<symbol>.)
-	m_world.onRunePickup = [this](SpellSymbol s) {
-		const std::string typeId = std::format("rune_{}", SymbolId(s));
-		if (!m_characters.empty() && m_characters[0].inventory.AddToBackpack(typeId))
-			m_ui.AddLogLine(loc::Format("log.rune_found", loc::Tr(SymbolKey(s))));
-		else
-			m_ui.AddLogLine(loc::Tr("log.pack_full"));
 	};
 	m_ui.onStartNewGame = [this] {
 		if (m_gameLoaded) {
@@ -533,6 +525,7 @@ void Game::BuildGameLoadTasks() {
 	m_world.AppendLoadTasks(m_loadQueue);
 	m_loadQueue.Add(loc::Tr("load.portraits"), [this] { LoadPortraits(); });
 	m_loadQueue.Add(loc::Tr("load.portraits"), [this] { LoadHitSplats(); });
+	m_loadQueue.Add(loc::Tr("load.portraits"), [this] { LoadRuneIcons(); });
 	m_loadQueue.Add(loc::Tr("load.hud"), [this] {
 		m_ui.BuildHud();
 		log::Info("Game loaded: {}x{} dungeon, {} torches, {} monsters",
@@ -639,6 +632,21 @@ void Game::LoadHitSplats() {
 		if (!m_hitSplatTextures[i])
 			log::Warn("missing {}.png — no hit splat for that severity", kStems[i]);
 		m_hitSplats.icon[i] = m_hitSplatTextures[i].get();
+	}
+}
+
+void Game::LoadRuneIcons() {
+	// One element-tinted icon per symbol, keyed by the rune's catalog id
+	// (rune_fire → rune_icon_fire). PNG only (like the splats). Drawn on the
+	// cursor when a tablet is held, and later in the hand slots / inventory.
+	for (u32 i = 0; i < kSymbolCount; ++i) {
+		const auto sym = static_cast<SpellSymbol>(i);
+		const std::string id = std::format("rune_{}", SymbolId(sym));
+		m_runeIconTextures[i] = TryLoadTextureFile(
+			m_device, paths::Asset(std::format("textures\\rune_icon_{}", SymbolId(sym))));
+		if (!m_runeIconTextures[i])
+			log::Warn("missing rune_icon_{}.png — no cursor icon", SymbolId(sym));
+		m_itemIcons.byType[id] = m_runeIconTextures[i].get();
 	}
 }
 
@@ -1026,6 +1034,23 @@ void Game::Update(float dt) {
 	// A portrait click may have opened the character sheet — freeze now
 	// rather than simulating one more frame.
 	if (m_state != AppState::Playing) return;
+
+	// Held-tablet mouse interaction in the 3D world (only when the HUD didn't
+	// already claim the click). Empty-handed: a click on a floor tablet picks it
+	// up onto the cursor. Holding: a click drops it on the floor. Placement onto
+	// portraits / hands / inventory is handled by those widgets (P4+), which
+	// consume the mouse first.
+	if (!m_ui.HudMouseConsumed() && input.WasMousePressed(MouseButton::Left)) {
+		const float mx = input.MouseX(), my = input.MouseY();
+		const float w = static_cast<float>(m_window.Width());
+		const float h = static_cast<float>(m_window.Height());
+		if (m_heldItem) {
+			m_world.DropItemAt(*m_heldItem, mx, my, w, h);
+			m_heldItem.reset();
+		} else if (auto picked = m_world.TryPickItem(mx, my, w, h)) {
+			m_heldItem = std::move(picked);
+		}
+	}
 	m_world.Update(input, wdt, m_time);
 	if (auto t = m_world.ConsumeLevelTransition()) {
 		BeginLevelTransition(t->level, t->x, t->z, t->facing);

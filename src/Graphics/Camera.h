@@ -21,6 +21,32 @@ public:
 	const Vec3& Position() const { return m_position; }
 	float Yaw() const { return m_yaw; }
 
+	// A world-space ray from the eye through screen pixel (px,py) in a
+	// width×height viewport (top-left origin, matching mouse coords). Unprojects
+	// through the inverse of ViewProj, so the same mirrorX flip cancels out.
+	struct Ray {
+		Vec3 origin;
+		Vec3 dir; // normalized
+	};
+	Ray ScreenRay(float px, float py, float width, float height) const {
+		using namespace DirectX;
+		const float nx = px / width * 2.0f - 1.0f;
+		const float ny = 1.0f - py / height * 2.0f; // screen y is down, NDC y up
+		Mat4 vp = ViewProj();
+		const XMMATRIX inv = XMMatrixInverse(nullptr, XMLoadFloat4x4(&vp));
+		// Row-vector convention: world = ndc * inv (TransformCoord does the
+		// perspective divide). Unproject the far point and shoot from the eye.
+		const XMVECTOR farW = XMVector3TransformCoord(XMVectorSet(nx, ny, 1.0f, 1.0f), inv);
+		Vec3 farPt;
+		XMStoreFloat3(&farPt, farW);
+		const XMVECTOR d = XMVector3Normalize(XMVectorSubtract(
+			farW, XMLoadFloat3(&m_position)));
+		Ray r;
+		r.origin = m_position;
+		XMStoreFloat3(&r.dir, d);
+		return r;
+	}
+
 	Vec3 Forward() const {
 		return {std::sin(m_yaw) * std::cos(m_pitch), std::sin(m_pitch),
 				std::cos(m_yaw) * std::cos(m_pitch)};

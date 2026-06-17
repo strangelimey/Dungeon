@@ -1161,6 +1161,8 @@ void GameUI::UpdateSheet(const Input& input) {
 
 void GameUI::UpdateHud(const Input& input, float dt) {
 	m_hudUi.Update(input, WindowW(), WindowH());
+	m_hudMouseX = input.MouseX(); // stashed for the held-item cursor in RenderHud
+	m_hudMouseY = input.MouseY();
 	// The log reads this frame's hover/scroll (set during Update above) to
 	// advance its fades and expand/collapse animation.
 	if (m_log) m_log->Tick(dt);
@@ -1350,6 +1352,16 @@ void GameUI::RenderCharacterSheetOverlay() {
 
 void GameUI::RenderHud() {
 	m_hudUi.Render(m_spriteBatch, DeviceW(), DeviceH());
+
+	// A carried tablet rides the cursor: paint its element icon at the mouse,
+	// over everything (the world drop / widget placement reads the same held id).
+	if (m_heldItem && m_heldItem->has_value() && m_itemIcons) {
+		if (const gfx::Texture* icon = m_itemIcons->For(**m_heldItem)) {
+			const float s = DeviceH() * 0.06f; // scales with the HUD
+			const gfx::Rect dst{m_hudMouseX - s * 0.5f, m_hudMouseY - s * 0.5f, s, s};
+			m_spriteBatch.DrawSprite(dst, {0, 0, 1, 1}, *icon, {1, 1, 1, 1});
+		}
+	}
 }
 
 } // namespace dungeon::game

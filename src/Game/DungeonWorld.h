@@ -104,9 +104,19 @@ public:
 	bool PartyAttack(size_t member, size_t hand);
 	// Fired once when the last standing member goes down (Game ends the run).
 	std::function<void()> onPartyWipe;
-	// Fired when the party steps onto a rune item: the symbol it teaches. Game
-	// adds it to the rune satchel and logs it. Set before play.
-	std::function<void(SpellSymbol)> onRunePickup;
+
+	// --- item pickup / drop (mouse-driven) ----------------------------------
+	// Tries to pick up a floor item under the screen point (mx,my) in a w×h
+	// viewport: projects each uncollected item to screen, hit-tests, and gates by
+	// reach (the item's cell is the party cell or orthogonally adjacent). On a
+	// hit the nearest item is removed from the floor and its catalog id returned
+	// (Game puts it on the cursor); nullopt if nothing pickable is under the
+	// cursor. Pure query+remove — no satchel/knowledge side effects.
+	std::optional<std::string> TryPickItem(float mx, float my, float w, float h);
+	// Drops a held item (catalog id) back onto the floor: ray-casts the screen
+	// point to the floor plane and places it on that cell when it is walkable, in
+	// reach, and seen; otherwise on the party's own cell. Always succeeds.
+	void DropItemAt(const std::string& typeId, float mx, float my, float w, float h);
 
 	const DungeonMap& Map() const { return m_map; }
 	const Project& GetProject() const { return m_project; }
@@ -412,11 +422,8 @@ private:
 	// Lazily loads (and caches) the shared behaviour for an item type, resolved
 	// through the items catalog (category=rune → symbol + element glow colour).
 	ItemKind& ItemKindFor(const std::string& type);
-	// Pickup: collects any uncollected item the party is standing on (fires
-	// onRunePickup for runes). Called each frame from Update.
-	void UpdateItems();
-	// Element glow colour for a rune billboard (premultiplied-additive: rgb is
-	// the emissive colour, alpha 0).
+	// Element glow colour for a rune's accent billboard (premultiplied-additive:
+	// rgb is the emissive colour, alpha 0).
 	static Vec4 RuneGlow(SpellSymbol s);
 	// Builds one monster instance (kind/id/cell/facing → stats + animator) ready
 	// to push into m_monsters. Shared by the initial .ent load, live editor
@@ -577,6 +584,10 @@ private:
 	// draws this mesh with its own element texture set.
 	assets::ModelData m_runeModel;
 	std::unique_ptr<gfx::Mesh> m_runeMesh;
+	// Ids for items dropped at runtime (not from the .ent baseline, which use
+	// id >= 0). Decreasing from -2 so each dropped tablet has a unique save id
+	// (-1 is the "no id" sentinel).
+	int m_nextDropId = -2;
 
 	// Combat: the Game's roster (not owned) + the strike RNG. UpdateMonsters
 	// ticks cooldowns and runs monster melee; PartyAttack runs the party's.

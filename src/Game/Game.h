@@ -54,7 +54,10 @@
 #include "Platform/Process.h"
 #include "Platform/Window.h"
 
+#include <array>
 #include <memory>
+#include <optional>
+#include <string>
 #include <vector>
 
 namespace dungeon::game {
@@ -100,6 +103,7 @@ private:
 	bool RunLoadTasks();       // executes one task per frame; true when done
 	void LoadPortraits();      // baked party portraits (load task)
 	void LoadHitSplats();      // hit-feedback splat icons (load task)
+	void LoadRuneIcons();      // rune-tablet cursor/inventory icons (load task)
 
 	// --- state transitions --------------------------------------------------
 	void StartNewGame();
@@ -184,6 +188,17 @@ private:
 	// construction; LoadHitSplats fills it in during the staged load.
 	std::unique_ptr<gfx::Texture> m_hitSplatTextures[3];
 	HitSplatIcons m_hitSplats;
+
+	// Rune-tablet icons (one per element), for the held cursor / hand slots /
+	// inventory. Game owns the textures; the bank (catalog id → texture) is
+	// handed to GameUI once, address stable, filled by LoadRuneIcons.
+	std::array<std::unique_ptr<gfx::Texture>, kSymbolCount> m_runeIconTextures;
+	ItemIconBank m_itemIcons;
+	// The item currently carried on the cursor (its catalog id), or empty. Set by
+	// clicking a floor tablet; cleared by dropping it (world / portrait / hand /
+	// inventory). GameUI reads the address to draw the cursor icon.
+	std::optional<std::string> m_heldItem;
+
 	DungeonWorld m_world;
 	GameUI m_ui;
 	// Map/editor overlay (toggle with `M` while playing). Like the console it

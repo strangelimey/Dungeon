@@ -24,6 +24,7 @@
 #include "UI/Controls.h"
 
 #include <array>
+#include <flat_map>
 #include <functional>
 #include <string>
 
@@ -48,6 +49,18 @@ struct HitSplatIcons {
 	const gfx::Texture* icon[3] = {nullptr, nullptr, nullptr};
 	const gfx::Texture* For(int severity) const {
 		return icon[severity < 0 ? 0 : (severity > 2 ? 2 : severity)];
+	}
+};
+
+// Item icons keyed by catalog id ("rune_fire" → its rune_icon_fire texture),
+// for the held cursor, the hand slots, and the inventory window. Owned by Game
+// (the textures live there); the HUD widgets read it live, so a missing id just
+// draws no icon. The address handed to GameUI is stable.
+struct ItemIconBank {
+	std::flat_map<std::string, const gfx::Texture*> byType;
+	const gfx::Texture* For(const std::string& typeId) const {
+		const auto it = byType.find(typeId);
+		return it == byType.end() ? nullptr : it->second;
 	}
 };
 

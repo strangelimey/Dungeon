@@ -424,16 +424,70 @@ void DungeonWorld::LoadItems() {
 	}
 }
 
-// Pickup: the party occupies one cell, so any uncollected item sharing that cell
-// is grabbed. Runes teach their symbol through onRunePickup (Game → satchel).
-void DungeonWorld::UpdateItems() {
+// True if (x,z) is the party cell or orthogonally adjacent — arm's reach for
+// picking up or dropping a tablet.
+static bool InReach(int x, int z, int px, int pz) {
+	return std::abs(x - px) + std::abs(z - pz) <= 1;
+}
+
+std::optional<std::string> DungeonWorld::TryPickItem(float mx, float my, float w,
+													 float h) {
 	const int px = m_party.GridX(), pz = m_party.GridZ();
-	for (Item& item : m_items) {
-		if (item.collected || item.x != px || item.z != pz) continue;
-		item.collected = true;
-		m_audio.Play(m_sounds.click, 0.6f); // placeholder pickup cue (no rune sfx yet)
-		if (item.kind->isRune && onRunePickup) onRunePickup(item.kind->runeSymbol);
+	const Mat4 vp = m_camera.ViewProj();
+	// Projects a world point to screen pixels; returns false if behind the eye.
+	auto project = [&](const Vec3& p, float& sx, float& sy) {
+		using namespace DirectX;
+		XMVECTOR clip = XMVector3Transform(XMVectorSet(p.x, p.y, p.z, 1.0f),
+										   XMLoadFloat4x4(&vp));
+		const float cw = XMVectorGetW(clip);
+		if (cw <= 1e-4f) return false;
+		sx = (XMVectorGetX(clip) / cw * 0.5f + 0.5f) * w;
+		sy = (1.0f - (XMVectorGetY(clip) / cw * 0.5f + 0.5f)) * h;
+		return true;
+	};
+
+	int best = -1;
+	float bestD = 1e9f;
+	for (size_t i = 0; i < m_items.size(); ++i) {
+		const Item& item = m_items[i];
+		if (item.collected || !InReach(item.x, item.z, px, pz)) continue;
+		if (!IsSeen(item.x, item.z)) continue;
+		const Vec3 c = m_map.CellCenter(item.x, item.z);
+		float cx, cy, tx, ty;
+		if (!project({c.x, 0.23f, c.z}, cx, cy)) continue; // tablet centre
+		project({c.x, 0.46f, c.z}, tx, ty);                // top, for hit radius
+		const float radius = std::clamp(std::fabs(ty - cy) * 1.3f, 26.0f, 220.0f);
+		const float d = std::hypot(mx - cx, my - cy);
+		if (d <= radius && d < bestD) {
+			bestD = d;
+			best = static_cast<int>(i);
+		}
 	}
+	if (best < 0) return std::nullopt;
+	m_items[static_cast<size_t>(best)].collected = true; // off the floor
+	m_audio.Play(m_sounds.click, 0.6f);                  // placeholder pickup cue
+	return m_items[static_cast<size_t>(best)].kind->id;
+}
+
+void DungeonWorld::DropItemAt(const std::string& typeId, float mx, float my,
+							  float w, float h) {
+	const int px = m_party.GridX(), pz = m_party.GridZ();
+	int cx = px, cz = pz; // fallback: drop at the party's feet
+	const gfx::Camera::Ray ray = m_camera.ScreenRay(mx, my, w, h);
+	if (ray.dir.y < -1e-3f) { // looking down toward the floor plane y=0
+		const float t = -ray.origin.y / ray.dir.y;
+		const float wx = ray.origin.x + ray.dir.x * t;
+		const float wz = ray.origin.z + ray.dir.z * t;
+		const int hx = static_cast<int>(std::floor(wx / kCellSize));
+		const int hz = static_cast<int>(std::floor(wz / kCellSize));
+		if (m_map.IsWalkable(hx, hz) && IsSeen(hx, hz) && InReach(hx, hz, px, pz)) {
+			cx = hx;
+			cz = hz;
+		}
+	}
+	ItemKind& kind = ItemKindFor(typeId);
+	m_items.push_back({&kind, m_nextDropId--, cx, cz, false});
+	m_audio.Play(m_sounds.click, 0.5f);
 }
 
 // Loads a prop PBR set once and caches it (shared across decorations, fires,
@@ -1129,7 +1183,6 @@ void DungeonWorld::Update(const Input& input, float dt, float time, bool acceptI
 	m_party.Update(dt);
 	if (m_pillarActive) m_pillarAnimator.Update(dt);
 	UpdateMonsters(dt);
-	UpdateItems();
 	UpdateLights(time);
 	UpdateCamera();
 

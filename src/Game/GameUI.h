@@ -31,6 +31,7 @@
 
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -92,6 +93,16 @@ public:
 	// loaded from assets). The struct address must stay stable; the panels read
 	// it live, so it can be set before the textures finish loading.
 	void SetHitSplats(const HitSplatIcons* splats) { m_hitSplats = splats; }
+
+	// Item icons (catalog id → texture), owned by Game; used to draw the held
+	// cursor + (later) hand/inventory slots. Stable address; set once.
+	void SetItemIcons(const ItemIconBank* icons) { m_itemIcons = icons; }
+	// The cursor-carried item (Game's m_heldItem). When set, RenderHud paints its
+	// icon at the mouse. Address stable; the value is read live.
+	void SetHeldItem(const std::optional<std::string>* held) { m_heldItem = held; }
+	// True if a HUD widget consumed the mouse this frame (so the world should not
+	// also treat the click as a pick/drop). Valid after UpdateHud.
+	bool HudMouseConsumed() const { return m_hudUi.IsMouseConsumed(); }
 
 	// --- character sheet ---------------------------------------------------------
 	void ShowSheet(size_t index); // re-points the sheet at the member
@@ -274,6 +285,11 @@ private:
 	// shifts the rest so they track the bar's bottom edge.
 	std::vector<CharacterPanel*> m_partyPanels; // owned by m_hudUi
 	const HitSplatIcons* m_hitSplats = nullptr; // hit-feedback icons (Game-owned)
+	const ItemIconBank* m_itemIcons = nullptr;  // item icons (Game-owned)
+	// Cursor-carried item + the last HUD mouse position (stashed in UpdateHud so
+	// RenderHud can draw the held icon, which has no Input).
+	const std::optional<std::string>* m_heldItem = nullptr;
+	float m_hudMouseX = 0.0f, m_hudMouseY = 0.0f;
 	std::vector<std::pair<ui::Widget*, float>> m_belowBarWidgets;
 	float m_hudDesignW = 0.0f, m_hudDesignH = 0.0f; // window size at BuildHud
 
