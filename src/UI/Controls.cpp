@@ -241,6 +241,69 @@ void DropDown::DrawOverlay(UIContext& ctx, gfx::SpriteBatch& batch) {
 	}
 }
 
+// --- ContextMenu -------------------------------------------------------------
+
+void ContextMenu::Open(float x, float y, std::vector<Entry> entries) {
+	if (entries.empty()) return;
+	m_entries = std::move(entries);
+	m_x = x;
+	m_y = y;
+	m_hover = -1;
+	m_open = true;
+}
+
+gfx::Rect ContextMenu::EntryRect(size_t i) const {
+	return {m_x, m_y + m_rowH * static_cast<float>(i), m_w, m_rowH};
+}
+
+void ContextMenu::Update(UIContext& ctx) {
+	if (!m_open) return;
+	const Input* input = ctx.CurrentInput();
+	if (!input) return;
+
+	// Size to the widest label, then clamp the box on screen.
+	Font& font = ctx.GetFont();
+	m_rowH = font.Height() + 12.0f;
+	float w = 80.0f;
+	for (const Entry& e : m_entries) w = std::max(w, font.MeasureWidth(e.label) + 24.0f);
+	m_w = w;
+	const float menuH = m_rowH * static_cast<float>(m_entries.size());
+	m_x = std::clamp(m_x, 0.0f, std::max(0.0f, ctx.Width() - m_w));
+	m_y = std::clamp(m_y, 0.0f, std::max(0.0f, ctx.Height() - menuH));
+
+	// The open menu owns the mouse: pick an entry, or close on any click off it.
+	m_hover = -1;
+	for (size_t i = 0; i < m_entries.size(); ++i) {
+		if (!EntryRect(i).Contains(input->MouseX(), input->MouseY())) continue;
+		m_hover = static_cast<int>(i);
+		if (input->WasMousePressed(MouseButton::Left)) {
+			auto fn = m_entries[i].onSelect; // copy: the callback may rebuild us
+			m_open = false;
+			ctx.ConsumeMouse();
+			if (fn) fn();
+			return;
+		}
+	}
+	if (input->WasMousePressed(MouseButton::Left) ||
+		input->WasMousePressed(MouseButton::Right))
+		m_open = false;
+	ctx.ConsumeMouse();
+}
+
+void ContextMenu::DrawOverlay(UIContext& ctx, gfx::SpriteBatch& batch) {
+	if (!m_open) return;
+	const Theme& theme = ctx.GetTheme();
+	Font& font = ctx.GetFont();
+	for (size_t i = 0; i < m_entries.size(); ++i) {
+		const gfx::Rect rect = EntryRect(i);
+		batch.DrawRect(rect, static_cast<int>(i) == m_hover ? theme.controlHot
+															: theme.control);
+		DrawBorder(batch, rect, theme.panelBorder);
+		font.Draw(batch, m_entries[i].label, rect.x + 10,
+				  rect.y + (rect.h - font.Height()) * 0.5f, theme.text);
+	}
+}
+
 // --- ColorPicker -------------------------------------------------------------
 
 namespace {

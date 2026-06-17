@@ -198,6 +198,12 @@ private:
 	// there (swapping any occupant onto the cursor), else pick the hand's item up
 	// onto the cursor, else (empty hand, empty cursor) swing that hand.
 	void OnHandLeftClick(size_t i, size_t hand);
+	// A right-click on member `i`'s hand `hand`: opens the item's action menu
+	// (for a rune: Memorize). No-op on an empty hand.
+	void OnHandRightClick(size_t i, size_t hand);
+	// Commits the rune in member `i`'s hand to memory: the symbol is learned and
+	// the tablet consumed.
+	void MemorizeFromHand(size_t i, size_t hand);
 	bool Holding() const { return m_held && m_held->has_value(); }
 
 	// Live window/device dimensions as floats (the UI authors in floats and
@@ -269,6 +275,10 @@ private:
 	// The Video tab's Max Lights dropdown — kept so SyncMaxLights can re-point
 	// it when a quality change resets the light budget.
 	ui::DropDown* m_maxLightsDrop = nullptr;
+
+	// HUD right-click context menu (hand-slot item actions, e.g. Memorize).
+	// Reused: GameUI opens it with the actions for whatever was right-clicked.
+	ui::ContextMenu* m_handMenu = nullptr;
 
 	// Video tab: the enumerated hardware (cached for the dropdowns + Apply), the
 	// settings TabControl (kept so a repopulate can restore the active tab), and

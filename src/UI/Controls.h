@@ -253,6 +253,41 @@ private:
 	bool m_hot = false;
 };
 
+// A floating right-click context menu: a short list of labelled actions opened
+// at a screen point (overlay-drawn, owning the mouse while open, like the
+// DropDown popup). Closes when an entry is chosen or the user clicks elsewhere.
+// It is a persistent widget the owner reuses — call Open() with the actions for
+// whatever was right-clicked; an empty list is a no-op. Position is absolute
+// pixels (not the normalized bounds), so leave bounds at zero.
+class ContextMenu : public Widget {
+public:
+	struct Entry {
+		std::string label;
+		std::function<void()> onSelect;
+	};
+
+	ContextMenu() = default;
+
+	// Opens at (x,y) device pixels with the given actions (clamped on screen in
+	// Update). No-op for an empty list.
+	void Open(float x, float y, std::vector<Entry> entries);
+	void Close() { m_open = false; }
+	bool IsOpen() const { return m_open; }
+
+	void Update(UIContext& ctx) override;
+	void Draw(UIContext&, gfx::SpriteBatch&) override {} // overlay-only
+	void DrawOverlay(UIContext& ctx, gfx::SpriteBatch& batch) override;
+
+private:
+	gfx::Rect EntryRect(size_t i) const;
+
+	bool m_open = false;
+	float m_x = 0.0f, m_y = 0.0f; // top-left, device pixels (clamped in Update)
+	float m_w = 0.0f, m_rowH = 0.0f; // sized from the font in Update
+	std::vector<Entry> m_entries;
+	int m_hover = -1;
+};
+
 // A scrolling list of save-slot rows. Each row shows a primary label (name)
 // and a secondary label (timestamp); the row body is clickable (onActivate),
 // and a red Delete icon at the right end opens a modal confirm dialog with

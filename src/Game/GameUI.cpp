@@ -144,6 +144,39 @@ void GameUI::OnHandLeftClick(size_t i, size_t hand) {
 	if (onHandAttack) onHandAttack(i, hand);
 }
 
+// "rune_fire" -> SpellSymbol::Fire; false for anything that is not a rune id.
+static bool RuneSymbolOf(const std::string& typeId, SpellSymbol& out) {
+	constexpr std::string_view kPrefix = "rune_";
+	if (!typeId.starts_with(kPrefix)) return false;
+	return ParseSymbol(std::string_view(typeId).substr(kPrefix.size()), out);
+}
+
+void GameUI::OnHandRightClick(size_t i, size_t hand) {
+	if (i >= m_characters.size() || hand > 1) return;
+	const ItemSlot& slot = m_characters[i].inventory.hands[hand];
+	if (slot.Empty() || !m_handMenu) return;
+	// Build the action list for whatever the hand holds. Runes can be memorized.
+	std::vector<ui::ContextMenu::Entry> entries;
+	SpellSymbol sym;
+	if (RuneSymbolOf(slot.typeId, sym))
+		entries.push_back({loc::Tr("ui.memorize"),
+						   [this, i, hand] { MemorizeFromHand(i, hand); }});
+	m_handMenu->Open(m_hudMouseX, m_hudMouseY, std::move(entries));
+}
+
+void GameUI::MemorizeFromHand(size_t i, size_t hand) {
+	if (i >= m_characters.size() || hand > 1) return;
+	ItemSlot& slot = m_characters[i].inventory.hands[hand];
+	SpellSymbol sym;
+	if (!RuneSymbolOf(slot.typeId, sym)) return;
+	m_characters[i].Learn(sym);
+	slot.Clear(); // the tablet is consumed
+	Click();
+	AddLogLine(loc::Format("log.memorize", m_characters[i].name,
+						   loc::Tr(SymbolKey(sym))));
+	RefreshSheet(); // the sheet's known symbols may be on screen later
+}
+
 // ============================================================================
 // Landing page — title plus a MenuList; entries highlight on mouse hover or
 // keyboard selection. All entries are wired: Continue loads the newest save,
@@ -1073,7 +1106,7 @@ void GameUI::BuildHud() {
 					// up / (empty-handed, empty slot) swing this hand. Right-click
 					// (a context menu) is wired in P6.
 					[this, i, hand] { OnHandLeftClick(i, static_cast<size_t>(hand)); },
-					[] {} ));
+					[this, i, hand] { OnHandRightClick(i, static_cast<size_t>(hand)); }));
 		}
 	}
 	const size_t handRows = (std::min<size_t>(m_characters.size(), 4) + 1) / 2;
@@ -1099,6 +1132,10 @@ void GameUI::BuildHud() {
 	m_log = m_hudUi.Add<MessageLog>();
 	m_log->bounds = {0, 0, 1, 1};
 	m_log->restoreLabel = loc::Tr("hud.log_show");
+
+	// Right-click context menu, added last so it updates first (topmost) and its
+	// overlay draws over everything; closed until a hand slot opens it.
+	m_handMenu = m_hudUi.Add<ui::ContextMenu>();
 
 	ApplyPartyBarScale();
 }
