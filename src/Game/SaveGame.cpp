@@ -47,15 +47,16 @@ bool WriteSave(const SaveData& data, const std::string& path) {
 	t += std::format("party {} {} {}\n", data.partyX, data.partyZ, data.partyFacing);
 	t += std::format("torch {}\n", data.torchPalette);
 
+	// Empty item ids serialize as "-" so the slot positions are preserved.
+	auto itemTok = [](const std::string& s) { return s.empty() ? std::string("-") : s; };
 	for (size_t i = 0; i < data.characters.size(); ++i) {
 		const SaveData::CharState& c = data.characters[i];
-		t += std::format("char {} {:.3f} {:.3f} {:.3f} {:.3f} {:.3f} {:.3f} {}\n", i,
+		t += std::format("char {} {:.3f} {:.3f} {:.3f} {:.3f} {:.3f} {:.3f} {}", i,
 						 c.health, c.maxHealth, c.stamina, c.maxStamina, c.mana,
 						 c.maxMana, c.knownSymbols);
-	}
-	if (!data.satchel.empty()) {
-		t += "satchel";
-		for (int s : data.satchel) t += std::format(" {}", s);
+		// Inventory: left hand, right hand, then the backpack slots in order.
+		t += std::format(" {} {}", itemTok(c.hands[0]), itemTok(c.hands[1]));
+		for (const std::string& b : c.backpack) t += " " + itemTok(b);
 		t += '\n';
 	}
 
@@ -72,11 +73,8 @@ bool WriteSave(const SaveData& data, const std::string& path) {
 								 e.z, e.facing, e.announced ? 1 : 0, e.hp, e.spawnX,
 								 e.spawnZ);
 		}
-		if (!lvl.collectedItems.empty()) {
-			t += "collected";
-			for (int id : lvl.collectedItems) t += std::format(" {}", id);
-			t += '\n';
-		}
+		for (const SaveData::FloorItem& fi : lvl.floorItems)
+			t += std::format("floor {} {} {}\n", fi.x, fi.z, fi.typeId);
 		if (!lvl.seen.empty()) {
 			t += "seen";
 			for (const auto& [x, z] : lvl.seen) t += std::format(" {},{}", x, z);
@@ -136,9 +134,6 @@ std::optional<SaveData> ReadSave(const std::string& path) {
 			data.partyFacing = IntOf(tok[3]);
 		} else if (kw == "torch" && tok.size() >= 2) {
 			data.torchPalette = IntOf(tok[1]);
-		} else if (kw == "satchel") {
-			for (size_t i = 1; i < tok.size(); ++i)
-				data.satchel.push_back(IntOf(tok[i]));
 		} else if (kw == "char" && tok.size() >= 8) {
 			const size_t idx = static_cast<size_t>(IntOf(tok[1]));
 			if (idx >= data.characters.size()) data.characters.resize(idx + 1);
@@ -148,6 +143,16 @@ std::optional<SaveData> ReadSave(const std::string& path) {
 			c.mana = FloatOf(tok[6]);      c.maxMana = FloatOf(tok[7]);
 			if (tok.size() >= 9) // older saves omit the spell mask
 				c.knownSymbols = static_cast<u32>(IntOf(tok[8]));
+			// Inventory (v3+): hands then backpack; "-" is an empty slot.
+			auto detok = [](std::string_view sv) {
+				return sv == "-" ? std::string() : std::string(sv);
+			};
+			if (tok.size() >= 11) {
+				c.hands[0] = detok(tok[9]);
+				c.hands[1] = detok(tok[10]);
+				for (size_t i = 11; i < tok.size(); ++i)
+					c.backpack.push_back(detok(tok[i]));
+			}
 		} else if (kw == "level" && tok.size() >= 2) {
 			data.levels.push_back({std::string(tok[1]), {}, {}});
 			cur = &data.levels.back();
@@ -172,10 +177,9 @@ std::optional<SaveData> ReadSave(const std::string& path) {
 			e.spawnX = IntOf(tok[7]);
 			e.spawnZ = IntOf(tok[8]);
 			currentBlock().entities.push_back(e);
-		} else if (kw == "collected") {
-			SaveData::LevelState& lvl = currentBlock();
-			for (size_t i = 1; i < tok.size(); ++i)
-				lvl.collectedItems.push_back(IntOf(tok[i]));
+		} else if (kw == "floor" && tok.size() >= 4) {
+			currentBlock().floorItems.push_back(
+				{IntOf(tok[1]), IntOf(tok[2]), std::string(tok[3])});
 		} else if (kw == "seen") {
 			SaveData::LevelState& lvl = currentBlock();
 			for (size_t i = 1; i < tok.size(); ++i) {

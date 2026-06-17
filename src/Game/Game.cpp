@@ -701,12 +701,22 @@ void Game::SaveGame(const std::string& name) {
 	data.timestamp = std::format("{:%Y-%m-%d %H:%M:%S}",
 								 std::chrono::floor<std::chrono::seconds>(
 									 std::chrono::system_clock::now()));
+	// Stow a tablet still on the cursor into a free backpack slot so it is part
+	// of the save (the running session keeps it if every pack is full).
+	if (m_heldItem)
+		for (Character& member : m_characters)
+			if (member.inventory.AddToBackpack(*m_heldItem)) { m_heldItem.reset(); break; }
+
 	m_world.CaptureState(data);
-	for (const Character& member : m_characters)
-		data.characters.push_back({member.health, member.maxHealth, member.stamina,
-								   member.maxStamina, member.mana, member.maxMana,
-								   member.knownSymbols});
-	// (Per-character inventory + floor items are serialized in P7.)
+	for (const Character& member : m_characters) {
+		SaveData::CharState c{member.health, member.maxHealth, member.stamina,
+							  member.maxStamina, member.mana, member.maxMana,
+							  member.knownSymbols};
+		c.hands[0] = member.inventory.hands[0].typeId;
+		c.hands[1] = member.inventory.hands[1].typeId;
+		for (const ItemSlot& s : member.inventory.backpack) c.backpack.push_back(s.typeId);
+		data.characters.push_back(std::move(c));
+	}
 	WriteSave(data, SaveSlotPath(name));
 }
 
@@ -725,12 +735,19 @@ bool Game::LoadGame(const std::string& path) {
 	// reset), then lay the save on top.
 	m_world.ResetForNewGame();
 	ResetRoster();
+	m_heldItem.reset(); // nothing carried after a load
 	for (size_t i = 0; i < m_characters.size() && i < data->characters.size(); ++i) {
 		const SaveData::CharState& c = data->characters[i];
 		m_characters[i].health = c.health;     m_characters[i].maxHealth = c.maxHealth;
 		m_characters[i].stamina = c.stamina;   m_characters[i].maxStamina = c.maxStamina;
 		m_characters[i].mana = c.mana;         m_characters[i].maxMana = c.maxMana;
 		m_characters[i].knownSymbols = c.knownSymbols;
+		// Inventory (ResetRoster cleared it; lay the save's items back in).
+		Inventory& inv = m_characters[i].inventory;
+		inv.hands[0].typeId = c.hands[0];
+		inv.hands[1].typeId = c.hands[1];
+		for (size_t s = 0; s < c.backpack.size() && s < kBackpackSlots; ++s)
+			inv.backpack[s].typeId = c.backpack[s];
 	}
 	m_world.ApplyState(*data); // fills the per-level store + party pose/torch
 

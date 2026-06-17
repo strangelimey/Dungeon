@@ -68,8 +68,8 @@ struct Character {
 
 	// --- spells -------------------------------------------------------------
 	// Spell symbols this member has committed to memory (bitmask of SymbolBit).
-	// Empty at the start — a symbol is learned by memorizing a Rune item (see
-	// Spells.h / the rune satchel). Saved per slot (mutable runtime state).
+	// Empty at the start — a symbol is learned by memorizing a Rune tablet held
+	// in a hand (the hand-slot Memorize action). Saved per slot (runtime state).
 	u32 knownSymbols = 0;
 	bool Knows(SpellSymbol s) const { return (knownSymbols & SymbolBit(s)) != 0; }
 	void Learn(SpellSymbol s) { knownSymbols |= SymbolBit(s); }

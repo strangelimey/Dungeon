@@ -321,9 +321,9 @@ private:
 	};
 
 	// Per-kind item behaviour (shared) and per-instance world state. MVP: the
-	// only items are RUNES — a glowing element billboard that, when the party
-	// steps onto its cell, teaches its symbol to the rune satchel and vanishes.
-	// Future items (weapons/consumables) add a mesh/icon here.
+	// only items are RUNES — a carved-stone tablet (the shared m_runeMesh, drawn
+	// with this element's texture set) the party picks up by clicking it.
+	// Future items (weapons/consumables) add their own mesh/icon here.
 	struct ItemKind {
 		std::string id;        // catalog id (the .ent record type)
 		std::string nameKey;   // loc key for the display name ("item.rune_fire")

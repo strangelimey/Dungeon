@@ -21,6 +21,7 @@
 
 #include "Core/Types.h"
 
+#include <array>
 #include <optional>
 #include <string>
 #include <utility>
@@ -30,7 +31,7 @@ namespace dungeon::game {
 
 // The serializable dynamic state of one in-progress game.
 struct SaveData {
-	int version = 2;
+	int version = 3;
 	std::string name;         // display name (free text; may contain spaces)
 	std::string currentLevel; // the level stem the party is on (where to resume)
 	std::string timestamp;    // human-readable local time, for the slot list
@@ -47,12 +48,12 @@ struct SaveData {
 		float stamina = 1, maxStamina = 1;
 		float mana = 1, maxMana = 1;
 		u32 knownSymbols = 0; // memorized spell symbols (SymbolBit mask)
+		// Carried items, by catalog id ("" = empty). hands[0]=left, [1]=right;
+		// backpack in slot order. Inventory travels with the party (not per-level).
+		std::array<std::string, 2> hands;
+		std::vector<std::string> backpack;
 	};
 	std::vector<CharState> characters;
-
-	// Party rune satchel: symbols picked up but not yet committed to a member
-	// (SpellSymbol values as ints). Party-level, stored whole.
-	std::vector<int> satchel;
 
 	// Per-entity overrides, keyed by Entity::id — only entities that differ
 	// from their .ent spawn are present (monsters carry a moved grid cell,
@@ -77,11 +78,17 @@ struct SaveData {
 	// Dynamic state of one level: revealed cells (fog, stored whole) + the
 	// entity diff. One entry per VISITED level — the world keeps each level's
 	// state so leaving and returning preserves fog/progress (P6 multi-level).
+	// An item lying on a level's floor (a full snapshot, not a diff): everything
+	// currently on the ground, baseline or dropped, by cell + catalog id.
+	struct FloorItem {
+		int x = 0, z = 0;
+		std::string typeId;
+	};
 	struct LevelState {
 		std::string stem;
 		std::vector<std::pair<int, int>> seen;
 		std::vector<EntityState> entities;
-		std::vector<int> collectedItems; // Entity::id of picked-up .ent items
+		std::vector<FloorItem> floorItems; // what's on this level's floor
 	};
 	std::vector<LevelState> levels;
 };

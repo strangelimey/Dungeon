@@ -743,7 +743,10 @@ void DungeonWorld::ResetForNewGame() {
 		monster.visualPos = m_map.CellCenter(monster.x, monster.z);
 	}
 	m_partyWiped = false;
-	for (Item& item : m_items) item.collected = false; // runes return on a new game
+	// Rebuild items from the .ent baseline so runes return to their spawn cells
+	// (and any dropped tablets from a prior session are forgotten).
+	m_items.clear();
+	LoadItems();
 	std::fill(m_seen.begin(), m_seen.end(), static_cast<u8>(0));
 	MarkSeen(m_party.GridX(), m_party.GridZ());
 	SetTorchPalette(0);
@@ -770,9 +773,10 @@ SaveData::LevelState DungeonWorld::SnapshotActive() const {
 				 m.hp != m.MaxHp())
 			ls.entities.push_back({m.id, m.x, m.z, m.announced, m.hp});
 	}
-	// Collected baseline (.ent) items, by id — so a picked-up rune stays gone.
+	// Everything still on the floor (a full snapshot, not a diff): baseline runes
+	// not yet picked up plus any dropped tablets, by cell + catalog id.
 	for (const Item& item : m_items)
-		if (item.collected && item.id >= 0) ls.collectedItems.push_back(item.id);
+		if (!item.collected) ls.floorItems.push_back({item.x, item.z, item.kind->id});
 	return ls;
 }
 
@@ -823,10 +827,13 @@ void DungeonWorld::ApplyActiveSnapshot() {
 				break;
 			}
 	}
-	// Re-hide collected items (LoadItems rebuilt them all as uncollected).
-	for (int id : ls.collectedItems)
-		for (Item& item : m_items)
-			if (item.id == id) { item.collected = true; break; }
+	// Floor items are a full snapshot: drop the .ent baseline LoadItems rebuilt
+	// and lay down exactly what the save recorded (dropped tablets included).
+	m_items.clear();
+	for (const SaveData::FloorItem& fi : ls.floorItems) {
+		ItemKind& kind = ItemKindFor(fi.typeId);
+		m_items.push_back({&kind, m_nextDropId--, fi.x, fi.z, false});
+	}
 	m_levelStates.erase(it); // the live state is authoritative now
 }
 
