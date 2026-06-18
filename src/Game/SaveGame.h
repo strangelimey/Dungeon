@@ -31,7 +31,7 @@ namespace dungeon::game {
 
 // The serializable dynamic state of one in-progress game.
 struct SaveData {
-	int version = 4;
+	int version = 5; // v5: weapon hands folded into equipment[] (no "hands" line)
 	std::string name;         // display name (free text; may contain spaces)
 	std::string currentLevel; // the level stem the party is on (where to resume)
 	std::string timestamp;    // human-readable local time, for the slot list
@@ -49,9 +49,9 @@ struct SaveData {
 		float mana = 1, maxMana = 1;
 		u32 knownSymbols = 0; // memorized spell symbols (SymbolBit mask)
 		// Carried/worn items, by catalog id ("" = empty). Inventory travels with
-		// the party (not per-level). hands[0]=left/[1]=right; equipment in
-		// EquipSlot order; backpack is dynamic (capacity grows in play).
-		std::array<std::string, 2> hands;
+		// the party (not per-level). equipment is in EquipSlot order and now
+		// includes the two weapon hands (LeftHand/RightHand); backpack is dynamic
+		// (capacity grows in play).
 		std::vector<std::string> equipment;
 		std::vector<std::string> backpack;
 	};

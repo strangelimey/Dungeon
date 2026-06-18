@@ -117,7 +117,7 @@ void GameUI::OnPortraitRightClick(size_t i) {
 
 void GameUI::OnHandLeftClick(size_t i, size_t hand) {
 	if (i >= m_characters.size() || hand > 1) return;
-	ItemSlot& slot = m_characters[i].inventory.hands[hand];
+	ItemSlot& slot = m_characters[i].inventory.Hand(static_cast<int>(hand));
 	if (Holding()) {
 		// Place the carried tablet in this hand, swapping any occupant onto the
 		// cursor (so a click never silently destroys an item).
@@ -147,7 +147,7 @@ static bool RuneSymbolOf(const std::string& typeId, SpellSymbol& out) {
 
 void GameUI::OnHandRightClick(size_t i, size_t hand) {
 	if (i >= m_characters.size() || hand > 1) return;
-	const ItemSlot& slot = m_characters[i].inventory.hands[hand];
+	const ItemSlot& slot = m_characters[i].inventory.Hand(static_cast<int>(hand));
 	if (slot.Empty() || !m_handMenu) return;
 	// Build the action list for whatever the hand holds. Runes can be memorized.
 	std::vector<ui::ContextMenu::Entry> entries;
@@ -160,7 +160,7 @@ void GameUI::OnHandRightClick(size_t i, size_t hand) {
 
 void GameUI::MemorizeFromHand(size_t i, size_t hand) {
 	if (i >= m_characters.size() || hand > 1) return;
-	ItemSlot& slot = m_characters[i].inventory.hands[hand];
+	ItemSlot& slot = m_characters[i].inventory.Hand(static_cast<int>(hand));
 	SpellSymbol sym;
 	if (!RuneSymbolOf(slot.typeId, sym)) return;
 	m_characters[i].Learn(sym);

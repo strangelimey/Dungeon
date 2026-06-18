@@ -2,8 +2,11 @@
 // Game/Inventory.h — a party member's carried + worn items.
 //
 // One Inventory per Character:
-//   * hands[2]    the two HUD hand slots (held weapon/tablet, left/right)
-//   * equipment[] the worn paper-doll slots (head/body/.../rings) on the sheet
+//   * equipment[] the worn/held paper-doll slots, indexed by EquipSlot. This
+//                 INCLUDES the two weapon hands (LeftHand/RightHand): the sheet
+//                 doll and the HUD control-bar hand boxes are the same storage,
+//                 so an item placed in one shows in the other. Hand(0/1) is the
+//                 convenience accessor the HUD uses.
 //   * backpack    a DYNAMIC list of carry slots, shown as a grid on the sheet —
 //                 starts small (kBackpackStart) and grows later as bags/spells/
 //                 items raise capacity (Grow()).
@@ -29,21 +32,36 @@ struct ItemSlot {
 	void Clear() { typeId.clear(); }
 };
 
-// Worn equipment slots (the sheet's left-hand paper doll). Order is the save +
-// layout order — APPEND, never reorder. The two rings share a display label.
-enum class EquipSlot { Head, Body, Hands, Feet, Cloak, Amulet, Ring1, Ring2, Count };
+// Worn/held paper-doll slots, indexed for both the sheet doll and the save
+// (the "equip" line serializes in this order). LeftHand/RightHand are the
+// weapon hands shared with the HUD control bar; the two rings share a display
+// label. Reordering changes the save layout — bump SaveData::version if you do.
+enum class EquipSlot {
+	Head, Body, Legs, Feet, Cloak, Amulet, LeftHand, RightHand, Ring1, Ring2, Count
+};
 inline constexpr int kEquipCount = static_cast<int>(EquipSlot::Count);
 
-// Loc keys for each equipment slot, parallel to EquipSlot.
+// Loc keys for each equipment slot, parallel to EquipSlot. Both hands show
+// "Hand" and both rings show "Ring".
 inline constexpr const char* kEquipLabels[kEquipCount] = {
-	"equip.head", "equip.body",   "equip.hands", "equip.feet",
-	"equip.cloak", "equip.amulet", "equip.ring",  "equip.ring",
+	"equip.head",  "equip.body",   "equip.legs", "equip.feet", "equip.cloak",
+	"equip.amulet", "equip.hand",   "equip.hand", "equip.ring", "equip.ring",
 };
 
 struct Inventory {
-	ItemSlot hands[2];                            // 0 = left, 1 = right
-	std::array<ItemSlot, kEquipCount> equipment;  // worn armor/clothing
+	std::array<ItemSlot, kEquipCount> equipment; // worn/held, indexed by EquipSlot
 	std::vector<ItemSlot> backpack = std::vector<ItemSlot>(kBackpackStart);
+
+	// The weapon hand slots (0 = left, 1 = right), aliases into equipment[] so the
+	// HUD hand boxes and the sheet doll share one storage.
+	ItemSlot& Hand(int h) {
+		return equipment[static_cast<size_t>(h == 0 ? EquipSlot::LeftHand
+													: EquipSlot::RightHand)];
+	}
+	const ItemSlot& Hand(int h) const {
+		return equipment[static_cast<size_t>(h == 0 ? EquipSlot::LeftHand
+													: EquipSlot::RightHand)];
+	}
 
 	// Index of the first empty backpack slot, or -1 when the pack is full.
 	int FirstFreeBackpack() const {
@@ -68,9 +86,7 @@ struct Inventory {
 
 	// Empties every slot but keeps the current backpack capacity.
 	void Clear() {
-		hands[0].Clear();
-		hands[1].Clear();
-		for (ItemSlot& s : equipment) s.Clear();
+		for (ItemSlot& s : equipment) s.Clear(); // includes the hands
 		for (ItemSlot& s : backpack) s.Clear();
 	}
 };

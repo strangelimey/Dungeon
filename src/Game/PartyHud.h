@@ -9,10 +9,12 @@
 //                   don't exist yet, so it draws an empty framed box with
 //                   the character's identity color along the bottom edge;
 //                   clicking fires onClick (the HUD logs feedback).
-//   CharacterSheet  the character details page: large portrait, name, class,
-//                   stat bars with values, and attributes. Drawn over the
-//                   frozen scene in AppState::CharacterSheet; the Game pairs
-//                   it with prev/next/Back buttons in the same UIContext.
+//   CharacterSheet  the character details page: large portrait, name, the
+//                   health/stamina/mana bars, and the inventory (a Dungeon
+//                   Master-style equipment paper doll plus the backpack grid).
+//                   Drawn over the frozen scene in AppState::CharacterSheet;
+//                   the Game pairs it with prev/next/Back buttons in the same
+//                   UIContext.
 //
 // Both widgets hold pointers into Game's character roster (stable for the
 // session) and read the live values every draw; the sheet caches its
@@ -98,7 +100,7 @@ private:
 
 class HandSlot : public ui::Widget {
 public:
-	// `hand` is 0 = left / 1 = right (which inventory.hands entry this box shows).
+	// `hand` is 0 = left / 1 = right (which inventory.Hand() this box shows).
 	// `icons` (Game-owned, may be null) resolves the held item's icon to draw.
 	// onLeft fires on a left click, onRight on a right click — GameUI decides
 	// what each means given the held cursor (place / swap / pick up / attack /
@@ -174,12 +176,8 @@ public:
 	void Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) override;
 
 private:
-	struct AttributeLine {
-		std::string label;
-		std::string value;
-	};
-	// Design-space rects for the worn-equipment and backpack slots (scaled to the
-	// live panel by Draw/Update). `scale` lets Update reuse the same geometry.
+	// Design-space rect of doll cell i (an index into the placed-cell table), and
+	// of backpack slot i. Scaled to the live panel by Draw/Update.
 	gfx::Rect EquipRect(const gfx::Rect& px, float sx, float sy, int i) const;
 	gfx::Rect PackRect(const gfx::Rect& px, float sx, float sy, int i) const;
 	// Applies a held-aware click to a slot: place / swap / pick up.
@@ -190,13 +188,11 @@ private:
 	const ResourceBarColors* m_barColors;
 	const ItemIconBank* m_icons;
 	std::optional<std::string>* m_held;
-	std::string m_subtitle; // "Level 1 Rogue"
 	std::string m_healthText, m_staminaText, m_manaText; // "42 / 42"
-	std::array<AttributeLine, 5> m_attributes;
 	// Static page text, localized once at construction (the sheet is rebuilt
 	// on a language change) so Draw stays allocation-free.
 	std::string m_healthLabel, m_staminaLabel, m_manaLabel;
-	std::string m_attributesLabel, m_equipmentLabel, m_backpackLabel;
+	std::string m_equipmentLabel, m_backpackLabel;
 	std::array<std::string, kEquipCount> m_equipLabels; // localized slot names
 };
 
