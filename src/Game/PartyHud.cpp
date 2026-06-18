@@ -567,7 +567,23 @@ void CharacterSheet::DrawStats(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 	const ui::Theme& theme = ctx.GetTheme();
 	ui::Font& font = ctx.GetFont();
 
-	// --- health / stamina / mana bars (top, beside the portrait) ------------
+	constexpr float kFirstRowY = 218.0f, kRowH = 40.0f;
+
+	// --- attributes (left column) -------------------------------------------
+	// Each attribute on its own row: name on the left, value right-aligned at a
+	// fixed column (so the numbers line up).
+	font.Draw(batch, m_attributesLabel, px.x + kDollX * sx, px.y + kInvHeaderY * sy,
+			  theme.accent);
+	constexpr float kLabelX = 56.0f, kValueRight = 300.0f;
+	for (size_t i = 0; i < m_attrLabels.size(); ++i) {
+		const float y = kFirstRowY + static_cast<float>(i) * kRowH;
+		font.Draw(batch, m_attrLabels[i], px.x + kLabelX * sx, px.y + y * sy, theme.textDim);
+		const float vw = font.MeasureWidth(m_attrValues[i]);
+		font.Draw(batch, m_attrValues[i], px.x + kValueRight * sx - vw, px.y + y * sy,
+				  theme.text);
+	}
+
+	// --- health / stamina / mana bars (right column, beside the attributes) -
 	const struct {
 		const std::string& label;
 		float value, max;
@@ -581,31 +597,17 @@ void CharacterSheet::DrawStats(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 		{m_manaLabel, m_character->mana, m_character->maxMana, m_barColors->mana,
 		 m_manaText},
 	};
-	float by = 92.0f;
-	for (const auto& b : bars) {
-		const gfx::Rect bar{px.x + 255 * sx, px.y + by * sy, 200 * sx, 22 * sy};
-		font.Draw(batch, b.label, px.x + 140 * sx,
+	constexpr float kBarLabelX = 360.0f, kBarX = 470.0f, kBarW = 240.0f, kBarH = 22.0f;
+	for (size_t i = 0; i < std::size(bars); ++i) {
+		const auto& b = bars[i];
+		const float by = kFirstRowY + static_cast<float>(i) * kRowH;
+		const gfx::Rect bar{px.x + kBarX * sx, px.y + by * sy, kBarW * sx, kBarH * sy};
+		font.Draw(batch, b.label, px.x + kBarLabelX * sx,
 				  bar.y + (bar.h - font.Height()) * 0.5f, theme.textDim);
 		DrawStatBar(batch, bar, b.value / std::max(b.max, 1.0f), b.color, theme);
 		const float tw = font.MeasureWidth(b.text);
 		font.Draw(batch, b.text, bar.x + (bar.w - tw) * 0.5f,
 				  bar.y + (bar.h - font.Height()) * 0.5f, theme.text);
-		by += 30.0f;
-	}
-
-	// --- attributes ---------------------------------------------------------
-	font.Draw(batch, m_attributesLabel, px.x + kDollX * sx, px.y + kInvHeaderY * sy,
-			  theme.accent);
-	// Each attribute on its own row: name on the left, value right-aligned at a
-	// fixed column (so the numbers line up).
-	constexpr float kLabelX = 56.0f, kValueRight = 300.0f, kRowH = 40.0f;
-	float y = 218.0f;
-	for (size_t i = 0; i < m_attrLabels.size(); ++i) {
-		font.Draw(batch, m_attrLabels[i], px.x + kLabelX * sx, px.y + y * sy, theme.textDim);
-		const float vw = font.MeasureWidth(m_attrValues[i]);
-		font.Draw(batch, m_attrValues[i], px.x + kValueRight * sx - vw, px.y + y * sy,
-				  theme.text);
-		y += kRowH;
 	}
 }
 
