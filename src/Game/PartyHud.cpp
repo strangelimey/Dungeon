@@ -305,27 +305,30 @@ constexpr float kInvHeaderY = 182.0f; // "Equipment" / "Backpack" header row
 // The worn slots are arranged anatomically (Dungeon Master style) rather than
 // in a plain grid: head on top, the torso flanked by neck/shoulder and hand
 // accessories, feet at the bottom. Three columns (left/centre/right of the
-// body) over four rows (head / torso / hands / feet).
+// body) over four rows (head / torso / hands / feet); accessory cells use
+// fractional col/row to sit between the main grid positions (the rings hang
+// just below and outside their hand).
 constexpr float kEquipSlot = 72.0f;
 constexpr float kDollX = 56.0f;  // x of the LEFT column
 constexpr float kDollY = 210.0f; // y of the HEAD row
 constexpr float kDollStep = kEquipSlot + kSlotGap;
 // One placed cell of the doll: which equipment slot it shows and where (col
-// 0/1/2 = left/centre/right, row 0..3 = head..feet). Not every EquipSlot is
-// placed yet — the two rings exist in storage but get screen cells later.
+// 0/1/2 = left/centre/right, row 0..3 = head..feet; fractions offset between).
 struct DollCell {
 	EquipSlot slot;
-	int col, row;
+	float col, row;
 };
 constexpr DollCell kDollCells[] = {
-	{EquipSlot::Head,      1, 0}, // top centre
-	{EquipSlot::Amulet,    0, 1}, // left of the neck
-	{EquipSlot::Body,      1, 1}, // torso centre
-	{EquipSlot::Cloak,     2, 1}, // right shoulder
-	{EquipSlot::LeftHand,  0, 2}, // left, arms row
-	{EquipSlot::Legs,      1, 2}, // centre, between torso and feet
-	{EquipSlot::RightHand, 2, 2}, // right, arms row
-	{EquipSlot::Feet,      1, 3}, // bottom centre
+	{EquipSlot::Head,      1.0f, 0.0f}, // top centre
+	{EquipSlot::Amulet,    0.0f, 1.0f}, // left of the neck
+	{EquipSlot::Body,      1.0f, 1.0f}, // torso centre
+	{EquipSlot::Cloak,     2.0f, 1.0f}, // right shoulder
+	{EquipSlot::LeftHand,  0.0f, 2.0f}, // left, arms row
+	{EquipSlot::Legs,      1.0f, 2.0f}, // centre, between torso and feet
+	{EquipSlot::RightHand, 2.0f, 2.0f}, // right, arms row
+	{EquipSlot::Ring1,    -0.3f, 3.0f}, // left ring — below & outside the left hand
+	{EquipSlot::Ring2,     2.3f, 3.0f}, // right ring — below & outside the right hand
+	{EquipSlot::Feet,      1.0f, 3.0f}, // bottom centre
 };
 constexpr int kDollCellCount = static_cast<int>(sizeof(kDollCells) /
 												sizeof(kDollCells[0]));
@@ -361,8 +364,8 @@ void CharacterSheet::SetCharacter(Character& character) {
 gfx::Rect CharacterSheet::EquipRect(const gfx::Rect& px, float sx, float sy,
 									int i) const {
 	const DollCell c = kDollCells[i];
-	const float dx = kDollX + static_cast<float>(c.col) * kDollStep;
-	const float dy = kDollY + static_cast<float>(c.row) * kDollStep;
+	const float dx = kDollX + c.col * kDollStep;
+	const float dy = kDollY + c.row * kDollStep;
 	return {px.x + dx * sx, px.y + dy * sy, kEquipSlot * sx, kEquipSlot * sy};
 }
 
