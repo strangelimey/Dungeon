@@ -326,41 +326,93 @@ void AddFace(assets::MeshData& m, const Vec3 c[4], const Vec3& nrm, const Vec2 u
 					 {base, base + 1, base + 2, base, base + 2, base + 3});
 }
 
-assets::ModelData BuildRuneTablet() {
-	// A small, flat ancient tablet — palm-sized and thin, standing so the carved
-	// face reads from first person (worn stone, not a chunky slab). ~16 cm wide,
-	// ~15 cm tall, ~2.6 cm thick.
-	constexpr float hx = 0.08f, y0 = 0.0f, y1 = 0.15f, hz = 0.013f;
-	// Broad faces map the whole texture (rune centred); thin edges pin to a
-	// stone-only corner so no partial glyph bleeds onto them.
-	const Vec2 full[4] = {{0, 1}, {1, 1}, {1, 0}, {0, 0}};
-	const Vec2 stone[4] = {{0.5f, 0.97f}, {0.5f, 0.97f}, {0.5f, 0.97f}, {0.5f, 0.97f}};
+float Smoothstep(float a, float b, float t) {
+	t = std::clamp((t - a) / (b - a), 0.0f, 1.0f);
+	return t * t * (3.0f - 2.0f * t);
+}
 
+assets::ModelData BuildRuneTablet() {
+	// A WORN, hand-sized stone tablet (not a clean 6-face box). We start from a
+	// thin slab and erode it: every face is subdivided into a grid, and each
+	// vertex is pushed to a "worn" position that depends ONLY on its original
+	// location — so the faces stay welded (no cracks). Corners/edges round toward
+	// an ellipsoid and the surface is roughened with noise, heavier along the box
+	// edges (chipped) than across the broad faces (so the carved glyph still
+	// reads). Flat-shaded per quad for a chiselled, rocky look. ~17 cm wide.
+	constexpr float hx = 0.085f, y0 = 0.0f, y1 = 0.15f, hz = 0.016f;
+	const Vec3 ctr = {0.0f, (y0 + y1) * 0.5f, 0.0f};
+	const Vec3 ext = {hx, (y1 - y0) * 0.5f, hz};
+	constexpr u32 seed = 4242u;
+
+	// Pristine box point -> worn position. Deterministic in p, so a point shared
+	// by two faces (a box edge) maps identically and the seam stays closed.
+	auto worn = [&](Vec3 p) -> Vec3 {
+		const Vec3 d = {(p.x - ctr.x) / ext.x, (p.y - ctr.y) / ext.y,
+						(p.z - ctr.z) / ext.z}; // box coords in [-1,1]
+		const float ax = std::fabs(d.x), ay = std::fabs(d.y), az = std::fabs(d.z);
+		// "Edge-ness": the MEDIAN abs component — ~0 mid-face, ~1 along a box edge
+		// (max alone is 1 on every face, so it can't tell faces from edges).
+		const float edge = ax + ay + az - std::max({ax, ay, az}) - std::min({ax, ay, az});
+		// Round toward the ellipsoid (pulls the slab's edges in).
+		const float l = std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z) + 1e-4f;
+		const Vec3 sph = {ctr.x + ext.x * d.x / l, ctr.y + ext.y * d.y / l,
+						  ctr.z + ext.z * d.z / l};
+		constexpr float k = 0.30f;
+		Vec3 rp = {p.x + (sph.x - p.x) * k, p.y + (sph.y - p.y) * k,
+				   p.z + (sph.z - p.z) * k};
+		// Outward direction for the erosion push.
+		Vec3 rad = {rp.x - ctr.x, rp.y - ctr.y, rp.z - ctr.z};
+		const float rl = std::sqrt(rad.x * rad.x + rad.y * rad.y + rad.z * rad.z) + 1e-4f;
+		rad = {rad.x / rl, rad.y / rl, rad.z / rl};
+		// Two-scale noise: broad dents + fine grit (centred to [-0.5,0.5]).
+		const float big = Fbm(p.x * 13.0f + p.z * 4.0f, p.y * 13.0f + p.x * 2.0f, seed) - 0.5f;
+		const float grit = Fbm(p.x * 52.0f + p.y * 9.0f, p.z * 52.0f + p.y * 5.0f, seed + 11u) - 0.5f;
+		const float amp = 0.003f + 0.013f * Smoothstep(0.45f, 1.0f, edge); // calm face, chipped edge
+		const float disp = big * amp + grit * amp * 0.4f;
+		return {rp.x + rad.x * disp, rp.y + rad.y * disp, rp.z + rad.z * disp};
+	};
+
+	// Subdivide a face (origin O, span vectors U across / V up) into nu×nv quads,
+	// displace each vertex, and flat-shade per quad. UV bilerps the four corners.
 	assets::MeshData mesh;
-	{ // front (+Z): rune upright
-		const Vec3 c[4] = {{-hx, y0, hz}, {hx, y0, hz}, {hx, y1, hz}, {-hx, y1, hz}};
-		AddFace(mesh, c, {0, 0, 1}, full);
-	}
-	{ // back (-Z): rune again (mirrored in x — acceptable for a stone slab)
-		const Vec3 c[4] = {{hx, y0, -hz}, {-hx, y0, -hz}, {-hx, y1, -hz}, {hx, y1, -hz}};
-		AddFace(mesh, c, {0, 0, -1}, full);
-	}
-	{ // left (-X)
-		const Vec3 c[4] = {{-hx, y0, -hz}, {-hx, y0, hz}, {-hx, y1, hz}, {-hx, y1, -hz}};
-		AddFace(mesh, c, {-1, 0, 0}, stone);
-	}
-	{ // right (+X)
-		const Vec3 c[4] = {{hx, y0, hz}, {hx, y0, -hz}, {hx, y1, -hz}, {hx, y1, hz}};
-		AddFace(mesh, c, {1, 0, 0}, stone);
-	}
-	{ // top (+Y)
-		const Vec3 c[4] = {{-hx, y1, hz}, {hx, y1, hz}, {hx, y1, -hz}, {-hx, y1, -hz}};
-		AddFace(mesh, c, {0, 1, 0}, stone);
-	}
-	{ // bottom (-Y)
-		const Vec3 c[4] = {{-hx, y0, -hz}, {hx, y0, -hz}, {hx, y0, hz}, {-hx, y0, hz}};
-		AddFace(mesh, c, {0, -1, 0}, stone);
-	}
+	auto addFace = [&](Vec3 O, Vec3 U, Vec3 V, int nu, int nv, Vec2 uv00, Vec2 uv10,
+					   Vec2 uv11, Vec2 uv01) {
+		auto P = [&](int i, int j) {
+			const float s = float(i) / nu, t = float(j) / nv;
+			return worn({O.x + U.x * s + V.x * t, O.y + U.y * s + V.y * t,
+						 O.z + U.z * s + V.z * t});
+		};
+		auto UV = [&](int i, int j) {
+			const float s = float(i) / nu, t = float(j) / nv;
+			const Vec2 a = {uv00.x + (uv10.x - uv00.x) * s, uv00.y + (uv10.y - uv00.y) * s};
+			const Vec2 b = {uv01.x + (uv11.x - uv01.x) * s, uv01.y + (uv11.y - uv01.y) * s};
+			return Vec2{a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t};
+		};
+		for (int j = 0; j < nv; ++j)
+			for (int i = 0; i < nu; ++i) {
+				const Vec3 c[4] = {P(i, j), P(i + 1, j), P(i + 1, j + 1), P(i, j + 1)};
+				const Vec2 uv[4] = {UV(i, j), UV(i + 1, j), UV(i + 1, j + 1), UV(i, j + 1)};
+				const Vec3 e1 = {c[1].x - c[0].x, c[1].y - c[0].y, c[1].z - c[0].z};
+				const Vec3 e2 = {c[2].x - c[0].x, c[2].y - c[0].y, c[2].z - c[0].z};
+				Vec3 nrm = {e1.y * e2.z - e1.z * e2.y, e1.z * e2.x - e1.x * e2.z,
+							e1.x * e2.y - e1.y * e2.x};
+				const float nl = std::sqrt(nrm.x * nrm.x + nrm.y * nrm.y + nrm.z * nrm.z) + 1e-6f;
+				nrm = {nrm.x / nl, nrm.y / nl, nrm.z / nl};
+				AddFace(mesh, c, nrm, uv);
+			}
+	};
+
+	const Vec2 s{0.5f, 0.97f}; // thin edges pin to a stone-only texel
+	constexpr int N = 7;       // broad-face subdivisions
+	constexpr int M = 2;       // thin-edge subdivisions
+	const float h = y1 - y0;
+	// Broad faces carry the glyph (full 0..1, rune upright); edges stay stone.
+	addFace({-hx, y0, hz}, {2 * hx, 0, 0}, {0, h, 0}, N, N, {0, 1}, {1, 1}, {1, 0}, {0, 0});  // front +Z
+	addFace({hx, y0, -hz}, {-2 * hx, 0, 0}, {0, h, 0}, N, N, {0, 1}, {1, 1}, {1, 0}, {0, 0}); // back -Z
+	addFace({-hx, y0, -hz}, {0, 0, 2 * hz}, {0, h, 0}, M, N, s, s, s, s);                     // left -X
+	addFace({hx, y0, hz}, {0, 0, -2 * hz}, {0, h, 0}, M, N, s, s, s, s);                      // right +X
+	addFace({-hx, y1, hz}, {2 * hx, 0, 0}, {0, 0, -2 * hz}, N, M, s, s, s, s);                // top +Y
+	addFace({-hx, y0, -hz}, {2 * hx, 0, 0}, {0, 0, 2 * hz}, N, M, s, s, s, s);                // bottom -Y
 
 	assets::ModelData model;
 	mesh.material = 0;
