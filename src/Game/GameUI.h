@@ -148,6 +148,7 @@ public:
 	std::function<void(MoveAction)> onMoveAction; // HUD movement buttons
 	std::function<void(size_t, size_t)> onHandAttack; // HUD hand-slot click (member, hand 0=L/1=R)
 	std::function<void()> onKeysChanged;        // a movement key was rebound
+	std::function<void()> onLookChanged;        // a mouse-look knob changed (push to Party)
 	// Game tab language dropdown. The receiver must NOT rebuild the UI from
 	// inside the callback (see RebuildForLanguage) — record and defer.
 	std::function<void(const std::string&)> onLanguageSelected;

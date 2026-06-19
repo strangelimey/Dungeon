@@ -330,6 +330,51 @@ void GameUI::BuildSettings() {
 		m_keyBinds.push_back(bind);
 	}
 
+	// Controls → Mouse Look: right-mouse free-look feel. Sliders apply live while
+	// dragging (onLookChanged pushes the values into the Party) and persist on
+	// release; the curve dropdowns apply + persist on selection. The page scrolls
+	// once these run past its height.
+	tabs->AddChild<ui::Separator>(tabControls, Norm(cf.Place(1.0f, mGroup, mGroup), page));
+	tabs->AddChild<ui::Label>(tabControls, Norm(cf.Place(labelH, mGroup, mTight), page),
+							  loc::Tr("settings.mouselook"));
+	auto lookSlider = [&](const char* key, float lo, float hi, float* field, float mTop,
+						  float mBot) {
+		auto* s = tabs->AddChild<ui::Slider>(
+			tabControls, Norm(cf.Place(sliderH, mTop, mBot), page), loc::Tr(key), lo, hi,
+			*field, [this, field](float v) {
+				*field = v;
+				if (onLookChanged) onLookChanged();
+			});
+		s->onRelease = [this] { m_settings.Save(); };
+	};
+	auto easeNames = [] {
+		std::vector<std::string> names;
+		for (const EaseOption& o : kLookEaseOptions) names.push_back(loc::Tr(o.labelKey));
+		return names;
+	};
+	auto easeDrop = [&](const char* labelKey, Easing* field) {
+		tabs->AddChild<ui::Label>(tabControls, Norm(cf.Place(labelH, mGroup, mTight), page),
+								  loc::Tr(labelKey));
+		tabs->AddChild<ui::DropDown>(
+			tabControls, Norm(cf.Place(ctrlH, mTight, mGroup), page), easeNames(),
+			LookEaseIndex(*field), [this, field](int index) {
+				Click();
+				if (index < 0 || index >= static_cast<int>(std::size(kLookEaseOptions)))
+					return;
+				*field = kLookEaseOptions[static_cast<size_t>(index)].value;
+				if (onLookChanged) onLookChanged();
+				m_settings.Save();
+			});
+	};
+	lookSlider("settings.look_sensitivity", 0.25f, 3.0f, &m_settings.look.sensitivity,
+			   mTight, mGroup);
+	lookSlider("settings.look_hold", 0.0f, 2.0f, &m_settings.look.returnHold, mGroup, mGroup);
+	lookSlider("settings.look_return", 0.2f, 5.0f, &m_settings.look.returnTime, mGroup,
+			   mGroup);
+	easeDrop("settings.look_curve", &m_settings.look.snapEasing);
+	lookSlider("settings.look_move", 0.05f, 1.5f, &m_settings.look.moveTime, mGroup, mGroup);
+	easeDrop("settings.look_move_curve", &m_settings.look.moveEasing);
+
 	// Video: the page overflows its height, so the TabControl scrolls. A Flow
 	// (collapsing-margin vertical stack) places each label-over-control setting.
 	Flow vf{pad, rowW, pad};

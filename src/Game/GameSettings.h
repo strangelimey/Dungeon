@@ -18,6 +18,7 @@
 #include "Graphics/DisplayEnum.h" // gfx::FullscreenMode
 #include "UI/UIContext.h"         // ui::Theme
 
+#include <iterator> // std::size (kLookEaseOptions helper)
 #include <string>
 
 namespace dungeon::game {
@@ -92,6 +93,31 @@ inline constexpr KeyField kKeyFields[] = {
 	{"turnright", "settings.key.turnright", &MoveKeys::turnRight},
 };
 
+// The easing curves offered by the mouse-look "return curve" dropdowns (Settings
+// → Controls). A curated subset of Easing (Core/Easing.h) — labelKey is a loc::
+// key. The selected INDEX into this table is what round-trips to settings.ini, so
+// appending is safe; reordering remaps existing saves.
+struct EaseOption {
+	const char* labelKey;
+	Easing value;
+};
+inline constexpr EaseOption kLookEaseOptions[] = {
+	{"ease.linear", Easing::Linear},
+	{"ease.easein", Easing::EaseIn},
+	{"ease.easeinout", Easing::EaseInOut},
+	{"ease.easeincubic", Easing::EaseInCubic},
+	{"ease.easeinquart", Easing::EaseInQuart},
+	{"ease.easeout", Easing::EaseOut},
+};
+
+// Index of an easing within kLookEaseOptions (0 if not offered) — maps a stored
+// LookSettings curve back onto the dropdown selection.
+inline int LookEaseIndex(Easing e) {
+	for (int i = 0; i < static_cast<int>(std::size(kLookEaseOptions)); ++i)
+		if (kLookEaseOptions[i].value == e) return i;
+	return 0;
+}
+
 struct GameSettings {
 	Quality quality = Quality::Medium;
 	int maxPointLights = kLightBudgets[1]; // active light budget (defaults to the
@@ -105,6 +131,7 @@ struct GameSettings {
 	ui::Theme theme;              // the 8 user-editable control colors
 	ResourceBarColors barColors;  // health/stamina/mana fills
 	MoveKeys moveKeys;            // movement key bindings (vkeys)
+	LookSettings look;           // right-mouse free-look feel (Controls tab)
 	bool mapPaletteCollapsed = false;  // map editor: left brush dock collapsed
 	bool mapLegendCollapsed = false;   // map editor: right key dock collapsed
 	bool mapPlayerKeyCollapsed = false; // player map: right key dock collapsed

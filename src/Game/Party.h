@@ -36,6 +36,19 @@ struct MoveKeys {
 	int turnRight = 'E';
 };
 
+// User-tunable right-mouse free-look feel (Settings → Controls; ini look_*).
+// The Game owns the master copy and pushes it into the Party via SetLook;
+// sensitivity is read by the Game's drag handler, the rest by the Party's
+// return animation. Defaults match the values dialled in during playtesting.
+struct LookSettings {
+	float sensitivity = 1.0f; // multiplier on the base drag rate (rad/pixel)
+	float returnHold = 0.8f;  // seconds the view holds still before easing back
+	float returnTime = 2.0f;  // seconds for the hands-off return to orthogonal
+	float moveTime = 0.3f;    // seconds for the quicker move-triggered straighten
+	Easing snapEasing = Easing::EaseInCubic; // hands-off return curve
+	Easing moveEasing = Easing::EaseInOut;   // move-triggered straighten curve
+};
+
 // One discrete party action. HandleInput maps the bound keys onto these; the
 // HUD's movement buttons feed them straight into Party::Act.
 enum class MoveAction { Forward, Back, StrafeLeft, StrafeRight, TurnLeft, TurnRight };
@@ -73,6 +86,9 @@ public:
 	void SetSpeed(float speed) { m_speed = speed; }
 
 	void SetKeys(const MoveKeys& keys) { m_moveKeys = keys; }
+
+	// Free-look feel (hold/return durations + curves); pushed from GameSettings.
+	void SetLook(const LookSettings& look) { m_look = look; }
 
 	// Easing curves for the visual move/turn tweens (default EaseInOut — the
 	// gentle slow-start/slow-stop that gives the grid step its weight).
@@ -178,6 +194,7 @@ private:
 	float m_lookPitch = 0.0f;
 	float m_returnT = 0.0f;
 	float m_returnTime = 1.0f;                 // active return duration (release vs move)
+	float m_returnHold = 0.0f;                 // pause left before the return tween eases
 	Easing m_returnEasing = Easing::EaseInOut; // active return curve (shared EaseLerp)
 	float m_returnFromYaw = 0.0f;
 	float m_returnFromPitch = 0.0f;
@@ -187,6 +204,7 @@ private:
 	float m_speed = 1.0f;         // pace multiplier (slowest member)
 	bool m_noclip = false;        // dev console: walk through walls
 	MoveKeys m_moveKeys;
+	LookSettings m_look; // free-look feel (durations + curves), set from settings
 
 	Easing m_moveEasing = Easing::EaseInOut; // base curve (overridable)
 	Easing m_turnEasing = Easing::EaseInOut;
