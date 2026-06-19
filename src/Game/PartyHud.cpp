@@ -305,27 +305,30 @@ constexpr float kInvHeaderY = 182.0f; // "Equipment" / "Backpack" header row
 // The worn slots are arranged anatomically (Dungeon Master style) rather than
 // in a plain grid: head on top, the torso flanked by neck/shoulder and hand
 // accessories, feet at the bottom. Three columns (left/centre/right of the
-// body) over four rows (head / torso / hands / feet).
+// body) over four rows (head / torso / hands / feet); accessory cells use
+// fractional col/row to sit between the main grid positions (the rings hang
+// just below and outside their hand).
 constexpr float kEquipSlot = 72.0f;
 constexpr float kDollX = 56.0f;  // x of the LEFT column
 constexpr float kDollY = 210.0f; // y of the HEAD row
 constexpr float kDollStep = kEquipSlot + kSlotGap;
 // One placed cell of the doll: which equipment slot it shows and where (col
-// 0/1/2 = left/centre/right, row 0..3 = head..feet). Not every EquipSlot is
-// placed yet — the two rings exist in storage but get screen cells later.
+// 0/1/2 = left/centre/right, row 0..3 = head..feet; fractions offset between).
 struct DollCell {
 	EquipSlot slot;
-	int col, row;
+	float col, row;
 };
 constexpr DollCell kDollCells[] = {
-	{EquipSlot::Head,      1, 0}, // top centre
-	{EquipSlot::Amulet,    0, 1}, // left of the neck
-	{EquipSlot::Body,      1, 1}, // torso centre
-	{EquipSlot::Cloak,     2, 1}, // right shoulder
-	{EquipSlot::LeftHand,  0, 2}, // left, arms row
-	{EquipSlot::Legs,      1, 2}, // centre, between torso and feet
-	{EquipSlot::RightHand, 2, 2}, // right, arms row
-	{EquipSlot::Feet,      1, 3}, // bottom centre
+	{EquipSlot::Head,      1.0f, 0.0f}, // top centre
+	{EquipSlot::Amulet,    0.0f, 1.0f}, // left of the neck
+	{EquipSlot::Body,      1.0f, 1.0f}, // torso centre
+	{EquipSlot::Cloak,     2.0f, 1.0f}, // right shoulder
+	{EquipSlot::LeftHand,  0.0f, 2.0f}, // left, arms row
+	{EquipSlot::Legs,      1.0f, 2.0f}, // centre, between torso and feet
+	{EquipSlot::RightHand, 2.0f, 2.0f}, // right, arms row
+	{EquipSlot::Ring1,    -0.3f, 3.0f}, // left ring — below & outside the left hand
+	{EquipSlot::Ring2,     2.3f, 3.0f}, // right ring — below & outside the right hand
+	{EquipSlot::Feet,      1.0f, 3.0f}, // bottom centre
 };
 constexpr int kDollCellCount = static_cast<int>(sizeof(kDollCells) /
 												sizeof(kDollCells[0]));
@@ -333,6 +336,12 @@ constexpr int kDollCellCount = static_cast<int>(sizeof(kDollCells) /
 // --- backpack grid (right) ---
 constexpr float kPackSlot = 72.0f, kPackX = 430.0f, kPackY = 210.0f;
 constexpr int kPackCols = 4; // backpack laid out 4 wide
+
+// --- mode toggle buttons (Inventory / Stats / Skills), a row under the portrait
+constexpr int kModeCount = 3;
+constexpr float kModeBtnSize = 30.0f, kModeBtnGap = 5.0f;
+constexpr float kModeBtnX = 24.0f;  // aligns with the portrait's left edge
+constexpr float kModeBtnY = 132.0f; // just below the 100px portrait (top at y20)
 } // namespace
 
 CharacterSheet::CharacterSheet(const gfx::Rect& rect, const ui::Font* portraitFont,
@@ -343,9 +352,14 @@ CharacterSheet::CharacterSheet(const gfx::Rect& rect, const ui::Font* portraitFo
 	  m_held(held), m_healthLabel(loc::Tr("bar.health")),
 	  m_staminaLabel(loc::Tr("bar.stamina")), m_manaLabel(loc::Tr("bar.mana")),
 	  m_equipmentLabel(loc::Tr("sheet.equipment")),
-	  m_backpackLabel(loc::Tr("sheet.backpack")) {
+	  m_backpackLabel(loc::Tr("sheet.backpack")),
+	  m_attributesLabel(loc::Tr("sheet.attributes")),
+	  m_skillsLabel(loc::Tr("sheet.skills")), m_noSkills(loc::Tr("sheet.no_skills")) {
 	bounds = rect;
 	for (int i = 0; i < kEquipCount; ++i) m_equipLabels[i] = loc::Tr(kEquipLabels[i]);
+	m_attrLabels = {loc::Tr("attr.strength"), loc::Tr("attr.dexterity"),
+					loc::Tr("attr.vitality"), loc::Tr("attr.willpower"),
+					loc::Tr("attr.intelligence")};
 }
 
 void CharacterSheet::SetCharacter(Character& character) {
@@ -356,13 +370,18 @@ void CharacterSheet::SetCharacter(Character& character) {
 								static_cast<int>(character.maxStamina));
 	m_manaText = std::format("{} / {}", static_cast<int>(character.mana),
 							 static_cast<int>(character.maxMana));
+	m_attrValues = {std::to_string(character.strength),
+					std::to_string(character.dexterity),
+					std::to_string(character.vitality),
+					std::to_string(character.willpower),
+					std::to_string(character.intelligence)};
 }
 
 gfx::Rect CharacterSheet::EquipRect(const gfx::Rect& px, float sx, float sy,
 									int i) const {
 	const DollCell c = kDollCells[i];
-	const float dx = kDollX + static_cast<float>(c.col) * kDollStep;
-	const float dy = kDollY + static_cast<float>(c.row) * kDollStep;
+	const float dx = kDollX + c.col * kDollStep;
+	const float dy = kDollY + c.row * kDollStep;
 	return {px.x + dx * sx, px.y + dy * sy, kEquipSlot * sx, kEquipSlot * sy};
 }
 
@@ -371,6 +390,13 @@ gfx::Rect CharacterSheet::PackRect(const gfx::Rect& px, float sx, float sy,
 	const float dx = kPackX + static_cast<float>(i % kPackCols) * (kPackSlot + kSlotGap);
 	const float dy = kPackY + static_cast<float>(i / kPackCols) * (kPackSlot + kSlotGap);
 	return {px.x + dx * sx, px.y + dy * sy, kPackSlot * sx, kPackSlot * sy};
+}
+
+gfx::Rect CharacterSheet::ModeButtonRect(const gfx::Rect& px, float sx, float sy,
+										 int i) const {
+	const float dx = kModeBtnX + static_cast<float>(i) * (kModeBtnSize + kModeBtnGap);
+	return {px.x + dx * sx, px.y + kModeBtnY * sy, kModeBtnSize * sx,
+			kModeBtnSize * sy};
 }
 
 void CharacterSheet::ClickSlot(ItemSlot& slot) {
@@ -387,13 +413,28 @@ void CharacterSheet::ClickSlot(ItemSlot& slot) {
 }
 
 void CharacterSheet::Update(ui::UIContext& ctx) {
+	m_hotMode = -1;
 	const Input* input = ctx.CurrentInput();
 	if (!input || ctx.IsMouseConsumed()) return; // sheet buttons update first
 	const gfx::Rect& px = Pixel();
 	const float mx = input->MouseX(), my = input->MouseY();
 	if (!px.Contains(mx, my)) return;
 	const float sx = px.w / kSheetDesignW, sy = px.h / kSheetDesignH;
-	if (m_character && input->WasMousePressed(MouseButton::Left)) {
+	const bool clicked = m_character && input->WasMousePressed(MouseButton::Left);
+
+	// Mode toggle buttons (always present, every mode).
+	for (int i = 0; i < kModeCount; ++i)
+		if (ModeButtonRect(px, sx, sy, i).Contains(mx, my)) {
+			m_hotMode = i;
+			if (clicked) {
+				m_mode = static_cast<Mode>(i);
+				ctx.ConsumeMouse();
+			}
+			break;
+		}
+
+	// Item slots are only live (and only hit-tested) in Inventory mode.
+	if (clicked && m_mode == Mode::Inventory && !ctx.IsMouseConsumed()) {
 		for (int i = 0; i < kDollCellCount; ++i)
 			if (EquipRect(px, sx, sy, i).Contains(mx, my)) {
 				const size_t s = static_cast<size_t>(kDollCells[i].slot);
@@ -422,40 +463,61 @@ void CharacterSheet::Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 
 	const float sx = px.w / kSheetDesignW;
 	const float sy = px.h / kSheetDesignH;
-	auto R = [&](float x, float y, float w, float h) {
-		return gfx::Rect{px.x + x * sx, px.y + y * sy, w * sx, h * sy};
-	};
-	ui::Font& font = ctx.GetFont();
 
-	// --- header band (portrait, name, bars) ---------------------------------
-	DrawPortrait(batch, R(24, 20, 100, 100), *m_character, *m_portraitFont, theme);
+	// --- header band (portrait, name) — the bars live on the Stats page ------
+	DrawPortrait(batch, {px.x + 24 * sx, px.y + 20 * sy, 100 * sx, 100 * sy},
+				 *m_character, *m_portraitFont, theme);
 	m_portraitFont->Draw(batch, m_character->name, px.x + 140 * sx, px.y + 30 * sy,
 						 theme.accent);
 
-	const struct {
-		const std::string& label;
-		float value, max;
-		const Vec4& color;
-		const std::string& text;
-	} bars[] = {
-		{m_healthLabel, m_character->health, m_character->maxHealth,
-		 m_barColors->health, m_healthText},
-		{m_staminaLabel, m_character->stamina, m_character->maxStamina,
-		 m_barColors->stamina, m_staminaText},
-		{m_manaLabel, m_character->mana, m_character->maxMana, m_barColors->mana,
-		 m_manaText},
-	};
-	float by = 92.0f;
-	for (const auto& b : bars) {
-		const gfx::Rect bar = R(255, by, 200, 22);
-		font.Draw(batch, b.label, px.x + 140 * sx,
-				  bar.y + (bar.h - font.Height()) * 0.5f, theme.textDim);
-		DrawStatBar(batch, bar, b.value / std::max(b.max, 1.0f), b.color, theme);
-		const float tw = font.MeasureWidth(b.text);
-		font.Draw(batch, b.text, bar.x + (bar.w - tw) * 0.5f,
-				  bar.y + (bar.h - font.Height()) * 0.5f, theme.text);
-		by += 30.0f;
+	// --- mode toggle + the active mode's body -------------------------------
+	DrawModeButtons(ctx, batch, px, sx, sy);
+	switch (m_mode) {
+	case Mode::Inventory: DrawInventory(ctx, batch, px, sx, sy); break;
+	case Mode::Stats:     DrawStats(ctx, batch, px, sx, sy); break;
+	case Mode::Skills:    DrawSkills(ctx, batch, px, sx, sy); break;
 	}
+}
+
+// The three little icon buttons under the portrait. The active mode's button is
+// drawn "pressed" (active fill + accent border); hovered buttons lighten. Icons
+// are primitive-drawn (no atlas): a 2x2 grid (Inventory), ascending bars
+// (Stats), a six-point star (Skills).
+void CharacterSheet::DrawModeButtons(ui::UIContext& ctx, gfx::SpriteBatch& batch,
+									 const gfx::Rect& px, float sx, float sy) {
+	const ui::Theme& theme = ctx.GetTheme();
+	for (int i = 0; i < kModeCount; ++i) {
+		const gfx::Rect r = ModeButtonRect(px, sx, sy, i);
+		const bool active = static_cast<int>(m_mode) == i;
+		batch.DrawRect(r, active ? theme.controlActive
+								 : (m_hotMode == i ? theme.controlHot : theme.control));
+		ui::DrawBorder(batch, r, active ? theme.accent : theme.panelBorder);
+		const Vec4 ink = active ? theme.text : theme.textDim;
+		const float cx = r.x + r.w * 0.5f, cy = r.y + r.h * 0.5f;
+		if (i == 0) { // Inventory: 2x2 grid of squares
+			const float sq = r.w * 0.17f, g = r.w * 0.09f;
+			const float x0 = cx - sq - g * 0.5f, y0 = cy - sq - g * 0.5f;
+			for (int gx = 0; gx < 2; ++gx)
+				for (int gy = 0; gy < 2; ++gy)
+					batch.DrawRect({x0 + gx * (sq + g), y0 + gy * (sq + g), sq, sq}, ink);
+		} else if (i == 1) { // Stats: three ascending bars
+			const float bw = r.w * 0.13f, g = r.w * 0.07f;
+			const float x0 = cx - (3 * bw + 2 * g) * 0.5f, baseY = cy + r.h * 0.24f;
+			const float h[3] = {r.h * 0.22f, r.h * 0.34f, r.h * 0.46f};
+			for (int k = 0; k < 3; ++k)
+				batch.DrawRect({x0 + k * (bw + g), baseY - h[k], bw, h[k]}, ink);
+		} else { // Skills: a six-point star (two overlaid triangles)
+			const float rad = r.w * 0.26f, dx = rad * 0.866f, dy = rad * 0.5f;
+			batch.DrawTriangle({cx, cy - rad}, {cx - dx, cy + dy}, {cx + dx, cy + dy}, ink);
+			batch.DrawTriangle({cx, cy + rad}, {cx - dx, cy - dy}, {cx + dx, cy - dy}, ink);
+		}
+	}
+}
+
+void CharacterSheet::DrawInventory(ui::UIContext& ctx, gfx::SpriteBatch& batch,
+								   const gfx::Rect& px, float sx, float sy) {
+	const ui::Theme& theme = ctx.GetTheme();
+	ui::Font& font = ctx.GetFont();
 
 	// --- equipment paper doll (left) ----------------------------------------
 	font.Draw(batch, m_equipmentLabel, px.x + kDollX * sx, px.y + kInvHeaderY * sy,
@@ -498,6 +560,64 @@ void CharacterSheet::Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 			}
 		}
 	}
+}
+
+void CharacterSheet::DrawStats(ui::UIContext& ctx, gfx::SpriteBatch& batch,
+							   const gfx::Rect& px, float sx, float sy) {
+	const ui::Theme& theme = ctx.GetTheme();
+	ui::Font& font = ctx.GetFont();
+
+	constexpr float kFirstRowY = 218.0f, kRowH = 40.0f;
+
+	// --- attributes (left column) -------------------------------------------
+	// Each attribute on its own row: name on the left, value right-aligned at a
+	// fixed column (so the numbers line up).
+	font.Draw(batch, m_attributesLabel, px.x + kDollX * sx, px.y + kInvHeaderY * sy,
+			  theme.accent);
+	constexpr float kLabelX = 56.0f, kValueRight = 300.0f;
+	for (size_t i = 0; i < m_attrLabels.size(); ++i) {
+		const float y = kFirstRowY + static_cast<float>(i) * kRowH;
+		font.Draw(batch, m_attrLabels[i], px.x + kLabelX * sx, px.y + y * sy, theme.textDim);
+		const float vw = font.MeasureWidth(m_attrValues[i]);
+		font.Draw(batch, m_attrValues[i], px.x + kValueRight * sx - vw, px.y + y * sy,
+				  theme.text);
+	}
+
+	// --- health / stamina / mana bars (right column, beside the attributes) -
+	const struct {
+		const std::string& label;
+		float value, max;
+		const Vec4& color;
+		const std::string& text;
+	} bars[] = {
+		{m_healthLabel, m_character->health, m_character->maxHealth,
+		 m_barColors->health, m_healthText},
+		{m_staminaLabel, m_character->stamina, m_character->maxStamina,
+		 m_barColors->stamina, m_staminaText},
+		{m_manaLabel, m_character->mana, m_character->maxMana, m_barColors->mana,
+		 m_manaText},
+	};
+	constexpr float kBarLabelX = 360.0f, kBarX = 470.0f, kBarW = 240.0f, kBarH = 22.0f;
+	for (size_t i = 0; i < std::size(bars); ++i) {
+		const auto& b = bars[i];
+		const float by = kFirstRowY + static_cast<float>(i) * kRowH;
+		const gfx::Rect bar{px.x + kBarX * sx, px.y + by * sy, kBarW * sx, kBarH * sy};
+		font.Draw(batch, b.label, px.x + kBarLabelX * sx,
+				  bar.y + (bar.h - font.Height()) * 0.5f, theme.textDim);
+		DrawStatBar(batch, bar, b.value / std::max(b.max, 1.0f), b.color, theme);
+		const float tw = font.MeasureWidth(b.text);
+		font.Draw(batch, b.text, bar.x + (bar.w - tw) * 0.5f,
+				  bar.y + (bar.h - font.Height()) * 0.5f, theme.text);
+	}
+}
+
+void CharacterSheet::DrawSkills(ui::UIContext& ctx, gfx::SpriteBatch& batch,
+								const gfx::Rect& px, float sx, float sy) {
+	const ui::Theme& theme = ctx.GetTheme();
+	ui::Font& font = ctx.GetFont();
+	font.Draw(batch, m_skillsLabel, px.x + kDollX * sx, px.y + kInvHeaderY * sy,
+			  theme.accent);
+	font.Draw(batch, m_noSkills, px.x + kDollX * sx, px.y + 230.0f * sy, theme.textDim);
 }
 
 } // namespace dungeon::game

@@ -156,13 +156,18 @@ private:
 	std::string m_title; // localized once at construction
 };
 
-// The character sheet, which doubles as the per-member INVENTORY: stats up top,
-// the worn-equipment paper doll on the left, and the (dynamic) backpack grid on
-// the right. Held-aware — a tablet carried on the cursor drops into an equipment
-// or backpack slot (swapping any occupant onto the cursor); empty-handed, a
-// click picks the slot's item up. icons resolves item art; held is Game's cursor
-// item (the overlay cursor is drawn by GameUI). The sheet is frozen-state, so it
-// edits its member live (mutable pointer).
+// The character sheet. A fixed header (portrait, name, the health/stamina/mana
+// bars) tops three switchable modes, toggled by the small icon buttons under
+// the portrait (the active mode's button draws "pressed"):
+//   * Inventory — the worn-equipment paper doll + the (dynamic) backpack grid.
+//     Held-aware: a tablet carried on the cursor drops into an equipment or
+//     backpack slot (swapping any occupant onto the cursor); empty-handed, a
+//     click picks the slot's item up.
+//   * Stats     — the member's attributes.
+//   * Skills    — placeholder until a skill system exists.
+// icons resolves item art; held is Game's cursor item (the overlay cursor is
+// drawn by GameUI). The sheet is frozen-state, so it edits its member live
+// (mutable pointer).
 class CharacterSheet : public ui::Widget {
 public:
 	CharacterSheet(const gfx::Rect& rect, const ui::Font* portraitFont,
@@ -175,11 +180,24 @@ public:
 	void Update(ui::UIContext& ctx) override;
 	void Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) override;
 
+	// Which body the sheet shows; the mode buttons under the portrait switch it.
+	enum class Mode { Inventory, Stats, Skills };
+
 private:
-	// Design-space rect of doll cell i (an index into the placed-cell table), and
-	// of backpack slot i. Scaled to the live panel by Draw/Update.
+	// Design-space rect of doll cell i (an index into the placed-cell table),
+	// backpack slot i, and mode-toggle button i (0..2). Scaled by Draw/Update.
 	gfx::Rect EquipRect(const gfx::Rect& px, float sx, float sy, int i) const;
 	gfx::Rect PackRect(const gfx::Rect& px, float sx, float sy, int i) const;
+	gfx::Rect ModeButtonRect(const gfx::Rect& px, float sx, float sy, int i) const;
+	// Mode bodies + the shared mode-button strip (active button drawn pressed).
+	void DrawModeButtons(ui::UIContext& ctx, gfx::SpriteBatch& batch,
+						 const gfx::Rect& px, float sx, float sy);
+	void DrawInventory(ui::UIContext& ctx, gfx::SpriteBatch& batch,
+					   const gfx::Rect& px, float sx, float sy);
+	void DrawStats(ui::UIContext& ctx, gfx::SpriteBatch& batch, const gfx::Rect& px,
+				   float sx, float sy);
+	void DrawSkills(ui::UIContext& ctx, gfx::SpriteBatch& batch, const gfx::Rect& px,
+					float sx, float sy);
 	// Applies a held-aware click to a slot: place / swap / pick up.
 	void ClickSlot(ItemSlot& slot);
 
@@ -188,11 +206,16 @@ private:
 	const ResourceBarColors* m_barColors;
 	const ItemIconBank* m_icons;
 	std::optional<std::string>* m_held;
+	Mode m_mode = Mode::Inventory;
+	int m_hotMode = -1; // mode button under the cursor (Update → Draw), -1 = none
 	std::string m_healthText, m_staminaText, m_manaText; // "42 / 42"
+	std::array<std::string, 5> m_attrValues;             // per-attribute numbers
 	// Static page text, localized once at construction (the sheet is rebuilt
 	// on a language change) so Draw stays allocation-free.
 	std::string m_healthLabel, m_staminaLabel, m_manaLabel;
 	std::string m_equipmentLabel, m_backpackLabel;
+	std::string m_attributesLabel, m_skillsLabel, m_noSkills;
+	std::array<std::string, 5> m_attrLabels;            // localized attribute names
 	std::array<std::string, kEquipCount> m_equipLabels; // localized slot names
 };
 
