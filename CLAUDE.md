@@ -306,7 +306,13 @@ rect comes from Game::MapPanel (mode-aware).
   SetMode flips an open map's mode in place; Open(mode) resets the view to
   fit-whole-map.
 
-MapView (Game lib) is the one renderer + one pick math behind both modes.
+MapView (Game lib) is the one renderer + one pick math behind both modes; the
+Editor-only brush palette + brush-apply logic live in a separate collaborator,
+MapEditor (NOT a subclass — that would fight the in-place Player⇄Editor mode
+flip). Game owns both and wires the view to the editor (MapView::SetEditor); the
+view draws the left-dock frame/collapse/header and hit-tests the grid, then
+drives MapEditor for the palette body (RenderBody/OnClick/OnWheel) and the brush
+(Paint→ApplyBrush). The shared map ink palette is MapColors.h.
 Cells render as filled blocks (walls = bright stone ink, floors recede),
 fixtures/entities as colored square markers (torch/brazier from the map;
 monster/item/button from DungeonEntities — repoint at live runtime state once
@@ -319,7 +325,7 @@ resolution-independent (pan = fraction of the grid area, zoom = unitless,
 fit-whole-map at zoom 1) and resolves against GridArea, so Update (window-
 pixel panel, matches mouse coords) and Render (device-pixel panel) agree;
 zoom is cursor-anchored. CellAt is the inverse pick. The left-dock palette is a
-catalog-driven collapsible accordion (MapView::PaletteCat + the kCategoryInfo
+catalog-driven collapsible accordion (MapEditor::PaletteCat + the kCategoryInfo
 table): Tools (Select/Erase), Structure (Wall/Floor), Walls/Floors/Ceilings
 (per-cell surface VARIANT paint via DungeonMap variant grids), and the entity
 categories Decorations/Fixtures/Monsters/Doors/Stairs/Items (live placement).
@@ -393,6 +399,14 @@ memory.
 - Commit per feature with detailed messages; push to origin/main. Long
   commit messages via a temp file + `git commit -F` (PowerShell mangles
   embedded quotes).
+- ONE branch PER WORKING DIRECTORY. A git branch only isolates committed
+  history, NOT the files on disk — the working tree is a single shared
+  checkout with one HEAD. So parallel sessions/branches must each use their
+  OWN directory: `git worktree add ../Dungeon-<branch> <branch>` (separate
+  folder, same repo) or a separate clone. Do NOT run two branches' work out
+  of `H:\Dungeon` at once — switching HEAD switches it for everyone and their
+  uncommitted edits intermingle (this bit us: rune work and a save-improvements
+  session collided in the same tree).
 - NEVER rewrite UTF-8 files via PowerShell Get-Content/Set-Content — it
   mojibakes em-dashes (happened twice). Use the Write/Edit tools.
 - User prefs: concise replies, no emojis; permission prompts disabled.

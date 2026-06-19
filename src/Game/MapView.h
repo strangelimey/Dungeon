@@ -15,12 +15,16 @@
 //                          docked right. Every dock collapses to a single
 //                          flip-arrow button (state persisted in GameSettings).
 //
-// Walls and floors render as filled cells, fixtures and entities as colored
-// markers, and the party as a facing triangle. Editing paints a clicked cell
-// wall/floor through DungeonWorld::EditCell, picked via CellAt.
+// MapView is the shared VIEWPORT — pan/zoom, the cell/marker/party render, fog,
+// and the right symbol key (both modes). The editor's brush palette and brush-
+// apply logic live in a separate collaborator, MapEditor (NOT a subclass — that
+// would fight the in-place Player<->Editor mode flip): set it once via
+// SetEditor and MapView drives it while in Editor mode. The left dock's frame,
+// collapse button and "Brushes" header are MapView's (they affect layout); its
+// body is filled by MapEditor::RenderBody.
 //
 // Coordinate note: the map is +X east / +Z south with row index growing
-// southward (DungeonMap.h), and screen Y grows downward too, so cell→screen is
+// southward (DungeonMap.h), and screen Y grows downward too, so cell->screen is
 // a direct mapping with north up — no flips.
 // ============================================================================
 #pragma once
@@ -33,12 +37,11 @@
 #include "UI/Font.h"
 #include "UI/UIContext.h" // ui::Theme
 
-#include <array>
-#include <functional>
 #include <string>
-#include <vector>
 
 namespace dungeon::game {
+
+class MapEditor; // the editor's brush palette + tools (Editor mode collaborator)
 
 class MapView {
 public:
@@ -49,34 +52,15 @@ public:
 	// console's `editor` command.
 	enum class Mode { Player, Editor };
 
-	// Left-dock palette categories (Editor mode), drawn as collapsible accordion
-	// sections. Tools is the built-in Select/Erase group; Structure toggles a
-	// cell solid/floor (DungeonWorld::EditCell); Walls/Floors/Ceilings pin a
-	// surface variant on the clicked floor cell (DungeonWorld::EditVariant); the
-	// rest place catalog entities (placement wiring lands in the next step). A
-	// selection is always armed — left paints/places, right-drag pans, wheel
-	// zooms. Keep Count last (it sizes the per-category open-state array).
-	enum class PaletteCat {
-		Tools, Structure, Walls, Floors, Ceilings,
-		Decorations, Fixtures, Monsters, Doors, Stairs, Items, Count
-	};
-
 	MapView(gfx::GraphicsDevice& device, DungeonWorld& world,
 			GameSettings& settings);
 
+	// Wires the Editor-mode collaborator (Game owns both; see file banner). Until
+	// set, Editor mode shows an empty left dock.
+	void SetEditor(MapEditor* editor) { m_editor = editor; }
+
 	bool IsOpen() const { return m_open; }
 	Mode CurrentMode() const { return m_mode; }
-
-	// Fired when a category's "+ New..." row is clicked (the owner opens the
-	// asset-creation dialog for that category).
-	std::function<void(PaletteCat)> onNewAsset;
-
-	// Category metadata (one source of truth, see kCategoryInfo): the display loc
-	// key, the project catalog it authors into ("" = not creatable), and whether
-	// that catalog is a texture set (folder import) vs a model.
-	static const char* CategoryNameKey(PaletteCat cat);
-	static const char* CategoryCatalogKey(PaletteCat cat);
-	static bool CategoryTextureSet(PaletteCat cat);
 
 	// Opens the overlay in `mode`, resetting the view to fit-the-whole-map so
 	// it is predictable each time rather than wherever it was last panned.
@@ -115,6 +99,16 @@ public:
 	void Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 				const gfx::Rect& panel);
 
+	// --- shared with MapEditor (the left dock lives partly in each class) ------
+	// The shared icon/label font (one atlas, sized to the panel each frame).
+	ui::Font& Font() { return m_font; }
+	// The left dock's scrollable body rectangle (below the collapse button +
+	// "Brushes" header), where MapEditor lays out and draws the accordion.
+	gfx::Rect PaletteBody(const gfx::Rect& panel) const;
+	// Inner padding for dock chrome, derived from the panel so Update (window
+	// pixels) and Render (device pixels) agree.
+	static float DockPad(const gfx::Rect& panel);
+
 private:
 	// Resolved view transform for a given panel: pixels-per-cell and the grid's
 	// top-left origin (in the panel's pixel space).
@@ -150,58 +144,14 @@ private:
 	bool LegendCollapsed() const; // the right key dock's collapse flag for the mode
 	void ToggleLegend();          // flips that flag and persists
 
-	// --- left-dock palette (Editor) -----------------------------------------
-	// The armed palette entry: a category plus an item index within it.
-	struct Selection {
-		PaletteCat cat = PaletteCat::Tools;
-		int index = 0;
-	};
-
-	// One resolved palette item, for display and dispatch. `id` is the catalog
-	// id (entity categories) or surface-palette id; empty for built-in tools.
-	struct PaletteItem {
-		std::string label;
-		Vec4 swatch{1, 1, 1, 1};
-		std::string id;
-	};
-	// The items of a category: built-in (Tools/Structure) or resolved from the
-	// project's catalogs / the level palette (Walls/Floors/Ceilings/entities).
-	std::vector<PaletteItem> CategoryItems(PaletteCat cat) const;
-
-	// Accordion layout, shared by Update (hit-test) and Render (draw): one row
-	// per category header, per visible item, and per empty-expanded placeholder.
-	// Rects are in panel pixel space with the scroll already applied.
-	struct PaletteRow {
-		enum class Kind { Header, NewButton, Item, Empty } kind;
-		PaletteCat cat;
-		int index; // item index for Kind::Item
-		gfx::Rect rect;
-	};
-	// Categories that can author new assets (everything but the built-in tools
-	// and structure brushes) get a "+ New..." row that opens the asset dialog.
-	static bool Creatable(PaletteCat cat) {
-		return cat != PaletteCat::Tools && cat != PaletteCat::Structure;
-	}
-	void BuildPaletteRows(const gfx::Rect& panel, std::vector<PaletteRow>& out,
-						  float& contentHeight) const;
-	// The dock body rectangle the rows scroll within (below the header label).
-	gfx::Rect PaletteBody(const gfx::Rect& panel) const;
-	// Applies the armed selection to cell (cx,cz): structural/variant paints,
-	// tool actions, or an entity-placement stub. `dragging` is true for held
-	// strokes (only the paint brushes act on a drag; clicks act once).
-	void ApplyBrush(int cx, int cz, bool dragging);
-
 	gfx::GraphicsDevice& m_device;
 	DungeonWorld& m_world;
 	GameSettings& m_settings; // owns the persisted dock-collapse flags
+	MapEditor* m_editor = nullptr; // Editor-mode brush palette + tools (not owned)
 	ui::Font m_font; // glyph icons + labels (own atlas, like the dev console)
 
 	bool m_open = false;
 	Mode m_mode = Mode::Player;
-	Selection m_sel;                  // armed palette entry (Editor mode)
-	// Per-category accordion expand state; Tools + Structure open by default.
-	std::array<bool, static_cast<size_t>(PaletteCat::Count)> m_catOpen{};
-	float m_paletteScroll = 0.0f;     // left-dock vertical scroll (pixels)
 
 	// View state. m_pan is a fraction of the panel size so it is independent of
 	// the pass's pixel resolution; m_zoom multiplies the fit-to-panel cell size.

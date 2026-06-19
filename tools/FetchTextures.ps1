@@ -81,6 +81,7 @@ $propSets = @(
     @{ Src = "rocks\carvedlimestoneground1"; Name = "skeleton" } # bone
     @{ Src = "fabric\burlap-stained1";      Name = "mummy" }    # bandages
     @{ Src = "organic\alien-slime1";        Name = "blob" }     # slime
+    @{ Src = "rocks\flaking-limestone1";    Name = "runestone" } # rune tablets (RuneBaker carves the glyph in)
     # Authored decoration meshes (import-model writes the .gltf, committed; the
     # PBR maps live in the same model folder and are gitignored, so re-pack them
     # here too). Their normals are OGL like the rest.

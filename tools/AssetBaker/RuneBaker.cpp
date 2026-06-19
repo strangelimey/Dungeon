@@ -26,11 +26,13 @@
 #include "GltfWriter.h"
 #include "Noise.h"
 
+#include <stb_image.h>
 #include <stb_image_write.h>
 
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <string>
 #include <vector>
 
 namespace dungeon::baker {
@@ -92,6 +94,73 @@ float GlyphCover(float gx, float gy, const RuneSpec& r) {
 	return std::clamp((kHalfWidth - best) / kAA, 0.0f, 1.0f);
 }
 
+// --- scanned worn-stone base -------------------------------------------------
+// The tablets are carved from a real worn-limestone scan (installed as the
+// `runestone` set — albedo + normal-with-height-in-alpha). The baker reads that
+// stone and cuts each element's glyph groove into it, so the runes look like
+// ancient pitted stone rather than clean procedural slabs.
+
+struct StoneMaps {
+	int w = 0, h = 0;
+	std::vector<float> albedo; // w*h*3, sRGB 0..1 (kept encoded — written straight)
+	std::vector<float> height; // w*h, 0..1
+	bool Valid() const { return w > 0 && h > 0 && !albedo.empty(); }
+
+	// Bilinear sample with wrap (the stone scan tiles; the tablet face crops it).
+	void SampleAt(float u, float v, Vec3& alb, float& hgt) const {
+		u -= std::floor(u);
+		v -= std::floor(v);
+		const float fx = u * w - 0.5f, fy = v * h - 0.5f;
+		const int x0 = static_cast<int>(std::floor(fx)), y0 = static_cast<int>(std::floor(fy));
+		const float tx = fx - x0, ty = fy - y0;
+		auto wrap = [](int a, int n) { return ((a % n) + n) % n; };
+		const int xs[2] = {wrap(x0, w), wrap(x0 + 1, w)};
+		const int ys[2] = {wrap(y0, h), wrap(y0 + 1, h)};
+		Vec3 a{0, 0, 0};
+		float hh = 0.0f;
+		const float wts[4] = {(1 - tx) * (1 - ty), tx * (1 - ty), (1 - tx) * ty, tx * ty};
+		const int cx[4] = {xs[0], xs[1], xs[0], xs[1]};
+		const int cy[4] = {ys[0], ys[0], ys[1], ys[1]};
+		for (int k = 0; k < 4; ++k) {
+			const size_t i = static_cast<size_t>(cy[k]) * w + cx[k];
+			a.x += albedo[i * 3 + 0] * wts[k];
+			a.y += albedo[i * 3 + 1] * wts[k];
+			a.z += albedo[i * 3 + 2] * wts[k];
+			hh += height[i] * wts[k];
+		}
+		alb = a;
+		hgt = hh;
+	}
+};
+
+StoneMaps LoadStoneMaps(const std::string& texturesDir) {
+	StoneMaps s;
+	int w = 0, h = 0, n = 0;
+	const std::string albPath = texturesDir + "\\runestone.png";
+	u8* alb = stbi_load(albPath.c_str(), &w, &h, &n, 4);
+	if (!alb) {
+		log::Warn("RuneBaker: no {} — falling back to procedural stone", albPath);
+		return s;
+	}
+	s.w = w;
+	s.h = h;
+	s.albedo.resize(static_cast<size_t>(w) * h * 3);
+	for (size_t i = 0; i < static_cast<size_t>(w) * h; ++i)
+		for (int k = 0; k < 3; ++k) s.albedo[i * 3 + k] = alb[i * 4 + k] / 255.0f;
+	stbi_image_free(alb);
+
+	// Height rides in the normal map's alpha (the importer packs it there).
+	int wn = 0, hn = 0, nn = 0;
+	u8* nrm = stbi_load((texturesDir + "\\runestone_n.png").c_str(), &wn, &hn, &nn, 4);
+	s.height.assign(static_cast<size_t>(w) * h, 0.6f);
+	if (nrm && wn == w && hn == h)
+		for (size_t i = 0; i < static_cast<size_t>(w) * h; ++i)
+			s.height[i] = nrm[i * 4 + 3] / 255.0f;
+	if (nrm) stbi_image_free(nrm);
+	log::Info("RuneBaker: carved from worn-stone scan {} ({}x{})", albPath, w, h);
+	return s;
+}
+
 // --- image plumbing ----------------------------------------------------------
 
 bool SaveRgba(const std::string& path, u32 size, const std::vector<u8>& rgba) {
@@ -107,36 +176,49 @@ u8 ToU8(float v) { return static_cast<u8>(std::clamp(v, 0.0f, 1.0f) * 255.0f + 0
 
 constexpr u32 kTexSize = 512;
 
-bool BakeRuneTextureSet(const std::string& texturesDir, const RuneSpec& r, u32 seed) {
+bool BakeRuneTextureSet(const std::string& texturesDir, const RuneSpec& r, u32 seed,
+						const StoneMaps& stone, float uo, float vo) {
 	const u32 n = kTexSize;
 	std::vector<float> height(static_cast<size_t>(n) * n);
-	std::vector<float> carve(static_cast<size_t>(n) * n); // glyph coverage, reused
+	std::vector<float> carve(static_cast<size_t>(n) * n);   // glyph coverage, reused
+	std::vector<Vec3> stoneAlb(static_cast<size_t>(n) * n); // worn-stone albedo
 	auto idx = [n](u32 x, u32 y) { return static_cast<size_t>(y) * n + x; };
 
-	// Height field: gently varied stone, with the glyph cut in as a groove.
+	// Height field + base colour, sampled from the worn-stone scan (a per-element
+	// crop offset so the four tablets aren't identical), with the glyph cut in as
+	// a recessed groove. Falls back to gentle procedural stone if the scan is
+	// missing.
 	for (u32 y = 0; y < n; ++y) {
 		for (u32 x = 0; x < n; ++x) {
 			const float u = (x + 0.5f) / n;
-			const float gy = 1.0f - (y + 0.5f) / n; // glyph space is y-up
-			const float stone = 0.62f + (Fbm(x * 0.04f, y * 0.04f, seed) - 0.5f) * 0.22f;
+			const float v = (y + 0.5f) / n;
+			const float gy = 1.0f - v; // glyph space is y-up
+			float sh;
+			Vec3 col;
+			if (stone.Valid()) {
+				stone.SampleAt(u + uo, v + vo, col, sh);
+			} else {
+				sh = 0.62f + (Fbm(x * 0.04f, y * 0.04f, seed) - 0.5f) * 0.22f;
+				col = {r.stone.x * (0.7f + 0.3f * sh), r.stone.y * (0.7f + 0.3f * sh),
+					   r.stone.z * (0.7f + 0.3f * sh)};
+			}
 			const float c = GlyphCover(u, gy, r);
 			carve[idx(x, y)] = c;
-			height[idx(x, y)] = std::clamp(stone * (1.0f - c) + 0.10f * c, 0.0f, 1.0f);
+			stoneAlb[idx(x, y)] = col;
+			height[idx(x, y)] = std::clamp(sh - c * 0.22f, 0.0f, 1.0f); // groove
 		}
 	}
 
-	// Albedo: stone shaded by height; the groove darkens and takes a faint
-	// elemental wash so the carve reads as "this element".
+	// Albedo: the worn stone, the groove darkened (it sits in shadow) and given a
+	// faint elemental wash so the carve reads as "this element".
 	std::vector<u8> alb(static_cast<size_t>(n) * n * 4);
 	for (u32 y = 0; y < n; ++y) {
 		for (u32 x = 0; x < n; ++x) {
-			const float h = height[idx(x, y)];
 			const float c = carve[idx(x, y)];
-			const float grain = (Hash(x, y, seed + 5u) - 0.5f) * 0.10f;
-			const float shade = 0.55f + 0.45f * h + grain;
-			Vec3 col = {r.stone.x * shade, r.stone.y * shade, r.stone.z * shade};
-			// Blend the accent into the recess (darkened — it sits in shadow).
-			const float wash = c * 0.7f;
+			Vec3 col = stoneAlb[idx(x, y)];
+			const float shade = 1.0f - 0.4f * c; // groove in shadow
+			col = {col.x * shade, col.y * shade, col.z * shade};
+			const float wash = c * 0.5f;
 			col.x = col.x * (1 - wash) + r.accent.x * 0.35f * wash;
 			col.y = col.y * (1 - wash) + r.accent.y * 0.35f * wash;
 			col.z = col.z * (1 - wash) + r.accent.z * 0.35f * wash;
@@ -245,8 +327,10 @@ void AddFace(assets::MeshData& m, const Vec3 c[4], const Vec3& nrm, const Vec2 u
 }
 
 assets::ModelData BuildRuneTablet() {
-	// A small standing slab resting on the floor (y 0..0.46).
-	constexpr float hx = 0.16f, y0 = 0.0f, y1 = 0.46f, hz = 0.04f;
+	// A small, flat ancient tablet — palm-sized and thin, standing so the carved
+	// face reads from first person (worn stone, not a chunky slab). ~16 cm wide,
+	// ~15 cm tall, ~2.6 cm thick.
+	constexpr float hx = 0.08f, y0 = 0.0f, y1 = 0.15f, hz = 0.013f;
 	// Broad faces map the whole texture (rune centred); thin edges pin to a
 	// stone-only corner so no partial glyph bleeds onto them.
 	const Vec2 full[4] = {{0, 1}, {1, 1}, {1, 0}, {0, 0}};
@@ -291,11 +375,17 @@ bool BakeRunes(const std::string& assetsDir) {
 	const std::string models = assetsDir + "\\models";
 	const std::string textures = assetsDir + "\\textures";
 	bool ok = WriteGltf(BuildRuneTablet(), models + "\\rune_tablet.gltf");
+	const StoneMaps stone = LoadStoneMaps(textures);
 	u32 seed = 2200u;
+	int e = 0;
+	// Per-element crop of the stone scan so the four tablets read as distinct
+	// pieces of the same ancient rock.
+	const float offsets[4][2] = {{0.0f, 0.0f}, {0.5f, 0.13f}, {0.21f, 0.57f}, {0.63f, 0.38f}};
 	for (const RuneSpec& r : kRunes) {
-		ok &= BakeRuneTextureSet(textures, r, seed);
+		ok &= BakeRuneTextureSet(textures, r, seed, stone, offsets[e][0], offsets[e][1]);
 		ok &= BakeRuneIcon(textures, r);
 		seed += 31u;
+		++e;
 	}
 	return ok;
 }

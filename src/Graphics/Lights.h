@@ -30,6 +30,10 @@ struct PointLight {
 	// Slot 0 is highest resolution; the game gives slots to the lights
 	// nearest the camera so shadow detail falls off with distance.
 	int shadowSlot = -1;
+	// When false this light is never considered for a shadow slot — a pure fill
+	// light (e.g. the glowing runes), so a clutter of them near the eye can't
+	// starve the torch/fires of the few shadow cubes.
+	bool castsShadow = true;
 	// How strongly this light's shadow applies (0 = unshadowed, 1 = full). The
 	// game ramps this 0->1 as the light comes within its shadow range so a
 	// shadow dissolves in instead of popping when the light wins a slot; the

@@ -166,13 +166,14 @@ public:
 
 	// --- save / load --------------------------------------------------------
 	// Gathers the world's dynamic state into `out`: party pose, torch palette,
-	// fog of war (whole), and per-monster grid overrides (only monsters that
-	// have moved from their .ent spawn — empty today, monsters don't roam yet).
-	// The character roster is the Game's half, filled separately.
+	// fog of war (whole), and the per-level entity diff/spawn list (monsters,
+	// items, buttons — see SnapshotActive). The character roster is the Game's
+	// half, filled separately.
 	void CaptureState(SaveData& out) const;
 	// Applies a loaded save onto a freshly-built level (call after
-	// ResetForNewGame): snaps the party, restores fog + palette, and moves any
-	// overridden entities by id. Out-of-range/unknown ids are ignored.
+	// ResetForNewGame): snaps the party, restores fog + palette, and stages each
+	// level's entity diff/spawn list into the per-level store (the active level's
+	// is applied by ApplyActiveSnapshot once Game has routed to it).
 	void ApplyState(const SaveData& in);
 
 	// --- map editor seam (driven by MapView) --------------------------------
@@ -224,6 +225,12 @@ public:
 	// --- dev console hooks ---------------------------------------------------
 	// "kind @ x,z" for each live monster.
 	std::vector<std::string> MonsterList() const;
+	// Toggles the activated state of the button in cell (x,z) (no-op if none),
+	// returning the new state via `out`. Exercises the button save path until the
+	// P5 mechanism wiring drives it from gameplay; the map overlay reflects it.
+	bool ToggleButtonAt(int x, int z, bool& out);
+	// "id @ x,z = on|off" for each live button (dev console `buttons`).
+	std::vector<std::string> ButtonList() const;
 	// Point lights submitted this frame (after UpdateLights).
 	size_t ActiveLightCount() const { return m_lights.points.size(); }
 	// Camera vertical FOV in degrees (clamped); UpdateCamera applies it.
@@ -341,6 +348,20 @@ private:
 		bool collected = false; // picked up — hidden + saved so it stays gone
 	};
 
+	// A wall-mounted button/lever (EntityKind::Button from the .ent layer). The
+	// runtime carries the one bit that can change in play — `activated` — plus its
+	// wiring (`target`, an id another entity reads) so the save layer can diff it
+	// by `id` like a monster. The interaction itself (what a target does) is the
+	// P5 door/mechanism work; this is the persistent state it will toggle. Buttons
+	// have no model of their own yet (the map overlay marks them).
+	struct Button {
+		int id = -1;                         // source Entity::id (.ent baseline)
+		int x = 0, z = 0;                    // the cell it mounts in
+		Direction facing = Direction::South; // the solid wall it faces
+		std::string target;                  // wired entity id (target= param)
+		bool activated = false;              // pressed / toggled on (saved)
+	};
+
 	// Static architecture decorations from the .map layer (column, archway,
 	// fountain, statue, barrel, ...). One shared model+mesh per type; instances
 	// are placed and oriented once at load and never move or animate, so they
@@ -419,6 +440,7 @@ private:
 	void BuildDungeonMeshes();
 	void LoadMonsters();
 	void LoadItems(); // instantiates EntityKind::Item records (runes) from .ent
+	void LoadButtons(); // instantiates EntityKind::Button records from .ent
 	// Lazily loads (and caches) the shared behaviour for an item type, resolved
 	// through the items catalog (category=rune → symbol + element glow colour).
 	ItemKind& ItemKindFor(const std::string& type);
@@ -580,6 +602,7 @@ private:
 
 	std::flat_map<std::string, std::unique_ptr<ItemKind>> m_itemKinds;
 	std::vector<Item> m_items;
+	std::vector<Button> m_buttons; // .ent buttons (state-only until P5 wiring)
 	// Shared carved-stone tablet, loaded once on the first rune kind; every rune
 	// draws this mesh with its own element texture set.
 	assets::ModelData m_runeModel;
@@ -638,6 +661,8 @@ private:
 	float m_fovDegrees = 70.0f;
 	bool m_shadowsEnabled = true;
 	bool m_dustEnabled = true;
+
+	float m_time = 0.0f; // latest frame time (Update), drives the rune glow pulse
 };
 
 } // namespace dungeon::game

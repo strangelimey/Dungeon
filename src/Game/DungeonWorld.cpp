@@ -193,6 +193,7 @@ void DungeonWorld::AppendLoadTasks(LoadQueue& queue) {
 	queue.Add(loc::Tr("load.monsters"), [this] {
 		LoadMonsters();
 		LoadItems();
+		LoadButtons();
 	});
 	queue.Add(loc::Tr("load.decorations"), [this] {
 		LoadDecorations();
@@ -372,14 +373,15 @@ void DungeonWorld::LoadMonsters() {
 	}
 }
 
-// Premultiplied-additive emissive colour per element (alpha 0 = pure additive,
-// like the flame billboards) — keeps the rune glowing through the dark.
+// Element glow colour per school, matching docs/magic system.md (Earth=brown,
+// Air=white, Fire=red, Water=blue). The whole rune tablet pulses in this colour
+// via an additive emissive term (see SubmitSceneGeometry).
 Vec4 DungeonWorld::RuneGlow(SpellSymbol s) {
 	switch (s) {
-	case SpellSymbol::Fire:  return {1.0f, 0.45f, 0.12f, 0.0f}; // ember orange
-	case SpellSymbol::Earth: return {0.45f, 0.85f, 0.30f, 0.0f}; // verdant green
-	case SpellSymbol::Air:   return {0.80f, 0.95f, 1.00f, 0.0f}; // pale sky
-	case SpellSymbol::Water: return {0.25f, 0.55f, 1.00f, 0.0f}; // deep blue
+	case SpellSymbol::Fire:  return {1.00f, 0.13f, 0.08f, 0.0f}; // red
+	case SpellSymbol::Earth: return {0.60f, 0.36f, 0.16f, 0.0f}; // brown
+	case SpellSymbol::Air:   return {1.00f, 1.00f, 1.00f, 0.0f}; // white
+	case SpellSymbol::Water: return {0.18f, 0.42f, 1.00f, 0.0f}; // blue
 	default:                 return {1.0f, 1.0f, 1.0f, 0.0f};
 	}
 }
@@ -421,6 +423,19 @@ void DungeonWorld::LoadItems() {
 		if (spawn.kind != EntityKind::Item) continue;
 		ItemKind& kind = ItemKindFor(spawn.type);
 		m_items.push_back({&kind, spawn.id, spawn.x, spawn.z, false});
+	}
+}
+
+void DungeonWorld::LoadButtons() {
+	for (const Entity& spawn : m_entities.All()) {
+		if (spawn.kind != EntityKind::Button) continue;
+		Button b;
+		b.id = spawn.id;
+		b.x = spawn.x;
+		b.z = spawn.z;
+		b.facing = spawn.facing;
+		if (const std::string* t = spawn.Param("target")) b.target = *t;
+		m_buttons.push_back(std::move(b));
 	}
 }
 
@@ -750,6 +765,7 @@ void DungeonWorld::ResetForNewGame() {
 	// (and any dropped tablets from a prior session are forgotten).
 	m_items.clear();
 	LoadItems();
+	for (Button& b : m_buttons) b.activated = false; // un-press for a fresh run
 	std::fill(m_seen.begin(), m_seen.end(), static_cast<u8>(0));
 	MarkSeen(m_party.GridX(), m_party.GridZ());
 	SetTorchPalette(0);
@@ -763,23 +779,67 @@ SaveData::LevelState DungeonWorld::SnapshotActive() const {
 		for (int x = 0; x < m_map.Width(); ++x)
 			if (m_seen[static_cast<size_t>(z) * m_map.Width() + x])
 				ls.seen.emplace_back(x, z);
-	// Two cases. A baseline (.ent) monster gets a DIFF row once it has moved off
-	// its spawn cell, announced itself, or taken damage (incl. being slain). An
-	// editor-placed monster (id < 0) has no baseline to diff against, so it is
-	// always stored WHOLE (type + spawn + facing) so a load can recreate it.
+	// Every dynamic entity round-trips through one generic EntityState, as either
+	// a DIFF (a .ent baseline that drifted from its spawn, keyed by id) or a SPAWN
+	// (a runtime entity with no baseline, stored whole). The two modes and the
+	// per-kind fields live in SaveData::EntityState.
+
+	// Monsters: a baseline gets a diff once it has moved off its spawn cell,
+	// announced itself, or taken damage (incl. being slain). An editor-placed
+	// monster (id < 0) has no baseline, so it is stored whole to recreate.
 	for (const Monster& m : m_monsters) {
-		if (m.id < 0)
-			ls.entities.push_back({m.id, m.x, m.z, m.announced, m.hp,
-								   m.kind ? m.kind->name : std::string(), m.spawnX,
-								   m.spawnZ, static_cast<int>(m.facing)});
-		else if (m.x != m.spawnX || m.z != m.spawnZ || m.announced ||
-				 m.hp != m.MaxHp())
-			ls.entities.push_back({m.id, m.x, m.z, m.announced, m.hp});
+		SaveData::EntityState e;
+		e.kind = EntityKind::Monster;
+		if (m.id < 0) {
+			e.id = -1;
+			e.type = m.kind ? m.kind->name : std::string();
+			e.x = m.x;
+			e.z = m.z;
+			e.facing = static_cast<int>(m.facing);
+			e.announced = m.announced;
+			e.hp = m.hp;
+			e.spawnX = m.spawnX;
+			e.spawnZ = m.spawnZ;
+			ls.entities.push_back(std::move(e));
+		} else if (m.x != m.spawnX || m.z != m.spawnZ || m.announced ||
+				   m.hp != m.MaxHp()) {
+			e.id = m.id;
+			e.x = m.x;
+			e.z = m.z;
+			e.announced = m.announced;
+			e.hp = m.hp;
+			ls.entities.push_back(std::move(e));
+		}
 	}
-	// Everything still on the floor (a full snapshot, not a diff): baseline runes
-	// not yet picked up plus any dropped tablets, by cell + catalog id.
-	for (const Item& item : m_items)
-		if (!item.collected) ls.floorItems.push_back({item.x, item.z, item.kind->id});
+	// Items: a baseline rune gets a one-bit diff once collected; a dropped tablet
+	// (id < 0) still on the floor is stored whole. A collected dropped tablet is
+	// simply gone — no record (it falls out of both branches).
+	for (const Item& item : m_items) {
+		SaveData::EntityState e;
+		e.kind = EntityKind::Item;
+		if (item.id >= 0) {
+			if (item.collected) {
+				e.id = item.id;
+				e.collected = true;
+				ls.entities.push_back(std::move(e));
+			}
+		} else if (!item.collected) {
+			e.id = -1;
+			e.type = item.kind->id;
+			e.x = item.x;
+			e.z = item.z;
+			ls.entities.push_back(std::move(e));
+		}
+	}
+	// Buttons: a baseline button gets a diff once it has been activated.
+	for (const Button& b : m_buttons)
+		if (b.activated) {
+			SaveData::EntityState e;
+			e.kind = EntityKind::Button;
+			e.id = b.id;
+			e.activated = true;
+			ls.entities.push_back(std::move(e));
+		}
 	return ls;
 }
 
@@ -796,46 +856,90 @@ void DungeonWorld::ApplyActiveSnapshot() {
 	for (const auto& [x, z] : ls.seen)
 		if (x >= 0 && z >= 0 && x < m_map.Width() && z < m_map.Height())
 			m_seen[static_cast<size_t>(z) * m_map.Width() + x] = 1;
-	// Editor-placed monsters have no .ent baseline, so the snapshot's whole
-	// "monster" rows are authoritative: drop any live ones (e.g. placed earlier
-	// this session) and recreate them below — this also covers the case where
-	// LoadMonsters rebuilt only the baseline on a level (re)load.
+	// Editor-placed monsters and dropped tablets have no .ent baseline, so the
+	// snapshot's whole SPAWN rows are authoritative: drop any live ones (e.g.
+	// placed/dropped earlier this session, or the .ent baseline LoadItems rebuilt)
+	// and recreate them from the save below. Baseline diffs apply onto the kept
+	// baseline instances by id.
 	std::erase_if(m_monsters, [](const Monster& m) { return m.id < 0; });
+	std::erase_if(m_items, [](const Item& i) { return i.id < 0; });
+	// v6 migration: that save stored a whole floor snapshot (no per-item diff).
+	// Mark every baseline rune collected up front; the Item rows below revive the
+	// ones actually on the floor — matched by cell + type, so an untouched baseline
+	// keeps its .ent id (and won't re-serialize as a drop that later duplicates
+	// it). A rune absent from the snapshot (picked up in the v6 save) stays gone.
+	if (ls.fullFloorSnapshot)
+		for (Item& item : m_items)
+			if (item.id >= 0) item.collected = true;
 
 	for (const SaveData::EntityState& e : ls.entities) {
-		if (!e.type.empty()) {
-			// Whole editor-placed monster — recreate at its spawn, then snap to
-			// the saved live cell/state.
-			if (!m_project.monsters.Contains(e.type)) continue;
-			MonsterKind& kind = MonsterKindFor(e.type);
-			Monster m = MakeMonster(kind, -1, e.spawnX, e.spawnZ,
-									static_cast<Direction>(e.facing));
-			m.x = e.x;
-			m.z = e.z;
-			m.announced = e.announced;
-			if (e.hp >= 0.0f) m.hp = e.hp; // -1 = older save → keep spawn hp
-			m.visualPos = m_map.CellCenter(m.x, m.z);
-			m_monsters.push_back(std::move(m));
-			continue;
-		}
-		for (Monster& m : m_monsters)
-			if (m.id == e.id) {
+		switch (e.kind) {
+		case EntityKind::Monster:
+			if (e.id < 0) {
+				// Whole editor-placed monster — recreate at its spawn, then snap to
+				// the saved live cell/state.
+				if (!m_project.monsters.Contains(e.type)) break;
+				MonsterKind& kind = MonsterKindFor(e.type);
+				Monster m = MakeMonster(kind, -1, e.spawnX, e.spawnZ,
+										static_cast<Direction>(e.facing));
 				m.x = e.x;
 				m.z = e.z;
 				m.announced = e.announced;
 				if (e.hp >= 0.0f) m.hp = e.hp; // -1 = older save → keep spawn hp
-				m.moving = false; // snap to the saved cell, no glide from origin
-				m.moveT = 0.0f;
 				m.visualPos = m_map.CellCenter(m.x, m.z);
-				break;
+				m_monsters.push_back(std::move(m));
+			} else {
+				for (Monster& m : m_monsters)
+					if (m.id == e.id) {
+						m.x = e.x;
+						m.z = e.z;
+						m.announced = e.announced;
+						if (e.hp >= 0.0f) m.hp = e.hp; // -1 = older save → keep spawn hp
+						m.moving = false; // snap to the saved cell, no glide from origin
+						m.moveT = 0.0f;
+						m.visualPos = m_map.CellCenter(m.x, m.z);
+						break;
+					}
 			}
-	}
-	// Floor items are a full snapshot: drop the .ent baseline LoadItems rebuilt
-	// and lay down exactly what the save recorded (dropped tablets included).
-	m_items.clear();
-	for (const SaveData::FloorItem& fi : ls.floorItems) {
-		ItemKind& kind = ItemKindFor(fi.typeId);
-		m_items.push_back({&kind, m_nextDropId--, fi.x, fi.z, false});
+			break;
+		case EntityKind::Item:
+			if (ls.fullFloorSnapshot) {
+				// v6 floor row: revive the collected baseline rune of this type at
+				// this cell (keeping its id), else lay a non-baseline tablet down.
+				bool revived = false;
+				for (Item& item : m_items)
+					if (item.id >= 0 && item.collected && item.x == e.x &&
+						item.z == e.z && item.kind && item.kind->id == e.type) {
+						item.collected = false;
+						revived = true;
+						break;
+					}
+				if (!revived) {
+					ItemKind& kind = ItemKindFor(e.type);
+					m_items.push_back({&kind, m_nextDropId--, e.x, e.z, false});
+				}
+			} else if (e.id < 0) {
+				// Dropped tablet — lay it on the floor with a fresh runtime id.
+				ItemKind& kind = ItemKindFor(e.type);
+				m_items.push_back({&kind, m_nextDropId--, e.x, e.z, false});
+			} else {
+				// Baseline rune collected — mark the kept instance lifted.
+				for (Item& item : m_items)
+					if (item.id == e.id) {
+						item.collected = e.collected;
+						break;
+					}
+			}
+			break;
+		case EntityKind::Button:
+			for (Button& b : m_buttons)
+				if (b.id == e.id) {
+					b.activated = e.activated;
+					break;
+				}
+			break;
+		default: break; // decorations are static — never in a save
+		}
 	}
 	m_levelStates.erase(it); // the live state is authoritative now
 }
@@ -845,6 +949,9 @@ void DungeonWorld::CaptureState(SaveData& out) const {
 	out.partyX = m_party.GridX();
 	out.partyZ = m_party.GridZ();
 	out.partyFacing = m_party.Facing();
+	out.lookYaw = m_party.LookYaw();
+	out.lookPitch = m_party.LookPitch();
+	out.looking = m_party.IsLooking();
 	out.torchPalette = m_torchPalette;
 
 	// Every inactive visited level, plus the live one.
@@ -856,6 +963,8 @@ void DungeonWorld::CaptureState(SaveData& out) const {
 void DungeonWorld::ApplyState(const SaveData& in) {
 	m_party.SetGridPosition(in.partyX, in.partyZ); // keeps facing, clears interp
 	m_party.SetFacing(in.partyFacing);
+	// Re-layer the free-look offset on the restored facing (SetFacing cleared it).
+	m_party.SetLookState(in.lookYaw, in.lookPitch, in.looking);
 	SetTorchPalette(in.torchPalette);
 
 	// Load every level's saved state into the per-level store. The active level's
@@ -994,6 +1103,7 @@ void DungeonWorld::BeginLevelLoad(const std::string& stem, bool stashCurrent) {
 	m_seen.assign(static_cast<size_t>(m_map.Width()) * m_map.Height(), 0);
 	m_monsters.clear();
 	m_items.clear();
+	m_buttons.clear();
 	m_decorations.clear();
 	m_fires.clear();
 	m_pendingTransition.reset();
@@ -1189,6 +1299,7 @@ void DungeonWorld::SetTorchPalette(int index) {
 }
 
 void DungeonWorld::Update(const Input& input, float dt, float time, bool acceptInput) {
+	m_time = time; // drives the rune emissive pulse in SubmitSceneGeometry
 	if (acceptInput) m_party.HandleInput(input);
 	m_party.Update(dt);
 	if (m_pillarActive) m_pillarAnimator.Update(dt);
@@ -1204,17 +1315,8 @@ void DungeonWorld::Update(const Input& input, float dt, float time, bool acceptI
 		fire.effect.Update(dt);
 		fire.effect.AppendParticles(m_particleScratch);
 	}
-	// A soft element glow hovers just above each uncollected rune tablet (the
-	// tablet mesh itself draws in SubmitSceneGeometry) — marks it in the dark.
-	for (const Item& item : m_items) {
-		if (item.collected) continue;
-		const Vec3 c = m_map.CellCenter(item.x, item.z);
-		const float bob = 0.58f + 0.06f * std::sin(time * 2.2f + static_cast<float>(item.id));
-		const float pulse = 0.70f + 0.30f * std::sin(time * 4.0f + static_cast<float>(item.id));
-		Vec4 col = item.kind->glow;
-		col.x *= pulse; col.y *= pulse; col.z *= pulse;
-		m_particleScratch.push_back({{c.x, bob, c.z}, 0.12f, col});
-	}
+	// (Rune tablets glow as a whole via an additive emissive that pulses in their
+	// element colour — applied to the mesh in SubmitSceneGeometry, not a billboard.)
 	const Vec3 eye = m_party.EyePosition();
 	const Vec3 fwd = m_camera.Forward();
 	std::ranges::sort(m_particleScratch, std::greater{},
@@ -1236,13 +1338,40 @@ std::vector<std::string> DungeonWorld::MonsterList() const {
 	return out;
 }
 
+bool DungeonWorld::ToggleButtonAt(int x, int z, bool& out) {
+	for (Button& b : m_buttons)
+		if (b.x == x && b.z == z) {
+			b.activated = !b.activated;
+			out = b.activated;
+			return true;
+		}
+	return false;
+}
+
+std::vector<std::string> DungeonWorld::ButtonList() const {
+	std::vector<std::string> out;
+	out.reserve(m_buttons.size());
+	for (const Button& b : m_buttons)
+		out.push_back(std::format("{} @ {},{} = {}", b.id, b.x, b.z,
+								  b.activated ? "on" : "off"));
+	return out;
+}
+
 void DungeonWorld::UpdateCamera() {
 	m_camera.SetPosition(m_party.EyePosition());
-	m_camera.SetYawPitch(m_party.Yaw(), 0.0f);
+	m_camera.SetYawPitch(m_party.EyeYaw(), m_party.EyePitch());
 	m_camera.SetLens(m_fovDegrees * kPi / 180.0f,
 					 static_cast<float>(m_device.Width()) /
 						 static_cast<float>(m_device.Height()),
 					 0.05f, 100.0f);
+}
+
+// A rune's "breath": one multiplier (~0.2 dim .. ~1.9 bright, phase-offset per
+// item) shared by BOTH its emissive self-glow (SubmitSceneGeometry) and the
+// light it casts (UpdateLights), so the tablet and the light it throws pulse in
+// exact lockstep. Both callers pass the same frame time and the item id.
+static float RunePulse(float time, int id) {
+	return 1.05f + 0.85f * std::sin(time * 3.0f + static_cast<float>(id));
 }
 
 // Rebuilds the light list every frame: the carried torch follows the camera,
@@ -1303,6 +1432,23 @@ void DungeonWorld::UpdateLights(float time) {
 		// a fixture of the scene, not a fire popping in, and its short range
 		// would otherwise fade the shadow out at any normal viewing distance.
 		glow.fadeShadow = false;
+		m_lights.points.push_back(glow);
+	}
+
+	// Each uncollected rune throws a soft pulsing light in its element colour,
+	// breathing in lockstep with the tablet's emissive glow (same RunePulse).
+	// Pure fill light — castsShadow=false keeps the cluster near the start from
+	// stealing the few shadow cubes from the torch/fires.
+	for (const Item& item : m_items) {
+		if (item.collected || !item.kind->isRune) continue;
+		const Vec3 c = m_map.CellCenter(item.x, item.z);
+		gfx::PointLight glow;
+		glow.position = {c.x, 0.4f, c.z};
+		glow.radius = 4.8f;
+		const Vec4& g = item.kind->glow;
+		glow.color = {g.x, g.y, g.z};
+		glow.intensity = 2.3f * RunePulse(time, item.id);
+		glow.castsShadow = false;
 		m_lights.points.push_back(glow);
 	}
 
@@ -1370,6 +1516,7 @@ void DungeonWorld::AssignShadowSlots() {
 	const size_t lightCount =
 		std::min<size_t>(m_lights.points.size(), gfx::kMaxPointLights);
 	for (size_t i = 0; i < lightCount; ++i) {
+		if (!m_lights.points[i].castsShadow) continue; // pure fill light (runes)
 		const Vec3 d = Sub(m_lights.points[i].position, eye);
 		float dist = std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z);
 		for (const Vec3& prev : m_prevShadowPos) {
@@ -1820,8 +1967,10 @@ void DungeonWorld::SubmitSceneGeometry(ID3D12GraphicsCommandList* list,
 	}
 
 	// Rune items: the shared carved-stone tablet, drawn per element with its PBR
-	// set (parallax cuts the glyph in); a soft element glow above marks it (added
-	// to the particle batch in Update). Flat stone fallback if the set is missing.
+	// set (parallax cuts the glyph in). The tablet reads as worn stone; the
+	// element glow is an AURA — a faint emissive the shader concentrates at the
+	// silhouette (Fresnel) plus the pulsing point light it casts (UpdateLights),
+	// rather than a strong internal glow. Both pulse on the same RunePulse.
 	if (m_runeMesh) {
 		for (const Item& item : m_items) {
 			if (item.collected || !item.kind->isRune) continue;
@@ -1834,6 +1983,14 @@ void DungeonWorld::SubmitSceneGeometry(ID3D12GraphicsCommandList* list,
 			material.doubleSided = false; // authored slab: back-cull
 			ApplyPropMaterial(material, item.kind->tex,
 							  m_runeModel.materials[0].baseColorFactor, 0.85f);
+			// Emissive scaled well below the old internal glow — the shader's
+			// Fresnel turns it into a rim aura, and the cast light (UpdateLights,
+			// same RunePulse) does the surrounding glow, so they breathe together.
+			const float pulse = RunePulse(m_time, item.id);
+			constexpr float kAura = 0.9f; // soft aura, not a glowing panel
+			const Vec4& g = item.kind->glow;
+			material.emissive = {g.x * pulse * kAura, g.y * pulse * kAura,
+								 g.z * pulse * kAura};
 			m_renderer.DrawMesh(list, *m_runeMesh, world, material);
 		}
 	}

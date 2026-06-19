@@ -61,6 +61,7 @@ struct MaterialParams {
 	const Texture* normalMap = nullptr;
 	const Texture* metalRough = nullptr;
 	Vec4 baseColor{1, 1, 1, 1};
+	Vec3 emissive{0, 0, 0}; // additive self-lit glow (runes pulse; 0 = no glow)
 	float heightScale = 0.0f;
 	float metallic = 0.0f;
 	float roughness = 0.9f;

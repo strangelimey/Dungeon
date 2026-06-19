@@ -1,18 +1,23 @@
 // ============================================================================
 // Game/MapView.cpp — see MapView.h.
 //
-// Two modes share one renderer and one pick math:
+// The shared map VIEWPORT behind both modes:
 //   Player (M key)        — fog of war: only DungeonWorld::IsSeen cells and
 //                           their contents draw. The eventual map-fragment /
 //                           reveal-spell items just feed the same fog set
 //                           (MarkSeen), so they need nothing here.
 //   Editor (`editor` cmd) — the whole map and every creature/item draw,
-//                           ignoring fog, plus the tool palette and painting.
+//                           ignoring fog, plus the left-dock brush palette.
+// One renderer + one pick math drive both. The editor's palette + brush logic
+// live in MapEditor (set via SetEditor); MapView draws the left dock chrome and
+// hit-tests the grid, then drives the editor for the body + the brush apply.
 // ============================================================================
 #include "Game/MapView.h"
 
 #include "Core/Loc.h"
 #include "Game/Entity.h"
+#include "Game/MapColors.h"
+#include "Game/MapEditor.h"
 #include "UI/Controls.h" // ui::DrawBorder
 
 #include <algorithm>
@@ -24,23 +29,6 @@ namespace dungeon::game {
 
 namespace {
 constexpr float kPi = 3.14159265f;
-
-// Map palette (stylized, not the UI theme — these are the dungeon's own ink).
-const Vec4 kMapBg{0.04f, 0.04f, 0.06f, 1.0f}; // panel fill (opaque: full-screen editor covers all)
-const Vec4 kWall{0.46f, 0.42f, 0.36f, 1.0f};   // solid structure (the bright ink)
-const Vec4 kFloor{0.13f, 0.13f, 0.16f, 1.0f};  // walkable (recedes)
-const Vec4 kTorch{1.0f, 0.62f, 0.28f, 1.0f};
-const Vec4 kBrazier{1.0f, 0.45f, 0.16f, 1.0f};
-const Vec4 kMonster{0.85f, 0.22f, 0.22f, 1.0f};
-const Vec4 kItem{0.42f, 0.85f, 0.42f, 1.0f};
-const Vec4 kButton{0.42f, 0.62f, 0.95f, 1.0f};
-const Vec4 kDecoration{0.74f, 0.54f, 0.92f, 1.0f}; // static props (columns, fountains, ...)
-const Vec4 kCeiling{0.30f, 0.30f, 0.34f, 1.0f};    // ceiling palette swatch
-const Vec4 kDoor{0.78f, 0.60f, 0.35f, 1.0f};       // door category
-const Vec4 kStair{0.60f, 0.72f, 0.78f, 1.0f};      // stair category
-const Vec4 kToolSelect{0.45f, 0.70f, 0.95f, 1.0f}; // Select tool
-const Vec4 kToolErase{0.90f, 0.40f, 0.40f, 1.0f};  // Erase tool
-const Vec4 kMarkerInk{0.96f, 0.96f, 0.98f, 1.0f};  // initials drawn over markers
 
 // Tints a base cell color by a surface variant index so painted texture types
 // read distinctly on the map. variant < 1 (unpainted, or the base palette slot)
@@ -59,8 +47,8 @@ Vec4 VariantTint(const Vec4& base, int variant) {
 constexpr float kFontH = 18.0f;
 
 // Editor dock metrics, all derived from the panel so Update (window pixels)
-// and Render (device pixels) agree.
-float DockPad(const gfx::Rect& p) { return std::clamp(p.h * 0.010f, 3.0f, 9.0f); }
+// and Render (device pixels) agree. (DockPad is a public MapView static so
+// MapEditor can lay out the palette body with the same padding.)
 float DockBtnH(const gfx::Rect& p) { return std::clamp(p.h * 0.06f, 28.0f, 56.0f); }
 float CollapsedDockW(const gfx::Rect& p) { return std::clamp(p.w * 0.032f, 34.0f, 60.0f); }
 float ExpandedLeftW(const gfx::Rect& p) { return std::clamp(p.w * 0.16f, 120.0f, 260.0f); }
@@ -68,20 +56,17 @@ float ExpandedRightW(const gfx::Rect& p) { return std::clamp(p.w * 0.18f, 150.0f
 
 // Y of the first item below a dock's collapse button + header line.
 float DockBodyTop(const gfx::Rect& dock, const gfx::Rect& panel) {
-	const float pad = DockPad(panel), h = DockBtnH(panel);
+	const float pad = MapView::DockPad(panel), h = DockBtnH(panel);
 	return dock.y + pad + h + pad + h * 0.7f + pad;
 }
 } // namespace
 
+float MapView::DockPad(const gfx::Rect& p) { return std::clamp(p.h * 0.010f, 3.0f, 9.0f); }
+
 MapView::MapView(gfx::GraphicsDevice& device, DungeonWorld& world,
 				 GameSettings& settings)
 	: m_device(device), m_world(world), m_settings(settings),
-	  m_font(device, "", kFontH) {
-	// Open the most-used categories by default; the rest start collapsed.
-	m_catOpen[static_cast<size_t>(PaletteCat::Tools)] = true;
-	m_catOpen[static_cast<size_t>(PaletteCat::Structure)] = true;
-	m_catOpen[static_cast<size_t>(PaletteCat::Walls)] = true;
-}
+	  m_font(device, "", kFontH) {}
 
 MapView::Transform MapView::ComputeTransform(const gfx::Rect& panel) const {
 	const gfx::Rect g = GridArea(panel); // panel minus the dock in Editor mode
@@ -94,81 +79,6 @@ MapView::Transform MapView::ComputeTransform(const gfx::Rect& panel) const {
 	const float ox = g.x + (g.w - gridW) * 0.5f + m_pan.x * g.w;
 	const float oy = g.y + (g.h - gridH) * 0.5f + m_pan.y * g.h;
 	return {cell, ox, oy};
-}
-
-namespace {
-// One source of truth for each palette category: its display loc key, the
-// project catalog it authors into ("" = not creatable), and whether that catalog
-// is a texture set (folder import) vs a model. Indexed by PaletteCat, in enum
-// order (the static_assert guards drift).
-struct CatInfo {
-	const char* nameKey;
-	const char* catalogKey;
-	bool textureSet;
-};
-constexpr CatInfo kCategoryInfo[] = {
-	{"map.cat.tools", "", false},          {"map.cat.structure", "", false},
-	{"map.cat.walls", "walls", true},      {"map.cat.floors", "floors", true},
-	{"map.cat.ceilings", "ceilings", true}, {"map.cat.decorations", "decorations", false},
-	{"map.cat.fixtures", "fixtures", false}, {"map.cat.monsters", "monsters", false},
-	{"map.cat.doors", "doors", false},     {"map.cat.stairs", "stairs", false},
-	{"map.cat.items", "items", false},
-};
-static_assert(sizeof(kCategoryInfo) / sizeof(kCategoryInfo[0]) ==
-				  static_cast<size_t>(MapView::PaletteCat::Count),
-			  "kCategoryInfo must have one row per PaletteCat");
-const CatInfo& CatInfoFor(MapView::PaletteCat cat) {
-	return kCategoryInfo[static_cast<size_t>(cat)];
-}
-} // namespace
-
-const char* MapView::CategoryNameKey(PaletteCat cat) { return CatInfoFor(cat).nameKey; }
-const char* MapView::CategoryCatalogKey(PaletteCat cat) { return CatInfoFor(cat).catalogKey; }
-bool MapView::CategoryTextureSet(PaletteCat cat) { return CatInfoFor(cat).textureSet; }
-
-// Resolves a category's items: built-in tools/structure, the level's surface
-// palette (Walls/Floors/Ceilings, display names from the project's surface
-// catalogs), or the project's entity catalogs.
-std::vector<MapView::PaletteItem> MapView::CategoryItems(PaletteCat cat) const {
-	const DungeonMap& map = m_world.Map();
-	const Project& proj = m_world.GetProject();
-
-	// A surface palette (list of catalog ids) resolved to display name + swatch.
-	auto surfaceItems = [&](const std::vector<std::string>& palette,
-							const Catalog& catalog, const Vec4& swatch) {
-		std::vector<PaletteItem> items;
-		for (const std::string& id : palette) {
-			const CatalogEntry* e = catalog.Find(id);
-			items.push_back({e ? e->Display() : id, swatch, id});
-		}
-		return items;
-	};
-	// An entity catalog resolved to display name + swatch + id.
-	auto catalogItems = [&](const Catalog& catalog, const Vec4& swatch) {
-		std::vector<PaletteItem> items;
-		for (const CatalogEntry& e : catalog.Entries())
-			items.push_back({e.Display(), swatch, e.id});
-		return items;
-	};
-
-	switch (cat) {
-	case PaletteCat::Tools:
-		return {{loc::Tr("map.tool.select"), kToolSelect},
-				{loc::Tr("map.tool.erase"), kToolErase}};
-	case PaletteCat::Structure:
-		return {{loc::Tr("map.brush.wall"), kWall},
-				{loc::Tr("map.brush.floor"), kFloor}};
-	case PaletteCat::Walls:    return surfaceItems(map.WallPalette(), proj.walls, kWall);
-	case PaletteCat::Floors:   return surfaceItems(map.FloorPalette(), proj.floors, kFloor);
-	case PaletteCat::Ceilings: return surfaceItems(map.CeilingPalette(), proj.ceilings, kCeiling);
-	case PaletteCat::Decorations: return catalogItems(proj.decorations, kDecoration);
-	case PaletteCat::Fixtures:    return catalogItems(proj.fixtures, kTorch);
-	case PaletteCat::Monsters:    return catalogItems(proj.monsters, kMonster);
-	case PaletteCat::Doors:       return catalogItems(proj.doors, kDoor);
-	case PaletteCat::Stairs:      return catalogItems(proj.stairs, kStair);
-	case PaletteCat::Items:       return catalogItems(proj.items, kItem);
-	default:                      return {};
-	}
 }
 
 gfx::Rect MapView::GridArea(const gfx::Rect& panel) const {
@@ -222,115 +132,6 @@ gfx::Rect MapView::PaletteBody(const gfx::Rect& panel) const {
 	return {d.x + pad, top, d.w - 2 * pad, d.y + d.h - top - pad};
 }
 
-void MapView::BuildPaletteRows(const gfx::Rect& panel, std::vector<PaletteRow>& out,
-							   float& contentHeight) const {
-	out.clear();
-	const gfx::Rect body = PaletteBody(panel);
-	const float pad = DockPad(panel);
-	const float headerH = std::clamp(panel.h * 0.045f, 22.0f, 42.0f);
-	const float itemH = std::clamp(panel.h * 0.040f, 20.0f, 36.0f);
-
-	float y = body.y - m_paletteScroll;
-	for (int c = 0; c < static_cast<int>(PaletteCat::Count); ++c) {
-		const PaletteCat cat = static_cast<PaletteCat>(c);
-		out.push_back({PaletteRow::Kind::Header, cat, -1, {body.x, y, body.w, headerH}});
-		y += headerH;
-		if (m_catOpen[c]) {
-			if (Creatable(cat)) {
-				out.push_back({PaletteRow::Kind::NewButton, cat, -1,
-							   {body.x, y, body.w, itemH}});
-				y += itemH;
-			}
-			const std::vector<PaletteItem> items = CategoryItems(cat);
-			if (items.empty()) {
-				out.push_back({PaletteRow::Kind::Empty, cat, -1, {body.x, y, body.w, itemH}});
-				y += itemH;
-			} else {
-				for (int i = 0; i < static_cast<int>(items.size()); ++i) {
-					out.push_back({PaletteRow::Kind::Item, cat, i,
-								   {body.x, y, body.w, itemH}});
-					y += itemH;
-				}
-			}
-		}
-		y += pad; // gap between categories
-	}
-	contentHeight = (y + m_paletteScroll) - body.y;
-}
-
-void MapView::ApplyBrush(int cx, int cz, bool dragging) {
-	using SS = DungeonWorld::SurfaceSel;
-	const DungeonMap& map = m_world.Map();
-	auto log = [&](const std::string& s) {
-		if (m_world.onMessage) m_world.onMessage(s);
-	};
-
-	switch (m_sel.cat) {
-	case PaletteCat::Structure: {
-		const Cell target = m_sel.index == 0 ? Cell::Wall : Cell::Floor;
-		const Party& party = m_world.GetParty();
-		const bool wouldTrapParty = target == Cell::Wall && cx == party.GridX() &&
-									cz == party.GridZ();
-		if (!wouldTrapParty) m_world.EditCell(cx, cz, target);
-		break;
-	}
-	case PaletteCat::Walls:    m_world.EditVariant(cx, cz, SS::Wall, m_sel.index); break;
-	case PaletteCat::Floors:   m_world.EditVariant(cx, cz, SS::Floor, m_sel.index); break;
-	case PaletteCat::Ceilings: m_world.EditVariant(cx, cz, SS::Ceiling, m_sel.index); break;
-	case PaletteCat::Tools: {
-		if (dragging) break; // tools act on a single click, not a stroke
-		if (m_sel.index == 0) { // Select: report the cell's contents
-			const char* base = map.At(cx, cz) == Cell::Wall ? "wall" : "floor";
-			int props = 0;
-			for (const auto& m : m_world.DecorationMarkers())
-				if (m.x == cx && m.z == cz) ++props;
-			int mons = 0;
-			for (const auto& m : m_world.MonsterMarkers())
-				if (m.x == cx && m.z == cz) ++mons;
-			std::string details = base;
-			if (mons) details += std::format(", {} monster{}", mons, mons == 1 ? "" : "s");
-			if (props) details += std::format(", {} prop{}", props, props == 1 ? "" : "s");
-			log(loc::Format("map.select.contents", cx, cz, details));
-		} else { // Erase: remove a runtime entity, else reset surface overrides
-			if (m_world.RemoveEntityAt(cx, cz)) {
-				log(loc::Tr("map.erase.removed"));
-			} else {
-				m_world.EditVariant(cx, cz, SS::Wall, -1);
-				m_world.EditVariant(cx, cz, SS::Floor, -1);
-				m_world.EditVariant(cx, cz, SS::Ceiling, -1);
-				log(loc::Format("map.erase.reset", cx, cz));
-			}
-		}
-		break;
-	}
-	case PaletteCat::Decorations:
-	case PaletteCat::Monsters:
-	case PaletteCat::Fixtures: {
-		if (dragging) break; // placement is a single click
-		const std::vector<PaletteItem> items = CategoryItems(m_sel.cat);
-		if (m_sel.index < 0 || m_sel.index >= static_cast<int>(items.size())) break;
-		const std::string& id = items[m_sel.index].id;
-		bool ok = false;
-		if (m_sel.cat == PaletteCat::Monsters)
-			ok = m_world.AddMonster(id, cx, cz, Direction::South);
-		else if (m_sel.cat == PaletteCat::Fixtures)
-			ok = m_world.AddFixture(id, cx, cz);
-		else
-			ok = m_world.AddDecoration(id, cx, cz, Direction::South);
-		log(loc::Format(ok ? "map.place.done" : "map.place.blocked",
-						items[m_sel.index].label));
-		break;
-	}
-	default: { // Fixtures/Doors/Stairs/Items — placement wiring lands later
-		if (dragging) break;
-		const std::vector<PaletteItem> items = CategoryItems(m_sel.cat);
-		if (m_sel.index >= 0 && m_sel.index < static_cast<int>(items.size()))
-			log(loc::Format("map.place.todo", items[m_sel.index].label));
-		break;
-	}
-	}
-}
-
 bool MapView::CellVisible(int x, int z) const {
 	return m_mode == Mode::Editor || m_world.IsSeen(x, z);
 }
@@ -377,15 +178,10 @@ bool MapView::Update(const Input& input, const gfx::Rect& panel) {
 		m_pan.y = (my - fz * cell - grid.y - (grid.h - gridH) * 0.5f) / grid.h;
 	}
 
-	// Wheel over the expanded left palette dock scrolls its accordion.
-	if (editor && !m_settings.mapPaletteCollapsed && input.WheelDelta() != 0.0f &&
-		LeftDockRect(panel).Contains(mx, my)) {
-		std::vector<PaletteRow> rows;
-		float content = 0.0f;
-		BuildPaletteRows(panel, rows, content);
-		const float maxScroll = std::max(0.0f, content - PaletteBody(panel).h);
-		m_paletteScroll = std::clamp(m_paletteScroll - input.WheelDelta() * 28.0f,
-									 0.0f, maxScroll);
+	// Wheel over the expanded left palette dock scrolls its accordion (editor).
+	if (editor && m_editor && !m_settings.mapPaletteCollapsed &&
+		input.WheelDelta() != 0.0f && LeftDockRect(panel).Contains(mx, my)) {
+		m_editor->OnWheel(input.WheelDelta(), panel);
 	}
 
 	// Dock interactions, each claiming the click so it never also pans/paints.
@@ -395,29 +191,16 @@ bool MapView::Update(const Input& input, const gfx::Rect& panel) {
 			ToggleLegend();
 			return true;
 		}
-		// Left palette dock (Editor only): collapse button + accordion.
+		// Left palette dock (Editor only): collapse button + accordion body.
 		if (editor) {
 			if (LeftCollapseButton(panel).Contains(mx, my)) {
 				m_settings.mapPaletteCollapsed = !m_settings.mapPaletteCollapsed;
 				m_settings.Save();
 				return true;
 			}
-			if (!m_settings.mapPaletteCollapsed &&
+			if (m_editor && !m_settings.mapPaletteCollapsed &&
 				PaletteBody(panel).Contains(mx, my)) {
-				std::vector<PaletteRow> rows;
-				float content = 0.0f;
-				BuildPaletteRows(panel, rows, content);
-				for (const PaletteRow& r : rows) {
-					if (!r.rect.Contains(mx, my)) continue;
-					if (r.kind == PaletteRow::Kind::Header)
-						m_catOpen[static_cast<size_t>(r.cat)] =
-							!m_catOpen[static_cast<size_t>(r.cat)];
-					else if (r.kind == PaletteRow::Kind::Item)
-						m_sel = {r.cat, r.index};
-					else if (r.kind == PaletteRow::Kind::NewButton && onNewAsset)
-						onNewAsset(r.cat);
-					break;
-				}
+				m_editor->OnClick(mx, my, panel);
 				return true; // a click anywhere in the dock body is the dock's
 			}
 		}
@@ -438,15 +221,15 @@ bool MapView::Update(const Input& input, const gfx::Rect& panel) {
 	if (input.WasMouseReleased(panBtn)) m_panning = false;
 
 	// Editor painting over the grid: a fresh press always acts; holding paints a
-	// stroke for the structural/surface brushes (ApplyBrush ignores drags for the
+	// stroke for the structural/surface brushes (MapEditor ignores drags for the
 	// click-only Select/Erase tools and entity placement). The Edit* calls no-op
 	// on unchanged cells, so a held stroke over one cell is cheap.
-	if (editor && overGrid) {
+	if (editor && m_editor && overGrid) {
 		int cx, cz;
 		if (input.WasMousePressed(MouseButton::Left) && CellAt(mx, my, panel, cx, cz))
-			ApplyBrush(cx, cz, /*dragging*/ false);
+			m_editor->Paint(cx, cz, /*dragging*/ false);
 		else if (input.IsMouseDown(MouseButton::Left) && CellAt(mx, my, panel, cx, cz))
-			ApplyBrush(cx, cz, /*dragging*/ true);
+			m_editor->Paint(cx, cz, /*dragging*/ true);
 	}
 
 	return panel.Contains(mx, my);
@@ -615,9 +398,9 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 					btn.y + (btn.h - m_font.Height()) * 0.5f, theme.text);
 	};
 
-	// --- Left palette dock (Editor only; collapsed -> only the ">>" button).
-	// A collapsible accordion: one header per category, its items beneath when
-	// expanded, the whole body scroll-clipped so scrolled rows never spill out.
+	// --- Left palette dock (Editor only; collapsed -> only the ">>" button). The
+	// frame + collapse + "Brushes" header are MapView's (they affect layout); the
+	// accordion body is filled by MapEditor::RenderBody.
 	if (m_mode == Mode::Editor) {
 		const gfx::Rect ld = LeftDockRect(panel);
 		drawDockFrame(ld, LeftCollapseButton(panel),
@@ -625,53 +408,7 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 		if (!m_settings.mapPaletteCollapsed) {
 			m_font.Draw(batch, loc::Tr("map.brushes"), ld.x + dpad,
 						ld.y + dpad + btnH + dpad, theme.textDim);
-			const gfx::Rect body = PaletteBody(panel);
-			batch.SetScissor(&body);
-			std::vector<PaletteRow> rows;
-			float content = 0.0f;
-			BuildPaletteRows(panel, rows, content);
-			const float arrowW = m_font.MeasureWidth("+");
-			std::vector<PaletteItem> items; // the current category's items
-			for (const PaletteRow& r : rows) {
-				const gfx::Rect& rc = r.rect;
-				if (r.kind == PaletteRow::Kind::Header) items = CategoryItems(r.cat);
-				if (rc.y + rc.h < body.y || rc.y > body.y + body.h) continue; // off-view
-				const float ty = rc.y + (rc.h - m_font.Height()) * 0.5f;
-				switch (r.kind) {
-				case PaletteRow::Kind::Header: {
-					batch.DrawRect(rc, theme.control);
-					ui::DrawBorder(batch, rc, theme.panelBorder);
-					const char* arrow = m_catOpen[static_cast<size_t>(r.cat)] ? "-" : "+";
-					m_font.Draw(batch, arrow, rc.x + dpad, ty, theme.textDim);
-					m_font.Draw(batch, loc::Tr(CategoryNameKey(r.cat)),
-								rc.x + dpad * 2 + arrowW, ty, theme.text);
-					break;
-				}
-				case PaletteRow::Kind::NewButton:
-					m_font.Draw(batch, loc::Tr("map.cat.new"), rc.x + dpad * 3, ty,
-								theme.accent);
-					break;
-				case PaletteRow::Kind::Empty:
-					m_font.Draw(batch, loc::Tr("map.cat.empty"), rc.x + dpad * 3, ty,
-								theme.textDim);
-					break;
-				case PaletteRow::Kind::Item: {
-					if (r.index < 0 || r.index >= static_cast<int>(items.size())) break;
-					const bool active = m_sel.cat == r.cat && m_sel.index == r.index;
-					if (active) {
-						batch.DrawRect(rc, theme.controlActive);
-						ui::DrawBorder(batch, rc, theme.panelBorder);
-					}
-					const float indent = dpad * 3, sw = rc.h - dpad * 2;
-					batch.DrawRect({rc.x + indent, rc.y + dpad, sw, sw},
-								   items[r.index].swatch);
-					m_font.Draw(batch, items[r.index].label, rc.x + indent + sw + dpad,
-								ty, active ? theme.text : theme.textDim);
-					break;
-				}
-				}
-			}
-			batch.SetScissor(nullptr);
+			if (m_editor) m_editor->RenderBody(batch, theme, panel);
 		}
 	}
 

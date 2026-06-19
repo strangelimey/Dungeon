@@ -83,6 +83,39 @@ public:
 	Vec3 EyePosition() const;
 	float Yaw() const { return m_currentYaw; }
 
+	// --- free-look (right-mouse "mouse look") -----------------------------------
+	// The camera yaw/pitch the renderer should use: the grid-snapped facing yaw
+	// plus the transient free-look offset (EyeYaw), and the look pitch (EyePitch,
+	// 0 unless looking). The compass/HUD still read Yaw()/Facing() (the grid pose).
+	float EyeYaw() const { return m_currentYaw + m_lookYaw; }
+	float EyePitch() const { return m_lookPitch; }
+
+	// Begin/end a free-look drag (right mouse button down/up). The offset PARKS
+	// where the player leaves it — releasing the button does NOT snap the view
+	// back (so an off-axis grab to reach an awkward item stays put). Only a
+	// movement/turn action starts the ease back to orthogonal (BeginAction).
+	void BeginLook() { m_looking = true; m_returning = false; }
+	void EndLook() { m_looking = false; } // parks the offset; no auto-return
+	bool IsLooking() const { return m_looking; }
+	// Raw free-look offset (radians) for the save layer — the parked angle the
+	// view is swung off the grid facing, plus whether a look drag is in progress.
+	float LookYaw() const { return m_lookYaw; }
+	float LookPitch() const { return m_lookPitch; }
+	// Restores the saved free-look offset on top of the current facing (call AFTER
+	// SetFacing, which clears it). The offset is parked (not returning), so the
+	// loaded view sits at the exact saved angle until the player moves.
+	void SetLookState(float yaw, float pitch, bool looking) {
+		m_lookYaw = yaw;
+		m_lookPitch = pitch;
+		m_looking = looking;
+		m_returning = false;
+	}
+	// Accumulate a mouse drag into the look offset (radians). Pitch is clamped;
+	// yaw past ±kLookSnap snaps the ordinal facing one quarter and folds the
+	// inverse back into the offset, so the view stays continuous while the grid
+	// facing follows — the player can look (and walk) around corners.
+	void AddLook(float dYaw, float dPitch);
+
 	int GridX() const { return m_x; }
 	int GridZ() const { return m_z; }
 	int Facing() const { return m_facing; }
@@ -128,6 +161,15 @@ private:
 	float m_turnFrom = 0.0f;
 	float m_turnT = 0.0f;
 	bool m_turning = false;
+
+	// Free-look offset layered on top of the grid facing yaw. It PARKS at whatever
+	// the player leaves it (releasing the mouse does nothing to it) and only eases
+	// back to 0 once m_returning is set — which BeginAction does when a move/turn
+	// commits, so the view migrates to orthogonal as the party sets off.
+	bool m_looking = false;   // a look drag is active (accumulating mouse motion)
+	bool m_returning = false; // easing the parked offset back to orthogonal
+	float m_lookYaw = 0.0f;
+	float m_lookPitch = 0.0f;
 
 	float m_bobPhase = 0.0f;
 	float m_blockCooldown = 0.0f; // throttles repeated blocked-move feedback

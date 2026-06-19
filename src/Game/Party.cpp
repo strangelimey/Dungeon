@@ -13,6 +13,14 @@ constexpr float kTurnDuration = 0.25f;  // seconds per 90° turn
 constexpr int kDirX[4] = {0, 1, 0, -1}; // N E S W
 constexpr int kDirZ[4] = {-1, 0, 1, 0};
 
+// Free-look tuning. kLookSnap is the yaw the view may swing past the grid
+// facing before that facing snaps one quarter (45° = halfway to the next
+// cardinal). kLookPitchMax clamps the up/down look. kLookReturn is the
+// exponential rate the offset relaxes back to 0 once the player stops looking.
+constexpr float kLookSnap = kPi * 0.25f;
+constexpr float kLookPitchMax = kPi * 0.40f;
+constexpr float kLookReturn = 12.0f;
+
 float YawForFacing(int facing) {
 	// Camera forward is (sin(yaw), 0, cos(yaw)): N=-Z, E=+X, S=+Z, W=-X.
 	return kPi - static_cast<float>(facing) * (kPi * 0.5f);
@@ -52,6 +60,9 @@ void Party::Reset(int x, int z) {
 	m_bobPhase = 0.0f;
 	m_blockCooldown = 0.0f;
 	m_buffered.reset();
+	m_looking = false;
+	m_returning = false;
+	m_lookYaw = m_lookPitch = 0.0f;
 }
 
 void Party::SetFacing(int facing) {
@@ -59,6 +70,9 @@ void Party::SetFacing(int facing) {
 	m_currentYaw = m_targetYaw = YawForFacing(m_facing);
 	m_turning = false;
 	m_buffered.reset();
+	m_looking = false;
+	m_returning = false;
+	m_lookYaw = m_lookPitch = 0.0f;
 }
 
 bool Party::SetGridPosition(int x, int z) {
@@ -81,6 +95,33 @@ const char* Party::FacingName(int facing) {
 	case 1: return "facing.east";
 	case 2: return "facing.south";
 	default: return "facing.west";
+	}
+}
+
+void Party::AddLook(float dYaw, float dPitch) {
+	if (!m_looking) return;
+	m_lookPitch = std::clamp(m_lookPitch + dPitch, -kLookPitchMax, kLookPitchMax);
+	m_lookYaw += dYaw;
+
+	// Swinging the view past the half-quarter snaps the grid facing one quarter
+	// in that direction and folds the inverse back into the offset, so the camera
+	// yaw (m_currentYaw + m_lookYaw) is unchanged at the seam — the view glides on
+	// while the ordinal facing has rotated under it. A loop covers a big delta.
+	while (m_lookYaw >= kLookSnap) { // looked left past 45° -> turn left
+		m_facing = (m_facing + 3) & 3;
+		m_currentYaw += kPi * 0.5f;
+		m_lookYaw -= kPi * 0.5f;
+		m_targetYaw = m_currentYaw;
+		m_turning = false;
+		if (onTurn) onTurn();
+	}
+	while (m_lookYaw <= -kLookSnap) { // looked right past 45° -> turn right
+		m_facing = (m_facing + 1) & 3;
+		m_currentYaw -= kPi * 0.5f;
+		m_lookYaw += kPi * 0.5f;
+		m_targetYaw = m_currentYaw;
+		m_turning = false;
+		if (onTurn) onTurn();
 	}
 }
 
@@ -149,6 +190,11 @@ void Party::Act(MoveAction action) {
 }
 
 void Party::BeginAction(MoveAction action, bool startLinear) {
+	// Committing to a discrete move/turn ends any active look AND arms the return:
+	// the parked offset now eases to 0 (Update) so the view migrates to orthogonal
+	// as the party sets off. (Releasing the mouse alone never arms this.)
+	m_looking = false;
+	m_returning = true;
 	auto stepStart = [&](int dx, int dz) {
 		if (!TryStep(dx, dz)) {
 			m_blockCooldown = 0.4f;
@@ -215,6 +261,19 @@ void Party::RefreshChainEasing() {
 
 void Party::Update(float dt) {
 	m_blockCooldown = std::max(0.0f, m_blockCooldown - dt);
+
+	// Free-look eases back to orthogonal only while RETURNING — armed by a move/
+	// turn action, never by merely releasing the button (so a parked off-axis view
+	// holds until the player walks). Exponential decay; tiny residuals clamp to 0
+	// and disarm the return.
+	if (m_returning) {
+		const float a = 1.0f - std::exp(-kLookReturn * dt);
+		m_lookYaw -= m_lookYaw * a;
+		m_lookPitch -= m_lookPitch * a;
+		if (std::abs(m_lookYaw) < 1e-4f) m_lookYaw = 0.0f;
+		if (std::abs(m_lookPitch) < 1e-4f) m_lookPitch = 0.0f;
+		if (m_lookYaw == 0.0f && m_lookPitch == 0.0f) m_returning = false;
+	}
 
 	const bool wasMoving = m_moving;
 	const bool wasTurning = m_turning;

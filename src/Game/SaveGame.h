@@ -20,6 +20,7 @@
 #pragma once
 
 #include "Core/Types.h"
+#include "Game/Entity.h" // EntityKind, Direction
 
 #include <array>
 #include <optional>
@@ -31,7 +32,11 @@ namespace dungeon::game {
 
 // The serializable dynamic state of one in-progress game.
 struct SaveData {
-	int version = 5; // v5: weapon hands folded into equipment[] (no "hands" line)
+	// v7: one generic per-entity record (EntityState) covers monsters, items, and
+	//     buttons as a diff (keyed by .ent id) or a whole spawn (no baseline);
+	//     replaces the v6 split of "ent"/"monster" rows + a whole "floor" item
+	//     snapshot. v6: free-look offset ("look" line); v5 folded hands into equip[].
+	int version = 7;
 	std::string name;         // display name (free text; may contain spaces)
 	std::string currentLevel; // the level stem the party is on (where to resume)
 	std::string timestamp;    // human-readable local time, for the slot list
@@ -39,6 +44,12 @@ struct SaveData {
 	// --- party (no static baseline → stored whole) --------------------------
 	int partyX = 0, partyZ = 0;
 	int partyFacing = 2; // 0=N 1=E 2=S 3=W
+	// Right-mouse free-look offset (radians) layered on the grid facing, so a
+	// save mid-look returns to the EXACT camera angle — and, with looking=false,
+	// replays the in-flight ease back to orthogonal. Defaults (0/0/false) =
+	// orthogonal, so pre-v6 saves load square-on.
+	float lookYaw = 0.0f, lookPitch = 0.0f;
+	bool looking = false;
 
 	int torchPalette = 0; // HUD torchlight index (0 warm, 1 cold, 2 eerie)
 
@@ -57,40 +68,45 @@ struct SaveData {
 	};
 	std::vector<CharState> characters;
 
-	// Per-entity overrides, keyed by Entity::id — only entities that differ
-	// from their .ent spawn are present (monsters carry a moved grid cell,
-	// whether they have announced themselves, and current hit points: a slain
-	// monster saves hp=0 so it stays down on load; inventory fields extend this
-	// struct later). hp = -1 means "not recorded" (older saves) → keep spawn hp.
-	//
-	// Editor-placed monsters have NO .ent baseline to diff against, so they save
-	// WHOLE: `type` is set (empty for a baseline diff row) and `spawnX/spawnZ/
-	// facing` carry what's needed to recreate the instance on load. Such rows
-	// serialize as a "monster" record; baseline diffs stay "ent" records.
+	// One generic per-entity record — the unified save primitive (v7). Every
+	// dynamic entity kind (monster, item, button) round-trips through this, in
+	// one of two modes decided by `id`:
+	//   - DIFF (id >= 0): references a .ent baseline entity by its stable id, and
+	//     carries only the fields that drifted from the spawn record. Applied onto
+	//     the baseline the .ent load already built. `type` is empty.
+	//   - SPAWN (id < 0): a runtime entity with NO .ent baseline — an editor-placed
+	//     monster or a dropped item — stored WHOLE (`type` + spawn cell/facing) so
+	//     a load can recreate it from nothing.
+	// Per-kind mutable fields default to "unchanged from baseline": a field only
+	// matters for the kind that owns it (announced/hp = monster, collected = item,
+	// activated = button). hp = -1 means "not recorded" (older saves) → keep spawn
+	// hp. This single record replaces v6's separate ent/monster/floor row types.
 	struct EntityState {
-		int id = -1;
-		int x = 0, z = 0;
-		bool announced = false;
-		float hp = -1.0f;
-		std::string type;        // non-empty => recreate whole; empty => diff
-		int spawnX = 0, spawnZ = 0;
-		int facing = 2;          // Direction value (0=N 1=E 2=S 3=W)
+		int id = -1;                            // .ent baseline id; < 0 = spawn
+		EntityKind kind = EntityKind::Monster;  // which world list this belongs to
+		std::string type;                       // catalog id (spawns); empty = diff
+		int x = 0, z = 0;                        // current cell
+		int spawnX = 0, spawnZ = 0;             // spawn origin (spawns only)
+		int facing = 2;                         // Direction value (0=N 1=E 2=S 3=W)
+		bool announced = false;                 // monster: has greeted the party
+		float hp = -1.0f;                       // monster: current hit points
+		bool collected = false;                 // item: lifted off the floor
+		bool activated = false;                 // button: pressed / toggled on
 	};
 
-	// Dynamic state of one level: revealed cells (fog, stored whole) + the
-	// entity diff. One entry per VISITED level — the world keeps each level's
+	// Dynamic state of one level: revealed cells (fog, stored whole) + the entity
+	// diff/spawn list. One entry per VISITED level — the world keeps each level's
 	// state so leaving and returning preserves fog/progress (P6 multi-level).
-	// An item lying on a level's floor (a full snapshot, not a diff): everything
-	// currently on the ground, baseline or dropped, by cell + catalog id.
-	struct FloorItem {
-		int x = 0, z = 0;
-		std::string typeId;
-	};
 	struct LevelState {
 		std::string stem;
 		std::vector<std::pair<int, int>> seen;
-		std::vector<EntityState> entities;
-		std::vector<FloorItem> floorItems; // what's on this level's floor
+		std::vector<EntityState> entities; // all kinds, diffs + spawns
+		// v6 read compat: a v6 save stored every floor item as a whole "floor"
+		// snapshot (no per-item diff). When loaded, those rows land in `entities`
+		// as Item spawns and this flag is set, so ApplyActiveSnapshot REPLACES the
+		// floor wholesale (v6 semantics) instead of applying item diffs. v7 saves
+		// never set it.
+		bool fullFloorSnapshot = false;
 	};
 	std::vector<LevelState> levels;
 };
