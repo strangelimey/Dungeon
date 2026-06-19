@@ -186,7 +186,11 @@ void DungeonWorld::AppendLoadTasks(LoadQueue& queue) {
 		m_pillarAnimator = anim::Animator(&m_pillarModel.skeleton, &m_pillarModel.clips);
 		m_pillarAnimator.Play("sway");
 		m_pillarPos = m_map.CellCenter(m_map.StartX(), m_map.StartZ() + 2);
-		m_pillarTex = LoadPropTextures("pillar"); // peacock-ore
+		// Borrow the peacock-ore stone set for its NORMAL + ORM maps only (carved
+		// micro-relief + roughness variation, so the pillar reads as stone, not a
+		// smooth wet tube). The albedo is discarded in DrawProps — that texture is
+		// purple; the jade color comes from the model's flat baseColorFactor.
+		m_pillarTex = LoadPropTextures("pillar");
 		// Flavor for the opening level only — don't spawn it on every level.
 		m_pillarActive = m_currentLevel == FirstLevel(m_project);
 	});
@@ -1942,14 +1946,23 @@ void DungeonWorld::SubmitSceneGeometry(ID3D12GraphicsCommandList* list,
 	DrawSurface(list, m_floors, cull);
 	DrawSurface(list, m_ceilings, cull);
 
-	// Pillar — peacock-ore stone (bump + parallax + ORM); polished jade fallback.
+	// Pillar — carved jade. The color is the model's flat baseColorFactor (a deep,
+	// muted jade); the stone set contributes ONLY its normal + ORM maps, giving the
+	// surface real micro-relief and roughness variation so it reads as polished
+	// mineral rather than a smooth wet tube. The peacock-ore albedo (purple) is
+	// deliberately dropped. Satin roughness, fully non-metallic.
 	if (m_pillarActive && visible({m_pillarPos.x, 1.2f, m_pillarPos.z}, 1.8f)) {
 		Mat4 pillarWorld = Mat4Identity();
 		pillarWorld._41 = m_pillarPos.x;
 		pillarWorld._43 = m_pillarPos.z;
 		gfx::MaterialParams pillarMaterial;
-		ApplyPropMaterial(pillarMaterial, m_pillarTex,
-						  m_pillarModel.materials[0].baseColorFactor, 0.22f);
+		pillarMaterial.baseColor = m_pillarModel.materials[0].baseColorFactor;
+		pillarMaterial.metallic = 0.0f;
+		pillarMaterial.roughness = 0.55f;
+		if (m_pillarTex) {
+			pillarMaterial.normalMap = m_pillarTex->normal.get();
+			pillarMaterial.metalRough = m_pillarTex->mr.get(); // modulates rough/metal
+		}
 		m_renderer.DrawMesh(list, *m_pillarMesh, pillarWorld, pillarMaterial,
 							m_pillarAnimator.Palette());
 	}
