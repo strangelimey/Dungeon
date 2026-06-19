@@ -494,6 +494,10 @@ private:
 	// One monster's melee strike against a random standing party member (called
 	// from UpdateMonsters when the monster is adjacent and off cooldown).
 	void MonsterAttack(Monster& monster);
+	// Blocked-move recoil reached its peak: jar every standing member for a
+	// small amount of damage, flash a splat over each portrait, grunt once, and
+	// latch a party wipe if the bruise is somehow the end of them.
+	void OnBumpImpact();
 	// True if a monster may stand on (x,z): in bounds, walkable, not the party
 	// cell, and not occupied by another LIVE monster (self excluded by index).
 	bool CellFreeForMonster(int x, int z, size_t self) const;

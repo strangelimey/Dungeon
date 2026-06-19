@@ -125,6 +125,13 @@ int main(int argc, char** argv) {
 		return baker::BakeRunes(argv[2]) ? 0 : 1;
 	}
 
+	if (argc >= 3 && std::string(argv[1]) == "sounds") {
+		// Synthesized WAVs only (no mip/texture work) — fast.
+		std::error_code ec;
+		std::filesystem::create_directories(std::string(argv[2]) + "\\sounds", ec);
+		return baker::BakeSounds(std::string(argv[2]) + "\\sounds") ? 0 : 1;
+	}
+
 	if (argc < 2) {
 		log::Error("usage: AssetBaker <assets-dir>  |  AssetBaker import ...");
 		return 1;

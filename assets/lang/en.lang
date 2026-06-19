@@ -133,6 +133,7 @@ log.scroll_hint=Mouse wheel scrolls this log.
 log.wait=You wait. The torches gutter.
 log.hands_empty={}'s hands are empty.
 log.bump=You bump into a wall.
+log.bump_hurt=The party lurches into the obstacle and is jarred for {} damage.
 log.brazier_blocks=A burning brazier bars your way.
 log.decoration_blocks=Something solid blocks the way.
 log.monster_blocks=The {} blocks your way!

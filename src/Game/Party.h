@@ -130,6 +130,10 @@ public:
 	std::function<void()> onStep;
 	std::function<void()> onBlocked;
 	std::function<void()> onTurn;
+	// Fired once per blocked move, at the instant the recoil lunge reaches its
+	// peak (~30% toward the obstacle) and turns back — the "impact". The game
+	// uses it to jar the party (small damage + portrait splat + grunt).
+	std::function<void()> onBumpImpact;
 
 	// Extra occupancy check (monsters, props). Return true to block the step;
 	// the callback is responsible for its own feedback (onBlocked not fired).
@@ -137,6 +141,9 @@ public:
 
 private:
 	bool TryStep(int dx, int dz);
+	// Kicks off the blocked-move recoil toward cell (bx,bz) from the current
+	// resting position. No-op if a bump is already running.
+	void StartBump(int bx, int bz);
 	// Performs one action immediately (the grid must be free). startLinear
 	// leads the tween in at constant velocity (set when replaying a buffered
 	// same-kind continuation) instead of easing in from rest.
@@ -155,6 +162,17 @@ private:
 	bool m_moving = false;
 	float m_moveT = 0.0f;
 	Vec3 m_moveFrom;
+
+	// Blocked-move recoil ("bump"). The logical position never changes; the
+	// VISUAL position lunges toward the blocked cell at the normal step rate,
+	// reaches ~30% of the way, then bounces rapidly back to the start cell. Two
+	// phases: forward lunge (m_bumpPhase 0, replays the real step curve until the
+	// eased distance hits kBumpPeak) then the bounce return (phase 1).
+	bool m_bumping = false;
+	int m_bumpPhase = 0;     // 0 = forward lunge, 1 = bounce back
+	float m_bumpT = 0.0f;    // forward: normal step progress; back: 0..1 return
+	float m_bumpPeak = 0.0f; // eased distance reached when the lunge handed off
+	Vec3 m_bumpTo;           // blocked cell center (the lunge direction/distance)
 
 	float m_currentYaw = 0.0f;
 	float m_targetYaw = 0.0f;

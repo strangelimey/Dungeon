@@ -70,6 +70,7 @@ DungeonWorld::DungeonWorld(gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 		onMessage(loc::Tr("log.bump"));
 	};
 	m_party.onTurn = [this] { m_audio.Play(m_sounds.turn, 0.6f); };
+	m_party.onBumpImpact = [this] { OnBumpImpact(); };
 	m_party.isOccupied = [this](int x, int z) {
 		for (const Monster& monster : m_monsters) {
 			if (monster.Alive() && monster.x == x && monster.z == z) {
@@ -1736,6 +1737,39 @@ void DungeonWorld::MonsterAttack(Monster& monster) {
 	if (!target.IsAlive()) onMessage(loc::Format("log.member_down", target.name));
 
 	// Party wipe: latch so the run ends exactly once.
+	bool anyUp = false;
+	for (const Character& m : *m_roster)
+		if (m.IsAlive()) { anyUp = true; break; }
+	if (!anyUp && !m_partyWiped) {
+		m_partyWiped = true;
+		onMessage(loc::Tr("log.party_wipe"));
+		if (onPartyWipe) onPartyWipe();
+	}
+}
+
+// A blocked move has lurched the party into the obstacle. Every standing member
+// is jarred for a small flat amount, with the smallest splat over each portrait
+// and a single grunt — then we re-check for a wipe so a final stumble still ends
+// the run cleanly.
+void DungeonWorld::OnBumpImpact() {
+	if (!m_roster || m_partyWiped) return;
+
+	constexpr float kBumpDamage = 2.0f; // small flat jar, regardless of armor
+	bool anyHurt = false;
+	for (Character& member : *m_roster) {
+		if (!member.IsAlive()) continue;
+		member.health -= kBumpDamage;
+		if (member.health < 0.0f) member.health = 0.0f;
+		member.hitFlash = kHitFlashSeconds;
+		member.hitSeverity = 0; // always the small splat
+		anyHurt = true;
+		if (!member.IsAlive()) onMessage(loc::Format("log.member_down", member.name));
+	}
+	if (!anyHurt) return;
+
+	onMessage(loc::Format("log.bump_hurt", static_cast<int>(kBumpDamage + 0.5f)));
+	m_audio.Play(m_sounds.oof, 0.8f);
+
 	bool anyUp = false;
 	for (const Character& m : *m_roster)
 		if (m.IsAlive()) { anyUp = true; break; }

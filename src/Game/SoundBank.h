@@ -19,6 +19,7 @@ struct SoundBank {
 	assets::SoundData turn;
 	assets::SoundData click;
 	assets::SoundData monster;
+	assets::SoundData oof; // party grunt when a blocked move jars them
 
 	void Load();
 };

@@ -116,6 +116,25 @@ std::vector<i16> MonsterGroan() {
 	return s;
 }
 
+std::vector<i16> Oof() {
+	// Short pained grunt — played when the party walks face-first into a wall.
+	// A vocal-ish tone that drops in pitch over the grunt, plus a breathy noise
+	// transient on the attack. Fast attack, quick decay (~0.22s total).
+	std::vector<i16> s(static_cast<size_t>(0.22f * kRate));
+	Noise noise;
+	for (size_t i = 0; i < s.size(); ++i) {
+		const float t = static_cast<float>(i) / kRate;
+		const float env = (1.0f - std::exp(-t * 90.0f)) * std::exp(-t * 12.0f);
+		// Pitch falls from ~170Hz to ~95Hz over the first ~0.18s.
+		const float f = 170.0f - 75.0f * std::min(t / 0.18f, 1.0f);
+		const float tone = std::sin(2 * 3.14159f * f * t) * 0.6f +
+						   std::sin(2 * 3.14159f * f * 2.0f * t) * 0.2f;
+		const float breath = noise.Brown(0.3f) * 0.25f * std::exp(-t * 20.0f);
+		s[i] = Pack((tone + breath) * env);
+	}
+	return s;
+}
+
 } // namespace
 
 bool BakeSounds(const std::string& dir) {
@@ -125,6 +144,7 @@ bool BakeSounds(const std::string& dir) {
 	ok &= WriteWav(dir + "\\turn.wav", Turn());
 	ok &= WriteWav(dir + "\\click.wav", Click());
 	ok &= WriteWav(dir + "\\monster.wav", MonsterGroan());
+	ok &= WriteWav(dir + "\\oof.wav", Oof());
 	return ok;
 }
 

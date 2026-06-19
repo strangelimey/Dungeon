@@ -13,6 +13,7 @@ void SoundBank::Load() {
 	turn = LoadSound("turn.wav");
 	click = LoadSound("click.wav");
 	monster = LoadSound("monster.wav");
+	oof = LoadSound("oof.wav");
 }
 
 } // namespace dungeon::game

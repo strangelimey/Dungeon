@@ -13,6 +13,13 @@ constexpr float kTurnDuration = 0.25f;  // seconds per 90° turn
 constexpr int kDirX[4] = {0, 1, 0, -1}; // N E S W
 constexpr int kDirZ[4] = {-1, 0, 1, 0};
 
+// Blocked-move recoil. The lunge reaches kBumpPeak of the way to the blocked
+// cell (at the normal step rate, replaying the real move curve), then bounces
+// back to the start over kBumpReturn seconds — short, so the rebound feels
+// rapid against the forward lunge.
+constexpr float kBumpPeak = 0.30f;
+constexpr float kBumpReturn = 0.22f;
+
 // Free-look tuning. kLookSnap is the yaw the view may swing past the grid
 // facing before that facing snaps one quarter (45° = halfway to the next
 // cardinal). kLookPitchMax clamps the up/down look. kLookReturn is the
@@ -55,6 +62,7 @@ void Party::Reset(int x, int z) {
 	m_currentYaw = m_targetYaw = YawForFacing(m_facing);
 	m_moving = false;
 	m_turning = false;
+	m_bumping = false;
 	m_moveT = 0.0f;
 	m_turnT = 0.0f;
 	m_bobPhase = 0.0f;
@@ -82,6 +90,7 @@ bool Party::SetGridPosition(int x, int z) {
 	m_currentPos = m_targetPos = m_moveFrom = m_map.CellCenter(x, z);
 	m_moving = false;
 	m_turning = false;
+	m_bumping = false;
 	m_moveT = 0.0f;
 	m_turnT = 0.0f;
 	m_blockCooldown = 0.0f;
@@ -131,9 +140,13 @@ bool Party::TryStep(int dx, int dz) {
 	if (!m_noclip) {
 		if (!m_map.IsWalkable(nx, nz)) {
 			if (onBlocked) onBlocked();
+			StartBump(nx, nz);
 			return false;
 		}
-		if (isOccupied && isOccupied(nx, nz)) return false;
+		if (isOccupied && isOccupied(nx, nz)) {
+			StartBump(nx, nz);
+			return false;
+		}
 	}
 	m_x = nx;
 	m_z = nz;
@@ -143,6 +156,16 @@ bool Party::TryStep(int dx, int dz) {
 	m_moveT = 0.0f;
 	if (onStep) onStep();
 	return true;
+}
+
+void Party::StartBump(int bx, int bz) {
+	if (m_bumping) return;
+	m_bumping = true;
+	m_bumpPhase = 0;
+	m_bumpT = 0.0f;
+	m_bumpPeak = 0.0f;
+	m_moveFrom = m_currentPos; // rest position to recoil back to
+	m_bumpTo = m_map.CellCenter(bx, bz);
 }
 
 void Party::HandleInput(const Input& input) {
@@ -298,6 +321,37 @@ void Party::Update(float dt) {
 			m_currentYaw = m_targetYaw;
 		} else {
 			m_currentYaw = EaseLerp(m_activeTurnEasing, m_turnFrom, m_targetYaw, m_turnT);
+		}
+	}
+
+	// Blocked-move recoil. Phase 0 replays the opening of a real step (same rate
+	// and curve) until the eased distance crosses kBumpPeak, so the lunge "plays
+	// as normal" up to ~30%. Phase 1 then bounces that displacement rapidly back
+	// to 0 with a decaying Bounce — the party rebounds off the wall and jiggles
+	// to rest at its own cell. The logical grid position never moved.
+	if (m_bumping) {
+		if (m_bumpPhase == 0) {
+			m_bumpT += dt * m_speed / kMoveDuration;
+			float e = Ease(m_moveEasing, m_bumpT);
+			if (e >= kBumpPeak || m_bumpT >= 1.0f) {
+				m_bumpPeak = std::min(e, 1.0f);
+				m_bumpPhase = 1;
+				m_bumpT = 0.0f;
+				e = m_bumpPeak;
+				// Peak of the lunge = the impact: jar the party (damage + splat +
+				// grunt). Fired exactly once, here at the forward/back handoff.
+				if (onBumpImpact) onBumpImpact();
+			}
+			m_currentPos = Lerp(m_moveFrom, m_bumpTo, e);
+		} else {
+			m_bumpT += dt / kBumpReturn;
+			if (m_bumpT >= 1.0f) {
+				m_bumping = false;
+				m_currentPos = m_moveFrom;
+			} else {
+				const float frac = m_bumpPeak * (1.0f - Ease(Easing::Bounce, m_bumpT));
+				m_currentPos = Lerp(m_moveFrom, m_bumpTo, frac);
+			}
 		}
 	}
 
