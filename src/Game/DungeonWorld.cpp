@@ -1429,10 +1429,13 @@ void DungeonWorld::UpdateLights(float time) {
 
 	if (m_pillarActive) {
 		gfx::PointLight glow;
-		glow.position = {m_pillarPos.x, 1.3f, m_pillarPos.z};
-		glow.radius = 5.0f;
-		glow.color = {0.3f, 0.9f, 0.6f};
-		glow.intensity = 1.2f + 0.2f * std::sin(time * 2.2f);
+		// Low and soft: near the base so its hotspot pools on the FLOOR around the
+		// pillar (a magical ground glow) instead of burning a spotlight onto the
+		// ceiling directly above, which it did when sitting high at mid-height.
+		glow.position = {m_pillarPos.x, 0.7f, m_pillarPos.z};
+		glow.radius = 3.6f;
+		glow.color = {0.35f, 0.85f, 0.6f};
+		glow.intensity = 0.7f + 0.12f * std::sin(time * 2.2f);
 		// The glow casts the pillar's coil shadows from inside the mesh; that is
 		// a fixture of the scene, not a fire popping in, and its short range
 		// would otherwise fade the shadow out at any normal viewing distance.
