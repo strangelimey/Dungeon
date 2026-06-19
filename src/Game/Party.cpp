@@ -15,11 +15,19 @@ constexpr int kDirZ[4] = {-1, 0, 1, 0};
 
 // Free-look tuning. kLookSnap is the yaw the view may swing past the grid
 // facing before that facing snaps one quarter (45° = halfway to the next
-// cardinal). kLookPitchMax clamps the up/down look. kLookReturn is the
-// exponential rate the offset relaxes back to 0 once the player stops looking.
+// cardinal). kLookPitchMax clamps the up/down look. The auto-return to orthogonal
+// runs through the shared Ease()/EaseLerp curves (Core/Easing.h) — the same
+// machinery as the walk/turn tweens — so each trigger just names a DURATION and
+// an EASING: kLookReturnTime + kLookEaseSnap is the long, smooth HANDS-OFF return
+// on mouse release (a window to grab an awkward item, then a gentle settle);
+// kLookReturnMove + kLookEaseMove is the much shorter straighten when the party
+// moves. Swap the easing constants to retune the feel.
 constexpr float kLookSnap = kPi * 0.25f;
 constexpr float kLookPitchMax = kPi * 0.40f;
-constexpr float kLookReturn = 12.0f;
+constexpr float kLookReturnTime = 2.0f;
+constexpr float kLookReturnMove = 0.3f;
+constexpr Easing kLookEaseSnap = Easing::EaseInOut; // smooth in and out (settles)
+constexpr Easing kLookEaseMove = Easing::EaseInOut;
 
 float YawForFacing(int facing) {
 	// Camera forward is (sin(yaw), 0, cos(yaw)): N=-Z, E=+X, S=+Z, W=-X.
@@ -62,6 +70,7 @@ void Party::Reset(int x, int z) {
 	m_buffered.reset();
 	m_looking = false;
 	m_returning = false;
+	m_returnT = 0.0f;
 	m_lookYaw = m_lookPitch = 0.0f;
 }
 
@@ -72,6 +81,7 @@ void Party::SetFacing(int facing) {
 	m_buffered.reset();
 	m_looking = false;
 	m_returning = false;
+	m_returnT = 0.0f;
 	m_lookYaw = m_lookPitch = 0.0f;
 }
 
@@ -189,12 +199,28 @@ void Party::Act(MoveAction action) {
 	BeginAction(action, false);
 }
 
-void Party::BeginAction(MoveAction action, bool startLinear) {
-	// Committing to a discrete move/turn ends any active look AND arms the return:
-	// the parked offset now eases to 0 (Update) so the view migrates to orthogonal
-	// as the party sets off. (Releasing the mouse alone never arms this.)
-	m_looking = false;
+void Party::StartReturn(bool fast) {
+	if (m_lookYaw == 0.0f && m_lookPitch == 0.0f) { m_returning = false; return; }
+	const float duration = fast ? kLookReturnMove : kLookReturnTime;
+	// Leave an in-flight return alone unless this one is strictly faster — that's
+	// movement overtaking a slow hands-off return. (Equal speed = a repeated step
+	// while already returning: don't restart it.) Re-base from the CURRENT offset
+	// so the speed-up is seamless.
+	if (m_returning && duration >= m_returnTime) return;
 	m_returning = true;
+	m_returnT = 0.0f;
+	m_returnTime = duration;
+	m_returnEasing = fast ? kLookEaseMove : kLookEaseSnap;
+	m_returnFromYaw = m_lookYaw;
+	m_returnFromPitch = m_lookPitch;
+}
+
+void Party::BeginAction(MoveAction action, bool startLinear) {
+	// Committing to a discrete move/turn ends any active look and starts the quick
+	// straighten so the view squares up promptly as the party sets off — overtaking
+	// a slow hands-off return if one is already running.
+	m_looking = false;
+	StartReturn(true);
 	auto stepStart = [&](int dx, int dz) {
 		if (!TryStep(dx, dz)) {
 			m_blockCooldown = 0.4f;
@@ -262,17 +288,21 @@ void Party::RefreshChainEasing() {
 void Party::Update(float dt) {
 	m_blockCooldown = std::max(0.0f, m_blockCooldown - dt);
 
-	// Free-look eases back to orthogonal only while RETURNING — armed by a move/
-	// turn action, never by merely releasing the button (so a parked off-axis view
-	// holds until the player walks). Exponential decay; tiny residuals clamp to 0
-	// and disarm the return.
+	// Free-look auto-returns to orthogonal once the player stops looking (button
+	// released) or commits a move/turn. The offset eases from its captured start
+	// down to 0 through the shared EaseLerp — same curves as the walk/turn tweens —
+	// over m_returnTime with m_returnEasing, both set per trigger by StartReturn
+	// (long + smooth on release, much shorter on movement).
 	if (m_returning) {
-		const float a = 1.0f - std::exp(-kLookReturn * dt);
-		m_lookYaw -= m_lookYaw * a;
-		m_lookPitch -= m_lookPitch * a;
-		if (std::abs(m_lookYaw) < 1e-4f) m_lookYaw = 0.0f;
-		if (std::abs(m_lookPitch) < 1e-4f) m_lookPitch = 0.0f;
-		if (m_lookYaw == 0.0f && m_lookPitch == 0.0f) m_returning = false;
+		m_returnT += dt / m_returnTime;
+		if (m_returnT >= 1.0f) {
+			m_returnT = 1.0f;
+			m_returning = false;
+			m_lookYaw = m_lookPitch = 0.0f;
+		} else {
+			m_lookYaw = EaseLerp(m_returnEasing, m_returnFromYaw, 0.0f, m_returnT);
+			m_lookPitch = EaseLerp(m_returnEasing, m_returnFromPitch, 0.0f, m_returnT);
+		}
 	}
 
 	const bool wasMoving = m_moving;

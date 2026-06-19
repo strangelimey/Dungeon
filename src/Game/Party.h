@@ -90,12 +90,13 @@ public:
 	float EyeYaw() const { return m_currentYaw + m_lookYaw; }
 	float EyePitch() const { return m_lookPitch; }
 
-	// Begin/end a free-look drag (right mouse button down/up). The offset PARKS
-	// where the player leaves it — releasing the button does NOT snap the view
-	// back (so an off-axis grab to reach an awkward item stays put). Only a
-	// movement/turn action starts the ease back to orthogonal (BeginAction).
+	// Begin/end a free-look drag (right mouse button down/up). Releasing the
+	// button starts a gentle auto-return (StartReturn): the view lingers near
+	// where it was left — long enough to click an awkward item off the floor —
+	// then sweeps back to orthogonal (slow-in, fast-out). A movement/turn action
+	// triggers the same return (BeginAction); re-grabbing (BeginLook) cancels it.
 	void BeginLook() { m_looking = true; m_returning = false; }
-	void EndLook() { m_looking = false; } // parks the offset; no auto-return
+	void EndLook() { m_looking = false; StartReturn(false); } // release: slow return
 	bool IsLooking() const { return m_looking; }
 	// Raw free-look offset (radians) for the save layer — the parked angle the
 	// view is swung off the grid facing, plus whether a look drag is in progress.
@@ -103,7 +104,7 @@ public:
 	float LookPitch() const { return m_lookPitch; }
 	// Restores the saved free-look offset on top of the current facing (call AFTER
 	// SetFacing, which clears it). The offset is parked (not returning), so the
-	// loaded view sits at the exact saved angle until the player moves.
+	// loaded view sits at the exact saved angle until the player looks or moves.
 	void SetLookState(float yaw, float pitch, bool looking) {
 		m_lookYaw = yaw;
 		m_lookPitch = pitch;
@@ -144,6 +145,11 @@ private:
 	// Re-derives the in-flight tween's curve from the current buffer: a queued
 	// same-kind action flattens the tail to a linear exit.
 	void RefreshChainEasing();
+	// Begins the cubic ease of the free-look offset back to orthogonal. fast=false
+	// is the slow hands-off return (release: dwell, then sweep); fast=true is the
+	// quick walking-straighten (move/turn). A fast request OVERTAKES an in-flight
+	// slow return; no-op if already square-on, or if an equal/faster return runs.
+	void StartReturn(bool fast);
 
 	const DungeonMap& m_map;
 	int m_x, m_z;
@@ -162,14 +168,19 @@ private:
 	float m_turnT = 0.0f;
 	bool m_turning = false;
 
-	// Free-look offset layered on top of the grid facing yaw. It PARKS at whatever
-	// the player leaves it (releasing the mouse does nothing to it) and only eases
-	// back to 0 once m_returning is set — which BeginAction does when a move/turn
-	// commits, so the view migrates to orthogonal as the party sets off.
+	// Free-look offset layered on top of the grid facing yaw. When the player
+	// stops looking (EndLook) or commits a move/turn (BeginAction) it eases back
+	// to 0 over kLookReturnTime with a slow-in/fast-out curve: m_returnT is the
+	// 0..1 tween progress, m_returnFrom* the offset captured when the return began.
 	bool m_looking = false;   // a look drag is active (accumulating mouse motion)
-	bool m_returning = false; // easing the parked offset back to orthogonal
+	bool m_returning = false; // easing the offset back to orthogonal
 	float m_lookYaw = 0.0f;
 	float m_lookPitch = 0.0f;
+	float m_returnT = 0.0f;
+	float m_returnTime = 1.0f;                 // active return duration (release vs move)
+	Easing m_returnEasing = Easing::EaseInOut; // active return curve (shared EaseLerp)
+	float m_returnFromYaw = 0.0f;
+	float m_returnFromPitch = 0.0f;
 
 	float m_bobPhase = 0.0f;
 	float m_blockCooldown = 0.0f; // throttles repeated blocked-move feedback
