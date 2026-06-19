@@ -30,7 +30,8 @@ const CatalogSlot kCatalogs[] = {
 	{"monsters.cat", &Project::monsters, "Monsters: model + texture set."},
 	{"doors.cat", &Project::doors, "Doors (reserved — populated in a later phase)."},
 	{"stairs.cat", &Project::stairs, "Stairs (reserved — populated in a later phase)."},
-	{"items.cat", &Project::items, "Items (reserved — populated in a later phase)."},
+	{"items.cat", &Project::items, "Items: runes (and later weapons/consumables)."},
+	{"spells.cat", &Project::spells, "Spells: symbol-sequence recipes -> effect + element + power/mana/speed/range."},
 };
 
 // Splits a space-separated list (the manifest's "levels" field) into stems.
@@ -107,6 +108,7 @@ Catalog* Project::CatalogForKey(const std::string& key) {
 	if (key == "doors") return &doors;
 	if (key == "stairs") return &stairs;
 	if (key == "items") return &items;
+	if (key == "spells") return &spells;
 	return nullptr;
 }
 

@@ -168,6 +168,20 @@ log.take_rune=You take the {}.
 log.drop_rune=You set down the {}.
 log.pack_full=The pack is full.
 log.memorize={} commits the {} rune to memory.
+; --- casting ({0}=caster {1}=spell/target {2}=damage) ---
+log.cast={} casts {}.
+log.spell_fizzles=The spell fizzles into nothing.
+log.cast_nomana={} lacks the mana to cast.
+log.cast_unknown={} does not know those symbols.
+log.spell_hits=The {} is seared for {} damage!
+log.spell_misses=The bolt streaks past the {}.
+log.spell_slain=The {} is destroyed!
+; Spell display names (spells.cat ids -> spell.<id>).
+spell.flame=Flame
+spell.rock=Rock
+spell.gust=Gust
+spell.splash=Splash
+spell.firebolt=Fire Bolt
 ui.memorize=Memorize
 ui.inventory=Inventory
 ui.inv_all=All

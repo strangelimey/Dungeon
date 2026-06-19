@@ -1,0 +1,65 @@
+; Spells — the recipe table mapping a SYMBOL SEQUENCE to an effect. A character
+; casts by building a sequence from the symbols they have memorized (per-member
+; vocabulary); an EXACT match here resolves to a spell, anything else fizzles.
+; Fields:
+;   name    = loc key for the display name (spell.flame -> "Flame")
+;   symbols = comma-separated symbol sequence (fire|earth|air|water); the key
+;   effect  = effect kind, dispatched in C++ (projectile; more kinds land later)
+;   element = the elemental flavour (fire|earth|air|water) — drives bolt colour
+;   power   = base damage on a clean hit (fed into the strike resolver)
+;   mana    = mana points the cast costs (no cast below this)
+;   speed   = bolt travel speed in metres/sec
+;   range   = bolt reach in metres before it fizzles
+; Tier 1 is the four elements as single-symbol bolts, plus one two-symbol combo
+; (the Dungeon-Master "Fire + Air = fire bolt" example) to seed the sequence
+; mechanic. More tiers / effect kinds (heal, conjure, AoE) come later.
+
+[flame]
+name = spell.flame
+symbols = fire
+effect = projectile
+element = fire
+power = 8
+mana = 4
+speed = 7
+range = 8
+
+[rock]
+name = spell.rock
+symbols = earth
+effect = projectile
+element = earth
+power = 12
+mana = 6
+speed = 5
+range = 7
+
+[gust]
+name = spell.gust
+symbols = air
+effect = projectile
+element = air
+power = 5
+mana = 3
+speed = 11
+range = 11
+
+[splash]
+name = spell.splash
+symbols = water
+effect = projectile
+element = water
+power = 7
+mana = 4
+speed = 7
+range = 9
+
+[firebolt]
+name = spell.firebolt
+symbols = fire,air
+effect = projectile
+element = fire
+power = 16
+mana = 8
+speed = 9
+range = 12

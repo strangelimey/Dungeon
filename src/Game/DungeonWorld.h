@@ -24,6 +24,7 @@
 #include "Game/FireEffect.h"
 #include "Game/GameSettings.h"
 #include "Game/LoadQueue.h"
+#include "Game/Magic.h"
 #include "Game/Party.h"
 #include "Game/Project.h"
 #include "Game/SaveGame.h"
@@ -102,6 +103,17 @@ public:
 	// live monster is there; logs the outcome and kills the monster at 0 hp. A
 	// no-op (returns false) otherwise.
 	bool PartyAttack(size_t member, size_t hand);
+
+	// --- spell casting ------------------------------------------------------
+	// Façade over the MagicSystem (m_magic): the given roster member casts the
+	// spell whose recipe matches the symbol sequence, fired down the party's faced
+	// direction from the eye. The caster must be standing; the magic module gates
+	// known-symbols / recipe / mana and spawns the bolt. This turns the cast
+	// outcome into HUD/audio feedback and returns true on a successful cast. The
+	// bolt's flight + impact run in MagicSystem::Update (see Magic.h). Driven by
+	// the casting UI and the dev console `cast`.
+	bool CastSpell(size_t member, std::span<const SpellSymbol> sequence);
+
 	// Fired once when the last standing member goes down (Game ends the run).
 	std::function<void()> onPartyWipe;
 
@@ -494,6 +506,11 @@ private:
 	// One monster's melee strike against a random standing party member (called
 	// from UpdateMonsters when the monster is adjacent and off cooldown).
 	void MonsterAttack(Monster& monster);
+	// Resolves a spell bolt reaching world position `p` with strike profile `atk`:
+	// finds a live monster in that cell, runs the strike (combat + log + slain),
+	// and returns true if a monster was there (the bolt is consumed). The
+	// MagicSystem owns the bolt; this is its impact hook into the world.
+	bool ResolveSpellHit(const Vec3& p, const AttackProfile& atk);
 	// Blocked-move recoil reached its peak: jar every standing member for a
 	// small amount of damage, flash a splat over each portrait, grunt once, and
 	// latch a party wipe if the bruise is somehow the end of them.
@@ -621,6 +638,11 @@ private:
 	std::vector<Character>* m_roster = nullptr;
 	std::mt19937 m_combatRng{0xC0FFEEu};
 	bool m_partyWiped = false; // latches onPartyWipe so it fires once
+
+	// Magic: the self-contained spell system (recipe table + live bolts/sparks).
+	// CastSpell delegates to it; the world seam (cell blocking, impact resolution,
+	// fizzle sound) is wired in the constructor. See Magic.h.
+	MagicSystem m_magic;
 	// BFS scratch reused across NextStepToward calls (sized to the map): the
 	// predecessor cell index per cell, -1 = unvisited. Avoids per-step allocs.
 	mutable std::vector<int> m_pathFrom;

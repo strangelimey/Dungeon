@@ -490,6 +490,28 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 						   else
 							   m_console.Print(std::format("pack += {}", typeId));
 					   });
+	m_console.Register("cast", "cast a spell by symbol sequence (dev): cast <member> <sym>...",
+					   [this](const std::vector<std::string>& args) {
+						   if (!Need(m_console, args, 2,
+									 "usage: cast <member 0-3> <sym> [sym...]"))
+							   return;
+						   const size_t m = static_cast<size_t>(std::atoi(args[0].c_str()));
+						   if (m >= m_characters.size()) {
+							   m_console.Print("no such member");
+							   return;
+						   }
+						   std::vector<SpellSymbol> seq;
+						   for (size_t i = 1; i < args.size(); ++i) {
+							   SpellSymbol s;
+							   if (!ParseSymbol(args[i], s)) {
+								   m_console.Print("symbol must be fire/earth/air/water");
+								   return;
+							   }
+							   seq.push_back(s);
+						   }
+						   const bool ok = m_world.CastSpell(m, seq);
+						   m_console.Print(ok ? "cast away" : "no cast (fizzle / no mana / unknown)");
+					   });
 	m_console.Register("timescale", "scale sim speed (1 normal, 0 freeze)",
 					   [this](const std::vector<std::string>& args) {
 						   if (args.empty()) {

@@ -40,10 +40,11 @@ struct Project {
 	// declared now (P0) but populated in later phases.
 	Catalog walls, floors, ceilings;
 	Catalog decorations, fixtures, monsters;
-	Catalog doors, stairs, items;
+	Catalog doors, stairs, items, spells;
 
 	// The catalog for a kind key ("walls", "floors", "ceilings", "decorations",
-	// "fixtures", "monsters", "doors", "stairs", "items"), or null if unknown.
+	// "fixtures", "monsters", "doors", "stairs", "items", "spells"), or null if
+	// unknown.
 	Catalog* CatalogForKey(const std::string& key);
 
 	// Loads the project rooted at `folder` (reads project.ini + catalog/*.cat).

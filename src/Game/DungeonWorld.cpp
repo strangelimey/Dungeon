@@ -110,6 +110,19 @@ DungeonWorld::DungeonWorld(gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	// Rebuilt every frame into retained capacity — no steady-state allocation.
 	m_lights.points.reserve(gfx::kMaxPointLights);
 	m_shadowCandidates.reserve(gfx::kMaxPointLights);
+
+	// Magic system: load the project's recipes and wire its world seam so a bolt
+	// lives "on the map" without the magic module depending on the map/combat.
+	m_magic.LoadSpells(m_project.spells);
+	m_magic.isBlocked = [this](const Vec3& p) {
+		const int cx = static_cast<int>(std::floor(p.x / kCellSize));
+		const int cz = static_cast<int>(std::floor(p.z / kCellSize));
+		return !m_map.IsWalkable(cx, cz); // wall / off-map stops the bolt
+	};
+	m_magic.resolveHit = [this](const Vec3& p, const AttackProfile& atk) {
+		return ResolveSpellHit(p, atk);
+	};
+	m_magic.onFizzle = [this](const Vec3&) { m_audio.Play(m_sounds.bump, 0.4f); };
 }
 
 // ============================================================================
@@ -378,18 +391,9 @@ void DungeonWorld::LoadMonsters() {
 	}
 }
 
-// Element glow colour per school, matching docs/magic system.md (Earth=brown,
-// Air=white, Fire=red, Water=blue). The whole rune tablet pulses in this colour
-// via an additive emissive term (see SubmitSceneGeometry).
-Vec4 DungeonWorld::RuneGlow(SpellSymbol s) {
-	switch (s) {
-	case SpellSymbol::Fire:  return {1.00f, 0.13f, 0.08f, 0.0f}; // red
-	case SpellSymbol::Earth: return {0.60f, 0.36f, 0.16f, 0.0f}; // brown
-	case SpellSymbol::Air:   return {1.00f, 1.00f, 1.00f, 0.0f}; // white
-	case SpellSymbol::Water: return {0.18f, 0.42f, 1.00f, 0.0f}; // blue
-	default:                 return {1.0f, 1.0f, 1.0f, 0.0f};
-	}
-}
+// The whole rune tablet pulses in its element's accent colour via an additive
+// emissive term (see SubmitSceneGeometry); the shared palette lives in Spells.
+Vec4 DungeonWorld::RuneGlow(SpellSymbol s) { return ElementColor(s); }
 
 DungeonWorld::ItemKind& DungeonWorld::ItemKindFor(const std::string& type) {
 	auto it = m_itemKinds.find(type);
@@ -766,6 +770,7 @@ void DungeonWorld::ResetForNewGame() {
 		monster.visualPos = m_map.CellCenter(monster.x, monster.z);
 	}
 	m_partyWiped = false;
+	m_magic.Clear(); // drop any spell bolts/sparks still in flight from a prior run
 	// Rebuild items from the .ent baseline so runes return to their spawn cells
 	// (and any dropped tablets from a prior session are forgotten).
 	m_items.clear();
@@ -1111,6 +1116,7 @@ void DungeonWorld::BeginLevelLoad(const std::string& stem, bool stashCurrent) {
 	m_buttons.clear();
 	m_decorations.clear();
 	m_fires.clear();
+	m_magic.Clear(); // bolts/sparks don't survive a level change
 	m_pendingTransition.reset();
 	for (ShadowSlotCache& slot : m_shadowCache) slot = ShadowSlotCache{};
 	ResolveSurfacePalettes();
@@ -1309,6 +1315,7 @@ void DungeonWorld::Update(const Input& input, float dt, float time, bool acceptI
 	m_party.Update(dt);
 	if (m_pillarActive) m_pillarAnimator.Update(dt);
 	UpdateMonsters(dt);
+	m_magic.Update(dt); // fly spell bolts, resolve impacts/fizzles via the hooks
 	UpdateLights(time);
 	UpdateCamera();
 
@@ -1320,6 +1327,9 @@ void DungeonWorld::Update(const Input& input, float dt, float time, bool acceptI
 		fire.effect.Update(dt);
 		fire.effect.AppendParticles(m_particleScratch);
 	}
+	// Spell bolts in flight + their impact sparks render as additive billboards
+	// alongside the flames (same premultiplied-additive blend).
+	m_magic.AppendBillboards(m_particleScratch);
 	// (Rune tablets glow as a whole via an additive emissive that pulses in their
 	// element colour — applied to the mesh in SubmitSceneGeometry, not a billboard.)
 	const Vec3 eye = m_party.EyePosition();
@@ -1581,12 +1591,17 @@ void DungeonWorld::UpdateMonsters(float dt) {
 	const Vec3 partyPos = m_party.EyePosition();
 
 	// Tick down each member's per-hand swing cooldowns so hands free up over
-	// time, and fade out the hit-feedback splat over its portrait.
+	// time, fade out the hit-feedback splat, and regenerate mana (scaled by
+	// intelligence) so spent spell points recover between casts.
 	if (m_roster)
 		for (Character& member : *m_roster) {
 			for (float& cd : member.handCooldown)
 				if (cd > 0.0f) cd -= dt;
 			if (member.hitFlash > 0.0f) member.hitFlash -= dt;
+			if (member.IsAlive() && member.mana < member.maxMana) {
+				member.mana += member.ManaRegenPerSec() * dt;
+				if (member.mana > member.maxMana) member.mana = member.maxMana;
+			}
 		}
 
 	for (size_t i = 0; i < m_monsters.size(); ++i) {
@@ -1827,6 +1842,69 @@ bool DungeonWorld::PartyAttack(size_t member, size_t hand) {
 		onMessage(loc::Format("log.monster_slain", name));
 	}
 	return true;
+}
+
+// ============================================================================
+// Spell casting — a thin façade over the MagicSystem (Magic.h). This routes the
+// party pose into the cast, turns the cast outcome into HUD/audio feedback, and
+// provides the impact hook; the recipe lookup, mana, bolt flight, and sparks all
+// live in the magic module.
+// ============================================================================
+
+bool DungeonWorld::CastSpell(size_t member, std::span<const SpellSymbol> sequence) {
+	if (!m_roster || member >= m_roster->size()) return false;
+	Character& caster = (*m_roster)[member];
+	if (!caster.IsAlive()) return false;
+
+	// Bolt travels the party's faced cardinal direction (the grid facing, not the
+	// free-look offset), spawned at the party eye.
+	const Direction faced = static_cast<Direction>(m_party.Facing());
+	const Vec3 origin = m_party.EyePosition();
+	const Vec3 dir{static_cast<float>(DirDX(faced)), 0.0f,
+				   static_cast<float>(DirDZ(faced))};
+
+	const MagicSystem::CastReport r = m_magic.Cast(caster, sequence, origin, dir);
+	switch (r.outcome) {
+	case MagicSystem::CastOutcome::Cast:
+		onMessage(loc::Format("log.cast", caster.name, loc::Tr(r.spell->nameKey)));
+		m_audio.Play(m_sounds.turn, 0.7f); // a swish (no dedicated cast sound yet)
+		return true;
+	case MagicSystem::CastOutcome::NoMana:
+		onMessage(loc::Format("log.cast_nomana", caster.name));
+		return false;
+	case MagicSystem::CastOutcome::Unknown:
+		onMessage(loc::Format("log.cast_unknown", caster.name));
+		return false;
+	case MagicSystem::CastOutcome::NoRecipe:
+	default:
+		onMessage(loc::Tr("log.spell_fizzles"));
+		return false;
+	}
+}
+
+bool DungeonWorld::ResolveSpellHit(const Vec3& p, const AttackProfile& atk) {
+	const int cx = static_cast<int>(std::floor(p.x / kCellSize));
+	const int cz = static_cast<int>(std::floor(p.z / kCellSize));
+	Monster* hit = nullptr;
+	for (Monster& m : m_monsters)
+		if (m.Alive() && m.x == cx && m.z == cz) { hit = &m; break; }
+	if (!hit) return false; // open air — the bolt flies on
+
+	const DefenseProfile def{hit->kind->evasion, hit->kind->armor};
+	const AttackResult r = ResolveAttack(atk, def, m_combatRng);
+	const std::string name = loc::Tr("monster." + hit->kind->name);
+	if (r.hit) {
+		hit->hp -= r.damage;
+		onMessage(loc::Format("log.spell_hits", name, static_cast<int>(r.damage + 0.5f)));
+		m_audio.Play(m_sounds.monster, 0.7f);
+		if (!hit->Alive()) {
+			hit->hp = 0.0f; // downed monster stays in the list (save can restore it)
+			onMessage(loc::Format("log.spell_slain", name));
+		}
+	} else {
+		onMessage(loc::Format("log.spell_misses", name));
+	}
+	return true; // a monster was here, so the bolt is consumed (hit or miss)
 }
 
 // ============================================================================
