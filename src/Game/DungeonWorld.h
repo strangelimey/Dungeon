@@ -456,9 +456,6 @@ private:
 	// Lazily loads (and caches) the shared behaviour for an item type, resolved
 	// through the items catalog (category=rune → symbol + element glow colour).
 	ItemKind& ItemKindFor(const std::string& type);
-	// Element glow colour for a rune's accent billboard (premultiplied-additive:
-	// rgb is the emissive colour, alpha 0).
-	static Vec4 RuneGlow(SpellSymbol s);
 	// Builds one monster instance (kind/id/cell/facing → stats + animator) ready
 	// to push into m_monsters. Shared by the initial .ent load, live editor
 	// placement, and save restore of editor-placed monsters. The caller pushes.

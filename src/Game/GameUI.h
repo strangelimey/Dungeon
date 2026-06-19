@@ -75,6 +75,8 @@ public:
 	// Reformats the HUD compass/position labels when the values change
 	// (per-frame string formatting is needless heap churn).
 	void SetHudStatus(int facing, int gridX, int gridZ);
+	// Convenience: pull facing/grid straight from the party (the usual caller).
+	void SetHudStatus(const Party& party);
 	void ResetHudStatus(); // forces the next SetHudStatus to reformat
 
 	// Esc handling support: leaves the settings page if it is open (returns

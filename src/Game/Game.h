@@ -86,6 +86,10 @@ private:
 		CharacterSheet
 	};
 
+	// --- construction (called once from the ctor; see Game.cpp) -----------
+	void WireModuleCallbacks(); // the world↔UI/editor callback graph
+	void RegisterDevCommands(); // the dev-console command table
+
 	// --- loading (one task per frame while a loading screen shows) ---------
 	void BuildBootLoadTasks(); // menu essentials, run before the landing page
 	void BuildGameLoadTasks(); // the dungeon itself, run on first game start

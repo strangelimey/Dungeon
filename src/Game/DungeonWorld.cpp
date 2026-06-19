@@ -391,10 +391,6 @@ void DungeonWorld::LoadMonsters() {
 	}
 }
 
-// The whole rune tablet pulses in its element's accent colour via an additive
-// emissive term (see SubmitSceneGeometry); the shared palette lives in Spells.
-Vec4 DungeonWorld::RuneGlow(SpellSymbol s) { return ElementColor(s); }
-
 DungeonWorld::ItemKind& DungeonWorld::ItemKindFor(const std::string& type) {
 	auto it = m_itemKinds.find(type);
 	if (it == m_itemKinds.end()) {
@@ -409,14 +405,17 @@ DungeonWorld::ItemKind& DungeonWorld::ItemKindFor(const std::string& type) {
 			if (ParseSymbol(CatalogGet(def, "symbol", "fire"), sym)) {
 				kind->isRune = true;
 				kind->runeSymbol = sym;
-				kind->glow = RuneGlow(sym);
+				// The whole tablet pulses in its element's accent colour via an
+				// additive emissive term (see SubmitSceneGeometry); the shared
+				// palette lives in Spells (ElementColor).
+				kind->glow = ElementColor(sym);
 				// Shared tablet mesh (loaded once) + this element's carved set.
 				if (!m_runeMesh) {
 					m_runeModel = LoadModelOrDie("rune_tablet.gltf");
 					m_runeMesh = std::make_unique<gfx::Mesh>(m_device,
 															 m_runeModel.meshes[0]);
 				}
-				kind->tex = LoadPropTextures(std::format("rune_{}", SymbolId(sym)));
+				kind->tex = LoadPropTextures(RuneItemId(sym));
 			} else {
 				log::Warn("item {}: unknown rune symbol '{}'", type,
 						  CatalogGet(def, "symbol", ""));

@@ -54,20 +54,20 @@ Party::Party(const DungeonMap& map, int x, int z) : m_map(map), m_x(x), m_z(z) {
 	m_currentYaw = m_targetYaw = YawForFacing(m_facing);
 }
 
-void Party::Reset(int x, int z) {
-	m_x = x;
-	m_z = z;
-	m_facing = 2; // south, into the dungeon
-	m_currentPos = m_targetPos = m_moveFrom = m_map.CellCenter(x, z);
-	m_currentYaw = m_targetYaw = YawForFacing(m_facing);
+// Drops all in-flight grid motion (move/turn/bump) and the queued action, leaving
+// the party at rest on its current cell. Shared by the hard repositions below.
+void Party::ClearMotionState() {
 	m_moving = false;
 	m_turning = false;
 	m_bumping = false;
 	m_moveT = 0.0f;
 	m_turnT = 0.0f;
-	m_bobPhase = 0.0f;
 	m_blockCooldown = 0.0f;
 	m_buffered.reset();
+}
+
+// Drops the free-look offset and any return-to-orthogonal tween (square-on view).
+void Party::ClearLookState() {
 	m_looking = false;
 	m_returning = false;
 	m_returnT = 0.0f;
@@ -75,16 +75,23 @@ void Party::Reset(int x, int z) {
 	m_lookYaw = m_lookPitch = 0.0f;
 }
 
+void Party::Reset(int x, int z) {
+	m_x = x;
+	m_z = z;
+	m_facing = 2; // south, into the dungeon
+	m_currentPos = m_targetPos = m_moveFrom = m_map.CellCenter(x, z);
+	m_currentYaw = m_targetYaw = YawForFacing(m_facing);
+	ClearMotionState();
+	m_bobPhase = 0.0f;
+	ClearLookState();
+}
+
 void Party::SetFacing(int facing) {
 	m_facing = facing & 3;
 	m_currentYaw = m_targetYaw = YawForFacing(m_facing);
-	m_turning = false;
+	m_turning = false; // snap the facing without disturbing an in-flight step
 	m_buffered.reset();
-	m_looking = false;
-	m_returning = false;
-	m_returnT = 0.0f;
-	m_returnHold = 0.0f;
-	m_lookYaw = m_lookPitch = 0.0f;
+	ClearLookState();
 }
 
 bool Party::SetGridPosition(int x, int z) {
@@ -92,13 +99,7 @@ bool Party::SetGridPosition(int x, int z) {
 	m_x = x;
 	m_z = z;
 	m_currentPos = m_targetPos = m_moveFrom = m_map.CellCenter(x, z);
-	m_moving = false;
-	m_turning = false;
-	m_bumping = false;
-	m_moveT = 0.0f;
-	m_turnT = 0.0f;
-	m_blockCooldown = 0.0f;
-	m_buffered.reset();
+	ClearMotionState();
 	return true;
 }
 

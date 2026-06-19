@@ -138,13 +138,6 @@ void GameUI::OnHandLeftClick(size_t i, size_t hand) {
 	// gesture (unarmed attack, onHandAttack) is being moved off the left click.
 }
 
-// "rune_fire" -> SpellSymbol::Fire; false for anything that is not a rune id.
-static bool RuneSymbolOf(const std::string& typeId, SpellSymbol& out) {
-	constexpr std::string_view kPrefix = "rune_";
-	if (!typeId.starts_with(kPrefix)) return false;
-	return ParseSymbol(std::string_view(typeId).substr(kPrefix.size()), out);
-}
-
 void GameUI::OnHandRightClick(size_t i, size_t hand) {
 	if (i >= m_characters.size() || hand > 1) return;
 	const ItemSlot& slot = m_characters[i].inventory.Hand(static_cast<int>(hand));
@@ -152,7 +145,7 @@ void GameUI::OnHandRightClick(size_t i, size_t hand) {
 	// Build the action list for whatever the hand holds. Runes can be memorized.
 	std::vector<ui::ContextMenu::Entry> entries;
 	SpellSymbol sym;
-	if (RuneSymbolOf(slot.typeId, sym))
+	if (RuneSymbolFromItemId(slot.typeId, sym))
 		entries.push_back({loc::Tr("ui.memorize"),
 						   [this, i, hand] { MemorizeFromHand(i, hand); }});
 	m_handMenu->Open(m_hudMouseX, m_hudMouseY, std::move(entries));
@@ -162,7 +155,7 @@ void GameUI::MemorizeFromHand(size_t i, size_t hand) {
 	if (i >= m_characters.size() || hand > 1) return;
 	ItemSlot& slot = m_characters[i].inventory.Hand(static_cast<int>(hand));
 	SpellSymbol sym;
-	if (!RuneSymbolOf(slot.typeId, sym)) return;
+	if (!RuneSymbolFromItemId(slot.typeId, sym)) return;
 	m_characters[i].Learn(sym);
 	slot.Clear(); // the tablet is consumed
 	Click();
@@ -1316,6 +1309,10 @@ void GameUI::SetHudStatus(int facing, int gridX, int gridZ) {
 		m_lastGridZ = gridZ;
 		m_position->text = loc::Format("hud.position", gridX, gridZ);
 	}
+}
+
+void GameUI::SetHudStatus(const Party& party) {
+	SetHudStatus(party.Facing(), party.GridX(), party.GridZ());
 }
 
 void GameUI::ResetHudStatus() { m_lastFacing = m_lastGridX = m_lastGridZ = -1; }

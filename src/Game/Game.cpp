@@ -48,6 +48,14 @@ std::string JoinArgs(const std::vector<std::string>& args) {
 // A toggle command's argument: "on"/"1" enable, anything else disables.
 bool ArgOn(const std::string& a) { return a == "on" || a == "1"; }
 
+// Parses one symbol-id arg (fire/earth/air/water); on a bad token prints the
+// shared usage line and returns false, so a command can `if (!...) return;`.
+bool ParseSymbolArg(DevConsole& console, const std::string& arg, SpellSymbol& out) {
+	if (ParseSymbol(arg, out)) return true;
+	console.Print("symbol must be fire/earth/air/water");
+	return false;
+}
+
 } // namespace
 
 // ============================================================================
@@ -82,6 +90,23 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	m_ui.SetItemIcons(&m_itemIcons);  // stable; LoadRuneIcons fills it in
 	m_ui.SetHeldItem(&m_heldItem);    // cursor icon reads the held catalog id
 
+	WireModuleCallbacks();
+	RegisterDevCommands();
+
+	m_ui.BuildStaticUi();
+	BuildBootLoadTasks();
+
+	// Honor a saved borderless/exclusive display mode now that the window and
+	// device exist (windowed at the default size needs nothing).
+	ApplyDisplaySettings();
+}
+
+// ============================================================================
+// Module wiring — the world↔UI/editor callback graph and the dev-console
+// command table, split out of the constructor (which is otherwise just member
+// init) so each is browsable on its own.
+// ============================================================================
+void Game::WireModuleCallbacks() {
 	// Wire the modules together: world feedback goes to the HUD log, UI
 	// actions drive the state machine.
 	m_world.onMessage = [this](const std::string& line) { m_ui.AddLogLine(line); };
@@ -191,7 +216,9 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 			log::Warn("asset create: could not launch AssetBaker");
 		}
 	};
+}
 
+void Game::RegisterDevCommands() {
 	// Developer console commands (dev-facing, English). The generic ones
 	// (help/clear/echo) live in DevConsole; these reach into the app state.
 	m_console.Register("quit", "exit the game",
@@ -464,10 +491,7 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 							   m_console.Print("no such member");
 							   return;
 						   }
-						   if (!ParseSymbol(args[1], sym)) {
-							   m_console.Print("symbol must be fire/earth/air/water");
-							   return;
-						   }
+						   if (!ParseSymbolArg(m_console, args[1], sym)) return;
 						   m_characters[m].Learn(sym);
 						   m_ui.RefreshSheet();
 						   m_console.Print(std::format("{} learned {}", m_characters[m].name,
@@ -479,11 +503,8 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 									 "usage: rune <fire|earth|air|water>"))
 							   return;
 						   SpellSymbol sym;
-						   if (!ParseSymbol(args[0], sym)) {
-							   m_console.Print("symbol must be fire/earth/air/water");
-							   return;
-						   }
-						   const std::string typeId = std::format("rune_{}", SymbolId(sym));
+						   if (!ParseSymbolArg(m_console, args[0], sym)) return;
+						   const std::string typeId = RuneItemId(sym);
 						   if (m_characters.empty() ||
 							   !m_characters[0].inventory.AddToBackpack(typeId))
 							   m_console.Print("pack full (or no party)");
@@ -503,10 +524,7 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 						   std::vector<SpellSymbol> seq;
 						   for (size_t i = 1; i < args.size(); ++i) {
 							   SpellSymbol s;
-							   if (!ParseSymbol(args[i], s)) {
-								   m_console.Print("symbol must be fire/earth/air/water");
-								   return;
-							   }
+							   if (!ParseSymbolArg(m_console, args[i], s)) return;
 							   seq.push_back(s);
 						   }
 						   const bool ok = m_world.CastSpell(m, seq);
@@ -551,13 +569,6 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 							   m_world.SetFov(static_cast<float>(std::atof(args[0].c_str())));
 						   m_console.Print(std::format("fov {:.0f}", m_world.Fov()));
 					   });
-
-	m_ui.BuildStaticUi();
-	BuildBootLoadTasks();
-
-	// Honor a saved borderless/exclusive display mode now that the window and
-	// device exist (windowed at the default size needs nothing).
-	ApplyDisplaySettings();
 }
 
 // ============================================================================
@@ -700,7 +711,7 @@ void Game::LoadRuneIcons() {
 	// cursor when a tablet is held, and later in the hand slots / inventory.
 	for (u32 i = 0; i < kSymbolCount; ++i) {
 		const auto sym = static_cast<SpellSymbol>(i);
-		const std::string id = std::format("rune_{}", SymbolId(sym));
+		const std::string id = RuneItemId(sym);
 		m_runeIconTextures[i] = TryLoadTextureFile(
 			m_device, paths::Asset(std::format("textures\\rune_icon_{}", SymbolId(sym))));
 		if (!m_runeIconTextures[i])
@@ -840,7 +851,7 @@ bool Game::LoadGame(const std::string& path) {
 	m_ui.AddLogLine(loc::Tr("log.descend"));
 	const Party& party = m_world.GetParty();
 	m_ui.ResetHudStatus();
-	m_ui.SetHudStatus(party.Facing(), party.GridX(), party.GridZ());
+	m_ui.SetHudStatus(party);
 	m_state = AppState::Playing;
 	log::Info("Loaded game from {}", path);
 	return true;
@@ -996,7 +1007,7 @@ void Game::Update(float dt) {
 		if (m_state == AppState::Playing) {
 			m_world.Update(input, wdt, m_time, /*acceptInput=*/false);
 			Party& party = m_world.GetParty();
-			m_ui.SetHudStatus(party.Facing(), party.GridX(), party.GridZ());
+			m_ui.SetHudStatus(party);
 		}
 		return;
 	}
@@ -1109,7 +1120,7 @@ void Game::Update(float dt) {
 			return;
 		}
 		Party& party = m_world.GetParty();
-		m_ui.SetHudStatus(party.Facing(), party.GridX(), party.GridZ());
+		m_ui.SetHudStatus(party);
 		return;
 	}
 
@@ -1186,7 +1197,7 @@ void Game::Update(float dt) {
 	}
 
 	Party& party = m_world.GetParty();
-	m_ui.SetHudStatus(party.Facing(), party.GridX(), party.GridZ());
+	m_ui.SetHudStatus(party);
 }
 
 // ============================================================================
