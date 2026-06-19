@@ -126,6 +126,21 @@ void GameSettings::Load() {
 	ParseIniFloat(text, "volume=", volume, 0.0f, 1.0f);
 	ParseIniFloat(text, "barscale=", partyBarScale, 0.5f, 1.5f);
 	ParseIniFloat(text, "baropacity=", partyBarOpacity, 0.0f, 1.0f);
+
+	// Mouse-look feel. Durations are clamped to the slider ranges; the two curves
+	// store the dropdown INDEX into kLookEaseOptions (validated before mapping).
+	ParseIniFloat(text, "look_sensitivity=", look.sensitivity, 0.25f, 3.0f);
+	ParseIniFloat(text, "look_hold=", look.returnHold, 0.0f, 2.0f);
+	ParseIniFloat(text, "look_return=", look.returnTime, 0.2f, 5.0f);
+	ParseIniFloat(text, "look_move=", look.moveTime, 0.05f, 1.5f);
+	int snapEase = LookEaseIndex(look.snapEasing);
+	ParseIniInt(text, "look_curve=", snapEase);
+	if (snapEase >= 0 && snapEase < static_cast<int>(std::size(kLookEaseOptions)))
+		look.snapEasing = kLookEaseOptions[snapEase].value;
+	int moveEase = LookEaseIndex(look.moveEasing);
+	ParseIniInt(text, "look_move_curve=", moveEase);
+	if (moveEase >= 0 && moveEase < static_cast<int>(std::size(kLookEaseOptions)))
+		look.moveEasing = kLookEaseOptions[moveEase].value;
 	ParseIniBool(text, "map_palette_collapsed=", mapPaletteCollapsed);
 	ParseIniBool(text, "map_legend_collapsed=", mapLegendCollapsed);
 	ParseIniBool(text, "map_player_key_collapsed=", mapPlayerKeyCollapsed);
@@ -175,6 +190,10 @@ void GameSettings::Save() const {
 	}
 	for (const KeyField& field : kKeyFields)
 		text += std::format("key_{}={}\n", field.key, moveKeys.*(field.field));
+	text += std::format(
+		"look_sensitivity={:.3f}\nlook_hold={:.3f}\nlook_return={:.3f}\nlook_move={:.3f}\nlook_curve={}\nlook_move_curve={}\n",
+		look.sensitivity, look.returnHold, look.returnTime, look.moveTime,
+		LookEaseIndex(look.snapEasing), LookEaseIndex(look.moveEasing));
 	text += std::format(
 		"map_palette_collapsed={}\nmap_legend_collapsed={}\nmap_player_key_collapsed={}\n",
 		mapPaletteCollapsed ? 1 : 0, mapLegendCollapsed ? 1 : 0,

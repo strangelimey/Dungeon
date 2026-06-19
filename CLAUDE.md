@@ -237,11 +237,20 @@ the ini round-trip. Controls tab: movement key bindings via ui::KeyBind rows
 GameUI::KeyCaptureActive suppresses the page's own Esc while armed; binding a
 key another action holds swaps the two). kKeyFields drives the rows and the
 ini round-trip; MoveKeys (Party.h) is pushed into the Party via SetKeys, and
-dungeon::KeyName (Platform/Input) renders vkey names.
+dungeon::KeyName (Platform/Input) renders vkey names. The Controls tab also has
+a Mouse Look section: sliders for look sensitivity, the return Delay (hold) and
+Time (duration) of the hands-off camera return, and the move-straighten
+duration, plus dropdowns for the two return easing curves (kLookEaseOptions, a
+curated Easing subset). LookSettings (Party.h) is the master copy — round-tripped
+to settings.ini (look_* keys; the curves store the dropdown index) and pushed
+into the Party via SetLook (GameUI::onLookChanged); sensitivity is read live by
+the Game's drag handler. (See the free-look paragraph under Game state machine.)
 Game tab hosts the Language dropdown (see the Core/Loc bullet above).
 All persist to settings.ini next to exe (quality=0..3, maxlights=16/32/48/64,
 presentinterval=1..4, language=<code>, volume=0..1, barscale, baropacity, theme_<name>= and
-bar_<name>=r,g,b,a, key_<action>=vkey, adapter=<packed LUID, 0=auto>,
+bar_<name>=r,g,b,a, key_<action>=vkey, look_sensitivity/look_hold/look_return/
+look_move=<float> and look_curve/look_move_curve=<easing index>,
+adapter=<packed LUID, 0=auto>,
 output=<index>, reswidth=/resheight=<0=window default>, fullscreen=0/1/2;
 sliders save on release, pickers when their popup closes, key binds and language
 immediately, display fields on Apply). Main reads the display fields BEFORE the
@@ -275,6 +284,25 @@ Party::Act(MoveAction), the same discrete actions the bound keys map to in
 HandleInput), a left+right HandSlot (PartyHud.h) pair per member (empty
 boxes with the character's identity stripe; clicking logs "hands are empty"
 until items exist), and a reserved Magic area below.
+
+In the 3D view the mouse does two things (Game::Update, gated by
+GameUI::HudMouseConsumed so HUD widgets win the click): LEFT-click picks a floor
+tablet up onto the cursor (DungeonWorld::TryPickItem) or drops the held one
+(DropItemAt); holding the RIGHT button and dragging is MOUSE LOOK. The drag adds
+a yaw/pitch offset on top of the grid facing (Party::AddLook → m_lookYaw/Pitch;
+DungeonWorld::UpdateCamera feeds the camera Party::EyeYaw()/EyePitch(), while
+Yaw()/Facing() stay the grid pose for the HUD/compass). Once the yaw passes 45°
+(kLookSnap) the ordinal facing snaps one quarter and the inverse folds back into
+the offset, so the view glides on continuously while the grid facing turns under
+it — look (and then walk) around corners, reach awkward floor items. Releasing
+PARKS the view; after a hold it eases back to orthogonal with a slow-build/fast-
+finish curve (a window to grab an item, then a settle), while a movement/turn
+triggers a much faster straighten that OVERTAKES an in-flight hands-off return.
+The return runs through the shared Core/Easing.h EaseLerp (same machinery as the
+walk/turn tweens). The free-look offset is part of the save (DungeonWorld::
+CaptureState/ApplyState + the SaveData look line), so a reload restores the exact
+camera angle. Every duration, the hold, and both curves are user-tunable on the
+Settings → Controls "Mouse Look" section (LookSettings, pushed in via SetLook).
 
 ## Map overlay / editor (MapView)
 

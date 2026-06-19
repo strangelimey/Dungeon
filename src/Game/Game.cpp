@@ -73,6 +73,7 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	m_audio.SetMasterVolume(m_settings.volume);
 	m_device.SetPresentInterval(m_settings.presentInterval);
 	m_world.GetParty().SetKeys(m_settings.moveKeys);
+	m_world.GetParty().SetLook(m_settings.look);
 
 	m_characters = CreateDefaultParty();
 	ApplyPartySpeed();
@@ -156,6 +157,9 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	};
 	m_ui.onKeysChanged = [this] {
 		m_world.GetParty().SetKeys(m_settings.moveKeys);
+	};
+	m_ui.onLookChanged = [this] {
+		m_world.GetParty().SetLook(m_settings.look);
 	};
 	// Recorded only — the rebuild would destroy the dropdown mid-callback;
 	// Update applies it first thing next frame.
@@ -1140,14 +1144,15 @@ void Game::Update(float dt) {
 	// Free-look drag/release is tracked outside the HUD-consumed gate so a drag
 	// that strays over the bar (or a release there) still resolves.
 	if (m_looking && input.IsMouseDown(MouseButton::Right)) {
-		// ~0.005 rad per pixel: a quarter turn (45°) in ~157px of drag.
-		constexpr float kLookSensitivity = 0.005f;
+		// Base ~0.005 rad/pixel (a quarter turn in ~157px), scaled by the user's
+		// Look Sensitivity setting (Settings → Controls).
+		const float k = 0.005f * m_settings.look.sensitivity;
 		const float dx = input.MouseX() - m_lookPrevX;
 		const float dy = input.MouseY() - m_lookPrevY;
 		m_lookPrevX = input.MouseX();
 		m_lookPrevY = input.MouseY();
 		// Drag right -> view swings right (clockwise); drag down -> look down.
-		m_world.GetParty().AddLook(-dx * kLookSensitivity, -dy * kLookSensitivity);
+		m_world.GetParty().AddLook(-dx * k, -dy * k);
 	} else if (m_looking) {
 		m_looking = false;
 		m_world.GetParty().EndLook(); // RMB up: the offset eases back to orthogonal

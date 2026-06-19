@@ -34,6 +34,8 @@ enum class Easing {
 	Bounce,      // settles onto the target with a few decaying bounces
 	Elastic,     // overshoots and springs back like a damped oscillator
 	Back,        // small anticipation pull-back, overshoots, then settles
+	EaseInCubic, // cubic: very slow start, strong fast finish
+	EaseInQuart, // quartic: even slower start, harder fast finish
 };
 
 namespace detail {
@@ -89,6 +91,10 @@ inline float Ease(Easing type, float t) {
 		const float u = t - 1.0f;
 		return 1.0f + c3 * u * u * u + c1 * u * u; // back-out: overshoot then settle
 	}
+	case Easing::EaseInCubic:
+		return t * t * t;
+	case Easing::EaseInQuart:
+		return t * t * t * t;
 	}
 	return t;
 }

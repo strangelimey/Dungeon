@@ -1086,11 +1086,18 @@ assets::ModelData BuildSerpentPillar() {
 		}
 	mesh.material = 0;
 	model.meshes.push_back(std::move(mesh));
-	model.materials.push_back({{0.35f, 0.85f, 0.65f, 1.0f}, -1});
+	// Deep, muted jade (the flat surface color — the game discards the stone set's
+	// purple albedo and keeps only its normal/ORM relief). A pale mint read as soap;
+	// this darker, grayer green reads as carved gemstone.
+	model.materials.push_back({{0.20f, 0.45f, 0.33f, 1.0f}, -1});
 
+	// A faint, slow shimmer — NOT a writhe. Tiny per-joint amplitudes keep the
+	// silhouette a near-rigid carved column (large amplitudes compounded over the
+	// 4-joint chain into a snake-like S-bend that read as intestinal); the slow
+	// period reads as a living-stone breath rather than a wriggle.
 	assets::AnimationClipData clip;
 	clip.name = "sway";
-	clip.duration = 4.0f;
+	clip.duration = 6.0f;
 	constexpr int kKeys = 33;
 	for (int j = 1; j < kJoints; ++j) {
 		assets::AnimationChannelData channel;
@@ -1100,8 +1107,8 @@ assets::ModelData BuildSerpentPillar() {
 			const float t = clip.duration * static_cast<float>(k) / (kKeys - 1);
 			channel.times.push_back(t);
 			const float phase = t / clip.duration * 2.0f * kPi;
-			const Quat q = QuatFromEuler(std::cos(phase * 2.0f + j * 0.5f) * 0.10f, 0,
-										 std::sin(phase + j * 0.9f) * 0.22f);
+			const Quat q = QuatFromEuler(std::cos(phase * 2.0f + j * 0.5f) * 0.025f, 0,
+										 std::sin(phase + j * 0.9f) * 0.045f);
 			channel.values.push_back({q.x, q.y, q.z, q.w});
 		}
 		clip.channels.push_back(std::move(channel));
