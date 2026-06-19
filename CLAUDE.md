@@ -435,6 +435,14 @@ memory.
   of `H:\Dungeon` at once — switching HEAD switches it for everyone and their
   uncommitted edits intermingle (this bit us: rune work and a save-improvements
   session collided in the same tree).
+- AFTER a branch is merged to main, TIDY UP its worktree so the drive doesn't
+  fill up. Once the merge is on main and pushed, remove the now-dead working
+  copy: `git worktree remove ../Dungeon-<branch>` (add `--force` if it still
+  holds leftover gitignored files like the baked textures), then `git branch -d
+  <branch>` to drop the merged branch and `git worktree prune` to clear stale
+  metadata. First confirm the branch really is merged (`git branch --merged
+  main`) with no uncommitted/unpushed work — the worktree's textures are
+  regenerable (FetchTextures.ps1) but un-merged commits are not.
 - NEVER rewrite UTF-8 files via PowerShell Get-Content/Set-Content — it
   mojibakes em-dashes (happened twice). Use the Write/Edit tools.
 - User prefs: concise replies, no emojis; permission prompts disabled.
