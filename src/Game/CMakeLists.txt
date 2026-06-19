@@ -14,6 +14,7 @@ add_library(Game STATIC
 	Game.cpp
 	GameSettings.cpp
 	GameUI.cpp
+	MapEditor.cpp
 	MapView.cpp
 	MessageLog.cpp
 	Party.cpp

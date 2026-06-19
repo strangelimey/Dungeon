@@ -63,9 +63,11 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	  m_ui(window, device, spriteBatch, audio, m_sounds, m_settings,
 		   m_characters),
 	  m_mapView(device, m_world, m_settings),
+	  m_mapEditor(m_mapView, m_world, m_settings),
 	  m_console(device),
 	  m_modelPreview(device, 512),
 	  m_assetDialog(device, window) {
+	m_mapView.SetEditor(&m_mapEditor); // the view drives the editor in Editor mode
 	m_settings.Load();
 	ApplyLanguage(false); // strings must exist before any UI builds
 	m_audio.SetMasterVolume(m_settings.volume);
@@ -163,11 +165,11 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 
 	// Editor: a palette "+ New" opens the asset-creation dialog for that category
 	// (Walls/Floors/Ceilings import a texture folder; the rest import a model).
-	m_mapView.onNewAsset = [this](MapView::PaletteCat cat) {
-		const char* key = MapView::CategoryCatalogKey(cat);
+	m_mapEditor.onNewAsset = [this](MapEditor::PaletteCat cat) {
+		const char* key = MapEditor::CategoryCatalogKey(cat);
 		if (!*key) return; // Tools/Structure aren't creatable
-		m_assetDialog.Open(loc::Tr(MapView::CategoryNameKey(cat)), key,
-						   MapView::CategoryTextureSet(cat), m_settings.theme);
+		m_assetDialog.Open(loc::Tr(MapEditor::CategoryNameKey(cat)), key,
+						   MapEditor::CategoryTextureSet(cat), m_settings.theme);
 	};
 	// Create runs AssetBaker on the picked source (P4c); the dialog stays open in
 	// a "baking…" state until Update sees the subprocess finish.
@@ -373,6 +375,27 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 							   return;
 						   }
 						   for (const std::string& l : list) m_console.Print("  " + l);
+					   });
+	m_console.Register("buttons", "list buttons (id, cell, state)",
+					   [this](const std::vector<std::string>&) {
+						   const std::vector<std::string> list = m_world.ButtonList();
+						   if (list.empty()) {
+							   m_console.Print("no buttons");
+							   return;
+						   }
+						   for (const std::string& l : list) m_console.Print("  " + l);
+					   });
+	m_console.Register("press", "toggle the button in cell x,z (exercises save)",
+					   [this](const std::vector<std::string>& args) {
+						   if (!Need(m_console, args, 2, "usage: press <x> <z>")) return;
+						   const int x = std::atoi(args[0].c_str());
+						   const int z = std::atoi(args[1].c_str());
+						   bool on = false;
+						   if (m_world.ToggleButtonAt(x, z, on))
+							   m_console.Print(std::format("button {},{} -> {}", x, z,
+														   on ? "on" : "off"));
+						   else
+							   m_console.Print(std::format("no button at {},{}", x, z));
 					   });
 	m_console.Register("lights", "print active point-light count",
 					   [this](const std::vector<std::string>&) {
@@ -1127,7 +1150,7 @@ void Game::Update(float dt) {
 		m_world.GetParty().AddLook(-dx * kLookSensitivity, -dy * kLookSensitivity);
 	} else if (m_looking) {
 		m_looking = false;
-		m_world.GetParty().EndLook(); // RMB up: the parked offset holds until a move
+		m_world.GetParty().EndLook(); // RMB up: the offset eases back to orthogonal
 	}
 	m_world.Update(input, wdt, m_time);
 	if (auto t = m_world.ConsumeLevelTransition()) {

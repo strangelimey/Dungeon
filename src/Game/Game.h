@@ -45,6 +45,7 @@
 #include "Game/GameSettings.h"
 #include "Game/GameUI.h"
 #include "Game/LoadQueue.h"
+#include "Game/MapEditor.h"
 #include "Game/MapView.h"
 #include "Game/Project.h"
 #include "Game/SoundBank.h"
@@ -216,6 +217,10 @@ private:
 	// does NOT pause the world — the party keeps walking; the overlay only
 	// claims the mouse for panning/zooming/editing.
 	MapView m_mapView;
+	// The Editor-mode brush palette + tools, driven by m_mapView while it is in
+	// Editor mode (see MapEditor.h). Declared after m_mapView so it can take a
+	// reference to it in the ctor init list.
+	MapEditor m_mapEditor;
 	// Fullscreen dev overlay (toggle with `~`); does not pause the world.
 	DevConsole m_console;
 

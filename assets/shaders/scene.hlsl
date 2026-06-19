@@ -40,6 +40,9 @@ cbuffer ObjectConstants : register(b1) {
 	float gRoughness;
 	uint gUseMRMap;
 	float _pad1;
+	// Additive emissive radiance (rgb), added after shading — a self-lit glow
+	// independent of scene lights (the runes pulse in their element colour).
+	float4 gEmissive;
 };
 
 cbuffer SkinConstants : register(b2) {
@@ -357,6 +360,14 @@ float4 PSMain(PSInput input) : SV_TARGET {
 	roughness = clamp(roughness, 0.04, 1.0);
 
 	float3 color = Shade(albedo.rgb, metallic, roughness, ao, normal, input.worldPos);
+	// Element glow as an AURA rather than a panel: weak across the face,
+	// intensifying at grazing angles (Fresnel) so the rune's silhouette/edges
+	// glow and the stone still reads as stone. Zero for everything but runes.
+	if (any(gEmissive.rgb > 0.0)) {
+		const float3 viewDir = normalize(gCameraPos.xyz - input.worldPos);
+		const float rim = pow(1.0 - saturate(dot(normal, viewDir)), 2.5);
+		color += gEmissive.rgb * (0.30 + 0.70 * rim);
+	}
 	color = ApplyDust(color, input.worldPos);
 
 	// Simple tonemap + gamma (back buffer is UNORM).
