@@ -31,7 +31,7 @@ namespace dungeon::game {
 
 // The serializable dynamic state of one in-progress game.
 struct SaveData {
-	int version = 5; // v5: weapon hands folded into equipment[] (no "hands" line)
+	int version = 6; // v6: free-look offset ("look" line); v5 folded hands into equip[]
 	std::string name;         // display name (free text; may contain spaces)
 	std::string currentLevel; // the level stem the party is on (where to resume)
 	std::string timestamp;    // human-readable local time, for the slot list
@@ -39,6 +39,12 @@ struct SaveData {
 	// --- party (no static baseline → stored whole) --------------------------
 	int partyX = 0, partyZ = 0;
 	int partyFacing = 2; // 0=N 1=E 2=S 3=W
+	// Right-mouse free-look offset (radians) layered on the grid facing, so a
+	// save mid-look returns to the EXACT camera angle. The offset parks where the
+	// player left it (it eases back only on the next move); looking marks an
+	// active drag. Defaults (0/0/false) = orthogonal, so pre-v6 saves load square-on.
+	float lookYaw = 0.0f, lookPitch = 0.0f;
+	bool looking = false;
 
 	int torchPalette = 0; // HUD torchlight index (0 warm, 1 cold, 2 eerie)
 

@@ -105,8 +105,9 @@ public:
 	// also treat the click as a pick/drop). Valid after UpdateHud.
 	bool HudMouseConsumed() const { return m_hudUi.IsMouseConsumed(); }
 
-	// Party inventory window (right-click while holding). Non-modal; Game drives
-	// open/close (and routes Esc to close it before the pause menu).
+	// Party inventory window (right-click a portrait). Non-modal; Game drives
+	// open/close (and routes Esc to close it before the pause menu). The world
+	// view's right button is mouse-look, so it no longer opens this.
 	void OpenInventory();
 	void CloseInventory();
 	bool InventoryOpen() const;

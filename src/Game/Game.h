@@ -167,6 +167,11 @@ private:
 	// the LoadingLevel queue finishes): the cell + facing the party enters at.
 	int m_pendingLevelX = 0, m_pendingLevelZ = 0;
 	Direction m_pendingLevelFacing = Direction::South;
+	// Free-look offset to re-layer once the arriving party is placed. Orthogonal
+	// for ordinary transitions (stairs/new game); a save load on a DIFFERENT level
+	// seeds it from the save so the exact look angle survives the level rebuild.
+	float m_pendingLookYaw = 0.0f, m_pendingLookPitch = 0.0f;
+	bool m_pendingLooking = false;
 
 	// --- modules (construction order matters: settings load first, the world
 	// and UI reference settings/sounds/characters) -------------------------------
@@ -198,6 +203,12 @@ private:
 	// clicking a floor tablet; cleared by dropping it (world / portrait / hand /
 	// inventory). GameUI reads the address to draw the cursor icon.
 	std::optional<std::string> m_heldItem;
+
+	// Right-mouse free-look drag: the previous cursor position, so each frame's
+	// motion becomes a yaw/pitch delta. Valid only while m_looking (RMB held).
+	bool m_looking = false;
+	float m_lookPrevX = 0.0f;
+	float m_lookPrevY = 0.0f;
 
 	DungeonWorld m_world;
 	GameUI m_ui;

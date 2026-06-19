@@ -549,6 +549,10 @@ void Game::BeginLevelTransition(const std::string& stem, int x, int z,
 	m_pendingLevelX = x;
 	m_pendingLevelZ = z;
 	m_pendingLevelFacing = facing;
+	// Ordinary transitions arrive square-on; a save load overrides this right
+	// after the call (the only path that carries a free-look offset across levels).
+	m_pendingLookYaw = m_pendingLookPitch = 0.0f;
+	m_pendingLooking = false;
 	m_state = AppState::LoadingLevel;
 	m_stateFrameMark = m_framesRendered;
 }
@@ -769,10 +773,19 @@ bool Game::LoadGame(const std::string& path) {
 		BeginLevelTransition(data->currentLevel, data->partyX, data->partyZ,
 							 static_cast<Direction>(data->partyFacing),
 							 /*stashCurrent=*/false);
+		// Carry the free-look offset across the level rebuild (PlacePartyAt would
+		// otherwise leave the party square-on) — applied once the load finishes.
+		m_pendingLookYaw = data->lookYaw;
+		m_pendingLookPitch = data->lookPitch;
+		m_pendingLooking = data->looking;
 		log::Info("Loaded game from {} (loading {})", path, data->currentLevel);
 		return true;
 	}
 
+	// Same level: ApplyState already re-layered the look offset (parked at the
+	// saved angle); mirror its looking flag into the RMB tracker so it clears
+	// cleanly if the button isn't actually held.
+	m_looking = m_world.GetParty().IsLooking();
 	m_world.ApplyActiveSnapshot(); // restore the active level's fog + entity diff
 	m_ui.ClearLog(); // SetTorchPalette logged a line during ApplyState
 	m_ui.AddLogLine(loc::Tr("log.descend"));
@@ -982,6 +995,13 @@ void Game::Update(float dt) {
 				pz = m_world.Map().StartZ();
 			}
 			m_world.PlacePartyAt(px, pz, m_pendingLevelFacing);
+			// Re-layer the saved free-look offset on the placed party (a save load
+			// onto a different level; orthogonal for ordinary transitions). The
+			// offset parks at the saved angle; mirror the looking flag into the RMB
+			// tracker so it clears cleanly if the button isn't actually held.
+			m_world.GetParty().SetLookState(m_pendingLookYaw, m_pendingLookPitch,
+											m_pendingLooking);
+			m_looking = m_pendingLooking;
 			m_ui.ClearLog();
 			m_state = AppState::Playing;
 		}
@@ -1081,9 +1101,33 @@ void Game::Update(float dt) {
 			} else if (auto picked = m_world.TryPickItem(mx, my, w, h)) {
 				m_heldItem = std::move(picked);
 			}
-		} else if (m_heldItem && input.WasMousePressed(MouseButton::Right)) {
-			m_ui.OpenInventory(); // right-click while holding opens the backpacks
 		}
+		// Right-mouse free-look: hold RMB and drag to swing the view. Begin on a
+		// press over the 3D view (not a HUD widget); the party folds the offset
+		// into a grid turn once it passes 45° (Party::AddLook). The handler below
+		// runs every frame the button is down so the drag keeps tracking even if
+		// the cursor wanders over the HUD.
+		if (input.WasMousePressed(MouseButton::Right)) {
+			m_looking = true;
+			m_lookPrevX = mx;
+			m_lookPrevY = my;
+			m_world.GetParty().BeginLook();
+		}
+	}
+	// Free-look drag/release is tracked outside the HUD-consumed gate so a drag
+	// that strays over the bar (or a release there) still resolves.
+	if (m_looking && input.IsMouseDown(MouseButton::Right)) {
+		// ~0.005 rad per pixel: a quarter turn (45°) in ~157px of drag.
+		constexpr float kLookSensitivity = 0.005f;
+		const float dx = input.MouseX() - m_lookPrevX;
+		const float dy = input.MouseY() - m_lookPrevY;
+		m_lookPrevX = input.MouseX();
+		m_lookPrevY = input.MouseY();
+		// Drag right -> view swings right (clockwise); drag down -> look down.
+		m_world.GetParty().AddLook(-dx * kLookSensitivity, -dy * kLookSensitivity);
+	} else if (m_looking) {
+		m_looking = false;
+		m_world.GetParty().EndLook(); // RMB up: the parked offset holds until a move
 	}
 	m_world.Update(input, wdt, m_time);
 	if (auto t = m_world.ConsumeLevelTransition()) {

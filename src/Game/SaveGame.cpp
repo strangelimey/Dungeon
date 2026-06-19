@@ -45,6 +45,11 @@ bool WriteSave(const SaveData& data, const std::string& path) {
 	t += std::format("save current={}\n", data.currentLevel);
 	t += std::format("save time={}\n", data.timestamp);
 	t += std::format("party {} {} {}\n", data.partyX, data.partyZ, data.partyFacing);
+	// Free-look offset (radians) + whether a look drag was in flight. Always
+	// written; pre-v6 readers ignore unknown lines and pre-v6 saves simply lack
+	// it (look defaults to 0 → orthogonal).
+	t += std::format("look {:.5f} {:.5f} {}\n", data.lookYaw, data.lookPitch,
+					 data.looking ? 1 : 0);
 	t += std::format("torch {}\n", data.torchPalette);
 
 	// Empty item ids serialize as "-" so slot positions are preserved. Inventory
@@ -137,6 +142,10 @@ std::optional<SaveData> ReadSave(const std::string& path) {
 			data.partyX = IntOf(tok[1]);
 			data.partyZ = IntOf(tok[2]);
 			data.partyFacing = IntOf(tok[3]);
+		} else if (kw == "look" && tok.size() >= 4) {
+			data.lookYaw = FloatOf(tok[1]);
+			data.lookPitch = FloatOf(tok[2]);
+			data.looking = IntOf(tok[3]) != 0;
 		} else if (kw == "torch" && tok.size() >= 2) {
 			data.torchPalette = IntOf(tok[1]);
 		} else if (kw == "char" && tok.size() >= 8) {

@@ -845,6 +845,9 @@ void DungeonWorld::CaptureState(SaveData& out) const {
 	out.partyX = m_party.GridX();
 	out.partyZ = m_party.GridZ();
 	out.partyFacing = m_party.Facing();
+	out.lookYaw = m_party.LookYaw();
+	out.lookPitch = m_party.LookPitch();
+	out.looking = m_party.IsLooking();
 	out.torchPalette = m_torchPalette;
 
 	// Every inactive visited level, plus the live one.
@@ -856,6 +859,8 @@ void DungeonWorld::CaptureState(SaveData& out) const {
 void DungeonWorld::ApplyState(const SaveData& in) {
 	m_party.SetGridPosition(in.partyX, in.partyZ); // keeps facing, clears interp
 	m_party.SetFacing(in.partyFacing);
+	// Re-layer the free-look offset on the restored facing (SetFacing cleared it).
+	m_party.SetLookState(in.lookYaw, in.lookPitch, in.looking);
 	SetTorchPalette(in.torchPalette);
 
 	// Load every level's saved state into the per-level store. The active level's
@@ -1238,7 +1243,7 @@ std::vector<std::string> DungeonWorld::MonsterList() const {
 
 void DungeonWorld::UpdateCamera() {
 	m_camera.SetPosition(m_party.EyePosition());
-	m_camera.SetYawPitch(m_party.Yaw(), 0.0f);
+	m_camera.SetYawPitch(m_party.EyeYaw(), m_party.EyePitch());
 	m_camera.SetLens(m_fovDegrees * kPi / 180.0f,
 					 static_cast<float>(m_device.Width()) /
 						 static_cast<float>(m_device.Height()),
