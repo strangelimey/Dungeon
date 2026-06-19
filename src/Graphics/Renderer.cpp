@@ -66,6 +66,7 @@ struct ObjectConstants {
 	float roughness;
 	u32 useMRMap;
 	float pad;
+	Vec4 emissive;
 };
 
 } // namespace
@@ -482,6 +483,7 @@ void Renderer::DrawMesh(ID3D12GraphicsCommandList* list, const Mesh& mesh,
 	object.metallic = material.metallic;
 	object.roughness = material.roughness;
 	object.useMRMap = material.metalRough != nullptr ? 1u : 0u;
+	object.emissive = {material.emissive.x, material.emissive.y, material.emissive.z, 0.0f};
 	UploadAllocation objAlloc = allocator.Allocate(sizeof(ObjectConstants));
 	std::memcpy(objAlloc.cpu, &object, sizeof(object));
 	list->SetGraphicsRootConstantBufferView(1, objAlloc.gpu);
