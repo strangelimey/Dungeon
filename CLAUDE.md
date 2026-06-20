@@ -266,7 +266,8 @@ appear only when a save exists; all entries work) → Playing ⇄ Paused (Esc in
 the world and shows Save/Load/Settings/Exit/Back over the scene; Esc backs
 out / resumes). Esc on the landing page quits; in-game quit is the pause
 menu's Exit (Game::QuitRequested polled by the main loop). Monsters
-block movement (no combat yet); fires are sconces at 'T' (wall-mounted,
+chase + melee the party, driven OFF the main thread (see "Threading & async
+monster AI" below); fires are sconces at 'T' (wall-mounted,
 light at flame) and braziers at 'F', each with FireEffect particles
 (flame/spark/smoke via gfx::ParticleBatch premultiplied billboards) and
 fire-driven turbidity rings around them.
@@ -303,6 +304,66 @@ walk/turn tweens). The free-look offset is part of the save (DungeonWorld::
 CaptureState/ApplyState + the SaveData look line), so a reload restores the exact
 camera angle. Every duration, the hold, and both curves are user-tunable on the
 Settings → Controls "Mouse Look" section (LookSettings, pushed in via SetLook).
+
+## Threading & async monster AI
+
+Monster AI runs OFF the main thread. Core/ThreadManager (namespace
+dungeon::threads) is the engine-wide worker-thread registry — the one home for
+"lots of stuff on lots of threads"; everything threaded becomes a CLIENT of it.
+A worker runs a JobFn once per tick in a loop the Manager owns; the Manager
+handles cadence (Options::hz), cooperative cancellation (std::jthread +
+stop_token — the cadence sleep is a condition_variable_any that wakes on stop),
+per-tick crash capture (a throwing job records the error and keeps running, no
+std::terminate), and OS thread naming (SetThreadDescription → workers show by
+name in the debugger/profilers). Full control surface, addressed by STABLE
+WorkerId (monotonic, NOT the array index — so Reap can drop dead slots while
+survivors keep their ids): Pause/Resume, SetRate (live cadence), SetPriority/
+SetAffinity, RequestStop (cooperative) vs Kill (HARD — request stop, 250ms
+grace, then TerminateThread + detach + State::Quarantined; force-termination can
+leak the CRT heap lock → process-fatal, genuine last resort), Restart (reboot a
+slot, force-terminating a wedged one so it never hangs), SetGlobalThrottle (a
+governor scaling EVERY worker's cadence; wakeNow=false for per-frame use so it
+doesn't wake everyone each frame), Reap (drop Dead/Quarantined slots). A built-in
+supervisor thread auto-reboots an autoRestart worker that stalls past 5× its
+watchdog. Watchdog "stall" is a DERIVED view in Inspect (a tick still Running
+past Options::watchdogMs), not a stored state. Lock order: m_mx (registry) →
+per-worker sleepMx; lifecycle ops serialize on a per-worker controlMx; Inspect/
+SnapshotAll read atomics so they never block a worker. The Manager is owned by
+Game (declared BEFORE m_world so it outlives every client) and is inspected/
+controlled live from the dev console.
+
+The AI itself (Game/MonsterAI.h, namespace dungeon::ai) is walled off like
+MagicSystem — it knows nothing about DungeonWorld/Party/map, reaching the world
+only through ai::IWorldView. THINKING is split from ACTING: Brain::Think (cheap,
+IQ-gated) sets a monster's standing orders (ai::Intent: idle, or engage toward a
+cell) plus a full chase PATH (Brain::FindPath, 4-connected BFS); the host
+EXECUTES those orders EVERY frame at the monster's own move/attack cadence — so a
+dim monster still moves and swings at full speed, only its CHANGE OF MIND lags.
+ai::AsyncDirector spawns one worker per IQ bucket (4) on the Manager. Each frame
+the main thread publishes an immutable ai::Snapshot (party cell, a revision-
+cached walkability grid, live monster positions + per-monster id/iq/aggro — from
+a POOL of reused buffers so steady-state frames allocate nothing per the memory
+strategy) and the workers post ai::Plan batches (intent + path) the main thread
+consumes and executes (popping path cells, re-validating each against LIVE
+occupancy). Plans are keyed by a STABLE per-monster runtimeId (DungeonWorld
+assigns from m_nextMonsterId, never reused) — NOT an array index — so a plan
+whose monster died / changed bucket / was erased simply finds no match
+(MonsterByRuntimeId) and is dropped, never misapplied to a neighbour that shifted
+into its slot. A monster's iq (monsters.cat field; Scheduler::BucketForIq) picks
+its bucket; bucket intervals are PRIME milliseconds (251/499/997/1999 ms ≈
+4/2/1/0.5 Hz; Scheduler::BucketInterval) — coprime, so the buckets almost never
+fire together (cicada pattern) instead of resonating like power-of-two harmonics.
+
+Dev console (`~`) THREADS panel (top, under the perf gauges): a live row per
+worker (name / state[colored] / iterations / last+avg ms / hz / pN priority /
+reN restarts) with clickable halt|run, << / >> (halve/double rate), kill, and
+boot (reboot a dead/quarantined slot). Layout lives in one place — Render records
+the button rects, next frame's Update hit-tests clicks. Commands: throttle
+<scale> (manual governor), governor auto [targetFps] | off (ADAPTIVE — eases all
+background cadences when the frame's over budget, asymmetric easing so it
+recovers; opt-in, keys off whole-frame time so it's a coarse heuristic, can be
+GPU-bound), threadprio/threadaffinity <id> ..., threadspawn/threadwedge (stress
+workers — the latter ignores its token, to exercise the hard Kill), threadreap.
 
 ## Map overlay / editor (MapView)
 
@@ -449,11 +510,12 @@ memory.
 
 ## Known gaps / natural next steps
 
-- No combat: monsters are static blockers that announce + face the party.
-  Character stats (Character.h) are static placeholder data — nothing
-  drains health/stamina/mana yet. Portraits are simple baked busts
-  (AssetBaker portraits); the tinted-initial fallback still draws if the
-  textures are missing.
+- Monsters chase + melee the party via the async AI (see "Threading & async
+  monster AI"); a landed hit drains party health (Combat.cpp /
+  DungeonWorld::MonsterAttack), and mana regenerates over time. Still thin —
+  no monster ranged/special attacks, and character progression is shallow.
+  Portraits are simple baked busts (AssetBaker portraits); the tinted-initial
+  fallback still draws if the textures are missing.
 - Monster models are still simple procedural rigs (tapered-tube limbs + a
   skull for the humanoids, a lumpy sphere for the blob); a bought/authored
   rigged glTF would drop in via LoadModel (JOINTS_0 remap already handled).
