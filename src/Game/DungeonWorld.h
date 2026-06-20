@@ -418,6 +418,10 @@ private:
 	};
 
 	// --- loading ---------------------------------------------------------------
+	// The project's first level stem (the level the game opens). A static member
+	// because both the ctor (DungeonWorld.cpp) and AppendLoadTasks
+	// (DungeonWorld_Load.cpp) resolve it.
+	static std::string FirstLevel(const Project& project);
 	// One surface's texture sets + the height scale its parallax uses. The three
 	// SurfaceDefs (walls/floors/ceilings) point at the resolved palettes
 	// (m_wallSets/...) and scales filled by ResolveSurfacePalettes, shared by the
@@ -550,6 +554,10 @@ private:
 	SurfaceChunk MakeSurfaceChunk(GeometryChunk& gc);
 
 	// --- rendering / culling ----------------------------------------------------
+	// A rune's pulse multiplier (its emissive glow + the light it casts breathe in
+	// lockstep). A static member because UpdateLights (DungeonWorld.cpp) and
+	// SubmitSceneGeometry (DungeonWorld_Render.cpp) both read it.
+	static float RunePulse(float time, int id);
 	// One culler for both passes: a camera frustum (main pass) or a light sphere
 	// (shadow pass). Chunks test as AABBs, discrete meshes as bounding spheres.
 	// "Inside" for the frustum is plane·p >= 0 on all six planes.
