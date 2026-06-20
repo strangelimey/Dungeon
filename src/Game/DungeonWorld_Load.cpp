@@ -263,6 +263,7 @@ DungeonWorld::MonsterKind& DungeonWorld::MonsterKindFor(const std::string& type)
 			assets->attackInterval = def->GetFloat("attackcd", 1.6f);
 			assets->aggroRange = def->GetFloat("aggro", 6.0f);
 			assets->moveInterval = def->GetFloat("movecd", 0.6f);
+			assets->iq = def->GetFloat("iq", 100.0f);
 			assets->facesTarget = def->GetBool("faces", true);
 			assets->fallbackRoughness = def->GetFloat("roughness", 0.9f);
 		}

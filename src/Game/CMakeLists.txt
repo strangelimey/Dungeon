@@ -20,6 +20,7 @@ add_library(Game STATIC
 	Magic.cpp
 	MapEditor.cpp
 	MapView.cpp
+	MonsterAI.cpp
 	MessageLog.cpp
 	Party.cpp
 	PartyHud.cpp

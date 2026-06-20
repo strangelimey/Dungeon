@@ -14,7 +14,6 @@
 #include <algorithm>
 #include <cmath>
 #include <format>
-#include <queue>
 
 using namespace DirectX;
 
@@ -650,6 +649,12 @@ void DungeonWorld::UpdateMonsters(float dt) {
 			}
 		}
 
+	// Which AI think buckets re-plan this frame (IQ-driven; see ai::Scheduler).
+	// Only the brain's THINK is gated by this — per-frame motion and acting on the
+	// last plan run for every monster regardless, so a low-IQ monster still moves,
+	// attacks, and animates at full speed; it just reconsiders its plan less often.
+	const unsigned dueBuckets = m_aiScheduler.Tick(dt);
+
 	for (size_t i = 0; i < m_monsters.size(); ++i) {
 		Monster& monster = m_monsters[i];
 		if (!monster.Alive()) continue; // downed — no animation, no AI, not solid
@@ -675,33 +680,49 @@ void DungeonWorld::UpdateMonsters(float dt) {
 			}
 		}
 
-		const int dx = std::abs(monster.x - m_party.GridX());
-		const int dz = std::abs(monster.z - m_party.GridZ());
-		const int dist = std::max(dx, dz); // Chebyshev cells to the party
-		const bool engaged = static_cast<float>(dist) <= monster.kind->aggroRange;
+		const ai::Agent agent{static_cast<int>(i), monster.x, monster.z,
+							   monster.kind->aggroRange};
 
-		// Turn to face the party once engaged (radial models opt out via the
-		// catalog `faces` field). Based on the visual position so the turn glides.
-		if (engaged && monster.kind->facesTarget)
+		// THINK (IQ-gated): refresh the standing orders only when this monster's
+		// bucket is due this frame. Cheap — no pathing — so re-planning is what we
+		// throttle, not motion. Between thinks the monster keeps its last intent.
+		if (dueBuckets & (1u << ai::Scheduler::BucketForIq(monster.kind->iq)))
+			monster.intent = m_brain.Think(agent, {m_party.GridX(), m_party.GridZ()});
+
+		if (monster.intent.mode != ai::Intent::Mode::Engage) continue; // idle: nothing to do
+
+		// ACT (every frame, at the monster's OWN cadence): execute the standing
+		// orders. A low-IQ monster can still move fast and swing relentlessly here;
+		// only its CHANGE OF MIND (re-targeting via Think above) lags.
+
+		// Turn to face the party (from the visual position so the turn glides).
+		if (monster.kind->facesTarget)
 			monster.yaw = std::atan2(partyPos.x - monster.visualPos.x,
 									 partyPos.z - monster.visualPos.z);
 
-		// Announce once when the party first comes adjacent.
-		if (!monster.announced && dist <= 1) {
+		// Live adjacency to the party drives the swing (the monster hits whoever is
+		// actually next to it, not its possibly-stale chase target).
+		const int liveDist = std::max(std::abs(monster.x - m_party.GridX()),
+									  std::abs(monster.z - m_party.GridZ()));
+
+		// Announce once, when the party is actually adjacent.
+		if (!monster.announced && liveDist <= 1) {
 			monster.announced = true;
 			onMessage(loc::Format("log.monster_stirs",
 								  loc::Tr("monster." + monster.kind->name)));
 			m_audio.Play(m_sounds.monster, 0.7f);
 		}
 
-		// Chase: engaged and not yet adjacent -> step one cell toward the party
-		// (logical cell snaps now, the glide above carries the visual). Adjacent
-		// and off cooldown -> swing at a random standing member instead.
-		if (dist <= 1) {
+		if (liveDist <= 1) {
+			// Adjacent: swing at a random standing member when the cooldown allows.
 			if (monster.attackCd <= 0.0f) MonsterAttack(monster);
-		} else if (engaged && !monster.moving && monster.moveCd <= 0.0f) {
+		} else if (!monster.moving && monster.moveCd <= 0.0f) {
+			// Not adjacent: step one cell toward the last-known party cell (the
+			// logical cell snaps now, the glide above carries the visual). Pathing
+			// at the move cadence, NOT the think rate, decouples speed from IQ.
 			int nx = 0, nz = 0;
-			if (NextStepToward(monster, i, nx, nz)) {
+			if (m_brain.NextStep(agent, monster.intent.targetX, monster.intent.targetZ,
+								 m_map.Width(), m_map.Height(), m_aiView, nx, nz)) {
 				monster.moveFrom = monster.visualPos;
 				monster.x = nx;
 				monster.z = nz;
@@ -713,57 +734,14 @@ void DungeonWorld::UpdateMonsters(float dt) {
 	}
 }
 
-bool DungeonWorld::CellFreeForMonster(int x, int z, size_t self) const {
+bool DungeonWorld::CellFreeForMonster(int x, int z, int self) const {
 	if (!m_map.IsWalkable(x, z)) return false;
 	if (x == m_party.GridX() && z == m_party.GridZ()) return false;
 	for (size_t i = 0; i < m_monsters.size(); ++i) {
-		if (i == self) continue;
+		if (static_cast<int>(i) == self) continue;
 		const Monster& o = m_monsters[i];
 		if (o.Alive() && o.x == x && o.z == z) return false;
 	}
-	return true;
-}
-
-bool DungeonWorld::NextStepToward(const Monster& monster, size_t self, int& outX,
-								  int& outZ) {
-	const int W = m_map.Width(), H = m_map.Height();
-	if (W <= 0 || H <= 0) return false;
-	const int startIdx = monster.z * W + monster.x;
-	const int goalIdx = m_party.GridZ() * W + m_party.GridX();
-
-	m_pathFrom.assign(static_cast<size_t>(W) * H, -1);
-	std::queue<int> open;
-	m_pathFrom[startIdx] = startIdx; // self-parent = visited sentinel
-	open.push(startIdx);
-
-	static constexpr int kDX[4] = {1, -1, 0, 0};
-	static constexpr int kDZ[4] = {0, 0, 1, -1};
-	bool found = false;
-	while (!open.empty()) {
-		const int cur = open.front();
-		open.pop();
-		if (cur == goalIdx) { found = true; break; }
-		const int cx = cur % W, cz = cur / W;
-		for (int d = 0; d < 4; ++d) {
-			const int nx = cx + kDX[d], nz = cz + kDZ[d];
-			if (nx < 0 || nz < 0 || nx >= W || nz >= H) continue;
-			const int nidx = nz * W + nx;
-			if (m_pathFrom[nidx] != -1) continue; // already visited
-			// The goal (party cell) is reachable as the BFS target even though a
-			// monster can't stand on it; every other cell must be free to walk.
-			if (nidx != goalIdx && !CellFreeForMonster(nx, nz, self)) continue;
-			if (nidx == goalIdx && !m_map.IsWalkable(nx, nz)) continue;
-			m_pathFrom[nidx] = cur;
-			open.push(nidx);
-		}
-	}
-	if (!found) return false;
-
-	// Walk the predecessors back from the goal to the first step off the start.
-	int cur = goalIdx;
-	while (m_pathFrom[cur] != startIdx) cur = m_pathFrom[cur];
-	outX = cur % W;
-	outZ = cur / W;
 	return true;
 }
 

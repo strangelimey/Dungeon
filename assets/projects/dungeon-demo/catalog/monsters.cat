@@ -9,6 +9,9 @@
 ;   attackcd = seconds between the monster's swings
 ;   aggro    = cells of party distance at which it engages
 ;   movecd   = seconds per grid step while chasing (lower = faster)
+;   iq       = how OFTEN it re-thinks, not how well: maps to an AI tick bucket
+;              (default ~100). >=130 fastest (4x/s), >=100 (2x/s), >=70 (1x/s),
+;              else slowest (0.5x/s). Smart foes react crisply; dim ones lag.
 ;   faces    = turn to face the party once engaged (default true; radially
 ;              symmetric models like the blob set false to skip the rotation)
 ;   roughness= flat-material roughness when no PBR texture set is installed
@@ -27,6 +30,7 @@ armor = 0
 attackcd = 1.6
 aggro = 6
 movecd = 0.45
+iq = 135
 
 [blob]
 display = Blob
@@ -40,6 +44,7 @@ armor = 1
 attackcd = 2.2
 aggro = 4
 movecd = 0.95
+iq = 60
 faces = false
 roughness = 0.18
 
@@ -55,3 +60,4 @@ armor = 1
 attackcd = 2.0
 aggro = 5
 movecd = 0.7
+iq = 100

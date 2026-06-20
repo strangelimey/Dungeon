@@ -25,6 +25,7 @@
 #include "Game/GameSettings.h"
 #include "Game/LoadQueue.h"
 #include "Game/Magic.h"
+#include "Game/MonsterAI.h"
 #include "Game/Party.h"
 #include "Game/Project.h"
 #include "Game/SaveGame.h"
@@ -308,6 +309,10 @@ private:
 		float attackInterval = 1.6f; // seconds between swings
 		float aggroRange = 6.0f;     // cells of party distance to engage at
 		float moveInterval = 0.6f;   // seconds per grid step while chasing
+		// How clever the monster is: drives how OFTEN it re-decides (the AI tick
+		// bucket), not what it decides. Higher iq -> a faster bucket (thinks more
+		// often); see ai::Scheduler::BucketForIq. Default ~100 = middle of the pack.
+		float iq = 100.0f;
 		// Behaviour/appearance, data-driven from the catalog so AI and the
 		// flat-material fallback never branch on the type name.
 		bool facesTarget = true;     // turn to face the party once engaged
@@ -335,6 +340,12 @@ private:
 		float moveCd = 0.0f;    // seconds until the next step is allowed
 		bool moving = false;
 		anim::Animator animator;
+
+		// Standing orders from the brain (Game/MonsterAI.h). Refreshed only when
+		// this monster's IQ bucket re-thinks; executed (chase/attack) every frame
+		// in between, so a low-IQ monster keeps acting on a stale plan. Transient
+		// AI state — not saved; the next think rebuilds it within a bucket period.
+		ai::Intent intent;
 
 		float MaxHp() const { return kind ? kind->maxHp : 1.0f; }
 		bool Alive() const { return hp > 0.0f; }
@@ -519,12 +530,8 @@ private:
 	void OnBumpImpact();
 	// True if a monster may stand on (x,z): in bounds, walkable, not the party
 	// cell, and not occupied by another LIVE monster (self excluded by index).
-	bool CellFreeForMonster(int x, int z, size_t self) const;
-	// First grid step (4-connected BFS over walkable, monster-free cells) from
-	// `monster` toward the party cell; writes the next cell to outX/outZ and
-	// returns true when a path step exists. The party cell is the goal (never
-	// stepped onto — callers only move when not already adjacent).
-	bool NextStepToward(const Monster& monster, size_t self, int& outX, int& outZ);
+	// Doubles as the ai::IWorldView seam the monster brain queries while pathing.
+	bool CellFreeForMonster(int x, int z, int self) const;
 
 	// True if a continuously-animating caster (a monster, or the swaying pillar)
 	// is within the light's reach — such a cube must re-render every frame.
@@ -645,9 +652,26 @@ private:
 	// CastSpell delegates to it; the world seam (cell blocking, impact resolution,
 	// fizzle sound) is wired in the constructor. See Magic.h.
 	MagicSystem m_magic;
-	// BFS scratch reused across NextStepToward calls (sized to the map): the
-	// predecessor cell index per cell, -1 = unvisited. Avoids per-step allocs.
-	mutable std::vector<int> m_pathFrom;
+
+	// Monster AI: one monster in, one decision out (Game/MonsterAI.h). The brain
+	// owns the chase pathfinding scratch; UpdateMonsters feeds it a snapshot per
+	// monster and applies what it returns. m_aiView is the read-only world seam
+	// the brain queries (forwards to this world's map/occupancy). A nested struct
+	// so it can reach the private CellFreeForMonster / m_map without friendship.
+	struct AIWorldView : ai::IWorldView {
+		const DungeonWorld* world = nullptr;
+		explicit AIWorldView(const DungeonWorld* w) : world(w) {}
+		bool CellFreeForMonster(int x, int z, int self) const override {
+			return world->CellFreeForMonster(x, z, self);
+		}
+		bool IsWalkable(int x, int z) const override { return world->m_map.IsWalkable(x, z); }
+	};
+	ai::Brain m_brain;
+	AIWorldView m_aiView{this};
+	// IQ-driven tick bucketing: monsters re-decide at their bucket's rate, not
+	// every frame. UpdateMonsters asks the scheduler which buckets are due this
+	// frame and only calls the brain for monsters in those buckets.
+	ai::Scheduler m_aiScheduler;
 
 	std::flat_map<std::string, std::unique_ptr<DecorationKind>> m_decorationKinds;
 	// unique_ptr so DecorationKind::tex stays valid as more sets are added
