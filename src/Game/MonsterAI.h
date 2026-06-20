@@ -64,7 +64,9 @@ public:
 // owns and runs on the main thread.
 // ----------------------------------------------------------------------------
 struct Agent {
-	int id = -1;             // host self-key (monster index within a generation)
+	u32 id = 0;              // host's STABLE monster id (never an array index — so a
+							 // plan always matches the right monster, never a neighbour
+							 // shifted in by an erase/compaction; 0 = none)
 	int x = 0, z = 0;        // logical grid cell
 	float aggroRange = 6.0f; // Chebyshev cells of party distance to engage at
 	float iq = 100.0f;       // think-rate stat -> bucket (Scheduler::BucketForIq)
@@ -76,7 +78,6 @@ struct Agent {
 // grid) so a worker can read it on another thread with zero synchronisation.
 // ----------------------------------------------------------------------------
 struct Snapshot {
-	uint64_t gen = 0;            // monster-set generation; plans tag themselves with it
 	int partyX = 0, partyZ = 0;  // the party's grid cell
 	int mapW = 0, mapH = 0;      // map dimensions
 	// Static walkability, shared across frames and only rebuilt when the map's
@@ -85,7 +86,7 @@ struct Snapshot {
 	// Cells a monster may NOT enter beyond unwalkable: the party cell and every
 	// live monster's cell. Indexed cell = z*mapW + x.
 	std::unordered_set<int> blocked;
-	std::vector<Agent> monsters; // the agents to think for, in monster-index order
+	std::vector<Agent> monsters; // the agents to think for (each carries a stable id)
 };
 
 // ----------------------------------------------------------------------------
@@ -101,8 +102,8 @@ struct Intent {
 	int targetX = 0, targetZ = 0; // chase goal: party cell at think time
 };
 struct Plan {
-	int id = -1;       // monster index this plan is for
-	uint64_t gen = 0;  // snapshot generation it was computed against
+	u32 id = 0;  // STABLE id of the monster this plan is for (matched on consume;
+				 // a plan whose monster is gone simply finds no match and is dropped)
 	Intent intent;
 	std::vector<Cell> path; // steps toward the target (start cell excluded)
 };

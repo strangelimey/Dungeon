@@ -105,7 +105,9 @@ void Brain::FindPath(const Agent& a, int targetX, int targetZ, int mapW, int map
 			if (m_pathFrom[nidx] != -1) continue; // already visited
 			// The goal (last-known party cell) is reachable as the target even if
 			// occupied now; every other cell must be free for a monster to walk.
-			if (nidx != goalIdx && !world.CellFreeForMonster(nx, nz, a.id)) continue;
+			if (nidx != goalIdx &&
+				!world.CellFreeForMonster(nx, nz, static_cast<int>(a.id)))
+				continue;
 			if (nidx == goalIdx && !world.IsWalkable(nx, nz)) continue;
 			m_pathFrom[nidx] = cur;
 			open.push(nidx);
@@ -174,7 +176,6 @@ void AsyncDirector::ComputeBucket(int bucket, Brain& brain) {
 		if (Scheduler::BucketForIq(m.iq) != bucket) continue;
 		Plan plan;
 		plan.id = m.id;
-		plan.gen = snap->gen;
 		plan.intent = brain.Think(m, snap->partyX, snap->partyZ);
 		if (plan.intent.mode == Intent::Mode::Engage)
 			brain.FindPath(m, plan.intent.targetX, plan.intent.targetZ, snap->mapW,

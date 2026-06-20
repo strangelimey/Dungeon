@@ -249,8 +249,7 @@ void DungeonWorld::BeginLevelLoad(const std::string& stem, bool stashCurrent) {
 	// push_back); the surface chunks/blocks/textures self-reset when the caller
 	// re-runs AppendLoadTasks.
 	m_seen.assign(static_cast<size_t>(m_map.Width()) * m_map.Height(), 0);
-	m_monsters.clear();
-	++m_aiGen; // monster indices are about to be reassigned: void any in-flight plans
+	m_monsters.clear(); // new monsters get fresh runtimeIds; stale plans find no match
 	m_walkableCache.reset(); // force a fresh walkability grid for the new level's map
 	m_items.clear();
 	m_buttons.clear();
@@ -742,6 +741,13 @@ void DungeonWorld::UpdateMonsters(float dt) {
 	}
 }
 
+DungeonWorld::Monster* DungeonWorld::MonsterByRuntimeId(u32 id) {
+	if (id == 0) return nullptr;
+	for (Monster& m : m_monsters)
+		if (m.runtimeId == id) return &m;
+	return nullptr;
+}
+
 // Build the immutable world snapshot the AI worker threads read, and publish it.
 // The walkability grid is shared across frames (rebuilt only when the map's
 // revision changes); the rest is a cheap copy of the party cell + live monster
@@ -763,7 +769,6 @@ void DungeonWorld::BuildAISnapshot() {
 	}
 
 	auto snap = std::make_shared<ai::Snapshot>();
-	snap->gen = m_aiGen;
 	snap->partyX = m_party.GridX();
 	snap->partyZ = m_party.GridZ();
 	snap->mapW = m_map.Width();
@@ -771,38 +776,35 @@ void DungeonWorld::BuildAISnapshot() {
 	snap->walkable = m_walkableCache;
 	// Cells a monster may not enter: the party cell and every live monster's cell.
 	snap->blocked.insert(snap->partyZ * snap->mapW + snap->partyX);
-	for (size_t i = 0; i < m_monsters.size(); ++i) {
-		const Monster& m = m_monsters[i];
+	for (const Monster& m : m_monsters) {
 		if (!m.Alive()) continue;
 		snap->blocked.insert(m.z * snap->mapW + m.x);
-		snap->monsters.push_back({static_cast<int>(i), m.x, m.z,
-								  m.kind->aggroRange, m.kind->iq});
+		snap->monsters.push_back({m.runtimeId, m.x, m.z, m.kind->aggroRange, m.kind->iq});
 	}
 	m_director.Publish(std::move(snap));
 }
 
 // Adopt the freshest plan batch from each bucket into the matching monsters. We
-// apply a batch only once (tracked by its sequence) and ignore plans tagged with
-// an older generation (computed before the monster set was last rebuilt).
+// apply a batch only once (tracked by its sequence). Plans are keyed by stable
+// runtimeId, so a plan whose monster has died/moved buckets/been erased simply
+// finds no match here — it can never be misapplied to a different monster.
 void DungeonWorld::ConsumeAIPlans() {
 	for (int b = 0; b < ai::Scheduler::kBucketCount; ++b) {
 		const ai::AsyncDirector::Batch batch = m_director.TakePlans(b);
 		if (!batch.plans || batch.seq == m_lastPlanSeq[b]) continue; // nothing new
 		m_lastPlanSeq[b] = batch.seq;
 		for (const ai::Plan& plan : *batch.plans) {
-			if (plan.gen != m_aiGen) continue; // stale: from before a level reload
-			if (plan.id < 0 || static_cast<size_t>(plan.id) >= m_monsters.size())
-				continue;
-			Monster& monster = m_monsters[plan.id];
-			monster.intent = plan.intent;
-			monster.aiPath = plan.path;
+			Monster* monster = MonsterByRuntimeId(plan.id);
+			if (!monster) continue; // its monster is gone — drop the plan
+			monster->intent = plan.intent;
+			monster->aiPath = plan.path;
 			// Align the cursor to the monster's current cell (it may have stepped
 			// since the snapshot); fall back to the path start if it isn't on it.
-			monster.aiCursor = 0;
-			for (size_t k = 0; k < monster.aiPath.size(); ++k)
-				if (monster.aiPath[k].x == monster.x &&
-					monster.aiPath[k].z == monster.z) {
-					monster.aiCursor = k + 1;
+			monster->aiCursor = 0;
+			for (size_t k = 0; k < monster->aiPath.size(); ++k)
+				if (monster->aiPath[k].x == monster->x &&
+					monster->aiPath[k].z == monster->z) {
+					monster->aiCursor = k + 1;
 					break;
 				}
 		}

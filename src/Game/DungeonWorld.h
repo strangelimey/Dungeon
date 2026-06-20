@@ -323,6 +323,9 @@ private:
 	struct Monster {
 		const MonsterKind* kind = nullptr; // points into m_monsterKinds (stable)
 		int id = -1; // source Entity::id, for save overrides
+		u32 runtimeId = 0; // STABLE per-session id (never reused) that async AI plans
+						   // key off, so a plan always finds the right monster
+						   // regardless of vector reordering/erasure (0 = unassigned)
 		int x, z;
 		int spawnX = 0, spawnZ = 0; // .ent baseline, for the save diff
 		float yaw = 0.0f;
@@ -663,7 +666,12 @@ private:
 	// threads (started on construction, stopped on destruction). See UpdateMonsters
 	// / BuildAISnapshot / ConsumeAIPlans for the per-frame handoff.
 	ai::AsyncDirector m_director;
-	uint64_t m_aiGen = 0; // bumped when the monster set is rebuilt (level reload)
+	// Stable monster-id source: monotonic, session-global, never reused — so an
+	// async plan keyed by a monster's runtimeId can never be misapplied to a
+	// different monster that shifted into its old array slot (and a plan whose
+	// monster is gone simply finds no match). Replaces the old index+generation
+	// scheme, which broke on any mid-flight reorder/erase. Starts at 1 (0 = none).
+	u32 m_nextMonsterId = 1;
 	// Last plan-batch sequence applied per bucket, so we adopt a batch only once.
 	uint64_t m_lastPlanSeq[ai::Scheduler::kBucketCount] = {};
 	// Walkability grid shared into snapshots, rebuilt only when the map changes.
@@ -675,6 +683,9 @@ private:
 	void BuildAISnapshot();
 	// Adopt the freshest plan batches into each monster's intent + cached path.
 	void ConsumeAIPlans();
+	// Live monster with this stable runtimeId, or null if none (died/erased/level
+	// changed). Linear scan — fine at this scale; swap for a map if counts explode.
+	Monster* MonsterByRuntimeId(u32 id);
 
 	std::flat_map<std::string, std::unique_ptr<DecorationKind>> m_decorationKinds;
 	// unique_ptr so DecorationKind::tex stays valid as more sets are added

@@ -277,6 +277,7 @@ DungeonWorld::Monster DungeonWorld::MakeMonster(MonsterKind& kind, int id, int x
 	Monster monster;
 	monster.kind = &kind;
 	monster.id = id;
+	monster.runtimeId = m_nextMonsterId++; // stable id for async AI plan matching
 	monster.x = monster.spawnX = x;
 	monster.z = monster.spawnZ = z;
 	monster.yaw = DirYaw(facing);
