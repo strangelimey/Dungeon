@@ -3,6 +3,13 @@
 Design notes for the dungeon's magic system. This is the living reference for
 how schools, runes, and spells fit together. Start here.
 
+This document is kept in sync with the `spell-system-plan` entry in Claude's
+project memory — the two carry the same design, implementation status, and
+remaining work. Update both together. The sections above the line ("Schools",
+"Spell construction", "Opening the spell panel") describe the **target** design;
+"Current implementation status" records what the **code** actually does today and
+where it diverges from that target.
+
 ## Schools of magic
 
 There are **four** schools of magic (for now). Each school has a single **base
@@ -75,6 +82,81 @@ behaviour (`GameUI::OnHandLeftClick`):
   cursor.
 - **Left-click, empty cursor, empty hand** → **nothing happens (for now).**
   (Unarmed attack / "activate" is being moved off the left click.)
+
+## Current implementation status
+
+What the code actually does today, and where it diverges from the target design
+above. (Phase labels P1–P6 track the build-out order.)
+
+### Built — P1–P4, merged to main (`ed733c1`)
+
+- **Symbols + per-character vocabulary (P1).** `SpellSymbol` enum
+  {Fire, Earth, Air, Water}; `Character` carries a `knownSymbols` bitmask
+  (`Knows`/`Learn`) plus an `intelligence` attribute (5th sheet row) that drives
+  mana regen. Vocabulary is per character. Round-trips through save.
+- **Rune-tablet items + pickup (P2).** Runes are carved-stone **tablets**
+  (`rune_tablet.gltf` + per-element carved textures from `tools/AssetBaker/RuneBaker`;
+  Elder Futhark Fire=Kenaz / Water=Laguz / Air=Ansuz / Earth=Berkano). Flow:
+  click the in-world tablet to pick up → it rides the cursor → left-click a
+  portrait (→ backpack), a hand slot (→ swap/place), or the world (→ drop);
+  right-click a hand holding a rune → context menu **Memorize** → `Character::Learn`
+  (tablet consumed). Per-character `Inventory` (8-slot backpack + 2 hand slots)
+  replaced the old shared satchel. Save v3 carries hands+backpack per char and a
+  per-level floor-items snapshot.
+- **Recipes + cast + mana (P3).** `spells.cat` holds 5 tier-1 recipes
+  (flame / rock / gust / splash / firebolt) with fields
+  `symbols`/`effect`/`element`/`power`/`mana`/`speed`/`range`. `SpellBook`
+  (`Spells.h/.cpp`) builds the table and does **exact-sequence `Match`**. Cast
+  checks mana, deducts it, dispatches the typed effect. Mana regenerates
+  per-frame as a function of `intelligence` (`ManaRegenPerSec`).
+- **Projectiles (P4).** A cast spawns a travelling bolt at the party eye that
+  flies the faced direction cell-by-cell, impacts the first live monster
+  (`ResolveAttack` + particle burst + log) or fizzles on a wall / at max range.
+  Bolts + impact sparks render as additive billboards. Transient — **not** saved.
+
+### Module layout
+
+Magic is a **walled-off module** (it knows nothing of map/monsters/HUD):
+
+- **`Magic.h/.cpp` — `MagicSystem`** owns the `SpellBook`, live projectiles, and
+  sparks; does `Cast`/`Update`/`AppendBillboards`. It reaches the world only
+  through three `std::function` hooks the owner wires once: `isBlocked(pos)`
+  (wall/OOB), `resolveHit(pos, AttackProfile)→bool` (combat + feedback; true =
+  consume bolt), `onFizzle(pos)` (sound).
+- **`Spells.h/.cpp` — data layer.** `SpellSymbol` alphabet, `SpellDef`/
+  `SpellEffect`, the `SpellBook` recipe table, and shared
+  `ElementColor(SpellSymbol)` (DungeonWorld::RuneGlow delegates to it). Kept
+  lightweight (no gfx) because `Character.h` includes it.
+- **`DungeonWorld`** holds a `MagicSystem m_magic`, wires the hooks in its ctor;
+  `CastSpell` is a thin façade (party eye+facing → `m_magic.Cast` → turn the
+  `CastReport` into log + sound), `ResolveSpellHit` is the impact hook.
+- **`Project`** gained a `spells` catalog (`CatalogForKey "spells"`). Dev console
+  `cast <member> <sym>...`. Strings: `log.cast` / `spell_fizzles` /
+  `cast_nomana` / `cast_unknown` / `spell_hits` / `spell_misses` / `spell_slain`
+  + `spell.*` names in `en.lang`.
+
+### Gap between the build and the target design
+
+- **Flat recipes vs. school-first / tier-2.** The code matches an **exact ordered
+  symbol sequence** against `spells.cat`; there is no "school" concept and no
+  tier-gating in code. The school-first model (first rune picks the school, then
+  that school's tier-2 runes appear) and the per-school base-rune/color/stat
+  table above are the **target**, not yet built.
+- **Casting entry point.** The HUD Magic panel is still a placeholder
+  ("No spells known"); the per-member **Magic sigil** described in "Opening the
+  spell panel" is not built yet.
+
+### Remaining work
+
+- **P5 — Casting UI.** Build the HUD Magic panel per the design above: the
+  per-member Magic sigil opens the spell-construction panel; caster picker,
+  school-first rune selection (only the four base runes to start, then tier-2),
+  the built sequence row, Clear + Cast. Wire `GameUI.onCast`. Defer-rebuild the
+  panel on any vocab change (like the language/video rebuilds). The character
+  sheet's Runes section (known symbols, Memorize) is its sheet-side companion.
+- **P6 — Content + verify.** Place runes in a level's `.ent`; the starter recipes
+  already live in `spells.cat`. Full `drive.ps1` playthrough: pick up runes,
+  memorize, cast at a monster, watch the bolt fly + impact; screenshots.
 
 ## To-do / open ideas
 
