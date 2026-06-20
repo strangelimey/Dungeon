@@ -322,7 +322,7 @@ void Game::RegisterDevCommands() {
 						   !t.stop.stop_requested())
 						std::this_thread::sleep_for(std::chrono::milliseconds(5));
 				},
-				{"demo.worker", 1.0f, /*watchdogMs=*/200});
+				{"demo.worker", 1.0f, /*watchdogMs=*/200, /*autoRestart=*/true});
 			m_console.Print(
 				std::format("spawned demo worker #{} ({} ms/tick)", id, busyMs));
 		});

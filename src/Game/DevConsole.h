@@ -64,7 +64,8 @@ private:
 	// This keeps the button layout in one place — Render — instead of duplicated.
 	struct ThreadHit {
 		threads::WorkerId id;
-		gfx::Rect pause, slower, faster, kill;
+		gfx::Rect pause, slower, faster, kill; // live-worker controls
+		gfx::Rect boot;                        // dead-worker reboot (others empty)
 	};
 	std::vector<ThreadHit> m_threadHits;
 

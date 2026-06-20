@@ -30,6 +30,7 @@
 #include <mutex>
 #include <stop_token>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace dungeon::threads {
@@ -56,6 +57,7 @@ struct Options {
 	std::string name;       // human-readable + set as the OS thread name (debuggers)
 	float hz = 0.0f;        // re-run cadence: 0 = flat-out (job should block), >0 = throttle
 	unsigned watchdogMs = 0;// flag a tick that runs longer than this as Stalled; 0 = off
+	bool autoRestart = false;// if it stalls past the grace window, the supervisor reboots it
 };
 
 // A lock-free-read snapshot of one worker's live state. Inspect/SnapshotAll
@@ -71,6 +73,7 @@ struct WorkerInfo {
 	double heartbeatAgeMs = 0.0;// time since the current tick began (stall signal)
 	float hz = 0.0f;            // configured cadence
 	bool paused = false;        // pause requested (may lead the Paused state by a tick)
+	u32 restarts = 0;           // times this worker has been rebooted (manual or supervisor)
 	std::string lastError;      // message from the last job exception, if any
 };
 
@@ -113,6 +116,15 @@ public:
 	void Resume(WorkerId id);
 	void SetRate(WorkerId id, float hz);
 
+	// Reboot a worker: cooperatively stop the current thread (request stop, let
+	// the in-flight tick finish, JOIN), reset its stats, and relaunch it on the
+	// same id with its original job. The join-before-relaunch makes it race-free,
+	// but a worker truly wedged in an infinite loop (never checking its token)
+	// will block here — that case needs the hard-quarantine kill (a later step).
+	// Clears the user-stopped flag, so a killed worker booted here runs again and
+	// is supervised again.
+	void Restart(WorkerId id);
+
 	// Lock-free reads of live worker state. Inspect returns a Dead-stated default
 	// for an unknown id.
 	WorkerInfo Inspect(WorkerId id) const;
@@ -122,10 +134,12 @@ public:
 private:
 	struct Worker; // opaque (holds atomics + the jthread); defined in the .cpp
 	void Run(Worker* w, std::stop_token st);
-	Worker* Get(WorkerId id) const; // null if out of range
+	void SupervisorLoop(std::stop_token st); // reboots stalled autoRestart workers
+	Worker* Get(WorkerId id) const;          // null if out of range
 
 	mutable std::mutex m_mx; // guards the m_workers vector structure only
 	std::vector<std::unique_ptr<Worker>> m_workers;
+	std::jthread m_supervisor; // monitors heartbeats; last member = stopped first
 };
 
 } // namespace dungeon::threads

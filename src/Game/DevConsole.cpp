@@ -121,6 +121,8 @@ void DevConsole::Update(const Input& input, float dt, float windowW, float windo
 				m_threadMgr.SetRate(t.id, std::min(info.hz * 2.0f, 60.0f));
 			} else if (t.kill.Contains(mx, my)) {
 				m_threadMgr.RequestStop(t.id);
+			} else if (t.boot.Contains(mx, my)) {
+				m_threadMgr.Restart(t.id);
 			}
 		}
 	}
@@ -285,19 +287,33 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 			m_font.Draw(batch, std::format("{:.2f}/{:.2f}ms", w.lastMs, w.avgMs),
 						width * 0.35f, ty, kDim);
 			m_font.Draw(batch, std::format("{:.2f}hz", w.hz), width * 0.48f, ty, kDim);
+			if (w.restarts > 0)
+				m_font.Draw(batch, std::format("re {}", w.restarts), width * 0.55f, ty,
+							kDim);
 
 			const float killX = width - pad * 2.0f - bw;
 			const float fastX = killX - (bw + bgap);
 			const float slowX = fastX - (bw + bgap);
 			const float pauseX = slowX - (bw + bgap);
-			const gfx::Rect pauseR{pauseX, ty, bw, bh}, slowR{slowX, ty, bw, bh},
-				fastR{fastX, ty, bw, bh}, killR{killX, ty, bw, bh};
-			const Vec4 bc = dead ? kDim : kText;
-			button(pauseR, w.paused ? "run" : "halt", bc);
-			button(slowR, "<<", bc);
-			button(fastR, ">>", bc);
-			button(killR, "kill", dead ? kDim : kKill);
-			if (!dead) m_threadHits.push_back({w.id, pauseR, slowR, fastR, killR});
+			ThreadHit hit{w.id, {}, {}, {}, {}, {}};
+			if (dead) {
+				// A dead worker offers a single 'boot' to relaunch it (Restart).
+				const gfx::Rect bootR{killX, ty, bw, bh};
+				button(bootR, "boot", kAccent);
+				hit.boot = bootR;
+			} else {
+				const gfx::Rect pauseR{pauseX, ty, bw, bh}, slowR{slowX, ty, bw, bh},
+					fastR{fastX, ty, bw, bh}, killR{killX, ty, bw, bh};
+				button(pauseR, w.paused ? "run" : "halt", kText);
+				button(slowR, "<<", kText);
+				button(fastR, ">>", kText);
+				button(killR, "kill", kKill);
+				hit.pause = pauseR;
+				hit.slower = slowR;
+				hit.faster = fastR;
+				hit.kill = killR;
+			}
+			m_threadHits.push_back(hit);
 
 			ty += rowAdvance;
 		}

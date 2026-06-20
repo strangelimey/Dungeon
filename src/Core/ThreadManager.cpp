@@ -71,6 +71,11 @@ struct Manager::Worker {
 	std::atomic<bool> paused{false};
 	std::atomic<u64> wakeGen{0}; // bumped by a control call to wake the cadence sleep
 
+	bool autoRestart = false;        // set once at spawn
+	std::atomic<bool> userStopped{false}; // a kill/stop the supervisor must respect
+	std::atomic<u32> restarts{0};
+	std::mutex controlMx; // serialises lifecycle ops (Stop/Restart) on this worker
+
 	std::mutex errMx;
 	std::string lastError;
 
@@ -82,9 +87,14 @@ struct Manager::Worker {
 	std::jthread thread; // MUST be last (see comment above)
 };
 
-Manager::Manager() = default;
+Manager::Manager() {
+	m_supervisor = std::jthread([this](std::stop_token st) { SupervisorLoop(st); });
+}
 
 Manager::~Manager() {
+	// Stop the supervisor first so it can't try to reboot a worker mid-teardown.
+	m_supervisor.request_stop();
+	if (m_supervisor.joinable()) m_supervisor.join();
 	// Ask everyone to stop (wakes any interruptible sleep), then join. The
 	// jthread destructor would do this too, but doing it explicitly controls the
 	// order and wakes sleepers before we block on a join.
@@ -100,6 +110,7 @@ WorkerId Manager::Spawn(JobFn job, Options opt) {
 	p->job = std::move(job);
 	p->hz.store(opt.hz);
 	p->watchdogMs = opt.watchdogMs;
+	p->autoRestart = opt.autoRestart;
 
 	std::lock_guard<std::mutex> lk(m_mx);
 	p->id = static_cast<WorkerId>(m_workers.size());
@@ -167,15 +178,19 @@ Manager::Worker* Manager::Get(WorkerId id) const {
 }
 
 void Manager::RequestStop(WorkerId id) {
-	if (Worker* w = Get(id)) {
-		w->state.store(State::Cancelling);
-		w->thread.request_stop(); // also wakes the interruptible sleep
-	}
+	Worker* w = Get(id);
+	if (!w) return;
+	std::lock_guard<std::mutex> ctl(w->controlMx);
+	w->userStopped.store(true); // intentional — the supervisor must not revive it
+	w->state.store(State::Cancelling);
+	w->thread.request_stop(); // also wakes the interruptible sleep
 }
 
 void Manager::Stop(WorkerId id) {
-	Worker* w = Get(id); // resolve under the lock, then join WITHOUT it held
+	Worker* w = Get(id); // resolve under the lock, then join WITHOUT m_mx held
 	if (!w) return;
+	std::lock_guard<std::mutex> ctl(w->controlMx);
+	w->userStopped.store(true);
 	w->state.store(State::Cancelling);
 	w->thread.request_stop();
 	if (w->thread.joinable()) w->thread.join();
@@ -217,6 +232,62 @@ void Manager::SetRate(WorkerId id, float hz) {
 	w->sleepCv.notify_all();
 }
 
+void Manager::Restart(WorkerId id) {
+	Worker* w = Get(id);
+	if (!w) return;
+	std::lock_guard<std::mutex> ctl(w->controlMx);
+	// Stop and JOIN the current thread first, so the old thread is entirely gone
+	// before the new one touches this Worker's state (no shared-state race). A
+	// cooperative worker returns from its tick promptly; a wedged one blocks here.
+	w->state.store(State::Cancelling);
+	w->thread.request_stop();
+	if (w->thread.joinable()) w->thread.join();
+
+	// Fresh slate; keep the stored job + config. Booting clears the user-stopped
+	// flag so the worker runs again and is supervised again.
+	w->userStopped.store(false);
+	w->paused.store(false);
+	w->iterations.store(0);
+	w->lastMs.store(0.0);
+	w->avgMs.store(0.0);
+	w->maxMs.store(0.0);
+	w->beatNs.store(0);
+	{
+		std::lock_guard<std::mutex> lk(w->errMx);
+		w->lastError.clear();
+	}
+	w->restarts.fetch_add(1);
+	w->state.store(State::Starting);
+	w->thread = std::jthread([this, w](std::stop_token st) { Run(w, st); });
+}
+
+void Manager::SupervisorLoop(std::stop_token st) {
+	using namespace std::chrono_literals;
+	while (!st.stop_requested()) {
+		std::vector<WorkerId> ids;
+		{
+			std::lock_guard<std::mutex> lk(m_mx);
+			ids.reserve(m_workers.size());
+			for (const auto& w : m_workers) ids.push_back(w->id);
+		}
+		for (WorkerId id : ids) {
+			Worker* w = Get(id);
+			if (!w || !w->autoRestart || w->userStopped.load() || w->watchdogMs == 0)
+				continue;
+			if (w->state.load() != State::Running) continue; // only a stuck live tick
+			const i64 beat = w->beatNs.load();
+			if (!beat) continue;
+			const double age =
+				ToMs(Clock::now() - Clock::time_point(Clock::duration(beat)));
+			if (age > static_cast<double>(w->watchdogMs) * 5.0)
+				Restart(id); // stalled well past the watchdog: reboot it
+		}
+		// Coarse poll; checks the stop flag often so shutdown is prompt.
+		for (int i = 0; i < 10 && !st.stop_requested(); ++i)
+			std::this_thread::sleep_for(10ms);
+	}
+}
+
 WorkerInfo Manager::Inspect(WorkerId id) const {
 	Worker* w = Get(id);
 	if (!w) return {};
@@ -233,6 +304,7 @@ WorkerInfo Manager::Inspect(WorkerId id) const {
 		beat ? ToMs(Clock::now() - Clock::time_point(Clock::duration(beat))) : 0.0;
 	info.hz = w->hz.load();
 	info.paused = w->paused.load();
+	info.restarts = w->restarts.load();
 	// Watchdog: a tick still Running past its budget is reported as Stalled (the
 	// worker keeps going — this is a detection overlay, not a stored transition).
 	// Sleeping/Paused don't count: their heartbeat is old by design.
