@@ -7,8 +7,11 @@ Built collaboratively with Claude across sessions; this file is the handoff.
 ## Build & run
 
 - `build.cmd [debug|release]` — VS 2026 Community's bundled CMake + Ninja
-  (plain `cmake` is NOT on PATH; the script sets up vcvars64). The
-  "'vswhere.exe' is not recognized" warning it prints is harmless.
+  (plain `cmake` is NOT on PATH; the script sets up vcvars64). Both build.cmd
+  and gen-vs.cmd prepend the VS Installer dir to PATH so vcvars' VsDevCmd.bat
+  finds vswhere.exe by PATH (it otherwise runs a bare `vswhere.exe` that fails
+  under NoDefaultCurrentDirectoryInExePath=1, printing a harmless but noisy
+  "'vswhere.exe' is not recognized" warning).
 - Output: `build\<config>\bin\Dungeon.exe`. Assets copy next to the exe on
   link (post-build); after changing assets without code, sync manually:
   `robocopy assets build\debug\bin\assets /MIR` (MIR also removes stale).
