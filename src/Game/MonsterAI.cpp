@@ -128,7 +128,7 @@ AsyncDirector::AsyncDirector(threads::Manager& manager) : m_manager(manager) {
 			[this, b, brain = Brain{}](const threads::Tick&) mutable {
 				ComputeBucket(b, brain);
 			},
-			{"ai.bucket" + std::to_string(b), hz});
+			{"ai.bucket" + std::to_string(b), hz, /*watchdogMs=*/100});
 	}
 }
 

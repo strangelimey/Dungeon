@@ -37,9 +37,10 @@ namespace dungeon::threads {
 using WorkerId = u32;
 inline constexpr WorkerId kInvalidWorker = ~0u;
 
-// A worker's lifecycle state (see the diagram in the design notes). Stalled
-// (watchdog) arrives with a later step.
-enum class State { Starting, Running, Sleeping, Paused, Cancelling, Dead };
+// A worker's lifecycle state (see the diagram in the design notes). Stalled is
+// a DERIVED view (a tick that has run past its watchdog budget), reported by
+// Inspect — the worker keeps running; acting on a stall is a later step.
+enum class State { Starting, Running, Sleeping, Paused, Stalled, Cancelling, Dead };
 const char* StateName(State s);
 
 // Handed to a job each tick. The job does ONE unit of work and returns; the
@@ -52,8 +53,9 @@ struct Tick {
 using JobFn = std::function<void(const Tick&)>;
 
 struct Options {
-	std::string name;  // human-readable + set as the OS thread name (debuggers)
-	float hz = 0.0f;   // re-run cadence: 0 = flat-out (job should block), >0 = throttle
+	std::string name;       // human-readable + set as the OS thread name (debuggers)
+	float hz = 0.0f;        // re-run cadence: 0 = flat-out (job should block), >0 = throttle
+	unsigned watchdogMs = 0;// flag a tick that runs longer than this as Stalled; 0 = off
 };
 
 // A lock-free-read snapshot of one worker's live state. Inspect/SnapshotAll

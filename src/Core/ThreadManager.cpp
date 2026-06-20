@@ -27,6 +27,7 @@ const char* StateName(State s) {
 	case State::Running: return "running";
 	case State::Sleeping: return "sleeping";
 	case State::Paused: return "paused";
+	case State::Stalled: return "stalled";
 	case State::Cancelling: return "cancelling";
 	case State::Dead: return "dead";
 	}
@@ -58,6 +59,7 @@ struct Manager::Worker {
 	std::string name;
 	JobFn job;
 	std::atomic<float> hz{0.0f};
+	unsigned watchdogMs = 0; // set once at spawn; 0 = no stall detection
 
 	std::atomic<State> state{State::Starting};
 	std::atomic<u64> iterations{0};
@@ -97,6 +99,7 @@ WorkerId Manager::Spawn(JobFn job, Options opt) {
 	p->name = std::move(opt.name);
 	p->job = std::move(job);
 	p->hz.store(opt.hz);
+	p->watchdogMs = opt.watchdogMs;
 
 	std::lock_guard<std::mutex> lk(m_mx);
 	p->id = static_cast<WorkerId>(m_workers.size());
@@ -230,6 +233,12 @@ WorkerInfo Manager::Inspect(WorkerId id) const {
 		beat ? ToMs(Clock::now() - Clock::time_point(Clock::duration(beat))) : 0.0;
 	info.hz = w->hz.load();
 	info.paused = w->paused.load();
+	// Watchdog: a tick still Running past its budget is reported as Stalled (the
+	// worker keeps going — this is a detection overlay, not a stored transition).
+	// Sleeping/Paused don't count: their heartbeat is old by design.
+	if (w->watchdogMs > 0 && info.state == State::Running &&
+		info.heartbeatAgeMs > static_cast<double>(w->watchdogMs))
+		info.state = State::Stalled;
 	{
 		std::lock_guard<std::mutex> lk(w->errMx);
 		info.lastError = w->lastError;

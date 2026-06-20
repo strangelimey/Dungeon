@@ -18,6 +18,7 @@
 #include <filesystem>
 #include <format>
 #include <string>
+#include <thread>
 #include <utility>
 
 namespace dungeon::game {
@@ -305,6 +306,26 @@ void Game::RegisterDevCommands() {
 							   map.Height(), m_world.MonsterCount(),
 							   map.Sconces().size()));
 					   });
+	m_console.Register(
+		"threadspawn",
+		"spawn a demo worker on the thread manager (arg: busy ms/tick, default 500)",
+		[this](const std::vector<std::string>& args) {
+			const int busyMs = args.empty() ? 500 : std::atoi(args[0].c_str());
+			const threads::WorkerId id = m_threads.Spawn(
+				[busyMs](const threads::Tick& t) {
+					// A long but CANCELLABLE unit of work: long enough to trip the
+					// watchdog (so it shows Stalled), yet it polls the stop token so
+					// 'kill' still takes effect promptly.
+					const auto end = std::chrono::steady_clock::now() +
+									 std::chrono::milliseconds(busyMs);
+					while (std::chrono::steady_clock::now() < end &&
+						   !t.stop.stop_requested())
+						std::this_thread::sleep_for(std::chrono::milliseconds(5));
+				},
+				{"demo.worker", 1.0f, /*watchdogMs=*/200});
+			m_console.Print(
+				std::format("spawned demo worker #{} ({} ms/tick)", id, busyMs));
+		});
 	m_console.Register("editor", "open the map in editor mode (off = player map)",
 					   [this](const std::vector<std::string>& args) {
 						   if (!args.empty() && args[0] == "off") {

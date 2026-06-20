@@ -262,6 +262,7 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 		ty += line;
 
 		const Vec4 kPaused{0.90f, 0.75f, 0.30f, 1.0f};
+		const Vec4 kStalled{0.95f, 0.45f, 0.30f, 1.0f};
 		const Vec4 kKill{0.90f, 0.50f, 0.50f, 1.0f};
 		const float bw = line * 2.6f, bh = line, bgap = line * 0.4f;
 
@@ -274,7 +275,10 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 
 		for (const threads::WorkerInfo& w : workers) {
 			const bool dead = w.state == threads::State::Dead;
-			const Vec4 stCol = dead ? kDim : (w.paused ? kPaused : kAccent);
+			const Vec4 stCol = dead ? kDim
+							 : w.state == threads::State::Stalled ? kStalled
+							 : w.paused ? kPaused
+							 : kAccent;
 			m_font.Draw(batch, w.name, labelX, ty, kText);
 			m_font.Draw(batch, threads::StateName(w.state), width * 0.15f, ty, stCol);
 			m_font.Draw(batch, std::format("it {}", w.iterations), width * 0.26f, ty, kDim);
