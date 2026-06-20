@@ -293,10 +293,16 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 			m_font.Draw(batch, std::format("it {}", w.iterations), width * 0.25f, ty, kDim);
 			m_font.Draw(batch, std::format("{:.2f}/{:.2f}ms", w.lastMs, w.avgMs),
 						width * 0.34f, ty, kDim);
-			m_font.Draw(batch, std::format("{:.2f}hz", w.hz), width * 0.46f, ty, kDim);
-			m_font.Draw(batch, std::format("p{}", w.priority), width * 0.52f, ty, kDim);
+			m_font.Draw(batch, std::format("{:.2f}hz", w.hz), width * 0.44f, ty, kDim);
+			// Re-think PERIOD in ms — the actual cadence value, which reveals the
+			// coprime/prime bucket intervals (251/499/997/1999) that the rounded Hz
+			// hides (499ms reads as 2.00hz, etc.). Derived from hz (= 1000/hz).
+			if (w.hz > 0.0f)
+				m_font.Draw(batch, std::format("{:.0f}ms", 1000.0f / w.hz),
+							width * 0.50f, ty, kDim);
+			m_font.Draw(batch, std::format("p{}", w.priority), width * 0.55f, ty, kDim);
 			if (w.restarts > 0)
-				m_font.Draw(batch, std::format("re {}", w.restarts), width * 0.56f, ty,
+				m_font.Draw(batch, std::format("re {}", w.restarts), width * 0.585f, ty,
 							kDim);
 
 			const float killX = width - pad * 2.0f - bw;
