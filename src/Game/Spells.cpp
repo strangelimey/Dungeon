@@ -51,6 +51,14 @@ bool ParseSymbol(std::string_view token, SpellSymbol& out) {
 	return false;
 }
 
+std::string RuneItemId(SpellSymbol s) { return std::string("rune_") + SymbolId(s); }
+
+bool RuneSymbolFromItemId(std::string_view typeId, SpellSymbol& out) {
+	constexpr std::string_view kPrefix = "rune_";
+	if (!typeId.starts_with(kPrefix)) return false;
+	return ParseSymbol(typeId.substr(kPrefix.size()), out);
+}
+
 Vec4 ElementColor(SpellSymbol s) {
 	switch (s) {
 	case SpellSymbol::Fire:  return {1.00f, 0.13f, 0.08f, 0.0f}; // red

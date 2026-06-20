@@ -28,6 +28,7 @@
 #include "Game/Party.h"
 #include "Game/Project.h"
 #include "Game/SaveGame.h"
+#include "Game/ShadowScheduler.h"
 #include "Game/SoundBank.h"
 #include "Graphics/Camera.h"
 #include "Graphics/ParticleBatch.h"
@@ -417,6 +418,10 @@ private:
 	};
 
 	// --- loading ---------------------------------------------------------------
+	// The project's first level stem (the level the game opens). A static member
+	// because both the ctor (DungeonWorld.cpp) and AppendLoadTasks
+	// (DungeonWorld_Load.cpp) resolve it.
+	static std::string FirstLevel(const Project& project);
 	// One surface's texture sets + the height scale its parallax uses. The three
 	// SurfaceDefs (walls/floors/ceilings) point at the resolved palettes
 	// (m_wallSets/...) and scales filled by ResolveSurfacePalettes, shared by the
@@ -456,9 +461,6 @@ private:
 	// Lazily loads (and caches) the shared behaviour for an item type, resolved
 	// through the items catalog (category=rune → symbol + element glow colour).
 	ItemKind& ItemKindFor(const std::string& type);
-	// Element glow colour for a rune's accent billboard (premultiplied-additive:
-	// rgb is the emissive colour, alpha 0).
-	static Vec4 RuneGlow(SpellSymbol s);
 	// Builds one monster instance (kind/id/cell/facing → stats + animator) ready
 	// to push into m_monsters. Shared by the initial .ent load, live editor
 	// placement, and save restore of editor-placed monsters. The caller pushes.
@@ -523,10 +525,10 @@ private:
 	// returns true when a path step exists. The party cell is the goal (never
 	// stepped onto — callers only move when not already adjacent).
 	bool NextStepToward(const Monster& monster, size_t self, int& outX, int& outZ);
-	void AssignShadowSlots();
 
 	// True if a continuously-animating caster (a monster, or the swaying pillar)
 	// is within the light's reach — such a cube must re-render every frame.
+	// Fed to m_shadows.ShouldRender as the world's per-light verdict.
 	bool AnimatedCasterNear(const gfx::PointLight& light) const;
 
 	// Reveals a cell and its eight neighbors in the fog-of-war set.
@@ -552,6 +554,10 @@ private:
 	SurfaceChunk MakeSurfaceChunk(GeometryChunk& gc);
 
 	// --- rendering / culling ----------------------------------------------------
+	// A rune's pulse multiplier (its emissive glow + the light it casts breathe in
+	// lockstep). A static member because UpdateLights (DungeonWorld.cpp) and
+	// SubmitSceneGeometry (DungeonWorld_Render.cpp) both read it.
+	static float RunePulse(float time, int id);
 	// One culler for both passes: a camera frustum (main pass) or a light sphere
 	// (shadow pass). Chunks test as AABBs, discrete meshes as bounding spheres.
 	// "Inside" for the frustum is plane·p >= 0 on all six planes.
@@ -588,14 +594,10 @@ private:
 	std::vector<u8> m_seen;     // fog of war, parallel to map cells (1 = revealed)
 	gfx::Camera m_camera;
 	gfx::LightSet m_lights;
-	// Scratch reused by AssignShadowSlots: (distance, light index), sorted
-	// nearest-first each frame into retained capacity.
-	std::vector<std::pair<float, size_t>> m_shadowCandidates;
-	// Positions of the lights that held shadow slots last frame. Slot
-	// assignment gives a small distance discount to a light still near one of
-	// these (matched by position, not index — the light list is rebuilt every
-	// frame), so two near-equidistant fires don't swap slots/resolution tiers.
-	std::vector<Vec3> m_prevShadowPos;
+	// Shadow-slot budgeting + cube-cache scheduling (UpdateLights feeds it the
+	// frame's lights; RenderShadowMaps asks it which cubes to redraw). See
+	// ShadowScheduler.h.
+	ShadowScheduler m_shadows;
 	gfx::Atmosphere m_atmosphere; // per-cell air turbidity (dust)
 	std::unique_ptr<gfx::Texture> m_turbidityMap;
 
@@ -657,18 +659,6 @@ private:
 	// in m_seen/m_monsters). Stashed on leave, restored on return; the source for
 	// a multi-level save (CaptureState) and filled by a load (ApplyState).
 	std::flat_map<std::string, SaveData::LevelState> m_levelStates;
-
-	// Shadow-cube cache: a slot's cube is reused across frames unless its light
-	// changed/moved, a flicker tick is due, geometry changed, or an animating
-	// caster is in range (see RenderShadowMaps). Keyed by the light's index in
-	// m_lights.points, which UpdateLights builds in a stable order.
-	struct ShadowSlotCache {
-		int lightId = -1; // index that last rendered this slot (-1 = stale)
-		Vec3 pos{};
-		u32 revision = 0xFFFFFFFFu; // map geometry revision at render time
-	};
-	ShadowSlotCache m_shadowCache[gfx::kShadowSlots];
-	u64 m_frameCounter = 0;
 
 	std::vector<Fire> m_fires;
 	std::unique_ptr<gfx::Mesh> m_sconceMesh;

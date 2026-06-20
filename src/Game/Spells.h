@@ -40,6 +40,13 @@ const char* SymbolKey(SpellSymbol s);
 // Parses an id token ("fire") into `out`; false on anything unknown.
 bool ParseSymbol(std::string_view token, SpellSymbol& out);
 
+// The catalog/item id of a symbol's rune tablet ("fire" -> "rune_fire"). The one
+// place the rune-item naming convention lives — used by the icon loader, the dev
+// `rune` command, and the rune model binding.
+std::string RuneItemId(SpellSymbol s);
+// The inverse: "rune_fire" -> SpellSymbol::Fire. False for any non-rune id.
+bool RuneSymbolFromItemId(std::string_view typeId, SpellSymbol& out);
+
 // Premultiplied-additive accent colour for an element (rgb = emissive, alpha 0,
 // per docs/magic system.md: Fire=red, Earth=brown, Air=white, Water=blue). The
 // single source shared by the rune-tablet glow and the spell-bolt billboard.

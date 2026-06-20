@@ -157,6 +157,11 @@ public:
 	std::function<bool(int, int)> isOccupied;
 
 private:
+	// Reset helpers shared by Reset/SetFacing/SetGridPosition: clear in-flight grid
+	// motion (move/turn/bump + queued action) and the free-look offset respectively.
+	void ClearMotionState();
+	void ClearLookState();
+
 	bool TryStep(int dx, int dz);
 	// Kicks off the blocked-move recoil toward cell (bx,bz) from the current
 	// resting position. No-op if a bump is already running.

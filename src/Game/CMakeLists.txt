@@ -9,6 +9,9 @@ add_library(Game STATIC
 	DungeonMap.cpp
 	DungeonMeshBuilder.cpp
 	DungeonWorld.cpp
+	DungeonWorld_Load.cpp
+	DungeonWorld_Render.cpp
+	DungeonWorld_Save.cpp
 	Entity.cpp
 	FireEffect.cpp
 	Game.cpp
@@ -23,6 +26,7 @@ add_library(Game STATIC
 	Project.cpp
 	SaveGame.cpp
 	Serialize.cpp
+	ShadowScheduler.cpp
 	SoundBank.cpp
 	Spells.cpp
 )
