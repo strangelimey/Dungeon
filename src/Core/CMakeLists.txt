@@ -4,6 +4,7 @@ add_library(Core STATIC
 	Paths.cpp
 	Time.cpp
 	StringUtil.cpp
+	ThreadManager.cpp
 )
 target_include_directories(Core PUBLIC ${CMAKE_SOURCE_DIR}/src)
 # The repo's source assets dir, so a dev build's editor can write edits back to

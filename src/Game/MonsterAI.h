@@ -25,12 +25,11 @@
 // ============================================================================
 #pragma once
 
-#include <atomic>
-#include <condition_variable>
+#include "Core/ThreadManager.h"
+
 #include <cstdint>
 #include <memory>
 #include <mutex>
-#include <thread>
 #include <unordered_set>
 #include <vector>
 
@@ -146,17 +145,19 @@ private:
 };
 
 // ----------------------------------------------------------------------------
-// AsyncDirector — the threaded engine. Owns one worker per IQ bucket; each reads
-// the latest published snapshot on its cadence, thinks + paths its monsters, and
-// publishes an immutable plan batch. The main thread Publish()es snapshots and
-// TakePlans() to execute. Construction launches the workers; destruction stops
-// and joins them. Handoffs are immutable shared_ptr swaps under brief mutexes,
-// so the main thread never blocks on a worker's compute.
+// AsyncDirector — the AI's client of the engine thread manager (Core/Thread-
+// Manager.h). It spawns one named worker per IQ bucket ("ai.bucket0".."3") at
+// the bucket's cadence; each worker reads the latest published snapshot, thinks
+// + paths its monsters, and publishes an immutable plan batch. The main thread
+// Publish()es snapshots and TakePlans() to execute. Owning the threads through
+// the manager means they are inspectable / killable / throttleable like every
+// other engine thread. Handoffs are immutable shared_ptr swaps under brief
+// mutexes, so the main thread never blocks on a worker's compute.
 // ----------------------------------------------------------------------------
 class AsyncDirector {
 public:
-	AsyncDirector();
-	~AsyncDirector();
+	explicit AsyncDirector(threads::Manager& manager);
+	~AsyncDirector(); // stops its workers before its captured state dies
 	AsyncDirector(const AsyncDirector&) = delete;
 	AsyncDirector& operator=(const AsyncDirector&) = delete;
 
@@ -173,9 +174,13 @@ public:
 	Batch TakePlans(int bucket) const;
 
 private:
-	void WorkerLoop(int bucket);
+	// One bucket's compute pass — the body the worker runs each tick (reads the
+	// snapshot, thinks + paths this bucket's monsters, publishes a plan batch).
+	// `brain` is per-worker scratch (the BFS buffer must not be shared).
+	void ComputeBucket(int bucket, Brain& brain);
 
-	std::atomic<bool> m_stop{false};
+	threads::Manager& m_manager;
+	threads::WorkerId m_workers[Scheduler::kBucketCount];
 
 	mutable std::mutex m_snapMutex;
 	std::shared_ptr<const Snapshot> m_snapshot;
@@ -183,11 +188,6 @@ private:
 	mutable std::mutex m_planMutex;
 	std::shared_ptr<const std::vector<Plan>> m_plans[Scheduler::kBucketCount];
 	uint64_t m_planSeq[Scheduler::kBucketCount] = {};
-
-	std::mutex m_waitMutex;      // pairs with m_cv for an interruptible sleep
-	std::condition_variable m_cv;
-
-	std::vector<std::thread> m_workers;
 };
 
 // ----------------------------------------------------------------------------

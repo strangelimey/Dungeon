@@ -33,12 +33,13 @@ std::string DungeonWorld::FirstLevel(const Project& p) {
 
 DungeonWorld::DungeonWorld(gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 						   audio::AudioEngine& audio, const SoundBank& sounds,
-						   const GameSettings& settings, const Project& project)
+						   const GameSettings& settings, const Project& project,
+						   threads::Manager& threadManager)
 	: m_device(device), m_renderer(renderer), m_audio(audio), m_sounds(sounds),
 	  m_settings(settings), m_project(project),
 	  m_map(project.LevelMapPath(FirstLevel(project))),
 	  m_entities(project.LevelEntPath(FirstLevel(project)), m_map),
-	  m_party(m_map, m_map.StartX(), m_map.StartZ()) {
+	  m_party(m_map, m_map.StartX(), m_map.StartZ()), m_director(threadManager) {
 	m_currentLevel = FirstLevel(project);
 	// Resolve the level's palette ids → texture set names + height scales before
 	// any load task runs (SurfaceDefs and LoadDungeonBlocks read the results).

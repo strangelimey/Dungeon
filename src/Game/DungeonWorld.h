@@ -53,7 +53,8 @@ class DungeonWorld {
 public:
 	DungeonWorld(gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 				 audio::AudioEngine& audio, const SoundBank& sounds,
-				 const GameSettings& settings, const Project& project);
+				 const GameSettings& settings, const Project& project,
+				 threads::Manager& threadManager);
 
 	// Appends the dungeon's load tasks (blocks, textures, batched meshes,
 	// pillar, monsters, fires, dust) to the staged loader. Order matters:

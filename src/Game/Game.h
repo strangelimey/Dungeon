@@ -38,6 +38,7 @@
 #pragma once
 
 #include "Audio/AudioEngine.h"
+#include "Core/ThreadManager.h"
 #include "Game/AssetDialog.h"
 #include "Game/Character.h"
 #include "Game/DevConsole.h"
@@ -215,6 +216,10 @@ private:
 	float m_lookPrevX = 0.0f;
 	float m_lookPrevY = 0.0f;
 
+	// The engine's worker threads (Core/ThreadManager.h). Declared before m_world
+	// so it outlives every subsystem that spawns workers on it — m_world's AI is
+	// the first client. Later: a dev-console `threads` command inspects it.
+	threads::Manager m_threads;
 	DungeonWorld m_world;
 	GameUI m_ui;
 	// Map/editor overlay (toggle with `M` while playing). Like the console it

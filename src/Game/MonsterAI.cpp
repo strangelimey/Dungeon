@@ -4,9 +4,9 @@
 #include "Game/MonsterAI.h"
 
 #include <algorithm>
-#include <chrono>
 #include <cmath>
 #include <queue>
+#include <string>
 
 namespace dungeon::ai {
 
@@ -115,19 +115,29 @@ void Brain::FindPath(const Agent& a, int targetX, int targetZ, int mapW, int map
 }
 
 // ----------------------------------------------------------------------------
-// AsyncDirector — the thread-per-bucket engine.
+// AsyncDirector — a client of the engine thread manager.
 // ----------------------------------------------------------------------------
 
-AsyncDirector::AsyncDirector() {
-	for (int b = 0; b < Scheduler::kBucketCount; ++b)
-		m_workers.emplace_back([this, b] { WorkerLoop(b); });
+AsyncDirector::AsyncDirector(threads::Manager& manager) : m_manager(manager) {
+	// One named worker per IQ bucket, ticking at that bucket's cadence. Each owns
+	// a Brain (its BFS scratch) captured by value into the job, so the per-worker
+	// state lives for the worker's lifetime without sharing.
+	for (int b = 0; b < Scheduler::kBucketCount; ++b) {
+		const float hz = 1.0f / Scheduler::BucketInterval(b);
+		m_workers[b] = m_manager.Spawn(
+			[this, b, brain = Brain{}](const threads::Tick&) mutable {
+				ComputeBucket(b, brain);
+			},
+			{"ai.bucket" + std::to_string(b), hz});
+	}
 }
 
 AsyncDirector::~AsyncDirector() {
-	m_stop.store(true);
-	m_cv.notify_all(); // wake any worker mid-sleep so the join is prompt
-	for (std::thread& t : m_workers)
-		if (t.joinable()) t.join();
+	// Stop (and JOIN) our workers before this object's captured state dies — the
+	// job closures reference `this`. Stop blocks, so once it returns no worker
+	// can call ComputeBucket again.
+	for (int b = 0; b < Scheduler::kBucketCount; ++b)
+		m_manager.Stop(m_workers[b]);
 }
 
 void AsyncDirector::Publish(std::shared_ptr<const Snapshot> snap) {
@@ -140,42 +150,33 @@ AsyncDirector::Batch AsyncDirector::TakePlans(int bucket) const {
 	return {m_plans[bucket], m_planSeq[bucket]};
 }
 
-void AsyncDirector::WorkerLoop(int bucket) {
-	Brain brain; // per-thread: the BFS scratch must not be shared across workers
-	const auto interval =
-		std::chrono::duration<float>(Scheduler::BucketInterval(bucket));
-
-	while (!m_stop.load()) {
-		// Grab the freshest snapshot (a cheap shared_ptr copy under the lock).
-		std::shared_ptr<const Snapshot> snap;
-		{
-			std::lock_guard<std::mutex> lk(m_snapMutex);
-			snap = m_snapshot;
-		}
-
-		if (snap) {
-			SnapshotView view(*snap);
-			auto out = std::make_shared<std::vector<Plan>>();
-			for (const Agent& m : snap->monsters) {
-				if (Scheduler::BucketForIq(m.iq) != bucket) continue;
-				Plan plan;
-				plan.id = m.id;
-				plan.gen = snap->gen;
-				plan.intent = brain.Think(m, snap->partyX, snap->partyZ);
-				if (plan.intent.mode == Intent::Mode::Engage)
-					brain.FindPath(m, plan.intent.targetX, plan.intent.targetZ,
-								   snap->mapW, snap->mapH, view, plan.path);
-				out->push_back(std::move(plan));
-			}
-			std::lock_guard<std::mutex> lk(m_planMutex);
-			m_plans[bucket] = std::move(out);
-			++m_planSeq[bucket];
-		}
-
-		// Interruptible sleep to the bucket's cadence; Stop() wakes us at once.
-		std::unique_lock<std::mutex> lk(m_waitMutex);
-		m_cv.wait_for(lk, interval, [this] { return m_stop.load(); });
+void AsyncDirector::ComputeBucket(int bucket, Brain& brain) {
+	// One tick: grab the freshest snapshot (a cheap shared_ptr copy), think +
+	// path this bucket's monsters, publish the batch. The manager owns the loop
+	// and the cadence; this is just the unit of work.
+	std::shared_ptr<const Snapshot> snap;
+	{
+		std::lock_guard<std::mutex> lk(m_snapMutex);
+		snap = m_snapshot;
 	}
+	if (!snap) return;
+
+	SnapshotView view(*snap);
+	auto out = std::make_shared<std::vector<Plan>>();
+	for (const Agent& m : snap->monsters) {
+		if (Scheduler::BucketForIq(m.iq) != bucket) continue;
+		Plan plan;
+		plan.id = m.id;
+		plan.gen = snap->gen;
+		plan.intent = brain.Think(m, snap->partyX, snap->partyZ);
+		if (plan.intent.mode == Intent::Mode::Engage)
+			brain.FindPath(m, plan.intent.targetX, plan.intent.targetZ, snap->mapW,
+						   snap->mapH, view, plan.path);
+		out->push_back(std::move(plan));
+	}
+	std::lock_guard<std::mutex> lk(m_planMutex);
+	m_plans[bucket] = std::move(out);
+	++m_planSeq[bucket];
 }
 
 } // namespace dungeon::ai
