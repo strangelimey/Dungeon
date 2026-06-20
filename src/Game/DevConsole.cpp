@@ -36,7 +36,8 @@ std::vector<std::string> Tokenize(const std::string& line) {
 }
 } // namespace
 
-DevConsole::DevConsole(gfx::GraphicsDevice& device) : m_font(device, "", kFontH) {
+DevConsole::DevConsole(gfx::GraphicsDevice& device, threads::Manager& threadManager)
+	: m_font(device, "", kFontH), m_threadMgr(threadManager) {
 	// Generic built-ins. Gameplay-aware commands are registered by the Game.
 	Register("help", "list available commands", [this](const std::vector<std::string>&) {
 		for (const Command& cmd : m_commands)
@@ -105,6 +106,25 @@ void DevConsole::Update(const Input& input, float dt, float windowW, float windo
 	m_font.SetHeight(kFontH * (windowH / kDesignWindowH));
 	m_font.Commit(); // flush glyphs cached last frame (no-op unless new ones appeared)
 
+	// Thread-panel control buttons (hit-tested against the rects Render laid out
+	// last frame). Left-click toggles pause, halves/doubles the rate, or kills.
+	if (input.WasMousePressed(MouseButton::Left)) {
+		const float mx = input.MouseX(), my = input.MouseY();
+		for (const ThreadHit& t : m_threadHits) {
+			const threads::WorkerInfo info = m_threadMgr.Inspect(t.id);
+			if (t.pause.Contains(mx, my)) {
+				if (info.paused) m_threadMgr.Resume(t.id);
+				else m_threadMgr.Pause(t.id);
+			} else if (t.slower.Contains(mx, my)) {
+				m_threadMgr.SetRate(t.id, std::max(info.hz * 0.5f, 0.1f));
+			} else if (t.faster.Contains(mx, my)) {
+				m_threadMgr.SetRate(t.id, std::min(info.hz * 2.0f, 60.0f));
+			} else if (t.kill.Contains(mx, my)) {
+				m_threadMgr.RequestStop(t.id);
+			}
+		}
+	}
+
 	// Typed characters (skip the toggle key so `~`/backtick never self-types).
 	for (char c : input.TypedChars())
 		if (c != '`' && c != '~') m_input.push_back(c);
@@ -165,7 +185,15 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 	const double gpuUsedGB = static_cast<double>(vram.usedBytes) / (1024.0 * 1024.0 * 1024.0);
 	const double gpuBudgetGB = static_cast<double>(vram.budgetBytes) / (1024.0 * 1024.0 * 1024.0);
 
-	const float panelH = line * 8.0f + pad * 2.0f;
+	// Threads section sits directly below the 8-line perf block; the panel grows
+	// to fit one row per managed worker.
+	const std::vector<threads::WorkerInfo> workers = m_threadMgr.SnapshotAll();
+	const float threadsTop = pad + line * 8.0f;
+	const float rowAdvance = line * 1.2f;
+	const float threadsBlock =
+		workers.empty() ? 0.0f
+						: line * 1.4f + rowAdvance * static_cast<float>(workers.size());
+	const float panelH = threadsTop + threadsBlock + pad;
 	batch.DrawRect({0, 0, width, panelH}, kPerfBg);
 	ui::DrawBorder(batch, {0, 0, width, panelH}, kBorder);
 
@@ -220,6 +248,56 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 
 	row(std::format("Process working set: {:.0f} MB", m.procMemMB));
 	row("GPU: " + device.AdapterName());
+
+	// --- threads panel (top, below perf) ------------------------------------
+	// One row per managed worker (Core/ThreadManager.h) with live stats and four
+	// clickable controls. m_threadHits records the button rects for next frame's
+	// click hit-testing (Update), so the layout lives in exactly one place.
+	m_threadHits.clear();
+	if (!workers.empty()) {
+		float ty = threadsTop;
+		batch.DrawRect({0, ty, width, 1.0f}, kBorder); // divider from the perf block
+		ty += line * 0.4f;
+		m_font.Draw(batch, "THREADS", labelX, ty, kAccent);
+		ty += line;
+
+		const Vec4 kPaused{0.90f, 0.75f, 0.30f, 1.0f};
+		const Vec4 kKill{0.90f, 0.50f, 0.50f, 1.0f};
+		const float bw = line * 2.6f, bh = line, bgap = line * 0.4f;
+
+		auto button = [&](const gfx::Rect& r, const std::string& label, const Vec4& col) {
+			batch.DrawRect(r, kGaugeBg);
+			ui::DrawBorder(batch, r, kBorder);
+			const float tw = m_font.MeasureWidth(label);
+			m_font.Draw(batch, label, r.x + (r.w - tw) * 0.5f, r.y, col);
+		};
+
+		for (const threads::WorkerInfo& w : workers) {
+			const bool dead = w.state == threads::State::Dead;
+			const Vec4 stCol = dead ? kDim : (w.paused ? kPaused : kAccent);
+			m_font.Draw(batch, w.name, labelX, ty, kText);
+			m_font.Draw(batch, threads::StateName(w.state), width * 0.15f, ty, stCol);
+			m_font.Draw(batch, std::format("it {}", w.iterations), width * 0.26f, ty, kDim);
+			m_font.Draw(batch, std::format("{:.2f}/{:.2f}ms", w.lastMs, w.avgMs),
+						width * 0.35f, ty, kDim);
+			m_font.Draw(batch, std::format("{:.2f}hz", w.hz), width * 0.48f, ty, kDim);
+
+			const float killX = width - pad * 2.0f - bw;
+			const float fastX = killX - (bw + bgap);
+			const float slowX = fastX - (bw + bgap);
+			const float pauseX = slowX - (bw + bgap);
+			const gfx::Rect pauseR{pauseX, ty, bw, bh}, slowR{slowX, ty, bw, bh},
+				fastR{fastX, ty, bw, bh}, killR{killX, ty, bw, bh};
+			const Vec4 bc = dead ? kDim : kText;
+			button(pauseR, w.paused ? "run" : "halt", bc);
+			button(slowR, "<<", bc);
+			button(fastR, ">>", bc);
+			button(killR, "kill", dead ? kDim : kKill);
+			if (!dead) m_threadHits.push_back({w.id, pauseR, slowR, fastR, killR});
+
+			ty += rowAdvance;
+		}
+	}
 
 	// --- output log + input line (bottom) -----------------------------------
 	const float inputY = height - line - pad;

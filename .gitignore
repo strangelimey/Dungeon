@@ -10,3 +10,6 @@ assets/textures/*.dds
 # (tools/FetchTextures.ps1). The raw Poly Haven downloads live there too.
 assets/textures/*.png
 docs/*.png
+
+# Temp file for git commit -F (never track)
+.git-commit-msg.txt

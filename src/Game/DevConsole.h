@@ -14,6 +14,8 @@
 // ============================================================================
 #pragma once
 
+#include "Core/MathTypes.h"
+#include "Core/ThreadManager.h"
 #include "Graphics/GraphicsDevice.h"
 #include "Graphics/SpriteBatch.h"
 #include "Platform/Input.h"
@@ -29,7 +31,7 @@ namespace dungeon::game {
 
 class DevConsole {
 public:
-	explicit DevConsole(gfx::GraphicsDevice& device);
+	DevConsole(gfx::GraphicsDevice& device, threads::Manager& threadManager);
 
 	bool IsOpen() const { return m_open; }
 	void Toggle();
@@ -55,6 +57,16 @@ private:
 
 	ui::Font m_font;
 	PerfMonitor m_perf;
+	threads::Manager& m_threadMgr;
+
+	// Per-thread control-button rects, rebuilt by Render each frame and hit-tested
+	// by the next Update (the panel is static, so one frame of lag is invisible).
+	// This keeps the button layout in one place — Render — instead of duplicated.
+	struct ThreadHit {
+		threads::WorkerId id;
+		gfx::Rect pause, slower, faster, kill;
+	};
+	std::vector<ThreadHit> m_threadHits;
 
 	bool m_open = false;
 	std::string m_input;             // current edit line

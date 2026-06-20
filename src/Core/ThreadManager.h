@@ -37,9 +37,9 @@ namespace dungeon::threads {
 using WorkerId = u32;
 inline constexpr WorkerId kInvalidWorker = ~0u;
 
-// A worker's lifecycle state (see the diagram in the design notes). More states
-// (Paused, Stalled) arrive with the throttle/watchdog steps.
-enum class State { Starting, Running, Sleeping, Cancelling, Dead };
+// A worker's lifecycle state (see the diagram in the design notes). Stalled
+// (watchdog) arrives with a later step.
+enum class State { Starting, Running, Sleeping, Paused, Cancelling, Dead };
 const char* StateName(State s);
 
 // Handed to a job each tick. The job does ONE unit of work and returns; the
@@ -68,6 +68,7 @@ struct WorkerInfo {
 	double maxMs = 0.0;         // worst tick duration seen
 	double heartbeatAgeMs = 0.0;// time since the current tick began (stall signal)
 	float hz = 0.0f;            // configured cadence
+	bool paused = false;        // pause requested (may lead the Paused state by a tick)
 	std::string lastError;      // message from the last job exception, if any
 };
 
@@ -101,6 +102,14 @@ public:
 	// MUST Stop its own workers in its destructor before its captured state dies,
 	// since the job closure typically references that client.
 	void Stop(WorkerId id);
+
+	// Throttle controls — all take effect immediately (they wake the worker's
+	// cadence sleep). Pause holds the worker after its current tick without
+	// joining it; Resume releases it; SetRate changes the re-run cadence (hz<=0
+	// means run flat-out). No-ops for an unknown or dead worker.
+	void Pause(WorkerId id);
+	void Resume(WorkerId id);
+	void SetRate(WorkerId id, float hz);
 
 	// Lock-free reads of live worker state. Inspect returns a Dead-stated default
 	// for an unknown id.

@@ -26,6 +26,7 @@ const char* StateName(State s) {
 	case State::Starting: return "starting";
 	case State::Running: return "running";
 	case State::Sleeping: return "sleeping";
+	case State::Paused: return "paused";
 	case State::Cancelling: return "cancelling";
 	case State::Dead: return "dead";
 	}
@@ -65,10 +66,14 @@ struct Manager::Worker {
 	std::atomic<double> maxMs{0.0};
 	std::atomic<i64> beatNs{0}; // Clock::now() of the current tick's start
 
+	std::atomic<bool> paused{false};
+	std::atomic<u64> wakeGen{0}; // bumped by a control call to wake the cadence sleep
+
 	std::mutex errMx;
 	std::string lastError;
 
-	// Interruptible cadence sleep (also the seam Pause/SetRate will reuse).
+	// Interruptible cadence/pause sleep. Control calls flip the atomics under this
+	// mutex then notify, so a sleeping worker can't miss the wake.
 	std::mutex sleepMx;
 	std::condition_variable_any sleepCv;
 
@@ -105,6 +110,14 @@ WorkerId Manager::Spawn(JobFn job, Options opt) {
 void Manager::Run(Worker* w, std::stop_token st) {
 	SetOsThreadName(w->name);
 	while (!st.stop_requested()) {
+		// Paused: hold here (not joined) until resumed or stopped, running no job.
+		if (w->paused.load()) {
+			w->state.store(State::Paused);
+			std::unique_lock<std::mutex> lk(w->sleepMx);
+			w->sleepCv.wait(lk, st, [w] { return !w->paused.load(); });
+			continue; // re-check stop + paused at the top
+		}
+
 		const auto t0 = Clock::now();
 		w->beatNs.store(t0.time_since_epoch().count());
 		w->state.store(State::Running);
@@ -130,13 +143,16 @@ void Manager::Run(Worker* w, std::stop_token st) {
 		w->iterations.fetch_add(1);
 
 		const float hz = w->hz.load();
-		if (hz > 0.0f && !st.stop_requested()) {
+		if (hz > 0.0f && !st.stop_requested() && !w->paused.load()) {
 			w->state.store(State::Sleeping);
 			const std::chrono::duration<double> interval(1.0 / hz);
+			const u64 gen = w->wakeGen.load();
 			std::unique_lock<std::mutex> lk(w->sleepMx);
-			// Wakes on timeout OR a stop request (condition_variable_any's
-			// stop_token overload registers the wake for us).
-			w->sleepCv.wait_for(lk, st, interval, [] { return false; });
+			// Wakes on timeout, a stop request, or any control call (pause / new
+			// rate bumps wakeGen) so the change takes effect at once.
+			w->sleepCv.wait_for(lk, st, interval, [w, gen] {
+				return w->paused.load() || w->wakeGen.load() != gen;
+			});
 		}
 	}
 	w->state.store(State::Dead);
@@ -163,6 +179,41 @@ void Manager::Stop(WorkerId id) {
 	w->state.store(State::Dead);
 }
 
+// Control calls flip the worker's atomics UNDER its sleep mutex, then notify, so
+// a worker that is between checking the predicate and waiting can't miss it.
+void Manager::Pause(WorkerId id) {
+	Worker* w = Get(id);
+	if (!w) return;
+	{
+		std::lock_guard<std::mutex> lk(w->sleepMx);
+		w->paused.store(true);
+		++w->wakeGen;
+	}
+	w->sleepCv.notify_all();
+}
+
+void Manager::Resume(WorkerId id) {
+	Worker* w = Get(id);
+	if (!w) return;
+	{
+		std::lock_guard<std::mutex> lk(w->sleepMx);
+		w->paused.store(false);
+		++w->wakeGen;
+	}
+	w->sleepCv.notify_all();
+}
+
+void Manager::SetRate(WorkerId id, float hz) {
+	Worker* w = Get(id);
+	if (!w) return;
+	{
+		std::lock_guard<std::mutex> lk(w->sleepMx);
+		w->hz.store(hz);
+		++w->wakeGen; // wake the cadence sleep so the new rate applies now
+	}
+	w->sleepCv.notify_all();
+}
+
 WorkerInfo Manager::Inspect(WorkerId id) const {
 	Worker* w = Get(id);
 	if (!w) return {};
@@ -178,6 +229,7 @@ WorkerInfo Manager::Inspect(WorkerId id) const {
 	info.heartbeatAgeMs =
 		beat ? ToMs(Clock::now() - Clock::time_point(Clock::duration(beat))) : 0.0;
 	info.hz = w->hz.load();
+	info.paused = w->paused.load();
 	{
 		std::lock_guard<std::mutex> lk(w->errMx);
 		info.lastError = w->lastError;

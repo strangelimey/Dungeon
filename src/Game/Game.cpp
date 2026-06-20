@@ -72,7 +72,7 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 		   m_characters),
 	  m_mapView(device, m_world, m_settings),
 	  m_mapEditor(m_mapView, m_world, m_settings),
-	  m_console(device),
+	  m_console(device, m_threads),
 	  m_modelPreview(device, 512),
 	  m_assetDialog(device, window) {
 	m_mapView.SetEditor(&m_mapEditor); // the view drives the editor in Editor mode
