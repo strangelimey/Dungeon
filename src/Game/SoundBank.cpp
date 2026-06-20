@@ -14,6 +14,9 @@ void SoundBank::Load() {
 	click = LoadSound("click.wav");
 	monster = LoadSound("monster.wav");
 	oof = LoadSound("oof.wav");
+	spellCast = LoadSound("spells\\cast.wav");
+	spellImpact = LoadSound("spells\\impact.wav");
+	spellFizzle = LoadSound("spells\\fizzle.wav");
 }
 
 } // namespace dungeon::game

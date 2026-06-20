@@ -21,6 +21,11 @@ struct SoundBank {
 	assets::SoundData monster;
 	assets::SoundData oof; // party grunt when a blocked move jars them
 
+	// Spell effects (assets/sounds/spells/).
+	assets::SoundData spellCast;   // a spell is released
+	assets::SoundData spellImpact; // a bolt strikes a monster
+	assets::SoundData spellFizzle; // no recipe / no mana / hits a wall
+
 	void Load();
 };
 

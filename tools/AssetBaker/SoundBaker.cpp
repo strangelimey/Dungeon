@@ -14,6 +14,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <filesystem>
 #include <random>
 #include <vector>
 
@@ -135,6 +136,61 @@ std::vector<i16> Oof() {
 	return s;
 }
 
+std::vector<i16> SpellCast() {
+	// Rising arcane shimmer — an upward pitch sweep with bright overtones over a
+	// breath of airy noise, the gathered energy releasing. ~0.35s.
+	std::vector<i16> s(static_cast<size_t>(0.35f * kRate));
+	Noise noise;
+	for (size_t i = 0; i < s.size(); ++i) {
+		const float t = static_cast<float>(i) / kRate;
+		const float env = (1.0f - std::exp(-t * 35.0f)) * std::exp(-t * 6.0f);
+		// Pitch sweeps up from ~330Hz to ~880Hz over the first ~0.3s.
+		const float f = 330.0f + 550.0f * std::min(t / 0.3f, 1.0f);
+		const float tone = std::sin(2 * 3.14159f * f * t) * 0.5f +
+						   std::sin(2 * 3.14159f * f * 2.01f * t) * 0.25f +
+						   std::sin(2 * 3.14159f * f * 3.0f * t) * 0.12f;
+		const float shimmer = noise.Brown(0.6f) * 0.2f;
+		s[i] = Pack((tone + shimmer) * env * 0.7f);
+	}
+	return s;
+}
+
+std::vector<i16> SpellImpact() {
+	// Bright arcane burst — a sharp noisy crack over a quickly-falling tone, the
+	// bolt striking home. Fast attack, ~0.28s decay.
+	std::vector<i16> s(static_cast<size_t>(0.28f * kRate));
+	Noise noise;
+	for (size_t i = 0; i < s.size(); ++i) {
+		const float t = static_cast<float>(i) / kRate;
+		const float env = std::exp(-t * 18.0f);
+		// Tone drops from ~520Hz as the energy dissipates.
+		const float f = 520.0f - 300.0f * std::min(t / 0.2f, 1.0f);
+		const float tone = std::sin(2 * 3.14159f * f * t) * 0.45f +
+						   std::sin(2 * 3.14159f * f * 1.5f * t) * 0.2f;
+		const float crack = noise.Brown(0.7f) * 0.6f * std::exp(-t * 45.0f);
+		s[i] = Pack((tone + crack) * env * 0.85f);
+	}
+	return s;
+}
+
+std::vector<i16> SpellFizzle() {
+	// A failed cast — a deflating downward warble sputtering into noise, the
+	// spell collapsing. ~0.3s.
+	std::vector<i16> s(static_cast<size_t>(0.3f * kRate));
+	Noise noise;
+	for (size_t i = 0; i < s.size(); ++i) {
+		const float t = static_cast<float>(i) / kRate;
+		const float env = std::sin(3.14159f * t / 0.3f);
+		// Pitch sags from ~400Hz down to ~120Hz — the energy draining away.
+		const float f = 400.0f - 280.0f * std::min(t / 0.3f, 1.0f);
+		const float warble = 1.0f + 0.15f * std::sin(2 * 3.14159f * 18.0f * t);
+		const float tone = std::sin(2 * 3.14159f * f * warble * t) * 0.4f;
+		const float sputter = noise.Brown(0.35f) * 0.4f;
+		s[i] = Pack((tone + sputter) * env * 0.6f);
+	}
+	return s;
+}
+
 } // namespace
 
 bool BakeSounds(const std::string& dir) {
@@ -145,6 +201,13 @@ bool BakeSounds(const std::string& dir) {
 	ok &= WriteWav(dir + "\\click.wav", Click());
 	ok &= WriteWav(dir + "\\monster.wav", MonsterGroan());
 	ok &= WriteWav(dir + "\\oof.wav", Oof());
+
+	// Spell effects live in a dedicated subfolder.
+	std::error_code ec;
+	std::filesystem::create_directories(dir + "\\spells", ec);
+	ok &= WriteWav(dir + "\\spells\\cast.wav", SpellCast());
+	ok &= WriteWav(dir + "\\spells\\impact.wav", SpellImpact());
+	ok &= WriteWav(dir + "\\spells\\fizzle.wav", SpellFizzle());
 	return ok;
 }
 

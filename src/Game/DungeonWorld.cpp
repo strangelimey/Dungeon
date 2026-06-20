@@ -115,7 +115,7 @@ DungeonWorld::DungeonWorld(gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	m_magic.resolveHit = [this](const Vec3& p, const AttackProfile& atk) {
 		return ResolveSpellHit(p, atk);
 	};
-	m_magic.onFizzle = [this](const Vec3&) { m_audio.Play(m_sounds.bump, 0.4f); };
+	m_magic.onFizzle = [this](const Vec3&) { m_audio.Play(m_sounds.spellFizzle, 0.6f); };
 }
 
 // ============================================================================
@@ -913,7 +913,7 @@ bool DungeonWorld::CastSpell(size_t member, std::span<const SpellSymbol> sequenc
 	switch (r.outcome) {
 	case MagicSystem::CastOutcome::Cast:
 		onMessage(loc::Format("log.cast", caster.name, loc::Tr(r.spell->nameKey)));
-		m_audio.Play(m_sounds.turn, 0.7f); // a swish (no dedicated cast sound yet)
+		m_audio.Play(m_sounds.spellCast, 0.7f);
 		return true;
 	case MagicSystem::CastOutcome::NoMana:
 		onMessage(loc::Format("log.cast_nomana", caster.name));
@@ -942,7 +942,7 @@ bool DungeonWorld::ResolveSpellHit(const Vec3& p, const AttackProfile& atk) {
 	if (r.hit) {
 		hit->hp -= r.damage;
 		onMessage(loc::Format("log.spell_hits", name, static_cast<int>(r.damage + 0.5f)));
-		m_audio.Play(m_sounds.monster, 0.7f);
+		m_audio.Play(m_sounds.spellImpact, 0.7f);
 		if (!hit->Alive()) {
 			hit->hp = 0.0f; // downed monster stays in the list (save can restore it)
 			onMessage(loc::Format("log.spell_slain", name));
