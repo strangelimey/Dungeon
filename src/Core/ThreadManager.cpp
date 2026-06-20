@@ -126,7 +126,7 @@ WorkerId Manager::Spawn(JobFn job, Options opt) {
 	p->affinity.store(opt.affinity);
 
 	std::lock_guard<std::mutex> lk(m_mx);
-	p->id = static_cast<WorkerId>(m_workers.size());
+	p->id = m_nextId++; // stable id, not the array index
 	m_workers.push_back(std::move(w));
 	// jthread injects the stop_token as the first arg. p is stable (the Worker
 	// lives in a unique_ptr; the vector only moves the pointers, never the node).
@@ -193,7 +193,9 @@ void Manager::Run(Worker* w, std::stop_token st) {
 
 Manager::Worker* Manager::Get(WorkerId id) const {
 	std::lock_guard<std::mutex> lk(m_mx);
-	return id < m_workers.size() ? m_workers[id].get() : nullptr;
+	for (const auto& w : m_workers)
+		if (w->id == id) return w.get();
+	return nullptr;
 }
 
 void Manager::RequestStop(WorkerId id) {
@@ -275,9 +277,15 @@ void Manager::SetAffinity(WorkerId id, u64 mask) {
 #endif
 }
 
-void Manager::SetGlobalThrottle(float scale) {
+void Manager::SetGlobalThrottle(float scale, bool wakeNow) {
 	m_globalScale.store(std::clamp(scale, 0.05f, 4.0f));
-	// Wake every worker's cadence sleep so the new scale takes effect at once.
+	// Workers read m_globalScale at the top of each cadence sleep, so a change
+	// always applies by their next natural wake. wakeNow forces it to take effect
+	// THIS instant by waking them — right for a one-shot manual `throttle`, but
+	// NOT for the per-frame adaptive governor: waking every worker every frame
+	// would make them tick at frame rate (a burst) during the easing, defeating
+	// the very throttle being applied. The governor passes wakeNow = false.
+	if (!wakeNow) return;
 	std::lock_guard<std::mutex> lk(m_mx);
 	for (auto& w : m_workers) {
 		{
@@ -302,14 +310,20 @@ void Manager::StopOrTerminate(Worker* w) {
 		w->thread.join(); // clean exit
 		return;
 	}
-	// Wedged: force-terminate. This can leak whatever locks the job held — last
-	// resort only. Abandon (detach) the object so nothing tries to join it.
+	// Wedged: force-terminate. DANGEROUS last resort — TerminateThread runs no
+	// unwinding, so any lock the job held is leaked forever. If it was mid-malloc
+	// (the AI BFS allocates), the leaked lock is the CRT HEAP lock, which
+	// deadlocks the whole process on the next allocation. Acceptable only because
+	// Kill tries cooperative stop first, and the realistic trigger is a genuine
+	// bug (an infinite loop that never checks its token). Abandon (detach) the
+	// object so nothing tries to join it.
 #ifdef _WIN32
 	TerminateThread(static_cast<HANDLE>(w->thread.native_handle()), 1);
 #endif
 	w->thread.detach();
 	w->quarantined.store(true);
-	log::Warn("thread '{}' would not stop — force-terminated (locks may have leaked)",
+	log::Warn("thread '{}' would not stop — FORCE-TERMINATED; process may be unstable "
+			  "(leaked locks). Restart soon.",
 			  w->name);
 }
 
@@ -428,6 +442,17 @@ std::vector<WorkerInfo> Manager::SnapshotAll() const {
 size_t Manager::Count() const {
 	std::lock_guard<std::mutex> lk(m_mx);
 	return m_workers.size();
+}
+
+void Manager::Reap() {
+	std::lock_guard<std::mutex> lk(m_mx);
+	// Remove only fully-stopped slots: Dead = cleanly joined, Quarantined = force-
+	// terminated + detached. Either way the thread is gone (not joinable), so the
+	// Worker's destruction joins nothing and frees no in-use state.
+	std::erase_if(m_workers, [](const std::unique_ptr<Worker>& w) {
+		const State s = w->state.load();
+		return (s == State::Dead || s == State::Quarantined) && !w->thread.joinable();
+	});
 }
 
 } // namespace dungeon::threads

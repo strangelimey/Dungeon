@@ -768,7 +768,21 @@ void DungeonWorld::BuildAISnapshot() {
 		m_walkableRev = m_map.Revision();
 	}
 
-	auto snap = std::make_shared<ai::Snapshot>();
+	// Reuse a pooled snapshot that no worker (or the director) still holds — its
+	// only ref is the pool's (use_count == 1). It is therefore not the published
+	// snapshot and not in any worker's hands, so mutating it before we publish is
+	// safe. clear() keeps the vectors'/set's capacity, so steady-state frames do
+	// not allocate. The pool grows to the in-flight high-water mark (~workers+1).
+	std::shared_ptr<ai::Snapshot> snap;
+	for (auto& s : m_snapshotPool)
+		if (s.use_count() == 1) { snap = s; break; }
+	if (!snap) {
+		snap = std::make_shared<ai::Snapshot>();
+		m_snapshotPool.push_back(snap);
+	}
+	snap->blocked.clear();
+	snap->monsters.clear();
+
 	snap->partyX = m_party.GridX();
 	snap->partyZ = m_party.GridZ();
 	snap->mapW = m_map.Width();
@@ -781,7 +795,7 @@ void DungeonWorld::BuildAISnapshot() {
 		snap->blocked.insert(m.z * snap->mapW + m.x);
 		snap->monsters.push_back({m.runtimeId, m.x, m.z, m.kind->aggroRange, m.kind->iq});
 	}
-	m_director.Publish(std::move(snap));
+	m_director.Publish(snap); // pass a copy — the pool keeps its own ref
 }
 
 // Adopt the freshest plan batch from each bucket into the matching monsters. We

@@ -135,8 +135,10 @@ public:
 
 	// Global throttle governor: scales EVERY worker's cadence by `scale`
 	// (1 = normal, 0.5 = half rate, >1 = faster). Lets the frame loop ease all
-	// background work when it is over budget. Takes effect immediately.
-	void SetGlobalThrottle(float scale);
+	// background work when it is over budget. wakeNow=true applies it this instant
+	// (one-shot manual use); false lets it land on each worker's next natural wake
+	// (the per-frame adaptive governor, so it doesn't wake everyone every frame).
+	void SetGlobalThrottle(float scale, bool wakeNow = true);
 	float GlobalThrottle() const { return m_globalScale.load(); }
 
 	// Reboot a worker: cooperatively stop the current thread (request stop, let
@@ -154,6 +156,13 @@ public:
 	std::vector<WorkerInfo> SnapshotAll() const;
 	size_t Count() const;
 
+	// Drop fully-stopped workers (Dead or Quarantined, thread gone) from the
+	// registry so it doesn't grow without bound as short-lived workers come and
+	// go. WorkerIds are stable, so survivors keep theirs. MAIN-THREAD ONLY:
+	// it frees Workers, and the only cross-thread caller (the supervisor) touches
+	// just Running workers, never the stopped ones removed here.
+	void Reap();
+
 private:
 	struct Worker; // opaque (holds atomics + the jthread); defined in the .cpp
 	void Run(Worker* w, std::stop_token st);
@@ -165,6 +174,7 @@ private:
 
 	mutable std::mutex m_mx; // guards the m_workers vector structure only
 	std::vector<std::unique_ptr<Worker>> m_workers;
+	WorkerId m_nextId = 1; // stable id source (not the array index, so Reap is safe)
 	std::atomic<float> m_globalScale{1.0f}; // governor: multiplies every cadence
 	std::jthread m_supervisor; // monitors heartbeats; last member = stopped first
 };

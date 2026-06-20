@@ -382,6 +382,13 @@ void Game::RegisterDevCommands() {
 							   std::strtoull(args[1].c_str(), nullptr, 0));
 						   m_console.Print("affinity set");
 					   });
+	m_console.Register("threadreap", "drop stopped (dead/quarantined) workers from the registry",
+					   [this](const std::vector<std::string>&) {
+						   const size_t before = m_threads.Count();
+						   m_threads.Reap();
+						   m_console.Print(std::format("reaped {} worker(s)",
+													   before - m_threads.Count()));
+					   });
 	m_console.Register("editor", "open the map in editor mode (off = player map)",
 					   [this](const std::vector<std::string>& args) {
 						   if (!args.empty() && args[0] == "off") {
@@ -1034,26 +1041,27 @@ void Game::RestartApp() {
 // ============================================================================
 
 // Adaptive thread governor: when the frame runs over its time budget, ease every
-// background worker's cadence down (freeing CPU); when it runs comfortably under,
-// restore full speed. Off unless enabled via `governor auto`. The scale is eased
-// (not snapped) with a deadband to avoid flapping, and only pushed to the manager
-// when it actually moves — SetGlobalThrottle wakes the workers, so we don't want
-// to call it every frame. NOTE: this keys off whole-frame time, which can be
-// GPU-bound; it's a coarse heuristic, hence opt-in.
+// background worker's cadence down (freeing CPU); otherwise drift it back toward
+// full speed. Off unless enabled via `governor auto`. Hysteresis comes from
+// ASYMMETRIC easing — shed load fast, recover slowly — rather than a deadband
+// that holds the current scale (which could pin it throttled forever once a
+// transient spike dropped it). The scale change is pushed with wakeNow=false so
+// the per-frame updates don't wake every worker (which would itself cause a tick
+// burst). NOTE: keys off whole-frame time, which can be GPU-bound — a coarse
+// heuristic, hence opt-in.
 void Game::UpdateGovernor(float dt) {
 	if (!m_governorAuto) return;
 	const float fps = m_console.Fps();
 	const float frameMs = fps > 1.0f ? 1000.0f / fps : 1000.0f;
 	const float ratio = frameMs / m_governorTargetMs;
-	float desired = m_governorScale;
-	if (ratio > 1.15f) desired = 0.25f;     // over budget: shed background load
-	else if (ratio < 0.95f) desired = 1.0f; // comfortably under: full speed
-	// Ease toward the target (~0.25s time constant), clamp to the useful range.
-	m_governorScale += (desired - m_governorScale) * std::min(1.0f, dt * 4.0f);
+	const float desired = ratio > 1.15f ? 0.25f : 1.0f; // over budget vs recover
+	// Throttle down fast (~0.17s), recover slowly (~2s): sustained load stays
+	// throttled, but it always trends back to full when the pressure clears.
+	const float rate = desired < m_governorScale ? dt * 6.0f : dt * 0.5f;
+	m_governorScale += (desired - m_governorScale) * std::min(1.0f, rate);
 	m_governorScale = std::clamp(m_governorScale, 0.25f, 1.0f);
-	// Only apply on a real change — SetGlobalThrottle wakes every worker.
 	if (std::abs(m_governorScale - m_threads.GlobalThrottle()) > 0.005f)
-		m_threads.SetGlobalThrottle(m_governorScale);
+		m_threads.SetGlobalThrottle(m_governorScale, /*wakeNow=*/false);
 }
 
 void Game::Update(float dt) {

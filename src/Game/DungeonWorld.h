@@ -677,6 +677,10 @@ private:
 	// Walkability grid shared into snapshots, rebuilt only when the map changes.
 	std::shared_ptr<const std::vector<uint8_t>> m_walkableCache;
 	u32 m_walkableRev = 0xFFFFFFFFu; // map Revision() the cache was built for
+	// Snapshot pool so steady-state frames allocate nothing (CLAUDE.md memory
+	// strategy): BuildAISnapshot reuses a buffer no worker still holds (use_count
+	// == 1) and clear()s its vectors (capacity retained) instead of make_shared.
+	std::vector<std::shared_ptr<ai::Snapshot>> m_snapshotPool;
 
 	// Build the immutable snapshot the AI workers read, and hand it over. Cheap:
 	// reuses the cached walkability grid unless the map's revision changed.
