@@ -3,6 +3,8 @@
 // ============================================================================
 #include "Core/ThreadManager.h"
 
+#include "Core/Log.h"
+
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -30,6 +32,7 @@ const char* StateName(State s) {
 	case State::Stalled: return "stalled";
 	case State::Cancelling: return "cancelling";
 	case State::Dead: return "dead";
+	case State::Quarantined: return "quarantd";
 	}
 	return "?";
 }
@@ -43,6 +46,14 @@ static void SetOsThreadName(const std::string& name) {
 	std::wstring wide(static_cast<size_t>(n), L'\0');
 	MultiByteToWideChar(CP_UTF8, 0, name.c_str(), -1, wide.data(), n);
 	SetThreadDescription(GetCurrentThread(), wide.c_str());
+}
+// Map our -2..+2 priority to the Win32 thread-priority constants.
+static int Win32Priority(int p) {
+	if (p <= -2) return THREAD_PRIORITY_LOWEST;
+	if (p == -1) return THREAD_PRIORITY_BELOW_NORMAL;
+	if (p == 0) return THREAD_PRIORITY_NORMAL;
+	if (p == 1) return THREAD_PRIORITY_ABOVE_NORMAL;
+	return THREAD_PRIORITY_HIGHEST;
 }
 #else
 static void SetOsThreadName(const std::string&) {}
@@ -73,8 +84,11 @@ struct Manager::Worker {
 
 	bool autoRestart = false;        // set once at spawn
 	std::atomic<bool> userStopped{false}; // a kill/stop the supervisor must respect
+	std::atomic<bool> quarantined{false}; // force-terminated; slot poisoned until reboot
 	std::atomic<u32> restarts{0};
-	std::mutex controlMx; // serialises lifecycle ops (Stop/Restart) on this worker
+	std::atomic<int> priority{0};    // OS thread priority (-2..+2)
+	std::atomic<u64> affinity{0};    // CPU affinity mask (0 = any)
+	std::mutex controlMx; // serialises lifecycle ops (Stop/Kill/Restart) on this worker
 
 	std::mutex errMx;
 	std::string lastError;
@@ -95,12 +109,9 @@ Manager::~Manager() {
 	// Stop the supervisor first so it can't try to reboot a worker mid-teardown.
 	m_supervisor.request_stop();
 	if (m_supervisor.joinable()) m_supervisor.join();
-	// Ask everyone to stop (wakes any interruptible sleep), then join. The
-	// jthread destructor would do this too, but doing it explicitly controls the
-	// order and wakes sleepers before we block on a join.
-	for (auto& w : m_workers) w->thread.request_stop();
-	for (auto& w : m_workers)
-		if (w->thread.joinable()) w->thread.join();
+	// Stop every worker; force-terminate any that won't cooperate so shutdown
+	// can't hang on a wedged thread. (Teardown is single-threaded: no lock.)
+	for (auto& w : m_workers) StopOrTerminate(w.get());
 }
 
 WorkerId Manager::Spawn(JobFn job, Options opt) {
@@ -111,6 +122,8 @@ WorkerId Manager::Spawn(JobFn job, Options opt) {
 	p->hz.store(opt.hz);
 	p->watchdogMs = opt.watchdogMs;
 	p->autoRestart = opt.autoRestart;
+	p->priority.store(opt.priority);
+	p->affinity.store(opt.affinity);
 
 	std::lock_guard<std::mutex> lk(m_mx);
 	p->id = static_cast<WorkerId>(m_workers.size());
@@ -123,6 +136,11 @@ WorkerId Manager::Spawn(JobFn job, Options opt) {
 
 void Manager::Run(Worker* w, std::stop_token st) {
 	SetOsThreadName(w->name);
+#ifdef _WIN32
+	SetThreadPriority(GetCurrentThread(), Win32Priority(w->priority.load()));
+	if (const u64 mask = w->affinity.load())
+		SetThreadAffinityMask(GetCurrentThread(), static_cast<DWORD_PTR>(mask));
+#endif
 	while (!st.stop_requested()) {
 		// Paused: hold here (not joined) until resumed or stopped, running no job.
 		if (w->paused.load()) {
@@ -156,10 +174,11 @@ void Manager::Run(Worker* w, std::stop_token st) {
 		w->avgMs.store(a <= 0.0 ? ms : a * 0.9 + ms * 0.1); // EMA
 		w->iterations.fetch_add(1);
 
-		const float hz = w->hz.load();
-		if (hz > 0.0f && !st.stop_requested() && !w->paused.load()) {
+		// Effective cadence = configured hz scaled by the global governor.
+		const float eff = w->hz.load() * m_globalScale.load();
+		if (eff > 0.0f && !st.stop_requested() && !w->paused.load()) {
 			w->state.store(State::Sleeping);
-			const std::chrono::duration<double> interval(1.0 / hz);
+			const std::chrono::duration<double> interval(1.0 / eff);
 			const u64 gen = w->wakeGen.load();
 			std::unique_lock<std::mutex> lk(w->sleepMx);
 			// Wakes on timeout, a stop request, or any control call (pause / new
@@ -232,19 +251,91 @@ void Manager::SetRate(WorkerId id, float hz) {
 	w->sleepCv.notify_all();
 }
 
+void Manager::SetPriority(WorkerId id, int priority) {
+	Worker* w = Get(id);
+	if (!w) return;
+	std::lock_guard<std::mutex> ctl(w->controlMx); // don't race Restart's relaunch
+	w->priority.store(priority);
+#ifdef _WIN32
+	if (w->thread.joinable())
+		SetThreadPriority(static_cast<HANDLE>(w->thread.native_handle()),
+						  Win32Priority(priority));
+#endif
+}
+
+void Manager::SetAffinity(WorkerId id, u64 mask) {
+	Worker* w = Get(id);
+	if (!w) return;
+	std::lock_guard<std::mutex> ctl(w->controlMx);
+	w->affinity.store(mask);
+#ifdef _WIN32
+	if (mask && w->thread.joinable())
+		SetThreadAffinityMask(static_cast<HANDLE>(w->thread.native_handle()),
+							  static_cast<DWORD_PTR>(mask));
+#endif
+}
+
+void Manager::SetGlobalThrottle(float scale) {
+	m_globalScale.store(std::clamp(scale, 0.05f, 4.0f));
+	// Wake every worker's cadence sleep so the new scale takes effect at once.
+	std::lock_guard<std::mutex> lk(m_mx);
+	for (auto& w : m_workers) {
+		{
+			std::lock_guard<std::mutex> s(w->sleepMx);
+			++w->wakeGen;
+		}
+		w->sleepCv.notify_all();
+	}
+}
+
+// Stop a worker, force-terminating it if it won't go cooperatively. On return
+// w->thread is either joined (clean) or detached (quarantined). Caller serialises
+// via controlMx (except the dtor, which runs single-threaded).
+void Manager::StopOrTerminate(Worker* w) {
+	if (!w->thread.joinable()) return; // already joined/detached
+	w->thread.request_stop();          // wakes any interruptible sleep
+	// Grace: a cooperative worker reaches Dead at the end of its loop quickly.
+	const auto deadline = Clock::now() + std::chrono::milliseconds(250);
+	while (Clock::now() < deadline && w->state.load() != State::Dead)
+		std::this_thread::sleep_for(std::chrono::milliseconds(2));
+	if (w->state.load() == State::Dead) {
+		w->thread.join(); // clean exit
+		return;
+	}
+	// Wedged: force-terminate. This can leak whatever locks the job held — last
+	// resort only. Abandon (detach) the object so nothing tries to join it.
+#ifdef _WIN32
+	TerminateThread(static_cast<HANDLE>(w->thread.native_handle()), 1);
+#endif
+	w->thread.detach();
+	w->quarantined.store(true);
+	log::Warn("thread '{}' would not stop — force-terminated (locks may have leaked)",
+			  w->name);
+}
+
+void Manager::Kill(WorkerId id) {
+	Worker* w = Get(id);
+	if (!w) return;
+	std::lock_guard<std::mutex> ctl(w->controlMx);
+	w->userStopped.store(true); // intentional — the supervisor must not revive it
+	w->state.store(State::Cancelling);
+	StopOrTerminate(w);
+	w->state.store(w->quarantined.load() ? State::Quarantined : State::Dead);
+}
+
 void Manager::Restart(WorkerId id) {
 	Worker* w = Get(id);
 	if (!w) return;
 	std::lock_guard<std::mutex> ctl(w->controlMx);
-	// Stop and JOIN the current thread first, so the old thread is entirely gone
-	// before the new one touches this Worker's state (no shared-state race). A
-	// cooperative worker returns from its tick promptly; a wedged one blocks here.
+	// Stop the current thread (force-terminating a wedged one) so the old thread
+	// is entirely gone before the new one touches this Worker — no shared-state
+	// race, and a stuck worker can't block the reboot.
 	w->state.store(State::Cancelling);
-	w->thread.request_stop();
-	if (w->thread.joinable()) w->thread.join();
+	StopOrTerminate(w);
 
 	// Fresh slate; keep the stored job + config. Booting clears the user-stopped
-	// flag so the worker runs again and is supervised again.
+	// and quarantine flags so the worker runs again and is supervised again.
+	w->quarantined.store(false);
 	w->userStopped.store(false);
 	w->paused.store(false);
 	w->iterations.store(0);
@@ -305,12 +396,15 @@ WorkerInfo Manager::Inspect(WorkerId id) const {
 	info.hz = w->hz.load();
 	info.paused = w->paused.load();
 	info.restarts = w->restarts.load();
+	info.priority = w->priority.load();
 	// Watchdog: a tick still Running past its budget is reported as Stalled (the
 	// worker keeps going — this is a detection overlay, not a stored transition).
 	// Sleeping/Paused don't count: their heartbeat is old by design.
 	if (w->watchdogMs > 0 && info.state == State::Running &&
 		info.heartbeatAgeMs > static_cast<double>(w->watchdogMs))
 		info.state = State::Stalled;
+	// A force-terminated slot reads Quarantined regardless of the frozen atomics.
+	if (w->quarantined.load()) info.state = State::Quarantined;
 	{
 		std::lock_guard<std::mutex> lk(w->errMx);
 		info.lastError = w->lastError;

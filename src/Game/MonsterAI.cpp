@@ -129,7 +129,7 @@ AsyncDirector::AsyncDirector(threads::Manager& manager) : m_manager(manager) {
 				ComputeBucket(b, brain);
 			},
 			{"ai.bucket" + std::to_string(b), hz, /*watchdogMs=*/100,
-			 /*autoRestart=*/true});
+			 /*autoRestart=*/true, /*priority=*/-1}); // below-normal: AI is background work
 	}
 }
 

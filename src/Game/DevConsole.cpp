@@ -120,7 +120,7 @@ void DevConsole::Update(const Input& input, float dt, float windowW, float windo
 			} else if (t.faster.Contains(mx, my)) {
 				m_threadMgr.SetRate(t.id, std::min(info.hz * 2.0f, 60.0f));
 			} else if (t.kill.Contains(mx, my)) {
-				m_threadMgr.RequestStop(t.id);
+				m_threadMgr.Kill(t.id); // hard: force-terminates a wedged worker
 			} else if (t.boot.Contains(mx, my)) {
 				m_threadMgr.Restart(t.id);
 			}
@@ -261,10 +261,15 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 		batch.DrawRect({0, ty, width, 1.0f}, kBorder); // divider from the perf block
 		ty += line * 0.4f;
 		m_font.Draw(batch, "THREADS", labelX, ty, kAccent);
+		const float gov = m_threadMgr.GlobalThrottle();
+		if (gov != 1.0f)
+			m_font.Draw(batch, std::format("governor {:.2f}x", gov), width * 0.15f, ty,
+						{0.55f, 0.85f, 0.95f, 1.0f});
 		ty += line;
 
 		const Vec4 kPaused{0.90f, 0.75f, 0.30f, 1.0f};
 		const Vec4 kStalled{0.95f, 0.45f, 0.30f, 1.0f};
+		const Vec4 kQuar{0.80f, 0.45f, 0.85f, 1.0f};
 		const Vec4 kKill{0.90f, 0.50f, 0.50f, 1.0f};
 		const float bw = line * 2.6f, bh = line, bgap = line * 0.4f;
 
@@ -276,19 +281,22 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 		};
 
 		for (const threads::WorkerInfo& w : workers) {
-			const bool dead = w.state == threads::State::Dead;
-			const Vec4 stCol = dead ? kDim
+			const bool quar = w.state == threads::State::Quarantined;
+			const bool dead = w.state == threads::State::Dead || quar;
+			const Vec4 stCol = quar ? kQuar
+							 : w.state == threads::State::Dead ? kDim
 							 : w.state == threads::State::Stalled ? kStalled
 							 : w.paused ? kPaused
 							 : kAccent;
 			m_font.Draw(batch, w.name, labelX, ty, kText);
 			m_font.Draw(batch, threads::StateName(w.state), width * 0.15f, ty, stCol);
-			m_font.Draw(batch, std::format("it {}", w.iterations), width * 0.26f, ty, kDim);
+			m_font.Draw(batch, std::format("it {}", w.iterations), width * 0.25f, ty, kDim);
 			m_font.Draw(batch, std::format("{:.2f}/{:.2f}ms", w.lastMs, w.avgMs),
-						width * 0.35f, ty, kDim);
-			m_font.Draw(batch, std::format("{:.2f}hz", w.hz), width * 0.48f, ty, kDim);
+						width * 0.34f, ty, kDim);
+			m_font.Draw(batch, std::format("{:.2f}hz", w.hz), width * 0.46f, ty, kDim);
+			m_font.Draw(batch, std::format("p{}", w.priority), width * 0.52f, ty, kDim);
 			if (w.restarts > 0)
-				m_font.Draw(batch, std::format("re {}", w.restarts), width * 0.55f, ty,
+				m_font.Draw(batch, std::format("re {}", w.restarts), width * 0.56f, ty,
 							kDim);
 
 			const float killX = width - pad * 2.0f - bw;

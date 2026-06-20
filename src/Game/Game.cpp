@@ -326,6 +326,44 @@ void Game::RegisterDevCommands() {
 			m_console.Print(
 				std::format("spawned demo worker #{} ({} ms/tick)", id, busyMs));
 		});
+	m_console.Register(
+		"threadwedge", "spawn a WEDGED demo worker (ignores its stop token) to test hard kill",
+		[this](const std::vector<std::string>&) {
+			const threads::WorkerId id = m_threads.Spawn(
+				[](const threads::Tick&) {
+					// Deliberately does NOT check the stop token: cooperative stop
+					// can't end this — only a hard Kill (force-terminate) will.
+					while (true) std::this_thread::sleep_for(std::chrono::milliseconds(50));
+				},
+				{"demo.wedged", 1.0f, /*watchdogMs=*/200});
+			m_console.Print(std::format("spawned WEDGED worker #{} (use kill)", id));
+		});
+	m_console.Register("throttle", "global cadence governor (arg: scale, e.g. 0.5; 1 = normal)",
+					   [this](const std::vector<std::string>& args) {
+						   const float s = args.empty() ? 1.0f
+										   : static_cast<float>(std::atof(args[0].c_str()));
+						   m_threads.SetGlobalThrottle(s);
+						   m_console.Print(std::format("global throttle: {:.2f}x",
+													   m_threads.GlobalThrottle()));
+					   });
+	m_console.Register("threadprio", "set a worker's OS priority (usage: threadprio <id> <-2..2>)",
+					   [this](const std::vector<std::string>& args) {
+						   if (!Need(m_console, args, 2, "usage: threadprio <id> <-2..2>"))
+							   return;
+						   m_threads.SetPriority(
+							   static_cast<threads::WorkerId>(std::atoi(args[0].c_str())),
+							   std::clamp(std::atoi(args[1].c_str()), -2, 2));
+						   m_console.Print("priority set");
+					   });
+	m_console.Register("threadaffinity", "pin a worker to a CPU mask (usage: threadaffinity <id> <mask>)",
+					   [this](const std::vector<std::string>& args) {
+						   if (!Need(m_console, args, 2, "usage: threadaffinity <id> <mask>"))
+							   return;
+						   m_threads.SetAffinity(
+							   static_cast<threads::WorkerId>(std::atoi(args[0].c_str())),
+							   std::strtoull(args[1].c_str(), nullptr, 0));
+						   m_console.Print("affinity set");
+					   });
 	m_console.Register("editor", "open the map in editor mode (off = player map)",
 					   [this](const std::vector<std::string>& args) {
 						   if (!args.empty() && args[0] == "off") {

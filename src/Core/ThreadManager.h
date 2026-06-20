@@ -25,6 +25,7 @@
 
 #include "Core/Types.h"
 
+#include <atomic>
 #include <functional>
 #include <memory>
 #include <mutex>
@@ -38,10 +39,13 @@ namespace dungeon::threads {
 using WorkerId = u32;
 inline constexpr WorkerId kInvalidWorker = ~0u;
 
-// A worker's lifecycle state (see the diagram in the design notes). Stalled is
-// a DERIVED view (a tick that has run past its watchdog budget), reported by
-// Inspect — the worker keeps running; acting on a stall is a later step.
-enum class State { Starting, Running, Sleeping, Paused, Stalled, Cancelling, Dead };
+// A worker's lifecycle state (see the diagram in the design notes). Stalled is a
+// DERIVED view (a tick past its watchdog budget) reported by Inspect; the worker
+// keeps running. Quarantined means it was force-terminated by a hard Kill (it
+// would not stop cooperatively) — its slot is poisoned until a Restart.
+enum class State {
+	Starting, Running, Sleeping, Paused, Stalled, Cancelling, Dead, Quarantined
+};
 const char* StateName(State s);
 
 // Handed to a job each tick. The job does ONE unit of work and returns; the
@@ -58,6 +62,8 @@ struct Options {
 	float hz = 0.0f;        // re-run cadence: 0 = flat-out (job should block), >0 = throttle
 	unsigned watchdogMs = 0;// flag a tick that runs longer than this as Stalled; 0 = off
 	bool autoRestart = false;// if it stalls past the grace window, the supervisor reboots it
+	int priority = 0;       // OS thread priority: -2..+2 (lowest..highest), 0 = normal
+	u64 affinity = 0;       // CPU affinity mask (bit per core); 0 = any core
 };
 
 // A lock-free-read snapshot of one worker's live state. Inspect/SnapshotAll
@@ -74,6 +80,7 @@ struct WorkerInfo {
 	float hz = 0.0f;            // configured cadence
 	bool paused = false;        // pause requested (may lead the Paused state by a tick)
 	u32 restarts = 0;           // times this worker has been rebooted (manual or supervisor)
+	int priority = 0;           // OS thread priority (-2..+2)
 	std::string lastError;      // message from the last job exception, if any
 };
 
@@ -115,6 +122,22 @@ public:
 	void Pause(WorkerId id);
 	void Resume(WorkerId id);
 	void SetRate(WorkerId id, float hz);
+	void SetPriority(WorkerId id, int priority); // -2..+2, applied to the live thread
+	void SetAffinity(WorkerId id, u64 mask);     // CPU mask (0 = any core)
+
+	// Hard, last-resort stop: ask the worker to stop, and if it won't within a
+	// short grace (a job ignoring its token / wedged in a loop), FORCE-terminate
+	// the OS thread and mark the slot Quarantined. Force-termination can leak
+	// locks the job held — only for a genuinely stuck thread. A cooperative
+	// worker exits cleanly here instead (no termination). Restart recovers the
+	// slot. Use Stop/RequestStop for the normal cooperative path.
+	void Kill(WorkerId id);
+
+	// Global throttle governor: scales EVERY worker's cadence by `scale`
+	// (1 = normal, 0.5 = half rate, >1 = faster). Lets the frame loop ease all
+	// background work when it is over budget. Takes effect immediately.
+	void SetGlobalThrottle(float scale);
+	float GlobalThrottle() const { return m_globalScale.load(); }
 
 	// Reboot a worker: cooperatively stop the current thread (request stop, let
 	// the in-flight tick finish, JOIN), reset its stats, and relaunch it on the
@@ -135,10 +158,14 @@ private:
 	struct Worker; // opaque (holds atomics + the jthread); defined in the .cpp
 	void Run(Worker* w, std::stop_token st);
 	void SupervisorLoop(std::stop_token st); // reboots stalled autoRestart workers
-	Worker* Get(WorkerId id) const;          // null if out of range
+	// Stop a worker, force-terminating it if it won't stop cooperatively. Leaves
+	// w->thread joined (clean) or detached (quarantined). Caller serialises.
+	void StopOrTerminate(Worker* w);
+	Worker* Get(WorkerId id) const; // null if out of range
 
 	mutable std::mutex m_mx; // guards the m_workers vector structure only
 	std::vector<std::unique_ptr<Worker>> m_workers;
+	std::atomic<float> m_globalScale{1.0f}; // governor: multiplies every cadence
 	std::jthread m_supervisor; // monitors heartbeats; last member = stopped first
 };
 
