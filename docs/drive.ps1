@@ -41,5 +41,5 @@ function Shot([string]$name) {
 	$bmp = New-Object System.Drawing.Bitmap($r.Right, $r.Bottom)
 	$g = [System.Drawing.Graphics]::FromImage($bmp)
 	$g.CopyFromScreen($p.X, $p.Y, 0, 0, $bmp.Size)
-	$bmp.Save("H:\Dungeon\docs\$name.png"); $g.Dispose(); $bmp.Dispose()
+	$bmp.Save((Join-Path $PSScriptRoot "$name.png")); $g.Dispose(); $bmp.Dispose()
 }

@@ -493,7 +493,7 @@ memory.
   checkout with one HEAD. So parallel sessions/branches must each use their
   OWN directory: `git worktree add ../Dungeon-<branch> <branch>` (separate
   folder, same repo) or a separate clone. Do NOT run two branches' work out
-  of `H:\Dungeon` at once — switching HEAD switches it for everyone and their
+  of `C:\Dev\Dungeon` at once — switching HEAD switches it for everyone and their
   uncommitted edits intermingle (this bit us: rune work and a save-improvements
   session collided in the same tree).
 - AFTER a branch is merged to main, TIDY UP its worktree so the drive doesn't
