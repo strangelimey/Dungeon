@@ -15,9 +15,15 @@ namespace dungeon::ai {
 // ----------------------------------------------------------------------------
 
 float Scheduler::BucketInterval(int b) {
-	// Bucket 0 runs at kFastestHz; each step down halves the rate (doubles the
-	// interval): 0.25s, 0.5s, 1.0s, 2.0s for the default 4-bucket / 4 Hz setup.
-	return (1.0f / kFastestHz) * static_cast<float>(1 << b);
+	// Cicada-style cadences: PRIME-millisecond intervals near each tier (~4/2/1/
+	// 0.5 Hz) instead of power-of-two ones. Power-of-two intervals (0.25/0.5/1/2s)
+	// are harmonic — their LCM is 2s, so all four buckets fire together every 2s.
+	// Prime, mutually-coprime intervals have an enormous LCM, so the buckets'
+	// fire times almost never coincide — no periodic thundering herd. (Each runs
+	// on its own thread, so this is cheap insurance more than a hot fix; the
+	// global governor scales these uniformly and so preserves the coprimality.)
+	static constexpr int kMs[kBucketCount] = {251, 499, 997, 1999};
+	return kMs[std::clamp(b, 0, kBucketCount - 1)] / 1000.0f;
 }
 
 int Scheduler::BucketForIq(float iq) {

@@ -111,17 +111,19 @@ struct Plan {
 // IQ-driven think-rate bucketing. Smart monsters land in a fast bucket (think
 // often, react crisply), dim ones in a slow bucket. Acting is NOT bucketed —
 // only thinking is — so move/attack speed stays governed by the monster's own
-// cooldowns. Bucket 0 is fastest (kFastestHz); each step down halves the rate.
-// Pure static helpers: the workers self-pace by BucketInterval, the host maps
-// IQ -> bucket by BucketForIq.
+// cooldowns. Bucket 0 is fastest (~kFastestHz); slower buckets step down. The
+// cadences are PRIME-millisecond (cicada-style coprime) values near each tier,
+// so the buckets' fire times almost never coincide — see BucketInterval. Pure
+// static helpers: workers self-pace by BucketInterval, the host maps IQ -> bucket.
 // ----------------------------------------------------------------------------
 struct Scheduler {
 	static constexpr int kBucketCount = 4;
-	static constexpr float kFastestHz = 4.0f; // bucket 0 re-thinks 4x/second
+	static constexpr float kFastestHz = 4.0f; // nominal fastest tier (~4x/second)
 
 	// Which bucket a monster with this IQ belongs to (0 = fastest).
 	static int BucketForIq(float iq);
-	// Seconds between re-thinks for bucket b (kFastestHz at b=0, halving down).
+	// Seconds between re-thinks for bucket b: a coprime prime-ms value near the
+	// tier rate (251/499/997/1999 ms), so buckets don't resonate (huge LCM).
 	static float BucketInterval(int b);
 };
 
