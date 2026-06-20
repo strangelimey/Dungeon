@@ -23,6 +23,7 @@ add_library(Game STATIC
 	Project.cpp
 	SaveGame.cpp
 	Serialize.cpp
+	ShadowScheduler.cpp
 	SoundBank.cpp
 	Spells.cpp
 )

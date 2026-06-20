@@ -109,7 +109,6 @@ DungeonWorld::DungeonWorld(gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	m_lights.directional.color = {0, 0, 0}; // no sun underground
 	// Rebuilt every frame into retained capacity — no steady-state allocation.
 	m_lights.points.reserve(gfx::kMaxPointLights);
-	m_shadowCandidates.reserve(gfx::kMaxPointLights);
 
 	// Magic system: load the project's recipes and wire its world seam so a bolt
 	// lives "on the map" without the magic module depending on the map/combat.
@@ -743,7 +742,7 @@ void DungeonWorld::ApplyQuality(bool textureResChanged) {
 	// The surface tessellation changed but the map Revision did not, so force a
 	// re-render of every cached shadow cube (otherwise standing still after a
 	// quality swap leaves the torch/glow cubes showing the old geometry).
-	for (ShadowSlotCache& cache : m_shadowCache) cache.lightId = -1;
+	m_shadows.InvalidateCubes();
 	log::Info("Quality switched to {} ({} meshes, {} textures)",
 			  m_settings.QualityLabel(), m_settings.MeshSuffix(),
 			  m_settings.TextureSuffix());
@@ -1117,7 +1116,7 @@ void DungeonWorld::BeginLevelLoad(const std::string& stem, bool stashCurrent) {
 	m_fires.clear();
 	m_magic.Clear(); // bolts/sparks don't survive a level change
 	m_pendingTransition.reset();
-	for (ShadowSlotCache& slot : m_shadowCache) slot = ShadowSlotCache{};
+	m_shadows.InvalidateCubes();
 	ResolveSurfacePalettes();
 }
 
@@ -1490,100 +1489,7 @@ void DungeonWorld::UpdateLights(float time) {
 		m_lights.points.resize(budget);
 	}
 
-	AssignShadowSlots();
-}
-
-// Hands the kShadowSlots shadow cubes to the lights nearest the camera —
-// slot 0 (highest resolution + PCF) to the closest, coarser slots outward,
-// nothing beyond that. Only lights the renderer will upload (the first
-// kMaxPointLights) compete, so a slot is never spent on a dropped light.
-// The carried torch sits at the eye so it always wins slot 0: its surface
-// shadows mostly hide behind their casters, but it is exactly what carves
-// shafts through dusty air around nearby pillars.
-// Two things smooth the hard slot boundary: assignment is hysteretic (a slot
-// holder resists being bumped by a marginally-closer rival), and each slotted
-// light gets a shadowStrength that fades 0->1 as it enters its shadow range,
-// so a shadow dissolves in rather than popping the instant the light wins a
-// slot (the original "shadow snaps on 3 squares away" artifact).
-void DungeonWorld::AssignShadowSlots() {
-	static_assert(gfx::kShadowSlots <= gfx::kMaxPointLights);
-	const Vec3 eye = m_party.EyePosition();
-
-	for (gfx::PointLight& light : m_lights.points) {
-		light.shadowSlot = -1;
-		light.shadowStrength = 1.0f;
-	}
-	if (!m_shadowsEnabled) { // dev console: lights stay lit, just unshadowed
-		m_prevShadowPos.clear();
-		return;
-	}
-
-	// Rank candidate lights by distance to the eye (linear, so the hysteresis
-	// margin below is in metres). A light that held a slot last frame gets a
-	// small discount so two near-equidistant fires don't trade slots — and the
-	// resolution tier that rides on the slot — back and forth as the party
-	// moves between them; the steadier slot also lets ShadowSlotCache reuse its
-	// cube more often. Incumbents are matched by POSITION, not index: the light
-	// list is rebuilt every frame and budget culling can shuffle indices, but a
-	// fire only wanders a few cm between frames.
-	constexpr float kHysteresis = 0.75f;   // metres of slack for a slot incumbent
-	constexpr float kReMatch2 = 0.25f;     // (0.5 m)²: "still the same light"
-
-	m_shadowCandidates.clear();
-	const size_t lightCount =
-		std::min<size_t>(m_lights.points.size(), gfx::kMaxPointLights);
-	for (size_t i = 0; i < lightCount; ++i) {
-		if (!m_lights.points[i].castsShadow) continue; // pure fill light (runes)
-		const Vec3 d = Sub(m_lights.points[i].position, eye);
-		float dist = std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z);
-		for (const Vec3& prev : m_prevShadowPos) {
-			const Vec3 e = Sub(m_lights.points[i].position, prev);
-			if (e.x * e.x + e.y * e.y + e.z * e.z <= kReMatch2) {
-				dist -= kHysteresis; // incumbent: bias toward keeping its slot
-				break;
-			}
-		}
-		m_shadowCandidates.emplace_back(dist, i);
-	}
-	std::ranges::sort(m_shadowCandidates);
-
-	// Two fade profiles, both ending at the light's radius and smoothstepped
-	// (softer than linear), anchored to per-light distance (a STABLE quantity,
-	// unlike the rank cutoff that drifts with how many lights are near):
-	//   - longShadowFade (braziers): fade across most of the reach, from 12% of
-	//     the radius out — a long LOD ramp the big brazier radius is sized for.
-	//   - default (sconces, glows): keep full strength except in the outer band,
-	//     so a caster beside a normal-radius light still casts a visible shadow
-	//     at viewing distance instead of fading out under the brazier tuning.
-	constexpr float kFadeStartFrac = 0.12f;       // long ramp: inner edge = 12% of radius
-	constexpr float kEdgeFadeBand = 1.5f * kCellSize; // default: soften the outer ~1.5 cells
-													  // (wide enough that a sconce winning a
-													  // slot mostly ramps in rather than pops)
-
-	const size_t count = std::min<size_t>(m_shadowCandidates.size(), gfx::kShadowSlots);
-	m_prevShadowPos.clear();
-	for (size_t slot = 0; slot < count; ++slot) {
-		gfx::PointLight& light = m_lights.points[m_shadowCandidates[slot].second];
-		light.shadowSlot = static_cast<int>(slot);
-
-		// Persistent short-range lights (the pillar glow) keep full-strength
-		// shadows at any distance; only fade the fires that pop in on approach.
-		if (light.fadeShadow) {
-			// True distance, not the hysteresis-discounted sort key.
-			const Vec3 d = Sub(light.position, eye);
-			const float dist = std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z);
-			const float fadeEnd = light.radius;
-			const float fadeStart = light.longShadowFade
-				? fadeEnd * kFadeStartFrac
-				: std::max(0.0f, fadeEnd - kEdgeFadeBand);
-			const float t = (fadeEnd > fadeStart)
-				? std::clamp((fadeEnd - dist) / (fadeEnd - fadeStart), 0.0f, 1.0f)
-				: 1.0f;
-			light.shadowStrength = t * t * (3.0f - 2.0f * t); // smoothstep, gentler
-		}
-
-		m_prevShadowPos.push_back(light.position);
-	}
+	m_shadows.AssignSlots(m_lights.points, eye, m_shadowsEnabled);
 }
 
 void DungeonWorld::UpdateMonsters(float dt) {
@@ -2007,33 +1913,23 @@ bool DungeonWorld::AnimatedCasterNear(const gfx::PointLight& light) const {
 // skips it) unless the light changed/moved, a flicker tick is due, geometry
 // changed, or an animating caster sits within the light.
 void DungeonWorld::RenderShadowMaps(ID3D12GraphicsCommandList* list) {
-	++m_frameCounter;
-	constexpr u64 kFlickerInterval = 2;  // re-render wandering fire cubes at half rate
-	constexpr float kPosEps2 = 0.0004f;  // 2 cm: a steady light re-renders once it moves
+	m_shadows.BeginPass();
 	const u32 rev = m_map.Revision();
 
 	for (size_t i = 0; i < m_lights.points.size(); ++i) {
 		const gfx::PointLight& light = m_lights.points[i];
 		if (light.shadowSlot < 0) continue;
-		const int slot = light.shadowSlot;
-		ShadowSlotCache& cache = m_shadowCache[slot];
-
-		const Vec3 d = Sub(light.position, cache.pos);
-		const bool moved = d.x * d.x + d.y * d.y + d.z * d.z > kPosEps2;
-		const bool flickerDue =
-			(m_frameCounter + static_cast<u64>(slot)) % kFlickerInterval == 0;
-		const bool needsRender = cache.lightId != static_cast<int>(i) ||
-								 cache.revision != rev || AnimatedCasterNear(light) ||
-								 (light.flickerShadow ? flickerDue : moved);
-		if (!needsRender) continue; // reuse the cube already bound as an SRV
+		// The scheduler owns the reuse decision (and records the render); we only
+		// supply the live map revision and the world's animating-caster verdict.
+		if (!m_shadows.ShouldRender(light, i, rev, AnimatedCasterNear(light)))
+			continue; // reuse the cube already bound as an SRV
 
 		const ViewCull cull = ViewCull::FromSphere(light.position, light.radius);
 		for (u32 face = 0; face < 6; ++face) {
-			m_renderer.BeginShadowFace(list, static_cast<u32>(slot), face,
+			m_renderer.BeginShadowFace(list, static_cast<u32>(light.shadowSlot), face,
 									   light.position, light.radius);
 			SubmitSceneGeometry(list, &cull);
 		}
-		cache = {static_cast<int>(i), light.position, rev};
 	}
 	m_renderer.EndShadows(list);
 	m_device.BindBackBuffer(list); // the shadow pass redirected the OM
