@@ -338,14 +338,32 @@ void Game::RegisterDevCommands() {
 				{"demo.wedged", 1.0f, /*watchdogMs=*/200});
 			m_console.Print(std::format("spawned WEDGED worker #{} (use kill)", id));
 		});
-	m_console.Register("throttle", "global cadence governor (arg: scale, e.g. 0.5; 1 = normal)",
+	m_console.Register("throttle", "manual global cadence scale (arg: e.g. 0.5; 1 = normal)",
 					   [this](const std::vector<std::string>& args) {
 						   const float s = args.empty() ? 1.0f
 										   : static_cast<float>(std::atof(args[0].c_str()));
+						   m_governorAuto = false; // manual override turns auto off
 						   m_threads.SetGlobalThrottle(s);
-						   m_console.Print(std::format("global throttle: {:.2f}x",
+						   m_console.Print(std::format("global throttle: {:.2f}x (auto off)",
 													   m_threads.GlobalThrottle()));
 					   });
+	m_console.Register(
+		"governor", "adaptive thread throttle (usage: governor auto [targetFps] | off)",
+		[this](const std::vector<std::string>& args) {
+			if (!args.empty() && args[0] == "auto") {
+				m_governorAuto = true;
+				if (args.size() >= 2) {
+					const float fps = static_cast<float>(std::atof(args[1].c_str()));
+					if (fps > 1.0f) m_governorTargetMs = 1000.0f / fps;
+				}
+				m_console.Print(std::format("governor: AUTO (target {:.1f} ms / {:.0f} fps)",
+											m_governorTargetMs, 1000.0f / m_governorTargetMs));
+			} else { // "off" or anything else
+				m_governorAuto = false;
+				m_threads.SetGlobalThrottle(1.0f);
+				m_console.Print("governor: off (1.00x)");
+			}
+		});
 	m_console.Register("threadprio", "set a worker's OS priority (usage: threadprio <id> <-2..2>)",
 					   [this](const std::vector<std::string>& args) {
 						   if (!Need(m_console, args, 2, "usage: threadprio <id> <-2..2>"))
@@ -1015,6 +1033,29 @@ void Game::RestartApp() {
 // The state machine
 // ============================================================================
 
+// Adaptive thread governor: when the frame runs over its time budget, ease every
+// background worker's cadence down (freeing CPU); when it runs comfortably under,
+// restore full speed. Off unless enabled via `governor auto`. The scale is eased
+// (not snapped) with a deadband to avoid flapping, and only pushed to the manager
+// when it actually moves — SetGlobalThrottle wakes the workers, so we don't want
+// to call it every frame. NOTE: this keys off whole-frame time, which can be
+// GPU-bound; it's a coarse heuristic, hence opt-in.
+void Game::UpdateGovernor(float dt) {
+	if (!m_governorAuto) return;
+	const float fps = m_console.Fps();
+	const float frameMs = fps > 1.0f ? 1000.0f / fps : 1000.0f;
+	const float ratio = frameMs / m_governorTargetMs;
+	float desired = m_governorScale;
+	if (ratio > 1.15f) desired = 0.25f;     // over budget: shed background load
+	else if (ratio < 0.95f) desired = 1.0f; // comfortably under: full speed
+	// Ease toward the target (~0.25s time constant), clamp to the useful range.
+	m_governorScale += (desired - m_governorScale) * std::min(1.0f, dt * 4.0f);
+	m_governorScale = std::clamp(m_governorScale, 0.25f, 1.0f);
+	// Only apply on a real change — SetGlobalThrottle wakes every worker.
+	if (std::abs(m_governorScale - m_threads.GlobalThrottle()) > 0.005f)
+		m_threads.SetGlobalThrottle(m_governorScale);
+}
+
 void Game::Update(float dt) {
 	const float wdt = dt * m_timeScale; // world dt (dev console `timescale`)
 	m_time += wdt;
@@ -1059,6 +1100,7 @@ void Game::Update(float dt) {
 	if (input.WasKeyPressed(VK_OEM_3)) m_console.Toggle();
 	m_console.Update(input, dt, static_cast<float>(m_window.Width()),
 					 static_cast<float>(m_window.Height()));
+	UpdateGovernor(dt); // adaptive thread throttle (no-op unless `governor auto`)
 	// The console owns the whole frame's input if it was open at the start (or
 	// just opened) — so the very keystroke that closes it (Esc or `~`) never
 	// also reaches the pause menu / HUD this frame.

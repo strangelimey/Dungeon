@@ -139,6 +139,9 @@ private:
 	// Update applies it at the top of the next frame, after the dropdown's
 	// callback has fully unwound (the rebuild destroys the dropdown).
 	void ApplyLanguage(bool rebuild);
+	// Per-frame adaptive thread governor (see the definition in Game.cpp). No-op
+	// unless `governor auto` is enabled.
+	void UpdateGovernor(float dt);
 	// Feeds the slowest member's moveSpeed into the Party as its pace
 	// multiplier; call whenever the roster's stats are (re)filled.
 	void ApplyPartySpeed();
@@ -218,8 +221,13 @@ private:
 
 	// The engine's worker threads (Core/ThreadManager.h). Declared before m_world
 	// so it outlives every subsystem that spawns workers on it — m_world's AI is
-	// the first client. Later: a dev-console `threads` command inspects it.
+	// the first client. The dev-console THREADS panel inspects/controls it.
 	threads::Manager m_threads;
+	// Adaptive governor (dev `governor auto`): eases all worker cadences when the
+	// frame runs over m_governorTargetMs, restores them when it runs under.
+	bool m_governorAuto = false;
+	float m_governorScale = 1.0f;
+	float m_governorTargetMs = 1000.0f / 60.0f;
 	DungeonWorld m_world;
 	GameUI m_ui;
 	// Map/editor overlay (toggle with `M` while playing). Like the console it
