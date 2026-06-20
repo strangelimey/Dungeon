@@ -249,6 +249,8 @@ void DungeonWorld::BeginLevelLoad(const std::string& stem, bool stashCurrent) {
 	// re-runs AppendLoadTasks.
 	m_seen.assign(static_cast<size_t>(m_map.Width()) * m_map.Height(), 0);
 	m_monsters.clear();
+	++m_aiGen; // monster indices are about to be reassigned: void any in-flight plans
+	m_walkableCache.reset(); // force a fresh walkability grid for the new level's map
 	m_items.clear();
 	m_buttons.clear();
 	m_decorations.clear();
@@ -649,11 +651,11 @@ void DungeonWorld::UpdateMonsters(float dt) {
 			}
 		}
 
-	// Which AI think buckets re-plan this frame (IQ-driven; see ai::Scheduler).
-	// Only the brain's THINK is gated by this — per-frame motion and acting on the
-	// last plan run for every monster regardless, so a low-IQ monster still moves,
-	// attacks, and animates at full speed; it just reconsiders its plan less often.
-	const unsigned dueBuckets = m_aiScheduler.Tick(dt);
+	// Async AI handoff (Game/MonsterAI.h): publish the world for the worker threads
+	// to think against, then adopt whatever plans they have finished. Both are
+	// cheap main-thread work — the pathfinding itself runs on the bucket threads.
+	BuildAISnapshot();
+	ConsumeAIPlans();
 
 	for (size_t i = 0; i < m_monsters.size(); ++i) {
 		Monster& monster = m_monsters[i];
@@ -680,20 +682,11 @@ void DungeonWorld::UpdateMonsters(float dt) {
 			}
 		}
 
-		const ai::Agent agent{static_cast<int>(i), monster.x, monster.z,
-							   monster.kind->aggroRange};
-
-		// THINK (IQ-gated): refresh the standing orders only when this monster's
-		// bucket is due this frame. Cheap — no pathing — so re-planning is what we
-		// throttle, not motion. Between thinks the monster keeps its last intent.
-		if (dueBuckets & (1u << ai::Scheduler::BucketForIq(monster.kind->iq)))
-			monster.intent = m_brain.Think(agent, {m_party.GridX(), m_party.GridZ()});
-
 		if (monster.intent.mode != ai::Intent::Mode::Engage) continue; // idle: nothing to do
 
 		// ACT (every frame, at the monster's OWN cadence): execute the standing
-		// orders. A low-IQ monster can still move fast and swing relentlessly here;
-		// only its CHANGE OF MIND (re-targeting via Think above) lags.
+		// orders the workers handed us. A low-IQ monster still moves fast and swings
+		// relentlessly here; only its CHANGE OF MIND (re-planning) lags.
 
 		// Turn to face the party (from the visual position so the turn glides).
 		if (monster.kind->facesTarget)
@@ -717,19 +710,100 @@ void DungeonWorld::UpdateMonsters(float dt) {
 			// Adjacent: swing at a random standing member when the cooldown allows.
 			if (monster.attackCd <= 0.0f) MonsterAttack(monster);
 		} else if (!monster.moving && monster.moveCd <= 0.0f) {
-			// Not adjacent: step one cell toward the last-known party cell (the
-			// logical cell snaps now, the glide above carries the visual). Pathing
-			// at the move cadence, NOT the think rate, decouples speed from IQ.
-			int nx = 0, nz = 0;
-			if (m_brain.NextStep(agent, monster.intent.targetX, monster.intent.targetZ,
-								 m_map.Width(), m_map.Height(), m_aiView, nx, nz)) {
-				monster.moveFrom = monster.visualPos;
-				monster.x = nx;
-				monster.z = nz;
-				monster.moving = true;
-				monster.moveT = 0.0f;
-				monster.moveCd = monster.kind->moveInterval;
+			// Not adjacent: follow the cached path the workers computed. Skip any
+			// cells already at/behind the monster, then take the next one only if
+			// it is still a free 4-neighbour (re-validated against LIVE occupancy,
+			// since the path was pathed on another thread against a snapshot). A
+			// stale/blocked step is dropped — the next plan will re-route.
+			while (monster.aiCursor < monster.aiPath.size() &&
+				   monster.aiPath[monster.aiCursor].x == monster.x &&
+				   monster.aiPath[monster.aiCursor].z == monster.z)
+				++monster.aiCursor;
+
+			if (monster.aiCursor < monster.aiPath.size()) {
+				const ai::Cell c = monster.aiPath[monster.aiCursor];
+				const bool adjacent = std::abs(c.x - monster.x) +
+										  std::abs(c.z - monster.z) == 1;
+				if (adjacent && CellFreeForMonster(c.x, c.z, static_cast<int>(i))) {
+					monster.moveFrom = monster.visualPos;
+					monster.x = c.x;
+					monster.z = c.z;
+					++monster.aiCursor;
+					monster.moving = true;
+					monster.moveT = 0.0f;
+					monster.moveCd = monster.kind->moveInterval;
+				} else {
+					monster.aiPath.clear(); // diverged or blocked: wait for a re-plan
+					monster.aiCursor = 0;
+				}
 			}
+		}
+	}
+}
+
+// Build the immutable world snapshot the AI worker threads read, and publish it.
+// The walkability grid is shared across frames (rebuilt only when the map's
+// revision changes); the rest is a cheap copy of the party cell + live monster
+// positions, plus the per-monster think inputs.
+void DungeonWorld::BuildAISnapshot() {
+	const int W = m_map.Width(), H = m_map.Height();
+	// Rebuild the shared grid when the map changed OR its size no longer matches
+	// (a level swap can reuse the same Revision() value but different dimensions —
+	// reusing a stale grid there would read out of bounds on the worker thread).
+	if (m_walkableRev != m_map.Revision() || !m_walkableCache ||
+		m_walkableCache->size() != static_cast<size_t>(W) * H) {
+		auto grid = std::make_shared<std::vector<uint8_t>>(
+			static_cast<size_t>(W) * H); // value-initialised to 0
+		for (int z = 0; z < H; ++z)
+			for (int x = 0; x < W; ++x)
+				(*grid)[static_cast<size_t>(z) * W + x] = m_map.IsWalkable(x, z) ? 1 : 0;
+		m_walkableCache = std::move(grid);
+		m_walkableRev = m_map.Revision();
+	}
+
+	auto snap = std::make_shared<ai::Snapshot>();
+	snap->gen = m_aiGen;
+	snap->partyX = m_party.GridX();
+	snap->partyZ = m_party.GridZ();
+	snap->mapW = m_map.Width();
+	snap->mapH = m_map.Height();
+	snap->walkable = m_walkableCache;
+	// Cells a monster may not enter: the party cell and every live monster's cell.
+	snap->blocked.insert(snap->partyZ * snap->mapW + snap->partyX);
+	for (size_t i = 0; i < m_monsters.size(); ++i) {
+		const Monster& m = m_monsters[i];
+		if (!m.Alive()) continue;
+		snap->blocked.insert(m.z * snap->mapW + m.x);
+		snap->monsters.push_back({static_cast<int>(i), m.x, m.z,
+								  m.kind->aggroRange, m.kind->iq});
+	}
+	m_director.Publish(std::move(snap));
+}
+
+// Adopt the freshest plan batch from each bucket into the matching monsters. We
+// apply a batch only once (tracked by its sequence) and ignore plans tagged with
+// an older generation (computed before the monster set was last rebuilt).
+void DungeonWorld::ConsumeAIPlans() {
+	for (int b = 0; b < ai::Scheduler::kBucketCount; ++b) {
+		const ai::AsyncDirector::Batch batch = m_director.TakePlans(b);
+		if (!batch.plans || batch.seq == m_lastPlanSeq[b]) continue; // nothing new
+		m_lastPlanSeq[b] = batch.seq;
+		for (const ai::Plan& plan : *batch.plans) {
+			if (plan.gen != m_aiGen) continue; // stale: from before a level reload
+			if (plan.id < 0 || static_cast<size_t>(plan.id) >= m_monsters.size())
+				continue;
+			Monster& monster = m_monsters[plan.id];
+			monster.intent = plan.intent;
+			monster.aiPath = plan.path;
+			// Align the cursor to the monster's current cell (it may have stepped
+			// since the snapshot); fall back to the path start if it isn't on it.
+			monster.aiCursor = 0;
+			for (size_t k = 0; k < monster.aiPath.size(); ++k)
+				if (monster.aiPath[k].x == monster.x &&
+					monster.aiPath[k].z == monster.z) {
+					monster.aiCursor = k + 1;
+					break;
+				}
 		}
 	}
 }

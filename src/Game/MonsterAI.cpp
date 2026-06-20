@@ -1,16 +1,17 @@
 // ============================================================================
-// Game/MonsterAI.cpp — the monster brain implementation. See MonsterAI.h.
+// Game/MonsterAI.cpp — the monster brain + the async threading. See MonsterAI.h.
 // ============================================================================
 #include "Game/MonsterAI.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <queue>
 
 namespace dungeon::ai {
 
 // ----------------------------------------------------------------------------
-// Scheduler — IQ-driven decision-rate bucketing. See MonsterAI.h.
+// Scheduler — IQ -> think-rate mapping (pure helpers).
 // ----------------------------------------------------------------------------
 
 float Scheduler::BucketInterval(int b) {
@@ -29,50 +30,52 @@ int Scheduler::BucketForIq(float iq) {
 	return kBucketCount - 1;
 }
 
-Scheduler::Scheduler() {
-	// Phase-stagger the accumulators so the buckets don't all fire on the same
-	// frame (a small thundering-herd guard); they drift apart from here. Detail
-	// to refine later — e.g. spreading monsters WITHIN a bucket across frames.
-	for (int b = 0; b < kBucketCount; ++b)
-		m_acc[b] = BucketInterval(b) * static_cast<float>(b) / kBucketCount;
+// ----------------------------------------------------------------------------
+// SnapshotView — IWorldView over an immutable Snapshot.
+// ----------------------------------------------------------------------------
+
+bool SnapshotView::IsWalkable(int x, int z) const {
+	if (x < 0 || z < 0 || x >= m_snap.mapW || z >= m_snap.mapH) return false;
+	const auto& w = m_snap.walkable;
+	return w && (*w)[static_cast<size_t>(z) * m_snap.mapW + x] != 0;
 }
 
-unsigned Scheduler::Tick(float dt) {
-	unsigned due = 0;
-	for (int b = 0; b < kBucketCount; ++b) {
-		const float iv = BucketInterval(b);
-		m_acc[b] += dt;
-		if (m_acc[b] >= iv) {
-			due |= 1u << b;
-			m_acc[b] -= iv;            // carry the remainder so the rate holds
-			if (m_acc[b] >= iv) m_acc[b] = 0.0f; // but never let a hitch back up
-		}
-	}
-	return due;
+bool SnapshotView::CellFreeForMonster(int x, int z, int /*selfId*/) const {
+	if (!IsWalkable(x, z)) return false;
+	// `blocked` already carries the party cell and every live monster's cell. A
+	// monster never re-enters its own start cell (the BFS marks it visited), so
+	// self-exclusion isn't needed here.
+	return m_snap.blocked.find(z * m_snap.mapW + x) == m_snap.blocked.end();
 }
 
-Intent Brain::Think(const Agent& a, const Perception& p) {
-	// Cheap, infrequent: just pick the standing orders. Engage when the party is
-	// within aggro range, and lock the chase goal to the party's CURRENT cell —
-	// execution will keep pathing toward this snapshot until the next think, so a
-	// dim monster lumbers toward where the party WAS. No pathfinding here.
+// ----------------------------------------------------------------------------
+// Brain — pure thinking + pathing.
+// ----------------------------------------------------------------------------
+
+Intent Brain::Think(const Agent& a, int partyX, int partyZ) const {
+	// Cheap, infrequent: engage when the party is within aggro range and lock the
+	// chase goal to its CURRENT cell. Execution keeps pathing toward this snapshot
+	// until the next think, so a dim monster lumbers toward where the party WAS.
 	Intent it;
-	const int dx = std::abs(a.x - p.partyX);
-	const int dz = std::abs(a.z - p.partyZ);
-	const int dist = std::max(dx, dz); // Chebyshev cells to the party
+	const int dist = std::max(std::abs(a.x - partyX), std::abs(a.z - partyZ));
 	if (static_cast<float>(dist) <= a.aggroRange) {
 		it.mode = Intent::Mode::Engage;
-		it.targetX = p.partyX;
-		it.targetZ = p.partyZ;
+		it.targetX = partyX;
+		it.targetZ = partyZ;
 	}
 	return it;
 }
 
-bool Brain::NextStep(const Agent& a, int targetX, int targetZ, int mapW, int mapH,
-					 const IWorldView& world, int& outX, int& outZ) {
+void Brain::FindPath(const Agent& a, int targetX, int targetZ, int mapW, int mapH,
+					 const IWorldView& world, std::vector<Cell>& outPath) {
+	outPath.clear();
 	const int W = mapW, H = mapH;
-	if (W <= 0 || H <= 0) return false;
-	if (a.x == targetX && a.z == targetZ) return false; // already at the goal
+	if (W <= 0 || H <= 0) return;
+	// Defensive bounds check: a worker must never index its scratch out of range,
+	// even if a snapshot hands it a cell outside the (possibly just-swapped) map.
+	if (a.x < 0 || a.x >= W || a.z < 0 || a.z >= H) return;
+	if (targetX < 0 || targetX >= W || targetZ < 0 || targetZ >= H) return;
+	if (a.x == targetX && a.z == targetZ) return; // already at the goal
 	const int startIdx = a.z * W + a.x;
 	const int goalIdx = targetZ * W + targetX;
 
@@ -94,22 +97,85 @@ bool Brain::NextStep(const Agent& a, int targetX, int targetZ, int mapW, int map
 			if (nx < 0 || nz < 0 || nx >= W || nz >= H) continue;
 			const int nidx = nz * W + nx;
 			if (m_pathFrom[nidx] != -1) continue; // already visited
-			// The goal (last-known party cell) is reachable as the BFS target even
-			// if occupied now; every other cell must be free for a monster to walk.
+			// The goal (last-known party cell) is reachable as the target even if
+			// occupied now; every other cell must be free for a monster to walk.
 			if (nidx != goalIdx && !world.CellFreeForMonster(nx, nz, a.id)) continue;
 			if (nidx == goalIdx && !world.IsWalkable(nx, nz)) continue;
 			m_pathFrom[nidx] = cur;
 			open.push(nidx);
 		}
 	}
-	if (!found) return false;
+	if (!found) return;
 
-	// Walk the predecessors back from the goal to the first step off the start.
-	int cur = goalIdx;
-	while (m_pathFrom[cur] != startIdx) cur = m_pathFrom[cur];
-	outX = cur % W;
-	outZ = cur / W;
-	return true;
+	// Reconstruct goal -> start via predecessors, then emit start -> goal
+	// (excluding the start cell) so the host can pop steps front-to-back.
+	for (int cur = goalIdx; cur != startIdx; cur = m_pathFrom[cur])
+		outPath.push_back({cur % W, cur / W});
+	std::reverse(outPath.begin(), outPath.end());
+}
+
+// ----------------------------------------------------------------------------
+// AsyncDirector — the thread-per-bucket engine.
+// ----------------------------------------------------------------------------
+
+AsyncDirector::AsyncDirector() {
+	for (int b = 0; b < Scheduler::kBucketCount; ++b)
+		m_workers.emplace_back([this, b] { WorkerLoop(b); });
+}
+
+AsyncDirector::~AsyncDirector() {
+	m_stop.store(true);
+	m_cv.notify_all(); // wake any worker mid-sleep so the join is prompt
+	for (std::thread& t : m_workers)
+		if (t.joinable()) t.join();
+}
+
+void AsyncDirector::Publish(std::shared_ptr<const Snapshot> snap) {
+	std::lock_guard<std::mutex> lk(m_snapMutex);
+	m_snapshot = std::move(snap);
+}
+
+AsyncDirector::Batch AsyncDirector::TakePlans(int bucket) const {
+	std::lock_guard<std::mutex> lk(m_planMutex);
+	return {m_plans[bucket], m_planSeq[bucket]};
+}
+
+void AsyncDirector::WorkerLoop(int bucket) {
+	Brain brain; // per-thread: the BFS scratch must not be shared across workers
+	const auto interval =
+		std::chrono::duration<float>(Scheduler::BucketInterval(bucket));
+
+	while (!m_stop.load()) {
+		// Grab the freshest snapshot (a cheap shared_ptr copy under the lock).
+		std::shared_ptr<const Snapshot> snap;
+		{
+			std::lock_guard<std::mutex> lk(m_snapMutex);
+			snap = m_snapshot;
+		}
+
+		if (snap) {
+			SnapshotView view(*snap);
+			auto out = std::make_shared<std::vector<Plan>>();
+			for (const Agent& m : snap->monsters) {
+				if (Scheduler::BucketForIq(m.iq) != bucket) continue;
+				Plan plan;
+				plan.id = m.id;
+				plan.gen = snap->gen;
+				plan.intent = brain.Think(m, snap->partyX, snap->partyZ);
+				if (plan.intent.mode == Intent::Mode::Engage)
+					brain.FindPath(m, plan.intent.targetX, plan.intent.targetZ,
+								   snap->mapW, snap->mapH, view, plan.path);
+				out->push_back(std::move(plan));
+			}
+			std::lock_guard<std::mutex> lk(m_planMutex);
+			m_plans[bucket] = std::move(out);
+			++m_planSeq[bucket];
+		}
+
+		// Interruptible sleep to the bucket's cadence; Stop() wakes us at once.
+		std::unique_lock<std::mutex> lk(m_waitMutex);
+		m_cv.wait_for(lk, interval, [this] { return m_stop.load(); });
+	}
 }
 
 } // namespace dungeon::ai

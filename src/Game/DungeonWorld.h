@@ -341,11 +341,14 @@ private:
 		bool moving = false;
 		anim::Animator animator;
 
-		// Standing orders from the brain (Game/MonsterAI.h). Refreshed only when
-		// this monster's IQ bucket re-thinks; executed (chase/attack) every frame
-		// in between, so a low-IQ monster keeps acting on a stale plan. Transient
-		// AI state — not saved; the next think rebuilds it within a bucket period.
+		// Standing orders from the async brain (Game/MonsterAI.h). The worker
+		// threads refresh intent + aiPath at this monster's IQ-bucket cadence; the
+		// main thread executes them every frame, popping aiPath at aiCursor and
+		// validating each cell against live occupancy. Transient AI state — not
+		// saved; the next plan rebuilds it within a bucket period.
 		ai::Intent intent;
+		std::vector<ai::Cell> aiPath; // cached chase route (start cell excluded)
+		size_t aiCursor = 0;          // next unstepped cell in aiPath
 
 		float MaxHp() const { return kind ? kind->maxHp : 1.0f; }
 		bool Alive() const { return hp > 0.0f; }
@@ -653,25 +656,24 @@ private:
 	// fizzle sound) is wired in the constructor. See Magic.h.
 	MagicSystem m_magic;
 
-	// Monster AI: one monster in, one decision out (Game/MonsterAI.h). The brain
-	// owns the chase pathfinding scratch; UpdateMonsters feeds it a snapshot per
-	// monster and applies what it returns. m_aiView is the read-only world seam
-	// the brain queries (forwards to this world's map/occupancy). A nested struct
-	// so it can reach the private CellFreeForMonster / m_map without friendship.
-	struct AIWorldView : ai::IWorldView {
-		const DungeonWorld* world = nullptr;
-		explicit AIWorldView(const DungeonWorld* w) : world(w) {}
-		bool CellFreeForMonster(int x, int z, int self) const override {
-			return world->CellFreeForMonster(x, z, self);
-		}
-		bool IsWalkable(int x, int z) const override { return world->m_map.IsWalkable(x, z); }
-	};
-	ai::Brain m_brain;
-	AIWorldView m_aiView{this};
-	// IQ-driven tick bucketing: monsters re-decide at their bucket's rate, not
-	// every frame. UpdateMonsters asks the scheduler which buckets are due this
-	// frame and only calls the brain for monsters in those buckets.
-	ai::Scheduler m_aiScheduler;
+	// Monster AI runs ASYNCHRONOUSLY (Game/MonsterAI.h): worker threads (one per
+	// IQ bucket) think + path on their own cadence against a published snapshot,
+	// while the main thread executes the resulting plans. The director owns the
+	// threads (started on construction, stopped on destruction). See UpdateMonsters
+	// / BuildAISnapshot / ConsumeAIPlans for the per-frame handoff.
+	ai::AsyncDirector m_director;
+	uint64_t m_aiGen = 0; // bumped when the monster set is rebuilt (level reload)
+	// Last plan-batch sequence applied per bucket, so we adopt a batch only once.
+	uint64_t m_lastPlanSeq[ai::Scheduler::kBucketCount] = {};
+	// Walkability grid shared into snapshots, rebuilt only when the map changes.
+	std::shared_ptr<const std::vector<uint8_t>> m_walkableCache;
+	u32 m_walkableRev = 0xFFFFFFFFu; // map Revision() the cache was built for
+
+	// Build the immutable snapshot the AI workers read, and hand it over. Cheap:
+	// reuses the cached walkability grid unless the map's revision changed.
+	void BuildAISnapshot();
+	// Adopt the freshest plan batches into each monster's intent + cached path.
+	void ConsumeAIPlans();
 
 	std::flat_map<std::string, std::unique_ptr<DecorationKind>> m_decorationKinds;
 	// unique_ptr so DecorationKind::tex stays valid as more sets are added

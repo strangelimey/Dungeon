@@ -1,138 +1,207 @@
 // ============================================================================
-// Game/MonsterAI.h — the monster brain: thinking is separate from acting.
+// Game/MonsterAI.h — the monster brain, run ASYNCHRONOUSLY off the main thread.
 //
 // This is the single home for monster AI, walled off from the rest of the game
-// exactly like MagicSystem: the brain knows nothing about DungeonWorld, the
-// Monster struct, the map, the party, the HUD, or audio. It reaches the world
-// through one small read-only interface (ai::IWorldView) and is fed a flat
-// snapshot of the monster (ai::Agent). So the AI can grow without touching world
-// internals, and it can be unit-tested in isolation — no global state to set up.
+// like MagicSystem: the brain knows nothing about DungeonWorld, the Monster
+// struct, the map, the party, the HUD, or audio. It reaches the world through
+// one small read-only interface (ai::IWorldView) and flat data structs.
 //
-// THINKING vs ACTING are deliberately split, because they happen at different
-// rates:
-//   * Thinking (Brain::Think) decides the monster's STANDING ORDERS — its
-//     ai::Intent: "stay idle" or "engage the party, chasing toward this cell".
-//     It is cheap and happens INFREQUENTLY, gated by the monster's IQ bucket
-//     (ai::Scheduler). A dim monster re-thinks rarely, so it reacts slowly —
-//     it keeps lumbering toward where it last saw the party.
-//   * Acting is the host EXECUTING those orders EVERY frame at the monster's own
-//     move/attack cadence (moveInterval/attackInterval) — gliding a step,
-//     swinging when adjacent. Execution calls Brain::NextStep for the path.
-// So a low-IQ monster can still move fast and attack relentlessly; only its
-// CHANGE OF MIND lags. Brain::Think never paths and never mutates; the host
-// owns all motion, timers, sounds, and messages.
+// THINKING vs ACTING are split, and THINKING runs on its OWN THREADS so a heavy
+// re-plan never stalls the render/sim pipeline:
+//   * Brain::Think + Brain::FindPath decide a monster's STANDING ORDERS — an
+//     ai::Intent (idle / engage-toward-a-cell) plus a full chase PATH. Both are
+//     PURE: they only read an immutable ai::Snapshot through an IWorldView and
+//     write to outputs. That purity is what makes them safe to run on workers.
+//   * ai::AsyncDirector owns one worker thread PER IQ BUCKET, each waking on its
+//     own cadence (ai::Scheduler: 4 Hz down to 0.5 Hz). Each worker reads the
+//     latest snapshot the main thread published and posts ai::Plan batches.
+//   * The MAIN thread publishes the snapshot once per frame (cheap) and EXECUTES
+//     the latest plans every frame at each monster's own move/attack cadence —
+//     popping path cells, validating against LIVE occupancy, committing the
+//     step, resolving attacks. All world mutation stays serial on the main
+//     thread; the workers never touch live state.
+// So a dim monster (slow bucket) still moves and swings at full speed; only its
+// CHANGE OF MIND lags, and the cost of re-planning is paid on another core.
 // ============================================================================
 #pragma once
 
+#include <atomic>
+#include <condition_variable>
+#include <cstdint>
+#include <memory>
+#include <mutex>
+#include <thread>
+#include <unordered_set>
 #include <vector>
 
 namespace dungeon::ai {
 
+// A grid cell, the unit of a path.
+struct Cell {
+	int x = 0;
+	int z = 0;
+};
+
 // ----------------------------------------------------------------------------
-// The world seam. The brain needs only two read-only spatial questions to path;
-// the host implements them over its real map/party/monster state. `selfId` is
-// the host's opaque key for the deciding monster (its index in the monster
-// list) so occupancy checks can skip the monster itself.
+// The world seam. Pathing needs only two read-only spatial questions; the
+// snapshot-backed SnapshotView (below) answers them for the workers without
+// touching the live world. `selfId` is unused by the snapshot view (a monster
+// never re-enters its own start cell) but kept for interface generality.
 // ----------------------------------------------------------------------------
 class IWorldView {
 public:
 	virtual ~IWorldView() = default;
-	// A cell a monster other than `selfId` may step into: in bounds, map-walkable,
-	// not the party cell, and not held by another LIVE monster.
+	// A cell a monster may step into: in bounds, map-walkable, not the party
+	// cell, not held by another live monster.
 	virtual bool CellFreeForMonster(int x, int z, int selfId) const = 0;
-	// A cell is map-walkable. The goal cell qualifies even if currently occupied,
-	// so the BFS can still target a monster's last-known party cell.
+	// A cell is map-walkable. The goal cell qualifies even if occupied, so the
+	// BFS can still target a monster's last-known party cell.
 	virtual bool IsWalkable(int x, int z) const = 0;
 };
 
 // ----------------------------------------------------------------------------
-// The monster as the brain sees it — a flat snapshot the host fills from a
-// Monster + its (shared) MonsterKind. Decoupling it from the live struct is what
-// keeps this module independent of DungeonWorld.h. Only the few fields thinking
-// and pathing need: everything else (timers, glide, facing) the host owns.
+// The monster as the brain sees it — a flat snapshot of the few fields thinking
+// and pathing need. Everything else (timers, glide, facing, audio) the host
+// owns and runs on the main thread.
 // ----------------------------------------------------------------------------
 struct Agent {
-	int id = -1;             // host self-key (monster index), to skip self in occupancy
+	int id = -1;             // host self-key (monster index within a generation)
 	int x = 0, z = 0;        // logical grid cell
 	float aggroRange = 6.0f; // Chebyshev cells of party distance to engage at
-};
-
-// What the agent can perceive when it thinks: where the party is right now.
-struct Perception {
-	int partyX = 0, partyZ = 0; // the party's grid cell
+	float iq = 100.0f;       // think-rate stat -> bucket (Scheduler::BucketForIq)
 };
 
 // ----------------------------------------------------------------------------
-// The monster's standing orders, decided infrequently by Brain::Think and then
-// EXECUTED every frame by the host. Re-thinking refreshes these; between thinks
-// the monster keeps carrying them out — a dim monster relentlessly chases a
-// STALE target (the party cell as of its last think).
+// An immutable picture of the world the main thread publishes each frame for the
+// workers to read. Everything here is value/owned data (or an immutable shared
+// grid) so a worker can read it on another thread with zero synchronisation.
+// ----------------------------------------------------------------------------
+struct Snapshot {
+	uint64_t gen = 0;            // monster-set generation; plans tag themselves with it
+	int partyX = 0, partyZ = 0;  // the party's grid cell
+	int mapW = 0, mapH = 0;      // map dimensions
+	// Static walkability, shared across frames and only rebuilt when the map's
+	// revision changes (so publishing a snapshot copies a pointer, not the grid).
+	std::shared_ptr<const std::vector<uint8_t>> walkable;
+	// Cells a monster may NOT enter beyond unwalkable: the party cell and every
+	// live monster's cell. Indexed cell = z*mapW + x.
+	std::unordered_set<int> blocked;
+	std::vector<Agent> monsters; // the agents to think for, in monster-index order
+};
+
+// ----------------------------------------------------------------------------
+// The monster's standing orders, computed by a worker and consumed by the main
+// thread. `path` is the chase route from the monster's snapshot cell toward the
+// target (excluding the start cell); the host pops it step by step, re-validating
+// each cell against live occupancy. Between plan updates the monster keeps
+// executing its cached path — that is what decouples move speed from think rate.
 // ----------------------------------------------------------------------------
 struct Intent {
 	enum class Mode { Idle, Engage }; // Idle: hold position; Engage: chase + attack
 	Mode mode = Mode::Idle;
-	int targetX = 0, targetZ = 0; // chase goal: the party cell at last think time
+	int targetX = 0, targetZ = 0; // chase goal: party cell at think time
+};
+struct Plan {
+	int id = -1;       // monster index this plan is for
+	uint64_t gen = 0;  // snapshot generation it was computed against
+	Intent intent;
+	std::vector<Cell> path; // steps toward the target (start cell excluded)
 };
 
 // ----------------------------------------------------------------------------
-// IQ-driven think-rate bucketing. A monster has no reason to re-decide "I'll
-// attack" 60 times a second — so monsters are sorted into THINK buckets and a
-// bucket only re-thinks every so often. How often is set by the monster's IQ:
-// smart monsters land in a fast bucket (think often, react crisply), dim ones in
-// a slow bucket (think rarely, react sluggishly). Acting is NOT bucketed — only
-// Brain::Think is, so movement/attack speed stays governed by the monster's own
-// cooldowns, independent of how cleverly it re-plans.
-//
-// Bucket 0 is the smartest/fastest (kFastestHz); each step down halves the rate.
-// The Scheduler owns one accumulator per bucket and, each frame, reports which
-// buckets are due (a bitmask). The host maps each monster's IQ to a bucket and
-// re-thinks only when that bucket's bit is set.
+// IQ-driven think-rate bucketing. Smart monsters land in a fast bucket (think
+// often, react crisply), dim ones in a slow bucket. Acting is NOT bucketed —
+// only thinking is — so move/attack speed stays governed by the monster's own
+// cooldowns. Bucket 0 is fastest (kFastestHz); each step down halves the rate.
+// Pure static helpers: the workers self-pace by BucketInterval, the host maps
+// IQ -> bucket by BucketForIq.
 // ----------------------------------------------------------------------------
-class Scheduler {
-public:
+struct Scheduler {
 	static constexpr int kBucketCount = 4;
 	static constexpr float kFastestHz = 4.0f; // bucket 0 re-thinks 4x/second
 
-	Scheduler();
-
-	// Advance every bucket's timer by dt and return a bitmask (bit b = bucket b)
-	// of the buckets that should re-think this frame.
-	unsigned Tick(float dt);
-
-	// Which bucket a monster with this IQ belongs to (0 = fastest). Pure mapping,
-	// so the host can call it per monster every frame without storing the bucket.
+	// Which bucket a monster with this IQ belongs to (0 = fastest).
 	static int BucketForIq(float iq);
-
 	// Seconds between re-thinks for bucket b (kFastestHz at b=0, halving down).
 	static float BucketInterval(int b);
-
-private:
-	float m_acc[kBucketCount]; // per-bucket elapsed-time accumulator
 };
 
 // ----------------------------------------------------------------------------
-// One monster's AI. Stateless between calls except the BFS pathfinding scratch
-// it owns, so a chase step costs no per-call allocation. A single Brain serves
-// every monster (the scratch is reused, not per-monster state).
+// One monster's reasoning. Stateless except the BFS scratch it owns, so each
+// worker thread keeps its OWN Brain (the scratch must not be shared).
 // ----------------------------------------------------------------------------
 class Brain {
 public:
-	// THINK (IQ-gated, infrequent, cheap): decide the monster's standing orders
-	// from what it perceives. No pathfinding, no mutation — just intent.
-	Intent Think(const Agent& a, const Perception& p);
+	// THINK (cheap, no pathing): pick the standing orders from what is perceived.
+	Intent Think(const Agent& a, int partyX, int partyZ) const;
 
-	// ACT helper (per-frame, at the monster's move cadence): the next grid step
-	// from the agent toward (targetX,targetZ) via 4-connected BFS over walkable,
-	// monster-free cells. Writes the next cell to outX/outZ; returns false when
-	// already at the target or no path exists. The goal cell is reachable even if
-	// occupied (so a monster can still path to the party's last-known cell).
-	bool NextStep(const Agent& a, int targetX, int targetZ, int mapW, int mapH,
-				  const IWorldView& world, int& outX, int& outZ);
+	// PATH (the meaty part): full 4-connected BFS route from the agent toward
+	// (targetX,targetZ) over walkable, monster-free cells. Fills outPath with the
+	// steps after the start cell; empty if already there or no path exists.
+	void FindPath(const Agent& a, int targetX, int targetZ, int mapW, int mapH,
+				  const IWorldView& world, std::vector<Cell>& outPath);
 
 private:
-	// BFS scratch reused across calls (sized to the map): the predecessor cell
-	// index per cell, -1 = unvisited. Avoids a per-step allocation.
-	std::vector<int> m_pathFrom;
+	std::vector<int> m_pathFrom; // BFS predecessor scratch, reused across calls
+};
+
+// ----------------------------------------------------------------------------
+// AsyncDirector — the threaded engine. Owns one worker per IQ bucket; each reads
+// the latest published snapshot on its cadence, thinks + paths its monsters, and
+// publishes an immutable plan batch. The main thread Publish()es snapshots and
+// TakePlans() to execute. Construction launches the workers; destruction stops
+// and joins them. Handoffs are immutable shared_ptr swaps under brief mutexes,
+// so the main thread never blocks on a worker's compute.
+// ----------------------------------------------------------------------------
+class AsyncDirector {
+public:
+	AsyncDirector();
+	~AsyncDirector();
+	AsyncDirector(const AsyncDirector&) = delete;
+	AsyncDirector& operator=(const AsyncDirector&) = delete;
+
+	// Main thread: hand the workers the freshest view of the world.
+	void Publish(std::shared_ptr<const Snapshot> snap);
+
+	// Main thread: the most recent plan batch for a bucket, plus a sequence
+	// number that increments on each publish (so the caller can tell new from
+	// already-applied). Either field may be null/0 before the first compute.
+	struct Batch {
+		std::shared_ptr<const std::vector<Plan>> plans;
+		uint64_t seq = 0;
+	};
+	Batch TakePlans(int bucket) const;
+
+private:
+	void WorkerLoop(int bucket);
+
+	std::atomic<bool> m_stop{false};
+
+	mutable std::mutex m_snapMutex;
+	std::shared_ptr<const Snapshot> m_snapshot;
+
+	mutable std::mutex m_planMutex;
+	std::shared_ptr<const std::vector<Plan>> m_plans[Scheduler::kBucketCount];
+	uint64_t m_planSeq[Scheduler::kBucketCount] = {};
+
+	std::mutex m_waitMutex;      // pairs with m_cv for an interruptible sleep
+	std::condition_variable m_cv;
+
+	std::vector<std::thread> m_workers;
+};
+
+// ----------------------------------------------------------------------------
+// SnapshotView — an IWorldView backed by an immutable Snapshot, so a worker can
+// path without ever touching the live world. Cheap to construct (holds a ref).
+// ----------------------------------------------------------------------------
+class SnapshotView : public IWorldView {
+public:
+	explicit SnapshotView(const Snapshot& s) : m_snap(s) {}
+	bool CellFreeForMonster(int x, int z, int selfId) const override;
+	bool IsWalkable(int x, int z) const override;
+
+private:
+	const Snapshot& m_snap;
 };
 
 } // namespace dungeon::ai
