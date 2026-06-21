@@ -30,6 +30,7 @@
 #include <cstdint>
 #include <memory>
 #include <mutex>
+#include <stop_token>
 #include <unordered_set>
 #include <vector>
 
@@ -140,8 +141,13 @@ public:
 	// PATH (the meaty part): full 4-connected BFS route from the agent toward
 	// (targetX,targetZ) over walkable, monster-free cells. Fills outPath with the
 	// steps after the start cell; empty if already there or no path exists.
+	// Polls `stop` periodically so a worst-case full-map BFS bails out PROMPTLY when
+	// the worker is asked to stop (a Restart/Kill) — without that, a huge BFS can't
+	// be cancelled cooperatively and the supervisor would force-terminate the thread
+	// mid-allocation (the CRT-heap-lock deadlock StopOrTerminate warns about).
 	void FindPath(const Agent& a, int targetX, int targetZ, int mapW, int mapH,
-				  const IWorldView& world, std::vector<Cell>& outPath);
+				  const IWorldView& world, const std::stop_token& stop,
+				  std::vector<Cell>& outPath);
 
 private:
 	std::vector<int> m_pathFrom; // BFS predecessor scratch, reused across calls
@@ -179,8 +185,11 @@ public:
 private:
 	// One bucket's compute pass — the body the worker runs each tick (reads the
 	// snapshot, thinks + paths this bucket's monsters, publishes a plan batch).
-	// `brain` is per-worker scratch (the BFS buffer must not be shared).
-	void ComputeBucket(int bucket, Brain& brain);
+	// `brain` is per-worker scratch (the BFS buffer must not be shared). Checks
+	// `stop` between monsters (and the BFS checks it internally) so a stop request
+	// abandons the in-flight tick promptly, making cooperative Restart/Kill work
+	// even under a heavy bucket — no force-terminate of an allocating worker.
+	void ComputeBucket(int bucket, Brain& brain, const std::stop_token& stop);
 
 	threads::Manager& m_manager;
 	threads::WorkerId m_workers[Scheduler::kBucketCount];

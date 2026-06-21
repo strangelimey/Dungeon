@@ -73,7 +73,8 @@ Intent Brain::Think(const Agent& a, int partyX, int partyZ) const {
 }
 
 void Brain::FindPath(const Agent& a, int targetX, int targetZ, int mapW, int mapH,
-					 const IWorldView& world, std::vector<Cell>& outPath) {
+					 const IWorldView& world, const std::stop_token& stop,
+					 std::vector<Cell>& outPath) {
 	outPath.clear();
 	const int W = mapW, H = mapH;
 	if (W <= 0 || H <= 0) return;
@@ -93,7 +94,18 @@ void Brain::FindPath(const Agent& a, int targetX, int targetZ, int mapW, int map
 	static constexpr int kDX[4] = {1, -1, 0, 0};
 	static constexpr int kDZ[4] = {0, 0, 1, -1};
 	bool found = false;
+	// Poll the stop token every kStopCheckStride pops, not every pop: stop_requested
+	// is a cheap atomic load, but a worst-case BFS expands tens of thousands of
+	// cells, so amortise it. On a stop request, abandon the search at once (outPath
+	// stays empty — the plan is simply not produced) so the worker can exit its tick
+	// and be cooperatively rebooted instead of force-terminated mid-allocation.
+	constexpr int kStopCheckStride = 1024;
+	int sinceStopCheck = 0;
 	while (!open.empty()) {
+		if (++sinceStopCheck >= kStopCheckStride) {
+			sinceStopCheck = 0;
+			if (stop.stop_requested()) return;
+		}
 		const int cur = open.front();
 		open.pop();
 		if (cur == goalIdx) { found = true; break; }
@@ -133,8 +145,8 @@ AsyncDirector::AsyncDirector(threads::Manager& manager) : m_manager(manager) {
 	for (int b = 0; b < Scheduler::kBucketCount; ++b) {
 		const float hz = 1.0f / Scheduler::BucketInterval(b);
 		m_workers[b] = m_manager.Spawn(
-			[this, b, brain = Brain{}](const threads::Tick&) mutable {
-				ComputeBucket(b, brain);
+			[this, b, brain = Brain{}](const threads::Tick& tick) mutable {
+				ComputeBucket(b, brain, tick.stop);
 			},
 			{"ai.bucket" + std::to_string(b), hz, /*watchdogMs=*/100,
 			 /*autoRestart=*/true, /*priority=*/-1}); // below-normal: AI is background work
@@ -159,7 +171,7 @@ AsyncDirector::Batch AsyncDirector::TakePlans(int bucket) const {
 	return {m_plans[bucket], m_planSeq[bucket]};
 }
 
-void AsyncDirector::ComputeBucket(int bucket, Brain& brain) {
+void AsyncDirector::ComputeBucket(int bucket, Brain& brain, const std::stop_token& stop) {
 	// One tick: grab the freshest snapshot (a cheap shared_ptr copy), think +
 	// path this bucket's monsters, publish the batch. The manager owns the loop
 	// and the cadence; this is just the unit of work.
@@ -173,13 +185,18 @@ void AsyncDirector::ComputeBucket(int bucket, Brain& brain) {
 	SnapshotView view(*snap);
 	auto out = std::make_shared<std::vector<Plan>>();
 	for (const Agent& m : snap->monsters) {
+		// Abandon the whole tick on a stop request — don't publish a partial batch.
+		// Combined with the BFS's own poll, this caps how long a worker can ignore a
+		// Restart/Kill (one monster's BFS), so the supervisor never has to force-
+		// terminate a heavy bucket mid-allocation (the heap-lock deadlock hazard).
+		if (stop.stop_requested()) return;
 		if (Scheduler::BucketForIq(m.iq) != bucket) continue;
 		Plan plan;
 		plan.id = m.id;
 		plan.intent = brain.Think(m, snap->partyX, snap->partyZ);
 		if (plan.intent.mode == Intent::Mode::Engage)
 			brain.FindPath(m, plan.intent.targetX, plan.intent.targetZ, snap->mapW,
-						   snap->mapH, view, plan.path);
+						   snap->mapH, view, stop, plan.path);
 		out->push_back(std::move(plan));
 	}
 	std::lock_guard<std::mutex> lk(m_planMutex);

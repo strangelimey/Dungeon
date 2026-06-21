@@ -37,6 +37,7 @@ add_subdirectory(src/Main)
 
 # Offline tooling (not part of the game).
 add_subdirectory(tools/AssetBaker)
+add_subdirectory(tools/ThreadStress)
 
 # Visual Studio solution: open with the game as the startup project.
 set_property(DIRECTORY ${CMAKE_SOURCE_DIR} PROPERTY VS_STARTUP_PROJECT Dungeon)
