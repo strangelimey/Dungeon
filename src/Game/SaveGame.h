@@ -92,6 +92,7 @@ struct SaveData {
 		bool aware = false;                     // monster: has noticed the party (sticky)
 		float hp = -1.0f;                       // monster: current hit points
 		bool collected = false;                 // item: lifted off the floor
+		int slot = 0;                           // item: floor quarter slot (0..3)
 		bool activated = false;                 // button: pressed / toggled on
 	};
 

@@ -343,7 +343,11 @@ void DungeonWorld::LoadItems() {
 	for (const Entity& spawn : m_entities.All()) {
 		if (spawn.kind != EntityKind::Item) continue;
 		ItemKind& kind = ItemKindFor(spawn.type);
-		m_items.push_back({&kind, spawn.id, spawn.x, spawn.z, false});
+		// Baseline items have no authored slot — fan multiples in a cell out across
+		// quarters (target = cell centre, so it fills by quarter index, fill order).
+		const Vec3 c = m_map.CellCenter(spawn.x, spawn.z);
+		const int slot = FreeItemSlotNear(spawn.x, spawn.z, c.x, c.z, -1);
+		m_items.push_back({&kind, spawn.id, spawn.x, spawn.z, false, slot});
 	}
 }
 
@@ -388,7 +392,7 @@ std::optional<std::string> DungeonWorld::TryPickItem(float mx, float my, float w
 		const Item& item = m_items[i];
 		if (item.collected || !InReach(item.x, item.z, px, pz)) continue;
 		if (!IsSeen(item.x, item.z)) continue;
-		const Vec3 c = m_map.CellCenter(item.x, item.z);
+		const Vec3 c = SlotCenter(item.x, item.z, SizeClass::Medium, item.slot);
 		float cx, cy, tx, ty;
 		if (!project({c.x, 0.23f, c.z}, cx, cy)) continue; // tablet centre
 		project({c.x, 0.46f, c.z}, tx, ty);                // top, for hit radius
@@ -411,22 +415,51 @@ void DungeonWorld::DropItemAt(const std::string& typeId, float mx, float my,
 							  float w, float h) {
 	const int px = m_party.GridX(), pz = m_party.GridZ();
 	int cx = px, cz = pz; // fallback: drop at the party's feet
+	// Desired drop point in world space — used to pick the nearest quarter slot.
+	// Defaults to the fallback cell's centre (feet); a floor hit overrides it.
+	Vec3 feet = m_map.CellCenter(cx, cz);
+	float wx = feet.x, wz = feet.z;
 	const gfx::Camera::Ray ray = m_camera.ScreenRay(mx, my, w, h);
 	if (ray.dir.y < -1e-3f) { // looking down toward the floor plane y=0
 		const float t = -ray.origin.y / ray.dir.y;
-		const float wx = ray.origin.x + ray.dir.x * t;
-		const float wz = ray.origin.z + ray.dir.z * t;
-		const int hx = static_cast<int>(std::floor(wx / kCellSize));
-		const int hz = static_cast<int>(std::floor(wz / kCellSize));
+		const float hxw = ray.origin.x + ray.dir.x * t;
+		const float hzw = ray.origin.z + ray.dir.z * t;
+		const int hx = static_cast<int>(std::floor(hxw / kCellSize));
+		const int hz = static_cast<int>(std::floor(hzw / kCellSize));
 		if (m_map.IsWalkable(hx, hz) && IsSeen(hx, hz) && InReach(hx, hz, px, pz)) {
 			cx = hx;
 			cz = hz;
+			wx = hxw; // snap to the quarter under the cursor
+			wz = hzw;
 		}
 	}
 	ItemKind& kind = ItemKindFor(typeId);
-	m_items.push_back({&kind, m_nextDropId--, cx, cz, false});
+	const int slot = FreeItemSlotNear(cx, cz, wx, wz, -1);
+	m_items.push_back({&kind, m_nextDropId--, cx, cz, false, slot});
 	m_audio.Play(m_sounds.click, 0.5f);
 	if (onMessage) onMessage(loc::Format("log.drop_rune", loc::Tr(kind.nameKey)));
+}
+
+// Floor items occupy the Medium 2x2 quarter grid (up to 4 per cell). Pick the
+// quarter nearest the world point (wx,wz) that no other floor item here holds;
+// if all four are taken, fall back to the geometrically nearest (overlap).
+int DungeonWorld::FreeItemSlotNear(int cx, int cz, float wx, float wz, int self) const {
+	u32 used = 0;
+	for (size_t i = 0; i < m_items.size(); ++i) {
+		if (static_cast<int>(i) == self) continue;
+		const Item& it = m_items[i];
+		if (it.collected || it.x != cx || it.z != cz) continue;
+		if (it.slot >= 0 && it.slot < 4) used |= (1u << it.slot);
+	}
+	int bestFree = -1, bestAny = 0;
+	float bestFreeD = 1e9f, bestAnyD = 1e9f;
+	for (int s = 0; s < 4; ++s) {
+		const Vec3 c = SlotCenter(cx, cz, SizeClass::Medium, s);
+		const float d = (c.x - wx) * (c.x - wx) + (c.z - wz) * (c.z - wz);
+		if (d < bestAnyD) { bestAnyD = d; bestAny = s; }
+		if (!(used & (1u << s)) && d < bestFreeD) { bestFreeD = d; bestFree = s; }
+	}
+	return bestFree >= 0 ? bestFree : bestAny;
 }
 
 // Loads a prop PBR set once and caches it (shared across decorations, fires,

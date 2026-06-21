@@ -117,6 +117,7 @@ SaveData::LevelState DungeonWorld::SnapshotActive() const {
 			e.type = item.kind->id;
 			e.x = item.x;
 			e.z = item.z;
+			e.slot = item.slot;
 			ls.entities.push_back(std::move(e));
 		}
 	}
@@ -213,12 +214,15 @@ void DungeonWorld::ApplyActiveSnapshot() {
 					}
 				if (!revived) {
 					ItemKind& kind = ItemKindFor(e.type);
-					m_items.push_back({&kind, m_nextDropId--, e.x, e.z, false});
+					const Vec3 c = m_map.CellCenter(e.x, e.z); // v6 had no slot
+					const int slot = FreeItemSlotNear(e.x, e.z, c.x, c.z, -1);
+					m_items.push_back({&kind, m_nextDropId--, e.x, e.z, false, slot});
 				}
 			} else if (e.id < 0) {
-				// Dropped tablet — lay it on the floor with a fresh runtime id.
+				// Dropped tablet — lay it on the floor with a fresh runtime id, at
+				// its saved quarter slot.
 				ItemKind& kind = ItemKindFor(e.type);
-				m_items.push_back({&kind, m_nextDropId--, e.x, e.z, false});
+				m_items.push_back({&kind, m_nextDropId--, e.x, e.z, false, e.slot});
 			} else {
 				// Baseline rune collected — mark the kept instance lifted.
 				for (Item& item : m_items)

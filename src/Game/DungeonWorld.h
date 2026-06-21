@@ -131,8 +131,14 @@ public:
 	std::optional<std::string> TryPickItem(float mx, float my, float w, float h);
 	// Drops a held item (catalog id) back onto the floor: ray-casts the screen
 	// point to the floor plane and places it on that cell when it is walkable, in
-	// reach, and seen; otherwise on the party's own cell. Always succeeds.
+	// reach, and seen; otherwise on the party's own cell. The tablet snaps to the
+	// quarter slot nearest the hit point. Always succeeds.
 	void DropItemAt(const std::string& typeId, float mx, float my, float w, float h);
+	// The Medium quarter slot (0..3) in cell (cx,cz) whose centre is nearest the
+	// world point (wx,wz) and is NOT already taken by another floor item there
+	// (self excluded by index, -1 = none). Falls back to the geometrically nearest
+	// quarter if all four are occupied. Floor items use the Medium 2x2 grid.
+	int FreeItemSlotNear(int cx, int cz, float wx, float wz, int self) const;
 
 	const DungeonMap& Map() const { return m_map; }
 	const Project& GetProject() const { return m_project; }
@@ -390,6 +396,10 @@ private:
 		int id = -1;                    // source Entity::id (>= 0 = .ent baseline)
 		int x = 0, z = 0;
 		bool collected = false; // picked up — hidden + saved so it stays gone
+		// Sub-cell quarter (Medium 2x2 slot, 0..3) the tablet rests in — a dropped
+		// item snaps to the quarter nearest the cursor; up to 4 share a cell. Render
+		// + pick + the glow light use SlotCenter(x,z,Medium,slot). See SlotGrid.h.
+		int slot = 0;
 	};
 
 	// A wall-mounted button/lever (EntityKind::Button from the .ent layer). The

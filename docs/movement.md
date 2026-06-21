@@ -260,7 +260,8 @@ cheap self-contained slice to validate it, then layer the group/AI behaviours.
 | **5. Formation tactics** | 2, 3 | Surround when flank/rear cells are free; rank promotion on front-rank death. | The headline combat behaviours, needing groups + assignment first. |
 | **6. Reach & combat** | 4 | Front-only melee; polearm/ranged/magic from the rear; symmetric for party and monsters. | Layers onto established ranks; touches `Combat.cpp`. |
 
-Current focus: **Phase 1**.
+Phases 1 and 2 are **done**; item 9 (facing) landed between them. Current focus
+will be **Phase 3** next.
 
 ## Phase 1 design — slot & size foundation
 
@@ -381,4 +382,14 @@ skeletons facing away stayed idle while the party approached from behind
 (docs/phase1_19_sneak_rear.png), then noticed, turned, and engaged when
 approached from the front (docs/phase1_20_front_notice.png).
 
-Not yet started: Phase 2 (item drops to quartile slots) and beyond.
+**Phase 2 (item drops to quartile slots) is complete + verified.** `Item` gained
+a `slot`; floor items render, glow, and hit-test via
+`SlotCenter(x,z,Medium,slot)`. A dropped tablet snaps to the quarter nearest the
+cursor's floor-hit point via `DungeonWorld::FreeItemSlotNear` (nearest FREE
+quarter; falls back to the nearest if all four are taken). Baseline `.ent` items
+fan across quarters by fill order at load; the dropped-item slot is persisted
+(the `drop` save line gained a slot token, back-compatible). Verified in-game:
+four runes stacked on one cell rendered as a 2×2 cluster of distinct tablets
+(docs/phase2_06_before_pick.png); pick/drop interactions register and re-slot.
+
+Not yet started: Phase 3 (monster groups + per-monster saved slot) and beyond.

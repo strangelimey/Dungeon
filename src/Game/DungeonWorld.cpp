@@ -599,7 +599,7 @@ void DungeonWorld::UpdateLights(float time) {
 	// stealing the few shadow cubes from the torch/fires.
 	for (const Item& item : m_items) {
 		if (item.collected || !item.kind->isRune) continue;
-		const Vec3 c = m_map.CellCenter(item.x, item.z);
+		const Vec3 c = SlotCenter(item.x, item.z, SizeClass::Medium, item.slot);
 		gfx::PointLight glow;
 		glow.position = {c.x, 0.4f, c.z};
 		glow.radius = 4.8f;

@@ -90,8 +90,8 @@ bool WriteSave(const SaveData& data, const std::string& path) {
 			case EntityKind::Item:
 				if (e.id >= 0) // baseline rune lifted off the floor: a one-bit diff
 					t += std::format("item {}\n", e.id);
-				else // dropped tablet (no baseline): store it whole at its cell
-					t += std::format("drop {} {} {}\n", e.type, e.x, e.z);
+				else // dropped tablet (no baseline): store it whole at its cell + slot
+					t += std::format("drop {} {} {} {}\n", e.type, e.x, e.z, e.slot);
 				break;
 			case EntityKind::Button: // baseline button toggle, keyed by id
 				t += std::format("button {} {}\n", e.id, e.activated ? 1 : 0);
@@ -222,13 +222,14 @@ std::optional<SaveData> ReadSave(const std::string& path) {
 			e.collected = true;
 			currentBlock().entities.push_back(e);
 		} else if (kw == "drop" && tok.size() >= 4) {
-			// Dropped tablet (v7 spawn): type x z, no baseline.
+			// Dropped tablet (v7 spawn): type x z [slot], no baseline.
 			SaveData::EntityState e;
 			e.kind = EntityKind::Item;
 			e.id = -1;
 			e.type = std::string(tok[1]);
 			e.x = IntOf(tok[2]);
 			e.z = IntOf(tok[3]);
+			if (tok.size() >= 5) e.slot = IntOf(tok[4]); // older saves omit it
 			currentBlock().entities.push_back(e);
 		} else if (kw == "button" && tok.size() >= 3) {
 			// Baseline button toggle (v7 diff): id activated.
