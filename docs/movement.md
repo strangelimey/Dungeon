@@ -384,17 +384,19 @@ once it has drifted (moved/announced/aware/hurt); since a chase step changes bot
 
 ### Group identity
 
-`Monster.groupId` (u32, stable per session, 0 = unassigned), from a
-`m_nextGroupId` counter. Assigned at spawn by **co-location**: monsters sharing a
-spawn cell join one group; a lone monster is a singleton. Editor-placed and
-save-restored monsters get the same treatment. Accessor: `MonsterGroupMembers` /
-`MonsterGroupCount` for the upcoming formation code.
+`Monster.groupId` (u32, 0 = unassigned). **A group is the set of monsters
+currently sharing a cell**, recomputed every frame by `ReconcileGroups` (top of
+`UpdateMonsters`) — so groups MERGE automatically when monsters converge into one
+cell and SPLIT when they spread apart. `AliveInGroup(groupId)` is therefore the
+cell's occupant count, which gates the lone front-centre (item 8) vs the in-cell
+reposition (item 7). The dev `groups` command (`GroupsReport`) lists each group's
+members + cell#slot.
 
-`groupId` is **not persisted** — it is re-derived from spawn co-location on load,
-which is deterministic and yields the same grouping structure (the id *numbers*
-may differ but they are opaque). Once Phase 5 lets groups span cells and split,
-group identity will diverge from spawn co-location and will need persisting then;
-Phase 3 deliberately stops short of that.
+`groupId` is **not persisted** — it is re-derived from co-location every frame, so
+load/save needn't carry it (the id numbers are opaque). _(Phase 3 first assigned
+groupId at spawn by co-location; Phase 5 made it dynamic — see below — so two lone
+monsters that end up in one cell merge into a group of two and take distinct slots
+instead of both stacking at front-centre.)_
 
 ### Scope guard
 
@@ -578,9 +580,16 @@ perception-gated); execution attacks only once the monster has **reached its
 assigned side** (`atPost`: at the target cell AND orthogonally adjacent) — so it
 circles to an open flank instead of stopping at the first near side. Rank
 promotion is emergent: a dead front monster frees its side, which next frame's
-assignment hands to the nearest queued monster. Surround keeps the shared
-`groupId` (a group spans cells). Verified in-game: four Medium skeletons all
-approaching from the south ended one-per-side on N/E/S/W of the party
-(docs/phase5_13_surround_final.png, via the dev `groups` command).
+assignment hands to the nearest queued monster. Verified in-game: four Medium
+skeletons all approaching from the south ended one-per-side on N/E/S/W of the
+party (docs/phase5_13_surround_final.png, via the dev `groups` command).
+
+Groups are **dynamic** (`ReconcileGroups`, each frame): a group is the monsters
+sharing a cell, so they merge/split as they converge/spread. This fixes an
+overlap bug — two lone monsters that swarm into one cell would each treat itself
+as "alone" and stack at front-centre; now they form one group of two and take
+distinct slots (and reposition via item 7). Verified: a 6-skeleton swarm filled
+all four sides with the two overflow cells each holding a merged pair at distinct
+slots — no overlap (docs/phase5_14_merge_test.png).
 
 Not yet started: Phase 6 (reach — front-rank melee vs rear ranged/polearm/magic).

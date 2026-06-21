@@ -651,10 +651,11 @@ void DungeonWorld::UpdateMonsters(float dt) {
 			}
 		}
 
-	// Async AI handoff (Game/MonsterAI.h): assign formation targets (surround), then
-	// publish the world for the worker threads to think against, then adopt whatever
-	// plans they have finished. All cheap main-thread work — the pathfinding itself
-	// runs on the bucket threads.
+	// Re-derive groups from current co-location (monsters sharing a cell are one
+	// group — merge/split as they converge/spread), then assign formation targets
+	// (surround), publish the world for the worker threads, and adopt their plans.
+	// All cheap main-thread work — the pathfinding itself runs on the bucket threads.
+	ReconcileGroups();
 	AssignFormation();
 	BuildAISnapshot();
 	ConsumeAIPlans();
@@ -822,11 +823,24 @@ DungeonWorld::Monster* DungeonWorld::MonsterByRuntimeId(u32 id) {
 	return nullptr;
 }
 
-u32 DungeonWorld::GroupForSpawnCell(int x, int z) {
-	// Join any group that already has a member spawned in this cell, else mint one.
-	for (const Monster& m : m_monsters)
-		if (m.groupId != 0 && m.spawnX == x && m.spawnZ == z) return m.groupId;
-	return m_nextGroupId++;
+void DungeonWorld::ReconcileGroups() {
+	// A GROUP is the set of monsters currently sharing a cell. Recomputed every
+	// frame so groups MERGE automatically when monsters converge into one cell and
+	// SPLIT when they spread apart — two lone monsters that end up in the same cell
+	// become one group of two (and so take distinct slots + reposition normally,
+	// instead of both treating themselves as "alone" and stacking at front-centre).
+	u32 next = 1;
+	for (Monster& m : m_monsters) m.groupId = 0;
+	for (size_t i = 0; i < m_monsters.size(); ++i) {
+		if (!m_monsters[i].Alive() || m_monsters[i].groupId != 0) continue;
+		const u32 g = next++;
+		for (size_t j = i; j < m_monsters.size(); ++j) {
+			Monster& o = m_monsters[j];
+			if (o.Alive() && o.x == m_monsters[i].x && o.z == m_monsters[i].z)
+				o.groupId = g;
+		}
+	}
+	m_nextGroupId = next; // keep the source past the last id used this frame
 }
 
 int DungeonWorld::AliveInGroup(u32 group) const {

@@ -339,10 +339,11 @@ private:
 		u32 runtimeId = 0; // STABLE per-session id (never reused) that async AI plans
 						   // key off, so a plan always finds the right monster
 						   // regardless of vector reordering/erasure (0 = unassigned)
-		// Logical GROUP this monster belongs to (Phase 3): monsters that spawn in
-		// the same cell share a group; a lone monster is a singleton. Stable per
-		// session, re-derived from spawn co-location on load (not saved — the id
-		// numbers are opaque). The substrate for formation behaviour (Phases 4-5).
+		// Logical GROUP this monster belongs to: monsters currently sharing a cell.
+		// Recomputed each frame by ReconcileGroups (merge when together, split when
+		// apart); not saved (the id numbers are opaque, re-derived every frame). The
+		// substrate for formation behaviour — gates lone front-centre vs in-cell
+		// reposition (Phases 4-5).
 		u32 groupId = 0;
 		int x, z;
 		// Sub-cell slot within (x,z) on the size's slot grid (Game/SlotGrid.h);
@@ -521,10 +522,12 @@ private:
 	// to push into m_monsters. Shared by the initial .ent load, live editor
 	// placement, and save restore of editor-placed monsters. The caller pushes.
 	Monster MakeMonster(MonsterKind& kind, int id, int x, int z, Direction facing);
-	// The group id for a monster spawning at cell (x,z): reuses the group of any
-	// live monster that spawned in the same cell, else mints a fresh id. Co-located
-	// spawns thus form one group; a lone spawn is a singleton. (Phase 3.)
-	u32 GroupForSpawnCell(int x, int z);
+	// Re-derive monster groups from CURRENT co-location: all monsters sharing a
+	// cell get one groupId (merge), monsters in different cells are different groups
+	// (split). Recomputed each frame (top of UpdateMonsters) so groups track who is
+	// actually together. (Phase 3 introduced groups by spawn cell; Phase 5 made them
+	// dynamic so a swarm merges/splits — see docs/movement.md.)
+	void ReconcileGroups();
 	// Count of live monsters in a group (Phase 4: gates lone front-centre + the
 	// grouped front-slot reposition).
 	int AliveInGroup(u32 group) const;
@@ -735,8 +738,8 @@ private:
 	// monster is gone simply finds no match). Replaces the old index+generation
 	// scheme, which broke on any mid-flight reorder/erase. Starts at 1 (0 = none).
 	u32 m_nextMonsterId = 1;
-	// Monster group-id source (Phase 3): monotonic, session-local. Spawn-time
-	// co-location assigns the id (see GroupForSpawnCell); not saved (re-derived).
+	// Monster group-id source: a per-frame counter ReconcileGroups stamps cells
+	// with; session-local, not saved (groups are re-derived from co-location).
 	u32 m_nextGroupId = 1;
 	// Last plan-batch sequence applied per bucket, so we adopt a batch only once.
 	uint64_t m_lastPlanSeq[ai::Scheduler::kBucketCount] = {};
