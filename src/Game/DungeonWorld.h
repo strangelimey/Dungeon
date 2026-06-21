@@ -30,6 +30,7 @@
 #include "Game/Project.h"
 #include "Game/SaveGame.h"
 #include "Game/ShadowScheduler.h"
+#include "Game/SlotGrid.h"
 #include "Game/SoundBank.h"
 #include "Graphics/Camera.h"
 #include "Graphics/ParticleBatch.h"
@@ -130,8 +131,14 @@ public:
 	std::optional<std::string> TryPickItem(float mx, float my, float w, float h);
 	// Drops a held item (catalog id) back onto the floor: ray-casts the screen
 	// point to the floor plane and places it on that cell when it is walkable, in
-	// reach, and seen; otherwise on the party's own cell. Always succeeds.
+	// reach, and seen; otherwise on the party's own cell. The tablet snaps to the
+	// quarter slot nearest the hit point. Always succeeds.
 	void DropItemAt(const std::string& typeId, float mx, float my, float w, float h);
+	// The Medium quarter slot (0..3) in cell (cx,cz) whose centre is nearest the
+	// world point (wx,wz) and is NOT already taken by another floor item there
+	// (self excluded by index, -1 = none). Falls back to the geometrically nearest
+	// quarter if all four are occupied. Floor items use the Medium 2x2 grid.
+	int FreeItemSlotNear(int cx, int cz, float wx, float wz, int self) const;
 
 	const DungeonMap& Map() const { return m_map; }
 	const Project& GetProject() const { return m_project; }
@@ -172,6 +179,9 @@ public:
 	// map never changes mid-Update.
 	std::optional<LevelTransition> ConsumeLevelTransition();
 	size_t MonsterCount() const { return m_monsters.size(); }
+	// One human-readable line per monster group (id, count, kinds, cells#slot) for
+	// the dev console `groups` command — the Phase-3 group model's reader.
+	std::vector<std::string> GroupsReport() const;
 
 	// --- fog of war (dynamic/save-side state, not in DungeonMap) -------------
 	// Whether a cell has been revealed (the party has stood on it or an
@@ -319,6 +329,9 @@ private:
 		bool facesTarget = true;     // turn to face the party once engaged
 		// (radially-symmetric models like the blob set faces=false to skip it)
 		float fallbackRoughness = 0.9f; // flat-material roughness when no PBR set
+		// Sub-cell occupancy (monsters.cat `size=`, default large). Decides the
+		// monster's footprint + how many share a cell — see Game/SlotGrid.h.
+		SizeClass size = SizeClass::Large;
 	};
 	struct Monster {
 		const MonsterKind* kind = nullptr; // points into m_monsterKinds (stable)
@@ -326,24 +339,46 @@ private:
 		u32 runtimeId = 0; // STABLE per-session id (never reused) that async AI plans
 						   // key off, so a plan always finds the right monster
 						   // regardless of vector reordering/erasure (0 = unassigned)
+		// Logical GROUP this monster belongs to: monsters currently sharing a cell.
+		// Recomputed each frame by ReconcileGroups (merge when together, split when
+		// apart); not saved (the id numbers are opaque, re-derived every frame). The
+		// substrate for formation behaviour — gates lone front-centre vs in-cell
+		// reposition (Phases 4-5).
+		u32 groupId = 0;
 		int x, z;
+		// Sub-cell slot within (x,z) on the size's slot grid (Game/SlotGrid.h);
+		// 0 = the only slot for Large/Huge. visualPos glides to SlotCenter, not
+		// CellCenter. Initial slot derived by fill order; PERSISTED (Phase 3) so a
+		// monster's exact stance within a cell survives save/reload.
+		int slot = 0;
 		int spawnX = 0, spawnZ = 0; // .ent baseline, for the save diff
-		float yaw = 0.0f;
+		float yaw = 0.0f;         // current visual facing (eased toward targetYaw)
+		float targetYaw = 0.0f;   // desired facing: travel direction, or the party
 		Direction facing = Direction::South; // for the .ent writer
 		bool announced = false;
+		// Has noticed the party (sticky): set when the brain first engages via the
+		// sight cone, or immediately on a hit (provoke). Once aware the monster
+		// stays engaged even if the party slips behind it. Saved (dynamic state).
+		bool aware = false;
 		float hp = 1.0f;          // current hit points (maxHp at spawn)
 		float attackCd = 0.0f;    // seconds until this monster can swing again
 
 		// Chase movement (AI v1). The logical cell (x,z) snaps the instant a step
 		// commits — like the party — so occupancy/blocking is atomic; visualPos
 		// glides from moveFrom to the new cell centre over moveInterval. moveCd
-		// gates the next step. Set visualPos = CellCenter(x,z) at spawn/load.
+		// gates the next step. Set visualPos = SlotCenter(x,z,size,slot) at spawn/load.
 		Vec3 visualPos{};
 		Vec3 moveFrom{};
 		float moveT = 0.0f;     // 0..1 tween progress while moving
 		float moveCd = 0.0f;    // seconds until the next step is allowed
 		bool moving = false;
 		anim::Animator animator;
+
+		// Formation target (Phase 5): the attack cell around the party this monster
+		// is assigned to (or the party cell when unassigned/queuing). Set each frame
+		// by AssignFormation, fed into the AI snapshot so the brain paths here.
+		// Transient — re-derived every frame, never saved.
+		int targetX = 0, targetZ = 0;
 
 		// Standing orders from the async brain (Game/MonsterAI.h). The worker
 		// threads refresh intent + aiPath at this monster's IQ-bucket cadence; the
@@ -377,6 +412,10 @@ private:
 		int id = -1;                    // source Entity::id (>= 0 = .ent baseline)
 		int x = 0, z = 0;
 		bool collected = false; // picked up — hidden + saved so it stays gone
+		// Sub-cell quarter (Medium 2x2 slot, 0..3) the tablet rests in — a dropped
+		// item snaps to the quarter nearest the cursor; up to 4 share a cell. Render
+		// + pick + the glow light use SlotCenter(x,z,Medium,slot). See SlotGrid.h.
+		int slot = 0;
 	};
 
 	// A wall-mounted button/lever (EntityKind::Button from the .ent layer). The
@@ -483,6 +522,24 @@ private:
 	// to push into m_monsters. Shared by the initial .ent load, live editor
 	// placement, and save restore of editor-placed monsters. The caller pushes.
 	Monster MakeMonster(MonsterKind& kind, int id, int x, int z, Direction facing);
+	// Re-derive monster groups from CURRENT co-location: all monsters sharing a
+	// cell get one groupId (merge), monsters in different cells are different groups
+	// (split). Recomputed each frame (top of UpdateMonsters) so groups track who is
+	// actually together. (Phase 3 introduced groups by spawn cell; Phase 5 made them
+	// dynamic so a swarm merges/splits — see docs/movement.md.)
+	void ReconcileGroups();
+	// Count of live monsters in a group (Phase 4: gates lone front-centre + the
+	// grouped front-slot reposition).
+	int AliveInGroup(u32 group) const;
+	// Formation pass (Phase 5): assign each AWARE monster a target attack cell
+	// (a walkable orthogonal neighbour of the party), spreading them around the
+	// party (surround) before doubling up a side; overflow / not-yet-aware target
+	// the party cell. Sets Monster.targetX/targetZ; called before BuildAISnapshot.
+	void AssignFormation();
+	// The world point a settled monster wants WITHIN its current cell (Phase 4):
+	// the front-centre toward the party for a lone Medium-or-smaller monster, else
+	// its slot centre. partyPos is the party's cell centre.
+	Vec3 DesiredAnchor(const Monster& m, const Vec3& partyPos) const;
 	void LoadDecorations();
 	void LoadStairs(); // places stair props (P6) from the map's stair links
 	// Lazily loads (and caches) the shared assets for a monster / decoration
@@ -526,6 +583,10 @@ private:
 	// One monster's melee strike against a random standing party member (called
 	// from UpdateMonsters when the monster is adjacent and off cooldown).
 	void MonsterAttack(Monster& monster);
+	// Wakes a struck monster: latches awareness (sticky) and engages it toward the
+	// party THIS frame, independent of its neighbours. Called where party damage
+	// (melee or spell) lands on a monster.
+	void ProvokeMonster(Monster& monster);
 	// Resolves a spell bolt reaching world position `p` with strike profile `atk`:
 	// finds a live monster in that cell, runs the strike (combat + log + slain),
 	// and returns true if a monster was there (the bolt is consumed). The
@@ -535,10 +596,15 @@ private:
 	// small amount of damage, flash a splat over each portrait, grunt once, and
 	// latch a party wipe if the bruise is somehow the end of them.
 	void OnBumpImpact();
-	// True if a monster may stand on (x,z): in bounds, walkable, not the party
-	// cell, and not occupied by another LIVE monster (self excluded by index).
-	// Doubles as the ai::IWorldView seam the monster brain queries while pathing.
+	// True if a monster of `self`'s size may stand on (x,z): in bounds, walkable,
+	// not the party cell, and with a free SLOT (see FreeSlotInCell). Thin wrapper
+	// over FreeSlotInCell for callers that only need yes/no.
 	bool CellFreeForMonster(int x, int z, int self) const;
+	// The index of a free sub-cell SLOT for a monster of `size` standing on (x,z),
+	// or -1 if none (unwalkable, the party cell, full, or already held by a
+	// different-size group). `self` (a monster array index, or -1) is excluded from
+	// the occupancy scan. Slots are filled lowest-index-first. See Game/SlotGrid.h.
+	int FreeSlotInCell(int x, int z, SizeClass size, int self) const;
 
 	// True if a continuously-animating caster (a monster, or the swaying pillar)
 	// is within the light's reach — such a cube must re-render every frame.
@@ -672,6 +738,9 @@ private:
 	// monster is gone simply finds no match). Replaces the old index+generation
 	// scheme, which broke on any mid-flight reorder/erase. Starts at 1 (0 = none).
 	u32 m_nextMonsterId = 1;
+	// Monster group-id source: a per-frame counter ReconcileGroups stamps cells
+	// with; session-local, not saved (groups are re-derived from co-location).
+	u32 m_nextGroupId = 1;
 	// Last plan-batch sequence applied per bucket, so we adopt a batch only once.
 	uint64_t m_lastPlanSeq[ai::Scheduler::kBucketCount] = {};
 	// Walkability grid shared into snapshots, rebuilt only when the map changes.

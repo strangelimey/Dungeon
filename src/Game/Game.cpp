@@ -306,6 +306,11 @@ void Game::RegisterDevCommands() {
 							   map.Height(), m_world.MonsterCount(),
 							   map.Sconces().size()));
 					   });
+	m_console.Register("groups", "list monster groups (id: count [kinds] @ cell#slot)",
+					   [this](const std::vector<std::string>&) {
+						   for (const std::string& line : m_world.GroupsReport())
+							   m_console.Print(line);
+					   });
 	m_console.Register(
 		"threadspawn",
 		"spawn a demo worker on the thread manager (arg: busy ms/tick, default 500)",

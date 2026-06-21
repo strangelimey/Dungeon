@@ -25,18 +25,26 @@ namespace dungeon::game {
 
 void DungeonWorld::ResetForNewGame() {
 	m_party.Reset(m_map.StartX(), m_map.StartZ());
-	for (Monster& monster : m_monsters) {
+	for (size_t i = 0; i < m_monsters.size(); ++i) {
+		Monster& monster = m_monsters[i];
 		monster.announced = false;
+		monster.aware = false; // forget the party — a fresh game starts unalerted
+		monster.intent = {};   // drop standing orders so it idles until it notices
 		monster.hp = monster.MaxHp();
 		monster.attackCd = 0.0f;
 		// Monsters roam now (AI v1) — return them to their .ent spawn cell and
 		// clear any in-flight glide so a same-level new game starts clean.
 		monster.x = monster.spawnX;
 		monster.z = monster.spawnZ;
+		monster.yaw = monster.targetYaw = DirYaw(monster.facing); // back to spawn facing
 		monster.moving = false;
 		monster.moveT = 0.0f;
 		monster.moveCd = 0.0f;
-		monster.visualPos = m_map.CellCenter(monster.x, monster.z);
+		// Re-derive a free slot in the spawn cell (group members fan out again).
+		monster.slot = std::max(
+			0, FreeSlotInCell(monster.x, monster.z, monster.kind->size, static_cast<int>(i)));
+		monster.visualPos =
+			SlotCenter(monster.x, monster.z, monster.kind->size, monster.slot);
 	}
 	m_partyWiped = false;
 	m_magic.Clear(); // drop any spell bolts/sparks still in flight from a prior run
@@ -76,17 +84,21 @@ SaveData::LevelState DungeonWorld::SnapshotActive() const {
 			e.z = m.z;
 			e.facing = static_cast<int>(m.facing);
 			e.announced = m.announced;
+			e.aware = m.aware;
 			e.hp = m.hp;
+			e.slot = m.slot;
 			e.spawnX = m.spawnX;
 			e.spawnZ = m.spawnZ;
 			ls.entities.push_back(std::move(e));
-		} else if (m.x != m.spawnX || m.z != m.spawnZ || m.announced ||
+		} else if (m.x != m.spawnX || m.z != m.spawnZ || m.announced || m.aware ||
 				   m.hp != m.MaxHp()) {
 			e.id = m.id;
 			e.x = m.x;
 			e.z = m.z;
 			e.announced = m.announced;
+			e.aware = m.aware;
 			e.hp = m.hp;
+			e.slot = m.slot;
 			ls.entities.push_back(std::move(e));
 		}
 	}
@@ -107,6 +119,7 @@ SaveData::LevelState DungeonWorld::SnapshotActive() const {
 			e.type = item.kind->id;
 			e.x = item.x;
 			e.z = item.z;
+			e.slot = item.slot;
 			ls.entities.push_back(std::move(e));
 		}
 	}
@@ -164,8 +177,10 @@ void DungeonWorld::ApplyActiveSnapshot() {
 				m.x = e.x;
 				m.z = e.z;
 				m.announced = e.announced;
+				m.aware = e.aware;
 				if (e.hp >= 0.0f) m.hp = e.hp; // -1 = older save → keep spawn hp
-				m.visualPos = m_map.CellCenter(m.x, m.z);
+				m.slot = e.slot; // saved sub-cell slot (Phase 3)
+				m.visualPos = SlotCenter(m.x, m.z, m.kind->size, m.slot);
 				m_monsters.push_back(std::move(m));
 			} else {
 				for (Monster& m : m_monsters)
@@ -173,10 +188,12 @@ void DungeonWorld::ApplyActiveSnapshot() {
 						m.x = e.x;
 						m.z = e.z;
 						m.announced = e.announced;
+						m.aware = e.aware;
 						if (e.hp >= 0.0f) m.hp = e.hp; // -1 = older save → keep spawn hp
 						m.moving = false; // snap to the saved cell, no glide from origin
 						m.moveT = 0.0f;
-						m.visualPos = m_map.CellCenter(m.x, m.z);
+						m.slot = e.slot; // saved sub-cell slot (Phase 3)
+						m.visualPos = SlotCenter(m.x, m.z, m.kind->size, m.slot);
 						break;
 					}
 			}
@@ -195,12 +212,15 @@ void DungeonWorld::ApplyActiveSnapshot() {
 					}
 				if (!revived) {
 					ItemKind& kind = ItemKindFor(e.type);
-					m_items.push_back({&kind, m_nextDropId--, e.x, e.z, false});
+					const Vec3 c = m_map.CellCenter(e.x, e.z); // v6 had no slot
+					const int slot = FreeItemSlotNear(e.x, e.z, c.x, c.z, -1);
+					m_items.push_back({&kind, m_nextDropId--, e.x, e.z, false, slot});
 				}
 			} else if (e.id < 0) {
-				// Dropped tablet — lay it on the floor with a fresh runtime id.
+				// Dropped tablet — lay it on the floor with a fresh runtime id, at
+				// its saved quarter slot.
 				ItemKind& kind = ItemKindFor(e.type);
-				m_items.push_back({&kind, m_nextDropId--, e.x, e.z, false});
+				m_items.push_back({&kind, m_nextDropId--, e.x, e.z, false, e.slot});
 			} else {
 				// Baseline rune collected — mark the kept instance lifted.
 				for (Item& item : m_items)
