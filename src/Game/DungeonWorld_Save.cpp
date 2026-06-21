@@ -25,7 +25,8 @@ namespace dungeon::game {
 
 void DungeonWorld::ResetForNewGame() {
 	m_party.Reset(m_map.StartX(), m_map.StartZ());
-	for (Monster& monster : m_monsters) {
+	for (size_t i = 0; i < m_monsters.size(); ++i) {
+		Monster& monster = m_monsters[i];
 		monster.announced = false;
 		monster.hp = monster.MaxHp();
 		monster.attackCd = 0.0f;
@@ -36,7 +37,11 @@ void DungeonWorld::ResetForNewGame() {
 		monster.moving = false;
 		monster.moveT = 0.0f;
 		monster.moveCd = 0.0f;
-		monster.visualPos = m_map.CellCenter(monster.x, monster.z);
+		// Re-derive a free slot in the spawn cell (group members fan out again).
+		monster.slot = std::max(
+			0, FreeSlotInCell(monster.x, monster.z, monster.kind->size, static_cast<int>(i)));
+		monster.visualPos =
+			SlotCenter(monster.x, monster.z, monster.kind->size, monster.slot);
 	}
 	m_partyWiped = false;
 	m_magic.Clear(); // drop any spell bolts/sparks still in flight from a prior run
@@ -165,7 +170,9 @@ void DungeonWorld::ApplyActiveSnapshot() {
 				m.z = e.z;
 				m.announced = e.announced;
 				if (e.hp >= 0.0f) m.hp = e.hp; // -1 = older save → keep spawn hp
-				m.visualPos = m_map.CellCenter(m.x, m.z);
+				// Slot isn't saved yet (Phase 1) — re-derive one at the live cell.
+				m.slot = std::max(0, FreeSlotInCell(m.x, m.z, m.kind->size, -1));
+				m.visualPos = SlotCenter(m.x, m.z, m.kind->size, m.slot);
 				m_monsters.push_back(std::move(m));
 			} else {
 				for (Monster& m : m_monsters)
@@ -176,7 +183,11 @@ void DungeonWorld::ApplyActiveSnapshot() {
 						if (e.hp >= 0.0f) m.hp = e.hp; // -1 = older save → keep spawn hp
 						m.moving = false; // snap to the saved cell, no glide from origin
 						m.moveT = 0.0f;
-						m.visualPos = m_map.CellCenter(m.x, m.z);
+						// Slot isn't saved yet (Phase 1); re-derive at the live cell,
+						// excluding self (already at this cell with its old slot).
+						const int self = static_cast<int>(&m - m_monsters.data());
+						m.slot = std::max(0, FreeSlotInCell(m.x, m.z, m.kind->size, self));
+						m.visualPos = SlotCenter(m.x, m.z, m.kind->size, m.slot);
 						break;
 					}
 			}

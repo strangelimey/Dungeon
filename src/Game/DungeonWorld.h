@@ -30,6 +30,7 @@
 #include "Game/Project.h"
 #include "Game/SaveGame.h"
 #include "Game/ShadowScheduler.h"
+#include "Game/SlotGrid.h"
 #include "Game/SoundBank.h"
 #include "Graphics/Camera.h"
 #include "Graphics/ParticleBatch.h"
@@ -319,6 +320,9 @@ private:
 		bool facesTarget = true;     // turn to face the party once engaged
 		// (radially-symmetric models like the blob set faces=false to skip it)
 		float fallbackRoughness = 0.9f; // flat-material roughness when no PBR set
+		// Sub-cell occupancy (monsters.cat `size=`, default large). Decides the
+		// monster's footprint + how many share a cell — see Game/SlotGrid.h.
+		SizeClass size = SizeClass::Large;
 	};
 	struct Monster {
 		const MonsterKind* kind = nullptr; // points into m_monsterKinds (stable)
@@ -327,6 +331,10 @@ private:
 						   // key off, so a plan always finds the right monster
 						   // regardless of vector reordering/erasure (0 = unassigned)
 		int x, z;
+		// Sub-cell slot within (x,z) on the size's slot grid (Game/SlotGrid.h);
+		// 0 = the only slot for Large/Huge. visualPos glides to SlotCenter, not
+		// CellCenter. Assigned at spawn (Phase 1 fill order); persisted later.
+		int slot = 0;
 		int spawnX = 0, spawnZ = 0; // .ent baseline, for the save diff
 		float yaw = 0.0f;
 		Direction facing = Direction::South; // for the .ent writer
@@ -337,7 +345,7 @@ private:
 		// Chase movement (AI v1). The logical cell (x,z) snaps the instant a step
 		// commits — like the party — so occupancy/blocking is atomic; visualPos
 		// glides from moveFrom to the new cell centre over moveInterval. moveCd
-		// gates the next step. Set visualPos = CellCenter(x,z) at spawn/load.
+		// gates the next step. Set visualPos = SlotCenter(x,z,size,slot) at spawn/load.
 		Vec3 visualPos{};
 		Vec3 moveFrom{};
 		float moveT = 0.0f;     // 0..1 tween progress while moving
@@ -535,10 +543,15 @@ private:
 	// small amount of damage, flash a splat over each portrait, grunt once, and
 	// latch a party wipe if the bruise is somehow the end of them.
 	void OnBumpImpact();
-	// True if a monster may stand on (x,z): in bounds, walkable, not the party
-	// cell, and not occupied by another LIVE monster (self excluded by index).
-	// Doubles as the ai::IWorldView seam the monster brain queries while pathing.
+	// True if a monster of `self`'s size may stand on (x,z): in bounds, walkable,
+	// not the party cell, and with a free SLOT (see FreeSlotInCell). Thin wrapper
+	// over FreeSlotInCell for callers that only need yes/no.
 	bool CellFreeForMonster(int x, int z, int self) const;
+	// The index of a free sub-cell SLOT for a monster of `size` standing on (x,z),
+	// or -1 if none (unwalkable, the party cell, full, or already held by a
+	// different-size group). `self` (a monster array index, or -1) is excluded from
+	// the occupancy scan. Slots are filled lowest-index-first. See Game/SlotGrid.h.
+	int FreeSlotInCell(int x, int z, SizeClass size, int self) const;
 
 	// True if a continuously-animating caster (a monster, or the swaying pillar)
 	// is within the light's reach — such a cube must re-render every frame.

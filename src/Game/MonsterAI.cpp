@@ -46,12 +46,18 @@ bool SnapshotView::IsWalkable(int x, int z) const {
 	return w && (*w)[static_cast<size_t>(z) * m_snap.mapW + x] != 0;
 }
 
-bool SnapshotView::CellFreeForMonster(int x, int z, int /*selfId*/) const {
+bool SnapshotView::CellFreeForMonster(int x, int z, int /*selfId*/, int capacity) const {
 	if (!IsWalkable(x, z)) return false;
-	// `blocked` already carries the party cell and every live monster's cell. A
+	const int idx = z * m_snap.mapW + x;
+	// Hard blocks (the party cell) are never enterable.
+	if (m_snap.blocked.find(idx) != m_snap.blocked.end()) return false;
+	// Empty cell: any single-cell monster fits. Occupied: only same-size groups
+	// (matching capacity) admit a newcomer, and only until their slots fill. A
 	// monster never re-enters its own start cell (the BFS marks it visited), so
 	// self-exclusion isn't needed here.
-	return m_snap.blocked.find(z * m_snap.mapW + x) == m_snap.blocked.end();
+	auto it = m_snap.occ.find(idx);
+	if (it == m_snap.occ.end()) return true;
+	return it->second.capacity == capacity && it->second.count < it->second.capacity;
 }
 
 // ----------------------------------------------------------------------------
@@ -70,6 +76,23 @@ Intent Brain::Think(const Agent& a, int partyX, int partyZ) const {
 		it.targetZ = partyZ;
 	}
 	return it;
+}
+
+// True if a monster with agent `a`'s footprint can anchor at (ax,az): every cell
+// of its f x f block is free for it — EXCEPT cells inside the agent's CURRENT
+// footprint, which are itself. A Huge's 2x2 footprint overlaps between adjacent
+// anchors, so without this self-exclusion it could never take a step. For a
+// single-cell monster (f == 1) this is exactly one CellFreeForMonster check.
+static bool FootprintFree(const Agent& a, int ax, int az, const IWorldView& world) {
+	const int f = a.footprint < 1 ? 1 : a.footprint;
+	for (int fz = az; fz < az + f; ++fz)
+		for (int fx = ax; fx < ax + f; ++fx) {
+			const bool self = fx >= a.x && fx < a.x + f && fz >= a.z && fz < a.z + f;
+			if (self) continue;
+			if (!world.CellFreeForMonster(fx, fz, static_cast<int>(a.id), a.capacity))
+				return false;
+		}
+	return true;
 }
 
 void Brain::FindPath(const Agent& a, int targetX, int targetZ, int mapW, int mapH,
@@ -117,10 +140,11 @@ void Brain::FindPath(const Agent& a, int targetX, int targetZ, int mapW, int map
 			if (m_pathFrom[nidx] != -1) continue; // already visited
 			// The goal (last-known party cell) is reachable as the target even if
 			// occupied now; every other cell must be free for a monster to walk.
-			if (nidx != goalIdx &&
-				!world.CellFreeForMonster(nx, nz, static_cast<int>(a.id)))
+			if (nidx == goalIdx) {
+				if (!world.IsWalkable(nx, nz)) continue;
+			} else if (!FootprintFree(a, nx, nz, world)) {
 				continue;
-			if (nidx == goalIdx && !world.IsWalkable(nx, nz)) continue;
+			}
 			m_pathFrom[nidx] = cur;
 			open.push(nidx);
 		}

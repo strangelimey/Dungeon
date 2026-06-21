@@ -668,7 +668,8 @@ void DungeonWorld::UpdateMonsters(float dt) {
 		// step committed, so the tween just slides visualPos to the new centre.
 		if (monster.moving) {
 			monster.moveT += dt / std::max(monster.kind->moveInterval, 0.05f);
-			const Vec3 target = m_map.CellCenter(monster.x, monster.z);
+			const Vec3 target = SlotCenter(monster.x, monster.z, monster.kind->size,
+										   monster.slot);
 			if (monster.moveT >= 1.0f) {
 				monster.moving = false;
 				monster.moveT = 0.0f;
@@ -724,10 +725,16 @@ void DungeonWorld::UpdateMonsters(float dt) {
 				const ai::Cell c = monster.aiPath[monster.aiCursor];
 				const bool adjacent = std::abs(c.x - monster.x) +
 										  std::abs(c.z - monster.z) == 1;
-				if (adjacent && CellFreeForMonster(c.x, c.z, static_cast<int>(i))) {
+				// Claim a free slot in the destination cell (re-validated against LIVE
+				// occupancy — the path was planned on a worker against a snapshot).
+				const int slot = adjacent ? FreeSlotInCell(c.x, c.z, monster.kind->size,
+														   static_cast<int>(i))
+										  : -1;
+				if (slot >= 0) {
 					monster.moveFrom = monster.visualPos;
 					monster.x = c.x;
 					monster.z = c.z;
+					monster.slot = slot;
 					++monster.aiCursor;
 					monster.moving = true;
 					monster.moveT = 0.0f;
@@ -781,6 +788,7 @@ void DungeonWorld::BuildAISnapshot() {
 		m_snapshotPool.push_back(snap);
 	}
 	snap->blocked.clear();
+	snap->occ.clear();
 	snap->monsters.clear();
 
 	snap->partyX = m_party.GridX();
@@ -788,12 +796,26 @@ void DungeonWorld::BuildAISnapshot() {
 	snap->mapW = m_map.Width();
 	snap->mapH = m_map.Height();
 	snap->walkable = m_walkableCache;
-	// Cells a monster may not enter: the party cell and every live monster's cell.
+	// Party cell is a hard block. Monster crowding is capacity-based: each live
+	// monster bumps its cell's occupant count, tagged with the size's slots/cell so
+	// a worker can tell a half-full same-size group (room) from a full or foreign one.
 	snap->blocked.insert(snap->partyZ * snap->mapW + snap->partyX);
 	for (const Monster& m : m_monsters) {
 		if (!m.Alive()) continue;
-		snap->blocked.insert(m.z * snap->mapW + m.x);
-		snap->monsters.push_back({m.runtimeId, m.x, m.z, m.kind->aggroRange, m.kind->iq});
+		const int cap = SlotsPerCell(m.kind->size);
+		const int f = FootprintCells(m.kind->size);
+		// Mark every cell the footprint covers (Huge = its 2x2 block), so a passer-by
+		// of any size sees the cell occupied. The BFS self-excludes the pathed agent's
+		// own footprint, so this aggregate count doesn't trap a Huge against itself.
+		for (int fz = m.z; fz < m.z + f; ++fz)
+			for (int fx = m.x; fx < m.x + f; ++fx) {
+				if (fx < 0 || fz < 0 || fx >= snap->mapW || fz >= snap->mapH) continue;
+				ai::CellOcc& o = snap->occ[fz * snap->mapW + fx];
+				o.capacity = static_cast<uint8_t>(cap);
+				++o.count;
+			}
+		snap->monsters.push_back(
+			{m.runtimeId, m.x, m.z, m.kind->aggroRange, m.kind->iq, cap, f});
 	}
 	m_director.Publish(snap); // pass a copy — the pool keeps its own ref
 }
@@ -825,15 +847,43 @@ void DungeonWorld::ConsumeAIPlans() {
 	}
 }
 
-bool DungeonWorld::CellFreeForMonster(int x, int z, int self) const {
-	if (!m_map.IsWalkable(x, z)) return false;
-	if (x == m_party.GridX() && z == m_party.GridZ()) return false;
+int DungeonWorld::FreeSlotInCell(int x, int z, SizeClass size, int self) const {
+	const int f = FootprintCells(size); // 1, or 2 for Huge (a 2x2-cell block)
+	const int cap = SlotsPerCell(size);
+	// Every cell of the footprint must be in bounds, walkable, and clear of the
+	// party. A 1-wide corridor fails this for a Huge → it can't enter (item 1).
+	for (int fz = z; fz < z + f; ++fz)
+		for (int fx = x; fx < x + f; ++fx) {
+			if (fx < 0 || fz < 0 || fx >= m_map.Width() || fz >= m_map.Height())
+				return -1;
+			if (!m_map.IsWalkable(fx, fz)) return -1;
+			if (fx == m_party.GridX() && fz == m_party.GridZ()) return -1;
+		}
+	// Mark the slots already taken in this cell. An occupant whose footprint
+	// overlaps ours blocks the whole cell unless both are single-cell monsters of
+	// the SAME size — only those share via distinct slots (homogeneous-group rule).
+	u32 used = 0; // bitmask; cap <= 16 fits comfortably
 	for (size_t i = 0; i < m_monsters.size(); ++i) {
 		if (static_cast<int>(i) == self) continue;
 		const Monster& o = m_monsters[i];
-		if (o.Alive() && o.x == x && o.z == z) return false;
+		if (!o.Alive()) continue;
+		const int fo = FootprintCells(o.kind->size);
+		const bool overlap = !(o.x + fo - 1 < x || o.x > x + f - 1 ||
+							   o.z + fo - 1 < z || o.z > z + f - 1);
+		if (!overlap) continue;
+		if (f > 1 || fo > 1 || SlotsPerCell(o.kind->size) != cap) return -1;
+		if (o.slot >= 0 && o.slot < cap) used |= (1u << o.slot);
 	}
-	return true;
+	for (int s = 0; s < cap; ++s)
+		if (!(used & (1u << s))) return s;
+	return -1;
+}
+
+bool DungeonWorld::CellFreeForMonster(int x, int z, int self) const {
+	const SizeClass size = (self >= 0 && self < static_cast<int>(m_monsters.size()))
+							   ? m_monsters[self].kind->size
+							   : SizeClass::Large;
+	return FreeSlotInCell(x, z, size, self) >= 0;
 }
 
 // One monster strike against a random standing party member. Sets the swing

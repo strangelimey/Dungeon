@@ -266,6 +266,7 @@ DungeonWorld::MonsterKind& DungeonWorld::MonsterKindFor(const std::string& type)
 			assets->iq = def->GetFloat("iq", 100.0f);
 			assets->facesTarget = def->GetBool("faces", true);
 			assets->fallbackRoughness = def->GetFloat("roughness", 0.9f);
+			assets->size = ParseSizeClass(CatalogGet(def, "size", "large"));
 		}
 		it = m_monsterKinds.emplace(type, std::move(assets)).first;
 	}
@@ -283,7 +284,10 @@ DungeonWorld::Monster DungeonWorld::MakeMonster(MonsterKind& kind, int id, int x
 	monster.yaw = DirYaw(facing);
 	monster.facing = facing;
 	monster.hp = kind.maxHp;
-	monster.visualPos = m_map.CellCenter(x, z);
+	// Take a free slot in the spawn cell so a group placed on one cell fans out
+	// (the new monster isn't in m_monsters yet, so self=-1). -1 (full) → slot 0.
+	monster.slot = std::max(0, FreeSlotInCell(x, z, kind.size, -1));
+	monster.visualPos = SlotCenter(x, z, kind.size, monster.slot);
 	monster.animator = anim::Animator(&kind.model.skeleton, &kind.model.clips);
 	monster.animator.Play("idle");
 	return monster;

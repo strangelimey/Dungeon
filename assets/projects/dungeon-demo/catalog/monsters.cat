@@ -16,6 +16,10 @@
 ;              symmetric models like the blob set false to skip the rotation)
 ;   roughness= flat-material roughness when no PBR texture set is installed
 ;              (default 0.9 = matte; lower = glossier, e.g. wet slime)
+;   size     = sub-cell footprint (default large). huge = a 2x2-cell block (can't
+;              fit 1-wide corridors); large = one whole cell; medium = 4 per cell
+;              (human, 2x2 slots); small = 9 (3x3); tiny = 16 (4x4). Same-size
+;              monsters share a cell in distinct slots — see docs/movement.md.
 ; Level .ent monster records reference these ids.
 
 [skeleton]

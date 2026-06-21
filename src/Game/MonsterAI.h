@@ -31,6 +31,7 @@
 #include <memory>
 #include <mutex>
 #include <stop_token>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -51,9 +52,12 @@ struct Cell {
 class IWorldView {
 public:
 	virtual ~IWorldView() = default;
-	// A cell a monster may step into: in bounds, map-walkable, not the party
-	// cell, not held by another live monster.
-	virtual bool CellFreeForMonster(int x, int z, int selfId) const = 0;
+	// A cell a monster may step into: in bounds, map-walkable, not the party cell,
+	// and with a free SLOT for a monster of this `capacity` (slots/cell of its size
+	// — see Game/SlotGrid.h). A cell already holding a DIFFERENT size (different
+	// capacity) is full to this monster; same-size cells admit it until their slots
+	// fill. `capacity` is passed as a primitive so the AI layer stays game-agnostic.
+	virtual bool CellFreeForMonster(int x, int z, int selfId, int capacity) const = 0;
 	// A cell is map-walkable. The goal cell qualifies even if occupied, so the
 	// BFS can still target a monster's last-known party cell.
 	virtual bool IsWalkable(int x, int z) const = 0;
@@ -71,6 +75,10 @@ struct Agent {
 	int x = 0, z = 0;        // logical grid cell
 	float aggroRange = 6.0f; // Chebyshev cells of party distance to engage at
 	float iq = 100.0f;       // think-rate stat -> bucket (Scheduler::BucketForIq)
+	int capacity = 1;        // slots per cell for this monster's size (Game/SlotGrid.h);
+							 // pathing uses it to test whether a cell has a free slot
+	int footprint = 1;       // edge length in CELLS (2 = Huge's 2x2 block); the BFS
+							 // requires the whole footprint clear and self-excludes it
 };
 
 // ----------------------------------------------------------------------------
@@ -78,15 +86,27 @@ struct Agent {
 // workers to read. Everything here is value/owned data (or an immutable shared
 // grid) so a worker can read it on another thread with zero synchronisation.
 // ----------------------------------------------------------------------------
+// Sub-cell occupancy of a single cell: how many monsters stand in it and the
+// per-cell capacity of their (homogeneous) size. A cell is full to a newcomer
+// when count == capacity, or when the newcomer's size differs (capacity mismatch).
+struct CellOcc {
+	uint8_t count = 0;
+	uint8_t capacity = 1;
+};
+
 struct Snapshot {
 	int partyX = 0, partyZ = 0;  // the party's grid cell
 	int mapW = 0, mapH = 0;      // map dimensions
 	// Static walkability, shared across frames and only rebuilt when the map's
 	// revision changes (so publishing a snapshot copies a pointer, not the grid).
 	std::shared_ptr<const std::vector<uint8_t>> walkable;
-	// Cells a monster may NOT enter beyond unwalkable: the party cell and every
-	// live monster's cell. Indexed cell = z*mapW + x.
+	// Hard-blocked cells a monster may NEVER enter (the party cell). Monster-vs-
+	// monster crowding is capacity-based via `occ`, not a hard block, so several
+	// fit one cell. Indexed cell = z*mapW + x.
 	std::unordered_set<int> blocked;
+	// Live monster occupancy per cell (count + size capacity), for the slot-aware
+	// CellFreeForMonster check. Empty/absent = no monsters there. cell = z*mapW + x.
+	std::unordered_map<int, CellOcc> occ;
 	std::vector<Agent> monsters; // the agents to think for (each carries a stable id)
 };
 
@@ -209,7 +229,7 @@ private:
 class SnapshotView : public IWorldView {
 public:
 	explicit SnapshotView(const Snapshot& s) : m_snap(s) {}
-	bool CellFreeForMonster(int x, int z, int selfId) const override;
+	bool CellFreeForMonster(int x, int z, int selfId, int capacity) const override;
 	bool IsWalkable(int x, int z) const override;
 
 private:
