@@ -681,6 +681,47 @@ void DungeonWorld::UpdateMonsters(float dt) {
 									 monster.moveFrom.y + (target.y - monster.moveFrom.y) * s,
 									 monster.moveFrom.z + (target.z - monster.moveFrom.z) * s};
 			}
+		} else {
+			// Settled in a cell (no step in flight): reposition WITHIN the cell
+			// (Phase 4). First, item 7 — a grouped, aware monster shifts toward the
+			// free slot nearest the party (the front rank), claiming it if closer
+			// than its current slot. Sequential on the main thread, so two monsters
+			// never claim the same slot in one tick.
+			const int cap = SlotsPerCell(monster.kind->size);
+			const int adjDist = std::max(std::abs(monster.x - m_party.GridX()),
+										 std::abs(monster.z - m_party.GridZ()));
+			if (monster.aware && cap > 1 && adjDist <= 1 &&
+				AliveInGroup(monster.groupId) >= 2) {
+				u32 used = 0; // slots held by other live same-size monsters here
+				for (size_t j = 0; j < m_monsters.size(); ++j) {
+					if (j == i) continue;
+					const Monster& o = m_monsters[j];
+					if (o.Alive() && o.x == monster.x && o.z == monster.z &&
+						SlotsPerCell(o.kind->size) == cap && o.slot >= 0 && o.slot < cap)
+						used |= (1u << o.slot);
+				}
+				auto slotDistSq = [&](int s) {
+					const Vec3 c = SlotCenter(monster.x, monster.z, monster.kind->size, s);
+					const float dx = partyPos.x - c.x, dz = partyPos.z - c.z;
+					return dx * dx + dz * dz;
+				};
+				int best = monster.slot;
+				float bestD = slotDistSq(monster.slot);
+				for (int s = 0; s < cap; ++s) {
+					if (s == monster.slot || (used & (1u << s))) continue;
+					const float d = slotDistSq(s);
+					if (d < bestD - 0.01f) { bestD = d; best = s; } // margin damps churn
+				}
+				monster.slot = best; // claim (atomic: main-thread serial)
+			}
+			// Ease toward the desired in-cell anchor (front-centre for a lone
+			// sub-cell monster, else the slot centre). A no-op once settled there.
+			const Vec3 anchor = DesiredAnchor(monster, partyPos);
+			constexpr float kInCellSettle = 6.0f;
+			const float k = std::min(1.0f, dt * kInCellSettle);
+			monster.visualPos = {monster.visualPos.x + (anchor.x - monster.visualPos.x) * k,
+								 monster.visualPos.y + (anchor.y - monster.visualPos.y) * k,
+								 monster.visualPos.z + (anchor.z - monster.visualPos.z) * k};
 		}
 
 		// Facing (every frame, for ALL monsters incl. idle ones). A moving monster
@@ -779,6 +820,31 @@ u32 DungeonWorld::GroupForSpawnCell(int x, int z) {
 	for (const Monster& m : m_monsters)
 		if (m.groupId != 0 && m.spawnX == x && m.spawnZ == z) return m.groupId;
 	return m_nextGroupId++;
+}
+
+int DungeonWorld::AliveInGroup(u32 group) const {
+	if (group == 0) return 0;
+	int n = 0;
+	for (const Monster& m : m_monsters)
+		if (m.groupId == group && m.Alive()) ++n;
+	return n;
+}
+
+Vec3 DungeonWorld::DesiredAnchor(const Monster& m, const Vec3& partyPos) const {
+	// A lone Medium-or-smaller monster slides to FRONT-CENTRE: the cell centre
+	// nudged toward the party so it can reach both front party members. Larger
+	// sizes (Large/Huge) are already centred and keep their slot anchor (item 8).
+	if (m.aware && IsSubCellSize(m.kind->size) && AliveInGroup(m.groupId) <= 1) {
+		const Vec3 c = m_map.CellCenter(m.x, m.z);
+		float dx = partyPos.x - c.x, dz = partyPos.z - c.z;
+		const float len = std::sqrt(dx * dx + dz * dz);
+		if (len > 1e-4f) {
+			const float front = 0.3f * kCellSize; // stays inside the cell (<0.5)
+			return {c.x + dx / len * front, c.y, c.z + dz / len * front};
+		}
+		return c;
+	}
+	return SlotCenter(m.x, m.z, m.kind->size, m.slot);
 }
 
 std::vector<std::string> DungeonWorld::GroupsReport() const {

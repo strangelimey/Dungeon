@@ -74,6 +74,13 @@ inline Vec3 SlotCenter(int cellX, int cellZ, SizeClass s, int slot, float y = 0.
 			cz + ((static_cast<float>(row) + 0.5f) * off - 0.5f) * kCellSize};
 }
 
+// True for the sub-cell sizes that sit in a corner quarter (Medium/Small/Tiny) —
+// the ones that gain from re-centring when alone. Large fills the whole cell and
+// Huge its 2x2 block, so they are already centred and never slide (item 8).
+inline constexpr bool IsSubCellSize(SizeClass s) {
+	return s == SizeClass::Medium || s == SizeClass::Small || s == SizeClass::Tiny;
+}
+
 // Parse a monsters.cat `size=` value; unknown/empty -> Large (today's default).
 inline SizeClass ParseSizeClass(const std::string& v) {
 	if (v == "huge")   return SizeClass::Huge;

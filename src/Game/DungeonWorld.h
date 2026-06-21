@@ -519,6 +519,13 @@ private:
 	// live monster that spawned in the same cell, else mints a fresh id. Co-located
 	// spawns thus form one group; a lone spawn is a singleton. (Phase 3.)
 	u32 GroupForSpawnCell(int x, int z);
+	// Count of live monsters in a group (Phase 4: gates lone front-centre + the
+	// grouped front-slot reposition).
+	int AliveInGroup(u32 group) const;
+	// The world point a settled monster wants WITHIN its current cell (Phase 4):
+	// the front-centre toward the party for a lone Medium-or-smaller monster, else
+	// its slot centre. partyPos is the party's cell centre.
+	Vec3 DesiredAnchor(const Monster& m, const Vec3& partyPos) const;
 	void LoadDecorations();
 	void LoadStairs(); // places stair props (P6) from the map's stair links
 	// Lazily loads (and caches) the shared assets for a monster / decoration

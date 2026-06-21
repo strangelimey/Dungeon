@@ -195,18 +195,22 @@ Implications to work through:
 
 ### 8. Lone monster takes front-centre
 
-Regardless of size class, when a group is down to its **last member**, that
-monster can move to a **front-centre** position so it can attack **both**
-front-rank party members.
+When a group is down to its **last member**, a **Medium-or-smaller** monster
+moves to a **front-centre** position so it can attack **both** front-rank party
+members. **Larger than Medium stays centred:** a Large monster already fills the
+whole cell (its slot 0 *is* the cell centre) and a Huge fills its 2×2 block, so
+they don't slide — only sub-cell sizes (Medium/Small/Tiny), which normally sit in
+a corner quarter, gain anything from re-centring.
 
 Implications to work through:
-- Front-centre is a special slot straddling the cell midline (between the two
-  front quarters), not one of the fixed size-grid slots — so a solo monster
-  isn't stuck attacking only one party member.
+- Front-centre is a special position straddling the cell midline (between the two
+  front quarters), not one of the fixed size-grid slots — so a solo sub-cell
+  monster isn't stuck attacking only one party member.
+- Gated on size: only Medium/Small/Tiny slide; Large/Huge are left at their
+  centred slot. A Small/Tiny solo monster slides to the shared front-centre
+  rather than sitting in a corner slot.
 - This is a repositioning case (item 7) that unlocks once group size hits 1;
   combat resolution must let that centred attacker reach both front members.
-- Define for each size: a Small/Tiny solo monster still slides to the shared
-  front-centre rather than sitting in a corner slot.
 
 ### 9. Per-monster facing (travel direction + provocation)
 
@@ -260,8 +264,8 @@ cheap self-contained slice to validate it, then layer the group/AI behaviours.
 | **5. Formation tactics** | 2, 3 | Surround when flank/rear cells are free; rank promotion on front-rank death. | The headline combat behaviours, needing groups + assignment first. |
 | **6. Reach & combat** | 4 | Front-only melee; polearm/ranged/magic from the rear; symmetric for party and monsters. | Layers onto established ranks; touches `Combat.cpp`. |
 
-Phases 1, 2, and 3 are **done**; item 9 (facing) landed between 1 and 2. Current
-focus will be **Phase 4** next.
+Phases 1–4 are **done**; item 9 (facing) landed between 1 and 2. Current focus
+will be **Phase 5** next.
 
 ## Phase 1 design — slot & size foundation
 
@@ -388,6 +392,53 @@ phases. This phase is verifiable by save/reload: a monster's sub-cell slot (and
 thus its exact stance within a cell) survives a round-trip instead of snapping to
 a re-derived slot.
 
+## Phase 4 design — in-cell repositioning
+
+The first group BEHAVIOUR: monsters shift WITHIN their cell (no new cell step) to
+better positions, gliding smoothly. Two drivers (items 7 + 8), both funnelled
+through one new mechanism — a per-frame **in-cell settle**: when a monster is not
+mid cell-step, its `visualPos` eases toward a **desired anchor** instead of being
+pinned to its slot centre. (Cell-to-cell stepping is unchanged.)
+
+### Desired anchor
+
+`DesiredAnchor(monster)` returns the world point the monster wants within its
+cell:
+- **Lone + Medium-or-smaller (item 8):** the **front-centre** — the cell centre
+  shifted ~0.3·`kCellSize` toward the party's cell (clamped inside the cell),
+  centred on the cross-axis. Recomputed each frame so it tracks the party. Large
+  and Huge are **excluded** (already centred) — they keep their slot anchor.
+- **Otherwise:** `SlotCenter(x,z,size,slot)` — the monster's quarter (unchanged).
+
+`visualPos` eases toward the anchor (exponential, like the facing turn). When a
+cell-step glide is in flight (`moving`), the settle is skipped (the glide owns
+the position); after it lands, the settle takes over.
+
+### Front-slot repositioning (item 7)
+
+A **grouped** (≥2 alive), engaged, settled monster picks the FREE slot in its
+cell nearest the party (the front rank) and, if it is closer than its current
+slot, **claims** it (`slot = newSlot`). The settle then glides it there. Slot
+claims are processed sequentially on the main thread, so two monsters never grab
+the same slot in one tick (the live occupancy scan excludes already-claimed
+slots). This makes a group "close ranks / face the threat" — rear members slide
+into open front quarters as they free up.
+
+### Helpers / state
+
+- `IsSubCellSize(size)` (SlotGrid.h): Medium/Small/Tiny (the sliding sizes).
+- `AliveInGroup(groupId)`: live member count (gates lone front-centre and the
+  grouped reslot).
+- No new persisted state: anchor is derived; `slot` (already saved, Phase 3)
+  still records the claimed quarter. Front-centre is purely visual/positional and
+  re-derives from the live party each frame.
+
+### Scope guard
+
+No splitting / merging / reflow / rank-promotion yet (Phase 5). Phase 4 only
+moves monsters within the cell they already occupy: lone sub-cell monsters
+re-centre toward the party, grouped members fill front slots.
+
 ## Current implementation status
 
 **Phase 1 is complete (1a–1d)** on the `movement` branch: compiles clean (debug)
@@ -441,4 +492,17 @@ slots 0–3 (docs/phase3_01_groups.png); after waking + a save/reload they resto
 without crashing, the save file carrying the slot token
 (docs/phase3_02_after_load.png).
 
-Not yet started: Phase 4 (free repositioning + lone front-centre) and beyond.
+**Phase 4 (in-cell repositioning) is complete + verified.** A settled monster
+(no cell-step in flight) eases its `visualPos` toward a `DesiredAnchor` each
+frame: a lone, aware **Medium-or-smaller** monster slides to **front-centre**
+(cell centre nudged ~0.3·`kCellSize` toward the party, tracking it); everything
+else holds its slot centre (Large/Huge already centred, excluded via
+`IsSubCellSize`). Grouped (≥2), aware, adjacent monsters also reslot to the FREE
+slot nearest the party (front rank, item 7), claimed sequentially so no two grab
+the same slot. `AliveInGroup` gates both. No new saved state (anchor is derived;
+slot already persists). Verified in-game: a lone Medium skeleton centred toward
+the party from both the south and north approaches
+(docs/phase4_01_lone_front.png, docs/phase4_02_lone_trackS.png).
+
+Not yet started: Phase 5 (formation tactics — surround + rank promotion) and
+Phase 6 (reach/combat).
