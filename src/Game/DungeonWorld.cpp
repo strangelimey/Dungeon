@@ -659,8 +659,8 @@ void DungeonWorld::UpdateMonsters(float dt) {
 
 	for (size_t i = 0; i < m_monsters.size(); ++i) {
 		Monster& monster = m_monsters[i];
-		if (!monster.Alive()) continue; // downed — no animation, no AI, not solid
-		monster.animator.Update(dt);
+		DriveMonsterAnim(monster, dt); // animates the living AND the dying (death clip)
+		if (!monster.Alive()) continue; // downed — no AI, no movement, not solid
 		if (monster.attackCd > 0.0f) monster.attackCd -= dt;
 		if (monster.moveCd > 0.0f) monster.moveCd -= dt;
 
@@ -739,6 +739,58 @@ void DungeonWorld::UpdateMonsters(float dt) {
 			}
 		}
 	}
+}
+
+float DungeonWorld::ClipDuration(const MonsterKind& kind, const std::string& name) const {
+	for (const auto& c : kind.model.clips)
+		if (c.name == name) return c.duration;
+	return 0.0f;
+}
+
+// Per-monster clip state machine. Picks the desired clip from live state with
+// the priority die > attack > walk > idle, cross-fades when it changes (a held
+// looping clip re-Plays as a no-op inside the Animator), and advances the
+// animator — including for downed monsters, so the death clip plays out before
+// the corpse vanishes (deathAnim). A missing clip (e.g. no procedural "walk"
+// yet) leaves the previous one playing, so this degrades to the pre-clip look.
+void DungeonWorld::DriveMonsterAnim(Monster& monster, float dt) {
+	if (!monster.animator.HasSkeleton()) return; // flat models (blob): nothing to skin
+
+	constexpr float kAnimFade = 0.12f; // cross-fade window between clips
+
+	if (monster.attackAnim > 0.0f) monster.attackAnim -= dt;
+	if (monster.deathAnim > 0.0f) monster.deathAnim -= dt;
+
+	Monster::Anim want;
+	if (!monster.Alive())               want = Monster::Anim::Die;
+	else if (monster.attackAnim > 0.0f) want = Monster::Anim::Attack;
+	else if (monster.moving)            want = Monster::Anim::Walk;
+	else                                want = Monster::Anim::Idle;
+
+	if (want != monster.anim) {
+		const char* name = "idle";
+		bool loop = true;
+		switch (want) {
+		case Monster::Anim::Die:
+			name = "die";
+			loop = false;
+			// Latch how long to keep the corpse on-screen (0 if there's no clip,
+			// so it vanishes immediately as it did before death animations).
+			monster.deathAnim = ClipDuration(*monster.kind, "die");
+			break;
+		case Monster::Anim::Attack: name = "attack"; loop = false; break;
+		case Monster::Anim::Walk:   name = "walk"; loop = true; break;
+		case Monster::Anim::Idle:   name = "idle"; loop = true; break;
+		}
+		// Only request a clip the model actually has — a not-yet-authored walk/
+		// attack/die simply leaves idle playing (no warning, no pop). Idle is the
+		// baseline every rig ships with, so it's always allowed through.
+		if (want == Monster::Anim::Idle || ClipDuration(*monster.kind, name) > 0.0f)
+			monster.animator.Play(name, loop, kAnimFade);
+		monster.anim = want;
+	}
+
+	monster.animator.Update(dt);
 }
 
 DungeonWorld::Monster* DungeonWorld::MonsterByRuntimeId(u32 id) {
@@ -850,6 +902,9 @@ void DungeonWorld::MonsterAttack(Monster& monster) {
 
 	Character& target = (*m_roster)[alive[m_combatRng() % n]];
 	monster.attackCd = monster.kind->attackInterval;
+	// Kick off the swing animation (one-shot; the state machine returns to
+	// walk/idle when it elapses). No "attack" clip → 0 → no visual, as before.
+	monster.attackAnim = ClipDuration(*monster.kind, "attack");
 
 	const AttackProfile atk{monster.kind->damage, monster.kind->accuracy};
 	const DefenseProfile def{target.Evasion(), target.Armor()};

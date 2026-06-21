@@ -107,7 +107,7 @@ bool DungeonWorld::AnimatedCasterNear(const gfx::PointLight& light) const {
 	if (m_pillarActive && inReach({m_pillarPos.x, 1.2f, m_pillarPos.z}, 1.2f))
 		return true; // sway
 	for (const Monster& m : m_monsters) {
-		if (!m.Alive()) continue; // downed: no animation, can't dirty a cube
+		if (!m.Alive() && m.deathAnim <= 0.0f) continue; // a dying monster still animates its cube
 		const Vec3 c = m_map.CellCenter(m.x, m.z);
 		if (inReach({c.x, 1.0f, c.z}, 1.5f)) return true;
 	}
@@ -228,7 +228,7 @@ void DungeonWorld::SubmitSceneGeometry(ID3D12GraphicsCommandList* list,
 	// Monsters: bone/bandage/slime PBR sets, bound by type name. The flat-color
 	// fallback keeps the old look if a set is missing (blob glistens wetly).
 	for (const Monster& monster : m_monsters) {
-		if (!monster.Alive()) continue; // downed monsters don't draw
+		if (!monster.Alive() && monster.deathAnim <= 0.0f) continue; // gone once death anim ends
 		const MonsterKind& kind = *monster.kind;
 		const Vec3 pos = monster.visualPos; // glides between cells while chasing
 		if (!visible({pos.x, 1.0f, pos.z}, 1.5f)) continue;

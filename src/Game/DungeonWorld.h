@@ -345,6 +345,17 @@ private:
 		bool moving = false;
 		anim::Animator animator;
 
+		// Animation state machine (DriveMonsterAnim): which clip is currently
+		// selected, plus one-shot timers. Priority die > attack > walk > idle;
+		// walk/idle loop, attack/die play once. attackAnim counts down the swing
+		// clip; deathAnim keeps the corpse drawn + animating while the death clip
+		// plays, then it vanishes (0 = gone, or no die clip → instant as before).
+		// Cosmetic/transient — not saved (a reloaded corpse just replays its death).
+		enum class Anim { Idle, Walk, Attack, Die };
+		Anim anim = Anim::Idle;
+		float attackAnim = 0.0f;
+		float deathAnim = 0.0f;
+
 		// Standing orders from the async brain (Game/MonsterAI.h). The worker
 		// threads refresh intent + aiPath at this monster's IQ-bucket cadence; the
 		// main thread executes them every frame, popping aiPath at aiCursor and
@@ -526,6 +537,12 @@ private:
 	// One monster's melee strike against a random standing party member (called
 	// from UpdateMonsters when the monster is adjacent and off cooldown).
 	void MonsterAttack(Monster& monster);
+	// Per-frame clip state machine: picks the monster's clip from its live state
+	// (die/attack/walk/idle) and cross-fades on a change, then advances the
+	// animator. Runs for downed monsters too, so the death clip plays out.
+	void DriveMonsterAnim(Monster& monster, float dt);
+	// Duration (seconds) of a named clip in the kind's model, or 0 if absent.
+	float ClipDuration(const MonsterKind& kind, const std::string& name) const;
 	// Resolves a spell bolt reaching world position `p` with strike profile `atk`:
 	// finds a live monster in that cell, runs the strike (combat + log + slain),
 	// and returns true if a monster was there (the bolt is consumed). The

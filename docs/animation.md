@@ -100,5 +100,33 @@ supports a snapshot cross-fade:
 - Existing call sites (`Play("idle")`, `Play("sway")`) unchanged — `fade`
   defaults to 0. Nothing triggers a fade yet; that arrives with goal 2.
 
-Next: goal 2 (clip state machine) — pick clip from monster state and call
-`Play(clip, loop, ~0.15f)` on transitions.
+**Goal 2 (clip state machine) — DONE, verified in-game.** `DungeonWorld::
+DriveMonsterAnim` runs per monster each frame (including downed ones), picks a
+clip by priority **die > attack > walk > idle**, and cross-fades (~0.12s) on a
+change via the new `Animator::Play(name, loop, fade)`. Per-`Monster` state
+(`DungeonWorld.h`): `anim` (current clip), `attackAnim` (swing one-shot, set in
+`MonsterAttack`), `deathAnim` (keeps the corpse drawn + animating through the
+death clip, then it vanishes — 0 if no clip, so behaviour matches the old instant
+removal). `ClipDuration` gates a clip request to what the model actually has, so a
+missing clip silently leaves idle playing (no warning spam, no pop). Render +
+shadow gates updated to keep a dying monster on-screen while `deathAnim > 0`.
+
+**Goal 3 (procedural clips) — DONE for the humanoid, verified.** `walk`/`attack`/
+`die` authored on the shared 7-joint rig in `tools/AssetBaker/ModelBaker.cpp`
+(`BuildHumanoid`), so skeleton + mummy now bake 4 clips each (blob keeps its
+squash idle; it can get walk/die later). walk: anti-phase leg stride + arm
+counter-swing + body bob (loops); attack: right-arm wind-up → chop, spine lean
+(one-shot); die: root sinks + topples forward, spine/arms slump (one-shot, holds).
+
+Verified by driving the game: scene renders correctly, a mummy chased the party in
+(walk), swung (attack — arms raise/drop across frames), and on a kill toppled to
+the floor then the corpse was removed (die). Screenshots in `docs/anim_v_*.png`.
+
+NOTE (pre-existing, not this thread): the party's unarmed attack input is mid-
+refactor — `onHandAttack`/`PartyAttack` exist but are not wired to any gesture
+(the empty-hand left-click was deliberately emptied in `GameUI::OnHandLeftClick`),
+so combat is currently undrivable without re-wiring. Verified death by temporarily
+re-wiring it (reverted).
+
+Next: goal 4 (authored rigged glTF via `AssetBaker import-model`) — deferred;
+optional blob walk/die; tune the procedural clip timings/poses.

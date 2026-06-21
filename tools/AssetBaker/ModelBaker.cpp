@@ -9,8 +9,8 @@
 //   * serpent pillar — skinned cylinder with coil bulges, 4-joint chain,
 //     looping sway clip
 //   * monsters — skeleton & mummy share a 7-joint humanoid rig (root→spine→
-//     head/arms, root→legs) with tapered-tube limbs + a skull and an idle
-//     clip; the blob is a 2-joint lumpy sphere with a squash-stretch scale clip
+//     head/arms, root→legs) with tapered-tube limbs + a skull and idle/walk/
+//     attack/die clips; the blob is a 2-joint lumpy sphere with a squash clip
 //
 // Geometry helpers: AddBox / AddRevolution (vertical axis) / AddStrut (a
 // tapered tube between two arbitrary points — splayed legs, forged arms,
@@ -1231,6 +1231,79 @@ assets::ModelData BuildHumanoid(const HumanoidStyle& style) {
 		clip.channels.push_back(std::move(ch));
 	}
 	model.clips.push_back(std::move(clip));
+
+	// walk / attack / die clips. Authored on the same 7-joint rig as idle and
+	// consumed by DungeonWorld's monster animation state machine (walk loops over
+	// the chase glide; attack fires per swing; die plays once on slay, then the
+	// corpse vanishes). Two small builders sample a 0..1 phase across the clip.
+	auto rotChan = [](assets::AnimationClipData& c, int joint, int keys, auto&& f) {
+		assets::AnimationChannelData ch;
+		ch.joint = joint;
+		ch.path = assets::ChannelPath::Rotation;
+		for (int k = 0; k < keys; ++k) {
+			const float u = static_cast<float>(k) / (keys - 1);
+			ch.times.push_back(c.duration * u);
+			const Quat q = f(u);
+			ch.values.push_back({q.x, q.y, q.z, q.w});
+		}
+		c.channels.push_back(std::move(ch));
+	};
+	auto rootY = [](assets::AnimationClipData& c, int keys, auto&& f) {
+		assets::AnimationChannelData ch;
+		ch.joint = 0;
+		ch.path = assets::ChannelPath::Translation;
+		for (int k = 0; k < keys; ++k) {
+			const float u = static_cast<float>(k) / (keys - 1);
+			ch.times.push_back(c.duration * u);
+			ch.values.push_back({0, f(u), 0, 0});
+		}
+		c.channels.push_back(std::move(ch));
+	};
+	const float raise = style.armRaise;
+
+	{ // walk: legs stride anti-phase, arms counter-swing, body double-bob. Loops.
+		assets::AnimationClipData walk;
+		walk.name = "walk";
+		walk.duration = 0.72f;
+		constexpr int K = 17;
+		const float tau = 2.0f * kPi;
+		rotChan(walk, 5, K, [&](float u) { return QuatFromEuler(0.55f * std::sin(tau * u), 0, 0); });
+		rotChan(walk, 6, K, [&](float u) { return QuatFromEuler(0.55f * std::sin(tau * u + kPi), 0, 0); });
+		rotChan(walk, 3, K, [&](float u) { return QuatFromEuler(-raise + 0.35f * std::sin(tau * u + kPi), 0, 0); });
+		rotChan(walk, 4, K, [&](float u) { return QuatFromEuler(-raise + 0.35f * std::sin(tau * u), 0, 0); });
+		rootY(walk, K, [&](float u) { return 1.0f + 0.03f * std::sin(2.0f * tau * u); });
+		model.clips.push_back(std::move(walk));
+	}
+
+	{ // attack: right arm winds up then chops down, spine leans in. One-shot.
+		assets::AnimationClipData atk;
+		atk.name = "attack";
+		atk.duration = 0.55f;
+		constexpr int K = 13;
+		rotChan(atk, 4, K, [&](float u) {
+			float pitch;
+			if (u < 0.30f)        pitch = -raise - 1.7f * (u / 0.30f);                       // raise overhead
+			else if (u < 0.55f)   pitch = -raise - 1.7f + 3.1f * ((u - 0.30f) / 0.25f);      // chop down
+			else                  pitch = (-raise + 1.4f) * (1.0f - (u - 0.55f) / 0.45f) - raise * ((u - 0.55f) / 0.45f); // settle to base
+			return QuatFromEuler(pitch, 0, 0);
+		});
+		rotChan(atk, 1, K, [&](float u) { return QuatFromEuler(0.4f * std::sin(std::min(u / 0.55f, 1.0f) * kPi), 0, 0); });
+		model.clips.push_back(std::move(atk));
+	}
+
+	{ // die: root sinks and topples forward, spine/arms slump. One-shot, holds.
+		assets::AnimationClipData die;
+		die.name = "die";
+		die.duration = 0.9f;
+		constexpr int K = 13;
+		rootY(die, K, [&](float u) { return 1.0f - 0.78f * (u * u); });                       // 1.0 -> 0.22 (accelerating)
+		rotChan(die, 0, K, [&](float u) { return QuatFromEuler(1.45f * (u * u), 0, 0); });     // topple forward
+		rotChan(die, 1, K, [&](float u) { return QuatFromEuler(0.5f * (u * u), 0, 0); });      // spine slump
+		rotChan(die, 3, K, [&](float u) { return QuatFromEuler(-raise * (1.0f - u * u) + 0.4f * (u * u), 0, 0); });
+		rotChan(die, 4, K, [&](float u) { return QuatFromEuler(-raise * (1.0f - u * u) + 0.4f * (u * u), 0, 0); });
+		model.clips.push_back(std::move(die));
+	}
+
 	return model;
 }
 
