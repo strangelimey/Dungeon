@@ -273,10 +273,13 @@ cheap self-contained slice to validate it, then layer the group/AI behaviours.
 | **3. Groups + per-monster slot state** | 6 | Logical group over `runtimeId` entities; per-monster slot persisted via `CaptureState`/`ApplyState`; split → new group + reflow. | The grouping layer the tactics build on. |
 | **4. Slot assignment & repositioning** | 7, 8 | Free shuffle among open slots in a partial group; lone monster slides to front-centre. | Dynamic slot assignment + the solo special case. |
 | **5. Formation tactics** | 2, 3 | Surround when flank/rear cells are free; rank promotion on front-rank death. | The headline combat behaviours, needing groups + assignment first. |
-| **6. Reach & combat** | 4 | Front-only melee; polearm/ranged/magic from the rear; symmetric for party and monsters. | Layers onto established ranks; touches `Combat.cpp`. |
+| **6. Reach & combat** *(DEFERRED)* | 4 | Front-only melee; polearm/ranged/magic from the rear; symmetric for party and monsters. | **Blocked on a weapon/equipment system** (party combat is stubbed — no weapons/reach/rank). Picked up in a future combat/equipment thread. |
 
-Phases 1–5 are **done**; item 9 (facing) landed between 1 and 2. Current focus
-will be **Phase 6** (reach/combat) next.
+Phases 1–5 are **done** (plus item 9 facing, between 1 and 2). **Phase 6 (reach)
+is DEFERRED** — it needs a weapon/equipment system that doesn't exist yet (party
+combat is stubbed: no weapons, no reach, no positional rank). It will be picked up
+as part of a future combat/equipment thread. The movement thread is otherwise
+complete.
 
 ## Phase 1 design — slot & size foundation
 
@@ -592,4 +595,13 @@ distinct slots (and reposition via item 7). Verified: a 6-skeleton swarm filled
 all four sides with the two overflow cells each holding a merged pair at distinct
 slots — no overlap (docs/phase5_14_merge_test.png).
 
-Not yet started: Phase 6 (reach — front-rank melee vs rear ranged/polearm/magic).
+**Phase 6 (reach) is DEFERRED — blocked on a weapon/equipment system.** Item 4
+(front-rank melee; rear rank limited to ranged/magic/polearm, all orthogonal)
+needs prerequisites that don't exist yet: weapons with a *reach* attribute, an
+equip→attack mapping, and a positional front/back rank for party members
+(currently any member melees the faced cell; `Character.h` is explicitly stubbed
+"no equipment yet"). When that combat/equipment thread lands, the movement-side
+hooks are ready: the orthogonal-only attack invariant holds, monster formations
+expose front (atPost) vs rear (queued) ranks, and a monster `reach` catalog stat
+would let a rear monster strike orthogonally past the front. Until then, item 4
+stays unbuilt; the rest of the movement thread (items 1–3, 5–9) is complete.
