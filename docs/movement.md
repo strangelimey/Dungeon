@@ -205,7 +205,11 @@ a corner quarter, gain anything from re-centring.
 Implications to work through:
 - Front-centre is a special position straddling the cell midline (between the two
   front quarters), not one of the fixed size-grid slots — so a solo sub-cell
-  monster isn't stuck attacking only one party member.
+  monster isn't stuck attacking only one party member. Precisely: **centred on
+  the cross-axis** (the centre-line between the grid's columns) and at the
+  **centre of the front ROW** of the size's slot grid, on the side facing the
+  party (snapped to the dominant cardinal axis — never a diagonal). For a Medium
+  2×2 that is centred left/right and at the centre of the near front/back half.
 - Gated on size: only Medium/Small/Tiny slide; Large/Huge are left at their
   centred slot. A Small/Tiny solo monster slides to the shared front-centre
   rather than sitting in a corner slot.
@@ -404,10 +408,12 @@ pinned to its slot centre. (Cell-to-cell stepping is unchanged.)
 
 `DesiredAnchor(monster)` returns the world point the monster wants within its
 cell:
-- **Lone + Medium-or-smaller (item 8):** the **front-centre** — the cell centre
-  shifted ~0.3·`kCellSize` toward the party's cell (clamped inside the cell),
-  centred on the cross-axis. Recomputed each frame so it tracks the party. Large
-  and Huge are **excluded** (already centred) — they keep their slot anchor.
+- **Lone + Medium-or-smaller (item 8):** the **front-centre** — centred on the
+  cross-axis (centre-line between columns) and at the centre of the front ROW of
+  the size's grid, offset `(dim−1)/(2·dim)·kCellSize` toward the party along the
+  **dominant cardinal axis** (Medium 0.25, Small 0.333, Tiny 0.375 of a cell; not
+  a diagonal). Recomputed each frame so it tracks the party. Large and Huge are
+  **excluded** (already centred) — they keep their slot anchor.
 - **Otherwise:** `SlotCenter(x,z,size,slot)` — the monster's quarter (unchanged).
 
 `visualPos` eases toward the anchor (exponential, like the facing turn). When a
@@ -494,10 +500,11 @@ without crashing, the save file carrying the slot token
 
 **Phase 4 (in-cell repositioning) is complete + verified.** A settled monster
 (no cell-step in flight) eases its `visualPos` toward a `DesiredAnchor` each
-frame: a lone, aware **Medium-or-smaller** monster slides to **front-centre**
-(cell centre nudged ~0.3·`kCellSize` toward the party, tracking it); everything
-else holds its slot centre (Large/Huge already centred, excluded via
-`IsSubCellSize`). Grouped (≥2), aware, adjacent monsters also reslot to the FREE
+frame: a lone, aware **Medium-or-smaller** monster slides to **front-centre** —
+cross-axis centred and at the centre of the front row of its grid, offset
+`(dim−1)/(2·dim)·kCellSize` toward the party along the dominant cardinal axis,
+tracking it; everything else holds its slot centre (Large/Huge already centred,
+excluded via `IsSubCellSize`). Grouped (≥2), aware, adjacent monsters also reslot to the FREE
 slot nearest the party (front rank, item 7), claimed sequentially so no two grab
 the same slot. `AliveInGroup` gates both. No new saved state (anchor is derived;
 slot already persists). Verified in-game: a lone Medium skeleton centred toward

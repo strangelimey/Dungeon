@@ -831,18 +831,21 @@ int DungeonWorld::AliveInGroup(u32 group) const {
 }
 
 Vec3 DungeonWorld::DesiredAnchor(const Monster& m, const Vec3& partyPos) const {
-	// A lone Medium-or-smaller monster slides to FRONT-CENTRE: the cell centre
-	// nudged toward the party so it can reach both front party members. Larger
-	// sizes (Large/Huge) are already centred and keep their slot anchor (item 8).
+	// A lone Medium-or-smaller monster slides to FRONT-CENTRE so it can reach both
+	// front party members: CENTRED on the cross-axis (the centre-line between the
+	// grid columns) and at the CENTRE OF THE FRONT ROW of its slot grid, on the
+	// side facing the party (snapped to the dominant cardinal axis — never a
+	// diagonal). Larger sizes (Large/Huge) are already centred and keep their slot
+	// anchor (item 8).
 	if (m.aware && IsSubCellSize(m.kind->size) && AliveInGroup(m.groupId) <= 1) {
 		const Vec3 c = m_map.CellCenter(m.x, m.z);
-		float dx = partyPos.x - c.x, dz = partyPos.z - c.z;
-		const float len = std::sqrt(dx * dx + dz * dz);
-		if (len > 1e-4f) {
-			const float front = 0.3f * kCellSize; // stays inside the cell (<0.5)
-			return {c.x + dx / len * front, c.y, c.z + dz / len * front};
-		}
-		return c;
+		const float dx = partyPos.x - c.x, dz = partyPos.z - c.z;
+		const int dim = SlotDim(m.kind->size);
+		// Distance from cell centre to the centre of an outer (front) row.
+		const float frontOff = static_cast<float>(dim - 1) / (2.0f * dim) * kCellSize;
+		if (std::abs(dx) >= std::abs(dz)) // party is mainly east/west → shift along X
+			return {c.x + (dx >= 0.0f ? frontOff : -frontOff), c.y, c.z};
+		return {c.x, c.y, c.z + (dz >= 0.0f ? frontOff : -frontOff)}; // mainly N/S
 	}
 	return SlotCenter(m.x, m.z, m.kind->size, m.slot);
 }
