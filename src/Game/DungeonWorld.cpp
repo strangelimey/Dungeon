@@ -683,16 +683,35 @@ void DungeonWorld::UpdateMonsters(float dt) {
 			}
 		}
 
+		// Facing (every frame, for ALL monsters incl. idle ones). A moving monster
+		// turns toward its DIRECTION OF TRAVEL; a stationary AWARE monster faces the
+		// party; otherwise it holds its resting facing (so a group can stand facing
+		// away while the party sneaks up). The visual yaw eases toward the target so
+		// turns glide. Radially-symmetric monsters (faces=false, the blob) never turn.
+		if (monster.kind->facesTarget) {
+			if (monster.moving) {
+				const Vec3 dest = SlotCenter(monster.x, monster.z, monster.kind->size,
+											 monster.slot);
+				const float dx = dest.x - monster.moveFrom.x;
+				const float dz = dest.z - monster.moveFrom.z;
+				if (dx * dx + dz * dz > 1e-6f) monster.targetYaw = std::atan2(dx, dz);
+			} else if (monster.aware) {
+				monster.targetYaw = std::atan2(partyPos.x - monster.visualPos.x,
+											   partyPos.z - monster.visualPos.z);
+			}
+			constexpr float kPi = 3.14159265358979f;
+			constexpr float kTurnLerp = 12.0f; // higher = snappier turn
+			float d = monster.targetYaw - monster.yaw;
+			while (d > kPi) d -= 2.0f * kPi;
+			while (d < -kPi) d += 2.0f * kPi;
+			monster.yaw += d * std::min(1.0f, dt * kTurnLerp);
+		}
+
 		if (monster.intent.mode != ai::Intent::Mode::Engage) continue; // idle: nothing to do
 
 		// ACT (every frame, at the monster's OWN cadence): execute the standing
 		// orders the workers handed us. A low-IQ monster still moves fast and swings
 		// relentlessly here; only its CHANGE OF MIND (re-planning) lags.
-
-		// Turn to face the party (from the visual position so the turn glides).
-		if (monster.kind->facesTarget)
-			monster.yaw = std::atan2(partyPos.x - monster.visualPos.x,
-									 partyPos.z - monster.visualPos.z);
 
 		// Live adjacency to the party drives the swing (the monster hits whoever is
 		// actually next to it, not its possibly-stale chase target).
@@ -814,8 +833,9 @@ void DungeonWorld::BuildAISnapshot() {
 				o.capacity = static_cast<uint8_t>(cap);
 				++o.count;
 			}
-		snap->monsters.push_back(
-			{m.runtimeId, m.x, m.z, m.kind->aggroRange, m.kind->iq, cap, f});
+		snap->monsters.push_back({m.runtimeId, m.x, m.z, m.kind->aggroRange,
+								  m.kind->iq, cap, f, m.aware, m.kind->facesTarget,
+								  m.yaw});
 	}
 	m_director.Publish(snap); // pass a copy — the pool keeps its own ref
 }
@@ -832,6 +852,10 @@ void DungeonWorld::ConsumeAIPlans() {
 		for (const ai::Plan& plan : *batch.plans) {
 			Monster* monster = MonsterByRuntimeId(plan.id);
 			if (!monster) continue; // its monster is gone — drop the plan
+			// First time the brain decides to engage, the monster has NOTICED the
+			// party — latch awareness so it stays engaged even once the party slips
+			// out of its sight cone (sticky; only a new game / reload clears it).
+			if (plan.intent.mode == ai::Intent::Mode::Engage) monster->aware = true;
 			monster->intent = plan.intent;
 			monster->aiPath = plan.path;
 			// Align the cursor to the monster's current cell (it may have stepped
@@ -845,6 +869,17 @@ void DungeonWorld::ConsumeAIPlans() {
 				}
 		}
 	}
+}
+
+void DungeonWorld::ProvokeMonster(Monster& monster) {
+	// Latch awareness (sticky — the brain keeps it engaged) and set the engage
+	// intent now so it reacts THIS frame (turn to the party, then chase/swing)
+	// without waiting for its next async think. Only this monster wakes; its
+	// neighbours stay oblivious until they notice the party themselves.
+	monster.aware = true;
+	monster.intent.mode = ai::Intent::Mode::Engage;
+	monster.intent.targetX = m_party.GridX();
+	monster.intent.targetZ = m_party.GridZ();
 }
 
 int DungeonWorld::FreeSlotInCell(int x, int z, SizeClass size, int self) const {
@@ -997,6 +1032,7 @@ bool DungeonWorld::PartyAttack(size_t member, size_t hand) {
 		return true;
 	}
 	target->hp -= r.damage;
+	ProvokeMonster(*target); // the struck monster alone notices + turns to the party
 	int dmg = static_cast<int>(r.damage + 0.5f);
 	onMessage(loc::Format("log.party_hits", attacker.name, name, dmg));
 	m_audio.Play(m_sounds.monster, 0.7f);
@@ -1060,6 +1096,7 @@ bool DungeonWorld::ResolveSpellHit(const Vec3& p, const AttackProfile& atk) {
 	const std::string name = loc::Tr("monster." + hit->kind->name);
 	if (r.hit) {
 		hit->hp -= r.damage;
+		ProvokeMonster(*hit); // a spell strike also wakes its target
 		onMessage(loc::Format("log.spell_hits", name, static_cast<int>(r.damage + 0.5f)));
 		m_audio.Play(m_sounds.spellImpact, 0.7f);
 		if (!hit->Alive()) {

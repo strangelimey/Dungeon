@@ -281,7 +281,7 @@ DungeonWorld::Monster DungeonWorld::MakeMonster(MonsterKind& kind, int id, int x
 	monster.runtimeId = m_nextMonsterId++; // stable id for async AI plan matching
 	monster.x = monster.spawnX = x;
 	monster.z = monster.spawnZ = z;
-	monster.yaw = DirYaw(facing);
+	monster.yaw = monster.targetYaw = DirYaw(facing);
 	monster.facing = facing;
 	monster.hp = kind.maxHp;
 	// Take a free slot in the spawn cell so a group placed on one cell fans out

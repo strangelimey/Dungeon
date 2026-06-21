@@ -79,6 +79,11 @@ struct Agent {
 							 // pathing uses it to test whether a cell has a free slot
 	int footprint = 1;       // edge length in CELLS (2 = Huge's 2x2 block); the BFS
 							 // requires the whole footprint clear and self-excludes it
+	bool aware = false;      // already noticed the party (sticky) — engages on range
+							 // alone; an unaware directional monster needs the sight cone
+	bool directional = true; // has a front (faces the party). false = omnidirectional
+							 // sensing (a radially-symmetric blob has no blind spot)
+	float facingYaw = 0.0f;  // current facing, for the sight-cone perception test
 };
 
 // ----------------------------------------------------------------------------

@@ -208,6 +208,43 @@ Implications to work through:
 - Define for each size: a Small/Tiny solo monster still slides to the shared
   front-centre rather than sitting in a corner slot.
 
+### 9. Per-monster facing (travel direction + provocation)
+
+Each monster has its OWN facing — never a group-wide value. A monster turns to
+face its **direction of travel** as it moves (slot-to-slot or cell-to-cell), and
+an **idle monster keeps its resting facing** (it may be facing away from the
+party). Facing the party is driven by *awareness/engagement*, not mere proximity:
+the player can sneak up on a group of skeletons all facing away, **attack one**,
+and only **that** skeleton independently turns to face the party — its neighbours
+stay as they were until they too become aware.
+
+Today (baseline): a monster snaps its yaw straight at the party every frame while
+`intent == Engage` (if `kind->facesTarget`), and engagement is purely distance
+(`Brain::Think` aggro range). So monsters never face their travel direction, and
+proximity alone makes a whole group face the party — no sneaking.
+
+Implications to work through:
+- **Face travel direction:** on each committed step, set a target yaw from the
+  move vector (`atan2(dx,dz)`) and ease the visual yaw toward it (a turn tween
+  like the party's), instead of snapping at the party.
+- **Face the party when engaged & adjacent:** once a monster is attacking, it
+  faces the party (the current behaviour), but reached via the same smooth turn.
+- **Provoke on hit (per-monster):** a struck monster becomes engaged/aware and
+  turns to face the party, independent of its neighbours — wire it where party
+  damage lands on a monster (`Combat`/`DungeonWorld`), setting that monster's
+  intent/aggro so the async brain keeps it engaged.
+- **Awareness gate (the sneak mechanic):** engagement does NOT trigger on
+  proximity alone. `Brain::Think` gates engage on a perception test — the party
+  must be within `aggroRange` AND inside the monster's **frontal sight cone**
+  (~120°, i.e. ±60° of its facing). A per-monster sticky **`aware`** flag, once
+  set, keeps the monster engaged even if the party slips behind it (no instant
+  un-noticing). `aware` is set when the brain first engages via the cone, or
+  immediately on a hit (provoke). It is **persisted** in the save (monster diff),
+  so a reloaded alerted monster stays alerted.
+- Facing is already per-monster (`Monster.yaw`); keep it that way — no shared
+  group yaw. `faces=false` monsters (the blob) never rotate (radially symmetric)
+  and their perception is omnidirectional (no cone — a lump has no front).
+
 ## Build plan / phasing
 
 The eight items above are interdependent; nearly all of them rest on one
@@ -331,5 +368,17 @@ is **not** scaled by size yet — Phase 1 changes footprint/position/occupancy, 
 model scale (visual scaling is a later rendering task). No shipping `monsters.cat`
 entry sets `size=` yet, so default content is unchanged at runtime; the field is
 documented and ready to assign when content is authored (later phases).
+
+**Item 9 (per-monster facing) is also complete + verified** (done after Phase 1,
+before Phase 2). Monsters ease their visual yaw toward a target: their travel
+direction while moving, the party while aware, else their resting facing.
+Engagement now goes through perception in `Brain::Think` — within `aggroRange`
+AND (already `aware`, OR omnidirectional, OR the party inside a ±60° frontal
+sight cone). `aware` is sticky, latched when the brain first engages or via
+`ProvokeMonster` on a hit (melee/spell), and is persisted in the save (monster
+diff gained an `aware` token; `ResetForNewGame` clears it). Verified in-game:
+skeletons facing away stayed idle while the party approached from behind
+(docs/phase1_19_sneak_rear.png), then noticed, turned, and engaged when
+approached from the front (docs/phase1_20_front_notice.png).
 
 Not yet started: Phase 2 (item drops to quartile slots) and beyond.

@@ -28,12 +28,15 @@ void DungeonWorld::ResetForNewGame() {
 	for (size_t i = 0; i < m_monsters.size(); ++i) {
 		Monster& monster = m_monsters[i];
 		monster.announced = false;
+		monster.aware = false; // forget the party — a fresh game starts unalerted
+		monster.intent = {};   // drop standing orders so it idles until it notices
 		monster.hp = monster.MaxHp();
 		monster.attackCd = 0.0f;
 		// Monsters roam now (AI v1) — return them to their .ent spawn cell and
 		// clear any in-flight glide so a same-level new game starts clean.
 		monster.x = monster.spawnX;
 		monster.z = monster.spawnZ;
+		monster.yaw = monster.targetYaw = DirYaw(monster.facing); // back to spawn facing
 		monster.moving = false;
 		monster.moveT = 0.0f;
 		monster.moveCd = 0.0f;
@@ -81,16 +84,18 @@ SaveData::LevelState DungeonWorld::SnapshotActive() const {
 			e.z = m.z;
 			e.facing = static_cast<int>(m.facing);
 			e.announced = m.announced;
+			e.aware = m.aware;
 			e.hp = m.hp;
 			e.spawnX = m.spawnX;
 			e.spawnZ = m.spawnZ;
 			ls.entities.push_back(std::move(e));
-		} else if (m.x != m.spawnX || m.z != m.spawnZ || m.announced ||
+		} else if (m.x != m.spawnX || m.z != m.spawnZ || m.announced || m.aware ||
 				   m.hp != m.MaxHp()) {
 			e.id = m.id;
 			e.x = m.x;
 			e.z = m.z;
 			e.announced = m.announced;
+			e.aware = m.aware;
 			e.hp = m.hp;
 			ls.entities.push_back(std::move(e));
 		}
@@ -169,6 +174,7 @@ void DungeonWorld::ApplyActiveSnapshot() {
 				m.x = e.x;
 				m.z = e.z;
 				m.announced = e.announced;
+				m.aware = e.aware;
 				if (e.hp >= 0.0f) m.hp = e.hp; // -1 = older save → keep spawn hp
 				// Slot isn't saved yet (Phase 1) — re-derive one at the live cell.
 				m.slot = std::max(0, FreeSlotInCell(m.x, m.z, m.kind->size, -1));
@@ -180,6 +186,7 @@ void DungeonWorld::ApplyActiveSnapshot() {
 						m.x = e.x;
 						m.z = e.z;
 						m.announced = e.announced;
+						m.aware = e.aware;
 						if (e.hp >= 0.0f) m.hp = e.hp; // -1 = older save → keep spawn hp
 						m.moving = false; // snap to the saved cell, no glide from origin
 						m.moveT = 0.0f;

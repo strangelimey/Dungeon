@@ -89,6 +89,7 @@ struct SaveData {
 		int spawnX = 0, spawnZ = 0;             // spawn origin (spawns only)
 		int facing = 2;                         // Direction value (0=N 1=E 2=S 3=W)
 		bool announced = false;                 // monster: has greeted the party
+		bool aware = false;                     // monster: has noticed the party (sticky)
 		float hp = -1.0f;                       // monster: current hit points
 		bool collected = false;                 // item: lifted off the floor
 		bool activated = false;                 // button: pressed / toggled on

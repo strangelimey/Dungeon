@@ -336,9 +336,14 @@ private:
 		// CellCenter. Assigned at spawn (Phase 1 fill order); persisted later.
 		int slot = 0;
 		int spawnX = 0, spawnZ = 0; // .ent baseline, for the save diff
-		float yaw = 0.0f;
+		float yaw = 0.0f;         // current visual facing (eased toward targetYaw)
+		float targetYaw = 0.0f;   // desired facing: travel direction, or the party
 		Direction facing = Direction::South; // for the .ent writer
 		bool announced = false;
+		// Has noticed the party (sticky): set when the brain first engages via the
+		// sight cone, or immediately on a hit (provoke). Once aware the monster
+		// stays engaged even if the party slips behind it. Saved (dynamic state).
+		bool aware = false;
 		float hp = 1.0f;          // current hit points (maxHp at spawn)
 		float attackCd = 0.0f;    // seconds until this monster can swing again
 
@@ -534,6 +539,10 @@ private:
 	// One monster's melee strike against a random standing party member (called
 	// from UpdateMonsters when the monster is adjacent and off cooldown).
 	void MonsterAttack(Monster& monster);
+	// Wakes a struck monster: latches awareness (sticky) and engages it toward the
+	// party THIS frame, independent of its neighbours. Called where party damage
+	// (melee or spell) lands on a monster.
+	void ProvokeMonster(Monster& monster);
 	// Resolves a spell bolt reaching world position `p` with strike profile `atk`:
 	// finds a live monster in that cell, runs the strike (combat + log + slain),
 	// and returns true if a monster was there (the bolt is consumed). The

@@ -65,12 +65,33 @@ bool SnapshotView::CellFreeForMonster(int x, int z, int /*selfId*/, int capacity
 // ----------------------------------------------------------------------------
 
 Intent Brain::Think(const Agent& a, int partyX, int partyZ) const {
-	// Cheap, infrequent: engage when the party is within aggro range and lock the
-	// chase goal to its CURRENT cell. Execution keeps pathing toward this snapshot
-	// until the next think, so a dim monster lumbers toward where the party WAS.
+	// Cheap, infrequent: engage when the party is PERCEIVED, and lock the chase
+	// goal to its CURRENT cell. Execution keeps pathing toward this snapshot until
+	// the next think, so a dim monster lumbers toward where the party WAS.
+	//
+	// Perception (the sneak mechanic): being in range is necessary but not always
+	// sufficient. An already-aware monster (sticky, set by a prior notice or a hit)
+	// or an omnidirectional one engages on range alone; an unaware DIRECTIONAL
+	// monster must also have the party inside its frontal sight cone (±kSightCone),
+	// so the party can creep up from behind a group and they stay oblivious.
 	Intent it;
 	const int dist = std::max(std::abs(a.x - partyX), std::abs(a.z - partyZ));
-	if (static_cast<float>(dist) <= a.aggroRange) {
+	if (static_cast<float>(dist) > a.aggroRange) return it; // out of range: idle
+
+	bool perceived = a.aware || !a.directional;
+	if (!perceived) {
+		// Angle between the monster's facing and the direction to the party. Yaw
+		// convention: forward = (sin yaw, cos yaw), so the bearing is atan2(dx,dz).
+		constexpr float kPi = 3.14159265358979f;
+		constexpr float kSightCone = kPi / 3.0f; // ±60° → a 120° frontal field of view
+		const float bearing = std::atan2(static_cast<float>(partyX - a.x),
+										 static_cast<float>(partyZ - a.z));
+		float d = bearing - a.facingYaw;
+		while (d > kPi) d -= 2.0f * kPi;
+		while (d < -kPi) d += 2.0f * kPi;
+		perceived = std::abs(d) <= kSightCone;
+	}
+	if (perceived) {
 		it.mode = Intent::Mode::Engage;
 		it.targetX = partyX;
 		it.targetZ = partyZ;
