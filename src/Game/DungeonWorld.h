@@ -373,6 +373,12 @@ private:
 		bool moving = false;
 		anim::Animator animator;
 
+		// Formation target (Phase 5): the attack cell around the party this monster
+		// is assigned to (or the party cell when unassigned/queuing). Set each frame
+		// by AssignFormation, fed into the AI snapshot so the brain paths here.
+		// Transient — re-derived every frame, never saved.
+		int targetX = 0, targetZ = 0;
+
 		// Standing orders from the async brain (Game/MonsterAI.h). The worker
 		// threads refresh intent + aiPath at this monster's IQ-bucket cadence; the
 		// main thread executes them every frame, popping aiPath at aiCursor and
@@ -522,6 +528,11 @@ private:
 	// Count of live monsters in a group (Phase 4: gates lone front-centre + the
 	// grouped front-slot reposition).
 	int AliveInGroup(u32 group) const;
+	// Formation pass (Phase 5): assign each AWARE monster a target attack cell
+	// (a walkable orthogonal neighbour of the party), spreading them around the
+	// party (surround) before doubling up a side; overflow / not-yet-aware target
+	// the party cell. Sets Monster.targetX/targetZ; called before BuildAISnapshot.
+	void AssignFormation();
 	// The world point a settled monster wants WITHIN its current cell (Phase 4):
 	// the front-centre toward the party for a lone Medium-or-smaller monster, else
 	// its slot centre. partyPos is the party's cell centre.

@@ -92,9 +92,12 @@ Intent Brain::Think(const Agent& a, int partyX, int partyZ) const {
 		perceived = std::abs(d) <= kSightCone;
 	}
 	if (perceived) {
+		// Engage toward the ASSIGNED attack cell (the host's formation pass spreads
+		// monsters around the party — surround); for a not-yet-assigned monster the
+		// host sets the target to the party cell itself, so it still approaches.
 		it.mode = Intent::Mode::Engage;
-		it.targetX = partyX;
-		it.targetZ = partyZ;
+		it.targetX = a.targetX;
+		it.targetZ = a.targetZ;
 	}
 	return it;
 }

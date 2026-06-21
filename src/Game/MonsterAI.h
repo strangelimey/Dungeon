@@ -84,6 +84,9 @@ struct Agent {
 	bool directional = true; // has a front (faces the party). false = omnidirectional
 							 // sensing (a radially-symmetric blob has no blind spot)
 	float facingYaw = 0.0f;  // current facing, for the sight-cone perception test
+	int targetX = 0, targetZ = 0; // assigned chase goal (an attack cell around the
+								  // party, or the party cell when unassigned) — the
+								  // host's formation pass sets it; the BFS routes here
 };
 
 // ----------------------------------------------------------------------------

@@ -268,8 +268,8 @@ cheap self-contained slice to validate it, then layer the group/AI behaviours.
 | **5. Formation tactics** | 2, 3 | Surround when flank/rear cells are free; rank promotion on front-rank death. | The headline combat behaviours, needing groups + assignment first. |
 | **6. Reach & combat** | 4 | Front-only melee; polearm/ranged/magic from the rear; symmetric for party and monsters. | Layers onto established ranks; touches `Combat.cpp`. |
 
-Phases 1–4 are **done**; item 9 (facing) landed between 1 and 2. Current focus
-will be **Phase 5** next.
+Phases 1–5 are **done**; item 9 (facing) landed between 1 and 2. Current focus
+will be **Phase 6** (reach/combat) next.
 
 ## Phase 1 design — slot & size foundation
 
@@ -445,6 +445,56 @@ No splitting / merging / reflow / rank-promotion yet (Phase 5). Phase 4 only
 moves monsters within the cell they already occupy: lone sub-cell monsters
 re-centre toward the party, grouped members fill front slots.
 
+## Phase 5 design — formation tactics (surround + promotion)
+
+Items 2 + 3: monsters distribute across the cells AROUND the party (surround)
+instead of stacking one side, and when a front attacker dies a queued one moves
+up to fill the gap (promotion). The decision is a **main-thread formation
+assignment** (it needs the global live picture); the async brain keeps doing the
+expensive PATHING toward whatever cell it is assigned — a clean fit for the
+think/act split.
+
+### Attack cells & assignment (`AssignFormation`, main thread)
+
+The party's **attack cells** are its walkable orthogonal neighbours (≤4 sides).
+Each frame, before the AI snapshot, assign every **aware** monster a target
+attack cell:
+- Process aware monsters **nearest-the-party first**.
+- Each picks the side with the **lowest current assignment count** (so empty
+  sides fill before any side doubles → surround), tie-broken by nearest to that
+  monster, skipping sides already at the monster's `SlotsPerCell` capacity.
+- Overflow (every side full) or **not-yet-aware** monsters target the **party
+  cell** itself — they approach/queue behind and trigger initial cone perception.
+
+In the open this fans a group out one-per-side (the rear members peel off to the
+flanks/rear); in a 1-wide corridor only one or two sides are walkable, so the
+group masses there and queues (item 3's "can't surround → stay massed").
+
+### Brain & execution
+
+`Agent` carries the assigned `targetX,targetZ`; `Brain::Think` still gates on
+PERCEPTION (range + sight cone / aware) but now engages toward the **assigned
+target** rather than the party cell, and `FindPath` routes there. Execution is
+unchanged — the monster walks into its attack cell (chosen to have a free slot),
+then attacks when adjacent to the party; Phase-4 front-slot reslot positions it.
+
+**Rank promotion (item 3)** is emergent: when a front attacker dies its side
+frees, and next frame's assignment hands that side to the nearest queued monster,
+which paths in.
+
+### Group identity
+
+Surrounding members keep their shared `groupId` (a group simply spans cells now)
+— no split into new ids. This keeps `AliveInGroup` meaningful so the lone
+front-centre (item 8) still triggers only when the whole group is down to one,
+not merely when a monster is alone in its cell. (The doc's "form a new group"
+language from item 2 is realised as one group occupying several cells.)
+
+### Scope guard
+
+No ranged/reach combat yet (Phase 6). Phase 5 is positional: where monsters stand
+around the party and how a gap is back-filled.
+
 ## Current implementation status
 
 **Phase 1 is complete (1a–1d)** on the `movement` branch: compiles clean (debug)
@@ -511,5 +561,19 @@ slot already persists). Verified in-game: a lone Medium skeleton centred toward
 the party from both the south and north approaches
 (docs/phase4_01_lone_front.png, docs/phase4_02_lone_trackS.png).
 
-Not yet started: Phase 5 (formation tactics — surround + rank promotion) and
-Phase 6 (reach/combat).
+**Phase 5 (formation tactics — surround + rank promotion) is complete +
+verified.** A main-thread `AssignFormation` pass each frame gives every aware
+monster a target **attack cell** (a walkable orthogonal neighbour of the party):
+a two-pass spread (pass 1 holds monsters already on a side for stability; pass 2
+fills the emptiest side) distributes them around the party, overflow holds and
+queues. `Agent` carries the target; `Brain::Think` paths there (still
+perception-gated); execution attacks only once the monster has **reached its
+assigned side** (`atPost`: at the target cell AND orthogonally adjacent) — so it
+circles to an open flank instead of stopping at the first near side. Rank
+promotion is emergent: a dead front monster frees its side, which next frame's
+assignment hands to the nearest queued monster. Surround keeps the shared
+`groupId` (a group spans cells). Verified in-game: four Medium skeletons all
+approaching from the south ended one-per-side on N/E/S/W of the party
+(docs/phase5_13_surround_final.png, via the dev `groups` command).
+
+Not yet started: Phase 6 (reach — front-rank melee vs rear ranged/polearm/magic).
