@@ -179,6 +179,9 @@ public:
 	// map never changes mid-Update.
 	std::optional<LevelTransition> ConsumeLevelTransition();
 	size_t MonsterCount() const { return m_monsters.size(); }
+	// One human-readable line per monster group (id, count, kinds, cells#slot) for
+	// the dev console `groups` command — the Phase-3 group model's reader.
+	std::vector<std::string> GroupsReport() const;
 
 	// --- fog of war (dynamic/save-side state, not in DungeonMap) -------------
 	// Whether a cell has been revealed (the party has stood on it or an
@@ -336,10 +339,16 @@ private:
 		u32 runtimeId = 0; // STABLE per-session id (never reused) that async AI plans
 						   // key off, so a plan always finds the right monster
 						   // regardless of vector reordering/erasure (0 = unassigned)
+		// Logical GROUP this monster belongs to (Phase 3): monsters that spawn in
+		// the same cell share a group; a lone monster is a singleton. Stable per
+		// session, re-derived from spawn co-location on load (not saved — the id
+		// numbers are opaque). The substrate for formation behaviour (Phases 4-5).
+		u32 groupId = 0;
 		int x, z;
 		// Sub-cell slot within (x,z) on the size's slot grid (Game/SlotGrid.h);
 		// 0 = the only slot for Large/Huge. visualPos glides to SlotCenter, not
-		// CellCenter. Assigned at spawn (Phase 1 fill order); persisted later.
+		// CellCenter. Initial slot derived by fill order; PERSISTED (Phase 3) so a
+		// monster's exact stance within a cell survives save/reload.
 		int slot = 0;
 		int spawnX = 0, spawnZ = 0; // .ent baseline, for the save diff
 		float yaw = 0.0f;         // current visual facing (eased toward targetYaw)
@@ -506,6 +515,10 @@ private:
 	// to push into m_monsters. Shared by the initial .ent load, live editor
 	// placement, and save restore of editor-placed monsters. The caller pushes.
 	Monster MakeMonster(MonsterKind& kind, int id, int x, int z, Direction facing);
+	// The group id for a monster spawning at cell (x,z): reuses the group of any
+	// live monster that spawned in the same cell, else mints a fresh id. Co-located
+	// spawns thus form one group; a lone spawn is a singleton. (Phase 3.)
+	u32 GroupForSpawnCell(int x, int z);
 	void LoadDecorations();
 	void LoadStairs(); // places stair props (P6) from the map's stair links
 	// Lazily loads (and caches) the shared assets for a monster / decoration
@@ -704,6 +717,9 @@ private:
 	// monster is gone simply finds no match). Replaces the old index+generation
 	// scheme, which broke on any mid-flight reorder/erase. Starts at 1 (0 = none).
 	u32 m_nextMonsterId = 1;
+	// Monster group-id source (Phase 3): monotonic, session-local. Spawn-time
+	// co-location assigns the id (see GroupForSpawnCell); not saved (re-derived).
+	u32 m_nextGroupId = 1;
 	// Last plan-batch sequence applied per bucket, so we adopt a batch only once.
 	uint64_t m_lastPlanSeq[ai::Scheduler::kBucketCount] = {};
 	// Walkability grid shared into snapshots, rebuilt only when the map changes.

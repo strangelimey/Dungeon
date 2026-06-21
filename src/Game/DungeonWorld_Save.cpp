@@ -86,6 +86,7 @@ SaveData::LevelState DungeonWorld::SnapshotActive() const {
 			e.announced = m.announced;
 			e.aware = m.aware;
 			e.hp = m.hp;
+			e.slot = m.slot;
 			e.spawnX = m.spawnX;
 			e.spawnZ = m.spawnZ;
 			ls.entities.push_back(std::move(e));
@@ -97,6 +98,7 @@ SaveData::LevelState DungeonWorld::SnapshotActive() const {
 			e.announced = m.announced;
 			e.aware = m.aware;
 			e.hp = m.hp;
+			e.slot = m.slot;
 			ls.entities.push_back(std::move(e));
 		}
 	}
@@ -177,8 +179,7 @@ void DungeonWorld::ApplyActiveSnapshot() {
 				m.announced = e.announced;
 				m.aware = e.aware;
 				if (e.hp >= 0.0f) m.hp = e.hp; // -1 = older save → keep spawn hp
-				// Slot isn't saved yet (Phase 1) — re-derive one at the live cell.
-				m.slot = std::max(0, FreeSlotInCell(m.x, m.z, m.kind->size, -1));
+				m.slot = e.slot; // saved sub-cell slot (Phase 3)
 				m.visualPos = SlotCenter(m.x, m.z, m.kind->size, m.slot);
 				m_monsters.push_back(std::move(m));
 			} else {
@@ -191,10 +192,7 @@ void DungeonWorld::ApplyActiveSnapshot() {
 						if (e.hp >= 0.0f) m.hp = e.hp; // -1 = older save → keep spawn hp
 						m.moving = false; // snap to the saved cell, no glide from origin
 						m.moveT = 0.0f;
-						// Slot isn't saved yet (Phase 1); re-derive at the live cell,
-						// excluding self (already at this cell with its old slot).
-						const int self = static_cast<int>(&m - m_monsters.data());
-						m.slot = std::max(0, FreeSlotInCell(m.x, m.z, m.kind->size, self));
+						m.slot = e.slot; // saved sub-cell slot (Phase 3)
 						m.visualPos = SlotCenter(m.x, m.z, m.kind->size, m.slot);
 						break;
 					}

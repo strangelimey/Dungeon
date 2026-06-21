@@ -774,6 +774,42 @@ DungeonWorld::Monster* DungeonWorld::MonsterByRuntimeId(u32 id) {
 	return nullptr;
 }
 
+u32 DungeonWorld::GroupForSpawnCell(int x, int z) {
+	// Join any group that already has a member spawned in this cell, else mint one.
+	for (const Monster& m : m_monsters)
+		if (m.groupId != 0 && m.spawnX == x && m.spawnZ == z) return m.groupId;
+	return m_nextGroupId++;
+}
+
+std::vector<std::string> DungeonWorld::GroupsReport() const {
+	// Gather groups in first-seen order so the report is stable run to run.
+	std::vector<u32> order;
+	for (const Monster& m : m_monsters) {
+		if (!m.Alive()) continue;
+		if (std::find(order.begin(), order.end(), m.groupId) == order.end())
+			order.push_back(m.groupId);
+	}
+	std::vector<std::string> lines;
+	if (order.empty()) {
+		lines.push_back("no live monsters");
+		return lines;
+	}
+	for (u32 g : order) {
+		std::string kinds, cells;
+		int n = 0;
+		for (const Monster& m : m_monsters) {
+			if (m.groupId != g || !m.Alive()) continue;
+			++n;
+			if (!kinds.empty()) kinds += ',';
+			kinds += m.kind ? m.kind->name : "?";
+			if (!cells.empty()) cells += ' ';
+			cells += std::format("{},{}#{}", m.x, m.z, m.slot);
+		}
+		lines.push_back(std::format("group {}: {} [{}] @ {}", g, n, kinds, cells));
+	}
+	return lines;
+}
+
 // Build the immutable world snapshot the AI worker threads read, and publish it.
 // The walkability grid is shared across frames (rebuilt only when the map's
 // revision changes); the rest is a cheap copy of the party cell + live monster

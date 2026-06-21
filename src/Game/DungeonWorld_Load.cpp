@@ -279,6 +279,7 @@ DungeonWorld::Monster DungeonWorld::MakeMonster(MonsterKind& kind, int id, int x
 	monster.kind = &kind;
 	monster.id = id;
 	monster.runtimeId = m_nextMonsterId++; // stable id for async AI plan matching
+	monster.groupId = GroupForSpawnCell(x, z); // co-located spawns share a group
 	monster.x = monster.spawnX = x;
 	monster.z = monster.spawnZ = z;
 	monster.yaw = monster.targetYaw = DirYaw(facing);

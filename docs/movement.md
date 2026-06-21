@@ -260,8 +260,8 @@ cheap self-contained slice to validate it, then layer the group/AI behaviours.
 | **5. Formation tactics** | 2, 3 | Surround when flank/rear cells are free; rank promotion on front-rank death. | The headline combat behaviours, needing groups + assignment first. |
 | **6. Reach & combat** | 4 | Front-only melee; polearm/ranged/magic from the rear; symmetric for party and monsters. | Layers onto established ranks; touches `Combat.cpp`. |
 
-Phases 1 and 2 are **done**; item 9 (facing) landed between them. Current focus
-will be **Phase 3** next.
+Phases 1, 2, and 3 are **done**; item 9 (facing) landed between 1 and 2. Current
+focus will be **Phase 4** next.
 
 ## Phase 1 design — slot & size foundation
 
@@ -351,6 +351,43 @@ groups in **Phase 3** (item 6).
 > run until they're provisioned (FetchTextures.ps1 / robocopy). Sub-steps
 > compile-check as we go; first run-test once 1b/1c produce something visible._
 
+## Phase 3 design — groups + persisted slot
+
+Phase 3 turns the sub-cell `slot` into real saved state and introduces the
+**group** as a first-class identity. It is the DATA model only — group BEHAVIOUR
+(repositioning, split→new group, reflow, rank promotion) is Phases 4–5.
+
+### Persisted slot
+
+`Monster.slot` becomes saved state (deferred from Phase 1, which re-derives it).
+The monster save record carries the slot (reusing `SaveData::EntityState::slot`,
+already added for items); `ApplyState` restores the saved slot instead of
+re-deriving via `FreeSlotInCell`. `LoadMonsters` still derives the initial slot
+for the `.ent` baseline by fill order. A baseline monster only gets a save diff
+once it has drifted (moved/announced/aware/hurt); since a chase step changes both
+`x,z` AND `slot`, the diff naturally captures a moved monster's slot.
+
+### Group identity
+
+`Monster.groupId` (u32, stable per session, 0 = unassigned), from a
+`m_nextGroupId` counter. Assigned at spawn by **co-location**: monsters sharing a
+spawn cell join one group; a lone monster is a singleton. Editor-placed and
+save-restored monsters get the same treatment. Accessor: `MonsterGroupMembers` /
+`MonsterGroupCount` for the upcoming formation code.
+
+`groupId` is **not persisted** — it is re-derived from spawn co-location on load,
+which is deterministic and yields the same grouping structure (the id *numbers*
+may differ but they are opaque). Once Phase 5 lets groups span cells and split,
+group identity will diverge from spawn co-location and will need persisting then;
+Phase 3 deliberately stops short of that.
+
+### Scope guard
+
+No repositioning, splitting, merging, or reflow in Phase 3 — those are the next
+phases. This phase is verifiable by save/reload: a monster's sub-cell slot (and
+thus its exact stance within a cell) survives a round-trip instead of snapping to
+a re-derived slot.
+
 ## Current implementation status
 
 **Phase 1 is complete (1a–1d)** on the `movement` branch: compiles clean (debug)
@@ -392,4 +429,16 @@ fan across quarters by fill order at load; the dropped-item slot is persisted
 four runes stacked on one cell rendered as a 2×2 cluster of distinct tablets
 (docs/phase2_06_before_pick.png); pick/drop interactions register and re-slot.
 
-Not yet started: Phase 3 (monster groups + per-monster saved slot) and beyond.
+**Phase 3 (monster groups + per-monster saved slot) is complete + verified.**
+`Monster.groupId` is assigned at spawn by cell co-location (lone monster =
+singleton; re-derived on load, not saved); `GroupForSpawnCell` mints/joins ids
+and `GroupsReport` backs a new dev console `groups` command. `Monster.slot` is
+now persisted — written into the monster save record (`ent`/`monster` lines gain
+a slot token, back-compatible) and restored in `ApplyState` instead of
+re-derived. No group behaviour yet (reposition/split/reflow/promotion are Phases
+4–5). Verified in-game: `groups` listed four co-located skeletons as one group at
+slots 0–3 (docs/phase3_01_groups.png); after waking + a save/reload they restored
+without crashing, the save file carrying the slot token
+(docs/phase3_02_after_load.png).
+
+Not yet started: Phase 4 (free repositioning + lone front-centre) and beyond.
