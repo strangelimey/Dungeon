@@ -132,9 +132,16 @@ monsters *and* player characters — can only attack with **ranged**, **magic**,
 **reach (polearm)** weapons. Reach weapons let a rear-rank attacker strike past
 the front rank into melee.
 
+**INVARIANT — attacks are ORTHOGONAL only, never diagonal.** A combatant engages
+across the party's N/E/S/W edges, not its corners. Phase 5 already enforces this
+for monsters (the `atPost` gate requires Manhattan distance 1). Phase 6 reach
+extends *along the orthogonal axis* (a polearm strikes one orthogonal cell
+further; ranged/magic travel the orthogonal line) — it never opens up diagonal
+attacks.
+
 Implications to work through:
 - Attacks gain a *reach* category: melee (front rank only), polearm (front or
-  one rank back), ranged/magic (any rank).
+  one rank back), ranged/magic (any rank) — all measured orthogonally.
 - Combat resolution must check the attacker's rank against the weapon's reach
   before allowing the swing — applies symmetrically to the party (back two
   members) and monster formations.
