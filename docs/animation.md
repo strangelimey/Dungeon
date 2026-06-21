@@ -1,0 +1,104 @@
+# Animation
+
+Design notes for the dungeon's animation work. This is the living reference for
+the `animation` branch — keep it in sync with the `animation` entry in Claude's
+project memory (the two carry the same design, status, and remaining work; update
+both together).
+
+The sections describe the **target** design; "Current implementation status"
+records what the **code** actually does today and where it diverges.
+
+## The standard (and what we already have)
+
+Skeletal animation here follows the universal real-time approach, which is also
+exactly what glTF encodes: a **skinned mesh + linear-blend skinning** driven by a
+**joint matrix palette**.
+
+- Skeleton = joint tree; each joint has a parent, a local rest TRS, and an
+  **inverse bind matrix** (model space → joint local space).
+- Each vertex carries up to **4 joint indices + 4 weights** (the universal cap).
+- A clip = per-(joint, T/R/S) **channels**, each a sampler of `times[]`+`values[]`
+  interpolated between keys (rotation slerp/nlerp, T/S lerp).
+- Per frame: sample clip → local TRS → globals (parent-first) →
+  `palette[j] = inverseBind[j] × global[j]` → upload to `b2`; the VS blends
+  `Σ weight[i]·palette[joint[i]]·vertex`.
+
+**This pipeline is already fully implemented in the engine** — the infra is not
+the work:
+
+- Data model: `assets::Vertex` (joints[4]/weights[4]), `JointData`,
+  `SkeletonData` (topo-sorted), `AnimationChannelData`/`AnimationClipData`
+  (`src/Assets/Model.h`).
+- glTF loader reads skins, inverse-binds, channels/samplers (`src/Assets/Model.cpp`).
+- `anim::Animator` runs the exact pipeline above into `b2` of `scene.hlsl`
+  (`src/Animation/Animator.*`).
+- Every monster already owns an `Animator` playing `"idle"`
+  (`DungeonWorld_Load.cpp` MakeMonster); the serpent pillar plays `"sway"`.
+  `kMaxSkinJoints=128`; skinning palettes upload once per frame.
+- AssetBaker bakes procedural rigs (skeleton/mummy share a 7-joint humanoid;
+  `tools/AssetBaker/ModelBaker.cpp` + `GltfWriter.cpp`).
+
+So "adding skeletal animation" is **clips + a state machine with blending**, not a
+new pipeline.
+
+## Motivation
+
+Monsters chase and melee the party (async AI + grid-step glide), but the act of
+attacking has no visual — a hit just drains health. The rigs are
+skinning-ready but only ever play `"idle"`. This thread brings them to life.
+
+## Goals
+
+(Ordered.)
+
+1. **Clip cross-fade in the Animator** — the one real infra gap: today `Play()` is
+   a hard single-clip cut. Add a short cross-fade between outgoing/incoming pose
+   (blend two sampled poses by a weight that ramps over a transition window).
+   Foundation for everything below. Optional later: additive layers (e.g. a
+   hit-recoil over a walk).
+2. **Clip state machine** — drive which clip plays from monster state
+   (idle ↔ walk ↔ attack ↔ die), advanced by the host per frame at the monster's
+   own cadence (like AI thinking-vs-acting). Walk plays over the grid-step glide
+   tween; attack syncs to the melee cadence + the landed-hit moment (pairs with
+   the deferred hit-feedback splat); die plays once on slay.
+3. **Procedural clips** — author attack / walk / hit / death onto the existing
+   7-joint rigs in `ModelBaker`/`GltfWriter`. Proves the state machine without
+   external assets.
+4. **(Later) authored models** — buy/import rigged+animated glTF via
+   `AssetBaker import-model` (already ingests animation channels) to replace the
+   procedural rigs. Deferred; goals 1–3 don't depend on it.
+
+## Decisions
+
+- **Clip source: procedural now, authored later.** Build out the state machine on
+  the procedural rigs (goal 3); swap in bought rigged models down the line (goal 4).
+- **Blending: cross-fade, not hard cuts.** Extend the Animator (goal 1) rather than
+  shipping popping transitions.
+
+## Notes / gotchas
+
+- New per-monster animation state that's reload-visible (e.g. which clip + phase a
+  monster is mid-death on) must round-trip through `CaptureState`/`ApplyState` +
+  `SaveData` (save/load convention). Pure cosmetic idle phase need not.
+- Animation lib is at the `Animation/Graphics` layer; palettes already cache +
+  upload once per frame — keep that (don't regress the per-frame skinning cache).
+
+## Current implementation status
+
+**Goal 1 (Animator cross-fade) — DONE, compiles clean.** `anim::Animator` now
+supports a snapshot cross-fade:
+- `Play(name, loop, fade)` — `fade > 0` freezes the current evaluated local pose
+  (`m_snap*`) and blends it toward the new clip over `fade` seconds; `fade == 0`
+  is the old hard cut. Re-`Play`ing the already-active *looping* clip (not
+  mid-fade) is a no-op, so a host can call `Play` every frame for a held state;
+  one-shot (`loop == false`) clips always restart. `Fading()` query added.
+- Blend is in **local TRS space** before globals/palette (lerp T/S, slerp R),
+  smoothstep-eased — never blend matrices/palettes.
+- Refactor: old `SamplePose` split into `SampleClip(clip→local TRS arrays)` +
+  `BuildPalette(local TRS→globals→palette)`; `Update` samples the active clip,
+  blends the snapshot while fading, then builds the palette.
+- Existing call sites (`Play("idle")`, `Play("sway")`) unchanged — `fade`
+  defaults to 0. Nothing triggers a fade yet; that arrives with goal 2.
+
+Next: goal 2 (clip state machine) — pick clip from monster state and call
+`Play(clip, loop, ~0.15f)` on transitions.
