@@ -588,8 +588,13 @@ void CharacterSheet::DrawInventory(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 			if (m_slotIcons) {
 				if (const gfx::Texture* o = m_slotIcons->For(kEquipIcon[slot])) {
 					const float p = r.w * 0.12f;
-					batch.DrawSprite({r.x + p, r.y + p, r.w - 2 * p, r.h - 2 * p},
-									 {0, 0, 1, 1}, *o, {1, 1, 1, 0.5f});
+					// The hand silhouette is a right hand; mirror it (flipped uv) for
+					// the left-hand slot so the pair reads as left + right.
+					const bool flip = kDollCells[i].slot == EquipSlot::LeftHand;
+					const gfx::Rect uv = flip ? gfx::Rect{1, 0, -1, 1}
+											  : gfx::Rect{0, 0, 1, 1};
+					batch.DrawSprite({r.x + p, r.y + p, r.w - 2 * p, r.h - 2 * p}, uv,
+									 *o, {1, 1, 1, 0.5f});
 				}
 			}
 		} else if (m_icons) {

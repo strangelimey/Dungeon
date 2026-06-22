@@ -43,10 +43,11 @@ $shapes = @{
 		param($g,$pen)
 		Poly $g $pen @((P 32 16),(P 68 16),(P 68 86),(P 54 86),(P 50 50),(P 46 86),(P 32 86))
 	}
-	# A single boot: vertical shaft + foot.
+	# A pair of boots (two legs): a boot and its mirror, feet pointing outward.
 	feet = {
 		param($g,$pen)
-		Poly $g $pen @((P 38 16),(P 56 16),(P 56 62),(P 72 62),(P 72 82),(P 38 82))
+		Poly $g $pen @((P 46 20),(P 36 20),(P 36 64),(P 22 64),(P 22 80),(P 46 80)) # left
+		Poly $g $pen @((P 54 20),(P 64 20),(P 64 64),(P 78 64),(P 78 80),(P 54 80)) # right
 	}
 	# Cape: collar V flaring to a wide hem.
 	cloak = {
@@ -60,13 +61,18 @@ $shapes = @{
 		$g.DrawLine($pen, 66,20, 50,58)
 		Poly $g $pen @((P 50 56),(P 60 68),(P 50 80),(P 40 68))
 	}
-	# Glove/mitten: a rounded hand blob with a thumb.
+	# Top-down right hand: palm with four fingers splayed up + a thumb out the
+	# left (the sheet mirrors it for the left hand). Traced as one outline.
 	hand = {
 		param($g,$pen)
-		$g.DrawClosedCurve($pen, [System.Drawing.PointF[]]@(
-			(P 42 80),(P 42 50),(P 46 48),(P 48 34),(P 53 34),(P 55 48),
-			(P 62 48),(P 66 40),(P 70 44),(P 66 56),(P 60 58),(P 60 80)), 0.4,
-			[System.Drawing.Drawing2D.FillMode]::Alternate)
+		Poly $g $pen @(
+			(P 36 88),(P 34 66),                                  # wrist + left palm
+			(P 32 62),(P 18 54),(P 16 46),(P 26 44),(P 33 50),    # thumb
+			(P 34 46),(P 36 44),(P 37 24),(P 43 24),(P 44 44),    # index
+			(P 46 42),(P 47 18),(P 53 18),(P 54 42),              # middle
+			(P 56 44),(P 57 24),(P 63 24),(P 64 44),              # ring
+			(P 65 48),(P 66 34),(P 71 34),(P 70 50),              # pinky
+			(P 68 70),(P 66 88))                                  # right palm + wrist
 	}
 	# Ring: an annulus with a gem.
 	ring = {
