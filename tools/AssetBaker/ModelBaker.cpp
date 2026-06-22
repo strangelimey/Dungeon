@@ -1343,27 +1343,33 @@ assets::ModelData BuildHumanoid(const HumanoidStyle& style) {
 		model.clips.push_back(std::move(walk));
 	}
 
-	{ // attack: right shoulder winds the arm up while the elbow cocks, then both
-	  // drive down into a chop, spine leaning in. One-shot.
+	{ // attack: rear the right arm overhead (wind-up), then drive a big forward-
+	  // reaching overhand strike — the arm arcs down THROUGH forward (+Z, toward
+	  // the party) to a forward-down reach, body leaning in. One-shot. Shoulder
+	  // pitch about X: 0 = arm down, ~-1.57 = arm forward, ~-2.6 = overhead, so
+	  // the swing sweeps -2.6 -> -0.5 right past the target. Slower (0.65s) so the
+	  // commit reads instead of a twitch.
 		assets::AnimationClipData atk;
 		atk.name = "attack";
-		atk.duration = 0.55f;
-		constexpr int K = 15;
+		atk.duration = 0.65f;
+		constexpr int K = 17;
+		auto L = [](float a, float b, float t) { return a + (b - a) * t; };
 		rotChan(atk, J_SHR, K, [&](float u) {
-			float pitch;
-			if (u < 0.30f)      pitch = -raise - 1.7f * (u / 0.30f);                       // raise overhead
-			else if (u < 0.55f) pitch = -raise - 1.7f + 3.1f * ((u - 0.30f) / 0.25f);      // chop down
-			else                pitch = (-raise + 1.4f) * (1.0f - (u - 0.55f) / 0.45f) - raise * ((u - 0.55f) / 0.45f);
-			return QuatFromEuler(pitch, 0, 0);
+			float p;
+			if (u < 0.35f)      p = L(-raise, -2.6f, u / 0.35f);             // rear overhead
+			else if (u < 0.55f) p = L(-2.6f, -0.5f, (u - 0.35f) / 0.20f);    // strike down through forward
+			else                p = L(-0.5f, -raise, (u - 0.55f) / 0.45f);   // settle
+			return QuatFromEuler(p, 0, 0);
 		});
 		rotChan(atk, J_ELR, K, [&](float u) {
-			float bend;
-			if (u < 0.30f)      bend = 0.3f + 1.1f * (u / 0.30f);            // cock the elbow on the wind-up
-			else if (u < 0.55f) bend = 1.4f - 1.2f * ((u - 0.30f) / 0.25f); // snap straight through the chop
-			else                bend = 0.2f + 0.1f * ((u - 0.55f) / 0.45f); // settle
-			return QuatFromEuler(bend, 0, 0);
+			float b;
+			if (u < 0.35f)      b = L(0.3f, 1.5f, u / 0.35f);            // cock the elbow on the wind-up
+			else if (u < 0.55f) b = L(1.5f, 0.15f, (u - 0.35f) / 0.20f); // snap straight, reaching, through the strike
+			else                b = L(0.15f, 0.3f, (u - 0.55f) / 0.45f); // settle
+			return QuatFromEuler(b, 0, 0);
 		});
-		rotChan(atk, J_SPINE, K, [&](float u) { return QuatFromEuler(0.4f * std::sin(std::min(u / 0.55f, 1.0f) * kPi), 0, 0); });
+		// spine leans forward into the strike (peaks at the chop, recovers).
+		rotChan(atk, J_SPINE, K, [&](float u) { return QuatFromEuler(0.5f * std::sin(u * kPi), 0, 0); });
 		model.clips.push_back(std::move(atk));
 	}
 
