@@ -80,18 +80,18 @@ bool WriteSave(const SaveData& data, const std::string& path) {
 			switch (e.kind) {
 			case EntityKind::Monster:
 				if (e.id >= 0) // baseline .ent monster: store the diff, keyed by id
-					t += std::format("ent {} {} {} {} {:.3f}\n", e.id, e.x, e.z,
-									 e.announced ? 1 : 0, e.hp);
+					t += std::format("ent {} {} {} {} {:.3f} {} {}\n", e.id, e.x, e.z,
+									 e.announced ? 1 : 0, e.hp, e.aware ? 1 : 0, e.slot);
 				else // editor-placed monster (no baseline): store it whole to recreate
-					t += std::format("monster {} {} {} {} {} {:.3f} {} {}\n", e.type,
+					t += std::format("monster {} {} {} {} {} {:.3f} {} {} {} {}\n", e.type,
 									 e.x, e.z, e.facing, e.announced ? 1 : 0, e.hp,
-									 e.spawnX, e.spawnZ);
+									 e.spawnX, e.spawnZ, e.aware ? 1 : 0, e.slot);
 				break;
 			case EntityKind::Item:
 				if (e.id >= 0) // baseline rune lifted off the floor: a one-bit diff
 					t += std::format("item {}\n", e.id);
-				else // dropped tablet (no baseline): store it whole at its cell
-					t += std::format("drop {} {} {}\n", e.type, e.x, e.z);
+				else // dropped tablet (no baseline): store it whole at its cell + slot
+					t += std::format("drop {} {} {} {}\n", e.type, e.x, e.z, e.slot);
 				break;
 			case EntityKind::Button: // baseline button toggle, keyed by id
 				t += std::format("button {} {}\n", e.id, e.activated ? 1 : 0);
@@ -189,7 +189,7 @@ std::optional<SaveData> ReadSave(const std::string& path) {
 			data.levels.push_back({std::string(tok[1]), {}, {}});
 			cur = &data.levels.back();
 		} else if (kw == "ent" && tok.size() >= 4) {
-			// Baseline monster diff: id x z [announced] [hp].
+			// Baseline monster diff: id x z [announced] [hp] [aware] [slot].
 			SaveData::EntityState e;
 			e.kind = EntityKind::Monster;
 			e.id = IntOf(tok[1]);
@@ -197,9 +197,12 @@ std::optional<SaveData> ReadSave(const std::string& path) {
 			e.z = IntOf(tok[3]);
 			if (tok.size() >= 5) e.announced = IntOf(tok[4]) != 0; // older saves omit it
 			if (tok.size() >= 6) e.hp = FloatOf(tok[5]);           // older saves omit it
+			if (tok.size() >= 7) e.aware = IntOf(tok[6]) != 0;     // older saves omit it
+			if (tok.size() >= 8) e.slot = IntOf(tok[7]);           // older saves omit it
 			currentBlock().entities.push_back(e);
 		} else if (kw == "monster" && tok.size() >= 9) {
-			// Whole editor-placed monster: type x z facing announced hp spawnX spawnZ.
+			// Whole editor-placed monster:
+			// type x z facing announced hp spawnX spawnZ [aware] [slot].
 			SaveData::EntityState e;
 			e.kind = EntityKind::Monster;
 			e.id = -1; // editor-placed (no .ent baseline)
@@ -211,6 +214,8 @@ std::optional<SaveData> ReadSave(const std::string& path) {
 			e.hp = FloatOf(tok[6]);
 			e.spawnX = IntOf(tok[7]);
 			e.spawnZ = IntOf(tok[8]);
+			if (tok.size() >= 10) e.aware = IntOf(tok[9]) != 0;    // older saves omit it
+			if (tok.size() >= 11) e.slot = IntOf(tok[10]);         // older saves omit it
 			currentBlock().entities.push_back(e);
 		} else if (kw == "item" && tok.size() >= 2) {
 			// Baseline rune lifted off the floor (v7 diff): just the id.
@@ -220,13 +225,14 @@ std::optional<SaveData> ReadSave(const std::string& path) {
 			e.collected = true;
 			currentBlock().entities.push_back(e);
 		} else if (kw == "drop" && tok.size() >= 4) {
-			// Dropped tablet (v7 spawn): type x z, no baseline.
+			// Dropped tablet (v7 spawn): type x z [slot], no baseline.
 			SaveData::EntityState e;
 			e.kind = EntityKind::Item;
 			e.id = -1;
 			e.type = std::string(tok[1]);
 			e.x = IntOf(tok[2]);
 			e.z = IntOf(tok[3]);
+			if (tok.size() >= 5) e.slot = IntOf(tok[4]); // older saves omit it
 			currentBlock().entities.push_back(e);
 		} else if (kw == "button" && tok.size() >= 3) {
 			// Baseline button toggle (v7 diff): id activated.

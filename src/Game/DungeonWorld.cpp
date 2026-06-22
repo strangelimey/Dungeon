@@ -599,7 +599,7 @@ void DungeonWorld::UpdateLights(float time) {
 	// stealing the few shadow cubes from the torch/fires.
 	for (const Item& item : m_items) {
 		if (item.collected || !item.kind->isRune) continue;
-		const Vec3 c = m_map.CellCenter(item.x, item.z);
+		const Vec3 c = SlotCenter(item.x, item.z, SizeClass::Medium, item.slot);
 		gfx::PointLight glow;
 		glow.position = {c.x, 0.4f, c.z};
 		glow.radius = 4.8f;
@@ -651,9 +651,12 @@ void DungeonWorld::UpdateMonsters(float dt) {
 			}
 		}
 
-	// Async AI handoff (Game/MonsterAI.h): publish the world for the worker threads
-	// to think against, then adopt whatever plans they have finished. Both are
-	// cheap main-thread work — the pathfinding itself runs on the bucket threads.
+	// Re-derive groups from current co-location (monsters sharing a cell are one
+	// group — merge/split as they converge/spread), then assign formation targets
+	// (surround), publish the world for the worker threads, and adopt their plans.
+	// All cheap main-thread work — the pathfinding itself runs on the bucket threads.
+	ReconcileGroups();
+	AssignFormation();
 	BuildAISnapshot();
 	ConsumeAIPlans();
 
@@ -668,7 +671,8 @@ void DungeonWorld::UpdateMonsters(float dt) {
 		// step committed, so the tween just slides visualPos to the new centre.
 		if (monster.moving) {
 			monster.moveT += dt / std::max(monster.kind->moveInterval, 0.05f);
-			const Vec3 target = m_map.CellCenter(monster.x, monster.z);
+			const Vec3 target = SlotCenter(monster.x, monster.z, monster.kind->size,
+										   monster.slot);
 			if (monster.moveT >= 1.0f) {
 				monster.moving = false;
 				monster.moveT = 0.0f;
@@ -680,6 +684,71 @@ void DungeonWorld::UpdateMonsters(float dt) {
 									 monster.moveFrom.y + (target.y - monster.moveFrom.y) * s,
 									 monster.moveFrom.z + (target.z - monster.moveFrom.z) * s};
 			}
+		} else {
+			// Settled in a cell (no step in flight): reposition WITHIN the cell
+			// (Phase 4). First, item 7 — a grouped, aware monster shifts toward the
+			// free slot nearest the party (the front rank), claiming it if closer
+			// than its current slot. Sequential on the main thread, so two monsters
+			// never claim the same slot in one tick.
+			const int cap = SlotsPerCell(monster.kind->size);
+			const int adjDist = std::max(std::abs(monster.x - m_party.GridX()),
+										 std::abs(monster.z - m_party.GridZ()));
+			if (monster.aware && cap > 1 && adjDist <= 1 &&
+				AliveInGroup(monster.groupId) >= 2) {
+				u32 used = 0; // slots held by other live same-size monsters here
+				for (size_t j = 0; j < m_monsters.size(); ++j) {
+					if (j == i) continue;
+					const Monster& o = m_monsters[j];
+					if (o.Alive() && o.x == monster.x && o.z == monster.z &&
+						SlotsPerCell(o.kind->size) == cap && o.slot >= 0 && o.slot < cap)
+						used |= (1u << o.slot);
+				}
+				auto slotDistSq = [&](int s) {
+					const Vec3 c = SlotCenter(monster.x, monster.z, monster.kind->size, s);
+					const float dx = partyPos.x - c.x, dz = partyPos.z - c.z;
+					return dx * dx + dz * dz;
+				};
+				int best = monster.slot;
+				float bestD = slotDistSq(monster.slot);
+				for (int s = 0; s < cap; ++s) {
+					if (s == monster.slot || (used & (1u << s))) continue;
+					const float d = slotDistSq(s);
+					if (d < bestD - 0.01f) { bestD = d; best = s; } // margin damps churn
+				}
+				monster.slot = best; // claim (atomic: main-thread serial)
+			}
+			// Ease toward the desired in-cell anchor (front-centre for a lone
+			// sub-cell monster, else the slot centre). A no-op once settled there.
+			const Vec3 anchor = DesiredAnchor(monster, partyPos);
+			constexpr float kInCellSettle = 6.0f;
+			const float k = std::min(1.0f, dt * kInCellSettle);
+			monster.visualPos = {monster.visualPos.x + (anchor.x - monster.visualPos.x) * k,
+								 monster.visualPos.y + (anchor.y - monster.visualPos.y) * k,
+								 monster.visualPos.z + (anchor.z - monster.visualPos.z) * k};
+		}
+
+		// Facing (every frame, for ALL monsters incl. idle ones). A moving monster
+		// turns toward its DIRECTION OF TRAVEL; a stationary AWARE monster faces the
+		// party; otherwise it holds its resting facing (so a group can stand facing
+		// away while the party sneaks up). The visual yaw eases toward the target so
+		// turns glide. Radially-symmetric monsters (faces=false, the blob) never turn.
+		if (monster.kind->facesTarget) {
+			if (monster.moving) {
+				const Vec3 dest = SlotCenter(monster.x, monster.z, monster.kind->size,
+											 monster.slot);
+				const float dx = dest.x - monster.moveFrom.x;
+				const float dz = dest.z - monster.moveFrom.z;
+				if (dx * dx + dz * dz > 1e-6f) monster.targetYaw = std::atan2(dx, dz);
+			} else if (monster.aware) {
+				monster.targetYaw = std::atan2(partyPos.x - monster.visualPos.x,
+											   partyPos.z - monster.visualPos.z);
+			}
+			constexpr float kPi = 3.14159265358979f;
+			constexpr float kTurnLerp = 12.0f; // higher = snappier turn
+			float d = monster.targetYaw - monster.yaw;
+			while (d > kPi) d -= 2.0f * kPi;
+			while (d < -kPi) d += 2.0f * kPi;
+			monster.yaw += d * std::min(1.0f, dt * kTurnLerp);
 		}
 
 		if (monster.intent.mode != ai::Intent::Mode::Engage) continue; // idle: nothing to do
@@ -688,30 +757,28 @@ void DungeonWorld::UpdateMonsters(float dt) {
 		// orders the workers handed us. A low-IQ monster still moves fast and swings
 		// relentlessly here; only its CHANGE OF MIND (re-planning) lags.
 
-		// Turn to face the party (from the visual position so the turn glides).
-		if (monster.kind->facesTarget)
-			monster.yaw = std::atan2(partyPos.x - monster.visualPos.x,
-									 partyPos.z - monster.visualPos.z);
-
-		// Live adjacency to the party drives the swing (the monster hits whoever is
-		// actually next to it, not its possibly-stale chase target). MANHATTAN
-		// distance, so only the 4 orthogonal neighbours count as adjacent — a
-		// monster left on a diagonal (e.g. the party strafed) doesn't swing across
-		// the corner; it re-paths to an orthogonal cell first, matching the party,
-		// who can only strike the cell straight ahead.
-		const int liveDist = std::abs(monster.x - m_party.GridX()) +
-							 std::abs(monster.z - m_party.GridZ());
+		// A monster swings only when it has REACHED its assigned attack cell AND is
+		// orthogonally adjacent to the party — not from a diagonal, and not from a
+		// near side it was merely passing through on its way to the side it was
+		// assigned. So a monster steered to an open flank circles around to it
+		// instead of stopping early and clumping the group on the approach corner.
+		// (This orthogonal-only rule from the movement work subsumes the animation
+		// branch's separate Manhattan-distance diagonal-attack fix.)
+		const int orthoDist = std::abs(monster.x - m_party.GridX()) +
+							  std::abs(monster.z - m_party.GridZ());
+		const bool atPost = monster.x == monster.targetX && monster.z == monster.targetZ &&
+							orthoDist == 1;
 
 		// Announce once, when the party is actually adjacent.
-		if (!monster.announced && liveDist <= 1) {
+		if (!monster.announced && orthoDist <= 1) {
 			monster.announced = true;
 			onMessage(loc::Format("log.monster_stirs",
 								  loc::Tr("monster." + monster.kind->name)));
 			m_audio.Play(m_sounds.monster, 0.7f);
 		}
 
-		if (liveDist <= 1) {
-			// Adjacent: swing at a random standing member when the cooldown allows.
+		if (atPost) {
+			// On its assigned side: swing at a random standing member off cooldown.
 			if (monster.attackCd <= 0.0f) MonsterAttack(monster);
 		} else if (!monster.moving && monster.moveCd <= 0.0f) {
 			// Not adjacent: follow the cached path the workers computed. Skip any
@@ -728,10 +795,16 @@ void DungeonWorld::UpdateMonsters(float dt) {
 				const ai::Cell c = monster.aiPath[monster.aiCursor];
 				const bool adjacent = std::abs(c.x - monster.x) +
 										  std::abs(c.z - monster.z) == 1;
-				if (adjacent && CellFreeForMonster(c.x, c.z, static_cast<int>(i))) {
+				// Claim a free slot in the destination cell (re-validated against LIVE
+				// occupancy — the path was planned on a worker against a snapshot).
+				const int slot = adjacent ? FreeSlotInCell(c.x, c.z, monster.kind->size,
+														   static_cast<int>(i))
+										  : -1;
+				if (slot >= 0) {
 					monster.moveFrom = monster.visualPos;
 					monster.x = c.x;
 					monster.z = c.z;
+					monster.slot = slot;
 					++monster.aiCursor;
 					monster.moving = true;
 					monster.moveT = 0.0f;
@@ -804,6 +877,159 @@ DungeonWorld::Monster* DungeonWorld::MonsterByRuntimeId(u32 id) {
 	return nullptr;
 }
 
+void DungeonWorld::ReconcileGroups() {
+	// A GROUP is the set of monsters currently sharing a cell. Recomputed every
+	// frame so groups MERGE automatically when monsters converge into one cell and
+	// SPLIT when they spread apart — two lone monsters that end up in the same cell
+	// become one group of two (and so take distinct slots + reposition normally,
+	// instead of both treating themselves as "alone" and stacking at front-centre).
+	u32 next = 1;
+	for (Monster& m : m_monsters) m.groupId = 0;
+	for (size_t i = 0; i < m_monsters.size(); ++i) {
+		if (!m_monsters[i].Alive() || m_monsters[i].groupId != 0) continue;
+		const u32 g = next++;
+		for (size_t j = i; j < m_monsters.size(); ++j) {
+			Monster& o = m_monsters[j];
+			if (o.Alive() && o.x == m_monsters[i].x && o.z == m_monsters[i].z)
+				o.groupId = g;
+		}
+	}
+	m_nextGroupId = next; // keep the source past the last id used this frame
+}
+
+int DungeonWorld::AliveInGroup(u32 group) const {
+	if (group == 0) return 0;
+	int n = 0;
+	for (const Monster& m : m_monsters)
+		if (m.groupId == group && m.Alive()) ++n;
+	return n;
+}
+
+Vec3 DungeonWorld::DesiredAnchor(const Monster& m, const Vec3& partyPos) const {
+	// A lone Medium-or-smaller monster slides to FRONT-CENTRE so it can reach both
+	// front party members: CENTRED on the cross-axis (the centre-line between the
+	// grid columns) and at the CENTRE OF THE FRONT ROW of its slot grid, on the
+	// side facing the party (snapped to the dominant cardinal axis — never a
+	// diagonal). Larger sizes (Large/Huge) are already centred and keep their slot
+	// anchor (item 8).
+	if (m.aware && IsSubCellSize(m.kind->size) && AliveInGroup(m.groupId) <= 1) {
+		const Vec3 c = m_map.CellCenter(m.x, m.z);
+		const float dx = partyPos.x - c.x, dz = partyPos.z - c.z;
+		const int dim = SlotDim(m.kind->size);
+		// Distance from cell centre to the centre of an outer (front) row.
+		const float frontOff = static_cast<float>(dim - 1) / (2.0f * dim) * kCellSize;
+		if (std::abs(dx) >= std::abs(dz)) // party is mainly east/west → shift along X
+			return {c.x + (dx >= 0.0f ? frontOff : -frontOff), c.y, c.z};
+		return {c.x, c.y, c.z + (dz >= 0.0f ? frontOff : -frontOff)}; // mainly N/S
+	}
+	return SlotCenter(m.x, m.z, m.kind->size, m.slot);
+}
+
+void DungeonWorld::AssignFormation() {
+	const int px = m_party.GridX(), pz = m_party.GridZ();
+	// Default: HOLD position (target = own cell). Aware monsters get an attack cell
+	// below; unaware ones aim at the party cell so cone perception can still fire;
+	// overflow (no open side) keeps holding and queues behind the front.
+	for (Monster& m : m_monsters) {
+		m.targetX = m.x;
+		m.targetZ = m.z;
+		if (m.Alive() && !m.aware) {
+			m.targetX = px;
+			m.targetZ = pz;
+		}
+	}
+	// Attack cells = the party's walkable orthogonal neighbours (the sides it can
+	// be hit from). Track how many monsters we've assigned to each, to spread them.
+	struct Side {
+		int x, z, count;
+	};
+	std::vector<Side> sides;
+	static constexpr int kDX[4] = {0, 0, -1, 1};
+	static constexpr int kDZ[4] = {-1, 1, 0, 0};
+	for (int d = 0; d < 4; ++d) {
+		const int sx = px + kDX[d], sz = pz + kDZ[d];
+		if (m_map.IsWalkable(sx, sz)) sides.push_back({sx, sz, 0});
+	}
+	if (sides.empty()) return;
+
+	std::vector<int> idx;
+	for (size_t i = 0; i < m_monsters.size(); ++i)
+		if (m_monsters[i].Alive() && m_monsters[i].aware)
+			idx.push_back(static_cast<int>(i));
+	auto cheby = [](int ax, int az, int bx, int bz) {
+		return std::max(std::abs(ax - bx), std::abs(az - bz));
+	};
+	std::sort(idx.begin(), idx.end(), [&](int a, int b) {
+		return cheby(m_monsters[a].x, m_monsters[a].z, px, pz) <
+			   cheby(m_monsters[b].x, m_monsters[b].z, px, pz);
+	});
+	std::vector<bool> done(idx.size(), false);
+	// Pass 1 (hysteresis): a monster already standing on a still-unclaimed side
+	// HOLDS it, so a formed ring is stable frame-to-frame (no thrash / circling).
+	for (size_t k = 0; k < idx.size(); ++k) {
+		Monster& m = m_monsters[idx[k]];
+		for (auto& s : sides)
+			if (s.count == 0 && m.x == s.x && m.z == s.z) {
+				m.targetX = s.x;
+				m.targetZ = s.z;
+				++s.count;
+				done[k] = true;
+				break;
+			}
+	}
+	// Pass 2 (fill): the rest take the least-crowded side with room (empty sides
+	// before any doubles up → surround), tie-broken by the side nearest the monster.
+	for (size_t k = 0; k < idx.size(); ++k) {
+		if (done[k]) continue;
+		Monster& m = m_monsters[idx[k]];
+		const int cap = SlotsPerCell(m.kind->size);
+		int best = -1;
+		for (int s = 0; s < static_cast<int>(sides.size()); ++s) {
+			if (sides[s].count >= cap) continue;
+			if (best < 0 || sides[s].count < sides[best].count ||
+				(sides[s].count == sides[best].count &&
+				 cheby(m.x, m.z, sides[s].x, sides[s].z) <
+					 cheby(m.x, m.z, sides[best].x, sides[best].z)))
+				best = s;
+		}
+		if (best >= 0) {
+			m.targetX = sides[best].x;
+			m.targetZ = sides[best].z;
+			++sides[best].count;
+		}
+		// else: every side full → keep holding (queue behind for promotion).
+	}
+}
+
+std::vector<std::string> DungeonWorld::GroupsReport() const {
+	// Gather groups in first-seen order so the report is stable run to run.
+	std::vector<u32> order;
+	for (const Monster& m : m_monsters) {
+		if (!m.Alive()) continue;
+		if (std::find(order.begin(), order.end(), m.groupId) == order.end())
+			order.push_back(m.groupId);
+	}
+	std::vector<std::string> lines;
+	if (order.empty()) {
+		lines.push_back("no live monsters");
+		return lines;
+	}
+	for (u32 g : order) {
+		std::string kinds, cells;
+		int n = 0;
+		for (const Monster& m : m_monsters) {
+			if (m.groupId != g || !m.Alive()) continue;
+			++n;
+			if (!kinds.empty()) kinds += ',';
+			kinds += m.kind ? m.kind->name : "?";
+			if (!cells.empty()) cells += ' ';
+			cells += std::format("{},{}#{}", m.x, m.z, m.slot);
+		}
+		lines.push_back(std::format("group {}: {} [{}] @ {}", g, n, kinds, cells));
+	}
+	return lines;
+}
+
 // Build the immutable world snapshot the AI worker threads read, and publish it.
 // The walkability grid is shared across frames (rebuilt only when the map's
 // revision changes); the rest is a cheap copy of the party cell + live monster
@@ -837,6 +1063,7 @@ void DungeonWorld::BuildAISnapshot() {
 		m_snapshotPool.push_back(snap);
 	}
 	snap->blocked.clear();
+	snap->occ.clear();
 	snap->monsters.clear();
 
 	snap->partyX = m_party.GridX();
@@ -844,12 +1071,27 @@ void DungeonWorld::BuildAISnapshot() {
 	snap->mapW = m_map.Width();
 	snap->mapH = m_map.Height();
 	snap->walkable = m_walkableCache;
-	// Cells a monster may not enter: the party cell and every live monster's cell.
+	// Party cell is a hard block. Monster crowding is capacity-based: each live
+	// monster bumps its cell's occupant count, tagged with the size's slots/cell so
+	// a worker can tell a half-full same-size group (room) from a full or foreign one.
 	snap->blocked.insert(snap->partyZ * snap->mapW + snap->partyX);
 	for (const Monster& m : m_monsters) {
 		if (!m.Alive()) continue;
-		snap->blocked.insert(m.z * snap->mapW + m.x);
-		snap->monsters.push_back({m.runtimeId, m.x, m.z, m.kind->aggroRange, m.kind->iq});
+		const int cap = SlotsPerCell(m.kind->size);
+		const int f = FootprintCells(m.kind->size);
+		// Mark every cell the footprint covers (Huge = its 2x2 block), so a passer-by
+		// of any size sees the cell occupied. The BFS self-excludes the pathed agent's
+		// own footprint, so this aggregate count doesn't trap a Huge against itself.
+		for (int fz = m.z; fz < m.z + f; ++fz)
+			for (int fx = m.x; fx < m.x + f; ++fx) {
+				if (fx < 0 || fz < 0 || fx >= snap->mapW || fz >= snap->mapH) continue;
+				ai::CellOcc& o = snap->occ[fz * snap->mapW + fx];
+				o.capacity = static_cast<uint8_t>(cap);
+				++o.count;
+			}
+		snap->monsters.push_back({m.runtimeId, m.x, m.z, m.kind->aggroRange,
+								  m.kind->iq, cap, f, m.aware, m.kind->facesTarget,
+								  m.yaw, m.targetX, m.targetZ});
 	}
 	m_director.Publish(snap); // pass a copy — the pool keeps its own ref
 }
@@ -866,6 +1108,10 @@ void DungeonWorld::ConsumeAIPlans() {
 		for (const ai::Plan& plan : *batch.plans) {
 			Monster* monster = MonsterByRuntimeId(plan.id);
 			if (!monster) continue; // its monster is gone — drop the plan
+			// First time the brain decides to engage, the monster has NOTICED the
+			// party — latch awareness so it stays engaged even once the party slips
+			// out of its sight cone (sticky; only a new game / reload clears it).
+			if (plan.intent.mode == ai::Intent::Mode::Engage) monster->aware = true;
 			monster->intent = plan.intent;
 			monster->aiPath = plan.path;
 			// Align the cursor to the monster's current cell (it may have stepped
@@ -881,15 +1127,54 @@ void DungeonWorld::ConsumeAIPlans() {
 	}
 }
 
-bool DungeonWorld::CellFreeForMonster(int x, int z, int self) const {
-	if (!m_map.IsWalkable(x, z)) return false;
-	if (x == m_party.GridX() && z == m_party.GridZ()) return false;
+void DungeonWorld::ProvokeMonster(Monster& monster) {
+	// Latch awareness (sticky — the brain keeps it engaged) and set the engage
+	// intent now so it reacts THIS frame (turn to the party, then chase/swing)
+	// without waiting for its next async think. Only this monster wakes; its
+	// neighbours stay oblivious until they notice the party themselves.
+	monster.aware = true;
+	monster.intent.mode = ai::Intent::Mode::Engage;
+	monster.intent.targetX = m_party.GridX();
+	monster.intent.targetZ = m_party.GridZ();
+}
+
+int DungeonWorld::FreeSlotInCell(int x, int z, SizeClass size, int self) const {
+	const int f = FootprintCells(size); // 1, or 2 for Huge (a 2x2-cell block)
+	const int cap = SlotsPerCell(size);
+	// Every cell of the footprint must be in bounds, walkable, and clear of the
+	// party. A 1-wide corridor fails this for a Huge → it can't enter (item 1).
+	for (int fz = z; fz < z + f; ++fz)
+		for (int fx = x; fx < x + f; ++fx) {
+			if (fx < 0 || fz < 0 || fx >= m_map.Width() || fz >= m_map.Height())
+				return -1;
+			if (!m_map.IsWalkable(fx, fz)) return -1;
+			if (fx == m_party.GridX() && fz == m_party.GridZ()) return -1;
+		}
+	// Mark the slots already taken in this cell. An occupant whose footprint
+	// overlaps ours blocks the whole cell unless both are single-cell monsters of
+	// the SAME size — only those share via distinct slots (homogeneous-group rule).
+	u32 used = 0; // bitmask; cap <= 16 fits comfortably
 	for (size_t i = 0; i < m_monsters.size(); ++i) {
 		if (static_cast<int>(i) == self) continue;
 		const Monster& o = m_monsters[i];
-		if (o.Alive() && o.x == x && o.z == z) return false;
+		if (!o.Alive()) continue;
+		const int fo = FootprintCells(o.kind->size);
+		const bool overlap = !(o.x + fo - 1 < x || o.x > x + f - 1 ||
+							   o.z + fo - 1 < z || o.z > z + f - 1);
+		if (!overlap) continue;
+		if (f > 1 || fo > 1 || SlotsPerCell(o.kind->size) != cap) return -1;
+		if (o.slot >= 0 && o.slot < cap) used |= (1u << o.slot);
 	}
-	return true;
+	for (int s = 0; s < cap; ++s)
+		if (!(used & (1u << s))) return s;
+	return -1;
+}
+
+bool DungeonWorld::CellFreeForMonster(int x, int z, int self) const {
+	const SizeClass size = (self >= 0 && self < static_cast<int>(m_monsters.size()))
+							   ? m_monsters[self].kind->size
+							   : SizeClass::Large;
+	return FreeSlotInCell(x, z, size, self) >= 0;
 }
 
 // One monster strike against a random standing party member. Sets the swing
@@ -1006,6 +1291,7 @@ bool DungeonWorld::PartyAttack(size_t member, size_t hand) {
 		return true;
 	}
 	target->hp -= r.damage;
+	ProvokeMonster(*target); // the struck monster alone notices + turns to the party
 	int dmg = static_cast<int>(r.damage + 0.5f);
 	onMessage(loc::Format("log.party_hits", attacker.name, name, dmg));
 	m_audio.Play(m_sounds.monster, 0.7f);
@@ -1069,6 +1355,7 @@ bool DungeonWorld::ResolveSpellHit(const Vec3& p, const AttackProfile& atk) {
 	const std::string name = loc::Tr("monster." + hit->kind->name);
 	if (r.hit) {
 		hit->hp -= r.damage;
+		ProvokeMonster(*hit); // a spell strike also wakes its target
 		onMessage(loc::Format("log.spell_hits", name, static_cast<int>(r.damage + 0.5f)));
 		m_audio.Play(m_sounds.spellImpact, 0.7f);
 		if (!hit->Alive()) {

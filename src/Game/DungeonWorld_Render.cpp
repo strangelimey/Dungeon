@@ -204,7 +204,7 @@ void DungeonWorld::SubmitSceneGeometry(ID3D12GraphicsCommandList* list,
 	if (m_runeMesh) {
 		for (const Item& item : m_items) {
 			if (item.collected || !item.kind->isRune) continue;
-			const Vec3 c = m_map.CellCenter(item.x, item.z);
+			const Vec3 c = SlotCenter(item.x, item.z, SizeClass::Medium, item.slot);
 			if (!visible({c.x, 0.3f, c.z}, 0.8f)) continue;
 			Mat4 world = Mat4Identity();
 			world._41 = c.x;
