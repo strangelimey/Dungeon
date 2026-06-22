@@ -593,16 +593,18 @@ void CharacterSheet::DrawInventory(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 		}
 	}
 
-	// --- carry load (under the doll) ----------------------------------------
+	// --- carry load (right column, just below the backpack) -----------------
 	// Total weight vs the member's strength-derived capacity; turns the accent
 	// colour red once over capacity (no gameplay penalty yet — display only).
-	constexpr float kLoadY = 540.0f;
+	const int packRows = (static_cast<int>(pack.size()) + kPackCols - 1) / kPackCols;
+	const float loadY =
+		kPackY + static_cast<float>(packRows) * (kPackSlot + kSlotGap) + 8.0f;
 	const float load = CarryLoad();
 	const float maxLoad = m_character->MaxCarryLoad();
 	const std::string loadText = loc::Format(
 		"sheet.load", std::format("{:.1f}", load), std::format("{:.0f}", maxLoad));
 	const Vec4 loadColor = load > maxLoad ? Vec4{0.85f, 0.25f, 0.2f, 1.0f} : theme.text;
-	font.Draw(batch, loadText, px.x + kDollX * sx, px.y + kLoadY * sy, loadColor);
+	font.Draw(batch, loadText, px.x + kPackX * sx, px.y + loadY * sy, loadColor);
 }
 
 void CharacterSheet::DrawStats(ui::UIContext& ctx, gfx::SpriteBatch& batch,
