@@ -109,6 +109,19 @@ Requirements (collected — planning to follow).
     the screenshot driver can't reliably land (small target). Verify manually:
     pick up the apple/bread, drop into a hand, right-click the hand → Eat;
     stamina rises and the slot clears.
+- **Phase 5 — DONE, verified.** No code needed: items ride the existing inventory
+  serialization (equip/pack lines, catalog-id strings, "-" for empty — SaveGame.
+  cpp; write Game.cpp:918, read 949). Carry load is derived (not saved), commands
+  are catalog data. Live round-trip: stowed a dagger in Brand's pack, saved
+  (`pack 0 dagger ...` on disk), relaunched + Continue → dagger back in the pack
+  and "Load: 1.5 / 80 kg" restored.
+
+## Follow-up tweaks (post-plan, all committed)
+- Items render 2.2x (kItemPlaceholderScale) + wider pick radius so floor pickup
+  is easy; serpent pillar moved to the start room's NW corner (was blocking).
+- Party bar: holding an item, LEFT-click a portrait quick-stows to the first free
+  backpack slot; RIGHT-click always opens the backpack; a click on the stat bars
+  (either button) opens the sheet's Stats tab.
 
 ## Gotcha: worktree texture provisioning (cost us a long detour)
 
