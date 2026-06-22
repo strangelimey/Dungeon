@@ -207,7 +207,12 @@ void DungeonWorld::SubmitSceneGeometry(ID3D12GraphicsCommandList* list,
 			if (item.collected) continue;
 			const Vec3 c = SlotCenter(item.x, item.z, SizeClass::Medium, item.slot);
 			if (!visible({c.x, 0.3f, c.z}, 0.8f)) continue;
+			// Non-rune placeholders render scaled UP (kItemPlaceholderScale) — bigger
+			// than the rune tablet so they read on a dark floor and are an easy click
+			// target; TryPickItem widens the pick radius to match (see kItemPickTopY).
+			const float scale = item.kind->isRune ? 1.0f : kItemPlaceholderScale;
 			Mat4 world = Mat4Identity();
+			world._11 = world._22 = world._33 = scale;
 			world._41 = c.x;
 			world._43 = c.z;
 			gfx::MaterialParams material;

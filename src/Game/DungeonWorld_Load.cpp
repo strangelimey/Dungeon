@@ -123,7 +123,10 @@ void DungeonWorld::AppendLoadTasks(LoadQueue& queue) {
 		m_pillarMesh = std::make_unique<gfx::Mesh>(m_device, m_pillarModel.meshes[0]);
 		m_pillarAnimator = anim::Animator(&m_pillarModel.skeleton, &m_pillarModel.clips);
 		m_pillarAnimator.Play("sway");
-		m_pillarPos = m_map.CellCenter(m_map.StartX(), m_map.StartZ() + 2);
+		// Tucked into the NW corner of the start room (one cell up-left of the
+		// start) so it greets the player without standing on the cells in front
+		// of the entrance.
+		m_pillarPos = m_map.CellCenter(m_map.StartX() - 1, m_map.StartZ() - 1);
 		// Borrow the peacock-ore stone set for its NORMAL + ORM maps only (carved
 		// micro-relief + roughness variation, so the pillar reads as stone, not a
 		// smooth wet tube). The albedo is discarded in DrawProps — that texture is
@@ -427,7 +430,11 @@ std::optional<std::string> DungeonWorld::TryPickItem(float mx, float my, float w
 		const Vec3 c = SlotCenter(item.x, item.z, SizeClass::Medium, item.slot);
 		float cx, cy, tx, ty;
 		if (!project({c.x, 0.23f, c.z}, cx, cy)) continue; // tablet centre
-		project({c.x, 0.46f, c.z}, tx, ty);                // top, for hit radius
+		// Sample the top of the rendered tablet for the hit radius — non-rune
+		// placeholders are drawn scaled up (kItemPlaceholderScale) and stand taller,
+		// so they take a correspondingly taller sample and a larger click target.
+		const float topY = item.kind->isRune ? 0.46f : kItemPickTopY;
+		project({c.x, topY, c.z}, tx, ty);
 		const float radius = std::clamp(std::fabs(ty - cy) * 1.3f, 26.0f, 220.0f);
 		const float d = std::hypot(mx - cx, my - cy);
 		if (d <= radius && d < bestD) {

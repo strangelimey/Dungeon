@@ -50,6 +50,13 @@ namespace dungeon::game {
 
 struct GeometryChunk; // DungeonMeshBuilder.h (MakeSurfaceChunk takes one by ref)
 
+// Non-rune items reuse the rune tablet mesh as a placeholder, rendered at this
+// scale (bigger than a rune so they read on a dark floor) — see SubmitScene-
+// Geometry. TryPickItem samples the pick radius up to kItemPickTopY (world Y, in
+// metres) so the larger tablet is a correspondingly larger click target.
+inline constexpr float kItemPlaceholderScale = 2.2f;
+inline constexpr float kItemPickTopY = 0.9f;
+
 class DungeonWorld {
 public:
 	DungeonWorld(gfx::GraphicsDevice& device, gfx::Renderer& renderer,

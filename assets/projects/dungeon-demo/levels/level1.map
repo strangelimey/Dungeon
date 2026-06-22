@@ -31,8 +31,8 @@ palette ceiling ceiling_rough ceiling_cracked
 ; pillared hall (N), a dusty fountain hall (centre), a tomb crypt (W), a
 ; dusty cavern (SW), a treasure vault (S) and gallery/chambers (E/SE), all
 ; tied together by a looping corridor network. The fountain hall and cavern
-; are dust-heavy showcases; the serpent pillar auto-spawns two cells south
-; of the start.
+; are dust-heavy showcases; the serpent pillar auto-spawns in the NW corner
+; of the start room.
 ################################
 ################################
 ##....T.###.T.......T.###.....##
