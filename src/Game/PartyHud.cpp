@@ -355,13 +355,13 @@ constexpr int kDollCellCount = static_cast<int>(sizeof(kDollCells) /
 												sizeof(kDollCells[0]));
 
 // --- pack row + backpack grid (right) ---
-// The pack-row (containers) sits at kPackRowY, level with the doll's head row;
-// the SELECTED pack's contents fill the grid below, set a full empty row lower
-// so the top row reads clearly as packs (not the pack's contents).
+// The pack-row (containers) sits at kPackRowY, level with the doll's head row; a
+// thin rule (<hr>) divides it from the SELECTED pack's contents grid just below.
 constexpr float kPackSlot = 72.0f, kPackX = 430.0f;
 constexpr int kPackCols = 4; // backpack laid out 4 wide
 constexpr float kPackRowY = 210.0f; // the pack-row (one row of kPackRowSlots)
-constexpr float kPackY = kPackRowY + 2.0f * (kPackSlot + kSlotGap); // contents grid
+constexpr float kPackSepY = kPackRowY + kPackSlot + 9.0f;  // divider rule
+constexpr float kPackY    = kPackRowY + kPackSlot + 18.0f; // contents grid
 
 // --- mode toggle buttons (Inventory / Stats / Skills), a row under the portrait
 constexpr int kModeCount = 3;
@@ -625,6 +625,13 @@ void CharacterSheet::DrawInventory(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 		ui::DrawBorder(batch, r, sel ? theme.accent : theme.panelBorder);
 		drawIcon(r, inv.packs[static_cast<size_t>(i)]);
 	}
+
+	// A divider rule (<hr>) between the pack row and its contents, spanning the
+	// grid width.
+	const float gridW = kPackCols * kPackSlot + (kPackCols - 1) * kSlotGap;
+	batch.DrawRect({px.x + kPackX * sx, px.y + kPackSepY * sy, gridW * sx,
+					std::max(1.0f, sy)},
+				   theme.panelBorder);
 
 	// Backpack contents (the selected pack's items). For now only pack 0 (the
 	// starting backpack) carries contents — the `backpack` vector — so that is
