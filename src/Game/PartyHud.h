@@ -236,7 +236,6 @@ private:
 	// Static page text, localized once at construction (the sheet is rebuilt
 	// on a language change) so Draw stays allocation-free.
 	std::string m_healthLabel, m_staminaLabel, m_manaLabel;
-	std::string m_equipmentLabel, m_backpackLabel;
 	std::string m_attributesLabel, m_skillsLabel, m_noSkills;
 	std::array<std::string, 5> m_attrLabels;            // localized attribute names
 	std::array<std::string, kEquipCount> m_equipLabels; // localized slot names

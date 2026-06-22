@@ -373,8 +373,6 @@ CharacterSheet::CharacterSheet(const gfx::Rect& rect, const ui::Font* portraitFo
 	: m_portraitFont(portraitFont), m_barColors(barColors), m_icons(icons),
 	  m_weights(weights), m_held(held), m_healthLabel(loc::Tr("bar.health")),
 	  m_staminaLabel(loc::Tr("bar.stamina")), m_manaLabel(loc::Tr("bar.mana")),
-	  m_equipmentLabel(loc::Tr("sheet.equipment")),
-	  m_backpackLabel(loc::Tr("sheet.backpack")),
 	  m_attributesLabel(loc::Tr("sheet.attributes")),
 	  m_skillsLabel(loc::Tr("sheet.skills")), m_noSkills(loc::Tr("sheet.no_skills")) {
 	bounds = rect;
@@ -552,8 +550,7 @@ void CharacterSheet::DrawInventory(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 	ui::Font& font = ctx.GetFont();
 
 	// --- equipment paper doll (left) ----------------------------------------
-	font.Draw(batch, m_equipmentLabel, px.x + kDollX * sx, px.y + kInvHeaderY * sy,
-			  theme.accent);
+	// No header — the anatomical doll layout reads as "equipment" on its own.
 	for (int i = 0; i < kDollCellCount; ++i) {
 		const size_t slot = static_cast<size_t>(kDollCells[i].slot);
 		const gfx::Rect r = EquipRect(px, sx, sy, i);
@@ -576,8 +573,15 @@ void CharacterSheet::DrawInventory(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 	}
 
 	// --- backpack (right, dynamic) ------------------------------------------
-	font.Draw(batch, m_backpackLabel, px.x + kPackX * sx, px.y + kInvHeaderY * sy,
-			  theme.accent);
+	// The carry load stands in for a "Backpack" header (the slot grid is self-
+	// evident); it turns red once over the strength-derived capacity. Display
+	// only — no gameplay penalty yet.
+	const float load = CarryLoad();
+	const float maxLoad = m_character->MaxCarryLoad();
+	const std::string loadText = loc::Format(
+		"sheet.load", std::format("{:.1f}", load), std::format("{:.0f}", maxLoad));
+	const Vec4 loadColor = load > maxLoad ? Vec4{0.85f, 0.25f, 0.2f, 1.0f} : theme.accent;
+	font.Draw(batch, loadText, px.x + kPackX * sx, px.y + kInvHeaderY * sy, loadColor);
 	const auto& pack = m_character->inventory.backpack;
 	for (int i = 0; i < static_cast<int>(pack.size()); ++i) {
 		const gfx::Rect r = PackRect(px, sx, sy, i);
@@ -592,19 +596,6 @@ void CharacterSheet::DrawInventory(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 			}
 		}
 	}
-
-	// --- carry load (right column, just below the backpack) -----------------
-	// Total weight vs the member's strength-derived capacity; turns the accent
-	// colour red once over capacity (no gameplay penalty yet — display only).
-	const int packRows = (static_cast<int>(pack.size()) + kPackCols - 1) / kPackCols;
-	const float loadY =
-		kPackY + static_cast<float>(packRows) * (kPackSlot + kSlotGap) + 8.0f;
-	const float load = CarryLoad();
-	const float maxLoad = m_character->MaxCarryLoad();
-	const std::string loadText = loc::Format(
-		"sheet.load", std::format("{:.1f}", load), std::format("{:.0f}", maxLoad));
-	const Vec4 loadColor = load > maxLoad ? Vec4{0.85f, 0.25f, 0.2f, 1.0f} : theme.text;
-	font.Draw(batch, loadText, px.x + kPackX * sx, px.y + loadY * sy, loadColor);
 }
 
 void CharacterSheet::DrawStats(ui::UIContext& ctx, gfx::SpriteBatch& batch,
