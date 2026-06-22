@@ -9,3 +9,29 @@ height_scale = 0.045
 display = Cobblestone
 texture = floor_cobble
 height_scale = 0.045
+
+; --- scanned sets from textures.com (1k/2k/4k installed) ---
+[floor_cobblestone]
+display = Medieval Cobblestone
+texture = cobblestone_floor
+height_scale = 0.045
+
+[floor_broken_tile]
+display = Broken Tile
+texture = broken_tile
+height_scale = 0.045
+
+[floor_rubble]
+display = Rubble
+texture = rubble
+height_scale = 0.06
+
+[floor_rock]
+display = Cave Rock
+texture = rock_smooth
+height_scale = 0.045
+
+[floor_marble]
+display = Marble
+texture = marble_white
+height_scale = 0.02

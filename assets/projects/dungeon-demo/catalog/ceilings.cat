@@ -9,3 +9,14 @@ height_scale = 0.035
 display = Cracked
 texture = ceiling_cracked
 height_scale = 0.035
+
+; --- scanned sets from textures.com (1k/2k/4k installed) ---
+[ceiling_stone]
+display = Stone
+texture = limestone
+height_scale = 0.035
+
+[ceiling_plaster]
+display = Plaster
+texture = plaster
+height_scale = 0.03

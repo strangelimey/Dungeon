@@ -44,6 +44,21 @@ $baker = Join-Path $repo "build\release\bin\AssetBaker.exe"
 if (-not (Test-Path $baker)) { $baker = Join-Path $repo "build\debug\bin\AssetBaker.exe" }
 if (-not (Test-Path $baker)) { throw "Build AssetBaker first (build.cmd release)" }
 
+# Run AssetBaker without letting its stderr abort us. AssetBaker logs warnings
+# (e.g. "No height/displacement map found") to stderr; under PS 5.1 a native
+# command's stderr is wrapped as a terminating NativeCommandError when
+# $ErrorActionPreference is Stop, which would kill the whole batch over a benign
+# warning. So merge stderr into stdout as plain text and key success ONLY off the
+# real process exit code. Returns $LASTEXITCODE.
+function Invoke-Baker {
+    param([Parameter(ValueFromRemainingArguments = $true)] $bakerArgs)
+    $prev = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try { & $baker @bakerArgs 2>&1 | ForEach-Object { Write-Host "$_" } }
+    finally { $ErrorActionPreference = $prev }
+    return $LASTEXITCODE
+}
+
 # TIFF -> PNG staging for textures.com sets (see header). WIC (PresentationCore)
 # decodes the TIFF and re-encodes PNG preserving the source pixel format, so a
 # 16-bit grayscale height map round-trips as a 16-bit PNG. Returns the directory
@@ -114,8 +129,7 @@ foreach ($res in $Resolutions) {
             $conv = Convert-TiffMaps $materialDir.FullName
             $bakerArgs = @('import', $conv.Dir, $assets, $name)
             if ($conv.ForceFlipGreen) { $bakerArgs += '--flip-green' }
-            & $baker @bakerArgs
-            if ($LASTEXITCODE -ne 0) { throw "Import failed for $name" }
+            if ((Invoke-Baker @bakerArgs) -ne 0) { throw "Import failed for $name" }
             $imported++
         }
     }
@@ -149,8 +163,9 @@ if ($Materials.Count -eq 0) {
         if (-not (Test-Path $src)) { Write-Host "  $($prop.Src) missing - skipped"; continue }
         Write-Host "Importing $($prop.Name)_2k..."
         $conv = Convert-TiffMaps $src
-        & $baker import $conv.Dir $assets "$($prop.Name)_2k" --flip-green
-        if ($LASTEXITCODE -ne 0) { throw "Import failed for $($prop.Name)_2k" }
+        if ((Invoke-Baker import $conv.Dir $assets "$($prop.Name)_2k" --flip-green) -ne 0) {
+            throw "Import failed for $($prop.Name)_2k"
+        }
         $imported++
     }
 }

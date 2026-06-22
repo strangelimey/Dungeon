@@ -16,3 +16,35 @@ height_scale = 0.055
 display = Mossy Wall
 texture = wall_moss
 height_scale = 0.055
+
+; --- scanned sets from textures.com (1k/2k/4k installed) ---
+[wall_cobblestone]
+display = Cobblestone
+texture = cobblestone_wall
+height_scale = 0.055
+
+[wall_stacked_stone]
+display = Stacked Stone
+texture = stacked_stone
+height_scale = 0.055
+
+[wall_brick_red]
+display = Red Brick
+texture = brick_red
+height_scale = 0.055
+
+[wall_plaster]
+display = Plaster
+texture = plaster
+height_scale = 0.04
+
+[wall_rock]
+display = Cave Rock
+texture = rock_cliff
+height_scale = 0.06
+
+; polished marble has no height map -> effectively flat parallax
+[wall_marble]
+display = Marble
+texture = marble_white
+height_scale = 0.02

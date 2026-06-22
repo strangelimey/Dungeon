@@ -99,3 +99,25 @@ model = boulder
 texture = boulder
 solid = 1
 authored = 1
+
+; --- variants pairing existing models with new scanned sets ---
+[column_marble]
+display = Marble Column
+model = column
+texture = marble_pillar
+solid = 1
+authored = 0
+
+[statue_marble]
+display = Marble Statue
+model = statue
+texture = marble_white
+solid = 1
+authored = 0
+
+[iron_door]
+display = Iron Door
+model = door
+texture = rusted_iron
+solid = 1
+authored = 0
