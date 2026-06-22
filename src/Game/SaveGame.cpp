@@ -50,6 +50,9 @@ bool WriteSave(const SaveData& data, const std::string& path) {
 	// ignore unknown lines and pre-v6 saves simply lack it (look defaults to 0).
 	t += std::format("look {:.5f} {:.5f} {}\n", data.lookYaw, data.lookPitch,
 					 data.looking ? 1 : 0);
+	// Tablet on the mouse cursor (party-level, not in any pack). Omitted when the
+	// hand is empty; older saves lack it and default to no held item.
+	if (!data.heldItem.empty()) t += std::format("held {}\n", data.heldItem);
 	t += std::format("torch {}\n", data.torchPalette);
 
 	// Empty item ids serialize as "-" so slot positions are preserved. Inventory
@@ -160,6 +163,8 @@ std::optional<SaveData> ReadSave(const std::string& path) {
 			data.lookYaw = FloatOf(tok[1]);
 			data.lookPitch = FloatOf(tok[2]);
 			data.looking = IntOf(tok[3]) != 0;
+		} else if (kw == "held" && tok.size() >= 2) {
+			data.heldItem = std::string(tok[1]);
 		} else if (kw == "torch" && tok.size() >= 2) {
 			data.torchPalette = IntOf(tok[1]);
 		} else if (kw == "char" && tok.size() >= 8) {

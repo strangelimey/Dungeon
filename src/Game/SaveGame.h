@@ -4,8 +4,8 @@
 // A save NEVER stores the static layer (DungeonMap / the .map file) — only the
 // things that can change during play. Loading reconstructs the level from its
 // .map + .ent baseline, then applies a save on top:
-//   - State with NO static baseline (party pose, fog of war, character
-//     resources, torch palette) is stored whole — it is born at runtime.
+//   - State with NO static baseline (party pose, cursor-held item, fog of war,
+//     character resources, torch palette) is stored whole — born at runtime.
 //   - State derived from the .ent baseline (monsters/items/...) is stored as a
 //     DIFF: only entities whose live state differs from their spawn record are
 //     emitted, keyed by Entity::id (stable across the .ent cell sort).
@@ -32,11 +32,13 @@ namespace dungeon::game {
 
 // The serializable dynamic state of one in-progress game.
 struct SaveData {
+	// v8: cursor-held item ("held" line) — the tablet floating on the mouse
+	//     pointer, party-level state (was previously hacked into a backpack slot).
 	// v7: one generic per-entity record (EntityState) covers monsters, items, and
 	//     buttons as a diff (keyed by .ent id) or a whole spawn (no baseline);
 	//     replaces the v6 split of "ent"/"monster" rows + a whole "floor" item
 	//     snapshot. v6: free-look offset ("look" line); v5 folded hands into equip[].
-	int version = 7;
+	int version = 8;
 	std::string name;         // display name (free text; may contain spaces)
 	std::string currentLevel; // the level stem the party is on (where to resume)
 	std::string timestamp;    // human-readable local time, for the slot list
@@ -50,6 +52,10 @@ struct SaveData {
 	// orthogonal, so pre-v6 saves load square-on.
 	float lookYaw = 0.0f, lookPitch = 0.0f;
 	bool looking = false;
+
+	// Item floating on the mouse cursor (catalog id; "" = empty hand). Party-level
+	// state, not anyone's inventory — born at runtime, stored whole.
+	std::string heldItem;
 
 	int torchPalette = 0; // HUD torchlight index (0 warm, 1 cold, 2 eerie)
 

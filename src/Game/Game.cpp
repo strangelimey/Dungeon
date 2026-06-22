@@ -919,11 +919,9 @@ void Game::SaveGame(const std::string& name) {
 	data.timestamp = std::format("{:%Y-%m-%d %H:%M:%S}",
 								 std::chrono::floor<std::chrono::seconds>(
 									 std::chrono::system_clock::now()));
-	// Stow a tablet still on the cursor into a free backpack slot so it is part
-	// of the save (the running session keeps it if every pack is full).
-	if (m_heldItem)
-		for (Character& member : m_characters)
-			if (member.inventory.AddToBackpack(*m_heldItem)) { m_heldItem.reset(); break; }
+	// A tablet on the cursor is party-level state — save it as such, leaving the
+	// live session's held item untouched (restored to the cursor on load).
+	if (m_heldItem) data.heldItem = *m_heldItem;
 
 	m_world.CaptureState(data);
 	for (const Character& member : m_characters) {
@@ -953,7 +951,9 @@ bool Game::LoadGame(const std::string& path) {
 	// reset), then lay the save on top.
 	m_world.ResetForNewGame();
 	ResetRoster();
-	m_heldItem.reset(); // nothing carried after a load
+	// Restore the cursor-held tablet (empty = nothing carried).
+	if (!data->heldItem.empty()) m_heldItem = data->heldItem;
+	else m_heldItem.reset();
 	for (size_t i = 0; i < m_characters.size() && i < data->characters.size(); ++i) {
 		const SaveData::CharState& c = data->characters[i];
 		m_characters[i].health = c.health;     m_characters[i].maxHealth = c.maxHealth;
