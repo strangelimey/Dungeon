@@ -83,12 +83,13 @@ class CharacterPanel : public ui::Widget {
 public:
 	// portraitFont draws the big placeholder initial (the Game passes its
 	// title font, which tracks the window scale like everything else).
-	// onClick fires on a left click (open the sheet / place a held tablet);
-	// onRight on a right click (open this member's inventory).
+	// onClick fires on a left click on the PORTRAIT area (open the sheet / place a
+	// held tablet); onRight on a right click there (open this member's inventory).
+	// onBars fires on EITHER button over the stat-bar area (open the Stats tab).
 	CharacterPanel(const gfx::Rect& rect, const Character* character,
 				   const ui::Font* portraitFont, const ResourceBarColors* barColors,
 				   const HitSplatIcons* hitSplats, std::function<void()> onClick,
-				   std::function<void()> onRight);
+				   std::function<void()> onRight, std::function<void()> onBars);
 
 	void Update(ui::UIContext& ctx) override;
 	void Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) override;
@@ -98,12 +99,17 @@ public:
 	float backgroundOpacity = 1.0f;
 
 private:
+	// The stat-bar sub-region (right of the portrait, below the name) in pixels —
+	// kept in sync with Draw's bar layout; a click here opens the Stats tab.
+	gfx::Rect BarsRect(ui::UIContext& ctx) const;
+
 	const Character* m_character;
 	const ui::Font* m_portraitFont;
 	const ResourceBarColors* m_barColors;
 	const HitSplatIcons* m_hitSplats; // may be null (icons not loaded)
 	std::function<void()> m_onClick;
 	std::function<void()> m_onRight;
+	std::function<void()> m_onBars;
 	bool m_hot = false;
 	bool m_held = false;      // left-button press latched on this panel
 	bool m_heldRight = false; // right-button press latched on this panel
@@ -193,6 +199,9 @@ public:
 
 	// Which body the sheet shows; the mode buttons under the portrait switch it.
 	enum class Mode { Inventory, Stats, Skills };
+	// Opens the sheet on a specific tab (the party bar uses this: portrait ->
+	// Inventory, the stat bars -> Stats).
+	void SetMode(Mode m) { m_mode = m; }
 
 private:
 	// Design-space rect of doll cell i (an index into the placed-cell table),

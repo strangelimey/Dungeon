@@ -215,6 +215,9 @@ private:
 	// A right-click on member `i`'s portrait: opens the inventory focused on that
 	// member (so a carried tablet can be dropped into their backpack).
 	void OnPortraitRightClick(size_t i);
+	// A click (either button) on member `i`'s stat bars: opens their sheet on the
+	// Stats tab.
+	void OnPortraitBars(size_t i);
 	// A left-click landed on member `i`'s hand `hand`: place the held tablet
 	// there (swapping any occupant onto the cursor), else pick the hand's item up
 	// onto the cursor, else (empty hand, empty cursor) nothing happens (for now).

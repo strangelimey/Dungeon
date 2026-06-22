@@ -53,29 +53,50 @@ CharacterPanel::CharacterPanel(const gfx::Rect& rect, const Character* character
 							   const ResourceBarColors* barColors,
 							   const HitSplatIcons* hitSplats,
 							   std::function<void()> onClick,
-							   std::function<void()> onRight)
+							   std::function<void()> onRight,
+							   std::function<void()> onBars)
 	: m_character(character), m_portraitFont(portraitFont), m_barColors(barColors),
 	  m_hitSplats(hitSplats), m_onClick(std::move(onClick)),
-	  m_onRight(std::move(onRight)) {
+	  m_onRight(std::move(onRight)), m_onBars(std::move(onBars)) {
 	bounds = rect;
+}
+
+// The stat-bar strip: right of the portrait, below the name (mirrors Draw's
+// layout so the click target matches what's drawn).
+gfx::Rect CharacterPanel::BarsRect(ui::UIContext& ctx) const {
+	const gfx::Rect& px = Pixel();
+	const float pad = px.h * 0.08f;
+	const float left = px.x + pad + (px.h - 2 * pad) + pad; // past the portrait
+	const float right = px.x + px.w - pad;
+	const float barsTop = px.y + pad + ctx.GetFont().LineAdvance() + 2.0f;
+	const float barsBottom = px.y + px.h - pad;
+	return {left, barsTop, right - left, barsBottom - barsTop};
 }
 
 void CharacterPanel::Update(ui::UIContext& ctx) {
 	const Input* input = ctx.CurrentInput();
 	if (!input) return;
-	m_hot = !ctx.IsMouseConsumed() &&
-			Pixel().Contains(input->MouseX(), input->MouseY());
+	const float mx = input->MouseX(), my = input->MouseY();
+	m_hot = !ctx.IsMouseConsumed() && Pixel().Contains(mx, my);
 	if (m_hot) {
 		if (input->WasMousePressed(MouseButton::Left)) m_held = true;
 		if (input->WasMousePressed(MouseButton::Right)) m_heldRight = true;
 		ctx.ConsumeMouse();
 	}
+	// A click over the stat bars (either button) opens the Stats tab; elsewhere on
+	// the panel keeps the portrait actions (left = sheet/stow, right = backpack).
 	if (m_held && input->WasMouseReleased(MouseButton::Left)) {
-		if (m_hot && m_onClick) m_onClick();
+		if (m_hot) {
+			if (BarsRect(ctx).Contains(mx, my) && m_onBars) m_onBars();
+			else if (m_onClick) m_onClick();
+		}
 		m_held = false;
 	}
 	if (m_heldRight && input->WasMouseReleased(MouseButton::Right)) {
-		if (m_hot && m_onRight) m_onRight();
+		if (m_hot) {
+			if (BarsRect(ctx).Contains(mx, my) && m_onBars) m_onBars();
+			else if (m_onRight) m_onRight();
+		}
 		m_heldRight = false;
 	}
 }

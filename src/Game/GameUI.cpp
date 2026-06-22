@@ -121,13 +121,23 @@ void GameUI::OnPortraitClick(size_t i) {
 		}
 		return;
 	}
-	onOpenSheet(i);
+	onOpenSheet(i); // synchronous (Game sets state + ShowSheet)
+	m_sheet->SetMode(CharacterSheet::Mode::Inventory);
 }
 
 // Right-click a portrait ALWAYS opens that member's backpack (sheet), whether or
 // not an item is carried — so a held item can be placed into a specific slot.
 void GameUI::OnPortraitRightClick(size_t i) {
-	if (i < m_characters.size()) onOpenSheet(i);
+	if (i >= m_characters.size()) return;
+	onOpenSheet(i);
+	m_sheet->SetMode(CharacterSheet::Mode::Inventory);
+}
+
+// A click on the stat bars opens the sheet on the Stats tab.
+void GameUI::OnPortraitBars(size_t i) {
+	if (i >= m_characters.size()) return;
+	onOpenSheet(i);
+	m_sheet->SetMode(CharacterSheet::Mode::Stats);
 }
 
 void GameUI::OnHandLeftClick(size_t i, size_t hand) {
@@ -1067,7 +1077,8 @@ void GameUI::BuildHud() {
 		auto* panel = m_hudUi.Add<CharacterPanel>(
 			gfx::Rect{}, &m_characters[i], &m_titleFont, &m_settings.barColors,
 			m_hitSplats, [this, i] { OnPortraitClick(i); },
-			[this, i] { OnPortraitRightClick(i); });
+			[this, i] { OnPortraitRightClick(i); },
+			[this, i] { OnPortraitBars(i); });
 		panel->backgroundOpacity = m_settings.partyBarOpacity;
 		m_partyPanels.push_back(panel);
 	}
