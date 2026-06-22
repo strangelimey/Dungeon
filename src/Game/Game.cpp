@@ -919,7 +919,7 @@ void Game::SaveGame(const std::string& name) {
 	data.timestamp = std::format("{:%Y-%m-%d %H:%M:%S}",
 								 std::chrono::floor<std::chrono::seconds>(
 									 std::chrono::system_clock::now()));
-	// A tablet on the cursor is party-level state — save it as such, leaving the
+	// An item on the cursor is party-level state — save it as such, leaving the
 	// live session's held item untouched (restored to the cursor on load).
 	if (m_heldItem) data.heldItem = *m_heldItem;
 

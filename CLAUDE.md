@@ -140,6 +140,20 @@ buffer, reused across all ~25 submissions).
   convention, not a map record (override: -Materials list skips props, -All
   for everything — slow, hundreds of BC7 bakes; -Resolutions 1k,2k,4k). A
   full pre-history-rewrite git bundle also lives there.
+  - Mixed source formats: Poly Haven / FreePBR ship loose PNG/JPG maps the
+    importer reads directly. textures.com PBR sets instead ship TIFF (8/16-bit),
+    which stb_image (the C++ importer) can't read. FetchTextures handles this
+    transparently: a material folder containing any .tif/.tiff is staged to PNG
+    first (Convert-TiffMaps, WIC/PresentationCore, bit depth preserved so a
+    16-bit height map round-trips as a 16-bit PNG for stbi_load_16) into %TEMP%\
+    DungeonTexImport\, leaving the OneDrive archive pristine, and imported with
+    --flip-green (textures.com normals are OpenGL but their filenames lack the
+    'gl' token the importer auto-detects; Poly Haven '_nor_gl' still auto-flips).
+    textures.com download notes: pick the flat PBR maps (Albedo/Normal/Height/
+    Roughness/AO), NOT the .sbsar Substance file (procedural, unreadable) and
+    NOT the "Regular Photos" (diffuse-only JPG, no relief). Map filenames match
+    DiscoverMaps substrings as-is; stone has no metallic map (importer defaults
+    metal=0).
 - Maps are two files per level, split static vs dynamic for the future
   save system (saves will only ever store the dynamic side):
   - assets/maps/level1.map — STATIC layer (DungeonMap): ASCII grid, ';'

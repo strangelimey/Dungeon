@@ -15,6 +15,14 @@
 # Use -Materials to pull specific sets by name (props are skipped then), or
 # -All for the whole archive (hundreds of sets - the BC7 bake takes a while).
 #
+# Mixed source formats: Poly Haven / FreePBR sets ship loose PNG/JPG maps the
+# importer reads directly. textures.com PBR sets instead ship TIFF (8/16-bit),
+# which the C++ importer's stb_image cannot read - so a folder containing any
+# TIFF is staged to PNG first (Convert-TiffMaps, WIC-based, bit depth preserved
+# so a 16-bit height map stays 16-bit for stbi_load_16) and imported with
+# --flip-green (textures.com normals are OpenGL but their filenames lack the
+# 'gl' token the importer auto-detects).
+#
 # Usage:  powershell -File tools\FetchTextures.ps1 [-Resolutions 1k,2k,4k]
 #                    [-Materials name1,name2,...] [-All]
 
@@ -35,6 +43,48 @@ if (-not (Test-Path $archive)) { throw "Asset archive not found: $archive" }
 $baker = Join-Path $repo "build\release\bin\AssetBaker.exe"
 if (-not (Test-Path $baker)) { $baker = Join-Path $repo "build\debug\bin\AssetBaker.exe" }
 if (-not (Test-Path $baker)) { throw "Build AssetBaker first (build.cmd release)" }
+
+# TIFF -> PNG staging for textures.com sets (see header). WIC (PresentationCore)
+# decodes the TIFF and re-encodes PNG preserving the source pixel format, so a
+# 16-bit grayscale height map round-trips as a 16-bit PNG. Returns the directory
+# to import from plus whether the set needs a forced green-channel flip: a folder
+# with no TIFFs imports in place (Poly Haven / FreePBR, unchanged); a folder with
+# TIFFs is a textures.com set, staged to PNG and flagged for --flip-green.
+Add-Type -AssemblyName PresentationCore
+function Convert-TiffMaps {
+    param([string] $srcDir)
+
+    $tiffs = Get-ChildItem -Path $srcDir -File | Where-Object { $_.Extension -match '^\.tiff?$' }
+    if ($tiffs.Count -eq 0) {
+        return [pscustomobject]@{ Dir = $srcDir; ForceFlipGreen = $false }
+    }
+
+    $stage = Join-Path $env:TEMP ("DungeonTexImport\" + (Split-Path $srcDir -Leaf))
+    if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
+    New-Item -ItemType Directory -Force -Path $stage | Out-Null
+
+    foreach ($tif in $tiffs) {
+        $out = Join-Path $stage ($tif.BaseName + ".png")
+        $ins = [System.IO.File]::OpenRead($tif.FullName)
+        try {
+            $dec = New-Object System.Windows.Media.Imaging.TiffBitmapDecoder($ins,
+                [System.Windows.Media.Imaging.BitmapCreateOptions]::PreservePixelFormat,
+                [System.Windows.Media.Imaging.BitmapCacheOption]::OnLoad)
+            $enc = New-Object System.Windows.Media.Imaging.PngBitmapEncoder
+            $enc.Frames.Add([System.Windows.Media.Imaging.BitmapFrame]::Create($dec.Frames[0]))
+            $outs = [System.IO.File]::Create($out)
+            try { $enc.Save($outs) } finally { $outs.Close() }
+        } finally { $ins.Close() }
+    }
+
+    # Carry over any maps that already ship as PNG/JPG (mixed-format folders).
+    Get-ChildItem -Path $srcDir -File |
+        Where-Object { $_.Extension -match '^\.(png|jpe?g)$' } |
+        ForEach-Object { Copy-Item $_.FullName (Join-Path $stage $_.Name) -Force }
+
+    Write-Host "  staged $($tiffs.Count) TIFF map(s) -> PNG"
+    return [pscustomobject]@{ Dir = $stage; ForceFlipGreen = $true }
+}
 
 # The wanted set: explicit names, plus every set the levels reference.
 $wanted = [System.Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
@@ -61,7 +111,10 @@ foreach ($res in $Resolutions) {
             if (-not $All -and -not $wanted.Contains($materialDir.Name)) { continue }
             $name = "$($materialDir.Name)_$res"
             Write-Host "Importing $name..."
-            & $baker import $materialDir.FullName $assets $name
+            $conv = Convert-TiffMaps $materialDir.FullName
+            $bakerArgs = @('import', $conv.Dir, $assets, $name)
+            if ($conv.ForceFlipGreen) { $bakerArgs += '--flip-green' }
+            & $baker @bakerArgs
             if ($LASTEXITCODE -ne 0) { throw "Import failed for $name" }
             $imported++
         }
@@ -95,7 +148,8 @@ if ($Materials.Count -eq 0) {
         $src = Join-Path (Join-Path $archive "2k") $prop.Src
         if (-not (Test-Path $src)) { Write-Host "  $($prop.Src) missing - skipped"; continue }
         Write-Host "Importing $($prop.Name)_2k..."
-        & $baker import $src $assets "$($prop.Name)_2k" --flip-green
+        $conv = Convert-TiffMaps $src
+        & $baker import $conv.Dir $assets "$($prop.Name)_2k" --flip-green
         if ($LASTEXITCODE -ne 0) { throw "Import failed for $($prop.Name)_2k" }
         $imported++
     }
