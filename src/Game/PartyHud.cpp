@@ -356,11 +356,12 @@ constexpr int kDollCellCount = static_cast<int>(sizeof(kDollCells) /
 
 // --- pack row + backpack grid (right) ---
 // The pack-row (containers) sits at kPackRowY, level with the doll's head row;
-// the SELECTED pack's contents fill the grid that starts lower at kPackY.
+// the SELECTED pack's contents fill the grid below, set a full empty row lower
+// so the top row reads clearly as packs (not the pack's contents).
 constexpr float kPackSlot = 72.0f, kPackX = 430.0f;
-constexpr float kPackRowY = 210.0f; // the pack-row (one row of kPackRowSlots)
-constexpr float kPackY = 300.0f;    // backpack-contents grid (below the pack row)
 constexpr int kPackCols = 4; // backpack laid out 4 wide
+constexpr float kPackRowY = 210.0f; // the pack-row (one row of kPackRowSlots)
+constexpr float kPackY = kPackRowY + 2.0f * (kPackSlot + kSlotGap); // contents grid
 
 // --- mode toggle buttons (Inventory / Stats / Skills), a row under the portrait
 constexpr int kModeCount = 3;
