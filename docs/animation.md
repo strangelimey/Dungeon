@@ -111,9 +111,14 @@ removal). `ClipDuration` gates a clip request to what the model actually has, so
 missing clip silently leaves idle playing (no warning spam, no pop). Render +
 shadow gates updated to keep a dying monster on-screen while `deathAnim > 0`.
 
-**Goal 3 (procedural clips) — DONE for the humanoid, verified.** `walk`/`attack`/
-`die` authored in `tools/AssetBaker/ModelBaker.cpp` (`BuildHumanoid`), so skeleton
-+ mummy bake 4 clips each (blob keeps its squash idle; it can get walk/die later).
+**Goal 3 (procedural clips) — DONE, verified.** `walk`/`attack`/`die` authored in
+`tools/AssetBaker/ModelBaker.cpp` for both rigs, so skeleton + mummy + blob all
+bake 4 clips each. Humanoid (`BuildHumanoid`): leg/arm/spine articulation (below).
+Blob (`BuildBlob`): pure squash-and-stretch since the 2-joint base/top rig never
+turns — walk is a bouncing ooze (squashed+low → tall+hopped, loops), attack a
+vertical pounce (gather → rear up → slam flat, one-shot), die a deflate to a wide
+flat puddle with the top collapsing onto the base (one-shot, holds). Verified
+in-game (docs/anim_v_blob_*.png).
 
 **Rig upgrade — DONE, verified.** The humanoid rig went from 7 joints (whole-limb
 rigid struts) to **15 joints**: torso (root/spine/head, indices 0/1/2 kept) plus

@@ -11,7 +11,8 @@
 //   * monsters — skeleton & mummy share a 15-joint humanoid rig (torso +
 //     three-joint arms shoulder/elbow/wrist & legs hip/knee/ankle) with
 //     segmented tapered-tube bones, ball joints, a skull, and idle/walk/attack/
-//     die clips; the blob is a 2-joint lumpy sphere with a squash clip
+//     die clips; the blob is a 2-joint lumpy sphere with squash-based idle/
+//     walk/attack/die clips
 //
 // Geometry helpers: AddBox / AddRevolution (vertical axis) / AddStrut (a
 // tapered tube between two arbitrary points — splayed legs, forged arms,
@@ -32,7 +33,9 @@
 #include <cmath>
 #include <format>
 #include <functional>
+#include <initializer_list>
 #include <string>
+#include <utility>
 #include <vector>
 
 using namespace DirectX;
@@ -1459,6 +1462,90 @@ assets::ModelData BuildBlob() {
 		clip.channels.push_back(std::move(ch));
 	}
 	model.clips.push_back(std::move(clip));
+
+	// walk / attack / die for the blob — pure squash-and-stretch (+ a base hop),
+	// since the rig is just base/top and the blob never turns to face. Consumed
+	// by the monster animation state machine the same way as the humanoid clips.
+	const float tau = 2.0f * kPi;
+	// Volume-ish squash from a single width signal a (a>0 = wide + short).
+	auto squash = [](float a) -> Vec4 { return {1.0f + a, 1.0f - 1.25f * a, 1.0f + a, 0}; };
+	// Explicit-keyframe channel (non-uniform times are fine; the sampler brackets).
+	auto chanKeys = [](assets::AnimationClipData& c, int joint, assets::ChannelPath path,
+					   std::initializer_list<std::pair<float, Vec4>> keys) {
+		assets::AnimationChannelData ch;
+		ch.joint = joint;
+		ch.path = path;
+		for (const auto& [t, v] : keys) { ch.times.push_back(c.duration * t); ch.values.push_back(v); }
+		c.channels.push_back(std::move(ch));
+	};
+
+	{ // walk: a bouncing ooze — squashed + low, then tall + hopped up. Loops.
+		assets::AnimationClipData walk;
+		walk.name = "walk";
+		walk.duration = 0.6f;
+		constexpr int K = 21;
+		auto scaleCh = [&](int joint, float amp, float ph) {
+			assets::AnimationChannelData ch;
+			ch.joint = joint;
+			ch.path = assets::ChannelPath::Scale;
+			for (int k = 0; k < K; ++k) {
+				const float u = static_cast<float>(k) / (K - 1);
+				ch.times.push_back(walk.duration * u);
+				ch.values.push_back(squash(amp * std::cos(tau * u + ph)));
+			}
+			walk.channels.push_back(std::move(ch));
+		};
+		scaleCh(0, 0.13f, 0.0f);
+		scaleCh(1, 0.11f, -0.6f); // top lags the base -> jelly follow-through
+		{ // base hop around the 0.18 rest height; peaks when stretched (u=0.5)
+			assets::AnimationChannelData ch;
+			ch.joint = 0;
+			ch.path = assets::ChannelPath::Translation;
+			for (int k = 0; k < K; ++k) {
+				const float u = static_cast<float>(k) / (K - 1);
+				ch.times.push_back(walk.duration * u);
+				ch.values.push_back({0, 0.18f + 0.05f * (0.5f - 0.5f * std::cos(tau * u)), 0, 0});
+			}
+			walk.channels.push_back(std::move(ch));
+		}
+		model.clips.push_back(std::move(walk));
+	}
+
+	{ // attack: gather, rear up tall, then slam flat — a vertical pounce. One-shot.
+		assets::AnimationClipData atk;
+		atk.name = "attack";
+		atk.duration = 0.5f;
+		chanKeys(atk, 0, assets::ChannelPath::Scale,
+				 {{0.0f, {1, 1, 1, 0}}, {0.18f, {1.18f, 0.78f, 1.18f, 0}},
+				  {0.40f, {0.80f, 1.35f, 0.80f, 0}}, {0.60f, {1.30f, 0.66f, 1.30f, 0}},
+				  {0.80f, {0.96f, 1.06f, 0.96f, 0}}, {1.0f, {1, 1, 1, 0}}});
+		chanKeys(atk, 0, assets::ChannelPath::Translation,
+				 {{0.0f, {0, 0.18f, 0, 0}}, {0.18f, {0, 0.12f, 0, 0}},
+				  {0.40f, {0, 0.34f, 0, 0}}, {0.60f, {0, 0.07f, 0, 0}},
+				  {0.80f, {0, 0.20f, 0, 0}}, {1.0f, {0, 0.18f, 0, 0}}});
+		chanKeys(atk, 1, assets::ChannelPath::Scale,
+				 {{0.0f, {1, 1, 1, 0}}, {0.45f, {0.85f, 1.25f, 0.85f, 0}},
+				  {0.65f, {1.25f, 0.72f, 1.25f, 0}}, {1.0f, {1, 1, 1, 0}}});
+		model.clips.push_back(std::move(atk));
+	}
+
+	{ // die: deflate — spread wide and flat, the top collapsing into the base,
+	  // sinking to a puddle. One-shot, holds the puddle.
+		assets::AnimationClipData die;
+		die.name = "die";
+		die.duration = 0.85f;
+		chanKeys(die, 0, assets::ChannelPath::Scale,
+				 {{0.0f, {1, 1, 1, 0}}, {0.30f, {1.18f, 0.66f, 1.18f, 0}},
+				  {0.65f, {1.5f, 0.30f, 1.5f, 0}}, {1.0f, {1.7f, 0.16f, 1.7f, 0}}});
+		chanKeys(die, 0, assets::ChannelPath::Translation,
+				 {{0.0f, {0, 0.18f, 0, 0}}, {1.0f, {0, 0.05f, 0, 0}}});
+		chanKeys(die, 1, assets::ChannelPath::Scale,
+				 {{0.0f, {1, 1, 1, 0}}, {1.0f, {1.4f, 0.25f, 1.4f, 0}}});
+		chanKeys(die, 1, assets::ChannelPath::Translation, // top sinks onto the base
+				 {{0.0f, {0, 0.45f, 0, 0}}, {1.0f, {0, 0.10f, 0, 0}}});
+		model.clips.push_back(std::move(die));
+	}
+
 	return model;
 }
 
