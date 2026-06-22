@@ -69,6 +69,14 @@ inline constexpr const char* kEquipLabels[kEquipCount] = {
 	"equip.amulet", "equip.hand",   "equip.hand", "equip.ring", "equip.ring",
 };
 
+// Outline-silhouette key for each equipment slot, parallel to EquipSlot (the
+// sheet draws assets/textures/slot_<key>.png as the empty slot's ghost). Both
+// hands share "hand"; both rings share "ring".
+inline constexpr const char* kEquipIcon[kEquipCount] = {
+	"head", "body",   "legs", "feet", "cloak",
+	"amulet", "hand", "hand", "ring", "ring",
+};
+
 struct Inventory {
 	std::array<ItemSlot, kEquipCount> equipment; // worn/held, indexed by EquipSlot
 	// The pack-row containers; slot 0 is seeded with the starting backpack. The

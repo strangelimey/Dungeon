@@ -92,6 +92,7 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	m_ui.SetHitSplats(&m_hitSplats);  // stable address; LoadHitSplats fills it in
 	m_ui.SetItemIcons(&m_itemIcons);    // stable; LoadItemIcons fills it in
 	m_ui.SetItemWeights(&m_itemWeights); // stable; LoadItemIcons fills it in
+	m_ui.SetSlotIcons(&m_slotIcons);     // stable; LoadItemIcons fills it in
 	m_ui.SetHeldItem(&m_heldItem);    // cursor icon reads the held catalog id
 
 	WireModuleCallbacks();
@@ -850,6 +851,21 @@ void Game::LoadItemIcons() {
 	m_itemWeights.byType.clear();
 	for (const CatalogEntry& def : m_project.items.Entries())
 		m_itemWeights.byType[def.id] = def.GetFloat("weight", 0.0f);
+
+	// Equipment-slot outline silhouettes (slot_<type>.png), the ghost behind an
+	// empty doll slot. PNG only, like the rune icons; a missing one just draws no
+	// ghost for that slot.
+	for (const char* type : {"head", "body", "legs", "feet", "cloak", "amulet",
+							 "hand", "ring"}) {
+		auto tex = TryLoadTextureFile(
+			m_device, paths::Asset(std::format("textures\\slot_{}", type)));
+		if (!tex) {
+			log::Warn("missing slot_{}.png — no empty-slot outline", type);
+			continue;
+		}
+		m_slotIconTextures.push_back(std::move(tex));
+		m_slotIcons.byType[type] = m_slotIconTextures.back().get();
+	}
 }
 
 // ============================================================================

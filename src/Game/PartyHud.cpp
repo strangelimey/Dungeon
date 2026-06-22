@@ -374,14 +374,15 @@ CharacterSheet::CharacterSheet(const gfx::Rect& rect, const ui::Font* portraitFo
 							   const ResourceBarColors* barColors,
 							   const ItemIconBank* icons,
 							   const ItemWeightBank* weights,
+							   const ItemIconBank* slotIcons,
 							   std::optional<std::string>* held)
 	: m_portraitFont(portraitFont), m_barColors(barColors), m_icons(icons),
-	  m_weights(weights), m_held(held), m_healthLabel(loc::Tr("bar.health")),
+	  m_weights(weights), m_slotIcons(slotIcons), m_held(held),
+	  m_healthLabel(loc::Tr("bar.health")),
 	  m_staminaLabel(loc::Tr("bar.stamina")), m_manaLabel(loc::Tr("bar.mana")),
 	  m_attributesLabel(loc::Tr("sheet.attributes")),
 	  m_skillsLabel(loc::Tr("sheet.skills")), m_noSkills(loc::Tr("sheet.no_skills")) {
 	bounds = rect;
-	for (int i = 0; i < kEquipCount; ++i) m_equipLabels[i] = loc::Tr(kEquipLabels[i]);
 	m_attrLabels = {loc::Tr("attr.strength"), loc::Tr("attr.dexterity"),
 					loc::Tr("attr.vitality"), loc::Tr("attr.willpower"),
 					loc::Tr("attr.intelligence")};
@@ -582,11 +583,15 @@ void CharacterSheet::DrawInventory(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 		ui::DrawBorder(batch, r, theme.panelBorder);
 		const ItemSlot& s = m_character->inventory.equipment[slot];
 		if (s.Empty()) {
-			// Empty slot shows its name so the doll reads even with no gear.
-			const std::string& label = m_equipLabels[slot];
-			const float lw = font.MeasureWidth(label);
-			font.Draw(batch, label, r.x + (r.w - lw) * 0.5f,
-					  r.y + (r.h - font.Height()) * 0.5f, theme.textDim);
+			// Empty slot shows a faint outline silhouette of its type (head/body/
+			// …) so the doll reads at a glance; an equipped item covers it.
+			if (m_slotIcons) {
+				if (const gfx::Texture* o = m_slotIcons->For(kEquipIcon[slot])) {
+					const float p = r.w * 0.12f;
+					batch.DrawSprite({r.x + p, r.y + p, r.w - 2 * p, r.h - 2 * p},
+									 {0, 0, 1, 1}, *o, {1, 1, 1, 0.5f});
+				}
+			}
 		} else if (m_icons) {
 			if (const gfx::Texture* icon = m_icons->For(s.typeId)) {
 				const float p = r.w * 0.1f;

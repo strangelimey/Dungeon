@@ -102,6 +102,9 @@ public:
 	// Item carry weights (catalog id → kg), owned by Game; the sheet sums them
 	// into a member's carry load. Stable address; set once.
 	void SetItemWeights(const ItemWeightBank* weights) { m_itemWeights = weights; }
+	// Equipment-slot outline silhouettes (slot type → texture), owned by Game; the
+	// sheet draws them behind empty doll slots. Stable address; set once.
+	void SetSlotIcons(const ItemIconBank* icons) { m_slotIcons = icons; }
 	// The cursor-carried item (Game's m_heldItem). RenderHud paints its icon at
 	// the mouse, and the held-aware portrait/hand handlers place INTO and pick
 	// OUT OF it, so the pointer is mutable. Address stable; value read/written live.
@@ -337,6 +340,7 @@ private:
 	const HitSplatIcons* m_hitSplats = nullptr; // hit-feedback icons (Game-owned)
 	const ItemIconBank* m_itemIcons = nullptr;  // item icons (Game-owned)
 	const ItemWeightBank* m_itemWeights = nullptr; // item carry weights (Game-owned)
+	const ItemIconBank* m_slotIcons = nullptr;  // equipment-slot outlines (Game-owned)
 	// Cursor-carried item (Game owns the storage; placement handlers mutate it)
 	// + the last HUD mouse position (stashed in UpdateHud so RenderHud can draw
 	// the held icon, which has no Input).

@@ -211,6 +211,10 @@ private:
 	std::vector<std::unique_ptr<gfx::Texture>> m_itemIconPlaceholders;
 	ItemIconBank m_itemIcons;
 	ItemWeightBank m_itemWeights; // catalog id → carry weight (kg), for the sheet
+	// Equipment-slot outline silhouettes (slot type → texture), drawn as the
+	// ghost behind an empty doll slot. Filled by LoadItemIcons from slot_*.png.
+	std::vector<std::unique_ptr<gfx::Texture>> m_slotIconTextures;
+	ItemIconBank m_slotIcons;
 	// The item currently carried on the cursor (its catalog id), or empty. Set by
 	// clicking a floor tablet; cleared by dropping it (world / portrait / hand /
 	// inventory). GameUI reads the address to draw the cursor icon.

@@ -189,7 +189,8 @@ class CharacterSheet : public ui::Widget {
 public:
 	CharacterSheet(const gfx::Rect& rect, const ui::Font* portraitFont,
 				   const ResourceBarColors* barColors, const ItemIconBank* icons,
-				   const ItemWeightBank* weights, std::optional<std::string>* held);
+				   const ItemWeightBank* weights, const ItemIconBank* slotIcons,
+				   std::optional<std::string>* held);
 
 	// Re-points the sheet (mutable, for inventory edits) and caches strings.
 	void SetCharacter(Character& character);
@@ -229,6 +230,7 @@ private:
 	const ResourceBarColors* m_barColors;
 	const ItemIconBank* m_icons;
 	const ItemWeightBank* m_weights;
+	const ItemIconBank* m_slotIcons; // equipment-slot outline silhouettes
 	std::optional<std::string>* m_held;
 	Mode m_mode = Mode::Inventory;
 	int m_hotMode = -1; // mode button under the cursor (Update → Draw), -1 = none
@@ -239,7 +241,6 @@ private:
 	std::string m_healthLabel, m_staminaLabel, m_manaLabel;
 	std::string m_attributesLabel, m_skillsLabel, m_noSkills;
 	std::array<std::string, 5> m_attrLabels;            // localized attribute names
-	std::array<std::string, kEquipCount> m_equipLabels; // localized slot names
 };
 
 } // namespace dungeon::game
