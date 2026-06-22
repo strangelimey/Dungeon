@@ -1,8 +1,8 @@
 # Generates equipment-slot outline silhouettes (head/body/legs/feet/cloak/
 # amulet/hand/ring) as transparent PNGs for the inventory doll's empty slots.
 # Outline only (a "ghost" the equipped item's icon later covers). Run from repo;
-# writes assets/textures/slot_<type>.png. Also writes a montage for review.
-param([string]$OutDir = "$PSScriptRoot\..\assets\textures")
+# writes assets/ui/slot_<type>.png. Also writes a montage for review.
+param([string]$OutDir = "$PSScriptRoot\..\assets\ui")
 
 Add-Type -AssemblyName System.Drawing
 $S = 100  # canvas size

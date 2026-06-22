@@ -834,7 +834,7 @@ void Game::LoadItemIcons() {
 		const auto sym = static_cast<SpellSymbol>(i);
 		const std::string id = RuneItemId(sym);
 		m_runeIconTextures[i] = TryLoadTextureFile(
-			m_device, paths::Asset(std::format("textures\\rune_icon_{}", SymbolId(sym))));
+			m_device, paths::Asset(std::format("ui\\rune_icon_{}", SymbolId(sym))));
 		if (!m_runeIconTextures[i])
 			log::Warn("missing rune_icon_{}.png — no cursor icon", SymbolId(sym));
 		m_itemIcons.byType[id] = m_runeIconTextures[i].get();
@@ -858,7 +858,7 @@ void Game::LoadItemIcons() {
 	for (const char* type : {"head", "body", "legs", "feet", "cloak", "amulet",
 							 "hand", "ring"}) {
 		auto tex = TryLoadTextureFile(
-			m_device, paths::Asset(std::format("textures\\slot_{}", type)));
+			m_device, paths::Asset(std::format("ui\\slot_{}", type)));
 		if (!tex) {
 			log::Warn("missing slot_{}.png — no empty-slot outline", type);
 			continue;

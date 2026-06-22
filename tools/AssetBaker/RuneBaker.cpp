@@ -32,6 +32,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -285,7 +286,7 @@ float TileMask(float u, float v) {
 	return std::clamp(-outside / (1.5f / kIconSize), 0.0f, 1.0f);
 }
 
-bool BakeRuneIcon(const std::string& texturesDir, const RuneSpec& r) {
+bool BakeRuneIcon(const std::string& uiDir, const RuneSpec& r) {
 	const u32 n = kIconSize;
 	std::vector<u8> rgba(static_cast<size_t>(n) * n * 4);
 	for (u32 y = 0; y < n; ++y) {
@@ -307,7 +308,7 @@ bool BakeRuneIcon(const std::string& texturesDir, const RuneSpec& r) {
 			rgba[i + 3] = ToU8(mask);
 		}
 	}
-	return SaveRgba(texturesDir + "\\rune_icon_" + r.elem + ".png", n, rgba);
+	return SaveRgba(uiDir + "\\rune_icon_" + r.elem + ".png", n, rgba);
 }
 
 // --- tablet model ------------------------------------------------------------
@@ -426,6 +427,8 @@ assets::ModelData BuildRuneTablet() {
 bool BakeRunes(const std::string& assetsDir) {
 	const std::string models = assetsDir + "\\models";
 	const std::string textures = assetsDir + "\\textures";
+	const std::string ui = assetsDir + "\\ui"; // rune_icon_*.png (UI icons) live here
+	std::filesystem::create_directories(ui);
 	bool ok = WriteGltf(BuildRuneTablet(), models + "\\rune_tablet.gltf");
 	const StoneMaps stone = LoadStoneMaps(textures);
 	u32 seed = 2200u;
@@ -435,7 +438,7 @@ bool BakeRunes(const std::string& assetsDir) {
 	const float offsets[4][2] = {{0.0f, 0.0f}, {0.5f, 0.13f}, {0.21f, 0.57f}, {0.63f, 0.38f}};
 	for (const RuneSpec& r : kRunes) {
 		ok &= BakeRuneTextureSet(textures, r, seed, stone, offsets[e][0], offsets[e][1]);
-		ok &= BakeRuneIcon(textures, r);
+		ok &= BakeRuneIcon(ui, r);
 		seed += 31u;
 		++e;
 	}
