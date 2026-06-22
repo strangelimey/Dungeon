@@ -694,9 +694,13 @@ void DungeonWorld::UpdateMonsters(float dt) {
 									 partyPos.z - monster.visualPos.z);
 
 		// Live adjacency to the party drives the swing (the monster hits whoever is
-		// actually next to it, not its possibly-stale chase target).
-		const int liveDist = std::max(std::abs(monster.x - m_party.GridX()),
-									  std::abs(monster.z - m_party.GridZ()));
+		// actually next to it, not its possibly-stale chase target). MANHATTAN
+		// distance, so only the 4 orthogonal neighbours count as adjacent — a
+		// monster left on a diagonal (e.g. the party strafed) doesn't swing across
+		// the corner; it re-paths to an orthogonal cell first, matching the party,
+		// who can only strike the cell straight ahead.
+		const int liveDist = std::abs(monster.x - m_party.GridX()) +
+							 std::abs(monster.z - m_party.GridZ());
 
 		// Announce once, when the party is actually adjacent.
 		if (!monster.announced && liveDist <= 1) {
