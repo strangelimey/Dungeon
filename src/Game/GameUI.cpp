@@ -104,13 +104,28 @@ void GameUI::Click(float volume) { m_audio.Play(m_sounds.click, volume); }
 // The HandSlot/CharacterPanel already consumed the mouse, so the world won't
 // also treat these clicks as a drop.
 
-// Either mouse button on a portrait opens that member's sheet — which is the
-// inventory now, so a carried tablet is dropped into its equipment/backpack
-// slots there (rather than auto-stowing).
+// Left-click a portrait: while CARRYING an item, quick-stow it into that
+// member's first free backpack slot (right-click instead opens the backpack to
+// place it precisely); empty-handed, it opens the member's sheet.
 void GameUI::OnPortraitClick(size_t i) {
-	if (i < m_characters.size()) onOpenSheet(i);
+	if (i >= m_characters.size()) return;
+	if (Holding()) {
+		Character& c = m_characters[i];
+		if (c.inventory.AddToBackpack(**m_held)) {
+			AddLogLine(loc::Format("log.stow", c.name,
+								   loc::Tr(std::format("item.{}", **m_held))));
+			m_held->reset();
+			Click();
+		} else {
+			AddLogLine(loc::Tr("log.pack_full")); // full — keep carrying it
+		}
+		return;
+	}
+	onOpenSheet(i);
 }
 
+// Right-click a portrait ALWAYS opens that member's backpack (sheet), whether or
+// not an item is carried — so a held item can be placed into a specific slot.
 void GameUI::OnPortraitRightClick(size_t i) {
 	if (i < m_characters.size()) onOpenSheet(i);
 }

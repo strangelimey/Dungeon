@@ -167,6 +167,7 @@ log.party_wipe=The party has been slain. Darkness takes you.
 log.take_rune=You take the {}.
 log.drop_rune=You set down the {}.
 log.pack_full=The pack is full.
+log.stow={} stows the {} in their pack.
 log.memorize={} commits the {} rune to memory.
 log.eat={} eats the {}.
 ; --- casting ({0}=caster {1}=spell/target {2}=damage) ---
