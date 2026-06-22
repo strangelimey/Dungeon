@@ -1331,15 +1331,15 @@ assets::ModelData BuildHumanoid(const HumanoidStyle& style) {
 		walk.duration = 0.72f;
 		constexpr int K = 21;
 		const float tau = 2.0f * kPi;
-		rotChan(walk, J_HIPL, K, [&](float u) { return QuatFromEuler(0.5f * std::sin(tau * u), 0, 0); });
-		rotChan(walk, J_HIPR, K, [&](float u) { return QuatFromEuler(0.5f * std::sin(tau * u + kPi), 0, 0); });
-		rotChan(walk, J_KNL, K, [&](float u) { return QuatFromEuler(0.7f * (0.5f - 0.5f * std::cos(tau * u)), 0, 0); });
-		rotChan(walk, J_KNR, K, [&](float u) { return QuatFromEuler(0.7f * (0.5f - 0.5f * std::cos(tau * u + kPi)), 0, 0); });
-		rotChan(walk, J_SHL, K, [&](float u) { return QuatFromEuler(-raise + 0.35f * std::sin(tau * u + kPi), 0, 0); });
-		rotChan(walk, J_SHR, K, [&](float u) { return QuatFromEuler(-raise + 0.35f * std::sin(tau * u), 0, 0); });
-		rotChan(walk, J_ELL, K, [&](float u) { return QuatFromEuler(0.35f + 0.15f * std::sin(tau * u + kPi), 0, 0); });
-		rotChan(walk, J_ELR, K, [&](float u) { return QuatFromEuler(0.35f + 0.15f * std::sin(tau * u), 0, 0); });
-		rootY(walk, K, [&](float u) { return 1.0f + 0.03f * std::sin(2.0f * tau * u); });
+		rotChan(walk, J_HIPL, K, [&](float u) { return QuatFromEuler(0.62f * std::sin(tau * u), 0, 0); });
+		rotChan(walk, J_HIPR, K, [&](float u) { return QuatFromEuler(0.62f * std::sin(tau * u + kPi), 0, 0); });
+		rotChan(walk, J_KNL, K, [&](float u) { return QuatFromEuler(1.05f * (0.5f - 0.5f * std::cos(tau * u)), 0, 0); });
+		rotChan(walk, J_KNR, K, [&](float u) { return QuatFromEuler(1.05f * (0.5f - 0.5f * std::cos(tau * u + kPi)), 0, 0); });
+		rotChan(walk, J_SHL, K, [&](float u) { return QuatFromEuler(-raise + 0.5f * std::sin(tau * u + kPi), 0, 0); });
+		rotChan(walk, J_SHR, K, [&](float u) { return QuatFromEuler(-raise + 0.5f * std::sin(tau * u), 0, 0); });
+		rotChan(walk, J_ELL, K, [&](float u) { return QuatFromEuler(0.4f + 0.25f * std::sin(tau * u + kPi), 0, 0); });
+		rotChan(walk, J_ELR, K, [&](float u) { return QuatFromEuler(0.4f + 0.25f * std::sin(tau * u), 0, 0); });
+		rootY(walk, K, [&](float u) { return 1.0f + 0.045f * std::sin(2.0f * tau * u); });
 		model.clips.push_back(std::move(walk));
 	}
 
@@ -1370,6 +1370,22 @@ assets::ModelData BuildHumanoid(const HumanoidStyle& style) {
 		});
 		// spine leans forward into the strike (peaks at the chop, recovers).
 		rotChan(atk, J_SPINE, K, [&](float u) { return QuatFromEuler(0.5f * std::sin(u * kPi), 0, 0); });
+		{ // root lunges forward into the strike — model +Z is the facing dir, so
+		  // the body steps toward the party as the arm comes down, then recovers.
+			assets::AnimationChannelData ch;
+			ch.joint = J_ROOT;
+			ch.path = assets::ChannelPath::Translation;
+			for (int k = 0; k < K; ++k) {
+				const float u = static_cast<float>(k) / (K - 1);
+				ch.times.push_back(atk.duration * u);
+				float z;
+				if (u < 0.35f)      z = L(0.0f, -0.05f, u / 0.35f);          // tiny anticipation back
+				else if (u < 0.55f) z = L(-0.05f, 0.22f, (u - 0.35f) / 0.20f); // drive forward
+				else                z = L(0.22f, 0.0f, (u - 0.55f) / 0.45f);   // recover
+				ch.values.push_back({0, 1.0f, z, 0});
+			}
+			atk.channels.push_back(std::move(ch));
+		}
 		model.clips.push_back(std::move(atk));
 	}
 
@@ -1501,8 +1517,8 @@ assets::ModelData BuildBlob() {
 			}
 			walk.channels.push_back(std::move(ch));
 		};
-		scaleCh(0, 0.13f, 0.0f);
-		scaleCh(1, 0.11f, -0.6f); // top lags the base -> jelly follow-through
+		scaleCh(0, 0.20f, 0.0f);
+		scaleCh(1, 0.17f, -0.6f); // top lags the base -> jelly follow-through
 		{ // base hop around the 0.18 rest height; peaks when stretched (u=0.5)
 			assets::AnimationChannelData ch;
 			ch.joint = 0;
@@ -1510,7 +1526,7 @@ assets::ModelData BuildBlob() {
 			for (int k = 0; k < K; ++k) {
 				const float u = static_cast<float>(k) / (K - 1);
 				ch.times.push_back(walk.duration * u);
-				ch.values.push_back({0, 0.18f + 0.05f * (0.5f - 0.5f * std::cos(tau * u)), 0, 0});
+				ch.values.push_back({0, 0.18f + 0.08f * (0.5f - 0.5f * std::cos(tau * u)), 0, 0});
 			}
 			walk.channels.push_back(std::move(ch));
 		}
@@ -1522,9 +1538,9 @@ assets::ModelData BuildBlob() {
 		atk.name = "attack";
 		atk.duration = 0.5f;
 		chanKeys(atk, 0, assets::ChannelPath::Scale,
-				 {{0.0f, {1, 1, 1, 0}}, {0.18f, {1.18f, 0.78f, 1.18f, 0}},
-				  {0.40f, {0.80f, 1.35f, 0.80f, 0}}, {0.60f, {1.30f, 0.66f, 1.30f, 0}},
-				  {0.80f, {0.96f, 1.06f, 0.96f, 0}}, {1.0f, {1, 1, 1, 0}}});
+				 {{0.0f, {1, 1, 1, 0}}, {0.18f, {1.25f, 0.70f, 1.25f, 0}},
+				  {0.40f, {0.72f, 1.5f, 0.72f, 0}}, {0.60f, {1.45f, 0.55f, 1.45f, 0}},
+				  {0.80f, {0.94f, 1.08f, 0.94f, 0}}, {1.0f, {1, 1, 1, 0}}});
 		chanKeys(atk, 0, assets::ChannelPath::Translation,
 				 {{0.0f, {0, 0.18f, 0, 0}}, {0.18f, {0, 0.12f, 0, 0}},
 				  {0.40f, {0, 0.34f, 0, 0}}, {0.60f, {0, 0.07f, 0, 0}},
