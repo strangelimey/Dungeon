@@ -142,12 +142,21 @@ void GameUI::OnHandRightClick(size_t i, size_t hand) {
 	if (i >= m_characters.size() || hand > 1) return;
 	const ItemSlot& slot = m_characters[i].inventory.Hand(static_cast<int>(hand));
 	if (slot.Empty() || !m_handMenu) return;
-	// Build the action list for whatever the hand holds. Runes can be memorized.
+	// Build the action menu from the item's data-driven command list (ItemKind::
+	// commands, supplied by Game). Each command id maps to a label + handler here;
+	// an unknown id is skipped (no entry) so adding a command is data + one case.
+	const std::vector<std::string> cmds =
+		itemCommands ? itemCommands(slot.typeId) : std::vector<std::string>{};
 	std::vector<ui::ContextMenu::Entry> entries;
-	SpellSymbol sym;
-	if (RuneSymbolFromItemId(slot.typeId, sym))
-		entries.push_back({loc::Tr("ui.memorize"),
-						   [this, i, hand] { MemorizeFromHand(i, hand); }});
+	for (const std::string& cmd : cmds) {
+		if (cmd == "memorize")
+			entries.push_back({loc::Tr("ui.memorize"),
+							   [this, i, hand] { MemorizeFromHand(i, hand); }});
+		else if (cmd == "eat")
+			entries.push_back({loc::Tr("ui.eat"),
+							   [this, i, hand] { EatFromHand(i, hand); }});
+	}
+	if (entries.empty()) return; // nothing actionable — don't pop an empty menu
 	m_handMenu->Open(m_hudMouseX, m_hudMouseY, std::move(entries));
 }
 
@@ -162,6 +171,23 @@ void GameUI::MemorizeFromHand(size_t i, size_t hand) {
 	AddLogLine(loc::Format("log.memorize", m_characters[i].name,
 						   loc::Tr(SymbolKey(sym))));
 	RefreshSheet(); // the sheet's known symbols may be on screen later
+}
+
+void GameUI::EatFromHand(size_t i, size_t hand) {
+	if (i >= m_characters.size() || hand > 1) return;
+	Character& c = m_characters[i];
+	ItemSlot& slot = c.inventory.Hand(static_cast<int>(hand));
+	if (slot.Empty()) return;
+	// Food restores a fraction of max stamina (scale-independent). A per-food
+	// nutrition value is a future catalog field; flat for this first slice.
+	constexpr float kRestoreFrac = 0.25f;
+	c.stamina = std::min(c.maxStamina, c.stamina + kRestoreFrac * c.maxStamina);
+	// Localized food name by the item.<id> convention (matches ItemKind::nameKey).
+	const std::string foodName = loc::Tr(std::format("item.{}", slot.typeId));
+	slot.Clear(); // the food is consumed
+	Click();
+	AddLogLine(loc::Format("log.eat", c.name, foodName));
+	RefreshSheet(); // stamina bar / carry load on the sheet may be on screen
 }
 
 // ============================================================================

@@ -184,6 +184,11 @@ void Game::WireModuleCallbacks() {
 	m_ui.onHandAttack = [this](size_t member, size_t hand) {
 		m_world.PartyAttack(member, hand);
 	};
+	// The hand right-click menu reads an item's commands from the world's item
+	// kinds (single source — ItemKindFor parses category/command + rune defaults).
+	m_ui.itemCommands = [this](const std::string& id) {
+		return m_world.ItemCommands(id);
+	};
 	m_ui.onKeysChanged = [this] {
 		m_world.GetParty().SetKeys(m_settings.moveKeys);
 	};

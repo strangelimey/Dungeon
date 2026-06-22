@@ -99,6 +99,16 @@ Requirements (collected — planning to follow).
     WM_MOUSEMOVE, Window.cpp) — the sheet opened by clicking a portrait. The
     floor-item pick just needs accurate pixel coords on the 1600x900 client;
     small dim tablets are easy to miss.
+- **Phase 4 — DONE (code), live menu test pending manual.** `OnHandRightClick`
+  is now data-driven: it loops over the item's `ItemKind::commands` (sourced via
+  `DungeonWorld::ItemCommands` → the single `ItemKindFor`), mapping each id to a
+  label + handler — `memorize` (existing) and `eat` (new `EatFromHand`: restores
+  25% max stamina, consumes the item, logs it). Adding a command is now data +
+  one `else if`. New loc: `ui.eat`, `log.eat`. Compiles.
+  - **Not verified live**: getting food into a hand needs a floor pickup, which
+    the screenshot driver can't reliably land (small target). Verify manually:
+    pick up the apple/bread, drop into a hand, right-click the hand → Eat;
+    stamina rises and the slot clears.
 
 ## Gotcha: worktree texture provisioning (cost us a long detour)
 

@@ -152,6 +152,9 @@ public:
 	std::function<void(int)> onTorchPalette;    // HUD torchlight dropdown
 	std::function<void(MoveAction)> onMoveAction; // HUD movement buttons
 	std::function<void(size_t, size_t)> onHandAttack; // HUD hand-slot click (member, hand 0=L/1=R)
+	// The hand right-click menu's command list for an item id (ItemKind::commands),
+	// wired by Game to the world's item kinds — keeps the command source single.
+	std::function<std::vector<std::string>(const std::string&)> itemCommands;
 	std::function<void()> onKeysChanged;        // a movement key was rebound
 	std::function<void()> onLookChanged;        // a mouse-look knob changed (push to Party)
 	// Game tab language dropdown. The receiver must NOT rebuild the UI from
@@ -216,12 +219,15 @@ private:
 	// there (swapping any occupant onto the cursor), else pick the hand's item up
 	// onto the cursor, else (empty hand, empty cursor) nothing happens (for now).
 	void OnHandLeftClick(size_t i, size_t hand);
-	// A right-click on member `i`'s hand `hand`: opens the item's action menu
-	// (for a rune: Memorize). No-op on an empty hand.
+	// A right-click on member `i`'s hand `hand`: opens the item's action menu,
+	// built from the held item's data-driven command list (memorize, eat, ...).
+	// No-op on an empty hand or an item with no commands.
 	void OnHandRightClick(size_t i, size_t hand);
 	// Commits the rune in member `i`'s hand to memory: the symbol is learned and
 	// the tablet consumed.
 	void MemorizeFromHand(size_t i, size_t hand);
+	// Eats the food in member `i`'s hand: restores some stamina, consumes it.
+	void EatFromHand(size_t i, size_t hand);
 	bool Holding() const { return m_held && m_held->has_value(); }
 
 	// Live window/device dimensions as floats (the UI authors in floats and

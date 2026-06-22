@@ -134,6 +134,11 @@ public:
 	// reach, and seen; otherwise on the party's own cell. The tablet snaps to the
 	// quarter slot nearest the hit point. Always succeeds.
 	void DropItemAt(const std::string& typeId, float mx, float my, float w, float h);
+	// The data-driven hand commands for an item id (its ItemKind::commands) — the
+	// single source the HUD's hand right-click menu builds from.
+	const std::vector<std::string>& ItemCommands(const std::string& id) {
+		return ItemKindFor(id).commands;
+	}
 	// The Medium quarter slot (0..3) in cell (cx,cz) whose centre is nearest the
 	// world point (wx,wz) and is NOT already taken by another floor item there
 	// (self excluded by index, -1 = none). Falls back to the geometrically nearest

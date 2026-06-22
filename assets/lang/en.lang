@@ -168,6 +168,7 @@ log.take_rune=You take the {}.
 log.drop_rune=You set down the {}.
 log.pack_full=The pack is full.
 log.memorize={} commits the {} rune to memory.
+log.eat={} eats the {}.
 ; --- casting ({0}=caster {1}=spell/target {2}=damage) ---
 log.cast={} casts {}.
 log.spell_fizzles=The spell fizzles into nothing.
@@ -183,6 +184,7 @@ spell.gust=Gust
 spell.splash=Splash
 spell.firebolt=Fire Bolt
 ui.memorize=Memorize
+ui.eat=Eat
 ui.inventory=Inventory
 ui.inv_all=All
 ; Item display names (ItemKind.nameKey; rune_<elem> -> item.rune_<elem>).
