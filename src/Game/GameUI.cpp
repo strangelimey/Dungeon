@@ -86,7 +86,7 @@ void GameUI::BuildStaticUi() {
 }
 
 void GameUI::LoadTitleArt() {
-	m_titleBackground = LoadTextureFile(m_device, paths::Asset("textures\\title_bg"));
+	m_titleBackground = LoadTextureFile(m_device, paths::Asset("ui\\title_bg"));
 	// Small UI glyph; optional (the SlotList falls back to a text "X").
 	m_deleteIcon = TryLoadTextureFile(m_device, paths::Asset("ui\\delete"));
 }

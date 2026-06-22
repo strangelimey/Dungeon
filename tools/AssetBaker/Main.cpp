@@ -2,7 +2,8 @@
 //
 //   AssetBaker <assets-dir>
 //       Regenerates every procedural asset the game ships (textures, sounds,
-//       models, title art).
+//       models, rune tablet). UI images (portraits, hit splats, title art, rune
+//       icons) are NOT baked — they're committed source under assets/ui/.
 //
 //   AssetBaker import <source-folder> <assets-dir> <output-name> [--flip-green]
 //       Packs a downloaded PBR texture set (Poly Haven, ambientCG, Megascans,
@@ -20,27 +21,18 @@
 //       and mip bakes). The worn blocks sample the installed texture height
 //       maps, so re-run this after FetchTextures.ps1 or an import.
 //
-//   AssetBaker portraits <assets-dir>
-//       Regenerates only the party portraits and their mip chains (fast).
-//
-//   AssetBaker splats <assets-dir>
-//       Regenerates only the hit-feedback splat icons (fast; PNG only).
-//
 //   AssetBaker runes <assets-dir>
-//       Regenerates the rune tablet model + carved per-element texture sets +
-//       icons (fast; PNG only — run `mips` after to derive the .dds).
+//       Regenerates the rune tablet model + carved per-element texture sets
+//       (fast; PNG only — run `mips` after to derive the .dds).
 
 #include "Core/Log.h"
 #include "ImportTextures.h"
 #include "MipBaker.h"
 #include "ModelBaker.h"
 #include "ModelImport.h"
-#include "PortraitBaker.h"
 #include "RuneBaker.h"
 #include "SoundBaker.h"
-#include "SplatBaker.h"
 #include "TextureBaker.h"
-#include "TitleBaker.h"
 
 #include <filesystem>
 #include <string>
@@ -103,22 +95,6 @@ int main(int argc, char** argv) {
 		return baker::BakeWornBlocks(argv[2], argv[3], argv[4]) ? 0 : 1;
 	}
 
-	if (argc >= 3 && std::string(argv[1]) == "portraits") {
-		const std::string texturesDir = std::string(argv[2]) + "\\textures";
-		if (!baker::BakePortraits(texturesDir)) return 1;
-		bool ok = true;
-		for (const char* name : {"portrait_brand", "portrait_sera",
-								 "portrait_maren", "portrait_tilo"})
-			ok &= baker::BakeMipChain(texturesDir + "\\" + name + ".png",
-									  texturesDir + "\\" + name + ".dds");
-		return ok ? 0 : 1;
-	}
-
-	if (argc >= 3 && std::string(argv[1]) == "splats") {
-		// PNG only — no mip bake (see SplatBaker.cpp).
-		return baker::BakeHitSplats(std::string(argv[2]) + "\\textures") ? 0 : 1;
-	}
-
 	if (argc >= 3 && std::string(argv[1]) == "runes") {
 		// Tablet model + carved per-element texture sets + icons. PNG only — the
 		// _2k set loads fine without a .dds; run `mips` afterward to derive them.
@@ -144,12 +120,9 @@ int main(int argc, char** argv) {
 
 	bool ok = true;
 	ok &= baker::BakeTextures(assets + "\\textures");
-	ok &= baker::BakeTitleImage(assets + "\\textures");
-	ok &= baker::BakePortraits(assets + "\\textures");
-	ok &= baker::BakeHitSplats(assets + "\\textures");
 	ok &= baker::BakeSounds(assets + "\\sounds");
 	ok &= baker::BakeModels(assets + "\\models", assets + "\\textures");
-	ok &= baker::BakeRunes(assets); // tablet + carved textures + icons (before mips)
+	ok &= baker::BakeRunes(assets); // tablet + carved per-element texture sets
 	ok &= baker::BakeAllMips(assets + "\\textures");
 	if (ok) log::Info("Asset bake complete.");
 	else log::Error("Asset bake FAILED.");

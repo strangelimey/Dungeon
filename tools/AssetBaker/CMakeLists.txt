@@ -9,11 +9,8 @@ add_executable(AssetBaker
 	MipBaker.cpp
 	ModelBaker.cpp
 	ModelImport.cpp
-	PortraitBaker.cpp
 	RuneBaker.cpp
 	SoundBaker.cpp
-	SplatBaker.cpp
 	TextureBaker.cpp
-	TitleBaker.cpp
 )
 target_link_libraries(AssetBaker PRIVATE Core Assets ThirdPartyImpl)

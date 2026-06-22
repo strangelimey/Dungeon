@@ -32,7 +32,6 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
-#include <filesystem>
 #include <string>
 #include <vector>
 
@@ -273,43 +272,8 @@ bool BakeRuneTextureSet(const std::string& texturesDir, const RuneSpec& r, u32 s
 	return ok;
 }
 
-// --- icons (held cursor / inventory slot) ------------------------------------
-
-constexpr u32 kIconSize = 128;
-
-// Rounded-square coverage (1 inside, ramps to 0 at the rounded border).
-float TileMask(float u, float v) {
-	const float dx = std::fabs(u - 0.5f) - 0.36f;
-	const float dy = std::fabs(v - 0.5f) - 0.36f;
-	const float outside = std::hypot(std::max(dx, 0.0f), std::max(dy, 0.0f)) +
-						   std::min(std::max(dx, dy), 0.0f) - 0.08f; // rounded corners
-	return std::clamp(-outside / (1.5f / kIconSize), 0.0f, 1.0f);
-}
-
-bool BakeRuneIcon(const std::string& uiDir, const RuneSpec& r) {
-	const u32 n = kIconSize;
-	std::vector<u8> rgba(static_cast<size_t>(n) * n * 4);
-	for (u32 y = 0; y < n; ++y) {
-		for (u32 x = 0; x < n; ++x) {
-			const float u = (x + 0.5f) / n;
-			const float v = (y + 0.5f) / n;
-			const float gy = 1.0f - v;
-			const float mask = TileMask(u, v);
-			const float c = GlyphCover(u, gy, r);
-			// Element-tinted stone tile; the glyph glows in the accent colour.
-			Vec3 col = {r.stone.x * 0.85f, r.stone.y * 0.85f, r.stone.z * 0.85f};
-			col.x = col.x * (1 - c) + r.accent.x * c;
-			col.y = col.y * (1 - c) + r.accent.y * c;
-			col.z = col.z * (1 - c) + r.accent.z * c;
-			const size_t i = (static_cast<size_t>(y) * n + x) * 4;
-			rgba[i + 0] = ToU8(col.x);
-			rgba[i + 1] = ToU8(col.y);
-			rgba[i + 2] = ToU8(col.z);
-			rgba[i + 3] = ToU8(mask);
-		}
-	}
-	return SaveRgba(uiDir + "\\rune_icon_" + r.elem + ".png", n, rgba);
-}
+// (The rune cursor/inventory icon is no longer baked here — it's a committed
+// source image at assets/ui/rune_icon_<elem>.png, like the other UI icons.)
 
 // --- tablet model ------------------------------------------------------------
 
@@ -427,8 +391,6 @@ assets::ModelData BuildRuneTablet() {
 bool BakeRunes(const std::string& assetsDir) {
 	const std::string models = assetsDir + "\\models";
 	const std::string textures = assetsDir + "\\textures";
-	const std::string ui = assetsDir + "\\ui"; // rune_icon_*.png (UI icons) live here
-	std::filesystem::create_directories(ui);
 	bool ok = WriteGltf(BuildRuneTablet(), models + "\\rune_tablet.gltf");
 	const StoneMaps stone = LoadStoneMaps(textures);
 	u32 seed = 2200u;
@@ -438,7 +400,6 @@ bool BakeRunes(const std::string& assetsDir) {
 	const float offsets[4][2] = {{0.0f, 0.0f}, {0.5f, 0.13f}, {0.21f, 0.57f}, {0.63f, 0.38f}};
 	for (const RuneSpec& r : kRunes) {
 		ok &= BakeRuneTextureSet(textures, r, seed, stone, offsets[e][0], offsets[e][1]);
-		ok &= BakeRuneIcon(ui, r);
 		seed += 31u;
 		++e;
 	}

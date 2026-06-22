@@ -781,7 +781,7 @@ void Game::LoadPortraits() {
 			return static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
 		});
 		auto texture =
-			TryLoadTextureFile(m_device, paths::Asset("textures\\" + stem));
+			TryLoadTextureFile(m_device, paths::Asset("ui\\" + stem));
 		if (!texture)
 			log::Warn("missing {}.png — falling back to the initial tile", stem);
 		member.portrait = texture.get();
@@ -790,13 +790,13 @@ void Game::LoadPortraits() {
 }
 
 void Game::LoadHitSplats() {
-	// Three severity icons, drawn over a struck member's portrait. PNG only
-	// (no .dds) — see SplatBaker. A missing icon just leaves that severity null.
+	// Three severity icons, drawn over a struck member's portrait. Committed
+	// source PNGs under assets/ui/. A missing icon just leaves that severity null.
 	static const char* kStems[3] = {"hit_splat_small", "hit_splat_med",
 									"hit_splat_hard"};
 	for (int i = 0; i < 3; ++i) {
 		m_hitSplatTextures[i] =
-			TryLoadTextureFile(m_device, paths::Asset(std::string("textures\\") + kStems[i]));
+			TryLoadTextureFile(m_device, paths::Asset(std::string("ui\\") + kStems[i]));
 		if (!m_hitSplatTextures[i])
 			log::Warn("missing {}.png — no hit splat for that severity", kStems[i]);
 		m_hitSplats.icon[i] = m_hitSplatTextures[i].get();
