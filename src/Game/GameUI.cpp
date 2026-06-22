@@ -805,7 +805,7 @@ void GameUI::BuildCharacterSheet() {
 	// before the sheet's slot hit-testing).
 	m_sheet = m_sheetUi.Add<CharacterSheet>(Norm({sx, sy, sheetW, sheetH}, window),
 											&m_titleFont, &m_settings.barColors,
-											m_itemIcons, m_held);
+											m_itemIcons, m_itemWeights, m_held);
 
 	const float btnY = sy + sheetH + 16.0f;
 	m_sheetUi.Add<ui::Button>(Norm({sx, btnY, 64, 40}, window), "<", [this] {

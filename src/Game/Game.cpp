@@ -5,11 +5,13 @@
 #include "Game/Game.h"
 
 #include "Assets/File.h"
+#include "Assets/Image.h"
 #include "Core/Loc.h"
 #include "Core/Log.h"
 #include "Core/Paths.h"
 #include "Game/AssetUtil.h"
 #include "Graphics/DisplayEnum.h"
+#include "Graphics/Texture.h"
 
 #include <algorithm>
 #include <cctype>
@@ -88,7 +90,8 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	ApplyPartySpeed();
 	m_world.SetRoster(&m_characters); // combat drains these; reset in place
 	m_ui.SetHitSplats(&m_hitSplats);  // stable address; LoadHitSplats fills it in
-	m_ui.SetItemIcons(&m_itemIcons);  // stable; LoadRuneIcons fills it in
+	m_ui.SetItemIcons(&m_itemIcons);    // stable; LoadItemIcons fills it in
+	m_ui.SetItemWeights(&m_itemWeights); // stable; LoadItemIcons fills it in
 	m_ui.SetHeldItem(&m_heldItem);    // cursor icon reads the held catalog id
 
 	WireModuleCallbacks();
@@ -680,7 +683,7 @@ void Game::BuildGameLoadTasks() {
 	m_world.AppendLoadTasks(m_loadQueue);
 	m_loadQueue.Add(loc::Tr("load.portraits"), [this] { LoadPortraits(); });
 	m_loadQueue.Add(loc::Tr("load.portraits"), [this] { LoadHitSplats(); });
-	m_loadQueue.Add(loc::Tr("load.portraits"), [this] { LoadRuneIcons(); });
+	m_loadQueue.Add(loc::Tr("load.portraits"), [this] { LoadItemIcons(); });
 	m_loadQueue.Add(loc::Tr("load.hud"), [this] {
 		m_ui.BuildHud();
 		log::Info("Game loaded: {}x{} dungeon, {} torches, {} monsters",
@@ -794,10 +797,33 @@ void Game::LoadHitSplats() {
 	}
 }
 
-void Game::LoadRuneIcons() {
+// Builds a tiny solid-colour RGBA texture (a flat placeholder icon). The mip
+// chain is generated on the spot (fine for a small runtime texture); sRGB so the
+// tint matches the linear CategoryTint colour seen on the floor mesh.
+static std::unique_ptr<gfx::Texture> MakeSolidIcon(gfx::GraphicsDevice& device,
+												   const Vec4& color) {
+	constexpr u32 kSize = 16;
+	assets::ImageData img;
+	img.width = kSize;
+	img.height = kSize;
+	img.pixels.resize(static_cast<size_t>(kSize) * kSize * 4);
+	const auto enc = [](float c) {
+		return static_cast<u8>(std::clamp(c, 0.0f, 1.0f) * 255.0f + 0.5f);
+	};
+	const u8 rgba[4] = {enc(color.x), enc(color.y), enc(color.z), enc(color.w)};
+	for (size_t p = 0; p < img.pixels.size(); p += 4) {
+		img.pixels[p + 0] = rgba[0];
+		img.pixels[p + 1] = rgba[1];
+		img.pixels[p + 2] = rgba[2];
+		img.pixels[p + 3] = rgba[3];
+	}
+	return std::make_unique<gfx::Texture>(device, img, /*srgb=*/true);
+}
+
+void Game::LoadItemIcons() {
 	// One element-tinted icon per symbol, keyed by the rune's catalog id
 	// (rune_fire → rune_icon_fire). PNG only (like the splats). Drawn on the
-	// cursor when a tablet is held, and later in the hand slots / inventory.
+	// cursor when a tablet is held, and in the hand slots / inventory.
 	for (u32 i = 0; i < kSymbolCount; ++i) {
 		const auto sym = static_cast<SpellSymbol>(i);
 		const std::string id = RuneItemId(sym);
@@ -807,6 +833,18 @@ void Game::LoadRuneIcons() {
 			log::Warn("missing rune_icon_{}.png — no cursor icon", SymbolId(sym));
 		m_itemIcons.byType[id] = m_runeIconTextures[i].get();
 	}
+	// Non-rune items: a generated solid category-tint placeholder icon, one per
+	// item id (cheap; matches the floor tablet's tint until real art lands).
+	for (const CatalogEntry& def : m_project.items.Entries()) {
+		const std::string category = def.Get("category", "misc");
+		if (category == "rune") continue; // runes use their element PNG above
+		m_itemIconPlaceholders.push_back(MakeSolidIcon(m_device, CategoryTint(category)));
+		m_itemIcons.byType[def.id] = m_itemIconPlaceholders.back().get();
+	}
+	// Carry weights for every catalog item (the sheet sums these into a load).
+	m_itemWeights.byType.clear();
+	for (const CatalogEntry& def : m_project.items.Entries())
+		m_itemWeights.byType[def.id] = def.GetFloat("weight", 0.0f);
 }
 
 // ============================================================================

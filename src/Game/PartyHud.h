@@ -68,6 +68,17 @@ struct ItemIconBank {
 	}
 };
 
+// Item carry weights (kg) keyed by catalog id, the data behind a member's carry
+// load. Built once by Game from the items catalog; the sheet reads it live. A
+// missing id weighs 0 (e.g. a typo or a weightless item).
+struct ItemWeightBank {
+	std::flat_map<std::string, float> byType;
+	float For(const std::string& typeId) const {
+		const auto it = byType.find(typeId);
+		return it == byType.end() ? 0.0f : it->second;
+	}
+};
+
 class CharacterPanel : public ui::Widget {
 public:
 	// portraitFont draws the big placeholder initial (the Game passes its
@@ -172,7 +183,7 @@ class CharacterSheet : public ui::Widget {
 public:
 	CharacterSheet(const gfx::Rect& rect, const ui::Font* portraitFont,
 				   const ResourceBarColors* barColors, const ItemIconBank* icons,
-				   std::optional<std::string>* held);
+				   const ItemWeightBank* weights, std::optional<std::string>* held);
 
 	// Re-points the sheet (mutable, for inventory edits) and caches strings.
 	void SetCharacter(Character& character);
@@ -200,11 +211,14 @@ private:
 					float sx, float sy);
 	// Applies a held-aware click to a slot: place / swap / pick up.
 	void ClickSlot(ItemSlot& slot);
+	// Total carry weight (kg) of everything the member holds (equipment + pack).
+	float CarryLoad() const;
 
 	Character* m_character = nullptr;
 	const ui::Font* m_portraitFont;
 	const ResourceBarColors* m_barColors;
 	const ItemIconBank* m_icons;
+	const ItemWeightBank* m_weights;
 	std::optional<std::string>* m_held;
 	Mode m_mode = Mode::Inventory;
 	int m_hotMode = -1; // mode button under the cursor (Update → Draw), -1 = none

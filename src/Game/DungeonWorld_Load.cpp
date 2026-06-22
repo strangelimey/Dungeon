@@ -16,6 +16,7 @@
 #include "Game/DungeonMeshBuilder.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <format>
 #include <queue>
@@ -30,6 +31,22 @@ namespace dungeon::game {
 static std::pair<std::string, std::string> ModelAndTexture(const CatalogEntry* e,
 														   const std::string& fallback) {
 	return {CatalogGet(e, "model", fallback), CatalogGet(e, "texture", fallback)};
+}
+
+// Splits a free-form list field (whitespace- and/or comma-separated) into its
+// tokens, dropping empties — e.g. the items catalog `command` list "eat, drop".
+static std::vector<std::string> SplitTokens(const std::string& s) {
+	std::vector<std::string> out;
+	size_t i = 0;
+	while (i < s.size()) {
+		while (i < s.size() && (std::isspace(static_cast<unsigned char>(s[i])) || s[i] == ','))
+			++i;
+		const size_t start = i;
+		while (i < s.size() && !std::isspace(static_cast<unsigned char>(s[i])) && s[i] != ',')
+			++i;
+		if (i > start) out.emplace_back(s.substr(start, i - start));
+	}
+	return out;
 }
 
 // ============================================================================
@@ -313,8 +330,24 @@ DungeonWorld::ItemKind& DungeonWorld::ItemKindFor(const std::string& type) {
 		const CatalogEntry* def = m_project.items.Find(type);
 		// Display name: catalog `name` key, else item.<id> by convention.
 		kind->nameKey = CatalogGet(def, "name", std::format("item.{}", type));
-		// MVP: the only item behaviour is "rune" — category=rune, symbol=<sym>.
-		if (CatalogGet(def, "category", "") == "rune") {
+		// Shared, data-driven fields: category, carry weight, hand commands.
+		kind->category = CatalogGet(def, "category", "misc");
+		kind->weight = def ? def->GetFloat("weight", 0.0f) : 0.0f;
+		// `command` is a free-form list (whitespace/comma separated) of command ids
+		// the hand right-click menu offers; runes implicitly gain "memorize" below.
+		for (const std::string& cmd : SplitTokens(CatalogGet(def, "command", "")))
+			kind->commands.push_back(cmd);
+		// Placeholder look: non-rune items reuse the tablet mesh tinted by category
+		// (runes overwrite this with their element colour just below).
+		kind->glow = CategoryTint(kind->category);
+		// Every item draws as the shared carved-stone tablet (loaded once) — runes
+		// carve their element's set in; other categories ride the flat tint above.
+		if (!m_runeMesh) {
+			m_runeModel = LoadModelOrDie("rune_tablet.gltf");
+			m_runeMesh = std::make_unique<gfx::Mesh>(m_device, m_runeModel.meshes[0]);
+		}
+		// RUNES are the built-out specialization — category=rune, symbol=<sym>.
+		if (kind->category == "rune") {
 			SpellSymbol sym;
 			if (ParseSymbol(CatalogGet(def, "symbol", "fire"), sym)) {
 				kind->isRune = true;
@@ -323,13 +356,11 @@ DungeonWorld::ItemKind& DungeonWorld::ItemKindFor(const std::string& type) {
 				// additive emissive term (see SubmitSceneGeometry); the shared
 				// palette lives in Spells (ElementColor).
 				kind->glow = ElementColor(sym);
-				// Shared tablet mesh (loaded once) + this element's carved set.
-				if (!m_runeMesh) {
-					m_runeModel = LoadModelOrDie("rune_tablet.gltf");
-					m_runeMesh = std::make_unique<gfx::Mesh>(m_device,
-															 m_runeModel.meshes[0]);
-				}
 				kind->tex = LoadPropTextures(RuneItemId(sym));
+				// A rune is always memorizable, even if the catalog omits `command`.
+				if (std::find(kind->commands.begin(), kind->commands.end(),
+							  "memorize") == kind->commands.end())
+					kind->commands.push_back("memorize");
 			} else {
 				log::Warn("item {}: unknown rune symbol '{}'", type,
 						  CatalogGet(def, "symbol", ""));

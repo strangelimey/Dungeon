@@ -404,16 +404,22 @@ private:
 		bool Alive() const { return hp > 0.0f; }
 	};
 
-	// Per-kind item behaviour (shared) and per-instance world state. MVP: the
-	// only items are RUNES — a carved-stone tablet (the shared m_runeMesh, drawn
-	// with this element's texture set) the party picks up by clicking it.
-	// Future items (weapons/consumables) add their own mesh/icon here.
+	// Per-kind item behaviour (shared) and per-instance world state. Items carry a
+	// CATEGORY (rune|weapon|armor|clothing|food|misc), a carry WEIGHT, and a list
+	// of hand COMMANDS (the right-click menu builds from these). RUNES are the
+	// fully-built specialization — a carved-stone tablet (the shared m_runeMesh,
+	// drawn with this element's texture set) the party picks up by clicking it;
+	// they implicitly get the "memorize" command. Other categories so far reuse
+	// the tablet mesh, tinted, as a placeholder (see ItemKindFor).
 	struct ItemKind {
-		std::string id;        // catalog id (the .ent record type)
-		std::string nameKey;   // loc key for the display name ("item.rune_fire")
+		std::string id;          // catalog id (the .ent record type)
+		std::string nameKey;     // loc key for the display name ("item.rune_fire")
+		std::string category;    // rune|weapon|armor|clothing|food|misc (free-form)
+		float weight = 0.0f;     // carry weight (kg); sums into a member's load
+		std::vector<std::string> commands; // hand right-click command ids (data-driven)
 		bool isRune = false;
 		SpellSymbol runeSymbol = SpellSymbol::Fire;
-		Vec4 glow{1, 1, 1, 1}; // accent-glow tint (element colour)
+		Vec4 glow{1, 1, 1, 1};   // accent-glow tint (element colour / category tint)
 		// Carved-stone tablet look: the shared tablet mesh (m_runeMesh) drawn with
 		// this element's PBR set (rune_<elem>). null tex falls back to flat stone.
 		const PropTextures* tex = nullptr;

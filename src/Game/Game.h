@@ -109,7 +109,7 @@ private:
 	bool RunLoadTasks();       // executes one task per frame; true when done
 	void LoadPortraits();      // baked party portraits (load task)
 	void LoadHitSplats();      // hit-feedback splat icons (load task)
-	void LoadRuneIcons();      // rune-tablet cursor/inventory icons (load task)
+	void LoadItemIcons();      // rune + placeholder item cursor/inventory icons (load task)
 
 	// --- state transitions --------------------------------------------------
 	void StartNewGame();
@@ -203,11 +203,14 @@ private:
 	std::unique_ptr<gfx::Texture> m_hitSplatTextures[3];
 	HitSplatIcons m_hitSplats;
 
-	// Rune-tablet icons (one per element), for the held cursor / hand slots /
-	// inventory. Game owns the textures; the bank (catalog id → texture) is
-	// handed to GameUI once, address stable, filled by LoadRuneIcons.
+	// Item icons for the held cursor / hand slots / inventory. Game owns the
+	// textures; the bank (catalog id → texture) is handed to GameUI once, address
+	// stable, filled by LoadItemIcons: rune tablets load element PNGs, other
+	// categories get a generated solid-tint placeholder (m_itemIconPlaceholders).
 	std::array<std::unique_ptr<gfx::Texture>, kSymbolCount> m_runeIconTextures;
+	std::vector<std::unique_ptr<gfx::Texture>> m_itemIconPlaceholders;
 	ItemIconBank m_itemIcons;
+	ItemWeightBank m_itemWeights; // catalog id → carry weight (kg), for the sheet
 	// The item currently carried on the cursor (its catalog id), or empty. Set by
 	// clicking a floor tablet; cleared by dropping it (world / portrait / hand /
 	// inventory). GameUI reads the address to draw the cursor icon.

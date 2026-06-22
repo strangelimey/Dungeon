@@ -1,6 +1,9 @@
 ; Items. Fields:
 ;   name     = loc key for the display name (item.rune_fire -> "Fire rune")
-;   category = rune (more categories — weapon/armor/consumable — land later)
+;   category = rune|weapon|armor|clothing|food|misc (free-form; drives behaviour)
+;   weight   = carry weight in kg (sums into a member's carry load; default 0)
+;   command  = hand right-click commands, a whitespace/comma list of command ids
+;              (e.g. "eat"); runes always gain "memorize" implicitly
 ;   symbol   = (rune only) the spell symbol it teaches: fire|earth|air|water
 ; A rune is a carved-stone tablet the party picks up by clicking it; carry it on
 ; the cursor and drop it into a hand, then right-click the hand and Memorize to
@@ -10,19 +13,52 @@
 [rune_fire]
 name = item.rune_fire
 category = rune
+weight = 0.5
 symbol = fire
 
 [rune_earth]
 name = item.rune_earth
 category = rune
+weight = 0.5
 symbol = earth
 
 [rune_air]
 name = item.rune_air
 category = rune
+weight = 0.5
 symbol = air
 
 [rune_water]
 name = item.rune_water
 category = rune
+weight = 0.5
 symbol = water
+
+; --- Non-rune items (placeholder visuals: tablet mesh, category-tinted) -------
+
+[dagger]
+name = item.dagger
+category = weapon
+weight = 1.5
+
+[leather_armor]
+name = item.leather_armor
+category = armor
+weight = 8.0
+
+[tunic]
+name = item.tunic
+category = clothing
+weight = 2.0
+
+[apple]
+name = item.apple
+category = food
+weight = 0.3
+command = eat
+
+[bread]
+name = item.bread
+category = food
+weight = 0.5
+command = eat

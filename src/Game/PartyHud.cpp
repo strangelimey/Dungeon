@@ -347,9 +347,10 @@ constexpr float kModeBtnY = 132.0f; // just below the 100px portrait (top at y20
 CharacterSheet::CharacterSheet(const gfx::Rect& rect, const ui::Font* portraitFont,
 							   const ResourceBarColors* barColors,
 							   const ItemIconBank* icons,
+							   const ItemWeightBank* weights,
 							   std::optional<std::string>* held)
 	: m_portraitFont(portraitFont), m_barColors(barColors), m_icons(icons),
-	  m_held(held), m_healthLabel(loc::Tr("bar.health")),
+	  m_weights(weights), m_held(held), m_healthLabel(loc::Tr("bar.health")),
 	  m_staminaLabel(loc::Tr("bar.stamina")), m_manaLabel(loc::Tr("bar.mana")),
 	  m_equipmentLabel(loc::Tr("sheet.equipment")),
 	  m_backpackLabel(loc::Tr("sheet.backpack")),
@@ -514,6 +515,16 @@ void CharacterSheet::DrawModeButtons(ui::UIContext& ctx, gfx::SpriteBatch& batch
 	}
 }
 
+float CharacterSheet::CarryLoad() const {
+	if (!m_character || !m_weights) return 0.0f;
+	float total = 0.0f;
+	for (const ItemSlot& s : m_character->inventory.equipment)
+		if (!s.Empty()) total += m_weights->For(s.typeId);
+	for (const ItemSlot& s : m_character->inventory.backpack)
+		if (!s.Empty()) total += m_weights->For(s.typeId);
+	return total;
+}
+
 void CharacterSheet::DrawInventory(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 								   const gfx::Rect& px, float sx, float sy) {
 	const ui::Theme& theme = ctx.GetTheme();
@@ -560,6 +571,17 @@ void CharacterSheet::DrawInventory(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 			}
 		}
 	}
+
+	// --- carry load (under the doll) ----------------------------------------
+	// Total weight vs the member's strength-derived capacity; turns the accent
+	// colour red once over capacity (no gameplay penalty yet — display only).
+	constexpr float kLoadY = 540.0f;
+	const float load = CarryLoad();
+	const float maxLoad = m_character->MaxCarryLoad();
+	const std::string loadText = loc::Format(
+		"sheet.load", std::format("{:.1f}", load), std::format("{:.0f}", maxLoad));
+	const Vec4 loadColor = load > maxLoad ? Vec4{0.85f, 0.25f, 0.2f, 1.0f} : theme.text;
+	font.Draw(batch, loadText, px.x + kDollX * sx, px.y + kLoadY * sy, loadColor);
 }
 
 void CharacterSheet::DrawStats(ui::UIContext& ctx, gfx::SpriteBatch& batch,

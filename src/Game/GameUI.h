@@ -99,6 +99,9 @@ public:
 	// Item icons (catalog id → texture), owned by Game; used to draw the held
 	// cursor + (later) hand/inventory slots. Stable address; set once.
 	void SetItemIcons(const ItemIconBank* icons) { m_itemIcons = icons; }
+	// Item carry weights (catalog id → kg), owned by Game; the sheet sums them
+	// into a member's carry load. Stable address; set once.
+	void SetItemWeights(const ItemWeightBank* weights) { m_itemWeights = weights; }
 	// The cursor-carried item (Game's m_heldItem). RenderHud paints its icon at
 	// the mouse, and the held-aware portrait/hand handlers place INTO and pick
 	// OUT OF it, so the pointer is mutable. Address stable; value read/written live.
@@ -324,6 +327,7 @@ private:
 	std::vector<CharacterPanel*> m_partyPanels; // owned by m_hudUi
 	const HitSplatIcons* m_hitSplats = nullptr; // hit-feedback icons (Game-owned)
 	const ItemIconBank* m_itemIcons = nullptr;  // item icons (Game-owned)
+	const ItemWeightBank* m_itemWeights = nullptr; // item carry weights (Game-owned)
 	// Cursor-carried item (Game owns the storage; placement handlers mutate it)
 	// + the last HUD mouse position (stashed in UpdateHud so RenderHud can draw
 	// the held icon, which has no Input).

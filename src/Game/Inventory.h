@@ -17,14 +17,28 @@
 // ============================================================================
 #pragma once
 
+#include "Core/MathTypes.h"
+
 #include <array>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace dungeon::game {
 
 // Backpack slots a fresh character starts with (capacity grows at runtime).
 inline constexpr int kBackpackStart = 6;
+
+// Placeholder accent tint for an item category — drives both the floor mesh
+// (tablet, tinted) and the generated hand/cursor icon, so they read alike until
+// real per-item art lands. Runes don't use this (they tint by spell element).
+inline Vec4 CategoryTint(std::string_view category) {
+	if (category == "weapon")   return {0.62f, 0.64f, 0.70f, 1.0f}; // steel grey
+	if (category == "armor")    return {0.46f, 0.31f, 0.18f, 1.0f}; // leather brown
+	if (category == "clothing") return {0.30f, 0.46f, 0.56f, 1.0f}; // cloth blue
+	if (category == "food")     return {0.74f, 0.34f, 0.26f, 1.0f}; // warm red
+	return {0.55f, 0.55f, 0.55f, 1.0f};                             // misc grey
+}
 
 struct ItemSlot {
 	std::string typeId; // catalog id; empty = the slot is free

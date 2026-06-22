@@ -32,3 +32,11 @@ item rune_fire 4 4
 item rune_air 5 4
 item rune_water 6 4
 item rune_earth 7 4
+
+; Non-rune items (placeholder visuals) — a sampler near the start for testing
+; pickup / carry load / hand commands.
+item dagger 4 5
+item leather_armor 5 5
+item tunic 6 5
+item apple 7 5
+item bread 8 4

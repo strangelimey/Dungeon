@@ -196,14 +196,15 @@ void DungeonWorld::SubmitSceneGeometry(ID3D12GraphicsCommandList* list,
 		m_renderer.DrawMesh(list, *deco.kind->mesh, deco.world, material);
 	}
 
-	// Rune items: the shared carved-stone tablet, drawn per element with its PBR
-	// set (parallax cuts the glyph in). The tablet reads as worn stone; the
-	// element glow is an AURA — a faint emissive the shader concentrates at the
-	// silhouette (Fresnel) plus the pulsing point light it casts (UpdateLights),
-	// rather than a strong internal glow. Both pulse on the same RunePulse.
+	// Floor items: the shared carved-stone tablet. RUNES draw per element with
+	// their PBR set (parallax cuts the glyph in) and an element AURA — a faint
+	// emissive the shader concentrates at the silhouette (Fresnel) plus the
+	// pulsing point light it casts (UpdateLights), both on the same RunePulse.
+	// Other categories are PLACEHOLDERS: the same slab, flat-tinted by category
+	// with a soft steady self-glow so they read on a dark floor (no cast light).
 	if (m_runeMesh) {
 		for (const Item& item : m_items) {
-			if (item.collected || !item.kind->isRune) continue;
+			if (item.collected) continue;
 			const Vec3 c = SlotCenter(item.x, item.z, SizeClass::Medium, item.slot);
 			if (!visible({c.x, 0.3f, c.z}, 0.8f)) continue;
 			Mat4 world = Mat4Identity();
@@ -211,16 +212,25 @@ void DungeonWorld::SubmitSceneGeometry(ID3D12GraphicsCommandList* list,
 			world._43 = c.z;
 			gfx::MaterialParams material;
 			material.doubleSided = false; // authored slab: back-cull
-			ApplyPropMaterial(material, item.kind->tex,
-							  m_runeModel.materials[0].baseColorFactor, 0.85f);
-			// Emissive scaled well below the old internal glow — the shader's
-			// Fresnel turns it into a rim aura, and the cast light (UpdateLights,
-			// same RunePulse) does the surrounding glow, so they breathe together.
-			const float pulse = RunePulse(m_time, item.id);
-			constexpr float kAura = 0.9f; // soft aura, not a glowing panel
 			const Vec4& g = item.kind->glow;
-			material.emissive = {g.x * pulse * kAura, g.y * pulse * kAura,
-								 g.z * pulse * kAura};
+			if (item.kind->isRune) {
+				ApplyPropMaterial(material, item.kind->tex,
+								  m_runeModel.materials[0].baseColorFactor, 0.85f);
+				// Emissive scaled well below the old internal glow — the shader's
+				// Fresnel turns it into a rim aura, and the cast light (UpdateLights,
+				// same RunePulse) does the surrounding glow, so they breathe together.
+				const float pulse = RunePulse(m_time, item.id);
+				constexpr float kAura = 0.9f; // soft aura, not a glowing panel
+				material.emissive = {g.x * pulse * kAura, g.y * pulse * kAura,
+									 g.z * pulse * kAura};
+			} else {
+				// Placeholder: flat category tint as base colour + a steady self-glow
+				// of the same hue so the tablet reads clearly on an unlit floor (these
+				// items cast no light of their own, unlike runes).
+				ApplyPropMaterial(material, nullptr, g, 0.7f);
+				constexpr float kSelf = 0.55f;
+				material.emissive = {g.x * kSelf, g.y * kSelf, g.z * kSelf};
+			}
 			m_renderer.DrawMesh(list, *m_runeMesh, world, material);
 		}
 	}

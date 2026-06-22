@@ -83,6 +83,9 @@ struct Character {
 	// distinctly: the fighter hits hard, the rogue lands often and dodges,
 	// the mage is fragile in melee.
 	float AttackDamage() const { return 4.0f + static_cast<float>(strength) * 0.5f; }
+	// Maximum carry weight (kg) before the member is encumbered. STUB formula —
+	// strength-driven; an over-load penalty (slowed movement) is a later thread.
+	float MaxCarryLoad() const { return static_cast<float>(strength) * 5.0f; }
 	float Accuracy() const { return 0.55f + static_cast<float>(dexterity) * 0.02f; }
 	float Evasion() const { return 0.05f + static_cast<float>(dexterity) * 0.015f; }
 	float Armor() const { return 0.0f; } // no equipment yet
