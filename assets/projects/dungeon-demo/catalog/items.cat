@@ -51,6 +51,11 @@ name = item.tunic
 category = clothing
 weight = 2.0
 
+[backpack]
+name = item.backpack
+category = container
+weight = 1.0
+
 [apple]
 name = item.apple
 category = food

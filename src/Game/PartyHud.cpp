@@ -354,8 +354,12 @@ constexpr DollCell kDollCells[] = {
 constexpr int kDollCellCount = static_cast<int>(sizeof(kDollCells) /
 												sizeof(kDollCells[0]));
 
-// --- backpack grid (right) ---
-constexpr float kPackSlot = 72.0f, kPackX = 430.0f, kPackY = 210.0f;
+// --- pack row + backpack grid (right) ---
+// The pack-row (containers) sits at kPackRowY, level with the doll's head row;
+// the SELECTED pack's contents fill the grid that starts lower at kPackY.
+constexpr float kPackSlot = 72.0f, kPackX = 430.0f;
+constexpr float kPackRowY = 210.0f; // the pack-row (one row of kPackRowSlots)
+constexpr float kPackY = 300.0f;    // backpack-contents grid (below the pack row)
 constexpr int kPackCols = 4; // backpack laid out 4 wide
 
 // --- mode toggle buttons (Inventory / Stats / Skills), a row under the portrait
@@ -412,6 +416,14 @@ gfx::Rect CharacterSheet::PackRect(const gfx::Rect& px, float sx, float sy,
 	return {px.x + dx * sx, px.y + dy * sy, kPackSlot * sx, kPackSlot * sy};
 }
 
+// Pack-row slot i (the container row above the backpack contents): one row,
+// aligned to the backpack columns.
+gfx::Rect CharacterSheet::PackRowRect(const gfx::Rect& px, float sx, float sy,
+									  int i) const {
+	const float dx = kPackX + static_cast<float>(i) * (kPackSlot + kSlotGap);
+	return {px.x + dx * sx, px.y + kPackRowY * sy, kPackSlot * sx, kPackSlot * sy};
+}
+
 gfx::Rect CharacterSheet::ModeButtonRect(const gfx::Rect& px, float sx, float sy,
 										 int i) const {
 	const float dx = kModeBtnX + static_cast<float>(i) * (kModeBtnSize + kModeBtnGap);
@@ -459,6 +471,15 @@ void CharacterSheet::Update(ui::UIContext& ctx) {
 			if (EquipRect(px, sx, sy, i).Contains(mx, my)) {
 				const size_t s = static_cast<size_t>(kDollCells[i].slot);
 				ClickSlot(m_character->inventory.equipment[s]);
+				ctx.ConsumeMouse();
+				return;
+			}
+		// Pack row: click a non-empty pack to SELECT it (its contents fill the
+		// grid). Packs aren't drop targets yet — only the starting backpack exists.
+		for (int i = 0; i < kPackRowSlots; ++i)
+			if (PackRowRect(px, sx, sy, i).Contains(mx, my)) {
+				if (!m_character->inventory.packs[static_cast<size_t>(i)].Empty())
+					m_character->inventory.selectedPack = i;
 				ctx.ConsumeMouse();
 				return;
 			}
@@ -539,6 +560,8 @@ float CharacterSheet::CarryLoad() const {
 	float total = 0.0f;
 	for (const ItemSlot& s : m_character->inventory.equipment)
 		if (!s.Empty()) total += m_weights->For(s.typeId);
+	for (const ItemSlot& s : m_character->inventory.packs) // the bags themselves
+		if (!s.Empty()) total += m_weights->For(s.typeId);
 	for (const ItemSlot& s : m_character->inventory.backpack)
 		if (!s.Empty()) total += m_weights->For(s.typeId);
 	return total;
@@ -582,19 +605,35 @@ void CharacterSheet::DrawInventory(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 		"sheet.load", std::format("{:.1f}", load), std::format("{:.0f}", maxLoad));
 	const Vec4 loadColor = load > maxLoad ? Vec4{0.85f, 0.25f, 0.2f, 1.0f} : theme.accent;
 	font.Draw(batch, loadText, px.x + kPackX * sx, px.y + kInvHeaderY * sy, loadColor);
-	const auto& pack = m_character->inventory.backpack;
+
+	// Pack row: the member's containers (slot 0 = the starting backpack). The
+	// selected pack is highlighted; its contents fill the grid below.
+	const Inventory& inv = m_character->inventory;
+	auto drawIcon = [&](const gfx::Rect& r, const ItemSlot& s) {
+		if (s.Empty() || !m_icons) return;
+		if (const gfx::Texture* icon = m_icons->For(s.typeId)) {
+			const float p = r.w * 0.1f;
+			batch.DrawSprite({r.x + p, r.y + p, r.w - 2 * p, r.h - 2 * p}, {0, 0, 1, 1},
+							 *icon, {1, 1, 1, 1});
+		}
+	};
+	for (int i = 0; i < kPackRowSlots; ++i) {
+		const gfx::Rect r = PackRowRect(px, sx, sy, i);
+		const bool sel = i == inv.selectedPack;
+		batch.DrawRect(r, sel ? theme.controlActive : theme.control);
+		ui::DrawBorder(batch, r, sel ? theme.accent : theme.panelBorder);
+		drawIcon(r, inv.packs[static_cast<size_t>(i)]);
+	}
+
+	// Backpack contents (the selected pack's items). For now only pack 0 (the
+	// starting backpack) carries contents — the `backpack` vector — so that is
+	// what shows; per-pack contents storage is a later step.
+	const auto& pack = inv.backpack;
 	for (int i = 0; i < static_cast<int>(pack.size()); ++i) {
 		const gfx::Rect r = PackRect(px, sx, sy, i);
 		batch.DrawRect(r, theme.control);
 		ui::DrawBorder(batch, r, theme.panelBorder);
-		const ItemSlot& s = pack[static_cast<size_t>(i)];
-		if (!s.Empty() && m_icons) {
-			if (const gfx::Texture* icon = m_icons->For(s.typeId)) {
-				const float p = r.w * 0.1f;
-				batch.DrawSprite({r.x + p, r.y + p, r.w - 2 * p, r.h - 2 * p}, {0, 0, 1, 1},
-								 *icon, {1, 1, 1, 1});
-			}
-		}
+		drawIcon(r, pack[static_cast<size_t>(i)]);
 	}
 }
 

@@ -29,6 +29,12 @@ namespace dungeon::game {
 // Backpack slots a fresh character starts with (capacity grows at runtime).
 inline constexpr int kBackpackStart = 6;
 
+// Pack-row slots: the containers (bags) a member carries. Slot 0 holds the
+// starting backpack every character begins with; the others are open for more
+// packs later. The SELECTED pack's contents fill the slot grid below it.
+inline constexpr int kPackRowSlots = 4;
+inline constexpr const char* kStartingPack = "backpack"; // catalog id, pack slot 0
+
 // Placeholder accent tint for an item category — drives both the floor mesh
 // (tablet, tinted) and the generated hand/cursor icon, so they read alike until
 // real per-item art lands. Runes don't use this (they tint by spell element).
@@ -37,6 +43,7 @@ inline Vec4 CategoryTint(std::string_view category) {
 	if (category == "armor")    return {0.46f, 0.31f, 0.18f, 1.0f}; // leather brown
 	if (category == "clothing") return {0.30f, 0.46f, 0.56f, 1.0f}; // cloth blue
 	if (category == "food")     return {0.74f, 0.34f, 0.26f, 1.0f}; // warm red
+	if (category == "container") return {0.40f, 0.26f, 0.14f, 1.0f}; // dark leather
 	return {0.55f, 0.55f, 0.55f, 1.0f};                             // misc grey
 }
 
@@ -64,6 +71,11 @@ inline constexpr const char* kEquipLabels[kEquipCount] = {
 
 struct Inventory {
 	std::array<ItemSlot, kEquipCount> equipment; // worn/held, indexed by EquipSlot
+	// The pack-row containers; slot 0 is seeded with the starting backpack. The
+	// `backpack` vector below is that pack's CONTENTS (the only pack with contents
+	// for now — per-pack contents storage is a later step).
+	std::array<ItemSlot, kPackRowSlots> packs = {ItemSlot{kStartingPack}};
+	int selectedPack = 0; // which pack-row slot's contents the grid shows
 	std::vector<ItemSlot> backpack = std::vector<ItemSlot>(kBackpackStart);
 
 	// The weapon hand slots (0 = left, 1 = right), aliases into equipment[] so the
@@ -98,10 +110,14 @@ struct Inventory {
 		if (extra > 0) backpack.resize(backpack.size() + static_cast<size_t>(extra));
 	}
 
-	// Empties every slot but keeps the current backpack capacity.
+	// Empties every slot but keeps the current backpack capacity and the starting
+	// pack (slot 0 is always the member's backpack).
 	void Clear() {
 		for (ItemSlot& s : equipment) s.Clear(); // includes the hands
 		for (ItemSlot& s : backpack) s.Clear();
+		for (ItemSlot& s : packs) s.Clear();
+		packs[0].typeId = kStartingPack;
+		selectedPack = 0;
 	}
 };
 

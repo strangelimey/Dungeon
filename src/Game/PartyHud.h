@@ -208,6 +208,7 @@ private:
 	// backpack slot i, and mode-toggle button i (0..2). Scaled by Draw/Update.
 	gfx::Rect EquipRect(const gfx::Rect& px, float sx, float sy, int i) const;
 	gfx::Rect PackRect(const gfx::Rect& px, float sx, float sy, int i) const;
+	gfx::Rect PackRowRect(const gfx::Rect& px, float sx, float sy, int i) const;
 	gfx::Rect ModeButtonRect(const gfx::Rect& px, float sx, float sy, int i) const;
 	// Mode bodies + the shared mode-button strip (active button drawn pressed).
 	void DrawModeButtons(ui::UIContext& ctx, gfx::SpriteBatch& batch,
