@@ -8,9 +8,10 @@
 //     displaced by that texture's scanned height map (see the worn section)
 //   * serpent pillar — skinned cylinder with coil bulges, 4-joint chain,
 //     looping sway clip
-//   * monsters — skeleton & mummy share a 7-joint humanoid rig (root→spine→
-//     head/arms, root→legs) with tapered-tube limbs + a skull and idle/walk/
-//     attack/die clips; the blob is a 2-joint lumpy sphere with a squash clip
+//   * monsters — skeleton & mummy share a 15-joint humanoid rig (torso +
+//     three-joint arms shoulder/elbow/wrist & legs hip/knee/ankle) with
+//     segmented tapered-tube bones, ball joints, a skull, and idle/walk/attack/
+//     die clips; the blob is a 2-joint lumpy sphere with a squash clip
 //
 // Geometry helpers: AddBox / AddRevolution (vertical axis) / AddStrut (a
 // tapered tube between two arbitrary points — splayed legs, forged arms,
@@ -1132,39 +1133,81 @@ struct HumanoidStyle {
 assets::ModelData BuildHumanoid(const HumanoidStyle& style) {
 	assets::ModelData model;
 
-	const Vec3 globals[7] = {{0, 1.00f, 0}, {0, 1.30f, 0},      {0, 1.70f, 0},
-							 {-0.28f, 1.55f, 0}, {0.28f, 1.55f, 0},
-							 {-0.12f, 0.95f, 0}, {0.12f, 0.95f, 0}};
-	const int parents[7] = {-1, 0, 1, 1, 1, 0, 0};
-	const char* names[7] = {"root", "spine", "head", "armL", "armR", "legL", "legR"};
-	for (int j = 0; j < 7; ++j) {
+	// 15-joint humanoid: torso (root/spine/head) plus three-joint limbs so they
+	// bend — each arm is shoulder -> elbow -> wrist, each leg hip -> knee ->
+	// ankle, with the hand hanging off the wrist and the foot off the ankle.
+	// Indices 0/1/2 stay root/spine/head (the idle clip keys those by number).
+	enum J {
+		J_ROOT, J_SPINE, J_HEAD,
+		J_SHL, J_ELL, J_WRL, // left arm:  shoulder, elbow, wrist
+		J_SHR, J_ELR, J_WRR, // right arm
+		J_HIPL, J_KNL, J_ANL, // left leg: hip, knee, ankle
+		J_HIPR, J_KNR, J_ANR, // right leg
+		J_COUNT
+	};
+	const Vec3 G[J_COUNT] = {
+		{0, 1.00f, 0}, {0, 1.30f, 0}, {0, 1.70f, 0},
+		{-0.20f, 1.55f, 0}, {-0.255f, 1.30f, 0}, {-0.31f, 1.04f, 0},
+		{0.20f, 1.55f, 0}, {0.255f, 1.30f, 0}, {0.31f, 1.04f, 0},
+		{-0.12f, 0.95f, 0}, {-0.125f, 0.50f, 0}, {-0.13f, 0.06f, 0},
+		{0.12f, 0.95f, 0}, {0.125f, 0.50f, 0}, {0.13f, 0.06f, 0},
+	};
+	const int parent[J_COUNT] = {
+		-1, J_ROOT, J_SPINE,
+		J_SPINE, J_SHL, J_ELL,
+		J_SPINE, J_SHR, J_ELR,
+		J_ROOT, J_HIPL, J_KNL,
+		J_ROOT, J_HIPR, J_KNR,
+	};
+	const char* names[J_COUNT] = {
+		"root", "spine", "head",
+		"shoulderL", "elbowL", "wristL",
+		"shoulderR", "elbowR", "wristR",
+		"hipL", "kneeL", "ankleL",
+		"hipR", "kneeR", "ankleR",
+	};
+	for (int j = 0; j < J_COUNT; ++j) {
 		assets::JointData joint;
 		joint.name = names[j];
-		joint.parent = parents[j];
-		const Vec3 parentPos = parents[j] >= 0 ? globals[parents[j]] : Vec3{0, 0, 0};
-		joint.restTranslation = Sub(globals[j], parentPos);
-		joint.inverseBind = InverseBindForGlobal(globals[j]);
+		joint.parent = parent[j];
+		const Vec3 parentPos = parent[j] >= 0 ? G[parent[j]] : Vec3{0, 0, 0};
+		joint.restTranslation = Sub(G[j], parentPos);
+		joint.inverseBind = InverseBindForGlobal(G[j]);
 		model.skeleton.joints.push_back(joint);
 	}
 
 	const float b = style.bulk;
 	assets::MeshData mesh;
 	mesh.skinned = true;
-	// Rounded limbs (tapered tubes) instead of boxes: hips, a ribcage tapering
-	// up to the shoulders, neck + skull, arms (shoulder->wrist) and legs
-	// (thigh->ankle) with feet. Each part rigidly follows the joint it deformed
-	// from before, so the idle clip below is unchanged.
-	AddStrut(mesh, {0, 0.94f, 0}, {0, 1.12f, 0}, 0.15f * b, 0.135f * b, 10, 0); // hips
-	AddStrut(mesh, {0, 1.12f, 0}, {0, 1.56f, 0}, 0.135f * b, 0.175f * b, 12, 1); // ribcage
-	AddStrut(mesh, {0, 1.56f, 0}, {0, 1.70f, 0}, 0.05f * b, 0.06f * b, 8, 2); // neck
-	AddSphere(mesh, {0, 1.80f, 0.005f}, 0.105f * b, 10, 12, 2, {0.92f, 1.0f, 1.02f}); // skull
-	AddStrut(mesh, {0, 1.73f, 0.05f}, {0, 1.69f, 0.08f}, 0.055f * b, 0.04f * b, 6, 2); // jaw
-	AddStrut(mesh, {-0.20f, 1.55f, 0}, {-0.31f, 1.04f, 0}, 0.058f * b, 0.034f * b, 8, 3); // armL
-	AddStrut(mesh, {0.20f, 1.55f, 0}, {0.31f, 1.04f, 0}, 0.058f * b, 0.034f * b, 8, 4);   // armR
-	AddStrut(mesh, {-0.12f, 0.95f, 0}, {-0.13f, 0.06f, 0}, 0.078f * b, 0.05f * b, 8, 5);  // legL
-	AddStrut(mesh, {0.12f, 0.95f, 0}, {0.13f, 0.06f, 0}, 0.078f * b, 0.05f * b, 8, 6);    // legR
-	AddStrut(mesh, {-0.13f, 0.05f, -0.02f}, {-0.13f, 0.035f, 0.13f}, 0.052f, 0.04f, 6, 5); // footL
-	AddStrut(mesh, {0.13f, 0.05f, -0.02f}, {0.13f, 0.035f, 0.13f}, 0.052f, 0.04f, 6, 6);   // footR
+	// Torso: hips, a ribcage tapering to the shoulders, neck + skull + jaw.
+	AddStrut(mesh, {0, 0.94f, 0}, {0, 1.12f, 0}, 0.15f * b, 0.135f * b, 10, J_ROOT);
+	AddStrut(mesh, {0, 1.12f, 0}, {0, 1.56f, 0}, 0.135f * b, 0.175f * b, 12, J_SPINE);
+	AddStrut(mesh, {0, 1.56f, 0}, {0, 1.70f, 0}, 0.05f * b, 0.06f * b, 8, J_HEAD);
+	AddSphere(mesh, {0, 1.80f, 0.005f}, 0.105f * b, 10, 12, J_HEAD, {0.92f, 1.0f, 1.02f});
+	AddStrut(mesh, {0, 1.73f, 0.05f}, {0, 1.69f, 0.08f}, 0.055f * b, 0.04f * b, 6, J_HEAD);
+	// Segmented limbs: each bone is a tube bound to its own joint, with a small
+	// ball at the elbow/wrist and knee/ankle to mask the seam where bones meet
+	// (reads as a knuckle / wrapped joint and hides the gap when the joint bends).
+	auto arm = [&](int sh, int el, int wr, float sx) {
+		AddStrut(mesh, G[sh], G[el], 0.058f * b, 0.05f * b, 8, sh);  // upper arm
+		AddStrut(mesh, G[el], G[wr], 0.05f * b, 0.038f * b, 8, el);  // forearm
+		AddStrut(mesh, G[wr], {G[wr].x + sx * 0.02f, G[wr].y - 0.12f, 0.03f},
+				 0.042f * b, 0.018f * b, 6, wr);                     // hand
+		AddSphere(mesh, G[el], 0.05f * b, 6, 8, el);                 // elbow
+		AddSphere(mesh, G[wr], 0.04f * b, 6, 8, wr);                 // wrist
+	};
+	arm(J_SHL, J_ELL, J_WRL, -1.0f);
+	arm(J_SHR, J_ELR, J_WRR, 1.0f);
+	auto leg = [&](int hip, int kn, int an) {
+		AddStrut(mesh, G[hip], G[kn], 0.078f * b, 0.062f * b, 8, hip); // thigh
+		AddStrut(mesh, G[kn], G[an], 0.062f * b, 0.045f * b, 8, kn);   // shin
+		AddStrut(mesh, {G[an].x, 0.05f, -0.02f}, {G[an].x, 0.035f, 0.13f},
+				 0.052f, 0.04f, 6, an);                               // foot
+		AddSphere(mesh, G[kn], 0.064f * b, 6, 8, kn);                 // knee
+		AddSphere(mesh, G[an], 0.05f * b, 6, 8, an);                  // ankle
+	};
+	leg(J_HIPL, J_KNL, J_ANL);
+	leg(J_HIPR, J_KNR, J_ANR);
 	// World-aligned tiling so the bone/bandage set (skeleton_<res>, mummy_<res>)
 	// keeps an even grain across the limbs; the game binds the set by type name.
 	TileUvs(mesh, 0.55f);
@@ -1217,25 +1260,42 @@ assets::ModelData BuildHumanoid(const HumanoidStyle& style) {
 		}
 		clip.channels.push_back(std::move(ch));
 	}
-	for (int arm = 3; arm <= 4; ++arm) { // arm sway (anti-phase)
-		assets::AnimationChannelData ch;
-		ch.joint = arm;
-		ch.path = assets::ChannelPath::Rotation;
-		times(ch);
-		const float sign = arm == 3 ? 1.0f : -1.0f;
-		for (int k = 0; k < kKeys; ++k) {
-			const Quat q = QuatFromEuler(
-				-style.armRaise + sign * style.swing * std::sin(phase(k)), 0, 0);
-			ch.values.push_back({q.x, q.y, q.z, q.w});
+	{ // shoulder sway (anti-phase) around the base raise
+		const int sh[2] = {J_SHL, J_SHR};
+		for (int s = 0; s < 2; ++s) {
+			assets::AnimationChannelData ch;
+			ch.joint = sh[s];
+			ch.path = assets::ChannelPath::Rotation;
+			times(ch);
+			const float sign = s == 0 ? 1.0f : -1.0f;
+			for (int k = 0; k < kKeys; ++k) {
+				const Quat q = QuatFromEuler(
+					-style.armRaise + sign * style.swing * std::sin(phase(k)), 0, 0);
+				ch.values.push_back({q.x, q.y, q.z, q.w});
+			}
+			clip.channels.push_back(std::move(ch));
 		}
-		clip.channels.push_back(std::move(ch));
+	}
+	{ // a constant slight elbow bend so the arms aren't ramrod straight
+		const int el[2] = {J_ELL, J_ELR};
+		for (int s = 0; s < 2; ++s) {
+			assets::AnimationChannelData ch;
+			ch.joint = el[s];
+			ch.path = assets::ChannelPath::Rotation;
+			times(ch);
+			for (int k = 0; k < kKeys; ++k) {
+				const Quat q = QuatFromEuler(0.25f + 0.06f * std::sin(phase(k)), 0, 0);
+				ch.values.push_back({q.x, q.y, q.z, q.w});
+			}
+			clip.channels.push_back(std::move(ch));
+		}
 	}
 	model.clips.push_back(std::move(clip));
 
-	// walk / attack / die clips. Authored on the same 7-joint rig as idle and
-	// consumed by DungeonWorld's monster animation state machine (walk loops over
-	// the chase glide; attack fires per swing; die plays once on slay, then the
-	// corpse vanishes). Two small builders sample a 0..1 phase across the clip.
+	// walk / attack / die clips. Authored on the 15-joint rig and consumed by
+	// DungeonWorld's monster animation state machine (walk loops over the chase
+	// glide; attack fires per swing; die plays once on slay, then the corpse
+	// vanishes). Two small builders sample a 0..1 phase across the clip.
 	auto rotChan = [](assets::AnimationClipData& c, int joint, int keys, auto&& f) {
 		assets::AnimationChannelData ch;
 		ch.joint = joint;
@@ -1261,46 +1321,64 @@ assets::ModelData BuildHumanoid(const HumanoidStyle& style) {
 	};
 	const float raise = style.armRaise;
 
-	{ // walk: legs stride anti-phase, arms counter-swing, body double-bob. Loops.
+	{ // walk: hips stride anti-phase, knees flex through the swing, arms counter-
+	  // swing at the shoulders with the elbows bent, body double-bob. Loops.
 		assets::AnimationClipData walk;
 		walk.name = "walk";
 		walk.duration = 0.72f;
-		constexpr int K = 17;
+		constexpr int K = 21;
 		const float tau = 2.0f * kPi;
-		rotChan(walk, 5, K, [&](float u) { return QuatFromEuler(0.55f * std::sin(tau * u), 0, 0); });
-		rotChan(walk, 6, K, [&](float u) { return QuatFromEuler(0.55f * std::sin(tau * u + kPi), 0, 0); });
-		rotChan(walk, 3, K, [&](float u) { return QuatFromEuler(-raise + 0.35f * std::sin(tau * u + kPi), 0, 0); });
-		rotChan(walk, 4, K, [&](float u) { return QuatFromEuler(-raise + 0.35f * std::sin(tau * u), 0, 0); });
+		rotChan(walk, J_HIPL, K, [&](float u) { return QuatFromEuler(0.5f * std::sin(tau * u), 0, 0); });
+		rotChan(walk, J_HIPR, K, [&](float u) { return QuatFromEuler(0.5f * std::sin(tau * u + kPi), 0, 0); });
+		rotChan(walk, J_KNL, K, [&](float u) { return QuatFromEuler(0.7f * (0.5f - 0.5f * std::cos(tau * u)), 0, 0); });
+		rotChan(walk, J_KNR, K, [&](float u) { return QuatFromEuler(0.7f * (0.5f - 0.5f * std::cos(tau * u + kPi)), 0, 0); });
+		rotChan(walk, J_SHL, K, [&](float u) { return QuatFromEuler(-raise + 0.35f * std::sin(tau * u + kPi), 0, 0); });
+		rotChan(walk, J_SHR, K, [&](float u) { return QuatFromEuler(-raise + 0.35f * std::sin(tau * u), 0, 0); });
+		rotChan(walk, J_ELL, K, [&](float u) { return QuatFromEuler(0.35f + 0.15f * std::sin(tau * u + kPi), 0, 0); });
+		rotChan(walk, J_ELR, K, [&](float u) { return QuatFromEuler(0.35f + 0.15f * std::sin(tau * u), 0, 0); });
 		rootY(walk, K, [&](float u) { return 1.0f + 0.03f * std::sin(2.0f * tau * u); });
 		model.clips.push_back(std::move(walk));
 	}
 
-	{ // attack: right arm winds up then chops down, spine leans in. One-shot.
+	{ // attack: right shoulder winds the arm up while the elbow cocks, then both
+	  // drive down into a chop, spine leaning in. One-shot.
 		assets::AnimationClipData atk;
 		atk.name = "attack";
 		atk.duration = 0.55f;
-		constexpr int K = 13;
-		rotChan(atk, 4, K, [&](float u) {
+		constexpr int K = 15;
+		rotChan(atk, J_SHR, K, [&](float u) {
 			float pitch;
-			if (u < 0.30f)        pitch = -raise - 1.7f * (u / 0.30f);                       // raise overhead
-			else if (u < 0.55f)   pitch = -raise - 1.7f + 3.1f * ((u - 0.30f) / 0.25f);      // chop down
-			else                  pitch = (-raise + 1.4f) * (1.0f - (u - 0.55f) / 0.45f) - raise * ((u - 0.55f) / 0.45f); // settle to base
+			if (u < 0.30f)      pitch = -raise - 1.7f * (u / 0.30f);                       // raise overhead
+			else if (u < 0.55f) pitch = -raise - 1.7f + 3.1f * ((u - 0.30f) / 0.25f);      // chop down
+			else                pitch = (-raise + 1.4f) * (1.0f - (u - 0.55f) / 0.45f) - raise * ((u - 0.55f) / 0.45f);
 			return QuatFromEuler(pitch, 0, 0);
 		});
-		rotChan(atk, 1, K, [&](float u) { return QuatFromEuler(0.4f * std::sin(std::min(u / 0.55f, 1.0f) * kPi), 0, 0); });
+		rotChan(atk, J_ELR, K, [&](float u) {
+			float bend;
+			if (u < 0.30f)      bend = 0.3f + 1.1f * (u / 0.30f);            // cock the elbow on the wind-up
+			else if (u < 0.55f) bend = 1.4f - 1.2f * ((u - 0.30f) / 0.25f); // snap straight through the chop
+			else                bend = 0.2f + 0.1f * ((u - 0.55f) / 0.45f); // settle
+			return QuatFromEuler(bend, 0, 0);
+		});
+		rotChan(atk, J_SPINE, K, [&](float u) { return QuatFromEuler(0.4f * std::sin(std::min(u / 0.55f, 1.0f) * kPi), 0, 0); });
 		model.clips.push_back(std::move(atk));
 	}
 
-	{ // die: root sinks and topples forward, spine/arms slump. One-shot, holds.
+	{ // die: root sinks and topples forward, spine slumps, arms go limp at the
+	  // shoulders + elbows, knees buckle. One-shot, holds the heap.
 		assets::AnimationClipData die;
 		die.name = "die";
 		die.duration = 0.9f;
-		constexpr int K = 13;
-		rootY(die, K, [&](float u) { return 1.0f - 0.78f * (u * u); });                       // 1.0 -> 0.22 (accelerating)
-		rotChan(die, 0, K, [&](float u) { return QuatFromEuler(1.45f * (u * u), 0, 0); });     // topple forward
-		rotChan(die, 1, K, [&](float u) { return QuatFromEuler(0.5f * (u * u), 0, 0); });      // spine slump
-		rotChan(die, 3, K, [&](float u) { return QuatFromEuler(-raise * (1.0f - u * u) + 0.4f * (u * u), 0, 0); });
-		rotChan(die, 4, K, [&](float u) { return QuatFromEuler(-raise * (1.0f - u * u) + 0.4f * (u * u), 0, 0); });
+		constexpr int K = 15;
+		rootY(die, K, [&](float u) { return 1.0f - 0.78f * (u * u); });                   // sink (accelerating)
+		rotChan(die, J_ROOT, K, [&](float u) { return QuatFromEuler(1.45f * (u * u), 0, 0); });  // topple forward
+		rotChan(die, J_SPINE, K, [&](float u) { return QuatFromEuler(0.5f * (u * u), 0, 0); });  // spine slump
+		rotChan(die, J_SHL, K, [&](float u) { return QuatFromEuler(-raise * (1.0f - u * u) + 0.3f * (u * u), 0, 0); });
+		rotChan(die, J_SHR, K, [&](float u) { return QuatFromEuler(-raise * (1.0f - u * u) + 0.3f * (u * u), 0, 0); });
+		rotChan(die, J_ELL, K, [&](float u) { return QuatFromEuler(0.3f + 0.6f * (u * u), 0, 0); }); // elbows go limp
+		rotChan(die, J_ELR, K, [&](float u) { return QuatFromEuler(0.3f + 0.6f * (u * u), 0, 0); });
+		rotChan(die, J_KNL, K, [&](float u) { return QuatFromEuler(0.9f * (u * u), 0, 0); });        // knees buckle
+		rotChan(die, J_KNR, K, [&](float u) { return QuatFromEuler(0.9f * (u * u), 0, 0); });
 		model.clips.push_back(std::move(die));
 	}
 

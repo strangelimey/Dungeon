@@ -112,11 +112,20 @@ missing clip silently leaves idle playing (no warning spam, no pop). Render +
 shadow gates updated to keep a dying monster on-screen while `deathAnim > 0`.
 
 **Goal 3 (procedural clips) — DONE for the humanoid, verified.** `walk`/`attack`/
-`die` authored on the shared 7-joint rig in `tools/AssetBaker/ModelBaker.cpp`
-(`BuildHumanoid`), so skeleton + mummy now bake 4 clips each (blob keeps its
-squash idle; it can get walk/die later). walk: anti-phase leg stride + arm
-counter-swing + body bob (loops); attack: right-arm wind-up → chop, spine lean
-(one-shot); die: root sinks + topples forward, spine/arms slump (one-shot, holds).
+`die` authored in `tools/AssetBaker/ModelBaker.cpp` (`BuildHumanoid`), so skeleton
++ mummy bake 4 clips each (blob keeps its squash idle; it can get walk/die later).
+
+**Rig upgrade — DONE, verified.** The humanoid rig went from 7 joints (whole-limb
+rigid struts) to **15 joints**: torso (root/spine/head, indices 0/1/2 kept) plus
+three-joint limbs — arm = shoulder→elbow→wrist, leg = hip→knee→ankle — with the
+hand off the wrist and the foot off the ankle. Each bone is its own tube segment
+bound to its joint, with a small ball at every elbow/wrist/knee/ankle to mask the
+seam when it bends (skeleton.gltf/mummy.gltf: 523→1239 verts, 7→15 joints). Clips
+now use the joints: walk flexes the knees + bends the elbows on the arm swing;
+attack cocks the right elbow on the wind-up and snaps it through the chop; die
+buckles the knees and lets the arms go limp at shoulder + elbow as it topples.
+Verified in-game (docs/anim_v_rig2_*.png): bent-elbow attack swing and a
+knee-buckle collapse on death.
 
 Verified by driving the game: scene renders correctly, a mummy chased the party in
 (walk), swung (attack — arms raise/drop across frames), and on a kill toppled to
