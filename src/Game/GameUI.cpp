@@ -111,7 +111,14 @@ void GameUI::OnPortraitClick(size_t i) {
 	if (i >= m_characters.size()) return;
 	if (Holding()) {
 		Character& c = m_characters[i];
-		if (c.inventory.Stow(**m_held)) {
+		const Inventory& inv = c.inventory;
+		const std::string& packId = inv.packs[static_cast<size_t>(inv.selectedPack)].typeId;
+		// Honour the selected pack's content restriction (same as the sheet drop).
+		if (m_itemCategories && !m_itemCategories->PackAcceptsItem(packId, **m_held)) {
+			m_audio.Play(m_sounds.bump, 0.5f);
+			AddLogLine(loc::Format("log.pack_rejects", loc::Tr("item." + **m_held),
+								   loc::Tr("item." + packId)));
+		} else if (c.inventory.Stow(**m_held)) {
 			AddLogLine(loc::Format("log.stow", c.name,
 								   loc::Tr(std::format("item.{}", **m_held))));
 			m_held->reset();
@@ -858,6 +865,13 @@ void GameUI::BuildCharacterSheet() {
 											&m_titleFont, &m_settings.barColors,
 											m_itemIcons, m_itemWeights, m_slotIcons,
 											m_itemCategories, m_held);
+	// A pack refused the held item: a soft thud + a "won't fit" log line. Item
+	// names follow the item.<id> loc convention (same as ItemKind::nameKey).
+	m_sheet->onRejectDrop = [this](const std::string& item, const std::string& pack) {
+		m_audio.Play(m_sounds.bump, 0.5f);
+		AddLogLine(loc::Format("log.pack_rejects", loc::Tr("item." + item),
+							   loc::Tr("item." + pack)));
+	};
 
 	const float btnY = sy + sheetH + 16.0f;
 	m_sheetUi.Add<ui::Button>(Norm({sx, btnY, 64, 40}, window), "<", [this] {

@@ -108,6 +108,12 @@ struct ItemCategoryBank {
 			if (a == "any" || a == category) return true;
 		return false;
 	}
+	// True if pack `packId` may hold item `itemId`: the no-bag-in-a-bag rule plus
+	// the accepts list. The one check shared by every place items enter a pack.
+	bool PackAcceptsItem(const std::string& packId, const std::string& itemId) const {
+		if (Is(itemId, "container")) return false; // no nesting bags
+		return Accepts(packId, CategoryOf(itemId));
+	}
 };
 
 class CharacterPanel : public ui::Widget {
@@ -235,6 +241,10 @@ public:
 	// Opens the sheet on a specific tab (the party bar uses this: portrait ->
 	// Inventory, the stat bars -> Stats).
 	void SetMode(Mode m) { m_mode = m; }
+
+	// Fired when a held item is refused by the selected pack (item id, pack id) —
+	// Game wires it to a "won't fit" log line + sound.
+	std::function<void(const std::string&, const std::string&)> onRejectDrop;
 
 private:
 	// Design-space rect of doll cell i (an index into the placed-cell table),

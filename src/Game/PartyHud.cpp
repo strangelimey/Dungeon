@@ -477,11 +477,9 @@ void CharacterSheet::EquipOrSelectPack(int i) {
 
 bool CharacterSheet::PackAccepts(const std::string& itemId) const {
 	if (!m_categories || !m_character) return true; // no info → don't block
-	// No bag-in-a-bag: a pack never holds another container.
-	if (m_categories->Is(itemId, "container")) return false;
 	const Inventory& inv = m_character->inventory;
 	const std::string& packId = inv.packs[static_cast<size_t>(inv.selectedPack)].typeId;
-	return m_categories->Accepts(packId, m_categories->CategoryOf(itemId));
+	return m_categories->PackAcceptsItem(packId, itemId);
 }
 
 void CharacterSheet::Update(ui::UIContext& ctx) {
@@ -528,10 +526,16 @@ void CharacterSheet::Update(ui::UIContext& ctx) {
 		for (int i = 0; i < static_cast<int>(pack.size()); ++i)
 			if (PackRect(px, sx, sy, i).Contains(mx, my)) {
 				// A held item only goes in if this pack accepts its type; otherwise
-				// the click is swallowed and the item stays on the cursor.
+				// the item stays on the cursor and we signal the refusal.
 				const bool dropping = m_held && m_held->has_value();
-				if (!dropping || PackAccepts(**m_held))
+				if (dropping && !PackAccepts(**m_held)) {
+					const Inventory& inv = m_character->inventory;
+					if (onRejectDrop)
+						onRejectDrop(**m_held,
+									 inv.packs[static_cast<size_t>(inv.selectedPack)].typeId);
+				} else {
 					ClickSlot(pack[static_cast<size_t>(i)]);
+				}
 				ctx.ConsumeMouse();
 				return;
 			}
