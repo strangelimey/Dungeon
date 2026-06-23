@@ -9,6 +9,10 @@ namespace dungeon::game {
 
 namespace {
 
+// Shared background for the item-bearing slots (hands, equipment doll, backpack):
+// black, so the light-haloed 3D item icons read clearly against it.
+inline constexpr Vec4 kSlotBg{0.0f, 0.0f, 0.0f, 1.0f};
+
 void DrawStatBar(gfx::SpriteBatch& batch, const gfx::Rect& rect, float fraction,
 				 const Vec4& color, const ui::Theme& theme) {
 	batch.DrawRect(rect, theme.control);
@@ -189,8 +193,10 @@ void HandSlot::Update(ui::UIContext& ctx) {
 void HandSlot::Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	const ui::Theme& theme = ctx.GetTheme();
 	const gfx::Rect& px = Pixel();
-	batch.DrawRect(px, m_held ? theme.controlActive
-							  : (m_hot ? theme.controlHot : theme.control));
+	// Black slot background (the light-haloed item reads against it); a subtle
+	// grey lift on hover/press keeps the interaction feedback.
+	batch.DrawRect(px, m_held ? Vec4{0.22f, 0.22f, 0.24f, 1.0f}
+							  : (m_hot ? Vec4{0.12f, 0.12f, 0.13f, 1.0f} : kSlotBg));
 	// The item held in this hand, if any, drawn inset from the border.
 	const ItemSlot& slot = m_character->inventory.Hand(m_hand);
 	if (!slot.Empty() && m_icons) {
@@ -296,7 +302,7 @@ void InventoryWindow::DrawOverlay(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 				  panel.y + kInvPad + kInvHeader, theme.text);
 		for (int i = 0; i < static_cast<int>(pack.size()); ++i) {
 			const gfx::Rect r = SlotRect(panel, m, i);
-			batch.DrawRect(r, theme.control);
+			batch.DrawRect(r, kSlotBg);
 			ui::DrawBorder(batch, r, theme.panelBorder);
 			const ItemSlot& s = pack[static_cast<size_t>(i)];
 			if (!s.Empty() && m_icons) {
@@ -627,7 +633,7 @@ void CharacterSheet::DrawInventory(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 	for (int i = 0; i < kDollCellCount; ++i) {
 		const size_t slot = static_cast<size_t>(kDollCells[i].slot);
 		const gfx::Rect r = EquipRect(px, sx, sy, i);
-		batch.DrawRect(r, theme.control);
+		batch.DrawRect(r, kSlotBg);
 		ui::DrawBorder(batch, r, theme.panelBorder);
 		const ItemSlot& s = m_character->inventory.equipment[slot];
 		if (s.Empty()) {
@@ -679,7 +685,8 @@ void CharacterSheet::DrawInventory(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 	for (int i = 0; i < kPackRowSlots; ++i) {
 		const gfx::Rect r = PackRowRect(px, sx, sy, i);
 		const bool sel = i == inv.selectedPack;
-		batch.DrawRect(r, sel ? theme.controlActive : theme.control);
+		// Black base; the selected pack lifts slightly and its accent border marks it.
+		batch.DrawRect(r, sel ? Vec4{0.18f, 0.18f, 0.20f, 1.0f} : kSlotBg);
 		ui::DrawBorder(batch, r, sel ? theme.accent : theme.panelBorder);
 		drawIcon(r, inv.packs[static_cast<size_t>(i)].typeId);
 	}
@@ -695,7 +702,7 @@ void CharacterSheet::DrawInventory(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 	const auto& pack = inv.SelectedContents();
 	for (int i = 0; i < static_cast<int>(pack.size()); ++i) {
 		const gfx::Rect r = PackRect(px, sx, sy, i);
-		batch.DrawRect(r, theme.control);
+		batch.DrawRect(r, kSlotBg);
 		ui::DrawBorder(batch, r, theme.panelBorder);
 		drawIcon(r, pack[static_cast<size_t>(i)].typeId);
 	}

@@ -33,8 +33,10 @@
 #include "Game/SlotGrid.h"
 #include "Game/SoundBank.h"
 #include "Graphics/Camera.h"
+#include "Graphics/D3DUtil.h"
 #include "Graphics/ParticleBatch.h"
 #include "Graphics/Renderer.h"
+#include "Graphics/SpriteBatch.h"
 
 #include <array>
 #include <flat_map>
@@ -96,6 +98,14 @@ public:
 
 	void RenderShadowMaps(ID3D12GraphicsCommandList* list);
 	void RenderScene(ID3D12GraphicsCommandList* list);
+
+	// Renders each model item's 3D thumbnail into its icon render-target once
+	// (before the first scene): a soft round halo (via `sprites`) then the lit 3D
+	// model over it. Redirects the OM and rebinds the back buffer.
+	void BakeItemIconsIfNeeded(ID3D12GraphicsCommandList* list, gfx::SpriteBatch& sprites);
+	// The baked 3D icon for an item type (building its kind on demand), or null
+	// for a model-less item (the caller falls back to its flat placeholder).
+	const gfx::Texture* ItemIconFor(const std::string& typeId);
 
 	// Torchlight palette (the HUD dropdown): 0 warm, 1 cold blue, 2 eerie
 	// green. Announces the change through onMessage.
@@ -421,6 +431,22 @@ private:
 	// of hand COMMANDS (the right-click menu builds from these). RUNES are the
 	// fully-built specialization — a carved-stone tablet (the shared m_runeMesh,
 	// drawn with this element's texture set) the party picks up by clicking it;
+	// An authored model rendered with its OWN glTF materials: one GPU texture per
+	// embedded image and one submesh (mesh + resolved MaterialParams) per glTF
+	// primitive, so a multi-material model (a dagger's steel blade, brass guard,
+	// leather grip) draws each part with its real material instead of one flat set.
+	// MaterialParams holds raw Texture* into `textures`, which is built once and
+	// never resized, so those pointers stay valid for the model's lifetime. Shared
+	// by decorations, items (floor + icon), and the icon bake.
+	struct MultiMaterialModel {
+		std::vector<std::unique_ptr<gfx::Texture>> textures; // one per model.images
+		struct Sub {
+			std::unique_ptr<gfx::Mesh> mesh;
+			gfx::MaterialParams material;
+		};
+		std::vector<Sub> subs; // one per model.meshes
+		Vec3 boundsMin{}, boundsMax{}; // world-space AABB of the baked geometry
+	};
 	// they implicitly get the "memorize" command. Other categories so far reuse
 	// the tablet mesh, tinted, as a placeholder (see ItemKindFor).
 	struct ItemKind {
@@ -435,6 +461,13 @@ private:
 		// Carved-stone tablet look: the shared tablet mesh (m_runeMesh) drawn with
 		// this element's PBR set (rune_<elem>). null tex falls back to flat stone.
 		const PropTextures* tex = nullptr;
+		// Authored multi-material model (catalog `model`): when set, the item draws
+		// as this on the floor and its baked 3D thumbnail is the icon/cursor. null =
+		// the tablet+tint placeholder above.
+		std::unique_ptr<MultiMaterialModel> model;
+		// Baked 3D icon (one per type, reused by every slot/grid/cursor instance);
+		// null until model items are baked. Points into DungeonWorld::m_itemIcons.
+		const gfx::Texture* icon = nullptr;
 	};
 	struct Item {
 		const ItemKind* kind = nullptr; // points into m_itemKinds (stable)
@@ -470,20 +503,6 @@ private:
 	struct PropTextures {
 		std::unique_ptr<gfx::Texture> albedo, normal, mr;
 		float heightScale = 0.0f;
-	};
-	// An authored model rendered with its OWN glTF materials: one GPU texture per
-	// embedded image and one submesh (mesh + resolved MaterialParams) per glTF
-	// primitive, so a multi-material model (a dagger's steel blade, brass guard,
-	// leather grip) draws each part with its real material instead of one flat set.
-	// MaterialParams holds raw Texture* into `textures`, which is built once and
-	// never resized, so those pointers stay valid for the model's lifetime.
-	struct MultiMaterialModel {
-		std::vector<std::unique_ptr<gfx::Texture>> textures; // one per model.images
-		struct Sub {
-			std::unique_ptr<gfx::Mesh> mesh;
-			gfx::MaterialParams material;
-		};
-		std::vector<Sub> subs; // one per model.meshes
 	};
 	struct DecorationKind {
 		assets::ModelData model; // kept alive for the shared mesh
@@ -565,6 +584,11 @@ private:
 	// Lazily loads (and caches) the shared behaviour for an item type, resolved
 	// through the items catalog (category=rune → symbol + element glow colour).
 	ItemKind& ItemKindFor(const std::string& type);
+	// Renders a soft round halo (sprites) + one model's submeshes into an icon
+	// render-target (fit to bounds, flat face to camera, 3/4 view). Shared depth
+	// target; the bake list redirects the OM.
+	void BakeIcon(ID3D12GraphicsCommandList* list, gfx::SpriteBatch& sprites,
+				  const MultiMaterialModel& model, const gfx::Texture& target);
 	// Builds one monster instance (kind/id/cell/facing → stats + animator) ready
 	// to push into m_monsters. Shared by the initial .ent load, live editor
 	// placement, and save restore of editor-placed monsters. The caller pushes.
@@ -762,6 +786,15 @@ private:
 	std::vector<Monster> m_monsters;
 
 	std::flat_map<std::string, std::unique_ptr<ItemKind>> m_itemKinds;
+	// Baked 3D item-icon thumbnails: one RT texture per model item (owned here,
+	// pointed at by ItemKind::icon and the icon bank), rendered once before the
+	// first scene via BakeItemIconsIfNeeded. Shared depth target for the bakes.
+	static constexpr u32 kIconSize = 256;
+	std::vector<std::unique_ptr<gfx::Texture>> m_itemIconTargets;
+	gfx::ComPtr<ID3D12Resource> m_iconDepth;
+	gfx::ComPtr<ID3D12DescriptorHeap> m_iconDsvHeap;
+	std::unique_ptr<gfx::Texture> m_iconHalo; // soft round disc, white w/ radial alpha
+	bool m_itemIconsBaked = false;
 	std::vector<Item> m_items;
 	std::vector<Button> m_buttons; // .ent buttons (state-only until P5 wiring)
 	// Shared carved-stone tablet, loaded once on the first rune kind; every rune

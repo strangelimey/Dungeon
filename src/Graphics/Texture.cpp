@@ -67,6 +67,39 @@ Texture::Texture(GraphicsDevice& device, const assets::MipChain& chain, bool srg
 	Upload(device, chain, srgb);
 }
 
+std::unique_ptr<Texture> Texture::RenderTarget(GraphicsDevice& device, u32 size) {
+	auto t = std::unique_ptr<Texture>(new Texture());
+	t->m_width = t->m_height = size;
+	ID3D12Device* d = device.Device();
+
+	D3D12_RESOURCE_DESC desc{};
+	desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+	desc.Width = size;
+	desc.Height = size;
+	desc.DepthOrArraySize = 1;
+	desc.MipLevels = 1;
+	desc.Format = kBackBufferFormat;
+	desc.SampleDesc.Count = 1;
+	desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
+	D3D12_CLEAR_VALUE clear{}; // transparent (0,0,0,0) so the icon sits on its slot
+	clear.Format = kBackBufferFormat;
+	const D3D12_HEAP_PROPERTIES heap = HeapProps(D3D12_HEAP_TYPE_DEFAULT);
+	DN_HR(d->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &desc,
+									 D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, &clear,
+									 IID_PPV_ARGS(&t->m_resource)));
+
+	D3D12_DESCRIPTOR_HEAP_DESC rtvDesc{};
+	rtvDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_RTV;
+	rtvDesc.NumDescriptors = 1;
+	DN_HR(d->CreateDescriptorHeap(&rtvDesc, IID_PPV_ARGS(&t->m_rtvHeap)));
+	d->CreateRenderTargetView(t->m_resource.Get(), nullptr,
+							  t->m_rtvHeap->GetCPUDescriptorHandleForHeapStart());
+
+	t->m_srv = device.AllocateSrv();
+	d->CreateShaderResourceView(t->m_resource.Get(), nullptr, t->m_srv.cpu);
+	return t;
+}
+
 void Texture::Upload(GraphicsDevice& device, const assets::MipChain& chain, bool srgb) {
 	m_width = chain.width;
 	m_height = chain.height;

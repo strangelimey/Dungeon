@@ -840,11 +840,16 @@ void Game::LoadItemIcons() {
 			log::Warn("missing rune_icon_{}.png — no cursor icon", SymbolId(sym));
 		m_itemIcons.byType[id] = m_runeIconTextures[i].get();
 	}
-	// Non-rune items: a generated solid category-tint placeholder icon, one per
-	// item id (cheap; matches the floor tablet's tint until real art lands).
+	// Non-rune items: a model item uses its baked 3D thumbnail (rendered once by
+	// DungeonWorld; the same texture feeds every slot/grid/cursor instance);
+	// model-less items keep a generated solid category-tint placeholder.
 	for (const CatalogEntry& def : m_project.items.Entries()) {
 		const std::string category = def.Get("category", "misc");
 		if (category == "rune") continue; // runes use their element PNG above
+		if (const gfx::Texture* model = m_world.ItemIconFor(def.id)) {
+			m_itemIcons.byType[def.id] = model;
+			continue;
+		}
 		m_itemIconPlaceholders.push_back(MakeSolidIcon(m_device, CategoryTint(category)));
 		m_itemIcons.byType[def.id] = m_itemIconPlaceholders.back().get();
 	}
@@ -1453,6 +1458,7 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 	else if ((m_state == AppState::Playing || m_state == AppState::Paused ||
 			  m_state == AppState::CharacterSheet) &&
 			 !editorMap) {
+		m_world.BakeItemIconsIfNeeded(list, m_spriteBatch); // one-time 3D item icons
 		m_world.RenderShadowMaps(list);
 		m_world.RenderScene(list);
 	}

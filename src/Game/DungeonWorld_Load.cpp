@@ -343,6 +343,11 @@ DungeonWorld::ItemKind& DungeonWorld::ItemKindFor(const std::string& type) {
 		// Placeholder look: non-rune items reuse the tablet mesh tinted by category
 		// (runes overwrite this with their element colour just below).
 		kind->glow = CategoryTint(kind->category);
+		// Authored model (catalog `model`): the item draws as this 3D model on the
+		// floor and its baked render becomes the icon/cursor. null = the tablet+tint
+		// placeholder. Items ship as embedded-texture multi-material .glb.
+		if (const std::string modelName = CatalogGet(def, "model", ""); !modelName.empty())
+			kind->model = BuildMultiMaterialModel(m_device, LoadModelOrDie(modelName + ".glb"));
 		// Every item draws as the shared carved-stone tablet (loaded once) — runes
 		// carve their element's set in; other categories ride the flat tint above.
 		if (!m_runeMesh) {
@@ -369,9 +374,21 @@ DungeonWorld::ItemKind& DungeonWorld::ItemKindFor(const std::string& type) {
 						  CatalogGet(def, "symbol", ""));
 			}
 		}
+		// A model item gets a render-target texture for its baked 3D icon (drawn
+		// once by BakeItemIconsIfNeeded; the icon bank points at it). Placeholder
+		// items leave icon null and keep their flat category swatch.
+		if (kind->model) {
+			m_itemIconTargets.push_back(gfx::Texture::RenderTarget(m_device, kIconSize));
+			kind->icon = m_itemIconTargets.back().get();
+			m_itemIconsBaked = false; // a freshly added icon needs baking
+		}
 		it = m_itemKinds.emplace(type, std::move(kind)).first;
 	}
 	return *it->second;
+}
+
+const gfx::Texture* DungeonWorld::ItemIconFor(const std::string& typeId) {
+	return ItemKindFor(typeId).icon;
 }
 
 void DungeonWorld::LoadItems() {
@@ -429,13 +446,25 @@ std::optional<std::string> DungeonWorld::TryPickItem(float mx, float my, float w
 		if (!IsSeen(item.x, item.z)) continue;
 		const Vec3 c = SlotCenter(item.x, item.z, SizeClass::Medium, item.slot);
 		float cx, cy, tx, ty;
-		if (!project({c.x, 0.23f, c.z}, cx, cy)) continue; // tablet centre
-		// Sample the top of the rendered tablet for the hit radius — non-rune
-		// placeholders are drawn scaled up (kItemPlaceholderScale) and stand taller,
-		// so they take a correspondingly taller sample and a larger click target.
-		const float topY = item.kind->isRune ? 0.46f : kItemPickTopY;
+		// Hit target spans the rendered item's actual height. A model item is the
+		// 3D model itself (grounded; use its real bounds top, centre at mid-height),
+		// so clicking on the visible model registers; runes/placeholders sample the
+		// tablet's tinted slab (anchored low, scaled up for non-runes).
+		float centreY = 0.23f, topY;
+		if (item.kind->model) {
+			topY = std::max(item.kind->model->boundsMax.y, 0.1f);
+			centreY = topY * 0.5f;
+		} else {
+			topY = item.kind->isRune ? 0.46f : kItemPickTopY;
+		}
+		if (!project({c.x, centreY, c.z}, cx, cy)) continue;
 		project({c.x, topY, c.z}, tx, ty);
-		const float radius = std::clamp(std::fabs(ty - cy) * 1.3f, 26.0f, 220.0f);
+		// Model items get a more forgiving target (thin standing weapons are hard to
+		// hit precisely); the tablet placeholders keep the tighter radius.
+		const float mult = item.kind->model ? 1.7f : 1.3f;
+		const float minRadius = item.kind->model ? 48.0f : 26.0f;
+		const float radius =
+			std::clamp(std::fabs(ty - cy) * mult, minRadius, 220.0f);
 		const float d = std::hypot(mx - cx, my - cy);
 		if (d <= radius && d < bestD) {
 			bestD = d;
@@ -580,6 +609,7 @@ std::unique_ptr<DungeonWorld::MultiMaterialModel> DungeonWorld::BuildMultiMateri
 	auto texAt = [&](int img) -> const gfx::Texture* {
 		return img >= 0 ? out->textures[static_cast<size_t>(img)].get() : nullptr;
 	};
+	Vec3 lo{1e9f, 1e9f, 1e9f}, hi{-1e9f, -1e9f, -1e9f};
 	for (const assets::MeshData& mesh : model.meshes) {
 		DungeonWorld::MultiMaterialModel::Sub sub;
 		// Bake the glTF node transform into the vertices (it carries ConvertMesh's
@@ -598,6 +628,8 @@ std::unique_ptr<DungeonWorld::MultiMaterialModel> DungeonWorld::BuildMultiMateri
 								   node)));
 			v.position = {pf.x, pf.y, pf.z};
 			v.normal = {nf.x, nf.y, nf.z};
+			lo = {std::min(lo.x, pf.x), std::min(lo.y, pf.y), std::min(lo.z, pf.z)};
+			hi = {std::max(hi.x, pf.x), std::max(hi.y, pf.y), std::max(hi.z, pf.z)};
 		}
 		sub.mesh = std::make_unique<gfx::Mesh>(device, baked);
 		sub.material.doubleSided = false; // authored, consistently wound -> back-cull
@@ -614,6 +646,8 @@ std::unique_ptr<DungeonWorld::MultiMaterialModel> DungeonWorld::BuildMultiMateri
 		}
 		out->subs.push_back(std::move(sub));
 	}
+	out->boundsMin = lo;
+	out->boundsMax = hi;
 	return out;
 }
 

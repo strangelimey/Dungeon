@@ -14,6 +14,8 @@
 #include "Core/Paths.h"
 #include "Game/AssetUtil.h"
 #include "Game/DungeonMeshBuilder.h"
+#include "Graphics/Lights.h"
+#include "Graphics/Texture.h"
 
 #include <algorithm>
 #include <cmath>
@@ -216,6 +218,16 @@ void DungeonWorld::SubmitSceneGeometry(ID3D12GraphicsCommandList* list,
 			if (item.collected) continue;
 			const Vec3 c = SlotCenter(item.x, item.z, SizeClass::Medium, item.slot);
 			if (!visible({c.x, 0.3f, c.z}, 0.8f)) continue;
+			// A model item (e.g. a weapon) draws as its actual 3D model on the floor
+			// (grounded, real-size), each part with its own material — not the tablet.
+			if (item.kind->model) {
+				Mat4 w = Mat4Identity();
+				w._41 = c.x;
+				w._43 = c.z;
+				for (const MultiMaterialModel::Sub& sub : item.kind->model->subs)
+					m_renderer.DrawMesh(list, *sub.mesh, w, sub.material);
+				continue;
+			}
 			// Non-rune placeholders render scaled UP (kItemPlaceholderScale) — bigger
 			// than the rune tablet so they read on a dark floor and are an easy click
 			// target; TryPickItem widens the pick radius to match (see kItemPickTopY).
@@ -294,6 +306,165 @@ void DungeonWorld::DrawSurface(ID3D12GraphicsCommandList* list,
 				 surface.mr[v].get(), surface.heightScale, {}, 0.0f);
 		m_renderer.DrawMesh(list, *chunk.mesh, identity, material);
 	}
+}
+
+// --- baked 3D item icons ----------------------------------------------------
+
+namespace {
+// A soft round disc: white RGB with a radial-falloff alpha (1 at the core, 0 by
+// the edge). The bake tints + alpha-scales it into a translucent halo behind the
+// item so a thin weapon reads on any slot colour.
+std::unique_ptr<gfx::Texture> MakeHaloTexture(gfx::GraphicsDevice& device, u32 size) {
+	assets::ImageData img;
+	img.width = img.height = size;
+	img.pixels.resize(static_cast<size_t>(size) * size * 4);
+	const float c = (size - 1) * 0.5f;
+	const float inner = size * 0.18f; // solid core
+	const float outer = size * 0.70f; // big soft glow reaching toward the corners
+	for (u32 y = 0; y < size; ++y)
+		for (u32 x = 0; x < size; ++x) {
+			const float dx = static_cast<float>(x) - c, dy = static_cast<float>(y) - c;
+			const float d = std::sqrt(dx * dx + dy * dy);
+			float a = std::clamp(1.0f - (d - inner) / (outer - inner), 0.0f, 1.0f);
+			a *= a; // ease for a softer edge
+			u8* px = &img.pixels[(static_cast<size_t>(y) * size + x) * 4];
+			px[0] = px[1] = px[2] = 255; // white; tinted at draw time
+			px[3] = static_cast<u8>(a * 255.0f + 0.5f);
+		}
+	return std::make_unique<gfx::Texture>(device, img, /*srgb=*/false);
+}
+} // namespace
+
+void DungeonWorld::BakeItemIconsIfNeeded(ID3D12GraphicsCommandList* list,
+										 gfx::SpriteBatch& sprites) {
+	if (m_itemIconsBaked) return;
+	m_itemIconsBaked = true;
+	if (!m_iconHalo) m_iconHalo = MakeHaloTexture(m_device, kIconSize);
+
+	// Shared depth target for the bakes (created once, icon-sized).
+	if (!m_iconDepth) {
+		ID3D12Device* d = m_device.Device();
+		D3D12_RESOURCE_DESC depth{};
+		depth.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+		depth.Width = kIconSize;
+		depth.Height = kIconSize;
+		depth.DepthOrArraySize = 1;
+		depth.MipLevels = 1;
+		depth.Format = gfx::kDepthFormat;
+		depth.SampleDesc.Count = 1;
+		depth.Flags = D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL;
+		D3D12_CLEAR_VALUE clear{};
+		clear.Format = gfx::kDepthFormat;
+		clear.DepthStencil.Depth = 1.0f;
+		const D3D12_HEAP_PROPERTIES heap = gfx::HeapProps(D3D12_HEAP_TYPE_DEFAULT);
+		DN_HR(d->CreateCommittedResource(&heap, D3D12_HEAP_FLAG_NONE, &depth,
+										 D3D12_RESOURCE_STATE_DEPTH_WRITE, &clear,
+										 IID_PPV_ARGS(&m_iconDepth)));
+		D3D12_DESCRIPTOR_HEAP_DESC dsv{};
+		dsv.Type = D3D12_DESCRIPTOR_HEAP_TYPE_DSV;
+		dsv.NumDescriptors = 1;
+		DN_HR(d->CreateDescriptorHeap(&dsv, IID_PPV_ARGS(&m_iconDsvHeap)));
+		d->CreateDepthStencilView(m_iconDepth.Get(), nullptr,
+								  m_iconDsvHeap->GetCPUDescriptorHandleForHeapStart());
+	}
+
+	bool any = false;
+	for (auto&& [id, kind] : m_itemKinds) {
+		if (!kind->model || !kind->icon) continue;
+		BakeIcon(list, sprites, *kind->model, *kind->icon);
+		any = true;
+	}
+	// The bakes redirected the output merger; hand the back buffer back for the
+	// scene + 2D passes (mirrors RenderShadowMaps).
+	if (any) m_device.BindBackBuffer(list);
+}
+
+void DungeonWorld::BakeIcon(ID3D12GraphicsCommandList* list, gfx::SpriteBatch& sprites,
+							const MultiMaterialModel& model, const gfx::Texture& target) {
+	D3D12_RESOURCE_BARRIER toRT = gfx::Transition(
+		target.Resource(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+		D3D12_RESOURCE_STATE_RENDER_TARGET);
+	list->ResourceBarrier(1, &toRT);
+
+	const D3D12_CPU_DESCRIPTOR_HANDLE rtv = target.Rtv();
+	const D3D12_CPU_DESCRIPTOR_HANDLE dsv =
+		m_iconDsvHeap->GetCPUDescriptorHandleForHeapStart();
+	list->OMSetRenderTargets(1, &rtv, FALSE, &dsv);
+	const D3D12_VIEWPORT vp{0, 0, static_cast<float>(kIconSize),
+						   static_cast<float>(kIconSize), 0.0f, 1.0f};
+	list->RSSetViewports(1, &vp);
+	const D3D12_RECT scissor{0, 0, static_cast<LONG>(kIconSize),
+							 static_cast<LONG>(kIconSize)};
+	list->RSSetScissorRects(1, &scissor);
+	const float clear[4] = {0.0f, 0.0f, 0.0f, 0.0f}; // transparent corners
+	list->ClearRenderTargetView(rtv, clear, 0, nullptr);
+	list->ClearDepthStencilView(dsv, D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, nullptr);
+
+	// Composite a soft round halo first (the 3D item draws over it). Tint sets the
+	// halo colour + translucency — tweak kHaloColor to taste.
+	constexpr Vec4 kHaloColor{0.90f, 0.92f, 0.97f, 0.55f}; // soft light glow
+	sprites.Begin(list, kIconSize, kIconSize);
+	sprites.DrawSprite({0.0f, 0.0f, static_cast<float>(kIconSize),
+						static_cast<float>(kIconSize)},
+					   {0, 0, 1, 1}, *m_iconHalo, kHaloColor);
+	sprites.End();
+
+	// Centre the model at the origin and scale its LONGEST extent to fill the icon
+	// frame's DIAGONAL — a long thin weapon laid corner-to-corner (the classic RPG
+	// look) reads big in a square, where filling only the height leaves a thin
+	// sliver. Roll about the view axis (world Z, since the camera has no roll) for
+	// the diagonal, plus a gentle yaw/tilt for a 3/4 view. Item models vary in real
+	// size (a ~0.5 m dagger), so fit by bounds, not a fixed scale.
+	const Vec3 lo = model.boundsMin, hi = model.boundsMax;
+	const Vec3 c{(lo.x + hi.x) * 0.5f, (lo.y + hi.y) * 0.5f, (lo.z + hi.z) * 0.5f};
+	const Vec3 ext{hi.x - lo.x, hi.y - lo.y, hi.z - lo.z};
+	const float longest = std::max({ext.x, ext.y, ext.z, 1e-3f});
+	// Camera at 2.2 / 35° FOV frames ~1.39 units tall (diagonal ~1.97); fill ~95%.
+	const float s = 1.9f / longest;
+	// Turn the model's FLATTEST face toward the camera — align its thinnest axis
+	// with the view (+Z) so we see the broad face, not the thin edge, whatever
+	// orientation the item shipped in (a blade modelled flat-on-Z, lying on Y, or
+	// standing on X all resolve here). Then a gentle 3/4 tilt + a diagonal roll so
+	// a long item fills the square corner-to-corner.
+	XMMATRIX align = XMMatrixIdentity();
+	if (ext.x <= ext.y && ext.x <= ext.z) align = XMMatrixRotationY(kPi * 0.5f);
+	else if (ext.y <= ext.x && ext.y <= ext.z) align = XMMatrixRotationX(kPi * 0.5f);
+	const XMMATRIX present = XMMatrixRotationY(0.3f) * XMMatrixRotationX(-0.2f) *
+							 XMMatrixRotationZ(0.7f);
+	const XMMATRIX worldX = XMMatrixTranslation(-c.x, -c.y, -c.z) *
+							XMMatrixScaling(s, s, s) * align * present;
+	Mat4 world;
+	XMStoreFloat4x4(&world, worldX);
+
+	gfx::Camera cam;
+	cam.SetLens(35.0f * kPi / 180.0f, 1.0f, 0.02f, 10.0f);
+	cam.SetPosition({0.0f, 0.0f, -2.2f});
+	cam.SetYawPitch(0.0f, 0.0f);
+
+	// Punchy studio lighting so a thin dark weapon reads clearly on a dark slot
+	// (background stays transparent — the item just floats, lit bright): high
+	// ambient, a strong key (upper front-right) + a cool fill (lower front-left),
+	// and TWO strong RIM lights behind the item that halo its silhouette toward the
+	// camera — the rim is what keeps a thin blade legible on any background.
+	gfx::LightSet lights;
+	lights.ambient = {0.62f, 0.62f, 0.68f};
+	lights.points.push_back(
+		{{1.8f, 2.0f, -1.8f}, 12.0f, {1.0f, 0.97f, 0.92f}, 6.5f, -1, false});
+	lights.points.push_back(
+		{{-1.8f, 0.6f, -1.6f}, 12.0f, {0.82f, 0.88f, 1.0f}, 3.4f, -1, false});
+	lights.points.push_back(
+		{{1.3f, 1.5f, 2.4f}, 12.0f, {1.0f, 1.0f, 1.0f}, 7.5f, -1, false});
+	lights.points.push_back(
+		{{-1.3f, 1.5f, 2.4f}, 12.0f, {1.0f, 1.0f, 1.0f}, 7.5f, -1, false});
+
+	m_renderer.BeginScene(list, cam, lights);
+	for (const MultiMaterialModel::Sub& sub : model.subs)
+		m_renderer.DrawMesh(list, *sub.mesh, world, sub.material);
+
+	D3D12_RESOURCE_BARRIER toSRV = gfx::Transition(
+		target.Resource(), D3D12_RESOURCE_STATE_RENDER_TARGET,
+		D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+	list->ResourceBarrier(1, &toSRV);
 }
 
 } // namespace dungeon::game

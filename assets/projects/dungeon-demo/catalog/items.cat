@@ -34,12 +34,34 @@ category = rune
 weight = 0.5
 symbol = water
 
-; --- Non-rune items (placeholder visuals: tablet mesh, category-tinted) -------
+; --- Non-rune items ----------------------------------------------------------
+; A `model` (multi-material .glb in assets/models) makes the item render as that
+; 3D model on the floor AND as a baked 3D thumbnail for its icon/cursor; without
+; one the item keeps the tablet mesh + category tint placeholder.
 
 [dagger]
 name = item.dagger
 category = weapon
 weight = 1.5
+model = viking_dagger
+
+[khukri]
+name = item.khukri
+category = weapon
+weight = 1.2
+model = khukri
+
+[snake_dagger]
+name = item.snake_dagger
+category = weapon
+weight = 1.3
+model = snake_dagger
+
+[french_dagger]
+name = item.french_dagger
+category = weapon
+weight = 1.4
+model = french_dagger
 
 [leather_armor]
 name = item.leather_armor
