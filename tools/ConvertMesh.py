@@ -167,14 +167,20 @@ def downscale_images(maxpx):
     # multi-material pack can ship ~20 4K maps (70+ MB). Cap the longest side at
     # maxpx, preserving aspect; only touches images larger than the cap.
     for img in list(bpy.data.images):
-        if not img.has_data or img.size[0] == 0:
-            continue
+        # NB: don't gate on img.has_data — for freshly imported packed images it
+        # is lazily False until the pixels are touched, which would skip every
+        # image. Reading img.size loads the dimensions without that pitfall.
         w, h = img.size[0], img.size[1]
         longest = max(w, h)
-        if longest <= maxpx:
+        if w == 0 or longest <= maxpx:
             continue
         s = maxpx / float(longest)
         img.scale(max(1, int(w * s)), max(1, int(h * s)))
+        # The glTF exporter re-emits an image's ORIGINAL packed bytes when it can,
+        # ignoring scale(). Re-pack from the scaled buffer (as PNG) so the export
+        # actually carries the smaller image. file_format must be set for pack().
+        img.file_format = "PNG"
+        img.pack()
         print(f"ConvertMesh: scaled {img.name} {w}x{h} -> {img.size[0]}x{img.size[1]}")
 
 

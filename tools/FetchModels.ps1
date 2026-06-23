@@ -157,7 +157,7 @@ foreach ($m in $modelSets) {
         if (-not (Test-Path $glbOut)) {
             if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
             $h = if ($m.Height) { $m.Height } else { 0.6 }
-            $maxTex = if ($m.MaxTex) { $m.MaxTex } else { 1024 }
+            $maxTex = if ($m.MaxTex) { $m.MaxTex } else { 512 }
             if ((Invoke-Convert $mesh $stage "--split" "--height" $h "--max-tex" $maxTex) -ne 0) {
                 throw "Convert failed for $($m.Src)"
             }
