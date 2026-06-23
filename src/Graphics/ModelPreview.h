@@ -17,6 +17,13 @@
 
 namespace dungeon::gfx {
 
+// Binds rtv+dsv, sets the viewport/scissor to a `size`x`size` square, and clears
+// both — the shared offscreen-pass setup for the editor's ModelPreview and the
+// item-icon bake (DungeonWorld). The caller owns the RT/depth resource barriers
+// and issues BeginScene + draws afterward.
+void BeginOffscreen(ID3D12GraphicsCommandList* list, D3D12_CPU_DESCRIPTOR_HANDLE rtv,
+					D3D12_CPU_DESCRIPTOR_HANDLE dsv, u32 size, const float clear[4]);
+
 class ModelPreview {
 public:
 	ModelPreview(GraphicsDevice& device, u32 size = 512);

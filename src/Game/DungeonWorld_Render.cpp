@@ -15,6 +15,7 @@
 #include "Game/AssetUtil.h"
 #include "Game/DungeonMeshBuilder.h"
 #include "Graphics/Lights.h"
+#include "Graphics/ModelPreview.h"
 #include "Graphics/Texture.h"
 
 #include <algorithm>
@@ -153,6 +154,12 @@ void DungeonWorld::RenderScene(ID3D12GraphicsCommandList* list) {
 	m_particleBatch->Render(list, m_camera, m_particleScratch);
 }
 
+void DungeonWorld::DrawMultiMaterial(ID3D12GraphicsCommandList* list,
+									const MultiMaterialModel& model, const Mat4& world) {
+	for (const MultiMaterialModel::Sub& sub : model.subs)
+		m_renderer.DrawMesh(list, *sub.mesh, world, sub.material);
+}
+
 void DungeonWorld::SubmitSceneGeometry(ID3D12GraphicsCommandList* list,
 									  const ViewCull* cull) {
 	// A discrete mesh draws only if its bounding sphere passes the cull (camera
@@ -196,8 +203,7 @@ void DungeonWorld::SubmitSceneGeometry(ID3D12GraphicsCommandList* list,
 		// material (steel blade, brass guard, leather grip, ...). Shared by the
 		// shadow + main passes, so these also cast shadows.
 		if (deco.kind->multi) {
-			for (const auto& sub : deco.kind->multi->subs)
-				m_renderer.DrawMesh(list, *sub.mesh, deco.world, sub.material);
+			DrawMultiMaterial(list, *deco.kind->multi, deco.world);
 			continue;
 		}
 		gfx::MaterialParams material;
@@ -219,13 +225,14 @@ void DungeonWorld::SubmitSceneGeometry(ID3D12GraphicsCommandList* list,
 			const Vec3 c = SlotCenter(item.x, item.z, SizeClass::Medium, item.slot);
 			if (!visible({c.x, 0.3f, c.z}, 0.8f)) continue;
 			// A model item (e.g. a weapon) draws as its actual 3D model on the floor
-			// (grounded, real-size), each part with its own material — not the tablet.
+			// (grounded via GroundOffsetY, real-size), each part with its own
+			// material — not the tablet.
 			if (item.kind->model) {
 				Mat4 w = Mat4Identity();
 				w._41 = c.x;
+				w._42 = item.kind->model->GroundOffsetY();
 				w._43 = c.z;
-				for (const MultiMaterialModel::Sub& sub : item.kind->model->subs)
-					m_renderer.DrawMesh(list, *sub.mesh, w, sub.material);
+				DrawMultiMaterial(list, *item.kind->model, w);
 				continue;
 			}
 			// Non-rune placeholders render scaled UP (kItemPlaceholderScale) — bigger
@@ -370,8 +377,8 @@ void DungeonWorld::BakeItemIconsIfNeeded(ID3D12GraphicsCommandList* list,
 
 	bool any = false;
 	for (auto&& [id, kind] : m_itemKinds) {
-		if (!kind->model || !kind->icon) continue;
-		BakeIcon(list, sprites, *kind->model, *kind->icon);
+		if (!kind->model || !kind->iconTarget) continue;
+		BakeIcon(list, sprites, *kind->model, *kind->iconTarget);
 		any = true;
 	}
 	// The bakes redirected the output merger; hand the back buffer back for the
@@ -386,22 +393,20 @@ void DungeonWorld::BakeIcon(ID3D12GraphicsCommandList* list, gfx::SpriteBatch& s
 		D3D12_RESOURCE_STATE_RENDER_TARGET);
 	list->ResourceBarrier(1, &toRT);
 
-	const D3D12_CPU_DESCRIPTOR_HANDLE rtv = target.Rtv();
-	const D3D12_CPU_DESCRIPTOR_HANDLE dsv =
-		m_iconDsvHeap->GetCPUDescriptorHandleForHeapStart();
-	list->OMSetRenderTargets(1, &rtv, FALSE, &dsv);
-	const D3D12_VIEWPORT vp{0, 0, static_cast<float>(kIconSize),
-						   static_cast<float>(kIconSize), 0.0f, 1.0f};
-	list->RSSetViewports(1, &vp);
-	const D3D12_RECT scissor{0, 0, static_cast<LONG>(kIconSize),
-							 static_cast<LONG>(kIconSize)};
-	list->RSSetScissorRects(1, &scissor);
 	const float clear[4] = {0.0f, 0.0f, 0.0f, 0.0f}; // transparent corners
-	list->ClearRenderTargetView(rtv, clear, 0, nullptr);
-	list->ClearDepthStencilView(dsv, D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, nullptr);
+	gfx::BeginOffscreen(list, target.Rtv(),
+						m_iconDsvHeap->GetCPUDescriptorHandleForHeapStart(), kIconSize,
+						clear);
 
 	// Composite a soft round halo first (the 3D item draws over it). Tint sets the
 	// halo colour + translucency — tweak kHaloColor to taste.
+	// NOTE on alpha: the halo is straight-alpha blended over a TRANSPARENT clear,
+	// so the icon stores premultiplied-ish RGB with straight alpha; the UI then
+	// blends the icon straight-alpha again, so the halo reads at ~alpha^2 (dimmer
+	// than the nominal tint). kHaloColor is therefore the AS-COMPOSITED value that
+	// was tuned visually, not a literal target — a true fix would need a
+	// premultiplied-alpha path through SpriteBatch (a broad UI change). The opaque
+	// model itself is unaffected (alpha 1).
 	constexpr Vec4 kHaloColor{0.90f, 0.92f, 0.97f, 0.55f}; // soft light glow
 	sprites.Begin(list, kIconSize, kIconSize);
 	sprites.DrawSprite({0.0f, 0.0f, static_cast<float>(kIconSize),
@@ -458,8 +463,7 @@ void DungeonWorld::BakeIcon(ID3D12GraphicsCommandList* list, gfx::SpriteBatch& s
 		{{-1.3f, 1.5f, 2.4f}, 12.0f, {1.0f, 1.0f, 1.0f}, 7.5f, -1, false});
 
 	m_renderer.BeginScene(list, cam, lights);
-	for (const MultiMaterialModel::Sub& sub : model.subs)
-		m_renderer.DrawMesh(list, *sub.mesh, world, sub.material);
+	DrawMultiMaterial(list, model, world);
 
 	D3D12_RESOURCE_BARRIER toSRV = gfx::Transition(
 		target.Resource(), D3D12_RESOURCE_STATE_RENDER_TARGET,

@@ -374,12 +374,11 @@ DungeonWorld::ItemKind& DungeonWorld::ItemKindFor(const std::string& type) {
 						  CatalogGet(def, "symbol", ""));
 			}
 		}
-		// A model item gets a render-target texture for its baked 3D icon (drawn
+		// A model item owns a render-target texture for its baked 3D icon (drawn
 		// once by BakeItemIconsIfNeeded; the icon bank points at it). Placeholder
-		// items leave icon null and keep their flat category swatch.
+		// items leave iconTarget null and keep their flat category swatch.
 		if (kind->model) {
-			m_itemIconTargets.push_back(gfx::Texture::RenderTarget(m_device, kIconSize));
-			kind->icon = m_itemIconTargets.back().get();
+			kind->iconTarget = gfx::Texture::RenderTarget(m_device, kIconSize);
 			m_itemIconsBaked = false; // a freshly added icon needs baking
 		}
 		it = m_itemKinds.emplace(type, std::move(kind)).first;
@@ -388,7 +387,7 @@ DungeonWorld::ItemKind& DungeonWorld::ItemKindFor(const std::string& type) {
 }
 
 const gfx::Texture* DungeonWorld::ItemIconFor(const std::string& typeId) {
-	return ItemKindFor(typeId).icon;
+	return ItemKindFor(typeId).iconTarget.get();
 }
 
 void DungeonWorld::LoadItems() {
@@ -452,7 +451,9 @@ std::optional<std::string> DungeonWorld::TryPickItem(float mx, float my, float w
 		// tablet's tinted slab (anchored low, scaled up for non-runes).
 		float centreY = 0.23f, topY;
 		if (item.kind->model) {
-			topY = std::max(item.kind->model->boundsMax.y, 0.1f);
+			// The model is grounded at draw (GroundOffsetY), so it spans 0..Height
+			// in world Y — the pick target uses that same single source.
+			topY = std::max(item.kind->model->Height(), 0.1f);
 			centreY = topY * 0.5f;
 		} else {
 			topY = item.kind->isRune ? 0.46f : kItemPickTopY;

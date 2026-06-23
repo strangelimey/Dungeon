@@ -446,6 +446,11 @@ private:
 		};
 		std::vector<Sub> subs; // one per model.meshes
 		Vec3 boundsMin{}, boundsMax{}; // world-space AABB of the baked geometry
+		// Grounded height (min y -> 0) and the y-offset that grounds the model.
+		// One source for "where it sits / how tall it is", so the floor draw and
+		// the pick test can't disagree (and a non-grounded .glb still sits right).
+		float Height() const { return boundsMax.y - boundsMin.y; }
+		float GroundOffsetY() const { return -boundsMin.y; }
 	};
 	// they implicitly get the "memorize" command. Other categories so far reuse
 	// the tablet mesh, tinted, as a placeholder (see ItemKindFor).
@@ -465,9 +470,10 @@ private:
 		// as this on the floor and its baked 3D thumbnail is the icon/cursor. null =
 		// the tablet+tint placeholder above.
 		std::unique_ptr<MultiMaterialModel> model;
-		// Baked 3D icon (one per type, reused by every slot/grid/cursor instance);
-		// null until model items are baked. Points into DungeonWorld::m_itemIcons.
-		const gfx::Texture* icon = nullptr;
+		// Baked 3D icon render-target (one per type, owned here; reused by every
+		// slot/grid/cursor instance via the icon bank). Null for placeholder items;
+		// transparent until BakeItemIconsIfNeeded renders into it.
+		std::unique_ptr<gfx::Texture> iconTarget;
 	};
 	struct Item {
 		const ItemKind* kind = nullptr; // points into m_itemKinds (stable)
@@ -589,6 +595,10 @@ private:
 	// target; the bake list redirects the OM.
 	void BakeIcon(ID3D12GraphicsCommandList* list, gfx::SpriteBatch& sprites,
 				  const MultiMaterialModel& model, const gfx::Texture& target);
+	// Draws every submesh of an authored multi-material model at `world`, each with
+	// its own glTF material. Shared by decorations, floor items, and the icon bake.
+	void DrawMultiMaterial(ID3D12GraphicsCommandList* list,
+						   const MultiMaterialModel& model, const Mat4& world);
 	// Builds one monster instance (kind/id/cell/facing → stats + animator) ready
 	// to push into m_monsters. Shared by the initial .ent load, live editor
 	// placement, and save restore of editor-placed monsters. The caller pushes.
@@ -786,11 +796,10 @@ private:
 	std::vector<Monster> m_monsters;
 
 	std::flat_map<std::string, std::unique_ptr<ItemKind>> m_itemKinds;
-	// Baked 3D item-icon thumbnails: one RT texture per model item (owned here,
-	// pointed at by ItemKind::icon and the icon bank), rendered once before the
-	// first scene via BakeItemIconsIfNeeded. Shared depth target for the bakes.
+	// Baked 3D item-icon thumbnails: each model ItemKind owns its RT texture
+	// (ItemKind::iconTarget), rendered once before the first scene via
+	// BakeItemIconsIfNeeded. Shared depth target + halo for the bakes.
 	static constexpr u32 kIconSize = 256;
-	std::vector<std::unique_ptr<gfx::Texture>> m_itemIconTargets;
 	gfx::ComPtr<ID3D12Resource> m_iconDepth;
 	gfx::ComPtr<ID3D12DescriptorHeap> m_iconDsvHeap;
 	std::unique_ptr<gfx::Texture> m_iconHalo; // soft round disc, white w/ radial alpha

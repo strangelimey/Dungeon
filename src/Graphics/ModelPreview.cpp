@@ -13,6 +13,18 @@ namespace {
 constexpr float kPreviewClear[4] = {0.06f, 0.06f, 0.09f, 1.0f};
 }
 
+void BeginOffscreen(ID3D12GraphicsCommandList* list, D3D12_CPU_DESCRIPTOR_HANDLE rtv,
+					D3D12_CPU_DESCRIPTOR_HANDLE dsv, u32 size, const float clear[4]) {
+	list->OMSetRenderTargets(1, &rtv, FALSE, &dsv);
+	const D3D12_VIEWPORT vp{0, 0, static_cast<float>(size), static_cast<float>(size),
+						   0.0f, 1.0f};
+	list->RSSetViewports(1, &vp);
+	const D3D12_RECT scissor{0, 0, static_cast<LONG>(size), static_cast<LONG>(size)};
+	list->RSSetScissorRects(1, &scissor);
+	list->ClearRenderTargetView(rtv, clear, 0, nullptr);
+	list->ClearDepthStencilView(dsv, D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, nullptr);
+}
+
 ModelPreview::ModelPreview(GraphicsDevice& device, u32 size)
 	: m_device(device), m_size(size) {
 	ID3D12Device* d = device.Device();
@@ -74,19 +86,9 @@ void ModelPreview::Render(ID3D12GraphicsCommandList* list, Renderer& renderer,
 											 D3D12_RESOURCE_STATE_RENDER_TARGET);
 	list->ResourceBarrier(1, &toRT);
 
-	const D3D12_CPU_DESCRIPTOR_HANDLE rtv =
-		m_rtvHeap->GetCPUDescriptorHandleForHeapStart();
-	const D3D12_CPU_DESCRIPTOR_HANDLE dsv =
-		m_dsvHeap->GetCPUDescriptorHandleForHeapStart();
-	list->OMSetRenderTargets(1, &rtv, FALSE, &dsv);
-	const D3D12_VIEWPORT vp{0, 0, static_cast<float>(m_size),
-						   static_cast<float>(m_size), 0.0f, 1.0f};
-	list->RSSetViewports(1, &vp);
-	const D3D12_RECT scissor{0, 0, static_cast<LONG>(m_size),
-							 static_cast<LONG>(m_size)};
-	list->RSSetScissorRects(1, &scissor);
-	list->ClearRenderTargetView(rtv, kPreviewClear, 0, nullptr);
-	list->ClearDepthStencilView(dsv, D3D12_CLEAR_FLAG_DEPTH, 1.0f, 0, 0, nullptr);
+	BeginOffscreen(list, m_rtvHeap->GetCPUDescriptorHandleForHeapStart(),
+				   m_dsvHeap->GetCPUDescriptorHandleForHeapStart(), m_size,
+				   kPreviewClear);
 
 	// Imported models are grounded (min y = 0), centred in XZ, ~2 m tall — frame
 	// one from the front, looking slightly down at its middle.
