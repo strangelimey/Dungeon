@@ -852,11 +852,27 @@ void Game::LoadItemIcons() {
 	m_itemWeights.byType.clear();
 	m_itemCategories.byType.clear();
 	m_itemCategories.capacityByType.clear();
+	m_itemCategories.acceptsByType.clear();
+	// Splits a whitespace/comma list (the catalog `accepts` field) into tokens.
+	const auto splitList = [](const std::string& s) {
+		std::vector<std::string> out;
+		std::string tok;
+		for (char c : s) {
+			if (c == ' ' || c == '\t' || c == ',') {
+				if (!tok.empty()) { out.push_back(tok); tok.clear(); }
+			} else {
+				tok += c;
+			}
+		}
+		if (!tok.empty()) out.push_back(tok);
+		return out;
+	};
 	for (const CatalogEntry& def : m_project.items.Entries()) {
 		m_itemWeights.byType[def.id] = def.GetFloat("weight", 0.0f);
 		m_itemCategories.byType[def.id] = def.Get("category", "misc");
 		m_itemCategories.capacityByType[def.id] =
 			static_cast<int>(def.GetFloat("capacity", 0.0f));
+		m_itemCategories.acceptsByType[def.id] = splitList(def.Get("accepts", ""));
 	}
 
 	// Equipment-slot outline silhouettes (slot_<type>.png), the ghost behind an

@@ -54,6 +54,9 @@ weight = 2.0
 ; Containers (category=container) are carried in the pack row; pick one up and
 ; drop it onto a pack slot to equip it. Each holds its own contents; `capacity`
 ; is how many content slots it has (the backpack's must match kBackpackStart).
+; `accepts` = the item categories its contents may hold (whitespace/comma list,
+; "any" or omitted = unrestricted); a pack NEVER holds another container (no
+; nesting bags), so the backpack is "anything but bags".
 [backpack]
 name = item.backpack
 category = container
@@ -65,12 +68,32 @@ name = item.ammo_pouch
 category = container
 weight = 0.5
 capacity = 8
+accepts = ammo
 
 [medicine_pouch]
 name = item.medicine_pouch
 category = container
 weight = 0.5
 capacity = 4
+accepts = potion
+
+[herb_pouch]
+name = item.herb_pouch
+category = container
+weight = 0.3
+capacity = 4
+accepts = ingredient
+
+; Potion ingredients — only fit an ingredient pouch (e.g. the herb pouch).
+[herb]
+name = item.herb
+category = ingredient
+weight = 0.1
+
+[mushroom]
+name = item.mushroom
+category = ingredient
+weight = 0.1
 
 [apple]
 name = item.apple

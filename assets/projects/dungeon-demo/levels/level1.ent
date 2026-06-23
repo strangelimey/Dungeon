@@ -43,3 +43,7 @@ item bread 8 4
 ; Container packs — pick up and drop onto a pack slot in the sheet to equip.
 item ammo_pouch 2 5
 item medicine_pouch 3 5
+; A restricted pack (herb pouch: ingredients only) + ingredients to test it.
+item herb_pouch 2 4
+item herb 3 4
+item mushroom 9 4

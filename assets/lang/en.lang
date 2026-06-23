@@ -201,6 +201,9 @@ item.bread=Bread
 item.backpack=Backpack
 item.ammo_pouch=Ammo pouch
 item.medicine_pouch=Medicine pouch
+item.herb_pouch=Herb pouch
+item.herb=Herb
+item.mushroom=Mushroom
 
 ; --- monsters (key suffix = the .ent type) --------------------------------------
 monster.skeleton=skeleton

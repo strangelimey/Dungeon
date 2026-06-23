@@ -85,14 +85,28 @@ struct ItemWeightBank {
 struct ItemCategoryBank {
 	std::flat_map<std::string, std::string> byType;   // category
 	std::flat_map<std::string, int> capacityByType;   // pack content slots
+	// Categories a pack may HOLD (empty / contains "any" = unrestricted).
+	std::flat_map<std::string, std::vector<std::string>> acceptsByType;
 	bool Is(const std::string& typeId, std::string_view category) const {
 		const auto it = byType.find(typeId);
 		return it != byType.end() && it->second == category;
+	}
+	std::string CategoryOf(const std::string& typeId) const {
+		const auto it = byType.find(typeId);
+		return it == byType.end() ? std::string() : it->second;
 	}
 	// Content-slot capacity for a pack id, or 0 if unknown (caller defaults).
 	int Capacity(const std::string& typeId) const {
 		const auto it = capacityByType.find(typeId);
 		return it == capacityByType.end() ? 0 : it->second;
+	}
+	// True if pack `packId` accepts an item of `category` in its contents.
+	bool Accepts(const std::string& packId, const std::string& category) const {
+		const auto it = acceptsByType.find(packId);
+		if (it == acceptsByType.end() || it->second.empty()) return true; // unrestricted
+		for (const std::string& a : it->second)
+			if (a == "any" || a == category) return true;
+		return false;
 	}
 };
 
@@ -242,6 +256,9 @@ private:
 	void ClickSlot(ItemSlot& slot);
 	// Pack-row slot i was clicked: equip a held container into it, else select it.
 	void EquipOrSelectPack(int i);
+	// True if the SELECTED pack may hold `itemId` (its accepts list + the no-bag-
+	// in-a-bag rule) — gates dropping a held item into the contents grid.
+	bool PackAccepts(const std::string& itemId) const;
 	// Total carry weight (kg) of everything the member holds (equipment + pack).
 	float CarryLoad() const;
 

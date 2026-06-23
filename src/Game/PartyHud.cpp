@@ -453,8 +453,12 @@ void CharacterSheet::EquipOrSelectPack(int i) {
 	Inventory& inv = m_character->inventory;
 	Pack& slot = inv.packs[static_cast<size_t>(i)];
 	if (m_held && m_held->has_value()) {
-		// Only a CONTAINER can be equipped into a pack slot.
-		if (!m_categories || !m_categories->Is(**m_held, "container")) return;
+		// Only a CONTAINER can be equipped into a pack slot. Holding a non-pack,
+		// a click just SELECTS the pack (so you can drop the item into its grid).
+		if (!m_categories || !m_categories->Is(**m_held, "container")) {
+			if (!slot.Empty()) inv.selectedPack = i;
+			return;
+		}
 		// Refuse to drop onto a pack that holds items (its contents would be lost).
 		if (slot.HasItems()) return;
 		std::string incoming = **m_held;
@@ -469,6 +473,15 @@ void CharacterSheet::EquipOrSelectPack(int i) {
 	} else if (!slot.Empty()) {
 		inv.selectedPack = i; // empty-handed: select this pack
 	}
+}
+
+bool CharacterSheet::PackAccepts(const std::string& itemId) const {
+	if (!m_categories || !m_character) return true; // no info → don't block
+	// No bag-in-a-bag: a pack never holds another container.
+	if (m_categories->Is(itemId, "container")) return false;
+	const Inventory& inv = m_character->inventory;
+	const std::string& packId = inv.packs[static_cast<size_t>(inv.selectedPack)].typeId;
+	return m_categories->Accepts(packId, m_categories->CategoryOf(itemId));
 }
 
 void CharacterSheet::Update(ui::UIContext& ctx) {
@@ -514,7 +527,11 @@ void CharacterSheet::Update(ui::UIContext& ctx) {
 		auto& pack = m_character->inventory.SelectedContents();
 		for (int i = 0; i < static_cast<int>(pack.size()); ++i)
 			if (PackRect(px, sx, sy, i).Contains(mx, my)) {
-				ClickSlot(pack[static_cast<size_t>(i)]);
+				// A held item only goes in if this pack accepts its type; otherwise
+				// the click is swallowed and the item stays on the cursor.
+				const bool dropping = m_held && m_held->has_value();
+				if (!dropping || PackAccepts(**m_held))
+					ClickSlot(pack[static_cast<size_t>(i)]);
 				ctx.ConsumeMouse();
 				return;
 			}
