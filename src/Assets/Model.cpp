@@ -213,9 +213,20 @@ std::expected<ModelData, std::string> LoadGltf(const std::string& path) {
 			const auto& pbr = src.pbr_metallic_roughness;
 			mat.baseColorFactor = {pbr.base_color_factor[0], pbr.base_color_factor[1],
 								   pbr.base_color_factor[2], pbr.base_color_factor[3]};
+			mat.metallic = pbr.metallic_factor;
+			mat.roughness = pbr.roughness_factor;
 			if (pbr.base_color_texture.texture)
 				mat.baseColorImage = imageCache.Get(pbr.base_color_texture.texture->image);
+			// glTF packs roughness in G and metallic in B — the same layout our
+			// MaterialParams::metalRough (ORM) slot samples, so it binds directly.
+			if (pbr.metallic_roughness_texture.texture)
+				mat.metalRoughImage =
+					imageCache.Get(pbr.metallic_roughness_texture.texture->image);
 		}
+		if (src.normal_texture.texture)
+			mat.normalImage = imageCache.Get(src.normal_texture.texture->image);
+		mat.emissive = {src.emissive_factor[0], src.emissive_factor[1],
+						src.emissive_factor[2]};
 		model.materials.push_back(mat);
 	}
 

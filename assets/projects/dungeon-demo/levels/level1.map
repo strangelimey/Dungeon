@@ -72,14 +72,20 @@ palette ceiling ceiling_stone ceiling_rough
 ; boulder/mossy_rock/pot/banner) carry their own texture set.
 ;
 ; Start room
+; fab.com multi-material weapons, lined up just ahead of the spawn for a look.
+decoration viking_dagger 3 4 south solid=0
+decoration khukri 4 4 south solid=0
+decoration snake_dagger 5 4 south solid=0
+decoration french_dagger 6 4 south solid=0
 decoration ancient_pot 2 2 south
 decoration barrel 7 6 south
 decoration rope 6 4 south
 ; Portcullis gating the 1-wide corridor south out of the start room (the room
 ; also opens east, so this doesn't block progress).
 decoration portcullis 4 7 north
-; Stairs down to level 2 (arrive next to level2's start).
-stairs stairs_down 4 4 south dest=level2 destx=2 destz=1
+; Stairs down to level 2 (arrive next to level2's start). Placed in the pillared
+; hall (out of the start room so the start floor stays clear).
+stairs stairs_down 18 4 south dest=level2 destx=2 destz=1
 ;
 ; Great pillared hall — the NW corner carries two sconces, one per wall, and
 ; the NE corner a sconce plus a wall banner on the other wall: several wall

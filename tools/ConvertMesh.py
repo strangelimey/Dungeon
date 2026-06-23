@@ -42,9 +42,12 @@ def parse_args():
         "split": "--split" in argv,
         "keep_rig": "--keep-rig" in argv,
         "height": 0.0,
+        "max_tex": 0,
     }
     if "--height" in argv:
         opts["height"] = float(argv[argv.index("--height") + 1])
+    if "--max-tex" in argv:
+        opts["max_tex"] = int(argv[argv.index("--max-tex") + 1])
     return opts
 
 
@@ -126,6 +129,26 @@ def normalize(height, keep_rig):
                       (o.location.z - lo.z) * scale)
 
 
+def normalize_object(obj, size):
+    # Scale ONE object so its longest world-space extent == size, ground it
+    # (min Z -> 0) and center it on X/Y. Used per-piece when splitting a pack so
+    # each weapon is sized on its OWN bbox, not the whole pack's combined bounds
+    # (the pack lays its weapons side by side, so a combined scale mis-sizes them).
+    import mathutils  # noqa: PLC0415 - Blender-only module
+    lo = mathutils.Vector((1e18, 1e18, 1e18))
+    hi = mathutils.Vector((-1e18, -1e18, -1e18))
+    for corner in obj.bound_box:
+        p = obj.matrix_world @ mathutils.Vector(corner)
+        lo = mathutils.Vector((min(lo.x, p.x), min(lo.y, p.y), min(lo.z, p.z)))
+        hi = mathutils.Vector((max(hi.x, p.x), max(hi.y, p.y), max(hi.z, p.z)))
+    ext = hi - lo
+    s = size / max(ext.x, ext.y, ext.z, 1e-4)
+    cx, cy = (lo.x + hi.x) * 0.5, (lo.y + hi.y) * 0.5
+    obj.scale = (obj.scale[0] * s, obj.scale[1] * s, obj.scale[2] * s)
+    obj.location = ((obj.location.x - cx) * s, (obj.location.y - cy) * s,
+                    (obj.location.z - lo.z) * s)
+
+
 def export_glb(path, keep_rig, use_selection):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     bpy.ops.export_scene.gltf(
@@ -139,6 +162,22 @@ def export_glb(path, keep_rig, use_selection):
     print(f"ConvertMesh: wrote {path}")
 
 
+def downscale_images(maxpx):
+    # Shrink every embedded image so the exported GLB stays reasonable — a bought
+    # multi-material pack can ship ~20 4K maps (70+ MB). Cap the longest side at
+    # maxpx, preserving aspect; only touches images larger than the cap.
+    for img in list(bpy.data.images):
+        if not img.has_data or img.size[0] == 0:
+            continue
+        w, h = img.size[0], img.size[1]
+        longest = max(w, h)
+        if longest <= maxpx:
+            continue
+        s = maxpx / float(longest)
+        img.scale(max(1, int(w * s)), max(1, int(h * s)))
+        print(f"ConvertMesh: scaled {img.name} {w}x{h} -> {img.size[0]}x{img.size[1]}")
+
+
 def safe_name(name):
     s = re.sub(r"[^A-Za-z0-9_-]+", "_", name).strip("_").lower()
     return s or "mesh"
@@ -149,14 +188,22 @@ def main():
     fresh_scene()
     import_file(opts["infile"])
 
-    if opts["height"] > 0.0:
+    # Combined-scene normalize only when NOT splitting; split pieces normalize
+    # individually below so each is sized on its own bounds.
+    do_norm = opts["height"] > 0.0
+    if do_norm and not opts["split"]:
         normalize(opts["height"], opts["keep_rig"])
+
+    if opts["max_tex"] > 0:
+        downscale_images(opts["max_tex"])
 
     if opts["split"]:
         meshes = mesh_objects()
         if not meshes:
             raise SystemExit("ConvertMesh: --split but no mesh objects imported")
         for o in meshes:
+            if do_norm:
+                normalize_object(o, opts["height"])
             bpy.ops.object.select_all(action="DESELECT")
             o.select_set(True)
             bpy.context.view_layer.objects.active = o

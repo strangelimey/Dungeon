@@ -117,15 +117,14 @@ function Find-Mesh {
 $modelSets = @(
     # Fantasy Assassin Weapon Pack (Deepanshu) - ships glb+obj+fbx, 18 meshes;
     # one shared material. A multi-item pack -> Split, each weapon its own model,
-    # all sharing the 'assassin' set (first entry imports it, rest reuse).
-    @{ Src = "fab\weapons\fantasy-assassin"; Name = "dagger";        Object = "dagger";        Split = $true; TextureSet = "assassin"; FlipGreen = $true }
-    @{ Src = "fab\weapons\fantasy-assassin"; Name = "kukri";         Object = "kukri";         Split = $true; TextureSet = "assassin"; FlipGreen = $true }
-    @{ Src = "fab\weapons\fantasy-assassin"; Name = "poison_knife";  Object = "poison_knife";  Split = $true; TextureSet = "assassin"; FlipGreen = $true }
-    @{ Src = "fab\weapons\fantasy-assassin"; Name = "throwing_blade"; Object = "throwing_blade"; Split = $true; TextureSet = "assassin"; FlipGreen = $true }
-
-    # Single-object example (a free Deepanshu shield, glb/obj) - no Split, packs
-    # its own maps as 'viking_shield_2k'.
-    @{ Src = "fab\props\viking-shield"; Name = "viking_shield"; FlipGreen = $true }
+    # the 4 weapon objects each carry their own multiple materials (steel blade,
+    # brass guard, leather/wood grip). MultiMaterial -> split per weapon + keep
+    # each weapon's own glTF materials in one embedded-texture .glb (downscaled),
+    # rendered by the engine's multi-material path. Height = target longest extent.
+    @{ Src = "fab\weapons\fantasy-assassin"; Name = "viking_dagger"; Object = "viking_dagger"; MultiMaterial = $true; Height = 0.55 }
+    @{ Src = "fab\weapons\fantasy-assassin"; Name = "khukri";        Object = "khukri";        MultiMaterial = $true; Height = 0.45 }
+    @{ Src = "fab\weapons\fantasy-assassin"; Name = "snake_dagger";  Object = "snake_dagger";  MultiMaterial = $true; Height = 0.50 }
+    @{ Src = "fab\weapons\fantasy-assassin"; Name = "french_dagger"; Object = "french_dagger"; MultiMaterial = $true; Height = 0.50 }
 
     # Rigged-monster scaffold (left commented until a rigged character is bought):
     # @{ Src = "fab\monsters\skeleton-warrior"; Name = "skeleton_warrior"; Rig = $true; Height = 1.9; FlipGreen = $true }
@@ -147,6 +146,33 @@ foreach ($m in $modelSets) {
     Write-Host ""
     Write-Host "=== $($m.Name)  <-  $($m.Src) ($(Split-Path $mesh -Leaf)) ==="
     $ext = [IO.Path]::GetExtension($mesh).ToLower()
+
+    # --- authored multi-material model: split per piece, keep each piece's own
+    # glTF materials in one downscaled embedded-texture .glb (no texture-set
+    # import; the engine renders the embedded textures per material) -----------
+    if ($m.MultiMaterial) {
+        $modelsDir = Join-Path $assets "models"
+        $stage = Join-Path $stageRoot ($m.Src -replace '[\\/:]', '_')
+        $glbOut = Join-Path $stage "$($m.Object).glb"
+        if (-not (Test-Path $glbOut)) {
+            if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
+            $h = if ($m.Height) { $m.Height } else { 0.6 }
+            $maxTex = if ($m.MaxTex) { $m.MaxTex } else { 1024 }
+            if ((Invoke-Convert $mesh $stage "--split" "--height" $h "--max-tex" $maxTex) -ne 0) {
+                throw "Convert failed for $($m.Src)"
+            }
+        }
+        if (-not (Test-Path $glbOut)) {
+            Write-Host "  split produced no '$($m.Object).glb' - available:"
+            Get-ChildItem $stage -Filter *.glb | ForEach-Object { Write-Host "    $($_.BaseName)" }
+            throw "Object '$($m.Object)' not found in split of $($m.Src)"
+        }
+        Copy-Item $glbOut (Join-Path $modelsDir "$($m.Name).glb") -Force
+        $mb = [math]::Round((Get-Item (Join-Path $modelsDir "$($m.Name).glb")).Length / 1MB, 1)
+        Write-Host "  multi-material model -> models\$($m.Name).glb ($mb MB)"
+        $installed++
+        continue
+    }
 
     # --- rigged monster: convert (keep rig + normalize) straight to models ----
     if ($m.Rig) {

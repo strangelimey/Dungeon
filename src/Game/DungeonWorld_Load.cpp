@@ -562,6 +562,61 @@ void DungeonWorld::ApplyPropMaterial(gfx::MaterialParams& m,
 // back-face culled (authored), and whether a floor-standing instance blocks the
 // party (passages like the archway don't). An unlisted type falls back to the
 // old convention: same-named model + set, authored, solid.
+// Builds an authored model's own GPU resources: one texture per embedded glTF
+// image (base-color maps sRGB, normal/MR linear) and one submesh per primitive,
+// each with a MaterialParams resolved from its glTF material. Lets a bought
+// multi-material model render every part with its real material.
+std::unique_ptr<DungeonWorld::MultiMaterialModel> DungeonWorld::BuildMultiMaterialModel(
+	gfx::GraphicsDevice& device, const assets::ModelData& model) {
+	auto out = std::make_unique<DungeonWorld::MultiMaterialModel>();
+	std::vector<bool> srgb(model.images.size(), false);
+	for (const assets::MaterialData& m : model.materials)
+		if (m.baseColorImage >= 0) srgb[m.baseColorImage] = true;
+	out->textures.reserve(model.images.size());
+	for (size_t i = 0; i < model.images.size(); ++i)
+		out->textures.push_back(
+			std::make_unique<gfx::Texture>(device, model.images[i], srgb[i]));
+
+	auto texAt = [&](int img) -> const gfx::Texture* {
+		return img >= 0 ? out->textures[static_cast<size_t>(img)].get() : nullptr;
+	};
+	for (const assets::MeshData& mesh : model.meshes) {
+		DungeonWorld::MultiMaterialModel::Sub sub;
+		// Bake the glTF node transform into the vertices (it carries ConvertMesh's
+		// normalization scale/placement). The loader stores it but leaves the
+		// vertices in local space — import-model does this same bake when merging;
+		// here we keep the submeshes separate, so each bakes its own node.
+		assets::MeshData baked = mesh;
+		const XMMATRIX node = XMLoadFloat4x4(&mesh.worldTransform);
+		for (assets::Vertex& v : baked.vertices) {
+			XMFLOAT3 pf, nf;
+			XMStoreFloat3(&pf, XMVector3Transform(
+								   XMVectorSet(v.position.x, v.position.y, v.position.z, 1.0f),
+								   node));
+			XMStoreFloat3(&nf, XMVector3Normalize(XMVector3TransformNormal(
+								   XMVectorSet(v.normal.x, v.normal.y, v.normal.z, 0.0f),
+								   node)));
+			v.position = {pf.x, pf.y, pf.z};
+			v.normal = {nf.x, nf.y, nf.z};
+		}
+		sub.mesh = std::make_unique<gfx::Mesh>(device, baked);
+		sub.material.doubleSided = false; // authored, consistently wound -> back-cull
+		if (mesh.material >= 0 &&
+			mesh.material < static_cast<int>(model.materials.size())) {
+			const assets::MaterialData& md = model.materials[mesh.material];
+			sub.material.baseColor = md.baseColorFactor;
+			sub.material.metallic = md.metallic;
+			sub.material.roughness = md.roughness;
+			sub.material.emissive = md.emissive;
+			sub.material.albedo = texAt(md.baseColorImage);
+			sub.material.normalMap = texAt(md.normalImage);
+			sub.material.metalRough = texAt(md.metalRoughImage);
+		}
+		out->subs.push_back(std::move(sub));
+	}
+	return out;
+}
+
 DungeonWorld::DecorationKind& DungeonWorld::DecorationKindFor(const std::string& type,
 															 const Catalog& catalog) {
 	auto it = m_decorationKinds.find(type);
@@ -569,12 +624,22 @@ DungeonWorld::DecorationKind& DungeonWorld::DecorationKindFor(const std::string&
 		const CatalogEntry* def = catalog.Find(type);
 		const auto [model, tex] = ModelAndTexture(def, type);
 		auto kind = std::make_unique<DecorationKind>();
+		kind->id = type; // the record type, for the .map writer
+		kind->authored = CatalogBool(def, "authored", true);
+		// Authored multi-material models (bought weapon/prop packs) render their
+		// own glTF textures per material from a single embedded-texture .glb,
+		// bypassing the single-mesh / one-bound-set path below.
+		if (CatalogBool(def, "multimaterial", false)) {
+			kind->model = LoadModelOrDie(model + ".glb");
+			kind->multi = BuildMultiMaterialModel(m_device, kind->model);
+			kind->solidDefault = CatalogBool(def, "solid", true);
+			it = m_decorationKinds.emplace(type, std::move(kind)).first;
+			return *it->second;
+		}
 		kind->model = LoadModelOrDie(model + ".gltf");
 		kind->mesh = std::make_unique<gfx::Mesh>(m_device, kind->model.meshes[0]);
 		kind->color = kind->model.materials[0].baseColorFactor;
 		kind->tex = LoadPropTextures(tex);
-		kind->id = type; // the record type, for the .map writer
-		kind->authored = CatalogBool(def, "authored", true);
 		kind->solidDefault = CatalogBool(def, "solid", true);
 		// Optional alpha-test cutout (a masked set like wood planks renders its
 		// gaps); absent/0 = opaque, the usual case.

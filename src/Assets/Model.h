@@ -37,7 +37,12 @@ struct Vertex {
 
 struct MaterialData {
 	Vec4 baseColorFactor{1, 1, 1, 1};
-	int baseColorImage = -1; // index into ModelData::images, -1 = none
+	int baseColorImage = -1;  // index into ModelData::images, -1 = none
+	int normalImage = -1;     // tangent-space normal map, -1 = none
+	int metalRoughImage = -1; // glTF MR (G=roughness, B=metallic), -1 = none
+	float metallic = 1.0f;    // scales the MR map (glTF default 1)
+	float roughness = 1.0f;   // scales the MR map (glTF default 1)
+	Vec3 emissive{0, 0, 0};   // additive self-lit factor
 };
 
 struct MeshData {

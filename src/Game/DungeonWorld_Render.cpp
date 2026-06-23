@@ -190,6 +190,14 @@ void DungeonWorld::SubmitSceneGeometry(ID3D12GraphicsCommandList* list,
 	for (const Decoration& deco : m_decorations) {
 		// radius 2.0 covers the widest prop (the archway spans the full cell).
 		if (!visible({deco.world._41, 1.2f, deco.world._43}, 2.0f)) continue;
+		// Authored multi-material model: draw each submesh with its own glTF
+		// material (steel blade, brass guard, leather grip, ...). Shared by the
+		// shadow + main passes, so these also cast shadows.
+		if (deco.kind->multi) {
+			for (const auto& sub : deco.kind->multi->subs)
+				m_renderer.DrawMesh(list, *sub.mesh, deco.world, sub.material);
+			continue;
+		}
 		gfx::MaterialParams material;
 		material.doubleSided = !deco.kind->authored; // authored meshes back-cull
 		ApplyPropMaterial(material, deco.kind->tex, deco.kind->color, 0.85f);

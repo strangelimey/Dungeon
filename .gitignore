@@ -11,5 +11,10 @@ assets/textures/*.dds
 assets/textures/*.png
 docs/*.png
 
+# Authored multi-material models (bought packs) carry embedded textures, so the
+# .glb is heavy — regenerated from OneDrive\DungeonAssets by tools/FetchModels.ps1
+# (committed models stay .gltf). See the fab.com mesh pipeline.
+assets/models/*.glb
+
 # Temp file for git commit -F (never track)
 .git-commit-msg.txt

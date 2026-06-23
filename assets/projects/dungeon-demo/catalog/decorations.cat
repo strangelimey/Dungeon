@@ -132,6 +132,37 @@ texture = rusted_iron
 solid = 1
 authored = 0
 
+; --- authored multi-material weapons (fab.com Fantasy Assassin pack) ---
+; multimaterial=1 loads <model>.glb and renders each part with its OWN glTF
+; material (steel blade, brass guard, leather/wood grip) — no single texture set.
+[viking_dagger]
+display = Viking Dagger
+model = viking_dagger
+multimaterial = 1
+solid = 0
+authored = 1
+
+[khukri]
+display = Khukri
+model = khukri
+multimaterial = 1
+solid = 0
+authored = 1
+
+[snake_dagger]
+display = Snake Dagger
+model = snake_dagger
+multimaterial = 1
+solid = 0
+authored = 1
+
+[french_dagger]
+display = French Dagger
+model = french_dagger
+multimaterial = 1
+solid = 0
+authored = 1
+
 ; coil of rope (procedural torus) — low, steppable detail
 [rope]
 display = Coil of Rope

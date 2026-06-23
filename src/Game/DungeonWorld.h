@@ -471,11 +471,28 @@ private:
 		std::unique_ptr<gfx::Texture> albedo, normal, mr;
 		float heightScale = 0.0f;
 	};
+	// An authored model rendered with its OWN glTF materials: one GPU texture per
+	// embedded image and one submesh (mesh + resolved MaterialParams) per glTF
+	// primitive, so a multi-material model (a dagger's steel blade, brass guard,
+	// leather grip) draws each part with its real material instead of one flat set.
+	// MaterialParams holds raw Texture* into `textures`, which is built once and
+	// never resized, so those pointers stay valid for the model's lifetime.
+	struct MultiMaterialModel {
+		std::vector<std::unique_ptr<gfx::Texture>> textures; // one per model.images
+		struct Sub {
+			std::unique_ptr<gfx::Mesh> mesh;
+			gfx::MaterialParams material;
+		};
+		std::vector<Sub> subs; // one per model.meshes
+	};
 	struct DecorationKind {
 		assets::ModelData model; // kept alive for the shared mesh
 		std::unique_ptr<gfx::Mesh> mesh;
 		Vec4 color{1, 1, 1, 1};
 		const PropTextures* tex = nullptr; // points into m_propTextures (stable)
+		// Authored multi-material models render their own glTF textures instead of
+		// a single bound set; non-null replaces the mesh/tex/color path above.
+		std::unique_ptr<MultiMaterialModel> multi;
 		std::string id;            // catalog id (the record type), for the writer
 		bool authored = false;     // imported model: consistently wound -> back-cull
 		bool solidDefault = true;  // floor-standing blocks the party (passages don't)
@@ -603,6 +620,11 @@ private:
 	// prop draw (decorations, fires, pillar, monsters).
 	static void ApplyPropMaterial(gfx::MaterialParams& m, const PropTextures* tex,
 								  const Vec4& fallbackColor, float fallbackRoughness);
+	// Builds an authored model's own GPU resources (one texture per embedded glTF
+	// image, one submesh per primitive with its material) for the multi-material
+	// decoration path.
+	static std::unique_ptr<MultiMaterialModel> BuildMultiMaterialModel(
+		gfx::GraphicsDevice& device, const assets::ModelData& model);
 	void BuildFires();
 	void BuildTurbidityMap();
 
