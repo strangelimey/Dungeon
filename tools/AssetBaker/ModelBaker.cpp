@@ -972,6 +972,43 @@ assets::ModelData BuildStatue() {
 }
 
 // Wooden barrel: a bulged body of revolution with two proud iron hoops.
+// Coil of rope: a torus lying flat on the floor (axis = Y). The rope-strand
+// texture wraps the tube once (v) and tiles many times along the loop (u) so it
+// reads as twisted cord. Unlike the other props it keeps its own cylindrical
+// UVs, so it does NOT pass through FinishProp's world-tile reprojection.
+assets::ModelData BuildRope() {
+	assets::MeshData mesh;
+	constexpr float R = 0.30f;  // coil radius
+	constexpr float r = 0.055f; // rope half-thickness
+	constexpr int major = 56, minor = 12;
+	constexpr float uRepeats = 9.0f; // strand pattern tiles around the loop
+	for (int i = 0; i <= major; ++i) {
+		const float phi = static_cast<float>(i) / major * 2.0f * kPi;
+		const float cp = std::cos(phi), sp = std::sin(phi);
+		for (int j = 0; j <= minor; ++j) {
+			const float th = static_cast<float>(j) / minor * 2.0f * kPi;
+			const float ct = std::cos(th), st = std::sin(th);
+			assets::Vertex v;
+			v.position = {(R + r * ct) * cp, r + r * st, (R + r * ct) * sp};
+			v.normal = {ct * cp, st, ct * sp};
+			v.uv = {static_cast<float>(i) / major * uRepeats,
+					static_cast<float>(j) / minor};
+			mesh.vertices.push_back(v);
+		}
+	}
+	const u32 stride = minor + 1;
+	for (u32 i = 0; i < major; ++i)
+		for (u32 j = 0; j < minor; ++j) {
+			const u32 a = i * stride + j, b = a + stride;
+			mesh.indices.insert(mesh.indices.end(), {a, b, a + 1, a + 1, b, b + 1});
+		}
+	assets::ModelData model;
+	mesh.material = 0;
+	model.meshes.push_back(std::move(mesh));
+	model.materials.push_back({Vec4{0.62f, 0.49f, 0.30f, 1.0f}, -1});
+	return model;
+}
+
 assets::ModelData BuildBarrel() {
 	assets::MeshData mesh;
 	AddRevolution(mesh, 0, 0,
@@ -1682,6 +1719,7 @@ bool BakeModels(const std::string& dir, const std::string& texturesDir) {
 	ok &= WriteGltf(BuildCrate(), dir + "\\crate.gltf");
 	ok &= WriteGltf(BuildChest(), dir + "\\chest.gltf");
 	ok &= WriteGltf(BuildBanner(), dir + "\\banner.gltf");
+	ok &= WriteGltf(BuildRope(), dir + "\\rope.gltf");
 	ok &= WriteGltf(BuildStairs(), dir + "\\stairs.gltf");
 
 	ok &= WriteGltf(BuildHumanoid({{0.93f, 0.90f, 0.80f, 1.0f}, 0.85f, 3.2f, 0.0f, 0.12f}),

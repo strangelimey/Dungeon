@@ -13,5 +13,5 @@ mount = wall
 [brazier]
 display = Brazier
 model = brazier
-texture = brazier
+texture = brass
 mount = floor

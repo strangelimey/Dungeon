@@ -74,6 +74,7 @@ palette ceiling ceiling_stone ceiling_rough
 ; Start room
 decoration ancient_pot 2 2 south
 decoration barrel 7 6 south
+decoration rope 6 4 south
 ; Stairs down to level 2 (arrive next to level2's start).
 stairs stairs_down 4 4 south dest=level2 destx=2 destz=1
 ;

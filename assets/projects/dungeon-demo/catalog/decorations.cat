@@ -121,3 +121,11 @@ model = door
 texture = rusted_iron
 solid = 1
 authored = 0
+
+; coil of rope (procedural torus) — low, steppable detail
+[rope]
+display = Coil of Rope
+model = rope
+texture = rope
+solid = 0
+authored = 0

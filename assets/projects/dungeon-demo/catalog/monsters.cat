@@ -55,7 +55,7 @@ roughness = 0.18
 [mummy]
 display = Mummy
 model = mummy
-texture = mummy
+texture = burlap
 hp = 22
 damage = 8
 accuracy = 0.65
