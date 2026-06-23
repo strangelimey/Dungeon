@@ -105,13 +105,13 @@ void GameUI::Click(float volume) { m_audio.Play(m_sounds.click, volume); }
 // also treat these clicks as a drop.
 
 // Left-click a portrait: while CARRYING an item, quick-stow it into that
-// member's first free backpack slot (right-click instead opens the backpack to
-// place it precisely); empty-handed, it opens the member's sheet.
+// member's selected pack (right-click instead opens the backpack to place it
+// precisely); empty-handed, it opens the member's sheet.
 void GameUI::OnPortraitClick(size_t i) {
 	if (i >= m_characters.size()) return;
 	if (Holding()) {
 		Character& c = m_characters[i];
-		if (c.inventory.AddToBackpack(**m_held)) {
+		if (c.inventory.Stow(**m_held)) {
 			AddLogLine(loc::Format("log.stow", c.name,
 								   loc::Tr(std::format("item.{}", **m_held))));
 			m_held->reset();

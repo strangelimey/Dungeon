@@ -604,7 +604,7 @@ void Game::RegisterDevCommands() {
 						   if (!ParseSymbolArg(m_console, args[0], sym)) return;
 						   const std::string typeId = RuneItemId(sym);
 						   if (m_characters.empty() ||
-							   !m_characters[0].inventory.AddToBackpack(typeId))
+							   !m_characters[0].inventory.Stow(typeId))
 							   m_console.Print("pack full (or no party)");
 						   else
 							   m_console.Print(std::format("pack += {}", typeId));
@@ -930,7 +930,14 @@ void Game::SaveGame(const std::string& name) {
 							  member.knownSymbols};
 		// equipment[] now includes the weapon hands (EquipSlot::LeftHand/RightHand).
 		for (const ItemSlot& s : member.inventory.equipment) c.equipment.push_back(s.typeId);
-		for (const ItemSlot& s : member.inventory.backpack) c.backpack.push_back(s.typeId);
+		// Pack row: the container ids + each pack's contents + the selected pack.
+		c.selectedPack = member.inventory.selectedPack;
+		for (const Pack& p : member.inventory.packs) {
+			c.packTypes.push_back(p.typeId);
+			std::vector<std::string> items;
+			for (const ItemSlot& s : p.contents) items.push_back(s.typeId);
+			c.packContents.push_back(std::move(items));
+		}
 		data.characters.push_back(std::move(c));
 	}
 	WriteSave(data, SaveSlotPath(name));
@@ -964,9 +971,17 @@ bool Game::LoadGame(const std::string& path) {
 		Inventory& inv = m_characters[i].inventory;
 		for (size_t e = 0; e < c.equipment.size() && e < static_cast<size_t>(kEquipCount); ++e)
 			inv.equipment[e].typeId = c.equipment[e];
-		if (!c.backpack.empty()) inv.backpack.assign(c.backpack.size(), {}); // restore capacity
-		for (size_t s = 0; s < c.backpack.size(); ++s)
-			inv.backpack[s].typeId = c.backpack[s];
+		// Restore the pack row (container ids + each pack's contents + selection).
+		for (size_t p = 0; p < c.packTypes.size() && p < static_cast<size_t>(kPackRowSlots); ++p) {
+			inv.packs[p].typeId = c.packTypes[p];
+			const std::vector<std::string> items =
+				p < c.packContents.size() ? c.packContents[p] : std::vector<std::string>{};
+			inv.packs[p].contents.assign(items.size(), {});
+			for (size_t s = 0; s < items.size(); ++s)
+				inv.packs[p].contents[s].typeId = items[s];
+		}
+		if (c.selectedPack >= 0 && c.selectedPack < kPackRowSlots)
+			inv.selectedPack = c.selectedPack;
 	}
 	m_world.ApplyState(*data); // fills the per-level store + party pose/torch
 

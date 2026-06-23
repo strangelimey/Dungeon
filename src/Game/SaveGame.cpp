@@ -68,9 +68,16 @@ bool WriteSave(const SaveData& data, const std::string& path) {
 		t += std::format("equip {}", i);
 		for (const std::string& e : c.equipment) t += " " + itemTok(e);
 		t += '\n';
-		t += std::format("pack {}", i);
-		for (const std::string& b : c.backpack) t += " " + itemTok(b);
+		// "packs <i> <selected> <type0..typeN>" — the container row + selection;
+		// then one "packc <i> <packIdx> <item...>" per pack with its contents.
+		t += std::format("packs {} {}", i, c.selectedPack);
+		for (const std::string& p : c.packTypes) t += " " + itemTok(p);
 		t += '\n';
+		for (size_t p = 0; p < c.packContents.size(); ++p) {
+			t += std::format("packc {} {}", i, p);
+			for (const std::string& it : c.packContents[p]) t += " " + itemTok(it);
+			t += '\n';
+		}
 	}
 
 	// One block per visited level: a "level <stem>" header, then its entity
@@ -176,20 +183,38 @@ std::optional<SaveData> ReadSave(const std::string& path) {
 			c.mana = FloatOf(tok[6]);      c.maxMana = FloatOf(tok[7]);
 			if (tok.size() >= 9) // older saves omit the spell mask
 				c.knownSymbols = static_cast<u32>(IntOf(tok[8]));
-		} else if ((kw == "equip" || kw == "pack") && tok.size() >= 2) {
-			// Inventory lines (v5): "-" is an empty slot. equip holds the worn
-			// doll + the two weapon hands (EquipSlot order); pack is the backpack.
+		} else if (kw == "equip" && tok.size() >= 2) {
+			// Worn doll + the two weapon hands (EquipSlot order); "-" = empty.
 			const size_t idx = static_cast<size_t>(IntOf(tok[1]));
 			if (idx >= data.characters.size()) data.characters.resize(idx + 1);
 			SaveData::CharState& c = data.characters[idx];
 			auto detok = [](std::string_view sv) {
 				return sv == "-" ? std::string() : std::string(sv);
 			};
-			if (kw == "equip") {
-				for (size_t i = 2; i < tok.size(); ++i) c.equipment.push_back(detok(tok[i]));
-			} else { // pack
-				for (size_t i = 2; i < tok.size(); ++i) c.backpack.push_back(detok(tok[i]));
-			}
+			for (size_t i = 2; i < tok.size(); ++i) c.equipment.push_back(detok(tok[i]));
+		} else if (kw == "packs" && tok.size() >= 3) {
+			// Pack-row containers + selection: "packs <i> <selected> <types...>".
+			const size_t idx = static_cast<size_t>(IntOf(tok[1]));
+			if (idx >= data.characters.size()) data.characters.resize(idx + 1);
+			SaveData::CharState& c = data.characters[idx];
+			c.selectedPack = IntOf(tok[2]);
+			auto detok = [](std::string_view sv) {
+				return sv == "-" ? std::string() : std::string(sv);
+			};
+			for (size_t i = 3; i < tok.size(); ++i) c.packTypes.push_back(detok(tok[i]));
+			c.packContents.resize(c.packTypes.size());
+		} else if (kw == "packc" && tok.size() >= 3) {
+			// One pack's contents: "packc <i> <packIdx> <items...>".
+			const size_t idx = static_cast<size_t>(IntOf(tok[1]));
+			if (idx >= data.characters.size()) data.characters.resize(idx + 1);
+			SaveData::CharState& c = data.characters[idx];
+			const size_t p = static_cast<size_t>(IntOf(tok[2]));
+			if (p >= c.packContents.size()) c.packContents.resize(p + 1);
+			auto detok = [](std::string_view sv) {
+				return sv == "-" ? std::string() : std::string(sv);
+			};
+			for (size_t i = 3; i < tok.size(); ++i)
+				c.packContents[p].push_back(detok(tok[i]));
 		} else if (kw == "level" && tok.size() >= 2) {
 			data.levels.push_back({std::string(tok[1]), {}, {}});
 			cur = &data.levels.back();

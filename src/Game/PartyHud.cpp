@@ -253,7 +253,7 @@ void InventoryWindow::Update(ui::UIContext& ctx) {
 
 	if (left) {
 		for (int m = 0; m < MemberCount(); ++m) {
-			auto& pack = (*m_roster)[static_cast<size_t>(m)].inventory.backpack;
+			auto& pack = (*m_roster)[static_cast<size_t>(m)].inventory.SelectedContents();
 			for (int i = 0; i < static_cast<int>(pack.size()); ++i) {
 				if (!SlotRect(panel, m, i).Contains(mx, my)) continue;
 				ItemSlot& s = pack[static_cast<size_t>(i)];
@@ -290,7 +290,7 @@ void InventoryWindow::DrawOverlay(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 
 	const float colW = (panel.w - 2 * kInvPad) / static_cast<float>(MemberCount());
 	for (int m = 0; m < MemberCount(); ++m) {
-		const auto& pack = (*m_roster)[static_cast<size_t>(m)].inventory.backpack;
+		const auto& pack = (*m_roster)[static_cast<size_t>(m)].inventory.SelectedContents();
 		const float colX = panel.x + kInvPad + static_cast<float>(m) * colW;
 		font.Draw(batch, (*m_roster)[static_cast<size_t>(m)].name, colX + 6.0f,
 				  panel.y + kInvPad + kInvHeader, theme.text);
@@ -476,8 +476,8 @@ void CharacterSheet::Update(ui::UIContext& ctx) {
 				ctx.ConsumeMouse();
 				return;
 			}
-		// Pack row: click a non-empty pack to SELECT it (its contents fill the
-		// grid). Packs aren't drop targets yet — only the starting backpack exists.
+		// Pack row: click a non-empty pack to SELECT it — its contents fill the
+		// grid below. (Packs aren't drop targets yet.)
 		for (int i = 0; i < kPackRowSlots; ++i)
 			if (PackRowRect(px, sx, sy, i).Contains(mx, my)) {
 				if (!m_character->inventory.packs[static_cast<size_t>(i)].Empty())
@@ -485,7 +485,7 @@ void CharacterSheet::Update(ui::UIContext& ctx) {
 				ctx.ConsumeMouse();
 				return;
 			}
-		auto& pack = m_character->inventory.backpack;
+		auto& pack = m_character->inventory.SelectedContents();
 		for (int i = 0; i < static_cast<int>(pack.size()); ++i)
 			if (PackRect(px, sx, sy, i).Contains(mx, my)) {
 				ClickSlot(pack[static_cast<size_t>(i)]);
@@ -562,10 +562,11 @@ float CharacterSheet::CarryLoad() const {
 	float total = 0.0f;
 	for (const ItemSlot& s : m_character->inventory.equipment)
 		if (!s.Empty()) total += m_weights->For(s.typeId);
-	for (const ItemSlot& s : m_character->inventory.packs) // the bags themselves
-		if (!s.Empty()) total += m_weights->For(s.typeId);
-	for (const ItemSlot& s : m_character->inventory.backpack)
-		if (!s.Empty()) total += m_weights->For(s.typeId);
+	for (const Pack& p : m_character->inventory.packs) {
+		if (!p.Empty()) total += m_weights->For(p.typeId); // the bag itself
+		for (const ItemSlot& s : p.contents)               // and everything in it
+			if (!s.Empty()) total += m_weights->For(s.typeId);
+	}
 	return total;
 }
 
@@ -620,9 +621,9 @@ void CharacterSheet::DrawInventory(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 	// Pack row: the member's containers (slot 0 = the starting backpack). The
 	// selected pack is highlighted; its contents fill the grid below.
 	const Inventory& inv = m_character->inventory;
-	auto drawIcon = [&](const gfx::Rect& r, const ItemSlot& s) {
-		if (s.Empty() || !m_icons) return;
-		if (const gfx::Texture* icon = m_icons->For(s.typeId)) {
+	auto drawIcon = [&](const gfx::Rect& r, const std::string& typeId) {
+		if (typeId.empty() || !m_icons) return;
+		if (const gfx::Texture* icon = m_icons->For(typeId)) {
 			const float p = r.w * 0.1f;
 			batch.DrawSprite({r.x + p, r.y + p, r.w - 2 * p, r.h - 2 * p}, {0, 0, 1, 1},
 							 *icon, {1, 1, 1, 1});
@@ -633,7 +634,7 @@ void CharacterSheet::DrawInventory(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 		const bool sel = i == inv.selectedPack;
 		batch.DrawRect(r, sel ? theme.controlActive : theme.control);
 		ui::DrawBorder(batch, r, sel ? theme.accent : theme.panelBorder);
-		drawIcon(r, inv.packs[static_cast<size_t>(i)]);
+		drawIcon(r, inv.packs[static_cast<size_t>(i)].typeId);
 	}
 
 	// A divider rule (<hr>) between the pack row and its contents, spanning the
@@ -643,15 +644,13 @@ void CharacterSheet::DrawInventory(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 					std::max(1.0f, sy)},
 				   theme.panelBorder);
 
-	// Backpack contents (the selected pack's items). For now only pack 0 (the
-	// starting backpack) carries contents — the `backpack` vector — so that is
-	// what shows; per-pack contents storage is a later step.
-	const auto& pack = inv.backpack;
+	// Contents of the SELECTED pack — switching packs above swaps this grid.
+	const auto& pack = inv.SelectedContents();
 	for (int i = 0; i < static_cast<int>(pack.size()); ++i) {
 		const gfx::Rect r = PackRect(px, sx, sy, i);
 		batch.DrawRect(r, theme.control);
 		ui::DrawBorder(batch, r, theme.panelBorder);
-		drawIcon(r, pack[static_cast<size_t>(i)]);
+		drawIcon(r, pack[static_cast<size_t>(i)].typeId);
 	}
 }
 

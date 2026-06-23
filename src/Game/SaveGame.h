@@ -32,13 +32,16 @@ namespace dungeon::game {
 
 // The serializable dynamic state of one in-progress game.
 struct SaveData {
+	// v9: per-pack contents — the backpack became a row of containers (packs),
+	//     each with its own contents; replaces the single "pack" line with
+	//     "packs" (the container row + selection) + "packc" (per-pack contents).
 	// v8: cursor-held item ("held" line) — the tablet floating on the mouse
 	//     pointer, party-level state (was previously hacked into a backpack slot).
 	// v7: one generic per-entity record (EntityState) covers monsters, items, and
 	//     buttons as a diff (keyed by .ent id) or a whole spawn (no baseline);
 	//     replaces the v6 split of "ent"/"monster" rows + a whole "floor" item
 	//     snapshot. v6: free-look offset ("look" line); v5 folded hands into equip[].
-	int version = 8;
+	int version = 9;
 	std::string name;         // display name (free text; may contain spaces)
 	std::string currentLevel; // the level stem the party is on (where to resume)
 	std::string timestamp;    // human-readable local time, for the slot list
@@ -66,11 +69,14 @@ struct SaveData {
 		float mana = 1, maxMana = 1;
 		u32 knownSymbols = 0; // memorized spell symbols (SymbolBit mask)
 		// Carried/worn items, by catalog id ("" = empty). Inventory travels with
-		// the party (not per-level). equipment is in EquipSlot order and now
-		// includes the two weapon hands (LeftHand/RightHand); backpack is dynamic
-		// (capacity grows in play).
+		// the party (not per-level). equipment is in EquipSlot order and includes
+		// the two weapon hands (LeftHand/RightHand). packTypes is the pack-row
+		// container ids; packContents[i] is pack i's items (parallel); selectedPack
+		// is the active container.
 		std::vector<std::string> equipment;
-		std::vector<std::string> backpack;
+		std::vector<std::string> packTypes;
+		std::vector<std::vector<std::string>> packContents;
+		int selectedPack = 0;
 	};
 	std::vector<CharState> characters;
 

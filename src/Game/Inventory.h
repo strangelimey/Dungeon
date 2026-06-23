@@ -7,9 +7,10 @@
 //                 doll and the HUD control-bar hand boxes are the same storage,
 //                 so an item placed in one shows in the other. Hand(0/1) is the
 //                 convenience accessor the HUD uses.
-//   * backpack    a DYNAMIC list of carry slots, shown as a grid on the sheet —
-//                 starts small (kBackpackStart) and grows later as bags/spells/
-//                 items raise capacity (Grow()).
+//   * packs       the carried CONTAINERS (backpack, ammo pouch, ...) — a pack
+//                 row, each Pack holding its own dynamic contents. Slot 0 is the
+//                 starting backpack. The SELECTED pack's contents are the grid
+//                 shown/edited on the sheet (SelectedContents()).
 // An ItemSlot names the item by its CATALOG id ("rune_fire", ...) — empty
 // string = nothing. Items are single (no stacking yet). The world resolves a
 // typeId back to its ItemKind / model / icon (DungeonWorld::ItemKindFor); this
@@ -53,6 +54,14 @@ struct ItemSlot {
 	void Clear() { typeId.clear(); }
 };
 
+// A carried container (backpack, ammo pouch, medicine pouch, ...) plus its own
+// contents. An empty typeId = an empty pack-row slot (no container).
+struct Pack {
+	std::string typeId;             // pack catalog id; "" = empty pack slot
+	std::vector<ItemSlot> contents; // items inside this pack
+	bool Empty() const { return typeId.empty(); }
+};
+
 // Worn/held paper-doll slots, indexed for both the sheet doll and the save
 // (the "equip" line serializes in this order). LeftHand/RightHand are the
 // weapon hands shared with the HUD control bar; the two rings share a display
@@ -79,12 +88,13 @@ inline constexpr const char* kEquipIcon[kEquipCount] = {
 
 struct Inventory {
 	std::array<ItemSlot, kEquipCount> equipment; // worn/held, indexed by EquipSlot
-	// The pack-row containers; slot 0 is seeded with the starting backpack. The
-	// `backpack` vector below is that pack's CONTENTS (the only pack with contents
-	// for now — per-pack contents storage is a later step).
-	std::array<ItemSlot, kPackRowSlots> packs = {ItemSlot{kStartingPack}};
+	// The carried containers; slot 0 is the starting backpack (seeded by the
+	// constructor / Clear). Each Pack carries its own contents; the SELECTED
+	// pack's contents are what the sheet's slot grid shows.
+	std::array<Pack, kPackRowSlots> packs;
 	int selectedPack = 0; // which pack-row slot's contents the grid shows
-	std::vector<ItemSlot> backpack = std::vector<ItemSlot>(kBackpackStart);
+
+	Inventory() { ResetPacks(); }
 
 	// The weapon hand slots (0 = left, 1 = right), aliases into equipment[] so the
 	// HUD hand boxes and the sheet doll share one storage.
@@ -97,35 +107,53 @@ struct Inventory {
 													: EquipSlot::RightHand)];
 	}
 
-	// Index of the first empty backpack slot, or -1 when the pack is full.
-	int FirstFreeBackpack() const {
-		for (size_t i = 0; i < backpack.size(); ++i)
-			if (backpack[i].Empty()) return static_cast<int>(i);
+	// The selected pack's contents — the slot grid the sheet shows and edits.
+	std::vector<ItemSlot>& SelectedContents() {
+		return packs[static_cast<size_t>(selectedPack)].contents;
+	}
+	const std::vector<ItemSlot>& SelectedContents() const {
+		return packs[static_cast<size_t>(selectedPack)].contents;
+	}
+
+	// Index of the first empty slot in pack `p`'s contents, or -1 if full / no
+	// container in that slot.
+	int FirstFree(int p) const {
+		if (packs[static_cast<size_t>(p)].Empty()) return -1;
+		const auto& c = packs[static_cast<size_t>(p)].contents;
+		for (size_t i = 0; i < c.size(); ++i)
+			if (c[i].Empty()) return static_cast<int>(i);
 		return -1;
 	}
 
-	// Drops `typeId` into the first free backpack slot; false if the pack is
-	// full. (The caller decides what to do when it fails — log, keep holding.)
-	bool AddToBackpack(const std::string& typeId) {
-		const int i = FirstFreeBackpack();
+	// Drops `typeId` into pack `p`'s first free slot; false if full / no pack.
+	bool AddToPack(const std::string& typeId, int p) {
+		const int i = FirstFree(p);
 		if (i < 0) return false;
-		backpack[static_cast<size_t>(i)].typeId = typeId;
+		packs[static_cast<size_t>(p)].contents[static_cast<size_t>(i)].typeId = typeId;
 		return true;
 	}
+	// Stows into the SELECTED pack (the active container) — the default target.
+	bool Stow(const std::string& typeId) { return AddToPack(typeId, selectedPack); }
 
-	// Adds `extra` empty backpack slots (a bag/spell raised capacity).
+	// Adds `extra` empty slots to the selected pack (a bag/spell raised capacity).
 	void Grow(int extra) {
-		if (extra > 0) backpack.resize(backpack.size() + static_cast<size_t>(extra));
+		if (extra <= 0) return;
+		auto& c = SelectedContents();
+		c.resize(c.size() + static_cast<size_t>(extra));
 	}
 
-	// Empties every slot but keeps the current backpack capacity and the starting
-	// pack (slot 0 is always the member's backpack).
+	// Resets the pack row to a fresh starting backpack in slot 0 (others empty).
+	void ResetPacks() {
+		for (Pack& p : packs) { p.typeId.clear(); p.contents.clear(); }
+		packs[0].typeId = kStartingPack;
+		packs[0].contents.assign(kBackpackStart, {});
+		selectedPack = 0;
+	}
+
+	// Empties every worn/held slot and resets the packs to the starting backpack.
 	void Clear() {
 		for (ItemSlot& s : equipment) s.Clear(); // includes the hands
-		for (ItemSlot& s : backpack) s.Clear();
-		for (ItemSlot& s : packs) s.Clear();
-		packs[0].typeId = kStartingPack;
-		selectedPack = 0;
+		ResetPacks();
 	}
 };
 
