@@ -851,9 +851,12 @@ void Game::LoadItemIcons() {
 	// Carry weights + categories for every catalog item (load sum; pack check).
 	m_itemWeights.byType.clear();
 	m_itemCategories.byType.clear();
+	m_itemCategories.capacityByType.clear();
 	for (const CatalogEntry& def : m_project.items.Entries()) {
 		m_itemWeights.byType[def.id] = def.GetFloat("weight", 0.0f);
 		m_itemCategories.byType[def.id] = def.Get("category", "misc");
+		m_itemCategories.capacityByType[def.id] =
+			static_cast<int>(def.GetFloat("capacity", 0.0f));
 	}
 
 	// Equipment-slot outline silhouettes (slot_<type>.png), the ghost behind an

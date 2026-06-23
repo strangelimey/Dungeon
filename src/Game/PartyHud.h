@@ -79,13 +79,20 @@ struct ItemWeightBank {
 	}
 };
 
-// Item categories keyed by catalog id (rune|weapon|…|container). Built once by
-// Game; the sheet reads it to tell whether a held item is a pack (container).
+// Item categories + (for containers) content-slot capacities, keyed by catalog
+// id. Built once by Game; the sheet reads it to tell whether a held item is a
+// pack (container) and how many slots a freshly-equipped pack should have.
 struct ItemCategoryBank {
-	std::flat_map<std::string, std::string> byType;
+	std::flat_map<std::string, std::string> byType;   // category
+	std::flat_map<std::string, int> capacityByType;   // pack content slots
 	bool Is(const std::string& typeId, std::string_view category) const {
 		const auto it = byType.find(typeId);
 		return it != byType.end() && it->second == category;
+	}
+	// Content-slot capacity for a pack id, or 0 if unknown (caller defaults).
+	int Capacity(const std::string& typeId) const {
+		const auto it = capacityByType.find(typeId);
+		return it == capacityByType.end() ? 0 : it->second;
 	}
 };
 

@@ -458,10 +458,13 @@ void CharacterSheet::EquipOrSelectPack(int i) {
 		// Refuse to drop onto a pack that holds items (its contents would be lost).
 		if (slot.HasItems()) return;
 		std::string incoming = **m_held;
+		// Fresh capacity from the catalog (this pack type's content slots).
+		int cap = m_categories->Capacity(incoming);
+		if (cap <= 0) cap = kBackpackStart;
 		if (slot.Empty()) m_held->reset();   // equip into an empty slot
 		else *m_held = slot.typeId;           // swap the (empty) pack onto the cursor
 		slot.typeId = std::move(incoming);
-		slot.contents.assign(kBackpackStart, {}); // fresh container capacity
+		slot.contents.assign(static_cast<size_t>(cap), {});
 		inv.selectedPack = i;                 // view the newly equipped pack
 	} else if (!slot.Empty()) {
 		inv.selectedPack = i; // empty-handed: select this pack

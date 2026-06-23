@@ -52,21 +52,25 @@ category = clothing
 weight = 2.0
 
 ; Containers (category=container) are carried in the pack row; pick one up and
-; drop it onto a pack slot to equip it. Each holds its own contents.
+; drop it onto a pack slot to equip it. Each holds its own contents; `capacity`
+; is how many content slots it has (the backpack's must match kBackpackStart).
 [backpack]
 name = item.backpack
 category = container
 weight = 1.0
+capacity = 6
 
 [ammo_pouch]
 name = item.ammo_pouch
 category = container
 weight = 0.5
+capacity = 8
 
 [medicine_pouch]
 name = item.medicine_pouch
 category = container
 weight = 0.5
+capacity = 4
 
 [apple]
 name = item.apple
