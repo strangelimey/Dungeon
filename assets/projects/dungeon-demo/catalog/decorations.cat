@@ -122,6 +122,16 @@ texture = rusted_iron
 solid = 1
 authored = 0
 
+; Iron portcullis — real-geometry bars (not an alpha cutout) so torchlight
+; casts true shadows through the gaps. Procedural box build -> authored=0
+; (CULL_NONE). Blocks the passage when placed (solid=1).
+[portcullis]
+display = Portcullis
+model = portcullis
+texture = rusted_iron
+solid = 1
+authored = 0
+
 ; coil of rope (procedural torus) — low, steppable detail
 [rope]
 display = Coil of Rope

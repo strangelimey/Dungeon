@@ -932,6 +932,41 @@ assets::ModelData BuildDoor() {
 	return FinishProp(std::move(mesh), {0.40f, 0.27f, 0.16f, 1.0f});
 }
 
+// Iron portcullis: thick vertical bars crossed by horizontal bands, hung from a
+// top header, each bar ending in a downward spike at the floor — the classic
+// dungeon gate. Authored facing +Z (blocks Z-passage like the door). Built from
+// REAL bars (not an alpha cutout) so torchlight rakes true shadows through the
+// gaps and the grille keeps its depth up close; procedural box build, so it
+// renders CULL_NONE like the other box props (catalog authored=0). The game
+// binds a worn-iron PBR set by the catalog texture id (rusted_iron).
+assets::ModelData BuildPortcullis() {
+	assets::MeshData mesh;
+	constexpr float kHalfW = 1.05f;  // bar-field half-width (inside the 1.2 cell half)
+	constexpr float kTopY = 2.32f;   // header height (just under the 2.5 ceiling)
+	constexpr float kBar = 0.05f;    // vertical bar half-thickness (10 cm square iron)
+	constexpr float kBarZ = 0.06f;   // bar half-depth (sits proud of the bands)
+	constexpr float kSpikeY = 0.20f; // spikes occupy y in [0, kSpikeY]
+	constexpr float kBandZ = -0.02f; // bands set back so the verticals read in front
+	constexpr int kVerts = 8;        // vertical bars
+	const float bandY[] = {0.58f, 1.28f, 1.98f};
+
+	// Top header beam the bars hang from (spans a touch beyond the field).
+	AddBox(mesh, {0, kTopY, 0}, {kHalfW + 0.06f, 0.09f, 0.075f});
+	// Horizontal bands.
+	for (const float by : bandY)
+		AddBox(mesh, {0, by, kBandZ}, {kHalfW, 0.05f, 0.045f});
+	// Vertical bars, each with a spiked foot and a rivet stud at every band.
+	for (int i = 0; i < kVerts; ++i) {
+		const float x = -kHalfW + static_cast<float>(i) / (kVerts - 1) * (2.0f * kHalfW);
+		AddBox(mesh, {x, (kSpikeY + kTopY) * 0.5f, 0},
+			   {kBar, (kTopY - kSpikeY) * 0.5f, kBarZ});            // shaft
+		AddStrut(mesh, {x, kSpikeY, 0}, {x, 0.0f, 0}, kBar, 0.0f, 4); // spike
+		for (const float by : bandY)
+			AddBox(mesh, {x, by, kBandZ + 0.06f}, {0.03f, 0.03f, 0.02f}); // rivet
+	}
+	return FinishProp(std::move(mesh), {0.34f, 0.33f, 0.34f, 1.0f}, 0.30f);
+}
+
 // Two-tier stone fountain: a low octagon-smooth basin with a recessed pool, a
 // central pedestal, and a small upper bowl.
 assets::ModelData BuildFountain() {
@@ -1713,6 +1748,7 @@ bool BakeModels(const std::string& dir, const std::string& texturesDir) {
 	ok &= WriteGltf(BuildColumn(), dir + "\\column.gltf");
 	ok &= WriteGltf(BuildArchway(), dir + "\\archway.gltf");
 	ok &= WriteGltf(BuildDoor(), dir + "\\door.gltf");
+	ok &= WriteGltf(BuildPortcullis(), dir + "\\portcullis.gltf");
 	ok &= WriteGltf(BuildFountain(), dir + "\\fountain.gltf");
 	ok &= WriteGltf(BuildStatue(), dir + "\\statue.gltf");
 	ok &= WriteGltf(BuildBarrel(), dir + "\\barrel.gltf");
