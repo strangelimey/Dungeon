@@ -126,6 +126,11 @@ $modelSets = @(
     @{ Src = "fab\weapons\fantasy-assassin"; Name = "snake_dagger";  Object = "snake_dagger";  MultiMaterial = $true; Height = 0.50 }
     @{ Src = "fab\weapons\fantasy-assassin"; Name = "french_dagger"; Object = "french_dagger"; MultiMaterial = $true; Height = 0.50 }
 
+    # Leather Sentinel armor (fab, free) - a single-object, single-material body
+    # of armour (~2 m worn-size); no Object -> converted as one combined .glb,
+    # scaled down to a floor-loot size.
+    @{ Src = "fab\armor"; Name = "leather_armor"; MultiMaterial = $true; Height = 0.90 }
+
     # Rigged-monster scaffold (left commented until a rigged character is bought):
     # @{ Src = "fab\monsters\skeleton-warrior"; Name = "skeleton_warrior"; Rig = $true; Height = 1.9; FlipGreen = $true }
 )
@@ -147,25 +152,31 @@ foreach ($m in $modelSets) {
     Write-Host "=== $($m.Name)  <-  $($m.Src) ($(Split-Path $mesh -Leaf)) ==="
     $ext = [IO.Path]::GetExtension($mesh).ToLower()
 
-    # --- authored multi-material model: split per piece, keep each piece's own
-    # glTF materials in one downscaled embedded-texture .glb (no texture-set
-    # import; the engine renders the embedded textures per material) -----------
+    # --- authored multi-material model: keep the model's own glTF materials in
+    # one downscaled embedded-texture .glb (no texture-set import; the engine
+    # renders the embedded textures per material). A multi-piece pack sets Object
+    # (--split, one .glb per object, picked by name); a single-object model leaves
+    # Object unset and converts to one combined .glb. ----------------------------
     if ($m.MultiMaterial) {
         $modelsDir = Join-Path $assets "models"
         $stage = Join-Path $stageRoot ($m.Src -replace '[\\/:]', '_')
-        $glbOut = Join-Path $stage "$($m.Object).glb"
-        if (-not (Test-Path $glbOut)) {
+        $glbOut = if ($m.Object) { Join-Path $stage "$($m.Object).glb" } else { $null }
+        if (-not $glbOut -or -not (Test-Path $glbOut)) {
             if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
             $h = if ($m.Height) { $m.Height } else { 0.6 }
             $maxTex = if ($m.MaxTex) { $m.MaxTex } else { 512 }
-            if ((Invoke-Convert $mesh $stage "--split" "--height" $h "--max-tex" $maxTex) -ne 0) {
-                throw "Convert failed for $($m.Src)"
-            }
+            $cargs = @($mesh, $stage)
+            if ($m.Object) { $cargs += '--split' }
+            $cargs += @('--height', $h, '--max-tex', $maxTex)
+            if ((Invoke-Convert @cargs) -ne 0) { throw "Convert failed for $($m.Src)" }
         }
-        if (-not (Test-Path $glbOut)) {
-            Write-Host "  split produced no '$($m.Object).glb' - available:"
+        # Split -> the named object's .glb; single -> the one .glb produced.
+        $glbOut = if ($m.Object) { Join-Path $stage "$($m.Object).glb" } `
+                  else { (Get-ChildItem $stage -Filter *.glb | Select-Object -First 1).FullName }
+        if (-not $glbOut -or -not (Test-Path $glbOut)) {
+            Write-Host "  convert produced no '$($m.Object).glb' - available:"
             Get-ChildItem $stage -Filter *.glb | ForEach-Object { Write-Host "    $($_.BaseName)" }
-            throw "Object '$($m.Object)' not found in split of $($m.Src)"
+            throw "Expected glb not found in convert of $($m.Src)"
         }
         Copy-Item $glbOut (Join-Path $modelsDir "$($m.Name).glb") -Force
         $mb = [math]::Round((Get-Item (Join-Path $modelsDir "$($m.Name).glb")).Length / 1MB, 1)

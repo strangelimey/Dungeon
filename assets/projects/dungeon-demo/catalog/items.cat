@@ -67,6 +67,7 @@ model = french_dagger
 name = item.leather_armor
 category = armor
 weight = 8.0
+model = leather_armor
 
 [tunic]
 name = item.tunic

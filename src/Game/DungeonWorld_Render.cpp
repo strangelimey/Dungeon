@@ -434,8 +434,16 @@ void DungeonWorld::BakeIcon(ID3D12GraphicsCommandList* list, gfx::SpriteBatch& s
 	XMMATRIX align = XMMatrixIdentity();
 	if (ext.x <= ext.y && ext.x <= ext.z) align = XMMatrixRotationY(kPi * 0.5f);
 	else if (ext.y <= ext.x && ext.y <= ext.z) align = XMMatrixRotationX(kPi * 0.5f);
-	const XMMATRIX present = XMMatrixRotationY(0.3f) * XMMatrixRotationX(-0.2f) *
-							 XMMatrixRotationZ(0.7f);
+	// A long thin item (a blade) reads best laid DIAGONALLY corner-to-corner; a
+	// bulkier/upright item (armour, a shield) reads best UPRIGHT with its front to
+	// the camera — no roll. Decide from elongation: longest extent vs the next.
+	float sorted[3] = {ext.x, ext.y, ext.z};
+	std::sort(sorted, sorted + 3);
+	const bool elongated = sorted[2] > sorted[1] * 2.0f;
+	const XMMATRIX present =
+		elongated ? XMMatrixRotationY(0.3f) * XMMatrixRotationX(-0.15f) *
+						XMMatrixRotationZ(0.7f)
+				  : XMMatrixRotationY(0.35f) * XMMatrixRotationX(-0.12f);
 	const XMMATRIX worldX = XMMatrixTranslation(-c.x, -c.y, -c.z) *
 							XMMatrixScaling(s, s, s) * align * present;
 	Mat4 world;
