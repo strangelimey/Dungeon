@@ -1654,6 +1654,15 @@ bool BakeModels(const std::string& dir, const std::string& texturesDir) {
 		{0, "wall_moss", 0.040f, 931u},    {1, "floor_slabs", 0.050f, 941u},
 		{1, "floor_cobble", 0.045f, 951u}, {2, "ceiling_rough", 0.100f, 961u},
 		{2, "ceiling_cracked", 0.080f, 971u},
+		// Scanned textures.com sets (each belongs to exactly one surface kind so
+		// its worn_<set>_<tier>.gltf is unambiguous). Polished marble has no
+		// height map -> procedural wear; relief is its parallax amplitude.
+		{0, "cobblestone_wall", 0.060f, 981u}, {0, "stacked_stone", 0.050f, 991u},
+		{0, "brick_red", 0.055f, 1001u},       {0, "plaster", 0.030f, 1011u},
+		{0, "rock_cliff", 0.070f, 1021u},      {0, "marble_white", 0.020f, 1031u},
+		{1, "cobblestone_floor", 0.050f, 1041u}, {1, "broken_tile", 0.040f, 1051u},
+		{1, "rubble", 0.060f, 1061u},          {1, "rock_smooth", 0.045f, 1071u},
+		{2, "limestone", 0.080f, 1081u},
 	};
 	for (const WornSpec& spec : specs)
 		ok &= BakeWornTiers(spec.kind, spec.texture, spec.relief, spec.seed, dir,

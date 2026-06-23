@@ -30,8 +30,3 @@ height_scale = 0.06
 display = Cave Rock
 texture = rock_smooth
 height_scale = 0.045
-
-[floor_marble]
-display = Marble
-texture = marble_white
-height_scale = 0.02

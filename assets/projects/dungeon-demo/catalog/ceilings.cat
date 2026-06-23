@@ -15,8 +15,3 @@ height_scale = 0.035
 display = Stone
 texture = limestone
 height_scale = 0.035
-
-[ceiling_plaster]
-display = Plaster
-texture = plaster
-height_scale = 0.03
