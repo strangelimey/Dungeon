@@ -193,6 +193,7 @@ void DungeonWorld::SubmitSceneGeometry(ID3D12GraphicsCommandList* list,
 		gfx::MaterialParams material;
 		material.doubleSided = !deco.kind->authored; // authored meshes back-cull
 		ApplyPropMaterial(material, deco.kind->tex, deco.kind->color, 0.85f);
+		material.alphaCutoff = deco.kind->alphaCutoff; // > 0: render the mask's gaps
 		m_renderer.DrawMesh(list, *deco.kind->mesh, deco.world, material);
 	}
 

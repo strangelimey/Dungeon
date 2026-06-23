@@ -2,12 +2,13 @@
 // ImportTextures.cpp — packs downloaded PBR sets into the engine format.
 //
 // Download sites ship one image per map (albedo, normal, displacement, AO,
-// roughness); the engine wants two packed RGBA8 files (albedo, normal+height
-// in alpha). This importer bridges the two:
+// roughness, opacity); the engine wants three packed RGBA8 files (albedo with
+// any opacity mask in its alpha, normal+height in alpha, ORM). This importer
+// bridges the two:
 //   * discovers maps by the common naming conventions (ambientCG "_Color" /
 //     "_NormalGL", Poly Haven "_diff" / "_nor_gl" / "_disp", generic
-//     "albedo" / "normal" / "height"...)
-//   * multiplies AO into the albedo (the shader has no separate AO slot)
+//     "albedo" / "normal" / "height" / "opacity"...)
+//   * packs a separate opacity/mask map into the albedo's alpha channel
 //   * flips the normal green channel when the source is OpenGL-flavored
 //   * resamples height/AO bilinearly when their resolution differs
 //   * warns about found-but-unused maps (roughness) and missing height
@@ -122,7 +123,7 @@ bool SavePng(const std::string& path, const assets::ImageData& image) {
 
 // What we managed to find in the source folder.
 struct FoundMaps {
-	std::string albedo, normal, height, ao, roughness, metallic;
+	std::string albedo, normal, height, ao, roughness, metallic, opacity;
 	bool normalLooksGl = false;
 };
 
@@ -160,6 +161,11 @@ FoundMaps DiscoverMaps(const std::string& sourceDir) {
 				   ContainsAny(stem, {"albedo", "basecolor", "base_color", "diffuse",
 									  "color", "_col", "_diff"})) {
 			found.albedo = path;
+		} else if (found.opacity.empty() &&
+				   ContainsAny(stem, {"opacity", "alpha", "opac", "transp", "mask"})) {
+			// Checked after albedo so a combined "basecolor_alpha" name binds as
+			// the albedo, not stolen here as the mask.
+			found.opacity = path;
 		}
 	}
 	return found;
@@ -190,6 +196,29 @@ bool ImportPbrTextureSet(const std::string& sourceDir, const std::string& textur
 		return false;
 	}
 	log::Info("Albedo: {} ({}x{})", found.albedo, albedo->width, albedo->height);
+
+	// --- opacity → albedo alpha ---------------------------------------------
+	// A separate opacity/mask map (some textures.com sets ship one — e.g. wood
+	// planks with cut-out gaps between boards) packs into the albedo's alpha,
+	// the same trick as height-into-normal-alpha. The shader multiplies it into
+	// albedo.a (gBaseTexture), ready for an alpha-test clip or a blend pass.
+	// Resampled in case the mask differs in resolution. Absent → the alpha is
+	// left as the source basecolor's own (255 for an opaque download).
+	if (!found.opacity.empty()) {
+		if (auto opacity = assets::LoadImageFile(found.opacity)) {
+			log::Info("Opacity: {} (packed into albedo alpha)", found.opacity);
+			for (u32 y = 0; y < albedo->height; ++y) {
+				for (u32 x = 0; x < albedo->width; ++x) {
+					const float u = static_cast<float>(x) / (albedo->width - 1);
+					const float v = static_cast<float>(y) / (albedo->height - 1);
+					albedo->pixels[(static_cast<size_t>(y) * albedo->width + x) * 4 + 3] =
+						static_cast<u8>(SampleChannel(*opacity, 0, u, v) + 0.5f);
+				}
+			}
+		} else {
+			log::Warn("Opacity map failed to load, albedo left opaque: {}", opacity.error());
+		}
+	}
 
 	// --- normal + height ---------------------------------------------------------
 	assets::ImageData normal;

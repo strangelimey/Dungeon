@@ -479,6 +479,7 @@ private:
 		std::string id;            // catalog id (the record type), for the writer
 		bool authored = false;     // imported model: consistently wound -> back-cull
 		bool solidDefault = true;  // floor-standing blocks the party (passages don't)
+		float alphaCutoff = 0.0f;  // > 0: alpha-test cutout (masked set, e.g. a gate)
 	};
 	struct Decoration {
 		const DecorationKind* kind = nullptr; // points into m_decorationKinds

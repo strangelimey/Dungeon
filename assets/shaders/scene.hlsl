@@ -39,7 +39,10 @@ cbuffer ObjectConstants : register(b1) {
 	float gMetallic;
 	float gRoughness;
 	uint gUseMRMap;
-	float _pad1;
+	// Alpha-test cutout threshold. 0 = disabled (opaque draw); > 0 discards
+	// texels whose albedo alpha falls below it (gaps between wood planks, grate
+	// holes). The mask rides the albedo's alpha (see AssetBaker ImportTextures).
+	float gAlphaCutoff;
 	// Additive emissive radiance (rgb), added after shading — a self-lit glow
 	// independent of scene lights (the runes pulse in their element colour).
 	float4 gEmissive;
@@ -345,6 +348,11 @@ float4 PSMain(PSInput input) : SV_TARGET {
 	float4 albedo = gBaseColor;
 	if (gUseTexture != 0)
 		albedo *= gBaseTexture.Sample(gSampler, uv);
+
+	// Alpha-test cutout: drop sub-threshold texels before shading so the holes
+	// read as empty space (depth stays on, no blending/sorting needed).
+	if (gAlphaCutoff > 0.0)
+		clip(albedo.a - gAlphaCutoff);
 
 	// Occlusion / roughness / metallic: per-texel from the ORM map (scaled by
 	// the factors) or the factors alone.

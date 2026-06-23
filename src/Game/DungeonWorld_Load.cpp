@@ -576,6 +576,9 @@ DungeonWorld::DecorationKind& DungeonWorld::DecorationKindFor(const std::string&
 		kind->id = type; // the record type, for the .map writer
 		kind->authored = CatalogBool(def, "authored", true);
 		kind->solidDefault = CatalogBool(def, "solid", true);
+		// Optional alpha-test cutout (a masked set like wood planks renders its
+		// gaps); absent/0 = opaque, the usual case.
+		kind->alphaCutoff = def ? def->GetFloat("alpha_test", 0.0f) : 0.0f;
 		it = m_decorationKinds.emplace(type, std::move(kind)).first;
 	}
 	return *it->second;

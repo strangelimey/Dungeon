@@ -65,6 +65,10 @@ struct MaterialParams {
 	float heightScale = 0.0f;
 	float metallic = 0.0f;
 	float roughness = 0.9f;
+	// Alpha-test cutout threshold; 0 = opaque (default). > 0 discards texels
+	// whose albedo alpha is below it — the gaps in a masked set (e.g. wood
+	// planks) read as empty space. Uses the opaque PSO; no blending/sorting.
+	float alphaCutoff = 0.0f;
 	bool doubleSided = true;
 };
 
