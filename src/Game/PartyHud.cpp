@@ -375,9 +375,11 @@ CharacterSheet::CharacterSheet(const gfx::Rect& rect, const ui::Font* portraitFo
 							   const ItemIconBank* icons,
 							   const ItemWeightBank* weights,
 							   const ItemIconBank* slotIcons,
+							   const ItemCategoryBank* categories,
 							   std::optional<std::string>* held)
 	: m_portraitFont(portraitFont), m_barColors(barColors), m_icons(icons),
-	  m_weights(weights), m_slotIcons(slotIcons), m_held(held),
+	  m_weights(weights), m_slotIcons(slotIcons), m_categories(categories),
+	  m_held(held),
 	  m_healthLabel(loc::Tr("bar.health")),
 	  m_staminaLabel(loc::Tr("bar.stamina")), m_manaLabel(loc::Tr("bar.mana")),
 	  m_attributesLabel(loc::Tr("sheet.attributes")),
@@ -446,6 +448,26 @@ void CharacterSheet::ClickSlot(ItemSlot& slot) {
 	}
 }
 
+void CharacterSheet::EquipOrSelectPack(int i) {
+	if (!m_character) return;
+	Inventory& inv = m_character->inventory;
+	Pack& slot = inv.packs[static_cast<size_t>(i)];
+	if (m_held && m_held->has_value()) {
+		// Only a CONTAINER can be equipped into a pack slot.
+		if (!m_categories || !m_categories->Is(**m_held, "container")) return;
+		// Refuse to drop onto a pack that holds items (its contents would be lost).
+		if (slot.HasItems()) return;
+		std::string incoming = **m_held;
+		if (slot.Empty()) m_held->reset();   // equip into an empty slot
+		else *m_held = slot.typeId;           // swap the (empty) pack onto the cursor
+		slot.typeId = std::move(incoming);
+		slot.contents.assign(kBackpackStart, {}); // fresh container capacity
+		inv.selectedPack = i;                 // view the newly equipped pack
+	} else if (!slot.Empty()) {
+		inv.selectedPack = i; // empty-handed: select this pack
+	}
+}
+
 void CharacterSheet::Update(ui::UIContext& ctx) {
 	m_hotMode = -1;
 	const Input* input = ctx.CurrentInput();
@@ -476,12 +498,13 @@ void CharacterSheet::Update(ui::UIContext& ctx) {
 				ctx.ConsumeMouse();
 				return;
 			}
-		// Pack row: click a non-empty pack to SELECT it — its contents fill the
-		// grid below. (Packs aren't drop targets yet.)
+		// Pack row: holding a CONTAINER, click a slot to EQUIP it (a held non-pack
+		// is rejected); empty-handed, click a non-empty pack to SELECT it (its
+		// contents fill the grid). A pack with items can't be swapped out (its
+		// contents would be lost) — empty it first.
 		for (int i = 0; i < kPackRowSlots; ++i)
 			if (PackRowRect(px, sx, sy, i).Contains(mx, my)) {
-				if (!m_character->inventory.packs[static_cast<size_t>(i)].Empty())
-					m_character->inventory.selectedPack = i;
+				EquipOrSelectPack(i);
 				ctx.ConsumeMouse();
 				return;
 			}

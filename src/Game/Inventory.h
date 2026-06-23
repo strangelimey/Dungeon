@@ -60,6 +60,12 @@ struct Pack {
 	std::string typeId;             // pack catalog id; "" = empty pack slot
 	std::vector<ItemSlot> contents; // items inside this pack
 	bool Empty() const { return typeId.empty(); }
+	// True if the pack holds any item (so it can't be swapped out / lost).
+	bool HasItems() const {
+		for (const ItemSlot& s : contents)
+			if (!s.Empty()) return true;
+		return false;
+	}
 };
 
 // Worn/held paper-doll slots, indexed for both the sheet doll and the save

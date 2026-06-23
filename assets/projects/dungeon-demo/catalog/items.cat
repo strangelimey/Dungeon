@@ -51,10 +51,22 @@ name = item.tunic
 category = clothing
 weight = 2.0
 
+; Containers (category=container) are carried in the pack row; pick one up and
+; drop it onto a pack slot to equip it. Each holds its own contents.
 [backpack]
 name = item.backpack
 category = container
 weight = 1.0
+
+[ammo_pouch]
+name = item.ammo_pouch
+category = container
+weight = 0.5
+
+[medicine_pouch]
+name = item.medicine_pouch
+category = container
+weight = 0.5
 
 [apple]
 name = item.apple

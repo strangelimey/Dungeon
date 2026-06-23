@@ -40,3 +40,6 @@ item leather_armor 5 5
 item tunic 6 5
 item apple 7 5
 item bread 8 4
+; Container packs — pick up and drop onto a pack slot in the sheet to equip.
+item ammo_pouch 2 5
+item medicine_pouch 3 5

@@ -92,6 +92,7 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	m_ui.SetHitSplats(&m_hitSplats);  // stable address; LoadHitSplats fills it in
 	m_ui.SetItemIcons(&m_itemIcons);    // stable; LoadItemIcons fills it in
 	m_ui.SetItemWeights(&m_itemWeights); // stable; LoadItemIcons fills it in
+	m_ui.SetItemCategories(&m_itemCategories); // stable; LoadItemIcons fills it in
 	m_ui.SetSlotIcons(&m_slotIcons);     // stable; LoadItemIcons fills it in
 	m_ui.SetHeldItem(&m_heldItem);    // cursor icon reads the held catalog id
 
@@ -847,10 +848,13 @@ void Game::LoadItemIcons() {
 		m_itemIconPlaceholders.push_back(MakeSolidIcon(m_device, CategoryTint(category)));
 		m_itemIcons.byType[def.id] = m_itemIconPlaceholders.back().get();
 	}
-	// Carry weights for every catalog item (the sheet sums these into a load).
+	// Carry weights + categories for every catalog item (load sum; pack check).
 	m_itemWeights.byType.clear();
-	for (const CatalogEntry& def : m_project.items.Entries())
+	m_itemCategories.byType.clear();
+	for (const CatalogEntry& def : m_project.items.Entries()) {
 		m_itemWeights.byType[def.id] = def.GetFloat("weight", 0.0f);
+		m_itemCategories.byType[def.id] = def.Get("category", "misc");
+	}
 
 	// Equipment-slot outline silhouettes (slot_<type>.png), the ghost behind an
 	// empty doll slot. PNG only, like the rune icons; a missing one just draws no

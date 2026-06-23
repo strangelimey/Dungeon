@@ -79,6 +79,16 @@ struct ItemWeightBank {
 	}
 };
 
+// Item categories keyed by catalog id (rune|weapon|…|container). Built once by
+// Game; the sheet reads it to tell whether a held item is a pack (container).
+struct ItemCategoryBank {
+	std::flat_map<std::string, std::string> byType;
+	bool Is(const std::string& typeId, std::string_view category) const {
+		const auto it = byType.find(typeId);
+		return it != byType.end() && it->second == category;
+	}
+};
+
 class CharacterPanel : public ui::Widget {
 public:
 	// portraitFont draws the big placeholder initial (the Game passes its
@@ -190,6 +200,7 @@ public:
 	CharacterSheet(const gfx::Rect& rect, const ui::Font* portraitFont,
 				   const ResourceBarColors* barColors, const ItemIconBank* icons,
 				   const ItemWeightBank* weights, const ItemIconBank* slotIcons,
+				   const ItemCategoryBank* categories,
 				   std::optional<std::string>* held);
 
 	// Re-points the sheet (mutable, for inventory edits) and caches strings.
@@ -222,6 +233,8 @@ private:
 					float sx, float sy);
 	// Applies a held-aware click to a slot: place / swap / pick up.
 	void ClickSlot(ItemSlot& slot);
+	// Pack-row slot i was clicked: equip a held container into it, else select it.
+	void EquipOrSelectPack(int i);
 	// Total carry weight (kg) of everything the member holds (equipment + pack).
 	float CarryLoad() const;
 
@@ -231,6 +244,7 @@ private:
 	const ItemIconBank* m_icons;
 	const ItemWeightBank* m_weights;
 	const ItemIconBank* m_slotIcons; // equipment-slot outline silhouettes
+	const ItemCategoryBank* m_categories; // item id → category (pack = container)
 	std::optional<std::string>* m_held;
 	Mode m_mode = Mode::Inventory;
 	int m_hotMode = -1; // mode button under the cursor (Update → Draw), -1 = none

@@ -199,6 +199,8 @@ item.tunic=Tunic
 item.apple=Apple
 item.bread=Bread
 item.backpack=Backpack
+item.ammo_pouch=Ammo pouch
+item.medicine_pouch=Medicine pouch
 
 ; --- monsters (key suffix = the .ent type) --------------------------------------
 monster.skeleton=skeleton

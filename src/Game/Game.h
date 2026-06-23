@@ -211,6 +211,7 @@ private:
 	std::vector<std::unique_ptr<gfx::Texture>> m_itemIconPlaceholders;
 	ItemIconBank m_itemIcons;
 	ItemWeightBank m_itemWeights; // catalog id → carry weight (kg), for the sheet
+	ItemCategoryBank m_itemCategories; // catalog id → category, for the sheet
 	// Equipment-slot outline silhouettes (slot type → texture), drawn as the
 	// ghost behind an empty doll slot. Filled by LoadItemIcons from slot_*.png.
 	std::vector<std::unique_ptr<gfx::Texture>> m_slotIconTextures;
