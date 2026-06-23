@@ -64,18 +64,24 @@ int main(int argc, char** argv) {
 	if (argc >= 2 && std::string(argv[1]) == "import-model") {
 		if (argc < 5) {
 			log::Error("usage: AssetBaker import-model <model-file|folder> "
-					   "<assets-dir> <name> [--height M] [--yaw deg] [--up y|z]");
+					   "<assets-dir> <name> [--height M] [--yaw deg] [--up y|z] "
+					   "[--texture-set name]");
 			return 1;
 		}
 		float height = 0.0f, yaw = 0.0f;
 		char up = 'y';
+		std::string textureSet;
 		for (int i = 5; i < argc; ++i) {
 			const std::string a = argv[i];
 			if (a == "--height" && i + 1 < argc) height = std::stof(argv[++i]);
 			else if (a == "--yaw" && i + 1 < argc) yaw = std::stof(argv[++i]);
 			else if (a == "--up" && i + 1 < argc) up = argv[++i][0];
+			else if (a == "--texture-set" && i + 1 < argc) textureSet = argv[++i];
 		}
-		return baker::ImportModel(argv[2], argv[3], argv[4], height, yaw, up) ? 0 : 1;
+		return baker::ImportModel(argv[2], argv[3], argv[4], height, yaw, up,
+								  textureSet)
+				   ? 0
+				   : 1;
 	}
 
 	if (argc >= 3 && std::string(argv[1]) == "mips")

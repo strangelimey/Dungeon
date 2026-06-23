@@ -17,8 +17,15 @@ namespace dungeon::baker {
 // `targetHeight` <= 0 auto-fits the largest extent to roughly one cell; `upAxis`
 // is 'y' (default) or 'z'. Authored meshes are consistently wound, so the game
 // renders them back-face culled.
+//
+// `textureSet` reuses an already-imported set instead of packing this folder's
+// maps: when non-empty the PBR import/mip step is skipped entirely and the model
+// is written referencing that set name (a flat white material, like the normal
+// path — the game binds the set by name, not via the glTF material). This lets
+// every item split out of one multi-mesh fab pack share a single material set
+// imported once, rather than re-baking the same maps per item.
 bool ImportModel(const std::string& sourcePath, const std::string& assetsDir,
 				 const std::string& name, float targetHeight, float yawDegrees,
-				 char upAxis);
+				 char upAxis, const std::string& textureSet = {});
 
 } // namespace dungeon::baker

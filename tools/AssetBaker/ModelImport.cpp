@@ -51,7 +51,7 @@ std::string ResolveModelFile(const std::string& sourcePath) {
 
 bool ImportModel(const std::string& sourcePath, const std::string& assetsDir,
 				 const std::string& name, float targetHeight, float yawDegrees,
-				 char upAxis) {
+				 char upAxis, const std::string& textureSet) {
 	const std::string modelFile = ResolveModelFile(sourcePath);
 	if (modelFile.empty()) {
 		log::Error("No .gltf/.glb/.obj model found at {}", sourcePath);
@@ -143,6 +143,18 @@ bool ImportModel(const std::string& sourcePath, const std::string& assetsDir,
 	std::error_code ec;
 	fs::create_directories(modelsDir, ec);
 	if (!WriteGltf(out, modelsDir + "\\" + name + ".gltf")) return false;
+
+	// --- share an already-imported set (multi-item pack) ----------------------
+	// The model carries a flat white material either way; the game binds the PBR
+	// set by name from the catalog's `texture` field, so reusing a set is just a
+	// matter of NOT re-importing this folder's maps (they're the same maps for
+	// every item split out of the pack). The caller points the catalog entries at
+	// `textureSet`.
+	if (!textureSet.empty()) {
+		log::Info("Model '{}' reuses texture set '{}' (PBR import skipped)", name,
+				  textureSet);
+		return true;
+	}
 
 	// --- import the source folder's PBR maps as the texture set <name>_2k -----
 	const std::string folder =

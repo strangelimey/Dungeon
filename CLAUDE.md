@@ -116,7 +116,24 @@ buffer, reused across all ~25 submissions).
   assets/models/<name>.gltf and imports the folder's PBR maps as the texture
   set <name>. The game binds prop textures by name, so the decoration loader
   (DungeonWorld::LoadDecorations) auto-uses the <name> set for an imported
-  type and renders it back-face culled (authored=true).
+  type and renders it back-face culled (authored=true). `--texture-set <name>`
+  skips the per-call PBR import and points the model at an already-imported set
+  instead, so every item split out of one multi-mesh pack shares a single set.
+- `tools\FetchModels.ps1` — the mesh analog of FetchTextures.ps1 for fab.com
+  (or any authored-model) sources. SELECTION RULE: a fab listing's "Included
+  formats" must include glb/obj/fbx; Unreal-Engine-ONLY listings are .uasset
+  packs the engine can't read (don't buy them). Raw downloads live OUTSIDE the
+  res tree in OneDrive\DungeonAssets\fab\<category>\<pack>\ (source mesh + PBR
+  maps). An editable `$modelSets` table (like FetchTextures' $propSets) drives
+  the import; each entry -> one model. The script chains: source mesh --(Blender
+  `tools\ConvertMesh.py`, only for fbx/usd or a multi-mesh pack)--> .glb -->
+  `AssetBaker import` (the shared PBR set, base name + _2k) --> `import-model
+  --texture-set` (the normalized model). glb/obj sources skip Blender. `Split`
+  packs split per top-level object (Object= picks the piece); `Rig` monsters
+  convert with --keep-rig + --height straight into assets/models (bypassing
+  import-model's joint-strip). Then wire a catalog [id] (decorations/monsters/
+  items.cat) and place it in a level. ConvertMesh.py needs Blender (auto-found
+  at %ProgramFiles%\Blender Foundation\Blender 5.1, or -Blender <path>).
 - `AssetBaker mips <assets>` — rebakes derived .dds (BC7 mode-6 encoder in
   tools/AssetBaker/Bc7Encoder.cpp; use the RELEASE baker, encode is slow).
 - `AssetBaker models <assets>` — rebakes only the .gltf models (fast). Worn
