@@ -23,9 +23,9 @@
 ; wall props can all share one square.
 ; Dynamic content — monsters, items, buttons — lives in level1.ent.
 
-palette wall wall_brick wall_stone wall_moss
-palette floor floor_slabs floor_cobble
-palette ceiling ceiling_rough ceiling_cracked
+palette wall wall_cobblestone wall_stacked_stone wall_brick_red wall_rock
+palette floor floor_cobblestone floor_broken_tile floor_rubble floor_rock
+palette ceiling ceiling_stone ceiling_rough
 ;
 ; 32x32 layout (4x the old map): a start room (NW) opening onto a great
 ; pillared hall (N), a dusty fountain hall (centre), a tomb crypt (W), a
@@ -84,11 +84,11 @@ fixture sconce 11 2 north
 fixture sconce 11 2 west
 fixture sconce 21 2 north
 decoration banner 21 2 wall=east
-decoration column 12 3 south
-decoration column 20 3 south
-decoration column 12 8 south
-decoration column 20 8 south
-decoration statue 16 2 south
+decoration column_marble 12 3 south
+decoration column_marble 20 3 south
+decoration column_marble 12 8 south
+decoration column_marble 20 8 south
+decoration statue_marble 16 2 south
 decoration archway 10 4 east solid=0
 ;
 ; Fountain hall (dusty)
@@ -127,7 +127,7 @@ decoration chest 21 29 south
 decoration barrel 16 28 south
 decoration crate 20 24 south
 decoration statue 18 23 south
-decoration wood_door 16 23 north solid=0
+decoration iron_door 16 23 north solid=0
 ;
 ; SE chamber
 decoration crate 29 20 south
