@@ -36,10 +36,20 @@ Record EVERY acquisition here — paid OR free — with the date, listing name,
 seller, price, formats, license, and what it became in-game, so this is a
 complete inventory of 3rd-party content (not just a spend total).
 
-| date | listing | seller | price | formats | in-game / status |
-|---|---|---|---|---|---|
-| 2026-06-22 | Fantasy Assassin Weapon Pack | Deepanshu | $1.99 | glb/obj/fbx/usd | 4 dagger items (viking/khukri/snake/french), 3D icons — done |
-| 2026-06-23 | Leather Sentinel Armor | _(unknown — fill from fab)_ | Free | glb/obj/fbx | `leather_armor` item (3D floor model + icon) — done |
+| date | listing | seller | price | license | formats | in-game / status |
+|---|---|---|---|---|---|---|
+| 2026-06-22 | Fantasy Assassin Weapon Pack | Deepanshu | $1.99 | Fab Standard | glb/obj/fbx/usd | 4 dagger items (viking/khukri/snake/french), 3D icons — done |
+| 2026-06-23 | Leather Sentinel Armor | ebbelende3D | Free | **CC BY 4.0** ‡ | glb/obj/fbx/usdz | `leather_armor` item (3D floor model + icon) — done |
+
+‡ **Attribution required** — CC BY 4.0 means the project must credit the author.
+See the Attributions section below; add a creditable line before any release.
+
+### Attributions (required by license)
+Assets whose licence requires crediting the creator. Keep this list current and
+surface it in an in-game credits screen / NOTICE file before shipping.
+- **Leather Sentinel Armor** by **ebbelende3D** — fab.com, CC BY 4.0
+  (https://www.fab.com/listings/f9e00fed-ea1d-4464-8580-7e430a2e3607).
+  Note: listing marks it AI-generated.
 
 Scouted candidates (prices as seen 2026-06-22, not bought):
 - Fantasy Assassin Weapon Pack (Deepanshu) — **$1.99–4.99**, glb+obj+fbx, 18 meshes
