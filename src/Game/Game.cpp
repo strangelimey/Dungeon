@@ -1458,7 +1458,7 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 	else if ((m_state == AppState::Playing || m_state == AppState::Paused ||
 			  m_state == AppState::CharacterSheet) &&
 			 !editorMap) {
-		m_world.BakeItemIconsIfNeeded(list, m_spriteBatch); // one-time 3D item icons
+		m_world.UpdateItemIcons(list, m_spriteBatch); // 3D item icons (static + spin)
 		m_world.RenderShadowMaps(list);
 		m_world.RenderScene(list);
 	}

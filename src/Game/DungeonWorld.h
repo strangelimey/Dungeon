@@ -98,10 +98,11 @@ public:
 	void RenderShadowMaps(ID3D12GraphicsCommandList* list);
 	void RenderScene(ID3D12GraphicsCommandList* list);
 
-	// Renders each model item's 3D thumbnail into its icon render-target once
-	// (before the first scene): a soft round halo (via `sprites`) then the lit 3D
-	// model over it. Redirects the OM and rebinds the back buffer.
-	void BakeItemIconsIfNeeded(ID3D12GraphicsCommandList* list, gfx::SpriteBatch& sprites);
+	// Renders model items' 3D thumbnails into their icon render-targets: a soft
+	// round halo (via `sprites`) then the lit 3D model over it. Static icons bake
+	// once (before the first scene); `icon_spin` icons re-bake every frame on a
+	// turntable. Redirects the OM and rebinds the back buffer.
+	void UpdateItemIcons(ID3D12GraphicsCommandList* list, gfx::SpriteBatch& sprites);
 	// The baked 3D icon for an item type (building its kind on demand), or null
 	// for a model-less item (the caller falls back to its flat placeholder).
 	const gfx::Texture* ItemIconFor(const std::string& typeId);
@@ -473,8 +474,11 @@ private:
 		std::unique_ptr<MultiMaterialModel> model;
 		// Baked 3D icon render-target (one per type, owned here; reused by every
 		// slot/grid/cursor instance via the icon bank). Null for placeholder items;
-		// transparent until BakeItemIconsIfNeeded renders into it.
+		// transparent until UpdateItemIcons renders into it.
 		std::unique_ptr<gfx::Texture> iconTarget;
+		// Catalog `icon_spin`: re-bake this icon every frame on a turntable spin
+		// (vs the static shape-aware pose). The cursor + every slot animate with it.
+		bool iconAnimated = false;
 	};
 	struct Item {
 		const ItemKind* kind = nullptr; // points into m_itemKinds (stable)
@@ -595,7 +599,8 @@ private:
 	// render-target (fit to bounds, flat face to camera, 3/4 view). Shared depth
 	// target; the bake list redirects the OM.
 	void BakeIcon(ID3D12GraphicsCommandList* list, gfx::SpriteBatch& sprites,
-				  const MultiMaterialModel& model, const gfx::Texture& target);
+				  const MultiMaterialModel& model, const gfx::Texture& target,
+				  bool animated, float spin);
 	// Draws every submesh of an authored multi-material model at `world`, each with
 	// its own glTF material. Shared by decorations, floor items, and the icon bake.
 	void DrawMultiMaterial(ID3D12GraphicsCommandList* list,

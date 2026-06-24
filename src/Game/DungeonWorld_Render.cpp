@@ -19,6 +19,7 @@
 #include "Graphics/Texture.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <format>
 #include <queue>
@@ -340,12 +341,20 @@ std::unique_ptr<gfx::Texture> MakeHaloTexture(gfx::GraphicsDevice& device, u32 s
 		}
 	return std::make_unique<gfx::Texture>(device, img, /*srgb=*/false);
 }
+
+// Turntable angle for animated icons, off a steady clock so they keep spinning
+// while the world is frozen (the character sheet / pause overlay).
+float IconSpinAngle() {
+	static const auto start = std::chrono::steady_clock::now();
+	const float t = std::chrono::duration<float>(
+						std::chrono::steady_clock::now() - start)
+						.count();
+	return t * 0.9f; // ~0.14 rev/s
+}
 } // namespace
 
-void DungeonWorld::BakeItemIconsIfNeeded(ID3D12GraphicsCommandList* list,
-										 gfx::SpriteBatch& sprites) {
-	if (m_itemIconsBaked) return;
-	m_itemIconsBaked = true;
+void DungeonWorld::UpdateItemIcons(ID3D12GraphicsCommandList* list,
+								   gfx::SpriteBatch& sprites) {
 	if (!m_iconHalo) m_iconHalo = MakeHaloTexture(m_device, kIconSize);
 
 	// Shared depth target for the bakes (created once, icon-sized).
@@ -375,19 +384,25 @@ void DungeonWorld::BakeItemIconsIfNeeded(ID3D12GraphicsCommandList* list,
 								  m_iconDsvHeap->GetCPUDescriptorHandleForHeapStart());
 	}
 
+	// Static icons bake once; animated (icon_spin) icons re-bake every frame on a
+	// turntable. The first call bakes everything, then only the animated ones.
+	const float spin = IconSpinAngle();
 	bool any = false;
 	for (auto&& [id, kind] : m_itemKinds) {
 		if (!kind->model || !kind->iconTarget) continue;
-		BakeIcon(list, sprites, *kind->model, *kind->iconTarget);
+		if (m_itemIconsBaked && !kind->iconAnimated) continue; // static, already baked
+		BakeIcon(list, sprites, *kind->model, *kind->iconTarget, kind->iconAnimated, spin);
 		any = true;
 	}
+	m_itemIconsBaked = true;
 	// The bakes redirected the output merger; hand the back buffer back for the
 	// scene + 2D passes (mirrors RenderShadowMaps).
 	if (any) m_device.BindBackBuffer(list);
 }
 
 void DungeonWorld::BakeIcon(ID3D12GraphicsCommandList* list, gfx::SpriteBatch& sprites,
-							const MultiMaterialModel& model, const gfx::Texture& target) {
+							const MultiMaterialModel& model, const gfx::Texture& target,
+							bool animated, float spin) {
 	D3D12_RESOURCE_BARRIER toRT = gfx::Transition(
 		target.Resource(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
 		D3D12_RESOURCE_STATE_RENDER_TARGET);
@@ -431,21 +446,37 @@ void DungeonWorld::BakeIcon(ID3D12GraphicsCommandList* list, gfx::SpriteBatch& s
 	// orientation the item shipped in (a blade modelled flat-on-Z, lying on Y, or
 	// standing on X all resolve here). Then a gentle 3/4 tilt + a diagonal roll so
 	// a long item fills the square corner-to-corner.
+	// `align` turns the flattest face to the camera; `elongated` = one axis much
+	// longer than the rest (a blade) vs a bulky item (armour, a shield).
 	XMMATRIX align = XMMatrixIdentity();
 	if (ext.x <= ext.y && ext.x <= ext.z) align = XMMatrixRotationY(kPi * 0.5f);
 	else if (ext.y <= ext.x && ext.y <= ext.z) align = XMMatrixRotationX(kPi * 0.5f);
-	// A long thin item (a blade) reads best laid DIAGONALLY corner-to-corner; a
-	// bulkier/upright item (armour, a shield) reads best UPRIGHT with its front to
-	// the camera — no roll. Decide from elongation: longest extent vs the next.
 	float sorted[3] = {ext.x, ext.y, ext.z};
 	std::sort(sorted, sorted + 3);
 	const bool elongated = sorted[2] > sorted[1] * 2.0f;
-	const XMMATRIX present =
-		elongated ? XMMatrixRotationY(0.3f) * XMMatrixRotationX(-0.15f) *
-						XMMatrixRotationZ(0.7f)
-				  : XMMatrixRotationY(0.35f) * XMMatrixRotationX(-0.12f);
+
+	XMMATRIX pose;
+	if (animated && elongated) {
+		// Spin a blade about its OWN long axis ("down the blade"): orient the
+		// longest axis vertical, rotate about it, then lay it diagonally + tilt.
+		XMMATRIX longUp = XMMatrixIdentity();
+		if (ext.x >= ext.y && ext.x >= ext.z) longUp = XMMatrixRotationZ(kPi * 0.5f);
+		else if (ext.z >= ext.x && ext.z >= ext.y) longUp = XMMatrixRotationX(-kPi * 0.5f);
+		pose = longUp * XMMatrixRotationY(spin) * XMMatrixRotationZ(0.7f) *
+			   XMMatrixRotationX(-0.15f);
+	} else if (animated) {
+		// Bulky item: a vertical turntable (gentle downward tilt, spun about Y).
+		pose = align * XMMatrixRotationX(-0.18f) * XMMatrixRotationY(spin);
+	} else if (elongated) {
+		// Static blade: laid diagonally corner-to-corner.
+		pose = align * XMMatrixRotationY(0.3f) * XMMatrixRotationX(-0.15f) *
+			   XMMatrixRotationZ(0.7f);
+	} else {
+		// Static bulky item: upright, front to the camera — no roll.
+		pose = align * XMMatrixRotationY(0.35f) * XMMatrixRotationX(-0.12f);
+	}
 	const XMMATRIX worldX = XMMatrixTranslation(-c.x, -c.y, -c.z) *
-							XMMatrixScaling(s, s, s) * align * present;
+							XMMatrixScaling(s, s, s) * pose;
 	Mat4 world;
 	XMStoreFloat4x4(&world, worldX);
 

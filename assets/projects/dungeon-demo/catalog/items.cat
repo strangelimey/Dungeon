@@ -44,6 +44,7 @@ name = item.dagger
 category = weapon
 weight = 1.5
 model = viking_dagger
+icon_spin = 1
 
 [khukri]
 name = item.khukri

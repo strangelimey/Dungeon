@@ -379,6 +379,7 @@ DungeonWorld::ItemKind& DungeonWorld::ItemKindFor(const std::string& type) {
 		// items leave iconTarget null and keep their flat category swatch.
 		if (kind->model) {
 			kind->iconTarget = gfx::Texture::RenderTarget(m_device, kIconSize);
+			kind->iconAnimated = CatalogBool(def, "icon_spin", false);
 			m_itemIconsBaked = false; // a freshly added icon needs baking
 		}
 		it = m_itemKinds.emplace(type, std::move(kind)).first;
