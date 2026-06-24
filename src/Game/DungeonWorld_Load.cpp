@@ -286,6 +286,9 @@ DungeonWorld::MonsterKind& DungeonWorld::MonsterKindFor(const std::string& type)
 			assets->iq = def->GetFloat("iq", 100.0f);
 			assets->facesTarget = def->GetBool("faces", true);
 			assets->fallbackRoughness = def->GetFloat("roughness", 0.9f);
+			// Imported-model fixups (degrees in the catalog -> radians here).
+			assets->modelYaw = def->GetFloat("modelyaw", 0.0f) * (3.14159265f / 180.0f);
+			assets->modelScale = def->GetFloat("modelscale", 1.0f);
 			assets->size = ParseSizeClass(CatalogGet(def, "size", "large"));
 		}
 		it = m_monsterKinds.emplace(type, std::move(assets)).first;

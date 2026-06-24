@@ -65,3 +65,20 @@ attackcd = 2.0
 aggro = 5
 movecd = 0.7
 iq = 100
+
+; Authored, Mixamo-animated anatomical skeleton (fab Gamefruit mesh, rigid-bound
+; in Blender). Clips: idle/walk/attack/die. Flat-shaded for now (no texture set).
+; damage=0 for safe in-engine observation of the animation.
+[skel_human]
+display = Bone Knight
+model = skel_human
+hp = 16
+damage = 0
+accuracy = 0.7
+defense = 0.1
+attackcd = 1.6
+aggro = 8
+movecd = 0.5
+iq = 135
+size = large
+modelscale = 0.65

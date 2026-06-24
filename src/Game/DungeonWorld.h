@@ -353,6 +353,12 @@ private:
 		bool facesTarget = true;     // turn to face the party once engaged
 		// (radially-symmetric models like the blob set faces=false to skip it)
 		float fallbackRoughness = 0.9f; // flat-material roughness when no PBR set
+		// Render-only orientation/size fixups for imported models that don't ship
+		// in the engine's convention (e.g. a Mixamo-rigged asset facing the wrong
+		// way). modelyaw is radians added to the facing rotation; modelscale is a
+		// uniform visual scale about the model's foot. Both default to no-op.
+		float modelYaw = 0.0f;
+		float modelScale = 1.0f;
 		// Sub-cell occupancy (monsters.cat `size=`, default large). Decides the
 		// monster's footprint + how many share a cell — see Game/SlotGrid.h.
 		SizeClass size = SizeClass::Large;

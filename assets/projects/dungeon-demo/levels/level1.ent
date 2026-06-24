@@ -12,6 +12,7 @@
 ;   button lever 9 5 east target=door_a
 ;
 ; Monsters sprinkled one or two per room across the level.
+monster skel_human 6 6 north
 monster skeleton 15 7 west
 monster blob 27 4
 monster mummy 4 12 east
