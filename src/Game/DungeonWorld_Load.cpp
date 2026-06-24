@@ -424,53 +424,38 @@ static bool InReach(int x, int z, int px, int pz) {
 std::optional<std::string> DungeonWorld::TryPickItem(float mx, float my, float w,
 													 float h) {
 	const int px = m_party.GridX(), pz = m_party.GridZ();
-	const Mat4 vp = m_camera.ViewProj();
-	// Projects a world point to screen pixels; returns false if behind the eye.
-	auto project = [&](const Vec3& p, float& sx, float& sy) {
-		using namespace DirectX;
-		XMVECTOR clip = XMVector3Transform(XMVectorSet(p.x, p.y, p.z, 1.0f),
-										   XMLoadFloat4x4(&vp));
-		const float cw = XMVectorGetW(clip);
-		if (cw <= 1e-4f) return false;
-		sx = (XMVectorGetX(clip) / cw * 0.5f + 0.5f) * w;
-		sy = (1.0f - (XMVectorGetY(clip) / cw * 0.5f + 0.5f)) * h;
-		return true;
-	};
-
+	// Quarter pick: each floor item sits at the centre of one of its cell's four
+	// quarters (the Medium 2x2 slot grid). A click counts if the ray, measured at
+	// the item's OWN visible height, lands in that item's quarter — no per-mesh hit
+	// test. Sampling at the item's height (not the floor plane y=0) is what makes a
+	// standing tablet/model clickable: intersecting the floor would land the hit
+	// behind the item's base (you look down at an angle), missing the quarter.
+	const gfx::Camera::Ray ray = m_camera.ScreenRay(mx, my, w, h);
+	if (ray.dir.y >= -1e-4f) return std::nullopt; // not looking down toward the floor
+	// Top item = the last one in render order (drawn over the others in a stack).
 	int best = -1;
-	float bestD = 1e9f;
 	for (size_t i = 0; i < m_items.size(); ++i) {
 		const Item& item = m_items[i];
 		if (item.collected || !InReach(item.x, item.z, px, pz)) continue;
 		if (!IsSeen(item.x, item.z)) continue;
-		const Vec3 c = SlotCenter(item.x, item.z, SizeClass::Medium, item.slot);
-		float cx, cy, tx, ty;
-		// Hit target spans the rendered item's actual height. A model item is the
-		// 3D model itself (grounded; use its real bounds top, centre at mid-height),
-		// so clicking on the visible model registers; runes/placeholders sample the
-		// tablet's tinted slab (anchored low, scaled up for non-runes).
-		float centreY = 0.23f, topY;
-		if (item.kind->model) {
-			// The model is grounded at draw (GroundOffsetY), so it spans 0..Height
-			// in world Y — the pick target uses that same single source.
-			topY = std::max(item.kind->model->Height(), 0.1f);
-			centreY = topY * 0.5f;
-		} else {
-			topY = item.kind->isRune ? 0.46f : kItemPickTopY;
-		}
-		if (!project({c.x, centreY, c.z}, cx, cy)) continue;
-		project({c.x, topY, c.z}, tx, ty);
-		// Model items get a more forgiving target (thin standing weapons are hard to
-		// hit precisely); the tablet placeholders keep the tighter radius.
-		const float mult = item.kind->model ? 1.7f : 1.3f;
-		const float minRadius = item.kind->model ? 48.0f : 26.0f;
-		const float radius =
-			std::clamp(std::fabs(ty - cy) * mult, minRadius, 220.0f);
-		const float d = std::hypot(mx - cx, my - cy);
-		if (d <= radius && d < bestD) {
-			bestD = d;
-			best = static_cast<int>(i);
-		}
+		// Plane at the item's visible mid-height — a model spans 0..Height; the
+		// tablet placeholders sit low (rune slab shorter than the scaled-up others).
+		const float centreY = item.kind->model
+								  ? std::max(item.kind->model->Height(), 0.1f) * 0.5f
+								  : (item.kind->isRune ? 0.23f : 0.45f);
+		const float t = (centreY - ray.origin.y) / ray.dir.y;
+		if (t <= 0.0f) continue;
+		const float wx = ray.origin.x + ray.dir.x * t;
+		const float wz = ray.origin.z + ray.dir.z * t;
+		const int hx = static_cast<int>(std::floor(wx / kCellSize));
+		const int hz = static_cast<int>(std::floor(wz / kCellSize));
+		if (hx != item.x || hz != item.z) continue;
+		// Quarter within the cell: col = west(0)/east(1), row = north(0)/south(1),
+		// matching SlotCenter's Medium 2x2 layout (slot = row*2 + col).
+		const float lx = wx / kCellSize - static_cast<float>(hx);
+		const float lz = wz / kCellSize - static_cast<float>(hz);
+		const int slot = (lz < 0.5f ? 0 : 2) + (lx < 0.5f ? 0 : 1);
+		if (slot == item.slot) best = static_cast<int>(i);
 	}
 	if (best < 0) return std::nullopt;
 	Item& picked = m_items[static_cast<size_t>(best)];

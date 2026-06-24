@@ -236,8 +236,8 @@ void DungeonWorld::SubmitSceneGeometry(ID3D12GraphicsCommandList* list,
 				continue;
 			}
 			// Non-rune placeholders render scaled UP (kItemPlaceholderScale) — bigger
-			// than the rune tablet so they read on a dark floor and are an easy click
-			// target; TryPickItem widens the pick radius to match (see kItemPickTopY).
+			// than the rune tablet so they read on a dark floor (pickup is a
+			// floor-quarter click test, independent of the rendered size).
 			const float scale = item.kind->isRune ? 1.0f : kItemPlaceholderScale;
 			Mat4 world = Mat4Identity();
 			world._11 = world._22 = world._33 = scale;

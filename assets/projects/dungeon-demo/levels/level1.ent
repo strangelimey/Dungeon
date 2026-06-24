@@ -33,6 +33,14 @@ item rune_air 5 4
 item rune_water 6 4
 item rune_earth 7 4
 
+; The fab.com weapon models, lined up just ahead of the spawn — now pickable
+; weapons (they share these cells with the runes above; each takes its own
+; quarter). viking_dagger=dagger, plus khukri/snake_dagger/french_dagger.
+item dagger 3 4
+item khukri 4 4
+item snake_dagger 5 4
+item french_dagger 6 4
+
 ; Non-rune items (placeholder visuals) — a sampler near the start for testing
 ; pickup / carry load / hand commands.
 item dagger 4 5

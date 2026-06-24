@@ -72,11 +72,8 @@ palette ceiling ceiling_stone ceiling_rough
 ; boulder/mossy_rock/pot/banner) carry their own texture set.
 ;
 ; Start room
-; fab.com multi-material weapons, lined up just ahead of the spawn for a look.
-decoration viking_dagger 3 4 south solid=0
-decoration khukri 4 4 south solid=0
-decoration snake_dagger 5 4 south solid=0
-decoration french_dagger 6 4 south solid=0
+; (The fab.com weapons that used to stand here as a showcase are now pickable
+; item entities just ahead of the spawn — see level1.ent.)
 decoration ancient_pot 2 2 south
 decoration barrel 7 6 south
 decoration rope 6 4 south

@@ -54,10 +54,9 @@ struct GeometryChunk; // DungeonMeshBuilder.h (MakeSurfaceChunk takes one by ref
 
 // Non-rune items reuse the rune tablet mesh as a placeholder, rendered at this
 // scale (bigger than a rune so they read on a dark floor) — see SubmitScene-
-// Geometry. TryPickItem samples the pick radius up to kItemPickTopY (world Y, in
-// metres) so the larger tablet is a correspondingly larger click target.
+// Geometry. Pickup is a floor-quarter click test (TryPickItem), independent of
+// the rendered size.
 inline constexpr float kItemPlaceholderScale = 2.2f;
-inline constexpr float kItemPickTopY = 0.9f;
 
 class DungeonWorld {
 public:
@@ -140,11 +139,13 @@ public:
 
 	// --- item pickup / drop (mouse-driven) ----------------------------------
 	// Tries to pick up a floor item under the screen point (mx,my) in a w×h
-	// viewport: projects each uncollected item to screen, hit-tests, and gates by
-	// reach (the item's cell is the party cell or orthogonally adjacent). On a
-	// hit the nearest item is removed from the floor and its catalog id returned
-	// (Game puts it on the cursor); nullopt if nothing pickable is under the
-	// cursor. Pure query+remove — no satchel/knowledge side effects.
+	// viewport: an item is hit when the click ray, sampled at that item's own
+	// visible height, lands in the quarter (the Medium 2x2 slot grid) the item
+	// rests in — gated by reach (the cell is the party cell or orthogonally
+	// adjacent) + seen. The top item (last in render order) wins. It is removed
+	// from the floor and its catalog id returned (Game puts it on the cursor);
+	// nullopt if nothing pickable is under the cursor. Pure query+remove — no
+	// satchel/knowledge side effects.
 	std::optional<std::string> TryPickItem(float mx, float my, float w, float h);
 	// Drops a held item (catalog id) back onto the floor: ray-casts the screen
 	// point to the floor plane and places it on that cell when it is walkable, in
