@@ -32,9 +32,14 @@ Import pipeline: see the `fab-sourcing` memory + `tools/FetchModels.ps1`.
 Selection rule: the listing's "Included formats" must include glb/obj/fbx —
 Unreal-only `.uasset` packs are unimportable.
 
-| date | listing | seller | price | formats | imported? |
+Record EVERY acquisition here — paid OR free — with the date, listing name,
+seller, price, formats, license, and what it became in-game, so this is a
+complete inventory of 3rd-party content (not just a spend total).
+
+| date | listing | seller | price | formats | in-game / status |
 |---|---|---|---|---|---|
-| 2026-06-22 | Fantasy Assassin Weapon Pack | Deepanshu | $1.99 | glb/obj/fbx/usd | in progress — multi-material, needs render work |
+| 2026-06-22 | Fantasy Assassin Weapon Pack | Deepanshu | $1.99 | glb/obj/fbx/usd | 4 dagger items (viking/khukri/snake/french), 3D icons — done |
+| 2026-06-23 | Leather Sentinel Armor | _(unknown — fill from fab)_ | Free | glb/obj/fbx | `leather_armor` item (3D floor model + icon) — done |
 
 Scouted candidates (prices as seen 2026-06-22, not bought):
 - Fantasy Assassin Weapon Pack (Deepanshu) — **$1.99–4.99**, glb+obj+fbx, 18 meshes
@@ -70,10 +75,10 @@ One-off or recurring software bought for the project.
 
 ---
 
-## Totals (as of 2026-06-22)
+## Totals (as of 2026-06-23)
 - **Asset purchases:** textures.com **$39.00** (5,000-credit bundle; 3,425 left,
-  ~$26.71 prepaid headroom); fab.com **$1.99** (Fantasy Assassin Weapon Pack);
-  other $0.
+  ~$26.71 prepaid headroom); fab.com **$1.99** (Fantasy Assassin Weapon Pack;
+  Leather Sentinel Armor was free); other $0.
 - **AI / API:** not yet recorded.
 - **Dev tools / licenses:** $0 (all free so far).
 - **Cash out of pocket so far:** **$40.99** ($39.00 textures.com + $1.99 fab.com).
