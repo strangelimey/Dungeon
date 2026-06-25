@@ -166,6 +166,23 @@ bool MapEditor::OnClick(float mx, float my, const gfx::Rect& panel) {
 	return false;
 }
 
+bool MapEditor::OnRightClick(float mx, float my, const gfx::Rect& panel) {
+	std::vector<PaletteRow> rows;
+	float content = 0.0f;
+	BuildPaletteRows(panel, rows, content);
+	for (const PaletteRow& r : rows) {
+		if (!r.rect.Contains(mx, my)) continue;
+		// Only items in a configurable category open a config dialog (Monsters).
+		if (r.kind == PaletteRow::Kind::Item && r.cat == PaletteCat::Monsters && onConfigure) {
+			const std::vector<PaletteItem> items = CategoryItems(r.cat);
+			if (r.index >= 0 && r.index < static_cast<int>(items.size()))
+				onConfigure(r.cat, items[r.index].id);
+		}
+		return true; // any row in the dock body consumes the right-click
+	}
+	return false;
+}
+
 void MapEditor::ApplyBrush(int cx, int cz, bool dragging) {
 	using SS = DungeonWorld::SurfaceSel;
 	const DungeonMap& map = m_world.Map();

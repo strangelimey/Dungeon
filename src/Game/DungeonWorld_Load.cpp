@@ -344,6 +344,44 @@ DungeonWorld::MonsterKind& DungeonWorld::MonsterKindFor(const std::string& type)
 	return *it->second;
 }
 
+// --- editor: monster animation config ---------------------------------------
+// These back the right-click config dialog. They force-load the kind (it may not
+// be placed in the level) and read/write the same two MonsterKind members the
+// catalog populate above fills, so an edit takes effect with no reload.
+
+std::vector<std::string> DungeonWorld::MonsterClipNames(const std::string& type) {
+	const MonsterKind& kind = MonsterKindFor(type);
+	std::vector<std::string> names;
+	names.reserve(kind.model.clips.size());
+	for (const auto& c : kind.model.clips) names.push_back(c.name);
+	return names;
+}
+
+void DungeonWorld::MonsterAnimConfig(const std::string& type, AnimSupport& supported,
+									 AnimClips& clips) {
+	const MonsterKind& kind = MonsterKindFor(type);
+	supported = kind.stateSupported;
+	clips = kind.animClips;
+}
+
+void DungeonWorld::ApplyMonsterAnimConfig(const std::string& type,
+										  const AnimSupport& supported, const AnimClips& clips) {
+	MonsterKind& kind = MonsterKindFor(type);
+	const auto hasClip = [&](const std::string& name) {
+		for (const auto& c : kind.model.clips)
+			if (c.name == name) return true;
+		return false;
+	};
+	kind.stateSupported = supported;
+	kind.stateSupported[static_cast<int>(anim::CreatureState::Idle)] = true; // rest floor
+	for (int i = 0; i < anim::kCreatureStateCount; ++i) {
+		std::vector<std::string> filtered;
+		for (const std::string& name : clips[i])
+			if (hasClip(name)) filtered.push_back(name);
+		kind.animClips[i] = std::move(filtered);
+	}
+}
+
 DungeonWorld::Monster DungeonWorld::MakeMonster(MonsterKind& kind, int id, int x,
 												int z, Direction facing) {
 	Monster monster;

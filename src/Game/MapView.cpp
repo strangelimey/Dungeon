@@ -206,6 +206,15 @@ bool MapView::Update(const Input& input, const gfx::Rect& panel) {
 		}
 	}
 
+	// Right-click a palette item opens its config dialog (monsters: the anim
+	// editor). Handled before the pan logic so it never starts a right-drag pan;
+	// safe because pan-start needs overGrid (false over the dock).
+	if (editor && m_editor && !m_settings.mapPaletteCollapsed &&
+		input.WasMousePressed(MouseButton::Right) && PaletteBody(panel).Contains(mx, my)) {
+		m_editor->OnRightClick(mx, my, panel);
+		return true;
+	}
+
 	// In Editor a brush is always armed: left paints, so pan with the right
 	// button. Player mode is view-only, so pan with the left.
 	const MouseButton panBtn = editor ? MouseButton::Right : MouseButton::Left;

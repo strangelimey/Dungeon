@@ -170,6 +170,22 @@ public:
 	const DungeonEntities& Entities() const { return m_entities; }
 	const std::string& CurrentLevel() const { return m_currentLevel; }
 
+	// --- editor: monster animation config (the right-click config dialog) -------
+	// The animation table for a monster type, as N=kCreatureStateCount arrays.
+	using AnimSupport = std::array<bool, anim::kCreatureStateCount>;
+	using AnimClips = std::array<std::vector<std::string>, anim::kCreatureStateCount>;
+	// All clip names shipped by a type's model (the pool the dialog offers per
+	// state). Force-loads the kind if it wasn't placed in the level.
+	std::vector<std::string> MonsterClipNames(const std::string& type);
+	// The type's current supported-state set + per-state clip table.
+	void MonsterAnimConfig(const std::string& type, AnimSupport& supported,
+						   AnimClips& clips);
+	// Writes a new config straight into the cached kind (live — DriveMonsterAnim
+	// reads it every frame). Clip names are filtered to ones the model has; Idle
+	// is forced supported (the rest floor). Does NOT persist (Game writes the .cat).
+	void ApplyMonsterAnimConfig(const std::string& type, const AnimSupport& supported,
+								const AnimClips& clips);
+
 	// --- level transitions (P6 multi-level) ---------------------------------
 	// Swaps the active level to `stem` and resets all per-level state (map,
 	// entities, fog, monster/decoration/fire instances, surface chunks, shadow

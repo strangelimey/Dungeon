@@ -21,6 +21,7 @@ add_library(Game STATIC
 	MapEditor.cpp
 	MapView.cpp
 	MonsterAI.cpp
+	MonsterConfigDialog.cpp
 	MessageLog.cpp
 	Party.cpp
 	PartyHud.cpp

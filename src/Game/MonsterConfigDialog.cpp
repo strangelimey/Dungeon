@@ -1,0 +1,215 @@
+// ============================================================================
+// Game/MonsterConfigDialog.cpp — see MonsterConfigDialog.h.
+// ============================================================================
+#include "Game/MonsterConfigDialog.h"
+
+#include "Core/Loc.h"
+#include "UI/Controls.h" // ui::DrawBorder
+
+#include <algorithm>
+
+namespace dungeon::game {
+
+namespace {
+// Display name for a state (loc key anim.state.<token>; the key itself shows if
+// unmapped, never fatal — see Core/Loc).
+std::string StateLabel(anim::CreatureState s) {
+	return loc::Tr("anim.state." + std::string(anim::StateName(s)));
+}
+} // namespace
+
+MonsterConfigDialog::MonsterConfigDialog(gfx::GraphicsDevice& device)
+	: m_device(device), m_font(device, "", 18.0f) {}
+
+void MonsterConfigDialog::Open(const std::string& type, const std::string& display,
+							   const Support& supported, const Clips& clips,
+							   const std::vector<std::string>& modelClips) {
+	m_open = true;
+	m_display = display;
+	m_cfg = {type, supported, clips};
+	m_original = m_cfg; // snapshot for revert
+	m_modelClips = modelClips;
+	m_selState = static_cast<int>(anim::CreatureState::Idle);
+	m_clipScroll = 0.0f;
+}
+
+// Resolves the centered panel, the two columns, the rows and the footer buttons.
+// Clip rows carry their model-clip index and drop out of the list when scrolled
+// past the column viewport, so Update (hit-test) and Render (draw) agree.
+MonsterConfigDialog::Layout MonsterConfigDialog::BuildLayout(float w, float h) const {
+	Layout L;
+	L.panel = {0.16f * w, 0.12f * h, 0.68f * w, 0.76f * h};
+	const float pad = std::clamp(L.panel.w * 0.02f, 8.0f, 24.0f);
+	const float fh = m_font.Height();
+	L.rowH = std::clamp(fh * 1.7f, 20.0f, 40.0f);
+	const float titleB = L.panel.y + pad + fh * 1.4f; // below the title
+	const float colTop = titleB + L.rowH;             // below the column headers
+	const float footerH = std::clamp(fh * 1.9f, 24.0f, 44.0f);
+	const float footerY = L.panel.y + L.panel.h - pad - footerH;
+
+	const float innerW = L.panel.w - 2.0f * pad;
+	L.statesCol = {L.panel.x + pad, colTop, innerW * 0.40f, footerY - colTop - pad};
+	L.clipsCol = {L.statesCol.x + L.statesCol.w + pad, colTop,
+				  innerW - L.statesCol.w - pad, L.statesCol.h};
+
+	const float box = L.rowH * 0.55f;
+	for (int i = 0; i < N; ++i) {
+		const float y = L.statesCol.y + i * L.rowH;
+		L.stateRow[i] = {L.statesCol.x, y, L.statesCol.w, L.rowH};
+		L.stateCheck[i] = {L.statesCol.x + pad, y + (L.rowH - box) * 0.5f, box, box};
+	}
+
+	const float clipBottom = L.clipsCol.y + L.clipsCol.h;
+	for (int i = 0; i < static_cast<int>(m_modelClips.size()); ++i) {
+		const float y = L.clipsCol.y - m_clipScroll + i * L.rowH;
+		if (y + L.rowH <= L.clipsCol.y || y >= clipBottom) continue; // scrolled out
+		L.clipRow.push_back({L.clipsCol.x, y, L.clipsCol.w, L.rowH});
+		L.clipOf.push_back(i);
+	}
+	L.clipContentH = m_modelClips.size() * L.rowH;
+
+	const float btnW = std::clamp(L.panel.w * 0.16f, 80.0f, 180.0f);
+	L.close = {L.panel.x + L.panel.w - pad - btnW, footerY, btnW, footerH};
+	L.save = {L.close.x - pad - btnW, footerY, btnW, footerH};
+	return L;
+}
+
+void MonsterConfigDialog::Update(const Input& input, float w, float h) {
+	if (!m_open) return;
+	m_font.Commit(); // flush glyphs cached last frame before this frame draws
+	m_font.SetHeight(std::clamp(h * 0.022f, 12.0f, 26.0f));
+
+	if (input.WasKeyPressed(VK_ESCAPE)) { // cancel: revert live to the snapshot
+		if (onApply) onApply(m_original);
+		Close();
+		return;
+	}
+
+	const float mx = input.MouseX(), my = input.MouseY();
+	const Layout L = BuildLayout(w, h);
+
+	// Wheel over the clip column scrolls it.
+	if (input.WheelDelta() != 0.0f && L.clipsCol.Contains(mx, my)) {
+		const float maxScroll = std::max(0.0f, L.clipContentH - L.clipsCol.h);
+		m_clipScroll = std::clamp(m_clipScroll - input.WheelDelta() * L.rowH, 0.0f, maxScroll);
+	}
+
+	if (!input.WasMousePressed(MouseButton::Left)) return;
+
+	if (L.save.Contains(mx, my)) {
+		if (onSave) onSave(m_cfg);
+		Close();
+		return;
+	}
+	if (L.close.Contains(mx, my)) { // cancel: revert
+		if (onApply) onApply(m_original);
+		Close();
+		return;
+	}
+
+	// State column: the checkbox toggles supported; the rest of the row selects it.
+	for (int i = 0; i < N; ++i) {
+		if (L.stateCheck[i].Contains(mx, my)) {
+			if (i != static_cast<int>(anim::CreatureState::Idle)) { // Idle is the floor
+				m_cfg.supported[i] = !m_cfg.supported[i];
+				Apply();
+			}
+			return;
+		}
+		if (L.stateRow[i].Contains(mx, my)) {
+			if (m_selState != i) { m_selState = i; m_clipScroll = 0.0f; }
+			return;
+		}
+	}
+
+	// Clip column: a row toggles that clip's membership in the selected state.
+	for (size_t r = 0; r < L.clipRow.size(); ++r) {
+		if (!L.clipRow[r].Contains(mx, my)) continue;
+		const std::string& name = m_modelClips[L.clipOf[r]];
+		auto& vec = m_cfg.clips[m_selState];
+		if (const auto it = std::find(vec.begin(), vec.end(), name); it != vec.end())
+			vec.erase(it);
+		else
+			vec.push_back(name);
+		Apply();
+		return;
+	}
+}
+
+void MonsterConfigDialog::Render(gfx::SpriteBatch& batch, const ui::Theme& th,
+								 float w, float h) {
+	if (!m_open) return;
+	const Layout L = BuildLayout(w, h);
+	const float pad = std::clamp(L.panel.w * 0.02f, 8.0f, 24.0f);
+	const float fh = m_font.Height();
+
+	batch.DrawRect({0, 0, w, h}, {0, 0, 0, 0.6f}); // dim the editor behind
+	batch.DrawRect(L.panel, th.panel);
+	ui::DrawBorder(batch, L.panel, th.panelBorder);
+
+	// Draws a checkbox: bordered box, filled accent when checked.
+	auto checkbox = [&](const gfx::Rect& box, bool on) {
+		batch.DrawRect(box, th.control);
+		ui::DrawBorder(batch, box, th.panelBorder);
+		if (on) {
+			const float in = box.w * 0.22f;
+			batch.DrawRect({box.x + in, box.y + in, box.w - 2 * in, box.h - 2 * in},
+						   th.accent);
+		}
+	};
+	auto textY = [&](const gfx::Rect& r) { return r.y + (r.h - fh) * 0.5f; };
+
+	// Title + column headers.
+	m_font.Draw(batch, loc::Format("map.cfg.title", m_display), L.panel.x + pad,
+				L.panel.y + pad, th.text);
+	m_font.Draw(batch, loc::Tr("map.cfg.states"), L.statesCol.x,
+				L.statesCol.y - L.rowH + (L.rowH - fh) * 0.5f, th.textDim);
+	m_font.Draw(batch,
+				loc::Format("map.cfg.anims",
+							StateLabel(static_cast<anim::CreatureState>(m_selState))),
+				L.clipsCol.x, L.clipsCol.y - L.rowH + (L.rowH - fh) * 0.5f, th.textDim);
+
+	// State rows.
+	for (int i = 0; i < N; ++i) {
+		const auto s = static_cast<anim::CreatureState>(i);
+		if (i == m_selState) {
+			batch.DrawRect(L.stateRow[i], th.controlActive);
+			ui::DrawBorder(batch, L.stateRow[i], th.panelBorder);
+		}
+		checkbox(L.stateCheck[i], m_cfg.supported[i]);
+		const float lx = L.stateCheck[i].x + L.stateCheck[i].w + pad * 0.6f;
+		m_font.Draw(batch, StateLabel(s), lx, textY(L.stateRow[i]),
+					i == m_selState ? th.text : th.textDim);
+	}
+
+	// Clip column (scissored so scrolled rows clip to the column).
+	batch.SetScissor(&L.clipsCol);
+	if (m_modelClips.empty()) {
+		m_font.Draw(batch, loc::Tr("map.cfg.noclips"), L.clipsCol.x,
+					L.clipsCol.y + (L.rowH - fh) * 0.5f, th.textDim);
+	} else {
+		const auto& vec = m_cfg.clips[m_selState];
+		const float box = L.rowH * 0.55f;
+		for (size_t r = 0; r < L.clipRow.size(); ++r) {
+			const std::string& name = m_modelClips[L.clipOf[r]];
+			const bool on = std::find(vec.begin(), vec.end(), name) != vec.end();
+			const gfx::Rect& row = L.clipRow[r];
+			checkbox({row.x, row.y + (row.h - box) * 0.5f, box, box}, on);
+			m_font.Draw(batch, name, row.x + box + pad * 0.6f, textY(row),
+						on ? th.text : th.textDim);
+		}
+	}
+	batch.SetScissor(nullptr);
+
+	// Footer buttons.
+	auto button = [&](const gfx::Rect& r, const std::string& label, const Vec4& bg) {
+		batch.DrawRect(r, bg);
+		ui::DrawBorder(batch, r, th.panelBorder);
+		m_font.Draw(batch, label, r.x + (r.w - m_font.MeasureWidth(label)) * 0.5f,
+					textY(r), th.text);
+	};
+	button(L.save, loc::Tr("map.cfg.save"), th.controlActive);
+	button(L.close, loc::Tr("map.cfg.close"), th.control);
+}
+
+} // namespace dungeon::game

@@ -48,6 +48,7 @@
 #include "Game/LoadQueue.h"
 #include "Game/MapEditor.h"
 #include "Game/MapView.h"
+#include "Game/MonsterConfigDialog.h"
 #include "Game/Project.h"
 #include "Game/SoundBank.h"
 #include "Graphics/ModelPreview.h"
@@ -99,6 +100,11 @@ private:
 	// when the bake finishes, write the new catalog entry + save the project.
 	bool StartBakeStep();
 	void FinishBake();
+
+	// Persists a monster type's edited animation config (the right-click dialog's
+	// Save): rewrites the `states` + `anim_<state>` rows of its monsters-catalog
+	// entry (preserving every other field) and saves the project to disk.
+	void WriteMonsterAnim(const MonsterConfigDialog::Config& cfg);
 
 	// Starts a mid-game level transition (P6): swaps the world to `stem`, stages
 	// its load behind the loading screen, and arrives at (x,z,facing) when done
@@ -261,6 +267,9 @@ private:
 
 	// Asset-creation dialog (P4b), opened from the palette's "+ New".
 	AssetDialog m_assetDialog;
+	// Monster-type animation config dialog, opened by right-clicking a monster in
+	// the editor palette (states + per-state clip table).
+	MonsterConfigDialog m_monsterDialog;
 	// Asset bake (P4c): the AssetBaker subprocess for the dialog's Create. A
 	// texture-set import is two steps (import textures, then rebake worn meshes);
 	// a model import is one. Polled in Update so the frame never blocks.

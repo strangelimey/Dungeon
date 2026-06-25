@@ -49,6 +49,9 @@ public:
 	// Fired when a category's "+ New..." row is clicked (the owner opens the
 	// asset-creation dialog for that category).
 	std::function<void(PaletteCat)> onNewAsset;
+	// Fired when a configurable palette item is right-clicked (the owner opens the
+	// per-type config dialog). Currently only Monsters are configurable.
+	std::function<void(PaletteCat, const std::string& id)> onConfigure;
 
 	// Category metadata (one source of truth, see kCategoryInfo): the display loc
 	// key, the project catalog it authors into ("" = not creatable), and whether
@@ -63,6 +66,9 @@ public:
 	// onNewAsset. Returns true if a row was hit (the caller already treats any
 	// click in the dock body as consumed).
 	bool OnClick(float mx, float my, const gfx::Rect& panel);
+	// A right-click inside the palette body: on a configurable item (Monsters),
+	// fire onConfigure with its catalog id. Returns true if a row was hit.
+	bool OnRightClick(float mx, float my, const gfx::Rect& panel);
 	// Paint/place the armed brush at grid cell (cx,cz). MapView calls this once on
 	// a fresh press and per-frame while held; `dragging` is true for held strokes
 	// (only paint brushes act on a drag; tools/placement act on the click only).

@@ -77,7 +77,8 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	  m_mapEditor(m_mapView, m_world, m_settings),
 	  m_console(device, m_threads),
 	  m_modelPreview(device, 512),
-	  m_assetDialog(device, window) {
+	  m_assetDialog(device, window),
+	  m_monsterDialog(device) {
 	m_mapView.SetEditor(&m_mapEditor); // the view drives the editor in Editor mode
 	m_settings.Load();
 	ApplyLanguage(false); // strings must exist before any UI builds
@@ -226,6 +227,25 @@ void Game::WireModuleCallbacks() {
 		} else {
 			log::Warn("asset create: could not launch AssetBaker");
 		}
+	};
+
+	// Right-click a monster in the palette → open its animation config dialog.
+	m_mapEditor.onConfigure = [this](MapEditor::PaletteCat cat, const std::string& id) {
+		if (cat != MapEditor::PaletteCat::Monsters) return;
+		const CatalogEntry* e = m_project.monsters.Find(id);
+		const std::string display = e ? e->Display() : id;
+		DungeonWorld::AnimSupport supported;
+		DungeonWorld::AnimClips clips;
+		m_world.MonsterAnimConfig(id, supported, clips);
+		m_monsterDialog.Open(id, display, supported, clips, m_world.MonsterClipNames(id));
+	};
+	// Live-apply on every edit; persist on Save.
+	m_monsterDialog.onApply = [this](const MonsterConfigDialog::Config& c) {
+		m_world.ApplyMonsterAnimConfig(c.type, c.supported, c.clips);
+	};
+	m_monsterDialog.onSave = [this](const MonsterConfigDialog::Config& c) {
+		m_world.ApplyMonsterAnimConfig(c.type, c.supported, c.clips);
+		WriteMonsterAnim(c);
 	};
 }
 
@@ -765,6 +785,40 @@ void Game::FinishBake() {
 	}
 	m_assetDialog.SetBusy(false);
 	m_assetDialog.Close();
+}
+
+void Game::WriteMonsterAnim(const MonsterConfigDialog::Config& cfg) {
+	// Start from the existing entry so every non-animation field (display, model,
+	// hp, ...) is preserved; a brand-new type gets a bare entry.
+	CatalogEntry entry;
+	if (const CatalogEntry* e = m_project.monsters.Find(cfg.type)) entry = *e;
+	else entry.id = cfg.type;
+	// Drop the rows this dialog owns, then rewrite them authoritatively.
+	std::erase_if(entry.fields, [](const serialize::Field& f) {
+		return f.key == "states" || f.key.starts_with("anim_");
+	});
+
+	auto join = [](const std::vector<std::string>& v) {
+		std::string out;
+		for (const std::string& s : v) { if (!out.empty()) out += ' '; out += s; }
+		return out;
+	};
+	std::vector<std::string> stateTokens;
+	for (int i = 0; i < anim::kCreatureStateCount; ++i)
+		if (cfg.supported[i])
+			stateTokens.emplace_back(anim::StateName(static_cast<anim::CreatureState>(i)));
+	entry.Set("states", join(stateTokens));
+	for (int i = 0; i < anim::kCreatureStateCount; ++i) {
+		if (cfg.clips[i].empty()) continue;
+		const auto s = static_cast<anim::CreatureState>(i);
+		entry.Set("anim_" + std::string(anim::StateName(s)), join(cfg.clips[i]));
+	}
+
+	m_project.monsters.Add(std::move(entry)); // add-or-replace by id
+	if (!m_project.Save())
+		log::Warn("monster config: failed to save project catalogs");
+	else if (m_world.onMessage)
+		m_world.onMessage(loc::Format("map.cfg.saved", cfg.type));
 }
 
 // Runs one queued task per rendered frame (never before the current loading
@@ -1317,6 +1371,12 @@ void Game::Update(float dt) {
 							 static_cast<float>(m_window.Height()), dt);
 		return;
 	}
+	// The monster-config dialog is likewise modal over the editor.
+	if (m_monsterDialog.IsOpen()) {
+		m_monsterDialog.Update(input, static_cast<float>(m_window.Width()),
+							   static_cast<float>(m_window.Height()));
+		return;
+	}
 
 	// Map overlay: a toggle that never pauses the world. While it is open the
 	// party still walks (keyboard) — the overlay only claims the mouse for
@@ -1505,6 +1565,8 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 		m_spriteBatch.DrawSprite({(dw - s) * 0.5f, (dh - s) * 0.5f, s, s},
 								 {0, 0, 1, 1}, m_modelPreview.Srv(), {1, 1, 1, 1});
 	}
+	if (m_monsterDialog.IsOpen()) // modal over the editor, like the asset dialog
+		m_monsterDialog.Render(m_spriteBatch, m_settings.theme, dw, dh);
 	if (m_console.IsOpen())
 		m_console.Render(m_spriteBatch, m_device, static_cast<float>(m_device.Width()),
 						 static_cast<float>(m_device.Height()));
