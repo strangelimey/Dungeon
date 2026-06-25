@@ -20,6 +20,23 @@
 ;              fit 1-wide corridors); large = one whole cell; medium = 4 per cell
 ;              (human, 2x2 slots); small = 9 (3x3); tiny = 16 (4x4). Same-size
 ;              monsters share a cell in distinct slots — see docs/movement.md.
+;   states   = the CreatureStates this monster type CAN be in (e.g.
+;              `states = spawn idle alert walk attack hit die`). The animation
+;              resolution ladder only resolves to a listed state, falling through
+;              to a simpler one otherwise — so a mindless monster with no `alert`
+;              just stays idle when it notices the party. Omit the row to support
+;              every state that has a clip (back-compat). idle is always on (the
+;              rest pose); die is always considered on death regardless.
+;   anim_<state> = clipA clipB ...  the data-driven animation table (one row per
+;              CreatureState: spawn/idle/alert/walk/run/attack/defend/hit/taunt/
+;              die/dead). Lists the candidate clips for that state; a variation is
+;              chosen at random each time the state is entered. A state with no row
+;              defaults to a clip named after itself when the model ships one (so a
+;              plain idle/walk/attack/die rig needs zero rows); a row is only needed
+;              to add variations or to point a state at a differently-named clip
+;              (e.g. anim_spawn = rise). Names not in the model are dropped.
+;              States with table rows but no behaviour wired up yet (run/defend/
+;              taunt/dead) are authored-ahead, harmless until the sim drives them.
 ; Level .ent monster records reference these ids.
 
 [skeleton]
@@ -82,3 +99,18 @@ movecd = 0.5
 iq = 135
 size = large
 modelscale = 0.65
+; Supported states = exactly what the sim drives today. The defend/run/taunt clips
+; below are authored-ahead (present but not yet a supported state) — add them here
+; once behaviour is wired, and the ladder picks them up with no code change.
+states = spawn idle alert walk attack hit die
+; 19-clip Mixamo library: variations picked at random, plus the renamed states.
+anim_idle = idle idle_2
+anim_alert = alert
+anim_walk = walk
+anim_run = run
+anim_attack = attack attack_2 attack_3 attack_kick
+anim_defend = defend defend_2
+anim_hit = hit hit_2
+anim_die = die die_2 die_3
+anim_spawn = rise
+anim_taunt = roar

@@ -824,48 +824,79 @@ float DungeonWorld::ClipDuration(const MonsterKind& kind, const std::string& nam
 	return 0.0f;
 }
 
-// Per-monster clip state machine. Picks the desired clip from live state with
-// the priority die > attack > walk > idle, cross-fades when it changes (a held
+// The ladder from live simulation onto a CreatureState, highest priority first:
+// death and the one-shot events (spawn/hit/swing) win over the locomotion and
+// awareness loops, so a flinch or swing plays out before the monster returns to
+// walking or resting. Pure read of monster state — knows nothing about clips.
+anim::CreatureState DungeonWorld::DesiredState(const Monster& m) const {
+	using S = anim::CreatureState;
+	const auto sup = [&](S s) { return m.kind->stateSupported[static_cast<int>(s)]; };
+	// Death is unconditional (the clip table gates the visual; an unsupported Die
+	// just has no clip → the corpse vanishes at once). Every other optional rung
+	// falls through when the kind doesn't support it, down to the Idle floor.
+	if (!m.Alive())                                             return S::Die;
+	if ((m.spawnReq  || m.spawnAnim  > 0.0f) && sup(S::Spawn))  return S::Spawn;
+	if ((m.hitReq    || m.hitAnim    > 0.0f) && sup(S::Hit))    return S::Hit;
+	if ((m.attackReq || m.attackAnim > 0.0f) && sup(S::Attack)) return S::Attack;
+	if (m.moving && sup(S::Walk))                               return S::Walk;
+	if (m.aware  && sup(S::Alert))                              return S::Alert;
+	return S::Idle;
+}
+
+// Resolves a state to an actual clip name through the kind's table, choosing a
+// random variation when several are authored (empty = the state is unauthored).
+std::string DungeonWorld::PickClip(const MonsterKind& kind, anim::CreatureState state) {
+	const auto& cands = kind.animClips[static_cast<int>(state)];
+	if (cands.empty()) return {};
+	if (cands.size() == 1) return cands.front();
+	return cands[m_combatRng() % cands.size()];
+}
+
+// Per-monster clip state machine. Resolves the desired CreatureState from live
+// state (DesiredState), looks it up in the kind's data-driven animClips table (a
+// random variation when several are authored), cross-fades on a change (a held
 // looping clip re-Plays as a no-op inside the Animator), and advances the
 // animator — including for downed monsters, so the death clip plays out before
-// the corpse vanishes (deathAnim). A missing clip (e.g. no procedural "walk"
-// yet) leaves the previous one playing, so this degrades to the pre-clip look.
+// the corpse vanishes (deathAnim). An UNAUTHORED state resolves to no clip: a
+// looping state simply leaves the previous clip playing (degrades to the
+// pre-clip look), a one-shot is skipped so the ladder falls through next frame.
 void DungeonWorld::DriveMonsterAnim(Monster& monster, float dt) {
 	if (!monster.animator.HasSkeleton()) return; // flat models (blob): nothing to skin
 
 	constexpr float kAnimFade = 0.12f; // cross-fade window between clips
 
-	if (monster.attackAnim > 0.0f) monster.attackAnim -= dt;
-	if (monster.deathAnim > 0.0f) monster.deathAnim -= dt;
+	// Count down the active one-shot timers (a state holds while its timer runs).
+	for (float* t : {&monster.spawnAnim, &monster.attackAnim, &monster.hitAnim,
+					 &monster.deathAnim})
+		if (*t > 0.0f) *t -= dt;
 
-	Monster::Anim want;
-	if (!monster.Alive())               want = Monster::Anim::Die;
-	else if (monster.attackAnim > 0.0f) want = Monster::Anim::Attack;
-	else if (monster.moving)            want = Monster::Anim::Walk;
-	else                                want = Monster::Anim::Idle;
-
-	if (want != monster.anim) {
-		const char* name = "idle";
-		bool loop = true;
-		switch (want) {
-		case Monster::Anim::Die:
-			name = "die";
-			loop = false;
-			// Latch how long to keep the corpse on-screen (0 if there's no clip,
-			// so it vanishes immediately as it did before death animations).
-			monster.deathAnim = ClipDuration(*monster.kind, "die");
-			break;
-		case Monster::Anim::Attack: name = "attack"; loop = false; break;
-		case Monster::Anim::Walk:   name = "walk"; loop = true; break;
-		case Monster::Anim::Idle:   name = "idle"; loop = true; break;
+	const anim::CreatureState want = DesiredState(monster);
+	if (want != monster.animState) {
+		const std::string clip = PickClip(*monster.kind, want);
+		if (!clip.empty()) {
+			monster.animator.Play(clip, anim::IsLooping(want), kAnimFade);
+			// Arm this state's hold timer from the variation we actually chose, so
+			// the visual lasts exactly the clip that's playing (0 for the loops).
+			const float d = ClipDuration(*monster.kind, clip);
+			switch (want) {
+			case anim::CreatureState::Spawn:  monster.spawnAnim = d; break;
+			case anim::CreatureState::Attack: monster.attackAnim = d; break;
+			case anim::CreatureState::Hit:    monster.hitAnim = d; break;
+			case anim::CreatureState::Die:    monster.deathAnim = d; break;
+			default: break; // looping states need no hold timer
+			}
+			monster.animState = want;
+		} else if (anim::IsLooping(want)) {
+			// Unauthored loop (e.g. no walk clip): adopt the state so we don't retry
+			// every frame, but leave the previous clip playing.
+			monster.animState = want;
 		}
-		// Only request a clip the model actually has — a not-yet-authored walk/
-		// attack/die simply leaves idle playing (no warning, no pop). Idle is the
-		// baseline every rig ships with, so it's always allowed through.
-		if (want == Monster::Anim::Idle || ClipDuration(*monster.kind, name) > 0.0f)
-			monster.animator.Play(name, loop, kAnimFade);
-		monster.anim = want;
+		// Unauthored one-shot: do nothing — the cleared request below lets the
+		// ladder fall through to an authored state next frame.
 	}
+
+	// Consume the momentary event triggers (each is live for exactly one frame).
+	monster.spawnReq = monster.attackReq = monster.hitReq = false;
 
 	monster.animator.Update(dt);
 }
@@ -1191,9 +1222,11 @@ void DungeonWorld::MonsterAttack(Monster& monster) {
 
 	Character& target = (*m_roster)[alive[m_combatRng() % n]];
 	monster.attackCd = monster.kind->attackInterval;
-	// Kick off the swing animation (one-shot; the state machine returns to
-	// walk/idle when it elapses). No "attack" clip → 0 → no visual, as before.
-	monster.attackAnim = ClipDuration(*monster.kind, "attack");
+	// Request the swing animation (one-shot; DriveMonsterAnim picks the variation
+	// and times the hold, then the state machine returns to walk/idle). No attack
+	// clip authored → DesiredState still yields Attack for a frame but PickClip is
+	// empty, so nothing plays — the pre-clip look, as before.
+	monster.attackReq = true;
 
 	const AttackProfile atk{monster.kind->damage, monster.kind->accuracy};
 	const DefenseProfile def{target.Evasion(), target.Armor()};
@@ -1300,6 +1333,8 @@ bool DungeonWorld::PartyAttack(size_t member, size_t hand) {
 		target->hp = 0.0f; // a downed monster stays in the list (so a new game /
 		// save can restore it) but renders, blocks, and acts as dead.
 		onMessage(loc::Format("log.monster_slain", name));
+	} else {
+		target->hitReq = true; // survivor flinches (a fatal blow goes straight to Die)
 	}
 	return true;
 }
@@ -1361,6 +1396,8 @@ bool DungeonWorld::ResolveSpellHit(const Vec3& p, const AttackProfile& atk) {
 		if (!hit->Alive()) {
 			hit->hp = 0.0f; // downed monster stays in the list (save can restore it)
 			onMessage(loc::Format("log.spell_slain", name));
+		} else {
+			hit->hitReq = true; // survivor flinches (a fatal blow goes straight to Die)
 		}
 	} else {
 		onMessage(loc::Format("log.spell_misses", name));

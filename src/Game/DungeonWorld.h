@@ -15,6 +15,7 @@
 #pragma once
 
 #include "Animation/Animator.h"
+#include "Animation/CreatureState.h"
 #include "Assets/Model.h"
 #include "Audio/AudioEngine.h"
 #include "Game/Character.h"
@@ -362,6 +363,21 @@ private:
 		// Sub-cell occupancy (monsters.cat `size=`, default large). Decides the
 		// monster's footprint + how many share a cell — see Game/SlotGrid.h.
 		SizeClass size = SizeClass::Large;
+		// Data-driven animation table: for each CreatureState, the candidate clip
+		// NAMES to play (a variation is chosen at random when the state is entered).
+		// An empty list = the state is unauthored for this kind, so the resolution
+		// ladder (DesiredState) falls through to a simpler one. Filled from the
+		// monsters.cat `anim_<state>` rows; a state with no row defaults to a clip
+		// named after the state itself when the model ships it (a plain idle/walk/
+		// attack/die rig needs zero config). See Animation/CreatureState.h.
+		std::array<std::vector<std::string>, anim::kCreatureStateCount> animClips;
+		// Which states this kind can be in — the explicit `states = ...` catalog
+		// row. The resolution ladder (DesiredState) only resolves to a supported
+		// state, falling through to a simpler one otherwise (a mindless blob with no
+		// `alert` just stays idle when it notices the party). With no `states` row it
+		// falls back to "supported iff the state has clips" (back-compat). Idle is
+		// always on (the rest pose); Die is always considered on death regardless.
+		std::array<bool, anim::kCreatureStateCount> stateSupported{};
 	};
 	struct Monster {
 		const MonsterKind* kind = nullptr; // points into m_monsterKinds (stable)
@@ -404,16 +420,24 @@ private:
 		bool moving = false;
 		anim::Animator animator;
 
-		// Animation state machine (DriveMonsterAnim): which clip is currently
-		// selected, plus one-shot timers. Priority die > attack > walk > idle;
-		// walk/idle loop, attack/die play once. attackAnim counts down the swing
-		// clip; deathAnim keeps the corpse drawn + animating while the death clip
-		// plays, then it vanishes (0 = gone, or no die clip → instant as before).
+		// Data-driven animation state (DriveMonsterAnim): DesiredState maps live sim
+		// onto a CreatureState each frame, then the kind's animClips table resolves
+		// that to a clip name (with variations). animState is the one currently
+		// playing; the timers count down the active one-shot (a state holds until
+		// its timer elapses, then the ladder falls through). The *Req flags are
+		// momentary EVENT triggers (a swing launched / a blow landed) that bridge an
+		// instantaneous event into a held visual state — set by the host, consumed
+		// (cleared) by DriveMonsterAnim. deathAnim doubles as the corpse-held timer
+		// (0 = gone, or no die clip → vanishes instantly as before).
 		// Cosmetic/transient — not saved (a reloaded corpse just replays its death).
-		enum class Anim { Idle, Walk, Attack, Die };
-		Anim anim = Anim::Idle;
-		float attackAnim = 0.0f;
-		float deathAnim = 0.0f;
+		anim::CreatureState animState = anim::CreatureState::Idle;
+		float spawnAnim = 0.0f;  // rise/appear one-shot remaining
+		float attackAnim = 0.0f; // swing one-shot remaining
+		float hitAnim = 0.0f;    // flinch one-shot remaining
+		float deathAnim = 0.0f;  // corpse drawn + animating while the death clip plays
+		bool spawnReq = true;    // play a spawn clip on first frame (if the kind has one)
+		bool attackReq = false;  // a swing was launched this step
+		bool hitReq = false;     // took a (non-fatal) blow this step
 
 		// Formation target (Phase 5): the attack cell around the party this monster
 		// is assigned to (or the party cell when unassigned/queuing). Set each frame
@@ -681,10 +705,17 @@ private:
 	// One monster's melee strike against a random standing party member (called
 	// from UpdateMonsters when the monster is adjacent and off cooldown).
 	void MonsterAttack(Monster& monster);
-	// Per-frame clip state machine: picks the monster's clip from its live state
-	// (die/attack/walk/idle) and cross-fades on a change, then advances the
+	// Per-frame clip state machine: resolves the monster's CreatureState from its
+	// live state (DesiredState), looks the state up in the kind's animClips table
+	// (a variation chosen at random), cross-fades on a change, then advances the
 	// animator. Runs for downed monsters too, so the death clip plays out.
 	void DriveMonsterAnim(Monster& monster, float dt);
+	// The ladder from live simulation to a CreatureState (highest priority first:
+	// die > spawn > hit > attack > walk > alert > idle). Pure read of monster state.
+	anim::CreatureState DesiredState(const Monster& monster) const;
+	// Picks a clip name for a state from the kind's table — a random variation when
+	// several are authored, or empty when the state is unauthored for the kind.
+	std::string PickClip(const MonsterKind& kind, anim::CreatureState state);
 	// Duration (seconds) of a named clip in the kind's model, or 0 if absent.
 	float ClipDuration(const MonsterKind& kind, const std::string& name) const;
 	// Wakes a struck monster: latches awareness (sticky) and engages it toward the
