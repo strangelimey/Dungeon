@@ -279,6 +279,7 @@ private:
 	const gfx::Mesh* m_previewMonMesh = nullptr;
 	gfx::MaterialParams m_previewMonMat;
 	float m_previewMonScale = 1.0f;
+	float m_previewMonYaw = 0.0f; // modelyaw fixup, so the preview faces like in-world
 	// Asset bake (P4c): the AssetBaker subprocess for the dialog's Create. A
 	// texture-set import is two steps (import textures, then rebake worn meshes);
 	// a model import is one. Polled in Update so the frame never blocks.

@@ -79,13 +79,12 @@ MonsterConfigDialog::Layout MonsterConfigDialog::BuildLayout(float w, float h) c
 		L.stateCheck[i] = {L.statesCol.x + pad, y + (L.rowH - box) * 0.5f, box, box};
 	}
 
-	// Only the SELECTED state's animations (library clips are <state>__<clip>);
+	// Only the SELECTED state's animations (name-encoded, or already assigned);
 	// clipOf keeps the index into m_modelClips so a toggle still uses the full name.
-	const std::string selToken(anim::StateName(static_cast<anim::CreatureState>(m_selState)));
 	const float clipBottom = L.clipsCol.y + L.clipsCol.h;
 	int ord = 0; // candidate ordinal (drives row Y + content height)
 	for (int i = 0; i < static_cast<int>(m_modelClips.size()); ++i) {
-		if (ClipState(m_modelClips[i]) != selToken) continue;
+		if (!ClipBelongs(m_modelClips[i], m_selState)) continue;
 		const float y = L.clipsCol.y - m_clipScroll + ord * L.rowH;
 		++ord;
 		if (y + L.rowH <= L.clipsCol.y || y >= clipBottom) continue; // scrolled out
@@ -98,20 +97,28 @@ MonsterConfigDialog::Layout MonsterConfigDialog::BuildLayout(float w, float h) c
 	const float btnW = std::clamp(L.panel.w * 0.16f, 80.0f, 180.0f);
 	L.close = {L.panel.x + L.panel.w - pad - btnW, footerY, btnW, footerH};
 	L.save = {L.close.x - pad - btnW, footerY, btnW, footerH};
+	m_previewColCache = L.previewCol; // so PreviewRect need not rebuild the layout
 	return L;
 }
 
-std::string MonsterConfigDialog::FirstClipOf(int state) const {
+bool MonsterConfigDialog::ClipBelongs(const std::string& name, int state) const {
 	const std::string token(anim::StateName(static_cast<anim::CreatureState>(state)));
+	if (ClipState(name) == token) return true;
+	const auto& vec = m_cfg.clips[state]; // already-assigned clips stay visible/editable
+	return std::find(vec.begin(), vec.end(), name) != vec.end();
+}
+
+std::string MonsterConfigDialog::FirstClipOf(int state) const {
 	for (const std::string& c : m_modelClips)
-		if (ClipState(c) == token) return c;
+		if (ClipBelongs(c, state)) return c;
 	return {};
 }
 
-gfx::Rect MonsterConfigDialog::PreviewRect(float w, float h) const {
-	// Fill the whole preview column so the pane lines up with the states/clips
-	// columns (rendered at this aspect, so the taller-than-wide box doesn't distort).
-	return BuildLayout(w, h).previewCol;
+gfx::Rect MonsterConfigDialog::PreviewRect(float /*w*/, float /*h*/) const {
+	// The preview pane fills the whole preview column (rendered at that aspect, so
+	// the tall box doesn't distort). Return the rect the last BuildLayout cached
+	// rather than rebuilding the layout just to read one rect.
+	return m_previewColCache;
 }
 
 void MonsterConfigDialog::Update(const Input& input, float w, float h) {
@@ -262,7 +269,7 @@ void MonsterConfigDialog::Render(gfx::SpriteBatch& batch, const ui::Theme& th,
 	// into PreviewRect on top). A hint shows when nothing is selected.
 	m_font.Draw(batch, loc::Tr("map.cfg.preview"), L.previewCol.x,
 				L.previewCol.y - L.rowH + (L.rowH - fh) * 0.5f, th.textDim);
-	const gfx::Rect pv = PreviewRect(w, h);
+	const gfx::Rect pv = L.previewCol; // already built this frame; no extra BuildLayout
 	batch.DrawRect(pv, {0.02f, 0.02f, 0.03f, 1.0f});
 	ui::DrawBorder(batch, pv, th.panelBorder);
 	if (m_selClip.empty()) {

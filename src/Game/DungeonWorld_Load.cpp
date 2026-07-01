@@ -18,6 +18,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <filesystem>
 #include <format>
 #include <queue>
 
@@ -31,6 +32,14 @@ namespace dungeon::game {
 static std::pair<std::string, std::string> ModelAndTexture(const CatalogEntry* e,
 														   const std::string& fallback) {
 	return {CatalogGet(e, "model", fallback), CatalogGet(e, "texture", fallback)};
+}
+
+// Whether a model ships an animation clip by name — the one membership test the
+// catalog populate, the live-apply, and the editor all share.
+static bool ModelHasClip(const assets::ModelData& model, const std::string& name) {
+	for (const auto& c : model.clips)
+		if (c.name == name) return true;
+	return false;
 }
 
 // Splits a free-form list field (whitespace- and/or comma-separated) into its
@@ -287,7 +296,7 @@ DungeonWorld::MonsterKind& DungeonWorld::MonsterKindFor(const std::string& type)
 			assets->facesTarget = def->GetBool("faces", true);
 			assets->fallbackRoughness = def->GetFloat("roughness", 0.9f);
 			// Imported-model fixups (degrees in the catalog -> radians here).
-			assets->modelYaw = def->GetFloat("modelyaw", 0.0f) * (3.14159265f / 180.0f);
+			assets->modelYaw = def->GetFloat("modelyaw", 0.0f) * (kPi / 180.0f);
 			assets->modelScale = def->GetFloat("modelscale", 1.0f);
 			assets->size = ParseSizeClass(CatalogGet(def, "size", "large"));
 		}
@@ -297,11 +306,6 @@ DungeonWorld::MonsterKind& DungeonWorld::MonsterKindFor(const std::string& type)
 		// when the model ships one. Names are validated against the model so a typo
 		// or a not-yet-authored clip is dropped (never a runtime miss), and a state
 		// whose name differs from its clip (spawn→rise, taunt→roar) just needs a row.
-		const auto hasClip = [&](const std::string& name) {
-			for (const auto& c : assets->model.clips)
-				if (c.name == name) return true;
-			return false;
-		};
 		for (int i = 0; i < anim::kCreatureStateCount; ++i) {
 			const auto st = static_cast<anim::CreatureState>(i);
 			const std::string field = "anim_" + std::string(anim::StateName(st));
@@ -309,8 +313,9 @@ DungeonWorld::MonsterKind& DungeonWorld::MonsterKindFor(const std::string& type)
 			std::vector<std::string> clips;
 			if (!spec.empty()) {
 				for (const std::string& c : SplitTokens(spec))
-					if (hasClip(c)) clips.push_back(c);
-			} else if (const std::string dflt(anim::StateName(st)); hasClip(dflt)) {
+					if (ModelHasClip(assets->model, c)) clips.push_back(c);
+			} else if (const std::string dflt(anim::StateName(st));
+					   ModelHasClip(assets->model, dflt)) {
 				clips.push_back(dflt);
 			}
 			assets->animClips[i] = std::move(clips);
@@ -367,19 +372,24 @@ void DungeonWorld::MonsterAnimConfig(const std::string& type, AnimSupport& suppo
 void DungeonWorld::ApplyMonsterAnimConfig(const std::string& type,
 										  const AnimSupport& supported, const AnimClips& clips) {
 	MonsterKind& kind = MonsterKindFor(type);
-	const auto hasClip = [&](const std::string& name) {
-		for (const auto& c : kind.model.clips)
-			if (c.name == name) return true;
-		return false;
-	};
 	kind.stateSupported = supported;
 	kind.stateSupported[static_cast<int>(anim::CreatureState::Idle)] = true; // rest floor
 	for (int i = 0; i < anim::kCreatureStateCount; ++i) {
 		std::vector<std::string> filtered;
 		for (const std::string& name : clips[i])
-			if (hasClip(name)) filtered.push_back(name);
+			if (ModelHasClip(kind.model, name)) filtered.push_back(name);
 		kind.animClips[i] = std::move(filtered);
 	}
+}
+
+// Whether a monster type's model file exists on disk — the editor guards the
+// force-load (right-click → config dialog) with this so a catalog id whose
+// <model>.gltf is missing shows a warning instead of aborting in LoadModelOrDie.
+bool DungeonWorld::MonsterModelAvailable(const std::string& type) const {
+	if (m_monsterKinds.contains(type)) return true; // already loaded => present
+	const CatalogEntry* def = m_project.monsters.Find(type);
+	const auto [model, tex] = ModelAndTexture(def, type);
+	return std::filesystem::exists(paths::Asset("models\\" + model + ".gltf"));
 }
 
 DungeonWorld::MonsterPreviewData DungeonWorld::MonsterPreviewFor(const std::string& type) {
@@ -389,6 +399,7 @@ DungeonWorld::MonsterPreviewData DungeonWorld::MonsterPreviewFor(const std::stri
 	d.skeleton = &kind.model.skeleton;
 	d.clips = &kind.model.clips;
 	d.modelScale = kind.modelScale;
+	d.modelYaw = kind.modelYaw;
 	ApplyPropMaterial(d.material, kind.tex, kind.model.materials[0].baseColorFactor,
 					  kind.fallbackRoughness);
 	return d;

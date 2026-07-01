@@ -197,8 +197,12 @@ public:
 		const std::vector<assets::AnimationClipData>* clips = nullptr;
 		gfx::MaterialParams material;
 		float modelScale = 1.0f;
+		float modelYaw = 0.0f; // render-time facing fixup, so the preview matches in-world
 	};
 	MonsterPreviewData MonsterPreviewFor(const std::string& type); // force-loads the kind
+	// Whether a monster type's <model>.gltf exists (so the editor can guard the
+	// right-click force-load and warn instead of aborting on a missing asset).
+	bool MonsterModelAvailable(const std::string& type) const;
 
 	// --- level transitions (P6 multi-level) ---------------------------------
 	// Swaps the active level to `stem` and resets all per-level state (map,
@@ -741,7 +745,7 @@ private:
 	// animator. Runs for downed monsters too, so the death clip plays out.
 	void DriveMonsterAnim(Monster& monster, float dt);
 	// The ladder from live simulation to a CreatureState (highest priority first:
-	// die > spawn > hit > attack > walk > alert > idle). Pure read of monster state.
+	// die > spawn > hit > attack > walk > incombat > idle). Pure read of monster state.
 	anim::CreatureState DesiredState(const Monster& monster) const;
 	// Picks a clip name for a state from the kind's table — a random variation when
 	// several are authored, or empty when the state is unauthored for the kind.

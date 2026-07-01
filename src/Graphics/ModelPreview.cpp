@@ -91,9 +91,11 @@ void ModelPreview::Render(ID3D12GraphicsCommandList* list, Renderer& renderer,
 				   m_dsvHeap->GetCPUDescriptorHandleForHeapStart(), m_size,
 				   kPreviewClear);
 
-	// Imported models are grounded (min y = 0), centred in XZ, ~2 m tall. Frame one
-	// level-on from the front with headroom above and below (the vertical FOV covers
-	// ~-0.3..2.5 m, so a full-height humanoid isn't clipped at the skull or feet).
+	// Shared framing for BOTH previews (the asset-creation dialog / dev `preview`,
+	// and the monster-config dialog). Models are grounded (min y = 0), centred in
+	// XZ, ~2 m tall. Frame level-on from the front with headroom above and below
+	// (the vertical FOV covers ~-0.3..2.5 m, so a full-height humanoid isn't clipped
+	// at the skull or feet); this also suits the imported props the asset dialog shows.
 	Camera cam;
 	cam.SetLens(45.0f * kPi / 180.0f, aspect, 0.05f, 50.0f);
 	cam.SetPosition({0.0f, 1.1f, -3.3f});

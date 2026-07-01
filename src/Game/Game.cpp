@@ -232,6 +232,12 @@ void Game::WireModuleCallbacks() {
 	// Right-click a monster in the palette → open its animation config dialog.
 	m_mapEditor.onConfigure = [this](MapEditor::PaletteCat cat, const std::string& id) {
 		if (cat != MapEditor::PaletteCat::Monsters) return;
+		// Guard the force-load: a catalog id whose <model>.gltf is missing would
+		// abort in LoadModelOrDie. Warn and skip instead of crashing the editor.
+		if (!m_world.MonsterModelAvailable(id)) {
+			log::Warn("monster config: '{}' has no loadable model — skipped", id);
+			return;
+		}
 		const CatalogEntry* e = m_project.monsters.Find(id);
 		const std::string display = e ? e->Display() : id;
 		DungeonWorld::AnimSupport supported;
@@ -1385,14 +1391,20 @@ void Game::Update(float dt) {
 		if (clip.empty()) {
 			m_previewMonMesh = nullptr;
 			m_previewClip.clear();
-		} else if (type != m_previewType || clip != m_previewClip) {
+		} else if (type != m_previewType) {
+			// New type: (re)build the Animator over its skeleton/clips + cache the
+			// mesh/material/scale/yaw. A same-type clip switch is just a Play (below).
 			const auto d = m_world.MonsterPreviewFor(type);
 			m_previewMonMesh = d.mesh;
 			m_previewMonMat = d.material;
 			m_previewMonScale = d.modelScale;
+			m_previewMonYaw = d.modelYaw;
 			m_previewAnim = anim::Animator(d.skeleton, d.clips);
 			m_previewAnim.Play(clip, /*loop*/ true);
 			m_previewType = type;
+			m_previewClip = clip;
+		} else if (clip != m_previewClip) {
+			m_previewAnim.Play(clip, /*loop*/ true); // same rig, just switch clips
 			m_previewClip = clip;
 		}
 		if (m_previewMonMesh) m_previewAnim.Update(dt);
@@ -1534,7 +1546,7 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 		pvMesh = m_previewMonMesh;
 		pvMat = m_previewMonMat;
 		pvScale = m_previewMonScale;
-		pvOrbit = kPi;
+		pvOrbit = kPi + m_previewMonYaw; // face the camera + the model's facing fixup
 		pvAspect = pv.h > 0.0f ? pv.w / pv.h : 1.0f;
 		pvPalette = m_previewAnim.Palette();
 	} else if (m_previewMesh) {

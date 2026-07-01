@@ -91,6 +91,11 @@ private:
 	void Apply() { if (onApply) onApply(m_cfg); }
 	// The selected state's first candidate clip (for auto-preview), or "" if none.
 	std::string FirstClipOf(int state) const;
+	// Whether a clip belongs to `state`'s column: its name encodes the state
+	// (<state>__… or the bare token) OR it is already an assigned clip for that
+	// state — so hand-authored / oddly-named clips already in the catalog stay
+	// visible and editable rather than vanishing from the dialog.
+	bool ClipBelongs(const std::string& name, int state) const;
 
 	gfx::GraphicsDevice& m_device;
 	ui::Font m_font;
@@ -103,6 +108,9 @@ private:
 	int m_selState = static_cast<int>(anim::CreatureState::Idle);
 	std::string m_selClip;                 // clip selected for preview ("" = none)
 	float m_clipScroll = 0.0f;
+	// The last-built preview column rect, so PreviewRect (called by the owner each
+	// frame for the blit + aspect) reads it instead of rebuilding the whole layout.
+	mutable gfx::Rect m_previewColCache{};
 };
 
 } // namespace dungeon::game

@@ -131,16 +131,27 @@ def parse_args(argv):
     argv = [a for a in argv if a != "--plan"]
     opts = {"plan": plan, "mesh": None, "library": None, "out": None, "ref": None,
             "catalog_out": None, "mesh_yaw": 90.0, "keep_fingers": False}
+    usage = ("usage: <mesh.fbx> <library_root> <out.gltf> <ref_skeleton.gltf> "
+             "[--catalog-out f] [--mesh-yaw deg] [--keep-fingers]  |  "
+             "--plan <library_root> [--catalog-out f]")
+
+    def value(i, flag):  # the arg after a value-flag, or a usage error if omitted
+        if i + 1 >= len(argv):
+            raise SystemExit(f"{flag} needs a value\n{usage}")
+        return argv[i + 1]
+
     pos = []
     i = 0
     while i < len(argv):
         a = argv[i]
         if a == "--catalog-out":
-            opts["catalog_out"] = argv[i + 1]; i += 2
+            opts["catalog_out"] = value(i, a); i += 2
         elif a == "--mesh-yaw":
-            opts["mesh_yaw"] = float(argv[i + 1]); i += 2
+            opts["mesh_yaw"] = float(value(i, a)); i += 2
         elif a == "--keep-fingers":
             opts["keep_fingers"] = True; i += 1
+        elif a.startswith("--"):  # an unknown flag, not a silently-swallowed positional
+            raise SystemExit(f"unknown option '{a}'\n{usage}")
         else:
             pos.append(a); i += 1
     if plan:
