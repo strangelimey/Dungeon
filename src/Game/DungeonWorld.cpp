@@ -839,7 +839,7 @@ anim::CreatureState DungeonWorld::DesiredState(const Monster& m) const {
 	if ((m.hitReq    || m.hitAnim    > 0.0f) && sup(S::Hit))    return S::Hit;
 	if ((m.attackReq || m.attackAnim > 0.0f) && sup(S::Attack)) return S::Attack;
 	if (m.moving && sup(S::Walk))                               return S::Walk;
-	if (m.aware  && sup(S::Alert))                              return S::Alert;
+	if (m.aware  && sup(S::InCombat))                           return S::InCombat;
 	return S::Idle;
 }
 

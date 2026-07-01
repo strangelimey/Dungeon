@@ -134,6 +134,25 @@ buffer, reused across all ~25 submissions).
   import-model's joint-strip). Then wire a catalog [id] (decorations/monsters/
   items.cat) and place it in a level. ConvertMesh.py needs Blender (auto-found
   at %ProgramFiles%\Blender Foundation\Blender 5.1, or -Blender <path>).
+- `tools\ImportAnimLibrary.py` + `tools\FetchAnimLibrary.ps1` — the ANIMATION
+  side of the monster pipeline: bake a creature's STATE-ORGANIZED clip library
+  onto its mesh. The library is one folder PER CreatureState (Idle/ InCombat/
+  Attack/ Walk/ Run/ Flee/ Defend/ Hit/ Die/ Spawn/, any may be empty), each
+  holding one or more Mixamo .fbx; the FOLDER names the state (matched to the
+  src/Animation/CreatureState.h token, case-insensitive), the FILE is one
+  animation. ImportAnimLibrary.py (a generalised rig_and_export.py) walks the
+  folders, names each clip by its sanitised filename (globally de-duped), rigid-
+  binds the mesh to the shared Mixamo armature (every Mixamo clip uses one
+  skeleton, so any number bind once — add .fbx and re-run, no re-bind), exports
+  one assets/models/<name>.gltf, and EMITS the matching monsters.cat rows
+  (`states = ...` + `anim_<state> = <clips>`) to <name>.anim.cat. `--plan`
+  (plain python, no Blender) prints the clip plan + rows for a dry run. The
+  FetchAnimLibrary.ps1 `$animSets` table drives it (Name/Mesh/Library/Ref/MeshYaw,
+  archive-relative); raw clips live in OneDrive\DungeonAssets\anim\<library>\.
+  Paste the emitted rows into the creature's monsters.cat [id] — or just check
+  the boxes in the editor's monster config dialog (it auto-discovers the model's
+  clips). Humanoid Mixamo defaults (mesh +90 yaw to co-face the armature, finger
+  bones excluded); non-humanoid rigs may need --mesh-yaw/--keep-fingers tuning.
 - `AssetBaker mips <assets>` — rebakes derived .dds (BC7 mode-6 encoder in
   tools/AssetBaker/Bc7Encoder.cpp; use the RELEASE baker, encode is slow).
 - `AssetBaker models <assets>` — rebakes only the .gltf models (fast). Worn
