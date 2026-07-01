@@ -47,7 +47,7 @@ void DungeonWorld::ResetForNewGame() {
 			SlotCenter(monster.x, monster.z, monster.kind->size, monster.slot);
 	}
 	m_partyWiped = false;
-	m_magic.Clear(); // drop any spell bolts/sparks still in flight from a prior run
+	m_projectiles.Clear(); // drop any bolts/sparks still in flight from a prior run
 	// Rebuild items from the .ent baseline so runes return to their spawn cells
 	// (and any dropped tablets from a prior session are forgotten).
 	m_items.clear();

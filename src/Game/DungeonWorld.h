@@ -29,6 +29,7 @@
 #include "Game/MonsterAI.h"
 #include "Game/Party.h"
 #include "Game/Project.h"
+#include "Game/Projectiles.h"
 #include "Game/SaveGame.h"
 #include "Game/ShadowScheduler.h"
 #include "Game/SlotGrid.h"
@@ -759,7 +760,8 @@ private:
 	// Resolves a spell bolt reaching world position `p` with strike profile `atk`:
 	// finds a live monster in that cell, runs the strike (combat + log + slain),
 	// and returns true if a monster was there (the bolt is consumed). The
-	// MagicSystem owns the bolt; this is its impact hook into the world.
+	// moving-item engine (m_projectiles) owns the bolt; this is the TargetSide::
+	// Monsters branch of its impact hook.
 	bool ResolveSpellHit(const Vec3& p, const AttackProfile& atk);
 	// Blocked-move recoil reached its peak: jar every standing member for a
 	// small amount of damage, flash a splat over each portrait, grunt once, and
@@ -898,10 +900,16 @@ private:
 	std::mt19937 m_combatRng{0xC0FFEEu};
 	bool m_partyWiped = false; // latches onPartyWipe so it fires once
 
-	// Magic: the self-contained spell system (recipe table + live bolts/sparks).
-	// CastSpell delegates to it; the world seam (cell blocking, impact resolution,
-	// fizzle sound) is wired in the constructor. See Magic.h.
+	// Magic: the self-contained spell system (recipe table + mana/cast resolution).
+	// CastSpell delegates to it for the bolt spec, then Spawns it into m_projectiles.
+	// See Magic.h.
 	MagicSystem m_magic;
+
+	// The shared moving-item engine (Projectiles.h): flies + resolves + draws every
+	// projectile — spell bolts today, monster ranged attacks next. The world seam
+	// (cell blocking, faction-aware impact resolution, fizzle sound) is wired in the
+	// constructor; live items/sparks are transient (never saved).
+	ProjectileSystem m_projectiles;
 
 	// Monster AI runs ASYNCHRONOUSLY (Game/MonsterAI.h): worker threads (one per
 	// IQ bucket) think + path on their own cadence against a published snapshot,

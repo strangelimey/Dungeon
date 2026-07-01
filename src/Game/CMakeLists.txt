@@ -26,6 +26,7 @@ add_library(Game STATIC
 	Party.cpp
 	PartyHud.cpp
 	Project.cpp
+	Projectiles.cpp
 	SaveGame.cpp
 	Serialize.cpp
 	ShadowScheduler.cpp

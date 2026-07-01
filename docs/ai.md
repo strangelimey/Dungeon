@@ -243,36 +243,74 @@ the `MapView`/`MapEditor` sections). The Monsters palette category lists
 
 ---
 
-## Open questions (to settle before building)
+## Decisions (settled 2026-07-01)
 
-1. **Archetype granularity.** Is the table above the right starter set, or do we
-   want fewer/more? Which one ships first to prove the pipeline (probably
-   `skirmisher` or `caster`, since `brute` already exists)?
-2. **Ranged/cast plumbing.** Reuse the spell/projectile system (`MagicSystem`,
-   spells.cat) for monster attacks, or a separate monster-projectile path? Reuse
-   is cheaper but couples the two.
-3. **Patrol routes** — authored as waypoint lists on the `.ent` record (Layer 2)
-   or as a named route asset referenced by id? Waypoints are simpler to start.
-4. **Perception fidelity.** Do we want true line-of-sight (walls block sight) or
-   keep the cheap range+cone test? LoS needs a ray/BFS visibility check in the
-   snapshot.
-5. **Group behaviour.** Leader/follower, "call for help" propagating awareness to
-   a group — Layer 1 archetype field, or its own concern? (We already derive
-   groups every frame in `ReconcileGroups`.)
-6. **Editor inspector scope.** Build the general entity inspector (Layer 2) now,
-   or start type-only (Layer 1) and add per-instance later?
+The open questions have been answered; these constraints now drive the build.
+
+1. **First archetype: `skirmisher`.** It ships first to prove the pipeline —
+   deliberately the hardest one, because it exercises *both* a new movement
+   executor (keep-distance / kite) *and* a new attack mode (ranged projectile).
+   If skirmisher works end-to-end, the rest of the table is mostly filling in
+   strategies. `brute` (= today) is the zero-regression baseline it sits beside.
+2. **One shared "moving-item" engine for ALL projectiles.** Do NOT give monsters
+   a separate projectile path. Instead, extract projectile flight out of
+   `MagicSystem` into a standalone engine (working name `ProjectileSystem`) that
+   both a spell cast and a monster ranged attack spawn into. A projectile is a
+   generic *moving item* whose **properties** (speed, range, size/visual, gravity/
+   arc later, and a **target side** — who it may strike) determine how it moves
+   and what it hits. `MagicSystem` keeps only recipe/mana/cast resolution and
+   *emits a projectile spec*; the world spawns it into the shared engine.
+   - The current `resolveHit` hook only tests monsters (`ResolveSpellHit`). The
+     shared engine must be **faction-aware**: a party spell resolves against
+     monsters; a monster ranged attack resolves against the party (mirror of
+     `MonsterAttack` — strike a random standing member). Carry a `TargetSide`
+     (Party | Monsters) on each moving item.
+   - Rationale: reuse over duplication, and it sets up thrown items / traps /
+     future emitters riding the same engine. Accepted cost: the two systems
+     couple through one shared primitive (which is the point).
+3. **Patrol routes = waypoint lists on the `.ent` record** (Layer 2), not a named
+   route asset. Simplest thing that works; a route asset can come later if reuse
+   demands it.
+4. **True line-of-sight** (walls block sight), not the cheap range+cone test
+   alone. Add a grid visibility check (supercover/Bresenham ray through the
+   snapshot's cached walkability grid; a wall cell blocks) exposed on
+   `ai::IWorldView` (e.g. `HasLineOfSight`). `Brain::Think` uses it for
+   perception AND for the skirmisher/caster "reposition to regain LoS." It reads
+   only the immutable snapshot, so it stays pure / thread-safe.
+5. **Group behaviour rides the archetype** ("both"): leader/follower AND
+   "call for help" (a provoked monster propagates awareness to its group) are
+   archetype fields/flags, not a separate concern. Groups are already derived
+   every frame in `ReconcileGroups`, so the executor keys off that.
+6. **Editor inspector: Layer 1 first (type-only), Layer 2 later.** Start by
+   surfacing the new typed fields in the asset-creation dialog (type-level); the
+   per-instance entity inspector comes with the Layer 2 `.ent` overrides.
 
 ---
 
 ## Suggested phasing
 
-1. **P1** — Widen `ai::Intent::Mode` and add the `archetype` enum + params to
-   `Agent`/`MonsterKind`/`monsters.cat`; implement `brute` (= today) + one new
-   archetype end-to-end (think → plan → execute). Proves the data path with zero
-   behaviour regression.
-2. **P2** — Fill out the archetype table (kite/flee/patrol/cast executors);
-   surface the fields in the asset-creation dialog.
-3. **P3** — Per-instance `.ent` overrides + a minimal entity inspector in the
-   editor (Layer 2).
-4. **P4** — (Deferred/optional) behaviour-graph authoring (Layer 3) only if
+Reflecting the decisions above, P1 is split so the risky refactor lands behind a
+regression guard before any new behaviour rides on it.
+
+1. **P1a — Shared moving-item engine.** Extract projectile flight out of
+   `MagicSystem` into a standalone, faction-aware `ProjectileSystem` (moving item
+   = pos/dir/speed/range/visual + `TargetSide` + `AttackProfile`). Reroute spell
+   casts through it with **zero behaviour change** (same bolts, same hits) — the
+   regression guard. `MagicSystem` shrinks to recipe/mana/cast → projectile spec.
+2. **P1b — Perception LoS.** Add `HasLineOfSight` on `ai::IWorldView`, computed
+   against the snapshot's cached walkability grid (pure). Wire it into
+   `Brain::Think` perception (walls now block sight); brute behaviour otherwise
+   unchanged.
+3. **P1c — Skirmisher end-to-end.** Add the `archetype` enum + skirmisher params
+   to `Agent`/`MonsterKind`/`monsters.cat`; widen `ai::Intent::Mode` (add `Kite`);
+   `Brain::Think` picks Engage vs Kite from archetype + LoS + range; host gains a
+   keep-distance executor and a ranged-attack executor that spawns a monster
+   projectile (`TargetSide::Party`) into the shared engine. `brute` stays the
+   untouched baseline. Proves the whole data path.
+4. **P2** — Fill out the archetype table (flee/patrol/cast/lurker/sentry/swarm
+   executors + group leader/call-for-help); surface the fields in the
+   asset-creation dialog.
+5. **P3** — Per-instance `.ent` overrides (waypoints/asleep/leashfrom) + a
+   minimal entity inspector in the editor (Layer 2).
+6. **P4** — (Deferred/optional) behaviour-graph authoring (Layer 3) only if
    needed.

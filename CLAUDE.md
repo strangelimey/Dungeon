@@ -552,14 +552,36 @@ memory.
   of `C:\Dev\Dungeon` at once — switching HEAD switches it for everyone and their
   uncommitted edits intermingle (this bit us: rune work and a save-improvements
   session collided in the same tree).
+- IMMEDIATELY AFTER `git worktree add`, PROVISION THE GITIGNORED ASSETS before
+  launching — a fresh worktree only checks out TRACKED files, and the game
+  load-or-dies on derived/imported assets that are gitignored. There are THREE,
+  not one (a missing-texture magenta-placeholder fallback exists, but there is NO
+  fallback for models — a missing `.glb` aborts hard at level load, e.g.
+  `AssetUtil.cpp model.has_value()` "failed to parse glTF: ...viking_dagger.glb").
+  Copy all three from a populated sibling worktree (e.g. `C:\Dev\Dungeon`), then
+  MIRROR into `build\<cfg>\bin\assets` too (the post-build asset copy only runs on
+  a link):
+  - `assets\textures` — whole dir, BOTH `.dds` (BC7) and source `.png` (dds-only
+    still renders magenta; ~273 dds + ~261 png).
+  - `assets\models\*.glb` — the 5 imported authored meshes (viking_dagger,
+    french_dagger, khukri, snake_dagger, leather_armor). Committed `.gltf` models
+    come with the checkout; only the `.glb` need copying.
+  - then `robocopy <new>\assets <new>\build\<cfg>\bin\assets /MIR`.
+  Use BACKSLASH paths (robocopy rejects forward slashes → copies nothing) and
+  VERIFY with a file count afterward — robocopy returns exit 0 when it copied
+  NOTHING (exit 1 = files copied), so a "successful" run can leave you empty. The
+  regenerable alternative is `tools\FetchTextures.ps1` + `FetchModels.ps1` in the
+  background (needs `build\<cfg>\bin\AssetBaker.exe` first, so build once). Symptom
+  decoder: magenta scene = missing textures; hard abort on a `.glb` = missing
+  models.
 - AFTER a branch is merged to main, TIDY UP its worktree so the drive doesn't
   fill up. Once the merge is on main and pushed, remove the now-dead working
   copy: `git worktree remove ../Dungeon-<branch>` (add `--force` if it still
   holds leftover gitignored files like the baked textures), then `git branch -d
   <branch>` to drop the merged branch and `git worktree prune` to clear stale
   metadata. First confirm the branch really is merged (`git branch --merged
-  main`) with no uncommitted/unpushed work — the worktree's textures are
-  regenerable (FetchTextures.ps1) but un-merged commits are not.
+  main`) with no uncommitted/unpushed work — the worktree's gitignored assets are
+  regenerable (FetchTextures.ps1 / FetchModels.ps1) but un-merged commits are not.
 - NEVER rewrite UTF-8 files via PowerShell Get-Content/Set-Content — it
   mojibakes em-dashes (happened twice). Use the Write/Edit tools.
 - User prefs: concise replies, no emojis; permission prompts disabled.

@@ -104,18 +104,29 @@ DungeonWorld::DungeonWorld(gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	// Rebuilt every frame into retained capacity — no steady-state allocation.
 	m_lights.points.reserve(gfx::kMaxPointLights);
 
-	// Magic system: load the project's recipes and wire its world seam so a bolt
-	// lives "on the map" without the magic module depending on the map/combat.
+	// Magic system: load the project's recipes. Casting produces a bolt spec that
+	// CastSpell spawns into the shared moving-item engine below.
 	m_magic.LoadSpells(m_project.spells);
-	m_magic.isBlocked = [this](const Vec3& p) {
+
+	// Moving-item engine: wire its world seam so a projectile lives "on the map"
+	// without the engine depending on the map/combat. resolveHit is faction-aware —
+	// it dispatches by the item's target side.
+	m_projectiles.isBlocked = [this](const Vec3& p) {
 		const int cx = static_cast<int>(std::floor(p.x / kCellSize));
 		const int cz = static_cast<int>(std::floor(p.z / kCellSize));
-		return !m_map.IsWalkable(cx, cz); // wall / off-map stops the bolt
+		return !m_map.IsWalkable(cx, cz); // wall / off-map stops the item
 	};
-	m_magic.resolveHit = [this](const Vec3& p, const AttackProfile& atk) {
-		return ResolveSpellHit(p, atk);
+	m_projectiles.resolveHit = [this](TargetSide side, const Vec3& p,
+									  const AttackProfile& atk) {
+		switch (side) {
+		case TargetSide::Monsters:
+			return ResolveSpellHit(p, atk); // a party spell strikes a monster
+		case TargetSide::Party:
+			return false; // P1c: monster ranged attacks strike the party here
+		}
+		return false;
 	};
-	m_magic.onFizzle = [this](const Vec3&) { m_audio.Play(m_sounds.spellFizzle, 0.6f); };
+	m_projectiles.onFizzle = [this](const Vec3&) { m_audio.Play(m_sounds.spellFizzle, 0.6f); };
 }
 
 // ============================================================================
@@ -255,7 +266,7 @@ void DungeonWorld::BeginLevelLoad(const std::string& stem, bool stashCurrent) {
 	m_buttons.clear();
 	m_decorations.clear();
 	m_fires.clear();
-	m_magic.Clear(); // bolts/sparks don't survive a level change
+	m_projectiles.Clear(); // bolts/sparks don't survive a level change
 	m_pendingTransition.reset();
 	m_shadows.InvalidateCubes();
 	ResolveSurfacePalettes();
@@ -454,7 +465,7 @@ void DungeonWorld::Update(const Input& input, float dt, float time, bool acceptI
 	m_party.Update(dt);
 	if (m_pillarActive) m_pillarAnimator.Update(dt);
 	UpdateMonsters(dt);
-	m_magic.Update(dt); // fly spell bolts, resolve impacts/fizzles via the hooks
+	m_projectiles.Update(dt); // fly bolts, resolve impacts/fizzles via the hooks
 	UpdateLights(time);
 	UpdateCamera();
 
@@ -466,9 +477,9 @@ void DungeonWorld::Update(const Input& input, float dt, float time, bool acceptI
 		fire.effect.Update(dt);
 		fire.effect.AppendParticles(m_particleScratch);
 	}
-	// Spell bolts in flight + their impact sparks render as additive billboards
+	// Projectiles in flight + their impact sparks render as additive billboards
 	// alongside the flames (same premultiplied-additive blend).
-	m_magic.AppendBillboards(m_particleScratch);
+	m_projectiles.AppendBillboards(m_particleScratch);
 	// (Rune tablets glow as a whole via an additive emissive that pulses in their
 	// element colour — applied to the mesh in SubmitSceneGeometry, not a billboard.)
 	const Vec3 eye = m_party.EyePosition();
@@ -1341,9 +1352,10 @@ bool DungeonWorld::PartyAttack(size_t member, size_t hand) {
 
 // ============================================================================
 // Spell casting — a thin façade over the MagicSystem (Magic.h). This routes the
-// party pose into the cast, turns the cast outcome into HUD/audio feedback, and
-// provides the impact hook; the recipe lookup, mana, bolt flight, and sparks all
-// live in the magic module.
+// party pose into the cast, spawns the resulting bolt into the moving-item engine
+// (m_projectiles), and turns the cast outcome into HUD/audio feedback. The recipe
+// lookup + mana live in the magic module; bolt flight, impacts, and sparks live in
+// the shared engine (Projectiles.h) — its impact hook is ResolveSpellHit below.
 // ============================================================================
 
 bool DungeonWorld::CastSpell(size_t member, std::span<const SpellSymbol> sequence) {
@@ -1361,6 +1373,7 @@ bool DungeonWorld::CastSpell(size_t member, std::span<const SpellSymbol> sequenc
 	const MagicSystem::CastReport r = m_magic.Cast(caster, sequence, origin, dir);
 	switch (r.outcome) {
 	case MagicSystem::CastOutcome::Cast:
+		m_projectiles.Spawn(r.projectile); // the bolt now lives "on the map"
 		onMessage(loc::Format("log.cast", caster.name, loc::Tr(r.spell->nameKey)));
 		m_audio.Play(m_sounds.spellCast, 0.7f);
 		return true;
