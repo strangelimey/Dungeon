@@ -820,14 +820,8 @@ void DungeonWorld::UpdateMonsters(float dt) {
 														   static_cast<int>(i))
 										  : -1;
 				if (slot >= 0) {
-					monster.moveFrom = monster.visualPos;
-					monster.x = c.x;
-					monster.z = c.z;
-					monster.slot = slot;
+					StepMonsterTo(monster, c.x, c.z, slot);
 					++monster.aiCursor;
-					monster.moving = true;
-					monster.moveT = 0.0f;
-					monster.moveCd = monster.kind->moveInterval;
 				} else {
 					monster.aiPath.clear(); // diverged or blocked: wait for a re-plan
 					monster.aiCursor = 0;
@@ -1145,10 +1139,23 @@ void DungeonWorld::BuildAISnapshot() {
 		// skips the sight cone for it just like it does for the blob (faces=false).
 		const bool directional =
 			m.kind->facesTarget && m.kind->archetype != ai::Archetype::Swarm;
-		snap->monsters.push_back({m.runtimeId, m.x, m.z, m.kind->aggroRange,
-								  m.kind->iq, cap, f, m.aware, directional,
-								  m.yaw, m.targetX, m.targetZ, m.kind->archetype,
-								  hpFrac, m.kind->fleeBelow});
+		// Named fields (not positional) — the Agent has grown past a dozen members
+		// and a misplaced value would be silent; designated initos keep it honest.
+		snap->monsters.push_back(ai::Agent{.id = m.runtimeId,
+										   .x = m.x,
+										   .z = m.z,
+										   .aggroRange = m.kind->aggroRange,
+										   .iq = m.kind->iq,
+										   .capacity = cap,
+										   .footprint = f,
+										   .aware = m.aware,
+										   .directional = directional,
+										   .facingYaw = m.yaw,
+										   .targetX = m.targetX,
+										   .targetZ = m.targetZ,
+										   .archetype = m.kind->archetype,
+										   .hpFrac = hpFrac,
+										   .fleeBelow = m.kind->fleeBelow});
 	}
 	m_director.Publish(snap); // pass a copy — the pool keeps its own ref
 }
@@ -1315,6 +1322,38 @@ void DungeonWorld::OnBumpImpact() {
 	CheckPartyWipe();
 }
 
+// The one place a monster's one-cell move is committed — the logical cell/slot
+// snap the instant the step commits (so occupancy is atomic, like the party),
+// while visualPos glides from where it stood over moveInterval.
+void DungeonWorld::StepMonsterTo(Monster& monster, int x, int z, int slot) {
+	monster.moveFrom = monster.visualPos;
+	monster.x = x;
+	monster.z = z;
+	monster.slot = slot;
+	monster.moving = true;
+	monster.moveT = 0.0f;
+	monster.moveCd = monster.kind->moveInterval;
+}
+
+// Greedy local step for the kite/flee executors: pick the lowest-scoring of the
+// monster's own cell (the hold baseline) and its four free orthogonal neighbours,
+// and step there. `score` is evaluated on candidate CELLS; only walkable, slot-
+// free neighbours are considered (FreeSlotInCell also excludes the party cell).
+void DungeonWorld::GreedyStep(Monster& monster, int selfIndex,
+							  const std::function<int(int cx, int cz)>& score) {
+	int bestScore = score(monster.x, monster.z); // own cell = hold baseline
+	int bx = monster.x, bz = monster.z, bslot = monster.slot;
+	static constexpr int kDX[4] = {1, -1, 0, 0}, kDZ[4] = {0, 0, 1, -1};
+	for (int k = 0; k < 4; ++k) {
+		const int nx = monster.x + kDX[k], nz = monster.z + kDZ[k];
+		const int slot = FreeSlotInCell(nx, nz, monster.kind->size, selfIndex);
+		if (slot < 0) continue; // unwalkable / occupied / the party cell
+		const int s = score(nx, nz);
+		if (s < bestScore) { bestScore = s; bx = nx; bz = nz; bslot = slot; }
+	}
+	if (bx != monster.x || bz != monster.z) StepMonsterTo(monster, bx, bz, bslot);
+}
+
 // ----------------------------------------------------------------------------
 // Skirmisher (archetype = skirmisher): hold at range and shoot. The brain sets
 // intent == Kite (no path); this executor drives movement + firing directly from
@@ -1346,7 +1385,7 @@ void DungeonWorld::UpdateKiter(Monster& monster, int selfIndex) {
 	// No BFS: kiting is a local decision the host makes each step against LIVE occupancy.
 	if (!monster.moving && monster.moveCd <= 0.0f) {
 		const int want = static_cast<int>(monster.kind->keepRange + 0.5f);
-		auto score = [&](int cx, int cz) {
+		GreedyStep(monster, selfIndex, [&](int cx, int cz) {
 			const int d = std::max(std::abs(cx - px), std::abs(cz - pz));
 			int s = std::abs(d - want) * 2; // primary: distance error
 			// Strongly prefer a cell it can actually shoot from (on-axis + in range);
@@ -1355,26 +1394,7 @@ void DungeonWorld::UpdateKiter(Monster& monster, int selfIndex) {
 								 CellHasLineOfSight(cx, cz, px, pz);
 			if (!canFire) s += 4;
 			return s;
-		};
-		int bestScore = score(monster.x, monster.z);
-		int bx = monster.x, bz = monster.z, bslot = monster.slot;
-		static constexpr int kDX[4] = {1, -1, 0, 0}, kDZ[4] = {0, 0, 1, -1};
-		for (int k = 0; k < 4; ++k) {
-			const int nx = monster.x + kDX[k], nz = monster.z + kDZ[k];
-			const int slot = FreeSlotInCell(nx, nz, monster.kind->size, selfIndex);
-			if (slot < 0) continue; // unwalkable / occupied / the party cell
-			const int s = score(nx, nz);
-			if (s < bestScore) { bestScore = s; bx = nx; bz = nz; bslot = slot; }
-		}
-		if (bx != monster.x || bz != monster.z) {
-			monster.moveFrom = monster.visualPos;
-			monster.x = bx;
-			monster.z = bz;
-			monster.slot = bslot;
-			monster.moving = true;
-			monster.moveT = 0.0f;
-			monster.moveCd = monster.kind->moveInterval;
-		}
+		});
 	}
 }
 
@@ -1387,30 +1407,13 @@ void DungeonWorld::UpdateKiter(Monster& monster, int selfIndex) {
 void DungeonWorld::UpdateFleer(Monster& monster, int selfIndex) {
 	if (monster.moving || monster.moveCd > 0.0f) return; // mid-step / on cooldown
 
+	// Run away: score = NEGATED squared distance to the party, so GreedyStep (which
+	// minimises) picks the FARTHEST free neighbour, and holds if none is farther.
 	const int px = m_party.GridX(), pz = m_party.GridZ();
-	auto distSq = [&](int cx, int cz) {
+	GreedyStep(monster, selfIndex, [&](int cx, int cz) {
 		const int dx = cx - px, dz = cz - pz;
-		return dx * dx + dz * dz;
-	};
-	int best = distSq(monster.x, monster.z); // hold unless a neighbour is farther
-	int bx = monster.x, bz = monster.z, bslot = monster.slot;
-	static constexpr int kDX[4] = {1, -1, 0, 0}, kDZ[4] = {0, 0, 1, -1};
-	for (int k = 0; k < 4; ++k) {
-		const int nx = monster.x + kDX[k], nz = monster.z + kDZ[k];
-		const int slot = FreeSlotInCell(nx, nz, monster.kind->size, selfIndex);
-		if (slot < 0) continue; // unwalkable / occupied / the party cell
-		const int d = distSq(nx, nz);
-		if (d > best) { best = d; bx = nx; bz = nz; bslot = slot; }
-	}
-	if (bx != monster.x || bz != monster.z) {
-		monster.moveFrom = monster.visualPos;
-		monster.x = bx;
-		monster.z = bz;
-		monster.slot = bslot;
-		monster.moving = true;
-		monster.moveT = 0.0f;
-		monster.moveCd = monster.kind->moveInterval;
-	}
+		return -(dx * dx + dz * dz);
+	});
 }
 
 void DungeonWorld::MonsterRangedAttack(Monster& monster) {

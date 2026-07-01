@@ -783,6 +783,16 @@ private:
 	// Flee executor (intent == Flee): a wounded monster runs from the party — greedy
 	// orthogonal 1-step that maximises distance; no attack. Holds if cornered.
 	void UpdateFleer(Monster& monster, int selfIndex);
+	// Commit a one-cell move: snap the logical cell + slot, start the visual glide
+	// from the current position, and arm the step cooldown. The single place a
+	// monster's step is committed (chase-path follow, kite, flee all route here).
+	void StepMonsterTo(Monster& monster, int x, int z, int slot);
+	// Greedy local step shared by the kite/flee executors: among this monster's own
+	// cell and its four free orthogonal neighbours, step to the one MINIMISING
+	// `score(x,z)` (its own cell is the baseline, so it holds when nothing beats it).
+	// `selfIndex` is its index in m_monsters (excluded from the slot test).
+	void GreedyStep(Monster& monster, int selfIndex,
+					const std::function<int(int cx, int cz)>& score);
 	// Launches a monster bolt from `monster` toward the party through the shared
 	// moving-item engine (TargetSide::Party); sets the attack cooldown + swing gesture.
 	void MonsterRangedAttack(Monster& monster);
