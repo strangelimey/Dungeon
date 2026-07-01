@@ -306,6 +306,7 @@ DungeonWorld::MonsterKind& DungeonWorld::MonsterKindFor(const std::string& type)
 			assets->iq = def->GetFloat("iq", 100.0f);
 			assets->archetype = ParseArchetype(CatalogGet(def, "archetype", "brute"));
 			assets->keepRange = def->GetFloat("keeprange", 4.0f);
+			assets->fleeBelow = def->GetFloat("fleebelow", 0.0f);
 			assets->spell = CatalogGet(def, "spell", "");
 			if (assets->archetype == ai::Archetype::Caster && assets->spell.empty())
 				log::Warn("monsters.cat [{}]: archetype=caster but no spell= set", type);

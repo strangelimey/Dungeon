@@ -121,15 +121,22 @@ Intent Brain::Think(const Agent& a, int partyX, int partyZ, const IWorldView& wo
 		}
 	}
 	if (perceived) {
-		// The archetype picks HOW it engages. A brute closes to melee toward its
-		// ASSIGNED attack cell (the host's formation pass spreads monsters around the
-		// party — surround; an unassigned monster targets the party cell itself). A
-		// skirmisher OR caster kites: it holds at range and shoots (a bolt / a spell),
-		// so it needs no chase path — the host keep-distance executor works straight
-		// from live party position.
-		const bool kites = a.archetype == Archetype::Skirmisher ||
-						   a.archetype == Archetype::Caster;
-		it.mode = kites ? Intent::Mode::Kite : Intent::Mode::Engage;
+		// A wounded monster below its flee threshold breaks off and RUNS, whatever
+		// its archetype — a change of mind that's IQ-gated like any other (a dim
+		// monster is slow to realise it should run). Flee wins over engage/kite.
+		if (a.fleeBelow > 0.0f && a.hpFrac < a.fleeBelow) {
+			it.mode = Intent::Mode::Flee;
+		} else {
+			// The archetype picks HOW it engages. A brute closes to melee toward its
+			// ASSIGNED attack cell (the host's formation pass spreads monsters around
+			// the party — surround; an unassigned monster targets the party cell). A
+			// skirmisher OR caster kites: it holds at range and shoots (a bolt / a
+			// spell), needing no chase path — the host keep-distance executor works
+			// straight from live party position.
+			const bool kites = a.archetype == Archetype::Skirmisher ||
+							   a.archetype == Archetype::Caster;
+			it.mode = kites ? Intent::Mode::Kite : Intent::Mode::Engage;
+		}
 		it.targetX = a.targetX;
 		it.targetZ = a.targetZ;
 	}

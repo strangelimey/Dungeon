@@ -52,6 +52,8 @@ attackcd = 1.6
 aggro = 6
 movecd = 0.45
 iq = 135
+; Breaks off and runs once wounded below 30% hp (docs/ai.md P2 flee).
+fleebelow = 0.3
 
 ; Skirmisher archetype demo: reuses the procedural skeleton mesh but holds its
 ;   distance and shoots (archetype=skirmisher, keeprange = cells it tries to keep).
@@ -91,6 +93,25 @@ iq = 130
 archetype = caster
 keeprange = 5
 spell = firebolt
+
+; Flee demo (docs/ai.md P2): a skittish critter that runs the moment it sees the
+;   party. fleebelow > 1 means hpFrac (max 1.0) is always under it, so it flees on
+;   sight — a clean way to watch the run-away executor. (Realistic use is a
+;   fraction like 0.3, which triggers only once the monster is wounded.) damage=0.
+[skel_coward]
+display = Skittish Skeleton
+model = skeleton
+texture = skeleton
+hp = 10
+damage = 0
+accuracy = 0.5
+defense = 0.2
+armor = 0
+attackcd = 2.0
+aggro = 8
+movecd = 0.4
+iq = 130
+fleebelow = 2.0
 
 [blob]
 display = Blob

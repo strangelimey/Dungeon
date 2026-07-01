@@ -12,6 +12,9 @@
 ;   button lever 9 5 east target=door_a
 ;
 ; Monsters sprinkled one or two per room across the level.
+; Flee demo (docs/ai.md P2): a skittish critter facing the party in the start
+; room; it perceives them at once and runs (fleebelow>1 = flees on sight).
+monster skel_coward 6 3 west
 ; Skirmisher demo (docs/ai.md P1c): stands down the open corridor east of the
 ; start room so the party rounds the corner into it; it kites away and shoots.
 monster skel_archer 10 4 west

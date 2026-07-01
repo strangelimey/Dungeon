@@ -105,6 +105,8 @@ struct Agent {
 								  // host's formation pass sets it; the BFS routes here
 	Archetype archetype = Archetype::Brute; // behaviour strategy — picks Engage vs
 											// Kite once the party is perceived
+	float hpFrac = 1.0f;      // current hp / max hp — drives the flee decision
+	float fleeBelow = 0.0f;   // flees when hpFrac drops below this (0 = never flees)
 };
 
 // ----------------------------------------------------------------------------
@@ -145,9 +147,10 @@ struct Snapshot {
 // ----------------------------------------------------------------------------
 struct Intent {
 	// Idle: hold position. Engage: chase to melee (brute). Kite: hold at range and
-	// attack (skirmisher) — the host keep-distance executor drives it directly from
-	// party position, so a Kite plan carries NO path (thinking only sets the mode).
-	enum class Mode { Idle, Engage, Kite };
+	// attack (skirmisher/caster). Flee: break off and run from the party (a wounded
+	// monster below its fleeBelow threshold, any archetype). Kite and Flee carry NO
+	// path — the host executors drive them directly from live party position.
+	enum class Mode { Idle, Engage, Kite, Flee };
 	Mode mode = Mode::Idle;
 	int targetX = 0, targetZ = 0; // chase goal: party cell at think time
 };

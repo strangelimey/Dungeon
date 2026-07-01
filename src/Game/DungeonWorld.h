@@ -389,6 +389,7 @@ private:
 		// Drives the AI intent (Engage vs Kite) and which host executor runs.
 		ai::Archetype archetype = ai::Archetype::Brute;
 		float keepRange = 4.0f;      // skirmisher/caster: cells of party distance to hold
+		float fleeBelow = 0.0f;      // flees when hp/maxHp drops below this (0 = never)
 		std::string spell;           // caster: spells.cat id its bolt casts (empty = a
 									 // plain bolt, e.g. a skirmisher's arrow)
 		// Behaviour/appearance, data-driven from the catalog so AI and the
@@ -779,6 +780,9 @@ private:
 	// 1-step, LoS-preferring), and fire a ranged bolt when it has a clear line and is
 	// off cooldown. `selfIndex` is the monster's index in m_monsters (for slot tests).
 	void UpdateKiter(Monster& monster, int selfIndex);
+	// Flee executor (intent == Flee): a wounded monster runs from the party — greedy
+	// orthogonal 1-step that maximises distance; no attack. Holds if cornered.
+	void UpdateFleer(Monster& monster, int selfIndex);
 	// Launches a monster bolt from `monster` toward the party through the shared
 	// moving-item engine (TargetSide::Party); sets the attack cooldown + swing gesture.
 	void MonsterRangedAttack(Monster& monster);

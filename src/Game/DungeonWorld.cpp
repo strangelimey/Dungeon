@@ -767,6 +767,10 @@ void DungeonWorld::UpdateMonsters(float dt) {
 			UpdateKiter(monster, static_cast<int>(i)); // skirmisher: hold range + shoot
 			continue;
 		}
+		if (monster.intent.mode == ai::Intent::Mode::Flee) {
+			UpdateFleer(monster, static_cast<int>(i)); // wounded: run from the party
+			continue;
+		}
 
 		// ACT (every frame, at the monster's OWN cadence): execute the standing
 		// orders the workers handed us. A low-IQ monster still moves fast and swings
@@ -1135,9 +1139,11 @@ void DungeonWorld::BuildAISnapshot() {
 				o.capacity = static_cast<uint8_t>(cap);
 				++o.count;
 			}
+		const float hpFrac = m.kind->maxHp > 0.0f ? m.hp / m.kind->maxHp : 1.0f;
 		snap->monsters.push_back({m.runtimeId, m.x, m.z, m.kind->aggroRange,
 								  m.kind->iq, cap, f, m.aware, m.kind->facesTarget,
-								  m.yaw, m.targetX, m.targetZ, m.kind->archetype});
+								  m.yaw, m.targetX, m.targetZ, m.kind->archetype,
+								  hpFrac, m.kind->fleeBelow});
 	}
 	m_director.Publish(snap); // pass a copy — the pool keeps its own ref
 }
@@ -1364,6 +1370,41 @@ void DungeonWorld::UpdateKiter(Monster& monster, int selfIndex) {
 			monster.moveT = 0.0f;
 			monster.moveCd = monster.kind->moveInterval;
 		}
+	}
+}
+
+// ----------------------------------------------------------------------------
+// Flee (intent == Flee): a wounded monster below its fleeBelow threshold breaks
+// off and runs. Greedy orthogonal 1-step that MAXIMISES distance from the party
+// (the opposite of the brute chase); no attack. Holds if boxed in — a cornered
+// monster has nowhere to run. Announce is left to whatever woke it.
+// ----------------------------------------------------------------------------
+void DungeonWorld::UpdateFleer(Monster& monster, int selfIndex) {
+	if (monster.moving || monster.moveCd > 0.0f) return; // mid-step / on cooldown
+
+	const int px = m_party.GridX(), pz = m_party.GridZ();
+	auto distSq = [&](int cx, int cz) {
+		const int dx = cx - px, dz = cz - pz;
+		return dx * dx + dz * dz;
+	};
+	int best = distSq(monster.x, monster.z); // hold unless a neighbour is farther
+	int bx = monster.x, bz = monster.z, bslot = monster.slot;
+	static constexpr int kDX[4] = {1, -1, 0, 0}, kDZ[4] = {0, 0, 1, -1};
+	for (int k = 0; k < 4; ++k) {
+		const int nx = monster.x + kDX[k], nz = monster.z + kDZ[k];
+		const int slot = FreeSlotInCell(nx, nz, monster.kind->size, selfIndex);
+		if (slot < 0) continue; // unwalkable / occupied / the party cell
+		const int d = distSq(nx, nz);
+		if (d > best) { best = d; bx = nx; bz = nz; bslot = slot; }
+	}
+	if (bx != monster.x || bz != monster.z) {
+		monster.moveFrom = monster.visualPos;
+		monster.x = bx;
+		monster.z = bz;
+		monster.slot = bslot;
+		monster.moving = true;
+		monster.moveT = 0.0f;
+		monster.moveCd = monster.kind->moveInterval;
 	}
 }
 
