@@ -161,6 +161,8 @@ log.party_misses={} swings at the {} and misses.
 log.monster_slain=The {} is slain!
 log.monster_hits=The {} hits {} for {} damage.
 log.monster_misses=The {} swings at {} and misses.
+log.monster_ranged_hits=A bolt hits {} for {} damage.
+log.monster_ranged_misses=A bolt whistles past {}.
 log.member_down={} has fallen!
 log.party_wipe=The party has been slain. Darkness takes you.
 ; --- spells / runes ---

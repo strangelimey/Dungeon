@@ -58,6 +58,16 @@ static std::vector<std::string> SplitTokens(const std::string& s) {
 	return out;
 }
 
+// monsters.cat `archetype` token -> the behaviour strategy enum. Unknown tokens
+// warn and fall back to brute (the pre-archetype behaviour), so a typo is loud but
+// never fatal and an undescribed monster keeps working.
+static ai::Archetype ParseArchetype(const std::string& v) {
+	if (v == "skirmisher") return ai::Archetype::Skirmisher;
+	if (v != "brute" && !v.empty())
+		log::Warn("monsters.cat: unknown archetype '{}' — using brute", v);
+	return ai::Archetype::Brute;
+}
+
 // ============================================================================
 // Staged loading — one queued task per frame (see LoadQueue).
 // ============================================================================
@@ -293,6 +303,8 @@ DungeonWorld::MonsterKind& DungeonWorld::MonsterKindFor(const std::string& type)
 			assets->aggroRange = def->GetFloat("aggro", 6.0f);
 			assets->moveInterval = def->GetFloat("movecd", 0.6f);
 			assets->iq = def->GetFloat("iq", 100.0f);
+			assets->archetype = ParseArchetype(CatalogGet(def, "archetype", "brute"));
+			assets->keepRange = def->GetFloat("keeprange", 4.0f);
 			assets->facesTarget = def->GetBool("faces", true);
 			assets->fallbackRoughness = def->GetFloat("roughness", 0.9f);
 			// Imported-model fixups (degrees in the catalog -> radians here).

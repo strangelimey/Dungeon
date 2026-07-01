@@ -61,12 +61,22 @@ public:
 	// A cell is map-walkable. The goal cell qualifies even if occupied, so the
 	// BFS can still target a monster's last-known party cell.
 	virtual bool IsWalkable(int x, int z) const = 0;
-	// True if an unobstructed straight line runs from cell (x0,z0) to (x1,z1) — no
-	// map-blocking (non-walkable) cell lies strictly BETWEEN them (the endpoints
-	// themselves never block, so a monster/party cell is always visible from itself
-	// and adjacency is always clear). Perception's "walls block sight" test.
+	// True if an unobstructed ORTHOGONAL line runs from (x0,z0) to (x1,z1): the two
+	// must share a row or column (the grid is 4-directional — no diagonal sight),
+	// with no map-blocking cell strictly BETWEEN them (endpoints never block).
+	// Perception's "walls block sight" test; a monster sees/shoots only cardinally.
 	virtual bool HasLineOfSight(int x0, int z0, int x1, int z1) const = 0;
 };
+
+// ----------------------------------------------------------------------------
+// The behaviour STRATEGY a monster runs, selected as data (monsters.cat
+// `archetype`). The brain picks an Intent mode from this; the host runs the
+// matching executor. Brute is today's close-and-melee; Skirmisher holds its
+// distance and attacks at range (kites). The set grows as the archetype table
+// fills out (caster/lurker/sentry/swarm — see docs/ai.md); keep Brute == 0 so an
+// unset/legacy monster defaults to it.
+// ----------------------------------------------------------------------------
+enum class Archetype { Brute, Skirmisher };
 
 // ----------------------------------------------------------------------------
 // The monster as the brain sees it — a flat snapshot of the few fields thinking
@@ -92,6 +102,8 @@ struct Agent {
 	int targetX = 0, targetZ = 0; // assigned chase goal (an attack cell around the
 								  // party, or the party cell when unassigned) — the
 								  // host's formation pass sets it; the BFS routes here
+	Archetype archetype = Archetype::Brute; // behaviour strategy — picks Engage vs
+											// Kite once the party is perceived
 };
 
 // ----------------------------------------------------------------------------
@@ -131,7 +143,10 @@ struct Snapshot {
 // executing its cached path — that is what decouples move speed from think rate.
 // ----------------------------------------------------------------------------
 struct Intent {
-	enum class Mode { Idle, Engage }; // Idle: hold position; Engage: chase + attack
+	// Idle: hold position. Engage: chase to melee (brute). Kite: hold at range and
+	// attack (skirmisher) — the host keep-distance executor drives it directly from
+	// party position, so a Kite plan carries NO path (thinking only sets the mode).
+	enum class Mode { Idle, Engage, Kite };
 	Mode mode = Mode::Idle;
 	int targetX = 0, targetZ = 0; // chase goal: party cell at think time
 };

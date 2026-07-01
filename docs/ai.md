@@ -272,11 +272,13 @@ The open questions have been answered; these constraints now drive the build.
    route asset. Simplest thing that works; a route asset can come later if reuse
    demands it.
 4. **True line-of-sight** (walls block sight), not the cheap range+cone test
-   alone. Add a grid visibility check (supercover/Bresenham ray through the
-   snapshot's cached walkability grid; a wall cell blocks) exposed on
-   `ai::IWorldView` (e.g. `HasLineOfSight`). `Brain::Think` uses it for
-   perception AND for the skirmisher/caster "reposition to regain LoS." It reads
-   only the immutable snapshot, so it stays pure / thread-safe.
+   alone — but **ORTHOGONAL-only**: the dungeon is a 4-directional grid, so sight
+   (and shooting) runs only straight down a shared row or column, never diagonally.
+   This matches the party's cardinal spell bolts and orthogonal melee (see the
+   *orthogonal-grid-rule* memory). Exposed on `ai::IWorldView::HasLineOfSight`
+   (true iff `x0==x1 || z0==z1` with every cell between walkable; endpoints never
+   block). `Brain::Think` uses it for perception AND the skirmisher "line up on the
+   axis to shoot." Reads only the immutable snapshot, so it stays pure/thread-safe.
 5. **Group behaviour rides the archetype** ("both"): leader/follower AND
    "call for help" (a provoked monster propagates awareness to its group) are
    archetype fields/flags, not a separate concern. Groups are already derived
@@ -298,10 +300,10 @@ regression guard before any new behaviour rides on it.
    casts through it with **zero behaviour change** (same bolts, same hits) — the
    regression guard. `MagicSystem` shrinks to recipe/mana/cast → projectile spec.
 2. **P1b — Perception LoS. [DONE]** Added `HasLineOfSight` on `ai::IWorldView`
-   (`SnapshotView` walks a Bresenham line over the cached walkability grid; pure).
+   (`SnapshotView`, ORTHOGONAL-only — clear iff on a shared row/column; pure).
    `Brain::Think` now takes the view and LoS-gates FRESH detection (walls block
    sight; sticky `aware` still chases around corners); movement/attack unchanged.
-3. **P1c — Skirmisher end-to-end.** Add the `archetype` enum + skirmisher params
+3. **P1c — Skirmisher end-to-end. [DONE]** Add the `archetype` enum + skirmisher params
    to `Agent`/`MonsterKind`/`monsters.cat`; widen `ai::Intent::Mode` (add `Kite`);
    `Brain::Think` picks Engage vs Kite from archetype + LoS + range; host gains a
    keep-distance executor and a ranged-attack executor that spawns a monster

@@ -61,25 +61,25 @@ bool SnapshotView::CellFreeForMonster(int x, int z, int /*selfId*/, int capacity
 }
 
 bool SnapshotView::HasLineOfSight(int x0, int z0, int x1, int z1) const {
-	// Integer line walk (Bresenham) from (x0,z0) to (x1,z1): every cell the line
-	// ENTERS between the endpoints must be walkable, or a wall blocks the view. The
-	// endpoints (the monster's own cell and the party cell) are never tested — a
-	// monster always "sees" itself, and adjacency is always clear. Corner-cutting
-	// between two diagonal walls is possible (a diagonal step crosses their shared
-	// corner) but tolerable for perception; tighten to a supercover walk if it ever
-	// lets sight leak through a diagonal doorway.
-	const int dx = std::abs(x1 - x0), dz = std::abs(z1 - z0);
-	const int sx = x0 < x1 ? 1 : -1, sz = z0 < z1 ? 1 : -1;
-	int err = dx - dz;
-	int x = x0, z = z0;
-	for (;;) {
-		if (x == x1 && z == z1) return true; // reached the target with no wall between
-		const int e2 = 2 * err;
-		if (e2 > -dz) { err -= dz; x += sx; }
-		if (e2 < dx) { err += dx; z += sz; }
-		if (x == x1 && z == z1) return true; // stepped onto the endpoint: it never blocks
-		if (!IsWalkable(x, z)) return false; // an intervening wall blocks sight
+	// ORTHOGONAL-only sight: the dungeon is a 4-directional grid, so a monster sees
+	// (and shoots) the party only straight down a shared row or column — never
+	// diagonally (matches the party's cardinal spell bolts and orthogonal melee). A
+	// non-axis-aligned pair has no line at all. On a shared axis, every cell BETWEEN
+	// the endpoints must be walkable; the endpoints themselves never block.
+	if (x0 == x1 && z0 == z1) return true;
+	if (x0 == x1) {
+		const int s = z0 < z1 ? 1 : -1;
+		for (int z = z0 + s; z != z1; z += s)
+			if (!IsWalkable(x0, z)) return false;
+		return true;
 	}
+	if (z0 == z1) {
+		const int s = x0 < x1 ? 1 : -1;
+		for (int x = x0 + s; x != x1; x += s)
+			if (!IsWalkable(x, z0)) return false;
+		return true;
+	}
+	return false; // not on a shared row/column — no orthogonal line
 }
 
 // ----------------------------------------------------------------------------
@@ -121,10 +121,13 @@ Intent Brain::Think(const Agent& a, int partyX, int partyZ, const IWorldView& wo
 		}
 	}
 	if (perceived) {
-		// Engage toward the ASSIGNED attack cell (the host's formation pass spreads
-		// monsters around the party — surround); for a not-yet-assigned monster the
-		// host sets the target to the party cell itself, so it still approaches.
-		it.mode = Intent::Mode::Engage;
+		// The archetype picks HOW it engages. A brute closes to melee toward its
+		// ASSIGNED attack cell (the host's formation pass spreads monsters around the
+		// party — surround; an unassigned monster targets the party cell itself). A
+		// skirmisher kites: it holds at range and shoots, so it needs no chase path —
+		// the host keep-distance executor works straight from live party position.
+		it.mode = a.archetype == Archetype::Skirmisher ? Intent::Mode::Kite
+													   : Intent::Mode::Engage;
 		it.targetX = a.targetX;
 		it.targetZ = a.targetZ;
 	}

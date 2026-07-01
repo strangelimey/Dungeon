@@ -122,7 +122,7 @@ DungeonWorld::DungeonWorld(gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 		case TargetSide::Monsters:
 			return ResolveSpellHit(p, atk); // a party spell strikes a monster
 		case TargetSide::Party:
-			return false; // P1c: monster ranged attacks strike the party here
+			return ResolveMonsterProjectileHit(p, atk); // a monster bolt strikes the party
 		}
 		return false;
 	};
@@ -762,7 +762,11 @@ void DungeonWorld::UpdateMonsters(float dt) {
 			monster.yaw += d * std::min(1.0f, dt * kTurnLerp);
 		}
 
-		if (monster.intent.mode != ai::Intent::Mode::Engage) continue; // idle: nothing to do
+		if (monster.intent.mode == ai::Intent::Mode::Idle) continue; // idle: nothing to do
+		if (monster.intent.mode == ai::Intent::Mode::Kite) {
+			UpdateKiter(monster, static_cast<int>(i)); // skirmisher: hold range + shoot
+			continue;
+		}
 
 		// ACT (every frame, at the monster's OWN cadence): execute the standing
 		// orders the workers handed us. A low-IQ monster still moves fast and swings
@@ -1133,7 +1137,7 @@ void DungeonWorld::BuildAISnapshot() {
 			}
 		snap->monsters.push_back({m.runtimeId, m.x, m.z, m.kind->aggroRange,
 								  m.kind->iq, cap, f, m.aware, m.kind->facesTarget,
-								  m.yaw, m.targetX, m.targetZ});
+								  m.yaw, m.targetX, m.targetZ, m.kind->archetype});
 	}
 	m_director.Publish(snap); // pass a copy — the pool keeps its own ref
 }
@@ -1150,10 +1154,11 @@ void DungeonWorld::ConsumeAIPlans() {
 		for (const ai::Plan& plan : *batch.plans) {
 			Monster* monster = MonsterByRuntimeId(plan.id);
 			if (!monster) continue; // its monster is gone — drop the plan
-			// First time the brain decides to engage, the monster has NOTICED the
-			// party — latch awareness so it stays engaged even once the party slips
-			// out of its sight cone (sticky; only a new game / reload clears it).
-			if (plan.intent.mode == ai::Intent::Mode::Engage) monster->aware = true;
+			// First time the brain decides to act on the party (engage OR kite), the
+			// monster has NOTICED it — latch awareness so it stays engaged even once
+			// the party slips out of its sight cone (sticky; only a new game / reload
+			// clears it).
+			if (plan.intent.mode != ai::Intent::Mode::Idle) monster->aware = true;
 			monster->intent = plan.intent;
 			monster->aiPath = plan.path;
 			// Align the cursor to the monster's current cell (it may have stepped
@@ -1221,6 +1226,29 @@ bool DungeonWorld::CellFreeForMonster(int x, int z, int self) const {
 
 // One monster strike against a random standing party member. Sets the swing
 // cooldown whether or not it lands so a packed cell doesn't machine-gun.
+// Apply damage to a standing member: clamp health, flash the hit splat (severity by
+// raw damage — small < 5, medium < 10, hard otherwise; a placeholder scale), and
+// log a downing. The one place a member takes damage, shared by every attack path.
+void DungeonWorld::WoundMember(Character& target, float damage) {
+	target.health -= damage;
+	if (target.health < 0.0f) target.health = 0.0f;
+	target.hitFlash = kHitFlashSeconds;
+	target.hitSeverity = damage < 5.0f ? 0 : (damage < 10.0f ? 1 : 2);
+	if (!target.IsAlive()) onMessage(loc::Format("log.member_down", target.name));
+}
+
+// Latch the party wipe exactly once when the last member falls (message + callback).
+// Returns true the frame it latches. Shared by the melee/ranged/bump damage paths.
+bool DungeonWorld::CheckPartyWipe() {
+	if (m_partyWiped) return false;
+	for (const Character& m : *m_roster)
+		if (m.IsAlive()) return false; // someone still up
+	m_partyWiped = true;
+	onMessage(loc::Tr("log.party_wipe"));
+	if (onPartyWipe) onPartyWipe();
+	return true;
+}
+
 void DungeonWorld::MonsterAttack(Monster& monster) {
 	if (!m_roster || m_partyWiped) return;
 
@@ -1248,28 +1276,11 @@ void DungeonWorld::MonsterAttack(Monster& monster) {
 		onMessage(loc::Format("log.monster_misses", name, target.name));
 		return;
 	}
-	target.health -= r.damage;
-	if (target.health < 0.0f) target.health = 0.0f;
-	// Flash a splat over the struck member's portrait. Severity by raw damage is
-	// a placeholder — "what a hit means" (relative to max hp / armor / etc.) is
-	// TBD; for now small < 5, medium < 10, hard otherwise.
-	target.hitFlash = kHitFlashSeconds;
-	target.hitSeverity = r.damage < 5.0f ? 0 : (r.damage < 10.0f ? 1 : 2);
-	int dmg = static_cast<int>(r.damage + 0.5f);
-	onMessage(loc::Format("log.monster_hits", name, target.name, dmg));
+	onMessage(loc::Format("log.monster_hits", name, target.name,
+						  static_cast<int>(r.damage + 0.5f)));
 	m_audio.Play(m_sounds.monster, 0.6f);
-
-	if (!target.IsAlive()) onMessage(loc::Format("log.member_down", target.name));
-
-	// Party wipe: latch so the run ends exactly once.
-	bool anyUp = false;
-	for (const Character& m : *m_roster)
-		if (m.IsAlive()) { anyUp = true; break; }
-	if (!anyUp && !m_partyWiped) {
-		m_partyWiped = true;
-		onMessage(loc::Tr("log.party_wipe"));
-		if (onPartyWipe) onPartyWipe();
-	}
+	WoundMember(target, r.damage);
+	CheckPartyWipe();
 }
 
 // A blocked move has lurched the party into the obstacle. Every standing member
@@ -1283,26 +1294,131 @@ void DungeonWorld::OnBumpImpact() {
 	bool anyHurt = false;
 	for (Character& member : *m_roster) {
 		if (!member.IsAlive()) continue;
-		member.health -= kBumpDamage;
-		if (member.health < 0.0f) member.health = 0.0f;
-		member.hitFlash = kHitFlashSeconds;
-		member.hitSeverity = 0; // always the small splat
+		WoundMember(member, kBumpDamage); // severity 0 at this damage; logs any downing
 		anyHurt = true;
-		if (!member.IsAlive()) onMessage(loc::Format("log.member_down", member.name));
 	}
 	if (!anyHurt) return;
 
 	onMessage(loc::Format("log.bump_hurt", static_cast<int>(kBumpDamage + 0.5f)));
 	m_audio.Play(m_sounds.oof, 0.8f);
+	CheckPartyWipe();
+}
 
-	bool anyUp = false;
-	for (const Character& m : *m_roster)
-		if (m.IsAlive()) { anyUp = true; break; }
-	if (!anyUp && !m_partyWiped) {
-		m_partyWiped = true;
-		onMessage(loc::Tr("log.party_wipe"));
-		if (onPartyWipe) onPartyWipe();
+// ----------------------------------------------------------------------------
+// Skirmisher (archetype = skirmisher): hold at range and shoot. The brain sets
+// intent == Kite (no path); this executor drives movement + firing directly from
+// live party position on the main thread, every frame at the monster's cadence.
+// ----------------------------------------------------------------------------
+void DungeonWorld::UpdateKiter(Monster& monster, int selfIndex) {
+	const int px = m_party.GridX(), pz = m_party.GridZ();
+	const int dist = std::max(std::abs(monster.x - px), std::abs(monster.z - pz));
+	const bool los = CellHasLineOfSight(monster.x, monster.z, px, pz);
+
+	// Announce once, like a brute, when it first has the party in reach.
+	if (!monster.announced) {
+		monster.announced = true;
+		onMessage(loc::Format("log.monster_stirs", loc::Tr("monster." + monster.kind->name)));
+		m_audio.Play(m_sounds.monster, 0.7f);
 	}
+
+	// Fire when it can see the party and is within its shooting reach (its perception
+	// range), off cooldown. A blocked line holds fire (it repositions instead).
+	if (los && static_cast<float>(dist) <= monster.kind->aggroRange &&
+		monster.attackCd <= 0.0f)
+		MonsterRangedAttack(monster);
+
+	// Hold keepRange while lining up a shot: greedy 1-step to the free 4-neighbour
+	// that best trades off distance-to-keepRange against being able to FIRE — i.e.
+	// on a clear cardinal line to the party (orthogonal LoS) within reach. So it
+	// backs off when crowded, closes when too far, and side-steps onto the party's
+	// row/column to get the axis a bolt needs. Holds when its own cell scores best.
+	// No BFS: kiting is a local decision the host makes each step against LIVE occupancy.
+	if (!monster.moving && monster.moveCd <= 0.0f) {
+		const int want = static_cast<int>(monster.kind->keepRange + 0.5f);
+		auto score = [&](int cx, int cz) {
+			const int d = std::max(std::abs(cx - px), std::abs(cz - pz));
+			int s = std::abs(d - want) * 2; // primary: distance error
+			// Strongly prefer a cell it can actually shoot from (on-axis + in range);
+			// getting onto the party's row/column is the point of a kiter.
+			const bool canFire = static_cast<float>(d) <= monster.kind->aggroRange &&
+								 CellHasLineOfSight(cx, cz, px, pz);
+			if (!canFire) s += 4;
+			return s;
+		};
+		int bestScore = score(monster.x, monster.z);
+		int bx = monster.x, bz = monster.z, bslot = monster.slot;
+		static constexpr int kDX[4] = {1, -1, 0, 0}, kDZ[4] = {0, 0, 1, -1};
+		for (int k = 0; k < 4; ++k) {
+			const int nx = monster.x + kDX[k], nz = monster.z + kDZ[k];
+			const int slot = FreeSlotInCell(nx, nz, monster.kind->size, selfIndex);
+			if (slot < 0) continue; // unwalkable / occupied / the party cell
+			const int s = score(nx, nz);
+			if (s < bestScore) { bestScore = s; bx = nx; bz = nz; bslot = slot; }
+		}
+		if (bx != monster.x || bz != monster.z) {
+			monster.moveFrom = monster.visualPos;
+			monster.x = bx;
+			monster.z = bz;
+			monster.slot = bslot;
+			monster.moving = true;
+			monster.moveT = 0.0f;
+			monster.moveCd = monster.kind->moveInterval;
+		}
+	}
+}
+
+void DungeonWorld::MonsterRangedAttack(Monster& monster) {
+	monster.attackCd = monster.kind->attackInterval;
+	monster.attackReq = true; // play the swing/cast gesture if the rig ships one
+
+	// Launch a bolt down the CARDINAL axis it shares with the party (the caller only
+	// fires when CellHasLineOfSight is true, which is orthogonal-only — so the party
+	// is straight N/E/S/W). Aiming along the axis, like the party's own spell bolts,
+	// keeps everything on the 4-directional grid; no diagonal shots. It flies through
+	// the shared moving-item engine and strikes the party when it reaches their cell
+	// (TargetSide::Party -> ResolveMonsterProjectileHit); a wall fizzles it.
+	const int px = m_party.GridX(), pz = m_party.GridZ();
+	Vec3 dir{0.0f, 0.0f, 0.0f};
+	if (monster.z == pz && monster.x != px)
+		dir.x = px > monster.x ? 1.0f : -1.0f; // same row: fire east/west
+	else if (monster.x == px && monster.z != pz)
+		dir.z = pz > monster.z ? 1.0f : -1.0f; // same column: fire north/south
+	else
+		return; // not axis-aligned (shouldn't happen — caller gates on orthogonal LoS)
+	Vec3 origin = SlotCenter(monster.x, monster.z, monster.kind->size, monster.slot);
+	origin.y += 0.6f;
+
+	ProjectileSpec bolt;
+	bolt.pos = origin;
+	bolt.dir = dir;
+	bolt.speed = 6.0f;
+	bolt.range = (monster.kind->aggroRange + 1.0f) * kCellSize; // reach a bit past aggro
+	bolt.atk = {monster.kind->damage, monster.kind->accuracy};
+	bolt.color = {1.6f, 0.5f, 0.2f, 0.0f}; // ember-orange additive
+	bolt.size = 0.18f;
+	bolt.target = TargetSide::Party;
+	m_projectiles.Spawn(bolt);
+	m_audio.Play(m_sounds.monster, 0.5f); // soft launch cue (reuse the monster voice)
+}
+
+bool DungeonWorld::CellHasLineOfSight(int x0, int z0, int x1, int z1) const {
+	// ORTHOGONAL-only over the LIVE map, mirroring ai::SnapshotView::HasLineOfSight:
+	// a clear line exists only down a shared row or column (no diagonal sight/fire),
+	// with every cell strictly between walkable; endpoints never block.
+	if (x0 == x1 && z0 == z1) return true;
+	if (x0 == x1) {
+		const int s = z0 < z1 ? 1 : -1;
+		for (int z = z0 + s; z != z1; z += s)
+			if (!m_map.IsWalkable(x0, z)) return false;
+		return true;
+	}
+	if (z0 == z1) {
+		const int s = x0 < x1 ? 1 : -1;
+		for (int x = x0 + s; x != x1; x += s)
+			if (!m_map.IsWalkable(x, z0)) return false;
+		return true;
+	}
+	return false; // not axis-aligned — no orthogonal line
 }
 
 bool DungeonWorld::PartyAttack(size_t member, size_t hand) {
@@ -1416,6 +1532,35 @@ bool DungeonWorld::ResolveSpellHit(const Vec3& p, const AttackProfile& atk) {
 		onMessage(loc::Format("log.spell_misses", name));
 	}
 	return true; // a monster was here, so the bolt is consumed (hit or miss)
+}
+
+bool DungeonWorld::ResolveMonsterProjectileHit(const Vec3& p, const AttackProfile& atk) {
+	if (!m_roster || m_partyWiped) return false;
+	const int cx = static_cast<int>(std::floor(p.x / kCellSize));
+	const int cz = static_cast<int>(std::floor(p.z / kCellSize));
+	if (cx != m_party.GridX() || cz != m_party.GridZ()) return false; // not the party's cell yet
+
+	// Reached the party: strike a random standing member (the ranged mirror of
+	// MonsterAttack). Consumed once it arrives, hit or miss (like a spell bolt).
+	std::array<size_t, 4> alive;
+	size_t n = 0;
+	for (size_t i = 0; i < m_roster->size() && n < alive.size(); ++i)
+		if ((*m_roster)[i].IsAlive()) alive[n++] = i;
+	if (n == 0) return true;
+
+	Character& target = (*m_roster)[alive[m_combatRng() % n]];
+	const DefenseProfile def{target.Evasion(), target.Armor()};
+	const AttackResult r = ResolveAttack(atk, def, m_combatRng);
+	if (!r.hit) {
+		onMessage(loc::Format("log.monster_ranged_misses", target.name));
+		return true;
+	}
+	onMessage(loc::Format("log.monster_ranged_hits", target.name,
+						  static_cast<int>(r.damage + 0.5f)));
+	m_audio.Play(m_sounds.monster, 0.6f);
+	WoundMember(target, r.damage);
+	CheckPartyWipe();
+	return true;
 }
 
 } // namespace dungeon::game

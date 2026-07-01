@@ -384,6 +384,11 @@ private:
 		// bucket), not what it decides. Higher iq -> a faster bucket (thinks more
 		// often); see ai::Scheduler::BucketForIq. Default ~100 = middle of the pack.
 		float iq = 100.0f;
+		// Behaviour strategy (monsters.cat `archetype`): brute closes to melee (the
+		// default, unchanged); skirmisher holds `keepRange` cells away and shoots.
+		// Drives the AI intent (Engage vs Kite) and which host executor runs.
+		ai::Archetype archetype = ai::Archetype::Brute;
+		float keepRange = 4.0f;      // skirmisher: cells of party distance it tries to hold
 		// Behaviour/appearance, data-driven from the catalog so AI and the
 		// flat-material fallback never branch on the type name.
 		bool facesTarget = true;     // turn to face the party once engaged
@@ -763,6 +768,28 @@ private:
 	// moving-item engine (m_projectiles) owns the bolt; this is the TargetSide::
 	// Monsters branch of its impact hook.
 	bool ResolveSpellHit(const Vec3& p, const AttackProfile& atk);
+	// TargetSide::Party branch of the moving-item engine's impact hook: a monster
+	// bolt reaching `p`. If `p` is the party's cell it strikes a random standing
+	// member (mirror of MonsterAttack) and is consumed (true, hit or miss);
+	// otherwise it flies on (false).
+	bool ResolveMonsterProjectileHit(const Vec3& p, const AttackProfile& atk);
+	// Skirmisher executor (intent == Kite): hold `keepRange` from the party (greedy
+	// 1-step, LoS-preferring), and fire a ranged bolt when it has a clear line and is
+	// off cooldown. `selfIndex` is the monster's index in m_monsters (for slot tests).
+	void UpdateKiter(Monster& monster, int selfIndex);
+	// Launches a monster bolt from `monster` toward the party through the shared
+	// moving-item engine (TargetSide::Party); sets the attack cooldown + swing gesture.
+	void MonsterRangedAttack(Monster& monster);
+	// True if an unobstructed line runs between cells (x0,z0)->(x1,z1) over the LIVE
+	// map (walls block). The host mirror of ai::SnapshotView::HasLineOfSight, used by
+	// the kiter for firing + repositioning; endpoints never block.
+	bool CellHasLineOfSight(int x0, int z0, int x1, int z1) const;
+	// Apply `damage` to a standing member: clamp health, flash the hit splat (severity
+	// by raw damage), and log a downing. Shared by every party-damage path.
+	void WoundMember(Character& target, float damage);
+	// If no member is standing, latch the one-shot party wipe (message + callback).
+	// Returns true the frame it latches. Shared by the melee/ranged/bump paths.
+	bool CheckPartyWipe();
 	// Blocked-move recoil reached its peak: jar every standing member for a
 	// small amount of damage, flash a splat over each portrait, grunt once, and
 	// latch a party wipe if the bruise is somehow the end of them.

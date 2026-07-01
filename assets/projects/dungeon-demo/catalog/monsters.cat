@@ -53,6 +53,25 @@ aggro = 6
 movecd = 0.45
 iq = 135
 
+; Skirmisher archetype demo: reuses the procedural skeleton mesh but holds its
+;   distance and shoots (archetype=skirmisher, keeprange = cells it tries to keep).
+;   Proves the data-driven behaviour path (docs/ai.md P1c).
+[skel_archer]
+display = Skeleton Archer
+model = skeleton
+texture = skeleton
+hp = 12
+damage = 4
+accuracy = 0.7
+defense = 0.1
+armor = 0
+attackcd = 1.8
+aggro = 8
+movecd = 0.45
+iq = 120
+archetype = skirmisher
+keeprange = 4
+
 [blob]
 display = Blob
 model = blob
