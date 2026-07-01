@@ -63,6 +63,7 @@ static std::vector<std::string> SplitTokens(const std::string& s) {
 // never fatal and an undescribed monster keeps working.
 static ai::Archetype ParseArchetype(const std::string& v) {
 	if (v == "skirmisher") return ai::Archetype::Skirmisher;
+	if (v == "caster") return ai::Archetype::Caster;
 	if (v != "brute" && !v.empty())
 		log::Warn("monsters.cat: unknown archetype '{}' — using brute", v);
 	return ai::Archetype::Brute;
@@ -305,6 +306,9 @@ DungeonWorld::MonsterKind& DungeonWorld::MonsterKindFor(const std::string& type)
 			assets->iq = def->GetFloat("iq", 100.0f);
 			assets->archetype = ParseArchetype(CatalogGet(def, "archetype", "brute"));
 			assets->keepRange = def->GetFloat("keeprange", 4.0f);
+			assets->spell = CatalogGet(def, "spell", "");
+			if (assets->archetype == ai::Archetype::Caster && assets->spell.empty())
+				log::Warn("monsters.cat [{}]: archetype=caster but no spell= set", type);
 			assets->facesTarget = def->GetBool("faces", true);
 			assets->fallbackRoughness = def->GetFloat("roughness", 0.9f);
 			// Imported-model fixups (degrees in the catalog -> radians here).

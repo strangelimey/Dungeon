@@ -30,6 +30,11 @@ public:
 	void LoadSpells(const Catalog& spells);
 	bool HasRecipes() const { return !m_spellBook.Empty(); }
 
+	// The recipe with catalog id `id`, or null. Lets the host build a bolt spec for
+	// a monster CASTER (archetype = caster) from a named spell, reusing the recipe
+	// table without going through the party cast path (no caster/mana/vocab checks).
+	const SpellDef* FindSpell(std::string_view id) const { return m_spellBook.Find(id); }
+
 	// The outcome of a cast attempt; the owner turns it into a log line.
 	enum class CastOutcome { Cast, Unknown, NoRecipe, NoMana };
 	struct CastReport {

@@ -103,4 +103,10 @@ const SpellDef* SpellBook::Match(std::span<const SpellSymbol> seq) const {
 	return nullptr;
 }
 
+const SpellDef* SpellBook::Find(std::string_view id) const {
+	for (const SpellDef& d : m_defs)
+		if (d.id == id) return &d;
+	return nullptr;
+}
+
 } // namespace dungeon::game

@@ -15,6 +15,9 @@
 ; Skirmisher demo (docs/ai.md P1c): stands down the open corridor east of the
 ; start room so the party rounds the corner into it; it kites away and shoots.
 monster skel_archer 10 4 west
+; Caster demo (docs/ai.md P2): further down the same corridor; kites and hurls
+; firebolts (spell=firebolt) through the shared engine.
+monster skel_mage 16 4 west
 monster skel_human 6 6 north
 monster skeleton 15 7 west
 monster blob 27 4

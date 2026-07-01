@@ -72,6 +72,26 @@ iq = 120
 archetype = skirmisher
 keeprange = 4
 
+; Caster archetype demo (docs/ai.md P2): kites like the archer but its bolt is a
+;   named spell from spells.cat (spell=firebolt) thrown through the shared
+;   moving-item engine — the payoff of the one-projectile-engine decision.
+[skel_mage]
+display = Skeleton Mage
+model = skeleton
+texture = skeleton
+hp = 14
+damage = 4
+accuracy = 0.75
+defense = 0.1
+armor = 0
+attackcd = 2.4
+aggro = 9
+movecd = 0.5
+iq = 130
+archetype = caster
+keeprange = 5
+spell = firebolt
+
 [blob]
 display = Blob
 model = blob

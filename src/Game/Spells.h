@@ -80,6 +80,9 @@ public:
 	void Build(const Catalog& catalog);
 	// The recipe whose sequence exactly equals `seq`, or null if none matches.
 	const SpellDef* Match(std::span<const SpellSymbol> seq) const;
+	// The recipe with catalog id `id`, or null if none. Lets a non-party caster
+	// (a monster) reference a spell by name rather than reproduce its sequence.
+	const SpellDef* Find(std::string_view id) const;
 	bool Empty() const { return m_defs.empty(); }
 
 private:

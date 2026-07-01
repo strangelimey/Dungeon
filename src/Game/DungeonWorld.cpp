@@ -1388,17 +1388,35 @@ void DungeonWorld::MonsterRangedAttack(Monster& monster) {
 	Vec3 origin = SlotCenter(monster.x, monster.z, monster.kind->size, monster.slot);
 	origin.y += 0.6f;
 
+	// A CASTER (archetype = caster with a spells.cat `spell`) throws that spell's
+	// bolt — its element colour, speed, range, and power — reusing the same recipe
+	// table the party casts from (no monster mana/vocab; it just shoots on cooldown).
+	// Any other ranged monster (a skirmisher) throws a plain ember bolt.
+	const SpellDef* spell =
+		monster.kind->spell.empty() ? nullptr : m_magic.FindSpell(monster.kind->spell);
+
 	ProjectileSpec bolt;
 	bolt.pos = origin;
 	bolt.dir = dir;
-	bolt.speed = 6.0f;
-	bolt.range = (monster.kind->aggroRange + 1.0f) * kCellSize; // reach a bit past aggro
-	bolt.atk = {monster.kind->damage, monster.kind->accuracy};
-	bolt.color = {1.6f, 0.5f, 0.2f, 0.0f}; // ember-orange additive
-	bolt.size = 0.18f;
 	bolt.target = TargetSide::Party;
-	m_projectiles.Spawn(bolt);
-	m_audio.Play(m_sounds.monster, 0.5f); // soft launch cue (reuse the monster voice)
+	if (spell) {
+		bolt.speed = spell->speed;
+		bolt.range = spell->range;
+		bolt.atk = {spell->power, monster.kind->accuracy};
+		const Vec4 g = ElementColor(spell->element);
+		bolt.color = {g.x * 1.7f, g.y * 1.7f, g.z * 1.7f, 0.0f}; // bright elemental glow
+		bolt.size = 0.2f;
+		m_projectiles.Spawn(bolt);
+		m_audio.Play(m_sounds.spellCast, 0.6f); // the cast voice
+	} else {
+		bolt.speed = 6.0f;
+		bolt.range = (monster.kind->aggroRange + 1.0f) * kCellSize; // a bit past aggro
+		bolt.atk = {monster.kind->damage, monster.kind->accuracy};
+		bolt.color = {1.6f, 0.5f, 0.2f, 0.0f}; // ember-orange additive
+		bolt.size = 0.18f;
+		m_projectiles.Spawn(bolt);
+		m_audio.Play(m_sounds.monster, 0.5f); // soft launch cue (reuse the monster voice)
+	}
 }
 
 bool DungeonWorld::CellHasLineOfSight(int x0, int z0, int x1, int z1) const {

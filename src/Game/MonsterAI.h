@@ -72,11 +72,12 @@ public:
 // The behaviour STRATEGY a monster runs, selected as data (monsters.cat
 // `archetype`). The brain picks an Intent mode from this; the host runs the
 // matching executor. Brute is today's close-and-melee; Skirmisher holds its
-// distance and attacks at range (kites). The set grows as the archetype table
-// fills out (caster/lurker/sentry/swarm — see docs/ai.md); keep Brute == 0 so an
-// unset/legacy monster defaults to it.
+// distance and attacks at range (kites); Caster kites the same way but its bolt
+// is a named spell (monsters.cat `spell`) fired through the shared engine. The set
+// grows as the table fills out (lurker/sentry/swarm — see docs/ai.md); keep
+// Brute == 0 so an unset/legacy monster defaults to it.
 // ----------------------------------------------------------------------------
-enum class Archetype { Brute, Skirmisher };
+enum class Archetype { Brute, Skirmisher, Caster };
 
 // ----------------------------------------------------------------------------
 // The monster as the brain sees it — a flat snapshot of the few fields thinking

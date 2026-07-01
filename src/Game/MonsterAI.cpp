@@ -124,10 +124,12 @@ Intent Brain::Think(const Agent& a, int partyX, int partyZ, const IWorldView& wo
 		// The archetype picks HOW it engages. A brute closes to melee toward its
 		// ASSIGNED attack cell (the host's formation pass spreads monsters around the
 		// party — surround; an unassigned monster targets the party cell itself). A
-		// skirmisher kites: it holds at range and shoots, so it needs no chase path —
-		// the host keep-distance executor works straight from live party position.
-		it.mode = a.archetype == Archetype::Skirmisher ? Intent::Mode::Kite
-													   : Intent::Mode::Engage;
+		// skirmisher OR caster kites: it holds at range and shoots (a bolt / a spell),
+		// so it needs no chase path — the host keep-distance executor works straight
+		// from live party position.
+		const bool kites = a.archetype == Archetype::Skirmisher ||
+						   a.archetype == Archetype::Caster;
+		it.mode = kites ? Intent::Mode::Kite : Intent::Mode::Engage;
 		it.targetX = a.targetX;
 		it.targetZ = a.targetZ;
 	}

@@ -388,7 +388,9 @@ private:
 		// default, unchanged); skirmisher holds `keepRange` cells away and shoots.
 		// Drives the AI intent (Engage vs Kite) and which host executor runs.
 		ai::Archetype archetype = ai::Archetype::Brute;
-		float keepRange = 4.0f;      // skirmisher: cells of party distance it tries to hold
+		float keepRange = 4.0f;      // skirmisher/caster: cells of party distance to hold
+		std::string spell;           // caster: spells.cat id its bolt casts (empty = a
+									 // plain bolt, e.g. a skirmisher's arrow)
 		// Behaviour/appearance, data-driven from the catalog so AI and the
 		// flat-material fallback never branch on the type name.
 		bool facesTarget = true;     // turn to face the party once engaged

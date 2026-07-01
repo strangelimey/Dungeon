@@ -311,7 +311,10 @@ regression guard before any new behaviour rides on it.
    untouched baseline. Proves the whole data path.
 4. **P2** — Fill out the archetype table (flee/patrol/cast/lurker/sentry/swarm
    executors + group leader/call-for-help); surface the fields in the
-   asset-creation dialog.
+   asset-creation dialog. **In progress:** `caster` DONE (kites like a skirmisher
+   but its bolt is a named `spells.cat` spell fired through the shared engine —
+   `SpellBook::Find`/`MagicSystem::FindSpell` + a `spell` catalog field). Next:
+   flee-at-low-HP, then swarm/lurker; then the editor dialog fields.
 5. **P3** — Per-instance `.ent` overrides (waypoints/asleep/leashfrom) + a
    minimal entity inspector in the editor (Layer 2).
 6. **P4** — (Deferred/optional) behaviour-graph authoring (Layer 3) only if
