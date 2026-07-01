@@ -52,6 +52,9 @@ public:
 	// Fired when a configurable palette item is right-clicked (the owner opens the
 	// per-type config dialog). Currently only Monsters are configurable.
 	std::function<void(PaletteCat, const std::string& id)> onConfigure;
+	// Fired when the Select tool clicks a cell holding a monster (the owner opens the
+	// per-INSTANCE entity inspector). The cell is passed; the owner finds the monster.
+	std::function<void(int cx, int cz)> onInspect;
 
 	// Category metadata (one source of truth, see kCategoryInfo): the display loc
 	// key, the project catalog it authors into ("" = not creatable), and whether

@@ -378,6 +378,13 @@ bool DungeonWorld::SaveLevel() const {
 		if (mon.leashRange > 0.0f) e += std::format(" leash={:g}", mon.leashRange);
 		if (mon.leashX != mon.spawnX || mon.leashZ != mon.spawnZ)
 			e += std::format(" leashfrom={},{}", mon.leashX, mon.leashZ);
+		// Per-instance behaviour overrides (only when they differ from the type).
+		static const char* kArch[] = {"brute", "skirmisher", "caster", "swarm", "lurker"};
+		if (mon.archOverride) e += std::format(" archetype={}", kArch[static_cast<int>(*mon.archOverride)]);
+		if (mon.keepOverride) e += std::format(" keeprange={:g}", *mon.keepOverride);
+		if (mon.fleeOverride) e += std::format(" fleebelow={:g}", *mon.fleeOverride);
+		if (mon.spellOverride && !mon.spellOverride->empty())
+			e += std::format(" spell={}", *mon.spellOverride);
 		e += '\n';
 	}
 	// Items/buttons aren't editor-editable yet — carry the loaded records through.
@@ -933,6 +940,43 @@ DungeonWorld::Monster* DungeonWorld::MonsterByRuntimeId(u32 id) {
 	return nullptr;
 }
 
+bool DungeonWorld::MonsterInstanceAt(int cx, int cz, u32& runtimeId, std::string& type,
+									 bool& asleep, float& leashRange, ai::Archetype& archetype,
+									 float& keepRange, float& fleeBelow,
+									 std::string& spell) const {
+	for (const Monster& m : m_monsters) {
+		if (m.x != cx || m.z != cz || !m.kind) continue;
+		runtimeId = m.runtimeId;
+		type = m.kind->name;
+		asleep = m.asleep;
+		leashRange = m.leashRange;
+		archetype = m.Archetype(); // effective values (override or the type default)
+		keepRange = m.KeepRange();
+		fleeBelow = m.FleeBelow();
+		spell = m.Spell();
+		return true;
+	}
+	return false;
+}
+
+void DungeonWorld::ApplyMonsterInstance(u32 runtimeId, bool asleep, float leashRange,
+										ai::Archetype archetype, float keepRange,
+										float fleeBelow, const std::string& spell) {
+	Monster* m = MonsterByRuntimeId(runtimeId);
+	if (!m || !m->kind) return;
+	m->asleep = asleep;
+	m->leashRange = leashRange;
+	// Keep an override only when it differs from the type default (else inherit, so
+	// the .ent stays minimal and a later type edit still flows through).
+	m->archOverride =
+		archetype == m->kind->archetype ? std::nullopt : std::optional(archetype);
+	m->keepOverride =
+		std::abs(keepRange - m->kind->keepRange) < 0.01f ? std::nullopt : std::optional(keepRange);
+	m->fleeOverride =
+		std::abs(fleeBelow - m->kind->fleeBelow) < 0.01f ? std::nullopt : std::optional(fleeBelow);
+	m->spellOverride = spell == m->kind->spell ? std::nullopt : std::optional(spell);
+}
+
 void DungeonWorld::ReconcileGroups() {
 	// A GROUP is the set of monsters currently sharing a cell. Recomputed every
 	// frame so groups MERGE automatically when monsters converge into one cell and
@@ -1150,7 +1194,7 @@ void DungeonWorld::BuildAISnapshot() {
 		// facing — the archetype bundles omnidirectional perception, so the brain
 		// skips the sight cone for it just like it does for the blob (faces=false).
 		const bool directional =
-			m.kind->facesTarget && m.kind->archetype != ai::Archetype::Swarm;
+			m.kind->facesTarget && m.Archetype() != ai::Archetype::Swarm;
 		// Named fields (not positional) — the Agent has grown past a dozen members
 		// and a misplaced value would be silent; designated initos keep it honest.
 		snap->monsters.push_back(ai::Agent{.id = m.runtimeId,
@@ -1165,9 +1209,9 @@ void DungeonWorld::BuildAISnapshot() {
 										   .facingYaw = m.yaw,
 										   .targetX = m.targetX,
 										   .targetZ = m.targetZ,
-										   .archetype = m.kind->archetype,
+										   .archetype = m.Archetype(),
 										   .hpFrac = hpFrac,
-										   .fleeBelow = m.kind->fleeBelow,
+										   .fleeBelow = m.FleeBelow(),
 										   .asleep = m.asleep,
 										   .leashX = m.leashX,
 										   .leashZ = m.leashZ,
@@ -1400,7 +1444,7 @@ void DungeonWorld::UpdateKiter(Monster& monster, int selfIndex) {
 	// row/column to get the axis a bolt needs. Holds when its own cell scores best.
 	// No BFS: kiting is a local decision the host makes each step against LIVE occupancy.
 	if (!monster.moving && monster.moveCd <= 0.0f) {
-		const int want = static_cast<int>(monster.kind->keepRange + 0.5f);
+		const int want = static_cast<int>(monster.KeepRange() + 0.5f);
 		GreedyStep(monster, selfIndex, [&](int cx, int cz) {
 			const int d = std::max(std::abs(cx - px), std::abs(cz - pz));
 			int s = std::abs(d - want) * 2; // primary: distance error
@@ -1469,7 +1513,7 @@ void DungeonWorld::MonsterRangedAttack(Monster& monster) {
 	// table the party casts from (no monster mana/vocab; it just shoots on cooldown).
 	// Any other ranged monster (a skirmisher) throws a plain ember bolt.
 	const SpellDef* spell =
-		monster.kind->spell.empty() ? nullptr : m_magic.FindSpell(monster.kind->spell);
+		monster.Spell().empty() ? nullptr : m_magic.FindSpell(monster.Spell());
 
 	ProjectileSpec bolt;
 	bolt.pos = origin;

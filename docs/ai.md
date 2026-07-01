@@ -331,11 +331,15 @@ regression guard before any new behaviour rides on it.
    CONSUMING them at spawn + an editor inspector to author them. Decisions (2026-
    07-01): tabbed-dialog-style inspector (like the monster-config dialog); patrol
    routes authored by CLICKING grid cells; ship in two steps.
-   - **P3a** — per-instance `asleep` (dormant until provoked/close, a per-placement
-     lurker) + `leash`/`leashfrom` (disengage when pulled too far from the anchor),
-     consumed in LoadMonsters, carried on Monster + into the AI snapshot, written
-     back by the .ent writer; plus the entity inspector (select a placed monster →
-     edit its overrides live, Save writes the level .ent).
+   - **P3a** DONE — per-instance `asleep` (dormant until provoked/close, a per-
+     placement lurker) + `leash`/`leashfrom` (disengage + walk home when pulled too
+     far), consumed in LoadMonsters, carried on Monster + into the AI snapshot,
+     written back by the .ent writer. Plus the EntityInspector (Select-click a
+     placed monster → tabbed AI panel): edits its overrides live, Save writes the
+     level .ent. Behaviour is overridable PER INSTANCE too (archetype + keeprange/
+     fleebelow/spell) as std::optional overrides that fall back to the type default
+     (so a type edit still flows to un-overridden placements); the AI reads through
+     Monster::Archetype()/KeepRange()/FleeBelow()/Spell() accessors.
    - **P3b** — patrol as a HOST-side executor (like kite/flee) driven by a
      per-instance waypoint route (no AI-layer change), grid-click route authoring,
      and the `sentry` archetype (wide cone + patrol/leash defaults).

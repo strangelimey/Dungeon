@@ -333,6 +333,12 @@ archetype.skirmisher=Skirmisher (kite + bolt)
 archetype.caster=Caster (kite + spell)
 archetype.swarm=Swarm (omni melee)
 archetype.lurker=Lurker (ambush)
+; --- entity inspector (per-placed-monster overrides) ---
+map.insp.title=Monster: {}
+map.insp.tab.ai=AI
+map.insp.asleep=Start asleep (ambush)
+map.insp.leash=Leash range (cells, 0 = none)
+map.insp.saved=Saved instance overrides for '{}'
 
 ; CreatureState display names (Animation/CreatureState.h)
 anim.state.spawn=Spawn

@@ -502,6 +502,14 @@ void DungeonWorld::LoadMonsters() {
 			monster.leashRange = std::strtof(v->c_str(), nullptr);
 		if (const std::string* v = spawn.Param("leashfrom"))
 			ParseCell(*v, monster.leashX, monster.leashZ);
+		// Per-instance BEHAVIOUR overrides (else inherit the type default).
+		if (const std::string* v = spawn.Param("archetype"))
+			monster.archOverride = ParseArchetype(*v);
+		if (const std::string* v = spawn.Param("keeprange"))
+			monster.keepOverride = std::strtof(v->c_str(), nullptr);
+		if (const std::string* v = spawn.Param("fleebelow"))
+			monster.fleeOverride = std::strtof(v->c_str(), nullptr);
+		if (const std::string* v = spawn.Param("spell")) monster.spellOverride = *v;
 		monster.animator.Update(static_cast<float>(phase++) * 0.7f); // desync idles
 		m_monsters.push_back(std::move(monster));
 	}

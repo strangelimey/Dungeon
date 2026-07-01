@@ -78,7 +78,7 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	  m_console(device, m_threads),
 	  m_modelPreview(device, 512),
 	  m_assetDialog(device, window),
-	  m_monsterDialog(device) {
+	  m_monsterDialog(device), m_entityInspector(device) {
 	m_mapView.SetEditor(&m_mapEditor); // the view drives the editor in Editor mode
 	m_settings.Load();
 	ApplyLanguage(false); // strings must exist before any UI builds
@@ -262,6 +262,27 @@ void Game::WireModuleCallbacks() {
 		m_world.ApplyMonsterAnimConfig(c.type, c.supported, c.clips);
 		m_world.ApplyMonsterBehavior(c.type, c.archetype, c.keepRange, c.fleeBelow, c.spell);
 		WriteMonsterAnim(c);
+	};
+
+	// Per-instance inspector: Select-click a placed monster → edit its .ent overrides.
+	m_mapEditor.onInspect = [this](int cx, int cz) {
+		EntityInspector::Config c;
+		if (!m_world.MonsterInstanceAt(cx, cz, c.runtimeId, c.type, c.asleep, c.leashRange,
+									   c.archetype, c.keepRange, c.fleeBelow, c.spell))
+			return;
+		m_entityInspector.Open(c, m_world.SpellIds());
+	};
+	m_entityInspector.onApply = [this](const EntityInspector::Config& c) {
+		m_world.ApplyMonsterInstance(c.runtimeId, c.asleep, c.leashRange, c.archetype,
+									 c.keepRange, c.fleeBelow, c.spell);
+	};
+	m_entityInspector.onSave = [this](const EntityInspector::Config& c) {
+		m_world.ApplyMonsterInstance(c.runtimeId, c.asleep, c.leashRange, c.archetype,
+									 c.keepRange, c.fleeBelow, c.spell);
+		if (!m_world.SaveLevel())
+			log::Warn("entity inspector: failed to save level .ent");
+		else if (m_world.onMessage)
+			m_world.onMessage(loc::Format("map.insp.saved", c.type));
 	};
 }
 
@@ -1428,6 +1449,12 @@ void Game::Update(float dt) {
 		if (m_previewMonMesh) m_previewAnim.Update(dt);
 		return;
 	}
+	// The per-instance entity inspector is likewise modal over the editor.
+	if (m_entityInspector.IsOpen()) {
+		m_entityInspector.Update(input, static_cast<float>(m_window.Width()),
+								 static_cast<float>(m_window.Height()));
+		return;
+	}
 
 	// Map overlay: a toggle that never pauses the world. While it is open the
 	// party still walks (keyboard) — the overlay only claims the mouse for
@@ -1639,6 +1666,8 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 			m_spriteBatch.DrawSprite(m_monsterDialog.PreviewRect(dw, dh), {0, 0, 1, 1},
 									 m_modelPreview.Srv(), {1, 1, 1, 1});
 	}
+	if (m_entityInspector.IsOpen()) // per-instance inspector, modal over the editor
+		m_entityInspector.Render(m_spriteBatch, m_settings.theme, dw, dh);
 	if (m_console.IsOpen())
 		m_console.Render(m_spriteBatch, m_device, static_cast<float>(m_device.Width()),
 						 static_cast<float>(m_device.Height()));

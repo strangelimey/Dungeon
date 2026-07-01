@@ -216,6 +216,8 @@ void MapEditor::ApplyBrush(int cx, int cz, bool dragging) {
 			if (mons) details += std::format(", {} monster{}", mons, mons == 1 ? "" : "s");
 			if (props) details += std::format(", {} prop{}", props, props == 1 ? "" : "s");
 			log(loc::Format("map.select.contents", cx, cz, details));
+			// A monster here → open the per-instance inspector on it.
+			if (mons && onInspect) onInspect(cx, cz);
 		} else { // Erase: remove a runtime entity, else reset surface overrides
 			if (m_world.RemoveEntityAt(cx, cz)) {
 				log(loc::Tr("map.erase.removed"));

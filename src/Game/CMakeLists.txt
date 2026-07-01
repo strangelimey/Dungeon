@@ -13,6 +13,7 @@ add_library(Game STATIC
 	DungeonWorld_Render.cpp
 	DungeonWorld_Save.cpp
 	Entity.cpp
+	EntityInspector.cpp
 	FireEffect.cpp
 	Game.cpp
 	GameSettings.cpp

@@ -48,6 +48,7 @@
 #include "Game/LoadQueue.h"
 #include "Game/MapEditor.h"
 #include "Game/MapView.h"
+#include "Game/EntityInspector.h"
 #include "Game/MonsterConfigDialog.h"
 #include "Game/Project.h"
 #include "Game/SoundBank.h"
@@ -270,6 +271,8 @@ private:
 	// Monster-type animation config dialog, opened by right-clicking a monster in
 	// the editor palette (states + per-state clip table).
 	MonsterConfigDialog m_monsterDialog;
+	// Per-instance entity inspector, opened by Select-clicking a placed monster.
+	EntityInspector m_entityInspector;
 	// Live animation preview for that dialog: an Animator over the selected type's
 	// (borrowed) skeleton+clips, rendered into m_modelPreview and blitted into the
 	// dialog's preview pane. m_previewType/Clip track what it's currently playing so

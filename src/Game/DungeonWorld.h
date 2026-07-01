@@ -197,6 +197,17 @@ public:
 	// Catalog ids of the project's spells — the options for the caster spell dropdown.
 	std::vector<std::string> SpellIds() const;
 
+	// Editor entity inspector: read a placed monster's per-INSTANCE overrides at a
+	// cell (the first live one there), and apply edits back to it by runtimeId (live;
+	// the .ent writer persists on SaveLevel). Read returns false if no monster is
+	// there. `type` is the kind's catalog id.
+	bool MonsterInstanceAt(int cx, int cz, u32& runtimeId, std::string& type, bool& asleep,
+						   float& leashRange, ai::Archetype& archetype, float& keepRange,
+						   float& fleeBelow, std::string& spell) const;
+	void ApplyMonsterInstance(u32 runtimeId, bool asleep, float leashRange,
+							  ai::Archetype archetype, float keepRange, float fleeBelow,
+							  const std::string& spell);
+
 	// Everything the editor's monster-config dialog preview needs to animate a
 	// type's mesh: the (stable, cached) mesh + skeleton + clips a borrowed Animator
 	// plays, the resolved render material, and the render-time size fixup. The
@@ -462,6 +473,18 @@ private:
 		int leashX = 0, leashZ = 0;
 		float leashRange = 0.0f;
 		std::vector<ai::Cell> patrol;
+		// Per-instance BEHAVIOUR overrides (.ent archetype/keeprange/fleebelow/spell).
+		// Absent = inherit the type default (so editing the type still updates every
+		// un-overridden instance live); the inspector sets them, the .ent stores them.
+		std::optional<ai::Archetype> archOverride;
+		std::optional<float> keepOverride;
+		std::optional<float> fleeOverride;
+		std::optional<std::string> spellOverride;
+		// Effective behaviour = the override if set, else the kind's default.
+		ai::Archetype Archetype() const { return archOverride ? *archOverride : kind->archetype; }
+		float KeepRange() const { return keepOverride ? *keepOverride : kind->keepRange; }
+		float FleeBelow() const { return fleeOverride ? *fleeOverride : kind->fleeBelow; }
+		const std::string& Spell() const { return spellOverride ? *spellOverride : kind->spell; }
 		float yaw = 0.0f;         // current visual facing (eased toward targetYaw)
 		float targetYaw = 0.0f;   // desired facing: travel direction, or the party
 		Direction facing = Direction::South; // for the .ent writer
