@@ -49,7 +49,10 @@
 #include "Game/MapEditor.h"
 #include "Game/MapView.h"
 #include "Game/EntityInspector.h"
+#include "Game/FixtureInspector.h"
+#include "Game/InspectPicker.h"
 #include "Game/MonsterConfigDialog.h"
+#include "Game/PropInspector.h"
 #include "Game/Project.h"
 #include "Game/SoundBank.h"
 #include "Graphics/ModelPreview.h"
@@ -273,6 +276,23 @@ private:
 	MonsterConfigDialog m_monsterDialog;
 	// Per-instance entity inspector, opened by Select-clicking a placed monster.
 	EntityInspector m_entityInspector;
+	// Per-instance fixture inspector, opened by Select-clicking a wall torch/sconce.
+	FixtureInspector m_fixtureInspector;
+	// Per-instance editor for placed items and decorations (facing, ...).
+	PropInspector m_propInspector;
+	// Chooser shown when a Select-clicked cell holds >1 inspectable object; picking a
+	// row opens the matching inspector. One target per object at the clicked cell.
+	InspectPicker m_inspectPicker;
+	struct InspectTarget {
+		enum class Kind { Monster, Sconce, Decoration, Item } kind = Kind::Monster;
+		u32 runtimeId = 0;        // Monster: the stable id
+		Direction wall = Direction::North; // Sconce: the wall it hangs on
+		int handle = 0;           // Decoration: list index; Item: stable entity id
+		std::string type;         // catalog display name (Decoration/Item title)
+	};
+	std::vector<InspectTarget> m_inspectTargets; // objects at the last inspected cell
+	int m_inspectCellX = 0, m_inspectCellZ = 0;  // that cell (for fixture configs)
+	void OpenInspectorFor(const InspectTarget& t); // routes to the right dialog
 	// The inspector's config for the monster being edited — kept so route-laying can
 	// reopen the inspector (with an updated waypoint count) when it finishes.
 	EntityInspector::Config m_inspectCfg;

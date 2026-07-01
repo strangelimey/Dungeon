@@ -36,6 +36,8 @@ bool ParseDirection(std::string_view token, Direction& out);
 // Yaw under the camera convention forward = (sin yaw, 0, cos yaw):
 // south = 0, east = +pi/2, north = pi, west = -pi/2.
 float DirYaw(Direction d);
+// The loc key naming a Direction ("facing.north" ...), for UI dropdowns/labels.
+const char* FacingLocKey(Direction d);
 
 enum class EntityKind : u8 { Monster, Item, Button, Decoration };
 

@@ -203,10 +203,15 @@ public:
 	// there. `type` is the kind's catalog id.
 	bool MonsterInstanceAt(int cx, int cz, u32& runtimeId, std::string& type, bool& asleep,
 						   float& leashRange, ai::Archetype& archetype, float& keepRange,
-						   float& fleeBelow, std::string& spell) const;
+						   float& fleeBelow, std::string& spell, Direction& facing) const;
+	// Same read, keyed by the stable runtimeId (for the multi-object inspect picker,
+	// which resolves one of several monsters sharing a cell). False if id not found.
+	bool MonsterInstanceById(u32 runtimeId, std::string& type, bool& asleep,
+							 float& leashRange, ai::Archetype& archetype, float& keepRange,
+							 float& fleeBelow, std::string& spell, Direction& facing) const;
 	void ApplyMonsterInstance(u32 runtimeId, bool asleep, float leashRange,
 							  ai::Archetype archetype, float keepRange, float fleeBelow,
-							  const std::string& spell);
+							  const std::string& spell, Direction facing);
 
 	// Patrol-route editing (grid-click authoring in the editor). Append/undo/clear a
 	// monster's waypoint route by runtimeId (live; the .ent writer persists it on
@@ -217,6 +222,33 @@ public:
 	const std::vector<ai::Cell>* MonsterPatrol(u32 runtimeId) const;
 	// The runtimeId of the first live monster at (cx,cz), or 0 — for editor selection.
 	u32 MonsterRuntimeIdAt(int cx, int cz) const;
+	// Every live monster on (cx,cz) as (runtimeId, kind catalog id) — for the editor's
+	// multi-object inspect picker (a cell may stack several monsters).
+	std::vector<std::pair<u32, std::string>> MonstersAt(int cx, int cz) const;
+	// A wall sconce (torch) on (cx,cz)? Reports the wall it hangs on — for editor
+	// selection / the fixture inspector.
+	bool SconceAt(int cx, int cz, Direction* wall = nullptr) const;
+	// Every wall sconce (torch) on (cx,cz), by the wall each hangs on — several may
+	// share a cell on different walls (the inspect picker lists them).
+	std::vector<Direction> SconcesAt(int cx, int cz) const;
+	// The solid neighbour walls of (cx,cz) a sconce may hang on (for the torch
+	// facing dropdown).
+	std::vector<Direction> SolidWallsAt(int cx, int cz) const;
+	// Re-hang the sconce at (cx,cz) from wall `from` onto `to` (live: updates the
+	// map and rebuilds fires/dust). `from` disambiguates several sconces in a cell.
+	bool RemountSconce(int cx, int cz, Direction from, Direction to);
+
+	// Editor multi-object inspect: decorations / floor items on a cell. Decorations
+	// come back as (index into the live decoration list, catalog id); items as
+	// (stable entity id, type). Those handles drive the *Facing accessors below.
+	std::vector<std::pair<int, std::string>> DecorationsAt(int cx, int cz) const;
+	std::vector<std::pair<int, std::string>> ItemsAt(int cx, int cz) const;
+	Direction DecorationFacing(int index) const;
+	void SetDecorationFacing(int index, Direction facing); // rebakes the transform
+	Direction ItemFacing(int entityId) const;
+	void SetItemFacing(int entityId, Direction facing);
+	// Any editor-inspectable object on the cell (monster / torch / decoration / item)?
+	bool AnyInspectableAt(int cx, int cz) const;
 
 	// Everything the editor's monster-config dialog preview needs to animate a
 	// type's mesh: the (stable, cached) mesh + skeleton + clips a borrowed Animator
@@ -328,6 +360,7 @@ public:
 	struct MapMarker {
 		int x = 0, z = 0;
 		std::string type; // catalog id (monster kind / decoration kind)
+		Direction facing = Direction::South; // for the editor's facing arrow
 	};
 	std::vector<MapMarker> MonsterMarkers() const;
 	std::vector<MapMarker> DecorationMarkers() const;

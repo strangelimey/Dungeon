@@ -334,6 +334,8 @@ archetype.caster=Caster (kite + spell)
 archetype.swarm=Swarm (omni melee)
 archetype.lurker=Lurker (ambush)
 archetype.sentry=Sentry (patrol + wide cone)
+; --- instance inspectors (per-placed object edit dialogs) ---
+map.insp.facing=Facing
 ; --- entity inspector (per-placed-monster overrides) ---
 map.insp.title=Monster: {}
 map.insp.tab.ai=AI
@@ -345,6 +347,15 @@ map.insp.editroute=Edit route on map
 map.insp.clearroute=Clear route
 map.insp.saved=Saved instance overrides for '{}'
 map.route.hint=Laying patrol route — click cells; Enter: done, Backspace: undo
+; --- fixture inspector (per-placed torch/sconce) ---
+map.fix.title=Torch — cell {}, {}
+map.fix.nosettings=No settings yet.
+map.fix.torchwall=Torch ({} wall)
+; --- item/decoration inspector ---
+map.prop.item=Item: {}
+map.prop.deco=Decoration: {}
+; --- inspect chooser (a cell with more than one editable object) ---
+map.pick.title=Edit at cell {}, {}
 
 ; CreatureState display names (Animation/CreatureState.h)
 anim.state.spawn=Spawn

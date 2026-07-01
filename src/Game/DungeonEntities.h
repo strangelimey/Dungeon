@@ -29,6 +29,9 @@ public:
 	DungeonEntities(const std::string& path, const DungeonMap& map);
 
 	const std::vector<Entity>& All() const { return m_entities; }
+	// Mutable lookup by stable spawn id, for the editor's instance inspector
+	// (e.g. editing a placed item's facing). nullptr if no such entity.
+	Entity* MutableById(int id);
 
 	// Every entity in one cell (possibly several — an item on a pressure
 	// plate, a monster guarding both).

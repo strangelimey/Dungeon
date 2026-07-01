@@ -315,6 +315,18 @@ bool DungeonMap::AddSconce(int x, int z) {
 	return false; // no wall to hang on
 }
 
+bool DungeonMap::SetSconceWall(int x, int z, Direction from, Direction to) {
+	if (from == to) return true;
+	if (IsWalkable(x + DirDX(to), z + DirDZ(to))) return false; // target wall not solid
+	for (WallSconce& s : m_torches)
+		if (s.x == x && s.z == z && s.wall == from) {
+			s.wall = to;
+			++m_revision;
+			return true;
+		}
+	return false;
+}
+
 bool DungeonMap::AddBrazier(int x, int z) {
 	if (!IsWalkable(x, z)) return false;
 	m_braziers.emplace_back(x, z);

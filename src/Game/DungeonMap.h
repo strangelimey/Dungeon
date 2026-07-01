@@ -125,6 +125,10 @@ public:
 	// fires/dust after; the .map writer reads these lists, so placements persist.
 	bool AddSconce(int x, int z);
 	bool AddBrazier(int x, int z);
+	// Re-hang the sconce at (x,z) currently on `from` onto `to` (which must be a
+	// solid neighbour wall). Bumps Revision(); false if no such sconce or `to`
+	// isn't solid. The caller rebuilds fires/turbidity (DungeonWorld::RemountSconce).
+	bool SetSconceWall(int x, int z, Direction from, Direction to);
 
 	int StartX() const { return m_startX; }
 	int StartZ() const { return m_startZ; }

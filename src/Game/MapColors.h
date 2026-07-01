@@ -28,5 +28,6 @@ inline const Vec4 kStair{0.60f, 0.72f, 0.78f, 1.0f};      // stair category
 inline const Vec4 kToolSelect{0.45f, 0.70f, 0.95f, 1.0f}; // Select tool
 inline const Vec4 kToolErase{0.90f, 0.40f, 0.40f, 1.0f};  // Erase tool
 inline const Vec4 kMarkerInk{0.96f, 0.96f, 0.98f, 1.0f};  // initials drawn over markers
+inline const Vec4 kFacingArrow{0.25f, 1.0f, 0.40f, 1.0f}; // editor: which way a placed thing faces
 
 } // namespace dungeon::game

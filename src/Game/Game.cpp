@@ -78,7 +78,8 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	  m_console(device, m_threads),
 	  m_modelPreview(device, 512),
 	  m_assetDialog(device, window),
-	  m_monsterDialog(device), m_entityInspector(device) {
+	  m_monsterDialog(device), m_entityInspector(device), m_fixtureInspector(device),
+	  m_propInspector(device), m_inspectPicker(device) {
 	m_mapView.SetEditor(&m_mapEditor); // the view drives the editor in Editor mode
 	m_settings.Load();
 	ApplyLanguage(false); // strings must exist before any UI builds
@@ -266,14 +267,52 @@ void Game::WireModuleCallbacks() {
 
 	// Per-instance inspector: Select-click a placed monster → edit its .ent overrides.
 	m_mapEditor.onInspect = [this](int cx, int cz) {
-		EntityInspector::Config c;
-		if (!m_world.MonsterInstanceAt(cx, cz, c.runtimeId, c.type, c.asleep, c.leashRange,
-									   c.archetype, c.keepRange, c.fleeBelow, c.spell))
+		// Gather EVERY inspectable object on the cell: stacked monsters, then wall
+		// torches (each on its own wall). One target per object.
+		m_inspectTargets.clear();
+		m_inspectCellX = cx;
+		m_inspectCellZ = cz;
+		std::vector<std::string> labels;
+		auto display = [](const CatalogEntry* e, const std::string& id) {
+			return e ? e->Display() : id;
+		};
+		for (const auto& [id, type] : m_world.MonstersAt(cx, cz)) {
+			InspectTarget t{InspectTarget::Kind::Monster};
+			t.runtimeId = id;
+			m_inspectTargets.push_back(t);
+			labels.push_back(display(m_project.monsters.Find(type), type));
+		}
+		for (Direction wall : m_world.SconcesAt(cx, cz)) {
+			InspectTarget t{InspectTarget::Kind::Sconce};
+			t.wall = wall;
+			m_inspectTargets.push_back(t);
+			labels.push_back(loc::Format("map.fix.torchwall", loc::Tr(FacingLocKey(wall))));
+		}
+		for (const auto& [index, type] : m_world.DecorationsAt(cx, cz)) {
+			InspectTarget t{InspectTarget::Kind::Decoration};
+			t.handle = index;
+			t.type = display(m_project.decorations.Find(type), type);
+			m_inspectTargets.push_back(t);
+			labels.push_back(t.type);
+		}
+		for (const auto& [id, type] : m_world.ItemsAt(cx, cz)) {
+			InspectTarget t{InspectTarget::Kind::Item};
+			t.handle = id;
+			t.type = display(m_project.items.Find(type), type);
+			m_inspectTargets.push_back(t);
+			labels.push_back(t.type);
+		}
+		if (m_inspectTargets.empty()) return;
+		if (m_inspectTargets.size() == 1) { // exactly one — skip the chooser
+			OpenInspectorFor(m_inspectTargets.front());
 			return;
-		if (const auto* r = m_world.MonsterPatrol(c.runtimeId))
-			c.patrolCount = static_cast<int>(r->size());
-		m_inspectCfg = c; // remembered so route-laying can reopen the inspector
-		m_entityInspector.Open(c, m_world.SpellIds());
+		}
+		m_inspectPicker.Open(loc::Format("map.pick.title", cx, cz), labels);
+	};
+	// Picking a row from the chooser opens that object's inspector.
+	m_inspectPicker.onPick = [this](int i) {
+		if (i >= 0 && i < static_cast<int>(m_inspectTargets.size()))
+			OpenInspectorFor(m_inspectTargets[static_cast<size_t>(i)]);
 	};
 	// Patrol-route authoring: Edit hands the grid to the editor (route-laying mode);
 	// each grid click appends a waypoint; Clear wipes the route.
@@ -287,16 +326,89 @@ void Game::WireModuleCallbacks() {
 	};
 	m_entityInspector.onApply = [this](const EntityInspector::Config& c) {
 		m_world.ApplyMonsterInstance(c.runtimeId, c.asleep, c.leashRange, c.archetype,
-									 c.keepRange, c.fleeBelow, c.spell);
+									 c.keepRange, c.fleeBelow, c.spell, c.facing);
 	};
 	m_entityInspector.onSave = [this](const EntityInspector::Config& c) {
 		m_world.ApplyMonsterInstance(c.runtimeId, c.asleep, c.leashRange, c.archetype,
-									 c.keepRange, c.fleeBelow, c.spell);
+									 c.keepRange, c.fleeBelow, c.spell, c.facing);
 		if (!m_world.SaveLevel())
 			log::Warn("entity inspector: failed to save level .ent");
 		else if (m_world.onMessage)
 			m_world.onMessage(loc::Format("map.insp.saved", c.type));
 	};
+
+	// Torch (sconce) inspector: the Facing dropdown re-mounts it live; Save persists.
+	m_fixtureInspector.onRemount = [this](int x, int z, Direction from, Direction to) {
+		return m_world.RemountSconce(x, z, from, to);
+	};
+	m_fixtureInspector.onSave = [this] {
+		if (!m_world.SaveLevel()) log::Warn("fixture inspector: failed to save level");
+	};
+
+	// Item/decoration inspector: apply the facing edit to the right live object.
+	m_propInspector.onApply = [this](const PropInspector::Config& c) {
+		if (c.kind == PropInspector::Config::Kind::Decoration)
+			m_world.SetDecorationFacing(c.handle, c.facing);
+		else
+			m_world.SetItemFacing(c.handle, c.facing);
+	};
+	m_propInspector.onSave = [this] {
+		if (!m_world.SaveLevel()) log::Warn("prop inspector: failed to save level");
+	};
+}
+
+void Game::OpenInspectorFor(const InspectTarget& t) {
+	const int cx = m_inspectCellX, cz = m_inspectCellZ;
+	switch (t.kind) {
+	case InspectTarget::Kind::Monster: {
+		EntityInspector::Config c;
+		c.runtimeId = t.runtimeId;
+		if (!m_world.MonsterInstanceById(t.runtimeId, c.type, c.asleep, c.leashRange,
+										 c.archetype, c.keepRange, c.fleeBelow, c.spell, c.facing))
+			return;
+		if (const auto* r = m_world.MonsterPatrol(c.runtimeId))
+			c.patrolCount = static_cast<int>(r->size());
+		m_inspectCfg = c; // remembered so route-laying can reopen the inspector
+		m_entityInspector.Open(c, m_world.SpellIds());
+		break;
+	}
+	case InspectTarget::Kind::Sconce: {
+		// Facing choices: the cell's solid walls, minus walls held by OTHER sconces
+		// here (but always including this torch's own current wall).
+		std::vector<Direction> occupied = m_world.SconcesAt(cx, cz);
+		std::vector<Direction> walls;
+		for (Direction d : m_world.SolidWallsAt(cx, cz)) {
+			const bool takenByOther =
+				d != t.wall && std::find(occupied.begin(), occupied.end(), d) != occupied.end();
+			if (!takenByOther) walls.push_back(d);
+		}
+		FixtureInspector::Config fc;
+		fc.type = "torch";
+		fc.x = cx;
+		fc.z = cz;
+		fc.wall = t.wall;
+		m_fixtureInspector.Open(fc, walls);
+		break;
+	}
+	case InspectTarget::Kind::Decoration: {
+		PropInspector::Config c;
+		c.kind = PropInspector::Config::Kind::Decoration;
+		c.handle = t.handle;
+		c.type = t.type;
+		c.facing = m_world.DecorationFacing(t.handle);
+		m_propInspector.Open(c);
+		break;
+	}
+	case InspectTarget::Kind::Item: {
+		PropInspector::Config c;
+		c.kind = PropInspector::Config::Kind::Item;
+		c.handle = t.handle;
+		c.type = t.type;
+		c.facing = m_world.ItemFacing(t.handle);
+		m_propInspector.Open(c);
+		break;
+	}
+	}
 }
 
 void Game::RegisterDevCommands() {
@@ -1463,10 +1575,29 @@ void Game::Update(float dt) {
 		if (m_previewMonMesh) m_previewAnim.Update(dt);
 		return;
 	}
+	// The multi-object inspect chooser is modal over the editor (it precedes the
+	// inspector it opens).
+	if (m_inspectPicker.IsOpen()) {
+		m_inspectPicker.Update(input, static_cast<float>(m_window.Width()),
+							   static_cast<float>(m_window.Height()));
+		return;
+	}
 	// The per-instance entity inspector is likewise modal over the editor.
 	if (m_entityInspector.IsOpen()) {
 		m_entityInspector.Update(input, static_cast<float>(m_window.Width()),
 								 static_cast<float>(m_window.Height()));
+		return;
+	}
+	// The per-instance fixture (torch) inspector is likewise modal over the editor.
+	if (m_fixtureInspector.IsOpen()) {
+		m_fixtureInspector.Update(input, static_cast<float>(m_window.Width()),
+								  static_cast<float>(m_window.Height()));
+		return;
+	}
+	// The per-instance item/decoration inspector is likewise modal over the editor.
+	if (m_propInspector.IsOpen()) {
+		m_propInspector.Update(input, static_cast<float>(m_window.Width()),
+							   static_cast<float>(m_window.Height()));
 		return;
 	}
 
@@ -1696,6 +1827,12 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 	}
 	if (m_entityInspector.IsOpen()) // per-instance inspector, modal over the editor
 		m_entityInspector.Render(m_spriteBatch, m_settings.theme, dw, dh);
+	if (m_fixtureInspector.IsOpen()) // per-instance torch inspector, modal over the editor
+		m_fixtureInspector.Render(m_spriteBatch, m_settings.theme, dw, dh);
+	if (m_propInspector.IsOpen()) // per-instance item/decoration inspector
+		m_propInspector.Render(m_spriteBatch, m_settings.theme, dw, dh);
+	if (m_inspectPicker.IsOpen()) // multi-object chooser, modal over the editor
+		m_inspectPicker.Render(m_spriteBatch, m_settings.theme, dw, dh);
 	if (m_console.IsOpen())
 		m_console.Render(m_spriteBatch, m_device, static_cast<float>(m_device.Width()),
 						 static_cast<float>(m_device.Height()));

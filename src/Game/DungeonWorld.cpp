@@ -227,7 +227,7 @@ std::vector<DungeonWorld::MapMarker> DungeonWorld::MonsterMarkers() const {
 	markers.reserve(m_monsters.size());
 	for (const Monster& m : m_monsters)
 		if (m.Alive()) // a slain monster leaves no map marker
-			markers.push_back({m.x, m.z, m.kind ? m.kind->name : std::string()});
+			markers.push_back({m.x, m.z, m.kind ? m.kind->name : std::string(), m.facing});
 	return markers;
 }
 
@@ -236,7 +236,7 @@ std::vector<DungeonWorld::MapMarker> DungeonWorld::DecorationMarkers() const {
 	markers.reserve(m_decorations.size());
 	for (const Decoration& d : m_decorations) {
 		if (d.stair) continue; // stairs draw from their own (typed) marker
-		markers.push_back({d.x, d.z, d.kind ? d.kind->id : std::string()});
+		markers.push_back({d.x, d.z, d.kind ? d.kind->id : std::string(), d.facing});
 	}
 	return markers;
 }
@@ -952,11 +952,23 @@ DungeonWorld::Monster* DungeonWorld::MonsterByRuntimeId(u32 id) {
 
 bool DungeonWorld::MonsterInstanceAt(int cx, int cz, u32& runtimeId, std::string& type,
 									 bool& asleep, float& leashRange, ai::Archetype& archetype,
-									 float& keepRange, float& fleeBelow,
-									 std::string& spell) const {
+									 float& keepRange, float& fleeBelow, std::string& spell,
+									 Direction& facing) const {
 	for (const Monster& m : m_monsters) {
 		if (m.x != cx || m.z != cz || !m.kind) continue;
 		runtimeId = m.runtimeId;
+		return MonsterInstanceById(m.runtimeId, type, asleep, leashRange, archetype, keepRange,
+								   fleeBelow, spell, facing);
+	}
+	return false;
+}
+
+bool DungeonWorld::MonsterInstanceById(u32 runtimeId, std::string& type, bool& asleep,
+									   float& leashRange, ai::Archetype& archetype,
+									   float& keepRange, float& fleeBelow, std::string& spell,
+									   Direction& facing) const {
+	for (const Monster& m : m_monsters) {
+		if (m.runtimeId != runtimeId || !m.kind) continue;
 		type = m.kind->name;
 		asleep = m.asleep;
 		leashRange = m.leashRange;
@@ -964,6 +976,7 @@ bool DungeonWorld::MonsterInstanceAt(int cx, int cz, u32& runtimeId, std::string
 		keepRange = m.KeepRange();
 		fleeBelow = m.FleeBelow();
 		spell = m.Spell();
+		facing = m.facing;
 		return true;
 	}
 	return false;
@@ -971,11 +984,16 @@ bool DungeonWorld::MonsterInstanceAt(int cx, int cz, u32& runtimeId, std::string
 
 void DungeonWorld::ApplyMonsterInstance(u32 runtimeId, bool asleep, float leashRange,
 										ai::Archetype archetype, float keepRange,
-										float fleeBelow, const std::string& spell) {
+										float fleeBelow, const std::string& spell,
+										Direction facing) {
 	Monster* m = MonsterByRuntimeId(runtimeId);
 	if (!m || !m->kind) return;
 	m->asleep = asleep;
 	m->leashRange = leashRange;
+	if (m->facing != facing) { // turn a (stationary) monster to face the new way
+		m->facing = facing;
+		m->yaw = m->targetYaw = DirYaw(facing);
+	}
 	// Keep an override only when it differs from the type default (else inherit, so
 	// the .ent stays minimal and a later type edit still flows through).
 	m->archOverride =
@@ -1017,6 +1035,101 @@ u32 DungeonWorld::MonsterRuntimeIdAt(int cx, int cz) const {
 	for (const Monster& m : m_monsters)
 		if (m.x == cx && m.z == cz) return m.runtimeId;
 	return 0;
+}
+
+bool DungeonWorld::SconceAt(int cx, int cz, Direction* wall) const {
+	for (const WallSconce& s : m_map.Sconces())
+		if (s.x == cx && s.z == cz) {
+			if (wall) *wall = s.wall;
+			return true;
+		}
+	return false;
+}
+
+std::vector<std::pair<u32, std::string>> DungeonWorld::MonstersAt(int cx, int cz) const {
+	std::vector<std::pair<u32, std::string>> out;
+	for (const Monster& m : m_monsters)
+		if (m.x == cx && m.z == cz && m.kind)
+			out.emplace_back(m.runtimeId, m.kind->name);
+	return out;
+}
+
+std::vector<Direction> DungeonWorld::SconcesAt(int cx, int cz) const {
+	std::vector<Direction> out;
+	for (const WallSconce& s : m_map.Sconces())
+		if (s.x == cx && s.z == cz) out.push_back(s.wall);
+	return out;
+}
+
+std::vector<Direction> DungeonWorld::SolidWallsAt(int cx, int cz) const {
+	std::vector<Direction> out;
+	for (Direction d : {Direction::North, Direction::East, Direction::South, Direction::West})
+		if (!m_map.IsWalkable(cx + DirDX(d), cz + DirDZ(d))) out.push_back(d);
+	return out;
+}
+
+bool DungeonWorld::RemountSconce(int cx, int cz, Direction from, Direction to) {
+	if (!m_map.SetSconceWall(cx, cz, from, to)) return false;
+	// Rebuild the fire instances + dust from the updated map (mirrors AddFixture):
+	// the sconce prop/light/flame follow the new wall next frame. Drain the GPU
+	// first since it may still read the old turbidity grid.
+	m_device.WaitIdle();
+	m_fires.clear();
+	BuildFires();
+	BuildTurbidityMap();
+	return true;
+}
+
+std::vector<std::pair<int, std::string>> DungeonWorld::DecorationsAt(int cx, int cz) const {
+	std::vector<std::pair<int, std::string>> out;
+	for (int i = 0; i < static_cast<int>(m_decorations.size()); ++i) {
+		const Decoration& d = m_decorations[i];
+		if (d.x == cx && d.z == cz && !d.stair) // stairs edit via their own record
+			out.emplace_back(i, d.kind ? d.kind->id : std::string("?"));
+	}
+	return out;
+}
+
+std::vector<std::pair<int, std::string>> DungeonWorld::ItemsAt(int cx, int cz) const {
+	std::vector<std::pair<int, std::string>> out;
+	for (const Entity& e : m_entities.All())
+		if (e.kind == EntityKind::Item && e.x == cx && e.z == cz)
+			out.emplace_back(e.id, e.type);
+	return out;
+}
+
+Direction DungeonWorld::DecorationFacing(int index) const {
+	if (index >= 0 && index < static_cast<int>(m_decorations.size()))
+		return m_decorations[static_cast<size_t>(index)].facing;
+	return Direction::South;
+}
+
+void DungeonWorld::SetDecorationFacing(int index, Direction facing) {
+	if (index < 0 || index >= static_cast<int>(m_decorations.size())) return;
+	Decoration& d = m_decorations[static_cast<size_t>(index)];
+	d.facing = facing;
+	// Standing props rotate to the new facing; wall-mounted props keep their wall
+	// orientation (the record facing is stored, but the transform stays wall-baked).
+	if (!d.wallMounted) {
+		const Vec3 pos = m_map.CellCenter(d.x, d.z);
+		XMStoreFloat4x4(&d.world, XMMatrixRotationY(DirYaw(facing)) *
+									  XMMatrixTranslation(pos.x, 0, pos.z));
+	}
+}
+
+Direction DungeonWorld::ItemFacing(int entityId) const {
+	for (const Entity& e : m_entities.All())
+		if (e.id == entityId) return e.facing;
+	return Direction::South;
+}
+
+void DungeonWorld::SetItemFacing(int entityId, Direction facing) {
+	if (Entity* e = m_entities.MutableById(entityId)) e->facing = facing;
+}
+
+bool DungeonWorld::AnyInspectableAt(int cx, int cz) const {
+	return MonsterRuntimeIdAt(cx, cz) != 0 || SconceAt(cx, cz) ||
+		   !DecorationsAt(cx, cz).empty() || !ItemsAt(cx, cz).empty();
 }
 
 void DungeonWorld::ReconcileGroups() {

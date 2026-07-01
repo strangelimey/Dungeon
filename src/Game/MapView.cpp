@@ -165,6 +165,14 @@ bool MapView::Update(const Input& input, const gfx::Rect& panel) {
 	const gfx::Rect grid = GridArea(panel); // panel minus the dock in Editor
 	const bool overGrid = grid.Contains(mx, my);
 
+	// Track the hovered cell (for Render highlights, e.g. the faint item icon).
+	if (int hx, hz; overGrid && CellAt(mx, my, panel, hx, hz)) {
+		m_hoverX = hx;
+		m_hoverZ = hz;
+	} else {
+		m_hoverX = m_hoverZ = -1;
+	}
+
 	// Wheel zooms about the cursor: keep the map point under the pointer fixed.
 	if (overGrid && input.WheelDelta() != 0.0f && map.Width() > 0) {
 		const Transform t0 = ComputeTransform(panel);
@@ -266,6 +274,22 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 	auto cellCenter = [&](int x, int z) -> Vec2 {
 		return {t.ox + (x + 0.5f) * t.cell, t.oy + (z + 0.5f) * t.cell};
 	};
+	// Editor hover: the cell under the mouse gets a 50%-alpha selection-preview ring
+	// (see below), and the faint floor-item icon fades IN to full (see itemMarker).
+	// Primary markers stay fully visible so you can still see what you're hovering.
+	// Player mode has no selection concept, so no hover effect there.
+	const bool editorHover = m_mode == Mode::Editor;
+	auto hovered = [&](int x, int z) { return editorHover && x == m_hoverX && z == m_hoverZ; };
+	// The Select-tool square outline (four thin bars ringing a cell), drawn in `col`
+	// — shared by the persistent selection (opaque) and the hover preview (50%).
+	auto selOutline = [&](int x, int z, const Vec4& col) {
+		const gfx::Rect r = cellRect(x, z);
+		const float bw = std::clamp(t.cell * 0.06f, 1.5f, 4.0f);
+		batch.DrawRect({r.x - bw, r.y - bw, r.w + 2 * bw, bw}, col);
+		batch.DrawRect({r.x - bw, r.y + r.h, r.w + 2 * bw, bw}, col);
+		batch.DrawRect({r.x - bw, r.y, bw, r.h}, col);
+		batch.DrawRect({r.x + r.w, r.y, bw, r.h}, col);
+	};
 	auto marker = [&](int x, int z, float frac, const Vec4& c) {
 		const Vec2 ctr = cellCenter(x, z);
 		const float h = t.cell * frac * 0.5f;
@@ -279,6 +303,35 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 		const float h = t.cell * frac * 0.5f;
 		const float px = ctr.x + dir.x * (t.cell * 0.5f - h);
 		const float py = ctr.y + dir.y * (t.cell * 0.5f - h);
+		batch.DrawRect({px - h, py - h, h * 2, h * 2}, c);
+	};
+	// A small green arrow pointing the way a placed thing faces (Editor authoring
+	// aid). Local frame: apex up = north at facing 0, rotated facing*90° clockwise
+	// (screen Y down), so it matches the party triangle + compass. Sits toward the
+	// facing edge so it reads as a pointer over the marker square.
+	auto facingArrow = [&](int x, int z, Direction f) {
+		if (t.cell < 10.0f) return;
+		const Vec2 c = cellCenter(x, z);
+		const float a = static_cast<float>(static_cast<int>(f)) * (kPi * 0.5f);
+		const float cs = std::cos(a), sn = std::sin(a);
+		auto rot = [&](float lx, float ly) -> Vec2 {
+			return {c.x + lx * cs - ly * sn, c.y + lx * sn + ly * cs};
+		};
+		const float off = t.cell * 0.24f, r = t.cell * 0.15f, w = t.cell * 0.13f;
+		batch.DrawTriangle(rot(0.0f, -(off + r)), rot(-w, -off), rot(w, -off), kFacingArrow);
+	};
+	// The floor-item icon: a small square tucked into the cell's lower-LEFT corner,
+	// faint so it stays out of the way — full opacity only when the cell is hovered.
+	// (Items sit ON the floor, so they read as a subtle secondary of whatever else
+	// shares the square, not a primary marker.)
+	auto itemMarker = [&](int x, int z) {
+		const Vec2 ctr = cellCenter(x, z);
+		const float h = t.cell * 0.11f;          // half-size (smaller than markers)
+		const float gap = t.cell * 0.06f;        // inset from the cell edges
+		const float px = ctr.x - (t.cell * 0.5f - h - gap);
+		const float py = ctr.y + (t.cell * 0.5f - h - gap);
+		Vec4 c = kItem;
+		c.w = hovered(x, z) ? 1.0f : 0.5f;
 		batch.DrawRect({px - h, py - h, h * 2, h * 2}, c);
 	};
 	// A type initial centred on a marker (skipped when cells are too small to
@@ -331,7 +384,7 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 	// 3) Fixtures and static decorations (both from the static map layer).
 	for (const WallSconce& s : map.Sconces())
 		if (CellVisible(s.x, s.z))
-			edgeMarker(s.x, s.z, 0.30f, kTorch,
+			edgeMarker(s.x, s.z, 0.16f, kTorch,
 					   {static_cast<float>(DirDX(s.wall)), static_cast<float>(DirDZ(s.wall))});
 	for (const auto& [x, z] : map.BrazierCells())
 		if (CellVisible(x, z)) marker(x, z, 0.46f, kBrazier);
@@ -341,6 +394,7 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 		if (!CellVisible(m.x, m.z)) continue;
 		marker(m.x, m.z, 0.38f, kDecoration);
 		label(m.x, m.z, m.type);
+		if (m_mode == Mode::Editor) facingArrow(m.x, m.z, m.facing);
 	}
 
 	// Stairs (over the decoration marker they also occupy) — a distinct color.
@@ -362,11 +416,12 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 		marker(mons[i].x, mons[i].z, 0.5f, kMonster);
 		label(mons[i].x, mons[i].z, mons[i].type);
 		countBadge(mons[i].x, mons[i].z, count);
+		if (m_mode == Mode::Editor) facingArrow(mons[i].x, mons[i].z, mons[i].facing);
 	}
 	for (const Entity& e : m_world.Entities().All()) {
 		if (!CellVisible(e.x, e.z)) continue;
 		switch (e.kind) {
-		case EntityKind::Item:   marker(e.x, e.z, 0.34f, kItem); break;
+		case EntityKind::Item:   itemMarker(e.x, e.z); break;
 		case EntityKind::Button: marker(e.x, e.z, 0.3f, kButton); break;
 		default:                 break; // monsters: live list above; decorations: static
 		}
@@ -375,16 +430,18 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 	// 4b) Editor selection: a high-contrast outline on the selected square, and the
 	// selected creature's patrol route as high-contrast arrows (waypoint order,
 	// closing the loop) — persistent while selected, and growing live while laying.
+	const Vec4 kSel{1.0f, 0.95f, 0.20f, 1.0f};     // bright yellow
+	const Vec4 kSelDark{0.0f, 0.0f, 0.0f, 0.85f};  // dark backing for contrast
+	// Hover preview: the same square outline on the cell under the mouse, at 50%
+	// alpha, so it reads as "click to select here". Skipped when it coincides with
+	// the actual selection (which draws opaque below).
+	const bool selHere = m_editor && m_editor->HasSelection() &&
+						 m_editor->SelX() == m_hoverX && m_editor->SelZ() == m_hoverZ;
+	if (editorHover && m_hoverX >= 0 && !selHere)
+		selOutline(m_hoverX, m_hoverZ, {kSel.x, kSel.y, kSel.z, 0.5f});
+
 	if (m_editor && m_editor->HasSelection()) {
-		const Vec4 kSel{1.0f, 0.95f, 0.20f, 1.0f};     // bright yellow
-		const Vec4 kSelDark{0.0f, 0.0f, 0.0f, 0.85f};  // dark backing for contrast
-		// Selection outline: four thin bars ringing the cell.
-		const gfx::Rect r = cellRect(m_editor->SelX(), m_editor->SelZ());
-		const float bw = std::clamp(t.cell * 0.06f, 1.5f, 4.0f);
-		batch.DrawRect({r.x - bw, r.y - bw, r.w + 2 * bw, bw}, kSel);
-		batch.DrawRect({r.x - bw, r.y + r.h, r.w + 2 * bw, bw}, kSel);
-		batch.DrawRect({r.x - bw, r.y, bw, r.h}, kSel);
-		batch.DrawRect({r.x + r.w, r.y, bw, r.h}, kSel);
+		selOutline(m_editor->SelX(), m_editor->SelZ(), kSel); // opaque selection ring
 
 		const std::vector<ai::Cell>* route = m_world.MonsterPatrol(m_editor->SelectedMonster());
 		if (route && !route->empty()) {

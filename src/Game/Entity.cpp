@@ -33,6 +33,16 @@ float DirYaw(Direction d) {
 	}
 }
 
+const char* FacingLocKey(Direction d) {
+	switch (d) {
+	case Direction::North: return "facing.north";
+	case Direction::East:  return "facing.east";
+	case Direction::South: return "facing.south";
+	case Direction::West:  return "facing.west";
+	}
+	return "facing.south";
+}
+
 const std::string* Entity::Param(std::string_view key) const {
 	for (const auto& [k, v] : params)
 		if (k == key) return &v;

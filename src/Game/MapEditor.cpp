@@ -223,11 +223,14 @@ void MapEditor::ApplyBrush(int cx, int cz, bool dragging) {
 			if (props) details += std::format(", {} prop{}", props, props == 1 ? "" : "s");
 			log(loc::Format("map.select.contents", cx, cz, details));
 			// Click SELECTS the square (highlight + route overlay); a second click on
-			// the already-selected creature opens its per-instance inspector.
-			const bool reclick = (m_selX == cx && m_selZ == cz && m_selMonster != 0);
+			// an already-selected inspectable (creature, torch, decoration, item) opens
+			// its inspector. The owner (onInspect) decides which dialog by the contents.
+			const bool inspectable = m_world.AnyInspectableAt(cx, cz);
+			const bool reclick = (m_selX == cx && m_selZ == cz && m_selInspectable);
 			m_selX = cx;
 			m_selZ = cz;
 			m_selMonster = m_world.MonsterRuntimeIdAt(cx, cz);
+			m_selInspectable = inspectable;
 			if (reclick && onInspect) onInspect(cx, cz);
 		} else { // Erase: remove a runtime entity, else reset surface overrides
 			if (m_world.RemoveEntityAt(cx, cz)) {

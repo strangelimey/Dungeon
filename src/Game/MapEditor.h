@@ -150,6 +150,7 @@ private:
 	u32 m_routeId = 0;            // monster whose patrol route is being laid (0 = none)
 	int m_selX = -1, m_selZ = -1; // selected square (-1 = none)
 	u32 m_selMonster = 0;         // creature selected there (0 = none), for its route
+	bool m_selInspectable = false; // selected square holds an inspectable (monster/torch)
 };
 
 } // namespace dungeon::game

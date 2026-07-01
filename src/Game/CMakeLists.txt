@@ -15,9 +15,12 @@ add_library(Game STATIC
 	Entity.cpp
 	EntityInspector.cpp
 	FireEffect.cpp
+	FixtureInspector.cpp
 	Game.cpp
 	GameSettings.cpp
 	GameUI.cpp
+	InspectPicker.cpp
+	InstanceInspector.cpp
 	Magic.cpp
 	MapEditor.cpp
 	MapView.cpp
@@ -28,6 +31,7 @@ add_library(Game STATIC
 	PartyHud.cpp
 	Project.cpp
 	Projectiles.cpp
+	PropInspector.cpp
 	SaveGame.cpp
 	Serialize.cpp
 	ShadowScheduler.cpp

@@ -159,6 +159,11 @@ private:
 	Vec2 m_pan{0.0f, 0.0f};
 	bool m_panning = false;
 	Vec2 m_lastMouse{0.0f, 0.0f};
+	// Grid cell currently under the mouse (-1 = none). Tracked in Update so Render
+	// can highlight hovered contents (e.g. the faint item icon goes opaque). Cell
+	// indices are resolution-independent, so this is valid across the window-pixel
+	// (Update) / device-pixel (Render) split.
+	int m_hoverX = -1, m_hoverZ = -1;
 };
 
 } // namespace dungeon::game

@@ -53,4 +53,10 @@ std::span<const Entity> DungeonEntities::At(int x, int z) const {
 	return {first, last};
 }
 
+Entity* DungeonEntities::MutableById(int id) {
+	for (Entity& e : m_entities)
+		if (e.id == id) return &e;
+	return nullptr;
+}
+
 } // namespace dungeon::game
