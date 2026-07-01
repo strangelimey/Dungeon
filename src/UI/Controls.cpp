@@ -103,7 +103,8 @@ void Button::Update(UIContext& ctx) {
 void Button::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
 	const Theme& theme = ctx.GetTheme();
 	const gfx::Rect& px = Pixel();
-	const Vec4& fill = m_held ? theme.controlActive : (m_hot ? theme.controlHot : theme.control);
+	const Vec4& fill = (m_held || active) ? theme.controlActive
+										  : (m_hot ? theme.controlHot : theme.control);
 	batch.DrawRect(px, fill);
 	DrawBorder(batch, px, theme.panelBorder);
 
@@ -111,6 +112,44 @@ void Button::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
 	const float textW = font.MeasureWidth(text);
 	font.Draw(batch, text, px.x + (px.w - textW) * 0.5f,
 			  px.y + (px.h - font.Height()) * 0.5f, theme.text);
+}
+
+// --- Checkbox ------------------------------------------------------------
+
+void Checkbox::Update(UIContext& ctx) {
+	const Input* input = ctx.CurrentInput();
+	if (!input) return;
+	m_hot = !ctx.IsMouseConsumed() && Pixel().Contains(input->MouseX(), input->MouseY());
+	if (m_hot) {
+		ctx.ConsumeMouse();
+		if (input->WasMousePressed(MouseButton::Left)) {
+			m_checked = !m_checked;
+			if (onChange) onChange(m_checked);
+		}
+	}
+}
+
+void Checkbox::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
+	const Theme& theme = ctx.GetTheme();
+	Font& font = ctx.GetFont();
+	const gfx::Rect& px = Pixel();
+	if (highlight) {
+		batch.DrawRect(px, theme.controlActive);
+		DrawBorder(batch, px, theme.panelBorder);
+	} else if (m_hot) {
+		batch.DrawRect(px, theme.controlHot);
+	}
+	// The check box itself, left-aligned and vertically centered.
+	const float box = std::min(px.h * 0.6f, 18.0f);
+	const gfx::Rect b{px.x + 4.0f, px.y + (px.h - box) * 0.5f, box, box};
+	batch.DrawRect(b, theme.control);
+	DrawBorder(batch, b, theme.panelBorder);
+	if (m_checked) {
+		const float in = box * 0.24f;
+		batch.DrawRect({b.x + in, b.y + in, b.w - 2 * in, b.h - 2 * in}, theme.accent);
+	}
+	font.Draw(batch, label, b.x + b.w + 8.0f, px.y + (px.h - font.Height()) * 0.5f,
+			  (m_checked || highlight) ? theme.text : theme.textDim);
 }
 
 // --- Slider --------------------------------------------------------------

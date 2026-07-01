@@ -1,32 +1,41 @@
 // ============================================================================
 // Game/MonsterConfigDialog.h — the editor's "configure a monster type" modal.
 //
-// Opened by right-clicking a monster in the editor palette. A centered panel
-// over the editor with two checkbox columns: the full list of CreatureStates
-// (left, checkbox = the type's supported-state set) and, for the selected state,
-// the monster model's available animation clips (right, checkbox = which clips
-// that state draws from). It authors the data-driven animation table built in
-// Animation/CreatureState.h + DungeonWorld's MonsterKind.
+// Opened by right-clicking a monster in the editor palette. A centered panel over
+// the editor, TABBED like the settings page (ui::TabControl):
+//   • Behavior — the AI archetype (dropdown) + its typed params (keep range, flee
+//     threshold, caster spell), shown/hidden by archetype. Writes monsters.cat's
+//     archetype/keeprange/fleebelow/spell fields + the live MonsterKind.
+//   • Animation — two columns of rows: the CreatureStates (checkbox = the type's
+//     supported set, click the row to pick one) and, for the picked state, the
+//     model's clips (checkbox = which the state draws from). Authors the
+//     data-driven animation table (Animation/CreatureState.h + MonsterKind).
+// A live 3D preview of the selected clip sits to the right of the tabs (the owner
+// blits into PreviewRect). The tab content is a ui::UIContext of real widgets; the
+// panel frame, title, and preview backing are drawn by the dialog around it.
 //
-// Self-drawn (custom rows + recorded hit-rects, like the dev-console panels)
-// rather than a ui::UIContext — two scrollable checkbox lists are simpler drawn
-// directly. The dialog edits an in-memory working copy and fires callbacks; the
-// owner (Game) applies them live (onApply, on every toggle) and persists them to
-// the catalog (onSave, the Save button). Close/Esc reverts via onApply(original).
+// The dialog edits an in-memory working copy and fires callbacks; the owner (Game)
+// applies them live (onApply, every edit) and persists them to the catalog
+// (onSave, the Save button). Close/Esc reverts via onApply(original).
 // ============================================================================
 #pragma once
 
 #include "Animation/CreatureState.h"
+#include "Game/MonsterAI.h" // ai::Archetype
 #include "Graphics/GraphicsDevice.h"
 #include "Graphics/SpriteBatch.h"
 #include "Platform/Input.h"
 #include "UI/Font.h"
-#include "UI/UIContext.h" // ui::Theme
+#include "UI/UIContext.h"
 
 #include <array>
 #include <functional>
 #include <string>
 #include <vector>
+
+namespace dungeon::ui {
+class TabControl;
+}
 
 namespace dungeon::game {
 
@@ -36,34 +45,40 @@ public:
 	using Support = std::array<bool, N>;
 	using Clips = std::array<std::vector<std::string>, N>;
 
-	// The working copy handed to the callbacks.
+	// The working copy handed to the callbacks: the animation table + the AI
+	// behaviour fields.
 	struct Config {
 		std::string type;
 		Support supported{};
 		Clips clips{};
+		ai::Archetype archetype = ai::Archetype::Brute;
+		float keepRange = 4.0f;
+		float fleeBelow = 0.0f;
+		std::string spell;
 	};
 
 	explicit MonsterConfigDialog(gfx::GraphicsDevice& device);
 
 	bool IsOpen() const { return m_open; }
-	// Opens for a monster type: its id, display name, current supported set + clip
-	// table, and the full pool of clip names from its model.
+	// Opens for a monster type: its id + display name, current supported set + clip
+	// table, behaviour fields, the model's full clip pool, and the project's spell
+	// ids (the caster dropdown's options).
 	void Open(const std::string& type, const std::string& display,
-			  const Support& supported, const Clips& clips,
-			  const std::vector<std::string>& modelClips);
+			  const Support& supported, const Clips& clips, ai::Archetype archetype,
+			  float keepRange, float fleeBelow, const std::string& spell,
+			  const std::vector<std::string>& modelClips,
+			  const std::vector<std::string>& spellIds);
 	void Close() { m_open = false; }
 
-	// Modal input: toggles a state/clip checkbox, selects a state, scrolls the clip
-	// column, or hits Save/Close. Esc closes (reverting). Fires onApply on edits.
+	// Modal input: routes to the widget tree, handles Esc (revert+close), and does
+	// any deferred rebuild queued by a widget callback (archetype/state change).
 	void Update(const Input& input, float width, float height);
-	// Dim wash + panel + the three columns + footer buttons. The owner (Game) draws
-	// the live animation into PreviewRect afterwards (it owns the render target).
+	// Dim wash + panel frame + title + the widget tree + the preview backing box.
 	void Render(gfx::SpriteBatch& batch, const ui::Theme& theme, float width,
 				float height);
 
-	// The monster type being configured, the clip currently selected for preview
-	// (empty = none), and the on-screen rect to blit the preview into. The owner
-	// drives an Animator on this type playing this clip and blits into PreviewRect.
+	// The monster type being configured, the clip selected for preview (empty =
+	// none), and the on-screen rect to blit the live preview into.
 	const std::string& SelectedType() const { return m_cfg.type; }
 	const std::string& PreviewClip() const { return m_selClip; }
 	gfx::Rect PreviewRect(float width, float height) const;
@@ -74,43 +89,38 @@ public:
 	std::function<void(const Config&)> onSave;
 
 private:
-	// Shared layout (built by Update for hit-test and Render for draw) so the two
-	// always agree. Clip rows carry their model-clip index; rows outside the clip
-	// column viewport are dropped (the column scrolls).
-	struct Layout {
-		gfx::Rect panel{}, statesCol{}, clipsCol{}, previewCol{}, save{}, close{};
-		float rowH = 0.0f;
-		std::array<gfx::Rect, N> stateRow{};
-		std::array<gfx::Rect, N> stateCheck{};
-		std::vector<gfx::Rect> clipRow;
-		std::vector<gfx::Rect> clipCheck; // checkbox sub-rect per visible clipRow
-		std::vector<int> clipOf;          // model-clip index per visible clipRow
-		float clipContentH = 0.0f;
-	};
-	Layout BuildLayout(float width, float height) const;
+	// (Re)builds the whole widget tree from m_cfg (tabs + rows + footer). Called on
+	// Open and whenever a deferred rebuild is queued (archetype/state selection
+	// changes which rows exist). Restores the active tab.
+	void BuildUI();
+	void BuildBehaviorTab(size_t tab);
+	void BuildAnimationTab(size_t tab);
 	void Apply() { if (onApply) onApply(m_cfg); }
-	// The selected state's first candidate clip (for auto-preview), or "" if none.
-	std::string FirstClipOf(int state) const;
-	// Whether a clip belongs to `state`'s column: its name encodes the state
-	// (<state>__… or the bare token) OR it is already an assigned clip for that
-	// state — so hand-authored / oddly-named clips already in the catalog stay
-	// visible and editable rather than vanishing from the dialog.
+
+	// The preview pane's normalized (0..1 of window) rect — right of the tabs. Both
+	// Render (backing box) and PreviewRect (owner blit) resolve against it.
+	gfx::Rect PreviewNorm() const;
+	// Whether a clip belongs to `state`'s column (name-encoded <state>__… or already
+	// an assigned clip), and the selected state's first candidate clip (auto-preview).
 	bool ClipBelongs(const std::string& name, int state) const;
+	std::string FirstClipOf(int state) const;
 
 	gfx::GraphicsDevice& m_device;
-	ui::Font m_font;
+	ui::Font m_font;      // the dialog's own text (title / preview header / hints)
+	ui::UIContext m_ui;   // the tab content + footer buttons
 
 	bool m_open = false;
 	std::string m_display;
-	Config m_cfg;          // working copy
-	Config m_original;     // snapshot for revert on Close/Esc
-	std::vector<std::string> m_modelClips; // the clip pool offered per state
+	Config m_cfg;      // working copy
+	Config m_original; // snapshot for revert on Close/Esc
+	std::vector<std::string> m_modelClips; // clip pool offered per state
+	std::vector<std::string> m_spellIds;   // caster spell dropdown options
 	int m_selState = static_cast<int>(anim::CreatureState::Idle);
-	std::string m_selClip;                 // clip selected for preview ("" = none)
-	float m_clipScroll = 0.0f;
-	// The last-built preview column rect, so PreviewRect (called by the owner each
-	// frame for the blit + aspect) reads it instead of rebuilding the whole layout.
-	mutable gfx::Rect m_previewColCache{};
+	std::string m_selClip; // clip selected for preview ("" = none)
+
+	ui::TabControl* m_tabs = nullptr; // owned by m_ui; kept to restore the tab
+	int m_activeTab = 0;
+	bool m_rebuild = false; // a widget callback queued a rebuild (done after Update)
 };
 
 } // namespace dungeon::game

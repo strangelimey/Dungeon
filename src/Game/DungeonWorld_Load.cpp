@@ -401,6 +401,31 @@ void DungeonWorld::ApplyMonsterAnimConfig(const std::string& type,
 	}
 }
 
+void DungeonWorld::MonsterBehaviorConfig(const std::string& type, ai::Archetype& archetype,
+										 float& keepRange, float& fleeBelow, std::string& spell) {
+	const MonsterKind& kind = MonsterKindFor(type);
+	archetype = kind.archetype;
+	keepRange = kind.keepRange;
+	fleeBelow = kind.fleeBelow;
+	spell = kind.spell;
+}
+
+void DungeonWorld::ApplyMonsterBehavior(const std::string& type, ai::Archetype archetype,
+										float keepRange, float fleeBelow,
+										const std::string& spell) {
+	MonsterKind& kind = MonsterKindFor(type);
+	kind.archetype = archetype;
+	kind.keepRange = keepRange;
+	kind.fleeBelow = fleeBelow;
+	kind.spell = spell;
+}
+
+std::vector<std::string> DungeonWorld::SpellIds() const {
+	std::vector<std::string> ids;
+	for (const CatalogEntry& e : m_project.spells.Entries()) ids.push_back(e.id);
+	return ids;
+}
+
 // Whether a monster type's model file exists on disk — the editor guards the
 // force-load (right-click → config dialog) with this so a catalog id whose
 // <model>.gltf is missing shows a warning instead of aborting in LoadModelOrDie.

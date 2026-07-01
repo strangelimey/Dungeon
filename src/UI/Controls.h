@@ -92,10 +92,39 @@ public:
 
 	std::string text;
 	std::function<void()> onClick;
+	// Draw as selected (controlActive fill) regardless of hover — for a row that
+	// represents the current selection in a list (the config dialog's state/clip rows).
+	bool active = false;
 
 private:
 	bool m_hot = false;
 	bool m_held = false;
+};
+
+// A labeled on/off box: a small square at the left with the label to its right;
+// clicking anywhere in the row toggles it and fires onChange with the new state.
+// `highlight` draws the row selected (independent of the check) so it can double
+// as a list row. The owner reads Checked()/SetChecked() to sync external state.
+class Checkbox : public Widget {
+public:
+	Checkbox(const gfx::Rect& rect, std::string label, bool checked,
+			 std::function<void(bool)> onChange)
+		: label(std::move(label)), onChange(std::move(onChange)), m_checked(checked) {
+		bounds = rect;
+	}
+
+	bool Checked() const { return m_checked; }
+	void SetChecked(bool on) { m_checked = on; }
+	void Update(UIContext& ctx) override;
+	void Draw(UIContext& ctx, gfx::SpriteBatch& batch) override;
+
+	std::string label;
+	std::function<void(bool)> onChange;
+	bool highlight = false; // draw the row highlighted (e.g. selected/previewed)
+
+private:
+	bool m_checked = false;
+	bool m_hot = false;
 };
 
 // Horizontal slider, value in [min, max].

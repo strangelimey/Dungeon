@@ -320,7 +320,12 @@ regression guard before any new behaviour rides on it.
    `lurker` DONE (ambush: short wake trigger, then full-aggro relentless pursuit) —
    both reuse the brute executor, no new code path. Five archetypes now data-
    selectable (brute/skirmisher/caster/swarm/lurker) + the fleebelow modifier.
-   Next: the editor dialog fields (sentry still deferred — needs P3 patrol routes).
+   Editor authoring DONE: the monster-config dialog is now TABBED (ui::TabControl,
+   like the settings page) — a Behavior tab (archetype dropdown + dependent
+   keep-range/flee-below/spell controls) beside the Animation tab; edits apply live
+   and Save writes the archetype/keeprange/fleebelow/spell rows to monsters.cat.
+   Added a ui::Checkbox widget for the animation rows. P2 complete except `sentry`
+   (deferred — needs P3 patrol routes).
 5. **P3** — Per-instance `.ent` overrides (waypoints/asleep/leashfrom) + a
    minimal entity inspector in the editor (Layer 2).
 6. **P4** — (Deferred/optional) behaviour-graph authoring (Layer 3) only if

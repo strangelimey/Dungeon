@@ -243,7 +243,12 @@ void Game::WireModuleCallbacks() {
 		DungeonWorld::AnimSupport supported;
 		DungeonWorld::AnimClips clips;
 		m_world.MonsterAnimConfig(id, supported, clips);
-		m_monsterDialog.Open(id, display, supported, clips, m_world.MonsterClipNames(id));
+		ai::Archetype archetype;
+		float keepRange, fleeBelow;
+		std::string spell;
+		m_world.MonsterBehaviorConfig(id, archetype, keepRange, fleeBelow, spell);
+		m_monsterDialog.Open(id, display, supported, clips, archetype, keepRange, fleeBelow,
+							 spell, m_world.MonsterClipNames(id), m_world.SpellIds());
 		m_previewType.clear(); // force the preview animator to (re)build on first frame
 		m_previewClip.clear();
 		m_previewMonMesh = nullptr;
@@ -251,9 +256,11 @@ void Game::WireModuleCallbacks() {
 	// Live-apply on every edit; persist on Save.
 	m_monsterDialog.onApply = [this](const MonsterConfigDialog::Config& c) {
 		m_world.ApplyMonsterAnimConfig(c.type, c.supported, c.clips);
+		m_world.ApplyMonsterBehavior(c.type, c.archetype, c.keepRange, c.fleeBelow, c.spell);
 	};
 	m_monsterDialog.onSave = [this](const MonsterConfigDialog::Config& c) {
 		m_world.ApplyMonsterAnimConfig(c.type, c.supported, c.clips);
+		m_world.ApplyMonsterBehavior(c.type, c.archetype, c.keepRange, c.fleeBelow, c.spell);
 		WriteMonsterAnim(c);
 	};
 }
@@ -804,8 +811,19 @@ void Game::WriteMonsterAnim(const MonsterConfigDialog::Config& cfg) {
 	else entry.id = cfg.type;
 	// Drop the rows this dialog owns, then rewrite them authoritatively.
 	std::erase_if(entry.fields, [](const serialize::Field& f) {
-		return f.key == "states" || f.key.starts_with("anim_");
+		return f.key == "states" || f.key.starts_with("anim_") || f.key == "archetype" ||
+			   f.key == "keeprange" || f.key == "fleebelow" || f.key == "spell";
 	});
+
+	// Behaviour fields (Behavior tab). archetype is always written; the params are
+	// written only when they apply / are non-default, to keep the .cat tidy.
+	static const char* kArch[] = {"brute", "skirmisher", "caster", "swarm", "lurker"};
+	entry.Set("archetype", kArch[static_cast<int>(cfg.archetype)]);
+	if (cfg.archetype == ai::Archetype::Skirmisher || cfg.archetype == ai::Archetype::Caster)
+		entry.Set("keeprange", std::format("{:g}", cfg.keepRange));
+	if (cfg.fleeBelow > 0.0f) entry.Set("fleebelow", std::format("{:g}", cfg.fleeBelow));
+	if (cfg.archetype == ai::Archetype::Caster && !cfg.spell.empty())
+		entry.Set("spell", cfg.spell);
 
 	auto join = [](const std::vector<std::string>& v) {
 		std::string out;

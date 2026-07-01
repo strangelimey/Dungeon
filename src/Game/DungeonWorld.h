@@ -187,6 +187,16 @@ public:
 	void ApplyMonsterAnimConfig(const std::string& type, const AnimSupport& supported,
 								const AnimClips& clips);
 
+	// Read/apply the type's BEHAVIOUR fields (archetype + params) for the config
+	// dialog's Behavior tab, mirroring the anim-config pair. Apply sets the live
+	// kind (AI reads it via the snapshot next frame); it does NOT persist.
+	void MonsterBehaviorConfig(const std::string& type, ai::Archetype& archetype,
+							   float& keepRange, float& fleeBelow, std::string& spell);
+	void ApplyMonsterBehavior(const std::string& type, ai::Archetype archetype,
+							  float keepRange, float fleeBelow, const std::string& spell);
+	// Catalog ids of the project's spells — the options for the caster spell dropdown.
+	std::vector<std::string> SpellIds() const;
+
 	// Everything the editor's monster-config dialog preview needs to animate a
 	// type's mesh: the (stable, cached) mesh + skeleton + clips a borrowed Animator
 	// plays, the resolved render material, and the render-time size fixup. The

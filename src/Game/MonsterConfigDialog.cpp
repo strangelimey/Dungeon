@@ -4,29 +4,36 @@
 #include "Game/MonsterConfigDialog.h"
 
 #include "Core/Loc.h"
-#include "UI/Controls.h" // ui::DrawBorder
+#include "UI/Controls.h"
 
 #include <algorithm>
 
 namespace dungeon::game {
 
 namespace {
-// Display name for a state (loc key anim.state.<token>; the key itself shows if
-// unmapped, never fatal — see Core/Loc).
+// Panel + region geometry, as fractions (0..1) of the window. Widgets take
+// normalized bounds directly; the self-drawn frame/preview convert to pixels.
+constexpr gfx::Rect kPanel{0.14f, 0.10f, 0.72f, 0.80f};
+constexpr gfx::Rect kTitle{0.155f, 0.115f, 0.55f, 0.045f};
+constexpr gfx::Rect kTabs{0.155f, 0.185f, 0.42f, 0.63f}; // TabControl (left)
+constexpr gfx::Rect kPrevHdr{0.60f, 0.165f, 0.25f, 0.03f};
+constexpr gfx::Rect kPreview{0.60f, 0.205f, 0.245f, 0.59f}; // preview pane (right)
+constexpr gfx::Rect kSave{0.62f, 0.83f, 0.105f, 0.05f};
+constexpr gfx::Rect kClose{0.74f, 0.83f, 0.105f, 0.05f};
+
+// Archetype option order MUST match the ai::Archetype enum (dropdown index -> enum).
+constexpr const char* kArchKeys[] = {"brute", "skirmisher", "caster", "swarm", "lurker"};
+
 std::string StateLabel(anim::CreatureState s) {
 	return loc::Tr("anim.state." + std::string(anim::StateName(s)));
 }
-
-// The state a clip belongs to (library clips are named <state>__<clip>): the
-// token before "__", or the whole name if it is itself a state token, else empty
-// (so a plain hand-authored "idle" clip still maps to Idle; an un-prefixed clip
-// that isn't a token maps to no state and shows under none).
+// The state a library clip belongs to (named <state>__<clip>): the token before
+// "__", or the whole name if it is itself a state token, else empty.
 std::string ClipState(const std::string& name) {
 	const size_t sep = name.find("__");
 	const std::string head = sep == std::string::npos ? name : name.substr(0, sep);
 	return anim::ParseState(head) ? head : std::string();
 }
-
 // A clip name without its "<state>__" prefix, for display.
 std::string ClipLabel(const std::string& name) {
 	const size_t sep = name.find("__");
@@ -35,70 +42,25 @@ std::string ClipLabel(const std::string& name) {
 } // namespace
 
 MonsterConfigDialog::MonsterConfigDialog(gfx::GraphicsDevice& device)
-	: m_device(device), m_font(device, "", 18.0f) {}
+	: m_device(device), m_font(device, "", 18.0f), m_ui(device, "", 18.0f) {}
 
 void MonsterConfigDialog::Open(const std::string& type, const std::string& display,
 							   const Support& supported, const Clips& clips,
-							   const std::vector<std::string>& modelClips) {
+							   ai::Archetype archetype, float keepRange, float fleeBelow,
+							   const std::string& spell,
+							   const std::vector<std::string>& modelClips,
+							   const std::vector<std::string>& spellIds) {
 	m_open = true;
 	m_display = display;
-	m_cfg = {type, supported, clips};
+	m_cfg = {type, supported, clips, archetype, keepRange, fleeBelow, spell};
 	m_original = m_cfg; // snapshot for revert
 	m_modelClips = modelClips;
+	m_spellIds = spellIds;
 	m_selState = static_cast<int>(anim::CreatureState::Idle);
 	m_selClip = FirstClipOf(m_selState); // auto-preview the first clip of the state
-	m_clipScroll = 0.0f;
-}
-
-// Resolves the centered panel, the two columns, the rows and the footer buttons.
-// Clip rows carry their model-clip index and drop out of the list when scrolled
-// past the column viewport, so Update (hit-test) and Render (draw) agree.
-MonsterConfigDialog::Layout MonsterConfigDialog::BuildLayout(float w, float h) const {
-	Layout L;
-	L.panel = {0.16f * w, 0.12f * h, 0.68f * w, 0.76f * h};
-	const float pad = std::clamp(L.panel.w * 0.02f, 8.0f, 24.0f);
-	const float fh = m_font.Height();
-	L.rowH = std::clamp(fh * 1.7f, 20.0f, 40.0f);
-	const float titleB = L.panel.y + pad + fh * 1.4f; // below the title
-	const float colTop = titleB + L.rowH;             // below the column headers
-	const float footerH = std::clamp(fh * 1.9f, 24.0f, 44.0f);
-	const float footerY = L.panel.y + L.panel.h - pad - footerH;
-
-	// Three columns: States | clip list | preview pane.
-	const float innerW = L.panel.w - 2.0f * pad;
-	const float colH = footerY - colTop - pad;
-	L.statesCol = {L.panel.x + pad, colTop, innerW * 0.26f, colH};
-	L.clipsCol = {L.statesCol.x + L.statesCol.w + pad, colTop, innerW * 0.32f, colH};
-	L.previewCol = {L.clipsCol.x + L.clipsCol.w + pad, colTop,
-					innerW - L.statesCol.w - L.clipsCol.w - 2.0f * pad, colH};
-
-	const float box = L.rowH * 0.55f;
-	for (int i = 0; i < N; ++i) {
-		const float y = L.statesCol.y + i * L.rowH;
-		L.stateRow[i] = {L.statesCol.x, y, L.statesCol.w, L.rowH};
-		L.stateCheck[i] = {L.statesCol.x + pad, y + (L.rowH - box) * 0.5f, box, box};
-	}
-
-	// Only the SELECTED state's animations (name-encoded, or already assigned);
-	// clipOf keeps the index into m_modelClips so a toggle still uses the full name.
-	const float clipBottom = L.clipsCol.y + L.clipsCol.h;
-	int ord = 0; // candidate ordinal (drives row Y + content height)
-	for (int i = 0; i < static_cast<int>(m_modelClips.size()); ++i) {
-		if (!ClipBelongs(m_modelClips[i], m_selState)) continue;
-		const float y = L.clipsCol.y - m_clipScroll + ord * L.rowH;
-		++ord;
-		if (y + L.rowH <= L.clipsCol.y || y >= clipBottom) continue; // scrolled out
-		L.clipRow.push_back({L.clipsCol.x, y, L.clipsCol.w, L.rowH});
-		L.clipCheck.push_back({L.clipsCol.x, y + (L.rowH - box) * 0.5f, box, box});
-		L.clipOf.push_back(i);
-	}
-	L.clipContentH = ord * L.rowH;
-
-	const float btnW = std::clamp(L.panel.w * 0.16f, 80.0f, 180.0f);
-	L.close = {L.panel.x + L.panel.w - pad - btnW, footerY, btnW, footerH};
-	L.save = {L.close.x - pad - btnW, footerY, btnW, footerH};
-	m_previewColCache = L.previewCol; // so PreviewRect need not rebuild the layout
-	return L;
+	m_activeTab = 0;
+	m_rebuild = false;
+	BuildUI();
 }
 
 bool MonsterConfigDialog::ClipBelongs(const std::string& name, int state) const {
@@ -114,17 +76,159 @@ std::string MonsterConfigDialog::FirstClipOf(int state) const {
 	return {};
 }
 
-gfx::Rect MonsterConfigDialog::PreviewRect(float /*w*/, float /*h*/) const {
-	// The preview pane fills the whole preview column (rendered at that aspect, so
-	// the tall box doesn't distort). Return the rect the last BuildLayout cached
-	// rather than rebuilding the layout just to read one rect.
-	return m_previewColCache;
+gfx::Rect MonsterConfigDialog::PreviewNorm() const { return kPreview; }
+
+gfx::Rect MonsterConfigDialog::PreviewRect(float w, float h) const {
+	return {kPreview.x * w, kPreview.y * h, kPreview.w * w, kPreview.h * h};
 }
+
+// --- widget tree ----------------------------------------------------------
+
+void MonsterConfigDialog::BuildUI() {
+	m_ui.Clear();
+	m_tabs = m_ui.Add<ui::TabControl>(kTabs, 0.075f);
+	const size_t tabBehav = m_tabs->AddTab(loc::Tr("map.cfg.tab.behavior"));
+	const size_t tabAnim = m_tabs->AddTab(loc::Tr("map.cfg.tab.animation"));
+	BuildBehaviorTab(tabBehav);
+	BuildAnimationTab(tabAnim);
+	m_tabs->SetActiveTab(m_activeTab);
+
+	m_ui.Add<ui::Button>(kSave, loc::Tr("map.cfg.save"), [this] {
+		if (onSave) onSave(m_cfg);
+		Close();
+	});
+	m_ui.Add<ui::Button>(kClose, loc::Tr("map.cfg.close"), [this] {
+		if (onApply) onApply(m_original); // revert the live kind to the snapshot
+		Close();
+	});
+}
+
+void MonsterConfigDialog::BuildBehaviorTab(size_t tab) {
+	std::vector<std::string> archItems;
+	for (const char* k : kArchKeys) archItems.push_back(loc::Tr("archetype." + std::string(k)));
+
+	m_tabs->AddChild<ui::Label>(tab, gfx::Rect{0.05f, 0.04f, 0.9f, 0.06f},
+								loc::Tr("map.cfg.archetype"));
+	m_tabs->AddChild<ui::DropDown>(tab, gfx::Rect{0.05f, 0.11f, 0.62f, 0.08f}, archItems,
+								   static_cast<int>(m_cfg.archetype), [this](int i) {
+									   m_cfg.archetype = static_cast<ai::Archetype>(i);
+									   Apply();
+									   m_rebuild = true; // dependent fields change
+								   });
+
+	float y = 0.24f;
+	const bool kites = m_cfg.archetype == ai::Archetype::Skirmisher ||
+					   m_cfg.archetype == ai::Archetype::Caster;
+	if (kites) {
+		m_tabs->AddChild<ui::Slider>(tab, gfx::Rect{0.05f, y, 0.9f, 0.10f},
+									 loc::Tr("map.cfg.keeprange"), 1.0f, 10.0f,
+									 m_cfg.keepRange, [this](float v) {
+										 m_cfg.keepRange = v;
+										 Apply();
+									 });
+		y += 0.15f;
+	}
+	// Flee threshold applies to any archetype (0 = never).
+	m_tabs->AddChild<ui::Slider>(tab, gfx::Rect{0.05f, y, 0.9f, 0.10f},
+								 loc::Tr("map.cfg.fleebelow"), 0.0f, 1.0f, m_cfg.fleeBelow,
+								 [this](float v) {
+									 m_cfg.fleeBelow = v;
+									 Apply();
+								 });
+	y += 0.17f;
+	if (m_cfg.archetype == ai::Archetype::Caster) {
+		m_tabs->AddChild<ui::Label>(tab, gfx::Rect{0.05f, y, 0.9f, 0.06f},
+									loc::Tr("map.cfg.spell"));
+		y += 0.07f;
+		int sel = 0;
+		for (size_t i = 0; i < m_spellIds.size(); ++i)
+			if (m_spellIds[i] == m_cfg.spell) { sel = static_cast<int>(i); break; }
+		std::vector<std::string> items = m_spellIds;
+		if (items.empty()) items.push_back(loc::Tr("map.cfg.nospells"));
+		m_tabs->AddChild<ui::DropDown>(tab, gfx::Rect{0.05f, y, 0.62f, 0.08f}, items, sel,
+									   [this](int i) {
+										   if (i >= 0 && i < static_cast<int>(m_spellIds.size()))
+											   m_cfg.spell = m_spellIds[i];
+										   Apply();
+									   });
+	}
+}
+
+void MonsterConfigDialog::BuildAnimationTab(size_t tab) {
+	constexpr float rowH = 0.062f, top = 0.09f;
+	m_tabs->AddChild<ui::Label>(tab, gfx::Rect{0.02f, 0.01f, 0.32f, 0.06f},
+								loc::Tr("map.cfg.states"));
+	m_tabs->AddChild<ui::Label>(
+		tab, gfx::Rect{0.37f, 0.01f, 0.6f, 0.06f},
+		loc::Format("map.cfg.anims",
+					StateLabel(static_cast<anim::CreatureState>(m_selState))));
+
+	// State column: a Button spans the row (click = pick this state's clips), with a
+	// Checkbox box at the right for its supported flag (added after, so it wins its
+	// area). Idle is the rest floor — always supported, no toggle.
+	for (int i = 0; i < N; ++i) {
+		const auto s = static_cast<anim::CreatureState>(i);
+		const float y = top + i * rowH;
+		auto* btn = m_tabs->AddChild<ui::Button>(
+			tab, gfx::Rect{0.02f, y, 0.24f, rowH * 0.9f}, StateLabel(s), [this, i] {
+				if (m_selState != i) {
+					m_selState = i;
+					m_selClip = FirstClipOf(i);
+					m_rebuild = true;
+				}
+			});
+		btn->active = (i == m_selState);
+		if (i != static_cast<int>(anim::CreatureState::Idle)) {
+			m_tabs->AddChild<ui::Checkbox>(tab, gfx::Rect{0.27f, y, 0.06f, rowH * 0.9f}, "",
+										   m_cfg.supported[i], [this, i](bool on) {
+											   m_cfg.supported[i] = on;
+											   Apply();
+										   });
+		}
+	}
+
+	// Clip column for the selected state (name-encoded or already assigned). Rows
+	// past the tab bottom scroll (TabControl handles it). Empty = a hint label.
+	std::vector<int> clips;
+	for (int i = 0; i < static_cast<int>(m_modelClips.size()); ++i)
+		if (ClipBelongs(m_modelClips[i], m_selState)) clips.push_back(i);
+	if (clips.empty()) {
+		m_tabs->AddChild<ui::Label>(tab, gfx::Rect{0.37f, top, 0.6f, rowH},
+									loc::Tr("map.cfg.noclips"));
+		return;
+	}
+	const auto& vec = m_cfg.clips[m_selState];
+	for (size_t r = 0; r < clips.size(); ++r) {
+		const std::string name = m_modelClips[clips[r]]; // full <state>__<clip>
+		const float y = top + r * rowH;
+		auto* btn = m_tabs->AddChild<ui::Button>(
+			tab, gfx::Rect{0.37f, y, 0.46f, rowH * 0.9f}, ClipLabel(name), [this, name] {
+				m_selClip = name; // select for preview
+			});
+		btn->active = (name == m_selClip);
+		const bool on = std::find(vec.begin(), vec.end(), name) != vec.end();
+		m_tabs->AddChild<ui::Checkbox>(tab, gfx::Rect{0.85f, y, 0.06f, rowH * 0.9f}, "", on,
+									   [this, name](bool checked) {
+										   auto& v = m_cfg.clips[m_selState];
+										   const auto it = std::find(v.begin(), v.end(), name);
+										   if (checked && it == v.end())
+											   v.push_back(name);
+										   else if (!checked && it != v.end())
+											   v.erase(it);
+										   m_selClip = name; // toggling also previews it
+										   Apply();
+									   });
+	}
+}
+
+// --- modal loop -----------------------------------------------------------
 
 void MonsterConfigDialog::Update(const Input& input, float w, float h) {
 	if (!m_open) return;
-	m_font.Commit(); // flush glyphs cached last frame before this frame draws
-	m_font.SetHeight(std::clamp(h * 0.022f, 12.0f, 26.0f));
+	m_font.Commit();
+	const float fh = std::clamp(h * 0.020f, 12.0f, 24.0f);
+	m_font.SetHeight(fh);
+	m_ui.GetFont().SetHeight(fh);
 
 	if (input.WasKeyPressed(VK_ESCAPE)) { // cancel: revert live to the snapshot
 		if (onApply) onApply(m_original);
@@ -132,161 +236,44 @@ void MonsterConfigDialog::Update(const Input& input, float w, float h) {
 		return;
 	}
 
-	const float mx = input.MouseX(), my = input.MouseY();
-	const Layout L = BuildLayout(w, h);
-
-	// Wheel over the clip column scrolls it.
-	if (input.WheelDelta() != 0.0f && L.clipsCol.Contains(mx, my)) {
-		const float maxScroll = std::max(0.0f, L.clipContentH - L.clipsCol.h);
-		m_clipScroll = std::clamp(m_clipScroll - input.WheelDelta() * L.rowH, 0.0f, maxScroll);
-	}
-
-	if (!input.WasMousePressed(MouseButton::Left)) return;
-
-	if (L.save.Contains(mx, my)) {
-		if (onSave) onSave(m_cfg);
-		Close();
-		return;
-	}
-	if (L.close.Contains(mx, my)) { // cancel: revert
-		if (onApply) onApply(m_original);
-		Close();
-		return;
-	}
-
-	// State column: the checkbox toggles supported; the rest of the row selects it.
-	for (int i = 0; i < N; ++i) {
-		if (L.stateCheck[i].Contains(mx, my)) {
-			if (i != static_cast<int>(anim::CreatureState::Idle)) { // Idle is the floor
-				m_cfg.supported[i] = !m_cfg.supported[i];
-				Apply();
-			}
-			return;
-		}
-		if (L.stateRow[i].Contains(mx, my)) {
-			if (m_selState != i) {
-				m_selState = i;
-				m_clipScroll = 0.0f;
-				m_selClip = FirstClipOf(i); // preview the state's first clip
-			}
-			return;
-		}
-	}
-
-	// Clip column: the checkbox toggles valid; the rest of the row selects the clip
-	// for preview.
-	for (size_t r = 0; r < L.clipRow.size(); ++r) {
-		const std::string& name = m_modelClips[L.clipOf[r]];
-		if (L.clipCheck[r].Contains(mx, my)) {
-			auto& vec = m_cfg.clips[m_selState];
-			if (const auto it = std::find(vec.begin(), vec.end(), name); it != vec.end())
-				vec.erase(it);
-			else
-				vec.push_back(name);
-			Apply();
-			return;
-		}
-		if (L.clipRow[r].Contains(mx, my)) {
-			m_selClip = name; // select for preview
-			return;
-		}
+	m_ui.Update(input, w, h);
+	if (!m_open) return; // a footer button (Save/Close) closed us this frame
+	if (m_tabs) m_activeTab = m_tabs->ActiveTab();
+	if (m_rebuild) { // a callback changed which rows exist — rebuild off the stack
+		m_rebuild = false;
+		BuildUI();
 	}
 }
 
-void MonsterConfigDialog::Render(gfx::SpriteBatch& batch, const ui::Theme& th,
-								 float w, float h) {
+void MonsterConfigDialog::Render(gfx::SpriteBatch& batch, const ui::Theme& th, float w,
+								 float h) {
 	if (!m_open) return;
-	const Layout L = BuildLayout(w, h);
-	const float pad = std::clamp(L.panel.w * 0.02f, 8.0f, 24.0f);
-	const float fh = m_font.Height();
+	auto px = [&](const gfx::Rect& r) {
+		return gfx::Rect{r.x * w, r.y * h, r.w * w, r.h * h};
+	};
 
 	batch.DrawRect({0, 0, w, h}, {0, 0, 0, 0.6f}); // dim the editor behind
-	batch.DrawRect(L.panel, th.panel);
-	ui::DrawBorder(batch, L.panel, th.panelBorder);
+	const gfx::Rect panel = px(kPanel);
+	batch.DrawRect(panel, th.panel);
+	ui::DrawBorder(batch, panel, th.panelBorder);
 
-	// Draws a checkbox: bordered box, filled accent when checked.
-	auto checkbox = [&](const gfx::Rect& box, bool on) {
-		batch.DrawRect(box, th.control);
-		ui::DrawBorder(batch, box, th.panelBorder);
-		if (on) {
-			const float in = box.w * 0.22f;
-			batch.DrawRect({box.x + in, box.y + in, box.w - 2 * in, box.h - 2 * in},
-						   th.accent);
-		}
-	};
-	auto textY = [&](const gfx::Rect& r) { return r.y + (r.h - fh) * 0.5f; };
+	const gfx::Rect title = px(kTitle);
+	m_font.Draw(batch, loc::Format("map.cfg.title", m_display), title.x, title.y, th.text);
 
-	// Title + column headers.
-	m_font.Draw(batch, loc::Format("map.cfg.title", m_display), L.panel.x + pad,
-				L.panel.y + pad, th.text);
-	m_font.Draw(batch, loc::Tr("map.cfg.states"), L.statesCol.x,
-				L.statesCol.y - L.rowH + (L.rowH - fh) * 0.5f, th.textDim);
-	m_font.Draw(batch,
-				loc::Format("map.cfg.anims",
-							StateLabel(static_cast<anim::CreatureState>(m_selState))),
-				L.clipsCol.x, L.clipsCol.y - L.rowH + (L.rowH - fh) * 0.5f, th.textDim);
+	m_ui.Render(batch, w, h); // tabs + footer buttons (+ dropdown overlays)
 
-	// State rows.
-	for (int i = 0; i < N; ++i) {
-		const auto s = static_cast<anim::CreatureState>(i);
-		if (i == m_selState) {
-			batch.DrawRect(L.stateRow[i], th.controlActive);
-			ui::DrawBorder(batch, L.stateRow[i], th.panelBorder);
-		}
-		checkbox(L.stateCheck[i], m_cfg.supported[i]);
-		const float lx = L.stateCheck[i].x + L.stateCheck[i].w + pad * 0.6f;
-		m_font.Draw(batch, StateLabel(s), lx, textY(L.stateRow[i]),
-					i == m_selState ? th.text : th.textDim);
-	}
-
-	// Clip column: the selected state's animations (scissored so scrolled rows clip
-	// to the column). The checkbox = valid; the highlighted row = previewing. Empty
-	// when the model has no clips for this state.
-	batch.SetScissor(&L.clipsCol);
-	if (L.clipContentH <= 0.0f) {
-		m_font.Draw(batch, loc::Tr("map.cfg.noclips"), L.clipsCol.x,
-					L.clipsCol.y + (L.rowH - fh) * 0.5f, th.textDim);
-	} else {
-		const auto& vec = m_cfg.clips[m_selState];
-		for (size_t r = 0; r < L.clipRow.size(); ++r) {
-			const std::string& name = m_modelClips[L.clipOf[r]]; // full <state>__<clip>
-			const bool on = std::find(vec.begin(), vec.end(), name) != vec.end();
-			const bool sel = name == m_selClip; // being previewed
-			const gfx::Rect& row = L.clipRow[r];
-			if (sel) {
-				batch.DrawRect(row, th.controlActive);
-				ui::DrawBorder(batch, row, th.panelBorder);
-			}
-			checkbox(L.clipCheck[r], on);
-			const float lx = L.clipCheck[r].x + L.clipCheck[r].w + pad * 0.6f;
-			m_font.Draw(batch, ClipLabel(name), lx, textY(row),
-						(on || sel) ? th.text : th.textDim);
-		}
-	}
-	batch.SetScissor(nullptr);
-
-	// Preview pane: header + backing box (Game blits the live looping animation
-	// into PreviewRect on top). A hint shows when nothing is selected.
-	m_font.Draw(batch, loc::Tr("map.cfg.preview"), L.previewCol.x,
-				L.previewCol.y - L.rowH + (L.rowH - fh) * 0.5f, th.textDim);
-	const gfx::Rect pv = L.previewCol; // already built this frame; no extra BuildLayout
+	// Preview pane: header + backing box; the owner (Game) blits the live looping
+	// animation into PreviewRect on top afterwards.
+	const gfx::Rect ph = px(kPrevHdr);
+	m_font.Draw(batch, loc::Tr("map.cfg.preview"), ph.x, ph.y, th.textDim);
+	const gfx::Rect pv = px(kPreview);
 	batch.DrawRect(pv, {0.02f, 0.02f, 0.03f, 1.0f});
 	ui::DrawBorder(batch, pv, th.panelBorder);
 	if (m_selClip.empty()) {
 		const std::string hint = loc::Tr("map.cfg.nopreview");
 		m_font.Draw(batch, hint, pv.x + (pv.w - m_font.MeasureWidth(hint)) * 0.5f,
-					pv.y + pv.h * 0.5f - fh * 0.5f, th.textDim);
+					pv.y + pv.h * 0.5f - m_font.Height() * 0.5f, th.textDim);
 	}
-
-	// Footer buttons.
-	auto button = [&](const gfx::Rect& r, const std::string& label, const Vec4& bg) {
-		batch.DrawRect(r, bg);
-		ui::DrawBorder(batch, r, th.panelBorder);
-		m_font.Draw(batch, label, r.x + (r.w - m_font.MeasureWidth(label)) * 0.5f,
-					textY(r), th.text);
-	};
-	button(L.save, loc::Tr("map.cfg.save"), th.controlActive);
-	button(L.close, loc::Tr("map.cfg.close"), th.control);
 }
 
 } // namespace dungeon::game

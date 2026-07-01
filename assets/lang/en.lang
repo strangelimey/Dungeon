@@ -319,7 +319,20 @@ map.cfg.close=Close
 map.cfg.noclips=(model has no clips)
 map.cfg.preview=Preview
 map.cfg.nopreview=select an animation
-map.cfg.saved=Saved animation config for '{}'
+map.cfg.saved=Saved config for '{}'
+map.cfg.tab.behavior=Behavior
+map.cfg.tab.animation=Animation
+map.cfg.archetype=Archetype
+map.cfg.keeprange=Keep range (cells)
+map.cfg.fleebelow=Flee below (HP fraction)
+map.cfg.spell=Spell
+map.cfg.nospells=(no spells in project)
+; archetype names (Behavior tab dropdown)
+archetype.brute=Brute (melee)
+archetype.skirmisher=Skirmisher (kite + bolt)
+archetype.caster=Caster (kite + spell)
+archetype.swarm=Swarm (omni melee)
+archetype.lurker=Lurker (ambush)
 
 ; CreatureState display names (Animation/CreatureState.h)
 anim.state.spawn=Spawn
