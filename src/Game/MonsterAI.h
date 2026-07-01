@@ -44,8 +44,8 @@ struct Cell {
 };
 
 // ----------------------------------------------------------------------------
-// The world seam. Pathing needs only two read-only spatial questions; the
-// snapshot-backed SnapshotView (below) answers them for the workers without
+// The world seam. Pathing + perception need only read-only spatial questions;
+// the snapshot-backed SnapshotView (below) answers them for the workers without
 // touching the live world. `selfId` is unused by the snapshot view (a monster
 // never re-enters its own start cell) but kept for interface generality.
 // ----------------------------------------------------------------------------
@@ -61,6 +61,11 @@ public:
 	// A cell is map-walkable. The goal cell qualifies even if occupied, so the
 	// BFS can still target a monster's last-known party cell.
 	virtual bool IsWalkable(int x, int z) const = 0;
+	// True if an unobstructed straight line runs from cell (x0,z0) to (x1,z1) — no
+	// map-blocking (non-walkable) cell lies strictly BETWEEN them (the endpoints
+	// themselves never block, so a monster/party cell is always visible from itself
+	// and adjacency is always clear). Perception's "walls block sight" test.
+	virtual bool HasLineOfSight(int x0, int z0, int x1, int z1) const = 0;
 };
 
 // ----------------------------------------------------------------------------
@@ -164,7 +169,9 @@ struct Scheduler {
 class Brain {
 public:
 	// THINK (cheap, no pathing): pick the standing orders from what is perceived.
-	Intent Think(const Agent& a, int partyX, int partyZ) const;
+	// Reads `world` for the line-of-sight perception test (walls block fresh sight);
+	// stays pure (only reads the snapshot-backed view).
+	Intent Think(const Agent& a, int partyX, int partyZ, const IWorldView& world) const;
 
 	// PATH (the meaty part): full 4-connected BFS route from the agent toward
 	// (targetX,targetZ) over walkable, monster-free cells. Fills outPath with the
@@ -239,6 +246,7 @@ public:
 	explicit SnapshotView(const Snapshot& s) : m_snap(s) {}
 	bool CellFreeForMonster(int x, int z, int selfId, int capacity) const override;
 	bool IsWalkable(int x, int z) const override;
+	bool HasLineOfSight(int x0, int z0, int x1, int z1) const override;
 
 private:
 	const Snapshot& m_snap;

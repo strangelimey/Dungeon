@@ -292,15 +292,15 @@ The open questions have been answered; these constraints now drive the build.
 Reflecting the decisions above, P1 is split so the risky refactor lands behind a
 regression guard before any new behaviour rides on it.
 
-1. **P1a — Shared moving-item engine.** Extract projectile flight out of
+1. **P1a — Shared moving-item engine. [DONE]** Extract projectile flight out of
    `MagicSystem` into a standalone, faction-aware `ProjectileSystem` (moving item
    = pos/dir/speed/range/visual + `TargetSide` + `AttackProfile`). Reroute spell
    casts through it with **zero behaviour change** (same bolts, same hits) — the
    regression guard. `MagicSystem` shrinks to recipe/mana/cast → projectile spec.
-2. **P1b — Perception LoS.** Add `HasLineOfSight` on `ai::IWorldView`, computed
-   against the snapshot's cached walkability grid (pure). Wire it into
-   `Brain::Think` perception (walls now block sight); brute behaviour otherwise
-   unchanged.
+2. **P1b — Perception LoS. [DONE]** Added `HasLineOfSight` on `ai::IWorldView`
+   (`SnapshotView` walks a Bresenham line over the cached walkability grid; pure).
+   `Brain::Think` now takes the view and LoS-gates FRESH detection (walls block
+   sight; sticky `aware` still chases around corners); movement/attack unchanged.
 3. **P1c — Skirmisher end-to-end.** Add the `archetype` enum + skirmisher params
    to `Agent`/`MonsterKind`/`monsters.cat`; widen `ai::Intent::Mode` (add `Kite`);
    `Brain::Think` picks Engage vs Kite from archetype + LoS + range; host gains a

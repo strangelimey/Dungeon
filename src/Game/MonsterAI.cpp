@@ -60,36 +60,65 @@ bool SnapshotView::CellFreeForMonster(int x, int z, int /*selfId*/, int capacity
 	return it->second.capacity == capacity && it->second.count < it->second.capacity;
 }
 
+bool SnapshotView::HasLineOfSight(int x0, int z0, int x1, int z1) const {
+	// Integer line walk (Bresenham) from (x0,z0) to (x1,z1): every cell the line
+	// ENTERS between the endpoints must be walkable, or a wall blocks the view. The
+	// endpoints (the monster's own cell and the party cell) are never tested — a
+	// monster always "sees" itself, and adjacency is always clear. Corner-cutting
+	// between two diagonal walls is possible (a diagonal step crosses their shared
+	// corner) but tolerable for perception; tighten to a supercover walk if it ever
+	// lets sight leak through a diagonal doorway.
+	const int dx = std::abs(x1 - x0), dz = std::abs(z1 - z0);
+	const int sx = x0 < x1 ? 1 : -1, sz = z0 < z1 ? 1 : -1;
+	int err = dx - dz;
+	int x = x0, z = z0;
+	for (;;) {
+		if (x == x1 && z == z1) return true; // reached the target with no wall between
+		const int e2 = 2 * err;
+		if (e2 > -dz) { err -= dz; x += sx; }
+		if (e2 < dx) { err += dx; z += sz; }
+		if (x == x1 && z == z1) return true; // stepped onto the endpoint: it never blocks
+		if (!IsWalkable(x, z)) return false; // an intervening wall blocks sight
+	}
+}
+
 // ----------------------------------------------------------------------------
 // Brain — pure thinking + pathing.
 // ----------------------------------------------------------------------------
 
-Intent Brain::Think(const Agent& a, int partyX, int partyZ) const {
+Intent Brain::Think(const Agent& a, int partyX, int partyZ, const IWorldView& world) const {
 	// Cheap, infrequent: engage when the party is PERCEIVED, and lock the chase
 	// goal to its CURRENT cell. Execution keeps pathing toward this snapshot until
 	// the next think, so a dim monster lumbers toward where the party WAS.
 	//
 	// Perception (the sneak mechanic): being in range is necessary but not always
 	// sufficient. An already-aware monster (sticky, set by a prior notice or a hit)
-	// or an omnidirectional one engages on range alone; an unaware DIRECTIONAL
-	// monster must also have the party inside its frontal sight cone (±kSightCone),
-	// so the party can creep up from behind a group and they stay oblivious.
+	// engages on range alone — it has noticed and gives chase even around corners.
+	// FRESH detection instead needs an unobstructed line to the party (walls block
+	// sight) AND, for a directional monster, the party inside its frontal sight
+	// cone (±kSightCone); an omnidirectional monster (no blind spot) still needs
+	// the clear line. So the party can creep up from behind a group, or stay behind
+	// a wall, and they remain oblivious until they're seen or take a swing.
 	Intent it;
 	const int dist = std::max(std::abs(a.x - partyX), std::abs(a.z - partyZ));
 	if (static_cast<float>(dist) > a.aggroRange) return it; // out of range: idle
 
-	bool perceived = a.aware || !a.directional;
-	if (!perceived) {
-		// Angle between the monster's facing and the direction to the party. Yaw
-		// convention: forward = (sin yaw, cos yaw), so the bearing is atan2(dx,dz).
-		constexpr float kPi = 3.14159265358979f;
-		constexpr float kSightCone = kPi / 3.0f; // ±60° → a 120° frontal field of view
-		const float bearing = std::atan2(static_cast<float>(partyX - a.x),
-										 static_cast<float>(partyZ - a.z));
-		float d = bearing - a.facingYaw;
-		while (d > kPi) d -= 2.0f * kPi;
-		while (d < -kPi) d += 2.0f * kPi;
-		perceived = std::abs(d) <= kSightCone;
+	bool perceived = a.aware; // sticky awareness engages regardless of sight
+	if (!perceived && world.HasLineOfSight(a.x, a.z, partyX, partyZ)) {
+		if (!a.directional) {
+			perceived = true; // omnidirectional sensing, but the line must be clear
+		} else {
+			// Angle between the monster's facing and the direction to the party. Yaw
+			// convention: forward = (sin yaw, cos yaw), so the bearing is atan2(dx,dz).
+			constexpr float kPi = 3.14159265358979f;
+			constexpr float kSightCone = kPi / 3.0f; // ±60° → a 120° frontal field of view
+			const float bearing = std::atan2(static_cast<float>(partyX - a.x),
+											 static_cast<float>(partyZ - a.z));
+			float d = bearing - a.facingYaw;
+			while (d > kPi) d -= 2.0f * kPi;
+			while (d < -kPi) d += 2.0f * kPi;
+			perceived = std::abs(d) <= kSightCone;
+		}
 	}
 	if (perceived) {
 		// Engage toward the ASSIGNED attack cell (the host's formation pass spreads
@@ -241,7 +270,7 @@ void AsyncDirector::ComputeBucket(int bucket, Brain& brain, const std::stop_toke
 		if (Scheduler::BucketForIq(m.iq) != bucket) continue;
 		Plan plan;
 		plan.id = m.id;
-		plan.intent = brain.Think(m, snap->partyX, snap->partyZ);
+		plan.intent = brain.Think(m, snap->partyX, snap->partyZ, view);
 		if (plan.intent.mode == Intent::Mode::Engage)
 			brain.FindPath(m, plan.intent.targetX, plan.intent.targetZ, snap->mapW,
 						   snap->mapH, view, stop, plan.path);
