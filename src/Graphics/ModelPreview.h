@@ -15,6 +15,8 @@
 #include "Graphics/Mesh.h"
 #include "Graphics/Renderer.h" // MaterialParams
 
+#include <span>
+
 namespace dungeon::gfx {
 
 // Binds rtv+dsv, sets the viewport/scissor to a `size`x`size` square, and clears
@@ -28,10 +30,15 @@ class ModelPreview {
 public:
 	ModelPreview(GraphicsDevice& device, u32 size = 512);
 
-	// Renders `mesh`/`material` into the offscreen target, the model spun by
-	// `orbit` radians about +Y. Uses `renderer` for the actual draw.
+	// Renders `mesh`/`material` into the offscreen target, uniformly `scale`d and
+	// spun by `orbit` radians about +Y. `aspect` (width/height of the pane the image
+	// is blitted into) sets the camera aspect so a non-square pane doesn't distort
+	// the model — the square RT is rendered for that aspect and the blit cancels it.
+	// `palette` is empty for a static mesh or the skinning palette for an animated
+	// one (an anim::Animator's Palette()). Uses `renderer` for the actual draw.
 	void Render(ID3D12GraphicsCommandList* list, Renderer& renderer, const Mesh& mesh,
-				const MaterialParams& material, float orbit);
+				const MaterialParams& material, float scale, float orbit,
+				float aspect = 1.0f, std::span<const Mat4> palette = {});
 
 	// The rendered image's SRV, for SpriteBatch::DrawSprite.
 	D3D12_GPU_DESCRIPTOR_HANDLE Srv() const { return m_srv.gpu; }

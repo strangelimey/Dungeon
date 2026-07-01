@@ -277,7 +277,9 @@ void DungeonWorld::SubmitSceneGeometry(ID3D12GraphicsCommandList* list,
 		const Vec3 pos = monster.visualPos; // glides between cells while chasing
 		if (!visible({pos.x, 1.0f, pos.z}, 1.5f)) continue;
 		Mat4 world;
-		XMStoreFloat4x4(&world, XMMatrixRotationY(monster.yaw) *
+		XMStoreFloat4x4(&world, XMMatrixScaling(kind.modelScale, kind.modelScale,
+												kind.modelScale) *
+									XMMatrixRotationY(monster.yaw + kind.modelYaw) *
 									XMMatrixTranslation(pos.x, 0, pos.z));
 		gfx::MaterialParams material;
 		const float fallbackRough = kind.fallbackRoughness;

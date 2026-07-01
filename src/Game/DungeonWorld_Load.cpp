@@ -286,11 +286,112 @@ DungeonWorld::MonsterKind& DungeonWorld::MonsterKindFor(const std::string& type)
 			assets->iq = def->GetFloat("iq", 100.0f);
 			assets->facesTarget = def->GetBool("faces", true);
 			assets->fallbackRoughness = def->GetFloat("roughness", 0.9f);
+			// Imported-model fixups (degrees in the catalog -> radians here).
+			assets->modelYaw = def->GetFloat("modelyaw", 0.0f) * (3.14159265f / 180.0f);
+			assets->modelScale = def->GetFloat("modelscale", 1.0f);
 			assets->size = ParseSizeClass(CatalogGet(def, "size", "large"));
+		}
+		// Data-driven animation table (see Animation/CreatureState.h): for each
+		// state, an `anim_<state> = clipA clipB ...` row lists the candidate clips
+		// (variations); with no row, a state defaults to a clip named after itself
+		// when the model ships one. Names are validated against the model so a typo
+		// or a not-yet-authored clip is dropped (never a runtime miss), and a state
+		// whose name differs from its clip (spawn→rise, taunt→roar) just needs a row.
+		const auto hasClip = [&](const std::string& name) {
+			for (const auto& c : assets->model.clips)
+				if (c.name == name) return true;
+			return false;
+		};
+		for (int i = 0; i < anim::kCreatureStateCount; ++i) {
+			const auto st = static_cast<anim::CreatureState>(i);
+			const std::string field = "anim_" + std::string(anim::StateName(st));
+			const std::string spec = def ? CatalogGet(def, field, "") : std::string();
+			std::vector<std::string> clips;
+			if (!spec.empty()) {
+				for (const std::string& c : SplitTokens(spec))
+					if (hasClip(c)) clips.push_back(c);
+			} else if (const std::string dflt(anim::StateName(st)); hasClip(dflt)) {
+				clips.push_back(dflt);
+			}
+			assets->animClips[i] = std::move(clips);
+		}
+		// Supported-state set (which CreatureStates this kind can be in). Explicit
+		// `states = idle walk attack ...` is the source of truth; with no row, fall
+		// back to "supported iff the state has clips" so un-migrated monsters work.
+		const std::string statesSpec = def ? CatalogGet(def, "states", "") : std::string();
+		if (!statesSpec.empty()) {
+			for (const std::string& tok : SplitTokens(statesSpec)) {
+				if (const auto s = anim::ParseState(tok))
+					assets->stateSupported[static_cast<int>(*s)] = true;
+				else
+					log::Warn("monsters.cat [{}]: unknown state '{}' in states=", type, tok);
+			}
+		} else {
+			for (int i = 0; i < anim::kCreatureStateCount; ++i)
+				assets->stateSupported[i] = !assets->animClips[i].empty();
+		}
+		assets->stateSupported[static_cast<int>(anim::CreatureState::Idle)] = true; // always rests
+		// Authoring aid: a supported state with no clip will animate nothing.
+		for (int i = 0; i < anim::kCreatureStateCount; ++i) {
+			const auto s = static_cast<anim::CreatureState>(i);
+			if (assets->stateSupported[i] && assets->animClips[i].empty()
+				&& s != anim::CreatureState::Idle)
+				log::Info("monsters.cat [{}]: state '{}' supported but has no clip",
+						  type, anim::StateName(s));
 		}
 		it = m_monsterKinds.emplace(type, std::move(assets)).first;
 	}
 	return *it->second;
+}
+
+// --- editor: monster animation config ---------------------------------------
+// These back the right-click config dialog. They force-load the kind (it may not
+// be placed in the level) and read/write the same two MonsterKind members the
+// catalog populate above fills, so an edit takes effect with no reload.
+
+std::vector<std::string> DungeonWorld::MonsterClipNames(const std::string& type) {
+	const MonsterKind& kind = MonsterKindFor(type);
+	std::vector<std::string> names;
+	names.reserve(kind.model.clips.size());
+	for (const auto& c : kind.model.clips) names.push_back(c.name);
+	return names;
+}
+
+void DungeonWorld::MonsterAnimConfig(const std::string& type, AnimSupport& supported,
+									 AnimClips& clips) {
+	const MonsterKind& kind = MonsterKindFor(type);
+	supported = kind.stateSupported;
+	clips = kind.animClips;
+}
+
+void DungeonWorld::ApplyMonsterAnimConfig(const std::string& type,
+										  const AnimSupport& supported, const AnimClips& clips) {
+	MonsterKind& kind = MonsterKindFor(type);
+	const auto hasClip = [&](const std::string& name) {
+		for (const auto& c : kind.model.clips)
+			if (c.name == name) return true;
+		return false;
+	};
+	kind.stateSupported = supported;
+	kind.stateSupported[static_cast<int>(anim::CreatureState::Idle)] = true; // rest floor
+	for (int i = 0; i < anim::kCreatureStateCount; ++i) {
+		std::vector<std::string> filtered;
+		for (const std::string& name : clips[i])
+			if (hasClip(name)) filtered.push_back(name);
+		kind.animClips[i] = std::move(filtered);
+	}
+}
+
+DungeonWorld::MonsterPreviewData DungeonWorld::MonsterPreviewFor(const std::string& type) {
+	const MonsterKind& kind = MonsterKindFor(type);
+	MonsterPreviewData d;
+	d.mesh = kind.mesh.get();
+	d.skeleton = &kind.model.skeleton;
+	d.clips = &kind.model.clips;
+	d.modelScale = kind.modelScale;
+	ApplyPropMaterial(d.material, kind.tex, kind.model.materials[0].baseColorFactor,
+					  kind.fallbackRoughness);
+	return d;
 }
 
 DungeonWorld::Monster DungeonWorld::MakeMonster(MonsterKind& kind, int id, int x,
@@ -310,7 +411,10 @@ DungeonWorld::Monster DungeonWorld::MakeMonster(MonsterKind& kind, int id, int x
 	monster.slot = std::max(0, FreeSlotInCell(x, z, kind.size, -1));
 	monster.visualPos = SlotCenter(x, z, kind.size, monster.slot);
 	monster.animator = anim::Animator(&kind.model.skeleton, &kind.model.clips);
-	monster.animator.Play("idle");
+	// Initial resting pose; DriveMonsterAnim takes over next frame (and plays the
+	// spawn clip first if the kind has one, via the default spawnReq).
+	const std::string idle = PickClip(kind, anim::CreatureState::Idle);
+	monster.animator.Play(idle.empty() ? "idle" : idle);
 	return monster;
 }
 

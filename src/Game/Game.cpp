@@ -77,7 +77,8 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	  m_mapEditor(m_mapView, m_world, m_settings),
 	  m_console(device, m_threads),
 	  m_modelPreview(device, 512),
-	  m_assetDialog(device, window) {
+	  m_assetDialog(device, window),
+	  m_monsterDialog(device) {
 	m_mapView.SetEditor(&m_mapEditor); // the view drives the editor in Editor mode
 	m_settings.Load();
 	ApplyLanguage(false); // strings must exist before any UI builds
@@ -226,6 +227,28 @@ void Game::WireModuleCallbacks() {
 		} else {
 			log::Warn("asset create: could not launch AssetBaker");
 		}
+	};
+
+	// Right-click a monster in the palette → open its animation config dialog.
+	m_mapEditor.onConfigure = [this](MapEditor::PaletteCat cat, const std::string& id) {
+		if (cat != MapEditor::PaletteCat::Monsters) return;
+		const CatalogEntry* e = m_project.monsters.Find(id);
+		const std::string display = e ? e->Display() : id;
+		DungeonWorld::AnimSupport supported;
+		DungeonWorld::AnimClips clips;
+		m_world.MonsterAnimConfig(id, supported, clips);
+		m_monsterDialog.Open(id, display, supported, clips, m_world.MonsterClipNames(id));
+		m_previewType.clear(); // force the preview animator to (re)build on first frame
+		m_previewClip.clear();
+		m_previewMonMesh = nullptr;
+	};
+	// Live-apply on every edit; persist on Save.
+	m_monsterDialog.onApply = [this](const MonsterConfigDialog::Config& c) {
+		m_world.ApplyMonsterAnimConfig(c.type, c.supported, c.clips);
+	};
+	m_monsterDialog.onSave = [this](const MonsterConfigDialog::Config& c) {
+		m_world.ApplyMonsterAnimConfig(c.type, c.supported, c.clips);
+		WriteMonsterAnim(c);
 	};
 }
 
@@ -765,6 +788,40 @@ void Game::FinishBake() {
 	}
 	m_assetDialog.SetBusy(false);
 	m_assetDialog.Close();
+}
+
+void Game::WriteMonsterAnim(const MonsterConfigDialog::Config& cfg) {
+	// Start from the existing entry so every non-animation field (display, model,
+	// hp, ...) is preserved; a brand-new type gets a bare entry.
+	CatalogEntry entry;
+	if (const CatalogEntry* e = m_project.monsters.Find(cfg.type)) entry = *e;
+	else entry.id = cfg.type;
+	// Drop the rows this dialog owns, then rewrite them authoritatively.
+	std::erase_if(entry.fields, [](const serialize::Field& f) {
+		return f.key == "states" || f.key.starts_with("anim_");
+	});
+
+	auto join = [](const std::vector<std::string>& v) {
+		std::string out;
+		for (const std::string& s : v) { if (!out.empty()) out += ' '; out += s; }
+		return out;
+	};
+	std::vector<std::string> stateTokens;
+	for (int i = 0; i < anim::kCreatureStateCount; ++i)
+		if (cfg.supported[i])
+			stateTokens.emplace_back(anim::StateName(static_cast<anim::CreatureState>(i)));
+	entry.Set("states", join(stateTokens));
+	for (int i = 0; i < anim::kCreatureStateCount; ++i) {
+		if (cfg.clips[i].empty()) continue;
+		const auto s = static_cast<anim::CreatureState>(i);
+		entry.Set("anim_" + std::string(anim::StateName(s)), join(cfg.clips[i]));
+	}
+
+	m_project.monsters.Add(std::move(entry)); // add-or-replace by id
+	if (!m_project.Save())
+		log::Warn("monster config: failed to save project catalogs");
+	else if (m_world.onMessage)
+		m_world.onMessage(loc::Format("map.cfg.saved", cfg.type));
 }
 
 // Runs one queued task per rendered frame (never before the current loading
@@ -1317,6 +1374,30 @@ void Game::Update(float dt) {
 							 static_cast<float>(m_window.Height()), dt);
 		return;
 	}
+	// The monster-config dialog is likewise modal over the editor.
+	if (m_monsterDialog.IsOpen()) {
+		m_monsterDialog.Update(input, static_cast<float>(m_window.Width()),
+							   static_cast<float>(m_window.Height()));
+		// Drive the live preview: (re)build the Animator when the selected type/clip
+		// changes, then advance it looping so Render can blit the current pose.
+		const std::string& type = m_monsterDialog.SelectedType();
+		const std::string& clip = m_monsterDialog.PreviewClip();
+		if (clip.empty()) {
+			m_previewMonMesh = nullptr;
+			m_previewClip.clear();
+		} else if (type != m_previewType || clip != m_previewClip) {
+			const auto d = m_world.MonsterPreviewFor(type);
+			m_previewMonMesh = d.mesh;
+			m_previewMonMat = d.material;
+			m_previewMonScale = d.modelScale;
+			m_previewAnim = anim::Animator(d.skeleton, d.clips);
+			m_previewAnim.Play(clip, /*loop*/ true);
+			m_previewType = type;
+			m_previewClip = clip;
+		}
+		if (m_previewMonMesh) m_previewAnim.Update(dt);
+		return;
+	}
 
 	// Map overlay: a toggle that never pauses the world. While it is open the
 	// party still walks (keyboard) — the overlay only claims the mouse for
@@ -1437,19 +1518,36 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 	const gfx::Mesh* pvMesh = nullptr;
 	gfx::MaterialParams pvMat;
 	float pvOrbit = 0.0f;
+	float pvScale = 1.0f;
+	float pvAspect = 1.0f;           // pane width/height, so a tall pane doesn't distort
+	std::span<const Mat4> pvPalette; // skinning palette for the animated monster preview
 	if (m_assetDialog.IsOpen() && m_assetDialog.HasPreview()) {
 		pvMesh = &m_assetDialog.PreviewMesh();
 		pvMat = m_assetDialog.PreviewMaterial();
 		pvOrbit = m_assetDialog.Orbit();
+	} else if (m_monsterDialog.IsOpen() && m_previewMonMesh) {
+		// The monster-config dialog's live animation: a fixed front-on view (the
+		// mesh faces +Z / the camera is at -Z, so ~π turns it toward the camera),
+		// rendered at the (tall) preview pane's aspect so it isn't squashed.
+		const gfx::Rect pv = m_monsterDialog.PreviewRect(
+			static_cast<float>(m_device.Width()), static_cast<float>(m_device.Height()));
+		pvMesh = m_previewMonMesh;
+		pvMat = m_previewMonMat;
+		pvScale = m_previewMonScale;
+		pvOrbit = kPi;
+		pvAspect = pv.h > 0.0f ? pv.w / pv.h : 1.0f;
+		pvPalette = m_previewAnim.Palette();
 	} else if (m_previewMesh) {
 		pvMesh = m_previewMesh.get();
 		pvMat = m_previewMaterial;
 		pvOrbit = m_previewOrbit;
 	}
-	const bool devPreviewFullscreen = m_previewMesh && !m_assetDialog.IsOpen();
+	const bool devPreviewFullscreen = m_previewMesh && !m_assetDialog.IsOpen() &&
+									  !m_monsterDialog.IsOpen();
 
 	if (pvMesh) {
-		m_modelPreview.Render(list, m_renderer, *pvMesh, pvMat, pvOrbit);
+		m_modelPreview.Render(list, m_renderer, *pvMesh, pvMat, pvScale, pvOrbit, pvAspect,
+							  pvPalette);
 		m_device.BindBackBuffer(list);
 	}
 	// The 3D scene draws during play and under the pause/character-sheet
@@ -1504,6 +1602,12 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 		const float s = std::min(dw, dh) * 0.85f;
 		m_spriteBatch.DrawSprite({(dw - s) * 0.5f, (dh - s) * 0.5f, s, s},
 								 {0, 0, 1, 1}, m_modelPreview.Srv(), {1, 1, 1, 1});
+	}
+	if (m_monsterDialog.IsOpen()) { // modal over the editor, like the asset dialog
+		m_monsterDialog.Render(m_spriteBatch, m_settings.theme, dw, dh);
+		if (m_previewMonMesh) // blit the live animation into the preview pane
+			m_spriteBatch.DrawSprite(m_monsterDialog.PreviewRect(dw, dh), {0, 0, 1, 1},
+									 m_modelPreview.Srv(), {1, 1, 1, 1});
 	}
 	if (m_console.IsOpen())
 		m_console.Render(m_spriteBatch, m_device, static_cast<float>(m_device.Width()),

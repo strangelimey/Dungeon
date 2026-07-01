@@ -18,3 +18,7 @@ assets/models/*.glb
 
 # Temp file for git commit -F (never track)
 .git-commit-msg.txt
+__pycache__/
+
+# Generated animation-catalog snippets (ImportAnimLibrary --catalog-out)
+assets/models/*.anim.cat

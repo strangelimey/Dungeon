@@ -307,3 +307,26 @@ newasset.color=Color
 newasset.create=Create
 newasset.cancel=Cancel
 newasset.baking=Baking... (running AssetBaker)
+
+; --- monster animation config dialog ---------------------------------------------
+map.cfg.title=Configure: {}
+map.cfg.states=States
+map.cfg.anims=Animations: {}
+map.cfg.save=Save
+map.cfg.close=Close
+map.cfg.noclips=(model has no clips)
+map.cfg.preview=Preview
+map.cfg.nopreview=select an animation
+map.cfg.saved=Saved animation config for '{}'
+
+; CreatureState display names (Animation/CreatureState.h)
+anim.state.spawn=Spawn
+anim.state.idle=Idle
+anim.state.incombat=In Combat
+anim.state.walk=Walk
+anim.state.run=Run
+anim.state.flee=Flee
+anim.state.attack=Attack
+anim.state.defend=Defend
+anim.state.hit=Hit
+anim.state.die=Die
