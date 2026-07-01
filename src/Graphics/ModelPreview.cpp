@@ -78,7 +78,8 @@ ModelPreview::ModelPreview(GraphicsDevice& device, u32 size)
 }
 
 void ModelPreview::Render(ID3D12GraphicsCommandList* list, Renderer& renderer,
-						  const Mesh& mesh, const MaterialParams& material, float orbit) {
+						  const Mesh& mesh, const MaterialParams& material, float scale,
+						  float orbit, float aspect, std::span<const Mat4> palette) {
 	using namespace DirectX;
 
 	D3D12_RESOURCE_BARRIER toRT = Transition(m_color.Get(),
@@ -90,12 +91,13 @@ void ModelPreview::Render(ID3D12GraphicsCommandList* list, Renderer& renderer,
 				   m_dsvHeap->GetCPUDescriptorHandleForHeapStart(), m_size,
 				   kPreviewClear);
 
-	// Imported models are grounded (min y = 0), centred in XZ, ~2 m tall — frame
-	// one from the front, looking slightly down at its middle.
+	// Imported models are grounded (min y = 0), centred in XZ, ~2 m tall. Frame one
+	// level-on from the front with headroom above and below (the vertical FOV covers
+	// ~-0.3..2.5 m, so a full-height humanoid isn't clipped at the skull or feet).
 	Camera cam;
-	cam.SetLens(40.0f * kPi / 180.0f, 1.0f, 0.05f, 50.0f);
-	cam.SetPosition({0.0f, 1.15f, -3.0f});
-	cam.SetYawPitch(0.0f, -0.14f);
+	cam.SetLens(45.0f * kPi / 180.0f, aspect, 0.05f, 50.0f);
+	cam.SetPosition({0.0f, 1.1f, -3.3f});
+	cam.SetYawPitch(0.0f, 0.0f);
 
 	LightSet lights;
 	lights.ambient = {0.20f, 0.20f, 0.23f};
@@ -104,8 +106,8 @@ void ModelPreview::Render(ID3D12GraphicsCommandList* list, Renderer& renderer,
 
 	renderer.BeginScene(list, cam, lights);
 	Mat4 world;
-	XMStoreFloat4x4(&world, XMMatrixRotationY(orbit));
-	renderer.DrawMesh(list, mesh, world, material);
+	XMStoreFloat4x4(&world, XMMatrixScaling(scale, scale, scale) * XMMatrixRotationY(orbit));
+	renderer.DrawMesh(list, mesh, world, material, palette);
 
 	D3D12_RESOURCE_BARRIER toSRV = Transition(m_color.Get(),
 											  D3D12_RESOURCE_STATE_RENDER_TARGET,

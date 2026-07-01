@@ -186,6 +186,20 @@ public:
 	void ApplyMonsterAnimConfig(const std::string& type, const AnimSupport& supported,
 								const AnimClips& clips);
 
+	// Everything the editor's monster-config dialog preview needs to animate a
+	// type's mesh: the (stable, cached) mesh + skeleton + clips a borrowed Animator
+	// plays, the resolved render material, and the render-time size fixup. The
+	// skeleton/clips pointers stay valid for the session (they live in the cached
+	// MonsterKind), so the caller may hold an Animator over them.
+	struct MonsterPreviewData {
+		const gfx::Mesh* mesh = nullptr;
+		const assets::SkeletonData* skeleton = nullptr;
+		const std::vector<assets::AnimationClipData>* clips = nullptr;
+		gfx::MaterialParams material;
+		float modelScale = 1.0f;
+	};
+	MonsterPreviewData MonsterPreviewFor(const std::string& type); // force-loads the kind
+
 	// --- level transitions (P6 multi-level) ---------------------------------
 	// Swaps the active level to `stem` and resets all per-level state (map,
 	// entities, fog, monster/decoration/fire instances, surface chunks, shadow

@@ -46,6 +46,7 @@ void MonsterConfigDialog::Open(const std::string& type, const std::string& displ
 	m_original = m_cfg; // snapshot for revert
 	m_modelClips = modelClips;
 	m_selState = static_cast<int>(anim::CreatureState::Idle);
+	m_selClip = FirstClipOf(m_selState); // auto-preview the first clip of the state
 	m_clipScroll = 0.0f;
 }
 
@@ -63,10 +64,13 @@ MonsterConfigDialog::Layout MonsterConfigDialog::BuildLayout(float w, float h) c
 	const float footerH = std::clamp(fh * 1.9f, 24.0f, 44.0f);
 	const float footerY = L.panel.y + L.panel.h - pad - footerH;
 
+	// Three columns: States | clip list | preview pane.
 	const float innerW = L.panel.w - 2.0f * pad;
-	L.statesCol = {L.panel.x + pad, colTop, innerW * 0.40f, footerY - colTop - pad};
-	L.clipsCol = {L.statesCol.x + L.statesCol.w + pad, colTop,
-				  innerW - L.statesCol.w - pad, L.statesCol.h};
+	const float colH = footerY - colTop - pad;
+	L.statesCol = {L.panel.x + pad, colTop, innerW * 0.26f, colH};
+	L.clipsCol = {L.statesCol.x + L.statesCol.w + pad, colTop, innerW * 0.32f, colH};
+	L.previewCol = {L.clipsCol.x + L.clipsCol.w + pad, colTop,
+					innerW - L.statesCol.w - L.clipsCol.w - 2.0f * pad, colH};
 
 	const float box = L.rowH * 0.55f;
 	for (int i = 0; i < N; ++i) {
@@ -86,6 +90,7 @@ MonsterConfigDialog::Layout MonsterConfigDialog::BuildLayout(float w, float h) c
 		++ord;
 		if (y + L.rowH <= L.clipsCol.y || y >= clipBottom) continue; // scrolled out
 		L.clipRow.push_back({L.clipsCol.x, y, L.clipsCol.w, L.rowH});
+		L.clipCheck.push_back({L.clipsCol.x, y + (L.rowH - box) * 0.5f, box, box});
 		L.clipOf.push_back(i);
 	}
 	L.clipContentH = ord * L.rowH;
@@ -94,6 +99,19 @@ MonsterConfigDialog::Layout MonsterConfigDialog::BuildLayout(float w, float h) c
 	L.close = {L.panel.x + L.panel.w - pad - btnW, footerY, btnW, footerH};
 	L.save = {L.close.x - pad - btnW, footerY, btnW, footerH};
 	return L;
+}
+
+std::string MonsterConfigDialog::FirstClipOf(int state) const {
+	const std::string token(anim::StateName(static_cast<anim::CreatureState>(state)));
+	for (const std::string& c : m_modelClips)
+		if (ClipState(c) == token) return c;
+	return {};
+}
+
+gfx::Rect MonsterConfigDialog::PreviewRect(float w, float h) const {
+	// Fill the whole preview column so the pane lines up with the states/clips
+	// columns (rendered at this aspect, so the taller-than-wide box doesn't distort).
+	return BuildLayout(w, h).previewCol;
 }
 
 void MonsterConfigDialog::Update(const Input& input, float w, float h) {
@@ -139,22 +157,32 @@ void MonsterConfigDialog::Update(const Input& input, float w, float h) {
 			return;
 		}
 		if (L.stateRow[i].Contains(mx, my)) {
-			if (m_selState != i) { m_selState = i; m_clipScroll = 0.0f; }
+			if (m_selState != i) {
+				m_selState = i;
+				m_clipScroll = 0.0f;
+				m_selClip = FirstClipOf(i); // preview the state's first clip
+			}
 			return;
 		}
 	}
 
-	// Clip column: a row toggles that clip's membership in the selected state.
+	// Clip column: the checkbox toggles valid; the rest of the row selects the clip
+	// for preview.
 	for (size_t r = 0; r < L.clipRow.size(); ++r) {
-		if (!L.clipRow[r].Contains(mx, my)) continue;
 		const std::string& name = m_modelClips[L.clipOf[r]];
-		auto& vec = m_cfg.clips[m_selState];
-		if (const auto it = std::find(vec.begin(), vec.end(), name); it != vec.end())
-			vec.erase(it);
-		else
-			vec.push_back(name);
-		Apply();
-		return;
+		if (L.clipCheck[r].Contains(mx, my)) {
+			auto& vec = m_cfg.clips[m_selState];
+			if (const auto it = std::find(vec.begin(), vec.end(), name); it != vec.end())
+				vec.erase(it);
+			else
+				vec.push_back(name);
+			Apply();
+			return;
+		}
+		if (L.clipRow[r].Contains(mx, my)) {
+			m_selClip = name; // select for preview
+			return;
+		}
 	}
 }
 
@@ -205,24 +233,43 @@ void MonsterConfigDialog::Render(gfx::SpriteBatch& batch, const ui::Theme& th,
 	}
 
 	// Clip column: the selected state's animations (scissored so scrolled rows clip
-	// to the column). Empty when the model has no clips for this state.
+	// to the column). The checkbox = valid; the highlighted row = previewing. Empty
+	// when the model has no clips for this state.
 	batch.SetScissor(&L.clipsCol);
 	if (L.clipContentH <= 0.0f) {
 		m_font.Draw(batch, loc::Tr("map.cfg.noclips"), L.clipsCol.x,
 					L.clipsCol.y + (L.rowH - fh) * 0.5f, th.textDim);
 	} else {
 		const auto& vec = m_cfg.clips[m_selState];
-		const float box = L.rowH * 0.55f;
 		for (size_t r = 0; r < L.clipRow.size(); ++r) {
 			const std::string& name = m_modelClips[L.clipOf[r]]; // full <state>__<clip>
 			const bool on = std::find(vec.begin(), vec.end(), name) != vec.end();
+			const bool sel = name == m_selClip; // being previewed
 			const gfx::Rect& row = L.clipRow[r];
-			checkbox({row.x, row.y + (row.h - box) * 0.5f, box, box}, on);
-			m_font.Draw(batch, ClipLabel(name), row.x + box + pad * 0.6f, textY(row),
-						on ? th.text : th.textDim);
+			if (sel) {
+				batch.DrawRect(row, th.controlActive);
+				ui::DrawBorder(batch, row, th.panelBorder);
+			}
+			checkbox(L.clipCheck[r], on);
+			const float lx = L.clipCheck[r].x + L.clipCheck[r].w + pad * 0.6f;
+			m_font.Draw(batch, ClipLabel(name), lx, textY(row),
+						(on || sel) ? th.text : th.textDim);
 		}
 	}
 	batch.SetScissor(nullptr);
+
+	// Preview pane: header + backing box (Game blits the live looping animation
+	// into PreviewRect on top). A hint shows when nothing is selected.
+	m_font.Draw(batch, loc::Tr("map.cfg.preview"), L.previewCol.x,
+				L.previewCol.y - L.rowH + (L.rowH - fh) * 0.5f, th.textDim);
+	const gfx::Rect pv = PreviewRect(w, h);
+	batch.DrawRect(pv, {0.02f, 0.02f, 0.03f, 1.0f});
+	ui::DrawBorder(batch, pv, th.panelBorder);
+	if (m_selClip.empty()) {
+		const std::string hint = loc::Tr("map.cfg.nopreview");
+		m_font.Draw(batch, hint, pv.x + (pv.w - m_font.MeasureWidth(hint)) * 0.5f,
+					pv.y + pv.h * 0.5f - fh * 0.5f, th.textDim);
+	}
 
 	// Footer buttons.
 	auto button = [&](const gfx::Rect& r, const std::string& label, const Vec4& bg) {

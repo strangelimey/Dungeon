@@ -270,6 +270,15 @@ private:
 	// Monster-type animation config dialog, opened by right-clicking a monster in
 	// the editor palette (states + per-state clip table).
 	MonsterConfigDialog m_monsterDialog;
+	// Live animation preview for that dialog: an Animator over the selected type's
+	// (borrowed) skeleton+clips, rendered into m_modelPreview and blitted into the
+	// dialog's preview pane. m_previewType/Clip track what it's currently playing so
+	// a change re-Plays; the mesh/material/scale are cached from MonsterPreviewFor.
+	anim::Animator m_previewAnim;
+	std::string m_previewType, m_previewClip;
+	const gfx::Mesh* m_previewMonMesh = nullptr;
+	gfx::MaterialParams m_previewMonMat;
+	float m_previewMonScale = 1.0f;
 	// Asset bake (P4c): the AssetBaker subprocess for the dialog's Create. A
 	// texture-set import is two steps (import textures, then rebake worn meshes);
 	// a model import is one. Polled in Update so the frame never blocks.

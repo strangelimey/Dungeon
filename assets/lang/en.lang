@@ -315,6 +315,8 @@ map.cfg.anims=Animations: {}
 map.cfg.save=Save
 map.cfg.close=Close
 map.cfg.noclips=(model has no clips)
+map.cfg.preview=Preview
+map.cfg.nopreview=select an animation
 map.cfg.saved=Saved animation config for '{}'
 
 ; CreatureState display names (Animation/CreatureState.h)

@@ -382,6 +382,18 @@ void DungeonWorld::ApplyMonsterAnimConfig(const std::string& type,
 	}
 }
 
+DungeonWorld::MonsterPreviewData DungeonWorld::MonsterPreviewFor(const std::string& type) {
+	const MonsterKind& kind = MonsterKindFor(type);
+	MonsterPreviewData d;
+	d.mesh = kind.mesh.get();
+	d.skeleton = &kind.model.skeleton;
+	d.clips = &kind.model.clips;
+	d.modelScale = kind.modelScale;
+	ApplyPropMaterial(d.material, kind.tex, kind.model.materials[0].baseColorFactor,
+					  kind.fallbackRoughness);
+	return d;
+}
+
 DungeonWorld::Monster DungeonWorld::MakeMonster(MonsterKind& kind, int id, int x,
 												int z, Direction facing) {
 	Monster monster;

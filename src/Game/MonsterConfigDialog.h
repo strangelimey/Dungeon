@@ -56,9 +56,17 @@ public:
 	// Modal input: toggles a state/clip checkbox, selects a state, scrolls the clip
 	// column, or hits Save/Close. Esc closes (reverting). Fires onApply on edits.
 	void Update(const Input& input, float width, float height);
-	// Dim wash + panel + the two columns + footer buttons.
+	// Dim wash + panel + the three columns + footer buttons. The owner (Game) draws
+	// the live animation into PreviewRect afterwards (it owns the render target).
 	void Render(gfx::SpriteBatch& batch, const ui::Theme& theme, float width,
 				float height);
+
+	// The monster type being configured, the clip currently selected for preview
+	// (empty = none), and the on-screen rect to blit the preview into. The owner
+	// drives an Animator on this type playing this clip and blits into PreviewRect.
+	const std::string& SelectedType() const { return m_cfg.type; }
+	const std::string& PreviewClip() const { return m_selClip; }
+	gfx::Rect PreviewRect(float width, float height) const;
 
 	// Push the working config to the live kind (every edit; and the original on a
 	// revert). onSave persists it to the catalog (the Save button).
@@ -70,16 +78,19 @@ private:
 	// always agree. Clip rows carry their model-clip index; rows outside the clip
 	// column viewport are dropped (the column scrolls).
 	struct Layout {
-		gfx::Rect panel{}, statesCol{}, clipsCol{}, save{}, close{};
+		gfx::Rect panel{}, statesCol{}, clipsCol{}, previewCol{}, save{}, close{};
 		float rowH = 0.0f;
 		std::array<gfx::Rect, N> stateRow{};
 		std::array<gfx::Rect, N> stateCheck{};
 		std::vector<gfx::Rect> clipRow;
-		std::vector<int> clipOf; // model-clip index per visible clipRow
+		std::vector<gfx::Rect> clipCheck; // checkbox sub-rect per visible clipRow
+		std::vector<int> clipOf;          // model-clip index per visible clipRow
 		float clipContentH = 0.0f;
 	};
 	Layout BuildLayout(float width, float height) const;
 	void Apply() { if (onApply) onApply(m_cfg); }
+	// The selected state's first candidate clip (for auto-preview), or "" if none.
+	std::string FirstClipOf(int state) const;
 
 	gfx::GraphicsDevice& m_device;
 	ui::Font m_font;
@@ -90,6 +101,7 @@ private:
 	Config m_original;     // snapshot for revert on Close/Esc
 	std::vector<std::string> m_modelClips; // the clip pool offered per state
 	int m_selState = static_cast<int>(anim::CreatureState::Idle);
+	std::string m_selClip;                 // clip selected for preview ("" = none)
 	float m_clipScroll = 0.0f;
 };
 

@@ -238,6 +238,9 @@ void Game::WireModuleCallbacks() {
 		DungeonWorld::AnimClips clips;
 		m_world.MonsterAnimConfig(id, supported, clips);
 		m_monsterDialog.Open(id, display, supported, clips, m_world.MonsterClipNames(id));
+		m_previewType.clear(); // force the preview animator to (re)build on first frame
+		m_previewClip.clear();
+		m_previewMonMesh = nullptr;
 	};
 	// Live-apply on every edit; persist on Save.
 	m_monsterDialog.onApply = [this](const MonsterConfigDialog::Config& c) {
@@ -1375,6 +1378,24 @@ void Game::Update(float dt) {
 	if (m_monsterDialog.IsOpen()) {
 		m_monsterDialog.Update(input, static_cast<float>(m_window.Width()),
 							   static_cast<float>(m_window.Height()));
+		// Drive the live preview: (re)build the Animator when the selected type/clip
+		// changes, then advance it looping so Render can blit the current pose.
+		const std::string& type = m_monsterDialog.SelectedType();
+		const std::string& clip = m_monsterDialog.PreviewClip();
+		if (clip.empty()) {
+			m_previewMonMesh = nullptr;
+			m_previewClip.clear();
+		} else if (type != m_previewType || clip != m_previewClip) {
+			const auto d = m_world.MonsterPreviewFor(type);
+			m_previewMonMesh = d.mesh;
+			m_previewMonMat = d.material;
+			m_previewMonScale = d.modelScale;
+			m_previewAnim = anim::Animator(d.skeleton, d.clips);
+			m_previewAnim.Play(clip, /*loop*/ true);
+			m_previewType = type;
+			m_previewClip = clip;
+		}
+		if (m_previewMonMesh) m_previewAnim.Update(dt);
 		return;
 	}
 
@@ -1497,19 +1518,36 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 	const gfx::Mesh* pvMesh = nullptr;
 	gfx::MaterialParams pvMat;
 	float pvOrbit = 0.0f;
+	float pvScale = 1.0f;
+	float pvAspect = 1.0f;           // pane width/height, so a tall pane doesn't distort
+	std::span<const Mat4> pvPalette; // skinning palette for the animated monster preview
 	if (m_assetDialog.IsOpen() && m_assetDialog.HasPreview()) {
 		pvMesh = &m_assetDialog.PreviewMesh();
 		pvMat = m_assetDialog.PreviewMaterial();
 		pvOrbit = m_assetDialog.Orbit();
+	} else if (m_monsterDialog.IsOpen() && m_previewMonMesh) {
+		// The monster-config dialog's live animation: a fixed front-on view (the
+		// mesh faces +Z / the camera is at -Z, so ~π turns it toward the camera),
+		// rendered at the (tall) preview pane's aspect so it isn't squashed.
+		const gfx::Rect pv = m_monsterDialog.PreviewRect(
+			static_cast<float>(m_device.Width()), static_cast<float>(m_device.Height()));
+		pvMesh = m_previewMonMesh;
+		pvMat = m_previewMonMat;
+		pvScale = m_previewMonScale;
+		pvOrbit = kPi;
+		pvAspect = pv.h > 0.0f ? pv.w / pv.h : 1.0f;
+		pvPalette = m_previewAnim.Palette();
 	} else if (m_previewMesh) {
 		pvMesh = m_previewMesh.get();
 		pvMat = m_previewMaterial;
 		pvOrbit = m_previewOrbit;
 	}
-	const bool devPreviewFullscreen = m_previewMesh && !m_assetDialog.IsOpen();
+	const bool devPreviewFullscreen = m_previewMesh && !m_assetDialog.IsOpen() &&
+									  !m_monsterDialog.IsOpen();
 
 	if (pvMesh) {
-		m_modelPreview.Render(list, m_renderer, *pvMesh, pvMat, pvOrbit);
+		m_modelPreview.Render(list, m_renderer, *pvMesh, pvMat, pvScale, pvOrbit, pvAspect,
+							  pvPalette);
 		m_device.BindBackBuffer(list);
 	}
 	// The 3D scene draws during play and under the pause/character-sheet
@@ -1565,8 +1603,12 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 		m_spriteBatch.DrawSprite({(dw - s) * 0.5f, (dh - s) * 0.5f, s, s},
 								 {0, 0, 1, 1}, m_modelPreview.Srv(), {1, 1, 1, 1});
 	}
-	if (m_monsterDialog.IsOpen()) // modal over the editor, like the asset dialog
+	if (m_monsterDialog.IsOpen()) { // modal over the editor, like the asset dialog
 		m_monsterDialog.Render(m_spriteBatch, m_settings.theme, dw, dh);
+		if (m_previewMonMesh) // blit the live animation into the preview pane
+			m_spriteBatch.DrawSprite(m_monsterDialog.PreviewRect(dw, dh), {0, 0, 1, 1},
+									 m_modelPreview.Srv(), {1, 1, 1, 1});
+	}
 	if (m_console.IsOpen())
 		m_console.Render(m_spriteBatch, m_device, static_cast<float>(m_device.Width()),
 						 static_cast<float>(m_device.Height()));
