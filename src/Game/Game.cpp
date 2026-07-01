@@ -270,7 +270,20 @@ void Game::WireModuleCallbacks() {
 		if (!m_world.MonsterInstanceAt(cx, cz, c.runtimeId, c.type, c.asleep, c.leashRange,
 									   c.archetype, c.keepRange, c.fleeBelow, c.spell))
 			return;
+		if (const auto* r = m_world.MonsterPatrol(c.runtimeId))
+			c.patrolCount = static_cast<int>(r->size());
+		m_inspectCfg = c; // remembered so route-laying can reopen the inspector
 		m_entityInspector.Open(c, m_world.SpellIds());
+	};
+	// Patrol-route authoring: Edit hands the grid to the editor (route-laying mode);
+	// each grid click appends a waypoint; Clear wipes the route.
+	m_entityInspector.onEditRoute = [this](u32 id) {
+		m_mapEditor.BeginRoute(id);
+		if (m_world.onMessage) m_world.onMessage(loc::Tr("map.route.hint"));
+	};
+	m_entityInspector.onClearRoute = [this](u32 id) { m_world.ClearPatrol(id); };
+	m_mapEditor.onRouteWaypoint = [this](u32 id, int cx, int cz) {
+		m_world.AddPatrolWaypoint(id, cx, cz);
 	};
 	m_entityInspector.onApply = [this](const EntityInspector::Config& c) {
 		m_world.ApplyMonsterInstance(c.runtimeId, c.asleep, c.leashRange, c.archetype,
@@ -1462,6 +1475,20 @@ void Game::Update(float dt) {
 	// panning/zooming/editing, and Esc/M closes it instead of pausing.
 	if (input.WasKeyPressed('M')) m_mapView.Toggle();
 	if (m_mapView.IsOpen()) {
+		// While laying a patrol route (grid clicks lay waypoints), keys finish/undo
+		// it — ahead of the overlay's own Esc-to-close.
+		if (m_mapEditor.LayingRoute()) {
+			if (input.WasKeyPressed(VK_BACK))
+				m_world.RemoveLastPatrolWaypoint(m_mapEditor.RouteId());
+			if (input.WasKeyPressed(VK_RETURN) || input.WasKeyPressed(VK_ESCAPE)) {
+				const u32 id = m_mapEditor.RouteId();
+				m_mapEditor.EndRoute();
+				if (const auto* r = m_world.MonsterPatrol(id))
+					m_inspectCfg.patrolCount = static_cast<int>(r->size());
+				m_entityInspector.Open(m_inspectCfg, m_world.SpellIds()); // back to the inspector
+				return;
+			}
+		}
 		if (input.WasKeyPressed(VK_ESCAPE)) {
 			m_mapView.Close();
 			return;

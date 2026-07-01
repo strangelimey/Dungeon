@@ -337,9 +337,14 @@ archetype.sentry=Sentry (patrol + wide cone)
 ; --- entity inspector (per-placed-monster overrides) ---
 map.insp.title=Monster: {}
 map.insp.tab.ai=AI
+map.insp.tab.patrol=Patrol
 map.insp.asleep=Start asleep (ambush)
 map.insp.leash=Leash range (cells, 0 = none)
+map.insp.waypoints=Waypoints: {}
+map.insp.editroute=Edit route on map
+map.insp.clearroute=Clear route
 map.insp.saved=Saved instance overrides for '{}'
+map.route.hint=Laying patrol route — click cells; Enter: done, Backspace: undo
 
 ; CreatureState display names (Animation/CreatureState.h)
 anim.state.spawn=Spawn

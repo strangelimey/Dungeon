@@ -372,6 +372,50 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 		}
 	}
 
+	// 4b) Editor selection: a high-contrast outline on the selected square, and the
+	// selected creature's patrol route as high-contrast arrows (waypoint order,
+	// closing the loop) — persistent while selected, and growing live while laying.
+	if (m_editor && m_editor->HasSelection()) {
+		const Vec4 kSel{1.0f, 0.95f, 0.20f, 1.0f};     // bright yellow
+		const Vec4 kSelDark{0.0f, 0.0f, 0.0f, 0.85f};  // dark backing for contrast
+		// Selection outline: four thin bars ringing the cell.
+		const gfx::Rect r = cellRect(m_editor->SelX(), m_editor->SelZ());
+		const float bw = std::clamp(t.cell * 0.06f, 1.5f, 4.0f);
+		batch.DrawRect({r.x - bw, r.y - bw, r.w + 2 * bw, bw}, kSel);
+		batch.DrawRect({r.x - bw, r.y + r.h, r.w + 2 * bw, bw}, kSel);
+		batch.DrawRect({r.x - bw, r.y, bw, r.h}, kSel);
+		batch.DrawRect({r.x + r.w, r.y, bw, r.h}, kSel);
+
+		const std::vector<ai::Cell>* route = m_world.MonsterPatrol(m_editor->SelectedMonster());
+		if (route && !route->empty()) {
+			const float th = std::clamp(t.cell * 0.10f, 2.0f, 6.0f);
+			auto arrow = [&](Vec2 a, Vec2 b, const Vec4& col, float thick) {
+				const float dx = b.x - a.x, dy = b.y - a.y;
+				const float len = std::sqrt(dx * dx + dy * dy);
+				if (len < 1e-3f) return;
+				const float ang = std::atan2(dy, dx);
+				const Vec2 dir{dx / len, dy / len}, perp{-dir.y, dir.x};
+				const float head = std::min(len * 0.4f, thick * 3.0f);
+				const float shaft = len - head;
+				const Vec2 mid{a.x + dir.x * shaft * 0.5f, a.y + dir.y * shaft * 0.5f};
+				batch.DrawRectRotated(mid, {shaft, thick}, ang, col);
+				const Vec2 base{b.x - dir.x * head, b.y - dir.y * head};
+				const float hw = thick * 1.6f;
+				batch.DrawTriangle(b, {base.x + perp.x * hw, base.y + perp.y * hw},
+								   {base.x - perp.x * hw, base.y - perp.y * hw}, col);
+			};
+			const size_t n = route->size();
+			for (size_t k = 0; n >= 2 && k < n; ++k) { // n arrows, closing last -> first
+				const Vec2 a = cellCenter((*route)[k].x, (*route)[k].z);
+				const ai::Cell& nx = (*route)[(k + 1) % n];
+				const Vec2 b = cellCenter(nx.x, nx.z);
+				arrow(a, b, kSelDark, th + 2.0f); // dark backing
+				arrow(a, b, kSel, th);            // bright fill
+			}
+			for (const ai::Cell& wp : *route) marker(wp.x, wp.z, 0.26f, kSel);
+		}
+	}
+
 	// 5) The party — a triangle pointing the way it faces (facing*90° clockwise
 	// from north-up; screen Y is down so the rotation matches the compass).
 	{

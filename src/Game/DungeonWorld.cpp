@@ -987,6 +987,38 @@ void DungeonWorld::ApplyMonsterInstance(u32 runtimeId, bool asleep, float leashR
 	m->spellOverride = spell == m->kind->spell ? std::nullopt : std::optional(spell);
 }
 
+void DungeonWorld::AddPatrolWaypoint(u32 runtimeId, int cx, int cz) {
+	Monster* m = MonsterByRuntimeId(runtimeId);
+	if (!m) return;
+	// Ignore a repeat of the last cell (a double-click or a drag landing twice).
+	if (!m->patrol.empty() && m->patrol.back().x == cx && m->patrol.back().z == cz) return;
+	m->patrol.push_back({cx, cz});
+}
+
+void DungeonWorld::RemoveLastPatrolWaypoint(u32 runtimeId) {
+	if (Monster* m = MonsterByRuntimeId(runtimeId); m && !m->patrol.empty())
+		m->patrol.pop_back();
+}
+
+void DungeonWorld::ClearPatrol(u32 runtimeId) {
+	if (Monster* m = MonsterByRuntimeId(runtimeId)) {
+		m->patrol.clear();
+		m->patrolIdx = 0;
+	}
+}
+
+const std::vector<ai::Cell>* DungeonWorld::MonsterPatrol(u32 runtimeId) const {
+	for (const Monster& m : m_monsters)
+		if (m.runtimeId == runtimeId) return &m.patrol;
+	return nullptr;
+}
+
+u32 DungeonWorld::MonsterRuntimeIdAt(int cx, int cz) const {
+	for (const Monster& m : m_monsters)
+		if (m.x == cx && m.z == cz) return m.runtimeId;
+	return 0;
+}
+
 void DungeonWorld::ReconcileGroups() {
 	// A GROUP is the set of monsters currently sharing a cell. Recomputed every
 	// frame so groups MERGE automatically when monsters converge into one cell and

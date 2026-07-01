@@ -273,6 +273,9 @@ private:
 	MonsterConfigDialog m_monsterDialog;
 	// Per-instance entity inspector, opened by Select-clicking a placed monster.
 	EntityInspector m_entityInspector;
+	// The inspector's config for the monster being edited — kept so route-laying can
+	// reopen the inspector (with an updated waypoint count) when it finishes.
+	EntityInspector::Config m_inspectCfg;
 	// Live animation preview for that dialog: an Animator over the selected type's
 	// (borrowed) skeleton+clips, rendered into m_modelPreview and blitted into the
 	// dialog's preview pane. m_previewType/Clip track what it's currently playing so

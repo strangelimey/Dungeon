@@ -55,6 +55,24 @@ public:
 	// Fired when the Select tool clicks a cell holding a monster (the owner opens the
 	// per-INSTANCE entity inspector). The cell is passed; the owner finds the monster.
 	std::function<void(int cx, int cz)> onInspect;
+	// Fired for each grid cell clicked while LAYING a patrol route (grid-click route
+	// authoring). Carries the monster's runtimeId + the cell; the owner appends it.
+	std::function<void(u32 runtimeId, int cx, int cz)> onRouteWaypoint;
+
+	// Patrol-route laying mode: while active, a grid click appends a waypoint to the
+	// monster's route (via onRouteWaypoint) instead of painting the armed brush.
+	void BeginRoute(u32 runtimeId) { m_routeId = runtimeId; }
+	void EndRoute() { m_routeId = 0; }
+	bool LayingRoute() const { return m_routeId != 0; }
+	u32 RouteId() const { return m_routeId; }
+
+	// The currently SELECTED square (Select tool), for the highlight + route overlay.
+	// -1 = nothing selected; SelectedMonster is the creature there at select time (0
+	// = none), captured so its route still draws after it walks off the square.
+	bool HasSelection() const { return m_selX >= 0; }
+	int SelX() const { return m_selX; }
+	int SelZ() const { return m_selZ; }
+	u32 SelectedMonster() const { return m_selMonster; }
 
 	// Category metadata (one source of truth, see kCategoryInfo): the display loc
 	// key, the project catalog it authors into ("" = not creatable), and whether
@@ -129,6 +147,9 @@ private:
 	// Per-category accordion expand state; Tools + Structure + Walls open by default.
 	std::array<bool, static_cast<size_t>(PaletteCat::Count)> m_catOpen{};
 	float m_paletteScroll = 0.0f; // left-dock vertical scroll (pixels)
+	u32 m_routeId = 0;            // monster whose patrol route is being laid (0 = none)
+	int m_selX = -1, m_selZ = -1; // selected square (-1 = none)
+	u32 m_selMonster = 0;         // creature selected there (0 = none), for its route
 };
 
 } // namespace dungeon::game

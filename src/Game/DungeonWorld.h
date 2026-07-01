@@ -208,6 +208,16 @@ public:
 							  ai::Archetype archetype, float keepRange, float fleeBelow,
 							  const std::string& spell);
 
+	// Patrol-route editing (grid-click authoring in the editor). Append/undo/clear a
+	// monster's waypoint route by runtimeId (live; the .ent writer persists it on
+	// SaveLevel), and read it back for the route overlay.
+	void AddPatrolWaypoint(u32 runtimeId, int cx, int cz);
+	void RemoveLastPatrolWaypoint(u32 runtimeId);
+	void ClearPatrol(u32 runtimeId);
+	const std::vector<ai::Cell>* MonsterPatrol(u32 runtimeId) const;
+	// The runtimeId of the first live monster at (cx,cz), or 0 — for editor selection.
+	u32 MonsterRuntimeIdAt(int cx, int cz) const;
+
 	// Everything the editor's monster-config dialog preview needs to animate a
 	// type's mesh: the (stable, cached) mesh + skeleton + clips a borrowed Animator
 	// plays, the resolved render material, and the render-time size fixup. The

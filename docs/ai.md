@@ -340,8 +340,14 @@ regression guard before any new behaviour rides on it.
      fleebelow/spell) as std::optional overrides that fall back to the type default
      (so a type edit still flows to un-overridden placements); the AI reads through
      Monster::Archetype()/KeepRange()/FleeBelow()/Spell() accessors.
-   - **P3b** — patrol as a HOST-side executor (like kite/flee) driven by a
-     per-instance waypoint route (no AI-layer change), grid-click route authoring,
-     and the `sentry` archetype (wide cone + patrol/leash defaults).
+   - **P3b** DONE — patrol as a HOST-side executor (UpdatePatroller: greedy step to
+     the next waypoint, advance/wrap on arrival; no AI-layer change) driven by a
+     per-instance route; the `sentry` archetype (wide ±90° cone + patrol/leash). The
+     editor gained a SELECTED-SQUARE concept (MapEditor selection = cell + creature
+     runtimeId): a Select-click selects (high-contrast outline) and draws the
+     selected creature's route as high-contrast ARROWS; a second click opens the
+     inspector. Routes are authored by grid-click (inspector Patrol tab → "Edit
+     route on map" → click cells; Backspace undo, Enter done); the .ent writer
+     round-trips `patrol=`. **P1–P3 complete.**
 6. **P4** — (Deferred/optional) behaviour-graph authoring (Layer 3) only if
    needed.

@@ -184,6 +184,12 @@ bool MapEditor::OnRightClick(float mx, float my, const gfx::Rect& panel) {
 }
 
 void MapEditor::ApplyBrush(int cx, int cz, bool dragging) {
+	// Laying a patrol route: a click appends the cell as a waypoint instead of
+	// painting the armed brush (a drag doesn't spam duplicates).
+	if (m_routeId != 0) {
+		if (!dragging && onRouteWaypoint) onRouteWaypoint(m_routeId, cx, cz);
+		return;
+	}
 	using SS = DungeonWorld::SurfaceSel;
 	const DungeonMap& map = m_world.Map();
 	auto log = [&](const std::string& s) {
@@ -216,8 +222,13 @@ void MapEditor::ApplyBrush(int cx, int cz, bool dragging) {
 			if (mons) details += std::format(", {} monster{}", mons, mons == 1 ? "" : "s");
 			if (props) details += std::format(", {} prop{}", props, props == 1 ? "" : "s");
 			log(loc::Format("map.select.contents", cx, cz, details));
-			// A monster here → open the per-instance inspector on it.
-			if (mons && onInspect) onInspect(cx, cz);
+			// Click SELECTS the square (highlight + route overlay); a second click on
+			// the already-selected creature opens its per-instance inspector.
+			const bool reclick = (m_selX == cx && m_selZ == cz && m_selMonster != 0);
+			m_selX = cx;
+			m_selZ = cz;
+			m_selMonster = m_world.MonsterRuntimeIdAt(cx, cz);
+			if (reclick && onInspect) onInspect(cx, cz);
 		} else { // Erase: remove a runtime entity, else reset surface overrides
 			if (m_world.RemoveEntityAt(cx, cz)) {
 				log(loc::Tr("map.erase.removed"));

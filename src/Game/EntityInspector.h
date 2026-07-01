@@ -42,6 +42,7 @@ public:
 		float keepRange = 4.0f;
 		float fleeBelow = 0.0f;
 		std::string spell;
+		int patrolCount = 0; // waypoints on the current route (display only)
 	};
 
 	explicit EntityInspector(gfx::GraphicsDevice& device);
@@ -56,6 +57,10 @@ public:
 
 	std::function<void(const Config&)> onApply;
 	std::function<void(const Config&)> onSave;
+	// Patrol-route authoring (grid-click). onEditRoute closes the inspector and puts
+	// the editor into route-laying mode for this monster; onClearRoute wipes it.
+	std::function<void(u32 runtimeId)> onEditRoute;
+	std::function<void(u32 runtimeId)> onClearRoute;
 
 private:
 	void BuildUI();

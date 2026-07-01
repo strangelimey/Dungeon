@@ -40,6 +40,7 @@ void EntityInspector::BuildUI() {
 	m_ui.Clear();
 	m_tabs = m_ui.Add<ui::TabControl>(kTabs, 0.09f);
 	const size_t tabAi = m_tabs->AddTab(loc::Tr("map.insp.tab.ai"));
+	const size_t tabPatrol = m_tabs->AddTab(loc::Tr("map.insp.tab.patrol"));
 
 	// Placement flags.
 	m_tabs->AddChild<ui::Checkbox>(tabAi, gfx::Rect{0.05f, 0.03f, 0.9f, 0.09f},
@@ -101,6 +102,21 @@ void EntityInspector::BuildUI() {
 										   Apply();
 									   });
 	}
+
+	// Patrol tab: waypoint count + author on the map (grid-click) or clear.
+	m_tabs->AddChild<ui::Label>(tabPatrol, gfx::Rect{0.05f, 0.05f, 0.9f, 0.08f},
+								loc::Format("map.insp.waypoints", m_cfg.patrolCount));
+	m_tabs->AddChild<ui::Button>(tabPatrol, gfx::Rect{0.05f, 0.18f, 0.9f, 0.11f},
+								 loc::Tr("map.insp.editroute"), [this] {
+									 if (onEditRoute) onEditRoute(m_cfg.runtimeId);
+									 Close(); // hand the grid to the editor for laying
+								 });
+	m_tabs->AddChild<ui::Button>(tabPatrol, gfx::Rect{0.05f, 0.33f, 0.9f, 0.11f},
+								 loc::Tr("map.insp.clearroute"), [this] {
+									 if (onClearRoute) onClearRoute(m_cfg.runtimeId);
+									 m_cfg.patrolCount = 0;
+									 m_rebuild = true;
+								 });
 
 	m_ui.Add<ui::Button>(kSave, loc::Tr("map.cfg.save"), [this] {
 		if (onSave) onSave(m_cfg);
