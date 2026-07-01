@@ -101,13 +101,22 @@ Intent Brain::Think(const Agent& a, int partyX, int partyZ, const IWorldView& wo
 	// a wall, and they remain oblivious until they're seen or take a swing.
 	Intent it;
 	const int dist = std::max(std::abs(a.x - partyX), std::abs(a.z - partyZ));
-	// A lurker AMBUSHES: while still dormant (not yet aware) it triggers only when
-	// the party is within a short range, not its full aggro. Once sprung (aware) it
-	// pursues at full aggro — relentless, unlike a short-aggro brute that disengages
-	// when the party backs off. All other archetypes use aggro from the start.
-	constexpr float kLurkerTrigger = 2.0f; // cells: how close the prey must get
-	const float triggerRange =
-		(a.archetype == Archetype::Lurker && !a.aware) ? kLurkerTrigger : a.aggroRange;
+
+	// LEASH (per-instance): a monster pulled beyond leashRange cells from its anchor
+	// breaks off — stay idle here so the host walks it home. Applies even to an aware
+	// monster, so it can't be dragged across the level.
+	if (a.leashRange > 0.0f) {
+		const int fromAnchor = std::max(std::abs(a.x - a.leashX), std::abs(a.z - a.leashZ));
+		if (static_cast<float>(fromAnchor) > a.leashRange) return it; // beyond leash: idle
+	}
+
+	// AMBUSH: a lurker archetype OR a per-instance `asleep` monster stays dormant
+	// until the party comes within a short range (not full aggro); once sprung
+	// (aware) it pursues at full aggro — relentless, unlike a short-aggro brute that
+	// disengages when the party backs off. Everything else uses aggro from the start.
+	constexpr float kAmbushTrigger = 2.0f; // cells: how close the prey must get
+	const bool dormant = (a.archetype == Archetype::Lurker || a.asleep) && !a.aware;
+	const float triggerRange = dormant ? kAmbushTrigger : a.aggroRange;
 	if (static_cast<float>(dist) > triggerRange) return it; // out of range: idle
 
 	bool perceived = a.aware; // sticky awareness engages regardless of sight

@@ -326,7 +326,18 @@ regression guard before any new behaviour rides on it.
    and Save writes the archetype/keeprange/fleebelow/spell rows to monsters.cat.
    Added a ui::Checkbox widget for the animation rows. P2 complete except `sentry`
    (deferred — needs P3 patrol routes).
-5. **P3** — Per-instance `.ent` overrides (waypoints/asleep/leashfrom) + a
-   minimal entity inspector in the editor (Layer 2).
+5. **P3** — Per-instance `.ent` overrides (Layer 2). The `.ent` record already
+   parses arbitrary `key=value` params (Entity.params/Param), so this is about
+   CONSUMING them at spawn + an editor inspector to author them. Decisions (2026-
+   07-01): tabbed-dialog-style inspector (like the monster-config dialog); patrol
+   routes authored by CLICKING grid cells; ship in two steps.
+   - **P3a** — per-instance `asleep` (dormant until provoked/close, a per-placement
+     lurker) + `leash`/`leashfrom` (disengage when pulled too far from the anchor),
+     consumed in LoadMonsters, carried on Monster + into the AI snapshot, written
+     back by the .ent writer; plus the entity inspector (select a placed monster →
+     edit its overrides live, Save writes the level .ent).
+   - **P3b** — patrol as a HOST-side executor (like kite/flee) driven by a
+     per-instance waypoint route (no AI-layer change), grid-click route authoring,
+     and the `sentry` archetype (wide cone + patrol/leash defaults).
 6. **P4** — (Deferred/optional) behaviour-graph authoring (Layer 3) only if
    needed.

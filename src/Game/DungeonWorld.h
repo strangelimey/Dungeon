@@ -451,6 +451,17 @@ private:
 		// monster's exact stance within a cell survives save/reload.
 		int slot = 0;
 		int spawnX = 0, spawnZ = 0; // .ent baseline, for the save diff
+		// Per-INSTANCE AI overrides from the .ent record (authored, not saved — the
+		// .ent is their source; the editor inspector edits them + the .ent writer
+		// round-trips them). asleep: starts dormant, waking only when the party comes
+		// very close or it is hit (a per-placement lurker). leash: cells from the
+		// anchor (leashX/Z, default the spawn cell) it will chase before breaking off
+		// and returning; 0 = unleashed. patrol: a waypoint route walked when idle
+		// (P3b; empty = none).
+		bool asleep = false;
+		int leashX = 0, leashZ = 0;
+		float leashRange = 0.0f;
+		std::vector<ai::Cell> patrol;
 		float yaw = 0.0f;         // current visual facing (eased toward targetYaw)
 		float targetYaw = 0.0f;   // desired facing: travel direction, or the party
 		Direction facing = Direction::South; // for the .ent writer
@@ -793,6 +804,9 @@ private:
 	// Flee executor (intent == Flee): a wounded monster runs from the party — greedy
 	// orthogonal 1-step that maximises distance; no attack. Holds if cornered.
 	void UpdateFleer(Monster& monster, int selfIndex);
+	// Leash-return: a leashed monster that idled beyond its range walks back to its
+	// anchor (greedy orthogonal 1-step toward leashX/Z). Runs while idle + displaced.
+	void UpdateReturner(Monster& monster, int selfIndex);
 	// Commit a one-cell move: snap the logical cell + slot, start the visual glide
 	// from the current position, and arm the step cooldown. The single place a
 	// monster's step is committed (chase-path follow, kite, flee all route here).

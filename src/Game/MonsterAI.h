@@ -112,6 +112,12 @@ struct Agent {
 											// Kite once the party is perceived
 	float hpFrac = 1.0f;      // current hp / max hp — drives the flee decision
 	float fleeBelow = 0.0f;   // flees when hpFrac drops below this (0 = never flees)
+	// Per-instance overrides (.ent). asleep: dormant until close/hit (a per-placement
+	// lurker). leashRange: cells from (leashX,leashZ) it will engage within; beyond
+	// that it disengages (0 = unleashed).
+	bool asleep = false;
+	int leashX = 0, leashZ = 0;
+	float leashRange = 0.0f;
 };
 
 // ----------------------------------------------------------------------------

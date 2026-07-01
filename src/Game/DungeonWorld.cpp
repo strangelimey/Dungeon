@@ -370,10 +370,16 @@ bool DungeonWorld::SaveLevel() const {
 	// --- dynamic layer (.ent) -----------------------------------------------
 	std::string e =
 		std::format("; {} — written by the in-game editor (dynamic layer).\n\n", m_currentLevel);
-	for (const Monster& mon : m_monsters)
-		e += std::format("monster {} {} {} {}\n",
-						 mon.kind ? mon.kind->name : std::string("?"), mon.x, mon.z,
-						 DirName(mon.facing));
+	for (const Monster& mon : m_monsters) {
+		e += std::format("monster {} {} {} {}", mon.kind ? mon.kind->name : std::string("?"),
+						 mon.x, mon.z, DirName(mon.facing));
+		// Per-instance AI overrides (authored, round-tripped by the editor inspector).
+		if (mon.asleep) e += " asleep=1";
+		if (mon.leashRange > 0.0f) e += std::format(" leash={:g}", mon.leashRange);
+		if (mon.leashX != mon.spawnX || mon.leashZ != mon.spawnZ)
+			e += std::format(" leashfrom={},{}", mon.leashX, mon.leashZ);
+		e += '\n';
+	}
 	// Items/buttons aren't editor-editable yet — carry the loaded records through.
 	for (const Entity& ent : m_entities.All()) {
 		if (ent.kind != EntityKind::Item && ent.kind != EntityKind::Button) continue;
@@ -762,7 +768,13 @@ void DungeonWorld::UpdateMonsters(float dt) {
 			monster.yaw += d * std::min(1.0f, dt * kTurnLerp);
 		}
 
-		if (monster.intent.mode == ai::Intent::Mode::Idle) continue; // idle: nothing to do
+		if (monster.intent.mode == ai::Intent::Mode::Idle) {
+			// A leashed monster that broke off (idled) away from home walks back.
+			if (monster.leashRange > 0.0f &&
+				(monster.x != monster.leashX || monster.z != monster.leashZ))
+				UpdateReturner(monster, static_cast<int>(i));
+			continue;
+		}
 		if (monster.intent.mode == ai::Intent::Mode::Kite) {
 			UpdateKiter(monster, static_cast<int>(i)); // skirmisher: hold range + shoot
 			continue;
@@ -1155,7 +1167,11 @@ void DungeonWorld::BuildAISnapshot() {
 										   .targetZ = m.targetZ,
 										   .archetype = m.kind->archetype,
 										   .hpFrac = hpFrac,
-										   .fleeBelow = m.kind->fleeBelow});
+										   .fleeBelow = m.kind->fleeBelow,
+										   .asleep = m.asleep,
+										   .leashX = m.leashX,
+										   .leashZ = m.leashZ,
+										   .leashRange = m.leashRange});
 	}
 	m_director.Publish(snap); // pass a copy — the pool keeps its own ref
 }
@@ -1413,6 +1429,17 @@ void DungeonWorld::UpdateFleer(Monster& monster, int selfIndex) {
 	GreedyStep(monster, selfIndex, [&](int cx, int cz) {
 		const int dx = cx - px, dz = cz - pz;
 		return -(dx * dx + dz * dz);
+	});
+}
+
+void DungeonWorld::UpdateReturner(Monster& monster, int selfIndex) {
+	if (monster.moving || monster.moveCd > 0.0f) return; // mid-step / on cooldown
+	// Walk home: score = squared distance to the leash anchor, so GreedyStep steps
+	// to the nearest free neighbour (and holds once it arrives).
+	const int ax = monster.leashX, az = monster.leashZ;
+	GreedyStep(monster, selfIndex, [&](int cx, int cz) {
+		const int dx = cx - ax, dz = cz - az;
+		return dx * dx + dz * dz;
 	});
 }
 

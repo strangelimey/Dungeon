@@ -61,6 +61,20 @@ static std::vector<std::string> SplitTokens(const std::string& s) {
 // monsters.cat `archetype` token -> the behaviour strategy enum. Unknown tokens
 // warn and fall back to brute (the pre-archetype behaviour), so a typo is loud but
 // never fatal and an undescribed monster keeps working.
+// Parses an "x,z" cell token (a .ent override value like leashfrom=5,7). Leaves the
+// outputs untouched and returns false on anything malformed.
+static bool ParseCell(const std::string& s, int& x, int& z) {
+	const size_t comma = s.find(',');
+	if (comma == std::string::npos) return false;
+	try {
+		x = std::stoi(s.substr(0, comma));
+		z = std::stoi(s.substr(comma + 1));
+	} catch (...) {
+		return false;
+	}
+	return true;
+}
+
 static ai::Archetype ParseArchetype(const std::string& v) {
 	if (v == "skirmisher") return ai::Archetype::Skirmisher;
 	if (v == "caster") return ai::Archetype::Caster;
@@ -479,6 +493,15 @@ void DungeonWorld::LoadMonsters() {
 		if (spawn.kind != EntityKind::Monster) continue;
 		MonsterKind& kind = MonsterKindFor(spawn.type);
 		Monster monster = MakeMonster(kind, spawn.id, spawn.x, spawn.z, spawn.facing);
+		// Per-instance AI overrides (.ent key=value). The leash anchor defaults to the
+		// spawn cell; leashfrom overrides it. (patrol is parsed in P3b.)
+		monster.leashX = monster.spawnX;
+		monster.leashZ = monster.spawnZ;
+		if (const std::string* v = spawn.Param("asleep")) monster.asleep = (*v != "0");
+		if (const std::string* v = spawn.Param("leash"))
+			monster.leashRange = std::strtof(v->c_str(), nullptr);
+		if (const std::string* v = spawn.Param("leashfrom"))
+			ParseCell(*v, monster.leashX, monster.leashZ);
 		monster.animator.Update(static_cast<float>(phase++) * 0.7f); // desync idles
 		m_monsters.push_back(std::move(monster));
 	}
