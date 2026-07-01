@@ -101,7 +101,14 @@ Intent Brain::Think(const Agent& a, int partyX, int partyZ, const IWorldView& wo
 	// a wall, and they remain oblivious until they're seen or take a swing.
 	Intent it;
 	const int dist = std::max(std::abs(a.x - partyX), std::abs(a.z - partyZ));
-	if (static_cast<float>(dist) > a.aggroRange) return it; // out of range: idle
+	// A lurker AMBUSHES: while still dormant (not yet aware) it triggers only when
+	// the party is within a short range, not its full aggro. Once sprung (aware) it
+	// pursues at full aggro — relentless, unlike a short-aggro brute that disengages
+	// when the party backs off. All other archetypes use aggro from the start.
+	constexpr float kLurkerTrigger = 2.0f; // cells: how close the prey must get
+	const float triggerRange =
+		(a.archetype == Archetype::Lurker && !a.aware) ? kLurkerTrigger : a.aggroRange;
+	if (static_cast<float>(dist) > triggerRange) return it; // out of range: idle
 
 	bool perceived = a.aware; // sticky awareness engages regardless of sight
 	if (!perceived && world.HasLineOfSight(a.x, a.z, partyX, partyZ)) {

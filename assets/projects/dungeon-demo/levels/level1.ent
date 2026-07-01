@@ -21,6 +21,14 @@ monster skel_archer 10 4 west
 ; Caster demo (docs/ai.md P2): further down the same corridor; kites and hurls
 ; firebolts (spell=firebolt) through the shared engine.
 monster skel_mage 16 4 west
+; Lurker demo (docs/ai.md P2): dormant in the pillared hall until the party comes
+; within ~2 cells, then springs and pursues relentlessly.
+monster skel_lurker 14 6 north
+; Swarm demo (docs/ai.md P2): a small cluster (medium size packs several per cell)
+; that surrounds; senses omnidirectionally.
+monster skel_swarm 13 7 north
+monster skel_swarm 14 7 north
+monster skel_swarm 13 8 north
 monster skel_human 6 6 north
 monster skeleton 15 7 west
 monster blob 27 4

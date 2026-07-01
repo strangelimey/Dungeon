@@ -113,6 +113,43 @@ movecd = 0.4
 iq = 130
 fleebelow = 2.0
 
+; Swarm archetype (docs/ai.md P2): brute melee, but senses omnidirectionally (no
+;   blind spot — the archetype bundles it, no faces= needed) and is meant to come
+;   in numbers. size=medium packs several per cell so they truly swarm/surround.
+[skel_swarm]
+display = Bone Swarm
+model = skeleton
+texture = skeleton
+hp = 6
+damage = 2
+accuracy = 0.6
+defense = 0.15
+armor = 0
+attackcd = 1.4
+aggro = 7
+movecd = 0.35
+iq = 120
+size = medium
+archetype = swarm
+
+; Lurker archetype (docs/ai.md P2): sits dormant until the party comes within ~2
+;   cells (ambush), then springs and pursues at full aggro — relentless, unlike a
+;   short-aggro brute. Place it in a spot the party walks past.
+[skel_lurker]
+display = Lurking Skeleton
+model = skeleton
+texture = skeleton
+hp = 20
+damage = 7
+accuracy = 0.75
+defense = 0.1
+armor = 1
+attackcd = 1.6
+aggro = 9
+movecd = 0.4
+iq = 130
+archetype = lurker
+
 [blob]
 display = Blob
 model = blob

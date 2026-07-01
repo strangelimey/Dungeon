@@ -64,6 +64,8 @@ static std::vector<std::string> SplitTokens(const std::string& s) {
 static ai::Archetype ParseArchetype(const std::string& v) {
 	if (v == "skirmisher") return ai::Archetype::Skirmisher;
 	if (v == "caster") return ai::Archetype::Caster;
+	if (v == "swarm") return ai::Archetype::Swarm;
+	if (v == "lurker") return ai::Archetype::Lurker;
 	if (v != "brute" && !v.empty())
 		log::Warn("monsters.cat: unknown archetype '{}' — using brute", v);
 	return ai::Archetype::Brute;

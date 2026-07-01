@@ -1140,8 +1140,13 @@ void DungeonWorld::BuildAISnapshot() {
 				++o.count;
 			}
 		const float hpFrac = m.kind->maxHp > 0.0f ? m.hp / m.kind->maxHp : 1.0f;
+		// A swarm senses in all directions (no blind spot) regardless of its render
+		// facing — the archetype bundles omnidirectional perception, so the brain
+		// skips the sight cone for it just like it does for the blob (faces=false).
+		const bool directional =
+			m.kind->facesTarget && m.kind->archetype != ai::Archetype::Swarm;
 		snap->monsters.push_back({m.runtimeId, m.x, m.z, m.kind->aggroRange,
-								  m.kind->iq, cap, f, m.aware, m.kind->facesTarget,
+								  m.kind->iq, cap, f, m.aware, directional,
 								  m.yaw, m.targetX, m.targetZ, m.kind->archetype,
 								  hpFrac, m.kind->fleeBelow});
 	}

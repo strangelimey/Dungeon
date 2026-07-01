@@ -316,7 +316,11 @@ regression guard before any new behaviour rides on it.
    `SpellBook::Find`/`MagicSystem::FindSpell` + a `spell` catalog field).
    Flee-at-low-HP DONE (`Intent::Mode::Flee` + `fleebelow` HP-fraction field + a
    `UpdateFleer` run-away executor; the brain decides it from `hpFrac` in the
-   snapshot). Next: swarm/lurker; then the editor dialog fields.
+   snapshot). `swarm` DONE (Engage + bundled omnidirectional perception) and
+   `lurker` DONE (ambush: short wake trigger, then full-aggro relentless pursuit) —
+   both reuse the brute executor, no new code path. Five archetypes now data-
+   selectable (brute/skirmisher/caster/swarm/lurker) + the fleebelow modifier.
+   Next: the editor dialog fields (sentry still deferred — needs P3 patrol routes).
 5. **P3** — Per-instance `.ent` overrides (waypoints/asleep/leashfrom) + a
    minimal entity inspector in the editor (Layer 2).
 6. **P4** — (Deferred/optional) behaviour-graph authoring (Layer 3) only if
