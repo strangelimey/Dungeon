@@ -13,13 +13,16 @@
 #
 # The FOLDER names the state (matched case-insensitively to a CreatureState token,
 # see STATE_TOKENS below = src/Animation/CreatureState.h); the FILE inside is one
-# animation. Each clip is exported as a glTF animation named after its (sanitised)
-# filename, and the tool prints + writes the catalog rows that group them:
+# animation. Each clip is exported as a glTF animation named <state>__<sanitised
+# filename> — the state is encoded in the clip NAME so the model self-describes its
+# grouping (the editor's monster-config dialog shows a state's animations by
+# filtering on this prefix). The tool prints + writes the catalog rows that group
+# them:
 #
 #     states = idle incombat attack ...
-#     anim_idle = breathing_idle orc_idle ...
-#     anim_incombat = fight_idle ready_idle
-#     anim_attack = zombie_attack ...
+#     anim_idle = idle__breathing_idle idle__orc_idle ...
+#     anim_incombat = incombat__fight_idle incombat__ready_idle
+#     anim_attack = attack__zombie_attack ...
 #
 # so the data-driven animation table picks a random variation per state.
 #
@@ -91,7 +94,11 @@ def build_plan(library_root):
             continue
         names = []
         for fbx in sorted(glob.glob(os.path.join(folder, "*.fbx"))):
-            clip = sanitize(fbx) or token
+            # Clip id = <state>__<sanitised filename>, so the state is encoded in
+            # the clip NAME (the editor's monster-config dialog filters candidates
+            # by this prefix). sanitize() collapses non-alnum to a single '_', so
+            # the double underscore only ever appears as the state/clip separator.
+            clip = f"{token}__{sanitize(fbx) or 'clip'}"
             base = clip
             n = 2
             while clip in used:  # global de-dup

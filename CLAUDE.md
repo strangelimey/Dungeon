@@ -141,8 +141,11 @@ buffer, reused across all ~25 submissions).
   holding one or more Mixamo .fbx; the FOLDER names the state (matched to the
   src/Animation/CreatureState.h token, case-insensitive), the FILE is one
   animation. ImportAnimLibrary.py (a generalised rig_and_export.py) walks the
-  folders, names each clip by its sanitised filename (globally de-duped), rigid-
-  binds the mesh to the shared Mixamo armature (every Mixamo clip uses one
+  folders, names each clip `<state>__<sanitised filename>` (the state is encoded
+  in the clip name, so the model self-describes its grouping — the editor's
+  monster-config dialog shows a state's animations by filtering this prefix;
+  globally de-duped), rigid-binds the mesh to the shared Mixamo armature (every
+  Mixamo clip uses one
   skeleton, so any number bind once — add .fbx and re-run, no re-bind), exports
   one assets/models/<name>.gltf, and EMITS the matching monsters.cat rows
   (`states = ...` + `anim_<state> = <clips>`) to <name>.anim.cat. `--plan`

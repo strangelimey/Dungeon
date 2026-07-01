@@ -16,6 +16,22 @@ namespace {
 std::string StateLabel(anim::CreatureState s) {
 	return loc::Tr("anim.state." + std::string(anim::StateName(s)));
 }
+
+// The state a clip belongs to (library clips are named <state>__<clip>): the
+// token before "__", or the whole name if it is itself a state token, else empty
+// (so a plain hand-authored "idle" clip still maps to Idle; an un-prefixed clip
+// that isn't a token maps to no state and shows under none).
+std::string ClipState(const std::string& name) {
+	const size_t sep = name.find("__");
+	const std::string head = sep == std::string::npos ? name : name.substr(0, sep);
+	return anim::ParseState(head) ? head : std::string();
+}
+
+// A clip name without its "<state>__" prefix, for display.
+std::string ClipLabel(const std::string& name) {
+	const size_t sep = name.find("__");
+	return sep == std::string::npos ? name : name.substr(sep + 2);
+}
 } // namespace
 
 MonsterConfigDialog::MonsterConfigDialog(gfx::GraphicsDevice& device)
@@ -59,14 +75,20 @@ MonsterConfigDialog::Layout MonsterConfigDialog::BuildLayout(float w, float h) c
 		L.stateCheck[i] = {L.statesCol.x + pad, y + (L.rowH - box) * 0.5f, box, box};
 	}
 
+	// Only the SELECTED state's animations (library clips are <state>__<clip>);
+	// clipOf keeps the index into m_modelClips so a toggle still uses the full name.
+	const std::string selToken(anim::StateName(static_cast<anim::CreatureState>(m_selState)));
 	const float clipBottom = L.clipsCol.y + L.clipsCol.h;
+	int ord = 0; // candidate ordinal (drives row Y + content height)
 	for (int i = 0; i < static_cast<int>(m_modelClips.size()); ++i) {
-		const float y = L.clipsCol.y - m_clipScroll + i * L.rowH;
+		if (ClipState(m_modelClips[i]) != selToken) continue;
+		const float y = L.clipsCol.y - m_clipScroll + ord * L.rowH;
+		++ord;
 		if (y + L.rowH <= L.clipsCol.y || y >= clipBottom) continue; // scrolled out
 		L.clipRow.push_back({L.clipsCol.x, y, L.clipsCol.w, L.rowH});
 		L.clipOf.push_back(i);
 	}
-	L.clipContentH = m_modelClips.size() * L.rowH;
+	L.clipContentH = ord * L.rowH;
 
 	const float btnW = std::clamp(L.panel.w * 0.16f, 80.0f, 180.0f);
 	L.close = {L.panel.x + L.panel.w - pad - btnW, footerY, btnW, footerH};
@@ -182,20 +204,21 @@ void MonsterConfigDialog::Render(gfx::SpriteBatch& batch, const ui::Theme& th,
 					i == m_selState ? th.text : th.textDim);
 	}
 
-	// Clip column (scissored so scrolled rows clip to the column).
+	// Clip column: the selected state's animations (scissored so scrolled rows clip
+	// to the column). Empty when the model has no clips for this state.
 	batch.SetScissor(&L.clipsCol);
-	if (m_modelClips.empty()) {
+	if (L.clipContentH <= 0.0f) {
 		m_font.Draw(batch, loc::Tr("map.cfg.noclips"), L.clipsCol.x,
 					L.clipsCol.y + (L.rowH - fh) * 0.5f, th.textDim);
 	} else {
 		const auto& vec = m_cfg.clips[m_selState];
 		const float box = L.rowH * 0.55f;
 		for (size_t r = 0; r < L.clipRow.size(); ++r) {
-			const std::string& name = m_modelClips[L.clipOf[r]];
+			const std::string& name = m_modelClips[L.clipOf[r]]; // full <state>__<clip>
 			const bool on = std::find(vec.begin(), vec.end(), name) != vec.end();
 			const gfx::Rect& row = L.clipRow[r];
 			checkbox({row.x, row.y + (row.h - box) * 0.5f, box, box}, on);
-			m_font.Draw(batch, name, row.x + box + pad * 0.6f, textY(row),
+			m_font.Draw(batch, ClipLabel(name), row.x + box + pad * 0.6f, textY(row),
 						on ? th.text : th.textDim);
 		}
 	}

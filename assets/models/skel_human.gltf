@@ -2621,7 +2621,7 @@
 					}
 				}
 			],
-			"name":"getting_up_1",
+			"name":"spawn__getting_up_1",
 			"samplers":[
 				{
 					"input":7,
@@ -4968,7 +4968,7 @@
 					}
 				}
 			],
-			"name":"getting_up_2",
+			"name":"spawn__getting_up_2",
 			"samplers":[
 				{
 					"input":202,
@@ -7315,7 +7315,7 @@
 					}
 				}
 			],
-			"name":"getting_up",
+			"name":"spawn__getting_up",
 			"samplers":[
 				{
 					"input":393,
@@ -9662,7 +9662,7 @@
 					}
 				}
 			],
-			"name":"standing_up",
+			"name":"spawn__standing_up",
 			"samplers":[
 				{
 					"input":586,
@@ -12009,7 +12009,7 @@
 					}
 				}
 			],
-			"name":"breathing_idle",
+			"name":"idle__breathing_idle",
 			"samplers":[
 				{
 					"input":780,
@@ -14356,7 +14356,7 @@
 					}
 				}
 			],
-			"name":"dwarf_idle",
+			"name":"idle__dwarf_idle",
 			"samplers":[
 				{
 					"input":968,
@@ -16703,7 +16703,7 @@
 					}
 				}
 			],
-			"name":"happy_idle",
+			"name":"idle__happy_idle",
 			"samplers":[
 				{
 					"input":1148,
@@ -19050,7 +19050,7 @@
 					}
 				}
 			],
-			"name":"idle_1",
+			"name":"idle__idle_1",
 			"samplers":[
 				{
 					"input":1333,
@@ -21397,7 +21397,7 @@
 					}
 				}
 			],
-			"name":"idle_2",
+			"name":"idle__idle_2",
 			"samplers":[
 				{
 					"input":1515,
@@ -23744,7 +23744,7 @@
 					}
 				}
 			],
-			"name":"idle_3",
+			"name":"idle__idle_3",
 			"samplers":[
 				{
 					"input":393,
@@ -26091,7 +26091,7 @@
 					}
 				}
 			],
-			"name":"idle",
+			"name":"idle__idle",
 			"samplers":[
 				{
 					"input":393,
@@ -28438,7 +28438,7 @@
 					}
 				}
 			],
-			"name":"neutral_idle",
+			"name":"idle__neutral_idle",
 			"samplers":[
 				{
 					"input":2029,
@@ -30785,7 +30785,7 @@
 					}
 				}
 			],
-			"name":"orc_idle_1",
+			"name":"idle__orc_idle_1",
 			"samplers":[
 				{
 					"input":2210,
@@ -33132,7 +33132,7 @@
 					}
 				}
 			],
-			"name":"orc_idle",
+			"name":"idle__orc_idle",
 			"samplers":[
 				{
 					"input":2394,
@@ -35479,7 +35479,7 @@
 					}
 				}
 			],
-			"name":"fight_idle",
+			"name":"incombat__fight_idle",
 			"samplers":[
 				{
 					"input":2571,
@@ -37826,7 +37826,7 @@
 					}
 				}
 			],
-			"name":"ready_idle",
+			"name":"incombat__ready_idle",
 			"samplers":[
 				{
 					"input":2750,
@@ -40173,7 +40173,7 @@
 					}
 				}
 			],
-			"name":"standard_walk",
+			"name":"walk__standard_walk",
 			"samplers":[
 				{
 					"input":2929,
@@ -42520,7 +42520,7 @@
 					}
 				}
 			],
-			"name":"walking",
+			"name":"walk__walking",
 			"samplers":[
 				{
 					"input":3110,
@@ -44867,7 +44867,7 @@
 					}
 				}
 			],
-			"name":"fast_run",
+			"name":"run__fast_run",
 			"samplers":[
 				{
 					"input":3284,
@@ -47214,7 +47214,7 @@
 					}
 				}
 			],
-			"name":"medium_run",
+			"name":"run__medium_run",
 			"samplers":[
 				{
 					"input":3458,
@@ -49561,7 +49561,7 @@
 					}
 				}
 			],
-			"name":"running",
+			"name":"run__running",
 			"samplers":[
 				{
 					"input":3630,
@@ -51908,7 +51908,7 @@
 					}
 				}
 			],
-			"name":"slow_run",
+			"name":"run__slow_run",
 			"samplers":[
 				{
 					"input":3807,
@@ -54255,7 +54255,7 @@
 					}
 				}
 			],
-			"name":"fireball",
+			"name":"attack__fireball",
 			"samplers":[
 				{
 					"input":3974,
@@ -56602,7 +56602,7 @@
 					}
 				}
 			],
-			"name":"zombie_attack_1",
+			"name":"attack__zombie_attack_1",
 			"samplers":[
 				{
 					"input":4155,
@@ -58949,7 +58949,7 @@
 					}
 				}
 			],
-			"name":"zombie_attack",
+			"name":"attack__zombie_attack",
 			"samplers":[
 				{
 					"input":4331,
@@ -61296,7 +61296,7 @@
 					}
 				}
 			],
-			"name":"zombie_punching",
+			"name":"attack__zombie_punching",
 			"samplers":[
 				{
 					"input":4502,
@@ -63643,7 +63643,7 @@
 					}
 				}
 			],
-			"name":"body_block",
+			"name":"defend__body_block",
 			"samplers":[
 				{
 					"input":4647,
@@ -65990,7 +65990,7 @@
 					}
 				}
 			],
-			"name":"dodging_right",
+			"name":"defend__dodging_right",
 			"samplers":[
 				{
 					"input":4822,
@@ -68337,7 +68337,7 @@
 					}
 				}
 			],
-			"name":"big_hit_to_head_1",
+			"name":"hit__big_hit_to_head_1",
 			"samplers":[
 				{
 					"input":4988,
@@ -70684,7 +70684,7 @@
 					}
 				}
 			],
-			"name":"big_hit_to_head_2",
+			"name":"hit__big_hit_to_head_2",
 			"samplers":[
 				{
 					"input":5157,
@@ -73031,7 +73031,7 @@
 					}
 				}
 			],
-			"name":"big_hit_to_head",
+			"name":"hit__big_hit_to_head",
 			"samplers":[
 				{
 					"input":5316,
@@ -75378,7 +75378,7 @@
 					}
 				}
 			],
-			"name":"head_hit",
+			"name":"hit__head_hit",
 			"samplers":[
 				{
 					"input":4822,
@@ -77725,7 +77725,7 @@
 					}
 				}
 			],
-			"name":"hit_to_body",
+			"name":"hit__hit_to_body",
 			"samplers":[
 				{
 					"input":5648,
@@ -80072,7 +80072,7 @@
 					}
 				}
 			],
-			"name":"dying",
+			"name":"die__dying",
 			"samplers":[
 				{
 					"input":5820,
@@ -82419,7 +82419,7 @@
 					}
 				}
 			],
-			"name":"falling_back_death",
+			"name":"die__falling_back_death",
 			"samplers":[
 				{
 					"input":5987,
@@ -84766,7 +84766,7 @@
 					}
 				}
 			],
-			"name":"falling_forward_death",
+			"name":"die__falling_forward_death",
 			"samplers":[
 				{
 					"input":6158,
@@ -87113,7 +87113,7 @@
 					}
 				}
 			],
-			"name":"standing_death_forward_01",
+			"name":"die__standing_death_forward_01",
 			"samplers":[
 				{
 					"input":6330,
@@ -89460,7 +89460,7 @@
 					}
 				}
 			],
-			"name":"standing_death_left_01",
+			"name":"die__standing_death_left_01",
 			"samplers":[
 				{
 					"input":6508,
@@ -91807,7 +91807,7 @@
 					}
 				}
 			],
-			"name":"standing_react_death_backward",
+			"name":"die__standing_react_death_backward",
 			"samplers":[
 				{
 					"input":6679,
@@ -94154,7 +94154,7 @@
 					}
 				}
 			],
-			"name":"standing_react_death_forward",
+			"name":"die__standing_react_death_forward",
 			"samplers":[
 				{
 					"input":6851,
