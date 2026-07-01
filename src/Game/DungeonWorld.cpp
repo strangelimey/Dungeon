@@ -379,12 +379,18 @@ bool DungeonWorld::SaveLevel() const {
 		if (mon.leashX != mon.spawnX || mon.leashZ != mon.spawnZ)
 			e += std::format(" leashfrom={},{}", mon.leashX, mon.leashZ);
 		// Per-instance behaviour overrides (only when they differ from the type).
-		static const char* kArch[] = {"brute", "skirmisher", "caster", "swarm", "lurker"};
+		static const char* kArch[] = {"brute",   "skirmisher", "caster",
+									  "swarm", "lurker",     "sentry"};
 		if (mon.archOverride) e += std::format(" archetype={}", kArch[static_cast<int>(*mon.archOverride)]);
 		if (mon.keepOverride) e += std::format(" keeprange={:g}", *mon.keepOverride);
 		if (mon.fleeOverride) e += std::format(" fleebelow={:g}", *mon.fleeOverride);
 		if (mon.spellOverride && !mon.spellOverride->empty())
 			e += std::format(" spell={}", *mon.spellOverride);
+		if (!mon.patrol.empty()) {
+			e += " patrol=";
+			for (size_t k = 0; k < mon.patrol.size(); ++k)
+				e += std::format("{}{},{}", k ? ";" : "", mon.patrol[k].x, mon.patrol[k].z);
+		}
 		e += '\n';
 	}
 	// Items/buttons aren't editor-editable yet — carry the loaded records through.
@@ -776,9 +782,13 @@ void DungeonWorld::UpdateMonsters(float dt) {
 		}
 
 		if (monster.intent.mode == ai::Intent::Mode::Idle) {
-			// A leashed monster that broke off (idled) away from home walks back.
-			if (monster.leashRange > 0.0f &&
-				(monster.x != monster.leashX || monster.z != monster.leashZ))
+			// Idle behaviour: a patroller walks its route (which also carries it back
+			// to post after a chase); else a leashed monster displaced from its anchor
+			// walks home.
+			if (!monster.patrol.empty())
+				UpdatePatroller(monster, static_cast<int>(i));
+			else if (monster.leashRange > 0.0f &&
+					 (monster.x != monster.leashX || monster.z != monster.leashZ))
 				UpdateReturner(monster, static_cast<int>(i));
 			continue;
 		}
@@ -1483,6 +1493,23 @@ void DungeonWorld::UpdateReturner(Monster& monster, int selfIndex) {
 	const int ax = monster.leashX, az = monster.leashZ;
 	GreedyStep(monster, selfIndex, [&](int cx, int cz) {
 		const int dx = cx - ax, dz = cz - az;
+		return dx * dx + dz * dz;
+	});
+}
+
+void DungeonWorld::UpdatePatroller(Monster& monster, int selfIndex) {
+	if (monster.patrol.empty()) return;
+	if (monster.moving || monster.moveCd > 0.0f) return; // mid-step / on cooldown
+	// Advance to the next waypoint once standing on the current one (wrap the loop).
+	monster.patrolIdx %= monster.patrol.size();
+	const ai::Cell& cur = monster.patrol[monster.patrolIdx];
+	if (monster.x == cur.x && monster.z == cur.z)
+		monster.patrolIdx = (monster.patrolIdx + 1) % monster.patrol.size();
+	const ai::Cell& wp = monster.patrol[monster.patrolIdx];
+	// Greedy orthogonal step toward the waypoint (best for open/line routes; a wall
+	// between can stall it — lay waypoints densely, or add BFS later).
+	GreedyStep(monster, selfIndex, [&](int cx, int cz) {
+		const int dx = cx - wp.x, dz = cz - wp.z;
 		return dx * dx + dz * dz;
 	});
 }

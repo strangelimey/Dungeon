@@ -80,9 +80,10 @@ public:
 //   Lurker     — ambush: dormant until the party comes within a SHORT trigger
 //                range (or it's hit), then pursues at full aggro — relentless,
 //                unlike a short-aggro brute that gives up when you back off.
-// (sentry still to come — see docs/ai.md.)
+//   Sentry     — a watchful guard: brute melee, but a WIDE sight cone; pairs with
+//                a per-instance patrol route + leash (it walks a beat and returns).
 // ----------------------------------------------------------------------------
-enum class Archetype { Brute, Skirmisher, Caster, Swarm, Lurker };
+enum class Archetype { Brute, Skirmisher, Caster, Swarm, Lurker, Sentry };
 
 // ----------------------------------------------------------------------------
 // The monster as the brain sees it — a flat snapshot of the few fields thinking

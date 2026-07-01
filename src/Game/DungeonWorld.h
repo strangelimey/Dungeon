@@ -473,6 +473,7 @@ private:
 		int leashX = 0, leashZ = 0;
 		float leashRange = 0.0f;
 		std::vector<ai::Cell> patrol;
+		size_t patrolIdx = 0; // next waypoint to walk toward (transient, wraps the route)
 		// Per-instance BEHAVIOUR overrides (.ent archetype/keeprange/fleebelow/spell).
 		// Absent = inherit the type default (so editing the type still updates every
 		// un-overridden instance live); the inspector sets them, the .ent stores them.
@@ -830,6 +831,9 @@ private:
 	// Leash-return: a leashed monster that idled beyond its range walks back to its
 	// anchor (greedy orthogonal 1-step toward leashX/Z). Runs while idle + displaced.
 	void UpdateReturner(Monster& monster, int selfIndex);
+	// Patrol: an idle monster with a route walks it waypoint to waypoint (greedy
+	// orthogonal step toward the next, advancing + wrapping on arrival). P3b.
+	void UpdatePatroller(Monster& monster, int selfIndex);
 	// Commit a one-cell move: snap the logical cell + slot, start the visual glide
 	// from the current position, and arm the step cooldown. The single place a
 	// monster's step is committed (chase-path follow, kite, flee all route here).

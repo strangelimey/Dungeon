@@ -333,6 +333,7 @@ archetype.skirmisher=Skirmisher (kite + bolt)
 archetype.caster=Caster (kite + spell)
 archetype.swarm=Swarm (omni melee)
 archetype.lurker=Lurker (ambush)
+archetype.sentry=Sentry (patrol + wide cone)
 ; --- entity inspector (per-placed-monster overrides) ---
 map.insp.title=Monster: {}
 map.insp.tab.ai=AI

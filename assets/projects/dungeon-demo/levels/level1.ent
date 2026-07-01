@@ -31,6 +31,9 @@ monster skel_swarm 14 7 north
 monster skel_swarm 13 8 north
 monster skel_human 6 6 north
 monster skeleton 15 7 west
+; Sentry + patrol demo (docs/ai.md P3b): paces the open east corridor between two
+; waypoints (walks the beat when idle), wide sight cone, engages on sight.
+monster skeleton 25 4 west archetype=sentry patrol=22,4;28,4
 monster blob 27 4
 monster mummy 4 12 east
 monster skeleton 6 15 north

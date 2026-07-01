@@ -127,13 +127,14 @@ Intent Brain::Think(const Agent& a, int partyX, int partyZ, const IWorldView& wo
 			// Angle between the monster's facing and the direction to the party. Yaw
 			// convention: forward = (sin yaw, cos yaw), so the bearing is atan2(dx,dz).
 			constexpr float kPi = 3.14159265358979f;
-			constexpr float kSightCone = kPi / 3.0f; // ±60° → a 120° frontal field of view
+			// A sentry is watchful — a wide ±90° (180° FOV) cone; others ±60° (120°).
+			const float cone = a.archetype == Archetype::Sentry ? kPi * 0.5f : kPi / 3.0f;
 			const float bearing = std::atan2(static_cast<float>(partyX - a.x),
 											 static_cast<float>(partyZ - a.z));
 			float d = bearing - a.facingYaw;
 			while (d > kPi) d -= 2.0f * kPi;
 			while (d < -kPi) d += 2.0f * kPi;
-			perceived = std::abs(d) <= kSightCone;
+			perceived = std::abs(d) <= cone;
 		}
 	}
 	if (perceived) {

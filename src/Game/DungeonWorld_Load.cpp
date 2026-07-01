@@ -80,6 +80,7 @@ static ai::Archetype ParseArchetype(const std::string& v) {
 	if (v == "caster") return ai::Archetype::Caster;
 	if (v == "swarm") return ai::Archetype::Swarm;
 	if (v == "lurker") return ai::Archetype::Lurker;
+	if (v == "sentry") return ai::Archetype::Sentry;
 	if (v != "brute" && !v.empty())
 		log::Warn("monsters.cat: unknown archetype '{}' — using brute", v);
 	return ai::Archetype::Brute;
@@ -510,6 +511,19 @@ void DungeonWorld::LoadMonsters() {
 		if (const std::string* v = spawn.Param("fleebelow"))
 			monster.fleeOverride = std::strtof(v->c_str(), nullptr);
 		if (const std::string* v = spawn.Param("spell")) monster.spellOverride = *v;
+		// Patrol route: a ;-separated list of x,z waypoints walked when idle (P3b).
+		if (const std::string* v = spawn.Param("patrol")) {
+			size_t start = 0;
+			while (start <= v->size()) {
+				const size_t semi = v->find(';', start);
+				const std::string cell =
+					v->substr(start, semi == std::string::npos ? std::string::npos : semi - start);
+				int wx = 0, wz = 0;
+				if (ParseCell(cell, wx, wz)) monster.patrol.push_back({wx, wz});
+				if (semi == std::string::npos) break;
+				start = semi + 1;
+			}
+		}
 		monster.animator.Update(static_cast<float>(phase++) * 0.7f); // desync idles
 		m_monsters.push_back(std::move(monster));
 	}

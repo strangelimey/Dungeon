@@ -22,7 +22,8 @@ constexpr gfx::Rect kSave{0.62f, 0.83f, 0.105f, 0.05f};
 constexpr gfx::Rect kClose{0.74f, 0.83f, 0.105f, 0.05f};
 
 // Archetype option order MUST match the ai::Archetype enum (dropdown index -> enum).
-constexpr const char* kArchKeys[] = {"brute", "skirmisher", "caster", "swarm", "lurker"};
+constexpr const char* kArchKeys[] = {"brute",  "skirmisher", "caster",
+									 "swarm", "lurker",     "sentry"};
 
 std::string StateLabel(anim::CreatureState s) {
 	return loc::Tr("anim.state." + std::string(anim::StateName(s)));

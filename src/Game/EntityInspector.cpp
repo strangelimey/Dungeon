@@ -20,7 +20,8 @@ constexpr gfx::Rect kSave{0.40f, 0.735f, 0.11f, 0.05f};
 constexpr gfx::Rect kClose{0.53f, 0.735f, 0.11f, 0.05f};
 
 // Archetype dropdown order MUST match the ai::Archetype enum.
-constexpr const char* kArchKeys[] = {"brute", "skirmisher", "caster", "swarm", "lurker"};
+constexpr const char* kArchKeys[] = {"brute",  "skirmisher", "caster",
+									 "swarm", "lurker",     "sentry"};
 } // namespace
 
 EntityInspector::EntityInspector(gfx::GraphicsDevice& device)

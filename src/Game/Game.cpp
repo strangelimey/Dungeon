@@ -838,7 +838,8 @@ void Game::WriteMonsterAnim(const MonsterConfigDialog::Config& cfg) {
 
 	// Behaviour fields (Behavior tab). archetype is always written; the params are
 	// written only when they apply / are non-default, to keep the .cat tidy.
-	static const char* kArch[] = {"brute", "skirmisher", "caster", "swarm", "lurker"};
+	static const char* kArch[] = {"brute",  "skirmisher", "caster",
+								  "swarm", "lurker",     "sentry"};
 	entry.Set("archetype", kArch[static_cast<int>(cfg.archetype)]);
 	if (cfg.archetype == ai::Archetype::Skirmisher || cfg.archetype == ai::Archetype::Caster)
 		entry.Set("keeprange", std::format("{:g}", cfg.keepRange));
