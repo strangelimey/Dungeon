@@ -33,8 +33,8 @@ void DoorInspector::BuildContent(const gfx::Rect& c) {
 						   });
 
 	// Required key: "None" + every items.cat entry with category=key. Selecting
-	// one authors key=<id> on the record — the party's click then refuses until
-	// key items (and an inventory check) exist; wired buttons ignore locks.
+	// one authors key=<id> on the record — the party's click then opens the
+	// door only while a member carries the item; wired buttons ignore locks.
 	UI().Add<ui::Label>(gfx::Rect{c.x, c.y + 0.10f, c.w, 0.05f},
 						loc::Tr("map.door.key"));
 	std::vector<std::string> names;

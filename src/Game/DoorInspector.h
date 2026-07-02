@@ -5,10 +5,10 @@
 // doorway's own (auto-detected at placement), so there is no Facing row. The
 // body edits the door's AUTHORED state: Open (the panel slides live as the
 // checkbox flips, and the record's open= param follows) and the key item it
-// requires (items.cat entries with category=key — none exist yet, so the
-// dropdown offers only "None" until they do; a keyed door refuses the party's
-// click until key items and inventory checks land, while wired buttons still
-// move it). Save persists the level; Close/Esc reverts.
+// requires (items.cat entries with category=key; a keyed door opens to the
+// party's click only while a member carries the item — see
+// DungeonWorld::ToggleDoorAhead — while wired buttons bypass the lock).
+// Save persists the level; Close/Esc reverts.
 // ============================================================================
 #pragma once
 

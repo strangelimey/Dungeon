@@ -210,6 +210,8 @@ item.medicine_pouch=Medicine pouch
 item.herb_pouch=Herb pouch
 item.herb=Herb
 item.mushroom=Mushroom
+item.iron_key=Iron key
+item.brass_key=Brass key
 
 ; --- monsters (key suffix = the .ent type) --------------------------------------
 monster.skeleton=skeleton
@@ -295,6 +297,7 @@ log.door_open=The door slides open.
 log.door_close=The door slides shut.
 log.door_jammed=Something is blocking the doorway.
 log.door_locked=The door is locked.
+log.door_unlock=The key turns in the lock.
 map.door.title=Door — cell {}, {}
 map.door.open=Open
 map.door.key=Requires key

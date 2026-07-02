@@ -477,8 +477,7 @@ void Game::OpenInspectorFor(const InspectTarget& t) {
 		c.z = cz;
 		if (!m_world.DoorSettings(cx, cz, c.open, c.key, c.name))
 			return; // gone since the picker listed it
-		// Selectable keys: items.cat entries with category=key (none exist yet —
-		// the dropdown offers only "None" until key items land).
+		// Selectable keys: items.cat entries with category=key.
 		std::vector<std::pair<std::string, std::string>> keys;
 		for (const CatalogEntry& e : m_project.items.Entries())
 			if (e.Get("category", "") == "key") keys.emplace_back(e.id, e.Display());
@@ -931,6 +930,27 @@ void Game::RegisterDevCommands() {
 							   m_console.Print("pack full (or no party)");
 						   else
 							   m_console.Print(std::format("pack += {}", typeId));
+					   });
+	m_console.Register("give", "stow an items.cat item in a member's pack (dev)",
+					   [this](const std::vector<std::string>& args) {
+						   if (!Need(m_console, args, 1,
+									 "usage: give <item id> [member 0-3]"))
+							   return;
+						   const size_t m = args.size() > 1
+							   ? static_cast<size_t>(std::atoi(args[1].c_str())) : 0;
+						   if (m >= m_characters.size()) {
+							   m_console.Print("no such member");
+							   return;
+						   }
+						   if (!m_project.items.Contains(args[0])) {
+							   m_console.Print(std::format("no item '{}' in items.cat", args[0]));
+							   return;
+						   }
+						   if (!m_characters[m].inventory.Stow(args[0]))
+							   m_console.Print("pack full");
+						   else
+							   m_console.Print(std::format("{} pack += {}",
+														   m_characters[m].name, args[0]));
 					   });
 	m_console.Register("cast", "cast a spell by symbol sequence (dev): cast <member> <sym>...",
 					   [this](const std::vector<std::string>& args) {

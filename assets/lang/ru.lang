@@ -216,6 +216,8 @@ item.medicine_pouch=Сумка со снадобьями
 item.herb_pouch=Сумка с травами
 item.herb=Трава
 item.mushroom=Гриб
+item.iron_key=Железный ключ
+item.brass_key=Латунный ключ
 
 ; --- monsters (key suffix = the .ent type; bare nominative noun, see header) ------
 monster.skeleton=скелет
@@ -301,6 +303,7 @@ log.door_open=Дверь отъезжает в сторону.
 log.door_close=Дверь задвигается.
 log.door_jammed=Что-то застряло в проёме.
 log.door_locked=Дверь заперта.
+log.door_unlock=Ключ поворачивается в замке.
 map.door.title=Дверь — клетка {}, {}
 map.door.open=Открыта
 map.door.key=Нужен ключ

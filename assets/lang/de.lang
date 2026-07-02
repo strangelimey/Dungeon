@@ -212,6 +212,8 @@ item.medicine_pouch=Medizinbeutel
 item.herb_pouch=Kräuterbeutel
 item.herb=Kraut
 item.mushroom=Pilz
+item.iron_key=Eiserner Schlüssel
+item.brass_key=Messingschlüssel
 
 ; --- monsters (key suffix = the .ent type; article included, see header) ---------
 monster.skeleton=Das Skelett
@@ -297,6 +299,7 @@ log.door_open=Die Tür gleitet auf.
 log.door_close=Die Tür gleitet zu.
 log.door_jammed=Etwas blockiert den Durchgang.
 log.door_locked=Die Tür ist verschlossen.
+log.door_unlock=Der Schlüssel dreht sich im Schloss.
 map.door.title=Tür — Zelle {}, {}
 map.door.open=Offen
 map.door.key=Benötigt Schlüssel

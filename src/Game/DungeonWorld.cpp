@@ -439,14 +439,25 @@ bool DungeonWorld::ToggleDoorAhead() {
 	const Direction f = static_cast<Direction>(m_party.Facing());
 	Door* door = DoorAt(m_party.GridX() + DirDX(f), m_party.GridZ() + DirDZ(f));
 	if (!door) return false;
-	// A keyed door refuses the hand until key items (and an inventory check)
-	// exist — wired buttons still move it (mechanisms don't need the key).
+	// A keyed door refuses the hand unless a member carries the key item (the
+	// key stays — the door re-locks when shut). Wired buttons still move it
+	// (mechanisms don't need the key).
 	if (!door->open && !door->key.empty()) {
-		if (onMessage) onMessage(loc::Tr("log.door_locked"));
-		return true;
+		if (!PartyHasItem(door->key)) {
+			if (onMessage) onMessage(loc::Tr("log.door_locked"));
+			return true;
+		}
+		if (onMessage) onMessage(loc::Tr("log.door_unlock"));
 	}
 	ToggleDoor(*door);
 	return true; // the click was for the door even if it jammed
+}
+
+bool DungeonWorld::PartyHasItem(std::string_view typeId) const {
+	if (typeId.empty() || !m_roster) return false;
+	for (const Character& member : *m_roster)
+		if (member.inventory.Has(typeId)) return true;
+	return false;
 }
 
 bool DungeonWorld::DoorSettings(int x, int z, bool& open, std::string& key,

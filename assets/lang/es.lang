@@ -212,6 +212,8 @@ item.medicine_pouch=Bolsa de medicinas
 item.herb_pouch=Bolsa de hierbas
 item.herb=Hierba
 item.mushroom=Seta
+item.iron_key=Llave de hierro
+item.brass_key=Llave de latón
 
 ; --- monsters (key suffix = the .ent type; article included, see header) ---------
 monster.skeleton=el esqueleto
@@ -297,6 +299,7 @@ log.door_open=La puerta se desliza y se abre.
 log.door_close=La puerta se desliza y se cierra.
 log.door_jammed=Algo bloquea el vano.
 log.door_locked=La puerta está cerrada con llave.
+log.door_unlock=La llave gira en la cerradura.
 map.door.title=Puerta — celda {}, {}
 map.door.open=Abierta
 map.door.key=Requiere llave

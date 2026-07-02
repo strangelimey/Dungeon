@@ -411,8 +411,12 @@ public:
 	bool AddDoor(const std::string& type, int x, int z);
 	// Click interaction: toggles the door on the cell directly AHEAD of the
 	// party (arm's reach), sliding the panel open/shut. A monster standing in
-	// the doorway jams a closing door. False if no door is ahead.
+	// the doorway jams a closing door. A keyed (key=) closed door opens only
+	// while some member carries that item (not consumed; wired buttons bypass
+	// the lock — mechanisms don't need the key). False if no door is ahead.
 	bool ToggleDoorAhead();
+	// True if any party member carries the item (equipment or pack contents).
+	bool PartyHasItem(std::string_view typeId) const;
 
 	// Places a button (buttons.cat id) on (x,z), auto-mounted on the cell's
 	// first solid wall (refused with a message when the cell has none).
