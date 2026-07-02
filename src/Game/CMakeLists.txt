@@ -5,6 +5,7 @@ add_library(Game STATIC
 	Character.cpp
 	Combat.cpp
 	DevConsole.cpp
+	DoorInspector.cpp
 	DungeonEntities.cpp
 	DungeonMap.cpp
 	DungeonMeshBuilder.cpp

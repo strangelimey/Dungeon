@@ -358,6 +358,7 @@ void DungeonWorld::SpawnDoor(const Entity& record) {
 	door.z = record.z;
 	door.facing = record.facing;
 	if (const std::string* n = record.Param("name")) door.name = *n;
+	if (const std::string* k = record.Param("key")) door.key = *k;
 	if (const std::string* o = record.Param("open")) door.initialOpen = *o != "0";
 	door.open = door.initialOpen;
 	door.openT = door.open ? 1.0f : 0.0f;
@@ -431,8 +432,56 @@ bool DungeonWorld::ToggleDoorAhead() {
 	const Direction f = static_cast<Direction>(m_party.Facing());
 	Door* door = DoorAt(m_party.GridX() + DirDX(f), m_party.GridZ() + DirDZ(f));
 	if (!door) return false;
+	// A keyed door refuses the hand until key items (and an inventory check)
+	// exist — wired buttons still move it (mechanisms don't need the key).
+	if (!door->open && !door->key.empty()) {
+		if (onMessage) onMessage(loc::Tr("log.door_locked"));
+		return true;
+	}
 	ToggleDoor(*door);
 	return true; // the click was for the door even if it jammed
+}
+
+bool DungeonWorld::DoorSettings(int x, int z, bool& open, std::string& key) const {
+	const Door* door = DoorAt(x, z);
+	if (!door) return false;
+	open = door->open;
+	key = door->key;
+	return true;
+}
+
+void DungeonWorld::SetDoorSettings(int x, int z, bool open, const std::string& key) {
+	Door* door = DoorAt(x, z);
+	if (!door) return;
+	door->open = open;
+	door->initialOpen = open; // the editor edits the AUTHORED state
+	door->key = key;
+	// Mirror onto the .ent record so the writer/stash carry it. Default-valued
+	// params are removed to keep records minimal.
+	if (Entity* record = m_entities.MutableById(door->id)) {
+		auto set = [&](const char* k, const std::string& v) {
+			std::erase_if(record->params,
+						  [&](const auto& p) { return p.first == k; });
+			if (!v.empty()) record->params.emplace_back(k, v);
+		};
+		set("open", open ? "1" : "");
+		set("key", key);
+		m_entsDirty = true;
+	}
+}
+
+std::vector<gfx::PreviewSubmesh> DungeonWorld::DoorPreviewSubs(int x, int z) const {
+	std::vector<gfx::PreviewSubmesh> subs;
+	const Door* door = DoorAt(x, z);
+	if (!door) return subs;
+	for (const DecorationKind* kind : {door->frame, door->panel}) {
+		if (!kind || !kind->mesh) continue;
+		gfx::MaterialParams mat;
+		mat.doubleSided = true;
+		ApplyPropMaterial(mat, kind->tex, kind->color, 0.85f);
+		subs.push_back({kind->mesh.get(), mat});
+	}
+	return subs;
 }
 
 void DungeonWorld::ToggleDoorsNamed(const std::string& name) {
@@ -1914,7 +1963,8 @@ void DungeonWorld::SetItemFacing(int entityId, Direction facing) {
 
 bool DungeonWorld::AnyInspectableAt(int cx, int cz) const {
 	return MonsterRuntimeIdAt(cx, cz) != 0 || SconceAt(cx, cz) || BrazierAt(cx, cz) ||
-		   !DecorationsAt(cx, cz).empty() || !ItemsAt(cx, cz).empty();
+		   DoorAt(cx, cz) != nullptr || !DecorationsAt(cx, cz).empty() ||
+		   !ItemsAt(cx, cz).empty();
 }
 
 void DungeonWorld::ReconcileGroups() {

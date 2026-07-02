@@ -669,9 +669,14 @@ memory.
   placement, asset-creation dialog with 3D preview + AssetBaker bake, multi-level
   stairs/pits with auto-authored pairs, functional doors, level browsing +
   remote editing of any level, per-level saves, .map/.ent writers, chunk-local
-  edit rebuilds (details in the MapView / Project sections above). Editor next
-  steps: item placement (the last "wiring comes next" palette stub); a door
-  inspector (name= for button wiring and open= are hand-authored .ent params
-  for now); the dialog's material sliders are preview-only for imported models
-  (ORM map drives the real material); a "save to source" UI button (vs the
-  `synctosource` dev command); undo/redo for edits.
+  edit rebuilds (details in the MapView / Project sections above). Select-clicking a door opens the
+  DoorInspector (open/closed toggles the live panel + the record's open= param;
+  a "Requires key" dropdown lists items.cat entries with category=key — none
+  exist yet, so it offers only None — and authors key=, which LOCKS the door
+  against the party's click until key items + an inventory check land; wired
+  buttons ignore locks). Editor next steps: item placement (the last "wiring
+  comes next" palette stub); door name= for button wiring is still a
+  hand-authored .ent param; key ITEMS (items.cat category=key + an inventory
+  check in ToggleDoorAhead); the dialog's material sliders are preview-only for
+  imported models (ORM map drives the real material); a "save to source" UI
+  button (vs the `synctosource` dev command); undo/redo for edits.

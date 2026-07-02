@@ -421,6 +421,16 @@ public:
 	};
 	std::vector<DoorMarker> DoorMarkers() const;
 
+	// Door instance surface for the editor's inspector. DoorSettings reports
+	// the door on (x,z) (false = none); SetDoorSettings applies open/key to the
+	// LIVE door (slide anim, initialOpen follows — the editor edits the
+	// AUTHORED state) and to its .ent record's open=/key= params (in-memory
+	// until savemap, like every editor edit).
+	bool DoorSettings(int x, int z, bool& open, std::string& key) const;
+	void SetDoorSettings(int x, int z, bool open, const std::string& key);
+	// The door's frame + panel meshes for the inspector's preview pane.
+	std::vector<gfx::PreviewSubmesh> DoorPreviewSubs(int x, int z) const;
+
 	// Places a stair on level `stem` (stairs.cat id; its `up` field picks the
 	// level above or below in the project's level order) and AUTO-AUTHORS the
 	// paired return stair at the same cell of that destination level. Either
@@ -808,6 +818,7 @@ private:
 		int x = 0, z = 0;
 		Direction facing = Direction::South; // travel axis (panel spans the other)
 		std::string name;                    // button-target id ("" = unwired)
+		std::string key;                     // item id that unlocks it ("" = none)
 		bool open = false;
 		bool initialOpen = false;            // authored state (open= param)
 		float openT = 0.0f;                  // slide anim, 0 closed .. 1 open

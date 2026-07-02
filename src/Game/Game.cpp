@@ -79,7 +79,8 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	  m_modelPreview(device, 512),
 	  m_assetDialog(device, window),
 	  m_monsterDialog(device), m_entityInspector(device), m_fixtureInspector(device),
-	  m_propInspector(device), m_inspectPicker(device), m_previewParticles(device) {
+	  m_propInspector(device), m_doorInspector(device), m_inspectPicker(device),
+	  m_previewParticles(device) {
 	m_mapView.SetEditor(&m_mapEditor); // the view drives the editor in Editor mode
 	m_settings.Load();
 	ApplyLanguage(false); // strings must exist before any UI builds
@@ -294,6 +295,14 @@ void Game::WireModuleCallbacks() {
 			m_inspectTargets.push_back(InspectTarget{InspectTarget::Kind::Brazier});
 			labels.push_back(loc::Tr("map.key.brazier"));
 		}
+		{
+			bool open;
+			std::string key;
+			if (m_world.DoorSettings(cx, cz, open, key)) {
+				m_inspectTargets.push_back(InspectTarget{InspectTarget::Kind::Door});
+				labels.push_back(loc::Tr("map.key.door"));
+			}
+		}
 		for (const auto& [index, type] : m_world.DecorationsAt(cx, cz)) {
 			InspectTarget t{InspectTarget::Kind::Decoration};
 			t.handle = index;
@@ -358,6 +367,15 @@ void Game::WireModuleCallbacks() {
 		if (!m_world.SaveLevel()) log::Warn("fixture inspector: failed to save level");
 	};
 
+	// Door inspector: Open flips the live panel + the record's authored state;
+	// the key dropdown authors the key= param (locks the party's click).
+	m_doorInspector.onApply = [this](const DoorInspector::Config& c) {
+		m_world.SetDoorSettings(c.x, c.z, c.open, c.key);
+	};
+	m_doorInspector.onSave = [this] {
+		if (!m_world.SaveLevel()) log::Warn("door inspector: failed to save level");
+	};
+
 	// Item/decoration inspector: apply the facing edit to the right live object.
 	m_propInspector.onApply = [this](const PropInspector::Config& c) {
 		if (c.kind == PropInspector::Config::Kind::Decoration)
@@ -374,6 +392,7 @@ InstanceInspector* Game::ActiveInstanceInspector() {
 	if (m_entityInspector.IsOpen()) return &m_entityInspector;
 	if (m_fixtureInspector.IsOpen()) return &m_fixtureInspector;
 	if (m_propInspector.IsOpen()) return &m_propInspector;
+	if (m_doorInspector.IsOpen()) return &m_doorInspector;
 	return nullptr;
 }
 
@@ -434,6 +453,22 @@ void Game::OpenInspectorFor(const InspectTarget& t) {
 		if (!m_world.BrazierSettings(cx, cz, fc.lit, fc.brightness, fc.turbidity))
 			return; // gone since the picker listed it
 		OpenFixtureInspector(fc, /*walls*/ {}, m_world.BrazierPreview()); // no facing
+		break;
+	}
+	case InspectTarget::Kind::Door: {
+		DoorInspector::Config c;
+		c.x = cx;
+		c.z = cz;
+		if (!m_world.DoorSettings(cx, cz, c.open, c.key))
+			return; // gone since the picker listed it
+		// Selectable keys: items.cat entries with category=key (none exist yet —
+		// the dropdown offers only "None" until key items land).
+		std::vector<std::pair<std::string, std::string>> keys;
+		for (const CatalogEntry& e : m_project.items.Entries())
+			if (e.Get("category", "") == "key") keys.emplace_back(e.id, e.Display());
+		PreviewSpec pv;
+		pv.subs = m_world.DoorPreviewSubs(cx, cz);
+		m_doorInspector.Open(c, std::move(keys), std::move(pv));
 		break;
 	}
 	case InspectTarget::Kind::Decoration: {
@@ -1687,6 +1722,12 @@ void Game::Update(float dt) {
 		if (m_propInspector.Preview().spin) m_previewSpin += dt * 0.9f; // turntable
 		return;
 	}
+	// The per-instance door inspector too (open/closed + required key).
+	if (m_doorInspector.IsOpen()) {
+		m_doorInspector.Update(input, static_cast<float>(m_window.Width()),
+							   static_cast<float>(m_window.Height()));
+		return;
+	}
 
 	// Map overlay: a toggle that never pauses the world. While it is open the
 	// party still walks (keyboard) — the overlay only claims the mouse for
@@ -1958,6 +1999,8 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 		m_fixtureInspector.Render(m_spriteBatch, m_settings.theme, dw, dh);
 	if (m_propInspector.IsOpen())
 		m_propInspector.Render(m_spriteBatch, m_settings.theme, dw, dh);
+	if (m_doorInspector.IsOpen())
+		m_doorInspector.Render(m_spriteBatch, m_settings.theme, dw, dh);
 	if (InstanceInspector* ii = ActiveInstanceInspector(); ii && ii->HasPreview())
 		m_spriteBatch.DrawSprite(ii->PreviewRect(dw, dh), {0, 0, 1, 1}, m_modelPreview.Srv(),
 								 {1, 1, 1, 1});
