@@ -65,6 +65,24 @@ bool LoadFile(const std::string& path) {
 	return true;
 }
 
+size_t LogMissingKeys(const std::string& referencePath) {
+	StringTable reference;
+	if (!ParseFile(referencePath, reference)) return 0;
+	std::vector<std::string_view> missing;
+	for (const auto& [key, value] : reference)
+		if (!g_table.contains(key)) missing.push_back(key);
+	if (missing.empty()) return 0;
+	std::ranges::sort(missing);
+	std::string list;
+	for (const std::string_view key : missing) {
+		if (!list.empty()) list += ", ";
+		list += key;
+	}
+	log::Warn("Language table is missing {} key(s) vs {}: {}", missing.size(),
+			  referencePath, list);
+	return missing.size();
+}
+
 std::string Tr(std::string_view key) {
 	const auto it = g_table.find(key);
 	return it != g_table.end() ? it->second : std::string(key);

@@ -26,6 +26,13 @@ namespace dungeon::loc {
 // the shipped English file.
 bool LoadFile(const std::string& path);
 
+// Compares the active table against a reference file (en.lang) and logs one
+// warning listing every key the reference has that the table lacks — those
+// keys render raw in the UI, so this makes translation drift visible at load
+// instead of during play. Returns the missing count (0 = in sync or the
+// reference file is unreadable).
+size_t LogMissingKeys(const std::string& referencePath);
+
 // The active language's text for `key`, or the key itself when missing.
 std::string Tr(std::string_view key);
 

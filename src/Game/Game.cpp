@@ -1365,9 +1365,14 @@ void Game::ApplyLanguage(bool rebuild) {
 		m_pendingLanguage.clear();
 		m_settings.Save();
 	}
-	if (!loc::LoadFile(paths::Asset("lang\\" + m_settings.language + ".lang")) &&
-		m_settings.language != "en")
-		loc::LoadFile(paths::Asset("lang\\en.lang"));
+	if (!loc::LoadFile(paths::Asset("lang\\" + m_settings.language + ".lang"))) {
+		if (m_settings.language != "en")
+			loc::LoadFile(paths::Asset("lang\\en.lang"));
+	} else if (m_settings.language != "en") {
+		// Surface translation drift: any en.lang key this language lacks
+		// renders as the raw key in the UI, so name them in the log.
+		loc::LogMissingKeys(paths::Asset("lang\\en.lang"));
+	}
 	if (rebuild) m_ui.RebuildForLanguage();
 }
 
