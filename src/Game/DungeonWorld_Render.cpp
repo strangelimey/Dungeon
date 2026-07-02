@@ -238,6 +238,25 @@ void DungeonWorld::SubmitSceneGeometry(ID3D12GraphicsCommandList* list,
 		draw(door.panel, XMMatrixTranslation(slide, 0, 0) * base);
 	}
 
+	// Buttons: wall levers at hand height. The prop's origin is its pivot, so
+	// tilting the whole mesh around X reads as the handle flipping (up = off,
+	// down = pressed) while the thin back plate stays visually in the wall.
+	for (const Button& b : m_buttons) {
+		if (!b.kind || !b.kind->mesh) continue; // legacy type the catalog lacks
+		const WallMount mount = MountOnWall(b.x, b.z, b.facing);
+		if (!visible({mount.pos.x, 1.2f, mount.pos.z}, 1.0f)) continue;
+		const XMMATRIX world =
+			XMMatrixRotationX(b.activated ? 0.5f : -0.5f) *
+			XMMatrixRotationY(mount.yaw) *
+			XMMatrixTranslation(mount.pos.x, 1.15f, mount.pos.z);
+		gfx::MaterialParams material;
+		material.doubleSided = true;
+		ApplyPropMaterial(material, b.kind->tex, b.kind->color, 0.85f);
+		Mat4 w;
+		XMStoreFloat4x4(&w, world);
+		m_renderer.DrawMesh(list, *b.kind->mesh, w, material);
+	}
+
 	// Floor items: the shared carved-stone tablet. RUNES draw per element with
 	// their PBR set (parallax cuts the glyph in) and an element AURA — a faint
 	// emissive the shader concentrates at the silhouette (Fresnel) plus the

@@ -413,6 +413,24 @@ public:
 	// party (arm's reach), sliding the panel open/shut. A monster standing in
 	// the doorway jams a closing door. False if no door is ahead.
 	bool ToggleDoorAhead();
+
+	// Places a button (buttons.cat id) on (x,z), auto-mounted on the cell's
+	// first solid wall (refused with a message when the cell has none).
+	// Record-backed like doors: the .ent record and the live instance are
+	// authored together. Wiring (target=) is edited in the button inspector.
+	bool AddButton(const std::string& type, int x, int z);
+	// Click interaction: presses the button on the party's OWN cell mounted on
+	// the wall the party faces. False if there isn't one.
+	bool PressButtonFacing();
+	// Button instance surface for the inspector: presence + wired target, and
+	// the live/record edit (target= param; in-memory until savemap).
+	bool ButtonSettings(int x, int z, std::string& target) const;
+	void SetButtonSettings(int x, int z, const std::string& target);
+	// Distinct non-empty door names on the ACTIVE level, for the inspector's
+	// Target dropdown (buttons only reach doors on their own level).
+	std::vector<std::string> DoorNames() const;
+	// The button's lever mesh for the inspector's preview pane.
+	std::vector<gfx::PreviewSubmesh> ButtonPreviewSubs(int x, int z) const;
 	// Live doors for the map overlay (bar markers across the travel axis).
 	struct DoorMarker {
 		int x = 0, z = 0;
@@ -469,6 +487,8 @@ public:
 						  int x, int z);
 	bool AddDoorRemote(const std::string& stem, const std::string& type, int x,
 					   int z);
+	bool AddButtonRemote(const std::string& stem, const std::string& type, int x,
+						 int z);
 	// The erase ladder for a remote cell, mirroring the live tool: stair (pair
 	// removed too) → one monster record → one decoration record → fixture →
 	// reset the cell's surface variants. Always acts (the last rung is a
@@ -801,15 +821,19 @@ private:
 	// by `id` like a monster. The interaction itself (what a target does) is the
 	// P5 door/mechanism work; this is the persistent state it will toggle. Buttons
 	// have no model of their own yet (the map overlay marks them).
+	struct DecorationKind; // declared with the decoration machinery below
+
 	struct Button {
 		int id = -1;                         // source Entity::id (.ent baseline)
 		int x = 0, z = 0;                    // the cell it mounts in
 		Direction facing = Direction::South; // the solid wall it faces
-		std::string target;                  // wired entity id (target= param)
+		std::string target;                  // wired door name (target= param)
 		bool activated = false;              // pressed / toggled on (saved)
+		// Lever mesh (buttons.cat), wall-mounted at hand height; the render
+		// tilts it by `activated`. Null for a type the catalog doesn't know
+		// (hand-authored legacy records) — such a button works but is invisible.
+		const DecorationKind* kind = nullptr;
 	};
-
-	struct DecorationKind; // declared with the decoration machinery below
 
 	// A door filling a doorway cell (side walls flank the travel axis). Closed
 	// it blocks the party, monsters, and projectiles; the panel slides sideways

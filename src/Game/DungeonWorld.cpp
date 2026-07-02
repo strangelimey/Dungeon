@@ -314,6 +314,13 @@ bool DungeonWorld::RemoveEntityAt(int x, int z) {
 			m_doors.erase(it);
 			return true;
 		}
+	for (auto it = m_buttons.begin(); it != m_buttons.end(); ++it)
+		if (it->x == x && it->z == z) {
+			m_entities.RemoveById(it->id); // record-backed, like doors
+			m_entsDirty = true;
+			m_buttons.erase(it);
+			return true;
+		}
 	for (auto it = m_decorations.begin(); it != m_decorations.end(); ++it)
 		if (it->x == x && it->z == z && !it->stair) { // stairs: RemoveStairAt only
 			m_decorations.erase(it);
@@ -500,6 +507,137 @@ std::vector<DungeonWorld::DoorMarker> DungeonWorld::DoorMarkers() const {
 	markers.reserve(m_doors.size());
 	for (const Door& d : m_doors) markers.push_back({d.x, d.z, d.facing, d.open});
 	return markers;
+}
+
+// ============================================================================
+// Buttons. Record-backed like doors; the lever mounts on a solid wall of its
+// cell and toggles the doors its target= names when pressed.
+// ============================================================================
+bool DungeonWorld::AddButton(const std::string& type, int x, int z) {
+	if (!m_project.buttons.Contains(type) || !m_map.IsWalkable(x, z)) return false;
+	for (const Button& b : m_buttons)
+		if (b.x == x && b.z == z) return false; // one button per cell (editor rule)
+	// Auto-mount on the first solid neighbour wall, like the 'T' glyph.
+	constexpr Direction kScan[4] = {Direction::North, Direction::East,
+									Direction::South, Direction::West};
+	Direction wall = Direction::North;
+	bool found = false;
+	for (const Direction d : kScan)
+		if (!m_map.IsWalkable(x + DirDX(d), z + DirDZ(d))) {
+			wall = d;
+			found = true;
+			break;
+		}
+	if (!found) {
+		if (onMessage) onMessage(loc::Tr("map.button.nowall"));
+		return false;
+	}
+	Entity record;
+	record.kind = EntityKind::Button;
+	record.type = type;
+	record.x = x;
+	record.z = z;
+	record.facing = wall;
+	record.id = m_entities.Add(record);
+	m_entsDirty = true;
+	Button b;
+	b.id = record.id;
+	b.x = x;
+	b.z = z;
+	b.facing = wall;
+	b.kind = &DecorationKindFor(type, m_project.buttons);
+	m_buttons.push_back(std::move(b));
+	MarkSeen(x, z);
+	return true;
+}
+
+bool DungeonWorld::AddButtonRemote(const std::string& stem,
+								   const std::string& type, int x, int z) {
+	DungeonEntities& ents = EnsureEntStash(stem);
+	const DungeonMap& map = *m_levelMaps.find(stem)->second;
+	if (!m_project.buttons.Contains(type) || !map.IsWalkable(x, z)) return false;
+	for (const Entity& e : ents.At(x, z))
+		if (e.kind == EntityKind::Button) return false;
+	constexpr Direction kScan[4] = {Direction::North, Direction::East,
+									Direction::South, Direction::West};
+	Direction wall = Direction::North;
+	bool found = false;
+	for (const Direction d : kScan)
+		if (!map.IsWalkable(x + DirDX(d), z + DirDZ(d))) {
+			wall = d;
+			found = true;
+			break;
+		}
+	if (!found) {
+		if (onMessage) onMessage(loc::Tr("map.button.nowall"));
+		return false;
+	}
+	Entity record;
+	record.kind = EntityKind::Button;
+	record.type = type;
+	record.x = x;
+	record.z = z;
+	record.facing = wall;
+	ents.Add(std::move(record));
+	return true;
+}
+
+bool DungeonWorld::PressButtonFacing() {
+	const Direction f = static_cast<Direction>(m_party.Facing());
+	for (Button& b : m_buttons)
+		if (b.x == m_party.GridX() && b.z == m_party.GridZ() && b.facing == f) {
+			b.activated = !b.activated;
+			m_audio.Play(m_sounds.bump, 0.4f); // a soft clunk until a click exists
+			if (onMessage) onMessage(loc::Tr("log.button_press"));
+			ToggleDoorsNamed(b.target);
+			return true;
+		}
+	return false;
+}
+
+bool DungeonWorld::ButtonSettings(int x, int z, std::string& target) const {
+	for (const Button& b : m_buttons)
+		if (b.x == x && b.z == z) {
+			target = b.target;
+			return true;
+		}
+	return false;
+}
+
+void DungeonWorld::SetButtonSettings(int x, int z, const std::string& target) {
+	for (Button& b : m_buttons)
+		if (b.x == x && b.z == z) {
+			b.target = target;
+			if (Entity* record = m_entities.MutableById(b.id)) {
+				std::erase_if(record->params,
+							  [](const auto& p) { return p.first == "target"; });
+				if (!target.empty()) record->params.emplace_back("target", target);
+				m_entsDirty = true;
+			}
+			return;
+		}
+}
+
+std::vector<std::string> DungeonWorld::DoorNames() const {
+	std::vector<std::string> names;
+	for (const Door& d : m_doors)
+		if (!d.name.empty() &&
+			std::find(names.begin(), names.end(), d.name) == names.end())
+			names.push_back(d.name);
+	return names;
+}
+
+std::vector<gfx::PreviewSubmesh> DungeonWorld::ButtonPreviewSubs(int x, int z) const {
+	std::vector<gfx::PreviewSubmesh> subs;
+	for (const Button& b : m_buttons)
+		if (b.x == x && b.z == z && b.kind && b.kind->mesh) {
+			gfx::MaterialParams mat;
+			mat.doubleSided = true;
+			ApplyPropMaterial(mat, b.kind->tex, b.kind->color, 0.85f);
+			subs.push_back({b.kind->mesh.get(), mat});
+			break;
+		}
+	return subs;
 }
 
 // ============================================================================
@@ -755,7 +893,8 @@ void DungeonWorld::EraseRemote(const std::string& stem, int x, int z) {
 		return;
 	}
 	for (const Entity& e : ents.At(x, z))
-		if (e.kind == EntityKind::Monster || e.kind == EntityKind::Door) {
+		if (e.kind == EntityKind::Monster || e.kind == EntityKind::Door ||
+			e.kind == EntityKind::Button) {
 			ents.RemoveById(e.id);
 			say(loc::Tr("map.erase.removed"));
 			return;
@@ -1967,9 +2106,10 @@ void DungeonWorld::SetItemFacing(int entityId, Direction facing) {
 }
 
 bool DungeonWorld::AnyInspectableAt(int cx, int cz) const {
+	std::string target;
 	return MonsterRuntimeIdAt(cx, cz) != 0 || SconceAt(cx, cz) || BrazierAt(cx, cz) ||
-		   DoorAt(cx, cz) != nullptr || !DecorationsAt(cx, cz).empty() ||
-		   !ItemsAt(cx, cz).empty();
+		   DoorAt(cx, cz) != nullptr || ButtonSettings(cx, cz, target) ||
+		   !DecorationsAt(cx, cz).empty() || !ItemsAt(cx, cz).empty();
 }
 
 void DungeonWorld::ReconcileGroups() {

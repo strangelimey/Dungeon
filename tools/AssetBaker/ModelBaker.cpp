@@ -1787,6 +1787,20 @@ assets::ModelData BuildDoorPanel() {
 	return FinishProp(std::move(mesh), {0.45f, 0.33f, 0.20f, 1.0f});
 }
 
+// A wall lever (the button prop): a back plate flush with the wall, a pivot
+// boss, and a handle jutting into the room. Authored like the sconce — +Z
+// faces the room, origin at the wall face — but with the origin at the PIVOT
+// height, so the render can tilt the whole prop around X (handle up = off,
+// down = pressed) with the thin plate staying visually put in the wall.
+assets::ModelData BuildLever() {
+	assets::MeshData mesh;
+	AddBox(mesh, {0.0f, 0.0f, 0.015f}, {0.10f, 0.16f, 0.015f});   // back plate
+	AddBox(mesh, {0.0f, 0.0f, 0.055f}, {0.028f, 0.028f, 0.055f}); // pivot boss
+	AddBox(mesh, {0.0f, 0.0f, 0.16f}, {0.018f, 0.018f, 0.10f});   // handle
+	AddBox(mesh, {0.0f, 0.0f, 0.27f}, {0.034f, 0.034f, 0.034f});  // knob
+	return FinishProp(std::move(mesh), {0.45f, 0.42f, 0.38f, 1.0f});
+}
+
 // Bakes the three worn-block tiers (low/med/high) for one surface texture set,
 // displaced by that texture's packed height map (procedural wear when absent).
 // kind: 0 = wall, 1 = floor, 2 = ceiling. Shared by the full bake and the
@@ -1892,6 +1906,7 @@ bool BakeModels(const std::string& dir, const std::string& texturesDir) {
 	ok &= WriteGltf(BuildDoorFrame(), dir + "\\door_frame.gltf");
 	// door_panel, NOT door: door.gltf is the cosmetic wood_door decoration.
 	ok &= WriteGltf(BuildDoorPanel(), dir + "\\door_panel.gltf");
+	ok &= WriteGltf(BuildLever(), dir + "\\lever.gltf");
 
 	ok &= WriteGltf(BuildHumanoid({{0.93f, 0.90f, 0.80f, 1.0f}, 0.85f, 3.2f, 0.0f, 0.12f}),
 					dir + "\\skeleton.gltf");

@@ -676,10 +676,19 @@ memory.
   against the party's click until key items + an inventory check land; wired
   buttons ignore locks; a Name field (ui::TextField, input filtered to
   [A-Za-z0-9_-] — records are whitespace-tokenised, a space would corrupt the
-  .ent line) authors name=, the id a button's target= toggles). Editor next
-  steps: item placement (the last "wiring comes next" palette stub); a BUTTON
-  brush (buttons are still hand-authored .ent records; the `press <x> <z>` dev
-  command toggles one); key ITEMS (items.cat category=key + an inventory check
-  in ToggleDoorAhead); the dialog's material sliders are preview-only for
-  imported models (ORM map drives the real material); a "save to source" UI
-  button (vs the `synctosource` dev command); undo/redo for edits.
+  .ent line) authors name=, the id a button's target= toggles). BUTTONS are
+  real props with a brush: a Buttons palette category (buttons.cat, [lever])
+  places a record-backed wall lever auto-mounted on the cell's first solid
+  wall; it renders at hand height (lever.gltf — origin at the PIVOT, so the
+  render's X-tilt flips the handle by `activated`); the party presses it by
+  clicking while standing on its cell facing its wall (PressButtonFacing —
+  the world-click chain is pick-item → door-ahead → button-facing), toggling
+  the doors its target= names; Select-click opens the ButtonInspector
+  (Target dropdown = the level's door names via DungeonWorld::DoorNames +
+  None; a stale wired name stays selectable). The `press <x> <z>` dev
+  command still force-toggles one. Editor next steps: item placement (the
+  last "wiring comes next" palette stub); key ITEMS (items.cat category=key
+  + an inventory check in ToggleDoorAhead); the dialog's material sliders
+  are preview-only for imported models (ORM map drives the real material); a
+  "save to source" UI button (vs the `synctosource` dev command); undo/redo
+  for edits.

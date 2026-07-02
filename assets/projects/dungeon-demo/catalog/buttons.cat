@@ -1,0 +1,12 @@
+; Buttons: wall levers the party can press (click while facing the wall they
+; mount on). A button's target= param names the door(s) it toggles - set both
+; ends in the editor (the door inspector's Name field, the button inspector's
+; Target dropdown). Fields:
+;   model   = lever mesh in assets/models (AssetBaker BuildLever)
+;   texture = PBR set
+
+[lever]
+display = Lever
+model = lever
+texture = sconce
+authored = 0

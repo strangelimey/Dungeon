@@ -1,6 +1,7 @@
 add_library(Game STATIC
 	AssetDialog.cpp
 	AssetUtil.cpp
+	ButtonInspector.cpp
 	Catalog.cpp
 	Character.cpp
 	Combat.cpp

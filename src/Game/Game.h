@@ -53,6 +53,7 @@
 #include "Game/FixtureInspector.h"
 #include "Game/InspectPicker.h"
 #include "Game/MonsterConfigDialog.h"
+#include "Game/ButtonInspector.h"
 #include "Game/DoorInspector.h"
 #include "Game/PropInspector.h"
 #include "Game/Project.h"
@@ -282,13 +283,15 @@ private:
 	FixtureInspector m_fixtureInspector;
 	// Per-instance editor for placed items and decorations (facing, ...).
 	PropInspector m_propInspector;
-	// Per-instance door editor (open/closed + required key).
+	// Per-instance door editor (open/closed + required key + name).
 	DoorInspector m_doorInspector;
+	// Per-instance button editor (target door wiring).
+	ButtonInspector m_buttonInspector;
 	// Chooser shown when a Select-clicked cell holds >1 inspectable object; picking a
 	// row opens the matching inspector. One target per object at the clicked cell.
 	InspectPicker m_inspectPicker;
 	struct InspectTarget {
-		enum class Kind { Monster, Sconce, Brazier, Door, Decoration, Item } kind =
+		enum class Kind { Monster, Sconce, Brazier, Door, Button, Decoration, Item } kind =
 			Kind::Monster;
 		u32 runtimeId = 0;        // Monster: the stable id
 		Direction wall = Direction::North; // Sconce: the wall it hangs on

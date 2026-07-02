@@ -36,15 +36,14 @@ struct Project {
 	std::string defaultBrazier = "brazier"; // 'F' glyph → this fixture id
 
 	// The content catalogs (see Catalog.h). Walls/floors/ceilings define the
-	// surface palette; the rest define placeable content. doors/stairs/items are
-	// declared now (P0) but populated in later phases.
+	// surface palette; the rest define placeable content.
 	Catalog walls, floors, ceilings;
 	Catalog decorations, fixtures, monsters;
-	Catalog doors, stairs, items, spells;
+	Catalog doors, stairs, buttons, items, spells;
 
 	// The catalog for a kind key ("walls", "floors", "ceilings", "decorations",
-	// "fixtures", "monsters", "doors", "stairs", "items", "spells"), or null if
-	// unknown.
+	// "fixtures", "monsters", "doors", "stairs", "buttons", "items", "spells"),
+	// or null if unknown.
 	Catalog* CatalogForKey(const std::string& key);
 
 	// Loads the project rooted at `folder` (reads project.ini + catalog/*.cat).

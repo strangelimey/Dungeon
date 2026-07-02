@@ -79,8 +79,8 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	  m_modelPreview(device, 512),
 	  m_assetDialog(device, window),
 	  m_monsterDialog(device), m_entityInspector(device), m_fixtureInspector(device),
-	  m_propInspector(device), m_doorInspector(device), m_inspectPicker(device),
-	  m_previewParticles(device) {
+	  m_propInspector(device), m_doorInspector(device), m_buttonInspector(device),
+	  m_inspectPicker(device), m_previewParticles(device) {
 	m_mapView.SetEditor(&m_mapEditor); // the view drives the editor in Editor mode
 	m_settings.Load();
 	ApplyLanguage(false); // strings must exist before any UI builds
@@ -303,6 +303,13 @@ void Game::WireModuleCallbacks() {
 				labels.push_back(loc::Tr("map.key.door"));
 			}
 		}
+		{
+			std::string target;
+			if (m_world.ButtonSettings(cx, cz, target)) {
+				m_inspectTargets.push_back(InspectTarget{InspectTarget::Kind::Button});
+				labels.push_back(loc::Tr("map.key.button"));
+			}
+		}
 		for (const auto& [index, type] : m_world.DecorationsAt(cx, cz)) {
 			InspectTarget t{InspectTarget::Kind::Decoration};
 			t.handle = index;
@@ -376,6 +383,14 @@ void Game::WireModuleCallbacks() {
 		if (!m_world.SaveLevel()) log::Warn("door inspector: failed to save level");
 	};
 
+	// Button inspector: the Target dropdown wires the lever to a door name.
+	m_buttonInspector.onApply = [this](const ButtonInspector::Config& c) {
+		m_world.SetButtonSettings(c.x, c.z, c.target);
+	};
+	m_buttonInspector.onSave = [this] {
+		if (!m_world.SaveLevel()) log::Warn("button inspector: failed to save level");
+	};
+
 	// Item/decoration inspector: apply the facing edit to the right live object.
 	m_propInspector.onApply = [this](const PropInspector::Config& c) {
 		if (c.kind == PropInspector::Config::Kind::Decoration)
@@ -393,6 +408,7 @@ InstanceInspector* Game::ActiveInstanceInspector() {
 	if (m_fixtureInspector.IsOpen()) return &m_fixtureInspector;
 	if (m_propInspector.IsOpen()) return &m_propInspector;
 	if (m_doorInspector.IsOpen()) return &m_doorInspector;
+	if (m_buttonInspector.IsOpen()) return &m_buttonInspector;
 	return nullptr;
 }
 
@@ -469,6 +485,17 @@ void Game::OpenInspectorFor(const InspectTarget& t) {
 		PreviewSpec pv;
 		pv.subs = m_world.DoorPreviewSubs(cx, cz);
 		m_doorInspector.Open(c, std::move(keys), std::move(pv));
+		break;
+	}
+	case InspectTarget::Kind::Button: {
+		ButtonInspector::Config c;
+		c.x = cx;
+		c.z = cz;
+		if (!m_world.ButtonSettings(cx, cz, c.target))
+			return; // gone since the picker listed it
+		PreviewSpec pv;
+		pv.subs = m_world.ButtonPreviewSubs(cx, cz);
+		m_buttonInspector.Open(c, m_world.DoorNames(), std::move(pv));
 		break;
 	}
 	case InspectTarget::Kind::Decoration: {
@@ -1728,6 +1755,12 @@ void Game::Update(float dt) {
 							   static_cast<float>(m_window.Height()));
 		return;
 	}
+	// And the button inspector (target-door wiring).
+	if (m_buttonInspector.IsOpen()) {
+		m_buttonInspector.Update(input, static_cast<float>(m_window.Width()),
+								 static_cast<float>(m_window.Height()));
+		return;
+	}
 
 	// Map overlay: a toggle that never pauses the world. While it is open the
 	// party still walks (keyboard) — the overlay only claims the mouse for
@@ -1802,10 +1835,10 @@ void Game::Update(float dt) {
 				m_heldItem.reset();
 			} else if (auto picked = m_world.TryPickItem(mx, my, w, h)) {
 				m_heldItem = std::move(picked);
-			} else {
-				// No tablet under the cursor: a click reaches for the door on
-				// the cell directly ahead (slide it open / shut).
-				m_world.ToggleDoorAhead();
+			} else if (!m_world.ToggleDoorAhead()) {
+				// No tablet, no door ahead: try the button on the wall the
+				// party faces (a lever in the party's own cell).
+				m_world.PressButtonFacing();
 			}
 		}
 		// Right-mouse free-look: hold RMB and drag to swing the view. Begin on a
@@ -2001,6 +2034,8 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 		m_propInspector.Render(m_spriteBatch, m_settings.theme, dw, dh);
 	if (m_doorInspector.IsOpen())
 		m_doorInspector.Render(m_spriteBatch, m_settings.theme, dw, dh);
+	if (m_buttonInspector.IsOpen())
+		m_buttonInspector.Render(m_spriteBatch, m_settings.theme, dw, dh);
 	if (InstanceInspector* ii = ActiveInstanceInspector(); ii && ii->HasPreview())
 		m_spriteBatch.DrawSprite(ii->PreviewRect(dw, dh), {0, 0, 1, 1}, m_modelPreview.Srv(),
 								 {1, 1, 1, 1});
