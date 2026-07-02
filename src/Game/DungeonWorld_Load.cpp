@@ -283,8 +283,9 @@ DungeonWorld::SurfaceChunk DungeonWorld::MakeSurfaceChunk(GeometryChunk& gc) {
 }
 
 void DungeonWorld::BuildDungeonMeshes() {
-	DungeonGeometry geo =
-		BuildDungeonGeometry(m_map, m_wallBlocks, m_floorBlocks, m_ceilingBlocks);
+	DungeonGeometry geo = BuildDungeonGeometry(
+		m_map, m_wallBlocks, m_floorBlocks, m_ceilingBlocks,
+		[this](int x, int z) { return FloorHoleAt(x, z); });
 
 	auto upload = [&](Surface& surface, std::vector<GeometryChunk>& chunks) {
 		surface.chunks.clear();

@@ -1658,6 +1658,50 @@ assets::ModelData BuildStairs() {
 	return FinishProp(std::move(mesh), {0.55f, 0.53f, 0.50f, 1.0f});
 }
 
+// The DOWN counterpart: a flight descending BELOW GRADE into a stone stairwell
+// shaft. The game skips the floor block on a down-stair's cell (DungeonWorld's
+// floor-hole predicate), so this mesh is self-contained: flush collar slabs
+// beside the narrower opening, shaft side/back walls, the descending column
+// flight (the mirror of BuildStairs' rising columns, entering flush at the
+// cell's front edge), and a landing at the bottom. Everything hangs from the
+// prop origin at y=0 = floor level.
+assets::ModelData BuildStairsDown() {
+	assets::MeshData mesh;
+	constexpr int kSteps = 7;
+	constexpr float kRise = 0.17f, kRun = 0.24f, kHalfX = 0.85f;
+	constexpr float kHalfCell = 1.2f; // kCellSize/2 — the prop fills its cell
+	const float depth = kSteps * kRise + 0.08f; // shaft bottom below grade
+
+	// Descending flight: step i's tread at -i*kRise, each a full column down to
+	// the shaft bottom. Step 0 sits flush with the floor at the front edge, so
+	// the party appears to walk straight onto the top of the flight.
+	for (int i = 0; i < kSteps; ++i) {
+		const float top = -i * kRise;
+		const float zc = kHalfCell - kRun * 0.5f - i * kRun;
+		AddBox(mesh, {0.0f, (top - depth) * 0.5f, zc},
+			   {kHalfX, (top + depth) * 0.5f, kRun * 0.5f});
+	}
+	// Landing past the flight, at the bottom of the shaft.
+	const float zLandFront = kHalfCell - kSteps * kRun;
+	AddBox(mesh, {0.0f, -depth + 0.04f, (zLandFront - kHalfCell) * 0.5f},
+		   {kHalfX, 0.04f, (zLandFront + kHalfCell) * 0.5f});
+	// Shaft walls: the back, and the two sides with their inner faces at the
+	// opening's edges (under the collar).
+	AddBox(mesh, {0.0f, -depth * 0.5f, -kHalfCell + 0.05f},
+		   {kHalfCell, depth * 0.5f, 0.05f});
+	AddBox(mesh, {-(kHalfX + 0.05f), -depth * 0.5f, 0.0f},
+		   {0.05f, depth * 0.5f, kHalfCell});
+	AddBox(mesh, {kHalfX + 0.05f, -depth * 0.5f, 0.0f},
+		   {0.05f, depth * 0.5f, kHalfCell});
+	// Collar: flush slabs covering the cell strips beside the opening, so the
+	// skipped floor block reads as a neat stairwell narrower than the cell.
+	AddBox(mesh, {(kHalfX + kHalfCell) * 0.5f, -0.04f, 0.0f},
+		   {(kHalfCell - kHalfX) * 0.5f, 0.04f, kHalfCell});
+	AddBox(mesh, {-(kHalfX + kHalfCell) * 0.5f, -0.04f, 0.0f},
+		   {(kHalfCell - kHalfX) * 0.5f, 0.04f, kHalfCell});
+	return FinishProp(std::move(mesh), {0.50f, 0.48f, 0.45f, 1.0f});
+}
+
 // Bakes the three worn-block tiers (low/med/high) for one surface texture set,
 // displaced by that texture's packed height map (procedural wear when absent).
 // kind: 0 = wall, 1 = floor, 2 = ceiling. Shared by the full bake and the
@@ -1757,6 +1801,7 @@ bool BakeModels(const std::string& dir, const std::string& texturesDir) {
 	ok &= WriteGltf(BuildBanner(), dir + "\\banner.gltf");
 	ok &= WriteGltf(BuildRope(), dir + "\\rope.gltf");
 	ok &= WriteGltf(BuildStairs(), dir + "\\stairs.gltf");
+	ok &= WriteGltf(BuildStairsDown(), dir + "\\stairs_down.gltf");
 
 	ok &= WriteGltf(BuildHumanoid({{0.93f, 0.90f, 0.80f, 1.0f}, 0.85f, 3.2f, 0.0f, 0.12f}),
 					dir + "\\skeleton.gltf");

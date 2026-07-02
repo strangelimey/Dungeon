@@ -1053,6 +1053,10 @@ private:
 	// Stashes the active level's live state into m_levelStates[m_currentLevel],
 	// so a later return (or a save) can restore it.
 	void StashActive();
+	// True if (x,z) holds a DOWN stair (stairs.cat `up` = 0): its cell's floor
+	// block is skipped so the below-grade stairwell mesh shows — the builders'
+	// FloorHoleFn. Stair placement/erase rebuilds the touched chunks.
+	bool FloorHoleAt(int x, int z) const;
 	// Rebuilds only the surface chunks an edit at (x,z) touched — the cell's own
 	// chunk plus, via shared wall faces, its orthogonal neighbours' chunks — so a
 	// paint costs a handful of chunk uploads, not the whole map. Drains the GPU

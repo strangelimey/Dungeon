@@ -12,7 +12,7 @@
 
 [stairs_down]
 display = Stairs Down
-model = stairs
+model = stairs_down
 texture = wall_stone
 solid = 0
 authored = 0

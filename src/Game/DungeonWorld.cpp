@@ -405,14 +405,17 @@ bool DungeonWorld::AddStairAt(const std::string& stem, const std::string& type,
 
 	src.AddStair(link);
 	dst.AddStair(pair);
-	// Only a live side has a 3D presence (prop + fog reveal).
+	// Only a live side has a 3D presence: the prop, the fog reveal, and — for
+	// a down stair — the floor hole its shaft shows through (chunk rebuild).
 	if (srcLive) {
 		PlaceStairProp(link);
 		MarkSeen(x, z);
+		RebuildChunksAround(x, z);
 	}
 	if (dstLive) {
 		PlaceStairProp(pair);
 		MarkSeen(x, z);
+		RebuildChunksAround(x, z);
 	}
 	say(loc::Format("map.stairs.placed", entry->Display(), dest));
 	return true;
@@ -432,6 +435,8 @@ bool DungeonWorld::RemovePairedStair(const std::string& fromStem,
 		std::erase_if(m_decorations, [&](const Decoration& d) {
 			return d.stair && d.x == removed.destX && d.z == removed.destZ;
 		});
+		// A removed down stair's floor hole closes with the chunk rebuild.
+		RebuildChunksAround(removed.destX, removed.destZ);
 		return true;
 	}
 	DungeonMap& dst = EnsureMapStash(removed.destLevel);
@@ -445,6 +450,7 @@ bool DungeonWorld::RemoveStairAt(int x, int z) {
 	std::erase_if(m_decorations, [&](const Decoration& d) {
 		return d.stair && d.x == x && d.z == z;
 	});
+	RebuildChunksAround(x, z); // a down stair's floor hole closes
 	const bool pair = RemovePairedStair(m_currentLevel, removed);
 	if (onMessage)
 		onMessage(pair ? loc::Format("map.stairs.removed", removed.destLevel)
@@ -912,11 +918,19 @@ void DungeonWorld::PlacePartyAt(int x, int z, Direction facing) {
 	MarkSeen(x, z);
 }
 
+bool DungeonWorld::FloorHoleAt(int x, int z) const {
+	// A DOWN stair's cell drops its floor block: the descending stairwell mesh
+	// (below grade, with its own collar and shaft walls) replaces it.
+	const StairLink* s = m_map.StairAt(x, z);
+	return s && !CatalogBool(m_project.stairs.Find(s->type), "up", false);
+}
+
 void DungeonWorld::RebuildChunkRegion(int chunkX, int chunkZ) {
 	const int chunksX = (m_map.Width() + kChunkCells - 1) / kChunkCells;
 	const int chunkIndex = chunkZ * chunksX + chunkX;
-	DungeonGeometry r = BuildDungeonRegion(m_map, m_wallBlocks, m_floorBlocks,
-										   m_ceilingBlocks, chunkX, chunkZ);
+	DungeonGeometry r = BuildDungeonRegion(
+		m_map, m_wallBlocks, m_floorBlocks, m_ceilingBlocks, chunkX, chunkZ,
+		[this](int x, int z) { return FloorHoleAt(x, z); });
 	auto replace = [&](Surface& surface, std::vector<GeometryChunk>& fresh) {
 		std::erase_if(surface.chunks,
 					  [&](const SurfaceChunk& sc) { return sc.chunk == chunkIndex; });

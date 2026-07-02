@@ -503,7 +503,12 @@ snapshot after each paint. Entering a level consumes its stashes; the Select
 tool's inspectors still need the level active (no live instances remotely).
 Stairs are one cross-level op for any viewed level: each half lands on the
 live map when its side is the active level (prop too), else in that level's
-stash. Edits persist via the dev console `savemap` =
+stash. Up and down stairs have distinct meshes: stairs.gltf is the rising
+flight; stairs_down.gltf (AssetBaker BuildStairsDown) descends BELOW GRADE
+into a self-contained stairwell shaft — the mesh builder skips the floor
+block on a down-stair's cell (FloorHoleFn, fed by DungeonWorld::FloorHoleAt
+reading stairs.cat `up`), and live stair placement/erase rebuilds the touched
+chunks so the hole opens/closes immediately. Edits persist via the dev console `savemap` =
 DungeonWorld::SaveAllLevels (the active level from live state + every stashed
 level from its records; an untouched .ent is not rewritten), and
 `synctosource` copies the project to the git source tree. All overlay text

@@ -13,6 +13,7 @@
 #include "Assets/Model.h"
 #include "Game/DungeonMap.h"
 
+#include <functional>
 #include <span>
 #include <vector>
 
@@ -42,6 +43,11 @@ struct DungeonGeometry {
 // enough that a shadow cube touches only a handful of chunks.
 inline constexpr int kChunkCells = 4;
 
+// True for a cell whose FLOOR block must be skipped — a down-stair's cell,
+// where the descending stairwell mesh (below grade, with its own collar and
+// shaft walls) replaces the floor. A null function means no holes.
+using FloorHoleFn = std::function<bool(int x, int z)>;
+
 // Instances the baked block models over every floor cell: floor + ceiling
 // per cell and a wall block on each edge that borders solid rock. Each block
 // span holds one mesh per texture variant; a cell picks its variant by a
@@ -50,7 +56,8 @@ inline constexpr int kChunkCells = 4;
 DungeonGeometry BuildDungeonGeometry(const DungeonMap& map,
 									 std::span<const assets::MeshData> wallBlocks,
 									 std::span<const assets::MeshData> floorBlocks,
-									 std::span<const assets::MeshData> ceilingBlocks);
+									 std::span<const assets::MeshData> ceilingBlocks,
+									 const FloorHoleFn& floorHole = {});
 
 // Builds just the geometry for one spatial chunk region (chunk coords
 // chunkX/chunkZ, each covering kChunkCells cells), with every returned chunk
@@ -61,6 +68,7 @@ DungeonGeometry BuildDungeonRegion(const DungeonMap& map,
 								   std::span<const assets::MeshData> wallBlocks,
 								   std::span<const assets::MeshData> floorBlocks,
 								   std::span<const assets::MeshData> ceilingBlocks,
-								   int chunkX, int chunkZ);
+								   int chunkX, int chunkZ,
+								   const FloorHoleFn& floorHole = {});
 
 } // namespace dungeon::game
