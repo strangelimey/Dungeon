@@ -140,9 +140,10 @@ struct Snapshot {
 	// Static walkability, shared across frames and only rebuilt when the map's
 	// revision changes (so publishing a snapshot copies a pointer, not the grid).
 	std::shared_ptr<const std::vector<uint8_t>> walkable;
-	// Hard-blocked cells a monster may NEVER enter (the party cell). Monster-vs-
-	// monster crowding is capacity-based via `occ`, not a hard block, so several
-	// fit one cell. Indexed cell = z*mapW + x.
+	// Hard-blocked cells a monster may NEVER enter (the party cell + solid
+	// decorations, which live outside the map so they can't ride the cached
+	// walkable grid). Monster-vs-monster crowding is capacity-based via `occ`,
+	// not a hard block, so several fit one cell. Indexed cell = z*mapW + x.
 	std::unordered_set<int> blocked;
 	// Live monster occupancy per cell (count + size capacity), for the slot-aware
 	// CellFreeForMonster check. Empty/absent = no monsters there. cell = z*mapW + x.

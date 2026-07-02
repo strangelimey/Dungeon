@@ -1117,6 +1117,12 @@ bool DungeonWorld::BrazierAt(int cx, int cz) const {
 	return m_map.BrazierAt(cx, cz) != nullptr;
 }
 
+bool DungeonWorld::SolidDecorationAt(int cx, int cz) const {
+	for (const Decoration& deco : m_decorations)
+		if (deco.solid && deco.x == cx && deco.z == cz) return true;
+	return false;
+}
+
 bool DungeonWorld::BrazierSettings(int cx, int cz, bool& lit, float& brightness,
 								   float& turbidity) const {
 	const FloorBrazier* b = m_map.BrazierAt(cx, cz);
@@ -1394,6 +1400,13 @@ void DungeonWorld::BuildAISnapshot() {
 	// monster bumps its cell's occupant count, tagged with the size's slots/cell so
 	// a worker can tell a half-full same-size group (room) from a full or foreign one.
 	snap->blocked.insert(snap->partyZ * snap->mapW + snap->partyX);
+	// Solid decorations block like braziers, but they live in the world list, not
+	// the map — placing/removing one does NOT bump the map Revision the walkable
+	// cache keys off. So they go into `blocked` (rebuilt every frame) instead of
+	// the cached grid: an editor placement takes effect on the next snapshot with
+	// no invalidation to get wrong.
+	for (const Decoration& deco : m_decorations)
+		if (deco.solid) snap->blocked.insert(deco.z * snap->mapW + deco.x);
 	for (const Monster& m : m_monsters) {
 		if (!m.Alive()) continue;
 		const int cap = SlotsPerCell(m.kind->size);
@@ -1492,7 +1505,8 @@ int DungeonWorld::FreeSlotInCell(int x, int z, SizeClass size, int self) const {
 			if (fx < 0 || fz < 0 || fx >= m_map.Width() || fz >= m_map.Height())
 				return -1;
 			if (!m_map.IsWalkable(fx, fz)) return -1;
-			if (m_map.BrazierAt(fx, fz)) return -1; // blocks monsters like the party
+			if (m_map.BrazierAt(fx, fz)) return -1;    // blocks monsters like the party
+			if (SolidDecorationAt(fx, fz)) return -1;  // ditto (statues, crates, ...)
 			if (fx == m_party.GridX() && fz == m_party.GridZ()) return -1;
 		}
 	// Mark the slots already taken in this cell. An occupant whose footprint

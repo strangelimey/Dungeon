@@ -49,7 +49,7 @@ bool SnapshotView::IsWalkable(int x, int z) const {
 bool SnapshotView::CellFreeForMonster(int x, int z, int /*selfId*/, int capacity) const {
 	if (!IsWalkable(x, z)) return false;
 	const int idx = z * m_snap.mapW + x;
-	// Hard blocks (the party cell) are never enterable.
+	// Hard blocks (the party cell, solid decorations) are never enterable.
 	if (m_snap.blocked.find(idx) != m_snap.blocked.end()) return false;
 	// Empty cell: any single-cell monster fits. Occupied: only same-size groups
 	// (matching capacity) admit a newcomer, and only until their slots fill. A

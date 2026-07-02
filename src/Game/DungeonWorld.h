@@ -960,6 +960,10 @@ private:
 	// different-size group). `self` (a monster array index, or -1) is excluded from
 	// the occupancy scan. Slots are filled lowest-index-first. See Game/SlotGrid.h.
 	int FreeSlotInCell(int x, int z, SizeClass size, int self) const;
+	// A solid decoration standing on (cx,cz)? Blocks monsters exactly like the
+	// party (the isOccupied lambda checks the same flag). Wall-mounted props
+	// default non-solid, so only floor-standing blockers register.
+	bool SolidDecorationAt(int cx, int cz) const;
 
 	// True if a continuously-animating caster (a monster, or the swaying pillar)
 	// is within the light's reach — such a cube must re-render every frame.
