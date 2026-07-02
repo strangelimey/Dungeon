@@ -43,10 +43,14 @@ struct DungeonGeometry {
 // enough that a shadow cube touches only a handful of chunks.
 inline constexpr int kChunkCells = 4;
 
-// True for a cell whose FLOOR block must be skipped — a down-stair's cell,
-// where the descending stairwell mesh (below grade, with its own collar and
-// shaft walls) replaces the floor. A null function means no holes.
-using FloorHoleFn = std::function<bool(int x, int z)>;
+// Which of a cell's horizontal blocks are OPENINGS and must be skipped: the
+// floor under a down-stair/pit (its below-grade shaft mesh replaces it), the
+// ceiling under a pit's lower half on the level below (its rising shaft mesh
+// replaces it). A null function means no holes.
+struct CellHoles {
+	bool floor = false, ceiling = false;
+};
+using CellHolesFn = std::function<CellHoles(int x, int z)>;
 
 // Instances the baked block models over every floor cell: floor + ceiling
 // per cell and a wall block on each edge that borders solid rock. Each block
@@ -57,7 +61,7 @@ DungeonGeometry BuildDungeonGeometry(const DungeonMap& map,
 									 std::span<const assets::MeshData> wallBlocks,
 									 std::span<const assets::MeshData> floorBlocks,
 									 std::span<const assets::MeshData> ceilingBlocks,
-									 const FloorHoleFn& floorHole = {});
+									 const CellHolesFn& holes = {});
 
 // Builds just the geometry for one spatial chunk region (chunk coords
 // chunkX/chunkZ, each covering kChunkCells cells), with every returned chunk
@@ -69,6 +73,6 @@ DungeonGeometry BuildDungeonRegion(const DungeonMap& map,
 								   std::span<const assets::MeshData> floorBlocks,
 								   std::span<const assets::MeshData> ceilingBlocks,
 								   int chunkX, int chunkZ,
-								   const FloorHoleFn& floorHole = {});
+								   const CellHolesFn& holes = {});
 
 } // namespace dungeon::game

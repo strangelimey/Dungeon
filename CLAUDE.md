@@ -501,14 +501,19 @@ created on demand; record ids stay stable across removals so the per-id
 dynamic diffs in m_levelStates remain valid) — and MapView rebuilds the browse
 snapshot after each paint. Entering a level consumes its stashes; the Select
 tool's inspectors still need the level active (no live instances remotely).
-Stairs are one cross-level op for any viewed level: each half lands on the
-live map when its side is the active level (prop too), else in that level's
-stash. Up and down stairs have distinct meshes: stairs.gltf is the rising
-flight; stairs_down.gltf (AssetBaker BuildStairsDown) descends BELOW GRADE
-into a self-contained stairwell shaft — the mesh builder skips the floor
-block on a down-stair's cell (FloorHoleFn, fed by DungeonWorld::FloorHoleAt
-reading stairs.cat `up`), and live stair placement/erase rebuilds the touched
-chunks so the hole opens/closes immediately. Edits persist via the dev console `savemap` =
+Stairs AND PITS are one cross-level op for any viewed level: each half lands
+on the live map when its side is the active level (prop too), else in that
+level's stash. stairs.cat drives everything per type: `up` (destination
+direction + map-icon arrow), `pair` (the type auto-authored on the destination
+— pit pairs with pit_ceiling), `hole` = floor|ceiling|none (which cell block
+the mesh builder skips so the type's shaft mesh shows: CellHolesFn, fed by
+DungeonWorld::FloorHoleAt/CeilingHoleAt), `traverse` = 0 (stepping on the tile
+does NOT transition — a pit's ceiling hole is scenery), `fall` = 1 (the
+transition is a plunge: facing preserved, world.pitfall message). Meshes:
+stairs.gltf (rising flight), stairs_down.gltf (below-grade stairwell shaft),
+pit.gltf (sheer drop, a storey deep), pit_ceiling.gltf (the rising shaft above
+a ceiling hole on the level below) — all AssetBaker Build*. Live stair/pit
+placement/erase rebuilds the touched chunks so holes open/close immediately. Edits persist via the dev console `savemap` =
 DungeonWorld::SaveAllLevels (the active level from live state + every stashed
 level from its records; an untouched .ent is not rewritten), and
 `synctosource` copies the project to the git source tree. All overlay text

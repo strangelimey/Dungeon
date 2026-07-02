@@ -1702,6 +1702,62 @@ assets::ModelData BuildStairsDown() {
 	return FinishProp(std::move(mesh), {0.50f, 0.48f, 0.45f, 1.0f});
 }
 
+// A pit: an open shaft dropping a full storey to the level below (which gets
+// the paired ceiling hole). Same self-contained construction as
+// BuildStairsDown — flush collar slabs around a narrower opening, shaft walls
+// with their inner faces at the opening's edges — but no flight: a sheer drop
+// to a floor slab ~one wall-height down (the level below's floor, faked).
+assets::ModelData BuildPit() {
+	assets::MeshData mesh;
+	constexpr float kOpen = 0.85f, kHalfCell = 1.2f, kDepth = 2.5f;
+	// Collar: two full-length x strips, two z strips between them.
+	AddBox(mesh, {(kOpen + kHalfCell) * 0.5f, -0.04f, 0.0f},
+		   {(kHalfCell - kOpen) * 0.5f, 0.04f, kHalfCell});
+	AddBox(mesh, {-(kOpen + kHalfCell) * 0.5f, -0.04f, 0.0f},
+		   {(kHalfCell - kOpen) * 0.5f, 0.04f, kHalfCell});
+	AddBox(mesh, {0.0f, -0.04f, (kOpen + kHalfCell) * 0.5f},
+		   {kOpen, 0.04f, (kHalfCell - kOpen) * 0.5f});
+	AddBox(mesh, {0.0f, -0.04f, -(kOpen + kHalfCell) * 0.5f},
+		   {kOpen, 0.04f, (kHalfCell - kOpen) * 0.5f});
+	// Shaft walls + the floor a storey down.
+	AddBox(mesh, {-(kOpen + 0.05f), -kDepth * 0.5f, 0.0f},
+		   {0.05f, kDepth * 0.5f, kOpen + 0.1f});
+	AddBox(mesh, {kOpen + 0.05f, -kDepth * 0.5f, 0.0f},
+		   {0.05f, kDepth * 0.5f, kOpen + 0.1f});
+	AddBox(mesh, {0.0f, -kDepth * 0.5f, -(kOpen + 0.05f)},
+		   {kOpen + 0.1f, kDepth * 0.5f, 0.05f});
+	AddBox(mesh, {0.0f, -kDepth * 0.5f, kOpen + 0.05f},
+		   {kOpen + 0.1f, kDepth * 0.5f, 0.05f});
+	AddBox(mesh, {0.0f, -kDepth + 0.04f, 0.0f}, {kOpen, 0.04f, kOpen});
+	return FinishProp(std::move(mesh), {0.42f, 0.40f, 0.38f, 1.0f});
+}
+
+// The pit's lower half, placed on the level BELOW: a hole in the ceiling. The
+// ceiling block on its cell is skipped (CellHolesFn), and this mesh brings the
+// mirrored shaft: collar slabs seated on the ceiling plane, walls rising a
+// storey, and a cap (the faked underside of the level above). Origin stays at
+// y=0 like every prop — the geometry lives up at ceiling height.
+assets::ModelData BuildPitCeiling() {
+	assets::MeshData mesh;
+	constexpr float kOpen = 0.85f, kHalfCell = 1.2f, kCeil = 2.5f, kRise = 2.3f;
+	const float collarY = kCeil + 0.04f; // slab undersides flush with the ceiling
+	AddBox(mesh, {(kOpen + kHalfCell) * 0.5f, collarY, 0.0f},
+		   {(kHalfCell - kOpen) * 0.5f, 0.04f, kHalfCell});
+	AddBox(mesh, {-(kOpen + kHalfCell) * 0.5f, collarY, 0.0f},
+		   {(kHalfCell - kOpen) * 0.5f, 0.04f, kHalfCell});
+	AddBox(mesh, {0.0f, collarY, (kOpen + kHalfCell) * 0.5f},
+		   {kOpen, 0.04f, (kHalfCell - kOpen) * 0.5f});
+	AddBox(mesh, {0.0f, collarY, -(kOpen + kHalfCell) * 0.5f},
+		   {kOpen, 0.04f, (kHalfCell - kOpen) * 0.5f});
+	const float wallY = kCeil + kRise * 0.5f;
+	AddBox(mesh, {-(kOpen + 0.05f), wallY, 0.0f}, {0.05f, kRise * 0.5f, kOpen + 0.1f});
+	AddBox(mesh, {kOpen + 0.05f, wallY, 0.0f}, {0.05f, kRise * 0.5f, kOpen + 0.1f});
+	AddBox(mesh, {0.0f, wallY, -(kOpen + 0.05f)}, {kOpen + 0.1f, kRise * 0.5f, 0.05f});
+	AddBox(mesh, {0.0f, wallY, kOpen + 0.05f}, {kOpen + 0.1f, kRise * 0.5f, 0.05f});
+	AddBox(mesh, {0.0f, kCeil + kRise - 0.04f, 0.0f}, {kOpen, 0.04f, kOpen});
+	return FinishProp(std::move(mesh), {0.42f, 0.40f, 0.38f, 1.0f});
+}
+
 // Bakes the three worn-block tiers (low/med/high) for one surface texture set,
 // displaced by that texture's packed height map (procedural wear when absent).
 // kind: 0 = wall, 1 = floor, 2 = ceiling. Shared by the full bake and the
@@ -1802,6 +1858,8 @@ bool BakeModels(const std::string& dir, const std::string& texturesDir) {
 	ok &= WriteGltf(BuildRope(), dir + "\\rope.gltf");
 	ok &= WriteGltf(BuildStairs(), dir + "\\stairs.gltf");
 	ok &= WriteGltf(BuildStairsDown(), dir + "\\stairs_down.gltf");
+	ok &= WriteGltf(BuildPit(), dir + "\\pit.gltf");
+	ok &= WriteGltf(BuildPitCeiling(), dir + "\\pit_ceiling.gltf");
 
 	ok &= WriteGltf(BuildHumanoid({{0.93f, 0.90f, 0.80f, 1.0f}, 0.85f, 3.2f, 0.0f, 0.12f}),
 					dir + "\\skeleton.gltf");

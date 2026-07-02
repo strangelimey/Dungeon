@@ -51,11 +51,19 @@ DungeonWorld::DungeonWorld(gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 		const int px = m_party.GridX(), pz = m_party.GridZ();
 		MarkSeen(px, pz);
 		// Stepping onto a stair raises a pending transition; Game polls it after
-		// Update and drives the swap, so the level never changes mid-step.
+		// Update and drives the swap, so the level never changes mid-step. A
+		// non-traversable link (a pit's ceiling hole — you can't climb it) is
+		// scenery; a `fall` link (the pit itself) keeps the party's facing, so
+		// they land looking the way they fell.
 		for (const StairLink& s : m_map.Stairs())
 			if (s.x == px && s.z == pz) {
-				m_pendingTransition =
-					LevelTransition{s.destLevel, s.destX, s.destZ, s.destFacing};
+				const CatalogEntry* e = m_project.stairs.Find(s.type);
+				if (!CatalogBool(e, "traverse", true)) break;
+				const bool fall = CatalogBool(e, "fall", false);
+				if (fall && onMessage) onMessage(loc::Tr("world.pitfall"));
+				m_pendingTransition = LevelTransition{
+					s.destLevel, s.destX, s.destZ,
+					fall ? static_cast<Direction>(m_party.Facing()) : s.destFacing};
 				break;
 			}
 	};
@@ -359,14 +367,17 @@ bool DungeonWorld::AddStairAt(const std::string& stem, const std::string& type,
 		return false;
 	}
 
-	// The return stair is the first opposite-direction type in the catalog.
-	std::string pairType;
-	for (const CatalogEntry& e : m_project.stairs.Entries())
-		if (CatalogBool(&e, "up", false) != up) {
-			pairType = e.id;
-			break;
-		}
-	if (pairType.empty()) {
+	// The paired half: the entry's explicit `pair` type when it names one (a
+	// pit pairs with the ceiling hole and vice versa), else the first
+	// opposite-direction type in the catalog (stairs down <-> stairs up).
+	std::string pairType = CatalogGet(entry, "pair", "");
+	if (pairType.empty())
+		for (const CatalogEntry& e : m_project.stairs.Entries())
+			if (CatalogBool(&e, "up", false) != up) {
+				pairType = e.id;
+				break;
+			}
+	if (pairType.empty() || !m_project.stairs.Contains(pairType)) {
 		say(loc::Tr("map.stairs.nopair"));
 		return false;
 	}
@@ -919,10 +930,22 @@ void DungeonWorld::PlacePartyAt(int x, int z, Direction facing) {
 }
 
 bool DungeonWorld::FloorHoleAt(int x, int z) const {
-	// A DOWN stair's cell drops its floor block: the descending stairwell mesh
-	// (below grade, with its own collar and shaft walls) replaces it.
+	// A down stair / pit drops its cell's floor block: the below-grade shaft
+	// mesh (with its own collar and walls) replaces it. Absent `hole` field:
+	// any down-leading type opens the floor, an up type opens nothing.
 	const StairLink* s = m_map.StairAt(x, z);
-	return s && !CatalogBool(m_project.stairs.Find(s->type), "up", false);
+	if (!s) return false;
+	const CatalogEntry* e = m_project.stairs.Find(s->type);
+	return CatalogGet(e, "hole", CatalogBool(e, "up", false) ? "none" : "floor") ==
+		   "floor";
+}
+
+bool DungeonWorld::CeilingHoleAt(int x, int z) const {
+	// A pit's lower half drops its cell's CEILING block (hole = ceiling,
+	// explicit only) — the rising shaft mesh replaces it.
+	const StairLink* s = m_map.StairAt(x, z);
+	if (!s) return false;
+	return CatalogGet(m_project.stairs.Find(s->type), "hole", "none") == "ceiling";
 }
 
 void DungeonWorld::RebuildChunkRegion(int chunkX, int chunkZ) {
@@ -930,7 +953,9 @@ void DungeonWorld::RebuildChunkRegion(int chunkX, int chunkZ) {
 	const int chunkIndex = chunkZ * chunksX + chunkX;
 	DungeonGeometry r = BuildDungeonRegion(
 		m_map, m_wallBlocks, m_floorBlocks, m_ceilingBlocks, chunkX, chunkZ,
-		[this](int x, int z) { return FloorHoleAt(x, z); });
+		[this](int x, int z) {
+			return CellHoles{FloorHoleAt(x, z), CeilingHoleAt(x, z)};
+		});
 	auto replace = [&](Surface& surface, std::vector<GeometryChunk>& fresh) {
 		std::erase_if(surface.chunks,
 					  [&](const SurfaceChunk& sc) { return sc.chunk == chunkIndex; });
