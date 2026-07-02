@@ -27,6 +27,7 @@ public:
 		int x = 0, z = 0;
 		bool open = false;   // authored initial state (the live door follows)
 		std::string key;     // items.cat id required to open by hand ("" = none)
+		std::string name;    // button-target id ("" = unwired); record-safe chars
 	};
 
 	explicit DoorInspector(gfx::GraphicsDevice& device) : InstanceInspector(device) {}
@@ -43,7 +44,7 @@ public:
 
 protected:
 	std::string Title() const override;
-	gfx::Rect Panel() const override { return {0.31f, 0.24f, 0.40f, 0.46f}; }
+	gfx::Rect Panel() const override { return {0.31f, 0.21f, 0.40f, 0.54f}; }
 	// No facing row: the doorway's flanking walls fix the orientation.
 	std::vector<Direction> FacingChoices() const override { return {}; }
 	void BuildContent(const gfx::Rect& content) override;

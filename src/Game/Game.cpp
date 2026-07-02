@@ -297,8 +297,8 @@ void Game::WireModuleCallbacks() {
 		}
 		{
 			bool open;
-			std::string key;
-			if (m_world.DoorSettings(cx, cz, open, key)) {
+			std::string key, name;
+			if (m_world.DoorSettings(cx, cz, open, key, name)) {
 				m_inspectTargets.push_back(InspectTarget{InspectTarget::Kind::Door});
 				labels.push_back(loc::Tr("map.key.door"));
 			}
@@ -370,7 +370,7 @@ void Game::WireModuleCallbacks() {
 	// Door inspector: Open flips the live panel + the record's authored state;
 	// the key dropdown authors the key= param (locks the party's click).
 	m_doorInspector.onApply = [this](const DoorInspector::Config& c) {
-		m_world.SetDoorSettings(c.x, c.z, c.open, c.key);
+		m_world.SetDoorSettings(c.x, c.z, c.open, c.key, c.name);
 	};
 	m_doorInspector.onSave = [this] {
 		if (!m_world.SaveLevel()) log::Warn("door inspector: failed to save level");
@@ -459,7 +459,7 @@ void Game::OpenInspectorFor(const InspectTarget& t) {
 		DoorInspector::Config c;
 		c.x = cx;
 		c.z = cz;
-		if (!m_world.DoorSettings(cx, cz, c.open, c.key))
+		if (!m_world.DoorSettings(cx, cz, c.open, c.key, c.name))
 			return; // gone since the picker listed it
 		// Selectable keys: items.cat entries with category=key (none exist yet —
 		// the dropdown offers only "None" until key items land).

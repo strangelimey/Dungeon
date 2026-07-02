@@ -422,12 +422,15 @@ public:
 	std::vector<DoorMarker> DoorMarkers() const;
 
 	// Door instance surface for the editor's inspector. DoorSettings reports
-	// the door on (x,z) (false = none); SetDoorSettings applies open/key to the
-	// LIVE door (slide anim, initialOpen follows — the editor edits the
-	// AUTHORED state) and to its .ent record's open=/key= params (in-memory
-	// until savemap, like every editor edit).
-	bool DoorSettings(int x, int z, bool& open, std::string& key) const;
-	void SetDoorSettings(int x, int z, bool open, const std::string& key);
+	// the door on (x,z) (false = none); SetDoorSettings applies open/key/name
+	// to the LIVE door (slide anim, initialOpen follows — the editor edits the
+	// AUTHORED state) and to its .ent record's open=/key=/name= params
+	// (in-memory until savemap, like every editor edit). `name` is what a
+	// button's target= points at (ToggleDoorsNamed).
+	bool DoorSettings(int x, int z, bool& open, std::string& key,
+					  std::string& name) const;
+	void SetDoorSettings(int x, int z, bool open, const std::string& key,
+						 const std::string& name);
 	// The door's frame + panel meshes for the inspector's preview pane.
 	std::vector<gfx::PreviewSubmesh> DoorPreviewSubs(int x, int z) const;
 

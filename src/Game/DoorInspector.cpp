@@ -6,6 +6,8 @@
 #include "Core/Loc.h"
 #include "UI/Controls.h"
 
+#include <cctype>
+
 namespace dungeon::game {
 
 void DoorInspector::Open(const Config& cfg,
@@ -48,6 +50,24 @@ void DoorInspector::BuildContent(const gfx::Rect& c) {
 												  : m_keys[static_cast<size_t>(i) - 1].first;
 							   if (onApply) onApply(m_cfg);
 						   });
+
+	// Name: what a button's target= points at. Kept record-safe as it is typed
+	// (records are whitespace-tokenised key=value lines, so spaces/'=' would
+	// corrupt the .ent — the filter drops anything outside [A-Za-z0-9_-]).
+	UI().Add<ui::Label>(gfx::Rect{c.x, c.y + 0.24f, c.w, 0.05f},
+						loc::Tr("map.door.name"));
+	ui::TextField* name =
+		UI().Add<ui::TextField>(gfx::Rect{c.x, c.y + 0.29f, c.w, 0.05f}, m_cfg.name);
+	name->placeholder = loc::Tr("map.door.namehint");
+	name->maxLength = 24;
+	name->onChange = [this, name] {
+		std::erase_if(name->text, [](char ch) {
+			const unsigned char u = static_cast<unsigned char>(ch);
+			return !(std::isalnum(u) || ch == '_' || ch == '-');
+		});
+		m_cfg.name = name->text;
+		if (onApply) onApply(m_cfg);
+	};
 }
 
 void DoorInspector::Persist() {

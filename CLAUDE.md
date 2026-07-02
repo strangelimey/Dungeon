@@ -674,9 +674,12 @@ memory.
   a "Requires key" dropdown lists items.cat entries with category=key — none
   exist yet, so it offers only None — and authors key=, which LOCKS the door
   against the party's click until key items + an inventory check land; wired
-  buttons ignore locks). Editor next steps: item placement (the last "wiring
-  comes next" palette stub); door name= for button wiring is still a
-  hand-authored .ent param; key ITEMS (items.cat category=key + an inventory
-  check in ToggleDoorAhead); the dialog's material sliders are preview-only for
+  buttons ignore locks; a Name field (ui::TextField, input filtered to
+  [A-Za-z0-9_-] — records are whitespace-tokenised, a space would corrupt the
+  .ent line) authors name=, the id a button's target= toggles). Editor next
+  steps: item placement (the last "wiring comes next" palette stub); a BUTTON
+  brush (buttons are still hand-authored .ent records; the `press <x> <z>` dev
+  command toggles one); key ITEMS (items.cat category=key + an inventory check
+  in ToggleDoorAhead); the dialog's material sliders are preview-only for
   imported models (ORM map drives the real material); a "save to source" UI
   button (vs the `synctosource` dev command); undo/redo for edits.

@@ -442,20 +442,24 @@ bool DungeonWorld::ToggleDoorAhead() {
 	return true; // the click was for the door even if it jammed
 }
 
-bool DungeonWorld::DoorSettings(int x, int z, bool& open, std::string& key) const {
+bool DungeonWorld::DoorSettings(int x, int z, bool& open, std::string& key,
+								std::string& name) const {
 	const Door* door = DoorAt(x, z);
 	if (!door) return false;
 	open = door->open;
 	key = door->key;
+	name = door->name;
 	return true;
 }
 
-void DungeonWorld::SetDoorSettings(int x, int z, bool open, const std::string& key) {
+void DungeonWorld::SetDoorSettings(int x, int z, bool open, const std::string& key,
+								   const std::string& name) {
 	Door* door = DoorAt(x, z);
 	if (!door) return;
 	door->open = open;
 	door->initialOpen = open; // the editor edits the AUTHORED state
 	door->key = key;
+	door->name = name;
 	// Mirror onto the .ent record so the writer/stash carry it. Default-valued
 	// params are removed to keep records minimal.
 	if (Entity* record = m_entities.MutableById(door->id)) {
@@ -466,6 +470,7 @@ void DungeonWorld::SetDoorSettings(int x, int z, bool open, const std::string& k
 		};
 		set("open", open ? "1" : "");
 		set("key", key);
+		set("name", name);
 		m_entsDirty = true;
 	}
 }
