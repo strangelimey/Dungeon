@@ -233,7 +233,9 @@ void MapEditor::ApplyBrush(int cx, int cz, bool dragging) {
 			m_selInspectable = inspectable;
 			if (reclick && onInspect) onInspect(cx, cz);
 		} else { // Erase: remove a runtime entity, then a fixture, else reset surfaces
-			if (m_world.RemoveEntityAt(cx, cz) || m_world.RemoveFixtureAt(cx, cz)) {
+			if (m_world.RemoveStairAt(cx, cz)) {
+				// stairs message themselves (they name the paired level's cleanup)
+			} else if (m_world.RemoveEntityAt(cx, cz) || m_world.RemoveFixtureAt(cx, cz)) {
 				log(loc::Tr("map.erase.removed"));
 			} else {
 				m_world.EditVariant(cx, cz, SS::Wall, -1);
@@ -262,7 +264,16 @@ void MapEditor::ApplyBrush(int cx, int cz, bool dragging) {
 						items[m_sel.index].label));
 		break;
 	}
-	default: { // Doors/Stairs/Items — placement wiring lands later
+	case PaletteCat::Stairs: {
+		if (dragging) break; // placement is a single click
+		const std::vector<PaletteItem> items = CategoryItems(m_sel.cat);
+		if (m_sel.index < 0 || m_sel.index >= static_cast<int>(items.size())) break;
+		// AddStair does all the messaging itself (success names the paired
+		// level; each failure mode has its own specific line).
+		m_world.AddStair(items[m_sel.index].id, cx, cz);
+		break;
+	}
+	default: { // Doors/Items — placement wiring lands later
 		if (dragging) break;
 		const std::vector<PaletteItem> items = CategoryItems(m_sel.cat);
 		if (m_sel.index >= 0 && m_sel.index < static_cast<int>(items.size()))

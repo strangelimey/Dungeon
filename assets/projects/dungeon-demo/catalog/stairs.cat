@@ -5,6 +5,10 @@
 ;   texture  = PBR set
 ;   solid    = 0 (the party must be able to step onto the tile)
 ;   authored = 0 (procedural placeholder mesh, CULL_NONE)
+;   up       = 1 leads to the level ABOVE (previous stem in the project's level
+;              order), 0/absent to the level BELOW. The editor's stairs brush
+;              reads it to pick the destination level, the paired return-stair
+;              type (first opposite-direction entry), and the map icon's arrow.
 
 [stairs_down]
 display = Stairs Down
@@ -12,6 +16,7 @@ model = stairs
 texture = wall_stone
 solid = 0
 authored = 0
+up = 0
 
 [stairs_up]
 display = Stairs Up
@@ -19,3 +24,4 @@ model = stairs
 texture = wall_stone
 solid = 0
 authored = 0
+up = 1

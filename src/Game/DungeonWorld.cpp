@@ -212,11 +212,180 @@ bool DungeonWorld::RemoveEntityAt(int x, int z) {
 			return true;
 		}
 	for (auto it = m_decorations.begin(); it != m_decorations.end(); ++it)
-		if (it->x == x && it->z == z) {
+		if (it->x == x && it->z == z && !it->stair) { // stairs: RemoveStairAt only
 			m_decorations.erase(it);
 			return true;
 		}
 	return false;
+}
+
+// ============================================================================
+// Stair pairs (editor). The ACTIVE level's half is live state (link + prop,
+// persisted by `savemap` like every other edit); the DESTINATION level's half
+// is edited textually in its .map file — one appended / removed "stairs ..."
+// line — because that level isn't loaded, and its static layer is re-parsed
+// from disk on every entry, so the file is authoritative. Validate-then-write:
+// the destination map is parse-checked first (its loader DN_ASSERTs on bad
+// records, so nothing invalid may ever be written).
+// ============================================================================
+namespace {
+
+const char* DirName(Direction d) {
+	switch (d) {
+	case Direction::North: return "north";
+	case Direction::East:  return "east";
+	case Direction::West:  return "west";
+	default:               return "south";
+	}
+}
+
+// True if a .map line is the "stairs" record standing on (x,z) that leads back
+// to `backLevel` — the identity used to find a pair's other half for removal.
+bool IsStairRecordFor(std::string_view line, int x, int z,
+					  const std::string& backLevel) {
+	std::vector<std::string_view> tok;
+	size_t i = 0;
+	while (i < line.size()) {
+		while (i < line.size() && (line[i] == ' ' || line[i] == '\t' ||
+								   line[i] == '\r' || line[i] == '\n'))
+			++i;
+		const size_t start = i;
+		while (i < line.size() && line[i] != ' ' && line[i] != '\t' &&
+			   line[i] != '\r' && line[i] != '\n')
+			++i;
+		if (i > start) tok.push_back(line.substr(start, i - start));
+	}
+	if (tok.size() < 4 || tok[0] != "stairs") return false;
+	if (tok[2] != std::to_string(x) || tok[3] != std::to_string(z)) return false;
+	const std::string back = "dest=" + backLevel;
+	for (const std::string_view t : tok)
+		if (t == back) return true;
+	return false;
+}
+
+bool AppendMapLine(const std::string& path, const std::string& line) {
+	auto bytes = assets::ReadBinaryFile(path);
+	if (!bytes) return false;
+	std::string text(reinterpret_cast<const char*>(bytes->data()), bytes->size());
+	if (!text.empty() && text.back() != '\n') text += '\n';
+	text += line;
+	text += '\n';
+	return assets::WriteBinaryFile(path, text.data(), text.size());
+}
+
+// Removes the first matching stairs record line; false if none matched (a
+// hand-authored one-way link has no pair) or the file could not be rewritten.
+bool RemoveStairRecordLine(const std::string& path, int x, int z,
+						   const std::string& backLevel) {
+	auto bytes = assets::ReadBinaryFile(path);
+	if (!bytes) return false;
+	const std::string text(reinterpret_cast<const char*>(bytes->data()),
+						   bytes->size());
+	std::string out;
+	out.reserve(text.size());
+	bool removed = false;
+	size_t pos = 0;
+	while (pos < text.size()) {
+		const size_t nl = text.find('\n', pos);
+		const size_t end = nl == std::string::npos ? text.size() : nl + 1;
+		const std::string_view line(text.data() + pos, end - pos);
+		if (!removed && IsStairRecordFor(line, x, z, backLevel)) removed = true;
+		else out.append(line);
+		pos = end;
+	}
+	if (!removed) return false;
+	return assets::WriteBinaryFile(path, out.data(), out.size());
+}
+
+} // namespace
+
+bool DungeonWorld::AddStair(const std::string& type, int x, int z) {
+	auto say = [&](const std::string& s) {
+		if (onMessage) onMessage(s);
+	};
+	const CatalogEntry* entry = m_project.stairs.Find(type);
+	if (!entry || !m_map.IsWalkable(x, z) || m_map.StairAt(x, z) ||
+		m_map.BrazierAt(x, z)) {
+		say(loc::Format("map.place.blocked", CatalogGet(entry, "display", type)));
+		return false;
+	}
+
+	// The type's direction (stairs.cat `up`) picks the destination: the previous
+	// / next stem in the project's level order (the list is the vertical stack).
+	const bool up = CatalogBool(entry, "up", false);
+	const auto& levels = m_project.levels;
+	const auto cur = std::find(levels.begin(), levels.end(), m_currentLevel);
+	std::string dest;
+	if (cur != levels.end()) {
+		if (up && cur != levels.begin()) dest = *(cur - 1);
+		if (!up && cur + 1 != levels.end()) dest = *(cur + 1);
+	}
+	if (dest.empty()) {
+		say(loc::Tr(up ? "map.stairs.noup" : "map.stairs.nodown"));
+		return false;
+	}
+
+	// The return stair is the first opposite-direction type in the catalog.
+	std::string pairType;
+	for (const CatalogEntry& e : m_project.stairs.Entries())
+		if (CatalogBool(&e, "up", false) != up) {
+			pairType = e.id;
+			break;
+		}
+	if (pairType.empty()) {
+		say(loc::Tr("map.stairs.nopair"));
+		return false;
+	}
+
+	// The pair lands on the SAME cell one level up/down — validate it against a
+	// parse of that level (cheap ASCII load, no GPU work).
+	const DungeonMap destMap(m_project.LevelMapPath(dest));
+	if (!destMap.IsWalkable(x, z) || destMap.StairAt(x, z) ||
+		destMap.BrazierAt(x, z)) {
+		say(loc::Format("map.stairs.destblocked", x, z, dest));
+		return false;
+	}
+
+	StairLink link;
+	link.type = type;
+	link.x = x;
+	link.z = z;
+	link.destLevel = dest;
+	link.destX = x;
+	link.destZ = z; // each side arrives standing on its counterpart
+
+	// Write the return half to the destination's .map FIRST, so a failed write
+	// leaves no half-made pair to roll back.
+	const std::string record = std::format(
+		"stairs {} {} {} {} dest={} destx={} destz={} destfacing={}", pairType, x,
+		z, DirName(link.destFacing), m_currentLevel, x, z, DirName(link.facing));
+	if (!AppendMapLine(m_project.LevelMapPath(dest), record)) {
+		say(loc::Format("map.stairs.destblocked", x, z, dest));
+		return false;
+	}
+
+	m_map.AddStair(link);
+	PlaceStairProp(link);
+	MarkSeen(x, z);
+	say(loc::Format("map.stairs.placed", entry->Display(), dest));
+	return true;
+}
+
+bool DungeonWorld::RemoveStairAt(int x, int z) {
+	StairLink removed;
+	if (!m_map.RemoveStair(x, z, &removed)) return false;
+	std::erase_if(m_decorations, [&](const Decoration& d) {
+		return d.stair && d.x == x && d.z == z;
+	});
+	// Take the paired return record out of the destination's .map (matched by
+	// its cell + the dest= back-link; a hand-authored one-way link has none).
+	const bool pair =
+		RemoveStairRecordLine(m_project.LevelMapPath(removed.destLevel),
+							  removed.destX, removed.destZ, m_currentLevel);
+	if (onMessage)
+		onMessage(pair ? loc::Format("map.stairs.removed", removed.destLevel)
+					   : loc::Tr("map.erase.removed"));
+	return true;
 }
 
 std::vector<DungeonWorld::MapMarker> DungeonWorld::MonsterMarkers() const {
@@ -278,15 +447,6 @@ std::optional<DungeonWorld::LevelTransition> DungeonWorld::ConsumeLevelTransitio
 namespace {
 // How long a hit-feedback splat stays over a struck member's portrait.
 constexpr float kHitFlashSeconds = 0.7f;
-
-const char* DirName(Direction d) {
-	switch (d) {
-	case Direction::North: return "north";
-	case Direction::East:  return "east";
-	case Direction::West:  return "west";
-	default:               return "south";
-	}
-}
 const char* KindName(EntityKind k) {
 	switch (k) {
 	case EntityKind::Monster:    return "monster";

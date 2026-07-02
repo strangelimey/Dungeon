@@ -397,9 +397,21 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 		if (m_mode == Mode::Editor) facingArrow(m.x, m.z, m.facing);
 	}
 
-	// Stairs (over the decoration marker they also occupy) — a distinct color.
-	for (const StairLink& s : m_world.Map().Stairs())
-		if (CellVisible(s.x, s.z)) marker(s.x, s.z, 0.44f, kStair);
+	// Stairs (over the decoration marker they also occupy) — a distinct color,
+	// with a dark arrow for which way they lead (up/down from stairs.cat's `up`
+	// field; both modes — the player map wants it as much as the editor).
+	const Catalog& stairCat = m_world.GetProject().stairs;
+	for (const StairLink& s : m_world.Map().Stairs()) {
+		if (!CellVisible(s.x, s.z)) continue;
+		marker(s.x, s.z, 0.44f, kStair);
+		if (t.cell < 10.0f) continue; // too small to read, like facingArrow
+		const bool up = CatalogBool(stairCat.Find(s.type), "up", false);
+		const Vec2 c = cellCenter(s.x, s.z);
+		const float h = t.cell * 0.14f, w = t.cell * 0.12f;
+		const float d = up ? -1.0f : 1.0f; // screen Y grows down: -1 = apex up
+		batch.DrawTriangle({c.x, c.y + d * h}, {c.x - w, c.y - d * h},
+						   {c.x + w, c.y - d * h}, kMapBg);
+	}
 
 	// 4) Dynamic entities. Monsters come from the LIVE world list, drawn once per
 	// cell with a type initial and a stack count when several share a square;

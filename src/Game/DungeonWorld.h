@@ -391,8 +391,26 @@ public:
 	// persists. Returns false on an invalid cell (e.g. a sconce with no wall).
 	bool AddFixture(const std::string& type, int x, int z);
 	// Removes the topmost runtime entity in a cell (a monster first, else a
-	// decoration). Returns true if something was removed.
+	// decoration). Stair props are skipped — a stair is link + prop + a paired
+	// record on another level, so it only goes through RemoveStairAt. Returns
+	// true if something was removed.
 	bool RemoveEntityAt(int x, int z);
+
+	// Places a stair (stairs.cat id; its `up` field picks the level above or
+	// below in the project's level order) and AUTO-AUTHORS the paired return
+	// stair at the same cell of that destination level, appending a stairs
+	// record to its .map file on disk (the destination isn't loaded; its static
+	// layer is re-parsed from disk on every entry, so the file is authoritative).
+	// Each stair's dest is the other's cell, so the party arrives standing on
+	// the counterpart. Validates the destination cell first (walkable, no stair,
+	// no brazier) and refuses with a specific onMessage line otherwise; all
+	// feedback (success too) goes through onMessage. The ACTIVE level's half
+	// stays in-memory until `savemap`, like every other editor edit.
+	bool AddStair(const std::string& type, int x, int z);
+	// Removes the stair at (x,z): the link, its prop, and the paired return
+	// stair's record in the destination level's .map file (matched by cell +
+	// back-link). False if the cell has no stair.
+	bool RemoveStairAt(int x, int z);
 
 	// A live entity's cell + type, for the map overlay (placed/erased entities
 	// show immediately, and the marker can label its type + stack count). Built
@@ -832,6 +850,9 @@ private:
 	Vec3 DesiredAnchor(const Monster& m, const Vec3& partyPos) const;
 	void LoadDecorations();
 	void LoadStairs(); // places stair props (P6) from the map's stair links
+	// Instantiates one stair link's prop (a non-solid decoration flagged stair).
+	// Shared by LoadStairs and the editor's live placement (AddStair).
+	void PlaceStairProp(const StairLink& link);
 	// Lazily loads (and caches) the shared assets for a monster / decoration
 	// type (model + mesh + PBR set), resolved through `catalog` (decorations.cat
 	// for props, stairs.cat for stair props). Shared by the initial load and live

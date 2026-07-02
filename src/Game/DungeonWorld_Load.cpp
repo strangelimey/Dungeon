@@ -993,22 +993,24 @@ void DungeonWorld::LoadDecorations() {
 // so the party can step onto them; the transition link itself lives in
 // DungeonMap::Stairs() and is consumed in the party step callback.
 void DungeonWorld::LoadStairs() {
-	for (const StairLink& s : m_map.Stairs()) {
-		DecorationKind& kind = DecorationKindFor(s.type, m_project.stairs);
-		Decoration deco;
-		deco.kind = &kind;
-		deco.x = s.x;
-		deco.z = s.z;
-		deco.facing = s.facing;
-		deco.stair = true; // written as a stairs record, not a decoration
-		const Vec3 pos = m_map.CellCenter(s.x, s.z);
-		XMStoreFloat4x4(&deco.world, XMMatrixRotationY(DirYaw(s.facing)) *
-										 XMMatrixTranslation(pos.x, 0, pos.z));
-		deco.solid = false; // the party walks onto a stair to use it
-		m_decorations.push_back(std::move(deco));
-	}
+	for (const StairLink& s : m_map.Stairs()) PlaceStairProp(s);
 	if (!m_map.Stairs().empty())
 		log::Info("Placed {} stairs", m_map.Stairs().size());
+}
+
+void DungeonWorld::PlaceStairProp(const StairLink& s) {
+	DecorationKind& kind = DecorationKindFor(s.type, m_project.stairs);
+	Decoration deco;
+	deco.kind = &kind;
+	deco.x = s.x;
+	deco.z = s.z;
+	deco.facing = s.facing;
+	deco.stair = true; // written as a stairs record, not a decoration
+	const Vec3 pos = m_map.CellCenter(s.x, s.z);
+	XMStoreFloat4x4(&deco.world, XMMatrixRotationY(DirYaw(s.facing)) *
+									 XMMatrixTranslation(pos.x, 0, pos.z));
+	deco.solid = false; // the party walks onto a stair to use it
+	m_decorations.push_back(std::move(deco));
 }
 
 // Places one Fire per sconce ('T') and brazier ('F') cell. Sconces mount on

@@ -617,8 +617,12 @@ memory.
 - Editor (data-driven, see "Project & catalogs" + the MapView section) is built
   out: catalog palette, structural/variant paint, decoration/monster/fixture
   placement, asset-creation dialog with 3D preview + AssetBaker bake, multi-level
-  stairs, per-level saves, .map/.ent writers, chunk-local edit rebuilds. Editor
-  next steps: stair/door placement is authored in .map only (no editor brush);
-  the dialog's material sliders are preview-only for imported models (ORM map
-  drives the real material); a "save to source" UI button (vs the `synctosource`
-  dev command); undo/redo for edits.
+  stairs, per-level saves, .map/.ent writers, chunk-local edit rebuilds. The
+  Stairs brush places a stair AND auto-authors its return stair at the same cell
+  of the level above/below (stairs.cat `up` field picks direction + the paired
+  type; the pair is appended textually to the destination level's .map on disk,
+  removed again by Erase; DungeonWorld::AddStair/RemoveStairAt) — map icons
+  carry an up/down arrow in both modes. Editor next steps: door placement is
+  authored in .map only (no editor brush); the dialog's material sliders are
+  preview-only for imported models (ORM map drives the real material); a "save
+  to source" UI button (vs the `synctosource` dev command); undo/redo for edits.
