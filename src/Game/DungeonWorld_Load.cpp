@@ -956,6 +956,8 @@ void DungeonWorld::BuildFires() {
 
 		Fire fire;
 		fire.brazier = false;
+		fire.lit = sconce.lit;
+		fire.lightRadius = sconce.brightness * kCellSize; // "squares" -> metres
 		XMStoreFloat4x4(&fire.world, XMMatrixRotationY(yaw) *
 										 XMMatrixTranslation(m.pos.x, 0, m.pos.z));
 		// Flame local offset (0, 1.78, 0.22) rotated by yaw.
@@ -970,6 +972,7 @@ void DungeonWorld::BuildFires() {
 		const Vec3 center = m_map.CellCenter(bx, bz);
 		Fire fire;
 		fire.brazier = true;
+		fire.lightRadius = 14.4f; // braziers reach ~6 cells
 		XMStoreFloat4x4(&fire.world, XMMatrixTranslation(center.x, 0, center.z));
 		fire.flamePos = {center.x, 0.72f, center.z};
 		fire.phase = static_cast<float>(seed) * 1.7f;

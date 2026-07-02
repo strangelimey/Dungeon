@@ -237,6 +237,13 @@ public:
 	// Re-hang the sconce at (cx,cz) from wall `from` onto `to` (live: updates the
 	// map and rebuilds fires/dust). `from` disambiguates several sconces in a cell.
 	bool RemountSconce(int cx, int cz, Direction from, Direction to);
+	// Read/write a torch's per-instance light/smoke settings (identified by cell +
+	// wall). Set is live: the light/flame/smoke follow next frame. `brightness` is in
+	// cells, `turbidity` 0..1. Both return false if no such sconce.
+	bool TorchSettings(int cx, int cz, Direction wall, bool& lit, float& brightness,
+					   float& turbidity) const;
+	bool SetTorchSettings(int cx, int cz, Direction wall, bool lit, float brightness,
+						  float turbidity);
 
 	// Editor multi-object inspect: decorations / floor items on a cell. Decorations
 	// come back as (index into the live decoration list, catalog id); items as
@@ -706,6 +713,8 @@ private:
 	// its flame origin and a FireEffect particle simulation.
 	struct Fire {
 		bool brazier = false;
+		bool lit = true;         // false: prop still drawn, but no light/flame/smoke
+		float lightRadius = 7.0f; // point-light reach in metres (sconce brightness * cell)
 		Mat4 world;        // prop transform
 		Vec3 flamePos;     // particle + light origin
 		float phase = 0;   // flicker phase
@@ -828,6 +837,7 @@ private:
 		gfx::GraphicsDevice& device, const assets::ModelData& model);
 	void BuildFires();
 	void BuildTurbidityMap();
+	void RebuildFiresAndDust(); // WaitIdle + rebuild fires + dust (live sconce edits)
 
 	// --- per-frame --------------------------------------------------------------
 	void UpdateCamera();

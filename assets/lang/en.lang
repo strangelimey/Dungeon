@@ -349,7 +349,9 @@ map.insp.saved=Saved instance overrides for '{}'
 map.route.hint=Laying patrol route — click cells; Enter: done, Backspace: undo
 ; --- fixture inspector (per-placed torch/sconce) ---
 map.fix.title=Torch — cell {}, {}
-map.fix.nosettings=No settings yet.
+map.fix.lit=Lit
+map.fix.brightness=Brightness (squares)
+map.fix.turbidity=Smokiness
 map.fix.torchwall=Torch ({} wall)
 ; --- item/decoration inspector ---
 map.prop.item=Item: {}

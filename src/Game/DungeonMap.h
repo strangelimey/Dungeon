@@ -44,12 +44,22 @@ inline constexpr float kEyeHeight = 1.55f; // camera height above the floor
 
 enum class Cell : u8 { Wall, Floor };
 
+// Per-torch light/smoke defaults (also the "don't write it" baseline for the
+// .map fixture record — only non-default values are serialized).
+inline constexpr float kSconceBrightness = 3.0f; // light reach, in cells
+inline constexpr float kSconceTurbidity = 0.28f; // smokiness added to cell + ring
+
 // A wall-mounted torch sconce: its cell plus the wall it hangs on (the
 // direction from the cell to the solid neighbour it mounts against). Several
-// sconces may share a cell on different walls.
+// sconces may share a cell on different walls. `lit` gates its light, flame
+// particles and smoke; `brightness` is the light reach in cells; `turbidity`
+// is how much haze it adds to its cell and neighbours.
 struct WallSconce {
 	int x = 0, z = 0;
 	Direction wall = Direction::North;
+	bool lit = true;
+	float brightness = kSconceBrightness;
+	float turbidity = kSconceTurbidity;
 };
 
 // A stair/portal on a floor cell that, when the party steps onto it, transitions
@@ -129,6 +139,14 @@ public:
 	// solid neighbour wall). Bumps Revision(); false if no such sconce or `to`
 	// isn't solid. The caller rebuilds fires/turbidity (DungeonWorld::RemountSconce).
 	bool SetSconceWall(int x, int z, Direction from, Direction to);
+	// Sets a sconce's per-torch light/smoke properties (identified by cell + wall),
+	// then recomputes the turbidity grid. Bumps Revision(); false if not found.
+	bool SetSconceProps(int x, int z, Direction wall, bool lit, float brightness,
+						float turbidity);
+	// Recomputes the whole air-turbidity grid from scratch: the authored dusty base
+	// ('D' cells) plus every brazier and every LIT sconce's own smoke. Called at
+	// load and whenever a torch's smoke/lit state changes.
+	void RebuildTurbidity();
 
 	int StartX() const { return m_startX; }
 	int StartZ() const { return m_startZ; }

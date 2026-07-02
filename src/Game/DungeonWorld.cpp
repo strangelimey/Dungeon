@@ -198,12 +198,7 @@ bool DungeonWorld::AddFixture(const std::string& type, int x, int z) {
 	const std::string mount = CatalogGet(m_project.fixtures.Find(type), "mount", "floor");
 	const bool ok = mount == "wall" ? m_map.AddSconce(x, z) : m_map.AddBrazier(x, z);
 	if (!ok) return false;
-	// Rebuild the fire instances + dust from the updated map (lights pick the new
-	// fire up next frame; the GPU may still read the old turbidity, so drain it).
-	m_device.WaitIdle();
-	m_fires.clear();
-	BuildFires();
-	BuildTurbidityMap();
+	RebuildFiresAndDust(); // lights/flame/smoke pick the new fire up next frame
 	MarkSeen(x, z);
 	return true;
 }
@@ -330,8 +325,14 @@ bool DungeonWorld::SaveLevel() const {
 	}
 	m += ";\n";
 
-	for (const WallSconce& s : map.Sconces())
-		m += std::format("fixture sconce {} {} {}\n", s.x, s.z, DirName(s.wall));
+	for (const WallSconce& s : map.Sconces()) {
+		m += std::format("fixture sconce {} {} {}", s.x, s.z, DirName(s.wall));
+		// Only non-default light/smoke settings are written (keeps the .map minimal).
+		if (!s.lit) m += " lit=0";
+		if (s.brightness != kSconceBrightness) m += std::format(" bright={:g}", s.brightness);
+		if (s.turbidity != kSconceTurbidity) m += std::format(" turb={:g}", s.turbidity);
+		m += '\n';
+	}
 	for (const auto& [bx, bz] : map.BrazierCells())
 		m += std::format("fixture brazier {} {}\n", bx, bz);
 
@@ -493,6 +494,7 @@ void DungeonWorld::Update(const Input& input, float dt, float time, bool acceptI
 	// order-independent).
 	m_particleScratch.clear();
 	for (Fire& fire : m_fires) {
+		if (!fire.lit) continue; // an unlit torch has no flame/smoke
 		fire.effect.Update(dt);
 		fire.effect.AppendParticles(m_particleScratch);
 	}
@@ -581,6 +583,7 @@ void DungeonWorld::UpdateLights(float time) {
 	// the shadow cubes re-render from the moved origin every frame, so the
 	// shadows themselves dance the way real firelight does.
 	for (const Fire& fire : m_fires) {
+		if (!fire.lit) continue; // an unlit torch casts no light
 		gfx::PointLight light;
 		const float amp = fire.brazier ? 0.042f : 0.028f;
 		const float wx = amp * std::sin(time * 7.3f + fire.phase) *
@@ -594,7 +597,7 @@ void DungeonWorld::UpdateLights(float time) {
 		// gently over distance (AssignShadowSlots); inverse-square falloff keeps
 		// the far tail dim, so this widens the lit pool without blowing out up
 		// close. Wall sconces stay tighter.
-		light.radius = fire.brazier ? 14.4f : 7.0f;
+		light.radius = fire.lightRadius;
 		light.color = fire.brazier
 						  ? Vec3{m_torchColor.x, m_torchColor.y * 0.85f, m_torchColor.z * 0.8f}
 						  : m_torchColor;
@@ -1068,15 +1071,38 @@ std::vector<Direction> DungeonWorld::SolidWallsAt(int cx, int cz) const {
 	return out;
 }
 
-bool DungeonWorld::RemountSconce(int cx, int cz, Direction from, Direction to) {
-	if (!m_map.SetSconceWall(cx, cz, from, to)) return false;
-	// Rebuild the fire instances + dust from the updated map (mirrors AddFixture):
-	// the sconce prop/light/flame follow the new wall next frame. Drain the GPU
-	// first since it may still read the old turbidity grid.
+void DungeonWorld::RebuildFiresAndDust() {
+	// Rebuild the fire instances + dust from the current map (shared by the sconce
+	// edits and AddFixture): the sconce prop/light/flame/smoke follow next frame.
+	// Drain the GPU first since it may still read the old turbidity grid.
 	m_device.WaitIdle();
 	m_fires.clear();
 	BuildFires();
 	BuildTurbidityMap();
+}
+
+bool DungeonWorld::RemountSconce(int cx, int cz, Direction from, Direction to) {
+	if (!m_map.SetSconceWall(cx, cz, from, to)) return false;
+	RebuildFiresAndDust();
+	return true;
+}
+
+bool DungeonWorld::TorchSettings(int cx, int cz, Direction wall, bool& lit, float& brightness,
+								 float& turbidity) const {
+	for (const WallSconce& s : m_map.Sconces())
+		if (s.x == cx && s.z == cz && s.wall == wall) {
+			lit = s.lit;
+			brightness = s.brightness;
+			turbidity = s.turbidity;
+			return true;
+		}
+	return false;
+}
+
+bool DungeonWorld::SetTorchSettings(int cx, int cz, Direction wall, bool lit, float brightness,
+									float turbidity) {
+	if (!m_map.SetSconceProps(cx, cz, wall, lit, brightness, turbidity)) return false;
+	RebuildFiresAndDust();
 	return true;
 }
 

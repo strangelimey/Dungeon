@@ -10,9 +10,9 @@ namespace dungeon::game {
 
 void FixtureInspector::Open(const Config& cfg, const std::vector<Direction>& walls) {
 	m_cfg = cfg;
+	m_original = cfg;
 	m_walls = walls;
 	m_currentWall = cfg.wall;
-	m_originalWall = cfg.wall;
 	SetFacingValue(cfg.wall);
 	OpenModal();
 }
@@ -21,14 +21,32 @@ std::string FixtureInspector::Title() const {
 	return loc::Format("map.fix.title", m_cfg.x, m_cfg.z);
 }
 
-void FixtureInspector::BuildContent(const gfx::Rect& content) {
-	// Placeholder until torch settings (colour/intensity/lit) land; facing lives
-	// in the common strip above.
-	UI().Add<ui::Label>(gfx::Rect{content.x, content.y, content.w, 0.05f},
-						loc::Tr("map.fix.nosettings"));
+void FixtureInspector::ApplySettings() {
+	if (onSettings)
+		onSettings(m_cfg.x, m_cfg.z, m_currentWall, m_cfg.lit, m_cfg.brightness, m_cfg.turbidity);
 }
 
-void FixtureInspector::ApplyLive() {
+void FixtureInspector::BuildContent(const gfx::Rect& c) {
+	// Lit gates the light, flame particles and smoke; brightness is the light reach
+	// (squares); turbidity is how much haze it adds to its cell and neighbours.
+	UI().Add<ui::Checkbox>(gfx::Rect{c.x, c.y, c.w, 0.055f}, loc::Tr("map.fix.lit"), m_cfg.lit,
+						   [this](bool on) {
+							   m_cfg.lit = on;
+							   ApplySettings();
+						   });
+	UI().Add<ui::Slider>(gfx::Rect{c.x, c.y + 0.09f, c.w, 0.11f}, loc::Tr("map.fix.brightness"),
+						 1.0f, 8.0f, m_cfg.brightness, [this](float v) {
+							 m_cfg.brightness = v;
+							 ApplySettings();
+						 });
+	UI().Add<ui::Slider>(gfx::Rect{c.x, c.y + 0.21f, c.w, 0.11f}, loc::Tr("map.fix.turbidity"),
+						 0.0f, 1.0f, m_cfg.turbidity, [this](float v) {
+							 m_cfg.turbidity = v;
+							 ApplySettings();
+						 });
+}
+
+void FixtureInspector::ApplyLive() { // the common Facing dropdown re-mounts the torch
 	const Direction to = FacingValue();
 	if (to == m_currentWall) return;
 	if (onRemount && onRemount(m_cfg.x, m_cfg.z, m_currentWall, to)) {
@@ -44,9 +62,13 @@ void FixtureInspector::Persist() {
 }
 
 void FixtureInspector::Revert() {
-	if (m_currentWall != m_originalWall && onRemount &&
-		onRemount(m_cfg.x, m_cfg.z, m_currentWall, m_originalWall))
-		m_currentWall = m_originalWall;
+	// Restore the wall (re-mount back) and the light/smoke settings.
+	if (m_currentWall != m_original.wall && onRemount &&
+		onRemount(m_cfg.x, m_cfg.z, m_currentWall, m_original.wall))
+		m_currentWall = m_original.wall;
+	if (onSettings)
+		onSettings(m_cfg.x, m_cfg.z, m_currentWall, m_original.lit, m_original.brightness,
+				   m_original.turbidity);
 }
 
 } // namespace dungeon::game

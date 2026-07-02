@@ -337,9 +337,14 @@ void Game::WireModuleCallbacks() {
 			m_world.onMessage(loc::Format("map.insp.saved", c.type));
 	};
 
-	// Torch (sconce) inspector: the Facing dropdown re-mounts it live; Save persists.
+	// Torch (sconce) inspector: the Facing dropdown re-mounts it live, the body
+	// edits its light/smoke settings live; Save persists.
 	m_fixtureInspector.onRemount = [this](int x, int z, Direction from, Direction to) {
 		return m_world.RemountSconce(x, z, from, to);
+	};
+	m_fixtureInspector.onSettings = [this](int x, int z, Direction wall, bool lit,
+										   float brightness, float turbidity) {
+		m_world.SetTorchSettings(x, z, wall, lit, brightness, turbidity);
 	};
 	m_fixtureInspector.onSave = [this] {
 		if (!m_world.SaveLevel()) log::Warn("fixture inspector: failed to save level");
@@ -387,6 +392,7 @@ void Game::OpenInspectorFor(const InspectTarget& t) {
 		fc.x = cx;
 		fc.z = cz;
 		fc.wall = t.wall;
+		m_world.TorchSettings(cx, cz, t.wall, fc.lit, fc.brightness, fc.turbidity);
 		m_fixtureInspector.Open(fc, walls);
 		break;
 	}

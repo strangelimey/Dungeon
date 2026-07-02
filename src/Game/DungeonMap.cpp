@@ -41,6 +41,9 @@ DungeonMap::DungeonMap(const std::string& path) {
 		int x, z;
 		bool hasWall;
 		Direction wall;
+		bool lit = true;
+		float brightness = kSconceBrightness;
+		float turbidity = kSconceTurbidity;
 	};
 	std::vector<RawSconce> rawSconces;
 
@@ -102,12 +105,31 @@ DungeonMap::DungeonMap(const std::string& path) {
 					  std::format("fixture out of bounds or in solid rock: \"{}\" in {}",
 								  record, path));
 			if (tok[1] == "sconce") {
+				// fixture sconce <x> <z> [facing] [lit=0|1] [bright=<cells>] [turb=<f>]
 				RawSconce rs{fx, fz, false, Direction::North};
-				if (tok.size() >= 5) {
-					DN_ASSERT(ParseDirection(tok[4], rs.wall),
-							  std::format("bad sconce facing \"{}\": \"{}\" in {}",
-										  tok[4], record, path));
-					rs.hasWall = true;
+				const auto num = [&](std::string_view t) {
+					float v = 0.0f;
+					std::from_chars(t.data(), t.data() + t.size(), v);
+					return v;
+				};
+				for (size_t i = 4; i < tok.size(); ++i) {
+					Direction d;
+					if (ParseDirection(tok[i], d)) {
+						rs.wall = d;
+						rs.hasWall = true;
+						continue;
+					}
+					const size_t eq = tok[i].find('=');
+					DN_ASSERT(eq != std::string_view::npos,
+							  std::format("expected facing or key=value, got \"{}\": \"{}\" in {}",
+										  tok[i], record, path));
+					const std::string_view key = tok[i].substr(0, eq), val = tok[i].substr(eq + 1);
+					if (key == "lit") rs.lit = !(val == "0" || val == "false");
+					else if (key == "bright") rs.brightness = num(val);
+					else if (key == "turb") rs.turbidity = num(val);
+					else
+						DN_ASSERT(false, std::format("unknown sconce key \"{}\": \"{}\" in {}",
+													 key, record, path));
 				}
 				rawSconces.push_back(rs);
 			} else if (tok[1] == "brazier") {
@@ -169,12 +191,12 @@ DungeonMap::DungeonMap(const std::string& path) {
 					break;
 				}
 		}
-		m_torches.push_back({rs.x, rs.z, wall});
+		m_torches.push_back({rs.x, rs.z, wall, rs.lit, rs.brightness, rs.turbidity});
 	}
 
-	// Fires thicken the air around them (braziers more than sconces).
-	for (const auto& [bx, bz] : m_braziers) AddFireTurbidity(bx, bz, 0.55f);
-	for (const WallSconce& s : m_torches) AddFireTurbidity(s.x, s.z, 0.28f);
+	// Fires thicken the air around them (braziers more than sconces); recomputed
+	// from the authored dusty base + every brazier + every lit sconce's own smoke.
+	RebuildTurbidity();
 
 	log::Info("Loaded map {}: {}x{}, {} torches, {} braziers, {} decorations",
 			  path, m_width, m_height, m_torches.size(), m_braziers.size(),
@@ -280,6 +302,29 @@ void DungeonMap::ParseVariantRecord(const std::string& record, const std::string
 
 // Fires raise the air turbidity of their own square and the squares nearby
 // (smoke hangs around flames). Chebyshev rings: full / half / quarter.
+void DungeonMap::RebuildTurbidity() {
+	// Reset to the authored dusty base ('D' cells = 1.0), then re-add fire smoke.
+	for (size_t i = 0; i < m_turbidity.size(); ++i)
+		m_turbidity[i] = m_dusty[i] ? 1.0f : 0.0f;
+	for (const auto& [bx, bz] : m_braziers) AddFireTurbidity(bx, bz, 0.55f);
+	for (const WallSconce& s : m_torches)
+		if (s.lit) AddFireTurbidity(s.x, s.z, s.turbidity);
+	++m_revision;
+}
+
+bool DungeonMap::SetSconceProps(int x, int z, Direction wall, bool lit, float brightness,
+								float turbidity) {
+	for (WallSconce& s : m_torches)
+		if (s.x == x && s.z == z && s.wall == wall) {
+			s.lit = lit;
+			s.brightness = brightness;
+			s.turbidity = turbidity;
+			RebuildTurbidity(); // bumps Revision()
+			return true;
+		}
+	return false;
+}
+
 void DungeonMap::AddFireTurbidity(int x, int z, float amount) {
 	for (int dz = -2; dz <= 2; ++dz) {
 		for (int dx = -2; dx <= 2; ++dx) {
