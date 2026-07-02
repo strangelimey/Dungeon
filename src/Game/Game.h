@@ -294,6 +294,10 @@ private:
 	std::vector<InspectTarget> m_inspectTargets; // objects at the last inspected cell
 	int m_inspectCellX = 0, m_inspectCellZ = 0;  // that cell (for fixture configs)
 	void OpenInspectorFor(const InspectTarget& t); // routes to the right dialog
+	// Shared tail of the sconce/brazier cases: preview pane + flame overlay + Open.
+	void OpenFixtureInspector(const FixtureInspector::Config& fc,
+							  const std::vector<Direction>& walls,
+							  const DungeonWorld::FixturePreviewData& sp);
 	// The inspector's config for the monster being edited — kept so route-laying can
 	// reopen the inspector (with an updated waypoint count) when it finishes.
 	EntityInspector::Config m_inspectCfg;

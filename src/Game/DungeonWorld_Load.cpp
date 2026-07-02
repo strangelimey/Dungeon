@@ -464,23 +464,29 @@ DungeonWorld::MonsterPreviewData DungeonWorld::MonsterPreviewFor(const std::stri
 	return d;
 }
 
-DungeonWorld::FixturePreviewData DungeonWorld::SconcePreview() const {
+DungeonWorld::FixturePreviewData DungeonWorld::FixturePreview(const PropTextures* tex,
+															  const Vec4& color,
+															  const gfx::Mesh* mesh,
+															  float flameY,
+															  float flameScale) const {
 	FixturePreviewData d;
+	d.flameHeight = flameY;
+	d.flameScale = flameScale;
 	gfx::MaterialParams mat;
-	ApplyPropMaterial(mat, m_sconceTex, m_sconceColor, 0.5f);
+	ApplyPropMaterial(mat, tex, color, 0.5f);
 	if (!mat.albedo) mat.metallic = 1.0f; // flat fallback reads as metal
-	if (m_sconceMesh) d.subs.push_back({m_sconceMesh.get(), mat});
+	if (mesh) d.subs.push_back({mesh, mat});
 	return d;
 }
 
+DungeonWorld::FixturePreviewData DungeonWorld::SconcePreview() const {
+	return FixturePreview(m_sconceTex, m_sconceColor, m_sconceMesh.get(), kSconceFlameY,
+						  kSconceFlameScale);
+}
+
 DungeonWorld::FixturePreviewData DungeonWorld::BrazierPreview() const {
-	FixturePreviewData d;
-	d.flameHeight = 0.72f; // brazier bowl flame origin (see BuildFires)
-	gfx::MaterialParams mat;
-	ApplyPropMaterial(mat, m_brazierTex, m_brazierColor, 0.5f);
-	if (!mat.albedo) mat.metallic = 1.0f;
-	if (m_brazierMesh) d.subs.push_back({m_brazierMesh.get(), mat});
-	return d;
+	return FixturePreview(m_brazierTex, m_brazierColor, m_brazierMesh.get(), kBrazierFlameY,
+						  kBrazierFlameScale);
 }
 
 std::vector<gfx::PreviewSubmesh> DungeonWorld::DecorationPreviewSubs(int index) const {
@@ -1031,11 +1037,11 @@ void DungeonWorld::BuildFires() {
 		fire.lightRadius = sconce.brightness * kCellSize; // "squares" -> metres
 		XMStoreFloat4x4(&fire.world, XMMatrixRotationY(yaw) *
 										 XMMatrixTranslation(m.pos.x, 0, m.pos.z));
-		// Flame local offset (0, 1.78, 0.22) rotated by yaw.
-		fire.flamePos = {m.pos.x + std::sin(yaw) * 0.22f, 1.78f,
+		// Flame local offset (0, kSconceFlameY, 0.22) rotated by yaw.
+		fire.flamePos = {m.pos.x + std::sin(yaw) * 0.22f, kSconceFlameY,
 						 m.pos.z + std::cos(yaw) * 0.22f};
 		fire.phase = static_cast<float>(seed) * 1.7f;
-		fire.effect = FireEffect(fire.flamePos, 0.55f, seed++);
+		fire.effect = FireEffect(fire.flamePos, kSconceFlameScale, seed++);
 		m_fires.push_back(std::move(fire));
 	}
 
@@ -1046,9 +1052,9 @@ void DungeonWorld::BuildFires() {
 		fire.lit = b.lit;
 		fire.lightRadius = b.brightness * kCellSize; // "squares" -> metres
 		XMStoreFloat4x4(&fire.world, XMMatrixTranslation(center.x, 0, center.z));
-		fire.flamePos = {center.x, 0.72f, center.z};
+		fire.flamePos = {center.x, kBrazierFlameY, center.z};
 		fire.phase = static_cast<float>(seed) * 1.7f;
-		fire.effect = FireEffect(fire.flamePos, 1.0f, seed++);
+		fire.effect = FireEffect(fire.flamePos, kBrazierFlameScale, seed++);
 		m_fires.push_back(std::move(fire));
 	}
 	log::Info("Lit {} fires ({} sconces, {} braziers)", m_fires.size(),

@@ -618,7 +618,7 @@ memory.
   out: catalog palette, structural/variant paint, decoration/monster/fixture
   placement, asset-creation dialog with 3D preview + AssetBaker bake, multi-level
   stairs, per-level saves, .map/.ent writers, chunk-local edit rebuilds. Editor
-  next steps: Erase doesn't remove fixtures yet; stair/door placement is authored
-  in .map only (no editor brush); the dialog's material sliders are preview-only
-  for imported models (ORM map drives the real material); a "save to source" UI
-  button (vs the `synctosource` dev command); undo/redo for edits.
+  next steps: stair/door placement is authored in .map only (no editor brush);
+  the dialog's material sliders are preview-only for imported models (ORM map
+  drives the real material); a "save to source" UI button (vs the `synctosource`
+  dev command); undo/redo for edits.

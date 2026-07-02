@@ -247,6 +247,31 @@ map.key.button=Pulsante
 map.key.decoration=Decorazione
 map.key.stairs=Scala
 map.cat.new=+ Nuovo...
+; --- instance inspectors (per-placed object edit dialogs) ---
+map.insp.facing=Orientamento
+; --- entity inspector (per-placed-monster overrides) ---
+map.insp.title=Mostro: {}
+map.insp.tab.ai=IA
+map.insp.tab.patrol=Pattuglia
+map.insp.asleep=Inizia addormentato (imboscata)
+map.insp.leash=Raggio di guinzaglio (celle, 0 = nessuno)
+map.insp.waypoints=Tappe: {}
+map.insp.editroute=Modifica percorso sulla mappa
+map.insp.clearroute=Cancella percorso
+map.insp.saved=Modifiche dell'istanza salvate per "{}"
+map.route.hint=Tracciamento percorso di pattuglia — clicca le celle; Invio: fine, Backspace: annulla
+; --- fixture inspector (per-placed torch/sconce) ---
+map.fix.title=Torcia — cella {}, {}
+map.fix.braziertitle=Braciere — cella {}, {}
+map.fix.lit=Acceso
+map.fix.brightness=Luminosità (celle)
+map.fix.turbidity=Fumosità
+map.fix.torchwall=Torcia (parete: {})
+; --- item/decoration inspector ---
+map.prop.item=Oggetto: {}
+map.prop.deco=Decorazione: {}
+; --- inspect chooser (a cell with more than one editable object) ---
+map.pick.title=Modifica nella cella {}, {}
 
 ; --- asset-creation dialog -------------------------------------------------------
 newasset.title=Nuovo: {}

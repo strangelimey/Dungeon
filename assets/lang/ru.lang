@@ -251,6 +251,31 @@ map.key.button=Кнопка
 map.key.decoration=Декорация
 map.key.stairs=Лестница
 map.cat.new=+ Создать...
+; --- instance inspectors (per-placed object edit dialogs) ---
+map.insp.facing=Направление
+; --- entity inspector (per-placed-monster overrides) ---
+map.insp.title=Монстр: {}
+map.insp.tab.ai=ИИ
+map.insp.tab.patrol=Патруль
+map.insp.asleep=Начинает спящим (засада)
+map.insp.leash=Радиус привязи (ячеек, 0 = без)
+map.insp.waypoints=Точек маршрута: {}
+map.insp.editroute=Редактировать маршрут на карте
+map.insp.clearroute=Очистить маршрут
+map.insp.saved=Настройки экземпляра «{}» сохранены
+map.route.hint=Прокладка маршрута патруля — кликайте по ячейкам; Enter: готово, Backspace: отмена
+; --- fixture inspector (per-placed torch/sconce) ---
+map.fix.title=Факел — ячейка {}, {}
+map.fix.braziertitle=Жаровня — ячейка {}, {}
+map.fix.lit=Горит
+map.fix.brightness=Яркость (ячеек)
+map.fix.turbidity=Дымность
+map.fix.torchwall=Факел (стена: {})
+; --- item/decoration inspector ---
+map.prop.item=Предмет: {}
+map.prop.deco=Декорация: {}
+; --- inspect chooser (a cell with more than one editable object) ---
+map.pick.title=Правка в ячейке {}, {}
 
 ; --- asset-creation dialog -------------------------------------------------------
 newasset.title=Новый: {}

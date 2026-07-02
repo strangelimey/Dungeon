@@ -21,7 +21,6 @@ namespace dungeon::game {
 class FixtureInspector : public InstanceInspector {
 public:
 	struct Config {
-		std::string type;    // fixture kind (for the title)
 		bool brazier = false; // floor brazier (no wall/facing) vs wall torch
 		int x = 0, z = 0;
 		Direction wall = Direction::North; // the wall a torch hangs on (unused for brazier)

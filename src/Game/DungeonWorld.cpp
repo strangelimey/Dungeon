@@ -74,12 +74,10 @@ DungeonWorld::DungeonWorld(gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 				return true;
 			}
 		}
-		for (const FloorBrazier& b : m_map.Braziers()) {
-			if (b.x == x && b.z == z) {
-				m_audio.Play(m_sounds.bump, 0.7f);
-				onMessage(loc::Tr("log.brazier_blocks"));
-				return true;
-			}
+		if (m_map.BrazierAt(x, z)) {
+			m_audio.Play(m_sounds.bump, 0.7f);
+			onMessage(loc::Tr("log.brazier_blocks"));
+			return true;
 		}
 		for (const Decoration& deco : m_decorations) {
 			if (deco.solid && deco.x == x && deco.z == z) {
@@ -142,6 +140,10 @@ void DungeonWorld::EditCell(int x, int z, Cell cell) {
 	const u32 rev = m_map.Revision();
 	m_map.SetCell(x, z, cell);
 	if (m_map.Revision() == rev) return; // unchanged
+	// A structural edit can strand fixtures (buried under a painted wall, or a
+	// sconce whose mount wall just opened up) — prune them with the cell, or the
+	// saved .map would assert on its next load.
+	if (m_map.PruneFixturesForCell(x, z)) RebuildFiresAndDust();
 	MarkSeen(x, z);
 	RebuildChunksAround(x, z);
 }
@@ -1112,21 +1114,17 @@ bool DungeonWorld::SetTorchSettings(int cx, int cz, Direction wall, bool lit, fl
 }
 
 bool DungeonWorld::BrazierAt(int cx, int cz) const {
-	for (const FloorBrazier& b : m_map.Braziers())
-		if (b.x == cx && b.z == cz) return true;
-	return false;
+	return m_map.BrazierAt(cx, cz) != nullptr;
 }
 
 bool DungeonWorld::BrazierSettings(int cx, int cz, bool& lit, float& brightness,
 								   float& turbidity) const {
-	for (const FloorBrazier& b : m_map.Braziers())
-		if (b.x == cx && b.z == cz) {
-			lit = b.lit;
-			brightness = b.brightness;
-			turbidity = b.turbidity;
-			return true;
-		}
-	return false;
+	const FloorBrazier* b = m_map.BrazierAt(cx, cz);
+	if (!b) return false;
+	lit = b->lit;
+	brightness = b->brightness;
+	turbidity = b->turbidity;
+	return true;
 }
 
 bool DungeonWorld::SetBrazierSettings(int cx, int cz, bool lit, float brightness,
@@ -1360,9 +1358,13 @@ void DungeonWorld::BuildAISnapshot() {
 		m_walkableCache->size() != static_cast<size_t>(W) * H) {
 		auto grid = std::make_shared<std::vector<uint8_t>>(
 			static_cast<size_t>(W) * H); // value-initialised to 0
+		// Braziers block like walls (the party bumps them too) — bake them into
+		// the grid so monsters don't path through the fire. Placement/removal
+		// bumps the map Revision, so edits invalidate this cache like any paint.
 		for (int z = 0; z < H; ++z)
 			for (int x = 0; x < W; ++x)
-				(*grid)[static_cast<size_t>(z) * W + x] = m_map.IsWalkable(x, z) ? 1 : 0;
+				(*grid)[static_cast<size_t>(z) * W + x] =
+					(m_map.IsWalkable(x, z) && !m_map.BrazierAt(x, z)) ? 1 : 0;
 		m_walkableCache = std::move(grid);
 		m_walkableRev = m_map.Revision();
 	}
@@ -1490,6 +1492,7 @@ int DungeonWorld::FreeSlotInCell(int x, int z, SizeClass size, int self) const {
 			if (fx < 0 || fz < 0 || fx >= m_map.Width() || fz >= m_map.Height())
 				return -1;
 			if (!m_map.IsWalkable(fx, fz)) return -1;
+			if (m_map.BrazierAt(fx, fz)) return -1; // blocks monsters like the party
 			if (fx == m_party.GridX() && fz == m_party.GridZ()) return -1;
 		}
 	// Mark the slots already taken in this cell. An occupant whose footprint

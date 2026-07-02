@@ -48,6 +48,9 @@ enum class Cell : u8 { Wall, Floor };
 // .map fixture record — only non-default values are serialized).
 inline constexpr float kSconceBrightness = 3.0f; // light reach, in cells
 inline constexpr float kSconceTurbidity = 0.28f; // smokiness added to cell + ring
+// Floor for a fixture record's bright= value: a zero-radius lit light would
+// feed 1/radius = inf into the shadow pass, so the parser clamps up to this.
+inline constexpr float kFixtureMinBrightness = 0.25f;
 
 // A wall-mounted torch sconce: its cell plus the wall it hangs on (the
 // direction from the cell to the solid neighbour it mounts against). Several
@@ -143,10 +146,11 @@ public:
 	}
 
 	// --- live fixture placement (editor) ------------------------------------
-	// A sconce auto-mounts on the first solid neighbour wall (fails if the cell
-	// has none); a brazier stands on the floor cell. Both add their dust and bump
-	// Revision(). Return false on an invalid cell. DungeonWorld rebuilds the
-	// fires/dust after; the .map writer reads these lists, so placements persist.
+	// A sconce auto-mounts on the first FREE solid neighbour wall (fails if the
+	// cell has none left); a brazier stands on the floor cell (one per cell).
+	// Both add their dust and bump Revision(). Return false on an invalid cell.
+	// DungeonWorld rebuilds the fires/dust after; the .map writer reads these
+	// lists, so placements persist.
 	bool AddSconce(int x, int z);
 	bool AddBrazier(int x, int z);
 	// Re-hang the sconce at (x,z) currently on `from` onto `to` (which must be a
@@ -158,9 +162,19 @@ public:
 	bool SetSconceProps(int x, int z, Direction wall, bool lit, float brightness,
 						float turbidity);
 	bool SetBrazierProps(int x, int z, bool lit, float brightness, float turbidity);
-	// Removes a sconce or brazier at (x,z) (sconces first, by any wall). Bumps
-	// Revision() + recomputes turbidity. Returns false if the cell has no fixture.
+	// The brazier standing on (x,z), or null. At most one per cell (AddBrazier
+	// rejects duplicates).
+	const FloorBrazier* BrazierAt(int x, int z) const;
+	// Removes a fixture at (x,z): the brazier first (the centre marker an erase
+	// click aims at), else the first sconce there by any wall. Bumps Revision() +
+	// recomputes turbidity. Returns false if the cell has no fixture.
 	bool RemoveFixtureAt(int x, int z);
+	// After a structural edit at (x,z): a cell painted solid buries the fixtures
+	// standing on it (removed), a wall painted open strands the sconces hanging
+	// on it (re-mounted on a free solid wall like the 'T' glyph, else removed).
+	// Without this the .map writer persists records the loader then asserts on.
+	// Recomputes turbidity + bumps Revision(); true if anything changed.
+	bool PruneFixturesForCell(int x, int z);
 	// Recomputes the whole air-turbidity grid from scratch: the authored dusty base
 	// ('D' cells) plus every LIT brazier and every LIT sconce's own smoke. Called at
 	// load and whenever a fixture's smoke/lit state changes.
@@ -190,6 +204,9 @@ private:
 	void ParseStairRecord(const std::string& record, const std::string& path);
 	void ParseVariantRecord(const std::string& record, const std::string& path);
 	void AddFireTurbidity(int x, int z, float amount);
+	// First solid neighbour wall of (x,z) with no sconce on it yet (the 'T'-glyph
+	// mount rule, skipping occupied walls). False if the cell has no free wall.
+	bool FreeSconceWall(int x, int z, Direction& out) const;
 
 	// Shared body of the variant getters/setters (one grid per surface).
 	int VariantAt(const std::vector<int>& grid, int x, int z) const {

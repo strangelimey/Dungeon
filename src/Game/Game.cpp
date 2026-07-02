@@ -416,40 +416,22 @@ void Game::OpenInspectorFor(const InspectTarget& t) {
 			if (!takenByOther) walls.push_back(d);
 		}
 		FixtureInspector::Config fc;
-		fc.type = "torch";
 		fc.x = cx;
 		fc.z = cz;
 		fc.wall = t.wall;
-		m_world.TorchSettings(cx, cz, t.wall, fc.lit, fc.brightness, fc.turbidity);
-		// Preview: the sconce prop mesh + a flame/smoke overlay when lit.
-		const auto sp = m_world.SconcePreview();
-		PreviewSpec pv;
-		pv.subs = sp.subs;
-		pv.scale = sp.scale;
-		pv.fire = true;
-		pv.flameHeight = sp.flameHeight;
-		pv.showFire = fc.lit;
-		m_previewFire = FireEffect({0.0f, sp.flameHeight * sp.scale, 0.0f}, pv.flameScale, 1234);
-		m_fixtureInspector.Open(fc, walls, std::move(pv));
+		if (!m_world.TorchSettings(cx, cz, t.wall, fc.lit, fc.brightness, fc.turbidity))
+			return; // gone since the picker listed it
+		OpenFixtureInspector(fc, walls, m_world.SconcePreview());
 		break;
 	}
 	case InspectTarget::Kind::Brazier: {
 		FixtureInspector::Config fc;
-		fc.type = "brazier";
 		fc.brazier = true;
 		fc.x = cx;
 		fc.z = cz;
-		m_world.BrazierSettings(cx, cz, fc.lit, fc.brightness, fc.turbidity);
-		const auto sp = m_world.BrazierPreview();
-		PreviewSpec pv;
-		pv.subs = sp.subs;
-		pv.scale = sp.scale;
-		pv.fire = true;
-		pv.flameHeight = sp.flameHeight;
-		pv.flameScale = 1.0f; // braziers burn bigger than sconces
-		pv.showFire = fc.lit;
-		m_previewFire = FireEffect({0.0f, sp.flameHeight * sp.scale, 0.0f}, pv.flameScale, 1234);
-		m_fixtureInspector.Open(fc, /*walls*/ {}, std::move(pv)); // no facing
+		if (!m_world.BrazierSettings(cx, cz, fc.lit, fc.brightness, fc.turbidity))
+			return; // gone since the picker listed it
+		OpenFixtureInspector(fc, /*walls*/ {}, m_world.BrazierPreview()); // no facing
 		break;
 	}
 	case InspectTarget::Kind::Decoration: {
@@ -480,6 +462,21 @@ void Game::OpenInspectorFor(const InspectTarget& t) {
 		break;
 	}
 	}
+}
+
+void Game::OpenFixtureInspector(const FixtureInspector::Config& fc,
+								const std::vector<Direction>& walls,
+								const DungeonWorld::FixturePreviewData& sp) {
+	// Preview: the fixture prop mesh + a flame/smoke overlay when lit.
+	PreviewSpec pv;
+	pv.subs = sp.subs;
+	pv.scale = sp.scale;
+	pv.fire = true;
+	pv.flameHeight = sp.flameHeight;
+	pv.flameScale = sp.flameScale;
+	pv.showFire = fc.lit;
+	m_previewFire = FireEffect({0.0f, sp.flameHeight * sp.scale, 0.0f}, pv.flameScale, 1234);
+	m_fixtureInspector.Open(fc, walls, std::move(pv));
 }
 
 void Game::RegisterDevCommands() {

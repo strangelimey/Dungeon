@@ -283,13 +283,19 @@ public:
 	// right-click force-load and warn instead of aborting on a missing asset).
 	bool MonsterModelAvailable(const std::string& type) const;
 
-	// The wall-sconce prop submesh(es) + resolved material for the fixture inspector's
+	// Fixture flame geometry, shared by the in-world fires (BuildFires) and the
+	// inspector previews so the preview flame sits exactly where the world one
+	// burns: local Y of the flame origin, and the particle-effect scale.
+	static constexpr float kSconceFlameY = 1.78f, kSconceFlameScale = 0.55f;
+	static constexpr float kBrazierFlameY = 0.72f, kBrazierFlameScale = 1.0f;
+	// The fixture prop submesh(es) + resolved material for the fixture inspector's
 	// 3D preview (mesh pointers are stable for the session). `flameHeight` is the
 	// local Y of the flame origin above the base, so the preview can place its fire.
 	struct FixturePreviewData {
 		std::vector<gfx::PreviewSubmesh> subs;
 		float scale = 1.0f;
-		float flameHeight = 1.78f;
+		float flameHeight = kSconceFlameY;
+		float flameScale = kSconceFlameScale;
 	};
 	FixturePreviewData SconcePreview() const;
 	FixturePreviewData BrazierPreview() const; // brazier prop mesh + flame origin
@@ -857,6 +863,10 @@ private:
 	// prop draw (decorations, fires, pillar, monsters).
 	static void ApplyPropMaterial(gfx::MaterialParams& m, const PropTextures* tex,
 								  const Vec4& fallbackColor, float fallbackRoughness);
+	// Shared body of Sconce/BrazierPreview: prop mesh + material + flame origin.
+	FixturePreviewData FixturePreview(const PropTextures* tex, const Vec4& color,
+									  const gfx::Mesh* mesh, float flameY,
+									  float flameScale) const;
 	// Builds an authored model's own GPU resources (one texture per embedded glTF
 	// image, one submesh per primitive with its material) for the multi-material
 	// decoration path.

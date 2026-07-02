@@ -247,6 +247,31 @@ map.key.button=Knopf
 map.key.decoration=Dekoration
 map.key.stairs=Treppe
 map.cat.new=+ Neu...
+; --- instance inspectors (per-placed object edit dialogs) ---
+map.insp.facing=Ausrichtung
+; --- entity inspector (per-placed-monster overrides) ---
+map.insp.title=Monster: {}
+map.insp.tab.ai=KI
+map.insp.tab.patrol=Patrouille
+map.insp.asleep=Schlafend starten (Hinterhalt)
+map.insp.leash=Leinenreichweite (Zellen, 0 = keine)
+map.insp.waypoints=Wegpunkte: {}
+map.insp.editroute=Route auf der Karte bearbeiten
+map.insp.clearroute=Route löschen
+map.insp.saved=Instanz-Überschreibungen für „{}“ gespeichert
+map.route.hint=Patrouillenroute wird gelegt — Zellen anklicken; Eingabe: fertig, Rücktaste: rückgängig
+; --- fixture inspector (per-placed torch/sconce) ---
+map.fix.title=Fackel — Zelle {}, {}
+map.fix.braziertitle=Kohlebecken — Zelle {}, {}
+map.fix.lit=Brennt
+map.fix.brightness=Helligkeit (Felder)
+map.fix.turbidity=Rauchigkeit
+map.fix.torchwall=Fackel (Wand: {})
+; --- item/decoration inspector ---
+map.prop.item=Gegenstand: {}
+map.prop.deco=Dekoration: {}
+; --- inspect chooser (a cell with more than one editable object) ---
+map.pick.title=Bearbeiten bei Zelle {}, {}
 
 ; --- asset-creation dialog -------------------------------------------------------
 newasset.title=Neu: {}
