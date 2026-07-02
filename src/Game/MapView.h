@@ -37,6 +37,7 @@
 #include "UI/Font.h"
 #include "UI/UIContext.h" // ui::Theme
 
+#include <memory>
 #include <string>
 
 namespace dungeon::game {
@@ -62,13 +63,15 @@ public:
 	bool IsOpen() const { return m_open; }
 	Mode CurrentMode() const { return m_mode; }
 
-	// Opens the overlay in `mode`, resetting the view to fit-the-whole-map so
-	// it is predictable each time rather than wherever it was last panned.
+	// Opens the overlay in `mode`, resetting the view to fit-the-whole-map (and
+	// back to the ACTIVE level) so it is predictable each time rather than
+	// wherever it was last panned/browsed.
 	void Open(Mode mode = Mode::Player) {
 		m_open = true;
 		m_mode = mode;
 		m_zoom = 1.0f;
 		m_pan = {0.0f, 0.0f};
+		m_browse.reset();
 	}
 	void Close() { m_open = false; }
 	// The M-key player-map toggle: open in Player mode, or close.
@@ -144,6 +147,23 @@ private:
 	bool LegendCollapsed() const; // the right key dock's collapse flag for the mode
 	void ToggleLegend();          // flips that flag and persists
 
+	// --- level browsing (both modes) -----------------------------------------
+	// The viewport can SHOW a level other than the active one: the [^]/[v]
+	// header arrows step the viewed level through the project's level order (an
+	// edge level hides its dead-direction arrow — nothing above the top level,
+	// nothing below the bottom). Browsing is VIEW-ONLY: the brush, selection,
+	// party marker, and live entity markers are active-level things; a browsed
+	// level draws its static layer + .ent spawns (and, in Player mode, its
+	// stashed fog). m_browse null = viewing the active level (live state).
+	const DungeonMap& ViewedMap() const;
+	const std::string& ViewedLevel() const;
+	// Stem `step` levels away from the VIEWED one in the project's order
+	// ("" = none that way); +1 = below (next stem), -1 = above.
+	std::string LevelNeighbor(int step) const;
+	void StepViewLevel(int step); // rebuilds m_browse (or resets, back on active)
+	gfx::Rect LevelUpButton(const gfx::Rect& panel) const;
+	gfx::Rect LevelDownButton(const gfx::Rect& panel) const;
+
 	gfx::GraphicsDevice& m_device;
 	DungeonWorld& m_world;
 	GameSettings& m_settings; // owns the persisted dock-collapse flags
@@ -164,6 +184,10 @@ private:
 	// indices are resolution-independent, so this is valid across the window-pixel
 	// (Update) / device-pixel (Render) split.
 	int m_hoverX = -1, m_hoverZ = -1;
+
+	// Read-only snapshot of the browsed level (see the level-browsing section
+	// above); null = the viewport shows the active level's live state.
+	std::unique_ptr<DungeonWorld::LevelBrowse> m_browse;
 };
 
 } // namespace dungeon::game

@@ -425,6 +425,22 @@ public:
 	std::vector<MapMarker> MonsterMarkers() const;
 	std::vector<MapMarker> DecorationMarkers() const;
 
+	// A read-only snapshot of ANOTHER level for the map overlay's up/down level
+	// browsing: its static map (the in-session edit stash wins over the file),
+	// its .ent baseline (authored spawns — live/dynamic state exists only for
+	// the active level), and the fog set stashed when the party last left it
+	// (empty = never visited, nothing revealed). Built fresh per switch — two
+	// cheap ASCII parses, no GPU work.
+	struct LevelBrowse {
+		std::string stem;
+		DungeonMap map;
+		DungeonEntities entities;
+		std::vector<u8> seen; // w*h mask like m_seen; empty = nothing revealed
+		LevelBrowse(std::string s, DungeonMap m, const std::string& entPath)
+			: stem(std::move(s)), map(std::move(m)), entities(entPath, map) {}
+	};
+	std::unique_ptr<LevelBrowse> BrowseLevel(const std::string& stem);
+
 	// Writes the active level back to the project's .map + .ent files,
 	// reconstructing records from the live state (grid + variant overrides +
 	// palette/fixtures/stairs + decorations + monsters), so editor edits persist

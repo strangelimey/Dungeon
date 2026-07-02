@@ -483,7 +483,16 @@ instant (the old whole-map RebuildGeometry is gone; BuildDungeonMeshes is the fu
 bake for load/quality-swap). Placement appends to the live world lists (and
 DungeonMap for fixtures), drawn next frame. Markers draw from the LIVE world
 (MonsterMarkers/DecorationMarkers), so placed/erased entities show immediately.
-Edits are in-memory until written: DungeonWorld::SaveLevel reconstructs the .map +
+Both modes can BROWSE other levels: [^]/[v] arrows top-left of the grid step the
+viewed level through the project's level order (an edge level hides its dead-
+direction arrow), with the stem labelled beside them (accent color = not the
+party's level). Browsing is VIEW-ONLY — a browsed level draws a read-only
+snapshot (DungeonWorld::BrowseLevel: static map with the edit stash winning
+over the file, .ent spawns, and in Player mode the stashed fog — a never-
+visited level shows nothing); the brush/selection/party/live markers are
+active-level only, and the view snaps back to live if the party arrives on the
+browsed level. Edits are in-memory until written: DungeonWorld::SaveLevel
+reconstructs the .map +
 .ent from live state (dev console `savemap`), and `synctosource` copies the
 project to the git source tree. Unsaved STATIC edits survive level swaps
 in-session: BeginLevelLoad stashes the leaving level's DungeonMap (live

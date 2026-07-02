@@ -476,6 +476,26 @@ bool DungeonWorld::RemoveStairAt(int x, int z) {
 	return true;
 }
 
+std::unique_ptr<DungeonWorld::LevelBrowse> DungeonWorld::BrowseLevel(
+	const std::string& stem) {
+	const auto stash = m_levelMaps.find(stem);
+	auto browse = std::make_unique<LevelBrowse>(
+		stem,
+		stash != m_levelMaps.end() ? DungeonMap(stash->second)
+								   : DungeonMap(m_project.LevelMapPath(stem)),
+		m_project.LevelEntPath(stem));
+	// Fog: the cell list stashed when the party last left the level, spread into
+	// the same w*h mask shape IsSeen reads (left empty for a never-visited level).
+	if (const auto st = m_levelStates.find(stem); st != m_levelStates.end()) {
+		const int w = browse->map.Width(), h = browse->map.Height();
+		browse->seen.assign(static_cast<size_t>(w) * h, 0);
+		for (const auto& [x, z] : st->second.seen)
+			if (x >= 0 && z >= 0 && x < w && z < h)
+				browse->seen[static_cast<size_t>(z) * w + x] = 1;
+	}
+	return browse;
+}
+
 std::vector<DungeonWorld::MapMarker> DungeonWorld::MonsterMarkers() const {
 	std::vector<MapMarker> markers;
 	markers.reserve(m_monsters.size());

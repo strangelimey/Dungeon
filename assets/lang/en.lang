@@ -288,6 +288,7 @@ map.stairs.nodown=No level below for stairs down
 map.stairs.nopair=The stairs catalog has no opposite-direction type to pair with
 map.stairs.destblocked=Cell {}, {} on '{}' is blocked — clear it first
 map.stairs.removed=Removed the stairs and their pair on '{}'
+map.level.viewonly=Viewing another level — edits work on the party's level
 map.key=Key
 map.key.party=Party
 map.key.start=Start
