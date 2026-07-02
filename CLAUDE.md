@@ -486,21 +486,28 @@ DungeonMap for fixtures), drawn next frame. Markers draw from the LIVE world
 Both modes can BROWSE other levels: [^]/[v] arrows top-left of the grid step the
 viewed level through the project's level order (an edge level hides its dead-
 direction arrow), with the stem labelled beside them (accent color = not the
-party's level). Browsing is VIEW-ONLY — a browsed level draws a read-only
-snapshot (DungeonWorld::BrowseLevel: static map with the edit stash winning
-over the file, .ent spawns, and in Player mode the stashed fog — a never-
-visited level shows nothing); the brush/selection/party/live markers are
-active-level only, and the view snaps back to live if the party arrives on the
-browsed level. Edits are in-memory until written: DungeonWorld::SaveLevel
-reconstructs the .map +
-.ent from live state (dev console `savemap`), and `synctosource` copies the
-project to the git source tree. Unsaved STATIC edits survive level swaps
-in-session: BeginLevelLoad stashes the leaving level's DungeonMap (live
-decoration placements synced back into its records first) into m_levelMaps —
-the static twin of the dynamic m_levelStates — and a stashed map wins over the
-file on re-entry; `savemap` stays the only disk write (the stairs brush's
-cross-level record append is the one exception, and it patches any stash too).
-All overlay text goes through Loc (map.* keys).
+party's level). A browsed level draws a read-only snapshot
+(DungeonWorld::BrowseLevel: static map with the edit stash winning over the
+file, .ent records ditto, and in Player mode the stashed fog — a never-visited
+level shows nothing); the selection/party/live markers are active-level only,
+and the view snaps back to live if the party arrives on the browsed level. In
+EDITOR mode the brush EDITS the browsed level too (the editor edits ANY level):
+MapEditor routes those edits to DungeonWorld's remote seam (EditCellRemote /
+EditVariantRemote / Add{Decoration,Monster,Fixture}Remote / EraseRemote /
+AddStairAt), which mutates the level's in-memory stashes — m_levelMaps (static;
+also stashed on every level swap so unsaved edits survive, live decoration
+placements synced back into records first) and m_levelEnts (.ent records,
+created on demand; record ids stay stable across removals so the per-id
+dynamic diffs in m_levelStates remain valid) — and MapView rebuilds the browse
+snapshot after each paint. Entering a level consumes its stashes; the Select
+tool's inspectors still need the level active (no live instances remotely).
+Stairs are one cross-level op for any viewed level: each half lands on the
+live map when its side is the active level (prop too), else in that level's
+stash. Edits persist via the dev console `savemap` =
+DungeonWorld::SaveAllLevels (the active level from live state + every stashed
+level from its records; an untouched .ent is not rewritten), and
+`synctosource` copies the project to the git source tree. All overlay text
+goes through Loc (map.* keys).
 
 The editor edits a PROJECT (see "Project & catalogs" below), not hardcoded
 content — adding a category/type is data, not code.

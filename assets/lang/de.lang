@@ -290,7 +290,6 @@ map.stairs.nodown=Keine Ebene darunter für eine Treppe nach unten
 map.stairs.nopair=Der Treppen-Katalog hat keinen Typ in Gegenrichtung als Gegenstück
 map.stairs.destblocked=Zelle {}, {} auf '{}' ist blockiert — erst freiräumen
 map.stairs.removed=Treppe entfernt, samt Gegenstück auf '{}'
-map.level.viewonly=Andere Ebene wird angezeigt — bearbeitet wird die Ebene der Gruppe
 map.key=Legende
 map.key.party=Gruppe
 map.key.start=Start

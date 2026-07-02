@@ -36,6 +36,11 @@ public:
 	DungeonEntities(const std::string& path, const DungeonMap& map);
 
 	const std::vector<Entity>& All() const { return m_entities; }
+	// Appends an editor-authored record (remote-level placement), assigning the
+	// next stable id above every existing one (ids are file-record order and
+	// removals never renumber, so max+1 is always fresh) and inserting at the
+	// by-cell sort position At() binary-searches. Returns the new id.
+	int Add(Entity record);
 	// Mutable lookup by stable spawn id, for the editor's instance inspector
 	// (e.g. editing a placed item's facing). nullptr if no such entity.
 	Entity* MutableById(int id);

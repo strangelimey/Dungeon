@@ -64,7 +64,9 @@ bool MapEditor::CategoryTextureSet(PaletteCat cat) { return CatInfoFor(cat).text
 // palette (Walls/Floors/Ceilings, display names from the project's surface
 // catalogs), or the project's entity catalogs.
 std::vector<MapEditor::PaletteItem> MapEditor::CategoryItems(PaletteCat cat) const {
-	const DungeonMap& map = m_world.Map();
+	// Surface palettes come from the VIEWED level (level browsing edits any
+	// level, and each declares its own palette ids).
+	const DungeonMap& map = m_view.ViewedMap();
 	const Project& proj = m_world.GetProject();
 
 	// A surface palette (list of catalog ids) resolved to display name + swatch.
@@ -184,14 +186,21 @@ bool MapEditor::OnRightClick(float mx, float my, const gfx::Rect& panel) {
 }
 
 void MapEditor::ApplyBrush(int cx, int cz, bool dragging) {
+	// Edit target: the VIEWED level. The active level edits live world state;
+	// a browsed level routes to DungeonWorld's remote seam (its in-memory
+	// stash — see the level-browsing section in MapView.h).
+	const bool remote = m_view.Browsing();
+	const std::string& stem = m_view.ViewedLevel();
+
 	// Laying a patrol route: a click appends the cell as a waypoint instead of
-	// painting the armed brush (a drag doesn't spam duplicates).
+	// painting the armed brush (a drag doesn't spam duplicates). Routes belong
+	// to a LIVE monster, so clicks on a browsed level are ignored.
 	if (m_routeId != 0) {
-		if (!dragging && onRouteWaypoint) onRouteWaypoint(m_routeId, cx, cz);
+		if (!dragging && !remote && onRouteWaypoint) onRouteWaypoint(m_routeId, cx, cz);
 		return;
 	}
 	using SS = DungeonWorld::SurfaceSel;
-	const DungeonMap& map = m_world.Map();
+	const DungeonMap& map = m_view.ViewedMap();
 	auto log = [&](const std::string& s) {
 		if (m_world.onMessage) m_world.onMessage(s);
 	};
@@ -199,18 +208,36 @@ void MapEditor::ApplyBrush(int cx, int cz, bool dragging) {
 	switch (m_sel.cat) {
 	case PaletteCat::Structure: {
 		const Cell target = m_sel.index == 0 ? Cell::Wall : Cell::Floor;
+		if (remote) { // the party is never on a browsed level — no trap check
+			m_world.EditCellRemote(stem, cx, cz, target);
+			break;
+		}
 		const Party& party = m_world.GetParty();
 		const bool wouldTrapParty = target == Cell::Wall && cx == party.GridX() &&
 									cz == party.GridZ();
 		if (!wouldTrapParty) m_world.EditCell(cx, cz, target);
 		break;
 	}
-	case PaletteCat::Walls:    m_world.EditVariant(cx, cz, SS::Wall, m_sel.index); break;
-	case PaletteCat::Floors:   m_world.EditVariant(cx, cz, SS::Floor, m_sel.index); break;
-	case PaletteCat::Ceilings: m_world.EditVariant(cx, cz, SS::Ceiling, m_sel.index); break;
+	case PaletteCat::Walls:
+	case PaletteCat::Floors:
+	case PaletteCat::Ceilings: {
+		const SS sel = m_sel.cat == PaletteCat::Walls    ? SS::Wall
+					   : m_sel.cat == PaletteCat::Floors ? SS::Floor
+														 : SS::Ceiling;
+		if (remote) m_world.EditVariantRemote(stem, cx, cz, sel, m_sel.index);
+		else m_world.EditVariant(cx, cz, sel, m_sel.index);
+		break;
+	}
 	case PaletteCat::Tools: {
 		if (dragging) break; // tools act on a single click, not a stroke
 		if (m_sel.index == 0) { // Select: report the cell's contents
+			if (remote) {
+				// No live instances on a browsed level — report the static base
+				// only; the inspectors need the level active.
+				log(loc::Format("map.select.contents", cx, cz,
+								map.At(cx, cz) == Cell::Wall ? "wall" : "floor"));
+				break;
+			}
 			const char* base = map.At(cx, cz) == Cell::Wall ? "wall" : "floor";
 			int props = 0;
 			for (const auto& m : m_world.DecorationMarkers())
@@ -233,6 +260,10 @@ void MapEditor::ApplyBrush(int cx, int cz, bool dragging) {
 			m_selInspectable = inspectable;
 			if (reclick && onInspect) onInspect(cx, cz);
 		} else { // Erase: remove a runtime entity, then a fixture, else reset surfaces
+			if (remote) { // the stash-side ladder messages for itself
+				m_world.EraseRemote(stem, cx, cz);
+				break;
+			}
 			if (m_world.RemoveStairAt(cx, cz)) {
 				// stairs message themselves (they name the paired level's cleanup)
 			} else if (m_world.RemoveEntityAt(cx, cz) || m_world.RemoveFixtureAt(cx, cz)) {
@@ -255,11 +286,14 @@ void MapEditor::ApplyBrush(int cx, int cz, bool dragging) {
 		const std::string& id = items[m_sel.index].id;
 		bool ok = false;
 		if (m_sel.cat == PaletteCat::Monsters)
-			ok = m_world.AddMonster(id, cx, cz, Direction::South);
+			ok = remote ? m_world.AddMonsterRemote(stem, id, cx, cz)
+						: m_world.AddMonster(id, cx, cz, Direction::South);
 		else if (m_sel.cat == PaletteCat::Fixtures)
-			ok = m_world.AddFixture(id, cx, cz);
+			ok = remote ? m_world.AddFixtureRemote(stem, id, cx, cz)
+						: m_world.AddFixture(id, cx, cz);
 		else
-			ok = m_world.AddDecoration(id, cx, cz, Direction::South);
+			ok = remote ? m_world.AddDecorationRemote(stem, id, cx, cz)
+						: m_world.AddDecoration(id, cx, cz, Direction::South);
 		log(loc::Format(ok ? "map.place.done" : "map.place.blocked",
 						items[m_sel.index].label));
 		break;
@@ -268,9 +302,10 @@ void MapEditor::ApplyBrush(int cx, int cz, bool dragging) {
 		if (dragging) break; // placement is a single click
 		const std::vector<PaletteItem> items = CategoryItems(m_sel.cat);
 		if (m_sel.index < 0 || m_sel.index >= static_cast<int>(items.size())) break;
-		// AddStair does all the messaging itself (success names the paired
-		// level; each failure mode has its own specific line).
-		m_world.AddStair(items[m_sel.index].id, cx, cz);
+		// One entry for any viewed level (each side lands live or in a stash);
+		// it does all the messaging itself (success names the paired level;
+		// each failure mode has its own specific line).
+		m_world.AddStairAt(stem, items[m_sel.index].id, cx, cz);
 		break;
 	}
 	default: { // Doors/Items — placement wiring lands later

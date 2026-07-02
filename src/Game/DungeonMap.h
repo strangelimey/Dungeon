@@ -193,6 +193,17 @@ public:
 	void SetDecorationRecords(std::vector<Entity> records) {
 		m_decorations = std::move(records);
 	}
+	// Record-level decoration edits, for REMOTE-level editing (a non-active
+	// level has no live instances — its stash's records are the truth).
+	void AddDecorationRecord(Entity record) {
+		m_decorations.push_back(std::move(record));
+	}
+	// Removes the first decoration record on (x,z) (the erase tool: one per
+	// click, like the live path). False if the cell has none.
+	bool RemoveDecorationRecordAt(int x, int z);
+	// Removes every decoration record on (x,z) (a cell painted solid buries
+	// them all). Returns the number removed.
+	size_t RemoveDecorationRecordsAt(int x, int z);
 
 	// Stair/portal links from the .map "stairs" records (P6 multi-level).
 	const std::vector<StairLink>& Stairs() const { return m_stairs; }

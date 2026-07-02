@@ -397,22 +397,48 @@ public:
 	// true if something was removed.
 	bool RemoveEntityAt(int x, int z);
 
-	// Places a stair (stairs.cat id; its `up` field picks the level above or
-	// below in the project's level order) and AUTO-AUTHORS the paired return
-	// stair at the same cell of that destination level: appended to its .map
-	// file on disk (the destination isn't loaded) and, when that level was
-	// visited this session, to its stashed static map too (the stash wins over
-	// the file on re-entry — see m_levelMaps). Each stair's dest is the other's
-	// cell, so the party arrives standing on the counterpart. Validates the
-	// destination cell first (walkable, no stair, no brazier — against both the
-	// file and any stash) and refuses with a specific onMessage line otherwise;
-	// all feedback (success too) goes through onMessage. The ACTIVE level's
-	// half lives in the map (stash-carried across swaps, `savemap` to disk).
-	bool AddStair(const std::string& type, int x, int z);
-	// Removes the stair at (x,z): the link, its prop, and the paired return
-	// stair's record in the destination level's .map file (matched by cell +
-	// back-link). False if the cell has no stair.
+	// Places a stair on level `stem` (stairs.cat id; its `up` field picks the
+	// level above or below in the project's level order) and AUTO-AUTHORS the
+	// paired return stair at the same cell of that destination level. Either
+	// side lands on the ACTIVE level's live map (prop placed too) when it is
+	// the active level, else on the level's in-memory stash (created from the
+	// file on first edit; a stash wins over the file on entry, and `savemap`
+	// writes every stashed level). Each stair's dest is the other's cell, so
+	// the party arrives standing on the counterpart. Validates both cells
+	// (walkable, no stair, no brazier) against their authoritative maps and
+	// refuses with a specific onMessage line otherwise; all feedback (success
+	// too) goes through onMessage.
+	bool AddStairAt(const std::string& stem, const std::string& type, int x, int z);
+	// Removes the ACTIVE level's stair at (x,z): the link, its prop, and the
+	// paired return stair on its destination (live or stash — see
+	// RemovePairedStair). False if the cell has no stair. The remote-level
+	// counterpart is the stair rung of EraseRemote.
 	bool RemoveStairAt(int x, int z);
+
+	// --- remote level editing (the map overlay edits ANY level) --------------
+	// Counterparts of the live editing seam for a NON-ACTIVE level `stem`:
+	// they operate on the level's in-memory stashes (see m_levelMaps /
+	// m_levelEnts) — no geometry or live-instance work, since the level isn't
+	// simulated or rendered in 3D. Feedback goes through onMessage like the
+	// live seam. `savemap` (SaveAllLevels) persists the stashes.
+	void EditCellRemote(const std::string& stem, int x, int z, Cell cell);
+	void EditVariantRemote(const std::string& stem, int x, int z, SurfaceSel sel,
+						   int variant);
+	bool AddDecorationRemote(const std::string& stem, const std::string& type,
+							 int x, int z);
+	bool AddMonsterRemote(const std::string& stem, const std::string& type,
+						  int x, int z);
+	bool AddFixtureRemote(const std::string& stem, const std::string& type,
+						  int x, int z);
+	// The erase ladder for a remote cell, mirroring the live tool: stair (pair
+	// removed too) → one monster record → one decoration record → fixture →
+	// reset the cell's surface variants. Always acts (the last rung is a
+	// reset), messaging what it did.
+	void EraseRemote(const std::string& stem, int x, int z);
+
+	// Saves every level with unsaved edits: the active one (SaveLevel) plus
+	// each stashed level (WriteStashedLevel). Returns the stems written.
+	std::vector<std::string> SaveAllLevels();
 
 	// A live entity's cell + type, for the map overlay (placed/erased entities
 	// show immediately, and the marker can label its type + stack count). Built
@@ -438,6 +464,8 @@ public:
 		std::vector<u8> seen; // w*h mask like m_seen; empty = nothing revealed
 		LevelBrowse(std::string s, DungeonMap m, const std::string& entPath)
 			: stem(std::move(s)), map(std::move(m)), entities(entPath, map) {}
+		LevelBrowse(std::string s, DungeonMap m, DungeonEntities e)
+			: stem(std::move(s)), map(std::move(m)), entities(std::move(e)) {}
 	};
 	std::unique_ptr<LevelBrowse> BrowseLevel(const std::string& stem);
 
@@ -1189,16 +1217,51 @@ private:
 	// in m_seen/m_monsters). Stashed on leave, restored on return; the source for
 	// a multi-level save (CaptureState) and filled by a load (ApplyState).
 	std::flat_map<std::string, SaveData::LevelState> m_levelStates;
-	// STATIC layer of inactive visited levels — the static twin of m_levelStates,
-	// so UNSAVED editor edits (cells, variants, fixtures, stairs, decorations)
+	// STATIC layer of inactive levels — the static twin of m_levelStates, so
+	// UNSAVED editor edits (cells, variants, fixtures, stairs, decorations)
 	// survive a level swap in memory instead of being dropped by the disk
-	// re-parse; `savemap` stays the only disk write for the active level.
-	// Stashed on leave (StashStaticMap), consumed on entry (BeginLevelLoad).
-	std::flat_map<std::string, DungeonMap> m_levelMaps;
+	// re-parse. Stashed on leave (StashStaticMap), consumed on entry
+	// (BeginLevelLoad), CREATED ON DEMAND by remote-level editing
+	// (EnsureMapStash — the map overlay can edit any level, not just the active
+	// one). unique_ptr so references survive sibling insertions. `savemap`
+	// (SaveAllLevels) writes every stashed level back to its files.
+	std::flat_map<std::string, std::unique_ptr<DungeonMap>> m_levelMaps;
+	// The .ent-record twin of m_levelMaps: baseline records of inactive levels
+	// whose RECORDS were edited (remote placements/erases, or active-level
+	// prunes carried out by structural paints). Record ids are stable across
+	// removals, so m_levelStates' per-id dynamic diffs stay valid against a
+	// stashed baseline. Only edited levels get an entry (m_entsDirty tracks the
+	// active level) — an untouched .ent file is never rewritten.
+	std::flat_map<std::string, std::unique_ptr<DungeonEntities>> m_levelEnts;
+	// The active level's m_entities records diverged from the .ent file on disk
+	// (a prune/re-face edited them); stash them on leave so the divergence
+	// survives the swap and savemap writes it.
+	bool m_entsDirty = false;
 	// Copies the active map into m_levelMaps, first syncing the live decoration
 	// placements back into its records (AddDecoration only appends a live
 	// instance; LoadDecorations rebuilds from records on return).
 	void StashStaticMap();
+	// The stash for `stem`, parsing the level's files on first use. The map
+	// variant also creates nothing else; the ents variant needs the map for
+	// record validation (soft: stale records skip with a warning). Never call
+	// for the ACTIVE level (its truth is m_map/m_entities).
+	DungeonMap& EnsureMapStash(const std::string& stem);
+	DungeonEntities& EnsureEntStash(const std::string& stem);
+	// Removes the paired return stair that `removed` (just taken off level
+	// `fromStem`) points at: on the live map when that side is the active level
+	// (prop erased too), else on its stash. Matched by cell + back-link, so a
+	// hand-authored one-way link is left alone. True if a pair was removed.
+	bool RemovePairedStair(const std::string& fromStem, const StairLink& removed);
+	// The record-level twin of PruneEntitiesForCell for a STASHED level: a cell
+	// painted solid buries the records standing on it (stairs via the pair
+	// helper); one painted open re-faces neighbouring button records onto
+	// another solid wall of their cell (or drops them). Wall-mounted decoration
+	// records are left to the soft loaders (skip + warn) — they re-resolve on
+	// the next entry.
+	void PruneStashRecordsForCell(const std::string& stem, int x, int z);
+	// Serializes a stashed level back to its .map (+ .ent when its records were
+	// edited). The static writer is shared with SaveLevel.
+	bool WriteStashedLevel(const std::string& stem) const;
 
 	std::vector<Fire> m_fires;
 	std::unique_ptr<gfx::Mesh> m_sconceMesh;

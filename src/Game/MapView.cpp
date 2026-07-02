@@ -300,18 +300,21 @@ bool MapView::Update(const Input& input, const gfx::Rect& panel) {
 	// Editor painting over the grid: a fresh press always acts; holding paints a
 	// stroke for the structural/surface brushes (MapEditor ignores drags for the
 	// click-only Select/Erase tools and entity placement). The Edit* calls no-op
-	// on unchanged cells, so a held stroke over one cell is cheap. Browsing
-	// another level is VIEW-ONLY — every edit path targets the ACTIVE level's
-	// live state, so the brush is disabled until the view returns to it.
-	if (editor && m_editor && overGrid && !m_browse) {
+	// on unchanged cells, so a held stroke over one cell is cheap. On a BROWSED
+	// level the brush routes to the level's stash (MapEditor reads ViewedLevel);
+	// the snapshot is rebuilt after a paint so the edit draws next frame (pure
+	// in-memory copies — no file IO).
+	if (editor && m_editor && overGrid) {
 		int cx, cz;
-		if (input.WasMousePressed(MouseButton::Left) && CellAt(mx, my, panel, cx, cz))
+		bool painted = false;
+		if (input.WasMousePressed(MouseButton::Left) && CellAt(mx, my, panel, cx, cz)) {
 			m_editor->Paint(cx, cz, /*dragging*/ false);
-		else if (input.IsMouseDown(MouseButton::Left) && CellAt(mx, my, panel, cx, cz))
+			painted = true;
+		} else if (input.IsMouseDown(MouseButton::Left) && CellAt(mx, my, panel, cx, cz)) {
 			m_editor->Paint(cx, cz, /*dragging*/ true);
-	} else if (editor && m_browse && overGrid &&
-			   input.WasMousePressed(MouseButton::Left)) {
-		if (m_world.onMessage) m_world.onMessage(loc::Tr("map.level.viewonly"));
+			painted = true;
+		}
+		if (painted && m_browse) m_browse = m_world.BrowseLevel(m_browse->stem);
 	}
 
 	return panel.Contains(mx, my);
@@ -532,9 +535,10 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 	// the actual selection (which draws opaque below).
 	const bool selHere = m_editor && m_editor->HasSelection() &&
 						 m_editor->SelX() == m_hoverX && m_editor->SelZ() == m_hoverZ;
-	// Both overlays are ACTIVE-level things (the selection cell and the brush
-	// target the live world), so a browsed level draws neither.
-	if (editorHover && !m_browse && m_hoverX >= 0 && !selHere)
+	// The hover ring previews the brush target on any viewed level; the
+	// SELECTION (and its route overlay) is a live-instance thing, so it only
+	// draws on the active level.
+	if (editorHover && m_hoverX >= 0 && !selHere)
 		selOutline(m_hoverX, m_hoverZ, {kSel.x, kSel.y, kSel.z, 0.5f});
 
 	if (m_editor && m_editor->HasSelection() && !m_browse) {

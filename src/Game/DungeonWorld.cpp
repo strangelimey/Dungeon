@@ -165,7 +165,10 @@ void DungeonWorld::PruneEntitiesForCell(int x, int z) {
 					  [&](const Button& b) { return b.x == x && b.z == z; });
 		std::erase_if(m_decorations,
 					  [&](const Decoration& d) { return d.x == x && d.z == z; });
-		m_entities.RemoveAt(x, z); // the .ent baseline records under the new wall
+		// The .ent baseline records under the new wall. Record edits diverge
+		// m_entities from the file on disk — flag it so a level swap stashes
+		// them (see BeginLevelLoad) instead of re-parsing the stale file.
+		if (m_entities.RemoveAt(x, z) > 0) m_entsDirty = true;
 		return;
 	}
 
@@ -190,9 +193,11 @@ void DungeonWorld::PruneEntitiesForCell(int x, int z) {
 			b.facing = d;
 			// The writer emits buttons from their .ent record, so re-face it too.
 			if (Entity* e = m_entities.MutableById(b.id)) e->facing = d;
+			m_entsDirty = true;
 		} else {
 			m_entities.RemoveById(b.id);
 			m_buttons.erase(m_buttons.begin() + static_cast<ptrdiff_t>(i));
+			m_entsDirty = true;
 		}
 	}
 	for (size_t i = m_decorations.size(); i-- > 0;) {
@@ -304,82 +309,46 @@ const char* DirName(Direction d) {
 	}
 }
 
-// True if a .map line is the "stairs" record standing on (x,z) that leads back
-// to `backLevel` — the identity used to find a pair's other half for removal.
-bool IsStairRecordFor(std::string_view line, int x, int z,
-					  const std::string& backLevel) {
-	std::vector<std::string_view> tok;
-	size_t i = 0;
-	while (i < line.size()) {
-		while (i < line.size() && (line[i] == ' ' || line[i] == '\t' ||
-								   line[i] == '\r' || line[i] == '\n'))
-			++i;
-		const size_t start = i;
-		while (i < line.size() && line[i] != ' ' && line[i] != '\t' &&
-			   line[i] != '\r' && line[i] != '\n')
-			++i;
-		if (i > start) tok.push_back(line.substr(start, i - start));
-	}
-	if (tok.size() < 4 || tok[0] != "stairs") return false;
-	if (tok[2] != std::to_string(x) || tok[3] != std::to_string(z)) return false;
-	const std::string back = "dest=" + backLevel;
-	for (const std::string_view t : tok)
-		if (t == back) return true;
-	return false;
-}
-
-bool AppendMapLine(const std::string& path, const std::string& line) {
-	auto bytes = assets::ReadBinaryFile(path);
-	if (!bytes) return false;
-	std::string text(reinterpret_cast<const char*>(bytes->data()), bytes->size());
-	if (!text.empty() && text.back() != '\n') text += '\n';
-	text += line;
-	text += '\n';
-	return assets::WriteBinaryFile(path, text.data(), text.size());
-}
-
-// Removes the first matching stairs record line; false if none matched (a
-// hand-authored one-way link has no pair) or the file could not be rewritten.
-bool RemoveStairRecordLine(const std::string& path, int x, int z,
-						   const std::string& backLevel) {
-	auto bytes = assets::ReadBinaryFile(path);
-	if (!bytes) return false;
-	const std::string text(reinterpret_cast<const char*>(bytes->data()),
-						   bytes->size());
-	std::string out;
-	out.reserve(text.size());
-	bool removed = false;
-	size_t pos = 0;
-	while (pos < text.size()) {
-		const size_t nl = text.find('\n', pos);
-		const size_t end = nl == std::string::npos ? text.size() : nl + 1;
-		const std::string_view line(text.data() + pos, end - pos);
-		if (!removed && IsStairRecordFor(line, x, z, backLevel)) removed = true;
-		else out.append(line);
-		pos = end;
-	}
-	if (!removed) return false;
-	return assets::WriteBinaryFile(path, out.data(), out.size());
-}
-
 } // namespace
 
-bool DungeonWorld::AddStair(const std::string& type, int x, int z) {
+DungeonMap& DungeonWorld::EnsureMapStash(const std::string& stem) {
+	auto it = m_levelMaps.find(stem);
+	if (it == m_levelMaps.end())
+		it = m_levelMaps
+				 .insert_or_assign(stem, std::make_unique<DungeonMap>(
+											 m_project.LevelMapPath(stem)))
+				 .first;
+	return *it->second;
+}
+
+DungeonEntities& DungeonWorld::EnsureEntStash(const std::string& stem) {
+	auto it = m_levelEnts.find(stem);
+	if (it == m_levelEnts.end()) {
+		const DungeonMap& map = EnsureMapStash(stem);
+		it = m_levelEnts
+				 .insert_or_assign(stem, std::make_unique<DungeonEntities>(
+											 m_project.LevelEntPath(stem), map))
+				 .first;
+	}
+	return *it->second;
+}
+
+bool DungeonWorld::AddStairAt(const std::string& stem, const std::string& type,
+							  int x, int z) {
 	auto say = [&](const std::string& s) {
 		if (onMessage) onMessage(s);
 	};
 	const CatalogEntry* entry = m_project.stairs.Find(type);
-	if (!entry || !m_map.IsWalkable(x, z) || m_map.StairAt(x, z) ||
-		m_map.BrazierAt(x, z)) {
-		say(loc::Format("map.place.blocked", CatalogGet(entry, "display", type)));
+	if (!entry) {
+		say(loc::Format("map.place.blocked", type));
 		return false;
 	}
 
 	// The type's direction (stairs.cat `up`) picks the destination: the previous
-	// / next stem in the project's level order (the list is the vertical stack).
+	// / next stem from `stem` in the project's level order (the vertical stack).
 	const bool up = CatalogBool(entry, "up", false);
 	const auto& levels = m_project.levels;
-	const auto cur = std::find(levels.begin(), levels.end(), m_currentLevel);
+	const auto cur = std::find(levels.begin(), levels.end(), stem);
 	std::string dest;
 	if (cur != levels.end()) {
 		if (up && cur != levels.begin()) dest = *(cur - 1);
@@ -402,17 +371,23 @@ bool DungeonWorld::AddStair(const std::string& type, int x, int z) {
 		return false;
 	}
 
-	// The pair lands on the SAME cell one level up/down — validate it against a
-	// parse of that level's file (cheap ASCII load, no GPU work) AND against its
-	// in-session stash when it was visited (unsaved edits there are live state;
-	// both must accept, or a later parse of the written record could assert).
-	const auto stashIt = m_levelMaps.find(dest);
-	const DungeonMap destMap(m_project.LevelMapPath(dest));
-	auto blocked = [&](const DungeonMap& m) {
-		return !m.IsWalkable(x, z) || m.StairAt(x, z) || m.BrazierAt(x, z);
-	};
-	if (blocked(destMap) ||
-		(stashIt != m_levelMaps.end() && blocked(stashIt->second))) {
+	// Each side's authoritative map: the LIVE one for the active level, the
+	// level's stash otherwise (created from the file on first edit). Both
+	// stashes are ensured BEFORE taking references — a flat_map insertion
+	// would invalidate a sibling reference.
+	const bool srcLive = stem == m_currentLevel;
+	const bool dstLive = dest == m_currentLevel;
+	if (!srcLive) EnsureMapStash(stem);
+	if (!dstLive) EnsureMapStash(dest);
+	DungeonMap& src = srcLive ? m_map : *m_levelMaps.find(stem)->second;
+	DungeonMap& dst = dstLive ? m_map : *m_levelMaps.find(dest)->second;
+
+	if (!src.IsWalkable(x, z) || src.StairAt(x, z) || src.BrazierAt(x, z)) {
+		say(loc::Format("map.place.blocked", entry->Display()));
+		return false;
+	}
+	// The pair lands on the SAME cell one level up/down.
+	if (!dst.IsWalkable(x, z) || dst.StairAt(x, z) || dst.BrazierAt(x, z)) {
 		say(loc::Format("map.stairs.destblocked", x, z, dest));
 		return false;
 	}
@@ -424,33 +399,44 @@ bool DungeonWorld::AddStair(const std::string& type, int x, int z) {
 	link.destLevel = dest;
 	link.destX = x;
 	link.destZ = z; // each side arrives standing on its counterpart
+	StairLink pair = link;
+	pair.type = pairType;
+	pair.destLevel = stem;
 
-	// Write the return half to the destination's .map FIRST, so a failed write
-	// leaves no half-made pair to roll back.
-	const std::string record = std::format(
-		"stairs {} {} {} {} dest={} destx={} destz={} destfacing={}", pairType, x,
-		z, DirName(link.destFacing), m_currentLevel, x, z, DirName(link.facing));
-	if (!AppendMapLine(m_project.LevelMapPath(dest), record)) {
-		say(loc::Format("map.stairs.destblocked", x, z, dest));
-		return false;
+	src.AddStair(link);
+	dst.AddStair(pair);
+	// Only a live side has a 3D presence (prop + fog reveal).
+	if (srcLive) {
+		PlaceStairProp(link);
+		MarkSeen(x, z);
 	}
-	// And into the stash, which takes precedence over the file on re-entry.
-	if (stashIt != m_levelMaps.end()) {
-		StairLink pair;
-		pair.type = pairType;
-		pair.x = x;
-		pair.z = z;
-		pair.destLevel = m_currentLevel;
-		pair.destX = x;
-		pair.destZ = z;
-		stashIt->second.AddStair(pair);
+	if (dstLive) {
+		PlaceStairProp(pair);
+		MarkSeen(x, z);
 	}
-
-	m_map.AddStair(link);
-	PlaceStairProp(link);
-	MarkSeen(x, z);
 	say(loc::Format("map.stairs.placed", entry->Display(), dest));
 	return true;
+}
+
+bool DungeonWorld::RemovePairedStair(const std::string& fromStem,
+									 const StairLink& removed) {
+	// The pair stands on `removed`'s destination cell and links back to the
+	// stair's own level+cell; anything else is a hand-authored one-way link.
+	auto matches = [&](const StairLink* s) {
+		return s && s->destLevel == fromStem && s->destX == removed.x &&
+			   s->destZ == removed.z;
+	};
+	if (removed.destLevel == m_currentLevel) {
+		if (!matches(m_map.StairAt(removed.destX, removed.destZ))) return false;
+		m_map.RemoveStair(removed.destX, removed.destZ);
+		std::erase_if(m_decorations, [&](const Decoration& d) {
+			return d.stair && d.x == removed.destX && d.z == removed.destZ;
+		});
+		return true;
+	}
+	DungeonMap& dst = EnsureMapStash(removed.destLevel);
+	if (!matches(dst.StairAt(removed.destX, removed.destZ))) return false;
+	return dst.RemoveStair(removed.destX, removed.destZ);
 }
 
 bool DungeonWorld::RemoveStairAt(int x, int z) {
@@ -459,31 +445,158 @@ bool DungeonWorld::RemoveStairAt(int x, int z) {
 	std::erase_if(m_decorations, [&](const Decoration& d) {
 		return d.stair && d.x == x && d.z == z;
 	});
-	// Take the paired return record out of the destination's .map (matched by
-	// its cell + the dest= back-link; a hand-authored one-way link has none) —
-	// and out of its in-session stash, which wins over the file on re-entry.
-	const bool pair =
-		RemoveStairRecordLine(m_project.LevelMapPath(removed.destLevel),
-							  removed.destX, removed.destZ, m_currentLevel);
-	if (auto it = m_levelMaps.find(removed.destLevel); it != m_levelMaps.end()) {
-		const StairLink* s = it->second.StairAt(removed.destX, removed.destZ);
-		if (s && s->destLevel == m_currentLevel && s->destX == x && s->destZ == z)
-			it->second.RemoveStair(removed.destX, removed.destZ);
-	}
+	const bool pair = RemovePairedStair(m_currentLevel, removed);
 	if (onMessage)
 		onMessage(pair ? loc::Format("map.stairs.removed", removed.destLevel)
 					   : loc::Tr("map.erase.removed"));
 	return true;
 }
 
+// ============================================================================
+// Remote level editing — the map overlay edits ANY level. Every op targets the
+// level's in-memory stashes; `savemap` (SaveAllLevels) persists them.
+// ============================================================================
+void DungeonWorld::EditCellRemote(const std::string& stem, int x, int z,
+								  Cell cell) {
+	DungeonMap& map = EnsureMapStash(stem);
+	const u32 rev = map.Revision();
+	map.SetCell(x, z, cell);
+	if (map.Revision() == rev) return; // unchanged / out of bounds
+	map.PruneFixturesForCell(x, z);
+	PruneStashRecordsForCell(stem, x, z);
+}
+
+void DungeonWorld::EditVariantRemote(const std::string& stem, int x, int z,
+									 SurfaceSel sel, int variant) {
+	DungeonMap& map = EnsureMapStash(stem);
+	if (!map.IsWalkable(x, z)) return; // variants live on floor cells
+	switch (sel) {
+	case SurfaceSel::Wall:    map.SetWallVariant(x, z, variant); break;
+	case SurfaceSel::Floor:   map.SetFloorVariant(x, z, variant); break;
+	case SurfaceSel::Ceiling: map.SetCeilingVariant(x, z, variant); break;
+	}
+}
+
+bool DungeonWorld::AddDecorationRemote(const std::string& stem,
+									   const std::string& type, int x, int z) {
+	DungeonMap& map = EnsureMapStash(stem);
+	if (!map.IsWalkable(x, z) || !m_project.decorations.Contains(type))
+		return false;
+	Entity e;
+	e.kind = EntityKind::Decoration;
+	e.type = type;
+	e.x = x;
+	e.z = z;
+	map.AddDecorationRecord(std::move(e));
+	return true;
+}
+
+bool DungeonWorld::AddMonsterRemote(const std::string& stem,
+									const std::string& type, int x, int z) {
+	DungeonEntities& ents = EnsureEntStash(stem);
+	const DungeonMap& map = *m_levelMaps.find(stem)->second;
+	if (!map.IsWalkable(x, z) || !m_project.monsters.Contains(type)) return false;
+	for (const Entity& e : ents.At(x, z))
+		if (e.kind == EntityKind::Monster) return false; // one monster per cell
+	Entity e;
+	e.kind = EntityKind::Monster;
+	e.type = type;
+	e.x = x;
+	e.z = z;
+	ents.Add(std::move(e));
+	return true;
+}
+
+bool DungeonWorld::AddFixtureRemote(const std::string& stem,
+									const std::string& type, int x, int z) {
+	DungeonMap& map = EnsureMapStash(stem);
+	if (!m_project.fixtures.Contains(type)) return false;
+	const std::string mount =
+		CatalogGet(m_project.fixtures.Find(type), "mount", "floor");
+	// AddSconce/AddBrazier validate the cell themselves (and rebuild the map's
+	// turbidity); the live-only fire/particle rebuild does not apply here.
+	return mount == "wall" ? map.AddSconce(x, z) : map.AddBrazier(x, z);
+}
+
+void DungeonWorld::EraseRemote(const std::string& stem, int x, int z) {
+	auto say = [&](const std::string& s) {
+		if (onMessage) onMessage(s);
+	};
+	DungeonEntities& ents = EnsureEntStash(stem);
+	DungeonMap& map = *m_levelMaps.find(stem)->second;
+
+	StairLink removed;
+	if (map.RemoveStair(x, z, &removed)) {
+		const bool pair = RemovePairedStair(stem, removed);
+		say(pair ? loc::Format("map.stairs.removed", removed.destLevel)
+				 : loc::Tr("map.erase.removed"));
+		return;
+	}
+	for (const Entity& e : ents.At(x, z))
+		if (e.kind == EntityKind::Monster) {
+			ents.RemoveById(e.id);
+			say(loc::Tr("map.erase.removed"));
+			return;
+		}
+	if (map.RemoveDecorationRecordAt(x, z) || map.RemoveFixtureAt(x, z)) {
+		say(loc::Tr("map.erase.removed"));
+		return;
+	}
+	map.SetWallVariant(x, z, -1);
+	map.SetFloorVariant(x, z, -1);
+	map.SetCeilingVariant(x, z, -1);
+	say(loc::Format("map.erase.reset", x, z));
+}
+
+void DungeonWorld::PruneStashRecordsForCell(const std::string& stem, int x,
+											int z) {
+	DungeonEntities& ents = EnsureEntStash(stem);
+	DungeonMap& map = *m_levelMaps.find(stem)->second;
+	if (!map.IsWalkable(x, z)) {
+		// Painted solid: nothing can keep standing on the cell. Stairs go
+		// through the pair helper so the other level's half dies too.
+		StairLink removed;
+		if (map.RemoveStair(x, z, &removed)) RemovePairedStair(stem, removed);
+		map.RemoveDecorationRecordsAt(x, z);
+		ents.RemoveAt(x, z);
+		return;
+	}
+	// Painted open: re-face button records that mounted on this cell onto
+	// another solid wall of their own cell, else drop them (the live prune's
+	// record half; wall-mounted decoration records re-resolve via the soft
+	// loader on the next entry).
+	std::vector<int> dropIds;
+	for (const Entity& e : ents.All()) {
+		if (e.kind != EntityKind::Button) continue;
+		if (e.x + DirDX(e.facing) != x || e.z + DirDZ(e.facing) != z) continue;
+		bool refaced = false;
+		constexpr Direction kScan[4] = {Direction::North, Direction::East,
+										Direction::South, Direction::West};
+		for (const Direction d : kScan)
+			if (!map.IsWalkable(e.x + DirDX(d), e.z + DirDZ(d))) {
+				if (Entity* mut = ents.MutableById(e.id)) mut->facing = d;
+				refaced = true;
+				break;
+			}
+		if (!refaced) dropIds.push_back(e.id);
+	}
+	for (const int id : dropIds) ents.RemoveById(id);
+}
+
 std::unique_ptr<DungeonWorld::LevelBrowse> DungeonWorld::BrowseLevel(
 	const std::string& stem) {
-	const auto stash = m_levelMaps.find(stem);
-	auto browse = std::make_unique<LevelBrowse>(
-		stem,
-		stash != m_levelMaps.end() ? DungeonMap(stash->second)
-								   : DungeonMap(m_project.LevelMapPath(stem)),
-		m_project.LevelEntPath(stem));
+	// Both layers prefer the in-session stash (unsaved edits) over the file.
+	const auto ms = m_levelMaps.find(stem);
+	DungeonMap map = ms != m_levelMaps.end()
+						 ? DungeonMap(*ms->second)
+						 : DungeonMap(m_project.LevelMapPath(stem));
+	const auto es = m_levelEnts.find(stem);
+	auto browse =
+		es != m_levelEnts.end()
+			? std::make_unique<LevelBrowse>(stem, std::move(map),
+											DungeonEntities(*es->second))
+			: std::make_unique<LevelBrowse>(stem, std::move(map),
+											m_project.LevelEntPath(stem));
 	// Fog: the cell list stashed when the party last left the level, spread into
 	// the same w*h mask shape IsSeen reads (left empty for a never-visited level).
 	if (const auto st = m_levelStates.find(stem); st != m_levelStates.end()) {
@@ -519,24 +632,35 @@ void DungeonWorld::BeginLevelLoad(const std::string& stem, bool stashCurrent) {
 	m_device.WaitIdle(); // the GPU may still be reading the old level's meshes
 
 	// Save the level we're leaving so a later return restores its fog/progress
-	// AND its unsaved static edits (skip for a throwaway baseline being
-	// replaced by a save's level).
+	// AND its unsaved edits (skip for a throwaway baseline being replaced by a
+	// save's level). The .ent records stash only when they diverged from disk
+	// (a prune/re-face edited them) — else the file re-parse is identical.
 	if (stashCurrent) {
 		StashActive();
 		StashStaticMap();
+		if (m_entsDirty)
+			m_levelEnts.insert_or_assign(
+				m_currentLevel, std::make_unique<DungeonEntities>(m_entities));
 	}
 
 	// Move-assign the new level into the existing objects (Party holds a
 	// reference to m_map, so the object must persist — only its data changes).
-	// A stashed static map (this session's unsaved editor edits) takes
-	// precedence over the file on disk.
+	// A stashed level (this session's unsaved editor edits) takes precedence
+	// over the files on disk, layer by layer.
 	if (auto it = m_levelMaps.find(stem); it != m_levelMaps.end()) {
-		m_map = std::move(it->second);
+		m_map = std::move(*it->second);
 		m_levelMaps.erase(it);
 	} else {
 		m_map = DungeonMap(m_project.LevelMapPath(stem));
 	}
-	m_entities = DungeonEntities(m_project.LevelEntPath(stem), m_map);
+	if (auto it = m_levelEnts.find(stem); it != m_levelEnts.end()) {
+		m_entities = std::move(*it->second);
+		m_levelEnts.erase(it);
+		m_entsDirty = true; // still diverged from the file; re-stash on leave
+	} else {
+		m_entities = DungeonEntities(m_project.LevelEntPath(stem), m_map);
+		m_entsDirty = false;
+	}
 	m_currentLevel = stem;
 
 	// Reset per-level state. The shared caches (m_monsterKinds, m_decorationKinds,
@@ -578,8 +702,8 @@ void DungeonWorld::StashStaticMap() {
 		}
 		records.push_back(std::move(e));
 	}
-	DungeonMap copy = m_map;
-	copy.SetDecorationRecords(std::move(records));
+	auto copy = std::make_unique<DungeonMap>(m_map);
+	copy->SetDecorationRecords(std::move(records));
 	m_levelMaps.insert_or_assign(m_currentLevel, std::move(copy));
 }
 
@@ -602,11 +726,14 @@ const char* KindName(EntityKind k) {
 }
 } // namespace
 
-bool DungeonWorld::SaveLevel() const {
-	const DungeonMap& map = m_map;
-
-	// --- static layer (.map) ------------------------------------------------
-	std::string m = std::format("; {} — written by the in-game editor.\n\n", m_currentLevel);
+// Serializes a level's static layer (.map). `decoLines` carries the decoration
+// records, pre-serialized by the caller: the ACTIVE level derives them from
+// live instances (SaveLevel), a stashed level already holds them as records
+// (WriteStashedLevel). Everything else lives on the DungeonMap.
+static std::string SerializeMapStatic(const std::string& stem,
+									  const DungeonMap& map,
+									  const std::string& decoLines) {
+	std::string m = std::format("; {} — written by the in-game editor.\n\n", stem);
 	auto palette = [&](const char* surface, const std::vector<std::string>& ids) {
 		if (ids.empty()) return;
 		m += std::format("palette {}", surface);
@@ -663,22 +790,39 @@ bool DungeonWorld::SaveLevel() const {
 				m += std::format("variant ceiling {} {} {}\n", x, z, map.CeilingVariant(x, z));
 		}
 
+	m += decoLines;
+	return m;
+}
+
+// One generic entity record line: kind, type, cell, facing, then the record's
+// key=value params verbatim (a stashed record already carries everything).
+static std::string SerializeRecord(const char* kind, const Entity& e) {
+	std::string line = std::format("{} {} {} {} {}", kind, e.type, e.x, e.z,
+								   DirName(e.facing));
+	for (const auto& [k, v] : e.params) line += std::format(" {}={}", k, v);
+	line += '\n';
+	return line;
+}
+
+bool DungeonWorld::SaveLevel() const {
 	// Decorations reconstructed from the live instances (so editor placements /
 	// removals persist); stair props are skipped — they are stairs records.
+	std::string deco;
 	for (const Decoration& d : m_decorations) {
 		if (d.stair || !d.kind || d.kind->id.empty()) continue;
 		if (d.wallMounted) {
-			m += std::format("decoration {} {} {} wall={}", d.kind->id, d.x, d.z,
-							 DirName(d.wall));
-			if (d.solid) m += " solid=1";
+			deco += std::format("decoration {} {} {} wall={}", d.kind->id, d.x,
+								d.z, DirName(d.wall));
+			if (d.solid) deco += " solid=1";
 		} else {
-			m += std::format("decoration {} {} {} {}", d.kind->id, d.x, d.z,
-							 DirName(d.facing));
+			deco += std::format("decoration {} {} {} {}", d.kind->id, d.x, d.z,
+								DirName(d.facing));
 			if (d.solid != d.kind->solidDefault)
-				m += std::format(" solid={}", d.solid ? 1 : 0);
+				deco += std::format(" solid={}", d.solid ? 1 : 0);
 		}
-		m += '\n';
+		deco += '\n';
 	}
+	std::string m = SerializeMapStatic(m_currentLevel, m_map, deco);
 
 	// --- dynamic layer (.ent) -----------------------------------------------
 	std::string e =
@@ -709,10 +853,7 @@ bool DungeonWorld::SaveLevel() const {
 	// Items/buttons aren't editor-editable yet — carry the loaded records through.
 	for (const Entity& ent : m_entities.All()) {
 		if (ent.kind != EntityKind::Item && ent.kind != EntityKind::Button) continue;
-		e += std::format("{} {} {} {} {}", KindName(ent.kind), ent.type, ent.x, ent.z,
-						 DirName(ent.facing));
-		for (const auto& [k, v] : ent.params) e += std::format(" {}={}", k, v);
-		e += '\n';
+		e += SerializeRecord(KindName(ent.kind), ent);
 	}
 
 	const bool okMap =
@@ -725,6 +866,44 @@ bool DungeonWorld::SaveLevel() const {
 	else
 		log::Warn("Failed to write level {} files", m_currentLevel);
 	return okMap && okEnt;
+}
+
+bool DungeonWorld::WriteStashedLevel(const std::string& stem) const {
+	const auto ms = m_levelMaps.find(stem);
+	if (ms == m_levelMaps.end()) return false;
+	const DungeonMap& map = *ms->second;
+
+	// A stash's decorations are already records (the live-instance sync happens
+	// when the map is stashed / remote edits author records directly).
+	std::string deco;
+	for (const Entity& e : map.Decorations())
+		deco += SerializeRecord("decoration", e);
+
+	const std::string m = SerializeMapStatic(stem, map, deco);
+	bool ok = assets::WriteBinaryFile(m_project.LevelMapPath(stem), m.data(),
+									  m.size());
+
+	// The .ent is rewritten only when its records were edited (a stash exists);
+	// an untouched dynamic layer keeps its file byte-identical.
+	if (const auto es = m_levelEnts.find(stem); es != m_levelEnts.end()) {
+		std::string e = std::format(
+			"; {} — written by the in-game editor (dynamic layer).\n\n", stem);
+		for (const Entity& ent : es->second->All())
+			e += SerializeRecord(KindName(ent.kind), ent);
+		ok &= assets::WriteBinaryFile(m_project.LevelEntPath(stem), e.data(),
+									  e.size());
+	}
+	if (ok) log::Info("Saved stashed level {}", stem);
+	else log::Warn("Failed to write stashed level {} files", stem);
+	return ok;
+}
+
+std::vector<std::string> DungeonWorld::SaveAllLevels() {
+	std::vector<std::string> saved;
+	if (SaveLevel()) saved.push_back(m_currentLevel);
+	for (const auto& [stem, map] : m_levelMaps)
+		if (WriteStashedLevel(stem)) saved.push_back(stem);
+	return saved;
 }
 
 void DungeonWorld::PlacePartyAt(int x, int z, Direction facing) {

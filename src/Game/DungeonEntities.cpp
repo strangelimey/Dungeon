@@ -68,6 +68,16 @@ std::span<const Entity> DungeonEntities::At(int x, int z) const {
 	return {first, last};
 }
 
+int DungeonEntities::Add(Entity record) {
+	int maxId = -1;
+	for (const Entity& e : m_entities) maxId = std::max(maxId, e.id);
+	record.id = maxId + 1;
+	const int key = record.z * m_width + record.x;
+	const auto pos = std::ranges::upper_bound(
+		m_entities, key, {}, [this](const Entity& e) { return e.z * m_width + e.x; });
+	return m_entities.insert(pos, std::move(record))->id;
+}
+
 Entity* DungeonEntities::MutableById(int id) {
 	for (Entity& e : m_entities)
 		if (e.id == id) return &e;

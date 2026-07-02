@@ -687,17 +687,25 @@ void Game::RegisterDevCommands() {
 						   BeginLevelTransition(stem, -1, -1, Direction::South);
 						   m_console.Print("loading " + stem + "...");
 					   });
-	m_console.Register("savemap", "write the active level's .map/.ent to the project",
+	m_console.Register("savemap", "write every edited level's .map/.ent to the project",
 					   [this](const std::vector<std::string>&) {
 						   if (!m_gameLoaded || (m_state != AppState::Playing &&
 												 m_state != AppState::Paused)) {
 							   m_console.Print("savemap only works in-game");
 							   return;
 						   }
-						   if (m_world.SaveLevel())
-							   m_console.Print("saved level: " + m_world.CurrentLevel());
-						   else
+						   // The active level plus every level whose stash holds
+						   // in-memory edits — remote map edits included.
+						   const std::vector<std::string> saved =
+							   m_world.SaveAllLevels();
+						   if (!saved.empty()) {
+							   std::string list;
+							   for (const std::string& s : saved)
+								   list += (list.empty() ? "" : ", ") + s;
+							   m_console.Print("saved levels: " + list);
+						   } else {
 							   m_console.Print("save failed (see log)");
+						   }
 					   });
 	m_console.Register("synctosource",
 					   "copy the active project (edits) into the repo source tree",

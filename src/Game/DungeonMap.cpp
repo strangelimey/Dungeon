@@ -480,6 +480,20 @@ bool DungeonMap::AddBrazier(int x, int z) {
 	return true;
 }
 
+bool DungeonMap::RemoveDecorationRecordAt(int x, int z) {
+	for (size_t i = 0; i < m_decorations.size(); ++i)
+		if (m_decorations[i].x == x && m_decorations[i].z == z) {
+			m_decorations.erase(m_decorations.begin() + static_cast<ptrdiff_t>(i));
+			return true;
+		}
+	return false;
+}
+
+size_t DungeonMap::RemoveDecorationRecordsAt(int x, int z) {
+	return std::erase_if(m_decorations,
+						 [&](const Entity& e) { return e.x == x && e.z == z; });
+}
+
 bool DungeonMap::AddStair(const StairLink& link) {
 	if (!IsWalkable(link.x, link.z) || StairAt(link.x, link.z)) return false;
 	m_stairs.push_back(link);

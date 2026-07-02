@@ -290,7 +290,6 @@ map.stairs.nodown=Nessun livello sotto per una scala in discesa
 map.stairs.nopair=Il catalogo delle scale non ha un tipo in direzione opposta da abbinare
 map.stairs.destblocked=La cella {}, {} su '{}' è bloccata — prima liberala
 map.stairs.removed=Scala rimossa, insieme alla sua coppia su '{}'
-map.level.viewonly=Stai vedendo un altro livello — le modifiche valgono sul livello del gruppo
 map.key=Legenda
 map.key.party=Gruppo
 map.key.start=Inizio

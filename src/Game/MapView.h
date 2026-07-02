@@ -105,6 +105,13 @@ public:
 	// --- shared with MapEditor (the left dock lives partly in each class) ------
 	// The shared icon/label font (one atlas, sized to the panel each frame).
 	ui::Font& Font() { return m_font; }
+	// The level the viewport is SHOWING (the [^]/[v] arrows browse the project's
+	// level order). MapEditor routes the brush by these: the active level edits
+	// live state, any other level edits its in-memory stash (DungeonWorld's
+	// remote seam).
+	bool Browsing() const { return m_browse != nullptr; }
+	const std::string& ViewedLevel() const;
+	const DungeonMap& ViewedMap() const;
 	// The left dock's scrollable body rectangle (below the collapse button +
 	// "Brushes" header), where MapEditor lays out and draws the accordion.
 	gfx::Rect PaletteBody(const gfx::Rect& panel) const;
@@ -151,12 +158,13 @@ private:
 	// The viewport can SHOW a level other than the active one: the [^]/[v]
 	// header arrows step the viewed level through the project's level order (an
 	// edge level hides its dead-direction arrow — nothing above the top level,
-	// nothing below the bottom). Browsing is VIEW-ONLY: the brush, selection,
-	// party marker, and live entity markers are active-level things; a browsed
-	// level draws its static layer + .ent spawns (and, in Player mode, its
-	// stashed fog). m_browse null = viewing the active level (live state).
-	const DungeonMap& ViewedMap() const;
-	const std::string& ViewedLevel() const;
+	// nothing below the bottom). A browsed level draws a read-only snapshot of
+	// its static layer + .ent records (and, in Player mode, its stashed fog);
+	// the selection, party marker, and live entity markers stay active-level.
+	// In EDITOR mode the brush works on a browsed level too — MapEditor routes
+	// those edits to DungeonWorld's remote seam (the level's stash), and Update
+	// rebuilds the snapshot after a paint so the edit shows immediately.
+	// m_browse null = viewing the active level (live state).
 	// Stem `step` levels away from the VIEWED one in the project's order
 	// ("" = none that way); +1 = below (next stem), -1 = above.
 	std::string LevelNeighbor(int step) const;
