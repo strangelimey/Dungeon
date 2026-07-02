@@ -367,8 +367,9 @@ public:
 	// --- map editor seam (driven by MapView) --------------------------------
 	// Paints a cell to a new type, revealing it and rebuilding the affected
 	// surface geometry. Drains the GPU, so it is an interactive edit, not a
-	// per-frame call. Structural only: fixtures, turbidity, and decorations
-	// are not recomputed (matches DungeonMap::SetCell).
+	// per-frame call. Whatever the repaint strands is pruned with it — fixtures
+	// (DungeonMap::PruneFixturesForCell) and dynamic entities / decorations
+	// (PruneEntitiesForCell) — so live state always matches the new grid.
 	void EditCell(int x, int z, Cell cell);
 
 	// Which surface a variant edit targets.
@@ -897,6 +898,13 @@ private:
 	void BuildFires();
 	void BuildTurbidityMap();
 	void RebuildFiresAndDust(); // WaitIdle + rebuild fires + dust (live sconce edits)
+	// A structural repaint strands whatever occupied the cell: painted solid ⇒
+	// remove the monsters/items/buttons/decorations (and their .ent records)
+	// standing on it; painted open ⇒ re-mount or drop the neighbouring buttons /
+	// wall decorations that hung on it. The dynamic-layer sibling of DungeonMap::
+	// PruneFixturesForCell — keeps live state consistent with the grid so
+	// SaveLevel and the level stash never persist a record the loaders reject.
+	void PruneEntitiesForCell(int x, int z);
 
 	// --- per-frame --------------------------------------------------------------
 	void UpdateCamera();

@@ -15,22 +15,37 @@ DungeonEntities::DungeonEntities(const std::string& path, const DungeonMap& map)
 	DN_ASSERT(bytes.has_value(), bytes.error());
 
 	size_t counts[4] = {}; // indexed by EntityKind, for the load log
+	int fileOrder = 0;     // record index in the file, skipped records included
 	for (const std::string& line : ReadLevelLines(*bytes)) {
 		Entity e = ParseEntityRecord(line, path);
 		DN_ASSERT(e.kind != EntityKind::Decoration,
 				  std::format("decorations are static — move \"{}\" to the .map file ({})",
 							  line, path));
-		DN_ASSERT(e.x >= 0 && e.z >= 0 && e.x < map.Width() && e.z < map.Height(),
-				  std::format("entity out of bounds: \"{}\" in {}", line, path));
-		DN_ASSERT(map.IsWalkable(e.x, e.z),
-				  std::format("entity in solid rock: \"{}\" in {}", line, path));
-		if (e.kind == EntityKind::Button) {
+		// Ids number every record in the FILE, not the surviving vector, so a
+		// skipped record never shifts a survivor's id — the level stash and the
+		// save layer diff dynamic state by these ids across re-parses.
+		e.id = fileOrder++;
+		// Placement is checked with a skip + warning, not an assert: the editor
+		// can repaint a record's cell solid (or open a button's mount wall) after
+		// the .ent was written — live state is pruned at edit time (DungeonWorld::
+		// PruneEntitiesForCell), but this file is only rewritten by an explicit
+		// save, and the level stash re-parses it against the EDITED map on
+		// re-entry. A stale record is a normal editor state, not an authoring bug.
+		if (e.x < 0 || e.z < 0 || e.x >= map.Width() || e.z >= map.Height()) {
+			log::Warn("Skipping out-of-bounds entity: \"{}\" in {}", line, path);
+			continue;
+		}
+		if (!map.IsWalkable(e.x, e.z)) {
+			log::Warn("Skipping entity in solid rock: \"{}\" in {}", line, path);
+			continue;
+		}
+		if (e.kind == EntityKind::Button &&
+			map.IsWalkable(e.x + DirDX(e.facing), e.z + DirDZ(e.facing))) {
 			// Buttons mount on a wall: the faced neighbor must be solid.
-			DN_ASSERT(!map.IsWalkable(e.x + DirDX(e.facing), e.z + DirDZ(e.facing)),
-					  std::format("button must face a solid wall: \"{}\" in {}", line, path));
+			log::Warn("Skipping button facing open floor: \"{}\" in {}", line, path);
+			continue;
 		}
 		++counts[static_cast<size_t>(e.kind)];
-		e.id = static_cast<int>(m_entities.size()); // file order = stable save id
 		m_entities.push_back(std::move(e));
 	}
 
@@ -57,6 +72,16 @@ Entity* DungeonEntities::MutableById(int id) {
 	for (Entity& e : m_entities)
 		if (e.id == id) return &e;
 	return nullptr;
+}
+
+// erase_if keeps relative order, so the by-cell sort At() binary-searches holds.
+size_t DungeonEntities::RemoveAt(int x, int z) {
+	return std::erase_if(m_entities,
+						 [&](const Entity& e) { return e.x == x && e.z == z; });
+}
+
+bool DungeonEntities::RemoveById(int id) {
+	return std::erase_if(m_entities, [&](const Entity& e) { return e.id == id; }) > 0;
 }
 
 } // namespace dungeon::game

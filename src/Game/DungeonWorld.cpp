@@ -144,8 +144,73 @@ void DungeonWorld::EditCell(int x, int z, Cell cell) {
 	// sconce whose mount wall just opened up) — prune them with the cell, or the
 	// saved .map would assert on its next load.
 	if (m_map.PruneFixturesForCell(x, z)) RebuildFiresAndDust();
+	// Same for the dynamic layer and decorations: nothing may keep standing on
+	// (or mounting against) the repainted cell — SaveLevel and the level stash
+	// persist live state, and the loaders reject records contradicting the grid.
+	PruneEntitiesForCell(x, z);
 	MarkSeen(x, z);
 	RebuildChunksAround(x, z);
+}
+
+void DungeonWorld::PruneEntitiesForCell(int x, int z) {
+	if (!m_map.IsWalkable(x, z)) {
+		// Cell painted solid: nothing can stand on it any more. Stairs go through
+		// RemoveStairAt so the paired return record on the other level dies too;
+		// that also erases the stair prop, leaving plain decorations to the sweep.
+		if (m_map.StairAt(x, z)) RemoveStairAt(x, z);
+		std::erase_if(m_monsters,
+					  [&](const Monster& m) { return m.x == x && m.z == z; });
+		std::erase_if(m_items, [&](const Item& i) { return i.x == x && i.z == z; });
+		std::erase_if(m_buttons,
+					  [&](const Button& b) { return b.x == x && b.z == z; });
+		std::erase_if(m_decorations,
+					  [&](const Decoration& d) { return d.x == x && d.z == z; });
+		m_entities.RemoveAt(x, z); // the .ent baseline records under the new wall
+		return;
+	}
+
+	// Cell painted open: buttons and wall decorations in the neighbouring cells
+	// that mounted on it hang on air now. Re-mount each on a solid wall of its
+	// own cell, else drop it (the sconce treatment in PruneFixturesForCell).
+	auto solidWall = [&](int cx, int cz, Direction& out) {
+		constexpr Direction kScan[4] = {Direction::North, Direction::East,
+										Direction::South, Direction::West};
+		for (const Direction d : kScan)
+			if (!m_map.IsWalkable(cx + DirDX(d), cz + DirDZ(d))) {
+				out = d;
+				return true;
+			}
+		return false;
+	};
+	for (size_t i = m_buttons.size(); i-- > 0;) {
+		Button& b = m_buttons[i];
+		if (b.x + DirDX(b.facing) != x || b.z + DirDZ(b.facing) != z) continue;
+		Direction d;
+		if (solidWall(b.x, b.z, d)) {
+			b.facing = d;
+			// The writer emits buttons from their .ent record, so re-face it too.
+			if (Entity* e = m_entities.MutableById(b.id)) e->facing = d;
+		} else {
+			m_entities.RemoveById(b.id);
+			m_buttons.erase(m_buttons.begin() + static_cast<ptrdiff_t>(i));
+		}
+	}
+	for (size_t i = m_decorations.size(); i-- > 0;) {
+		Decoration& deco = m_decorations[i];
+		if (!deco.wallMounted) continue;
+		if (deco.x + DirDX(deco.wall) != x || deco.z + DirDZ(deco.wall) != z)
+			continue;
+		Direction d;
+		if (solidWall(deco.x, deco.z, d)) {
+			deco.wall = d;
+			const WallMount m = MountOnWall(deco.x, deco.z, d);
+			XMStoreFloat4x4(&deco.world,
+							XMMatrixRotationY(m.yaw) *
+								XMMatrixTranslation(m.pos.x, 0, m.pos.z));
+		} else {
+			m_decorations.erase(m_decorations.begin() + static_cast<ptrdiff_t>(i));
+		}
+	}
 }
 
 void DungeonWorld::EditVariant(int x, int z, SurfaceSel sel, int variant) {

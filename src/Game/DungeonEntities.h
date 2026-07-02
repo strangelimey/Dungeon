@@ -10,7 +10,12 @@
 //
 // Records are validated against the map at load (in bounds, monsters and
 // items on walkable cells, buttons mounted on a solid wall) and sorted by
-// cell so gameplay can ask "what is in the cell ahead?" via At().
+// cell so gameplay can ask "what is in the cell ahead?" via At(). A record
+// that contradicts the map is SKIPPED with a warning, not a fatal assert:
+// the editor can repaint a cell solid after the .ent was authored (live
+// state is pruned at edit time, but this file is only rewritten by an
+// explicit save, and the level stash re-parses it against the EDITED map on
+// re-entry — see DungeonWorld::PruneEntitiesForCell / BeginLevelLoad).
 // ============================================================================
 #pragma once
 
@@ -25,13 +30,21 @@ namespace dungeon::game {
 
 class DungeonEntities {
 public:
-	// Loads and validates a .ent file; failures are fatal with a clear message.
+	// Loads and validates a .ent file. Syntax failures are fatal with a clear
+	// message; records contradicting the map are skipped with a warning (see
+	// the file banner).
 	DungeonEntities(const std::string& path, const DungeonMap& map);
 
 	const std::vector<Entity>& All() const { return m_entities; }
 	// Mutable lookup by stable spawn id, for the editor's instance inspector
 	// (e.g. editing a placed item's facing). nullptr if no such entity.
 	Entity* MutableById(int id);
+	// Removes every record standing on the cell (an editor paint just buried
+	// it). Survivor ids are untouched. Returns the number removed.
+	size_t RemoveAt(int x, int z);
+	// Removes one record by stable id (a button whose mount wall was opened
+	// with no replacement wall). False if no such record.
+	bool RemoveById(int id);
 
 	// Every entity in one cell (possibly several — an item on a pressure
 	// plate, a monster guarding both).
