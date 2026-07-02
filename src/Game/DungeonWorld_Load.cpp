@@ -180,6 +180,7 @@ void DungeonWorld::AppendLoadTasks(LoadQueue& queue) {
 	queue.Add(loc::Tr("load.decorations"), [this] {
 		LoadDecorations();
 		LoadStairs();
+		LoadDoors(); // after decorations: shares the prop texture/model caches
 	});
 	queue.Add(loc::Tr("load.fires"), [this] {
 		// Resolve the sconce/brazier model + texture through the fixtures catalog
@@ -698,6 +699,12 @@ void DungeonWorld::LoadButtons() {
 		if (const std::string* t = spawn.Param("target")) b.target = *t;
 		m_buttons.push_back(std::move(b));
 	}
+}
+
+void DungeonWorld::LoadDoors() {
+	for (const Entity& spawn : m_entities.All())
+		if (spawn.kind == EntityKind::Door) SpawnDoor(spawn);
+	if (!m_doors.empty()) log::Info("Placed {} doors", m_doors.size());
 }
 
 // True if (x,z) is the party cell or orthogonally adjacent — arm's reach for

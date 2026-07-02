@@ -81,6 +81,7 @@ Entity ParseEntityRecord(std::string_view line, std::string_view where) {
 	else if (tokens[0] == "item") e.kind = EntityKind::Item;
 	else if (tokens[0] == "button") e.kind = EntityKind::Button;
 	else if (tokens[0] == "decoration") e.kind = EntityKind::Decoration;
+	else if (tokens[0] == "door") e.kind = EntityKind::Door;
 	else
 		DN_ASSERT(false, std::format("unknown entity kind \"{}\" in {}", tokens[0], where));
 	e.type = tokens[1];

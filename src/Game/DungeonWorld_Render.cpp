@@ -214,6 +214,30 @@ void DungeonWorld::SubmitSceneGeometry(ID3D12GraphicsCommandList* list,
 		m_renderer.DrawMesh(list, *deco.kind->mesh, deco.world, material);
 	}
 
+	// Doors: a static frame plus the panel sliding sideways into the wall by
+	// openT (smoothstepped so it starts and lands softly). Both draw through
+	// the prop material path, so they bump-map and cast shadows like the
+	// decorations above.
+	for (const Door& door : m_doors) {
+		const Vec3 c = m_map.CellCenter(door.x, door.z);
+		if (!visible({c.x, 1.2f, c.z}, 2.0f)) continue;
+		const XMMATRIX base = XMMatrixRotationY(DirYaw(door.facing)) *
+							  XMMatrixTranslation(c.x, 0, c.z);
+		auto draw = [&](const DecorationKind* kind, const XMMATRIX& world) {
+			if (!kind || !kind->mesh) return;
+			gfx::MaterialParams material;
+			material.doubleSided = true;
+			ApplyPropMaterial(material, kind->tex, kind->color, 0.85f);
+			Mat4 w;
+			XMStoreFloat4x4(&w, world);
+			m_renderer.DrawMesh(list, *kind->mesh, w, material);
+		};
+		draw(door.frame, base);
+		const float t = door.openT;
+		const float slide = (t * t * (3.0f - 2.0f * t)) * 1.8f; // into the wall
+		draw(door.panel, XMMatrixTranslation(slide, 0, 0) * base);
+	}
+
 	// Floor items: the shared carved-stone tablet. RUNES draw per element with
 	// their PBR set (parallax cuts the glyph in) and an element AURA — a faint
 	// emissive the shader concentrates at the silhouette (Fresnel) plus the

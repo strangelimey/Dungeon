@@ -488,6 +488,36 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 						   {c.x + w, c.y - d * h}, kMapBg);
 	}
 
+	// Doors: a bar across the cell, perpendicular to the travel axis (the way
+	// the panel actually spans the doorway). Open doors fade to half alpha so
+	// a shut door reads at a glance. Live list for the active level, .ent
+	// records for a browsed one.
+	{
+		std::vector<DungeonWorld::DoorMarker> doors;
+		if (!m_browse) {
+			doors = m_world.DoorMarkers();
+		} else {
+			for (const Entity& e : m_browse->entities.All())
+				if (e.kind == EntityKind::Door) {
+					const std::string* open = e.Param("open");
+					doors.push_back({e.x, e.z, e.facing, open && *open != "0"});
+				}
+		}
+		for (const auto& d : doors) {
+			if (!CellVisible(d.x, d.z)) continue;
+			const Vec2 c = cellCenter(d.x, d.z);
+			// Travel north-south -> the panel spans east-west (a wide bar).
+			const bool spanX =
+				d.facing == Direction::North || d.facing == Direction::South;
+			const float len = t.cell * 0.38f, thick = t.cell * 0.10f;
+			Vec4 col = kDoor;
+			col.w = d.open ? 0.5f : 1.0f;
+			batch.DrawRect({c.x - (spanX ? len : thick), c.y - (spanX ? thick : len),
+							(spanX ? len : thick) * 2, (spanX ? thick : len) * 2},
+						   col);
+		}
+	}
+
 	// 4) Dynamic entities. Monsters come from the LIVE world list for the active
 	// level, drawn once per cell with a type initial and a stack count when
 	// several share a square. A browsed level has no live state: the editor
@@ -649,6 +679,7 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 				{Sym::Filled, kItem, "map.key.item", true},
 				{Sym::Filled, kButton, "map.key.button", true},
 				{Sym::Filled, kDecoration, "map.key.decoration", true},
+				{Sym::Filled, kDoor, "map.key.door", true},
 				{Sym::Filled, kStair, "map.key.stairs", true},
 			};
 			const gfx::Rect rclip{rd.x + 2, rd.y + 2, rd.w - 4, rd.h - 4};

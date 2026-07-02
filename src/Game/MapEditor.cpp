@@ -79,11 +79,15 @@ std::vector<MapEditor::PaletteItem> MapEditor::CategoryItems(PaletteCat cat) con
 		}
 		return items;
 	};
-	// An entity catalog resolved to display name + swatch + id.
+	// An entity catalog resolved to display name + swatch + id. `hidden = 1`
+	// entries are internal (e.g. the door frame the door types share) — they
+	// resolve by id but never show as placeable.
 	auto catalogItems = [&](const Catalog& catalog, const Vec4& swatch) {
 		std::vector<PaletteItem> items;
-		for (const CatalogEntry& e : catalog.Entries())
+		for (const CatalogEntry& e : catalog.Entries()) {
+			if (CatalogBool(&e, "hidden", false)) continue;
 			items.push_back({e.Display(), swatch, e.id});
+		}
 		return items;
 	};
 
@@ -308,7 +312,20 @@ void MapEditor::ApplyBrush(int cx, int cz, bool dragging) {
 		m_world.AddStairAt(stem, items[m_sel.index].id, cx, cz);
 		break;
 	}
-	default: { // Doors/Items — placement wiring lands later
+	case PaletteCat::Doors: {
+		if (dragging) break; // placement is a single click
+		const std::vector<PaletteItem> items = CategoryItems(m_sel.cat);
+		if (m_sel.index < 0 || m_sel.index >= static_cast<int>(items.size())) break;
+		const std::string& id = items[m_sel.index].id;
+		// AddDoor messages the doorway failure itself (auto-orientation needs
+		// flanking walls); the generic done/blocked line covers the rest.
+		const bool ok = remote ? m_world.AddDoorRemote(stem, id, cx, cz)
+							   : m_world.AddDoor(id, cx, cz);
+		if (ok)
+			log(loc::Format("map.place.done", items[m_sel.index].label));
+		break;
+	}
+	default: { // Items — placement wiring lands later
 		if (dragging) break;
 		const std::vector<PaletteItem> items = CategoryItems(m_sel.cat);
 		if (m_sel.index >= 0 && m_sel.index < static_cast<int>(items.size()))

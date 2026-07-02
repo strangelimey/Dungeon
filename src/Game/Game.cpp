@@ -1761,6 +1761,10 @@ void Game::Update(float dt) {
 				m_heldItem.reset();
 			} else if (auto picked = m_world.TryPickItem(mx, my, w, h)) {
 				m_heldItem = std::move(picked);
+			} else {
+				// No tablet under the cursor: a click reaches for the door on
+				// the cell directly ahead (slide it open / shut).
+				m_world.ToggleDoorAhead();
 			}
 		}
 		// Right-mouse free-look: hold RMB and drag to swing the view. Begin on a

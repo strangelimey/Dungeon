@@ -96,6 +96,11 @@ DungeonWorld::DungeonWorld(gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 			onMessage(loc::Tr("log.brazier_blocks"));
 			return true;
 		}
+		if (const Door* door = DoorAt(x, z); door && !door->open) {
+			m_audio.Play(m_sounds.bump, 0.7f);
+			onMessage(loc::Tr("log.door_blocks"));
+			return true;
+		}
 		for (const Decoration& deco : m_decorations) {
 			if (deco.solid && deco.x == x && deco.z == z) {
 				m_audio.Play(m_sounds.bump, 0.7f);
@@ -129,7 +134,9 @@ DungeonWorld::DungeonWorld(gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	m_projectiles.isBlocked = [this](const Vec3& p) {
 		const int cx = static_cast<int>(std::floor(p.x / kCellSize));
 		const int cz = static_cast<int>(std::floor(p.z / kCellSize));
-		return !m_map.IsWalkable(cx, cz); // wall / off-map stops the item
+		if (!m_map.IsWalkable(cx, cz)) return true; // wall / off-map stops it
+		const Door* door = DoorAt(cx, cz);
+		return door && !door->open; // a closed door stops bolts like a wall
 	};
 	m_projectiles.resolveHit = [this](TargetSide side, const Vec3& p,
 									  const AttackProfile& atk) {
@@ -182,6 +189,7 @@ void DungeonWorld::PruneEntitiesForCell(int x, int z) {
 					  [&](const Button& b) { return b.x == x && b.z == z; });
 		std::erase_if(m_decorations,
 					  [&](const Decoration& d) { return d.x == x && d.z == z; });
+		std::erase_if(m_doors, [&](const Door& d) { return d.x == x && d.z == z; });
 		// The .ent baseline records under the new wall. Record edits diverge
 		// m_entities from the file on disk — flag it so a level swap stashes
 		// them (see BeginLevelLoad) instead of re-parsing the stale file.
@@ -298,12 +306,146 @@ bool DungeonWorld::RemoveEntityAt(int x, int z) {
 			m_monsters.erase(it);
 			return true;
 		}
+	for (auto it = m_doors.begin(); it != m_doors.end(); ++it)
+		if (it->x == x && it->z == z) {
+			// Doors are record-backed: the .ent record goes with the instance.
+			m_entities.RemoveById(it->id);
+			m_entsDirty = true;
+			m_doors.erase(it);
+			return true;
+		}
 	for (auto it = m_decorations.begin(); it != m_decorations.end(); ++it)
 		if (it->x == x && it->z == z && !it->stair) { // stairs: RemoveStairAt only
 			m_decorations.erase(it);
 			return true;
 		}
 	return false;
+}
+
+// ============================================================================
+// Doors. Record-backed (the .ent layer carries them, like items/buttons):
+// placement authors the record AND spawns the live instance, so the writer,
+// the level stash, and remote editing all see one source of truth. Open-state
+// changes are dynamic (save diffs), never written back to the record.
+// ============================================================================
+DungeonWorld::Door* DungeonWorld::DoorAt(int x, int z) {
+	for (Door& d : m_doors)
+		if (d.x == x && d.z == z) return &d;
+	return nullptr;
+}
+
+const DungeonWorld::Door* DungeonWorld::DoorAt(int x, int z) const {
+	for (const Door& d : m_doors)
+		if (d.x == x && d.z == z) return &d;
+	return nullptr;
+}
+
+bool DungeonWorld::DoorwayFacing(const DungeonMap& map, int x, int z,
+								 Direction& out) {
+	if (!map.IsWalkable(x, z)) return false;
+	const bool sidesEW = !map.IsWalkable(x - 1, z) && !map.IsWalkable(x + 1, z);
+	const bool sidesNS = !map.IsWalkable(x, z - 1) && !map.IsWalkable(x, z + 1);
+	if (sidesEW == sidesNS) return false; // open room, or boxed in — no doorway
+	// Walls east+west -> the panel spans them, travel runs north-south.
+	out = sidesEW ? Direction::North : Direction::East;
+	return true;
+}
+
+void DungeonWorld::SpawnDoor(const Entity& record) {
+	Door door;
+	door.id = record.id;
+	door.x = record.x;
+	door.z = record.z;
+	door.facing = record.facing;
+	if (const std::string* n = record.Param("name")) door.name = *n;
+	if (const std::string* o = record.Param("open")) door.initialOpen = *o != "0";
+	door.open = door.initialOpen;
+	door.openT = door.open ? 1.0f : 0.0f;
+	door.panel = &DecorationKindFor(record.type, m_project.doors);
+	door.frame = &DecorationKindFor("door_frame", m_project.doors);
+	m_doors.push_back(std::move(door));
+}
+
+bool DungeonWorld::AddDoor(const std::string& type, int x, int z) {
+	auto say = [&](const std::string& s) {
+		if (onMessage) onMessage(s);
+	};
+	if (!m_project.doors.Contains(type) || DoorAt(x, z)) return false;
+	Direction facing;
+	if (!DoorwayFacing(m_map, x, z, facing)) {
+		say(loc::Tr("map.door.nodoorway"));
+		return false;
+	}
+	// Spawning a CLOSED door under the party or a monster would wall them in.
+	if ((x == m_party.GridX() && z == m_party.GridZ()) ||
+		MonsterRuntimeIdAt(x, z) != 0)
+		return false;
+	Entity record;
+	record.kind = EntityKind::Door;
+	record.type = type;
+	record.x = x;
+	record.z = z;
+	record.facing = facing;
+	record.id = m_entities.Add(record); // Add() assigns; mirror it locally
+	m_entsDirty = true;
+	SpawnDoor(record);
+	MarkSeen(x, z);
+	return true;
+}
+
+bool DungeonWorld::AddDoorRemote(const std::string& stem,
+								 const std::string& type, int x, int z) {
+	DungeonEntities& ents = EnsureEntStash(stem);
+	const DungeonMap& map = *m_levelMaps.find(stem)->second;
+	if (!m_project.doors.Contains(type)) return false;
+	Direction facing;
+	if (!DoorwayFacing(map, x, z, facing)) {
+		if (onMessage) onMessage(loc::Tr("map.door.nodoorway"));
+		return false;
+	}
+	for (const Entity& e : ents.At(x, z))
+		if (e.kind == EntityKind::Door) return false; // one door per cell
+	Entity record;
+	record.kind = EntityKind::Door;
+	record.type = type;
+	record.x = x;
+	record.z = z;
+	record.facing = facing;
+	ents.Add(std::move(record));
+	return true;
+}
+
+bool DungeonWorld::ToggleDoor(Door& door) {
+	// Anything standing in the doorway jams a closing panel.
+	if (door.open && MonsterRuntimeIdAt(door.x, door.z) != 0) {
+		if (onMessage) onMessage(loc::Tr("log.door_jammed"));
+		return false;
+	}
+	door.open = !door.open;
+	if (onMessage)
+		onMessage(loc::Tr(door.open ? "log.door_open" : "log.door_close"));
+	return true;
+}
+
+bool DungeonWorld::ToggleDoorAhead() {
+	const Direction f = static_cast<Direction>(m_party.Facing());
+	Door* door = DoorAt(m_party.GridX() + DirDX(f), m_party.GridZ() + DirDZ(f));
+	if (!door) return false;
+	ToggleDoor(*door);
+	return true; // the click was for the door even if it jammed
+}
+
+void DungeonWorld::ToggleDoorsNamed(const std::string& name) {
+	if (name.empty()) return;
+	for (Door& door : m_doors)
+		if (door.name == name) ToggleDoor(door);
+}
+
+std::vector<DungeonWorld::DoorMarker> DungeonWorld::DoorMarkers() const {
+	std::vector<DoorMarker> markers;
+	markers.reserve(m_doors.size());
+	for (const Door& d : m_doors) markers.push_back({d.x, d.z, d.facing, d.open});
+	return markers;
 }
 
 // ============================================================================
@@ -559,7 +701,7 @@ void DungeonWorld::EraseRemote(const std::string& stem, int x, int z) {
 		return;
 	}
 	for (const Entity& e : ents.At(x, z))
-		if (e.kind == EntityKind::Monster) {
+		if (e.kind == EntityKind::Monster || e.kind == EntityKind::Door) {
 			ents.RemoveById(e.id);
 			say(loc::Tr("map.erase.removed"));
 			return;
@@ -699,6 +841,7 @@ void DungeonWorld::BeginLevelLoad(const std::string& stem, bool stashCurrent) {
 	m_walkableCache.reset(); // force a fresh walkability grid for the new level's map
 	m_items.clear();
 	m_buttons.clear();
+	m_doors.clear();
 	m_decorations.clear();
 	m_fires.clear();
 	m_projectiles.Clear(); // bolts/sparks don't survive a level change
@@ -749,6 +892,7 @@ const char* KindName(EntityKind k) {
 	case EntityKind::Monster:    return "monster";
 	case EntityKind::Button:     return "button";
 	case EntityKind::Decoration: return "decoration";
+	case EntityKind::Door:       return "door";
 	default:                     return "item";
 	}
 }
@@ -878,9 +1022,12 @@ bool DungeonWorld::SaveLevel() const {
 		}
 		e += '\n';
 	}
-	// Items/buttons aren't editor-editable yet — carry the loaded records through.
+	// Items/buttons carry their loaded records through; doors are record-backed
+	// (placement/erase edits m_entities directly), so the records ARE current.
 	for (const Entity& ent : m_entities.All()) {
-		if (ent.kind != EntityKind::Item && ent.kind != EntityKind::Button) continue;
+		if (ent.kind != EntityKind::Item && ent.kind != EntityKind::Button &&
+			ent.kind != EntityKind::Door)
+			continue;
 		e += SerializeRecord(KindName(ent.kind), ent);
 	}
 
@@ -1028,6 +1175,16 @@ void DungeonWorld::Update(const Input& input, float dt, float time, bool acceptI
 	if (acceptInput && !m_pendingFall) m_party.HandleInput(input);
 	m_party.Update(dt);
 
+	// Door panels slide toward their open/shut target (sideways into the wall).
+	constexpr float kDoorSlideSeconds = 0.7f;
+	for (Door& door : m_doors) {
+		const float target = door.open ? 1.0f : 0.0f;
+		if (door.openT < target)
+			door.openT = std::min(target, door.openT + dt / kDoorSlideSeconds);
+		else if (door.openT > target)
+			door.openT = std::max(target, door.openT - dt / kDoorSlideSeconds);
+	}
+
 	// Pit fall sequencing: let the step glide onto the pit play out, then run
 	// the camera drop (PartyEye applies it), then raise the latched transition.
 	if (m_pendingFall) {
@@ -1085,6 +1242,8 @@ bool DungeonWorld::ToggleButtonAt(int x, int z, bool& out) {
 		if (b.x == x && b.z == z) {
 			b.activated = !b.activated;
 			out = b.activated;
+			// The target wiring's first consumer: toggle the doors it names.
+			ToggleDoorsNamed(b.target);
 			return true;
 		}
 	return false;
@@ -1967,6 +2126,11 @@ void DungeonWorld::BuildAISnapshot() {
 	// no invalidation to get wrong.
 	for (const Decoration& deco : m_decorations)
 		if (deco.solid) snap->blocked.insert(deco.z * snap->mapW + deco.x);
+	// Closed doors block like solid decorations — and for the same reason they
+	// live in the per-frame set, not the cached grid: opening one must take
+	// effect on the next snapshot with no revision bookkeeping.
+	for (const Door& door : m_doors)
+		if (!door.open) snap->blocked.insert(door.z * snap->mapW + door.x);
 	for (const Monster& m : m_monsters) {
 		if (!m.Alive()) continue;
 		const int cap = SlotsPerCell(m.kind->size);
@@ -2067,6 +2231,7 @@ int DungeonWorld::FreeSlotInCell(int x, int z, SizeClass size, int self) const {
 			if (!m_map.IsWalkable(fx, fz)) return -1;
 			if (m_map.BrazierAt(fx, fz)) return -1;    // blocks monsters like the party
 			if (SolidDecorationAt(fx, fz)) return -1;  // ditto (statues, crates, ...)
+			if (const Door* d = DoorAt(fx, fz); d && !d->open) return -1; // shut door
 			if (fx == m_party.GridX() && fz == m_party.GridZ()) return -1;
 		}
 	// Mark the slots already taken in this cell. An occupant whose footprint

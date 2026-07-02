@@ -1758,6 +1758,35 @@ assets::ModelData BuildPitCeiling() {
 	return FinishProp(std::move(mesh), {0.42f, 0.40f, 0.38f, 1.0f});
 }
 
+// A doorway frame: two posts bridging the panel opening out to the cell's side
+// walls, plus a lintel filling the space above the opening up to the ceiling.
+// Authored with travel along +Z (the panel plane spans X); placement rotates
+// by the door's facing. The sliding panel is a separate mesh (BuildDoorPanel)
+// so it can move while the frame stays put.
+assets::ModelData BuildDoorFrame() {
+	assets::MeshData mesh;
+	constexpr float kHalfCell = 1.2f, kOpen = 0.85f, kH = 2.1f, kD = 0.14f;
+	AddBox(mesh, {(kOpen + kHalfCell) * 0.5f, kH * 0.5f, 0.0f},
+		   {(kHalfCell - kOpen) * 0.5f, kH * 0.5f, kD});
+	AddBox(mesh, {-(kOpen + kHalfCell) * 0.5f, kH * 0.5f, 0.0f},
+		   {(kHalfCell - kOpen) * 0.5f, kH * 0.5f, kD});
+	AddBox(mesh, {0.0f, (kH + 2.5f) * 0.5f, 0.0f},
+		   {kHalfCell, (2.5f - kH) * 0.5f, kD});
+	return FinishProp(std::move(mesh), {0.50f, 0.48f, 0.45f, 1.0f});
+}
+
+// The door panel filling the frame's opening, with two cross braces so it
+// reads as a built door rather than a plain slab. Slides sideways (+X in
+// authored space, into the neighbouring wall) as the door opens.
+assets::ModelData BuildDoorPanel() {
+	assets::MeshData mesh;
+	constexpr float kOpen = 0.85f, kH = 2.1f;
+	AddBox(mesh, {0.0f, kH * 0.5f, 0.0f}, {kOpen, kH * 0.5f, 0.05f});
+	AddBox(mesh, {0.0f, kH * 0.26f, 0.0f}, {kOpen * 0.96f, 0.07f, 0.075f});
+	AddBox(mesh, {0.0f, kH * 0.74f, 0.0f}, {kOpen * 0.96f, 0.07f, 0.075f});
+	return FinishProp(std::move(mesh), {0.45f, 0.33f, 0.20f, 1.0f});
+}
+
 // Bakes the three worn-block tiers (low/med/high) for one surface texture set,
 // displaced by that texture's packed height map (procedural wear when absent).
 // kind: 0 = wall, 1 = floor, 2 = ceiling. Shared by the full bake and the
@@ -1860,6 +1889,9 @@ bool BakeModels(const std::string& dir, const std::string& texturesDir) {
 	ok &= WriteGltf(BuildStairsDown(), dir + "\\stairs_down.gltf");
 	ok &= WriteGltf(BuildPit(), dir + "\\pit.gltf");
 	ok &= WriteGltf(BuildPitCeiling(), dir + "\\pit_ceiling.gltf");
+	ok &= WriteGltf(BuildDoorFrame(), dir + "\\door_frame.gltf");
+	// door_panel, NOT door: door.gltf is the cosmetic wood_door decoration.
+	ok &= WriteGltf(BuildDoorPanel(), dir + "\\door_panel.gltf");
 
 	ok &= WriteGltf(BuildHumanoid({{0.93f, 0.90f, 0.80f, 1.0f}, 0.85f, 3.2f, 0.0f, 0.12f}),
 					dir + "\\skeleton.gltf");

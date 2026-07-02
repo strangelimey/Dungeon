@@ -501,7 +501,21 @@ created on demand; record ids stay stable across removals so the per-id
 dynamic diffs in m_levelStates remain valid) — and MapView rebuilds the browse
 snapshot after each paint. Entering a level consumes its stashes; the Select
 tool's inspectors still need the level active (no live instances remotely).
-Stairs AND PITS are one cross-level op for any viewed level: each half lands
+DOORS are functional (doors.cat, EntityKind::Door, .ent record `door <type>
+<x> <z> <facing> [name=] [open=1]`): a door fills a DOORWAY cell (solid walls
+flanking exactly one axis — the brush auto-detects the orientation, no facing
+UI) and blocks the party (isOccupied), monsters (AI blocked set + slot checks)
+and projectiles until opened. The panel (door_panel.gltf — door.gltf is the
+COSMETIC decoration, don't collide) slides sideways into the wall (openT anim);
+open it by clicking from the cell in front (Game's world-click falls through
+TryPickItem to ToggleDoorAhead) or via a button whose target= names the door's
+name= (ToggleButtonAt → ToggleDoorsNamed — the button wiring's first consumer).
+Doors are RECORD-BACKED: placement authors the .ent record AND spawns the live
+instance (one truth for writer/stash/remote), open-state diffs ride the save
+like button toggles (kind Door reuses EntityState.activated; "door <id> <open>"
+save lines). doors.cat `hidden = 1` marks internal entries (the shared
+[door_frame]) the palette skips. Stairs AND PITS are one cross-level op for
+any viewed level: each half lands
 on the live map when its side is the active level (prop too), else in that
 level's stash. stairs.cat drives everything per type: `up` (destination
 direction + map-icon arrow), `pair` (the type auto-authored on the destination
@@ -653,12 +667,11 @@ memory.
 - Editor (data-driven, see "Project & catalogs" + the MapView section) is built
   out: catalog palette, structural/variant paint, decoration/monster/fixture
   placement, asset-creation dialog with 3D preview + AssetBaker bake, multi-level
-  stairs, per-level saves, .map/.ent writers, chunk-local edit rebuilds. The
-  Stairs brush places a stair AND auto-authors its return stair at the same cell
-  of the level above/below (stairs.cat `up` field picks direction + the paired
-  type; the pair is appended textually to the destination level's .map on disk,
-  removed again by Erase; DungeonWorld::AddStair/RemoveStairAt) — map icons
-  carry an up/down arrow in both modes. Editor next steps: door placement is
-  authored in .map only (no editor brush); the dialog's material sliders are
-  preview-only for imported models (ORM map drives the real material); a "save
-  to source" UI button (vs the `synctosource` dev command); undo/redo for edits.
+  stairs/pits with auto-authored pairs, functional doors, level browsing +
+  remote editing of any level, per-level saves, .map/.ent writers, chunk-local
+  edit rebuilds (details in the MapView / Project sections above). Editor next
+  steps: item placement (the last "wiring comes next" palette stub); a door
+  inspector (name= for button wiring and open= are hand-authored .ent params
+  for now); the dialog's material sliders are preview-only for imported models
+  (ORM map drives the real material); a "save to source" UI button (vs the
+  `synctosource` dev command); undo/redo for edits.

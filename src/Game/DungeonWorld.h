@@ -396,11 +396,30 @@ public:
 	// floor) and rebuilds the fire instances + dust so it lights immediately and
 	// persists. Returns false on an invalid cell (e.g. a sconce with no wall).
 	bool AddFixture(const std::string& type, int x, int z);
-	// Removes the topmost runtime entity in a cell (a monster first, else a
-	// decoration). Stair props are skipped — a stair is link + prop + a paired
-	// record on another level, so it only goes through RemoveStairAt. Returns
-	// true if something was removed.
+	// Removes the topmost runtime entity in a cell (a monster first, then a
+	// door — live instance + its .ent record — else a decoration). Stair props
+	// are skipped — a stair is link + prop + a paired record on another level,
+	// so it only goes through RemoveStairAt. Returns true if something was
+	// removed.
 	bool RemoveEntityAt(int x, int z);
+
+	// Places a door (doors.cat id) on a DOORWAY cell: the travel direction is
+	// auto-detected from the flanking walls (exactly one axis must be walled),
+	// so the brush needs no facing UI. Authors the .ent record (the writer and
+	// the level stash carry it) and spawns the live door closed. Refuses — with
+	// a specific onMessage line — when the cell isn't a doorway or is occupied.
+	bool AddDoor(const std::string& type, int x, int z);
+	// Click interaction: toggles the door on the cell directly AHEAD of the
+	// party (arm's reach), sliding the panel open/shut. A monster standing in
+	// the doorway jams a closing door. False if no door is ahead.
+	bool ToggleDoorAhead();
+	// Live doors for the map overlay (bar markers across the travel axis).
+	struct DoorMarker {
+		int x = 0, z = 0;
+		Direction facing = Direction::South;
+		bool open = false;
+	};
+	std::vector<DoorMarker> DoorMarkers() const;
 
 	// Places a stair on level `stem` (stairs.cat id; its `up` field picks the
 	// level above or below in the project's level order) and AUTO-AUTHORS the
@@ -435,6 +454,8 @@ public:
 						  int x, int z);
 	bool AddFixtureRemote(const std::string& stem, const std::string& type,
 						  int x, int z);
+	bool AddDoorRemote(const std::string& stem, const std::string& type, int x,
+					   int z);
 	// The erase ladder for a remote cell, mirroring the live tool: stair (pair
 	// removed too) → one monster record → one decoration record → fixture →
 	// reset the cell's surface variants. Always acts (the last rung is a
@@ -775,6 +796,25 @@ private:
 		bool activated = false;              // pressed / toggled on (saved)
 	};
 
+	struct DecorationKind; // declared with the decoration machinery below
+
+	// A door filling a doorway cell (side walls flank the travel axis). Closed
+	// it blocks the party, monsters, and projectiles; the panel slides sideways
+	// into the wall as it opens (openT animates toward `open`). `facing` is the
+	// travel direction through it; `name` is what buttons target (name= param).
+	// Open-state diffs ride the save like button toggles (kind Door, activated).
+	struct Door {
+		int id = -1;                         // source Entity::id (.ent record)
+		int x = 0, z = 0;
+		Direction facing = Direction::South; // travel axis (panel spans the other)
+		std::string name;                    // button-target id ("" = unwired)
+		bool open = false;
+		bool initialOpen = false;            // authored state (open= param)
+		float openT = 0.0f;                  // slide anim, 0 closed .. 1 open
+		const DecorationKind* panel = nullptr;
+		const DecorationKind* frame = nullptr;
+	};
+
 	// Static architecture decorations from the .map layer (column, archway,
 	// fountain, statue, barrel, ...). One shared model+mesh per type; instances
 	// are placed and oriented once at load and never move or animate, so they
@@ -864,6 +904,19 @@ private:
 	void LoadMonsters();
 	void LoadItems(); // instantiates EntityKind::Item records (runes) from .ent
 	void LoadButtons(); // instantiates EntityKind::Button records from .ent
+	void LoadDoors();   // instantiates EntityKind::Door records from .ent
+	// Builds one live Door from its record (kinds lazily loaded via the doors
+	// catalog: the type's entry = the panel, [door_frame] = the shared frame).
+	void SpawnDoor(const Entity& record);
+	Door* DoorAt(int x, int z);
+	const Door* DoorAt(int x, int z) const;
+	// The travel direction for a door on (x,z): exactly ONE axis must be
+	// flanked by solid walls (the panel spans it); false = no doorway there.
+	static bool DoorwayFacing(const DungeonMap& map, int x, int z, Direction& out);
+	// Toggles one door (with the doorway-occupied jam check + message/anim) /
+	// every door whose name matches a button's target.
+	bool ToggleDoor(Door& door);
+	void ToggleDoorsNamed(const std::string& name);
 	// Lazily loads (and caches) the shared behaviour for an item type, resolved
 	// through the items catalog (category=rune → symbol + element glow colour).
 	ItemKind& ItemKindFor(const std::string& type);
@@ -1158,7 +1211,8 @@ private:
 	std::unique_ptr<gfx::Texture> m_iconHalo; // soft round disc, white w/ radial alpha
 	bool m_itemIconsBaked = false;
 	std::vector<Item> m_items;
-	std::vector<Button> m_buttons; // .ent buttons (state-only until P5 wiring)
+	std::vector<Button> m_buttons; // .ent buttons (toggle wired doors by name)
+	std::vector<Door> m_doors;     // .ent doors (live open/anim state)
 	// Shared carved-stone tablet, loaded once on the first rune kind; every rune
 	// draws this mesh with its own element texture set.
 	assets::ModelData m_runeModel;

@@ -14,7 +14,7 @@ DungeonEntities::DungeonEntities(const std::string& path, const DungeonMap& map)
 	auto bytes = assets::ReadBinaryFile(path);
 	DN_ASSERT(bytes.has_value(), bytes.error());
 
-	size_t counts[4] = {}; // indexed by EntityKind, for the load log
+	size_t counts[5] = {}; // indexed by EntityKind, for the load log
 	int fileOrder = 0;     // record index in the file, skipped records included
 	for (const std::string& line : ReadLevelLines(*bytes)) {
 		Entity e = ParseEntityRecord(line, path);
