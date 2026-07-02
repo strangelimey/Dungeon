@@ -219,8 +219,14 @@ item.mushroom=Гриб
 
 ; --- monsters (key suffix = the .ent type; bare nominative noun, see header) ------
 monster.skeleton=скелет
+monster.skel_archer=скелет-лучник
+monster.skel_mage=скелет-маг
+monster.skel_coward=пугливый скелет
+monster.skel_swarm=костяной рой
+monster.skel_lurker=затаившийся скелет
 monster.blob=слизь
 monster.mummy=мумия
+monster.skel_human=костяной рыцарь
 
 ; --- character sheet / party bar -------------------------------------------------
 class.fighter=Воин

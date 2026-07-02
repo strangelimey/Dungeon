@@ -213,8 +213,14 @@ item.mushroom=Mushroom
 
 ; --- monsters (key suffix = the .ent type) --------------------------------------
 monster.skeleton=skeleton
+monster.skel_archer=skeleton archer
+monster.skel_mage=skeleton mage
+monster.skel_coward=skittish skeleton
+monster.skel_swarm=bone swarm
+monster.skel_lurker=lurking skeleton
 monster.blob=blob
 monster.mummy=mummy
+monster.skel_human=bone knight
 
 ; --- character sheet / party bar -------------------------------------------------
 class.fighter=Fighter

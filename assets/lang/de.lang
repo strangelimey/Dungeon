@@ -215,8 +215,14 @@ item.mushroom=Pilz
 
 ; --- monsters (key suffix = the .ent type; article included, see header) ---------
 monster.skeleton=Das Skelett
+monster.skel_archer=Der Skelettbogenschütze
+monster.skel_mage=Der Skelettmagier
+monster.skel_coward=Das scheue Skelett
+monster.skel_swarm=Der Knochenschwarm
+monster.skel_lurker=Das lauernde Skelett
 monster.blob=Der Schleim
 monster.mummy=Die Mumie
+monster.skel_human=Der Knochenritter
 
 ; --- character sheet / party bar -------------------------------------------------
 class.fighter=Krieger

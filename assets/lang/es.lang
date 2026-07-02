@@ -215,8 +215,14 @@ item.mushroom=Seta
 
 ; --- monsters (key suffix = the .ent type; article included, see header) ---------
 monster.skeleton=el esqueleto
+monster.skel_archer=el esqueleto arquero
+monster.skel_mage=el esqueleto mago
+monster.skel_coward=el esqueleto asustadizo
+monster.skel_swarm=el enjambre de huesos
+monster.skel_lurker=el esqueleto acechador
 monster.blob=la baba
 monster.mummy=la momia
+monster.skel_human=el caballero de huesos
 
 ; --- character sheet / party bar -------------------------------------------------
 class.fighter=Guerrero

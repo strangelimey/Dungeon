@@ -215,8 +215,14 @@ item.mushroom=Fungo
 
 ; --- monsters (key suffix = the .ent type; article included, see header) ---------
 monster.skeleton=lo scheletro
+monster.skel_archer=lo scheletro arciere
+monster.skel_mage=lo scheletro mago
+monster.skel_coward=lo scheletro pavido
+monster.skel_swarm=lo sciame di ossa
+monster.skel_lurker=lo scheletro in agguato
 monster.blob=la melma
 monster.mummy=la mummia
+monster.skel_human=il cavaliere d'ossa
 
 ; --- character sheet / party bar -------------------------------------------------
 class.fighter=Guerriero
