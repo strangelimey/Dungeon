@@ -398,14 +398,15 @@ public:
 
 	// Places a stair (stairs.cat id; its `up` field picks the level above or
 	// below in the project's level order) and AUTO-AUTHORS the paired return
-	// stair at the same cell of that destination level, appending a stairs
-	// record to its .map file on disk (the destination isn't loaded; its static
-	// layer is re-parsed from disk on every entry, so the file is authoritative).
-	// Each stair's dest is the other's cell, so the party arrives standing on
-	// the counterpart. Validates the destination cell first (walkable, no stair,
-	// no brazier) and refuses with a specific onMessage line otherwise; all
-	// feedback (success too) goes through onMessage. The ACTIVE level's half
-	// stays in-memory until `savemap`, like every other editor edit.
+	// stair at the same cell of that destination level: appended to its .map
+	// file on disk (the destination isn't loaded) and, when that level was
+	// visited this session, to its stashed static map too (the stash wins over
+	// the file on re-entry — see m_levelMaps). Each stair's dest is the other's
+	// cell, so the party arrives standing on the counterpart. Validates the
+	// destination cell first (walkable, no stair, no brazier — against both the
+	// file and any stash) and refuses with a specific onMessage line otherwise;
+	// all feedback (success too) goes through onMessage. The ACTIVE level's
+	// half lives in the map (stash-carried across swaps, `savemap` to disk).
 	bool AddStair(const std::string& type, int x, int z);
 	// Removes the stair at (x,z): the link, its prop, and the paired return
 	// stair's record in the destination level's .map file (matched by cell +
@@ -1164,6 +1165,16 @@ private:
 	// in m_seen/m_monsters). Stashed on leave, restored on return; the source for
 	// a multi-level save (CaptureState) and filled by a load (ApplyState).
 	std::flat_map<std::string, SaveData::LevelState> m_levelStates;
+	// STATIC layer of inactive visited levels — the static twin of m_levelStates,
+	// so UNSAVED editor edits (cells, variants, fixtures, stairs, decorations)
+	// survive a level swap in memory instead of being dropped by the disk
+	// re-parse; `savemap` stays the only disk write for the active level.
+	// Stashed on leave (StashStaticMap), consumed on entry (BeginLevelLoad).
+	std::flat_map<std::string, DungeonMap> m_levelMaps;
+	// Copies the active map into m_levelMaps, first syncing the live decoration
+	// placements back into its records (AddDecoration only appends a live
+	// instance; LoadDecorations rebuilds from records on return).
+	void StashStaticMap();
 
 	std::vector<Fire> m_fires;
 	std::unique_ptr<gfx::Mesh> m_sconceMesh;

@@ -187,6 +187,12 @@ public:
 
 	// Static decoration records (banners, rubble, ...) from the .map file.
 	const std::vector<Entity>& Decorations() const { return m_decorations; }
+	// Replaces the decoration records wholesale. The static-map stash syncs the
+	// LIVE editor placements back into records before stashing the map, so
+	// LoadDecorations rebuilds them on return (DungeonWorld::StashStaticMap).
+	void SetDecorationRecords(std::vector<Entity> records) {
+		m_decorations = std::move(records);
+	}
 
 	// Stair/portal links from the .map "stairs" records (P6 multi-level).
 	const std::vector<StairLink>& Stairs() const { return m_stairs; }

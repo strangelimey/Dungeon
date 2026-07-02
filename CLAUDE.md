@@ -485,7 +485,13 @@ DungeonMap for fixtures), drawn next frame. Markers draw from the LIVE world
 (MonsterMarkers/DecorationMarkers), so placed/erased entities show immediately.
 Edits are in-memory until written: DungeonWorld::SaveLevel reconstructs the .map +
 .ent from live state (dev console `savemap`), and `synctosource` copies the
-project to the git source tree. All overlay text goes through Loc (map.* keys).
+project to the git source tree. Unsaved STATIC edits survive level swaps
+in-session: BeginLevelLoad stashes the leaving level's DungeonMap (live
+decoration placements synced back into its records first) into m_levelMaps —
+the static twin of the dynamic m_levelStates — and a stashed map wins over the
+file on re-entry; `savemap` stays the only disk write (the stairs brush's
+cross-level record append is the one exception, and it patches any stash too).
+All overlay text goes through Loc (map.* keys).
 
 The editor edits a PROJECT (see "Project & catalogs" below), not hardcoded
 content — adding a category/type is data, not code.

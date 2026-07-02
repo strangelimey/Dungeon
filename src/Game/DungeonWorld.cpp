@@ -338,10 +338,16 @@ bool DungeonWorld::AddStair(const std::string& type, int x, int z) {
 	}
 
 	// The pair lands on the SAME cell one level up/down — validate it against a
-	// parse of that level (cheap ASCII load, no GPU work).
+	// parse of that level's file (cheap ASCII load, no GPU work) AND against its
+	// in-session stash when it was visited (unsaved edits there are live state;
+	// both must accept, or a later parse of the written record could assert).
+	const auto stashIt = m_levelMaps.find(dest);
 	const DungeonMap destMap(m_project.LevelMapPath(dest));
-	if (!destMap.IsWalkable(x, z) || destMap.StairAt(x, z) ||
-		destMap.BrazierAt(x, z)) {
+	auto blocked = [&](const DungeonMap& m) {
+		return !m.IsWalkable(x, z) || m.StairAt(x, z) || m.BrazierAt(x, z);
+	};
+	if (blocked(destMap) ||
+		(stashIt != m_levelMaps.end() && blocked(stashIt->second))) {
 		say(loc::Format("map.stairs.destblocked", x, z, dest));
 		return false;
 	}
@@ -363,6 +369,17 @@ bool DungeonWorld::AddStair(const std::string& type, int x, int z) {
 		say(loc::Format("map.stairs.destblocked", x, z, dest));
 		return false;
 	}
+	// And into the stash, which takes precedence over the file on re-entry.
+	if (stashIt != m_levelMaps.end()) {
+		StairLink pair;
+		pair.type = pairType;
+		pair.x = x;
+		pair.z = z;
+		pair.destLevel = m_currentLevel;
+		pair.destX = x;
+		pair.destZ = z;
+		stashIt->second.AddStair(pair);
+	}
 
 	m_map.AddStair(link);
 	PlaceStairProp(link);
@@ -378,10 +395,16 @@ bool DungeonWorld::RemoveStairAt(int x, int z) {
 		return d.stair && d.x == x && d.z == z;
 	});
 	// Take the paired return record out of the destination's .map (matched by
-	// its cell + the dest= back-link; a hand-authored one-way link has none).
+	// its cell + the dest= back-link; a hand-authored one-way link has none) —
+	// and out of its in-session stash, which wins over the file on re-entry.
 	const bool pair =
 		RemoveStairRecordLine(m_project.LevelMapPath(removed.destLevel),
 							  removed.destX, removed.destZ, m_currentLevel);
+	if (auto it = m_levelMaps.find(removed.destLevel); it != m_levelMaps.end()) {
+		const StairLink* s = it->second.StairAt(removed.destX, removed.destZ);
+		if (s && s->destLevel == m_currentLevel && s->destX == x && s->destZ == z)
+			it->second.RemoveStair(removed.destX, removed.destZ);
+	}
 	if (onMessage)
 		onMessage(pair ? loc::Format("map.stairs.removed", removed.destLevel)
 					   : loc::Tr("map.erase.removed"));
@@ -411,12 +434,23 @@ void DungeonWorld::BeginLevelLoad(const std::string& stem, bool stashCurrent) {
 	m_device.WaitIdle(); // the GPU may still be reading the old level's meshes
 
 	// Save the level we're leaving so a later return restores its fog/progress
-	// (skip for a throwaway baseline being replaced by a save's level).
-	if (stashCurrent) StashActive();
+	// AND its unsaved static edits (skip for a throwaway baseline being
+	// replaced by a save's level).
+	if (stashCurrent) {
+		StashActive();
+		StashStaticMap();
+	}
 
 	// Move-assign the new level into the existing objects (Party holds a
 	// reference to m_map, so the object must persist — only its data changes).
-	m_map = DungeonMap(m_project.LevelMapPath(stem));
+	// A stashed static map (this session's unsaved editor edits) takes
+	// precedence over the file on disk.
+	if (auto it = m_levelMaps.find(stem); it != m_levelMaps.end()) {
+		m_map = std::move(it->second);
+		m_levelMaps.erase(it);
+	} else {
+		m_map = DungeonMap(m_project.LevelMapPath(stem));
+	}
 	m_entities = DungeonEntities(m_project.LevelEntPath(stem), m_map);
 	m_currentLevel = stem;
 
@@ -436,6 +470,32 @@ void DungeonWorld::BeginLevelLoad(const std::string& stem, bool stashCurrent) {
 	m_pendingTransition.reset();
 	m_shadows.InvalidateCubes();
 	ResolveSurfacePalettes();
+}
+
+void DungeonWorld::StashStaticMap() {
+	// Sync live decoration placements back into map records (mirrors the
+	// SaveLevel writer's decoration emit; stair props are stairs records).
+	std::vector<Entity> records;
+	records.reserve(m_decorations.size());
+	for (const Decoration& d : m_decorations) {
+		if (d.stair || !d.kind || d.kind->id.empty()) continue;
+		Entity e;
+		e.kind = EntityKind::Decoration;
+		e.type = d.kind->id;
+		e.x = d.x;
+		e.z = d.z;
+		e.facing = d.facing;
+		if (d.wallMounted) {
+			e.params.emplace_back("wall", DirName(d.wall));
+			if (d.solid) e.params.emplace_back("solid", "1");
+		} else if (d.solid != d.kind->solidDefault) {
+			e.params.emplace_back("solid", d.solid ? "1" : "0");
+		}
+		records.push_back(std::move(e));
+	}
+	DungeonMap copy = m_map;
+	copy.SetDecorationRecords(std::move(records));
+	m_levelMaps.insert_or_assign(m_currentLevel, std::move(copy));
 }
 
 std::optional<DungeonWorld::LevelTransition> DungeonWorld::ConsumeLevelTransition() {
