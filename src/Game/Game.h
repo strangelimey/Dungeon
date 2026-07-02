@@ -49,6 +49,7 @@
 #include "Game/MapEditor.h"
 #include "Game/MapView.h"
 #include "Game/EntityInspector.h"
+#include "Game/FireEffect.h"
 #include "Game/FixtureInspector.h"
 #include "Game/InspectPicker.h"
 #include "Game/MonsterConfigDialog.h"
@@ -306,6 +307,18 @@ private:
 	gfx::MaterialParams m_previewMonMat;
 	float m_previewMonScale = 1.0f;
 	float m_previewMonYaw = 0.0f; // modelyaw fixup, so the preview faces like in-world
+
+	// Live 3D preview for the per-INSTANCE edit dialogs. Each dialog OWNS a
+	// PreviewSpec (built here in OpenInspectorFor, from the world's meshes) and the
+	// render/update loop reads it generically via ActiveInstanceInspector()->Preview()
+	// — no per-type switch. m_previewAnim (skinned monster) and m_previewFire (torch)
+	// hold the per-frame simulation state the spec drives.
+	InstanceInspector* ActiveInstanceInspector(); // the open per-instance dialog, or null
+	PreviewSpec m_inspectPreview;                 // cached spec (re-pass on route return)
+	gfx::ParticleBatch m_previewParticles;        // preview-only particle batch (torch)
+	FireEffect m_previewFire;
+	std::vector<gfx::ParticleInstance> m_previewFireScratch;
+	float m_previewSpin = 0.0f; // turntable angle for auto-fit item previews
 	// Asset bake (P4c): the AssetBaker subprocess for the dialog's Create. A
 	// texture-set import is two steps (import textures, then rebake worn meshes);
 	// a model import is one. Polled in Update so the frame never blocks.

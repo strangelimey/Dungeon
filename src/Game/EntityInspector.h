@@ -43,7 +43,8 @@ public:
 
 	explicit EntityInspector(gfx::GraphicsDevice& device) : InstanceInspector(device) {}
 
-	void Open(const Config& cfg, const std::vector<std::string>& spellIds);
+	void Open(const Config& cfg, const std::vector<std::string>& spellIds,
+			  PreviewSpec preview = {});
 
 	std::function<void(const Config&)> onApply;
 	std::function<void(const Config&)> onSave;
@@ -54,7 +55,7 @@ public:
 
 protected:
 	std::string Title() const override;
-	gfx::Rect Panel() const override { return {0.30f, 0.13f, 0.40f, 0.74f}; }
+	gfx::Rect Panel() const override { return {0.26f, 0.13f, 0.50f, 0.74f}; }
 	void BuildContent(const gfx::Rect& content) override;
 	void ApplyLive() override;
 	void Persist() override;

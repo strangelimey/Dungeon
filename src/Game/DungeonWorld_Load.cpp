@@ -464,6 +464,67 @@ DungeonWorld::MonsterPreviewData DungeonWorld::MonsterPreviewFor(const std::stri
 	return d;
 }
 
+DungeonWorld::FixturePreviewData DungeonWorld::SconcePreview() const {
+	FixturePreviewData d;
+	gfx::MaterialParams mat;
+	ApplyPropMaterial(mat, m_sconceTex, m_sconceColor, 0.5f);
+	if (!mat.albedo) mat.metallic = 1.0f; // flat fallback reads as metal
+	if (m_sconceMesh) d.subs.push_back({m_sconceMesh.get(), mat});
+	return d;
+}
+
+std::vector<gfx::PreviewSubmesh> DungeonWorld::DecorationPreviewSubs(int index) const {
+	std::vector<gfx::PreviewSubmesh> subs;
+	if (index < 0 || index >= static_cast<int>(m_decorations.size())) return subs;
+	const Decoration& d = m_decorations[static_cast<size_t>(index)];
+	if (!d.kind) return subs;
+	if (d.kind->multi) { // authored multi-material prop: one sub per glTF material
+		for (const auto& s : d.kind->multi->subs) subs.push_back({s.mesh.get(), s.material});
+	} else if (d.kind->mesh) {
+		gfx::MaterialParams mat;
+		mat.doubleSided = !d.kind->authored;
+		ApplyPropMaterial(mat, d.kind->tex, d.kind->color, 0.85f);
+		mat.alphaCutoff = d.kind->alphaCutoff;
+		subs.push_back({d.kind->mesh.get(), mat});
+	}
+	return subs;
+}
+
+std::vector<gfx::PreviewSubmesh> DungeonWorld::ItemPreviewSubs(int entityId, Vec3& fitMin,
+															   Vec3& fitMax) const {
+	std::vector<gfx::PreviewSubmesh> subs;
+	// AABB of a ModelData mesh's vertices (for framing the tablet placeholder).
+	auto meshBounds = [](const assets::ModelData& m, Vec3& mn, Vec3& mx) {
+		mn = {1e9f, 1e9f, 1e9f};
+		mx = {-1e9f, -1e9f, -1e9f};
+		if (m.meshes.empty()) return;
+		for (const auto& v : m.meshes[0].vertices) {
+			mn = {std::min(mn.x, v.position.x), std::min(mn.y, v.position.y),
+				  std::min(mn.z, v.position.z)};
+			mx = {std::max(mx.x, v.position.x), std::max(mx.y, v.position.y),
+				  std::max(mx.z, v.position.z)};
+		}
+	};
+	for (const Item& item : m_items) {
+		if (item.id != entityId || !item.kind) continue;
+		if (item.kind->model) { // authored model item (weapon, ...)
+			for (const auto& s : item.kind->model->subs) subs.push_back({s.mesh.get(), s.material});
+			fitMin = item.kind->model->boundsMin;
+			fitMax = item.kind->model->boundsMax;
+		} else if (m_runeMesh) { // rune / placeholder: the shared carved tablet
+			gfx::MaterialParams mat;
+			const Vec4 base = m_runeModel.materials.empty()
+								  ? Vec4{1, 1, 1, 1}
+								  : m_runeModel.materials[0].baseColorFactor;
+			ApplyPropMaterial(mat, item.kind->tex, base, 0.85f);
+			subs.push_back({m_runeMesh.get(), mat});
+			meshBounds(m_runeModel, fitMin, fitMax);
+		}
+		break;
+	}
+	return subs;
+}
+
 DungeonWorld::Monster DungeonWorld::MakeMonster(MonsterKind& kind, int id, int x,
 												int z, Direction facing) {
 	Monster monster;

@@ -8,12 +8,14 @@
 
 namespace dungeon::game {
 
-void FixtureInspector::Open(const Config& cfg, const std::vector<Direction>& walls) {
+void FixtureInspector::Open(const Config& cfg, const std::vector<Direction>& walls,
+						   PreviewSpec preview) {
 	m_cfg = cfg;
 	m_original = cfg;
 	m_walls = walls;
 	m_currentWall = cfg.wall;
 	SetFacingValue(cfg.wall);
+	SetPreview(std::move(preview));
 	OpenModal();
 }
 
@@ -22,6 +24,7 @@ std::string FixtureInspector::Title() const {
 }
 
 void FixtureInspector::ApplySettings() {
+	SetShowFire(m_cfg.lit); // the preview flame follows the Lit toggle
 	if (onSettings)
 		onSettings(m_cfg.x, m_cfg.z, m_currentWall, m_cfg.lit, m_cfg.brightness, m_cfg.turbidity);
 }

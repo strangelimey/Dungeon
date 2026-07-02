@@ -36,6 +36,7 @@
 #include "Game/SoundBank.h"
 #include "Graphics/Camera.h"
 #include "Graphics/D3DUtil.h"
+#include "Graphics/ModelPreview.h" // gfx::PreviewSubmesh (editor instance previews)
 #include "Graphics/ParticleBatch.h"
 #include "Graphics/Renderer.h"
 #include "Graphics/SpriteBatch.h"
@@ -274,6 +275,24 @@ public:
 	// Whether a monster type's <model>.gltf exists (so the editor can guard the
 	// right-click force-load and warn instead of aborting on a missing asset).
 	bool MonsterModelAvailable(const std::string& type) const;
+
+	// The wall-sconce prop submesh(es) + resolved material for the fixture inspector's
+	// 3D preview (mesh pointers are stable for the session). `flameHeight` is the
+	// local Y of the flame origin above the base, so the preview can place its fire.
+	struct FixturePreviewData {
+		std::vector<gfx::PreviewSubmesh> subs;
+		float scale = 1.0f;
+		float flameHeight = 1.78f;
+	};
+	FixturePreviewData SconcePreview() const;
+	// Preview submeshes for a placed decoration (by list index) or item (by entity
+	// id) — single-mesh or authored multi-material, resolved to mesh+material pairs.
+	// Empty if the handle doesn't resolve or has no previewable mesh.
+	std::vector<gfx::PreviewSubmesh> DecorationPreviewSubs(int index) const;
+	// Items are small/loose, so the preview auto-fits + spins them: this also reports
+	// the model-space AABB [fitMin,fitMax] to frame against.
+	std::vector<gfx::PreviewSubmesh> ItemPreviewSubs(int entityId, Vec3& fitMin,
+													 Vec3& fitMax) const;
 
 	// --- level transitions (P6 multi-level) ---------------------------------
 	// Swaps the active level to `stem` and resets all per-level state (map,

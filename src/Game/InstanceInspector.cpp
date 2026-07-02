@@ -18,6 +18,10 @@ constexpr float kPad = 0.04f;      // panel inner margin (fraction of panel w/h)
 constexpr float kTitleH = 0.12f;   // title band
 constexpr float kFacingH = 0.14f;  // facing row
 constexpr float kFooterH = 0.14f;  // Save/Close band
+// When a preview pane is shown, the controls occupy the left column up to this
+// panel-width fraction; the pane fills the rest.
+constexpr float kCtrlCol = 0.60f;
+constexpr float kPaneX0 = 0.62f; // preview pane left edge (panel fraction)
 } // namespace
 
 InstanceInspector::InstanceInspector(gfx::GraphicsDevice& device)
@@ -43,8 +47,12 @@ void InstanceInspector::BuildUI() {
 		return gfx::Rect{p.x + fx * p.w, p.y + fy * p.h, fw * p.w, fh * p.h};
 	};
 
+	// Controls live in a left column when a preview pane takes the right side.
+	const float cw = HasPreview() ? kCtrlCol : 1.0f;
+	const float innerW = cw - 2 * kPad; // usable control width
+
 	// Common property strip: Facing (label + dropdown on one row).
-	m_ui.Add<ui::Label>(rel(kPad, kTitleH, 0.30f, kFacingH * 0.6f),
+	m_ui.Add<ui::Label>(rel(kPad, kTitleH, innerW * 0.34f, kFacingH * 0.6f),
 						loc::Tr("map.insp.facing"));
 	const std::vector<Direction> choices = FacingChoices();
 	std::vector<std::string> items;
@@ -54,7 +62,7 @@ void InstanceInspector::BuildUI() {
 		if (choices[i] == m_facing) sel = static_cast<int>(i);
 	}
 	if (!choices.empty())
-		m_ui.Add<ui::DropDown>(rel(0.34f, kTitleH, 1.0f - 0.34f - kPad, kFacingH * 0.7f),
+		m_ui.Add<ui::DropDown>(rel(kPad + innerW * 0.36f, kTitleH, innerW * 0.64f, kFacingH * 0.7f),
 							   items, sel, [this, choices](int i) {
 								   if (i >= 0 && i < static_cast<int>(choices.size())) {
 									   m_facing = choices[static_cast<size_t>(i)];
@@ -64,23 +72,30 @@ void InstanceInspector::BuildUI() {
 
 	// Divider, then the derived content between the strip and the footer.
 	const float contentTop = kTitleH + kFacingH;
-	m_ui.Add<ui::Separator>(rel(kPad, contentTop, 1.0f - 2 * kPad, 0.005f));
-	BuildContent(rel(kPad, contentTop + 0.02f, 1.0f - 2 * kPad,
+	m_ui.Add<ui::Separator>(rel(kPad, contentTop, innerW, 0.005f));
+	BuildContent(rel(kPad, contentTop + 0.02f, innerW,
 					 1.0f - contentTop - 0.02f - kFooterH));
 
-	// Footer: Save (persist) + Close (revert), centred.
-	const float bw = 0.34f, gap = 0.06f, fy = 1.0f - kFooterH + 0.02f;
-	const float x0 = (1.0f - (2 * bw + gap)) * 0.5f;
-	m_ui.Add<ui::Button>(rel(x0, fy, bw, kFooterH * 0.55f), loc::Tr("map.cfg.save"),
+	// Footer: Save (persist) + Close (revert), filling the control column.
+	const float gap = innerW * 0.06f, bw = (innerW - gap) * 0.5f, fy = 1.0f - kFooterH + 0.02f;
+	m_ui.Add<ui::Button>(rel(kPad, fy, bw, kFooterH * 0.55f), loc::Tr("map.cfg.save"),
 						 [this] {
 							 Persist();
 							 Close();
 						 });
-	m_ui.Add<ui::Button>(rel(x0 + bw + gap, fy, bw, kFooterH * 0.55f),
+	m_ui.Add<ui::Button>(rel(kPad + bw + gap, fy, bw, kFooterH * 0.55f),
 						 loc::Tr("map.cfg.close"), [this] {
 							 Revert();
 							 Close();
 						 });
+}
+
+gfx::Rect InstanceInspector::PreviewRect(float w, float h) const {
+	if (!HasPreview()) return {0.0f, 0.0f, 0.0f, 0.0f};
+	const gfx::Rect p = Panel();
+	const float x1 = 1.0f - kPad, y0 = kTitleH, y1 = 1.0f - kFooterH;
+	return {(p.x + kPaneX0 * p.w) * w, (p.y + y0 * p.h) * h, (x1 - kPaneX0) * p.w * w,
+			(y1 - y0) * p.h * h};
 }
 
 void InstanceInspector::Update(const Input& input, float w, float h) {
@@ -116,6 +131,14 @@ void InstanceInspector::Render(gfx::SpriteBatch& batch, const ui::Theme& th, flo
 	ui::DrawBorder(batch, panel, th.panelBorder);
 
 	m_font.Draw(batch, Title(), panel.x + kPad * panel.w, panel.y + kPad * panel.h, th.text);
+
+	// Preview pane backing + header (the owner blits the 3D image on top).
+	if (HasPreview()) {
+		const gfx::Rect pv = PreviewRect(w, h);
+		m_font.Draw(batch, loc::Tr("map.cfg.preview"), pv.x, pv.y - m_font.Height() - 2.0f,
+					th.textDim);
+		batch.DrawRect(pv, {0.02f, 0.02f, 0.03f, 1.0f});
+	}
 
 	m_ui.Render(batch, w, h);
 }

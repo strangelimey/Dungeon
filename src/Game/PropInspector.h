@@ -29,14 +29,14 @@ public:
 
 	explicit PropInspector(gfx::GraphicsDevice& device) : InstanceInspector(device) {}
 
-	void Open(const Config& cfg);
+	void Open(const Config& cfg, PreviewSpec preview = {});
 
 	std::function<void(const Config&)> onApply; // set facing on the live object
 	std::function<void()> onSave;               // persist the level
 
 protected:
 	std::string Title() const override;
-	gfx::Rect Panel() const override { return {0.35f, 0.33f, 0.30f, 0.28f}; }
+	gfx::Rect Panel() const override { return {0.30f, 0.30f, 0.40f, 0.42f}; }
 	void ApplyLive() override;
 	void Persist() override;
 	void Revert() override;

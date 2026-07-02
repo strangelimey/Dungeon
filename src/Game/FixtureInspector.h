@@ -33,7 +33,7 @@ public:
 
 	// `walls` are the facings the torch may take (the cell's solid, unoccupied
 	// walls, including its current one).
-	void Open(const Config& cfg, const std::vector<Direction>& walls);
+	void Open(const Config& cfg, const std::vector<Direction>& walls, PreviewSpec preview = {});
 
 	// Re-mount the sconce at (x,z) from one wall to another (live); returns success.
 	std::function<bool(int x, int z, Direction from, Direction to)> onRemount;
@@ -45,7 +45,7 @@ public:
 
 protected:
 	std::string Title() const override;
-	gfx::Rect Panel() const override { return {0.34f, 0.16f, 0.32f, 0.66f}; }
+	gfx::Rect Panel() const override { return {0.29f, 0.16f, 0.44f, 0.66f}; }
 	std::vector<Direction> FacingChoices() const override { return m_walls; }
 	void BuildContent(const gfx::Rect& content) override;
 	void ApplyLive() override;

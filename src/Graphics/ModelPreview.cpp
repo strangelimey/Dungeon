@@ -7,10 +7,14 @@
 #include "Graphics/D3DUtil.h"
 #include "Graphics/Lights.h"
 
+#include <algorithm>
+
 namespace dungeon::gfx {
 
 namespace {
 constexpr float kPreviewClear[4] = {0.06f, 0.06f, 0.09f, 1.0f};
+constexpr float kLookHeight = 1.1f; // camera look-ray height (matches SetPosition below)
+constexpr float kFitSize = 1.8f;    // auto-fit target: fill ~1.8 m of the framed height
 }
 
 void BeginOffscreen(ID3D12GraphicsCommandList* list, D3D12_CPU_DESCRIPTOR_HANDLE rtv,
@@ -79,7 +83,19 @@ ModelPreview::ModelPreview(GraphicsDevice& device, u32 size)
 
 void ModelPreview::Render(ID3D12GraphicsCommandList* list, Renderer& renderer,
 						  const Mesh& mesh, const MaterialParams& material, float scale,
-						  float orbit, float aspect, std::span<const Mat4> palette) {
+						  float orbit, float aspect, std::span<const Mat4> palette,
+						  ParticleBatch* particles,
+						  std::span<const ParticleInstance> billboards) {
+	const PreviewSubmesh one{&mesh, material};
+	Render(list, renderer, std::span<const PreviewSubmesh>{&one, 1}, scale, orbit, aspect,
+		   palette, particles, billboards);
+}
+
+void ModelPreview::Render(ID3D12GraphicsCommandList* list, Renderer& renderer,
+						  std::span<const PreviewSubmesh> subs, float scale, float orbit,
+						  float aspect, std::span<const Mat4> palette, ParticleBatch* particles,
+						  std::span<const ParticleInstance> billboards, const Vec3* fitMin,
+						  const Vec3* fitMax) {
 	using namespace DirectX;
 
 	D3D12_RESOURCE_BARRIER toRT = Transition(m_color.Get(),
@@ -102,14 +118,39 @@ void ModelPreview::Render(ID3D12GraphicsCommandList* list, Renderer& renderer,
 	cam.SetYawPitch(0.0f, 0.0f);
 
 	LightSet lights;
-	lights.ambient = {0.20f, 0.20f, 0.23f};
+	// Bright, balanced studio light so any prop reads (a rough marble column or a
+	// flat item tablet catches far less than a metal sconce or a skinned monster):
+	// stronger ambient + a warm key from the upper right and a cool fill from the
+	// lower left.
+	lights.ambient = {0.42f, 0.42f, 0.46f};
 	lights.points.push_back(
-		{{1.6f, 2.6f, -2.2f}, 16.0f, {1.0f, 0.96f, 0.9f}, 3.2f, -1, false});
+		{{1.8f, 2.6f, -2.4f}, 24.0f, {1.0f, 0.96f, 0.9f}, 6.0f, -1, false});
+	lights.points.push_back(
+		{{-2.0f, 1.2f, -2.6f}, 24.0f, {0.80f, 0.86f, 1.0f}, 3.5f, -1, false});
 
 	renderer.BeginScene(list, cam, lights);
 	Mat4 world;
-	XMStoreFloat4x4(&world, XMMatrixScaling(scale, scale, scale) * XMMatrixRotationY(orbit));
-	renderer.DrawMesh(list, mesh, world, material, palette);
+	if (fitMin && fitMax) {
+		// Auto-fit: centre the AABB at origin, scale to fill, spin, lift to eye height.
+		const Vec3 c{(fitMin->x + fitMax->x) * 0.5f, (fitMin->y + fitMax->y) * 0.5f,
+					 (fitMin->z + fitMax->z) * 0.5f};
+		const float ext = std::max({fitMax->x - fitMin->x, fitMax->y - fitMin->y,
+									fitMax->z - fitMin->z});
+		const float k = (ext > 1e-4f ? kFitSize / ext : 1.0f) * scale;
+		// Tumble on TWO axes (Y spin + a slower X pitch off the same clock) so a flat
+		// prop like a blade never sits edge-on for long.
+		XMStoreFloat4x4(&world, XMMatrixTranslation(-c.x, -c.y, -c.z) *
+									XMMatrixRotationX(orbit * 0.6f) * XMMatrixRotationY(orbit) *
+									XMMatrixScaling(k, k, k) *
+									XMMatrixTranslation(0.0f, kLookHeight, 0.0f));
+	} else {
+		XMStoreFloat4x4(&world, XMMatrixScaling(scale, scale, scale) * XMMatrixRotationY(orbit));
+	}
+	for (const PreviewSubmesh& s : subs)
+		if (s.mesh) renderer.DrawMesh(list, *s.mesh, world, s.material, palette);
+
+	// Optional flame/smoke billboards, drawn with the same camera after the meshes.
+	if (particles && !billboards.empty()) particles->Render(list, cam, billboards);
 
 	D3D12_RESOURCE_BARRIER toSRV = Transition(m_color.Get(),
 											  D3D12_RESOURCE_STATE_RENDER_TARGET,

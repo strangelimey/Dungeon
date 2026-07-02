@@ -14,11 +14,13 @@ constexpr const char* kArchKeys[] = {"brute",  "skirmisher", "caster",
 									 "swarm", "lurker",     "sentry"};
 } // namespace
 
-void EntityInspector::Open(const Config& cfg, const std::vector<std::string>& spellIds) {
+void EntityInspector::Open(const Config& cfg, const std::vector<std::string>& spellIds,
+						   PreviewSpec preview) {
 	m_cfg = cfg;
 	m_original = cfg;
 	m_spellIds = spellIds;
 	SetFacingValue(cfg.facing);
+	SetPreview(std::move(preview));
 	OpenModal();
 }
 

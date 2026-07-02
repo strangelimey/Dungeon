@@ -79,7 +79,7 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	  m_modelPreview(device, 512),
 	  m_assetDialog(device, window),
 	  m_monsterDialog(device), m_entityInspector(device), m_fixtureInspector(device),
-	  m_propInspector(device), m_inspectPicker(device) {
+	  m_propInspector(device), m_inspectPicker(device), m_previewParticles(device) {
 	m_mapView.SetEditor(&m_mapEditor); // the view drives the editor in Editor mode
 	m_settings.Load();
 	ApplyLanguage(false); // strings must exist before any UI builds
@@ -345,6 +345,7 @@ void Game::WireModuleCallbacks() {
 	m_fixtureInspector.onSettings = [this](int x, int z, Direction wall, bool lit,
 										   float brightness, float turbidity) {
 		m_world.SetTorchSettings(x, z, wall, lit, brightness, turbidity);
+		// (the dialog flips its own preview spec's showFire on the Lit toggle)
 	};
 	m_fixtureInspector.onSave = [this] {
 		if (!m_world.SaveLevel()) log::Warn("fixture inspector: failed to save level");
@@ -362,6 +363,13 @@ void Game::WireModuleCallbacks() {
 	};
 }
 
+InstanceInspector* Game::ActiveInstanceInspector() {
+	if (m_entityInspector.IsOpen()) return &m_entityInspector;
+	if (m_fixtureInspector.IsOpen()) return &m_fixtureInspector;
+	if (m_propInspector.IsOpen()) return &m_propInspector;
+	return nullptr;
+}
+
 void Game::OpenInspectorFor(const InspectTarget& t) {
 	const int cx = m_inspectCellX, cz = m_inspectCellZ;
 	switch (t.kind) {
@@ -374,7 +382,22 @@ void Game::OpenInspectorFor(const InspectTarget& t) {
 		if (const auto* r = m_world.MonsterPatrol(c.runtimeId))
 			c.patrolCount = static_cast<int>(r->size());
 		m_inspectCfg = c; // remembered so route-laying can reopen the inspector
-		m_entityInspector.Open(c, m_world.SpellIds());
+		// Preview: the type's mesh + an idle animation (front-on). Build the animator
+		// now (the spec carries the skeleton/clips the render loop reads).
+		PreviewSpec pv;
+		if (m_world.MonsterModelAvailable(c.type)) {
+			const auto d = m_world.MonsterPreviewFor(c.type);
+			pv.subs.push_back({d.mesh, d.material});
+			pv.scale = d.modelScale;
+			pv.yaw = d.modelYaw;
+			pv.skeleton = d.skeleton;
+			pv.clips = d.clips;
+			if (d.clips && !d.clips->empty()) pv.idleClip = d.clips->front().name;
+			m_previewAnim = anim::Animator(d.skeleton, d.clips);
+			if (!pv.idleClip.empty()) m_previewAnim.Play(pv.idleClip, /*loop*/ true);
+		}
+		m_inspectPreview = pv; // cached so route-laying can re-pass it on reopen
+		m_entityInspector.Open(c, m_world.SpellIds(), std::move(pv));
 		break;
 	}
 	case InspectTarget::Kind::Sconce: {
@@ -393,7 +416,16 @@ void Game::OpenInspectorFor(const InspectTarget& t) {
 		fc.z = cz;
 		fc.wall = t.wall;
 		m_world.TorchSettings(cx, cz, t.wall, fc.lit, fc.brightness, fc.turbidity);
-		m_fixtureInspector.Open(fc, walls);
+		// Preview: the sconce prop mesh + a flame/smoke overlay when lit.
+		const auto sp = m_world.SconcePreview();
+		PreviewSpec pv;
+		pv.subs = sp.subs;
+		pv.scale = sp.scale;
+		pv.fire = true;
+		pv.flameHeight = sp.flameHeight;
+		pv.showFire = fc.lit;
+		m_previewFire = FireEffect({0.0f, sp.flameHeight * sp.scale, 0.0f}, 0.55f, 1234);
+		m_fixtureInspector.Open(fc, walls, std::move(pv));
 		break;
 	}
 	case InspectTarget::Kind::Decoration: {
@@ -402,7 +434,9 @@ void Game::OpenInspectorFor(const InspectTarget& t) {
 		c.handle = t.handle;
 		c.type = t.type;
 		c.facing = m_world.DecorationFacing(t.handle);
-		m_propInspector.Open(c);
+		PreviewSpec pv;
+		pv.subs = m_world.DecorationPreviewSubs(t.handle);
+		m_propInspector.Open(c, std::move(pv));
 		break;
 	}
 	case InspectTarget::Kind::Item: {
@@ -411,7 +445,14 @@ void Game::OpenInspectorFor(const InspectTarget& t) {
 		c.handle = t.handle;
 		c.type = t.type;
 		c.facing = m_world.ItemFacing(t.handle);
-		m_propInspector.Open(c);
+		// Items are small/loose — auto-fit + spin them on a turntable (vs the
+		// grounded head-on view props use).
+		PreviewSpec pv;
+		pv.subs = m_world.ItemPreviewSubs(t.handle, pv.fitMin, pv.fitMax);
+		pv.autoFit = true;
+		pv.spin = true;
+		m_previewSpin = 0.0f;
+		m_propInspector.Open(c, std::move(pv));
 		break;
 	}
 	}
@@ -1592,18 +1633,22 @@ void Game::Update(float dt) {
 	if (m_entityInspector.IsOpen()) {
 		m_entityInspector.Update(input, static_cast<float>(m_window.Width()),
 								 static_cast<float>(m_window.Height()));
+		if (m_entityInspector.Preview().skeleton) m_previewAnim.Update(dt); // idle loop
 		return;
 	}
 	// The per-instance fixture (torch) inspector is likewise modal over the editor.
 	if (m_fixtureInspector.IsOpen()) {
 		m_fixtureInspector.Update(input, static_cast<float>(m_window.Width()),
 								  static_cast<float>(m_window.Height()));
+		const PreviewSpec& sp = m_fixtureInspector.Preview();
+		if (sp.fire && sp.showFire) m_previewFire.Update(dt); // preview flame
 		return;
 	}
 	// The per-instance item/decoration inspector is likewise modal over the editor.
 	if (m_propInspector.IsOpen()) {
 		m_propInspector.Update(input, static_cast<float>(m_window.Width()),
 							   static_cast<float>(m_window.Height()));
+		if (m_propInspector.Preview().spin) m_previewSpin += dt * 0.9f; // turntable
 		return;
 	}
 
@@ -1622,7 +1667,8 @@ void Game::Update(float dt) {
 				m_mapEditor.EndRoute();
 				if (const auto* r = m_world.MonsterPatrol(id))
 					m_inspectCfg.patrolCount = static_cast<int>(r->size());
-				m_entityInspector.Open(m_inspectCfg, m_world.SpellIds()); // back to the inspector
+				m_entityInspector.Open(m_inspectCfg, m_world.SpellIds(),
+									   m_inspectPreview); // back to the inspector (with preview)
 				return;
 			}
 		}
@@ -1743,6 +1789,11 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 	float pvScale = 1.0f;
 	float pvAspect = 1.0f;           // pane width/height, so a tall pane doesn't distort
 	std::span<const Mat4> pvPalette; // skinning palette for the animated monster preview
+	gfx::ParticleBatch* pvParticles = nullptr; // torch preview flame/smoke
+	std::span<const gfx::ParticleInstance> pvBillboards;
+	std::span<const gfx::PreviewSubmesh> pvSubs; // per-instance dialog (multi-material)
+	const Vec3* pvFitMin = nullptr;             // auto-fit AABB (small items)
+	const Vec3* pvFitMax = nullptr;
 	if (m_assetDialog.IsOpen() && m_assetDialog.HasPreview()) {
 		pvMesh = &m_assetDialog.PreviewMesh();
 		pvMat = m_assetDialog.PreviewMaterial();
@@ -1759,6 +1810,28 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 		pvOrbit = kPi + m_previewMonYaw; // face the camera + the model's facing fixup
 		pvAspect = pv.h > 0.0f ? pv.w / pv.h : 1.0f;
 		pvPalette = m_previewAnim.Palette();
+	} else if (InstanceInspector* ii = ActiveInstanceInspector(); ii && ii->HasPreview()) {
+		// A per-instance edit dialog's live preview, read generically from its spec:
+		// mesh(es) (animated for a monster), rendered at the pane's aspect, front-on,
+		// with the torch's flame/smoke overlaid when lit.
+		const PreviewSpec& sp = ii->Preview();
+		const gfx::Rect pv = ii->PreviewRect(static_cast<float>(m_device.Width()),
+											 static_cast<float>(m_device.Height()));
+		pvSubs = sp.subs;
+		pvScale = sp.scale;
+		pvOrbit = kPi + sp.yaw + (sp.spin ? m_previewSpin : 0.0f);
+		pvAspect = pv.h > 0.0f ? pv.w / pv.h : 1.0f;
+		if (sp.skeleton) pvPalette = m_previewAnim.Palette();
+		if (sp.autoFit) {
+			pvFitMin = &sp.fitMin;
+			pvFitMax = &sp.fitMax;
+		}
+		if (sp.fire && sp.showFire) { // lit torch: overlay flame/smoke
+			m_previewFireScratch.clear();
+			m_previewFire.AppendParticles(m_previewFireScratch);
+			pvParticles = &m_previewParticles;
+			pvBillboards = m_previewFireScratch;
+		}
 	} else if (m_previewMesh) {
 		pvMesh = m_previewMesh.get();
 		pvMat = m_previewMaterial;
@@ -1767,7 +1840,12 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 	const bool devPreviewFullscreen = m_previewMesh && !m_assetDialog.IsOpen() &&
 									  !m_monsterDialog.IsOpen();
 
-	if (pvMesh) {
+	if (!pvSubs.empty()) { // per-instance dialog preview (one or many submeshes)
+		if (pvParticles) pvParticles->NewFrame(m_device.FrameIndex());
+		m_modelPreview.Render(list, m_renderer, pvSubs, pvScale, pvOrbit, pvAspect, pvPalette,
+							  pvParticles, pvBillboards, pvFitMin, pvFitMax);
+		m_device.BindBackBuffer(list);
+	} else if (pvMesh) {
 		m_modelPreview.Render(list, m_renderer, *pvMesh, pvMat, pvScale, pvOrbit, pvAspect,
 							  pvPalette);
 		m_device.BindBackBuffer(list);
@@ -1831,12 +1909,18 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 			m_spriteBatch.DrawSprite(m_monsterDialog.PreviewRect(dw, dh), {0, 0, 1, 1},
 									 m_modelPreview.Srv(), {1, 1, 1, 1});
 	}
-	if (m_entityInspector.IsOpen()) // per-instance inspector, modal over the editor
+	// The per-instance edit dialogs, each drawn (panel + controls) THEN, once all
+	// are drawn, the 3D preview blitted into the active one's pane — the blit must
+	// come last so a dialog's backing box never covers it.
+	if (m_entityInspector.IsOpen())
 		m_entityInspector.Render(m_spriteBatch, m_settings.theme, dw, dh);
-	if (m_fixtureInspector.IsOpen()) // per-instance torch inspector, modal over the editor
+	if (m_fixtureInspector.IsOpen())
 		m_fixtureInspector.Render(m_spriteBatch, m_settings.theme, dw, dh);
-	if (m_propInspector.IsOpen()) // per-instance item/decoration inspector
+	if (m_propInspector.IsOpen())
 		m_propInspector.Render(m_spriteBatch, m_settings.theme, dw, dh);
+	if (InstanceInspector* ii = ActiveInstanceInspector(); ii && ii->HasPreview())
+		m_spriteBatch.DrawSprite(ii->PreviewRect(dw, dh), {0, 0, 1, 1}, m_modelPreview.Srv(),
+								 {1, 1, 1, 1});
 	if (m_inspectPicker.IsOpen()) // multi-object chooser, modal over the editor
 		m_inspectPicker.Render(m_spriteBatch, m_settings.theme, dw, dh);
 	if (m_console.IsOpen())

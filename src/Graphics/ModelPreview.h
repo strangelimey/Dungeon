@@ -13,7 +13,8 @@
 
 #include "Graphics/GraphicsDevice.h"
 #include "Graphics/Mesh.h"
-#include "Graphics/Renderer.h" // MaterialParams
+#include "Graphics/ParticleBatch.h" // optional preview particles (ParticleInstance)
+#include "Graphics/Renderer.h"      // MaterialParams
 
 #include <span>
 
@@ -26,19 +27,41 @@ namespace dungeon::gfx {
 void BeginOffscreen(ID3D12GraphicsCommandList* list, D3D12_CPU_DESCRIPTOR_HANDLE rtv,
 					D3D12_CPU_DESCRIPTOR_HANDLE dsv, u32 size, const float clear[4]);
 
+// One drawable piece of a preview: a mesh + its material. A simple model is one
+// of these; an authored multi-material model (weapon, boulder, ...) is several.
+struct PreviewSubmesh {
+	const Mesh* mesh = nullptr;
+	MaterialParams material;
+};
+
 class ModelPreview {
 public:
 	ModelPreview(GraphicsDevice& device, u32 size = 512);
 
-	// Renders `mesh`/`material` into the offscreen target, uniformly `scale`d and
-	// spun by `orbit` radians about +Y. `aspect` (width/height of the pane the image
-	// is blitted into) sets the camera aspect so a non-square pane doesn't distort
-	// the model — the square RT is rendered for that aspect and the blit cancels it.
-	// `palette` is empty for a static mesh or the skinning palette for an animated
-	// one (an anim::Animator's Palette()). Uses `renderer` for the actual draw.
+	// Renders the submeshes into the offscreen target, uniformly `scale`d and spun
+	// by `orbit` radians about +Y (all share one world transform). `aspect`
+	// (width/height of the pane the image is blitted into) sets the camera aspect so
+	// a non-square pane doesn't distort the model. `palette` is empty for a static
+	// mesh or the skinning palette for an animated one (anim::Animator::Palette()).
+	// Optionally draws `billboards` (via `particles`) with the SAME camera after the
+	// meshes — for the torch preview's flame/smoke; caller must have called
+	// particles->NewFrame() this frame.
+	// When `fitMin`/`fitMax` (a model-space AABB) are both given, the model is scaled
+	// to fill the pane and centred on that box (for small/loose props); `scale` then
+	// multiplies the fit. Otherwise it is drawn grounded head-on at `scale`. `orbit`
+	// spins it either way (pass a time-varying angle to revolve).
+	void Render(ID3D12GraphicsCommandList* list, Renderer& renderer,
+				std::span<const PreviewSubmesh> subs, float scale, float orbit,
+				float aspect = 1.0f, std::span<const Mat4> palette = {},
+				ParticleBatch* particles = nullptr,
+				std::span<const ParticleInstance> billboards = {},
+				const Vec3* fitMin = nullptr, const Vec3* fitMax = nullptr);
+	// Convenience single-mesh overload (delegates to the span version).
 	void Render(ID3D12GraphicsCommandList* list, Renderer& renderer, const Mesh& mesh,
 				const MaterialParams& material, float scale, float orbit,
-				float aspect = 1.0f, std::span<const Mat4> palette = {});
+				float aspect = 1.0f, std::span<const Mat4> palette = {},
+				ParticleBatch* particles = nullptr,
+				std::span<const ParticleInstance> billboards = {});
 
 	// The rendered image's SRV, for SpriteBatch::DrawSprite.
 	D3D12_GPU_DESCRIPTOR_HANDLE Srv() const { return m_srv.gpu; }

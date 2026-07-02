@@ -7,10 +7,11 @@
 
 namespace dungeon::game {
 
-void PropInspector::Open(const Config& cfg) {
+void PropInspector::Open(const Config& cfg, PreviewSpec preview) {
 	m_cfg = cfg;
 	m_original = cfg;
 	SetFacingValue(cfg.facing);
+	SetPreview(std::move(preview));
 	OpenModal();
 }
 
