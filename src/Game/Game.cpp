@@ -183,7 +183,9 @@ void Game::WireModuleCallbacks() {
 	};
 	m_ui.onTorchPalette = [this](int index) { m_world.SetTorchPalette(index); };
 	m_ui.onMoveAction = [this](MoveAction action) {
-		m_world.GetParty().Act(action);
+		// A pit fall swallows movement (the keyboard path gates in
+		// DungeonWorld::Update; this is the HUD arrow-button path).
+		if (!m_world.Falling()) m_world.GetParty().Act(action);
 	};
 	m_ui.onHandAttack = [this](size_t member, size_t hand) {
 		m_world.PartyAttack(member, hand);

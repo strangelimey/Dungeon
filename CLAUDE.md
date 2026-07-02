@@ -509,7 +509,11 @@ direction + map-icon arrow), `pair` (the type auto-authored on the destination
 the mesh builder skips so the type's shaft mesh shows: CellHolesFn, fed by
 DungeonWorld::FloorHoleAt/CeilingHoleAt), `traverse` = 0 (stepping on the tile
 does NOT transition — a pit's ceiling hole is scenery), `fall` = 1 (the
-transition is a plunge: facing preserved, world.pitfall message). Meshes:
+transition is a PLUNGE: the step glide onto the pit finishes, then the camera
+drops through the shaft on an accelerating curve — DungeonWorld::m_pendingFall
+sequences it in Update, PartyEye applies the drop to camera + carried torch —
+then the swap fires with the party's facing preserved; movement is swallowed
+meanwhile, and the world.pitfall message plays). Meshes:
 stairs.gltf (rising flight), stairs_down.gltf (below-grade stairwell shaft),
 pit.gltf (sheer drop, a storey deep), pit_ceiling.gltf (the rising shaft above
 a ceiling hole on the level below) — all AssetBaker Build*. Live stair/pit

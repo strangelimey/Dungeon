@@ -53,17 +53,26 @@ DungeonWorld::DungeonWorld(gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 		// Stepping onto a stair raises a pending transition; Game polls it after
 		// Update and drives the swap, so the level never changes mid-step. A
 		// non-traversable link (a pit's ceiling hole — you can't climb it) is
-		// scenery; a `fall` link (the pit itself) keeps the party's facing, so
-		// they land looking the way they fell.
+		// scenery. A `fall` link (the pit itself) doesn't swap immediately:
+		// the transition is LATCHED and Update sequences the plunge — the step
+		// glide finishes, the camera drops through the hole, then the swap —
+		// with the party's facing preserved so they land looking the way they
+		// fell (movement is swallowed meanwhile, queued actions dropped).
 		for (const StairLink& s : m_map.Stairs())
 			if (s.x == px && s.z == pz) {
 				const CatalogEntry* e = m_project.stairs.Find(s.type);
 				if (!CatalogBool(e, "traverse", true)) break;
-				const bool fall = CatalogBool(e, "fall", false);
-				if (fall && onMessage) onMessage(loc::Tr("world.pitfall"));
-				m_pendingTransition = LevelTransition{
-					s.destLevel, s.destX, s.destZ,
-					fall ? static_cast<Direction>(m_party.Facing()) : s.destFacing};
+				if (CatalogBool(e, "fall", false)) {
+					if (onMessage) onMessage(loc::Tr("world.pitfall"));
+					m_pendingFall = LevelTransition{
+						s.destLevel, s.destX, s.destZ,
+						static_cast<Direction>(m_party.Facing())};
+					m_fallT = -1.0f; // wait for the step glide to finish
+					m_party.ClearBufferedAction();
+				} else {
+					m_pendingTransition =
+						LevelTransition{s.destLevel, s.destX, s.destZ, s.destFacing};
+				}
 				break;
 			}
 	};
@@ -694,6 +703,8 @@ void DungeonWorld::BeginLevelLoad(const std::string& stem, bool stashCurrent) {
 	m_fires.clear();
 	m_projectiles.Clear(); // bolts/sparks don't survive a level change
 	m_pendingTransition.reset();
+	m_pendingFall.reset(); // the swap IS the fall's end
+	m_fallT = -1.0f;
 	m_shadows.InvalidateCubes();
 	ResolveSurfacePalettes();
 }
@@ -1009,10 +1020,25 @@ void DungeonWorld::SetTorchPalette(int index) {
 	}
 }
 
+// How long the pit-fall camera drop takes once the step glide has finished.
+static constexpr float kPitFallSeconds = 0.55f;
+
 void DungeonWorld::Update(const Input& input, float dt, float time, bool acceptInput) {
 	m_time = time; // drives the rune emissive pulse in SubmitSceneGeometry
-	if (acceptInput) m_party.HandleInput(input);
+	if (acceptInput && !m_pendingFall) m_party.HandleInput(input);
 	m_party.Update(dt);
+
+	// Pit fall sequencing: let the step glide onto the pit play out, then run
+	// the camera drop (PartyEye applies it), then raise the latched transition.
+	if (m_pendingFall) {
+		if (m_fallT < 0.0f) {
+			if (!m_party.IsMoving()) m_fallT = 0.0f;
+		} else if ((m_fallT += dt) >= kPitFallSeconds) {
+			m_pendingTransition = *m_pendingFall;
+			m_pendingFall.reset();
+			m_fallT = -1.0f;
+		}
+	}
 	if (m_pillarActive) m_pillarAnimator.Update(dt);
 	UpdateMonsters(dt);
 	m_projectiles.Update(dt); // fly bolts, resolve impacts/fizzles via the hooks
@@ -1033,7 +1059,7 @@ void DungeonWorld::Update(const Input& input, float dt, float time, bool acceptI
 	m_projectiles.AppendBillboards(m_particleScratch);
 	// (Rune tablets glow as a whole via an additive emissive that pulses in their
 	// element colour — applied to the mesh in SubmitSceneGeometry, not a billboard.)
-	const Vec3 eye = m_party.EyePosition();
+	const Vec3 eye = PartyEye();
 	const Vec3 fwd = m_camera.Forward();
 	std::ranges::sort(m_particleScratch, std::greater{},
 					  [&](const gfx::ParticleInstance& p) {
@@ -1073,8 +1099,19 @@ std::vector<std::string> DungeonWorld::ButtonList() const {
 	return out;
 }
 
+Vec3 DungeonWorld::PartyEye() const {
+	Vec3 eye = m_party.EyePosition();
+	if (m_pendingFall && m_fallT > 0.0f) {
+		// Accelerating, gravity-ish: a full storey down by the time the swap
+		// hits, so the view passes clean through the pit's shaft.
+		const float t = std::min(m_fallT / kPitFallSeconds, 1.0f);
+		eye.y -= t * t * (kWallHeight + 0.6f);
+	}
+	return eye;
+}
+
 void DungeonWorld::UpdateCamera() {
-	m_camera.SetPosition(m_party.EyePosition());
+	m_camera.SetPosition(PartyEye());
 	m_camera.SetYawPitch(m_party.EyeYaw(), m_party.EyePitch());
 	m_camera.SetLens(m_fovDegrees * kPi / 180.0f,
 					 static_cast<float>(m_device.Width()) /
@@ -1097,7 +1134,7 @@ float DungeonWorld::RunePulse(float time, int id) {
 void DungeonWorld::UpdateLights(float time) {
 	m_lights.points.clear();
 
-	const Vec3 eye = m_party.EyePosition();
+	const Vec3 eye = PartyEye(); // the carried torch falls with the camera
 	const float flicker =
 		0.92f + 0.08f * std::sin(time * 9.0f) * std::sin(time * 13.7f + 1.3f);
 	gfx::PointLight torch;

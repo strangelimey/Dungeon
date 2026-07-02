@@ -336,6 +336,11 @@ public:
 		int x = 0, z = 0;
 		Direction facing = Direction::South;
 	};
+	// A pit fall is in progress (the step glide onto the pit, then the camera
+	// drop). Movement is swallowed while it runs — the keyboard path gates in
+	// Update, the HUD arrow path gates in Game's onMoveAction callback.
+	bool Falling() const { return m_pendingFall.has_value(); }
+
 	// Returns and clears a transition raised since the last call (the party
 	// stepped onto a stair this frame); nullopt otherwise. Game polls this after
 	// the world Update and drives the actual swap (BeginLevelTransition), so the
@@ -1220,6 +1225,16 @@ private:
 	std::flat_map<std::string, std::unique_ptr<PropTextures>> m_propTextures;
 	std::vector<Decoration> m_decorations;
 	std::optional<LevelTransition> m_pendingTransition; // raised by a stair step
+	// A pit fall in flight: the transition latched when the party stepped onto
+	// a `fall` link. The step glide finishes first (m_fallT < 0 = still
+	// waiting), then the camera drops through the hole (PartyEye) and the
+	// stashed transition is raised. See Update's fall block.
+	std::optional<LevelTransition> m_pendingFall;
+	float m_fallT = -1.0f;
+	// The party's eye for the camera / carried torch / particle sort:
+	// Party::EyePosition plus the pit-fall drop, so the view and the light it
+	// carries sink through the opening together.
+	Vec3 PartyEye() const;
 	// Dynamic state of INACTIVE visited levels (the active level's state is live
 	// in m_seen/m_monsters). Stashed on leave, restored on return; the source for
 	// a multi-level save (CaptureState) and filled by a load (ApplyState).
