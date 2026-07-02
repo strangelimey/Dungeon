@@ -74,8 +74,8 @@ DungeonWorld::DungeonWorld(gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 				return true;
 			}
 		}
-		for (const auto& [bx, bz] : m_map.BrazierCells()) {
-			if (bx == x && bz == z) {
+		for (const FloorBrazier& b : m_map.Braziers()) {
+			if (b.x == x && b.z == z) {
 				m_audio.Play(m_sounds.bump, 0.7f);
 				onMessage(loc::Tr("log.brazier_blocks"));
 				return true;
@@ -333,8 +333,13 @@ bool DungeonWorld::SaveLevel() const {
 		if (s.turbidity != kSconceTurbidity) m += std::format(" turb={:g}", s.turbidity);
 		m += '\n';
 	}
-	for (const auto& [bx, bz] : map.BrazierCells())
-		m += std::format("fixture brazier {} {}\n", bx, bz);
+	for (const FloorBrazier& b : map.Braziers()) {
+		m += std::format("fixture brazier {} {}", b.x, b.z);
+		if (!b.lit) m += " lit=0";
+		if (b.brightness != kBrazierBrightness) m += std::format(" bright={:g}", b.brightness);
+		if (b.turbidity != kBrazierTurbidity) m += std::format(" turb={:g}", b.turbidity);
+		m += '\n';
+	}
 
 	for (const StairLink& s : map.Stairs())
 		m += std::format("stairs {} {} {} {} dest={} destx={} destz={} destfacing={}\n",
@@ -1106,6 +1111,37 @@ bool DungeonWorld::SetTorchSettings(int cx, int cz, Direction wall, bool lit, fl
 	return true;
 }
 
+bool DungeonWorld::BrazierAt(int cx, int cz) const {
+	for (const FloorBrazier& b : m_map.Braziers())
+		if (b.x == cx && b.z == cz) return true;
+	return false;
+}
+
+bool DungeonWorld::BrazierSettings(int cx, int cz, bool& lit, float& brightness,
+								   float& turbidity) const {
+	for (const FloorBrazier& b : m_map.Braziers())
+		if (b.x == cx && b.z == cz) {
+			lit = b.lit;
+			brightness = b.brightness;
+			turbidity = b.turbidity;
+			return true;
+		}
+	return false;
+}
+
+bool DungeonWorld::SetBrazierSettings(int cx, int cz, bool lit, float brightness,
+									  float turbidity) {
+	if (!m_map.SetBrazierProps(cx, cz, lit, brightness, turbidity)) return false;
+	RebuildFiresAndDust();
+	return true;
+}
+
+bool DungeonWorld::RemoveFixtureAt(int cx, int cz) {
+	if (!m_map.RemoveFixtureAt(cx, cz)) return false;
+	RebuildFiresAndDust();
+	return true;
+}
+
 std::vector<std::pair<int, std::string>> DungeonWorld::DecorationsAt(int cx, int cz) const {
 	std::vector<std::pair<int, std::string>> out;
 	for (int i = 0; i < static_cast<int>(m_decorations.size()); ++i) {
@@ -1154,7 +1190,7 @@ void DungeonWorld::SetItemFacing(int entityId, Direction facing) {
 }
 
 bool DungeonWorld::AnyInspectableAt(int cx, int cz) const {
-	return MonsterRuntimeIdAt(cx, cz) != 0 || SconceAt(cx, cz) ||
+	return MonsterRuntimeIdAt(cx, cz) != 0 || SconceAt(cx, cz) || BrazierAt(cx, cz) ||
 		   !DecorationsAt(cx, cz).empty() || !ItemsAt(cx, cz).empty();
 }
 

@@ -62,7 +62,7 @@ DungeonMap::DungeonMap(const std::string& path) {
 				m_dusty[static_cast<size_t>(z) * m_width + x] = 1;
 				break;
 			case 'T': rawSconces.push_back({x, z, false, Direction::North}); break;
-			case 'F': m_braziers.emplace_back(x, z); break;
+			case 'F': m_braziers.push_back({x, z}); break;
 			case 'P':
 				DN_ASSERT(!foundStart,
 						  std::format("multiple 'P' start cells in {}", path));
@@ -133,7 +133,27 @@ DungeonMap::DungeonMap(const std::string& path) {
 				}
 				rawSconces.push_back(rs);
 			} else if (tok[1] == "brazier") {
-				m_braziers.emplace_back(fx, fz);
+				// fixture brazier <x> <z> [lit=0|1] [bright=<cells>] [turb=<f>]
+				FloorBrazier b{fx, fz};
+				const auto num = [&](std::string_view t) {
+					float v = 0.0f;
+					std::from_chars(t.data(), t.data() + t.size(), v);
+					return v;
+				};
+				for (size_t i = 4; i < tok.size(); ++i) {
+					const size_t eq = tok[i].find('=');
+					DN_ASSERT(eq != std::string_view::npos,
+							  std::format("expected key=value, got \"{}\": \"{}\" in {}", tok[i],
+										  record, path));
+					const std::string_view key = tok[i].substr(0, eq), val = tok[i].substr(eq + 1);
+					if (key == "lit") b.lit = !(val == "0" || val == "false");
+					else if (key == "bright") b.brightness = num(val);
+					else if (key == "turb") b.turbidity = num(val);
+					else
+						DN_ASSERT(false, std::format("unknown brazier key \"{}\": \"{}\" in {}", key,
+													 record, path));
+				}
+				m_braziers.push_back(b);
 			} else {
 				DN_ASSERT(false,
 						  std::format("unknown fixture \"{}\" (sconce or brazier): \"{}\" in {}",
@@ -306,7 +326,8 @@ void DungeonMap::RebuildTurbidity() {
 	// Reset to the authored dusty base ('D' cells = 1.0), then re-add fire smoke.
 	for (size_t i = 0; i < m_turbidity.size(); ++i)
 		m_turbidity[i] = m_dusty[i] ? 1.0f : 0.0f;
-	for (const auto& [bx, bz] : m_braziers) AddFireTurbidity(bx, bz, 0.55f);
+	for (const FloorBrazier& b : m_braziers)
+		if (b.lit) AddFireTurbidity(b.x, b.z, b.turbidity);
 	for (const WallSconce& s : m_torches)
 		if (s.lit) AddFireTurbidity(s.x, s.z, s.turbidity);
 	++m_revision;
@@ -320,6 +341,34 @@ bool DungeonMap::SetSconceProps(int x, int z, Direction wall, bool lit, float br
 			s.brightness = brightness;
 			s.turbidity = turbidity;
 			RebuildTurbidity(); // bumps Revision()
+			return true;
+		}
+	return false;
+}
+
+bool DungeonMap::SetBrazierProps(int x, int z, bool lit, float brightness, float turbidity) {
+	for (FloorBrazier& b : m_braziers)
+		if (b.x == x && b.z == z) {
+			b.lit = lit;
+			b.brightness = brightness;
+			b.turbidity = turbidity;
+			RebuildTurbidity(); // bumps Revision()
+			return true;
+		}
+	return false;
+}
+
+bool DungeonMap::RemoveFixtureAt(int x, int z) {
+	for (size_t i = 0; i < m_torches.size(); ++i)
+		if (m_torches[i].x == x && m_torches[i].z == z) {
+			m_torches.erase(m_torches.begin() + static_cast<ptrdiff_t>(i));
+			RebuildTurbidity();
+			return true;
+		}
+	for (size_t i = 0; i < m_braziers.size(); ++i)
+		if (m_braziers[i].x == x && m_braziers[i].z == z) {
+			m_braziers.erase(m_braziers.begin() + static_cast<ptrdiff_t>(i));
+			RebuildTurbidity();
 			return true;
 		}
 	return false;
@@ -374,7 +423,7 @@ bool DungeonMap::SetSconceWall(int x, int z, Direction from, Direction to) {
 
 bool DungeonMap::AddBrazier(int x, int z) {
 	if (!IsWalkable(x, z)) return false;
-	m_braziers.emplace_back(x, z);
+	m_braziers.push_back({x, z});
 	AddFireTurbidity(x, z, 0.55f);
 	++m_revision;
 	return true;

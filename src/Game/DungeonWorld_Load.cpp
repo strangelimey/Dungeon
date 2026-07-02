@@ -473,6 +473,16 @@ DungeonWorld::FixturePreviewData DungeonWorld::SconcePreview() const {
 	return d;
 }
 
+DungeonWorld::FixturePreviewData DungeonWorld::BrazierPreview() const {
+	FixturePreviewData d;
+	d.flameHeight = 0.72f; // brazier bowl flame origin (see BuildFires)
+	gfx::MaterialParams mat;
+	ApplyPropMaterial(mat, m_brazierTex, m_brazierColor, 0.5f);
+	if (!mat.albedo) mat.metallic = 1.0f;
+	if (m_brazierMesh) d.subs.push_back({m_brazierMesh.get(), mat});
+	return d;
+}
+
 std::vector<gfx::PreviewSubmesh> DungeonWorld::DecorationPreviewSubs(int index) const {
 	std::vector<gfx::PreviewSubmesh> subs;
 	if (index < 0 || index >= static_cast<int>(m_decorations.size())) return subs;
@@ -1029,11 +1039,12 @@ void DungeonWorld::BuildFires() {
 		m_fires.push_back(std::move(fire));
 	}
 
-	for (const auto& [bx, bz] : m_map.BrazierCells()) {
-		const Vec3 center = m_map.CellCenter(bx, bz);
+	for (const FloorBrazier& b : m_map.Braziers()) {
+		const Vec3 center = m_map.CellCenter(b.x, b.z);
 		Fire fire;
 		fire.brazier = true;
-		fire.lightRadius = 14.4f; // braziers reach ~6 cells
+		fire.lit = b.lit;
+		fire.lightRadius = b.brightness * kCellSize; // "squares" -> metres
 		XMStoreFloat4x4(&fire.world, XMMatrixTranslation(center.x, 0, center.z));
 		fire.flamePos = {center.x, 0.72f, center.z};
 		fire.phase = static_cast<float>(seed) * 1.7f;
@@ -1041,7 +1052,7 @@ void DungeonWorld::BuildFires() {
 		m_fires.push_back(std::move(fire));
 	}
 	log::Info("Lit {} fires ({} sconces, {} braziers)", m_fires.size(),
-			  m_map.Sconces().size(), m_map.BrazierCells().size());
+			  m_map.Sconces().size(), m_map.Braziers().size());
 }
 
 // Per-cell turbidity as a top-down density grid: one texel per dungeon cell,

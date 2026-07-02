@@ -232,8 +232,8 @@ void MapEditor::ApplyBrush(int cx, int cz, bool dragging) {
 			m_selMonster = m_world.MonsterRuntimeIdAt(cx, cz);
 			m_selInspectable = inspectable;
 			if (reclick && onInspect) onInspect(cx, cz);
-		} else { // Erase: remove a runtime entity, else reset surface overrides
-			if (m_world.RemoveEntityAt(cx, cz)) {
+		} else { // Erase: remove a runtime entity, then a fixture, else reset surfaces
+			if (m_world.RemoveEntityAt(cx, cz) || m_world.RemoveFixtureAt(cx, cz)) {
 				log(loc::Tr("map.erase.removed"));
 			} else {
 				m_world.EditVariant(cx, cz, SS::Wall, -1);

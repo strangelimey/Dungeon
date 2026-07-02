@@ -21,9 +21,10 @@ namespace dungeon::game {
 class FixtureInspector : public InstanceInspector {
 public:
 	struct Config {
-		std::string type; // fixture kind (for the title; "torch")
+		std::string type;    // fixture kind (for the title)
+		bool brazier = false; // floor brazier (no wall/facing) vs wall torch
 		int x = 0, z = 0;
-		Direction wall = Direction::North; // the wall it currently hangs on
+		Direction wall = Direction::North; // the wall a torch hangs on (unused for brazier)
 		bool lit = true;
 		float brightness = 3.0f; // light reach in squares
 		float turbidity = 0.28f; // smokiness
@@ -37,8 +38,9 @@ public:
 
 	// Re-mount the sconce at (x,z) from one wall to another (live); returns success.
 	std::function<bool(int x, int z, Direction from, Direction to)> onRemount;
-	// Apply the per-torch light/smoke settings live (identified by cell + wall).
-	std::function<void(int x, int z, Direction wall, bool lit, float brightness,
+	// Apply the fixture's light/smoke settings live (cell + wall for a torch; brazier
+	// flag tells the owner whether to route to the sconce or brazier setter).
+	std::function<void(int x, int z, Direction wall, bool brazier, bool lit, float brightness,
 					   float turbidity)>
 		onSettings;
 	std::function<void()> onSave; // persist the level (.map)

@@ -285,7 +285,7 @@ private:
 	// row opens the matching inspector. One target per object at the clicked cell.
 	InspectPicker m_inspectPicker;
 	struct InspectTarget {
-		enum class Kind { Monster, Sconce, Decoration, Item } kind = Kind::Monster;
+		enum class Kind { Monster, Sconce, Brazier, Decoration, Item } kind = Kind::Monster;
 		u32 runtimeId = 0;        // Monster: the stable id
 		Direction wall = Direction::North; // Sconce: the wall it hangs on
 		int handle = 0;           // Decoration: list index; Item: stable entity id

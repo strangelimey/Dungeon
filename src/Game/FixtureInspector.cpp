@@ -20,13 +20,14 @@ void FixtureInspector::Open(const Config& cfg, const std::vector<Direction>& wal
 }
 
 std::string FixtureInspector::Title() const {
-	return loc::Format("map.fix.title", m_cfg.x, m_cfg.z);
+	return loc::Format(m_cfg.brazier ? "map.fix.braziertitle" : "map.fix.title", m_cfg.x, m_cfg.z);
 }
 
 void FixtureInspector::ApplySettings() {
 	SetShowFire(m_cfg.lit); // the preview flame follows the Lit toggle
 	if (onSettings)
-		onSettings(m_cfg.x, m_cfg.z, m_currentWall, m_cfg.lit, m_cfg.brightness, m_cfg.turbidity);
+		onSettings(m_cfg.x, m_cfg.z, m_currentWall, m_cfg.brazier, m_cfg.lit, m_cfg.brightness,
+				   m_cfg.turbidity);
 }
 
 void FixtureInspector::BuildContent(const gfx::Rect& c) {
@@ -70,8 +71,8 @@ void FixtureInspector::Revert() {
 		onRemount(m_cfg.x, m_cfg.z, m_currentWall, m_original.wall))
 		m_currentWall = m_original.wall;
 	if (onSettings)
-		onSettings(m_cfg.x, m_cfg.z, m_currentWall, m_original.lit, m_original.brightness,
-				   m_original.turbidity);
+		onSettings(m_cfg.x, m_cfg.z, m_currentWall, m_cfg.brazier, m_original.lit,
+				   m_original.brightness, m_original.turbidity);
 }
 
 } // namespace dungeon::game

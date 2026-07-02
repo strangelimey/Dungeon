@@ -44,6 +44,7 @@ struct PreviewSpec {
 	// Fire/smoke overlay: a flame at flameHeight above the base, shown when showFire.
 	bool fire = false;
 	float flameHeight = 0.0f;
+	float flameScale = 0.55f; // sconce flame; a brazier's is bigger
 	bool showFire = false;
 	// Auto-fit framing (for small/loose props like weapons): scale the model to fill
 	// the pane and centre it on the model-space AABB [fitMin,fitMax] instead of the

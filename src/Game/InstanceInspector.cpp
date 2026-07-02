@@ -51,17 +51,18 @@ void InstanceInspector::BuildUI() {
 	const float cw = HasPreview() ? kCtrlCol : 1.0f;
 	const float innerW = cw - 2 * kPad; // usable control width
 
-	// Common property strip: Facing (label + dropdown on one row).
-	m_ui.Add<ui::Label>(rel(kPad, kTitleH, innerW * 0.34f, kFacingH * 0.6f),
-						loc::Tr("map.insp.facing"));
+	// Common property strip: Facing (label + dropdown) — omitted entirely for a
+	// fixture with no facing choices (e.g. a floor brazier).
 	const std::vector<Direction> choices = FacingChoices();
-	std::vector<std::string> items;
-	int sel = 0;
-	for (size_t i = 0; i < choices.size(); ++i) {
-		items.push_back(loc::Tr(FacingLocKey(choices[i])));
-		if (choices[i] == m_facing) sel = static_cast<int>(i);
-	}
-	if (!choices.empty())
+	if (!choices.empty()) {
+		m_ui.Add<ui::Label>(rel(kPad, kTitleH, innerW * 0.34f, kFacingH * 0.6f),
+							loc::Tr("map.insp.facing"));
+		std::vector<std::string> items;
+		int sel = 0;
+		for (size_t i = 0; i < choices.size(); ++i) {
+			items.push_back(loc::Tr(FacingLocKey(choices[i])));
+			if (choices[i] == m_facing) sel = static_cast<int>(i);
+		}
 		m_ui.Add<ui::DropDown>(rel(kPad + innerW * 0.36f, kTitleH, innerW * 0.64f, kFacingH * 0.7f),
 							   items, sel, [this, choices](int i) {
 								   if (i >= 0 && i < static_cast<int>(choices.size())) {
@@ -69,9 +70,11 @@ void InstanceInspector::BuildUI() {
 									   ApplyLive();
 								   }
 							   });
+	}
 
-	// Divider, then the derived content between the strip and the footer.
-	const float contentTop = kTitleH + kFacingH;
+	// Divider, then the derived content between the strip and the footer. When there
+	// is no facing row, the content starts higher (reclaims that band).
+	const float contentTop = choices.empty() ? kTitleH + 0.02f : kTitleH + kFacingH;
 	m_ui.Add<ui::Separator>(rel(kPad, contentTop, innerW, 0.005f));
 	BuildContent(rel(kPad, contentTop + 0.02f, innerW,
 					 1.0f - contentTop - 0.02f - kFooterH));

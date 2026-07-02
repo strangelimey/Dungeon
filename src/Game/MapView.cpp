@@ -386,8 +386,8 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 		if (CellVisible(s.x, s.z))
 			edgeMarker(s.x, s.z, 0.16f, kTorch,
 					   {static_cast<float>(DirDX(s.wall)), static_cast<float>(DirDZ(s.wall))});
-	for (const auto& [x, z] : map.BrazierCells())
-		if (CellVisible(x, z)) marker(x, z, 0.46f, kBrazier);
+	for (const FloorBrazier& b : map.Braziers())
+		if (CellVisible(b.x, b.z)) marker(b.x, b.z, 0.46f, kBrazier);
 	// Decorations from the LIVE world list (so editor placements/removals show),
 	// labelled with their type initial.
 	for (const auto& m : m_world.DecorationMarkers()) {

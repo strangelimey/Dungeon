@@ -245,6 +245,11 @@ public:
 					   float& turbidity) const;
 	bool SetTorchSettings(int cx, int cz, Direction wall, bool lit, float brightness,
 						  float turbidity);
+	// A floor brazier on (cx,cz)? Plus its per-instance light/smoke settings (live
+	// on Set). Both return false if no brazier is there.
+	bool BrazierAt(int cx, int cz) const;
+	bool BrazierSettings(int cx, int cz, bool& lit, float& brightness, float& turbidity) const;
+	bool SetBrazierSettings(int cx, int cz, bool lit, float brightness, float turbidity);
 
 	// Editor multi-object inspect: decorations / floor items on a cell. Decorations
 	// come back as (index into the live decoration list, catalog id); items as
@@ -255,8 +260,10 @@ public:
 	void SetDecorationFacing(int index, Direction facing); // rebakes the transform
 	Direction ItemFacing(int entityId) const;
 	void SetItemFacing(int entityId, Direction facing);
-	// Any editor-inspectable object on the cell (monster / torch / decoration / item)?
+	// Any editor-inspectable object on the cell (monster/torch/brazier/decoration/item)?
 	bool AnyInspectableAt(int cx, int cz) const;
+	// Erase a fixture (sconce or brazier) at the cell, live (rebuilds fires/dust).
+	bool RemoveFixtureAt(int cx, int cz);
 
 	// Everything the editor's monster-config dialog preview needs to animate a
 	// type's mesh: the (stable, cached) mesh + skeleton + clips a borrowed Animator
@@ -285,6 +292,7 @@ public:
 		float flameHeight = 1.78f;
 	};
 	FixturePreviewData SconcePreview() const;
+	FixturePreviewData BrazierPreview() const; // brazier prop mesh + flame origin
 	// Preview submeshes for a placed decoration (by list index) or item (by entity
 	// id) — single-mesh or authored multi-material, resolved to mesh+material pairs.
 	// Empty if the handle doesn't resolve or has no previewable mesh.

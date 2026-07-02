@@ -62,6 +62,20 @@ struct WallSconce {
 	float turbidity = kSconceTurbidity;
 };
 
+// Per-brazier defaults (bigger reach + more smoke than a sconce), same "don't
+// write the default" rule on the .map record.
+inline constexpr float kBrazierBrightness = 6.0f; // light reach, in cells
+inline constexpr float kBrazierTurbidity = 0.55f;
+
+// A floor-standing brazier: its cell plus the same light/smoke knobs a sconce
+// has (no wall — it stands at the cell centre).
+struct FloorBrazier {
+	int x = 0, z = 0;
+	bool lit = true;
+	float brightness = kBrazierBrightness;
+	float turbidity = kBrazierTurbidity;
+};
+
 // A stair/portal on a floor cell that, when the party steps onto it, transitions
 // to another level (P6). `type` is a stairs.cat catalog id (the prop model);
 // dest* name the arrival level + cell + facing.
@@ -143,15 +157,19 @@ public:
 	// then recomputes the turbidity grid. Bumps Revision(); false if not found.
 	bool SetSconceProps(int x, int z, Direction wall, bool lit, float brightness,
 						float turbidity);
+	bool SetBrazierProps(int x, int z, bool lit, float brightness, float turbidity);
+	// Removes a sconce or brazier at (x,z) (sconces first, by any wall). Bumps
+	// Revision() + recomputes turbidity. Returns false if the cell has no fixture.
+	bool RemoveFixtureAt(int x, int z);
 	// Recomputes the whole air-turbidity grid from scratch: the authored dusty base
-	// ('D' cells) plus every brazier and every LIT sconce's own smoke. Called at
-	// load and whenever a torch's smoke/lit state changes.
+	// ('D' cells) plus every LIT brazier and every LIT sconce's own smoke. Called at
+	// load and whenever a fixture's smoke/lit state changes.
 	void RebuildTurbidity();
 
 	int StartX() const { return m_startX; }
 	int StartZ() const { return m_startZ; }
 	const std::vector<WallSconce>& Sconces() const { return m_torches; }
-	const std::vector<std::pair<int, int>>& BrazierCells() const { return m_braziers; }
+	const std::vector<FloorBrazier>& Braziers() const { return m_braziers; }
 
 	// Static decoration records (banners, rubble, ...) from the .map file.
 	const std::vector<Entity>& Decorations() const { return m_decorations; }
@@ -198,7 +216,7 @@ private:
 	// Per-cell variant overrides, parallel to m_cells; -1 = use the hash default.
 	std::vector<int> m_wallVar, m_floorVar, m_ceilingVar;
 	std::vector<WallSconce> m_torches;
-	std::vector<std::pair<int, int>> m_braziers;
+	std::vector<FloorBrazier> m_braziers;
 	std::vector<Entity> m_decorations;
 	std::vector<StairLink> m_stairs;
 	std::vector<std::string> m_wallPalette;   // catalog ids (walls.cat)

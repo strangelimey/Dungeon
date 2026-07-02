@@ -288,6 +288,10 @@ void Game::WireModuleCallbacks() {
 			m_inspectTargets.push_back(t);
 			labels.push_back(loc::Format("map.fix.torchwall", loc::Tr(FacingLocKey(wall))));
 		}
+		if (m_world.BrazierAt(cx, cz)) {
+			m_inspectTargets.push_back(InspectTarget{InspectTarget::Kind::Brazier});
+			labels.push_back(loc::Tr("map.key.brazier"));
+		}
 		for (const auto& [index, type] : m_world.DecorationsAt(cx, cz)) {
 			InspectTarget t{InspectTarget::Kind::Decoration};
 			t.handle = index;
@@ -342,9 +346,10 @@ void Game::WireModuleCallbacks() {
 	m_fixtureInspector.onRemount = [this](int x, int z, Direction from, Direction to) {
 		return m_world.RemountSconce(x, z, from, to);
 	};
-	m_fixtureInspector.onSettings = [this](int x, int z, Direction wall, bool lit,
+	m_fixtureInspector.onSettings = [this](int x, int z, Direction wall, bool brazier, bool lit,
 										   float brightness, float turbidity) {
-		m_world.SetTorchSettings(x, z, wall, lit, brightness, turbidity);
+		if (brazier) m_world.SetBrazierSettings(x, z, lit, brightness, turbidity);
+		else m_world.SetTorchSettings(x, z, wall, lit, brightness, turbidity);
 		// (the dialog flips its own preview spec's showFire on the Lit toggle)
 	};
 	m_fixtureInspector.onSave = [this] {
@@ -424,8 +429,27 @@ void Game::OpenInspectorFor(const InspectTarget& t) {
 		pv.fire = true;
 		pv.flameHeight = sp.flameHeight;
 		pv.showFire = fc.lit;
-		m_previewFire = FireEffect({0.0f, sp.flameHeight * sp.scale, 0.0f}, 0.55f, 1234);
+		m_previewFire = FireEffect({0.0f, sp.flameHeight * sp.scale, 0.0f}, pv.flameScale, 1234);
 		m_fixtureInspector.Open(fc, walls, std::move(pv));
+		break;
+	}
+	case InspectTarget::Kind::Brazier: {
+		FixtureInspector::Config fc;
+		fc.type = "brazier";
+		fc.brazier = true;
+		fc.x = cx;
+		fc.z = cz;
+		m_world.BrazierSettings(cx, cz, fc.lit, fc.brightness, fc.turbidity);
+		const auto sp = m_world.BrazierPreview();
+		PreviewSpec pv;
+		pv.subs = sp.subs;
+		pv.scale = sp.scale;
+		pv.fire = true;
+		pv.flameHeight = sp.flameHeight;
+		pv.flameScale = 1.0f; // braziers burn bigger than sconces
+		pv.showFire = fc.lit;
+		m_previewFire = FireEffect({0.0f, sp.flameHeight * sp.scale, 0.0f}, pv.flameScale, 1234);
+		m_fixtureInspector.Open(fc, /*walls*/ {}, std::move(pv)); // no facing
 		break;
 	}
 	case InspectTarget::Kind::Decoration: {
