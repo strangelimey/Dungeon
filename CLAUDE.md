@@ -459,23 +459,39 @@ view draws the left-dock frame/collapse/header and hit-tests the grid, then
 drives MapEditor for the palette body (RenderBody/OnClick/OnWheel) and the brush
 (Paint→ApplyBrush). The shared map ink palette is MapColors.h.
 Cells render as filled blocks (walls = bright stone ink, floors recede),
-fixtures/entities as colored square markers (torch/brazier from the map;
-monster/item/button from DungeonEntities — repoint at live runtime state once
-monsters move and projectiles exist; Editor is meant to show all of them, in
-flight or not), the start cell as an accent outline, and the party as a
-rotated triangle (facing*90° CW from north-up; screen Y is down so it matches
-the compass — uses SpriteBatch::DrawTriangle). Visibility goes through
+fixtures/entities/monsters/items as BAKED MODEL ICONS — each kind renders its
+own 3D model once into a small RT (UpdateMapIcons: monster kinds get a
+head-shot framing the model's top quarter, decorations/fixtures bake whole,
+floor items reuse their HUD item icons at the cell corner; colored square +
+type initial is the not-yet-baked fallback), semantic glyphs stay glyphs (the
+start cell's accent outline, door bars, stair/pit triangles, and the party as
+a rotated triangle — facing*90° CW from north-up; screen Y is down so it
+matches the compass; SpriteBatch::DrawTriangle). Editor-only green facing
+arrows skip types with catalog `facing_arrow = 0` (monsters: `faces = false`);
+the instance inspector's "Map arrow" checkbox beside its Facing dropdown edits
+that per type. Visibility goes through
 MapView::CellVisible (always true in Editor, else IsSeen). The transform is
 resolution-independent (pan = fraction of the grid area, zoom = unitless,
 fit-whole-map at zoom 1) and resolves against GridArea, so Update (window-
 pixel panel, matches mouse coords) and Render (device-pixel panel) agree;
 zoom is cursor-anchored. CellAt is the inverse pick. The left-dock palette is a
 catalog-driven collapsible accordion (MapEditor::PaletteCat + the kCategoryInfo
-table): Tools (Select/Erase), Structure (Wall/Floor), Walls/Floors/Ceilings
+table): Structure (Wall/Floor), Walls/Floors/Ceilings
 (per-cell surface VARIANT paint via DungeonMap variant grids), and the entity
-categories Decorations/Fixtures/Monsters/Doors/Stairs/Items (live placement).
+categories Decorations/Fixtures/Monsters/Buttons/Doors/Stairs/Items (live
+placement). Entries carrying a `category` field group under collapsible
+SUB-accordions ("+ Weapon (4)"); every catalog is authored with them.
 Items in each category come from the active project's catalogs; a "+ New..." row
-opens the asset-creation dialog (see below). Left paints/places, right-drag pans.
+opens the asset-creation dialog (see below). Mouse model: LEFT paints/places
+the armed brush (nothing armed until a palette row is picked), a stationary
+RIGHT-CLICK inspects the cell (select + contents + the object's edit dialog
+immediately; ≤3px press-release = click) while a right-DRAG pans, and
+MIDDLE-CLICK erases (the ladder: stair pair → entity → fixture → variant
+reset; one undo step each). The editor map has header buttons top-right —
+Save (savemap) / To source (synctosource) and </> undo/redo — all drawn via
+ui::DrawButtonFace (THE one button face, shared with ui::Button, hover
+included; hover on hand-drawn chrome is tracked by HoverBtn identity across
+the window-px/device-px split).
 A structural paint → DungeonWorld::EditCell → DungeonMap::SetCell (bumps
 Revision()) → RebuildChunksAround(x,z), which rebuilds ONLY the touched chunk +
 its orthogonal-neighbour chunks (≤5), not the whole map — so paints are near-
@@ -669,7 +685,7 @@ memory.
   placement, asset-creation dialog with 3D preview + AssetBaker bake, multi-level
   stairs/pits with auto-authored pairs, functional doors, level browsing +
   remote editing of any level, per-level saves, .map/.ent writers, chunk-local
-  edit rebuilds (details in the MapView / Project sections above). Select-clicking a door opens the
+  edit rebuilds (details in the MapView / Project sections above). Right-clicking a door opens the
   DoorInspector (open/closed toggles the live panel + the record's open= param;
   a "Requires key" dropdown lists items.cat entries with category=key — none
   exist yet, so it offers only None — and authors key=, which LOCKS the door
@@ -683,12 +699,25 @@ memory.
   render's X-tilt flips the handle by `activated`); the party presses it by
   clicking while standing on its cell facing its wall (PressButtonFacing —
   the world-click chain is pick-item → door-ahead → button-facing), toggling
-  the doors its target= names; Select-click opens the ButtonInspector
+  the doors its target= names; right-click opens the ButtonInspector
   (Target dropdown = the level's door names via DungeonWorld::DoorNames +
   None; a stale wired name stays selectable). The `press <x> <z>` dev
-  command still force-toggles one. Editor next steps: item placement (the
-  last "wiring comes next" palette stub); key ITEMS (items.cat category=key
-  + an inventory check in ToggleDoorAhead); the dialog's material sliders
-  are preview-only for imported models (ORM map drives the real material); a
-  "save to source" UI button (vs the `synctosource` dev command); undo/redo
-  for edits.
+  command still force-toggles one. The former next-steps list is DONE: item
+  placement brush (record-backed AddItem/AddItemRemote, one item per quarter
+  slot, erase rung included); KEY items (items.cat category=key — iron/brass
+  authored — unlock a door whose key= names them via Inventory::Has across
+  the roster; not consumed, re-locks when shut, buttons bypass; `give <item>
+  [member]` dev command stows one for testing); REAL material sliders (the
+  asset dialog persists only the metallic/roughness/height_scale/color
+  values the user MOVED as catalog fields — hand-authorable on any model
+  entry — replacing the draw factors the shader multiplies over the ORM
+  map; multi-material kinds bake them per submesh); Save / To source header
+  buttons (Game::SyncProjectToSource shared with the console command);
+  snapshot-based UNDO/REDO (one step = copies of every level's
+  editor-visible state incl. the SnapshotActive dynamic diffs; restore =
+  the level-re-entry flow with the SURFACE REBAKE DEFERRED to editor close
+  behind a one-frame "Rebuilding geometry..." notice — GeometryDirty/
+  FlushGeometry; </> buttons + Ctrl+Z/Y; drag stroke = one step; history
+  clears on level transitions). Instance dialogs: footer = Save (+ Delete
+  on the item/decoration dialog — targeted RemoveItemById/
+  RemoveDecorationByIndex, undo-bracketed), closing = top-right "x" or Esc.
