@@ -598,7 +598,7 @@ void DungeonWorld::BakeMonsterIcon(ID3D12GraphicsCommandList* list,
 	// HEAD SHOT: frame the model's upper portion (a skull for the skeleton, the
 	// slime's dome), not the whole figure — a full body at map-marker size is
 	// an unreadable stick. Bind-pose bounds from the mesh vertices; the focus
-	// box is the top ~40% of the height, centred on x/z.
+	// box is the top quarter of the height (the head, tight), centred on x/z.
 	Vec3 lo{1e9f, 1e9f, 1e9f}, hi{-1e9f, -1e9f, -1e9f};
 	for (const auto& v : kind.model.meshes[0].vertices) {
 		lo = {std::min(lo.x, v.position.x), std::min(lo.y, v.position.y),
@@ -607,7 +607,7 @@ void DungeonWorld::BakeMonsterIcon(ID3D12GraphicsCommandList* list,
 			  std::max(hi.z, v.position.z)};
 	}
 	const float height = std::max(hi.y - lo.y, 1e-3f);
-	const float focusH = height * 0.40f;
+	const float focusH = height * 0.25f;
 	const Vec3 c{(lo.x + hi.x) * 0.5f, hi.y - focusH * 0.5f, (lo.z + hi.z) * 0.5f};
 	// Fill ~85% of the frame with the focus height (the head breathes a little).
 	const float s = 1.18f / focusH;
