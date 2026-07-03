@@ -128,6 +128,14 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	ApplyDisplaySettings();
 }
 
+Game::~Game() {
+	// The AudioEngine outlives Game (constructed before it in Main), but its
+	// playback references SoundBank sample memory owned HERE — silence every
+	// voice before that memory goes away, or the mixer thread reads freed
+	// buffers on a quit mid-sound.
+	m_audio.StopAll();
+}
+
 // ============================================================================
 // Module wiring — the world↔UI/editor callback graph and the dev-console
 // command table, split out of the constructor (which is otherwise just member
@@ -834,6 +842,8 @@ void Game::RegisterDevCommands() {
 	m_console.Register("preview", "show a model in the 3D preview (off to close)",
 					   [this](const std::vector<std::string>& args) {
 						   if (!args.empty() && args[0] == "off") {
+							   // In-flight frames may still draw the mesh
+							   if (m_previewMesh) m_device.WaitIdle();
 							   m_previewMesh.reset();
 							   m_console.Print("preview off");
 							   return;
@@ -846,6 +856,8 @@ void Game::RegisterDevCommands() {
 							   return;
 						   }
 						   m_previewModel = LoadModelOrDie(name + ".gltf");
+						   // Replacing frees the old mesh — drain in-flight frames
+						   if (m_previewMesh) m_device.WaitIdle();
 						   m_previewMesh = std::make_unique<gfx::Mesh>(
 							   m_device, m_previewModel.meshes[0]);
 						   m_previewMaterial = {};

@@ -29,6 +29,7 @@
 #include <algorithm>
 #include <cstring>
 #include <filesystem>
+#include <memory>
 #include <unordered_map>
 
 namespace dungeon::assets {
@@ -197,10 +198,11 @@ std::expected<ModelData, std::string> LoadGltf(const std::string& path) {
 	cgltf_data* data = nullptr;
 	if (cgltf_parse_file(&options, path.c_str(), &data) != cgltf_result_success)
 		return std::unexpected(std::format("failed to parse glTF: {}", path));
-	if (cgltf_load_buffers(&options, data, path.c_str()) != cgltf_result_success) {
-		cgltf_free(data);
+	// Own the parse immediately: everything below allocates, so any exception
+	// (or early return) must still reach cgltf_free.
+	const std::unique_ptr<cgltf_data, decltype(&cgltf_free)> owned(data, &cgltf_free);
+	if (cgltf_load_buffers(&options, data, path.c_str()) != cgltf_result_success)
 		return std::unexpected(std::format("failed to load glTF buffers: {}", path));
-	}
 
 	ModelData model;
 	ImageCache imageCache{data, std::filesystem::path(path).parent_path(), &model, {}};
@@ -296,7 +298,6 @@ std::expected<ModelData, std::string> LoadGltf(const std::string& path) {
 		if (!clip.channels.empty()) model.clips.push_back(std::move(clip));
 	}
 
-	cgltf_free(data);
 	log::Info("Loaded glTF '{}': {} meshes, {} materials, {} joints, {} clips", path,
 			  model.meshes.size(), model.materials.size(), model.skeleton.joints.size(),
 			  model.clips.size());

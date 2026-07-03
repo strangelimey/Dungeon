@@ -29,6 +29,8 @@ void AssetDialog::Open(const std::string& category, const std::string& catalogKe
 	m_name.clear();
 	m_sourcePath.clear();
 	m_orbit = 0.0f;
+	// A prior preview mesh may still be referenced by in-flight frames
+	if (m_previewMesh) m_device.WaitIdle();
 	m_previewMesh.reset();
 	m_material = {}; // metallic 0, roughness 0.9, height 0, white
 	m_neutral = m_material; // Create writes only the sliders moved off these
@@ -119,7 +121,9 @@ void AssetDialog::Browse() {
 	}
 
 	// Live preview for model imports (the engine loads .gltf/.glb; .obj and
-	// texture-only sets show no mesh until baked).
+	// texture-only sets show no mesh until baked). The old mesh may still be
+	// referenced by in-flight frames — drain before freeing it.
+	if (m_previewMesh) m_device.WaitIdle();
 	m_previewMesh.reset();
 	if (m_textureSet) return;
 	auto model = assets::LoadModel(path);

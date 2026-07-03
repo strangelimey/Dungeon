@@ -108,6 +108,12 @@ AudioEngine::~AudioEngine() {
 	if (m_xaudio) m_xaudio->Release();
 }
 
+void AudioEngine::StopAll() {
+	// DestroyVoice (via ~PooledVoice) blocks until the mixer thread has
+	// released the voice, so no submitted sample buffer is read after this.
+	m_voices.clear();
+}
+
 void AudioEngine::Play(const assets::SoundData& sound, float volume, float pan,
 					   float pitch) {
 	if (!m_xaudio || sound.samples.empty()) return;

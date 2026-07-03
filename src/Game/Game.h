@@ -76,6 +76,9 @@ class Game {
 public:
 	Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 		 gfx::SpriteBatch& spriteBatch, audio::AudioEngine& audio);
+	// Stops all playback: the audio engine outlives Game but plays zero-copy
+	// out of the Game-owned SoundBank (see ~Game in Game.cpp).
+	~Game();
 
 	void Update(float dt);
 	void Render(ID3D12GraphicsCommandList* list);

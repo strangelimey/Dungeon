@@ -4,6 +4,7 @@
 
 #include <cstdio>
 #include <format>
+#include <memory>
 #include <sstream>
 #include <string>
 
@@ -12,9 +13,12 @@ namespace dungeon::assets {
 // Minimal Wavefront OBJ loader: v / vn / vt / f (triangles or fans).
 // Materials are ignored; the result is a single mesh with the default material.
 std::expected<ModelData, std::string> LoadObj(const std::string& path) {
-	std::FILE* f = nullptr;
-	if (fopen_s(&f, path.c_str(), "r") != 0 || !f)
+	std::FILE* raw = nullptr;
+	if (fopen_s(&raw, path.c_str(), "r") != 0 || !raw)
 		return std::unexpected(std::format("could not open OBJ: {}", path));
+	// The parse loop below allocates; own the handle so an exception still
+	// closes the file.
+	const std::unique_ptr<std::FILE, decltype(&std::fclose)> f(raw, &std::fclose);
 
 	std::vector<Vec3> positions;
 	std::vector<Vec3> normals;
@@ -44,7 +48,7 @@ std::expected<ModelData, std::string> LoadObj(const std::string& path) {
 	};
 
 	char line[1024];
-	while (std::fgets(line, sizeof(line), f)) {
+	while (std::fgets(line, sizeof(line), f.get())) {
 		std::istringstream ss(line);
 		std::string tag;
 		ss >> tag;
@@ -72,7 +76,6 @@ std::expected<ModelData, std::string> LoadObj(const std::string& path) {
 			}
 		}
 	}
-	std::fclose(f);
 
 	if (mesh.vertices.empty())
 		return std::unexpected(std::format("OBJ contained no geometry: {}", path));

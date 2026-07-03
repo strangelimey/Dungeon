@@ -7,6 +7,7 @@
 
 #include <Windows.h>
 #include <shobjidl.h>
+#include <wrl/client.h>
 
 namespace dungeon::platform {
 
@@ -14,6 +15,7 @@ namespace {
 
 std::string RunDialog(HWND__* owner, bool pickFolder, const std::wstring& label,
 					  const std::wstring& pattern) {
+	using Microsoft::WRL::ComPtr;
 	std::string result;
 	// The dialog needs an STA. CoInitializeEx is reference-counted; only balance
 	// it when we were the ones to initialize this thread.
@@ -21,30 +23,31 @@ std::string RunDialog(HWND__* owner, bool pickFolder, const std::wstring& label,
 		CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
 	const bool didInit = SUCCEEDED(init);
 
-	IFileOpenDialog* dialog = nullptr;
-	if (SUCCEEDED(CoCreateInstance(CLSID_FileOpenDialog, nullptr,
-								   CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dialog)))) {
-		DWORD options = 0;
-		dialog->GetOptions(&options);
-		if (pickFolder) {
-			dialog->SetOptions(options | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM);
-		} else if (!pattern.empty()) {
-			const COMDLG_FILTERSPEC spec{label.c_str(), pattern.c_str()};
-			dialog->SetFileTypes(1, &spec);
-		}
+	{
+		// Scoped so the ComPtrs Release before the CoUninitialize below.
+		ComPtr<IFileOpenDialog> dialog;
+		if (SUCCEEDED(CoCreateInstance(CLSID_FileOpenDialog, nullptr,
+									   CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dialog)))) {
+			DWORD options = 0;
+			dialog->GetOptions(&options);
+			if (pickFolder) {
+				dialog->SetOptions(options | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM);
+			} else if (!pattern.empty()) {
+				const COMDLG_FILTERSPEC spec{label.c_str(), pattern.c_str()};
+				dialog->SetFileTypes(1, &spec);
+			}
 
-		if (SUCCEEDED(dialog->Show(owner))) {
-			IShellItem* item = nullptr;
-			if (SUCCEEDED(dialog->GetResult(&item))) {
-				PWSTR path = nullptr;
-				if (SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &path))) {
-					result = str::Narrow(path);
-					CoTaskMemFree(path);
+			if (SUCCEEDED(dialog->Show(owner))) {
+				ComPtr<IShellItem> item;
+				if (SUCCEEDED(dialog->GetResult(&item))) {
+					PWSTR path = nullptr;
+					if (SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &path))) {
+						result = str::Narrow(path);
+						CoTaskMemFree(path);
+					}
 				}
-				item->Release();
 			}
 		}
-		dialog->Release();
 	}
 
 	if (didInit) CoUninitialize();
