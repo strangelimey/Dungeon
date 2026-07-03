@@ -240,6 +240,15 @@ bool MapView::Update(const Input& input, const gfx::Rect& panel) {
 	// simulating under the open map), snap to the live view of it.
 	if (m_browse && m_browse->stem == m_world.CurrentLevel()) m_browse.reset();
 
+	// A latched undo/redo executes one frame AFTER its trigger, so the busy
+	// button state rendered last frame is what the (long, blocking) restore
+	// freezes on screen — see m_pendingHistory.
+	if (m_pendingHistory != 0) {
+		const bool redo = m_pendingHistory > 0;
+		m_pendingHistory = 0;
+		DoUndoRedo(redo);
+	}
+
 	const float mx = input.MouseX(), my = input.MouseY();
 	const DungeonMap& map = ViewedMap();
 	const bool editor = m_mode == Mode::Editor;
@@ -249,9 +258,9 @@ bool MapView::Update(const Input& input, const gfx::Rect& panel) {
 	// Editor keyboard: Ctrl+Z / Ctrl+Y = undo/redo. The overlay otherwise
 	// leaves the keyboard alone (movement keys keep reaching the party), but
 	// the Ctrl chord can't collide with a bound movement key.
-	if (editor && input.IsKeyDown(0x11 /*VK_CONTROL*/)) {
-		if (input.WasKeyPressed('Z')) DoUndoRedo(false);
-		else if (input.WasKeyPressed('Y')) DoUndoRedo(true);
+	if (editor && m_pendingHistory == 0 && input.IsKeyDown(0x11 /*VK_CONTROL*/)) {
+		if (input.WasKeyPressed('Z')) m_pendingHistory = -1;
+		else if (input.WasKeyPressed('Y')) m_pendingHistory = +1;
 	}
 
 	// Track the hovered cell (for Render highlights, e.g. the faint item icon).
@@ -305,14 +314,15 @@ bool MapView::Update(const Input& input, const gfx::Rect& panel) {
 			}
 		}
 		// Undo/redo buttons (left of Save) — hidden when their stack is empty,
-		// so a click there falls through like a hidden level arrow.
+		// so a click there falls through like a hidden level arrow; disabled
+		// (latched trigger pending) they swallow the click but do nothing.
 		if (editor) {
 			if (m_world.CanUndo() && UndoButton(panel).Contains(mx, my)) {
-				DoUndoRedo(false);
+				if (m_pendingHistory == 0) m_pendingHistory = -1;
 				return true;
 			}
 			if (m_world.CanRedo() && RedoButton(panel).Contains(mx, my)) {
-				DoUndoRedo(true);
+				if (m_pendingHistory == 0) m_pendingHistory = +1;
 				return true;
 			}
 		}
@@ -803,9 +813,20 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 			textBtn(SaveButton(panel), loc::Tr("map.btn.save"));
 			textBtn(SaveSourceButton(panel), loc::Tr("map.btn.source"));
 			// Undo/redo, drawn only while their stacks have steps (hit-testing
-			// matches, so a hidden button never eats a click).
-			if (m_world.CanUndo()) textBtn(UndoButton(panel), "<");
-			if (m_world.CanRedo()) textBtn(RedoButton(panel), ">");
+			// matches, so a hidden button never eats a click). While a restore
+			// is latched, both draw DISABLED — that busy state is the frame the
+			// blocking reload freezes on, so the click visibly took.
+			auto historyBtn = [&](const gfx::Rect& r, const char* glyph) {
+				const bool busy = m_pendingHistory != 0;
+				batch.DrawRect(r, busy ? theme.panel : theme.control);
+				ui::DrawBorder(batch, r, theme.panelBorder);
+				m_font.Draw(batch, glyph,
+							r.x + (r.w - m_font.MeasureWidth(glyph)) * 0.5f,
+							r.y + (r.h - m_font.Height()) * 0.5f,
+							busy ? theme.textDim : theme.text);
+			};
+			if (m_world.CanUndo()) historyBtn(UndoButton(panel), "<");
+			if (m_world.CanRedo()) historyBtn(RedoButton(panel), ">");
 		}
 	}
 
