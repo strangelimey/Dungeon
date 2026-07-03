@@ -23,6 +23,7 @@
 #include "UI/UIContext.h"
 #include "UI/Widget.h" // complete ui::Widget: m_ui (UIContext) holds it by value
 
+#include <functional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -63,6 +64,14 @@ public:
 
 	bool IsOpen() const { return m_open; }
 	void Close() { m_open = false; }
+
+	// Optional Delete action: when the OWNER sets this before Open, the footer
+	// shows a Delete button beside Save (in the old Close slot — closing moved
+	// to the panel's top-right "x" and Esc). Clicking it fires the callback
+	// (which removes the object from the map) and closes WITHOUT Revert — the
+	// object is gone, there is nothing to restore. Set per open; inspectors
+	// that never set it just show Save.
+	std::function<void()> onDelete;
 
 	void Update(const Input& input, float width, float height);
 	void Render(gfx::SpriteBatch& batch, const ui::Theme& theme, float width,

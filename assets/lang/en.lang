@@ -354,6 +354,7 @@ map.cfg.states=States
 map.cfg.anims=Animations: {}
 map.cfg.save=Save
 map.cfg.close=Close
+map.cfg.delete=Delete
 map.cfg.noclips=(model has no clips)
 map.cfg.preview=Preview
 map.cfg.nopreview=select an animation

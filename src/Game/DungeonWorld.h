@@ -276,6 +276,12 @@ public:
 	void SetDecorationFacing(int index, Direction facing); // rebakes the transform
 	Direction ItemFacing(int entityId) const;
 	void SetItemFacing(int entityId, Direction facing);
+	// Targeted removal by the same handles (the inspectors' Delete button —
+	// unlike RemoveEntityAt's ladder, these take out exactly the inspected
+	// object). Decorations refuse a stair prop (RemoveStairAt owns those); the
+	// item's .ent record goes with it. Both return false on a stale handle.
+	bool RemoveDecorationByIndex(int index);
+	bool RemoveItemById(int entityId);
 	// Any editor-inspectable object on the cell (monster/torch/brazier/decoration/item)?
 	bool AnyInspectableAt(int cx, int cz) const;
 	// Erase a fixture (sconce or brazier) at the cell, live (rebuilds fires/dust).

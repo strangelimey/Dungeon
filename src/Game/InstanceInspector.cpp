@@ -79,18 +79,27 @@ void InstanceInspector::BuildUI() {
 	BuildContent(rel(kPad, contentTop + 0.02f, innerW,
 					 1.0f - contentTop - 0.02f - kFooterH));
 
-	// Footer: Save (persist) + Close (revert), filling the control column.
+	// Close: an "x" in the panel's top-right corner (revert, like Esc).
+	m_ui.Add<ui::Button>(rel(1.0f - kPad - 0.07f, 0.02f, 0.07f, kTitleH * 0.62f),
+						 "x", [this] {
+							 Revert();
+							 Close();
+						 });
+
+	// Footer: Save (persist), plus Delete (remove the object from the map)
+	// when the owner armed it — closing lives in the "x"/Esc, not down here.
 	const float gap = innerW * 0.06f, bw = (innerW - gap) * 0.5f, fy = 1.0f - kFooterH + 0.02f;
 	m_ui.Add<ui::Button>(rel(kPad, fy, bw, kFooterH * 0.55f), loc::Tr("map.cfg.save"),
 						 [this] {
 							 Persist();
 							 Close();
 						 });
-	m_ui.Add<ui::Button>(rel(kPad + bw + gap, fy, bw, kFooterH * 0.55f),
-						 loc::Tr("map.cfg.close"), [this] {
-							 Revert();
-							 Close();
-						 });
+	if (onDelete)
+		m_ui.Add<ui::Button>(rel(kPad + bw + gap, fy, bw, kFooterH * 0.55f),
+							 loc::Tr("map.cfg.delete"), [this] {
+								 onDelete(); // the object is gone — no Revert
+								 Close();
+							 });
 }
 
 gfx::Rect InstanceInspector::PreviewRect(float w, float h) const {

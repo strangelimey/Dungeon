@@ -523,6 +523,14 @@ void Game::OpenInspectorFor(const InspectTarget& t) {
 		c.facing = m_world.DecorationFacing(t.handle);
 		PreviewSpec pv;
 		pv.subs = m_world.DecorationPreviewSubs(t.handle);
+		// Delete removes exactly the inspected prop (undo-bracketed like a
+		// brush edit; the world is frozen while the modal is up, so the index
+		// handle stays valid).
+		m_propInspector.onDelete = [this, handle = t.handle] {
+			m_world.BeginUndoStep();
+			m_world.CommitUndoStep(m_world.RemoveDecorationByIndex(handle));
+			if (m_world.onMessage) m_world.onMessage(loc::Tr("map.erase.removed"));
+		};
 		m_propInspector.Open(c, std::move(pv));
 		break;
 	}
@@ -539,6 +547,11 @@ void Game::OpenInspectorFor(const InspectTarget& t) {
 		pv.autoFit = true;
 		pv.spin = true;
 		m_previewSpin = 0.0f;
+		m_propInspector.onDelete = [this, handle = t.handle] {
+			m_world.BeginUndoStep();
+			m_world.CommitUndoStep(m_world.RemoveItemById(handle));
+			if (m_world.onMessage) m_world.onMessage(loc::Tr("map.erase.removed"));
+		};
 		m_propInspector.Open(c, std::move(pv));
 		break;
 	}

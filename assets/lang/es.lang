@@ -381,6 +381,7 @@ map.cfg.states=Estados
 map.cfg.anims=Animaciones: {}
 map.cfg.save=Guardar
 map.cfg.close=Cerrar
+map.cfg.delete=Eliminar
 map.cfg.noclips=(el modelo no tiene clips)
 map.cfg.preview=Vista previa
 map.cfg.nopreview=elige una animación

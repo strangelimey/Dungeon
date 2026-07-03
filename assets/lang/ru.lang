@@ -385,6 +385,7 @@ map.cfg.states=Состояния
 map.cfg.anims=Анимации: {}
 map.cfg.save=Сохранить
 map.cfg.close=Закрыть
+map.cfg.delete=Удалить
 map.cfg.noclips=(у модели нет клипов)
 map.cfg.preview=Предпросмотр
 map.cfg.nopreview=выберите анимацию

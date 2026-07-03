@@ -2295,6 +2295,26 @@ std::vector<std::pair<int, std::string>> DungeonWorld::ItemsAt(int cx, int cz) c
 	return out;
 }
 
+bool DungeonWorld::RemoveDecorationByIndex(int index) {
+	if (index < 0 || index >= static_cast<int>(m_decorations.size())) return false;
+	if (m_decorations[static_cast<size_t>(index)].stair) return false; // RemoveStairAt owns those
+	m_decorations.erase(m_decorations.begin() + index);
+	return true;
+}
+
+bool DungeonWorld::RemoveItemById(int entityId) {
+	for (auto it = m_items.begin(); it != m_items.end(); ++it)
+		if (it->id == entityId) {
+			if (entityId >= 0) { // authored/placed: the .ent record goes too
+				m_entities.RemoveById(entityId);
+				m_entsDirty = true;
+			}
+			m_items.erase(it);
+			return true;
+		}
+	return false;
+}
+
 Direction DungeonWorld::DecorationFacing(int index) const {
 	if (index >= 0 && index < static_cast<int>(m_decorations.size()))
 		return m_decorations[static_cast<size_t>(index)].facing;
