@@ -239,6 +239,12 @@ private:
 	// clicking a floor tablet; cleared by dropping it (world / portrait / hand /
 	// inventory). GameUI reads the address to draw the cursor icon.
 	std::optional<std::string> m_heldItem;
+	// Editor undo/redo defers the surface rebake while the full-screen editor
+	// hides the scene (DungeonWorld::GeometryDirty). On leaving editor mode
+	// this latches ONE frame so Render shows the centered "rebuilding
+	// geometry" notice, then the next Update runs the blocking FlushGeometry —
+	// the stall freezes on the notice frame.
+	bool m_geomNoticeLatched = false;
 
 	// Right-mouse free-look drag: the previous cursor position, so each frame's
 	// motion becomes a yaw/pitch delta. Valid only while m_looking (RMB held).

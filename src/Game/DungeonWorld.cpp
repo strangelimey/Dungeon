@@ -1364,7 +1364,11 @@ DungeonWorld::EditorSnapshot DungeonWorld::CaptureEditorState() const {
 }
 
 void DungeonWorld::RestoreEditorState(EditorSnapshot snap) {
-	m_device.WaitIdle(); // in-flight frames may still read the old meshes
+	// Cheap in editor mode (only sprite work is queued — the scene passes are
+	// skipped while the full-screen editor is up), and still required: the
+	// turbidity texture below is replaced, and an in-flight frame must not
+	// read a freed resource.
+	m_device.WaitIdle();
 
 	// Static layer + records (move-assign like BeginLevelLoad — Party holds a
 	// reference to m_map, so the object must persist, only its data changes).
@@ -1398,14 +1402,22 @@ void DungeonWorld::RestoreEditorState(EditorSnapshot snap) {
 	m_levelStates[m_currentLevel] = std::move(snap.state);
 	ApplyActiveSnapshot();
 
-	// Fires/turbidity from the restored fixtures, then a full geometry rebake —
-	// any cell may differ, so the chunk-local edit path can't cover it (this is
-	// the quality-swap rebuild).
+	// Fires/turbidity from the restored fixtures. The SURFACE rebake is
+	// deferred (m_geometryDirty → FlushGeometry): any cell may differ, so it
+	// would be the full quality-swap rebuild — but the full-screen editor
+	// hides the scene, so the stale chunks are never drawn, undo stays fast,
+	// and a whole editing session pays for one rebake on the way out.
 	RebuildFiresAndDust();
+	m_geometryDirty = true;
+}
+
+void DungeonWorld::FlushGeometry() {
+	if (!m_geometryDirty) return;
+	m_device.WaitIdle(); // in-flight frames may still read the old chunk meshes
 	m_walls.chunks.clear();
 	m_floors.chunks.clear();
 	m_ceilings.chunks.clear();
-	BuildDungeonMeshes();
+	BuildDungeonMeshes(); // clears m_geometryDirty itself
 	m_shadows.InvalidateCubes();
 }
 

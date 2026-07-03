@@ -298,6 +298,7 @@ map.undo.done=Отменено.
 map.undo.none=Нечего отменять.
 map.redo.done=Повторено.
 map.redo.none=Нечего повторять.
+map.rebuilding=Перестроение геометрии...
 map.stairs.placed=«{}» размещена — обратная лестница добавлена на «{}»
 map.stairs.noup=Нет уровня выше для лестницы вверх
 map.stairs.nodown=Нет уровня ниже для лестницы вниз

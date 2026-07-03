@@ -294,6 +294,7 @@ map.undo.done=Deshecho.
 map.undo.none=Nada que deshacer.
 map.redo.done=Rehecho.
 map.redo.none=Nada que rehacer.
+map.rebuilding=Reconstruyendo la geometría...
 map.stairs.placed='{}' colocada — escalera de vuelta añadida en '{}'
 map.stairs.noup=No hay nivel superior para una escalera de subida
 map.stairs.nodown=No hay nivel inferior para una escalera de bajada

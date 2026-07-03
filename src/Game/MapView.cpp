@@ -814,8 +814,8 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 			textBtn(SaveSourceButton(panel), loc::Tr("map.btn.source"));
 			// Undo/redo, drawn only while their stacks have steps (hit-testing
 			// matches, so a hidden button never eats a click). While a restore
-			// is latched, both draw DISABLED — that busy state is the frame the
-			// blocking reload freezes on, so the click visibly took.
+			// is latched, both draw DISABLED for the frame it executes on, so
+			// the click visibly takes even if the restore hitches.
 			auto historyBtn = [&](const gfx::Rect& r, const char* glyph) {
 				const bool busy = m_pendingHistory != 0;
 				batch.DrawRect(r, busy ? theme.panel : theme.control);
@@ -850,11 +850,6 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 	m_font.Draw(batch, pos, grid.x + grid.w - m_font.MeasureWidth(pos) - pad,
 				footY, theme.textDim);
 
-	// A latched undo/redo dims the whole panel (drawn last, over everything)
-	// for the frame the blocking reload freezes on — with the disabled history
-	// buttons it reads unambiguously as "working", not a dead click.
-	if (m_pendingHistory != 0)
-		batch.DrawRect(panel, {0.0f, 0.0f, 0.0f, 0.5f});
 }
 
 } // namespace dungeon::game

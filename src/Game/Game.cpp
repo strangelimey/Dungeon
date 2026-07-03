@@ -1822,6 +1822,25 @@ void Game::Update(float dt) {
 	// party still walks (keyboard) — the overlay only claims the mouse for
 	// panning/zooming/editing, and Esc/M closes it instead of pausing.
 	if (input.WasKeyPressed('M')) m_mapView.Toggle();
+
+	// Deferred editor-geometry rebake: undo/redo skips the expensive surface
+	// rebuild while the full-screen editor hides the scene. The debt comes due
+	// the moment the scene can show again (editor closed OR flipped to the
+	// player map, which draws over the live scene): latch one frame so the
+	// "rebuilding geometry" notice renders, then flush — the blocking rebake
+	// freezes on the notice frame.
+	const bool editorMapActive = m_mapView.IsOpen() &&
+								 m_mapView.CurrentMode() == MapView::Mode::Editor;
+	if (editorMapActive) {
+		m_geomNoticeLatched = false;
+	} else if (m_world.GeometryDirty()) {
+		if (m_geomNoticeLatched) {
+			m_world.FlushGeometry();
+			m_geomNoticeLatched = false;
+		} else {
+			m_geomNoticeLatched = true;
+		}
+	}
 	if (m_mapView.IsOpen()) {
 		// While laying a patrol route (grid clicks lay waypoints), keys finish/undo
 		// it — ahead of the overlay's own Esc-to-close.
@@ -2051,6 +2070,19 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 				m_spriteBatch.DrawRect({0, 0, dw, dh}, {0, 0, 0, 0.45f});
 				m_mapView.Render(m_spriteBatch, m_settings.theme, MapPanel(dw, dh));
 			}
+		}
+		// The deferred-rebake notice (see Update): the frame the blocking
+		// FlushGeometry freezes on, so the pause reads as work, not a hang.
+		if (m_geomNoticeLatched) {
+			ui::Font& font = m_mapView.Font();
+			const std::string msg = loc::Tr("map.rebuilding");
+			const float w = font.MeasureWidth(msg);
+			const gfx::Rect back{(dw - w) * 0.5f - 14.0f,
+								 (dh - font.Height()) * 0.5f - 10.0f, w + 28.0f,
+								 font.Height() + 20.0f};
+			m_spriteBatch.DrawRect(back, {0.0f, 0.0f, 0.0f, 0.75f});
+			font.Draw(m_spriteBatch, msg, (dw - w) * 0.5f,
+					  (dh - font.Height()) * 0.5f, m_settings.theme.accent);
 		}
 		break;
 	}

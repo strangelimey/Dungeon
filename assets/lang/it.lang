@@ -294,6 +294,7 @@ map.undo.done=Annullato.
 map.undo.none=Niente da annullare.
 map.redo.done=Ripristinato.
 map.redo.none=Niente da ripristinare.
+map.rebuilding=Ricostruzione della geometria...
 map.stairs.placed='{}' piazzata — scala di ritorno aggiunta su '{}'
 map.stairs.noup=Nessun livello sopra per una scala in salita
 map.stairs.nodown=Nessun livello sotto per una scala in discesa

@@ -294,6 +294,7 @@ map.undo.done=Rückgängig gemacht.
 map.undo.none=Nichts rückgängig zu machen.
 map.redo.done=Wiederhergestellt.
 map.redo.none=Nichts wiederherzustellen.
+map.rebuilding=Geometrie wird neu aufgebaut ...
 map.stairs.placed='{}' platziert — Rückweg-Treppe auf '{}' hinzugefügt
 map.stairs.noup=Keine Ebene darüber für eine Treppe nach oben
 map.stairs.nodown=Keine Ebene darunter für eine Treppe nach unten

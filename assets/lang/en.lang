@@ -292,6 +292,7 @@ map.undo.done=Undone.
 map.undo.none=Nothing to undo.
 map.redo.done=Redone.
 map.redo.none=Nothing to redo.
+map.rebuilding=Rebuilding geometry...
 map.stairs.placed=Placed '{}' — return stairs added on '{}'
 map.stairs.noup=No level above for stairs up
 map.stairs.nodown=No level below for stairs down

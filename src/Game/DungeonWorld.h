@@ -533,6 +533,15 @@ public:
 	bool CanRedo() const { return !m_redoStack.empty(); }
 	void Undo();
 	void Redo();
+	// An undo/redo restore DEFERS the expensive surface rebake: the full-screen
+	// editor hides the scene and shadow passes, so the stale chunks are never
+	// drawn while it stays up, and repeated undos pay nothing. GeometryDirty
+	// reports the debt; FlushGeometry pays it (GPU drain + full rebake + shadow
+	// invalidation) — Game calls it when editor mode ends, behind a one-frame
+	// "rebuilding geometry" notice. Any full rebake (level load, quality swap)
+	// clears the flag itself.
+	bool GeometryDirty() const { return m_geometryDirty; }
+	void FlushGeometry();
 
 	// A live entity's cell + type, for the map overlay (placed/erased entities
 	// show immediately, and the marker can label its type + stack count). Built
@@ -1459,6 +1468,7 @@ private:
 	std::vector<EditorSnapshot> m_undoStack;
 	std::vector<EditorSnapshot> m_redoStack;
 	std::optional<EditorSnapshot> m_pendingUndo; // BeginUndoStep .. CommitUndoStep
+	bool m_geometryDirty = false; // a restore skipped the rebake (FlushGeometry)
 
 	std::vector<Fire> m_fires;
 	std::unique_ptr<gfx::Mesh> m_sconceMesh;

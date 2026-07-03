@@ -191,11 +191,12 @@ private:
 	gfx::Rect UndoButton(const gfx::Rect& panel) const;
 	gfx::Rect RedoButton(const gfx::Rect& panel) const;
 	void DoUndoRedo(bool redo);
-	// The restore blocks the frame (GPU drain + full geometry rebake), so a
-	// trigger only LATCHES here; Render then draws the buttons disabled, and the
-	// NEXT Update executes — the stalled frame on screen shows the busy state
-	// instead of a normal button that reads as a dead click. 0 = idle,
-	// -1 = undo pending, +1 = redo pending. Triggers are swallowed while set.
+	// A trigger only LATCHES here; Render draws the buttons disabled, and the
+	// NEXT Update executes. The restore itself is fast now (the surface rebake
+	// is deferred to editor close — DungeonWorld::FlushGeometry), but the
+	// respawn/WaitIdle can still hitch briefly, and the latch keeps the click
+	// visibly taken either way. 0 = idle, -1 = undo pending, +1 = redo
+	// pending. Triggers are swallowed while set.
 	int m_pendingHistory = 0;
 
 	gfx::GraphicsDevice& m_device;

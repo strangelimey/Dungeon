@@ -315,6 +315,7 @@ void DungeonWorld::BuildDungeonMeshes() {
 	upload(m_walls, geo.walls);
 	upload(m_floors, geo.floors);
 	upload(m_ceilings, geo.ceilings);
+	m_geometryDirty = false; // any full bake pays the deferred-undo debt
 }
 
 // Loads each monster model once (shared per kind) and creates one animator
