@@ -42,6 +42,12 @@ public:
 	void Play(const assets::SoundData& sound, float volume = 1.0f, float pan = 0.0f,
 			  float pitch = 1.0f);
 
+	// Destroys every source voice, silencing playback and dropping all
+	// references into caller-owned sample memory. Call before that memory is
+	// freed when the owner dies first (the engine outlives Game at shutdown —
+	// see ~Game). The engine keeps working; Play regrows the pool.
+	void StopAll();
+
 	void SetMasterVolume(float volume);
 	float MasterVolume() const { return m_masterVolume; }
 
