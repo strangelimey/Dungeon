@@ -83,7 +83,27 @@ Steady-state frames perform no heap allocation. The patterns, by subsystem:
   voices reused by sample format (capped at 32). Playback references the
   caller's PCM memory directly instead of copying it, so `Play` allocates
   nothing once the pool is warm. Sounds passed to `Play` must outlive
-  playback; the game's sounds live for the app's lifetime.
+  playback; the game's sounds live for the app's lifetime, and `~Game`
+  calls `StopAll()` so app shutdown never leaves a voice reading freed
+  sample memory (the engine outlives Game).
+- **Async AI — buffer pools, flat grids.** The per-frame `ai::Snapshot` the
+  main thread publishes to the AI workers comes from a pool reused when
+  `use_count()==1` (no worker still holds the buffer); its blocked/occupancy
+  sets are flat `mapW*mapH` grids rather than node-based containers, so the
+  per-publish clear-and-refill allocates nothing. The workers' `ai::Plan`
+  batches (and their path vectors) are pooled per IQ bucket the same way.
+  Anything that hand-builds a `Snapshot` (e.g. `tools/ThreadStress`) must
+  size the flat grids itself.
+- **Shader-visible descriptors — free list.** The CBV/SRV heap
+  (`kSrvHeapCapacity` = 1024 slots) bounds the *live* texture count, not the
+  total ever created: `gfx::Texture` returns its slot on destruction
+  (`GraphicsDevice::FreeSrv`), and `AllocateSrv` reuses freed slots before
+  bumping the high-water mark, so texture-churn paths (font atlas rebakes,
+  level transitions, quality swaps, turbidity rebuilds) recycle instead of
+  leak. A recycled slot's old descriptor can still be referenced by
+  in-flight frames, so whoever overwrites it must drain the GPU first
+  (`Texture::Upload` drains via `ExecuteImmediate`; `Texture::RenderTarget`
+  calls `WaitIdle` before its descriptor write).
 - **Per-frame containers — retained capacity.** Containers rebuilt every frame
   (light list, sprite batch vertices, animator pose/palette buffers) are
   long-lived members that are cleared, never destroyed, and reserved up front,
@@ -92,7 +112,14 @@ Steady-state frames perform no heap allocation. The patterns, by subsystem:
   changes, never per frame.
 - **Load-time data** (mesh/image/clip vectors, D3D resource creation, the
   one-shot `ExecuteImmediate` upload path) deliberately uses plain ownership —
-  it runs once at startup, where clarity beats allocator ceremony.
+  it runs once at startup, where clarity beats allocator ceremony. C-API
+  boundaries (cgltf, `FILE*`, shell COM) ride RAII wrappers so even an
+  exception mid-parse can't leak.
+- **In-flight frame safety.** With `kFrameCount` = 3, up to two prior frames'
+  GPU work may still reference a resource; every destroy-or-replace path
+  (quality swap, level load, chunk edit rebuild, undo restore, font atlas
+  swap, editor preview-mesh reset) calls `WaitIdle` first, and all run from
+  `Update`, before the frame's command list opens.
 
 ## Asset pipeline
 
