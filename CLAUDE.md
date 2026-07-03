@@ -34,7 +34,28 @@ Key conventions (memorize, they bite):
   section dividers; keep that style.
 - Per-frame GPU transients come from UploadAllocator arenas (one per frame
   in flight, kFrameCount=3); steady-state frames allocate nothing on the
-  heap (docs/ARCHITECTURE.md "Memory strategy").
+  heap (docs/ARCHITECTURE.md "Memory strategy"). A full allocation audit
+  (2026-07-03) verified the rule and closed its last violations (formation
+  scratch, flat AI-snapshot grids, shared icon light rig — see the AI
+  section). Two conventions carry invariants no compiler checks: cached
+  UIContext widget pointers die on Clear(), so any callback that triggers
+  a page rebuild must DEFER it a frame (the m_pendingLanguage /
+  m_videoRebuildPending pattern); and HUD widgets pin pointers into the
+  fixed-size Game::m_characters — never push_back to the roster.
+- Shader-visible SRV heap slots (kSrvHeapCapacity=1024) RECYCLE through a
+  free list: gfx::Texture returns its slot on destruction
+  (GraphicsDevice::FreeSrv), so the texture-churn paths (font atlas
+  rebakes, level transitions, quality swaps, turbidity rebuilds) reuse
+  slots instead of leaking the heap. RULE for any new AllocateSrv caller:
+  a recycled slot's old descriptor can still be referenced by in-flight
+  frames — drain the GPU before overwriting it (Texture::Upload drains via
+  ExecuteImmediate; Texture::RenderTarget calls WaitIdle first).
+- Lifetime conventions: ~Game calls AudioEngine::StopAll() because sound
+  playback is ZERO-COPY from SoundBank memory and the engine outlives
+  Game; preview-mesh resets (dev console `preview`, AssetDialog) WaitIdle
+  first since up to kFrameCount-1 in-flight frames still reference the
+  buffers; C-API boundaries (cgltf, FILE*, shell COM) are RAII-wrapped —
+  keep new ones that way.
 - Constants that must match HLSL: kMaxPointLights=64 (the point-light array
   CEILING = the Ultra tier; the per-frame count is a runtime budget,
   GameSettings::maxPointLights, Low=16..Ultra=64 — see the quality system),
@@ -399,8 +420,12 @@ ai::AsyncDirector spawns one worker per IQ bucket (4) on the Manager. Each frame
 the main thread publishes an immutable ai::Snapshot (party cell, a revision-
 cached walkability grid, live monster positions + per-monster id/iq/aggro — from
 a POOL of reused buffers so steady-state frames allocate nothing per the memory
-strategy) and the workers post ai::Plan batches (intent + path) the main thread
-consumes and executes (popping path cells, re-validating each against LIVE
+strategy; the blocked/occupancy sets are FLAT mapW*mapH grids, not node-based
+containers, so clear-and-refill really is allocation-free — anything that
+hand-builds a Snapshot, e.g. tools/ThreadStress, must size those grids) and the
+workers post ai::Plan batches (intent + path; batches and their path vectors are
+pooled per bucket with the same use_count()==1 reuse as the snapshots) the main
+thread consumes and executes (popping path cells, re-validating each against LIVE
 occupancy). Plans are keyed by a STABLE per-monster runtimeId (DungeonWorld
 assigns from m_nextMonsterId, never reused) — NOT an array index — so a plan
 whose monster died / changed bucket / was erased simply finds no match
