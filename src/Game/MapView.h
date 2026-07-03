@@ -183,6 +183,14 @@ private:
 	// level-browse cluster top-left): Save, then To source beside it.
 	gfx::Rect SaveButton(const gfx::Rect& panel) const;
 	gfx::Rect SaveSourceButton(const gfx::Rect& panel) const;
+	// Editor-mode undo/redo: square < / > buttons left of Save, each drawn and
+	// hit-tested only while its stack has steps (like the edge-hidden level
+	// arrows); Ctrl+Z / Ctrl+Y do the same. The work is DungeonWorld's
+	// (Undo/Redo); this helper also refreshes a browsed level's snapshot so a
+	// restored stash shows immediately.
+	gfx::Rect UndoButton(const gfx::Rect& panel) const;
+	gfx::Rect RedoButton(const gfx::Rect& panel) const;
+	void DoUndoRedo(bool redo);
 
 	gfx::GraphicsDevice& m_device;
 	DungeonWorld& m_world;

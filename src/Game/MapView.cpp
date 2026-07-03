@@ -119,6 +119,24 @@ gfx::Rect MapView::SaveButton(const gfx::Rect& panel) const {
 	return {src.x - DockPad(panel) - src.w, src.y, src.w, src.h};
 }
 
+gfx::Rect MapView::RedoButton(const gfx::Rect& panel) const {
+	const gfx::Rect save = SaveButton(panel);
+	return {save.x - DockPad(panel) - save.h, save.y, save.h, save.h};
+}
+
+gfx::Rect MapView::UndoButton(const gfx::Rect& panel) const {
+	const gfx::Rect redo = RedoButton(panel);
+	return {redo.x - DockPad(panel) - redo.w, redo.y, redo.w, redo.h};
+}
+
+void MapView::DoUndoRedo(bool redo) {
+	if (redo) m_world.Redo();
+	else m_world.Undo();
+	// A restored stash must show immediately on a browsed level (the snapshot
+	// is a copy, like the after-paint rebuild in Update).
+	if (m_browse) m_browse = m_world.BrowseLevel(m_browse->stem);
+}
+
 MapView::Transform MapView::ComputeTransform(const gfx::Rect& panel) const {
 	const gfx::Rect g = GridArea(panel); // panel minus the dock in Editor mode
 	const DungeonMap& map = ViewedMap();
@@ -228,6 +246,14 @@ bool MapView::Update(const Input& input, const gfx::Rect& panel) {
 	const gfx::Rect grid = GridArea(panel); // panel minus the dock in Editor
 	const bool overGrid = grid.Contains(mx, my);
 
+	// Editor keyboard: Ctrl+Z / Ctrl+Y = undo/redo. The overlay otherwise
+	// leaves the keyboard alone (movement keys keep reaching the party), but
+	// the Ctrl chord can't collide with a bound movement key.
+	if (editor && input.IsKeyDown(0x11 /*VK_CONTROL*/)) {
+		if (input.WasKeyPressed('Z')) DoUndoRedo(false);
+		else if (input.WasKeyPressed('Y')) DoUndoRedo(true);
+	}
+
 	// Track the hovered cell (for Render highlights, e.g. the faint item icon).
 	if (int hx, hz; overGrid && CellAt(mx, my, panel, hx, hz)) {
 		m_hoverX = hx;
@@ -275,6 +301,18 @@ bool MapView::Update(const Input& input, const gfx::Rect& panel) {
 			}
 			if (SaveSourceButton(panel).Contains(mx, my)) {
 				onSave(true);
+				return true;
+			}
+		}
+		// Undo/redo buttons (left of Save) — hidden when their stack is empty,
+		// so a click there falls through like a hidden level arrow.
+		if (editor) {
+			if (m_world.CanUndo() && UndoButton(panel).Contains(mx, my)) {
+				DoUndoRedo(false);
+				return true;
+			}
+			if (m_world.CanRedo() && RedoButton(panel).Contains(mx, my)) {
+				DoUndoRedo(true);
 				return true;
 			}
 		}
@@ -764,6 +802,10 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 			};
 			textBtn(SaveButton(panel), loc::Tr("map.btn.save"));
 			textBtn(SaveSourceButton(panel), loc::Tr("map.btn.source"));
+			// Undo/redo, drawn only while their stacks have steps (hit-testing
+			// matches, so a hidden button never eats a click).
+			if (m_world.CanUndo()) textBtn(UndoButton(panel), "<");
+			if (m_world.CanRedo()) textBtn(RedoButton(panel), ">");
 		}
 	}
 

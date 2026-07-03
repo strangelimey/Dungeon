@@ -1055,6 +1055,10 @@ std::vector<DungeonWorld::MapMarker> DungeonWorld::DecorationMarkers() const {
 void DungeonWorld::BeginLevelLoad(const std::string& stem, bool stashCurrent) {
 	m_device.WaitIdle(); // the GPU may still be reading the old level's meshes
 
+	// Undo steps snapshot the ACTIVE level's live state, so they are only
+	// restorable while that level is live — a transition invalidates them.
+	ClearUndoHistory();
+
 	// Save the level we're leaving so a later return restores its fog/progress
 	// AND its unsaved edits (skip for a throwaway baseline being replaced by a
 	// save's level). The .ent records stash only when they diverged from disk
@@ -1108,9 +1112,9 @@ void DungeonWorld::BeginLevelLoad(const std::string& stem, bool stashCurrent) {
 	ResolveSurfacePalettes();
 }
 
-void DungeonWorld::StashStaticMap() {
-	// Sync live decoration placements back into map records (mirrors the
-	// SaveLevel writer's decoration emit; stair props are stairs records).
+std::vector<Entity> DungeonWorld::LiveDecorationRecords() const {
+	// Live decoration placements as .map records (mirrors the SaveLevel
+	// writer's decoration emit; stair props are stairs records).
 	std::vector<Entity> records;
 	records.reserve(m_decorations.size());
 	for (const Decoration& d : m_decorations) {
@@ -1129,8 +1133,12 @@ void DungeonWorld::StashStaticMap() {
 		}
 		records.push_back(std::move(e));
 	}
+	return records;
+}
+
+void DungeonWorld::StashStaticMap() {
 	auto copy = std::make_unique<DungeonMap>(m_map);
-	copy->SetDecorationRecords(std::move(records));
+	copy->SetDecorationRecords(LiveDecorationRecords());
 	m_levelMaps.insert_or_assign(m_currentLevel, std::move(copy));
 }
 
@@ -1335,6 +1343,116 @@ std::vector<std::string> DungeonWorld::SaveAllLevels() {
 	for (const auto& [stem, map] : m_levelMaps)
 		if (WriteStashedLevel(stem)) saved.push_back(stem);
 	return saved;
+}
+
+// ============================================================================
+// Editor undo/redo. Snapshot-based — see the header for the design rationale.
+// ============================================================================
+DungeonWorld::EditorSnapshot DungeonWorld::CaptureEditorState() const {
+	EditorSnapshot s{m_currentLevel, m_map,           m_entities,
+					 m_entsDirty,    SnapshotActive(), {},
+					 {}};
+	// The map copy carries the live decoration placements as records, so the
+	// restore's LoadDecorations rebuilds them (AddDecoration only appends a
+	// live instance — same sync a level-swap stash does).
+	s.map.SetDecorationRecords(LiveDecorationRecords());
+	for (const auto& [stem, map] : m_levelMaps)
+		s.stashMaps.emplace(stem, std::make_unique<DungeonMap>(*map));
+	for (const auto& [stem, ents] : m_levelEnts)
+		s.stashEnts.emplace(stem, std::make_unique<DungeonEntities>(*ents));
+	return s;
+}
+
+void DungeonWorld::RestoreEditorState(EditorSnapshot snap) {
+	m_device.WaitIdle(); // in-flight frames may still read the old meshes
+
+	// Static layer + records (move-assign like BeginLevelLoad — Party holds a
+	// reference to m_map, so the object must persist, only its data changes).
+	m_map = std::move(snap.map);
+	m_entities = std::move(snap.ents);
+	m_entsDirty = snap.entsDirty;
+	// Remote-edited stashes are replaced wholesale: a level with no stash in
+	// the snapshot reverts to file authority (its entry is simply gone).
+	m_levelMaps.clear();
+	for (auto&& [stem, map] : snap.stashMaps)
+		m_levelMaps.insert_or_assign(stem, std::move(map));
+	m_levelEnts.clear();
+	for (auto&& [stem, ents] : snap.stashEnts)
+		m_levelEnts.insert_or_assign(stem, std::move(ents));
+
+	// Dynamic layer: respawn from the records, then apply the captured live
+	// diffs — the same flow a level re-entry uses (editor-placed monsters ride
+	// the snapshot's whole-spawn rows).
+	m_monsters.clear(); // fresh runtimeIds; stale async AI plans find no match
+	m_items.clear();
+	m_buttons.clear();
+	m_doors.clear();
+	m_decorations.clear();
+	m_walkableCache.reset();
+	LoadDecorations();
+	LoadStairs();
+	LoadMonsters();
+	LoadItems();
+	LoadButtons();
+	LoadDoors();
+	m_levelStates[m_currentLevel] = std::move(snap.state);
+	ApplyActiveSnapshot();
+
+	// Fires/turbidity from the restored fixtures, then a full geometry rebake —
+	// any cell may differ, so the chunk-local edit path can't cover it (this is
+	// the quality-swap rebuild).
+	RebuildFiresAndDust();
+	m_walls.chunks.clear();
+	m_floors.chunks.clear();
+	m_ceilings.chunks.clear();
+	BuildDungeonMeshes();
+	m_shadows.InvalidateCubes();
+}
+
+void DungeonWorld::BeginUndoStep() {
+	m_pendingUndo = CaptureEditorState();
+}
+
+void DungeonWorld::CommitUndoStep(bool changed) {
+	if (!m_pendingUndo) return;
+	if (changed) {
+		constexpr size_t kMaxUndoSteps = 64;
+		m_undoStack.push_back(std::move(*m_pendingUndo));
+		if (m_undoStack.size() > kMaxUndoSteps)
+			m_undoStack.erase(m_undoStack.begin());
+		m_redoStack.clear(); // a new edit forks history
+	}
+	m_pendingUndo.reset();
+}
+
+void DungeonWorld::Undo() {
+	if (m_undoStack.empty()) {
+		if (onMessage) onMessage(loc::Tr("map.undo.none"));
+		return;
+	}
+	m_redoStack.push_back(CaptureEditorState());
+	EditorSnapshot snap = std::move(m_undoStack.back());
+	m_undoStack.pop_back();
+	RestoreEditorState(std::move(snap));
+	if (onMessage) onMessage(loc::Tr("map.undo.done"));
+}
+
+void DungeonWorld::Redo() {
+	if (m_redoStack.empty()) {
+		if (onMessage) onMessage(loc::Tr("map.redo.none"));
+		return;
+	}
+	m_undoStack.push_back(CaptureEditorState());
+	EditorSnapshot snap = std::move(m_redoStack.back());
+	m_redoStack.pop_back();
+	RestoreEditorState(std::move(snap));
+	if (onMessage) onMessage(loc::Tr("map.redo.done"));
+}
+
+void DungeonWorld::ClearUndoHistory() {
+	m_undoStack.clear();
+	m_redoStack.clear();
+	m_pendingUndo.reset();
 }
 
 void DungeonWorld::PlacePartyAt(int x, int z, Direction facing) {

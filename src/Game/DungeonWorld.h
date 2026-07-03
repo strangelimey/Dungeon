@@ -511,6 +511,29 @@ public:
 	// each stashed level (WriteStashedLevel). Returns the stems written.
 	std::vector<std::string> SaveAllLevels();
 
+	// --- editor undo/redo (snapshot-based) ------------------------------------
+	// One undo step = a full copy of every level's editor-visible state: the
+	// active level's map (live decoration placements synced into records), its
+	// .ent records, and a dynamic-state snapshot (the same LevelState the
+	// level-swap stash uses, so editor-placed monsters and door/button state
+	// round-trip), plus copies of every remote-edited level's stashes. Levels
+	// are a few KB, so whole-state snapshots beat per-operation inverses —
+	// structural paints cascade (fixture/entity/stair-pair pruning) and stair
+	// placement spans two levels, and a snapshot restore is correct by
+	// construction. MapEditor brackets each brush edit (a drag stroke is ONE
+	// step): BeginUndoStep snapshots before the first cell, CommitUndoStep
+	// pushes it (clearing the redo stack) or drops a no-op. Undo/Redo restore
+	// in place — the active level respawns its dynamic layer from the records
+	// + diffs and fully rebakes its geometry (the quality-swap path). The
+	// stacks clear on a level transition: a step's active-level snapshot is
+	// only meaningful while that level is live.
+	void BeginUndoStep();
+	void CommitUndoStep(bool changed);
+	bool CanUndo() const { return !m_undoStack.empty(); }
+	bool CanRedo() const { return !m_redoStack.empty(); }
+	void Undo();
+	void Redo();
+
 	// A live entity's cell + type, for the map overlay (placed/erased entities
 	// show immediately, and the marker can label its type + stack count). Built
 	// fresh per call (editor-only, off the per-frame perf path).
@@ -1409,6 +1432,33 @@ private:
 	// Serializes a stashed level back to its .map (+ .ent when its records were
 	// edited). The static writer is shared with SaveLevel.
 	bool WriteStashedLevel(const std::string& stem) const;
+
+	// --- editor undo/redo internals (see the public section) ------------------
+	// Live decoration placements as .map records (the SaveLevel writer's emit in
+	// record form). Shared by StashStaticMap and the undo capture.
+	std::vector<Entity> LiveDecorationRecords() const;
+	// A full editor-state snapshot: the active level (map with decoration
+	// records synced, .ent records, dynamic-state diffs) + every stash. Levels
+	// are a few KB, so a copy per edit is nothing.
+	struct EditorSnapshot {
+		std::string stem;            // active level at capture
+		DungeonMap map;              // live decoration records synced in
+		DungeonEntities ents;
+		bool entsDirty = false;
+		SaveData::LevelState state;  // live dynamic diffs (SnapshotActive)
+		std::flat_map<std::string, std::unique_ptr<DungeonMap>> stashMaps;
+		std::flat_map<std::string, std::unique_ptr<DungeonEntities>> stashEnts;
+	};
+	EditorSnapshot CaptureEditorState() const;
+	// Restores a snapshot in place: static + records move-assigned, stashes
+	// replaced wholesale, the dynamic layer respawned from the records and the
+	// captured diffs (the level-swap flow), geometry fully rebaked (the
+	// quality-swap path).
+	void RestoreEditorState(EditorSnapshot snap);
+	void ClearUndoHistory(); // level transitions invalidate active-level snaps
+	std::vector<EditorSnapshot> m_undoStack;
+	std::vector<EditorSnapshot> m_redoStack;
+	std::optional<EditorSnapshot> m_pendingUndo; // BeginUndoStep .. CommitUndoStep
 
 	std::vector<Fire> m_fires;
 	std::unique_ptr<gfx::Mesh> m_sconceMesh;

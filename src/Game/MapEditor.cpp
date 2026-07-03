@@ -210,17 +210,31 @@ void MapEditor::ApplyBrush(int cx, int cz, bool dragging) {
 		if (m_world.onMessage) m_world.onMessage(s);
 	};
 
+	// Undo bracketing: everything below except the Select tool mutates. A drag
+	// stroke is ONE undo step — the snapshot is taken before the stroke's first
+	// cell; later stroke cells fold into it. `changed` decides whether the
+	// pending snapshot is kept: live paints compare the map revision, entity
+	// edits report success, and remote edits are conservatively treated as
+	// changed (a same-value remote paint costs one no-op undo step at worst).
+	const bool select = m_sel.cat == PaletteCat::Tools && m_sel.index == 0;
+	const bool strokeStart = !dragging;
+	if (!select && strokeStart) m_world.BeginUndoStep();
+	const u32 rev0 = m_world.Map().Revision();
+	bool changed = false;
+
 	switch (m_sel.cat) {
 	case PaletteCat::Structure: {
 		const Cell target = m_sel.index == 0 ? Cell::Wall : Cell::Floor;
 		if (remote) { // the party is never on a browsed level — no trap check
 			m_world.EditCellRemote(stem, cx, cz, target);
+			changed = true;
 			break;
 		}
 		const Party& party = m_world.GetParty();
 		const bool wouldTrapParty = target == Cell::Wall && cx == party.GridX() &&
 									cz == party.GridZ();
 		if (!wouldTrapParty) m_world.EditCell(cx, cz, target);
+		changed = m_world.Map().Revision() != rev0;
 		break;
 	}
 	case PaletteCat::Walls:
@@ -229,8 +243,13 @@ void MapEditor::ApplyBrush(int cx, int cz, bool dragging) {
 		const SS sel = m_sel.cat == PaletteCat::Walls    ? SS::Wall
 					   : m_sel.cat == PaletteCat::Floors ? SS::Floor
 														 : SS::Ceiling;
-		if (remote) m_world.EditVariantRemote(stem, cx, cz, sel, m_sel.index);
-		else m_world.EditVariant(cx, cz, sel, m_sel.index);
+		if (remote) {
+			m_world.EditVariantRemote(stem, cx, cz, sel, m_sel.index);
+			changed = true;
+		} else {
+			m_world.EditVariant(cx, cz, sel, m_sel.index);
+			changed = m_world.Map().Revision() != rev0;
+		}
 		break;
 	}
 	case PaletteCat::Tools: {
@@ -265,6 +284,7 @@ void MapEditor::ApplyBrush(int cx, int cz, bool dragging) {
 			m_selInspectable = inspectable;
 			if (reclick && onInspect) onInspect(cx, cz);
 		} else { // Erase: remove a runtime entity, then a fixture, else reset surfaces
+			changed = true; // the ladder always acts (the last rung is a reset)
 			if (remote) { // the stash-side ladder messages for itself
 				m_world.EraseRemote(stem, cx, cz);
 				break;
@@ -309,6 +329,7 @@ void MapEditor::ApplyBrush(int cx, int cz, bool dragging) {
 						: m_world.AddDecoration(id, cx, cz, Direction::South);
 		log(loc::Format(ok ? "map.place.done" : "map.place.blocked",
 						items[m_sel.index].label));
+		changed = ok;
 		break;
 	}
 	case PaletteCat::Stairs: {
@@ -318,7 +339,7 @@ void MapEditor::ApplyBrush(int cx, int cz, bool dragging) {
 		// One entry for any viewed level (each side lands live or in a stash);
 		// it does all the messaging itself (success names the paired level;
 		// each failure mode has its own specific line).
-		m_world.AddStairAt(stem, items[m_sel.index].id, cx, cz);
+		changed = m_world.AddStairAt(stem, items[m_sel.index].id, cx, cz);
 		break;
 	}
 	case PaletteCat::Doors: {
@@ -332,11 +353,14 @@ void MapEditor::ApplyBrush(int cx, int cz, bool dragging) {
 							   : m_world.AddDoor(id, cx, cz);
 		if (ok)
 			log(loc::Format("map.place.done", items[m_sel.index].label));
+		changed = ok;
 		break;
 	}
 	default:
 		break;
 	}
+
+	if (!select && strokeStart) m_world.CommitUndoStep(changed);
 }
 
 void MapEditor::RenderBody(gfx::SpriteBatch& batch, const ui::Theme& theme,
