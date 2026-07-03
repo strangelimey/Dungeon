@@ -1040,7 +1040,8 @@ std::vector<DungeonWorld::MapMarker> DungeonWorld::MonsterMarkers() const {
 		if (m.Alive()) // a slain monster leaves no map marker
 			markers.push_back({m.x, m.z, m.kind ? m.kind->name : std::string(),
 							   m.facing,
-							   m.kind ? MonsterIconFor(m.kind->name) : nullptr});
+							   m.kind ? MonsterIconFor(m.kind->name) : nullptr,
+							   !m.kind || m.kind->facesTarget});
 	return markers;
 }
 
@@ -1073,7 +1074,8 @@ std::vector<DungeonWorld::MapMarker> DungeonWorld::DecorationMarkers() const {
 		markers.push_back({d.x, d.z, d.kind ? d.kind->id : std::string(), d.facing,
 						   m_decorationIconsBaked && d.kind
 							   ? d.kind->iconTarget.get()
-							   : nullptr});
+							   : nullptr,
+						   !d.kind || d.kind->facingArrow});
 	}
 	return markers;
 }
@@ -2293,6 +2295,27 @@ std::vector<std::pair<int, std::string>> DungeonWorld::ItemsAt(int cx, int cz) c
 		if (e.kind == EntityKind::Item && e.x == cx && e.z == cz)
 			out.emplace_back(e.id, e.type);
 	return out;
+}
+
+std::string DungeonWorld::DecorationTypeByIndex(int index) const {
+	if (index < 0 || index >= static_cast<int>(m_decorations.size())) return {};
+	const Decoration& d = m_decorations[static_cast<size_t>(index)];
+	return d.kind ? d.kind->id : std::string();
+}
+
+bool DungeonWorld::DecorationShowsFacing(const std::string& type) const {
+	const auto it = m_decorationKinds.find(type);
+	return it == m_decorationKinds.end() || it->second->facingArrow;
+}
+
+bool DungeonWorld::MonsterShowsFacing(const std::string& type) const {
+	const auto it = m_monsterKinds.find(type);
+	return it == m_monsterKinds.end() || it->second->facesTarget;
+}
+
+void DungeonWorld::SetDecorationFacingArrow(const std::string& type, bool show) {
+	const auto it = m_decorationKinds.find(type);
+	if (it != m_decorationKinds.end()) it->second->facingArrow = show;
 }
 
 bool DungeonWorld::RemoveDecorationByIndex(int index) {

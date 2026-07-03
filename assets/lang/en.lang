@@ -374,6 +374,7 @@ archetype.lurker=Lurker (ambush)
 archetype.sentry=Sentry (patrol + wide cone)
 ; --- instance inspectors (per-placed object edit dialogs) ---
 map.insp.facing=Facing
+map.insp.arrow=Map arrow
 ; --- entity inspector (per-placed-monster overrides) ---
 map.insp.title=Monster: {}
 map.insp.tab.ai=AI

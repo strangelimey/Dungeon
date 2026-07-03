@@ -7,6 +7,10 @@
 ;              0 procedural (CULL_NONE)
 ;   category = free-form group token; entries sharing one collapse under a
 ;              sub-accordion in the editor palette (like items.cat)
+;   facing_arrow = 0 hides the editor map's green facing arrow on instances of
+;              this type (radially symmetric props — columns, pots, rocks —
+;              have no meaningful facing). Default 1. The instance inspector's
+;              checkbox beside the Facing dropdown edits this per type.
 ; Procedural props (column/archway/fountain/statue/wood_door/barrel/crate/chest)
 ; share dungeon-stone or wood-plank sets; the rest are authored imports that
 ; carry their own same-named set.
@@ -18,6 +22,7 @@ texture = wall_stone
 solid = 1
 authored = 0
 category = architecture
+facing_arrow = 0
 
 [archway]
 display = Archway
@@ -34,6 +39,7 @@ texture = wall_stone
 solid = 1
 authored = 0
 category = architecture
+facing_arrow = 0
 
 [statue]
 display = Statue
@@ -58,6 +64,7 @@ texture = wood_planks
 solid = 1
 authored = 0
 category = container
+facing_arrow = 0
 
 [crate]
 display = Crate
@@ -82,6 +89,7 @@ texture = ancient_pot
 solid = 1
 authored = 1
 category = container
+facing_arrow = 0
 
 [banner]
 display = Banner
@@ -98,6 +106,7 @@ texture = pot
 solid = 1
 authored = 1
 category = container
+facing_arrow = 0
 
 [mossy_rock]
 display = Mossy Rock
@@ -106,6 +115,7 @@ texture = mossy_rock
 solid = 1
 authored = 1
 category = rock
+facing_arrow = 0
 
 [boulder]
 display = Boulder
@@ -114,6 +124,7 @@ texture = boulder
 solid = 1
 authored = 1
 category = rock
+facing_arrow = 0
 
 ; --- variants pairing existing models with new scanned sets ---
 [column_marble]
@@ -123,6 +134,7 @@ texture = marble_pillar
 solid = 1
 authored = 0
 category = architecture
+facing_arrow = 0
 
 [statue_marble]
 display = Marble Statue
@@ -194,3 +206,4 @@ texture = rope
 solid = 0
 authored = 0
 category = clutter
+facing_arrow = 0

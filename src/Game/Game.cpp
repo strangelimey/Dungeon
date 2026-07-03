@@ -531,6 +531,28 @@ void Game::OpenInspectorFor(const InspectTarget& t) {
 			m_world.CommitUndoStep(m_world.RemoveDecorationByIndex(handle));
 			if (m_world.onMessage) m_world.onMessage(loc::Tr("map.erase.removed"));
 		};
+		// "Map arrow" beside the Facing dropdown: the TYPE's facing_arrow flag
+		// (a column/pot has no meaningful facing to point out). A toggle edits
+		// the live kind and the catalog entry immediately — a type-level edit,
+		// deliberately outside this instance's Save/Revert.
+		const std::string typeId = m_world.DecorationTypeByIndex(t.handle);
+		m_propInspector.facingExtra = InstanceInspector::FacingExtra{
+			loc::Tr("map.insp.arrow"), m_world.DecorationShowsFacing(typeId),
+			[this, typeId](bool show) {
+				m_world.SetDecorationFacingArrow(typeId, show);
+				CatalogEntry entry;
+				if (const CatalogEntry* e = m_project.decorations.Find(typeId))
+					entry = *e;
+				else
+					entry.id = typeId;
+				std::erase_if(entry.fields, [](const serialize::Field& f) {
+					return f.key == "facing_arrow";
+				});
+				if (!show) entry.Set("facing_arrow", "0"); // default 1 stays implicit
+				m_project.decorations.Add(std::move(entry)); // add-or-replace by id
+				if (!m_project.Save())
+					log::Warn("facing-arrow toggle: failed to save project catalogs");
+			}};
 		m_propInspector.Open(c, std::move(pv));
 		break;
 	}
@@ -552,6 +574,7 @@ void Game::OpenInspectorFor(const InspectTarget& t) {
 			m_world.CommitUndoStep(m_world.RemoveItemById(handle));
 			if (m_world.onMessage) m_world.onMessage(loc::Tr("map.erase.removed"));
 		};
+		m_propInspector.facingExtra.reset(); // items draw no map arrow anyway
 		m_propInspector.Open(c, std::move(pv));
 		break;
 	}

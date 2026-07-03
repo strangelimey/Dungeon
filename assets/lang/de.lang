@@ -336,6 +336,7 @@ map.key.stairs=Treppe
 map.cat.new=+ Neu...
 ; --- instance inspectors (per-placed object edit dialogs) ---
 map.insp.facing=Ausrichtung
+map.insp.arrow=Kartenpfeil
 ; --- entity inspector (per-placed-monster overrides) ---
 map.insp.title=Monster: {}
 map.insp.tab.ai=KI

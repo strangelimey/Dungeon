@@ -282,6 +282,15 @@ public:
 	// item's .ent record goes with it. Both return false on a stale handle.
 	bool RemoveDecorationByIndex(int index);
 	bool RemoveItemById(int entityId);
+	// The inspected decoration's raw catalog id (its display name is what the
+	// picker shows) — "" on a stale handle.
+	std::string DecorationTypeByIndex(int index) const;
+	// The per-TYPE map facing-arrow flag (catalog facing_arrow, default 1):
+	// no-load queries for the marker/browse paths, and the live half of the
+	// inspector checkbox's type edit (Game writes the catalog field + saves).
+	bool DecorationShowsFacing(const std::string& type) const;
+	bool MonsterShowsFacing(const std::string& type) const; // faces= flag
+	void SetDecorationFacingArrow(const std::string& type, bool show);
 	// Any editor-inspectable object on the cell (monster/torch/brazier/decoration/item)?
 	bool AnyInspectableAt(int cx, int cz) const;
 	// Erase a fixture (sconce or brazier) at the cell, live (rebuilds fires/dust).
@@ -575,6 +584,9 @@ public:
 		// Baked head-shot icon (monsters), or null — the overlay then falls back
 		// to its colored square + type initial.
 		const gfx::Texture* icon = nullptr;
+		// Whether the editor draws the facing arrow: the type's facing_arrow
+		// flag (decorations) / faces= (monsters — a blob never turns anyway).
+		bool facingArrow = true;
 	};
 	std::vector<MapMarker> MonsterMarkers() const;
 	std::vector<MapMarker> DecorationMarkers() const;
@@ -950,6 +962,11 @@ private:
 		bool authored = false;     // imported model: consistently wound -> back-cull
 		bool solidDefault = true;  // floor-standing blocks the party (passages don't)
 		float alphaCutoff = 0.0f;  // > 0: alpha-test cutout (masked set, e.g. a gate)
+		// Whether the editor map draws the green facing arrow on instances of
+		// this type (catalog `facing_arrow`, default 1). Radially symmetric
+		// props — columns, pots, boulders — turn it off; the inspector's
+		// checkbox beside the Facing dropdown edits it per type.
+		bool facingArrow = true;
 		// Baked whole-model map icon (like MonsterKind's head shot, but props
 		// read best in full). Transparent until UpdateMapIcons bakes it.
 		std::unique_ptr<gfx::Texture> iconTarget;

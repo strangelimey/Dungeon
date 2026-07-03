@@ -340,6 +340,7 @@ map.key.stairs=Лестница
 map.cat.new=+ Создать...
 ; --- instance inspectors (per-placed object edit dialogs) ---
 map.insp.facing=Направление
+map.insp.arrow=Стрелка
 ; --- entity inspector (per-placed-monster overrides) ---
 map.insp.title=Монстр: {}
 map.insp.tab.ai=ИИ

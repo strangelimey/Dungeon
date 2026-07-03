@@ -24,6 +24,7 @@
 #include "UI/Widget.h" // complete ui::Widget: m_ui (UIContext) holds it by value
 
 #include <functional>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -72,6 +73,17 @@ public:
 	// object is gone, there is nothing to restore. Set per open; inspectors
 	// that never set it just show Save.
 	std::function<void()> onDelete;
+
+	// Optional toggle drawn BESIDE the Facing dropdown (the decoration dialog's
+	// per-TYPE "map facing arrow" flag). Set — or reset — before Open, like
+	// onDelete. The change applies through the callback IMMEDIATELY (it edits
+	// the type, not this instance, so it is deliberately outside Save/Revert).
+	struct FacingExtra {
+		std::string label;
+		bool value = true;
+		std::function<void(bool)> onChange;
+	};
+	std::optional<FacingExtra> facingExtra;
 
 	void Update(const Input& input, float width, float height);
 	void Render(gfx::SpriteBatch& batch, const ui::Theme& theme, float width,

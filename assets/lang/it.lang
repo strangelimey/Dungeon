@@ -336,6 +336,7 @@ map.key.stairs=Scala
 map.cat.new=+ Nuovo...
 ; --- instance inspectors (per-placed object edit dialogs) ---
 map.insp.facing=Orientamento
+map.insp.arrow=Freccia mappa
 ; --- entity inspector (per-placed-monster overrides) ---
 map.insp.title=Mostro: {}
 map.insp.tab.ai=IA

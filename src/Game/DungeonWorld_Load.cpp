@@ -997,6 +997,7 @@ DungeonWorld::DecorationKind& DungeonWorld::DecorationKindFor(const std::string&
 		auto kind = std::make_unique<DecorationKind>();
 		kind->id = type; // the record type, for the .map writer
 		kind->authored = CatalogBool(def, "authored", true);
+		kind->facingArrow = CatalogBool(def, "facing_arrow", true);
 		// Catalog material overrides (the asset dialog's sliders): absent = -1 /
 		// no tint = the resolved material stays untouched.
 		if (def) {

@@ -571,7 +571,8 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 	} else {
 		for (const Entity& e : m_browse->map.Decorations())
 			decos.push_back({e.x, e.z, e.type, e.facing,
-							 m_world.DecorationIconFor(e.type)});
+							 m_world.DecorationIconFor(e.type),
+							 m_world.DecorationShowsFacing(e.type)});
 	}
 	for (const auto& m : decos) {
 		if (!CellVisible(m.x, m.z)) continue;
@@ -581,7 +582,8 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 			marker(m.x, m.z, 0.38f, kDecoration);
 			label(m.x, m.z, m.type);
 		}
-		if (m_mode == Mode::Editor) facingArrow(m.x, m.z, m.facing);
+		if (m_mode == Mode::Editor && m.facingArrow)
+			facingArrow(m.x, m.z, m.facing);
 	}
 
 	// Stairs (over the decoration marker they also occupy) — a distinct color,
@@ -642,7 +644,8 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 		for (const Entity& e : m_browse->entities.All())
 			if (e.kind == EntityKind::Monster)
 				mons.push_back({e.x, e.z, e.type, e.facing,
-								m_world.MonsterIconFor(e.type)});
+								m_world.MonsterIconFor(e.type),
+								m_world.MonsterShowsFacing(e.type)});
 	}
 	for (size_t i = 0; i < mons.size(); ++i) {
 		bool firstInCell = true;
@@ -661,7 +664,8 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 			label(mons[i].x, mons[i].z, mons[i].type);
 		}
 		countBadge(mons[i].x, mons[i].z, count);
-		if (m_mode == Mode::Editor) facingArrow(mons[i].x, mons[i].z, mons[i].facing);
+		if (m_mode == Mode::Editor && mons[i].facingArrow)
+			facingArrow(mons[i].x, mons[i].z, mons[i].facing);
 	}
 	const std::vector<Entity>& ents =
 		m_browse ? m_browse->entities.All() : m_world.Entities().All();
