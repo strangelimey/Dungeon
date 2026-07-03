@@ -109,6 +109,16 @@ public:
 	// The baked 3D icon for an item type (building its kind on demand), or null
 	// for a model-less item (the caller falls back to its flat placeholder).
 	const gfx::Texture* ItemIconFor(const std::string& typeId);
+	// Renders each monster kind's HEAD-SHOT map icon (its mesh in rest pose,
+	// framed on the model's upper portion — a skull for the skeleton) into its
+	// icon render-target. Bakes once per kind; call every frame like
+	// UpdateItemIcons (and unlike it, also while the editor covers the scene —
+	// the map overlay is what draws these). Redirects the OM and rebinds.
+	void UpdateMonsterIcons(ID3D12GraphicsCommandList* list, gfx::SpriteBatch& sprites);
+	// The baked icon for an already-loaded monster kind, or null (not loaded /
+	// not baked yet) — the map overlay then falls back to the letter square.
+	// Never force-loads a model (browse markers may name unloaded types).
+	const gfx::Texture* MonsterIconFor(const std::string& type) const;
 
 	// Torchlight palette (the HUD dropdown): 0 warm, 1 cold blue, 2 eerie
 	// green. Announces the change through onMessage.
@@ -550,6 +560,9 @@ public:
 		int x = 0, z = 0;
 		std::string type; // catalog id (monster kind / decoration kind)
 		Direction facing = Direction::South; // for the editor's facing arrow
+		// Baked head-shot icon (monsters), or null — the overlay then falls back
+		// to its colored square + type initial.
+		const gfx::Texture* icon = nullptr;
 	};
 	std::vector<MapMarker> MonsterMarkers() const;
 	std::vector<MapMarker> DecorationMarkers() const;
@@ -692,6 +705,12 @@ private:
 		// falls back to "supported iff the state has clips" (back-compat). Idle is
 		// always on (the rest pose); Die is always considered on death regardless.
 		std::array<bool, anim::kCreatureStateCount> stateSupported{};
+		// Baked head-shot icon for the map overlay (a skull for the skeleton, the
+		// slime's dome, ...): the kind's mesh rendered once into a small RT,
+		// framed on the model's upper portion (UpdateMonsterIcons). Data-driven —
+		// every kind gets one from its own model, no authored 2D art. Starts
+		// transparent until the bake runs.
+		std::unique_ptr<gfx::Texture> iconTarget;
 	};
 	struct Monster {
 		const MonsterKind* kind = nullptr; // points into m_monsterKinds (stable)
@@ -1313,6 +1332,14 @@ private:
 	gfx::ComPtr<ID3D12DescriptorHeap> m_iconDsvHeap;
 	std::unique_ptr<gfx::Texture> m_iconHalo; // soft round disc, white w/ radial alpha
 	bool m_itemIconsBaked = false;
+	// Monster head-shot map icons (MonsterKind::iconTarget), sharing the item
+	// bakes' depth/halo. Reset when a new kind loads so it bakes next frame.
+	bool m_monsterIconsBaked = false;
+	// Creates the shared icon depth target + halo on first use (both bakers).
+	void EnsureIconBakeTargets();
+	// One kind's head-shot bake: rest-pose mesh, framed on the model's top.
+	void BakeMonsterIcon(ID3D12GraphicsCommandList* list, gfx::SpriteBatch& sprites,
+						 const MonsterKind& kind);
 	std::vector<Item> m_items;
 	std::vector<Button> m_buttons; // .ent buttons (toggle wired doors by name)
 	std::vector<Door> m_doors;     // .ent doors (live open/anim state)

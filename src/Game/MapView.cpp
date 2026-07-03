@@ -601,7 +601,8 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 	} else if (m_mode == Mode::Editor) {
 		for (const Entity& e : m_browse->entities.All())
 			if (e.kind == EntityKind::Monster)
-				mons.push_back({e.x, e.z, e.type, e.facing});
+				mons.push_back({e.x, e.z, e.type, e.facing,
+								m_world.MonsterIconFor(e.type)});
 	}
 	for (size_t i = 0; i < mons.size(); ++i) {
 		bool firstInCell = true;
@@ -611,8 +612,17 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 		int count = 0;
 		for (const auto& m : mons)
 			if (m.x == mons[i].x && m.z == mons[i].z) ++count;
-		marker(mons[i].x, mons[i].z, 0.5f, kMonster);
-		label(mons[i].x, mons[i].z, mons[i].type);
+		// A baked head-shot icon draws instead of the colored square + type
+		// initial (which stays the fallback for a not-yet-baked/unknown kind).
+		if (mons[i].icon) {
+			const Vec2 ctr = cellCenter(mons[i].x, mons[i].z);
+			const float h = t.cell * 0.46f; // slightly inside the cell
+			batch.DrawSprite({ctr.x - h, ctr.y - h, h * 2.0f, h * 2.0f},
+							 {0, 0, 1, 1}, *mons[i].icon, {1, 1, 1, 1});
+		} else {
+			marker(mons[i].x, mons[i].z, 0.5f, kMonster);
+			label(mons[i].x, mons[i].z, mons[i].type);
+		}
 		countBadge(mons[i].x, mons[i].z, count);
 		if (m_mode == Mode::Editor) facingArrow(mons[i].x, mons[i].z, mons[i].facing);
 	}

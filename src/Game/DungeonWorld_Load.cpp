@@ -333,6 +333,9 @@ DungeonWorld::MonsterKind& DungeonWorld::MonsterKindFor(const std::string& type)
 		assets->name = type; // catalog id — drives the monster.<id> loc key
 		assets->mesh = std::make_unique<gfx::Mesh>(m_device, assets->model.meshes[0]);
 		assets->tex = LoadPropTextures(tex); // <tex>_<res> PBR set, if present
+		// Map head-shot icon RT; a fresh kind re-arms the one-shot bake pass.
+		assets->iconTarget = gfx::Texture::RenderTarget(m_device, kIconSize);
+		m_monsterIconsBaked = false;
 		// Combat stats (defaults keep an undescribed monster fightable).
 		if (def) {
 			assets->maxHp = def->GetFloat("hp", 12.0f);

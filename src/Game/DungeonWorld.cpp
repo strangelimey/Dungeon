@@ -1038,8 +1038,16 @@ std::vector<DungeonWorld::MapMarker> DungeonWorld::MonsterMarkers() const {
 	markers.reserve(m_monsters.size());
 	for (const Monster& m : m_monsters)
 		if (m.Alive()) // a slain monster leaves no map marker
-			markers.push_back({m.x, m.z, m.kind ? m.kind->name : std::string(), m.facing});
+			markers.push_back({m.x, m.z, m.kind ? m.kind->name : std::string(),
+							   m.facing,
+							   m.kind ? MonsterIconFor(m.kind->name) : nullptr});
 	return markers;
+}
+
+const gfx::Texture* DungeonWorld::MonsterIconFor(const std::string& type) const {
+	if (!m_monsterIconsBaked) return nullptr; // RT still transparent
+	const auto it = m_monsterKinds.find(type);
+	return it != m_monsterKinds.end() ? it->second->iconTarget.get() : nullptr;
 }
 
 std::vector<DungeonWorld::MapMarker> DungeonWorld::DecorationMarkers() const {

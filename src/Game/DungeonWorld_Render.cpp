@@ -398,8 +398,7 @@ float IconSpinAngle() {
 }
 } // namespace
 
-void DungeonWorld::UpdateItemIcons(ID3D12GraphicsCommandList* list,
-								   gfx::SpriteBatch& sprites) {
+void DungeonWorld::EnsureIconBakeTargets() {
 	if (!m_iconHalo) m_iconHalo = MakeHaloTexture(m_device, kIconSize);
 
 	// Shared depth target for the bakes (created once, icon-sized).
@@ -428,6 +427,11 @@ void DungeonWorld::UpdateItemIcons(ID3D12GraphicsCommandList* list,
 		d->CreateDepthStencilView(m_iconDepth.Get(), nullptr,
 								  m_iconDsvHeap->GetCPUDescriptorHandleForHeapStart());
 	}
+}
+
+void DungeonWorld::UpdateItemIcons(ID3D12GraphicsCommandList* list,
+								   gfx::SpriteBatch& sprites) {
+	EnsureIconBakeTargets();
 
 	// Static icons bake once; animated (icon_spin) icons re-bake every frame on a
 	// turntable. The first call bakes everything, then only the animated ones.
@@ -551,6 +555,104 @@ void DungeonWorld::BakeIcon(ID3D12GraphicsCommandList* list, gfx::SpriteBatch& s
 
 	D3D12_RESOURCE_BARRIER toSRV = gfx::Transition(
 		target.Resource(), D3D12_RESOURCE_STATE_RENDER_TARGET,
+		D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+	list->ResourceBarrier(1, &toSRV);
+}
+
+void DungeonWorld::UpdateMonsterIcons(ID3D12GraphicsCommandList* list,
+									  gfx::SpriteBatch& sprites) {
+	if (m_monsterIconsBaked) return; // head shots are static — one bake per kind
+	EnsureIconBakeTargets();
+	bool any = false;
+	for (auto&& [id, kind] : m_monsterKinds) {
+		if (!kind->mesh || !kind->iconTarget) continue;
+		BakeMonsterIcon(list, sprites, *kind);
+		any = true;
+	}
+	m_monsterIconsBaked = true;
+	if (any) m_device.BindBackBuffer(list); // the bakes redirected the OM
+}
+
+void DungeonWorld::BakeMonsterIcon(ID3D12GraphicsCommandList* list,
+								   gfx::SpriteBatch& sprites,
+								   const MonsterKind& kind) {
+	D3D12_RESOURCE_BARRIER toRT = gfx::Transition(
+		kind.iconTarget->Resource(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+		D3D12_RESOURCE_STATE_RENDER_TARGET);
+	list->ResourceBarrier(1, &toRT);
+
+	const float clear[4] = {0.0f, 0.0f, 0.0f, 0.0f}; // transparent corners
+	gfx::BeginOffscreen(list, kind.iconTarget->Rtv(),
+						m_iconDsvHeap->GetCPUDescriptorHandleForHeapStart(), kIconSize,
+						clear);
+
+	// The same soft halo the item icons composite under themselves — it keeps a
+	// dark model legible on the map's dark floor ink.
+	constexpr Vec4 kHaloColor{0.90f, 0.92f, 0.97f, 0.55f};
+	sprites.Begin(list, kIconSize, kIconSize);
+	sprites.DrawSprite({0.0f, 0.0f, static_cast<float>(kIconSize),
+						static_cast<float>(kIconSize)},
+					   {0, 0, 1, 1}, *m_iconHalo, kHaloColor);
+	sprites.End();
+
+	// HEAD SHOT: frame the model's upper portion (a skull for the skeleton, the
+	// slime's dome), not the whole figure — a full body at map-marker size is
+	// an unreadable stick. Bind-pose bounds from the mesh vertices; the focus
+	// box is the top ~40% of the height, centred on x/z.
+	Vec3 lo{1e9f, 1e9f, 1e9f}, hi{-1e9f, -1e9f, -1e9f};
+	for (const auto& v : kind.model.meshes[0].vertices) {
+		lo = {std::min(lo.x, v.position.x), std::min(lo.y, v.position.y),
+			  std::min(lo.z, v.position.z)};
+		hi = {std::max(hi.x, v.position.x), std::max(hi.y, v.position.y),
+			  std::max(hi.z, v.position.z)};
+	}
+	const float height = std::max(hi.y - lo.y, 1e-3f);
+	const float focusH = height * 0.40f;
+	const Vec3 c{(lo.x + hi.x) * 0.5f, hi.y - focusH * 0.5f, (lo.z + hi.z) * 0.5f};
+	// Fill ~85% of the frame with the focus height (the head breathes a little).
+	const float s = 1.18f / focusH;
+
+	// Face the camera: models author facing +Z and the camera looks down +Z, so
+	// half a turn shows the FRONT; modelYaw folds in an imported rig's own
+	// convention fixup, and a slight extra yaw gives the head some depth.
+	const XMMATRIX worldX =
+		XMMatrixTranslation(-c.x, -c.y, -c.z) * XMMatrixScaling(s, s, s) *
+		XMMatrixRotationY(kPi + kind.modelYaw + 0.25f) * XMMatrixRotationX(-0.08f);
+	Mat4 world;
+	XMStoreFloat4x4(&world, worldX);
+
+	gfx::Camera cam;
+	cam.SetLens(35.0f * kPi / 180.0f, 1.0f, 0.02f, 10.0f);
+	cam.SetPosition({0.0f, 0.0f, -2.2f});
+	cam.SetYawPitch(0.0f, 0.0f);
+
+	// The item icons' studio lighting (key + fill + rims) — see BakeIcon.
+	gfx::LightSet lights;
+	lights.ambient = {0.62f, 0.62f, 0.68f};
+	lights.points.push_back(
+		{{1.8f, 2.0f, -1.8f}, 12.0f, {1.0f, 0.97f, 0.92f}, 6.5f, -1, false});
+	lights.points.push_back(
+		{{-1.8f, 0.6f, -1.6f}, 12.0f, {0.82f, 0.88f, 1.0f}, 3.4f, -1, false});
+	lights.points.push_back(
+		{{1.3f, 1.5f, 2.4f}, 12.0f, {1.0f, 1.0f, 1.0f}, 7.5f, -1, false});
+	lights.points.push_back(
+		{{-1.3f, 1.5f, 2.4f}, 12.0f, {1.0f, 1.0f, 1.0f}, 7.5f, -1, false});
+
+	// Rest-pose palette from a throwaway animator (the mesh is skinned; DrawMesh
+	// copies the palette into the frame's upload arena, so a temp is safe).
+	anim::Animator rest(&kind.model.skeleton, &kind.model.clips);
+	rest.Update(0.0f);
+
+	gfx::MaterialParams mat;
+	mat.doubleSided = true;
+	ApplyPropMaterial(mat, kind.tex, kind.model.materials[0].baseColorFactor,
+					  kind.fallbackRoughness);
+
+	m_renderer.BeginScene(list, cam, lights);
+	m_renderer.DrawMesh(list, *kind.mesh, world, mat, rest.Palette());
+
+	D3D12_RESOURCE_BARRIER toSRV = gfx::Transition(
+		kind.iconTarget->Resource(), D3D12_RESOURCE_STATE_RENDER_TARGET,
 		D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
 	list->ResourceBarrier(1, &toSRV);
 }
