@@ -18,6 +18,7 @@
 #include "UI/Font.h"
 
 #include <algorithm>
+#include <cctype>
 #include <format>
 
 namespace dungeon::game {
@@ -81,12 +82,13 @@ std::vector<MapEditor::PaletteItem> MapEditor::CategoryItems(PaletteCat cat) con
 	};
 	// An entity catalog resolved to display name + swatch + id. `hidden = 1`
 	// entries are internal (e.g. the door frame the door types share) — they
-	// resolve by id but never show as placeable.
+	// resolve by id but never show as placeable. The `category` field, when an
+	// entry carries one, groups it under a palette sub-accordion.
 	auto catalogItems = [&](const Catalog& catalog, const Vec4& swatch) {
 		std::vector<PaletteItem> items;
 		for (const CatalogEntry& e : catalog.Entries()) {
 			if (CatalogBool(&e, "hidden", false)) continue;
-			items.push_back({e.Display(), swatch, e.id});
+			items.push_back({e.Display(), swatch, e.id, e.Get("category", "")});
 		}
 		return items;
 	};
@@ -136,10 +138,30 @@ void MapEditor::BuildPaletteRows(const gfx::Rect& panel, std::vector<PaletteRow>
 				out.push_back({PaletteRow::Kind::Empty, cat, -1, {body.x, y, body.w, itemH}});
 				y += itemH;
 			} else {
-				for (int i = 0; i < static_cast<int>(items.size()); ++i) {
+				// Sub-accordions: ungrouped items list first, then each group
+				// (first-appearance order) under a collapsible sub-header whose
+				// body only lays out while open. Item indices stay CategoryItems
+				// positions, so the armed selection and dispatch are untouched
+				// by the display grouping.
+				auto itemRow = [&](int i) {
 					out.push_back({PaletteRow::Kind::Item, cat, i,
-								   {body.x, y, body.w, itemH}});
+								   {body.x, y, body.w, itemH}, items[i].group});
 					y += itemH;
+				};
+				std::vector<std::string> groups;
+				for (const PaletteItem& it : items)
+					if (!it.group.empty() &&
+						std::find(groups.begin(), groups.end(), it.group) == groups.end())
+						groups.push_back(it.group);
+				for (int i = 0; i < static_cast<int>(items.size()); ++i)
+					if (items[i].group.empty()) itemRow(i);
+				for (const std::string& g : groups) {
+					out.push_back({PaletteRow::Kind::SubHeader, cat, -1,
+								   {body.x, y, body.w, itemH}, g});
+					y += itemH;
+					if (GroupOpen(cat, g))
+						for (int i = 0; i < static_cast<int>(items.size()); ++i)
+							if (items[i].group == g) itemRow(i);
 				}
 			}
 		}
@@ -164,6 +186,8 @@ bool MapEditor::OnClick(float mx, float my, const gfx::Rect& panel) {
 		if (!r.rect.Contains(mx, my)) continue;
 		if (r.kind == PaletteRow::Kind::Header)
 			m_catOpen[static_cast<size_t>(r.cat)] = !m_catOpen[static_cast<size_t>(r.cat)];
+		else if (r.kind == PaletteRow::Kind::SubHeader)
+			m_groupOpen[GroupKey(r.cat, r.group)] = !GroupOpen(r.cat, r.group);
 		else if (r.kind == PaletteRow::Kind::Item)
 			m_sel = {r.cat, r.index};
 		else if (r.kind == PaletteRow::Kind::NewButton && onNewAsset)
@@ -396,6 +420,22 @@ void MapEditor::RenderBody(gfx::SpriteBatch& batch, const ui::Theme& theme,
 		case PaletteRow::Kind::Empty:
 			font.Draw(batch, loc::Tr("map.cat.empty"), rc.x + dpad * 3, ty, theme.textDim);
 			break;
+		case PaletteRow::Kind::SubHeader: {
+			// A group sub-header: indented +/- toggle, the free-form category
+			// token (first letter up-cased) and the member count. Tokens are
+			// data ids, so no loc lookup — like the item labels themselves.
+			const char* arrow = GroupOpen(r.cat, r.group) ? "-" : "+";
+			int n = 0;
+			for (const PaletteItem& it : items)
+				if (it.group == r.group) ++n;
+			std::string label = r.group;
+			label[0] = static_cast<char>(
+				std::toupper(static_cast<unsigned char>(label[0])));
+			label += std::format(" ({})", n);
+			font.Draw(batch, arrow, rc.x + dpad * 3, ty, theme.textDim);
+			font.Draw(batch, label, rc.x + dpad * 4 + arrowW, ty, theme.text);
+			break;
+		}
 		case PaletteRow::Kind::Item: {
 			if (r.index < 0 || r.index >= static_cast<int>(items.size())) break;
 			const bool active = m_sel.cat == r.cat && m_sel.index == r.index;
@@ -403,7 +443,9 @@ void MapEditor::RenderBody(gfx::SpriteBatch& batch, const ui::Theme& theme,
 				batch.DrawRect(rc, theme.controlActive);
 				ui::DrawBorder(batch, rc, theme.panelBorder);
 			}
-			const float indent = dpad * 3, sw = rc.h - dpad * 2;
+			// Grouped items indent one level past their sub-header.
+			const float indent = dpad * (r.group.empty() ? 3.0f : 5.0f);
+			const float sw = rc.h - dpad * 2;
 			batch.DrawRect({rc.x + indent, rc.y + dpad, sw, sw}, items[r.index].swatch);
 			font.Draw(batch, items[r.index].label, rc.x + indent + sw + dpad, ty,
 					  active ? theme.text : theme.textDim);
