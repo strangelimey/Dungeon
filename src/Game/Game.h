@@ -108,6 +108,12 @@ private:
 	bool StartBakeStep();
 	void FinishBake();
 
+	// Copies the active project (with its edits) from the exe-side asset copy
+	// back into the repo source tree. False (with a log) when no source path is
+	// baked in (shipped build) or the copy fails. Shared by the editor's
+	// "To source" button and the synctosource console command.
+	bool SyncProjectToSource();
+
 	// Persists a monster type's edited animation config (the right-click dialog's
 	// Save): rewrites the `states` + `anim_<state>` rows of its monsters-catalog
 	// entry (preserving every other field) and saves the project to disk.

@@ -37,6 +37,7 @@
 #include "UI/Font.h"
 #include "UI/UIContext.h" // ui::Theme
 
+#include <functional>
 #include <memory>
 #include <string>
 
@@ -59,6 +60,12 @@ public:
 	// Wires the Editor-mode collaborator (Game owns both; see file banner). Until
 	// set, Editor mode shows an empty left dock.
 	void SetEditor(MapEditor* editor) { m_editor = editor; }
+
+	// Fired by the Editor-mode header buttons top-right of the grid: Save writes
+	// every edited level (the savemap console command), To source additionally
+	// copies the project into the repo tree (synctosource). The owner (Game)
+	// does the work and messages the outcome.
+	std::function<void(bool toSource)> onSave;
 
 	bool IsOpen() const { return m_open; }
 	Mode CurrentMode() const { return m_mode; }
@@ -171,6 +178,11 @@ private:
 	void StepViewLevel(int step); // rebuilds m_browse (or resets, back on active)
 	gfx::Rect LevelUpButton(const gfx::Rect& panel) const;
 	gfx::Rect LevelDownButton(const gfx::Rect& panel) const;
+
+	// Editor-mode save buttons, top-RIGHT of the grid area (mirroring the
+	// level-browse cluster top-left): Save, then To source beside it.
+	gfx::Rect SaveButton(const gfx::Rect& panel) const;
+	gfx::Rect SaveSourceButton(const gfx::Rect& panel) const;
 
 	gfx::GraphicsDevice& m_device;
 	DungeonWorld& m_world;

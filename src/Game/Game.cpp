@@ -82,6 +82,24 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	  m_propInspector(device), m_doorInspector(device), m_buttonInspector(device),
 	  m_inspectPicker(device), m_previewParticles(device) {
 	m_mapView.SetEditor(&m_mapEditor); // the view drives the editor in Editor mode
+	// The editor's header save buttons: Save = write every edited level (what the
+	// savemap console command does); To source = also copy the project into the
+	// repo tree. Feedback goes through the world's message channel.
+	m_mapView.onSave = [this](bool toSource) {
+		if (!m_gameLoaded) return; // no world to save yet
+		const std::vector<std::string> saved = m_world.SaveAllLevels();
+		bool ok = !saved.empty();
+		if (ok && toSource) ok = SyncProjectToSource();
+		if (!m_world.onMessage) return;
+		if (!ok) {
+			m_world.onMessage(loc::Tr("map.save.failed"));
+			return;
+		}
+		std::string list;
+		for (const std::string& s : saved) list += (list.empty() ? "" : ", ") + s;
+		m_world.onMessage(
+			loc::Format(toSource ? "map.save.synced" : "map.save.done", list));
+	};
 	m_settings.Load();
 	ApplyLanguage(false); // strings must exist before any UI builds
 	m_audio.SetMasterVolume(m_settings.volume);
@@ -773,26 +791,9 @@ void Game::RegisterDevCommands() {
 	m_console.Register("synctosource",
 					   "copy the active project (edits) into the repo source tree",
 					   [this](const std::vector<std::string>&) {
-						   const std::string& repo = paths::RepoAssetsDir();
-						   if (repo.empty()) {
-							   m_console.Print("no source path baked in");
-							   return;
-						   }
-						   namespace fs = std::filesystem;
-						   const fs::path src = m_project.folder; // the build-copy project
-						   const fs::path dst =
-							   fs::path(repo) / "projects" / src.filename();
-						   std::error_code ec;
-						   fs::create_directories(dst, ec);
-						   fs::copy(src, dst,
-									fs::copy_options::recursive |
-										fs::copy_options::overwrite_existing,
-									ec);
-						   if (ec)
-							   m_console.Print("sync failed: " + ec.message());
-						   else
-							   m_console.Print("synced " + src.filename().string() +
-											   " -> source");
+						   m_console.Print(SyncProjectToSource()
+											   ? "synced project -> source"
+											   : "sync failed (see log)");
 					   });
 	m_console.Register("preview", "show a model in the 3D preview (off to close)",
 					   [this](const std::vector<std::string>& args) {
@@ -1082,6 +1083,28 @@ bool Game::StartBakeStep() {
 	}
 	log::Info("AssetBaker: {}", cmd);
 	return m_bake.Start(cmd);
+}
+
+bool Game::SyncProjectToSource() {
+	const std::string& repo = paths::RepoAssetsDir();
+	if (repo.empty()) {
+		log::Warn("sync to source: no source path baked in");
+		return false;
+	}
+	namespace fs = std::filesystem;
+	const fs::path src = m_project.folder; // the build-copy project
+	const fs::path dst = fs::path(repo) / "projects" / src.filename();
+	std::error_code ec;
+	fs::create_directories(dst, ec);
+	fs::copy(src, dst,
+			 fs::copy_options::recursive | fs::copy_options::overwrite_existing,
+			 ec);
+	if (ec) {
+		log::Warn("sync to source failed: {}", ec.message());
+		return false;
+	}
+	log::Info("Synced project {} -> source", src.filename().string());
+	return true;
 }
 
 // The bake succeeded: append the new entry to the right project catalog and save

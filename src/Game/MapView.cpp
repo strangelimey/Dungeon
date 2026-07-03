@@ -106,6 +106,19 @@ gfx::Rect MapView::LevelDownButton(const gfx::Rect& panel) const {
 	return {up.x + up.w + DockPad(panel), up.y, up.w, up.h};
 }
 
+gfx::Rect MapView::SaveSourceButton(const gfx::Rect& panel) const {
+	const gfx::Rect g = GridArea(panel);
+	const float pad = DockPad(panel);
+	const float s = std::clamp(panel.h * 0.042f, 22.0f, 40.0f);
+	const float w = s * 4.0f; // room for the localized label
+	return {g.x + g.w - pad * 2 - w, panel.y + pad * 2, w, s};
+}
+
+gfx::Rect MapView::SaveButton(const gfx::Rect& panel) const {
+	const gfx::Rect src = SaveSourceButton(panel);
+	return {src.x - DockPad(panel) - src.w, src.y, src.w, src.h};
+}
+
 MapView::Transform MapView::ComputeTransform(const gfx::Rect& panel) const {
 	const gfx::Rect g = GridArea(panel); // panel minus the dock in Editor mode
 	const DungeonMap& map = ViewedMap();
@@ -253,6 +266,17 @@ bool MapView::Update(const Input& input, const gfx::Rect& panel) {
 		if (!LevelNeighbor(+1).empty() && LevelDownButton(panel).Contains(mx, my)) {
 			StepViewLevel(+1);
 			return true;
+		}
+		// Editor save buttons (top-right of the grid): Save / To source.
+		if (editor && onSave) {
+			if (SaveButton(panel).Contains(mx, my)) {
+				onSave(false);
+				return true;
+			}
+			if (SaveSourceButton(panel).Contains(mx, my)) {
+				onSave(true);
+				return true;
+			}
 		}
 		// Right key dock collapse — both modes (flips the mode's own flag).
 		if (RightCollapseButton(panel).Contains(mx, my)) {
@@ -726,6 +750,21 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 		m_font.Draw(batch, ViewedLevel(), dnR.x + dnR.w + dpad * 2,
 					upR.y + (upR.h - m_font.Height()) * 0.5f,
 					m_browse ? theme.accent : theme.text);
+
+		// Editor save buttons, top-right of the grid (Update hit-tests the same
+		// rects): Save = write every edited level; To source = also copy the
+		// project into the repo tree.
+		if (m_mode == Mode::Editor) {
+			auto textBtn = [&](const gfx::Rect& r, const std::string& label) {
+				batch.DrawRect(r, theme.control);
+				ui::DrawBorder(batch, r, theme.panelBorder);
+				m_font.Draw(batch, label,
+							r.x + (r.w - m_font.MeasureWidth(label)) * 0.5f,
+							r.y + (r.h - m_font.Height()) * 0.5f, theme.text);
+			};
+			textBtn(SaveButton(panel), loc::Tr("map.btn.save"));
+			textBtn(SaveSourceButton(panel), loc::Tr("map.btn.source"));
+		}
 	}
 
 	// Player title, centered over the grid area (clear of the key dock).
