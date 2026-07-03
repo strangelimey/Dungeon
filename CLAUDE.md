@@ -353,12 +353,22 @@ light at flame) and braziers at 'F', each with FireEffect particles
 (flame/spark/smoke via gfx::ParticleBatch premultiplied billboards) and
 fire-driven turbidity rings around them.
 
-The HUD's top bar shows the 4-member party (Character.h roster, widgets in
+The HUD's top bar shows the party — 1..4 members; planned party creation
+lets the player build fewer than 4, and the bar always reserves four slots
+so a short roster keeps its slot size (Character.h roster, widgets in
 PartyHud.h: portrait, name, health/stamina/mana bars); clicking a portrait
 freezes the world (AppState::CharacterSheet, like Paused) and opens the
-character details page (prev/next cycle members, Esc/Back resumes). Widgets
-hold pointers into Game::m_characters, so the roster is filled once and
-StartNewGame resets members in place. Left column under the bar: the
+character details page (prev/next cycle members modulo the live roster
+size, Esc/Back resumes). The per-member widgets (CharacterPanel, HandSlot,
+CharacterSheet) hold NO Character* across frames: they address
+Game::m_characters by (roster, index) and re-resolve through PartyHud.h's
+RosterMember at the top of every Update/Draw — an index past the roster's
+end just goes inert (no draw, no mouse) — so a roster of any size, or a
+resize, can't dangle them. StartNewGame/LoadGame still reset members in
+place (keeping each slot's loaded portrait); a roster SIZE change must
+call GameUI::RebuildForRoster (deferred like RebuildForLanguage, never
+from a widget callback) to re-lay-out the per-member widgets — BuildHud
+lays out whatever count it finds (hand pairs fill 2 wide, 2+1 for three). Left column under the bar: the
 facing/position panel, then the Options panel (torchlight dropdown,
 Wait/Help). Right edge: a Dungeon Master-style control panel — six movement
 arrow buttons (turn/forward over strafe/back; GameUI::onMoveAction →
