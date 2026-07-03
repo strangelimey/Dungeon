@@ -34,9 +34,9 @@ struct CatInfo {
 	bool textureSet;
 };
 constexpr CatInfo kCategoryInfo[] = {
-	{"map.cat.tools", "", false},           {"map.cat.structure", "", false},
-	{"map.cat.walls", "walls", true},       {"map.cat.floors", "floors", true},
-	{"map.cat.ceilings", "ceilings", true}, {"map.cat.decorations", "decorations", false},
+	{"map.cat.structure", "", false},       {"map.cat.walls", "walls", true},
+	{"map.cat.floors", "floors", true},     {"map.cat.ceilings", "ceilings", true},
+	{"map.cat.decorations", "decorations", false},
 	{"map.cat.fixtures", "fixtures", false}, {"map.cat.monsters", "monsters", false},
 	{"map.cat.buttons", "buttons", false},  {"map.cat.doors", "doors", false},
 	{"map.cat.stairs", "stairs", false},    {"map.cat.items", "items", false},
@@ -52,7 +52,6 @@ const CatInfo& CatInfoFor(MapEditor::PaletteCat cat) {
 MapEditor::MapEditor(MapView& view, DungeonWorld& world, GameSettings& settings)
 	: m_view(view), m_world(world), m_settings(settings) {
 	// Open the most-used categories by default; the rest start collapsed.
-	m_catOpen[static_cast<size_t>(PaletteCat::Tools)] = true;
 	m_catOpen[static_cast<size_t>(PaletteCat::Structure)] = true;
 	m_catOpen[static_cast<size_t>(PaletteCat::Walls)] = true;
 }
@@ -97,9 +96,6 @@ std::vector<MapEditor::PaletteItem> MapEditor::CategoryItems(PaletteCat cat) con
 	};
 
 	switch (cat) {
-	case PaletteCat::Tools:
-		return {{loc::Tr("map.tool.select"), kToolSelect},
-				{loc::Tr("map.tool.erase"), kToolErase}};
 	case PaletteCat::Structure:
 		return {{loc::Tr("map.brush.wall"), kWall},
 				{loc::Tr("map.brush.floor"), kFloor}};
@@ -231,21 +227,20 @@ void MapEditor::ApplyBrush(int cx, int cz, bool dragging) {
 		if (!dragging && !remote && onRouteWaypoint) onRouteWaypoint(m_routeId, cx, cz);
 		return;
 	}
+	if (m_sel.index < 0) return; // nothing armed yet
 	using SS = DungeonWorld::SurfaceSel;
-	const DungeonMap& map = m_view.ViewedMap();
 	auto log = [&](const std::string& s) {
 		if (m_world.onMessage) m_world.onMessage(s);
 	};
 
-	// Undo bracketing: everything below except the Select tool mutates. A drag
-	// stroke is ONE undo step — the snapshot is taken before the stroke's first
-	// cell; later stroke cells fold into it. `changed` decides whether the
-	// pending snapshot is kept: live paints compare the map revision, entity
-	// edits report success, and remote edits are conservatively treated as
-	// changed (a same-value remote paint costs one no-op undo step at worst).
-	const bool select = m_sel.cat == PaletteCat::Tools && m_sel.index == 0;
+	// Undo bracketing: everything below mutates. A drag stroke is ONE undo
+	// step — the snapshot is taken before the stroke's first cell; later
+	// stroke cells fold into it. `changed` decides whether the pending
+	// snapshot is kept: live paints compare the map revision, entity edits
+	// report success, and remote edits are conservatively treated as changed
+	// (a same-value remote paint costs one no-op undo step at worst).
 	const bool strokeStart = !dragging;
-	if (!select && strokeStart) m_world.BeginUndoStep();
+	if (strokeStart) m_world.BeginUndoStep();
 	const u32 rev0 = m_world.Map().Revision();
 	bool changed = false;
 
@@ -276,56 +271,6 @@ void MapEditor::ApplyBrush(int cx, int cz, bool dragging) {
 		} else {
 			m_world.EditVariant(cx, cz, sel, m_sel.index);
 			changed = m_world.Map().Revision() != rev0;
-		}
-		break;
-	}
-	case PaletteCat::Tools: {
-		if (dragging) break; // tools act on a single click, not a stroke
-		if (m_sel.index == 0) { // Select: report the cell's contents
-			if (remote) {
-				// No live instances on a browsed level — report the static base
-				// only; the inspectors need the level active.
-				log(loc::Format("map.select.contents", cx, cz,
-								map.At(cx, cz) == Cell::Wall ? "wall" : "floor"));
-				break;
-			}
-			const char* base = map.At(cx, cz) == Cell::Wall ? "wall" : "floor";
-			int props = 0;
-			for (const auto& m : m_world.DecorationMarkers())
-				if (m.x == cx && m.z == cz) ++props;
-			int mons = 0;
-			for (const auto& m : m_world.MonsterMarkers())
-				if (m.x == cx && m.z == cz) ++mons;
-			std::string details = base;
-			if (mons) details += std::format(", {} monster{}", mons, mons == 1 ? "" : "s");
-			if (props) details += std::format(", {} prop{}", props, props == 1 ? "" : "s");
-			log(loc::Format("map.select.contents", cx, cz, details));
-			// Click SELECTS the square (highlight + route overlay); a second click on
-			// an already-selected inspectable (creature, torch, decoration, item) opens
-			// its inspector. The owner (onInspect) decides which dialog by the contents.
-			const bool inspectable = m_world.AnyInspectableAt(cx, cz);
-			const bool reclick = (m_selX == cx && m_selZ == cz && m_selInspectable);
-			m_selX = cx;
-			m_selZ = cz;
-			m_selMonster = m_world.MonsterRuntimeIdAt(cx, cz);
-			m_selInspectable = inspectable;
-			if (reclick && onInspect) onInspect(cx, cz);
-		} else { // Erase: remove a runtime entity, then a fixture, else reset surfaces
-			changed = true; // the ladder always acts (the last rung is a reset)
-			if (remote) { // the stash-side ladder messages for itself
-				m_world.EraseRemote(stem, cx, cz);
-				break;
-			}
-			if (m_world.RemoveStairAt(cx, cz)) {
-				// stairs message themselves (they name the paired level's cleanup)
-			} else if (m_world.RemoveEntityAt(cx, cz) || m_world.RemoveFixtureAt(cx, cz)) {
-				log(loc::Tr("map.erase.removed"));
-			} else {
-				m_world.EditVariant(cx, cz, SS::Wall, -1);
-				m_world.EditVariant(cx, cz, SS::Floor, -1);
-				m_world.EditVariant(cx, cz, SS::Ceiling, -1);
-				log(loc::Format("map.erase.reset", cx, cz));
-			}
 		}
 		break;
 	}
@@ -387,7 +332,63 @@ void MapEditor::ApplyBrush(int cx, int cz, bool dragging) {
 		break;
 	}
 
-	if (!select && strokeStart) m_world.CommitUndoStep(changed);
+	if (strokeStart) m_world.CommitUndoStep(changed);
+}
+
+void MapEditor::InspectAt(int cx, int cz) {
+	const bool remote = m_view.Browsing();
+	const DungeonMap& map = m_view.ViewedMap();
+	auto log = [&](const std::string& s) {
+		if (m_world.onMessage) m_world.onMessage(s);
+	};
+	if (remote) {
+		// No live instances on a browsed level — report the static base only;
+		// the inspectors need the level active.
+		log(loc::Format("map.select.contents", cx, cz,
+						map.At(cx, cz) == Cell::Wall ? "wall" : "floor"));
+		return;
+	}
+	const char* base = map.At(cx, cz) == Cell::Wall ? "wall" : "floor";
+	int props = 0;
+	for (const auto& m : m_world.DecorationMarkers())
+		if (m.x == cx && m.z == cz) ++props;
+	int mons = 0;
+	for (const auto& m : m_world.MonsterMarkers())
+		if (m.x == cx && m.z == cz) ++mons;
+	std::string details = base;
+	if (mons) details += std::format(", {} monster{}", mons, mons == 1 ? "" : "s");
+	if (props) details += std::format(", {} prop{}", props, props == 1 ? "" : "s");
+	log(loc::Format("map.select.contents", cx, cz, details));
+	// Select the square (highlight + patrol-route overlay) and open the
+	// inspector right away when it holds an editable object — the owner
+	// (onInspect) picks the dialog, via the chooser when several share it.
+	m_selX = cx;
+	m_selZ = cz;
+	m_selMonster = m_world.MonsterRuntimeIdAt(cx, cz);
+	if (m_world.AnyInspectableAt(cx, cz) && onInspect) onInspect(cx, cz);
+}
+
+void MapEditor::EraseAt(int cx, int cz) {
+	using SS = DungeonWorld::SurfaceSel;
+	const bool remote = m_view.Browsing();
+	const std::string& stem = m_view.ViewedLevel();
+	auto log = [&](const std::string& s) {
+		if (m_world.onMessage) m_world.onMessage(s);
+	};
+	m_world.BeginUndoStep();
+	if (remote) { // the stash-side ladder messages for itself
+		m_world.EraseRemote(stem, cx, cz);
+	} else if (m_world.RemoveStairAt(cx, cz)) {
+		// stairs message themselves (they name the paired level's cleanup)
+	} else if (m_world.RemoveEntityAt(cx, cz) || m_world.RemoveFixtureAt(cx, cz)) {
+		log(loc::Tr("map.erase.removed"));
+	} else {
+		m_world.EditVariant(cx, cz, SS::Wall, -1);
+		m_world.EditVariant(cx, cz, SS::Floor, -1);
+		m_world.EditVariant(cx, cz, SS::Ceiling, -1);
+		log(loc::Format("map.erase.reset", cx, cz));
+	}
+	m_world.CommitUndoStep(true); // the ladder always acts (last rung resets)
 }
 
 void MapEditor::RenderBody(gfx::SpriteBatch& batch, const ui::Theme& theme,

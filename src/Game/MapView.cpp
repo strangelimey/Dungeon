@@ -355,19 +355,45 @@ bool MapView::Update(const Input& input, const gfx::Rect& panel) {
 		return true;
 	}
 
-	// In Editor a brush is always armed: left paints, so pan with the right
-	// button. Player mode is view-only, so pan with the left.
+	// In Editor left paints the armed brush, so pan with the right button.
+	// Player mode is view-only, so pan with the left.
 	const MouseButton panBtn = editor ? MouseButton::Right : MouseButton::Left;
 	if (overGrid && input.WasMousePressed(panBtn)) {
 		m_panning = true;
 		m_lastMouse = {mx, my};
+		m_panStart = {mx, my};
 	}
 	if (m_panning && input.IsMouseDown(panBtn)) {
 		m_pan.x += (mx - m_lastMouse.x) / grid.w;
 		m_pan.y += (my - m_lastMouse.y) / grid.h;
 		m_lastMouse = {mx, my};
 	}
-	if (input.WasMouseReleased(panBtn)) m_panning = false;
+	if (input.WasMouseReleased(panBtn)) {
+		const bool wasPanning = m_panning;
+		m_panning = false;
+		// A STATIONARY right-click (no drag since the press) in Editor mode
+		// inspects the cell — the former Select tool: contents + selection +
+		// the object's edit dialog. A real drag stays a pan (the sub-3px pan
+		// a click causes is imperceptible).
+		if (wasPanning && editor && m_editor) {
+			const float dx = mx - m_panStart.x, dy = my - m_panStart.y;
+			if (dx * dx + dy * dy < 9.0f) {
+				if (int cx, cz; CellAt(mx, my, panel, cx, cz))
+					m_editor->InspectAt(cx, cz);
+			}
+		}
+	}
+
+	// Middle-click erases the cell (the former Erase tool; one undo step each).
+	if (editor && m_editor && overGrid &&
+		input.WasMousePressed(MouseButton::Middle)) {
+		if (int cx, cz; CellAt(mx, my, panel, cx, cz)) {
+			m_editor->EraseAt(cx, cz);
+			// A remote erase edits the browsed level's stash — refresh the view.
+			if (m_browse) m_browse = m_world.BrowseLevel(m_browse->stem);
+			return true;
+		}
+	}
 
 	// Editor painting over the grid: a fresh press always acts; holding paints a
 	// stroke for the structural/surface brushes (MapEditor ignores drags for the
