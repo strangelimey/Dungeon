@@ -849,6 +849,12 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 		loc::Format("map.position", party.GridX(), party.GridZ());
 	m_font.Draw(batch, pos, grid.x + grid.w - m_font.MeasureWidth(pos) - pad,
 				footY, theme.textDim);
+
+	// A latched undo/redo dims the whole panel (drawn last, over everything)
+	// for the frame the blocking reload freezes on — with the disabled history
+	// buttons it reads unambiguously as "working", not a dead click.
+	if (m_pendingHistory != 0)
+		batch.DrawRect(panel, {0.0f, 0.0f, 0.0f, 0.5f});
 }
 
 } // namespace dungeon::game
