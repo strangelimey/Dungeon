@@ -71,7 +71,10 @@ BuildSnapshot(int W, int H, const int counts[4], bool reachable) {
 				if (dx || dz) at(snap->partyX + dx, snap->partyZ + dz) = 0;
 	snap->walkable = walk;
 
-	snap->blocked.insert(snap->partyZ * W + snap->partyX); // party cell is blocked
+	// The flat per-publish grids (sized like `walkable` — see ai::Snapshot).
+	snap->blocked.assign(static_cast<size_t>(W) * H, 0);
+	snap->occ.assign(static_cast<size_t>(W) * H, ai::CellOcc{});
+	snap->blocked[static_cast<size_t>(snap->partyZ) * W + snap->partyX] = 1; // party cell
 	int total = 0;
 	for (int b = 0; b < 4; ++b) total += counts[b];
 	if (total <= 0) return snap;
@@ -95,7 +98,7 @@ BuildSnapshot(int W, int H, const int counts[4], bool reachable) {
 			a.iq = kBucketIq[b];
 			a.aggroRange = 1e9f; // force engage => every monster runs a BFS
 			snap->monsters.push_back(a);
-			snap->blocked.insert(z * W + x);
+			snap->blocked[static_cast<size_t>(z) * W + x] = 1;
 			++placedInB;
 		}
 	return snap;

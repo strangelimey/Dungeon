@@ -31,8 +31,6 @@
 #include <memory>
 #include <mutex>
 #include <stop_token>
-#include <unordered_map>
-#include <unordered_set>
 #include <vector>
 
 namespace dungeon::ai {
@@ -141,13 +139,18 @@ struct Snapshot {
 	// revision changes (so publishing a snapshot copies a pointer, not the grid).
 	std::shared_ptr<const std::vector<uint8_t>> walkable;
 	// Hard-blocked cells a monster may NEVER enter (the party cell + solid
-	// decorations, which live outside the map so they can't ride the cached
-	// walkable grid). Monster-vs-monster crowding is capacity-based via `occ`,
-	// not a hard block, so several fit one cell. Indexed cell = z*mapW + x.
-	std::unordered_set<int> blocked;
+	// decorations and shut doors, which live outside the map so they can't ride
+	// the cached walkable grid). A FLAT byte grid like `walkable` (mapW*mapH,
+	// indexed z*mapW + x, 1 = blocked): the publisher zero-fills it in place so
+	// a pooled snapshot's buffer is reused with no per-publish allocation (node
+	// containers here freed on clear() and re-allocated every insert), and the
+	// workers index it instead of hashing. Monster-vs-monster crowding is
+	// capacity-based via `occ`, not a hard block, so several fit one cell.
+	std::vector<uint8_t> blocked;
 	// Live monster occupancy per cell (count + size capacity), for the slot-aware
-	// CellFreeForMonster check. Empty/absent = no monsters there. cell = z*mapW + x.
-	std::unordered_map<int, CellOcc> occ;
+	// CellFreeForMonster check — a flat grid shaped like `blocked`, zero-filled
+	// per publish for the same reason. count == 0 = no monsters there.
+	std::vector<CellOcc> occ;
 	std::vector<Agent> monsters; // the agents to think for (each carries a stable id)
 };
 
@@ -267,6 +270,13 @@ private:
 	mutable std::mutex m_planMutex;
 	std::shared_ptr<const std::vector<Plan>> m_plans[Scheduler::kBucketCount];
 	uint64_t m_planSeq[Scheduler::kBucketCount] = {};
+
+	// Per-bucket plan-batch pool, mirroring the host's snapshot pool: a worker
+	// reuses a batch whose only ref is the pool's (use_count == 1) instead of
+	// make_shared-ing one per tick, so steady-state ticks allocate nothing.
+	// Each bucket's pool is touched ONLY by that bucket's worker (ticks per
+	// bucket are serial, even across a Restart), so it needs no lock.
+	std::vector<std::shared_ptr<std::vector<Plan>>> m_planPool[Scheduler::kBucketCount];
 };
 
 // ----------------------------------------------------------------------------
