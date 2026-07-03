@@ -893,16 +893,18 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 	}
 
 	// Footer (kept within the grid area, clear of the docks): pan/zoom hint
-	// (left) + party cell (right).
-	const float footY = panel.y + panel.h - m_font.Height() - pad;
-	const char* hintKey = m_mode == Mode::Editor ? "map.hint.editor" : "map.hint";
-	m_font.Draw(batch, loc::Tr(hintKey), grid.x + pad, footY, theme.textDim);
+	// (left) + party cell (right). PLAYER mode only — the editor keeps its
+	// bottom row clear for map cells (its controls are discoverable enough).
+	if (m_mode == Mode::Player) {
+		const float footY = panel.y + panel.h - m_font.Height() - pad;
+		m_font.Draw(batch, loc::Tr("map.hint"), grid.x + pad, footY, theme.textDim);
 
-	const Party& party = m_world.GetParty();
-	const std::string pos =
-		loc::Format("map.position", party.GridX(), party.GridZ());
-	m_font.Draw(batch, pos, grid.x + grid.w - m_font.MeasureWidth(pos) - pad,
-				footY, theme.textDim);
+		const Party& party = m_world.GetParty();
+		const std::string pos =
+			loc::Format("map.position", party.GridX(), party.GridZ());
+		m_font.Draw(batch, pos, grid.x + grid.w - m_font.MeasureWidth(pos) - pad,
+					footY, theme.textDim);
+	}
 
 }
 

@@ -261,7 +261,6 @@ symbol.water=Agua
 map.title=Mapa
 map.position={}, {}
 map.hint=Arrastra para mover, rueda para zoom
-map.hint.editor=Arrastre derecho mueve, rueda zoom, izquierdo pinta
 map.brushes=Paleta
 map.brush.floor=Suelo
 map.brush.wall=Muro

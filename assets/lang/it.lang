@@ -261,7 +261,6 @@ symbol.water=Acqua
 map.title=Mappa
 map.position={}, {}
 map.hint=Trascina per spostare, rotellina per zoom
-map.hint.editor=Trascino destro sposta, rotellina zoom, sinistro dipinge
 map.brushes=Tavolozza
 map.brush.floor=Pavimento
 map.brush.wall=Muro

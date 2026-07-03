@@ -265,7 +265,6 @@ symbol.water=Вода
 map.title=Карта
 map.position={}, {}
 map.hint=Тяните для перемещения, колесо для масштаба
-map.hint.editor=ПКМ — перемещение, колесо — масштаб, ЛКМ — рисование
 map.brushes=Палитра
 map.brush.floor=Пол
 map.brush.wall=Стена

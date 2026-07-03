@@ -259,7 +259,6 @@ symbol.water=Water
 map.title=Map
 map.position={}, {}
 map.hint=Drag to pan, wheel to zoom
-map.hint.editor=Right-drag pan, wheel zoom, left to paint
 map.brushes=Palette
 map.brush.floor=Floor
 map.brush.wall=Wall

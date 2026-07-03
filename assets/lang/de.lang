@@ -261,7 +261,6 @@ symbol.water=Wasser
 map.title=Karte
 map.position={}, {}
 map.hint=Ziehen zum Verschieben, Rad zum Zoomen
-map.hint.editor=Rechtsziehen verschiebt, Rad zoomt, links malt
 map.brushes=Palette
 map.brush.floor=Boden
 map.brush.wall=Wand
