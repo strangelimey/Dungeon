@@ -13,6 +13,7 @@
 
 [wooden_door]
 display = Wooden Door
+category = door
 model = door_panel
 texture = wood_planks
 authored = 0

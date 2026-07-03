@@ -19,6 +19,7 @@
 
 [stairs_down]
 display = Stairs Down
+category = stairs
 model = stairs_down
 texture = wall_stone
 solid = 0
@@ -29,6 +30,7 @@ hole = floor
 
 [stairs_up]
 display = Stairs Up
+category = stairs
 model = stairs
 texture = wall_stone
 solid = 0
@@ -39,6 +41,7 @@ hole = none
 
 [pit]
 display = Pit
+category = pit
 model = pit
 texture = wall_stone
 solid = 0
@@ -50,6 +53,7 @@ fall = 1
 
 [pit_ceiling]
 display = Ceiling Hole
+category = pit
 model = pit_ceiling
 texture = wall_stone
 solid = 0

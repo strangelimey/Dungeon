@@ -37,10 +37,13 @@
 ;              (e.g. anim_spawn = rise). Names not in the model are dropped.
 ;              States with table rows but no behaviour wired up yet (run/flee/
 ;              defend) are authored-ahead, harmless until the sim drives them.
+;   category = free-form group token; entries sharing one collapse under a
+;              sub-accordion in the editor palette (like items.cat)
 ; Level .ent monster records reference these ids.
 
 [skeleton]
 display = Skeleton
+category = skeleton
 model = skeleton
 texture = skeleton
 hp = 16
@@ -60,6 +63,7 @@ fleebelow = 0.3
 ;   Proves the data-driven behaviour path (docs/ai.md P1c).
 [skel_archer]
 display = Skeleton Archer
+category = skeleton
 model = skeleton
 texture = skeleton
 hp = 12
@@ -79,6 +83,7 @@ keeprange = 4
 ;   moving-item engine — the payoff of the one-projectile-engine decision.
 [skel_mage]
 display = Skeleton Mage
+category = skeleton
 model = skeleton
 texture = skeleton
 hp = 14
@@ -100,6 +105,7 @@ spell = firebolt
 ;   fraction like 0.3, which triggers only once the monster is wounded.) damage=0.
 [skel_coward]
 display = Skittish Skeleton
+category = skeleton
 model = skeleton
 texture = skeleton
 hp = 10
@@ -118,6 +124,7 @@ fleebelow = 2.0
 ;   in numbers. size=medium packs several per cell so they truly swarm/surround.
 [skel_swarm]
 display = Bone Swarm
+category = skeleton
 model = skeleton
 texture = skeleton
 hp = 6
@@ -137,6 +144,7 @@ archetype = swarm
 ;   short-aggro brute. Place it in a spot the party walks past.
 [skel_lurker]
 display = Lurking Skeleton
+category = skeleton
 model = skeleton
 texture = skeleton
 hp = 20
@@ -152,6 +160,7 @@ archetype = lurker
 
 [blob]
 display = Blob
+category = slime
 model = blob
 texture = blob
 hp = 28
@@ -168,6 +177,7 @@ roughness = 0.18
 
 [mummy]
 display = Mummy
+category = undead
 model = mummy
 texture = burlap
 hp = 22
@@ -185,6 +195,7 @@ iq = 100
 ; observation of the animation.
 [skel_human]
 display = Bone Knight
+category = skeleton
 model = skel_human
 hp = 16
 damage = 0

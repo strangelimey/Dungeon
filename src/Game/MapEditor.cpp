@@ -70,13 +70,16 @@ std::vector<MapEditor::PaletteItem> MapEditor::CategoryItems(PaletteCat cat) con
 	const DungeonMap& map = m_view.ViewedMap();
 	const Project& proj = m_world.GetProject();
 
-	// A surface palette (list of catalog ids) resolved to display name + swatch.
+	// A surface palette (list of catalog ids) resolved to display name + swatch;
+	// the entry's `category` groups it under a sub-accordion like the entity
+	// catalogs (an id the catalog doesn't know stays ungrouped).
 	auto surfaceItems = [&](const std::vector<std::string>& palette,
 							const Catalog& catalog, const Vec4& swatch) {
 		std::vector<PaletteItem> items;
 		for (const std::string& id : palette) {
 			const CatalogEntry* e = catalog.Find(id);
-			items.push_back({e ? e->Display() : id, swatch, id});
+			items.push_back({e ? e->Display() : id, swatch, id,
+							 e ? e->Get("category", "") : std::string()});
 		}
 		return items;
 	};

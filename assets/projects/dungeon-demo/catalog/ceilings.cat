@@ -1,17 +1,21 @@
 ; Ceiling surface types: texture set + worn-block height displacement.
+; `category` groups an entry under an editor-palette sub-accordion.
 
 [ceiling_rough]
 display = Rough
 texture = ceiling_rough
 height_scale = 0.035
+category = stone
 
 [ceiling_cracked]
 display = Cracked
 texture = ceiling_cracked
 height_scale = 0.035
+category = stone
 
 ; --- scanned sets from textures.com (1k/2k/4k installed) ---
 [ceiling_stone]
 display = Stone
 texture = limestone
 height_scale = 0.035
+category = stone
