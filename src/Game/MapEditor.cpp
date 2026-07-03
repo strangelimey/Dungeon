@@ -71,14 +71,19 @@ std::vector<MapEditor::PaletteItem> MapEditor::CategoryItems(PaletteCat cat) con
 
 	// A surface palette (list of catalog ids) resolved to display name + swatch;
 	// the entry's `category` groups it under a sub-accordion like the entity
-	// catalogs (an id the catalog doesn't know stays ungrouped).
+	// catalogs (an id the catalog doesn't know stays ungrouped). The swatch is
+	// the entry's loaded albedo texture — the same one the map's cell fill
+	// draws — with the flat category color as the not-loaded fallback (a
+	// browsed level's foreign palette).
 	auto surfaceItems = [&](const std::vector<std::string>& palette,
-							const Catalog& catalog, const Vec4& swatch) {
+							const Catalog& catalog, const Vec4& swatch,
+							DungeonWorld::SurfaceSel sel) {
 		std::vector<PaletteItem> items;
 		for (const std::string& id : palette) {
 			const CatalogEntry* e = catalog.Find(id);
 			items.push_back({e ? e->Display() : id, swatch, id,
-							 e ? e->Get("category", "") : std::string()});
+							 e ? e->Get("category", "") : std::string(),
+							 m_world.SurfaceAlbedoForId(sel, id)});
 		}
 		return items;
 	};
@@ -99,9 +104,15 @@ std::vector<MapEditor::PaletteItem> MapEditor::CategoryItems(PaletteCat cat) con
 	case PaletteCat::Structure:
 		return {{loc::Tr("map.brush.wall"), kWall},
 				{loc::Tr("map.brush.floor"), kFloor}};
-	case PaletteCat::Walls:    return surfaceItems(map.WallPalette(), proj.walls, kWall);
-	case PaletteCat::Floors:   return surfaceItems(map.FloorPalette(), proj.floors, kFloor);
-	case PaletteCat::Ceilings: return surfaceItems(map.CeilingPalette(), proj.ceilings, kCeiling);
+	case PaletteCat::Walls:
+		return surfaceItems(map.WallPalette(), proj.walls, kWall,
+							DungeonWorld::SurfaceSel::Wall);
+	case PaletteCat::Floors:
+		return surfaceItems(map.FloorPalette(), proj.floors, kFloor,
+							DungeonWorld::SurfaceSel::Floor);
+	case PaletteCat::Ceilings:
+		return surfaceItems(map.CeilingPalette(), proj.ceilings, kCeiling,
+							DungeonWorld::SurfaceSel::Ceiling);
 	case PaletteCat::Decorations: return catalogItems(proj.decorations, kDecoration);
 	case PaletteCat::Fixtures:    return catalogItems(proj.fixtures, kTorch);
 	case PaletteCat::Monsters:    return catalogItems(proj.monsters, kMonster);
@@ -450,7 +461,12 @@ void MapEditor::RenderBody(gfx::SpriteBatch& batch, const ui::Theme& theme,
 			// Grouped items indent one level past their sub-header.
 			const float indent = dpad * (r.group.empty() ? 3.0f : 5.0f);
 			const float sw = rc.h - dpad * 2;
-			batch.DrawRect({rc.x + indent, rc.y + dpad, sw, sw}, items[r.index].swatch);
+			const gfx::Rect swRect{rc.x + indent, rc.y + dpad, sw, sw};
+			if (items[r.index].icon)
+				batch.DrawSprite(swRect, {0, 0, 1, 1}, *items[r.index].icon,
+								 {1, 1, 1, 1});
+			else
+				batch.DrawRect(swRect, items[r.index].swatch);
 			font.Draw(batch, items[r.index].label, rc.x + indent + sw + dpad, ty,
 					  active ? theme.text : theme.textDim);
 			break;

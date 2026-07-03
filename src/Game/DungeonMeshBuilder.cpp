@@ -7,15 +7,16 @@ using namespace DirectX;
 
 namespace dungeon::game {
 
-namespace {
-
 // Stable per-cell variant choice so the dungeon looks the same every run.
-u32 VariantFor(int x, int z, u32 salt, u32 count) {
+// (Header-declared: the map overlay resolves the same pick for its cell fill.)
+u32 SurfaceVariantFor(int x, int z, u32 salt, u32 count) {
 	u32 h = static_cast<u32>(x) * 73856093u ^ static_cast<u32>(z) * 19349663u ^
 			salt * 83492791u;
 	h = (h ^ (h >> 13)) * 1274126177u;
 	return count > 0 ? (h >> 8) % count : 0;
 }
+
+namespace {
 
 // Appends `src` transformed by `m` (positions) and its rotation part (normals).
 void AppendTransformed(assets::MeshData& dst, const assets::MeshData& src,
@@ -88,13 +89,13 @@ void StampCell(const DungeonMap& map, int x, int z, CellHoles holes,
 	};
 	if (!holes.floor) {
 		const u32 floorVariant = pick(map.FloorVariant(x, z),
-									   VariantFor(x, z, 1u, floorVariants), floorVariants);
+									   SurfaceVariantFor(x, z, 1u, floorVariants), floorVariants);
 		AppendTransformed(floorB[floorVariant], floorBlocks[floorVariant],
 						  XMMatrixTranslation(center.x, 0, center.z));
 	}
 	if (!holes.ceiling) {
 		const u32 ceilingVariant = pick(map.CeilingVariant(x, z),
-										 VariantFor(x, z, 2u, ceilingVariants), ceilingVariants);
+										 SurfaceVariantFor(x, z, 2u, ceilingVariants), ceilingVariants);
 		AppendTransformed(ceilB[ceilingVariant], ceilingBlocks[ceilingVariant],
 						  XMMatrixTranslation(center.x, kWallHeight, center.z));
 	}
@@ -114,7 +115,7 @@ void StampCell(const DungeonMap& map, int x, int z, CellHoles holes,
 		{+1, 0, -kPi * 0.5f, {(x + 1) * s, 0, center.z}}, // east
 	};
 	const u32 wallVariant = pick(map.WallVariant(x, z),
-								  VariantFor(x, z, 3u, wallVariants), wallVariants);
+								  SurfaceVariantFor(x, z, 3u, wallVariants), wallVariants);
 	for (const Edge& e : edges) {
 		if (map.IsWalkable(x + e.dx, z + e.dz)) continue;
 		const XMMATRIX m =

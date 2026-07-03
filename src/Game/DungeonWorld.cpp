@@ -256,6 +256,21 @@ void DungeonWorld::EditVariant(int x, int z, SurfaceSel sel, int variant) {
 	RebuildChunksAround(x, z);
 }
 
+const gfx::Texture* DungeonWorld::SurfaceAlbedoForId(SurfaceSel sel,
+													 const std::string& id) const {
+	// The loaded albedo arrays sit in ACTIVE-palette order (LoadTextureSet), so
+	// finding the id's palette index finds its texture.
+	const std::vector<std::string>& pal = sel == SurfaceSel::Wall	 ? m_map.WallPalette()
+										  : sel == SurfaceSel::Floor ? m_map.FloorPalette()
+																	 : m_map.CeilingPalette();
+	const Surface& surface = sel == SurfaceSel::Wall	? m_walls
+							 : sel == SurfaceSel::Floor ? m_floors
+														: m_ceilings;
+	for (size_t i = 0; i < pal.size() && i < surface.albedo.size(); ++i)
+		if (pal[i] == id) return surface.albedo[i].get();
+	return nullptr;
+}
+
 bool DungeonWorld::AddDecoration(const std::string& type, int x, int z,
 								 Direction facing) {
 	if (!m_map.IsWalkable(x, z)) return false;

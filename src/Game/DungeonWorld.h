@@ -414,6 +414,12 @@ public:
 	// (the variant index into the level's surface palette), then rebuilds like
 	// EditCell. No-op on solid cells (variants live on floor cells).
 	void EditVariant(int x, int z, SurfaceSel sel, int variant);
+	// The loaded albedo behind a surface-palette catalog id, for the editor
+	// map's textured cell fill. Only the ACTIVE level's palette sets are ever
+	// loaded, so the lookup searches those; null for any other id (a browsed
+	// level on a foreign palette) — the map falls back to its flat ink.
+	const gfx::Texture* SurfaceAlbedoForId(SurfaceSel sel,
+										   const std::string& id) const;
 
 	// Live entity placement (editor). type is a catalog id (decorations.cat /
 	// monsters.cat). Each instantiates the kind (loading its model/textures on

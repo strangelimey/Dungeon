@@ -98,6 +98,12 @@ public:
 	// (only paint brushes act on a drag; placement acts on the click only). A
 	// no-op until a palette row is armed.
 	void Paint(int cx, int cz, bool dragging) { ApplyBrush(cx, cz, dragging); }
+	// The armed brush's palette category, or Count when nothing is armed.
+	// MapView reads it to flip the grid's textured cell fill to the surface
+	// being painted (Walls/Floors/Ceilings show their textures while armed).
+	PaletteCat ArmedCat() const {
+		return m_sel.index >= 0 ? m_sel.cat : PaletteCat::Count;
+	}
 	// The former Select tool, now on right-CLICK (a right-drag still pans):
 	// reports the cell's contents, selects the square (highlight + patrol-route
 	// overlay), and opens the inspector immediately when it holds an editable
@@ -127,11 +133,15 @@ private:
 	// sharing one collapse under a sub-accordion within their palette category,
 	// so a growing catalog stays navigable. Data-driven — any catalog groups
 	// the moment its entries carry the field (items.cat already does).
+	// `icon` (surface rows) is the entry's loaded albedo, drawn as the row
+	// swatch so the palette shows the same texture the map fill does; null
+	// falls back to the flat `swatch` color.
 	struct PaletteItem {
 		std::string label;
 		Vec4 swatch{1, 1, 1, 1};
 		std::string id;
 		std::string group;
+		const gfx::Texture* icon = nullptr;
 	};
 
 	// Accordion layout, shared by hit-test and draw: one row per category header,

@@ -28,4 +28,14 @@ inline const Vec4 kStair{0.60f, 0.72f, 0.78f, 1.0f};      // stair category
 inline const Vec4 kMarkerInk{0.96f, 0.96f, 0.98f, 1.0f};  // initials drawn over markers
 inline const Vec4 kFacingArrow{0.25f, 1.0f, 0.40f, 1.0f}; // editor: which way a placed thing faces
 
+// Editor textured cell fill. The dim base view draws each cell's albedo with a
+// CURVE, not a pure multiply: the texture (alpha < 1) composites over a flat
+// lift ink underneath, so out = albedo * (rgb * a) + lift * (1 - a). The lift
+// raises the blacks of these dark scanned sets into visibility while the sub-1
+// scale keeps the highlights below the markers'. The armed view (painting that
+// surface) is a plain near-full multiply — the fill is the subject then.
+inline const Vec4 kTexFillLift{0.75f, 0.75f, 0.80f, 1.0f}; // under-rect
+inline const Vec4 kTexFillDim{0.62f, 0.62f, 0.68f, 0.85f}; // albedo over it
+inline const Vec4 kTexFillLit{0.92f, 0.92f, 0.95f, 1.0f};
+
 } // namespace dungeon::game

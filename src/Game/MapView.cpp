@@ -15,6 +15,7 @@
 #include "Game/MapView.h"
 
 #include "Core/Loc.h"
+#include "Game/DungeonMeshBuilder.h" // SurfaceVariantFor (the cell fill's hash)
 #include "Game/Entity.h"
 #include "Game/MapColors.h"
 #include "Game/MapEditor.h"
@@ -559,15 +560,85 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 		return -1;
 	};
 
-	// 1) Floors and walls, tinted by surface variant (Player: revealed only).
+	// 1) Cell fill. Player mode keeps the stylized flat inks; Editor mode fills
+	// each floor cell with its RESOLVED floor texture (editor override or the
+	// mesh builder's position hash — the same albedo the 3D scene draws),
+	// dimmed so the markers stay primary. While a Walls/Floors/Ceilings brush
+	// is armed the fill flips to THAT surface at near-full brightness —
+	// ceilings become visible exactly when they are the subject, and wall
+	// paint shows on the solid squares it borders. Cells group by variant so
+	// the batch flushes once per texture, not per cell; an unloaded texture (a
+	// browsed level on a foreign palette) falls back to the flat ink.
+	using SurfaceSel = DungeonWorld::SurfaceSel;
+	SurfaceSel fillSel = SurfaceSel::Floor;
+	bool fillArmed = false; // the armed brush IS the filled surface: brighten
+	if (m_mode == Mode::Editor && m_editor) {
+		switch (m_editor->ArmedCat()) {
+		case MapEditor::PaletteCat::Walls:    fillSel = SurfaceSel::Wall;    fillArmed = true; break;
+		case MapEditor::PaletteCat::Floors:   fillSel = SurfaceSel::Floor;   fillArmed = true; break;
+		case MapEditor::PaletteCat::Ceilings: fillSel = SurfaceSel::Ceiling; fillArmed = true; break;
+		default: break;
+		}
+	}
+	const std::vector<std::string>& fillPal =
+		fillSel == SurfaceSel::Wall    ? map.WallPalette()
+		: fillSel == SurfaceSel::Floor ? map.FloorPalette()
+									   : map.CeilingPalette();
+	// Each palette id's loaded albedo, resolved once (null = flat fallback).
+	// Empty outside Editor mode, which keeps the whole loop on the flat path.
+	std::vector<const gfx::Texture*> fillTex;
+	if (m_mode == Mode::Editor)
+		for (const std::string& id : fillPal)
+			fillTex.push_back(m_world.SurfaceAlbedoForId(fillSel, id));
+	const int fillCount = static_cast<int>(fillTex.size());
+	const u32 fillSalt = fillSel == SurfaceSel::Wall    ? 3u
+						 : fillSel == SurfaceSel::Floor ? 1u : 2u;
+	// The cell's resolved variant: override else hash — StampCell's exact pick,
+	// so the fill always matches the 3D scene.
+	auto fillVariant = [&](int x, int z) -> int {
+		if (fillCount == 0) return -1;
+		const int over = fillSel == SurfaceSel::Wall	? map.WallVariant(x, z)
+						 : fillSel == SurfaceSel::Floor ? map.FloorVariant(x, z)
+														: map.CeilingVariant(x, z);
+		if (over >= 0) return std::min(over, fillCount - 1);
+		return static_cast<int>(
+			SurfaceVariantFor(x, z, fillSalt, static_cast<u32>(fillCount)));
+	};
+	const Vec4 fillTint = fillArmed ? kTexFillLit : kTexFillDim;
+	std::vector<std::vector<gfx::Rect>> fillCells(static_cast<size_t>(fillCount));
 	for (int z = 0; z < map.Height(); ++z)
 		for (int x = 0; x < map.Width(); ++x) {
 			if (!CellVisible(x, z)) continue;
-			const Vec4 col = map.At(x, z) == Cell::Wall
-								 ? VariantTint(kWall, wallCellVariant(x, z))
-								 : VariantTint(kFloor, map.FloorVariant(x, z));
+			const bool solid = map.At(x, z) == Cell::Wall;
+			int v = -1;
+			if (fillSel == SurfaceSel::Wall && solid) {
+				// Wall variants live on the floor cells they border; the first
+				// bordering floor cell's resolution paints this solid square.
+				const int n[4][2] = {{0, -1}, {0, 1}, {-1, 0}, {1, 0}};
+				for (const auto& d : n)
+					if (map.At(x + d[0], z + d[1]) == Cell::Floor) {
+						v = fillVariant(x + d[0], z + d[1]);
+						break;
+					}
+			} else if (fillSel != SurfaceSel::Wall && !solid) {
+				v = fillVariant(x, z);
+			}
+			if (v >= 0 && fillTex[static_cast<size_t>(v)]) {
+				// The dim view's curve: the texture draws at sub-1 alpha over
+				// this lift ink (see MapColors.h). Batch order is submission
+				// order, so the loop's rects all land under the grouped
+				// sprites below. The armed view draws opaque — no lift needed.
+				if (!fillArmed) batch.DrawRect(cellRect(x, z), kTexFillLift);
+				fillCells[static_cast<size_t>(v)].push_back(cellRect(x, z));
+				continue;
+			}
+			const Vec4 col = solid ? VariantTint(kWall, wallCellVariant(x, z))
+								   : VariantTint(kFloor, map.FloorVariant(x, z));
 			batch.DrawRect(cellRect(x, z), col);
 		}
+	for (size_t v = 0; v < fillCells.size(); ++v)
+		for (const gfx::Rect& r : fillCells[v])
+			batch.DrawSprite(r, {0, 0, 1, 1}, *fillTex[v], fillTint);
 
 	// 2) Start cell — an accent outline.
 	if (CellVisible(map.StartX(), map.StartZ()))

@@ -43,6 +43,13 @@ struct DungeonGeometry {
 // enough that a shadow cube touches only a handful of chunks.
 inline constexpr int kChunkCells = 4;
 
+// The stable per-cell texture-variant hash (identical every run). `salt`
+// separates a cell's three surfaces: 1 = floor, 2 = ceiling, 3 = wall. This is
+// the DEFAULT only — an editor override (DungeonMap variant grid >= 0, clamped
+// to count-1) wins over it. Exposed so the map overlay's textured cell fill
+// resolves the exact variant StampCell bakes.
+u32 SurfaceVariantFor(int x, int z, u32 salt, u32 count);
+
 // Which of a cell's horizontal blocks are OPENINGS and must be skipped: the
 // floor under a down-stair/pit (its below-grade shaft mesh replaces it), the
 // ceiling under a pit's lower half on the level below (its rising shaft mesh
