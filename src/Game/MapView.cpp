@@ -271,6 +271,27 @@ bool MapView::Update(const Input& input, const gfx::Rect& panel) {
 		m_hoverX = m_hoverZ = -1;
 	}
 
+	// Track the hovered chrome button (Render styles it via the shared
+	// ui::DrawButtonFace). Mirrors the click gating: hidden/unavailable
+	// buttons never read as hot.
+	m_hoverBtn = HoverBtn::None;
+	if (!LevelNeighbor(-1).empty() && LevelUpButton(panel).Contains(mx, my))
+		m_hoverBtn = HoverBtn::LevelUp;
+	else if (!LevelNeighbor(+1).empty() && LevelDownButton(panel).Contains(mx, my))
+		m_hoverBtn = HoverBtn::LevelDown;
+	else if (editor && m_world.CanUndo() && UndoButton(panel).Contains(mx, my))
+		m_hoverBtn = HoverBtn::Undo;
+	else if (editor && m_world.CanRedo() && RedoButton(panel).Contains(mx, my))
+		m_hoverBtn = HoverBtn::Redo;
+	else if (editor && SaveButton(panel).Contains(mx, my))
+		m_hoverBtn = HoverBtn::Save;
+	else if (editor && SaveSourceButton(panel).Contains(mx, my))
+		m_hoverBtn = HoverBtn::SaveSource;
+	else if (editor && LeftCollapseButton(panel).Contains(mx, my))
+		m_hoverBtn = HoverBtn::CollapseL;
+	else if (RightCollapseButton(panel).Contains(mx, my))
+		m_hoverBtn = HoverBtn::CollapseR;
+
 	// Wheel zooms about the cursor: keep the map point under the pointer fixed.
 	if (overGrid && input.WheelDelta() != 0.0f && map.Width() > 0) {
 		const Transform t0 = ComputeTransform(panel);
@@ -784,16 +805,13 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 	const float dpad = DockPad(panel);
 	const float btnH = DockBtnH(panel);
 
-	// A dock = its panel background + a collapse button showing flip arrows.
+	// A dock = its panel background + a collapse button showing flip arrows
+	// (drawn through the shared button face so it hovers like every button).
 	auto drawDockFrame = [&](const gfx::Rect& dock, const gfx::Rect& btn,
-							 const char* arrow) {
+							 const char* arrow, HoverBtn id) {
 		batch.DrawRect(dock, theme.panel);
 		ui::DrawBorder(batch, dock, theme.panelBorder);
-		batch.DrawRect(btn, theme.control);
-		ui::DrawBorder(batch, btn, theme.panelBorder);
-		m_font.Draw(batch, arrow,
-					btn.x + (btn.w - m_font.MeasureWidth(arrow)) * 0.5f,
-					btn.y + (btn.h - m_font.Height()) * 0.5f, theme.text);
+		ui::DrawButtonFace(batch, m_font, btn, arrow, theme, m_hoverBtn == id);
 	};
 
 	// --- Left palette dock (Editor only; collapsed -> only the ">>" button). The
@@ -802,7 +820,8 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 	if (m_mode == Mode::Editor) {
 		const gfx::Rect ld = LeftDockRect(panel);
 		drawDockFrame(ld, LeftCollapseButton(panel),
-					  m_settings.mapPaletteCollapsed ? ">>" : "<<");
+					  m_settings.mapPaletteCollapsed ? ">>" : "<<",
+					  HoverBtn::CollapseL);
 		if (!m_settings.mapPaletteCollapsed) {
 			m_font.Draw(batch, loc::Tr("map.brushes"), ld.x + dpad,
 						ld.y + dpad + btnH + dpad, theme.textDim);
@@ -815,7 +834,7 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 	{
 		const gfx::Rect rd = RightDockRect(panel);
 		drawDockFrame(rd, RightCollapseButton(panel),
-					  LegendCollapsed() ? "<<" : ">>");
+					  LegendCollapsed() ? "<<" : ">>", HoverBtn::CollapseR);
 		if (!LegendCollapsed()) {
 			m_font.Draw(batch, loc::Tr("map.key"), rd.x + dpad,
 						rd.y + dpad + btnH + dpad, theme.textDim);
@@ -868,49 +887,39 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 	// arrow (nothing above the top level / below the bottom); the stem draws in
 	// the accent color while browsing, as a "not where the party is" flag.
 	{
-		const std::string above = LevelNeighbor(-1), below = LevelNeighbor(+1);
-		auto levelBtn = [&](const gfx::Rect& r, const char* glyph) {
-			batch.DrawRect(r, theme.control);
-			ui::DrawBorder(batch, r, theme.panelBorder);
-			m_font.Draw(batch, glyph,
-						r.x + (r.w - m_font.MeasureWidth(glyph)) * 0.5f,
-						r.y + (r.h - m_font.Height()) * 0.5f, theme.text);
+		// Every chrome button draws through the shared ui::DrawButtonFace, so
+		// hover reads exactly like the dialog buttons (m_hoverBtn is tracked by
+		// Update in window pixels — identity, not coordinates, crosses the
+		// Update/Render pixel-space split).
+		auto face = [&](const gfx::Rect& r, const std::string& label,
+						HoverBtn id, bool enabled = true) {
+			ui::DrawButtonFace(batch, m_font, r, label, theme,
+							   enabled && m_hoverBtn == id, /*held*/ false,
+							   enabled);
 		};
+		const std::string above = LevelNeighbor(-1), below = LevelNeighbor(+1);
 		const gfx::Rect upR = LevelUpButton(panel), dnR = LevelDownButton(panel);
-		if (!above.empty()) levelBtn(upR, "^");
-		if (!below.empty()) levelBtn(dnR, "v");
+		if (!above.empty()) face(upR, "^", HoverBtn::LevelUp);
+		if (!below.empty()) face(dnR, "v", HoverBtn::LevelDown);
 		m_font.Draw(batch, ViewedLevel(), dnR.x + dnR.w + dpad * 2,
 					upR.y + (upR.h - m_font.Height()) * 0.5f,
 					m_browse ? theme.accent : theme.text);
 
 		// Editor save buttons, top-right of the grid (Update hit-tests the same
 		// rects): Save = write every edited level; To source = also copy the
-		// project into the repo tree.
+		// project into the repo tree. Undo/redo draw only while their stacks
+		// have steps (hit-testing matches, so a hidden button never eats a
+		// click); while a restore is latched they draw DISABLED for the frame
+		// it executes on, so the click visibly takes even if it hitches.
 		if (m_mode == Mode::Editor) {
-			auto textBtn = [&](const gfx::Rect& r, const std::string& label) {
-				batch.DrawRect(r, theme.control);
-				ui::DrawBorder(batch, r, theme.panelBorder);
-				m_font.Draw(batch, label,
-							r.x + (r.w - m_font.MeasureWidth(label)) * 0.5f,
-							r.y + (r.h - m_font.Height()) * 0.5f, theme.text);
-			};
-			textBtn(SaveButton(panel), loc::Tr("map.btn.save"));
-			textBtn(SaveSourceButton(panel), loc::Tr("map.btn.source"));
-			// Undo/redo, drawn only while their stacks have steps (hit-testing
-			// matches, so a hidden button never eats a click). While a restore
-			// is latched, both draw DISABLED for the frame it executes on, so
-			// the click visibly takes even if the restore hitches.
-			auto historyBtn = [&](const gfx::Rect& r, const char* glyph) {
-				const bool busy = m_pendingHistory != 0;
-				batch.DrawRect(r, busy ? theme.panel : theme.control);
-				ui::DrawBorder(batch, r, theme.panelBorder);
-				m_font.Draw(batch, glyph,
-							r.x + (r.w - m_font.MeasureWidth(glyph)) * 0.5f,
-							r.y + (r.h - m_font.Height()) * 0.5f,
-							busy ? theme.textDim : theme.text);
-			};
-			if (m_world.CanUndo()) historyBtn(UndoButton(panel), "<");
-			if (m_world.CanRedo()) historyBtn(RedoButton(panel), ">");
+			face(SaveButton(panel), loc::Tr("map.btn.save"), HoverBtn::Save);
+			face(SaveSourceButton(panel), loc::Tr("map.btn.source"),
+				 HoverBtn::SaveSource);
+			const bool busy = m_pendingHistory != 0;
+			if (m_world.CanUndo())
+				face(UndoButton(panel), "<", HoverBtn::Undo, !busy);
+			if (m_world.CanRedo())
+				face(RedoButton(panel), ">", HoverBtn::Redo, !busy);
 		}
 	}
 

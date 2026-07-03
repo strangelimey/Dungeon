@@ -220,6 +220,14 @@ private:
 	// indices are resolution-independent, so this is valid across the window-pixel
 	// (Update) / device-pixel (Render) split.
 	int m_hoverX = -1, m_hoverZ = -1;
+	// Which chrome button the mouse is over, tracked the same way (Update
+	// hit-tests in window pixels; Render styles the matching device-pixel rect
+	// by IDENTITY, since the two spaces disagree numerically). Drives the shared
+	// ui::DrawButtonFace hover styling on the hand-drawn buttons.
+	enum class HoverBtn {
+		None, LevelUp, LevelDown, Undo, Redo, Save, SaveSource, CollapseL, CollapseR
+	};
+	HoverBtn m_hoverBtn = HoverBtn::None;
 
 	// Read-only snapshot of the browsed level (see the level-browsing section
 	// above); null = the viewport shows the active level's live state.
