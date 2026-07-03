@@ -8,6 +8,11 @@
 // until the GPU copy finishes (load-time only — never construct one
 // mid-frame). Always RGBA8; for normal+height maps the alpha channel carries
 // the parallax height field.
+//
+// The destructor returns the SRV slot to the device's free list
+// (GraphicsDevice::FreeSrv), so texture churn — font atlas rebakes, level
+// transitions, quality swaps — recycles the shader-visible heap instead of
+// exhausting it. The GraphicsDevice must therefore outlive every Texture.
 // ============================================================================
 #pragma once
 
@@ -25,6 +30,12 @@ public:
 	// (albedo) maps; leave it false for linear data (normal, height, ORM).
 	Texture(GraphicsDevice& device, const assets::ImageData& image, bool srgb = false);
 	Texture(GraphicsDevice& device, const assets::MipChain& mips, bool srgb = false);
+	~Texture(); // returns the SRV slot to the device's free list
+
+	// Non-copyable/movable: the destructor frees the SRV slot, and every user
+	// holds Textures behind unique_ptr anyway.
+	Texture(const Texture&) = delete;
+	Texture& operator=(const Texture&) = delete;
 
 	// A render-target-backed texture: an RGBA8 ALLOW_RENDER_TARGET surface born in
 	// SRV state, with a transparent (0,0,0,0) clear. Render into it via Rtv() (then
@@ -44,6 +55,7 @@ private:
 	Texture() = default; // for RenderTarget()
 	void Upload(GraphicsDevice& device, const assets::MipChain& chain, bool srgb);
 
+	GraphicsDevice* m_device = nullptr; // for FreeSrv in the destructor
 	ComPtr<ID3D12Resource> m_resource;
 	SrvHandle m_srv;
 	ComPtr<ID3D12DescriptorHeap> m_rtvHeap; // only set for RenderTarget() textures

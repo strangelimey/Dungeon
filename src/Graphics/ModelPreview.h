@@ -37,6 +37,7 @@ struct PreviewSubmesh {
 class ModelPreview {
 public:
 	ModelPreview(GraphicsDevice& device, u32 size = 512);
+	~ModelPreview() { m_device.FreeSrv(m_srv.index); }
 
 	// Renders the submeshes into the offscreen target, uniformly `scale`d and spun
 	// by `orbit` radians about +Y (all share one world transform). `aspect`

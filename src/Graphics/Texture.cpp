@@ -67,6 +67,10 @@ Texture::Texture(GraphicsDevice& device, const assets::MipChain& chain, bool srg
 	Upload(device, chain, srgb);
 }
 
+Texture::~Texture() {
+	if (m_device) m_device->FreeSrv(m_srv.index);
+}
+
 std::unique_ptr<Texture> Texture::RenderTarget(GraphicsDevice& device, u32 size) {
 	auto t = std::unique_ptr<Texture>(new Texture());
 	t->m_width = t->m_height = size;
@@ -95,6 +99,12 @@ std::unique_ptr<Texture> Texture::RenderTarget(GraphicsDevice& device, u32 size)
 	d->CreateRenderTargetView(t->m_resource.Get(), nullptr,
 							  t->m_rtvHeap->GetCPUDescriptorHandleForHeapStart());
 
+	// AllocateSrv may hand back a recycled slot whose old descriptor is still
+	// referenced by in-flight frames; drain the GPU before overwriting it (the
+	// Upload path gets this for free from ExecuteImmediate). RenderTarget
+	// creation is rare (editor open / asset dialog), so the stall is fine.
+	device.WaitIdle();
+	t->m_device = &device;
 	t->m_srv = device.AllocateSrv();
 	d->CreateShaderResourceView(t->m_resource.Get(), nullptr, t->m_srv.cpu);
 	return t;
@@ -176,6 +186,9 @@ void Texture::Upload(GraphicsDevice& device, const assets::MipChain& chain, bool
 		list->ResourceBarrier(1, &barrier);
 	});
 
+	// Safe to overwrite a recycled slot's descriptor here: ExecuteImmediate
+	// above blocked until the GPU went idle.
+	m_device = &device;
 	m_srv = device.AllocateSrv();
 	D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc{};
 	srvDesc.Format = format;

@@ -29,10 +29,15 @@
 
 #include <functional>
 #include <string>
+#include <vector>
 
 namespace dungeon::gfx {
 
 inline constexpr u32 kFrameCount = 3;
+// Shader-visible CBV/SRV heap size. Slots recycle through a free list (see
+// AllocateSrv/FreeSrv), so this bounds the LIVE texture count, not the total
+// ever created.
+inline constexpr u32 kSrvHeapCapacity = 1024;
 inline constexpr DXGI_FORMAT kBackBufferFormat = DXGI_FORMAT_R8G8B8A8_UNORM;
 inline constexpr DXGI_FORMAT kDepthFormat = DXGI_FORMAT_D32_FLOAT;
 
@@ -102,9 +107,16 @@ public:
 
 	void WaitIdle();
 
-	// Allocates a slot in the shader-visible CBV/SRV heap (never freed; the
-	// game's texture count is small and bounded).
+	// Allocates a slot in the shader-visible CBV/SRV heap, reusing freed slots
+	// first. gfx::Texture returns its slot on destruction (FreeSrv), so paths
+	// that churn textures — font atlas rebakes, level transitions, quality
+	// swaps, turbidity rebuilds — recycle slots instead of leaking the heap.
 	SrvHandle AllocateSrv();
+	// Returns a slot to the free list. The descriptor stays in place until a
+	// later AllocateSrv reuses the slot; whoever overwrites it must ensure the
+	// GPU no longer references it (Texture::Upload drains via ExecuteImmediate
+	// before its descriptor write, Texture::RenderTarget calls WaitIdle).
+	void FreeSrv(u32 index);
 	ID3D12DescriptorHeap* SrvHeap() const { return m_srvHeap.Get(); }
 
 	// Records `record` into a one-shot command list and blocks until the GPU
@@ -136,7 +148,8 @@ private:
 	ComPtr<ID3D12DescriptorHeap> m_srvHeap;
 	u32 m_rtvSize = 0;
 	u32 m_srvSize = 0;
-	u32 m_srvNext = 0;
+	u32 m_srvNext = 0;             // high-water mark; slots below it may be free
+	std::vector<u32> m_srvFree;    // recycled slots, reused LIFO by AllocateSrv
 
 	ComPtr<ID3D12Resource> m_backBuffers[kFrameCount];
 	ComPtr<ID3D12Resource> m_depthBuffer;

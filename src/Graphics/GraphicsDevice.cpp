@@ -116,7 +116,7 @@ GraphicsDevice::GraphicsDevice(HWND__* hwnd, u32 width, u32 height,
 
 	D3D12_DESCRIPTOR_HEAP_DESC srvDesc{};
 	srvDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
-	srvDesc.NumDescriptors = 1024;
+	srvDesc.NumDescriptors = kSrvHeapCapacity;
 	srvDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
 	DN_HR(m_device->CreateDescriptorHeap(&srvDesc, IID_PPV_ARGS(&m_srvHeap)));
 	m_srvSize = m_device->GetDescriptorHandleIncrementSize(
@@ -381,14 +381,23 @@ void GraphicsDevice::WaitIdle() {
 }
 
 SrvHandle GraphicsDevice::AllocateSrv() {
-	DN_ASSERT(m_srvNext < 1024, "SRV heap exhausted");
 	SrvHandle handle;
-	handle.index = m_srvNext++;
+	if (!m_srvFree.empty()) {
+		handle.index = m_srvFree.back();
+		m_srvFree.pop_back();
+	} else {
+		DN_ASSERT(m_srvNext < kSrvHeapCapacity, "SRV heap exhausted");
+		handle.index = m_srvNext++;
+	}
 	handle.cpu = m_srvHeap->GetCPUDescriptorHandleForHeapStart();
 	handle.cpu.ptr += static_cast<size_t>(handle.index) * m_srvSize;
 	handle.gpu = m_srvHeap->GetGPUDescriptorHandleForHeapStart();
 	handle.gpu.ptr += static_cast<u64>(handle.index) * m_srvSize;
 	return handle;
+}
+
+void GraphicsDevice::FreeSrv(u32 index) {
+	m_srvFree.push_back(index);
 }
 
 void GraphicsDevice::ExecuteImmediate(
