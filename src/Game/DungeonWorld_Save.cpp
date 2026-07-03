@@ -53,6 +53,10 @@ void DungeonWorld::ResetForNewGame() {
 	m_items.clear();
 	LoadItems();
 	for (Button& b : m_buttons) b.activated = false; // un-press for a fresh run
+	for (Door& d : m_doors) { // back to the authored state, no ghost slide
+		d.open = d.initialOpen;
+		d.openT = d.open ? 1.0f : 0.0f;
+	}
 	std::fill(m_seen.begin(), m_seen.end(), static_cast<u8>(0));
 	MarkSeen(m_party.GridX(), m_party.GridZ());
 	SetTorchPalette(0);
@@ -130,6 +134,16 @@ SaveData::LevelState DungeonWorld::SnapshotActive() const {
 			e.kind = EntityKind::Button;
 			e.id = b.id;
 			e.activated = true;
+			ls.entities.push_back(std::move(e));
+		}
+	// Doors: a diff once the open state differs from the authored record
+	// (`activated` carries "open" — the same togglable-state slot buttons use).
+	for (const Door& d : m_doors)
+		if (d.open != d.initialOpen) {
+			SaveData::EntityState e;
+			e.kind = EntityKind::Door;
+			e.id = d.id;
+			e.activated = d.open;
 			ls.entities.push_back(std::move(e));
 		}
 	return ls;
@@ -234,6 +248,14 @@ void DungeonWorld::ApplyActiveSnapshot() {
 			for (Button& b : m_buttons)
 				if (b.id == e.id) {
 					b.activated = e.activated;
+					break;
+				}
+			break;
+		case EntityKind::Door:
+			for (Door& d : m_doors)
+				if (d.id == e.id) {
+					d.open = e.activated;
+					d.openT = d.open ? 1.0f : 0.0f; // snap, no ghost slide
 					break;
 				}
 			break;

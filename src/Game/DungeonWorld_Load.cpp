@@ -18,6 +18,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <cstdlib>
 #include <filesystem>
 #include <format>
 #include <queue>
@@ -56,6 +57,23 @@ static std::vector<std::string> SplitTokens(const std::string& s) {
 		if (i > start) out.emplace_back(s.substr(start, i - start));
 	}
 	return out;
+}
+
+// Parses a catalog "color" field — "r,g,b[,a]" floats 0..1 — into `out`.
+// Malformed values leave `out` untouched and return false (the field is then
+// ignored, like an absent one).
+static bool ParseColorField(const std::string& s, Vec4& out) {
+	const std::vector<std::string> t = SplitTokens(s);
+	if (t.size() < 3) return false;
+	Vec4 c{0, 0, 0, 1};
+	float* dst[4] = {&c.x, &c.y, &c.z, &c.w};
+	for (size_t i = 0; i < t.size() && i < 4; ++i) {
+		char* end = nullptr;
+		*dst[i] = std::strtof(t[i].c_str(), &end);
+		if (end == t[i].c_str()) return false;
+	}
+	out = c;
+	return true;
 }
 
 // monsters.cat `archetype` token -> the behaviour strategy enum. Unknown tokens
@@ -180,24 +198,26 @@ void DungeonWorld::AppendLoadTasks(LoadQueue& queue) {
 	queue.Add(loc::Tr("load.decorations"), [this] {
 		LoadDecorations();
 		LoadStairs();
+		LoadDoors(); // after decorations: shares the prop texture/model caches
 	});
 	queue.Add(loc::Tr("load.fires"), [this] {
 		// Resolve the sconce/brazier model + texture through the fixtures catalog
 		// (the ids the 'T'/'F' glyphs map to); fall back to the old names.
 		auto fixtureAssets = [this](const std::string& id, const char* fallback,
 									std::unique_ptr<gfx::Mesh>& mesh, Vec4& color,
-									const PropTextures*& tex) {
+									const PropTextures*& tex,
+									assets::ModelData& modelOut) {
 			const CatalogEntry* def = m_project.fixtures.Find(id);
 			const auto [model, set] = ModelAndTexture(def, fallback);
-			auto data = LoadModelOrDie(model + ".gltf");
-			mesh = std::make_unique<gfx::Mesh>(m_device, data.meshes[0]);
-			color = data.materials[0].baseColorFactor;
+			modelOut = LoadModelOrDie(model + ".gltf"); // kept: map-icon bounds
+			mesh = std::make_unique<gfx::Mesh>(m_device, modelOut.meshes[0]);
+			color = modelOut.materials[0].baseColorFactor;
 			tex = LoadPropTextures(set);
 		};
 		fixtureAssets(m_project.defaultSconce, "sconce", m_sconceMesh, m_sconceColor,
-					  m_sconceTex);   // worn-medieval iron
+					  m_sconceTex, m_sconceModel);   // worn-medieval iron
 		fixtureAssets(m_project.defaultBrazier, "brazier", m_brazierMesh,
-					  m_brazierColor, m_brazierTex); // bronze
+					  m_brazierColor, m_brazierTex, m_brazierModel); // bronze
 		m_particleBatch = std::make_unique<gfx::ParticleBatch>(m_device);
 		BuildFires();
 	});
@@ -283,8 +303,11 @@ DungeonWorld::SurfaceChunk DungeonWorld::MakeSurfaceChunk(GeometryChunk& gc) {
 }
 
 void DungeonWorld::BuildDungeonMeshes() {
-	DungeonGeometry geo =
-		BuildDungeonGeometry(m_map, m_wallBlocks, m_floorBlocks, m_ceilingBlocks);
+	DungeonGeometry geo = BuildDungeonGeometry(
+		m_map, m_wallBlocks, m_floorBlocks, m_ceilingBlocks,
+		[this](int x, int z) {
+			return CellHoles{FloorHoleAt(x, z), CeilingHoleAt(x, z)};
+		});
 
 	auto upload = [&](Surface& surface, std::vector<GeometryChunk>& chunks) {
 		surface.chunks.clear();
@@ -293,6 +316,7 @@ void DungeonWorld::BuildDungeonMeshes() {
 	upload(m_walls, geo.walls);
 	upload(m_floors, geo.floors);
 	upload(m_ceilings, geo.ceilings);
+	m_geometryDirty = false; // any full bake pays the deferred-undo debt
 }
 
 // Loads each monster model once (shared per kind) and creates one animator
@@ -310,6 +334,9 @@ DungeonWorld::MonsterKind& DungeonWorld::MonsterKindFor(const std::string& type)
 		assets->name = type; // catalog id — drives the monster.<id> loc key
 		assets->mesh = std::make_unique<gfx::Mesh>(m_device, assets->model.meshes[0]);
 		assets->tex = LoadPropTextures(tex); // <tex>_<res> PBR set, if present
+		// Map head-shot icon RT; a fresh kind re-arms the one-shot bake pass.
+		assets->iconTarget = gfx::Texture::RenderTarget(m_device, kIconSize);
+		m_monsterIconsBaked = false;
 		// Combat stats (defaults keep an undescribed monster fightable).
 		if (def) {
 			assets->maxHp = def->GetFloat("hp", 12.0f);
@@ -499,7 +526,7 @@ std::vector<gfx::PreviewSubmesh> DungeonWorld::DecorationPreviewSubs(int index) 
 	} else if (d.kind->mesh) {
 		gfx::MaterialParams mat;
 		mat.doubleSided = !d.kind->authored;
-		ApplyPropMaterial(mat, d.kind->tex, d.kind->color, 0.85f);
+		ApplyPropMaterial(mat, *d.kind, 0.85f);
 		mat.alphaCutoff = d.kind->alphaCutoff;
 		subs.push_back({d.kind->mesh.get(), mat});
 	}
@@ -627,8 +654,10 @@ DungeonWorld::ItemKind& DungeonWorld::ItemKindFor(const std::string& type) {
 		// Authored model (catalog `model`): the item draws as this 3D model on the
 		// floor and its baked render becomes the icon/cursor. null = the tablet+tint
 		// placeholder. Items ship as embedded-texture multi-material .glb.
-		if (const std::string modelName = CatalogGet(def, "model", ""); !modelName.empty())
+		if (const std::string modelName = CatalogGet(def, "model", ""); !modelName.empty()) {
 			kind->model = BuildMultiMaterialModel(m_device, LoadModelOrDie(modelName + ".glb"));
+			BakeCatalogMaterial(*kind->model, def); // dialog material overrides
+		}
 		// Every item draws as the shared carved-stone tablet (loaded once) — runes
 		// carve their element's set in; other categories ride the flat tint above.
 		if (!m_runeMesh) {
@@ -693,8 +722,18 @@ void DungeonWorld::LoadButtons() {
 		b.z = spawn.z;
 		b.facing = spawn.facing;
 		if (const std::string* t = spawn.Param("target")) b.target = *t;
+		// The lever mesh, when the catalog knows the type (a legacy record with
+		// an unknown type still works — it just has no 3D presence).
+		if (m_project.buttons.Contains(spawn.type))
+			b.kind = &DecorationKindFor(spawn.type, m_project.buttons);
 		m_buttons.push_back(std::move(b));
 	}
+}
+
+void DungeonWorld::LoadDoors() {
+	for (const Entity& spawn : m_entities.All())
+		if (spawn.kind == EntityKind::Door) SpawnDoor(spawn);
+	if (!m_doors.empty()) log::Info("Placed {} doors", m_doors.size());
 }
 
 // True if (x,z) is the party cell or orthogonally adjacent — arm's reach for
@@ -848,6 +887,36 @@ void DungeonWorld::ApplyPropMaterial(gfx::MaterialParams& m,
 			 fallbackColor, fallbackRoughness);
 }
 
+void DungeonWorld::ApplyPropMaterial(gfx::MaterialParams& m,
+									 const DecorationKind& kind,
+									 float fallbackRoughness) {
+	ApplyPropMaterial(m, kind.tex, kind.color, fallbackRoughness);
+	if (kind.metallic >= 0.0f) m.metallic = kind.metallic;
+	if (kind.roughness >= 0.0f) m.roughness = kind.roughness;
+	if (kind.heightScale >= 0.0f && m.albedo) m.heightScale = kind.heightScale;
+	if (kind.hasTint) m.baseColor = kind.tint;
+}
+
+// Bakes a catalog entry's material overrides (metallic=/roughness=/color=, the
+// asset dialog's sliders) into an authored model's per-submesh materials. The
+// values REPLACE each submesh's factors — with the model's own maps the shader
+// multiplies them per-texel, so they scale the authored material. height_scale
+// does not apply here (embedded glTF textures carry no height map).
+void DungeonWorld::BakeCatalogMaterial(MultiMaterialModel& model,
+									   const CatalogEntry* def) {
+	if (!def) return;
+	const float metallic = def->GetFloat("metallic", -1.0f);
+	const float roughness = def->GetFloat("roughness", -1.0f);
+	Vec4 tint;
+	const bool hasTint = ParseColorField(CatalogGet(def, "color", ""), tint);
+	for (auto& sub : model.subs) {
+		if (metallic >= 0.0f) sub.material.metallic = metallic;
+		if (roughness >= 0.0f) sub.material.roughness = roughness;
+		if (hasTint) sub.material.baseColor = tint;
+	}
+}
+
+
 // Loads each decoration model once (shared per type, like monsters) and bakes
 // one placed instance per .map "decoration" record. Authored facing +Z, so a
 // record's facing rotates the prop the same way a monster's does. Everything
@@ -928,12 +997,26 @@ DungeonWorld::DecorationKind& DungeonWorld::DecorationKindFor(const std::string&
 		auto kind = std::make_unique<DecorationKind>();
 		kind->id = type; // the record type, for the .map writer
 		kind->authored = CatalogBool(def, "authored", true);
+		kind->facingArrow = CatalogBool(def, "facing_arrow", true);
+		// Catalog material overrides (the asset dialog's sliders): absent = -1 /
+		// no tint = the resolved material stays untouched.
+		if (def) {
+			kind->metallic = def->GetFloat("metallic", -1.0f);
+			kind->roughness = def->GetFloat("roughness", -1.0f);
+			kind->heightScale = def->GetFloat("height_scale", -1.0f);
+			kind->hasTint = ParseColorField(CatalogGet(def, "color", ""), kind->tint);
+		}
+		// Every kind bakes a whole-model map icon; a fresh kind re-arms the
+		// one-shot bake pass (UpdateMapIcons).
+		kind->iconTarget = gfx::Texture::RenderTarget(m_device, kIconSize);
+		m_decorationIconsBaked = false;
 		// Authored multi-material models (bought weapon/prop packs) render their
 		// own glTF textures per material from a single embedded-texture .glb,
 		// bypassing the single-mesh / one-bound-set path below.
 		if (CatalogBool(def, "multimaterial", false)) {
 			kind->model = LoadModelOrDie(model + ".glb");
 			kind->multi = BuildMultiMaterialModel(m_device, kind->model);
+			BakeCatalogMaterial(*kind->multi, def); // overrides baked per submesh
 			kind->solidDefault = CatalogBool(def, "solid", true);
 			it = m_decorationKinds.emplace(type, std::move(kind)).first;
 			return *it->second;
@@ -993,22 +1076,24 @@ void DungeonWorld::LoadDecorations() {
 // so the party can step onto them; the transition link itself lives in
 // DungeonMap::Stairs() and is consumed in the party step callback.
 void DungeonWorld::LoadStairs() {
-	for (const StairLink& s : m_map.Stairs()) {
-		DecorationKind& kind = DecorationKindFor(s.type, m_project.stairs);
-		Decoration deco;
-		deco.kind = &kind;
-		deco.x = s.x;
-		deco.z = s.z;
-		deco.facing = s.facing;
-		deco.stair = true; // written as a stairs record, not a decoration
-		const Vec3 pos = m_map.CellCenter(s.x, s.z);
-		XMStoreFloat4x4(&deco.world, XMMatrixRotationY(DirYaw(s.facing)) *
-										 XMMatrixTranslation(pos.x, 0, pos.z));
-		deco.solid = false; // the party walks onto a stair to use it
-		m_decorations.push_back(std::move(deco));
-	}
+	for (const StairLink& s : m_map.Stairs()) PlaceStairProp(s);
 	if (!m_map.Stairs().empty())
 		log::Info("Placed {} stairs", m_map.Stairs().size());
+}
+
+void DungeonWorld::PlaceStairProp(const StairLink& s) {
+	DecorationKind& kind = DecorationKindFor(s.type, m_project.stairs);
+	Decoration deco;
+	deco.kind = &kind;
+	deco.x = s.x;
+	deco.z = s.z;
+	deco.facing = s.facing;
+	deco.stair = true; // written as a stairs record, not a decoration
+	const Vec3 pos = m_map.CellCenter(s.x, s.z);
+	XMStoreFloat4x4(&deco.world, XMMatrixRotationY(DirYaw(s.facing)) *
+									 XMMatrixTranslation(pos.x, 0, pos.z));
+	deco.solid = false; // the party walks onto a stair to use it
+	m_decorations.push_back(std::move(deco));
 }
 
 // Places one Fire per sconce ('T') and brazier ('F') cell. Sconces mount on

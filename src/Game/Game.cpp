@@ -79,8 +79,27 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	  m_modelPreview(device, 512),
 	  m_assetDialog(device, window),
 	  m_monsterDialog(device), m_entityInspector(device), m_fixtureInspector(device),
-	  m_propInspector(device), m_inspectPicker(device), m_previewParticles(device) {
+	  m_propInspector(device), m_doorInspector(device), m_buttonInspector(device),
+	  m_inspectPicker(device), m_previewParticles(device) {
 	m_mapView.SetEditor(&m_mapEditor); // the view drives the editor in Editor mode
+	// The editor's header save buttons: Save = write every edited level (what the
+	// savemap console command does); To source = also copy the project into the
+	// repo tree. Feedback goes through the world's message channel.
+	m_mapView.onSave = [this](bool toSource) {
+		if (!m_gameLoaded) return; // no world to save yet
+		const std::vector<std::string> saved = m_world.SaveAllLevels();
+		bool ok = !saved.empty();
+		if (ok && toSource) ok = SyncProjectToSource();
+		if (!m_world.onMessage) return;
+		if (!ok) {
+			m_world.onMessage(loc::Tr("map.save.failed"));
+			return;
+		}
+		std::string list;
+		for (const std::string& s : saved) list += (list.empty() ? "" : ", ") + s;
+		m_world.onMessage(
+			loc::Format(toSource ? "map.save.synced" : "map.save.done", list));
+	};
 	m_settings.Load();
 	ApplyLanguage(false); // strings must exist before any UI builds
 	m_audio.SetMasterVolume(m_settings.volume);
@@ -183,7 +202,9 @@ void Game::WireModuleCallbacks() {
 	};
 	m_ui.onTorchPalette = [this](int index) { m_world.SetTorchPalette(index); };
 	m_ui.onMoveAction = [this](MoveAction action) {
-		m_world.GetParty().Act(action);
+		// A pit fall swallows movement (the keyboard path gates in
+		// DungeonWorld::Update; this is the HUD arrow-button path).
+		if (!m_world.Falling()) m_world.GetParty().Act(action);
 	};
 	m_ui.onHandAttack = [this](size_t member, size_t hand) {
 		m_world.PartyAttack(member, hand);
@@ -292,6 +313,21 @@ void Game::WireModuleCallbacks() {
 			m_inspectTargets.push_back(InspectTarget{InspectTarget::Kind::Brazier});
 			labels.push_back(loc::Tr("map.key.brazier"));
 		}
+		{
+			bool open;
+			std::string key, name;
+			if (m_world.DoorSettings(cx, cz, open, key, name)) {
+				m_inspectTargets.push_back(InspectTarget{InspectTarget::Kind::Door});
+				labels.push_back(loc::Tr("map.key.door"));
+			}
+		}
+		{
+			std::string target;
+			if (m_world.ButtonSettings(cx, cz, target)) {
+				m_inspectTargets.push_back(InspectTarget{InspectTarget::Kind::Button});
+				labels.push_back(loc::Tr("map.key.button"));
+			}
+		}
 		for (const auto& [index, type] : m_world.DecorationsAt(cx, cz)) {
 			InspectTarget t{InspectTarget::Kind::Decoration};
 			t.handle = index;
@@ -356,6 +392,23 @@ void Game::WireModuleCallbacks() {
 		if (!m_world.SaveLevel()) log::Warn("fixture inspector: failed to save level");
 	};
 
+	// Door inspector: Open flips the live panel + the record's authored state;
+	// the key dropdown authors the key= param (locks the party's click).
+	m_doorInspector.onApply = [this](const DoorInspector::Config& c) {
+		m_world.SetDoorSettings(c.x, c.z, c.open, c.key, c.name);
+	};
+	m_doorInspector.onSave = [this] {
+		if (!m_world.SaveLevel()) log::Warn("door inspector: failed to save level");
+	};
+
+	// Button inspector: the Target dropdown wires the lever to a door name.
+	m_buttonInspector.onApply = [this](const ButtonInspector::Config& c) {
+		m_world.SetButtonSettings(c.x, c.z, c.target);
+	};
+	m_buttonInspector.onSave = [this] {
+		if (!m_world.SaveLevel()) log::Warn("button inspector: failed to save level");
+	};
+
 	// Item/decoration inspector: apply the facing edit to the right live object.
 	m_propInspector.onApply = [this](const PropInspector::Config& c) {
 		if (c.kind == PropInspector::Config::Kind::Decoration)
@@ -372,6 +425,8 @@ InstanceInspector* Game::ActiveInstanceInspector() {
 	if (m_entityInspector.IsOpen()) return &m_entityInspector;
 	if (m_fixtureInspector.IsOpen()) return &m_fixtureInspector;
 	if (m_propInspector.IsOpen()) return &m_propInspector;
+	if (m_doorInspector.IsOpen()) return &m_doorInspector;
+	if (m_buttonInspector.IsOpen()) return &m_buttonInspector;
 	return nullptr;
 }
 
@@ -434,6 +489,32 @@ void Game::OpenInspectorFor(const InspectTarget& t) {
 		OpenFixtureInspector(fc, /*walls*/ {}, m_world.BrazierPreview()); // no facing
 		break;
 	}
+	case InspectTarget::Kind::Door: {
+		DoorInspector::Config c;
+		c.x = cx;
+		c.z = cz;
+		if (!m_world.DoorSettings(cx, cz, c.open, c.key, c.name))
+			return; // gone since the picker listed it
+		// Selectable keys: items.cat entries with category=key.
+		std::vector<std::pair<std::string, std::string>> keys;
+		for (const CatalogEntry& e : m_project.items.Entries())
+			if (e.Get("category", "") == "key") keys.emplace_back(e.id, e.Display());
+		PreviewSpec pv;
+		pv.subs = m_world.DoorPreviewSubs(cx, cz);
+		m_doorInspector.Open(c, std::move(keys), std::move(pv));
+		break;
+	}
+	case InspectTarget::Kind::Button: {
+		ButtonInspector::Config c;
+		c.x = cx;
+		c.z = cz;
+		if (!m_world.ButtonSettings(cx, cz, c.target))
+			return; // gone since the picker listed it
+		PreviewSpec pv;
+		pv.subs = m_world.ButtonPreviewSubs(cx, cz);
+		m_buttonInspector.Open(c, m_world.DoorNames(), std::move(pv));
+		break;
+	}
 	case InspectTarget::Kind::Decoration: {
 		PropInspector::Config c;
 		c.kind = PropInspector::Config::Kind::Decoration;
@@ -442,6 +523,36 @@ void Game::OpenInspectorFor(const InspectTarget& t) {
 		c.facing = m_world.DecorationFacing(t.handle);
 		PreviewSpec pv;
 		pv.subs = m_world.DecorationPreviewSubs(t.handle);
+		// Delete removes exactly the inspected prop (undo-bracketed like a
+		// brush edit; the world is frozen while the modal is up, so the index
+		// handle stays valid).
+		m_propInspector.onDelete = [this, handle = t.handle] {
+			m_world.BeginUndoStep();
+			m_world.CommitUndoStep(m_world.RemoveDecorationByIndex(handle));
+			if (m_world.onMessage) m_world.onMessage(loc::Tr("map.erase.removed"));
+		};
+		// "Map arrow" beside the Facing dropdown: the TYPE's facing_arrow flag
+		// (a column/pot has no meaningful facing to point out). A toggle edits
+		// the live kind and the catalog entry immediately — a type-level edit,
+		// deliberately outside this instance's Save/Revert.
+		const std::string typeId = m_world.DecorationTypeByIndex(t.handle);
+		m_propInspector.facingExtra = InstanceInspector::FacingExtra{
+			loc::Tr("map.insp.arrow"), m_world.DecorationShowsFacing(typeId),
+			[this, typeId](bool show) {
+				m_world.SetDecorationFacingArrow(typeId, show);
+				CatalogEntry entry;
+				if (const CatalogEntry* e = m_project.decorations.Find(typeId))
+					entry = *e;
+				else
+					entry.id = typeId;
+				std::erase_if(entry.fields, [](const serialize::Field& f) {
+					return f.key == "facing_arrow";
+				});
+				if (!show) entry.Set("facing_arrow", "0"); // default 1 stays implicit
+				m_project.decorations.Add(std::move(entry)); // add-or-replace by id
+				if (!m_project.Save())
+					log::Warn("facing-arrow toggle: failed to save project catalogs");
+			}};
 		m_propInspector.Open(c, std::move(pv));
 		break;
 	}
@@ -458,6 +569,12 @@ void Game::OpenInspectorFor(const InspectTarget& t) {
 		pv.autoFit = true;
 		pv.spin = true;
 		m_previewSpin = 0.0f;
+		m_propInspector.onDelete = [this, handle = t.handle] {
+			m_world.BeginUndoStep();
+			m_world.CommitUndoStep(m_world.RemoveItemById(handle));
+			if (m_world.onMessage) m_world.onMessage(loc::Tr("map.erase.removed"));
+		};
+		m_propInspector.facingExtra.reset(); // items draw no map arrow anyway
 		m_propInspector.Open(c, std::move(pv));
 		break;
 	}
@@ -687,41 +804,32 @@ void Game::RegisterDevCommands() {
 						   BeginLevelTransition(stem, -1, -1, Direction::South);
 						   m_console.Print("loading " + stem + "...");
 					   });
-	m_console.Register("savemap", "write the active level's .map/.ent to the project",
+	m_console.Register("savemap", "write every edited level's .map/.ent to the project",
 					   [this](const std::vector<std::string>&) {
 						   if (!m_gameLoaded || (m_state != AppState::Playing &&
 												 m_state != AppState::Paused)) {
 							   m_console.Print("savemap only works in-game");
 							   return;
 						   }
-						   if (m_world.SaveLevel())
-							   m_console.Print("saved level: " + m_world.CurrentLevel());
-						   else
+						   // The active level plus every level whose stash holds
+						   // in-memory edits — remote map edits included.
+						   const std::vector<std::string> saved =
+							   m_world.SaveAllLevels();
+						   if (!saved.empty()) {
+							   std::string list;
+							   for (const std::string& s : saved)
+								   list += (list.empty() ? "" : ", ") + s;
+							   m_console.Print("saved levels: " + list);
+						   } else {
 							   m_console.Print("save failed (see log)");
+						   }
 					   });
 	m_console.Register("synctosource",
 					   "copy the active project (edits) into the repo source tree",
 					   [this](const std::vector<std::string>&) {
-						   const std::string& repo = paths::RepoAssetsDir();
-						   if (repo.empty()) {
-							   m_console.Print("no source path baked in");
-							   return;
-						   }
-						   namespace fs = std::filesystem;
-						   const fs::path src = m_project.folder; // the build-copy project
-						   const fs::path dst =
-							   fs::path(repo) / "projects" / src.filename();
-						   std::error_code ec;
-						   fs::create_directories(dst, ec);
-						   fs::copy(src, dst,
-									fs::copy_options::recursive |
-										fs::copy_options::overwrite_existing,
-									ec);
-						   if (ec)
-							   m_console.Print("sync failed: " + ec.message());
-						   else
-							   m_console.Print("synced " + src.filename().string() +
-											   " -> source");
+						   m_console.Print(SyncProjectToSource()
+											   ? "synced project -> source"
+											   : "sync failed (see log)");
 					   });
 	m_console.Register("preview", "show a model in the 3D preview (off to close)",
 					   [this](const std::vector<std::string>& args) {
@@ -860,6 +968,27 @@ void Game::RegisterDevCommands() {
 						   else
 							   m_console.Print(std::format("pack += {}", typeId));
 					   });
+	m_console.Register("give", "stow an items.cat item in a member's pack (dev)",
+					   [this](const std::vector<std::string>& args) {
+						   if (!Need(m_console, args, 1,
+									 "usage: give <item id> [member 0-3]"))
+							   return;
+						   const size_t m = args.size() > 1
+							   ? static_cast<size_t>(std::atoi(args[1].c_str())) : 0;
+						   if (m >= m_characters.size()) {
+							   m_console.Print("no such member");
+							   return;
+						   }
+						   if (!m_project.items.Contains(args[0])) {
+							   m_console.Print(std::format("no item '{}' in items.cat", args[0]));
+							   return;
+						   }
+						   if (!m_characters[m].inventory.Stow(args[0]))
+							   m_console.Print("pack full");
+						   else
+							   m_console.Print(std::format("{} pack += {}",
+														   m_characters[m].name, args[0]));
+					   });
 	m_console.Register("cast", "cast a spell by symbol sequence (dev): cast <member> <sym>...",
 					   [this](const std::vector<std::string>& args) {
 						   if (!Need(m_console, args, 2,
@@ -992,6 +1121,28 @@ bool Game::StartBakeStep() {
 	return m_bake.Start(cmd);
 }
 
+bool Game::SyncProjectToSource() {
+	const std::string& repo = paths::RepoAssetsDir();
+	if (repo.empty()) {
+		log::Warn("sync to source: no source path baked in");
+		return false;
+	}
+	namespace fs = std::filesystem;
+	const fs::path src = m_project.folder; // the build-copy project
+	const fs::path dst = fs::path(repo) / "projects" / src.filename();
+	std::error_code ec;
+	fs::create_directories(dst, ec);
+	fs::copy(src, dst,
+			 fs::copy_options::recursive | fs::copy_options::overwrite_existing,
+			 ec);
+	if (ec) {
+		log::Warn("sync to source failed: {}", ec.message());
+		return false;
+	}
+	log::Info("Synced project {} -> source", src.filename().string());
+	return true;
+}
+
 // The bake succeeded: append the new entry to the right project catalog and save
 // (so the type is usable — model kinds load lazily on first placement). Writes go
 // to the asset copy next to the exe, not the git source tree.
@@ -1008,6 +1159,19 @@ void Game::FinishBake() {
 			e.Set("texture", m_bakeReq.name);
 			e.Set("authored", "1");
 			e.Set("solid", "1");
+			// The dialog's material sliders, persisted only when the user moved
+			// them: metallic/roughness become the draw's factors (with an ORM map
+			// the shader scales the map by them), color tints the albedo, and
+			// height_scale overrides the bound set's parallax depth. Untouched
+			// sliders leave the imported model's own material authoritative.
+			const gfx::MaterialParams& m = m_bakeReq.material;
+			if (m_bakeReq.metallicSet) e.Set("metallic", std::format("{:.3f}", m.metallic));
+			if (m_bakeReq.roughnessSet) e.Set("roughness", std::format("{:.3f}", m.roughness));
+			if (m_bakeReq.heightSet)
+				e.Set("height_scale", std::format("{:.3f}", m.heightScale));
+			if (m_bakeReq.colorSet)
+				e.Set("color", std::format("{:.3f},{:.3f},{:.3f}", m.baseColor.x,
+										   m.baseColor.y, m.baseColor.z));
 		}
 		cat->Add(std::move(e));
 		m_project.Save();
@@ -1677,11 +1841,42 @@ void Game::Update(float dt) {
 		if (m_propInspector.Preview().spin) m_previewSpin += dt * 0.9f; // turntable
 		return;
 	}
+	// The per-instance door inspector too (open/closed + required key).
+	if (m_doorInspector.IsOpen()) {
+		m_doorInspector.Update(input, static_cast<float>(m_window.Width()),
+							   static_cast<float>(m_window.Height()));
+		return;
+	}
+	// And the button inspector (target-door wiring).
+	if (m_buttonInspector.IsOpen()) {
+		m_buttonInspector.Update(input, static_cast<float>(m_window.Width()),
+								 static_cast<float>(m_window.Height()));
+		return;
+	}
 
 	// Map overlay: a toggle that never pauses the world. While it is open the
 	// party still walks (keyboard) — the overlay only claims the mouse for
 	// panning/zooming/editing, and Esc/M closes it instead of pausing.
 	if (input.WasKeyPressed('M')) m_mapView.Toggle();
+
+	// Deferred editor-geometry rebake: undo/redo skips the expensive surface
+	// rebuild while the full-screen editor hides the scene. The debt comes due
+	// the moment the scene can show again (editor closed OR flipped to the
+	// player map, which draws over the live scene): latch one frame so the
+	// "rebuilding geometry" notice renders, then flush — the blocking rebake
+	// freezes on the notice frame.
+	const bool editorMapActive = m_mapView.IsOpen() &&
+								 m_mapView.CurrentMode() == MapView::Mode::Editor;
+	if (editorMapActive) {
+		m_geomNoticeLatched = false;
+	} else if (m_world.GeometryDirty()) {
+		if (m_geomNoticeLatched) {
+			m_world.FlushGeometry();
+			m_geomNoticeLatched = false;
+		} else {
+			m_geomNoticeLatched = true;
+		}
+	}
 	if (m_mapView.IsOpen()) {
 		// While laying a patrol route (grid clicks lay waypoints), keys finish/undo
 		// it — ahead of the overlay's own Esc-to-close.
@@ -1751,6 +1946,10 @@ void Game::Update(float dt) {
 				m_heldItem.reset();
 			} else if (auto picked = m_world.TryPickItem(mx, my, w, h)) {
 				m_heldItem = std::move(picked);
+			} else if (!m_world.ToggleDoorAhead()) {
+				// No tablet, no door ahead: try the button on the wall the
+				// party faces (a lever in the party's own cell).
+				m_world.PressButtonFacing();
 			}
 		}
 		// Right-mouse free-look: hold RMB and drag to swing the view. Begin on a
@@ -1883,8 +2082,16 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 			  m_state == AppState::CharacterSheet) &&
 			 !editorMap) {
 		m_world.UpdateItemIcons(list, m_spriteBatch); // 3D item icons (static + spin)
+		m_world.UpdateMapIcons(list, m_spriteBatch);  // map marker icons (one-shot)
 		m_world.RenderShadowMaps(list);
 		m_world.RenderScene(list);
+	} else if (editorMap) {
+		// The editor covers the scene, but its map overlay draws the baked
+		// marker icons — keep the bakes running (a kind placed from the palette
+		// bakes on the next frame; item icons also feed the map's item markers).
+		// The bakes rebind the back buffer themselves when they ran.
+		m_world.UpdateItemIcons(list, m_spriteBatch);
+		m_world.UpdateMapIcons(list, m_spriteBatch);
 	}
 
 	// 2D pass.
@@ -1907,6 +2114,19 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 				m_spriteBatch.DrawRect({0, 0, dw, dh}, {0, 0, 0, 0.45f});
 				m_mapView.Render(m_spriteBatch, m_settings.theme, MapPanel(dw, dh));
 			}
+		}
+		// The deferred-rebake notice (see Update): the frame the blocking
+		// FlushGeometry freezes on, so the pause reads as work, not a hang.
+		if (m_geomNoticeLatched) {
+			ui::Font& font = m_mapView.Font();
+			const std::string msg = loc::Tr("map.rebuilding");
+			const float w = font.MeasureWidth(msg);
+			const gfx::Rect back{(dw - w) * 0.5f - 14.0f,
+								 (dh - font.Height()) * 0.5f - 10.0f, w + 28.0f,
+								 font.Height() + 20.0f};
+			m_spriteBatch.DrawRect(back, {0.0f, 0.0f, 0.0f, 0.75f});
+			font.Draw(m_spriteBatch, msg, (dw - w) * 0.5f,
+					  (dh - font.Height()) * 0.5f, m_settings.theme.accent);
 		}
 		break;
 	}
@@ -1944,6 +2164,10 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 		m_fixtureInspector.Render(m_spriteBatch, m_settings.theme, dw, dh);
 	if (m_propInspector.IsOpen())
 		m_propInspector.Render(m_spriteBatch, m_settings.theme, dw, dh);
+	if (m_doorInspector.IsOpen())
+		m_doorInspector.Render(m_spriteBatch, m_settings.theme, dw, dh);
+	if (m_buttonInspector.IsOpen())
+		m_buttonInspector.Render(m_spriteBatch, m_settings.theme, dw, dh);
 	if (InstanceInspector* ii = ActiveInstanceInspector(); ii && ii->HasPreview())
 		m_spriteBatch.DrawSprite(ii->PreviewRect(dw, dh), {0, 0, 1, 1}, m_modelPreview.Srv(),
 								 {1, 1, 1, 1});

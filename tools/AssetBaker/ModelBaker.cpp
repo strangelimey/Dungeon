@@ -1658,6 +1658,149 @@ assets::ModelData BuildStairs() {
 	return FinishProp(std::move(mesh), {0.55f, 0.53f, 0.50f, 1.0f});
 }
 
+// The DOWN counterpart: a flight descending BELOW GRADE into a stone stairwell
+// shaft. The game skips the floor block on a down-stair's cell (DungeonWorld's
+// floor-hole predicate), so this mesh is self-contained: flush collar slabs
+// beside the narrower opening, shaft side/back walls, the descending column
+// flight (the mirror of BuildStairs' rising columns, entering flush at the
+// cell's front edge), and a landing at the bottom. Everything hangs from the
+// prop origin at y=0 = floor level.
+assets::ModelData BuildStairsDown() {
+	assets::MeshData mesh;
+	constexpr int kSteps = 7;
+	constexpr float kRise = 0.17f, kRun = 0.24f, kHalfX = 0.85f;
+	constexpr float kHalfCell = 1.2f; // kCellSize/2 — the prop fills its cell
+	const float depth = kSteps * kRise + 0.08f; // shaft bottom below grade
+
+	// Descending flight: step i's tread at -i*kRise, each a full column down to
+	// the shaft bottom. Step 0 sits flush with the floor at the front edge, so
+	// the party appears to walk straight onto the top of the flight.
+	for (int i = 0; i < kSteps; ++i) {
+		const float top = -i * kRise;
+		const float zc = kHalfCell - kRun * 0.5f - i * kRun;
+		AddBox(mesh, {0.0f, (top - depth) * 0.5f, zc},
+			   {kHalfX, (top + depth) * 0.5f, kRun * 0.5f});
+	}
+	// Landing past the flight, at the bottom of the shaft.
+	const float zLandFront = kHalfCell - kSteps * kRun;
+	AddBox(mesh, {0.0f, -depth + 0.04f, (zLandFront - kHalfCell) * 0.5f},
+		   {kHalfX, 0.04f, (zLandFront + kHalfCell) * 0.5f});
+	// Shaft walls: the back, and the two sides with their inner faces at the
+	// opening's edges (under the collar).
+	AddBox(mesh, {0.0f, -depth * 0.5f, -kHalfCell + 0.05f},
+		   {kHalfCell, depth * 0.5f, 0.05f});
+	AddBox(mesh, {-(kHalfX + 0.05f), -depth * 0.5f, 0.0f},
+		   {0.05f, depth * 0.5f, kHalfCell});
+	AddBox(mesh, {kHalfX + 0.05f, -depth * 0.5f, 0.0f},
+		   {0.05f, depth * 0.5f, kHalfCell});
+	// Collar: flush slabs covering the cell strips beside the opening, so the
+	// skipped floor block reads as a neat stairwell narrower than the cell.
+	AddBox(mesh, {(kHalfX + kHalfCell) * 0.5f, -0.04f, 0.0f},
+		   {(kHalfCell - kHalfX) * 0.5f, 0.04f, kHalfCell});
+	AddBox(mesh, {-(kHalfX + kHalfCell) * 0.5f, -0.04f, 0.0f},
+		   {(kHalfCell - kHalfX) * 0.5f, 0.04f, kHalfCell});
+	return FinishProp(std::move(mesh), {0.50f, 0.48f, 0.45f, 1.0f});
+}
+
+// A pit: an open shaft dropping a full storey to the level below (which gets
+// the paired ceiling hole). Same self-contained construction as
+// BuildStairsDown — flush collar slabs around a narrower opening, shaft walls
+// with their inner faces at the opening's edges — but no flight: a sheer drop
+// to a floor slab ~one wall-height down (the level below's floor, faked).
+assets::ModelData BuildPit() {
+	assets::MeshData mesh;
+	constexpr float kOpen = 0.85f, kHalfCell = 1.2f, kDepth = 2.5f;
+	// Collar: two full-length x strips, two z strips between them.
+	AddBox(mesh, {(kOpen + kHalfCell) * 0.5f, -0.04f, 0.0f},
+		   {(kHalfCell - kOpen) * 0.5f, 0.04f, kHalfCell});
+	AddBox(mesh, {-(kOpen + kHalfCell) * 0.5f, -0.04f, 0.0f},
+		   {(kHalfCell - kOpen) * 0.5f, 0.04f, kHalfCell});
+	AddBox(mesh, {0.0f, -0.04f, (kOpen + kHalfCell) * 0.5f},
+		   {kOpen, 0.04f, (kHalfCell - kOpen) * 0.5f});
+	AddBox(mesh, {0.0f, -0.04f, -(kOpen + kHalfCell) * 0.5f},
+		   {kOpen, 0.04f, (kHalfCell - kOpen) * 0.5f});
+	// Shaft walls + the floor a storey down.
+	AddBox(mesh, {-(kOpen + 0.05f), -kDepth * 0.5f, 0.0f},
+		   {0.05f, kDepth * 0.5f, kOpen + 0.1f});
+	AddBox(mesh, {kOpen + 0.05f, -kDepth * 0.5f, 0.0f},
+		   {0.05f, kDepth * 0.5f, kOpen + 0.1f});
+	AddBox(mesh, {0.0f, -kDepth * 0.5f, -(kOpen + 0.05f)},
+		   {kOpen + 0.1f, kDepth * 0.5f, 0.05f});
+	AddBox(mesh, {0.0f, -kDepth * 0.5f, kOpen + 0.05f},
+		   {kOpen + 0.1f, kDepth * 0.5f, 0.05f});
+	AddBox(mesh, {0.0f, -kDepth + 0.04f, 0.0f}, {kOpen, 0.04f, kOpen});
+	return FinishProp(std::move(mesh), {0.42f, 0.40f, 0.38f, 1.0f});
+}
+
+// The pit's lower half, placed on the level BELOW: a hole in the ceiling. The
+// ceiling block on its cell is skipped (CellHolesFn), and this mesh brings the
+// mirrored shaft: collar slabs seated on the ceiling plane, walls rising a
+// storey, and a cap (the faked underside of the level above). Origin stays at
+// y=0 like every prop — the geometry lives up at ceiling height.
+assets::ModelData BuildPitCeiling() {
+	assets::MeshData mesh;
+	constexpr float kOpen = 0.85f, kHalfCell = 1.2f, kCeil = 2.5f, kRise = 2.3f;
+	const float collarY = kCeil + 0.04f; // slab undersides flush with the ceiling
+	AddBox(mesh, {(kOpen + kHalfCell) * 0.5f, collarY, 0.0f},
+		   {(kHalfCell - kOpen) * 0.5f, 0.04f, kHalfCell});
+	AddBox(mesh, {-(kOpen + kHalfCell) * 0.5f, collarY, 0.0f},
+		   {(kHalfCell - kOpen) * 0.5f, 0.04f, kHalfCell});
+	AddBox(mesh, {0.0f, collarY, (kOpen + kHalfCell) * 0.5f},
+		   {kOpen, 0.04f, (kHalfCell - kOpen) * 0.5f});
+	AddBox(mesh, {0.0f, collarY, -(kOpen + kHalfCell) * 0.5f},
+		   {kOpen, 0.04f, (kHalfCell - kOpen) * 0.5f});
+	const float wallY = kCeil + kRise * 0.5f;
+	AddBox(mesh, {-(kOpen + 0.05f), wallY, 0.0f}, {0.05f, kRise * 0.5f, kOpen + 0.1f});
+	AddBox(mesh, {kOpen + 0.05f, wallY, 0.0f}, {0.05f, kRise * 0.5f, kOpen + 0.1f});
+	AddBox(mesh, {0.0f, wallY, -(kOpen + 0.05f)}, {kOpen + 0.1f, kRise * 0.5f, 0.05f});
+	AddBox(mesh, {0.0f, wallY, kOpen + 0.05f}, {kOpen + 0.1f, kRise * 0.5f, 0.05f});
+	AddBox(mesh, {0.0f, kCeil + kRise - 0.04f, 0.0f}, {kOpen, 0.04f, kOpen});
+	return FinishProp(std::move(mesh), {0.42f, 0.40f, 0.38f, 1.0f});
+}
+
+// A doorway frame: two posts bridging the panel opening out to the cell's side
+// walls, plus a lintel filling the space above the opening up to the ceiling.
+// Authored with travel along +Z (the panel plane spans X); placement rotates
+// by the door's facing. The sliding panel is a separate mesh (BuildDoorPanel)
+// so it can move while the frame stays put.
+assets::ModelData BuildDoorFrame() {
+	assets::MeshData mesh;
+	constexpr float kHalfCell = 1.2f, kOpen = 0.85f, kH = 2.1f, kD = 0.14f;
+	AddBox(mesh, {(kOpen + kHalfCell) * 0.5f, kH * 0.5f, 0.0f},
+		   {(kHalfCell - kOpen) * 0.5f, kH * 0.5f, kD});
+	AddBox(mesh, {-(kOpen + kHalfCell) * 0.5f, kH * 0.5f, 0.0f},
+		   {(kHalfCell - kOpen) * 0.5f, kH * 0.5f, kD});
+	AddBox(mesh, {0.0f, (kH + 2.5f) * 0.5f, 0.0f},
+		   {kHalfCell, (2.5f - kH) * 0.5f, kD});
+	return FinishProp(std::move(mesh), {0.50f, 0.48f, 0.45f, 1.0f});
+}
+
+// The door panel filling the frame's opening, with two cross braces so it
+// reads as a built door rather than a plain slab. Slides sideways (+X in
+// authored space, into the neighbouring wall) as the door opens.
+assets::ModelData BuildDoorPanel() {
+	assets::MeshData mesh;
+	constexpr float kOpen = 0.85f, kH = 2.1f;
+	AddBox(mesh, {0.0f, kH * 0.5f, 0.0f}, {kOpen, kH * 0.5f, 0.05f});
+	AddBox(mesh, {0.0f, kH * 0.26f, 0.0f}, {kOpen * 0.96f, 0.07f, 0.075f});
+	AddBox(mesh, {0.0f, kH * 0.74f, 0.0f}, {kOpen * 0.96f, 0.07f, 0.075f});
+	return FinishProp(std::move(mesh), {0.45f, 0.33f, 0.20f, 1.0f});
+}
+
+// A wall lever (the button prop): a back plate flush with the wall, a pivot
+// boss, and a handle jutting into the room. Authored like the sconce — +Z
+// faces the room, origin at the wall face — but with the origin at the PIVOT
+// height, so the render can tilt the whole prop around X (handle up = off,
+// down = pressed) with the thin plate staying visually put in the wall.
+assets::ModelData BuildLever() {
+	assets::MeshData mesh;
+	AddBox(mesh, {0.0f, 0.0f, 0.015f}, {0.10f, 0.16f, 0.015f});   // back plate
+	AddBox(mesh, {0.0f, 0.0f, 0.055f}, {0.028f, 0.028f, 0.055f}); // pivot boss
+	AddBox(mesh, {0.0f, 0.0f, 0.16f}, {0.018f, 0.018f, 0.10f});   // handle
+	AddBox(mesh, {0.0f, 0.0f, 0.27f}, {0.034f, 0.034f, 0.034f});  // knob
+	return FinishProp(std::move(mesh), {0.45f, 0.42f, 0.38f, 1.0f});
+}
+
 // Bakes the three worn-block tiers (low/med/high) for one surface texture set,
 // displaced by that texture's packed height map (procedural wear when absent).
 // kind: 0 = wall, 1 = floor, 2 = ceiling. Shared by the full bake and the
@@ -1757,6 +1900,13 @@ bool BakeModels(const std::string& dir, const std::string& texturesDir) {
 	ok &= WriteGltf(BuildBanner(), dir + "\\banner.gltf");
 	ok &= WriteGltf(BuildRope(), dir + "\\rope.gltf");
 	ok &= WriteGltf(BuildStairs(), dir + "\\stairs.gltf");
+	ok &= WriteGltf(BuildStairsDown(), dir + "\\stairs_down.gltf");
+	ok &= WriteGltf(BuildPit(), dir + "\\pit.gltf");
+	ok &= WriteGltf(BuildPitCeiling(), dir + "\\pit_ceiling.gltf");
+	ok &= WriteGltf(BuildDoorFrame(), dir + "\\door_frame.gltf");
+	// door_panel, NOT door: door.gltf is the cosmetic wood_door decoration.
+	ok &= WriteGltf(BuildDoorPanel(), dir + "\\door_panel.gltf");
+	ok &= WriteGltf(BuildLever(), dir + "\\lever.gltf");
 
 	ok &= WriteGltf(BuildHumanoid({{0.93f, 0.90f, 0.80f, 1.0f}, 0.85f, 3.2f, 0.0f, 0.12f}),
 					dir + "\\skeleton.gltf");

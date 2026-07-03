@@ -1,8 +1,26 @@
-; Doors (reserved — populated when functional doors land, plan phase P5).
-; Planned fields:
-;   model    = door mesh in assets/models
-;   texture  = PBR set
-;   mount    = edge the door occupies (between two cells)
-;   start    = open | closed
-; This is the FUNCTIONAL door (state, blocks movement until opened), distinct
-; from the cosmetic "wood_door" decoration prop in decorations.cat.
+; Functional doors (state, block movement/monsters/bolts until opened) -
+; distinct from the cosmetic "wood_door" decoration prop in decorations.cat.
+; A door fills a DOORWAY cell (solid walls flanking exactly one axis; the
+; editor brush auto-detects the orientation) and its panel slides sideways
+; into the wall when opened - by clicking it from the cell in front, or by a
+; button whose target= names the door's name= param. Fields:
+;   model    = panel mesh in assets/models (AssetBaker BuildDoorPanel;
+;              door_panel, NOT door - that is the cosmetic decoration mesh)
+;   texture  = PBR set for the panel
+;   hidden   = 1: an internal entry (not placeable) - [door_frame] is the
+;              frame mesh every door type shares
+; .ent record: door <type> <x> <z> <facing> [name=<id>] [open=1]
+
+[wooden_door]
+display = Wooden Door
+category = door
+model = door_panel
+texture = wood_planks
+authored = 0
+
+[door_frame]
+display = Door Frame
+model = door_frame
+texture = wall_stone
+authored = 0
+hidden = 1

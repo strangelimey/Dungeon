@@ -39,7 +39,7 @@ float DirYaw(Direction d);
 // The loc key naming a Direction ("facing.north" ...), for UI dropdowns/labels.
 const char* FacingLocKey(Direction d);
 
-enum class EntityKind : u8 { Monster, Item, Button, Decoration };
+enum class EntityKind : u8 { Monster, Item, Button, Decoration, Door };
 
 struct Entity {
 	EntityKind kind = EntityKind::Item;

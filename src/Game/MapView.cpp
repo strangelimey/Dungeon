@@ -68,9 +68,78 @@ MapView::MapView(gfx::GraphicsDevice& device, DungeonWorld& world,
 	: m_device(device), m_world(world), m_settings(settings),
 	  m_font(device, "", kFontH) {}
 
+const DungeonMap& MapView::ViewedMap() const {
+	return m_browse ? m_browse->map : m_world.Map();
+}
+
+const std::string& MapView::ViewedLevel() const {
+	return m_browse ? m_browse->stem : m_world.CurrentLevel();
+}
+
+std::string MapView::LevelNeighbor(int step) const {
+	const std::vector<std::string>& levels = m_world.GetProject().levels;
+	const auto it = std::find(levels.begin(), levels.end(), ViewedLevel());
+	if (it == levels.end()) return {};
+	const ptrdiff_t i = (it - levels.begin()) + step;
+	if (i < 0 || i >= static_cast<ptrdiff_t>(levels.size())) return {};
+	return levels[static_cast<size_t>(i)];
+}
+
+void MapView::StepViewLevel(int step) {
+	const std::string stem = LevelNeighbor(step);
+	if (stem.empty()) return;
+	if (stem == m_world.CurrentLevel()) m_browse.reset(); // back on live state
+	else m_browse = m_world.BrowseLevel(stem);
+	m_zoom = 1.0f; // refit: levels differ in size
+	m_pan = {0.0f, 0.0f};
+}
+
+gfx::Rect MapView::LevelUpButton(const gfx::Rect& panel) const {
+	const gfx::Rect g = GridArea(panel);
+	const float pad = DockPad(panel);
+	const float s = std::clamp(panel.h * 0.042f, 22.0f, 40.0f);
+	return {g.x + pad * 2, panel.y + pad * 2, s, s};
+}
+
+gfx::Rect MapView::LevelDownButton(const gfx::Rect& panel) const {
+	const gfx::Rect up = LevelUpButton(panel);
+	return {up.x + up.w + DockPad(panel), up.y, up.w, up.h};
+}
+
+gfx::Rect MapView::SaveSourceButton(const gfx::Rect& panel) const {
+	const gfx::Rect g = GridArea(panel);
+	const float pad = DockPad(panel);
+	const float s = std::clamp(panel.h * 0.042f, 22.0f, 40.0f);
+	const float w = s * 4.0f; // room for the localized label
+	return {g.x + g.w - pad * 2 - w, panel.y + pad * 2, w, s};
+}
+
+gfx::Rect MapView::SaveButton(const gfx::Rect& panel) const {
+	const gfx::Rect src = SaveSourceButton(panel);
+	return {src.x - DockPad(panel) - src.w, src.y, src.w, src.h};
+}
+
+gfx::Rect MapView::RedoButton(const gfx::Rect& panel) const {
+	const gfx::Rect save = SaveButton(panel);
+	return {save.x - DockPad(panel) - save.h, save.y, save.h, save.h};
+}
+
+gfx::Rect MapView::UndoButton(const gfx::Rect& panel) const {
+	const gfx::Rect redo = RedoButton(panel);
+	return {redo.x - DockPad(panel) - redo.w, redo.y, redo.w, redo.h};
+}
+
+void MapView::DoUndoRedo(bool redo) {
+	if (redo) m_world.Redo();
+	else m_world.Undo();
+	// A restored stash must show immediately on a browsed level (the snapshot
+	// is a copy, like the after-paint rebuild in Update).
+	if (m_browse) m_browse = m_world.BrowseLevel(m_browse->stem);
+}
+
 MapView::Transform MapView::ComputeTransform(const gfx::Rect& panel) const {
 	const gfx::Rect g = GridArea(panel); // panel minus the dock in Editor mode
-	const DungeonMap& map = m_world.Map();
+	const DungeonMap& map = ViewedMap();
 	const float mw = static_cast<float>(map.Width());
 	const float mh = static_cast<float>(map.Height());
 	const float fit = std::min(g.w / mw, g.h / mh); // whole map fits at zoom 1
@@ -133,7 +202,15 @@ gfx::Rect MapView::PaletteBody(const gfx::Rect& panel) const {
 }
 
 bool MapView::CellVisible(int x, int z) const {
-	return m_mode == Mode::Editor || m_world.IsSeen(x, z);
+	if (m_mode == Mode::Editor) return true;
+	if (!m_browse) return m_world.IsSeen(x, z);
+	// Browsed level: the fog stashed when the party last left it (a
+	// never-visited level has no stash — nothing is revealed).
+	const DungeonMap& map = m_browse->map;
+	if (m_browse->seen.empty() || x < 0 || z < 0 || x >= map.Width() ||
+		z >= map.Height())
+		return false;
+	return m_browse->seen[static_cast<size_t>(z) * map.Width() + x] != 0;
 }
 
 bool MapView::CellAt(float px, float py, const gfx::Rect& panel, int& outX,
@@ -142,7 +219,7 @@ bool MapView::CellAt(float px, float py, const gfx::Rect& panel, int& outX,
 	if (t.cell <= 0.0f) return false;
 	const int x = static_cast<int>(std::floor((px - t.ox) / t.cell));
 	const int z = static_cast<int>(std::floor((py - t.oy) / t.cell));
-	const DungeonMap& map = m_world.Map();
+	const DungeonMap& map = ViewedMap();
 	if (x < 0 || z < 0 || x >= map.Width() || z >= map.Height()) return false;
 	outX = x;
 	outZ = z;
@@ -159,11 +236,32 @@ bool MapView::Update(const Input& input, const gfx::Rect& panel) {
 	// rounded height actually changes, i.e. on window resize — not on zoom).
 	m_font.SetHeight(std::clamp(panel.h * 0.030f, 11.0f, 30.0f));
 
+	// If the party arrived on the level being browsed (the world keeps
+	// simulating under the open map), snap to the live view of it.
+	if (m_browse && m_browse->stem == m_world.CurrentLevel()) m_browse.reset();
+
+	// A latched undo/redo executes one frame AFTER its trigger, so the busy
+	// button state rendered last frame is what the (long, blocking) restore
+	// freezes on screen — see m_pendingHistory.
+	if (m_pendingHistory != 0) {
+		const bool redo = m_pendingHistory > 0;
+		m_pendingHistory = 0;
+		DoUndoRedo(redo);
+	}
+
 	const float mx = input.MouseX(), my = input.MouseY();
-	const DungeonMap& map = m_world.Map();
+	const DungeonMap& map = ViewedMap();
 	const bool editor = m_mode == Mode::Editor;
 	const gfx::Rect grid = GridArea(panel); // panel minus the dock in Editor
 	const bool overGrid = grid.Contains(mx, my);
+
+	// Editor keyboard: Ctrl+Z / Ctrl+Y = undo/redo. The overlay otherwise
+	// leaves the keyboard alone (movement keys keep reaching the party), but
+	// the Ctrl chord can't collide with a bound movement key.
+	if (editor && m_pendingHistory == 0 && input.IsKeyDown(0x11 /*VK_CONTROL*/)) {
+		if (input.WasKeyPressed('Z')) m_pendingHistory = -1;
+		else if (input.WasKeyPressed('Y')) m_pendingHistory = +1;
+	}
 
 	// Track the hovered cell (for Render highlights, e.g. the faint item icon).
 	if (int hx, hz; overGrid && CellAt(mx, my, panel, hx, hz)) {
@@ -172,6 +270,27 @@ bool MapView::Update(const Input& input, const gfx::Rect& panel) {
 	} else {
 		m_hoverX = m_hoverZ = -1;
 	}
+
+	// Track the hovered chrome button (Render styles it via the shared
+	// ui::DrawButtonFace). Mirrors the click gating: hidden/unavailable
+	// buttons never read as hot.
+	m_hoverBtn = HoverBtn::None;
+	if (!LevelNeighbor(-1).empty() && LevelUpButton(panel).Contains(mx, my))
+		m_hoverBtn = HoverBtn::LevelUp;
+	else if (!LevelNeighbor(+1).empty() && LevelDownButton(panel).Contains(mx, my))
+		m_hoverBtn = HoverBtn::LevelDown;
+	else if (editor && m_world.CanUndo() && UndoButton(panel).Contains(mx, my))
+		m_hoverBtn = HoverBtn::Undo;
+	else if (editor && m_world.CanRedo() && RedoButton(panel).Contains(mx, my))
+		m_hoverBtn = HoverBtn::Redo;
+	else if (editor && SaveButton(panel).Contains(mx, my))
+		m_hoverBtn = HoverBtn::Save;
+	else if (editor && SaveSourceButton(panel).Contains(mx, my))
+		m_hoverBtn = HoverBtn::SaveSource;
+	else if (editor && LeftCollapseButton(panel).Contains(mx, my))
+		m_hoverBtn = HoverBtn::CollapseL;
+	else if (RightCollapseButton(panel).Contains(mx, my))
+		m_hoverBtn = HoverBtn::CollapseR;
 
 	// Wheel zooms about the cursor: keep the map point under the pointer fixed.
 	if (overGrid && input.WheelDelta() != 0.0f && map.Width() > 0) {
@@ -194,6 +313,40 @@ bool MapView::Update(const Input& input, const gfx::Rect& panel) {
 
 	// Dock interactions, each claiming the click so it never also pans/paints.
 	if (input.WasMousePressed(MouseButton::Left)) {
+		// Level-browse arrows (both modes). A hidden arrow (edge level) is not
+		// hit-tested either, so a click there falls through to the grid.
+		if (!LevelNeighbor(-1).empty() && LevelUpButton(panel).Contains(mx, my)) {
+			StepViewLevel(-1);
+			return true;
+		}
+		if (!LevelNeighbor(+1).empty() && LevelDownButton(panel).Contains(mx, my)) {
+			StepViewLevel(+1);
+			return true;
+		}
+		// Editor save buttons (top-right of the grid): Save / To source.
+		if (editor && onSave) {
+			if (SaveButton(panel).Contains(mx, my)) {
+				onSave(false);
+				return true;
+			}
+			if (SaveSourceButton(panel).Contains(mx, my)) {
+				onSave(true);
+				return true;
+			}
+		}
+		// Undo/redo buttons (left of Save) — hidden when their stack is empty,
+		// so a click there falls through like a hidden level arrow; disabled
+		// (latched trigger pending) they swallow the click but do nothing.
+		if (editor) {
+			if (m_world.CanUndo() && UndoButton(panel).Contains(mx, my)) {
+				if (m_pendingHistory == 0) m_pendingHistory = -1;
+				return true;
+			}
+			if (m_world.CanRedo() && RedoButton(panel).Contains(mx, my)) {
+				if (m_pendingHistory == 0) m_pendingHistory = +1;
+				return true;
+			}
+		}
 		// Right key dock collapse — both modes (flips the mode's own flag).
 		if (RightCollapseButton(panel).Contains(mx, my)) {
 			ToggleLegend();
@@ -223,30 +376,64 @@ bool MapView::Update(const Input& input, const gfx::Rect& panel) {
 		return true;
 	}
 
-	// In Editor a brush is always armed: left paints, so pan with the right
-	// button. Player mode is view-only, so pan with the left.
+	// In Editor left paints the armed brush, so pan with the right button.
+	// Player mode is view-only, so pan with the left.
 	const MouseButton panBtn = editor ? MouseButton::Right : MouseButton::Left;
 	if (overGrid && input.WasMousePressed(panBtn)) {
 		m_panning = true;
 		m_lastMouse = {mx, my};
+		m_panStart = {mx, my};
 	}
 	if (m_panning && input.IsMouseDown(panBtn)) {
 		m_pan.x += (mx - m_lastMouse.x) / grid.w;
 		m_pan.y += (my - m_lastMouse.y) / grid.h;
 		m_lastMouse = {mx, my};
 	}
-	if (input.WasMouseReleased(panBtn)) m_panning = false;
+	if (input.WasMouseReleased(panBtn)) {
+		const bool wasPanning = m_panning;
+		m_panning = false;
+		// A STATIONARY right-click (no drag since the press) in Editor mode
+		// inspects the cell — the former Select tool: contents + selection +
+		// the object's edit dialog. A real drag stays a pan (the sub-3px pan
+		// a click causes is imperceptible).
+		if (wasPanning && editor && m_editor) {
+			const float dx = mx - m_panStart.x, dy = my - m_panStart.y;
+			if (dx * dx + dy * dy < 9.0f) {
+				if (int cx, cz; CellAt(mx, my, panel, cx, cz))
+					m_editor->InspectAt(cx, cz);
+			}
+		}
+	}
+
+	// Middle-click erases the cell (the former Erase tool; one undo step each).
+	if (editor && m_editor && overGrid &&
+		input.WasMousePressed(MouseButton::Middle)) {
+		if (int cx, cz; CellAt(mx, my, panel, cx, cz)) {
+			m_editor->EraseAt(cx, cz);
+			// A remote erase edits the browsed level's stash — refresh the view.
+			if (m_browse) m_browse = m_world.BrowseLevel(m_browse->stem);
+			return true;
+		}
+	}
 
 	// Editor painting over the grid: a fresh press always acts; holding paints a
 	// stroke for the structural/surface brushes (MapEditor ignores drags for the
 	// click-only Select/Erase tools and entity placement). The Edit* calls no-op
-	// on unchanged cells, so a held stroke over one cell is cheap.
+	// on unchanged cells, so a held stroke over one cell is cheap. On a BROWSED
+	// level the brush routes to the level's stash (MapEditor reads ViewedLevel);
+	// the snapshot is rebuilt after a paint so the edit draws next frame (pure
+	// in-memory copies — no file IO).
 	if (editor && m_editor && overGrid) {
 		int cx, cz;
-		if (input.WasMousePressed(MouseButton::Left) && CellAt(mx, my, panel, cx, cz))
+		bool painted = false;
+		if (input.WasMousePressed(MouseButton::Left) && CellAt(mx, my, panel, cx, cz)) {
 			m_editor->Paint(cx, cz, /*dragging*/ false);
-		else if (input.IsMouseDown(MouseButton::Left) && CellAt(mx, my, panel, cx, cz))
+			painted = true;
+		} else if (input.IsMouseDown(MouseButton::Left) && CellAt(mx, my, panel, cx, cz)) {
 			m_editor->Paint(cx, cz, /*dragging*/ true);
+			painted = true;
+		}
+		if (painted && m_browse) m_browse = m_world.BrowseLevel(m_browse->stem);
 	}
 
 	return panel.Contains(mx, my);
@@ -256,7 +443,7 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 					 const gfx::Rect& panel) {
 	if (!m_open) return;
 
-	const DungeonMap& map = m_world.Map();
+	const DungeonMap& map = ViewedMap();
 	const Transform t = ComputeTransform(panel);
 	const gfx::Rect grid = GridArea(panel); // panel minus the dock in Editor
 
@@ -320,19 +507,24 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 		const float off = t.cell * 0.24f, r = t.cell * 0.15f, w = t.cell * 0.13f;
 		batch.DrawTriangle(rot(0.0f, -(off + r)), rot(-w, -off), rot(w, -off), kFacingArrow);
 	};
-	// The floor-item icon: a small square tucked into the cell's lower-LEFT corner,
-	// faint so it stays out of the way — full opacity only when the cell is hovered.
-	// (Items sit ON the floor, so they read as a subtle secondary of whatever else
-	// shares the square, not a primary marker.)
-	auto itemMarker = [&](int x, int z) {
+	// The floor-item marker: tucked into the cell's lower-LEFT corner, faint so
+	// it stays out of the way — full opacity only when the cell is hovered.
+	// (Items sit ON the floor, so they read as a subtle secondary of whatever
+	// else shares the square, not a primary marker.) A model item draws its
+	// baked HUD icon there; placeholder items keep the small green square.
+	auto itemMarker = [&](int x, int z, const std::string& type) {
 		const Vec2 ctr = cellCenter(x, z);
-		const float h = t.cell * 0.11f;          // half-size (smaller than markers)
-		const float gap = t.cell * 0.06f;        // inset from the cell edges
+		const gfx::Texture* icon = m_world.ItemIconLookup(type);
+		const float h = t.cell * (icon ? 0.17f : 0.11f); // half-size
+		const float gap = t.cell * 0.05f;                // inset from the edges
 		const float px = ctr.x - (t.cell * 0.5f - h - gap);
 		const float py = ctr.y + (t.cell * 0.5f - h - gap);
-		Vec4 c = kItem;
-		c.w = hovered(x, z) ? 1.0f : 0.5f;
-		batch.DrawRect({px - h, py - h, h * 2, h * 2}, c);
+		const float a = hovered(x, z) ? 1.0f : 0.55f;
+		if (icon)
+			batch.DrawSprite({px - h, py - h, h * 2, h * 2}, {0, 0, 1, 1}, *icon,
+							 {1, 1, 1, a});
+		else
+			batch.DrawRect({px - h, py - h, h * 2, h * 2}, {kItem.x, kItem.y, kItem.z, a});
 	};
 	// A type initial centred on a marker (skipped when cells are too small to
 	// read); the upper-cased first letter of the catalog id.
@@ -381,30 +573,127 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 	if (CellVisible(map.StartX(), map.StartZ()))
 		ui::DrawBorder(batch, cellRect(map.StartX(), map.StartZ()), theme.accent);
 
+	// A baked-icon marker: the kind's own model rendered into a small RT
+	// (UpdateMapIcons), drawn centred at `frac` of the cell. The square+letter
+	// markers stay the fallback while an icon hasn't baked yet.
+	auto iconMarker = [&](int x, int z, float frac, const gfx::Texture& icon) {
+		const Vec2 ctr = cellCenter(x, z);
+		const float h = t.cell * frac * 0.5f;
+		batch.DrawSprite({ctr.x - h, ctr.y - h, h * 2.0f, h * 2.0f}, {0, 0, 1, 1},
+						 icon, {1, 1, 1, 1});
+	};
+	// The edge-hugging flavour, for wall fixtures (mirrors edgeMarker).
+	auto edgeIcon = [&](int x, int z, float frac, const gfx::Texture& icon,
+						Vec2 dir) {
+		const Vec2 ctr = cellCenter(x, z);
+		const float h = t.cell * frac * 0.5f;
+		const float px = ctr.x + dir.x * (t.cell * 0.5f - h);
+		const float py = ctr.y + dir.y * (t.cell * 0.5f - h);
+		batch.DrawSprite({px - h, py - h, h * 2.0f, h * 2.0f}, {0, 0, 1, 1}, icon,
+						 {1, 1, 1, 1});
+	};
+
 	// 3) Fixtures and static decorations (both from the static map layer).
-	for (const WallSconce& s : map.Sconces())
-		if (CellVisible(s.x, s.z))
-			edgeMarker(s.x, s.z, 0.16f, kTorch,
-					   {static_cast<float>(DirDX(s.wall)), static_cast<float>(DirDZ(s.wall))});
-	for (const FloorBrazier& b : map.Braziers())
-		if (CellVisible(b.x, b.z)) marker(b.x, b.z, 0.46f, kBrazier);
-	// Decorations from the LIVE world list (so editor placements/removals show),
-	// labelled with their type initial.
-	for (const auto& m : m_world.DecorationMarkers()) {
+	for (const WallSconce& s : map.Sconces()) {
+		if (!CellVisible(s.x, s.z)) continue;
+		const Vec2 dir{static_cast<float>(DirDX(s.wall)),
+					   static_cast<float>(DirDZ(s.wall))};
+		if (const gfx::Texture* icon = m_world.SconceIcon())
+			edgeIcon(s.x, s.z, 0.34f, *icon, dir);
+		else
+			edgeMarker(s.x, s.z, 0.16f, kTorch, dir);
+	}
+	for (const FloorBrazier& b : map.Braziers()) {
+		if (!CellVisible(b.x, b.z)) continue;
+		if (const gfx::Texture* icon = m_world.BrazierIcon())
+			iconMarker(b.x, b.z, 0.62f, *icon);
+		else
+			marker(b.x, b.z, 0.46f, kBrazier);
+	}
+	// Decorations: the LIVE world list for the active level (so editor
+	// placements/removals show), the map's records for a browsed one.
+	std::vector<DungeonWorld::MapMarker> decos;
+	if (!m_browse) {
+		decos = m_world.DecorationMarkers();
+	} else {
+		for (const Entity& e : m_browse->map.Decorations())
+			decos.push_back({e.x, e.z, e.type, e.facing,
+							 m_world.DecorationIconFor(e.type),
+							 m_world.DecorationShowsFacing(e.type)});
+	}
+	for (const auto& m : decos) {
 		if (!CellVisible(m.x, m.z)) continue;
-		marker(m.x, m.z, 0.38f, kDecoration);
-		label(m.x, m.z, m.type);
-		if (m_mode == Mode::Editor) facingArrow(m.x, m.z, m.facing);
+		if (m.icon) {
+			iconMarker(m.x, m.z, 0.74f, *m.icon);
+		} else {
+			marker(m.x, m.z, 0.38f, kDecoration);
+			label(m.x, m.z, m.type);
+		}
+		if (m_mode == Mode::Editor && m.facingArrow)
+			facingArrow(m.x, m.z, m.facing);
 	}
 
-	// Stairs (over the decoration marker they also occupy) — a distinct color.
-	for (const StairLink& s : m_world.Map().Stairs())
-		if (CellVisible(s.x, s.z)) marker(s.x, s.z, 0.44f, kStair);
+	// Stairs (over the decoration marker they also occupy) — a distinct color,
+	// with a dark arrow for which way they lead (up/down from stairs.cat's `up`
+	// field; both modes — the player map wants it as much as the editor).
+	const Catalog& stairCat = m_world.GetProject().stairs;
+	for (const StairLink& s : map.Stairs()) {
+		if (!CellVisible(s.x, s.z)) continue;
+		marker(s.x, s.z, 0.44f, kStair);
+		if (t.cell < 10.0f) continue; // too small to read, like facingArrow
+		const bool up = CatalogBool(stairCat.Find(s.type), "up", false);
+		const Vec2 c = cellCenter(s.x, s.z);
+		const float h = t.cell * 0.14f, w = t.cell * 0.12f;
+		const float d = up ? -1.0f : 1.0f; // screen Y grows down: -1 = apex up
+		batch.DrawTriangle({c.x, c.y + d * h}, {c.x - w, c.y - d * h},
+						   {c.x + w, c.y - d * h}, kMapBg);
+	}
 
-	// 4) Dynamic entities. Monsters come from the LIVE world list, drawn once per
-	// cell with a type initial and a stack count when several share a square;
-	// items/buttons still come from the .ent layer until they too are editable.
-	const std::vector<DungeonWorld::MapMarker> mons = m_world.MonsterMarkers();
+	// Doors: a bar across the cell, perpendicular to the travel axis (the way
+	// the panel actually spans the doorway). Open doors fade to half alpha so
+	// a shut door reads at a glance. Live list for the active level, .ent
+	// records for a browsed one.
+	{
+		std::vector<DungeonWorld::DoorMarker> doors;
+		if (!m_browse) {
+			doors = m_world.DoorMarkers();
+		} else {
+			for (const Entity& e : m_browse->entities.All())
+				if (e.kind == EntityKind::Door) {
+					const std::string* open = e.Param("open");
+					doors.push_back({e.x, e.z, e.facing, open && *open != "0"});
+				}
+		}
+		for (const auto& d : doors) {
+			if (!CellVisible(d.x, d.z)) continue;
+			const Vec2 c = cellCenter(d.x, d.z);
+			// Travel north-south -> the panel spans east-west (a wide bar).
+			const bool spanX =
+				d.facing == Direction::North || d.facing == Direction::South;
+			const float len = t.cell * 0.38f, thick = t.cell * 0.10f;
+			Vec4 col = kDoor;
+			col.w = d.open ? 0.5f : 1.0f;
+			batch.DrawRect({c.x - (spanX ? len : thick), c.y - (spanX ? thick : len),
+							(spanX ? len : thick) * 2, (spanX ? thick : len) * 2},
+						   col);
+		}
+	}
+
+	// 4) Dynamic entities. Monsters come from the LIVE world list for the active
+	// level, drawn once per cell with a type initial and a stack count when
+	// several share a square. A browsed level has no live state: the editor
+	// shows its authored .ent spawns; the player map shows no monsters there
+	// (they have moved since — stale markers would only mislead).
+	std::vector<DungeonWorld::MapMarker> mons;
+	if (!m_browse) {
+		mons = m_world.MonsterMarkers();
+	} else if (m_mode == Mode::Editor) {
+		for (const Entity& e : m_browse->entities.All())
+			if (e.kind == EntityKind::Monster)
+				mons.push_back({e.x, e.z, e.type, e.facing,
+								m_world.MonsterIconFor(e.type),
+								m_world.MonsterShowsFacing(e.type)});
+	}
 	for (size_t i = 0; i < mons.size(); ++i) {
 		bool firstInCell = true;
 		for (size_t j = 0; j < i; ++j)
@@ -413,16 +702,32 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 		int count = 0;
 		for (const auto& m : mons)
 			if (m.x == mons[i].x && m.z == mons[i].z) ++count;
-		marker(mons[i].x, mons[i].z, 0.5f, kMonster);
-		label(mons[i].x, mons[i].z, mons[i].type);
+		// A baked head-shot icon draws instead of the colored square + type
+		// initial (which stays the fallback for a not-yet-baked/unknown kind).
+		if (mons[i].icon) {
+			iconMarker(mons[i].x, mons[i].z, 0.92f, *mons[i].icon);
+		} else {
+			marker(mons[i].x, mons[i].z, 0.5f, kMonster);
+			label(mons[i].x, mons[i].z, mons[i].type);
+		}
 		countBadge(mons[i].x, mons[i].z, count);
-		if (m_mode == Mode::Editor) facingArrow(mons[i].x, mons[i].z, mons[i].facing);
+		if (m_mode == Mode::Editor && mons[i].facingArrow)
+			facingArrow(mons[i].x, mons[i].z, mons[i].facing);
 	}
-	for (const Entity& e : m_world.Entities().All()) {
+	const std::vector<Entity>& ents =
+		m_browse ? m_browse->entities.All() : m_world.Entities().All();
+	for (const Entity& e : ents) {
 		if (!CellVisible(e.x, e.z)) continue;
 		switch (e.kind) {
-		case EntityKind::Item:   itemMarker(e.x, e.z); break;
-		case EntityKind::Button: marker(e.x, e.z, 0.3f, kButton); break;
+		case EntityKind::Item:   itemMarker(e.x, e.z, e.type); break;
+		case EntityKind::Button:
+			// The lever's baked icon (buttons share the decoration kind cache),
+			// else the blue square for a legacy/unknown type.
+			if (const gfx::Texture* icon = m_world.DecorationIconFor(e.type))
+				iconMarker(e.x, e.z, 0.5f, *icon);
+			else
+				marker(e.x, e.z, 0.3f, kButton);
+			break;
 		default:                 break; // monsters: live list above; decorations: static
 		}
 	}
@@ -437,10 +742,13 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 	// the actual selection (which draws opaque below).
 	const bool selHere = m_editor && m_editor->HasSelection() &&
 						 m_editor->SelX() == m_hoverX && m_editor->SelZ() == m_hoverZ;
+	// The hover ring previews the brush target on any viewed level; the
+	// SELECTION (and its route overlay) is a live-instance thing, so it only
+	// draws on the active level.
 	if (editorHover && m_hoverX >= 0 && !selHere)
 		selOutline(m_hoverX, m_hoverZ, {kSel.x, kSel.y, kSel.z, 0.5f});
 
-	if (m_editor && m_editor->HasSelection()) {
+	if (m_editor && m_editor->HasSelection() && !m_browse) {
 		selOutline(m_editor->SelX(), m_editor->SelZ(), kSel); // opaque selection ring
 
 		const std::vector<ai::Cell>* route = m_world.MonsterPatrol(m_editor->SelectedMonster());
@@ -475,7 +783,8 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 
 	// 5) The party — a triangle pointing the way it faces (facing*90° clockwise
 	// from north-up; screen Y is down so the rotation matches the compass).
-	{
+	// Only on its own level: a browsed level doesn't hold the party.
+	if (!m_browse) {
 		const Party& party = m_world.GetParty();
 		const Vec2 c = cellCenter(party.GridX(), party.GridZ());
 		const float r = t.cell * 0.36f;
@@ -496,16 +805,13 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 	const float dpad = DockPad(panel);
 	const float btnH = DockBtnH(panel);
 
-	// A dock = its panel background + a collapse button showing flip arrows.
+	// A dock = its panel background + a collapse button showing flip arrows
+	// (drawn through the shared button face so it hovers like every button).
 	auto drawDockFrame = [&](const gfx::Rect& dock, const gfx::Rect& btn,
-							 const char* arrow) {
+							 const char* arrow, HoverBtn id) {
 		batch.DrawRect(dock, theme.panel);
 		ui::DrawBorder(batch, dock, theme.panelBorder);
-		batch.DrawRect(btn, theme.control);
-		ui::DrawBorder(batch, btn, theme.panelBorder);
-		m_font.Draw(batch, arrow,
-					btn.x + (btn.w - m_font.MeasureWidth(arrow)) * 0.5f,
-					btn.y + (btn.h - m_font.Height()) * 0.5f, theme.text);
+		ui::DrawButtonFace(batch, m_font, btn, arrow, theme, m_hoverBtn == id);
 	};
 
 	// --- Left palette dock (Editor only; collapsed -> only the ">>" button). The
@@ -514,7 +820,8 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 	if (m_mode == Mode::Editor) {
 		const gfx::Rect ld = LeftDockRect(panel);
 		drawDockFrame(ld, LeftCollapseButton(panel),
-					  m_settings.mapPaletteCollapsed ? ">>" : "<<");
+					  m_settings.mapPaletteCollapsed ? ">>" : "<<",
+					  HoverBtn::CollapseL);
 		if (!m_settings.mapPaletteCollapsed) {
 			m_font.Draw(batch, loc::Tr("map.brushes"), ld.x + dpad,
 						ld.y + dpad + btnH + dpad, theme.textDim);
@@ -527,7 +834,7 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 	{
 		const gfx::Rect rd = RightDockRect(panel);
 		drawDockFrame(rd, RightCollapseButton(panel),
-					  LegendCollapsed() ? "<<" : ">>");
+					  LegendCollapsed() ? "<<" : ">>", HoverBtn::CollapseR);
 		if (!LegendCollapsed()) {
 			m_font.Draw(batch, loc::Tr("map.key"), rd.x + dpad,
 						rd.y + dpad + btnH + dpad, theme.textDim);
@@ -547,6 +854,7 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 				{Sym::Filled, kItem, "map.key.item", true},
 				{Sym::Filled, kButton, "map.key.button", true},
 				{Sym::Filled, kDecoration, "map.key.decoration", true},
+				{Sym::Filled, kDoor, "map.key.door", true},
 				{Sym::Filled, kStair, "map.key.stairs", true},
 			};
 			const gfx::Rect rclip{rd.x + 2, rd.y + 2, rd.w - 4, rd.h - 4};
@@ -574,6 +882,47 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 		}
 	}
 
+	// Level-browse header (both modes): [^]/[v] arrows + the viewed level's
+	// stem, top-left of the grid area. An edge level hides its dead-direction
+	// arrow (nothing above the top level / below the bottom); the stem draws in
+	// the accent color while browsing, as a "not where the party is" flag.
+	{
+		// Every chrome button draws through the shared ui::DrawButtonFace, so
+		// hover reads exactly like the dialog buttons (m_hoverBtn is tracked by
+		// Update in window pixels — identity, not coordinates, crosses the
+		// Update/Render pixel-space split).
+		auto face = [&](const gfx::Rect& r, const std::string& label,
+						HoverBtn id, bool enabled = true) {
+			ui::DrawButtonFace(batch, m_font, r, label, theme,
+							   enabled && m_hoverBtn == id, /*held*/ false,
+							   enabled);
+		};
+		const std::string above = LevelNeighbor(-1), below = LevelNeighbor(+1);
+		const gfx::Rect upR = LevelUpButton(panel), dnR = LevelDownButton(panel);
+		if (!above.empty()) face(upR, "^", HoverBtn::LevelUp);
+		if (!below.empty()) face(dnR, "v", HoverBtn::LevelDown);
+		m_font.Draw(batch, ViewedLevel(), dnR.x + dnR.w + dpad * 2,
+					upR.y + (upR.h - m_font.Height()) * 0.5f,
+					m_browse ? theme.accent : theme.text);
+
+		// Editor save buttons, top-right of the grid (Update hit-tests the same
+		// rects): Save = write every edited level; To source = also copy the
+		// project into the repo tree. Undo/redo draw only while their stacks
+		// have steps (hit-testing matches, so a hidden button never eats a
+		// click); while a restore is latched they draw DISABLED for the frame
+		// it executes on, so the click visibly takes even if it hitches.
+		if (m_mode == Mode::Editor) {
+			face(SaveButton(panel), loc::Tr("map.btn.save"), HoverBtn::Save);
+			face(SaveSourceButton(panel), loc::Tr("map.btn.source"),
+				 HoverBtn::SaveSource);
+			const bool busy = m_pendingHistory != 0;
+			if (m_world.CanUndo())
+				face(UndoButton(panel), "<", HoverBtn::Undo, !busy);
+			if (m_world.CanRedo())
+				face(RedoButton(panel), ">", HoverBtn::Redo, !busy);
+		}
+	}
+
 	// Player title, centered over the grid area (clear of the key dock).
 	if (m_mode == Mode::Player) {
 		const std::string title = loc::Tr("map.title");
@@ -583,16 +932,19 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 	}
 
 	// Footer (kept within the grid area, clear of the docks): pan/zoom hint
-	// (left) + party cell (right).
-	const float footY = panel.y + panel.h - m_font.Height() - pad;
-	const char* hintKey = m_mode == Mode::Editor ? "map.hint.editor" : "map.hint";
-	m_font.Draw(batch, loc::Tr(hintKey), grid.x + pad, footY, theme.textDim);
+	// (left) + party cell (right). PLAYER mode only — the editor keeps its
+	// bottom row clear for map cells (its controls are discoverable enough).
+	if (m_mode == Mode::Player) {
+		const float footY = panel.y + panel.h - m_font.Height() - pad;
+		m_font.Draw(batch, loc::Tr("map.hint"), grid.x + pad, footY, theme.textDim);
 
-	const Party& party = m_world.GetParty();
-	const std::string pos =
-		loc::Format("map.position", party.GridX(), party.GridZ());
-	m_font.Draw(batch, pos, grid.x + grid.w - m_font.MeasureWidth(pos) - pad,
-				footY, theme.textDim);
+		const Party& party = m_world.GetParty();
+		const std::string pos =
+			loc::Format("map.position", party.GridX(), party.GridZ());
+		m_font.Draw(batch, pos, grid.x + grid.w - m_font.MeasureWidth(pos) - pad,
+					footY, theme.textDim);
+	}
+
 }
 
 } // namespace dungeon::game

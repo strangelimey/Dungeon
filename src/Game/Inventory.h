@@ -46,6 +46,7 @@ inline Vec4 CategoryTint(std::string_view category) {
 	if (category == "food")     return {0.74f, 0.34f, 0.26f, 1.0f}; // warm red
 	if (category == "container") return {0.40f, 0.26f, 0.14f, 1.0f}; // dark leather
 	if (category == "ingredient") return {0.34f, 0.60f, 0.32f, 1.0f}; // herb green
+	if (category == "key")      return {0.72f, 0.58f, 0.22f, 1.0f}; // brass gold
 	return {0.55f, 0.55f, 0.55f, 1.0f};                             // misc grey
 }
 
@@ -112,6 +113,17 @@ struct Inventory {
 	const ItemSlot& Hand(int h) const {
 		return equipment[static_cast<size_t>(h == 0 ? EquipSlot::LeftHand
 													: EquipSlot::RightHand)];
+	}
+
+	// True if `typeId` is anywhere on this member: a worn/held equipment slot
+	// (hands included) or inside any carried pack. Locked doors ask this.
+	bool Has(std::string_view typeId) const {
+		for (const ItemSlot& s : equipment)
+			if (s.typeId == typeId) return true;
+		for (const Pack& p : packs)
+			for (const ItemSlot& s : p.contents)
+				if (s.typeId == typeId) return true;
+		return false;
 	}
 
 	// The selected pack's contents — the slot grid the sheet shows and edits.

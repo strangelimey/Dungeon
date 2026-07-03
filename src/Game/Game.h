@@ -53,6 +53,8 @@
 #include "Game/FixtureInspector.h"
 #include "Game/InspectPicker.h"
 #include "Game/MonsterConfigDialog.h"
+#include "Game/ButtonInspector.h"
+#include "Game/DoorInspector.h"
 #include "Game/PropInspector.h"
 #include "Game/Project.h"
 #include "Game/SoundBank.h"
@@ -105,6 +107,12 @@ private:
 	// when the bake finishes, write the new catalog entry + save the project.
 	bool StartBakeStep();
 	void FinishBake();
+
+	// Copies the active project (with its edits) from the exe-side asset copy
+	// back into the repo source tree. False (with a log) when no source path is
+	// baked in (shipped build) or the copy fails. Shared by the editor's
+	// "To source" button and the synctosource console command.
+	bool SyncProjectToSource();
 
 	// Persists a monster type's edited animation config (the right-click dialog's
 	// Save): rewrites the `states` + `anim_<state>` rows of its monsters-catalog
@@ -231,6 +239,12 @@ private:
 	// clicking a floor tablet; cleared by dropping it (world / portrait / hand /
 	// inventory). GameUI reads the address to draw the cursor icon.
 	std::optional<std::string> m_heldItem;
+	// Editor undo/redo defers the surface rebake while the full-screen editor
+	// hides the scene (DungeonWorld::GeometryDirty). On leaving editor mode
+	// this latches ONE frame so Render shows the centered "rebuilding
+	// geometry" notice, then the next Update runs the blocking FlushGeometry —
+	// the stall freezes on the notice frame.
+	bool m_geomNoticeLatched = false;
 
 	// Right-mouse free-look drag: the previous cursor position, so each frame's
 	// motion becomes a yaw/pitch delta. Valid only while m_looking (RMB held).
@@ -281,11 +295,16 @@ private:
 	FixtureInspector m_fixtureInspector;
 	// Per-instance editor for placed items and decorations (facing, ...).
 	PropInspector m_propInspector;
+	// Per-instance door editor (open/closed + required key + name).
+	DoorInspector m_doorInspector;
+	// Per-instance button editor (target door wiring).
+	ButtonInspector m_buttonInspector;
 	// Chooser shown when a Select-clicked cell holds >1 inspectable object; picking a
 	// row opens the matching inspector. One target per object at the clicked cell.
 	InspectPicker m_inspectPicker;
 	struct InspectTarget {
-		enum class Kind { Monster, Sconce, Brazier, Decoration, Item } kind = Kind::Monster;
+		enum class Kind { Monster, Sconce, Brazier, Door, Button, Decoration, Item } kind =
+			Kind::Monster;
 		u32 runtimeId = 0;        // Monster: the stable id
 		Direction wall = Direction::North; // Sconce: the wall it hangs on
 		int handle = 0;           // Decoration: list index; Item: stable entity id

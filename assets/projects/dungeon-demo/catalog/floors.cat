@@ -1,32 +1,39 @@
 ; Floor surface types: texture set + worn-block height displacement.
+; `category` groups an entry under an editor-palette sub-accordion.
 
 [floor_slabs]
 display = Slabs
 texture = floor_slabs
 height_scale = 0.045
+category = stone
 
 [floor_cobble]
 display = Cobblestone
 texture = floor_cobble
 height_scale = 0.045
+category = stone
 
 ; --- scanned sets from textures.com (1k/2k/4k installed) ---
 [floor_cobblestone]
 display = Medieval Cobblestone
 texture = cobblestone_floor
 height_scale = 0.045
+category = stone
 
 [floor_broken_tile]
 display = Broken Tile
 texture = broken_tile
 height_scale = 0.045
+category = tile
 
 [floor_rubble]
 display = Rubble
 texture = rubble
 height_scale = 0.06
+category = rock
 
 [floor_rock]
 display = Cave Rock
 texture = rock_smooth
 height_scale = 0.045
+category = rock

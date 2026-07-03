@@ -137,6 +137,9 @@ public:
 	int GridZ() const { return m_z; }
 	int Facing() const { return m_facing; }
 	bool IsMoving() const { return m_moving || m_turning; }
+	// Drops a queued follow-up action without touching the in-flight tween (a
+	// pit fall swallows movement buffered behind the step that triggered it).
+	void ClearBufferedAction() { m_buffered.reset(); }
 
 	// The compass direction as a loc:: key ("facing.north"); callers pass it
 	// through loc::Tr for display.

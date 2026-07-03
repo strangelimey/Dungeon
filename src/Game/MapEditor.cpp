@@ -18,6 +18,7 @@
 #include "UI/Font.h"
 
 #include <algorithm>
+#include <cctype>
 #include <format>
 
 namespace dungeon::game {
@@ -33,12 +34,12 @@ struct CatInfo {
 	bool textureSet;
 };
 constexpr CatInfo kCategoryInfo[] = {
-	{"map.cat.tools", "", false},           {"map.cat.structure", "", false},
-	{"map.cat.walls", "walls", true},       {"map.cat.floors", "floors", true},
-	{"map.cat.ceilings", "ceilings", true}, {"map.cat.decorations", "decorations", false},
+	{"map.cat.structure", "", false},       {"map.cat.walls", "walls", true},
+	{"map.cat.floors", "floors", true},     {"map.cat.ceilings", "ceilings", true},
+	{"map.cat.decorations", "decorations", false},
 	{"map.cat.fixtures", "fixtures", false}, {"map.cat.monsters", "monsters", false},
-	{"map.cat.doors", "doors", false},      {"map.cat.stairs", "stairs", false},
-	{"map.cat.items", "items", false},
+	{"map.cat.buttons", "buttons", false},  {"map.cat.doors", "doors", false},
+	{"map.cat.stairs", "stairs", false},    {"map.cat.items", "items", false},
 };
 static_assert(sizeof(kCategoryInfo) / sizeof(kCategoryInfo[0]) ==
 				  static_cast<size_t>(MapEditor::PaletteCat::Count),
@@ -51,7 +52,6 @@ const CatInfo& CatInfoFor(MapEditor::PaletteCat cat) {
 MapEditor::MapEditor(MapView& view, DungeonWorld& world, GameSettings& settings)
 	: m_view(view), m_world(world), m_settings(settings) {
 	// Open the most-used categories by default; the rest start collapsed.
-	m_catOpen[static_cast<size_t>(PaletteCat::Tools)] = true;
 	m_catOpen[static_cast<size_t>(PaletteCat::Structure)] = true;
 	m_catOpen[static_cast<size_t>(PaletteCat::Walls)] = true;
 }
@@ -64,31 +64,38 @@ bool MapEditor::CategoryTextureSet(PaletteCat cat) { return CatInfoFor(cat).text
 // palette (Walls/Floors/Ceilings, display names from the project's surface
 // catalogs), or the project's entity catalogs.
 std::vector<MapEditor::PaletteItem> MapEditor::CategoryItems(PaletteCat cat) const {
-	const DungeonMap& map = m_world.Map();
+	// Surface palettes come from the VIEWED level (level browsing edits any
+	// level, and each declares its own palette ids).
+	const DungeonMap& map = m_view.ViewedMap();
 	const Project& proj = m_world.GetProject();
 
-	// A surface palette (list of catalog ids) resolved to display name + swatch.
+	// A surface palette (list of catalog ids) resolved to display name + swatch;
+	// the entry's `category` groups it under a sub-accordion like the entity
+	// catalogs (an id the catalog doesn't know stays ungrouped).
 	auto surfaceItems = [&](const std::vector<std::string>& palette,
 							const Catalog& catalog, const Vec4& swatch) {
 		std::vector<PaletteItem> items;
 		for (const std::string& id : palette) {
 			const CatalogEntry* e = catalog.Find(id);
-			items.push_back({e ? e->Display() : id, swatch, id});
+			items.push_back({e ? e->Display() : id, swatch, id,
+							 e ? e->Get("category", "") : std::string()});
 		}
 		return items;
 	};
-	// An entity catalog resolved to display name + swatch + id.
+	// An entity catalog resolved to display name + swatch + id. `hidden = 1`
+	// entries are internal (e.g. the door frame the door types share) — they
+	// resolve by id but never show as placeable. The `category` field, when an
+	// entry carries one, groups it under a palette sub-accordion.
 	auto catalogItems = [&](const Catalog& catalog, const Vec4& swatch) {
 		std::vector<PaletteItem> items;
-		for (const CatalogEntry& e : catalog.Entries())
-			items.push_back({e.Display(), swatch, e.id});
+		for (const CatalogEntry& e : catalog.Entries()) {
+			if (CatalogBool(&e, "hidden", false)) continue;
+			items.push_back({e.Display(), swatch, e.id, e.Get("category", "")});
+		}
 		return items;
 	};
 
 	switch (cat) {
-	case PaletteCat::Tools:
-		return {{loc::Tr("map.tool.select"), kToolSelect},
-				{loc::Tr("map.tool.erase"), kToolErase}};
 	case PaletteCat::Structure:
 		return {{loc::Tr("map.brush.wall"), kWall},
 				{loc::Tr("map.brush.floor"), kFloor}};
@@ -98,6 +105,7 @@ std::vector<MapEditor::PaletteItem> MapEditor::CategoryItems(PaletteCat cat) con
 	case PaletteCat::Decorations: return catalogItems(proj.decorations, kDecoration);
 	case PaletteCat::Fixtures:    return catalogItems(proj.fixtures, kTorch);
 	case PaletteCat::Monsters:    return catalogItems(proj.monsters, kMonster);
+	case PaletteCat::Buttons:     return catalogItems(proj.buttons, kButton);
 	case PaletteCat::Doors:       return catalogItems(proj.doors, kDoor);
 	case PaletteCat::Stairs:      return catalogItems(proj.stairs, kStair);
 	case PaletteCat::Items:       return catalogItems(proj.items, kItem);
@@ -129,10 +137,30 @@ void MapEditor::BuildPaletteRows(const gfx::Rect& panel, std::vector<PaletteRow>
 				out.push_back({PaletteRow::Kind::Empty, cat, -1, {body.x, y, body.w, itemH}});
 				y += itemH;
 			} else {
-				for (int i = 0; i < static_cast<int>(items.size()); ++i) {
+				// Sub-accordions: ungrouped items list first, then each group
+				// (first-appearance order) under a collapsible sub-header whose
+				// body only lays out while open. Item indices stay CategoryItems
+				// positions, so the armed selection and dispatch are untouched
+				// by the display grouping.
+				auto itemRow = [&](int i) {
 					out.push_back({PaletteRow::Kind::Item, cat, i,
-								   {body.x, y, body.w, itemH}});
+								   {body.x, y, body.w, itemH}, items[i].group});
 					y += itemH;
+				};
+				std::vector<std::string> groups;
+				for (const PaletteItem& it : items)
+					if (!it.group.empty() &&
+						std::find(groups.begin(), groups.end(), it.group) == groups.end())
+						groups.push_back(it.group);
+				for (int i = 0; i < static_cast<int>(items.size()); ++i)
+					if (items[i].group.empty()) itemRow(i);
+				for (const std::string& g : groups) {
+					out.push_back({PaletteRow::Kind::SubHeader, cat, -1,
+								   {body.x, y, body.w, itemH}, g});
+					y += itemH;
+					if (GroupOpen(cat, g))
+						for (int i = 0; i < static_cast<int>(items.size()); ++i)
+							if (items[i].group == g) itemRow(i);
 				}
 			}
 		}
@@ -157,6 +185,8 @@ bool MapEditor::OnClick(float mx, float my, const gfx::Rect& panel) {
 		if (!r.rect.Contains(mx, my)) continue;
 		if (r.kind == PaletteRow::Kind::Header)
 			m_catOpen[static_cast<size_t>(r.cat)] = !m_catOpen[static_cast<size_t>(r.cat)];
+		else if (r.kind == PaletteRow::Kind::SubHeader)
+			m_groupOpen[GroupKey(r.cat, r.group)] = !GroupOpen(r.cat, r.group);
 		else if (r.kind == PaletteRow::Kind::Item)
 			m_sel = {r.cat, r.index};
 		else if (r.kind == PaletteRow::Kind::NewButton && onNewAsset)
@@ -184,68 +214,70 @@ bool MapEditor::OnRightClick(float mx, float my, const gfx::Rect& panel) {
 }
 
 void MapEditor::ApplyBrush(int cx, int cz, bool dragging) {
+	// Edit target: the VIEWED level. The active level edits live world state;
+	// a browsed level routes to DungeonWorld's remote seam (its in-memory
+	// stash — see the level-browsing section in MapView.h).
+	const bool remote = m_view.Browsing();
+	const std::string& stem = m_view.ViewedLevel();
+
 	// Laying a patrol route: a click appends the cell as a waypoint instead of
-	// painting the armed brush (a drag doesn't spam duplicates).
+	// painting the armed brush (a drag doesn't spam duplicates). Routes belong
+	// to a LIVE monster, so clicks on a browsed level are ignored.
 	if (m_routeId != 0) {
-		if (!dragging && onRouteWaypoint) onRouteWaypoint(m_routeId, cx, cz);
+		if (!dragging && !remote && onRouteWaypoint) onRouteWaypoint(m_routeId, cx, cz);
 		return;
 	}
+	if (m_sel.index < 0) return; // nothing armed yet
 	using SS = DungeonWorld::SurfaceSel;
-	const DungeonMap& map = m_world.Map();
 	auto log = [&](const std::string& s) {
 		if (m_world.onMessage) m_world.onMessage(s);
 	};
 
+	// Undo bracketing: everything below mutates. A drag stroke is ONE undo
+	// step — the snapshot is taken before the stroke's first cell; later
+	// stroke cells fold into it. `changed` decides whether the pending
+	// snapshot is kept: live paints compare the map revision, entity edits
+	// report success, and remote edits are conservatively treated as changed
+	// (a same-value remote paint costs one no-op undo step at worst).
+	const bool strokeStart = !dragging;
+	if (strokeStart) m_world.BeginUndoStep();
+	const u32 rev0 = m_world.Map().Revision();
+	bool changed = false;
+
 	switch (m_sel.cat) {
 	case PaletteCat::Structure: {
 		const Cell target = m_sel.index == 0 ? Cell::Wall : Cell::Floor;
+		if (remote) { // the party is never on a browsed level — no trap check
+			m_world.EditCellRemote(stem, cx, cz, target);
+			changed = true;
+			break;
+		}
 		const Party& party = m_world.GetParty();
 		const bool wouldTrapParty = target == Cell::Wall && cx == party.GridX() &&
 									cz == party.GridZ();
 		if (!wouldTrapParty) m_world.EditCell(cx, cz, target);
+		changed = m_world.Map().Revision() != rev0;
 		break;
 	}
-	case PaletteCat::Walls:    m_world.EditVariant(cx, cz, SS::Wall, m_sel.index); break;
-	case PaletteCat::Floors:   m_world.EditVariant(cx, cz, SS::Floor, m_sel.index); break;
-	case PaletteCat::Ceilings: m_world.EditVariant(cx, cz, SS::Ceiling, m_sel.index); break;
-	case PaletteCat::Tools: {
-		if (dragging) break; // tools act on a single click, not a stroke
-		if (m_sel.index == 0) { // Select: report the cell's contents
-			const char* base = map.At(cx, cz) == Cell::Wall ? "wall" : "floor";
-			int props = 0;
-			for (const auto& m : m_world.DecorationMarkers())
-				if (m.x == cx && m.z == cz) ++props;
-			int mons = 0;
-			for (const auto& m : m_world.MonsterMarkers())
-				if (m.x == cx && m.z == cz) ++mons;
-			std::string details = base;
-			if (mons) details += std::format(", {} monster{}", mons, mons == 1 ? "" : "s");
-			if (props) details += std::format(", {} prop{}", props, props == 1 ? "" : "s");
-			log(loc::Format("map.select.contents", cx, cz, details));
-			// Click SELECTS the square (highlight + route overlay); a second click on
-			// an already-selected inspectable (creature, torch, decoration, item) opens
-			// its inspector. The owner (onInspect) decides which dialog by the contents.
-			const bool inspectable = m_world.AnyInspectableAt(cx, cz);
-			const bool reclick = (m_selX == cx && m_selZ == cz && m_selInspectable);
-			m_selX = cx;
-			m_selZ = cz;
-			m_selMonster = m_world.MonsterRuntimeIdAt(cx, cz);
-			m_selInspectable = inspectable;
-			if (reclick && onInspect) onInspect(cx, cz);
-		} else { // Erase: remove a runtime entity, then a fixture, else reset surfaces
-			if (m_world.RemoveEntityAt(cx, cz) || m_world.RemoveFixtureAt(cx, cz)) {
-				log(loc::Tr("map.erase.removed"));
-			} else {
-				m_world.EditVariant(cx, cz, SS::Wall, -1);
-				m_world.EditVariant(cx, cz, SS::Floor, -1);
-				m_world.EditVariant(cx, cz, SS::Ceiling, -1);
-				log(loc::Format("map.erase.reset", cx, cz));
-			}
+	case PaletteCat::Walls:
+	case PaletteCat::Floors:
+	case PaletteCat::Ceilings: {
+		const SS sel = m_sel.cat == PaletteCat::Walls    ? SS::Wall
+					   : m_sel.cat == PaletteCat::Floors ? SS::Floor
+														 : SS::Ceiling;
+		if (remote) {
+			m_world.EditVariantRemote(stem, cx, cz, sel, m_sel.index);
+			changed = true;
+		} else {
+			m_world.EditVariant(cx, cz, sel, m_sel.index);
+			changed = m_world.Map().Revision() != rev0;
 		}
 		break;
 	}
 	case PaletteCat::Decorations:
 	case PaletteCat::Monsters:
+	case PaletteCat::Buttons:
+	case PaletteCat::Items:
 	case PaletteCat::Fixtures: {
 		if (dragging) break; // placement is a single click
 		const std::vector<PaletteItem> items = CategoryItems(m_sel.cat);
@@ -253,23 +285,110 @@ void MapEditor::ApplyBrush(int cx, int cz, bool dragging) {
 		const std::string& id = items[m_sel.index].id;
 		bool ok = false;
 		if (m_sel.cat == PaletteCat::Monsters)
-			ok = m_world.AddMonster(id, cx, cz, Direction::South);
+			ok = remote ? m_world.AddMonsterRemote(stem, id, cx, cz)
+						: m_world.AddMonster(id, cx, cz, Direction::South);
 		else if (m_sel.cat == PaletteCat::Fixtures)
-			ok = m_world.AddFixture(id, cx, cz);
+			ok = remote ? m_world.AddFixtureRemote(stem, id, cx, cz)
+						: m_world.AddFixture(id, cx, cz);
+		else if (m_sel.cat == PaletteCat::Buttons)
+			ok = remote ? m_world.AddButtonRemote(stem, id, cx, cz)
+						: m_world.AddButton(id, cx, cz);
+		else if (m_sel.cat == PaletteCat::Items)
+			ok = remote ? m_world.AddItemRemote(stem, id, cx, cz)
+						: m_world.AddItem(id, cx, cz);
 		else
-			ok = m_world.AddDecoration(id, cx, cz, Direction::South);
+			ok = remote ? m_world.AddDecorationRemote(stem, id, cx, cz)
+						: m_world.AddDecoration(id, cx, cz, Direction::South);
 		log(loc::Format(ok ? "map.place.done" : "map.place.blocked",
 						items[m_sel.index].label));
+		changed = ok;
 		break;
 	}
-	default: { // Doors/Stairs/Items — placement wiring lands later
-		if (dragging) break;
+	case PaletteCat::Stairs: {
+		if (dragging) break; // placement is a single click
 		const std::vector<PaletteItem> items = CategoryItems(m_sel.cat);
-		if (m_sel.index >= 0 && m_sel.index < static_cast<int>(items.size()))
-			log(loc::Format("map.place.todo", items[m_sel.index].label));
+		if (m_sel.index < 0 || m_sel.index >= static_cast<int>(items.size())) break;
+		// One entry for any viewed level (each side lands live or in a stash);
+		// it does all the messaging itself (success names the paired level;
+		// each failure mode has its own specific line).
+		changed = m_world.AddStairAt(stem, items[m_sel.index].id, cx, cz);
 		break;
 	}
+	case PaletteCat::Doors: {
+		if (dragging) break; // placement is a single click
+		const std::vector<PaletteItem> items = CategoryItems(m_sel.cat);
+		if (m_sel.index < 0 || m_sel.index >= static_cast<int>(items.size())) break;
+		const std::string& id = items[m_sel.index].id;
+		// AddDoor messages the doorway failure itself (auto-orientation needs
+		// flanking walls); the generic done/blocked line covers the rest.
+		const bool ok = remote ? m_world.AddDoorRemote(stem, id, cx, cz)
+							   : m_world.AddDoor(id, cx, cz);
+		if (ok)
+			log(loc::Format("map.place.done", items[m_sel.index].label));
+		changed = ok;
+		break;
 	}
+	default:
+		break;
+	}
+
+	if (strokeStart) m_world.CommitUndoStep(changed);
+}
+
+void MapEditor::InspectAt(int cx, int cz) {
+	const bool remote = m_view.Browsing();
+	const DungeonMap& map = m_view.ViewedMap();
+	auto log = [&](const std::string& s) {
+		if (m_world.onMessage) m_world.onMessage(s);
+	};
+	if (remote) {
+		// No live instances on a browsed level — report the static base only;
+		// the inspectors need the level active.
+		log(loc::Format("map.select.contents", cx, cz,
+						map.At(cx, cz) == Cell::Wall ? "wall" : "floor"));
+		return;
+	}
+	const char* base = map.At(cx, cz) == Cell::Wall ? "wall" : "floor";
+	int props = 0;
+	for (const auto& m : m_world.DecorationMarkers())
+		if (m.x == cx && m.z == cz) ++props;
+	int mons = 0;
+	for (const auto& m : m_world.MonsterMarkers())
+		if (m.x == cx && m.z == cz) ++mons;
+	std::string details = base;
+	if (mons) details += std::format(", {} monster{}", mons, mons == 1 ? "" : "s");
+	if (props) details += std::format(", {} prop{}", props, props == 1 ? "" : "s");
+	log(loc::Format("map.select.contents", cx, cz, details));
+	// Select the square (highlight + patrol-route overlay) and open the
+	// inspector right away when it holds an editable object — the owner
+	// (onInspect) picks the dialog, via the chooser when several share it.
+	m_selX = cx;
+	m_selZ = cz;
+	m_selMonster = m_world.MonsterRuntimeIdAt(cx, cz);
+	if (m_world.AnyInspectableAt(cx, cz) && onInspect) onInspect(cx, cz);
+}
+
+void MapEditor::EraseAt(int cx, int cz) {
+	using SS = DungeonWorld::SurfaceSel;
+	const bool remote = m_view.Browsing();
+	const std::string& stem = m_view.ViewedLevel();
+	auto log = [&](const std::string& s) {
+		if (m_world.onMessage) m_world.onMessage(s);
+	};
+	m_world.BeginUndoStep();
+	if (remote) { // the stash-side ladder messages for itself
+		m_world.EraseRemote(stem, cx, cz);
+	} else if (m_world.RemoveStairAt(cx, cz)) {
+		// stairs message themselves (they name the paired level's cleanup)
+	} else if (m_world.RemoveEntityAt(cx, cz) || m_world.RemoveFixtureAt(cx, cz)) {
+		log(loc::Tr("map.erase.removed"));
+	} else {
+		m_world.EditVariant(cx, cz, SS::Wall, -1);
+		m_world.EditVariant(cx, cz, SS::Floor, -1);
+		m_world.EditVariant(cx, cz, SS::Ceiling, -1);
+		log(loc::Format("map.erase.reset", cx, cz));
+	}
+	m_world.CommitUndoStep(true); // the ladder always acts (last rung resets)
 }
 
 void MapEditor::RenderBody(gfx::SpriteBatch& batch, const ui::Theme& theme,
@@ -305,6 +424,22 @@ void MapEditor::RenderBody(gfx::SpriteBatch& batch, const ui::Theme& theme,
 		case PaletteRow::Kind::Empty:
 			font.Draw(batch, loc::Tr("map.cat.empty"), rc.x + dpad * 3, ty, theme.textDim);
 			break;
+		case PaletteRow::Kind::SubHeader: {
+			// A group sub-header: indented +/- toggle, the free-form category
+			// token (first letter up-cased) and the member count. Tokens are
+			// data ids, so no loc lookup — like the item labels themselves.
+			const char* arrow = GroupOpen(r.cat, r.group) ? "-" : "+";
+			int n = 0;
+			for (const PaletteItem& it : items)
+				if (it.group == r.group) ++n;
+			std::string label = r.group;
+			label[0] = static_cast<char>(
+				std::toupper(static_cast<unsigned char>(label[0])));
+			label += std::format(" ({})", n);
+			font.Draw(batch, arrow, rc.x + dpad * 3, ty, theme.textDim);
+			font.Draw(batch, label, rc.x + dpad * 4 + arrowW, ty, theme.text);
+			break;
+		}
 		case PaletteRow::Kind::Item: {
 			if (r.index < 0 || r.index >= static_cast<int>(items.size())) break;
 			const bool active = m_sel.cat == r.cat && m_sel.index == r.index;
@@ -312,7 +447,9 @@ void MapEditor::RenderBody(gfx::SpriteBatch& batch, const ui::Theme& theme,
 				batch.DrawRect(rc, theme.controlActive);
 				ui::DrawBorder(batch, rc, theme.panelBorder);
 			}
-			const float indent = dpad * 3, sw = rc.h - dpad * 2;
+			// Grouped items indent one level past their sub-header.
+			const float indent = dpad * (r.group.empty() ? 3.0f : 5.0f);
+			const float sw = rc.h - dpad * 2;
 			batch.DrawRect({rc.x + indent, rc.y + dpad, sw, sw}, items[r.index].swatch);
 			font.Draw(batch, items[r.index].label, rc.x + indent + sw + dpad, ty,
 					  active ? theme.text : theme.textDim);

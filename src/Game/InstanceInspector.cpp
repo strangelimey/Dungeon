@@ -55,7 +55,7 @@ void InstanceInspector::BuildUI() {
 	// fixture with no facing choices (e.g. a floor brazier).
 	const std::vector<Direction> choices = FacingChoices();
 	if (!choices.empty()) {
-		m_ui.Add<ui::Label>(rel(kPad, kTitleH, innerW * 0.34f, kFacingH * 0.6f),
+		m_ui.Add<ui::Label>(rel(kPad, kTitleH, innerW * 0.30f, kFacingH * 0.6f),
 							loc::Tr("map.insp.facing"));
 		std::vector<std::string> items;
 		int sel = 0;
@@ -63,13 +63,25 @@ void InstanceInspector::BuildUI() {
 			items.push_back(loc::Tr(FacingLocKey(choices[i])));
 			if (choices[i] == m_facing) sel = static_cast<int>(i);
 		}
-		m_ui.Add<ui::DropDown>(rel(kPad + innerW * 0.36f, kTitleH, innerW * 0.64f, kFacingH * 0.7f),
+		// The extra toggle (see facingExtra) shares the row: the dropdown
+		// narrows to make room for the checkbox on its right.
+		const float ddw = facingExtra ? innerW * 0.36f : innerW * 0.68f;
+		m_ui.Add<ui::DropDown>(rel(kPad + innerW * 0.32f, kTitleH, ddw, kFacingH * 0.7f),
 							   items, sel, [this, choices](int i) {
 								   if (i >= 0 && i < static_cast<int>(choices.size())) {
 									   m_facing = choices[static_cast<size_t>(i)];
 									   ApplyLive();
 								   }
 							   });
+		if (facingExtra)
+			m_ui.Add<ui::Checkbox>(rel(kPad + innerW * 0.72f, kTitleH,
+									   innerW * 0.28f, kFacingH * 0.7f),
+								   facingExtra->label, facingExtra->value,
+								   [this](bool on) {
+									   facingExtra->value = on;
+									   if (facingExtra->onChange)
+										   facingExtra->onChange(on);
+								   });
 	}
 
 	// Divider, then the derived content between the strip and the footer. When there
@@ -79,18 +91,27 @@ void InstanceInspector::BuildUI() {
 	BuildContent(rel(kPad, contentTop + 0.02f, innerW,
 					 1.0f - contentTop - 0.02f - kFooterH));
 
-	// Footer: Save (persist) + Close (revert), filling the control column.
+	// Close: an "x" in the panel's top-right corner (revert, like Esc).
+	m_ui.Add<ui::Button>(rel(1.0f - kPad - 0.07f, 0.02f, 0.07f, kTitleH * 0.62f),
+						 "x", [this] {
+							 Revert();
+							 Close();
+						 });
+
+	// Footer: Save (persist), plus Delete (remove the object from the map)
+	// when the owner armed it — closing lives in the "x"/Esc, not down here.
 	const float gap = innerW * 0.06f, bw = (innerW - gap) * 0.5f, fy = 1.0f - kFooterH + 0.02f;
 	m_ui.Add<ui::Button>(rel(kPad, fy, bw, kFooterH * 0.55f), loc::Tr("map.cfg.save"),
 						 [this] {
 							 Persist();
 							 Close();
 						 });
-	m_ui.Add<ui::Button>(rel(kPad + bw + gap, fy, bw, kFooterH * 0.55f),
-						 loc::Tr("map.cfg.close"), [this] {
-							 Revert();
-							 Close();
-						 });
+	if (onDelete)
+		m_ui.Add<ui::Button>(rel(kPad + bw + gap, fy, bw, kFooterH * 0.55f),
+							 loc::Tr("map.cfg.delete"), [this] {
+								 onDelete(); // the object is gone — no Revert
+								 Close();
+							 });
 }
 
 gfx::Rect InstanceInspector::PreviewRect(float w, float h) const {

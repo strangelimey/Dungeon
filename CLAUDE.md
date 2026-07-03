@@ -483,9 +483,59 @@ instant (the old whole-map RebuildGeometry is gone; BuildDungeonMeshes is the fu
 bake for load/quality-swap). Placement appends to the live world lists (and
 DungeonMap for fixtures), drawn next frame. Markers draw from the LIVE world
 (MonsterMarkers/DecorationMarkers), so placed/erased entities show immediately.
-Edits are in-memory until written: DungeonWorld::SaveLevel reconstructs the .map +
-.ent from live state (dev console `savemap`), and `synctosource` copies the
-project to the git source tree. All overlay text goes through Loc (map.* keys).
+Both modes can BROWSE other levels: [^]/[v] arrows top-left of the grid step the
+viewed level through the project's level order (an edge level hides its dead-
+direction arrow), with the stem labelled beside them (accent color = not the
+party's level). A browsed level draws a read-only snapshot
+(DungeonWorld::BrowseLevel: static map with the edit stash winning over the
+file, .ent records ditto, and in Player mode the stashed fog — a never-visited
+level shows nothing); the selection/party/live markers are active-level only,
+and the view snaps back to live if the party arrives on the browsed level. In
+EDITOR mode the brush EDITS the browsed level too (the editor edits ANY level):
+MapEditor routes those edits to DungeonWorld's remote seam (EditCellRemote /
+EditVariantRemote / Add{Decoration,Monster,Fixture}Remote / EraseRemote /
+AddStairAt), which mutates the level's in-memory stashes — m_levelMaps (static;
+also stashed on every level swap so unsaved edits survive, live decoration
+placements synced back into records first) and m_levelEnts (.ent records,
+created on demand; record ids stay stable across removals so the per-id
+dynamic diffs in m_levelStates remain valid) — and MapView rebuilds the browse
+snapshot after each paint. Entering a level consumes its stashes; the Select
+tool's inspectors still need the level active (no live instances remotely).
+DOORS are functional (doors.cat, EntityKind::Door, .ent record `door <type>
+<x> <z> <facing> [name=] [open=1]`): a door fills a DOORWAY cell (solid walls
+flanking exactly one axis — the brush auto-detects the orientation, no facing
+UI) and blocks the party (isOccupied), monsters (AI blocked set + slot checks)
+and projectiles until opened. The panel (door_panel.gltf — door.gltf is the
+COSMETIC decoration, don't collide) slides sideways into the wall (openT anim);
+open it by clicking from the cell in front (Game's world-click falls through
+TryPickItem to ToggleDoorAhead) or via a button whose target= names the door's
+name= (ToggleButtonAt → ToggleDoorsNamed — the button wiring's first consumer).
+Doors are RECORD-BACKED: placement authors the .ent record AND spawns the live
+instance (one truth for writer/stash/remote), open-state diffs ride the save
+like button toggles (kind Door reuses EntityState.activated; "door <id> <open>"
+save lines). doors.cat `hidden = 1` marks internal entries (the shared
+[door_frame]) the palette skips. Stairs AND PITS are one cross-level op for
+any viewed level: each half lands
+on the live map when its side is the active level (prop too), else in that
+level's stash. stairs.cat drives everything per type: `up` (destination
+direction + map-icon arrow), `pair` (the type auto-authored on the destination
+— pit pairs with pit_ceiling), `hole` = floor|ceiling|none (which cell block
+the mesh builder skips so the type's shaft mesh shows: CellHolesFn, fed by
+DungeonWorld::FloorHoleAt/CeilingHoleAt), `traverse` = 0 (stepping on the tile
+does NOT transition — a pit's ceiling hole is scenery), `fall` = 1 (the
+transition is a PLUNGE: the step glide onto the pit finishes, then the camera
+drops through the shaft on an accelerating curve — DungeonWorld::m_pendingFall
+sequences it in Update, PartyEye applies the drop to camera + carried torch —
+then the swap fires with the party's facing preserved; movement is swallowed
+meanwhile, and the world.pitfall message plays). Meshes:
+stairs.gltf (rising flight), stairs_down.gltf (below-grade stairwell shaft),
+pit.gltf (sheer drop, a storey deep), pit_ceiling.gltf (the rising shaft above
+a ceiling hole on the level below) — all AssetBaker Build*. Live stair/pit
+placement/erase rebuilds the touched chunks so holes open/close immediately. Edits persist via the dev console `savemap` =
+DungeonWorld::SaveAllLevels (the active level from live state + every stashed
+level from its records; an untouched .ent is not rewritten), and
+`synctosource` copies the project to the git source tree. All overlay text
+goes through Loc (map.* keys).
 
 The editor edits a PROJECT (see "Project & catalogs" below), not hardcoded
 content — adding a category/type is data, not code.
@@ -617,8 +667,28 @@ memory.
 - Editor (data-driven, see "Project & catalogs" + the MapView section) is built
   out: catalog palette, structural/variant paint, decoration/monster/fixture
   placement, asset-creation dialog with 3D preview + AssetBaker bake, multi-level
-  stairs, per-level saves, .map/.ent writers, chunk-local edit rebuilds. Editor
-  next steps: stair/door placement is authored in .map only (no editor brush);
-  the dialog's material sliders are preview-only for imported models (ORM map
-  drives the real material); a "save to source" UI button (vs the `synctosource`
-  dev command); undo/redo for edits.
+  stairs/pits with auto-authored pairs, functional doors, level browsing +
+  remote editing of any level, per-level saves, .map/.ent writers, chunk-local
+  edit rebuilds (details in the MapView / Project sections above). Select-clicking a door opens the
+  DoorInspector (open/closed toggles the live panel + the record's open= param;
+  a "Requires key" dropdown lists items.cat entries with category=key — none
+  exist yet, so it offers only None — and authors key=, which LOCKS the door
+  against the party's click until key items + an inventory check land; wired
+  buttons ignore locks; a Name field (ui::TextField, input filtered to
+  [A-Za-z0-9_-] — records are whitespace-tokenised, a space would corrupt the
+  .ent line) authors name=, the id a button's target= toggles). BUTTONS are
+  real props with a brush: a Buttons palette category (buttons.cat, [lever])
+  places a record-backed wall lever auto-mounted on the cell's first solid
+  wall; it renders at hand height (lever.gltf — origin at the PIVOT, so the
+  render's X-tilt flips the handle by `activated`); the party presses it by
+  clicking while standing on its cell facing its wall (PressButtonFacing —
+  the world-click chain is pick-item → door-ahead → button-facing), toggling
+  the doors its target= names; Select-click opens the ButtonInspector
+  (Target dropdown = the level's door names via DungeonWorld::DoorNames +
+  None; a stale wired name stays selectable). The `press <x> <z>` dev
+  command still force-toggles one. Editor next steps: item placement (the
+  last "wiring comes next" palette stub); key ITEMS (items.cat category=key
+  + an inventory check in ToggleDoorAhead); the dialog's material sliders
+  are preview-only for imported models (ORM map drives the real material); a
+  "save to source" UI button (vs the `synctosource` dev command); undo/redo
+  for edits.

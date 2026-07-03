@@ -1,21 +1,64 @@
-; Stairs / portals. Stepping onto a stair tile transitions to the level its
+; Stairs / portals / pits. Stepping onto the tile transitions to the level its
 ; .map record names (dest=/destx=/destz=/destfacing=). Fields:
-;   model    = stair mesh in assets/models (a procedural staircase: AssetBaker
-;              BuildStairs)
+;   model    = mesh in assets/models (procedural: AssetBaker BuildStairs /
+;              BuildStairsDown / BuildPit / BuildPitCeiling)
 ;   texture  = PBR set
 ;   solid    = 0 (the party must be able to step onto the tile)
 ;   authored = 0 (procedural placeholder mesh, CULL_NONE)
+;   up       = 1 leads to the level ABOVE (previous stem in the project's level
+;              order), 0/absent to the level BELOW. Picks the destination level
+;              and the map icon's arrow.
+;   pair     = the type auto-authored on the destination level (else the first
+;              opposite-direction entry).
+;   hole     = floor|ceiling|none: which of the cell's blocks the mesh builder
+;              skips so the type's shaft mesh shows (down types default floor).
+;   traverse = 0: stepping onto the tile does NOT transition (a pit's ceiling
+;              hole is scenery — you can't climb it). Default 1.
+;   fall     = 1: the transition is a plunge — the party keeps its facing and
+;              the fall message plays.
 
 [stairs_down]
 display = Stairs Down
-model = stairs
+category = stairs
+model = stairs_down
 texture = wall_stone
 solid = 0
 authored = 0
+up = 0
+pair = stairs_up
+hole = floor
 
 [stairs_up]
 display = Stairs Up
+category = stairs
 model = stairs
 texture = wall_stone
 solid = 0
 authored = 0
+up = 1
+pair = stairs_down
+hole = none
+
+[pit]
+display = Pit
+category = pit
+model = pit
+texture = wall_stone
+solid = 0
+authored = 0
+up = 0
+pair = pit_ceiling
+hole = floor
+fall = 1
+
+[pit_ceiling]
+display = Ceiling Hole
+category = pit
+model = pit_ceiling
+texture = wall_stone
+solid = 0
+authored = 0
+up = 1
+pair = pit
+hole = ceiling
+traverse = 0

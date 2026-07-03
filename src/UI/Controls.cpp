@@ -101,17 +101,23 @@ void Button::Update(UIContext& ctx) {
 }
 
 void Button::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
-	const Theme& theme = ctx.GetTheme();
-	const gfx::Rect& px = Pixel();
-	const Vec4& fill = (m_held || active) ? theme.controlActive
-										  : (m_hot ? theme.controlHot : theme.control);
-	batch.DrawRect(px, fill);
-	DrawBorder(batch, px, theme.panelBorder);
+	DrawButtonFace(batch, ctx.GetFont(), Pixel(), text, ctx.GetTheme(), m_hot,
+				   m_held || active);
+}
 
-	Font& font = ctx.GetFont();
-	const float textW = font.MeasureWidth(text);
-	font.Draw(batch, text, px.x + (px.w - textW) * 0.5f,
-			  px.y + (px.h - font.Height()) * 0.5f, theme.text);
+void DrawButtonFace(gfx::SpriteBatch& batch, Font& font, const gfx::Rect& rect,
+					const std::string& label, const Theme& theme, bool hot,
+					bool held, bool enabled) {
+	const Vec4& fill = !enabled ? theme.panel
+					   : held   ? theme.controlActive
+					   : hot    ? theme.controlHot
+								: theme.control;
+	batch.DrawRect(rect, fill);
+	DrawBorder(batch, rect, theme.panelBorder);
+	const float textW = font.MeasureWidth(label);
+	font.Draw(batch, label, rect.x + (rect.w - textW) * 0.5f,
+			  rect.y + (rect.h - font.Height()) * 0.5f,
+			  enabled ? theme.text : theme.textDim);
 }
 
 // --- Checkbox ------------------------------------------------------------

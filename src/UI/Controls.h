@@ -491,4 +491,13 @@ private:
 // Draws a 1px border around a rectangle.
 void DrawBorder(gfx::SpriteBatch& batch, const gfx::Rect& rect, const Vec4& color);
 
+// Draws a button FACE — the one button look (state fill, border, centered
+// label). ui::Button routes through it, and so does every hand-drawn chrome
+// button (the map editor's header/dock buttons), so hover reads the same
+// everywhere. `held` (or an active row) fills controlActive, hover controlHot;
+// a disabled button flattens to the panel fill with dim text and ignores `hot`.
+void DrawButtonFace(gfx::SpriteBatch& batch, Font& font, const gfx::Rect& rect,
+					const std::string& label, const Theme& theme, bool hot,
+					bool held = false, bool enabled = true);
+
 } // namespace dungeon::ui

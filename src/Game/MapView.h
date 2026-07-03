@@ -37,6 +37,8 @@
 #include "UI/Font.h"
 #include "UI/UIContext.h" // ui::Theme
 
+#include <functional>
+#include <memory>
 #include <string>
 
 namespace dungeon::game {
@@ -59,16 +61,24 @@ public:
 	// set, Editor mode shows an empty left dock.
 	void SetEditor(MapEditor* editor) { m_editor = editor; }
 
+	// Fired by the Editor-mode header buttons top-right of the grid: Save writes
+	// every edited level (the savemap console command), To source additionally
+	// copies the project into the repo tree (synctosource). The owner (Game)
+	// does the work and messages the outcome.
+	std::function<void(bool toSource)> onSave;
+
 	bool IsOpen() const { return m_open; }
 	Mode CurrentMode() const { return m_mode; }
 
-	// Opens the overlay in `mode`, resetting the view to fit-the-whole-map so
-	// it is predictable each time rather than wherever it was last panned.
+	// Opens the overlay in `mode`, resetting the view to fit-the-whole-map (and
+	// back to the ACTIVE level) so it is predictable each time rather than
+	// wherever it was last panned/browsed.
 	void Open(Mode mode = Mode::Player) {
 		m_open = true;
 		m_mode = mode;
 		m_zoom = 1.0f;
 		m_pan = {0.0f, 0.0f};
+		m_browse.reset();
 	}
 	void Close() { m_open = false; }
 	// The M-key player-map toggle: open in Player mode, or close.
@@ -102,6 +112,13 @@ public:
 	// --- shared with MapEditor (the left dock lives partly in each class) ------
 	// The shared icon/label font (one atlas, sized to the panel each frame).
 	ui::Font& Font() { return m_font; }
+	// The level the viewport is SHOWING (the [^]/[v] arrows browse the project's
+	// level order). MapEditor routes the brush by these: the active level edits
+	// live state, any other level edits its in-memory stash (DungeonWorld's
+	// remote seam).
+	bool Browsing() const { return m_browse != nullptr; }
+	const std::string& ViewedLevel() const;
+	const DungeonMap& ViewedMap() const;
 	// The left dock's scrollable body rectangle (below the collapse button +
 	// "Brushes" header), where MapEditor lays out and draws the accordion.
 	gfx::Rect PaletteBody(const gfx::Rect& panel) const;
@@ -144,6 +161,44 @@ private:
 	bool LegendCollapsed() const; // the right key dock's collapse flag for the mode
 	void ToggleLegend();          // flips that flag and persists
 
+	// --- level browsing (both modes) -----------------------------------------
+	// The viewport can SHOW a level other than the active one: the [^]/[v]
+	// header arrows step the viewed level through the project's level order (an
+	// edge level hides its dead-direction arrow — nothing above the top level,
+	// nothing below the bottom). A browsed level draws a read-only snapshot of
+	// its static layer + .ent records (and, in Player mode, its stashed fog);
+	// the selection, party marker, and live entity markers stay active-level.
+	// In EDITOR mode the brush works on a browsed level too — MapEditor routes
+	// those edits to DungeonWorld's remote seam (the level's stash), and Update
+	// rebuilds the snapshot after a paint so the edit shows immediately.
+	// m_browse null = viewing the active level (live state).
+	// Stem `step` levels away from the VIEWED one in the project's order
+	// ("" = none that way); +1 = below (next stem), -1 = above.
+	std::string LevelNeighbor(int step) const;
+	void StepViewLevel(int step); // rebuilds m_browse (or resets, back on active)
+	gfx::Rect LevelUpButton(const gfx::Rect& panel) const;
+	gfx::Rect LevelDownButton(const gfx::Rect& panel) const;
+
+	// Editor-mode save buttons, top-RIGHT of the grid area (mirroring the
+	// level-browse cluster top-left): Save, then To source beside it.
+	gfx::Rect SaveButton(const gfx::Rect& panel) const;
+	gfx::Rect SaveSourceButton(const gfx::Rect& panel) const;
+	// Editor-mode undo/redo: square < / > buttons left of Save, each drawn and
+	// hit-tested only while its stack has steps (like the edge-hidden level
+	// arrows); Ctrl+Z / Ctrl+Y do the same. The work is DungeonWorld's
+	// (Undo/Redo); this helper also refreshes a browsed level's snapshot so a
+	// restored stash shows immediately.
+	gfx::Rect UndoButton(const gfx::Rect& panel) const;
+	gfx::Rect RedoButton(const gfx::Rect& panel) const;
+	void DoUndoRedo(bool redo);
+	// A trigger only LATCHES here; Render draws the buttons disabled, and the
+	// NEXT Update executes. The restore itself is fast now (the surface rebake
+	// is deferred to editor close — DungeonWorld::FlushGeometry), but the
+	// respawn/WaitIdle can still hitch briefly, and the latch keeps the click
+	// visibly taken either way. 0 = idle, -1 = undo pending, +1 = redo
+	// pending. Triggers are swallowed while set.
+	int m_pendingHistory = 0;
+
 	gfx::GraphicsDevice& m_device;
 	DungeonWorld& m_world;
 	GameSettings& m_settings; // owns the persisted dock-collapse flags
@@ -159,11 +214,24 @@ private:
 	Vec2 m_pan{0.0f, 0.0f};
 	bool m_panning = false;
 	Vec2 m_lastMouse{0.0f, 0.0f};
+	Vec2 m_panStart{0.0f, 0.0f}; // pan-press position: release near it = a CLICK
 	// Grid cell currently under the mouse (-1 = none). Tracked in Update so Render
 	// can highlight hovered contents (e.g. the faint item icon goes opaque). Cell
 	// indices are resolution-independent, so this is valid across the window-pixel
 	// (Update) / device-pixel (Render) split.
 	int m_hoverX = -1, m_hoverZ = -1;
+	// Which chrome button the mouse is over, tracked the same way (Update
+	// hit-tests in window pixels; Render styles the matching device-pixel rect
+	// by IDENTITY, since the two spaces disagree numerically). Drives the shared
+	// ui::DrawButtonFace hover styling on the hand-drawn buttons.
+	enum class HoverBtn {
+		None, LevelUp, LevelDown, Undo, Redo, Save, SaveSource, CollapseL, CollapseR
+	};
+	HoverBtn m_hoverBtn = HoverBtn::None;
+
+	// Read-only snapshot of the browsed level (see the level-browsing section
+	// above); null = the viewport shows the active level's live state.
+	std::unique_ptr<DungeonWorld::LevelBrowse> m_browse;
 };
 
 } // namespace dungeon::game

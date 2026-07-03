@@ -10,6 +10,7 @@
 #include "UI/Controls.h"
 
 #include <algorithm>
+#include <cmath>
 
 namespace dungeon::game {
 
@@ -30,6 +31,7 @@ void AssetDialog::Open(const std::string& category, const std::string& catalogKe
 	m_orbit = 0.0f;
 	m_previewMesh.reset();
 	m_material = {}; // metallic 0, roughness 0.9, height 0, white
+	m_neutral = m_material; // Create writes only the sliders moved off these
 	Rebuild(theme);
 }
 
@@ -80,6 +82,22 @@ void AssetDialog::Rebuild(const ui::Theme& theme) {
 							  req.name = m_nameField ? m_nameField->text : std::string();
 							  req.sourcePath = m_sourcePath;
 							  req.material = m_material;
+							  // Only sliders moved off their opening values persist to
+							  // the catalog (see CreateRequest) — an untouched form
+							  // leaves an imported model's own maps authoritative.
+							  auto moved = [](float a, float b) {
+								  return std::abs(a - b) > 1e-4f;
+							  };
+							  req.metallicSet = moved(m_material.metallic, m_neutral.metallic);
+							  req.roughnessSet =
+								  moved(m_material.roughness, m_neutral.roughness);
+							  req.heightSet =
+								  moved(m_material.heightScale, m_neutral.heightScale);
+							  req.colorSet =
+								  moved(m_material.baseColor.x, m_neutral.baseColor.x) ||
+								  moved(m_material.baseColor.y, m_neutral.baseColor.y) ||
+								  moved(m_material.baseColor.z, m_neutral.baseColor.z) ||
+								  moved(m_material.baseColor.w, m_neutral.baseColor.w);
 							  if (onCreate) onCreate(req);
 							  Close();
 						  });
@@ -111,8 +129,12 @@ void AssetDialog::Browse() {
 	}
 	m_previewModel = std::move(*model);
 	m_previewMesh = std::make_unique<gfx::Mesh>(m_device, m_previewModel.meshes[0]);
-	if (!m_previewModel.materials.empty())
+	if (!m_previewModel.materials.empty()) {
 		m_material.baseColor = m_previewModel.materials[0].baseColorFactor;
+		// The seeded color is the model's own — neutral follows, so it only
+		// persists to the catalog if the user then changes it.
+		m_neutral.baseColor = m_material.baseColor;
+	}
 }
 
 void AssetDialog::Update(const Input& input, float width, float height, float dt) {

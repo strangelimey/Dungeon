@@ -187,9 +187,38 @@ public:
 
 	// Static decoration records (banners, rubble, ...) from the .map file.
 	const std::vector<Entity>& Decorations() const { return m_decorations; }
+	// Replaces the decoration records wholesale. The static-map stash syncs the
+	// LIVE editor placements back into records before stashing the map, so
+	// LoadDecorations rebuilds them on return (DungeonWorld::StashStaticMap).
+	void SetDecorationRecords(std::vector<Entity> records) {
+		m_decorations = std::move(records);
+	}
+	// Record-level decoration edits, for REMOTE-level editing (a non-active
+	// level has no live instances — its stash's records are the truth).
+	void AddDecorationRecord(Entity record) {
+		m_decorations.push_back(std::move(record));
+	}
+	// Removes the first decoration record on (x,z) (the erase tool: one per
+	// click, like the live path). False if the cell has none.
+	bool RemoveDecorationRecordAt(int x, int z);
+	// Removes every decoration record on (x,z) (a cell painted solid buries
+	// them all). Returns the number removed.
+	size_t RemoveDecorationRecordsAt(int x, int z);
 
 	// Stair/portal links from the .map "stairs" records (P6 multi-level).
 	const std::vector<StairLink>& Stairs() const { return m_stairs; }
+
+	// --- live stair placement (editor) ---------------------------------------
+	// One stair per cell (like braziers: every per-instance surface addresses a
+	// stair by its cell). The .map writer reads m_stairs, so placements persist.
+	// The paired return stair on the DESTINATION level is DungeonWorld's job
+	// (that level isn't loaded here). Returns false on a solid/OOB/occupied cell.
+	bool AddStair(const StairLink& link);
+	// The stair link on (x,z), or null.
+	const StairLink* StairAt(int x, int z) const;
+	// Removes the stair link at (x,z), copying it into `removed` first (so the
+	// caller can clean up its paired return stair). False if the cell has none.
+	bool RemoveStair(int x, int z, StairLink* removed = nullptr);
 
 	// Surface palettes from the level's "palette" records — lists of CATALOG
 	// IDs (project catalog/walls.cat, floors.cat, ceilings.cat). Order defines

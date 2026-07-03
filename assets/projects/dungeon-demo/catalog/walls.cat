@@ -1,50 +1,60 @@
 ; Wall surface types: texture set (assets/textures/<texture>_<res>) + the
 ; worn-block height displacement its parallax/relief uses. The worn mesh is
 ; derived as worn_<texture>_<tier>.gltf. Level palettes reference these ids.
+; `category` groups an entry under an editor-palette sub-accordion.
 
 [wall_brick]
 display = Brick
 texture = wall_brick
 height_scale = 0.055
+category = brick
 
 [wall_stone]
 display = Cut Stone
 texture = wall_stone
 height_scale = 0.055
+category = stone
 
 [wall_moss]
 display = Mossy Wall
 texture = wall_moss
 height_scale = 0.055
+category = stone
 
 ; --- scanned sets from textures.com (1k/2k/4k installed) ---
 [wall_cobblestone]
 display = Cobblestone
 texture = cobblestone_wall
 height_scale = 0.055
+category = stone
 
 [wall_stacked_stone]
 display = Stacked Stone
 texture = stacked_stone
 height_scale = 0.055
+category = stone
 
 [wall_brick_red]
 display = Red Brick
 texture = brick_red
 height_scale = 0.055
+category = brick
 
 [wall_plaster]
 display = Plaster
 texture = plaster
 height_scale = 0.04
+category = smooth
 
 [wall_rock]
 display = Cave Rock
 texture = rock_cliff
 height_scale = 0.06
+category = rock
 
 ; polished marble has no height map -> effectively flat parallax
 [wall_marble]
 display = Marble
 texture = marble_white
 height_scale = 0.02
+category = smooth

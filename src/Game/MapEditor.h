@@ -23,6 +23,7 @@
 
 #include <array>
 #include <functional>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -34,14 +35,16 @@ struct GameSettings;
 
 class MapEditor {
 public:
-	// Left-dock palette categories, drawn as a collapsible accordion. Tools is the
-	// built-in Select/Erase group; Structure toggles a cell solid/floor; Walls/
-	// Floors/Ceilings pin a surface variant on the clicked floor cell; the rest
-	// place catalog entities. A selection is always armed — left paints/places.
-	// Keep Count last (it sizes the per-category open-state array).
+	// Left-dock palette categories, drawn as a collapsible accordion. Structure
+	// toggles a cell solid/floor; Walls/Floors/Ceilings pin a surface variant on
+	// the clicked floor cell; the rest place catalog entities. Left-click paints/
+	// places the armed brush (nothing armed until a row is picked); the former
+	// Select/Erase tools live on the mouse instead — right-CLICK inspects a cell
+	// (InspectAt), middle-click erases (EraseAt). Keep Count last (it sizes the
+	// per-category open-state array).
 	enum class PaletteCat {
-		Tools, Structure, Walls, Floors, Ceilings,
-		Decorations, Fixtures, Monsters, Doors, Stairs, Items, Count
+		Structure, Walls, Floors, Ceilings,
+		Decorations, Fixtures, Monsters, Buttons, Doors, Stairs, Items, Count
 	};
 
 	MapEditor(MapView& view, DungeonWorld& world, GameSettings& settings);
@@ -92,8 +95,18 @@ public:
 	bool OnRightClick(float mx, float my, const gfx::Rect& panel);
 	// Paint/place the armed brush at grid cell (cx,cz). MapView calls this once on
 	// a fresh press and per-frame while held; `dragging` is true for held strokes
-	// (only paint brushes act on a drag; tools/placement act on the click only).
+	// (only paint brushes act on a drag; placement acts on the click only). A
+	// no-op until a palette row is armed.
 	void Paint(int cx, int cz, bool dragging) { ApplyBrush(cx, cz, dragging); }
+	// The former Select tool, now on right-CLICK (a right-drag still pans):
+	// reports the cell's contents, selects the square (highlight + patrol-route
+	// overlay), and opens the inspector immediately when it holds an editable
+	// object (onInspect — the owner picks the dialog, via the multi-object
+	// chooser when several share the cell).
+	void InspectAt(int cx, int cz);
+	// The former Erase tool, now on middle-click: the removal ladder (stair pair
+	// → entity → fixture → reset surface variants), one undo step per click.
+	void EraseAt(int cx, int cz);
 	// Draws the accordion inside the left dock body. MapView draws the dock frame,
 	// collapse button and "Brushes" header around it; this scissors to the body.
 	void RenderBody(gfx::SpriteBatch& batch, const ui::Theme& theme,
@@ -101,34 +114,50 @@ public:
 
 private:
 	// The armed palette entry: a category plus an item index within it.
+	// index -1 = nothing armed yet (left-click does nothing until a row is
+	// picked — the mouse-button inspect/erase work regardless).
 	struct Selection {
-		PaletteCat cat = PaletteCat::Tools;
-		int index = 0;
+		PaletteCat cat = PaletteCat::Structure;
+		int index = -1;
 	};
 
 	// One resolved palette item, for display and dispatch. `id` is the catalog id
 	// (entity categories) or surface-palette id; empty for built-in tools.
+	// `group` is the entry's free-form `category` field ("" = ungrouped): items
+	// sharing one collapse under a sub-accordion within their palette category,
+	// so a growing catalog stays navigable. Data-driven — any catalog groups
+	// the moment its entries carry the field (items.cat already does).
 	struct PaletteItem {
 		std::string label;
 		Vec4 swatch{1, 1, 1, 1};
 		std::string id;
+		std::string group;
 	};
 
 	// Accordion layout, shared by hit-test and draw: one row per category header,
-	// per visible item, and per empty-expanded placeholder. Rects are in panel
-	// pixel space with the scroll already applied.
+	// per visible item, per group sub-header, and per empty-expanded placeholder.
+	// Rects are in panel pixel space with the scroll already applied.
 	struct PaletteRow {
-		enum class Kind { Header, NewButton, Item, Empty } kind;
+		enum class Kind { Header, NewButton, SubHeader, Item, Empty } kind;
 		PaletteCat cat;
 		int index; // item index for Kind::Item
 		gfx::Rect rect;
+		std::string group; // SubHeader: the group it toggles; Item: its group
 	};
 
-	// Categories that can author new assets (everything but the built-in tools and
-	// structure brushes) get a "+ New..." row that opens the asset dialog.
-	static bool Creatable(PaletteCat cat) {
-		return cat != PaletteCat::Tools && cat != PaletteCat::Structure;
+	// Sub-accordion expand state, keyed "<cat>/<group>" (transient, like
+	// m_catOpen). Groups default COLLAPSED — the whole point is a short list.
+	static std::string GroupKey(PaletteCat cat, const std::string& group) {
+		return std::to_string(static_cast<int>(cat)) + "/" + group;
 	}
+	bool GroupOpen(PaletteCat cat, const std::string& group) const {
+		const auto it = m_groupOpen.find(GroupKey(cat, group));
+		return it != m_groupOpen.end() && it->second;
+	}
+
+	// Categories that can author new assets (everything but the built-in
+	// structure brushes) get a "+ New..." row that opens the asset dialog.
+	static bool Creatable(PaletteCat cat) { return cat != PaletteCat::Structure; }
 
 	// The items of a category: built-in (Tools/Structure) or resolved from the
 	// project's catalogs / the level palette (Walls/Floors/Ceilings/entities).
@@ -146,11 +175,11 @@ private:
 	Selection m_sel; // armed palette entry
 	// Per-category accordion expand state; Tools + Structure + Walls open by default.
 	std::array<bool, static_cast<size_t>(PaletteCat::Count)> m_catOpen{};
+	std::map<std::string, bool> m_groupOpen; // sub-accordions (see GroupKey)
 	float m_paletteScroll = 0.0f; // left-dock vertical scroll (pixels)
 	u32 m_routeId = 0;            // monster whose patrol route is being laid (0 = none)
 	int m_selX = -1, m_selZ = -1; // selected square (-1 = none)
 	u32 m_selMonster = 0;         // creature selected there (0 = none), for its route
-	bool m_selInspectable = false; // selected square holds an inspectable (monster/torch)
 };
 
 } // namespace dungeon::game

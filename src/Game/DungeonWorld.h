@@ -109,6 +109,22 @@ public:
 	// The baked 3D icon for an item type (building its kind on demand), or null
 	// for a model-less item (the caller falls back to its flat placeholder).
 	const gfx::Texture* ItemIconFor(const std::string& typeId);
+	// Renders the map overlay's baked icons: each monster kind's HEAD SHOT (its
+	// mesh in rest pose framed on the model's top quarter — a skull for the
+	// skeleton), each decoration kind's whole model (props read best in full;
+	// covers button levers too, they share the kind cache), and the sconce +
+	// brazier fixture meshes. Bakes once per kind; call every frame like
+	// UpdateItemIcons (and unlike it, also while the editor covers the scene —
+	// the map overlay is what draws these). Redirects the OM and rebinds.
+	void UpdateMapIcons(ID3D12GraphicsCommandList* list, gfx::SpriteBatch& sprites);
+	// The baked icons for already-loaded kinds, or null (not loaded / not baked
+	// yet) — the map overlay then falls back to its square markers. These never
+	// force-load a model (browse markers may name unloaded types).
+	const gfx::Texture* MonsterIconFor(const std::string& type) const;
+	const gfx::Texture* DecorationIconFor(const std::string& type) const;
+	const gfx::Texture* ItemIconLookup(const std::string& type) const;
+	const gfx::Texture* SconceIcon() const { return m_sconceIcon.get(); }
+	const gfx::Texture* BrazierIcon() const { return m_brazierIcon.get(); }
 
 	// Torchlight palette (the HUD dropdown): 0 warm, 1 cold blue, 2 eerie
 	// green. Announces the change through onMessage.
@@ -260,6 +276,21 @@ public:
 	void SetDecorationFacing(int index, Direction facing); // rebakes the transform
 	Direction ItemFacing(int entityId) const;
 	void SetItemFacing(int entityId, Direction facing);
+	// Targeted removal by the same handles (the inspectors' Delete button —
+	// unlike RemoveEntityAt's ladder, these take out exactly the inspected
+	// object). Decorations refuse a stair prop (RemoveStairAt owns those); the
+	// item's .ent record goes with it. Both return false on a stale handle.
+	bool RemoveDecorationByIndex(int index);
+	bool RemoveItemById(int entityId);
+	// The inspected decoration's raw catalog id (its display name is what the
+	// picker shows) — "" on a stale handle.
+	std::string DecorationTypeByIndex(int index) const;
+	// The per-TYPE map facing-arrow flag (catalog facing_arrow, default 1):
+	// no-load queries for the marker/browse paths, and the live half of the
+	// inspector checkbox's type edit (Game writes the catalog field + saves).
+	bool DecorationShowsFacing(const std::string& type) const;
+	bool MonsterShowsFacing(const std::string& type) const; // faces= flag
+	void SetDecorationFacingArrow(const std::string& type, bool show);
 	// Any editor-inspectable object on the cell (monster/torch/brazier/decoration/item)?
 	bool AnyInspectableAt(int cx, int cz) const;
 	// Erase a fixture (sconce or brazier) at the cell, live (rebuilds fires/dust).
@@ -336,6 +367,11 @@ public:
 		int x = 0, z = 0;
 		Direction facing = Direction::South;
 	};
+	// A pit fall is in progress (the step glide onto the pit, then the camera
+	// drop). Movement is swallowed while it runs — the keyboard path gates in
+	// Update, the HUD arrow path gates in Game's onMoveAction callback.
+	bool Falling() const { return m_pendingFall.has_value(); }
+
 	// Returns and clears a transition raised since the last call (the party
 	// stepped onto a stair this frame); nullopt otherwise. Game polls this after
 	// the world Update and drives the actual swap (BeginLevelTransition), so the
@@ -367,8 +403,9 @@ public:
 	// --- map editor seam (driven by MapView) --------------------------------
 	// Paints a cell to a new type, revealing it and rebuilding the affected
 	// surface geometry. Drains the GPU, so it is an interactive edit, not a
-	// per-frame call. Structural only: fixtures, turbidity, and decorations
-	// are not recomputed (matches DungeonMap::SetCell).
+	// per-frame call. Whatever the repaint strands is pruned with it — fixtures
+	// (DungeonMap::PruneFixturesForCell) and dynamic entities / decorations
+	// (PruneEntitiesForCell) — so live state always matches the new grid.
 	void EditCell(int x, int z, Cell cell);
 
 	// Which surface a variant edit targets.
@@ -390,9 +427,152 @@ public:
 	// floor) and rebuilds the fire instances + dust so it lights immediately and
 	// persists. Returns false on an invalid cell (e.g. a sconce with no wall).
 	bool AddFixture(const std::string& type, int x, int z);
-	// Removes the topmost runtime entity in a cell (a monster first, else a
-	// decoration). Returns true if something was removed.
+	// Removes the topmost runtime entity in a cell (a monster first, then a
+	// door — live instance + its .ent record — else a decoration). Stair props
+	// are skipped — a stair is link + prop + a paired record on another level,
+	// so it only goes through RemoveStairAt. Returns true if something was
+	// removed.
 	bool RemoveEntityAt(int x, int z);
+
+	// Places a door (doors.cat id) on a DOORWAY cell: the travel direction is
+	// auto-detected from the flanking walls (exactly one axis must be walled),
+	// so the brush needs no facing UI. Authors the .ent record (the writer and
+	// the level stash carry it) and spawns the live door closed. Refuses — with
+	// a specific onMessage line — when the cell isn't a doorway or is occupied.
+	bool AddDoor(const std::string& type, int x, int z);
+	// Click interaction: toggles the door on the cell directly AHEAD of the
+	// party (arm's reach), sliding the panel open/shut. A monster standing in
+	// the doorway jams a closing door. A keyed (key=) closed door opens only
+	// while some member carries that item (not consumed; wired buttons bypass
+	// the lock — mechanisms don't need the key). False if no door is ahead.
+	bool ToggleDoorAhead();
+	// True if any party member carries the item (equipment or pack contents).
+	bool PartyHasItem(std::string_view typeId) const;
+
+	// Places a button (buttons.cat id) on (x,z), auto-mounted on the cell's
+	// first solid wall (refused with a message when the cell has none).
+	// Record-backed like doors: the .ent record and the live instance are
+	// authored together. Wiring (target=) is edited in the button inspector.
+	bool AddButton(const std::string& type, int x, int z);
+	// Places a floor item (items.cat id) on (x,z): record-backed like doors and
+	// buttons — authors the .ent record and lays the live item in the quarter
+	// slot nearest the cell centre. Refused when the cell already holds four
+	// items (one per quarter). The party can pick a placed item up in play like
+	// any authored one (baseline record + collected save diff).
+	bool AddItem(const std::string& type, int x, int z);
+	// Click interaction: presses the button on the party's OWN cell mounted on
+	// the wall the party faces. False if there isn't one.
+	bool PressButtonFacing();
+	// Button instance surface for the inspector: presence + wired target, and
+	// the live/record edit (target= param; in-memory until savemap).
+	bool ButtonSettings(int x, int z, std::string& target) const;
+	void SetButtonSettings(int x, int z, const std::string& target);
+	// Distinct non-empty door names on the ACTIVE level, for the inspector's
+	// Target dropdown (buttons only reach doors on their own level).
+	std::vector<std::string> DoorNames() const;
+	// The button's lever mesh for the inspector's preview pane.
+	std::vector<gfx::PreviewSubmesh> ButtonPreviewSubs(int x, int z) const;
+	// Live doors for the map overlay (bar markers across the travel axis).
+	struct DoorMarker {
+		int x = 0, z = 0;
+		Direction facing = Direction::South;
+		bool open = false;
+	};
+	std::vector<DoorMarker> DoorMarkers() const;
+
+	// Door instance surface for the editor's inspector. DoorSettings reports
+	// the door on (x,z) (false = none); SetDoorSettings applies open/key/name
+	// to the LIVE door (slide anim, initialOpen follows — the editor edits the
+	// AUTHORED state) and to its .ent record's open=/key=/name= params
+	// (in-memory until savemap, like every editor edit). `name` is what a
+	// button's target= points at (ToggleDoorsNamed).
+	bool DoorSettings(int x, int z, bool& open, std::string& key,
+					  std::string& name) const;
+	void SetDoorSettings(int x, int z, bool open, const std::string& key,
+						 const std::string& name);
+	// The door's frame + panel meshes for the inspector's preview pane.
+	std::vector<gfx::PreviewSubmesh> DoorPreviewSubs(int x, int z) const;
+
+	// Places a stair on level `stem` (stairs.cat id; its `up` field picks the
+	// level above or below in the project's level order) and AUTO-AUTHORS the
+	// paired return stair at the same cell of that destination level. Either
+	// side lands on the ACTIVE level's live map (prop placed too) when it is
+	// the active level, else on the level's in-memory stash (created from the
+	// file on first edit; a stash wins over the file on entry, and `savemap`
+	// writes every stashed level). Each stair's dest is the other's cell, so
+	// the party arrives standing on the counterpart. Validates both cells
+	// (walkable, no stair, no brazier) against their authoritative maps and
+	// refuses with a specific onMessage line otherwise; all feedback (success
+	// too) goes through onMessage.
+	bool AddStairAt(const std::string& stem, const std::string& type, int x, int z);
+	// Removes the ACTIVE level's stair at (x,z): the link, its prop, and the
+	// paired return stair on its destination (live or stash — see
+	// RemovePairedStair). False if the cell has no stair. The remote-level
+	// counterpart is the stair rung of EraseRemote.
+	bool RemoveStairAt(int x, int z);
+
+	// --- remote level editing (the map overlay edits ANY level) --------------
+	// Counterparts of the live editing seam for a NON-ACTIVE level `stem`:
+	// they operate on the level's in-memory stashes (see m_levelMaps /
+	// m_levelEnts) — no geometry or live-instance work, since the level isn't
+	// simulated or rendered in 3D. Feedback goes through onMessage like the
+	// live seam. `savemap` (SaveAllLevels) persists the stashes.
+	void EditCellRemote(const std::string& stem, int x, int z, Cell cell);
+	void EditVariantRemote(const std::string& stem, int x, int z, SurfaceSel sel,
+						   int variant);
+	bool AddDecorationRemote(const std::string& stem, const std::string& type,
+							 int x, int z);
+	bool AddMonsterRemote(const std::string& stem, const std::string& type,
+						  int x, int z);
+	bool AddFixtureRemote(const std::string& stem, const std::string& type,
+						  int x, int z);
+	bool AddDoorRemote(const std::string& stem, const std::string& type, int x,
+					   int z);
+	bool AddButtonRemote(const std::string& stem, const std::string& type, int x,
+						 int z);
+	bool AddItemRemote(const std::string& stem, const std::string& type, int x,
+					   int z);
+	// The erase ladder for a remote cell, mirroring the live tool: stair (pair
+	// removed too) → one monster/door/button/item record → one decoration
+	// record → fixture → reset the cell's surface variants. Always acts (the
+	// last rung is a reset), messaging what it did.
+	void EraseRemote(const std::string& stem, int x, int z);
+
+	// Saves every level with unsaved edits: the active one (SaveLevel) plus
+	// each stashed level (WriteStashedLevel). Returns the stems written.
+	std::vector<std::string> SaveAllLevels();
+
+	// --- editor undo/redo (snapshot-based) ------------------------------------
+	// One undo step = a full copy of every level's editor-visible state: the
+	// active level's map (live decoration placements synced into records), its
+	// .ent records, and a dynamic-state snapshot (the same LevelState the
+	// level-swap stash uses, so editor-placed monsters and door/button state
+	// round-trip), plus copies of every remote-edited level's stashes. Levels
+	// are a few KB, so whole-state snapshots beat per-operation inverses —
+	// structural paints cascade (fixture/entity/stair-pair pruning) and stair
+	// placement spans two levels, and a snapshot restore is correct by
+	// construction. MapEditor brackets each brush edit (a drag stroke is ONE
+	// step): BeginUndoStep snapshots before the first cell, CommitUndoStep
+	// pushes it (clearing the redo stack) or drops a no-op. Undo/Redo restore
+	// in place — the active level respawns its dynamic layer from the records
+	// + diffs and fully rebakes its geometry (the quality-swap path). The
+	// stacks clear on a level transition: a step's active-level snapshot is
+	// only meaningful while that level is live.
+	void BeginUndoStep();
+	void CommitUndoStep(bool changed);
+	bool CanUndo() const { return !m_undoStack.empty(); }
+	bool CanRedo() const { return !m_redoStack.empty(); }
+	void Undo();
+	void Redo();
+	// An undo/redo restore DEFERS the expensive surface rebake: the full-screen
+	// editor hides the scene and shadow passes, so the stale chunks are never
+	// drawn while it stays up, and repeated undos pay nothing. GeometryDirty
+	// reports the debt; FlushGeometry pays it (GPU drain + full rebake + shadow
+	// invalidation) — Game calls it when editor mode ends, behind a one-frame
+	// "rebuilding geometry" notice. Any full rebake (level load, quality swap)
+	// clears the flag itself.
+	bool GeometryDirty() const { return m_geometryDirty; }
+	void FlushGeometry();
 
 	// A live entity's cell + type, for the map overlay (placed/erased entities
 	// show immediately, and the marker can label its type + stack count). Built
@@ -401,9 +581,33 @@ public:
 		int x = 0, z = 0;
 		std::string type; // catalog id (monster kind / decoration kind)
 		Direction facing = Direction::South; // for the editor's facing arrow
+		// Baked head-shot icon (monsters), or null — the overlay then falls back
+		// to its colored square + type initial.
+		const gfx::Texture* icon = nullptr;
+		// Whether the editor draws the facing arrow: the type's facing_arrow
+		// flag (decorations) / faces= (monsters — a blob never turns anyway).
+		bool facingArrow = true;
 	};
 	std::vector<MapMarker> MonsterMarkers() const;
 	std::vector<MapMarker> DecorationMarkers() const;
+
+	// A read-only snapshot of ANOTHER level for the map overlay's up/down level
+	// browsing: its static map (the in-session edit stash wins over the file),
+	// its .ent baseline (authored spawns — live/dynamic state exists only for
+	// the active level), and the fog set stashed when the party last left it
+	// (empty = never visited, nothing revealed). Built fresh per switch — two
+	// cheap ASCII parses, no GPU work.
+	struct LevelBrowse {
+		std::string stem;
+		DungeonMap map;
+		DungeonEntities entities;
+		std::vector<u8> seen; // w*h mask like m_seen; empty = nothing revealed
+		LevelBrowse(std::string s, DungeonMap m, const std::string& entPath)
+			: stem(std::move(s)), map(std::move(m)), entities(entPath, map) {}
+		LevelBrowse(std::string s, DungeonMap m, DungeonEntities e)
+			: stem(std::move(s)), map(std::move(m)), entities(std::move(e)) {}
+	};
+	std::unique_ptr<LevelBrowse> BrowseLevel(const std::string& stem);
 
 	// Writes the active level back to the project's .map + .ent files,
 	// reconstructing records from the live state (grid + variant overrides +
@@ -525,6 +729,12 @@ private:
 		// falls back to "supported iff the state has clips" (back-compat). Idle is
 		// always on (the rest pose); Die is always considered on death regardless.
 		std::array<bool, anim::kCreatureStateCount> stateSupported{};
+		// Baked head-shot icon for the map overlay (a skull for the skeleton, the
+		// slime's dome, ...): the kind's mesh rendered once into a small RT,
+		// framed on the model's upper portion (UpdateMonsterIcons). Data-driven —
+		// every kind gets one from its own model, no authored 2D art. Starts
+		// transparent until the bake runs.
+		std::unique_ptr<gfx::Texture> iconTarget;
 	};
 	struct Monster {
 		const MonsterKind* kind = nullptr; // points into m_monsterKinds (stable)
@@ -698,12 +908,36 @@ private:
 	// by `id` like a monster. The interaction itself (what a target does) is the
 	// P5 door/mechanism work; this is the persistent state it will toggle. Buttons
 	// have no model of their own yet (the map overlay marks them).
+	struct DecorationKind; // declared with the decoration machinery below
+
 	struct Button {
 		int id = -1;                         // source Entity::id (.ent baseline)
 		int x = 0, z = 0;                    // the cell it mounts in
 		Direction facing = Direction::South; // the solid wall it faces
-		std::string target;                  // wired entity id (target= param)
+		std::string target;                  // wired door name (target= param)
 		bool activated = false;              // pressed / toggled on (saved)
+		// Lever mesh (buttons.cat), wall-mounted at hand height; the render
+		// tilts it by `activated`. Null for a type the catalog doesn't know
+		// (hand-authored legacy records) — such a button works but is invisible.
+		const DecorationKind* kind = nullptr;
+	};
+
+	// A door filling a doorway cell (side walls flank the travel axis). Closed
+	// it blocks the party, monsters, and projectiles; the panel slides sideways
+	// into the wall as it opens (openT animates toward `open`). `facing` is the
+	// travel direction through it; `name` is what buttons target (name= param).
+	// Open-state diffs ride the save like button toggles (kind Door, activated).
+	struct Door {
+		int id = -1;                         // source Entity::id (.ent record)
+		int x = 0, z = 0;
+		Direction facing = Direction::South; // travel axis (panel spans the other)
+		std::string name;                    // button-target id ("" = unwired)
+		std::string key;                     // item id that unlocks it ("" = none)
+		bool open = false;
+		bool initialOpen = false;            // authored state (open= param)
+		float openT = 0.0f;                  // slide anim, 0 closed .. 1 open
+		const DecorationKind* panel = nullptr;
+		const DecorationKind* frame = nullptr;
 	};
 
 	// Static architecture decorations from the .map layer (column, archway,
@@ -728,6 +962,24 @@ private:
 		bool authored = false;     // imported model: consistently wound -> back-cull
 		bool solidDefault = true;  // floor-standing blocks the party (passages don't)
 		float alphaCutoff = 0.0f;  // > 0: alpha-test cutout (masked set, e.g. a gate)
+		// Whether the editor map draws the green facing arrow on instances of
+		// this type (catalog `facing_arrow`, default 1). Radially symmetric
+		// props — columns, pots, boulders — turn it off; the inspector's
+		// checkbox beside the Facing dropdown edits it per type.
+		bool facingArrow = true;
+		// Baked whole-model map icon (like MonsterKind's head shot, but props
+		// read best in full). Transparent until UpdateMapIcons bakes it.
+		std::unique_ptr<gfx::Texture> iconTarget;
+		// Catalog material overrides (the asset dialog's sliders persist here as
+		// metallic=/roughness=/height_scale=/color= fields; absent = -1/untinted =
+		// leave the resolved material alone). metallic/roughness REPLACE the draw's
+		// factors — with an ORM map the shader multiplies them over the map, flat
+		// fallbacks take them directly. tint replaces baseColor (over the albedo).
+		float metallic = -1.0f;
+		float roughness = -1.0f;
+		float heightScale = -1.0f;
+		bool hasTint = false;
+		Vec4 tint{1, 1, 1, 1};
 	};
 	struct Decoration {
 		const DecorationKind* kind = nullptr; // points into m_decorationKinds
@@ -795,6 +1047,19 @@ private:
 	void LoadMonsters();
 	void LoadItems(); // instantiates EntityKind::Item records (runes) from .ent
 	void LoadButtons(); // instantiates EntityKind::Button records from .ent
+	void LoadDoors();   // instantiates EntityKind::Door records from .ent
+	// Builds one live Door from its record (kinds lazily loaded via the doors
+	// catalog: the type's entry = the panel, [door_frame] = the shared frame).
+	void SpawnDoor(const Entity& record);
+	Door* DoorAt(int x, int z);
+	const Door* DoorAt(int x, int z) const;
+	// The travel direction for a door on (x,z): exactly ONE axis must be
+	// flanked by solid walls (the panel spans it); false = no doorway there.
+	static bool DoorwayFacing(const DungeonMap& map, int x, int z, Direction& out);
+	// Toggles one door (with the doorway-occupied jam check + message/anim) /
+	// every door whose name matches a button's target.
+	bool ToggleDoor(Door& door);
+	void ToggleDoorsNamed(const std::string& name);
 	// Lazily loads (and caches) the shared behaviour for an item type, resolved
 	// through the items catalog (category=rune → symbol + element glow colour).
 	ItemKind& ItemKindFor(const std::string& type);
@@ -832,6 +1097,9 @@ private:
 	Vec3 DesiredAnchor(const Monster& m, const Vec3& partyPos) const;
 	void LoadDecorations();
 	void LoadStairs(); // places stair props (P6) from the map's stair links
+	// Instantiates one stair link's prop (a non-solid decoration flagged stair).
+	// Shared by LoadStairs and the editor's live placement (AddStair).
+	void PlaceStairProp(const StairLink& link);
 	// Lazily loads (and caches) the shared assets for a monster / decoration
 	// type (model + mesh + PBR set), resolved through `catalog` (decorations.cat
 	// for props, stairs.cat for stair props). Shared by the initial load and live
@@ -863,6 +1131,12 @@ private:
 	// prop draw (decorations, fires, pillar, monsters).
 	static void ApplyPropMaterial(gfx::MaterialParams& m, const PropTextures* tex,
 								  const Vec4& fallbackColor, float fallbackRoughness);
+	// The DecorationKind flavour: the set/color fill above plus the kind's catalog
+	// material overrides (metallic=/roughness=/height_scale=/color=). Every draw
+	// of a single-mesh catalog prop (decoration/door/button/stair + previews)
+	// routes through this so the overrides apply everywhere alike.
+	static void ApplyPropMaterial(gfx::MaterialParams& m, const DecorationKind& kind,
+								  float fallbackRoughness);
 	// Shared body of Sconce/BrazierPreview: prop mesh + material + flame origin.
 	FixturePreviewData FixturePreview(const PropTextures* tex, const Vec4& color,
 									  const gfx::Mesh* mesh, float flameY,
@@ -872,9 +1146,21 @@ private:
 	// decoration path.
 	static std::unique_ptr<MultiMaterialModel> BuildMultiMaterialModel(
 		gfx::GraphicsDevice& device, const assets::ModelData& model);
+	// Bakes the entry's metallic=/roughness=/color= overrides into an authored
+	// model's per-submesh materials (the multi-material twin of the DecorationKind
+	// ApplyPropMaterial overload).
+	static void BakeCatalogMaterial(MultiMaterialModel& model,
+									const CatalogEntry* def);
 	void BuildFires();
 	void BuildTurbidityMap();
 	void RebuildFiresAndDust(); // WaitIdle + rebuild fires + dust (live sconce edits)
+	// A structural repaint strands whatever occupied the cell: painted solid ⇒
+	// remove the monsters/items/buttons/decorations (and their .ent records)
+	// standing on it; painted open ⇒ re-mount or drop the neighbouring buttons /
+	// wall decorations that hung on it. The dynamic-layer sibling of DungeonMap::
+	// PruneFixturesForCell — keeps live state consistent with the grid so
+	// SaveLevel and the level stash never persist a record the loaders reject.
+	void PruneEntitiesForCell(int x, int z);
 
 	// --- per-frame --------------------------------------------------------------
 	void UpdateCamera();
@@ -979,6 +1265,13 @@ private:
 	// Stashes the active level's live state into m_levelStates[m_currentLevel],
 	// so a later return (or a save) can restore it.
 	void StashActive();
+	// Whether (x,z)'s floor / ceiling block is an OPENING the builders skip
+	// (CellHolesFn): driven by the stair link's stairs.cat `hole` field —
+	// "floor" for down stairs and pits (defaulted for any up=0 type), "ceiling"
+	// for a pit's lower half on the level below. Stair placement/erase rebuilds
+	// the touched chunks so holes open/close immediately.
+	bool FloorHoleAt(int x, int z) const;
+	bool CeilingHoleAt(int x, int z) const;
 	// Rebuilds only the surface chunks an edit at (x,z) touched — the cell's own
 	// chunk plus, via shared wall faces, its orthogonal neighbours' chunks — so a
 	// paint costs a handful of chunk uploads, not the whole map. Drains the GPU
@@ -1071,8 +1364,26 @@ private:
 	gfx::ComPtr<ID3D12DescriptorHeap> m_iconDsvHeap;
 	std::unique_ptr<gfx::Texture> m_iconHalo; // soft round disc, white w/ radial alpha
 	bool m_itemIconsBaked = false;
+	// Monster head-shot + decoration whole-model map icons (each kind's
+	// iconTarget), sharing the item bakes' depth/halo. A flag resets when a new
+	// kind loads so it bakes next frame; the two fixture icons gate on their
+	// texture existing instead (their meshes load once at boot).
+	bool m_monsterIconsBaked = false;
+	bool m_decorationIconsBaked = false;
+	std::unique_ptr<gfx::Texture> m_sconceIcon;
+	std::unique_ptr<gfx::Texture> m_brazierIcon;
+	// Creates the shared icon depth target + halo on first use (all bakers).
+	void EnsureIconBakeTargets();
+	// One kind's head-shot bake: rest-pose mesh, framed on the model's top.
+	void BakeMonsterIcon(ID3D12GraphicsCommandList* list, gfx::SpriteBatch& sprites,
+						 const MonsterKind& kind);
+	// A static mesh baked whole (fit by its bounds): decorations, fixtures.
+	void BakeMeshIcon(ID3D12GraphicsCommandList* list, gfx::SpriteBatch& sprites,
+					  const gfx::Mesh& mesh, const gfx::MaterialParams& material,
+					  const Vec3& lo, const Vec3& hi, const gfx::Texture& target);
 	std::vector<Item> m_items;
-	std::vector<Button> m_buttons; // .ent buttons (state-only until P5 wiring)
+	std::vector<Button> m_buttons; // .ent buttons (toggle wired doors by name)
+	std::vector<Door> m_doors;     // .ent doors (live open/anim state)
 	// Shared carved-stone tablet, loaded once on the first rune kind; every rune
 	// draws this mesh with its own element texture set.
 	assets::ModelData m_runeModel;
@@ -1139,14 +1450,100 @@ private:
 	std::flat_map<std::string, std::unique_ptr<PropTextures>> m_propTextures;
 	std::vector<Decoration> m_decorations;
 	std::optional<LevelTransition> m_pendingTransition; // raised by a stair step
+	// A pit fall in flight: the transition latched when the party stepped onto
+	// a `fall` link. The step glide finishes first (m_fallT < 0 = still
+	// waiting), then the camera drops through the hole (PartyEye) and the
+	// stashed transition is raised. See Update's fall block.
+	std::optional<LevelTransition> m_pendingFall;
+	float m_fallT = -1.0f;
+	// The party's eye for the camera / carried torch / particle sort:
+	// Party::EyePosition plus the pit-fall drop, so the view and the light it
+	// carries sink through the opening together.
+	Vec3 PartyEye() const;
 	// Dynamic state of INACTIVE visited levels (the active level's state is live
 	// in m_seen/m_monsters). Stashed on leave, restored on return; the source for
 	// a multi-level save (CaptureState) and filled by a load (ApplyState).
 	std::flat_map<std::string, SaveData::LevelState> m_levelStates;
+	// STATIC layer of inactive levels — the static twin of m_levelStates, so
+	// UNSAVED editor edits (cells, variants, fixtures, stairs, decorations)
+	// survive a level swap in memory instead of being dropped by the disk
+	// re-parse. Stashed on leave (StashStaticMap), consumed on entry
+	// (BeginLevelLoad), CREATED ON DEMAND by remote-level editing
+	// (EnsureMapStash — the map overlay can edit any level, not just the active
+	// one). unique_ptr so references survive sibling insertions. `savemap`
+	// (SaveAllLevels) writes every stashed level back to its files.
+	std::flat_map<std::string, std::unique_ptr<DungeonMap>> m_levelMaps;
+	// The .ent-record twin of m_levelMaps: baseline records of inactive levels
+	// whose RECORDS were edited (remote placements/erases, or active-level
+	// prunes carried out by structural paints). Record ids are stable across
+	// removals, so m_levelStates' per-id dynamic diffs stay valid against a
+	// stashed baseline. Only edited levels get an entry (m_entsDirty tracks the
+	// active level) — an untouched .ent file is never rewritten.
+	std::flat_map<std::string, std::unique_ptr<DungeonEntities>> m_levelEnts;
+	// The active level's m_entities records diverged from the .ent file on disk
+	// (a prune/re-face edited them); stash them on leave so the divergence
+	// survives the swap and savemap writes it.
+	bool m_entsDirty = false;
+	// Copies the active map into m_levelMaps, first syncing the live decoration
+	// placements back into its records (AddDecoration only appends a live
+	// instance; LoadDecorations rebuilds from records on return).
+	void StashStaticMap();
+	// The stash for `stem`, parsing the level's files on first use. The map
+	// variant also creates nothing else; the ents variant needs the map for
+	// record validation (soft: stale records skip with a warning). Never call
+	// for the ACTIVE level (its truth is m_map/m_entities).
+	DungeonMap& EnsureMapStash(const std::string& stem);
+	DungeonEntities& EnsureEntStash(const std::string& stem);
+	// Removes the paired return stair that `removed` (just taken off level
+	// `fromStem`) points at: on the live map when that side is the active level
+	// (prop erased too), else on its stash. Matched by cell + back-link, so a
+	// hand-authored one-way link is left alone. True if a pair was removed.
+	bool RemovePairedStair(const std::string& fromStem, const StairLink& removed);
+	// The record-level twin of PruneEntitiesForCell for a STASHED level: a cell
+	// painted solid buries the records standing on it (stairs via the pair
+	// helper); one painted open re-faces neighbouring button records onto
+	// another solid wall of their cell (or drops them). Wall-mounted decoration
+	// records are left to the soft loaders (skip + warn) — they re-resolve on
+	// the next entry.
+	void PruneStashRecordsForCell(const std::string& stem, int x, int z);
+	// Serializes a stashed level back to its .map (+ .ent when its records were
+	// edited). The static writer is shared with SaveLevel.
+	bool WriteStashedLevel(const std::string& stem) const;
+
+	// --- editor undo/redo internals (see the public section) ------------------
+	// Live decoration placements as .map records (the SaveLevel writer's emit in
+	// record form). Shared by StashStaticMap and the undo capture.
+	std::vector<Entity> LiveDecorationRecords() const;
+	// A full editor-state snapshot: the active level (map with decoration
+	// records synced, .ent records, dynamic-state diffs) + every stash. Levels
+	// are a few KB, so a copy per edit is nothing.
+	struct EditorSnapshot {
+		std::string stem;            // active level at capture
+		DungeonMap map;              // live decoration records synced in
+		DungeonEntities ents;
+		bool entsDirty = false;
+		SaveData::LevelState state;  // live dynamic diffs (SnapshotActive)
+		std::flat_map<std::string, std::unique_ptr<DungeonMap>> stashMaps;
+		std::flat_map<std::string, std::unique_ptr<DungeonEntities>> stashEnts;
+	};
+	EditorSnapshot CaptureEditorState() const;
+	// Restores a snapshot in place: static + records move-assigned, stashes
+	// replaced wholesale, the dynamic layer respawned from the records and the
+	// captured diffs (the level-swap flow), geometry fully rebaked (the
+	// quality-swap path).
+	void RestoreEditorState(EditorSnapshot snap);
+	void ClearUndoHistory(); // level transitions invalidate active-level snaps
+	std::vector<EditorSnapshot> m_undoStack;
+	std::vector<EditorSnapshot> m_redoStack;
+	std::optional<EditorSnapshot> m_pendingUndo; // BeginUndoStep .. CommitUndoStep
+	bool m_geometryDirty = false; // a restore skipped the rebake (FlushGeometry)
 
 	std::vector<Fire> m_fires;
 	std::unique_ptr<gfx::Mesh> m_sconceMesh;
 	std::unique_ptr<gfx::Mesh> m_brazierMesh;
+	// The fixtures' source models, kept for the map-icon bake's bounds fit.
+	assets::ModelData m_sconceModel;
+	assets::ModelData m_brazierModel;
 	Vec4 m_sconceColor{1, 1, 1, 1};
 	Vec4 m_brazierColor{1, 1, 1, 1};
 	const PropTextures* m_sconceTex = nullptr;  // worn-medieval iron (sconce_<res>)

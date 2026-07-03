@@ -66,7 +66,9 @@ void Collect(std::vector<assets::MeshData>& buckets, int chunkIndex,
 
 // Instances one floor cell — its floor, ceiling, and the wall blocks on edges
 // bordering solid rock — into per-variant bucket meshes (indexed by variant).
-void StampCell(const DungeonMap& map, int x, int z,
+// `holes` drops the cell's floor and/or ceiling block (a stair/pit shaft
+// opening; the prop mesh brings its own shaft geometry).
+void StampCell(const DungeonMap& map, int x, int z, CellHoles holes,
 			   std::span<const assets::MeshData> wallBlocks,
 			   std::span<const assets::MeshData> floorBlocks,
 			   std::span<const assets::MeshData> ceilingBlocks,
@@ -84,14 +86,18 @@ void StampCell(const DungeonMap& map, int x, int z,
 		if (over < 0) return hashed;
 		return count > 0 ? std::min(static_cast<u32>(over), count - 1) : 0u;
 	};
-	const u32 floorVariant = pick(map.FloorVariant(x, z),
-								   VariantFor(x, z, 1u, floorVariants), floorVariants);
-	AppendTransformed(floorB[floorVariant], floorBlocks[floorVariant],
-					  XMMatrixTranslation(center.x, 0, center.z));
-	const u32 ceilingVariant = pick(map.CeilingVariant(x, z),
-									 VariantFor(x, z, 2u, ceilingVariants), ceilingVariants);
-	AppendTransformed(ceilB[ceilingVariant], ceilingBlocks[ceilingVariant],
-					  XMMatrixTranslation(center.x, kWallHeight, center.z));
+	if (!holes.floor) {
+		const u32 floorVariant = pick(map.FloorVariant(x, z),
+									   VariantFor(x, z, 1u, floorVariants), floorVariants);
+		AppendTransformed(floorB[floorVariant], floorBlocks[floorVariant],
+						  XMMatrixTranslation(center.x, 0, center.z));
+	}
+	if (!holes.ceiling) {
+		const u32 ceilingVariant = pick(map.CeilingVariant(x, z),
+										 VariantFor(x, z, 2u, ceilingVariants), ceilingVariants);
+		AppendTransformed(ceilB[ceilingVariant], ceilingBlocks[ceilingVariant],
+						  XMMatrixTranslation(center.x, kWallHeight, center.z));
+	}
 
 	// Wall blocks are authored facing +Z; rotate so the face points into the
 	// room. Camera convention: forward = (sin yaw, 0, cos yaw).
@@ -123,7 +129,8 @@ DungeonGeometry BuildDungeonRegion(const DungeonMap& map,
 								   std::span<const assets::MeshData> wallBlocks,
 								   std::span<const assets::MeshData> floorBlocks,
 								   std::span<const assets::MeshData> ceilingBlocks,
-								   int chunkX, int chunkZ) {
+								   int chunkX, int chunkZ,
+								   const CellHolesFn& holes) {
 	const int chunksX = (map.Width() + kChunkCells - 1) / kChunkCells;
 	const int chunkIndex = chunkZ * chunksX + chunkX;
 	const int x0 = chunkX * kChunkCells, z0 = chunkZ * kChunkCells;
@@ -136,8 +143,8 @@ DungeonGeometry BuildDungeonRegion(const DungeonMap& map,
 	for (int z = z0; z < z1; ++z)
 		for (int x = x0; x < x1; ++x)
 			if (map.IsWalkable(x, z))
-				StampCell(map, x, z, wallBlocks, floorBlocks, ceilingBlocks, wallB, floorB,
-						  ceilB);
+				StampCell(map, x, z, holes ? holes(x, z) : CellHoles{}, wallBlocks,
+						  floorBlocks, ceilingBlocks, wallB, floorB, ceilB);
 
 	DungeonGeometry geo;
 	Collect(wallB, chunkIndex, geo.walls);
@@ -149,14 +156,15 @@ DungeonGeometry BuildDungeonRegion(const DungeonMap& map,
 DungeonGeometry BuildDungeonGeometry(const DungeonMap& map,
 									 std::span<const assets::MeshData> wallBlocks,
 									 std::span<const assets::MeshData> floorBlocks,
-									 std::span<const assets::MeshData> ceilingBlocks) {
+									 std::span<const assets::MeshData> ceilingBlocks,
+									 const CellHolesFn& holes) {
 	const int chunksX = (map.Width() + kChunkCells - 1) / kChunkCells;
 	const int chunksZ = (map.Height() + kChunkCells - 1) / kChunkCells;
 	DungeonGeometry geo;
 	for (int cz = 0; cz < chunksZ; ++cz)
 		for (int cx = 0; cx < chunksX; ++cx) {
-			DungeonGeometry r =
-				BuildDungeonRegion(map, wallBlocks, floorBlocks, ceilingBlocks, cx, cz);
+			DungeonGeometry r = BuildDungeonRegion(map, wallBlocks, floorBlocks,
+												   ceilingBlocks, cx, cz, holes);
 			for (GeometryChunk& c : r.walls) geo.walls.push_back(std::move(c));
 			for (GeometryChunk& c : r.floors) geo.floors.push_back(std::move(c));
 			for (GeometryChunk& c : r.ceilings) geo.ceilings.push_back(std::move(c));

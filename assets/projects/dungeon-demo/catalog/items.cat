@@ -119,6 +119,20 @@ name = item.mushroom
 category = ingredient
 weight = 0.1
 
+; Keys (category=key) unlock doors: a door record's key= param names the item
+; id it requires; the party just needs one member carrying it (hands, worn, or
+; any pack) — clicking the door then unlocks and opens it. The key is NOT
+; consumed. The door inspector's "Requires key" dropdown lists these entries.
+[iron_key]
+name = item.iron_key
+category = key
+weight = 0.1
+
+[brass_key]
+name = item.brass_key
+category = key
+weight = 0.1
+
 [apple]
 name = item.apple
 category = food

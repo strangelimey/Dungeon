@@ -209,9 +209,52 @@ void DungeonWorld::SubmitSceneGeometry(ID3D12GraphicsCommandList* list,
 		}
 		gfx::MaterialParams material;
 		material.doubleSided = !deco.kind->authored; // authored meshes back-cull
-		ApplyPropMaterial(material, deco.kind->tex, deco.kind->color, 0.85f);
+		ApplyPropMaterial(material, *deco.kind, 0.85f);
 		material.alphaCutoff = deco.kind->alphaCutoff; // > 0: render the mask's gaps
 		m_renderer.DrawMesh(list, *deco.kind->mesh, deco.world, material);
+	}
+
+	// Doors: a static frame plus the panel sliding sideways into the wall by
+	// openT (smoothstepped so it starts and lands softly). Both draw through
+	// the prop material path, so they bump-map and cast shadows like the
+	// decorations above.
+	for (const Door& door : m_doors) {
+		const Vec3 c = m_map.CellCenter(door.x, door.z);
+		if (!visible({c.x, 1.2f, c.z}, 2.0f)) continue;
+		const XMMATRIX base = XMMatrixRotationY(DirYaw(door.facing)) *
+							  XMMatrixTranslation(c.x, 0, c.z);
+		auto draw = [&](const DecorationKind* kind, const XMMATRIX& world) {
+			if (!kind || !kind->mesh) return;
+			gfx::MaterialParams material;
+			material.doubleSided = true;
+			ApplyPropMaterial(material, *kind, 0.85f);
+			Mat4 w;
+			XMStoreFloat4x4(&w, world);
+			m_renderer.DrawMesh(list, *kind->mesh, w, material);
+		};
+		draw(door.frame, base);
+		const float t = door.openT;
+		const float slide = (t * t * (3.0f - 2.0f * t)) * 1.8f; // into the wall
+		draw(door.panel, XMMatrixTranslation(slide, 0, 0) * base);
+	}
+
+	// Buttons: wall levers at hand height. The prop's origin is its pivot, so
+	// tilting the whole mesh around X reads as the handle flipping (up = off,
+	// down = pressed) while the thin back plate stays visually in the wall.
+	for (const Button& b : m_buttons) {
+		if (!b.kind || !b.kind->mesh) continue; // legacy type the catalog lacks
+		const WallMount mount = MountOnWall(b.x, b.z, b.facing);
+		if (!visible({mount.pos.x, 1.2f, mount.pos.z}, 1.0f)) continue;
+		const XMMATRIX world =
+			XMMatrixRotationX(b.activated ? 0.5f : -0.5f) *
+			XMMatrixRotationY(mount.yaw) *
+			XMMatrixTranslation(mount.pos.x, 1.15f, mount.pos.z);
+		gfx::MaterialParams material;
+		material.doubleSided = true;
+		ApplyPropMaterial(material, *b.kind, 0.85f);
+		Mat4 w;
+		XMStoreFloat4x4(&w, world);
+		m_renderer.DrawMesh(list, *b.kind->mesh, w, material);
 	}
 
 	// Floor items: the shared carved-stone tablet. RUNES draw per element with
@@ -355,8 +398,7 @@ float IconSpinAngle() {
 }
 } // namespace
 
-void DungeonWorld::UpdateItemIcons(ID3D12GraphicsCommandList* list,
-								   gfx::SpriteBatch& sprites) {
+void DungeonWorld::EnsureIconBakeTargets() {
 	if (!m_iconHalo) m_iconHalo = MakeHaloTexture(m_device, kIconSize);
 
 	// Shared depth target for the bakes (created once, icon-sized).
@@ -385,6 +427,11 @@ void DungeonWorld::UpdateItemIcons(ID3D12GraphicsCommandList* list,
 		d->CreateDepthStencilView(m_iconDepth.Get(), nullptr,
 								  m_iconDsvHeap->GetCPUDescriptorHandleForHeapStart());
 	}
+}
+
+void DungeonWorld::UpdateItemIcons(ID3D12GraphicsCommandList* list,
+								   gfx::SpriteBatch& sprites) {
+	EnsureIconBakeTargets();
 
 	// Static icons bake once; animated (icon_spin) icons re-bake every frame on a
 	// turntable. The first call bakes everything, then only the animated ones.
@@ -508,6 +555,224 @@ void DungeonWorld::BakeIcon(ID3D12GraphicsCommandList* list, gfx::SpriteBatch& s
 
 	D3D12_RESOURCE_BARRIER toSRV = gfx::Transition(
 		target.Resource(), D3D12_RESOURCE_STATE_RENDER_TARGET,
+		D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+	list->ResourceBarrier(1, &toSRV);
+}
+
+void DungeonWorld::UpdateMapIcons(ID3D12GraphicsCommandList* list,
+								  gfx::SpriteBatch& sprites) {
+	const bool sconcePending = m_sconceMesh && !m_sconceIcon;
+	const bool brazierPending = m_brazierMesh && !m_brazierIcon;
+	if (m_monsterIconsBaked && m_decorationIconsBaked && !sconcePending &&
+		!brazierPending)
+		return; // all one-shot bakes done
+	EnsureIconBakeTargets();
+	bool any = false;
+
+	// AABB of a mesh's vertices, for the whole-model fit.
+	auto meshBounds = [](const assets::MeshData& m, Vec3& lo, Vec3& hi) {
+		lo = {1e9f, 1e9f, 1e9f};
+		hi = {-1e9f, -1e9f, -1e9f};
+		for (const auto& v : m.vertices) {
+			lo = {std::min(lo.x, v.position.x), std::min(lo.y, v.position.y),
+				  std::min(lo.z, v.position.z)};
+			hi = {std::max(hi.x, v.position.x), std::max(hi.y, v.position.y),
+				  std::max(hi.z, v.position.z)};
+		}
+	};
+
+	if (!m_monsterIconsBaked) {
+		for (auto&& [id, kind] : m_monsterKinds) {
+			if (!kind->mesh || !kind->iconTarget) continue;
+			BakeMonsterIcon(list, sprites, *kind);
+			any = true;
+		}
+		m_monsterIconsBaked = true;
+	}
+
+	if (!m_decorationIconsBaked) {
+		for (auto&& [id, kind] : m_decorationKinds) {
+			if (!kind->iconTarget) continue;
+			if (kind->multi) { // authored multi-material prop: the item baker
+				BakeIcon(list, sprites, *kind->multi, *kind->iconTarget,
+						 /*animated*/ false, /*spin*/ 0.0f);
+			} else if (kind->mesh && !kind->model.meshes.empty()) {
+				gfx::MaterialParams mat;
+				mat.doubleSided = !kind->authored;
+				ApplyPropMaterial(mat, *kind, 0.85f);
+				mat.alphaCutoff = kind->alphaCutoff;
+				Vec3 lo, hi;
+				meshBounds(kind->model.meshes[0], lo, hi);
+				BakeMeshIcon(list, sprites, *kind->mesh, mat, lo, hi,
+							 *kind->iconTarget);
+			} else {
+				continue;
+			}
+			any = true;
+		}
+		m_decorationIconsBaked = true;
+	}
+
+	// The two fixture meshes (loaded once at boot; icons gate on existing).
+	auto bakeFixture = [&](const gfx::Mesh* mesh, const assets::ModelData& model,
+						   const PropTextures* tex, const Vec4& color,
+						   std::unique_ptr<gfx::Texture>& icon) {
+		if (!mesh || icon || model.meshes.empty()) return;
+		icon = gfx::Texture::RenderTarget(m_device, kIconSize);
+		gfx::MaterialParams mat;
+		ApplyPropMaterial(mat, tex, color, 0.5f);
+		if (!mat.albedo) mat.metallic = 1.0f; // flat fallback reads as metal
+		Vec3 lo, hi;
+		meshBounds(model.meshes[0], lo, hi);
+		BakeMeshIcon(list, sprites, *mesh, mat, lo, hi, *icon);
+		any = true;
+	};
+	bakeFixture(m_sconceMesh.get(), m_sconceModel, m_sconceTex, m_sconceColor,
+				m_sconceIcon);
+	bakeFixture(m_brazierMesh.get(), m_brazierModel, m_brazierTex, m_brazierColor,
+				m_brazierIcon);
+
+	if (any) m_device.BindBackBuffer(list); // the bakes redirected the OM
+}
+
+void DungeonWorld::BakeMeshIcon(ID3D12GraphicsCommandList* list,
+								gfx::SpriteBatch& sprites, const gfx::Mesh& mesh,
+								const gfx::MaterialParams& material, const Vec3& lo,
+								const Vec3& hi, const gfx::Texture& target) {
+	D3D12_RESOURCE_BARRIER toRT = gfx::Transition(
+		target.Resource(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+		D3D12_RESOURCE_STATE_RENDER_TARGET);
+	list->ResourceBarrier(1, &toRT);
+
+	const float clear[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+	gfx::BeginOffscreen(list, target.Rtv(),
+						m_iconDsvHeap->GetCPUDescriptorHandleForHeapStart(), kIconSize,
+						clear);
+
+	constexpr Vec4 kHaloColor{0.90f, 0.92f, 0.97f, 0.55f};
+	sprites.Begin(list, kIconSize, kIconSize);
+	sprites.DrawSprite({0.0f, 0.0f, static_cast<float>(kIconSize),
+						static_cast<float>(kIconSize)},
+					   {0, 0, 1, 1}, *m_iconHalo, kHaloColor);
+	sprites.End();
+
+	// Whole-model fit: centre at the origin, longest extent to ~82% of the
+	// frame, a gentle 3/4 yaw + downward tilt (props are upright objects).
+	const Vec3 c{(lo.x + hi.x) * 0.5f, (lo.y + hi.y) * 0.5f, (lo.z + hi.z) * 0.5f};
+	const Vec3 ext{hi.x - lo.x, hi.y - lo.y, hi.z - lo.z};
+	const float longest = std::max({ext.x, ext.y, ext.z, 1e-3f});
+	const float s = 1.15f / longest;
+	const XMMATRIX worldX = XMMatrixTranslation(-c.x, -c.y, -c.z) *
+							XMMatrixScaling(s, s, s) *
+							XMMatrixRotationY(kPi + 0.5f) * XMMatrixRotationX(-0.3f);
+	Mat4 world;
+	XMStoreFloat4x4(&world, worldX);
+
+	gfx::Camera cam;
+	cam.SetLens(35.0f * kPi / 180.0f, 1.0f, 0.02f, 10.0f);
+	cam.SetPosition({0.0f, 0.0f, -2.2f});
+	cam.SetYawPitch(0.0f, 0.0f);
+
+	gfx::LightSet lights;
+	lights.ambient = {0.62f, 0.62f, 0.68f};
+	lights.points.push_back(
+		{{1.8f, 2.0f, -1.8f}, 12.0f, {1.0f, 0.97f, 0.92f}, 6.5f, -1, false});
+	lights.points.push_back(
+		{{-1.8f, 0.6f, -1.6f}, 12.0f, {0.82f, 0.88f, 1.0f}, 3.4f, -1, false});
+	lights.points.push_back(
+		{{1.3f, 1.5f, 2.4f}, 12.0f, {1.0f, 1.0f, 1.0f}, 7.5f, -1, false});
+	lights.points.push_back(
+		{{-1.3f, 1.5f, 2.4f}, 12.0f, {1.0f, 1.0f, 1.0f}, 7.5f, -1, false});
+
+	m_renderer.BeginScene(list, cam, lights);
+	m_renderer.DrawMesh(list, mesh, world, material);
+
+	D3D12_RESOURCE_BARRIER toSRV = gfx::Transition(
+		target.Resource(), D3D12_RESOURCE_STATE_RENDER_TARGET,
+		D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+	list->ResourceBarrier(1, &toSRV);
+}
+
+void DungeonWorld::BakeMonsterIcon(ID3D12GraphicsCommandList* list,
+								   gfx::SpriteBatch& sprites,
+								   const MonsterKind& kind) {
+	D3D12_RESOURCE_BARRIER toRT = gfx::Transition(
+		kind.iconTarget->Resource(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+		D3D12_RESOURCE_STATE_RENDER_TARGET);
+	list->ResourceBarrier(1, &toRT);
+
+	const float clear[4] = {0.0f, 0.0f, 0.0f, 0.0f}; // transparent corners
+	gfx::BeginOffscreen(list, kind.iconTarget->Rtv(),
+						m_iconDsvHeap->GetCPUDescriptorHandleForHeapStart(), kIconSize,
+						clear);
+
+	// The same soft halo the item icons composite under themselves — it keeps a
+	// dark model legible on the map's dark floor ink.
+	constexpr Vec4 kHaloColor{0.90f, 0.92f, 0.97f, 0.55f};
+	sprites.Begin(list, kIconSize, kIconSize);
+	sprites.DrawSprite({0.0f, 0.0f, static_cast<float>(kIconSize),
+						static_cast<float>(kIconSize)},
+					   {0, 0, 1, 1}, *m_iconHalo, kHaloColor);
+	sprites.End();
+
+	// HEAD SHOT: frame the model's upper portion (a skull for the skeleton, the
+	// slime's dome), not the whole figure — a full body at map-marker size is
+	// an unreadable stick. Bind-pose bounds from the mesh vertices; the focus
+	// box is the top quarter of the height (the head, tight), centred on x/z.
+	Vec3 lo{1e9f, 1e9f, 1e9f}, hi{-1e9f, -1e9f, -1e9f};
+	for (const auto& v : kind.model.meshes[0].vertices) {
+		lo = {std::min(lo.x, v.position.x), std::min(lo.y, v.position.y),
+			  std::min(lo.z, v.position.z)};
+		hi = {std::max(hi.x, v.position.x), std::max(hi.y, v.position.y),
+			  std::max(hi.z, v.position.z)};
+	}
+	const float height = std::max(hi.y - lo.y, 1e-3f);
+	const float focusH = height * 0.25f;
+	const Vec3 c{(lo.x + hi.x) * 0.5f, hi.y - focusH * 0.5f, (lo.z + hi.z) * 0.5f};
+	// Fill ~85% of the frame with the focus height (the head breathes a little).
+	const float s = 1.18f / focusH;
+
+	// Face the camera: models author facing +Z and the camera looks down +Z, so
+	// half a turn shows the FRONT; modelYaw folds in an imported rig's own
+	// convention fixup, and a slight extra yaw gives the head some depth.
+	const XMMATRIX worldX =
+		XMMatrixTranslation(-c.x, -c.y, -c.z) * XMMatrixScaling(s, s, s) *
+		XMMatrixRotationY(kPi + kind.modelYaw + 0.25f) * XMMatrixRotationX(-0.08f);
+	Mat4 world;
+	XMStoreFloat4x4(&world, worldX);
+
+	gfx::Camera cam;
+	cam.SetLens(35.0f * kPi / 180.0f, 1.0f, 0.02f, 10.0f);
+	cam.SetPosition({0.0f, 0.0f, -2.2f});
+	cam.SetYawPitch(0.0f, 0.0f);
+
+	// The item icons' studio lighting (key + fill + rims) — see BakeIcon.
+	gfx::LightSet lights;
+	lights.ambient = {0.62f, 0.62f, 0.68f};
+	lights.points.push_back(
+		{{1.8f, 2.0f, -1.8f}, 12.0f, {1.0f, 0.97f, 0.92f}, 6.5f, -1, false});
+	lights.points.push_back(
+		{{-1.8f, 0.6f, -1.6f}, 12.0f, {0.82f, 0.88f, 1.0f}, 3.4f, -1, false});
+	lights.points.push_back(
+		{{1.3f, 1.5f, 2.4f}, 12.0f, {1.0f, 1.0f, 1.0f}, 7.5f, -1, false});
+	lights.points.push_back(
+		{{-1.3f, 1.5f, 2.4f}, 12.0f, {1.0f, 1.0f, 1.0f}, 7.5f, -1, false});
+
+	// Rest-pose palette from a throwaway animator (the mesh is skinned; DrawMesh
+	// copies the palette into the frame's upload arena, so a temp is safe).
+	anim::Animator rest(&kind.model.skeleton, &kind.model.clips);
+	rest.Update(0.0f);
+
+	gfx::MaterialParams mat;
+	mat.doubleSided = true;
+	ApplyPropMaterial(mat, kind.tex, kind.model.materials[0].baseColorFactor,
+					  kind.fallbackRoughness);
+
+	m_renderer.BeginScene(list, cam, lights);
+	m_renderer.DrawMesh(list, *kind.mesh, world, mat, rest.Palette());
+
+	D3D12_RESOURCE_BARRIER toSRV = gfx::Transition(
+		kind.iconTarget->Resource(), D3D12_RESOURCE_STATE_RENDER_TARGET,
 		D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
 	list->ResourceBarrier(1, &toSRV);
 }

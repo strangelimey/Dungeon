@@ -106,6 +106,9 @@ bool WriteSave(const SaveData& data, const std::string& path) {
 			case EntityKind::Button: // baseline button toggle, keyed by id
 				t += std::format("button {} {}\n", e.id, e.activated ? 1 : 0);
 				break;
+			case EntityKind::Door: // door open-state diff, keyed by id
+				t += std::format("door {} {}\n", e.id, e.activated ? 1 : 0);
+				break;
 			default: break; // decorations are static (.map) — never saved
 			}
 		}
@@ -268,6 +271,13 @@ std::optional<SaveData> ReadSave(const std::string& path) {
 			// Baseline button toggle (v7 diff): id activated.
 			SaveData::EntityState e;
 			e.kind = EntityKind::Button;
+			e.id = IntOf(tok[1]);
+			e.activated = IntOf(tok[2]) != 0;
+			currentBlock().entities.push_back(e);
+		} else if (kw == "door" && tok.size() >= 3) {
+			// Door open-state diff: id open (activated carries "open").
+			SaveData::EntityState e;
+			e.kind = EntityKind::Door;
 			e.id = IntOf(tok[1]);
 			e.activated = IntOf(tok[2]) != 0;
 			currentBlock().entities.push_back(e);

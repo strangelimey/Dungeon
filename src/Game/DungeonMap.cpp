@@ -480,6 +480,42 @@ bool DungeonMap::AddBrazier(int x, int z) {
 	return true;
 }
 
+bool DungeonMap::RemoveDecorationRecordAt(int x, int z) {
+	for (size_t i = 0; i < m_decorations.size(); ++i)
+		if (m_decorations[i].x == x && m_decorations[i].z == z) {
+			m_decorations.erase(m_decorations.begin() + static_cast<ptrdiff_t>(i));
+			return true;
+		}
+	return false;
+}
+
+size_t DungeonMap::RemoveDecorationRecordsAt(int x, int z) {
+	return std::erase_if(m_decorations,
+						 [&](const Entity& e) { return e.x == x && e.z == z; });
+}
+
+bool DungeonMap::AddStair(const StairLink& link) {
+	if (!IsWalkable(link.x, link.z) || StairAt(link.x, link.z)) return false;
+	m_stairs.push_back(link);
+	return true;
+}
+
+const StairLink* DungeonMap::StairAt(int x, int z) const {
+	for (const StairLink& s : m_stairs)
+		if (s.x == x && s.z == z) return &s;
+	return nullptr;
+}
+
+bool DungeonMap::RemoveStair(int x, int z, StairLink* removed) {
+	for (size_t i = 0; i < m_stairs.size(); ++i)
+		if (m_stairs[i].x == x && m_stairs[i].z == z) {
+			if (removed) *removed = m_stairs[i];
+			m_stairs.erase(m_stairs.begin() + static_cast<ptrdiff_t>(i));
+			return true;
+		}
+	return false;
+}
+
 void DungeonMap::SetCell(int x, int z, Cell cell) {
 	if (x < 0 || z < 0 || x >= m_width || z >= m_height) return;
 	Cell& slot = m_cells[static_cast<size_t>(z) * m_width + x];

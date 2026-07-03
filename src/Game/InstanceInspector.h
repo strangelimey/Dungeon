@@ -23,6 +23,8 @@
 #include "UI/UIContext.h"
 #include "UI/Widget.h" // complete ui::Widget: m_ui (UIContext) holds it by value
 
+#include <functional>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -63,6 +65,25 @@ public:
 
 	bool IsOpen() const { return m_open; }
 	void Close() { m_open = false; }
+
+	// Optional Delete action: when the OWNER sets this before Open, the footer
+	// shows a Delete button beside Save (in the old Close slot — closing moved
+	// to the panel's top-right "x" and Esc). Clicking it fires the callback
+	// (which removes the object from the map) and closes WITHOUT Revert — the
+	// object is gone, there is nothing to restore. Set per open; inspectors
+	// that never set it just show Save.
+	std::function<void()> onDelete;
+
+	// Optional toggle drawn BESIDE the Facing dropdown (the decoration dialog's
+	// per-TYPE "map facing arrow" flag). Set — or reset — before Open, like
+	// onDelete. The change applies through the callback IMMEDIATELY (it edits
+	// the type, not this instance, so it is deliberately outside Save/Revert).
+	struct FacingExtra {
+		std::string label;
+		bool value = true;
+		std::function<void(bool)> onChange;
+	};
+	std::optional<FacingExtra> facingExtra;
 
 	void Update(const Input& input, float width, float height);
 	void Render(gfx::SpriteBatch& batch, const ui::Theme& theme, float width,

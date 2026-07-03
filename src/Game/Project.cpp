@@ -28,8 +28,9 @@ const CatalogSlot kCatalogs[] = {
 	{"decorations.cat", &Project::decorations, "Decoration props: model + texture set + solid/authored flags."},
 	{"fixtures.cat", &Project::fixtures, "Fixtures: sconces and braziers (model + texture + mount)."},
 	{"monsters.cat", &Project::monsters, "Monsters: model + texture set."},
-	{"doors.cat", &Project::doors, "Doors (reserved — populated in a later phase)."},
-	{"stairs.cat", &Project::stairs, "Stairs (reserved — populated in a later phase)."},
+	{"doors.cat", &Project::doors, "Doors: sliding panel + shared frame (functional, block until opened)."},
+	{"stairs.cat", &Project::stairs, "Stairs and pits: cross-level links with auto-authored pairs."},
+	{"buttons.cat", &Project::buttons, "Buttons: wall levers (target= wires them to door names)."},
 	{"items.cat", &Project::items, "Items: runes (and later weapons/consumables)."},
 	{"spells.cat", &Project::spells, "Spells: symbol-sequence recipes -> effect + element + power/mana/speed/range."},
 };
@@ -107,6 +108,7 @@ Catalog* Project::CatalogForKey(const std::string& key) {
 	if (key == "monsters") return &monsters;
 	if (key == "doors") return &doors;
 	if (key == "stairs") return &stairs;
+	if (key == "buttons") return &buttons;
 	if (key == "items") return &items;
 	if (key == "spells") return &spells;
 	return nullptr;

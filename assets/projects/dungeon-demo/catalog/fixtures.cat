@@ -6,12 +6,14 @@
 
 [sconce]
 display = Wall Sconce
+category = light
 model = sconce
 texture = sconce
 mount = wall
 
 [brazier]
 display = Brazier
+category = light
 model = brazier
 texture = brass
 mount = floor
