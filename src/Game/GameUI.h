@@ -54,6 +54,13 @@ public:
 	// widget callback — the widget would die under its own Update. Game defers
 	// the language change to the top of the next frame instead.
 	void RebuildForLanguage();
+	// Call after the roster CHANGES SIZE (party creation builds 1..4 members):
+	// re-clamps the sheet member and rebuilds the per-member HUD widgets
+	// (party panels, hand slots, name labels) for the new count. The widgets'
+	// per-frame (roster, index) resolution already keeps a stale slot inert,
+	// so this is layout, not safety. Same deferral rule as RebuildForLanguage:
+	// never call from inside a widget callback.
+	void RebuildForRoster();
 	// Re-point the Video tab's Max Lights dropdown at the current setting after
 	// a quality change reset the budget (Game calls this from SetQuality).
 	void SyncMaxLights();

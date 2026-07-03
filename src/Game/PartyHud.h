@@ -16,9 +16,12 @@
 //                   the Game pairs it with prev/next/Back buttons in the same
 //                   UIContext.
 //
-// Both widgets hold pointers into Game's character roster (stable for the
-// session) and read the live values every draw; the sheet caches its
-// formatted strings in SetCharacter so steady-state frames don't allocate.
+// The per-member widgets address Game's roster by (vector pointer, index)
+// and RE-RESOLVE the member at the top of every Update/Draw — never caching
+// a Character* across frames — so a roster whose SIZE changes (party
+// creation builds 1..4 members) can never dangle them; a widget whose index
+// fell off the end simply goes inert. The sheet still caches its formatted
+// strings in SetCharacter so steady-state frames don't allocate.
 // ============================================================================
 #pragma once
 
@@ -116,6 +119,17 @@ struct ItemCategoryBank {
 	}
 };
 
+// Resolves roster slot `i` to the live member, or null when the roster is
+// shorter than that (the party may have fewer than 4 members). The widgets
+// call this at the top of Update/Draw instead of holding a Character*.
+inline const Character* RosterMember(const std::vector<Character>* roster,
+									 size_t i) {
+	return roster && i < roster->size() ? &(*roster)[i] : nullptr;
+}
+inline Character* RosterMember(std::vector<Character>* roster, size_t i) {
+	return roster && i < roster->size() ? &(*roster)[i] : nullptr;
+}
+
 class CharacterPanel : public ui::Widget {
 public:
 	// portraitFont draws the big placeholder initial (the Game passes its
@@ -123,7 +137,8 @@ public:
 	// onClick fires on a left click on the PORTRAIT area (open the sheet / place a
 	// held tablet); onRight on a right click there (open this member's inventory).
 	// onBars fires on EITHER button over the stat-bar area (open the Stats tab).
-	CharacterPanel(const gfx::Rect& rect, const Character* character,
+	CharacterPanel(const gfx::Rect& rect, const std::vector<Character>* roster,
+				   size_t member,
 				   const ui::Font* portraitFont, const ResourceBarColors* barColors,
 				   const HitSplatIcons* hitSplats, std::function<void()> onClick,
 				   std::function<void()> onRight, std::function<void()> onBars);
@@ -140,7 +155,11 @@ private:
 	// kept in sync with Draw's bar layout; a click here opens the Stats tab.
 	gfx::Rect BarsRect(ui::UIContext& ctx) const;
 
-	const Character* m_character;
+	const std::vector<Character>* m_roster;
+	size_t m_member;
+	// Resolved from (m_roster, m_member) at the top of every Update/Draw —
+	// never valid across frames, so a roster resize can't dangle it.
+	const Character* m_character = nullptr;
 	const ui::Font* m_portraitFont;
 	const ResourceBarColors* m_barColors;
 	const HitSplatIcons* m_hitSplats; // may be null (icons not loaded)
@@ -159,7 +178,8 @@ public:
 	// onLeft fires on a left click, onRight on a right click — GameUI decides
 	// what each means given the held cursor (place / swap / pick up / attack /
 	// context menu).
-	HandSlot(const gfx::Rect& rect, const Character* character, int hand,
+	HandSlot(const gfx::Rect& rect, const std::vector<Character>* roster,
+			 size_t member, int hand,
 			 const ItemIconBank* icons, std::function<void()> onLeft,
 			 std::function<void()> onRight);
 
@@ -167,7 +187,10 @@ public:
 	void Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) override;
 
 private:
-	const Character* m_character;
+	const std::vector<Character>* m_roster;
+	size_t m_member;
+	// Re-resolved every Update/Draw (see CharacterPanel).
+	const Character* m_character = nullptr;
 	int m_hand;
 	const ItemIconBank* m_icons;
 	std::function<void()> m_onLeft;
@@ -224,14 +247,17 @@ private:
 // (mutable pointer).
 class CharacterSheet : public ui::Widget {
 public:
-	CharacterSheet(const gfx::Rect& rect, const ui::Font* portraitFont,
+	CharacterSheet(const gfx::Rect& rect, std::vector<Character>* roster,
+				   const ui::Font* portraitFont,
 				   const ResourceBarColors* barColors, const ItemIconBank* icons,
 				   const ItemWeightBank* weights, const ItemIconBank* slotIcons,
 				   const ItemCategoryBank* categories,
 				   std::optional<std::string>* held);
 
-	// Re-points the sheet (mutable, for inventory edits) and caches strings.
-	void SetCharacter(Character& character);
+	// Re-points the sheet at roster member `member` (mutable, for inventory
+	// edits) and caches its strings. An out-of-range index leaves the sheet
+	// showing nothing (Draw bails), never a stale member.
+	void SetCharacter(size_t member);
 
 	void Update(ui::UIContext& ctx) override;
 	void Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) override;
@@ -272,6 +298,10 @@ private:
 	// Total carry weight (kg) of everything the member holds (equipment + pack).
 	float CarryLoad() const;
 
+	std::vector<Character>* m_roster;
+	size_t m_member = 0;
+	// Re-resolved from (m_roster, m_member) at the top of every Update/Draw
+	// (see CharacterPanel); the body helpers null-check it.
 	Character* m_character = nullptr;
 	const ui::Font* m_portraitFont;
 	const ResourceBarColors* m_barColors;

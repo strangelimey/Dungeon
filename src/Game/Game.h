@@ -135,9 +135,12 @@ private:
 
 	// --- state transitions --------------------------------------------------
 	void StartNewGame();
-	// Resets the roster to a fresh default party in place (keeping each slot's
-	// loaded portrait), so the panel/sheet pointers into m_characters stay
-	// valid. Shared by StartNewGame and LoadGame.
+	// Resets the roster to a fresh default party in place, keeping each slot's
+	// loaded portrait. The HUD/sheet widgets address members by (roster, index)
+	// and re-resolve every frame, so even a roster RESIZE can't dangle them —
+	// but a size change must still call GameUI::RebuildForRoster (deferred, not
+	// from a widget callback) to re-lay-out the per-member widgets. Shared by
+	// StartNewGame and LoadGame.
 	void ResetRoster();
 	// Captures the live world + roster to a named slot under SaveDir. Requires
 	// the dungeon to be loaded (m_gameLoaded); no-op otherwise.

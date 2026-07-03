@@ -862,6 +862,7 @@ void GameUI::BuildCharacterSheet() {
 	// Added FIRST so the buttons below it update on top (and consume their clicks
 	// before the sheet's slot hit-testing).
 	m_sheet = m_sheetUi.Add<CharacterSheet>(Norm({sx, sy, sheetW, sheetH}, window),
+											&m_characters,
 											&m_titleFont, &m_settings.barColors,
 											m_itemIcons, m_itemWeights, m_slotIcons,
 											m_itemCategories, m_held);
@@ -914,7 +915,25 @@ void GameUI::RebuildForLanguage() {
 	// The saves page is built on demand; repopulate it in the new language if
 	// it happens to be open (OpenSavesPage leaves m_menuPage on Saves).
 	if (m_menuPage == MenuPage::Saves) OpenSavesPage(m_savesMode);
-	if (!m_characters.empty()) m_sheet->SetCharacter(m_characters[m_sheetIndex]);
+	if (!m_characters.empty()) {
+		m_sheetIndex = std::min(m_sheetIndex, m_characters.size() - 1);
+		m_sheet->SetCharacter(m_sheetIndex);
+	}
+	if (m_log) {
+		m_hudUi.Clear();
+		BuildHud();
+		AddLogLine(m_settings.MoveKeysHelp());
+		ResetHudStatus();
+	}
+}
+
+// See the header: per-member HUD widgets are baked one-per-slot by BuildHud,
+// so a roster whose size changed needs the bar/hand grid re-laid-out (the
+// widgets themselves survive a resize safely — they resolve by index).
+void GameUI::RebuildForRoster() {
+	if (!m_characters.empty())
+		m_sheetIndex = std::min(m_sheetIndex, m_characters.size() - 1);
+	if (m_sheet) m_sheet->SetCharacter(m_sheetIndex);
 	if (m_log) {
 		m_hudUi.Clear();
 		BuildHud();
@@ -1064,10 +1083,10 @@ void GameUI::ApplyPendingVideoRebuild() {
 
 void GameUI::ShowSheet(size_t index) {
 	m_sheetIndex = index;
-	m_sheet->SetCharacter(m_characters[index]);
+	m_sheet->SetCharacter(index);
 }
 
-void GameUI::RefreshSheet() { m_sheet->SetCharacter(m_characters[m_sheetIndex]); }
+void GameUI::RefreshSheet() { m_sheet->SetCharacter(m_sheetIndex); }
 
 // ============================================================================
 // HUD — authored in design pixels from the initial window size, stored as
@@ -1090,7 +1109,7 @@ void GameUI::BuildHud() {
 	m_partyPanels.clear();
 	for (size_t i = 0; i < m_characters.size() && i < 4; ++i) {
 		auto* panel = m_hudUi.Add<CharacterPanel>(
-			gfx::Rect{}, &m_characters[i], &m_titleFont, &m_settings.barColors,
+			gfx::Rect{}, &m_characters, i, &m_titleFont, &m_settings.barColors,
 			m_hitSplats, [this, i] { OnPortraitClick(i); },
 			[this, i] { OnPortraitRightClick(i); },
 			[this, i] { OnPortraitBars(i); });
@@ -1210,7 +1229,7 @@ void GameUI::BuildHud() {
 				Norm({setX + (handW + 4.0f) * static_cast<float>(hand),
 					  setTop + 20, handW, handW},
 					 window),
-				&m_characters[i], hand, m_itemIcons,
+				&m_characters, i, hand, m_itemIcons,
 					// Left-click: place a held tablet here / pick this hand's item
 					// up / (empty-handed, empty slot) swing this hand. Right-click
 					// (a context menu) is wired in P6.

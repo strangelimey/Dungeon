@@ -37,11 +37,15 @@ Key conventions (memorize, they bite):
   heap (docs/ARCHITECTURE.md "Memory strategy"). A full allocation audit
   (2026-07-03) verified the rule and closed its last violations (formation
   scratch, flat AI-snapshot grids, shared icon light rig — see the AI
-  section). Two conventions carry invariants no compiler checks: cached
+  section). One convention carries an invariant no compiler checks: cached
   UIContext widget pointers die on Clear(), so any callback that triggers
   a page rebuild must DEFER it a frame (the m_pendingLanguage /
-  m_videoRebuildPending pattern); and HUD widgets pin pointers into the
-  fixed-size Game::m_characters — never push_back to the roster.
+  m_videoRebuildPending pattern). The party roster is resize-safe: the
+  HUD/sheet widgets address Game::m_characters by (vector, index) and
+  RE-RESOLVE the member every Update/Draw (PartyHud.h RosterMember), so a
+  party of 1..4 members — or a future resize — can't dangle them; a roster
+  SIZE change still needs GameUI::RebuildForRoster (deferred, never from a
+  widget callback) to re-lay-out the per-member widgets.
 - Shader-visible SRV heap slots (kSrvHeapCapacity=1024) RECYCLE through a
   free list: gfx::Texture returns its slot on destruction
   (GraphicsDevice::FreeSrv), so the texture-churn paths (font atlas

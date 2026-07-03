@@ -52,16 +52,18 @@ void DrawPortrait(gfx::SpriteBatch& batch, const gfx::Rect& rect,
 
 // --- CharacterPanel ----------------------------------------------------------
 
-CharacterPanel::CharacterPanel(const gfx::Rect& rect, const Character* character,
+CharacterPanel::CharacterPanel(const gfx::Rect& rect,
+							   const std::vector<Character>* roster, size_t member,
 							   const ui::Font* portraitFont,
 							   const ResourceBarColors* barColors,
 							   const HitSplatIcons* hitSplats,
 							   std::function<void()> onClick,
 							   std::function<void()> onRight,
 							   std::function<void()> onBars)
-	: m_character(character), m_portraitFont(portraitFont), m_barColors(barColors),
-	  m_hitSplats(hitSplats), m_onClick(std::move(onClick)),
-	  m_onRight(std::move(onRight)), m_onBars(std::move(onBars)) {
+	: m_roster(roster), m_member(member), m_portraitFont(portraitFont),
+	  m_barColors(barColors), m_hitSplats(hitSplats),
+	  m_onClick(std::move(onClick)), m_onRight(std::move(onRight)),
+	  m_onBars(std::move(onBars)) {
 	bounds = rect;
 }
 
@@ -78,6 +80,8 @@ gfx::Rect CharacterPanel::BarsRect(ui::UIContext& ctx) const {
 }
 
 void CharacterPanel::Update(ui::UIContext& ctx) {
+	m_character = RosterMember(m_roster, m_member);
+	if (!m_character) return; // roster shorter than this slot — inert
 	const Input* input = ctx.CurrentInput();
 	if (!input) return;
 	const float mx = input->MouseX(), my = input->MouseY();
@@ -106,6 +110,8 @@ void CharacterPanel::Update(ui::UIContext& ctx) {
 }
 
 void CharacterPanel::Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
+	m_character = RosterMember(m_roster, m_member);
+	if (!m_character) return; // roster shorter than this slot — draw nothing
 	const ui::Theme& theme = ctx.GetTheme();
 	const gfx::Rect& px = Pixel();
 
@@ -162,15 +168,18 @@ void CharacterPanel::Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 
 // --- HandSlot ------------------------------------------------------------------
 
-HandSlot::HandSlot(const gfx::Rect& rect, const Character* character, int hand,
+HandSlot::HandSlot(const gfx::Rect& rect, const std::vector<Character>* roster,
+				   size_t member, int hand,
 				   const ItemIconBank* icons, std::function<void()> onLeft,
 				   std::function<void()> onRight)
-	: m_character(character), m_hand(hand), m_icons(icons),
+	: m_roster(roster), m_member(member), m_hand(hand), m_icons(icons),
 	  m_onLeft(std::move(onLeft)), m_onRight(std::move(onRight)) {
 	bounds = rect;
 }
 
 void HandSlot::Update(ui::UIContext& ctx) {
+	m_character = RosterMember(m_roster, m_member);
+	if (!m_character) return; // roster shorter than this slot — inert
 	const Input* input = ctx.CurrentInput();
 	if (!input) return;
 	m_hot = !ctx.IsMouseConsumed() &&
@@ -191,6 +200,8 @@ void HandSlot::Update(ui::UIContext& ctx) {
 }
 
 void HandSlot::Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
+	m_character = RosterMember(m_roster, m_member);
+	if (!m_character) return; // roster shorter than this slot — draw nothing
 	const ui::Theme& theme = ctx.GetTheme();
 	const gfx::Rect& px = Pixel();
 	// Black slot background (the light-haloed item reads against it); a subtle
@@ -376,16 +387,18 @@ constexpr float kModeBtnX = 24.0f;  // aligns with the portrait's left edge
 constexpr float kModeBtnY = 132.0f; // just below the 100px portrait (top at y20)
 } // namespace
 
-CharacterSheet::CharacterSheet(const gfx::Rect& rect, const ui::Font* portraitFont,
+CharacterSheet::CharacterSheet(const gfx::Rect& rect,
+							   std::vector<Character>* roster,
+							   const ui::Font* portraitFont,
 							   const ResourceBarColors* barColors,
 							   const ItemIconBank* icons,
 							   const ItemWeightBank* weights,
 							   const ItemIconBank* slotIcons,
 							   const ItemCategoryBank* categories,
 							   std::optional<std::string>* held)
-	: m_portraitFont(portraitFont), m_barColors(barColors), m_icons(icons),
-	  m_weights(weights), m_slotIcons(slotIcons), m_categories(categories),
-	  m_held(held),
+	: m_roster(roster), m_portraitFont(portraitFont), m_barColors(barColors),
+	  m_icons(icons), m_weights(weights), m_slotIcons(slotIcons),
+	  m_categories(categories), m_held(held),
 	  m_healthLabel(loc::Tr("bar.health")),
 	  m_staminaLabel(loc::Tr("bar.stamina")), m_manaLabel(loc::Tr("bar.mana")),
 	  m_attributesLabel(loc::Tr("sheet.attributes")),
@@ -396,8 +409,11 @@ CharacterSheet::CharacterSheet(const gfx::Rect& rect, const ui::Font* portraitFo
 					loc::Tr("attr.intelligence")};
 }
 
-void CharacterSheet::SetCharacter(Character& character) {
-	m_character = &character;
+void CharacterSheet::SetCharacter(size_t member) {
+	m_member = member;
+	m_character = RosterMember(m_roster, m_member);
+	if (!m_character) return; // out of range — the sheet body just stays empty
+	const Character& character = *m_character;
 	m_healthText = std::format("{} / {}", static_cast<int>(character.health),
 							   static_cast<int>(character.maxHealth));
 	m_staminaText = std::format("{} / {}", static_cast<int>(character.stamina),
@@ -489,6 +505,7 @@ bool CharacterSheet::PackAccepts(const std::string& itemId) const {
 }
 
 void CharacterSheet::Update(ui::UIContext& ctx) {
+	m_character = RosterMember(m_roster, m_member);
 	m_hotMode = -1;
 	const Input* input = ctx.CurrentInput();
 	if (!input || ctx.IsMouseConsumed()) return; // sheet buttons update first
@@ -550,6 +567,7 @@ void CharacterSheet::Update(ui::UIContext& ctx) {
 }
 
 void CharacterSheet::Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
+	m_character = RosterMember(m_roster, m_member);
 	const ui::Theme& theme = ctx.GetTheme();
 	const gfx::Rect& px = Pixel();
 
