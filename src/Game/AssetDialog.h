@@ -44,6 +44,13 @@ public:
 		std::string name;        // catalog id / asset name the user typed
 		std::string sourcePath;  // picked model file or texture folder
 		gfx::MaterialParams material; // metallic/roughness/height + fallback color
+		// Which sliders the user MOVED from their opening values. Untouched ones
+		// are not written to the catalog, so an imported model's own maps stay
+		// authoritative unless deliberately overridden (FinishBake reads these).
+		bool metallicSet = false;
+		bool roughnessSet = false;
+		bool heightSet = false;
+		bool colorSet = false;
 	};
 
 	AssetDialog(gfx::GraphicsDevice& device, Window& window);
@@ -91,6 +98,7 @@ private:
 	std::string m_name;
 	std::string m_sourcePath;
 	gfx::MaterialParams m_material;
+	gfx::MaterialParams m_neutral; // opening values; Create diffs against these
 	float m_orbit = 0.0f;
 
 	assets::ModelData m_previewModel; // kept alive for the mesh

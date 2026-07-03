@@ -1100,6 +1100,19 @@ void Game::FinishBake() {
 			e.Set("texture", m_bakeReq.name);
 			e.Set("authored", "1");
 			e.Set("solid", "1");
+			// The dialog's material sliders, persisted only when the user moved
+			// them: metallic/roughness become the draw's factors (with an ORM map
+			// the shader scales the map by them), color tints the albedo, and
+			// height_scale overrides the bound set's parallax depth. Untouched
+			// sliders leave the imported model's own material authoritative.
+			const gfx::MaterialParams& m = m_bakeReq.material;
+			if (m_bakeReq.metallicSet) e.Set("metallic", std::format("{:.3f}", m.metallic));
+			if (m_bakeReq.roughnessSet) e.Set("roughness", std::format("{:.3f}", m.roughness));
+			if (m_bakeReq.heightSet)
+				e.Set("height_scale", std::format("{:.3f}", m.heightScale));
+			if (m_bakeReq.colorSet)
+				e.Set("color", std::format("{:.3f},{:.3f},{:.3f}", m.baseColor.x,
+										   m.baseColor.y, m.baseColor.z));
 		}
 		cat->Add(std::move(e));
 		m_project.Save();

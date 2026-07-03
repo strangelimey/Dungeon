@@ -209,7 +209,7 @@ void DungeonWorld::SubmitSceneGeometry(ID3D12GraphicsCommandList* list,
 		}
 		gfx::MaterialParams material;
 		material.doubleSided = !deco.kind->authored; // authored meshes back-cull
-		ApplyPropMaterial(material, deco.kind->tex, deco.kind->color, 0.85f);
+		ApplyPropMaterial(material, *deco.kind, 0.85f);
 		material.alphaCutoff = deco.kind->alphaCutoff; // > 0: render the mask's gaps
 		m_renderer.DrawMesh(list, *deco.kind->mesh, deco.world, material);
 	}
@@ -227,7 +227,7 @@ void DungeonWorld::SubmitSceneGeometry(ID3D12GraphicsCommandList* list,
 			if (!kind || !kind->mesh) return;
 			gfx::MaterialParams material;
 			material.doubleSided = true;
-			ApplyPropMaterial(material, kind->tex, kind->color, 0.85f);
+			ApplyPropMaterial(material, *kind, 0.85f);
 			Mat4 w;
 			XMStoreFloat4x4(&w, world);
 			m_renderer.DrawMesh(list, *kind->mesh, w, material);
@@ -251,7 +251,7 @@ void DungeonWorld::SubmitSceneGeometry(ID3D12GraphicsCommandList* list,
 			XMMatrixTranslation(mount.pos.x, 1.15f, mount.pos.z);
 		gfx::MaterialParams material;
 		material.doubleSided = true;
-		ApplyPropMaterial(material, b.kind->tex, b.kind->color, 0.85f);
+		ApplyPropMaterial(material, *b.kind, 0.85f);
 		Mat4 w;
 		XMStoreFloat4x4(&w, world);
 		m_renderer.DrawMesh(list, *b.kind->mesh, w, material);

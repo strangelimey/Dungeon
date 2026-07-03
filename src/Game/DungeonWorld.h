@@ -887,6 +887,16 @@ private:
 		bool authored = false;     // imported model: consistently wound -> back-cull
 		bool solidDefault = true;  // floor-standing blocks the party (passages don't)
 		float alphaCutoff = 0.0f;  // > 0: alpha-test cutout (masked set, e.g. a gate)
+		// Catalog material overrides (the asset dialog's sliders persist here as
+		// metallic=/roughness=/height_scale=/color= fields; absent = -1/untinted =
+		// leave the resolved material alone). metallic/roughness REPLACE the draw's
+		// factors — with an ORM map the shader multiplies them over the map, flat
+		// fallbacks take them directly. tint replaces baseColor (over the albedo).
+		float metallic = -1.0f;
+		float roughness = -1.0f;
+		float heightScale = -1.0f;
+		bool hasTint = false;
+		Vec4 tint{1, 1, 1, 1};
 	};
 	struct Decoration {
 		const DecorationKind* kind = nullptr; // points into m_decorationKinds
@@ -1038,6 +1048,12 @@ private:
 	// prop draw (decorations, fires, pillar, monsters).
 	static void ApplyPropMaterial(gfx::MaterialParams& m, const PropTextures* tex,
 								  const Vec4& fallbackColor, float fallbackRoughness);
+	// The DecorationKind flavour: the set/color fill above plus the kind's catalog
+	// material overrides (metallic=/roughness=/height_scale=/color=). Every draw
+	// of a single-mesh catalog prop (decoration/door/button/stair + previews)
+	// routes through this so the overrides apply everywhere alike.
+	static void ApplyPropMaterial(gfx::MaterialParams& m, const DecorationKind& kind,
+								  float fallbackRoughness);
 	// Shared body of Sconce/BrazierPreview: prop mesh + material + flame origin.
 	FixturePreviewData FixturePreview(const PropTextures* tex, const Vec4& color,
 									  const gfx::Mesh* mesh, float flameY,
@@ -1047,6 +1063,11 @@ private:
 	// decoration path.
 	static std::unique_ptr<MultiMaterialModel> BuildMultiMaterialModel(
 		gfx::GraphicsDevice& device, const assets::ModelData& model);
+	// Bakes the entry's metallic=/roughness=/color= overrides into an authored
+	// model's per-submesh materials (the multi-material twin of the DecorationKind
+	// ApplyPropMaterial overload).
+	static void BakeCatalogMaterial(MultiMaterialModel& model,
+									const CatalogEntry* def);
 	void BuildFires();
 	void BuildTurbidityMap();
 	void RebuildFiresAndDust(); // WaitIdle + rebuild fires + dust (live sconce edits)

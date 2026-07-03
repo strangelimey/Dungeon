@@ -512,7 +512,7 @@ std::vector<gfx::PreviewSubmesh> DungeonWorld::DoorPreviewSubs(int x, int z) con
 		if (!kind || !kind->mesh) continue;
 		gfx::MaterialParams mat;
 		mat.doubleSided = true;
-		ApplyPropMaterial(mat, kind->tex, kind->color, 0.85f);
+		ApplyPropMaterial(mat, *kind, 0.85f);
 		subs.push_back({kind->mesh.get(), mat});
 	}
 	return subs;
@@ -696,7 +696,7 @@ std::vector<gfx::PreviewSubmesh> DungeonWorld::ButtonPreviewSubs(int x, int z) c
 		if (b.x == x && b.z == z && b.kind && b.kind->mesh) {
 			gfx::MaterialParams mat;
 			mat.doubleSided = true;
-			ApplyPropMaterial(mat, b.kind->tex, b.kind->color, 0.85f);
+			ApplyPropMaterial(mat, *b.kind, 0.85f);
 			subs.push_back({b.kind->mesh.get(), mat});
 			break;
 		}

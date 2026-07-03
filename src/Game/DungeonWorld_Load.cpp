@@ -18,6 +18,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <cstdlib>
 #include <filesystem>
 #include <format>
 #include <queue>
@@ -56,6 +57,23 @@ static std::vector<std::string> SplitTokens(const std::string& s) {
 		if (i > start) out.emplace_back(s.substr(start, i - start));
 	}
 	return out;
+}
+
+// Parses a catalog "color" field — "r,g,b[,a]" floats 0..1 — into `out`.
+// Malformed values leave `out` untouched and return false (the field is then
+// ignored, like an absent one).
+static bool ParseColorField(const std::string& s, Vec4& out) {
+	const std::vector<std::string> t = SplitTokens(s);
+	if (t.size() < 3) return false;
+	Vec4 c{0, 0, 0, 1};
+	float* dst[4] = {&c.x, &c.y, &c.z, &c.w};
+	for (size_t i = 0; i < t.size() && i < 4; ++i) {
+		char* end = nullptr;
+		*dst[i] = std::strtof(t[i].c_str(), &end);
+		if (end == t[i].c_str()) return false;
+	}
+	out = c;
+	return true;
 }
 
 // monsters.cat `archetype` token -> the behaviour strategy enum. Unknown tokens
@@ -503,7 +521,7 @@ std::vector<gfx::PreviewSubmesh> DungeonWorld::DecorationPreviewSubs(int index) 
 	} else if (d.kind->mesh) {
 		gfx::MaterialParams mat;
 		mat.doubleSided = !d.kind->authored;
-		ApplyPropMaterial(mat, d.kind->tex, d.kind->color, 0.85f);
+		ApplyPropMaterial(mat, *d.kind, 0.85f);
 		mat.alphaCutoff = d.kind->alphaCutoff;
 		subs.push_back({d.kind->mesh.get(), mat});
 	}
@@ -631,8 +649,10 @@ DungeonWorld::ItemKind& DungeonWorld::ItemKindFor(const std::string& type) {
 		// Authored model (catalog `model`): the item draws as this 3D model on the
 		// floor and its baked render becomes the icon/cursor. null = the tablet+tint
 		// placeholder. Items ship as embedded-texture multi-material .glb.
-		if (const std::string modelName = CatalogGet(def, "model", ""); !modelName.empty())
+		if (const std::string modelName = CatalogGet(def, "model", ""); !modelName.empty()) {
 			kind->model = BuildMultiMaterialModel(m_device, LoadModelOrDie(modelName + ".glb"));
+			BakeCatalogMaterial(*kind->model, def); // dialog material overrides
+		}
 		// Every item draws as the shared carved-stone tablet (loaded once) — runes
 		// carve their element's set in; other categories ride the flat tint above.
 		if (!m_runeMesh) {
@@ -862,6 +882,36 @@ void DungeonWorld::ApplyPropMaterial(gfx::MaterialParams& m,
 			 fallbackColor, fallbackRoughness);
 }
 
+void DungeonWorld::ApplyPropMaterial(gfx::MaterialParams& m,
+									 const DecorationKind& kind,
+									 float fallbackRoughness) {
+	ApplyPropMaterial(m, kind.tex, kind.color, fallbackRoughness);
+	if (kind.metallic >= 0.0f) m.metallic = kind.metallic;
+	if (kind.roughness >= 0.0f) m.roughness = kind.roughness;
+	if (kind.heightScale >= 0.0f && m.albedo) m.heightScale = kind.heightScale;
+	if (kind.hasTint) m.baseColor = kind.tint;
+}
+
+// Bakes a catalog entry's material overrides (metallic=/roughness=/color=, the
+// asset dialog's sliders) into an authored model's per-submesh materials. The
+// values REPLACE each submesh's factors — with the model's own maps the shader
+// multiplies them per-texel, so they scale the authored material. height_scale
+// does not apply here (embedded glTF textures carry no height map).
+void DungeonWorld::BakeCatalogMaterial(MultiMaterialModel& model,
+									   const CatalogEntry* def) {
+	if (!def) return;
+	const float metallic = def->GetFloat("metallic", -1.0f);
+	const float roughness = def->GetFloat("roughness", -1.0f);
+	Vec4 tint;
+	const bool hasTint = ParseColorField(CatalogGet(def, "color", ""), tint);
+	for (auto& sub : model.subs) {
+		if (metallic >= 0.0f) sub.material.metallic = metallic;
+		if (roughness >= 0.0f) sub.material.roughness = roughness;
+		if (hasTint) sub.material.baseColor = tint;
+	}
+}
+
+
 // Loads each decoration model once (shared per type, like monsters) and bakes
 // one placed instance per .map "decoration" record. Authored facing +Z, so a
 // record's facing rotates the prop the same way a monster's does. Everything
@@ -942,12 +992,21 @@ DungeonWorld::DecorationKind& DungeonWorld::DecorationKindFor(const std::string&
 		auto kind = std::make_unique<DecorationKind>();
 		kind->id = type; // the record type, for the .map writer
 		kind->authored = CatalogBool(def, "authored", true);
+		// Catalog material overrides (the asset dialog's sliders): absent = -1 /
+		// no tint = the resolved material stays untouched.
+		if (def) {
+			kind->metallic = def->GetFloat("metallic", -1.0f);
+			kind->roughness = def->GetFloat("roughness", -1.0f);
+			kind->heightScale = def->GetFloat("height_scale", -1.0f);
+			kind->hasTint = ParseColorField(CatalogGet(def, "color", ""), kind->tint);
+		}
 		// Authored multi-material models (bought weapon/prop packs) render their
 		// own glTF textures per material from a single embedded-texture .glb,
 		// bypassing the single-mesh / one-bound-set path below.
 		if (CatalogBool(def, "multimaterial", false)) {
 			kind->model = LoadModelOrDie(model + ".glb");
 			kind->multi = BuildMultiMaterialModel(m_device, kind->model);
+			BakeCatalogMaterial(*kind->multi, def); // overrides baked per submesh
 			kind->solidDefault = CatalogBool(def, "solid", true);
 			it = m_decorationKinds.emplace(type, std::move(kind)).first;
 			return *it->second;
