@@ -559,18 +559,138 @@ void DungeonWorld::BakeIcon(ID3D12GraphicsCommandList* list, gfx::SpriteBatch& s
 	list->ResourceBarrier(1, &toSRV);
 }
 
-void DungeonWorld::UpdateMonsterIcons(ID3D12GraphicsCommandList* list,
-									  gfx::SpriteBatch& sprites) {
-	if (m_monsterIconsBaked) return; // head shots are static — one bake per kind
+void DungeonWorld::UpdateMapIcons(ID3D12GraphicsCommandList* list,
+								  gfx::SpriteBatch& sprites) {
+	const bool sconcePending = m_sconceMesh && !m_sconceIcon;
+	const bool brazierPending = m_brazierMesh && !m_brazierIcon;
+	if (m_monsterIconsBaked && m_decorationIconsBaked && !sconcePending &&
+		!brazierPending)
+		return; // all one-shot bakes done
 	EnsureIconBakeTargets();
 	bool any = false;
-	for (auto&& [id, kind] : m_monsterKinds) {
-		if (!kind->mesh || !kind->iconTarget) continue;
-		BakeMonsterIcon(list, sprites, *kind);
-		any = true;
+
+	// AABB of a mesh's vertices, for the whole-model fit.
+	auto meshBounds = [](const assets::MeshData& m, Vec3& lo, Vec3& hi) {
+		lo = {1e9f, 1e9f, 1e9f};
+		hi = {-1e9f, -1e9f, -1e9f};
+		for (const auto& v : m.vertices) {
+			lo = {std::min(lo.x, v.position.x), std::min(lo.y, v.position.y),
+				  std::min(lo.z, v.position.z)};
+			hi = {std::max(hi.x, v.position.x), std::max(hi.y, v.position.y),
+				  std::max(hi.z, v.position.z)};
+		}
+	};
+
+	if (!m_monsterIconsBaked) {
+		for (auto&& [id, kind] : m_monsterKinds) {
+			if (!kind->mesh || !kind->iconTarget) continue;
+			BakeMonsterIcon(list, sprites, *kind);
+			any = true;
+		}
+		m_monsterIconsBaked = true;
 	}
-	m_monsterIconsBaked = true;
+
+	if (!m_decorationIconsBaked) {
+		for (auto&& [id, kind] : m_decorationKinds) {
+			if (!kind->iconTarget) continue;
+			if (kind->multi) { // authored multi-material prop: the item baker
+				BakeIcon(list, sprites, *kind->multi, *kind->iconTarget,
+						 /*animated*/ false, /*spin*/ 0.0f);
+			} else if (kind->mesh && !kind->model.meshes.empty()) {
+				gfx::MaterialParams mat;
+				mat.doubleSided = !kind->authored;
+				ApplyPropMaterial(mat, *kind, 0.85f);
+				mat.alphaCutoff = kind->alphaCutoff;
+				Vec3 lo, hi;
+				meshBounds(kind->model.meshes[0], lo, hi);
+				BakeMeshIcon(list, sprites, *kind->mesh, mat, lo, hi,
+							 *kind->iconTarget);
+			} else {
+				continue;
+			}
+			any = true;
+		}
+		m_decorationIconsBaked = true;
+	}
+
+	// The two fixture meshes (loaded once at boot; icons gate on existing).
+	auto bakeFixture = [&](const gfx::Mesh* mesh, const assets::ModelData& model,
+						   const PropTextures* tex, const Vec4& color,
+						   std::unique_ptr<gfx::Texture>& icon) {
+		if (!mesh || icon || model.meshes.empty()) return;
+		icon = gfx::Texture::RenderTarget(m_device, kIconSize);
+		gfx::MaterialParams mat;
+		ApplyPropMaterial(mat, tex, color, 0.5f);
+		if (!mat.albedo) mat.metallic = 1.0f; // flat fallback reads as metal
+		Vec3 lo, hi;
+		meshBounds(model.meshes[0], lo, hi);
+		BakeMeshIcon(list, sprites, *mesh, mat, lo, hi, *icon);
+		any = true;
+	};
+	bakeFixture(m_sconceMesh.get(), m_sconceModel, m_sconceTex, m_sconceColor,
+				m_sconceIcon);
+	bakeFixture(m_brazierMesh.get(), m_brazierModel, m_brazierTex, m_brazierColor,
+				m_brazierIcon);
+
 	if (any) m_device.BindBackBuffer(list); // the bakes redirected the OM
+}
+
+void DungeonWorld::BakeMeshIcon(ID3D12GraphicsCommandList* list,
+								gfx::SpriteBatch& sprites, const gfx::Mesh& mesh,
+								const gfx::MaterialParams& material, const Vec3& lo,
+								const Vec3& hi, const gfx::Texture& target) {
+	D3D12_RESOURCE_BARRIER toRT = gfx::Transition(
+		target.Resource(), D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+		D3D12_RESOURCE_STATE_RENDER_TARGET);
+	list->ResourceBarrier(1, &toRT);
+
+	const float clear[4] = {0.0f, 0.0f, 0.0f, 0.0f};
+	gfx::BeginOffscreen(list, target.Rtv(),
+						m_iconDsvHeap->GetCPUDescriptorHandleForHeapStart(), kIconSize,
+						clear);
+
+	constexpr Vec4 kHaloColor{0.90f, 0.92f, 0.97f, 0.55f};
+	sprites.Begin(list, kIconSize, kIconSize);
+	sprites.DrawSprite({0.0f, 0.0f, static_cast<float>(kIconSize),
+						static_cast<float>(kIconSize)},
+					   {0, 0, 1, 1}, *m_iconHalo, kHaloColor);
+	sprites.End();
+
+	// Whole-model fit: centre at the origin, longest extent to ~82% of the
+	// frame, a gentle 3/4 yaw + downward tilt (props are upright objects).
+	const Vec3 c{(lo.x + hi.x) * 0.5f, (lo.y + hi.y) * 0.5f, (lo.z + hi.z) * 0.5f};
+	const Vec3 ext{hi.x - lo.x, hi.y - lo.y, hi.z - lo.z};
+	const float longest = std::max({ext.x, ext.y, ext.z, 1e-3f});
+	const float s = 1.15f / longest;
+	const XMMATRIX worldX = XMMatrixTranslation(-c.x, -c.y, -c.z) *
+							XMMatrixScaling(s, s, s) *
+							XMMatrixRotationY(kPi + 0.5f) * XMMatrixRotationX(-0.3f);
+	Mat4 world;
+	XMStoreFloat4x4(&world, worldX);
+
+	gfx::Camera cam;
+	cam.SetLens(35.0f * kPi / 180.0f, 1.0f, 0.02f, 10.0f);
+	cam.SetPosition({0.0f, 0.0f, -2.2f});
+	cam.SetYawPitch(0.0f, 0.0f);
+
+	gfx::LightSet lights;
+	lights.ambient = {0.62f, 0.62f, 0.68f};
+	lights.points.push_back(
+		{{1.8f, 2.0f, -1.8f}, 12.0f, {1.0f, 0.97f, 0.92f}, 6.5f, -1, false});
+	lights.points.push_back(
+		{{-1.8f, 0.6f, -1.6f}, 12.0f, {0.82f, 0.88f, 1.0f}, 3.4f, -1, false});
+	lights.points.push_back(
+		{{1.3f, 1.5f, 2.4f}, 12.0f, {1.0f, 1.0f, 1.0f}, 7.5f, -1, false});
+	lights.points.push_back(
+		{{-1.3f, 1.5f, 2.4f}, 12.0f, {1.0f, 1.0f, 1.0f}, 7.5f, -1, false});
+
+	m_renderer.BeginScene(list, cam, lights);
+	m_renderer.DrawMesh(list, mesh, world, material);
+
+	D3D12_RESOURCE_BARRIER toSRV = gfx::Transition(
+		target.Resource(), D3D12_RESOURCE_STATE_RENDER_TARGET,
+		D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+	list->ResourceBarrier(1, &toSRV);
 }
 
 void DungeonWorld::BakeMonsterIcon(ID3D12GraphicsCommandList* list,

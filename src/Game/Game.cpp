@@ -2046,15 +2046,16 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 			  m_state == AppState::CharacterSheet) &&
 			 !editorMap) {
 		m_world.UpdateItemIcons(list, m_spriteBatch); // 3D item icons (static + spin)
-		m_world.UpdateMonsterIcons(list, m_spriteBatch); // map head shots (one-shot)
+		m_world.UpdateMapIcons(list, m_spriteBatch);  // map marker icons (one-shot)
 		m_world.RenderShadowMaps(list);
 		m_world.RenderScene(list);
 	} else if (editorMap) {
-		// The editor covers the scene, but its map overlay draws the monster
-		// head-shot icons — keep their one-shot bake running (a kind placed
-		// from the palette bakes on the next frame; the bake rebinds the back
-		// buffer itself when it ran).
-		m_world.UpdateMonsterIcons(list, m_spriteBatch);
+		// The editor covers the scene, but its map overlay draws the baked
+		// marker icons — keep the bakes running (a kind placed from the palette
+		// bakes on the next frame; item icons also feed the map's item markers).
+		// The bakes rebind the back buffer themselves when they ran.
+		m_world.UpdateItemIcons(list, m_spriteBatch);
+		m_world.UpdateMapIcons(list, m_spriteBatch);
 	}
 
 	// 2D pass.

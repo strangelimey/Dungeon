@@ -109,16 +109,22 @@ public:
 	// The baked 3D icon for an item type (building its kind on demand), or null
 	// for a model-less item (the caller falls back to its flat placeholder).
 	const gfx::Texture* ItemIconFor(const std::string& typeId);
-	// Renders each monster kind's HEAD-SHOT map icon (its mesh in rest pose,
-	// framed on the model's upper portion — a skull for the skeleton) into its
-	// icon render-target. Bakes once per kind; call every frame like
+	// Renders the map overlay's baked icons: each monster kind's HEAD SHOT (its
+	// mesh in rest pose framed on the model's top quarter — a skull for the
+	// skeleton), each decoration kind's whole model (props read best in full;
+	// covers button levers too, they share the kind cache), and the sconce +
+	// brazier fixture meshes. Bakes once per kind; call every frame like
 	// UpdateItemIcons (and unlike it, also while the editor covers the scene —
 	// the map overlay is what draws these). Redirects the OM and rebinds.
-	void UpdateMonsterIcons(ID3D12GraphicsCommandList* list, gfx::SpriteBatch& sprites);
-	// The baked icon for an already-loaded monster kind, or null (not loaded /
-	// not baked yet) — the map overlay then falls back to the letter square.
-	// Never force-loads a model (browse markers may name unloaded types).
+	void UpdateMapIcons(ID3D12GraphicsCommandList* list, gfx::SpriteBatch& sprites);
+	// The baked icons for already-loaded kinds, or null (not loaded / not baked
+	// yet) — the map overlay then falls back to its square markers. These never
+	// force-load a model (browse markers may name unloaded types).
 	const gfx::Texture* MonsterIconFor(const std::string& type) const;
+	const gfx::Texture* DecorationIconFor(const std::string& type) const;
+	const gfx::Texture* ItemIconLookup(const std::string& type) const;
+	const gfx::Texture* SconceIcon() const { return m_sconceIcon.get(); }
+	const gfx::Texture* BrazierIcon() const { return m_brazierIcon.get(); }
 
 	// Torchlight palette (the HUD dropdown): 0 warm, 1 cold blue, 2 eerie
 	// green. Announces the change through onMessage.
@@ -938,6 +944,9 @@ private:
 		bool authored = false;     // imported model: consistently wound -> back-cull
 		bool solidDefault = true;  // floor-standing blocks the party (passages don't)
 		float alphaCutoff = 0.0f;  // > 0: alpha-test cutout (masked set, e.g. a gate)
+		// Baked whole-model map icon (like MonsterKind's head shot, but props
+		// read best in full). Transparent until UpdateMapIcons bakes it.
+		std::unique_ptr<gfx::Texture> iconTarget;
 		// Catalog material overrides (the asset dialog's sliders persist here as
 		// metallic=/roughness=/height_scale=/color= fields; absent = -1/untinted =
 		// leave the resolved material alone). metallic/roughness REPLACE the draw's
@@ -1332,14 +1341,23 @@ private:
 	gfx::ComPtr<ID3D12DescriptorHeap> m_iconDsvHeap;
 	std::unique_ptr<gfx::Texture> m_iconHalo; // soft round disc, white w/ radial alpha
 	bool m_itemIconsBaked = false;
-	// Monster head-shot map icons (MonsterKind::iconTarget), sharing the item
-	// bakes' depth/halo. Reset when a new kind loads so it bakes next frame.
+	// Monster head-shot + decoration whole-model map icons (each kind's
+	// iconTarget), sharing the item bakes' depth/halo. A flag resets when a new
+	// kind loads so it bakes next frame; the two fixture icons gate on their
+	// texture existing instead (their meshes load once at boot).
 	bool m_monsterIconsBaked = false;
-	// Creates the shared icon depth target + halo on first use (both bakers).
+	bool m_decorationIconsBaked = false;
+	std::unique_ptr<gfx::Texture> m_sconceIcon;
+	std::unique_ptr<gfx::Texture> m_brazierIcon;
+	// Creates the shared icon depth target + halo on first use (all bakers).
 	void EnsureIconBakeTargets();
 	// One kind's head-shot bake: rest-pose mesh, framed on the model's top.
 	void BakeMonsterIcon(ID3D12GraphicsCommandList* list, gfx::SpriteBatch& sprites,
 						 const MonsterKind& kind);
+	// A static mesh baked whole (fit by its bounds): decorations, fixtures.
+	void BakeMeshIcon(ID3D12GraphicsCommandList* list, gfx::SpriteBatch& sprites,
+					  const gfx::Mesh& mesh, const gfx::MaterialParams& material,
+					  const Vec3& lo, const Vec3& hi, const gfx::Texture& target);
 	std::vector<Item> m_items;
 	std::vector<Button> m_buttons; // .ent buttons (toggle wired doors by name)
 	std::vector<Door> m_doors;     // .ent doors (live open/anim state)
@@ -1500,6 +1518,9 @@ private:
 	std::vector<Fire> m_fires;
 	std::unique_ptr<gfx::Mesh> m_sconceMesh;
 	std::unique_ptr<gfx::Mesh> m_brazierMesh;
+	// The fixtures' source models, kept for the map-icon bake's bounds fit.
+	assets::ModelData m_sconceModel;
+	assets::ModelData m_brazierModel;
 	Vec4 m_sconceColor{1, 1, 1, 1};
 	Vec4 m_brazierColor{1, 1, 1, 1};
 	const PropTextures* m_sconceTex = nullptr;  // worn-medieval iron (sconce_<res>)

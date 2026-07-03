@@ -205,18 +205,19 @@ void DungeonWorld::AppendLoadTasks(LoadQueue& queue) {
 		// (the ids the 'T'/'F' glyphs map to); fall back to the old names.
 		auto fixtureAssets = [this](const std::string& id, const char* fallback,
 									std::unique_ptr<gfx::Mesh>& mesh, Vec4& color,
-									const PropTextures*& tex) {
+									const PropTextures*& tex,
+									assets::ModelData& modelOut) {
 			const CatalogEntry* def = m_project.fixtures.Find(id);
 			const auto [model, set] = ModelAndTexture(def, fallback);
-			auto data = LoadModelOrDie(model + ".gltf");
-			mesh = std::make_unique<gfx::Mesh>(m_device, data.meshes[0]);
-			color = data.materials[0].baseColorFactor;
+			modelOut = LoadModelOrDie(model + ".gltf"); // kept: map-icon bounds
+			mesh = std::make_unique<gfx::Mesh>(m_device, modelOut.meshes[0]);
+			color = modelOut.materials[0].baseColorFactor;
 			tex = LoadPropTextures(set);
 		};
 		fixtureAssets(m_project.defaultSconce, "sconce", m_sconceMesh, m_sconceColor,
-					  m_sconceTex);   // worn-medieval iron
+					  m_sconceTex, m_sconceModel);   // worn-medieval iron
 		fixtureAssets(m_project.defaultBrazier, "brazier", m_brazierMesh,
-					  m_brazierColor, m_brazierTex); // bronze
+					  m_brazierColor, m_brazierTex, m_brazierModel); // bronze
 		m_particleBatch = std::make_unique<gfx::ParticleBatch>(m_device);
 		BuildFires();
 	});
@@ -1004,6 +1005,10 @@ DungeonWorld::DecorationKind& DungeonWorld::DecorationKindFor(const std::string&
 			kind->heightScale = def->GetFloat("height_scale", -1.0f);
 			kind->hasTint = ParseColorField(CatalogGet(def, "color", ""), kind->tint);
 		}
+		// Every kind bakes a whole-model map icon; a fresh kind re-arms the
+		// one-shot bake pass (UpdateMapIcons).
+		kind->iconTarget = gfx::Texture::RenderTarget(m_device, kIconSize);
+		m_decorationIconsBaked = false;
 		// Authored multi-material models (bought weapon/prop packs) render their
 		// own glTF textures per material from a single embedded-texture .glb,
 		// bypassing the single-mesh / one-bound-set path below.

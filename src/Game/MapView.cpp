@@ -460,19 +460,24 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 		const float off = t.cell * 0.24f, r = t.cell * 0.15f, w = t.cell * 0.13f;
 		batch.DrawTriangle(rot(0.0f, -(off + r)), rot(-w, -off), rot(w, -off), kFacingArrow);
 	};
-	// The floor-item icon: a small square tucked into the cell's lower-LEFT corner,
-	// faint so it stays out of the way — full opacity only when the cell is hovered.
-	// (Items sit ON the floor, so they read as a subtle secondary of whatever else
-	// shares the square, not a primary marker.)
-	auto itemMarker = [&](int x, int z) {
+	// The floor-item marker: tucked into the cell's lower-LEFT corner, faint so
+	// it stays out of the way — full opacity only when the cell is hovered.
+	// (Items sit ON the floor, so they read as a subtle secondary of whatever
+	// else shares the square, not a primary marker.) A model item draws its
+	// baked HUD icon there; placeholder items keep the small green square.
+	auto itemMarker = [&](int x, int z, const std::string& type) {
 		const Vec2 ctr = cellCenter(x, z);
-		const float h = t.cell * 0.11f;          // half-size (smaller than markers)
-		const float gap = t.cell * 0.06f;        // inset from the cell edges
+		const gfx::Texture* icon = m_world.ItemIconLookup(type);
+		const float h = t.cell * (icon ? 0.17f : 0.11f); // half-size
+		const float gap = t.cell * 0.05f;                // inset from the edges
 		const float px = ctr.x - (t.cell * 0.5f - h - gap);
 		const float py = ctr.y + (t.cell * 0.5f - h - gap);
-		Vec4 c = kItem;
-		c.w = hovered(x, z) ? 1.0f : 0.5f;
-		batch.DrawRect({px - h, py - h, h * 2, h * 2}, c);
+		const float a = hovered(x, z) ? 1.0f : 0.55f;
+		if (icon)
+			batch.DrawSprite({px - h, py - h, h * 2, h * 2}, {0, 0, 1, 1}, *icon,
+							 {1, 1, 1, a});
+		else
+			batch.DrawRect({px - h, py - h, h * 2, h * 2}, {kItem.x, kItem.y, kItem.z, a});
 	};
 	// A type initial centred on a marker (skipped when cells are too small to
 	// read); the upper-cased first letter of the catalog id.
@@ -521,13 +526,43 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 	if (CellVisible(map.StartX(), map.StartZ()))
 		ui::DrawBorder(batch, cellRect(map.StartX(), map.StartZ()), theme.accent);
 
+	// A baked-icon marker: the kind's own model rendered into a small RT
+	// (UpdateMapIcons), drawn centred at `frac` of the cell. The square+letter
+	// markers stay the fallback while an icon hasn't baked yet.
+	auto iconMarker = [&](int x, int z, float frac, const gfx::Texture& icon) {
+		const Vec2 ctr = cellCenter(x, z);
+		const float h = t.cell * frac * 0.5f;
+		batch.DrawSprite({ctr.x - h, ctr.y - h, h * 2.0f, h * 2.0f}, {0, 0, 1, 1},
+						 icon, {1, 1, 1, 1});
+	};
+	// The edge-hugging flavour, for wall fixtures (mirrors edgeMarker).
+	auto edgeIcon = [&](int x, int z, float frac, const gfx::Texture& icon,
+						Vec2 dir) {
+		const Vec2 ctr = cellCenter(x, z);
+		const float h = t.cell * frac * 0.5f;
+		const float px = ctr.x + dir.x * (t.cell * 0.5f - h);
+		const float py = ctr.y + dir.y * (t.cell * 0.5f - h);
+		batch.DrawSprite({px - h, py - h, h * 2.0f, h * 2.0f}, {0, 0, 1, 1}, icon,
+						 {1, 1, 1, 1});
+	};
+
 	// 3) Fixtures and static decorations (both from the static map layer).
-	for (const WallSconce& s : map.Sconces())
-		if (CellVisible(s.x, s.z))
-			edgeMarker(s.x, s.z, 0.16f, kTorch,
-					   {static_cast<float>(DirDX(s.wall)), static_cast<float>(DirDZ(s.wall))});
-	for (const FloorBrazier& b : map.Braziers())
-		if (CellVisible(b.x, b.z)) marker(b.x, b.z, 0.46f, kBrazier);
+	for (const WallSconce& s : map.Sconces()) {
+		if (!CellVisible(s.x, s.z)) continue;
+		const Vec2 dir{static_cast<float>(DirDX(s.wall)),
+					   static_cast<float>(DirDZ(s.wall))};
+		if (const gfx::Texture* icon = m_world.SconceIcon())
+			edgeIcon(s.x, s.z, 0.34f, *icon, dir);
+		else
+			edgeMarker(s.x, s.z, 0.16f, kTorch, dir);
+	}
+	for (const FloorBrazier& b : map.Braziers()) {
+		if (!CellVisible(b.x, b.z)) continue;
+		if (const gfx::Texture* icon = m_world.BrazierIcon())
+			iconMarker(b.x, b.z, 0.62f, *icon);
+		else
+			marker(b.x, b.z, 0.46f, kBrazier);
+	}
 	// Decorations: the LIVE world list for the active level (so editor
 	// placements/removals show), the map's records for a browsed one.
 	std::vector<DungeonWorld::MapMarker> decos;
@@ -535,12 +570,17 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 		decos = m_world.DecorationMarkers();
 	} else {
 		for (const Entity& e : m_browse->map.Decorations())
-			decos.push_back({e.x, e.z, e.type, e.facing});
+			decos.push_back({e.x, e.z, e.type, e.facing,
+							 m_world.DecorationIconFor(e.type)});
 	}
 	for (const auto& m : decos) {
 		if (!CellVisible(m.x, m.z)) continue;
-		marker(m.x, m.z, 0.38f, kDecoration);
-		label(m.x, m.z, m.type);
+		if (m.icon) {
+			iconMarker(m.x, m.z, 0.74f, *m.icon);
+		} else {
+			marker(m.x, m.z, 0.38f, kDecoration);
+			label(m.x, m.z, m.type);
+		}
 		if (m_mode == Mode::Editor) facingArrow(m.x, m.z, m.facing);
 	}
 
@@ -615,10 +655,7 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 		// A baked head-shot icon draws instead of the colored square + type
 		// initial (which stays the fallback for a not-yet-baked/unknown kind).
 		if (mons[i].icon) {
-			const Vec2 ctr = cellCenter(mons[i].x, mons[i].z);
-			const float h = t.cell * 0.46f; // slightly inside the cell
-			batch.DrawSprite({ctr.x - h, ctr.y - h, h * 2.0f, h * 2.0f},
-							 {0, 0, 1, 1}, *mons[i].icon, {1, 1, 1, 1});
+			iconMarker(mons[i].x, mons[i].z, 0.92f, *mons[i].icon);
 		} else {
 			marker(mons[i].x, mons[i].z, 0.5f, kMonster);
 			label(mons[i].x, mons[i].z, mons[i].type);
@@ -631,8 +668,15 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 	for (const Entity& e : ents) {
 		if (!CellVisible(e.x, e.z)) continue;
 		switch (e.kind) {
-		case EntityKind::Item:   itemMarker(e.x, e.z); break;
-		case EntityKind::Button: marker(e.x, e.z, 0.3f, kButton); break;
+		case EntityKind::Item:   itemMarker(e.x, e.z, e.type); break;
+		case EntityKind::Button:
+			// The lever's baked icon (buttons share the decoration kind cache),
+			// else the blue square for a legacy/unknown type.
+			if (const gfx::Texture* icon = m_world.DecorationIconFor(e.type))
+				iconMarker(e.x, e.z, 0.5f, *icon);
+			else
+				marker(e.x, e.z, 0.3f, kButton);
+			break;
 		default:                 break; // monsters: live list above; decorations: static
 		}
 	}

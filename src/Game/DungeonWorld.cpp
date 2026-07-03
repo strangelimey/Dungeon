@@ -1050,12 +1050,30 @@ const gfx::Texture* DungeonWorld::MonsterIconFor(const std::string& type) const 
 	return it != m_monsterKinds.end() ? it->second->iconTarget.get() : nullptr;
 }
 
+const gfx::Texture* DungeonWorld::DecorationIconFor(const std::string& type) const {
+	if (!m_decorationIconsBaked) return nullptr; // RT still transparent
+	const auto it = m_decorationKinds.find(type);
+	return it != m_decorationKinds.end() ? it->second->iconTarget.get() : nullptr;
+}
+
+const gfx::Texture* DungeonWorld::ItemIconLookup(const std::string& type) const {
+	// The no-load twin of ItemIconFor: model items own baked icons (the HUD's),
+	// placeholder items return null (the map keeps its small square for them).
+	const auto it = m_itemKinds.find(type);
+	return it != m_itemKinds.end() && m_itemIconsBaked
+			   ? it->second->iconTarget.get()
+			   : nullptr;
+}
+
 std::vector<DungeonWorld::MapMarker> DungeonWorld::DecorationMarkers() const {
 	std::vector<MapMarker> markers;
 	markers.reserve(m_decorations.size());
 	for (const Decoration& d : m_decorations) {
 		if (d.stair) continue; // stairs draw from their own (typed) marker
-		markers.push_back({d.x, d.z, d.kind ? d.kind->id : std::string(), d.facing});
+		markers.push_back({d.x, d.z, d.kind ? d.kind->id : std::string(), d.facing,
+						   m_decorationIconsBaked && d.kind
+							   ? d.kind->iconTarget.get()
+							   : nullptr});
 	}
 	return markers;
 }
