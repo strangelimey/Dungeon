@@ -5,6 +5,8 @@
 ;              record's "solid=" overrides this default
 ;   authored = 1 imported mesh (consistently wound -> back-face culled),
 ;              0 procedural (CULL_NONE)
+;   category = free-form group token; entries sharing one collapse under a
+;              sub-accordion in the editor palette (like items.cat)
 ; Procedural props (column/archway/fountain/statue/wood_door/barrel/crate/chest)
 ; share dungeon-stone or wood-plank sets; the rest are authored imports that
 ; carry their own same-named set.
@@ -15,6 +17,7 @@ model = column
 texture = wall_stone
 solid = 1
 authored = 0
+category = architecture
 
 [archway]
 display = Archway
@@ -22,6 +25,7 @@ model = archway
 texture = wall_stone
 solid = 0
 authored = 0
+category = architecture
 
 [fountain]
 display = Fountain
@@ -29,6 +33,7 @@ model = fountain
 texture = wall_stone
 solid = 1
 authored = 0
+category = architecture
 
 [statue]
 display = Statue
@@ -36,6 +41,7 @@ model = statue
 texture = wall_stone
 solid = 1
 authored = 0
+category = statue
 
 [wood_door]
 display = Wooden Door (prop)
@@ -43,6 +49,7 @@ model = door
 texture = wood_planks
 solid = 1
 authored = 0
+category = gate
 
 [barrel]
 display = Barrel
@@ -50,6 +57,7 @@ model = barrel
 texture = wood_planks
 solid = 1
 authored = 0
+category = container
 
 [crate]
 display = Crate
@@ -57,6 +65,7 @@ model = crate
 texture = wood_planks
 solid = 1
 authored = 0
+category = container
 
 [chest]
 display = Chest
@@ -64,6 +73,7 @@ model = chest
 texture = wood_planks
 solid = 1
 authored = 0
+category = container
 
 [ancient_pot]
 display = Ancient Pot
@@ -71,6 +81,7 @@ model = ancient_pot
 texture = ancient_pot
 solid = 1
 authored = 1
+category = container
 
 [banner]
 display = Banner
@@ -78,6 +89,7 @@ model = banner
 texture = banner
 solid = 1
 authored = 1
+category = clutter
 
 [pot]
 display = Pot
@@ -85,6 +97,7 @@ model = pot
 texture = pot
 solid = 1
 authored = 1
+category = container
 
 [mossy_rock]
 display = Mossy Rock
@@ -92,6 +105,7 @@ model = mossy_rock
 texture = mossy_rock
 solid = 1
 authored = 1
+category = rock
 
 [boulder]
 display = Boulder
@@ -99,6 +113,7 @@ model = boulder
 texture = boulder
 solid = 1
 authored = 1
+category = rock
 
 ; --- variants pairing existing models with new scanned sets ---
 [column_marble]
@@ -107,6 +122,7 @@ model = column
 texture = marble_pillar
 solid = 1
 authored = 0
+category = architecture
 
 [statue_marble]
 display = Marble Statue
@@ -114,6 +130,7 @@ model = statue
 texture = marble_white
 solid = 1
 authored = 0
+category = statue
 
 [iron_door]
 display = Iron Door
@@ -121,6 +138,7 @@ model = door
 texture = rusted_iron
 solid = 1
 authored = 0
+category = gate
 
 ; Iron portcullis — real-geometry bars (not an alpha cutout) so torchlight
 ; casts true shadows through the gaps. Procedural box build -> authored=0
@@ -131,6 +149,7 @@ model = portcullis
 texture = rusted_iron
 solid = 1
 authored = 0
+category = gate
 
 ; --- authored multi-material weapons (fab.com Fantasy Assassin pack) ---
 ; multimaterial=1 loads <model>.glb and renders each part with its OWN glTF
@@ -141,6 +160,7 @@ model = viking_dagger
 multimaterial = 1
 solid = 0
 authored = 1
+category = weapon
 
 [khukri]
 display = Khukri
@@ -148,6 +168,7 @@ model = khukri
 multimaterial = 1
 solid = 0
 authored = 1
+category = weapon
 
 [snake_dagger]
 display = Snake Dagger
@@ -155,6 +176,7 @@ model = snake_dagger
 multimaterial = 1
 solid = 0
 authored = 1
+category = weapon
 
 [french_dagger]
 display = French Dagger
@@ -162,6 +184,7 @@ model = french_dagger
 multimaterial = 1
 solid = 0
 authored = 1
+category = weapon
 
 ; coil of rope (procedural torus) — low, steppable detail
 [rope]
@@ -170,3 +193,4 @@ model = rope
 texture = rope
 solid = 0
 authored = 0
+category = clutter
