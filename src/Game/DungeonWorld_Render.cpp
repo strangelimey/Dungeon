@@ -449,6 +449,30 @@ void DungeonWorld::UpdateItemIcons(ID3D12GraphicsCommandList* list,
 	if (any) m_device.BindBackBuffer(list);
 }
 
+// The one studio light rig every icon bake shares (item / mesh / monster):
+// punchy so a thin dark model reads clearly on a dark slot — high ambient, a
+// warm key (upper front-right) + a cool fill (lower front-left), and TWO strong
+// RIM lights behind the subject that halo its silhouette toward the camera (the
+// rim is what keeps a thin blade legible on any background). Built ONCE at
+// first use: animated item icons (icon_spin) re-bake every frame, and the rig's
+// point-light pushes would otherwise heap-allocate in the steady state.
+static const gfx::LightSet& IconStudioLights() {
+	static const gfx::LightSet lights = [] {
+		gfx::LightSet l;
+		l.ambient = {0.62f, 0.62f, 0.68f};
+		l.points.push_back(
+			{{1.8f, 2.0f, -1.8f}, 12.0f, {1.0f, 0.97f, 0.92f}, 6.5f, -1, false});
+		l.points.push_back(
+			{{-1.8f, 0.6f, -1.6f}, 12.0f, {0.82f, 0.88f, 1.0f}, 3.4f, -1, false});
+		l.points.push_back(
+			{{1.3f, 1.5f, 2.4f}, 12.0f, {1.0f, 1.0f, 1.0f}, 7.5f, -1, false});
+		l.points.push_back(
+			{{-1.3f, 1.5f, 2.4f}, 12.0f, {1.0f, 1.0f, 1.0f}, 7.5f, -1, false});
+		return l;
+	}();
+	return lights;
+}
+
 void DungeonWorld::BakeIcon(ID3D12GraphicsCommandList* list, gfx::SpriteBatch& sprites,
 							const MultiMaterialModel& model, const gfx::Texture& target,
 							bool animated, float spin) {
@@ -534,23 +558,9 @@ void DungeonWorld::BakeIcon(ID3D12GraphicsCommandList* list, gfx::SpriteBatch& s
 	cam.SetPosition({0.0f, 0.0f, -2.2f});
 	cam.SetYawPitch(0.0f, 0.0f);
 
-	// Punchy studio lighting so a thin dark weapon reads clearly on a dark slot
-	// (background stays transparent — the item just floats, lit bright): high
-	// ambient, a strong key (upper front-right) + a cool fill (lower front-left),
-	// and TWO strong RIM lights behind the item that halo its silhouette toward the
-	// camera — the rim is what keeps a thin blade legible on any background.
-	gfx::LightSet lights;
-	lights.ambient = {0.62f, 0.62f, 0.68f};
-	lights.points.push_back(
-		{{1.8f, 2.0f, -1.8f}, 12.0f, {1.0f, 0.97f, 0.92f}, 6.5f, -1, false});
-	lights.points.push_back(
-		{{-1.8f, 0.6f, -1.6f}, 12.0f, {0.82f, 0.88f, 1.0f}, 3.4f, -1, false});
-	lights.points.push_back(
-		{{1.3f, 1.5f, 2.4f}, 12.0f, {1.0f, 1.0f, 1.0f}, 7.5f, -1, false});
-	lights.points.push_back(
-		{{-1.3f, 1.5f, 2.4f}, 12.0f, {1.0f, 1.0f, 1.0f}, 7.5f, -1, false});
-
-	m_renderer.BeginScene(list, cam, lights);
+	// The shared studio rig (see IconStudioLights above) — the background stays
+	// transparent, the item just floats, lit bright.
+	m_renderer.BeginScene(list, cam, IconStudioLights());
 	DrawMultiMaterial(list, model, world);
 
 	D3D12_RESOURCE_BARRIER toSRV = gfx::Transition(
@@ -673,18 +683,8 @@ void DungeonWorld::BakeMeshIcon(ID3D12GraphicsCommandList* list,
 	cam.SetPosition({0.0f, 0.0f, -2.2f});
 	cam.SetYawPitch(0.0f, 0.0f);
 
-	gfx::LightSet lights;
-	lights.ambient = {0.62f, 0.62f, 0.68f};
-	lights.points.push_back(
-		{{1.8f, 2.0f, -1.8f}, 12.0f, {1.0f, 0.97f, 0.92f}, 6.5f, -1, false});
-	lights.points.push_back(
-		{{-1.8f, 0.6f, -1.6f}, 12.0f, {0.82f, 0.88f, 1.0f}, 3.4f, -1, false});
-	lights.points.push_back(
-		{{1.3f, 1.5f, 2.4f}, 12.0f, {1.0f, 1.0f, 1.0f}, 7.5f, -1, false});
-	lights.points.push_back(
-		{{-1.3f, 1.5f, 2.4f}, 12.0f, {1.0f, 1.0f, 1.0f}, 7.5f, -1, false});
+	m_renderer.BeginScene(list, cam, IconStudioLights()); // the shared studio rig
 
-	m_renderer.BeginScene(list, cam, lights);
 	m_renderer.DrawMesh(list, mesh, world, material);
 
 	D3D12_RESOURCE_BARRIER toSRV = gfx::Transition(
@@ -746,18 +746,6 @@ void DungeonWorld::BakeMonsterIcon(ID3D12GraphicsCommandList* list,
 	cam.SetPosition({0.0f, 0.0f, -2.2f});
 	cam.SetYawPitch(0.0f, 0.0f);
 
-	// The item icons' studio lighting (key + fill + rims) — see BakeIcon.
-	gfx::LightSet lights;
-	lights.ambient = {0.62f, 0.62f, 0.68f};
-	lights.points.push_back(
-		{{1.8f, 2.0f, -1.8f}, 12.0f, {1.0f, 0.97f, 0.92f}, 6.5f, -1, false});
-	lights.points.push_back(
-		{{-1.8f, 0.6f, -1.6f}, 12.0f, {0.82f, 0.88f, 1.0f}, 3.4f, -1, false});
-	lights.points.push_back(
-		{{1.3f, 1.5f, 2.4f}, 12.0f, {1.0f, 1.0f, 1.0f}, 7.5f, -1, false});
-	lights.points.push_back(
-		{{-1.3f, 1.5f, 2.4f}, 12.0f, {1.0f, 1.0f, 1.0f}, 7.5f, -1, false});
-
 	// Rest-pose palette from a throwaway animator (the mesh is skinned; DrawMesh
 	// copies the palette into the frame's upload arena, so a temp is safe).
 	anim::Animator rest(&kind.model.skeleton, &kind.model.clips);
@@ -768,7 +756,7 @@ void DungeonWorld::BakeMonsterIcon(ID3D12GraphicsCommandList* list,
 	ApplyPropMaterial(mat, kind.tex, kind.model.materials[0].baseColorFactor,
 					  kind.fallbackRoughness);
 
-	m_renderer.BeginScene(list, cam, lights);
+	m_renderer.BeginScene(list, cam, IconStudioLights()); // the shared studio rig
 	m_renderer.DrawMesh(list, *kind.mesh, world, mat, rest.Palette());
 
 	D3D12_RESOURCE_BARRIER toSRV = gfx::Transition(

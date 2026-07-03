@@ -12,6 +12,7 @@
 #include "Game/DungeonMeshBuilder.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <format>
 
@@ -2452,19 +2453,25 @@ void DungeonWorld::AssignFormation() {
 	}
 	// Attack cells = the party's walkable orthogonal neighbours (the sides it can
 	// be hit from). Track how many monsters we've assigned to each, to spread them.
+	// At most 4 sides, so a fixed array + count — this pass runs EVERY frame and
+	// must not heap-allocate (CLAUDE.md memory strategy).
 	struct Side {
 		int x, z, count;
 	};
-	std::vector<Side> sides;
+	std::array<Side, 4> sides;
+	int sideCount = 0;
 	static constexpr int kDX[4] = {0, 0, -1, 1};
 	static constexpr int kDZ[4] = {-1, 1, 0, 0};
 	for (int d = 0; d < 4; ++d) {
 		const int sx = px + kDX[d], sz = pz + kDZ[d];
-		if (m_map.IsWalkable(sx, sz)) sides.push_back({sx, sz, 0});
+		if (m_map.IsWalkable(sx, sz)) sides[sideCount++] = {sx, sz, 0};
 	}
-	if (sides.empty()) return;
+	if (sideCount == 0) return;
 
-	std::vector<int> idx;
+	// Aware attackers, sorted nearest-to-party first. Member scratch, reused
+	// frame to frame (clear keeps capacity) — no per-frame allocation.
+	std::vector<int>& idx = m_formationScratch;
+	idx.clear();
 	for (size_t i = 0; i < m_monsters.size(); ++i)
 		if (m_monsters[i].Alive() && m_monsters[i].aware)
 			idx.push_back(static_cast<int>(i));
@@ -2475,28 +2482,29 @@ void DungeonWorld::AssignFormation() {
 		return cheby(m_monsters[a].x, m_monsters[a].z, px, pz) <
 			   cheby(m_monsters[b].x, m_monsters[b].z, px, pz);
 	});
-	std::vector<bool> done(idx.size(), false);
 	// Pass 1 (hysteresis): a monster already standing on a still-unclaimed side
 	// HOLDS it, so a formed ring is stable frame-to-frame (no thrash / circling).
+	// A claimed monster's entry is struck out (-1) so pass 2 skips it — the
+	// sentinel doubles as the old separate `done` flags.
 	for (size_t k = 0; k < idx.size(); ++k) {
 		Monster& m = m_monsters[idx[k]];
-		for (auto& s : sides)
-			if (s.count == 0 && m.x == s.x && m.z == s.z) {
-				m.targetX = s.x;
-				m.targetZ = s.z;
-				++s.count;
-				done[k] = true;
+		for (int s = 0; s < sideCount; ++s)
+			if (sides[s].count == 0 && m.x == sides[s].x && m.z == sides[s].z) {
+				m.targetX = sides[s].x;
+				m.targetZ = sides[s].z;
+				++sides[s].count;
+				idx[k] = -1;
 				break;
 			}
 	}
 	// Pass 2 (fill): the rest take the least-crowded side with room (empty sides
 	// before any doubles up → surround), tie-broken by the side nearest the monster.
 	for (size_t k = 0; k < idx.size(); ++k) {
-		if (done[k]) continue;
+		if (idx[k] < 0) continue; // claimed a side in pass 1
 		Monster& m = m_monsters[idx[k]];
 		const int cap = SlotsPerCell(m.kind->size);
 		int best = -1;
-		for (int s = 0; s < static_cast<int>(sides.size()); ++s) {
+		for (int s = 0; s < sideCount; ++s) {
 			if (sides[s].count >= cap) continue;
 			if (best < 0 || sides[s].count < sides[best].count ||
 				(sides[s].count == sides[best].count &&
@@ -2569,8 +2577,9 @@ void DungeonWorld::BuildAISnapshot() {
 	// Reuse a pooled snapshot that no worker (or the director) still holds — its
 	// only ref is the pool's (use_count == 1). It is therefore not the published
 	// snapshot and not in any worker's hands, so mutating it before we publish is
-	// safe. clear() keeps the vectors'/set's capacity, so steady-state frames do
-	// not allocate. The pool grows to the in-flight high-water mark (~workers+1).
+	// safe. The flat grids are zero-FILLED in place (assign reuses their buffers)
+	// and clear() keeps the vectors' capacity, so steady-state frames do not
+	// allocate. The pool grows to the in-flight high-water mark (~workers+1).
 	std::shared_ptr<ai::Snapshot> snap;
 	for (auto& s : m_snapshotPool)
 		if (s.use_count() == 1) { snap = s; break; }
@@ -2578,8 +2587,6 @@ void DungeonWorld::BuildAISnapshot() {
 		snap = std::make_shared<ai::Snapshot>();
 		m_snapshotPool.push_back(snap);
 	}
-	snap->blocked.clear();
-	snap->occ.clear();
 	snap->monsters.clear();
 
 	snap->partyX = m_party.GridX();
@@ -2587,22 +2594,27 @@ void DungeonWorld::BuildAISnapshot() {
 	snap->mapW = m_map.Width();
 	snap->mapH = m_map.Height();
 	snap->walkable = m_walkableCache;
+	const size_t cellCount = static_cast<size_t>(W) * H;
+	snap->blocked.assign(cellCount, 0);
+	snap->occ.assign(cellCount, ai::CellOcc{});
 	// Party cell is a hard block. Monster crowding is capacity-based: each live
 	// monster bumps its cell's occupant count, tagged with the size's slots/cell so
 	// a worker can tell a half-full same-size group (room) from a full or foreign one.
-	snap->blocked.insert(snap->partyZ * snap->mapW + snap->partyX);
+	snap->blocked[static_cast<size_t>(snap->partyZ) * snap->mapW + snap->partyX] = 1;
 	// Solid decorations block like braziers, but they live in the world list, not
 	// the map — placing/removing one does NOT bump the map Revision the walkable
 	// cache keys off. So they go into `blocked` (rebuilt every frame) instead of
 	// the cached grid: an editor placement takes effect on the next snapshot with
 	// no invalidation to get wrong.
 	for (const Decoration& deco : m_decorations)
-		if (deco.solid) snap->blocked.insert(deco.z * snap->mapW + deco.x);
+		if (deco.solid)
+			snap->blocked[static_cast<size_t>(deco.z) * snap->mapW + deco.x] = 1;
 	// Closed doors block like solid decorations — and for the same reason they
-	// live in the per-frame set, not the cached grid: opening one must take
+	// live in the per-frame grid, not the cached one: opening one must take
 	// effect on the next snapshot with no revision bookkeeping.
 	for (const Door& door : m_doors)
-		if (!door.open) snap->blocked.insert(door.z * snap->mapW + door.x);
+		if (!door.open)
+			snap->blocked[static_cast<size_t>(door.z) * snap->mapW + door.x] = 1;
 	for (const Monster& m : m_monsters) {
 		if (!m.Alive()) continue;
 		const int cap = SlotsPerCell(m.kind->size);

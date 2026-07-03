@@ -47,17 +47,21 @@ bool SnapshotView::IsWalkable(int x, int z) const {
 }
 
 bool SnapshotView::CellFreeForMonster(int x, int z, int /*selfId*/, int capacity) const {
-	if (!IsWalkable(x, z)) return false;
-	const int idx = z * m_snap.mapW + x;
-	// Hard blocks (the party cell, solid decorations) are never enterable.
-	if (m_snap.blocked.find(idx) != m_snap.blocked.end()) return false;
+	if (!IsWalkable(x, z)) return false; // also rejects out-of-bounds cells
+	const size_t idx = static_cast<size_t>(z) * m_snap.mapW + x;
+	// Hard blocks (the party cell, solid decorations, shut doors) are never
+	// enterable. Flat grids, indexed like `walkable` (the size guards only cover
+	// a snapshot published before the grids were shaped — normally both span the
+	// map, and IsWalkable has already bounds-checked the cell).
+	if (idx < m_snap.blocked.size() && m_snap.blocked[idx] != 0) return false;
 	// Empty cell: any single-cell monster fits. Occupied: only same-size groups
 	// (matching capacity) admit a newcomer, and only until their slots fill. A
 	// monster never re-enters its own start cell (the BFS marks it visited), so
 	// self-exclusion isn't needed here.
-	auto it = m_snap.occ.find(idx);
-	if (it == m_snap.occ.end()) return true;
-	return it->second.capacity == capacity && it->second.count < it->second.capacity;
+	if (idx >= m_snap.occ.size()) return true;
+	const CellOcc& o = m_snap.occ[idx];
+	if (o.count == 0) return true;
+	return o.capacity == capacity && o.count < o.capacity;
 }
 
 bool SnapshotView::HasLineOfSight(int x0, int z0, int x1, int z1) const {
@@ -289,7 +293,19 @@ void AsyncDirector::ComputeBucket(int bucket, Brain& brain, const std::stop_toke
 	if (!snap) return;
 
 	SnapshotView view(*snap);
-	auto out = std::make_shared<std::vector<Plan>>();
+	// Reuse a pooled batch nothing else still holds (use_count == 1 — the pool's
+	// own ref; the previously published batch stays pinned by m_plans until the
+	// next publish replaces it, so the pool settles at ~2 per bucket). Plan slots
+	// are overwritten in place, so each plan's path vector keeps its capacity
+	// across ticks — a steady-state tick allocates nothing.
+	std::shared_ptr<std::vector<Plan>> out;
+	for (auto& p : m_planPool[bucket])
+		if (p.use_count() == 1) { out = p; break; }
+	if (!out) {
+		out = std::make_shared<std::vector<Plan>>();
+		m_planPool[bucket].push_back(out);
+	}
+	size_t used = 0;
 	for (const Agent& m : snap->monsters) {
 		// Abandon the whole tick on a stop request — don't publish a partial batch.
 		// Combined with the BFS's own poll, this caps how long a worker can ignore a
@@ -297,16 +313,18 @@ void AsyncDirector::ComputeBucket(int bucket, Brain& brain, const std::stop_toke
 		// terminate a heavy bucket mid-allocation (the heap-lock deadlock hazard).
 		if (stop.stop_requested()) return;
 		if (Scheduler::BucketForIq(m.iq) != bucket) continue;
-		Plan plan;
+		if (out->size() == used) out->emplace_back();
+		Plan& plan = (*out)[used++];
 		plan.id = m.id;
 		plan.intent = brain.Think(m, snap->partyX, snap->partyZ, view);
+		plan.path.clear();
 		if (plan.intent.mode == Intent::Mode::Engage)
 			brain.FindPath(m, plan.intent.targetX, plan.intent.targetZ, snap->mapW,
 						   snap->mapH, view, stop, plan.path);
-		out->push_back(std::move(plan));
 	}
+	out->resize(used); // shrink-only: drop stale tail plans from a bigger tick
 	std::lock_guard<std::mutex> lk(m_planMutex);
-	m_plans[bucket] = std::move(out);
+	m_plans[bucket] = out; // a COPY — the pool keeps its ref for the reuse check
 	++m_planSeq[bucket];
 }
 

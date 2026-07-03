@@ -1438,8 +1438,12 @@ private:
 	u32 m_walkableRev = 0xFFFFFFFFu; // map Revision() the cache was built for
 	// Snapshot pool so steady-state frames allocate nothing (CLAUDE.md memory
 	// strategy): BuildAISnapshot reuses a buffer no worker still holds (use_count
-	// == 1) and clear()s its vectors (capacity retained) instead of make_shared.
+	// == 1), zero-filling its flat grids and clear()ing its vectors in place
+	// (capacity retained) instead of make_shared.
 	std::vector<std::shared_ptr<ai::Snapshot>> m_snapshotPool;
+	// AssignFormation's aware-attacker index list — member scratch so the
+	// every-frame formation pass doesn't heap-allocate (cleared, not freed).
+	std::vector<int> m_formationScratch;
 
 	// Build the immutable snapshot the AI workers read, and hand it over. Cheap:
 	// reuses the cached walkability grid unless the map's revision changed.
