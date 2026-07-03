@@ -281,7 +281,6 @@ map.cat.items=Gegenstände
 map.cat.empty=(keine definiert)
 map.select.empty=Zelle {}, {}: leer {}
 map.select.contents=Zelle {}, {}: {}
-map.place.todo='{}' platzieren — Anbindung folgt
 map.place.done='{}' platziert
 map.place.blocked='{}' kann dort nicht platziert werden
 map.erase.removed=Eine Entität entfernt

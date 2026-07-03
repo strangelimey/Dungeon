@@ -285,6 +285,7 @@ void MapEditor::ApplyBrush(int cx, int cz, bool dragging) {
 	case PaletteCat::Decorations:
 	case PaletteCat::Monsters:
 	case PaletteCat::Buttons:
+	case PaletteCat::Items:
 	case PaletteCat::Fixtures: {
 		if (dragging) break; // placement is a single click
 		const std::vector<PaletteItem> items = CategoryItems(m_sel.cat);
@@ -300,6 +301,9 @@ void MapEditor::ApplyBrush(int cx, int cz, bool dragging) {
 		else if (m_sel.cat == PaletteCat::Buttons)
 			ok = remote ? m_world.AddButtonRemote(stem, id, cx, cz)
 						: m_world.AddButton(id, cx, cz);
+		else if (m_sel.cat == PaletteCat::Items)
+			ok = remote ? m_world.AddItemRemote(stem, id, cx, cz)
+						: m_world.AddItem(id, cx, cz);
 		else
 			ok = remote ? m_world.AddDecorationRemote(stem, id, cx, cz)
 						: m_world.AddDecoration(id, cx, cz, Direction::South);
@@ -330,13 +334,8 @@ void MapEditor::ApplyBrush(int cx, int cz, bool dragging) {
 			log(loc::Format("map.place.done", items[m_sel.index].label));
 		break;
 	}
-	default: { // Items — placement wiring lands later
-		if (dragging) break;
-		const std::vector<PaletteItem> items = CategoryItems(m_sel.cat);
-		if (m_sel.index >= 0 && m_sel.index < static_cast<int>(items.size()))
-			log(loc::Format("map.place.todo", items[m_sel.index].label));
+	default:
 		break;
-	}
 	}
 }
 

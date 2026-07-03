@@ -326,6 +326,17 @@ bool DungeonWorld::RemoveEntityAt(int x, int z) {
 			m_decorations.erase(it);
 			return true;
 		}
+	for (auto it = m_items.begin(); it != m_items.end(); ++it)
+		if (!it->collected && it->x == x && it->z == z) {
+			// Record-backed when authored (id >= 0); a session-dropped tablet
+			// (id < 0) has no record to remove.
+			if (it->id >= 0) {
+				m_entities.RemoveById(it->id);
+				m_entsDirty = true;
+			}
+			m_items.erase(it);
+			return true;
+		}
 	return false;
 }
 
@@ -589,6 +600,47 @@ bool DungeonWorld::AddButtonRemote(const std::string& stem,
 	record.x = x;
 	record.z = z;
 	record.facing = wall;
+	ents.Add(std::move(record));
+	return true;
+}
+
+bool DungeonWorld::AddItem(const std::string& type, int x, int z) {
+	if (!m_project.items.Contains(type) || !m_map.IsWalkable(x, z)) return false;
+	// One item per quarter slot — a full cell (4 on the floor) refuses rather
+	// than letting FreeItemSlotNear stack overlapping tablets.
+	int here = 0;
+	for (const Item& it : m_items)
+		if (!it.collected && it.x == x && it.z == z) ++here;
+	if (here >= 4) return false;
+	Entity record;
+	record.kind = EntityKind::Item;
+	record.type = type;
+	record.x = x;
+	record.z = z;
+	record.id = m_entities.Add(record);
+	m_entsDirty = true;
+	ItemKind& kind = ItemKindFor(type);
+	const Vec3 c = m_map.CellCenter(x, z);
+	const int slot = FreeItemSlotNear(x, z, c.x, c.z, -1);
+	m_items.push_back({&kind, record.id, x, z, false, slot});
+	MarkSeen(x, z);
+	return true;
+}
+
+bool DungeonWorld::AddItemRemote(const std::string& stem,
+								 const std::string& type, int x, int z) {
+	DungeonEntities& ents = EnsureEntStash(stem);
+	const DungeonMap& map = *m_levelMaps.find(stem)->second;
+	if (!m_project.items.Contains(type) || !map.IsWalkable(x, z)) return false;
+	int here = 0;
+	for (const Entity& e : ents.At(x, z))
+		if (e.kind == EntityKind::Item) ++here;
+	if (here >= 4) return false; // one per quarter, like the live rule
+	Entity record;
+	record.kind = EntityKind::Item;
+	record.type = type;
+	record.x = x;
+	record.z = z;
 	ents.Add(std::move(record));
 	return true;
 }
@@ -905,7 +957,7 @@ void DungeonWorld::EraseRemote(const std::string& stem, int x, int z) {
 	}
 	for (const Entity& e : ents.At(x, z))
 		if (e.kind == EntityKind::Monster || e.kind == EntityKind::Door ||
-			e.kind == EntityKind::Button) {
+			e.kind == EntityKind::Button || e.kind == EntityKind::Item) {
 			ents.RemoveById(e.id);
 			say(loc::Tr("map.erase.removed"));
 			return;
@@ -1226,8 +1278,8 @@ bool DungeonWorld::SaveLevel() const {
 		}
 		e += '\n';
 	}
-	// Items/buttons carry their loaded records through; doors are record-backed
-	// (placement/erase edits m_entities directly), so the records ARE current.
+	// Items/buttons/doors are record-backed (placement/erase edits m_entities
+	// directly), so their records ARE current.
 	for (const Entity& ent : m_entities.All()) {
 		if (ent.kind != EntityKind::Item && ent.kind != EntityKind::Button &&
 			ent.kind != EntityKind::Door)

@@ -285,7 +285,6 @@ map.cat.items=Предметы
 map.cat.empty=(не задано)
 map.select.empty=Ячейка {}, {}: пусто {}
 map.select.contents=Ячейка {}, {}: {}
-map.place.todo=Разместить «{}» — связывание далее
 map.place.done=«{}» размещено
 map.place.blocked=Нельзя разместить «{}» здесь
 map.erase.removed=Сущность удалена

@@ -281,7 +281,6 @@ map.cat.items=Objetos
 map.cat.empty=(ninguno definido)
 map.select.empty=Celda {}, {}: vacía {}
 map.select.contents=Celda {}, {}: {}
-map.place.todo=Colocar '{}' — la conexión vendrá después
 map.place.done='{}' colocado
 map.place.blocked=No se puede colocar '{}' ahí
 map.erase.removed=Entidad eliminada

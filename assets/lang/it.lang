@@ -281,7 +281,6 @@ map.cat.items=Oggetti
 map.cat.empty=(nessuno definito)
 map.select.empty=Cella {}, {}: vuota {}
 map.select.contents=Cella {}, {}: {}
-map.place.todo=Posiziona '{}' — il collegamento arriverà dopo
 map.place.done='{}' posizionato
 map.place.blocked=Impossibile posizionare '{}' lì
 map.erase.removed=Entità rimossa

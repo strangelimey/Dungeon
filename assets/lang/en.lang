@@ -279,7 +279,6 @@ map.cat.items=Items
 map.cat.empty=(none defined)
 map.select.empty=Cell {}, {}: empty {}
 map.select.contents=Cell {}, {}: {}
-map.place.todo=Place '{}' — wiring comes next
 map.place.done=Placed '{}'
 map.place.blocked=Can't place '{}' there
 map.erase.removed=Removed an entity

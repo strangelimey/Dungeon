@@ -423,6 +423,12 @@ public:
 	// Record-backed like doors: the .ent record and the live instance are
 	// authored together. Wiring (target=) is edited in the button inspector.
 	bool AddButton(const std::string& type, int x, int z);
+	// Places a floor item (items.cat id) on (x,z): record-backed like doors and
+	// buttons — authors the .ent record and lays the live item in the quarter
+	// slot nearest the cell centre. Refused when the cell already holds four
+	// items (one per quarter). The party can pick a placed item up in play like
+	// any authored one (baseline record + collected save diff).
+	bool AddItem(const std::string& type, int x, int z);
 	// Click interaction: presses the button on the party's OWN cell mounted on
 	// the wall the party faces. False if there isn't one.
 	bool PressButtonFacing();
@@ -493,10 +499,12 @@ public:
 					   int z);
 	bool AddButtonRemote(const std::string& stem, const std::string& type, int x,
 						 int z);
+	bool AddItemRemote(const std::string& stem, const std::string& type, int x,
+					   int z);
 	// The erase ladder for a remote cell, mirroring the live tool: stair (pair
-	// removed too) → one monster record → one decoration record → fixture →
-	// reset the cell's surface variants. Always acts (the last rung is a
-	// reset), messaging what it did.
+	// removed too) → one monster/door/button/item record → one decoration
+	// record → fixture → reset the cell's surface variants. Always acts (the
+	// last rung is a reset), messaging what it did.
 	void EraseRemote(const std::string& stem, int x, int z);
 
 	// Saves every level with unsaved edits: the active one (SaveLevel) plus
