@@ -284,15 +284,20 @@ private:
 
 // A floating right-click context menu: a short list of labelled actions opened
 // at a screen point (overlay-drawn, owning the mouse while open, like the
-// DropDown popup). Closes when an entry is chosen or the user clicks elsewhere.
-// It is a persistent widget the owner reuses — call Open() with the actions for
-// whatever was right-clicked; an empty list is a no-op. Position is absolute
-// pixels (not the normalized bounds), so leave bounds at zero.
+// DropDown popup). Closes when a leaf entry is chosen or the user clicks
+// elsewhere. An entry with CHILDREN is a group: clicking it opens the children
+// as a CASCADING submenu beside the parent — the parent stays visible, so the
+// other groups remain in reach (clicking another group swaps the submenu, the
+// same group toggles it). One level deep. It is a persistent widget the owner
+// reuses — call Open() with the actions for whatever was right-clicked; an
+// empty list is a no-op. Position is absolute pixels (not the normalized
+// bounds), so leave bounds at zero.
 class ContextMenu : public Widget {
 public:
 	struct Entry {
 		std::string label;
-		std::function<void()> onSelect;
+		std::function<void()> onSelect; // leaf action (unused on a group)
+		std::vector<Entry> children;    // non-empty = group with a submenu
 	};
 
 	ContextMenu() = default;
@@ -300,7 +305,10 @@ public:
 	// Opens at (x,y) device pixels with the given actions (clamped on screen in
 	// Update). No-op for an empty list.
 	void Open(float x, float y, std::vector<Entry> entries);
-	void Close() { m_open = false; }
+	void Close() {
+		m_open = false;
+		m_openChild = -1;
+	}
 	bool IsOpen() const { return m_open; }
 
 	void Update(UIContext& ctx) override;
@@ -309,12 +317,18 @@ public:
 
 private:
 	gfx::Rect EntryRect(size_t i) const;
+	gfx::Rect ChildRect(size_t i) const; // row i of the open group's submenu
 
 	bool m_open = false;
 	float m_x = 0.0f, m_y = 0.0f; // top-left, device pixels (clamped in Update)
 	float m_w = 0.0f, m_rowH = 0.0f; // sized from the font in Update
 	std::vector<Entry> m_entries;
 	int m_hover = -1;
+	// Cascading submenu state: which group's children are showing (-1 = none)
+	// and the submenu box, laid out beside the parent in Update.
+	int m_openChild = -1;
+	int m_childHover = -1;
+	float m_childX = 0.0f, m_childY = 0.0f, m_childW = 0.0f;
 };
 
 // A scrolling list of save-slot rows. Each row shows a primary label (name)

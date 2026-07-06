@@ -245,39 +245,33 @@ void GameUI::OpenHandUseMenu(size_t i, size_t hand) {
 						   }});
 	}
 	// No defaultable item command (bare hand, rune, key): offer the grouped
-	// default pickers. Each group entry chains a SECOND ContextMenu open from
-	// its callback (the menu closes before running it, so the reopen sticks):
-	// Combat > the unarmed verbs, Magic > the spells this member can cast.
+	// default pickers as CASCADING groups — the ContextMenu keeps the first
+	// tier visible beside an open submenu, so Combat and Magic stay in reach
+	// while browsing either: Combat > the unarmed verbs, Magic > the spells
+	// this member can cast.
 	if (!anyDefaultable) {
-		entries.push_back({loc::Tr("menu.combat"), [this, i, hand, itemId] {
-			std::vector<ui::ContextMenu::Entry> sub;
-			for (std::string_view verb : kUnarmedUses) {
-				std::string cmd{verb};
-				sub.push_back({loc::Tr("use." + cmd), [this, i, hand, itemId, cmd] {
-								   SelectUse(i, hand, itemId, cmd);
-							   }});
-			}
-			m_handMenu->Open(m_hudMouseX, m_hudMouseY, std::move(sub));
-		}});
+		ui::ContextMenu::Entry combat{loc::Tr("menu.combat"), {}, {}};
+		for (std::string_view verb : kUnarmedUses) {
+			std::string cmd{verb};
+			combat.children.push_back(
+				{loc::Tr("use." + cmd), [this, i, hand, itemId, cmd] {
+					 SelectUse(i, hand, itemId, cmd);
+				 }});
+		}
+		entries.push_back(std::move(combat));
 		// The Magic group only appears when the member can actually cast
 		// something (knows every symbol of at least one recipe).
-		std::vector<const SpellDef*> known;
+		ui::ContextMenu::Entry magic{loc::Tr("menu.magic"), {}, {}};
 		if (spellDefs)
-			for (const SpellDef& def : spellDefs())
-				if (KnowsSpell(c, def)) known.push_back(&def);
-		if (!known.empty()) {
-			entries.push_back({loc::Tr("menu.magic"), [this, i, hand, itemId, known] {
-				std::vector<ui::ContextMenu::Entry> sub;
-				for (const SpellDef* def : known) {
-					std::string cmd = std::string(kCastPrefix) + def->id;
-					sub.push_back(
-						{loc::Tr(def->nameKey), [this, i, hand, itemId, cmd] {
-							 SelectUse(i, hand, itemId, cmd);
-						 }});
-				}
-				m_handMenu->Open(m_hudMouseX, m_hudMouseY, std::move(sub));
-			}});
-		}
+			for (const SpellDef& def : spellDefs()) {
+				if (!KnowsSpell(c, def)) continue;
+				std::string cmd = std::string(kCastPrefix) + def.id;
+				magic.children.push_back(
+					{loc::Tr(def.nameKey), [this, i, hand, itemId, cmd] {
+						 SelectUse(i, hand, itemId, cmd);
+					 }});
+			}
+		if (!magic.children.empty()) entries.push_back(std::move(magic));
 	}
 	if (entries.empty()) return; // nothing actionable — don't pop an empty menu
 	m_handMenu->Open(m_hudMouseX, m_hudMouseY, std::move(entries));
