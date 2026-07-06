@@ -9,9 +9,11 @@ namespace dungeon::game {
 
 namespace {
 // Parallel to the SpellSymbol enum order.
-constexpr const char* kIds[kSymbolCount] = {"fire", "earth", "air", "water"};
+constexpr const char* kIds[kSymbolCount] = {"fire", "earth", "air", "water",
+											"project"};
 constexpr const char* kKeys[kSymbolCount] = {"symbol.fire", "symbol.earth",
-											 "symbol.air", "symbol.water"};
+											 "symbol.air", "symbol.water",
+											 "symbol.project"};
 
 // Parses a comma-separated symbol list ("fire,air") into a sequence. Returns
 // false (and leaves `out` partial) on the first unknown token; an empty / blank
@@ -65,6 +67,10 @@ Vec4 ElementColor(SpellSymbol s) {
 	case SpellSymbol::Earth: return {0.60f, 0.36f, 0.16f, 0.0f}; // brown
 	case SpellSymbol::Air:   return {1.00f, 1.00f, 1.00f, 0.0f}; // white
 	case SpellSymbol::Water: return {0.18f, 0.42f, 1.00f, 0.0f}; // blue
+	// The shared form runes are school-less: a neutral arcane gold, distinct
+	// from all four school accents (a cast spell never shows this — bolts tint
+	// by SpellDef::element, the school).
+	case SpellSymbol::Project: return {0.92f, 0.76f, 0.30f, 0.0f}; // gold
 	default:                 return {1.0f, 1.0f, 1.0f, 0.0f};
 	}
 }
@@ -102,6 +108,7 @@ void SpellBook::Build(const Catalog& catalog) {
 		def.mana = e.GetFloat("mana", 4.0f);
 		def.speed = e.GetFloat("speed", 7.0f);
 		def.range = e.GetFloat("range", 8.0f);
+		def.push = static_cast<int>(e.GetFloat("push", 0.0f));
 		m_defs.push_back(std::move(def));
 	}
 	log::Info("Spellbook: {} recipes", m_defs.size());

@@ -1203,12 +1203,14 @@ private:
 	// party THIS frame, independent of its neighbours. Called where party damage
 	// (melee or spell) lands on a monster.
 	void ProvokeMonster(Monster& monster);
-	// Resolves a spell bolt reaching world position `p` with strike profile `atk`:
-	// finds a live monster in that cell, runs the strike (combat + log + slain),
-	// and returns true if a monster was there (the bolt is consumed). The
-	// moving-item engine (m_projectiles) owns the bolt; this is the TargetSide::
-	// Monsters branch of its impact hook.
-	bool ResolveSpellHit(const Vec3& p, const AttackProfile& atk);
+	// Resolves a spell bolt reaching `impact.pos` with its strike profile: finds
+	// a live monster in that cell, runs the strike (combat + log + slain), and
+	// returns true if a monster was there (the bolt is consumed). A landed hit
+	// with `impact.push` shoves the survivor that many cells along the bolt's
+	// travel (walls/occupants stop it early). The moving-item engine
+	// (m_projectiles) owns the bolt; this is the TargetSide::Monsters branch of
+	// its impact hook.
+	bool ResolveSpellHit(const ProjectileImpact& impact);
 	// TargetSide::Party branch of the moving-item engine's impact hook: a monster
 	// bolt reaching `p`. If `p` is the party's cell it strikes a random standing
 	// member (mirror of MonsterAttack) and is consumed (true, hit or miss);

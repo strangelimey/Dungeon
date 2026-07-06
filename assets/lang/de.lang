@@ -190,11 +190,16 @@ log.cast_unknown={} kennt diese Symbole nicht.
 log.spell_hits={} wird versengt und erleidet {} Schaden!
 log.spell_misses={} weicht dem Zauberblitz aus.
 log.spell_slain={} wird vernichtet!
+log.spell_pushes={} wird zurückgeschleudert!
 ; Spell display names (spells.cat ids -> spell.<id>).
 spell.flame=Feuerhauch
 spell.rock=Kieselstein
 spell.gust=Windhauch
 spell.splash=Schwall
+spell.fireburst=Feuerstoß
+spell.slingshot=Schleuderstein
+spell.waterbolt=Wassergeschoss
+spell.push=Stoß
 ; Hand-slot use menu (items.cat `command` ids -> use.<id>).
 use.memorize=Einprägen
 use.eat=Essen
@@ -220,6 +225,7 @@ item.rune_fire=Feuerrune
 item.rune_earth=Erdrune
 item.rune_air=Luftrune
 item.rune_water=Wasserrune
+item.rune_project=Projektionsrune
 item.dagger=Dolch
 item.khukri=Khukri
 item.snake_dagger=Schlangendolch
@@ -279,11 +285,12 @@ equip.cloak=Umhang
 equip.amulet=Amulett
 equip.ring=Ring
 
-; --- spell symbols (tier 1: the four elements) ----------------------------------
+; --- spell symbols (tier 1: the four elements; tier 2: the shared forms) ---------
 symbol.fire=Feuer
 symbol.earth=Erde
 symbol.air=Luft
 symbol.water=Wasser
+symbol.project=Projektion
 
 ; --- map overlay / editor --------------------------------------------------------
 map.title=Karte

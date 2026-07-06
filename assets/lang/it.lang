@@ -190,11 +190,16 @@ log.cast_unknown={} non conosce quei simboli.
 log.spell_hits={} brucia e subisce {} danni!
 log.spell_misses={} schiva il dardo.
 log.spell_slain={} si disintegra!
+log.spell_pushes={} viene scagliato all'indietro!
 ; Spell display names (spells.cat ids -> spell.<id>).
 spell.flame=Soffio di fuoco
 spell.rock=Sassolino
 spell.gust=Soffio di vento
 spell.splash=Spruzzo
+spell.fireburst=Vampata di fuoco
+spell.slingshot=Sasso di fionda
+spell.waterbolt=Dardo d'acqua
+spell.push=Spinta
 ; Hand-slot use menu (items.cat `command` ids -> use.<id>).
 use.memorize=Memorizza
 use.eat=Mangia
@@ -220,6 +225,7 @@ item.rune_fire=Runa del fuoco
 item.rune_earth=Runa della terra
 item.rune_air=Runa dell'aria
 item.rune_water=Runa dell'acqua
+item.rune_project=Runa di proiezione
 item.dagger=Pugnale
 item.khukri=Kukri
 item.snake_dagger=Pugnale serpente
@@ -279,11 +285,12 @@ equip.cloak=Mantello
 equip.amulet=Amuleto
 equip.ring=Anello
 
-; --- spell symbols (tier 1: the four elements) ----------------------------------
+; --- spell symbols (tier 1: the four elements; tier 2: the shared forms) ---------
 symbol.fire=Fuoco
 symbol.earth=Terra
 symbol.air=Aria
 symbol.water=Acqua
+symbol.project=Proiezione
 
 ; --- map overlay / editor --------------------------------------------------------
 map.title=Mappa

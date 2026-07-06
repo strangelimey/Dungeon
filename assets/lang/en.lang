@@ -188,11 +188,16 @@ log.cast_unknown={} does not know those symbols.
 log.spell_hits=The {} is seared for {} damage!
 log.spell_misses=The bolt streaks past the {}.
 log.spell_slain=The {} is destroyed!
+log.spell_pushes=The {} is hurled back!
 ; Spell display names (spells.cat ids -> spell.<id>).
 spell.flame=Puff of Flame
 spell.rock=Pebble
 spell.gust=Puff of Wind
 spell.splash=Splash
+spell.fireburst=Fire Burst
+spell.slingshot=Slingshot
+spell.waterbolt=Water Bolt
+spell.push=Push
 ui.inventory=Inventory
 ui.inv_all=All
 ; Hand-slot use menu (items.cat `command` ids -> use.<id>).
@@ -218,6 +223,7 @@ item.rune_fire=Fire rune
 item.rune_earth=Earth rune
 item.rune_air=Air rune
 item.rune_water=Water rune
+item.rune_project=Project rune
 item.dagger=Dagger
 item.khukri=Khukri
 item.snake_dagger=Snake dagger
@@ -277,11 +283,12 @@ equip.cloak=Cloak
 equip.amulet=Amulet
 equip.ring=Ring
 
-; --- spell symbols (tier 1: the four elements) ----------------------------------
+; --- spell symbols (tier 1: the four elements; tier 2: the shared forms) ---------
 symbol.fire=Fire
 symbol.earth=Earth
 symbol.air=Air
 symbol.water=Water
+symbol.project=Project
 
 ; --- map overlay / editor --------------------------------------------------------
 map.title=Map

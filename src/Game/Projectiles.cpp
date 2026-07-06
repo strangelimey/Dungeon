@@ -15,6 +15,7 @@ void ProjectileSystem::Spawn(const ProjectileSpec& spec) {
 	it.color = spec.color;
 	it.size = spec.size;
 	it.target = spec.target;
+	it.push = spec.push;
 	m_items.push_back(it);
 }
 
@@ -55,7 +56,8 @@ void ProjectileSystem::Update(float dt) {
 			continue;
 		}
 
-		if (resolveHit && resolveHit(it.target, it.pos, it.atk)) { // struck a target
+		if (resolveHit &&
+			resolveHit(it.target, {it.pos, it.dir, it.atk, it.push})) { // struck a target
 			SpawnSparkBurst(it.pos, it.color, 14);
 			it.rangeLeft = -1.0f;
 			continue;

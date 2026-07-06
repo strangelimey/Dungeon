@@ -39,6 +39,7 @@ MagicSystem::CastReport MagicSystem::Cast(Character& caster,
 	bolt.color = {g.x * 1.7f, g.y * 1.7f, g.z * 1.7f, 0.0f}; // bright additive
 	bolt.size = 0.2f;
 	bolt.target = TargetSide::Monsters;
+	bolt.push = spell->push; // displacement rides the bolt (the air-school shove)
 
 	return {CastOutcome::Cast, spell, bolt};
 }

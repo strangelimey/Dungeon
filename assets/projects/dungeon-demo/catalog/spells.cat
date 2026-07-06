@@ -10,6 +10,8 @@
 ;   mana    = mana points the cast costs (no cast below this)
 ;   speed   = bolt travel speed in metres/sec
 ;   range   = bolt reach in metres before it fizzles
+;   push    = cells a struck (surviving) monster is shoved along the bolt's
+;             travel; walls/doors/occupied cells stop the shove early (0 = none)
 ; SCHOOL RULE: the four element runes are mutually exclusive — a sequence
 ; carries exactly ONE, in first position (the first rune picks the spell's
 ; school). The loader skips any recipe that breaks it. Tier 1 is therefore the
@@ -57,3 +59,51 @@ power = 7
 mana = 4
 speed = 7
 range = 9
+
+; --- Tier 2: <school>,project — the shared Project form rune ("throw it
+; ahead") behind each school. Stronger, costlier directed casts; the element
+; (= the leading school rune) still drives the bolt colour. `push` shoves a
+; struck-and-surviving monster that many cells along the bolt's travel (the
+; air school's displacement identity — its "bolt" moves the target, it
+; barely hurts it). Growth forms (flamethrower, deluge, ...) in docs/spells.md.
+
+[fireburst]
+name = spell.fireburst
+symbols = fire,project
+effect = projectile
+element = fire
+power = 14
+mana = 8
+speed = 8
+range = 8
+
+[slingshot]
+name = spell.slingshot
+symbols = earth,project
+effect = projectile
+element = earth
+power = 18
+mana = 10
+speed = 9
+range = 10
+
+[waterbolt]
+name = spell.waterbolt
+symbols = water,project
+effect = projectile
+element = water
+power = 12
+mana = 7
+speed = 9
+range = 10
+
+[push]
+name = spell.push
+symbols = air,project
+effect = projectile
+element = air
+power = 4
+mana = 6
+speed = 12
+range = 8
+push = 1

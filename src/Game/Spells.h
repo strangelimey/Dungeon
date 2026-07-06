@@ -24,9 +24,11 @@ namespace dungeon::game {
 
 class Catalog; // Catalog.h — SpellBook::Build reads the spells catalog.
 
-// Tier-1 elemental symbols. The enum order is the serialization order (save +
+// The spell symbols: the four tier-1 SCHOOL elements first, then the shared
+// tier-2 FORM symbols (Project = "throw it ahead"; more forms follow — see
+// docs/magic system.md). The enum order is the serialization order (save +
 // catalog tokens) — APPEND new symbols, never reorder.
-enum class SpellSymbol : u8 { Fire, Earth, Air, Water, Count };
+enum class SpellSymbol : u8 { Fire, Earth, Air, Water, Project, Count };
 
 inline constexpr u32 kSymbolCount = static_cast<u32>(SpellSymbol::Count);
 
@@ -36,8 +38,8 @@ inline constexpr u32 SymbolBit(SpellSymbol s) { return 1u << static_cast<u32>(s)
 // True for the four SCHOOL symbols — the base element runes (Fire/Earth/Air/
 // Water, per docs/magic system.md's schools table). School runes are MUTUALLY
 // EXCLUSIVE: a spell's sequence carries exactly ONE, in FIRST position (the
-// first rune picks the school). Tier-2+ symbols, when they land, append after
-// the enum's first four and return false here.
+// first rune picks the school). The tier-2 FORM symbols are SHARED across
+// schools — they append after the enum's first four and return false here.
 inline constexpr bool IsSchoolSymbol(SpellSymbol s) {
 	return static_cast<u32>(s) < 4;
 }
@@ -56,9 +58,11 @@ std::string RuneItemId(SpellSymbol s);
 // The inverse: "rune_fire" -> SpellSymbol::Fire. False for any non-rune id.
 bool RuneSymbolFromItemId(std::string_view typeId, SpellSymbol& out);
 
-// Premultiplied-additive accent colour for an element (rgb = emissive, alpha 0,
+// Premultiplied-additive accent colour for a symbol (rgb = emissive, alpha 0,
 // per docs/magic system.md: Fire=red, Earth=brown, Air=white, Water=blue). The
 // single source shared by the rune-tablet glow and the spell-bolt billboard.
+// A SPELL always tints by its SCHOOL (SpellDef::element — the first rune);
+// the shared form runes carry a neutral gold of their own for tablet/UI ink.
 Vec4 ElementColor(SpellSymbol s);
 
 // What a cast does once a recipe matches. A typed enum dispatched from ONE point
@@ -77,6 +81,8 @@ struct SpellDef {
 	float mana = 4.0f;                  // mana points the cast costs
 	float speed = 7.0f;                 // bolt travel speed (m/s)
 	float range = 8.0f;                 // bolt reach (m) before it fizzles
+	int push = 0;                       // cells a struck monster is shoved along
+	                                    // the bolt's travel (the air-school shove)
 };
 
 // The project's recipe table: built once from the spells catalog, matched by an

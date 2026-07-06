@@ -10,6 +10,7 @@
 ;   holdable = 1 lets the item be dropped into a hand slot (control bar or the
 ;              sheet's hand cells). Unset items are refused by the hands.
 ;   symbol   = (rune only) the spell symbol it teaches: fire|earth|air|water
+;              or a shared tier-2 form symbol (project)
 ; A rune is a carved-stone tablet the party picks up by clicking it; carry it on
 ; the cursor and drop it into a hand, then right-click the hand and Memorize to
 ; learn the symbol (the tablet is consumed). Level .ent `item <id> <x> <z>`
@@ -42,6 +43,13 @@ category = rune
 weight = 0.5
 holdable = 1
 symbol = water
+
+[rune_project]
+name = item.rune_project
+category = rune
+weight = 0.5
+holdable = 1
+symbol = project
 
 ; --- Non-rune items ----------------------------------------------------------
 ; A `model` (multi-material .glb in assets/models) makes the item render as that

@@ -47,9 +47,34 @@ available for selection when starting a new spell — one per school.
 
 ### Second tier and beyond
 
-After the first rune is selected, the **2nd-tier runes** for that school
-appear as the next available choices. The specific tier-2 runes are **to be
-determined**.
+After the first rune is selected, the **2nd-tier runes** appear as the next
+available choices.
+
+**Decision (2026-07-06): tier-2 runes are SHARED FORM runes**, not per-school
+sets — the Dungeon Master grammar (element + form + class). A spell reads as a
+short sentence: **one school rune** (mandatory, first — picks the school and
+the spell's colour), **an optional form rune** (shapes what the school does),
+and later **a possible third-tier rune** refining it further. One form rune
+yields up to four spells (one per school), each flavoured by its school in the
+authored recipe rather than by bespoke runes — so vocabulary stays small (the
+`knownSymbols` mask holds 32) while the recipe space multiplies, and the
+player who learns a form with one school is invited to try it with the others.
+Not every school+form combination must be authored; an unauthored combination
+simply fizzles (failed experiments are part of discovery). A school may still
+gain a signature specialty rune later — the enum just appends; shared-first is
+not a one-way door.
+
+The form runes (glyphs are Elder Futhark, like the schools — Fire=Kenaz,
+Water=Laguz, Air=Ansuz, Earth=Berkano):
+
+| Form | Glyph | Meaning | Status |
+| --- | --- | --- | --- |
+| **Project** | Tiwaz (the up arrow) | "throw it ahead" — the directed/thrown form | BUILT — see the four `<school>,project` spells in docs/spells.md |
+| **Protect** | Algiz (the warding stave) | the defensive form — fire+protect = fire shield; a third-tier rune turns it outward (fire wall) | designed, not yet built |
+
+Form runes carry no school: their tablets/UI ink use a neutral **arcane gold**
+(`ElementColor(Project)`), and a cast spell always tints by its SCHOOL — the
+first rune colours the whole spell.
 
 ## Opening the spell panel
 
@@ -167,14 +192,19 @@ Magic is a **walled-off module** (it knows nothing of map/monsters/HUD):
 
 ### Gap between the build and the target design
 
-- **Flat recipes vs. school-first / tier-2.** The code matches an **exact ordered
-  symbol sequence** against `spells.cat`; there is no "school" concept and no
-  tier-gating in code. The school-first model (first rune picks the school, then
-  that school's tier-2 runes appear) and the per-school base-rune/color/stat
-  table above are the **target**, not yet built.
-- **Casting entry point.** The HUD Magic panel is still a placeholder
-  ("No spells known"); the per-member **Magic sigil** described in "Opening the
-  spell panel" is not built yet.
+- **School-first + tier-2: BUILT.** The one-school rule (exactly one element
+  rune, first position) is enforced in `Spells.h`/`SpellBook::Build` and the
+  spellbook UI (`SymbolAvailable`: the four schools go dark once one is down;
+  form runes wait until a school leads). The first shared form rune,
+  **Project**, is live with its four `<school>,project` spells — including the
+  engine's first displacement effect (`push`, the air shove). Recipes are still
+  matched as exact ordered sequences; that IS the model now (the grammar is
+  authored into the recipes, not parsed).
+- **Casting entry point.** The spellbook panel (Magic » Spellbook) is built;
+  the per-member **Magic sigil** described in "Opening the spell panel" is not
+  built yet (the hand menu is the only door today).
+- **Per-school caster POWER** (the growth forms in docs/spells.md scale by it)
+  has no progression system yet — spells cast at fixed catalog numbers.
 
 ### Remaining work
 

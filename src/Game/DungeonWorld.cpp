@@ -139,13 +139,14 @@ DungeonWorld::DungeonWorld(gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 		const Door* door = DoorAt(cx, cz);
 		return door && !door->open; // a closed door stops bolts like a wall
 	};
-	m_projectiles.resolveHit = [this](TargetSide side, const Vec3& p,
-									  const AttackProfile& atk) {
+	m_projectiles.resolveHit = [this](TargetSide side, const ProjectileImpact& impact) {
 		switch (side) {
 		case TargetSide::Monsters:
-			return ResolveSpellHit(p, atk); // a party spell strikes a monster
+			return ResolveSpellHit(impact); // a party spell strikes a monster
 		case TargetSide::Party:
-			return ResolveMonsterProjectileHit(p, atk); // a monster bolt strikes the party
+			// A monster bolt strikes the party (push doesn't apply — the party
+			// isn't displaceable; a future gust trap would need its own path).
+			return ResolveMonsterProjectileHit(impact.pos, impact.atk);
 		}
 		return false;
 	};
@@ -3125,16 +3126,23 @@ bool DungeonWorld::CastSpellById(size_t member, std::string_view id) {
 	return CastSpell(member, def->sequence);
 }
 
-bool DungeonWorld::ResolveSpellHit(const Vec3& p, const AttackProfile& atk) {
-	const int cx = static_cast<int>(std::floor(p.x / kCellSize));
-	const int cz = static_cast<int>(std::floor(p.z / kCellSize));
+bool DungeonWorld::ResolveSpellHit(const ProjectileImpact& impact) {
+	const int cx = static_cast<int>(std::floor(impact.pos.x / kCellSize));
+	const int cz = static_cast<int>(std::floor(impact.pos.z / kCellSize));
 	Monster* hit = nullptr;
-	for (Monster& m : m_monsters)
-		if (m.Alive() && m.x == cx && m.z == cz) { hit = &m; break; }
+	int hitIndex = -1;
+	for (size_t i = 0; i < m_monsters.size(); ++i) {
+		Monster& m = m_monsters[i];
+		if (m.Alive() && m.x == cx && m.z == cz) {
+			hit = &m;
+			hitIndex = static_cast<int>(i);
+			break;
+		}
+	}
 	if (!hit) return false; // open air — the bolt flies on
 
 	const DefenseProfile def{hit->kind->evasion, hit->kind->armor};
-	const AttackResult r = ResolveAttack(atk, def, m_combatRng);
+	const AttackResult r = ResolveAttack(impact.atk, def, m_combatRng);
 	const std::string name = loc::Tr("monster." + hit->kind->name);
 	if (r.hit) {
 		hit->hp -= r.damage;
@@ -3146,6 +3154,26 @@ bool DungeonWorld::ResolveSpellHit(const Vec3& p, const AttackProfile& atk) {
 			onMessage(loc::Format("log.spell_slain", name));
 		} else {
 			hit->hitReq = true; // survivor flinches (a fatal blow goes straight to Die)
+			// Displacement (the air-school shove): a landed hit with `push` walks
+			// the survivor up to that many cells along the bolt's travel, one
+			// StepMonsterTo per cell so occupancy commits atomically; the first
+			// blocked/occupied cell (FreeSlotInCell covers walls, closed doors,
+			// packed cells, and the party's cell) stops it early. The final step
+			// wins the visual glide, so the shove reads as one continuous slide.
+			if (impact.push > 0) {
+				const int dx = impact.dir.x > 0.5f ? 1 : (impact.dir.x < -0.5f ? -1 : 0);
+				const int dz = impact.dir.z > 0.5f ? 1 : (impact.dir.z < -0.5f ? -1 : 0);
+				int pushed = 0;
+				for (int step = 0; step < impact.push; ++step) {
+					const int nx = hit->x + dx, nz = hit->z + dz;
+					const int slot = FreeSlotInCell(nx, nz, hit->kind->size, hitIndex);
+					if (slot < 0) break; // wall / door / occupied — the shove stops
+					StepMonsterTo(*hit, nx, nz, slot);
+					++pushed;
+				}
+				if (pushed > 0)
+					onMessage(loc::Format("log.spell_pushes", name));
+			}
 		}
 	} else {
 		onMessage(loc::Format("log.spell_misses", name));
