@@ -43,18 +43,38 @@ gfx::Rect Norm(const gfx::Rect& designPx, const gfx::Rect& container) {
 // menu label + future per-verb damage tuning), the strike is the one shared
 // PartyAttack path. A new weapon verb is data (items.cat `command`) + a row
 // here + a use.<verb> lang key.
-constexpr std::string_view kMeleeUses[] = {"punch", "stab",  "slash", "chop",
-										   "bash",  "swing", "melee"};
+constexpr std::string_view kMeleeUses[] = {"punch", "kick", "stab",  "slash",
+										   "chop",  "bash", "swing", "melee"};
 bool IsMeleeUse(std::string_view cmd) {
 	return std::ranges::find(kMeleeUses, cmd) != std::ranges::end(kMeleeUses);
 }
+// The bare hand's combat verbs — the "Combat" group of the default-picker
+// menu, and always-valid defaults regardless of what the hand holds.
+constexpr std::string_view kUnarmedUses[] = {"punch", "kick"};
+// A spell default is stored as "cast:<spells.cat id>" so it rides the same
+// per-item-type default map (and save lines) as the weapon verbs.
+constexpr std::string_view kCastPrefix = "cast:";
+bool IsCastUse(std::string_view cmd) { return cmd.starts_with(kCastPrefix); }
 // Commands that never become a left-click default — one-shot consuming actions
 // (memorize destroys the tablet) picked deliberately from the menu each time.
 bool IsMenuOnlyUse(std::string_view cmd) { return cmd == "memorize"; }
 // True if ExecuteUse can dispatch this id — unknown ids (a catalog typo) get
 // no menu entry rather than a dead one.
 bool IsExecutableUse(std::string_view cmd) {
-	return cmd == "eat" || cmd == "memorize" || IsMeleeUse(cmd);
+	return cmd == "eat" || cmd == "memorize" || IsMeleeUse(cmd) || IsCastUse(cmd);
+}
+// True if the member has memorized every symbol in the recipe — the Magic
+// submenu's filter, and a "cast:" default's validity check.
+bool KnowsSpell(const Character& c, const SpellDef& def) {
+	if (def.sequence.empty()) return false;
+	for (SpellSymbol s : def.sequence)
+		if (!c.Knows(s)) return false;
+	return true;
+}
+// The useDefaults key a hand's contents map to ("unarmed" for a bare hand —
+// item ids are catalog tokens, so the sentinel can never collide).
+std::string UseKey(const std::string& itemId) {
+	return itemId.empty() ? std::string("unarmed") : itemId;
 }
 
 // Vertical stack with CSS-style collapsing margins: the gap between two items is
@@ -187,32 +207,77 @@ void GameUI::OnHandLeftClick(size_t i, size_t hand) {
 	// Empty cursor: the control-bar hand is an ACTION button — it executes the
 	// hand's default use. Picking the item UP is the character sheet's job (its
 	// hand cells keep the pick/swap semantics), so a swing can't be fumbled into
-	// an accidental unequip mid-fight. A bare hand throws the unarmed punch.
-	if (slot.Empty()) {
-		ExecuteUse(i, hand, "punch");
+	// an accidental unequip mid-fight. A hand with NO default yet (bare hand,
+	// rune, key — nothing defaultable on the item) opens the use menu instead,
+	// so the first click PICKS what future clicks will do.
+	const std::string cmd =
+		DefaultUseFor(m_characters[i], slot.Empty() ? std::string() : slot.typeId);
+	if (cmd.empty()) {
+		OpenHandUseMenu(i, hand);
 		return;
 	}
-	ExecuteUse(i, hand, DefaultUseFor(m_characters[i], slot.typeId));
+	ExecuteUse(i, hand, cmd);
 }
 
 void GameUI::OnHandRightClick(size_t i, size_t hand) {
+	OpenHandUseMenu(i, hand);
+}
+
+void GameUI::OpenHandUseMenu(size_t i, size_t hand) {
 	if (i >= m_characters.size() || hand > 1 || !m_handMenu) return;
-	const ItemSlot& slot = m_characters[i].inventory.Hand(static_cast<int>(hand));
-	// Build the USE menu from the item's data-driven command list (ItemKind::
-	// commands, supplied by Game); a bare hand offers the one unarmed use. Labels
-	// come from the use.<cmd> lang keys; an id ExecuteUse can't dispatch (catalog
-	// typo) gets no entry, so adding a verb is data + one case there.
-	const std::vector<std::string> cmds =
-		slot.Empty() ? std::vector<std::string>{"punch"}
-					 : (itemCommands ? itemCommands(slot.typeId)
-									 : std::vector<std::string>{});
+	const Character& c = m_characters[i];
+	const ItemSlot& slot = c.inventory.Hand(static_cast<int>(hand));
 	const std::string itemId = slot.Empty() ? std::string() : slot.typeId;
+	// The item's own command entries (ItemKind::commands, supplied by Game).
+	// Labels come from the use.<cmd> lang keys; an id ExecuteUse can't dispatch
+	// (catalog typo) gets no entry, so adding a verb is data + one case there.
+	const std::vector<std::string> cmds =
+		itemId.empty() ? std::vector<std::string>{}
+					   : (itemCommands ? itemCommands(itemId)
+									   : std::vector<std::string>{});
 	std::vector<ui::ContextMenu::Entry> entries;
+	bool anyDefaultable = false;
 	for (const std::string& cmd : cmds) {
 		if (!IsExecutableUse(cmd)) continue;
+		anyDefaultable |= !IsMenuOnlyUse(cmd);
 		entries.push_back({loc::Tr("use." + cmd), [this, i, hand, itemId, cmd] {
 							   SelectUse(i, hand, itemId, cmd);
 						   }});
+	}
+	// No defaultable item command (bare hand, rune, key): offer the grouped
+	// default pickers. Each group entry chains a SECOND ContextMenu open from
+	// its callback (the menu closes before running it, so the reopen sticks):
+	// Combat > the unarmed verbs, Magic > the spells this member can cast.
+	if (!anyDefaultable) {
+		entries.push_back({loc::Tr("menu.combat"), [this, i, hand, itemId] {
+			std::vector<ui::ContextMenu::Entry> sub;
+			for (std::string_view verb : kUnarmedUses) {
+				std::string cmd{verb};
+				sub.push_back({loc::Tr("use." + cmd), [this, i, hand, itemId, cmd] {
+								   SelectUse(i, hand, itemId, cmd);
+							   }});
+			}
+			m_handMenu->Open(m_hudMouseX, m_hudMouseY, std::move(sub));
+		}});
+		// The Magic group only appears when the member can actually cast
+		// something (knows every symbol of at least one recipe).
+		std::vector<const SpellDef*> known;
+		if (spellDefs)
+			for (const SpellDef& def : spellDefs())
+				if (KnowsSpell(c, def)) known.push_back(&def);
+		if (!known.empty()) {
+			entries.push_back({loc::Tr("menu.magic"), [this, i, hand, itemId, known] {
+				std::vector<ui::ContextMenu::Entry> sub;
+				for (const SpellDef* def : known) {
+					std::string cmd = std::string(kCastPrefix) + def->id;
+					sub.push_back(
+						{loc::Tr(def->nameKey), [this, i, hand, itemId, cmd] {
+							 SelectUse(i, hand, itemId, cmd);
+						 }});
+				}
+				m_handMenu->Open(m_hudMouseX, m_hudMouseY, std::move(sub));
+			}});
+		}
 	}
 	if (entries.empty()) return; // nothing actionable — don't pop an empty menu
 	m_handMenu->Open(m_hudMouseX, m_hudMouseY, std::move(entries));
@@ -223,13 +288,13 @@ void GameUI::SelectUse(size_t i, size_t hand, const std::string& itemId,
 	if (i >= m_characters.size() || hand > 1) return;
 	const bool menuOnly = IsMenuOnlyUse(cmd);
 	// The pick becomes this member's default for the item TYPE (so every khukri
-	// they wield chops until they choose otherwise). Menu-only commands are
-	// deliberate one-shots — never recorded.
-	if (!menuOnly && !itemId.empty()) m_characters[i].useDefaults[itemId] = cmd;
-	// Menu-only commands (and the bare hand's punch, the menu's sole entry)
-	// always perform; a defaultable pick performs per the Controls setting.
-	if (menuOnly || itemId.empty() || m_settings.useMenuExecutes)
-		ExecuteUse(i, hand, cmd);
+	// they wield chops until they choose otherwise; a bare-hand pick records
+	// under the "unarmed" key). Menu-only commands are deliberate one-shots —
+	// never recorded.
+	if (!menuOnly) m_characters[i].useDefaults[UseKey(itemId)] = cmd;
+	// Menu-only commands always perform; a defaultable pick performs per the
+	// Controls setting (off = the menu only arms the default).
+	if (menuOnly || m_settings.useMenuExecutes) ExecuteUse(i, hand, cmd);
 }
 
 void GameUI::ExecuteUse(size_t i, size_t hand, const std::string& cmd) {
@@ -238,6 +303,10 @@ void GameUI::ExecuteUse(size_t i, size_t hand, const std::string& cmd) {
 		MemorizeFromHand(i, hand);
 	} else if (cmd == "eat") {
 		EatFromHand(i, hand);
+	} else if (IsCastUse(cmd)) {
+		// A "cast:<id>" default: the world's cast façade gates vocabulary and
+		// mana and turns the outcome into log + sound.
+		if (onCastSpell) onCastSpell(i, cmd.substr(kCastPrefix.size()));
 	} else if (IsMeleeUse(cmd)) {
 		// Every melee verb lands through the one strike path; the verb itself
 		// is flavour until per-verb damage profiles exist. Cooldown gating and
@@ -251,17 +320,36 @@ void GameUI::ExecuteUse(size_t i, size_t hand, const std::string& cmd) {
 std::string GameUI::DefaultUseFor(const Character& c,
 								  const std::string& itemId) const {
 	const std::vector<std::string> cmds =
-		itemCommands ? itemCommands(itemId) : std::vector<std::string>{};
-	// The member's remembered pick wins while the item still offers it (the
-	// catalog may have changed since the save was written).
-	if (const auto it = c.useDefaults.find(itemId); it != c.useDefaults.end())
-		if (!IsMenuOnlyUse(it->second) && std::ranges::find(cmds, it->second) != cmds.end())
-			return it->second;
+		itemId.empty() ? std::vector<std::string>{}
+					   : (itemCommands ? itemCommands(itemId)
+									   : std::vector<std::string>{});
+	// The member's remembered pick wins while it is still valid — the catalog
+	// may have changed since the save was written, and a "cast:" default needs
+	// the member to know the spell (a loaded save's defaults must not outrun
+	// its vocabulary).
+	if (const auto it = c.useDefaults.find(UseKey(itemId));
+		it != c.useDefaults.end())
+		if (UseValidFor(c, cmds, it->second)) return it->second;
 	// Else the item's first defaultable command (a rune's only command is the
 	// menu-only memorize, so it yields "" — a left-click can't eat a tablet).
 	for (const std::string& cmd : cmds)
 		if (!IsMenuOnlyUse(cmd) && IsExecutableUse(cmd)) return cmd;
-	return {};
+	return {}; // no default — the left-click opens the use menu to pick one
+}
+
+bool GameUI::UseValidFor(const Character& c, const std::vector<std::string>& cmds,
+						 const std::string& cmd) const {
+	if (IsMenuOnlyUse(cmd) || !IsExecutableUse(cmd)) return false;
+	if (IsCastUse(cmd)) {
+		const std::string_view id = std::string_view(cmd).substr(kCastPrefix.size());
+		if (!spellDefs) return false;
+		for (const SpellDef& def : spellDefs())
+			if (def.id == id) return KnowsSpell(c, def);
+		return false; // recipe gone from the catalog
+	}
+	if (std::ranges::find(cmds, cmd) != cmds.end()) return true;
+	// The bare-hand combat verbs are pickable for any hand contents.
+	return std::ranges::find(kUnarmedUses, cmd) != std::ranges::end(kUnarmedUses);
 }
 
 void GameUI::MemorizeFromHand(size_t i, size_t hand) {

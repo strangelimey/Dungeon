@@ -200,12 +200,16 @@ spell.firebolt=Огненная стрела
 use.memorize=Запомнить
 use.eat=Съесть
 use.punch=Удар кулаком
+use.kick=Пинок
 use.stab=Уколоть
 use.slash=Полоснуть
 use.chop=Рубануть
 use.bash=Ударить
 use.swing=Замахнуться
 use.melee=Атаковать
+; Hand-menu default-picker groups (bare hand / no defaultable item command).
+menu.combat=Бой
+menu.magic=Магия
 ui.inventory=Инвентарь
 ui.inv_all=Все
 ; Item display names (ItemKind.nameKey; rune_<elem> -> item.rune_<elem>).

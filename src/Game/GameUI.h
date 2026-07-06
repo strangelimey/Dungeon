@@ -168,6 +168,12 @@ public:
 	// The hand right-click menu's command list for an item id (ItemKind::commands),
 	// wired by Game to the world's item kinds — keeps the command source single.
 	std::function<std::vector<std::string>(const std::string&)> itemCommands;
+	// The project's whole spell-recipe table (wired to DungeonWorld::SpellDefs);
+	// the hand-slot Magic submenu filters it by the member's known symbols.
+	std::function<std::span<const SpellDef>()> spellDefs;
+	// Member `i` casts the spell with this catalog id (a "cast:<id>" hand
+	// default) — wired to DungeonWorld::CastSpellById (vocab/mana gates apply).
+	std::function<void(size_t, const std::string&)> onCastSpell;
 	std::function<void()> onKeysChanged;        // a movement key was rebound
 	std::function<void()> onLookChanged;        // a mouse-look knob changed (push to Party)
 	// Game tab language dropdown. The receiver must NOT rebuild the UI from
@@ -239,11 +245,18 @@ private:
 	// an empty hand throws the unarmed punch). Picking an item OUT of a hand is
 	// the character sheet's job (its hand cells keep pick/swap semantics).
 	void OnHandLeftClick(size_t i, size_t hand);
-	// A right-click on member `i`'s hand `hand`: opens the USE menu, built from
-	// the item's data-driven command list (stab/slash/eat/memorize/...; a bare
-	// hand offers Punch). Selecting an entry records it as the member's default
-	// for that item type and, per GameSettings::useMenuExecutes, performs it.
+	// A right-click on member `i`'s hand `hand`: opens the USE menu (see
+	// OpenHandUseMenu). A left-click on a hand with NO default yet opens the
+	// same menu, so the first click picks what future clicks will do.
 	void OnHandRightClick(size_t i, size_t hand);
+	// The hand's USE menu: the item's data-driven command entries, and — when
+	// the hand has no defaultable item command (bare hand, rune, key) — the
+	// grouped default pickers: Combat > Punch/Kick and Magic > the member's
+	// known spells (each submenu chains through the same ContextMenu).
+	// Selecting an entry records it as the member's default for that item type
+	// ("unarmed" for a bare hand) and, per GameSettings::useMenuExecutes,
+	// performs it.
+	void OpenHandUseMenu(size_t i, size_t hand);
 	// A use-menu entry was picked: record it as the default (menu-only commands
 	// like memorize are never recorded) and execute per the Controls setting.
 	void SelectUse(size_t i, size_t hand, const std::string& itemId,
@@ -252,10 +265,16 @@ private:
 	// both the left-click default and the menu): eat/memorize map to their
 	// handlers, the melee verbs to onHandAttack. Unknown/empty ids no-op.
 	void ExecuteUse(size_t i, size_t hand, const std::string& cmd);
-	// The command a left-click on `itemId` executes for this member: the
-	// remembered useDefaults pick while the item still offers it, else the
-	// item's first defaultable (non-menu-only) command, else "".
+	// The command a left-click on `itemId` ("" = bare hand) executes for this
+	// member: the remembered useDefaults pick while it is still valid, else the
+	// item's first defaultable (non-menu-only) command, else "" — no default,
+	// so the left-click opens the use menu to pick one.
 	std::string DefaultUseFor(const Character& c, const std::string& itemId) const;
+	// Whether a remembered default is still usable: an item command the item
+	// still offers, one of the bare-hand combat verbs, or a "cast:<id>" whose
+	// spell exists and whose symbols the member all knows.
+	bool UseValidFor(const Character& c, const std::vector<std::string>& cmds,
+					 const std::string& cmd) const;
 	// Commits the rune in member `i`'s hand to memory: the symbol is learned and
 	// the tablet consumed.
 	void MemorizeFromHand(size_t i, size_t hand);

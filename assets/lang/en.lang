@@ -196,12 +196,16 @@ ui.inv_all=All
 use.memorize=Memorize
 use.eat=Eat
 use.punch=Punch
+use.kick=Kick
 use.stab=Stab
 use.slash=Slash
 use.chop=Chop
 use.bash=Bash
 use.swing=Swing
 use.melee=Strike
+; Hand-menu default-picker groups (bare hand / no defaultable item command).
+menu.combat=Combat
+menu.magic=Magic
 ; Item display names (ItemKind.nameKey; rune_<elem> -> item.rune_<elem>).
 item.rune_fire=Fire rune
 item.rune_earth=Earth rune

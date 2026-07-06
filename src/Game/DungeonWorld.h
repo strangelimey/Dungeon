@@ -153,6 +153,12 @@ public:
 	// bolt's flight + impact run in MagicSystem::Update (see Magic.h). Driven by
 	// the casting UI and the dev console `cast`.
 	bool CastSpell(size_t member, std::span<const SpellSymbol> sequence);
+	// Same cast, referencing the recipe by catalog id (the hand-slot Magic menu
+	// stores "cast:<id>" defaults). All the same gates apply — the member must
+	// know the recipe's symbols and afford its mana. False on an unknown id.
+	bool CastSpellById(size_t member, std::string_view id);
+	// The whole recipe table (the Magic menu filters it by known symbols).
+	std::span<const SpellDef> SpellDefs() const { return m_magic.Book().Defs(); }
 
 	// Fired once when the last standing member goes down (Game ends the run).
 	std::function<void()> onPartyWipe;

@@ -196,12 +196,16 @@ spell.firebolt=Feuerblitz
 use.memorize=Einprägen
 use.eat=Essen
 use.punch=Faustschlag
+use.kick=Tritt
 use.stab=Stechen
 use.slash=Schlitzen
 use.chop=Hacken
 use.bash=Prügeln
 use.swing=Schwingen
 use.melee=Zuschlagen
+; Hand-menu default-picker groups (bare hand / no defaultable item command).
+menu.combat=Kampf
+menu.magic=Magie
 ui.inventory=Inventar
 ui.inv_all=Alle
 ; Item display names (ItemKind.nameKey; rune_<elem> -> item.rune_<elem>).

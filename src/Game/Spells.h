@@ -83,6 +83,9 @@ public:
 	// The recipe with catalog id `id`, or null if none. Lets a non-party caster
 	// (a monster) reference a spell by name rather than reproduce its sequence.
 	const SpellDef* Find(std::string_view id) const;
+	// Every recipe, for UIs that enumerate castable spells (the hand-slot Magic
+	// menu filters these by the member's known symbols).
+	std::span<const SpellDef> Defs() const { return m_defs; }
 	bool Empty() const { return m_defs.empty(); }
 
 private:

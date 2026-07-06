@@ -3104,6 +3104,12 @@ bool DungeonWorld::CastSpell(size_t member, std::span<const SpellSymbol> sequenc
 	}
 }
 
+bool DungeonWorld::CastSpellById(size_t member, std::string_view id) {
+	const SpellDef* def = m_magic.FindSpell(id);
+	if (!def) return false; // stale default / catalog typo — nothing to cast
+	return CastSpell(member, def->sequence);
+}
+
 bool DungeonWorld::ResolveSpellHit(const Vec3& p, const AttackProfile& atk) {
 	const int cx = static_cast<int>(std::floor(p.x / kCellSize));
 	const int cz = static_cast<int>(std::floor(p.z / kCellSize));

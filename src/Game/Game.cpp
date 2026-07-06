@@ -222,6 +222,13 @@ void Game::WireModuleCallbacks() {
 	m_ui.itemCommands = [this](const std::string& id) {
 		return m_world.ItemCommands(id);
 	};
+	// The hand menu's Magic group enumerates the recipe table (filtered by the
+	// member's vocabulary in GameUI); a picked "cast:<id>" default casts through
+	// the world's façade — the same vocab/mana gates as the dev `cast` command.
+	m_ui.spellDefs = [this] { return m_world.SpellDefs(); };
+	m_ui.onCastSpell = [this](size_t member, const std::string& id) {
+		m_world.CastSpellById(member, id);
+	};
 	m_ui.onKeysChanged = [this] {
 		m_world.GetParty().SetKeys(m_settings.moveKeys);
 	};

@@ -34,6 +34,8 @@ public:
 	// a monster CASTER (archetype = caster) from a named spell, reusing the recipe
 	// table without going through the party cast path (no caster/mana/vocab checks).
 	const SpellDef* FindSpell(std::string_view id) const { return m_spellBook.Find(id); }
+	// Read access to the whole recipe table (enumeration for casting UIs).
+	const SpellBook& Book() const { return m_spellBook; }
 
 	// The outcome of a cast attempt; the owner turns it into a log line.
 	enum class CastOutcome { Cast, Unknown, NoRecipe, NoMana };
