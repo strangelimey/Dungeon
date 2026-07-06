@@ -246,16 +246,22 @@ public:
 	void Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) override;
 
 private:
+	// One cell of the rune-button grid: the four SCHOOL runes always hold the
+	// TOP ROW (schools-table order, drawn as empty frames until memorized);
+	// other runes appear in the rows below as the member learns them.
+	struct RuneSlot {
+		SpellSymbol symbol;
+		bool known;
+	};
+	std::vector<RuneSlot> RuneSlots(const Character& c) const;
 	// Layout inside the live box, shared by Update (hit-test) and Draw. The
-	// symbol row indexes the member's KNOWN symbols in enum order; the
-	// sequence row indexes m_sequence.
+	// symbol grid indexes RuneSlots (4 per row); the sequence row indexes
+	// m_sequence.
 	gfx::Rect SymbolRect(const gfx::Rect& px, size_t i) const;
 	gfx::Rect SequenceRect(const gfx::Rect& px, size_t i) const;
 	gfx::Rect CastRect(const gfx::Rect& px) const;
 	gfx::Rect ClearRect(const gfx::Rect& px) const;
-	// The known-symbol list (enum order) and the recipe the sequence spells
-	// out, if any.
-	std::vector<SpellSymbol> KnownSymbols(const Character& c) const;
+	// The recipe the sequence spells out, if any.
 	const SpellDef* Match() const;
 	// Draws one rune face: the rune-item icon when loaded, else an
 	// element-tinted fallback square; element-coloured border. Disabled (the

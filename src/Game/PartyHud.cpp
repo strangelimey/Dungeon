@@ -257,8 +257,9 @@ gfx::Rect SpellbookPanel::SymbolRect(const gfx::Rect& px, size_t i) const {
 	const float s = px.w / 222.0f;
 	const float pad = 10.0f * s, gap = 6.0f * s;
 	const float cell = (px.w - 2 * pad - 3 * gap) / 4.0f;
-	return {px.x + pad + (cell + gap) * static_cast<float>(i),
-			px.y + 30.0f * s, cell, cell};
+	return {px.x + pad + (cell + gap) * static_cast<float>(i % 4),
+			px.y + 30.0f * s + (cell + gap) * static_cast<float>(i / 4), cell,
+			cell};
 }
 
 gfx::Rect SpellbookPanel::SequenceRect(const gfx::Rect& px, size_t i) const {
@@ -285,12 +286,25 @@ gfx::Rect SpellbookPanel::ClearRect(const gfx::Rect& px) const {
 	return {cast.x + cast.w + 8.0f * s, cast.y, cast.w, cast.h};
 }
 
-std::vector<SpellSymbol> SpellbookPanel::KnownSymbols(const Character& c) const {
-	std::vector<SpellSymbol> known;
-	for (u32 i = 0; i < kSymbolCount; ++i)
-		if (c.Knows(static_cast<SpellSymbol>(i)))
-			known.push_back(static_cast<SpellSymbol>(i));
-	return known;
+namespace {
+// The top row's fixed school order — the docs/magic system.md schools table
+// (Earth/Air/Fire/Water), not the enum's serialization order.
+constexpr SpellSymbol kSchoolRow[] = {SpellSymbol::Earth, SpellSymbol::Air,
+									  SpellSymbol::Fire, SpellSymbol::Water};
+} // namespace
+
+std::vector<SpellbookPanel::RuneSlot>
+SpellbookPanel::RuneSlots(const Character& c) const {
+	std::vector<RuneSlot> slots;
+	// The four school runes ALWAYS hold the top row — an unknown one keeps
+	// its place as an empty frame, so the row reads as the fixed school set.
+	for (SpellSymbol s : kSchoolRow) slots.push_back({s, c.Knows(s)});
+	// Everything else appears below only once memorized, in enum order.
+	for (u32 i = 0; i < kSymbolCount; ++i) {
+		const auto s = static_cast<SpellSymbol>(i);
+		if (!IsSchoolSymbol(s) && c.Knows(s)) slots.push_back({s, true});
+	}
+	return slots;
 }
 
 const SpellDef* SpellbookPanel::Match() const {
@@ -363,15 +377,16 @@ void SpellbookPanel::Update(ui::UIContext& ctx) {
 	if (!px.Contains(mx, my)) return;
 	const bool pressed = input->WasMousePressed(MouseButton::Left);
 
-	const std::vector<SpellSymbol> known = KnownSymbols(*c);
-	for (size_t i = 0; i < known.size(); ++i) {
+	const std::vector<RuneSlot> slots = RuneSlots(*c);
+	for (size_t i = 0; i < slots.size(); ++i) {
 		if (!SymbolRect(px, i).Contains(mx, my)) continue;
-		// Unavailable symbols (spent, or blocked by the school rule) are
-		// inert — no hover, no click — until a sequence edit frees them.
-		if (!SymbolAvailable(known[i], m_sequence)) break;
+		// Unknown school frames and unavailable symbols (spent, or blocked by
+		// the school rule) are inert — no hover, no click.
+		if (!slots[i].known || !SymbolAvailable(slots[i].symbol, m_sequence))
+			break;
 		m_hotSymbol = static_cast<int>(i);
 		if (pressed && m_sequence.size() < kMaxSequence) {
-			m_sequence.push_back(known[i]);
+			m_sequence.push_back(slots[i].symbol);
 			if (onClick) onClick();
 		}
 	}
@@ -416,15 +431,22 @@ void SpellbookPanel::Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 		return;
 	}
 
-	// Whose book, then their known symbols as rune buttons — a symbol the
+	// Whose book, then the rune grid: the school row on top (unknown schools
+	// keep their place as empty frames), learned runes below. A symbol the
 	// sequence can't take right now (spent, or blocked by the one-school
 	// rule) draws disabled until a sequence edit frees it.
 	font.Draw(batch, c->name, px.x + 10.0f * s, px.y + 8.0f * s, theme.accent);
-	const std::vector<SpellSymbol> known = KnownSymbols(*c);
-	for (size_t i = 0; i < known.size(); ++i)
-		DrawRune(batch, SymbolRect(px, i), known[i],
-				 static_cast<int>(i) == m_hotSymbol,
-				 !SymbolAvailable(known[i], m_sequence));
+	const std::vector<RuneSlot> slots = RuneSlots(*c);
+	for (size_t i = 0; i < slots.size(); ++i) {
+		const gfx::Rect r = SymbolRect(px, i);
+		if (!slots[i].known) { // reserved school slot, not yet memorized
+			batch.DrawRect(r, theme.control);
+			ui::DrawBorder(batch, r, theme.panelBorder);
+			continue;
+		}
+		DrawRune(batch, r, slots[i].symbol, static_cast<int>(i) == m_hotSymbol,
+				 !SymbolAvailable(slots[i].symbol, m_sequence));
+	}
 
 	// The sequence spelled out so far — six slots at the bottom, just above
 	// Cast / Clear, filled left to right.
