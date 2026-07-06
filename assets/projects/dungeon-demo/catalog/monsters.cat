@@ -79,7 +79,7 @@ archetype = skirmisher
 keeprange = 4
 
 ; Caster archetype demo (docs/ai.md P2): kites like the archer but its bolt is a
-;   named spell from spells.cat (spell=firebolt) thrown through the shared
+;   named spell from spells.cat (spell=flame) thrown through the shared
 ;   moving-item engine — the payoff of the one-projectile-engine decision.
 [skel_mage]
 display = Skeleton Mage
@@ -97,7 +97,7 @@ movecd = 0.5
 iq = 130
 archetype = caster
 keeprange = 5
-spell = firebolt
+spell = flame
 
 ; Flee demo (docs/ai.md P2): a skittish critter that runs the moment it sees the
 ;   party. fleebelow > 1 means hpFrac (max 1.0) is always under it, so it flees on

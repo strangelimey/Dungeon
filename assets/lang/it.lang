@@ -191,7 +191,6 @@ spell.flame=Fiamma
 spell.rock=Roccia
 spell.gust=Raffica
 spell.splash=Spruzzo
-spell.firebolt=Dardo di fuoco
 ; Hand-slot use menu (items.cat `command` ids -> use.<id>).
 use.memorize=Memorizza
 use.eat=Mangia

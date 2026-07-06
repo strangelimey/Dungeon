@@ -300,6 +300,19 @@ const SpellDef* SpellbookPanel::Match() const {
 	return nullptr;
 }
 
+namespace {
+// Whether a symbol button responds given the sequence so far. School (element)
+// runes are mutually exclusive — one picks the spell's school, then all four
+// go dark; a spell also STARTS with its school, so until one is down every
+// other symbol waits. Any symbol already spelled in is spent (no repeats).
+bool SymbolAvailable(SpellSymbol s, const std::vector<SpellSymbol>& sequence) {
+	if (std::ranges::find(sequence, s) != sequence.end()) return false;
+	const bool haveSchool =
+		!sequence.empty() && IsSchoolSymbol(sequence.front());
+	return IsSchoolSymbol(s) ? !haveSchool : haveSchool;
+}
+} // namespace
+
 void SpellbookPanel::DrawRune(gfx::SpriteBatch& batch, const gfx::Rect& r,
 							  SpellSymbol s, bool hot, bool disabled) const {
 	batch.DrawRect(r, hot ? Vec4{0.12f, 0.12f, 0.13f, 1.0f} : kSlotBg);
@@ -353,9 +366,9 @@ void SpellbookPanel::Update(ui::UIContext& ctx) {
 	const std::vector<SpellSymbol> known = KnownSymbols(*c);
 	for (size_t i = 0; i < known.size(); ++i) {
 		if (!SymbolRect(px, i).Contains(mx, my)) continue;
-		// A symbol already spelled into the sequence is disabled — no hover,
-		// no click — until a sequence-slot click releases it.
-		if (std::ranges::find(m_sequence, known[i]) != m_sequence.end()) break;
+		// Unavailable symbols (spent, or blocked by the school rule) are
+		// inert — no hover, no click — until a sequence edit frees them.
+		if (!SymbolAvailable(known[i], m_sequence)) break;
 		m_hotSymbol = static_cast<int>(i);
 		if (pressed && m_sequence.size() < kMaxSequence) {
 			m_sequence.push_back(known[i]);
@@ -403,16 +416,15 @@ void SpellbookPanel::Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 		return;
 	}
 
-	// Whose book, then their known symbols as rune buttons — a symbol already
-	// spelled into the sequence draws disabled until a slot click frees it.
+	// Whose book, then their known symbols as rune buttons — a symbol the
+	// sequence can't take right now (spent, or blocked by the one-school
+	// rule) draws disabled until a sequence edit frees it.
 	font.Draw(batch, c->name, px.x + 10.0f * s, px.y + 8.0f * s, theme.accent);
 	const std::vector<SpellSymbol> known = KnownSymbols(*c);
-	for (size_t i = 0; i < known.size(); ++i) {
-		const bool used =
-			std::ranges::find(m_sequence, known[i]) != m_sequence.end();
+	for (size_t i = 0; i < known.size(); ++i)
 		DrawRune(batch, SymbolRect(px, i), known[i],
-				 static_cast<int>(i) == m_hotSymbol, used);
-	}
+				 static_cast<int>(i) == m_hotSymbol,
+				 !SymbolAvailable(known[i], m_sequence));
 
 	// The sequence spelled out so far — six slots at the bottom, just above
 	// Cast / Clear, filled left to right.

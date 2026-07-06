@@ -33,6 +33,15 @@ inline constexpr u32 kSymbolCount = static_cast<u32>(SpellSymbol::Count);
 // The bit for a symbol within a known-symbols mask (Character::knownSymbols).
 inline constexpr u32 SymbolBit(SpellSymbol s) { return 1u << static_cast<u32>(s); }
 
+// True for the four SCHOOL symbols — the base element runes (Fire/Earth/Air/
+// Water, per docs/magic system.md's schools table). School runes are MUTUALLY
+// EXCLUSIVE: a spell's sequence carries exactly ONE, in FIRST position (the
+// first rune picks the school). Tier-2+ symbols, when they land, append after
+// the enum's first four and return false here.
+inline constexpr bool IsSchoolSymbol(SpellSymbol s) {
+	return static_cast<u32>(s) < 4;
+}
+
 // Lowercase id token ("fire") for catalog/save/console text.
 const char* SymbolId(SpellSymbol s);
 // loc:: key for the display name ("symbol.fire"); pass through loc::Tr.

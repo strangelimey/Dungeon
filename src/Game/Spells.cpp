@@ -79,6 +79,16 @@ void SpellBook::Build(const Catalog& catalog) {
 			log::Warn("spell '{}' has no valid symbol sequence; skipped", e.id);
 			continue;
 		}
+		// School rule: exactly ONE school (element) rune, and it leads the
+		// sequence — the first rune picks the spell's school. A recipe that
+		// breaks it can't be built in the spellbook, so it never loads.
+		const auto schools = std::ranges::count_if(def.sequence, IsSchoolSymbol);
+		if (schools != 1 || !IsSchoolSymbol(def.sequence.front())) {
+			log::Warn("spell '{}' breaks the one-school rule (exactly one "
+					  "element rune, first); skipped",
+					  e.id);
+			continue;
+		}
 		// effect kind (only "projectile" exists in tier 1).
 		const std::string effect = e.Get("effect", "projectile");
 		if (effect != "projectile")

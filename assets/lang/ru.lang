@@ -195,7 +195,6 @@ spell.flame=Пламя
 spell.rock=Камень
 spell.gust=Порыв
 spell.splash=Всплеск
-spell.firebolt=Огненная стрела
 ; Hand-slot use menu (items.cat `command` ids -> use.<id>).
 use.memorize=Запомнить
 use.eat=Съесть

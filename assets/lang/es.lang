@@ -191,7 +191,6 @@ spell.flame=Llama
 spell.rock=Roca
 spell.gust=Ráfaga
 spell.splash=Salpicadura
-spell.firebolt=Rayo de fuego
 ; Hand-slot use menu (items.cat `command` ids -> use.<id>).
 use.memorize=Memorizar
 use.eat=Comer

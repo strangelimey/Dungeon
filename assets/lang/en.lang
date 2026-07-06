@@ -189,7 +189,6 @@ spell.flame=Flame
 spell.rock=Rock
 spell.gust=Gust
 spell.splash=Splash
-spell.firebolt=Fire Bolt
 ui.inventory=Inventory
 ui.inv_all=All
 ; Hand-slot use menu (items.cat `command` ids -> use.<id>).

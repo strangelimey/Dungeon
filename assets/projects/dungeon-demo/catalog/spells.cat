@@ -10,9 +10,11 @@
 ;   mana    = mana points the cast costs (no cast below this)
 ;   speed   = bolt travel speed in metres/sec
 ;   range   = bolt reach in metres before it fizzles
-; Tier 1 is the four elements as single-symbol bolts, plus one two-symbol combo
-; (the Dungeon-Master "Fire + Air = fire bolt" example) to seed the sequence
-; mechanic. More tiers / effect kinds (heal, conjure, AoE) come later.
+; SCHOOL RULE: the four element runes are mutually exclusive — a sequence
+; carries exactly ONE, in first position (the first rune picks the spell's
+; school). The loader skips any recipe that breaks it. Tier 1 is therefore the
+; four elements as single-symbol bolts; deeper spells arrive with the tier-2
+; (non-school) symbols. More effect kinds (heal, conjure, AoE) come later.
 
 [flame]
 name = spell.flame
@@ -53,13 +55,3 @@ power = 7
 mana = 4
 speed = 7
 range = 9
-
-[firebolt]
-name = spell.firebolt
-symbols = fire,air
-effect = projectile
-element = fire
-power = 16
-mana = 8
-speed = 9
-range = 12

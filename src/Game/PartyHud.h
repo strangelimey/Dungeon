@@ -214,9 +214,11 @@ private:
 // KNOWN SYMBOLS as rune buttons, the sequence "spelled out" so far, the name
 // of the spell that sequence resolves to (when a known recipe matches), and
 // Cast / Clear. This is where the player BUILDS a spell: click symbols to
-// append (a symbol already in the sequence draws a disabled overlay and stops
-// responding — each appears at most once), click a sequence slot to remove
-// that symbol AND everything spelled after it (the tail depended on it), Cast
+// append (an unavailable symbol draws a disabled overlay and stops responding
+// — spent symbols never repeat, and the SCHOOL rule holds: the four element
+// runes are mutually exclusive, one leads every spell, so the other three go
+// dark once one is down and non-school symbols wait until one is), click a
+// sequence slot to remove that symbol AND everything spelled after it, Cast
 // fires onCast (the world gates vocabulary/mana) and clears the slate. The
 // sequence row sits at the bottom, just above Cast / Clear. Closed, it
 // draws the dim "no spells" placeholder line the label used to show. One
