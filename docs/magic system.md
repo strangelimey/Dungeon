@@ -99,6 +99,15 @@ behaviour since the use-menu model landed (branch `magic-system`,
   hand menu, click to cast (DungeonWorld::CastSpellById, the usual vocab/mana
   gates). A held wand/spellbook later becomes the richer second door — its use
   menu listing its own spells rides this exact mechanism.
+- **The SPELLBOOK** (Magic » Spellbook, the submenu's first entry; the Magic
+  group appears once the member knows ANY symbol) opens the `SpellbookPanel`
+  in the HUD's Magic area — **where the player BUILDS a spell**: the member's
+  known symbols as rune buttons, a six-slot sequence spelled out by clicking
+  them (click a filled slot to take it back), a live "= <spell>" label when
+  the sequence matches a recipe, and Cast (fires DungeonWorld::CastSpell —
+  exact match casts, a miss fizzles) / Clear. This panel is the seed the
+  school-first construction (first rune picks the school → tier-2) will grow
+  into; today it exposes the flat exact-sequence model directly.
 
 ## Current implementation status
 
