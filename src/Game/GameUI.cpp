@@ -259,19 +259,31 @@ void GameUI::OpenHandUseMenu(size_t i, size_t hand) {
 				 }});
 		}
 		entries.push_back(std::move(combat));
-		// The Magic group only appears when the member can actually cast
-		// something (knows every symbol of at least one recipe).
-		ui::ContextMenu::Entry magic{loc::Tr("menu.magic"), {}, {}};
-		if (spellDefs)
-			for (const SpellDef& def : spellDefs()) {
-				if (!KnowsSpell(c, def)) continue;
-				std::string cmd = std::string(kCastPrefix) + def.id;
-				magic.children.push_back(
-					{loc::Tr(def.nameKey), [this, i, hand, itemId, cmd] {
-						 SelectUse(i, hand, itemId, cmd);
-					 }});
-			}
-		if (!magic.children.empty()) entries.push_back(std::move(magic));
+		// The Magic group appears once the member knows ANY symbol. Its first
+		// entry is always the SPELLBOOK — the Magic-area panel where a spell
+		// is BUILT from known symbols (opening it is navigation, not a use, so
+		// it never becomes a left-click default) — followed by the spells the
+		// member can already cast outright.
+		bool anySymbol = false;
+		for (u32 sym = 0; sym < kSymbolCount; ++sym)
+			anySymbol |= c.Knows(static_cast<SpellSymbol>(sym));
+		if (anySymbol) {
+			ui::ContextMenu::Entry magic{loc::Tr("menu.magic"), {}, {}};
+			magic.children.push_back({loc::Tr("menu.spellbook"), [this, i] {
+										  Click();
+										  if (m_spellbook) m_spellbook->OpenFor(i);
+									  }});
+			if (spellDefs)
+				for (const SpellDef& def : spellDefs()) {
+					if (!KnowsSpell(c, def)) continue;
+					std::string cmd = std::string(kCastPrefix) + def.id;
+					magic.children.push_back(
+						{loc::Tr(def.nameKey), [this, i, hand, itemId, cmd] {
+							 SelectUse(i, hand, itemId, cmd);
+						 }});
+				}
+			entries.push_back(std::move(magic));
+		}
 	}
 	if (entries.empty()) return; // nothing actionable — don't pop an empty menu
 	m_handMenu->Open(m_hudMouseX, m_hudMouseY, std::move(entries));
@@ -1415,18 +1427,28 @@ void GameUI::BuildHud() {
 	const size_t handRows = (std::min<size_t>(m_characters.size(), 4) + 1) / 2;
 	const float magicTop = handsTop + setH * static_cast<float>(handRows);
 
-	// Reserved magic area (spellcasting comes later) — it takes whatever the
-	// panel has left down to the window bottom.
+	// Magic area — the spellbook panel (opened from a hand's use menu, Magic »
+	// Spellbook) fills whatever the panel has left down to the window bottom;
+	// closed, it draws the old "no spells" placeholder line itself.
 	below(m_hudUi.Add<ui::Label>(Norm({px + pad, magicTop + 8, innerW, 20}, window),
 								 loc::Tr("hud.magic")));
 	below(m_hudUi.Add<ui::Panel>(
 		Norm({px + pad, magicTop + 32, innerW, panelBottom - pad - (magicTop + 32)},
 			 window)));
-	auto* magicNone = m_hudUi.Add<ui::Label>(
-		Norm({px + pad + 10, magicTop + 44, innerW - 20, 20}, window),
-		loc::Tr("hud.magic_none"));
-	magicNone->dim = true;
-	below(magicNone);
+	m_spellbook = m_hudUi.Add<SpellbookPanel>(
+		Norm({px + pad, magicTop + 32, innerW, panelBottom - pad - (magicTop + 32)},
+			 window),
+		&m_characters, m_itemIcons);
+	m_spellbook->onClick = [this] { Click(); };
+	m_spellbook->spells = [this] {
+		return spellDefs ? spellDefs() : std::span<const SpellDef>{};
+	};
+	m_spellbook->onCast = [this](size_t member,
+								 const std::vector<SpellSymbol>& seq) {
+		Click();
+		if (onCastSequence) onCastSequence(member, seq);
+	};
+	below(m_spellbook);
 
 	// Full-width message footer, flush to the bottom edge. Added last so it is
 	// the topmost HUD widget — it claims the mouse first and draws over the

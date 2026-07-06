@@ -223,6 +223,204 @@ void HandSlot::Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	ui::DrawBorder(batch, px, m_hot ? theme.accent : theme.panelBorder);
 }
 
+// --- SpellbookPanel ------------------------------------------------------------
+
+namespace {
+// The most symbols a built sequence holds — recipes are 1-2 symbols today,
+// six slots leave room for deeper tiers without outgrowing the magic box.
+constexpr size_t kMaxSequence = 6;
+} // namespace
+
+SpellbookPanel::SpellbookPanel(const gfx::Rect& rect,
+							   const std::vector<Character>* roster,
+							   const ItemIconBank* icons)
+	: m_roster(roster), m_icons(icons),
+	  m_placeholder(loc::Tr("hud.magic_none")), m_castLabel(loc::Tr("magic.cast")),
+	  m_clearLabel(loc::Tr("magic.clear")) {
+	bounds = rect;
+}
+
+void SpellbookPanel::OpenFor(size_t member) {
+	m_member = static_cast<int>(member);
+	m_sequence.clear();
+}
+
+void SpellbookPanel::Close() {
+	m_member = -1;
+	m_sequence.clear();
+}
+
+// Layout: everything scales off the box width (the control panel scales with
+// the window), line heights off the current HUD font via the 20/24px design
+// steps at the 222px design box.
+gfx::Rect SpellbookPanel::SymbolRect(const gfx::Rect& px, size_t i) const {
+	const float s = px.w / 222.0f;
+	const float pad = 10.0f * s, gap = 6.0f * s;
+	const float cell = (px.w - 2 * pad - 3 * gap) / 4.0f;
+	return {px.x + pad + (cell + gap) * static_cast<float>(i),
+			px.y + 30.0f * s, cell, cell};
+}
+
+gfx::Rect SpellbookPanel::SequenceRect(const gfx::Rect& px, size_t i) const {
+	const float s = px.w / 222.0f;
+	const float pad = 10.0f * s, gap = 4.0f * s;
+	const float cell =
+		(px.w - 2 * pad - gap * static_cast<float>(kMaxSequence - 1)) /
+		static_cast<float>(kMaxSequence);
+	const float symBottom = SymbolRect(px, 0).y + SymbolRect(px, 0).h;
+	return {px.x + pad + (cell + gap) * static_cast<float>(i),
+			symBottom + 34.0f * s, cell, cell};
+}
+
+gfx::Rect SpellbookPanel::CastRect(const gfx::Rect& px) const {
+	const float s = px.w / 222.0f;
+	const float pad = 10.0f * s;
+	const float w = (px.w - 2 * pad - 8.0f * s) / 2.0f;
+	return {px.x + pad, px.y + px.h - pad - 28.0f * s, w, 28.0f * s};
+}
+
+gfx::Rect SpellbookPanel::ClearRect(const gfx::Rect& px) const {
+	const gfx::Rect cast = CastRect(px);
+	const float s = px.w / 222.0f;
+	return {cast.x + cast.w + 8.0f * s, cast.y, cast.w, cast.h};
+}
+
+std::vector<SpellSymbol> SpellbookPanel::KnownSymbols(const Character& c) const {
+	std::vector<SpellSymbol> known;
+	for (u32 i = 0; i < kSymbolCount; ++i)
+		if (c.Knows(static_cast<SpellSymbol>(i)))
+			known.push_back(static_cast<SpellSymbol>(i));
+	return known;
+}
+
+const SpellDef* SpellbookPanel::Match() const {
+	if (!spells || m_sequence.empty()) return nullptr;
+	for (const SpellDef& def : spells())
+		if (std::ranges::equal(def.sequence, m_sequence)) return &def;
+	return nullptr;
+}
+
+void SpellbookPanel::DrawRune(gfx::SpriteBatch& batch, const gfx::Rect& r,
+							  SpellSymbol s, bool hot) const {
+	batch.DrawRect(r, hot ? Vec4{0.12f, 0.12f, 0.13f, 1.0f} : kSlotBg);
+	const gfx::Texture* icon = m_icons ? m_icons->For(RuneItemId(s)) : nullptr;
+	if (icon) {
+		const float pad = r.w * 0.08f;
+		batch.DrawSprite({r.x + pad, r.y + pad, r.w - 2 * pad, r.h - 2 * pad},
+						 {0, 0, 1, 1}, *icon, {1, 1, 1, 1});
+	} else {
+		// Fallback: an element-tinted fill (ElementColor is premultiplied
+		// additive — rebuild it opaque for flat UI ink).
+		const Vec4 e = ElementColor(s);
+		batch.DrawRect({r.x + 3, r.y + 3, r.w - 6, r.h - 6},
+					   {e.x * 0.6f, e.y * 0.6f, e.z * 0.6f, 1.0f});
+	}
+	const Vec4 e = ElementColor(s);
+	ui::DrawBorder(batch, r, hot ? Vec4{e.x, e.y, e.z, 1.0f}
+								 : Vec4{e.x * 0.6f, e.y * 0.6f, e.z * 0.6f, 1.0f});
+}
+
+void SpellbookPanel::Update(ui::UIContext& ctx) {
+	m_hotSymbol = -1;
+	m_hotSeq = -1;
+	m_hotCast = false;
+	m_hotClear = false;
+	if (m_member < 0) return;
+	const Character* c = RosterMember(m_roster, static_cast<size_t>(m_member));
+	if (!c) { // roster shrank under the open book — close it
+		Close();
+		return;
+	}
+	// Self-heal: a roster reset may have taken symbols back; the sequence must
+	// never show (or cast) anything the member no longer knows.
+	std::erase_if(m_sequence,
+				  [c](SpellSymbol s) { return !c->Knows(s); });
+
+	const Input* input = ctx.CurrentInput();
+	if (!input || ctx.IsMouseConsumed()) return;
+	const gfx::Rect px = Pixel();
+	const float mx = input->MouseX(), my = input->MouseY();
+	if (!px.Contains(mx, my)) return;
+	const bool pressed = input->WasMousePressed(MouseButton::Left);
+
+	const std::vector<SpellSymbol> known = KnownSymbols(*c);
+	for (size_t i = 0; i < known.size(); ++i) {
+		if (!SymbolRect(px, i).Contains(mx, my)) continue;
+		m_hotSymbol = static_cast<int>(i);
+		if (pressed && m_sequence.size() < kMaxSequence) {
+			m_sequence.push_back(known[i]);
+			if (onClick) onClick();
+		}
+	}
+	for (size_t i = 0; i < m_sequence.size(); ++i) {
+		if (!SequenceRect(px, i).Contains(mx, my)) continue;
+		m_hotSeq = static_cast<int>(i);
+		if (pressed) { // take this symbol back out of the sequence
+			m_sequence.erase(m_sequence.begin() + static_cast<ptrdiff_t>(i));
+			if (onClick) onClick();
+			break;
+		}
+	}
+	if (CastRect(px).Contains(mx, my)) {
+		m_hotCast = true;
+		if (pressed && !m_sequence.empty()) {
+			if (onCast) onCast(static_cast<size_t>(m_member), m_sequence);
+			m_sequence.clear(); // the slate empties either way (a fizzle is spent)
+		}
+	}
+	if (ClearRect(px).Contains(mx, my)) {
+		m_hotClear = true;
+		if (pressed && !m_sequence.empty()) {
+			m_sequence.clear();
+			if (onClick) onClick();
+		}
+	}
+	ctx.ConsumeMouse(); // the open book owns clicks over its box
+}
+
+void SpellbookPanel::Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
+	const ui::Theme& theme = ctx.GetTheme();
+	ui::Font& font = ctx.GetFont();
+	const gfx::Rect px = Pixel();
+	const float s = px.w / 222.0f;
+	const Character* c =
+		m_member < 0 ? nullptr : RosterMember(m_roster, static_cast<size_t>(m_member));
+	if (!c) { // closed: the placeholder line the old label showed
+		font.Draw(batch, m_placeholder, px.x + 10.0f * s, px.y + 12.0f * s,
+				  theme.textDim);
+		return;
+	}
+
+	// Whose book, then their known symbols as rune buttons.
+	font.Draw(batch, c->name, px.x + 10.0f * s, px.y + 8.0f * s, theme.accent);
+	const std::vector<SpellSymbol> known = KnownSymbols(*c);
+	for (size_t i = 0; i < known.size(); ++i)
+		DrawRune(batch, SymbolRect(px, i), known[i],
+				 static_cast<int>(i) == m_hotSymbol);
+
+	// The sequence spelled out so far: six slots, filled left to right.
+	for (size_t i = 0; i < kMaxSequence; ++i) {
+		const gfx::Rect r = SequenceRect(px, i);
+		if (i < m_sequence.size()) {
+			DrawRune(batch, r, m_sequence[i], static_cast<int>(i) == m_hotSeq);
+		} else {
+			batch.DrawRect(r, theme.control);
+			ui::DrawBorder(batch, r, theme.panelBorder);
+		}
+	}
+
+	// The spell those symbols resolve to, when the table knows the sequence.
+	const gfx::Rect seq0 = SequenceRect(px, 0);
+	if (const SpellDef* def = Match())
+		font.Draw(batch, "= " + loc::Tr(def->nameKey), px.x + 10.0f * s,
+				  seq0.y + seq0.h + 8.0f * s, theme.accent);
+
+	ui::DrawButtonFace(batch, font, CastRect(px), m_castLabel, theme, m_hotCast,
+					   false, !m_sequence.empty());
+	ui::DrawButtonFace(batch, font, ClearRect(px), m_clearLabel, theme,
+					   m_hotClear, false, !m_sequence.empty());
+}
+
 // --- InventoryWindow ---------------------------------------------------------
 
 namespace {

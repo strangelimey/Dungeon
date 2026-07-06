@@ -206,6 +206,10 @@ use.melee=Colpire
 ; Hand-menu default-picker groups (bare hand / no defaultable item command).
 menu.combat=Combattimento
 menu.magic=Magia
+menu.spellbook=Libro degli incantesimi
+; Magic-area spellbook panel (build a spell from known symbols).
+magic.cast=Lancia
+magic.clear=Svuota
 ui.inventory=Inventario
 ui.inv_all=Tutti
 ; Item display names (ItemKind.nameKey; rune_<elem> -> item.rune_<elem>).

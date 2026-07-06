@@ -206,6 +206,10 @@ use.melee=Atacar
 ; Hand-menu default-picker groups (bare hand / no defaultable item command).
 menu.combat=Combate
 menu.magic=Magia
+menu.spellbook=Libro de conjuros
+; Magic-area spellbook panel (build a spell from known symbols).
+magic.cast=Lanzar
+magic.clear=Borrar
 ui.inventory=Inventario
 ui.inv_all=Todos
 ; Item display names (ItemKind.nameKey; rune_<elem> -> item.rune_<elem>).

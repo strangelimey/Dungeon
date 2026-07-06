@@ -229,6 +229,12 @@ void Game::WireModuleCallbacks() {
 	m_ui.onCastSpell = [this](size_t member, const std::string& id) {
 		m_world.CastSpellById(member, id);
 	};
+	// The spellbook panel casts a HAND-BUILT symbol sequence: an exact recipe
+	// match casts (vocab/mana gated), anything else fizzles with its log line.
+	m_ui.onCastSequence = [this](size_t member,
+								 const std::vector<SpellSymbol>& seq) {
+		m_world.CastSpell(member, seq);
+	};
 	m_ui.onKeysChanged = [this] {
 		m_world.GetParty().SetKeys(m_settings.moveKeys);
 	};

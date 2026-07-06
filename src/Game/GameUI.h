@@ -174,6 +174,9 @@ public:
 	// Member `i` casts the spell with this catalog id (a "cast:<id>" hand
 	// default) — wired to DungeonWorld::CastSpellById (vocab/mana gates apply).
 	std::function<void(size_t, const std::string&)> onCastSpell;
+	// Member `i` casts a symbol sequence BUILT in the spellbook panel — wired
+	// to DungeonWorld::CastSpell (exact-recipe match; a miss fizzles).
+	std::function<void(size_t, const std::vector<SpellSymbol>&)> onCastSequence;
 	std::function<void()> onKeysChanged;        // a movement key was rebound
 	std::function<void()> onLookChanged;        // a mouse-look knob changed (push to Party)
 	// Game tab language dropdown. The receiver must NOT rebuild the UI from
@@ -357,6 +360,9 @@ private:
 	ui::ContextMenu* m_handMenu = nullptr;
 	// Party inventory window (owned by m_hudUi); opened on right-click-while-holding.
 	InventoryWindow* m_inventory = nullptr;
+	// The Magic-area spellbook (owned by m_hudUi): opened from a hand's use
+	// menu (Magic » Spellbook), where a member builds a symbol sequence.
+	SpellbookPanel* m_spellbook = nullptr;
 
 	// Video tab: the enumerated hardware (cached for the dropdowns + Apply), the
 	// settings TabControl (kept so a repopulate can restore the active tab), and

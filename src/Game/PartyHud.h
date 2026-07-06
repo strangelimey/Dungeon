@@ -209,6 +209,63 @@ private:
 	bool m_heldRight = false;  // right-button press latched on this slot
 };
 
+// The HUD Magic-area SPELLBOOK: opened from a hand's use menu (Magic »
+// Spellbook), it fills the control panel's magic box with the owning member's
+// KNOWN SYMBOLS as rune buttons, the sequence "spelled out" so far, the name
+// of the spell that sequence resolves to (when a known recipe matches), and
+// Cast / Clear. This is where the player BUILDS a spell: click symbols to
+// append, click a sequence slot to take that symbol back out, Cast fires
+// onCast (the world gates vocabulary/mana) and clears the slate. Closed, it
+// draws the dim "no spells" placeholder line the label used to show. One
+// persistent widget — no HUD rebuild on open/close; it re-resolves its member
+// by roster index every frame (RosterMember) and drops sequence symbols the
+// member no longer knows, so a roster reset can't dangle or desync it.
+class SpellbookPanel : public ui::Widget {
+public:
+	SpellbookPanel(const gfx::Rect& rect, const std::vector<Character>* roster,
+				   const ItemIconBank* icons);
+
+	void OpenFor(size_t member); // shows this member's book (fresh sequence)
+	void Close();
+	bool IsOpen() const { return m_member >= 0; }
+
+	// Cast pressed: (member, the built sequence) — wired to the world's cast
+	// façade. Fired only with a non-empty sequence.
+	std::function<void(size_t, const std::vector<SpellSymbol>&)> onCast;
+	// The recipe table, for the live "= <spell>" match label (GameUI's
+	// spellDefs source). Null-safe: no table, no label.
+	std::function<std::span<const SpellDef>()> spells;
+	std::function<void()> onClick; // UI click feedback
+
+	void Update(ui::UIContext& ctx) override;
+	void Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) override;
+
+private:
+	// Layout inside the live box, shared by Update (hit-test) and Draw. The
+	// symbol row indexes the member's KNOWN symbols in enum order; the
+	// sequence row indexes m_sequence.
+	gfx::Rect SymbolRect(const gfx::Rect& px, size_t i) const;
+	gfx::Rect SequenceRect(const gfx::Rect& px, size_t i) const;
+	gfx::Rect CastRect(const gfx::Rect& px) const;
+	gfx::Rect ClearRect(const gfx::Rect& px) const;
+	// The known-symbol list (enum order) and the recipe the sequence spells
+	// out, if any.
+	std::vector<SpellSymbol> KnownSymbols(const Character& c) const;
+	const SpellDef* Match() const;
+	// Draws one rune face: the rune-item icon when loaded, else an
+	// element-tinted fallback square; element-coloured border.
+	void DrawRune(gfx::SpriteBatch& batch, const gfx::Rect& r, SpellSymbol s,
+				  bool hot) const;
+
+	const std::vector<Character>* m_roster;
+	const ItemIconBank* m_icons;
+	int m_member = -1; // roster slot whose book is open (-1 = closed)
+	std::vector<SpellSymbol> m_sequence;
+	int m_hotSymbol = -1, m_hotSeq = -1;
+	bool m_hotCast = false, m_hotClear = false;
+	std::string m_placeholder, m_castLabel, m_clearLabel; // localized once
+};
+
 // The COMBINED party inventory: a centered panel with one backpack column per
 // member, for swapping items between characters at a glance. Opened by the
 // sheet's "All" button or by right-clicking the world while carrying a tablet;
