@@ -214,8 +214,11 @@ private:
 // KNOWN SYMBOLS as rune buttons, the sequence "spelled out" so far, the name
 // of the spell that sequence resolves to (when a known recipe matches), and
 // Cast / Clear. This is where the player BUILDS a spell: click symbols to
-// append, click a sequence slot to take that symbol back out, Cast fires
-// onCast (the world gates vocabulary/mana) and clears the slate. Closed, it
+// append (a symbol already in the sequence draws a disabled overlay and stops
+// responding — each appears at most once), click a sequence slot to remove
+// that symbol AND everything spelled after it (the tail depended on it), Cast
+// fires onCast (the world gates vocabulary/mana) and clears the slate. The
+// sequence row sits at the bottom, just above Cast / Clear. Closed, it
 // draws the dim "no spells" placeholder line the label used to show. One
 // persistent widget — no HUD rebuild on open/close; it re-resolves its member
 // by roster index every frame (RosterMember) and drops sequence symbols the
@@ -253,9 +256,10 @@ private:
 	std::vector<SpellSymbol> KnownSymbols(const Character& c) const;
 	const SpellDef* Match() const;
 	// Draws one rune face: the rune-item icon when loaded, else an
-	// element-tinted fallback square; element-coloured border.
+	// element-tinted fallback square; element-coloured border. Disabled (the
+	// symbol is already in the sequence) washes it out under a dark overlay.
 	void DrawRune(gfx::SpriteBatch& batch, const gfx::Rect& r, SpellSymbol s,
-				  bool hot) const;
+				  bool hot, bool disabled = false) const;
 
 	const std::vector<Character>* m_roster;
 	const ItemIconBank* m_icons;

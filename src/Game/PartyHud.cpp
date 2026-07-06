@@ -262,14 +262,14 @@ gfx::Rect SpellbookPanel::SymbolRect(const gfx::Rect& px, size_t i) const {
 }
 
 gfx::Rect SpellbookPanel::SequenceRect(const gfx::Rect& px, size_t i) const {
+	// The spelled-out sequence sits at the BOTTOM, just above Cast / Clear.
 	const float s = px.w / 222.0f;
 	const float pad = 10.0f * s, gap = 4.0f * s;
 	const float cell =
 		(px.w - 2 * pad - gap * static_cast<float>(kMaxSequence - 1)) /
 		static_cast<float>(kMaxSequence);
-	const float symBottom = SymbolRect(px, 0).y + SymbolRect(px, 0).h;
-	return {px.x + pad + (cell + gap) * static_cast<float>(i),
-			symBottom + 34.0f * s, cell, cell};
+	const float y = CastRect(px).y - 8.0f * s - cell;
+	return {px.x + pad + (cell + gap) * static_cast<float>(i), y, cell, cell};
 }
 
 gfx::Rect SpellbookPanel::CastRect(const gfx::Rect& px) const {
@@ -301,7 +301,7 @@ const SpellDef* SpellbookPanel::Match() const {
 }
 
 void SpellbookPanel::DrawRune(gfx::SpriteBatch& batch, const gfx::Rect& r,
-							  SpellSymbol s, bool hot) const {
+							  SpellSymbol s, bool hot, bool disabled) const {
 	batch.DrawRect(r, hot ? Vec4{0.12f, 0.12f, 0.13f, 1.0f} : kSlotBg);
 	const gfx::Texture* icon = m_icons ? m_icons->For(RuneItemId(s)) : nullptr;
 	if (icon) {
@@ -316,6 +316,13 @@ void SpellbookPanel::DrawRune(gfx::SpriteBatch& batch, const gfx::Rect& r,
 					   {e.x * 0.6f, e.y * 0.6f, e.z * 0.6f, 1.0f});
 	}
 	const Vec4 e = ElementColor(s);
+	if (disabled) {
+		// Already spelled into the sequence: washed out under a dark overlay,
+		// border flattened — reads as "spent" and stops responding.
+		batch.DrawRect(r, {0.0f, 0.0f, 0.0f, 0.62f});
+		ui::DrawBorder(batch, r, {e.x * 0.25f, e.y * 0.25f, e.z * 0.25f, 1.0f});
+		return;
+	}
 	ui::DrawBorder(batch, r, hot ? Vec4{e.x, e.y, e.z, 1.0f}
 								 : Vec4{e.x * 0.6f, e.y * 0.6f, e.z * 0.6f, 1.0f});
 }
@@ -346,6 +353,9 @@ void SpellbookPanel::Update(ui::UIContext& ctx) {
 	const std::vector<SpellSymbol> known = KnownSymbols(*c);
 	for (size_t i = 0; i < known.size(); ++i) {
 		if (!SymbolRect(px, i).Contains(mx, my)) continue;
+		// A symbol already spelled into the sequence is disabled — no hover,
+		// no click — until a sequence-slot click releases it.
+		if (std::ranges::find(m_sequence, known[i]) != m_sequence.end()) break;
 		m_hotSymbol = static_cast<int>(i);
 		if (pressed && m_sequence.size() < kMaxSequence) {
 			m_sequence.push_back(known[i]);
@@ -355,8 +365,10 @@ void SpellbookPanel::Update(ui::UIContext& ctx) {
 	for (size_t i = 0; i < m_sequence.size(); ++i) {
 		if (!SequenceRect(px, i).Contains(mx, my)) continue;
 		m_hotSeq = static_cast<int>(i);
-		if (pressed) { // take this symbol back out of the sequence
-			m_sequence.erase(m_sequence.begin() + static_cast<ptrdiff_t>(i));
+		if (pressed) {
+			// Remove this symbol AND everything spelled after it — the tail
+			// was built on top of it, so it goes too.
+			m_sequence.resize(i);
 			if (onClick) onClick();
 			break;
 		}
@@ -391,14 +403,19 @@ void SpellbookPanel::Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 		return;
 	}
 
-	// Whose book, then their known symbols as rune buttons.
+	// Whose book, then their known symbols as rune buttons — a symbol already
+	// spelled into the sequence draws disabled until a slot click frees it.
 	font.Draw(batch, c->name, px.x + 10.0f * s, px.y + 8.0f * s, theme.accent);
 	const std::vector<SpellSymbol> known = KnownSymbols(*c);
-	for (size_t i = 0; i < known.size(); ++i)
+	for (size_t i = 0; i < known.size(); ++i) {
+		const bool used =
+			std::ranges::find(m_sequence, known[i]) != m_sequence.end();
 		DrawRune(batch, SymbolRect(px, i), known[i],
-				 static_cast<int>(i) == m_hotSymbol);
+				 static_cast<int>(i) == m_hotSymbol, used);
+	}
 
-	// The sequence spelled out so far: six slots, filled left to right.
+	// The sequence spelled out so far — six slots at the bottom, just above
+	// Cast / Clear, filled left to right.
 	for (size_t i = 0; i < kMaxSequence; ++i) {
 		const gfx::Rect r = SequenceRect(px, i);
 		if (i < m_sequence.size()) {
@@ -409,11 +426,12 @@ void SpellbookPanel::Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 		}
 	}
 
-	// The spell those symbols resolve to, when the table knows the sequence.
+	// The spell those symbols resolve to, when the table knows the sequence —
+	// on the line above the sequence row.
 	const gfx::Rect seq0 = SequenceRect(px, 0);
 	if (const SpellDef* def = Match())
 		font.Draw(batch, "= " + loc::Tr(def->nameKey), px.x + 10.0f * s,
-				  seq0.y + seq0.h + 8.0f * s, theme.accent);
+				  seq0.y - 8.0f * s - font.Height(), theme.accent);
 
 	ui::DrawButtonFace(batch, font, CastRect(px), m_castLabel, theme, m_hotCast,
 					   false, !m_sequence.empty());
