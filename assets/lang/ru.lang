@@ -198,6 +198,10 @@ log.spell_pushes=Заклинание отбрасывает {} назад!
 log.shield_up=Защитная пелена окутывает {}.
 log.shield_fades=Защита {} рассеивается.
 log.shield_burns=Огненный щит обжигает: {} получает {} урона!
+log.shield_soaks=Водяная пелена {} поглощает удар!
+log.shield_bursts=Водяная пелена {} лопается!
+log.shield_deflects=Ветер отводит снаряд от {}!
+log.shield_stills=Ветер вокруг {} стихает.
 ; Spell display names (spells.cat ids -> spell.<id>).
 spell.flame=Язычок пламени
 spell.rock=Камешек
@@ -209,6 +213,8 @@ spell.waterbolt=Водяная стрела
 spell.push=Толчок
 spell.stoneskin=Каменная кожа
 spell.fireshield=Огненный щит
+spell.waterveil=Водяная пелена
+spell.windward=Заслон ветра
 ; Hand-slot use menu (items.cat `command` ids -> use.<id>).
 use.memorize=Запомнить
 use.eat=Съесть

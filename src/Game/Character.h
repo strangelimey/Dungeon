@@ -109,13 +109,16 @@ struct Character {
 
 	// --- shield (the Protect form rune, docs/spells.md "Protect") -------------
 	// ONE active ward per member — casting another replaces it. The school keys
-	// the behaviour (earth = +armor via Armor() below, fire = melee attackers
-	// burn for `shieldPower`; water/air designed, not built), shieldTime ticks
-	// down in DungeonWorld::UpdateMonsters and the ward fades at zero. Saved
-	// per slot ("shield" save lines, v13).
+	// the behaviour AND how shieldPower reads: earth = +armor via Armor() below,
+	// fire = melee attackers burn for it (both timed); water = an absorb POOL it
+	// spends soaking damage (DungeonWorld::WoundMember), air = deflect CHARGES
+	// it spends turning bolts aside (ResolveMonsterProjectileHit) — those two
+	// end early by SPENDING (burst/stilled), else every ward fades when
+	// shieldTime (ticked in DungeonWorld::UpdateMonsters) runs out. Saved per
+	// slot ("shield" save lines, v13).
 	SpellSymbol shieldSchool = SpellSymbol::Fire;
 	float shieldTime = 0.0f;  // seconds left; <= 0 = no ward
-	float shieldPower = 0.0f; // school magnitude (armor bonus / burn damage)
+	float shieldPower = 0.0f; // school magnitude (armor / burn / pool / charges)
 	bool ShieldActive() const { return shieldTime > 0.0f; }
 	bool HasShield(SpellSymbol school) const {
 		return ShieldActive() && shieldSchool == school;

@@ -194,6 +194,10 @@ log.spell_pushes={} wird zurückgeschleudert!
 log.shield_up=Ein Schutzzauber legt sich um {}.
 log.shield_fades=Der Schutzzauber von {} verblasst.
 log.shield_burns={} wird vom Feuerschild versengt und erleidet {} Schaden!
+log.shield_soaks=Der Wasserschleier von {} schluckt den Treffer!
+log.shield_bursts=Der Wasserschleier von {} zerplatzt!
+log.shield_deflects=Der Wind lenkt das Geschoss von {} ab!
+log.shield_stills=Der Wind um {} legt sich.
 ; Spell display names (spells.cat ids -> spell.<id>).
 spell.flame=Feuerhauch
 spell.rock=Kieselstein
@@ -205,6 +209,8 @@ spell.waterbolt=Wassergeschoss
 spell.push=Stoß
 spell.stoneskin=Steinhaut
 spell.fireshield=Feuerschild
+spell.waterveil=Wasserschleier
+spell.windward=Windschild
 ; Hand-slot use menu (items.cat `command` ids -> use.<id>).
 use.memorize=Einprägen
 use.eat=Essen

@@ -70,7 +70,7 @@ Water=Laguz, Air=Ansuz, Earth=Berkano):
 | Form | Glyph | Meaning | Status |
 | --- | --- | --- | --- |
 | **Project** | Tiwaz (the up arrow) | "throw it ahead" — the directed/thrown form | BUILT — see the four `<school>,project` spells in docs/spells.md |
-| **Protect** | Algiz (the warding stave) | "guard the caster" — a ward whose behaviour the school picks: earth hardens, air deflects, water absorbs, fire retaliates | BUILT (skeleton + Stone Skin + Fire Shield; water/air designed — docs/spells.md) |
+| **Protect** | Algiz (the warding stave) | "guard the caster" — a ward whose behaviour the school picks: earth hardens, air deflects, water absorbs, fire retaliates | BUILT — all four shields (docs/spells.md) |
 
 Form runes carry no school: their tablets/UI ink use a neutral **arcane gold**
 (`ElementColor(Project)`), and a cast spell always tints by its SCHOOL — the
@@ -199,9 +199,11 @@ Magic is a **walled-off module** (it knows nothing of map/monsters/HUD):
   **Project** with its four `<school>,project` spells — including the engine's
   first displacement effect (`push`, the air shove) — and **Protect** with the
   shield framework (`SpellEffect::Shield`: one caster-only ward per member,
-  school-keyed behaviour, timed fade, save v13) carrying Stone Skin and Fire
-  Shield day one. Recipes are still matched as exact ordered sequences; that
-  IS the model now (the grammar is authored into the recipes, not parsed).
+  school-keyed behaviour, timed fade, save v13) carrying all four shields:
+  Stone Skin (armor), Fire Shield (melee retaliation), Water Veil (absorb
+  pool, bursts when spent), Wind Ward (bolt deflection charges, stills when
+  spent). Recipes are still matched as exact ordered sequences; that IS the
+  model now (the grammar is authored into the recipes, not parsed).
 - **Casting entry point.** The spellbook panel (Magic » Spellbook) is built;
   the per-member **Magic sigil** described in "Opening the spell panel" is not
   built yet (the hand menu is the only door today).

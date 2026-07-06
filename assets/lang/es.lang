@@ -194,6 +194,10 @@ log.spell_pushes=¡{} sale despedido hacia atrás!
 log.shield_up=Un escudo protector envuelve a {}.
 log.shield_fades=El escudo de {} se desvanece.
 log.shield_burns=¡{} se quema con el escudo de fuego y sufre {} de daño!
+log.shield_soaks=¡El velo de agua de {} absorbe el golpe!
+log.shield_bursts=¡El velo de agua de {} estalla!
+log.shield_deflects=¡El viento desvía el proyectil lejos de {}!
+log.shield_stills=El viento alrededor de {} se calma.
 ; Spell display names (spells.cat ids -> spell.<id>).
 spell.flame=Soplo de fuego
 spell.rock=Guijarro
@@ -205,6 +209,8 @@ spell.waterbolt=Dardo de agua
 spell.push=Empujón
 spell.stoneskin=Piel de piedra
 spell.fireshield=Escudo de fuego
+spell.waterveil=Velo de agua
+spell.windward=Escudo de viento
 ; Hand-slot use menu (items.cat `command` ids -> use.<id>).
 use.memorize=Memorizar
 use.eat=Comer

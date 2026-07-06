@@ -113,9 +113,12 @@ push = 1
 
 ; --- Tier 2: <school>,protect — the shared Protect form rune ("guard the
 ; caster"). One ward per member (a recast replaces it); the school picks HOW
-; it guards: earth HARDENS (power = armor bonus), fire RETALIATES (a monster
-; landing a melee blow on the warded member burns for power). Water (absorb)
-; and air (deflect) are designed in docs/spells.md, not yet built.
+; it guards and how `power` reads: earth HARDENS (armor bonus), fire
+; RETALIATES (a monster landing a melee blow on the warded member burns for
+; power), water ABSORBS (a damage pool it spends soaking hits — BURSTS when
+; spent), air DEFLECTS (charges it spends turning ranged bolts aside — the
+; wind STILLS when spent). Water/air can end early by spending; every ward
+; also fades when its duration runs out.
 
 [stoneskin]
 name = spell.stoneskin
@@ -134,3 +137,21 @@ element = fire
 power = 6
 mana = 8
 duration = 30
+
+[waterveil]
+name = spell.waterveil
+symbols = water,protect
+effect = shield
+element = water
+power = 20
+mana = 8
+duration = 60
+
+[windward]
+name = spell.windward
+symbols = air,protect
+effect = shield
+element = air
+power = 3
+mana = 8
+duration = 60

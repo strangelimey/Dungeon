@@ -192,6 +192,10 @@ log.spell_pushes=The {} is hurled back!
 log.shield_up=A ward settles over {}.
 log.shield_fades={}'s ward fades.
 log.shield_burns=The {} is scorched by the fire shield for {} damage!
+log.shield_soaks={}'s water veil soaks the blow!
+log.shield_bursts={}'s water veil bursts!
+log.shield_deflects=The wind turns the bolt away from {}!
+log.shield_stills=The wind around {} stills.
 ; Spell display names (spells.cat ids -> spell.<id>).
 spell.flame=Puff of Flame
 spell.rock=Pebble
@@ -203,6 +207,8 @@ spell.waterbolt=Water Bolt
 spell.push=Push
 spell.stoneskin=Stone Skin
 spell.fireshield=Fire Shield
+spell.waterveil=Water Veil
+spell.windward=Wind Ward
 ui.inventory=Inventory
 ui.inv_all=All
 ; Hand-slot use menu (items.cat `command` ids -> use.<id>).

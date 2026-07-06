@@ -118,14 +118,18 @@ backward — the first DISPLACEMENT effect in the engine.
 
 The defensive form: a WARD on the caster, the school picking HOW it guards —
 earth HARDENS, air DEFLECTS, water ABSORBS, fire RETALIATES. Four different
-answers to "protect me", no overlap. Framework (built): ONE active ward per
-member — casting another (any school) replaces it; wards are caster-only day
-one ("grows to cover the party" is a high-power growth form; Dungeon Master's
-fire shield was party-wide, so there's precedent for that endpoint). The ward
-lasts `duration` seconds (spells.cat), `power` is its school magnitude, and it
-ticks/fades in DungeonWorld with a log line; active wards ride the save (v13
-"shield" lines). No HUD indicator yet — the cast/fade log lines are the only
-feedback (a portrait tint or timer pip is a natural polish item).
+answers to "protect me", no overlap. All four are BUILT. Framework: ONE
+active ward per member — casting another (any school) replaces it; wards are
+caster-only day one ("grows to cover the party" is a high-power growth form;
+Dungeon Master's fire shield was party-wide, so there's precedent for that
+endpoint). The ward lasts `duration` seconds (spells.cat), `power` is its
+school magnitude — earth/fire read it as a flat number for their whole
+lifetime, water/air read it as a BUDGET (pool/charges) they spend, ending
+early when it runs dry (burst/stilled). Every ward ticks/fades in
+DungeonWorld with a log line; active wards ride the save (v13 "shield"
+lines, budget spend included). No HUD indicator yet — the cast/fade log
+lines are the only feedback (a portrait tint or timer pip is a natural
+polish item).
 
 #### Earth — Stone Skin (`stoneskin`) — BUILT
 
@@ -146,22 +150,27 @@ are out of its reach.
 - Growth: retaliation damage with fire power; igniting flavour later.
   Tier-3 outward form: the fire WALL (the aura turned into a burning cell).
 
-#### Water — Water Veil (`waterveil`) — designed, not built
+#### Water — Water Veil (`waterveil`) — BUILT
 
-Water guards by absorbing: a flowing film soaks up a BUDGET of damage before
-it bursts (pool, not timer — the shield dies when spent, with a splash).
-Naturally quenches fire damage entirely once monsters have elemental attacks.
+Water guards by absorbing: a flowing film soaks damage into a POOL (power
+20) before any reaches health, and BURSTS when the pool is spent — it dies
+by spending, not by the clock (though an unspent veil still fades at its
+60 s duration). The intercept sits in WoundMember — the one place a member
+takes damage — so it soaks every source alike: melee, ranged bolts, even a
+wall bump. A partial soak lets the remainder through.
 
-- Needs: an absorb intercept in WoundMember. Growth: pool size with water
-  power. Tier-3: mist/deluge wall.
+- Growth: pool size with water power; quenching fire damage entirely once
+  monsters have elemental attacks. Tier-3: mist/deluge wall.
 
-#### Air — Wind Ward (`windward`) — designed, not built
+#### Air — Wind Ward (`windward`) — BUILT
 
 Air guards by deflecting — the school that moves things moves ATTACKS.
-Swirling air turns incoming projectiles aside: an evasion boost against
-ranged attacks (or outright deflection of the first N bolts). The defensive
-mirror of Push.
+A ranged bolt aimed at the warded member is turned aside OUTRIGHT (no
+strike roll), spending one of the ward's CHARGES (power 3); the last
+deflection stills the wind (spend-to-end like the veil, 60 s fade
+otherwise). Bolts aimed at unwarded neighbours fly true — the ward wraps
+its caster alone. Melee is out of its reach: the defensive mirror of Push.
 
-- Needs: a ranged-only defense hook in ResolveMonsterProjectileHit. Growth:
-  deflect count, then melee attacks straying too. Tier-3: a wind wall cell
-  bolts can't cross (reusing push for whatever walks in).
+- Growth: charge count with air power, then melee attacks straying too.
+  Tier-3: a wind wall cell bolts can't cross (reusing push for whatever
+  walks in).

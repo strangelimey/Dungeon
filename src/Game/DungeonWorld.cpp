@@ -2764,6 +2764,23 @@ void DungeonWorld::MemberMessage(const Character& member,
 }
 
 void DungeonWorld::WoundMember(Character& target, float damage) {
+	// Water Veil: water guards by ABSORBING — the ward soaks damage into its
+	// pool (shieldPower) before any reaches health, and BURSTS when the pool
+	// is spent (unlike the timed wards, it dies by spending). Sitting in the
+	// one place a member takes damage, it soaks every source alike — melee,
+	// ranged, even a wall bump. A partial soak lets the remainder through to
+	// the normal wound path below.
+	if (target.HasShield(SpellSymbol::Water) && damage > 0.0f) {
+		const float soaked = std::min(target.shieldPower, damage);
+		target.shieldPower -= soaked;
+		damage -= soaked;
+		MemberMessage(target, loc::Format("log.shield_soaks", target.name));
+		if (target.shieldPower <= 0.0f) {
+			target.shieldTime = 0.0f; // spent — burst line, not the fade line
+			MemberMessage(target, loc::Format("log.shield_bursts", target.name));
+		}
+		if (damage <= 0.0f) return; // fully absorbed — no wound, no splat
+	}
 	target.health -= damage;
 	if (target.health < 0.0f) target.health = 0.0f;
 	target.hitFlash = kHitFlashSeconds;
@@ -3233,6 +3250,19 @@ bool DungeonWorld::ResolveMonsterProjectileHit(const Vec3& p, const AttackProfil
 	if (n == 0) return true;
 
 	Character& target = (*m_roster)[alive[m_combatRng() % n]];
+	// Wind Ward: air guards by DEFLECTING — a bolt aimed at the warded member
+	// is turned aside outright (no strike roll), spending one of the ward's
+	// charges (shieldPower); the last deflection stills the wind. Bolts aimed
+	// at unwarded neighbours fly true — the ward wraps its caster alone.
+	if (target.HasShield(SpellSymbol::Air)) {
+		target.shieldPower -= 1.0f;
+		MemberMessage(target, loc::Format("log.shield_deflects", target.name));
+		if (target.shieldPower <= 0.0f) {
+			target.shieldTime = 0.0f; // spent — the stills line, not the fade
+			MemberMessage(target, loc::Format("log.shield_stills", target.name));
+		}
+		return true; // the bolt is spent against the wind
+	}
 	const DefenseProfile def{target.Evasion(), target.Armor()};
 	const AttackResult r = ResolveAttack(atk, def, m_combatRng);
 	if (!r.hit) {
