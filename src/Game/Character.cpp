@@ -60,6 +60,15 @@ std::vector<Character> CreateDefaultParty() {
 		member.stamina = member.maxStamina;
 		member.mana = member.maxMana;
 	}
+
+	// Maren and Tilo — the party's casters — start with all four rune tablets
+	// stowed in their backpacks, so the magic loop (memorize from the hand
+	// menu, build in the spellbook, cast) is reachable from a fresh game
+	// without scavenging the level first.
+	for (Character* caster : {&party[2], &party[3]})
+		for (u32 i = 0; i < kSymbolCount; ++i)
+			caster->inventory.Stow(RuneItemId(static_cast<SpellSymbol>(i)));
+
 	return party;
 }
 
