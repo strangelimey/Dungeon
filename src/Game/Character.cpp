@@ -64,10 +64,10 @@ std::vector<Character> CreateDefaultParty() {
 		if (i < kMemberColorCount) member.portraitColor = kDefaultMemberColors[i];
 	}
 
-	// Maren and Tilo — the party's casters — start with all four rune tablets
-	// stowed in their backpacks, so the magic loop (memorize from the hand
-	// menu, build in the spellbook, cast) is reachable from a fresh game
-	// without scavenging the level first.
+	// Maren and Tilo — the party's casters — start with every rune tablet
+	// (the four schools + the shared form runes) stowed in their backpacks,
+	// so the magic loop (memorize from the hand menu, build in the spellbook,
+	// cast) is reachable from a fresh game without scavenging the level first.
 	for (Character* caster : {&party[2], &party[3]})
 		for (u32 i = 0; i < kSymbolCount; ++i)
 			caster->inventory.Stow(RuneItemId(static_cast<SpellSymbol>(i)));
