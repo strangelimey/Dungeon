@@ -70,18 +70,27 @@ a focus item lifts that restriction — noted but not decided.)
 
 ### Hand-click semantics (to keep casting off the hands)
 
-Casting is its own verb and must not fight the hand-slot gestures. Current hand
-behaviour (`GameUI::OnHandLeftClick`):
+Casting is its own verb and must not fight the hand-slot gestures. Hand
+behaviour since the use-menu model landed (branch `magic-system`,
+`GameUI::OnHandLeftClick` / `OnHandRightClick`):
 
-- **Left-click, holding a tablet on the cursor, empty hand** → place it in the
-  hand (cursor cleared).
-- **Left-click, holding a tablet on the cursor, occupied hand** → swap: the
-  hand's item goes onto the cursor, the cursor's item goes into the hand
-  (nothing destroyed).
-- **Left-click, empty cursor, hand has an item** → pick that item up onto the
-  cursor.
-- **Left-click, empty cursor, empty hand** → **nothing happens (for now).**
-  (Unarmed attack / "activate" is being moved off the left click.)
+- **Left-click, holding a HOLDABLE item on the cursor** → place it in the hand,
+  swapping any occupant onto the cursor (nothing destroyed). Items without the
+  catalog `holdable` flag are refused with a log line — on the control bar AND
+  the sheet's hand doll cells.
+- **Left-click, empty cursor, control-bar hand** → execute the hand's DEFAULT
+  USE: the member's remembered per-item-type pick, else the item's first
+  defaultable `command`; an empty hand throws the unarmed punch. (Picking an
+  item OUT of a hand is the character sheet's job — its hand cells keep the
+  pick/swap semantics.)
+- **Right-click, control-bar hand** → the item's USE menu (catalog `command`
+  list: stab/slash/eat/memorize/...; a bare hand offers Punch). Selecting an
+  entry records it as that member's default for the item type and — per the
+  Settings → Controls "Hands" checkbox — performs it. Menu-only commands
+  (memorize) always perform and never become defaults.
+
+A wand/spellbook's use menu listing its SPELLS — and "cast" as a hand's
+default use — is exactly the door this model opens for the casting UI.
 
 ## Current implementation status
 
