@@ -30,6 +30,7 @@
 
 #include <array>
 #include <flat_map>
+#include <flat_set>
 #include <functional>
 #include <optional>
 #include <string>
@@ -90,6 +91,10 @@ struct ItemCategoryBank {
 	std::flat_map<std::string, int> capacityByType;   // pack content slots
 	// Categories a pack may HOLD (empty / contains "any" = unrestricted).
 	std::flat_map<std::string, std::vector<std::string>> acceptsByType;
+	// Ids whose catalog entry sets holdable=1 — the only items a HAND slot
+	// (control bar or sheet doll) accepts. Everything else is refused.
+	// (A set, not flat_map<...,bool>: vector<bool> can't back a flat_map.)
+	std::flat_set<std::string> holdableTypes;
 	bool Is(const std::string& typeId, std::string_view category) const {
 		const auto it = byType.find(typeId);
 		return it != byType.end() && it->second == category;
@@ -116,6 +121,10 @@ struct ItemCategoryBank {
 	bool PackAcceptsItem(const std::string& packId, const std::string& itemId) const {
 		if (Is(itemId, "container")) return false; // no nesting bags
 		return Accepts(packId, CategoryOf(itemId));
+	}
+	// True if a hand slot may hold this item (catalog holdable=1).
+	bool Holdable(const std::string& typeId) const {
+		return holdableTypes.contains(typeId);
 	}
 };
 
@@ -271,6 +280,9 @@ public:
 	// Fired when a held item is refused by the selected pack (item id, pack id) —
 	// Game wires it to a "won't fit" log line + sound.
 	std::function<void(const std::string&, const std::string&)> onRejectDrop;
+	// Fired when a held non-holdable item is refused by a hand doll cell (item
+	// id) — GameUI wires it to the shared "can't be held" log line + sound.
+	std::function<void(const std::string&)> onRejectHold;
 
 private:
 	// Design-space rect of doll cell i (an index into the placed-cell table),

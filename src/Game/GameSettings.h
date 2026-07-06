@@ -132,6 +132,10 @@ struct GameSettings {
 	ResourceBarColors barColors;  // health/stamina/mana fills
 	MoveKeys moveKeys;            // movement key bindings (vkeys)
 	LookSettings look;           // right-mouse free-look feel (Controls tab)
+	// Picking an entry from a hand's right-click use menu also PERFORMS it (on
+	// top of recording it as the hand's left-click default). Off = the menu
+	// only sets the default. Controls tab checkbox; ini usemenu_execute=.
+	bool useMenuExecutes = true;
 	bool mapPaletteCollapsed = false;  // map editor: left brush dock collapsed
 	bool mapLegendCollapsed = false;   // map editor: right key dock collapsed
 	bool mapPlayerKeyCollapsed = false; // player map: right key dock collapsed

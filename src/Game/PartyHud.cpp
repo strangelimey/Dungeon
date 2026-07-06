@@ -531,7 +531,17 @@ void CharacterSheet::Update(ui::UIContext& ctx) {
 		for (int i = 0; i < kDollCellCount; ++i)
 			if (EquipRect(px, sx, sy, i).Contains(mx, my)) {
 				const size_t s = static_cast<size_t>(kDollCells[i].slot);
-				ClickSlot(m_character->inventory.equipment[s]);
+				// The two weapon hands only take catalog-holdable items; a held
+				// non-holdable stays on the cursor and we signal the refusal.
+				// (Pick-up/swap of what's already there is untouched.)
+				const bool handCell = kDollCells[i].slot == EquipSlot::LeftHand ||
+									  kDollCells[i].slot == EquipSlot::RightHand;
+				if (handCell && m_held && m_held->has_value() && m_categories &&
+					!m_categories->Holdable(**m_held)) {
+					if (onRejectHold) onRejectHold(**m_held);
+				} else {
+					ClickSlot(m_character->inventory.equipment[s]);
+				}
 				ctx.ConsumeMouse();
 				return;
 			}

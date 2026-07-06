@@ -39,6 +39,24 @@ gfx::Rect Norm(const gfx::Rect& designPx, const gfx::Rect& container) {
 			designPx.h / container.h};
 }
 
+// Hand-use command ids that resolve to a melee swing: the verb is flavour (the
+// menu label + future per-verb damage tuning), the strike is the one shared
+// PartyAttack path. A new weapon verb is data (items.cat `command`) + a row
+// here + a use.<verb> lang key.
+constexpr std::string_view kMeleeUses[] = {"punch", "stab",  "slash", "chop",
+										   "bash",  "swing", "melee"};
+bool IsMeleeUse(std::string_view cmd) {
+	return std::ranges::find(kMeleeUses, cmd) != std::ranges::end(kMeleeUses);
+}
+// Commands that never become a left-click default — one-shot consuming actions
+// (memorize destroys the tablet) picked deliberately from the menu each time.
+bool IsMenuOnlyUse(std::string_view cmd) { return cmd == "memorize"; }
+// True if ExecuteUse can dispatch this id — unknown ids (a catalog typo) get
+// no menu entry rather than a dead one.
+bool IsExecutableUse(std::string_view cmd) {
+	return cmd == "eat" || cmd == "memorize" || IsMeleeUse(cmd);
+}
+
 // Vertical stack with CSS-style collapsing margins: the gap between two items is
 // max(upper.marginBottom, lower.marginTop) — never the sum — so equal margins on
 // neighbours overlap into one. Place() returns the next item's design-px rect (a
@@ -151,8 +169,14 @@ void GameUI::OnHandLeftClick(size_t i, size_t hand) {
 	if (i >= m_characters.size() || hand > 1) return;
 	ItemSlot& slot = m_characters[i].inventory.Hand(static_cast<int>(hand));
 	if (Holding()) {
-		// Place the carried tablet in this hand, swapping any occupant onto the
-		// cursor (so a click never silently destroys an item).
+		// Place the carried item in this hand, swapping any occupant onto the
+		// cursor (a click never silently destroys an item) — but only holdable
+		// items enter a hand; anything else stays on the cursor with a log line.
+		if (!m_itemCategories || !m_itemCategories->Holdable(**m_held)) {
+			AddLogLine(loc::Format("log.cant_hold",
+								   loc::Tr(std::format("item.{}", **m_held))));
+			return;
+		}
 		std::string incoming = **m_held;
 		if (slot.Empty()) m_held->reset();
 		else *m_held = slot.typeId;
@@ -160,36 +184,84 @@ void GameUI::OnHandLeftClick(size_t i, size_t hand) {
 		Click();
 		return;
 	}
-	if (!slot.Empty()) { // empty-handed: pick this hand's item up onto the cursor
-		*m_held = slot.typeId;
-		slot.Clear();
-		Click();
+	// Empty cursor: the control-bar hand is an ACTION button — it executes the
+	// hand's default use. Picking the item UP is the character sheet's job (its
+	// hand cells keep the pick/swap semantics), so a swing can't be fumbled into
+	// an accidental unequip mid-fight. A bare hand throws the unarmed punch.
+	if (slot.Empty()) {
+		ExecuteUse(i, hand, "punch");
 		return;
 	}
-	// Empty hand, empty cursor: nothing happens (for now). The hand's "activate"
-	// gesture (unarmed attack, onHandAttack) is being moved off the left click.
+	ExecuteUse(i, hand, DefaultUseFor(m_characters[i], slot.typeId));
 }
 
 void GameUI::OnHandRightClick(size_t i, size_t hand) {
-	if (i >= m_characters.size() || hand > 1) return;
+	if (i >= m_characters.size() || hand > 1 || !m_handMenu) return;
 	const ItemSlot& slot = m_characters[i].inventory.Hand(static_cast<int>(hand));
-	if (slot.Empty() || !m_handMenu) return;
-	// Build the action menu from the item's data-driven command list (ItemKind::
-	// commands, supplied by Game). Each command id maps to a label + handler here;
-	// an unknown id is skipped (no entry) so adding a command is data + one case.
+	// Build the USE menu from the item's data-driven command list (ItemKind::
+	// commands, supplied by Game); a bare hand offers the one unarmed use. Labels
+	// come from the use.<cmd> lang keys; an id ExecuteUse can't dispatch (catalog
+	// typo) gets no entry, so adding a verb is data + one case there.
 	const std::vector<std::string> cmds =
-		itemCommands ? itemCommands(slot.typeId) : std::vector<std::string>{};
+		slot.Empty() ? std::vector<std::string>{"punch"}
+					 : (itemCommands ? itemCommands(slot.typeId)
+									 : std::vector<std::string>{});
+	const std::string itemId = slot.Empty() ? std::string() : slot.typeId;
 	std::vector<ui::ContextMenu::Entry> entries;
 	for (const std::string& cmd : cmds) {
-		if (cmd == "memorize")
-			entries.push_back({loc::Tr("ui.memorize"),
-							   [this, i, hand] { MemorizeFromHand(i, hand); }});
-		else if (cmd == "eat")
-			entries.push_back({loc::Tr("ui.eat"),
-							   [this, i, hand] { EatFromHand(i, hand); }});
+		if (!IsExecutableUse(cmd)) continue;
+		entries.push_back({loc::Tr("use." + cmd), [this, i, hand, itemId, cmd] {
+							   SelectUse(i, hand, itemId, cmd);
+						   }});
 	}
 	if (entries.empty()) return; // nothing actionable — don't pop an empty menu
 	m_handMenu->Open(m_hudMouseX, m_hudMouseY, std::move(entries));
+}
+
+void GameUI::SelectUse(size_t i, size_t hand, const std::string& itemId,
+					   const std::string& cmd) {
+	if (i >= m_characters.size() || hand > 1) return;
+	const bool menuOnly = IsMenuOnlyUse(cmd);
+	// The pick becomes this member's default for the item TYPE (so every khukri
+	// they wield chops until they choose otherwise). Menu-only commands are
+	// deliberate one-shots — never recorded.
+	if (!menuOnly && !itemId.empty()) m_characters[i].useDefaults[itemId] = cmd;
+	// Menu-only commands (and the bare hand's punch, the menu's sole entry)
+	// always perform; a defaultable pick performs per the Controls setting.
+	if (menuOnly || itemId.empty() || m_settings.useMenuExecutes)
+		ExecuteUse(i, hand, cmd);
+}
+
+void GameUI::ExecuteUse(size_t i, size_t hand, const std::string& cmd) {
+	if (i >= m_characters.size() || hand > 1 || cmd.empty()) return;
+	if (cmd == "memorize") {
+		MemorizeFromHand(i, hand);
+	} else if (cmd == "eat") {
+		EatFromHand(i, hand);
+	} else if (IsMeleeUse(cmd)) {
+		// Every melee verb lands through the one strike path; the verb itself
+		// is flavour until per-verb damage profiles exist. Cooldown gating and
+		// the alive-check live in DungeonWorld::PartyAttack.
+		if (onHandAttack) onHandAttack(i, hand);
+	}
+	// Unknown id: a catalog typo — the menu never offered it; a stale saved
+	// default falls through DefaultUseFor instead. Nothing to do.
+}
+
+std::string GameUI::DefaultUseFor(const Character& c,
+								  const std::string& itemId) const {
+	const std::vector<std::string> cmds =
+		itemCommands ? itemCommands(itemId) : std::vector<std::string>{};
+	// The member's remembered pick wins while the item still offers it (the
+	// catalog may have changed since the save was written).
+	if (const auto it = c.useDefaults.find(itemId); it != c.useDefaults.end())
+		if (!IsMenuOnlyUse(it->second) && std::ranges::find(cmds, it->second) != cmds.end())
+			return it->second;
+	// Else the item's first defaultable command (a rune's only command is the
+	// menu-only memorize, so it yields "" — a left-click can't eat a tablet).
+	for (const std::string& cmd : cmds)
+		if (!IsMenuOnlyUse(cmd) && IsExecutableUse(cmd)) return cmd;
+	return {};
 }
 
 void GameUI::MemorizeFromHand(size_t i, size_t hand) {
@@ -425,6 +497,21 @@ void GameUI::BuildSettings() {
 	easeDrop("settings.look_curve", &m_settings.look.snapEasing);
 	lookSlider("settings.look_move", 0.05f, 1.5f, &m_settings.look.moveTime, mGroup, mGroup);
 	easeDrop("settings.look_move_curve", &m_settings.look.moveEasing);
+
+	// Controls → Hands: hand-slot behaviour. One checkbox — whether picking an
+	// entry from a hand's right-click use menu also performs it (off = the menu
+	// only sets the hand's left-click default). Persists immediately.
+	tabs->AddChild<ui::Separator>(tabControls, Norm(cf.Place(1.0f, mGroup, mGroup), page));
+	tabs->AddChild<ui::Label>(tabControls, Norm(cf.Place(labelH, mGroup, mTight), page),
+							  loc::Tr("settings.hands"));
+	tabs->AddChild<ui::Checkbox>(
+		tabControls, Norm(cf.Place(ctrlH, mTight, mGroup), page),
+		loc::Tr("settings.usemenu_execute"), m_settings.useMenuExecutes,
+		[this](bool on) {
+			Click();
+			m_settings.useMenuExecutes = on;
+			m_settings.Save();
+		});
 
 	// Video: the page overflows its height, so the TabControl scrolls. A Flow
 	// (collapsing-margin vertical stack) places each label-over-control setting.
@@ -872,6 +959,12 @@ void GameUI::BuildCharacterSheet() {
 		m_audio.Play(m_sounds.bump, 0.5f);
 		AddLogLine(loc::Format("log.pack_rejects", loc::Tr("item." + item),
 							   loc::Tr("item." + pack)));
+	};
+	// A hand doll cell refused a non-holdable item: same thud, the shared
+	// "can't be held" line (also used by the control-bar hand slots).
+	m_sheet->onRejectHold = [this](const std::string& item) {
+		m_audio.Play(m_sounds.bump, 0.5f);
+		AddLogLine(loc::Format("log.cant_hold", loc::Tr("item." + item)));
 	};
 
 	const float btnY = sy + sheetH + 16.0f;

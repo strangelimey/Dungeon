@@ -83,6 +83,8 @@ settings.look_return=Время возврата
 settings.look_curve=Кривая возврата
 settings.look_move=Выравнивание при движении
 settings.look_move_curve=Кривая движения
+settings.hands=Руки
+settings.usemenu_execute=Выбор в меню использования сразу выполняет его
 ease.linear=Линейно
 ease.easein=Плавный вход
 ease.easeinout=Плавный вход / выход
@@ -179,6 +181,7 @@ log.pack_rejects=«{}» не помещается в «{}».
 log.stow={} убирает «{}» в рюкзак.
 log.memorize={} запоминает руну «{}».
 log.eat={} съедает «{}».
+log.cant_hold=«{}» нельзя держать в руке.
 ; --- casting ({0}=caster {1}=spell/target {2}=damage) ---
 log.cast={} произносит заклинание «{}».
 log.spell_fizzles=Заклинание рассеивается впустую.
@@ -193,8 +196,16 @@ spell.rock=Камень
 spell.gust=Порыв
 spell.splash=Всплеск
 spell.firebolt=Огненная стрела
-ui.memorize=Запомнить
-ui.eat=Съесть
+; Hand-slot use menu (items.cat `command` ids -> use.<id>).
+use.memorize=Запомнить
+use.eat=Съесть
+use.punch=Удар кулаком
+use.stab=Уколоть
+use.slash=Полоснуть
+use.chop=Рубануть
+use.bash=Ударить
+use.swing=Замахнуться
+use.melee=Атаковать
 ui.inventory=Инвентарь
 ui.inv_all=Все
 ; Item display names (ItemKind.nameKey; rune_<elem> -> item.rune_<elem>).

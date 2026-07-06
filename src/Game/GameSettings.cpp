@@ -141,6 +141,7 @@ void GameSettings::Load() {
 	ParseIniInt(text, "look_move_curve=", moveEase);
 	if (moveEase >= 0 && moveEase < static_cast<int>(std::size(kLookEaseOptions)))
 		look.moveEasing = kLookEaseOptions[moveEase].value;
+	ParseIniBool(text, "usemenu_execute=", useMenuExecutes);
 	ParseIniBool(text, "map_palette_collapsed=", mapPaletteCollapsed);
 	ParseIniBool(text, "map_legend_collapsed=", mapLegendCollapsed);
 	ParseIniBool(text, "map_player_key_collapsed=", mapPlayerKeyCollapsed);
@@ -194,6 +195,7 @@ void GameSettings::Save() const {
 		"look_sensitivity={:.3f}\nlook_hold={:.3f}\nlook_return={:.3f}\nlook_move={:.3f}\nlook_curve={}\nlook_move_curve={}\n",
 		look.sensitivity, look.returnHold, look.returnTime, look.moveTime,
 		LookEaseIndex(look.snapEasing), LookEaseIndex(look.moveEasing));
+	text += std::format("usemenu_execute={}\n", useMenuExecutes ? 1 : 0);
 	text += std::format(
 		"map_palette_collapsed={}\nmap_legend_collapsed={}\nmap_player_key_collapsed={}\n",
 		mapPaletteCollapsed ? 1 : 0, mapLegendCollapsed ? 1 : 0,

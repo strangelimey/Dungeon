@@ -1330,6 +1330,7 @@ void Game::LoadItemIcons() {
 	m_itemCategories.byType.clear();
 	m_itemCategories.capacityByType.clear();
 	m_itemCategories.acceptsByType.clear();
+	m_itemCategories.holdableTypes.clear();
 	// Splits a whitespace/comma list (the catalog `accepts` field) into tokens.
 	const auto splitList = [](const std::string& s) {
 		std::vector<std::string> out;
@@ -1350,6 +1351,8 @@ void Game::LoadItemIcons() {
 		m_itemCategories.capacityByType[def.id] =
 			static_cast<int>(def.GetFloat("capacity", 0.0f));
 		m_itemCategories.acceptsByType[def.id] = splitList(def.Get("accepts", ""));
+		if (def.GetBool("holdable", false))
+			m_itemCategories.holdableTypes.insert(def.id);
 	}
 
 	// Equipment-slot outline silhouettes (slot_<type>.png), the ghost behind an
@@ -1438,6 +1441,9 @@ void Game::SaveGame(const std::string& name) {
 			for (const ItemSlot& s : p.contents) items.push_back(s.typeId);
 			c.packContents.push_back(std::move(items));
 		}
+		// The member's remembered per-item default uses (hand left-click action).
+		for (const auto& [item, cmd] : member.useDefaults)
+			c.useDefaults.emplace_back(item, cmd);
 		data.characters.push_back(std::move(c));
 	}
 	WriteSave(data, SaveSlotPath(name));
@@ -1482,6 +1488,9 @@ bool Game::LoadGame(const std::string& path) {
 		}
 		if (c.selectedPack >= 0 && c.selectedPack < kPackRowSlots)
 			inv.selectedPack = c.selectedPack;
+		// Restore the remembered default uses (ResetRoster left the map empty).
+		for (const auto& [item, cmd] : c.useDefaults)
+			m_characters[i].useDefaults[item] = cmd;
 	}
 	m_world.ApplyState(*data); // fills the per-level store + party pose/torch
 

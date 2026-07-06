@@ -16,6 +16,7 @@
 #include "Game/Inventory.h"
 #include "Game/Spells.h"
 
+#include <flat_map>
 #include <string>
 #include <vector>
 
@@ -63,6 +64,13 @@ struct Character {
 	// here when dropped on this member's portrait / hand; memorizing one (the
 	// hand context menu) consumes it. Empty for a fresh party.
 	Inventory inventory;
+
+	// The member's remembered DEFAULT USE per item type (catalog id → command
+	// id): picking a use from a hand's right-click menu records it here, and a
+	// left-click on a hand holding that type executes it. Falls back to the
+	// type's first defaultable command when absent/stale (GameUI resolves).
+	// Saved per slot (a member's weapon habits survive a reload).
+	std::flat_map<std::string, std::string> useDefaults;
 
 	// --- spells -------------------------------------------------------------
 	// Spell symbols this member has committed to memory (bitmask of SymbolBit).

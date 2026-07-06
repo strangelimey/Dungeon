@@ -78,6 +78,8 @@ settings.look_return=Return Time
 settings.look_curve=Return Curve
 settings.look_move=Move Straighten
 settings.look_move_curve=Move Curve
+settings.hands=Hands
+settings.usemenu_execute=Selecting from the use menu also performs it
 ease.linear=Linear
 ease.easein=Ease In
 ease.easeinout=Ease In / Out
@@ -173,6 +175,7 @@ log.pack_rejects=The {} won't fit in the {}.
 log.stow={} stows the {} in their pack.
 log.memorize={} commits the {} rune to memory.
 log.eat={} eats the {}.
+log.cant_hold=The {} can't be held in a hand.
 ; --- casting ({0}=caster {1}=spell/target {2}=damage) ---
 log.cast={} casts {}.
 log.spell_fizzles=The spell fizzles into nothing.
@@ -187,10 +190,18 @@ spell.rock=Rock
 spell.gust=Gust
 spell.splash=Splash
 spell.firebolt=Fire Bolt
-ui.memorize=Memorize
-ui.eat=Eat
 ui.inventory=Inventory
 ui.inv_all=All
+; Hand-slot use menu (items.cat `command` ids -> use.<id>).
+use.memorize=Memorize
+use.eat=Eat
+use.punch=Punch
+use.stab=Stab
+use.slash=Slash
+use.chop=Chop
+use.bash=Bash
+use.swing=Swing
+use.melee=Strike
 ; Item display names (ItemKind.nameKey; rune_<elem> -> item.rune_<elem>).
 item.rune_fire=Fire rune
 item.rune_earth=Earth rune

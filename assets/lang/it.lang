@@ -79,6 +79,8 @@ settings.look_return=Tempo di ritorno
 settings.look_curve=Curva di ritorno
 settings.look_move=Riallineamento in movimento
 settings.look_move_curve=Curva di movimento
+settings.hands=Mani
+settings.usemenu_execute=Scegliere dal menu d'uso lo esegue anche
 ease.linear=Lineare
 ease.easein=Entrata graduale
 ease.easeinout=Entrata / uscita graduale
@@ -175,6 +177,7 @@ log.pack_rejects={} non entra in {}.
 log.stow={} ripone {} nello zaino.
 log.memorize={} memorizza la runa di {}.
 log.eat={} mangia {}.
+log.cant_hold={} non si può tenere in mano.
 ; --- casting ({0}=caster {1}=spell/target {2}=damage) ---
 log.cast={} lancia {}.
 log.spell_fizzles=L'incantesimo svanisce nel nulla.
@@ -189,8 +192,16 @@ spell.rock=Roccia
 spell.gust=Raffica
 spell.splash=Spruzzo
 spell.firebolt=Dardo di fuoco
-ui.memorize=Memorizza
-ui.eat=Mangia
+; Hand-slot use menu (items.cat `command` ids -> use.<id>).
+use.memorize=Memorizza
+use.eat=Mangia
+use.punch=Pugno
+use.stab=Pugnalata
+use.slash=Fendente
+use.chop=Colpo netto
+use.bash=Botta
+use.swing=Brandire
+use.melee=Colpire
 ui.inventory=Inventario
 ui.inv_all=Tutti
 ; Item display names (ItemKind.nameKey; rune_<elem> -> item.rune_<elem>).

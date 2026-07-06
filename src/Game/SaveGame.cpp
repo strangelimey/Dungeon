@@ -78,6 +78,14 @@ bool WriteSave(const SaveData& data, const std::string& path) {
 			for (const std::string& it : c.packContents[p]) t += " " + itemTok(it);
 			t += '\n';
 		}
+		// "usedef <i> <item> <cmd> ..." — the member's remembered default uses,
+		// flat (item, command) pairs. Both ids are record-token-safe (no spaces).
+		if (!c.useDefaults.empty()) {
+			t += std::format("usedef {}", i);
+			for (const auto& [item, cmd] : c.useDefaults)
+				t += std::format(" {} {}", item, cmd);
+			t += '\n';
+		}
 	}
 
 	// One block per visited level: a "level <stem>" header, then its entity
@@ -206,6 +214,13 @@ std::optional<SaveData> ReadSave(const std::string& path) {
 			};
 			for (size_t i = 3; i < tok.size(); ++i) c.packTypes.push_back(detok(tok[i]));
 			c.packContents.resize(c.packTypes.size());
+		} else if (kw == "usedef" && tok.size() >= 4) {
+			// Default-use pairs: "usedef <i> <item> <cmd> ..." (v10).
+			const size_t idx = static_cast<size_t>(IntOf(tok[1]));
+			if (idx >= data.characters.size()) data.characters.resize(idx + 1);
+			SaveData::CharState& c = data.characters[idx];
+			for (size_t i = 2; i + 1 < tok.size(); i += 2)
+				c.useDefaults.emplace_back(std::string(tok[i]), std::string(tok[i + 1]));
 		} else if (kw == "packc" && tok.size() >= 3) {
 			// One pack's contents: "packc <i> <packIdx> <items...>".
 			const size_t idx = static_cast<size_t>(IntOf(tok[1]));

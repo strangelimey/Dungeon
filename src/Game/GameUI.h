@@ -231,14 +231,31 @@ private:
 	// A click (either button) on member `i`'s stat bars: opens their sheet on the
 	// Stats tab.
 	void OnPortraitBars(size_t i);
-	// A left-click landed on member `i`'s hand `hand`: place the held tablet
-	// there (swapping any occupant onto the cursor), else pick the hand's item up
-	// onto the cursor, else (empty hand, empty cursor) nothing happens (for now).
+	// A left-click landed on member `i`'s hand `hand`. Carrying a holdable item
+	// on the cursor places it there (swapping any occupant onto the cursor; a
+	// non-holdable item is refused with a log line). Empty-cursor, the control-
+	// bar hand is an ACTION button: it executes the hand's default use (the
+	// remembered per-item-type pick, else the item's first defaultable command;
+	// an empty hand throws the unarmed punch). Picking an item OUT of a hand is
+	// the character sheet's job (its hand cells keep pick/swap semantics).
 	void OnHandLeftClick(size_t i, size_t hand);
-	// A right-click on member `i`'s hand `hand`: opens the item's action menu,
-	// built from the held item's data-driven command list (memorize, eat, ...).
-	// No-op on an empty hand or an item with no commands.
+	// A right-click on member `i`'s hand `hand`: opens the USE menu, built from
+	// the item's data-driven command list (stab/slash/eat/memorize/...; a bare
+	// hand offers Punch). Selecting an entry records it as the member's default
+	// for that item type and, per GameSettings::useMenuExecutes, performs it.
 	void OnHandRightClick(size_t i, size_t hand);
+	// A use-menu entry was picked: record it as the default (menu-only commands
+	// like memorize are never recorded) and execute per the Controls setting.
+	void SelectUse(size_t i, size_t hand, const std::string& itemId,
+				   const std::string& cmd);
+	// Performs one use command on member `i`'s hand `hand` (the dispatch behind
+	// both the left-click default and the menu): eat/memorize map to their
+	// handlers, the melee verbs to onHandAttack. Unknown/empty ids no-op.
+	void ExecuteUse(size_t i, size_t hand, const std::string& cmd);
+	// The command a left-click on `itemId` executes for this member: the
+	// remembered useDefaults pick while the item still offers it, else the
+	// item's first defaultable (non-menu-only) command, else "".
+	std::string DefaultUseFor(const Character& c, const std::string& itemId) const;
 	// Commits the rune in member `i`'s hand to memory: the symbol is learned and
 	// the tablet consumed.
 	void MemorizeFromHand(size_t i, size_t hand);
