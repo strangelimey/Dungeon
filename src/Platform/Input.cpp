@@ -62,4 +62,16 @@ void Input::EndFrame() {
 	m_wheel = 0.0f;
 }
 
+void Input::ClearAll() {
+	m_keys.fill(false);
+	m_mouse.fill(false);
+	EndFrame(); // and every one-frame edge with them
+}
+
+void Input::ClearMouseButtons() {
+	m_mouse.fill(false);
+	m_mousePressed.fill(false);
+	m_mouseReleased.fill(false);
+}
+
 } // namespace dungeon

@@ -58,6 +58,10 @@ public:
 private:
 	static i64 __stdcall WndProcThunk(HWND__* hwnd, u32 msg, u64 wparam, i64 lparam);
 	i64 HandleMessage(u32 msg, u64 wparam, i64 lparam);
+	// Holds mouse capture while ANY button is down (so drags that leave the
+	// client area — free-look, scrollbar thumbs — still deliver their button-up
+	// to us) and releases it when the last button lifts.
+	void UpdateCapture();
 
 	HWND__* m_hwnd = nullptr;
 	u32 m_width = 0;

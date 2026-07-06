@@ -122,12 +122,28 @@ i64 Window::HandleMessage(u32 msg, u64 wparam, i64 lparam) {
 		m_input.OnChar(static_cast<unsigned int>(wparam));
 		return 0;
 
-	case WM_LBUTTONDOWN: m_input.OnMouseButton(MouseButton::Left, true); SetCapture(m_hwnd); return 0;
-	case WM_LBUTTONUP:   m_input.OnMouseButton(MouseButton::Left, false); ReleaseCapture(); return 0;
-	case WM_RBUTTONDOWN: m_input.OnMouseButton(MouseButton::Right, true); return 0;
-	case WM_RBUTTONUP:   m_input.OnMouseButton(MouseButton::Right, false); return 0;
-	case WM_MBUTTONDOWN: m_input.OnMouseButton(MouseButton::Middle, true); return 0;
-	case WM_MBUTTONUP:   m_input.OnMouseButton(MouseButton::Middle, false); return 0;
+	case WM_LBUTTONDOWN: m_input.OnMouseButton(MouseButton::Left, true); UpdateCapture(); return 0;
+	case WM_LBUTTONUP:   m_input.OnMouseButton(MouseButton::Left, false); UpdateCapture(); return 0;
+	case WM_RBUTTONDOWN: m_input.OnMouseButton(MouseButton::Right, true); UpdateCapture(); return 0;
+	case WM_RBUTTONUP:   m_input.OnMouseButton(MouseButton::Right, false); UpdateCapture(); return 0;
+	case WM_MBUTTONDOWN: m_input.OnMouseButton(MouseButton::Middle, true); UpdateCapture(); return 0;
+	case WM_MBUTTONUP:   m_input.OnMouseButton(MouseButton::Middle, false); UpdateCapture(); return 0;
+
+	// Focus loss: the up-events for anything held right now go to whoever took
+	// focus (Alt+Tab, a stealing debug console, a popup) — drop ALL input state
+	// so no key or button stays wedged "down". Fresh messages re-arm it on
+	// return. This is deliberate whole-state hygiene, not per-key bookkeeping.
+	case WM_KILLFOCUS:
+		m_input.ClearAll();
+		return 0;
+
+	// Capture torn away mid-drag (a modal popup, another window's SetCapture):
+	// the button-up will never reach us, so unlatch the mouse buttons. When WE
+	// released capture (UpdateCapture on the last button-up), the buttons are
+	// already up and this is a no-op.
+	case WM_CAPTURECHANGED:
+		if (reinterpret_cast<HWND>(lparam) != m_hwnd) m_input.ClearMouseButtons();
+		return 0;
 
 	case WM_MOUSEMOVE:
 		m_input.OnMouseMove(static_cast<float>(GET_X_LPARAM(lparam)),
@@ -141,6 +157,16 @@ i64 Window::HandleMessage(u32 msg, u64 wparam, i64 lparam) {
 	default:
 		return DefWindowProcW(m_hwnd, msg, static_cast<WPARAM>(wparam), static_cast<LPARAM>(lparam));
 	}
+}
+
+void Window::UpdateCapture() {
+	const bool anyDown = m_input.IsMouseDown(MouseButton::Left) ||
+						 m_input.IsMouseDown(MouseButton::Right) ||
+						 m_input.IsMouseDown(MouseButton::Middle);
+	if (anyDown)
+		SetCapture(m_hwnd); // idempotent while we already hold it
+	else if (GetCapture() == m_hwnd)
+		ReleaseCapture();
 }
 
 } // namespace dungeon
