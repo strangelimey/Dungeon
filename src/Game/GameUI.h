@@ -136,6 +136,10 @@ public:
 
 	// --- message log ---------------------------------------------------------------
 	void AddLogLine(const std::string& line);
+	// A line ABOUT a party member, tinted with their identity color (the
+	// portrait/hand-stripe color, brightened to read as text ink on the dark
+	// footer). Casting, learning, eating, being struck — anything personal.
+	void AddLogLine(const std::string& line, const Vec4& memberColor);
 	void ClearLog();
 
 	// --- rendering (inside the caller's SpriteBatch Begin/End) -------------------

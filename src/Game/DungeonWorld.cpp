@@ -2750,12 +2750,19 @@ bool DungeonWorld::CellFreeForMonster(int x, int z, int self) const {
 // Apply damage to a standing member: clamp health, flash the hit splat (severity by
 // raw damage — small < 5, medium < 10, hard otherwise; a placeholder scale), and
 // log a downing. The one place a member takes damage, shared by every attack path.
+void DungeonWorld::MemberMessage(const Character& member,
+								 const std::string& line) const {
+	if (onMemberMessage) onMemberMessage(line, member.portraitColor);
+	else onMessage(line);
+}
+
 void DungeonWorld::WoundMember(Character& target, float damage) {
 	target.health -= damage;
 	if (target.health < 0.0f) target.health = 0.0f;
 	target.hitFlash = kHitFlashSeconds;
 	target.hitSeverity = damage < 5.0f ? 0 : (damage < 10.0f ? 1 : 2);
-	if (!target.IsAlive()) onMessage(loc::Format("log.member_down", target.name));
+	if (!target.IsAlive())
+		MemberMessage(target, loc::Format("log.member_down", target.name));
 }
 
 // Latch the party wipe exactly once when the last member falls (message + callback).
@@ -2794,11 +2801,11 @@ void DungeonWorld::MonsterAttack(Monster& monster) {
 	const std::string name = loc::Tr("monster." + monster.kind->name);
 
 	if (!r.hit) {
-		onMessage(loc::Format("log.monster_misses", name, target.name));
+		MemberMessage(target, loc::Format("log.monster_misses", name, target.name));
 		return;
 	}
-	onMessage(loc::Format("log.monster_hits", name, target.name,
-						  static_cast<int>(r.damage + 0.5f)));
+	MemberMessage(target, loc::Format("log.monster_hits", name, target.name,
+									  static_cast<int>(r.damage + 0.5f)));
 	m_audio.Play(m_sounds.monster, 0.6f);
 	WoundMember(target, r.damage);
 	CheckPartyWipe();
@@ -3035,7 +3042,7 @@ bool DungeonWorld::PartyAttack(size_t member, size_t hand) {
 
 	attacker.handCooldown[hand] = attacker.AttackInterval(hand);
 	if (!target) {
-		onMessage(loc::Tr("log.attack_air"));
+		MemberMessage(attacker, loc::Tr("log.attack_air"));
 		return true;
 	}
 
@@ -3045,13 +3052,13 @@ bool DungeonWorld::PartyAttack(size_t member, size_t hand) {
 	const std::string name = loc::Tr("monster." + target->kind->name);
 
 	if (!r.hit) {
-		onMessage(loc::Format("log.party_misses", attacker.name, name));
+		MemberMessage(attacker, loc::Format("log.party_misses", attacker.name, name));
 		return true;
 	}
 	target->hp -= r.damage;
 	ProvokeMonster(*target); // the struck monster alone notices + turns to the party
 	int dmg = static_cast<int>(r.damage + 0.5f);
-	onMessage(loc::Format("log.party_hits", attacker.name, name, dmg));
+	MemberMessage(attacker, loc::Format("log.party_hits", attacker.name, name, dmg));
 	m_audio.Play(m_sounds.monster, 0.7f);
 
 	if (!target->Alive()) {
@@ -3088,20 +3095,21 @@ bool DungeonWorld::CastSpell(size_t member, std::span<const SpellSymbol> sequenc
 	switch (r.outcome) {
 	case MagicSystem::CastOutcome::Cast:
 		m_projectiles.Spawn(r.projectile); // the bolt now lives "on the map"
-		onMessage(loc::Format("log.cast", caster.name, loc::Tr(r.spell->nameKey)));
+		MemberMessage(caster,
+					  loc::Format("log.cast", caster.name, loc::Tr(r.spell->nameKey)));
 		// A spell is LEARNED the first time it is successfully cast — the
 		// failed outcomes below teach nothing (and higher-tier spells will
 		// add skill-gated failure ON this path later, still before learning).
 		if (caster.learnedSpells.insert(r.spell->id).second)
-			onMessage(loc::Format("log.spell_learned", caster.name,
-								  loc::Tr(r.spell->nameKey)));
+			MemberMessage(caster, loc::Format("log.spell_learned", caster.name,
+											  loc::Tr(r.spell->nameKey)));
 		m_audio.Play(m_sounds.spellCast, 0.7f);
 		return true;
 	case MagicSystem::CastOutcome::NoMana:
-		onMessage(loc::Format("log.cast_nomana", caster.name));
+		MemberMessage(caster, loc::Format("log.cast_nomana", caster.name));
 		return false;
 	case MagicSystem::CastOutcome::Unknown:
-		onMessage(loc::Format("log.cast_unknown", caster.name));
+		MemberMessage(caster, loc::Format("log.cast_unknown", caster.name));
 		return false;
 	case MagicSystem::CastOutcome::NoRecipe:
 	default:
@@ -3162,11 +3170,11 @@ bool DungeonWorld::ResolveMonsterProjectileHit(const Vec3& p, const AttackProfil
 	const DefenseProfile def{target.Evasion(), target.Armor()};
 	const AttackResult r = ResolveAttack(atk, def, m_combatRng);
 	if (!r.hit) {
-		onMessage(loc::Format("log.monster_ranged_misses", target.name));
+		MemberMessage(target, loc::Format("log.monster_ranged_misses", target.name));
 		return true;
 	}
-	onMessage(loc::Format("log.monster_ranged_hits", target.name,
-						  static_cast<int>(r.damage + 0.5f)));
+	MemberMessage(target, loc::Format("log.monster_ranged_hits", target.name,
+									  static_cast<int>(r.damage + 0.5f)));
 	m_audio.Play(m_sounds.monster, 0.6f);
 	WoundMember(target, r.damage);
 	CheckPartyWipe();

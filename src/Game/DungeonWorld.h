@@ -651,6 +651,11 @@ public:
 	// HUD log feedback (bump lines, monster announcements, palette flavor).
 	// Set before play starts; the party/monster callbacks route through it.
 	std::function<void(const std::string&)> onMessage;
+	// Like onMessage, for lines ABOUT a party member (casting, learning,
+	// being struck, going down): carries the member's identity color so the
+	// log tints the line in it. MemberMessage routes here, falling back to
+	// plain onMessage when unwired.
+	std::function<void(const std::string&, const Vec4&)> onMemberMessage;
 
 private:
 	// A texture variant set: parallel albedo / normal+height pairs plus the
@@ -1242,6 +1247,9 @@ private:
 	// Apply `damage` to a standing member: clamp health, flash the hit splat (severity
 	// by raw damage), and log a downing. Shared by every party-damage path.
 	void WoundMember(Character& target, float damage);
+	// A log line ABOUT `member`: routes through onMemberMessage with their
+	// identity color (the HUD tints it), falling back to plain onMessage.
+	void MemberMessage(const Character& member, const std::string& line) const;
 	// If no member is standing, latch the one-shot party wipe (message + callback).
 	// Returns true the frame it latches. Shared by the melee/ranged/bump paths.
 	bool CheckPartyWipe();

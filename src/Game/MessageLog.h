@@ -23,6 +23,7 @@
 #include "UI/Widget.h"
 
 #include <deque>
+#include <optional>
 #include <string>
 
 namespace dungeon::game {
@@ -31,7 +32,9 @@ class MessageLog : public ui::Widget {
 public:
 	MessageLog() = default;
 
-	void AddLine(std::string line);
+	// `color` tints the line (a character's identity color for lines about
+	// them); unset draws the theme's text ink. Fades apply either way.
+	void AddLine(std::string line, std::optional<Vec4> color = std::nullopt);
 	void Clear();
 
 	// Advances per-message fades and the height/opacity animation. Drive once
@@ -48,7 +51,8 @@ public:
 private:
 	struct Msg {
 		std::string text;
-		float age = 0.0f; // seconds since added (frozen while expanded)
+		std::optional<Vec4> color; // line tint; unset = theme text ink
+		float age = 0.0f;          // seconds since added (frozen while expanded)
 	};
 
 	gfx::Rect FooterRect(ui::UIContext& ctx) const;  // animated, bottom-anchored

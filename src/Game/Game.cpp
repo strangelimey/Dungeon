@@ -145,6 +145,11 @@ void Game::WireModuleCallbacks() {
 	// Wire the modules together: world feedback goes to the HUD log, UI
 	// actions drive the state machine.
 	m_world.onMessage = [this](const std::string& line) { m_ui.AddLogLine(line); };
+	// Lines about a specific member arrive with their identity color; the log
+	// tints them so each character's doings read at a glance.
+	m_world.onMemberMessage = [this](const std::string& line, const Vec4& color) {
+		m_ui.AddLogLine(line, color);
+	};
 	// The party fell: end the run back at the title (Start New Game resets the
 	// roster + monsters in place).
 	m_world.onPartyWipe = [this] {

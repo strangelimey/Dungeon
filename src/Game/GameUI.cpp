@@ -150,7 +150,8 @@ void GameUI::OnPortraitClick(size_t i) {
 								   loc::Tr("item." + packId)));
 		} else if (c.inventory.Stow(**m_held)) {
 			AddLogLine(loc::Format("log.stow", c.name,
-								   loc::Tr(std::format("item.{}", **m_held))));
+								   loc::Tr(std::format("item.{}", **m_held))),
+					   c.portraitColor);
 			m_held->reset();
 			Click();
 		} else {
@@ -360,7 +361,8 @@ void GameUI::MemorizeFromHand(size_t i, size_t hand) {
 	slot.Clear(); // the tablet is consumed
 	Click();
 	AddLogLine(loc::Format("log.memorize", m_characters[i].name,
-						   loc::Tr(SymbolKey(sym))));
+						   loc::Tr(SymbolKey(sym))),
+			   m_characters[i].portraitColor);
 	RefreshSheet(); // the sheet's known symbols may be on screen later
 }
 
@@ -377,7 +379,7 @@ void GameUI::EatFromHand(size_t i, size_t hand) {
 	const std::string foodName = loc::Tr(std::format("item.{}", slot.typeId));
 	slot.Clear(); // the food is consumed
 	Click();
-	AddLogLine(loc::Format("log.eat", c.name, foodName));
+	AddLogLine(loc::Format("log.eat", c.name, foodName), c.portraitColor);
 	RefreshSheet(); // stamina bar / carry load on the sheet may be on screen
 }
 
@@ -1622,6 +1624,16 @@ bool GameUI::KeyCaptureActive() const {
 }
 
 void GameUI::AddLogLine(const std::string& line) { m_log->AddLine(line); }
+
+void GameUI::AddLogLine(const std::string& line, const Vec4& memberColor) {
+	// Identity colors are authored DARK (portrait fills, slot stripes); as
+	// text ink on the dark footer they'd read as mud, so brighten toward
+	// full — the hue carries the identity, the lift carries the legibility.
+	const auto lift = [](float c) { return std::min(1.0f, c * 2.0f + 0.15f); };
+	m_log->AddLine(line,
+				   Vec4{lift(memberColor.x), lift(memberColor.y),
+						lift(memberColor.z), 1.0f});
+}
 
 void GameUI::ClearLog() { m_log->Clear(); }
 

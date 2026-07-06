@@ -27,8 +27,8 @@ float Approach(float value, float target, float rate, float dt) {
 }
 } // namespace
 
-void MessageLog::AddLine(std::string line) {
-	m_msgs.push_back({std::move(line), 0.0f});
+void MessageLog::AddLine(std::string line, std::optional<Vec4> color) {
+	m_msgs.push_back({std::move(line), color, 0.0f});
 	while (m_msgs.size() > kMaxLines) m_msgs.pop_front();
 	m_scroll = 0.0f; // snap to the newest line
 }
@@ -154,9 +154,10 @@ void MessageLog::Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 			static_cast<int>(m_msgs.size()) - 1 - static_cast<int>(m_scroll);
 		float y = inner.y + inner.h - lineH;
 		for (int i = last; i >= 0 && y + lineH > inner.y; --i) {
-			Vec4 col = theme.text;
-			col.w *= ca * MsgAlpha(m_msgs[static_cast<size_t>(i)]);
-			font.Draw(batch, m_msgs[static_cast<size_t>(i)].text, inner.x, y, col);
+			const Msg& msg = m_msgs[static_cast<size_t>(i)];
+			Vec4 col = msg.color.value_or(theme.text);
+			col.w *= ca * MsgAlpha(msg);
+			font.Draw(batch, msg.text, inner.x, y, col);
 			y -= lineH;
 		}
 		batch.SetScissor(nullptr);
