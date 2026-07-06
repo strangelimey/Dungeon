@@ -138,11 +138,12 @@ i64 Window::HandleMessage(u32 msg, u64 wparam, i64 lparam) {
 		return 0;
 
 	// Capture torn away mid-drag (a modal popup, another window's SetCapture):
-	// the button-up will never reach us, so unlatch the mouse buttons. When WE
-	// released capture (UpdateCapture on the last button-up), the buttons are
-	// already up and this is a no-op.
+	// the button-up will never reach us, so unlatch the mouse buttons. Our OWN
+	// ReleaseCapture also lands here (sent synchronously from UpdateCapture) —
+	// that one is guarded by m_releasingCapture, because clearing then would
+	// wipe the release EDGE that triggered it before the frame reads it.
 	case WM_CAPTURECHANGED:
-		if (reinterpret_cast<HWND>(lparam) != m_hwnd) m_input.ClearMouseButtons();
+		if (!m_releasingCapture) m_input.ClearMouseButtons();
 		return 0;
 
 	case WM_MOUSEMOVE:
@@ -163,10 +164,13 @@ void Window::UpdateCapture() {
 	const bool anyDown = m_input.IsMouseDown(MouseButton::Left) ||
 						 m_input.IsMouseDown(MouseButton::Right) ||
 						 m_input.IsMouseDown(MouseButton::Middle);
-	if (anyDown)
+	if (anyDown) {
 		SetCapture(m_hwnd); // idempotent while we already hold it
-	else if (GetCapture() == m_hwnd)
+	} else if (GetCapture() == m_hwnd) {
+		m_releasingCapture = true; // our own WM_CAPTURECHANGED is not theft
 		ReleaseCapture();
+		m_releasingCapture = false;
+	}
 }
 
 } // namespace dungeon
