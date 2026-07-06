@@ -187,9 +187,9 @@ log.spell_hits={} wird versengt und erleidet {} Schaden!
 log.spell_misses={} weicht dem Zauberblitz aus.
 log.spell_slain={} wird vernichtet!
 ; Spell display names (spells.cat ids -> spell.<id>).
-spell.flame=Flamme
-spell.rock=Fels
-spell.gust=Windstoß
+spell.flame=Feuerhauch
+spell.rock=Kieselstein
+spell.gust=Windhauch
 spell.splash=Schwall
 ; Hand-slot use menu (items.cat `command` ids -> use.<id>).
 use.memorize=Einprägen

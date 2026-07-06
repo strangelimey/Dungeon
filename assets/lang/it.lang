@@ -187,9 +187,9 @@ log.spell_hits={} brucia e subisce {} danni!
 log.spell_misses={} schiva il dardo.
 log.spell_slain={} si disintegra!
 ; Spell display names (spells.cat ids -> spell.<id>).
-spell.flame=Fiamma
-spell.rock=Roccia
-spell.gust=Raffica
+spell.flame=Soffio di fuoco
+spell.rock=Sassolino
+spell.gust=Soffio di vento
 spell.splash=Spruzzo
 ; Hand-slot use menu (items.cat `command` ids -> use.<id>).
 use.memorize=Memorizza

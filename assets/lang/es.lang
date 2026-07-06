@@ -187,9 +187,9 @@ log.spell_hits=¡{} se abrasa y sufre {} de daño!
 log.spell_misses={} esquiva el rayo.
 log.spell_slain=¡{} se desintegra!
 ; Spell display names (spells.cat ids -> spell.<id>).
-spell.flame=Llama
-spell.rock=Roca
-spell.gust=Ráfaga
+spell.flame=Soplo de fuego
+spell.rock=Guijarro
+spell.gust=Soplo de viento
 spell.splash=Salpicadura
 ; Hand-slot use menu (items.cat `command` ids -> use.<id>).
 use.memorize=Memorizar

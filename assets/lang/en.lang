@@ -185,9 +185,9 @@ log.spell_hits=The {} is seared for {} damage!
 log.spell_misses=The bolt streaks past the {}.
 log.spell_slain=The {} is destroyed!
 ; Spell display names (spells.cat ids -> spell.<id>).
-spell.flame=Flame
-spell.rock=Rock
-spell.gust=Gust
+spell.flame=Puff of Flame
+spell.rock=Pebble
+spell.gust=Puff of Wind
 spell.splash=Splash
 ui.inventory=Inventory
 ui.inv_all=All

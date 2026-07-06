@@ -1,7 +1,8 @@
 # Magic System
 
 Design notes for the dungeon's magic system. This is the living reference for
-how schools, runes, and spells fit together. Start here.
+how schools, runes, and spells fit together. Start here. The SPELL LIST — what
+each spell does and how it grows — lives in `docs/spells.md`.
 
 This document is kept in sync with the `spell-system-plan` entry in Claude's
 project memory — the two carry the same design, implementation status, and

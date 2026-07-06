@@ -14,7 +14,9 @@
 ; carries exactly ONE, in first position (the first rune picks the spell's
 ; school). The loader skips any recipe that breaks it. Tier 1 is therefore the
 ; four elements as single-symbol bolts; deeper spells arrive with the tier-2
-; (non-school) symbols. More effect kinds (heal, conjure, AoE) come later.
+; (non-school) symbols. THE SPELL LIST — what each spell is meant to do and
+; how it grows with the caster's school power — lives in docs/spells.md; the
+; projectile numbers below are the placeholder "day one" forms.
 
 [flame]
 name = spell.flame

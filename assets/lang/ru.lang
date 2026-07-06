@@ -191,9 +191,9 @@ log.spell_hits=Заклинание обжигает: {} получает {} у�
 log.spell_misses=Сгусток проносится мимо — {} уклоняется.
 log.spell_slain=Рассыпается в прах {}!
 ; Spell display names (spells.cat ids -> spell.<id>).
-spell.flame=Пламя
-spell.rock=Камень
-spell.gust=Порыв
+spell.flame=Язычок пламени
+spell.rock=Камешек
+spell.gust=Дуновение ветра
 spell.splash=Всплеск
 ; Hand-slot use menu (items.cat `command` ids -> use.<id>).
 use.memorize=Запомнить
