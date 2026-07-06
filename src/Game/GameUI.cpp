@@ -255,9 +255,10 @@ void GameUI::OpenHandUseMenu(size_t i, size_t hand) {
 		// The Magic group appears once the member knows ANY symbol. Its first
 		// entry is always the SPELLBOOK — the Magic-area panel where a spell
 		// is BUILT from known symbols (opening it is navigation, not a use, so
-		// it never becomes a left-click default) — followed by the spells the
-		// member has LEARNED: a spell joins this quick-cast list by being
-		// successfully cast once (from the spellbook), not by vocabulary.
+		// it never becomes a left-click default) — followed by the member's
+		// MOST-RECENTLY-CAST spells (up to the Controls → Hands quick-cast
+		// count): a spell enters by being cast, freshest first; anything that
+		// slid off the list is still one spellbook visit away.
 		bool anySymbol = false;
 		for (u32 sym = 0; sym < kSymbolCount; ++sym)
 			anySymbol |= c.Knows(static_cast<SpellSymbol>(sym));
@@ -267,15 +268,23 @@ void GameUI::OpenHandUseMenu(size_t i, size_t hand) {
 										  Click();
 										  if (m_spellbook) m_spellbook->OpenFor(i);
 									  }});
-			if (spellDefs)
-				for (const SpellDef& def : spellDefs()) {
-					if (!c.HasLearnedSpell(def.id)) continue;
-					std::string cmd = std::string(kCastPrefix) + def.id;
-					magic.children.push_back(
-						{loc::Tr(def.nameKey), [this, i, hand, itemId, cmd] {
-							 SelectUse(i, hand, itemId, cmd);
-						 }});
-				}
+			int shown = 0;
+			for (const std::string& id : c.spellMru) {
+				if (shown >= m_settings.spellMruCount) break;
+				// Skip ids the catalog no longer carries (the MRU is state,
+				// the recipe table is data — they can drift across edits).
+				const SpellDef* def = nullptr;
+				if (spellDefs)
+					for (const SpellDef& d : spellDefs())
+						if (d.id == id) { def = &d; break; }
+				if (!def) continue;
+				std::string cmd = std::string(kCastPrefix) + def->id;
+				magic.children.push_back(
+					{loc::Tr(def->nameKey), [this, i, hand, itemId, cmd] {
+						 SelectUse(i, hand, itemId, cmd);
+					 }});
+				++shown;
+			}
 			entries.push_back(std::move(magic));
 		}
 	}
@@ -587,9 +596,11 @@ void GameUI::BuildSettings() {
 	lookSlider("settings.look_move", 0.05f, 1.5f, &m_settings.look.moveTime, mGroup, mGroup);
 	easeDrop("settings.look_move_curve", &m_settings.look.moveEasing);
 
-	// Controls → Hands: hand-slot behaviour. One checkbox — whether picking an
+	// Controls → Hands: hand-slot behaviour. A checkbox — whether picking an
 	// entry from a hand's right-click use menu also performs it (off = the menu
-	// only sets the hand's left-click default). Persists immediately.
+	// only sets the hand's left-click default) — and the Magic quick-cast
+	// count (how many recently-cast spells the menu lists). Both persist
+	// immediately.
 	tabs->AddChild<ui::Separator>(tabControls, Norm(cf.Place(1.0f, mGroup, mGroup), page));
 	tabs->AddChild<ui::Label>(tabControls, Norm(cf.Place(labelH, mGroup, mTight), page),
 							  loc::Tr("settings.hands"));
@@ -601,6 +612,19 @@ void GameUI::BuildSettings() {
 			m_settings.useMenuExecutes = on;
 			m_settings.Save();
 		});
+	tabs->AddChild<ui::Label>(tabControls, Norm(cf.Place(labelH, mGroup, mTight), page),
+							  loc::Tr("settings.spell_mru"));
+	{
+		std::vector<std::string> counts;
+		for (int n = 1; n <= 10; ++n) counts.push_back(std::to_string(n));
+		tabs->AddChild<ui::DropDown>(
+			tabControls, Norm(cf.Place(ctrlH, mTight, mGroup), page),
+			std::move(counts), m_settings.spellMruCount - 1, [this](int index) {
+				Click();
+				m_settings.spellMruCount = index + 1;
+				m_settings.Save();
+			});
+	}
 
 	// Video: the page overflows its height, so the TabControl scrolls. A Flow
 	// (collapsing-margin vertical stack) places each label-over-control setting.

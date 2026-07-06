@@ -81,6 +81,7 @@ settings.look_move=Riallineamento in movimento
 settings.look_move_curve=Curva di movimento
 settings.hands=Mani
 settings.usemenu_execute=Scegliere dal menu d'uso lo esegue anche
+settings.spell_mru=Incantesimi rapidi mostrati
 ease.linear=Lineare
 ease.easein=Entrata graduale
 ease.easeinout=Entrata / uscita graduale

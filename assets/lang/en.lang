@@ -80,6 +80,7 @@ settings.look_move=Move Straighten
 settings.look_move_curve=Move Curve
 settings.hands=Hands
 settings.usemenu_execute=Selecting from the use menu also performs it
+settings.spell_mru=Quick-cast spells shown
 ease.linear=Linear
 ease.easein=Ease In
 ease.easeinout=Ease In / Out

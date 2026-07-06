@@ -85,6 +85,7 @@ settings.look_move=Выравнивание при движении
 settings.look_move_curve=Кривая движения
 settings.hands=Руки
 settings.usemenu_execute=Выбор в меню использования сразу выполняет его
+settings.spell_mru=Быстрых заклинаний в меню
 ease.linear=Линейно
 ease.easein=Плавный вход
 ease.easeinout=Плавный вход / выход

@@ -32,6 +32,8 @@ namespace dungeon::game {
 
 // The serializable dynamic state of one in-progress game.
 struct SaveData {
+	// v12: per-member spell MRU ("mru" line, order = newest first) — the hand
+	//      menu's Magic quick-cast list.
 	// v11: per-member LEARNED SPELLS ("learned" line) — earned on first
 	//      successful cast; the Magic quick-cast list and "cast:" defaults
 	//      only offer learned spells.
@@ -46,7 +48,7 @@ struct SaveData {
 	//     buttons as a diff (keyed by .ent id) or a whole spawn (no baseline);
 	//     replaces the v6 split of "ent"/"monster" rows + a whole "floor" item
 	//     snapshot. v6: free-look offset ("look" line); v5 folded hands into equip[].
-	int version = 11;
+	int version = 12;
 	std::string name;         // display name (free text; may contain spaces)
 	std::string currentLevel; // the level stem the party is on (where to resume)
 	std::string timestamp;    // human-readable local time, for the slot list
@@ -88,6 +90,9 @@ struct SaveData {
 		// Spells learned by first successful cast (Character::learnedSpells),
 		// spells.cat ids. Absent in pre-v11 saves (re-learn by casting).
 		std::vector<std::string> learnedSpells;
+		// Most-recently-cast spells, newest first (Character::spellMru) — the
+		// Magic quick-cast list. Absent in pre-v12 saves (rebuilds by casting).
+		std::vector<std::string> mruSpells;
 	};
 	std::vector<CharState> characters;
 

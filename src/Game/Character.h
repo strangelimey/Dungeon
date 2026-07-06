@@ -90,6 +90,16 @@ struct Character {
 	bool HasLearnedSpell(std::string_view id) const {
 		return learnedSpells.contains(id);
 	}
+	// Most-recently-CAST spells, front = newest, deduplicated — the hand
+	// menu's Magic quick-cast list shows the first N (N = GameSettings::
+	// spellMruCount, the Controls → Hands setting). Bounded by the number of
+	// distinct spells ever cast, so it stores whole and trims at display.
+	// Saved per slot ("mru" save lines, order preserved).
+	std::vector<std::string> spellMru;
+	void TouchSpellMru(const std::string& id) {
+		std::erase(spellMru, id);
+		spellMru.insert(spellMru.begin(), id);
+	}
 	// Mana points regenerated per second, scaled by intelligence. STUB: a real
 	// "mana draw efficiency / capacity" stat will drive this later; intelligence
 	// is the stand-in until that system is designed.

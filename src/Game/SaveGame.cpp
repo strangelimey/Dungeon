@@ -93,6 +93,13 @@ bool WriteSave(const SaveData& data, const std::string& path) {
 			for (const std::string& id : c.learnedSpells) t += " " + id;
 			t += '\n';
 		}
+		// "mru <i> <spell> ..." — most-recently-cast, newest first (order is
+		// the payload: the quick-cast list shows the head).
+		if (!c.mruSpells.empty()) {
+			t += std::format("mru {}", i);
+			for (const std::string& id : c.mruSpells) t += " " + id;
+			t += '\n';
+		}
 	}
 
 	// One block per visited level: a "level <stem>" header, then its entity
@@ -235,6 +242,13 @@ std::optional<SaveData> ReadSave(const std::string& path) {
 			SaveData::CharState& c = data.characters[idx];
 			for (size_t i = 2; i < tok.size(); ++i)
 				c.learnedSpells.emplace_back(tok[i]);
+		} else if (kw == "mru" && tok.size() >= 3) {
+			// Spell MRU: "mru <i> <spell> ..." newest first (v12).
+			const size_t idx = static_cast<size_t>(IntOf(tok[1]));
+			if (idx >= data.characters.size()) data.characters.resize(idx + 1);
+			SaveData::CharState& c = data.characters[idx];
+			for (size_t i = 2; i < tok.size(); ++i)
+				c.mruSpells.emplace_back(tok[i]);
 		} else if (kw == "packc" && tok.size() >= 3) {
 			// One pack's contents: "packc <i> <packIdx> <items...>".
 			const size_t idx = static_cast<size_t>(IntOf(tok[1]));

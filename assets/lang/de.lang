@@ -81,6 +81,7 @@ settings.look_move=Ausrichten bei Bewegung
 settings.look_move_curve=Bewegungskurve
 settings.hands=Hände
 settings.usemenu_execute=Auswahl im Benutzen-Menü führt sie auch aus
+settings.spell_mru=Angezeigte Schnellzauber
 ease.linear=Linear
 ease.easein=Beschleunigend
 ease.easeinout=Beschleunigend / abbremsend

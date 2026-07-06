@@ -1469,9 +1469,11 @@ void Game::SaveGame(const std::string& name) {
 		// The member's remembered per-item default uses (hand left-click action).
 		for (const auto& [item, cmd] : member.useDefaults)
 			c.useDefaults.emplace_back(item, cmd);
-		// Spells learned by first successful cast.
+		// Spells learned by first successful cast, and the cast-recency order
+		// behind the quick-cast list.
 		for (const std::string& id : member.learnedSpells)
 			c.learnedSpells.push_back(id);
+		c.mruSpells = member.spellMru;
 		data.characters.push_back(std::move(c));
 	}
 	WriteSave(data, SaveSlotPath(name));
@@ -1519,9 +1521,11 @@ bool Game::LoadGame(const std::string& path) {
 		// Restore the remembered default uses (ResetRoster left the map empty).
 		for (const auto& [item, cmd] : c.useDefaults)
 			m_characters[i].useDefaults[item] = cmd;
-		// And the spells learned by casting (likewise reset to empty).
+		// And the spells learned by casting (likewise reset to empty), plus
+		// the cast-recency order behind the quick-cast list.
 		for (const std::string& id : c.learnedSpells)
 			m_characters[i].learnedSpells.insert(id);
+		m_characters[i].spellMru = c.mruSpells;
 	}
 	m_world.ApplyState(*data); // fills the per-level store + party pose/torch
 

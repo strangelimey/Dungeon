@@ -3103,6 +3103,7 @@ bool DungeonWorld::CastSpell(size_t member, std::span<const SpellSymbol> sequenc
 		if (caster.learnedSpells.insert(r.spell->id).second)
 			MemberMessage(caster, loc::Format("log.spell_learned", caster.name,
 											  loc::Tr(r.spell->nameKey)));
+		caster.TouchSpellMru(r.spell->id); // freshest cast leads the quick list
 		m_audio.Play(m_sounds.spellCast, 0.7f);
 		return true;
 	case MagicSystem::CastOutcome::NoMana:

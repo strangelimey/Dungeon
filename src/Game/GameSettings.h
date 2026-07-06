@@ -154,6 +154,10 @@ struct GameSettings {
 	// top of recording it as the hand's left-click default). Off = the menu
 	// only sets the default. Controls tab checkbox; ini usemenu_execute=.
 	bool useMenuExecutes = true;
+	// How many most-recently-cast spells the hand menu's Magic quick-cast
+	// list shows (per member, below the Spellbook entry). Controls → Hands
+	// dropdown, 1..10; ini spell_mru=.
+	int spellMruCount = 5;
 	bool mapPaletteCollapsed = false;  // map editor: left brush dock collapsed
 	bool mapLegendCollapsed = false;   // map editor: right key dock collapsed
 	bool mapPlayerKeyCollapsed = false; // player map: right key dock collapsed

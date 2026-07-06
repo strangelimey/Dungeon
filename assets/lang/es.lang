@@ -81,6 +81,7 @@ settings.look_move=Enderezado al moverse
 settings.look_move_curve=Curva de movimiento
 settings.hands=Manos
 settings.usemenu_execute=Elegir en el menú de uso también lo ejecuta
+settings.spell_mru=Conjuros rápidos mostrados
 ease.linear=Lineal
 ease.easein=Entrada suave
 ease.easeinout=Entrada / salida suave
