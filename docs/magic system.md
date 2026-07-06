@@ -133,8 +133,10 @@ behaviour since the use-menu model landed (branch `magic-system`,
   in the HUD's Magic area — **where the player BUILDS a spell**: the member's
   known symbols as rune buttons, a six-slot sequence spelled out by clicking
   them (click a filled slot to take it back), a live "= <spell>" label when
-  the sequence matches a recipe, and Cast (fires DungeonWorld::CastSpell —
-  exact match casts, a miss fizzles) / Clear. This panel is the seed the
+  the sequence matches a recipe the member has already LEARNED (an unlearned
+  match stays anonymous — the book never confirms a discovery before the
+  first successful cast does; experimentation is the point), and Cast (fires
+  DungeonWorld::CastSpell — exact match casts, a miss fizzles) / Clear. This panel is the seed the
   school-first construction (first rune picks the school → tier-2) will grow
   into; today it exposes the flat exact-sequence model directly.
 
