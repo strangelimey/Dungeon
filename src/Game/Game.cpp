@@ -1474,6 +1474,12 @@ void Game::SaveGame(const std::string& name) {
 		for (const std::string& id : member.learnedSpells)
 			c.learnedSpells.push_back(id);
 		c.mruSpells = member.spellMru;
+		// Active ward (Protect shields) — school stored by symbol id token.
+		if (member.ShieldActive()) {
+			c.shieldSchool = SymbolId(member.shieldSchool);
+			c.shieldTime = member.shieldTime;
+			c.shieldPower = member.shieldPower;
+		}
 		data.characters.push_back(std::move(c));
 	}
 	WriteSave(data, SaveSlotPath(name));
@@ -1526,6 +1532,13 @@ bool Game::LoadGame(const std::string& path) {
 		for (const std::string& id : c.learnedSpells)
 			m_characters[i].learnedSpells.insert(id);
 		m_characters[i].spellMru = c.mruSpells;
+		// Restore an active ward (pre-v13 saves carry none — fields stay 0).
+		SpellSymbol school;
+		if (c.shieldTime > 0.0f && ParseSymbol(c.shieldSchool, school)) {
+			m_characters[i].shieldSchool = school;
+			m_characters[i].shieldTime = c.shieldTime;
+			m_characters[i].shieldPower = c.shieldPower;
+		}
 	}
 	m_world.ApplyState(*data); // fills the per-level store + party pose/torch
 

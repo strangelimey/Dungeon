@@ -114,8 +114,54 @@ backward — the first DISPLACEMENT effect in the engine.
 - Growth: push distance (`push = 2, 3...`) and affected weight class scale
   with air power; a future tier-3 turns it into a sweeping line/cone.
 
-### Protect (Algiz, the warding stave) — designed, not built
+### Protect (Algiz, the warding stave) — "guard the caster"
 
-The defensive form. Fire+Protect = a fire shield on the caster;
-a tier-3 rune would turn it outward (fire WALL on a cell). Per-school
-readings TBD when it's built.
+The defensive form: a WARD on the caster, the school picking HOW it guards —
+earth HARDENS, air DEFLECTS, water ABSORBS, fire RETALIATES. Four different
+answers to "protect me", no overlap. Framework (built): ONE active ward per
+member — casting another (any school) replaces it; wards are caster-only day
+one ("grows to cover the party" is a high-power growth form; Dungeon Master's
+fire shield was party-wide, so there's precedent for that endpoint). The ward
+lasts `duration` seconds (spells.cat), `power` is its school magnitude, and it
+ticks/fades in DungeonWorld with a log line; active wards ride the save (v13
+"shield" lines). No HUD indicator yet — the cast/fade log lines are the only
+feedback (a portrait tint or timer pip is a natural polish item).
+
+#### Earth — Stone Skin (`stoneskin`) — BUILT
+
+The caster's skin turns to stone: a flat armor bonus (power 6) for the
+duration. Rides `Character::Armor()`, so it reduces BOTH melee and ranged
+hits through the normal strike resolver.
+
+- Growth: armor scales with earth power. Tier-3 outward form: a stone wall
+  filling a cell.
+
+#### Fire — Fire Shield (`fireshield`) — BUILT
+
+Fire guards by burning back — even its defense is aggression. A monster that
+LANDS a melee blow on the warded member is scorched for the ward's power
+(6). The incoming hit is NOT reduced (that's earth's job); ranged attackers
+are out of its reach.
+
+- Growth: retaliation damage with fire power; igniting flavour later.
+  Tier-3 outward form: the fire WALL (the aura turned into a burning cell).
+
+#### Water — Water Veil (`waterveil`) — designed, not built
+
+Water guards by absorbing: a flowing film soaks up a BUDGET of damage before
+it bursts (pool, not timer — the shield dies when spent, with a splash).
+Naturally quenches fire damage entirely once monsters have elemental attacks.
+
+- Needs: an absorb intercept in WoundMember. Growth: pool size with water
+  power. Tier-3: mist/deluge wall.
+
+#### Air — Wind Ward (`windward`) — designed, not built
+
+Air guards by deflecting — the school that moves things moves ATTACKS.
+Swirling air turns incoming projectiles aside: an evasion boost against
+ranged attacks (or outright deflection of the first N bolts). The defensive
+mirror of Push.
+
+- Needs: a ranged-only defense hook in ResolveMonsterProjectileHit. Growth:
+  deflect count, then melee attacks straying too. Tier-3: a wind wall cell
+  bolts can't cross (reusing push for whatever walks in).

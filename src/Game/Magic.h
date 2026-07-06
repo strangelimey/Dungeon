@@ -42,7 +42,9 @@ public:
 	struct CastReport {
 		CastOutcome outcome = CastOutcome::NoRecipe;
 		const SpellDef* spell = nullptr;  // the matched recipe (set on Cast)
-		ProjectileSpec projectile{};      // the bolt to spawn (valid only on Cast)
+		// The bolt to spawn — valid only on Cast of a PROJECTILE spell. Other
+		// effects (Shield) carry no bolt; the owner dispatches on spell->effect.
+		ProjectileSpec projectile{};
 	};
 
 	// Resolves a cast for `caster` from the symbol `sequence`. The caster must

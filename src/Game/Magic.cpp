@@ -25,6 +25,11 @@ MagicSystem::CastReport MagicSystem::Cast(Character& caster,
 	if (caster.mana < spell->mana) return {CastOutcome::NoMana, spell};
 	caster.mana -= spell->mana;
 
+	// A non-projectile effect carries no bolt — the owner dispatches on
+	// spell->effect (a Shield lands on the caster in DungeonWorld::CastSpell).
+	if (spell->effect != SpellEffect::Projectile)
+		return {CastOutcome::Cast, spell};
+
 	// Emit the bolt spec for the owner to spawn ("on the map"). Accuracy rides
 	// intelligence so a trained caster lands reliably; power is the recipe's
 	// (caster-independent for now — weapon foci scale it later). A party spell

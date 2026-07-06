@@ -4,7 +4,8 @@
 ; Fields:
 ;   name    = loc key for the display name (spell.flame -> "Flame")
 ;   symbols = comma-separated symbol sequence (fire|earth|air|water); the key
-;   effect  = effect kind, dispatched in C++ (projectile; more kinds land later)
+;   effect  = effect kind, dispatched in C++: projectile (a bolt) or shield
+;             (a ward on the CASTER; the school picks its behaviour)
 ;   element = the elemental flavour (fire|earth|air|water) — drives bolt colour
 ;   power   = base damage on a clean hit (fed into the strike resolver)
 ;   mana    = mana points the cast costs (no cast below this)
@@ -12,6 +13,8 @@
 ;   range   = bolt reach in metres before it fizzles
 ;   push    = cells a struck (surviving) monster is shoved along the bolt's
 ;             travel; walls/doors/occupied cells stop the shove early (0 = none)
+;   duration= shield lifetime in seconds (shield spells; power = its magnitude:
+;             earth reads it as an armor bonus, fire as retaliation damage)
 ; SCHOOL RULE: the four element runes are mutually exclusive — a sequence
 ; carries exactly ONE, in first position (the first rune picks the spell's
 ; school). The loader skips any recipe that breaks it. Tier 1 is therefore the
@@ -107,3 +110,27 @@ mana = 6
 speed = 12
 range = 8
 push = 1
+
+; --- Tier 2: <school>,protect — the shared Protect form rune ("guard the
+; caster"). One ward per member (a recast replaces it); the school picks HOW
+; it guards: earth HARDENS (power = armor bonus), fire RETALIATES (a monster
+; landing a melee blow on the warded member burns for power). Water (absorb)
+; and air (deflect) are designed in docs/spells.md, not yet built.
+
+[stoneskin]
+name = spell.stoneskin
+symbols = earth,protect
+effect = shield
+element = earth
+power = 6
+mana = 8
+duration = 30
+
+[fireshield]
+name = spell.fireshield
+symbols = fire,protect
+effect = shield
+element = fire
+power = 6
+mana = 8
+duration = 30

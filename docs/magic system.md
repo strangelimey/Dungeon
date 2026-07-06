@@ -70,7 +70,7 @@ Water=Laguz, Air=Ansuz, Earth=Berkano):
 | Form | Glyph | Meaning | Status |
 | --- | --- | --- | --- |
 | **Project** | Tiwaz (the up arrow) | "throw it ahead" — the directed/thrown form | BUILT — see the four `<school>,project` spells in docs/spells.md |
-| **Protect** | Algiz (the warding stave) | the defensive form — fire+protect = fire shield; a third-tier rune turns it outward (fire wall) | designed, not yet built |
+| **Protect** | Algiz (the warding stave) | "guard the caster" — a ward whose behaviour the school picks: earth hardens, air deflects, water absorbs, fire retaliates | BUILT (skeleton + Stone Skin + Fire Shield; water/air designed — docs/spells.md) |
 
 Form runes carry no school: their tablets/UI ink use a neutral **arcane gold**
 (`ElementColor(Project)`), and a cast spell always tints by its SCHOOL — the
@@ -195,11 +195,13 @@ Magic is a **walled-off module** (it knows nothing of map/monsters/HUD):
 - **School-first + tier-2: BUILT.** The one-school rule (exactly one element
   rune, first position) is enforced in `Spells.h`/`SpellBook::Build` and the
   spellbook UI (`SymbolAvailable`: the four schools go dark once one is down;
-  form runes wait until a school leads). The first shared form rune,
-  **Project**, is live with its four `<school>,project` spells — including the
-  engine's first displacement effect (`push`, the air shove). Recipes are still
-  matched as exact ordered sequences; that IS the model now (the grammar is
-  authored into the recipes, not parsed).
+  form runes wait until a school leads). Two shared form runes are live:
+  **Project** with its four `<school>,project` spells — including the engine's
+  first displacement effect (`push`, the air shove) — and **Protect** with the
+  shield framework (`SpellEffect::Shield`: one caster-only ward per member,
+  school-keyed behaviour, timed fade, save v13) carrying Stone Skin and Fire
+  Shield day one. Recipes are still matched as exact ordered sequences; that
+  IS the model now (the grammar is authored into the recipes, not parsed).
 - **Casting entry point.** The spellbook panel (Magic » Spellbook) is built;
   the per-member **Magic sigil** described in "Opening the spell panel" is not
   built yet (the hand menu is the only door today).

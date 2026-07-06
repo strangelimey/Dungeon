@@ -189,6 +189,9 @@ log.spell_hits=The {} is seared for {} damage!
 log.spell_misses=The bolt streaks past the {}.
 log.spell_slain=The {} is destroyed!
 log.spell_pushes=The {} is hurled back!
+log.shield_up=A ward settles over {}.
+log.shield_fades={}'s ward fades.
+log.shield_burns=The {} is scorched by the fire shield for {} damage!
 ; Spell display names (spells.cat ids -> spell.<id>).
 spell.flame=Puff of Flame
 spell.rock=Pebble
@@ -198,6 +201,8 @@ spell.fireburst=Fire Burst
 spell.slingshot=Slingshot
 spell.waterbolt=Water Bolt
 spell.push=Push
+spell.stoneskin=Stone Skin
+spell.fireshield=Fire Shield
 ui.inventory=Inventory
 ui.inv_all=All
 ; Hand-slot use menu (items.cat `command` ids -> use.<id>).
@@ -224,6 +229,7 @@ item.rune_earth=Earth rune
 item.rune_air=Air rune
 item.rune_water=Water rune
 item.rune_project=Project rune
+item.rune_protect=Protect rune
 item.dagger=Dagger
 item.khukri=Khukri
 item.snake_dagger=Snake dagger
@@ -289,6 +295,7 @@ symbol.earth=Earth
 symbol.air=Air
 symbol.water=Water
 symbol.project=Project
+symbol.protect=Protect
 
 ; --- map overlay / editor --------------------------------------------------------
 map.title=Map

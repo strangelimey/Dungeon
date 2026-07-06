@@ -191,6 +191,9 @@ log.spell_hits={} brucia e subisce {} danni!
 log.spell_misses={} schiva il dardo.
 log.spell_slain={} si disintegra!
 log.spell_pushes={} viene scagliato all'indietro!
+log.shield_up=Un sigillo protettivo avvolge {}.
+log.shield_fades=La protezione di {} svanisce.
+log.shield_burns={} è ustionato dallo scudo di fuoco e subisce {} danni!
 ; Spell display names (spells.cat ids -> spell.<id>).
 spell.flame=Soffio di fuoco
 spell.rock=Sassolino
@@ -200,6 +203,8 @@ spell.fireburst=Vampata di fuoco
 spell.slingshot=Sasso di fionda
 spell.waterbolt=Dardo d'acqua
 spell.push=Spinta
+spell.stoneskin=Pelle di pietra
+spell.fireshield=Scudo di fuoco
 ; Hand-slot use menu (items.cat `command` ids -> use.<id>).
 use.memorize=Memorizza
 use.eat=Mangia
@@ -226,6 +231,7 @@ item.rune_earth=Runa della terra
 item.rune_air=Runa dell'aria
 item.rune_water=Runa dell'acqua
 item.rune_project=Runa di proiezione
+item.rune_protect=Runa di protezione
 item.dagger=Pugnale
 item.khukri=Kukri
 item.snake_dagger=Pugnale serpente
@@ -291,6 +297,7 @@ symbol.earth=Terra
 symbol.air=Aria
 symbol.water=Acqua
 symbol.project=Proiezione
+symbol.protect=Protezione
 
 ; --- map overlay / editor --------------------------------------------------------
 map.title=Mappa

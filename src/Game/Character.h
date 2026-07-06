@@ -107,6 +107,20 @@ struct Character {
 		return 0.4f + static_cast<float>(intelligence) * 0.08f;
 	}
 
+	// --- shield (the Protect form rune, docs/spells.md "Protect") -------------
+	// ONE active ward per member — casting another replaces it. The school keys
+	// the behaviour (earth = +armor via Armor() below, fire = melee attackers
+	// burn for `shieldPower`; water/air designed, not built), shieldTime ticks
+	// down in DungeonWorld::UpdateMonsters and the ward fades at zero. Saved
+	// per slot ("shield" save lines, v13).
+	SpellSymbol shieldSchool = SpellSymbol::Fire;
+	float shieldTime = 0.0f;  // seconds left; <= 0 = no ward
+	float shieldPower = 0.0f; // school magnitude (armor bonus / burn damage)
+	bool ShieldActive() const { return shieldTime > 0.0f; }
+	bool HasShield(SpellSymbol school) const {
+		return ShieldActive() && shieldSchool == school;
+	}
+
 	// --- combat (derived from attributes; unarmed baseline) -----------------
 	// Weapons/spells will scale these later. Tuned so the class spreads read
 	// distinctly: the fighter hits hard, the rogue lands often and dodges,
@@ -117,7 +131,10 @@ struct Character {
 	float MaxCarryLoad() const { return static_cast<float>(strength) * 5.0f; }
 	float Accuracy() const { return 0.55f + static_cast<float>(dexterity) * 0.02f; }
 	float Evasion() const { return 0.05f + static_cast<float>(dexterity) * 0.015f; }
-	float Armor() const { return 0.0f; } // no equipment yet
+	// No equipment yet — an earth ward (Stone Skin) is the one armor source.
+	float Armor() const {
+		return HasShield(SpellSymbol::Earth) ? shieldPower : 0.0f;
+	}
 	// Seconds between swings for the given hand (0 = left, 1 = right). STUB: the
 	// real interval is computed from several inputs — the weapon held in that
 	// hand (its attack speed), an off-hand / two-handed penalty, and the

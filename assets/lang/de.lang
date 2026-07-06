@@ -191,6 +191,9 @@ log.spell_hits={} wird versengt und erleidet {} Schaden!
 log.spell_misses={} weicht dem Zauberblitz aus.
 log.spell_slain={} wird vernichtet!
 log.spell_pushes={} wird zurückgeschleudert!
+log.shield_up=Ein Schutzzauber legt sich um {}.
+log.shield_fades=Der Schutzzauber von {} verblasst.
+log.shield_burns={} wird vom Feuerschild versengt und erleidet {} Schaden!
 ; Spell display names (spells.cat ids -> spell.<id>).
 spell.flame=Feuerhauch
 spell.rock=Kieselstein
@@ -200,6 +203,8 @@ spell.fireburst=Feuerstoß
 spell.slingshot=Schleuderstein
 spell.waterbolt=Wassergeschoss
 spell.push=Stoß
+spell.stoneskin=Steinhaut
+spell.fireshield=Feuerschild
 ; Hand-slot use menu (items.cat `command` ids -> use.<id>).
 use.memorize=Einprägen
 use.eat=Essen
@@ -226,6 +231,7 @@ item.rune_earth=Erdrune
 item.rune_air=Luftrune
 item.rune_water=Wasserrune
 item.rune_project=Projektionsrune
+item.rune_protect=Schutzrune
 item.dagger=Dolch
 item.khukri=Khukri
 item.snake_dagger=Schlangendolch
@@ -291,6 +297,7 @@ symbol.earth=Erde
 symbol.air=Luft
 symbol.water=Wasser
 symbol.project=Projektion
+symbol.protect=Schutz
 
 ; --- map overlay / editor --------------------------------------------------------
 map.title=Karte

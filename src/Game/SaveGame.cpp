@@ -100,6 +100,11 @@ bool WriteSave(const SaveData& data, const std::string& path) {
 			for (const std::string& id : c.mruSpells) t += " " + id;
 			t += '\n';
 		}
+		// "shield <i> <school> <time> <power>" — the member's active ward
+		// (Protect); omitted when none, so pre-v13 readers skip nothing.
+		if (c.shieldTime > 0.0f && !c.shieldSchool.empty())
+			t += std::format("shield {} {} {:.3f} {:.3f}\n", i, c.shieldSchool,
+							 c.shieldTime, c.shieldPower);
 	}
 
 	// One block per visited level: a "level <stem>" header, then its entity
@@ -242,6 +247,14 @@ std::optional<SaveData> ReadSave(const std::string& path) {
 			SaveData::CharState& c = data.characters[idx];
 			for (size_t i = 2; i < tok.size(); ++i)
 				c.learnedSpells.emplace_back(tok[i]);
+		} else if (kw == "shield" && tok.size() >= 5) {
+			// Active ward: "shield <i> <school> <time> <power>" (v13).
+			const size_t idx = static_cast<size_t>(IntOf(tok[1]));
+			if (idx >= data.characters.size()) data.characters.resize(idx + 1);
+			SaveData::CharState& c = data.characters[idx];
+			c.shieldSchool = std::string(tok[2]);
+			c.shieldTime = FloatOf(tok[3]);
+			c.shieldPower = FloatOf(tok[4]);
 		} else if (kw == "mru" && tok.size() >= 3) {
 			// Spell MRU: "mru <i> <spell> ..." newest first (v12).
 			const size_t idx = static_cast<size_t>(IntOf(tok[1]));

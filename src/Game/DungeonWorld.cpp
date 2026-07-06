@@ -1828,8 +1828,9 @@ void DungeonWorld::UpdateMonsters(float dt) {
 	const Vec3 partyPos = m_party.EyePosition();
 
 	// Tick down each member's per-hand swing cooldowns so hands free up over
-	// time, fade out the hit-feedback splat, and regenerate mana (scaled by
-	// intelligence) so spent spell points recover between casts.
+	// time, fade out the hit-feedback splat, regenerate mana (scaled by
+	// intelligence) so spent spell points recover between casts, and age any
+	// active ward (the Protect shields) so it fades with a log line.
 	if (m_roster)
 		for (Character& member : *m_roster) {
 			for (float& cd : member.handCooldown)
@@ -1838,6 +1839,11 @@ void DungeonWorld::UpdateMonsters(float dt) {
 			if (member.IsAlive() && member.mana < member.maxMana) {
 				member.mana += member.ManaRegenPerSec() * dt;
 				if (member.mana > member.maxMana) member.mana = member.maxMana;
+			}
+			if (member.ShieldActive()) {
+				member.shieldTime -= dt;
+				if (!member.ShieldActive())
+					MemberMessage(member, loc::Format("log.shield_fades", member.name));
 			}
 		}
 
@@ -2809,6 +2815,22 @@ void DungeonWorld::MonsterAttack(Monster& monster) {
 									  static_cast<int>(r.damage + 0.5f)));
 	m_audio.Play(m_sounds.monster, 0.6f);
 	WoundMember(target, r.damage);
+	// Fire Shield retaliation: fire guards by burning back — a monster that
+	// LANDS a melee blow on a fire-warded member is scorched for the ward's
+	// power (the hit itself is not reduced; earth is the school that hardens).
+	// Fires even if the blow downs the member — the ward outlives its bearer's
+	// last stand by exactly one burn.
+	if (target.HasShield(SpellSymbol::Fire)) {
+		monster.hp -= target.shieldPower;
+		onMessage(loc::Format("log.shield_burns", name,
+							  static_cast<int>(target.shieldPower + 0.5f)));
+		if (!monster.Alive()) {
+			monster.hp = 0.0f; // downed monster stays in the list (save restore)
+			onMessage(loc::Format("log.monster_slain", name));
+		} else {
+			monster.hitReq = true; // the burn stings — flinch like any hit
+		}
+	}
 	CheckPartyWipe();
 }
 
@@ -3095,7 +3117,22 @@ bool DungeonWorld::CastSpell(size_t member, std::span<const SpellSymbol> sequenc
 	const MagicSystem::CastReport r = m_magic.Cast(caster, sequence, origin, dir);
 	switch (r.outcome) {
 	case MagicSystem::CastOutcome::Cast:
-		m_projectiles.Spawn(r.projectile); // the bolt now lives "on the map"
+		// Dispatch the effect (the ONE place a spell effect becomes world state).
+		switch (r.spell->effect) {
+		case SpellEffect::Shield:
+			// The ward wraps the CASTER: one active shield per member, a recast
+			// (any school) replaces it. School keys the behaviour — earth rides
+			// Character::Armor(), fire retaliates in MonsterAttack.
+			caster.shieldSchool = r.spell->element;
+			caster.shieldPower = r.spell->power;
+			caster.shieldTime = r.spell->duration;
+			MemberMessage(caster, loc::Format("log.shield_up", caster.name));
+			break;
+		case SpellEffect::Projectile:
+		default:
+			m_projectiles.Spawn(r.projectile); // the bolt now lives "on the map"
+			break;
+		}
 		MemberMessage(caster,
 					  loc::Format("log.cast", caster.name, loc::Tr(r.spell->nameKey)));
 		// A spell is LEARNED the first time it is successfully cast — the

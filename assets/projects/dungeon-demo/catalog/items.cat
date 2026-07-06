@@ -51,6 +51,13 @@ weight = 0.5
 holdable = 1
 symbol = project
 
+[rune_protect]
+name = item.rune_protect
+category = rune
+weight = 0.5
+holdable = 1
+symbol = protect
+
 ; --- Non-rune items ----------------------------------------------------------
 ; A `model` (multi-material .glb in assets/models) makes the item render as that
 ; 3D model on the floor AND as a baked 3D thumbnail for its icon/cursor; without

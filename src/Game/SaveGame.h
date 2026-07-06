@@ -32,6 +32,8 @@ namespace dungeon::game {
 
 // The serializable dynamic state of one in-progress game.
 struct SaveData {
+	// v13: per-member active ward ("shield" line: school symbol id, seconds
+	//      left, magnitude) — the Protect form rune's shields.
 	// v12: per-member spell MRU ("mru" line, order = newest first) — the hand
 	//      menu's Magic quick-cast list.
 	// v11: per-member LEARNED SPELLS ("learned" line) — earned on first
@@ -48,7 +50,7 @@ struct SaveData {
 	//     buttons as a diff (keyed by .ent id) or a whole spawn (no baseline);
 	//     replaces the v6 split of "ent"/"monster" rows + a whole "floor" item
 	//     snapshot. v6: free-look offset ("look" line); v5 folded hands into equip[].
-	int version = 12;
+	int version = 13;
 	std::string name;         // display name (free text; may contain spaces)
 	std::string currentLevel; // the level stem the party is on (where to resume)
 	std::string timestamp;    // human-readable local time, for the slot list
@@ -93,6 +95,12 @@ struct SaveData {
 		// Most-recently-cast spells, newest first (Character::spellMru) — the
 		// Magic quick-cast list. Absent in pre-v12 saves (rebuilds by casting).
 		std::vector<std::string> mruSpells;
+		// Active ward (Character shield fields): school as its symbol id token
+		// ("earth"), seconds left, magnitude. shieldTime <= 0 = no ward (the
+		// line is omitted). Absent in pre-v13 saves (wards simply expire).
+		std::string shieldSchool;
+		float shieldTime = 0.0f;
+		float shieldPower = 0.0f;
 	};
 	std::vector<CharState> characters;
 

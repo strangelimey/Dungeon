@@ -25,10 +25,11 @@ namespace dungeon::game {
 class Catalog; // Catalog.h — SpellBook::Build reads the spells catalog.
 
 // The spell symbols: the four tier-1 SCHOOL elements first, then the shared
-// tier-2 FORM symbols (Project = "throw it ahead"; more forms follow — see
-// docs/magic system.md). The enum order is the serialization order (save +
-// catalog tokens) — APPEND new symbols, never reorder.
-enum class SpellSymbol : u8 { Fire, Earth, Air, Water, Project, Count };
+// tier-2 FORM symbols (Project = "throw it ahead", Protect = "guard the
+// caster"; more forms follow — see docs/magic system.md). The enum order is
+// the serialization order (save + catalog tokens) — APPEND new symbols,
+// never reorder.
+enum class SpellSymbol : u8 { Fire, Earth, Air, Water, Project, Protect, Count };
 
 inline constexpr u32 kSymbolCount = static_cast<u32>(SpellSymbol::Count);
 
@@ -67,8 +68,11 @@ Vec4 ElementColor(SpellSymbol s);
 
 // What a cast does once a recipe matches. A typed enum dispatched from ONE point
 // (DungeonWorld::CastSpell) — NOT scripting (see the content-stays-data-driven
-// decision). Tier 1 is projectiles only; heal/conjure/AoE append here later.
-enum class SpellEffect : u8 { Projectile, Count };
+// decision). Projectile flies a bolt; Shield wards the CASTER for `duration`
+// seconds, its behaviour keyed by the spell's school (earth hardens = armor,
+// fire retaliates = attackers burn; water/air designed, not yet built — see
+// docs/spells.md). Heal/conjure/AoE append here later.
+enum class SpellEffect : u8 { Projectile, Shield, Count };
 
 // One resolved recipe — a spells.cat entry (Spells.cpp parses the fields).
 struct SpellDef {
@@ -77,12 +81,15 @@ struct SpellDef {
 	std::vector<SpellSymbol> sequence; // the symbol sequence that casts it
 	SpellEffect effect = SpellEffect::Projectile;
 	SpellSymbol element = SpellSymbol::Fire; // elemental flavour (bolt colour)
-	float power = 8.0f;                 // base damage on a clean hit
+	float power = 8.0f;                 // base damage on a clean hit — a Shield
+	                                    // reads it as MAGNITUDE (armor bonus /
+	                                    // retaliation damage, by school)
 	float mana = 4.0f;                  // mana points the cast costs
 	float speed = 7.0f;                 // bolt travel speed (m/s)
 	float range = 8.0f;                 // bolt reach (m) before it fizzles
 	int push = 0;                       // cells a struck monster is shoved along
 	                                    // the bolt's travel (the air-school shove)
+	float duration = 20.0f;             // shield lifetime in seconds (Shield only)
 };
 
 // The project's recipe table: built once from the spells catalog, matched by an

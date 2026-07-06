@@ -195,6 +195,9 @@ log.spell_hits=Заклинание обжигает: {} получает {} у�
 log.spell_misses=Сгусток проносится мимо — {} уклоняется.
 log.spell_slain=Рассыпается в прах {}!
 log.spell_pushes=Заклинание отбрасывает {} назад!
+log.shield_up=Защитная пелена окутывает {}.
+log.shield_fades=Защита {} рассеивается.
+log.shield_burns=Огненный щит обжигает: {} получает {} урона!
 ; Spell display names (spells.cat ids -> spell.<id>).
 spell.flame=Язычок пламени
 spell.rock=Камешек
@@ -204,6 +207,8 @@ spell.fireburst=Огненная вспышка
 spell.slingshot=Камень из пращи
 spell.waterbolt=Водяная стрела
 spell.push=Толчок
+spell.stoneskin=Каменная кожа
+spell.fireshield=Огненный щит
 ; Hand-slot use menu (items.cat `command` ids -> use.<id>).
 use.memorize=Запомнить
 use.eat=Съесть
@@ -230,6 +235,7 @@ item.rune_earth=Руна земли
 item.rune_air=Руна воздуха
 item.rune_water=Руна воды
 item.rune_project=Руна проекции
+item.rune_protect=Руна защиты
 item.dagger=Кинжал
 item.khukri=Кукри
 item.snake_dagger=Змеиный кинжал
@@ -295,6 +301,7 @@ symbol.earth=Земля
 symbol.air=Воздух
 symbol.water=Вода
 symbol.project=Проекция
+symbol.protect=Защита
 
 ; --- map overlay / editor --------------------------------------------------------
 map.title=Карта
