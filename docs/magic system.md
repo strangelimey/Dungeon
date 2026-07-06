@@ -84,13 +84,21 @@ behaviour since the use-menu model landed (branch `magic-system`,
   item OUT of a hand is the character sheet's job — its hand cells keep the
   pick/swap semantics.)
 - **Right-click, control-bar hand** → the item's USE menu (catalog `command`
-  list: stab/slash/eat/memorize/...; a bare hand offers Punch). Selecting an
-  entry records it as that member's default for the item type and — per the
-  Settings → Controls "Hands" checkbox — performs it. Menu-only commands
-  (memorize) always perform and never become defaults.
-
-A wand/spellbook's use menu listing its SPELLS — and "cast" as a hand's
-default use — is exactly the door this model opens for the casting UI.
+  list: stab/slash/eat/memorize/...). Selecting an entry records it as that
+  member's default for the item type and — per the Settings → Controls "Hands"
+  checkbox — performs it. Menu-only commands (memorize) always perform and
+  never become defaults.
+- **Left-click on a hand with NO default yet** (bare hand, or an item with no
+  defaultable command — rune, key) → the same use menu opens, so the first
+  click picks what future clicks will do. For those hands the menu is
+  TWO-LEVEL: **Combat** → Punch / Kick, and **Magic** → the spells the member
+  can cast (the recipe table filtered by their memorized symbols; the group
+  hides when they know none). A spell pick stores as `cast:<id>` in the same
+  default map ("unarmed" key for a bare hand) and left-click then casts it —
+  **the first casting door is live**: memorize a rune, arm the spell from the
+  hand menu, click to cast (DungeonWorld::CastSpellById, the usual vocab/mana
+  gates). A held wand/spellbook later becomes the richer second door — its use
+  menu listing its own spells rides this exact mechanism.
 
 ## Current implementation status
 
