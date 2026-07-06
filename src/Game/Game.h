@@ -170,6 +170,10 @@ private:
 	// Feeds the slowest member's moveSpeed into the Party as its pace
 	// multiplier; call whenever the roster's stats are (re)filled.
 	void ApplyPartySpeed();
+	// Pushes the settings' per-slot identity colors (member_<n>=, Settings →
+	// UI pickers) onto the roster; call whenever the roster is (re)filled.
+	// The pickers also write the live roster directly while playing.
+	void ApplyMemberColors();
 
 	Window& m_window;
 	gfx::GraphicsDevice& m_device;

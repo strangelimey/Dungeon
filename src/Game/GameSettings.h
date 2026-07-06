@@ -18,6 +18,7 @@
 #include "Graphics/DisplayEnum.h" // gfx::FullscreenMode
 #include "UI/UIContext.h"         // ui::Theme
 
+#include <array>
 #include <iterator> // std::size (kLookEaseOptions helper)
 #include <string>
 
@@ -77,6 +78,19 @@ inline constexpr BarField kBarFields[] = {
 	{"mana", "bar.mana", &ResourceBarColors::mana},
 };
 
+// Party identity colors, one per roster slot (portrait border, hand-slot
+// stripe, the log tint on lines about that member). The settings copy is the
+// MASTER — Game::ApplyMemberColors pushes it onto the roster at creation/
+// reset and the Settings → UI picker edits it live; CreateDefaultParty's
+// authored palette only mirrors these defaults. Ini keys member_<n>=r,g,b,a.
+inline constexpr size_t kMemberColorCount = 4;
+inline constexpr Vec4 kDefaultMemberColors[kMemberColorCount] = {
+	{0.42f, 0.20f, 0.14f, 1.0f}, // slot 0 — rust (Brand)
+	{0.18f, 0.32f, 0.18f, 1.0f}, // slot 1 — moss (Sera)
+	{0.42f, 0.34f, 0.14f, 1.0f}, // slot 2 — gold (Maren)
+	{0.22f, 0.22f, 0.44f, 1.0f}, // slot 3 — indigo (Tilo)
+};
+
 // And for the movement keys (MoveKeys; ini keys key_<action>=vkey). Order is
 // the Settings → Game tab's row order and must match GameUI's key-bind rows.
 struct KeyField {
@@ -130,6 +144,10 @@ struct GameSettings {
 	float partyBarOpacity = 1.0f; // HUD party bar: slot background alpha
 	ui::Theme theme;              // the 8 user-editable control colors
 	ResourceBarColors barColors;  // health/stamina/mana fills
+	// Per-slot party identity colors (see kDefaultMemberColors above).
+	std::array<Vec4, kMemberColorCount> memberColors{
+		kDefaultMemberColors[0], kDefaultMemberColors[1],
+		kDefaultMemberColors[2], kDefaultMemberColors[3]};
 	MoveKeys moveKeys;            // movement key bindings (vkeys)
 	LookSettings look;           // right-mouse free-look feel (Controls tab)
 	// Picking an entry from a hand's right-click use menu also PERFORMS it (on

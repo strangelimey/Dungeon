@@ -1,5 +1,7 @@
 #include "Game/Character.h"
 
+#include "Game/GameSettings.h" // kDefaultMemberColors — the one authored palette
+
 namespace dungeon::game {
 
 // Four archetypes with distinct stat spreads so the HUD bars and the sheet
@@ -17,7 +19,6 @@ std::vector<Character> CreateDefaultParty() {
 	party[0].willpower = 8;
 	party[0].intelligence = 8; // fighter: slow mana
 	party[0].moveSpeed = 0.95f; // heavy gear, near baseline
-	party[0].portraitColor = {0.42f, 0.20f, 0.14f, 1.0f}; // rust
 
 	party[1].name = "Sera";
 	party[1].maxHealth = 30;
@@ -29,7 +30,6 @@ std::vector<Character> CreateDefaultParty() {
 	party[1].willpower = 10;
 	party[1].intelligence = 11; // rogue: middling
 	party[1].moveSpeed = 1.2f; // fleet-footed
-	party[1].portraitColor = {0.18f, 0.32f, 0.18f, 1.0f}; // moss
 
 	party[2].name = "Maren";
 	party[2].maxHealth = 34;
@@ -41,7 +41,6 @@ std::vector<Character> CreateDefaultParty() {
 	party[2].willpower = 16;
 	party[2].intelligence = 14; // cleric: strong
 	party[2].moveSpeed = 1.0f;
-	party[2].portraitColor = {0.42f, 0.34f, 0.14f, 1.0f}; // gold
 
 	party[3].name = "Tilo";
 	party[3].maxHealth = 24;
@@ -53,12 +52,16 @@ std::vector<Character> CreateDefaultParty() {
 	party[3].willpower = 18;
 	party[3].intelligence = 17; // mage: fast mana
 	party[3].moveSpeed = 0.9f; // the party's anchor — sets the pace
-	party[3].portraitColor = {0.22f, 0.22f, 0.44f, 1.0f}; // indigo
 
-	for (Character& member : party) {
+	for (size_t i = 0; i < party.size(); ++i) {
+		Character& member = party[i];
 		member.health = member.maxHealth;
 		member.stamina = member.maxStamina;
 		member.mana = member.maxMana;
+		// The identity color DEFAULTS: the live value comes from GameSettings
+		// (member_<n>= in the ini, edited on Settings → UI) via
+		// Game::ApplyMemberColors — this seeds slots beyond its reach.
+		if (i < kMemberColorCount) member.portraitColor = kDefaultMemberColors[i];
 	}
 
 	// Maren and Tilo — the party's casters — start with all four rune tablets

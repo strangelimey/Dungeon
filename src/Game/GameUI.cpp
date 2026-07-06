@@ -824,6 +824,31 @@ void GameUI::BuildSettings() {
 		picker->onClose = [this] { m_settings.Save(); };
 	}
 
+	// UI → Party Colors: one picker per roster slot — the member's identity
+	// color (portrait border, hand stripe, log tint). Edits land in the
+	// settings (the master, member_<n>= in the ini) AND on the live roster,
+	// so the HUD recolors immediately; persists when the popup closes.
+	tabs->AddChild<ui::Separator>(tabUi, Norm(uf.Place(1.0f, mGroup, mGroup), page));
+	tabs->AddChild<ui::Label>(tabUi, Norm(uf.Place(labelH, mGroup, mTight), page),
+							  loc::Tr("settings.party_colors"));
+	const float memTop =
+		uf.Place(gridHeight(kMemberColorCount), mTight, mGroup).y;
+	for (size_t i = 0; i < kMemberColorCount; ++i) {
+		// Label with the member's name when the roster has the slot (proper
+		// nouns, not localized); a slot number otherwise.
+		const std::string label =
+			i < m_characters.size() ? m_characters[i].name
+									: loc::Format("settings.member_n", i + 1);
+		auto* picker = tabs->AddChild<ui::ColorPicker>(
+			tabUi, pickerCell(i, memTop), label, m_settings.memberColors[i],
+			[this, i](const Vec4& color) {
+				m_settings.memberColors[i] = color;
+				if (i < m_characters.size())
+					m_characters[i].portraitColor = color;
+			});
+		picker->onClose = [this] { m_settings.Save(); };
+	}
+
 	const float backW = 220.0f * uiScale;
 	m_settingsUi.Add<ui::Button>(
 		Norm({(w - backW) * 0.5f, tabsY + tabsHpx + 28.0f * uiScale, backW,

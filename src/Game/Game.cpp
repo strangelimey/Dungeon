@@ -108,6 +108,7 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	m_world.GetParty().SetLook(m_settings.look);
 
 	m_characters = CreateDefaultParty();
+	ApplyMemberColors(); // the settings palette wins over the authored defaults
 	ApplyPartySpeed();
 	m_world.SetRoster(&m_characters); // combat drains these; reset in place
 	m_ui.SetHitSplats(&m_hitSplats);  // stable address; LoadHitSplats fills it in
@@ -1402,6 +1403,12 @@ void Game::ResetRoster() {
 		m_characters[i] = fresh[i];
 		m_characters[i].portrait = portrait;
 	}
+	ApplyMemberColors(); // the settings palette wins over the authored defaults
+}
+
+void Game::ApplyMemberColors() {
+	for (size_t i = 0; i < m_characters.size() && i < kMemberColorCount; ++i)
+		m_characters[i].portraitColor = m_settings.memberColors[i];
 }
 
 void Game::StartNewGame() {
