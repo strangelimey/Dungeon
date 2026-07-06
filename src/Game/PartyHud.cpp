@@ -460,10 +460,12 @@ void SpellbookPanel::Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 		}
 	}
 
-	// The spell those symbols resolve to, when the table knows the sequence —
-	// on the line above the sequence row.
+	// The spell those symbols resolve to — on the line above the sequence row,
+	// but ONLY once this member has LEARNED it (first successful cast). An
+	// unlearned recipe stays anonymous so building a sequence is genuine
+	// EXPERIMENTATION: the book won't confirm a discovery before the cast does.
 	const gfx::Rect seq0 = SequenceRect(px, 0);
-	if (const SpellDef* def = Match())
+	if (const SpellDef* def = Match(); def && c->HasLearnedSpell(def->id))
 		font.Draw(batch, "= " + loc::Tr(def->nameKey), px.x + 10.0f * s,
 				  seq0.y - 8.0f * s - font.Height(), theme.accent);
 
