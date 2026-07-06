@@ -17,6 +17,7 @@
 #include "Game/Spells.h"
 
 #include <flat_map>
+#include <flat_set>
 #include <string>
 #include <vector>
 
@@ -79,6 +80,16 @@ struct Character {
 	u32 knownSymbols = 0;
 	bool Knows(SpellSymbol s) const { return (knownSymbols & SymbolBit(s)) != 0; }
 	void Learn(SpellSymbol s) { knownSymbols |= SymbolBit(s); }
+	// Spells this member has LEARNED — earned the first time they successfully
+	// CAST the recipe (built in the spellbook; a failed cast teaches nothing,
+	// and higher-tier spells will fail without the skill for them). Only
+	// learned spells appear in the hand menu's Magic quick-cast list / can be
+	// armed as a hand default. Saved per slot ("learned" save lines).
+	// (Transparent comparator so string_view ids can query without a copy.)
+	std::flat_set<std::string, std::less<>> learnedSpells;
+	bool HasLearnedSpell(std::string_view id) const {
+		return learnedSpells.contains(id);
+	}
 	// Mana points regenerated per second, scaled by intelligence. STUB: a real
 	// "mana draw efficiency / capacity" stat will drive this later; intelligence
 	// is the stand-in until that system is designed.

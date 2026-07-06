@@ -86,6 +86,13 @@ bool WriteSave(const SaveData& data, const std::string& path) {
 				t += std::format(" {} {}", item, cmd);
 			t += '\n';
 		}
+		// "learned <i> <spell> ..." — the spells this member has cast at least
+		// once (spells.cat ids, token-safe).
+		if (!c.learnedSpells.empty()) {
+			t += std::format("learned {}", i);
+			for (const std::string& id : c.learnedSpells) t += " " + id;
+			t += '\n';
+		}
 	}
 
 	// One block per visited level: a "level <stem>" header, then its entity
@@ -221,6 +228,13 @@ std::optional<SaveData> ReadSave(const std::string& path) {
 			SaveData::CharState& c = data.characters[idx];
 			for (size_t i = 2; i + 1 < tok.size(); i += 2)
 				c.useDefaults.emplace_back(std::string(tok[i]), std::string(tok[i + 1]));
+		} else if (kw == "learned" && tok.size() >= 3) {
+			// Learned spells: "learned <i> <spell> ..." (v11).
+			const size_t idx = static_cast<size_t>(IntOf(tok[1]));
+			if (idx >= data.characters.size()) data.characters.resize(idx + 1);
+			SaveData::CharState& c = data.characters[idx];
+			for (size_t i = 2; i < tok.size(); ++i)
+				c.learnedSpells.emplace_back(tok[i]);
 		} else if (kw == "packc" && tok.size() >= 3) {
 			// One pack's contents: "packc <i> <packIdx> <items...>".
 			const size_t idx = static_cast<size_t>(IntOf(tok[1]));

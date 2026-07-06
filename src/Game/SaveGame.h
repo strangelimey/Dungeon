@@ -32,6 +32,9 @@ namespace dungeon::game {
 
 // The serializable dynamic state of one in-progress game.
 struct SaveData {
+	// v11: per-member LEARNED SPELLS ("learned" line) — earned on first
+	//      successful cast; the Magic quick-cast list and "cast:" defaults
+	//      only offer learned spells.
 	// v10: per-member default uses ("usedef" line) — the item-type → command
 	//      map behind the hand slots' left-click default action.
 	// v9: per-pack contents — the backpack became a row of containers (packs),
@@ -43,7 +46,7 @@ struct SaveData {
 	//     buttons as a diff (keyed by .ent id) or a whole spawn (no baseline);
 	//     replaces the v6 split of "ent"/"monster" rows + a whole "floor" item
 	//     snapshot. v6: free-look offset ("look" line); v5 folded hands into equip[].
-	int version = 10;
+	int version = 11;
 	std::string name;         // display name (free text; may contain spaces)
 	std::string currentLevel; // the level stem the party is on (where to resume)
 	std::string timestamp;    // human-readable local time, for the slot list
@@ -82,6 +85,9 @@ struct SaveData {
 		// Remembered default use per item type (Character::useDefaults), as
 		// (item id, command id) pairs. Absent in pre-v10 saves (defaults reset).
 		std::vector<std::pair<std::string, std::string>> useDefaults;
+		// Spells learned by first successful cast (Character::learnedSpells),
+		// spells.cat ids. Absent in pre-v11 saves (re-learn by casting).
+		std::vector<std::string> learnedSpells;
 	};
 	std::vector<CharState> characters;
 

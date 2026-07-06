@@ -180,6 +180,7 @@ log.eat={} mangia {}.
 log.cant_hold={} non si può tenere in mano.
 ; --- casting ({0}=caster {1}=spell/target {2}=damage) ---
 log.cast={} lancia {}.
+log.spell_learned={} ha imparato {}!
 log.spell_fizzles=L'incantesimo svanisce nel nulla.
 log.cast_nomana={} non ha abbastanza mana.
 log.cast_unknown={} non conosce quei simboli.

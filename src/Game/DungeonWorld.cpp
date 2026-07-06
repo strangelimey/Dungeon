@@ -3089,6 +3089,12 @@ bool DungeonWorld::CastSpell(size_t member, std::span<const SpellSymbol> sequenc
 	case MagicSystem::CastOutcome::Cast:
 		m_projectiles.Spawn(r.projectile); // the bolt now lives "on the map"
 		onMessage(loc::Format("log.cast", caster.name, loc::Tr(r.spell->nameKey)));
+		// A spell is LEARNED the first time it is successfully cast — the
+		// failed outcomes below teach nothing (and higher-tier spells will
+		// add skill-gated failure ON this path later, still before learning).
+		if (caster.learnedSpells.insert(r.spell->id).second)
+			onMessage(loc::Format("log.spell_learned", caster.name,
+								  loc::Tr(r.spell->nameKey)));
 		m_audio.Play(m_sounds.spellCast, 0.7f);
 		return true;
 	case MagicSystem::CastOutcome::NoMana:

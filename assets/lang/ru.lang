@@ -184,6 +184,7 @@ log.eat={} съедает «{}».
 log.cant_hold=«{}» нельзя держать в руке.
 ; --- casting ({0}=caster {1}=spell/target {2}=damage) ---
 log.cast={} произносит заклинание «{}».
+log.spell_learned={} осваивает заклинание «{}»!
 log.spell_fizzles=Заклинание рассеивается впустую.
 log.cast_nomana={}: не хватает маны.
 log.cast_unknown={} не знает таких символов.

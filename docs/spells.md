@@ -13,6 +13,11 @@ Rules of the system (see `docs/magic system.md` for the full model):
 - A spell's strength scales with the caster's POWER in its school — a
   progression stat that grows as the caster uses that school's magic (system
   TBD; today spells have fixed catalog numbers).
+- A character LEARNS a spell the first time they successfully CAST it (built
+  in the spellbook). Only learned spells appear in the hand menu's Magic
+  quick-cast list or can be armed as a hand default; learning is saved per
+  character. Higher-tier spells will demand higher school skill, so a cast
+  can FAIL (failure system TBD) — a failed cast teaches nothing.
 
 ## Tier 1 — the four one-rune spells
 

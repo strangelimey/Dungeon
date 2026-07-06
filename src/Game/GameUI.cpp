@@ -63,14 +63,6 @@ bool IsMenuOnlyUse(std::string_view cmd) { return cmd == "memorize"; }
 bool IsExecutableUse(std::string_view cmd) {
 	return cmd == "eat" || cmd == "memorize" || IsMeleeUse(cmd) || IsCastUse(cmd);
 }
-// True if the member has memorized every symbol in the recipe — the Magic
-// submenu's filter, and a "cast:" default's validity check.
-bool KnowsSpell(const Character& c, const SpellDef& def) {
-	if (def.sequence.empty()) return false;
-	for (SpellSymbol s : def.sequence)
-		if (!c.Knows(s)) return false;
-	return true;
-}
 // The useDefaults key a hand's contents map to ("unarmed" for a bare hand —
 // item ids are catalog tokens, so the sentinel can never collide).
 std::string UseKey(const std::string& itemId) {
@@ -263,7 +255,8 @@ void GameUI::OpenHandUseMenu(size_t i, size_t hand) {
 		// entry is always the SPELLBOOK — the Magic-area panel where a spell
 		// is BUILT from known symbols (opening it is navigation, not a use, so
 		// it never becomes a left-click default) — followed by the spells the
-		// member can already cast outright.
+		// member has LEARNED: a spell joins this quick-cast list by being
+		// successfully cast once (from the spellbook), not by vocabulary.
 		bool anySymbol = false;
 		for (u32 sym = 0; sym < kSymbolCount; ++sym)
 			anySymbol |= c.Knows(static_cast<SpellSymbol>(sym));
@@ -275,7 +268,7 @@ void GameUI::OpenHandUseMenu(size_t i, size_t hand) {
 									  }});
 			if (spellDefs)
 				for (const SpellDef& def : spellDefs()) {
-					if (!KnowsSpell(c, def)) continue;
+					if (!c.HasLearnedSpell(def.id)) continue;
 					std::string cmd = std::string(kCastPrefix) + def.id;
 					magic.children.push_back(
 						{loc::Tr(def.nameKey), [this, i, hand, itemId, cmd] {
@@ -350,7 +343,7 @@ bool GameUI::UseValidFor(const Character& c, const std::vector<std::string>& cmd
 		const std::string_view id = std::string_view(cmd).substr(kCastPrefix.size());
 		if (!spellDefs) return false;
 		for (const SpellDef& def : spellDefs())
-			if (def.id == id) return KnowsSpell(c, def);
+			if (def.id == id) return c.HasLearnedSpell(def.id);
 		return false; // recipe gone from the catalog
 	}
 	if (std::ranges::find(cmds, cmd) != cmds.end()) return true;

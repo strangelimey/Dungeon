@@ -92,9 +92,12 @@ behaviour since the use-menu model landed (branch `magic-system`,
 - **Left-click on a hand with NO default yet** (bare hand, or an item with no
   defaultable command — rune, key) → the same use menu opens, so the first
   click picks what future clicks will do. For those hands the menu is
-  TWO-LEVEL: **Combat** → Punch / Kick, and **Magic** → the spells the member
-  can cast (the recipe table filtered by their memorized symbols; the group
-  hides when they know none). A spell pick stores as `cast:<id>` in the same
+  TWO-LEVEL: **Combat** → Punch / Kick, and **Magic** → the Spellbook plus the
+  spells the member has LEARNED — a spell is learned the first time the member
+  successfully CASTS it (built in the spellbook; saved per character), so the
+  quick-cast list is earned, not implied by vocabulary. Higher-tier spells
+  will demand higher school skill and can FAIL to cast (failure system TBD);
+  a failed cast teaches nothing. A spell pick stores as `cast:<id>` in the same
   default map ("unarmed" key for a bare hand) and left-click then casts it —
   **the first casting door is live**: memorize a rune, arm the spell from the
   hand menu, click to cast (DungeonWorld::CastSpellById, the usual vocab/mana

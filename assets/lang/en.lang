@@ -178,6 +178,7 @@ log.eat={} eats the {}.
 log.cant_hold=The {} can't be held in a hand.
 ; --- casting ({0}=caster {1}=spell/target {2}=damage) ---
 log.cast={} casts {}.
+log.spell_learned={} has learned {}!
 log.spell_fizzles=The spell fizzles into nothing.
 log.cast_nomana={} lacks the mana to cast.
 log.cast_unknown={} does not know those symbols.
