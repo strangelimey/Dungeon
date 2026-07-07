@@ -141,8 +141,10 @@ public:
 	// 1 = right) at the monster in the cell directly ahead of the party.
 	// Resolves a strike when the member is up, that hand is off cooldown, and a
 	// live monster is there; logs the outcome and kills the monster at 0 hp. A
-	// no-op (returns false) otherwise.
-	bool PartyAttack(size_t member, size_t hand);
+	// no-op (returns false) otherwise. `verb` is the executed melee command
+	// ("stab", "chop", ...) shading the strike via VerbProfileFor; empty =
+	// neutral (the dev-console path).
+	bool PartyAttack(size_t member, size_t hand, std::string_view verb = {});
 
 	// --- spell casting ------------------------------------------------------
 	// Façade over the MagicSystem (m_magic): the given roster member casts the

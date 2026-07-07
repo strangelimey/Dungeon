@@ -3119,7 +3119,7 @@ bool DungeonWorld::CellHasLineOfSight(int x0, int z0, int x1, int z1) const {
 	return false; // not axis-aligned — no orthogonal line
 }
 
-bool DungeonWorld::PartyAttack(size_t member, size_t hand) {
+bool DungeonWorld::PartyAttack(size_t member, size_t hand, std::string_view verb) {
 	if (!m_roster || member >= m_roster->size() || hand > 1) return false;
 	Character& attacker = (*m_roster)[member];
 	if (!attacker.IsAlive() || attacker.handCooldown[hand] > 0.0f) return false;
@@ -3145,9 +3145,14 @@ bool DungeonWorld::PartyAttack(size_t member, size_t hand) {
 	const std::string_view skillId =
 		weapon ? std::string_view(weapon->skill) : std::string_view("unarmed");
 	const int level = attacker.SkillLevel(skillId);
+	// The verb shades the weapon-derived numbers (docs/combat.md Phase 2):
+	// stab swings fast and true for less, chop the reverse. A whiffed swing
+	// pays the verb's pace too — committing to a chop costs the chop.
+	const VerbProfile vp = VerbProfileFor(verb);
 
 	attacker.handCooldown[hand] =
-		attacker.AttackInterval(hand, weapon ? weapon->speed : 0.0f);
+		attacker.AttackInterval(hand, weapon ? weapon->speed : 0.0f) *
+		vp.intervalScale;
 	if (!target) {
 		MemberMessage(attacker, loc::Tr("log.attack_air"));
 		return true;
@@ -3155,8 +3160,9 @@ bool DungeonWorld::PartyAttack(size_t member, size_t hand) {
 
 	const AttackProfile atk{
 		attacker.AttackDamage(weapon ? weapon->damage : 0.0f) *
-			(1.0f + 0.08f * static_cast<float>(level)),
-		attacker.Accuracy() + 0.02f * static_cast<float>(level)};
+			(1.0f + 0.08f * static_cast<float>(level)) * vp.damageScale,
+		attacker.Accuracy() + 0.02f * static_cast<float>(level) +
+			vp.accuracyDelta};
 	const DefenseProfile def{target->kind->evasion, target->kind->armor};
 	const AttackResult r = ResolveAttack(atk, def, m_combatRng);
 	const std::string name = loc::Tr("monster." + target->kind->name);

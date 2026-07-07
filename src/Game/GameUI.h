@@ -168,7 +168,9 @@ public:
 	std::function<void(int)> onFrameLimitSelected; // Video tab frame-rate dropdown
 	std::function<void(int)> onTorchPalette;    // HUD torchlight dropdown
 	std::function<void(MoveAction)> onMoveAction; // HUD movement buttons
-	std::function<void(size_t, size_t)> onHandAttack; // HUD hand-slot click (member, hand 0=L/1=R)
+	// HUD hand-slot click (member, hand 0=L/1=R, melee verb — the executed
+	// command id, e.g. "stab"; shades the strike via VerbProfileFor).
+	std::function<void(size_t, size_t, const std::string&)> onHandAttack;
 	// The hand right-click menu's command list for an item id (ItemKind::commands),
 	// wired by Game to the world's item kinds — keeps the command source single.
 	std::function<std::vector<std::string>(const std::string&)> itemCommands;

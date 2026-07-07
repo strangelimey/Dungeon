@@ -10,6 +10,7 @@
 #pragma once
 
 #include <random>
+#include <string_view>
 
 namespace dungeon::game {
 
@@ -31,6 +32,22 @@ struct AttackResult {
 	bool hit = false;
 	float damage = 0.0f; // damage to apply (>= 0; 0 on a miss)
 };
+
+// How a melee VERB (the hand-menu command: stab, slash, chop, bash, ...)
+// shades one swing (docs/combat.md Phase 2). Scales/deltas apply over the
+// weapon-derived profile: stab trades damage for pace and precision, chop the
+// reverse, slash is the baseline. A weapon's catalog `command` list curates
+// which verbs it offers, so the table stays closed — a typed C++ table, not a
+// scripting hook (the content-stays-data-driven rule).
+struct VerbProfile {
+	float damageScale = 1.0f;   // × the profile damage
+	float accuracyDelta = 0.0f; // + the profile accuracy
+	float intervalScale = 1.0f; // × the swing interval (cooldown)
+};
+
+// The profile for a verb id. Unknown/empty verbs (punch, kick, swing, melee —
+// and any future catalog command) return the neutral profile.
+VerbProfile VerbProfileFor(std::string_view verb);
 
 // Resolves a single strike with `rng`. Hit chance is (accuracy - evasion)
 // clamped to [0.05, 0.95] so nothing is ever a sure thing; on a hit the damage

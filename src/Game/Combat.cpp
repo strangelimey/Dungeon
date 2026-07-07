@@ -2,6 +2,15 @@
 
 namespace dungeon::game {
 
+VerbProfile VerbProfileFor(std::string_view verb) {
+	// Feel-test numbers (docs/combat.md Phase 2): fast/precise stab, heavy
+	// chop, bash between them (its stun hook is a later phase).
+	if (verb == "stab") return {0.8f, 0.05f, 0.8f};
+	if (verb == "chop") return {1.3f, -0.05f, 1.25f};
+	if (verb == "bash") return {1.15f, -0.05f, 1.2f};
+	return {}; // slash / punch / kick / swing / melee — the neutral baseline
+}
+
 AttackResult ResolveAttack(const AttackProfile& atk, const DefenseProfile& def,
 						   std::mt19937& rng) {
 	AttackResult result;

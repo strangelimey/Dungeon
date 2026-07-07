@@ -220,8 +220,8 @@ void Game::WireModuleCallbacks() {
 		// DungeonWorld::Update; this is the HUD arrow-button path).
 		if (!m_world.Falling()) m_world.GetParty().Act(action);
 	};
-	m_ui.onHandAttack = [this](size_t member, size_t hand) {
-		m_world.PartyAttack(member, hand);
+	m_ui.onHandAttack = [this](size_t member, size_t hand, const std::string& verb) {
+		m_world.PartyAttack(member, hand, verb);
 	};
 	// The hand right-click menu reads an item's commands from the world's item
 	// kinds (single source — ItemKindFor parses category/command + rune defaults).
