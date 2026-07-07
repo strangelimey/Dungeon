@@ -247,6 +247,9 @@ private:
 	// A click (either button) on member `i`'s stat bars: opens their sheet on the
 	// Stats tab.
 	void OnPortraitBars(size_t i);
+	// A left-click on one of member `i`'s status-effect icons (the panel's
+	// name-band row): opens their sheet on the Effects tab.
+	void OnPortraitEffects(size_t i);
 	// A left-click landed on member `i`'s hand `hand`. Carrying a holdable item
 	// on the cursor places it there (swapping any occupant onto the cursor; a
 	// non-holdable item is refused with a log line). Empty-cursor, the control-

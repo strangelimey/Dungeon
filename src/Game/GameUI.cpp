@@ -178,6 +178,14 @@ void GameUI::OnPortraitBars(size_t i) {
 	m_sheet->SetMode(CharacterSheet::Mode::Stats);
 }
 
+// A click on one of the panel's status-effect icons (the name-band row): the
+// sheet's Effects tab is the icon's long form, so the icon IS its door.
+void GameUI::OnPortraitEffects(size_t i) {
+	if (i >= m_characters.size()) return;
+	onOpenSheet(i);
+	m_sheet->SetMode(CharacterSheet::Mode::Effects);
+}
+
 void GameUI::OnHandLeftClick(size_t i, size_t hand) {
 	if (i >= m_characters.size() || hand > 1) return;
 	ItemSlot& slot = m_characters[i].inventory.Hand(static_cast<int>(hand));
@@ -229,20 +237,20 @@ void GameUI::OpenHandUseMenu(size_t i, size_t hand) {
 					   : (itemCommands ? itemCommands(itemId)
 									   : std::vector<std::string>{});
 	std::vector<ui::ContextMenu::Entry> entries;
-	bool anyDefaultable = false;
 	for (const std::string& cmd : cmds) {
 		if (!IsExecutableUse(cmd)) continue;
-		anyDefaultable |= !IsMenuOnlyUse(cmd);
 		entries.push_back({loc::Tr("use." + cmd), [this, i, hand, itemId, cmd] {
 							   SelectUse(i, hand, itemId, cmd);
 						   }});
 	}
-	// No defaultable item command (bare hand, rune, key): offer the grouped
-	// default pickers as CASCADING groups — the ContextMenu keeps the first
-	// tier visible beside an open submenu, so Combat and Magic stay in reach
-	// while browsing either: Combat > the unarmed verbs, Magic > the spells
-	// this member can cast.
-	if (!anyDefaultable) {
+	// An item that offers ANY command of its own — even a menu-only one like
+	// a rune's Memorize — shows just those (Michael, 2026-07-07: a rune's
+	// menu is Memorize alone). Only a hand with NOTHING to offer (bare hand,
+	// key) gets the grouped default pickers as CASCADING groups — the
+	// ContextMenu keeps the first tier visible beside an open submenu, so
+	// Combat and Magic stay in reach while browsing either: Combat > the
+	// unarmed verbs, Magic > the spells this member can cast.
+	if (entries.empty()) {
 		ui::ContextMenu::Entry combat{loc::Tr("menu.combat"), {}, {}};
 		for (std::string_view verb : kUnarmedUses) {
 			std::string cmd{verb};
@@ -1347,7 +1355,8 @@ void GameUI::BuildHud() {
 			gfx::Rect{}, &m_characters, i, &m_titleFont, &m_settings.barColors,
 			m_hitSplats, m_itemIcons, [this, i] { OnPortraitClick(i); },
 			[this, i] { OnPortraitRightClick(i); },
-			[this, i] { OnPortraitBars(i); });
+			[this, i] { OnPortraitBars(i); },
+			[this, i] { OnPortraitEffects(i); });
 		panel->backgroundOpacity = m_settings.partyBarOpacity;
 		m_partyPanels.push_back(panel);
 	}

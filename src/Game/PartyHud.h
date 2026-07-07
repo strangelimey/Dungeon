@@ -147,13 +147,16 @@ public:
 	// held tablet); onRight on a right click there (open this member's inventory).
 	// onBars fires on EITHER button over the stat-bar area (open the Stats tab).
 	// `icons` (Game-owned, may be null) supplies the status-effect strip's
-	// icon art (a ward draws the Protect rune tablet's icon).
+	// icon art (a ward draws the Protect rune tablet's icon). onEffects fires
+	// on a left click on one of the strip's icons (open the sheet's Effects
+	// tab — the icon's long form); it wins over onClick for that spot.
 	CharacterPanel(const gfx::Rect& rect, const std::vector<Character>* roster,
 				   size_t member,
 				   const ui::Font* portraitFont, const ResourceBarColors* barColors,
 				   const HitSplatIcons* hitSplats, const ItemIconBank* icons,
 				   std::function<void()> onClick,
-				   std::function<void()> onRight, std::function<void()> onBars);
+				   std::function<void()> onRight, std::function<void()> onBars,
+				   std::function<void()> onEffects);
 
 	void Update(ui::UIContext& ctx) override;
 	void Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) override;
@@ -188,6 +191,7 @@ private:
 	std::function<void()> m_onClick;
 	std::function<void()> m_onRight;
 	std::function<void()> m_onBars;
+	std::function<void()> m_onEffects;
 	bool m_hot = false;
 	bool m_held = false;      // left-button press latched on this panel
 	bool m_heldRight = false; // right-button press latched on this panel

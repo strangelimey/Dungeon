@@ -70,11 +70,12 @@ CharacterPanel::CharacterPanel(const gfx::Rect& rect,
 							   const ItemIconBank* icons,
 							   std::function<void()> onClick,
 							   std::function<void()> onRight,
-							   std::function<void()> onBars)
+							   std::function<void()> onBars,
+							   std::function<void()> onEffects)
 	: m_roster(roster), m_member(member), m_portraitFont(portraitFont),
 	  m_barColors(barColors), m_hitSplats(hitSplats), m_icons(icons),
 	  m_onClick(std::move(onClick)), m_onRight(std::move(onRight)),
-	  m_onBars(std::move(onBars)) {
+	  m_onBars(std::move(onBars)), m_onEffects(std::move(onEffects)) {
 	bounds = rect;
 }
 
@@ -134,11 +135,14 @@ void CharacterPanel::Update(ui::UIContext& ctx) {
 				break;
 			}
 	}
-	// A click over the stat bars (either button) opens the Stats tab; elsewhere on
-	// the panel keeps the portrait actions (left = sheet/stow, right = backpack).
+	// A click on an effect icon opens the Effects tab (the icon's long form);
+	// over the stat bars (either button) the Stats tab; elsewhere on the
+	// panel the portrait actions keep (left = sheet/stow, right = backpack).
 	if (m_held && input->WasMouseReleased(MouseButton::Left)) {
 		if (m_hot) {
-			if (BarsRect(ctx).Contains(mx, my) && m_onBars) m_onBars();
+			if (m_hotEffect != static_cast<size_t>(-1) && m_onEffects)
+				m_onEffects();
+			else if (BarsRect(ctx).Contains(mx, my) && m_onBars) m_onBars();
 			else if (m_onClick) m_onClick();
 		}
 		m_held = false;
@@ -1227,15 +1231,38 @@ void CharacterSheet::DrawEffects(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 	// One row per active effect: the HUD indicator's icon (kind art under a
 	// school-tinted border with the depleting time sliver) at reading size,
 	// then the long form beside it — name, time left right-aligned on the
-	// name line, and the magnitude-formatted description beneath.
-	constexpr float kFirstRowY = 218.0f, kRowH = 72.0f;
+	// name line, and the magnitude-formatted description beneath, word-
+	// wrapped inside the panel (rows grow with their text; the cursor runs
+	// in pixels because the wrap measures the live font).
+	constexpr float kFirstRowY = 218.0f, kRowGap = 22.0f;
 	constexpr float kIconX = 56.0f, kIconSize = 48.0f;
-	constexpr float kTextX = kIconX + kIconSize + 16.0f, kTimeRight = 700.0f;
-	for (size_t i = 0; i < m_effectRows.size(); ++i) {
-		const EffectRow& row = m_effectRows[i];
-		const float y = kFirstRowY + static_cast<float>(i) * kRowH;
-		const gfx::Rect r{px.x + kIconX * sx, px.y + y * sy, kIconSize * sx,
-						  kIconSize * sy};
+	constexpr float kTextX = kIconX + kIconSize + 16.0f, kTextRight = 724.0f;
+
+	// Greedy word wrap: draws `text` from (x, y) down, breaking at spaces so
+	// no line exceeds maxW (a single over-long word overflows rather than
+	// spinning); returns the y just below the last line. string_view slices
+	// only — no per-frame allocation.
+	auto drawWrapped = [&font, &batch](std::string_view text, float x, float y,
+									   float maxW, const Vec4& color) -> float {
+		while (!text.empty()) {
+			size_t end = text.size();
+			while (end > 0 && font.MeasureWidth(text.substr(0, end)) > maxW) {
+				const size_t space = text.rfind(' ', end - 1);
+				if (space == std::string_view::npos || space == 0) break;
+				end = space;
+			}
+			font.Draw(batch, text.substr(0, end), x, y, color);
+			y += font.LineAdvance();
+			const size_t next = text.find_first_not_of(' ', end);
+			text = next == std::string_view::npos ? std::string_view{}
+												  : text.substr(next);
+		}
+		return y;
+	};
+
+	float y = px.y + kFirstRowY * sy;
+	for (const EffectRow& row : m_effectRows) {
+		const gfx::Rect r{px.x + kIconX * sx, y, kIconSize * sx, kIconSize * sy};
 		batch.DrawRect(r, kSlotBg);
 		const gfx::Texture* icon =
 			m_icons ? m_icons->For(EffectIconItem(row.kind)) : nullptr;
@@ -1249,12 +1276,14 @@ void CharacterSheet::DrawEffects(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 					   row.tint);
 		ui::DrawBorder(batch, r, row.tint);
 
-		font.Draw(batch, row.name, px.x + kTextX * sx, px.y + y * sy, theme.text);
+		const float textX = px.x + kTextX * sx;
+		const float maxW = (kTextRight - kTextX) * sx;
+		font.Draw(batch, row.name, textX, y, theme.text);
 		const float tw = font.MeasureWidth(row.time);
-		font.Draw(batch, row.time, px.x + kTimeRight * sx - tw, px.y + y * sy,
-				  theme.accent);
-		font.Draw(batch, row.desc, px.x + kTextX * sx,
-				  px.y + y * sy + font.LineAdvance() + 4.0f, theme.textDim);
+		font.Draw(batch, row.time, px.x + kTextRight * sx - tw, y, theme.accent);
+		const float descBottom = drawWrapped(
+			row.desc, textX, y + font.LineAdvance() + 4.0f, maxW, theme.textDim);
+		y = std::max(descBottom, r.y + r.h) + kRowGap * sy;
 	}
 }
 
