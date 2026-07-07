@@ -62,11 +62,16 @@ symbol = protect
 ; A `model` (multi-material .glb in assets/models) makes the item render as that
 ; 3D model on the floor AND as a baked 3D thumbnail for its icon/cursor; without
 ; one the item keeps the tablet mesh + category tint placeholder.
+; Weapon stats (docs/combat.md): damage = base damage of a clean hit (strength
+; assists); speed = seconds between swings (dexterity shaves it). Either absent
+; -> the swing falls back to the attacker's unarmed attribute formulas.
 
 [dagger]
 name = item.dagger
 category = weapon
 skill = blade
+damage = 5
+speed = 0.9
 weight = 1.5
 holdable = 1
 command = stab, slash
@@ -77,6 +82,8 @@ icon_spin = 1
 name = item.khukri
 category = weapon
 skill = blade
+damage = 7
+speed = 1.1
 weight = 1.2
 holdable = 1
 command = chop, slash, bash
@@ -86,6 +93,8 @@ model = khukri
 name = item.snake_dagger
 category = weapon
 skill = blade
+damage = 6
+speed = 1.0
 weight = 1.3
 holdable = 1
 command = stab, slash
@@ -95,10 +104,25 @@ model = snake_dagger
 name = item.french_dagger
 category = weapon
 skill = blade
+damage = 6
+speed = 1.1
 weight = 1.4
 holdable = 1
 command = stab, slash, bash
 model = french_dagger
+
+; The first blunt-class weapon (docs/combat.md Phase 1): slow, hits hard,
+; trains skill.blunt. No authored model yet — tablet placeholder (a fab.com
+; mace is a candidate buy).
+[club]
+name = item.club
+category = weapon
+skill = blunt
+damage = 10
+speed = 1.6
+weight = 3.0
+holdable = 1
+command = bash, swing
 
 [leather_armor]
 name = item.leather_armor

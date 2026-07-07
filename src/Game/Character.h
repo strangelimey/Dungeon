@@ -217,11 +217,19 @@ struct Character {
 	}
 	bool HasShield(SpellSymbol school) const { return FindWard(school) != nullptr; }
 
-	// --- combat (derived from attributes; unarmed baseline) -----------------
-	// Weapons/spells will scale these later. Tuned so the class spreads read
-	// distinctly: the fighter hits hard, the rogue lands often and dodges,
-	// the mage is fragile in melee.
-	float AttackDamage() const { return 4.0f + static_cast<float>(strength) * 0.5f; }
+	// --- combat (derived from attributes + the held weapon) -----------------
+	// Tuned so the class spreads read distinctly: the fighter hits hard, the
+	// rogue lands often and dodges, the mage is fragile in melee.
+	// Base damage of one clean hit. Armed (weaponDamage > 0, the held item's
+	// catalog `damage`) the WEAPON is the base and strength assists — upgrading
+	// the blade is felt; unarmed keeps the attribute-only formula. Character
+	// can't see ItemKind (layering), so the world feeds the number in
+	// (DungeonWorld::PartyAttack via ItemKindFor).
+	float AttackDamage(float weaponDamage = 0.0f) const {
+		if (weaponDamage > 0.0f)
+			return weaponDamage + static_cast<float>(strength) * 0.25f;
+		return 4.0f + static_cast<float>(strength) * 0.5f;
+	}
 	// Maximum carry weight (kg) before the member is encumbered. STUB formula —
 	// strength-driven; an over-load penalty (slowed movement) is a later thread.
 	float MaxCarryLoad() const { return static_cast<float>(strength) * 5.0f; }
@@ -232,15 +240,16 @@ struct Character {
 		const StatusEffect* w = FindWard(SpellSymbol::Earth);
 		return w ? w->magnitude : 0.0f;
 	}
-	// Seconds between swings for the given hand (0 = left, 1 = right). STUB: the
-	// real interval is computed from several inputs — the weapon held in that
-	// hand (its attack speed), an off-hand / two-handed penalty, and the
-	// member's stats — but with no inventory yet it only reflects dexterity and
-	// ignores `hand` (both hands swing alike). Higher dexterity swings faster.
-	// Fold the hand's weapon speed in here once items exist.
-	float AttackInterval(size_t hand) const {
-		(void)hand; // per-hand weapon speed plugs in here once items exist
-		const float t = 1.8f - static_cast<float>(dexterity) * 0.04f;
+	// Seconds between swings for the given hand (0 = left, 1 = right). Armed
+	// (weaponSpeed > 0, the held item's catalog `speed`) the weapon sets the
+	// pace and dexterity shaves it; unarmed keeps the dex-only formula. Both
+	// clamp to [0.6, 2.0] so nothing swings absurdly. `hand` is reserved for
+	// the off-hand / two-handed penalty (docs/combat.md, a later phase).
+	float AttackInterval(size_t hand, float weaponSpeed = 0.0f) const {
+		(void)hand; // off-hand penalty plugs in here (docs/combat.md)
+		const float t = weaponSpeed > 0.0f
+							? weaponSpeed * (1.15f - static_cast<float>(dexterity) * 0.015f)
+							: 1.8f - static_cast<float>(dexterity) * 0.04f;
 		return t < 0.6f ? 0.6f : (t > 2.0f ? 2.0f : t);
 	}
 

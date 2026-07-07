@@ -3133,24 +3133,29 @@ bool DungeonWorld::PartyAttack(size_t member, size_t hand) {
 	for (Monster& m : m_monsters)
 		if (m.Alive() && m.x == tx && m.z == tz) { target = &m; break; }
 
-	attacker.handCooldown[hand] = attacker.AttackInterval(hand);
+	// The swinging hand's weapon (docs/combat.md Phase 1): its catalog
+	// damage/speed drive the profile and the swing pace (0 = unstated → the
+	// attacker's unarmed attribute formulas); its `skill` is the weapon class
+	// (docs/skills.md "Skills/stats → melee") — a bare hand swings, and
+	// trains, unarmed. The class level scales the profile, the landed blow
+	// below trains the class ("" — an unclassed item — trains and scales
+	// nothing).
+	const ItemSlot& held = attacker.inventory.Hand(static_cast<int>(hand));
+	const ItemKind* weapon = held.Empty() ? nullptr : &ItemKindFor(held.typeId);
+	const std::string_view skillId =
+		weapon ? std::string_view(weapon->skill) : std::string_view("unarmed");
+	const int level = attacker.SkillLevel(skillId);
+
+	attacker.handCooldown[hand] =
+		attacker.AttackInterval(hand, weapon ? weapon->speed : 0.0f);
 	if (!target) {
 		MemberMessage(attacker, loc::Tr("log.attack_air"));
 		return true;
 	}
 
-	// The swinging hand's weapon class (docs/skills.md "Skills/stats → melee"):
-	// the held item's catalog `skill`; a bare hand swings — and trains —
-	// unarmed. The class level scales the profile, the landed blow below
-	// trains the class ("" — an unclassed item — trains and scales nothing).
-	const ItemSlot& held = attacker.inventory.Hand(static_cast<int>(hand));
-	const std::string_view skillId =
-		held.Empty() ? std::string_view("unarmed")
-					 : std::string_view(ItemKindFor(held.typeId).skill);
-	const int level = attacker.SkillLevel(skillId);
-
 	const AttackProfile atk{
-		attacker.AttackDamage() * (1.0f + 0.08f * static_cast<float>(level)),
+		attacker.AttackDamage(weapon ? weapon->damage : 0.0f) *
+			(1.0f + 0.08f * static_cast<float>(level)),
 		attacker.Accuracy() + 0.02f * static_cast<float>(level)};
 	const DefenseProfile def{target->kind->evasion, target->kind->armor};
 	const AttackResult r = ResolveAttack(atk, def, m_combatRng);

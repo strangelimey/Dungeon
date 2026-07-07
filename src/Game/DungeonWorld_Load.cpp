@@ -646,6 +646,10 @@ DungeonWorld::ItemKind& DungeonWorld::ItemKindFor(const std::string& type) {
 		// Weapon class (docs/skills.md): the skill a swing with this item
 		// trains and is scaled by. Absent = the swing trains nothing.
 		kind->skill = CatalogGet(def, "skill", "");
+		// Weapon stats (docs/combat.md): absent fields stay 0, which the
+		// combat path reads as "use the unarmed attribute formulas".
+		kind->damage = def ? def->GetFloat("damage", 0.0f) : 0.0f;
+		kind->speed = def ? def->GetFloat("speed", 0.0f) : 0.0f;
 		kind->weight = def ? def->GetFloat("weight", 0.0f) : 0.0f;
 		// `command` is a free-form list (whitespace/comma separated) of command ids
 		// the hand right-click menu offers; runes implicitly gain "memorize" below.

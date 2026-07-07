@@ -896,6 +896,11 @@ private:
 		std::string category;    // rune|weapon|armor|clothing|food|misc (free-form)
 		std::string skill;       // weapon class this item trains/uses (catalog
 								 // `skill`, docs/skills.md); "" = untrained swing
+		// Weapon stats (docs/combat.md Phase 1). 0 = unstated: the swing falls
+		// back to the attacker's attribute-derived unarmed numbers, so
+		// non-weapon holdables swing unchanged.
+		float damage = 0.0f;     // base damage of a clean hit with this weapon
+		float speed = 0.0f;      // seconds between swings (before dexterity)
 		float weight = 0.0f;     // carry weight (kg); sums into a member's load
 		std::vector<std::string> commands; // hand right-click command ids (data-driven)
 		bool isRune = false;
