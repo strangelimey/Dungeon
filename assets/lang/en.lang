@@ -209,6 +209,11 @@ spell.stoneskin=Stone Skin
 spell.fireshield=Fire Shield
 spell.waterveil=Water Veil
 spell.windward=Wind Ward
+; Effect descriptions (sheet Effects tab; <nameKey>.desc, {} = magnitude).
+spell.stoneskin.desc=Skin like stone — soaks {} damage from every blow.
+spell.fireshield.desc=Wreathed in flame — a landed blow scorches the attacker for {}.
+spell.waterveil.desc=A flowing veil soaks the next {} damage, then bursts.
+spell.windward.desc=The wind turns aside the next {} bolts.
 ; Status-effect hover label: effect name, seconds left.
 hud.effect_time={} — {}s
 ; Skill display names (docs/skills.md): the four schools + weapon classes.
@@ -303,6 +308,9 @@ sheet.backpack=Backpack
 sheet.load=Load: {} / {} kg
 sheet.skills=Skills
 sheet.no_skills=No skills yet.
+sheet.effects=Effects
+sheet.no_effects=No active effects.
+sheet.effect_time={}s
 sheet.nothing_carried=Nothing carried.
 equip.head=Head
 equip.body=Body

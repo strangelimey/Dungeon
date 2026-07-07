@@ -215,6 +215,11 @@ spell.stoneskin=Каменная кожа
 spell.fireshield=Огненный щит
 spell.waterveil=Водяная пелена
 spell.windward=Заслон ветра
+; Effect descriptions (sheet Effects tab; <nameKey>.desc, {} = magnitude).
+spell.stoneskin.desc=Каменная кожа — поглощает {} урона от каждого удара.
+spell.fireshield.desc=Объят пламенем — удар обжигает нападающего на {}.
+spell.waterveil.desc=Водяная пелена поглощает следующие {} урона, затем лопается.
+spell.windward.desc=Ветер отводит следующие {} снарядов.
 ; Status-effect hover label: effect name, seconds left.
 hud.effect_time={} — {} с
 ; Skill display names (docs/skills.md): the four schools + weapon classes.
@@ -309,6 +314,9 @@ sheet.backpack=Рюкзак
 sheet.load=Груз: {} / {} кг
 sheet.skills=Навыки
 sheet.no_skills=Пока нет навыков.
+sheet.effects=Эффекты
+sheet.no_effects=Нет активных эффектов.
+sheet.effect_time={} с
 sheet.nothing_carried=Ничего нет.
 equip.head=Голова
 equip.body=Тело

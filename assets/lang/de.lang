@@ -211,6 +211,11 @@ spell.stoneskin=Steinhaut
 spell.fireshield=Feuerschild
 spell.waterveil=Wasserschleier
 spell.windward=Windschild
+; Effect descriptions (sheet Effects tab; <nameKey>.desc, {} = magnitude).
+spell.stoneskin.desc=Haut wie Stein — schluckt {} Schaden bei jedem Treffer.
+spell.fireshield.desc=In Flammen gehüllt — ein Treffer versengt den Angreifer um {}.
+spell.waterveil.desc=Ein Wasserschleier schluckt die nächsten {} Schaden, dann zerbirst er.
+spell.windward.desc=Der Wind lenkt die nächsten {} Geschosse ab.
 ; Status-effect hover label: effect name, seconds left.
 hud.effect_time={} — {} s
 ; Skill display names (docs/skills.md): the four schools + weapon classes.
@@ -305,6 +310,9 @@ sheet.backpack=Rucksack
 sheet.load=Last: {} / {} kg
 sheet.skills=Fähigkeiten
 sheet.no_skills=Noch keine Fähigkeiten.
+sheet.effects=Effekte
+sheet.no_effects=Keine aktiven Effekte.
+sheet.effect_time={} s
 sheet.nothing_carried=Nichts dabei.
 equip.head=Kopf
 equip.body=Körper

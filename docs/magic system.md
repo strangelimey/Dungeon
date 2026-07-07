@@ -220,8 +220,10 @@ Magic is a **walled-off module** (it knows nothing of map/monsters/HUD):
   recasting the SAME school replaces its ward. The party bar draws an icon
   per active effect in the member's NAME band, right-aligned and growing
   right-to-left (school-tinted border + depleting time sliver; hover names
-  it with its time left; spill-over handling deferred); a character-sheet
-  Effects section is noted for later.
+  it with its time left; spill-over handling deferred). The character
+  sheet's fourth tab (Effects, the hourglass button) is the long-form view:
+  the same icon at reading size plus name, a magnitude-formatted
+  description (`<nameKey>.desc` loc keys), and the time left.
 - **Casting entry point.** The spellbook panel (Magic » Spellbook) is built;
   the per-member **Magic sigil** described in "Opening the spell panel" is not
   built yet (the hand menu is the only door today).

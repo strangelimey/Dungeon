@@ -358,7 +358,7 @@ public:
 	void Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) override;
 
 	// Which body the sheet shows; the mode buttons under the portrait switch it.
-	enum class Mode { Inventory, Stats, Skills };
+	enum class Mode { Inventory, Stats, Skills, Effects };
 	// Opens the sheet on a specific tab (the party bar uses this: portrait ->
 	// Inventory, the stat bars -> Stats).
 	void SetMode(Mode m) { m_mode = m; }
@@ -386,6 +386,8 @@ private:
 				   float sx, float sy);
 	void DrawSkills(ui::UIContext& ctx, gfx::SpriteBatch& batch, const gfx::Rect& px,
 					float sx, float sy);
+	void DrawEffects(ui::UIContext& ctx, gfx::SpriteBatch& batch,
+					 const gfx::Rect& px, float sx, float sy);
 	// Applies a held-aware click to a slot: place / swap / pick up.
 	void ClickSlot(ItemSlot& slot);
 	// Pack-row slot i was clicked: equip a held container into it, else select it.
@@ -423,10 +425,23 @@ private:
 		Vec4 tint{0, 0, 0, 0};
 	};
 	std::vector<SkillRow> m_skillRows;
+	// Effects-tab rows, likewise baked by SetCharacter (the world is frozen
+	// while the sheet is open, so effects can't change under it): the HUD
+	// indicator's icon look (kind art + school tint + time sliver) plus the
+	// long form — name, a magnitude-formatted description (loc key =
+	// <nameKey>.desc), and the time left.
+	struct EffectRow {
+		StatusKind kind = StatusKind::Ward;
+		Vec4 tint{1, 1, 1, 1};
+		float frac = 0.0f; // timeLeft / duration, the icon's sliver
+		std::string name, desc, time;
+	};
+	std::vector<EffectRow> m_effectRows;
 	// Static page text, localized once at construction (the sheet is rebuilt
 	// on a language change) so Draw stays allocation-free.
 	std::string m_healthLabel, m_staminaLabel, m_manaLabel;
 	std::string m_attributesLabel, m_skillsLabel, m_noSkills;
+	std::string m_effectsLabel, m_noEffects;
 	std::array<std::string, 5> m_attrLabels;            // localized attribute names
 };
 

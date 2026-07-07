@@ -211,6 +211,11 @@ spell.stoneskin=Pelle di pietra
 spell.fireshield=Scudo di fuoco
 spell.waterveil=Velo d'acqua
 spell.windward=Scudo di vento
+; Effect descriptions (sheet Effects tab; <nameKey>.desc, {} = magnitude).
+spell.stoneskin.desc=Pelle di pietra — assorbe {} danni da ogni colpo.
+spell.fireshield.desc=Avvolto dalle fiamme — un colpo a segno brucia l'attaccante per {}.
+spell.waterveil.desc=Un velo d'acqua assorbe i prossimi {} danni, poi si infrange.
+spell.windward.desc=Il vento devia i prossimi {} dardi.
 ; Status-effect hover label: effect name, seconds left.
 hud.effect_time={} — {} s
 ; Skill display names (docs/skills.md): the four schools + weapon classes.
@@ -305,6 +310,9 @@ sheet.backpack=Zaino
 sheet.load=Carico: {} / {} kg
 sheet.skills=Abilità
 sheet.no_skills=Nessuna abilità ancora.
+sheet.effects=Effetti
+sheet.no_effects=Nessun effetto attivo.
+sheet.effect_time={} s
 sheet.nothing_carried=Niente con sé.
 equip.head=Testa
 equip.body=Corpo

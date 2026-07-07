@@ -718,8 +718,9 @@ constexpr float kPackRowY = 210.0f; // the pack-row (one row of kPackRowSlots)
 constexpr float kPackSepY = kPackRowY + kPackSlot + 9.0f;  // divider rule
 constexpr float kPackY    = kPackRowY + kPackSlot + 18.0f; // contents grid
 
-// --- mode toggle buttons (Inventory / Stats / Skills), a row under the portrait
-constexpr int kModeCount = 3;
+// --- mode toggle buttons (Inventory / Stats / Skills / Effects), a row under
+// the portrait
+constexpr int kModeCount = 4;
 constexpr float kModeBtnSize = 30.0f, kModeBtnGap = 5.0f;
 constexpr float kModeBtnX = 24.0f;  // aligns with the portrait's left edge
 constexpr float kModeBtnY = 132.0f; // just below the 100px portrait (top at y20)
@@ -740,7 +741,9 @@ CharacterSheet::CharacterSheet(const gfx::Rect& rect,
 	  m_healthLabel(loc::Tr("bar.health")),
 	  m_staminaLabel(loc::Tr("bar.stamina")), m_manaLabel(loc::Tr("bar.mana")),
 	  m_attributesLabel(loc::Tr("sheet.attributes")),
-	  m_skillsLabel(loc::Tr("sheet.skills")), m_noSkills(loc::Tr("sheet.no_skills")) {
+	  m_skillsLabel(loc::Tr("sheet.skills")), m_noSkills(loc::Tr("sheet.no_skills")),
+	  m_effectsLabel(loc::Tr("sheet.effects")),
+	  m_noEffects(loc::Tr("sheet.no_effects")) {
 	bounds = rect;
 	m_attrLabels = {loc::Tr("attr.strength"), loc::Tr("attr.dexterity"),
 					loc::Tr("attr.vitality"), loc::Tr("attr.willpower"),
@@ -790,6 +793,25 @@ void CharacterSheet::SetCharacter(size_t member) {
 		SpellSymbol sym;
 		if (ParseSymbol(id, sym)) continue; // schools already listed above
 		if (xp > 0.0f) addRow(id, xp, {0, 0, 0, 0});
+	}
+
+	// Effects-tab rows: one per active effect, list order (= HUD icon order).
+	// The description is the effect's <nameKey>.desc loc key with the
+	// magnitude formatted in (each ward reads its number its own way). Baked
+	// here because the sheet freezes the world — nothing ticks while open.
+	m_effectRows.clear();
+	for (const StatusEffect& e : character.effects) {
+		const Vec4 c = ElementColor(e.school);
+		m_effectRows.push_back(
+			{e.kind,
+			 {c.x, c.y, c.z, 1.0f},
+			 e.duration > 0.0f ? std::clamp(e.timeLeft / e.duration, 0.0f, 1.0f)
+							   : 1.0f,
+			 loc::Tr(e.nameKey),
+			 loc::Format(e.nameKey + ".desc",
+						 static_cast<int>(e.magnitude + 0.5f)),
+			 loc::Format("sheet.effect_time",
+						 static_cast<int>(e.timeLeft + 0.5f))});
 	}
 }
 
@@ -966,13 +988,15 @@ void CharacterSheet::Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	case Mode::Inventory: DrawInventory(ctx, batch, px, sx, sy); break;
 	case Mode::Stats:     DrawStats(ctx, batch, px, sx, sy); break;
 	case Mode::Skills:    DrawSkills(ctx, batch, px, sx, sy); break;
+	case Mode::Effects:   DrawEffects(ctx, batch, px, sx, sy); break;
 	}
 }
 
-// The three little icon buttons under the portrait. The active mode's button is
+// The four little icon buttons under the portrait. The active mode's button is
 // drawn "pressed" (active fill + accent border); hovered buttons lighten. Icons
 // are primitive-drawn (no atlas): a 2x2 grid (Inventory), ascending bars
-// (Stats), a six-point star (Skills).
+// (Stats), a six-point star (Skills), an hourglass (Effects — time-limited
+// conditions).
 void CharacterSheet::DrawModeButtons(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 									 const gfx::Rect& px, float sx, float sy) {
 	const ui::Theme& theme = ctx.GetTheme();
@@ -996,10 +1020,14 @@ void CharacterSheet::DrawModeButtons(ui::UIContext& ctx, gfx::SpriteBatch& batch
 			const float h[3] = {r.h * 0.22f, r.h * 0.34f, r.h * 0.46f};
 			for (int k = 0; k < 3; ++k)
 				batch.DrawRect({x0 + k * (bw + g), baseY - h[k], bw, h[k]}, ink);
-		} else { // Skills: a six-point star (two overlaid triangles)
+		} else if (i == 2) { // Skills: a six-point star (two overlaid triangles)
 			const float rad = r.w * 0.26f, dx = rad * 0.866f, dy = rad * 0.5f;
 			batch.DrawTriangle({cx, cy - rad}, {cx - dx, cy + dy}, {cx + dx, cy + dy}, ink);
 			batch.DrawTriangle({cx, cy + rad}, {cx - dx, cy - dy}, {cx + dx, cy - dy}, ink);
+		} else { // Effects: an hourglass (two triangles meeting at the waist)
+			const float hw = r.w * 0.22f, hh = r.h * 0.26f;
+			batch.DrawTriangle({cx - hw, cy - hh}, {cx + hw, cy - hh}, {cx, cy}, ink);
+			batch.DrawTriangle({cx, cy}, {cx - hw, cy + hh}, {cx + hw, cy + hh}, ink);
 		}
 	}
 }
@@ -1181,6 +1209,52 @@ void CharacterSheet::DrawSkills(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 							kBarH * sy};
 		DrawStatBar(batch, bar, row.frac,
 					row.tint.w > 0.0f ? row.tint : theme.accent, theme);
+	}
+}
+
+void CharacterSheet::DrawEffects(ui::UIContext& ctx, gfx::SpriteBatch& batch,
+								 const gfx::Rect& px, float sx, float sy) {
+	const ui::Theme& theme = ctx.GetTheme();
+	ui::Font& font = ctx.GetFont();
+	font.Draw(batch, m_effectsLabel, px.x + kDollX * sx, px.y + kInvHeaderY * sy,
+			  theme.accent);
+	if (m_effectRows.empty()) {
+		font.Draw(batch, m_noEffects, px.x + kDollX * sx, px.y + 230.0f * sy,
+				  theme.textDim);
+		return;
+	}
+
+	// One row per active effect: the HUD indicator's icon (kind art under a
+	// school-tinted border with the depleting time sliver) at reading size,
+	// then the long form beside it — name, time left right-aligned on the
+	// name line, and the magnitude-formatted description beneath.
+	constexpr float kFirstRowY = 218.0f, kRowH = 72.0f;
+	constexpr float kIconX = 56.0f, kIconSize = 48.0f;
+	constexpr float kTextX = kIconX + kIconSize + 16.0f, kTimeRight = 700.0f;
+	for (size_t i = 0; i < m_effectRows.size(); ++i) {
+		const EffectRow& row = m_effectRows[i];
+		const float y = kFirstRowY + static_cast<float>(i) * kRowH;
+		const gfx::Rect r{px.x + kIconX * sx, px.y + y * sy, kIconSize * sx,
+						  kIconSize * sy};
+		batch.DrawRect(r, kSlotBg);
+		const gfx::Texture* icon =
+			m_icons ? m_icons->For(EffectIconItem(row.kind)) : nullptr;
+		if (icon)
+			batch.DrawSprite({r.x + 2, r.y + 2, r.w - 4, r.h - 4}, {0, 0, 1, 1},
+							 *icon, {1, 1, 1, 1});
+		else
+			batch.DrawRect({r.x + 2, r.y + 2, r.w - 4, r.h - 4},
+						   {row.tint.x, row.tint.y, row.tint.z, 0.5f});
+		batch.DrawRect({r.x + 2, r.y + r.h - 5, (r.w - 4) * row.frac, 3},
+					   row.tint);
+		ui::DrawBorder(batch, r, row.tint);
+
+		font.Draw(batch, row.name, px.x + kTextX * sx, px.y + y * sy, theme.text);
+		const float tw = font.MeasureWidth(row.time);
+		font.Draw(batch, row.time, px.x + kTimeRight * sx - tw, px.y + y * sy,
+				  theme.accent);
+		font.Draw(batch, row.desc, px.x + kTextX * sx,
+				  px.y + y * sy + font.LineAdvance() + 4.0f, theme.textDim);
 	}
 }
 
