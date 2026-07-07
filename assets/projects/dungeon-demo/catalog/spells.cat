@@ -1,27 +1,22 @@
-; Spells — the recipe table mapping a SYMBOL SEQUENCE to an effect. A character
-; casts by building a sequence from the symbols they have memorized (per-member
-; vocabulary); an EXACT match here resolves to a spell, anything else fizzles.
-; Fields:
-;   name    = loc key for the display name (spell.flame -> "Flame")
-;   symbols = comma-separated symbol sequence (fire|earth|air|water); the key
-;   effect  = effect kind, dispatched in C++: projectile (a bolt) or shield
-;             (a ward on the CASTER; the school picks its behaviour)
-;   element = the elemental flavour (fire|earth|air|water) — drives bolt colour
-;   power   = base damage on a clean hit (fed into the strike resolver)
+; Spells — NUMERIC OVERRIDES over the spell classes (src/Game/Spell/, one
+; file pair per spell). Each spell's IDENTITY — its symbol recipe and what a
+; cast DOES — lives in its C++ class; an entry here (matched to the class by
+; its [id]) gets the last word on the NUMBERS, so tuning needs no rebuild.
+; An entry naming no class is ignored with a warning; a `symbols` field that
+; disagrees with the class recipe is warned about and the class wins.
+; Overridable fields:
+;   name    = loc key for the display name (default spell.<id>)
+;   power   = base damage on a clean hit / a ward's magnitude (school skill
+;             scales it at cast time — docs/skills.md)
 ;   mana    = mana points the cast costs (no cast below this)
-;   speed   = bolt travel speed in metres/sec
-;   range   = bolt reach in metres before it fizzles
+;   speed   = bolt travel speed in metres/sec        (bolt spells)
+;   range   = bolt reach in metres before it fizzles (bolt spells)
 ;   push    = cells a struck (surviving) monster is shoved along the bolt's
-;             travel; walls/doors/occupied cells stop the shove early (0 = none)
-;   duration= shield lifetime in seconds (shield spells; power = its magnitude:
-;             earth reads it as an armor bonus, fire as retaliation damage)
-; SCHOOL RULE: the four element runes are mutually exclusive — a sequence
-; carries exactly ONE, in first position (the first rune picks the spell's
-; school). The loader skips any recipe that breaks it. Tier 1 is therefore the
-; four elements as single-symbol bolts; deeper spells arrive with the tier-2
-; (non-school) symbols. THE SPELL LIST — what each spell is meant to do and
-; how it grows with the caster's school power — lives in docs/spells.md; the
-; projectile numbers below are the placeholder "day one" forms.
+;             travel; walls/doors/occupied cells stop the shove (bolt spells)
+;   duration= ward lifetime in seconds               (ward spells)
+; The values below currently MIRROR the class defaults — edit one to diverge.
+; THE SPELL LIST — what each spell is meant to do and how it grows with the
+; caster's school power — lives in docs/spells.md.
 
 [flame]
 name = spell.flame

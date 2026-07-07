@@ -161,8 +161,10 @@ public:
 	// stores "cast:<id>" defaults). All the same gates apply — the member must
 	// know the recipe's symbols and afford its mana. False on an unknown id.
 	bool CastSpellById(size_t member, std::string_view id, int hand = -1);
-	// The whole recipe table (the Magic menu filters it by known symbols).
-	std::span<const SpellDef> SpellDefs() const { return m_magic.Book().Defs(); }
+	// The whole spell registry (the Magic menu filters it by known symbols).
+	std::span<const std::unique_ptr<Spell>> SpellDefs() const {
+		return m_magic.Book().Defs();
+	}
 
 	// Fired once when the last standing member goes down (Game ends the run).
 	std::function<void()> onPartyWipe;

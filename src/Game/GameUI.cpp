@@ -7,6 +7,7 @@
 #include "Core/Paths.h"
 #include "Game/AssetUtil.h"
 #include "Game/SaveGame.h"
+#include "Game/Spell/Spell.h"
 #include "Graphics/DisplayEnum.h"
 
 #include <algorithm>
@@ -280,16 +281,16 @@ void GameUI::OpenHandUseMenu(size_t i, size_t hand) {
 			int shown = 0;
 			for (const std::string& id : c.spellMru[hand]) {
 				if (shown >= m_settings.spellMruCount) break;
-				// Skip ids the catalog no longer carries (the MRU is state,
-				// the recipe table is data — they can drift across edits).
-				const SpellDef* def = nullptr;
+				// Skip ids the registry no longer carries (the MRU is state,
+				// the spell classes are code — they can drift across edits).
+				const Spell* def = nullptr;
 				if (spellDefs)
-					for (const SpellDef& d : spellDefs())
-						if (d.id == id) { def = &d; break; }
+					for (const auto& d : spellDefs())
+						if (d->Id() == id) { def = d.get(); break; }
 				if (!def) continue;
-				std::string cmd = std::string(kCastPrefix) + def->id;
+				std::string cmd = std::string(kCastPrefix) + def->Id();
 				magic.children.push_back(
-					{loc::Tr(def->nameKey), [this, i, hand, itemId, cmd] {
+					{loc::Tr(def->NameKey()), [this, i, hand, itemId, cmd] {
 						 SelectUse(i, hand, itemId, cmd);
 					 }});
 				++shown;
@@ -364,9 +365,9 @@ bool GameUI::UseValidFor(const Character& c, const std::vector<std::string>& cmd
 	if (IsCastUse(cmd)) {
 		const std::string_view id = std::string_view(cmd).substr(kCastPrefix.size());
 		if (!spellDefs) return false;
-		for (const SpellDef& def : spellDefs())
-			if (def.id == id) return c.HasLearnedSpell(def.id);
-		return false; // recipe gone from the catalog
+		for (const auto& def : spellDefs())
+			if (def->Id() == id) return c.HasLearnedSpell(def->Id());
+		return false; // spell gone from the registry
 	}
 	if (std::ranges::find(cmds, cmd) != cmds.end()) return true;
 	// The bare-hand combat verbs are pickable for any hand contents.
@@ -1498,7 +1499,8 @@ void GameUI::BuildHud() {
 		&m_characters, m_itemIcons);
 	m_spellbook->onClick = [this] { Click(); };
 	m_spellbook->spells = [this] {
-		return spellDefs ? spellDefs() : std::span<const SpellDef>{};
+		return spellDefs ? spellDefs()
+						 : std::span<const std::unique_ptr<Spell>>{};
 	};
 	m_spellbook->onCast = [this](size_t member, size_t hand,
 								 const std::vector<SpellSymbol>& seq) {

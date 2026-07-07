@@ -172,9 +172,9 @@ public:
 	// The hand right-click menu's command list for an item id (ItemKind::commands),
 	// wired by Game to the world's item kinds — keeps the command source single.
 	std::function<std::vector<std::string>(const std::string&)> itemCommands;
-	// The project's whole spell-recipe table (wired to DungeonWorld::SpellDefs);
+	// The project's whole spell registry (wired to DungeonWorld::SpellDefs);
 	// the hand-slot Magic submenu filters it by the member's known symbols.
-	std::function<std::span<const SpellDef>()> spellDefs;
+	std::function<std::span<const std::unique_ptr<Spell>>()> spellDefs;
 	// Member `i` casts the spell with this catalog id (a "cast:<id>" hand
 	// default) from hand `hand` (0 = L, 1 = R) — wired to DungeonWorld::
 	// CastSpellById (vocab/mana gates; the firing hand's MRU is credited).

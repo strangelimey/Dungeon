@@ -5,16 +5,18 @@
 // symbols (Fire + Air = fire bolt). Tier 1 is the four elements; more tiers
 // come later. A character learns a symbol by memorizing a Rune item (the rune
 // is consumed), so vocabulary is per character — stored as a bitmask on
-// Character (knownSymbols). The recipe table that maps a sequence to an effect
-// lives in the project's spells catalog (Spell.* / spells.cat); this header is
-// just the symbol primitive shared by Character, the casting UI, and the
-// resolver, plus the recipe table (SpellBook) that maps a sequence to an effect.
+// Character (knownSymbols). Recipes and behaviour live in the Spell classes
+// (Game/Spell/, one file pair per spell); the project's spells.cat only
+// OVERRIDES their numbers. This header is the symbol primitive shared by
+// Character, the casting UI, and the resolver, plus the registry (SpellBook)
+// that maps a sequence to its Spell.
 // ============================================================================
 #pragma once
 
 #include "Core/MathTypes.h"
 #include "Core/Types.h"
 
+#include <memory>
 #include <span>
 #include <string>
 #include <string_view>
@@ -62,56 +64,38 @@ bool RuneSymbolFromItemId(std::string_view typeId, SpellSymbol& out);
 // Premultiplied-additive accent colour for a symbol (rgb = emissive, alpha 0,
 // per docs/magic system.md: Fire=red, Earth=brown, Air=white, Water=blue). The
 // single source shared by the rune-tablet glow and the spell-bolt billboard.
-// A SPELL always tints by its SCHOOL (SpellDef::element — the first rune);
-// the shared form runes carry a neutral gold of their own for tablet/UI ink.
+// A SPELL always tints by its SCHOOL (Spell::School() — the first rune); the
+// shared form runes carry a neutral gold of their own for tablet/UI ink.
 Vec4 ElementColor(SpellSymbol s);
 
-// What a cast does once a recipe matches. A typed enum dispatched from ONE point
-// (DungeonWorld::CastSpell) — NOT scripting (see the content-stays-data-driven
-// decision). Projectile flies a bolt; Shield wards the CASTER for `duration`
-// seconds, its behaviour keyed by the spell's school (earth hardens = armor,
-// fire retaliates = attackers burn; water/air designed, not yet built — see
-// docs/spells.md). Heal/conjure/AoE append here later.
-enum class SpellEffect : u8 { Projectile, Shield, Count };
+class Spell; // Spell/Spell.h — the spell base class (behaviour + defaults)
 
-// One resolved recipe — a spells.cat entry (Spells.cpp parses the fields).
-struct SpellDef {
-	std::string id;                    // catalog id ("flame")
-	std::string nameKey;               // loc key for the display name ("spell.flame")
-	std::vector<SpellSymbol> sequence; // the symbol sequence that casts it
-	SpellEffect effect = SpellEffect::Projectile;
-	SpellSymbol element = SpellSymbol::Fire; // elemental flavour (bolt colour)
-	float power = 8.0f;                 // base damage on a clean hit — a Shield
-	                                    // reads it as MAGNITUDE (armor bonus /
-	                                    // retaliation damage, by school)
-	float mana = 4.0f;                  // mana points the cast costs
-	float speed = 7.0f;                 // bolt travel speed (m/s)
-	float range = 8.0f;                 // bolt reach (m) before it fizzles
-	int push = 0;                       // cells a struck monster is shoved along
-	                                    // the bolt's travel (the air-school shove)
-	float duration = 20.0f;             // shield lifetime in seconds (Shield only)
-};
-
-// The project's recipe table: built once from the spells catalog, matched by an
-// EXACT symbol sequence (order matters — Fire,Air differs from Air,Fire).
+// The spell registry: every concrete Spell class (Spell/AllSpells.cpp), with
+// the project's spells.cat NUMBERS laid over the class defaults, matched by
+// an EXACT symbol sequence (order matters — Fire,Air differs from Air,Fire).
+// Recipes and behaviour live in the classes; the catalog only tunes.
 class SpellBook {
 public:
-	// (Re)builds the table from a spells catalog (each entry's `symbols` field is
-	// the sequence). Malformed entries — unknown symbols, empty sequence — are
-	// skipped with a warning.
+	SpellBook();
+	~SpellBook(); // out of line — Spell is incomplete here
+
+	// (Re)builds the registry from the concrete classes, then applies the
+	// spells catalog's numeric overrides (matched by entry id). Catalog
+	// entries with no matching class — or stale `symbols` fields that no
+	// longer agree with the class recipe — are warned about, never trusted.
 	void Build(const Catalog& catalog);
-	// The recipe whose sequence exactly equals `seq`, or null if none matches.
-	const SpellDef* Match(std::span<const SpellSymbol> seq) const;
-	// The recipe with catalog id `id`, or null if none. Lets a non-party caster
-	// (a monster) reference a spell by name rather than reproduce its sequence.
-	const SpellDef* Find(std::string_view id) const;
-	// Every recipe, for UIs that enumerate castable spells (the hand-slot Magic
+	// The spell whose recipe exactly equals `seq`, or null if none matches.
+	const Spell* Match(std::span<const SpellSymbol> seq) const;
+	// The spell with id `id`, or null if none. Lets a non-party caster (a
+	// monster) reference a spell by name rather than reproduce its sequence.
+	const Spell* Find(std::string_view id) const;
+	// Every spell, for UIs that enumerate castable spells (the hand-slot Magic
 	// menu filters these by the member's known symbols).
-	std::span<const SpellDef> Defs() const { return m_defs; }
-	bool Empty() const { return m_defs.empty(); }
+	std::span<const std::unique_ptr<Spell>> Defs() const { return m_spells; }
+	bool Empty() const { return m_spells.empty(); }
 
 private:
-	std::vector<SpellDef> m_defs;
+	std::vector<std::unique_ptr<Spell>> m_spells;
 };
 
 } // namespace dungeon::game

@@ -125,9 +125,16 @@ DungeonWorld::DungeonWorld(gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	// Rebuilt every frame into retained capacity — no steady-state allocation.
 	m_lights.points.reserve(gfx::kMaxPointLights);
 
-	// Magic system: load the project's recipes. Casting produces a bolt spec that
-	// CastSpell spawns into the shared moving-item engine below.
+	// Magic system: build the spell registry (the Spell classes + the
+	// project's spells.cat numeric overrides), and wire the CAST SERVICES —
+	// the capability surface a spell's Cast() lands its effect through
+	// (Spell/Spell.h), so the magic module stays walled off from the world.
 	m_magic.LoadSpells(m_project.spells);
+	m_magic.SetCastServices(
+		{[this](const ProjectileSpec& bolt) { m_projectiles.Spawn(bolt); },
+		 [this](const Character& member, const std::string& line) {
+			 MemberMessage(member, line);
+		 }});
 
 	// Moving-item engine: wire its world seam so a projectile lives "on the map"
 	// without the engine depending on the map/combat. resolveHit is faction-aware —
@@ -3064,35 +3071,32 @@ void DungeonWorld::MonsterRangedAttack(Monster& monster) {
 	Vec3 origin = SlotCenter(monster.x, monster.z, monster.kind->size, monster.slot);
 	origin.y += 0.6f;
 
-	// A CASTER (archetype = caster with a spells.cat `spell`) throws that spell's
-	// bolt — its element colour, speed, range, and power — reusing the same recipe
-	// table the party casts from (no monster mana/vocab; it just shoots on cooldown).
-	// Any other ranged monster (a skirmisher) throws a plain ember bolt.
-	const SpellDef* spell =
+	// A CASTER (archetype = caster with a monsters.cat `spell`) throws that
+	// spell's bolt — Spell::MonsterBolt, the same class the party casts from,
+	// at the monster's accuracy (no monster mana/vocab; it just shoots on
+	// cooldown). A spell with no thrown form (a ward) yields nothing, and any
+	// other ranged monster (a skirmisher), a plain ember bolt.
+	const Spell* spell =
 		monster.Spell().empty() ? nullptr : m_magic.FindSpell(monster.Spell());
-
+	if (spell) {
+		if (const std::optional<ProjectileSpec> bolt =
+				spell->MonsterBolt(origin, dir, monster.kind->accuracy)) {
+			m_projectiles.Spawn(*bolt);
+			m_audio.Play(m_sounds.spellCast, 0.6f); // the cast voice
+			return;
+		}
+	}
 	ProjectileSpec bolt;
 	bolt.pos = origin;
 	bolt.dir = dir;
 	bolt.target = TargetSide::Party;
-	if (spell) {
-		bolt.speed = spell->speed;
-		bolt.range = spell->range;
-		bolt.atk = {spell->power, monster.kind->accuracy};
-		const Vec4 g = ElementColor(spell->element);
-		bolt.color = {g.x * 1.7f, g.y * 1.7f, g.z * 1.7f, 0.0f}; // bright elemental glow
-		bolt.size = 0.2f;
-		m_projectiles.Spawn(bolt);
-		m_audio.Play(m_sounds.spellCast, 0.6f); // the cast voice
-	} else {
-		bolt.speed = 6.0f;
-		bolt.range = (monster.kind->aggroRange + 1.0f) * kCellSize; // a bit past aggro
-		bolt.atk = {monster.kind->damage, monster.kind->accuracy};
-		bolt.color = {1.6f, 0.5f, 0.2f, 0.0f}; // ember-orange additive
-		bolt.size = 0.18f;
-		m_projectiles.Spawn(bolt);
-		m_audio.Play(m_sounds.monster, 0.5f); // soft launch cue (reuse the monster voice)
-	}
+	bolt.speed = 6.0f;
+	bolt.range = (monster.kind->aggroRange + 1.0f) * kCellSize; // a bit past aggro
+	bolt.atk = {monster.kind->damage, monster.kind->accuracy};
+	bolt.color = {1.6f, 0.5f, 0.2f, 0.0f}; // ember-orange additive
+	bolt.size = 0.18f;
+	m_projectiles.Spawn(bolt);
+	m_audio.Play(m_sounds.monster, 0.5f); // soft launch cue (reuse the monster voice)
 }
 
 bool DungeonWorld::CellHasLineOfSight(int x0, int z0, int x1, int z1) const {
@@ -3198,39 +3202,24 @@ bool DungeonWorld::CastSpell(size_t member, std::span<const SpellSymbol> sequenc
 		m_magic.Cast(caster, sequence, origin, dir, m_combatRng);
 	switch (r.outcome) {
 	case MagicSystem::CastOutcome::Cast:
-		// Dispatch the effect (the ONE place a spell effect becomes world state).
-		switch (r.spell->effect) {
-		case SpellEffect::Shield:
-			// The ward wraps the CASTER. Wards STACK across schools (all four
-			// may be up at once); only recasting the SAME school replaces its
-			// ward. School keys the behaviour — earth rides Character::Armor(),
-			// fire retaliates in MonsterAttack. Magnitude is the report's
-			// EFFECTIVE power (school skill already folded in).
-			caster.RemoveWard(r.spell->element);
-			caster.effects.push_back({StatusKind::Ward, r.spell->element,
-									  r.spell->nameKey, r.spell->duration,
-									  r.spell->duration, r.power});
-			MemberMessage(caster, loc::Format("log.shield_up", caster.name));
-			break;
-		case SpellEffect::Projectile:
-		default:
-			m_projectiles.Spawn(r.projectile); // the bolt now lives "on the map"
-			break;
-		}
-		MemberMessage(caster,
-					  loc::Format("log.cast", caster.name, loc::Tr(r.spell->nameKey)));
+		// The spell's own Cast() override has already landed the effect
+		// through the cast services (Spell/Spell.h) — a bolt is flying, a
+		// ward settled. What remains is the COMMON aftermath every success
+		// shares, whatever the spell did.
+		MemberMessage(caster, loc::Format("log.cast", caster.name,
+										  loc::Tr(r.spell->NameKey())));
 		// A spell is LEARNED the first time it is successfully cast — the
 		// failed outcomes below (a Fumble included) teach nothing.
-		if (caster.learnedSpells.insert(r.spell->id).second)
+		if (caster.learnedSpells.insert(r.spell->Id()).second)
 			MemberMessage(caster, loc::Format("log.spell_learned", caster.name,
-											  loc::Tr(r.spell->nameKey)));
+											  loc::Tr(r.spell->NameKey())));
 		// The freshest cast leads the FIRING hand's quick list (each hand keeps
 		// its own repertoire); a hand-less cast (dev console) touches neither.
 		if (hand == 0 || hand == 1)
-			caster.TouchSpellMru(static_cast<size_t>(hand), r.spell->id);
+			caster.TouchSpellMru(static_cast<size_t>(hand), r.spell->Id());
 		// The school skill grows with every SUCCESSFUL cast, in proportion to
 		// the spell's mana (a dearer spell teaches more) — docs/skills.md.
-		GrantSkillXp(caster, SymbolId(r.spell->element), r.spell->mana * 0.25f);
+		GrantSkillXp(caster, SymbolId(r.spell->School()), r.spell->Mana() * 0.25f);
 		m_audio.Play(m_sounds.spellCast, 0.7f);
 		return true;
 	case MagicSystem::CastOutcome::Fumble:
@@ -3253,9 +3242,9 @@ bool DungeonWorld::CastSpell(size_t member, std::span<const SpellSymbol> sequenc
 }
 
 bool DungeonWorld::CastSpellById(size_t member, std::string_view id, int hand) {
-	const SpellDef* def = m_magic.FindSpell(id);
+	const Spell* def = m_magic.FindSpell(id);
 	if (!def) return false; // stale default / catalog typo — nothing to cast
-	return CastSpell(member, def->sequence, hand);
+	return CastSpell(member, def->Sequence(), hand);
 }
 
 bool DungeonWorld::ResolveSpellHit(const ProjectileImpact& impact) {

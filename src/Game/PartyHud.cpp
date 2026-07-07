@@ -1,6 +1,7 @@
 #include "Game/PartyHud.h"
 
 #include "Core/Loc.h"
+#include "Game/Spell/Spell.h"
 
 #include <algorithm>
 #include <format>
@@ -397,10 +398,10 @@ SpellbookPanel::RuneSlots(const Character& c) const {
 	return slots;
 }
 
-const SpellDef* SpellbookPanel::Match() const {
+const Spell* SpellbookPanel::Match() const {
 	if (!spells || m_sequence.empty()) return nullptr;
-	for (const SpellDef& def : spells())
-		if (std::ranges::equal(def.sequence, m_sequence)) return &def;
+	for (const auto& def : spells())
+		if (std::ranges::equal(def->Sequence(), m_sequence)) return def.get();
 	return nullptr;
 }
 
@@ -555,8 +556,8 @@ void SpellbookPanel::Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	// unlearned recipe stays anonymous so building a sequence is genuine
 	// EXPERIMENTATION: the book won't confirm a discovery before the cast does.
 	const gfx::Rect seq0 = SequenceRect(px, 0);
-	if (const SpellDef* def = Match(); def && c->HasLearnedSpell(def->id))
-		font.Draw(batch, "= " + loc::Tr(def->nameKey), px.x + 10.0f * s,
+	if (const Spell* def = Match(); def && c->HasLearnedSpell(def->Id()))
+		font.Draw(batch, "= " + loc::Tr(def->NameKey()), px.x + 10.0f * s,
 				  seq0.y - 8.0f * s - font.Height(), theme.accent);
 
 	ui::DrawButtonFace(batch, font, CastRect(px), m_castLabel, theme, m_hotCast,

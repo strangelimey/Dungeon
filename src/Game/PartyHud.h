@@ -257,9 +257,9 @@ public:
 	// Cast pressed: (member, opening hand, the built sequence) — wired to the
 	// world's cast façade. Fired only with a non-empty sequence.
 	std::function<void(size_t, size_t, const std::vector<SpellSymbol>&)> onCast;
-	// The recipe table, for the live "= <spell>" match label (GameUI's
-	// spellDefs source). Null-safe: no table, no label.
-	std::function<std::span<const SpellDef>()> spells;
+	// The spell registry, for the live "= <spell>" match label (GameUI's
+	// spellDefs source). Null-safe: no registry, no label.
+	std::function<std::span<const std::unique_ptr<Spell>>()> spells;
 	std::function<void()> onClick; // UI click feedback
 
 	void Update(ui::UIContext& ctx) override;
@@ -281,8 +281,8 @@ private:
 	gfx::Rect SequenceRect(const gfx::Rect& px, size_t i) const;
 	gfx::Rect CastRect(const gfx::Rect& px) const;
 	gfx::Rect ClearRect(const gfx::Rect& px) const;
-	// The recipe the sequence spells out, if any.
-	const SpellDef* Match() const;
+	// The spell the sequence spells out, if any.
+	const Spell* Match() const;
 	// Draws one rune face: the rune-item icon when loaded, else an
 	// element-tinted fallback square; element-coloured border. Disabled (the
 	// symbol is already in the sequence) washes it out under a dark overlay.

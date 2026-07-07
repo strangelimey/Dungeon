@@ -180,22 +180,38 @@ above. (Phase labels P1–P6 track the build-out order.)
 
 Magic is a **walled-off module** (it knows nothing of map/monsters/HUD):
 
-- **`Magic.h/.cpp` — `MagicSystem`** owns the `SpellBook`, live projectiles, and
-  sparks; does `Cast`/`Update`/`AppendBillboards`. It reaches the world only
-  through three `std::function` hooks the owner wires once: `isBlocked(pos)`
-  (wall/OOB), `resolveHit(pos, AttackProfile)→bool` (combat + feedback; true =
-  consume bolt), `onFizzle(pos)` (sound).
-- **`Spells.h/.cpp` — data layer.** `SpellSymbol` alphabet, `SpellDef`/
-  `SpellEffect`, the `SpellBook` recipe table, and shared
-  `ElementColor(SpellSymbol)` (DungeonWorld::RuneGlow delegates to it). Kept
+- **`Spell/` — the spell classes** (decision 2026-07-07: isolate the
+  hard-coding, no Lua). `Spell` is the base — id, name/description loc keys,
+  the SYMBOL RECIPE (first rune = school), mana, base power — with a pure
+  virtual `Cast(CastContext&)` where each spell's behaviour lives. The shared
+  forms are intermediate classes (`BoltSpell` flies the bolt + serves
+  `MonsterBolt` for monster casters; `WardSpell` lands the school-keyed ward),
+  and every concrete spell is its own file pair (`Flame`, `Rock`, ...,
+  `Windward`) constructed with its numbers — override `Cast()` the day it
+  grows unique behaviour (Flame igniting sconces). `AllSpells.cpp` is the
+  registry list; adding a spell = file pair + one line there + CMakeLists.
+  A `Cast()` reaches the world only through `CastServices` (spawnBolt,
+  member message) the host wires once.
+- **`Spells.h/.cpp` — the alphabet + registry.** `SpellSymbol`, shared
+  `ElementColor(SpellSymbol)` (DungeonWorld::RuneGlow delegates to it), and
+  the `SpellBook`: the concrete classes with the project's **spells.cat
+  NUMERIC OVERRIDES** laid on top (matched by id — data tunes numbers, never
+  redefines recipes; mismatched/stray entries are warned about). Kept
   lightweight (no gfx) because `Character.h` includes it.
-- **`DungeonWorld`** holds a `MagicSystem m_magic`, wires the hooks in its ctor;
-  `CastSpell` is a thin façade (party eye+facing → `m_magic.Cast` → turn the
-  `CastReport` into log + sound), `ResolveSpellHit` is the impact hook.
-- **`Project`** gained a `spells` catalog (`CatalogForKey "spells"`). Dev console
-  `cast <member> <sym>...`. Strings: `log.cast` / `spell_fizzles` /
-  `cast_nomana` / `cast_unknown` / `spell_hits` / `spell_misses` / `spell_slain`
-  + `spell.*` names in `en.lang`.
+- **`Magic.h/.cpp` — `MagicSystem`** owns the `SpellBook` and runs the COMMON
+  cast gates (vocabulary, mana, the skill/fumble roll, power scaling), then
+  hands the landing to `spell->Cast(ctx)`. Projectiles fly in the shared
+  moving-item engine, whose three hooks (`isBlocked` / `resolveHit` /
+  `onFizzle`) the owner wires once.
+- **`DungeonWorld`** holds a `MagicSystem m_magic`, wires the hooks + cast
+  services in its ctor; `CastSpell` is a thin façade (party eye+facing →
+  `m_magic.Cast` → the common aftermath: log, learning, the firing hand's
+  MRU, school XP), `ResolveSpellHit` is the impact hook.
+- **`Project`** carries the `spells` catalog (`CatalogForKey "spells"` — the
+  overrides). Dev console `cast <member> [hand] <sym>...`. Strings:
+  `log.cast` / `spell_fizzles` / `cast_nomana` / `cast_unknown` /
+  `cast_fumble` / `spell_hits` / `spell_misses` / `spell_slain` + `spell.*`
+  names in `en.lang`.
 
 ### Gap between the build and the target design
 

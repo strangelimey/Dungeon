@@ -1,18 +1,20 @@
 // ============================================================================
-// Game/Magic.h — the magic system: casting (recipe + mana resolution).
+// Game/Magic.h — the magic system: casting (recipe + mana + skill resolution).
 //
-// This is the one runtime home for magic. Spells.h is the static DATA layer (the
-// SpellSymbol alphabet a Character memorizes + the SpellBook recipe table);
-// MagicSystem turns a memorized symbol sequence into a cast: it matches the
-// recipe, checks/deducts mana, and EMITS a projectile spec (a spell bolt) for
-// the caller to spawn. It does not fly or draw the bolt — that lives in the
-// shared moving-item engine (Projectiles.h), which a party spell and a monster's
-// ranged attack both feed. So MagicSystem depends on no map/monster/HUD/audio.
+// This is the one runtime home for magic. Spells.h is the SYMBOL alphabet +
+// the SpellBook registry; the Spell classes (Game/Spell/, one file pair per
+// spell) carry each spell's recipe, numbers, and — in their Cast() override —
+// its behaviour. MagicSystem runs the COMMON gates a cast passes through
+// (vocabulary, mana, the skill/fumble roll, power scaling) and then hands the
+// landing to the matched spell: spell->Cast(ctx), where ctx carries the
+// CastServices the owner wired once (spawn a bolt, log a member line). So
+// MagicSystem depends on no map/monster/HUD/audio — like its projectile
+// hooks, the services keep the module walled off.
 // ============================================================================
 #pragma once
 
 #include "Core/MathTypes.h"
-#include "Game/Projectiles.h"
+#include "Game/Spell/Spell.h"
 #include "Game/Spells.h"
 
 #include <random>
@@ -27,15 +29,24 @@ class MagicSystem {
 public:
 	MagicSystem();
 
-	// (Re)builds the recipe table from the project's spells catalog. Call once.
+	// (Re)builds the spell registry (classes + the catalog's numeric
+	// overrides). Call once.
 	void LoadSpells(const Catalog& spells);
 	bool HasRecipes() const { return !m_spellBook.Empty(); }
 
-	// The recipe with catalog id `id`, or null. Lets the host build a bolt spec for
-	// a monster CASTER (archetype = caster) from a named spell, reusing the recipe
-	// table without going through the party cast path (no caster/mana/vocab checks).
-	const SpellDef* FindSpell(std::string_view id) const { return m_spellBook.Find(id); }
-	// Read access to the whole recipe table (enumeration for casting UIs).
+	// What a successful Cast() may DO to the world — wired once by the owner
+	// (DungeonWorld ctor), handed to every spell's Cast().
+	void SetCastServices(CastServices services) {
+		m_services = std::move(services);
+	}
+
+	// The spell with catalog id `id`, or null. Lets the host reference a spell
+	// for a monster CASTER (archetype = caster) by name — its bolt comes from
+	// Spell::MonsterBolt — without the party cast path (no caster/mana/vocab).
+	const Spell* FindSpell(std::string_view id) const {
+		return m_spellBook.Find(id);
+	}
+	// Read access to the whole registry (enumeration for casting UIs).
 	const SpellBook& Book() const { return m_spellBook; }
 
 	// The outcome of a cast attempt; the owner turns it into a log line.
@@ -44,29 +55,23 @@ public:
 	enum class CastOutcome { Cast, Unknown, NoRecipe, NoMana, Fumble };
 	struct CastReport {
 		CastOutcome outcome = CastOutcome::NoRecipe;
-		const SpellDef* spell = nullptr;  // the matched recipe (set on Cast)
-		// The spell's EFFECTIVE power — the catalog number scaled by the
-		// caster's school skill (docs/skills.md "Skills → spells"). Bolt damage
-		// already carries it; a Shield consumer reads its magnitude from here.
-		float power = 0.0f;
-		// The bolt to spawn — valid only on Cast of a PROJECTILE spell. Other
-		// effects (Shield) carry no bolt; the owner dispatches on spell->effect.
-		ProjectileSpec projectile{};
+		const Spell* spell = nullptr; // the matched spell (set on Cast)
 	};
 
 	// Resolves a cast for `caster` from the symbol `sequence`. The caster must
-	// know every symbol, the sequence must match a recipe, and the caster must
+	// know every symbol, the sequence must match a spell, and the caster must
 	// have the mana; then the skill roll (school level + willpower vs the
 	// recipe's rune count, rolled on `rng`) may still Fumble it — mana spent,
-	// nothing else. On success it deducts the caster's mana and returns {Cast,
-	// spell, power, projectile} — a bolt spec flying `dir` from `origin` (the
-	// party eye) for the owner to Spawn into the moving-item engine. On the
-	// non-Fumble failures nothing is deducted and the outcome explains why.
+	// nothing else. On success the spell's own Cast() lands the effect through
+	// the wired services (a bolt spawns, a ward settles, ...) at skill-scaled
+	// power. On the non-Fumble failures nothing is deducted and the outcome
+	// explains why.
 	CastReport Cast(Character& caster, std::span<const SpellSymbol> sequence,
 					const Vec3& origin, const Vec3& dir, std::mt19937& rng);
 
 private:
 	SpellBook m_spellBook;
+	CastServices m_services;
 };
 
 } // namespace dungeon::game
