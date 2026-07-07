@@ -72,6 +72,20 @@ Key conventions (memorize, they bite):
   (load-or-die helpers). World→log feedback flows through
   DungeonWorld::onMessage; UI→state-machine actions through GameUI's on*
   callbacks, both wired in the Game constructor.
+- MAGIC (full model: docs/magic system.md + spells.md + skills.md): every
+  spell is a CLASS in src/Game/Spell/ (one file pair per spell; Spell base →
+  BoltSpell/WardSpell forms; behaviour = the Cast() override, reaching the
+  world only through host-wired CastServices) — spells.cat is NUMERIC
+  OVERRIDES only, the class recipe is identity. MagicSystem runs the common
+  gates (vocab, mana, skill/fumble roll, power ×(1+0.10×school level));
+  skills train BY USE (per-school + per-weapon-class, level = sqrt(xp),
+  associated stats creep behind — docs/skills.md). Status effects live in
+  ONE Character::effects list (wards stack across schools, same-school
+  recast replaces); the party bar draws them in the name band, the sheet's
+  Effects tab (hourglass) is the long form. Defaults + spell MRU are per
+  member AND per hand. Save v14/15/16 lines cover effects/skills/per-hand.
+  Adding a spell: file pair + AllSpells.cpp + CMakeLists (hand-listed) +
+  spell.<id> lang keys ×5 (+ .desc for ward-like effects).
 - ALL user-facing text goes through Core/Loc (loc::Tr(key) /
   loc::Format(key, args...) for {} placeholders), loaded from
   assets/lang/<code>.lang (UTF-8 key=value, ';' comments; en.lang is the
@@ -346,7 +360,13 @@ art title_bg, MenuList: Continue/Load/Start New Game/Settings — Continue/Load
 appear only when a save exists; all entries work) → Playing ⇄ Paused (Esc in-game freezes
 the world and shows Save/Load/Settings/Exit/Back over the scene; Esc backs
 out / resumes). Esc on the landing page quits; in-game quit is the pause
-menu's Exit (Game::QuitRequested polled by the main loop). Monsters
+menu's Exit (Game::QuitRequested polled by the main loop). During the three
+loading states the world is only PARTIALLY built (the HUD log, meshes,
+monsters arrive task by task), so dev-console COMMANDS are gated off
+(DevConsole::SetCommandsEnabled — Enter prints a notice; a `cast` mid-load
+once crashed on the null HUD log) while the queue keeps pumping even with
+the console open; GameUI::AddLogLine/ClearLog are null-safe pre-BuildHud for
+the same reason. Monsters
 chase + melee the party, driven OFF the main thread (see "Threading & async
 monster AI" below); fires are sconces at 'T' (wall-mounted,
 light at flame) and braziers at 'F', each with FireEffect particles

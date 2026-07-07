@@ -294,6 +294,8 @@ void ContextMenu::Open(float x, float y, std::vector<Entry> entries) {
 	m_x = x;
 	m_y = y;
 	m_hover = -1;
+	m_openChild = -1;
+	m_childHover = -1;
 	m_open = true;
 }
 
@@ -301,37 +303,88 @@ gfx::Rect ContextMenu::EntryRect(size_t i) const {
 	return {m_x, m_y + m_rowH * static_cast<float>(i), m_w, m_rowH};
 }
 
+gfx::Rect ContextMenu::ChildRect(size_t i) const {
+	return {m_childX, m_childY + m_rowH * static_cast<float>(i), m_childW, m_rowH};
+}
+
 void ContextMenu::Update(UIContext& ctx) {
 	if (!m_open) return;
 	const Input* input = ctx.CurrentInput();
 	if (!input) return;
 
-	// Size to the widest label, then clamp the box on screen.
+	// Size to the widest label (groups reserve room for the "»" marker), then
+	// clamp the box on screen.
 	Font& font = ctx.GetFont();
 	m_rowH = font.Height() + 12.0f;
 	float w = 80.0f;
-	for (const Entry& e : m_entries) w = std::max(w, font.MeasureWidth(e.label) + 24.0f);
+	for (const Entry& e : m_entries)
+		w = std::max(w, font.MeasureWidth(e.label) + 24.0f +
+							(e.children.empty() ? 0.0f : 16.0f));
 	m_w = w;
 	const float menuH = m_rowH * static_cast<float>(m_entries.size());
 	m_x = std::clamp(m_x, 0.0f, std::max(0.0f, ctx.Width() - m_w));
 	m_y = std::clamp(m_y, 0.0f, std::max(0.0f, ctx.Height() - menuH));
 
-	// The open menu owns the mouse: pick an entry, or close on any click off it.
+	// Lay the open group's submenu beside the parent: at its row, flush with
+	// the parent's right edge — flipped to the left edge when it would run off
+	// screen — with the parent still fully visible.
+	if (m_openChild >= 0 && m_openChild < static_cast<int>(m_entries.size())) {
+		const std::vector<Entry>& kids =
+			m_entries[static_cast<size_t>(m_openChild)].children;
+		float cw = 80.0f;
+		for (const Entry& e : kids) cw = std::max(cw, font.MeasureWidth(e.label) + 24.0f);
+		m_childW = cw;
+		m_childX = m_x + m_w;
+		if (m_childX + cw > ctx.Width()) m_childX = std::max(0.0f, m_x - cw);
+		const float childH = m_rowH * static_cast<float>(kids.size());
+		m_childY = std::clamp(m_y + m_rowH * static_cast<float>(m_openChild), 0.0f,
+							  std::max(0.0f, ctx.Height() - childH));
+	}
+
+	// The open menu owns the mouse. The submenu is checked first (it can
+	// overlap the parent when flipped left): a leaf pick closes everything.
 	m_hover = -1;
+	m_childHover = -1;
+	if (m_openChild >= 0 && m_openChild < static_cast<int>(m_entries.size())) {
+		const std::vector<Entry>& kids =
+			m_entries[static_cast<size_t>(m_openChild)].children;
+		for (size_t i = 0; i < kids.size(); ++i) {
+			if (!ChildRect(i).Contains(input->MouseX(), input->MouseY())) continue;
+			m_childHover = static_cast<int>(i);
+			if (input->WasMousePressed(MouseButton::Left)) {
+				auto fn = kids[i].onSelect; // copy: the callback may rebuild us
+				Close();
+				ctx.ConsumeMouse();
+				if (fn) fn();
+				return;
+			}
+			ctx.ConsumeMouse();
+			return; // over the submenu — the parent rows don't hit-test
+		}
+	}
 	for (size_t i = 0; i < m_entries.size(); ++i) {
 		if (!EntryRect(i).Contains(input->MouseX(), input->MouseY())) continue;
 		m_hover = static_cast<int>(i);
 		if (input->WasMousePressed(MouseButton::Left)) {
-			auto fn = m_entries[i].onSelect; // copy: the callback may rebuild us
-			m_open = false;
-			ctx.ConsumeMouse();
-			if (fn) fn();
-			return;
+			if (!m_entries[i].children.empty()) {
+				// A group: open its submenu (same group toggles, another
+				// swaps). The parent stays up for the next pick.
+				const int idx = static_cast<int>(i);
+				m_openChild = m_openChild == idx ? -1 : idx;
+			} else {
+				auto fn = m_entries[i].onSelect; // copy: may rebuild us
+				Close();
+				ctx.ConsumeMouse();
+				if (fn) fn();
+				return;
+			}
 		}
+		ctx.ConsumeMouse();
+		return;
 	}
 	if (input->WasMousePressed(MouseButton::Left) ||
 		input->WasMousePressed(MouseButton::Right))
-		m_open = false;
+		Close();
 	ctx.ConsumeMouse();
 }
 
@@ -341,11 +394,32 @@ void ContextMenu::DrawOverlay(UIContext& ctx, gfx::SpriteBatch& batch) {
 	Font& font = ctx.GetFont();
 	for (size_t i = 0; i < m_entries.size(); ++i) {
 		const gfx::Rect rect = EntryRect(i);
-		batch.DrawRect(rect, static_cast<int>(i) == m_hover ? theme.controlHot
-															: theme.control);
+		const bool groupOpen = static_cast<int>(i) == m_openChild;
+		batch.DrawRect(rect, groupOpen ? theme.controlActive
+									   : (static_cast<int>(i) == m_hover
+											  ? theme.controlHot
+											  : theme.control));
 		DrawBorder(batch, rect, theme.panelBorder);
 		font.Draw(batch, m_entries[i].label, rect.x + 10,
 				  rect.y + (rect.h - font.Height()) * 0.5f, theme.text);
+		if (!m_entries[i].children.empty()) // group marker at the right edge
+			font.Draw(batch, "»", rect.x + rect.w - 16,
+					  rect.y + (rect.h - font.Height()) * 0.5f,
+					  groupOpen ? theme.text : theme.textDim);
+	}
+	// The open group's submenu, beside the parent (drawn after = on top).
+	if (m_openChild >= 0 && m_openChild < static_cast<int>(m_entries.size())) {
+		const std::vector<Entry>& kids =
+			m_entries[static_cast<size_t>(m_openChild)].children;
+		for (size_t i = 0; i < kids.size(); ++i) {
+			const gfx::Rect rect = ChildRect(i);
+			batch.DrawRect(rect, static_cast<int>(i) == m_childHover
+									 ? theme.controlHot
+									 : theme.control);
+			DrawBorder(batch, rect, theme.panelBorder);
+			font.Draw(batch, kids[i].label, rect.x + 10,
+					  rect.y + (rect.h - font.Height()) * 0.5f, theme.text);
+		}
 	}
 }
 

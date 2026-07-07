@@ -108,6 +108,7 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	m_world.GetParty().SetLook(m_settings.look);
 
 	m_characters = CreateDefaultParty();
+	ApplyMemberColors(); // the settings palette wins over the authored defaults
 	ApplyPartySpeed();
 	m_world.SetRoster(&m_characters); // combat drains these; reset in place
 	m_ui.SetHitSplats(&m_hitSplats);  // stable address; LoadHitSplats fills it in
@@ -145,6 +146,11 @@ void Game::WireModuleCallbacks() {
 	// Wire the modules together: world feedback goes to the HUD log, UI
 	// actions drive the state machine.
 	m_world.onMessage = [this](const std::string& line) { m_ui.AddLogLine(line); };
+	// Lines about a specific member arrive with their identity color; the log
+	// tints them so each character's doings read at a glance.
+	m_world.onMemberMessage = [this](const std::string& line, const Vec4& color) {
+		m_ui.AddLogLine(line, color);
+	};
 	// The party fell: end the run back at the title (Start New Game resets the
 	// roster + monsters in place).
 	m_world.onPartyWipe = [this] {
@@ -221,6 +227,20 @@ void Game::WireModuleCallbacks() {
 	// kinds (single source — ItemKindFor parses category/command + rune defaults).
 	m_ui.itemCommands = [this](const std::string& id) {
 		return m_world.ItemCommands(id);
+	};
+	// The hand menu's Magic group enumerates the recipe table (filtered by the
+	// member's vocabulary in GameUI); a picked "cast:<id>" default casts through
+	// the world's façade — the same vocab/mana gates as the dev `cast` command.
+	m_ui.spellDefs = [this] { return m_world.SpellDefs(); };
+	m_ui.onCastSpell = [this](size_t member, const std::string& id, size_t hand) {
+		m_world.CastSpellById(member, id, static_cast<int>(hand));
+	};
+	// The spellbook panel casts a HAND-BUILT symbol sequence: an exact recipe
+	// match casts (vocab/mana gated), anything else fizzles with its log line.
+	// The hand whose menu opened the book gets the MRU credit.
+	m_ui.onCastSequence = [this](size_t member, size_t hand,
+								 const std::vector<SpellSymbol>& seq) {
+		m_world.CastSpell(member, seq, static_cast<int>(hand));
 	};
 	m_ui.onKeysChanged = [this] {
 		m_world.GetParty().SetKeys(m_settings.moveKeys);
@@ -1001,23 +1021,32 @@ void Game::RegisterDevCommands() {
 							   m_console.Print(std::format("{} pack += {}",
 														   m_characters[m].name, args[0]));
 					   });
-	m_console.Register("cast", "cast a spell by symbol sequence (dev): cast <member> <sym>...",
+	m_console.Register("cast", "cast a spell by symbol sequence (dev): cast <member> [hand 0/1] <sym>...",
 					   [this](const std::vector<std::string>& args) {
 						   if (!Need(m_console, args, 2,
-									 "usage: cast <member 0-3> <sym> [sym...]"))
+									 "usage: cast <member 0-3> [hand 0/1] <sym> [sym...]"))
 							   return;
 						   const size_t m = static_cast<size_t>(std::atoi(args[0].c_str()));
 						   if (m >= m_characters.size()) {
 							   m_console.Print("no such member");
 							   return;
 						   }
+						   // Optional hand (credits that hand's quick-cast MRU) —
+						   // symbol names are never "0"/"1", so the token is
+						   // unambiguous.
+						   int hand = -1;
+						   size_t first = 1;
+						   if (args.size() > 2 && (args[1] == "0" || args[1] == "1")) {
+							   hand = std::atoi(args[1].c_str());
+							   first = 2;
+						   }
 						   std::vector<SpellSymbol> seq;
-						   for (size_t i = 1; i < args.size(); ++i) {
+						   for (size_t i = first; i < args.size(); ++i) {
 							   SpellSymbol s;
 							   if (!ParseSymbolArg(m_console, args[i], s)) return;
 							   seq.push_back(s);
 						   }
-						   const bool ok = m_world.CastSpell(m, seq);
+						   const bool ok = m_world.CastSpell(m, seq, hand);
 						   m_console.Print(ok ? "cast away" : "no cast (fizzle / no mana / unknown)");
 					   });
 	m_console.Register("timescale", "scale sim speed (1 normal, 0 freeze)",
@@ -1330,6 +1359,7 @@ void Game::LoadItemIcons() {
 	m_itemCategories.byType.clear();
 	m_itemCategories.capacityByType.clear();
 	m_itemCategories.acceptsByType.clear();
+	m_itemCategories.holdableTypes.clear();
 	// Splits a whitespace/comma list (the catalog `accepts` field) into tokens.
 	const auto splitList = [](const std::string& s) {
 		std::vector<std::string> out;
@@ -1350,6 +1380,8 @@ void Game::LoadItemIcons() {
 		m_itemCategories.capacityByType[def.id] =
 			static_cast<int>(def.GetFloat("capacity", 0.0f));
 		m_itemCategories.acceptsByType[def.id] = splitList(def.Get("accepts", ""));
+		if (def.GetBool("holdable", false))
+			m_itemCategories.holdableTypes.insert(def.id);
 	}
 
 	// Equipment-slot outline silhouettes (slot_<type>.png), the ghost behind an
@@ -1381,6 +1413,12 @@ void Game::ResetRoster() {
 		m_characters[i] = fresh[i];
 		m_characters[i].portrait = portrait;
 	}
+	ApplyMemberColors(); // the settings palette wins over the authored defaults
+}
+
+void Game::ApplyMemberColors() {
+	for (size_t i = 0; i < m_characters.size() && i < kMemberColorCount; ++i)
+		m_characters[i].portraitColor = m_settings.memberColors[i];
 }
 
 void Game::StartNewGame() {
@@ -1438,6 +1476,30 @@ void Game::SaveGame(const std::string& name) {
 			for (const ItemSlot& s : p.contents) items.push_back(s.typeId);
 			c.packContents.push_back(std::move(items));
 		}
+		// The member's remembered per-hand, per-item default uses (hand
+		// left-click action) and each hand's cast-recency list.
+		for (size_t hand = 0; hand < 2; ++hand) {
+			for (const auto& [item, cmd] : member.useDefaults[hand])
+				c.useDefaults[hand].emplace_back(item, cmd);
+			c.mruSpells[hand] = member.spellMru[hand];
+		}
+		// Spells learned by first successful cast.
+		for (const std::string& id : member.learnedSpells)
+			c.learnedSpells.push_back(id);
+		// Active status effects — kind/school stored by their id tokens.
+		for (const StatusEffect& e : member.effects)
+			c.effects.push_back({StatusKindId(e.kind), SymbolId(e.school),
+								 e.timeLeft, e.duration, e.magnitude, e.nameKey});
+		// Skills, stat-creep pools, and the five attributes (they grow now).
+		for (const auto& [id, xp] : member.skillXp) c.skills.emplace_back(id, xp);
+		for (const auto& [stat, progress] : member.statProgress)
+			c.statProgress.emplace_back(stat, progress);
+		c.hasAttrs = true;
+		c.strength = member.strength;
+		c.dexterity = member.dexterity;
+		c.vitality = member.vitality;
+		c.willpower = member.willpower;
+		c.intelligence = member.intelligence;
 		data.characters.push_back(std::move(c));
 	}
 	WriteSave(data, SaveSlotPath(name));
@@ -1482,6 +1544,39 @@ bool Game::LoadGame(const std::string& path) {
 		}
 		if (c.selectedPack >= 0 && c.selectedPack < kPackRowSlots)
 			inv.selectedPack = c.selectedPack;
+		// Restore the remembered per-hand default uses (ResetRoster left the
+		// maps empty) and each hand's cast-recency list.
+		for (size_t hand = 0; hand < 2; ++hand) {
+			for (const auto& [item, cmd] : c.useDefaults[hand])
+				m_characters[i].useDefaults[hand][item] = cmd;
+			m_characters[i].spellMru[hand] = c.mruSpells[hand];
+		}
+		// And the spells learned by casting (likewise reset to empty).
+		for (const std::string& id : c.learnedSpells)
+			m_characters[i].learnedSpells.insert(id);
+		// Restore active status effects (pre-v13 saves carry none). An
+		// unknown kind token — a newer save — is skipped, not misread.
+		for (const SaveData::CharState::EffectState& e : c.effects) {
+			StatusKind kind;
+			SpellSymbol school = SpellSymbol::Fire;
+			if (!ParseStatusKind(e.kind, kind) || e.time <= 0.0f) continue;
+			ParseSymbol(e.school, school);
+			m_characters[i].effects.push_back(
+				{kind, school, e.nameKey, e.time,
+				 std::max(e.duration, e.time), e.magnitude});
+		}
+		// Skills, stat-creep pools, and the grown attributes (pre-v15 saves
+		// carry none — skills fresh, archetype attributes stand).
+		for (const auto& [id, xp] : c.skills) m_characters[i].skillXp[id] = xp;
+		for (const auto& [stat, progress] : c.statProgress)
+			m_characters[i].statProgress[stat] = progress;
+		if (c.hasAttrs) {
+			m_characters[i].strength = c.strength;
+			m_characters[i].dexterity = c.dexterity;
+			m_characters[i].vitality = c.vitality;
+			m_characters[i].willpower = c.willpower;
+			m_characters[i].intelligence = c.intelligence;
+		}
 	}
 	m_world.ApplyState(*data); // fills the per-level store + party pose/torch
 
@@ -1687,16 +1782,30 @@ void Game::Update(float dt) {
 	// The dev console toggles with `~` and overlays any state. While it is
 	// open it captures input (so the party can't move) but the world keeps
 	// simulating — it does NOT pause the game. The FPS sampler ticks every
-	// frame regardless.
+	// frame regardless. While a staged load is mid-flight the world is only
+	// partially built (the HUD log, meshes, and monsters arrive task by task),
+	// so command EXECUTION is gated off — a `cast`/`save`/`quality` then would
+	// reach into objects a later task creates (this crashed: 0xc0000005 in the
+	// HUD log line a cast raises before BuildHud has run). The console itself
+	// stays usable for the perf/thread panels.
+	const bool loading = m_state == AppState::Loading ||
+						 m_state == AppState::LoadingGame ||
+						 m_state == AppState::LoadingLevel;
 	const bool consoleWasOpen = m_console.IsOpen();
 	if (input.WasKeyPressed(VK_OEM_3)) m_console.Toggle();
+	m_console.SetCommandsEnabled(!loading);
 	m_console.Update(input, dt, static_cast<float>(m_window.Width()),
 					 static_cast<float>(m_window.Height()));
 	UpdateGovernor(dt); // adaptive thread throttle (no-op unless `governor auto`)
 	// The console owns the whole frame's input if it was open at the start (or
 	// just opened) — so the very keystroke that closes it (Esc or `~`) never
-	// also reaches the pause menu / HUD this frame.
-	if (m_console.IsOpen() || consoleWasOpen) {
+	// also reaches the pause menu / HUD this frame. Owning input is NOT a
+	// pause: a playing world keeps simulating here, and a loading state falls
+	// through to its case below so the task queue keeps pumping (an open
+	// console used to stall the load, holding the world half-built) — only
+	// its Esc-to-quit is console-gated.
+	const bool consoleOwnsInput = m_console.IsOpen() || consoleWasOpen;
+	if (consoleOwnsInput && !loading) {
 		if (m_state == AppState::Playing) {
 			m_world.Update(input, wdt, m_time, /*acceptInput=*/false);
 			Party& party = m_world.GetParty();
@@ -1707,7 +1816,7 @@ void Game::Update(float dt) {
 
 	switch (m_state) {
 	case AppState::Loading:
-		if (input.WasKeyPressed(VK_ESCAPE)) m_quitRequested = true;
+		if (!consoleOwnsInput && input.WasKeyPressed(VK_ESCAPE)) m_quitRequested = true;
 		if (RunLoadTasks()) m_state = AppState::Menu;
 		return;
 
@@ -1722,7 +1831,7 @@ void Game::Update(float dt) {
 		return;
 
 	case AppState::LoadingGame:
-		if (input.WasKeyPressed(VK_ESCAPE)) m_quitRequested = true;
+		if (!consoleOwnsInput && input.WasKeyPressed(VK_ESCAPE)) m_quitRequested = true;
 		if (RunLoadTasks()) {
 			m_gameLoaded = true;
 			if (!m_pendingLoadPath.empty()) {

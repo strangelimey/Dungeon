@@ -1,7 +1,8 @@
 # Magic System
 
 Design notes for the dungeon's magic system. This is the living reference for
-how schools, runes, and spells fit together. Start here.
+how schools, runes, and spells fit together. Start here. The SPELL LIST — what
+each spell does and how it grows — lives in `docs/spells.md`.
 
 This document is kept in sync with the `spell-system-plan` entry in Claude's
 project memory — the two carry the same design, implementation status, and
@@ -46,9 +47,34 @@ available for selection when starting a new spell — one per school.
 
 ### Second tier and beyond
 
-After the first rune is selected, the **2nd-tier runes** for that school
-appear as the next available choices. The specific tier-2 runes are **to be
-determined**.
+After the first rune is selected, the **2nd-tier runes** appear as the next
+available choices.
+
+**Decision (2026-07-06): tier-2 runes are SHARED FORM runes**, not per-school
+sets — the Dungeon Master grammar (element + form + class). A spell reads as a
+short sentence: **one school rune** (mandatory, first — picks the school and
+the spell's colour), **an optional form rune** (shapes what the school does),
+and later **a possible third-tier rune** refining it further. One form rune
+yields up to four spells (one per school), each flavoured by its school in the
+authored recipe rather than by bespoke runes — so vocabulary stays small (the
+`knownSymbols` mask holds 32) while the recipe space multiplies, and the
+player who learns a form with one school is invited to try it with the others.
+Not every school+form combination must be authored; an unauthored combination
+simply fizzles (failed experiments are part of discovery). A school may still
+gain a signature specialty rune later — the enum just appends; shared-first is
+not a one-way door.
+
+The form runes (glyphs are Elder Futhark, like the schools — Fire=Kenaz,
+Water=Laguz, Air=Ansuz, Earth=Berkano):
+
+| Form | Glyph | Meaning | Status |
+| --- | --- | --- | --- |
+| **Project** | Tiwaz (the up arrow) | "throw it ahead" — the directed/thrown form | BUILT — see the four `<school>,project` spells in docs/spells.md |
+| **Protect** | Algiz (the warding stave) | "guard the caster" — a ward whose behaviour the school picks: earth hardens, air deflects, water absorbs, fire retaliates | BUILT — all four shields (docs/spells.md) |
+
+Form runes carry no school: their tablets/UI ink use a neutral **arcane gold**
+(`ElementColor(Project)`), and a cast spell always tints by its SCHOOL — the
+first rune colours the whole spell.
 
 ## Opening the spell panel
 
@@ -70,18 +96,54 @@ a focus item lifts that restriction — noted but not decided.)
 
 ### Hand-click semantics (to keep casting off the hands)
 
-Casting is its own verb and must not fight the hand-slot gestures. Current hand
-behaviour (`GameUI::OnHandLeftClick`):
+Casting is its own verb and must not fight the hand-slot gestures. Hand
+behaviour since the use-menu model landed (branch `magic-system`,
+`GameUI::OnHandLeftClick` / `OnHandRightClick`):
 
-- **Left-click, holding a tablet on the cursor, empty hand** → place it in the
-  hand (cursor cleared).
-- **Left-click, holding a tablet on the cursor, occupied hand** → swap: the
-  hand's item goes onto the cursor, the cursor's item goes into the hand
-  (nothing destroyed).
-- **Left-click, empty cursor, hand has an item** → pick that item up onto the
-  cursor.
-- **Left-click, empty cursor, empty hand** → **nothing happens (for now).**
-  (Unarmed attack / "activate" is being moved off the left click.)
+- **Left-click, holding a HOLDABLE item on the cursor** → place it in the hand,
+  swapping any occupant onto the cursor (nothing destroyed). Items without the
+  catalog `holdable` flag are refused with a log line — on the control bar AND
+  the sheet's hand doll cells.
+- **Left-click, empty cursor, control-bar hand** → execute the hand's DEFAULT
+  USE: the member's remembered per-item-type pick, else the item's first
+  defaultable `command`; an empty hand throws the unarmed punch. (Picking an
+  item OUT of a hand is the character sheet's job — its hand cells keep the
+  pick/swap semantics.)
+- **Right-click, control-bar hand** → the item's USE menu (catalog `command`
+  list: stab/slash/eat/memorize/...). Selecting an entry records it as that
+  member's default for THAT HAND and the item type (defaults are per member
+  AND per hand — Michael, 2026-07-07 — so left-click on the left hand can be
+  one spell and on the right another) and — per the Settings → Controls
+  "Hands" checkbox — performs it. Menu-only commands (memorize) always
+  perform and never become defaults.
+- **Left-click on a hand with NO default yet** (bare hand, or an item with no
+  defaultable command — rune, key) → the same use menu opens, so the first
+  click picks what future clicks will do. For those hands the menu is
+  TWO-LEVEL: **Combat** → Punch / Kick, and **Magic** → the Spellbook plus the
+  spells the member has LEARNED — a spell is learned the first time the member
+  successfully CASTS it (built in the spellbook; saved per character), so the
+  quick-cast list is earned, not implied by vocabulary. The quick-cast list is
+  THAT HAND's most-recently-cast spells (the MRU is per member AND per hand,
+  like the defaults; a cast credits the hand it was fired from, a spellbook
+  cast the hand whose menu opened the book). Higher-tier spells
+  demand higher school skill and can FAIL to cast (the skill roll in
+  docs/skills.md — mana spent, nothing learned). A spell pick stores as `cast:<id>` in the same
+  default map ("unarmed" key for a bare hand) and left-click then casts it —
+  **the first casting door is live**: memorize a rune, arm the spell from the
+  hand menu, click to cast (DungeonWorld::CastSpellById, the usual vocab/mana
+  gates). A held wand/spellbook later becomes the richer second door — its use
+  menu listing its own spells rides this exact mechanism.
+- **The SPELLBOOK** (Magic » Spellbook, the submenu's first entry; the Magic
+  group appears once the member knows ANY symbol) opens the `SpellbookPanel`
+  in the HUD's Magic area — **where the player BUILDS a spell**: the member's
+  known symbols as rune buttons, a six-slot sequence spelled out by clicking
+  them (click a filled slot to take it back), a live "= <spell>" label when
+  the sequence matches a recipe the member has already LEARNED (an unlearned
+  match stays anonymous — the book never confirms a discovery before the
+  first successful cast does; experimentation is the point), and Cast (fires
+  DungeonWorld::CastSpell — exact match casts, a miss fizzles) / Clear. This panel is the seed the
+  school-first construction (first rune picks the school → tier-2) will grow
+  into; today it exposes the flat exact-sequence model directly.
 
 ## Current implementation status
 
@@ -118,33 +180,74 @@ above. (Phase labels P1–P6 track the build-out order.)
 
 Magic is a **walled-off module** (it knows nothing of map/monsters/HUD):
 
-- **`Magic.h/.cpp` — `MagicSystem`** owns the `SpellBook`, live projectiles, and
-  sparks; does `Cast`/`Update`/`AppendBillboards`. It reaches the world only
-  through three `std::function` hooks the owner wires once: `isBlocked(pos)`
-  (wall/OOB), `resolveHit(pos, AttackProfile)→bool` (combat + feedback; true =
-  consume bolt), `onFizzle(pos)` (sound).
-- **`Spells.h/.cpp` — data layer.** `SpellSymbol` alphabet, `SpellDef`/
-  `SpellEffect`, the `SpellBook` recipe table, and shared
-  `ElementColor(SpellSymbol)` (DungeonWorld::RuneGlow delegates to it). Kept
+- **`Spell/` — the spell classes** (decision 2026-07-07: isolate the
+  hard-coding, no Lua). `Spell` is the base — id, name/description loc keys,
+  the SYMBOL RECIPE (first rune = school), mana, base power — with a pure
+  virtual `Cast(CastContext&)` where each spell's behaviour lives. The shared
+  forms are intermediate classes (`BoltSpell` flies the bolt + serves
+  `MonsterBolt` for monster casters; `WardSpell` lands the school-keyed ward),
+  and every concrete spell is its own file pair (`Flame`, `Rock`, ...,
+  `Windward`) constructed with its numbers — override `Cast()` the day it
+  grows unique behaviour (Flame igniting sconces). `AllSpells.cpp` is the
+  registry list; adding a spell = file pair + one line there + CMakeLists.
+  A `Cast()` reaches the world only through `CastServices` (spawnBolt,
+  member message) the host wires once.
+- **`Spells.h/.cpp` — the alphabet + registry.** `SpellSymbol`, shared
+  `ElementColor(SpellSymbol)` (DungeonWorld::RuneGlow delegates to it), and
+  the `SpellBook`: the concrete classes with the project's **spells.cat
+  NUMERIC OVERRIDES** laid on top (matched by id — data tunes numbers, never
+  redefines recipes; mismatched/stray entries are warned about). Kept
   lightweight (no gfx) because `Character.h` includes it.
-- **`DungeonWorld`** holds a `MagicSystem m_magic`, wires the hooks in its ctor;
-  `CastSpell` is a thin façade (party eye+facing → `m_magic.Cast` → turn the
-  `CastReport` into log + sound), `ResolveSpellHit` is the impact hook.
-- **`Project`** gained a `spells` catalog (`CatalogForKey "spells"`). Dev console
-  `cast <member> <sym>...`. Strings: `log.cast` / `spell_fizzles` /
-  `cast_nomana` / `cast_unknown` / `spell_hits` / `spell_misses` / `spell_slain`
-  + `spell.*` names in `en.lang`.
+- **`Magic.h/.cpp` — `MagicSystem`** owns the `SpellBook` and runs the COMMON
+  cast gates (vocabulary, mana, the skill/fumble roll, power scaling), then
+  hands the landing to `spell->Cast(ctx)`. Projectiles fly in the shared
+  moving-item engine, whose three hooks (`isBlocked` / `resolveHit` /
+  `onFizzle`) the owner wires once.
+- **`DungeonWorld`** holds a `MagicSystem m_magic`, wires the hooks + cast
+  services in its ctor; `CastSpell` is a thin façade (party eye+facing →
+  `m_magic.Cast` → the common aftermath: log, learning, the firing hand's
+  MRU, school XP), `ResolveSpellHit` is the impact hook.
+- **`Project`** carries the `spells` catalog (`CatalogForKey "spells"` — the
+  overrides). Dev console `cast <member> [hand] <sym>...`. Strings:
+  `log.cast` / `spell_fizzles` / `cast_nomana` / `cast_unknown` /
+  `cast_fumble` / `spell_hits` / `spell_misses` / `spell_slain` + `spell.*`
+  names in `en.lang`.
 
 ### Gap between the build and the target design
 
-- **Flat recipes vs. school-first / tier-2.** The code matches an **exact ordered
-  symbol sequence** against `spells.cat`; there is no "school" concept and no
-  tier-gating in code. The school-first model (first rune picks the school, then
-  that school's tier-2 runes appear) and the per-school base-rune/color/stat
-  table above are the **target**, not yet built.
-- **Casting entry point.** The HUD Magic panel is still a placeholder
-  ("No spells known"); the per-member **Magic sigil** described in "Opening the
-  spell panel" is not built yet.
+- **School-first + tier-2: BUILT.** The one-school rule (exactly one element
+  rune, first position) is enforced in `Spells.h`/`SpellBook::Build` and the
+  spellbook UI (`SymbolAvailable`: the four schools go dark once one is down;
+  form runes wait until a school leads). Two shared form runes are live:
+  **Project** with its four `<school>,project` spells — including the engine's
+  first displacement effect (`push`, the air shove) — and **Protect** with the
+  shield framework (`SpellEffect::Shield`: caster-only wards that stack
+  across schools — same school recast replaces — school-keyed behaviour,
+  timed fade) carrying all four shields: Stone Skin
+  (armor), Fire Shield (melee retaliation), Water Veil (absorb pool, bursts
+  when spent), Wind Ward (bolt deflection charges, stills when spent).
+  Recipes are still matched as exact ordered sequences; that IS the
+  model now (the grammar is authored into the recipes, not parsed).
+- **Status effects are a unified list, and they STACK.** A ward lives in
+  `Character::effects` (`StatusEffect`: kind + school + magnitude + time;
+  save v14 "effect" lines, v13 "shield" lines still load) — the one list
+  every future condition (poison, injury, item buff) joins. Effects of
+  different identities coexist (all four wards at once is legal); only
+  recasting the SAME school replaces its ward. The party bar draws an icon
+  per active effect in the member's NAME band, right-aligned and growing
+  right-to-left (school-tinted border + depleting time sliver; hover names
+  it with its time left; spill-over handling deferred). The character
+  sheet's fourth tab (Effects, the hourglass button) is the long-form view:
+  the same icon at reading size plus name, a magnitude-formatted
+  description (`<nameKey>.desc` loc keys), and the time left.
+- **Casting entry point.** The spellbook panel (Magic » Spellbook) is built;
+  the per-member **Magic sigil** described in "Opening the spell panel" is not
+  built yet (the hand menu is the only door today).
+- **Per-school caster POWER: BUILT** (docs/skills.md) — the school SKILL
+  grows with successful casts; effective power scales catalog numbers by
+  (1 + 0.10 × level), the skill roll can fumble higher-tier casts, and the
+  skill's associated stat creeps behind. The growth FORMS in docs/spells.md
+  (flamethrower, boulder...) still need authoring against it.
 
 ### Remaining work
 

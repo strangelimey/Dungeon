@@ -13,9 +13,11 @@
 //   * rune_icon_<elem>.png — a small element-tinted tile with the glyph, for
 //     the held cursor + inventory slot (PNG only, like the hit splats).
 //
-// Glyph → element: Fire=Kenaz, Water=Laguz, Air=Ansuz, Earth=Berkano. Each is a
-// short list of straight strokes (Elder Futhark is all straight lines), shared
-// by the tablet textures and the icons. Purely deterministic.
+// Glyph → symbol: Fire=Kenaz, Water=Laguz, Air=Ansuz, Earth=Berkano; the shared
+// tier-2 form runes follow — Project=Tiwaz (the arrow: "throw it ahead"),
+// Protect=Algiz (the warding stave: raised arms). Each is a short list of
+// straight strokes (Elder Futhark is all straight lines), shared by the tablet
+// textures and the icons. Purely deterministic.
 // ============================================================================
 #include "RuneBaker.h"
 
@@ -47,14 +49,14 @@ struct Stroke {
 };
 
 struct RuneSpec {
-	const char* elem;     // "fire" / "water" / "air" / "earth" (rune_<elem>...)
+	const char* elem;     // symbol id: "fire" / "water" / ... (rune_<id>...)
 	Vec3 stone;           // base stone tint
-	Vec3 accent;          // element colour shown in the groove / icon glyph
+	Vec3 accent;          // symbol colour shown in the groove / icon glyph
 	std::vector<Stroke> strokes;
 };
 
 // Coordinates picked to read as the named Futhark rune at a glance.
-const std::array<RuneSpec, 4> kRunes = {{
+const std::array<RuneSpec, 6> kRunes = {{
 	// Fire — Kenaz "<" (beacon/torch).
 	{"fire", {0.55f, 0.42f, 0.36f}, {0.95f, 0.45f, 0.18f},
 	 {{0.58f, 0.84f, 0.40f, 0.50f}, {0.40f, 0.50f, 0.58f, 0.16f}}},
@@ -71,6 +73,20 @@ const std::array<RuneSpec, 4> kRunes = {{
 	 {{0.40f, 0.86f, 0.40f, 0.14f},
 	  {0.40f, 0.86f, 0.64f, 0.70f}, {0.64f, 0.70f, 0.40f, 0.54f},
 	  {0.40f, 0.54f, 0.64f, 0.38f}, {0.64f, 0.38f, 0.40f, 0.14f}}},
+	// Project (shared tier-2 form) — Tiwaz: an upward arrow (stave with two
+	// down-sloping arms off the tip). Neutral stone, arcane-gold accent — the
+	// form runes belong to no school (ElementColor's gold, matched here).
+	{"project", {0.48f, 0.47f, 0.44f}, {0.92f, 0.76f, 0.30f},
+	 {{0.50f, 0.86f, 0.50f, 0.14f},
+	  {0.50f, 0.86f, 0.32f, 0.64f},
+	  {0.50f, 0.86f, 0.68f, 0.64f}}},
+	// Protect (shared tier-2 form) — Algiz: the warding stave (arms RISING from
+	// mid-stave — Tiwaz's arms FALL from the tip; the opposite slope keeps the
+	// two form runes distinct at icon size). Same neutral stone + gold.
+	{"protect", {0.48f, 0.47f, 0.44f}, {0.92f, 0.76f, 0.30f},
+	 {{0.50f, 0.86f, 0.50f, 0.14f},
+	  {0.50f, 0.58f, 0.32f, 0.84f},
+	  {0.50f, 0.58f, 0.68f, 0.84f}}},
 }};
 
 // Distance from point (px,py) to segment (a→b), all in uv space.
@@ -395,9 +411,10 @@ bool BakeRunes(const std::string& assetsDir) {
 	const StoneMaps stone = LoadStoneMaps(textures);
 	u32 seed = 2200u;
 	int e = 0;
-	// Per-element crop of the stone scan so the four tablets read as distinct
+	// Per-symbol crop of the stone scan so the tablets read as distinct
 	// pieces of the same ancient rock.
-	const float offsets[4][2] = {{0.0f, 0.0f}, {0.5f, 0.13f}, {0.21f, 0.57f}, {0.63f, 0.38f}};
+	const float offsets[6][2] = {{0.0f, 0.0f},   {0.5f, 0.13f},  {0.21f, 0.57f},
+								 {0.63f, 0.38f}, {0.34f, 0.81f}, {0.77f, 0.66f}};
 	for (const RuneSpec& r : kRunes) {
 		ok &= BakeRuneTextureSet(textures, r, seed, stone, offsets[e][0], offsets[e][1]);
 		seed += 31u;

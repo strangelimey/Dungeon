@@ -5,6 +5,8 @@
 
 #include "Game/Character.h"
 
+#include <algorithm>
+
 namespace dungeon::game {
 
 MagicSystem::MagicSystem() = default;
@@ -13,34 +15,43 @@ void MagicSystem::LoadSpells(const Catalog& spells) { m_spellBook.Build(spells);
 
 MagicSystem::CastReport MagicSystem::Cast(Character& caster,
 										  std::span<const SpellSymbol> sequence,
-										  const Vec3& origin, const Vec3& dir) {
+										  const Vec3& origin, const Vec3& dir,
+										  std::mt19937& rng) {
 	if (sequence.empty()) return {CastOutcome::NoRecipe, nullptr};
 
 	// The caster must have memorized every symbol in the sequence.
 	for (const SpellSymbol s : sequence)
 		if (!caster.Knows(s)) return {CastOutcome::Unknown, nullptr};
 
-	const SpellDef* spell = m_spellBook.Match(sequence);
+	const Spell* spell = m_spellBook.Match(sequence);
 	if (!spell) return {CastOutcome::NoRecipe, nullptr};
-	if (caster.mana < spell->mana) return {CastOutcome::NoMana, spell};
-	caster.mana -= spell->mana;
+	if (caster.mana < spell->Mana()) return {CastOutcome::NoMana, spell};
+	caster.mana -= spell->Mana();
 
-	// Emit the bolt spec for the owner to spawn ("on the map"). Accuracy rides
-	// intelligence so a trained caster lands reliably; power is the recipe's
-	// (caster-independent for now — weapon foci scale it later). A party spell
-	// strikes monsters.
-	ProjectileSpec bolt;
-	bolt.pos = origin;
-	bolt.dir = dir;
-	bolt.speed = spell->speed;
-	bolt.range = spell->range;
-	bolt.atk = {spell->power, 0.70f + static_cast<float>(caster.intelligence) * 0.012f};
-	const Vec4 g = ElementColor(spell->element);
-	bolt.color = {g.x * 1.7f, g.y * 1.7f, g.z * 1.7f, 0.0f}; // bright additive
-	bolt.size = 0.2f;
-	bolt.target = TargetSide::Monsters;
+	// The skill roll (docs/skills.md "Skills → spells"): difficulty is the
+	// recipe's rune count, opposed by the caster's SCHOOL skill level and a
+	// touch of willpower. Tier-1 never fails; a fumbled cast has already
+	// spent its mana — the energy slips away — and teaches nothing.
+	const int level = caster.SkillLevel(SymbolId(spell->School()));
+	const float failChance =
+		std::clamp(0.35f * static_cast<float>(spell->Difficulty() - 1) -
+					   0.10f * static_cast<float>(level) -
+					   0.01f * static_cast<float>(caster.willpower),
+				   0.0f, 0.9f);
+	if (failChance > 0.0f &&
+		std::uniform_real_distribution<float>(0.0f, 1.0f)(rng) < failChance)
+		return {CastOutcome::Fumble, spell};
 
-	return {CastOutcome::Cast, spell, bolt};
+	// The gates have passed — the spell's own Cast() lands the effect (a bolt
+	// spawns, a ward settles, ...) through the owner-wired services, at
+	// EFFECTIVE power: the class/catalog number scaled by school skill (the
+	// per-school caster POWER the growth forms scale by).
+	CastContext ctx{caster, origin, dir,
+					spell->Power() * (1.0f + 0.10f * static_cast<float>(level)),
+					level, m_services};
+	spell->Cast(ctx);
+
+	return {CastOutcome::Cast, spell};
 }
 
 } // namespace dungeon::game

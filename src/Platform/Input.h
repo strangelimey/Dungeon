@@ -73,6 +73,17 @@ public:
 	// Clears one-frame edge state; call once per frame after the game reads input.
 	void EndFrame();
 
+	// Drops ALL keyboard/mouse state — down-states included, mouse position
+	// kept. The Window calls this on focus loss: the matching up-events go to
+	// whoever took focus, so anything still "down" here would be stuck down
+	// (a party that walks forever on a swallowed W-up). Everything re-arms
+	// from fresh messages when focus returns.
+	void ClearAll();
+	// Drops the mouse-button down-states + edges only (keyboard untouched).
+	// The Window calls this when mouse capture is torn away mid-drag — the
+	// button-up will never arrive, so the drag must not stay latched.
+	void ClearMouseButtons();
+
 private:
 	std::array<bool, 256> m_keys{};
 	std::array<bool, 256> m_keysPressed{};

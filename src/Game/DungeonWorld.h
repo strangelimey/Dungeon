@@ -152,7 +152,19 @@ public:
 	// outcome into HUD/audio feedback and returns true on a successful cast. The
 	// bolt's flight + impact run in MagicSystem::Update (see Magic.h). Driven by
 	// the casting UI and the dev console `cast`.
-	bool CastSpell(size_t member, std::span<const SpellSymbol> sequence);
+	// `hand` is the hand slot the cast was fired from (0 = left, 1 = right):
+	// a successful cast credits THAT hand's quick-cast MRU. -1 (dev console,
+	// no hand context) casts normally but touches no MRU.
+	bool CastSpell(size_t member, std::span<const SpellSymbol> sequence,
+				   int hand = -1);
+	// Same cast, referencing the recipe by catalog id (the hand-slot Magic menu
+	// stores "cast:<id>" defaults). All the same gates apply — the member must
+	// know the recipe's symbols and afford its mana. False on an unknown id.
+	bool CastSpellById(size_t member, std::string_view id, int hand = -1);
+	// The whole spell registry (the Magic menu filters it by known symbols).
+	std::span<const std::unique_ptr<Spell>> SpellDefs() const {
+		return m_magic.Book().Defs();
+	}
 
 	// Fired once when the last standing member goes down (Game ends the run).
 	std::function<void()> onPartyWipe;
@@ -645,6 +657,11 @@ public:
 	// HUD log feedback (bump lines, monster announcements, palette flavor).
 	// Set before play starts; the party/monster callbacks route through it.
 	std::function<void(const std::string&)> onMessage;
+	// Like onMessage, for lines ABOUT a party member (casting, learning,
+	// being struck, going down): carries the member's identity color so the
+	// log tints the line in it. MemberMessage routes here, falling back to
+	// plain onMessage when unwired.
+	std::function<void(const std::string&, const Vec4&)> onMemberMessage;
 
 private:
 	// A texture variant set: parallel albedo / normal+height pairs plus the
@@ -877,6 +894,8 @@ private:
 		std::string id;          // catalog id (the .ent record type)
 		std::string nameKey;     // loc key for the display name ("item.rune_fire")
 		std::string category;    // rune|weapon|armor|clothing|food|misc (free-form)
+		std::string skill;       // weapon class this item trains/uses (catalog
+								 // `skill`, docs/skills.md); "" = untrained swing
 		float weight = 0.0f;     // carry weight (kg); sums into a member's load
 		std::vector<std::string> commands; // hand right-click command ids (data-driven)
 		bool isRune = false;
@@ -1192,12 +1211,14 @@ private:
 	// party THIS frame, independent of its neighbours. Called where party damage
 	// (melee or spell) lands on a monster.
 	void ProvokeMonster(Monster& monster);
-	// Resolves a spell bolt reaching world position `p` with strike profile `atk`:
-	// finds a live monster in that cell, runs the strike (combat + log + slain),
-	// and returns true if a monster was there (the bolt is consumed). The
-	// moving-item engine (m_projectiles) owns the bolt; this is the TargetSide::
-	// Monsters branch of its impact hook.
-	bool ResolveSpellHit(const Vec3& p, const AttackProfile& atk);
+	// Resolves a spell bolt reaching `impact.pos` with its strike profile: finds
+	// a live monster in that cell, runs the strike (combat + log + slain), and
+	// returns true if a monster was there (the bolt is consumed). A landed hit
+	// with `impact.push` shoves the survivor that many cells along the bolt's
+	// travel (walls/occupants stop it early). The moving-item engine
+	// (m_projectiles) owns the bolt; this is the TargetSide::Monsters branch of
+	// its impact hook.
+	bool ResolveSpellHit(const ProjectileImpact& impact);
 	// TargetSide::Party branch of the moving-item engine's impact hook: a monster
 	// bolt reaching `p`. If `p` is the party's cell it strikes a random standing
 	// member (mirror of MonsterAttack) and is consumed (true, hit or miss);
@@ -1236,9 +1257,17 @@ private:
 	// Apply `damage` to a standing member: clamp health, flash the hit splat (severity
 	// by raw damage), and log a downing. Shared by every party-damage path.
 	void WoundMember(Character& target, float damage);
+	// A log line ABOUT `member`: routes through onMemberMessage with their
+	// identity color (the HUD tints it), falling back to plain onMessage.
+	void MemberMessage(const Character& member, const std::string& line) const;
 	// If no member is standing, latch the one-shot party wipe (message + callback).
 	// Returns true the frame it latches. Shared by the melee/ranged/bump paths.
 	bool CheckPartyWipe();
+	// Award skill XP to a member (docs/skills.md): logs a level-up, and drips
+	// the skill's associated stat forward (statProgress; a stat point + log
+	// when the pool passes 1). The ONE place skills grow — every award site
+	// (successful cast, landed blow) routes through it.
+	void GrantSkillXp(Character& member, std::string_view skillId, float xp);
 	// Blocked-move recoil reached its peak: jar every standing member for a
 	// small amount of damage, flash a splat over each portrait, grunt once, and
 	// latch a party wipe if the bruise is somehow the end of them.

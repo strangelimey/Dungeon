@@ -78,6 +78,56 @@ bool WriteSave(const SaveData& data, const std::string& path) {
 			for (const std::string& it : c.packContents[p]) t += " " + itemTok(it);
 			t += '\n';
 		}
+		// "usedef <i> <hand> <item> <cmd> ..." — the member's remembered
+		// default uses, one line per HAND (v16), flat (item, command) pairs.
+		// All ids are record-token-safe (no spaces).
+		for (size_t hand = 0; hand < 2; ++hand) {
+			if (c.useDefaults[hand].empty()) continue;
+			t += std::format("usedef {} {}", i, hand);
+			for (const auto& [item, cmd] : c.useDefaults[hand])
+				t += std::format(" {} {}", item, cmd);
+			t += '\n';
+		}
+		// "learned <i> <spell> ..." — the spells this member has cast at least
+		// once (spells.cat ids, token-safe).
+		if (!c.learnedSpells.empty()) {
+			t += std::format("learned {}", i);
+			for (const std::string& id : c.learnedSpells) t += " " + id;
+			t += '\n';
+		}
+		// "mru <i> <hand> <spell> ..." — most-recently-cast, newest first, one
+		// line per HAND (v16; order is the payload: the quick-cast list shows
+		// the head).
+		for (size_t hand = 0; hand < 2; ++hand) {
+			if (c.mruSpells[hand].empty()) continue;
+			t += std::format("mru {} {}", i, hand);
+			for (const std::string& id : c.mruSpells[hand]) t += " " + id;
+			t += '\n';
+		}
+		// "effect <i> <kind> <school> <time> <duration> <magnitude> <nameKey>"
+		// — one line per active status effect (v14; "-" pads an empty token).
+		for (const SaveData::CharState::EffectState& e : c.effects)
+			t += std::format("effect {} {} {} {:.3f} {:.3f} {:.3f} {}\n", i,
+							 itemTok(e.kind), itemTok(e.school), e.time,
+							 e.duration, e.magnitude, itemTok(e.nameKey));
+		// "skill <i> <id> <xp> ..." / "statxp <i> <stat> <progress> ..." — the
+		// member's skill XP and stat-creep pools, flat pairs (v15).
+		if (!c.skills.empty()) {
+			t += std::format("skill {}", i);
+			for (const auto& [id, xp] : c.skills)
+				t += std::format(" {} {:.3f}", id, xp);
+			t += '\n';
+		}
+		if (!c.statProgress.empty()) {
+			t += std::format("statxp {}", i);
+			for (const auto& [stat, progress] : c.statProgress)
+				t += std::format(" {} {:.3f}", stat, progress);
+			t += '\n';
+		}
+		// "attr <i> <str> <dex> <vit> <will> <int>" — the five attributes
+		// (v15; stat creep grows them, so the archetype defaults don't hold).
+		t += std::format("attr {} {} {} {} {} {}\n", i, c.strength, c.dexterity,
+						 c.vitality, c.willpower, c.intelligence);
 	}
 
 	// One block per visited level: a "level <stem>" header, then its entity
@@ -206,6 +256,108 @@ std::optional<SaveData> ReadSave(const std::string& path) {
 			};
 			for (size_t i = 3; i < tok.size(); ++i) c.packTypes.push_back(detok(tok[i]));
 			c.packContents.resize(c.packTypes.size());
+		} else if (kw == "usedef" && tok.size() >= 4) {
+			// Default-use pairs. v16: "usedef <i> <hand> <item> <cmd> ...";
+			// pre-v16 had no hand token ("usedef <i> <item> <cmd> ...") — an
+			// item id can't be "0"/"1", so the token disambiguates — and a
+			// flat line seeds BOTH hands.
+			const size_t idx = static_cast<size_t>(IntOf(tok[1]));
+			if (idx >= data.characters.size()) data.characters.resize(idx + 1);
+			SaveData::CharState& c = data.characters[idx];
+			const bool perHand = tok[2] == "0" || tok[2] == "1";
+			const size_t first = perHand ? 3 : 2;
+			for (size_t i = first; i + 1 < tok.size(); i += 2) {
+				if (perHand) {
+					c.useDefaults[tok[2] == "1" ? 1 : 0].emplace_back(
+						std::string(tok[i]), std::string(tok[i + 1]));
+				} else {
+					for (auto& hand : c.useDefaults)
+						hand.emplace_back(std::string(tok[i]),
+										  std::string(tok[i + 1]));
+				}
+			}
+		} else if (kw == "learned" && tok.size() >= 3) {
+			// Learned spells: "learned <i> <spell> ..." (v11).
+			const size_t idx = static_cast<size_t>(IntOf(tok[1]));
+			if (idx >= data.characters.size()) data.characters.resize(idx + 1);
+			SaveData::CharState& c = data.characters[idx];
+			for (size_t i = 2; i < tok.size(); ++i)
+				c.learnedSpells.emplace_back(tok[i]);
+		} else if (kw == "effect" && tok.size() >= 7) {
+			// Status effect: "effect <i> <kind> <school> <time> <duration>
+			// <magnitude> <nameKey>" (v14); "-" = empty token.
+			const size_t idx = static_cast<size_t>(IntOf(tok[1]));
+			if (idx >= data.characters.size()) data.characters.resize(idx + 1);
+			SaveData::CharState& c = data.characters[idx];
+			auto detok = [](std::string_view sv) {
+				return sv == "-" ? std::string() : std::string(sv);
+			};
+			SaveData::CharState::EffectState e;
+			e.kind = detok(tok[2]);
+			e.school = detok(tok[3]);
+			e.time = FloatOf(tok[4]);
+			e.duration = FloatOf(tok[5]);
+			e.magnitude = FloatOf(tok[6]);
+			if (tok.size() >= 8) e.nameKey = detok(tok[7]);
+			c.effects.push_back(std::move(e));
+		} else if (kw == "shield" && tok.size() >= 5) {
+			// v13 ward line: "shield <i> <school> <time> <power>". Loads as a
+			// ward effect — duration = the remaining time (the HUD fraction
+			// starts full), display name derived from the school (the four
+			// Protect shields are the only wards a v13 save can carry).
+			const size_t idx = static_cast<size_t>(IntOf(tok[1]));
+			if (idx >= data.characters.size()) data.characters.resize(idx + 1);
+			SaveData::CharState& c = data.characters[idx];
+			SaveData::CharState::EffectState e;
+			e.kind = "ward";
+			e.school = std::string(tok[2]);
+			e.time = FloatOf(tok[3]);
+			e.duration = e.time;
+			e.magnitude = FloatOf(tok[4]);
+			e.nameKey = e.school == "earth"   ? "spell.stoneskin"
+						: e.school == "fire"  ? "spell.fireshield"
+						: e.school == "water" ? "spell.waterveil"
+											  : "spell.windward";
+			c.effects.push_back(std::move(e));
+		} else if (kw == "attr" && tok.size() >= 7) {
+			// The five attributes: "attr <i> <str> <dex> <vit> <will> <int>" (v15).
+			const size_t idx = static_cast<size_t>(IntOf(tok[1]));
+			if (idx >= data.characters.size()) data.characters.resize(idx + 1);
+			SaveData::CharState& c = data.characters[idx];
+			c.hasAttrs = true;
+			c.strength = IntOf(tok[2]);
+			c.dexterity = IntOf(tok[3]);
+			c.vitality = IntOf(tok[4]);
+			c.willpower = IntOf(tok[5]);
+			c.intelligence = IntOf(tok[6]);
+		} else if (kw == "skill" && tok.size() >= 4) {
+			// Skill XP pairs: "skill <i> <id> <xp> ..." (v15).
+			const size_t idx = static_cast<size_t>(IntOf(tok[1]));
+			if (idx >= data.characters.size()) data.characters.resize(idx + 1);
+			SaveData::CharState& c = data.characters[idx];
+			for (size_t i = 2; i + 1 < tok.size(); i += 2)
+				c.skills.emplace_back(std::string(tok[i]), FloatOf(tok[i + 1]));
+		} else if (kw == "statxp" && tok.size() >= 4) {
+			// Stat-creep pools: "statxp <i> <stat> <progress> ..." (v15).
+			const size_t idx = static_cast<size_t>(IntOf(tok[1]));
+			if (idx >= data.characters.size()) data.characters.resize(idx + 1);
+			SaveData::CharState& c = data.characters[idx];
+			for (size_t i = 2; i + 1 < tok.size(); i += 2)
+				c.statProgress.emplace_back(std::string(tok[i]), FloatOf(tok[i + 1]));
+		} else if (kw == "mru" && tok.size() >= 3) {
+			// Spell MRU, newest first. v16: "mru <i> <hand> <spell> ...";
+			// pre-v16 had no hand token (spell ids can't be "0"/"1") — a flat
+			// line seeds BOTH hands.
+			const size_t idx = static_cast<size_t>(IntOf(tok[1]));
+			if (idx >= data.characters.size()) data.characters.resize(idx + 1);
+			SaveData::CharState& c = data.characters[idx];
+			const bool perHand = tok[2] == "0" || tok[2] == "1";
+			for (size_t i = perHand ? 3 : 2; i < tok.size(); ++i) {
+				if (perHand)
+					c.mruSpells[tok[2] == "1" ? 1 : 0].emplace_back(tok[i]);
+				else
+					for (auto& hand : c.mruSpells) hand.emplace_back(tok[i]);
+			}
 		} else if (kw == "packc" && tok.size() >= 3) {
 			// One pack's contents: "packc <i> <packIdx> <items...>".
 			const size_t idx = static_cast<size_t>(IntOf(tok[1]));

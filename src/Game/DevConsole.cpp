@@ -136,7 +136,11 @@ void DevConsole::Update(const Input& input, float dt, float windowW, float windo
 	if (input.WasKeyPressed(VK_RETURN)) {
 		if (!m_input.empty()) {
 			m_history.push_back(m_input);
-			Execute(m_input);
+			// Gated while a staged load runs (see SetCommandsEnabled): the
+			// world is partially built, so no handler may touch it. The line
+			// stays in history — recall it with Up once the load finishes.
+			if (m_commandsEnabled) Execute(m_input);
+			else Print("commands are unavailable while loading");
 			m_input.clear();
 		}
 		m_historyIndex = -1;

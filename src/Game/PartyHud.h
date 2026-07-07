@@ -30,6 +30,7 @@
 
 #include <array>
 #include <flat_map>
+#include <flat_set>
 #include <functional>
 #include <optional>
 #include <string>
@@ -90,6 +91,10 @@ struct ItemCategoryBank {
 	std::flat_map<std::string, int> capacityByType;   // pack content slots
 	// Categories a pack may HOLD (empty / contains "any" = unrestricted).
 	std::flat_map<std::string, std::vector<std::string>> acceptsByType;
+	// Ids whose catalog entry sets holdable=1 — the only items a HAND slot
+	// (control bar or sheet doll) accepts. Everything else is refused.
+	// (A set, not flat_map<...,bool>: vector<bool> can't back a flat_map.)
+	std::flat_set<std::string> holdableTypes;
 	bool Is(const std::string& typeId, std::string_view category) const {
 		const auto it = byType.find(typeId);
 		return it != byType.end() && it->second == category;
@@ -117,6 +122,10 @@ struct ItemCategoryBank {
 		if (Is(itemId, "container")) return false; // no nesting bags
 		return Accepts(packId, CategoryOf(itemId));
 	}
+	// True if a hand slot may hold this item (catalog holdable=1).
+	bool Holdable(const std::string& typeId) const {
+		return holdableTypes.contains(typeId);
+	}
 };
 
 // Resolves roster slot `i` to the live member, or null when the roster is
@@ -137,11 +146,17 @@ public:
 	// onClick fires on a left click on the PORTRAIT area (open the sheet / place a
 	// held tablet); onRight on a right click there (open this member's inventory).
 	// onBars fires on EITHER button over the stat-bar area (open the Stats tab).
+	// `icons` (Game-owned, may be null) supplies the status-effect strip's
+	// icon art (a ward draws the Protect rune tablet's icon). onEffects fires
+	// on a left click on one of the strip's icons (open the sheet's Effects
+	// tab — the icon's long form); it wins over onClick for that spot.
 	CharacterPanel(const gfx::Rect& rect, const std::vector<Character>* roster,
 				   size_t member,
 				   const ui::Font* portraitFont, const ResourceBarColors* barColors,
-				   const HitSplatIcons* hitSplats, std::function<void()> onClick,
-				   std::function<void()> onRight, std::function<void()> onBars);
+				   const HitSplatIcons* hitSplats, const ItemIconBank* icons,
+				   std::function<void()> onClick,
+				   std::function<void()> onRight, std::function<void()> onBars,
+				   std::function<void()> onEffects);
 
 	void Update(ui::UIContext& ctx) override;
 	void Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) override;
@@ -154,6 +169,12 @@ private:
 	// The stat-bar sub-region (right of the portrait, below the name) in pixels —
 	// kept in sync with Draw's bar layout; a click here opens the Stats tab.
 	gfx::Rect BarsRect(ui::UIContext& ctx) const;
+	// The portrait square (left of the panel), and the Nth status-effect icon
+	// — a row in the NAME band, right-aligned and growing right-to-left (many
+	// effects stack; spill past the name is a later problem). One layout,
+	// hit-tested by Update (hover names the effect) and drawn by Draw.
+	gfx::Rect PortraitRect() const;
+	gfx::Rect EffectIconRect(ui::UIContext& ctx, size_t index) const;
 
 	const std::vector<Character>* m_roster;
 	size_t m_member;
@@ -163,9 +184,14 @@ private:
 	const ui::Font* m_portraitFont;
 	const ResourceBarColors* m_barColors;
 	const HitSplatIcons* m_hitSplats; // may be null (icons not loaded)
+	const ItemIconBank* m_icons;      // may be null (effect icons skip art)
+	// Index into the member's effects list of the icon under the cursor
+	// (size_t(-1) = none) — set by Update, read by Draw for the hover label.
+	size_t m_hotEffect = static_cast<size_t>(-1);
 	std::function<void()> m_onClick;
 	std::function<void()> m_onRight;
 	std::function<void()> m_onBars;
+	std::function<void()> m_onEffects;
 	bool m_hot = false;
 	bool m_held = false;      // left-button press latched on this panel
 	bool m_heldRight = false; // right-button press latched on this panel
@@ -198,6 +224,79 @@ private:
 	bool m_hot = false;
 	bool m_held = false;       // left-button press latched on this slot
 	bool m_heldRight = false;  // right-button press latched on this slot
+};
+
+// The HUD Magic-area SPELLBOOK: opened from a hand's use menu (Magic »
+// Spellbook), it fills the control panel's magic box with the owning member's
+// KNOWN SYMBOLS as rune buttons, the sequence "spelled out" so far, the name
+// of the spell that sequence resolves to (when a known recipe matches), and
+// Cast / Clear. This is where the player BUILDS a spell: click symbols to
+// append (an unavailable symbol draws a disabled overlay and stops responding
+// — spent symbols never repeat, and the SCHOOL rule holds: the four element
+// runes are mutually exclusive, one leads every spell, so the other three go
+// dark once one is down and non-school symbols wait until one is), click a
+// sequence slot to remove that symbol AND everything spelled after it, Cast
+// fires onCast (the world gates vocabulary/mana) and clears the slate. The
+// sequence row sits at the bottom, just above Cast / Clear. Closed, it
+// draws the dim "no spells" placeholder line the label used to show. One
+// persistent widget — no HUD rebuild on open/close; it re-resolves its member
+// by roster index every frame (RosterMember) and drops sequence symbols the
+// member no longer knows, so a roster reset can't dangle or desync it.
+class SpellbookPanel : public ui::Widget {
+public:
+	SpellbookPanel(const gfx::Rect& rect, const std::vector<Character>* roster,
+				   const ItemIconBank* icons);
+
+	// Shows this member's book (fresh sequence). `hand` is the hand whose
+	// menu opened it — a Cast from the book credits that hand's quick-cast
+	// MRU (defaults/MRU are per member AND per hand).
+	void OpenFor(size_t member, size_t hand);
+	void Close();
+	bool IsOpen() const { return m_member >= 0; }
+
+	// Cast pressed: (member, opening hand, the built sequence) — wired to the
+	// world's cast façade. Fired only with a non-empty sequence.
+	std::function<void(size_t, size_t, const std::vector<SpellSymbol>&)> onCast;
+	// The spell registry, for the live "= <spell>" match label (GameUI's
+	// spellDefs source). Null-safe: no registry, no label.
+	std::function<std::span<const std::unique_ptr<Spell>>()> spells;
+	std::function<void()> onClick; // UI click feedback
+
+	void Update(ui::UIContext& ctx) override;
+	void Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) override;
+
+private:
+	// One cell of the rune-button grid: the four SCHOOL runes always hold the
+	// TOP ROW (schools-table order, drawn as empty frames until memorized);
+	// other runes appear in the rows below as the member learns them.
+	struct RuneSlot {
+		SpellSymbol symbol;
+		bool known;
+	};
+	std::vector<RuneSlot> RuneSlots(const Character& c) const;
+	// Layout inside the live box, shared by Update (hit-test) and Draw. The
+	// symbol grid indexes RuneSlots (4 per row); the sequence row indexes
+	// m_sequence.
+	gfx::Rect SymbolRect(const gfx::Rect& px, size_t i) const;
+	gfx::Rect SequenceRect(const gfx::Rect& px, size_t i) const;
+	gfx::Rect CastRect(const gfx::Rect& px) const;
+	gfx::Rect ClearRect(const gfx::Rect& px) const;
+	// The spell the sequence spells out, if any.
+	const Spell* Match() const;
+	// Draws one rune face: the rune-item icon when loaded, else an
+	// element-tinted fallback square; element-coloured border. Disabled (the
+	// symbol is already in the sequence) washes it out under a dark overlay.
+	void DrawRune(gfx::SpriteBatch& batch, const gfx::Rect& r, SpellSymbol s,
+				  bool hot, bool disabled = false) const;
+
+	const std::vector<Character>* m_roster;
+	const ItemIconBank* m_icons;
+	int m_member = -1;  // roster slot whose book is open (-1 = closed)
+	size_t m_hand = 0;  // the hand whose menu opened the book (MRU credit)
+	std::vector<SpellSymbol> m_sequence;
+	int m_hotSymbol = -1, m_hotSeq = -1;
+	bool m_hotCast = false, m_hotClear = false;
+	std::string m_placeholder, m_castLabel, m_clearLabel; // localized once
 };
 
 // The COMBINED party inventory: a centered panel with one backpack column per
@@ -263,7 +362,7 @@ public:
 	void Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) override;
 
 	// Which body the sheet shows; the mode buttons under the portrait switch it.
-	enum class Mode { Inventory, Stats, Skills };
+	enum class Mode { Inventory, Stats, Skills, Effects };
 	// Opens the sheet on a specific tab (the party bar uses this: portrait ->
 	// Inventory, the stat bars -> Stats).
 	void SetMode(Mode m) { m_mode = m; }
@@ -271,6 +370,9 @@ public:
 	// Fired when a held item is refused by the selected pack (item id, pack id) —
 	// Game wires it to a "won't fit" log line + sound.
 	std::function<void(const std::string&, const std::string&)> onRejectDrop;
+	// Fired when a held non-holdable item is refused by a hand doll cell (item
+	// id) — GameUI wires it to the shared "can't be held" log line + sound.
+	std::function<void(const std::string&)> onRejectHold;
 
 private:
 	// Design-space rect of doll cell i (an index into the placed-cell table),
@@ -288,6 +390,8 @@ private:
 				   float sx, float sy);
 	void DrawSkills(ui::UIContext& ctx, gfx::SpriteBatch& batch, const gfx::Rect& px,
 					float sx, float sy);
+	void DrawEffects(ui::UIContext& ctx, gfx::SpriteBatch& batch,
+					 const gfx::Rect& px, float sx, float sy);
 	// Applies a held-aware click to a slot: place / swap / pick up.
 	void ClickSlot(ItemSlot& slot);
 	// Pack-row slot i was clicked: equip a held container into it, else select it.
@@ -314,10 +418,34 @@ private:
 	int m_hotMode = -1; // mode button under the cursor (Update → Draw), -1 = none
 	std::string m_healthText, m_staminaText, m_manaText; // "42 / 42"
 	std::array<std::string, 5> m_attrValues;             // per-attribute numbers
+	// Skills-tab rows, baked by SetCharacter like the attribute values: the
+	// localized skill name, the level number, the progress fraction toward
+	// the next level, and the bar tint (school colour; weapon classes use
+	// the theme accent via alpha 0 as the "no tint" flag).
+	struct SkillRow {
+		std::string label;
+		std::string level;
+		float frac = 0.0f;
+		Vec4 tint{0, 0, 0, 0};
+	};
+	std::vector<SkillRow> m_skillRows;
+	// Effects-tab rows, likewise baked by SetCharacter (the world is frozen
+	// while the sheet is open, so effects can't change under it): the HUD
+	// indicator's icon look (kind art + school tint + time sliver) plus the
+	// long form — name, a magnitude-formatted description (loc key =
+	// <nameKey>.desc), and the time left.
+	struct EffectRow {
+		StatusKind kind = StatusKind::Ward;
+		Vec4 tint{1, 1, 1, 1};
+		float frac = 0.0f; // timeLeft / duration, the icon's sliver
+		std::string name, desc, time;
+	};
+	std::vector<EffectRow> m_effectRows;
 	// Static page text, localized once at construction (the sheet is rebuilt
 	// on a language change) so Draw stays allocation-free.
 	std::string m_healthLabel, m_staminaLabel, m_manaLabel;
 	std::string m_attributesLabel, m_skillsLabel, m_noSkills;
+	std::string m_effectsLabel, m_noEffects;
 	std::array<std::string, 5> m_attrLabels;            // localized attribute names
 };
 

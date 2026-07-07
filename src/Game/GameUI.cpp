@@ -7,6 +7,7 @@
 #include "Core/Paths.h"
 #include "Game/AssetUtil.h"
 #include "Game/SaveGame.h"
+#include "Game/Spell/Spell.h"
 #include "Graphics/DisplayEnum.h"
 
 #include <algorithm>
@@ -37,6 +38,36 @@ gfx::Rect Norm(const gfx::Rect& designPx, const gfx::Rect& container) {
 	return {(designPx.x - container.x) / container.w,
 			(designPx.y - container.y) / container.h, designPx.w / container.w,
 			designPx.h / container.h};
+}
+
+// Hand-use command ids that resolve to a melee swing: the verb is flavour (the
+// menu label + future per-verb damage tuning), the strike is the one shared
+// PartyAttack path. A new weapon verb is data (items.cat `command`) + a row
+// here + a use.<verb> lang key.
+constexpr std::string_view kMeleeUses[] = {"punch", "kick", "stab",  "slash",
+										   "chop",  "bash", "swing", "melee"};
+bool IsMeleeUse(std::string_view cmd) {
+	return std::ranges::find(kMeleeUses, cmd) != std::ranges::end(kMeleeUses);
+}
+// The bare hand's combat verbs — the "Combat" group of the default-picker
+// menu, and always-valid defaults regardless of what the hand holds.
+constexpr std::string_view kUnarmedUses[] = {"punch", "kick"};
+// A spell default is stored as "cast:<spells.cat id>" so it rides the same
+// per-item-type default map (and save lines) as the weapon verbs.
+constexpr std::string_view kCastPrefix = "cast:";
+bool IsCastUse(std::string_view cmd) { return cmd.starts_with(kCastPrefix); }
+// Commands that never become a left-click default — one-shot consuming actions
+// (memorize destroys the tablet) picked deliberately from the menu each time.
+bool IsMenuOnlyUse(std::string_view cmd) { return cmd == "memorize"; }
+// True if ExecuteUse can dispatch this id — unknown ids (a catalog typo) get
+// no menu entry rather than a dead one.
+bool IsExecutableUse(std::string_view cmd) {
+	return cmd == "eat" || cmd == "memorize" || IsMeleeUse(cmd) || IsCastUse(cmd);
+}
+// The useDefaults key a hand's contents map to ("unarmed" for a bare hand —
+// item ids are catalog tokens, so the sentinel can never collide).
+std::string UseKey(const std::string& itemId) {
+	return itemId.empty() ? std::string("unarmed") : itemId;
 }
 
 // Vertical stack with CSS-style collapsing margins: the gap between two items is
@@ -120,7 +151,8 @@ void GameUI::OnPortraitClick(size_t i) {
 								   loc::Tr("item." + packId)));
 		} else if (c.inventory.Stow(**m_held)) {
 			AddLogLine(loc::Format("log.stow", c.name,
-								   loc::Tr(std::format("item.{}", **m_held))));
+								   loc::Tr(std::format("item.{}", **m_held))),
+					   c.portraitColor);
 			m_held->reset();
 			Click();
 		} else {
@@ -147,12 +179,26 @@ void GameUI::OnPortraitBars(size_t i) {
 	m_sheet->SetMode(CharacterSheet::Mode::Stats);
 }
 
+// A click on one of the panel's status-effect icons (the name-band row): the
+// sheet's Effects tab is the icon's long form, so the icon IS its door.
+void GameUI::OnPortraitEffects(size_t i) {
+	if (i >= m_characters.size()) return;
+	onOpenSheet(i);
+	m_sheet->SetMode(CharacterSheet::Mode::Effects);
+}
+
 void GameUI::OnHandLeftClick(size_t i, size_t hand) {
 	if (i >= m_characters.size() || hand > 1) return;
 	ItemSlot& slot = m_characters[i].inventory.Hand(static_cast<int>(hand));
 	if (Holding()) {
-		// Place the carried tablet in this hand, swapping any occupant onto the
-		// cursor (so a click never silently destroys an item).
+		// Place the carried item in this hand, swapping any occupant onto the
+		// cursor (a click never silently destroys an item) — but only holdable
+		// items enter a hand; anything else stays on the cursor with a log line.
+		if (!m_itemCategories || !m_itemCategories->Holdable(**m_held)) {
+			AddLogLine(loc::Format("log.cant_hold",
+								   loc::Tr(std::format("item.{}", **m_held))));
+			return;
+		}
 		std::string incoming = **m_held;
 		if (slot.Empty()) m_held->reset();
 		else *m_held = slot.typeId;
@@ -160,36 +206,172 @@ void GameUI::OnHandLeftClick(size_t i, size_t hand) {
 		Click();
 		return;
 	}
-	if (!slot.Empty()) { // empty-handed: pick this hand's item up onto the cursor
-		*m_held = slot.typeId;
-		slot.Clear();
-		Click();
+	// Empty cursor: the control-bar hand is an ACTION button — it executes the
+	// hand's default use. Picking the item UP is the character sheet's job (its
+	// hand cells keep the pick/swap semantics), so a swing can't be fumbled into
+	// an accidental unequip mid-fight. A hand with NO default yet (bare hand,
+	// rune, key — nothing defaultable on the item) opens the use menu instead,
+	// so the first click PICKS what future clicks will do.
+	const std::string cmd = DefaultUseFor(
+		m_characters[i], hand, slot.Empty() ? std::string() : slot.typeId);
+	if (cmd.empty()) {
+		OpenHandUseMenu(i, hand);
 		return;
 	}
-	// Empty hand, empty cursor: nothing happens (for now). The hand's "activate"
-	// gesture (unarmed attack, onHandAttack) is being moved off the left click.
+	ExecuteUse(i, hand, cmd);
 }
 
 void GameUI::OnHandRightClick(size_t i, size_t hand) {
-	if (i >= m_characters.size() || hand > 1) return;
-	const ItemSlot& slot = m_characters[i].inventory.Hand(static_cast<int>(hand));
-	if (slot.Empty() || !m_handMenu) return;
-	// Build the action menu from the item's data-driven command list (ItemKind::
-	// commands, supplied by Game). Each command id maps to a label + handler here;
-	// an unknown id is skipped (no entry) so adding a command is data + one case.
+	OpenHandUseMenu(i, hand);
+}
+
+void GameUI::OpenHandUseMenu(size_t i, size_t hand) {
+	if (i >= m_characters.size() || hand > 1 || !m_handMenu) return;
+	const Character& c = m_characters[i];
+	const ItemSlot& slot = c.inventory.Hand(static_cast<int>(hand));
+	const std::string itemId = slot.Empty() ? std::string() : slot.typeId;
+	// The item's own command entries (ItemKind::commands, supplied by Game).
+	// Labels come from the use.<cmd> lang keys; an id ExecuteUse can't dispatch
+	// (catalog typo) gets no entry, so adding a verb is data + one case there.
 	const std::vector<std::string> cmds =
-		itemCommands ? itemCommands(slot.typeId) : std::vector<std::string>{};
+		itemId.empty() ? std::vector<std::string>{}
+					   : (itemCommands ? itemCommands(itemId)
+									   : std::vector<std::string>{});
 	std::vector<ui::ContextMenu::Entry> entries;
 	for (const std::string& cmd : cmds) {
-		if (cmd == "memorize")
-			entries.push_back({loc::Tr("ui.memorize"),
-							   [this, i, hand] { MemorizeFromHand(i, hand); }});
-		else if (cmd == "eat")
-			entries.push_back({loc::Tr("ui.eat"),
-							   [this, i, hand] { EatFromHand(i, hand); }});
+		if (!IsExecutableUse(cmd)) continue;
+		entries.push_back({loc::Tr("use." + cmd), [this, i, hand, itemId, cmd] {
+							   SelectUse(i, hand, itemId, cmd);
+						   }});
+	}
+	// An item that offers ANY command of its own — even a menu-only one like
+	// a rune's Memorize — shows just those (Michael, 2026-07-07: a rune's
+	// menu is Memorize alone). Only a hand with NOTHING to offer (bare hand,
+	// key) gets the grouped default pickers as CASCADING groups — the
+	// ContextMenu keeps the first tier visible beside an open submenu, so
+	// Combat and Magic stay in reach while browsing either: Combat > the
+	// unarmed verbs, Magic > the spells this member can cast.
+	if (entries.empty()) {
+		ui::ContextMenu::Entry combat{loc::Tr("menu.combat"), {}, {}};
+		for (std::string_view verb : kUnarmedUses) {
+			std::string cmd{verb};
+			combat.children.push_back(
+				{loc::Tr("use." + cmd), [this, i, hand, itemId, cmd] {
+					 SelectUse(i, hand, itemId, cmd);
+				 }});
+		}
+		entries.push_back(std::move(combat));
+		// The Magic group appears once the member knows ANY symbol. Its first
+		// entry is always the SPELLBOOK — the Magic-area panel where a spell
+		// is BUILT from known symbols (opening it is navigation, not a use, so
+		// it never becomes a left-click default) — followed by the member's
+		// MOST-RECENTLY-CAST spells (up to the Controls → Hands quick-cast
+		// count): a spell enters by being cast, freshest first; anything that
+		// slid off the list is still one spellbook visit away.
+		bool anySymbol = false;
+		for (u32 sym = 0; sym < kSymbolCount; ++sym)
+			anySymbol |= c.Knows(static_cast<SpellSymbol>(sym));
+		if (anySymbol) {
+			ui::ContextMenu::Entry magic{loc::Tr("menu.magic"), {}, {}};
+			magic.children.push_back({loc::Tr("menu.spellbook"), [this, i, hand] {
+										  Click();
+										  if (m_spellbook) m_spellbook->OpenFor(i, hand);
+									  }});
+			// THIS hand's recency list — each hand keeps its own repertoire.
+			int shown = 0;
+			for (const std::string& id : c.spellMru[hand]) {
+				if (shown >= m_settings.spellMruCount) break;
+				// Skip ids the registry no longer carries (the MRU is state,
+				// the spell classes are code — they can drift across edits).
+				const Spell* def = nullptr;
+				if (spellDefs)
+					for (const auto& d : spellDefs())
+						if (d->Id() == id) { def = d.get(); break; }
+				if (!def) continue;
+				std::string cmd = std::string(kCastPrefix) + def->Id();
+				magic.children.push_back(
+					{loc::Tr(def->NameKey()), [this, i, hand, itemId, cmd] {
+						 SelectUse(i, hand, itemId, cmd);
+					 }});
+				++shown;
+			}
+			entries.push_back(std::move(magic));
+		}
 	}
 	if (entries.empty()) return; // nothing actionable — don't pop an empty menu
 	m_handMenu->Open(m_hudMouseX, m_hudMouseY, std::move(entries));
+}
+
+void GameUI::SelectUse(size_t i, size_t hand, const std::string& itemId,
+					   const std::string& cmd) {
+	if (i >= m_characters.size() || hand > 1) return;
+	const bool menuOnly = IsMenuOnlyUse(cmd);
+	// The pick becomes this member's default for THIS HAND and the item TYPE
+	// (so every khukri in that hand chops until they choose otherwise; a
+	// bare-hand pick records under the "unarmed" key) — the other hand keeps
+	// its own pick, so left can be one spell and right another. Menu-only
+	// commands are deliberate one-shots — never recorded.
+	if (!menuOnly) m_characters[i].useDefaults[hand][UseKey(itemId)] = cmd;
+	// Menu-only commands always perform; a defaultable pick performs per the
+	// Controls setting (off = the menu only arms the default).
+	if (menuOnly || m_settings.useMenuExecutes) ExecuteUse(i, hand, cmd);
+}
+
+void GameUI::ExecuteUse(size_t i, size_t hand, const std::string& cmd) {
+	if (i >= m_characters.size() || hand > 1 || cmd.empty()) return;
+	if (cmd == "memorize") {
+		MemorizeFromHand(i, hand);
+	} else if (cmd == "eat") {
+		EatFromHand(i, hand);
+	} else if (IsCastUse(cmd)) {
+		// A "cast:<id>" default: the world's cast façade gates vocabulary and
+		// mana and turns the outcome into log + sound; the firing hand's
+		// quick-cast MRU is credited.
+		if (onCastSpell) onCastSpell(i, cmd.substr(kCastPrefix.size()), hand);
+	} else if (IsMeleeUse(cmd)) {
+		// Every melee verb lands through the one strike path; the verb itself
+		// is flavour until per-verb damage profiles exist. Cooldown gating and
+		// the alive-check live in DungeonWorld::PartyAttack.
+		if (onHandAttack) onHandAttack(i, hand);
+	}
+	// Unknown id: a catalog typo — the menu never offered it; a stale saved
+	// default falls through DefaultUseFor instead. Nothing to do.
+}
+
+std::string GameUI::DefaultUseFor(const Character& c, size_t hand,
+								  const std::string& itemId) const {
+	if (hand > 1) return {};
+	const std::vector<std::string> cmds =
+		itemId.empty() ? std::vector<std::string>{}
+					   : (itemCommands ? itemCommands(itemId)
+									   : std::vector<std::string>{});
+	// THIS hand's remembered pick wins while it is still valid — the catalog
+	// may have changed since the save was written, and a "cast:" default needs
+	// the member to know the spell (a loaded save's defaults must not outrun
+	// its vocabulary).
+	if (const auto it = c.useDefaults[hand].find(UseKey(itemId));
+		it != c.useDefaults[hand].end())
+		if (UseValidFor(c, cmds, it->second)) return it->second;
+	// Else the item's first defaultable command (a rune's only command is the
+	// menu-only memorize, so it yields "" — a left-click can't eat a tablet).
+	for (const std::string& cmd : cmds)
+		if (!IsMenuOnlyUse(cmd) && IsExecutableUse(cmd)) return cmd;
+	return {}; // no default — the left-click opens the use menu to pick one
+}
+
+bool GameUI::UseValidFor(const Character& c, const std::vector<std::string>& cmds,
+						 const std::string& cmd) const {
+	if (IsMenuOnlyUse(cmd) || !IsExecutableUse(cmd)) return false;
+	if (IsCastUse(cmd)) {
+		const std::string_view id = std::string_view(cmd).substr(kCastPrefix.size());
+		if (!spellDefs) return false;
+		for (const auto& def : spellDefs())
+			if (def->Id() == id) return c.HasLearnedSpell(def->Id());
+		return false; // spell gone from the registry
+	}
+	if (std::ranges::find(cmds, cmd) != cmds.end()) return true;
+	// The bare-hand combat verbs are pickable for any hand contents.
+	return std::ranges::find(kUnarmedUses, cmd) != std::ranges::end(kUnarmedUses);
 }
 
 void GameUI::MemorizeFromHand(size_t i, size_t hand) {
@@ -201,7 +383,8 @@ void GameUI::MemorizeFromHand(size_t i, size_t hand) {
 	slot.Clear(); // the tablet is consumed
 	Click();
 	AddLogLine(loc::Format("log.memorize", m_characters[i].name,
-						   loc::Tr(SymbolKey(sym))));
+						   loc::Tr(SymbolKey(sym))),
+			   m_characters[i].portraitColor);
 	RefreshSheet(); // the sheet's known symbols may be on screen later
 }
 
@@ -218,7 +401,7 @@ void GameUI::EatFromHand(size_t i, size_t hand) {
 	const std::string foodName = loc::Tr(std::format("item.{}", slot.typeId));
 	slot.Clear(); // the food is consumed
 	Click();
-	AddLogLine(loc::Format("log.eat", c.name, foodName));
+	AddLogLine(loc::Format("log.eat", c.name, foodName), c.portraitColor);
 	RefreshSheet(); // stamina bar / carry load on the sheet may be on screen
 }
 
@@ -425,6 +608,36 @@ void GameUI::BuildSettings() {
 	easeDrop("settings.look_curve", &m_settings.look.snapEasing);
 	lookSlider("settings.look_move", 0.05f, 1.5f, &m_settings.look.moveTime, mGroup, mGroup);
 	easeDrop("settings.look_move_curve", &m_settings.look.moveEasing);
+
+	// Controls → Hands: hand-slot behaviour. A checkbox — whether picking an
+	// entry from a hand's right-click use menu also performs it (off = the menu
+	// only sets the hand's left-click default) — and the Magic quick-cast
+	// count (how many recently-cast spells the menu lists). Both persist
+	// immediately.
+	tabs->AddChild<ui::Separator>(tabControls, Norm(cf.Place(1.0f, mGroup, mGroup), page));
+	tabs->AddChild<ui::Label>(tabControls, Norm(cf.Place(labelH, mGroup, mTight), page),
+							  loc::Tr("settings.hands"));
+	tabs->AddChild<ui::Checkbox>(
+		tabControls, Norm(cf.Place(ctrlH, mTight, mGroup), page),
+		loc::Tr("settings.usemenu_execute"), m_settings.useMenuExecutes,
+		[this](bool on) {
+			Click();
+			m_settings.useMenuExecutes = on;
+			m_settings.Save();
+		});
+	tabs->AddChild<ui::Label>(tabControls, Norm(cf.Place(labelH, mGroup, mTight), page),
+							  loc::Tr("settings.spell_mru"));
+	{
+		std::vector<std::string> counts;
+		for (int n = 1; n <= 10; ++n) counts.push_back(std::to_string(n));
+		tabs->AddChild<ui::DropDown>(
+			tabControls, Norm(cf.Place(ctrlH, mTight, mGroup), page),
+			std::move(counts), m_settings.spellMruCount - 1, [this](int index) {
+				Click();
+				m_settings.spellMruCount = index + 1;
+				m_settings.Save();
+			});
+	}
 
 	// Video: the page overflows its height, so the TabControl scrolls. A Flow
 	// (collapsing-margin vertical stack) places each label-over-control setting.
@@ -644,6 +857,31 @@ void GameUI::BuildSettings() {
 			m_settings.barColors.*(field.field),
 			[this, member = field.field](const Vec4& color) {
 				m_settings.barColors.*member = color;
+			});
+		picker->onClose = [this] { m_settings.Save(); };
+	}
+
+	// UI → Party Colors: one picker per roster slot — the member's identity
+	// color (portrait border, hand stripe, log tint). Edits land in the
+	// settings (the master, member_<n>= in the ini) AND on the live roster,
+	// so the HUD recolors immediately; persists when the popup closes.
+	tabs->AddChild<ui::Separator>(tabUi, Norm(uf.Place(1.0f, mGroup, mGroup), page));
+	tabs->AddChild<ui::Label>(tabUi, Norm(uf.Place(labelH, mGroup, mTight), page),
+							  loc::Tr("settings.party_colors"));
+	const float memTop =
+		uf.Place(gridHeight(kMemberColorCount), mTight, mGroup).y;
+	for (size_t i = 0; i < kMemberColorCount; ++i) {
+		// Label with the member's name when the roster has the slot (proper
+		// nouns, not localized); a slot number otherwise.
+		const std::string label =
+			i < m_characters.size() ? m_characters[i].name
+									: loc::Format("settings.member_n", i + 1);
+		auto* picker = tabs->AddChild<ui::ColorPicker>(
+			tabUi, pickerCell(i, memTop), label, m_settings.memberColors[i],
+			[this, i](const Vec4& color) {
+				m_settings.memberColors[i] = color;
+				if (i < m_characters.size())
+					m_characters[i].portraitColor = color;
 			});
 		picker->onClose = [this] { m_settings.Save(); };
 	}
@@ -872,6 +1110,12 @@ void GameUI::BuildCharacterSheet() {
 		m_audio.Play(m_sounds.bump, 0.5f);
 		AddLogLine(loc::Format("log.pack_rejects", loc::Tr("item." + item),
 							   loc::Tr("item." + pack)));
+	};
+	// A hand doll cell refused a non-holdable item: same thud, the shared
+	// "can't be held" line (also used by the control-bar hand slots).
+	m_sheet->onRejectHold = [this](const std::string& item) {
+		m_audio.Play(m_sounds.bump, 0.5f);
+		AddLogLine(loc::Format("log.cant_hold", loc::Tr("item." + item)));
 	};
 
 	const float btnY = sy + sheetH + 16.0f;
@@ -1110,9 +1354,10 @@ void GameUI::BuildHud() {
 	for (size_t i = 0; i < m_characters.size() && i < 4; ++i) {
 		auto* panel = m_hudUi.Add<CharacterPanel>(
 			gfx::Rect{}, &m_characters, i, &m_titleFont, &m_settings.barColors,
-			m_hitSplats, [this, i] { OnPortraitClick(i); },
+			m_hitSplats, m_itemIcons, [this, i] { OnPortraitClick(i); },
 			[this, i] { OnPortraitRightClick(i); },
-			[this, i] { OnPortraitBars(i); });
+			[this, i] { OnPortraitBars(i); },
+			[this, i] { OnPortraitEffects(i); });
 		panel->backgroundOpacity = m_settings.partyBarOpacity;
 		m_partyPanels.push_back(panel);
 	}
@@ -1240,18 +1485,29 @@ void GameUI::BuildHud() {
 	const size_t handRows = (std::min<size_t>(m_characters.size(), 4) + 1) / 2;
 	const float magicTop = handsTop + setH * static_cast<float>(handRows);
 
-	// Reserved magic area (spellcasting comes later) — it takes whatever the
-	// panel has left down to the window bottom.
+	// Magic area — the spellbook panel (opened from a hand's use menu, Magic »
+	// Spellbook) fills whatever the panel has left down to the window bottom;
+	// closed, it draws the old "no spells" placeholder line itself.
 	below(m_hudUi.Add<ui::Label>(Norm({px + pad, magicTop + 8, innerW, 20}, window),
 								 loc::Tr("hud.magic")));
 	below(m_hudUi.Add<ui::Panel>(
 		Norm({px + pad, magicTop + 32, innerW, panelBottom - pad - (magicTop + 32)},
 			 window)));
-	auto* magicNone = m_hudUi.Add<ui::Label>(
-		Norm({px + pad + 10, magicTop + 44, innerW - 20, 20}, window),
-		loc::Tr("hud.magic_none"));
-	magicNone->dim = true;
-	below(magicNone);
+	m_spellbook = m_hudUi.Add<SpellbookPanel>(
+		Norm({px + pad, magicTop + 32, innerW, panelBottom - pad - (magicTop + 32)},
+			 window),
+		&m_characters, m_itemIcons);
+	m_spellbook->onClick = [this] { Click(); };
+	m_spellbook->spells = [this] {
+		return spellDefs ? spellDefs()
+						 : std::span<const std::unique_ptr<Spell>>{};
+	};
+	m_spellbook->onCast = [this](size_t member, size_t hand,
+								 const std::vector<SpellSymbol>& seq) {
+		Click();
+		if (onCastSequence) onCastSequence(member, hand, seq);
+	};
+	below(m_spellbook);
 
 	// Full-width message footer, flush to the bottom edge. Added last so it is
 	// the topmost HUD widget — it claims the mouse first and draws over the
@@ -1431,9 +1687,28 @@ bool GameUI::KeyCaptureActive() const {
 	return false;
 }
 
-void GameUI::AddLogLine(const std::string& line) { m_log->AddLine(line); }
+// The HUD log widget exists only once BuildHud has run (the last game-load
+// task), but world feedback can be raised before then — a dev-console command
+// against the loading world, say. A null m_log drops the line instead of
+// crashing on it.
+void GameUI::AddLogLine(const std::string& line) {
+	if (m_log) m_log->AddLine(line);
+}
 
-void GameUI::ClearLog() { m_log->Clear(); }
+void GameUI::AddLogLine(const std::string& line, const Vec4& memberColor) {
+	if (!m_log) return;
+	// Identity colors are authored DARK (portrait fills, slot stripes); as
+	// text ink on the dark footer they'd read as mud, so brighten toward
+	// full — the hue carries the identity, the lift carries the legibility.
+	const auto lift = [](float c) { return std::min(1.0f, c * 2.0f + 0.15f); };
+	m_log->AddLine(line,
+				   Vec4{lift(memberColor.x), lift(memberColor.y),
+						lift(memberColor.z), 1.0f});
+}
+
+void GameUI::ClearLog() {
+	if (m_log) m_log->Clear();
+}
 
 // ============================================================================
 // Rendering — all 2D, inside the caller's SpriteBatch Begin/End.

@@ -125,9 +125,16 @@ DungeonWorld::DungeonWorld(gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	// Rebuilt every frame into retained capacity — no steady-state allocation.
 	m_lights.points.reserve(gfx::kMaxPointLights);
 
-	// Magic system: load the project's recipes. Casting produces a bolt spec that
-	// CastSpell spawns into the shared moving-item engine below.
+	// Magic system: build the spell registry (the Spell classes + the
+	// project's spells.cat numeric overrides), and wire the CAST SERVICES —
+	// the capability surface a spell's Cast() lands its effect through
+	// (Spell/Spell.h), so the magic module stays walled off from the world.
 	m_magic.LoadSpells(m_project.spells);
+	m_magic.SetCastServices(
+		{[this](const ProjectileSpec& bolt) { m_projectiles.Spawn(bolt); },
+		 [this](const Character& member, const std::string& line) {
+			 MemberMessage(member, line);
+		 }});
 
 	// Moving-item engine: wire its world seam so a projectile lives "on the map"
 	// without the engine depending on the map/combat. resolveHit is faction-aware —
@@ -139,13 +146,14 @@ DungeonWorld::DungeonWorld(gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 		const Door* door = DoorAt(cx, cz);
 		return door && !door->open; // a closed door stops bolts like a wall
 	};
-	m_projectiles.resolveHit = [this](TargetSide side, const Vec3& p,
-									  const AttackProfile& atk) {
+	m_projectiles.resolveHit = [this](TargetSide side, const ProjectileImpact& impact) {
 		switch (side) {
 		case TargetSide::Monsters:
-			return ResolveSpellHit(p, atk); // a party spell strikes a monster
+			return ResolveSpellHit(impact); // a party spell strikes a monster
 		case TargetSide::Party:
-			return ResolveMonsterProjectileHit(p, atk); // a monster bolt strikes the party
+			// A monster bolt strikes the party (push doesn't apply — the party
+			// isn't displaceable; a future gust trap would need its own path).
+			return ResolveMonsterProjectileHit(impact.pos, impact.atk);
 		}
 		return false;
 	};
@@ -1827,8 +1835,9 @@ void DungeonWorld::UpdateMonsters(float dt) {
 	const Vec3 partyPos = m_party.EyePosition();
 
 	// Tick down each member's per-hand swing cooldowns so hands free up over
-	// time, fade out the hit-feedback splat, and regenerate mana (scaled by
-	// intelligence) so spent spell points recover between casts.
+	// time, fade out the hit-feedback splat, regenerate mana (scaled by
+	// intelligence) so spent spell points recover between casts, and age any
+	// active ward (the Protect shields) so it fades with a log line.
 	if (m_roster)
 		for (Character& member : *m_roster) {
 			for (float& cd : member.handCooldown)
@@ -1838,6 +1847,17 @@ void DungeonWorld::UpdateMonsters(float dt) {
 				member.mana += member.ManaRegenPerSec() * dt;
 				if (member.mana > member.maxMana) member.mana = member.maxMana;
 			}
+			// Age the status effects; an expired one leaves with its kind's
+			// fade line. (Spend-to-die wards — the water pool, the air
+			// charges — are erased at their spend site instead, so their
+			// burst/still lines replace the fade.)
+			for (StatusEffect& e : member.effects) {
+				e.timeLeft -= dt;
+				if (e.timeLeft <= 0.0f && e.kind == StatusKind::Ward)
+					MemberMessage(member, loc::Format("log.shield_fades", member.name));
+			}
+			std::erase_if(member.effects,
+						  [](const StatusEffect& e) { return e.timeLeft <= 0.0f; });
 		}
 
 	// Re-derive groups from current co-location (monsters sharing a cell are one
@@ -2750,12 +2770,79 @@ bool DungeonWorld::CellFreeForMonster(int x, int z, int self) const {
 // Apply damage to a standing member: clamp health, flash the hit splat (severity by
 // raw damage — small < 5, medium < 10, hard otherwise; a placeholder scale), and
 // log a downing. The one place a member takes damage, shared by every attack path.
+void DungeonWorld::MemberMessage(const Character& member,
+								 const std::string& line) const {
+	if (onMemberMessage) onMemberMessage(line, member.portraitColor);
+	else onMessage(line);
+}
+
 void DungeonWorld::WoundMember(Character& target, float damage) {
+	// Water Veil: water guards by ABSORBING — the ward soaks damage into its
+	// pool (the ward's magnitude) before any reaches health, and BURSTS when
+	// the pool is spent (unlike the timed wards, it dies by spending). Sitting
+	// in the one place a member takes damage, it soaks every source alike —
+	// melee, ranged, even a wall bump. A partial soak lets the remainder
+	// through to the normal wound path below.
+	if (StatusEffect* ward = target.FindWard(SpellSymbol::Water);
+		ward && damage > 0.0f) {
+		const float soaked = std::min(ward->magnitude, damage);
+		ward->magnitude -= soaked;
+		damage -= soaked;
+		MemberMessage(target, loc::Format("log.shield_soaks", target.name));
+		if (ward->magnitude <= 0.0f) {
+			target.RemoveWard(SpellSymbol::Water); // spent — burst, not fade
+			MemberMessage(target, loc::Format("log.shield_bursts", target.name));
+		}
+		if (damage <= 0.0f) return; // fully absorbed — no wound, no splat
+	}
 	target.health -= damage;
 	if (target.health < 0.0f) target.health = 0.0f;
 	target.hitFlash = kHitFlashSeconds;
 	target.hitSeverity = damage < 5.0f ? 0 : (damage < 10.0f ? 1 : 2);
-	if (!target.IsAlive()) onMessage(loc::Format("log.member_down", target.name));
+	if (!target.IsAlive())
+		MemberMessage(target, loc::Format("log.member_down", target.name));
+}
+
+// The one place skills grow (docs/skills.md). Levels derive from raw XP
+// (floor(sqrt)), so a level-up is just "the derived number changed"; the
+// associated stat creeps behind at kStatCreepPerXp through the member's
+// statProgress pool — a whole point lands with its own log line (max
+// stamina/health raise current too, so the gain shows on the bar as growth,
+// not damage).
+void DungeonWorld::GrantSkillXp(Character& member, std::string_view skillId,
+								float xp) {
+	if (skillId.empty() || xp <= 0.0f || !member.IsAlive()) return;
+	constexpr float kStatCreepPerXp = 0.04f;
+
+	float& total = member.skillXp[std::string(skillId)];
+	const int before = Character::LevelForXp(total);
+	total += xp;
+	const int after = Character::LevelForXp(total);
+	if (after > before)
+		MemberMessage(member,
+					  loc::Format("log.skill_up", member.name,
+								  loc::Tr("skill." + std::string(skillId)), after));
+
+	const std::string_view stat = SkillStat(skillId);
+	if (stat.empty()) return;
+	float& pool = member.statProgress[std::string(stat)];
+	pool += xp * kStatCreepPerXp;
+	if (pool < 1.0f) return;
+	pool -= 1.0f;
+	int value = 0;
+	if (stat == "strength") value = ++member.strength;
+	else if (stat == "dexterity") value = ++member.dexterity;
+	else if (stat == "stamina") {
+		member.maxStamina += 1.0f;
+		member.stamina += 1.0f;
+		value = static_cast<int>(member.maxStamina + 0.5f);
+	} else if (stat == "health") {
+		member.maxHealth += 1.0f;
+		member.health += 1.0f;
+		value = static_cast<int>(member.maxHealth + 0.5f);
+	}
+	MemberMessage(member, loc::Format("log.stat_up", member.name,
+									  loc::Tr("stat." + std::string(stat)), value));
 }
 
 // Latch the party wipe exactly once when the last member falls (message + callback).
@@ -2794,13 +2881,29 @@ void DungeonWorld::MonsterAttack(Monster& monster) {
 	const std::string name = loc::Tr("monster." + monster.kind->name);
 
 	if (!r.hit) {
-		onMessage(loc::Format("log.monster_misses", name, target.name));
+		MemberMessage(target, loc::Format("log.monster_misses", name, target.name));
 		return;
 	}
-	onMessage(loc::Format("log.monster_hits", name, target.name,
-						  static_cast<int>(r.damage + 0.5f)));
+	MemberMessage(target, loc::Format("log.monster_hits", name, target.name,
+									  static_cast<int>(r.damage + 0.5f)));
 	m_audio.Play(m_sounds.monster, 0.6f);
 	WoundMember(target, r.damage);
+	// Fire Shield retaliation: fire guards by burning back — a monster that
+	// LANDS a melee blow on a fire-warded member is scorched for the ward's
+	// power (the hit itself is not reduced; earth is the school that hardens).
+	// Fires even if the blow downs the member — the ward outlives its bearer's
+	// last stand by exactly one burn.
+	if (const StatusEffect* ward = target.FindWard(SpellSymbol::Fire)) {
+		monster.hp -= ward->magnitude;
+		onMessage(loc::Format("log.shield_burns", name,
+							  static_cast<int>(ward->magnitude + 0.5f)));
+		if (!monster.Alive()) {
+			monster.hp = 0.0f; // downed monster stays in the list (save restore)
+			onMessage(loc::Format("log.monster_slain", name));
+		} else {
+			monster.hitReq = true; // the burn stings — flinch like any hit
+		}
+	}
 	CheckPartyWipe();
 }
 
@@ -2968,35 +3071,32 @@ void DungeonWorld::MonsterRangedAttack(Monster& monster) {
 	Vec3 origin = SlotCenter(monster.x, monster.z, monster.kind->size, monster.slot);
 	origin.y += 0.6f;
 
-	// A CASTER (archetype = caster with a spells.cat `spell`) throws that spell's
-	// bolt — its element colour, speed, range, and power — reusing the same recipe
-	// table the party casts from (no monster mana/vocab; it just shoots on cooldown).
-	// Any other ranged monster (a skirmisher) throws a plain ember bolt.
-	const SpellDef* spell =
+	// A CASTER (archetype = caster with a monsters.cat `spell`) throws that
+	// spell's bolt — Spell::MonsterBolt, the same class the party casts from,
+	// at the monster's accuracy (no monster mana/vocab; it just shoots on
+	// cooldown). A spell with no thrown form (a ward) yields nothing, and any
+	// other ranged monster (a skirmisher), a plain ember bolt.
+	const Spell* spell =
 		monster.Spell().empty() ? nullptr : m_magic.FindSpell(monster.Spell());
-
+	if (spell) {
+		if (const std::optional<ProjectileSpec> bolt =
+				spell->MonsterBolt(origin, dir, monster.kind->accuracy)) {
+			m_projectiles.Spawn(*bolt);
+			m_audio.Play(m_sounds.spellCast, 0.6f); // the cast voice
+			return;
+		}
+	}
 	ProjectileSpec bolt;
 	bolt.pos = origin;
 	bolt.dir = dir;
 	bolt.target = TargetSide::Party;
-	if (spell) {
-		bolt.speed = spell->speed;
-		bolt.range = spell->range;
-		bolt.atk = {spell->power, monster.kind->accuracy};
-		const Vec4 g = ElementColor(spell->element);
-		bolt.color = {g.x * 1.7f, g.y * 1.7f, g.z * 1.7f, 0.0f}; // bright elemental glow
-		bolt.size = 0.2f;
-		m_projectiles.Spawn(bolt);
-		m_audio.Play(m_sounds.spellCast, 0.6f); // the cast voice
-	} else {
-		bolt.speed = 6.0f;
-		bolt.range = (monster.kind->aggroRange + 1.0f) * kCellSize; // a bit past aggro
-		bolt.atk = {monster.kind->damage, monster.kind->accuracy};
-		bolt.color = {1.6f, 0.5f, 0.2f, 0.0f}; // ember-orange additive
-		bolt.size = 0.18f;
-		m_projectiles.Spawn(bolt);
-		m_audio.Play(m_sounds.monster, 0.5f); // soft launch cue (reuse the monster voice)
-	}
+	bolt.speed = 6.0f;
+	bolt.range = (monster.kind->aggroRange + 1.0f) * kCellSize; // a bit past aggro
+	bolt.atk = {monster.kind->damage, monster.kind->accuracy};
+	bolt.color = {1.6f, 0.5f, 0.2f, 0.0f}; // ember-orange additive
+	bolt.size = 0.18f;
+	m_projectiles.Spawn(bolt);
+	m_audio.Play(m_sounds.monster, 0.5f); // soft launch cue (reuse the monster voice)
 }
 
 bool DungeonWorld::CellHasLineOfSight(int x0, int z0, int x1, int z1) const {
@@ -3035,23 +3135,36 @@ bool DungeonWorld::PartyAttack(size_t member, size_t hand) {
 
 	attacker.handCooldown[hand] = attacker.AttackInterval(hand);
 	if (!target) {
-		onMessage(loc::Tr("log.attack_air"));
+		MemberMessage(attacker, loc::Tr("log.attack_air"));
 		return true;
 	}
 
-	const AttackProfile atk{attacker.AttackDamage(), attacker.Accuracy()};
+	// The swinging hand's weapon class (docs/skills.md "Skills/stats → melee"):
+	// the held item's catalog `skill`; a bare hand swings — and trains —
+	// unarmed. The class level scales the profile, the landed blow below
+	// trains the class ("" — an unclassed item — trains and scales nothing).
+	const ItemSlot& held = attacker.inventory.Hand(static_cast<int>(hand));
+	const std::string_view skillId =
+		held.Empty() ? std::string_view("unarmed")
+					 : std::string_view(ItemKindFor(held.typeId).skill);
+	const int level = attacker.SkillLevel(skillId);
+
+	const AttackProfile atk{
+		attacker.AttackDamage() * (1.0f + 0.08f * static_cast<float>(level)),
+		attacker.Accuracy() + 0.02f * static_cast<float>(level)};
 	const DefenseProfile def{target->kind->evasion, target->kind->armor};
 	const AttackResult r = ResolveAttack(atk, def, m_combatRng);
 	const std::string name = loc::Tr("monster." + target->kind->name);
 
 	if (!r.hit) {
-		onMessage(loc::Format("log.party_misses", attacker.name, name));
+		MemberMessage(attacker, loc::Format("log.party_misses", attacker.name, name));
 		return true;
 	}
 	target->hp -= r.damage;
 	ProvokeMonster(*target); // the struck monster alone notices + turns to the party
 	int dmg = static_cast<int>(r.damage + 0.5f);
-	onMessage(loc::Format("log.party_hits", attacker.name, name, dmg));
+	MemberMessage(attacker, loc::Format("log.party_hits", attacker.name, name, dmg));
+	GrantSkillXp(attacker, skillId, 1.0f); // a LANDED blow trains its class
 	m_audio.Play(m_sounds.monster, 0.7f);
 
 	if (!target->Alive()) {
@@ -3072,7 +3185,8 @@ bool DungeonWorld::PartyAttack(size_t member, size_t hand) {
 // the shared engine (Projectiles.h) — its impact hook is ResolveSpellHit below.
 // ============================================================================
 
-bool DungeonWorld::CastSpell(size_t member, std::span<const SpellSymbol> sequence) {
+bool DungeonWorld::CastSpell(size_t member, std::span<const SpellSymbol> sequence,
+							 int hand) {
 	if (!m_roster || member >= m_roster->size()) return false;
 	Character& caster = (*m_roster)[member];
 	if (!caster.IsAlive()) return false;
@@ -3084,18 +3198,41 @@ bool DungeonWorld::CastSpell(size_t member, std::span<const SpellSymbol> sequenc
 	const Vec3 dir{static_cast<float>(DirDX(faced)), 0.0f,
 				   static_cast<float>(DirDZ(faced))};
 
-	const MagicSystem::CastReport r = m_magic.Cast(caster, sequence, origin, dir);
+	const MagicSystem::CastReport r =
+		m_magic.Cast(caster, sequence, origin, dir, m_combatRng);
 	switch (r.outcome) {
 	case MagicSystem::CastOutcome::Cast:
-		m_projectiles.Spawn(r.projectile); // the bolt now lives "on the map"
-		onMessage(loc::Format("log.cast", caster.name, loc::Tr(r.spell->nameKey)));
+		// The spell's own Cast() override has already landed the effect
+		// through the cast services (Spell/Spell.h) — a bolt is flying, a
+		// ward settled. What remains is the COMMON aftermath every success
+		// shares, whatever the spell did.
+		MemberMessage(caster, loc::Format("log.cast", caster.name,
+										  loc::Tr(r.spell->NameKey())));
+		// A spell is LEARNED the first time it is successfully cast — the
+		// failed outcomes below (a Fumble included) teach nothing.
+		if (caster.learnedSpells.insert(r.spell->Id()).second)
+			MemberMessage(caster, loc::Format("log.spell_learned", caster.name,
+											  loc::Tr(r.spell->NameKey())));
+		// The freshest cast leads the FIRING hand's quick list (each hand keeps
+		// its own repertoire); a hand-less cast (dev console) touches neither.
+		if (hand == 0 || hand == 1)
+			caster.TouchSpellMru(static_cast<size_t>(hand), r.spell->Id());
+		// The school skill grows with every SUCCESSFUL cast, in proportion to
+		// the spell's mana (a dearer spell teaches more) — docs/skills.md.
+		GrantSkillXp(caster, SymbolId(r.spell->School()), r.spell->Mana() * 0.25f);
 		m_audio.Play(m_sounds.spellCast, 0.7f);
 		return true;
+	case MagicSystem::CastOutcome::Fumble:
+		// The skill roll failed: the mana is spent, nothing happens, and
+		// nothing is learned — the recipe stays anonymous until a cast lands.
+		MemberMessage(caster, loc::Format("log.cast_fumble", caster.name));
+		m_audio.Play(m_sounds.spellFizzle, 0.6f);
+		return false;
 	case MagicSystem::CastOutcome::NoMana:
-		onMessage(loc::Format("log.cast_nomana", caster.name));
+		MemberMessage(caster, loc::Format("log.cast_nomana", caster.name));
 		return false;
 	case MagicSystem::CastOutcome::Unknown:
-		onMessage(loc::Format("log.cast_unknown", caster.name));
+		MemberMessage(caster, loc::Format("log.cast_unknown", caster.name));
 		return false;
 	case MagicSystem::CastOutcome::NoRecipe:
 	default:
@@ -3104,16 +3241,29 @@ bool DungeonWorld::CastSpell(size_t member, std::span<const SpellSymbol> sequenc
 	}
 }
 
-bool DungeonWorld::ResolveSpellHit(const Vec3& p, const AttackProfile& atk) {
-	const int cx = static_cast<int>(std::floor(p.x / kCellSize));
-	const int cz = static_cast<int>(std::floor(p.z / kCellSize));
+bool DungeonWorld::CastSpellById(size_t member, std::string_view id, int hand) {
+	const Spell* def = m_magic.FindSpell(id);
+	if (!def) return false; // stale default / catalog typo — nothing to cast
+	return CastSpell(member, def->Sequence(), hand);
+}
+
+bool DungeonWorld::ResolveSpellHit(const ProjectileImpact& impact) {
+	const int cx = static_cast<int>(std::floor(impact.pos.x / kCellSize));
+	const int cz = static_cast<int>(std::floor(impact.pos.z / kCellSize));
 	Monster* hit = nullptr;
-	for (Monster& m : m_monsters)
-		if (m.Alive() && m.x == cx && m.z == cz) { hit = &m; break; }
+	int hitIndex = -1;
+	for (size_t i = 0; i < m_monsters.size(); ++i) {
+		Monster& m = m_monsters[i];
+		if (m.Alive() && m.x == cx && m.z == cz) {
+			hit = &m;
+			hitIndex = static_cast<int>(i);
+			break;
+		}
+	}
 	if (!hit) return false; // open air — the bolt flies on
 
 	const DefenseProfile def{hit->kind->evasion, hit->kind->armor};
-	const AttackResult r = ResolveAttack(atk, def, m_combatRng);
+	const AttackResult r = ResolveAttack(impact.atk, def, m_combatRng);
 	const std::string name = loc::Tr("monster." + hit->kind->name);
 	if (r.hit) {
 		hit->hp -= r.damage;
@@ -3125,6 +3275,26 @@ bool DungeonWorld::ResolveSpellHit(const Vec3& p, const AttackProfile& atk) {
 			onMessage(loc::Format("log.spell_slain", name));
 		} else {
 			hit->hitReq = true; // survivor flinches (a fatal blow goes straight to Die)
+			// Displacement (the air-school shove): a landed hit with `push` walks
+			// the survivor up to that many cells along the bolt's travel, one
+			// StepMonsterTo per cell so occupancy commits atomically; the first
+			// blocked/occupied cell (FreeSlotInCell covers walls, closed doors,
+			// packed cells, and the party's cell) stops it early. The final step
+			// wins the visual glide, so the shove reads as one continuous slide.
+			if (impact.push > 0) {
+				const int dx = impact.dir.x > 0.5f ? 1 : (impact.dir.x < -0.5f ? -1 : 0);
+				const int dz = impact.dir.z > 0.5f ? 1 : (impact.dir.z < -0.5f ? -1 : 0);
+				int pushed = 0;
+				for (int step = 0; step < impact.push; ++step) {
+					const int nx = hit->x + dx, nz = hit->z + dz;
+					const int slot = FreeSlotInCell(nx, nz, hit->kind->size, hitIndex);
+					if (slot < 0) break; // wall / door / occupied — the shove stops
+					StepMonsterTo(*hit, nx, nz, slot);
+					++pushed;
+				}
+				if (pushed > 0)
+					onMessage(loc::Format("log.spell_pushes", name));
+			}
 		}
 	} else {
 		onMessage(loc::Format("log.spell_misses", name));
@@ -3147,14 +3317,27 @@ bool DungeonWorld::ResolveMonsterProjectileHit(const Vec3& p, const AttackProfil
 	if (n == 0) return true;
 
 	Character& target = (*m_roster)[alive[m_combatRng() % n]];
+	// Wind Ward: air guards by DEFLECTING — a bolt aimed at the warded member
+	// is turned aside outright (no strike roll), spending one of the ward's
+	// charges (its magnitude); the last deflection stills the wind. Bolts
+	// aimed at unwarded neighbours fly true — the ward wraps its caster alone.
+	if (StatusEffect* ward = target.FindWard(SpellSymbol::Air)) {
+		ward->magnitude -= 1.0f;
+		MemberMessage(target, loc::Format("log.shield_deflects", target.name));
+		if (ward->magnitude <= 0.0f) {
+			target.RemoveWard(SpellSymbol::Air); // spent — stills, not fade
+			MemberMessage(target, loc::Format("log.shield_stills", target.name));
+		}
+		return true; // the bolt is spent against the wind
+	}
 	const DefenseProfile def{target.Evasion(), target.Armor()};
 	const AttackResult r = ResolveAttack(atk, def, m_combatRng);
 	if (!r.hit) {
-		onMessage(loc::Format("log.monster_ranged_misses", target.name));
+		MemberMessage(target, loc::Format("log.monster_ranged_misses", target.name));
 		return true;
 	}
-	onMessage(loc::Format("log.monster_ranged_hits", target.name,
-						  static_cast<int>(r.damage + 0.5f)));
+	MemberMessage(target, loc::Format("log.monster_ranged_hits", target.name,
+									  static_cast<int>(r.damage + 0.5f)));
 	m_audio.Play(m_sounds.monster, 0.6f);
 	WoundMember(target, r.damage);
 	CheckPartyWipe();

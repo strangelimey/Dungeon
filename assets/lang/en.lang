@@ -78,6 +78,9 @@ settings.look_return=Return Time
 settings.look_curve=Return Curve
 settings.look_move=Move Straighten
 settings.look_move_curve=Move Curve
+settings.hands=Hands
+settings.usemenu_execute=Selecting from the use menu also performs it
+settings.spell_mru=Quick-cast spells shown
 ease.linear=Linear
 ease.easein=Ease In
 ease.easeinout=Ease In / Out
@@ -111,6 +114,8 @@ settings.bar_scale=Scale
 settings.bar_opacity=Background opacity
 settings.theme_colors=Theme Colors
 settings.resource_bars=Resource Bars
+settings.party_colors=Party Colors
+settings.member_n=Member {}
 theme.panel=Panel
 theme.border=Border
 theme.control=Control
@@ -173,29 +178,88 @@ log.pack_rejects=The {} won't fit in the {}.
 log.stow={} stows the {} in their pack.
 log.memorize={} commits the {} rune to memory.
 log.eat={} eats the {}.
+log.cant_hold=The {} can't be held in a hand.
 ; --- casting ({0}=caster {1}=spell/target {2}=damage) ---
 log.cast={} casts {}.
+log.spell_learned={} has learned {}!
 log.spell_fizzles=The spell fizzles into nothing.
 log.cast_nomana={} lacks the mana to cast.
 log.cast_unknown={} does not know those symbols.
 log.spell_hits=The {} is seared for {} damage!
 log.spell_misses=The bolt streaks past the {}.
 log.spell_slain=The {} is destroyed!
+log.spell_pushes=The {} is hurled back!
+log.shield_up=A ward settles over {}.
+log.shield_fades={}'s ward fades.
+log.shield_burns=The {} is scorched by the fire shield for {} damage!
+log.shield_soaks={}'s water veil soaks the blow!
+log.shield_bursts={}'s water veil bursts!
+log.shield_deflects=The wind turns the bolt away from {}!
+log.shield_stills=The wind around {} stills.
 ; Spell display names (spells.cat ids -> spell.<id>).
-spell.flame=Flame
-spell.rock=Rock
-spell.gust=Gust
+spell.flame=Puff of Flame
+spell.rock=Pebble
+spell.gust=Puff of Wind
 spell.splash=Splash
-spell.firebolt=Fire Bolt
-ui.memorize=Memorize
-ui.eat=Eat
+spell.fireburst=Fire Burst
+spell.slingshot=Slingshot
+spell.waterbolt=Water Bolt
+spell.push=Push
+spell.stoneskin=Stone Skin
+spell.fireshield=Fire Shield
+spell.waterveil=Water Veil
+spell.windward=Wind Ward
+; Effect descriptions (sheet Effects tab; <nameKey>.desc, {} = magnitude).
+spell.stoneskin.desc=Skin like stone — soaks {} damage from every blow.
+spell.fireshield.desc=Wreathed in flame — a landed blow scorches the attacker for {}.
+spell.waterveil.desc=A flowing veil soaks the next {} damage, then bursts.
+spell.windward.desc=The wind turns aside the next {} bolts.
+; Status-effect hover label: effect name, seconds left.
+hud.effect_time={} — {}s
+; Skill display names (docs/skills.md): the four schools + weapon classes.
+skill.fire=Fire magic
+skill.earth=Earth magic
+skill.air=Air magic
+skill.water=Water magic
+skill.blade=Blades
+skill.blunt=Bludgeons
+skill.unarmed=Unarmed
+; Stats the skills creep forward (log.stat_up inserts these).
+stat.strength=Strength
+stat.dexterity=Dexterity
+stat.stamina=Stamina
+stat.health=Health
+; Skill/stat growth + cast-failure log lines: (name, skill/stat, value) / (name).
+log.skill_up={}'s {} skill rises to {}.
+log.stat_up={}'s {} rises to {}.
+log.cast_fumble=The spell slips from {}'s grasp!
 ui.inventory=Inventory
 ui.inv_all=All
+; Hand-slot use menu (items.cat `command` ids -> use.<id>).
+use.memorize=Memorize
+use.eat=Eat
+use.punch=Punch
+use.kick=Kick
+use.stab=Stab
+use.slash=Slash
+use.chop=Chop
+use.bash=Bash
+use.swing=Swing
+use.melee=Strike
+; Hand-menu default-picker groups (bare hand / no defaultable item command).
+menu.combat=Combat
+menu.magic=Magic
+menu.spellbook=Spellbook
+; Magic-area spellbook panel (build a spell from known symbols).
+magic.cast=Cast
+magic.clear=Clear
 ; Item display names (ItemKind.nameKey; rune_<elem> -> item.rune_<elem>).
 item.rune_fire=Fire rune
 item.rune_earth=Earth rune
 item.rune_air=Air rune
 item.rune_water=Water rune
+item.rune_project=Project rune
+item.rune_protect=Protect rune
 item.dagger=Dagger
 item.khukri=Khukri
 item.snake_dagger=Snake dagger
@@ -244,6 +308,9 @@ sheet.backpack=Backpack
 sheet.load=Load: {} / {} kg
 sheet.skills=Skills
 sheet.no_skills=No skills yet.
+sheet.effects=Effects
+sheet.no_effects=No active effects.
+sheet.effect_time={}s
 sheet.nothing_carried=Nothing carried.
 equip.head=Head
 equip.body=Body
@@ -255,11 +322,13 @@ equip.cloak=Cloak
 equip.amulet=Amulet
 equip.ring=Ring
 
-; --- spell symbols (tier 1: the four elements) ----------------------------------
+; --- spell symbols (tier 1: the four elements; tier 2: the shared forms) ---------
 symbol.fire=Fire
 symbol.earth=Earth
 symbol.air=Air
 symbol.water=Water
+symbol.project=Project
+symbol.protect=Protect
 
 ; --- map overlay / editor --------------------------------------------------------
 map.title=Map

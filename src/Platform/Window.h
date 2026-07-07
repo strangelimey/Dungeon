@@ -58,11 +58,21 @@ public:
 private:
 	static i64 __stdcall WndProcThunk(HWND__* hwnd, u32 msg, u64 wparam, i64 lparam);
 	i64 HandleMessage(u32 msg, u64 wparam, i64 lparam);
+	// Holds mouse capture while ANY button is down (so drags that leave the
+	// client area — free-look, scrollbar thumbs — still deliver their button-up
+	// to us) and releases it when the last button lifts.
+	void UpdateCapture();
 
 	HWND__* m_hwnd = nullptr;
 	u32 m_width = 0;
 	u32 m_height = 0;
 	bool m_closed = false;
+	// True while UpdateCapture runs our own ReleaseCapture — Windows SENDS
+	// WM_CAPTURECHANGED to the releasing window synchronously, and that
+	// self-inflicted one must NOT clear the button edges (the release edge
+	// that triggered it is still unread this frame). Only genuine theft
+	// (another window taking capture mid-hold) clears.
+	bool m_releasingCapture = false;
 	Input m_input;
 };
 

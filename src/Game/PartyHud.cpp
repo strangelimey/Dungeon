@@ -1,6 +1,7 @@
 #include "Game/PartyHud.h"
 
 #include "Core/Loc.h"
+#include "Game/Spell/Spell.h"
 
 #include <algorithm>
 #include <format>
@@ -12,6 +13,16 @@ namespace {
 // Shared background for the item-bearing slots (hands, equipment doll, backpack):
 // black, so the light-haloed 3D item icons read clearly against it.
 inline constexpr Vec4 kSlotBg{0.0f, 0.0f, 0.0f, 1.0f};
+
+// Icon art for a status-effect kind, by the item id whose ItemIconBank icon
+// it borrows (a ward wears the Protect rune tablet's face; the school tint
+// around it tells the four shields apart). "" = no art (colored square).
+const char* EffectIconItem(StatusKind kind) {
+	switch (kind) {
+	case StatusKind::Ward: return "rune_protect";
+	}
+	return "";
+}
 
 void DrawStatBar(gfx::SpriteBatch& batch, const gfx::Rect& rect, float fraction,
 				 const Vec4& color, const ui::Theme& theme) {
@@ -57,14 +68,38 @@ CharacterPanel::CharacterPanel(const gfx::Rect& rect,
 							   const ui::Font* portraitFont,
 							   const ResourceBarColors* barColors,
 							   const HitSplatIcons* hitSplats,
+							   const ItemIconBank* icons,
 							   std::function<void()> onClick,
 							   std::function<void()> onRight,
-							   std::function<void()> onBars)
+							   std::function<void()> onBars,
+							   std::function<void()> onEffects)
 	: m_roster(roster), m_member(member), m_portraitFont(portraitFont),
-	  m_barColors(barColors), m_hitSplats(hitSplats),
+	  m_barColors(barColors), m_hitSplats(hitSplats), m_icons(icons),
 	  m_onClick(std::move(onClick)), m_onRight(std::move(onRight)),
-	  m_onBars(std::move(onBars)) {
+	  m_onBars(std::move(onBars)), m_onEffects(std::move(onEffects)) {
 	bounds = rect;
+}
+
+// The portrait square: left side of the panel, inset by the shared pad. The
+// one layout Draw and the effect-icon hit test both resolve against.
+gfx::Rect CharacterPanel::PortraitRect() const {
+	const gfx::Rect& px = Pixel();
+	const float pad = px.h * 0.08f;
+	return {px.x + pad, px.y + pad, px.h - 2 * pad, px.h - 2 * pad};
+}
+
+// The Nth status-effect icon: a small square in the NAME band, right-aligned
+// against the panel edge and growing right-to-left as effects stack (index 0
+// is the rightmost). Sized to the name row (the font's line advance) so the
+// row reads as part of the name line.
+gfx::Rect CharacterPanel::EffectIconRect(ui::UIContext& ctx,
+										 size_t index) const {
+	const gfx::Rect& px = Pixel();
+	const float pad = px.h * 0.08f;
+	const float s = ctx.GetFont().LineAdvance();
+	const float gap = 2.0f;
+	return {px.x + px.w - pad - s - (s + gap) * static_cast<float>(index),
+			px.y + pad, s, s};
 }
 
 // The stat-bar strip: right of the portrait, below the name (mirrors Draw's
@@ -91,11 +126,24 @@ void CharacterPanel::Update(ui::UIContext& ctx) {
 		if (input->WasMousePressed(MouseButton::Right)) m_heldRight = true;
 		ctx.ConsumeMouse();
 	}
-	// A click over the stat bars (either button) opens the Stats tab; elsewhere on
-	// the panel keeps the portrait actions (left = sheet/stow, right = backpack).
+	// Which status-effect icon (the name-band row) the cursor rests on —
+	// Draw shows that effect's name + time left under the panel.
+	m_hotEffect = static_cast<size_t>(-1);
+	if (m_hot) {
+		for (size_t i = 0; i < m_character->effects.size(); ++i)
+			if (EffectIconRect(ctx, i).Contains(mx, my)) {
+				m_hotEffect = i;
+				break;
+			}
+	}
+	// A click on an effect icon opens the Effects tab (the icon's long form);
+	// over the stat bars (either button) the Stats tab; elsewhere on the
+	// panel the portrait actions keep (left = sheet/stow, right = backpack).
 	if (m_held && input->WasMouseReleased(MouseButton::Left)) {
 		if (m_hot) {
-			if (BarsRect(ctx).Contains(mx, my) && m_onBars) m_onBars();
+			if (m_hotEffect != static_cast<size_t>(-1) && m_onEffects)
+				m_onEffects();
+			else if (BarsRect(ctx).Contains(mx, my) && m_onBars) m_onBars();
 			else if (m_onClick) m_onClick();
 		}
 		m_held = false;
@@ -123,8 +171,7 @@ void CharacterPanel::Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 
 	// Internals scale with the slot height (the slot itself is normalized).
 	const float pad = px.h * 0.08f;
-	const gfx::Rect portrait{px.x + pad, px.y + pad, px.h - 2 * pad,
-							 px.h - 2 * pad};
+	const gfx::Rect portrait = PortraitRect();
 	DrawPortrait(batch, portrait, *m_character, *m_portraitFont, theme);
 
 	// Hit feedback: a transient splat over the portrait while hitFlash > 0,
@@ -138,6 +185,34 @@ void CharacterPanel::Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 							  portrait.w + grow, portrait.h + grow};
 			batch.DrawSprite(r, {0, 0, 1, 1}, *splat, {1, 1, 1, fade});
 		}
+	}
+
+	// Active status effects: one small icon per effect in the NAME band,
+	// right-aligned and growing right-to-left as effects stack — the kind's
+	// icon art (the Protect rune tablet for a ward) under a school-tinted
+	// border, with a depleting time sliver beneath. Hovering one names it
+	// under the panel (Update tracks m_hotEffect). Spill past the name is a
+	// later problem — for now every effect draws.
+	const std::vector<StatusEffect>& effects = m_character->effects;
+	for (size_t i = 0; i < effects.size(); ++i) {
+		const gfx::Rect r = EffectIconRect(ctx, i);
+		const StatusEffect& e = effects[i];
+		const Vec4 tint = ElementColor(e.school);
+		batch.DrawRect(r, kSlotBg);
+		const gfx::Texture* icon =
+			m_icons ? m_icons->For(EffectIconItem(e.kind)) : nullptr;
+		if (icon)
+			batch.DrawSprite({r.x + 1, r.y + 1, r.w - 2, r.h - 2}, {0, 0, 1, 1},
+							 *icon, {1, 1, 1, 1});
+		else
+			batch.DrawRect({r.x + 1, r.y + 1, r.w - 2, r.h - 2},
+						   {tint.x, tint.y, tint.z, 0.5f});
+		// Remaining-time sliver draining along the icon's bottom edge.
+		const float frac =
+			e.duration > 0.0f ? std::clamp(e.timeLeft / e.duration, 0.0f, 1.0f)
+							  : 1.0f;
+		batch.DrawRect({r.x + 1, r.y + r.h - 3, (r.w - 2) * frac, 2}, tint);
+		ui::DrawBorder(batch, r, tint);
 	}
 
 	ui::Font& font = ctx.GetFont();
@@ -163,6 +238,21 @@ void CharacterPanel::Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 		DrawStatBar(batch, {left, y, right - left, barH},
 					bar.value / std::max(bar.max, 1.0f), bar.color, theme);
 		y += barH + barGap;
+	}
+
+	// Hovered effect icon: name + time left on a small plaque just under the
+	// panel (the strip icons are too small to label in place).
+	if (m_hotEffect < effects.size()) {
+		const StatusEffect& e = effects[m_hotEffect];
+		const std::string label =
+			loc::Format("hud.effect_time", loc::Tr(e.nameKey),
+						static_cast<int>(e.timeLeft + 0.5f));
+		const gfx::Rect tip{px.x, px.y + px.h + 2.0f,
+							font.MeasureWidth(label) + 12.0f,
+							font.LineAdvance() + 6.0f};
+		batch.DrawRect(tip, theme.panel);
+		ui::DrawBorder(batch, tip, theme.panelBorder);
+		font.Draw(batch, label, tip.x + 6.0f, tip.y + 3.0f, theme.text);
 	}
 }
 
@@ -221,6 +311,259 @@ void HandSlot::Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	batch.DrawRect({px.x + 1, px.y + px.h - 4, px.w - 2, 3},
 				   m_character->portraitColor);
 	ui::DrawBorder(batch, px, m_hot ? theme.accent : theme.panelBorder);
+}
+
+// --- SpellbookPanel ------------------------------------------------------------
+
+namespace {
+// The most symbols a built sequence holds — recipes are 1-2 symbols today,
+// six slots leave room for deeper tiers without outgrowing the magic box.
+constexpr size_t kMaxSequence = 6;
+} // namespace
+
+SpellbookPanel::SpellbookPanel(const gfx::Rect& rect,
+							   const std::vector<Character>* roster,
+							   const ItemIconBank* icons)
+	: m_roster(roster), m_icons(icons),
+	  m_placeholder(loc::Tr("hud.magic_none")), m_castLabel(loc::Tr("magic.cast")),
+	  m_clearLabel(loc::Tr("magic.clear")) {
+	bounds = rect;
+}
+
+void SpellbookPanel::OpenFor(size_t member, size_t hand) {
+	m_member = static_cast<int>(member);
+	m_hand = hand > 1 ? 0 : hand;
+	m_sequence.clear();
+}
+
+void SpellbookPanel::Close() {
+	m_member = -1;
+	m_sequence.clear();
+}
+
+// Layout: everything scales off the box width (the control panel scales with
+// the window), line heights off the current HUD font via the 20/24px design
+// steps at the 222px design box.
+gfx::Rect SpellbookPanel::SymbolRect(const gfx::Rect& px, size_t i) const {
+	const float s = px.w / 222.0f;
+	const float pad = 10.0f * s, gap = 6.0f * s;
+	const float cell = (px.w - 2 * pad - 3 * gap) / 4.0f;
+	return {px.x + pad + (cell + gap) * static_cast<float>(i % 4),
+			px.y + 30.0f * s + (cell + gap) * static_cast<float>(i / 4), cell,
+			cell};
+}
+
+gfx::Rect SpellbookPanel::SequenceRect(const gfx::Rect& px, size_t i) const {
+	// The spelled-out sequence sits at the BOTTOM, just above Cast / Clear.
+	const float s = px.w / 222.0f;
+	const float pad = 10.0f * s, gap = 4.0f * s;
+	const float cell =
+		(px.w - 2 * pad - gap * static_cast<float>(kMaxSequence - 1)) /
+		static_cast<float>(kMaxSequence);
+	const float y = CastRect(px).y - 8.0f * s - cell;
+	return {px.x + pad + (cell + gap) * static_cast<float>(i), y, cell, cell};
+}
+
+gfx::Rect SpellbookPanel::CastRect(const gfx::Rect& px) const {
+	const float s = px.w / 222.0f;
+	const float pad = 10.0f * s;
+	const float w = (px.w - 2 * pad - 8.0f * s) / 2.0f;
+	return {px.x + pad, px.y + px.h - pad - 28.0f * s, w, 28.0f * s};
+}
+
+gfx::Rect SpellbookPanel::ClearRect(const gfx::Rect& px) const {
+	const gfx::Rect cast = CastRect(px);
+	const float s = px.w / 222.0f;
+	return {cast.x + cast.w + 8.0f * s, cast.y, cast.w, cast.h};
+}
+
+namespace {
+// The top row's fixed school order — the docs/magic system.md schools table
+// (Earth/Air/Fire/Water), not the enum's serialization order.
+constexpr SpellSymbol kSchoolRow[] = {SpellSymbol::Earth, SpellSymbol::Air,
+									  SpellSymbol::Fire, SpellSymbol::Water};
+} // namespace
+
+std::vector<SpellbookPanel::RuneSlot>
+SpellbookPanel::RuneSlots(const Character& c) const {
+	std::vector<RuneSlot> slots;
+	// The four school runes ALWAYS hold the top row — an unknown one keeps
+	// its place as an empty frame, so the row reads as the fixed school set.
+	for (SpellSymbol s : kSchoolRow) slots.push_back({s, c.Knows(s)});
+	// Everything else appears below only once memorized, in enum order.
+	for (u32 i = 0; i < kSymbolCount; ++i) {
+		const auto s = static_cast<SpellSymbol>(i);
+		if (!IsSchoolSymbol(s) && c.Knows(s)) slots.push_back({s, true});
+	}
+	return slots;
+}
+
+const Spell* SpellbookPanel::Match() const {
+	if (!spells || m_sequence.empty()) return nullptr;
+	for (const auto& def : spells())
+		if (std::ranges::equal(def->Sequence(), m_sequence)) return def.get();
+	return nullptr;
+}
+
+namespace {
+// Whether a symbol button responds given the sequence so far. School (element)
+// runes are mutually exclusive — one picks the spell's school, then all four
+// go dark; a spell also STARTS with its school, so until one is down every
+// other symbol waits. Any symbol already spelled in is spent (no repeats).
+bool SymbolAvailable(SpellSymbol s, const std::vector<SpellSymbol>& sequence) {
+	if (std::ranges::find(sequence, s) != sequence.end()) return false;
+	const bool haveSchool =
+		!sequence.empty() && IsSchoolSymbol(sequence.front());
+	return IsSchoolSymbol(s) ? !haveSchool : haveSchool;
+}
+} // namespace
+
+void SpellbookPanel::DrawRune(gfx::SpriteBatch& batch, const gfx::Rect& r,
+							  SpellSymbol s, bool hot, bool disabled) const {
+	batch.DrawRect(r, hot ? Vec4{0.12f, 0.12f, 0.13f, 1.0f} : kSlotBg);
+	const gfx::Texture* icon = m_icons ? m_icons->For(RuneItemId(s)) : nullptr;
+	if (icon) {
+		const float pad = r.w * 0.08f;
+		batch.DrawSprite({r.x + pad, r.y + pad, r.w - 2 * pad, r.h - 2 * pad},
+						 {0, 0, 1, 1}, *icon, {1, 1, 1, 1});
+	} else {
+		// Fallback: an element-tinted fill (ElementColor is premultiplied
+		// additive — rebuild it opaque for flat UI ink).
+		const Vec4 e = ElementColor(s);
+		batch.DrawRect({r.x + 3, r.y + 3, r.w - 6, r.h - 6},
+					   {e.x * 0.6f, e.y * 0.6f, e.z * 0.6f, 1.0f});
+	}
+	const Vec4 e = ElementColor(s);
+	if (disabled) {
+		// Already spelled into the sequence: washed out under a dark overlay,
+		// border flattened — reads as "spent" and stops responding.
+		batch.DrawRect(r, {0.0f, 0.0f, 0.0f, 0.62f});
+		ui::DrawBorder(batch, r, {e.x * 0.25f, e.y * 0.25f, e.z * 0.25f, 1.0f});
+		return;
+	}
+	ui::DrawBorder(batch, r, hot ? Vec4{e.x, e.y, e.z, 1.0f}
+								 : Vec4{e.x * 0.6f, e.y * 0.6f, e.z * 0.6f, 1.0f});
+}
+
+void SpellbookPanel::Update(ui::UIContext& ctx) {
+	m_hotSymbol = -1;
+	m_hotSeq = -1;
+	m_hotCast = false;
+	m_hotClear = false;
+	if (m_member < 0) return;
+	const Character* c = RosterMember(m_roster, static_cast<size_t>(m_member));
+	if (!c) { // roster shrank under the open book — close it
+		Close();
+		return;
+	}
+	// Self-heal: a roster reset may have taken symbols back; the sequence must
+	// never show (or cast) anything the member no longer knows.
+	std::erase_if(m_sequence,
+				  [c](SpellSymbol s) { return !c->Knows(s); });
+
+	const Input* input = ctx.CurrentInput();
+	if (!input || ctx.IsMouseConsumed()) return;
+	const gfx::Rect px = Pixel();
+	const float mx = input->MouseX(), my = input->MouseY();
+	if (!px.Contains(mx, my)) return;
+	const bool pressed = input->WasMousePressed(MouseButton::Left);
+
+	const std::vector<RuneSlot> slots = RuneSlots(*c);
+	for (size_t i = 0; i < slots.size(); ++i) {
+		if (!SymbolRect(px, i).Contains(mx, my)) continue;
+		// Unknown school frames and unavailable symbols (spent, or blocked by
+		// the school rule) are inert — no hover, no click.
+		if (!slots[i].known || !SymbolAvailable(slots[i].symbol, m_sequence))
+			break;
+		m_hotSymbol = static_cast<int>(i);
+		if (pressed && m_sequence.size() < kMaxSequence) {
+			m_sequence.push_back(slots[i].symbol);
+			if (onClick) onClick();
+		}
+	}
+	for (size_t i = 0; i < m_sequence.size(); ++i) {
+		if (!SequenceRect(px, i).Contains(mx, my)) continue;
+		m_hotSeq = static_cast<int>(i);
+		if (pressed) {
+			// Remove this symbol AND everything spelled after it — the tail
+			// was built on top of it, so it goes too.
+			m_sequence.resize(i);
+			if (onClick) onClick();
+			break;
+		}
+	}
+	if (CastRect(px).Contains(mx, my)) {
+		m_hotCast = true;
+		if (pressed && !m_sequence.empty()) {
+			if (onCast) onCast(static_cast<size_t>(m_member), m_hand, m_sequence);
+			m_sequence.clear(); // the slate empties either way (a fizzle is spent)
+		}
+	}
+	if (ClearRect(px).Contains(mx, my)) {
+		m_hotClear = true;
+		if (pressed && !m_sequence.empty()) {
+			m_sequence.clear();
+			if (onClick) onClick();
+		}
+	}
+	ctx.ConsumeMouse(); // the open book owns clicks over its box
+}
+
+void SpellbookPanel::Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
+	const ui::Theme& theme = ctx.GetTheme();
+	ui::Font& font = ctx.GetFont();
+	const gfx::Rect px = Pixel();
+	const float s = px.w / 222.0f;
+	const Character* c =
+		m_member < 0 ? nullptr : RosterMember(m_roster, static_cast<size_t>(m_member));
+	if (!c) { // closed: the placeholder line the old label showed
+		font.Draw(batch, m_placeholder, px.x + 10.0f * s, px.y + 12.0f * s,
+				  theme.textDim);
+		return;
+	}
+
+	// Whose book, then the rune grid: the school row on top (unknown schools
+	// keep their place as empty frames), learned runes below. A symbol the
+	// sequence can't take right now (spent, or blocked by the one-school
+	// rule) draws disabled until a sequence edit frees it.
+	font.Draw(batch, c->name, px.x + 10.0f * s, px.y + 8.0f * s, theme.accent);
+	const std::vector<RuneSlot> slots = RuneSlots(*c);
+	for (size_t i = 0; i < slots.size(); ++i) {
+		const gfx::Rect r = SymbolRect(px, i);
+		if (!slots[i].known) { // reserved school slot, not yet memorized
+			batch.DrawRect(r, theme.control);
+			ui::DrawBorder(batch, r, theme.panelBorder);
+			continue;
+		}
+		DrawRune(batch, r, slots[i].symbol, static_cast<int>(i) == m_hotSymbol,
+				 !SymbolAvailable(slots[i].symbol, m_sequence));
+	}
+
+	// The sequence spelled out so far — six slots at the bottom, just above
+	// Cast / Clear, filled left to right.
+	for (size_t i = 0; i < kMaxSequence; ++i) {
+		const gfx::Rect r = SequenceRect(px, i);
+		if (i < m_sequence.size()) {
+			DrawRune(batch, r, m_sequence[i], static_cast<int>(i) == m_hotSeq);
+		} else {
+			batch.DrawRect(r, theme.control);
+			ui::DrawBorder(batch, r, theme.panelBorder);
+		}
+	}
+
+	// The spell those symbols resolve to — on the line above the sequence row,
+	// but ONLY once this member has LEARNED it (first successful cast). An
+	// unlearned recipe stays anonymous so building a sequence is genuine
+	// EXPERIMENTATION: the book won't confirm a discovery before the cast does.
+	const gfx::Rect seq0 = SequenceRect(px, 0);
+	if (const Spell* def = Match(); def && c->HasLearnedSpell(def->Id()))
+		font.Draw(batch, "= " + loc::Tr(def->NameKey()), px.x + 10.0f * s,
+				  seq0.y - 8.0f * s - font.Height(), theme.accent);
+
+	ui::DrawButtonFace(batch, font, CastRect(px), m_castLabel, theme, m_hotCast,
+					   false, !m_sequence.empty());
+	ui::DrawButtonFace(batch, font, ClearRect(px), m_clearLabel, theme,
+					   m_hotClear, false, !m_sequence.empty());
 }
 
 // --- InventoryWindow ---------------------------------------------------------
@@ -380,8 +723,9 @@ constexpr float kPackRowY = 210.0f; // the pack-row (one row of kPackRowSlots)
 constexpr float kPackSepY = kPackRowY + kPackSlot + 9.0f;  // divider rule
 constexpr float kPackY    = kPackRowY + kPackSlot + 18.0f; // contents grid
 
-// --- mode toggle buttons (Inventory / Stats / Skills), a row under the portrait
-constexpr int kModeCount = 3;
+// --- mode toggle buttons (Inventory / Stats / Skills / Effects), a row under
+// the portrait
+constexpr int kModeCount = 4;
 constexpr float kModeBtnSize = 30.0f, kModeBtnGap = 5.0f;
 constexpr float kModeBtnX = 24.0f;  // aligns with the portrait's left edge
 constexpr float kModeBtnY = 132.0f; // just below the 100px portrait (top at y20)
@@ -402,7 +746,9 @@ CharacterSheet::CharacterSheet(const gfx::Rect& rect,
 	  m_healthLabel(loc::Tr("bar.health")),
 	  m_staminaLabel(loc::Tr("bar.stamina")), m_manaLabel(loc::Tr("bar.mana")),
 	  m_attributesLabel(loc::Tr("sheet.attributes")),
-	  m_skillsLabel(loc::Tr("sheet.skills")), m_noSkills(loc::Tr("sheet.no_skills")) {
+	  m_skillsLabel(loc::Tr("sheet.skills")), m_noSkills(loc::Tr("sheet.no_skills")),
+	  m_effectsLabel(loc::Tr("sheet.effects")),
+	  m_noEffects(loc::Tr("sheet.no_effects")) {
 	bounds = rect;
 	m_attrLabels = {loc::Tr("attr.strength"), loc::Tr("attr.dexterity"),
 					loc::Tr("attr.vitality"), loc::Tr("attr.willpower"),
@@ -425,6 +771,53 @@ void CharacterSheet::SetCharacter(size_t member) {
 					std::to_string(character.vitality),
 					std::to_string(character.willpower),
 					std::to_string(character.intelligence)};
+
+	// Skills-tab rows (docs/skills.md): the school skills first (symbol order,
+	// bar tinted by school), then every other trained skill in the map's
+	// alphabetical order (weapon classes — accent bar). Only trained skills
+	// (xp > 0) list; none at all keeps the "No skills yet." line.
+	m_skillRows.clear();
+	auto addRow = [&](std::string_view id, float xp, const Vec4& tint) {
+		const int level = Character::LevelForXp(xp);
+		const float base = static_cast<float>(level * level);
+		const float next = static_cast<float>((level + 1) * (level + 1));
+		m_skillRows.push_back({loc::Tr("skill." + std::string(id)),
+							   std::to_string(level),
+							   std::clamp((xp - base) / (next - base), 0.0f, 1.0f),
+							   tint});
+	};
+	for (u32 s = 0; s < kSymbolCount; ++s) {
+		const SpellSymbol sym = static_cast<SpellSymbol>(s);
+		if (!IsSchoolSymbol(sym)) continue;
+		if (const float xp = character.SkillXpOf(SymbolId(sym)); xp > 0.0f) {
+			const Vec4 c = ElementColor(sym);
+			addRow(SymbolId(sym), xp, {c.x, c.y, c.z, 1.0f});
+		}
+	}
+	for (const auto& [id, xp] : character.skillXp) {
+		SpellSymbol sym;
+		if (ParseSymbol(id, sym)) continue; // schools already listed above
+		if (xp > 0.0f) addRow(id, xp, {0, 0, 0, 0});
+	}
+
+	// Effects-tab rows: one per active effect, list order (= HUD icon order).
+	// The description is the effect's <nameKey>.desc loc key with the
+	// magnitude formatted in (each ward reads its number its own way). Baked
+	// here because the sheet freezes the world — nothing ticks while open.
+	m_effectRows.clear();
+	for (const StatusEffect& e : character.effects) {
+		const Vec4 c = ElementColor(e.school);
+		m_effectRows.push_back(
+			{e.kind,
+			 {c.x, c.y, c.z, 1.0f},
+			 e.duration > 0.0f ? std::clamp(e.timeLeft / e.duration, 0.0f, 1.0f)
+							   : 1.0f,
+			 loc::Tr(e.nameKey),
+			 loc::Format(e.nameKey + ".desc",
+						 static_cast<int>(e.magnitude + 0.5f)),
+			 loc::Format("sheet.effect_time",
+						 static_cast<int>(e.timeLeft + 0.5f))});
+	}
 }
 
 gfx::Rect CharacterSheet::EquipRect(const gfx::Rect& px, float sx, float sy,
@@ -531,7 +924,17 @@ void CharacterSheet::Update(ui::UIContext& ctx) {
 		for (int i = 0; i < kDollCellCount; ++i)
 			if (EquipRect(px, sx, sy, i).Contains(mx, my)) {
 				const size_t s = static_cast<size_t>(kDollCells[i].slot);
-				ClickSlot(m_character->inventory.equipment[s]);
+				// The two weapon hands only take catalog-holdable items; a held
+				// non-holdable stays on the cursor and we signal the refusal.
+				// (Pick-up/swap of what's already there is untouched.)
+				const bool handCell = kDollCells[i].slot == EquipSlot::LeftHand ||
+									  kDollCells[i].slot == EquipSlot::RightHand;
+				if (handCell && m_held && m_held->has_value() && m_categories &&
+					!m_categories->Holdable(**m_held)) {
+					if (onRejectHold) onRejectHold(**m_held);
+				} else {
+					ClickSlot(m_character->inventory.equipment[s]);
+				}
 				ctx.ConsumeMouse();
 				return;
 			}
@@ -590,13 +993,15 @@ void CharacterSheet::Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	case Mode::Inventory: DrawInventory(ctx, batch, px, sx, sy); break;
 	case Mode::Stats:     DrawStats(ctx, batch, px, sx, sy); break;
 	case Mode::Skills:    DrawSkills(ctx, batch, px, sx, sy); break;
+	case Mode::Effects:   DrawEffects(ctx, batch, px, sx, sy); break;
 	}
 }
 
-// The three little icon buttons under the portrait. The active mode's button is
+// The four little icon buttons under the portrait. The active mode's button is
 // drawn "pressed" (active fill + accent border); hovered buttons lighten. Icons
 // are primitive-drawn (no atlas): a 2x2 grid (Inventory), ascending bars
-// (Stats), a six-point star (Skills).
+// (Stats), a six-point star (Skills), an hourglass (Effects — time-limited
+// conditions).
 void CharacterSheet::DrawModeButtons(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 									 const gfx::Rect& px, float sx, float sy) {
 	const ui::Theme& theme = ctx.GetTheme();
@@ -620,10 +1025,14 @@ void CharacterSheet::DrawModeButtons(ui::UIContext& ctx, gfx::SpriteBatch& batch
 			const float h[3] = {r.h * 0.22f, r.h * 0.34f, r.h * 0.46f};
 			for (int k = 0; k < 3; ++k)
 				batch.DrawRect({x0 + k * (bw + g), baseY - h[k], bw, h[k]}, ink);
-		} else { // Skills: a six-point star (two overlaid triangles)
+		} else if (i == 2) { // Skills: a six-point star (two overlaid triangles)
 			const float rad = r.w * 0.26f, dx = rad * 0.866f, dy = rad * 0.5f;
 			batch.DrawTriangle({cx, cy - rad}, {cx - dx, cy + dy}, {cx + dx, cy + dy}, ink);
 			batch.DrawTriangle({cx, cy + rad}, {cx - dx, cy - dy}, {cx + dx, cy - dy}, ink);
+		} else { // Effects: an hourglass (two triangles meeting at the waist)
+			const float hw = r.w * 0.22f, hh = r.h * 0.26f;
+			batch.DrawTriangle({cx - hw, cy - hh}, {cx + hw, cy - hh}, {cx, cy}, ink);
+			batch.DrawTriangle({cx, cy}, {cx - hw, cy + hh}, {cx + hw, cy + hh}, ink);
 		}
 	}
 }
@@ -781,7 +1190,102 @@ void CharacterSheet::DrawSkills(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 	ui::Font& font = ctx.GetFont();
 	font.Draw(batch, m_skillsLabel, px.x + kDollX * sx, px.y + kInvHeaderY * sy,
 			  theme.accent);
-	font.Draw(batch, m_noSkills, px.x + kDollX * sx, px.y + 230.0f * sy, theme.textDim);
+	if (m_skillRows.empty()) {
+		font.Draw(batch, m_noSkills, px.x + kDollX * sx, px.y + 230.0f * sy,
+				  theme.textDim);
+		return;
+	}
+
+	// One row per trained skill, mirroring the attributes layout: name, the
+	// level right-aligned, and a progress bar toward the next level (school
+	// rows tint their bar; weapon classes ride the theme accent).
+	constexpr float kFirstRowY = 218.0f, kRowH = 40.0f;
+	constexpr float kLabelX = 56.0f, kValueRight = 300.0f;
+	constexpr float kBarX = 360.0f, kBarW = 340.0f, kBarH = 22.0f;
+	for (size_t i = 0; i < m_skillRows.size(); ++i) {
+		const SkillRow& row = m_skillRows[i];
+		const float y = kFirstRowY + static_cast<float>(i) * kRowH;
+		font.Draw(batch, row.label, px.x + kLabelX * sx, px.y + y * sy,
+				  theme.textDim);
+		const float vw = font.MeasureWidth(row.level);
+		font.Draw(batch, row.level, px.x + kValueRight * sx - vw, px.y + y * sy,
+				  theme.text);
+		const gfx::Rect bar{px.x + kBarX * sx, px.y + y * sy, kBarW * sx,
+							kBarH * sy};
+		DrawStatBar(batch, bar, row.frac,
+					row.tint.w > 0.0f ? row.tint : theme.accent, theme);
+	}
+}
+
+void CharacterSheet::DrawEffects(ui::UIContext& ctx, gfx::SpriteBatch& batch,
+								 const gfx::Rect& px, float sx, float sy) {
+	const ui::Theme& theme = ctx.GetTheme();
+	ui::Font& font = ctx.GetFont();
+	font.Draw(batch, m_effectsLabel, px.x + kDollX * sx, px.y + kInvHeaderY * sy,
+			  theme.accent);
+	if (m_effectRows.empty()) {
+		font.Draw(batch, m_noEffects, px.x + kDollX * sx, px.y + 230.0f * sy,
+				  theme.textDim);
+		return;
+	}
+
+	// One row per active effect: the HUD indicator's icon (kind art under a
+	// school-tinted border with the depleting time sliver) at reading size,
+	// then the long form beside it — name, time left right-aligned on the
+	// name line, and the magnitude-formatted description beneath, word-
+	// wrapped inside the panel (rows grow with their text; the cursor runs
+	// in pixels because the wrap measures the live font).
+	constexpr float kFirstRowY = 218.0f, kRowGap = 22.0f;
+	constexpr float kIconX = 56.0f, kIconSize = 48.0f;
+	constexpr float kTextX = kIconX + kIconSize + 16.0f, kTextRight = 724.0f;
+
+	// Greedy word wrap: draws `text` from (x, y) down, breaking at spaces so
+	// no line exceeds maxW (a single over-long word overflows rather than
+	// spinning); returns the y just below the last line. string_view slices
+	// only — no per-frame allocation.
+	auto drawWrapped = [&font, &batch](std::string_view text, float x, float y,
+									   float maxW, const Vec4& color) -> float {
+		while (!text.empty()) {
+			size_t end = text.size();
+			while (end > 0 && font.MeasureWidth(text.substr(0, end)) > maxW) {
+				const size_t space = text.rfind(' ', end - 1);
+				if (space == std::string_view::npos || space == 0) break;
+				end = space;
+			}
+			font.Draw(batch, text.substr(0, end), x, y, color);
+			y += font.LineAdvance();
+			const size_t next = text.find_first_not_of(' ', end);
+			text = next == std::string_view::npos ? std::string_view{}
+												  : text.substr(next);
+		}
+		return y;
+	};
+
+	float y = px.y + kFirstRowY * sy;
+	for (const EffectRow& row : m_effectRows) {
+		const gfx::Rect r{px.x + kIconX * sx, y, kIconSize * sx, kIconSize * sy};
+		batch.DrawRect(r, kSlotBg);
+		const gfx::Texture* icon =
+			m_icons ? m_icons->For(EffectIconItem(row.kind)) : nullptr;
+		if (icon)
+			batch.DrawSprite({r.x + 2, r.y + 2, r.w - 4, r.h - 4}, {0, 0, 1, 1},
+							 *icon, {1, 1, 1, 1});
+		else
+			batch.DrawRect({r.x + 2, r.y + 2, r.w - 4, r.h - 4},
+						   {row.tint.x, row.tint.y, row.tint.z, 0.5f});
+		batch.DrawRect({r.x + 2, r.y + r.h - 5, (r.w - 4) * row.frac, 3},
+					   row.tint);
+		ui::DrawBorder(batch, r, row.tint);
+
+		const float textX = px.x + kTextX * sx;
+		const float maxW = (kTextRight - kTextX) * sx;
+		font.Draw(batch, row.name, textX, y, theme.text);
+		const float tw = font.MeasureWidth(row.time);
+		font.Draw(batch, row.time, px.x + kTextRight * sx - tw, y, theme.accent);
+		const float descBottom = drawWrapped(
+			row.desc, textX, y + font.LineAdvance() + 4.0f, maxW, theme.textDim);
+		y = std::max(descBottom, r.y + r.h) + kRowGap * sy;
+	}
 }
 
 } // namespace dungeon::game

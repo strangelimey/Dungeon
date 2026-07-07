@@ -52,6 +52,13 @@ public:
 				  std::function<void(const std::vector<std::string>&)> fn);
 	void Print(std::string line);
 
+	// Gates command EXECUTION (typing/scrollback stay live). The Game disables
+	// commands while a staged load is mid-flight — the world is only partially
+	// built then, and a handler that reaches into it (cast/save/quality/...)
+	// would touch objects a later load task creates. A gated Enter prints a
+	// notice and keeps the line in history for an easy re-run after the load.
+	void SetCommandsEnabled(bool enabled) { m_commandsEnabled = enabled; }
+
 private:
 	void Execute(const std::string& line);
 
@@ -70,6 +77,7 @@ private:
 	std::vector<ThreadHit> m_threadHits;
 
 	bool m_open = false;
+	bool m_commandsEnabled = true;   // false while a staged load is mid-flight
 	std::string m_input;             // current edit line
 	std::deque<std::string> m_output; // scrollback (oldest front)
 	std::vector<std::string> m_history;

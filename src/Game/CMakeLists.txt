@@ -38,6 +38,22 @@ add_library(Game STATIC
 	Serialize.cpp
 	ShadowScheduler.cpp
 	SoundBank.cpp
+	Spell/AllSpells.cpp
+	Spell/BoltSpell.cpp
+	Spell/Fireburst.cpp
+	Spell/Fireshield.cpp
+	Spell/Flame.cpp
+	Spell/Gust.cpp
+	Spell/Push.cpp
+	Spell/Rock.cpp
+	Spell/Slingshot.cpp
+	Spell/Spell.cpp
+	Spell/Splash.cpp
+	Spell/Stoneskin.cpp
+	Spell/WardSpell.cpp
+	Spell/Waterbolt.cpp
+	Spell/Waterveil.cpp
+	Spell/Windward.cpp
 	Spells.cpp
 )
 target_link_libraries(Game PUBLIC Core Platform Assets Animation Graphics UI Audio)

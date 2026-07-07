@@ -47,6 +47,17 @@ struct ProjectileSpec {
 	Vec4 color{1, 1, 1, 1};  // glow (premultiplied additive)
 	float size = 0.2f;       // billboard half-extent
 	TargetSide target = TargetSide::Monsters;
+	int push = 0;            // cells the struck target is shoved along `dir`
+};
+
+// Everything the owner needs to resolve one impact: where it landed, the strike
+// profile, and the item's travel direction + push so displacement effects (the
+// air school's shove) know which way and how far to move the target.
+struct ProjectileImpact {
+	Vec3 pos{};
+	Vec3 dir{};
+	AttackProfile atk{};
+	int push = 0;
 };
 
 class ProjectileSystem {
@@ -71,9 +82,9 @@ public:
 	// --- world seam (wired once by the owner) -------------------------------
 	// True if an item is stopped by the cell at world position `p` (wall / off-map).
 	std::function<bool(const Vec3& p)> isBlocked;
-	// An item reached `p`; resolve a strike there on `side` with `atk`. Return true
+	// An item reached `impact.pos`; resolve a strike there on `side`. Return true
 	// if it struck a target (the item is consumed). The owner does combat + feedback.
-	std::function<bool(TargetSide side, const Vec3& p, const AttackProfile& atk)> resolveHit;
+	std::function<bool(TargetSide side, const ProjectileImpact& impact)> resolveHit;
 	// An item died on a wall / at max range at `p` (for a soft fizzle sound).
 	std::function<void(const Vec3& p)> onFizzle;
 
@@ -90,6 +101,7 @@ private:
 		Vec4 color{1, 1, 1, 1}; // glow (premultiplied additive)
 		float size = 0.2f;      // billboard half-extent
 		TargetSide target = TargetSide::Monsters;
+		int push = 0;           // cells the struck target is shoved along `dir`
 	};
 	// A short-lived impact/fizzle spark (a burst of these sells a hit). Flies out,
 	// fades over its life, additive.

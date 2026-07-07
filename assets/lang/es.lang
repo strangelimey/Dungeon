@@ -79,6 +79,9 @@ settings.look_return=Tiempo de retorno
 settings.look_curve=Curva de retorno
 settings.look_move=Enderezado al moverse
 settings.look_move_curve=Curva de movimiento
+settings.hands=Manos
+settings.usemenu_execute=Elegir en el menú de uso también lo ejecuta
+settings.spell_mru=Conjuros rápidos mostrados
 ease.linear=Lineal
 ease.easein=Entrada suave
 ease.easeinout=Entrada / salida suave
@@ -112,6 +115,8 @@ settings.bar_scale=Tamaño
 settings.bar_opacity=Opacidad del fondo
 settings.theme_colors=Colores del tema
 settings.resource_bars=Barras de recursos
+settings.party_colors=Colores del grupo
+settings.member_n=Miembro {}
 theme.panel=Panel
 theme.border=Borde
 theme.control=Control
@@ -175,22 +180,79 @@ log.pack_rejects={} no cabe en {}.
 log.stow={} guarda {} en su mochila.
 log.memorize={} memoriza la runa de {}.
 log.eat={} se come {}.
+log.cant_hold={} no se puede sostener en la mano.
 ; --- casting ({0}=caster {1}=spell/target {2}=damage) ---
 log.cast={} lanza {}.
+log.spell_learned=¡{} ha aprendido {}!
 log.spell_fizzles=El hechizo se disipa en nada.
 log.cast_nomana=A {} le falta maná para lanzarlo.
 log.cast_unknown={} no conoce esos símbolos.
 log.spell_hits=¡{} se abrasa y sufre {} de daño!
 log.spell_misses={} esquiva el rayo.
 log.spell_slain=¡{} se desintegra!
+log.spell_pushes=¡{} sale despedido hacia atrás!
+log.shield_up=Un escudo protector envuelve a {}.
+log.shield_fades=El escudo de {} se desvanece.
+log.shield_burns=¡{} se quema con el escudo de fuego y sufre {} de daño!
+log.shield_soaks=¡El velo de agua de {} absorbe el golpe!
+log.shield_bursts=¡El velo de agua de {} estalla!
+log.shield_deflects=¡El viento desvía el proyectil lejos de {}!
+log.shield_stills=El viento alrededor de {} se calma.
 ; Spell display names (spells.cat ids -> spell.<id>).
-spell.flame=Llama
-spell.rock=Roca
-spell.gust=Ráfaga
+spell.flame=Soplo de fuego
+spell.rock=Guijarro
+spell.gust=Soplo de viento
 spell.splash=Salpicadura
-spell.firebolt=Rayo de fuego
-ui.memorize=Memorizar
-ui.eat=Comer
+spell.fireburst=Estallido de fuego
+spell.slingshot=Piedra de honda
+spell.waterbolt=Dardo de agua
+spell.push=Empujón
+spell.stoneskin=Piel de piedra
+spell.fireshield=Escudo de fuego
+spell.waterveil=Velo de agua
+spell.windward=Escudo de viento
+; Effect descriptions (sheet Effects tab; <nameKey>.desc, {} = magnitude).
+spell.stoneskin.desc=Piel de piedra — absorbe {} de daño de cada golpe.
+spell.fireshield.desc=Envuelto en llamas — un golpe certero quema al atacante por {}.
+spell.waterveil.desc=Un velo de agua absorbe los próximos {} de daño y luego estalla.
+spell.windward.desc=El viento desvía los próximos {} proyectiles.
+; Status-effect hover label: effect name, seconds left.
+hud.effect_time={} — {} s
+; Skill display names (docs/skills.md): the four schools + weapon classes.
+skill.fire=Magia de fuego
+skill.earth=Magia de tierra
+skill.air=Magia de aire
+skill.water=Magia de agua
+skill.blade=Hojas
+skill.blunt=Armas contundentes
+skill.unarmed=Desarmado
+; Stats the skills creep forward (log.stat_up inserts these).
+stat.strength=Fuerza
+stat.dexterity=Destreza
+stat.stamina=Aguante
+stat.health=Salud
+; Skill/stat growth + cast-failure log lines: (name, skill/stat, value) / (name).
+log.skill_up={}: la habilidad {} sube a {}.
+log.stat_up={}: {} sube a {}.
+log.cast_fumble=¡El hechizo se le escapa a {}!
+; Hand-slot use menu (items.cat `command` ids -> use.<id>).
+use.memorize=Memorizar
+use.eat=Comer
+use.punch=Puñetazo
+use.kick=Patada
+use.stab=Apuñalar
+use.slash=Tajar
+use.chop=Cortar
+use.bash=Golpear
+use.swing=Blandir
+use.melee=Atacar
+; Hand-menu default-picker groups (bare hand / no defaultable item command).
+menu.combat=Combate
+menu.magic=Magia
+menu.spellbook=Libro de conjuros
+; Magic-area spellbook panel (build a spell from known symbols).
+magic.cast=Lanzar
+magic.clear=Borrar
 ui.inventory=Inventario
 ui.inv_all=Todos
 ; Item display names (ItemKind.nameKey; rune_<elem> -> item.rune_<elem>).
@@ -198,6 +260,8 @@ item.rune_fire=Runa de fuego
 item.rune_earth=Runa de tierra
 item.rune_air=Runa de aire
 item.rune_water=Runa de agua
+item.rune_project=Runa de proyección
+item.rune_protect=Runa de protección
 item.dagger=Daga
 item.khukri=Kukri
 item.snake_dagger=Daga serpiente
@@ -246,6 +310,9 @@ sheet.backpack=Mochila
 sheet.load=Carga: {} / {} kg
 sheet.skills=Habilidades
 sheet.no_skills=Aún no hay habilidades.
+sheet.effects=Efectos
+sheet.no_effects=Sin efectos activos.
+sheet.effect_time={} s
 sheet.nothing_carried=No lleva nada.
 equip.head=Cabeza
 equip.body=Cuerpo
@@ -257,11 +324,13 @@ equip.cloak=Capa
 equip.amulet=Amuleto
 equip.ring=Anillo
 
-; --- spell symbols (tier 1: the four elements) ----------------------------------
+; --- spell symbols (tier 1: the four elements; tier 2: the shared forms) ---------
 symbol.fire=Fuego
 symbol.earth=Tierra
 symbol.air=Aire
 symbol.water=Agua
+symbol.project=Proyección
+symbol.protect=Protección
 
 ; --- map overlay / editor --------------------------------------------------------
 map.title=Mapa

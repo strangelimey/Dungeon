@@ -83,6 +83,9 @@ settings.look_return=Время возврата
 settings.look_curve=Кривая возврата
 settings.look_move=Выравнивание при движении
 settings.look_move_curve=Кривая движения
+settings.hands=Руки
+settings.usemenu_execute=Выбор в меню использования сразу выполняет его
+settings.spell_mru=Быстрых заклинаний в меню
 ease.linear=Линейно
 ease.easein=Плавный вход
 ease.easeinout=Плавный вход / выход
@@ -116,6 +119,8 @@ settings.bar_scale=Размер
 settings.bar_opacity=Непрозрачность фона
 settings.theme_colors=Цвета темы
 settings.resource_bars=Полосы ресурсов
+settings.party_colors=Цвета отряда
+settings.member_n=Участник {}
 theme.panel=Панель
 theme.border=Рамка
 theme.control=Элемент
@@ -179,22 +184,79 @@ log.pack_rejects=«{}» не помещается в «{}».
 log.stow={} убирает «{}» в рюкзак.
 log.memorize={} запоминает руну «{}».
 log.eat={} съедает «{}».
+log.cant_hold=«{}» нельзя держать в руке.
 ; --- casting ({0}=caster {1}=spell/target {2}=damage) ---
 log.cast={} произносит заклинание «{}».
+log.spell_learned={} осваивает заклинание «{}»!
 log.spell_fizzles=Заклинание рассеивается впустую.
 log.cast_nomana={}: не хватает маны.
 log.cast_unknown={} не знает таких символов.
 log.spell_hits=Заклинание обжигает: {} получает {} урона!
 log.spell_misses=Сгусток проносится мимо — {} уклоняется.
 log.spell_slain=Рассыпается в прах {}!
+log.spell_pushes=Заклинание отбрасывает {} назад!
+log.shield_up=Защитная пелена окутывает {}.
+log.shield_fades=Защита {} рассеивается.
+log.shield_burns=Огненный щит обжигает: {} получает {} урона!
+log.shield_soaks=Водяная пелена {} поглощает удар!
+log.shield_bursts=Водяная пелена {} лопается!
+log.shield_deflects=Ветер отводит снаряд от {}!
+log.shield_stills=Ветер вокруг {} стихает.
 ; Spell display names (spells.cat ids -> spell.<id>).
-spell.flame=Пламя
-spell.rock=Камень
-spell.gust=Порыв
+spell.flame=Язычок пламени
+spell.rock=Камешек
+spell.gust=Дуновение ветра
 spell.splash=Всплеск
-spell.firebolt=Огненная стрела
-ui.memorize=Запомнить
-ui.eat=Съесть
+spell.fireburst=Огненная вспышка
+spell.slingshot=Камень из пращи
+spell.waterbolt=Водяная стрела
+spell.push=Толчок
+spell.stoneskin=Каменная кожа
+spell.fireshield=Огненный щит
+spell.waterveil=Водяная пелена
+spell.windward=Заслон ветра
+; Effect descriptions (sheet Effects tab; <nameKey>.desc, {} = magnitude).
+spell.stoneskin.desc=Каменная кожа — поглощает {} урона от каждого удара.
+spell.fireshield.desc=Объят пламенем — удар обжигает нападающего на {}.
+spell.waterveil.desc=Водяная пелена поглощает следующие {} урона, затем лопается.
+spell.windward.desc=Ветер отводит следующие {} снарядов.
+; Status-effect hover label: effect name, seconds left.
+hud.effect_time={} — {} с
+; Skill display names (docs/skills.md): the four schools + weapon classes.
+skill.fire=Магия огня
+skill.earth=Магия земли
+skill.air=Магия воздуха
+skill.water=Магия воды
+skill.blade=Клинки
+skill.blunt=Дробящее оружие
+skill.unarmed=Безоружный бой
+; Stats the skills creep forward (log.stat_up inserts these).
+stat.strength=Сила
+stat.dexterity=Ловкость
+stat.stamina=Выносливость
+stat.health=Здоровье
+; Skill/stat growth + cast-failure log lines: (name, skill/stat, value) / (name).
+log.skill_up={}: навык «{}» растёт до {}.
+log.stat_up={}: {} растёт до {}.
+log.cast_fumble=Заклинание ускользает от {}!
+; Hand-slot use menu (items.cat `command` ids -> use.<id>).
+use.memorize=Запомнить
+use.eat=Съесть
+use.punch=Удар кулаком
+use.kick=Пинок
+use.stab=Уколоть
+use.slash=Полоснуть
+use.chop=Рубануть
+use.bash=Ударить
+use.swing=Замахнуться
+use.melee=Атаковать
+; Hand-menu default-picker groups (bare hand / no defaultable item command).
+menu.combat=Бой
+menu.magic=Магия
+menu.spellbook=Книга заклинаний
+; Magic-area spellbook panel (build a spell from known symbols).
+magic.cast=Сотворить
+magic.clear=Очистить
 ui.inventory=Инвентарь
 ui.inv_all=Все
 ; Item display names (ItemKind.nameKey; rune_<elem> -> item.rune_<elem>).
@@ -202,6 +264,8 @@ item.rune_fire=Руна огня
 item.rune_earth=Руна земли
 item.rune_air=Руна воздуха
 item.rune_water=Руна воды
+item.rune_project=Руна проекции
+item.rune_protect=Руна защиты
 item.dagger=Кинжал
 item.khukri=Кукри
 item.snake_dagger=Змеиный кинжал
@@ -250,6 +314,9 @@ sheet.backpack=Рюкзак
 sheet.load=Груз: {} / {} кг
 sheet.skills=Навыки
 sheet.no_skills=Пока нет навыков.
+sheet.effects=Эффекты
+sheet.no_effects=Нет активных эффектов.
+sheet.effect_time={} с
 sheet.nothing_carried=Ничего нет.
 equip.head=Голова
 equip.body=Тело
@@ -261,11 +328,13 @@ equip.cloak=Плащ
 equip.amulet=Амулет
 equip.ring=Кольцо
 
-; --- spell symbols (tier 1: the four elements) ----------------------------------
+; --- spell symbols (tier 1: the four elements; tier 2: the shared forms) ---------
 symbol.fire=Огонь
 symbol.earth=Земля
 symbol.air=Воздух
 symbol.water=Вода
+symbol.project=Проекция
+symbol.protect=Защита
 
 ; --- map overlay / editor --------------------------------------------------------
 map.title=Карта

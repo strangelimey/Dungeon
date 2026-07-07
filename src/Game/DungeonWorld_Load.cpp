@@ -643,6 +643,9 @@ DungeonWorld::ItemKind& DungeonWorld::ItemKindFor(const std::string& type) {
 		kind->nameKey = CatalogGet(def, "name", std::format("item.{}", type));
 		// Shared, data-driven fields: category, carry weight, hand commands.
 		kind->category = CatalogGet(def, "category", "misc");
+		// Weapon class (docs/skills.md): the skill a swing with this item
+		// trains and is scaled by. Absent = the swing trains nothing.
+		kind->skill = CatalogGet(def, "skill", "");
 		kind->weight = def ? def->GetFloat("weight", 0.0f) : 0.0f;
 		// `command` is a free-form list (whitespace/comma separated) of command ids
 		// the hand right-click menu offers; runes implicitly gain "memorize" below.
