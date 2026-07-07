@@ -201,11 +201,18 @@ Magic is a **walled-off module** (it knows nothing of map/monsters/HUD):
   **Project** with its four `<school>,project` spells — including the engine's
   first displacement effect (`push`, the air shove) — and **Protect** with the
   shield framework (`SpellEffect::Shield`: one caster-only ward per member,
-  school-keyed behaviour, timed fade, save v13) carrying all four shields:
-  Stone Skin (armor), Fire Shield (melee retaliation), Water Veil (absorb
-  pool, bursts when spent), Wind Ward (bolt deflection charges, stills when
-  spent). Recipes are still matched as exact ordered sequences; that IS the
+  school-keyed behaviour, timed fade) carrying all four shields: Stone Skin
+  (armor), Fire Shield (melee retaliation), Water Veil (absorb pool, bursts
+  when spent), Wind Ward (bolt deflection charges, stills when spent).
+  Recipes are still matched as exact ordered sequences; that IS the
   model now (the grammar is authored into the recipes, not parsed).
+- **Status effects are a unified list.** A ward lives in `Character::effects`
+  (`StatusEffect`: kind + school + magnitude + time; save v14 "effect" lines,
+  v13 "shield" lines still load) — the one list every future condition
+  (poison, injury, item buff) joins. The party bar draws an icon per active
+  effect along the portrait's bottom edge (school-tinted border + depleting
+  time sliver; hover names it with its time left); a character-sheet Effects
+  section is noted for later.
 - **Casting entry point.** The spellbook panel (Magic » Spellbook) is built;
   the per-member **Magic sigil** described in "Opening the spell panel" is not
   built yet (the hand menu is the only door today).

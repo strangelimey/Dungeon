@@ -215,6 +215,8 @@ spell.stoneskin=Каменная кожа
 spell.fireshield=Огненный щит
 spell.waterveil=Водяная пелена
 spell.windward=Заслон ветра
+; Status-effect hover label: effect name, seconds left.
+hud.effect_time={} — {} с
 ; Hand-slot use menu (items.cat `command` ids -> use.<id>).
 use.memorize=Запомнить
 use.eat=Съесть

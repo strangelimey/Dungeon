@@ -209,6 +209,8 @@ spell.stoneskin=Stone Skin
 spell.fireshield=Fire Shield
 spell.waterveil=Water Veil
 spell.windward=Wind Ward
+; Status-effect hover label: effect name, seconds left.
+hud.effect_time={} — {}s
 ui.inventory=Inventory
 ui.inv_all=All
 ; Hand-slot use menu (items.cat `command` ids -> use.<id>).

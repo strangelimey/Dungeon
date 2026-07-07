@@ -13,6 +13,16 @@ namespace {
 // black, so the light-haloed 3D item icons read clearly against it.
 inline constexpr Vec4 kSlotBg{0.0f, 0.0f, 0.0f, 1.0f};
 
+// Icon art for a status-effect kind, by the item id whose ItemIconBank icon
+// it borrows (a ward wears the Protect rune tablet's face; the school tint
+// around it tells the four shields apart). "" = no art (colored square).
+const char* EffectIconItem(StatusKind kind) {
+	switch (kind) {
+	case StatusKind::Ward: return "rune_protect";
+	}
+	return "";
+}
+
 void DrawStatBar(gfx::SpriteBatch& batch, const gfx::Rect& rect, float fraction,
 				 const Vec4& color, const ui::Theme& theme) {
 	batch.DrawRect(rect, theme.control);
@@ -57,14 +67,33 @@ CharacterPanel::CharacterPanel(const gfx::Rect& rect,
 							   const ui::Font* portraitFont,
 							   const ResourceBarColors* barColors,
 							   const HitSplatIcons* hitSplats,
+							   const ItemIconBank* icons,
 							   std::function<void()> onClick,
 							   std::function<void()> onRight,
 							   std::function<void()> onBars)
 	: m_roster(roster), m_member(member), m_portraitFont(portraitFont),
-	  m_barColors(barColors), m_hitSplats(hitSplats),
+	  m_barColors(barColors), m_hitSplats(hitSplats), m_icons(icons),
 	  m_onClick(std::move(onClick)), m_onRight(std::move(onRight)),
 	  m_onBars(std::move(onBars)) {
 	bounds = rect;
+}
+
+// The portrait square: left side of the panel, inset by the shared pad. The
+// one layout Draw and the effect-icon hit test both resolve against.
+gfx::Rect CharacterPanel::PortraitRect() const {
+	const gfx::Rect& px = Pixel();
+	const float pad = px.h * 0.08f;
+	return {px.x + pad, px.y + pad, px.h - 2 * pad, px.h - 2 * pad};
+}
+
+// The Nth status-effect icon: a small square in a row along the portrait's
+// bottom edge, left to right.
+gfx::Rect CharacterPanel::EffectIconRect(const gfx::Rect& portrait,
+										 size_t index) const {
+	const float s = portrait.w * 0.30f;
+	const float gap = 2.0f;
+	return {portrait.x + 1.0f + (s + gap) * static_cast<float>(index),
+			portrait.y + portrait.h - s - 1.0f, s, s};
 }
 
 // The stat-bar strip: right of the portrait, below the name (mirrors Draw's
@@ -90,6 +119,17 @@ void CharacterPanel::Update(ui::UIContext& ctx) {
 		if (input->WasMousePressed(MouseButton::Left)) m_held = true;
 		if (input->WasMousePressed(MouseButton::Right)) m_heldRight = true;
 		ctx.ConsumeMouse();
+	}
+	// Which status-effect icon (the portrait strip) the cursor rests on —
+	// Draw shows that effect's name + time left under the panel.
+	m_hotEffect = static_cast<size_t>(-1);
+	if (m_hot) {
+		const gfx::Rect portrait = PortraitRect();
+		for (size_t i = 0; i < m_character->effects.size(); ++i)
+			if (EffectIconRect(portrait, i).Contains(mx, my)) {
+				m_hotEffect = i;
+				break;
+			}
 	}
 	// A click over the stat bars (either button) opens the Stats tab; elsewhere on
 	// the panel keeps the portrait actions (left = sheet/stow, right = backpack).
@@ -123,8 +163,7 @@ void CharacterPanel::Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 
 	// Internals scale with the slot height (the slot itself is normalized).
 	const float pad = px.h * 0.08f;
-	const gfx::Rect portrait{px.x + pad, px.y + pad, px.h - 2 * pad,
-							 px.h - 2 * pad};
+	const gfx::Rect portrait = PortraitRect();
 	DrawPortrait(batch, portrait, *m_character, *m_portraitFont, theme);
 
 	// Hit feedback: a transient splat over the portrait while hitFlash > 0,
@@ -138,6 +177,33 @@ void CharacterPanel::Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 							  portrait.w + grow, portrait.h + grow};
 			batch.DrawSprite(r, {0, 0, 1, 1}, *splat, {1, 1, 1, fade});
 		}
+	}
+
+	// Active status effects: one small icon per effect along the portrait's
+	// bottom edge — the kind's icon art (the Protect rune tablet for a ward)
+	// under a school-tinted border, with a depleting time sliver beneath.
+	// Hovering one names it under the panel (Update tracks m_hotEffect).
+	const std::vector<StatusEffect>& effects = m_character->effects;
+	for (size_t i = 0; i < effects.size(); ++i) {
+		const gfx::Rect r = EffectIconRect(portrait, i);
+		if (r.x + r.w > portrait.x + portrait.w) break; // edge full — overflow hides
+		const StatusEffect& e = effects[i];
+		const Vec4 tint = ElementColor(e.school);
+		batch.DrawRect(r, kSlotBg);
+		const gfx::Texture* icon =
+			m_icons ? m_icons->For(EffectIconItem(e.kind)) : nullptr;
+		if (icon)
+			batch.DrawSprite({r.x + 1, r.y + 1, r.w - 2, r.h - 2}, {0, 0, 1, 1},
+							 *icon, {1, 1, 1, 1});
+		else
+			batch.DrawRect({r.x + 1, r.y + 1, r.w - 2, r.h - 2},
+						   {tint.x, tint.y, tint.z, 0.5f});
+		// Remaining-time sliver draining along the icon's bottom edge.
+		const float frac =
+			e.duration > 0.0f ? std::clamp(e.timeLeft / e.duration, 0.0f, 1.0f)
+							  : 1.0f;
+		batch.DrawRect({r.x + 1, r.y + r.h - 3, (r.w - 2) * frac, 2}, tint);
+		ui::DrawBorder(batch, r, tint);
 	}
 
 	ui::Font& font = ctx.GetFont();
@@ -163,6 +229,21 @@ void CharacterPanel::Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 		DrawStatBar(batch, {left, y, right - left, barH},
 					bar.value / std::max(bar.max, 1.0f), bar.color, theme);
 		y += barH + barGap;
+	}
+
+	// Hovered effect icon: name + time left on a small plaque just under the
+	// panel (the strip icons are too small to label in place).
+	if (m_hotEffect < effects.size()) {
+		const StatusEffect& e = effects[m_hotEffect];
+		const std::string label =
+			loc::Format("hud.effect_time", loc::Tr(e.nameKey),
+						static_cast<int>(e.timeLeft + 0.5f));
+		const gfx::Rect tip{px.x, px.y + px.h + 2.0f,
+							font.MeasureWidth(label) + 12.0f,
+							font.LineAdvance() + 6.0f};
+		batch.DrawRect(tip, theme.panel);
+		ui::DrawBorder(batch, tip, theme.panelBorder);
+		font.Draw(batch, label, tip.x + 6.0f, tip.y + 3.0f, theme.text);
 	}
 }
 

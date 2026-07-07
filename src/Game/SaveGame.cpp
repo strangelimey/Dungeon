@@ -100,11 +100,12 @@ bool WriteSave(const SaveData& data, const std::string& path) {
 			for (const std::string& id : c.mruSpells) t += " " + id;
 			t += '\n';
 		}
-		// "shield <i> <school> <time> <power>" — the member's active ward
-		// (Protect); omitted when none, so pre-v13 readers skip nothing.
-		if (c.shieldTime > 0.0f && !c.shieldSchool.empty())
-			t += std::format("shield {} {} {:.3f} {:.3f}\n", i, c.shieldSchool,
-							 c.shieldTime, c.shieldPower);
+		// "effect <i> <kind> <school> <time> <duration> <magnitude> <nameKey>"
+		// — one line per active status effect (v14; "-" pads an empty token).
+		for (const SaveData::CharState::EffectState& e : c.effects)
+			t += std::format("effect {} {} {} {:.3f} {:.3f} {:.3f} {}\n", i,
+							 itemTok(e.kind), itemTok(e.school), e.time,
+							 e.duration, e.magnitude, itemTok(e.nameKey));
 	}
 
 	// One block per visited level: a "level <stem>" header, then its entity
@@ -247,14 +248,42 @@ std::optional<SaveData> ReadSave(const std::string& path) {
 			SaveData::CharState& c = data.characters[idx];
 			for (size_t i = 2; i < tok.size(); ++i)
 				c.learnedSpells.emplace_back(tok[i]);
-		} else if (kw == "shield" && tok.size() >= 5) {
-			// Active ward: "shield <i> <school> <time> <power>" (v13).
+		} else if (kw == "effect" && tok.size() >= 7) {
+			// Status effect: "effect <i> <kind> <school> <time> <duration>
+			// <magnitude> <nameKey>" (v14); "-" = empty token.
 			const size_t idx = static_cast<size_t>(IntOf(tok[1]));
 			if (idx >= data.characters.size()) data.characters.resize(idx + 1);
 			SaveData::CharState& c = data.characters[idx];
-			c.shieldSchool = std::string(tok[2]);
-			c.shieldTime = FloatOf(tok[3]);
-			c.shieldPower = FloatOf(tok[4]);
+			auto detok = [](std::string_view sv) {
+				return sv == "-" ? std::string() : std::string(sv);
+			};
+			SaveData::CharState::EffectState e;
+			e.kind = detok(tok[2]);
+			e.school = detok(tok[3]);
+			e.time = FloatOf(tok[4]);
+			e.duration = FloatOf(tok[5]);
+			e.magnitude = FloatOf(tok[6]);
+			if (tok.size() >= 8) e.nameKey = detok(tok[7]);
+			c.effects.push_back(std::move(e));
+		} else if (kw == "shield" && tok.size() >= 5) {
+			// v13 ward line: "shield <i> <school> <time> <power>". Loads as a
+			// ward effect — duration = the remaining time (the HUD fraction
+			// starts full), display name derived from the school (the four
+			// Protect shields are the only wards a v13 save can carry).
+			const size_t idx = static_cast<size_t>(IntOf(tok[1]));
+			if (idx >= data.characters.size()) data.characters.resize(idx + 1);
+			SaveData::CharState& c = data.characters[idx];
+			SaveData::CharState::EffectState e;
+			e.kind = "ward";
+			e.school = std::string(tok[2]);
+			e.time = FloatOf(tok[3]);
+			e.duration = e.time;
+			e.magnitude = FloatOf(tok[4]);
+			e.nameKey = e.school == "earth"   ? "spell.stoneskin"
+						: e.school == "fire"  ? "spell.fireshield"
+						: e.school == "water" ? "spell.waterveil"
+											  : "spell.windward";
+			c.effects.push_back(std::move(e));
 		} else if (kw == "mru" && tok.size() >= 3) {
 			// Spell MRU: "mru <i> <spell> ..." newest first (v12).
 			const size_t idx = static_cast<size_t>(IntOf(tok[1]));

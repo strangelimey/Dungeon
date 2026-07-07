@@ -1341,7 +1341,7 @@ void GameUI::BuildHud() {
 	for (size_t i = 0; i < m_characters.size() && i < 4; ++i) {
 		auto* panel = m_hudUi.Add<CharacterPanel>(
 			gfx::Rect{}, &m_characters, i, &m_titleFont, &m_settings.barColors,
-			m_hitSplats, [this, i] { OnPortraitClick(i); },
+			m_hitSplats, m_itemIcons, [this, i] { OnPortraitClick(i); },
 			[this, i] { OnPortraitRightClick(i); },
 			[this, i] { OnPortraitBars(i); });
 		panel->backgroundOpacity = m_settings.partyBarOpacity;

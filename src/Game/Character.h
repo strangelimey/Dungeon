@@ -19,6 +19,7 @@
 #include <flat_map>
 #include <flat_set>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace dungeon::gfx {
@@ -26,6 +27,37 @@ class Texture;
 }
 
 namespace dungeon::game {
+
+// ============================================================================
+// Status effects — every transient condition on a member lives in ONE list
+// (Character::effects): a Protect ward today; poison, injuries, item buffs
+// later. The HUD's portrait effect strip and the character sheet read the
+// list; behaviour code queries it by kind (the ward helpers below). The
+// world tick ages timeLeft and removes an expired effect with its kind's
+// fade message; spend-to-die effects (the water pool, the air charges) are
+// removed at their SPEND site instead, so their burst/still lines replace
+// the fade line.
+// ============================================================================
+enum class StatusKind : u8 {
+	Ward, // the Protect shields — school keys the behaviour (see Character)
+};
+
+struct StatusEffect {
+	StatusKind kind = StatusKind::Ward;
+	// School flavour: a ward's behaviour key and every effect's HUD tint
+	// (ElementColor). Non-school effects (a future poison) pick a school
+	// purely for the tint until a richer palette exists.
+	SpellSymbol school = SpellSymbol::Fire;
+	std::string nameKey;    // loc key for the display name ("spell.stoneskin")
+	float timeLeft = 0.0f;  // seconds; the world tick removes at <= 0
+	float duration = 0.0f;  // starting timeLeft (the HUD's depletion fraction)
+	float magnitude = 0.0f; // kind-keyed number (armor / burn / pool / charges)
+};
+
+// Save/record token names for StatusKind ("ward"). Unknown tokens on load are
+// skipped, so a newer save's effect kinds degrade to "not present".
+const char* StatusKindId(StatusKind kind);
+bool ParseStatusKind(std::string_view token, StatusKind& out);
 
 struct Character {
 	std::string name; // proper noun — not localized
@@ -107,21 +139,39 @@ struct Character {
 		return 0.4f + static_cast<float>(intelligence) * 0.08f;
 	}
 
-	// --- shield (the Protect form rune, docs/spells.md "Protect") -------------
-	// ONE active ward per member — casting another replaces it. The school keys
-	// the behaviour AND how shieldPower reads: earth = +armor via Armor() below,
-	// fire = melee attackers burn for it (both timed); water = an absorb POOL it
+	// --- status effects (see the StatusEffect banner above) ------------------
+	// The list holds only ACTIVE effects — expiry/spend removes the entry, so
+	// presence IS the active check. Saved per slot ("effect" lines, v14; v13
+	// "shield" lines load as the matching ward).
+	std::vector<StatusEffect> effects;
+	StatusEffect* FindEffect(StatusKind kind) {
+		for (StatusEffect& e : effects)
+			if (e.kind == kind) return &e;
+		return nullptr;
+	}
+	const StatusEffect* FindEffect(StatusKind kind) const {
+		for (const StatusEffect& e : effects)
+			if (e.kind == kind) return &e;
+		return nullptr;
+	}
+	void RemoveEffect(StatusKind kind) {
+		std::erase_if(effects,
+					  [kind](const StatusEffect& e) { return e.kind == kind; });
+	}
+
+	// --- ward queries (the Protect form rune, docs/spells.md "Protect") ------
+	// ONE active ward per member — casting another replaces it (a rule the cast
+	// site enforces, not a storage limit). The school keys the behaviour AND
+	// how the ward's magnitude reads: earth = +armor via Armor() below, fire =
+	// melee attackers burn for it (both timed); water = an absorb POOL it
 	// spends soaking damage (DungeonWorld::WoundMember), air = deflect CHARGES
-	// it spends turning bolts aside (ResolveMonsterProjectileHit) — those two
-	// end early by SPENDING (burst/stilled), else every ward fades when
-	// shieldTime (ticked in DungeonWorld::UpdateMonsters) runs out. Saved per
-	// slot ("shield" save lines, v13).
-	SpellSymbol shieldSchool = SpellSymbol::Fire;
-	float shieldTime = 0.0f;  // seconds left; <= 0 = no ward
-	float shieldPower = 0.0f; // school magnitude (armor / burn / pool / charges)
-	bool ShieldActive() const { return shieldTime > 0.0f; }
+	// it spends turning bolts aside (ResolveMonsterProjectileHit).
+	StatusEffect* Ward() { return FindEffect(StatusKind::Ward); }
+	const StatusEffect* Ward() const { return FindEffect(StatusKind::Ward); }
+	bool ShieldActive() const { return Ward() != nullptr; }
 	bool HasShield(SpellSymbol school) const {
-		return ShieldActive() && shieldSchool == school;
+		const StatusEffect* w = Ward();
+		return w && w->school == school;
 	}
 
 	// --- combat (derived from attributes; unarmed baseline) -----------------
@@ -136,7 +186,8 @@ struct Character {
 	float Evasion() const { return 0.05f + static_cast<float>(dexterity) * 0.015f; }
 	// No equipment yet — an earth ward (Stone Skin) is the one armor source.
 	float Armor() const {
-		return HasShield(SpellSymbol::Earth) ? shieldPower : 0.0f;
+		const StatusEffect* w = Ward();
+		return w && w->school == SpellSymbol::Earth ? w->magnitude : 0.0f;
 	}
 	// Seconds between swings for the given hand (0 = left, 1 = right). STUB: the
 	// real interval is computed from several inputs — the weapon held in that

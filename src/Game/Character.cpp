@@ -4,6 +4,26 @@
 
 namespace dungeon::game {
 
+// --- status-effect kind tokens ----------------------------------------------
+// Save-file / record names, indexed by StatusKind. Append with the enum.
+
+namespace {
+constexpr const char* kStatusKindIds[] = {"ward"};
+} // namespace
+
+const char* StatusKindId(StatusKind kind) {
+	return kStatusKindIds[static_cast<size_t>(kind)];
+}
+
+bool ParseStatusKind(std::string_view token, StatusKind& out) {
+	for (size_t i = 0; i < std::size(kStatusKindIds); ++i)
+		if (token == kStatusKindIds[i]) {
+			out = static_cast<StatusKind>(i);
+			return true;
+		}
+	return false;
+}
+
 // Four archetypes with distinct stat spreads so the HUD bars and the sheet
 // read differently per slot. Values are placeholders until combat exists.
 std::vector<Character> CreateDefaultParty() {

@@ -1840,11 +1840,17 @@ void DungeonWorld::UpdateMonsters(float dt) {
 				member.mana += member.ManaRegenPerSec() * dt;
 				if (member.mana > member.maxMana) member.mana = member.maxMana;
 			}
-			if (member.ShieldActive()) {
-				member.shieldTime -= dt;
-				if (!member.ShieldActive())
+			// Age the status effects; an expired one leaves with its kind's
+			// fade line. (Spend-to-die wards — the water pool, the air
+			// charges — are erased at their spend site instead, so their
+			// burst/still lines replace the fade.)
+			for (StatusEffect& e : member.effects) {
+				e.timeLeft -= dt;
+				if (e.timeLeft <= 0.0f && e.kind == StatusKind::Ward)
 					MemberMessage(member, loc::Format("log.shield_fades", member.name));
 			}
+			std::erase_if(member.effects,
+						  [](const StatusEffect& e) { return e.timeLeft <= 0.0f; });
 		}
 
 	// Re-derive groups from current co-location (monsters sharing a cell are one
@@ -2765,18 +2771,19 @@ void DungeonWorld::MemberMessage(const Character& member,
 
 void DungeonWorld::WoundMember(Character& target, float damage) {
 	// Water Veil: water guards by ABSORBING — the ward soaks damage into its
-	// pool (shieldPower) before any reaches health, and BURSTS when the pool
-	// is spent (unlike the timed wards, it dies by spending). Sitting in the
-	// one place a member takes damage, it soaks every source alike — melee,
-	// ranged, even a wall bump. A partial soak lets the remainder through to
-	// the normal wound path below.
-	if (target.HasShield(SpellSymbol::Water) && damage > 0.0f) {
-		const float soaked = std::min(target.shieldPower, damage);
-		target.shieldPower -= soaked;
+	// pool (the ward's magnitude) before any reaches health, and BURSTS when
+	// the pool is spent (unlike the timed wards, it dies by spending). Sitting
+	// in the one place a member takes damage, it soaks every source alike —
+	// melee, ranged, even a wall bump. A partial soak lets the remainder
+	// through to the normal wound path below.
+	if (StatusEffect* ward = target.Ward();
+		ward && ward->school == SpellSymbol::Water && damage > 0.0f) {
+		const float soaked = std::min(ward->magnitude, damage);
+		ward->magnitude -= soaked;
 		damage -= soaked;
 		MemberMessage(target, loc::Format("log.shield_soaks", target.name));
-		if (target.shieldPower <= 0.0f) {
-			target.shieldTime = 0.0f; // spent — burst line, not the fade line
+		if (ward->magnitude <= 0.0f) {
+			target.RemoveEffect(StatusKind::Ward); // spent — burst, not fade
 			MemberMessage(target, loc::Format("log.shield_bursts", target.name));
 		}
 		if (damage <= 0.0f) return; // fully absorbed — no wound, no splat
@@ -2837,10 +2844,11 @@ void DungeonWorld::MonsterAttack(Monster& monster) {
 	// power (the hit itself is not reduced; earth is the school that hardens).
 	// Fires even if the blow downs the member — the ward outlives its bearer's
 	// last stand by exactly one burn.
-	if (target.HasShield(SpellSymbol::Fire)) {
-		monster.hp -= target.shieldPower;
+	if (const StatusEffect* ward = target.Ward();
+		ward && ward->school == SpellSymbol::Fire) {
+		monster.hp -= ward->magnitude;
 		onMessage(loc::Format("log.shield_burns", name,
-							  static_cast<int>(target.shieldPower + 0.5f)));
+							  static_cast<int>(ward->magnitude + 0.5f)));
 		if (!monster.Alive()) {
 			monster.hp = 0.0f; // downed monster stays in the list (save restore)
 			onMessage(loc::Format("log.monster_slain", name));
@@ -3140,9 +3148,10 @@ bool DungeonWorld::CastSpell(size_t member, std::span<const SpellSymbol> sequenc
 			// The ward wraps the CASTER: one active shield per member, a recast
 			// (any school) replaces it. School keys the behaviour — earth rides
 			// Character::Armor(), fire retaliates in MonsterAttack.
-			caster.shieldSchool = r.spell->element;
-			caster.shieldPower = r.spell->power;
-			caster.shieldTime = r.spell->duration;
+			caster.RemoveEffect(StatusKind::Ward);
+			caster.effects.push_back({StatusKind::Ward, r.spell->element,
+									  r.spell->nameKey, r.spell->duration,
+									  r.spell->duration, r.spell->power});
 			MemberMessage(caster, loc::Format("log.shield_up", caster.name));
 			break;
 		case SpellEffect::Projectile:
@@ -3252,13 +3261,14 @@ bool DungeonWorld::ResolveMonsterProjectileHit(const Vec3& p, const AttackProfil
 	Character& target = (*m_roster)[alive[m_combatRng() % n]];
 	// Wind Ward: air guards by DEFLECTING — a bolt aimed at the warded member
 	// is turned aside outright (no strike roll), spending one of the ward's
-	// charges (shieldPower); the last deflection stills the wind. Bolts aimed
-	// at unwarded neighbours fly true — the ward wraps its caster alone.
-	if (target.HasShield(SpellSymbol::Air)) {
-		target.shieldPower -= 1.0f;
+	// charges (its magnitude); the last deflection stills the wind. Bolts
+	// aimed at unwarded neighbours fly true — the ward wraps its caster alone.
+	if (StatusEffect* ward = target.Ward();
+		ward && ward->school == SpellSymbol::Air) {
+		ward->magnitude -= 1.0f;
 		MemberMessage(target, loc::Format("log.shield_deflects", target.name));
-		if (target.shieldPower <= 0.0f) {
-			target.shieldTime = 0.0f; // spent — the stills line, not the fade
+		if (ward->magnitude <= 0.0f) {
+			target.RemoveEffect(StatusKind::Ward); // spent — stills, not fade
 			MemberMessage(target, loc::Format("log.shield_stills", target.name));
 		}
 		return true; // the bolt is spent against the wind

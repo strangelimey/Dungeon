@@ -32,6 +32,10 @@ namespace dungeon::game {
 
 // The serializable dynamic state of one in-progress game.
 struct SaveData {
+	// v14: per-member status effects ("effect" lines: kind token, school,
+	//      time left, starting duration, magnitude, display-name loc key) —
+	//      the unified Character::effects list; replaces the v13 "shield"
+	//      line (still read, loaded as a ward effect).
 	// v13: per-member active ward ("shield" line: school symbol id, seconds
 	//      left, magnitude) — the Protect form rune's shields.
 	// v12: per-member spell MRU ("mru" line, order = newest first) — the hand
@@ -50,7 +54,7 @@ struct SaveData {
 	//     buttons as a diff (keyed by .ent id) or a whole spawn (no baseline);
 	//     replaces the v6 split of "ent"/"monster" rows + a whole "floor" item
 	//     snapshot. v6: free-look offset ("look" line); v5 folded hands into equip[].
-	int version = 13;
+	int version = 14;
 	std::string name;         // display name (free text; may contain spaces)
 	std::string currentLevel; // the level stem the party is on (where to resume)
 	std::string timestamp;    // human-readable local time, for the slot list
@@ -95,12 +99,21 @@ struct SaveData {
 		// Most-recently-cast spells, newest first (Character::spellMru) — the
 		// Magic quick-cast list. Absent in pre-v12 saves (rebuilds by casting).
 		std::vector<std::string> mruSpells;
-		// Active ward (Character shield fields): school as its symbol id token
-		// ("earth"), seconds left, magnitude. shieldTime <= 0 = no ward (the
-		// line is omitted). Absent in pre-v13 saves (wards simply expire).
-		std::string shieldSchool;
-		float shieldTime = 0.0f;
-		float shieldPower = 0.0f;
+		// Active status effects (Character::effects): kind as its token
+		// ("ward" — StatusKindId), school as its symbol id ("earth"), seconds
+		// left, starting duration, magnitude, and the display-name loc key.
+		// One "effect" line per entry (v14). A v13 "shield" line loads as the
+		// matching ward (duration = time left, name derived from the school).
+		// Absent in pre-v13 saves (wards simply expire).
+		struct EffectState {
+			std::string kind;
+			std::string school;
+			float time = 0.0f;
+			float duration = 0.0f;
+			float magnitude = 0.0f;
+			std::string nameKey;
+		};
+		std::vector<EffectState> effects;
 	};
 	std::vector<CharState> characters;
 
