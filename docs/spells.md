@@ -119,18 +119,20 @@ backward — the first DISPLACEMENT effect in the engine.
 
 The defensive form: a WARD on the caster, the school picking HOW it guards —
 earth HARDENS, air DEFLECTS, water ABSORBS, fire RETALIATES. Four different
-answers to "protect me", no overlap. All four are BUILT. Framework: ONE
-active ward per member — casting another (any school) replaces it; wards are
-caster-only day one ("grows to cover the party" is a high-power growth form;
-Dungeon Master's fire shield was party-wide, so there's precedent for that
-endpoint). The ward lasts `duration` seconds (spells.cat), `power` is its
-school magnitude — earth/fire read it as a flat number for their whole
-lifetime, water/air read it as a BUDGET (pool/charges) they spend, ending
-early when it runs dry (burst/stilled). Every ward ticks/fades in
-DungeonWorld with a log line; active wards ride the save (v13 "shield"
-lines, budget spend included). No HUD indicator yet — the cast/fade log
-lines are the only feedback (a portrait tint or timer pip is a natural
-polish item).
+answers to "protect me", no overlap. All four are BUILT. Framework: wards
+STACK across schools (Michael, 2026-07-07: effects of different identities
+coexist — a member may carry all four wards at once); only recasting the
+SAME school replaces its ward. Wards are caster-only day one ("grows to
+cover the party" is a high-power growth form; Dungeon Master's fire shield
+was party-wide, so there's precedent for that endpoint). The ward lasts
+`duration` seconds (spells.cat), `power` is its school magnitude —
+earth/fire read it as a flat number for their whole lifetime, water/air
+read it as a BUDGET (pool/charges) they spend, ending early when it runs
+dry (burst/stilled). Every ward ticks/fades in DungeonWorld with a log
+line; active wards ride the save (one "effect" line each, v14+). Each ward
+shows as an icon in its member's party-bar name band (right-aligned, newer
+effects growing leftward; school-tinted border, draining time sliver,
+hover = name + time left).
 
 #### Earth — Stone Skin (`stoneskin`) — BUILT
 

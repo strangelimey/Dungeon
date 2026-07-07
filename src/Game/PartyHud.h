@@ -166,11 +166,12 @@ private:
 	// The stat-bar sub-region (right of the portrait, below the name) in pixels —
 	// kept in sync with Draw's bar layout; a click here opens the Stats tab.
 	gfx::Rect BarsRect(ui::UIContext& ctx) const;
-	// The portrait square (left of the panel) and the Nth status-effect icon
-	// along its bottom edge — one layout, hit-tested by Update (hover names
-	// the effect) and drawn by Draw.
+	// The portrait square (left of the panel), and the Nth status-effect icon
+	// — a row in the NAME band, right-aligned and growing right-to-left (many
+	// effects stack; spill past the name is a later problem). One layout,
+	// hit-tested by Update (hover names the effect) and drawn by Draw.
 	gfx::Rect PortraitRect() const;
-	gfx::Rect EffectIconRect(const gfx::Rect& portrait, size_t index) const;
+	gfx::Rect EffectIconRect(ui::UIContext& ctx, size_t index) const;
 
 	const std::vector<Character>* m_roster;
 	size_t m_member;

@@ -86,14 +86,18 @@ gfx::Rect CharacterPanel::PortraitRect() const {
 	return {px.x + pad, px.y + pad, px.h - 2 * pad, px.h - 2 * pad};
 }
 
-// The Nth status-effect icon: a small square in a row along the portrait's
-// bottom edge, left to right.
-gfx::Rect CharacterPanel::EffectIconRect(const gfx::Rect& portrait,
+// The Nth status-effect icon: a small square in the NAME band, right-aligned
+// against the panel edge and growing right-to-left as effects stack (index 0
+// is the rightmost). Sized to the name row (the font's line advance) so the
+// row reads as part of the name line.
+gfx::Rect CharacterPanel::EffectIconRect(ui::UIContext& ctx,
 										 size_t index) const {
-	const float s = portrait.w * 0.30f;
+	const gfx::Rect& px = Pixel();
+	const float pad = px.h * 0.08f;
+	const float s = ctx.GetFont().LineAdvance();
 	const float gap = 2.0f;
-	return {portrait.x + 1.0f + (s + gap) * static_cast<float>(index),
-			portrait.y + portrait.h - s - 1.0f, s, s};
+	return {px.x + px.w - pad - s - (s + gap) * static_cast<float>(index),
+			px.y + pad, s, s};
 }
 
 // The stat-bar strip: right of the portrait, below the name (mirrors Draw's
@@ -120,13 +124,12 @@ void CharacterPanel::Update(ui::UIContext& ctx) {
 		if (input->WasMousePressed(MouseButton::Right)) m_heldRight = true;
 		ctx.ConsumeMouse();
 	}
-	// Which status-effect icon (the portrait strip) the cursor rests on —
+	// Which status-effect icon (the name-band row) the cursor rests on —
 	// Draw shows that effect's name + time left under the panel.
 	m_hotEffect = static_cast<size_t>(-1);
 	if (m_hot) {
-		const gfx::Rect portrait = PortraitRect();
 		for (size_t i = 0; i < m_character->effects.size(); ++i)
-			if (EffectIconRect(portrait, i).Contains(mx, my)) {
+			if (EffectIconRect(ctx, i).Contains(mx, my)) {
 				m_hotEffect = i;
 				break;
 			}
@@ -179,14 +182,15 @@ void CharacterPanel::Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 		}
 	}
 
-	// Active status effects: one small icon per effect along the portrait's
-	// bottom edge — the kind's icon art (the Protect rune tablet for a ward)
-	// under a school-tinted border, with a depleting time sliver beneath.
-	// Hovering one names it under the panel (Update tracks m_hotEffect).
+	// Active status effects: one small icon per effect in the NAME band,
+	// right-aligned and growing right-to-left as effects stack — the kind's
+	// icon art (the Protect rune tablet for a ward) under a school-tinted
+	// border, with a depleting time sliver beneath. Hovering one names it
+	// under the panel (Update tracks m_hotEffect). Spill past the name is a
+	// later problem — for now every effect draws.
 	const std::vector<StatusEffect>& effects = m_character->effects;
 	for (size_t i = 0; i < effects.size(); ++i) {
-		const gfx::Rect r = EffectIconRect(portrait, i);
-		if (r.x + r.w > portrait.x + portrait.w) break; // edge full — overflow hides
+		const gfx::Rect r = EffectIconRect(ctx, i);
 		const StatusEffect& e = effects[i];
 		const Vec4 tint = ElementColor(e.school);
 		batch.DrawRect(r, kSlotBg);

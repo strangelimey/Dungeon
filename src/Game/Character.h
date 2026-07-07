@@ -185,19 +185,30 @@ struct Character {
 	}
 
 	// --- ward queries (the Protect form rune, docs/spells.md "Protect") ------
-	// ONE active ward per member — casting another replaces it (a rule the cast
-	// site enforces, not a storage limit). The school keys the behaviour AND
-	// how the ward's magnitude reads: earth = +armor via Armor() below, fire =
-	// melee attackers burn for it (both timed); water = an absorb POOL it
-	// spends soaking damage (DungeonWorld::WoundMember), air = deflect CHARGES
-	// it spends turning bolts aside (ResolveMonsterProjectileHit).
-	StatusEffect* Ward() { return FindEffect(StatusKind::Ward); }
-	const StatusEffect* Ward() const { return FindEffect(StatusKind::Ward); }
-	bool ShieldActive() const { return Ward() != nullptr; }
-	bool HasShield(SpellSymbol school) const {
-		const StatusEffect* w = Ward();
-		return w && w->school == school;
+	// Effects STACK across identities: a member may carry all four wards at
+	// once — only recasting the SAME school replaces (the cast site removes
+	// that school's ward before landing the new one). The school keys the
+	// behaviour AND how the ward's magnitude reads: earth = +armor via Armor()
+	// below, fire = melee attackers burn for it (both timed); water = an
+	// absorb POOL it spends soaking damage (DungeonWorld::WoundMember), air =
+	// deflect CHARGES it spends turning bolts aside
+	// (ResolveMonsterProjectileHit). Each behaviour queries ITS school here.
+	StatusEffect* FindWard(SpellSymbol school) {
+		for (StatusEffect& e : effects)
+			if (e.kind == StatusKind::Ward && e.school == school) return &e;
+		return nullptr;
 	}
+	const StatusEffect* FindWard(SpellSymbol school) const {
+		for (const StatusEffect& e : effects)
+			if (e.kind == StatusKind::Ward && e.school == school) return &e;
+		return nullptr;
+	}
+	void RemoveWard(SpellSymbol school) {
+		std::erase_if(effects, [school](const StatusEffect& e) {
+			return e.kind == StatusKind::Ward && e.school == school;
+		});
+	}
+	bool HasShield(SpellSymbol school) const { return FindWard(school) != nullptr; }
 
 	// --- combat (derived from attributes; unarmed baseline) -----------------
 	// Weapons/spells will scale these later. Tuned so the class spreads read
@@ -211,8 +222,8 @@ struct Character {
 	float Evasion() const { return 0.05f + static_cast<float>(dexterity) * 0.015f; }
 	// No equipment yet — an earth ward (Stone Skin) is the one armor source.
 	float Armor() const {
-		const StatusEffect* w = Ward();
-		return w && w->school == SpellSymbol::Earth ? w->magnitude : 0.0f;
+		const StatusEffect* w = FindWard(SpellSymbol::Earth);
+		return w ? w->magnitude : 0.0f;
 	}
 	// Seconds between swings for the given hand (0 = left, 1 = right). STUB: the
 	// real interval is computed from several inputs — the weapon held in that
