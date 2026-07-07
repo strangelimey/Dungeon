@@ -1782,16 +1782,30 @@ void Game::Update(float dt) {
 	// The dev console toggles with `~` and overlays any state. While it is
 	// open it captures input (so the party can't move) but the world keeps
 	// simulating — it does NOT pause the game. The FPS sampler ticks every
-	// frame regardless.
+	// frame regardless. While a staged load is mid-flight the world is only
+	// partially built (the HUD log, meshes, and monsters arrive task by task),
+	// so command EXECUTION is gated off — a `cast`/`save`/`quality` then would
+	// reach into objects a later task creates (this crashed: 0xc0000005 in the
+	// HUD log line a cast raises before BuildHud has run). The console itself
+	// stays usable for the perf/thread panels.
+	const bool loading = m_state == AppState::Loading ||
+						 m_state == AppState::LoadingGame ||
+						 m_state == AppState::LoadingLevel;
 	const bool consoleWasOpen = m_console.IsOpen();
 	if (input.WasKeyPressed(VK_OEM_3)) m_console.Toggle();
+	m_console.SetCommandsEnabled(!loading);
 	m_console.Update(input, dt, static_cast<float>(m_window.Width()),
 					 static_cast<float>(m_window.Height()));
 	UpdateGovernor(dt); // adaptive thread throttle (no-op unless `governor auto`)
 	// The console owns the whole frame's input if it was open at the start (or
 	// just opened) — so the very keystroke that closes it (Esc or `~`) never
-	// also reaches the pause menu / HUD this frame.
-	if (m_console.IsOpen() || consoleWasOpen) {
+	// also reaches the pause menu / HUD this frame. Owning input is NOT a
+	// pause: a playing world keeps simulating here, and a loading state falls
+	// through to its case below so the task queue keeps pumping (an open
+	// console used to stall the load, holding the world half-built) — only
+	// its Esc-to-quit is console-gated.
+	const bool consoleOwnsInput = m_console.IsOpen() || consoleWasOpen;
+	if (consoleOwnsInput && !loading) {
 		if (m_state == AppState::Playing) {
 			m_world.Update(input, wdt, m_time, /*acceptInput=*/false);
 			Party& party = m_world.GetParty();
@@ -1802,7 +1816,7 @@ void Game::Update(float dt) {
 
 	switch (m_state) {
 	case AppState::Loading:
-		if (input.WasKeyPressed(VK_ESCAPE)) m_quitRequested = true;
+		if (!consoleOwnsInput && input.WasKeyPressed(VK_ESCAPE)) m_quitRequested = true;
 		if (RunLoadTasks()) m_state = AppState::Menu;
 		return;
 
@@ -1817,7 +1831,7 @@ void Game::Update(float dt) {
 		return;
 
 	case AppState::LoadingGame:
-		if (input.WasKeyPressed(VK_ESCAPE)) m_quitRequested = true;
+		if (!consoleOwnsInput && input.WasKeyPressed(VK_ESCAPE)) m_quitRequested = true;
 		if (RunLoadTasks()) {
 			m_gameLoaded = true;
 			if (!m_pendingLoadPath.empty()) {

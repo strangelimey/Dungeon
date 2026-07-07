@@ -1676,9 +1676,16 @@ bool GameUI::KeyCaptureActive() const {
 	return false;
 }
 
-void GameUI::AddLogLine(const std::string& line) { m_log->AddLine(line); }
+// The HUD log widget exists only once BuildHud has run (the last game-load
+// task), but world feedback can be raised before then — a dev-console command
+// against the loading world, say. A null m_log drops the line instead of
+// crashing on it.
+void GameUI::AddLogLine(const std::string& line) {
+	if (m_log) m_log->AddLine(line);
+}
 
 void GameUI::AddLogLine(const std::string& line, const Vec4& memberColor) {
+	if (!m_log) return;
 	// Identity colors are authored DARK (portrait fills, slot stripes); as
 	// text ink on the dark footer they'd read as mud, so brighten toward
 	// full — the hue carries the identity, the lift carries the legibility.
@@ -1688,7 +1695,9 @@ void GameUI::AddLogLine(const std::string& line, const Vec4& memberColor) {
 						lift(memberColor.z), 1.0f});
 }
 
-void GameUI::ClearLog() { m_log->Clear(); }
+void GameUI::ClearLog() {
+	if (m_log) m_log->Clear();
+}
 
 // ============================================================================
 // Rendering — all 2D, inside the caller's SpriteBatch Begin/End.
