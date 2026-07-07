@@ -203,8 +203,8 @@ void GameUI::OnHandLeftClick(size_t i, size_t hand) {
 	// an accidental unequip mid-fight. A hand with NO default yet (bare hand,
 	// rune, key — nothing defaultable on the item) opens the use menu instead,
 	// so the first click PICKS what future clicks will do.
-	const std::string cmd =
-		DefaultUseFor(m_characters[i], slot.Empty() ? std::string() : slot.typeId);
+	const std::string cmd = DefaultUseFor(
+		m_characters[i], hand, slot.Empty() ? std::string() : slot.typeId);
 	if (cmd.empty()) {
 		OpenHandUseMenu(i, hand);
 		return;
@@ -264,12 +264,13 @@ void GameUI::OpenHandUseMenu(size_t i, size_t hand) {
 			anySymbol |= c.Knows(static_cast<SpellSymbol>(sym));
 		if (anySymbol) {
 			ui::ContextMenu::Entry magic{loc::Tr("menu.magic"), {}, {}};
-			magic.children.push_back({loc::Tr("menu.spellbook"), [this, i] {
+			magic.children.push_back({loc::Tr("menu.spellbook"), [this, i, hand] {
 										  Click();
-										  if (m_spellbook) m_spellbook->OpenFor(i);
+										  if (m_spellbook) m_spellbook->OpenFor(i, hand);
 									  }});
+			// THIS hand's recency list — each hand keeps its own repertoire.
 			int shown = 0;
-			for (const std::string& id : c.spellMru) {
+			for (const std::string& id : c.spellMru[hand]) {
 				if (shown >= m_settings.spellMruCount) break;
 				// Skip ids the catalog no longer carries (the MRU is state,
 				// the recipe table is data — they can drift across edits).
@@ -296,11 +297,12 @@ void GameUI::SelectUse(size_t i, size_t hand, const std::string& itemId,
 					   const std::string& cmd) {
 	if (i >= m_characters.size() || hand > 1) return;
 	const bool menuOnly = IsMenuOnlyUse(cmd);
-	// The pick becomes this member's default for the item TYPE (so every khukri
-	// they wield chops until they choose otherwise; a bare-hand pick records
-	// under the "unarmed" key). Menu-only commands are deliberate one-shots —
-	// never recorded.
-	if (!menuOnly) m_characters[i].useDefaults[UseKey(itemId)] = cmd;
+	// The pick becomes this member's default for THIS HAND and the item TYPE
+	// (so every khukri in that hand chops until they choose otherwise; a
+	// bare-hand pick records under the "unarmed" key) — the other hand keeps
+	// its own pick, so left can be one spell and right another. Menu-only
+	// commands are deliberate one-shots — never recorded.
+	if (!menuOnly) m_characters[i].useDefaults[hand][UseKey(itemId)] = cmd;
 	// Menu-only commands always perform; a defaultable pick performs per the
 	// Controls setting (off = the menu only arms the default).
 	if (menuOnly || m_settings.useMenuExecutes) ExecuteUse(i, hand, cmd);
@@ -314,8 +316,9 @@ void GameUI::ExecuteUse(size_t i, size_t hand, const std::string& cmd) {
 		EatFromHand(i, hand);
 	} else if (IsCastUse(cmd)) {
 		// A "cast:<id>" default: the world's cast façade gates vocabulary and
-		// mana and turns the outcome into log + sound.
-		if (onCastSpell) onCastSpell(i, cmd.substr(kCastPrefix.size()));
+		// mana and turns the outcome into log + sound; the firing hand's
+		// quick-cast MRU is credited.
+		if (onCastSpell) onCastSpell(i, cmd.substr(kCastPrefix.size()), hand);
 	} else if (IsMeleeUse(cmd)) {
 		// Every melee verb lands through the one strike path; the verb itself
 		// is flavour until per-verb damage profiles exist. Cooldown gating and
@@ -326,18 +329,19 @@ void GameUI::ExecuteUse(size_t i, size_t hand, const std::string& cmd) {
 	// default falls through DefaultUseFor instead. Nothing to do.
 }
 
-std::string GameUI::DefaultUseFor(const Character& c,
+std::string GameUI::DefaultUseFor(const Character& c, size_t hand,
 								  const std::string& itemId) const {
+	if (hand > 1) return {};
 	const std::vector<std::string> cmds =
 		itemId.empty() ? std::vector<std::string>{}
 					   : (itemCommands ? itemCommands(itemId)
 									   : std::vector<std::string>{});
-	// The member's remembered pick wins while it is still valid — the catalog
+	// THIS hand's remembered pick wins while it is still valid — the catalog
 	// may have changed since the save was written, and a "cast:" default needs
 	// the member to know the spell (a loaded save's defaults must not outrun
 	// its vocabulary).
-	if (const auto it = c.useDefaults.find(UseKey(itemId));
-		it != c.useDefaults.end())
+	if (const auto it = c.useDefaults[hand].find(UseKey(itemId));
+		it != c.useDefaults[hand].end())
 		if (UseValidFor(c, cmds, it->second)) return it->second;
 	// Else the item's first defaultable command (a rune's only command is the
 	// menu-only memorize, so it yields "" — a left-click can't eat a tablet).
@@ -1487,10 +1491,10 @@ void GameUI::BuildHud() {
 	m_spellbook->spells = [this] {
 		return spellDefs ? spellDefs() : std::span<const SpellDef>{};
 	};
-	m_spellbook->onCast = [this](size_t member,
+	m_spellbook->onCast = [this](size_t member, size_t hand,
 								 const std::vector<SpellSymbol>& seq) {
 		Click();
-		if (onCastSequence) onCastSequence(member, seq);
+		if (onCastSequence) onCastSequence(member, hand, seq);
 	};
 	below(m_spellbook);
 

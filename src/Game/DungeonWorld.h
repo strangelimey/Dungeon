@@ -152,11 +152,15 @@ public:
 	// outcome into HUD/audio feedback and returns true on a successful cast. The
 	// bolt's flight + impact run in MagicSystem::Update (see Magic.h). Driven by
 	// the casting UI and the dev console `cast`.
-	bool CastSpell(size_t member, std::span<const SpellSymbol> sequence);
+	// `hand` is the hand slot the cast was fired from (0 = left, 1 = right):
+	// a successful cast credits THAT hand's quick-cast MRU. -1 (dev console,
+	// no hand context) casts normally but touches no MRU.
+	bool CastSpell(size_t member, std::span<const SpellSymbol> sequence,
+				   int hand = -1);
 	// Same cast, referencing the recipe by catalog id (the hand-slot Magic menu
 	// stores "cast:<id>" defaults). All the same gates apply — the member must
 	// know the recipe's symbols and afford its mana. False on an unknown id.
-	bool CastSpellById(size_t member, std::string_view id);
+	bool CastSpellById(size_t member, std::string_view id, int hand = -1);
 	// The whole recipe table (the Magic menu filters it by known symbols).
 	std::span<const SpellDef> SpellDefs() const { return m_magic.Book().Defs(); }
 

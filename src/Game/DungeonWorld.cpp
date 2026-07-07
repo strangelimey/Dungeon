@@ -3181,7 +3181,8 @@ bool DungeonWorld::PartyAttack(size_t member, size_t hand) {
 // the shared engine (Projectiles.h) — its impact hook is ResolveSpellHit below.
 // ============================================================================
 
-bool DungeonWorld::CastSpell(size_t member, std::span<const SpellSymbol> sequence) {
+bool DungeonWorld::CastSpell(size_t member, std::span<const SpellSymbol> sequence,
+							 int hand) {
 	if (!m_roster || member >= m_roster->size()) return false;
 	Character& caster = (*m_roster)[member];
 	if (!caster.IsAlive()) return false;
@@ -3223,7 +3224,10 @@ bool DungeonWorld::CastSpell(size_t member, std::span<const SpellSymbol> sequenc
 		if (caster.learnedSpells.insert(r.spell->id).second)
 			MemberMessage(caster, loc::Format("log.spell_learned", caster.name,
 											  loc::Tr(r.spell->nameKey)));
-		caster.TouchSpellMru(r.spell->id); // freshest cast leads the quick list
+		// The freshest cast leads the FIRING hand's quick list (each hand keeps
+		// its own repertoire); a hand-less cast (dev console) touches neither.
+		if (hand == 0 || hand == 1)
+			caster.TouchSpellMru(static_cast<size_t>(hand), r.spell->id);
 		// The school skill grows with every SUCCESSFUL cast, in proportion to
 		// the spell's mana (a dearer spell teaches more) — docs/skills.md.
 		GrantSkillXp(caster, SymbolId(r.spell->element), r.spell->mana * 0.25f);
@@ -3248,10 +3252,10 @@ bool DungeonWorld::CastSpell(size_t member, std::span<const SpellSymbol> sequenc
 	}
 }
 
-bool DungeonWorld::CastSpellById(size_t member, std::string_view id) {
+bool DungeonWorld::CastSpellById(size_t member, std::string_view id, int hand) {
 	const SpellDef* def = m_magic.FindSpell(id);
 	if (!def) return false; // stale default / catalog typo — nothing to cast
-	return CastSpell(member, def->sequence);
+	return CastSpell(member, def->sequence, hand);
 }
 
 bool DungeonWorld::ResolveSpellHit(const ProjectileImpact& impact) {

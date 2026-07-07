@@ -111,16 +111,21 @@ behaviour since the use-menu model landed (branch `magic-system`,
   pick/swap semantics.)
 - **Right-click, control-bar hand** → the item's USE menu (catalog `command`
   list: stab/slash/eat/memorize/...). Selecting an entry records it as that
-  member's default for the item type and — per the Settings → Controls "Hands"
-  checkbox — performs it. Menu-only commands (memorize) always perform and
-  never become defaults.
+  member's default for THAT HAND and the item type (defaults are per member
+  AND per hand — Michael, 2026-07-07 — so left-click on the left hand can be
+  one spell and on the right another) and — per the Settings → Controls
+  "Hands" checkbox — performs it. Menu-only commands (memorize) always
+  perform and never become defaults.
 - **Left-click on a hand with NO default yet** (bare hand, or an item with no
   defaultable command — rune, key) → the same use menu opens, so the first
   click picks what future clicks will do. For those hands the menu is
   TWO-LEVEL: **Combat** → Punch / Kick, and **Magic** → the Spellbook plus the
   spells the member has LEARNED — a spell is learned the first time the member
   successfully CASTS it (built in the spellbook; saved per character), so the
-  quick-cast list is earned, not implied by vocabulary. Higher-tier spells
+  quick-cast list is earned, not implied by vocabulary. The quick-cast list is
+  THAT HAND's most-recently-cast spells (the MRU is per member AND per hand,
+  like the defaults; a cast credits the hand it was fired from, a spellbook
+  cast the hand whose menu opened the book). Higher-tier spells
   demand higher school skill and can FAIL to cast (the skill roll in
   docs/skills.md — mana spent, nothing learned). A spell pick stores as `cast:<id>` in the same
   default map ("unarmed" key for a bare hand) and left-click then casts it —

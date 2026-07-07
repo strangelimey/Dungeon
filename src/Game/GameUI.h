@@ -176,11 +176,14 @@ public:
 	// the hand-slot Magic submenu filters it by the member's known symbols.
 	std::function<std::span<const SpellDef>()> spellDefs;
 	// Member `i` casts the spell with this catalog id (a "cast:<id>" hand
-	// default) — wired to DungeonWorld::CastSpellById (vocab/mana gates apply).
-	std::function<void(size_t, const std::string&)> onCastSpell;
-	// Member `i` casts a symbol sequence BUILT in the spellbook panel — wired
-	// to DungeonWorld::CastSpell (exact-recipe match; a miss fizzles).
-	std::function<void(size_t, const std::vector<SpellSymbol>&)> onCastSequence;
+	// default) from hand `hand` (0 = L, 1 = R) — wired to DungeonWorld::
+	// CastSpellById (vocab/mana gates; the firing hand's MRU is credited).
+	std::function<void(size_t, const std::string&, size_t)> onCastSpell;
+	// Member `i` casts a symbol sequence BUILT in the spellbook panel, from
+	// the hand whose menu opened the book — wired to DungeonWorld::CastSpell
+	// (exact-recipe match; a miss fizzles).
+	std::function<void(size_t, size_t, const std::vector<SpellSymbol>&)>
+		onCastSequence;
 	std::function<void()> onKeysChanged;        // a movement key was rebound
 	std::function<void()> onLookChanged;        // a mouse-look knob changed (push to Party)
 	// Game tab language dropdown. The receiver must NOT rebuild the UI from
@@ -272,11 +275,13 @@ private:
 	// both the left-click default and the menu): eat/memorize map to their
 	// handlers, the melee verbs to onHandAttack. Unknown/empty ids no-op.
 	void ExecuteUse(size_t i, size_t hand, const std::string& cmd);
-	// The command a left-click on `itemId` ("" = bare hand) executes for this
-	// member: the remembered useDefaults pick while it is still valid, else the
-	// item's first defaultable (non-menu-only) command, else "" — no default,
-	// so the left-click opens the use menu to pick one.
-	std::string DefaultUseFor(const Character& c, const std::string& itemId) const;
+	// The command a left-click on `itemId` ("" = bare hand) in hand `hand`
+	// executes for this member: THAT hand's remembered useDefaults pick while
+	// it is still valid, else the item's first defaultable (non-menu-only)
+	// command, else "" — no default, so the left-click opens the use menu to
+	// pick one.
+	std::string DefaultUseFor(const Character& c, size_t hand,
+							  const std::string& itemId) const;
 	// Whether a remembered default is still usable: an item command the item
 	// still offers, one of the bare-hand combat verbs, or a "cast:<id>" whose
 	// spell exists and whose symbols the member all knows.

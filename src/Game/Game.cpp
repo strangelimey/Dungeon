@@ -232,14 +232,15 @@ void Game::WireModuleCallbacks() {
 	// member's vocabulary in GameUI); a picked "cast:<id>" default casts through
 	// the world's façade — the same vocab/mana gates as the dev `cast` command.
 	m_ui.spellDefs = [this] { return m_world.SpellDefs(); };
-	m_ui.onCastSpell = [this](size_t member, const std::string& id) {
-		m_world.CastSpellById(member, id);
+	m_ui.onCastSpell = [this](size_t member, const std::string& id, size_t hand) {
+		m_world.CastSpellById(member, id, static_cast<int>(hand));
 	};
 	// The spellbook panel casts a HAND-BUILT symbol sequence: an exact recipe
 	// match casts (vocab/mana gated), anything else fizzles with its log line.
-	m_ui.onCastSequence = [this](size_t member,
+	// The hand whose menu opened the book gets the MRU credit.
+	m_ui.onCastSequence = [this](size_t member, size_t hand,
 								 const std::vector<SpellSymbol>& seq) {
-		m_world.CastSpell(member, seq);
+		m_world.CastSpell(member, seq, static_cast<int>(hand));
 	};
 	m_ui.onKeysChanged = [this] {
 		m_world.GetParty().SetKeys(m_settings.moveKeys);
@@ -1020,23 +1021,32 @@ void Game::RegisterDevCommands() {
 							   m_console.Print(std::format("{} pack += {}",
 														   m_characters[m].name, args[0]));
 					   });
-	m_console.Register("cast", "cast a spell by symbol sequence (dev): cast <member> <sym>...",
+	m_console.Register("cast", "cast a spell by symbol sequence (dev): cast <member> [hand 0/1] <sym>...",
 					   [this](const std::vector<std::string>& args) {
 						   if (!Need(m_console, args, 2,
-									 "usage: cast <member 0-3> <sym> [sym...]"))
+									 "usage: cast <member 0-3> [hand 0/1] <sym> [sym...]"))
 							   return;
 						   const size_t m = static_cast<size_t>(std::atoi(args[0].c_str()));
 						   if (m >= m_characters.size()) {
 							   m_console.Print("no such member");
 							   return;
 						   }
+						   // Optional hand (credits that hand's quick-cast MRU) —
+						   // symbol names are never "0"/"1", so the token is
+						   // unambiguous.
+						   int hand = -1;
+						   size_t first = 1;
+						   if (args.size() > 2 && (args[1] == "0" || args[1] == "1")) {
+							   hand = std::atoi(args[1].c_str());
+							   first = 2;
+						   }
 						   std::vector<SpellSymbol> seq;
-						   for (size_t i = 1; i < args.size(); ++i) {
+						   for (size_t i = first; i < args.size(); ++i) {
 							   SpellSymbol s;
 							   if (!ParseSymbolArg(m_console, args[i], s)) return;
 							   seq.push_back(s);
 						   }
-						   const bool ok = m_world.CastSpell(m, seq);
+						   const bool ok = m_world.CastSpell(m, seq, hand);
 						   m_console.Print(ok ? "cast away" : "no cast (fizzle / no mana / unknown)");
 					   });
 	m_console.Register("timescale", "scale sim speed (1 normal, 0 freeze)",
@@ -1466,14 +1476,16 @@ void Game::SaveGame(const std::string& name) {
 			for (const ItemSlot& s : p.contents) items.push_back(s.typeId);
 			c.packContents.push_back(std::move(items));
 		}
-		// The member's remembered per-item default uses (hand left-click action).
-		for (const auto& [item, cmd] : member.useDefaults)
-			c.useDefaults.emplace_back(item, cmd);
-		// Spells learned by first successful cast, and the cast-recency order
-		// behind the quick-cast list.
+		// The member's remembered per-hand, per-item default uses (hand
+		// left-click action) and each hand's cast-recency list.
+		for (size_t hand = 0; hand < 2; ++hand) {
+			for (const auto& [item, cmd] : member.useDefaults[hand])
+				c.useDefaults[hand].emplace_back(item, cmd);
+			c.mruSpells[hand] = member.spellMru[hand];
+		}
+		// Spells learned by first successful cast.
 		for (const std::string& id : member.learnedSpells)
 			c.learnedSpells.push_back(id);
-		c.mruSpells = member.spellMru;
 		// Active status effects — kind/school stored by their id tokens.
 		for (const StatusEffect& e : member.effects)
 			c.effects.push_back({StatusKindId(e.kind), SymbolId(e.school),
@@ -1532,14 +1544,16 @@ bool Game::LoadGame(const std::string& path) {
 		}
 		if (c.selectedPack >= 0 && c.selectedPack < kPackRowSlots)
 			inv.selectedPack = c.selectedPack;
-		// Restore the remembered default uses (ResetRoster left the map empty).
-		for (const auto& [item, cmd] : c.useDefaults)
-			m_characters[i].useDefaults[item] = cmd;
-		// And the spells learned by casting (likewise reset to empty), plus
-		// the cast-recency order behind the quick-cast list.
+		// Restore the remembered per-hand default uses (ResetRoster left the
+		// maps empty) and each hand's cast-recency list.
+		for (size_t hand = 0; hand < 2; ++hand) {
+			for (const auto& [item, cmd] : c.useDefaults[hand])
+				m_characters[i].useDefaults[hand][item] = cmd;
+			m_characters[i].spellMru[hand] = c.mruSpells[hand];
+		}
+		// And the spells learned by casting (likewise reset to empty).
 		for (const std::string& id : c.learnedSpells)
 			m_characters[i].learnedSpells.insert(id);
-		m_characters[i].spellMru = c.mruSpells;
 		// Restore active status effects (pre-v13 saves carry none). An
 		// unknown kind token — a newer save — is skipped, not misread.
 		for (const SaveData::CharState::EffectState& e : c.effects) {

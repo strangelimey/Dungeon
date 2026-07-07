@@ -32,6 +32,9 @@ namespace dungeon::game {
 
 // The serializable dynamic state of one in-progress game.
 struct SaveData {
+	// v16: default uses and the spell MRU are per member AND per hand — the
+	//      "usedef"/"mru" lines gain a hand token (0 = left, 1 = right), one
+	//      line per hand. A pre-v16 flat line seeds BOTH hands.
 	// v15: per-member skills ("skill" line: id/xp pairs), stat-creep pools
 	//      ("statxp" line: stat/progress pairs), and the five attributes
 	//      ("attr" line — they GROW now, so the archetype defaults no longer
@@ -59,7 +62,7 @@ struct SaveData {
 	//     buttons as a diff (keyed by .ent id) or a whole spawn (no baseline);
 	//     replaces the v6 split of "ent"/"monster" rows + a whole "floor" item
 	//     snapshot. v6: free-look offset ("look" line); v5 folded hands into equip[].
-	int version = 15;
+	int version = 16;
 	std::string name;         // display name (free text; may contain spaces)
 	std::string currentLevel; // the level stem the party is on (where to resume)
 	std::string timestamp;    // human-readable local time, for the slot list
@@ -95,15 +98,19 @@ struct SaveData {
 		std::vector<std::string> packTypes;
 		std::vector<std::vector<std::string>> packContents;
 		int selectedPack = 0;
-		// Remembered default use per item type (Character::useDefaults), as
-		// (item id, command id) pairs. Absent in pre-v10 saves (defaults reset).
-		std::vector<std::pair<std::string, std::string>> useDefaults;
+		// Remembered default use PER HAND (0 = left, 1 = right) per item type
+		// (Character::useDefaults), as (item id, command id) pairs. Absent in
+		// pre-v10 saves (defaults reset); a pre-v16 flat "usedef" line loads
+		// into BOTH hands.
+		std::array<std::vector<std::pair<std::string, std::string>>, 2> useDefaults;
 		// Spells learned by first successful cast (Character::learnedSpells),
 		// spells.cat ids. Absent in pre-v11 saves (re-learn by casting).
 		std::vector<std::string> learnedSpells;
-		// Most-recently-cast spells, newest first (Character::spellMru) — the
-		// Magic quick-cast list. Absent in pre-v12 saves (rebuilds by casting).
-		std::vector<std::string> mruSpells;
+		// Most-recently-cast spells PER HAND, newest first
+		// (Character::spellMru) — each hand's Magic quick-cast list. Absent
+		// in pre-v12 saves (rebuilds by casting); a pre-v16 flat "mru" line
+		// loads into BOTH hands.
+		std::array<std::vector<std::string>, 2> mruSpells;
 		// Active status effects (Character::effects): kind as its token
 		// ("ward" — StatusKindId), school as its symbol id ("earth"), seconds
 		// left, starting duration, magnitude, and the display-name loc key.

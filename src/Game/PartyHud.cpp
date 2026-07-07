@@ -325,8 +325,9 @@ SpellbookPanel::SpellbookPanel(const gfx::Rect& rect,
 	bounds = rect;
 }
 
-void SpellbookPanel::OpenFor(size_t member) {
+void SpellbookPanel::OpenFor(size_t member, size_t hand) {
 	m_member = static_cast<int>(member);
+	m_hand = hand > 1 ? 0 : hand;
 	m_sequence.clear();
 }
 
@@ -489,7 +490,7 @@ void SpellbookPanel::Update(ui::UIContext& ctx) {
 	if (CastRect(px).Contains(mx, my)) {
 		m_hotCast = true;
 		if (pressed && !m_sequence.empty()) {
-			if (onCast) onCast(static_cast<size_t>(m_member), m_sequence);
+			if (onCast) onCast(static_cast<size_t>(m_member), m_hand, m_sequence);
 			m_sequence.clear(); // the slate empties either way (a fizzle is spent)
 		}
 	}

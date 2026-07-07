@@ -104,12 +104,15 @@ struct Character {
 	// hand context menu) consumes it. Empty for a fresh party.
 	Inventory inventory;
 
-	// The member's remembered DEFAULT USE per item type (catalog id → command
-	// id): picking a use from a hand's right-click menu records it here, and a
-	// left-click on a hand holding that type executes it. Falls back to the
-	// type's first defaultable command when absent/stale (GameUI resolves).
-	// Saved per slot (a member's weapon habits survive a reload).
-	std::flat_map<std::string, std::string> useDefaults;
+	// The member's remembered DEFAULT USE, PER HAND (index 0 = left, 1 =
+	// right) and per item type (catalog id → command id): picking a use from
+	// a hand's right-click menu records it for THAT hand, and a left-click on
+	// that hand holding that type executes it — so the left hand can be armed
+	// with one spell and the right with another (Michael's rule, 2026-07-07).
+	// Falls back to the type's first defaultable command when absent/stale
+	// (GameUI resolves). Saved per slot+hand ("usedef" v16 lines; a pre-v16
+	// flat line seeds BOTH hands).
+	std::flat_map<std::string, std::string> useDefaults[2];
 
 	// --- spells -------------------------------------------------------------
 	// Spell symbols this member has committed to memory (bitmask of SymbolBit).
@@ -128,15 +131,19 @@ struct Character {
 	bool HasLearnedSpell(std::string_view id) const {
 		return learnedSpells.contains(id);
 	}
-	// Most-recently-CAST spells, front = newest, deduplicated — the hand
-	// menu's Magic quick-cast list shows the first N (N = GameSettings::
-	// spellMruCount, the Controls → Hands setting). Bounded by the number of
-	// distinct spells ever cast, so it stores whole and trims at display.
-	// Saved per slot ("mru" save lines, order preserved).
-	std::vector<std::string> spellMru;
-	void TouchSpellMru(const std::string& id) {
-		std::erase(spellMru, id);
-		spellMru.insert(spellMru.begin(), id);
+	// Most-recently-CAST spells PER HAND (0 = left, 1 = right), front =
+	// newest, deduplicated — each hand's Magic quick-cast list shows its own
+	// first N (N = GameSettings::spellMruCount, the Controls → Hands
+	// setting), so the two hands develop independent repertoires. A cast
+	// credits the hand it was fired from (a hand-less cast — dev console —
+	// touches neither). Bounded by the number of distinct spells ever cast,
+	// so it stores whole and trims at display. Saved per slot+hand ("mru"
+	// v16 lines; a pre-v16 flat line seeds BOTH hands).
+	std::vector<std::string> spellMru[2];
+	void TouchSpellMru(size_t hand, const std::string& id) {
+		if (hand > 1) return;
+		std::erase(spellMru[hand], id);
+		spellMru[hand].insert(spellMru[hand].begin(), id);
 	}
 	// Mana points regenerated per second, scaled by intelligence. STUB: a real
 	// "mana draw efficiency / capacity" stat will drive this later; intelligence

@@ -78,11 +78,13 @@ bool WriteSave(const SaveData& data, const std::string& path) {
 			for (const std::string& it : c.packContents[p]) t += " " + itemTok(it);
 			t += '\n';
 		}
-		// "usedef <i> <item> <cmd> ..." — the member's remembered default uses,
-		// flat (item, command) pairs. Both ids are record-token-safe (no spaces).
-		if (!c.useDefaults.empty()) {
-			t += std::format("usedef {}", i);
-			for (const auto& [item, cmd] : c.useDefaults)
+		// "usedef <i> <hand> <item> <cmd> ..." — the member's remembered
+		// default uses, one line per HAND (v16), flat (item, command) pairs.
+		// All ids are record-token-safe (no spaces).
+		for (size_t hand = 0; hand < 2; ++hand) {
+			if (c.useDefaults[hand].empty()) continue;
+			t += std::format("usedef {} {}", i, hand);
+			for (const auto& [item, cmd] : c.useDefaults[hand])
 				t += std::format(" {} {}", item, cmd);
 			t += '\n';
 		}
@@ -93,11 +95,13 @@ bool WriteSave(const SaveData& data, const std::string& path) {
 			for (const std::string& id : c.learnedSpells) t += " " + id;
 			t += '\n';
 		}
-		// "mru <i> <spell> ..." — most-recently-cast, newest first (order is
-		// the payload: the quick-cast list shows the head).
-		if (!c.mruSpells.empty()) {
-			t += std::format("mru {}", i);
-			for (const std::string& id : c.mruSpells) t += " " + id;
+		// "mru <i> <hand> <spell> ..." — most-recently-cast, newest first, one
+		// line per HAND (v16; order is the payload: the quick-cast list shows
+		// the head).
+		for (size_t hand = 0; hand < 2; ++hand) {
+			if (c.mruSpells[hand].empty()) continue;
+			t += std::format("mru {} {}", i, hand);
+			for (const std::string& id : c.mruSpells[hand]) t += " " + id;
 			t += '\n';
 		}
 		// "effect <i> <kind> <school> <time> <duration> <magnitude> <nameKey>"
@@ -253,12 +257,25 @@ std::optional<SaveData> ReadSave(const std::string& path) {
 			for (size_t i = 3; i < tok.size(); ++i) c.packTypes.push_back(detok(tok[i]));
 			c.packContents.resize(c.packTypes.size());
 		} else if (kw == "usedef" && tok.size() >= 4) {
-			// Default-use pairs: "usedef <i> <item> <cmd> ..." (v10).
+			// Default-use pairs. v16: "usedef <i> <hand> <item> <cmd> ...";
+			// pre-v16 had no hand token ("usedef <i> <item> <cmd> ...") — an
+			// item id can't be "0"/"1", so the token disambiguates — and a
+			// flat line seeds BOTH hands.
 			const size_t idx = static_cast<size_t>(IntOf(tok[1]));
 			if (idx >= data.characters.size()) data.characters.resize(idx + 1);
 			SaveData::CharState& c = data.characters[idx];
-			for (size_t i = 2; i + 1 < tok.size(); i += 2)
-				c.useDefaults.emplace_back(std::string(tok[i]), std::string(tok[i + 1]));
+			const bool perHand = tok[2] == "0" || tok[2] == "1";
+			const size_t first = perHand ? 3 : 2;
+			for (size_t i = first; i + 1 < tok.size(); i += 2) {
+				if (perHand) {
+					c.useDefaults[tok[2] == "1" ? 1 : 0].emplace_back(
+						std::string(tok[i]), std::string(tok[i + 1]));
+				} else {
+					for (auto& hand : c.useDefaults)
+						hand.emplace_back(std::string(tok[i]),
+										  std::string(tok[i + 1]));
+				}
+			}
 		} else if (kw == "learned" && tok.size() >= 3) {
 			// Learned spells: "learned <i> <spell> ..." (v11).
 			const size_t idx = static_cast<size_t>(IntOf(tok[1]));
@@ -328,12 +345,19 @@ std::optional<SaveData> ReadSave(const std::string& path) {
 			for (size_t i = 2; i + 1 < tok.size(); i += 2)
 				c.statProgress.emplace_back(std::string(tok[i]), FloatOf(tok[i + 1]));
 		} else if (kw == "mru" && tok.size() >= 3) {
-			// Spell MRU: "mru <i> <spell> ..." newest first (v12).
+			// Spell MRU, newest first. v16: "mru <i> <hand> <spell> ...";
+			// pre-v16 had no hand token (spell ids can't be "0"/"1") — a flat
+			// line seeds BOTH hands.
 			const size_t idx = static_cast<size_t>(IntOf(tok[1]));
 			if (idx >= data.characters.size()) data.characters.resize(idx + 1);
 			SaveData::CharState& c = data.characters[idx];
-			for (size_t i = 2; i < tok.size(); ++i)
-				c.mruSpells.emplace_back(tok[i]);
+			const bool perHand = tok[2] == "0" || tok[2] == "1";
+			for (size_t i = perHand ? 3 : 2; i < tok.size(); ++i) {
+				if (perHand)
+					c.mruSpells[tok[2] == "1" ? 1 : 0].emplace_back(tok[i]);
+				else
+					for (auto& hand : c.mruSpells) hand.emplace_back(tok[i]);
+			}
 		} else if (kw == "packc" && tok.size() >= 3) {
 			// One pack's contents: "packc <i> <packIdx> <items...>".
 			const size_t idx = static_cast<size_t>(IntOf(tok[1]));

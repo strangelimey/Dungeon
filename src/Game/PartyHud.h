@@ -243,13 +243,16 @@ public:
 	SpellbookPanel(const gfx::Rect& rect, const std::vector<Character>* roster,
 				   const ItemIconBank* icons);
 
-	void OpenFor(size_t member); // shows this member's book (fresh sequence)
+	// Shows this member's book (fresh sequence). `hand` is the hand whose
+	// menu opened it — a Cast from the book credits that hand's quick-cast
+	// MRU (defaults/MRU are per member AND per hand).
+	void OpenFor(size_t member, size_t hand);
 	void Close();
 	bool IsOpen() const { return m_member >= 0; }
 
-	// Cast pressed: (member, the built sequence) — wired to the world's cast
-	// façade. Fired only with a non-empty sequence.
-	std::function<void(size_t, const std::vector<SpellSymbol>&)> onCast;
+	// Cast pressed: (member, opening hand, the built sequence) — wired to the
+	// world's cast façade. Fired only with a non-empty sequence.
+	std::function<void(size_t, size_t, const std::vector<SpellSymbol>&)> onCast;
 	// The recipe table, for the live "= <spell>" match label (GameUI's
 	// spellDefs source). Null-safe: no table, no label.
 	std::function<std::span<const SpellDef>()> spells;
@@ -284,7 +287,8 @@ private:
 
 	const std::vector<Character>* m_roster;
 	const ItemIconBank* m_icons;
-	int m_member = -1; // roster slot whose book is open (-1 = closed)
+	int m_member = -1;  // roster slot whose book is open (-1 = closed)
+	size_t m_hand = 0;  // the hand whose menu opened the book (MRU credit)
 	std::vector<SpellSymbol> m_sequence;
 	int m_hotSymbol = -1, m_hotSeq = -1;
 	bool m_hotCast = false, m_hotClear = false;
