@@ -72,6 +72,20 @@ Key conventions (memorize, they bite):
   (load-or-die helpers). World→log feedback flows through
   DungeonWorld::onMessage; UI→state-machine actions through GameUI's on*
   callbacks, both wired in the Game constructor.
+- MAGIC (full model: docs/magic system.md + spells.md + skills.md): every
+  spell is a CLASS in src/Game/Spell/ (one file pair per spell; Spell base →
+  BoltSpell/WardSpell forms; behaviour = the Cast() override, reaching the
+  world only through host-wired CastServices) — spells.cat is NUMERIC
+  OVERRIDES only, the class recipe is identity. MagicSystem runs the common
+  gates (vocab, mana, skill/fumble roll, power ×(1+0.10×school level));
+  skills train BY USE (per-school + per-weapon-class, level = sqrt(xp),
+  associated stats creep behind — docs/skills.md). Status effects live in
+  ONE Character::effects list (wards stack across schools, same-school
+  recast replaces); the party bar draws them in the name band, the sheet's
+  Effects tab (hourglass) is the long form. Defaults + spell MRU are per
+  member AND per hand. Save v14/15/16 lines cover effects/skills/per-hand.
+  Adding a spell: file pair + AllSpells.cpp + CMakeLists (hand-listed) +
+  spell.<id> lang keys ×5 (+ .desc for ward-like effects).
 - ALL user-facing text goes through Core/Loc (loc::Tr(key) /
   loc::Format(key, args...) for {} placeholders), loaded from
   assets/lang/<code>.lang (UTF-8 key=value, ';' comments; en.lang is the
