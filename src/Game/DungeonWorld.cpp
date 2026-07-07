@@ -2796,6 +2796,48 @@ void DungeonWorld::WoundMember(Character& target, float damage) {
 		MemberMessage(target, loc::Format("log.member_down", target.name));
 }
 
+// The one place skills grow (docs/skills.md). Levels derive from raw XP
+// (floor(sqrt)), so a level-up is just "the derived number changed"; the
+// associated stat creeps behind at kStatCreepPerXp through the member's
+// statProgress pool — a whole point lands with its own log line (max
+// stamina/health raise current too, so the gain shows on the bar as growth,
+// not damage).
+void DungeonWorld::GrantSkillXp(Character& member, std::string_view skillId,
+								float xp) {
+	if (skillId.empty() || xp <= 0.0f || !member.IsAlive()) return;
+	constexpr float kStatCreepPerXp = 0.04f;
+
+	float& total = member.skillXp[std::string(skillId)];
+	const int before = Character::LevelForXp(total);
+	total += xp;
+	const int after = Character::LevelForXp(total);
+	if (after > before)
+		MemberMessage(member,
+					  loc::Format("log.skill_up", member.name,
+								  loc::Tr("skill." + std::string(skillId)), after));
+
+	const std::string_view stat = SkillStat(skillId);
+	if (stat.empty()) return;
+	float& pool = member.statProgress[std::string(stat)];
+	pool += xp * kStatCreepPerXp;
+	if (pool < 1.0f) return;
+	pool -= 1.0f;
+	int value = 0;
+	if (stat == "strength") value = ++member.strength;
+	else if (stat == "dexterity") value = ++member.dexterity;
+	else if (stat == "stamina") {
+		member.maxStamina += 1.0f;
+		member.stamina += 1.0f;
+		value = static_cast<int>(member.maxStamina + 0.5f);
+	} else if (stat == "health") {
+		member.maxHealth += 1.0f;
+		member.health += 1.0f;
+		value = static_cast<int>(member.maxHealth + 0.5f);
+	}
+	MemberMessage(member, loc::Format("log.stat_up", member.name,
+									  loc::Tr("stat." + std::string(stat)), value));
+}
+
 // Latch the party wipe exactly once when the last member falls (message + callback).
 // Returns true the frame it latches. Shared by the melee/ranged/bump damage paths.
 bool DungeonWorld::CheckPartyWipe() {
@@ -3094,7 +3136,19 @@ bool DungeonWorld::PartyAttack(size_t member, size_t hand) {
 		return true;
 	}
 
-	const AttackProfile atk{attacker.AttackDamage(), attacker.Accuracy()};
+	// The swinging hand's weapon class (docs/skills.md "Skills/stats → melee"):
+	// the held item's catalog `skill`; a bare hand swings — and trains —
+	// unarmed. The class level scales the profile, the landed blow below
+	// trains the class ("" — an unclassed item — trains and scales nothing).
+	const ItemSlot& held = attacker.inventory.Hand(static_cast<int>(hand));
+	const std::string_view skillId =
+		held.Empty() ? std::string_view("unarmed")
+					 : std::string_view(ItemKindFor(held.typeId).skill);
+	const int level = attacker.SkillLevel(skillId);
+
+	const AttackProfile atk{
+		attacker.AttackDamage() * (1.0f + 0.08f * static_cast<float>(level)),
+		attacker.Accuracy() + 0.02f * static_cast<float>(level)};
 	const DefenseProfile def{target->kind->evasion, target->kind->armor};
 	const AttackResult r = ResolveAttack(atk, def, m_combatRng);
 	const std::string name = loc::Tr("monster." + target->kind->name);
@@ -3107,6 +3161,7 @@ bool DungeonWorld::PartyAttack(size_t member, size_t hand) {
 	ProvokeMonster(*target); // the struck monster alone notices + turns to the party
 	int dmg = static_cast<int>(r.damage + 0.5f);
 	MemberMessage(attacker, loc::Format("log.party_hits", attacker.name, name, dmg));
+	GrantSkillXp(attacker, skillId, 1.0f); // a LANDED blow trains its class
 	m_audio.Play(m_sounds.monster, 0.7f);
 
 	if (!target->Alive()) {
@@ -3139,7 +3194,8 @@ bool DungeonWorld::CastSpell(size_t member, std::span<const SpellSymbol> sequenc
 	const Vec3 dir{static_cast<float>(DirDX(faced)), 0.0f,
 				   static_cast<float>(DirDZ(faced))};
 
-	const MagicSystem::CastReport r = m_magic.Cast(caster, sequence, origin, dir);
+	const MagicSystem::CastReport r =
+		m_magic.Cast(caster, sequence, origin, dir, m_combatRng);
 	switch (r.outcome) {
 	case MagicSystem::CastOutcome::Cast:
 		// Dispatch the effect (the ONE place a spell effect becomes world state).
@@ -3147,11 +3203,12 @@ bool DungeonWorld::CastSpell(size_t member, std::span<const SpellSymbol> sequenc
 		case SpellEffect::Shield:
 			// The ward wraps the CASTER: one active shield per member, a recast
 			// (any school) replaces it. School keys the behaviour — earth rides
-			// Character::Armor(), fire retaliates in MonsterAttack.
+			// Character::Armor(), fire retaliates in MonsterAttack. Magnitude is
+			// the report's EFFECTIVE power (school skill already folded in).
 			caster.RemoveEffect(StatusKind::Ward);
 			caster.effects.push_back({StatusKind::Ward, r.spell->element,
 									  r.spell->nameKey, r.spell->duration,
-									  r.spell->duration, r.spell->power});
+									  r.spell->duration, r.power});
 			MemberMessage(caster, loc::Format("log.shield_up", caster.name));
 			break;
 		case SpellEffect::Projectile:
@@ -3162,14 +3219,22 @@ bool DungeonWorld::CastSpell(size_t member, std::span<const SpellSymbol> sequenc
 		MemberMessage(caster,
 					  loc::Format("log.cast", caster.name, loc::Tr(r.spell->nameKey)));
 		// A spell is LEARNED the first time it is successfully cast — the
-		// failed outcomes below teach nothing (and higher-tier spells will
-		// add skill-gated failure ON this path later, still before learning).
+		// failed outcomes below (a Fumble included) teach nothing.
 		if (caster.learnedSpells.insert(r.spell->id).second)
 			MemberMessage(caster, loc::Format("log.spell_learned", caster.name,
 											  loc::Tr(r.spell->nameKey)));
 		caster.TouchSpellMru(r.spell->id); // freshest cast leads the quick list
+		// The school skill grows with every SUCCESSFUL cast, in proportion to
+		// the spell's mana (a dearer spell teaches more) — docs/skills.md.
+		GrantSkillXp(caster, SymbolId(r.spell->element), r.spell->mana * 0.25f);
 		m_audio.Play(m_sounds.spellCast, 0.7f);
 		return true;
+	case MagicSystem::CastOutcome::Fumble:
+		// The skill roll failed: the mana is spent, nothing happens, and
+		// nothing is learned — the recipe stays anonymous until a cast lands.
+		MemberMessage(caster, loc::Format("log.cast_fumble", caster.name));
+		m_audio.Play(m_sounds.spellFizzle, 0.6f);
+		return false;
 	case MagicSystem::CastOutcome::NoMana:
 		MemberMessage(caster, loc::Format("log.cast_nomana", caster.name));
 		return false;

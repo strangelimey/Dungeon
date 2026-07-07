@@ -888,6 +888,8 @@ private:
 		std::string id;          // catalog id (the .ent record type)
 		std::string nameKey;     // loc key for the display name ("item.rune_fire")
 		std::string category;    // rune|weapon|armor|clothing|food|misc (free-form)
+		std::string skill;       // weapon class this item trains/uses (catalog
+								 // `skill`, docs/skills.md); "" = untrained swing
 		float weight = 0.0f;     // carry weight (kg); sums into a member's load
 		std::vector<std::string> commands; // hand right-click command ids (data-driven)
 		bool isRune = false;
@@ -1255,6 +1257,11 @@ private:
 	// If no member is standing, latch the one-shot party wipe (message + callback).
 	// Returns true the frame it latches. Shared by the melee/ranged/bump paths.
 	bool CheckPartyWipe();
+	// Award skill XP to a member (docs/skills.md): logs a level-up, and drips
+	// the skill's associated stat forward (statProgress; a stat point + log
+	// when the pool passes 1). The ONE place skills grow — every award site
+	// (successful cast, landed blow) routes through it.
+	void GrantSkillXp(Character& member, std::string_view skillId, float xp);
 	// Blocked-move recoil reached its peak: jar every standing member for a
 	// small amount of damage, flash a splat over each portrait, grunt once, and
 	// latch a party wipe if the bruise is somehow the end of them.

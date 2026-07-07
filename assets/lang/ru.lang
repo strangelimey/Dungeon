@@ -217,6 +217,23 @@ spell.waterveil=Водяная пелена
 spell.windward=Заслон ветра
 ; Status-effect hover label: effect name, seconds left.
 hud.effect_time={} — {} с
+; Skill display names (docs/skills.md): the four schools + weapon classes.
+skill.fire=Магия огня
+skill.earth=Магия земли
+skill.air=Магия воздуха
+skill.water=Магия воды
+skill.blade=Клинки
+skill.blunt=Дробящее оружие
+skill.unarmed=Безоружный бой
+; Stats the skills creep forward (log.stat_up inserts these).
+stat.strength=Сила
+stat.dexterity=Ловкость
+stat.stamina=Выносливость
+stat.health=Здоровье
+; Skill/stat growth + cast-failure log lines: (name, skill/stat, value) / (name).
+log.skill_up={}: навык «{}» растёт до {}.
+log.stat_up={}: {} растёт до {}.
+log.cast_fumble=Заклинание ускользает от {}!
 ; Hand-slot use menu (items.cat `command` ids -> use.<id>).
 use.memorize=Запомнить
 use.eat=Съесть

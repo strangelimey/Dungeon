@@ -121,8 +121,8 @@ behaviour since the use-menu model landed (branch `magic-system`,
   spells the member has LEARNED — a spell is learned the first time the member
   successfully CASTS it (built in the spellbook; saved per character), so the
   quick-cast list is earned, not implied by vocabulary. Higher-tier spells
-  will demand higher school skill and can FAIL to cast (failure system TBD);
-  a failed cast teaches nothing. A spell pick stores as `cast:<id>` in the same
+  demand higher school skill and can FAIL to cast (the skill roll in
+  docs/skills.md — mana spent, nothing learned). A spell pick stores as `cast:<id>` in the same
   default map ("unarmed" key for a bare hand) and left-click then casts it —
   **the first casting door is live**: memorize a rune, arm the spell from the
   hand menu, click to cast (DungeonWorld::CastSpellById, the usual vocab/mana
@@ -216,8 +216,11 @@ Magic is a **walled-off module** (it knows nothing of map/monsters/HUD):
 - **Casting entry point.** The spellbook panel (Magic » Spellbook) is built;
   the per-member **Magic sigil** described in "Opening the spell panel" is not
   built yet (the hand menu is the only door today).
-- **Per-school caster POWER** (the growth forms in docs/spells.md scale by it)
-  has no progression system yet — spells cast at fixed catalog numbers.
+- **Per-school caster POWER: BUILT** (docs/skills.md) — the school SKILL
+  grows with successful casts; effective power scales catalog numbers by
+  (1 + 0.10 × level), the skill roll can fumble higher-tier casts, and the
+  skill's associated stat creeps behind. The growth FORMS in docs/spells.md
+  (flamethrower, boulder...) still need authoring against it.
 
 ### Remaining work
 

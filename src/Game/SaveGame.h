@@ -32,6 +32,11 @@ namespace dungeon::game {
 
 // The serializable dynamic state of one in-progress game.
 struct SaveData {
+	// v15: per-member skills ("skill" line: id/xp pairs), stat-creep pools
+	//      ("statxp" line: stat/progress pairs), and the five attributes
+	//      ("attr" line — they GROW now, so the archetype defaults no longer
+	//      suffice) — docs/skills.md. Absent in older saves (skills start
+	//      fresh, attributes stay the archetype's).
 	// v14: per-member status effects ("effect" lines: kind token, school,
 	//      time left, starting duration, magnitude, display-name loc key) —
 	//      the unified Character::effects list; replaces the v13 "shield"
@@ -54,7 +59,7 @@ struct SaveData {
 	//     buttons as a diff (keyed by .ent id) or a whole spawn (no baseline);
 	//     replaces the v6 split of "ent"/"monster" rows + a whole "floor" item
 	//     snapshot. v6: free-look offset ("look" line); v5 folded hands into equip[].
-	int version = 14;
+	int version = 15;
 	std::string name;         // display name (free text; may contain spaces)
 	std::string currentLevel; // the level stem the party is on (where to resume)
 	std::string timestamp;    // human-readable local time, for the slot list
@@ -114,6 +119,16 @@ struct SaveData {
 			std::string nameKey;
 		};
 		std::vector<EffectState> effects;
+		// Skill XP by skill id (Character::skillXp) and the stat-creep pools
+		// by stat id (Character::statProgress) — docs/skills.md. Flat pairs,
+		// one "skill"/"statxp" line each (v15). Absent in pre-v15 saves.
+		std::vector<std::pair<std::string, float>> skills;
+		std::vector<std::pair<std::string, float>> statProgress;
+		// The five attributes ("attr" line, v15) — stat creep grows them, so
+		// they round-trip. hasAttrs=false (older save) keeps the archetype's.
+		bool hasAttrs = false;
+		int strength = 0, dexterity = 0, vitality = 0, willpower = 0,
+			intelligence = 0;
 	};
 	std::vector<CharState> characters;
 

@@ -15,6 +15,7 @@
 #include "Game/Projectiles.h"
 #include "Game/Spells.h"
 
+#include <random>
 #include <span>
 
 namespace dungeon::game {
@@ -38,10 +39,16 @@ public:
 	const SpellBook& Book() const { return m_spellBook; }
 
 	// The outcome of a cast attempt; the owner turns it into a log line.
-	enum class CastOutcome { Cast, Unknown, NoRecipe, NoMana };
+	// Fumble = the skill-gated failure (docs/skills.md): the recipe matched and
+	// the mana is SPENT, but the casting slipped — no effect, no learning.
+	enum class CastOutcome { Cast, Unknown, NoRecipe, NoMana, Fumble };
 	struct CastReport {
 		CastOutcome outcome = CastOutcome::NoRecipe;
 		const SpellDef* spell = nullptr;  // the matched recipe (set on Cast)
+		// The spell's EFFECTIVE power — the catalog number scaled by the
+		// caster's school skill (docs/skills.md "Skills → spells"). Bolt damage
+		// already carries it; a Shield consumer reads its magnitude from here.
+		float power = 0.0f;
 		// The bolt to spawn — valid only on Cast of a PROJECTILE spell. Other
 		// effects (Shield) carry no bolt; the owner dispatches on spell->effect.
 		ProjectileSpec projectile{};
@@ -49,12 +56,14 @@ public:
 
 	// Resolves a cast for `caster` from the symbol `sequence`. The caster must
 	// know every symbol, the sequence must match a recipe, and the caster must
-	// have the mana. On success it deducts the caster's mana and returns {Cast,
-	// spell, projectile} — a bolt spec flying `dir` from `origin` (the party eye)
-	// for the owner to Spawn into the moving-item engine. Otherwise nothing is
-	// deducted and the outcome explains why.
+	// have the mana; then the skill roll (school level + willpower vs the
+	// recipe's rune count, rolled on `rng`) may still Fumble it — mana spent,
+	// nothing else. On success it deducts the caster's mana and returns {Cast,
+	// spell, power, projectile} — a bolt spec flying `dir` from `origin` (the
+	// party eye) for the owner to Spawn into the moving-item engine. On the
+	// non-Fumble failures nothing is deducted and the outcome explains why.
 	CastReport Cast(Character& caster, std::span<const SpellSymbol> sequence,
-					const Vec3& origin, const Vec3& dir);
+					const Vec3& origin, const Vec3& dir, std::mt19937& rng);
 
 private:
 	SpellBook m_spellBook;

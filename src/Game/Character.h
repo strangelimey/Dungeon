@@ -16,6 +16,7 @@
 #include "Game/Inventory.h"
 #include "Game/Spells.h"
 
+#include <cmath>
 #include <flat_map>
 #include <flat_set>
 #include <string>
@@ -58,6 +59,11 @@ struct StatusEffect {
 // skipped, so a newer save's effect kinds degrade to "not present".
 const char* StatusKindId(StatusKind kind);
 bool ParseStatusKind(std::string_view token, StatusKind& out);
+
+// The stat a skill's use creeps forward (docs/skills.md "Stat creep"):
+// fire→strength, air→dexterity, earth→stamina (the max), water→health (the
+// max), blade→dexterity, blunt/unarmed→strength. "" = no associated stat.
+std::string_view SkillStat(std::string_view skillId);
 
 struct Character {
 	std::string name; // proper noun — not localized
@@ -138,6 +144,25 @@ struct Character {
 	float ManaRegenPerSec() const {
 		return 0.4f + static_cast<float>(intelligence) * 0.08f;
 	}
+
+	// --- skills (docs/skills.md) ---------------------------------------------
+	// Raw XP per skill id — the four school ids ("fire"...) plus the weapon
+	// classes (items.cat `skill`; "unarmed" for bare hands). Levels derive:
+	// floor(sqrt(xp)), so early levels come fast. XP is awarded by
+	// DungeonWorld::GrantSkillXp (successful casts, landed blows), which also
+	// drips the skill's associated stat forward through statProgress — the
+	// per-stat creep pool that grants a stat point when it passes 1. Both
+	// saved per slot (v15 "skill"/"statxp" lines).
+	std::flat_map<std::string, float, std::less<>> skillXp;
+	std::flat_map<std::string, float, std::less<>> statProgress;
+	static int LevelForXp(float xp) {
+		return xp <= 0.0f ? 0 : static_cast<int>(std::sqrt(xp));
+	}
+	float SkillXpOf(std::string_view id) const {
+		const auto it = skillXp.find(id);
+		return it == skillXp.end() ? 0.0f : it->second;
+	}
+	int SkillLevel(std::string_view id) const { return LevelForXp(SkillXpOf(id)); }
 
 	// --- status effects (see the StatusEffect banner above) ------------------
 	// The list holds only ACTIVE effects — expiry/spend removes the entry, so

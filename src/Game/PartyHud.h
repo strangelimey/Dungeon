@@ -407,6 +407,17 @@ private:
 	int m_hotMode = -1; // mode button under the cursor (Update → Draw), -1 = none
 	std::string m_healthText, m_staminaText, m_manaText; // "42 / 42"
 	std::array<std::string, 5> m_attrValues;             // per-attribute numbers
+	// Skills-tab rows, baked by SetCharacter like the attribute values: the
+	// localized skill name, the level number, the progress fraction toward
+	// the next level, and the bar tint (school colour; weapon classes use
+	// the theme accent via alpha 0 as the "no tint" flag).
+	struct SkillRow {
+		std::string label;
+		std::string level;
+		float frac = 0.0f;
+		Vec4 tint{0, 0, 0, 0};
+	};
+	std::vector<SkillRow> m_skillRows;
 	// Static page text, localized once at construction (the sheet is rebuilt
 	// on a language change) so Draw stays allocation-free.
 	std::string m_healthLabel, m_staminaLabel, m_manaLabel;

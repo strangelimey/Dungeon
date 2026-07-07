@@ -106,6 +106,24 @@ bool WriteSave(const SaveData& data, const std::string& path) {
 			t += std::format("effect {} {} {} {:.3f} {:.3f} {:.3f} {}\n", i,
 							 itemTok(e.kind), itemTok(e.school), e.time,
 							 e.duration, e.magnitude, itemTok(e.nameKey));
+		// "skill <i> <id> <xp> ..." / "statxp <i> <stat> <progress> ..." — the
+		// member's skill XP and stat-creep pools, flat pairs (v15).
+		if (!c.skills.empty()) {
+			t += std::format("skill {}", i);
+			for (const auto& [id, xp] : c.skills)
+				t += std::format(" {} {:.3f}", id, xp);
+			t += '\n';
+		}
+		if (!c.statProgress.empty()) {
+			t += std::format("statxp {}", i);
+			for (const auto& [stat, progress] : c.statProgress)
+				t += std::format(" {} {:.3f}", stat, progress);
+			t += '\n';
+		}
+		// "attr <i> <str> <dex> <vit> <will> <int>" — the five attributes
+		// (v15; stat creep grows them, so the archetype defaults don't hold).
+		t += std::format("attr {} {} {} {} {} {}\n", i, c.strength, c.dexterity,
+						 c.vitality, c.willpower, c.intelligence);
 	}
 
 	// One block per visited level: a "level <stem>" header, then its entity
@@ -284,6 +302,31 @@ std::optional<SaveData> ReadSave(const std::string& path) {
 						: e.school == "water" ? "spell.waterveil"
 											  : "spell.windward";
 			c.effects.push_back(std::move(e));
+		} else if (kw == "attr" && tok.size() >= 7) {
+			// The five attributes: "attr <i> <str> <dex> <vit> <will> <int>" (v15).
+			const size_t idx = static_cast<size_t>(IntOf(tok[1]));
+			if (idx >= data.characters.size()) data.characters.resize(idx + 1);
+			SaveData::CharState& c = data.characters[idx];
+			c.hasAttrs = true;
+			c.strength = IntOf(tok[2]);
+			c.dexterity = IntOf(tok[3]);
+			c.vitality = IntOf(tok[4]);
+			c.willpower = IntOf(tok[5]);
+			c.intelligence = IntOf(tok[6]);
+		} else if (kw == "skill" && tok.size() >= 4) {
+			// Skill XP pairs: "skill <i> <id> <xp> ..." (v15).
+			const size_t idx = static_cast<size_t>(IntOf(tok[1]));
+			if (idx >= data.characters.size()) data.characters.resize(idx + 1);
+			SaveData::CharState& c = data.characters[idx];
+			for (size_t i = 2; i + 1 < tok.size(); i += 2)
+				c.skills.emplace_back(std::string(tok[i]), FloatOf(tok[i + 1]));
+		} else if (kw == "statxp" && tok.size() >= 4) {
+			// Stat-creep pools: "statxp <i> <stat> <progress> ..." (v15).
+			const size_t idx = static_cast<size_t>(IntOf(tok[1]));
+			if (idx >= data.characters.size()) data.characters.resize(idx + 1);
+			SaveData::CharState& c = data.characters[idx];
+			for (size_t i = 2; i + 1 < tok.size(); i += 2)
+				c.statProgress.emplace_back(std::string(tok[i]), FloatOf(tok[i + 1]));
 		} else if (kw == "mru" && tok.size() >= 3) {
 			// Spell MRU: "mru <i> <spell> ..." newest first (v12).
 			const size_t idx = static_cast<size_t>(IntOf(tok[1]));

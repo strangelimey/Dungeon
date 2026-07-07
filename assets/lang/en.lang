@@ -211,6 +211,23 @@ spell.waterveil=Water Veil
 spell.windward=Wind Ward
 ; Status-effect hover label: effect name, seconds left.
 hud.effect_time={} — {}s
+; Skill display names (docs/skills.md): the four schools + weapon classes.
+skill.fire=Fire magic
+skill.earth=Earth magic
+skill.air=Air magic
+skill.water=Water magic
+skill.blade=Blades
+skill.blunt=Bludgeons
+skill.unarmed=Unarmed
+; Stats the skills creep forward (log.stat_up inserts these).
+stat.strength=Strength
+stat.dexterity=Dexterity
+stat.stamina=Stamina
+stat.health=Health
+; Skill/stat growth + cast-failure log lines: (name, skill/stat, value) / (name).
+log.skill_up={}'s {} skill rises to {}.
+log.stat_up={}'s {} rises to {}.
+log.cast_fumble=The spell slips from {}'s grasp!
 ui.inventory=Inventory
 ui.inv_all=All
 ; Hand-slot use menu (items.cat `command` ids -> use.<id>).

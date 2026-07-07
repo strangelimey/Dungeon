@@ -66,6 +66,7 @@ symbol = protect
 [dagger]
 name = item.dagger
 category = weapon
+skill = blade
 weight = 1.5
 holdable = 1
 command = stab, slash
@@ -75,6 +76,7 @@ icon_spin = 1
 [khukri]
 name = item.khukri
 category = weapon
+skill = blade
 weight = 1.2
 holdable = 1
 command = chop, slash, bash
@@ -83,6 +85,7 @@ model = khukri
 [snake_dagger]
 name = item.snake_dagger
 category = weapon
+skill = blade
 weight = 1.3
 holdable = 1
 command = stab, slash
@@ -91,6 +94,7 @@ model = snake_dagger
 [french_dagger]
 name = item.french_dagger
 category = weapon
+skill = blade
 weight = 1.4
 holdable = 1
 command = stab, slash, bash

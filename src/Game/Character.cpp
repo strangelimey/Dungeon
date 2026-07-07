@@ -24,6 +24,19 @@ bool ParseStatusKind(std::string_view token, StatusKind& out) {
 	return false;
 }
 
+// --- skill → associated stat --------------------------------------------------
+// The creep table from docs/skills.md. Data-shaped but tiny and stable, so a
+// lookup beats a catalog field until skills themselves become authorable.
+
+std::string_view SkillStat(std::string_view skillId) {
+	if (skillId == "fire" || skillId == "blunt" || skillId == "unarmed")
+		return "strength";
+	if (skillId == "air" || skillId == "blade") return "dexterity";
+	if (skillId == "earth") return "stamina";
+	if (skillId == "water") return "health";
+	return {};
+}
+
 // Four archetypes with distinct stat spreads so the HUD bars and the sheet
 // read differently per slot. Values are placeholders until combat exists.
 std::vector<Character> CreateDefaultParty() {

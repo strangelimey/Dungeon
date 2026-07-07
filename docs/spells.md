@@ -12,14 +12,15 @@ Rules of the system (see `docs/magic system.md` for the full model):
   picks the school (and the spell's colour). Tier-2 runes are SHARED FORM
   runes usable under any school; each authored school+form recipe gives the
   combination its school-flavoured reading.
-- A spell's strength scales with the caster's POWER in its school — a
-  progression stat that grows as the caster uses that school's magic (system
-  TBD; today spells have fixed catalog numbers).
+- A spell's strength scales with the caster's POWER in its school — the
+  per-school SKILL that grows as the caster uses that school's magic
+  (docs/skills.md: effective power = catalog power × (1 + 0.10 × level)).
 - A character LEARNS a spell the first time they successfully CAST it (built
   in the spellbook). Only learned spells appear in the hand menu's Magic
   quick-cast list or can be armed as a hand default; learning is saved per
-  character. Higher-tier spells will demand higher school skill, so a cast
-  can FAIL (failure system TBD) — a failed cast teaches nothing.
+  character. Higher-tier spells demand higher school skill: a cast can FAIL
+  (the skill roll in docs/skills.md — mana spent, nothing else) — a failed
+  cast teaches nothing.
 
 ## Tier 1 — the four one-rune spells
 

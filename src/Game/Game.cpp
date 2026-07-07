@@ -1478,6 +1478,16 @@ void Game::SaveGame(const std::string& name) {
 		for (const StatusEffect& e : member.effects)
 			c.effects.push_back({StatusKindId(e.kind), SymbolId(e.school),
 								 e.timeLeft, e.duration, e.magnitude, e.nameKey});
+		// Skills, stat-creep pools, and the five attributes (they grow now).
+		for (const auto& [id, xp] : member.skillXp) c.skills.emplace_back(id, xp);
+		for (const auto& [stat, progress] : member.statProgress)
+			c.statProgress.emplace_back(stat, progress);
+		c.hasAttrs = true;
+		c.strength = member.strength;
+		c.dexterity = member.dexterity;
+		c.vitality = member.vitality;
+		c.willpower = member.willpower;
+		c.intelligence = member.intelligence;
 		data.characters.push_back(std::move(c));
 	}
 	WriteSave(data, SaveSlotPath(name));
@@ -1540,6 +1550,18 @@ bool Game::LoadGame(const std::string& path) {
 			m_characters[i].effects.push_back(
 				{kind, school, e.nameKey, e.time,
 				 std::max(e.duration, e.time), e.magnitude});
+		}
+		// Skills, stat-creep pools, and the grown attributes (pre-v15 saves
+		// carry none — skills fresh, archetype attributes stand).
+		for (const auto& [id, xp] : c.skills) m_characters[i].skillXp[id] = xp;
+		for (const auto& [stat, progress] : c.statProgress)
+			m_characters[i].statProgress[stat] = progress;
+		if (c.hasAttrs) {
+			m_characters[i].strength = c.strength;
+			m_characters[i].dexterity = c.dexterity;
+			m_characters[i].vitality = c.vitality;
+			m_characters[i].willpower = c.willpower;
+			m_characters[i].intelligence = c.intelligence;
 		}
 	}
 	m_world.ApplyState(*data); // fills the per-level store + party pose/torch

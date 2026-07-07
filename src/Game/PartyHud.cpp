@@ -758,6 +758,34 @@ void CharacterSheet::SetCharacter(size_t member) {
 					std::to_string(character.vitality),
 					std::to_string(character.willpower),
 					std::to_string(character.intelligence)};
+
+	// Skills-tab rows (docs/skills.md): the school skills first (symbol order,
+	// bar tinted by school), then every other trained skill in the map's
+	// alphabetical order (weapon classes — accent bar). Only trained skills
+	// (xp > 0) list; none at all keeps the "No skills yet." line.
+	m_skillRows.clear();
+	auto addRow = [&](std::string_view id, float xp, const Vec4& tint) {
+		const int level = Character::LevelForXp(xp);
+		const float base = static_cast<float>(level * level);
+		const float next = static_cast<float>((level + 1) * (level + 1));
+		m_skillRows.push_back({loc::Tr("skill." + std::string(id)),
+							   std::to_string(level),
+							   std::clamp((xp - base) / (next - base), 0.0f, 1.0f),
+							   tint});
+	};
+	for (u32 s = 0; s < kSymbolCount; ++s) {
+		const SpellSymbol sym = static_cast<SpellSymbol>(s);
+		if (!IsSchoolSymbol(sym)) continue;
+		if (const float xp = character.SkillXpOf(SymbolId(sym)); xp > 0.0f) {
+			const Vec4 c = ElementColor(sym);
+			addRow(SymbolId(sym), xp, {c.x, c.y, c.z, 1.0f});
+		}
+	}
+	for (const auto& [id, xp] : character.skillXp) {
+		SpellSymbol sym;
+		if (ParseSymbol(id, sym)) continue; // schools already listed above
+		if (xp > 0.0f) addRow(id, xp, {0, 0, 0, 0});
+	}
 }
 
 gfx::Rect CharacterSheet::EquipRect(const gfx::Rect& px, float sx, float sy,
@@ -1124,7 +1152,31 @@ void CharacterSheet::DrawSkills(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 	ui::Font& font = ctx.GetFont();
 	font.Draw(batch, m_skillsLabel, px.x + kDollX * sx, px.y + kInvHeaderY * sy,
 			  theme.accent);
-	font.Draw(batch, m_noSkills, px.x + kDollX * sx, px.y + 230.0f * sy, theme.textDim);
+	if (m_skillRows.empty()) {
+		font.Draw(batch, m_noSkills, px.x + kDollX * sx, px.y + 230.0f * sy,
+				  theme.textDim);
+		return;
+	}
+
+	// One row per trained skill, mirroring the attributes layout: name, the
+	// level right-aligned, and a progress bar toward the next level (school
+	// rows tint their bar; weapon classes ride the theme accent).
+	constexpr float kFirstRowY = 218.0f, kRowH = 40.0f;
+	constexpr float kLabelX = 56.0f, kValueRight = 300.0f;
+	constexpr float kBarX = 360.0f, kBarW = 340.0f, kBarH = 22.0f;
+	for (size_t i = 0; i < m_skillRows.size(); ++i) {
+		const SkillRow& row = m_skillRows[i];
+		const float y = kFirstRowY + static_cast<float>(i) * kRowH;
+		font.Draw(batch, row.label, px.x + kLabelX * sx, px.y + y * sy,
+				  theme.textDim);
+		const float vw = font.MeasureWidth(row.level);
+		font.Draw(batch, row.level, px.x + kValueRight * sx - vw, px.y + y * sy,
+				  theme.text);
+		const gfx::Rect bar{px.x + kBarX * sx, px.y + y * sy, kBarW * sx,
+							kBarH * sy};
+		DrawStatBar(batch, bar, row.frac,
+					row.tint.w > 0.0f ? row.tint : theme.accent, theme);
+	}
 }
 
 } // namespace dungeon::game

@@ -213,6 +213,23 @@ spell.waterveil=Velo d'acqua
 spell.windward=Scudo di vento
 ; Status-effect hover label: effect name, seconds left.
 hud.effect_time={} — {} s
+; Skill display names (docs/skills.md): the four schools + weapon classes.
+skill.fire=Magia del fuoco
+skill.earth=Magia della terra
+skill.air=Magia dell'aria
+skill.water=Magia dell'acqua
+skill.blade=Lame
+skill.blunt=Armi contundenti
+skill.unarmed=Disarmato
+; Stats the skills creep forward (log.stat_up inserts these).
+stat.strength=Forza
+stat.dexterity=Destrezza
+stat.stamina=Resistenza
+stat.health=Salute
+; Skill/stat growth + cast-failure log lines: (name, skill/stat, value) / (name).
+log.skill_up={}: l'abilità {} sale a {}.
+log.stat_up={}: {} sale a {}.
+log.cast_fumble=L'incantesimo sfugge a {}!
 ; Hand-slot use menu (items.cat `command` ids -> use.<id>).
 use.memorize=Memorizza
 use.eat=Mangia
