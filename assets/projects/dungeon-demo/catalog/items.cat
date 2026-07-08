@@ -86,7 +86,7 @@ damage = 7
 speed = 1.1
 weight = 1.2
 holdable = 1
-command = chop, slash, bash
+command = chop, slash
 model = khukri
 
 [snake_dagger]
@@ -108,7 +108,7 @@ damage = 6
 speed = 1.1
 weight = 1.4
 holdable = 1
-command = stab, slash, bash
+command = stab, slash
 model = french_dagger
 
 ; The first blunt-class weapon (docs/combat.md Phase 1): slow, hits hard,

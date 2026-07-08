@@ -71,7 +71,6 @@ ABSORBED into this table when the formula lands.
 | chop   | slash  | heaviest cut, least accurate |
 | bash   | bash   | blunt baseline |
 | swing  | bash   | broad arc, a club's bread-and-butter |
-| crush  | bash   | heaviest two-handed blunt (maul) |
 | punch  | bash   | unarmed light |
 | kick   | bash   | unarmed heavy |
 
@@ -83,14 +82,14 @@ the sourcing roadmap — models to buy/import).
 | Weapon | Skill class | Attacks (→ type) |
 |---|---|---|
 | Dagger, snake dagger | blade | stab → pierce, slash → slash |
-| French dagger | blade | stab, slash, bash → bash (pommel strike) |
-| Khukri | blade | chop → slash, slash, bash (spine smack) |
+| French dagger | blade | stab, slash |
+| Khukri | blade | chop → slash, slash |
 | Club | blunt | bash, swing → bash |
 | Bare hands | unarmed | punch, kick → bash |
 | *Sword* (future) | blade | slash, stab, hack |
 | *Axe* (future) | axe (own class — too dissimilar to a sword) | chop, hack, bash (haft) |
 | *Mace* (future) | blunt | bash, swing |
-| *Warhammer/maul* (future) | blunt | crush, bash |
+| *Warhammer/maul* (future) | blunt | bash, swing (a harder bash rides the weapon's numbers) |
 | *Spear* (future) | new polearm class — ties into reach (Phase 7) | thrust, jab, bash |
 | *Staff* (future) | blunt | swing, jab |
 
@@ -102,16 +101,16 @@ earth, Gust/Push → air. Future enchanted weapons and monster specials
 pick a type the same way; monster melee gets a per-type damage type when
 the defender side (the next part) needs it.
 
-### Open questions (Michael's call)
+### Settled calls (Michael, 2026-07-08)
 
-- Khukri / french-dagger bash: kept for now (pommel/spine strikes — and
-  tactically nice once resistances exist: skeletons resist pierce, fear
-  bash); say the word and blades go pure-edge.
-- crush: real attack, or fold into bash and let the maul carry big numbers?
-
-Settled: **axe is its own skill class** (Michael, 2026-07-08 — too
-dissimilar to a sword). Lands with the first axe; docs/skills.md gets the
-class (and its stat-creep row) then.
+- **Axe is its own skill class** — too dissimilar to a sword. Lands with
+  the first axe; docs/skills.md gets the class (and its stat-creep row)
+  then.
+- **No bash on the daggers yet** — the blades go pure-edge (khukri:
+  chop/slash, french dagger: stab/slash). "Yet": pommel strikes can
+  return once per-type resistances make them tactically interesting.
+- **No crush attack** — a maul's harder bash is just bash with a heavy
+  weapon's numbers; the attack table stays lean.
 
 ### Implementation home (when it lands)
 
