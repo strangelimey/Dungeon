@@ -74,24 +74,26 @@ ABSORBED into this table when the formula lands.
 | punch  | bash   | unarmed light |
 | kick   | bash   | unarmed heavy |
 
-### Weapon types → attacks
+### Weapon types → attacks & associated stats
 
 Current items first, then the natural next weapons (the table doubles as
-the sourcing roadmap — models to buy/import).
+the sourcing roadmap — models to buy/import). The stats column is formula
+part 2 (see "Associated stats" below); Michael set dagger/club/sword,
+the *(proposed)* rows await his red pen.
 
-| Weapon | Skill class | Attacks (→ type) |
-|---|---|---|
-| Dagger, snake dagger | blade | stab → pierce, slash → slash |
-| French dagger | blade | stab, slash |
-| Khukri | blade | chop → slash, slash |
-| Club | blunt | bash, swing → bash |
-| Bare hands | unarmed | punch, kick → bash |
-| *Sword* (future) | blade | slash, stab, hack |
-| *Axe* (future) | axe (own class — too dissimilar to a sword) | chop, hack, bash (haft) |
-| *Mace* (future) | blunt | bash, swing |
-| *Warhammer/maul* (future) | blunt | bash, swing (a harder bash rides the weapon's numbers) |
-| *Spear* (future) | new polearm class — ties into reach (Phase 7) | thrust, jab, bash |
-| *Staff* (future) | blunt | swing, jab |
+| Weapon | Skill class | Attacks (→ type) | Assoc. stats |
+|---|---|---|---|
+| Dagger, snake dagger | blade | stab → pierce, slash → slash | DEX |
+| French dagger | blade | stab, slash | DEX |
+| Khukri | blade | chop → slash, slash | STR+DEX *(proposed — it's a chopper)* |
+| Club | blunt | bash, swing → bash | STR |
+| Bare hands | unarmed | punch, kick → bash | STR *(proposed, matches old creep)* |
+| *Sword* (future) | blade | slash, stab, hack | STR+DEX |
+| *Axe* (future) | axe (own class — too dissimilar to a sword) | chop, hack, bash (haft) | STR *(proposed)* |
+| *Mace* (future) | blunt | bash, swing | STR *(proposed)* |
+| *Warhammer/maul* (future) | blunt | bash, swing (a harder bash rides the weapon's numbers) | STR *(proposed)* |
+| *Spear* (future) | new polearm class — ties into reach (Phase 7) | thrust, jab, bash | STR+DEX *(proposed)* |
+| *Staff* (future) | blunt | swing, jab | DEX *(proposed)* |
 
 ### Spells & everything else
 
@@ -100,6 +102,36 @@ Flame/Fireburst → fire, Waterbolt/Splash → water, Rock/Slingshot →
 earth, Gust/Push → air. Future enchanted weapons and monster specials
 pick a type the same way; monster melee gets a per-type damage type when
 the defender side (the next part) needs it.
+
+School associated stats (part 2): **earth + fire → INT, air + water →
+WIS** (see the wisdom note below).
+
+### Associated stats (part 2 — Michael, 2026-07-08)
+
+Every attack SOURCE — a weapon type, a spell school — has one or more
+associated stats. Their AVERAGE is the stat input to the attack:
+
+    statInput = (stat1 + stat2 + ...) / count     e.g. (STR + DEX) / 2
+
+- The average drives the **attack bonus** — it replaces the ad-hoc
+  strength/dex terms in today's damage formulas (weapon `+0.25×STR`,
+  unarmed `+0.5×STR`); the exact bonus coefficient is a later part /
+  feel-test knob.
+- The same stats are what **train on use**: a landed blow / successful
+  cast creeps the source's associated stats, REPLACING the per-skill
+  creep table in docs/skills.md (fire→STR, air→DEX, earth→max-stamina,
+  water→max-health, blade→DEX, blunt/unarmed→STR) when it lands. Skills
+  themselves still train by use exactly as before — only the creep
+  TARGET changes. Multi-stat sources split the creep pool evenly across
+  their stats *(inference — confirm)*.
+- Consequence to confirm: earth/water's creep stops raising max
+  stamina/health (resource growth would need another home).
+- Where it lives: items.cat `stats = str, dex` per weapon; the school →
+  stat pairs are a fixed typed table (they're four lines).
+- **Wisdom note (open):** the Character stat roster is STR / DEX /
+  vitality / WILLPOWER / INT — there is no wisdom stat. Options: treat
+  WIS = willpower (map it), or rename willpower → wisdom across
+  UI/lang/save. Michael's call.
 
 ### Settled calls (Michael, 2026-07-08)
 
