@@ -88,7 +88,7 @@ the sourcing roadmap — models to buy/import).
 | Club | blunt | bash, swing → bash |
 | Bare hands | unarmed | punch, kick → bash |
 | *Sword* (future) | blade | slash, stab, hack |
-| *Axe* (future) | blade — or its own class? (open) | chop, hack, bash (haft) |
+| *Axe* (future) | axe (own class — too dissimilar to a sword) | chop, hack, bash (haft) |
 | *Mace* (future) | blunt | bash, swing |
 | *Warhammer/maul* (future) | blunt | crush, bash |
 | *Spear* (future) | new polearm class — ties into reach (Phase 7) | thrust, jab, bash |
@@ -107,8 +107,11 @@ the defender side (the next part) needs it.
 - Khukri / french-dagger bash: kept for now (pommel/spine strikes — and
   tactically nice once resistances exist: skeletons resist pierce, fear
   bash); say the word and blades go pure-edge.
-- Axe: blade skill or a third weapon class when axes land?
 - crush: real attack, or fold into bash and let the maul carry big numbers?
+
+Settled: **axe is its own skill class** (Michael, 2026-07-08 — too
+dissimilar to a sword). Lands with the first axe; docs/skills.md gets the
+class (and its stat-creep row) then.
 
 ### Implementation home (when it lands)
 
