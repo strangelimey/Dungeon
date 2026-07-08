@@ -165,6 +165,40 @@ it over time (a conditioning curve). Consequences:
   saves back-solve base from their grown maxima); current health/
   stamina/mana keep their stored values, clamped to the derived max.
 
+### The defender side (part 4 — Michael, 2026-07-08)
+
+A defender's response is three gates, in order:
+
+1. **Evasion** — does it hit at all? Type-agnostic; the existing
+   accuracy − evasion roll, clamped [0.05, 0.95]. Untouched.
+2. **Soak + resistance** — a SMALL flat soak, then the per-type
+   multiplier:
+
+       final = (rolled − soak) × (1 − resist[type]),  floor 1 on a hit
+
+   Every defender carries one seven-cell RESIST table (the damage
+   types). Positive = shrugged off, NEGATIVE = vulnerability — the
+   payoff of damage types (the skeleton laughs at your stab; bring the
+   club). Summed resists clamp to ±0.8; only an authored NATURE cell of
+   1.0 (a fire elemental vs fire) reaches immunity.
+3. **Floor** — a landed blow always stings (the existing ≥1 rule).
+
+Resist/soak sources just sum into the same cells:
+
+- **Nature** — monsters.cat per type (`resists = pierce 0.5, slash 0.25,
+  bash -0.5` on the skeleton; the mummy takes `fire -1.0`; absent = 0)
+  plus the existing flat `armor` as the monster's soak. THE PARTY GETS A
+  NATURE LAYER TOO — race resists (a minotaur is a lot tougher than a
+  ratling): authored per member now, the proper race system arrives with
+  party creation; the summing treats it as just another source.
+- **Equipment** — armor pieces author their resist cells (leather ~
+  `slash 0.2, pierce 0.1, bash 0.1`) plus a small flat `armor` soak;
+  worn pieces sum. This IS Phase 3's equipment armor.
+- **Wards** — Stone Skin's magnitude converts from flat armor to
+  physical resist (earth = the school that hardens, in formula terms).
+  Fire's burn-back, water's soak pool, air's deflection keep their
+  special behaviours — reactions, not resistances.
+
 ### Settled calls (Michael, 2026-07-08)
 
 - **Axe is its own skill class** — too dissimilar to a sword. Lands with
@@ -231,11 +265,11 @@ stab-less.
 
 ### Phase 3 — equipment armor + hit severity
 
-- items.cat `armor = <flat soak>` on armor/clothing entries
-  (leather_armor ~3, tunic ~0.5). `Character::Armor()` sums WORN slots
-  (equipment[] minus the two hands) + the earth ward as today. Needs the
-  same layering treatment as speed: the world sums catalog values and the
-  sheet shows the total (a derived-stats line on the sheet is in scope).
+SUPERSEDED in shape by the attack formula part 4 (the defender side):
+armor pieces author per-type resist cells PLUS a small flat `armor`
+soak, and the party's defense sums nature (race) + equipment + wards
+into one resist table. The sheet shows the summed defense (a
+derived-stats line is in scope).
 - Hit severity goes relative: fraction of the TARGET's maxHealth —
   <10% small, <25% medium, else hard — replacing the raw <5/<10. "What a
   hit means" scales with the victim, so a late-game 8-damage tap stops
