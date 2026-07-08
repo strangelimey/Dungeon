@@ -104,7 +104,8 @@ pick a type the same way; monster melee gets a per-type damage type when
 the defender side (the next part) needs it.
 
 School associated stats (part 2): **earth + fire → INT, air + water →
-WIS** (see the wisdom note below).
+WIL** (willpower — settled: no wisdom rename, the roster's stat is used
+as-is; it already feeds the cast fumble roll, Magic.cpp).
 
 ### Associated stats (part 2 — Michael, 2026-07-08)
 
@@ -122,16 +123,14 @@ associated stats. Their AVERAGE is the stat input to the attack:
   creep table in docs/skills.md (fire→STR, air→DEX, earth→max-stamina,
   water→max-health, blade→DEX, blunt/unarmed→STR) when it lands. Skills
   themselves still train by use exactly as before — only the creep
-  TARGET changes. Multi-stat sources split the creep pool evenly across
-  their stats *(inference — confirm)*.
-- Consequence to confirm: earth/water's creep stops raising max
-  stamina/health (resource growth would need another home).
+  TARGET changes. Multi-stat sources SPLIT the creep gain evenly across
+  their stats (settled — a sword doesn't train stats twice as fast as a
+  club).
+- Earth/water's creep stops raising max stamina/health — resource
+  growth needs a new home: **part 3, under discussion**.
 - Where it lives: items.cat `stats = str, dex` per weapon; the school →
   stat pairs are a fixed typed table (they're four lines).
-- **Wisdom note (open):** the Character stat roster is STR / DEX /
-  vitality / WILLPOWER / INT — there is no wisdom stat. Options: treat
-  WIS = willpower (map it), or rename willpower → wisdom across
-  UI/lang/save. Michael's call.
+- Settled: no wisdom rename — air/water use WILLPOWER as-is.
 
 ### Settled calls (Michael, 2026-07-08)
 
