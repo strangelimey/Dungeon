@@ -127,10 +127,43 @@ associated stats. Their AVERAGE is the stat input to the attack:
   their stats (settled — a sword doesn't train stats twice as fast as a
   club).
 - Earth/water's creep stops raising max stamina/health — resource
-  growth needs a new home: **part 3, under discussion**.
+  growth moves to the resource formula (part 3 below).
 - Where it lives: items.cat `stats = str, dex` per weapon; the school →
   stat pairs are a fixed typed table (they're four lines).
 - Settled: no wisdom rename — air/water use WILLPOWER as-is.
+
+### The resource formula (part 3 — Michael, 2026-07-08)
+
+Resource maxima are DERIVED from stats, the same base-plus-stat-average
+shape as the attack bonus (each `k` a balance knob; `base` is the
+authored per-member value, so class identity survives — the mage keeps
+the big mana base):
+
+    maxHealth  = base + k_h × VIT
+    maxStamina = base + k_s × (STR + VIT) / 2
+    maxMana    = base + k_m × (INT + WIL) / 2
+
+Resources grow because stats grow. This also fixes maxMana never growing
+at all today, and finally gives vitality a job.
+
+**VIT trains from exertion, and STAMINA IS THE EXERTION METER**: every
+point of stamina SPENT feeds VIT's creep pool — no separate tracking of
+swings-per-minute or distance-run. Use drains it in the moment, builds
+it over time (a conditioning curve). Consequences:
+
+- Phase 4 (stamina costs) becomes this part's engine: swings cost
+  stamina as planned, and MOVEMENT joins them — a small per-step cost so
+  sustained marching genuinely exerts, while the regen holdoff keeps
+  strolling-with-pauses net-neutral. Exhaustion stays penalties-not-
+  paralysis (it must never wall the player).
+- Taking damage is NOT a VIT source — pure exertion training (revisit
+  later if being wounded should toughen too).
+- Mana spending already trains INT/WIL via the school stats (part 2), so
+  the mage's mana pool grows by casting; the fighter's stamina/health by
+  fighting and marching. Symmetric, no extra pools.
+- Save: v17 stores the authored `base` per resource per member (old
+  saves back-solve base from their grown maxima); current health/
+  stamina/mana keep their stored values, clamped to the derived max.
 
 ### Settled calls (Michael, 2026-07-08)
 
