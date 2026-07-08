@@ -39,6 +39,87 @@ that seam.
   but the whole pipeline — HUD name-band icons, sheet Effects tab, save
   "effect" lines with unknown-token skip — is kind-generic.
 
+## The attack formula (Michael, 2026-07-08)
+
+The scaling/balance spine the phases hang off. Core rule: **an ATTACK
+(verb) is the atom, and each attack deals ONE damage type, globally** —
+stab is always pierce, whoever swings it. A weapon type is just its list
+of attacks (already the items.cat `command` field), so there is nothing
+per-weapon-per-attack to balance: tune an attack once and every weapon
+carrying it follows. Built up in parts; part 1 (types + tables) settled
+below, the next parts extend this section.
+
+### Damage types (7)
+
+| Physical | Elemental |
+|---|---|
+| slash, pierce, bash | fire, earth, air, water |
+
+### Attacks (global; one damage type each)
+
+The "character" column becomes the attack's formula numbers in the next
+part; the Phase 2 verb table below is those numbers' first cut and gets
+ABSORBED into this table when the formula lands.
+
+| Attack | Damage type | Character |
+|---|---|---|
+| stab   | pierce | fast, precise, light |
+| jab    | pierce | quickest poke (spear/staff tip) |
+| thrust | pierce | committed spear-drive, heavy pierce |
+| slash  | slash  | the cutting baseline |
+| hack   | slash  | a harder slash — slower, heavier |
+| chop   | slash  | heaviest cut, least accurate |
+| bash   | bash   | blunt baseline |
+| swing  | bash   | broad arc, a club's bread-and-butter |
+| crush  | bash   | heaviest two-handed blunt (maul) |
+| punch  | bash   | unarmed light |
+| kick   | bash   | unarmed heavy |
+
+### Weapon types → attacks
+
+Current items first, then the natural next weapons (the table doubles as
+the sourcing roadmap — models to buy/import).
+
+| Weapon | Skill class | Attacks (→ type) |
+|---|---|---|
+| Dagger, snake dagger | blade | stab → pierce, slash → slash |
+| French dagger | blade | stab, slash, bash → bash (pommel strike) |
+| Khukri | blade | chop → slash, slash, bash (spine smack) |
+| Club | blunt | bash, swing → bash |
+| Bare hands | unarmed | punch, kick → bash |
+| *Sword* (future) | blade | slash, stab, hack |
+| *Axe* (future) | blade — or its own class? (open) | chop, hack, bash (haft) |
+| *Mace* (future) | blunt | bash, swing |
+| *Warhammer/maul* (future) | blunt | crush, bash |
+| *Spear* (future) | new polearm class — ties into reach (Phase 7) | thrust, jab, bash |
+| *Staff* (future) | blunt | swing, jab |
+
+### Spells & everything else
+
+One rule instead of a table: a damaging spell's type is its SCHOOL —
+Flame/Fireburst → fire, Waterbolt/Splash → water, Rock/Slingshot →
+earth, Gust/Push → air. Future enchanted weapons and monster specials
+pick a type the same way; monster melee gets a per-type damage type when
+the defender side (the next part) needs it.
+
+### Open questions (Michael's call)
+
+- Khukri / french-dagger bash: kept for now (pommel/spine strikes — and
+  tactically nice once resistances exist: skeletons resist pierce, fear
+  bash); say the word and blades go pure-edge.
+- Axe: blade skill or a third weapon class when axes land?
+- crush: real attack, or fold into bash and let the maul carry big numbers?
+
+### Implementation home (when it lands)
+
+The attack→type identity is a typed C++ table next to VerbProfile
+(Combat.h); the per-attack NUMBERS move to an `attacks.cat` in the
+project catalog so balance tweaks are edit + relaunch, no rebuild — the
+spells.cat pattern (class recipe = identity, cat = numeric overrides).
+Weapons keep `command` as their attack list. Formula so far:
+`weapon base × attack numbers → typed damage`; the defender's per-type
+response is the next part.
+
 ## Design
 
 ### Phase 1 — weapon damage & speed (items.cat)
