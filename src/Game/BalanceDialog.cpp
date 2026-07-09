@@ -94,6 +94,9 @@ void BalanceDialog::BuildAttacksTab(size_t tab) {
 	// Header row (raw attacks.cat keys), then one row per attack: id + its
 	// damage type (identity, read-only) and the three numeric fields.
 	constexpr float rowH = 0.068f, top = 0.03f;
+	// "?" — the column explainer overlay (what damage/accuracy/speed do).
+	m_tabs->AddChild<ui::Button>(tab, gfx::Rect{0.92f, top, 0.055f, rowH * 0.85f},
+								 "?", [this] { m_helpOpen = true; });
 	m_tabs->AddChild<ui::Label>(tab, gfx::Rect{0.30f, top, 0.18f, rowH * 0.8f},
 								"damage");
 	m_tabs->AddChild<ui::Label>(tab, gfx::Rect{0.51f, top, 0.18f, rowH * 0.8f},
@@ -123,6 +126,15 @@ void BalanceDialog::Update(const Input& input, float w, float h) {
 	m_font.SetHeight(fh);
 	m_ui.GetFont().SetHeight(fh);
 
+	// The column-help overlay owns the input while up: any click or Esc
+	// dismisses it, and the dialog beneath stays frozen.
+	if (m_helpOpen) {
+		if (input.WasKeyPressed(VK_ESCAPE) ||
+			input.WasMousePressed(MouseButton::Left))
+			m_helpOpen = false;
+		return;
+	}
+
 	if (input.WasKeyPressed(VK_ESCAPE)) { // cancel: revert live to the snapshot
 		if (onApply) onApply(m_original);
 		Close();
@@ -146,6 +158,52 @@ void BalanceDialog::Render(gfx::SpriteBatch& batch, const ui::Theme& th, float w
 				th.text);
 
 	m_ui.Render(batch, w, h); // tabs + fields + footer buttons
+
+	// The "?" overlay: title + word-wrapped paragraphs (one lang key each),
+	// drawn over a second dim wash so the dialog visibly freezes beneath it.
+	if (m_helpOpen) {
+		batch.DrawRect({0, 0, w, h}, {0, 0, 0, 0.55f});
+		const gfx::Rect help{0.30f * w, 0.14f * h, 0.40f * w, 0.72f * h};
+		batch.DrawRect(help, th.panel);
+		ui::DrawBorder(batch, help, th.panelBorder);
+		const float pad = help.w * 0.05f;
+		const float lineH = m_font.Height() * 1.25f;
+		float y = help.y + pad;
+		m_font.Draw(batch, loc::Tr("map.balance.help.title"), help.x + pad, y,
+					th.text);
+		y += lineH * 1.6f;
+		// Word-wrap each paragraph to the panel width; a blank line between.
+		for (const char* key :
+			 {"map.balance.help.damage", "map.balance.help.accuracy",
+			  "map.balance.help.speed", "map.balance.help.notes"}) {
+			const std::string text = loc::Tr(key);
+			std::string line;
+			size_t start = 0;
+			while (start <= text.size()) {
+				const size_t sp = text.find(' ', start);
+				const std::string word =
+					text.substr(start, sp == std::string::npos ? std::string::npos
+															   : sp - start);
+				const std::string tryLine =
+					line.empty() ? word : line + " " + word;
+				if (!line.empty() &&
+					m_font.MeasureWidth(tryLine) > help.w - pad * 2) {
+					m_font.Draw(batch, line, help.x + pad, y, th.textDim);
+					y += lineH;
+					line = word;
+				} else {
+					line = tryLine;
+				}
+				if (sp == std::string::npos) break;
+				start = sp + 1;
+			}
+			if (!line.empty()) {
+				m_font.Draw(batch, line, help.x + pad, y, th.textDim);
+				y += lineH;
+			}
+			y += lineH * 0.5f; // paragraph gap
+		}
+	}
 }
 
 } // namespace dungeon::game

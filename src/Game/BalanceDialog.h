@@ -66,6 +66,10 @@ private:
 	ui::UIContext m_ui; // tabs + numeric fields + footer buttons
 
 	bool m_open = false;
+	// The Attacks tab's "?" overlay: what the three columns mean (localized,
+	// word-wrapped at draw time). Any click or Esc closes it; while it is up
+	// the dialog beneath is frozen.
+	bool m_helpOpen = false;
 	Balance m_cfg;      // working copy
 	Balance m_original; // snapshot for revert on Close/Esc
 
