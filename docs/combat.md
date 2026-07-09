@@ -203,6 +203,60 @@ Resist/soak sources just sum into the same cells:
   Fire's burn-back, water's soak pool, air's deflection keep their
   special behaviours — reactions, not resistances.
 
+### The full formula, first cut (part 5 — Michael, 2026-07-09)
+
+The assembled model. Every named constant is a KNOB — none lives in
+code (see "Where the knobs live" below). First-cut values are mostly
+today's numbers, renamed.
+
+Damage — ONE shape for weapons, fists, and spells:
+
+    rolled = (base + stat_damage × statAvg)
+             × attack.dmg × (1 + skill_damage × skillLevel) × jitter
+    final  = (rolled − soak) × (1 − resist[type]),  floor wound_floor
+
+`base` = the weapon's catalog damage / the `unarmed_base` knob / a
+spell's mana-derived power; `statAvg` = the source's associated-stat
+average (part 2); `attack.dmg` = the per-attack multiplier (the Phase 2
+verb numbers, now catalog data).
+
+To-hit — **accuracy is always DEX** (settled: aiming is agility, no
+matter what powers the blow; damage uses statAvg, to-hit does not):
+
+    chance = clamp(acc_base + acc_stat × DEX + acc_skill × skillLevel
+                   + attack.acc − evasion,  hit_floor, hit_ceil)
+
+The knob sheet (first cut):
+
+| Knob | Value | Does |
+|---|---|---|
+| unarmed_base | 4 | fist "weapon damage" |
+| stat_damage | 0.25 | damage per point of statAvg |
+| skill_damage | 0.08 | damage multiplier per skill level |
+| damage_jitter | 0.15 | ± roll on every hit |
+| acc_base / acc_stat / acc_skill | 0.55 / 0.02 / 0.02 | the to-hit line (stat = DEX) |
+| hit_floor / hit_ceil | 0.05 / 0.95 | nothing's ever sure |
+| resist_clamp | 0.8 | max summed resist (part 4) |
+| wound_floor | 1 | a landed blow stings |
+| speed_stat / interval_min / interval_max | 0.015 / 0.6 / 2.0 | DEX shaves swing pace, clamped |
+| spell_stat | 0.01 | % spell power per statAvg point |
+| creep_rate | 0.04 | stat creep per skill-XP (today's kStatCreepPerXp) |
+| vit_exertion | 0.02 | VIT creep per stamina point spent (part 3) |
+| k_health / k_stamina / k_mana | 1.0 | resource points per stat point (part 3 maxima) |
+
+**Where the knobs live (Michael's requirement: editor-tweakable for the
+whole dungeon):** a `balance.cat` in the PROJECT catalog folder —
+per-dungeon scope, riding the same save/`synctosource` path as every
+catalog — loaded into one typed tuning struct every formula reads
+through. Editor: a Balance dialog (monster-config-dialog pattern), rows
+generated from a fields table like GameSettings' kThemeFields (a new
+knob = one table row, no new UI code). Two tabs: Formula (the sheet
+above) and Attacks (the per-attack dmg/acc/pace numbers from
+attacks.cat). Values apply live; Save writes the .cat. With attacks,
+weapon stats, resists, and this sheet all in project catalogs, the
+ENTIRE combat model is editor-authorable — a total conversion
+rebalances without touching code.
+
 ### Settled calls (Michael, 2026-07-08)
 
 - **Axe is its own skill class** — too dissimilar to a sword. Lands with
