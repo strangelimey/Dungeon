@@ -32,6 +32,11 @@ namespace dungeon::game {
 
 // The serializable dynamic state of one in-progress game.
 struct SaveData {
+	// v17: per-member resource BASES ("base" line: health/stamina/mana) — the
+	//      maxima are DERIVED now (docs/combat.md "The resource formula":
+	//      max = base + k × statAvg), so the base is the stored truth. A
+	//      pre-v17 save back-solves bases from its stored maxima under the
+	//      live balance knobs (the maxima reproduce exactly).
 	// v16: default uses and the spell MRU are per member AND per hand — the
 	//      "usedef"/"mru" lines gain a hand token (0 = left, 1 = right), one
 	//      line per hand. A pre-v16 flat line seeds BOTH hands.
@@ -62,7 +67,7 @@ struct SaveData {
 	//     buttons as a diff (keyed by .ent id) or a whole spawn (no baseline);
 	//     replaces the v6 split of "ent"/"monster" rows + a whole "floor" item
 	//     snapshot. v6: free-look offset ("look" line); v5 folded hands into equip[].
-	int version = 16;
+	int version = 17;
 	std::string name;         // display name (free text; may contain spaces)
 	std::string currentLevel; // the level stem the party is on (where to resume)
 	std::string timestamp;    // human-readable local time, for the slot list
@@ -136,6 +141,11 @@ struct SaveData {
 		bool hasAttrs = false;
 		int strength = 0, dexterity = 0, vitality = 0, willpower = 0,
 			intelligence = 0;
+		// The resource BASES ("base" line, v17) — the authored half of the
+		// derived maxima. hasBases=false (older save) back-solves them from
+		// the stored maxima at apply time.
+		bool hasBases = false;
+		float baseHealth = 0, baseStamina = 0, baseMana = 0;
 	};
 	std::vector<CharState> characters;
 

@@ -125,11 +125,17 @@ DungeonWorld::DungeonWorld(gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	// Rebuilt every frame into retained capacity — no steady-state allocation.
 	m_lights.points.reserve(gfx::kMaxPointLights);
 
+	// The attack formula's tuning (docs/combat.md): knob sheet + per-attack
+	// numbers from the project's balance.cat/attacks.cat (missing files keep
+	// the C++ first-cut defaults). Magic reads it too (spell_stat).
+	m_balance.Load(m_project.balance, m_project.attacks);
+
 	// Magic system: build the spell registry (the Spell classes + the
 	// project's spells.cat numeric overrides), and wire the CAST SERVICES —
 	// the capability surface a spell's Cast() lands its effect through
 	// (Spell/Spell.h), so the magic module stays walled off from the world.
 	m_magic.LoadSpells(m_project.spells);
+	m_magic.SetBalance(&m_balance);
 	m_magic.SetCastServices(
 		{[this](const ProjectileSpec& bolt) { m_projectiles.Spawn(bolt); },
 		 [this](const Character& member, const std::string& line) {
@@ -2805,14 +2811,12 @@ void DungeonWorld::WoundMember(Character& target, float damage) {
 
 // The one place skills grow (docs/skills.md). Levels derive from raw XP
 // (floor(sqrt)), so a level-up is just "the derived number changed"; the
-// associated stat creeps behind at kStatCreepPerXp through the member's
-// statProgress pool — a whole point lands with its own log line (max
-// stamina/health raise current too, so the gain shows on the bar as growth,
-// not damage).
+// SOURCE's associated stats creep behind at the creep_rate knob, the gain
+// SPLIT EVENLY across them (docs/combat.md part 2 — a sword doesn't train
+// stats twice as fast as a club), through the member's statProgress pools.
 void DungeonWorld::GrantSkillXp(Character& member, std::string_view skillId,
-								float xp) {
+								float xp, std::span<const std::string> stats) {
 	if (skillId.empty() || xp <= 0.0f || !member.IsAlive()) return;
-	constexpr float kStatCreepPerXp = 0.04f;
 
 	float& total = member.skillXp[std::string(skillId)];
 	const int before = Character::LevelForXp(total);
@@ -2823,26 +2827,82 @@ void DungeonWorld::GrantSkillXp(Character& member, std::string_view skillId,
 					  loc::Format("log.skill_up", member.name,
 								  loc::Tr("skill." + std::string(skillId)), after));
 
-	const std::string_view stat = SkillStat(skillId);
-	if (stat.empty()) return;
-	float& pool = member.statProgress[std::string(stat)];
-	pool += xp * kStatCreepPerXp;
-	if (pool < 1.0f) return;
-	pool -= 1.0f;
+	if (stats.empty()) return; // an unclassed source trains no stat
+	const float gain =
+		xp * m_balance.creepRate / static_cast<float>(stats.size());
+	for (const std::string& stat : stats) {
+		float& pool = member.statProgress[stat];
+		pool += gain;
+		if (pool < 1.0f) continue;
+		pool -= 1.0f;
+		GrantStatPoint(member, stat);
+	}
+}
+
+// A whole stat point lands: increment, log, and re-derive the resource maxima
+// (the resource formula — a VIT point is FELT as a bigger health/stamina pool,
+// and the growth carries the current value so it reads as growth, not damage).
+void DungeonWorld::GrantStatPoint(Character& member, std::string_view stat) {
 	int value = 0;
 	if (stat == "strength") value = ++member.strength;
 	else if (stat == "dexterity") value = ++member.dexterity;
-	else if (stat == "stamina") {
-		member.maxStamina += 1.0f;
-		member.stamina += 1.0f;
-		value = static_cast<int>(member.maxStamina + 0.5f);
-	} else if (stat == "health") {
-		member.maxHealth += 1.0f;
-		member.health += 1.0f;
-		value = static_cast<int>(member.maxHealth + 0.5f);
-	}
+	else if (stat == "vitality") value = ++member.vitality;
+	else if (stat == "willpower") value = ++member.willpower;
+	else if (stat == "intelligence") value = ++member.intelligence;
+	else return; // unknown id — parse already warned
+	member.RecomputeMaxima(m_balance.kHealth, m_balance.kStamina, m_balance.kMana);
 	MemberMessage(member, loc::Format("log.stat_up", member.name,
 									  loc::Tr("stat." + std::string(stat)), value));
+}
+
+// Exertion (docs/combat.md part 3): stamina is the exertion meter — every
+// point spent feeds VIT's creep pool. The Phase 4 costs (swings, marching)
+// all arrive here; nothing calls it yet.
+void DungeonWorld::SpendStamina(Character& member, float points) {
+	if (points <= 0.0f || !member.IsAlive()) return;
+	member.stamina -= points;
+	if (member.stamina < 0.0f) member.stamina = 0.0f;
+	float& pool = member.statProgress["vitality"];
+	pool += points * m_balance.vitExertion;
+	if (pool < 1.0f) return;
+	pool -= 1.0f;
+	GrantStatPoint(member, "vitality");
+}
+
+void DungeonWorld::RecomputePartyMaxima() {
+	if (!m_roster) return;
+	for (Character& member : *m_roster)
+		member.RecomputeMaxima(m_balance.kHealth, m_balance.kStamina,
+							   m_balance.kMana);
+}
+
+// --- the defender side (docs/combat.md part 4) --------------------------------
+// One resist table per side, summed from its sources and clamped by the
+// balance rule (±resist_clamp; an authored nature cell at 1.0 = immunity).
+
+DefenseProfile DungeonWorld::PartyDefense(const Character& member,
+										  DamageType type) {
+	float resist = member.natureResists[type]; // the race layer
+	float soak = 0.0f;
+	for (const ItemSlot& slot : member.inventory.equipment) {
+		if (slot.Empty()) continue;
+		const ItemKind& kind = ItemKindFor(slot.typeId);
+		resist += kind.resists[type];
+		soak += kind.armor;
+	}
+	// Stone Skin: earth hardens — the ward's magnitude converts to PHYSICAL
+	// resist at the stoneskin_resist knob (elemental bolts pass it by).
+	if (IsPhysical(type))
+		if (const StatusEffect* ward = member.FindWard(SpellSymbol::Earth))
+			resist += ward->magnitude * m_balance.stoneskinResist;
+	return {member.Evasion(), soak,
+			m_balance.ClampResist(resist, member.natureResists[type])};
+}
+
+DefenseProfile DungeonWorld::MonsterDefense(const MonsterKind& kind,
+											DamageType type) const {
+	return {kind.evasion, kind.armor,
+			m_balance.ClampResist(kind.resists[type], kind.resists[type])};
 }
 
 // Latch the party wipe exactly once when the last member falls (message + callback).
@@ -2875,9 +2935,10 @@ void DungeonWorld::MonsterAttack(Monster& monster) {
 	// empty, so nothing plays — the pre-clip look, as before.
 	monster.attackReq = true;
 
-	const AttackProfile atk{monster.kind->damage, monster.kind->accuracy};
-	const DefenseProfile def{target.Evasion(), target.Armor()};
-	const AttackResult r = ResolveAttack(atk, def, m_combatRng);
+	const AttackProfile atk{monster.kind->damage, monster.kind->accuracy,
+							monster.kind->damageType};
+	const DefenseProfile def = PartyDefense(target, atk.type);
+	const AttackResult r = ResolveAttack(atk, def, m_balance.Strike(), m_combatRng);
 	const std::string name = loc::Tr("monster." + monster.kind->name);
 
 	if (!r.hit) {
@@ -3092,7 +3153,10 @@ void DungeonWorld::MonsterRangedAttack(Monster& monster) {
 	bolt.target = TargetSide::Party;
 	bolt.speed = 6.0f;
 	bolt.range = (monster.kind->aggroRange + 1.0f) * kCellSize; // a bit past aggro
-	bolt.atk = {monster.kind->damage, monster.kind->accuracy};
+	// The plain ember bolt types as the monster's melee (its dmgtype); a real
+	// spell bolt above types by its school inside MakeBolt.
+	bolt.atk = {monster.kind->damage, monster.kind->accuracy,
+				monster.kind->damageType};
 	bolt.color = {1.6f, 0.5f, 0.2f, 0.0f}; // ember-orange additive
 	bolt.size = 0.18f;
 	m_projectiles.Spawn(bolt);
@@ -3133,38 +3197,54 @@ bool DungeonWorld::PartyAttack(size_t member, size_t hand, std::string_view verb
 	for (Monster& m : m_monsters)
 		if (m.Alive() && m.x == tx && m.z == tz) { target = &m; break; }
 
-	// The swinging hand's weapon (docs/combat.md Phase 1): its catalog
-	// damage/speed drive the profile and the swing pace (0 = unstated → the
-	// attacker's unarmed attribute formulas); its `skill` is the weapon class
-	// (docs/skills.md "Skills/stats → melee") — a bare hand swings, and
-	// trains, unarmed. The class level scales the profile, the landed blow
-	// below trains the class ("" — an unclassed item — trains and scales
-	// nothing).
+	// The swinging hand's weapon: catalog damage/speed/stats feed the formula
+	// below; its `skill` is the weapon class (docs/skills.md) — a bare hand
+	// swings, and trains, unarmed. The class level scales the profile, the
+	// landed blow below trains the class + creeps its associated stats.
 	const ItemSlot& held = attacker.inventory.Hand(static_cast<int>(hand));
 	const ItemKind* weapon = held.Empty() ? nullptr : &ItemKindFor(held.typeId);
 	const std::string_view skillId =
 		weapon ? std::string_view(weapon->skill) : std::string_view("unarmed");
 	const int level = attacker.SkillLevel(skillId);
-	// The verb shades the weapon-derived numbers (docs/combat.md Phase 2):
-	// stab swings fast and true for less, chop the reverse. A whiffed swing
-	// pays the verb's pace too — committing to a chop costs the chop.
-	const VerbProfile vp = VerbProfileFor(verb);
+	// The attack formula (docs/combat.md part 5). The ATTACK (the executed
+	// verb) supplies the damage type + its three numbers; the weapon supplies
+	// the base damage/pace (unarmed knobs when bare/unstated); the associated
+	// stats' average is the attack bonus; accuracy is ALWAYS DEX.
+	const AttackSpec* spec = m_balance.FindAttack(verb);
+	if (!spec) spec = &Balance::Neutral();
+	const std::span<const std::string> stats =
+		weapon && !weapon->stats.empty() ? std::span<const std::string>(weapon->stats)
+										 : std::span<const std::string>(UnarmedStats());
+	const float statAvg = attacker.StatAvg(stats);
+	const float base =
+		weapon && weapon->damage > 0.0f ? weapon->damage : m_balance.unarmedBase;
+	const float pace =
+		weapon && weapon->speed > 0.0f ? weapon->speed : m_balance.unarmedSpeed;
 
-	attacker.handCooldown[hand] =
-		attacker.AttackInterval(hand, weapon ? weapon->speed : 0.0f) *
-		vp.intervalScale;
+	// A whiffed swing pays the attack's pace too — committing to a chop
+	// costs the chop.
+	float interval =
+		pace *
+		(m_balance.speedBase -
+		 m_balance.speedStat * static_cast<float>(attacker.dexterity)) *
+		spec->pace;
+	if (interval < m_balance.intervalMin) interval = m_balance.intervalMin;
+	if (interval > m_balance.intervalMax) interval = m_balance.intervalMax;
+	attacker.handCooldown[hand] = interval;
 	if (!target) {
 		MemberMessage(attacker, loc::Tr("log.attack_air"));
 		return true;
 	}
 
 	const AttackProfile atk{
-		attacker.AttackDamage(weapon ? weapon->damage : 0.0f) *
-			(1.0f + 0.08f * static_cast<float>(level)) * vp.damageScale,
-		attacker.Accuracy() + 0.02f * static_cast<float>(level) +
-			vp.accuracyDelta};
-	const DefenseProfile def{target->kind->evasion, target->kind->armor};
-	const AttackResult r = ResolveAttack(atk, def, m_combatRng);
+		(base + m_balance.statDamage * statAvg) * spec->dmg *
+			(1.0f + m_balance.skillDamage * static_cast<float>(level)),
+		m_balance.accBase +
+			m_balance.accStat * static_cast<float>(attacker.dexterity) +
+			m_balance.accSkill * static_cast<float>(level) + spec->acc,
+		spec->type};
+	const DefenseProfile def = MonsterDefense(*target->kind, atk.type);
+	const AttackResult r = ResolveAttack(atk, def, m_balance.Strike(), m_combatRng);
 	const std::string name = loc::Tr("monster." + target->kind->name);
 
 	if (!r.hit) {
@@ -3175,7 +3255,7 @@ bool DungeonWorld::PartyAttack(size_t member, size_t hand, std::string_view verb
 	ProvokeMonster(*target); // the struck monster alone notices + turns to the party
 	int dmg = static_cast<int>(r.damage + 0.5f);
 	MemberMessage(attacker, loc::Format("log.party_hits", attacker.name, name, dmg));
-	GrantSkillXp(attacker, skillId, 1.0f); // a LANDED blow trains its class
+	GrantSkillXp(attacker, skillId, 1.0f, stats); // a LANDED blow trains its class
 	m_audio.Play(m_sounds.monster, 0.7f);
 
 	if (!target->Alive()) {
@@ -3230,7 +3310,8 @@ bool DungeonWorld::CastSpell(size_t member, std::span<const SpellSymbol> sequenc
 			caster.TouchSpellMru(static_cast<size_t>(hand), r.spell->Id());
 		// The school skill grows with every SUCCESSFUL cast, in proportion to
 		// the spell's mana (a dearer spell teaches more) — docs/skills.md.
-		GrantSkillXp(caster, SymbolId(r.spell->School()), r.spell->Mana() * 0.25f);
+		GrantSkillXp(caster, SymbolId(r.spell->School()), r.spell->Mana() * 0.25f,
+					 SchoolStats(r.spell->School()));
 		m_audio.Play(m_sounds.spellCast, 0.7f);
 		return true;
 	case MagicSystem::CastOutcome::Fumble:
@@ -3273,8 +3354,9 @@ bool DungeonWorld::ResolveSpellHit(const ProjectileImpact& impact) {
 	}
 	if (!hit) return false; // open air — the bolt flies on
 
-	const DefenseProfile def{hit->kind->evasion, hit->kind->armor};
-	const AttackResult r = ResolveAttack(impact.atk, def, m_combatRng);
+	const DefenseProfile def = MonsterDefense(*hit->kind, impact.atk.type);
+	const AttackResult r =
+		ResolveAttack(impact.atk, def, m_balance.Strike(), m_combatRng);
 	const std::string name = loc::Tr("monster." + hit->kind->name);
 	if (r.hit) {
 		hit->hp -= r.damage;
@@ -3341,8 +3423,8 @@ bool DungeonWorld::ResolveMonsterProjectileHit(const Vec3& p, const AttackProfil
 		}
 		return true; // the bolt is spent against the wind
 	}
-	const DefenseProfile def{target.Evasion(), target.Armor()};
-	const AttackResult r = ResolveAttack(atk, def, m_combatRng);
+	const DefenseProfile def = PartyDefense(target, atk.type);
+	const AttackResult r = ResolveAttack(atk, def, m_balance.Strike(), m_combatRng);
 	if (!r.hit) {
 		MemberMessage(target, loc::Format("log.monster_ranged_misses", target.name));
 		return true;

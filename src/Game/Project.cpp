@@ -33,6 +33,8 @@ const CatalogSlot kCatalogs[] = {
 	{"buttons.cat", &Project::buttons, "Buttons: wall levers (target= wires them to door names)."},
 	{"items.cat", &Project::items, "Items: runes (and later weapons/consumables)."},
 	{"spells.cat", &Project::spells, "Spells: symbol-sequence recipes -> effect + element + power/mana/speed/range."},
+	{"attacks.cat", &Project::attacks, "Attacks: per-melee-verb numbers (damage/accuracy/speed multipliers); identity (damage type) is C++ (Balance.h)."},
+	{"balance.cat", &Project::balance, "Balance: the attack-formula knob sheet ([formula] block; docs/combat.md)."},
 };
 
 // Splits a space-separated list (the manifest's "levels" field) into stems.
@@ -111,6 +113,8 @@ Catalog* Project::CatalogForKey(const std::string& key) {
 	if (key == "buttons") return &buttons;
 	if (key == "items") return &items;
 	if (key == "spells") return &spells;
+	if (key == "attacks") return &attacks;
+	if (key == "balance") return &balance;
 	return nullptr;
 }
 

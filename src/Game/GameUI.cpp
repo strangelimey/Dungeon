@@ -329,9 +329,9 @@ void GameUI::ExecuteUse(size_t i, size_t hand, const std::string& cmd) {
 		// quick-cast MRU is credited.
 		if (onCastSpell) onCastSpell(i, cmd.substr(kCastPrefix.size()), hand);
 	} else if (IsMeleeUse(cmd)) {
-		// Every melee verb lands through the one strike path; the verb rides
-		// along to shade the strike (VerbProfileFor). Cooldown gating and the
-		// alive-check live in DungeonWorld::PartyAttack.
+		// Every melee verb lands through the one strike path; the verb IS the
+		// attack (damage type + numbers, Balance::FindAttack). Cooldown gating
+		// and the alive-check live in DungeonWorld::PartyAttack.
 		if (onHandAttack) onHandAttack(i, hand, cmd);
 	}
 	// Unknown id: a catalog typo — the menu never offered it; a stale saved

@@ -128,6 +128,10 @@ bool WriteSave(const SaveData& data, const std::string& path) {
 		// (v15; stat creep grows them, so the archetype defaults don't hold).
 		t += std::format("attr {} {} {} {} {} {}\n", i, c.strength, c.dexterity,
 						 c.vitality, c.willpower, c.intelligence);
+		// "base <i> <health> <stamina> <mana>" — the resource bases (v17; the
+		// maxima derive from these + the attributes, docs/combat.md part 3).
+		t += std::format("base {} {:.3f} {:.3f} {:.3f}\n", i, c.baseHealth,
+						 c.baseStamina, c.baseMana);
 	}
 
 	// One block per visited level: a "level <stem>" header, then its entity
@@ -330,6 +334,15 @@ std::optional<SaveData> ReadSave(const std::string& path) {
 			c.vitality = IntOf(tok[4]);
 			c.willpower = IntOf(tok[5]);
 			c.intelligence = IntOf(tok[6]);
+		} else if (kw == "base" && tok.size() >= 5) {
+			// Resource bases: "base <i> <health> <stamina> <mana>" (v17).
+			const size_t idx = static_cast<size_t>(IntOf(tok[1]));
+			if (idx >= data.characters.size()) data.characters.resize(idx + 1);
+			SaveData::CharState& c = data.characters[idx];
+			c.hasBases = true;
+			c.baseHealth = FloatOf(tok[2]);
+			c.baseStamina = FloatOf(tok[3]);
+			c.baseMana = FloatOf(tok[4]);
 		} else if (kw == "skill" && tok.size() >= 4) {
 			// Skill XP pairs: "skill <i> <id> <xp> ..." (v15).
 			const size_t idx = static_cast<size_t>(IntOf(tok[1]));

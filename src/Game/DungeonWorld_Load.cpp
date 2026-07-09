@@ -344,6 +344,13 @@ DungeonWorld::MonsterKind& DungeonWorld::MonsterKindFor(const std::string& type)
 			assets->accuracy = def->GetFloat("accuracy", 0.65f);
 			assets->evasion = def->GetFloat("defense", 0.1f);
 			assets->armor = def->GetFloat("armor", 0.0f);
+			// The defender side (docs/combat.md part 4): per-type resist
+			// cells + what this monster's melee deals AS (default bash).
+			ParseResists(CatalogGet(def, "resists", ""), assets->resists,
+						 "monsters.cat [" + type + "]");
+			if (const std::string t = CatalogGet(def, "dmgtype", "");
+				!t.empty() && !ParseDamageType(t, assets->damageType))
+				log::Warn("monsters.cat [{}]: unknown dmgtype '{}'", type, t);
 			assets->attackInterval = def->GetFloat("attackcd", 1.6f);
 			assets->aggroRange = def->GetFloat("aggro", 6.0f);
 			assets->moveInterval = def->GetFloat("movecd", 0.6f);
@@ -646,10 +653,17 @@ DungeonWorld::ItemKind& DungeonWorld::ItemKindFor(const std::string& type) {
 		// Weapon class (docs/skills.md): the skill a swing with this item
 		// trains and is scaled by. Absent = the swing trains nothing.
 		kind->skill = CatalogGet(def, "skill", "");
-		// Weapon stats (docs/combat.md): absent fields stay 0, which the
-		// combat path reads as "use the unarmed attribute formulas".
+		// The attack formula's fields (docs/combat.md): weapon damage/speed
+		// (absent = 0 = the unarmed knobs), associated stats (`stats = str,
+		// dex`; absent = the unarmed default), and the worn defender side
+		// (per-type `resists` cells + a small flat `armor` soak).
 		kind->damage = def ? def->GetFloat("damage", 0.0f) : 0.0f;
 		kind->speed = def ? def->GetFloat("speed", 0.0f) : 0.0f;
+		kind->stats = ParseStatList(CatalogGet(def, "stats", ""),
+									"items.cat [" + type + "]");
+		ParseResists(CatalogGet(def, "resists", ""), kind->resists,
+					 "items.cat [" + type + "]");
+		kind->armor = def ? def->GetFloat("armor", 0.0f) : 0.0f;
 		kind->weight = def ? def->GetFloat("weight", 0.0f) : 0.0f;
 		// `command` is a free-form list (whitespace/comma separated) of command ids
 		// the hand right-click menu offers; runes implicitly gain "memorize" below.

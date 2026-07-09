@@ -3,6 +3,7 @@
 // ============================================================================
 #include "Game/Magic.h"
 
+#include "Game/Balance.h"
 #include "Game/Character.h"
 
 #include <algorithm>
@@ -45,10 +46,14 @@ MagicSystem::CastReport MagicSystem::Cast(Character& caster,
 	// The gates have passed — the spell's own Cast() lands the effect (a bolt
 	// spawns, a ward settles, ...) through the owner-wired services, at
 	// EFFECTIVE power: the class/catalog number scaled by school skill (the
-	// per-school caster POWER the growth forms scale by).
-	CastContext ctx{caster, origin, dir,
-					spell->Power() * (1.0f + 0.10f * static_cast<float>(level)),
-					level, m_services};
+	// per-school caster POWER the growth forms scale by) plus the school's
+	// associated-stat bonus (docs/combat.md part 2: earth/fire ride INT,
+	// air/water WIL, at the spell_stat knob).
+	float power = spell->Power() * (1.0f + 0.10f * static_cast<float>(level));
+	if (m_balance)
+		power *= 1.0f + m_balance->spellStat *
+							caster.StatAvg(SchoolStats(spell->School()));
+	CastContext ctx{caster, origin, dir, power, level, m_services};
 	spell->Cast(ctx);
 
 	return {CastOutcome::Cast, spell};

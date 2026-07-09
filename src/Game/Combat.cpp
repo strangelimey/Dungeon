@@ -1,30 +1,44 @@
+// ============================================================================
+// Game/Combat.cpp — see Combat.h.
+// ============================================================================
 #include "Game/Combat.h"
 
 namespace dungeon::game {
 
-VerbProfile VerbProfileFor(std::string_view verb) {
-	// Feel-test numbers (docs/combat.md Phase 2): fast/precise stab, heavy
-	// chop, bash between them (its stun hook is a later phase).
-	if (verb == "stab") return {0.8f, 0.05f, 0.8f};
-	if (verb == "chop") return {1.3f, -0.05f, 1.25f};
-	if (verb == "bash") return {1.15f, -0.05f, 1.2f};
-	return {}; // slash / punch / kick / swing / melee — the neutral baseline
+namespace {
+// Record/catalog tokens, indexed by DamageType. Append with the enum.
+constexpr const char* kDamageTypeIds[kDamageTypeCount] = {
+	"slash", "pierce", "bash", "fire", "earth", "air", "water"};
+} // namespace
+
+const char* DamageTypeId(DamageType type) {
+	return kDamageTypeIds[static_cast<size_t>(type)];
+}
+
+bool ParseDamageType(std::string_view token, DamageType& out) {
+	for (size_t i = 0; i < kDamageTypeCount; ++i)
+		if (token == kDamageTypeIds[i]) {
+			out = static_cast<DamageType>(i);
+			return true;
+		}
+	return false;
 }
 
 AttackResult ResolveAttack(const AttackProfile& atk, const DefenseProfile& def,
-						   std::mt19937& rng) {
+						   const StrikeRules& rules, std::mt19937& rng) {
 	AttackResult result;
 
 	float chance = atk.accuracy - def.evasion;
-	if (chance < 0.05f) chance = 0.05f;
-	if (chance > 0.95f) chance = 0.95f;
+	if (chance < rules.hitFloor) chance = rules.hitFloor;
+	if (chance > rules.hitCeil) chance = rules.hitCeil;
 
 	std::uniform_real_distribution<float> roll(0.0f, 1.0f);
 	if (roll(rng) > chance) return result; // miss
 
-	std::uniform_real_distribution<float> jitter(0.85f, 1.15f);
-	float dmg = atk.damage * jitter(rng) - def.armor;
-	if (dmg < 1.0f) dmg = 1.0f; // a landed blow always stings
+	std::uniform_real_distribution<float> jitter(1.0f - rules.damageJitter,
+												 1.0f + rules.damageJitter);
+	float dmg = (atk.damage * jitter(rng) - def.soak) * (1.0f - def.resist);
+	if (dmg < rules.woundFloor) dmg = rules.woundFloor;
 
 	result.hit = true;
 	result.damage = dmg;

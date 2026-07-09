@@ -2,10 +2,10 @@
 // Game/Character.h — party member data.
 //
 // One Character per party slot (up to four). The numbers feed the HUD party
-// bar and the character sheet (see PartyHud.h) and now drive melee combat:
-// the derived-stat accessors below (AttackDamage/Accuracy/Evasion/...) turn
-// the attributes into an AttackProfile/DefenseProfile (Combat.h) for the
-// strike resolver, and `health` actually drains when a monster lands a blow.
+// bar and the character sheet (see PartyHud.h) and the attack formula
+// (docs/combat.md): the stat accessors below (StatValue/StatAvg/Evasion) are
+// the character's inputs to the strike DungeonWorld assembles, and `health`
+// actually drains when a monster lands a blow.
 // Portraits are baked by AssetBaker (portrait_<name>.png); the tinted square
 // stamped with the character's initial remains as the fallback when the
 // texture is missing.
@@ -13,12 +13,14 @@
 #pragma once
 
 #include "Core/MathTypes.h"
+#include "Game/Combat.h" // ResistTable (the race/nature defense layer)
 #include "Game/Inventory.h"
 #include "Game/Spells.h"
 
 #include <cmath>
 #include <flat_map>
 #include <flat_set>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -60,17 +62,17 @@ struct StatusEffect {
 const char* StatusKindId(StatusKind kind);
 bool ParseStatusKind(std::string_view token, StatusKind& out);
 
-// The stat a skill's use creeps forward (docs/skills.md "Stat creep"):
-// fire→strength, air→dexterity, earth→stamina (the max), water→health (the
-// max), blade→dexterity, blunt/unarmed→strength. "" = no associated stat.
-std::string_view SkillStat(std::string_view skillId);
-
 struct Character {
 	std::string name; // proper noun — not localized
 
+	// Resources. The maxima are DERIVED (docs/combat.md "The resource
+	// formula"): max = base + k × statAvg, recomputed by RecomputeMaxima
+	// whenever a stat or a balance knob changes — the base is the authored
+	// per-member value (class identity), saved since v17.
 	float health = 1.0f, maxHealth = 1.0f;
 	float stamina = 1.0f, maxStamina = 1.0f;
 	float mana = 1.0f, maxMana = 1.0f;
+	float baseHealth = 1.0f, baseStamina = 1.0f, baseMana = 1.0f;
 
 	int strength = 10;
 	int dexterity = 10;
@@ -217,40 +219,62 @@ struct Character {
 	}
 	bool HasShield(SpellSymbol school) const { return FindWard(school) != nullptr; }
 
-	// --- combat (derived from attributes + the held weapon) -----------------
-	// Tuned so the class spreads read distinctly: the fighter hits hard, the
-	// rogue lands often and dodges, the mage is fragile in melee.
-	// Base damage of one clean hit. Armed (weaponDamage > 0, the held item's
-	// catalog `damage`) the WEAPON is the base and strength assists — upgrading
-	// the blade is felt; unarmed keeps the attribute-only formula. Character
-	// can't see ItemKind (layering), so the world feeds the number in
-	// (DungeonWorld::PartyAttack via ItemKindFor).
-	float AttackDamage(float weaponDamage = 0.0f) const {
-		if (weaponDamage > 0.0f)
-			return weaponDamage + static_cast<float>(strength) * 0.25f;
-		return 4.0f + static_cast<float>(strength) * 0.5f;
-	}
+	// --- combat (docs/combat.md "The attack formula") ------------------------
+	// The damage/to-hit/pace numbers are assembled by DungeonWorld::PartyAttack
+	// from the Balance knobs + the held weapon + these stat inputs — Character
+	// only provides the stat side (it can't see ItemKind or Balance; layering).
 	// Maximum carry weight (kg) before the member is encumbered. STUB formula —
 	// strength-driven; an over-load penalty (slowed movement) is a later thread.
 	float MaxCarryLoad() const { return static_cast<float>(strength) * 5.0f; }
-	float Accuracy() const { return 0.55f + static_cast<float>(dexterity) * 0.02f; }
+	// Dodging is agility (settled: party evasion derives from DEX; monsters
+	// stay authored). Type-agnostic — the first defense gate.
 	float Evasion() const { return 0.05f + static_cast<float>(dexterity) * 0.015f; }
-	// No equipment yet — an earth ward (Stone Skin) is the one armor source.
-	float Armor() const {
-		const StatusEffect* w = FindWard(SpellSymbol::Earth);
-		return w ? w->magnitude : 0.0f;
+
+	// The RACE/NATURE defense layer (docs/combat.md part 4): per-damage-type
+	// resists summed with equipment and wards. All zero for the default human
+	// party; the proper race system arrives with party creation.
+	ResistTable natureResists;
+
+	// A stat's live value by its id ("strength", ... "intelligence"); 0 for an
+	// unknown id (a catalog typo warns at parse, not here).
+	int StatValue(std::string_view id) const {
+		if (id == "strength") return strength;
+		if (id == "dexterity") return dexterity;
+		if (id == "vitality") return vitality;
+		if (id == "willpower") return willpower;
+		if (id == "intelligence") return intelligence;
+		return 0;
 	}
-	// Seconds between swings for the given hand (0 = left, 1 = right). Armed
-	// (weaponSpeed > 0, the held item's catalog `speed`) the weapon sets the
-	// pace and dexterity shaves it; unarmed keeps the dex-only formula. Both
-	// clamp to [0.6, 2.0] so nothing swings absurdly. `hand` is reserved for
-	// the off-hand / two-handed penalty (docs/combat.md, a later phase).
-	float AttackInterval(size_t hand, float weaponSpeed = 0.0f) const {
-		(void)hand; // off-hand penalty plugs in here (docs/combat.md)
-		const float t = weaponSpeed > 0.0f
-							? weaponSpeed * (1.15f - static_cast<float>(dexterity) * 0.015f)
-							: 1.8f - static_cast<float>(dexterity) * 0.04f;
-		return t < 0.6f ? 0.6f : (t > 2.0f ? 2.0f : t);
+	// The associated-stat AVERAGE (docs/combat.md part 2) — the stat input to
+	// the attack bonus. Empty list = 0 (an unclassed source gets no bonus).
+	float StatAvg(std::span<const std::string> ids) const {
+		if (ids.empty()) return 0.0f;
+		float sum = 0.0f;
+		for (const std::string& id : ids)
+			sum += static_cast<float>(StatValue(id));
+		return sum / static_cast<float>(ids.size());
+	}
+
+	// Re-derives the resource maxima from the bases + stats (the resource
+	// formula: health ← VIT, stamina ← (STR+VIT)/2, mana ← (INT+WIL)/2; the
+	// k's are Balance knobs). Growth carries the CURRENT value with it (a
+	// stat point shows as growth, not damage); a shrunk max (a knob turned
+	// down) clamps. Call after any stat change or balance apply.
+	void RecomputeMaxima(float kHealth, float kStamina, float kMana) {
+		const auto derive = [](float& current, float& max, float base, float stat) {
+			const float grown = base + stat;
+			current += grown > max ? grown - max : 0.0f;
+			max = grown;
+			if (current > max) current = max;
+		};
+		const bool down = health <= 0.0f; // growth must not revive a downed member
+		derive(health, maxHealth, baseHealth,
+			   kHealth * static_cast<float>(vitality));
+		if (down) health = 0.0f;
+		derive(stamina, maxStamina, baseStamina,
+			   kStamina * 0.5f * static_cast<float>(strength + vitality));
+		derive(mana, maxMana, baseMana,
+			   kMana * 0.5f * static_cast<float>(intelligence + willpower));
 	}
 
 	// Movement-pace multiplier (1 = baseline, lower = slower). The party

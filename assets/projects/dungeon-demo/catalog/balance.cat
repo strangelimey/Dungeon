@@ -1,0 +1,40 @@
+; Balance: the attack-formula knob sheet (docs/combat.md part 5). Every named
+; constant in the combat model lives here — per PROJECT, so a total conversion
+; rebalances the whole dungeon without touching code. Missing fields keep the
+; C++ first-cut defaults. Edited live by the editor's Balance dialog.
+;
+; Damage:  rolled = (base + stat_damage x statAvg) x attack.dmg
+;                   x (1 + skill_damage x skillLevel) x jitter
+;          final  = (rolled - soak) x (1 - resist[type]), floor wound_floor
+; To-hit:  chance = clamp(acc_base + acc_stat x DEX + acc_skill x skillLevel
+;                         + attack.acc - evasion, hit_floor, hit_ceil)
+; Pace:    interval = clamp(speed x (speed_base - speed_stat x DEX)
+;                           x attack.speed, interval_min, interval_max)
+; Maxima:  maxHealth  = base + k_health  x VIT
+;          maxStamina = base + k_stamina x (STR + VIT) / 2
+;          maxMana    = base + k_mana    x (INT + WIL) / 2
+
+[formula]
+unarmed_base = 4
+unarmed_speed = 1.4
+stat_damage = 0.25
+skill_damage = 0.08
+damage_jitter = 0.15
+acc_base = 0.55
+acc_stat = 0.02
+acc_skill = 0.02
+hit_floor = 0.05
+hit_ceil = 0.95
+resist_clamp = 0.8
+wound_floor = 1
+speed_base = 1.15
+speed_stat = 0.015
+interval_min = 0.6
+interval_max = 2
+spell_stat = 0.01
+stoneskin_resist = 0.05
+creep_rate = 0.04
+vit_exertion = 0.02
+k_health = 1
+k_stamina = 1
+k_mana = 1

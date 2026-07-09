@@ -169,7 +169,7 @@ public:
 	std::function<void(int)> onTorchPalette;    // HUD torchlight dropdown
 	std::function<void(MoveAction)> onMoveAction; // HUD movement buttons
 	// HUD hand-slot click (member, hand 0=L/1=R, melee verb — the executed
-	// command id, e.g. "stab"; shades the strike via VerbProfileFor).
+	// command id, e.g. "stab" = the ATTACK, Balance::FindAttack).
 	std::function<void(size_t, size_t, const std::string&)> onHandAttack;
 	// The hand right-click menu's command list for an item id (ItemKind::commands),
 	// wired by Game to the world's item kinds — keeps the command source single.

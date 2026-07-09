@@ -22,6 +22,7 @@
 
 namespace dungeon::game {
 
+struct Balance;
 struct Character;
 class Catalog;
 
@@ -39,6 +40,9 @@ public:
 	void SetCastServices(CastServices services) {
 		m_services = std::move(services);
 	}
+	// The attack-formula tuning (Balance.h) — Cast reads the spell_stat knob
+	// (school-stat power bonus). Wired by the owner; null = no bonus.
+	void SetBalance(const Balance* balance) { m_balance = balance; }
 
 	// The spell with catalog id `id`, or null. Lets the host reference a spell
 	// for a monster CASTER (archetype = caster) by name — its bolt comes from
@@ -72,6 +76,7 @@ public:
 private:
 	SpellBook m_spellBook;
 	CastServices m_services;
+	const Balance* m_balance = nullptr; // owner-wired tuning (spell_stat)
 };
 
 } // namespace dungeon::game

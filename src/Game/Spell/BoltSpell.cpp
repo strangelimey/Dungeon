@@ -3,6 +3,7 @@
 // ============================================================================
 #include "Game/Spell/BoltSpell.h"
 
+#include "Game/Balance.h"
 #include "Game/Catalog.h"
 #include "Game/Character.h"
 
@@ -22,7 +23,10 @@ ProjectileSpec BoltSpell::MakeBolt(const Vec3& origin, const Vec3& dir,
 	bolt.dir = dir;
 	bolt.speed = m_speed;
 	bolt.range = m_range;
-	bolt.atk = {power, accuracy};
+	// A damaging spell's type is its SCHOOL (docs/combat.md part 1) — the
+	// defender resists a fire bolt as fire. One line types every bolt, party-
+	// and monster-cast alike.
+	bolt.atk = {power, accuracy, SchoolDamageType(School())};
 	const Vec4 g = ElementColor(School());
 	bolt.color = {g.x * 1.7f, g.y * 1.7f, g.z * 1.7f, 0.0f}; // bright additive
 	bolt.size = 0.2f;

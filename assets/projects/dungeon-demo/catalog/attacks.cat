@@ -1,0 +1,62 @@
+; Attacks: per-melee-verb numbers (docs/combat.md "The attack formula").
+; An attack's IDENTITY — its id and damage type — is the typed C++ table
+; (Balance.h); this file overrides only the NUMBERS, so the list of attacks is
+; closed but every value is tweakable per project (edit + relaunch, or the
+; editor's Balance dialog). A weapon's items.cat `command` field picks which
+; attacks it offers. Fields (all multipliers/deltas over the weapon-derived
+; profile):
+;   damage   = x the profile damage
+;   accuracy = + the profile accuracy
+;   speed    = x the swing interval (a whiff pays it too)
+; Types for reference: stab/jab/thrust=pierce, slash/hack/chop=slash,
+; bash/swing/punch/kick=bash.
+
+[stab]
+damage = 0.8
+accuracy = 0.05
+speed = 0.8
+
+[jab]
+damage = 0.7
+accuracy = 0.05
+speed = 0.7
+
+[thrust]
+damage = 1.2
+accuracy = 0
+speed = 1.15
+
+[slash]
+damage = 1
+accuracy = 0
+speed = 1
+
+[hack]
+damage = 1.15
+accuracy = -0.03
+speed = 1.15
+
+[chop]
+damage = 1.3
+accuracy = -0.05
+speed = 1.25
+
+[bash]
+damage = 1.15
+accuracy = -0.05
+speed = 1.2
+
+[swing]
+damage = 1
+accuracy = 0
+speed = 1
+
+[punch]
+damage = 1
+accuracy = 0
+speed = 1
+
+[kick]
+damage = 1.15
+accuracy = 0
+speed = 1.15

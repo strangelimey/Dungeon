@@ -18,6 +18,7 @@
 #include "Animation/CreatureState.h"
 #include "Assets/Model.h"
 #include "Audio/AudioEngine.h"
+#include "Game/Balance.h"
 #include "Game/Character.h"
 #include "Game/Combat.h"
 #include "Game/DungeonEntities.h"
@@ -142,9 +143,21 @@ public:
 	// Resolves a strike when the member is up, that hand is off cooldown, and a
 	// live monster is there; logs the outcome and kills the monster at 0 hp. A
 	// no-op (returns false) otherwise. `verb` is the executed melee command
-	// ("stab", "chop", ...) shading the strike via VerbProfileFor; empty =
-	// neutral (the dev-console path).
+	// ("stab", "chop", ...) — the ATTACK whose spec (damage type + numbers,
+	// Balance::FindAttack) shades the strike; empty/unknown = neutral (the
+	// dev-console path).
 	bool PartyAttack(size_t member, size_t hand, std::string_view verb = {});
+	// Spend stamina as EXERTION (docs/combat.md part 3): drains the bar and
+	// feeds VIT's creep pool at the vit_exertion knob. The Phase 4 stamina
+	// costs (swings, marching) all route through here.
+	void SpendStamina(Character& member, float points);
+	// Re-derive every member's resource maxima from the balance k's — after a
+	// save-apply, a stat change, or an editor Balance apply.
+	void RecomputePartyMaxima();
+	// The live combat tuning (balance.cat + attacks.cat knobs, Balance.h). The
+	// editor's Balance dialog edits it in place and Save()s it via the project.
+	Balance& GetBalance() { return m_balance; }
+	const Balance& GetBalance() const { return m_balance; }
 
 	// --- spell casting ------------------------------------------------------
 	// Façade over the MagicSystem (m_magic): the given roster member casts the
@@ -709,7 +722,13 @@ private:
 		float damage = 4.0f;
 		float accuracy = 0.65f;
 		float evasion = 0.1f;
-		float armor = 0.0f;
+		float armor = 0.0f; // flat soak (docs/combat.md part 4)
+		// The defender side (docs/combat.md part 4): per-type resists
+		// (catalog `resists = pierce 0.5, bash -0.5`; a cell of 1.0 =
+		// authored immunity) and what this monster's melee deals AS
+		// (`dmgtype`, default bash). Ranged/spell attacks type by school.
+		ResistTable resists;
+		DamageType damageType = DamageType::Bash;
 		float attackInterval = 1.6f; // seconds between swings
 		float aggroRange = 6.0f;     // cells of party distance to engage at
 		float moveInterval = 0.6f;   // seconds per grid step while chasing
@@ -899,10 +918,18 @@ private:
 		std::string skill;       // weapon class this item trains/uses (catalog
 								 // `skill`, docs/skills.md); "" = untrained swing
 		// Weapon stats (docs/combat.md Phase 1). 0 = unstated: the swing falls
-		// back to the attacker's attribute-derived unarmed numbers, so
+		// back to the attacker's unarmed numbers (the unarmed_* knobs), so
 		// non-weapon holdables swing unchanged.
 		float damage = 0.0f;     // base damage of a clean hit with this weapon
 		float speed = 0.0f;      // seconds between swings (before dexterity)
+		// The associated stats (docs/combat.md part 2, catalog `stats = str,
+		// dex`): their average is the attack bonus input AND what trains on a
+		// landed blow. Empty = the unarmed default (strength).
+		std::vector<std::string> stats;
+		// The defender side of a WORN piece (part 4): per-type resist cells
+		// plus a small flat soak, summed across the equipment slots.
+		ResistTable resists;
+		float armor = 0.0f;
 		float weight = 0.0f;     // carry weight (kg); sums into a member's load
 		std::vector<std::string> commands; // hand right-click command ids (data-driven)
 		bool isRune = false;
@@ -1271,10 +1298,20 @@ private:
 	// Returns true the frame it latches. Shared by the melee/ranged/bump paths.
 	bool CheckPartyWipe();
 	// Award skill XP to a member (docs/skills.md): logs a level-up, and drips
-	// the skill's associated stat forward (statProgress; a stat point + log
-	// when the pool passes 1). The ONE place skills grow — every award site
-	// (successful cast, landed blow) routes through it.
-	void GrantSkillXp(Character& member, std::string_view skillId, float xp);
+	// the SOURCE's associated stats forward (docs/combat.md part 2: the gain
+	// splits evenly across `stats`; a stat point + log when a pool passes 1,
+	// re-deriving the resource maxima). The ONE place skills grow — every
+	// award site (successful cast, landed blow) routes through it.
+	void GrantSkillXp(Character& member, std::string_view skillId, float xp,
+					  std::span<const std::string> stats);
+	// A whole stat point lands: increment, log, and re-derive the resource
+	// maxima (stats feed them now). Shared by the creep pools and SpendStamina.
+	void GrantStatPoint(Character& member, std::string_view stat);
+	// Assemble one side's DefenseProfile against an incoming damage type
+	// (docs/combat.md part 4). The party sums nature (race) + worn equipment
+	// + the earth ward's physical hardening; a monster reads its catalog.
+	DefenseProfile PartyDefense(const Character& member, DamageType type);
+	DefenseProfile MonsterDefense(const MonsterKind& kind, DamageType type) const;
 	// Blocked-move recoil reached its peak: jar every standing member for a
 	// small amount of damage, flash a splat over each portrait, grunt once, and
 	// latch a party wipe if the bruise is somehow the end of them.
@@ -1440,6 +1477,9 @@ private:
 	std::vector<Character>* m_roster = nullptr;
 	std::mt19937 m_combatRng{0xC0FFEEu};
 	bool m_partyWiped = false; // latches onPartyWipe so it fires once
+	// The attack formula's tuning (docs/combat.md): balance.cat knobs +
+	// attacks.cat numbers, loaded with the project in the constructor.
+	Balance m_balance;
 
 	// Magic: the self-contained spell system (recipe table + mana/cast resolution).
 	// CastSpell delegates to it for the bolt spec, then Spawns it into m_projectiles.

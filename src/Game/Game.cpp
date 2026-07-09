@@ -1413,6 +1413,14 @@ void Game::ResetRoster() {
 		m_characters[i] = fresh[i];
 		m_characters[i].portrait = portrait;
 	}
+	// CreateDefaultParty seeds the derived maxima at k=1; re-derive under the
+	// project's live balance knobs (fresh members are at full, so top them up).
+	m_world.RecomputePartyMaxima();
+	for (Character& member : m_characters) {
+		member.health = member.maxHealth;
+		member.stamina = member.maxStamina;
+		member.mana = member.maxMana;
+	}
 	ApplyMemberColors(); // the settings palette wins over the authored defaults
 }
 
@@ -1500,6 +1508,11 @@ void Game::SaveGame(const std::string& name) {
 		c.vitality = member.vitality;
 		c.willpower = member.willpower;
 		c.intelligence = member.intelligence;
+		// The resource bases (v17) — the authored half of the derived maxima.
+		c.hasBases = true;
+		c.baseHealth = member.baseHealth;
+		c.baseStamina = member.baseStamina;
+		c.baseMana = member.baseMana;
 		data.characters.push_back(std::move(c));
 	}
 	WriteSave(data, SaveSlotPath(name));
@@ -1577,6 +1590,30 @@ bool Game::LoadGame(const std::string& path) {
 			m_characters[i].willpower = c.willpower;
 			m_characters[i].intelligence = c.intelligence;
 		}
+		// Resource bases (v17): the maxima DERIVE from bases + stats, so with
+		// the attributes settled, either restore the saved bases or back-solve
+		// them from the saved maxima (a pre-v17 save reproduces its maxima
+		// exactly under unchanged knobs). RecomputeMaxima then re-derives —
+		// current values arrived above and clamp/carry as usual.
+		const Balance& bal = m_world.GetBalance();
+		Character& member = m_characters[i];
+		if (c.hasBases) {
+			member.baseHealth = c.baseHealth;
+			member.baseStamina = c.baseStamina;
+			member.baseMana = c.baseMana;
+		} else {
+			member.baseHealth =
+				c.maxHealth - bal.kHealth * static_cast<float>(member.vitality);
+			member.baseStamina =
+				c.maxStamina - bal.kStamina * 0.5f *
+								   static_cast<float>(member.strength +
+													  member.vitality);
+			member.baseMana =
+				c.maxMana - bal.kMana * 0.5f *
+								static_cast<float>(member.intelligence +
+												   member.willpower);
+		}
+		member.RecomputeMaxima(bal.kHealth, bal.kStamina, bal.kMana);
 	}
 	m_world.ApplyState(*data); // fills the per-level store + party pose/torch
 
