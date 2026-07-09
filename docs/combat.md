@@ -170,7 +170,11 @@ it over time (a conditioning curve). Consequences:
 A defender's response is three gates, in order:
 
 1. **Evasion** — does it hit at all? Type-agnostic; the existing
-   accuracy − evasion roll, clamped [0.05, 0.95]. Untouched.
+   accuracy − evasion roll, clamped [0.05, 0.95]. Untouched. Party
+   evasion derives from DEX (the agility stat — it also feeds accuracy
+   and swing pace); MONSTER evasion stays a flat authored monsters.cat
+   value (settled: monsters keep authored numbers, no stat blocks, for
+   now — revisit if buffs/debuffs ever need to target a monster's DEX).
 2. **Soak + resistance** — a SMALL flat soak, then the per-type
    multiplier:
 
