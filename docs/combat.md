@@ -268,15 +268,20 @@ rebalances without touching code.
 - **No crush attack** — a maul's harder bash is just bash with a heavy
   weapon's numbers; the attack table stays lean.
 
-### Implementation home (when it lands)
+### Implementation (LANDED 2026-07-09, commits da9bb8f + 55d1ca0)
 
-The attack→type identity is a typed C++ table next to VerbProfile
-(Combat.h); the per-attack NUMBERS move to an `attacks.cat` in the
-project catalog so balance tweaks are edit + relaunch, no rebuild — the
-spells.cat pattern (class recipe = identity, cat = numeric overrides).
-Weapons keep `command` as their attack list. Formula so far:
-`weapon base × attack numbers → typed damage`; the defender's per-type
-response is the next part.
+The whole formula is built: Game/Balance.h/.cpp owns the knob struct
+(kBalanceFields drives load/save/dialog), the attack identity table
+(attacks.cat overrides the numbers — the spells.cat pattern), the
+school helpers, and the stats=/resists= parsers. Combat.h carries the
+seven DamageTypes, ResistTable, typed profiles, and StrikeRules.
+PartyAttack assembles the attack side; PartyDefense/MonsterDefense the
+defender side; GrantSkillXp creeps the source's stats; maxima derive
+through Character::RecomputeMaxima (save v17 stores the bases,
+pre-v17 back-solves). The editor map's Balance header button opens
+BalanceDialog (Formula + Attacks tabs, live apply, Save → the project
+catalogs) — the entire model is editor-tweakable per dungeon.
+SpendStamina is the Phase 4 exertion hook, plumbed but unwired.
 
 ## Design
 
