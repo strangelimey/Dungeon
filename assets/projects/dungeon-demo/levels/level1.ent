@@ -1,78 +1,43 @@
-; Dungeon Demo — level 1, dynamic layer (everything that changes during play).
-; One record per line:
-;
-;   <kind> <type> <x> <z> [facing] [key=value ...]
-;
-; Kinds: monster, item, button (decorations are static — they go in the
-; .map file). type is a catalog id (catalog/monsters.cat for monsters). x/z
-; are grid cells of level1.map, (0,0) top-left, x grows east, z grows south.
-; facing is north/east/south/west (default south); buttons must face a solid
-; wall. Examples of upcoming kinds:
-;   item torch 4 1
-;   button lever 9 5 east target=door_a
-;
-; Monsters sprinkled one or two per room across the level.
-; Flee demo (docs/ai.md P2): a skittish critter facing the party in the start
-; room; it perceives them at once and runs (fleebelow>1 = flees on sight).
-monster skel_coward 6 3 west
-; Skirmisher demo (docs/ai.md P1c): stands down the open corridor east of the
-; start room so the party rounds the corner into it; it kites away and shoots.
+; level1 — written by the in-game editor (dynamic layer).
+
+monster skel_coward 9 4 west
 monster skel_archer 10 4 west
-; Caster demo (docs/ai.md P2): further down the same corridor; kites and hurls
-; firebolts (spell=firebolt) through the shared engine.
 monster skel_mage 16 4 west
-; Lurker demo (docs/ai.md P2): dormant in the pillared hall until the party comes
-; within ~2 cells, then springs and pursues relentlessly.
+monster skeleton 26 4 west archetype=sentry patrol=22,4;28,4
+monster blob 27 4 south
 monster skel_lurker 14 6 north
-; Swarm demo (docs/ai.md P2): a small cluster (medium size packs several per cell)
-; that surrounds; senses omnidirectionally.
 monster skel_swarm 13 7 north
 monster skel_swarm 14 7 north
-monster skel_swarm 13 8 north
-monster skel_human 6 6 north
 monster skeleton 15 7 west
-; Sentry + patrol demo (docs/ai.md P3b): paces the open east corridor between two
-; waypoints (walks the beat when idle), wide sight cone, engages on sight.
-monster skeleton 25 4 west archetype=sentry patrol=22,4;28,4
-monster blob 27 4
+monster skel_swarm 13 8 north
 monster mummy 4 12 east
-monster skeleton 6 15 north
-monster skeleton 12 14 east
-monster blob 17 16
 monster mummy 27 13 west
-monster blob 5 22
-monster skeleton 8 28 north
+monster skeleton 12 14 east
+monster skeleton 6 15 north
+monster blob 17 16 south
+monster blob 5 22 south
+monster mummy 17 24 south
 monster mummy 3 25 east
 monster skeleton 19 27 north
-monster mummy 17 24
-monster blob 27 27
-
-; Rune items — step onto one to add its symbol to the party satchel, then
-; memorize it onto a character from the sheet. A few near the start to find.
-item rune_fire 4 4
-item rune_air 5 4
-item rune_water 6 4
-item rune_earth 7 4
-
-; The fab.com weapon models, lined up just ahead of the spawn — now pickable
-; weapons (they share these cells with the runes above; each takes its own
-; quarter). viking_dagger=dagger, plus khukri/snake_dagger/french_dagger.
-item dagger 3 4
-item khukri 4 4
-item snake_dagger 5 4
-item french_dagger 6 4
-
-; Non-rune items (placeholder visuals) — a sampler near the start for testing
-; pickup / carry load / hand commands.
-item dagger 4 5
-item leather_armor 5 5
-item tunic 6 5
-item apple 7 5
-item bread 8 4
-; Container packs — pick up and drop onto a pack slot in the sheet to equip.
-item ammo_pouch 2 5
-item medicine_pouch 3 5
-; A restricted pack (herb pouch: ingredients only) + ingredients to test it.
-item herb_pouch 2 4
-item herb 3 4
-item mushroom 9 4
+monster blob 27 27 south
+monster skeleton 8 28 north
+item herb_pouch 2 4 south
+item dagger 3 4 south
+item herb 3 4 south
+item rune_fire 4 4 south
+item khukri 4 4 south
+item rune_air 5 4 south
+item snake_dagger 5 4 south
+item rune_water 6 4 south
+item french_dagger 6 4 south
+item rune_earth 7 4 south
+item bread 8 4 south
+door wooden_door 8 4 east
+item mushroom 9 4 south
+item ammo_pouch 2 5 south
+item medicine_pouch 3 5 south
+item dagger 4 5 south
+item leather_armor 5 5 south
+item tunic 6 5 south
+item apple 7 5 south
+door wooden_door 4 7 north

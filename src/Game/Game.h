@@ -51,6 +51,7 @@
 #include "Game/EntityInspector.h"
 #include "Game/FireEffect.h"
 #include "Game/FixtureInspector.h"
+#include "Game/BalanceDialog.h"
 #include "Game/InspectPicker.h"
 #include "Game/MonsterConfigDialog.h"
 #include "Game/ButtonInspector.h"
@@ -299,6 +300,9 @@ private:
 	// Monster-type animation config dialog, opened by right-clicking a monster in
 	// the editor palette (states + per-state clip table).
 	MonsterConfigDialog m_monsterDialog;
+	// Combat-tuning dialog (the balance.cat/attacks.cat front-end), opened by
+	// the editor map's Balance header button.
+	BalanceDialog m_balanceDialog;
 	// Per-instance entity inspector, opened by Select-clicking a placed monster.
 	EntityInspector m_entityInspector;
 	// Per-instance fixture inspector, opened by Select-clicking a wall torch/sconce.

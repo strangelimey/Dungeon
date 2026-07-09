@@ -78,7 +78,8 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	  m_console(device, m_threads),
 	  m_modelPreview(device, 512),
 	  m_assetDialog(device, window),
-	  m_monsterDialog(device), m_entityInspector(device), m_fixtureInspector(device),
+	  m_monsterDialog(device), m_balanceDialog(device),
+	  m_entityInspector(device), m_fixtureInspector(device),
 	  m_propInspector(device), m_doorInspector(device), m_buttonInspector(device),
 	  m_inspectPicker(device), m_previewParticles(device) {
 	m_mapView.SetEditor(&m_mapEditor); // the view drives the editor in Editor mode
@@ -99,6 +100,30 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 		for (const std::string& s : saved) list += (list.empty() ? "" : ", ") + s;
 		m_world.onMessage(
 			loc::Format(toSource ? "map.save.synced" : "map.save.done", list));
+	};
+	// The editor's Balance header button → the combat-tuning dialog. Edits
+	// apply LIVE (the world's Balance is the one every formula reads, and the
+	// derived resource maxima follow); Save also writes the two catalogs back
+	// to the project (the asset copy — To source syncs them to the repo).
+	m_mapView.onBalance = [this] { m_balanceDialog.Open(m_world.GetBalance()); };
+	m_balanceDialog.onApply = [this](const Balance& b) {
+		m_world.GetBalance() = b;
+		m_world.RecomputePartyMaxima();
+	};
+	m_balanceDialog.onSave = [this](const Balance& b) {
+		m_world.GetBalance() = b;
+		m_world.RecomputePartyMaxima();
+		b.Save(m_project.balance, m_project.attacks);
+		const bool ok =
+			m_project.balance.Save(m_project.CatalogPath("balance.cat"),
+								   "Balance: the attack-formula knob sheet "
+								   "([formula] block; docs/combat.md).") &&
+			m_project.attacks.Save(m_project.CatalogPath("attacks.cat"),
+								   "Attacks: per-melee-verb numbers "
+								   "(damage/accuracy/speed multipliers); "
+								   "identity (damage type) is C++ (Balance.h).");
+		if (m_world.onMessage)
+			m_world.onMessage(loc::Tr(ok ? "map.balance.saved" : "map.save.failed"));
 	};
 	m_settings.Load();
 	ApplyLanguage(false); // strings must exist before any UI builds
@@ -1940,6 +1965,12 @@ void Game::Update(float dt) {
 							 static_cast<float>(m_window.Height()), dt);
 		return;
 	}
+	// The combat-tuning dialog is likewise modal over the editor.
+	if (m_balanceDialog.IsOpen()) {
+		m_balanceDialog.Update(input, static_cast<float>(m_window.Width()),
+							   static_cast<float>(m_window.Height()));
+		return;
+	}
 	// The monster-config dialog is likewise modal over the editor.
 	if (m_monsterDialog.IsOpen()) {
 		m_monsterDialog.Update(input, static_cast<float>(m_window.Width()),
@@ -2313,6 +2344,8 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 			m_spriteBatch.DrawSprite(m_monsterDialog.PreviewRect(dw, dh), {0, 0, 1, 1},
 									 m_modelPreview.Srv(), {1, 1, 1, 1});
 	}
+	if (m_balanceDialog.IsOpen()) // modal over the editor, like the others
+		m_balanceDialog.Render(m_spriteBatch, m_settings.theme, dw, dh);
 	// The per-instance edit dialogs, each drawn (panel + controls) THEN, once all
 	// are drawn, the 3D preview blitted into the active one's pane — the blit must
 	// come last so a dialog's backing box never covers it.

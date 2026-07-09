@@ -66,6 +66,9 @@ public:
 	// copies the project into the repo tree (synctosource). The owner (Game)
 	// does the work and messages the outcome.
 	std::function<void(bool toSource)> onSave;
+	// The Balance header button (left of undo/redo): opens the combat-tuning
+	// dialog (BalanceDialog — the balance.cat/attacks.cat front-end).
+	std::function<void()> onBalance;
 
 	bool IsOpen() const { return m_open; }
 	Mode CurrentMode() const { return m_mode; }
@@ -190,6 +193,8 @@ private:
 	// restored stash shows immediately.
 	gfx::Rect UndoButton(const gfx::Rect& panel) const;
 	gfx::Rect RedoButton(const gfx::Rect& panel) const;
+	// Editor-mode Balance button, left of undo/redo (the combat-tuning dialog).
+	gfx::Rect BalanceButton(const gfx::Rect& panel) const;
 	void DoUndoRedo(bool redo);
 	// A trigger only LATCHES here; Render draws the buttons disabled, and the
 	// NEXT Update executes. The restore itself is fast now (the surface rebake
@@ -225,7 +230,8 @@ private:
 	// by IDENTITY, since the two spaces disagree numerically). Drives the shared
 	// ui::DrawButtonFace hover styling on the hand-drawn buttons.
 	enum class HoverBtn {
-		None, LevelUp, LevelDown, Undo, Redo, Save, SaveSource, CollapseL, CollapseR
+		None, LevelUp, LevelDown, Undo, Redo, Save, SaveSource, Balance,
+		CollapseL, CollapseR
 	};
 	HoverBtn m_hoverBtn = HoverBtn::None;
 

@@ -40,12 +40,14 @@ gfx::Rect Norm(const gfx::Rect& designPx, const gfx::Rect& container) {
 			designPx.h / container.h};
 }
 
-// Hand-use command ids that resolve to a melee swing: the verb is flavour (the
-// menu label + future per-verb damage tuning), the strike is the one shared
-// PartyAttack path. A new weapon verb is data (items.cat `command`) + a row
-// here + a use.<verb> lang key.
-constexpr std::string_view kMeleeUses[] = {"punch", "kick", "stab",  "slash",
-										   "chop",  "bash", "swing", "melee"};
+// Hand-use command ids that resolve to a melee swing: the verb IS the attack
+// (Balance's closed attack table: damage type + numbers), the strike is the
+// one shared PartyAttack path. A new weapon verb is data (items.cat
+// `command`) + an AttackSpec row in Balance + a row here + a use.<verb> lang
+// key.
+constexpr std::string_view kMeleeUses[] = {
+	"punch", "kick", "stab",  "slash", "chop",  "bash",
+	"swing", "jab",  "thrust", "hack", "melee"};
 bool IsMeleeUse(std::string_view cmd) {
 	return std::ranges::find(kMeleeUses, cmd) != std::ranges::end(kMeleeUses);
 }

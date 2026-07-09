@@ -130,6 +130,12 @@ gfx::Rect MapView::UndoButton(const gfx::Rect& panel) const {
 	return {redo.x - DockPad(panel) - redo.w, redo.y, redo.w, redo.h};
 }
 
+gfx::Rect MapView::BalanceButton(const gfx::Rect& panel) const {
+	const gfx::Rect undo = UndoButton(panel);
+	const float w = undo.h * 4.0f; // labelled like Save/To source
+	return {undo.x - DockPad(panel) - w, undo.y, w, undo.h};
+}
+
 void MapView::DoUndoRedo(bool redo) {
 	if (redo) m_world.Redo();
 	else m_world.Undo();
@@ -288,6 +294,8 @@ bool MapView::Update(const Input& input, const gfx::Rect& panel) {
 		m_hoverBtn = HoverBtn::Save;
 	else if (editor && SaveSourceButton(panel).Contains(mx, my))
 		m_hoverBtn = HoverBtn::SaveSource;
+	else if (editor && BalanceButton(panel).Contains(mx, my))
+		m_hoverBtn = HoverBtn::Balance;
 	else if (editor && LeftCollapseButton(panel).Contains(mx, my))
 		m_hoverBtn = HoverBtn::CollapseL;
 	else if (RightCollapseButton(panel).Contains(mx, my))
@@ -334,6 +342,11 @@ bool MapView::Update(const Input& input, const gfx::Rect& panel) {
 				onSave(true);
 				return true;
 			}
+		}
+		// Balance button (left of undo/redo): the combat-tuning dialog.
+		if (editor && onBalance && BalanceButton(panel).Contains(mx, my)) {
+			onBalance();
+			return true;
 		}
 		// Undo/redo buttons (left of Save) — hidden when their stack is empty,
 		// so a click there falls through like a hidden level arrow; disabled
@@ -991,6 +1004,9 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 				face(UndoButton(panel), "<", HoverBtn::Undo, !busy);
 			if (m_world.CanRedo())
 				face(RedoButton(panel), ">", HoverBtn::Redo, !busy);
+			// The combat-tuning dialog (balance.cat/attacks.cat front-end).
+			face(BalanceButton(panel), loc::Tr("map.btn.balance"),
+				 HoverBtn::Balance);
 		}
 	}
 
