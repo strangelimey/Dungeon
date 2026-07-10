@@ -77,15 +77,56 @@ Key conventions (memorize, they bite):
   BoltSpell/WardSpell forms; behaviour = the Cast() override, reaching the
   world only through host-wired CastServices) — spells.cat is NUMERIC
   OVERRIDES only, the class recipe is identity. MagicSystem runs the common
-  gates (vocab, mana, skill/fumble roll, power ×(1+0.10×school level));
-  skills train BY USE (per-school + per-weapon-class, level = sqrt(xp),
-  associated stats creep behind — docs/skills.md). Status effects live in
-  ONE Character::effects list (wards stack across schools, same-school
-  recast replaces); the party bar draws them in the name band, the sheet's
-  Effects tab (hourglass) is the long form. Defaults + spell MRU are per
-  member AND per hand. Save v14/15/16 lines cover effects/skills/per-hand.
-  Adding a spell: file pair + AllSpells.cpp + CMakeLists (hand-listed) +
-  spell.<id> lang keys ×5 (+ .desc for ward-like effects).
+  gates (vocab, mana, skill/fumble roll, power ×(1+0.10×school level) ×
+  (1 + spell_stat × the school's stat)); skills train BY USE (per-school +
+  per-weapon-class, level = sqrt(xp); the CREEP TARGET is the source's
+  associated stats now — docs/combat.md part 2 superseded docs/skills.md's
+  creep table). Status effects live in ONE Character::effects list (wards
+  stack across schools, same-school recast replaces; poison/bleed are the
+  first non-ward kinds — see COMBAT); the party bar draws them in the name
+  band, the sheet's Effects tab (hourglass) is the long form. Defaults +
+  spell MRU are per member AND per hand; the SPELLBOOK is the Magic area's
+  member-colored selector row (button disabled = absent/down/no symbols; no
+  menu entry — book casts pass kBookHands and credit BOTH hands' MRU).
+  Save v14/15/16 lines cover effects/skills/per-hand. Adding a spell: file
+  pair + AllSpells.cpp + CMakeLists (hand-listed) + spell.<id> lang keys ×5
+  (+ .desc for ward-like effects).
+- COMBAT (full model: docs/combat.md — "The attack formula"; built by the
+  combat-depth thread): every constant is a KNOB in the project's
+  balance.cat ([formula] block → the Balance struct in Game/Balance.h;
+  kBalanceFields drives load/save AND the dialog rows) and attacks.cat
+  (per-attack numbers; IDENTITY — attack id + damage type — is the typed
+  C++ table in Balance's ctor, the spells.cat pattern). Both edit LIVE in
+  the editor map's Balance header-button dialog (Formula/Attacks tabs, "?"
+  explains the columns; Save writes the catalogs). Seven damage types
+  (slash/pierce/bash + the four elements): spells type by school
+  (BoltSpell::MakeBolt), monster melee by `dmgtype`. Attack side: damage =
+  (weapon damage, or the unarmed knobs, + stat_damage × avg of items.cat
+  `stats`) × attack numbers × (1 + skill_damage × level); ACCURACY IS
+  ALWAYS DEX. Defender side: evasion, then (rolled − soak) × (1 −
+  resist[type]) floored — resists SUM nature (monsters.cat `resists`;
+  Character::natureResists is the future race layer) + worn equipment
+  (`resists`/`armor`) + Stone Skin as physical, clamped ±resist_clamp
+  (a nature cell of 1.0 = immunity). Resources DERIVE: max = base + k ×
+  statAvg (Character::RecomputeMaxima; authored bases ride save v17,
+  pre-v17 back-solves). STAMINA is the exertion meter (swings spend
+  (stamina_swing + stamina_weight×kg) × the attack's stamina column, steps
+  spend stamina_step, every spend feeds VIT's creep — part 3's conditioning
+  loop; an empty bar latches EXHAUSTED penalties with hysteresis). 0 HP =
+  UNCONSCIOUS (self-stabilizes at stabilize_health after stabilize_time
+  safe seconds — any monster in aggro resets the clock); DEAD only by
+  OVERKILL (a blow on a downed member, or ≥ overkill×max; v18 "dead" line;
+  poison/bleed DoTs tick the downed — that kills). REACH: party rear rank
+  (roster slots 2-3; quadrants read Brand front-L, Sera front-R, Maren
+  rear-L, Tilo rear-R) attacks only with polearms (items.cat `reach =
+  polearm`) / ranged / spells; a monster with `reach = 2` melees from its
+  queue post down a shared row/column. Projectiles fly QUADRANT LANES both
+  ways: casts spawn a quarter-cell down the caster's lane and hits test
+  lateral distance vs sub-cell position (kLaneHalfWidth = 0.35 cell) — an
+  opposite-quadrant body is flown past. Adding a weapon: items.cat
+  damage/speed/stats/reach + `command` (its attack list) + item.<id> lang
+  keys ×5; a new attack VERB is a Balance-ctor row + attacks.cat entry +
+  GameUI kMeleeUses + use.<verb> keys ×5.
 - ALL user-facing text goes through Core/Loc (loc::Tr(key) /
   loc::Format(key, args...) for {} placeholders), loaded from
   assets/lang/<code>.lang (UTF-8 key=value, ';' comments; en.lang is the
@@ -713,12 +754,15 @@ memory.
 
 ## Known gaps / natural next steps
 
-- Monsters chase + melee the party via the async AI (see "Threading & async
-  monster AI"); a landed hit drains party health (Combat.cpp /
-  DungeonWorld::MonsterAttack), and mana regenerates over time. Still thin —
-  no monster ranged/special attacks, and character progression is shallow.
-  Portraits are simple baked busts (AssetBaker portraits); the tinted-initial
-  fallback still draws if the textures are missing.
+- Combat is built out (see the COMBAT bullet: the attack formula, damage
+  types/resists, stamina exertion, death/revive, DoTs, reach, quadrant
+  lanes) but UNTUNED — every number is a first cut awaiting a balance pass
+  (the editor's Balance dialog / balance.cat + attacks.cat). No polearm or
+  ranged weapon is authored yet (the reach/lane plumbing is ready); no
+  healing source exists beyond unconscious self-stabilize (potions and a
+  heal spell are queued in the magic backlog). Portraits are simple baked
+  busts (AssetBaker portraits); the tinted-initial fallback still draws if
+  the textures are missing.
 - Monster models are still simple procedural rigs (tapered-tube limbs + a
   skull for the humanoids, a lumpy sphere for the blob); a bought/authored
   rigged glTF would drop in via LoadModel (JOINTS_0 remap already handled).
