@@ -383,7 +383,11 @@ bool GameUI::UseValidFor(const Character& c, const std::vector<std::string>& cmd
 
 void GameUI::MemorizeFromHand(size_t i, size_t hand) {
 	if (i >= m_characters.size() || hand > 1) return;
-	ItemSlot& slot = m_characters[i].inventory.Hand(static_cast<int>(hand));
+	MemorizeSlot(i, m_characters[i].inventory.Hand(static_cast<int>(hand)));
+}
+
+void GameUI::MemorizeSlot(size_t i, ItemSlot& slot) {
+	if (i >= m_characters.size()) return;
 	SpellSymbol sym;
 	if (!RuneSymbolFromItemId(slot.typeId, sym)) return;
 	m_characters[i].Learn(sym);
@@ -393,6 +397,27 @@ void GameUI::MemorizeFromHand(size_t i, size_t hand) {
 						   loc::Tr(SymbolKey(sym))),
 			   m_characters[i].portraitColor);
 	RefreshSheet(); // the sheet's known symbols may be on screen later
+}
+
+void GameUI::OpenPackUseMenu(int slot) {
+	// The sheet shows m_sheetIndex's SELECTED pack; `slot` indexes into it. A
+	// rune offers Memorize — resolved by index at CLICK time (the sheet is
+	// modal, so the pack can't shift under the open menu).
+	if (!m_sheetMenu || m_sheetIndex >= m_characters.size() || slot < 0) return;
+	const auto& pack = m_characters[m_sheetIndex].inventory.SelectedContents();
+	if (slot >= static_cast<int>(pack.size())) return;
+	SpellSymbol sym;
+	if (!RuneSymbolFromItemId(pack[static_cast<size_t>(slot)].typeId, sym))
+		return; // only runes have a pack-side action so far
+	std::vector<ui::ContextMenu::Entry> entries;
+	entries.push_back({loc::Tr("use.memorize"), [this, slot] {
+						   auto& p = m_characters[m_sheetIndex]
+										 .inventory.SelectedContents();
+						   if (slot < static_cast<int>(p.size()))
+							   MemorizeSlot(m_sheetIndex,
+											p[static_cast<size_t>(slot)]);
+					   }});
+	m_sheetMenu->Open(m_hudMouseX, m_hudMouseY, std::move(entries));
 }
 
 void GameUI::EatFromHand(size_t i, size_t hand) {
@@ -1124,6 +1149,9 @@ void GameUI::BuildCharacterSheet() {
 		m_audio.Play(m_sounds.bump, 0.5f);
 		AddLogLine(loc::Format("log.cant_hold", loc::Tr("item." + item)));
 	};
+	// Right-clicked backpack slot → its use menu (a rune memorizes from the
+	// pack too, not just a hand).
+	m_sheet->onSlotMenu = [this](int slot) { OpenPackUseMenu(slot); };
 
 	const float btnY = sy + sheetH + 16.0f;
 	m_sheetUi.Add<ui::Button>(Norm({sx, btnY, 64, 40}, window), "<", [this] {
@@ -1146,6 +1174,9 @@ void GameUI::BuildCharacterSheet() {
 								  Click();
 								  onResume();
 							  });
+	// The sheet's own context menu (backpack-slot actions), added LAST so it
+	// updates first and its popup draws over everything.
+	m_sheetMenu = m_sheetUi.Add<ui::ContextMenu>();
 }
 
 // Rebuilds every page in the active language (loc:: was just reloaded). The

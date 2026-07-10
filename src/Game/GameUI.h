@@ -295,6 +295,12 @@ private:
 	// Commits the rune in member `i`'s hand to memory: the symbol is learned and
 	// the tablet consumed.
 	void MemorizeFromHand(size_t i, size_t hand);
+	// The shared memorize: learns `slot`'s rune symbol and consumes the tablet
+	// — a rune memorizes from WHEREVER it sits (hand or backpack).
+	void MemorizeSlot(size_t i, ItemSlot& slot);
+	// Right-clicked backpack slot `slot` on the open sheet: pop the item's use
+	// menu in the SHEET's context (a rune offers Memorize).
+	void OpenPackUseMenu(int slot);
 	// Eats the food in member `i`'s hand: restores some stamina, consumes it.
 	void EatFromHand(size_t i, size_t hand);
 	bool Holding() const { return m_held && m_held->has_value(); }
@@ -372,6 +378,9 @@ private:
 	// HUD right-click context menu (hand-slot item actions, e.g. Memorize).
 	// Reused: GameUI opens it with the actions for whatever was right-clicked.
 	ui::ContextMenu* m_handMenu = nullptr;
+	// The SHEET's own context menu (backpack-slot actions — the sheet freezes
+	// the HUD, so m_handMenu can't serve it).
+	ui::ContextMenu* m_sheetMenu = nullptr;
 	// Party inventory window (owned by m_hudUi); opened on right-click-while-holding.
 	InventoryWindow* m_inventory = nullptr;
 	// The Magic-area spellbook (owned by m_hudUi): opened from a hand's use

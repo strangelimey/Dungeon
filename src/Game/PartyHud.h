@@ -373,6 +373,10 @@ public:
 	// Fired when a held non-holdable item is refused by a hand doll cell (item
 	// id) — GameUI wires it to the shared "can't be held" log line + sound.
 	std::function<void(const std::string&)> onRejectHold;
+	// Fired by a RIGHT-click on a non-empty backpack slot (the slot's index in
+	// the selected pack) — GameUI opens the item's use menu there (a rune's
+	// Memorize works from the pack, not just a hand; Michael, 2026-07-10).
+	std::function<void(int slot)> onSlotMenu;
 
 private:
 	// Design-space rect of doll cell i (an index into the placed-cell table),

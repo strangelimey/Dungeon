@@ -966,6 +966,18 @@ void CharacterSheet::Update(ui::UIContext& ctx) {
 				return;
 			}
 	}
+	// A RIGHT-click on a non-empty backpack slot opens its use menu (a rune's
+	// Memorize works from the pack, not just a hand).
+	if (m_character && m_mode == Mode::Inventory && !ctx.IsMouseConsumed() &&
+		input->WasMousePressed(MouseButton::Right)) {
+		const auto& pack = m_character->inventory.SelectedContents();
+		for (int i = 0; i < static_cast<int>(pack.size()); ++i)
+			if (PackRect(px, sx, sy, i).Contains(mx, my) &&
+				!pack[static_cast<size_t>(i)].Empty()) {
+				if (onSlotMenu) onSlotMenu(i);
+				break;
+			}
+	}
 	ctx.ConsumeMouse(); // swallow other clicks over the sheet
 }
 
