@@ -142,6 +142,10 @@ struct GameSettings {
 	float volume = 1.0f;          // master volume, pushed into the AudioEngine
 	float partyBarScale = 1.0f;   // HUD party bar: 0.5–1.5 about its top center
 	float partyBarOpacity = 1.0f; // HUD party bar: slot background alpha
+	// Textured UI chrome (UI/Skin.h). Off = the flat theme-fill look, kept
+	// deliberately as a DEBUG MODE (widget containment/extents read at a
+	// glance). Settings → UI checkbox; ini uiskin=.
+	bool uiSkin = true;
 	ui::Theme theme;              // the 8 user-editable control colors
 	ResourceBarColors barColors;  // health/stamina/mana fills
 	// Per-slot party identity colors (see kDefaultMemberColors above).

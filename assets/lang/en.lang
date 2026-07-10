@@ -109,6 +109,7 @@ settings.framelimit=Frame Rate
 settings.framelimit.vsync=VSync ({} FPS)
 settings.framelimit.fps={} FPS
 settings.volume=Volume
+settings.uiskin=Textured UI (off = plain debug look)
 settings.party_bar=Party Bar
 settings.bar_scale=Scale
 settings.bar_opacity=Background opacity

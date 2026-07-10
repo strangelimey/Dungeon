@@ -114,6 +114,7 @@ settings.framelimit=Частота кадров
 settings.framelimit.vsync=Верт. синхр. ({} FPS)
 settings.framelimit.fps={} FPS
 settings.volume=Громкость
+settings.uiskin=Текстурированный интерфейс (выкл = простой отладочный вид)
 settings.party_bar=Панель отряда
 settings.bar_scale=Размер
 settings.bar_opacity=Непрозрачность фона

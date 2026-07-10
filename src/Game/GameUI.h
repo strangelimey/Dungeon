@@ -27,6 +27,7 @@
 #include "Graphics/Texture.h"
 #include "Platform/Window.h"
 #include "UI/Controls.h"
+#include "UI/Skin.h"
 #include "UI/UIContext.h"
 
 #include <functional>
@@ -230,6 +231,9 @@ private:
 	void RefreshSavesIfDirty();
 	// Pushes the settings theme into every UIContext (each owns a copy).
 	void ApplyTheme();
+	// Pushes the skin (or null, per settings.uiSkin) into every UIContext.
+	// Live — widgets re-check the pointer each draw, no rebuild needed.
+	void ApplySkin();
 	// Re-derives the party-bar slot rects from the settings scale and shifts
 	// the widgets beneath the bar to match; no-op until BuildHud has run.
 	void ApplyPartyBarScale();
@@ -347,6 +351,12 @@ private:
 	ui::Font m_titleFont;       // big face for "DUNGEON" titles
 	std::unique_ptr<gfx::Texture> m_titleBackground; // landing-page art
 	std::unique_ptr<gfx::Texture> m_deleteIcon;      // red X for the save browser
+	// Textured-chrome skin (UI/Skin.h): the part textures + the Skin handed to
+	// every context by ApplySkin (null when settings.uiSkin is off — the flat
+	// debug look). Textures are optional; missing parts stay flat.
+	std::unique_ptr<gfx::Texture> m_skinPanelTex;
+	std::unique_ptr<gfx::Texture> m_skinButtonTex;
+	ui::Skin m_skin;
 
 	MenuPage m_menuPage = MenuPage::Main;
 	SavesMode m_savesMode = SavesMode::Load;

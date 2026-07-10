@@ -110,6 +110,7 @@ settings.framelimit=Bildrate
 settings.framelimit.vsync=VSync ({} FPS)
 settings.framelimit.fps={} FPS
 settings.volume=Lautstärke
+settings.uiskin=Texturierte Oberfläche (aus = schlichte Debug-Ansicht)
 settings.party_bar=Gruppenleiste
 settings.bar_scale=Größe
 settings.bar_opacity=Hintergrund-Deckkraft

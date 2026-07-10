@@ -122,6 +122,15 @@ void GameUI::LoadTitleArt() {
 	m_titleBackground = LoadTextureFile(m_device, paths::Asset("ui\\title_bg"));
 	// Small UI glyph; optional (the SlotList falls back to a text "X").
 	m_deleteIcon = TryLoadTextureFile(m_device, paths::Asset("ui\\delete"));
+
+	// UI skin parts (assets/ui/skin_*.png, committed source like the other UI
+	// images). All optional — a missing part leaves that chrome flat, and the
+	// flat look survives whole as the debug mode / uiskin=0.
+	m_skinPanelTex = TryLoadTextureFile(m_device, paths::Asset("ui\\skin_panel"));
+	m_skinButtonTex = TryLoadTextureFile(m_device, paths::Asset("ui\\skin_button"));
+	m_skin.panel = {m_skinPanelTex.get(), 24.0f, 1.0f};
+	m_skin.button = {m_skinButtonTex.get(), 12.0f, 1.0f};
+	ApplySkin();
 }
 
 void GameUI::ApplyTheme() {
@@ -129,6 +138,14 @@ void GameUI::ApplyTheme() {
 		 {&m_hudUi, &m_menuUi, &m_settingsUi, &m_pauseUi, &m_savesUi, &m_sheetUi,
 		  &m_confirmUi})
 		ctx->SetTheme(m_settings.theme);
+}
+
+void GameUI::ApplySkin() {
+	const ui::Skin* skin = m_settings.uiSkin ? &m_skin : nullptr;
+	for (ui::UIContext* ctx :
+		 {&m_hudUi, &m_menuUi, &m_settingsUi, &m_pauseUi, &m_savesUi, &m_sheetUi,
+		  &m_confirmUi})
+		ctx->SetSkin(skin);
 }
 
 void GameUI::Click(float volume) { m_audio.Play(m_sounds.click, volume); }
@@ -808,11 +825,23 @@ void GameUI::BuildSettings() {
 		});
 	volume->onRelease = [this] { m_settings.Save(); };
 
+	// UI → Textured UI: flips every context between the skinned chrome and the
+	// flat theme-fill look (kept as a debug mode — containment/extents read at
+	// a glance). Live — widgets re-check the skin pointer each draw.
+	Flow uf{pad, rowW, pad};
+	tabs->AddChild<ui::Checkbox>(
+		tabUi, Norm(uf.Place(ctrlH, mGroup, mGroup), page),
+		loc::Tr("settings.uiskin"), m_settings.uiSkin, [this](bool on) {
+			Click();
+			m_settings.uiSkin = on;
+			ApplySkin();
+			m_settings.Save();
+		});
+
 	// UI → Party Bar: scale resizes the bar live (about its top center) and
 	// opacity fades the slot backgrounds. Both apply while dragging and
 	// persist on release; safe before the HUD exists (the panel list is empty
 	// until the first game load).
-	Flow uf{pad, rowW, pad};
 	tabs->AddChild<ui::Label>(tabUi, Norm(uf.Place(labelH, mGroup, mTight), page),
 							  loc::Tr("settings.party_bar"));
 	auto* barScale = tabs->AddChild<ui::Slider>(

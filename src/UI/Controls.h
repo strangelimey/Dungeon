@@ -31,6 +31,8 @@
 
 namespace dungeon::ui {
 
+struct Skin;
+
 // Simple framed background rectangle (draws first if added first).
 class Panel : public Widget {
 public:
@@ -510,8 +512,13 @@ void DrawBorder(gfx::SpriteBatch& batch, const gfx::Rect& rect, const Vec4& colo
 // button (the map editor's header/dock buttons), so hover reads the same
 // everywhere. `held` (or an active row) fills controlActive, hover controlHot;
 // a disabled button flattens to the panel fill with dim text and ignores `hot`.
+// With a `skin` (UI/Skin.h) the face is the skin's button part instead —
+// hot/held wash the theme's control colors over it, disabled dims the tint —
+// so state still reads through the user's theme. Null skin = the flat look
+// (kept as debug mode); hand-drawn chrome callers pass their owner's skin.
 void DrawButtonFace(gfx::SpriteBatch& batch, Font& font, const gfx::Rect& rect,
 					const std::string& label, const Theme& theme, bool hot,
-					bool held = false, bool enabled = true);
+					bool held = false, bool enabled = true,
+					const Skin* skin = nullptr);
 
 } // namespace dungeon::ui
