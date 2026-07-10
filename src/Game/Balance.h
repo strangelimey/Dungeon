@@ -37,6 +37,7 @@ struct AttackSpec {
 	float dmg = 1.0f;  // × the profile damage
 	float acc = 0.0f;  // + the profile accuracy
 	float pace = 1.0f; // × the swing interval (a whiff pays it too)
+	float stam = 1.0f; // × the swing's stamina cost (chop exerts, jab doesn't)
 };
 
 struct Balance {
@@ -60,6 +61,21 @@ struct Balance {
 	float creepRate = 0.04f;       // stat creep per skill-XP
 	float vitExertion = 0.02f;     // VIT creep per stamina point spent
 	float kHealth = 1.0f, kStamina = 1.0f, kMana = 1.0f; // resource maxima per stat point
+	// Stamina costs + exhaustion (docs/combat.md Phase 4). A swing spends
+	// (stamina_swing + stamina_weight × weapon kg) × attack.stam; a step
+	// spends stamina_step per standing member. Regen runs at stamina_regen +
+	// stamina_regen_max × maxStamina per second after stamina_holdoff seconds
+	// without a spend. Hitting 0 latches EXHAUSTED (damage × exhaust_damage,
+	// pace × exhaust_pace) until stamina recovers past exhaust_recover of max.
+	float staminaSwing = 1.0f;
+	float staminaWeight = 0.4f;
+	float staminaStep = 0.1f;
+	float staminaRegen = 0.5f;
+	float staminaRegenMax = 0.02f;
+	float staminaHoldoff = 1.5f;
+	float exhaustDamage = 0.5f;
+	float exhaustPace = 1.5f;
+	float exhaustRecover = 0.1f;
 
 	// The attack table, seeded with the identity defaults; Load overrides the
 	// numbers from attacks.cat.

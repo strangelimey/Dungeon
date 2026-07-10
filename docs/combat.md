@@ -338,18 +338,24 @@ derived-stats line is in scope).
   hit means" scales with the victim, so a late-game 8-damage tap stops
   reading as "hard".
 
-### Phase 4 — stamina costs + exhaustion
+### Phase 4 — stamina costs + exhaustion (LANDED 2026-07-09)
 
-- A swing spends stamina: `1 + 0.4×weapon.weight`, verb-scaled (chop/bash
-  ×1.5). Casting stays mana's business.
-- Regen: `0.5 + 0.02×maxStamina` per second while not swinging (any swing
-  resets a short 1.5s regen holdoff), in the same world tick that regens
-  mana. Food keeps its instant restore.
-- Exhausted (stamina hits 0): swings still land — blocking them entirely
-  feels terrible in a real-time crawler — but at ×0.5 damage and ×1.5
-  interval until stamina climbs back over a 10% recovery threshold
-  (hysteresis so it doesn't flicker at the boundary). Log line + the bar
-  itself communicate it.
+- A swing spends `(stamina_swing + stamina_weight × weapon kg) × the
+  attack's stamina column` (attacks.cat gained the fourth number; chop/
+  bash 1.5, jab 0.7). A whiff spends too — swinging IS the exertion.
+  Casting stays mana's business.
+- A step spends `stamina_step` per standing member (part 3's marching
+  exertion; the holdoff makes sustained marching a net drain while
+  strolling-with-pauses stays neutral). Both routes feed VIT's creep.
+- Regen: `stamina_regen + stamina_regen_max × maxStamina` per second
+  after `stamina_holdoff` seconds without a spend, in the mana-regen
+  tick. Food keeps its instant restore.
+- Exhausted (the bar empties): swings still land — penalties, not
+  paralysis — at `× exhaust_damage` damage and `× exhaust_pace` interval
+  (applied after the normal clamp) until stamina climbs past
+  `exhaust_recover × max` (hysteresis). log.exhausted / log.recovered
+  member lines; the latch is a live transient, re-derived from the bar
+  on load. All nine knobs ride balance.cat → the Balance dialog.
 
 ### Phase 5 — death & revive
 

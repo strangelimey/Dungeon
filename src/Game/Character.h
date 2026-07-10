@@ -95,6 +95,15 @@ struct Character {
 	float hitFlash = 0.0f;
 	int hitSeverity = 0;
 
+	// Stamina exertion state (docs/combat.md Phase 4), live transients like
+	// the hand cooldowns (not saved; a load re-derives `exhausted` from the
+	// saved stamina). staminaHoldoff blocks regen for a beat after any spend
+	// so sustained marching genuinely drains; `exhausted` latches when the
+	// bar empties (weaker, slower swings) and clears with hysteresis once it
+	// climbs back past the exhaust_recover knob.
+	float staminaHoldoff = 0.0f;
+	bool exhausted = false;
+
 	// Whether the member is still standing. health <= 0 = down (out of the
 	// fight, no longer a valid monster target) — there is no death/revive
 	// system yet, so a downed member simply stops acting.

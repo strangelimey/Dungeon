@@ -1639,6 +1639,9 @@ bool Game::LoadGame(const std::string& path) {
 												   member.willpower);
 		}
 		member.RecomputeMaxima(bal.kHealth, bal.kStamina, bal.kMana);
+		// The exhausted latch is a live transient (not saved) — re-derive it
+		// from the restored bar so a save made mid-exhaustion resumes winded.
+		member.exhausted = member.stamina <= 0.0f;
 	}
 	m_world.ApplyState(*data); // fills the per-level store + party pose/torch
 

@@ -51,6 +51,14 @@ DungeonWorld::DungeonWorld(gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 		m_audio.Play(m_sounds.footstep, 0.8f);
 		const int px = m_party.GridX(), pz = m_party.GridZ();
 		MarkSeen(px, pz);
+		// Marching is exertion (docs/combat.md Phase 4): every standing
+		// member spends the per-step trickle. The spend's regen holdoff makes
+		// SUSTAINED marching a net drain while strolling-with-pauses stays
+		// neutral — and it trains VIT (part 3's conditioning loop).
+		if (m_roster)
+			for (Character& member : *m_roster)
+				if (member.IsAlive())
+					SpendStamina(member, m_balance.staminaStep);
 		// Stepping onto a stair raises a pending transition; Game polls it after
 		// Update and drives the swap, so the level never changes mid-step. A
 		// non-traversable link (a pit's ceiling hole — you can't climb it) is
@@ -1853,6 +1861,27 @@ void DungeonWorld::UpdateMonsters(float dt) {
 				member.mana += member.ManaRegenPerSec() * dt;
 				if (member.mana > member.maxMana) member.mana = member.maxMana;
 			}
+			// Stamina regen (docs/combat.md Phase 4): the holdoff after any
+			// spend keeps sustained exertion a net drain; then the bar
+			// refills and the exhausted latch clears with hysteresis (past
+			// the exhaust_recover fraction, so it can't flicker at zero).
+			if (member.IsAlive() && member.staminaHoldoff > 0.0f) {
+				member.staminaHoldoff -= dt;
+			} else if (member.IsAlive() && member.stamina < member.maxStamina) {
+				member.stamina +=
+					(m_balance.staminaRegen +
+					 m_balance.staminaRegenMax * member.maxStamina) *
+					dt;
+				if (member.stamina > member.maxStamina)
+					member.stamina = member.maxStamina;
+				if (member.exhausted &&
+					member.stamina >=
+						m_balance.exhaustRecover * member.maxStamina) {
+					member.exhausted = false;
+					MemberMessage(member,
+								  loc::Format("log.recovered", member.name));
+				}
+			}
 			// Age the status effects; an expired one leaves with its kind's
 			// fade line. (Spend-to-die wards — the water pool, the air
 			// charges — are erased at their spend site instead, so their
@@ -2855,13 +2884,21 @@ void DungeonWorld::GrantStatPoint(Character& member, std::string_view stat) {
 									  loc::Tr("stat." + std::string(stat)), value));
 }
 
-// Exertion (docs/combat.md part 3): stamina is the exertion meter — every
-// point spent feeds VIT's creep pool. The Phase 4 costs (swings, marching)
-// all arrive here; nothing calls it yet.
+// Exertion (docs/combat.md part 3 + Phase 4): stamina is the exertion meter —
+// every point spent feeds VIT's creep pool, holds regen off for a beat, and
+// an emptied bar latches EXHAUSTED (the swing penalties; cleared with
+// hysteresis in the regen tick). Swings and marching both arrive here.
 void DungeonWorld::SpendStamina(Character& member, float points) {
 	if (points <= 0.0f || !member.IsAlive()) return;
 	member.stamina -= points;
-	if (member.stamina < 0.0f) member.stamina = 0.0f;
+	member.staminaHoldoff = m_balance.staminaHoldoff;
+	if (member.stamina <= 0.0f) {
+		member.stamina = 0.0f;
+		if (!member.exhausted) {
+			member.exhausted = true;
+			MemberMessage(member, loc::Format("log.exhausted", member.name));
+		}
+	}
 	float& pool = member.statProgress["vitality"];
 	pool += points * m_balance.vitExertion;
 	if (pool < 1.0f) return;
@@ -3221,8 +3258,13 @@ bool DungeonWorld::PartyAttack(size_t member, size_t hand, std::string_view verb
 	const float pace =
 		weapon && weapon->speed > 0.0f ? weapon->speed : m_balance.unarmedSpeed;
 
+	// Exhaustion penalties (Phase 4) read the state at swing time — the swing
+	// that empties the bar lands whole; the NEXT one pays.
+	const bool winded = attacker.exhausted;
+
 	// A whiffed swing pays the attack's pace too — committing to a chop
-	// costs the chop.
+	// costs the chop. And every swing, hit or miss, is EXERTION: it spends
+	// (stamina_swing + stamina_weight × weapon kg) × the attack's stam.
 	float interval =
 		pace *
 		(m_balance.speedBase -
@@ -3230,7 +3272,12 @@ bool DungeonWorld::PartyAttack(size_t member, size_t hand, std::string_view verb
 		spec->pace;
 	if (interval < m_balance.intervalMin) interval = m_balance.intervalMin;
 	if (interval > m_balance.intervalMax) interval = m_balance.intervalMax;
+	if (winded) interval *= m_balance.exhaustPace; // beyond the normal cap
 	attacker.handCooldown[hand] = interval;
+	SpendStamina(attacker,
+				 (m_balance.staminaSwing +
+				  m_balance.staminaWeight * (weapon ? weapon->weight : 0.0f)) *
+					 spec->stam);
 	if (!target) {
 		MemberMessage(attacker, loc::Tr("log.attack_air"));
 		return true;
@@ -3238,7 +3285,8 @@ bool DungeonWorld::PartyAttack(size_t member, size_t hand, std::string_view verb
 
 	const AttackProfile atk{
 		(base + m_balance.statDamage * statAvg) * spec->dmg *
-			(1.0f + m_balance.skillDamage * static_cast<float>(level)),
+			(1.0f + m_balance.skillDamage * static_cast<float>(level)) *
+			(winded ? m_balance.exhaustDamage : 1.0f),
 		m_balance.accBase +
 			m_balance.accStat * static_cast<float>(attacker.dexterity) +
 			m_balance.accSkill * static_cast<float>(level) + spec->acc,

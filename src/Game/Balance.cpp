@@ -38,6 +38,15 @@ constexpr BalanceField kBalanceFields[] = {
 	{"k_health", &Balance::kHealth},
 	{"k_stamina", &Balance::kStamina},
 	{"k_mana", &Balance::kMana},
+	{"stamina_swing", &Balance::staminaSwing},
+	{"stamina_weight", &Balance::staminaWeight},
+	{"stamina_step", &Balance::staminaStep},
+	{"stamina_regen", &Balance::staminaRegen},
+	{"stamina_regen_max", &Balance::staminaRegenMax},
+	{"stamina_holdoff", &Balance::staminaHoldoff},
+	{"exhaust_damage", &Balance::exhaustDamage},
+	{"exhaust_pace", &Balance::exhaustPace},
+	{"exhaust_recover", &Balance::exhaustRecover},
 };
 
 // Whitespace/comma tokens (the catalog list convention).
@@ -78,16 +87,16 @@ Balance::Balance() {
 	// The attack identity table (docs/combat.md part 1): id + damage type is
 	// C++ — the closed list — with first-cut numbers attacks.cat overrides.
 	attacks = {
-		{"stab", DamageType::Pierce, 0.8f, 0.05f, 0.8f},
-		{"jab", DamageType::Pierce, 0.7f, 0.05f, 0.7f},
-		{"thrust", DamageType::Pierce, 1.2f, 0.0f, 1.15f},
-		{"slash", DamageType::Slash, 1.0f, 0.0f, 1.0f},
-		{"hack", DamageType::Slash, 1.15f, -0.03f, 1.15f},
-		{"chop", DamageType::Slash, 1.3f, -0.05f, 1.25f},
-		{"bash", DamageType::Bash, 1.15f, -0.05f, 1.2f},
-		{"swing", DamageType::Bash, 1.0f, 0.0f, 1.0f},
-		{"punch", DamageType::Bash, 1.0f, 0.0f, 1.0f},
-		{"kick", DamageType::Bash, 1.15f, 0.0f, 1.15f},
+		{"stab", DamageType::Pierce, 0.8f, 0.05f, 0.8f, 0.8f},
+		{"jab", DamageType::Pierce, 0.7f, 0.05f, 0.7f, 0.7f},
+		{"thrust", DamageType::Pierce, 1.2f, 0.0f, 1.15f, 1.3f},
+		{"slash", DamageType::Slash, 1.0f, 0.0f, 1.0f, 1.0f},
+		{"hack", DamageType::Slash, 1.15f, -0.03f, 1.15f, 1.3f},
+		{"chop", DamageType::Slash, 1.3f, -0.05f, 1.25f, 1.5f},
+		{"bash", DamageType::Bash, 1.15f, -0.05f, 1.2f, 1.5f},
+		{"swing", DamageType::Bash, 1.0f, 0.0f, 1.0f, 1.2f},
+		{"punch", DamageType::Bash, 1.0f, 0.0f, 1.0f, 0.8f},
+		{"kick", DamageType::Bash, 1.15f, 0.0f, 1.15f, 1.2f},
 	};
 }
 
@@ -118,6 +127,7 @@ void Balance::Load(const Catalog& balanceCat, const Catalog& attacksCat) {
 			a.dmg = e->GetFloat("damage", a.dmg);
 			a.acc = e->GetFloat("accuracy", a.acc);
 			a.pace = e->GetFloat("speed", a.pace);
+			a.stam = e->GetFloat("stamina", a.stam);
 		}
 }
 
@@ -137,6 +147,7 @@ void Balance::Save(Catalog& balanceCat, Catalog& attacksCat) const {
 		e.Set("damage", std::format("{:g}", a.dmg));
 		e.Set("accuracy", std::format("{:g}", a.acc));
 		e.Set("speed", std::format("{:g}", a.pace));
+		e.Set("stamina", std::format("{:g}", a.stam));
 		attacksCat.Add(std::move(e));
 	}
 }

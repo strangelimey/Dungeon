@@ -92,30 +92,32 @@ void BalanceDialog::BuildFormulaTab(size_t tab) {
 
 void BalanceDialog::BuildAttacksTab(size_t tab) {
 	// Header row (raw attacks.cat keys), then one row per attack: id + its
-	// damage type (identity, read-only) and the three numeric fields.
+	// damage type (identity, read-only) and the four numeric fields.
 	constexpr float rowH = 0.068f, top = 0.03f;
-	// "?" — the column explainer overlay (what damage/accuracy/speed do).
-	m_tabs->AddChild<ui::Button>(tab, gfx::Rect{0.92f, top, 0.055f, rowH * 0.85f},
+	constexpr float colW = 0.155f;
+	constexpr float colX[4] = {0.26f, 0.435f, 0.61f, 0.785f};
+	// "?" — the column explainer overlay (what the four numbers do).
+	m_tabs->AddChild<ui::Button>(tab, gfx::Rect{0.95f, top, 0.045f, rowH * 0.85f},
 								 "?", [this] { m_helpOpen = true; });
-	m_tabs->AddChild<ui::Label>(tab, gfx::Rect{0.30f, top, 0.18f, rowH * 0.8f},
-								"damage");
-	m_tabs->AddChild<ui::Label>(tab, gfx::Rect{0.51f, top, 0.18f, rowH * 0.8f},
-								"accuracy");
-	m_tabs->AddChild<ui::Label>(tab, gfx::Rect{0.72f, top, 0.18f, rowH * 0.8f},
-								"speed");
+	const char* headers[4] = {"damage", "accuracy", "speed", "stamina"};
+	for (int c = 0; c < 4; ++c)
+		m_tabs->AddChild<ui::Label>(
+			tab, gfx::Rect{colX[c], top, colW, rowH * 0.8f}, headers[c]);
 	for (size_t i = 0; i < m_cfg.attacks.size(); ++i) {
 		AttackSpec& a = m_cfg.attacks[i];
 		const float y = top + (1 + static_cast<float>(i)) * rowH;
-		m_tabs->AddChild<ui::Label>(tab, gfx::Rect{0.03f, y, 0.15f, rowH * 0.85f},
+		m_tabs->AddChild<ui::Label>(tab, gfx::Rect{0.02f, y, 0.13f, rowH * 0.85f},
 									a.id);
-		m_tabs->AddChild<ui::Label>(tab, gfx::Rect{0.17f, y, 0.12f, rowH * 0.85f},
+		m_tabs->AddChild<ui::Label>(tab, gfx::Rect{0.15f, y, 0.10f, rowH * 0.85f},
 									DamageTypeId(a.type));
-		AddNumericField(m_tabs, tab, gfx::Rect{0.30f, y, 0.18f, rowH * 0.85f},
+		AddNumericField(m_tabs, tab, gfx::Rect{colX[0], y, colW, rowH * 0.85f},
 						a.dmg, [this, &a](float v) { a.dmg = v; Apply(); });
-		AddNumericField(m_tabs, tab, gfx::Rect{0.51f, y, 0.18f, rowH * 0.85f},
+		AddNumericField(m_tabs, tab, gfx::Rect{colX[1], y, colW, rowH * 0.85f},
 						a.acc, [this, &a](float v) { a.acc = v; Apply(); });
-		AddNumericField(m_tabs, tab, gfx::Rect{0.72f, y, 0.18f, rowH * 0.85f},
+		AddNumericField(m_tabs, tab, gfx::Rect{colX[2], y, colW, rowH * 0.85f},
 						a.pace, [this, &a](float v) { a.pace = v; Apply(); });
+		AddNumericField(m_tabs, tab, gfx::Rect{colX[3], y, colW, rowH * 0.85f},
+						a.stam, [this, &a](float v) { a.stam = v; Apply(); });
 	}
 }
 
@@ -175,7 +177,8 @@ void BalanceDialog::Render(gfx::SpriteBatch& batch, const ui::Theme& th, float w
 		// Word-wrap each paragraph to the panel width; a blank line between.
 		for (const char* key :
 			 {"map.balance.help.damage", "map.balance.help.accuracy",
-			  "map.balance.help.speed", "map.balance.help.notes"}) {
+			  "map.balance.help.speed", "map.balance.help.stamina",
+			  "map.balance.help.notes"}) {
 			const std::string text = loc::Tr(key);
 			std::string line;
 			size_t start = 0;

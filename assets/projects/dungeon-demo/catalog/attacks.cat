@@ -8,6 +8,7 @@
 ;   damage   = x the profile damage
 ;   accuracy = + the profile accuracy
 ;   speed    = x the swing interval (a whiff pays it too)
+;   stamina  = x the swing's stamina cost (chop exerts, jab doesn't)
 ; Types for reference: stab/jab/thrust=pierce, slash/hack/chop=slash,
 ; bash/swing/punch/kick=bash.
 
@@ -15,48 +16,58 @@
 damage = 0.8
 accuracy = 0.05
 speed = 0.8
+stamina = 0.8
 
 [jab]
 damage = 0.7
 accuracy = 0.05
 speed = 0.7
+stamina = 0.7
 
 [thrust]
 damage = 1.2
 accuracy = 0
 speed = 1.15
+stamina = 1.3
 
 [slash]
 damage = 1
 accuracy = 0
 speed = 1
+stamina = 1
 
 [hack]
 damage = 1.15
 accuracy = -0.03
 speed = 1.15
+stamina = 1.3
 
 [chop]
 damage = 1.3
 accuracy = -0.05
 speed = 1.25
+stamina = 1.5
 
 [bash]
 damage = 1.15
 accuracy = -0.05
 speed = 1.2
+stamina = 1.5
 
 [swing]
 damage = 1
 accuracy = 0
 speed = 1
+stamina = 1.2
 
 [punch]
 damage = 1
 accuracy = 0
 speed = 1
+stamina = 0.8
 
 [kick]
 damage = 1.15
 accuracy = 0
 speed = 1.15
+stamina = 1.2
