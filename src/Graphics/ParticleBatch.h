@@ -34,10 +34,12 @@ public:
 
 	void NewFrame(u32 frameIndex);
 
-	// Draws the instances with the back buffer + depth already bound (call
-	// after the opaque scene pass).
+	// Draws the instances with the render target + depth already bound (call
+	// after the opaque scene pass). hdrTarget matches the bound RT's format:
+	// true for the PostProcess HDR scene target (the main pass), false for
+	// UNORM targets (the torch preview's LDR RT).
 	void Render(ID3D12GraphicsCommandList* list, const Camera& camera,
-				std::span<const ParticleInstance> instances);
+				std::span<const ParticleInstance> instances, bool hdrTarget = false);
 
 private:
 	struct ParticleVertex {
@@ -49,6 +51,7 @@ private:
 	GraphicsDevice& m_device;
 	ComPtr<ID3D12RootSignature> m_rootSignature;
 	ComPtr<ID3D12PipelineState> m_pso;
+	ComPtr<ID3D12PipelineState> m_psoHdr; // same pass into kSceneColorFormat
 	std::unique_ptr<UploadAllocator> m_frameAllocators[kFrameCount];
 	std::unique_ptr<Texture> m_sprite; // soft radial falloff in alpha
 	u32 m_frameIndex = 0;

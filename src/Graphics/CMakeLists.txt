@@ -4,6 +4,7 @@ add_library(Graphics STATIC
 	Mesh.cpp
 	ModelPreview.cpp
 	ParticleBatch.cpp
+	PostProcess.cpp
 	Renderer.cpp
 	ShaderCompiler.cpp
 	SpriteBatch.cpp

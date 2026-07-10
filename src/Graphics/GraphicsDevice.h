@@ -40,6 +40,11 @@ inline constexpr u32 kFrameCount = 3;
 inline constexpr u32 kSrvHeapCapacity = 1024;
 inline constexpr DXGI_FORMAT kBackBufferFormat = DXGI_FORMAT_R8G8B8A8_UNORM;
 inline constexpr DXGI_FORMAT kDepthFormat = DXGI_FORMAT_D32_FLOAT;
+// The HDR scene intermediate (see PostProcess): the forward pass renders
+// linear HDR here, then the post chain tonemaps into the UNORM back buffer.
+// No alpha — the scene needs none (opaque + premultiplied particle blending
+// reads only source alpha) and it halves the bandwidth of RGBA16F.
+inline constexpr DXGI_FORMAT kSceneColorFormat = DXGI_FORMAT_R11G11B10_FLOAT;
 
 struct SrvHandle {
 	u32 index = 0;
@@ -95,6 +100,13 @@ public:
 	// Re-binds the back buffer RT/DSV + full viewport after an offscreen pass
 	// (e.g. shadow rendering) redirected the output merger. No clear.
 	void BindBackBuffer(ID3D12GraphicsCommandList* list);
+
+	// The window depth buffer's DSV (the one BeginFrame binds) — for offscreen
+	// passes that render full-window geometry with the standard depth buffer
+	// (the PostProcess HDR scene target).
+	D3D12_CPU_DESCRIPTOR_HANDLE DepthDsv() const {
+		return m_dsvHeap->GetCPUDescriptorHandleForHeapStart();
+	}
 
 	void Resize(u32 width, u32 height);
 

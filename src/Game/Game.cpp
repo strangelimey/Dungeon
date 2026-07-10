@@ -68,7 +68,7 @@ bool ParseSymbolArg(DevConsole& console, const std::string& arg, SpellSymbol& ou
 Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 		   gfx::SpriteBatch& spriteBatch, audio::AudioEngine& audio)
 	: m_window(window), m_device(device), m_renderer(renderer),
-	  m_spriteBatch(spriteBatch), m_audio(audio),
+	  m_spriteBatch(spriteBatch), m_audio(audio), m_postProcess(device),
 	  m_project(Project::Load(paths::Asset("projects\\dungeon-demo"))),
 	  m_world(device, renderer, audio, m_sounds, m_settings, m_project, m_threads),
 	  m_ui(window, device, spriteBatch, audio, m_sounds, m_settings,
@@ -2282,7 +2282,12 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 		m_world.UpdateItemIcons(list, m_spriteBatch); // 3D item icons (static + spin)
 		m_world.UpdateMapIcons(list, m_spriteBatch);  // map marker icons (one-shot)
 		m_world.RenderShadowMaps(list);
+		// The scene renders linear HDR into the post target; Resolve runs the
+		// bloom chain + ACES composite and leaves the back buffer bound for
+		// the 2D pass below.
+		m_postProcess.BeginScene(list);
 		m_world.RenderScene(list);
+		m_postProcess.Resolve(list);
 	} else if (editorMap) {
 		// The editor covers the scene, but its map overlay draws the baked
 		// marker icons — keep the bakes running (a kind placed from the palette

@@ -19,7 +19,11 @@ cbuffer FrameConstants : register(b0) {
 	float4 gDirDirection;
 	float4 gDirColor;
 	uint gPointLightCount;
-	uint3 _pad0;
+	// 1 = tonemap + gamma in this shader (LDR targets: previews, icon bakes);
+	// 0 = output linear HDR (the main scene renders into the PostProcess
+	// target and tonemaps in post.hlsl's composite, after bloom).
+	uint gTonemapInline;
+	uint2 _pad0;
 	float4 gFogGrid;     // xy = 1 / atmosphere world extent, z = density/m, w = haze ambient
 	float4 gHazeColor;   // rgb = dust albedo tint
 	float4 gShadowLight; // shadow pass only (see shadow.hlsl)
@@ -330,6 +334,13 @@ float2 Parallax(float2 uv, float3 viewTS) {
 	return current;
 }
 
+// ACES filmic fit (Narkowicz) — must match post.hlsl's copy so the inline
+// (LDR preview) path grades identically to the post-processed scene.
+float3 AcesTonemap(float3 x) {
+	const float a = 2.51, b = 0.03, c = 2.43, d = 0.59, e = 0.14;
+	return saturate((x * (a * x + b)) / (x * (c * x + d) + e));
+}
+
 float4 PSMain(PSInput input) : SV_TARGET {
 	float2 uv = input.uv;
 	float3 normal = normalize(input.normal);
@@ -378,8 +389,12 @@ float4 PSMain(PSInput input) : SV_TARGET {
 	}
 	color = ApplyDust(color, input.worldPos);
 
-	// Simple tonemap + gamma (back buffer is UNORM).
-	color = color / (color + 1.0);
-	color = pow(color, 1.0 / 2.2);
+	// LDR targets (previews, icon bakes) tonemap + gamma here; the main scene
+	// pass outputs linear HDR and PostProcess tonemaps after bloom. Same ACES
+	// fit both sides (post.hlsl), so previews grade like the scene.
+	if (gTonemapInline != 0) {
+		color = AcesTonemap(color);
+		color = pow(color, 1.0 / 2.2);
+	}
 	return float4(color, albedo.a);
 }

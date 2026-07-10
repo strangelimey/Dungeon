@@ -146,13 +146,17 @@ void DungeonWorld::RenderShadowMaps(ID3D12GraphicsCommandList* list) {
 	m_device.BindBackBuffer(list); // the shadow pass redirected the OM
 }
 
+// Renders into the PostProcess HDR scene target (Game brackets this with
+// PostProcess::BeginScene/Resolve), so the pass outputs linear HDR — the
+// tonemap runs in the post composite, after bloom.
 void DungeonWorld::RenderScene(ID3D12GraphicsCommandList* list) {
 	m_renderer.BeginScene(list, m_camera, m_lights,
-						  m_dustEnabled ? m_atmosphere : gfx::Atmosphere{});
+						  m_dustEnabled ? m_atmosphere : gfx::Atmosphere{},
+						  /*hdrTarget=*/true);
 	const ViewCull cull = ViewCull::FromFrustum(m_camera.ViewProj());
 	SubmitSceneGeometry(list, &cull);
 	// Transparent flame/spark/smoke billboards last, over the opaque scene.
-	m_particleBatch->Render(list, m_camera, m_particleScratch);
+	m_particleBatch->Render(list, m_camera, m_particleScratch, /*hdrTarget=*/true);
 }
 
 void DungeonWorld::DrawMultiMaterial(ID3D12GraphicsCommandList* list,

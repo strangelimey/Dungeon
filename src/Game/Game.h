@@ -60,6 +60,7 @@
 #include "Game/Project.h"
 #include "Game/SoundBank.h"
 #include "Graphics/ModelPreview.h"
+#include "Graphics/PostProcess.h"
 #include "Graphics/Renderer.h"
 #include "Graphics/SpriteBatch.h"
 #include "Platform/Process.h"
@@ -181,6 +182,9 @@ private:
 	gfx::Renderer& m_renderer;
 	gfx::SpriteBatch& m_spriteBatch;
 	audio::AudioEngine& m_audio;
+	// HDR scene target + bloom + ACES composite; Render brackets the world's
+	// scene pass with BeginScene/Resolve (see DungeonWorld::RenderScene).
+	gfx::PostProcess m_postProcess;
 
 	// --- app state -------------------------------------------------------------
 	AppState m_state = AppState::Loading;
