@@ -167,7 +167,7 @@ DungeonWorld::DungeonWorld(gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 		case TargetSide::Party:
 			// A monster bolt strikes the party (push doesn't apply — the party
 			// isn't displaceable; a future gust trap would need its own path).
-			return ResolveMonsterProjectileHit(impact.pos, impact.atk);
+			return ResolveMonsterProjectileHit(impact);
 		}
 		return false;
 	};
@@ -3439,9 +3439,19 @@ bool DungeonWorld::CastSpell(size_t member, std::span<const SpellSymbol> sequenc
 	if (!caster.IsAlive()) return false;
 
 	// Bolt travels the party's faced cardinal direction (the grid facing, not the
-	// free-look offset), spawned at the party eye.
+	// free-look offset) — but down the CASTER'S QUADRANT lane, not the cell's
+	// center line (Michael, 2026-07-10): the portraits read front-left,
+	// front-right, rear-left, rear-right, so roster columns 0/2 are the
+	// on-screen LEFT pair, 1/3 the right — each a quarter-cell off center.
+	// (Repositioning members is a later feature.) The monster mirror already
+	// holds (their bolts spawn at their sub-cell slot); a future ranged
+	// weapon fires from the same lane.
 	const Direction faced = static_cast<Direction>(m_party.Facing());
-	const Vec3 origin = m_party.EyePosition();
+	const Direction lateral = static_cast<Direction>(
+		(static_cast<int>(faced) + (member % 2 == 0 ? 3 : 1)) % 4);
+	Vec3 origin = m_party.EyePosition();
+	origin.x += static_cast<float>(DirDX(lateral)) * (kCellSize * 0.25f);
+	origin.z += static_cast<float>(DirDZ(lateral)) * (kCellSize * 0.25f);
 	const Vec3 dir{static_cast<float>(DirDX(faced)), 0.0f,
 				   static_cast<float>(DirDZ(faced))};
 
@@ -3501,20 +3511,43 @@ bool DungeonWorld::CastSpellById(size_t member, std::string_view id, int hand) {
 	return CastSpell(member, def->Sequence(), hand);
 }
 
+namespace {
+// The lane-hit window (Michael, 2026-07-10): the lateral distance between a
+// bolt's travel line and a body's sub-cell position. 0 = the same side,
+// cell/4 = a centered body (hit), ~cell/2+ = the opposite quadrant (flies
+// past) — 0.35 splits hit from miss. Shared by both directions of fire.
+constexpr float kLaneHalfWidth = kCellSize * 0.35f;
+
+// Lateral offset of `pos` from a cardinal bolt's travel line.
+float LaneOffset(const ProjectileImpact& impact, const Vec3& pos) {
+	return std::abs(impact.dir.x) > 0.5f ? pos.z - impact.pos.z
+										 : pos.x - impact.pos.x;
+}
+} // namespace
+
 bool DungeonWorld::ResolveSpellHit(const ProjectileImpact& impact) {
 	const int cx = static_cast<int>(std::floor(impact.pos.x / kCellSize));
 	const int cz = static_cast<int>(std::floor(impact.pos.z / kCellSize));
+	// A bolt flies down its LANE (the caster's quadrant line): it hits a
+	// monster on the same side or in the middle of the cell, and flies
+	// straight past one hugging the opposite side (Michael, 2026-07-10).
+	// The window is the lateral distance between the bolt's line and the
+	// monster's sub-cell slot: 0 same side, cell/4 for a centered (large)
+	// body, ~cell/2+ for the opposite quadrant — 0.35 splits hit from miss.
+	// (kLaneHalfWidth — shared with the party mirror below.)
 	Monster* hit = nullptr;
 	int hitIndex = -1;
 	for (size_t i = 0; i < m_monsters.size(); ++i) {
 		Monster& m = m_monsters[i];
-		if (m.Alive() && m.x == cx && m.z == cz) {
-			hit = &m;
-			hitIndex = static_cast<int>(i);
-			break;
-		}
+		if (!m.Alive() || m.x != cx || m.z != cz) continue;
+		const Vec3 mp = SlotCenter(m.x, m.z, m.kind->size, m.slot);
+		if (std::abs(LaneOffset(impact, mp)) > kLaneHalfWidth)
+			continue; // opposite side
+		hit = &m;
+		hitIndex = static_cast<int>(i);
+		break;
 	}
-	if (!hit) return false; // open air — the bolt flies on
+	if (!hit) return false; // open air (or only wrong-lane bodies) — flies on
 
 	const DefenseProfile def = MonsterDefense(*hit->kind, impact.atk.type);
 	const AttackResult r =
@@ -3557,21 +3590,40 @@ bool DungeonWorld::ResolveSpellHit(const ProjectileImpact& impact) {
 	return true; // a monster was here, so the bolt is consumed (hit or miss)
 }
 
-bool DungeonWorld::ResolveMonsterProjectileHit(const Vec3& p, const AttackProfile& atk) {
+bool DungeonWorld::ResolveMonsterProjectileHit(const ProjectileImpact& impact) {
 	if (!m_roster || m_partyWiped) return false;
-	const int cx = static_cast<int>(std::floor(p.x / kCellSize));
-	const int cz = static_cast<int>(std::floor(p.z / kCellSize));
+	const int cx = static_cast<int>(std::floor(impact.pos.x / kCellSize));
+	const int cz = static_cast<int>(std::floor(impact.pos.z / kCellSize));
 	if (cx != m_party.GridX() || cz != m_party.GridZ()) return false; // not the party's cell yet
 
-	// Reached the party: strike a random standing member (the ranged mirror of
-	// MonsterAttack). Consumed once it arrives, hit or miss (like a spell bolt).
-	std::array<size_t, 4> alive;
+	// Reached the party: the LANE mirror of the party's shots (Michael,
+	// 2026-07-10) — the bolt can only strike a standing member whose facing-
+	// relative QUADRANT (portraits read front-left/front-right/rear-left/
+	// rear-right) sits in its lane; with nobody in the lane it flies straight
+	// past the party. A random in-lane member takes the strike. Consumed once
+	// it connects with anyone, hit or miss (like a spell bolt).
+	const Direction faced = static_cast<Direction>(m_party.Facing());
+	const float q = kCellSize * 0.25f;
+	const Vec3 center{(static_cast<float>(m_party.GridX()) + 0.5f) * kCellSize,
+					  0.0f,
+					  (static_cast<float>(m_party.GridZ()) + 0.5f) * kCellSize};
+	std::array<size_t, 4> inLane;
 	size_t n = 0;
-	for (size_t i = 0; i < m_roster->size() && n < alive.size(); ++i)
-		if ((*m_roster)[i].IsAlive()) alive[n++] = i;
-	if (n == 0) return true;
+	for (size_t i = 0; i < m_roster->size() && i < 4; ++i) {
+		if (!(*m_roster)[i].IsAlive()) continue;
+		const Direction lateral = static_cast<Direction>(
+			(static_cast<int>(faced) + (i % 2 == 0 ? 3 : 1)) % 4);
+		const float row = i < 2 ? q : -q; // front pair toward the facing
+		const Vec3 mp{center.x + static_cast<float>(DirDX(faced)) * row +
+						  static_cast<float>(DirDX(lateral)) * q,
+					  0.0f,
+					  center.z + static_cast<float>(DirDZ(faced)) * row +
+						  static_cast<float>(DirDZ(lateral)) * q};
+		if (std::abs(LaneOffset(impact, mp)) <= kLaneHalfWidth) inLane[n++] = i;
+	}
+	if (n == 0) return false; // nobody in this lane — the bolt flies past
 
-	Character& target = (*m_roster)[alive[m_combatRng() % n]];
+	Character& target = (*m_roster)[inLane[m_combatRng() % n]];
 	// Wind Ward: air guards by DEFLECTING — a bolt aimed at the warded member
 	// is turned aside outright (no strike roll), spending one of the ward's
 	// charges (its magnitude); the last deflection stills the wind. Bolts
@@ -3585,8 +3637,9 @@ bool DungeonWorld::ResolveMonsterProjectileHit(const Vec3& p, const AttackProfil
 		}
 		return true; // the bolt is spent against the wind
 	}
-	const DefenseProfile def = PartyDefense(target, atk.type);
-	const AttackResult r = ResolveAttack(atk, def, m_balance.Strike(), m_combatRng);
+	const DefenseProfile def = PartyDefense(target, impact.atk.type);
+	const AttackResult r =
+		ResolveAttack(impact.atk, def, m_balance.Strike(), m_combatRng);
 	if (!r.hit) {
 		MemberMessage(target, loc::Format("log.monster_ranged_misses", target.name));
 		return true;

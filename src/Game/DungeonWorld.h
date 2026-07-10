@@ -1269,11 +1269,13 @@ private:
 	// (m_projectiles) owns the bolt; this is the TargetSide::Monsters branch of
 	// its impact hook.
 	bool ResolveSpellHit(const ProjectileImpact& impact);
-	// TargetSide::Party branch of the moving-item engine's impact hook: a monster
-	// bolt reaching `p`. If `p` is the party's cell it strikes a random standing
-	// member (mirror of MonsterAttack) and is consumed (true, hit or miss);
-	// otherwise it flies on (false).
-	bool ResolveMonsterProjectileHit(const Vec3& p, const AttackProfile& atk);
+	// TargetSide::Party branch of the moving-item engine's impact hook: a
+	// monster bolt reaching the party's cell strikes a random standing member
+	// IN ITS LANE (the quadrant mirror of the party's shots — nobody in the
+	// lane and it flies straight past; the air ward may deflect whoever it
+	// picks) and is consumed (true, hit or miss). False while it is short of
+	// the party or slides through an empty lane.
+	bool ResolveMonsterProjectileHit(const ProjectileImpact& impact);
 	// Skirmisher executor (intent == Kite): hold `keepRange` from the party (greedy
 	// 1-step, LoS-preferring), and fire a ranged bolt when it has a clear line and is
 	// off cooldown. `selfIndex` is the monster's index in m_monsters (for slot tests).
