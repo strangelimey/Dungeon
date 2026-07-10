@@ -351,6 +351,23 @@ DungeonWorld::MonsterKind& DungeonWorld::MonsterKindFor(const std::string& type)
 			if (const std::string t = CatalogGet(def, "dmgtype", "");
 				!t.empty() && !ParseDamageType(t, assets->damageType))
 				log::Warn("monsters.cat [{}]: unknown dmgtype '{}'", type, t);
+			// On-hit DoTs (Phase 6): "<dps> <seconds> [chance]" per kind.
+			const auto hitEffect = [&](const char* key,
+									   MonsterKind::HitEffect& fx) {
+				const std::vector<std::string> t =
+					SplitTokens(CatalogGet(def, key, ""));
+				if (t.empty()) return;
+				if (t.size() < 2) {
+					log::Warn("monsters.cat [{}]: {}= needs <dps> <seconds>",
+							  type, key);
+					return;
+				}
+				fx.dps = std::strtof(t[0].c_str(), nullptr);
+				fx.duration = std::strtof(t[1].c_str(), nullptr);
+				if (t.size() >= 3) fx.chance = std::strtof(t[2].c_str(), nullptr);
+			};
+			hitEffect("poison", assets->poison);
+			hitEffect("bleed", assets->bleed);
 			assets->attackInterval = def->GetFloat("attackcd", 1.6f);
 			assets->aggroRange = def->GetFloat("aggro", 6.0f);
 			assets->moveInterval = def->GetFloat("movecd", 0.6f);

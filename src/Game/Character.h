@@ -42,7 +42,14 @@ namespace dungeon::game {
 // the fade line.
 // ============================================================================
 enum class StatusKind : u8 {
-	Ward, // the Protect shields — school keys the behaviour (see Character)
+	Ward,   // the Protect shields — school keys the behaviour (see Character)
+	Poison, // damage over time (docs/combat.md Phase 6): magnitude = dps,
+	Bleed,  // ticked quietly by the world; school carries only the HUD tint
+			// (poison rides earth green, bleed fire red). Reapplying the same
+			// kind REFRESHES (replaces); poison and bleed stack with wards
+			// and each other. DoT ticks a DOWNED member too — the wound that
+			// lands on someone already at 0 is death by the overkill rule,
+			// so get the poisoned to safety (Michael's call, 2026-07-09).
 };
 
 struct StatusEffect {

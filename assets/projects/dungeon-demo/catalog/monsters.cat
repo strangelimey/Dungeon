@@ -168,6 +168,8 @@ iq = 130
 archetype = lurker
 resists = pierce 0.5, slash 0.25, bash -0.5
 dmgtype = slash
+; The ambusher opens a wound you carry away (Phase 6): 2/s for 10s, half its blows.
+bleed = 2 10 0.5
 
 [blob]
 display = Blob
@@ -189,6 +191,8 @@ roughness = 0.18
 ; surface tension that is its body.
 resists = pierce 0.6, bash 0.3, slash -0.25
 dmgtype = bash
+; Its touch envenoms (Phase 6): 1/s for 20s, every landed blow.
+poison = 1 20 1
 
 [mummy]
 display = Mummy

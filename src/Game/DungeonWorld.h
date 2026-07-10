@@ -729,6 +729,13 @@ private:
 		// (`dmgtype`, default bash). Ranged/spell attacks type by school.
 		ResistTable resists;
 		DamageType damageType = DamageType::Bash;
+		// On-hit status effects (Phase 6, catalog `poison = <dps> <seconds>
+		// [chance]` / `bleed = ...`): a LANDED melee blow rolls the chance
+		// and lands the DoT (reapply refreshes). dps 0 = the type carries none.
+		struct HitEffect {
+			float dps = 0.0f, duration = 0.0f, chance = 1.0f;
+		};
+		HitEffect poison, bleed;
 		float attackInterval = 1.6f; // seconds between swings
 		float aggroRange = 6.0f;     // cells of party distance to engage at
 		float moveInterval = 0.6f;   // seconds per grid step while chasing
@@ -1288,9 +1295,16 @@ private:
 	// map (walls block). The host mirror of ai::SnapshotView::HasLineOfSight, used by
 	// the kiter for firing + repositioning; endpoints never block.
 	bool CellHasLineOfSight(int x0, int z0, int x1, int z1) const;
-	// Apply `damage` to a standing member: clamp health, flash the hit splat (severity
-	// by raw damage), and log a downing. Shared by every party-damage path.
-	void WoundMember(Character& target, float damage);
+	// Apply `damage` to a member: clamp health, flash the hit splat (severity
+	// by raw damage), and log a downing/death (the overkill rule). Shared by
+	// every party-damage path. `quiet` is the DoT ticks' mode: no splat and a
+	// silent water-ward soak (a per-frame tick must not spam), but the
+	// one-shot down/death transitions still log.
+	void WoundMember(Character& target, float damage, bool quiet = false);
+	// A landed monster blow rolls its type's on-hit DoT (Phase 6): chance,
+	// then land/refresh the effect with its log line. No-op for dps 0.
+	void ApplyHitEffect(Character& target, StatusKind kind,
+						const MonsterKind::HitEffect& fx);
 	// A log line ABOUT `member`: routes through onMemberMessage with their
 	// identity color (the HUD tints it), falling back to plain onMessage.
 	void MemberMessage(const Character& member, const std::string& line) const;

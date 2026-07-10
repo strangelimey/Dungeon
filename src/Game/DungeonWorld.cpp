@@ -1916,15 +1916,32 @@ void DungeonWorld::UpdateMonsters(float dt) {
 			// Age the status effects; an expired one leaves with its kind's
 			// fade line. (Spend-to-die wards — the water pool, the air
 			// charges — are erased at their spend site instead, so their
-			// burst/still lines replace the fade.)
+			// burst/still lines replace the fade.) Poison/bleed DoT damage
+			// accumulates HERE and wounds once after the loop — WoundMember
+			// can mutate the effects list (a water ward bursts soaking it),
+			// so it must not run mid-iteration.
+			float dot = 0.0f;
 			for (StatusEffect& e : member.effects) {
 				e.timeLeft -= dt;
-				if (e.timeLeft <= 0.0f && e.kind == StatusKind::Ward)
+				if (e.kind == StatusKind::Poison || e.kind == StatusKind::Bleed)
+					dot += e.magnitude * dt;
+				if (e.timeLeft > 0.0f) continue;
+				if (e.kind == StatusKind::Ward)
 					MemberMessage(member, loc::Format("log.shield_fades", member.name));
+				else if (e.kind == StatusKind::Poison || e.kind == StatusKind::Bleed)
+					MemberMessage(member, loc::Format("log.effect_fades", member.name,
+													  loc::Tr(e.nameKey)));
 			}
 			std::erase_if(member.effects,
 						  [](const StatusEffect& e) { return e.timeLeft <= 0.0f; });
+			// The quiet DoT wound — it ticks a DOWNED member too, and a wound
+			// on someone already at 0 is death by the overkill rule (Phase 5):
+			// poison finishes the fallen, so get them clear of the fight.
+			if (dot > 0.0f) WoundMember(member, dot, /*quiet=*/true);
 		}
+	// A DoT tick can down (or finish) the last standing member — the wipe
+	// latch must notice without a monster swinging.
+	if (m_roster) CheckPartyWipe();
 
 	// Re-derive groups from current co-location (monsters sharing a cell are one
 	// group — merge/split as they converge/spread), then assign formation targets
@@ -2842,19 +2859,21 @@ void DungeonWorld::MemberMessage(const Character& member,
 	else onMessage(line);
 }
 
-void DungeonWorld::WoundMember(Character& target, float damage) {
+void DungeonWorld::WoundMember(Character& target, float damage, bool quiet) {
 	// Water Veil: water guards by ABSORBING — the ward soaks damage into its
 	// pool (the ward's magnitude) before any reaches health, and BURSTS when
 	// the pool is spent (unlike the timed wards, it dies by spending). Sitting
 	// in the one place a member takes damage, it soaks every source alike —
-	// melee, ranged, even a wall bump. A partial soak lets the remainder
-	// through to the normal wound path below.
+	// melee, ranged, a wall bump, even a poison tick (silently — quiet mode
+	// is per-frame). A partial soak lets the remainder through to the normal
+	// wound path below.
 	if (StatusEffect* ward = target.FindWard(SpellSymbol::Water);
 		ward && damage > 0.0f) {
 		const float soaked = std::min(ward->magnitude, damage);
 		ward->magnitude -= soaked;
 		damage -= soaked;
-		MemberMessage(target, loc::Format("log.shield_soaks", target.name));
+		if (!quiet)
+			MemberMessage(target, loc::Format("log.shield_soaks", target.name));
 		if (ward->magnitude <= 0.0f) {
 			target.RemoveWard(SpellSymbol::Water); // spent — burst, not fade
 			MemberMessage(target, loc::Format("log.shield_bursts", target.name));
@@ -2862,14 +2881,17 @@ void DungeonWorld::WoundMember(Character& target, float damage) {
 		if (damage <= 0.0f) return; // fully absorbed — no wound, no splat
 	}
 	// Death needs deliberate OVERKILL (docs/combat.md Phase 5): a hit landing
-	// on a member ALREADY down, or a single blow past the overkill knob.
-	// Anything less leaves them unconscious — stabilizing back on their feet
-	// once the danger passes (the tick in UpdateMonsters).
+	// on a member ALREADY down — a poison tick against the unconscious counts
+	// — or a single blow past the overkill knob. Anything less leaves them
+	// unconscious, stabilizing back up once the danger passes (the tick in
+	// UpdateMonsters).
 	const bool wasDown = !target.IsAlive();
 	target.health -= damage;
 	if (target.health < 0.0f) target.health = 0.0f;
-	target.hitFlash = kHitFlashSeconds;
-	target.hitSeverity = damage < 5.0f ? 0 : (damage < 10.0f ? 1 : 2);
+	if (!quiet) {
+		target.hitFlash = kHitFlashSeconds;
+		target.hitSeverity = damage < 5.0f ? 0 : (damage < 10.0f ? 1 : 2);
+	}
 	if (target.IsAlive()) return;
 	target.stabilize = 0.0f; // the wound that downed them restarts the clock
 	if (!target.dead &&
@@ -2985,6 +3007,24 @@ DefenseProfile DungeonWorld::MonsterDefense(const MonsterKind& kind,
 			m_balance.ClampResist(kind.resists[type], kind.resists[type])};
 }
 
+void DungeonWorld::ApplyHitEffect(Character& target, StatusKind kind,
+								  const MonsterKind::HitEffect& fx) {
+	if (fx.dps <= 0.0f || fx.duration <= 0.0f) return;
+	std::uniform_real_distribution<float> roll(0.0f, 1.0f);
+	if (roll(m_combatRng) > fx.chance) return;
+	// Reapply REFRESHES (the ward-recast rule): the old effect goes, the new
+	// one lands whole. School carries only the HUD tint — poison rides earth
+	// green, bleed fire red (the palette convention until richer art exists).
+	const bool poison = kind == StatusKind::Poison;
+	target.RemoveEffect(kind);
+	target.effects.push_back({kind,
+							  poison ? SpellSymbol::Earth : SpellSymbol::Fire,
+							  poison ? "effect.poison" : "effect.bleed",
+							  fx.duration, fx.duration, fx.dps});
+	MemberMessage(target, loc::Format(poison ? "log.poisoned" : "log.bleeding",
+									  target.name));
+}
+
 // Latch the party wipe exactly once when the last member falls (message + callback).
 // Returns true the frame it latches. Shared by the melee/ranged/bump damage paths.
 bool DungeonWorld::CheckPartyWipe() {
@@ -3029,6 +3069,10 @@ void DungeonWorld::MonsterAttack(Monster& monster) {
 									  static_cast<int>(r.damage + 0.5f)));
 	m_audio.Play(m_sounds.monster, 0.6f);
 	WoundMember(target, r.damage);
+	// On-hit DoTs (Phase 6): the landed blow may envenom/open a wound —
+	// applied even if the blow itself downed them (the ticks finish the job).
+	ApplyHitEffect(target, StatusKind::Poison, monster.kind->poison);
+	ApplyHitEffect(target, StatusKind::Bleed, monster.kind->bleed);
 	// Fire Shield retaliation: fire guards by burning back — a monster that
 	// LANDS a melee blow on a fire-warded member is scorched for the ward's
 	// power (the hit itself is not reduced; earth is the school that hardens).

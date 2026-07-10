@@ -382,25 +382,31 @@ derived-stats line is in scope).
 - All three knobs (stabilize_time 30, stabilize_health 0.2,
   overkill 1.5) ride balance.cat → the Balance dialog.
 
-### Phase 6 — monster swing animation + poison/bleed
+### Phase 6 — monster swing animation + poison/bleed (LANDED 2026-07-09)
 
-- **Swing anim:** the request plumbing exists (`attackReq` →
-  DesiredState). Work: (a) verify skel_human's clips fire in-game; (b)
-  bake a simple procedural attack clip (a ~0.4s forward lunge/swipe) into
-  ModelBaker for the procedural rigs (skeleton family, blob squash-lunge,
-  mummy) so every monster telegraphs its hit.
-- **Poison/bleed:** `StatusKind::Poison` and `::Bleed` (save tokens
-  "poison"/"bleed" — old saves skip unknown kinds, so no version bump for
-  the effects themselves). monsters.cat opt-in per type:
-  `poison = <dps> <seconds> [chance]` (ditto `bleed`) applied on a LANDED
-  MonsterAttack blow; same-kind reapply refreshes (matches ward recast
-  rule). Tick site: the world tick that ages effects also applies
-  `magnitude × dt` through `WoundMember` (severity floor, no splat spam —
-  a DoT wound skips the flash unless it downs). Tint: poison=earth green,
-  water=red? — no, bleed rides fire red, poison earth green via the
-  existing school-tint convention. Lang: `effect.poison`/`.desc`,
-  `effect.bleed`/`.desc`, `log.poisoned`/`log.bleeding` ×5 languages.
-  Candidate carriers: blob poisons, skel_lurker bleeds.
+- **Swing anim:** already covered — the animation thread had baked
+  idle/walk/**attack**/die clips into every procedural rig (skeleton
+  family, blob, mummy; ModelBaker), and a clip named `attack` auto-
+  supports the state, so `attackReq` → DesiredState plays it. skel_human
+  carries its authored anim_attack rows. Visual confirmation rides the
+  feel-test (a monster swinging at the party is unmissable).
+- **Poison/bleed:** `StatusKind::Poison`/`::Bleed` (save tokens
+  "poison"/"bleed"; old saves skip unknown kinds — no version bump).
+  monsters.cat opt-in per type: `poison = <dps> <seconds> [chance]`
+  (ditto `bleed`), rolled on a LANDED melee blow; same-kind reapply
+  REFRESHES (the ward-recast rule), poison/bleed/wards stack. The
+  effects-aging tick accumulates `magnitude × dt` per member and wounds
+  once per frame through `WoundMember(quiet)` — no splat, silent water
+  soak, but the one-shot down/death lines still fire. **DoT ticks a
+  DOWNED member** (Michael's call): the tick that lands on someone at 0
+  is death by the overkill rule — get the poisoned to safety. A DoT down
+  also latches the party wipe. Tints ride the school convention (poison
+  earth green, bleed fire red); HUD name-band icons, the sheet's Effects
+  tab (`effect.*.desc` formats the dps in), and the v14 save lines came
+  free. Carriers: the blob envenoms (`poison = 1 20 1`), the lurking
+  skeleton opens wounds (`bleed = 2 10 0.5`). log.effect_fades when one
+  runs its course. A future serrated weapon reuses the whole mechanism
+  from items.cat.
 
 ### Phase 7 — reach (movement.md Phase 6, unblocked by Phase 1)
 
