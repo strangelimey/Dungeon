@@ -1779,10 +1779,23 @@ void GameUI::DrawLoadProgress(const LoadQueue& queue, float barY) {
 	const ui::Theme& theme = m_menuUi.GetTheme();
 
 	const gfx::Rect bar{w * 0.3f, barY, w * 0.4f, h * (14.0f / kFontDesignWindowH)};
-	m_spriteBatch.DrawRect(bar, theme.control);
-	m_spriteBatch.DrawRect({bar.x, bar.y, bar.w * queue.Progress(), bar.h},
-						   theme.accent);
-	ui::DrawBorder(m_spriteBatch, bar, theme.panelBorder);
+	// Skinned: the button part frames the bar with the track inset as a dark
+	// socket (the HandSlot treatment); flat mode keeps the bordered fill.
+	const ui::Skin* skin = m_menuUi.GetSkin();
+	if (skin && skin->button.texture) {
+		ui::DrawNineSlice(m_spriteBatch, bar, skin->button, {1, 1, 1, 1});
+		const float in = 3.0f;
+		const gfx::Rect track{bar.x + in, bar.y + in, bar.w - 2 * in,
+							  bar.h - 2 * in};
+		m_spriteBatch.DrawRect(track, {0.0f, 0.0f, 0.0f, 1.0f});
+		m_spriteBatch.DrawRect({track.x, track.y, track.w * queue.Progress(), track.h},
+							   theme.accent);
+	} else {
+		m_spriteBatch.DrawRect(bar, theme.control);
+		m_spriteBatch.DrawRect({bar.x, bar.y, bar.w * queue.Progress(), bar.h},
+							   theme.accent);
+		ui::DrawBorder(m_spriteBatch, bar, theme.panelBorder);
+	}
 
 	const std::string_view step = queue.CurrentLabel();
 	ui::Font& font = m_menuUi.GetFont();

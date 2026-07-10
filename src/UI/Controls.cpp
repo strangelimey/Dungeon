@@ -424,14 +424,31 @@ void ContextMenu::DrawOverlay(UIContext& ctx, gfx::SpriteBatch& batch) {
 	if (!m_open) return;
 	const Theme& theme = ctx.GetTheme();
 	Font& font = ctx.GetFont();
+	// Skinned: ONE panel face behind the whole menu (opaque, like the other
+	// popups), rows keep only their hover/active washes; flat mode keeps the
+	// per-row fills + borders.
+	const bool skinned = PanelPart(ctx) != nullptr;
+	if (skinned && !m_entries.empty()) {
+		const gfx::Rect box{m_x, m_y, m_w,
+							m_rowH * static_cast<float>(m_entries.size())};
+		DrawNineSlice(batch, box, *PanelPart(ctx), {1, 1, 1, 1});
+	}
 	for (size_t i = 0; i < m_entries.size(); ++i) {
 		const gfx::Rect rect = EntryRect(i);
 		const bool groupOpen = static_cast<int>(i) == m_openChild;
-		batch.DrawRect(rect, groupOpen ? theme.controlActive
-									   : (static_cast<int>(i) == m_hover
-											  ? theme.controlHot
-											  : theme.control));
-		DrawBorder(batch, rect, theme.panelBorder);
+		const bool hovered = static_cast<int>(i) == m_hover;
+		if (skinned) {
+			if (groupOpen || hovered) {
+				Vec4 wash = groupOpen ? theme.controlActive : theme.controlHot;
+				wash.w = 0.4f;
+				batch.DrawRect(rect, wash);
+			}
+		} else {
+			batch.DrawRect(rect, groupOpen ? theme.controlActive
+										   : (hovered ? theme.controlHot
+													  : theme.control));
+			DrawBorder(batch, rect, theme.panelBorder);
+		}
 		font.Draw(batch, m_entries[i].label, rect.x + 10,
 				  rect.y + (rect.h - font.Height()) * 0.5f, theme.text);
 		if (!m_entries[i].children.empty()) // group marker at the right edge
@@ -443,12 +460,24 @@ void ContextMenu::DrawOverlay(UIContext& ctx, gfx::SpriteBatch& batch) {
 	if (m_openChild >= 0 && m_openChild < static_cast<int>(m_entries.size())) {
 		const std::vector<Entry>& kids =
 			m_entries[static_cast<size_t>(m_openChild)].children;
+		if (skinned && !kids.empty()) {
+			const gfx::Rect box{m_childX, m_childY, m_childW,
+								m_rowH * static_cast<float>(kids.size())};
+			DrawNineSlice(batch, box, *PanelPart(ctx), {1, 1, 1, 1});
+		}
 		for (size_t i = 0; i < kids.size(); ++i) {
 			const gfx::Rect rect = ChildRect(i);
-			batch.DrawRect(rect, static_cast<int>(i) == m_childHover
-									 ? theme.controlHot
-									 : theme.control);
-			DrawBorder(batch, rect, theme.panelBorder);
+			const bool hovered = static_cast<int>(i) == m_childHover;
+			if (skinned) {
+				if (hovered) {
+					Vec4 wash = theme.controlHot;
+					wash.w = 0.4f;
+					batch.DrawRect(rect, wash);
+				}
+			} else {
+				batch.DrawRect(rect, hovered ? theme.controlHot : theme.control);
+				DrawBorder(batch, rect, theme.panelBorder);
+			}
 			font.Draw(batch, kids[i].label, rect.x + 10,
 					  rect.y + (rect.h - font.Height()) * 0.5f, theme.text);
 		}
