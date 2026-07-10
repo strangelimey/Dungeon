@@ -341,13 +341,16 @@ void SpellbookPanel::Close() {
 }
 
 bool SpellbookPanel::MemberEligible(size_t i) const {
-	return m_roster && i < m_roster->size() && (*m_roster)[i].IsAlive();
+	// A button responds only for a member who exists, is standing, and has
+	// something to spell with — no memorized symbols, no book.
+	return m_roster && i < m_roster->size() && (*m_roster)[i].IsAlive() &&
+		   (*m_roster)[i].knownSymbols != 0;
 }
 
 // Layout: everything scales off the box width (the control panel scales with
 // the window), line heights off the current HUD font via the design steps at
-// the 222px design box. Top to bottom: the member selector row, the selected
-// name, the rune grid; the sequence row and Cast/Clear anchor to the bottom.
+// the 222px design box. Top to bottom: the member selector row, then the rune
+// grid; the sequence row and Cast/Clear anchor to the bottom.
 gfx::Rect SpellbookPanel::MemberButtonRect(const gfx::Rect& px, size_t i) const {
 	const float s = px.w / 222.0f;
 	const float pad = 10.0f * s, gap = 6.0f * s;
@@ -361,7 +364,7 @@ gfx::Rect SpellbookPanel::SymbolRect(const gfx::Rect& px, size_t i) const {
 	const float pad = 10.0f * s, gap = 6.0f * s;
 	const float cell = (px.w - 2 * pad - 3 * gap) / 4.0f;
 	return {px.x + pad + (cell + gap) * static_cast<float>(i % 4),
-			px.y + 62.0f * s + (cell + gap) * static_cast<float>(i / 4), cell,
+			px.y + 40.0f * s + (cell + gap) * static_cast<float>(i / 4), cell,
 			cell};
 }
 
@@ -576,14 +579,14 @@ void SpellbookPanel::Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 					  r.y + (r.h - font.Height()) * 0.5f, ink);
 		}
 	}
-	// The selected member's name under the row; the placeholder when none.
-	const gfx::Rect b0 = MemberButtonRect(px, 0);
-	const float nameY = b0.y + b0.h + 6.0f * s;
+	// No selection: the placeholder line where the grid would start. (No name
+	// line — the pressed button and portrait row already say whose book.)
 	if (!c) {
-		font.Draw(batch, m_placeholder, px.x + 10.0f * s, nameY, theme.textDim);
+		const gfx::Rect b0 = MemberButtonRect(px, 0);
+		font.Draw(batch, m_placeholder, px.x + 10.0f * s, b0.y + b0.h + 8.0f * s,
+				  theme.textDim);
 		return;
 	}
-	font.Draw(batch, c->name, px.x + 10.0f * s, nameY, theme.accent);
 
 	// The rune grid: the school row on top (unknown schools keep their place
 	// as empty frames), learned runes below. A symbol the sequence can't take

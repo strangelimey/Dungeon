@@ -228,9 +228,10 @@ private:
 
 // The HUD Magic-area SPELLBOOK. A row of four member-colored SELECTOR buttons
 // tops the magic box — one per party slot, disabled while that member is
-// absent (short roster) or down, the selected one drawn pressed with the
-// member's name beneath (Michael, 2026-07-10; the old Magic » Spellbook menu
-// entry is gone). Selecting a member fills the box with THEIR KNOWN SYMBOLS
+// absent (short roster), down, or has NO memorized symbols; the selected one
+// draws pressed (Michael, 2026-07-10; the old Magic » Spellbook menu entry is
+// gone, and no name line — the pressed button says whose book).
+// Selecting a member fills the box with THEIR KNOWN SYMBOLS
 // as rune buttons, the sequence "spelled out" so far, the name of the spell
 // that sequence resolves to (when a known recipe matches), and Cast / Clear.
 // This is where the player BUILDS a spell: click symbols to append (an
