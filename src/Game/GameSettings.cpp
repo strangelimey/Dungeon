@@ -142,6 +142,7 @@ void GameSettings::Load() {
 	if (moveEase >= 0 && moveEase < static_cast<int>(std::size(kLookEaseOptions)))
 		look.moveEasing = kLookEaseOptions[moveEase].value;
 	ParseIniBool(text, "uiskin=", uiSkin);
+	ParseIniBool(text, "headbob=", headBob);
 	ParseIniBool(text, "usemenu_execute=", useMenuExecutes);
 	ParseIniInt(text, "spell_mru=", spellMruCount);
 	spellMruCount = std::clamp(spellMruCount, 1, 10);
@@ -206,6 +207,7 @@ void GameSettings::Save() const {
 		look.sensitivity, look.returnHold, look.returnTime, look.moveTime,
 		LookEaseIndex(look.snapEasing), LookEaseIndex(look.moveEasing));
 	text += std::format("uiskin={}\n", uiSkin ? 1 : 0);
+	text += std::format("headbob={}\n", headBob ? 1 : 0);
 	text += std::format("usemenu_execute={}\n", useMenuExecutes ? 1 : 0);
 	text += std::format("spell_mru={}\n", spellMruCount);
 	text += std::format(

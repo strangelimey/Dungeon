@@ -28,6 +28,11 @@ constexpr float kBumpReturn = 0.22f;
 constexpr float kLookSnap = kPi * 0.25f;
 constexpr float kLookPitchMax = kPi * 0.40f;
 
+// Head-bob amplitudes (see EyePosition): the vertical footfall dip and the
+// alternating lateral sway, in world metres (a cell is 2 m, eye at 1.55 m).
+constexpr float kBobDip = 0.05f;
+constexpr float kBobSway = 0.022f;
+
 float YawForFacing(int facing) {
 	// Camera forward is (sin(yaw), 0, cos(yaw)): N=-Z, E=+X, S=+Z, W=-X.
 	return kPi - static_cast<float>(facing) * (kPi * 0.5f);
@@ -82,7 +87,7 @@ void Party::Reset(int x, int z) {
 	m_currentPos = m_targetPos = m_moveFrom = m_map.CellCenter(x, z);
 	m_currentYaw = m_targetYaw = YawForFacing(m_facing);
 	ClearMotionState();
-	m_bobPhase = 0.0f;
+	m_bobParity = false;
 	ClearLookState();
 }
 
@@ -159,6 +164,7 @@ bool Party::TryStep(int dx, int dz) {
 	m_targetPos = m_map.CellCenter(m_x, m_z);
 	m_moving = true;
 	m_moveT = 0.0f;
+	m_bobParity = !m_bobParity; // alternate the sway side, like footfalls
 	if (onStep) onStep();
 	return true;
 }
@@ -340,7 +346,6 @@ void Party::Update(float dt) {
 		} else {
 			m_currentPos = EaseLerp(m_activeMoveEasing, m_moveFrom, m_targetPos, m_moveT);
 		}
-		m_bobPhase += dt * 11.0f;
 	}
 
 	if (m_turning) {
@@ -407,7 +412,21 @@ void Party::Update(float dt) {
 Vec3 Party::EyePosition() const {
 	Vec3 eye = m_currentPos;
 	eye.y = kEyeHeight;
-	if (m_moving) eye.y += std::sin(m_bobPhase) * 0.035f;
+	// Head bob: one footfall DIP per step plus a subtle lateral sway whose side
+	// alternates each step. Both ride sin(t·π) of the step tween's raw progress
+	// — zero at both ends, so the eye is always dead level the instant a step
+	// (or a chained run of steps) finishes; nothing to snap or settle.
+	if (m_headBob && m_moving) {
+		const float wave = std::sin(m_moveT * kPi);
+		eye.y -= wave * kBobDip;
+		Vec3 dir = Sub(m_targetPos, m_moveFrom);
+		const float len = std::sqrt(dir.x * dir.x + dir.z * dir.z);
+		if (len > 1e-4f) {
+			const float sway = wave * kBobSway * (m_bobParity ? 1.0f : -1.0f);
+			eye.x += (-dir.z / len) * sway; // perpendicular to the step, in XZ
+			eye.z += (dir.x / len) * sway;
+		}
+	}
 	return eye;
 }
 

@@ -111,6 +111,7 @@ settings.framelimit.vsync=VSync ({} FPS)
 settings.framelimit.fps={} FPS
 settings.volume=Volumen
 settings.uiskin=Interfaz texturizada (no = aspecto simple de depuración)
+settings.headbob=Balanceo de cámara al caminar
 settings.party_bar=Barra del grupo
 settings.bar_scale=Tamaño
 settings.bar_opacity=Opacidad del fondo

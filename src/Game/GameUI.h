@@ -190,6 +190,7 @@ public:
 		onCastSequence;
 	std::function<void()> onKeysChanged;        // a movement key was rebound
 	std::function<void()> onLookChanged;        // a mouse-look knob changed (push to Party)
+	std::function<void()> onHeadBobChanged;     // the head-bob checkbox (push to Party)
 	// Game tab language dropdown. The receiver must NOT rebuild the UI from
 	// inside the callback (see RebuildForLanguage) — record and defer.
 	std::function<void(const std::string&)> onLanguageSelected;

@@ -146,6 +146,10 @@ struct GameSettings {
 	// deliberately as a DEBUG MODE (widget containment/extents read at a
 	// glance). Settings → UI checkbox; ini uiskin=.
 	bool uiSkin = true;
+	// Walking head bob (Party::EyePosition's footfall dip + sway). Off for
+	// motion-sensitive players — the eye glides dead level. Settings → UI
+	// checkbox; ini headbob=.
+	bool headBob = true;
 	ui::Theme theme;              // the 8 user-editable control colors
 	ResourceBarColors barColors;  // health/stamina/mana fills
 	// Per-slot party identity colors (see kDefaultMemberColors above).

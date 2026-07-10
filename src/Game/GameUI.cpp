@@ -830,11 +830,22 @@ void GameUI::BuildSettings() {
 	// a glance). Live — widgets re-check the skin pointer each draw.
 	Flow uf{pad, rowW, pad};
 	tabs->AddChild<ui::Checkbox>(
-		tabUi, Norm(uf.Place(ctrlH, mGroup, mGroup), page),
+		tabUi, Norm(uf.Place(ctrlH, mGroup, mTight), page),
 		loc::Tr("settings.uiskin"), m_settings.uiSkin, [this](bool on) {
 			Click();
 			m_settings.uiSkin = on;
 			ApplySkin();
+			m_settings.Save();
+		});
+
+	// UI → Head bob: the walking camera's footfall dip/sway. Off for motion-
+	// sensitive players; pushed to the Party via onHeadBobChanged.
+	tabs->AddChild<ui::Checkbox>(
+		tabUi, Norm(uf.Place(ctrlH, mTight, mGroup), page),
+		loc::Tr("settings.headbob"), m_settings.headBob, [this](bool on) {
+			Click();
+			m_settings.headBob = on;
+			if (onHeadBobChanged) onHeadBobChanged();
 			m_settings.Save();
 		});
 

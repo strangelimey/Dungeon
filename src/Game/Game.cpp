@@ -131,6 +131,7 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	m_device.SetPresentInterval(m_settings.presentInterval);
 	m_world.GetParty().SetKeys(m_settings.moveKeys);
 	m_world.GetParty().SetLook(m_settings.look);
+	m_world.GetParty().SetHeadBob(m_settings.headBob);
 
 	m_characters = CreateDefaultParty();
 	ApplyMemberColors(); // the settings palette wins over the authored defaults
@@ -273,6 +274,9 @@ void Game::WireModuleCallbacks() {
 	};
 	m_ui.onLookChanged = [this] {
 		m_world.GetParty().SetLook(m_settings.look);
+	};
+	m_ui.onHeadBobChanged = [this] {
+		m_world.GetParty().SetHeadBob(m_settings.headBob);
 	};
 	// Recorded only — the rebuild would destroy the dropdown mid-callback;
 	// Update applies it first thing next frame.
