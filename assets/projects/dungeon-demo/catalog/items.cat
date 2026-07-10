@@ -9,6 +9,16 @@
 ;              (menu-only — a consuming action never becomes a default).
 ;   holdable = 1 lets the item be dropped into a hand slot (control bar or the
 ;              sheet's hand cells). Unset items are refused by the hands.
+;   damage   = weapon: base damage of a clean hit (docs/combat.md; absent = the
+;              unarmed knobs)
+;   speed    = weapon: seconds between swings, before DEX (absent = unarmed)
+;   stats    = weapon: associated stats, "str, dex" — their average is the
+;              attack bonus AND what trains on a landed blow
+;   reach    = weapon: melee|polearm (default melee). A polearm swings from
+;              the party's REAR rank (slots 3-4); everything else is
+;              front-rank only (Phase 7)
+;   armor    = worn: small flat damage soak, summed across equipment
+;   resists  = worn: per-damage-type cells, "slash 0.2, pierce 0.1"
 ;   symbol   = (rune only) the spell symbol it teaches: fire|earth|air|water
 ;              or a shared tier-2 form symbol (project)
 ; A rune is a carved-stone tablet the party picks up by clicking it; carry it on

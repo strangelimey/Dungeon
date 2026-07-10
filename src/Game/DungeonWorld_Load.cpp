@@ -368,6 +368,10 @@ DungeonWorld::MonsterKind& DungeonWorld::MonsterKindFor(const std::string& type)
 			};
 			hitEffect("poison", assets->poison);
 			hitEffect("bleed", assets->bleed);
+			// Melee reach in cells (Phase 7): 2 = a pike melees from its
+			// queue post down a clear shared row/column.
+			assets->reach = std::max(
+				1, static_cast<int>(def->GetFloat("reach", 1.0f) + 0.5f));
 			assets->attackInterval = def->GetFloat("attackcd", 1.6f);
 			assets->aggroRange = def->GetFloat("aggro", 6.0f);
 			assets->moveInterval = def->GetFloat("movecd", 0.6f);
@@ -678,6 +682,8 @@ DungeonWorld::ItemKind& DungeonWorld::ItemKindFor(const std::string& type) {
 		kind->speed = def ? def->GetFloat("speed", 0.0f) : 0.0f;
 		kind->stats = ParseStatList(CatalogGet(def, "stats", ""),
 									"items.cat [" + type + "]");
+		// Weapon reach (Phase 7): `reach = polearm` swings from the rear rank.
+		kind->polearm = CatalogGet(def, "reach", "melee") == "polearm";
 		ParseResists(CatalogGet(def, "resists", ""), kind->resists,
 					 "items.cat [" + type + "]");
 		kind->armor = def ? def->GetFloat("armor", 0.0f) : 0.0f;

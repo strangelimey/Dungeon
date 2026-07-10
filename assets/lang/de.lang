@@ -163,6 +163,7 @@ log.torch_eerie=Ein unheimliches grünes Licht breitet sich aus.
 ; --- combat ({} args: see DungeonWorld PartyAttack / MonsterAttack) ---
 log.attack_air=Ihr schlagt ins Leere.
 log.party_hits={} trifft {} für {} Schaden.
+log.no_reach=Aus dem hinteren Glied nicht erreichbar.
 log.party_misses={} schlägt nach {} und verfehlt.
 log.exhausted={} ist erschöpft!
 log.recovered={} kommt wieder zu Atem.

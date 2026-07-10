@@ -2076,11 +2076,22 @@ void DungeonWorld::UpdateMonsters(float dt) {
 		// branch's separate Manhattan-distance diagonal-attack fix.)
 		const int orthoDist = std::abs(monster.x - m_party.GridX()) +
 							  std::abs(monster.z - m_party.GridZ());
+		// A monster melees from its post within its REACH (Phase 7): 1 = the
+		// adjacent ring as always; a pike (monsters.cat `reach = 2`) strikes
+		// from its queue post too — but only down a clear shared row/column
+		// (the orthogonal rule; distance 1 is orthogonal by construction).
+		const bool inReach =
+			orthoDist == 1 ||
+			(orthoDist <= monster.kind->reach &&
+			 (monster.x == m_party.GridX() || monster.z == m_party.GridZ()) &&
+			 CellHasLineOfSight(monster.x, monster.z, m_party.GridX(),
+								m_party.GridZ()));
 		const bool atPost = monster.x == monster.targetX && monster.z == monster.targetZ &&
-							orthoDist == 1;
+							inReach;
 
-		// Announce once, when the party is actually adjacent.
-		if (!monster.announced && orthoDist <= 1) {
+		// Announce once, when the party is actually adjacent (or a pike is
+		// already close enough to strike from its queue post).
+		if (!monster.announced && (orthoDist <= 1 || atPost)) {
 			monster.announced = true;
 			onMessage(loc::Format("log.monster_stirs",
 								  loc::Tr("monster." + monster.kind->name)));
@@ -3327,6 +3338,16 @@ bool DungeonWorld::PartyAttack(size_t member, size_t hand, std::string_view verb
 	// landed blow below trains the class + creeps its associated stats.
 	const ItemSlot& held = attacker.inventory.Hand(static_cast<int>(hand));
 	const ItemKind* weapon = held.Empty() ? nullptr : &ItemKindFor(held.typeId);
+
+	// The rear rank can't reach (Phase 7): roster slots 0-1 are the FRONT
+	// line, 2-3 the REAR — a rear member swings only a polearm (`reach =
+	// polearm`); everything else, bare hands included, whiffs on distance
+	// alone. Ranged and spells ignore rank (CastSpell has no gate).
+	if (member >= 2 && !(weapon && weapon->polearm)) {
+		MemberMessage(attacker, loc::Tr("log.no_reach"));
+		return true;
+	}
+
 	const std::string_view skillId =
 		weapon ? std::string_view(weapon->skill) : std::string_view("unarmed");
 	const int level = attacker.SkillLevel(skillId);

@@ -163,6 +163,7 @@ log.torch_eerie=Una sinistra luce verde si diffonde.
 ; --- combat ({} args: see DungeonWorld PartyAttack / MonsterAttack) ---
 log.attack_air=Colpite l'aria vuota.
 log.party_hits={} colpisce {} per {} danni.
+log.no_reach=Non arriva dalla fila posteriore.
 log.party_misses={} attacca {} e manca.
 log.exhausted={} è esausto!
 log.recovered={} riprende fiato.

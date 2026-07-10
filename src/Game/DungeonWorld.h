@@ -736,6 +736,11 @@ private:
 			float dps = 0.0f, duration = 0.0f, chance = 1.0f;
 		};
 		HitEffect poison, bleed;
+		// Melee reach in cells (Phase 7, catalog `reach`): 1 = must be in the
+		// adjacent ring; 2 = a pike — melees from its QUEUE post down a clear
+		// shared row/column (the monster mirror of the party's rear-rank
+		// polearm rule). Ranged/caster types don't read it.
+		int reach = 1;
 		float attackInterval = 1.6f; // seconds between swings
 		float aggroRange = 6.0f;     // cells of party distance to engage at
 		float moveInterval = 0.6f;   // seconds per grid step while chasing
@@ -933,6 +938,10 @@ private:
 		// dex`): their average is the attack bonus input AND what trains on a
 		// landed blow. Empty = the unarmed default (strength).
 		std::vector<std::string> stats;
+		// Weapon reach (Phase 7, catalog `reach = polearm`): a polearm swings
+		// from the party's REAR rank (roster slots 2-3); everything else —
+		// bare hands included — is front-rank only.
+		bool polearm = false;
 		// The defender side of a WORN piece (part 4): per-type resist cells
 		// plus a small flat soak, summed across the equipment slots.
 		ResistTable resists;

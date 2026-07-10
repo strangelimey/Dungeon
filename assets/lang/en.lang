@@ -162,6 +162,7 @@ log.torch_eerie=An eerie green light spreads.
 ; --- combat ({} args: see DungeonWorld PartyAttack / MonsterAttack) ---
 log.attack_air=You strike at empty air.
 log.party_hits={} hits the {} for {} damage.
+log.no_reach=Can't reach from the rear rank.
 log.party_misses={} swings at the {} and misses.
 log.exhausted={} is exhausted!
 log.recovered={} catches their breath.

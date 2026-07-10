@@ -408,18 +408,25 @@ derived-stats line is in scope).
   runs its course. A future serrated weapon reuses the whole mechanism
   from items.cat.
 
-### Phase 7 — reach (movement.md Phase 6, unblocked by Phase 1)
+### Phase 7 — reach (LANDED 2026-07-09; movement.md Phase 6 closed)
+
+Michael's rule: THE REAR RANK ATTACKS ONLY WITH POLEARMS, RANGED, OR
+SPELLS — same for monsters.
 
 - items.cat `reach = melee|polearm` (default melee). Party rank: roster
   slots 0–1 are FRONT, 2–3 REAR (the classic DM convention; a formation
-  editor is out of scope). Melee weapons swing from the front rank only —
-  a rear member's swing logs "can't reach" (new log key); polearms swing
-  from either rank. Spells/ranged already ignore rank.
-- Monster side per movement.md: `reach` catalog stat lets a rear-slot
-  (queued) monster strike the party past its front rank — the atPost
-  gate widens for reach attackers. Symmetric with the party rule.
-- This is the phase most likely to need feel-testing and the movement
-  thread's slot/formation machinery — hence last.
+  editor is out of scope). A rear member's melee swing gates before
+  anything happens (no cooldown, no stamina) with the log.no_reach line
+  — unless the hand holds a polearm. Bare hands are melee reach. Spells
+  ignore rank (CastSpell has no gate). No polearm is authored yet — the
+  field goes live with the first spear.
+- Monster side: monsters.cat `reach` (cells, default 1). The melee gate
+  was orthoDist == 1 at post; now a reach-2 pike also strikes FROM ITS
+  QUEUE POST, but only down a clear shared row/column (the orthogonal
+  rule — distance 1 is orthogonal by construction) with wall LoS. The
+  announce line fires for a pike striking from range too. Queued
+  monsters without reach still can't melee — which IS the rear-rank
+  rule, emergent. Ranged/caster types are unaffected.
 
 ## Phase order & save ladder
 

@@ -6,6 +6,13 @@
 ;   accuracy = 0..1 chance to land before the target's evasion
 ;   defense  = 0..1 evasion subtracted from an attacker's accuracy
 ;   armor    = flat damage soaked per hit
+;   resists  = per-damage-type cells, "pierce 0.5, bash -0.5" (docs/combat.md
+;              part 4; negative = vulnerability, 1.0 = authored immunity)
+;   dmgtype  = the damage type this monster's melee deals AS (default bash)
+;   poison   = "<dps> <seconds> [chance]" on-hit DoT rolled per landed blow
+;   bleed    = ditto (Phase 6; reapply refreshes, ticks even the downed)
+;   reach    = melee reach in cells (default 1). 2 = a pike: strikes from its
+;              QUEUE post down a clear shared row/column (Phase 7)
 ;   attackcd = seconds between the monster's swings
 ;   aggro    = cells of party distance at which it engages
 ;   movecd   = seconds per grid step while chasing (lower = faster)
