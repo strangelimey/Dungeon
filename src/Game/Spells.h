@@ -35,6 +35,12 @@ enum class SpellSymbol : u8 { Fire, Earth, Air, Water, Project, Protect, Count }
 
 inline constexpr u32 kSymbolCount = static_cast<u32>(SpellSymbol::Count);
 
+// The `hand` values a cast carries (DungeonWorld::CastSpell): 0/1 credit that
+// hand's quick-cast MRU, -1 credits neither (the dev console), and kBookHands
+// credits BOTH — the spellbook panel is member-driven (its selector row), not
+// hand-fired, so a discovered spell reaches either hand's menu.
+inline constexpr int kBookHands = 2;
+
 // The bit for a symbol within a known-symbols mask (Character::knownSymbols).
 inline constexpr u32 SymbolBit(SpellSymbol s) { return 1u << static_cast<u32>(s); }
 

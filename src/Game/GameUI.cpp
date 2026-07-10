@@ -252,17 +252,35 @@ void GameUI::OpenHandUseMenu(size_t i, size_t hand) {
 	// key) gets the grouped default pickers as CASCADING groups — the
 	// ContextMenu keeps the first tier visible beside an open submenu, so
 	// Combat and Magic stay in reach while browsing either: Combat > the
-	// unarmed verbs, Magic > the spells this member can cast. With NO symbols
-	// memorized there is nothing to group AGAINST, so the Combat tier is
-	// skipped and the unarmed verbs sit at the top level (Michael,
-	// 2026-07-10: one less click for the mundane).
+	// unarmed verbs, Magic > this hand's quick-cast spells. The Magic group
+	// is the MRU list alone now — the spellbook lives in the Magic area's
+	// member selector, not the menu (Michael, 2026-07-10) — and when it is
+	// EMPTY there is nothing to group against, so the Combat tier is skipped
+	// and the unarmed verbs sit at the top level (one less click).
 	if (entries.empty()) {
-		bool anySymbol = false;
-		for (u32 sym = 0; sym < kSymbolCount; ++sym)
-			anySymbol |= c.Knows(static_cast<SpellSymbol>(sym));
+		// THIS hand's recency list — each hand keeps its own repertoire.
+		ui::ContextMenu::Entry magic{loc::Tr("menu.magic"), {}, {}};
+		int shown = 0;
+		for (const std::string& id : c.spellMru[hand]) {
+			if (shown >= m_settings.spellMruCount) break;
+			// Skip ids the registry no longer carries (the MRU is state,
+			// the spell classes are code — they can drift across edits).
+			const Spell* def = nullptr;
+			if (spellDefs)
+				for (const auto& d : spellDefs())
+					if (d->Id() == id) { def = d.get(); break; }
+			if (!def) continue;
+			std::string cmd = std::string(kCastPrefix) + def->Id();
+			magic.children.push_back(
+				{loc::Tr(def->NameKey()), [this, i, hand, itemId, cmd] {
+					 SelectUse(i, hand, itemId, cmd);
+				 }});
+			++shown;
+		}
+		const bool hasMagic = !magic.children.empty();
 		ui::ContextMenu::Entry combat{loc::Tr("menu.combat"), {}, {}};
 		std::vector<ui::ContextMenu::Entry>& verbs =
-			anySymbol ? combat.children : entries;
+			hasMagic ? combat.children : entries;
 		for (std::string_view verb : kUnarmedUses) {
 			std::string cmd{verb};
 			verbs.push_back(
@@ -270,38 +288,8 @@ void GameUI::OpenHandUseMenu(size_t i, size_t hand) {
 					 SelectUse(i, hand, itemId, cmd);
 				 }});
 		}
-		// The Magic group appears once the member knows ANY symbol. Its first
-		// entry is always the SPELLBOOK — the Magic-area panel where a spell
-		// is BUILT from known symbols (opening it is navigation, not a use, so
-		// it never becomes a left-click default) — followed by the member's
-		// MOST-RECENTLY-CAST spells (up to the Controls → Hands quick-cast
-		// count): a spell enters by being cast, freshest first; anything that
-		// slid off the list is still one spellbook visit away.
-		if (anySymbol) {
+		if (hasMagic) {
 			entries.push_back(std::move(combat));
-			ui::ContextMenu::Entry magic{loc::Tr("menu.magic"), {}, {}};
-			magic.children.push_back({loc::Tr("menu.spellbook"), [this, i, hand] {
-										  Click();
-										  if (m_spellbook) m_spellbook->OpenFor(i, hand);
-									  }});
-			// THIS hand's recency list — each hand keeps its own repertoire.
-			int shown = 0;
-			for (const std::string& id : c.spellMru[hand]) {
-				if (shown >= m_settings.spellMruCount) break;
-				// Skip ids the registry no longer carries (the MRU is state,
-				// the spell classes are code — they can drift across edits).
-				const Spell* def = nullptr;
-				if (spellDefs)
-					for (const auto& d : spellDefs())
-						if (d->Id() == id) { def = d.get(); break; }
-				if (!def) continue;
-				std::string cmd = std::string(kCastPrefix) + def->Id();
-				magic.children.push_back(
-					{loc::Tr(def->NameKey()), [this, i, hand, itemId, cmd] {
-						 SelectUse(i, hand, itemId, cmd);
-					 }});
-				++shown;
-			}
 			entries.push_back(std::move(magic));
 		}
 	}
@@ -1540,10 +1528,13 @@ void GameUI::BuildHud() {
 		return spellDefs ? spellDefs()
 						 : std::span<const std::unique_ptr<Spell>>{};
 	};
-	m_spellbook->onCast = [this](size_t member, size_t hand,
+	m_spellbook->onCast = [this](size_t member,
 								 const std::vector<SpellSymbol>& seq) {
 		Click();
-		if (onCastSequence) onCastSequence(member, hand, seq);
+		// The book is member-driven (its selector row), not hand-fired —
+		// kBookHands credits BOTH hands' quick-cast MRU so a discovered spell
+		// reaches either hand menu.
+		if (onCastSequence) onCastSequence(member, kBookHands, seq);
 	};
 	below(m_spellbook);
 

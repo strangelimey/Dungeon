@@ -181,9 +181,10 @@ public:
 	// default) from hand `hand` (0 = L, 1 = R) — wired to DungeonWorld::
 	// CastSpellById (vocab/mana gates; the firing hand's MRU is credited).
 	std::function<void(size_t, const std::string&, size_t)> onCastSpell;
-	// Member `i` casts a symbol sequence BUILT in the spellbook panel, from
-	// the hand whose menu opened the book — wired to DungeonWorld::CastSpell
-	// (exact-recipe match; a miss fizzles).
+	// Member `i` casts a symbol sequence BUILT in the spellbook panel (the
+	// Magic area's member selector picks whose book) — wired to DungeonWorld::
+	// CastSpell (exact-recipe match; a miss fizzles). The hand argument is
+	// kBookHands: a book cast credits both hands' quick-cast MRU.
 	std::function<void(size_t, size_t, const std::vector<SpellSymbol>&)>
 		onCastSequence;
 	std::function<void()> onKeysChanged;        // a movement key was rebound

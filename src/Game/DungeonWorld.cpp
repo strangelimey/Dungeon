@@ -3461,9 +3461,15 @@ bool DungeonWorld::CastSpell(size_t member, std::span<const SpellSymbol> sequenc
 			MemberMessage(caster, loc::Format("log.spell_learned", caster.name,
 											  loc::Tr(r.spell->NameKey())));
 		// The freshest cast leads the FIRING hand's quick list (each hand keeps
-		// its own repertoire); a hand-less cast (dev console) touches neither.
-		if (hand == 0 || hand == 1)
+		// its own repertoire); a hand-less cast (dev console) touches neither,
+		// and a spellbook cast (kBookHands — member-driven, not hand-fired)
+		// credits BOTH so the discovery reaches either hand's menu.
+		if (hand == 0 || hand == 1) {
 			caster.TouchSpellMru(static_cast<size_t>(hand), r.spell->Id());
+		} else if (hand == kBookHands) {
+			caster.TouchSpellMru(0, r.spell->Id());
+			caster.TouchSpellMru(1, r.spell->Id());
+		}
 		// The school skill grows with every SUCCESSFUL cast, in proportion to
 		// the spell's mana (a dearer spell teaches more) — docs/skills.md.
 		GrantSkillXp(caster, SymbolId(r.spell->School()), r.spell->Mana() * 0.25f,

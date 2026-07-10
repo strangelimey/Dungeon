@@ -226,37 +226,38 @@ private:
 	bool m_heldRight = false;  // right-button press latched on this slot
 };
 
-// The HUD Magic-area SPELLBOOK: opened from a hand's use menu (Magic »
-// Spellbook), it fills the control panel's magic box with the owning member's
-// KNOWN SYMBOLS as rune buttons, the sequence "spelled out" so far, the name
-// of the spell that sequence resolves to (when a known recipe matches), and
-// Cast / Clear. This is where the player BUILDS a spell: click symbols to
-// append (an unavailable symbol draws a disabled overlay and stops responding
-// — spent symbols never repeat, and the SCHOOL rule holds: the four element
-// runes are mutually exclusive, one leads every spell, so the other three go
-// dark once one is down and non-school symbols wait until one is), click a
-// sequence slot to remove that symbol AND everything spelled after it, Cast
-// fires onCast (the world gates vocabulary/mana) and clears the slate. The
-// sequence row sits at the bottom, just above Cast / Clear. Closed, it
-// draws the dim "no spells" placeholder line the label used to show. One
-// persistent widget — no HUD rebuild on open/close; it re-resolves its member
-// by roster index every frame (RosterMember) and drops sequence symbols the
-// member no longer knows, so a roster reset can't dangle or desync it.
+// The HUD Magic-area SPELLBOOK. A row of four member-colored SELECTOR buttons
+// tops the magic box — one per party slot, disabled while that member is
+// absent (short roster) or down, the selected one drawn pressed with the
+// member's name beneath (Michael, 2026-07-10; the old Magic » Spellbook menu
+// entry is gone). Selecting a member fills the box with THEIR KNOWN SYMBOLS
+// as rune buttons, the sequence "spelled out" so far, the name of the spell
+// that sequence resolves to (when a known recipe matches), and Cast / Clear.
+// This is where the player BUILDS a spell: click symbols to append (an
+// unavailable symbol draws a disabled overlay and stops responding — spent
+// symbols never repeat, and the SCHOOL rule holds: the four element runes are
+// mutually exclusive, one leads every spell, so the other three go dark once
+// one is down and non-school symbols wait until one is), click a sequence
+// slot to remove that symbol AND everything spelled after it, Cast fires
+// onCast (the world gates vocabulary/mana) and clears the slate. The sequence
+// row sits at the bottom, just above Cast / Clear. With no member selected
+// the selector row tops the dim placeholder line. One persistent widget — no
+// HUD rebuild on select; it re-resolves its member by roster index every
+// frame (RosterMember), deselects one who went down, and drops sequence
+// symbols the member no longer knows, so a roster reset can't dangle it.
 class SpellbookPanel : public ui::Widget {
 public:
 	SpellbookPanel(const gfx::Rect& rect, const std::vector<Character>* roster,
 				   const ItemIconBank* icons);
 
-	// Shows this member's book (fresh sequence). `hand` is the hand whose
-	// menu opened it — a Cast from the book credits that hand's quick-cast
-	// MRU (defaults/MRU are per member AND per hand).
-	void OpenFor(size_t member, size_t hand);
+	// Shows this member's book (fresh sequence) — the selector row's click.
+	void SelectMember(size_t member);
 	void Close();
 	bool IsOpen() const { return m_member >= 0; }
 
-	// Cast pressed: (member, opening hand, the built sequence) — wired to the
-	// world's cast façade. Fired only with a non-empty sequence.
-	std::function<void(size_t, size_t, const std::vector<SpellSymbol>&)> onCast;
+	// Cast pressed: (member, the built sequence) — wired to the world's cast
+	// façade. Fired only with a non-empty sequence.
+	std::function<void(size_t, const std::vector<SpellSymbol>&)> onCast;
 	// The spell registry, for the live "= <spell>" match label (GameUI's
 	// spellDefs source). Null-safe: no registry, no label.
 	std::function<std::span<const std::unique_ptr<Spell>>()> spells;
@@ -274,9 +275,13 @@ private:
 		bool known;
 	};
 	std::vector<RuneSlot> RuneSlots(const Character& c) const;
+	// Whether party slot i's selector button responds: the member exists and
+	// is standing (absent / unconscious / dead all disable).
+	bool MemberEligible(size_t i) const;
 	// Layout inside the live box, shared by Update (hit-test) and Draw. The
-	// symbol grid indexes RuneSlots (4 per row); the sequence row indexes
-	// m_sequence.
+	// selector row indexes party slots 0-3; the symbol grid indexes RuneSlots
+	// (4 per row); the sequence row indexes m_sequence.
+	gfx::Rect MemberButtonRect(const gfx::Rect& px, size_t i) const;
 	gfx::Rect SymbolRect(const gfx::Rect& px, size_t i) const;
 	gfx::Rect SequenceRect(const gfx::Rect& px, size_t i) const;
 	gfx::Rect CastRect(const gfx::Rect& px) const;
@@ -291,10 +296,9 @@ private:
 
 	const std::vector<Character>* m_roster;
 	const ItemIconBank* m_icons;
-	int m_member = -1;  // roster slot whose book is open (-1 = closed)
-	size_t m_hand = 0;  // the hand whose menu opened the book (MRU credit)
+	int m_member = -1;  // roster slot whose book is open (-1 = none selected)
 	std::vector<SpellSymbol> m_sequence;
-	int m_hotSymbol = -1, m_hotSeq = -1;
+	int m_hotSymbol = -1, m_hotSeq = -1, m_hotMember = -1;
 	bool m_hotCast = false, m_hotClear = false;
 	std::string m_placeholder, m_castLabel, m_clearLabel; // localized once
 };

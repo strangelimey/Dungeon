@@ -262,7 +262,8 @@ void Game::WireModuleCallbacks() {
 	};
 	// The spellbook panel casts a HAND-BUILT symbol sequence: an exact recipe
 	// match casts (vocab/mana gated), anything else fizzles with its log line.
-	// The hand whose menu opened the book gets the MRU credit.
+	// The book is member-driven (its selector row); `hand` arrives as
+	// kBookHands so the cast credits both hands' quick-cast MRU.
 	m_ui.onCastSequence = [this](size_t member, size_t hand,
 								 const std::vector<SpellSymbol>& seq) {
 		m_world.CastSpell(member, seq, static_cast<int>(hand));

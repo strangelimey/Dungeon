@@ -330,9 +330,8 @@ SpellbookPanel::SpellbookPanel(const gfx::Rect& rect,
 	bounds = rect;
 }
 
-void SpellbookPanel::OpenFor(size_t member, size_t hand) {
+void SpellbookPanel::SelectMember(size_t member) {
 	m_member = static_cast<int>(member);
-	m_hand = hand > 1 ? 0 : hand;
 	m_sequence.clear();
 }
 
@@ -341,15 +340,28 @@ void SpellbookPanel::Close() {
 	m_sequence.clear();
 }
 
+bool SpellbookPanel::MemberEligible(size_t i) const {
+	return m_roster && i < m_roster->size() && (*m_roster)[i].IsAlive();
+}
+
 // Layout: everything scales off the box width (the control panel scales with
-// the window), line heights off the current HUD font via the 20/24px design
-// steps at the 222px design box.
+// the window), line heights off the current HUD font via the design steps at
+// the 222px design box. Top to bottom: the member selector row, the selected
+// name, the rune grid; the sequence row and Cast/Clear anchor to the bottom.
+gfx::Rect SpellbookPanel::MemberButtonRect(const gfx::Rect& px, size_t i) const {
+	const float s = px.w / 222.0f;
+	const float pad = 10.0f * s, gap = 6.0f * s;
+	const float cell = (px.w - 2 * pad - 3 * gap) / 4.0f;
+	return {px.x + pad + (cell + gap) * static_cast<float>(i), px.y + 8.0f * s,
+			cell, 24.0f * s};
+}
+
 gfx::Rect SpellbookPanel::SymbolRect(const gfx::Rect& px, size_t i) const {
 	const float s = px.w / 222.0f;
 	const float pad = 10.0f * s, gap = 6.0f * s;
 	const float cell = (px.w - 2 * pad - 3 * gap) / 4.0f;
 	return {px.x + pad + (cell + gap) * static_cast<float>(i % 4),
-			px.y + 30.0f * s + (cell + gap) * static_cast<float>(i / 4), cell,
+			px.y + 62.0f * s + (cell + gap) * static_cast<float>(i / 4), cell,
 			cell};
 }
 
@@ -448,18 +460,13 @@ void SpellbookPanel::DrawRune(gfx::SpriteBatch& batch, const gfx::Rect& r,
 void SpellbookPanel::Update(ui::UIContext& ctx) {
 	m_hotSymbol = -1;
 	m_hotSeq = -1;
+	m_hotMember = -1;
 	m_hotCast = false;
 	m_hotClear = false;
-	if (m_member < 0) return;
-	const Character* c = RosterMember(m_roster, static_cast<size_t>(m_member));
-	if (!c) { // roster shrank under the open book — close it
+	// The selection must stay ELIGIBLE: a member who went down (or a roster
+	// that shrank) deselects — their button draws disabled, never pressed.
+	if (m_member >= 0 && !MemberEligible(static_cast<size_t>(m_member)))
 		Close();
-		return;
-	}
-	// Self-heal: a roster reset may have taken symbols back; the sequence must
-	// never show (or cast) anything the member no longer knows.
-	std::erase_if(m_sequence,
-				  [c](SpellSymbol s) { return !c->Knows(s); });
 
 	const Input* input = ctx.CurrentInput();
 	if (!input || ctx.IsMouseConsumed()) return;
@@ -467,6 +474,30 @@ void SpellbookPanel::Update(ui::UIContext& ctx) {
 	const float mx = input->MouseX(), my = input->MouseY();
 	if (!px.Contains(mx, my)) return;
 	const bool pressed = input->WasMousePressed(MouseButton::Left);
+
+	// The member selector row — a disabled button (absent/down member) is
+	// inert: no hover, no click.
+	for (size_t i = 0; i < 4; ++i) {
+		if (!MemberButtonRect(px, i).Contains(mx, my)) continue;
+		if (MemberEligible(i)) {
+			m_hotMember = static_cast<int>(i);
+			if (pressed && static_cast<int>(i) != m_member) {
+				SelectMember(i);
+				if (onClick) onClick();
+			}
+		}
+		break;
+	}
+	if (m_member < 0) {
+		ctx.ConsumeMouse(); // the selector row owns clicks over the box
+		return;
+	}
+	const Character* c = RosterMember(m_roster, static_cast<size_t>(m_member));
+	if (!c) return; // unreachable after the eligibility check; belt-and-braces
+	// Self-heal: a roster reset may have taken symbols back; the sequence must
+	// never show (or cast) anything the member no longer knows.
+	std::erase_if(m_sequence,
+				  [c](SpellSymbol s) { return !c->Knows(s); });
 
 	const std::vector<RuneSlot> slots = RuneSlots(*c);
 	for (size_t i = 0; i < slots.size(); ++i) {
@@ -495,7 +526,7 @@ void SpellbookPanel::Update(ui::UIContext& ctx) {
 	if (CastRect(px).Contains(mx, my)) {
 		m_hotCast = true;
 		if (pressed && !m_sequence.empty()) {
-			if (onCast) onCast(static_cast<size_t>(m_member), m_hand, m_sequence);
+			if (onCast) onCast(static_cast<size_t>(m_member), m_sequence);
 			m_sequence.clear(); // the slate empties either way (a fizzle is spent)
 		}
 	}
@@ -516,17 +547,48 @@ void SpellbookPanel::Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	const float s = px.w / 222.0f;
 	const Character* c =
 		m_member < 0 ? nullptr : RosterMember(m_roster, static_cast<size_t>(m_member));
-	if (!c) { // closed: the placeholder line the old label showed
-		font.Draw(batch, m_placeholder, px.x + 10.0f * s, px.y + 12.0f * s,
-				  theme.textDim);
+
+	// The member selector row: one button per party slot in the member's
+	// identity color — pressed = the open book, washed out = absent/down.
+	for (size_t i = 0; i < 4; ++i) {
+		const gfx::Rect r = MemberButtonRect(px, i);
+		const Character* m =
+			m_roster && i < m_roster->size() ? &(*m_roster)[i] : nullptr;
+		const bool eligible = MemberEligible(i);
+		const bool selected = static_cast<int>(i) == m_member;
+		const bool hot = static_cast<int>(i) == m_hotMember;
+		const Vec4 col = m ? m->portraitColor : theme.control;
+		if (!eligible) {
+			batch.DrawRect(r, theme.control);
+			ui::DrawBorder(batch, r, theme.panelBorder);
+		} else {
+			const float f = selected ? 0.85f : (hot ? 0.5f : 0.3f);
+			batch.DrawRect(r, {col.x * f, col.y * f, col.z * f, 1.0f});
+			ui::DrawBorder(batch, r,
+						   selected ? theme.accent
+									: Vec4{col.x, col.y, col.z, 1.0f});
+		}
+		if (m) { // initial letter, centered (the name draws under the row)
+			const std::string initial(1, m->name.empty() ? '?' : m->name[0]);
+			const Vec4 ink = eligible ? theme.text : theme.textDim;
+			font.Draw(batch, initial,
+					  r.x + (r.w - font.MeasureWidth(initial)) * 0.5f,
+					  r.y + (r.h - font.Height()) * 0.5f, ink);
+		}
+	}
+	// The selected member's name under the row; the placeholder when none.
+	const gfx::Rect b0 = MemberButtonRect(px, 0);
+	const float nameY = b0.y + b0.h + 6.0f * s;
+	if (!c) {
+		font.Draw(batch, m_placeholder, px.x + 10.0f * s, nameY, theme.textDim);
 		return;
 	}
+	font.Draw(batch, c->name, px.x + 10.0f * s, nameY, theme.accent);
 
-	// Whose book, then the rune grid: the school row on top (unknown schools
-	// keep their place as empty frames), learned runes below. A symbol the
-	// sequence can't take right now (spent, or blocked by the one-school
-	// rule) draws disabled until a sequence edit frees it.
-	font.Draw(batch, c->name, px.x + 10.0f * s, px.y + 8.0f * s, theme.accent);
+	// The rune grid: the school row on top (unknown schools keep their place
+	// as empty frames), learned runes below. A symbol the sequence can't take
+	// right now (spent, or blocked by the one-school rule) draws disabled
+	// until a sequence edit frees it.
 	const std::vector<RuneSlot> slots = RuneSlots(*c);
 	for (size_t i = 0; i < slots.size(); ++i) {
 		const gfx::Rect r = SymbolRect(px, i);
