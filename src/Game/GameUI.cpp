@@ -252,17 +252,24 @@ void GameUI::OpenHandUseMenu(size_t i, size_t hand) {
 	// key) gets the grouped default pickers as CASCADING groups — the
 	// ContextMenu keeps the first tier visible beside an open submenu, so
 	// Combat and Magic stay in reach while browsing either: Combat > the
-	// unarmed verbs, Magic > the spells this member can cast.
+	// unarmed verbs, Magic > the spells this member can cast. With NO symbols
+	// memorized there is nothing to group AGAINST, so the Combat tier is
+	// skipped and the unarmed verbs sit at the top level (Michael,
+	// 2026-07-10: one less click for the mundane).
 	if (entries.empty()) {
+		bool anySymbol = false;
+		for (u32 sym = 0; sym < kSymbolCount; ++sym)
+			anySymbol |= c.Knows(static_cast<SpellSymbol>(sym));
 		ui::ContextMenu::Entry combat{loc::Tr("menu.combat"), {}, {}};
+		std::vector<ui::ContextMenu::Entry>& verbs =
+			anySymbol ? combat.children : entries;
 		for (std::string_view verb : kUnarmedUses) {
 			std::string cmd{verb};
-			combat.children.push_back(
+			verbs.push_back(
 				{loc::Tr("use." + cmd), [this, i, hand, itemId, cmd] {
 					 SelectUse(i, hand, itemId, cmd);
 				 }});
 		}
-		entries.push_back(std::move(combat));
 		// The Magic group appears once the member knows ANY symbol. Its first
 		// entry is always the SPELLBOOK — the Magic-area panel where a spell
 		// is BUILT from known symbols (opening it is navigation, not a use, so
@@ -270,10 +277,8 @@ void GameUI::OpenHandUseMenu(size_t i, size_t hand) {
 		// MOST-RECENTLY-CAST spells (up to the Controls → Hands quick-cast
 		// count): a spell enters by being cast, freshest first; anything that
 		// slid off the list is still one spellbook visit away.
-		bool anySymbol = false;
-		for (u32 sym = 0; sym < kSymbolCount; ++sym)
-			anySymbol |= c.Knows(static_cast<SpellSymbol>(sym));
 		if (anySymbol) {
+			entries.push_back(std::move(combat));
 			ui::ContextMenu::Entry magic{loc::Tr("menu.magic"), {}, {}};
 			magic.children.push_back({loc::Tr("menu.spellbook"), [this, i, hand] {
 										  Click();
