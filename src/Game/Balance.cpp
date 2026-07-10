@@ -47,6 +47,9 @@ constexpr BalanceField kBalanceFields[] = {
 	{"exhaust_damage", &Balance::exhaustDamage},
 	{"exhaust_pace", &Balance::exhaustPace},
 	{"exhaust_recover", &Balance::exhaustRecover},
+	{"stabilize_time", &Balance::stabilizeTime},
+	{"stabilize_health", &Balance::stabilizeHealth},
+	{"overkill", &Balance::overkill},
 };
 
 // Whitespace/comma tokens (the catalog list convention).

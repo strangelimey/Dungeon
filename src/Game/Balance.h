@@ -76,6 +76,14 @@ struct Balance {
 	float exhaustDamage = 0.5f;
 	float exhaustPace = 1.5f;
 	float exhaustRecover = 0.1f;
+	// Death & revive (docs/combat.md Phase 5). 0 HP = UNCONSCIOUS: after
+	// stabilize_time seconds with no monster in aggro of the party, the member
+	// wakes at stabilize_health of max. DEAD needs deliberate overkill — one
+	// blow ≥ overkill × maxHealth, or any hit landing on a member already at
+	// 0 — and dead members never wake (resurrection is a future mechanic).
+	float stabilizeTime = 30.0f;
+	float stabilizeHealth = 0.2f;
+	float overkill = 1.5f;
 
 	// The attack table, seeded with the identity defaults; Load overrides the
 	// numbers from attacks.cat.

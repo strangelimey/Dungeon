@@ -1538,6 +1538,7 @@ void Game::SaveGame(const std::string& name) {
 		c.baseHealth = member.baseHealth;
 		c.baseStamina = member.baseStamina;
 		c.baseMana = member.baseMana;
+		c.dead = member.dead; // the overkill flag (v18)
 		data.characters.push_back(std::move(c));
 	}
 	WriteSave(data, SaveSlotPath(name));
@@ -1642,6 +1643,10 @@ bool Game::LoadGame(const std::string& path) {
 		// The exhausted latch is a live transient (not saved) — re-derive it
 		// from the restored bar so a save made mid-exhaustion resumes winded.
 		member.exhausted = member.stamina <= 0.0f;
+		// The overkill flag rides the save; the stabilize clock is transient
+		// (an unconscious member starts their safe count fresh on load).
+		member.dead = c.dead;
+		member.stabilize = 0.0f;
 	}
 	m_world.ApplyState(*data); // fills the per-level store + party pose/torch
 

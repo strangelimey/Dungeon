@@ -104,10 +104,19 @@ struct Character {
 	float staminaHoldoff = 0.0f;
 	bool exhausted = false;
 
-	// Whether the member is still standing. health <= 0 = down (out of the
-	// fight, no longer a valid monster target) — there is no death/revive
-	// system yet, so a downed member simply stops acting.
+	// Whether the member is still standing (health > 0): acting, targetable,
+	// regenerating. At 0 they are DOWN — unconscious, or dead if the `dead`
+	// flag is set (docs/combat.md Phase 5). An unconscious member self-
+	// stabilizes: `stabilize` accrues seconds while no monster is in aggro of
+	// the party (any danger resets it, live transient) and at the
+	// stabilize_time knob they wake at stabilize_health of max. Death takes
+	// deliberate OVERKILL (one blow ≥ overkill × maxHealth, or a hit landing
+	// on a member already at 0); the dead never wake — a future resurrection
+	// mechanic is the only way back. `dead` rides the save ("dead" line,
+	// v18); the timer does not.
 	bool IsAlive() const { return health > 0.0f; }
+	bool dead = false;
+	float stabilize = 0.0f;
 
 	// --- items --------------------------------------------------------------
 	// Backpack + the two held-item hand slots (see Inventory.h). A rune lands

@@ -19,6 +19,10 @@
 ;          after stamina_holdoff seconds without a spend. An empty bar =
 ;          EXHAUSTED (damage x exhaust_damage, pace x exhaust_pace) until it
 ;          recovers past exhaust_recover of max.
+; Death:   0 HP = unconscious; after stabilize_time seconds with no monster
+;          in aggro of the party they wake at stabilize_health of max. DEAD
+;          takes overkill (one blow >= overkill x maxHealth, or a hit on a
+;          member already at 0) and never wakes.
 
 [formula]
 unarmed_base = 4
@@ -53,3 +57,6 @@ stamina_holdoff = 1.5
 exhaust_damage = 0.5
 exhaust_pace = 1.5
 exhaust_recover = 0.1
+stabilize_time = 30
+stabilize_health = 0.2
+overkill = 1.5

@@ -32,6 +32,9 @@ namespace dungeon::game {
 
 // The serializable dynamic state of one in-progress game.
 struct SaveData {
+	// v18: per-member DEAD flag ("dead" line, written only when set) — the
+	//      unconscious/dead split (docs/combat.md Phase 5). Absent = alive or
+	//      merely unconscious (health 0 self-stabilizes once safe).
 	// v17: per-member resource BASES ("base" line: health/stamina/mana) — the
 	//      maxima are DERIVED now (docs/combat.md "The resource formula":
 	//      max = base + k × statAvg), so the base is the stored truth. A
@@ -67,7 +70,7 @@ struct SaveData {
 	//     buttons as a diff (keyed by .ent id) or a whole spawn (no baseline);
 	//     replaces the v6 split of "ent"/"monster" rows + a whole "floor" item
 	//     snapshot. v6: free-look offset ("look" line); v5 folded hands into equip[].
-	int version = 17;
+	int version = 18;
 	std::string name;         // display name (free text; may contain spaces)
 	std::string currentLevel; // the level stem the party is on (where to resume)
 	std::string timestamp;    // human-readable local time, for the slot list
@@ -146,6 +149,10 @@ struct SaveData {
 		// the stored maxima at apply time.
 		bool hasBases = false;
 		float baseHealth = 0, baseStamina = 0, baseMana = 0;
+		// DEAD (v18, "dead" line, written only when set): a downed member who
+		// took deliberate overkill — never self-stabilizes. Absent = alive or
+		// unconscious.
+		bool dead = false;
 	};
 	std::vector<CharState> characters;
 

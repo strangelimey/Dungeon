@@ -357,26 +357,30 @@ derived-stats line is in scope).
   member lines; the latch is a live transient, re-derived from the bar
   on load. All nine knobs ride balance.cat → the Balance dialog.
 
-### Phase 5 — death & revive
+### Phase 5 — death & revive (LANDED 2026-07-09)
 
 0 HP splits into UNCONSCIOUS vs DEAD:
 
-- A member dropping to 0 is **unconscious** (today's down state: skipped
-  by monsters, acts on nothing). They **stabilize on their own**: after
-  30s with no monster within aggro of the party, they wake at 20% health.
-  The wake timer is live-transient (like hand cooldowns) — a save/load
-  restarts it, no new save lines.
-- **Dead** needs deliberate overkill: a hit that lands on a member ALREADY
-  at 0 (possible once monsters get area/special attacks) or a single blow
-  ≥ 150% of maxHealth kills outright. Dead members don't wake; a future
-  resurrection mechanic (altar/spell) is the revive path — out of scope
-  here beyond the flag. `bool dead` on Character, one save line
-  (v17 "dead" per slot; absent = alive-or-unconscious as today).
+- A member dropping to 0 is **unconscious** (the down state: skipped by
+  monsters, acts on nothing). They **stabilize on their own**: after
+  `stabilize_time` seconds with no live monster within its own aggro
+  range of the party, they wake at `stabilize_health` of max
+  (log.member_wakes). Any danger resets the clock; the timer is a live
+  transient (a load restarts it).
+- **Dead** needs deliberate overkill: a hit landing on a member ALREADY
+  at 0 (possible once monsters get area/special attacks) or a single
+  blow ≥ `overkill` × maxHealth (log.member_dies replaces the down
+  line). Dead members never wake; a future resurrection mechanic
+  (altar/spell) is the revive path — out of scope beyond the flag.
+  `Character::dead`, save v18 "dead" line (written only when set;
+  absent = alive-or-unconscious).
 - Party wipe stays as-is (all members at 0, unconscious or dead) — but
   wake-on-stabilize means a wipe now requires the monsters to actually
   finish the job before wandering off; review the latch at feel-test.
 - Healing sources (potions, a water heal spell) remain the magic queue's
   business; stabilize keeps death survivable until they land.
+- All three knobs (stabilize_time 30, stabilize_health 0.2,
+  overkill 1.5) ride balance.cat → the Balance dialog.
 
 ### Phase 6 — monster swing animation + poison/bleed
 

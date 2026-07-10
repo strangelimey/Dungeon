@@ -132,6 +132,8 @@ bool WriteSave(const SaveData& data, const std::string& path) {
 		// maxima derive from these + the attributes, docs/combat.md part 3).
 		t += std::format("base {} {:.3f} {:.3f} {:.3f}\n", i, c.baseHealth,
 						 c.baseStamina, c.baseMana);
+		// "dead <i>" — the overkill flag (v18), written only when set.
+		if (c.dead) t += std::format("dead {}\n", i);
 	}
 
 	// One block per visited level: a "level <stem>" header, then its entity
@@ -343,6 +345,11 @@ std::optional<SaveData> ReadSave(const std::string& path) {
 			c.baseHealth = FloatOf(tok[2]);
 			c.baseStamina = FloatOf(tok[3]);
 			c.baseMana = FloatOf(tok[4]);
+		} else if (kw == "dead" && tok.size() >= 2) {
+			// The overkill flag (v18): present = this member is DEAD.
+			const size_t idx = static_cast<size_t>(IntOf(tok[1]));
+			if (idx >= data.characters.size()) data.characters.resize(idx + 1);
+			data.characters[idx].dead = true;
 		} else if (kw == "skill" && tok.size() >= 4) {
 			// Skill XP pairs: "skill <i> <id> <xp> ..." (v15).
 			const size_t idx = static_cast<size_t>(IntOf(tok[1]));

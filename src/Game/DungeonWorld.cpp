@@ -1848,12 +1848,43 @@ void DungeonWorld::UpdateLights(float time) {
 void DungeonWorld::UpdateMonsters(float dt) {
 	const Vec3 partyPos = m_party.EyePosition();
 
+	// Danger gate for the unconscious (docs/combat.md Phase 5): any live
+	// monster within its own aggro range of the party resets every downed
+	// member's stabilize clock — nobody comes to mid-melee.
+	bool danger = false;
+	{
+		const int px = m_party.GridX(), pz = m_party.GridZ();
+		for (const Monster& m : m_monsters)
+			if (m.Alive() && std::abs(m.x - px) + std::abs(m.z - pz) <=
+								 static_cast<int>(m.kind->aggroRange)) {
+				danger = true;
+				break;
+			}
+	}
+
 	// Tick down each member's per-hand swing cooldowns so hands free up over
 	// time, fade out the hit-feedback splat, regenerate mana (scaled by
-	// intelligence) so spent spell points recover between casts, and age any
-	// active ward (the Protect shields) so it fades with a log line.
+	// intelligence) so spent spell points recover between casts, age any
+	// active ward (the Protect shields) so it fades with a log line, and run
+	// the unconscious members' stabilize clocks.
 	if (m_roster)
 		for (Character& member : *m_roster) {
+			// Self-stabilize: an UNCONSCIOUS (not dead) member accrues safe
+			// seconds and wakes at a fraction of max once the coast is clear.
+			if (!member.IsAlive() && !member.dead) {
+				if (danger) {
+					member.stabilize = 0.0f;
+				} else {
+					member.stabilize += dt;
+					if (member.stabilize >= m_balance.stabilizeTime) {
+						member.stabilize = 0.0f;
+						member.health =
+							m_balance.stabilizeHealth * member.maxHealth;
+						MemberMessage(member, loc::Format("log.member_wakes",
+														  member.name));
+					}
+				}
+			}
 			for (float& cd : member.handCooldown)
 				if (cd > 0.0f) cd -= dt;
 			if (member.hitFlash > 0.0f) member.hitFlash -= dt;
@@ -2830,12 +2861,24 @@ void DungeonWorld::WoundMember(Character& target, float damage) {
 		}
 		if (damage <= 0.0f) return; // fully absorbed — no wound, no splat
 	}
+	// Death needs deliberate OVERKILL (docs/combat.md Phase 5): a hit landing
+	// on a member ALREADY down, or a single blow past the overkill knob.
+	// Anything less leaves them unconscious — stabilizing back on their feet
+	// once the danger passes (the tick in UpdateMonsters).
+	const bool wasDown = !target.IsAlive();
 	target.health -= damage;
 	if (target.health < 0.0f) target.health = 0.0f;
 	target.hitFlash = kHitFlashSeconds;
 	target.hitSeverity = damage < 5.0f ? 0 : (damage < 10.0f ? 1 : 2);
-	if (!target.IsAlive())
+	if (target.IsAlive()) return;
+	target.stabilize = 0.0f; // the wound that downed them restarts the clock
+	if (!target.dead &&
+		(wasDown || damage >= m_balance.overkill * target.maxHealth)) {
+		target.dead = true;
+		MemberMessage(target, loc::Format("log.member_dies", target.name));
+	} else if (!target.dead && !wasDown) {
 		MemberMessage(target, loc::Format("log.member_down", target.name));
+	}
 }
 
 // The one place skills grow (docs/skills.md). Levels derive from raw XP
