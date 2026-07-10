@@ -507,6 +507,13 @@ private:
 // Draws a 1px border around a rectangle.
 void DrawBorder(gfx::SpriteBatch& batch, const gfx::Rect& rect, const Vec4& color);
 
+// Draws the shared framed-background look: the context's skin panel part when
+// one is set (its frame is baked in; the theme's panel alpha rides the tint so
+// the background-opacity preference applies to both looks), else the flat
+// theme fill + 1px border. Panel/TextOutput/popups route through it, and so
+// does the game-layer chrome (PartyHud's sheet/inventory/tooltip surfaces).
+void DrawPanelFace(UIContext& ctx, gfx::SpriteBatch& batch, const gfx::Rect& rect);
+
 // Draws a button FACE — the one button look (state fill, border, centered
 // label). ui::Button routes through it, and so does every hand-drawn chrome
 // button (the map editor's header/dock buttons), so hover reads the same

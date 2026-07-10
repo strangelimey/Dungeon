@@ -14,12 +14,12 @@ palette ceiling ceiling_stone ceiling_rough
 ####.######...........#####.####
 ####.######...........#####.####
 ####.######...........###.....##
-##......########.########.....##
-##......########.########.....##
-##......###.DDDDDDDDD####.....##
-##......###DDDDDDDDDD####.....##
-##......###DDDDDDDDDD.........##
-##......###DDDDDDDDD.####.....##
+##.....#########.########.....##
+##.....#########.########.....##
+##.....####.DDDDDDDDD####.....##
+##.....####DDDDDDDDDD####.....##
+##.....####DDDDDDDDDD.........##
+##.....####DDDDDDDDD.####.....##
 ####.######DDDDDDDDDD####.....##
 ####.######DD.DDDDDDD######.####
 ####.######DDDDDDDDDD######.####
@@ -51,15 +51,27 @@ fixture sconce 22 29 east
 fixture sconce 11 2 north
 fixture sconce 11 2 west
 fixture sconce 21 2 north
+fixture sconce 6 11 east
+fixture sconce 6 12 east
+fixture sconce 6 13 east
+fixture sconce 6 14 east
+fixture sconce 2 14 west
+fixture sconce 2 13 west
+fixture sconce 2 12 west
 fixture brazier 16 5
 fixture brazier 13 17
 fixture brazier 5 24
 fixture brazier 18 25
 fixture brazier 27 25
 stairs stairs_down 18 4 south dest=level2 destx=2 destz=1 destfacing=south
+variant wall 7 10 0
+variant wall 7 11 0
+variant wall 7 12 0
+variant wall 7 13 0
+variant wall 7 14 0
+variant wall 7 15 0
 decoration ancient_pot 2 2 south
 decoration barrel 7 6 south
-decoration rope 6 4 south
 decoration banner 21 2 wall=east
 decoration column_marble 12 3 south
 decoration column_marble 20 3 south
@@ -76,7 +88,6 @@ decoration archway 16 11 south
 decoration statue 6 10 south
 decoration chest 2 15 south
 decoration ancient_pot 6 14 south
-decoration mossy_rock 3 12 east solid=0
 decoration chest 25 2 south
 decoration barrel 29 2 south
 decoration crate 28 6 south
@@ -96,3 +107,15 @@ decoration iron_door 16 23 north solid=0
 decoration crate 29 20 south
 decoration barrel 25 29 south
 decoration pot 27 22 south
+decoration column_marble 3 10 south
+decoration column_marble 3 11 south
+decoration column_marble 3 12 south
+decoration column_marble 3 13 south
+decoration column_marble 3 14 south
+decoration column_marble 3 15 south
+decoration column_marble 5 15 south
+decoration column_marble 5 14 south
+decoration column_marble 5 13 south
+decoration column_marble 5 12 south
+decoration column_marble 5 11 south
+decoration column_marble 5 10 south

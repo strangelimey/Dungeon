@@ -2,6 +2,7 @@
 
 #include "Core/Loc.h"
 #include "Game/Spell/Spell.h"
+#include "UI/Skin.h"
 
 #include <algorithm>
 #include <format>
@@ -163,11 +164,26 @@ void CharacterPanel::Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	const ui::Theme& theme = ctx.GetTheme();
 	const gfx::Rect& px = Pixel();
 
-	Vec4 background =
-		m_held ? theme.controlActive : (m_hot ? theme.controlHot : theme.panel);
-	background.w *= backgroundOpacity;
-	batch.DrawRect(px, background);
-	ui::DrawBorder(batch, px, m_hot ? theme.accent : theme.panelBorder);
+	// Skinned: the panel part is the slot face (frame baked in), hover/press
+	// wash the theme's control colors over it and hover keeps its accent
+	// border. The flat look stays as the debug mode, exactly as before.
+	const ui::Skin* skin = ctx.GetSkin();
+	if (skin && skin->panel.texture) {
+		ui::DrawNineSlice(batch, px, skin->panel,
+						  {1, 1, 1, theme.panel.w * backgroundOpacity});
+		if (m_held || m_hot) {
+			Vec4 wash = m_held ? theme.controlActive : theme.controlHot;
+			wash.w = 0.3f;
+			batch.DrawRect(px, wash);
+		}
+		if (m_hot) ui::DrawBorder(batch, px, theme.accent);
+	} else {
+		Vec4 background =
+			m_held ? theme.controlActive : (m_hot ? theme.controlHot : theme.panel);
+		background.w *= backgroundOpacity;
+		batch.DrawRect(px, background);
+		ui::DrawBorder(batch, px, m_hot ? theme.accent : theme.panelBorder);
+	}
 
 	// Internals scale with the slot height (the slot itself is normalized).
 	const float pad = px.h * 0.08f;
@@ -250,8 +266,7 @@ void CharacterPanel::Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 		const gfx::Rect tip{px.x, px.y + px.h + 2.0f,
 							font.MeasureWidth(label) + 12.0f,
 							font.LineAdvance() + 6.0f};
-		batch.DrawRect(tip, theme.panel);
-		ui::DrawBorder(batch, tip, theme.panelBorder);
+		ui::DrawPanelFace(ctx, batch, tip);
 		font.Draw(batch, label, tip.x + 6.0f, tip.y + 3.0f, theme.text);
 	}
 }
@@ -294,10 +309,19 @@ void HandSlot::Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	if (!m_character) return; // roster shorter than this slot — draw nothing
 	const ui::Theme& theme = ctx.GetTheme();
 	const gfx::Rect& px = Pixel();
-	// Black slot background (the light-haloed item reads against it); a subtle
-	// grey lift on hover/press keeps the interaction feedback.
-	batch.DrawRect(px, m_held ? Vec4{0.22f, 0.22f, 0.24f, 1.0f}
-							  : (m_hot ? Vec4{0.12f, 0.12f, 0.13f, 1.0f} : kSlotBg));
+	// Skinned: the button part frames a black item SOCKET inset within it (the
+	// black stays in both modes — the light-haloed item icons read against it).
+	const ui::Skin* skin = ctx.GetSkin();
+	const bool skinned = skin && skin->button.texture;
+	gfx::Rect socket = px;
+	if (skinned) {
+		ui::DrawNineSlice(batch, px, skin->button, {1, 1, 1, 1});
+		const float in = 4.0f;
+		socket = {px.x + in, px.y + in, px.w - 2 * in, px.h - 2 * in};
+	}
+	// A subtle grey lift on hover/press keeps the interaction feedback.
+	batch.DrawRect(socket, m_held ? Vec4{0.22f, 0.22f, 0.24f, 1.0f}
+								  : (m_hot ? Vec4{0.12f, 0.12f, 0.13f, 1.0f} : kSlotBg));
 	// The item held in this hand, if any, drawn inset from the border.
 	const ItemSlot& slot = m_character->inventory.Hand(m_hand);
 	if (!slot.Empty() && m_icons) {
@@ -307,10 +331,13 @@ void HandSlot::Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 							 {0, 0, 1, 1}, *icon, {1, 1, 1, 1});
 		}
 	}
-	// Identity stripe along the bottom edge.
-	batch.DrawRect({px.x + 1, px.y + px.h - 4, px.w - 2, 3},
+	// Identity stripe along the socket's bottom edge.
+	batch.DrawRect({socket.x + 1, socket.y + socket.h - 4, socket.w - 2, 3},
 				   m_character->portraitColor);
-	ui::DrawBorder(batch, px, m_hot ? theme.accent : theme.panelBorder);
+	if (m_hot)
+		ui::DrawBorder(batch, px, theme.accent);
+	else if (!skinned)
+		ui::DrawBorder(batch, px, theme.panelBorder);
 }
 
 // --- SpellbookPanel ------------------------------------------------------------
@@ -709,8 +736,7 @@ void InventoryWindow::DrawOverlay(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	ui::Font& font = ctx.GetFont();
 	batch.DrawRect({0, 0, ctx.Width(), ctx.Height()}, {0, 0, 0, 0.5f}); // dim wash
 	const gfx::Rect panel = PanelRect(ctx);
-	batch.DrawRect(panel, theme.panel);
-	ui::DrawBorder(batch, panel, theme.panelBorder);
+	ui::DrawPanelFace(ctx, batch, panel);
 	font.Draw(batch, m_title, panel.x + kInvPad, panel.y + kInvPad, theme.accent);
 
 	const float colW = (panel.w - 2 * kInvPad) / static_cast<float>(MemberCount());
@@ -1051,8 +1077,7 @@ void CharacterSheet::Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	const ui::Theme& theme = ctx.GetTheme();
 	const gfx::Rect& px = Pixel();
 
-	batch.DrawRect(px, theme.panel);
-	ui::DrawBorder(batch, px, theme.panelBorder);
+	ui::DrawPanelFace(ctx, batch, px);
 	if (!m_character) return;
 
 	const float sx = px.w / kSheetDesignW;

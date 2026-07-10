@@ -16,10 +16,8 @@ const SkinPart* PanelPart(const UIContext& ctx) {
 	return skin && skin->panel.texture ? &skin->panel : nullptr;
 }
 
-// Draws the shared framed-background look: the skin's panel part when one is
-// set (its frame is baked in), else the flat theme fill + 1px border. The
-// theme's panel alpha rides the skin tint so the user's background-opacity
-// preference applies to both looks.
+} // namespace
+
 void DrawPanelFace(UIContext& ctx, gfx::SpriteBatch& batch, const gfx::Rect& rect) {
 	if (const SkinPart* part = PanelPart(ctx)) {
 		DrawNineSlice(batch, rect, *part, {1, 1, 1, ctx.GetTheme().panel.w});
@@ -28,8 +26,6 @@ void DrawPanelFace(UIContext& ctx, gfx::SpriteBatch& batch, const gfx::Rect& rec
 	batch.DrawRect(rect, ctx.GetTheme().panel);
 	DrawBorder(batch, rect, ctx.GetTheme().panelBorder);
 }
-
-} // namespace
 
 void DrawBorder(gfx::SpriteBatch& batch, const gfx::Rect& rect, const Vec4& color) {
 	batch.DrawRect({rect.x, rect.y, rect.w, 1}, color);
