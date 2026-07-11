@@ -35,7 +35,7 @@ def parse_args():
     if len(argv) < 2:
         raise SystemExit(
             "ConvertMesh: usage <in-file> <out-dir> [--split] [--keep-rig] "
-            "[--height M]")
+            "[--height M] [--objects a,b,...]")
     opts = {
         "infile": os.path.abspath(argv[0]),
         "outdir": os.path.abspath(argv[1]),
@@ -44,7 +44,14 @@ def parse_args():
         "height": 0.0,
         "max_tex": 0,
         "dump_images": "",
+        "objects": [],
     }
+    if "--objects" in argv:
+        # Keep-list for packs that bundle junk alongside the wanted meshes
+        # (decorative flame shells, reference geometry): only the named objects
+        # survive the import, everything else is deleted before export/split.
+        raw = argv[argv.index("--objects") + 1]
+        opts["objects"] = [n.strip().lower() for n in raw.split(",") if n.strip()]
     if "--height" in argv:
         opts["height"] = float(argv[argv.index("--height") + 1])
     if "--fit" in argv:
@@ -348,6 +355,20 @@ def main():
     opts = parse_args()
     fresh_scene()
     import_file(opts["infile"])
+
+    if opts["objects"]:
+        keep = set(opts["objects"])
+        dropped = []
+        for o in list(mesh_objects()):
+            if o.name.lower() not in keep:
+                dropped.append(o.name)
+                bpy.data.objects.remove(o, do_unlink=True)
+        kept = [o.name for o in mesh_objects()]
+        missing = keep - {n.lower() for n in kept}
+        if missing:
+            raise SystemExit(f"ConvertMesh: --objects named {sorted(missing)} "
+                             f"but the file has no such mesh (has: {dropped + kept})")
+        print(f"ConvertMesh: kept {kept}, dropped {dropped}")
 
     # Combined-scene normalize only when NOT splitting; split pieces normalize
     # individually below so each is sized on its own bounds. Rigged models BAKE

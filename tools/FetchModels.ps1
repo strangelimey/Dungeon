@@ -110,6 +110,16 @@ function Find-Mesh {
 #   Rig        $true for a rigged monster: convert with --keep-rig + --height and
 #              drop the normalized rigged .glb straight into assets/models
 #              (bypasses import-model, which strips joints). Wire via monsters.cat.
+#   Objects    comma list -> ConvertMesh --objects: keep ONLY these mesh objects
+#              (packs that bundle decorative flame shells/reference junk).
+#   Lift       meters -> import-model --lift: raise the grounded mesh to a
+#              hanging height (wall fixtures render at y=0, the mesh carries it).
+#   Wall       $true -> import-model --wall: back face at z=0 (mount wall),
+#              room side +Z, instead of centering Z.
+#   TexDir     texture folder relative to Src (when the maps aren't beside the
+#              mesh, e.g. an extracted zip's textures\ sibling).
+#   TexPrefix  filename prefix filter: stage only matching maps to a temp dir
+#              before import (a pack whose one folder mixes several sets).
 #
 # The entries below are the listings we scouted - they install only once the
 # matching pack is downloaded to the archive (missing Src is skipped, not fatal).
@@ -139,6 +149,16 @@ $modelSets = @(
     # modelscale field in the editor's monster dialog.
     @{ Src = "fab\monsters\centipede";    Name = "centipede";    Rig = $true; Fit = 1.8; FlipGreen = $true }
     @{ Src = "fab\monsters\giant_spider"; Name = "giant_spider"; Rig = $true; Fit = 1.7; FlipGreen = $true }
+
+    # Perunir "Medieval Stylized Torch" (fab, 2026-07-11) — the authored wall
+    # sconce (fixtures.cat [sconce]): bracket (Holder) + torch, the decorative
+    # flame shells + coal dropped (the engine's particle flame burns at the
+    # catalog's flame_* point). One material for both kept meshes; the pack's
+    # textures folder also carries the coal's separate set, hence TexPrefix.
+    # Lifted/wall-aligned to hang like the procedural sconce (y 1.10..1.75).
+    @{ Src = "fab\props\medieval-stylized-torch\extracted\source"; Name = "wall_torch"
+       Objects = "Holder,Torch"; Height = 0.65; Lift = 1.10; Wall = $true
+       TexDir = "..\textures"; TexPrefix = "T_Torch" }
 )
 
 $wanted = $Materials.Count -gt 0
@@ -242,7 +262,9 @@ foreach ($m in $modelSets) {
         # Non-pack but needs conversion (fbx/usd) -> one combined glb.
         $stage = Join-Path $stageRoot ($m.Src -replace '[\\/:]', '_')
         if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
-        if ((Invoke-Convert $mesh $stage) -ne 0) { throw "Convert failed for $($m.Name)" }
+        $cargs = @($mesh, $stage)
+        if ($m.Objects) { $cargs += @('--objects', $m.Objects) }
+        if ((Invoke-Convert @cargs) -ne 0) { throw "Convert failed for $($m.Name)" }
         $importMesh = (Get-ChildItem -Path $stage -Filter *.glb -File | Select-Object -First 1).FullName
     }
 
@@ -254,8 +276,20 @@ foreach ($m in $modelSets) {
     # import once per set, then point import-model at it with --texture-set.
     $set = if ($m.TextureSet) { $m.TextureSet } else { $m.Name }
     if (-not $importedSets.Contains($set)) {
+        # The maps may live in a sibling folder (TexDir) and share it with other
+        # sets (TexPrefix stages only the matching files, since DiscoverMaps
+        # binds the FIRST match per map kind).
+        $texSrc = if ($m.TexDir) { [IO.Path]::GetFullPath((Join-Path $srcDir $m.TexDir)) } else { $srcDir }
+        if ($m.TexPrefix) {
+            $texStage = Join-Path $stageRoot "$($m.Name)_tex"
+            if (Test-Path $texStage) { Remove-Item -Recurse -Force $texStage }
+            New-Item -ItemType Directory -Force $texStage | Out-Null
+            Get-ChildItem $texSrc -File | Where-Object { $_.Name -like "$($m.TexPrefix)*" } |
+                Copy-Item -Destination $texStage
+            $texSrc = $texStage
+        }
         $flip = if ($m.FlipGreen) { @('--flip-green') } else { @() }
-        if ((Invoke-Baker import $srcDir $assets "$($set)_2k" @flip) -ne 0) {
+        if ((Invoke-Baker import $texSrc $assets "$($set)_2k" @flip) -ne 0) {
             throw "Texture import failed for set $set"
         }
         [void]$importedSets.Add($set)
@@ -263,6 +297,8 @@ foreach ($m in $modelSets) {
 
     $importArgs = @('import-model', $importMesh, $assets, $m.Name, '--texture-set', $set)
     if ($m.Height) { $importArgs += @('--height', $m.Height) }
+    if ($m.Lift) { $importArgs += @('--lift', $m.Lift) }
+    if ($m.Wall) { $importArgs += @('--wall') }
     if ((Invoke-Baker @importArgs) -ne 0) { throw "Model import failed for $($m.Name)" }
     $installed++
 }

@@ -46,6 +46,15 @@ bool ContainsAny(const std::string& haystack, std::initializer_list<const char*>
 	return false;
 }
 
+// Unreal-style exports abbreviate the map kind to a single-letter suffix
+// (T_Torch_R / T_Torch_M). Those are too short to match as substrings — a
+// stem like "wood_render" contains "_r" — so they anchor to the stem's end.
+bool EndsWithAny(const std::string& haystack, std::initializer_list<const char*> needles) {
+	for (const char* needle : needles)
+		if (haystack.ends_with(needle)) return true;
+	return false;
+}
+
 // Height (displacement) maps need special handling: download sites ship them
 // as 16-bit grayscale PNGs whose useful range may occupy a tiny slice of
 // [0,1] — an 8-bit load can flatten such a map to a constant (Poly Haven's
@@ -146,20 +155,24 @@ FoundMaps DiscoverMaps(const std::string& sourceDir) {
 		if (found.ao.empty() &&
 			ContainsAny(stem, {"ambientocclusion", "ambient_occlusion", "_ao", "occ"})) {
 			found.ao = path;
-		} else if (found.normal.empty() && ContainsAny(stem, {"normal", "_nor"})) {
+		} else if (found.normal.empty() &&
+				   (ContainsAny(stem, {"normal", "_nor", "_nrm"}) ||
+					EndsWithAny(stem, {"_n"}))) {
 			found.normal = path;
 			found.normalLooksGl = ContainsAny(stem, {"gl"});
 		} else if (found.height.empty() &&
 				   ContainsAny(stem, {"height", "displacement", "_disp", "bump"})) {
 			found.height = path;
-		} else if (found.roughness.empty() && ContainsAny(stem, {"rough"})) {
+		} else if (found.roughness.empty() &&
+				   (ContainsAny(stem, {"rough"}) || EndsWithAny(stem, {"_r"}))) {
 			found.roughness = path;
 		} else if (found.metallic.empty() &&
-				   ContainsAny(stem, {"metallic", "metalness", "metal", "_met"})) {
+				   (ContainsAny(stem, {"metallic", "metalness", "metal", "_met"}) ||
+					EndsWithAny(stem, {"_m"}))) {
 			found.metallic = path;
 		} else if (found.albedo.empty() &&
 				   ContainsAny(stem, {"albedo", "basecolor", "base_color", "diffuse",
-									  "color", "_col", "_diff"})) {
+									  "color", "_col", "_diff", "_alb"})) {
 			found.albedo = path;
 		} else if (found.opacity.empty() &&
 				   ContainsAny(stem, {"opacity", "alpha", "opac", "transp", "mask"})) {

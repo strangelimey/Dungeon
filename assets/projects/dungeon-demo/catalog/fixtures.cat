@@ -4,12 +4,20 @@
 ;   mount   = wall (hangs on a solid neighbour wall) | floor (stands centred)
 ; The 'T'/'F' map glyphs resolve to project.ini's default_sconce/default_brazier.
 
+; Authored torch sconce (fab: Perunir "Medieval Stylized Torch" — bracket +
+; torch meshes; the pack's decorative flame shells are dropped at import, the
+; engine's particle flame burns at the flame_* point instead). The model is
+; imported lifted to hanging height with its back at z=0 (import-model
+; --lift/--wall), so it mounts like the old procedural sconce did.
 [sconce]
 display = Wall Sconce
 category = light
-model = sconce
-texture = sconce
+model = wall_torch
+texture = wall_torch
 mount = wall
+flame_height = 1.70
+flame_scale = 0.55
+flame_out = 0.16
 
 [brazier]
 display = Brazier

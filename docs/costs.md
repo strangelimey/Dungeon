@@ -41,11 +41,15 @@ complete inventory of 3rd-party content (not just a spend total).
 | 2026-06-22 | Fantasy Assassin Weapon Pack | Deepanshu | $1.99 | Fab Standard | glb/obj/fbx/usd | 4 dagger items (viking/khukri/snake/french), 3D icons — done |
 | 2026-06-23 | Leather Sentinel Armor | ebbelende3D | Free | **CC BY 4.0** ‡ | glb/obj/fbx/usdz | `leather_armor` item (3D floor model + icon) — done |
 | 2026-06-24 | Low-poly Human Skeleton | Gamefruit | $6.99 | Fab Standard | fbx | `skeleton` monster (Blender rigid-bind + Mixamo clip library) — done |
-| 2026-07-10 | Centipede Monster_V2 | Assets Animated | $4.99 † | Fab Standard | blend/fbx | `centipede` monster (rigged, 23 own clips, 4K PBR) — importing |
-| 2026-07-10 | Spider_V3 | Assets Animated | $9.99 † | Fab Standard | blend/fbx | `giant_spider` monster (rigged, 17 own clips, 4K PBR) — importing |
+| 2026-07-10 | Centipede Monster_V2 | Assets Animated | $4.99 † | Fab Standard | blend/fbx | `centipede` monster (rigged, 23 own clips, 4K PBR) — done |
+| 2026-07-10 | Spider_V3 | Assets Animated | $9.99 † | Fab Standard | blend/fbx | `giant_spider` monster (rigged, 17 own clips, 4K PBR) — done |
 | 2026-07-10 | Insectoid Monster Rig | DM-913 | Free | **CC BY 4.0** ‡ | gltf/glb/usdz | archived (`fab\monsters\insectoid`); pipeline-test candidate, 2 clips only — not imported |
 | 2026-07-10 | Cursed Undead Soldier Rig | DM-913 | Free | **CC BY 4.0** ‡ | gltf/glb/usdz | archived (`fab\monsters\undead_soldier`); parked — 14 meshes / 3 materials, exceeds the single-mesh monster path |
-| 2026-07-10 | Skeleton Army Kit | Konjo Design | **$21.87 charged** ($19.99 list) | Fab Standard | obj/fbx/gltf/glb/usdz | 4 armed skeleton variants, UNRIGGED — destined for the Mixamo rigid-bind + humanoid clip library; importing |
+| 2026-07-10 | Skeleton Army Kit | Konjo Design | **$21.87 charged** ($19.99 list) | Fab Standard | obj/fbx/gltf/glb/usdz | 4 skeleton monsters (warrior/raider/berserker/spearman, Mixamo clip library) — done |
+| 2026-07-11 | Medieval Stylized Torch | Perunir | ? | Fab Standard | fbx (+conv. gltf/glb/usdz) | `wall_torch` — the authored wall sconce (fixtures.cat [sconce]); flame shells + coal dropped — done |
+| 2026-07-11 | torch pack (listing?) | ? | ? | ? | fbx | 6 handheld torch variants, NO textures in main zip — awaiting the listing's texture download; not imported |
+| 2026-07-11 | brazier (listing?) | ? | ? | ? | fbx | empty fire bowl (low+high mesh), textures NOT in zip — awaiting texture download; not imported |
+| 2026-07-11 | brazier lamp (listing?) | ? | ? | ? | fbx | same bowl + hot-coals mesh (emissive map), textures NOT in zip — awaiting texture download; not imported |
 
 † List price, pre-tax (Fab shows prices excl. tax; actual charge may differ).
 

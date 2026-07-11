@@ -18,6 +18,7 @@
 #include <cctype>
 #include <cmath>
 #include <filesystem>
+#include <format>
 
 using namespace DirectX;
 
@@ -51,7 +52,8 @@ std::string ResolveModelFile(const std::string& sourcePath) {
 
 bool ImportModel(const std::string& sourcePath, const std::string& assetsDir,
 				 const std::string& name, float targetHeight, float yawDegrees,
-				 char upAxis, const std::string& textureSet) {
+				 char upAxis, const std::string& textureSet, float liftMeters,
+				 bool wallAlign) {
 	const std::string modelFile = ResolveModelFile(sourcePath);
 	if (modelFile.empty()) {
 		log::Error("No .gltf/.glb/.obj model found at {}", sourcePath);
@@ -124,14 +126,20 @@ bool ImportModel(const std::string& sourcePath, const std::string& assetsDir,
 	// largest extent at ~2.0 m (comfortably inside a 2.4 m cell).
 	const float scale = targetHeight > 0.0f ? targetHeight / std::max(ext[1], 1e-4f)
 											: 2.0f / maxExt;
-	const float cx = (lo.x + hi.x) * 0.5f, cz = (lo.z + hi.z) * 0.5f;
+	// Wall fixtures align their back face to z=0 (the mount wall) instead of
+	// centering Z, and hang at liftMeters instead of standing on the floor.
+	const float cx = (lo.x + hi.x) * 0.5f;
+	const float cz = wallAlign ? lo.z : (lo.z + hi.z) * 0.5f;
 	for (assets::Vertex& v : merged.vertices) {
-		v.position = {(v.position.x - cx) * scale, (v.position.y - lo.y) * scale,
+		v.position = {(v.position.x - cx) * scale,
+					  (v.position.y - lo.y) * scale + liftMeters,
 					  (v.position.z - cz) * scale};
 	}
 	log::Info("Imported model '{}': {} verts, source extent {:.2f}x{:.2f}x{:.2f} m, "
-			  "scaled x{:.3f}",
-			  name, merged.vertices.size(), ext[0], ext[1], ext[2], scale);
+			  "scaled x{:.3f}{}{}",
+			  name, merged.vertices.size(), ext[0], ext[1], ext[2], scale,
+			  liftMeters != 0.0f ? std::format(", lifted to y={:.2f}", liftMeters) : "",
+			  wallAlign ? ", back at z=0 (wall)" : "");
 
 	// --- write the normalized single-mesh glTF (white material; the texture
 	// set named after the model carries its color) ---------------------------

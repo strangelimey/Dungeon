@@ -24,8 +24,16 @@ namespace dungeon::baker {
 // path — the game binds the set by name, not via the glTF material). This lets
 // every item split out of one multi-mesh fab pack share a single material set
 // imported once, rather than re-baking the same maps per item.
+//
+// Wall fixtures (sconces) place differently from floor props: the game renders
+// them at y=0 against the mount wall, so the MESH carries its own hanging
+// height and wall contact (the procedural sconce is authored at y 1.27..1.79
+// against z=0, arm reaching +Z). `liftMeters` raises the grounded mesh to that
+// hanging height, and `wallAlign` puts its back face AT z=0 (min z = 0, room
+// side +Z) instead of centering Z — use --yaw first to spin the back to -Z.
 bool ImportModel(const std::string& sourcePath, const std::string& assetsDir,
 				 const std::string& name, float targetHeight, float yawDegrees,
-				 char upAxis, const std::string& textureSet = {});
+				 char upAxis, const std::string& textureSet = {},
+				 float liftMeters = 0.0f, bool wallAlign = false);
 
 } // namespace dungeon::baker
