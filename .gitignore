@@ -20,6 +20,11 @@ assets/models/*.glb
 # ignored by NAME (the baked procedural .gltf models stay committed).
 assets/models/centipede.gltf
 assets/models/giant_spider.gltf
+# Skeleton Army Kit variants (FetchAnimLibrary bakes, embedded textures too).
+assets/models/skel_warrior.gltf
+assets/models/skel_berserker.gltf
+assets/models/skel_spearman.gltf
+assets/models/skel_bare.gltf
 
 # Temp file for git commit -F (never track)
 .git-commit-msg.txt

@@ -334,6 +334,10 @@ DungeonWorld::MonsterKind& DungeonWorld::MonsterKindFor(const std::string& type)
 		assets->name = type; // catalog id — drives the monster.<id> loc key
 		assets->mesh = std::make_unique<gfx::Mesh>(m_device, assets->model.meshes[0]);
 		assets->tex = LoadPropTextures(tex); // <tex>_<res> PBR set, if present
+		// Authored multi-material rig (bones/armor/weapons primitives, embedded
+		// textures): build the per-material submeshes the draw paths loop.
+		if (assets->model.meshes.size() > 1)
+			assets->multi = BuildMultiMaterialModel(m_device, assets->model);
 		// Map head-shot icon RT; a fresh kind re-arms the one-shot bake pass.
 		assets->iconTarget = gfx::Texture::RenderTarget(m_device, kIconSize);
 		m_monsterIconsBaked = false;
@@ -516,6 +520,12 @@ DungeonWorld::MonsterPreviewData DungeonWorld::MonsterPreviewFor(const std::stri
 	d.modelYaw = kind.modelYaw;
 	ApplyPropMaterial(d.material, kind.tex, kind.model.materials[0].baseColorFactor,
 					  kind.fallbackRoughness);
+	if (kind.multi) { // one drawable per primitive, each with its own material
+		for (const MultiMaterialModel::Sub& sub : kind.multi->subs)
+			d.subs.push_back({sub.mesh.get(), sub.material});
+	} else {
+		d.subs.push_back({d.mesh, d.material});
+	}
 	return d;
 }
 

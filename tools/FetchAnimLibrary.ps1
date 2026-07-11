@@ -88,6 +88,37 @@ $animSets = @(
        Library = "anim\humanoid";
        Ref = "models\skeleton.gltf";
        MeshYaw = 90 }
+
+    # Skeleton Army Kit (Konjo Design, fab 2026-07-10): four PRE-BUILT armed
+    # variants as multi-material OBJs. Textures maps material slot -> albedo
+    # [:normal] under TexDir (the kit's MTLs point at the author's desktop and
+    # omit normals, so the bind wires them explicitly); the bake keeps the
+    # material slots and embeds the images — the engine's multi-material
+    # monster path renders one primitive per material.
+    $(
+        $kitTex = @{
+            'Skeleton_Bones_Mat' = 'Skeleton_C1.png:Skeleton_N1.png'
+            'Skelly_armor'       = 'Skelly_armor_C2.png:Skelly_armor_N2.png'
+            'Berserker_weps'     = 'Berserker_weps1_albedo.png:Berserker_weps1_normal.png'
+            'Skel_war_weps'      = 'Skel_warrior_wep_C.png:Skel_warrior_wep_N1.png'
+        }
+        $kitDir = "fab\monsters\skeleton-army\obj\Skeleton_obj"
+        foreach ($v in @(
+            @{ Name = "skel_warrior";   File = "Skeleton_Warrior.obj" },
+            @{ Name = "skel_berserker"; File = "Skeleton_Berserker.obj" },
+            @{ Name = "skel_spearman";  File = "Skeleton_spearman.obj" },
+            @{ Name = "skel_bare";      File = "Skeleton_no_armor.obj" }
+        )) {
+            @{ Name = $v.Name;
+               Mesh = "$kitDir\$($v.File)";
+               Library = "anim\humanoid";
+               Ref = "models\skeleton.gltf";
+               MeshYaw = 0; # the kit OBJs already face +Y (verified by render)
+               ArmDrop = 55; # kit is A-pose (arms down); re-rest the T-pose arms
+               Textures = $kitTex;
+               TexDir = "$kitDir\Skeletal_textures" }
+        }
+    )
 )
 
 $wanted = $Creatures.Count -gt 0
@@ -119,7 +150,15 @@ foreach ($c in $animSets) {
     if (-not (Test-Path $ref)) { throw "Ref model not found: $ref" }
     $yaw = if ($null -ne $c.MeshYaw) { $c.MeshYaw } else { 90 }
 
-    $rc = Invoke-Blender $mesh $library $outGltf $ref "--catalog-out" $catOut "--mesh-yaw" $yaw
+    # Multi-material kits: compose the material->texture wiring for the bake.
+    $texArgs = @()
+    if ($c.Textures) {
+        $texSpec = ($c.Textures.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" }) -join ';'
+        $texArgs = @('--textures', $texSpec, '--tex-dir', (Join-Path $archive $c.TexDir))
+    }
+    if ($c.ArmDrop) { $texArgs += @('--arm-drop', $c.ArmDrop) }
+
+    $rc = Invoke-Blender $mesh $library $outGltf $ref "--catalog-out" $catOut "--mesh-yaw" $yaw @texArgs
     if ($rc -ne 0) { throw "Bake failed for $($c.Name)" }
     Write-Host "  model -> models\$($c.Name).gltf"
     Write-Host "  catalog rows -> models\$($c.Name).anim.cat"

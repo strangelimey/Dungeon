@@ -333,6 +333,10 @@ public:
 		const assets::SkeletonData* skeleton = nullptr;
 		const std::vector<assets::AnimationClipData>* clips = nullptr;
 		gfx::MaterialParams material;
+		// Every drawable piece: one entry for a single-mesh kind, one per
+		// primitive for a multi-material rig. Consumers draw these (with the
+		// palette); mesh/material above remain the meshes[0] view.
+		std::vector<gfx::PreviewSubmesh> subs;
 		float modelScale = 1.0f;
 		float modelYaw = 0.0f; // render-time facing fixup, so the preview matches in-world
 	};
@@ -709,6 +713,8 @@ private:
 	// declared here so monster kinds can point at one before the definition.
 	struct PropTextures;
 
+	struct MultiMaterialModel; // defined below (shared with decorations/items)
+
 	// Per-kind monster assets (shared) and per-instance state. Kinds are
 	// entity type names from the .ent file ("skeleton" loads skeleton.gltf).
 	struct MonsterKind {
@@ -717,6 +723,11 @@ private:
 		std::string name;
 		// PBR set bound by type name (skeleton_<res>, ...); null = flat material.
 		const PropTextures* tex = nullptr; // points into m_propTextures (stable)
+		// Authored multi-material rig (bought kits: bones/armor/weapons, each
+		// with its own embedded glTF textures) — set when the model has >1
+		// primitive. The draw, icon bake, and dialog preview loop these subs
+		// with the animator palette; `mesh` stays meshes[0] elsewhere.
+		std::unique_ptr<MultiMaterialModel> multi;
 		// Combat stats from monsters.cat (fallbacks in MonsterKindFor).
 		float maxHp = 12.0f;
 		float damage = 4.0f;

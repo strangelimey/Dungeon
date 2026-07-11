@@ -328,6 +328,14 @@ void DungeonWorld::SubmitSceneGeometry(ID3D12GraphicsCommandList* list,
 												kind.modelScale) *
 									XMMatrixRotationY(monster.yaw + kind.modelYaw) *
 									XMMatrixTranslation(pos.x, 0, pos.z));
+		if (kind.multi) {
+			// Authored multi-material rig: every primitive with its own glTF
+			// material (bones/armor/weapons), all skinned by the same palette.
+			for (const MultiMaterialModel::Sub& sub : kind.multi->subs)
+				m_renderer.DrawMesh(list, *sub.mesh, world, sub.material,
+									monster.animator.Palette());
+			continue;
+		}
 		gfx::MaterialParams material;
 		const float fallbackRough = kind.fallbackRoughness;
 		ApplyPropMaterial(material, kind.tex,
@@ -721,14 +729,17 @@ void DungeonWorld::BakeMonsterIcon(ID3D12GraphicsCommandList* list,
 
 	// HEAD SHOT: frame the model's upper portion (a skull for the skeleton, the
 	// slime's dome), not the whole figure — a full body at map-marker size is
-	// an unreadable stick. Bind-pose bounds from the mesh vertices; the focus
-	// box is the top quarter of the height (the head, tight), centred on x/z.
+	// an unreadable stick. Bind-pose bounds from ALL primitives' vertices (a
+	// multi-material rig's helmet may top the bones); the focus box is the top
+	// quarter of the height (the head, tight), centred on x/z.
 	Vec3 lo{1e9f, 1e9f, 1e9f}, hi{-1e9f, -1e9f, -1e9f};
-	for (const auto& v : kind.model.meshes[0].vertices) {
-		lo = {std::min(lo.x, v.position.x), std::min(lo.y, v.position.y),
-			  std::min(lo.z, v.position.z)};
-		hi = {std::max(hi.x, v.position.x), std::max(hi.y, v.position.y),
-			  std::max(hi.z, v.position.z)};
+	for (const auto& meshData : kind.model.meshes) {
+		for (const auto& v : meshData.vertices) {
+			lo = {std::min(lo.x, v.position.x), std::min(lo.y, v.position.y),
+				  std::min(lo.z, v.position.z)};
+			hi = {std::max(hi.x, v.position.x), std::max(hi.y, v.position.y),
+				  std::max(hi.z, v.position.z)};
+		}
 	}
 	const float height = std::max(hi.y - lo.y, 1e-3f);
 	const float focusH = height * 0.25f;
@@ -761,7 +772,13 @@ void DungeonWorld::BakeMonsterIcon(ID3D12GraphicsCommandList* list,
 					  kind.fallbackRoughness);
 
 	m_renderer.BeginScene(list, cam, IconStudioLights()); // the shared studio rig
-	m_renderer.DrawMesh(list, *kind.mesh, world, mat, rest.Palette());
+	if (kind.multi) {
+		for (const MultiMaterialModel::Sub& sub : kind.multi->subs)
+			m_renderer.DrawMesh(list, *sub.mesh, world, sub.material,
+								rest.Palette());
+	} else {
+		m_renderer.DrawMesh(list, *kind.mesh, world, mat, rest.Palette());
+	}
 
 	D3D12_RESOURCE_BARRIER toSRV = gfx::Transition(
 		kind.iconTarget->Resource(), D3D12_RESOURCE_STATE_RENDER_TARGET,

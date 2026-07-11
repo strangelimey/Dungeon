@@ -308,6 +308,7 @@ monster.blob=la melma
 monster.mummy=la mummia
 monster.giant_spider=il ragno gigante
 monster.centipede=il centopiedi gigante
+monster.skel_warrior=lo scheletro guerriero
 monster.skel_human=il cavaliere d'ossa
 
 ; --- character sheet / party bar -------------------------------------------------

@@ -45,6 +45,7 @@ complete inventory of 3rd-party content (not just a spend total).
 | 2026-07-10 | Spider_V3 | Assets Animated | $9.99 † | Fab Standard | blend/fbx | `giant_spider` monster (rigged, 17 own clips, 4K PBR) — importing |
 | 2026-07-10 | Insectoid Monster Rig | DM-913 | Free | **CC BY 4.0** ‡ | gltf/glb/usdz | archived (`fab\monsters\insectoid`); pipeline-test candidate, 2 clips only — not imported |
 | 2026-07-10 | Cursed Undead Soldier Rig | DM-913 | Free | **CC BY 4.0** ‡ | gltf/glb/usdz | archived (`fab\monsters\undead_soldier`); parked — 14 meshes / 3 materials, exceeds the single-mesh monster path |
+| 2026-07-10 | Skeleton Army Kit | Konjo Design | **$21.87 charged** ($19.99 list) | Fab Standard | obj/fbx/gltf/glb/usdz | 4 armed skeleton variants, UNRIGGED — destined for the Mixamo rigid-bind + humanoid clip library; importing |
 
 † List price, pre-tax (Fab shows prices excl. tax; actual charge may differ).
 
@@ -100,10 +101,10 @@ One-off or recurring software bought for the project.
 
 ## Totals (as of 2026-07-10)
 - **Asset purchases:** textures.com **$39.00** (5,000-credit bundle; 3,425 left,
-  ~$26.71 prepaid headroom); fab.com **$23.96** pre-tax (Fantasy Assassin $1.99 +
-  skeleton $6.99 + centipede $4.99 + spider $9.99; the CC-BY freebies cost $0);
-  other $0.
+  ~$26.71 prepaid headroom); fab.com **$45.83** (Fantasy Assassin $1.99 +
+  skeleton $6.99 + centipede $4.99 + spider $9.99, all pre-tax list, + Skeleton
+  Army Kit **$21.87 actual charged**; the CC-BY freebies cost $0); other $0.
 - **AI / API:** not yet recorded.
 - **Dev tools / licenses:** $0 (all free so far).
-- **Cash out of pocket so far:** **$62.96** pre-tax ($39.00 textures.com +
-  $23.96 fab.com).
+- **Cash out of pocket so far:** **~$84.83** ($39.00 textures.com + $45.83
+  fab.com — mixed pre-tax/charged; earlier fab rows exclude tax).

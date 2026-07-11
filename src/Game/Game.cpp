@@ -332,6 +332,7 @@ void Game::WireModuleCallbacks() {
 		m_previewType.clear(); // force the preview animator to (re)build on first frame
 		m_previewClip.clear();
 		m_previewMonMesh = nullptr;
+		m_previewMonSubs.clear();
 	};
 	// Live-apply on every edit; persist on Save.
 	m_monsterDialog.onApply = [this](const MonsterConfigDialog::Config& c) {
@@ -505,7 +506,7 @@ void Game::OpenInspectorFor(const InspectTarget& t) {
 		PreviewSpec pv;
 		if (m_world.MonsterModelAvailable(c.type)) {
 			const auto d = m_world.MonsterPreviewFor(c.type);
-			pv.subs.push_back({d.mesh, d.material});
+			pv.subs = d.subs; // one entry, or one per primitive (multi-material)
 			pv.scale = d.modelScale;
 			pv.yaw = d.modelYaw;
 			pv.skeleton = d.skeleton;
@@ -1994,6 +1995,7 @@ void Game::Update(float dt) {
 		const std::string& clip = m_monsterDialog.PreviewClip();
 		if (clip.empty()) {
 			m_previewMonMesh = nullptr;
+		m_previewMonSubs.clear();
 			m_previewClip.clear();
 		} else if (type != m_previewType) {
 			// New type: (re)build the Animator over its skeleton/clips + cache the
@@ -2001,6 +2003,7 @@ void Game::Update(float dt) {
 			const auto d = m_world.MonsterPreviewFor(type);
 			m_previewMonMesh = d.mesh;
 			m_previewMonMat = d.material;
+			m_previewMonSubs = d.subs; // multi-material rigs preview every piece
 			m_previewMonScale = d.modelScale;
 			m_previewMonYaw = d.modelYaw;
 			m_previewAnim = anim::Animator(d.skeleton, d.clips);
@@ -2229,10 +2232,10 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 		// The monster-config dialog's live animation: a fixed front-on view (the
 		// mesh faces +Z / the camera is at -Z, so ~π turns it toward the camera),
 		// rendered at the (tall) preview pane's aspect so it isn't squashed.
+		// Every piece draws (a multi-material rig previews bones+armor+weapons).
 		const gfx::Rect pv = m_monsterDialog.PreviewRect(
 			static_cast<float>(m_device.Width()), static_cast<float>(m_device.Height()));
-		pvMesh = m_previewMonMesh;
-		pvMat = m_previewMonMat;
+		pvSubs = m_previewMonSubs;
 		pvScale = m_previewMonScale;
 		pvOrbit = kPi + m_previewMonYaw; // face the camera + the model's facing fixup
 		pvAspect = pv.h > 0.0f ? pv.w / pv.h : 1.0f;

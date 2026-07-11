@@ -130,9 +130,11 @@ def parse_args(argv):
     plan = "--plan" in argv
     argv = [a for a in argv if a != "--plan"]
     opts = {"plan": plan, "mesh": None, "library": None, "out": None, "ref": None,
-            "catalog_out": None, "mesh_yaw": 90.0, "keep_fingers": False}
-    usage = ("usage: <mesh.fbx> <library_root> <out.gltf> <ref_skeleton.gltf> "
-             "[--catalog-out f] [--mesh-yaw deg] [--keep-fingers]  |  "
+            "catalog_out": None, "mesh_yaw": 90.0, "keep_fingers": False,
+            "textures": "", "tex_dir": "", "arm_drop": 0.0}
+    usage = ("usage: <mesh.fbx|.obj> <library_root> <out.gltf> <ref_skeleton.gltf> "
+             "[--catalog-out f] [--mesh-yaw deg] [--keep-fingers] "
+             "[--textures '<mat>=<albedo>[:<normal>];...' --tex-dir <dir>]  |  "
              "--plan <library_root> [--catalog-out f]")
 
     def value(i, flag):  # the arg after a value-flag, or a usage error if omitted
@@ -150,6 +152,12 @@ def parse_args(argv):
             opts["mesh_yaw"] = float(value(i, a)); i += 2
         elif a == "--keep-fingers":
             opts["keep_fingers"] = True; i += 1
+        elif a == "--textures":
+            opts["textures"] = value(i, a); i += 2
+        elif a == "--tex-dir":
+            opts["tex_dir"] = value(i, a); i += 2
+        elif a == "--arm-drop":
+            opts["arm_drop"] = float(value(i, a)); i += 2
         elif a.startswith("--"):  # an unknown flag, not a silently-swallowed positional
             raise SystemExit(f"unknown option '{a}'\n{usage}")
         else:
@@ -284,15 +292,75 @@ def run_bake(opts):
     bpy.context.view_layer.update()
     print(f"[rig] baked scale {factor:.4f}")
 
+    # ---- A-pose rest adjustment (--arm-drop DEG) --------------------------------
+    # A mesh authored with arms DOWN (bought kits) binds terribly to the Mixamo
+    # T-pose rest: hand/forearm bones sit out at shoulder height, so a shield
+    # hanging at the hip rigid-binds to the pelvis and stays behind when the arm
+    # swings. Rotating the upper-arm bones down by the mesh's hang angle and
+    # APPLYING that as the new rest fixes the island->bone assignment; the
+    # Mixamo clips key every bone with absolute parent-relative rotations, so
+    # they play unchanged against the new rest.
+    if opts["arm_drop"] > 0.0:
+        from mathutils import Matrix
+        drop = math.radians(opts["arm_drop"])
+        bpy.ops.object.select_all(action="DESELECT")
+        rig.select_set(True)
+        bpy.context.view_layer.objects.active = rig
+        bpy.ops.object.mode_set(mode="POSE")
+        dropped = 0
+        for pb in rig.pose.bones:
+            n = pb.name
+            side = 1.0 if "LeftArm" in n else (-1.0 if "RightArm" in n else 0.0)
+            if side == 0.0 or "ForeArm" in n:
+                continue  # only the UPPER arm bones pivot; forearms follow
+            # Rotate the pose bone about the armature's forward (+Y) axis at
+            # the bone head — swings the arm down in the frontal plane.
+            pivot = pb.matrix.to_translation()
+            rot = (Matrix.Translation(pivot) @
+                   Matrix.Rotation(side * -drop, 4, "Y") @
+                   Matrix.Translation(-pivot))
+            pb.matrix = rot @ pb.matrix
+            bpy.context.view_layer.update()
+            dropped += 1
+        bpy.ops.pose.armature_apply(selected=False)
+        bpy.ops.object.mode_set(mode="OBJECT")
+        print(f"[rest] dropped {dropped} upper-arm bone(s) by {opts['arm_drop']}deg")
+
     def bone_world(b, head=True):
         return rig.matrix_world @ (b.head_local if head else b.tail_local)
 
     # ---- import our mesh, co-face the armature, fit to it ----------------------
-    new_objs = import_fbx(mesh_fbx)
-    mesh = next(o for o in new_objs if o.type == "MESH")
-    mesh.rotation_euler = (0, 0, mesh_yaw)  # co-face the +Y Mixamo armature
-    bpy.context.view_layer.objects.active = mesh
+    # OBJ sources (bought kits) import via the wm importer and often split into
+    # one object per group (bones/armor/weapons) — JOIN them into one mesh; the
+    # material slots survive the join, so a multi-material kit keeps its parts.
+    if mesh_fbx.lower().endswith(".obj"):
+        before = set(bpy.data.objects)
+        try:
+            bpy.ops.wm.obj_import(filepath=mesh_fbx)
+        except AttributeError:
+            bpy.ops.import_scene.obj(filepath=mesh_fbx)
+        new_objs = [o for o in bpy.data.objects if o not in before]
+    else:
+        new_objs = import_fbx(mesh_fbx)
+    parts = [o for o in new_objs if o.type == "MESH"]
+    if not parts:
+        raise SystemExit(f"no mesh objects in {mesh_fbx}")
+    bpy.ops.object.select_all(action="DESELECT")
+    for o in parts:
+        o.select_set(True)
+    bpy.context.view_layer.objects.active = parts[0]
+    if len(parts) > 1:
+        bpy.ops.object.join()
+        print(f"[mesh] joined {len(parts)} objects")
+    mesh = parts[0]
+    bpy.ops.object.select_all(action="DESELECT")
     mesh.select_set(True)
+    bpy.context.view_layer.objects.active = mesh
+    # The importers park their axis conversion (Y-up -> Z-up) on the OBJECT
+    # rotation; bake it FIRST — assigning rotation_euler below would silently
+    # discard it and the mesh would bind lying down (exploded animations).
+    bpy.ops.object.transform_apply(rotation=True)
+    mesh.rotation_euler = (0, 0, mesh_yaw)  # co-face the +Y Mixamo armature
     bpy.ops.object.transform_apply(rotation=True)
 
     zs = [(mesh.matrix_world @ v.co).z for v in mesh.data.vertices]
@@ -305,11 +373,53 @@ def run_bake(opts):
     print(f"[fit] mesh dims {mesh.dimensions.x:.2f} x {mesh.dimensions.y:.2f} x "
           f"{mesh.dimensions.z:.2f}")
 
-    # merge to ONE material -> single glTF primitive (monster path renders meshes[0])
-    for p in mesh.data.polygons:
-        p.material_index = 0
-    while len(mesh.data.materials) > 1:
-        mesh.data.materials.pop(index=1)
+    # Materials: with a --textures map, KEEP the material slots (the engine's
+    # multi-material monster path renders one primitive per material) and wire
+    # each slot's albedo/normal images explicitly — bought-kit MTLs reference
+    # the author's machine and omit normal maps entirely. Without a map, the
+    # legacy single-material merge (texture= set bound by the engine) applies.
+    tex_map = {}
+    for pair in (p for p in opts["textures"].split(";") if p.strip()):
+        mat_name, _, files = pair.partition("=")
+        tex_map[mat_name.strip()] = files.strip()
+    if tex_map:
+        for slot in mesh.material_slots:
+            mat = slot.material
+            if mat is None or mat.name not in tex_map:
+                key = mat.name if mat else "<empty>"
+                print(f"[tex] WARNING no texture mapping for material '{key}'")
+                continue
+            spec = tex_map[mat.name].split(":")
+            mat.use_nodes = True
+            nt = mat.node_tree
+            bsdf = next((n for n in nt.nodes if n.type == "BSDF_PRINCIPLED"), None)
+            if bsdf is None:
+                bsdf = nt.nodes.new("ShaderNodeBsdfPrincipled")
+                out = next((n for n in nt.nodes if n.type == "OUTPUT_MATERIAL"),
+                           None) or nt.nodes.new("ShaderNodeOutputMaterial")
+                nt.links.new(bsdf.outputs["BSDF"], out.inputs["Surface"])
+            if spec[0]:
+                img = bpy.data.images.load(os.path.join(opts["tex_dir"], spec[0]))
+                node = nt.nodes.new("ShaderNodeTexImage")
+                node.image = img
+                nt.links.new(node.outputs["Color"], bsdf.inputs["Base Color"])
+            if len(spec) > 1 and spec[1]:
+                img = bpy.data.images.load(os.path.join(opts["tex_dir"], spec[1]))
+                img.colorspace_settings.name = "Non-Color"
+                node = nt.nodes.new("ShaderNodeTexImage")
+                node.image = img
+                nm = nt.nodes.new("ShaderNodeNormalMap")
+                nt.links.new(node.outputs["Color"], nm.inputs["Color"])
+                nt.links.new(nm.outputs["Normal"], bsdf.inputs["Normal"])
+            bsdf.inputs["Roughness"].default_value = 0.75
+            bsdf.inputs["Metallic"].default_value = 0.0
+            print(f"[tex] '{mat.name}' <- {tex_map[mat.name]}")
+    else:
+        # merge to ONE material -> single glTF primitive (single-set monsters)
+        for p in mesh.data.polygons:
+            p.material_index = 0
+        while len(mesh.data.materials) > 1:
+            mesh.data.materials.pop(index=1)
 
     # Bone segments (optionally excluding finger bones so a coarse hand binds
     # rigidly to the Hand bone instead of stretching to a fingertip).
@@ -357,6 +467,9 @@ def run_bake(opts):
     for comp in islands:
         nb = [min(segs, key=lambda s: dist_pt_seg(co[i], s[1], s[2]))[0] for i in comp]
         dom, dom_n = Counter(nb).most_common(1)[0]
+        if len(comp) > 300:  # the big pieces (shield, blade, torso shells) —
+            print(f"[bind] island({len(comp)} verts) -> {dom} "
+                  f"({dom_n / len(comp):.0%})")  # eyeball the assignment
         if dom_n / len(comp) >= 0.70:  # compact shell -> one rigid bone
             vgs[dom].add(comp, 1.0, "REPLACE")
             rigid_n += 1
@@ -385,16 +498,30 @@ def run_bake(opts):
     mesh.select_set(True)
     rig.select_set(True)
     bpy.context.view_layer.objects.active = rig
-    fmt = "GLTF_SEPARATE" if out_path.lower().endswith(".gltf") else "GLB"
+    # A textured multi-material bake EMBEDS its images and ships as one GLB
+    # (written to the .gltf output name — the engine's monster loader reads by
+    # that name and cgltf sniffs the binary; same convention as the bought
+    # rigged crawlers). The legacy single-set path keeps its image-less export.
+    if tex_map:
+        fmt = "GLB"
+        img_fmt = "AUTO"
+    else:
+        fmt = "GLTF_SEPARATE" if out_path.lower().endswith(".gltf") else "GLB"
+        img_fmt = "NONE"
+    export_path = out_path
+    if fmt == "GLB" and out_path.lower().endswith(".gltf"):
+        export_path = out_path[:-5] + ".glb"  # exporter names it; rename below
     bpy.ops.export_scene.gltf(
-        filepath=out_path,
+        filepath=export_path,
         export_format=fmt,
         use_selection=True,
         export_animations=True,
         export_animation_mode="NLA_TRACKS",
         export_yup=True,
-        export_image_format="NONE",
+        export_image_format=img_fmt,
     )
+    if export_path != out_path:
+        os.replace(export_path, out_path)
     print(f"[done] wrote {out_path} ({fmt}, {len(clip_files)} clips)")
     emit_catalog(rows, opts["catalog_out"])
 

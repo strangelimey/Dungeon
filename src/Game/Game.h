@@ -346,6 +346,9 @@ private:
 	std::string m_previewType, m_previewClip;
 	const gfx::Mesh* m_previewMonMesh = nullptr;
 	gfx::MaterialParams m_previewMonMat;
+	// Every drawable piece of the previewed type (one per primitive for a
+	// multi-material rig); the Render pass draws these with the palette.
+	std::vector<gfx::PreviewSubmesh> m_previewMonSubs;
 	float m_previewMonScale = 1.0f;
 	float m_previewMonYaw = 0.0f; // modelyaw fixup, so the preview faces like in-world
 

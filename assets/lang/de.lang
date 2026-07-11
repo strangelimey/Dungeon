@@ -308,6 +308,7 @@ monster.blob=Der Schleim
 monster.mummy=Die Mumie
 monster.giant_spider=Die Riesenspinne
 monster.centipede=Der Riesenhundertfüßer
+monster.skel_warrior=Der Skelettkrieger
 monster.skel_human=Der Knochenritter
 
 ; --- character sheet / party bar -------------------------------------------------
