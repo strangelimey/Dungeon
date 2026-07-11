@@ -38,20 +38,22 @@ complete inventory of 3rd-party content (not just a spend total).
 
 | date | listing | seller | price | license | formats | in-game / status |
 |---|---|---|---|---|---|---|
-| 2026-06-22 | Fantasy Assassin Weapon Pack | Deepanshu | $1.99 | Fab Standard | glb/obj/fbx/usd | 4 dagger items (viking/khukri/snake/french), 3D icons — done |
+| 2026-06-22 | Fantasy Assassin Weapon Pack | Deepanshu | $1.99 (**$2.18 charged**) | Fab Standard | glb/obj/fbx/usd | 4 dagger items (viking/khukri/snake/french), 3D icons — done |
 | 2026-06-23 | Leather Sentinel Armor | ebbelende3D | Free | **CC BY 4.0** ‡ | glb/obj/fbx/usdz | `leather_armor` item (3D floor model + icon) — done |
-| 2026-06-24 | Low-poly Human Skeleton | Gamefruit | $6.99 | Fab Standard | fbx | `skeleton` monster (Blender rigid-bind + Mixamo clip library) — done |
+| 2026-06-24 | Low-poly Human Skeleton | Gamefruit | $6.99 (**$7.65 charged**) | Fab Standard | fbx | `skeleton` monster (Blender rigid-bind + Mixamo clip library) — done |
 | 2026-07-10 | Centipede Monster_V2 | Assets Animated | $4.99 † | Fab Standard | blend/fbx | `centipede` monster (rigged, 23 own clips, 4K PBR) — done |
 | 2026-07-10 | Spider_V3 | Assets Animated | $9.99 † | Fab Standard | blend/fbx | `giant_spider` monster (rigged, 17 own clips, 4K PBR) — done |
 | 2026-07-10 | Insectoid Monster Rig | DM-913 | Free | **CC BY 4.0** ‡ | gltf/glb/usdz | archived (`fab\monsters\insectoid`); pipeline-test candidate, 2 clips only — not imported |
 | 2026-07-10 | Cursed Undead Soldier Rig | DM-913 | Free | **CC BY 4.0** ‡ | gltf/glb/usdz | archived (`fab\monsters\undead_soldier`); parked — 14 meshes / 3 materials, exceeds the single-mesh monster path |
-| 2026-07-10 | Skeleton Army Kit | Konjo Design | **$21.87 charged** ($19.99 list) | Fab Standard | obj/fbx/gltf/glb/usdz | 4 skeleton monsters (warrior/raider/berserker/spearman, Mixamo clip library) — done |
-| 2026-07-11 | Medieval Stylized Torch | Perunir | ? | Fab Standard | fbx (+conv. gltf/glb/usdz) | `wall_torch` — the authored wall sconce (fixtures.cat [sconce]); flame shells + coal dropped — done |
-| 2026-07-11 | torch pack (listing?) | ? | ? | ? | fbx | 6 handheld torch variants, NO textures in main zip — awaiting the listing's texture download; not imported |
-| 2026-07-11 | brazier (listing?) | ? | ? | ? | fbx | empty fire bowl (low+high mesh), textures NOT in zip — awaiting texture download; not imported |
-| 2026-07-11 | brazier lamp (listing?) | ? | ? | ? | fbx | same bowl + hot-coals mesh (emissive map), textures NOT in zip — awaiting texture download; not imported |
+| 2026-07-10 | Skeleton Army Kit | Konjo Design | $19.99 (**$21.87 charged**) | Fab Standard | obj/fbx/gltf/glb/usdz | 4 skeleton monsters (warrior/raider/berserker/spearman, Mixamo clip library) — done |
+| 2026-07-11 | Medieval Stylized Torch | Perunir | $1.99 ★ | Fab Standard | fbx (+conv. gltf/glb/usdz) | `wall_torch` — the authored wall sconce (fixtures.cat [sconce]); flame shells + coal dropped — done |
+| 2026-07-11 | Torch pack | AnimaZ | $18.99 ★ | Fab Standard | fbx | 6 handheld torch variants, textures ship separately — awaiting the listing's texture download; not imported |
+| 2026-07-11 | Fantastic brazier | Mavas3D | $6.99 ★ | Fab Standard | fbx | empty fire bowl (low+high mesh), textures ship separately — awaiting texture download; not imported |
+| 2026-07-11 | Fantastic brazier lamp | Mavas3D | $7.99 ★ | Fab Standard | fbx | same bowl + hot-coals mesh (emissive map), textures ship separately — awaiting texture download; not imported |
 
-† List price, pre-tax (Fab shows prices excl. tax; actual charge may differ).
+† Charged together as one order: **$16.39** (the $14.98 list + $1.41 tax).
+★ Charged together as one order (A2607111637553770): **$39.34** (the $35.96
+list + $3.38 tax).
 
 ‡ **Attribution required** — CC BY 4.0 means the project must credit the author.
 See the Attributions section below; add a creditable line before any release.
@@ -103,12 +105,13 @@ One-off or recurring software bought for the project.
 
 ---
 
-## Totals (as of 2026-07-10)
+## Totals (as of 2026-07-11)
 - **Asset purchases:** textures.com **$39.00** (5,000-credit bundle; 3,425 left,
-  ~$26.71 prepaid headroom); fab.com **$45.83** (Fantasy Assassin $1.99 +
-  skeleton $6.99 + centipede $4.99 + spider $9.99, all pre-tax list, + Skeleton
-  Army Kit **$21.87 actual charged**; the CC-BY freebies cost $0); other $0.
+  ~$26.71 prepaid headroom); fab.com **$87.43 charged** (all five orders, tax
+  incl.: Fantasy Assassin $2.18 + skeleton $7.65 + crawlers $16.39 + Skeleton
+  Army Kit $21.87 + fixtures/torches $39.34; the CC-BY freebies cost $0);
+  other $0.
 - **AI / API:** not yet recorded.
 - **Dev tools / licenses:** $0 (all free so far).
-- **Cash out of pocket so far:** **~$84.83** ($39.00 textures.com + $45.83
-  fab.com — mixed pre-tax/charged; earlier fab rows exclude tax).
+- **Cash out of pocket so far:** **$126.43** ($39.00 textures.com + $87.43
+  fab.com, all actual charged amounts from the Epic purchases page).
