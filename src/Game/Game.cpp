@@ -1108,10 +1108,37 @@ void Game::RegisterDevCommands() {
 						   m_console.Print(m_world.ShadowsEnabled() ? "shadows on"
 																	: "shadows off");
 					   });
-	m_console.Register("dust", "toggle volumetric dust (on/off)",
+	m_console.Register("dust", "volumetric dust: on/off, or a density (default 0.075)",
 					   [this](const std::vector<std::string>& args) {
-						   if (!args.empty()) m_world.SetDustEnabled(ArgOn(args[0]));
-						   m_console.Print(m_world.DustEnabled() ? "dust on" : "dust off");
+						   if (!args.empty()) {
+							   if (args[0] == "on" || args[0] == "off") {
+								   m_world.SetDustEnabled(ArgOn(args[0]));
+							   } else {
+								   m_world.SetDustDensity(
+									   static_cast<float>(std::atof(args[0].c_str())));
+								   m_world.SetDustEnabled(true);
+							   }
+						   }
+						   m_console.Print(m_world.DustEnabled()
+											   ? std::format("dust on, density {:.3f}",
+															 m_world.DustDensity())
+											   : "dust off");
+					   });
+	m_console.Register("haze", "dust ambient pickup (mood tuning, default 0.9)",
+					   [this](const std::vector<std::string>& args) {
+						   if (!args.empty())
+							   m_world.SetHazeAmbient(
+								   static_cast<float>(std::atof(args[0].c_str())));
+						   m_console.Print(
+							   std::format("haze ambient {:.2f}", m_world.HazeAmbient()));
+					   });
+	m_console.Register("ambient", "scale the ambient fill (mood tuning, default 1.0)",
+					   [this](const std::vector<std::string>& args) {
+						   if (!args.empty())
+							   m_world.SetAmbientScale(
+								   static_cast<float>(std::atof(args[0].c_str())));
+						   m_console.Print(
+							   std::format("ambient x{:.2f}", m_world.AmbientScale()));
 					   });
 	m_console.Register("fov", "set camera field of view in degrees (default 70)",
 					   [this](const std::vector<std::string>& args) {

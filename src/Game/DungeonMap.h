@@ -46,8 +46,12 @@ enum class Cell : u8 { Wall, Floor };
 
 // Per-torch light/smoke defaults (also the "don't write it" baseline for the
 // .map fixture record — only non-default values are serialized).
+// Turbidity defaults were halved in the lighting mood pass (0.28/0.55 →
+// 0.16/0.38): fire smoke used to SUM linearly across neighbours, so a
+// sconce-lined hall saturated to 'D'-cell thickness and the in-scatter wash
+// buried every surface shadow (~1.5% mean pixel effect with shadows off).
 inline constexpr float kSconceBrightness = 3.0f; // light reach, in cells
-inline constexpr float kSconceTurbidity = 0.28f; // smokiness added to cell + ring
+inline constexpr float kSconceTurbidity = 0.16f; // smokiness added to cell + ring
 // Floor for a fixture record's bright= value: a zero-radius lit light would
 // feed 1/radius = inf into the shadow pass, so the parser clamps up to this.
 inline constexpr float kFixtureMinBrightness = 0.25f;
@@ -68,7 +72,7 @@ struct WallSconce {
 // Per-brazier defaults (bigger reach + more smoke than a sconce), same "don't
 // write the default" rule on the .map record.
 inline constexpr float kBrazierBrightness = 6.0f; // light reach, in cells
-inline constexpr float kBrazierTurbidity = 0.55f;
+inline constexpr float kBrazierTurbidity = 0.38f;
 
 // A floor-standing brazier: its cell plus the same light/smoke knobs a sconce
 // has (no wall — it stands at the cell centre).

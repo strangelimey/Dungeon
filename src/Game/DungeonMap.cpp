@@ -417,7 +417,13 @@ void DungeonMap::AddFireTurbidity(int x, int z, float amount) {
 			const int ring = std::max(std::abs(dx), std::abs(dz));
 			const float weight = ring == 0 ? 1.0f : (ring == 1 ? 0.5f : 0.22f);
 			float& cell = m_turbidity[static_cast<size_t>(cz) * m_width + cx];
-			cell = std::min(1.0f, cell + amount * weight);
+			// Opacity-style accumulation: overlapping fires SATURATE instead of
+			// summing (a second torch thickens the air by what's still clear,
+			// not by its full amount), so a sconce-lined hall stays hazy rather
+			// than maxing out to authored-'D' thickness and burying its surface
+			// shadows under in-scatter. 'D' cells sit at 1.0 and are unchanged
+			// by any accumulation rule.
+			cell = 1.0f - (1.0f - cell) * (1.0f - amount * weight);
 		}
 	}
 }

@@ -672,6 +672,16 @@ public:
 	// Toggle volumetric dust (off feeds the renderer clear air).
 	void SetDustEnabled(bool on) { m_dustEnabled = on; }
 	bool DustEnabled() const { return m_dustEnabled; }
+	// Live atmosphere tuning for the lighting mood pass (dev console `dust
+	// <density>` / `haze <x>` / `ambient <x>`). Design-time knobs: once a feel
+	// is chosen, bake the values into the defaults (gfx::Atmosphere, the
+	// kBaseAmbient constant) — nothing here persists.
+	void SetDustDensity(float d) { m_atmosphere.density = std::max(0.0f, d); }
+	float DustDensity() const { return m_atmosphere.density; }
+	void SetHazeAmbient(float h) { m_atmosphere.hazeAmbient = std::max(0.0f, h); }
+	float HazeAmbient() const { return m_atmosphere.hazeAmbient; }
+	void SetAmbientScale(float s); // scales the base ambient fill
+	float AmbientScale() const { return m_ambientScale; }
 
 	// HUD log feedback (bump lines, monster announcements, palette flavor).
 	// Set before play starts; the party/monster callbacks route through it.
@@ -1696,6 +1706,7 @@ private:
 	float m_fovDegrees = 70.0f;
 	bool m_shadowsEnabled = true;
 	bool m_dustEnabled = true;
+	float m_ambientScale = 1.0f; // multiplies kBaseAmbient (mood-pass knob)
 
 	float m_time = 0.0f; // latest frame time (Update), drives the rune glow pulse
 };
