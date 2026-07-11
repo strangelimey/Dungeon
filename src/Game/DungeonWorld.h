@@ -1670,6 +1670,15 @@ private:
 	Vec4 m_brazierColor{1, 1, 1, 1};
 	const PropTextures* m_sconceTex = nullptr;  // worn-medieval iron (sconce_<res>)
 	const PropTextures* m_brazierTex = nullptr; // bronze (brazier_<res>)
+	// Per-fixture flame attachment (fixtures.cat flame_height / flame_scale /
+	// flame_out, defaulting to the procedural meshes' constants) — an authored
+	// replacement prop declares where its fire burns instead of having to be
+	// modelled to the old mesh's proportions.
+	struct FixtureFlame {
+		float height, scale, out; // local Y, particle scale, offset from wall
+	};
+	FixtureFlame m_sconceFlame{kSconceFlameY, kSconceFlameScale, 0.22f};
+	FixtureFlame m_brazierFlame{kBrazierFlameY, kBrazierFlameScale, 0.0f};
 	std::unique_ptr<gfx::ParticleBatch> m_particleBatch;
 	std::vector<gfx::ParticleInstance> m_particleScratch;
 
