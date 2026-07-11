@@ -1670,6 +1670,13 @@ private:
 	Vec4 m_brazierColor{1, 1, 1, 1};
 	const PropTextures* m_sconceTex = nullptr;  // worn-medieval iron (sconce_<res>)
 	const PropTextures* m_brazierTex = nullptr; // bronze (brazier_<res>)
+	// Optional second brazier part (fixtures.cat part2_model / part2_texture):
+	// a co-located sub-prop with its own material — the bought brazier's coal
+	// bed, whose maps are a separate set from the bowl's. Null when the entry
+	// names none (the procedural brazier, or a single-material import).
+	std::unique_ptr<gfx::Mesh> m_brazierMesh2;
+	const PropTextures* m_brazierTex2 = nullptr;
+	Vec4 m_brazierColor2{1, 1, 1, 1};
 	// Per-fixture flame attachment (fixtures.cat flame_height / flame_scale /
 	// flame_out, defaulting to the procedural meshes' constants) — an authored
 	// replacement prop declares where its fire burns instead of having to be

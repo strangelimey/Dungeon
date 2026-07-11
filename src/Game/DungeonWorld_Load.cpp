@@ -228,6 +228,19 @@ void DungeonWorld::AppendLoadTasks(LoadQueue& queue) {
 		fixtureAssets(m_project.defaultBrazier, "brazier", m_brazierMesh,
 					  m_brazierColor, m_brazierTex, m_brazierModel,
 					  m_brazierFlame); // bronze
+		// Optional second brazier part (part2_model / part2_texture): the
+		// bought brazier's coal bed — its own mesh + texture set, drawn
+		// co-located with the bowl (the two models were normalized TOGETHER at
+		// import — ConvertMesh --split-whole + import-model --raw — so their
+		// placements already align).
+		if (const CatalogEntry* def = m_project.fixtures.Find(m_project.defaultBrazier)) {
+			if (const std::string model2 = def->Get("part2_model"); !model2.empty()) {
+				const assets::ModelData data = LoadModelOrDie(model2 + ".gltf");
+				m_brazierMesh2 = std::make_unique<gfx::Mesh>(m_device, data.meshes[0]);
+				m_brazierColor2 = data.materials[0].baseColorFactor;
+				m_brazierTex2 = LoadPropTextures(def->Get("part2_texture", model2));
+			}
+		}
 		m_particleBatch = std::make_unique<gfx::ParticleBatch>(m_device);
 		BuildFires();
 	});
@@ -560,8 +573,15 @@ DungeonWorld::FixturePreviewData DungeonWorld::SconcePreview() const {
 }
 
 DungeonWorld::FixturePreviewData DungeonWorld::BrazierPreview() const {
-	return FixturePreview(m_brazierTex, m_brazierColor, m_brazierMesh.get(),
-						  m_brazierFlame.height, m_brazierFlame.scale);
+	FixturePreviewData d =
+		FixturePreview(m_brazierTex, m_brazierColor, m_brazierMesh.get(),
+					   m_brazierFlame.height, m_brazierFlame.scale);
+	if (m_brazierMesh2) { // the coal bed previews with the bowl
+		gfx::MaterialParams coals;
+		ApplyPropMaterial(coals, m_brazierTex2, m_brazierColor2, 0.9f);
+		d.subs.push_back({m_brazierMesh2.get(), coals});
+	}
+	return d;
 }
 
 std::vector<gfx::PreviewSubmesh> DungeonWorld::DecorationPreviewSubs(int index) const {

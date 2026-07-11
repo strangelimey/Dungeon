@@ -40,6 +40,13 @@ def parse_args():
         "infile": os.path.abspath(argv[0]),
         "outdir": os.path.abspath(argv[1]),
         "split": "--split" in argv,
+        # --split-whole: per-object .glb export like --split, but the scene
+        # normalizes as ONE (combined bounds scale/ground/center) so the pieces
+        # stay mutually aligned — for co-located parts of one prop (a brazier
+        # bowl + the coals nested in it) that later import with --raw. Plain
+        # --split instead sizes each piece on its own bounds (side-by-side
+        # packs of independent items).
+        "split_whole": "--split-whole" in argv,
         "keep_rig": "--keep-rig" in argv,
         "height": 0.0,
         "max_tex": 0,
@@ -423,12 +430,15 @@ def main():
         print(f"ConvertMesh: kept {len(by_base)} clip(s): "
               f"{', '.join(sorted(by_base))}")
 
-    if opts["split"]:
+    if opts["split"] or opts["split_whole"]:
         meshes = mesh_objects()
         if not meshes:
             raise SystemExit("ConvertMesh: --split but no mesh objects imported")
         for o in meshes:
-            if do_norm:
+            # split-whole pieces were already normalized as one scene above;
+            # re-fitting each on its own bounds would blow nested parts apart
+            # (0.08 m of coals scaled to the bowl's height).
+            if do_norm and not opts["split_whole"]:
                 normalize_object(o, opts["height"])
             bpy.ops.object.select_all(action="DESELECT")
             o.select_set(True)

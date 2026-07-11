@@ -47,9 +47,9 @@ complete inventory of 3rd-party content (not just a spend total).
 | 2026-07-10 | Cursed Undead Soldier Rig | DM-913 | Free | **CC BY 4.0** ‡ | gltf/glb/usdz | archived (`fab\monsters\undead_soldier`); parked — 14 meshes / 3 materials, exceeds the single-mesh monster path |
 | 2026-07-10 | Skeleton Army Kit | Konjo Design | $19.99 (**$21.87 charged**) | Fab Standard | obj/fbx/gltf/glb/usdz | 4 skeleton monsters (warrior/raider/berserker/spearman, Mixamo clip library) — done |
 | 2026-07-11 | Medieval Stylized Torch | Perunir | $1.99 ★ | Fab Standard | fbx (+conv. gltf/glb/usdz) | `wall_torch` — the authored wall sconce (fixtures.cat [sconce]); flame shells + coal dropped — done |
-| 2026-07-11 | Torch pack | AnimaZ | $18.99 ★ | Fab Standard | fbx | 6 handheld torch variants, textures ship separately — awaiting the listing's texture download; not imported |
-| 2026-07-11 | Fantastic brazier | Mavas3D | $6.99 ★ | Fab Standard | fbx | empty fire bowl (low+high mesh), textures ship separately — awaiting texture download; not imported |
-| 2026-07-11 | Fantastic brazier lamp | Mavas3D | $7.99 ★ | Fab Standard | fbx | same bowl + hot-coals mesh (emissive map), textures ship separately — awaiting texture download; not imported |
+| 2026-07-11 | Torch pack | AnimaZ | $18.99 ★ | Fab Standard | fbx | 6 handheld torch variants (own PBR set each) — archived with textures, not yet imported (no in-game use wired; future carried-torch / sconce variants) |
+| 2026-07-11 | Fantastic brazier | Mavas3D | $6.99 ★ | Fab Standard | fbx | `brazier_empty` — the coal-less bowl, imported as spare assets (the world loads one brazier kind; swap fixtures.cat to use) |
+| 2026-07-11 | Fantastic brazier lamp | Mavas3D | $7.99 ★ | Fab Standard | fbx | `brazier_bowl` + `brazier_coals` — THE brazier (fixtures.cat [brazier], two co-located parts) — done |
 
 † Charged together as one order: **$16.39** (the $14.98 list + $1.41 tax).
 ★ Charged together as one order (A2607111637553770): **$39.34** (the $35.96

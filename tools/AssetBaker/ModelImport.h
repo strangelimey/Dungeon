@@ -31,9 +31,14 @@ namespace dungeon::baker {
 // against z=0, arm reaching +Z). `liftMeters` raises the grounded mesh to that
 // hanging height, and `wallAlign` puts its back face AT z=0 (min z = 0, room
 // side +Z) instead of centering Z — use --yaw first to spin the back to -Z.
+// `rawTransform` trusts the source's placement entirely — no orient, scale,
+// ground, center, lift, or wall shift. For pieces ConvertMesh --split-whole
+// already normalized as one scene (a bowl + the coals nested in it): each
+// piece re-fit on its own bounds would break their mutual alignment.
 bool ImportModel(const std::string& sourcePath, const std::string& assetsDir,
 				 const std::string& name, float targetHeight, float yawDegrees,
 				 char upAxis, const std::string& textureSet = {},
-				 float liftMeters = 0.0f, bool wallAlign = false);
+				 float liftMeters = 0.0f, bool wallAlign = false,
+				 bool rawTransform = false);
 
 } // namespace dungeon::baker

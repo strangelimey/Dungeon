@@ -120,6 +120,14 @@ function Find-Mesh {
 #              mesh, e.g. an extracted zip's textures\ sibling).
 #   TexPrefix  filename prefix filter: stage only matching maps to a temp dir
 #              before import (a pack whose one folder mixes several sets).
+#   TexExclude filename substring to DROP from the staged maps (a prefix that
+#              is itself the prefix of another set: Brazier_ vs Brazier_lamp_).
+#   SplitWhole $true -> ConvertMesh --split-whole: per-object .glb export but
+#              the scene normalizes as ONE (Height on combined bounds), so
+#              co-located parts of one prop stay aligned; Object picks the
+#              piece. Pair with Raw so import-model doesn't re-fit the piece.
+#   Raw        $true -> import-model --raw: trust the glb's placement (no
+#              orient/scale/ground/center/lift).
 #
 # The entries below are the listings we scouted - they install only once the
 # matching pack is downloaded to the archive (missing Src is skipped, not fatal).
@@ -159,6 +167,29 @@ $modelSets = @(
     @{ Src = "fab\props\medieval-stylized-torch\extracted\source"; Name = "wall_torch"
        Objects = "Holder,Torch"; Height = 0.65; Lift = 1.10; Wall = $true
        TexDir = "..\textures"; TexPrefix = "T_Torch" }
+
+    # Mavas3D "Fantastic brazier lamp" (fab, 2026-07-11) — the authored brazier
+    # (fixtures.cat [brazier]), TWO co-located parts with separate materials:
+    # the ornate metal bowl + the hot-coals insert (its own set, emissive map
+    # unused — the particle fire + light sell the glow). SplitWhole keeps the
+    # coals seated in the bowl (each piece re-fit on its own bounds would blow
+    # the 0.08 m coal bed up to bowl height); Raw imports trust that placement.
+    # The vendor's texture names cross: Brazier_* = the BOWL, Brazier_lamp_* =
+    # the COALS (confirmed by eye), and Brazier_ prefixes Brazier_lamp_, hence
+    # the exclude.
+    @{ Src = "fab\props\brazier_lamp_fbx\extracted"; Name = "brazier_bowl"
+       Object = "fantasy_brazier_lamp"; SplitWhole = $true; Raw = $true; Height = 0.75
+       TexDir = "Textures_brazier_lamp_2K"; TexPrefix = "Brazier_"; TexExclude = "Brazier_lamp_" }
+    @{ Src = "fab\props\brazier_lamp_fbx\extracted"; Name = "brazier_coals"
+       Object = "hot_coals"; SplitWhole = $true; Raw = $true; Height = 0.75
+       TexDir = "Textures_brazier_lamp_2K"; TexPrefix = "Brazier_lamp_" }
+
+    # Mavas3D "Fantastic brazier" (fab, 2026-07-11) — the same bowl WITHOUT
+    # coals, one mesh + one set. Imported as spare assets (the world loads ONE
+    # brazier kind — the default id's — so this can't coexist as a separate
+    # placeable fixture yet; swap fixtures.cat [brazier] model/texture to use).
+    @{ Src = "fab\props\brazier_fbx\extracted"; Name = "brazier_empty"; Height = 0.75
+       TexDir = "Textures_brazier_2K" }
 )
 
 $wanted = $Materials.Count -gt 0
@@ -246,11 +277,15 @@ foreach ($m in $modelSets) {
 
     # --- pick the .glb to feed import-model -----------------------------------
     $importMesh = $mesh
-    if ($m.Split) {
+    if ($m.Split -or $m.SplitWhole) {
         $stage = Join-Path $stageRoot ($m.Src -replace '[\\/:]', '_')
         if (-not (Test-Path (Join-Path $stage "$($m.Object).glb"))) {
             if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
-            if ((Invoke-Convert $mesh $stage "--split") -ne 0) { throw "Split convert failed for $($m.Src)" }
+            $cargs = @($mesh, $stage)
+            if ($m.SplitWhole) { $cargs += @('--split-whole', '--height', $m.Height) }
+            else { $cargs += '--split' }
+            if ($m.Objects) { $cargs += @('--objects', $m.Objects) }
+            if ((Invoke-Convert @cargs) -ne 0) { throw "Split convert failed for $($m.Src)" }
         }
         $importMesh = Join-Path $stage "$($m.Object).glb"
         if (-not (Test-Path $importMesh)) {
@@ -284,7 +319,9 @@ foreach ($m in $modelSets) {
             $texStage = Join-Path $stageRoot "$($m.Name)_tex"
             if (Test-Path $texStage) { Remove-Item -Recurse -Force $texStage }
             New-Item -ItemType Directory -Force $texStage | Out-Null
-            Get-ChildItem $texSrc -File | Where-Object { $_.Name -like "$($m.TexPrefix)*" } |
+            Get-ChildItem $texSrc -File |
+                Where-Object { $_.Name -like "$($m.TexPrefix)*" -and
+                               (-not $m.TexExclude -or $_.Name -notlike "$($m.TexExclude)*") } |
                 Copy-Item -Destination $texStage
             $texSrc = $texStage
         }
@@ -296,9 +333,12 @@ foreach ($m in $modelSets) {
     }
 
     $importArgs = @('import-model', $importMesh, $assets, $m.Name, '--texture-set', $set)
-    if ($m.Height) { $importArgs += @('--height', $m.Height) }
-    if ($m.Lift) { $importArgs += @('--lift', $m.Lift) }
-    if ($m.Wall) { $importArgs += @('--wall') }
+    if ($m.Raw) { $importArgs += @('--raw') }
+    else {
+        if ($m.Height) { $importArgs += @('--height', $m.Height) }
+        if ($m.Lift) { $importArgs += @('--lift', $m.Lift) }
+        if ($m.Wall) { $importArgs += @('--wall') }
+    }
     if ((Invoke-Baker @importArgs) -ne 0) { throw "Model import failed for $($m.Name)" }
     $installed++
 }

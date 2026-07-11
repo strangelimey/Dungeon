@@ -355,6 +355,13 @@ void DungeonWorld::SubmitSceneGeometry(ID3D12GraphicsCommandList* list,
 		if (!metal.albedo) metal.metallic = 1.0f; // flat fallback reads as metal
 		m_renderer.DrawMesh(list, fire.brazier ? *m_brazierMesh : *m_sconceMesh,
 							fire.world, metal);
+		// The optional coal bed rides the same world transform (the two parts
+		// were normalized together at import, so their geometry pre-aligns).
+		if (fire.brazier && m_brazierMesh2) {
+			gfx::MaterialParams coals;
+			ApplyPropMaterial(coals, m_brazierTex2, m_brazierColor2, 0.9f);
+			m_renderer.DrawMesh(list, *m_brazierMesh2, fire.world, coals);
+		}
 	}
 }
 
