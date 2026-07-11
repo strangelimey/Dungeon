@@ -133,11 +133,12 @@ def parse_args(argv):
             "catalog_out": None, "mesh_yaw": 90.0, "keep_fingers": False,
             "textures": "", "tex_dir": "", "arm_drop": 0.0, "skinned": False,
             "rigid_islands": False, "original": "", "islands": "",
-            "mirror": False}
+            "mirror": False, "rig_from": ""}
     usage = ("usage: <mesh.fbx|.obj> <library_root> <out.gltf> <ref_skeleton.gltf> "
              "[--catalog-out f] [--mesh-yaw deg] [--keep-fingers] "
              "[--textures '<mat>=<albedo>[:<normal>];...' --tex-dir <dir>] "
-             "[--islands '<minvert>=<bone>;...'] [--mirror]  |  "
+             "[--islands '<minvert>=<bone>;...'] [--mirror] "
+             "[--rig-from <sibling_rigged.fbx>]  |  "
              "--plan <library_root> [--catalog-out f]")
 
     def value(i, flag):  # the arg after a value-flag, or a usage error if omitted
@@ -169,6 +170,8 @@ def parse_args(argv):
             opts["islands"] = value(i, a); i += 2
         elif a == "--mirror":
             opts["mirror"] = True; i += 1
+        elif a == "--rig-from":
+            opts["rig_from"] = value(i, a); i += 2
         elif a == "--arm-drop":
             opts["arm_drop"] = float(value(i, a)); i += 2
         elif a.startswith("--"):  # an unknown flag, not a silently-swallowed positional
@@ -349,7 +352,7 @@ def run_bake(opts):
         bpy.ops.object.transform_apply(location=location, rotation=rotation,
                                        scale=scale)
 
-    if opts["skinned"]:
+    if opts["skinned"] or opts["rig_from"]:
         # ---- pre-skinned mesh (Mixamo auto-rigged download) ---------------------
         # The mesh arrives already WEIGHTED on the standard Mixamo skeleton, so
         # the download's own armature becomes THE rig — the clip actions target
@@ -364,44 +367,142 @@ def run_bake(opts):
         std_rest = {b.name: b.matrix_local.to_3x3().normalized()
                     for b in rig.data.bones}
         bpy.data.objects.remove(rig, do_unlink=True)
-        new_objs = import_fbx(mesh_fbx)
-        rig = next((o for o in new_objs if o.type == "ARMATURE"), None)
-        if rig is None:
-            raise SystemExit(f"--skinned but no armature in {mesh_fbx}")
-        rig.name = "rig"
-        parts = [o for o in new_objs if o.type == "MESH"]
-        if not parts:
-            raise SystemExit(f"no mesh objects in {mesh_fbx}")
-        if len(parts) > 1:
-            bpy.ops.object.select_all(action="DESELECT")
-            for o in parts:
-                o.select_set(True)
-            bpy.context.view_layer.objects.active = parts[0]
-            bpy.ops.object.join()
-            print(f"[mesh] joined {len(parts)} objects")
-        mesh = parts[0]
-        # Bake all object transforms (the ConvertMesh-proven ceremony: unparent
-        # keeping world placement — the armature MODIFIER drives the skin, not
-        # the parenting — then apply each object alone), and match the clip
-        # library's scale: mesh height -> ref height, both objects together.
-        if mesh.parent is not None:
+
+        def import_join_apply(path, what):
+            # Import a model, join its mesh parts into one, bake transforms
+            # (the ConvertMesh-proven ceremony: unparent keeping world
+            # placement, then apply each object alone).
+            objs = import_fbx(path)
+            arm = next((o for o in objs if o.type == "ARMATURE"), None)
+            parts = [o for o in objs if o.type == "MESH"]
+            if not parts:
+                raise SystemExit(f"no mesh objects in {what}: {path}")
+            if len(parts) > 1:
+                bpy.ops.object.select_all(action="DESELECT")
+                for o in parts:
+                    o.select_set(True)
+                bpy.context.view_layer.objects.active = parts[0]
+                bpy.ops.object.join()
+                print(f"[mesh] {what}: joined {len(parts)} objects")
+            m = parts[0]
+            if m.parent is not None:
+                bpy.ops.object.select_all(action="DESELECT")
+                m.select_set(True)
+                bpy.context.view_layer.objects.active = m
+                bpy.ops.object.parent_clear(type="CLEAR_KEEP_TRANSFORM")
+            apply_all(m)
+            if arm is not None:
+                apply_all(arm)
+            return m, arm
+
+        def fit_ground(objs, mref):
+            # Scale a mesh (+ companions) to the ref height and ground it.
+            # Returns the applied (scale, z-shift) so a sibling authored in
+            # the SAME native frame can be mapped identically.
+            zs = [(mref.matrix_world @ v.co).z for v in mref.data.vertices]
+            s = ref_h / (max(zs) - min(zs))
+            for o in objs:
+                o.scale = (s, s, s)
+                apply_all(o)
+            zs = [(mref.matrix_world @ v.co).z for v in mref.data.vertices]
+            for o in objs:
+                o.location.z -= min(zs)
+                apply_all(o, rotation=False, scale=False)
+            return s, -min(zs)
+
+        def apply_fit(objs, s, dz):
+            # Apply a fit computed elsewhere — the variant must ride its
+            # SIBLING'S transform, not its own extent fit: a tall carried
+            # spear tops the skull, and extent-fitting it shrinks the body
+            # away from the borrowed rig.
+            for o in objs:
+                o.scale = (s, s, s)
+                apply_all(o)
+                o.location.z += dz
+                apply_all(o, rotation=False, scale=False)
+
+        if opts["rig_from"]:
+            # ---- Mixamo-less variant (--rig-from <sibling download.fbx>) ----
+            # When the auto-rigger refuses a variant, borrow a SIBLING
+            # download's fitted armature: kit variants share one body, so the
+            # sibling's rig matches this variant's pose exactly, and its
+            # Mixamo WEIGHTS transfer by nearest-vertex — the shared body
+            # (including the soft spine/clavicle blends) comes across
+            # verbatim, gear inherits junk the rigid-island snap overrides
+            # anyway. mesh_fbx here is the variant's UNRIGGED upload FBX.
+            src_mesh, rig = import_join_apply(opts["rig_from"], "rig-from")
+            if rig is None:
+                raise SystemExit(f"--rig-from has no armature: {opts['rig_from']}")
+            rig.name = "rig"
+            s_src, dz_src = fit_ground((src_mesh, rig), src_mesh)
+            mesh, _ = import_join_apply(mesh_fbx, "variant")
+            apply_fit((mesh,), s_src, dz_src)
+            zs = [(mesh.matrix_world @ v.co).z for v in mesh.data.vertices]
+            print(f"[rig-from] variant z-range {min(zs):+.2f}..{max(zs):+.2f} "
+                  f"under the sibling's fit (feet ~0; gear may overhang)")
+            # Nearest-vertex weight transfer, then drop the source mesh.
+            # data_transfer runs ACTIVE -> selected: the source is active.
             bpy.ops.object.select_all(action="DESELECT")
             mesh.select_set(True)
-            bpy.context.view_layer.objects.active = mesh
-            bpy.ops.object.parent_clear(type="CLEAR_KEEP_TRANSFORM")
-        apply_all(mesh)
-        apply_all(rig)
-        zs = [(mesh.matrix_world @ v.co).z for v in mesh.data.vertices]
-        s = ref_h / (max(zs) - min(zs))
-        mesh.scale = (s, s, s)
-        apply_all(mesh)
-        rig.scale = (s, s, s)
-        apply_all(rig)
-        zs = [(mesh.matrix_world @ v.co).z for v in mesh.data.vertices]
-        for o in (mesh, rig):
-            o.location.z -= min(zs)
-            apply_all(o, rotation=False, scale=False)
-        mesh.parent = rig  # tidy hierarchy for the exporter
+            src_mesh.select_set(True)
+            bpy.context.view_layer.objects.active = src_mesh
+            bpy.ops.object.data_transfer(data_type="VGROUP_WEIGHTS",
+                                         vert_mapping="NEAREST",
+                                         layers_select_src="ALL",
+                                         layers_select_dst="NAME",
+                                         use_create=True)
+            n_groups = len(mesh.vertex_groups)
+            if n_groups == 0:
+                raise SystemExit("--rig-from: weight transfer produced no "
+                                 "vertex groups")
+            # Drop the source mesh AND its datablocks, then give the variant's
+            # materials their kit names back: the source imported first, so
+            # the variant's same-named materials arrived as 'X.001' — which
+            # the --textures wiring can't match (white, untextured bones).
+            src_data = src_mesh.data
+            bpy.data.objects.remove(src_mesh, do_unlink=True)
+            bpy.data.meshes.remove(src_data)
+            for m in [m for m in bpy.data.materials if m.users == 0]:
+                bpy.data.materials.remove(m)
+            for slot in mesh.material_slots:
+                m = slot.material
+                if m is None or "." not in m.name:
+                    continue
+                base = m.name.rsplit(".", 1)[0]
+                if base and bpy.data.materials.get(base) is None:
+                    print(f"[rig-from] material '{m.name}' -> '{base}'")
+                    m.name = base
+            mod = mesh.modifiers.new("Armature", "ARMATURE")
+            mod.object = rig
+            mesh.parent = rig
+            print(f"[rig-from] weights transferred ({n_groups} groups) from "
+                  f"{os.path.basename(opts['rig_from'])}")
+        else:
+            new_objs = import_fbx(mesh_fbx)
+            rig = next((o for o in new_objs if o.type == "ARMATURE"), None)
+            if rig is None:
+                raise SystemExit(f"--skinned but no armature in {mesh_fbx}")
+            rig.name = "rig"
+            parts = [o for o in new_objs if o.type == "MESH"]
+            if not parts:
+                raise SystemExit(f"no mesh objects in {mesh_fbx}")
+            if len(parts) > 1:
+                bpy.ops.object.select_all(action="DESELECT")
+                for o in parts:
+                    o.select_set(True)
+                bpy.context.view_layer.objects.active = parts[0]
+                bpy.ops.object.join()
+                print(f"[mesh] joined {len(parts)} objects")
+            mesh = parts[0]
+            if mesh.parent is not None:
+                bpy.ops.object.select_all(action="DESELECT")
+                mesh.select_set(True)
+                bpy.context.view_layer.objects.active = mesh
+                bpy.ops.object.parent_clear(type="CLEAR_KEEP_TRANSFORM")
+            apply_all(mesh)
+            apply_all(rig)
+            fit_ground((mesh, rig), mesh)
+            mesh.parent = rig  # tidy hierarchy for the exporter
         print(f"[fit] skinned mesh dims {mesh.dimensions.x:.2f} x "
               f"{mesh.dimensions.y:.2f} x {mesh.dimensions.z:.2f}")
 
@@ -819,7 +920,7 @@ def run_bake(opts):
         while len(mesh.data.materials) > 1:
             mesh.data.materials.pop(index=1)
 
-    if not opts["skinned"]:
+    if not opts["skinned"] and not opts["rig_from"]:
         # Bone segments (optionally excluding finger bones so a coarse hand
         # binds rigidly to the Hand bone instead of stretching to a fingertip).
         FINGERS = ("Thumb", "Index", "Middle", "Ring", "Pinky")
@@ -883,8 +984,9 @@ def run_bake(opts):
         mesh.matrix_parent_inverse = rig.matrix_world.inverted()
         mod = mesh.modifiers.new("Armature", "ARMATURE")
         mod.object = rig
-    # (--skinned: the download's weights + armature modifier already drive the
-    # mesh — nothing to bind.)
+    # (--skinned / --rig-from: the weights + armature modifier already drive
+    # the mesh — re-binding here would CLOBBER the rigid-island overrides and
+    # the soft islands.)
 
     # ---- push actions onto NLA tracks so glTF exports all as clips ------------
     if rig.animation_data is None:

@@ -128,18 +128,39 @@ $animSets = @(
                              '4698=RightForeArm;8961=soft;' +
                              '10723=soft;10797=soft;13197=soft;13308=soft'
             'skel_bare'    = '1341=soft;3103=soft;3177=soft;5577=soft;5688=soft'
+            'skel_berserker' = '2671=soft;4433=soft;4507=soft;6907=soft;7018=soft'
+            # Spearman: round shield (0/56) + two javelins (905/1083) ride the
+            # BACK (Spine2), the vest (1605) is torso armor not a collar, and
+            # the throwing spear (12) stays in the right hand.
+            'skel_spearman'  = '0=Spine2;56=Spine2;905=Spine2;1083=Spine2;' +
+                               '1605=Spine2;12=RightHand;' +
+                               '5005=soft;6767=soft;6841=soft;9241=soft;9352=soft'
         }
         $kitMirror = @{ 'skel_warrior' = $true }
+        # Variants Mixamo's auto-rigger refuses ("unknown error while
+        # generating motion", markers verified): skip Mixamo — bind the
+        # variant's UNRIGGED upload to a sibling download's fitted armature
+        # (kit variants share one body) with the weights transferred by
+        # nearest vertex (--rig-from).
+        $kitRigFrom = @{
+            'skel_berserker' = "$kitDir\mixamo_rigged\skel_bare_rigged.fbx"
+            'skel_spearman'  = "$kitDir\mixamo_rigged\skel_bare_rigged.fbx"
+        }
         foreach ($v in @("skel_warrior", "skel_berserker", "skel_spearman", "skel_bare")) {
+            $rigFrom = $kitRigFrom[$v]
             @{ Name = $v;
-               Mesh = "$kitDir\mixamo_rigged\$($v)_rigged.fbx";
+               Mesh = if ($rigFrom) { "$kitDir\mixamo_upload\$($v)_mixamo_upload.fbx" }
+                      else { "$kitDir\mixamo_rigged\$($v)_rigged.fbx" };
                Library = "anim\humanoid";
                Ref = "models\skeleton.gltf";
-               Skinned = $true;
+               Skinned = -not $rigFrom;
+               RigFrom = $rigFrom;
                RigidIslands = $true; # bones + plate: every island is a hard piece
                # The clean pre-Mixamo art: repairs rest positions Mixamo's
                # weight-driven re-posing displaced (arm plates at the chest).
-               Original = "$kitDir\mixamo_upload\$($v)_mixamo_upload.fbx";
+               # (A --rig-from variant IS its original — no repair needed.)
+               Original = if ($rigFrom) { $null }
+                          else { "$kitDir\mixamo_upload\$($v)_mixamo_upload.fbx" };
                Textures = $kitTex;
                TexDir = "$kitDir\obj\Skeleton_obj\Skeletal_textures";
                Islands = $kitIslands[$v];
@@ -189,6 +210,7 @@ foreach ($c in $animSets) {
     if ($c.Original) { $texArgs += @('--original', (Join-Path $archive $c.Original)) }
     if ($c.Islands) { $texArgs += @('--islands', $c.Islands) }
     if ($c.Mirror) { $texArgs += @('--mirror') }
+    if ($c.RigFrom) { $texArgs += @('--rig-from', (Join-Path $archive $c.RigFrom)) }
 
     $rc = Invoke-Blender $mesh $library $outGltf $ref "--catalog-out" $catOut "--mesh-yaw" $yaw @texArgs
     if ($rc -ne 0) { throw "Bake failed for $($c.Name)" }
