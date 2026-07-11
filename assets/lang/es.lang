@@ -309,6 +309,7 @@ monster.mummy=la momia
 monster.giant_spider=la araña gigante
 monster.centipede=el ciempiés gigante
 monster.skel_warrior=el guerrero esqueleto
+monster.skel_bare=el esqueleto saqueador
 monster.skel_human=el caballero de huesos
 
 ; --- character sheet / party bar -------------------------------------------------

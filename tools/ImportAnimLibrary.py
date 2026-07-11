@@ -605,12 +605,20 @@ def run_bake(opts):
             # for a given source FBX (vertex order is preserved) and printed in
             # the per-island log below, so a bad piece's key can be read
             # straight off a previous run. Bone names may omit the mixamorig:
-            # prefix.
+            # prefix. The special value `soft` keeps Mixamo's BLENDED weights
+            # for that island instead of any rigid snap — for a piece that must
+            # BEND across joints (the vertebral column spanning pelvis to neck:
+            # snapped rigid it follows one bone and floats free of both ends
+            # whenever a hit react folds the torso).
+            SOFT = object()
             overrides = {}
             for tok in filter(None, opts["islands"].split(";")):
                 k, _, bn = tok.partition("=")
                 if not bn:
                     raise SystemExit(f"--islands entry '{tok}' is not key=bone")
+                if bn.lower() == "soft":
+                    overrides[int(k)] = SOFT
+                    continue
                 if not bn.startswith("mixamorig:"):
                     bn = "mixamorig:" + bn
                 if rig.data.bones.get(bn) is None:
@@ -629,6 +637,10 @@ def run_bake(opts):
                       for i in comp]
                 dom, dom_n = Counter(nb).most_common(1)[0]
                 ov = overrides.pop(min(comp), None)
+                if ov is SOFT:
+                    print(f"[rigid] island {min(comp)} ({len(comp)} verts) "
+                          f"SOFT — Mixamo's blended weights kept")
+                    continue
                 if ov is not None:
                     print(f"[rigid] island {min(comp)} ({len(comp)} verts) "
                           f"OVERRIDE {dom} -> {ov}")

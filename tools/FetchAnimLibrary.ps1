@@ -117,10 +117,17 @@ $animSets = @(
         # arm — all ride the (post-mirror LEFT) forearm as one rigid assembly —
         # and wrist cuff 4698 mirror-matches its twin on the forearm side of
         # the joint.
+        # `=soft` keeps Mixamo's blended weights for bones that BRIDGE joints —
+        # rigid-snapped they follow one bone and float free of the other end:
+        # the VERTEBRAL COLUMN (pelvis to neck, folds with hit reacts), the
+        # CLAVICLES (sternum to shoulder) and the SCAPULAE (glide on the ribs
+        # with every arm raise).
         $kitIslands = @{
             'skel_warrior' = '86=LeftForeArm;123=LeftForeArm;537=LeftForeArm;' +
                              '658=LeftForeArm;779=LeftForeArm;900=LeftForeArm;' +
-                             '4698=RightForeArm'
+                             '4698=RightForeArm;8961=soft;' +
+                             '10723=soft;10797=soft;13197=soft;13308=soft'
+            'skel_bare'    = '1341=soft;3103=soft;3177=soft;5577=soft;5688=soft'
         }
         $kitMirror = @{ 'skel_warrior' = $true }
         foreach ($v in @("skel_warrior", "skel_berserker", "skel_spearman", "skel_bare")) {

@@ -313,6 +313,7 @@ monster.mummy=мумия
 monster.giant_spider=гигантский паук
 monster.centipede=гигантская многоножка
 monster.skel_warrior=скелет-воин
+monster.skel_bare=скелет-разбойник
 monster.skel_human=костяной рыцарь
 
 ; --- character sheet / party bar -------------------------------------------------

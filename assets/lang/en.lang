@@ -307,6 +307,7 @@ monster.mummy=mummy
 monster.giant_spider=giant spider
 monster.centipede=giant centipede
 monster.skel_warrior=skeleton warrior
+monster.skel_bare=skeleton raider
 monster.skel_human=bone knight
 
 ; --- character sheet / party bar -------------------------------------------------

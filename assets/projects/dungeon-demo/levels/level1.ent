@@ -24,6 +24,7 @@ monster skeleton 8 28 north
 monster giant_spider 6 3 west
 monster centipede 5 10 north
 monster skel_warrior 4 8 north
+monster skel_bare 4 9 north
 item dagger 3 4 south
 item khukri 4 4 south
 item snake_dagger 5 4 south
