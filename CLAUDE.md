@@ -730,8 +730,10 @@ memory.
   - `assets\textures` — whole dir, BOTH `.dds` (BC7) and source `.png` (dds-only
     still renders magenta; ~273 dds + ~261 png).
   - `assets\models\*.glb` — the 5 imported authored meshes (viking_dagger,
-    french_dagger, khukri, snake_dagger, leather_armor). Committed `.gltf` models
-    come with the checkout; only the `.glb` need copying.
+    french_dagger, khukri, snake_dagger, leather_armor) — PLUS the bought rigged
+    monsters, gitignored BY NAME despite the `.gltf` extension (centipede.gltf,
+    giant_spider.gltf — embedded-texture GLBs inside; see .gitignore). Committed
+    `.gltf` models come with the checkout; only those files need copying.
   - then `robocopy <new>\assets <new>\build\<cfg>\bin\assets /MIR`.
   Use BACKSLASH paths (robocopy rejects forward slashes → copies nothing) and
   VERIFY with a file count afterward — robocopy returns exit 0 when it copied

@@ -131,8 +131,14 @@ $modelSets = @(
     # scaled down to a floor-loot size.
     @{ Src = "fab\armor"; Name = "leather_armor"; MultiMaterial = $true; Height = 0.90 }
 
-    # Rigged-monster scaffold (left commented until a rigged character is bought):
-    # @{ Src = "fab\monsters\skeleton-warrior"; Name = "skeleton_warrior"; Rig = $true; Height = 1.9; FlipGreen = $true }
+    # Assets Animated rigged crawlers (fab, 2026-07-10): one mesh + one material
+    # each, the 4K PBR maps EMBEDDED in the FBX (the Rig path dumps + imports
+    # them), full motion libraries as named actions (Atk/Dead/Hit/Idle/Walk/...).
+    # Crawlers size by FIT (longest extent — leg span / body length inside the
+    # 2 m cell), not standing height; fine-tune per type with the catalog's
+    # modelscale field in the editor's monster dialog.
+    @{ Src = "fab\monsters\centipede";    Name = "centipede";    Rig = $true; Fit = 1.8; FlipGreen = $true }
+    @{ Src = "fab\monsters\giant_spider"; Name = "giant_spider"; Rig = $true; Fit = 1.7; FlipGreen = $true }
 )
 
 $wanted = $Materials.Count -gt 0
@@ -190,15 +196,30 @@ foreach ($m in $modelSets) {
         $modelsDir = Join-Path $assets "models"
         $stage = Join-Path $stageRoot $m.Name
         if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
-        $h = if ($m.Height) { $m.Height } else { 1.8 }
-        if ((Invoke-Convert $mesh $stage "--keep-rig" "--height" $h) -ne 0) { throw "Convert failed for $($m.Name)" }
+        # Size by Fit (longest extent; crawlers) when given, else Height (Z;
+        # standing creatures).
+        $sizeArgs = if ($m.Fit) { @('--fit', $m.Fit) }
+                    else { @('--height', $(if ($m.Height) { $m.Height } else { 1.8 })) }
+        # fab monster FBXs usually EMBED their PBR maps — have the convert dump
+        # them as loose PNGs so the set import below has something to pack.
+        $texDump = Join-Path $stage "dumped_textures"
+        if ((Invoke-Convert $mesh $stage "--keep-rig" @sizeArgs `
+                            "--dump-images" $texDump) -ne 0) { throw "Convert failed for $($m.Name)" }
         $glb = Get-ChildItem -Path $stage -Filter *.glb -File | Select-Object -First 1
         if (-not $glb) { throw "No rigged glb produced for $($m.Name)" }
         Copy-Item $glb.FullName (Join-Path $modelsDir "$($m.Name).gltf") -Force
         Write-Host "  rigged model -> models\$($m.Name).gltf"
-        # Its texture set (imported like a normal prop set).
+        # Its texture set (imported like a normal prop set). Source priority:
+        # loose maps beside the mesh, a textures\ subfolder (Sketchfab-style
+        # gltf downloads), then the maps dumped out of the embedded FBX.
+        $texSrc = $srcDir
+        if (-not (Get-ChildItem $srcDir -File -ErrorAction SilentlyContinue |
+                  Where-Object { $_.Extension -in '.png', '.jpg', '.jpeg', '.tga' })) {
+            if (Test-Path (Join-Path $srcDir 'textures')) { $texSrc = Join-Path $srcDir 'textures' }
+            elseif (Test-Path $texDump) { $texSrc = $texDump }
+        }
         $flip = if ($m.FlipGreen) { @('--flip-green') } else { @() }
-        if ((Invoke-Baker import $srcDir $assets "$($m.Name)_2k" @flip) -ne 0) { throw "Texture import failed for $($m.Name)" }
+        if ((Invoke-Baker import $texSrc $assets "$($m.Name)_2k" @flip) -ne 0) { throw "Texture import failed for $($m.Name)" }
         $installed++
         continue
     }

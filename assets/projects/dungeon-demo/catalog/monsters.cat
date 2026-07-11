@@ -254,3 +254,66 @@ anim_defend = defend__body_block defend__dodging_right
 anim_hit = hit__big_hit_to_head_1 hit__big_hit_to_head_2 hit__big_hit_to_head hit__head_hit hit__hit_to_body
 anim_die = die__dying die__falling_back_death die__falling_forward_death die__standing_death_forward_01 die__standing_death_left_01 die__standing_react_death_backward die__standing_react_death_forward
 anim_spawn = rise
+
+; --- Bought rigged crawlers (fab.com "Assets Animated", 2026-07-10) -----------
+;   Authored single-mesh rigs installed by FetchModels.ps1's Rig path: the
+;   motion library ships IN the model as named actions (anim rows below), the
+;   4K PBR set is dumped from the FBX's embedded maps. Stats are first-cut;
+;   sizes tune live via modelscale in the editor's monster dialog.
+
+[giant_spider]
+display = Giant Spider
+category = vermin
+model = giant_spider
+texture = giant_spider
+hp = 20
+damage = 6
+accuracy = 0.7
+defense = 0.15
+armor = 0
+attackcd = 1.4
+aggro = 7
+movecd = 0.4
+iq = 120
+size = large
+poison = 1.5 6 0.35
+resists = bash -0.25
+dmgtype = pierce
+states = idle incombat walk run attack hit die
+anim_idle = Idle
+anim_incombat = Roar
+; The source asset's walk take really is named "Wak" (typo ships in the FBX).
+anim_walk = Wak
+anim_run = Run
+anim_attack = Atk1 Atk2 Atk3 Atk4 Atk5 Atk6
+anim_hit = Hit Hit2
+anim_die = Death
+
+[centipede]
+display = Giant Centipede
+category = vermin
+model = centipede
+texture = centipede
+hp = 14
+damage = 4
+accuracy = 0.65
+defense = 0.1
+armor = 1
+attackcd = 1.2
+aggro = 5
+movecd = 0.5
+iq = 90
+size = large
+archetype = lurker
+poison = 2 8 0.5
+resists = pierce 0.25
+dmgtype = pierce
+states = spawn idle incombat walk run attack hit die
+anim_spawn = Wakeup GetUp
+anim_idle = Idle Idle2
+anim_incombat = Idle2
+anim_walk = Walk Walk2
+anim_run = Run
+anim_attack = Atk Atk2 Atk3
+anim_hit = Hit Hit2
+anim_die = Dead Dead2 Dead3

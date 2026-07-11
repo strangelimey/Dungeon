@@ -306,6 +306,8 @@ monster.skel_swarm=el enjambre de huesos
 monster.skel_lurker=el esqueleto acechador
 monster.blob=la baba
 monster.mummy=la momia
+monster.giant_spider=la araña gigante
+monster.centipede=el ciempiés gigante
 monster.skel_human=el caballero de huesos
 
 ; --- character sheet / party bar -------------------------------------------------

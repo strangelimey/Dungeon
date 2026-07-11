@@ -310,6 +310,8 @@ monster.skel_swarm=костяной рой
 monster.skel_lurker=затаившийся скелет
 monster.blob=слизь
 monster.mummy=мумия
+monster.giant_spider=гигантский паук
+monster.centipede=гигантская многоножка
 monster.skel_human=костяной рыцарь
 
 ; --- character sheet / party bar -------------------------------------------------

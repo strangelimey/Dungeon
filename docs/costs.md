@@ -40,6 +40,13 @@ complete inventory of 3rd-party content (not just a spend total).
 |---|---|---|---|---|---|---|
 | 2026-06-22 | Fantasy Assassin Weapon Pack | Deepanshu | $1.99 | Fab Standard | glb/obj/fbx/usd | 4 dagger items (viking/khukri/snake/french), 3D icons — done |
 | 2026-06-23 | Leather Sentinel Armor | ebbelende3D | Free | **CC BY 4.0** ‡ | glb/obj/fbx/usdz | `leather_armor` item (3D floor model + icon) — done |
+| 2026-06-24 | Low-poly Human Skeleton | Gamefruit | $6.99 | Fab Standard | fbx | `skeleton` monster (Blender rigid-bind + Mixamo clip library) — done |
+| 2026-07-10 | Centipede Monster_V2 | Assets Animated | $4.99 † | Fab Standard | blend/fbx | `centipede` monster (rigged, 23 own clips, 4K PBR) — importing |
+| 2026-07-10 | Spider_V3 | Assets Animated | $9.99 † | Fab Standard | blend/fbx | `giant_spider` monster (rigged, 17 own clips, 4K PBR) — importing |
+| 2026-07-10 | Insectoid Monster Rig | DM-913 | Free | **CC BY 4.0** ‡ | gltf/glb/usdz | archived (`fab\monsters\insectoid`); pipeline-test candidate, 2 clips only — not imported |
+| 2026-07-10 | Cursed Undead Soldier Rig | DM-913 | Free | **CC BY 4.0** ‡ | gltf/glb/usdz | archived (`fab\monsters\undead_soldier`); parked — 14 meshes / 3 materials, exceeds the single-mesh monster path |
+
+† List price, pre-tax (Fab shows prices excl. tax; actual charge may differ).
 
 ‡ **Attribution required** — CC BY 4.0 means the project must credit the author.
 See the Attributions section below; add a creditable line before any release.
@@ -50,6 +57,12 @@ surface it in an in-game credits screen / NOTICE file before shipping.
 - **Leather Sentinel Armor** by **ebbelende3D** — fab.com, CC BY 4.0
   (https://www.fab.com/listings/f9e00fed-ea1d-4464-8580-7e430a2e3607).
   Note: listing marks it AI-generated.
+- **Insectoid Monster Rig** by **DM-913** — fab.com, CC BY 4.0
+  (https://www.fab.com/listings/ff1306d9-c968-4745-8437-0388a8d7aa5a).
+  Credit required only if it actually ships in-game (archived, unused so far).
+- **Cursed Undead Soldier Rig** by **DM-913** — fab.com, CC BY 4.0
+  (https://www.fab.com/listings/cf236a92-88d9-4f0d-af10-d4f878560b39).
+  Ditto — archived, unused so far.
 
 Scouted candidates (prices as seen 2026-06-22, not bought):
 - Fantasy Assassin Weapon Pack (Deepanshu) — **$1.99–4.99**, glb+obj+fbx, 18 meshes
@@ -85,10 +98,12 @@ One-off or recurring software bought for the project.
 
 ---
 
-## Totals (as of 2026-06-23)
+## Totals (as of 2026-07-10)
 - **Asset purchases:** textures.com **$39.00** (5,000-credit bundle; 3,425 left,
-  ~$26.71 prepaid headroom); fab.com **$1.99** (Fantasy Assassin Weapon Pack;
-  Leather Sentinel Armor was free); other $0.
+  ~$26.71 prepaid headroom); fab.com **$23.96** pre-tax (Fantasy Assassin $1.99 +
+  skeleton $6.99 + centipede $4.99 + spider $9.99; the CC-BY freebies cost $0);
+  other $0.
 - **AI / API:** not yet recorded.
 - **Dev tools / licenses:** $0 (all free so far).
-- **Cash out of pocket so far:** **$40.99** ($39.00 textures.com + $1.99 fab.com).
+- **Cash out of pocket so far:** **$62.96** pre-tax ($39.00 textures.com +
+  $23.96 fab.com).
