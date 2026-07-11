@@ -147,7 +147,7 @@ Key conventions (memorize, they bite):
 
 Forward pass: metallic-roughness PBR (Cook-Torrance GGX in scene.hlsl's
 BRDF()), driven per-draw by MaterialParams (metallic/roughness factors +
-optional ORM map at t7: R=occlusion, G=roughness, B=metallic, glTF order;
+optional ORM map at t11: R=occlusion, G=roughness, B=metallic, glTF order;
 factors scale the map). Albedo textures are sampled sRGB (Texture's srgb
 flag → *_SRGB DXGI format); normal/height/ORM stay linear. Two scene PSOs:
 m_pso (CULL_NONE, default for hand-built procedural geometry) and m_psoCull
@@ -156,9 +156,14 @@ DrawMesh swaps PSO per draw, never during the shadow pass). Plus
 normal + steep-parallax mapping (derivative cotangent frame, height in
 normal-map alpha), per-cell volumetric dust (turbidity grid texture t2,
 raymarched extinction + in-scattering), point-light cube shadows with
-distance-graded slots (4 slots, 512/256/256/128, slot 0 = nearest light,
-PCF; carried torch always wins slot 0; dust march samples the same cubes →
-god rays), fire light positions wander so shadows flicker. Shaders compile
+distance-graded slots (8 slots, 512/256×3/128×4, cubes at t3..t10; slot 0 =
+nearest light, PCF; carried torch always wins slot 0; dust march samples the
+same cubes → god rays; kShadowSlots sizes the C++ side, scene.hlsl mirrors
+the registers BY HAND), fire light positions wander so shadows flicker.
+KNOW THIS about "missing" shadows: in a fire-dense room the dust in-scatter
+(every fire feeds a turbidity ring) washes surface shadows to ~invisible —
+that's a turbidity/ambient tuning matter, not a shadow bug (A/B: console
+`shadows off` barely changes such a room; `dust off` transforms it). Shaders compile
 at launch with an on-disk cache (shadercache/, hash-invalidated) — edit
 .hlsl and relaunch, no rebuild.
 

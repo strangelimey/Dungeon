@@ -16,8 +16,8 @@
 //   3  t0  base color texture     (descriptor table)
 //   4  t1  normal+height map      (descriptor table; A = height for parallax)
 //   5  t2  air turbidity grid     (descriptor table; dust raymarch density)
-//   6  t3..t6  shadow cubes       (one table, kShadowSlots contiguous SRVs)
-//   7  t7  occlusion/rough/metal  (descriptor table; ORM map for PBR)
+//   6  t3..t10 shadow cubes       (one table, kShadowSlots contiguous SRVs)
+//   7  t11 occlusion/rough/metal  (descriptor table; ORM map for PBR)
 //   s0     static anisotropic wrap sampler
 //   s1     static clamped bilinear sampler (turbidity grid + shadow cubes)
 // ============================================================================
@@ -43,9 +43,14 @@ namespace dungeon::gfx {
 inline constexpr u32 kMaxSkinJoints = 128;
 
 // Point-light shadow cube slots, resolution falling off with slot index —
-// the game assigns slot 0 to the light nearest the camera.
-inline constexpr u32 kShadowSlots = 4;
-inline constexpr u32 kShadowResolution[kShadowSlots] = {512, 256, 256, 128};
+// the game assigns slot 0 to the light nearest the camera. Eight slots so a
+// sconce-lined hall keeps most of its fires shadow-casting (with four, the
+// carried torch + three nearest fires monopolized the cubes and every other
+// light was pure fill, washing the shadows out); the ShadowSlotCache +
+// half-rate fire flicker keep the extra cubes' re-render cost down.
+inline constexpr u32 kShadowSlots = 8;
+inline constexpr u32 kShadowResolution[kShadowSlots] = {512, 256, 256, 256,
+														128, 128, 128, 128};
 
 // Everything material-related for one draw. Textures may be null (baseColor
 // only); `normalMap` (xyz = tangent-space normal, w = height) enables bump

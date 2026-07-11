@@ -59,14 +59,20 @@ cbuffer SkinConstants : register(b2) {
 Texture2D gBaseTexture : register(t0);
 Texture2D gNormalMap : register(t1); // xyz = tangent-space normal, w = height
 Texture2D gTurbidity : register(t2); // top-down per-cell dust density (R)
-Texture2D gMetalRough : register(t7); // R = occlusion, G = roughness, B = metallic
+Texture2D gMetalRough : register(t11); // R = occlusion, G = roughness, B = metallic
 // Point-light shadow cubes (light->fragment distance / radius). Slot 0 is
 // the light nearest the camera at the highest resolution; slots fall off in
 // resolution with distance — detailed shadows up close, coarser far away.
+// Count and registers must match gfx::kShadowSlots (Renderer.h): t3..t10,
+// with the ORM map above at the first register after the cubes.
 TextureCube gShadowCube0 : register(t3);
 TextureCube gShadowCube1 : register(t4);
 TextureCube gShadowCube2 : register(t5);
 TextureCube gShadowCube3 : register(t6);
+TextureCube gShadowCube4 : register(t7);
+TextureCube gShadowCube5 : register(t8);
+TextureCube gShadowCube6 : register(t9);
+TextureCube gShadowCube7 : register(t10);
 SamplerState gSampler : register(s0);
 SamplerState gClampSampler : register(s1);
 
@@ -75,7 +81,11 @@ float SampleShadowCube(int slot, float3 dir) {
 	case 0:  return gShadowCube0.SampleLevel(gClampSampler, dir, 0).r;
 	case 1:  return gShadowCube1.SampleLevel(gClampSampler, dir, 0).r;
 	case 2:  return gShadowCube2.SampleLevel(gClampSampler, dir, 0).r;
-	default: return gShadowCube3.SampleLevel(gClampSampler, dir, 0).r;
+	case 3:  return gShadowCube3.SampleLevel(gClampSampler, dir, 0).r;
+	case 4:  return gShadowCube4.SampleLevel(gClampSampler, dir, 0).r;
+	case 5:  return gShadowCube5.SampleLevel(gClampSampler, dir, 0).r;
+	case 6:  return gShadowCube6.SampleLevel(gClampSampler, dir, 0).r;
+	default: return gShadowCube7.SampleLevel(gClampSampler, dir, 0).r;
 	}
 }
 

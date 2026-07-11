@@ -83,8 +83,8 @@ Renderer::Renderer(GraphicsDevice& device) : m_device(device) {
 	//   3: t0 base color texture (table)
 	//   4: t1 normal+height map (table)
 	//   5: t2 air turbidity grid (table)
-	//   6: t3..t6 shadow cubes (one table, contiguous descriptors)
-	//   7: t7 occlusion/roughness/metallic ORM map (table)
+	//   6: t3..t10 shadow cubes (one table, contiguous descriptors)
+	//   7: t11 occlusion/roughness/metallic ORM map (table)
 	D3D12_DESCRIPTOR_RANGE srvRange0{};
 	srvRange0.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
 	srvRange0.NumDescriptors = 1;
@@ -97,7 +97,7 @@ Renderer::Renderer(GraphicsDevice& device) : m_device(device) {
 	srvRangeShadow.BaseShaderRegister = 3;
 	srvRangeShadow.NumDescriptors = kShadowSlots;
 	D3D12_DESCRIPTOR_RANGE srvRangeMR = srvRange0;
-	srvRangeMR.BaseShaderRegister = 7;
+	srvRangeMR.BaseShaderRegister = 3 + kShadowSlots; // t11: first SRV after the cubes
 
 	D3D12_ROOT_PARAMETER params[8]{};
 	for (int i = 0; i < 3; ++i) {
@@ -328,7 +328,8 @@ void Renderer::CreateShadowResources() {
 		device->CreateDepthStencilView(m_shadowDepth[slot].Get(), nullptr, dsv);
 	}
 
-	// Cube SRVs — allocated back to back so all four bind as ONE root table.
+	// Cube SRVs — allocated back to back (boot-time, before any free-list
+	// recycling can fragment the heap) so every slot binds as ONE root table.
 	for (u32 slot = 0; slot < kShadowSlots; ++slot) {
 		m_shadowSrv[slot] = m_device.AllocateSrv();
 		D3D12_SHADER_RESOURCE_VIEW_DESC srv{};

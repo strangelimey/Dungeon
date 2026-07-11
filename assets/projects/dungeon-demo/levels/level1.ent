@@ -9,7 +9,12 @@ monster skel_lurker 14 6 north
 monster skel_swarm 13 7 north
 monster skel_swarm 14 7 north
 monster skeleton 15 7 west
+monster skel_warrior 4 8 north
 monster skel_swarm 13 8 north
+monster skel_bare 4 9 north
+monster skel_berserker 4 10 north
+monster centipede 5 10 north
+monster skel_spearman 4 11 north
 monster mummy 4 12 east
 monster mummy 27 13 west
 monster skeleton 12 14 east
@@ -21,12 +26,6 @@ monster mummy 3 25 east
 monster skeleton 19 27 north
 monster blob 27 27 south
 monster skeleton 8 28 north
-monster giant_spider 6 3 west
-monster centipede 5 10 north
-monster skel_warrior 4 8 north
-monster skel_bare 4 9 north
-monster skel_berserker 4 10 north
-monster skel_spearman 4 11 north
 item dagger 3 4 south
 item khukri 4 4 south
 item snake_dagger 5 4 south
