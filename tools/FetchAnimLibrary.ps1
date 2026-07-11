@@ -90,9 +90,14 @@ $animSets = @(
        MeshYaw = 90 }
 
     # Skeleton Army Kit (Konjo Design, fab 2026-07-10): four PRE-BUILT armed
-    # variants as multi-material OBJs. Textures maps material slot -> albedo
-    # [:normal] under TexDir (the kit's MTLs point at the author's desktop and
-    # omit normals, so the bind wires them explicitly); the bake keeps the
+    # variants. The unrigged A-pose OBJs defeated the scripted rigid bind
+    # (shield bound to the pelvis; the arm-drop re-rest stole hip geometry), so
+    # each variant goes through MIXAMO'S AUTO-RIGGER instead: upload FBXs live
+    # in the archive's mixamo_upload\, the skinned T-pose downloads in
+    # mixamo_rigged\<name>_rigged.fbx (Skinned=$true skips the bind — the clip
+    # actions attach straight onto the download's own Mixamo skeleton).
+    # Textures maps material slot -> albedo[:normal] under TexDir (the kit's
+    # MTLs point at the author's desktop and omit normals); the bake keeps the
     # material slots and embeds the images — the engine's multi-material
     # monster path renders one primitive per material.
     $(
@@ -102,21 +107,19 @@ $animSets = @(
             'Berserker_weps'     = 'Berserker_weps1_albedo.png:Berserker_weps1_normal.png'
             'Skel_war_weps'      = 'Skel_warrior_wep_C.png:Skel_warrior_wep_N1.png'
         }
-        $kitDir = "fab\monsters\skeleton-army\obj\Skeleton_obj"
-        foreach ($v in @(
-            @{ Name = "skel_warrior";   File = "Skeleton_Warrior.obj" },
-            @{ Name = "skel_berserker"; File = "Skeleton_Berserker.obj" },
-            @{ Name = "skel_spearman";  File = "Skeleton_spearman.obj" },
-            @{ Name = "skel_bare";      File = "Skeleton_no_armor.obj" }
-        )) {
-            @{ Name = $v.Name;
-               Mesh = "$kitDir\$($v.File)";
+        $kitDir = "fab\monsters\skeleton-army"
+        foreach ($v in @("skel_warrior", "skel_berserker", "skel_spearman", "skel_bare")) {
+            @{ Name = $v;
+               Mesh = "$kitDir\mixamo_rigged\$($v)_rigged.fbx";
                Library = "anim\humanoid";
                Ref = "models\skeleton.gltf";
-               MeshYaw = 0; # the kit OBJs already face +Y (verified by render)
-               ArmDrop = 55; # kit is A-pose (arms down); re-rest the T-pose arms
+               Skinned = $true;
+               RigidIslands = $true; # bones + plate: every island is a hard piece
+               # The clean pre-Mixamo art: repairs rest positions Mixamo's
+               # weight-driven re-posing displaced (arm plates at the chest).
+               Original = "$kitDir\mixamo_upload\$($v)_mixamo_upload.fbx";
                Textures = $kitTex;
-               TexDir = "$kitDir\Skeletal_textures" }
+               TexDir = "$kitDir\obj\Skeleton_obj\Skeletal_textures" }
         }
     )
 )
@@ -157,6 +160,9 @@ foreach ($c in $animSets) {
         $texArgs = @('--textures', $texSpec, '--tex-dir', (Join-Path $archive $c.TexDir))
     }
     if ($c.ArmDrop) { $texArgs += @('--arm-drop', $c.ArmDrop) }
+    if ($c.Skinned) { $texArgs += @('--skinned') }
+    if ($c.RigidIslands) { $texArgs += @('--rigid-islands') }
+    if ($c.Original) { $texArgs += @('--original', (Join-Path $archive $c.Original)) }
 
     $rc = Invoke-Blender $mesh $library $outGltf $ref "--catalog-out" $catOut "--mesh-yaw" $yaw @texArgs
     if ($rc -ne 0) { throw "Bake failed for $($c.Name)" }

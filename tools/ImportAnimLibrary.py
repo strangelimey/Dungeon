@@ -131,7 +131,8 @@ def parse_args(argv):
     argv = [a for a in argv if a != "--plan"]
     opts = {"plan": plan, "mesh": None, "library": None, "out": None, "ref": None,
             "catalog_out": None, "mesh_yaw": 90.0, "keep_fingers": False,
-            "textures": "", "tex_dir": "", "arm_drop": 0.0}
+            "textures": "", "tex_dir": "", "arm_drop": 0.0, "skinned": False,
+            "rigid_islands": False, "original": ""}
     usage = ("usage: <mesh.fbx|.obj> <library_root> <out.gltf> <ref_skeleton.gltf> "
              "[--catalog-out f] [--mesh-yaw deg] [--keep-fingers] "
              "[--textures '<mat>=<albedo>[:<normal>];...' --tex-dir <dir>]  |  "
@@ -156,6 +157,12 @@ def parse_args(argv):
             opts["textures"] = value(i, a); i += 2
         elif a == "--tex-dir":
             opts["tex_dir"] = value(i, a); i += 2
+        elif a == "--skinned":
+            opts["skinned"] = True; i += 1
+        elif a == "--rigid-islands":
+            opts["rigid_islands"] = True; i += 1
+        elif a == "--original":
+            opts["original"] = value(i, a); i += 2
         elif a == "--arm-drop":
             opts["arm_drop"] = float(value(i, a)); i += 2
         elif a.startswith("--"):  # an unknown flag, not a silently-swallowed positional
@@ -329,49 +336,283 @@ def run_bake(opts):
     def bone_world(b, head=True):
         return rig.matrix_world @ (b.head_local if head else b.tail_local)
 
-    # ---- import our mesh, co-face the armature, fit to it ----------------------
-    # OBJ sources (bought kits) import via the wm importer and often split into
-    # one object per group (bones/armor/weapons) — JOIN them into one mesh; the
-    # material slots survive the join, so a multi-material kit keeps its parts.
-    if mesh_fbx.lower().endswith(".obj"):
-        before = set(bpy.data.objects)
-        try:
-            bpy.ops.wm.obj_import(filepath=mesh_fbx)
-        except AttributeError:
-            bpy.ops.import_scene.obj(filepath=mesh_fbx)
-        new_objs = [o for o in bpy.data.objects if o not in before]
-    else:
-        new_objs = import_fbx(mesh_fbx)
-    parts = [o for o in new_objs if o.type == "MESH"]
-    if not parts:
-        raise SystemExit(f"no mesh objects in {mesh_fbx}")
-    bpy.ops.object.select_all(action="DESELECT")
-    for o in parts:
-        o.select_set(True)
-    bpy.context.view_layer.objects.active = parts[0]
-    if len(parts) > 1:
-        bpy.ops.object.join()
-        print(f"[mesh] joined {len(parts)} objects")
-    mesh = parts[0]
-    bpy.ops.object.select_all(action="DESELECT")
-    mesh.select_set(True)
-    bpy.context.view_layer.objects.active = mesh
-    # The importers park their axis conversion (Y-up -> Z-up) on the OBJECT
-    # rotation; bake it FIRST — assigning rotation_euler below would silently
-    # discard it and the mesh would bind lying down (exploded animations).
-    bpy.ops.object.transform_apply(rotation=True)
-    mesh.rotation_euler = (0, 0, mesh_yaw)  # co-face the +Y Mixamo armature
-    bpy.ops.object.transform_apply(rotation=True)
+    def apply_all(obj, location=True, rotation=True, scale=True):
+        bpy.ops.object.select_all(action="DESELECT")
+        obj.select_set(True)
+        bpy.context.view_layer.objects.active = obj
+        bpy.ops.object.transform_apply(location=location, rotation=rotation,
+                                       scale=scale)
 
-    zs = [(mesh.matrix_world @ v.co).z for v in mesh.data.vertices]
-    s = ref_h / (max(zs) - min(zs))
-    mesh.scale = (s, s, s)
-    bpy.ops.object.transform_apply(scale=True)
-    zs = [(mesh.matrix_world @ v.co).z for v in mesh.data.vertices]
-    mesh.location.z -= min(zs)  # feet to z=0
-    bpy.ops.object.transform_apply(location=True)
-    print(f"[fit] mesh dims {mesh.dimensions.x:.2f} x {mesh.dimensions.y:.2f} x "
-          f"{mesh.dimensions.z:.2f}")
+    if opts["skinned"]:
+        # ---- pre-skinned mesh (Mixamo auto-rigged download) ---------------------
+        # The mesh arrives already WEIGHTED on the standard Mixamo skeleton, so
+        # the download's own armature becomes THE rig — the clip actions target
+        # it by bone name — and the rigid bind below is skipped entirely. The
+        # clip-import rig is dropped (its actions persist via use_fake_user).
+        bpy.data.objects.remove(rig, do_unlink=True)
+        new_objs = import_fbx(mesh_fbx)
+        rig = next((o for o in new_objs if o.type == "ARMATURE"), None)
+        if rig is None:
+            raise SystemExit(f"--skinned but no armature in {mesh_fbx}")
+        rig.name = "rig"
+        parts = [o for o in new_objs if o.type == "MESH"]
+        if not parts:
+            raise SystemExit(f"no mesh objects in {mesh_fbx}")
+        if len(parts) > 1:
+            bpy.ops.object.select_all(action="DESELECT")
+            for o in parts:
+                o.select_set(True)
+            bpy.context.view_layer.objects.active = parts[0]
+            bpy.ops.object.join()
+            print(f"[mesh] joined {len(parts)} objects")
+        mesh = parts[0]
+        # Bake all object transforms (the ConvertMesh-proven ceremony: unparent
+        # keeping world placement — the armature MODIFIER drives the skin, not
+        # the parenting — then apply each object alone), and match the clip
+        # library's scale: mesh height -> ref height, both objects together.
+        if mesh.parent is not None:
+            bpy.ops.object.select_all(action="DESELECT")
+            mesh.select_set(True)
+            bpy.context.view_layer.objects.active = mesh
+            bpy.ops.object.parent_clear(type="CLEAR_KEEP_TRANSFORM")
+        apply_all(mesh)
+        apply_all(rig)
+        zs = [(mesh.matrix_world @ v.co).z for v in mesh.data.vertices]
+        s = ref_h / (max(zs) - min(zs))
+        mesh.scale = (s, s, s)
+        apply_all(mesh)
+        rig.scale = (s, s, s)
+        apply_all(rig)
+        zs = [(mesh.matrix_world @ v.co).z for v in mesh.data.vertices]
+        for o in (mesh, rig):
+            o.location.z -= min(zs)
+            apply_all(o, rotation=False, scale=False)
+        mesh.parent = rig  # tidy hierarchy for the exporter
+        print(f"[fit] skinned mesh dims {mesh.dimensions.x:.2f} x "
+              f"{mesh.dimensions.y:.2f} x {mesh.dimensions.z:.2f}")
+
+        # --rigid-islands: a skeleton-and-plate kit has NO organic surface —
+        # every island (skull, pauldron, greave, blade) is a hard piece, and
+        # Mixamo's heat weights make them all flop/tear. Snap each island
+        # rigid. An organic mesh should NOT set this — its soft weights stay.
+        if not opts["rigid_islands"]:
+            print("[rigid] soft Mixamo weights kept (--rigid-islands not set)")
+        else:
+            bm = bmesh.new()
+            bm.from_mesh(mesh.data)
+            bm.verts.ensure_lookup_table()
+            seen = [False] * len(bm.verts)
+            islands = []
+            for v in bm.verts:
+                if seen[v.index]:
+                    continue
+                comp = []
+                stack = [v]
+                while stack:
+                    cur = stack.pop()
+                    if seen[cur.index]:
+                        continue
+                    seen[cur.index] = True
+                    comp.append(cur.index)
+                    for e in cur.link_edges:
+                        ov = e.other_vert(cur)
+                        if not seen[ov.index]:
+                            stack.append(ov)
+                islands.append(comp)
+            bm.free()
+
+            # Assign by NEAREST BONE SEGMENT, not by weight dominance:
+            # Mixamo's heat weights routinely give a sword piece to the chest
+            # or an arm plate to the barely-moving clavicle, and snapping to
+            # those breaks the model apart (disconnected blades, arms pinned
+            # to the torso). Mesh and rig are ALIGNED here (same T-pose,
+            # unlike the raw-kit bind that had to guess), so geometry is
+            # unambiguous. Fingers fold into the hand (a gripped weapon must
+            # not stretch to a fingertip); Shoulder/clavicle bones are
+            # excluded as targets.
+            SKIP_SEG = ("Thumb", "Index", "Middle", "Ring", "Pinky", "Shoulder")
+            segs = []
+            for b in rig.data.bones:
+                if any(t in b.name for t in SKIP_SEG):
+                    continue
+                segs.append((b.name, rig.matrix_world @ b.head_local,
+                             rig.matrix_world @ b.tail_local))
+
+            def dist_pt_seg(p, a, b):
+                ab = b - a
+                denom = ab.dot(ab)
+                t = max(0.0, min(1.0, (p - a).dot(ab) / denom)) \
+                    if denom > 1e-9 else 0.0
+                return (p - (a + ab * t)).length
+
+            mw = mesh.matrix_world
+            co = [mw @ v.co for v in mesh.data.vertices]
+
+            # --- rest-position REPAIR (--original <upload mesh>) --------------
+            # Mixamo re-poses the A-pose art into T-pose USING ITS WEIGHTS, so
+            # any island it weighted badly arrives with its rest geometry
+            # displaced (arm plates half-carried toward the chest). Rigid
+            # weights alone would freeze that displacement. Repair: per bone,
+            # solve the rigid A->T transform (Kabsch) from the verts Mixamo
+            # weighted CONFIDENTLY (>= 0.9 — the well-bound cores), then
+            # recompute every rigid island's rest from the ORIGINAL art
+            # through its assigned bone's transform. Same vertex order in
+            # upload and download (Mixamo preserves geometry).
+            bone_xform = {}
+            orig_co = None
+            if opts["original"]:
+                import numpy as np
+                before = set(bpy.data.objects)
+                bpy.ops.import_scene.fbx(filepath=opts["original"])
+                oobjs = [o for o in bpy.data.objects if o not in before]
+                omeshes = [o for o in oobjs if o.type == "MESH"]
+                over = sum(len(o.data.vertices) for o in omeshes)
+                if over != len(mesh.data.vertices):
+                    print(f"[repair] WARNING vertex count mismatch "
+                          f"(original {over} vs download "
+                          f"{len(mesh.data.vertices)}) - repair skipped")
+                else:
+                    oco = []
+                    for o in omeshes:  # single mesh expected; keep file order
+                        m = o.matrix_world
+                        oco.extend((m @ v.co) for v in o.data.vertices)
+                    # Pre-scale the original to the download's baked size.
+                    oz = [p.z for p in oco]
+                    dz = [p.z for p in co]
+                    s0 = (max(dz) - min(dz)) / max(max(oz) - min(oz), 1e-6)
+                    orig_co = np.array([[p.x * s0, p.y * s0, p.z * s0]
+                                        for p in oco])
+                    down_co = np.array([[p.x, p.y, p.z] for p in co])
+                    gname = {g.index: g.name for g in mesh.vertex_groups}
+                    conf = {}
+                    for i, v in enumerate(mesh.data.vertices):
+                        for ge in v.groups:
+                            if ge.weight >= 0.9:
+                                conf.setdefault(gname[ge.group], []).append(i)
+                                break
+                    for bname, idx in conf.items():
+                        if len(idx) < 8:
+                            continue
+                        A = orig_co[idx]
+                        B = down_co[idx]
+                        ca, cb = A.mean(0), B.mean(0)
+                        H = (A - ca).T @ (B - cb)
+                        U, S, Vt = np.linalg.svd(H)
+                        d = np.sign(np.linalg.det(Vt.T @ U.T))
+                        D = np.diag([1.0, 1.0, d])
+                        R = Vt.T @ D @ U.T
+                        bone_xform[bname] = (R, cb - R @ ca)
+                    print(f"[repair] solved A->T transforms for "
+                          f"{len(bone_xform)} bone(s)")
+                for o in oobjs:
+                    bpy.data.objects.remove(o, do_unlink=True)
+
+            def repair_bone_for(name):
+                # The assigned bone's transform, else the nearest ancestor's.
+                b = rig.data.bones.get(name)
+                while b is not None:
+                    if b.name in bone_xform:
+                        return bone_xform[b.name]
+                    b = b.parent
+                return None
+
+            # With the original art available, ASSIGN in A-space too: map each
+            # bone segment back through its inverse A->T transform and measure
+            # against the clean original positions — a plate that Mixamo
+            # dragged to the chest still assigns to the ARM it really wraps.
+            segs_assign = segs
+            co_assign = co
+            if orig_co is not None and bone_xform:
+                import mathutils
+                segs_assign = []
+                for name, h, t_ in segs:
+                    xf = repair_bone_for(name)
+                    if xf is None:
+                        continue
+                    R, t = xf
+                    hn = R.T @ (np.array([h.x, h.y, h.z]) - t)
+                    tn = R.T @ (np.array([t_.x, t_.y, t_.z]) - t)
+                    segs_assign.append((name, mathutils.Vector(hn),
+                                        mathutils.Vector(tn)))
+                co_assign = [mathutils.Vector(p) for p in orig_co]
+
+            vgs = {g.name: g for g in mesh.vertex_groups}
+            for b in rig.data.bones:  # groups the download didn't weight
+                if b.name not in vgs:
+                    vgs[b.name] = mesh.vertex_groups.new(name=b.name)
+            rigid_n = repaired_n = 0
+            inv = mw.inverted()
+            for comp in islands:
+                nb = [min(segs_assign,
+                          key=lambda s: dist_pt_seg(co_assign[i], s[1], s[2]))[0]
+                      for i in comp]
+                dom, dom_n = Counter(nb).most_common(1)[0]
+                if len(comp) > 300:
+                    print(f"[rigid] island({len(comp)} verts) -> {dom} "
+                          f"({dom_n / len(comp):.0%})")
+                for vg in mesh.vertex_groups:
+                    if vg.name != dom:
+                        vg.remove(comp)
+                vgs[dom].add(comp, 1.0, "REPLACE")
+                rigid_n += 1
+                if orig_co is not None:
+                    xf = repair_bone_for(dom)
+                    if xf is not None:
+                        import mathutils
+                        R, t = xf
+                        for i in comp:
+                            p = R @ orig_co[i] + t
+                            mesh.data.vertices[i].co = inv @ mathutils.Vector(
+                                (p[0], p[1], p[2]))
+                        repaired_n += 1
+            mesh.data.update()
+            print(f"[rigid] snapped {rigid_n} island(s) to nearest bone "
+                  f"segments; rest positions repaired for {repaired_n}")
+    else:
+        # ---- import our mesh, co-face the armature, fit to it -------------------
+        # OBJ sources (bought kits) import via the wm importer and often split
+        # into one object per group (bones/armor/weapons) — JOIN them into one
+        # mesh; the material slots survive the join, so a multi-material kit
+        # keeps its parts.
+        if mesh_fbx.lower().endswith(".obj"):
+            before = set(bpy.data.objects)
+            try:
+                bpy.ops.wm.obj_import(filepath=mesh_fbx)
+            except AttributeError:
+                bpy.ops.import_scene.obj(filepath=mesh_fbx)
+            new_objs = [o for o in bpy.data.objects if o not in before]
+        else:
+            new_objs = import_fbx(mesh_fbx)
+        parts = [o for o in new_objs if o.type == "MESH"]
+        if not parts:
+            raise SystemExit(f"no mesh objects in {mesh_fbx}")
+        bpy.ops.object.select_all(action="DESELECT")
+        for o in parts:
+            o.select_set(True)
+        bpy.context.view_layer.objects.active = parts[0]
+        if len(parts) > 1:
+            bpy.ops.object.join()
+            print(f"[mesh] joined {len(parts)} objects")
+        mesh = parts[0]
+        bpy.ops.object.select_all(action="DESELECT")
+        mesh.select_set(True)
+        bpy.context.view_layer.objects.active = mesh
+        # The importers park their axis conversion (Y-up -> Z-up) on the OBJECT
+        # rotation; bake it FIRST — assigning rotation_euler below would
+        # silently discard it and the mesh would bind lying down.
+        bpy.ops.object.transform_apply(rotation=True)
+        mesh.rotation_euler = (0, 0, mesh_yaw)  # co-face the +Y Mixamo armature
+        bpy.ops.object.transform_apply(rotation=True)
+
+        zs = [(mesh.matrix_world @ v.co).z for v in mesh.data.vertices]
+        s = ref_h / (max(zs) - min(zs))
+        mesh.scale = (s, s, s)
+        bpy.ops.object.transform_apply(scale=True)
+        zs = [(mesh.matrix_world @ v.co).z for v in mesh.data.vertices]
+        mesh.location.z -= min(zs)  # feet to z=0
+        bpy.ops.object.transform_apply(location=True)
+        print(f"[fit] mesh dims {mesh.dimensions.x:.2f} x {mesh.dimensions.y:.2f} "
+              f"x {mesh.dimensions.z:.2f}")
 
     # Materials: with a --textures map, KEEP the material slots (the engine's
     # multi-material monster path renders one primitive per material) and wire
@@ -421,70 +662,76 @@ def run_bake(opts):
         while len(mesh.data.materials) > 1:
             mesh.data.materials.pop(index=1)
 
-    # Bone segments (optionally excluding finger bones so a coarse hand binds
-    # rigidly to the Hand bone instead of stretching to a fingertip).
-    FINGERS = ("Thumb", "Index", "Middle", "Ring", "Pinky")
-    segs = []
-    for b in rig.data.bones:
-        if fingers_excluded and any(f in b.name for f in FINGERS):
-            continue
-        segs.append((b.name, bone_world(b, True), bone_world(b, False)))
-
-    def dist_pt_seg(p, a, b):
-        ab = b - a
-        denom = ab.dot(ab)
-        t = max(0.0, min(1.0, (p - a).dot(ab) / denom)) if denom > 1e-9 else 0.0
-        return (p - (a + ab * t)).length
-
-    # ---- hybrid rigid bind: compact island -> one bone; spanning -> per-vertex -
-    bm = bmesh.new()
-    bm.from_mesh(mesh.data)
-    bm.verts.ensure_lookup_table()
-    seen = [False] * len(bm.verts)
-    islands = []
-    for v in bm.verts:
-        if seen[v.index]:
-            continue
-        comp = []
-        stack = [v]
-        while stack:
-            cur = stack.pop()
-            if seen[cur.index]:
+    if not opts["skinned"]:
+        # Bone segments (optionally excluding finger bones so a coarse hand
+        # binds rigidly to the Hand bone instead of stretching to a fingertip).
+        FINGERS = ("Thumb", "Index", "Middle", "Ring", "Pinky")
+        segs = []
+        for b in rig.data.bones:
+            if fingers_excluded and any(f in b.name for f in FINGERS):
                 continue
-            seen[cur.index] = True
-            comp.append(cur.index)
-            for e in cur.link_edges:
-                ov = e.other_vert(cur)
-                if not seen[ov.index]:
-                    stack.append(ov)
-        islands.append(comp)
-    bm.free()
+            segs.append((b.name, bone_world(b, True), bone_world(b, False)))
 
-    vgs = {b.name: mesh.vertex_groups.new(name=b.name) for b in rig.data.bones}
-    mw = mesh.matrix_world
-    co = [mw @ v.co for v in mesh.data.vertices]
-    rigid_n = span_n = 0
-    for comp in islands:
-        nb = [min(segs, key=lambda s: dist_pt_seg(co[i], s[1], s[2]))[0] for i in comp]
-        dom, dom_n = Counter(nb).most_common(1)[0]
-        if len(comp) > 300:  # the big pieces (shield, blade, torso shells) —
-            print(f"[bind] island({len(comp)} verts) -> {dom} "
-                  f"({dom_n / len(comp):.0%})")  # eyeball the assignment
-        if dom_n / len(comp) >= 0.70:  # compact shell -> one rigid bone
-            vgs[dom].add(comp, 1.0, "REPLACE")
-            rigid_n += 1
-        else:                          # spanning island -> articulate per-vertex
-            for i, bone in zip(comp, nb):
-                vgs[bone].add([i], 1.0, "REPLACE")
-            span_n += 1
-    print(f"[bind] {len(islands)} islands: {rigid_n} rigid, {span_n} per-vertex")
+        def dist_pt_seg(p, a, b):
+            ab = b - a
+            denom = ab.dot(ab)
+            t = max(0.0, min(1.0, (p - a).dot(ab) / denom)) if denom > 1e-9 else 0.0
+            return (p - (a + ab * t)).length
 
-    mesh.parent = rig
-    mesh.matrix_parent_inverse = rig.matrix_world.inverted()
-    mod = mesh.modifiers.new("Armature", "ARMATURE")
-    mod.object = rig
+        # ---- hybrid rigid bind: compact island -> one bone; else per-vertex ----
+        bm = bmesh.new()
+        bm.from_mesh(mesh.data)
+        bm.verts.ensure_lookup_table()
+        seen = [False] * len(bm.verts)
+        islands = []
+        for v in bm.verts:
+            if seen[v.index]:
+                continue
+            comp = []
+            stack = [v]
+            while stack:
+                cur = stack.pop()
+                if seen[cur.index]:
+                    continue
+                seen[cur.index] = True
+                comp.append(cur.index)
+                for e in cur.link_edges:
+                    ov = e.other_vert(cur)
+                    if not seen[ov.index]:
+                        stack.append(ov)
+            islands.append(comp)
+        bm.free()
+
+        vgs = {b.name: mesh.vertex_groups.new(name=b.name) for b in rig.data.bones}
+        mw = mesh.matrix_world
+        co = [mw @ v.co for v in mesh.data.vertices]
+        rigid_n = span_n = 0
+        for comp in islands:
+            nb = [min(segs, key=lambda s: dist_pt_seg(co[i], s[1], s[2]))[0]
+                  for i in comp]
+            dom, dom_n = Counter(nb).most_common(1)[0]
+            if len(comp) > 300:  # the big pieces (shield, blade, torso shells)
+                print(f"[bind] island({len(comp)} verts) -> {dom} "
+                      f"({dom_n / len(comp):.0%})")  # eyeball the assignment
+            if dom_n / len(comp) >= 0.70:  # compact shell -> one rigid bone
+                vgs[dom].add(comp, 1.0, "REPLACE")
+                rigid_n += 1
+            else:                          # spanning island -> per-vertex
+                for i, bone in zip(comp, nb):
+                    vgs[bone].add([i], 1.0, "REPLACE")
+                span_n += 1
+        print(f"[bind] {len(islands)} islands: {rigid_n} rigid, {span_n} per-vertex")
+
+        mesh.parent = rig
+        mesh.matrix_parent_inverse = rig.matrix_world.inverted()
+        mod = mesh.modifiers.new("Armature", "ARMATURE")
+        mod.object = rig
+    # (--skinned: the download's weights + armature modifier already drive the
+    # mesh — nothing to bind.)
 
     # ---- push actions onto NLA tracks so glTF exports all as clips ------------
+    if rig.animation_data is None:
+        rig.animation_data_create()
     rig.animation_data.action = None
     for clip_name, _ in clip_files:
         act = bpy.data.actions[clip_name]
