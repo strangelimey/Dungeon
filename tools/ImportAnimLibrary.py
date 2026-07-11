@@ -132,10 +132,12 @@ def parse_args(argv):
     opts = {"plan": plan, "mesh": None, "library": None, "out": None, "ref": None,
             "catalog_out": None, "mesh_yaw": 90.0, "keep_fingers": False,
             "textures": "", "tex_dir": "", "arm_drop": 0.0, "skinned": False,
-            "rigid_islands": False, "original": ""}
+            "rigid_islands": False, "original": "", "islands": "",
+            "mirror": False}
     usage = ("usage: <mesh.fbx|.obj> <library_root> <out.gltf> <ref_skeleton.gltf> "
              "[--catalog-out f] [--mesh-yaw deg] [--keep-fingers] "
-             "[--textures '<mat>=<albedo>[:<normal>];...' --tex-dir <dir>]  |  "
+             "[--textures '<mat>=<albedo>[:<normal>];...' --tex-dir <dir>] "
+             "[--islands '<minvert>=<bone>;...'] [--mirror]  |  "
              "--plan <library_root> [--catalog-out f]")
 
     def value(i, flag):  # the arg after a value-flag, or a usage error if omitted
@@ -163,6 +165,10 @@ def parse_args(argv):
             opts["rigid_islands"] = True; i += 1
         elif a == "--original":
             opts["original"] = value(i, a); i += 2
+        elif a == "--islands":
+            opts["islands"] = value(i, a); i += 2
+        elif a == "--mirror":
+            opts["mirror"] = True; i += 1
         elif a == "--arm-drop":
             opts["arm_drop"] = float(value(i, a)); i += 2
         elif a.startswith("--"):  # an unknown flag, not a silently-swallowed positional
@@ -348,7 +354,15 @@ def run_bake(opts):
         # The mesh arrives already WEIGHTED on the standard Mixamo skeleton, so
         # the download's own armature becomes THE rig — the clip actions target
         # it by bone name — and the rigid bind below is skipped entirely. The
-        # clip-import rig is dropped (its actions persist via use_fake_user).
+        # clip-import rig is dropped (its actions persist via use_fake_user) —
+        # but its per-bone REST ORIENTATIONS are stashed first: they are the
+        # basis every clip's pose rotations are authored against, and the
+        # re-rest pass at the end of this branch aligns the download rig to
+        # them (Mixamo fits its skeleton to the UPLOADED pose, so A-pose art
+        # arrives with arm bones resting along the hanging arms — clips played
+        # against that rest fold the arms across the body).
+        std_rest = {b.name: b.matrix_local.to_3x3().normalized()
+                    for b in rig.data.bones}
         bpy.data.objects.remove(rig, do_unlink=True)
         new_objs = import_fbx(mesh_fbx)
         rig = next((o for o in new_objs if o.type == "ARMATURE"), None)
@@ -390,6 +404,51 @@ def run_bake(opts):
         mesh.parent = rig  # tidy hierarchy for the exporter
         print(f"[fit] skinned mesh dims {mesh.dimensions.x:.2f} x "
               f"{mesh.dimensions.y:.2f} x {mesh.dimensions.z:.2f}")
+
+        # --mirror: flip the model LEFT<->RIGHT (art authored with the weapon
+        # in the off hand — the library's attack clips lead with the RIGHT).
+        # Mesh mirrors across X (winding then re-flipped so faces point out),
+        # the rig mirrors with it, and Left/Right bone + vertex-group names
+        # swap so the standard clips drive the swapped sides. Downstream code
+        # (island assignment, --islands keys, re-rest) runs on the mirrored
+        # model: island keys stay valid (vertex ORDER is untouched) but an
+        # --islands BONE side must be authored post-mirror.
+        if opts["mirror"]:
+            # Unparent for the flips: applying the rig's -1 scale otherwise
+            # COMPENSATES the child mesh (folds a canceling -1 into its object
+            # transform), silently un-mirroring it in world space. Both sit at
+            # identity here, so plain re-parenting is lossless.
+            mesh.parent = None
+            mesh.scale = (-1.0, 1.0, 1.0)
+            apply_all(mesh)  # negative-scale apply reverses winding ITSELF —
+            # faces stay outward; do NOT flip normals on top (inside-out).
+
+            # Mirror the rig by negative-scale apply — one atomic operation.
+            # (Hand-flipping edit_bones is a trap: welded head/tail edits
+            # propagate between parent and child MID-ITERATION, half the rig
+            # double-flips, and the result depends on bone order.)
+            rig.scale = (-1.0, 1.0, 1.0)
+            apply_all(rig)
+            mesh.parent = rig
+
+            def flipped(n):
+                if "Left" in n:
+                    return n.replace("Left", "Right")
+                if "Right" in n:
+                    return n.replace("Right", "Left")
+                return None
+
+            # Rename the bones only (two-phase to dodge collisions): Blender's
+            # automatic group-follows-bone rename carries the mesh's vertex
+            # groups along with each rename, keeping weights and bones in
+            # lockstep.
+            bsided = [b for b in rig.data.bones if flipped(b.name)]
+            for b in bsided:
+                b.name = "TMP__" + b.name
+            for b in bsided:
+                b.name = flipped(b.name.removeprefix("TMP__"))
+            print(f"[mirror] mirrored across X; {len(bsided)} bones "
+                  f"side-swapped (weight groups follow)")
 
         # --rigid-islands: a skeleton-and-plate kit has NO organic surface —
         # every island (skull, pauldron, greave, blade) is a hard piece, and
@@ -476,11 +535,14 @@ def run_bake(opts):
                     for o in omeshes:  # single mesh expected; keep file order
                         m = o.matrix_world
                         oco.extend((m @ v.co) for v in o.data.vertices)
-                    # Pre-scale the original to the download's baked size.
+                    # Pre-scale the original to the download's baked size; a
+                    # --mirror run mirrors the original with the download so
+                    # the per-bone A->T fits stay pure rotations.
                     oz = [p.z for p in oco]
                     dz = [p.z for p in co]
                     s0 = (max(dz) - min(dz)) / max(max(oz) - min(oz), 1e-6)
-                    orig_co = np.array([[p.x * s0, p.y * s0, p.z * s0]
+                    sx = -s0 if opts["mirror"] else s0
+                    orig_co = np.array([[p.x * sx, p.y * s0, p.z * s0]
                                         for p in oco])
                     down_co = np.array([[p.x, p.y, p.z] for p in co])
                     gname = {g.index: g.name for g in mesh.vertex_groups}
@@ -536,6 +598,25 @@ def run_bake(opts):
                                         mathutils.Vector(tn)))
                 co_assign = [mathutils.Vector(p) for p in orig_co]
 
+            # --islands "<minvert>=<bone>;...": per-island ASSIGNMENT OVERRIDES
+            # for the pieces nearest-segment gets wrong (a strapped shield's
+            # face/straps voting Hand/Arm, wrist cuffs coin-flipping across the
+            # joint). An island is keyed by its SMALLEST vertex index — stable
+            # for a given source FBX (vertex order is preserved) and printed in
+            # the per-island log below, so a bad piece's key can be read
+            # straight off a previous run. Bone names may omit the mixamorig:
+            # prefix.
+            overrides = {}
+            for tok in filter(None, opts["islands"].split(";")):
+                k, _, bn = tok.partition("=")
+                if not bn:
+                    raise SystemExit(f"--islands entry '{tok}' is not key=bone")
+                if not bn.startswith("mixamorig:"):
+                    bn = "mixamorig:" + bn
+                if rig.data.bones.get(bn) is None:
+                    raise SystemExit(f"--islands: unknown bone '{bn}'")
+                overrides[int(k)] = bn
+
             vgs = {g.name: g for g in mesh.vertex_groups}
             for b in rig.data.bones:  # groups the download didn't weight
                 if b.name not in vgs:
@@ -547,9 +628,14 @@ def run_bake(opts):
                           key=lambda s: dist_pt_seg(co_assign[i], s[1], s[2]))[0]
                       for i in comp]
                 dom, dom_n = Counter(nb).most_common(1)[0]
-                if len(comp) > 300:
-                    print(f"[rigid] island({len(comp)} verts) -> {dom} "
-                          f"({dom_n / len(comp):.0%})")
+                ov = overrides.pop(min(comp), None)
+                if ov is not None:
+                    print(f"[rigid] island {min(comp)} ({len(comp)} verts) "
+                          f"OVERRIDE {dom} -> {ov}")
+                    dom = ov
+                elif len(comp) > 300:
+                    print(f"[rigid] island {min(comp)} ({len(comp)} verts) -> "
+                          f"{dom} ({dom_n / len(comp):.0%})")
                 for vg in mesh.vertex_groups:
                     if vg.name != dom:
                         vg.remove(comp)
@@ -568,6 +654,65 @@ def run_bake(opts):
             mesh.data.update()
             print(f"[rigid] snapped {rigid_n} island(s) to nearest bone "
                   f"segments; rest positions repaired for {repaired_n}")
+            if overrides:  # keys that matched no island = stale/typo'd
+                raise SystemExit(f"--islands keys matched no island: "
+                                 f"{sorted(overrides)}")
+
+        # ---- RE-REST to the clip library's skeleton --------------------------
+        # Blender pose rotations are RELATIVE TO REST, and the library clips
+        # were authored on the standard Mixamo skeleton (T-pose rest). The
+        # download's rest is fitted to the uploaded art instead, so wherever
+        # the two rests disagree (an A-pose's arm chain, most of all) every
+        # clip inherits the difference and the limbs fold across the body.
+        # Align the basis once at import: pose each bone to the standard rest
+        # ORIENTATION (translations follow the parents, keeping the art's
+        # proportions), bake that pose into the mesh (armature modifier
+        # apply), then apply it as the new rest. A download that already
+        # matches the standard rest poses an identity delta, so this runs for
+        # every skinned import.
+        from mathutils import Matrix
+        bpy.ops.object.select_all(action="DESELECT")
+        rig.select_set(True)
+        bpy.context.view_layer.objects.active = rig
+        bpy.ops.object.mode_set(mode="POSE")
+
+        def walk(pb):  # parents before children — pb.matrix reads the parent
+            yield pb
+            for c in pb.children:
+                yield from walk(c)
+
+        reposed = 0
+        for root_pb in [p for p in rig.pose.bones if p.parent is None]:
+            for pb in walk(root_pb):
+                m = std_rest.get(pb.name)
+                if m is None:
+                    continue  # a bone the library skeleton lacks keeps its rest
+                loc = pb.matrix.to_translation()
+                pb.matrix = Matrix.Translation(loc) @ m.to_4x4()
+                bpy.context.view_layer.update()
+                reposed += 1
+        bpy.ops.object.mode_set(mode="OBJECT")
+
+        # Bake the posed shape into the mesh, then the pose into the rest.
+        arm_mod = next((md for md in mesh.modifiers if md.type == "ARMATURE"),
+                       None)
+        if arm_mod is None:
+            raise SystemExit("--skinned mesh has no armature modifier to bake")
+        mod_name = arm_mod.name
+        bpy.ops.object.select_all(action="DESELECT")
+        mesh.select_set(True)
+        bpy.context.view_layer.objects.active = mesh
+        bpy.ops.object.modifier_apply(modifier=mod_name)
+        bpy.ops.object.select_all(action="DESELECT")
+        rig.select_set(True)
+        bpy.context.view_layer.objects.active = rig
+        bpy.ops.object.mode_set(mode="POSE")
+        bpy.ops.pose.armature_apply(selected=False)
+        bpy.ops.object.mode_set(mode="OBJECT")
+        arm_mod = mesh.modifiers.new("Armature", "ARMATURE")
+        arm_mod.object = rig
+        print(f"[rest] re-rested {reposed} bone(s) onto the clip library's "
+              f"skeleton basis")
     else:
         # ---- import our mesh, co-face the armature, fit to it -------------------
         # OBJ sources (bought kits) import via the wm importer and often split

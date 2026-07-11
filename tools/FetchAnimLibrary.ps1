@@ -108,6 +108,21 @@ $animSets = @(
             'Skel_war_weps'      = 'Skel_warrior_wep_C.png:Skel_warrior_wep_N1.png'
         }
         $kitDir = "fab\monsters\skeleton-army"
+        # Per-variant island overrides (--islands; keys = min vertex index, per
+        # that variant's rigged FBX — read them off the [rigid] log; bone SIDES
+        # are authored POST-mirror). Warrior: the art carries its sword in the
+        # off hand, so it MIRRORS (the library's attack clips lead right); its
+        # strapped SHIELD is six islands (face 86, edge plate 123, straps
+        # 537/779, grip bars 658/900) that nearest-segment scatters across the
+        # arm — all ride the (post-mirror LEFT) forearm as one rigid assembly —
+        # and wrist cuff 4698 mirror-matches its twin on the forearm side of
+        # the joint.
+        $kitIslands = @{
+            'skel_warrior' = '86=LeftForeArm;123=LeftForeArm;537=LeftForeArm;' +
+                             '658=LeftForeArm;779=LeftForeArm;900=LeftForeArm;' +
+                             '4698=RightForeArm'
+        }
+        $kitMirror = @{ 'skel_warrior' = $true }
         foreach ($v in @("skel_warrior", "skel_berserker", "skel_spearman", "skel_bare")) {
             @{ Name = $v;
                Mesh = "$kitDir\mixamo_rigged\$($v)_rigged.fbx";
@@ -119,7 +134,9 @@ $animSets = @(
                # weight-driven re-posing displaced (arm plates at the chest).
                Original = "$kitDir\mixamo_upload\$($v)_mixamo_upload.fbx";
                Textures = $kitTex;
-               TexDir = "$kitDir\obj\Skeleton_obj\Skeletal_textures" }
+               TexDir = "$kitDir\obj\Skeleton_obj\Skeletal_textures";
+               Islands = $kitIslands[$v];
+               Mirror = $kitMirror[$v] }
         }
     )
 )
@@ -163,6 +180,8 @@ foreach ($c in $animSets) {
     if ($c.Skinned) { $texArgs += @('--skinned') }
     if ($c.RigidIslands) { $texArgs += @('--rigid-islands') }
     if ($c.Original) { $texArgs += @('--original', (Join-Path $archive $c.Original)) }
+    if ($c.Islands) { $texArgs += @('--islands', $c.Islands) }
+    if ($c.Mirror) { $texArgs += @('--mirror') }
 
     $rc = Invoke-Blender $mesh $library $outGltf $ref "--catalog-out" $catOut "--mesh-yaw" $yaw @texArgs
     if ($rc -ne 0) { throw "Bake failed for $($c.Name)" }
