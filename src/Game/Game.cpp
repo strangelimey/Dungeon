@@ -79,6 +79,7 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	  m_modelPreview(device, 512),
 	  m_assetDialog(device, window),
 	  m_monsterDialog(device), m_balanceDialog(device),
+	  m_levelSettingsDialog(device),
 	  m_entityInspector(device), m_fixtureInspector(device),
 	  m_propInspector(device), m_doorInspector(device), m_buttonInspector(device),
 	  m_inspectPicker(device), m_previewParticles(device) {
@@ -124,6 +125,29 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 								   "identity (damage type) is C++ (Balance.h).");
 		if (m_world.onMessage)
 			m_world.onMessage(loc::Tr(ok ? "map.balance.saved" : "map.save.failed"));
+	};
+	// The editor toolbar's Level button → the per-level atmosphere dialog,
+	// opened on the VIEWED level's effective values (a browsed level's come
+	// from its stash-backed snapshot). Edits preview live only while that
+	// level is the active one — a browsed level isn't on screen to preview.
+	// Save commits to the level's map/stash; the values persist as the .map
+	// `atmosphere` record on the next savemap (the toolbar Save).
+	m_mapView.onLevelSettings = [this] {
+		float dust, haze, ambient;
+		DungeonWorld::EffectiveAtmosphere(m_mapView.ViewedMap(), dust, haze, ambient);
+		m_levelSettingsDialog.Open(m_mapView.ViewedLevel(), dust, haze, ambient);
+	};
+	m_levelSettingsDialog.onApply = [this](float dust, float haze, float ambient) {
+		if (m_levelSettingsDialog.Level() != m_world.CurrentLevel()) return;
+		m_world.SetDustDensity(dust);
+		m_world.SetHazeAmbient(haze);
+		m_world.SetAmbientScale(ambient);
+	};
+	m_levelSettingsDialog.onSave = [this](float dust, float haze, float ambient) {
+		m_world.SetLevelAtmosphere(m_levelSettingsDialog.Level(), dust, haze, ambient);
+		if (m_world.onMessage)
+			m_world.onMessage(loc::Format("map.level.applied",
+										  m_levelSettingsDialog.Level()));
 	};
 	m_settings.Load();
 	ApplyLanguage(false); // strings must exist before any UI builds
@@ -2012,6 +2036,12 @@ void Game::Update(float dt) {
 							   static_cast<float>(m_window.Height()));
 		return;
 	}
+	// The per-level settings dialog is likewise modal over the editor.
+	if (m_levelSettingsDialog.IsOpen()) {
+		m_levelSettingsDialog.Update(input, static_cast<float>(m_window.Width()),
+									 static_cast<float>(m_window.Height()));
+		return;
+	}
 	// The monster-config dialog is likewise modal over the editor.
 	if (m_monsterDialog.IsOpen()) {
 		m_monsterDialog.Update(input, static_cast<float>(m_window.Width()),
@@ -2394,6 +2424,8 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 	}
 	if (m_balanceDialog.IsOpen()) // modal over the editor, like the others
 		m_balanceDialog.Render(m_spriteBatch, m_settings.theme, dw, dh);
+	if (m_levelSettingsDialog.IsOpen())
+		m_levelSettingsDialog.Render(m_spriteBatch, m_settings.theme, dw, dh);
 	// The per-instance edit dialogs, each drawn (panel + controls) THEN, once all
 	// are drawn, the 3D preview blitted into the active one's pane — the blit must
 	// come last so a dialog's backing box never covers it.

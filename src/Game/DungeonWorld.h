@@ -682,6 +682,16 @@ public:
 	float HazeAmbient() const { return m_atmosphere.hazeAmbient; }
 	void SetAmbientScale(float s); // scales the base ambient fill
 	float AmbientScale() const { return m_ambientScale; }
+	// Per-level atmosphere (the editor's Level settings dialog, persisted as
+	// the .map `atmosphere` record). EffectiveAtmosphere resolves a map's
+	// overrides against the global defaults (static: works on a browsed
+	// level's snapshot too); SetLevelAtmosphere writes the values — the live
+	// map + immediate apply for the active level, the level's stash otherwise
+	// (like the other remote edits; savemap persists both).
+	static void EffectiveAtmosphere(const DungeonMap& map, float& dust,
+									float& haze, float& ambient);
+	void SetLevelAtmosphere(const std::string& stem, float dust, float haze,
+							float ambient);
 
 	// HUD log feedback (bump lines, monster announcements, palette flavor).
 	// Set before play starts; the party/monster callbacks route through it.

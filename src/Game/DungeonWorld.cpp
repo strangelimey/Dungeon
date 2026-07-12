@@ -1252,6 +1252,18 @@ static std::string SerializeMapStatic(const std::string& stem,
 	palette("wall", map.WallPalette());
 	palette("floor", map.FloorPalette());
 	palette("ceiling", map.CeilingPalette());
+	// Per-level atmosphere (the Level settings dialog's mood knobs): only set
+	// values are written — an untouched level carries no record and follows
+	// the world defaults.
+	if (map.DustDensity() >= 0.0f || map.HazeAmbient() >= 0.0f ||
+		map.AmbientScale() >= 0.0f) {
+		m += "atmosphere";
+		if (map.DustDensity() >= 0.0f) m += std::format(" dust={:g}", map.DustDensity());
+		if (map.HazeAmbient() >= 0.0f) m += std::format(" haze={:g}", map.HazeAmbient());
+		if (map.AmbientScale() >= 0.0f)
+			m += std::format(" ambient={:g}", map.AmbientScale());
+		m += '\n';
+	}
 	m += ";\n";
 
 	// Grid: 'P' start, '#' wall, 'D' authored-dusty floor, '.' floor. Fixtures
@@ -1693,6 +1705,28 @@ void DungeonWorld::SetAmbientScale(float s) {
 	m_lights.ambient = {kBaseAmbient.x * m_ambientScale,
 						kBaseAmbient.y * m_ambientScale,
 						kBaseAmbient.z * m_ambientScale};
+}
+
+void DungeonWorld::EffectiveAtmosphere(const DungeonMap& map, float& dust,
+									   float& haze, float& ambient) {
+	const gfx::Atmosphere defaults;
+	dust = map.DustDensity() >= 0.0f ? map.DustDensity() : defaults.density;
+	haze = map.HazeAmbient() >= 0.0f ? map.HazeAmbient() : defaults.hazeAmbient;
+	ambient = map.AmbientScale() >= 0.0f ? map.AmbientScale() : 1.0f;
+}
+
+void DungeonWorld::SetLevelAtmosphere(const std::string& stem, float dust,
+									  float haze, float ambient) {
+	if (stem == m_currentLevel) {
+		m_map.SetAtmosphere(dust, haze, ambient);
+		// Density/haze are per-frame shader constants and ambient is a light
+		// value — apply directly; the turbidity GRID is untouched by these.
+		m_atmosphere.density = dust;
+		m_atmosphere.hazeAmbient = haze;
+		SetAmbientScale(ambient);
+	} else {
+		EnsureMapStash(stem).SetAtmosphere(dust, haze, ambient);
+	}
 }
 
 std::vector<std::string> DungeonWorld::MonsterList() const {

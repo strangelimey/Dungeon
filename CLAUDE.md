@@ -592,11 +592,22 @@ the armed brush (nothing armed until a palette row is picked), a stationary
 RIGHT-CLICK inspects the cell (select + contents + the object's edit dialog
 immediately; ≤3px press-release = click) while a right-DRAG pans, and
 MIDDLE-CLICK erases (the ladder: stair pair → entity → fixture → variant
-reset; one undo step each). The editor map has header buttons top-right —
-Save (savemap) / To source (synctosource) and </> undo/redo — all drawn via
+reset; one undo step each). The editor map has a header TOOLBAR top-right —
+Level (per-level settings dialog) / Balance (combat tuning) / </> undo/redo /
+Save (savemap) / To source (synctosource) — built by MapView::ToolbarButtons
+(ONE right-to-left item list that geometry, hover, click dispatch and render
+all walk; adding a tool is one `add` line), each face drawn via
 ui::DrawButtonFace (THE one button face, shared with ui::Button, hover
 included; hover on hand-drawn chrome is tracked by HoverBtn identity across
-the window-px/device-px split).
+the window-px/device-px split). The Level button opens LevelSettingsDialog
+for the VIEWED level (active or browsed): the three lighting mood knobs —
+dust density / haze ambient / ambient scale — live-previewed while that
+level is active, committed to the level's map/stash on Save, and persisted
+as the .map `atmosphere` record (`atmosphere dust=… haze=… ambient=…`, only
+set values written; DungeonWorld::EffectiveAtmosphere resolves unset ones to
+the gfx::Atmosphere defaults, applied in BuildTurbidityMap on every load/
+swap/fixture-rebuild — the dev console dust/haze/ambient knobs override live
+but are reset by that application).
 A structural paint → DungeonWorld::EditCell → DungeonMap::SetCell (bumps
 Revision()) → RebuildChunksAround(x,z), which rebuilds ONLY the touched chunk +
 its orthogonal-neighbour chunks (≤5), not the whole map — so paints are near-
@@ -688,10 +699,11 @@ worn_*, lang, shaders — what AssetBaker emits):
   height_scale/mount). Levels reference catalog ids.
 - `levels/<stem>.map` + `.ent` — the level layers. The .map's surface palette is
   a `palette <wall|floor|ceiling> <id>...` record (catalog ids), and it also
-  carries `stairs <type> <x> <z> [facing] dest= destx= destz= [destfacing=]` and
-  `variant <wall|floor|ceiling> <x> <z> <index>` records. (The old
-  `assets/maps/level1.*` with `textures` records is dead — superseded by the
-  project copies.)
+  carries `stairs <type> <x> <z> [facing] dest= destx= destz= [destfacing=]`,
+  `variant <wall|floor|ceiling> <x> <z> <index>`, and `atmosphere [dust=…]
+  [haze=…] [ambient=…]` (per-level mood knobs, authored by the editor's Level
+  settings dialog) records. (The old `assets/maps/level1.*` with `textures`
+  records is dead — superseded by the project copies.)
 
 Serialize.* is the block (de)serialization primitive (free Find/Get/GetFloat/
 GetBool/Set over a Field vector; Block + CatalogEntry both delegate). Catalog.*

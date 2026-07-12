@@ -1251,6 +1251,15 @@ void DungeonWorld::BuildTurbidityMap() {
 	m_atmosphere.turbidityMap = m_turbidityMap.get();
 	m_atmosphere.worldExtent = {m_map.Width() * kCellSize,
 								m_map.Height() * kCellSize};
+	// Apply the level's atmosphere overrides (the .map `atmosphere` record /
+	// the editor's Level settings dialog); unset values fall back to the
+	// global defaults. Done here because every path that changes the level's
+	// air — initial load, level swap, fixture edits — ends in this rebuild.
+	float dust, haze, ambient;
+	EffectiveAtmosphere(m_map, dust, haze, ambient);
+	m_atmosphere.density = dust;
+	m_atmosphere.hazeAmbient = haze;
+	SetAmbientScale(ambient);
 }
 
 // ============================================================================

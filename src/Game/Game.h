@@ -53,6 +53,7 @@
 #include "Game/FixtureInspector.h"
 #include "Game/BalanceDialog.h"
 #include "Game/InspectPicker.h"
+#include "Game/LevelSettingsDialog.h"
 #include "Game/MonsterConfigDialog.h"
 #include "Game/ButtonInspector.h"
 #include "Game/DoorInspector.h"
@@ -307,6 +308,9 @@ private:
 	// Combat-tuning dialog (the balance.cat/attacks.cat front-end), opened by
 	// the editor map's Balance header button.
 	BalanceDialog m_balanceDialog;
+	// Per-level atmosphere dialog (the .map `atmosphere` record front-end),
+	// opened by the editor toolbar's Level button for the VIEWED level.
+	LevelSettingsDialog m_levelSettingsDialog;
 	// Per-instance entity inspector, opened by Select-clicking a placed monster.
 	EntityInspector m_entityInspector;
 	// Per-instance fixture inspector, opened by Select-clicking a wall torch/sconce.

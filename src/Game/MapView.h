@@ -40,6 +40,7 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace dungeon::game {
 
@@ -66,9 +67,13 @@ public:
 	// copies the project into the repo tree (synctosource). The owner (Game)
 	// does the work and messages the outcome.
 	std::function<void(bool toSource)> onSave;
-	// The Balance header button (left of undo/redo): opens the combat-tuning
-	// dialog (BalanceDialog — the balance.cat/attacks.cat front-end).
+	// The Balance toolbar button: opens the combat-tuning dialog
+	// (BalanceDialog — the balance.cat/attacks.cat front-end).
 	std::function<void()> onBalance;
+	// The Level toolbar button: opens the per-level settings dialog
+	// (LevelSettingsDialog — the .map `atmosphere` record's front-end) for
+	// the level the viewport is SHOWING (ViewedLevel/ViewedMap).
+	std::function<void()> onLevelSettings;
 
 	bool IsOpen() const { return m_open; }
 	Mode CurrentMode() const { return m_mode; }
@@ -182,19 +187,6 @@ private:
 	gfx::Rect LevelUpButton(const gfx::Rect& panel) const;
 	gfx::Rect LevelDownButton(const gfx::Rect& panel) const;
 
-	// Editor-mode save buttons, top-RIGHT of the grid area (mirroring the
-	// level-browse cluster top-left): Save, then To source beside it.
-	gfx::Rect SaveButton(const gfx::Rect& panel) const;
-	gfx::Rect SaveSourceButton(const gfx::Rect& panel) const;
-	// Editor-mode undo/redo: square < / > buttons left of Save, each drawn and
-	// hit-tested only while its stack has steps (like the edge-hidden level
-	// arrows); Ctrl+Z / Ctrl+Y do the same. The work is DungeonWorld's
-	// (Undo/Redo); this helper also refreshes a browsed level's snapshot so a
-	// restored stash shows immediately.
-	gfx::Rect UndoButton(const gfx::Rect& panel) const;
-	gfx::Rect RedoButton(const gfx::Rect& panel) const;
-	// Editor-mode Balance button, left of undo/redo (the combat-tuning dialog).
-	gfx::Rect BalanceButton(const gfx::Rect& panel) const;
 	void DoUndoRedo(bool redo);
 	// A trigger only LATCHES here; Render draws the buttons disabled, and the
 	// NEXT Update executes. The restore itself is fast now (the surface rebake
@@ -231,9 +223,26 @@ private:
 	// ui::DrawButtonFace hover styling on the hand-drawn buttons.
 	enum class HoverBtn {
 		None, LevelUp, LevelDown, Undo, Redo, Save, SaveSource, Balance,
-		CollapseL, CollapseR
+		LevelSettings, CollapseL, CollapseR
 	};
 	HoverBtn m_hoverBtn = HoverBtn::None;
+
+	// The editor's header TOOLBAR, top-right of the grid (mirroring the
+	// level-browse cluster top-left). ToolbarButtons builds the strip
+	// right-to-left from one fixed item order, and geometry, hover, click
+	// dispatch and render all read the same list — adding a tool is one
+	// `add` line. A hidden button (empty undo/redo stack) KEEPS its slot so
+	// the strip never shifts underfoot, but neither draws nor hit-tests; a
+	// disabled one (latched undo/redo trigger) draws greyed and swallows its
+	// click.
+	struct ToolButton {
+		HoverBtn id;
+		gfx::Rect rect;
+		std::string label;
+		bool visible;
+		bool enabled;
+	};
+	std::vector<ToolButton> ToolbarButtons(const gfx::Rect& panel) const;
 
 	// Read-only snapshot of the browsed level (see the level-browsing section
 	// above); null = the viewport shows the active level's live state.

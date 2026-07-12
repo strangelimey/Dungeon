@@ -144,6 +144,22 @@ public:
 		return m_turbidity[static_cast<size_t>(z) * m_width + x];
 	}
 
+	// --- per-level atmosphere (the lighting mood knobs) ----------------------
+	// Overrides for the level: dust in-scatter density, the dust's ambient
+	// pickup, and the ambient-fill scale. < 0 = unset (the world applies its
+	// global defaults — gfx::Atmosphere{} and ambient scale 1). Parsed from
+	// the .map's `atmosphere` record (`atmosphere dust=0.06 haze=0.8
+	// ambient=1.1`, any subset of keys); the editor's Level settings dialog
+	// writes them, and the .map writer emits only set values.
+	float DustDensity() const { return m_dustDensity; }
+	float HazeAmbient() const { return m_hazeAmbient; }
+	float AmbientScale() const { return m_ambientScale; }
+	void SetAtmosphere(float dust, float haze, float ambient) {
+		m_dustDensity = dust;
+		m_hazeAmbient = haze;
+		m_ambientScale = ambient;
+	}
+
 	Vec3 CellCenter(int x, int z, float y = 0.0f) const {
 		return {(static_cast<float>(x) + 0.5f) * kCellSize, y,
 				(static_cast<float>(z) + 0.5f) * kCellSize};
@@ -263,6 +279,8 @@ private:
 	std::vector<Cell> m_cells;
 	std::vector<float> m_turbidity; // parallel to m_cells
 	std::vector<u8> m_dusty;        // authored 'D' cells (for the writer)
+	// Per-level atmosphere overrides (< 0 = unset; see SetAtmosphere).
+	float m_dustDensity = -1.0f, m_hazeAmbient = -1.0f, m_ambientScale = -1.0f;
 	// Per-cell variant overrides, parallel to m_cells; -1 = use the hash default.
 	std::vector<int> m_wallVar, m_floorVar, m_ceilingVar;
 	std::vector<WallSconce> m_torches;
