@@ -610,15 +610,21 @@ void SpellbookPanel::Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 		const bool hot = static_cast<int>(i) == m_hotMember;
 		const Vec4 col = m ? m->portraitColor : theme.control;
 		if (skin && skin->button.texture) {
-			// No initial letter — the COLOR is the identity, so it runs HOT:
-			// even an idle eligible button reads unmistakably colored over the
-			// wood (Michael's call: the first two cuts were too muted).
-			const float f =
-				!eligible ? 0.4f : (selected ? 2.2f : (hot ? 1.9f : 1.5f));
-			auto tint = [&](float c) { return (0.1f + 0.9f * c) * f; };
+			// The FRAME stays natural wood/iron (untinted); the FACE is a flat
+			// identity fill inside the frame ring — pure color, no grain
+			// (Michael's call after the tinted-wood cuts read muddy).
 			ui::DrawNineSlice(batch, r, skin->button,
-							  eligible ? Vec4{tint(col.x), tint(col.y), tint(col.z), 1.0f}
-									   : Vec4{0.4f, 0.4f, 0.4f, 1.0f});
+							  eligible ? Vec4{1, 1, 1, 1}
+									   : Vec4{0.55f, 0.55f, 0.55f, 1.0f});
+			const float ring = skin->button.corner * skin->button.scale;
+			const float in = std::max(2.0f, ring - 2.0f);
+			const gfx::Rect face{r.x + in, r.y + in, r.w - 2 * in, r.h - 2 * in};
+			if (eligible) {
+				const float f = selected ? 1.0f : (hot ? 0.95f : 0.75f);
+				batch.DrawRect(face, {col.x * f, col.y * f, col.z * f, 1.0f});
+			} else {
+				batch.DrawRect(face, theme.control);
+			}
 			if (selected) ui::DrawBorder(batch, r, theme.accent);
 		} else if (!eligible) {
 			batch.DrawRect(r, theme.control);
