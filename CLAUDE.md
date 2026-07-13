@@ -582,7 +582,10 @@ pixel panel, matches mouse coords) and Render (device-pixel panel) agree;
 zoom is cursor-anchored. CellAt is the inverse pick. The left-dock palette is a
 catalog-driven collapsible accordion (MapEditor::PaletteCat + the kCategoryInfo
 table): Structure (Wall/Floor), Walls/Floors/Ceilings
-(per-cell surface VARIANT paint via DungeonMap variant grids), and the entity
+(per-cell surface VARIANT paint via DungeonMap variant grids — wall variants
+live on the FLOOR cells they border, one variant for all four wall faces, so
+the Walls brush routes a click on a solid square to every bordering floor
+cell, matching the armed-brush fill that lights the solid squares up), and the entity
 categories Decorations/Fixtures/Monsters/Buttons/Doors/Stairs/Items (live
 placement). Entries carrying a `category` field group under collapsible
 SUB-accordions ("+ Weapon (4)"); every catalog is authored with them.

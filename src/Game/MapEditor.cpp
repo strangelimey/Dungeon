@@ -20,6 +20,7 @@
 #include <algorithm>
 #include <cctype>
 #include <format>
+#include <utility>
 
 namespace dungeon::game {
 
@@ -276,13 +277,33 @@ void MapEditor::ApplyBrush(int cx, int cz, bool dragging) {
 		const SS sel = m_sel.cat == PaletteCat::Walls    ? SS::Wall
 					   : m_sel.cat == PaletteCat::Floors ? SS::Floor
 														 : SS::Ceiling;
-		if (remote) {
-			m_world.EditVariantRemote(stem, cx, cz, sel, m_sel.index);
-			changed = true;
+		// Wall variants live on the floor cells they border, but the armed-brush
+		// fill shows them on the SOLID squares (the wall you actually see), so a
+		// click on a solid square routes to every bordering floor cell — painting
+		// all of that block's visible faces. Floor/ceiling paints stay cell-local
+		// (EditVariant ignores solid cells for those).
+		std::pair<int, int> cells[4];
+		size_t count = 0;
+		const DungeonMap& viewed = m_view.ViewedMap();
+		if (sel == SS::Wall && !viewed.IsWalkable(cx, cz)) {
+			constexpr int n[4][2] = {{0, -1}, {0, 1}, {-1, 0}, {1, 0}};
+			for (const auto& d : n)
+				if (viewed.IsWalkable(cx + d[0], cz + d[1]))
+					cells[count++] = {cx + d[0], cz + d[1]};
+			if (count == 0) break; // buried square: no face to paint
 		} else {
-			m_world.EditVariant(cx, cz, sel, m_sel.index);
-			changed = m_world.Map().Revision() != rev0;
+			cells[count++] = {cx, cz};
 		}
+		for (size_t i = 0; i < count; ++i) {
+			if (remote) {
+				m_world.EditVariantRemote(stem, cells[i].first, cells[i].second, sel,
+										  m_sel.index);
+				changed = true;
+			} else {
+				m_world.EditVariant(cells[i].first, cells[i].second, sel, m_sel.index);
+			}
+		}
+		if (!remote) changed = m_world.Map().Revision() != rev0;
 		break;
 	}
 	case PaletteCat::Decorations:
