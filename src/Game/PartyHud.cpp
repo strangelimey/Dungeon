@@ -391,10 +391,12 @@ bool SpellbookPanel::MemberEligible(size_t i) const {
 // the 222px design box. Top to bottom: the member selector row, then the rune
 // grid; the sequence row and Cast/Clear anchor to the bottom.
 gfx::Rect SpellbookPanel::MemberButtonRect(const gfx::Rect& px, size_t i) const {
+	// A touch more pad/gap than the rune grid: the skinned button faces carry
+	// their own frame, so the row needs air to keep the four from fusing.
 	const float s = px.w / 222.0f;
-	const float pad = 10.0f * s, gap = 6.0f * s;
+	const float pad = 12.0f * s, gap = 8.0f * s;
 	const float cell = (px.w - 2 * pad - 3 * gap) / 4.0f;
-	return {px.x + pad + (cell + gap) * static_cast<float>(i), px.y + 8.0f * s,
+	return {px.x + pad + (cell + gap) * static_cast<float>(i), px.y + 10.0f * s,
 			cell, 24.0f * s};
 }
 
@@ -592,6 +594,10 @@ void SpellbookPanel::Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 
 	// The member selector row: one button per party slot in the member's
 	// identity color — pressed = the open book, washed out = absent/down.
+	// Skinned, the identity color TINTS the wood face (lerped toward white
+	// first so a dark identity blue doesn't crush the grain to black),
+	// stepped by state; the flat path stays as the skinless fallback.
+	const ui::Skin* skin = ctx.GetSkin();
 	for (size_t i = 0; i < 4; ++i) {
 		const gfx::Rect r = MemberButtonRect(px, i);
 		const Character* m =
@@ -600,7 +606,15 @@ void SpellbookPanel::Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 		const bool selected = static_cast<int>(i) == m_member;
 		const bool hot = static_cast<int>(i) == m_hotMember;
 		const Vec4 col = m ? m->portraitColor : theme.control;
-		if (!eligible) {
+		if (skin && skin->button.texture) {
+			const float f =
+				!eligible ? 0.4f : (selected ? 1.5f : (hot ? 1.1f : 0.75f));
+			auto tint = [&](float c) { return (0.3f + 0.7f * c) * f; };
+			ui::DrawNineSlice(batch, r, skin->button,
+							  eligible ? Vec4{tint(col.x), tint(col.y), tint(col.z), 1.0f}
+									   : Vec4{0.4f, 0.4f, 0.4f, 1.0f});
+			if (selected) ui::DrawBorder(batch, r, theme.accent);
+		} else if (!eligible) {
 			batch.DrawRect(r, theme.control);
 			ui::DrawBorder(batch, r, theme.panelBorder);
 		} else {
@@ -664,10 +678,24 @@ void SpellbookPanel::Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 		font.Draw(batch, "= " + loc::Tr(def->NameKey()), px.x + 10.0f * s,
 				  seq0.y - 8.0f * s - font.Height(), theme.accent);
 
-	ui::DrawButtonFace(batch, font, CastRect(px), m_castLabel, theme, m_hotCast,
-					   false, !m_sequence.empty());
-	ui::DrawButtonFace(batch, font, ClearRect(px), m_clearLabel, theme,
-					   m_hotClear, false, !m_sequence.empty());
+	// Cast / Clear. With icon faces (round buttons with their own chrome +
+	// alpha) each draws centered at the rect's height — the WHOLE rect stays
+	// the hit target, so the small circles keep the generous click area.
+	// Without icons, the localized text buttons return.
+	const bool armed = !m_sequence.empty();
+	auto iconButton = [&](const gfx::Rect& r, const gfx::Texture* icon,
+						  const std::string& label, bool hot) {
+		if (!icon) {
+			ui::DrawButtonFace(batch, font, r, label, theme, hot, false, armed);
+			return;
+		}
+		const float d = std::min(r.h, r.w);
+		const gfx::Rect ir{r.x + (r.w - d) * 0.5f, r.y + (r.h - d) * 0.5f, d, d};
+		const float f = armed && hot ? 1.0f : 0.78f; // brighten on hover
+		batch.DrawSprite(ir, {0, 0, 1, 1}, *icon, {f, f, f, armed ? 1.0f : 0.35f});
+	};
+	iconButton(CastRect(px), castIcon, m_castLabel, m_hotCast);
+	iconButton(ClearRect(px), clearIcon, m_clearLabel, m_hotClear);
 }
 
 // --- InventoryWindow ---------------------------------------------------------

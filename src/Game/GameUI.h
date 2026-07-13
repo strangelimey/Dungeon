@@ -359,6 +359,9 @@ private:
 	std::unique_ptr<gfx::Texture> m_skinButtonTex;
 	std::unique_ptr<gfx::Texture> m_skinSlotTex;
 	ui::Skin m_skin;
+	// The spellbook's Cast/Clear round icon faces (optional).
+	std::unique_ptr<gfx::Texture> m_castIconTex;
+	std::unique_ptr<gfx::Texture> m_clearIconTex;
 
 	MenuPage m_menuPage = MenuPage::Main;
 	SavesMode m_savesMode = SavesMode::Load;

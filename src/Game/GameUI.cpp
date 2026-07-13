@@ -129,6 +129,9 @@ void GameUI::LoadTitleArt() {
 	m_skinPanelTex = TryLoadTextureFile(m_device, paths::Asset("ui\\skin_panel"));
 	m_skinButtonTex = TryLoadTextureFile(m_device, paths::Asset("ui\\skin_button"));
 	m_skinSlotTex = TryLoadTextureFile(m_device, paths::Asset("ui\\skin_slot"));
+	// The spellbook's Cast/Clear icon faces (optional — text buttons without).
+	m_castIconTex = TryLoadTextureFile(m_device, paths::Asset("ui\\icon_cast"));
+	m_clearIconTex = TryLoadTextureFile(m_device, paths::Asset("ui\\icon_clear"));
 	m_skin.panel = {m_skinPanelTex.get(), 24.0f, 1.0f};
 	// The button part (Medieval RPG UI kit slot #17: planked face, iron corner
 	// plates) is baked 64px with a ~14px frame; scale 0.65 renders it ~9px
@@ -1573,6 +1576,8 @@ void GameUI::BuildHud() {
 			 window),
 		&m_characters, m_itemIcons);
 	m_spellbook->onClick = [this] { Click(); };
+	m_spellbook->castIcon = m_castIconTex.get();
+	m_spellbook->clearIcon = m_clearIconTex.get();
 	m_spellbook->spells = [this] {
 		return spellDefs ? spellDefs()
 						 : std::span<const std::unique_ptr<Spell>>{};
