@@ -131,11 +131,12 @@ void GameUI::LoadTitleArt() {
 	m_skinSlotTex = TryLoadTextureFile(m_device, paths::Asset("ui\\skin_slot"));
 	m_skin.panel = {m_skinPanelTex.get(), 24.0f, 1.0f};
 	// The button part (Medieval RPG UI kit slot #17: planked face, iron corner
-	// plates) is baked 64px with a ~14px frame.
-	m_skin.button = {m_skinButtonTex.get(), 14.0f, 1.0f};
+	// plates) is baked 64px with a ~14px frame; scale 0.65 renders it ~9px
+	// (full-scale read as heavy on the small movement/hand chrome).
+	m_skin.button = {m_skinButtonTex.get(), 14.0f, 0.65f};
 	// The socket frame (kit slot #12) is baked 96px with a ~20px ring;
-	// scale 0.6 renders it ~12px so a hand slot keeps its item visible.
-	m_skin.slot = {m_skinSlotTex.get(), 20.0f, 0.6f};
+	// scale 0.42 renders it ~8px so a hand slot keeps its item visible.
+	m_skin.slot = {m_skinSlotTex.get(), 20.0f, 0.42f};
 	ApplySkin();
 }
 
