@@ -607,9 +607,11 @@ void SpellbookPanel::Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 		const bool hot = static_cast<int>(i) == m_hotMember;
 		const Vec4 col = m ? m->portraitColor : theme.control;
 		if (skin && skin->button.texture) {
+			// No initial letter — the COLOR is the identity (stronger lerp
+			// than the first cut, since it now carries alone).
 			const float f =
 				!eligible ? 0.4f : (selected ? 1.5f : (hot ? 1.1f : 0.75f));
-			auto tint = [&](float c) { return (0.3f + 0.7f * c) * f; };
+			auto tint = [&](float c) { return (0.18f + 0.82f * c) * f; };
 			ui::DrawNineSlice(batch, r, skin->button,
 							  eligible ? Vec4{tint(col.x), tint(col.y), tint(col.z), 1.0f}
 									   : Vec4{0.4f, 0.4f, 0.4f, 1.0f});
@@ -623,13 +625,6 @@ void SpellbookPanel::Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 			ui::DrawBorder(batch, r,
 						   selected ? theme.accent
 									: Vec4{col.x, col.y, col.z, 1.0f});
-		}
-		if (m) { // initial letter, centered (the name draws under the row)
-			const std::string initial(1, m->name.empty() ? '?' : m->name[0]);
-			const Vec4 ink = eligible ? theme.text : theme.textDim;
-			font.Draw(batch, initial,
-					  r.x + (r.w - font.MeasureWidth(initial)) * 0.5f,
-					  r.y + (r.h - font.Height()) * 0.5f, ink);
 		}
 	}
 	// No selection: the placeholder line where the grid would start. (No name

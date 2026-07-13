@@ -1536,24 +1536,20 @@ void GameUI::BuildHud() {
 	}
 
 	// Hand pairs, two members side by side per row (so the four-member
-	// roster makes a 2x2 grid of sets): the name over a left and a right
-	// hand box, square. The slots stay empty until items exist; clicking one
-	// logs that.
+	// roster makes a 2x2 grid of sets): a left and a right hand box, square.
+	// No name label — each slot's identity stripe says whose hands these are
+	// (the labels doubled that and crowded the panel).
 	const float setW = (innerW - 8.0f) / 2.0f;
 	const float handW = (setW - 4.0f) / 2.0f;
-	const float setH = 20 + handW + 8;
+	const float setH = handW + 8;
 	const float handsTop = belowBar + 12 + 2 * moveW + 8 + 14;
 	for (size_t i = 0; i < m_characters.size() && i < 4; ++i) {
 		const float setX = px + pad + (setW + 8.0f) * static_cast<float>(i % 2);
 		const float setTop = handsTop + setH * static_cast<float>(i / 2);
-		auto* name = m_hudUi.Add<ui::Label>(
-			Norm({setX, setTop, setW, 18}, window), m_characters[i].name);
-		name->dim = true;
-		below(name);
 		for (int hand = 0; hand < 2; ++hand) {
 			below(m_hudUi.Add<HandSlot>(
 				Norm({setX + (handW + 4.0f) * static_cast<float>(hand),
-					  setTop + 20, handW, handW},
+					  setTop, handW, handW},
 					 window),
 				&m_characters, i, hand, m_itemIcons,
 					// Left-click: place a held tablet here / pick this hand's item
