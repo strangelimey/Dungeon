@@ -1,19 +1,6 @@
-; Decoration props. Fields:
-;   model    = assets/models/<model>.gltf
-;   texture  = PBR set in assets/textures (omit -> flat glTF material color)
-;   solid    = 1 blocks the party, 0 lets it pass (open passages); a level
-;              record's "solid=" overrides this default
-;   authored = 1 imported mesh (consistently wound -> back-face culled),
-;              0 procedural (CULL_NONE)
-;   category = free-form group token; entries sharing one collapse under a
-;              sub-accordion in the editor palette (like items.cat)
-;   facing_arrow = 0 hides the editor map's green facing arrow on instances of
-;              this type (radially symmetric props — columns, pots, rocks —
-;              have no meaningful facing). Default 1. The instance inspector's
-;              checkbox beside the Facing dropdown edits this per type.
-; Procedural props (column/archway/fountain/statue/wood_door/barrel/crate/chest)
-; share dungeon-stone or wood-plank sets; the rest are authored imports that
-; carry their own same-named set.
+; Decoration props: model + texture set + solid/authored flags.
+; texture = none declares the model renders on its flat glTF material by
+; design (no missing-set warning).
 
 [column]
 display = Column
@@ -94,7 +81,7 @@ facing_arrow = 0
 [banner]
 display = Banner
 model = banner
-texture = banner
+texture = none
 solid = 1
 authored = 1
 category = clutter
@@ -126,7 +113,6 @@ authored = 1
 category = rock
 facing_arrow = 0
 
-; --- variants pairing existing models with new scanned sets ---
 [column_marble]
 display = Marble Column
 model = column
@@ -152,9 +138,6 @@ solid = 1
 authored = 0
 category = gate
 
-; Iron portcullis — real-geometry bars (not an alpha cutout) so torchlight
-; casts true shadows through the gaps. Procedural box build -> authored=0
-; (CULL_NONE). Blocks the passage when placed (solid=1).
 [portcullis]
 display = Portcullis
 model = portcullis
@@ -163,9 +146,6 @@ solid = 1
 authored = 0
 category = gate
 
-; --- authored multi-material weapons (fab.com Fantasy Assassin pack) ---
-; multimaterial=1 loads <model>.glb and renders each part with its OWN glTF
-; material (steel blade, brass guard, leather/wood grip) — no single texture set.
 [viking_dagger]
 display = Viking Dagger
 model = viking_dagger
@@ -198,7 +178,6 @@ solid = 0
 authored = 1
 category = weapon
 
-; coil of rope (procedural torus) — low, steppable detail
 [rope]
 display = Coil of Rope
 model = rope

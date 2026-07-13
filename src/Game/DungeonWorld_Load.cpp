@@ -318,10 +318,17 @@ DungeonWorld::MonsterKind& DungeonWorld::MonsterKindFor(const std::string& type)
 		assets->model = LoadModelOrDie(model + ".gltf");
 		assets->name = type; // catalog id — drives the monster.<id> loc key
 		assets->mesh = std::make_unique<gfx::Mesh>(m_device, assets->model.meshes[0]);
-		assets->tex = LoadPropTextures(tex); // <tex>_<res> PBR set, if present
+		// A bound PBR set serves the single-mesh path; an authored
+		// multi-material rig carries its textures EMBEDDED and its entry
+		// usually names no set — don't warn-hunt one by the id (the skeleton
+		// kit's four kinds fired a bogus missing-set warning each) unless the
+		// catalog names one explicitly.
+		const bool multi = assets->model.meshes.size() > 1;
+		if (!multi || (def && def->Find("texture")))
+			assets->tex = LoadPropTextures(tex); // <tex>_<res> PBR set, if present
 		// Authored multi-material rig (bones/armor/weapons primitives, embedded
 		// textures): build the per-material submeshes the draw paths loop.
-		if (assets->model.meshes.size() > 1)
+		if (multi)
 			assets->multi = BuildMultiMaterialModel(m_device, assets->model);
 		// Map head-shot icon RT; a fresh kind re-arms the one-shot bake pass.
 		assets->iconTarget = gfx::Texture::RenderTarget(m_device, kIconSize);
@@ -874,6 +881,9 @@ int DungeonWorld::FreeItemSlotNear(int cx, int cz, float wx, float wz, int self)
 // back). Returns null only if even the 2k albedo is absent — callers then keep
 // their flat glTF material color.
 const DungeonWorld::PropTextures* DungeonWorld::LoadPropTextures(const std::string& set) {
+	// `texture = none` declares "flat glTF material by design" (the banner) —
+	// a silent null, so the missing-set warning keeps meaning a real mistake.
+	if (set.empty() || set == "none") return nullptr;
 	auto it = m_propTextures.find(set);
 	if (it != m_propTextures.end()) return it->second.get();
 	PbrMaps maps = LoadPbrSet(set, /*required*/ false);
