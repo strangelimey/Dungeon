@@ -421,10 +421,13 @@ gfx::Rect SpellbookPanel::SequenceRect(const gfx::Rect& px, size_t i) const {
 }
 
 gfx::Rect SpellbookPanel::CastRect(const gfx::Rect& px) const {
+	// Tall enough for the round icon faces to read (they draw at the rect
+	// height; 28 was sized for text buttons and left the circles tiny). The
+	// sequence row anchors off this rect, so it rides up automatically.
 	const float s = px.w / 222.0f;
 	const float pad = 10.0f * s;
 	const float w = (px.w - 2 * pad - 8.0f * s) / 2.0f;
-	return {px.x + pad, px.y + px.h - pad - 28.0f * s, w, 28.0f * s};
+	return {px.x + pad, px.y + px.h - pad - 42.0f * s, w, 42.0f * s};
 }
 
 gfx::Rect SpellbookPanel::ClearRect(const gfx::Rect& px) const {
