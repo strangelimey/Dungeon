@@ -18,6 +18,9 @@ Built collaboratively with Claude across sessions; this file is the handoff.
 - `gen-vs.cmd` → `build\vs\Dungeon.slnx` (VS 2026 emits .slnx, not .sln).
 - Debug builds open a console for logs; DN_ASSERT failures abort() — in
   debug that means a CRT dialog and the process LOOKS alive but is stuck.
+- The full log also writes to `dungeon.log` NEXT TO THE EXE (truncated per
+  run, flushed per line so the tail survives a crash/abort) — read that
+  instead of scraping the console window.
 
 ## Architecture (docs/ARCHITECTURE.md has the full version)
 
