@@ -607,11 +607,12 @@ void SpellbookPanel::Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 		const bool hot = static_cast<int>(i) == m_hotMember;
 		const Vec4 col = m ? m->portraitColor : theme.control;
 		if (skin && skin->button.texture) {
-			// No initial letter — the COLOR is the identity (stronger lerp
-			// than the first cut, since it now carries alone).
+			// No initial letter — the COLOR is the identity, so it runs HOT:
+			// even an idle eligible button reads unmistakably colored over the
+			// wood (Michael's call: the first two cuts were too muted).
 			const float f =
-				!eligible ? 0.4f : (selected ? 1.5f : (hot ? 1.1f : 0.75f));
-			auto tint = [&](float c) { return (0.18f + 0.82f * c) * f; };
+				!eligible ? 0.4f : (selected ? 2.2f : (hot ? 1.9f : 1.5f));
+			auto tint = [&](float c) { return (0.1f + 0.9f * c) * f; };
 			ui::DrawNineSlice(batch, r, skin->button,
 							  eligible ? Vec4{tint(col.x), tint(col.y), tint(col.z), 1.0f}
 									   : Vec4{0.4f, 0.4f, 0.4f, 1.0f});
