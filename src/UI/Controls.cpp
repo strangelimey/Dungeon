@@ -122,17 +122,20 @@ void Button::Update(UIContext& ctx) {
 
 void Button::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
 	const gfx::Rect& px = Pixel();
-	DrawButtonFace(batch, ctx.GetFont(), px, icon ? std::string() : text,
-				   ctx.GetTheme(), m_hot, m_held || active, true, ctx.GetSkin());
 	if (icon) {
-		// A complete round icon face (own chrome + alpha) centered over the
-		// button, rotated in quarter turns (screen Y is down: positive turns
-		// step right→down→left→up).
-		const float d = std::min(px.w, px.h) * 0.78f;
+		// Icon-only: the round face IS the button (it carries its own chrome
+		// and alpha) — no button face behind it. Rotated in quarter turns
+		// (screen Y is down: positive turns step right→down→left→up), with
+		// hover/held brightening standing in for the face wash.
+		const float d = std::min(px.w, px.h) * 0.92f;
+		const float f = (m_held || active) ? 1.15f : (m_hot ? 1.0f : 0.82f);
 		batch.DrawSpriteRotated({px.x + px.w * 0.5f, px.y + px.h * 0.5f}, {d, d},
 								static_cast<float>(iconTurns) * (kPi * 0.5f),
-								{0, 0, 1, 1}, *icon, {1, 1, 1, 1});
+								{0, 0, 1, 1}, *icon, {f, f, f, 1.0f});
+		return;
 	}
+	DrawButtonFace(batch, ctx.GetFont(), px, text, ctx.GetTheme(), m_hot,
+				   m_held || active, true, ctx.GetSkin());
 }
 
 void DrawButtonFace(gfx::SpriteBatch& batch, Font& font, const gfx::Rect& rect,
