@@ -77,6 +77,12 @@ Scouted candidates (prices as seen 2026-06-22, not bought):
 - Medieval One Hand Swords w/ Scabbard (Quantum Assets) — $29.99–49.99 —
   **Unreal-only, do NOT buy** (unimportable).
 
+### itch.io — UI art packs
+| date | listing | seller | price | license | formats | in-game / status |
+|---|---|---|---|---|---|---|
+| 2026-07-12 | UI Medieval RPG (+180 Medieval Fantasy RPG UI Kit, Gothic & Gold 4K) | Vill8tion | $2.70 | itch standard (commercial ok) | PNG (3072², AI-4x upscale, black bg — keyed at cut) | skin_button (slot #17) + skin_slot (slot #12) — done; 175+ unused variants archived (buttons/frames/bars) |
+| 2026-07-12 | Assets: UI Medieval Interface | Wenrexa | $3.99 | itch standard (commercial ok) | PNG + PSD + vector | archived (ui\wenrexa-medieval-interface) — panel candidates flatter than the current stone skin; unused so far |
+
 ### Other asset packs (sound / music / etc.)
 | date | item | source | price | notes |
 |---|---|---|---|---|
@@ -110,8 +116,9 @@ One-off or recurring software bought for the project.
   ~$26.71 prepaid headroom); fab.com **$87.43 charged** (all five orders, tax
   incl.: Fantasy Assassin $2.18 + skeleton $7.65 + crawlers $16.39 + Skeleton
   Army Kit $21.87 + fixtures/torches $39.34; the CC-BY freebies cost $0);
-  other $0.
+  itch.io **$6.69** (Medieval RPG UI kit $2.70 + Wenrexa UI $3.99); other $0.
 - **AI / API:** not yet recorded.
 - **Dev tools / licenses:** $0 (all free so far).
-- **Cash out of pocket so far:** **$126.43** ($39.00 textures.com + $87.43
-  fab.com, all actual charged amounts from the Epic purchases page).
+- **Cash out of pocket so far:** **$133.12** ($39.00 textures.com + $87.43
+  fab.com + $6.69 itch.io; fab amounts are actual charges from the Epic
+  purchases page).

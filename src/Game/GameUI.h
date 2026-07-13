@@ -357,6 +357,7 @@ private:
 	// debug look). Textures are optional; missing parts stay flat.
 	std::unique_ptr<gfx::Texture> m_skinPanelTex;
 	std::unique_ptr<gfx::Texture> m_skinButtonTex;
+	std::unique_ptr<gfx::Texture> m_skinSlotTex;
 	ui::Skin m_skin;
 
 	MenuPage m_menuPage = MenuPage::Main;

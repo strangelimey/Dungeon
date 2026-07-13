@@ -309,12 +309,22 @@ void HandSlot::Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	if (!m_character) return; // roster shorter than this slot — draw nothing
 	const ui::Theme& theme = ctx.GetTheme();
 	const gfx::Rect& px = Pixel();
-	// Skinned: the button part frames a black item SOCKET inset within it (the
-	// black stays in both modes — the light-haloed item icons read against it).
+	// Skinned: prefer the dedicated SOCKET FRAME part (an open-centred ring
+	// with transparent middle texels, drawn OVER the socket fill), falling
+	// back to the button part (opaque face, the socket inset into it). The
+	// black socket stays in every mode — the light-haloed item icons read
+	// against it.
 	const ui::Skin* skin = ctx.GetSkin();
-	const bool skinned = skin && skin->button.texture;
+	const bool framed = skin && skin->slot.texture;
+	const bool skinned = framed || (skin && skin->button.texture);
 	gfx::Rect socket = px;
-	if (skinned) {
+	if (framed) {
+		// Content lives inside the frame ring; the fill overlaps the ring by a
+		// couple of px so no seam shows at the hole's antialiased edge.
+		const float ring = skin->slot.corner * skin->slot.scale;
+		const float in = std::max(2.0f, ring - 2.0f);
+		socket = {px.x + in, px.y + in, px.w - 2 * in, px.h - 2 * in};
+	} else if (skinned) {
 		ui::DrawNineSlice(batch, px, skin->button, {1, 1, 1, 1});
 		const float in = 4.0f;
 		socket = {px.x + in, px.y + in, px.w - 2 * in, px.h - 2 * in};
@@ -322,6 +332,8 @@ void HandSlot::Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	// A subtle grey lift on hover/press keeps the interaction feedback.
 	batch.DrawRect(socket, m_held ? Vec4{0.22f, 0.22f, 0.24f, 1.0f}
 								  : (m_hot ? Vec4{0.12f, 0.12f, 0.13f, 1.0f} : kSlotBg));
+	if (framed) // the ring draws over the fill; its open middle shows the socket
+		ui::DrawNineSlice(batch, px, skin->slot, {1, 1, 1, 1});
 	// The item held in this hand, if any, drawn inset from the border.
 	const ItemSlot& slot = m_character->inventory.Hand(m_hand);
 	if (!slot.Empty() && m_icons) {

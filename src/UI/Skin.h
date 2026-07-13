@@ -37,6 +37,10 @@ struct SkinPart {
 struct Skin {
 	SkinPart panel;  // framed background (Panel, TextOutput, tab pages)
 	SkinPart button; // button face (DrawButtonFace, tab strip)
+	// Item-socket frame: an OPEN-centred ring whose middle texels are
+	// transparent, drawn OVER the widget's own socket fill (HandSlot). Falls
+	// back to the button part (opaque face, fill inset into it) when absent.
+	SkinPart slot;
 };
 
 // Draws `part` into `dst` as a 9-slice: fixed corners, edges tiled along
