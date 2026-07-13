@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <filesystem>
 #include <format>
 
 using namespace DirectX;
@@ -1433,6 +1434,72 @@ std::vector<std::string> DungeonWorld::SaveAllLevels() {
 	for (const auto& [stem, map] : m_levelMaps)
 		if (WriteStashedLevel(stem)) saved.push_back(stem);
 	return saved;
+}
+
+bool DungeonWorld::RenameLevel(const std::string& oldStem,
+							   const std::string& newStem) {
+	// Disk first (the .ent failure path can roll the .map back, keeping the
+	// pair consistent) — a stash-backed level renames its files too, so the
+	// next savemap writes to the new paths and no stale pair lingers.
+	namespace fs = std::filesystem;
+	std::error_code ec;
+	fs::rename(m_project.LevelMapPath(oldStem), m_project.LevelMapPath(newStem),
+			   ec);
+	if (ec) {
+		log::Warn("rename level: map move failed: {}", ec.message());
+		return false;
+	}
+	fs::rename(m_project.LevelEntPath(oldStem), m_project.LevelEntPath(newStem),
+			   ec);
+	if (ec) {
+		std::error_code undo;
+		fs::rename(m_project.LevelMapPath(newStem),
+				   m_project.LevelMapPath(oldStem), undo);
+		log::Warn("rename level: ent move failed: {}", ec.message());
+		return false;
+	}
+
+	// In-memory keys follow the stem: the three per-level stashes...
+	auto rekey = [&](auto& stash) {
+		auto it = stash.find(oldStem);
+		if (it == stash.end()) return;
+		auto node = std::move(it->second);
+		stash.erase(oldStem);
+		stash.insert_or_assign(newStem, std::move(node));
+	};
+	rekey(m_levelMaps);
+	rekey(m_levelEnts);
+	if (auto it = m_levelStates.find(oldStem); it != m_levelStates.end()) {
+		SaveData::LevelState state = std::move(it->second);
+		m_levelStates.erase(oldStem);
+		state.stem = newStem; // the block writes its own stem line
+		m_levelStates.insert_or_assign(newStem, std::move(state));
+	}
+	// ...and the active stem.
+	if (m_currentLevel == oldStem) m_currentLevel = newStem;
+
+	// Repoint every stair dest= that names the old stem: the active map is
+	// fixed live, every other level via its stash — EnsureMapStash lazily
+	// parses disk-only levels, so their fix persists on the next savemap.
+	// (The caller updates Project::levels after this returns, so the walk
+	// still sees the OLD stem in the list — map it to the new one.)
+	m_map.RenameStairDest(oldStem, newStem);
+	for (const std::string& stem : m_project.levels) {
+		const std::string& actual = stem == oldStem ? newStem : stem;
+		if (actual == m_currentLevel) continue;
+		EnsureMapStash(actual).RenameStairDest(oldStem, newStem);
+	}
+
+	// Undo snapshots hold whole stash sets keyed by the old stem (and the old
+	// file paths' contents); restoring one across a rename would resurrect the
+	// dead name. Renames are rare — drop the history like a level transition.
+	ClearUndoHistory();
+
+	// NOTE: existing save FILES still reference the old stem (save current= /
+	// level blocks) — loading one after a rename will die on the missing
+	// level. Editor-side renames assume dev-cycle saves; re-save after.
+	log::Info("Renamed level {} -> {}", oldStem, newStem);
+	return true;
 }
 
 // ============================================================================

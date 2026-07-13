@@ -125,6 +125,11 @@ private:
 	// it ("" on failure) so the map view can jump straight onto the new canvas.
 	std::string CreateNewLevel();
 
+	// The Level dialog's inline rename: validates (unique stem), drives
+	// DungeonWorld::RenameLevel (files, stashes, stair dests), then updates
+	// the manifest and the map view's browse snapshot. False = refused.
+	bool RenameLevel(const std::string& oldStem, const std::string& newStem);
+
 	// Persists a monster type's edited animation config (the right-click dialog's
 	// Save): rewrites the `states` + `anim_<state>` rows of its monsters-catalog
 	// entry (preserving every other field) and saves the project to disk.

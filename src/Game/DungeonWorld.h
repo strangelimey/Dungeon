@@ -579,6 +579,15 @@ public:
 	// each stashed level (WriteStashedLevel). Returns the stems written.
 	std::vector<std::string> SaveAllLevels();
 
+	// Renames a level's world-side state: moves the .map/.ent files, rekeys
+	// the three per-level stashes (+ the active stem), and repoints every
+	// stair dest= across all levels (disk-only ones via a lazy stash, so the
+	// fix persists on the next savemap). Drops the undo history (its
+	// snapshots are keyed by the old stem). The MANIFEST is the owner's:
+	// Game updates Project::levels + saves it after this returns true.
+	// Existing save files keep the old stem and won't load — dev-cycle cost.
+	bool RenameLevel(const std::string& oldStem, const std::string& newStem);
+
 	// --- editor undo/redo (snapshot-based) ------------------------------------
 	// One undo step = a full copy of every level's editor-visible state: the
 	// active level's map (live decoration placements synced into records), its

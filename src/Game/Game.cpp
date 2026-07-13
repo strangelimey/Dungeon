@@ -152,6 +152,11 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	// The editor toolbar's [+] button: mint a fresh level (files + manifest)
 	// and hand the stem back so the view jumps onto the new canvas.
 	m_mapView.onNewLevel = [this] { return CreateNewLevel(); };
+	// The Level dialog's inline name edit → the full rename flow.
+	m_levelSettingsDialog.onRename = [this](const std::string& oldStem,
+											const std::string& newStem) {
+		return RenameLevel(oldStem, newStem);
+	};
 	m_settings.Load();
 	ApplyLanguage(false); // strings must exist before any UI builds
 	m_audio.SetMasterVolume(m_settings.volume);
@@ -1321,6 +1326,28 @@ std::string Game::CreateNewLevel() {
 	if (m_world.onMessage)
 		m_world.onMessage(loc::Format("map.level.created", stem));
 	return stem;
+}
+
+// The Level dialog's rename: validate against the manifest, let the world
+// move files / rekey stashes / repoint stair dests, then commit the manifest
+// and keep the map view's browse snapshot truthful. (The dialog adopts the
+// new stem itself on true.)
+bool Game::RenameLevel(const std::string& oldStem, const std::string& newStem) {
+	std::vector<std::string>& levels = m_project.levels;
+	const auto it = std::find(levels.begin(), levels.end(), oldStem);
+	if (it == levels.end()) return false;
+	if (std::find(levels.begin(), levels.end(), newStem) != levels.end()) {
+		if (m_world.onMessage)
+			m_world.onMessage(loc::Format("map.level.dupname", newStem));
+		return false;
+	}
+	if (!m_world.RenameLevel(oldStem, newStem)) return false;
+	*it = newStem;
+	m_project.Save();
+	m_mapView.OnLevelRenamed(oldStem, newStem);
+	if (m_world.onMessage)
+		m_world.onMessage(loc::Format("map.level.renamed", oldStem, newStem));
+	return true;
 }
 
 // The bake succeeded: append the new entry to the right project catalog and save

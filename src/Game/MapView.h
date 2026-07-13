@@ -106,6 +106,14 @@ public:
 		m_levelsOpen = false; // the level dropdown is Editor toolbar chrome
 	}
 
+	// A level was renamed (the Level dialog's inline edit): if the viewport is
+	// browsing it, rebuild the snapshot under the new stem so ViewedLevel()
+	// and the dropdown label stay truthful.
+	void OnLevelRenamed(const std::string& oldStem, const std::string& newStem) {
+		if (m_browse && m_browse->stem == oldStem)
+			m_browse = m_world.BrowseLevel(newStem);
+	}
+
 	// Re-bakes the icon font when the window height changes (the overlay text
 	// scales with the screen like the rest of the UI).
 	void SetFontHeight(float pixelHeight) { m_font.SetHeight(pixelHeight); }

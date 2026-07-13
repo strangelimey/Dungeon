@@ -552,6 +552,17 @@ bool DungeonMap::RemoveStair(int x, int z, StairLink* removed) {
 	return false;
 }
 
+size_t DungeonMap::RenameStairDest(const std::string& oldStem,
+								   const std::string& newStem) {
+	size_t n = 0;
+	for (StairLink& s : m_stairs)
+		if (s.destLevel == oldStem) {
+			s.destLevel = newStem;
+			++n;
+		}
+	return n;
+}
+
 void DungeonMap::SetCell(int x, int z, Cell cell) {
 	if (x < 0 || z < 0 || x >= m_width || z >= m_height) return;
 	Cell& slot = m_cells[static_cast<size_t>(z) * m_width + x];

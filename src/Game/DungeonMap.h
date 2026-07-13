@@ -239,6 +239,10 @@ public:
 	// Removes the stair link at (x,z), copying it into `removed` first (so the
 	// caller can clean up its paired return stair). False if the cell has none.
 	bool RemoveStair(int x, int z, StairLink* removed = nullptr);
+	// Repoints every stair whose dest names `oldStem` (a level rename — the
+	// dest strings are the cross-level references that would go stale).
+	// Returns the number touched.
+	size_t RenameStairDest(const std::string& oldStem, const std::string& newStem);
 
 	// Surface palettes from the level's "palette" records — lists of CATALOG
 	// IDs (project catalog/walls.cat, floors.cat, ceilings.cat). Order defines

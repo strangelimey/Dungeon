@@ -7,6 +7,7 @@
 #include "UI/Controls.h"
 
 #include <algorithm>
+#include <cctype>
 #include <charconv>
 #include <format>
 
@@ -50,11 +51,51 @@ void LevelSettingsDialog::Open(const std::string& stem, float dust, float haze,
 	m_dust = m_oDust = dust;
 	m_haze = m_oHaze = haze;
 	m_ambient = m_oAmbient = ambient;
+	m_editName = false;
+	m_uiRebuild = false;
 	BuildUI();
+}
+
+// The stem's pixel rect within the title line — the click target that opens
+// the inline rename (Update hit-tests it, Render styles the hover).
+gfx::Rect LevelSettingsDialog::StemRect(float w, float h) {
+	const std::string prefix =
+		std::format("{} — ", loc::Tr("map.level.title"));
+	const float x = kTitle.x * w + m_font.MeasureWidth(prefix);
+	return {x, kTitle.y * h, m_font.MeasureWidth(m_stem) + 6.0f,
+			m_font.Height()};
 }
 
 void LevelSettingsDialog::BuildUI() {
 	m_ui.Clear();
+	m_nameField = nullptr;
+	if (m_editName) {
+		// The title row becomes the rename field (Render skips the drawn
+		// title meanwhile). Enter commits; losing focus or Esc cancels.
+		m_nameField = m_ui.Add<ui::TextField>(
+			gfx::Rect{kTitle.x, kTitle.y, kTitle.w, 0.035f}, m_stem);
+		m_nameField->maxLength = 24;
+		m_nameField->SetFocused(true);
+		ui::TextField* raw = m_nameField;
+		raw->onChange = [raw] {
+			// Stems are filenames AND whitespace-tokenised record words (the
+			// DoorInspector name filter) — strip anything else as typed.
+			std::erase_if(raw->text, [](char ch) {
+				const unsigned char u = static_cast<unsigned char>(ch);
+				return !(std::isalnum(u) || ch == '_' || ch == '-');
+			});
+		};
+		raw->onSubmit = [this, raw] {
+			const std::string next = raw->text;
+			if (next.empty() || next == m_stem ||
+				(onRename && onRename(m_stem, next))) {
+				if (!next.empty() && next != m_stem) m_stem = next;
+				m_editName = false;
+				m_uiRebuild = true; // deferred — we are inside a callback
+			}
+			// A refused rename (duplicate etc.) keeps the field open.
+		};
+	}
 	struct Row {
 		const char* labelKey;
 		float* value;
@@ -89,12 +130,44 @@ void LevelSettingsDialog::Update(const Input& input, float w, float h) {
 	m_font.SetHeight(fh);
 	m_ui.GetFont().SetHeight(fh);
 
-	if (input.WasKeyPressed(VK_ESCAPE)) { // cancel: revert the live preview
-		if (onApply) onApply(m_oDust, m_oHaze, m_oAmbient);
+	if (m_uiRebuild) { // deferred from a widget callback (see BuildUI)
+		m_uiRebuild = false;
+		BuildUI();
+	}
+
+	if (input.WasKeyPressed(VK_ESCAPE)) {
+		if (m_editName) { // first Esc only cancels the name edit
+			m_editName = false;
+			m_uiRebuild = true;
+			return;
+		}
+		if (onApply) onApply(m_oDust, m_oHaze, m_oAmbient); // revert preview
 		Close();
 		return;
 	}
+
+	// The stem in the title is the rename affordance: hover styles it,
+	// a click swaps the title row for the edit field (safe to rebuild
+	// immediately — this is not a widget callback).
+	m_nameHover = false;
+	if (!m_editName) {
+		const gfx::Rect stem = StemRect(w, h);
+		m_nameHover = stem.Contains(input.MouseX(), input.MouseY());
+		if (m_nameHover && input.WasMousePressed(MouseButton::Left)) {
+			m_editName = true;
+			BuildUI();
+			return; // the press is the affordance's, not the new field's
+		}
+	}
+
 	m_ui.Update(input, w, h);
+
+	// Clicking away from the open name field drops its focus — treat that as
+	// cancel (Enter is the commit; field death is deferred like every Clear).
+	if (m_editName && m_nameField && !m_nameField->Focused()) {
+		m_editName = false;
+		m_uiRebuild = true;
+	}
 }
 
 void LevelSettingsDialog::Render(gfx::SpriteBatch& batch, const ui::Theme& th,
@@ -105,11 +178,22 @@ void LevelSettingsDialog::Render(gfx::SpriteBatch& batch, const ui::Theme& th,
 	batch.DrawRect(panel, th.panel);
 	ui::DrawBorder(batch, panel, th.panelBorder);
 
-	m_font.Draw(batch,
-				std::format("{} — {}", loc::Tr("map.level.title"), m_stem),
-				kTitle.x * w, kTitle.y * h, th.text);
+	if (!m_editName) {
+		// Title: prefix in plain text, the stem as the rename affordance
+		// (accent on hover + a hint underline so it reads clickable).
+		const std::string prefix =
+			std::format("{} — ", loc::Tr("map.level.title"));
+		m_font.Draw(batch, prefix, kTitle.x * w, kTitle.y * h, th.text);
+		const gfx::Rect stem{kTitle.x * w + m_font.MeasureWidth(prefix),
+							 kTitle.y * h, m_font.MeasureWidth(m_stem),
+							 m_font.Height()};
+		m_font.Draw(batch, m_stem, stem.x, stem.y,
+					m_nameHover ? th.accent : th.text);
+		batch.DrawRect({stem.x, stem.y + stem.h + 1.0f, stem.w, 1.0f},
+					   m_nameHover ? th.accent : th.textDim);
+	}
 
-	m_ui.Render(batch, w, h); // rows + footer buttons
+	m_ui.Render(batch, w, h); // rows + footer buttons (+ the rename field)
 }
 
 } // namespace dungeon::game
