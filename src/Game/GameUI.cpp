@@ -132,7 +132,10 @@ void GameUI::LoadTitleArt() {
 	// The spellbook's Cast/Clear icon faces (optional — text buttons without).
 	m_castIconTex = TryLoadTextureFile(m_device, paths::Asset("ui\\icon_cast"));
 	m_clearIconTex = TryLoadTextureFile(m_device, paths::Asset("ui\\icon_clear"));
-	m_skin.panel = {m_skinPanelTex.get(), 24.0f, 1.0f};
+	// The panel part is a QUIET bake (near-black + faint noise, one thin brass
+	// edge, no black rim — the old stone face read too busy under the kit's
+	// wooden buttons); it tiles, so the noise stays dense at any panel size.
+	m_skin.panel = {m_skinPanelTex.get(), 8.0f, 1.0f};
 	// The button part (Medieval RPG UI kit slot #17: planked face, iron corner
 	// plates) is baked 64px with a ~14px frame; scale 0.65 renders it ~9px
 	// (full-scale read as heavy on the small movement/hand chrome). Both kit
