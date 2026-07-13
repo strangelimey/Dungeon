@@ -120,6 +120,11 @@ private:
 	// "To source" button and the synctosource console command.
 	bool SyncProjectToSource();
 
+	// The editor toolbar's [+] button: writes a minimal .map/.ent pair next to
+	// the project's other levels, appends the stem to the manifest, and returns
+	// it ("" on failure) so the map view can jump straight onto the new canvas.
+	std::string CreateNewLevel();
+
 	// Persists a monster type's edited animation config (the right-click dialog's
 	// Save): rewrites the `states` + `anim_<state>` rows of its monsters-catalog
 	// entry (preserving every other field) and saves the project to disk.

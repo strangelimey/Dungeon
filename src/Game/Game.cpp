@@ -149,6 +149,9 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 			m_world.onMessage(loc::Format("map.level.applied",
 										  m_levelSettingsDialog.Level()));
 	};
+	// The editor toolbar's [+] button: mint a fresh level (files + manifest)
+	// and hand the stem back so the view jumps onto the new canvas.
+	m_mapView.onNewLevel = [this] { return CreateNewLevel(); };
 	m_settings.Load();
 	ApplyLanguage(false); // strings must exist before any UI builds
 	m_audio.SetMasterVolume(m_settings.volume);
@@ -1264,6 +1267,60 @@ bool Game::SyncProjectToSource() {
 	}
 	log::Info("Synced project {} -> source", src.filename().string());
 	return true;
+}
+
+// Mints a fresh level for the editor's [+] toolbar button: writes a minimal
+// valid .map/.ent pair next to the project's other levels (all-rock 16x16
+// canvas with a 3x3 start room — the palette gate demands all three surface
+// records, copied from the ACTIVE level so the new one shares its look), then
+// appends the stem to the manifest. Everything downstream (browse, remote
+// edits, stair dests, savemap) reads Project::levels or lazy-parses the files,
+// so no other state needs touching. Returns the stem, or "" on failure.
+std::string Game::CreateNewLevel() {
+	// Next free levelN stem (numeric suffixes only; foreign stems just don't
+	// bump the counter, and the find() guard keeps the pick collision-free).
+	int maxN = 0;
+	for (const std::string& s : m_project.levels)
+		if (s.starts_with("level"))
+			if (int n = std::atoi(s.c_str() + 5); n > maxN) maxN = n;
+	const std::string stem = "level" + std::to_string(maxN + 1);
+	if (std::find(m_project.levels.begin(), m_project.levels.end(), stem) !=
+		m_project.levels.end()) {
+		log::Warn("new level: stem {} already exists", stem);
+		return {};
+	}
+
+	auto join = [](const std::vector<std::string>& ids) {
+		std::string out;
+		for (const std::string& id : ids) out += (out.empty() ? "" : " ") + id;
+		return out;
+	};
+	const DungeonMap& live = m_world.Map(); // active level: the palette donor
+	std::string map = "; " + stem + " - created in the editor.\n";
+	map += "palette wall " + join(live.WallPalette()) + "\n";
+	map += "palette floor " + join(live.FloorPalette()) + "\n";
+	map += "palette ceiling " + join(live.CeilingPalette()) + "\n\n";
+	constexpr int kSize = 16;
+	for (int z = 0; z < kSize; ++z) {
+		for (int x = 0; x < kSize; ++x) {
+			const bool room = x >= 7 && x <= 9 && z >= 7 && z <= 9;
+			map += !room ? '#' : (x == 8 && z == 8) ? 'P' : '.';
+		}
+		map += '\n';
+	}
+	const std::string ent = "; " + stem + " - dynamic layer (empty).\n";
+	if (!assets::WriteBinaryFile(m_project.LevelMapPath(stem), map.data(),
+								 map.size()) ||
+		!assets::WriteBinaryFile(m_project.LevelEntPath(stem), ent.data(),
+								 ent.size())) {
+		log::Warn("new level: failed to write {} files", stem);
+		return {};
+	}
+	m_project.levels.push_back(stem);
+	m_project.Save();
+	if (m_world.onMessage)
+		m_world.onMessage(loc::Format("map.level.created", stem));
+	return stem;
 }
 
 // The bake succeeded: append the new entry to the right project catalog and save

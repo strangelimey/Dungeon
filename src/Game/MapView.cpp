@@ -15,6 +15,8 @@
 #include "Game/MapView.h"
 
 #include "Core/Loc.h"
+#include "Core/Paths.h"
+#include "Game/AssetUtil.h" // TryLoadTextureFile (toolbar icon discs)
 #include "Game/DungeonMeshBuilder.h" // SurfaceVariantFor (the cell fill's hash)
 #include "Game/Entity.h"
 #include "Game/MapColors.h"
@@ -55,6 +57,9 @@ float CollapsedDockW(const gfx::Rect& p) { return std::clamp(p.w * 0.032f, 34.0f
 float ExpandedLeftW(const gfx::Rect& p) { return std::clamp(p.w * 0.16f, 120.0f, 260.0f); }
 float ExpandedRightW(const gfx::Rect& p) { return std::clamp(p.w * 0.18f, 150.0f, 300.0f); }
 
+// Toolbar/browse-arrow button side (square), shared by the band height.
+float ToolBtnS(const gfx::Rect& p) { return std::clamp(p.h * 0.042f, 22.0f, 40.0f); }
+
 // Y of the first item below a dock's collapse button + header line.
 float DockBodyTop(const gfx::Rect& dock, const gfx::Rect& panel) {
 	const float pad = MapView::DockPad(panel), h = DockBtnH(panel);
@@ -67,7 +72,16 @@ float MapView::DockPad(const gfx::Rect& p) { return std::clamp(p.h * 0.010f, 3.0
 MapView::MapView(gfx::GraphicsDevice& device, DungeonWorld& world,
 				 GameSettings& settings)
 	: m_device(device), m_world(world), m_settings(settings),
-	  m_font(device, "", kFontH) {}
+	  m_font(device, "", kFontH) {
+	// Toolbar icon discs; a missing file leaves that button on its text face.
+	m_icoLevel = TryLoadTextureFile(device, paths::Asset("ui\\icon_tb_level"));
+	m_icoBalance = TryLoadTextureFile(device, paths::Asset("ui\\icon_tb_balance"));
+	m_icoUndo = TryLoadTextureFile(device, paths::Asset("ui\\icon_tb_undo"));
+	m_icoRedo = TryLoadTextureFile(device, paths::Asset("ui\\icon_tb_redo"));
+	m_icoSave = TryLoadTextureFile(device, paths::Asset("ui\\icon_tb_save"));
+	m_icoSource = TryLoadTextureFile(device, paths::Asset("ui\\icon_tb_source"));
+	m_icoNew = TryLoadTextureFile(device, paths::Asset("ui\\icon_tb_new"));
+}
 
 const DungeonMap& MapView::ViewedMap() const {
 	return m_browse ? m_browse->map : m_world.Map();
@@ -86,19 +100,20 @@ std::string MapView::LevelNeighbor(int step) const {
 	return levels[static_cast<size_t>(i)];
 }
 
-void MapView::StepViewLevel(int step) {
-	const std::string stem = LevelNeighbor(step);
-	if (stem.empty()) return;
+void MapView::SetViewLevel(const std::string& stem) {
+	if (stem.empty() || stem == ViewedLevel()) return;
 	if (stem == m_world.CurrentLevel()) m_browse.reset(); // back on live state
 	else m_browse = m_world.BrowseLevel(stem);
 	m_zoom = 1.0f; // refit: levels differ in size
 	m_pan = {0.0f, 0.0f};
 }
 
+void MapView::StepViewLevel(int step) { SetViewLevel(LevelNeighbor(step)); }
+
 gfx::Rect MapView::LevelUpButton(const gfx::Rect& panel) const {
 	const gfx::Rect g = GridArea(panel);
 	const float pad = DockPad(panel);
-	const float s = std::clamp(panel.h * 0.042f, 22.0f, 40.0f);
+	const float s = ToolBtnS(panel);
 	return {g.x + pad * 2, panel.y + pad * 2, s, s};
 }
 
@@ -107,30 +122,60 @@ gfx::Rect MapView::LevelDownButton(const gfx::Rect& panel) const {
 	return {up.x + up.w + DockPad(panel), up.y, up.w, up.h};
 }
 
+gfx::Rect MapView::ToolbarRect(const gfx::Rect& panel) const {
+	if (m_mode != Mode::Editor) return {panel.x, panel.y, panel.w, 0.0f};
+	const float pad = DockPad(panel);
+	return {panel.x, panel.y, panel.w, ToolBtnS(panel) + pad * 4};
+}
+
+gfx::Rect MapView::LevelPickRect(const gfx::Rect& panel) const {
+	const gfx::Rect tb = ToolbarRect(panel);
+	const float pad = DockPad(panel);
+	const float s = ToolBtnS(panel);
+	return {tb.x + pad * 2, tb.y + pad * 2, s * 5.0f, s};
+}
+
+gfx::Rect MapView::LevelItemRect(int index, const gfx::Rect& panel) const {
+	const gfx::Rect pick = LevelPickRect(panel);
+	return {pick.x, pick.y + pick.h + 2.0f + index * pick.h, pick.w, pick.h};
+}
+
+gfx::Rect MapView::NewLevelButton(const gfx::Rect& panel) const {
+	const gfx::Rect pick = LevelPickRect(panel);
+	return {pick.x + pick.w + DockPad(panel), pick.y, pick.h, pick.h};
+}
+
 std::vector<MapView::ToolButton> MapView::ToolbarButtons(const gfx::Rect& panel) const {
 	std::vector<ToolButton> btns;
 	if (m_mode != Mode::Editor) return btns;
-	const gfx::Rect g = GridArea(panel);
+	const gfx::Rect tb = ToolbarRect(panel);
 	const float pad = DockPad(panel);
-	const float s = std::clamp(panel.h * 0.042f, 22.0f, 40.0f);
-	const float wide = s * 4.0f; // room for a localized label
+	const float s = ToolBtnS(panel);
 	const bool busy = m_pendingHistory != 0;
-	// Built right-to-left from the grid's top-right corner; every consumer
-	// (hover, click, render) walks this same list.
-	float right = g.x + g.w - pad * 2;
-	auto add = [&](HoverBtn id, std::string label, float w, bool visible,
+	// Built right-to-left from the band's right edge; every consumer (hover,
+	// click, render) walks this same list.
+	float right = tb.x + tb.w - pad * 2;
+	auto add = [&](HoverBtn id, std::string label, const gfx::Texture* icon,
 				   bool enabled) {
-		right -= w;
-		btns.push_back(
-			{id, {right, panel.y + pad * 2, w, s}, std::move(label), visible, enabled});
+		right -= s;
+		btns.push_back({id, {right, tb.y + pad * 2, s, s}, std::move(label),
+						icon, /*visible*/ true, enabled});
 		right -= pad;
 	};
-	add(HoverBtn::SaveSource, loc::Tr("map.btn.source"), wide, true, true);
-	add(HoverBtn::Save, loc::Tr("map.btn.save"), wide, true, true);
-	add(HoverBtn::Redo, ">", s, m_world.CanRedo(), !busy);
-	add(HoverBtn::Undo, "<", s, m_world.CanUndo(), !busy);
-	add(HoverBtn::Balance, loc::Tr("map.btn.balance"), wide, true, true);
-	add(HoverBtn::LevelSettings, loc::Tr("map.btn.level"), wide, true, true);
+	add(HoverBtn::SaveSource, loc::Tr("map.btn.source"), m_icoSource.get(), true);
+	add(HoverBtn::Save, loc::Tr("map.btn.save"), m_icoSave.get(), true);
+	add(HoverBtn::Redo, loc::Tr("map.btn.redo"), m_icoRedo.get(),
+		m_world.CanRedo() && !busy);
+	add(HoverBtn::Undo, loc::Tr("map.btn.undo"), m_icoUndo.get(),
+		m_world.CanUndo() && !busy);
+	add(HoverBtn::Balance, loc::Tr("map.btn.balance"), m_icoBalance.get(), true);
+	add(HoverBtn::LevelSettings, loc::Tr("map.btn.level"), m_icoLevel.get(), true);
+	// The level cluster pins the band's LEFT end (dropdown + [+]); routing it
+	// through the same list keeps hover/click/render single-pass.
+	btns.push_back({HoverBtn::LevelPick, LevelPickRect(panel), ViewedLevel(),
+					nullptr, true, true});
+	btns.push_back({HoverBtn::NewLevel, NewLevelButton(panel),
+					loc::Tr("map.btn.newlevel"), m_icoNew.get(), true, true});
 	return btns;
 }
 
@@ -157,22 +202,25 @@ MapView::Transform MapView::ComputeTransform(const gfx::Rect& panel) const {
 
 gfx::Rect MapView::GridArea(const gfx::Rect& panel) const {
 	// The right key dock is present in both modes; the left brush dock is
-	// Editor-only.
+	// Editor-only. In Editor mode everything sits below the toolbar band.
+	const float t = ToolbarRect(panel).h;
 	const float l = m_mode == Mode::Editor ? LeftDockRect(panel).w : 0.0f;
 	const float r = RightDockRect(panel).w;
-	return {panel.x + l, panel.y, panel.w - l - r, panel.h};
+	return {panel.x + l, panel.y + t, panel.w - l - r, panel.h - t};
 }
 
 gfx::Rect MapView::LeftDockRect(const gfx::Rect& panel) const {
+	const float t = ToolbarRect(panel).h;
 	const float w = m_settings.mapPaletteCollapsed ? CollapsedDockW(panel)
 												   : ExpandedLeftW(panel);
-	return {panel.x, panel.y, w, panel.h};
+	return {panel.x, panel.y + t, w, panel.h - t};
 }
 
 gfx::Rect MapView::RightDockRect(const gfx::Rect& panel) const {
+	const float t = ToolbarRect(panel).h;
 	const float w = LegendCollapsed() ? CollapsedDockW(panel)
 									  : ExpandedRightW(panel);
-	return {panel.x + panel.w - w, panel.y, w, panel.h};
+	return {panel.x + panel.w - w, panel.y + t, w, panel.h - t};
 }
 
 bool MapView::LegendCollapsed() const {
@@ -278,17 +326,30 @@ bool MapView::Update(const Input& input, const gfx::Rect& panel) {
 
 	// Track the hovered chrome button (Render styles it via the shared
 	// ui::DrawButtonFace). Mirrors the click gating: hidden/unavailable
-	// buttons never read as hot.
+	// buttons never read as hot. The browse arrows are Player-mode chrome
+	// (the editor's toolbar dropdown replaced them); the open dropdown's
+	// rows are tracked separately in m_levelsHover.
 	m_hoverBtn = HoverBtn::None;
-	if (!LevelNeighbor(-1).empty() && LevelUpButton(panel).Contains(mx, my))
+	m_levelsHover = -1;
+	if (editor && m_levelsOpen) {
+		const auto& levels = m_world.GetProject().levels;
+		for (int i = 0; i < static_cast<int>(levels.size()); ++i)
+			if (LevelItemRect(i, panel).Contains(mx, my)) {
+				m_levelsHover = i;
+				break;
+			}
+	}
+	if (!editor && !LevelNeighbor(-1).empty() &&
+		LevelUpButton(panel).Contains(mx, my))
 		m_hoverBtn = HoverBtn::LevelUp;
-	else if (!LevelNeighbor(+1).empty() && LevelDownButton(panel).Contains(mx, my))
+	else if (!editor && !LevelNeighbor(+1).empty() &&
+			 LevelDownButton(panel).Contains(mx, my))
 		m_hoverBtn = HoverBtn::LevelDown;
 	else if (editor && LeftCollapseButton(panel).Contains(mx, my))
 		m_hoverBtn = HoverBtn::CollapseL;
 	else if (RightCollapseButton(panel).Contains(mx, my))
 		m_hoverBtn = HoverBtn::CollapseR;
-	if (m_hoverBtn == HoverBtn::None) // the header toolbar (editor only)
+	if (m_hoverBtn == HoverBtn::None) // the toolbar band (editor only)
 		for (const ToolButton& b : ToolbarButtons(panel))
 			if (b.visible && b.enabled && b.rect.Contains(mx, my)) {
 				m_hoverBtn = b.id;
@@ -316,38 +377,61 @@ bool MapView::Update(const Input& input, const gfx::Rect& panel) {
 
 	// Dock interactions, each claiming the click so it never also pans/paints.
 	if (input.WasMousePressed(MouseButton::Left)) {
-		// Level-browse arrows (both modes). A hidden arrow (edge level) is not
-		// hit-tested either, so a click there falls through to the grid.
-		if (!LevelNeighbor(-1).empty() && LevelUpButton(panel).Contains(mx, my)) {
+		// The open level dropdown claims the whole click first: a row picks
+		// that level, anywhere else just closes (either way the popup drops,
+		// and the closing click never falls through to the grid).
+		if (editor && m_levelsOpen) {
+			m_levelsOpen = false;
+			const auto& levels = m_world.GetProject().levels;
+			for (int i = 0; i < static_cast<int>(levels.size()); ++i)
+				if (LevelItemRect(i, panel).Contains(mx, my)) {
+					SetViewLevel(levels[i]);
+					break;
+				}
+			return true;
+		}
+		// Level-browse arrows (Player mode; the editor's dropdown replaced
+		// them). A hidden arrow (edge level) is not hit-tested either, so a
+		// click there falls through to the grid.
+		if (!editor && !LevelNeighbor(-1).empty() &&
+			LevelUpButton(panel).Contains(mx, my)) {
 			StepViewLevel(-1);
 			return true;
 		}
-		if (!LevelNeighbor(+1).empty() && LevelDownButton(panel).Contains(mx, my)) {
+		if (!editor && !LevelNeighbor(+1).empty() &&
+			LevelDownButton(panel).Contains(mx, my)) {
 			StepViewLevel(+1);
 			return true;
 		}
-		// The header toolbar (editor only). A hidden button (empty undo/redo
-		// stack) is not hit-tested — a click there falls through like a hidden
-		// level arrow; a disabled one (latched undo/redo trigger) swallows the
-		// click but does nothing.
+		// The toolbar band (editor only). A disabled button (empty undo/redo
+		// stack, latched history trigger) swallows the click but does nothing.
 		if (editor) {
 			for (const ToolButton& b : ToolbarButtons(panel)) {
 				if (!b.visible || !b.rect.Contains(mx, my)) continue;
+				if (!b.enabled) return true;
 				switch (b.id) {
 				case HoverBtn::Save:          if (onSave) onSave(false); break;
 				case HoverBtn::SaveSource:    if (onSave) onSave(true); break;
 				case HoverBtn::Balance:       if (onBalance) onBalance(); break;
 				case HoverBtn::LevelSettings: if (onLevelSettings) onLevelSettings(); break;
+				case HoverBtn::LevelPick:     m_levelsOpen = true; break;
+				case HoverBtn::NewLevel:
+					// Game creates the level (files + manifest) and returns
+					// the stem; jump the view straight onto the new canvas.
+					if (onNewLevel) SetViewLevel(onNewLevel());
+					break;
 				case HoverBtn::Undo:
-					if (b.enabled && m_pendingHistory == 0) m_pendingHistory = -1;
+					if (m_pendingHistory == 0) m_pendingHistory = -1;
 					break;
 				case HoverBtn::Redo:
-					if (b.enabled && m_pendingHistory == 0) m_pendingHistory = +1;
+					if (m_pendingHistory == 0) m_pendingHistory = +1;
 					break;
 				default: break;
 				}
 				return true;
 			}
+			// A click on the band's empty run is the band's, not the grid's.
+			if (ToolbarRect(panel).Contains(mx, my)) return true;
 		}
 		// Right key dock collapse — both modes (flips the mode's own flag).
 		if (RightCollapseButton(panel).Contains(mx, my)) {
@@ -933,10 +1017,11 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 		}
 	}
 
-	// Level-browse header (both modes): [^]/[v] arrows + the viewed level's
-	// stem, top-left of the grid area. An edge level hides its dead-direction
-	// arrow (nothing above the top level / below the bottom); the stem draws in
-	// the accent color while browsing, as a "not where the party is" flag.
+	// Header chrome. Player mode: the [^]/[v] browse arrows + the viewed
+	// level's stem, top-left of the grid (an edge level hides its dead-
+	// direction arrow; the stem draws accented while browsing, as a "not
+	// where the party is" flag). Editor mode: the TOOLBAR band across the
+	// top — level dropdown + [+] left, the icon tools right.
 	{
 		// Every chrome button draws through the shared ui::DrawButtonFace, so
 		// hover reads exactly like the dialog buttons (m_hoverBtn is tracked by
@@ -948,22 +1033,103 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 							   enabled && m_hoverBtn == id, /*held*/ false,
 							   enabled);
 		};
-		const std::string above = LevelNeighbor(-1), below = LevelNeighbor(+1);
-		const gfx::Rect upR = LevelUpButton(panel), dnR = LevelDownButton(panel);
-		if (!above.empty()) face(upR, "^", HoverBtn::LevelUp);
-		if (!below.empty()) face(dnR, "v", HoverBtn::LevelDown);
-		m_font.Draw(batch, ViewedLevel(), dnR.x + dnR.w + dpad * 2,
-					upR.y + (upR.h - m_font.Height()) * 0.5f,
-					m_browse ? theme.accent : theme.text);
+		if (m_mode == Mode::Player) {
+			const std::string above = LevelNeighbor(-1), below = LevelNeighbor(+1);
+			const gfx::Rect upR = LevelUpButton(panel), dnR = LevelDownButton(panel);
+			if (!above.empty()) face(upR, "^", HoverBtn::LevelUp);
+			if (!below.empty()) face(dnR, "v", HoverBtn::LevelDown);
+			m_font.Draw(batch, ViewedLevel(), dnR.x + dnR.w + dpad * 2,
+						upR.y + (upR.h - m_font.Height()) * 0.5f,
+						m_browse ? theme.accent : theme.text);
+		} else {
+			// The band: a subtle lift over the panel base + a 1px seam, so it
+			// reads as fixed chrome the grid scrolls under.
+			const gfx::Rect tb = ToolbarRect(panel);
+			batch.DrawRect(tb, {1.0f, 1.0f, 1.0f, 0.045f});
+			batch.DrawRect({tb.x, tb.y + tb.h - 1.0f, tb.w, 1.0f},
+						   theme.panelBorder);
 
-		// The editor's header toolbar, top-right of the grid (Update hit-tests
-		// the same list): Level settings / Balance / undo / redo / Save / To
-		// source. Hidden buttons (empty undo/redo stack) keep their slot but
-		// don't draw; while a history restore is latched, undo/redo draw
-		// DISABLED for the frame it executes on, so the click visibly takes
-		// even if it hitches.
-		for (const ToolButton& b : ToolbarButtons(panel))
-			if (b.visible) face(b.rect, b.label, b.id, b.enabled);
+			// Icon discs (house style: the disc IS the button, hover/disable
+			// read as brightness — ui::Button's icon path); the level dropdown
+			// box keeps a text face (it shows the stem). While a history
+			// restore is latched, undo/redo draw disabled for the frame it
+			// executes on, so the click visibly takes even if it hitches.
+			const std::vector<ToolButton> btns = ToolbarButtons(panel);
+			const ToolButton* tip = nullptr;
+			for (const ToolButton& b : btns) {
+				if (!b.visible) continue;
+				const bool hot = b.enabled && m_hoverBtn == b.id;
+				if (hot && b.id != HoverBtn::LevelPick) tip = &b;
+				if (b.id == HoverBtn::LevelPick) {
+					face(b.rect, b.label, b.id, b.enabled);
+					// Dropdown marker: a small down triangle at the box's
+					// right edge (the label stays face-centered).
+					const float ts = b.rect.h * 0.16f;
+					const float cx = b.rect.x + b.rect.w - ts * 2.5f;
+					const float cy = b.rect.y + b.rect.h * 0.5f;
+					batch.DrawTriangle({cx - ts, cy - ts * 0.6f},
+									   {cx + ts, cy - ts * 0.6f},
+									   {cx, cy + ts * 0.8f}, theme.textDim);
+				} else if (b.icon) {
+					const float d = std::min(b.rect.w, b.rect.h);
+					const float f = !b.enabled ? 0.32f : hot ? 1.15f : 0.85f;
+					batch.DrawSpriteRotated(
+						{b.rect.x + b.rect.w * 0.5f, b.rect.y + b.rect.h * 0.5f},
+						{d, d}, 0.0f, {0.0f, 0.0f, 1.0f, 1.0f}, *b.icon,
+						{f, f, f, 1.0f});
+				} else {
+					face(b.rect, b.label, b.id, b.enabled);
+				}
+			}
+
+			// Tooltip: the hovered icon's localized name, just under the band
+			// (icons dropped the text labels; this keeps them discoverable).
+			if (tip) {
+				const float tw = m_font.MeasureWidth(tip->label);
+				const float pad2 = dpad * 1.5f;
+				gfx::Rect tr{tip->rect.x + tip->rect.w * 0.5f - tw * 0.5f - pad2,
+							 tb.y + tb.h + 2.0f, tw + pad2 * 2,
+							 m_font.Height() + pad2};
+				tr.x = std::clamp(tr.x, panel.x + 2.0f,
+								  panel.x + panel.w - tr.w - 2.0f);
+				batch.DrawRect(tr, kMapBg);
+				ui::DrawBorder(batch, tr, theme.panelBorder);
+				m_font.Draw(batch, tip->label, tr.x + pad2,
+							tr.y + pad2 * 0.5f, theme.text);
+			}
+
+			// The open level list, over everything: one row per level in the
+			// project's order. The viewed row washes active; the party's live
+			// level draws accented (same flag the Player header uses).
+			if (m_levelsOpen) {
+				const std::vector<std::string>& levels =
+					m_world.GetProject().levels;
+				const int n = static_cast<int>(levels.size());
+				if (n > 0) {
+					const gfx::Rect first = LevelItemRect(0, panel);
+					const gfx::Rect bg{first.x, first.y, first.w,
+									   n * first.h};
+					batch.DrawRect(bg, kMapBg);
+					ui::DrawBorder(batch, bg, theme.panelBorder);
+					for (int i = 0; i < n; ++i) {
+						const gfx::Rect r = LevelItemRect(i, panel);
+						if (levels[i] == ViewedLevel()) {
+							Vec4 wash = theme.controlActive;
+							wash.w = 0.55f;
+							batch.DrawRect(r, wash);
+						} else if (i == m_levelsHover) {
+							Vec4 wash = theme.controlHot;
+							wash.w = 0.45f;
+							batch.DrawRect(r, wash);
+						}
+						const bool live = levels[i] == m_world.CurrentLevel();
+						m_font.Draw(batch, levels[i], r.x + dpad * 2,
+									r.y + (r.h - m_font.Height()) * 0.5f,
+									live ? theme.accent : theme.text);
+					}
+				}
+			}
+		}
 	}
 
 	// Player title, centered over the grid area (clear of the key dock).

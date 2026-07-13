@@ -74,6 +74,10 @@ public:
 	// (LevelSettingsDialog — the .map `atmosphere` record's front-end) for
 	// the level the viewport is SHOWING (ViewedLevel/ViewedMap).
 	std::function<void()> onLevelSettings;
+	// The toolbar's [+] button: the owner (Game) creates a fresh level on disk
+	// (minimal .map/.ent + a manifest append) and returns its stem so the view
+	// can jump straight to it — or "" if creation failed.
+	std::function<std::string()> onNewLevel;
 
 	bool IsOpen() const { return m_open; }
 	Mode CurrentMode() const { return m_mode; }
@@ -87,6 +91,7 @@ public:
 		m_zoom = 1.0f;
 		m_pan = {0.0f, 0.0f};
 		m_browse.reset();
+		m_levelsOpen = false;
 	}
 	void Close() { m_open = false; }
 	// The M-key player-map toggle: open in Player mode, or close.
@@ -96,7 +101,10 @@ public:
 	}
 	// Flips an already-open map's mode without disturbing the view (the dev
 	// console's `editor` / `editor off`).
-	void SetMode(Mode mode) { m_mode = mode; }
+	void SetMode(Mode mode) {
+		m_mode = mode;
+		m_levelsOpen = false; // the level dropdown is Editor toolbar chrome
+	}
 
 	// Re-bakes the icon font when the window height changes (the overlay text
 	// scales with the screen like the rest of the UI).
@@ -202,6 +210,12 @@ private:
 	MapEditor* m_editor = nullptr; // Editor-mode brush palette + tools (not owned)
 	ui::Font m_font; // glyph icons + labels (own atlas, like the dev console)
 
+	// Toolbar icon discs (Wenrexa house style, baked by the icon factory —
+	// see the editor-polish thread notes). A missing file leaves the pointer
+	// null and that button falls back to its text face.
+	std::unique_ptr<gfx::Texture> m_icoLevel, m_icoBalance, m_icoUndo,
+		m_icoRedo, m_icoSave, m_icoSource, m_icoNew;
+
 	bool m_open = false;
 	Mode m_mode = Mode::Player;
 
@@ -223,26 +237,44 @@ private:
 	// ui::DrawButtonFace hover styling on the hand-drawn buttons.
 	enum class HoverBtn {
 		None, LevelUp, LevelDown, Undo, Redo, Save, SaveSource, Balance,
-		LevelSettings, CollapseL, CollapseR
+		LevelSettings, NewLevel, LevelPick, CollapseL, CollapseR
 	};
 	HoverBtn m_hoverBtn = HoverBtn::None;
 
-	// The editor's header TOOLBAR, top-right of the grid (mirroring the
-	// level-browse cluster top-left). ToolbarButtons builds the strip
-	// right-to-left from one fixed item order, and geometry, hover, click
-	// dispatch and render all read the same list — adding a tool is one
-	// `add` line. A hidden button (empty undo/redo stack) KEEPS its slot so
-	// the strip never shifts underfoot, but neither draws nor hit-tests; a
-	// disabled one (latched undo/redo trigger) draws greyed and swallows its
-	// click.
+	// The editor's TOOLBAR — a full-width band fixed across the top of the
+	// panel (Editor mode only; the docks and grid sit below it). The level
+	// dropdown + [+] new-level button anchor its left end; ToolbarButtons
+	// builds the icon tools right-to-left from one fixed item order, and
+	// geometry, hover, click dispatch and render all read the same list —
+	// adding a tool is one `add` line. Buttons draw as house-style icon
+	// discs (assets/ui/icon_tb_*.png, hover brightens like ui::Button's
+	// icon path; label = the hover tooltip, and the face-text fallback if
+	// an icon file is missing); a disabled one (empty undo/redo stack, or
+	// a latched history trigger) draws dimmed and swallows its click.
 	struct ToolButton {
 		HoverBtn id;
 		gfx::Rect rect;
-		std::string label;
+		std::string label; // tooltip (icon buttons) or face text (fallback)
+		const gfx::Texture* icon;
 		bool visible;
 		bool enabled;
 	};
 	std::vector<ToolButton> ToolbarButtons(const gfx::Rect& panel) const;
+	// The band itself: full panel width in Editor mode, zero-height otherwise
+	// (Player mode keeps the floating browse arrows instead).
+	gfx::Rect ToolbarRect(const gfx::Rect& panel) const;
+	// The level DROPDOWN (left end of the band): the closed box shows the
+	// viewed level's stem; open, it lists every level in the project's order.
+	// Hand-rolled like the rest of MapView's chrome (the toolbar is not a
+	// UIContext widget tree).
+	gfx::Rect LevelPickRect(const gfx::Rect& panel) const;
+	gfx::Rect LevelItemRect(int index, const gfx::Rect& panel) const;
+	gfx::Rect NewLevelButton(const gfx::Rect& panel) const; // [+], right of it
+	// Jump the viewport to a level by stem (the dropdown's pick; the arrows'
+	// StepViewLevel folds into this).
+	void SetViewLevel(const std::string& stem);
+	bool m_levelsOpen = false; // dropdown popup showing
+	int m_levelsHover = -1;    // hovered popup row (Update-tracked, like m_hoverBtn)
 
 	// Read-only snapshot of the browsed level (see the level-browsing section
 	// above); null = the viewport shows the active level's live state.
