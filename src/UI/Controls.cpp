@@ -121,8 +121,18 @@ void Button::Update(UIContext& ctx) {
 }
 
 void Button::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
-	DrawButtonFace(batch, ctx.GetFont(), Pixel(), text, ctx.GetTheme(), m_hot,
-				   m_held || active, true, ctx.GetSkin());
+	const gfx::Rect& px = Pixel();
+	DrawButtonFace(batch, ctx.GetFont(), px, icon ? std::string() : text,
+				   ctx.GetTheme(), m_hot, m_held || active, true, ctx.GetSkin());
+	if (icon) {
+		// A complete round icon face (own chrome + alpha) centered over the
+		// button, rotated in quarter turns (screen Y is down: positive turns
+		// step right→down→left→up).
+		const float d = std::min(px.w, px.h) * 0.78f;
+		batch.DrawSpriteRotated({px.x + px.w * 0.5f, px.y + px.h * 0.5f}, {d, d},
+								static_cast<float>(iconTurns) * (kPi * 0.5f),
+								{0, 0, 1, 1}, *icon, {1, 1, 1, 1});
+	}
 }
 
 void DrawButtonFace(gfx::SpriteBatch& batch, Font& font, const gfx::Rect& rect,

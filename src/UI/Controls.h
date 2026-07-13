@@ -97,6 +97,12 @@ public:
 	// Draw as selected (controlActive fill) regardless of hover — for a row that
 	// represents the current selection in a list (the config dialog's state/clip rows).
 	bool active = false;
+	// Optional icon face drawn centered INSTEAD of the label (the text stays
+	// the fallback when the texture is missing). `iconTurns` rotates it in
+	// quarter turns clockwise, so one chevron asset serves every direction
+	// (the HUD movement pad).
+	const gfx::Texture* icon = nullptr;
+	int iconTurns = 0;
 
 private:
 	bool m_hot = false;

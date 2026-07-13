@@ -132,6 +132,10 @@ void GameUI::LoadTitleArt() {
 	// The spellbook's Cast/Clear icon faces (optional — text buttons without).
 	m_castIconTex = TryLoadTextureFile(m_device, paths::Asset("ui\\icon_cast"));
 	m_clearIconTex = TryLoadTextureFile(m_device, paths::Asset("ui\\icon_clear"));
+	// The movement pad's chevrons (single = step, double = turn), rotated in
+	// quarter turns per direction by ui::Button::iconTurns.
+	m_chevronTex = TryLoadTextureFile(m_device, paths::Asset("ui\\icon_chevron"));
+	m_chevron2Tex = TryLoadTextureFile(m_device, paths::Asset("ui\\icon_chevron2"));
 	// The panel part is a QUIET bake (near-black + faint noise, one thin brass
 	// edge, no black rim — the old stone face read too busy under the kit's
 	// wooden buttons); it tiles, so the noise stays dense at any panel size.
@@ -1515,24 +1519,32 @@ void GameUI::BuildHud() {
 		Norm({px, belowBar, panelW, panelBottom - belowBar}, window)));
 
 	// Movement arrows: turn left / forward / turn right over strafe left /
-	// back / strafe right (the classic six), square, three across.
+	// back / strafe right (the classic six), square, three across. Icon faces
+	// when the chevron textures exist (single chevron = step, double = turn,
+	// rotated per direction; the icons point RIGHT at 0 turns); the text
+	// glyphs stay as the fallback.
 	const struct {
 		const char* glyph;
 		MoveAction action;
+		bool turn;    // double chevron
+		int quarters; // clockwise quarter turns from pointing right
 	} moves[] = {
-		{"«", MoveAction::TurnLeft}, {"^", MoveAction::Forward},
-		{"»", MoveAction::TurnRight}, {"<", MoveAction::StrafeLeft},
-		{"v", MoveAction::Back},      {">", MoveAction::StrafeRight},
+		{"«", MoveAction::TurnLeft, true, 2},  {"^", MoveAction::Forward, false, 3},
+		{"»", MoveAction::TurnRight, true, 0}, {"<", MoveAction::StrafeLeft, false, 2},
+		{"v", MoveAction::Back, false, 1},     {">", MoveAction::StrafeRight, false, 0},
 	};
 	const float moveW = (innerW - 2 * 8.0f) / 3.0f;
 	for (size_t i = 0; i < std::size(moves); ++i) {
-		below(m_hudUi.Add<ui::Button>(
+		auto* btn = m_hudUi.Add<ui::Button>(
 			Norm({px + pad + (moveW + 8.0f) * static_cast<float>(i % 3),
 				  belowBar + 12 + (moveW + 8.0f) * static_cast<float>(i / 3),
 				  moveW, moveW},
 				 window),
 			moves[i].glyph,
-			[this, action = moves[i].action] { onMoveAction(action); }));
+			[this, action = moves[i].action] { onMoveAction(action); });
+		btn->icon = moves[i].turn ? m_chevron2Tex.get() : m_chevronTex.get();
+		btn->iconTurns = moves[i].quarters;
+		below(btn);
 	}
 
 	// Hand pairs, two members side by side per row (so the four-member

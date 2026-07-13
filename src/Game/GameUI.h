@@ -362,6 +362,9 @@ private:
 	// The spellbook's Cast/Clear round icon faces (optional).
 	std::unique_ptr<gfx::Texture> m_castIconTex;
 	std::unique_ptr<gfx::Texture> m_clearIconTex;
+	// The movement pad's chevron icon faces (single = step, double = turn).
+	std::unique_ptr<gfx::Texture> m_chevronTex;
+	std::unique_ptr<gfx::Texture> m_chevron2Tex;
 
 	MenuPage m_menuPage = MenuPage::Main;
 	SavesMode m_savesMode = SavesMode::Load;
