@@ -25,11 +25,15 @@ namespace dungeon::ui {
 
 // One 9-slice image: `corner` is the fixed frame width in TEXTURE pixels
 // (uniform on all sides), `scale` maps texture pixels to screen pixels for
-// the frame and the tile size (1 = native).
+// the frame and the tile size (1 = native). `stretch` switches the edges and
+// center from TILED (material textures — stone stays stone-dense at any
+// panel size) to STRETCHED (authored faces with baked lighting — a plaque's
+// gradient spans the widget once; tiling it repeats as light/dark bands).
 struct SkinPart {
 	const gfx::Texture* texture = nullptr;
 	float corner = 0.0f;
 	float scale = 1.0f;
+	bool stretch = false;
 };
 
 // The part set the widget library knows how to use. Parts may be null

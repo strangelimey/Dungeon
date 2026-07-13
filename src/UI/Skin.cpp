@@ -58,6 +58,21 @@ void DrawNineSlice(gfx::SpriteBatch& batch, const gfx::Rect& dst,
 	batch.DrawSprite({dst.x, y2, cs, cs}, {0, 1.0f - fv, fu, fv}, tex, tint);
 	batch.DrawSprite({x2, y2, cs, cs}, {1.0f - fu, 1.0f - fv, fu, fv}, tex, tint);
 
+	if (part.stretch) {
+		// Authored-face mode: edges stretch along their axis and the center
+		// stretches both ways, so a plaque's baked lighting gradient spans the
+		// widget once instead of repeating (tiling a gradient = visible bands).
+		batch.DrawSprite({x1, dst.y, innerW, cs}, {fu, 0, 1.0f - 2 * fu, fv}, tex, tint);
+		batch.DrawSprite({x1, y2, innerW, cs}, {fu, 1.0f - fv, 1.0f - 2 * fu, fv}, tex,
+						 tint);
+		batch.DrawSprite({dst.x, y1, cs, innerH}, {0, fv, fu, 1.0f - 2 * fv}, tex, tint);
+		batch.DrawSprite({x2, y1, cs, innerH}, {1.0f - fu, fv, fu, 1.0f - 2 * fv}, tex,
+						 tint);
+		batch.DrawSprite({x1, y1, innerW, innerH},
+						 {fu, fv, 1.0f - 2 * fu, 1.0f - 2 * fv}, tex, tint);
+		return;
+	}
+
 	// Edges (tiled along their axis).
 	TileRegion(batch, tex, {x1, dst.y, innerW, cs}, tileW, cs, fu, 0, 1.0f - fu, fv,
 			   tint);
