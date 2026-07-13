@@ -3,18 +3,18 @@
 monster skel_coward 9 4 west
 monster skel_archer 10 4 west
 monster skel_mage 16 4 west
-monster skeleton 26 4 west archetype=sentry patrol=22,4;28,4
+monster skeleton 25 4 west archetype=sentry patrol=22,4;28,4
 monster blob 27 4 south
 monster skel_lurker 14 6 north
 monster skel_swarm 13 7 north
 monster skel_swarm 14 7 north
 monster skeleton 15 7 west
-monster skel_warrior 4 8 north
+monster skel_warrior 26 4 north
 monster skel_swarm 13 8 north
-monster skel_bare 4 9 north
-monster skel_berserker 4 10 north
+monster skel_bare 4 7 north
+monster skel_berserker 4 7 north
 monster centipede 5 10 north
-monster skel_spearman 4 11 north
+monster skel_spearman 4 7 north
 monster mummy 4 12 east
 monster mummy 27 13 west
 monster skeleton 12 14 east
