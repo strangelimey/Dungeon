@@ -274,7 +274,10 @@ void DungeonWorld::PruneEntitiesForCell(int x, int z) {
 }
 
 void DungeonWorld::EditVariant(int x, int z, SurfaceSel sel, int variant) {
-	if (!m_map.IsWalkable(x, z)) return; // variants live on floor cells
+	// Wall variants live on the SOLID cell (the block owns its texture — all
+	// four faces); floor/ceiling variants on the floor cell they surface. A
+	// paint on the wrong cell type is a no-op.
+	if ((sel == SurfaceSel::Wall) == m_map.IsWalkable(x, z)) return;
 	const u32 rev = m_map.Revision();
 	switch (sel) {
 	case SurfaceSel::Wall:    m_map.SetWallVariant(x, z, variant); break;
@@ -937,7 +940,9 @@ void DungeonWorld::EditCellRemote(const std::string& stem, int x, int z,
 void DungeonWorld::EditVariantRemote(const std::string& stem, int x, int z,
 									 SurfaceSel sel, int variant) {
 	DungeonMap& map = EnsureMapStash(stem);
-	if (!map.IsWalkable(x, z)) return; // variants live on floor cells
+	// Same cell-type gate as EditVariant: walls on solid cells, the rest on
+	// floor cells.
+	if ((sel == SurfaceSel::Wall) == map.IsWalkable(x, z)) return;
 	switch (sel) {
 	case SurfaceSel::Wall:    map.SetWallVariant(x, z, variant); break;
 	case SurfaceSel::Floor:   map.SetFloorVariant(x, z, variant); break;

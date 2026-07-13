@@ -548,28 +548,16 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 					c.y + t.cell * 0.5f - m_font.Height(), theme.text);
 	};
 
-	// A solid cell shows the wall-variant of an adjacent painted floor cell (walls
-	// belong to the floor cells they border), so a painted wall type tints the
-	// surrounding wall squares on the map.
-	auto wallCellVariant = [&](int x, int z) -> int {
-		const int n[4][2] = {{0, -1}, {0, 1}, {-1, 0}, {1, 0}};
-		for (const auto& d : n)
-			if (map.At(x + d[0], z + d[1]) == Cell::Floor) {
-				const int v = map.WallVariant(x + d[0], z + d[1]);
-				if (v >= 0) return v;
-			}
-		return -1;
-	};
-
 	// 1) Cell fill. Player mode keeps the stylized flat inks; Editor mode fills
 	// each floor cell with its RESOLVED floor texture (editor override or the
 	// mesh builder's position hash — the same albedo the 3D scene draws),
 	// dimmed so the markers stay primary. While a Walls/Floors/Ceilings brush
 	// is armed the fill flips to THAT surface at near-full brightness —
 	// ceilings become visible exactly when they are the subject, and wall
-	// paint shows on the solid squares it borders. Cells group by variant so
-	// the batch flushes once per texture, not per cell; an unloaded texture (a
-	// browsed level on a foreign palette) falls back to the flat ink.
+	// paint shows on the solid squares themselves (the block owns its
+	// texture). Cells group by variant so the batch flushes once per texture,
+	// not per cell; an unloaded texture (a browsed level on a foreign palette)
+	// falls back to the flat ink.
 	using SurfaceSel = DungeonWorld::SurfaceSel;
 	SurfaceSel fillSel = SurfaceSel::Floor;
 	bool fillArmed = false; // the armed brush IS the filled surface: brighten
@@ -612,18 +600,9 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 			if (!CellVisible(x, z)) continue;
 			const bool solid = map.At(x, z) == Cell::Wall;
 			int v = -1;
-			if (fillSel == SurfaceSel::Wall && solid) {
-				// Wall variants live on the floor cells they border; the first
-				// bordering floor cell's resolution paints this solid square.
-				const int n[4][2] = {{0, -1}, {0, 1}, {-1, 0}, {1, 0}};
-				for (const auto& d : n)
-					if (map.At(x + d[0], z + d[1]) == Cell::Floor) {
-						v = fillVariant(x + d[0], z + d[1]);
-						break;
-					}
-			} else if (fillSel != SurfaceSel::Wall && !solid) {
-				v = fillVariant(x, z);
-			}
+			// Each surface fills its own cell: the wall texture on the solid
+			// square (the block owns it), floor/ceiling on the floor square.
+			if ((fillSel == SurfaceSel::Wall) == solid) v = fillVariant(x, z);
 			if (v >= 0 && fillTex[static_cast<size_t>(v)]) {
 				// The dim view's curve: the texture draws at sub-1 alpha over
 				// this lift ink (see MapColors.h). Batch order is submission
@@ -633,7 +612,7 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 				fillCells[static_cast<size_t>(v)].push_back(cellRect(x, z));
 				continue;
 			}
-			const Vec4 col = solid ? VariantTint(kWall, wallCellVariant(x, z))
+			const Vec4 col = solid ? VariantTint(kWall, map.WallVariant(x, z))
 								   : VariantTint(kFloor, map.FloorVariant(x, z));
 			batch.DrawRect(cellRect(x, z), col);
 		}

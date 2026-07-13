@@ -338,9 +338,13 @@ void DungeonMap::ParseVariantRecord(const std::string& record, const std::string
 		return v;
 	};
 	const int x = num(tok[2]), z = num(tok[3]), idx = num(tok[4]);
-	if (tok[1] == "wall") SetWallVariant(x, z, idx);
-	else if (tok[1] == "floor") SetFloorVariant(x, z, idx);
-	else if (tok[1] == "ceiling") SetCeilingVariant(x, z, idx);
+	// Wall variants belong to SOLID cells (the block owns its texture);
+	// floor/ceiling variants to walkable ones. A record on the wrong cell type
+	// is stale — files from the old floor-cell wall model, or a cell repainted
+	// structurally since — and is dropped here, so the next save writes it out.
+	if (tok[1] == "wall") { if (!IsWalkable(x, z)) SetWallVariant(x, z, idx); }
+	else if (tok[1] == "floor") { if (IsWalkable(x, z)) SetFloorVariant(x, z, idx); }
+	else if (tok[1] == "ceiling") { if (IsWalkable(x, z)) SetCeilingVariant(x, z, idx); }
 	else
 		DN_ASSERT(false, std::format("unknown variant surface \"{}\": \"{}\" in {}",
 									 tok[1], record, path));

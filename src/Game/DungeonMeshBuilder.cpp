@@ -114,10 +114,14 @@ void StampCell(const DungeonMap& map, int x, int z, CellHoles holes,
 		{-1, 0, kPi * 0.5f, {x * s, 0, center.z}},        // west
 		{+1, 0, -kPi * 0.5f, {(x + 1) * s, 0, center.z}}, // east
 	};
-	const u32 wallVariant = pick(map.WallVariant(x, z),
-								  SurfaceVariantFor(x, z, 3u, wallVariants), wallVariants);
+	// Each wall face takes its texture from the SOLID block it belongs to: the
+	// block owns its texture (all faces of one block agree, both sides of a
+	// shared wall included), and the editor paints the square that was clicked.
 	for (const Edge& e : edges) {
-		if (map.IsWalkable(x + e.dx, z + e.dz)) continue;
+		const int wx = x + e.dx, wz = z + e.dz;
+		if (map.IsWalkable(wx, wz)) continue;
+		const u32 wallVariant = pick(map.WallVariant(wx, wz),
+									  SurfaceVariantFor(wx, wz, 3u, wallVariants), wallVariants);
 		const XMMATRIX m =
 			XMMatrixRotationY(e.yaw) * XMMatrixTranslation(e.pos.x, e.pos.y, e.pos.z);
 		AppendTransformed(wallB[wallVariant], wallBlocks[wallVariant], m);
