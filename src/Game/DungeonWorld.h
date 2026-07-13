@@ -124,8 +124,10 @@ public:
 	const gfx::Texture* MonsterIconFor(const std::string& type) const;
 	const gfx::Texture* DecorationIconFor(const std::string& type) const;
 	const gfx::Texture* ItemIconLookup(const std::string& type) const;
-	const gfx::Texture* SconceIcon() const { return m_sconceIcon.get(); }
-	const gfx::Texture* BrazierIcon() const { return m_brazierIcon.get(); }
+	// The baked map icon for a fixture kind (null until its one-shot bake ran —
+	// the map overlay falls back to a colored marker). Kinds load lazily on
+	// first use (BuildFires / placement), so the active level's are always in.
+	const gfx::Texture* FixtureIcon(const std::string& type) const;
 
 	// Torchlight palette (the HUD dropdown): 0 warm, 1 cold blue, 2 eerie
 	// green. Announces the change through onMessage.
@@ -293,6 +295,10 @@ public:
 	bool BrazierAt(int cx, int cz) const;
 	bool BrazierSettings(int cx, int cz, bool& lit, float& brightness, float& turbidity) const;
 	bool SetBrazierSettings(int cx, int cz, bool lit, float brightness, float turbidity);
+	// A fixture instance's catalog id (for the inspector's preview/title);
+	// falls back to the classic ids when the instance isn't found.
+	std::string SconceTypeAt(int cx, int cz, Direction wall) const;
+	std::string BrazierTypeAt(int cx, int cz) const;
 
 	// Editor multi-object inspect: decorations / floor items on a cell. Decorations
 	// come back as (index into the live decoration list, catalog id); items as
@@ -359,8 +365,9 @@ public:
 		float flameHeight = kSconceFlameY;
 		float flameScale = kSconceFlameScale;
 	};
-	FixturePreviewData SconcePreview() const;
-	FixturePreviewData BrazierPreview() const; // brazier prop mesh + flame origin
+	// A fixture kind's preview (prop mesh(es) + flame origin) for the instance
+	// inspector — resolves/loads the kind on demand.
+	FixturePreviewData FixturePreviewOf(const std::string& type);
 	// Preview submeshes for a placed decoration (by list index) or item (by entity
 	// id) — single-mesh or authored multi-material, resolved to mesh+material pairs.
 	// Empty if the handle doesn't resolve or has no previewable mesh.
@@ -1111,8 +1118,11 @@ private:
 	// Fires: wall sconces (at 'T' cells, mounted on the adjacent wall) and
 	// floor braziers ('F' cells). Each carries a flickering point light at
 	// its flame origin and a FireEffect particle simulation.
+	struct FixtureKind; // defined with the fixture members below
+
 	struct Fire {
-		bool brazier = false;
+		const FixtureKind* kind = nullptr; // resolved catalog id (mesh/tex/flame)
+		bool brazier = false;    // floor-standing (light params branch on this)
 		bool lit = true;         // false: prop still drawn, but no light/flame/smoke
 		float lightRadius = 7.0f; // point-light reach in metres (sconce brightness * cell)
 		Mat4 world;        // prop transform
@@ -1252,10 +1262,11 @@ private:
 	// routes through this so the overrides apply everywhere alike.
 	static void ApplyPropMaterial(gfx::MaterialParams& m, const DecorationKind& kind,
 								  float fallbackRoughness);
-	// Shared body of Sconce/BrazierPreview: prop mesh + material + flame origin.
-	FixturePreviewData FixturePreview(const PropTextures* tex, const Vec4& color,
-									  const gfx::Mesh* mesh, float flameY,
-									  float flameScale) const;
+	// Fixture routing info for DungeonMap's parser (see the declaration below).
+	// Routing info for DungeonMap's fixture-record parser, derived from the
+	// project's fixtures catalog (wall-mount ids + the glyph default ids).
+	// Passed at every DungeonMap construction.
+	static FixtureTypes FixtureTypesOf(const Project& project);
 	// Builds an authored model's own GPU resources (one texture per embedded glTF
 	// image, one submesh per primitive with its material) for the multi-material
 	// decoration path.
@@ -1514,8 +1525,6 @@ private:
 	// texture existing instead (their meshes load once at boot).
 	bool m_monsterIconsBaked = false;
 	bool m_decorationIconsBaked = false;
-	std::unique_ptr<gfx::Texture> m_sconceIcon;
-	std::unique_ptr<gfx::Texture> m_brazierIcon;
 	// Creates the shared icon depth target + halo on first use (all bakers).
 	void EnsureIconBakeTargets();
 	// One kind's head-shot bake: rest-pose mesh, framed on the model's top.
@@ -1690,22 +1699,6 @@ private:
 	bool m_geometryDirty = false; // a restore skipped the rebake (FlushGeometry)
 
 	std::vector<Fire> m_fires;
-	std::unique_ptr<gfx::Mesh> m_sconceMesh;
-	std::unique_ptr<gfx::Mesh> m_brazierMesh;
-	// The fixtures' source models, kept for the map-icon bake's bounds fit.
-	assets::ModelData m_sconceModel;
-	assets::ModelData m_brazierModel;
-	Vec4 m_sconceColor{1, 1, 1, 1};
-	Vec4 m_brazierColor{1, 1, 1, 1};
-	const PropTextures* m_sconceTex = nullptr;  // worn-medieval iron (sconce_<res>)
-	const PropTextures* m_brazierTex = nullptr; // bronze (brazier_<res>)
-	// Optional second brazier part (fixtures.cat part2_model / part2_texture):
-	// a co-located sub-prop with its own material — the bought brazier's coal
-	// bed, whose maps are a separate set from the bowl's. Null when the entry
-	// names none (the procedural brazier, or a single-material import).
-	std::unique_ptr<gfx::Mesh> m_brazierMesh2;
-	const PropTextures* m_brazierTex2 = nullptr;
-	Vec4 m_brazierColor2{1, 1, 1, 1};
 	// Per-fixture flame attachment (fixtures.cat flame_height / flame_scale /
 	// flame_out, defaulting to the procedural meshes' constants) — an authored
 	// replacement prop declares where its fire burns instead of having to be
@@ -1713,8 +1706,29 @@ private:
 	struct FixtureFlame {
 		float height, scale, out; // local Y, particle scale, offset from wall
 	};
-	FixtureFlame m_sconceFlame{kSconceFlameY, kSconceFlameScale, 0.22f};
-	FixtureFlame m_brazierFlame{kBrazierFlameY, kBrazierFlameScale, 0.0f};
+	// A fixture catalog id resolved to its renderable assets — the fixture
+	// counterpart of DecorationKind, cached per id (FixtureKindFor), so every
+	// fixtures.cat entry is placeable instead of the two manifest defaults.
+	// part2 (mesh2/tex2/color2) is the optional co-located sub-prop with its
+	// own material (the bought brazier's coal bed — the two models were
+	// normalized TOGETHER at import, so their placements pre-align).
+	struct FixtureKind {
+		std::string id;
+		bool wallMount = false; // fixtures.cat mount = wall|floor
+		bool flameless = false; // fixtures.cat flame = 0: never lit (empty bowl)
+		std::unique_ptr<gfx::Mesh> mesh;
+		std::unique_ptr<gfx::Mesh> mesh2;
+		assets::ModelData model; // kept for the map-icon bake's bounds fit
+		Vec4 color{1, 1, 1, 1};
+		Vec4 color2{1, 1, 1, 1};
+		const PropTextures* tex = nullptr;
+		const PropTextures* tex2 = nullptr;
+		FixtureFlame flame{0.0f, 0.0f, 0.0f};
+		std::unique_ptr<gfx::Texture> iconTarget; // baked map icon
+	};
+	std::flat_map<std::string, std::unique_ptr<FixtureKind>> m_fixtureKinds;
+	bool m_fixtureIconsBaked = false; // re-armed by a fresh kind (like decorations)
+	FixtureKind& FixtureKindFor(const std::string& type);
 	std::unique_ptr<gfx::ParticleBatch> m_particleBatch;
 	std::vector<gfx::ParticleInstance> m_particleScratch;
 

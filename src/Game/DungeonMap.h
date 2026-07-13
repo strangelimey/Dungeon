@@ -60,13 +60,16 @@ inline constexpr float kFixtureMinBrightness = 0.25f;
 // direction from the cell to the solid neighbour it mounts against). Several
 // sconces may share a cell on different walls. `lit` gates its light, flame
 // particles and smoke; `brightness` is the light reach in cells; `turbidity`
-// is how much haze it adds to its cell and neighbours.
+// is how much haze it adds to its cell and neighbours. `type` is the
+// fixtures.cat id this instance renders as (the parser fills the default for
+// glyph shorthand, so it is never empty).
 struct WallSconce {
 	int x = 0, z = 0;
 	Direction wall = Direction::North;
 	bool lit = true;
 	float brightness = kSconceBrightness;
 	float turbidity = kSconceTurbidity;
+	std::string type = "sconce";
 };
 
 // Per-brazier defaults (bigger reach + more smoke than a sconce), same "don't
@@ -75,12 +78,25 @@ inline constexpr float kBrazierBrightness = 6.0f; // light reach, in cells
 inline constexpr float kBrazierTurbidity = 0.38f;
 
 // A floor-standing brazier: its cell plus the same light/smoke knobs a sconce
-// has (no wall — it stands at the cell centre).
+// has (no wall — it stands at the cell centre). `type` as on WallSconce.
 struct FloorBrazier {
 	int x = 0, z = 0;
 	bool lit = true;
 	float brightness = kBrazierBrightness;
 	float turbidity = kBrazierTurbidity;
+	std::string type = "brazier";
+};
+
+// How the parser routes a `fixture <id> ...` record and the 'T'/'F' glyphs
+// without knowing the fixtures catalog: ids listed in `wallMount` become
+// WallSconces (everything else stands on the floor), and the glyphs resolve
+// to the project's default ids. DungeonWorld builds one of these from the
+// live Project (FixtureTypesOf); the defaults keep a bare DungeonMap(path)
+// working for the classic two kinds.
+struct FixtureTypes {
+	std::vector<std::string> wallMount{"sconce"};
+	std::string sconceDefault = "sconce";  // the 'T' glyph's id
+	std::string brazierDefault = "brazier"; // the 'F' glyph's id
 };
 
 // A stair/portal on a floor cell that, when the party steps onto it, transitions
@@ -100,7 +116,8 @@ struct StairLink {
 class DungeonMap {
 public:
 	// Loads and validates a .map file; failures are fatal with a clear message.
-	explicit DungeonMap(const std::string& path);
+	// `fixtures` routes fixture records by catalog id (see FixtureTypes).
+	explicit DungeonMap(const std::string& path, FixtureTypes fixtures = {});
 
 	int Width() const { return m_width; }
 	int Height() const { return m_height; }
@@ -171,8 +188,11 @@ public:
 	// Both add their dust and bump Revision(). Return false on an invalid cell.
 	// DungeonWorld rebuilds the fires/dust after; the .map writer reads these
 	// lists, so placements persist.
-	bool AddSconce(int x, int z);
-	bool AddBrazier(int x, int z);
+	// `type` is the fixtures.cat id the instance renders as; `lit` seeds the
+	// record's light flag (a flameless kind places unlit, so the turbidity
+	// grid — which only smokes LIT fixtures — stays truthful).
+	bool AddSconce(int x, int z, std::string type = "sconce", bool lit = true);
+	bool AddBrazier(int x, int z, std::string type = "brazier", bool lit = true);
 	// Re-hang the sconce at (x,z) currently on `from` onto `to` (which must be a
 	// solid neighbour wall). Bumps Revision(); false if no such sconce or `to`
 	// isn't solid. The caller rebuilds fires/turbidity (DungeonWorld::RemountSconce).

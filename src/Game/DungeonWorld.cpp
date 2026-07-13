@@ -40,13 +40,30 @@ std::string DungeonWorld::FirstLevel(const Project& p) {
 	return p.levels.empty() ? std::string("level1") : p.levels.front();
 }
 
+// The fixture-record routing DungeonMap's parser needs (it has no catalog
+// access): which ids hang on walls, and what the 'T'/'F' glyphs resolve to.
+FixtureTypes DungeonWorld::FixtureTypesOf(const Project& p) {
+	FixtureTypes t;
+	t.wallMount.clear();
+	for (const CatalogEntry& e : p.fixtures.Entries())
+		if (e.Get("mount", "floor") == "wall") t.wallMount.push_back(e.id);
+	t.sconceDefault = p.defaultSconce;
+	t.brazierDefault = p.defaultBrazier;
+	return t;
+}
+
+const gfx::Texture* DungeonWorld::FixtureIcon(const std::string& type) const {
+	const auto it = m_fixtureKinds.find(type);
+	return it == m_fixtureKinds.end() ? nullptr : it->second->iconTarget.get();
+}
+
 DungeonWorld::DungeonWorld(gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 						   audio::AudioEngine& audio, const SoundBank& sounds,
 						   const GameSettings& settings, const Project& project,
 						   threads::Manager& threadManager)
 	: m_device(device), m_renderer(renderer), m_audio(audio), m_sounds(sounds),
 	  m_settings(settings), m_project(project),
-	  m_map(project.LevelMapPath(FirstLevel(project))),
+	  m_map(project.LevelMapPath(FirstLevel(project)), FixtureTypesOf(project)),
 	  m_entities(project.LevelEntPath(FirstLevel(project)), m_map),
 	  m_party(m_map, m_map.StartX(), m_map.StartZ()), m_director(threadManager) {
 	m_currentLevel = FirstLevel(project);
@@ -341,8 +358,13 @@ bool DungeonWorld::AddMonster(const std::string& type, int x, int z,
 
 bool DungeonWorld::AddFixture(const std::string& type, int x, int z) {
 	if (!m_map.IsWalkable(x, z)) return false;
-	const std::string mount = CatalogGet(m_project.fixtures.Find(type), "mount", "floor");
-	const bool ok = mount == "wall" ? m_map.AddSconce(x, z) : m_map.AddBrazier(x, z);
+	const CatalogEntry* def = m_project.fixtures.Find(type);
+	// A flameless kind (empty bowl) places UNLIT so the map's turbidity grid —
+	// which only smokes lit fixtures — stays truthful in the record too.
+	const bool lit = CatalogBool(def, "flame", true);
+	const bool ok = CatalogGet(def, "mount", "floor") == "wall"
+						? m_map.AddSconce(x, z, type, lit)
+						: m_map.AddBrazier(x, z, type, lit);
 	if (!ok) return false;
 	RebuildFiresAndDust(); // lights/flame/smoke pick the new fire up next frame
 	MarkSeen(x, z);
@@ -779,7 +801,8 @@ DungeonMap& DungeonWorld::EnsureMapStash(const std::string& stem) {
 	if (it == m_levelMaps.end())
 		it = m_levelMaps
 				 .insert_or_assign(stem, std::make_unique<DungeonMap>(
-											 m_project.LevelMapPath(stem)))
+											 m_project.LevelMapPath(stem),
+											 FixtureTypesOf(m_project)))
 				 .first;
 	return *it->second;
 }
@@ -984,12 +1007,14 @@ bool DungeonWorld::AddMonsterRemote(const std::string& stem,
 bool DungeonWorld::AddFixtureRemote(const std::string& stem,
 									const std::string& type, int x, int z) {
 	DungeonMap& map = EnsureMapStash(stem);
-	if (!m_project.fixtures.Contains(type)) return false;
-	const std::string mount =
-		CatalogGet(m_project.fixtures.Find(type), "mount", "floor");
+	const CatalogEntry* def = m_project.fixtures.Find(type);
+	if (!def) return false;
+	const bool lit = CatalogBool(def, "flame", true);
 	// AddSconce/AddBrazier validate the cell themselves (and rebuild the map's
 	// turbidity); the live-only fire/particle rebuild does not apply here.
-	return mount == "wall" ? map.AddSconce(x, z) : map.AddBrazier(x, z);
+	return def->Get("mount", "floor") == "wall"
+			   ? map.AddSconce(x, z, type, lit)
+			   : map.AddBrazier(x, z, type, lit);
 }
 
 void DungeonWorld::EraseRemote(const std::string& stem, int x, int z) {
@@ -1064,7 +1089,8 @@ std::unique_ptr<DungeonWorld::LevelBrowse> DungeonWorld::BrowseLevel(
 	const auto ms = m_levelMaps.find(stem);
 	DungeonMap map = ms != m_levelMaps.end()
 						 ? DungeonMap(*ms->second)
-						 : DungeonMap(m_project.LevelMapPath(stem));
+						 : DungeonMap(m_project.LevelMapPath(stem),
+									  FixtureTypesOf(m_project));
 	const auto es = m_levelEnts.find(stem);
 	auto browse =
 		es != m_levelEnts.end()
@@ -1158,7 +1184,7 @@ void DungeonWorld::BeginLevelLoad(const std::string& stem, bool stashCurrent) {
 		m_map = std::move(*it->second);
 		m_levelMaps.erase(it);
 	} else {
-		m_map = DungeonMap(m_project.LevelMapPath(stem));
+		m_map = DungeonMap(m_project.LevelMapPath(stem), FixtureTypesOf(m_project));
 	}
 	if (auto it = m_levelEnts.find(stem); it != m_levelEnts.end()) {
 		m_entities = std::move(*it->second);
@@ -1286,8 +1312,10 @@ static std::string SerializeMapStatic(const std::string& stem,
 	}
 	m += ";\n";
 
+	// The kind token is the instance's fixtures.cat id (the parser fills the
+	// default for glyph shorthand, so it is never empty).
 	for (const WallSconce& s : map.Sconces()) {
-		m += std::format("fixture sconce {} {} {}", s.x, s.z, DirName(s.wall));
+		m += std::format("fixture {} {} {} {}", s.type, s.x, s.z, DirName(s.wall));
 		// Only non-default light/smoke settings are written (keeps the .map minimal).
 		if (!s.lit) m += " lit=0";
 		if (s.brightness != kSconceBrightness) m += std::format(" bright={:g}", s.brightness);
@@ -1295,7 +1323,7 @@ static std::string SerializeMapStatic(const std::string& stem,
 		m += '\n';
 	}
 	for (const FloorBrazier& b : map.Braziers()) {
-		m += std::format("fixture brazier {} {}", b.x, b.z);
+		m += std::format("fixture {} {} {}", b.type, b.x, b.z);
 		if (!b.lit) m += " lit=0";
 		if (b.brightness != kBrazierBrightness) m += std::format(" bright={:g}", b.brightness);
 		if (b.turbidity != kBrazierTurbidity) m += std::format(" turb={:g}", b.turbidity);
@@ -2514,6 +2542,17 @@ bool DungeonWorld::BrazierSettings(int cx, int cz, bool& lit, float& brightness,
 	brightness = b->brightness;
 	turbidity = b->turbidity;
 	return true;
+}
+
+std::string DungeonWorld::SconceTypeAt(int cx, int cz, Direction wall) const {
+	for (const WallSconce& s : m_map.Sconces())
+		if (s.x == cx && s.z == cz && s.wall == wall) return s.type;
+	return "sconce";
+}
+
+std::string DungeonWorld::BrazierTypeAt(int cx, int cz) const {
+	const FloorBrazier* b = m_map.BrazierAt(cx, cz);
+	return b ? b->type : "brazier";
 }
 
 bool DungeonWorld::SetBrazierSettings(int cx, int cz, bool lit, float brightness,

@@ -567,7 +567,8 @@ void Game::OpenInspectorFor(const InspectTarget& t) {
 		fc.wall = t.wall;
 		if (!m_world.TorchSettings(cx, cz, t.wall, fc.lit, fc.brightness, fc.turbidity))
 			return; // gone since the picker listed it
-		OpenFixtureInspector(fc, walls, m_world.SconcePreview());
+		OpenFixtureInspector(fc, walls,
+							 m_world.FixturePreviewOf(m_world.SconceTypeAt(cx, cz, t.wall)));
 		break;
 	}
 	case InspectTarget::Kind::Brazier: {
@@ -577,7 +578,8 @@ void Game::OpenInspectorFor(const InspectTarget& t) {
 		fc.z = cz;
 		if (!m_world.BrazierSettings(cx, cz, fc.lit, fc.brightness, fc.turbidity))
 			return; // gone since the picker listed it
-		OpenFixtureInspector(fc, /*walls*/ {}, m_world.BrazierPreview()); // no facing
+		OpenFixtureInspector(fc, /*walls*/ {},
+							 m_world.FixturePreviewOf(m_world.BrazierTypeAt(cx, cz)));
 		break;
 	}
 	case InspectTarget::Kind::Door: {

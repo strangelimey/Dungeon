@@ -729,18 +729,20 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 	};
 
 	// 3) Fixtures and static decorations (both from the static map layer).
+	// Icons come from the instance's resolved kind (a kind the active level
+	// never loaded — possible on a browsed level — falls back to the marker).
 	for (const WallSconce& s : map.Sconces()) {
 		if (!CellVisible(s.x, s.z)) continue;
 		const Vec2 dir{static_cast<float>(DirDX(s.wall)),
 					   static_cast<float>(DirDZ(s.wall))};
-		if (const gfx::Texture* icon = m_world.SconceIcon())
+		if (const gfx::Texture* icon = m_world.FixtureIcon(s.type))
 			edgeIcon(s.x, s.z, 0.34f, *icon, dir);
 		else
 			edgeMarker(s.x, s.z, 0.16f, kTorch, dir);
 	}
 	for (const FloorBrazier& b : map.Braziers()) {
 		if (!CellVisible(b.x, b.z)) continue;
-		if (const gfx::Texture* icon = m_world.BrazierIcon())
+		if (const gfx::Texture* icon = m_world.FixtureIcon(b.type))
 			iconMarker(b.x, b.z, 0.62f, *icon);
 		else
 			marker(b.x, b.z, 0.46f, kBrazier);
