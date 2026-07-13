@@ -90,6 +90,10 @@ public:
 	// Free-look feel (hold/return durations + curves); pushed from GameSettings.
 	void SetLook(const LookSettings& look) { m_look = look; }
 
+	// Walking head bob on/off (Settings → UI checkbox; some players get motion
+	// sick). Off = the eye glides dead level; the step tween is untouched.
+	void SetHeadBob(bool on) { m_headBob = on; }
+
 	// Easing curves for the visual move/turn tweens (default EaseInOut — the
 	// gentle slow-start/slow-stop that gives the grid step its weight).
 	void SetMoveEasing(Easing e) { m_moveEasing = e; }
@@ -225,7 +229,12 @@ private:
 	float m_returnFromYaw = 0.0f;
 	float m_returnFromPitch = 0.0f;
 
-	float m_bobPhase = 0.0f;
+	// Head bob (EyePosition): driven by the step tween's PROGRESS (not wall
+	// clock), so the dip always lands level exactly as the step ends — no snap
+	// when a step cuts the old free-running sine mid-phase. The sway side
+	// alternates per step (footfalls). m_headBob gates the whole effect.
+	bool m_headBob = true;
+	bool m_bobParity = false; // which side this step sways toward
 	float m_blockCooldown = 0.0f; // throttles repeated blocked-move feedback
 	float m_speed = 1.0f;         // pace multiplier (slowest member)
 	bool m_noclip = false;        // dev console: walk through walls

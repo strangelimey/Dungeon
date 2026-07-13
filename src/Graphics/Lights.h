@@ -81,8 +81,12 @@ struct Atmosphere {
 	// global in-scatter scale so torches make dust glow without washing
 	// the whole frame out.
 	Vec3 hazeColor{0.50f, 0.42f, 0.30f};
-	float density = 0.09f;             // optical depth per meter at turbidity 1
-	float hazeAmbient = 1.2f;          // how much ambient light the dust catches
+	// Density + haze-ambient trimmed in the lighting mood pass (0.09 → 0.075,
+	// 1.2 → 0.9): the in-scatter wash was measurably burying surface shadows
+	// in fire-dense rooms. Live-tunable from the dev console (`dust <d>`,
+	// `haze <h>`) — bake re-tuned values back here.
+	float density = 0.075f;            // optical depth per meter at turbidity 1
+	float hazeAmbient = 0.9f;          // how much ambient light the dust catches
 };
 
 } // namespace dungeon::gfx

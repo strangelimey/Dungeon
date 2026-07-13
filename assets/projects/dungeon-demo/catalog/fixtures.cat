@@ -4,16 +4,34 @@
 ;   mount   = wall (hangs on a solid neighbour wall) | floor (stands centred)
 ; The 'T'/'F' map glyphs resolve to project.ini's default_sconce/default_brazier.
 
+; Authored torch sconce (fab: Perunir "Medieval Stylized Torch" — bracket +
+; torch meshes; the pack's decorative flame shells are dropped at import, the
+; engine's particle flame burns at the flame_* point instead). The model is
+; imported lifted to hanging height with its back at z=0 (import-model
+; --lift/--wall), so it mounts like the old procedural sconce did.
 [sconce]
 display = Wall Sconce
 category = light
-model = sconce
-texture = sconce
+model = wall_torch
+texture = wall_torch
 mount = wall
+flame_height = 1.70
+flame_scale = 0.55
+flame_out = 0.16
 
+; Authored brazier (fab: Mavas3D "Fantastic brazier lamp") — TWO co-located
+; parts: the ornate bowl + a hot-coals bed with its own texture set
+; (part2_model/part2_texture; both normalized together at import so they
+; pre-align). The coals top out at y=0.72, the flame burns just above.
+; The coal-less sibling is imported as brazier_empty / brazier_empty_2k —
+; swap model/texture (and drop part2_*) to use it instead.
 [brazier]
 display = Brazier
 category = light
-model = brazier
-texture = brass
+model = brazier_bowl
+texture = brazier_bowl
+part2_model = brazier_coals
+part2_texture = brazier_coals
 mount = floor
+flame_height = 0.74
+flame_scale = 1.0

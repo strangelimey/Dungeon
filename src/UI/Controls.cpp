@@ -1,9 +1,31 @@
 #include "UI/Controls.h"
 
+#include "UI/Skin.h"
+
 #include <algorithm>
 #include <format>
 
 namespace dungeon::ui {
+
+namespace {
+
+// The context's panel part, or null when unskinned (flat debug mode) — the
+// widget-side gate for every "skin or flat?" draw decision.
+const SkinPart* PanelPart(const UIContext& ctx) {
+	const Skin* skin = ctx.GetSkin();
+	return skin && skin->panel.texture ? &skin->panel : nullptr;
+}
+
+} // namespace
+
+void DrawPanelFace(UIContext& ctx, gfx::SpriteBatch& batch, const gfx::Rect& rect) {
+	if (const SkinPart* part = PanelPart(ctx)) {
+		DrawNineSlice(batch, rect, *part, {1, 1, 1, ctx.GetTheme().panel.w});
+		return;
+	}
+	batch.DrawRect(rect, ctx.GetTheme().panel);
+	DrawBorder(batch, rect, ctx.GetTheme().panelBorder);
+}
 
 void DrawBorder(gfx::SpriteBatch& batch, const gfx::Rect& rect, const Vec4& color) {
 	batch.DrawRect({rect.x, rect.y, rect.w, 1}, color);
@@ -15,8 +37,7 @@ void DrawBorder(gfx::SpriteBatch& batch, const gfx::Rect& rect, const Vec4& colo
 // --- Panel -------------------------------------------------------------
 
 void Panel::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
-	batch.DrawRect(Pixel(), ctx.GetTheme().panel);
-	DrawBorder(batch, Pixel(), ctx.GetTheme().panelBorder);
+	DrawPanelFace(ctx, batch, Pixel());
 }
 
 // --- Separator ---------------------------------------------------------
@@ -65,8 +86,7 @@ void TextOutput::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
 	Font& font = ctx.GetFont();
 	const gfx::Rect& px = Pixel();
 
-	batch.DrawRect(px, theme.panel);
-	DrawBorder(batch, px, theme.panelBorder);
+	DrawPanelFace(ctx, batch, px);
 
 	const float lineHeight = font.LineAdvance();
 	const float pad = 6.0f;
@@ -101,19 +121,44 @@ void Button::Update(UIContext& ctx) {
 }
 
 void Button::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
-	DrawButtonFace(batch, ctx.GetFont(), Pixel(), text, ctx.GetTheme(), m_hot,
-				   m_held || active);
+	const gfx::Rect& px = Pixel();
+	if (icon) {
+		// Icon-only: the round face IS the button (it carries its own chrome
+		// and alpha) — no button face behind it. Rotated in quarter turns
+		// (screen Y is down: positive turns step right→down→left→up), with
+		// hover/held brightening standing in for the face wash.
+		const float d = std::min(px.w, px.h) * 0.92f;
+		const float f = (m_held || active) ? 1.15f : (m_hot ? 1.0f : 0.82f);
+		batch.DrawSpriteRotated({px.x + px.w * 0.5f, px.y + px.h * 0.5f}, {d, d},
+								static_cast<float>(iconTurns) * (kPi * 0.5f),
+								{0, 0, 1, 1}, *icon, {f, f, f, 1.0f});
+		return;
+	}
+	DrawButtonFace(batch, ctx.GetFont(), px, text, ctx.GetTheme(), m_hot,
+				   m_held || active, true, ctx.GetSkin());
 }
 
 void DrawButtonFace(gfx::SpriteBatch& batch, Font& font, const gfx::Rect& rect,
 					const std::string& label, const Theme& theme, bool hot,
-					bool held, bool enabled) {
-	const Vec4& fill = !enabled ? theme.panel
-					   : held   ? theme.controlActive
-					   : hot    ? theme.controlHot
-								: theme.control;
-	batch.DrawRect(rect, fill);
-	DrawBorder(batch, rect, theme.panelBorder);
+					bool held, bool enabled, const Skin* skin) {
+	if (skin && skin->button.texture) {
+		// Disabled dims the face itself; hot/held wash the theme's control
+		// color over the texture so state keeps reading through the theme.
+		const float dim = enabled ? 1.0f : 0.45f;
+		DrawNineSlice(batch, rect, skin->button, {dim, dim, dim, 1.0f});
+		if (enabled && (held || hot)) {
+			Vec4 wash = held ? theme.controlActive : theme.controlHot;
+			wash.w = 0.4f;
+			batch.DrawRect(rect, wash);
+		}
+	} else {
+		const Vec4& fill = !enabled ? theme.panel
+						   : held   ? theme.controlActive
+						   : hot    ? theme.controlHot
+									: theme.control;
+		batch.DrawRect(rect, fill);
+		DrawBorder(batch, rect, theme.panelBorder);
+	}
 	const float textW = font.MeasureWidth(label);
 	font.Draw(batch, label, rect.x + (rect.w - textW) * 0.5f,
 			  rect.y + (rect.h - font.Height()) * 0.5f,
@@ -392,14 +437,31 @@ void ContextMenu::DrawOverlay(UIContext& ctx, gfx::SpriteBatch& batch) {
 	if (!m_open) return;
 	const Theme& theme = ctx.GetTheme();
 	Font& font = ctx.GetFont();
+	// Skinned: ONE panel face behind the whole menu (opaque, like the other
+	// popups), rows keep only their hover/active washes; flat mode keeps the
+	// per-row fills + borders.
+	const bool skinned = PanelPart(ctx) != nullptr;
+	if (skinned && !m_entries.empty()) {
+		const gfx::Rect box{m_x, m_y, m_w,
+							m_rowH * static_cast<float>(m_entries.size())};
+		DrawNineSlice(batch, box, *PanelPart(ctx), {1, 1, 1, 1});
+	}
 	for (size_t i = 0; i < m_entries.size(); ++i) {
 		const gfx::Rect rect = EntryRect(i);
 		const bool groupOpen = static_cast<int>(i) == m_openChild;
-		batch.DrawRect(rect, groupOpen ? theme.controlActive
-									   : (static_cast<int>(i) == m_hover
-											  ? theme.controlHot
-											  : theme.control));
-		DrawBorder(batch, rect, theme.panelBorder);
+		const bool hovered = static_cast<int>(i) == m_hover;
+		if (skinned) {
+			if (groupOpen || hovered) {
+				Vec4 wash = groupOpen ? theme.controlActive : theme.controlHot;
+				wash.w = 0.4f;
+				batch.DrawRect(rect, wash);
+			}
+		} else {
+			batch.DrawRect(rect, groupOpen ? theme.controlActive
+										   : (hovered ? theme.controlHot
+													  : theme.control));
+			DrawBorder(batch, rect, theme.panelBorder);
+		}
 		font.Draw(batch, m_entries[i].label, rect.x + 10,
 				  rect.y + (rect.h - font.Height()) * 0.5f, theme.text);
 		if (!m_entries[i].children.empty()) // group marker at the right edge
@@ -411,12 +473,24 @@ void ContextMenu::DrawOverlay(UIContext& ctx, gfx::SpriteBatch& batch) {
 	if (m_openChild >= 0 && m_openChild < static_cast<int>(m_entries.size())) {
 		const std::vector<Entry>& kids =
 			m_entries[static_cast<size_t>(m_openChild)].children;
+		if (skinned && !kids.empty()) {
+			const gfx::Rect box{m_childX, m_childY, m_childW,
+								m_rowH * static_cast<float>(kids.size())};
+			DrawNineSlice(batch, box, *PanelPart(ctx), {1, 1, 1, 1});
+		}
 		for (size_t i = 0; i < kids.size(); ++i) {
 			const gfx::Rect rect = ChildRect(i);
-			batch.DrawRect(rect, static_cast<int>(i) == m_childHover
-									 ? theme.controlHot
-									 : theme.control);
-			DrawBorder(batch, rect, theme.panelBorder);
+			const bool hovered = static_cast<int>(i) == m_childHover;
+			if (skinned) {
+				if (hovered) {
+					Vec4 wash = theme.controlHot;
+					wash.w = 0.4f;
+					batch.DrawRect(rect, wash);
+				}
+			} else {
+				batch.DrawRect(rect, hovered ? theme.controlHot : theme.control);
+				DrawBorder(batch, rect, theme.panelBorder);
+			}
 			font.Draw(batch, kids[i].label, rect.x + 10,
 					  rect.y + (rect.h - font.Height()) * 0.5f, theme.text);
 		}
@@ -538,10 +612,14 @@ void ColorPicker::DrawOverlay(UIContext& ctx, gfx::SpriteBatch& batch) {
 	Font& font = ctx.GetFont();
 	const gfx::Rect popup = PopupRect(ctx);
 
-	Vec4 background = theme.panel;
-	background.w = 1.0f; // opaque so the page beneath doesn't bleed through
-	batch.DrawRect(popup, background);
-	DrawBorder(batch, popup, theme.panelBorder);
+	if (const SkinPart* part = PanelPart(ctx)) {
+		DrawNineSlice(batch, popup, *part, {1, 1, 1, 1}); // opaque, unlike Panel
+	} else {
+		Vec4 background = theme.panel;
+		background.w = 1.0f; // opaque so the page beneath doesn't bleed through
+		batch.DrawRect(popup, background);
+		DrawBorder(batch, popup, theme.panelBorder);
+	}
 
 	static constexpr const char* kChannelNames[4] = {"R", "G", "B", "A"};
 	static constexpr Vec4 kChannelTints[4] = {{0.9f, 0.3f, 0.3f, 1.0f},
@@ -882,8 +960,7 @@ void SlotList::DrawOverlay(UIContext& ctx, gfx::SpriteBatch& batch) {
 	// Dim the whole surface, then the dialog on top.
 	batch.DrawRect({0, 0, ctx.Width(), ctx.Height()}, {0, 0, 0, 0.55f});
 	const gfx::Rect d = ConfirmRect(ctx);
-	batch.DrawRect(d, theme.panel);
-	DrawBorder(batch, d, theme.panelBorder);
+	DrawPanelFace(ctx, batch, d);
 
 	const float pw = font.MeasureWidth(confirmPrompt);
 	font.Draw(batch, confirmPrompt, d.x + (d.w - pw) * 0.5f, d.y + 28.0f, theme.text);
@@ -1146,19 +1223,29 @@ void TabControl::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
 
 	// Page frame first so the active tab can open into it.
 	const gfx::Rect page = PageRect();
-	batch.DrawRect(page, theme.panel);
-	DrawBorder(batch, page, theme.panelBorder);
+	const bool skinned = PanelPart(ctx) != nullptr;
+	DrawPanelFace(ctx, batch, page);
 
 	for (size_t i = 0; i < m_tabs.size(); ++i) {
 		const gfx::Rect rect = TabRect(i);
 		const bool active = static_cast<int>(i) == m_active;
-		batch.DrawRect(rect, active ? theme.panel
-									: (static_cast<int>(i) == m_hover ? theme.controlHot
-																	  : theme.control));
-		DrawBorder(batch, rect, theme.panelBorder);
-		if (active) // erase the tab's bottom edge and the page's top border
-			batch.DrawRect({rect.x + 1, rect.y + rect.h - 1, rect.w - 2, 2},
-						   theme.panel);
+		if (skinned) {
+			// Skinned tabs are button faces riding the page's top edge; the
+			// flat mode's border-erase trick can't merge a texture, so the
+			// active tab reads by its held state + accent label instead.
+			DrawButtonFace(batch, font, rect, "", theme,
+						   static_cast<int>(i) == m_hover, active, true,
+						   ctx.GetSkin());
+		} else {
+			batch.DrawRect(rect, active ? theme.panel
+										: (static_cast<int>(i) == m_hover
+											   ? theme.controlHot
+											   : theme.control));
+			DrawBorder(batch, rect, theme.panelBorder);
+			if (active) // erase the tab's bottom edge and the page's top border
+				batch.DrawRect({rect.x + 1, rect.y + rect.h - 1, rect.w - 2, 2},
+							   theme.panel);
+		}
 
 		const std::string& label = m_tabs[i].label;
 		const float textW = font.MeasureWidth(label);

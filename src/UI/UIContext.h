@@ -24,6 +24,7 @@
 namespace dungeon::ui {
 
 class Widget;
+struct Skin;
 
 // Theme colors shared by all controls.
 struct Theme {
@@ -64,6 +65,13 @@ public:
 	const Theme& GetTheme() const { return m_theme; }
 	void SetTheme(const Theme& theme) { m_theme = theme; }
 
+	// Textured chrome (UI/Skin.h). Null = the flat theme-fill look, which is
+	// kept as the DEBUG MODE (containment/extents read at a glance). The owner
+	// keeps the Skin (and its textures) alive; widgets re-check every draw, so
+	// the toggle is live.
+	const Skin* GetSkin() const { return m_skin; }
+	void SetSkin(const Skin* skin) { m_skin = skin; }
+
 	// Window size from the most recent Update/Render — lets widgets clamp
 	// popups to the screen.
 	float Width() const { return m_width; }
@@ -77,6 +85,7 @@ public:
 private:
 	Font m_font;
 	Theme m_theme;
+	const Skin* m_skin = nullptr;
 	std::vector<std::unique_ptr<Widget>> m_widgets;
 	const Input* m_input = nullptr;
 	bool m_mouseConsumed = false;

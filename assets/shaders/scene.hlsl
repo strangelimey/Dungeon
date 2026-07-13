@@ -19,7 +19,11 @@ cbuffer FrameConstants : register(b0) {
 	float4 gDirDirection;
 	float4 gDirColor;
 	uint gPointLightCount;
-	uint3 _pad0;
+	// 1 = tonemap + gamma in this shader (LDR targets: previews, icon bakes);
+	// 0 = output linear HDR (the main scene renders into the PostProcess
+	// target and tonemaps in post.hlsl's composite, after bloom).
+	uint gTonemapInline;
+	uint2 _pad0;
 	float4 gFogGrid;     // xy = 1 / atmosphere world extent, z = density/m, w = haze ambient
 	float4 gHazeColor;   // rgb = dust albedo tint
 	float4 gShadowLight; // shadow pass only (see shadow.hlsl)
@@ -55,14 +59,20 @@ cbuffer SkinConstants : register(b2) {
 Texture2D gBaseTexture : register(t0);
 Texture2D gNormalMap : register(t1); // xyz = tangent-space normal, w = height
 Texture2D gTurbidity : register(t2); // top-down per-cell dust density (R)
-Texture2D gMetalRough : register(t7); // R = occlusion, G = roughness, B = metallic
+Texture2D gMetalRough : register(t11); // R = occlusion, G = roughness, B = metallic
 // Point-light shadow cubes (light->fragment distance / radius). Slot 0 is
 // the light nearest the camera at the highest resolution; slots fall off in
 // resolution with distance — detailed shadows up close, coarser far away.
+// Count and registers must match gfx::kShadowSlots (Renderer.h): t3..t10,
+// with the ORM map above at the first register after the cubes.
 TextureCube gShadowCube0 : register(t3);
 TextureCube gShadowCube1 : register(t4);
 TextureCube gShadowCube2 : register(t5);
 TextureCube gShadowCube3 : register(t6);
+TextureCube gShadowCube4 : register(t7);
+TextureCube gShadowCube5 : register(t8);
+TextureCube gShadowCube6 : register(t9);
+TextureCube gShadowCube7 : register(t10);
 SamplerState gSampler : register(s0);
 SamplerState gClampSampler : register(s1);
 
@@ -71,7 +81,11 @@ float SampleShadowCube(int slot, float3 dir) {
 	case 0:  return gShadowCube0.SampleLevel(gClampSampler, dir, 0).r;
 	case 1:  return gShadowCube1.SampleLevel(gClampSampler, dir, 0).r;
 	case 2:  return gShadowCube2.SampleLevel(gClampSampler, dir, 0).r;
-	default: return gShadowCube3.SampleLevel(gClampSampler, dir, 0).r;
+	case 3:  return gShadowCube3.SampleLevel(gClampSampler, dir, 0).r;
+	case 4:  return gShadowCube4.SampleLevel(gClampSampler, dir, 0).r;
+	case 5:  return gShadowCube5.SampleLevel(gClampSampler, dir, 0).r;
+	case 6:  return gShadowCube6.SampleLevel(gClampSampler, dir, 0).r;
+	default: return gShadowCube7.SampleLevel(gClampSampler, dir, 0).r;
 	}
 }
 
@@ -330,6 +344,13 @@ float2 Parallax(float2 uv, float3 viewTS) {
 	return current;
 }
 
+// ACES filmic fit (Narkowicz) — must match post.hlsl's copy so the inline
+// (LDR preview) path grades identically to the post-processed scene.
+float3 AcesTonemap(float3 x) {
+	const float a = 2.51, b = 0.03, c = 2.43, d = 0.59, e = 0.14;
+	return saturate((x * (a * x + b)) / (x * (c * x + d) + e));
+}
+
 float4 PSMain(PSInput input) : SV_TARGET {
 	float2 uv = input.uv;
 	float3 normal = normalize(input.normal);
@@ -378,8 +399,12 @@ float4 PSMain(PSInput input) : SV_TARGET {
 	}
 	color = ApplyDust(color, input.worldPos);
 
-	// Simple tonemap + gamma (back buffer is UNORM).
-	color = color / (color + 1.0);
-	color = pow(color, 1.0 / 2.2);
+	// LDR targets (previews, icon bakes) tonemap + gamma here; the main scene
+	// pass outputs linear HDR and PostProcess tonemaps after bloom. Same ACES
+	// fit both sides (post.hlsl), so previews grade like the scene.
+	if (gTonemapInline != 0) {
+		color = AcesTonemap(color);
+		color = pow(color, 1.0 / 2.2);
+	}
 	return float4(color, albedo.a);
 }

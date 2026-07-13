@@ -31,6 +31,8 @@
 
 namespace dungeon::ui {
 
+struct Skin;
+
 // Simple framed background rectangle (draws first if added first).
 class Panel : public Widget {
 public:
@@ -95,6 +97,12 @@ public:
 	// Draw as selected (controlActive fill) regardless of hover — for a row that
 	// represents the current selection in a list (the config dialog's state/clip rows).
 	bool active = false;
+	// Optional icon face drawn centered INSTEAD of the label (the text stays
+	// the fallback when the texture is missing). `iconTurns` rotates it in
+	// quarter turns clockwise, so one chevron asset serves every direction
+	// (the HUD movement pad).
+	const gfx::Texture* icon = nullptr;
+	int iconTurns = 0;
 
 private:
 	bool m_hot = false;
@@ -505,13 +513,25 @@ private:
 // Draws a 1px border around a rectangle.
 void DrawBorder(gfx::SpriteBatch& batch, const gfx::Rect& rect, const Vec4& color);
 
+// Draws the shared framed-background look: the context's skin panel part when
+// one is set (its frame is baked in; the theme's panel alpha rides the tint so
+// the background-opacity preference applies to both looks), else the flat
+// theme fill + 1px border. Panel/TextOutput/popups route through it, and so
+// does the game-layer chrome (PartyHud's sheet/inventory/tooltip surfaces).
+void DrawPanelFace(UIContext& ctx, gfx::SpriteBatch& batch, const gfx::Rect& rect);
+
 // Draws a button FACE — the one button look (state fill, border, centered
 // label). ui::Button routes through it, and so does every hand-drawn chrome
 // button (the map editor's header/dock buttons), so hover reads the same
 // everywhere. `held` (or an active row) fills controlActive, hover controlHot;
 // a disabled button flattens to the panel fill with dim text and ignores `hot`.
+// With a `skin` (UI/Skin.h) the face is the skin's button part instead —
+// hot/held wash the theme's control colors over it, disabled dims the tint —
+// so state still reads through the user's theme. Null skin = the flat look
+// (kept as debug mode); hand-drawn chrome callers pass their owner's skin.
 void DrawButtonFace(gfx::SpriteBatch& batch, Font& font, const gfx::Rect& rect,
 					const std::string& label, const Theme& theme, bool hot,
-					bool held = false, bool enabled = true);
+					bool held = false, bool enabled = true,
+					const Skin* skin = nullptr);
 
 } // namespace dungeon::ui

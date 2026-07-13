@@ -25,6 +25,7 @@ add_library(Game STATIC
 	GameUI.cpp
 	InspectPicker.cpp
 	InstanceInspector.cpp
+	LevelSettingsDialog.cpp
 	Magic.cpp
 	MapEditor.cpp
 	MapView.cpp

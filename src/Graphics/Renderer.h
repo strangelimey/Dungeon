@@ -16,8 +16,8 @@
 //   3  t0  base color texture     (descriptor table)
 //   4  t1  normal+height map      (descriptor table; A = height for parallax)
 //   5  t2  air turbidity grid     (descriptor table; dust raymarch density)
-//   6  t3..t6  shadow cubes       (one table, kShadowSlots contiguous SRVs)
-//   7  t7  occlusion/rough/metal  (descriptor table; ORM map for PBR)
+//   6  t3..t10 shadow cubes       (one table, kShadowSlots contiguous SRVs)
+//   7  t11 occlusion/rough/metal  (descriptor table; ORM map for PBR)
 //   s0     static anisotropic wrap sampler
 //   s1     static clamped bilinear sampler (turbidity grid + shadow cubes)
 // ============================================================================
@@ -43,9 +43,14 @@ namespace dungeon::gfx {
 inline constexpr u32 kMaxSkinJoints = 128;
 
 // Point-light shadow cube slots, resolution falling off with slot index —
-// the game assigns slot 0 to the light nearest the camera.
-inline constexpr u32 kShadowSlots = 4;
-inline constexpr u32 kShadowResolution[kShadowSlots] = {512, 256, 256, 128};
+// the game assigns slot 0 to the light nearest the camera. Eight slots so a
+// sconce-lined hall keeps most of its fires shadow-casting (with four, the
+// carried torch + three nearest fires monopolized the cubes and every other
+// light was pure fill, washing the shadows out); the ShadowSlotCache +
+// half-rate fire flicker keep the extra cubes' re-render cost down.
+inline constexpr u32 kShadowSlots = 8;
+inline constexpr u32 kShadowResolution[kShadowSlots] = {512, 256, 256, 256,
+														128, 128, 128, 128};
 
 // Everything material-related for one draw. Textures may be null (baseColor
 // only); `normalMap` (xyz = tangent-space normal, w = height) enables bump
@@ -78,9 +83,14 @@ class Renderer {
 public:
 	explicit Renderer(GraphicsDevice& device);
 
-	// Writes the per-frame constants and binds the scene pipeline.
+	// Writes the per-frame constants and binds the scene pipeline. hdrTarget
+	// selects the kSceneColorFormat PSOs and turns OFF the shader's inline
+	// tonemap — the main scene pass renders linear HDR into the PostProcess
+	// target and tonemaps in the post composite. LDR passes (model previews,
+	// icon bakes) keep the default and render tonemapped into their UNORM RTs.
 	void BeginScene(ID3D12GraphicsCommandList* list, const Camera& camera,
-					const LightSet& lights, const Atmosphere& atmosphere = {});
+					const LightSet& lights, const Atmosphere& atmosphere = {},
+					bool hdrTarget = false);
 
 	// --- shadow pass ---------------------------------------------------------
 	// Renders cube distance maps before the scene pass. For each light that
@@ -106,6 +116,9 @@ private:
 	ComPtr<ID3D12RootSignature> m_rootSignature;
 	ComPtr<ID3D12PipelineState> m_pso;       // scene, CULL_NONE (double-sided)
 	ComPtr<ID3D12PipelineState> m_psoCull;   // scene, CULL_BACK (authored meshes)
+	// Same pair targeting kSceneColorFormat (the PostProcess HDR intermediate).
+	ComPtr<ID3D12PipelineState> m_psoHdr;
+	ComPtr<ID3D12PipelineState> m_psoCullHdr;
 	ComPtr<ID3D12PipelineState> m_shadowPso;
 	std::unique_ptr<UploadAllocator> m_frameAllocators[kFrameCount];
 	std::unique_ptr<Texture> m_whiteTexture;
@@ -113,6 +126,7 @@ private:
 	std::unique_ptr<Texture> m_blackTexture;   // "clear air" turbidity fallback
 	std::unique_ptr<Texture> m_defaultMRTexture; // AO=1, rough=1, metal=0
 	bool m_shadowPass = false;                 // DrawMesh skips PSO swap in shadow pass
+	bool m_hdrPass = false;                    // DrawMesh picks the HDR PSO pair
 	ID3D12PipelineState* m_currentPso = nullptr; // bound PSO, to skip redundant swaps
 	// Skinning palettes uploaded once per frame: a skinned mesh is re-submitted
 	// up to 25x (shadow faces + scene) with the same pose, so cache the upload

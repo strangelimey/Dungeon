@@ -333,6 +333,10 @@ public:
 		const assets::SkeletonData* skeleton = nullptr;
 		const std::vector<assets::AnimationClipData>* clips = nullptr;
 		gfx::MaterialParams material;
+		// Every drawable piece: one entry for a single-mesh kind, one per
+		// primitive for a multi-material rig. Consumers draw these (with the
+		// palette); mesh/material above remain the meshes[0] view.
+		std::vector<gfx::PreviewSubmesh> subs;
 		float modelScale = 1.0f;
 		float modelYaw = 0.0f; // render-time facing fixup, so the preview matches in-world
 	};
@@ -668,6 +672,26 @@ public:
 	// Toggle volumetric dust (off feeds the renderer clear air).
 	void SetDustEnabled(bool on) { m_dustEnabled = on; }
 	bool DustEnabled() const { return m_dustEnabled; }
+	// Live atmosphere tuning for the lighting mood pass (dev console `dust
+	// <density>` / `haze <x>` / `ambient <x>`). Design-time knobs: once a feel
+	// is chosen, bake the values into the defaults (gfx::Atmosphere, the
+	// kBaseAmbient constant) — nothing here persists.
+	void SetDustDensity(float d) { m_atmosphere.density = std::max(0.0f, d); }
+	float DustDensity() const { return m_atmosphere.density; }
+	void SetHazeAmbient(float h) { m_atmosphere.hazeAmbient = std::max(0.0f, h); }
+	float HazeAmbient() const { return m_atmosphere.hazeAmbient; }
+	void SetAmbientScale(float s); // scales the base ambient fill
+	float AmbientScale() const { return m_ambientScale; }
+	// Per-level atmosphere (the editor's Level settings dialog, persisted as
+	// the .map `atmosphere` record). EffectiveAtmosphere resolves a map's
+	// overrides against the global defaults (static: works on a browsed
+	// level's snapshot too); SetLevelAtmosphere writes the values — the live
+	// map + immediate apply for the active level, the level's stash otherwise
+	// (like the other remote edits; savemap persists both).
+	static void EffectiveAtmosphere(const DungeonMap& map, float& dust,
+									float& haze, float& ambient);
+	void SetLevelAtmosphere(const std::string& stem, float dust, float haze,
+							float ambient);
 
 	// HUD log feedback (bump lines, monster announcements, palette flavor).
 	// Set before play starts; the party/monster callbacks route through it.
@@ -709,6 +733,8 @@ private:
 	// declared here so monster kinds can point at one before the definition.
 	struct PropTextures;
 
+	struct MultiMaterialModel; // defined below (shared with decorations/items)
+
 	// Per-kind monster assets (shared) and per-instance state. Kinds are
 	// entity type names from the .ent file ("skeleton" loads skeleton.gltf).
 	struct MonsterKind {
@@ -717,6 +743,11 @@ private:
 		std::string name;
 		// PBR set bound by type name (skeleton_<res>, ...); null = flat material.
 		const PropTextures* tex = nullptr; // points into m_propTextures (stable)
+		// Authored multi-material rig (bought kits: bones/armor/weapons, each
+		// with its own embedded glTF textures) — set when the model has >1
+		// primitive. The draw, icon bake, and dialog preview loop these subs
+		// with the animator palette; `mesh` stays meshes[0] elsewhere.
+		std::unique_ptr<MultiMaterialModel> multi;
 		// Combat stats from monsters.cat (fallbacks in MonsterKindFor).
 		float maxHp = 12.0f;
 		float damage = 4.0f;
@@ -1659,6 +1690,22 @@ private:
 	Vec4 m_brazierColor{1, 1, 1, 1};
 	const PropTextures* m_sconceTex = nullptr;  // worn-medieval iron (sconce_<res>)
 	const PropTextures* m_brazierTex = nullptr; // bronze (brazier_<res>)
+	// Optional second brazier part (fixtures.cat part2_model / part2_texture):
+	// a co-located sub-prop with its own material — the bought brazier's coal
+	// bed, whose maps are a separate set from the bowl's. Null when the entry
+	// names none (the procedural brazier, or a single-material import).
+	std::unique_ptr<gfx::Mesh> m_brazierMesh2;
+	const PropTextures* m_brazierTex2 = nullptr;
+	Vec4 m_brazierColor2{1, 1, 1, 1};
+	// Per-fixture flame attachment (fixtures.cat flame_height / flame_scale /
+	// flame_out, defaulting to the procedural meshes' constants) — an authored
+	// replacement prop declares where its fire burns instead of having to be
+	// modelled to the old mesh's proportions.
+	struct FixtureFlame {
+		float height, scale, out; // local Y, particle scale, offset from wall
+	};
+	FixtureFlame m_sconceFlame{kSconceFlameY, kSconceFlameScale, 0.22f};
+	FixtureFlame m_brazierFlame{kBrazierFlameY, kBrazierFlameScale, 0.0f};
 	std::unique_ptr<gfx::ParticleBatch> m_particleBatch;
 	std::vector<gfx::ParticleInstance> m_particleScratch;
 
@@ -1669,6 +1716,7 @@ private:
 	float m_fovDegrees = 70.0f;
 	bool m_shadowsEnabled = true;
 	bool m_dustEnabled = true;
+	float m_ambientScale = 1.0f; // multiplies kBaseAmbient (mood-pass knob)
 
 	float m_time = 0.0f; // latest frame time (Update), drives the rune glow pulse
 };

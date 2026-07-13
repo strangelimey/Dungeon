@@ -53,6 +53,7 @@
 #include "Game/FixtureInspector.h"
 #include "Game/BalanceDialog.h"
 #include "Game/InspectPicker.h"
+#include "Game/LevelSettingsDialog.h"
 #include "Game/MonsterConfigDialog.h"
 #include "Game/ButtonInspector.h"
 #include "Game/DoorInspector.h"
@@ -60,6 +61,7 @@
 #include "Game/Project.h"
 #include "Game/SoundBank.h"
 #include "Graphics/ModelPreview.h"
+#include "Graphics/PostProcess.h"
 #include "Graphics/Renderer.h"
 #include "Graphics/SpriteBatch.h"
 #include "Platform/Process.h"
@@ -181,6 +183,9 @@ private:
 	gfx::Renderer& m_renderer;
 	gfx::SpriteBatch& m_spriteBatch;
 	audio::AudioEngine& m_audio;
+	// HDR scene target + bloom + ACES composite; Render brackets the world's
+	// scene pass with BeginScene/Resolve (see DungeonWorld::RenderScene).
+	gfx::PostProcess m_postProcess;
 
 	// --- app state -------------------------------------------------------------
 	AppState m_state = AppState::Loading;
@@ -303,6 +308,9 @@ private:
 	// Combat-tuning dialog (the balance.cat/attacks.cat front-end), opened by
 	// the editor map's Balance header button.
 	BalanceDialog m_balanceDialog;
+	// Per-level atmosphere dialog (the .map `atmosphere` record front-end),
+	// opened by the editor toolbar's Level button for the VIEWED level.
+	LevelSettingsDialog m_levelSettingsDialog;
 	// Per-instance entity inspector, opened by Select-clicking a placed monster.
 	EntityInspector m_entityInspector;
 	// Per-instance fixture inspector, opened by Select-clicking a wall torch/sconce.
@@ -342,6 +350,9 @@ private:
 	std::string m_previewType, m_previewClip;
 	const gfx::Mesh* m_previewMonMesh = nullptr;
 	gfx::MaterialParams m_previewMonMat;
+	// Every drawable piece of the previewed type (one per primitive for a
+	// multi-material rig); the Render pass draws these with the palette.
+	std::vector<gfx::PreviewSubmesh> m_previewMonSubs;
 	float m_previewMonScale = 1.0f;
 	float m_previewMonYaw = 0.0f; // modelyaw fixup, so the preview faces like in-world
 

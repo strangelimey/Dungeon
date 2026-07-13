@@ -169,6 +169,32 @@ DungeonMap::DungeonMap(const std::string& path) {
 			ParseVariantRecord(record, path);
 			continue;
 		}
+		if (record.starts_with("atmosphere")) {
+			// atmosphere [dust=<density>] [haze=<x>] [ambient=<x>] — the level's
+			// mood knobs (any subset; unset keys keep the world defaults). The
+			// editor's Level settings dialog authors this record.
+			const std::vector<std::string_view> tok = SplitRecordTokens(record);
+			for (size_t i = 1; i < tok.size(); ++i) {
+				const size_t eq = tok[i].find('=');
+				DN_ASSERT(eq != std::string_view::npos,
+						  std::format("expected key=value, got \"{}\": \"{}\" in {}",
+									  tok[i], record, path));
+				const std::string_view key = tok[i].substr(0, eq);
+				const std::string_view val = tok[i].substr(eq + 1);
+				float v = 0.0f;
+				const auto [p, ec] = std::from_chars(val.data(), val.data() + val.size(), v);
+				DN_ASSERT(ec == std::errc{} && p == val.data() + val.size(),
+						  std::format("bad atmosphere number \"{}\": \"{}\" in {}", val,
+									  record, path));
+				if (key == "dust") m_dustDensity = std::max(0.0f, v);
+				else if (key == "haze") m_hazeAmbient = std::max(0.0f, v);
+				else if (key == "ambient") m_ambientScale = std::clamp(v, 0.0f, 10.0f);
+				else
+					DN_ASSERT(false, std::format("unknown atmosphere key \"{}\": \"{}\" in {}",
+												 key, record, path));
+			}
+			continue;
+		}
 		Entity e = ParseEntityRecord(record, path);
 		DN_ASSERT(e.kind == EntityKind::Decoration,
 				  std::format("only decorations are static — move \"{}\" to the .ent file ({})",
@@ -417,7 +443,13 @@ void DungeonMap::AddFireTurbidity(int x, int z, float amount) {
 			const int ring = std::max(std::abs(dx), std::abs(dz));
 			const float weight = ring == 0 ? 1.0f : (ring == 1 ? 0.5f : 0.22f);
 			float& cell = m_turbidity[static_cast<size_t>(cz) * m_width + cx];
-			cell = std::min(1.0f, cell + amount * weight);
+			// Opacity-style accumulation: overlapping fires SATURATE instead of
+			// summing (a second torch thickens the air by what's still clear,
+			// not by its full amount), so a sconce-lined hall stays hazy rather
+			// than maxing out to authored-'D' thickness and burying its surface
+			// shadows under in-scatter. 'D' cells sit at 1.0 and are unchanged
+			// by any accumulation rule.
+			cell = 1.0f - (1.0f - cell) * (1.0f - amount * weight);
 		}
 	}
 }

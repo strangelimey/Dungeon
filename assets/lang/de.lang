@@ -110,6 +110,8 @@ settings.framelimit=Bildrate
 settings.framelimit.vsync=VSync ({} FPS)
 settings.framelimit.fps={} FPS
 settings.volume=Lautstärke
+settings.uiskin=Texturierte Oberfläche (aus = schlichte Debug-Ansicht)
+settings.headbob=Kopfwippen beim Gehen
 settings.party_bar=Gruppenleiste
 settings.bar_scale=Größe
 settings.bar_opacity=Hintergrund-Deckkraft
@@ -304,6 +306,12 @@ monster.skel_swarm=Der Knochenschwarm
 monster.skel_lurker=Das lauernde Skelett
 monster.blob=Der Schleim
 monster.mummy=Die Mumie
+monster.giant_spider=Die Riesenspinne
+monster.centipede=Der Riesenhundertfüßer
+monster.skel_warrior=Der Skelettkrieger
+monster.skel_bare=Der Skelettplünderer
+monster.skel_berserker=Der Skelettberserker
+monster.skel_spearman=Der Skelettspeerträger
 monster.skel_human=Der Knochenritter
 
 ; --- character sheet / party bar -------------------------------------------------
@@ -375,6 +383,12 @@ map.erase.reset=Oberflächen der Zelle {}, {} zurückgesetzt
 map.btn.save=Speichern
 map.btn.source=In Quelle
 map.btn.balance=Balance
+map.btn.level=Ebene
+map.level.title=Ebenen-Einstellungen
+map.level.dust=Staubdichte
+map.level.haze=Dunst-Umgebungslicht
+map.level.ambient=Umgebungslicht
+map.level.applied=Ebenen-Einstellungen auf '{}' angewendet — Karte speichern, um sie zu behalten.
 map.balance.title=Kampfbalance
 map.balance.tab.formula=Formel
 map.balance.tab.attacks=Angriffe

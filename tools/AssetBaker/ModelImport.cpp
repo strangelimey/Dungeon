@@ -18,6 +18,7 @@
 #include <cctype>
 #include <cmath>
 #include <filesystem>
+#include <format>
 
 using namespace DirectX;
 
@@ -51,7 +52,8 @@ std::string ResolveModelFile(const std::string& sourcePath) {
 
 bool ImportModel(const std::string& sourcePath, const std::string& assetsDir,
 				 const std::string& name, float targetHeight, float yawDegrees,
-				 char upAxis, const std::string& textureSet) {
+				 char upAxis, const std::string& textureSet, float liftMeters,
+				 bool wallAlign, bool rawTransform) {
 	const std::string modelFile = ResolveModelFile(sourcePath);
 	if (modelFile.empty()) {
 		log::Error("No .gltf/.glb/.obj model found at {}", sourcePath);
@@ -93,45 +95,69 @@ bool ImportModel(const std::string& sourcePath, const std::string& assetsDir,
 	}
 
 	// --- orient: optional Z-up -> Y-up, then yaw about Y ----------------------
+	// (--raw skips orientation AND normalization: the piece was already placed
+	// by ConvertMesh --split-whole, aligned with its sibling pieces.)
 	XMMATRIX orient = XMMatrixIdentity();
-	if (upAxis == 'z' || upAxis == 'Z')
-		orient = XMMatrixRotationX(-XM_PIDIV2); // Z-up source to the engine's Y-up
-	if (yawDegrees != 0.0f)
-		orient = orient * XMMatrixRotationY(yawDegrees * (XM_PI / 180.0f));
-	for (assets::Vertex& v : merged.vertices) {
-		const XMVECTOR p = XMVector3Transform(
-			XMVectorSet(v.position.x, v.position.y, v.position.z, 1.0f), orient);
-		const XMVECTOR n = XMVector3Normalize(XMVector3TransformNormal(
-			XMVectorSet(v.normal.x, v.normal.y, v.normal.z, 0.0f), orient));
-		XMFLOAT3 pf, nf;
-		XMStoreFloat3(&pf, p);
-		XMStoreFloat3(&nf, n);
-		v.position = {pf.x, pf.y, pf.z};
-		v.normal = {nf.x, nf.y, nf.z};
-	}
+	if (rawTransform) {
+		Vec3 lo{1e9f, 1e9f, 1e9f}, hi{-1e9f, -1e9f, -1e9f};
+		for (const assets::Vertex& v : merged.vertices) {
+			lo = {std::min(lo.x, v.position.x), std::min(lo.y, v.position.y),
+				  std::min(lo.z, v.position.z)};
+			hi = {std::max(hi.x, v.position.x), std::max(hi.y, v.position.y),
+				  std::max(hi.z, v.position.z)};
+		}
+		log::Info("Imported model '{}' RAW: {} verts, bounds x {:.2f}..{:.2f} "
+				  "y {:.2f}..{:.2f} z {:.2f}..{:.2f}",
+				  name, merged.vertices.size(), lo.x, hi.x, lo.y, hi.y, lo.z, hi.z);
+	} else {
+		if (upAxis == 'z' || upAxis == 'Z')
+			orient = XMMatrixRotationX(-XM_PIDIV2); // Z-up source to the engine's Y-up
+		if (yawDegrees != 0.0f)
+			orient = orient * XMMatrixRotationY(yawDegrees * (XM_PI / 180.0f));
+		for (assets::Vertex& v : merged.vertices) {
+			const XMVECTOR p = XMVector3Transform(
+				XMVectorSet(v.position.x, v.position.y, v.position.z, 1.0f), orient);
+			const XMVECTOR n = XMVector3Normalize(XMVector3TransformNormal(
+				XMVectorSet(v.normal.x, v.normal.y, v.normal.z, 0.0f), orient));
+			XMFLOAT3 pf, nf;
+			XMStoreFloat3(&pf, p);
+			XMStoreFloat3(&nf, n);
+			v.position = {pf.x, pf.y, pf.z};
+			v.normal = {nf.x, nf.y, nf.z};
+		}
 
-	// --- normalize scale + ground (min y = 0) + center XZ --------------------
-	Vec3 lo{1e9f, 1e9f, 1e9f}, hi{-1e9f, -1e9f, -1e9f};
-	for (const assets::Vertex& v : merged.vertices) {
-		lo = {std::min(lo.x, v.position.x), std::min(lo.y, v.position.y),
-			  std::min(lo.z, v.position.z)};
-		hi = {std::max(hi.x, v.position.x), std::max(hi.y, v.position.y),
-			  std::max(hi.z, v.position.z)};
+		// --- normalize scale + ground (min y = 0) + center XZ ----------------
+		Vec3 lo{1e9f, 1e9f, 1e9f}, hi{-1e9f, -1e9f, -1e9f};
+		for (const assets::Vertex& v : merged.vertices) {
+			lo = {std::min(lo.x, v.position.x), std::min(lo.y, v.position.y),
+				  std::min(lo.z, v.position.z)};
+			hi = {std::max(hi.x, v.position.x), std::max(hi.y, v.position.y),
+				  std::max(hi.z, v.position.z)};
+		}
+		const float ext[3] = {hi.x - lo.x, hi.y - lo.y, hi.z - lo.z};
+		const float maxExt = std::max({ext[0], ext[1], ext[2], 1e-4f});
+		// targetHeight scales the model's height to that value; auto-fit puts
+		// the largest extent at ~2.0 m (comfortably inside a 2.4 m cell).
+		const float scale = targetHeight > 0.0f
+								? targetHeight / std::max(ext[1], 1e-4f)
+								: 2.0f / maxExt;
+		// Wall fixtures align their back face to z=0 (the mount wall) instead
+		// of centering Z, and hang at liftMeters instead of standing on the
+		// floor.
+		const float cx = (lo.x + hi.x) * 0.5f;
+		const float cz = wallAlign ? lo.z : (lo.z + hi.z) * 0.5f;
+		for (assets::Vertex& v : merged.vertices) {
+			v.position = {(v.position.x - cx) * scale,
+						  (v.position.y - lo.y) * scale + liftMeters,
+						  (v.position.z - cz) * scale};
+		}
+		log::Info("Imported model '{}': {} verts, source extent "
+				  "{:.2f}x{:.2f}x{:.2f} m, scaled x{:.3f}{}{}",
+				  name, merged.vertices.size(), ext[0], ext[1], ext[2], scale,
+				  liftMeters != 0.0f ? std::format(", lifted to y={:.2f}", liftMeters)
+									 : "",
+				  wallAlign ? ", back at z=0 (wall)" : "");
 	}
-	const float ext[3] = {hi.x - lo.x, hi.y - lo.y, hi.z - lo.z};
-	const float maxExt = std::max({ext[0], ext[1], ext[2], 1e-4f});
-	// targetHeight scales the model's height to that value; auto-fit puts the
-	// largest extent at ~2.0 m (comfortably inside a 2.4 m cell).
-	const float scale = targetHeight > 0.0f ? targetHeight / std::max(ext[1], 1e-4f)
-											: 2.0f / maxExt;
-	const float cx = (lo.x + hi.x) * 0.5f, cz = (lo.z + hi.z) * 0.5f;
-	for (assets::Vertex& v : merged.vertices) {
-		v.position = {(v.position.x - cx) * scale, (v.position.y - lo.y) * scale,
-					  (v.position.z - cz) * scale};
-	}
-	log::Info("Imported model '{}': {} verts, source extent {:.2f}x{:.2f}x{:.2f} m, "
-			  "scaled x{:.3f}",
-			  name, merged.vertices.size(), ext[0], ext[1], ext[2], scale);
 
 	// --- write the normalized single-mesh glTF (white material; the texture
 	// set named after the model carries its color) ---------------------------

@@ -109,6 +109,8 @@ settings.framelimit=Frame Rate
 settings.framelimit.vsync=VSync ({} FPS)
 settings.framelimit.fps={} FPS
 settings.volume=Volume
+settings.uiskin=Textured UI (off = plain debug look)
+settings.headbob=Head bob while walking
 settings.party_bar=Party Bar
 settings.bar_scale=Scale
 settings.bar_opacity=Background opacity
@@ -302,6 +304,12 @@ monster.skel_swarm=bone swarm
 monster.skel_lurker=lurking skeleton
 monster.blob=blob
 monster.mummy=mummy
+monster.giant_spider=giant spider
+monster.centipede=giant centipede
+monster.skel_warrior=skeleton warrior
+monster.skel_bare=skeleton raider
+monster.skel_berserker=skeleton berserker
+monster.skel_spearman=skeleton spearman
 monster.skel_human=bone knight
 
 ; --- character sheet / party bar -------------------------------------------------
@@ -373,6 +381,12 @@ map.erase.reset=Reset cell {}, {} surfaces
 map.btn.save=Save
 map.btn.source=To source
 map.btn.balance=Balance
+map.btn.level=Level
+map.level.title=Level settings
+map.level.dust=Dust density
+map.level.haze=Haze ambient
+map.level.ambient=Ambient light
+map.level.applied=Level settings applied to '{}' — Save the map to persist.
 map.balance.title=Combat balance
 map.balance.tab.formula=Formula
 map.balance.tab.attacks=Attacks

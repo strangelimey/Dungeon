@@ -68,7 +68,7 @@ bool ParseSymbolArg(DevConsole& console, const std::string& arg, SpellSymbol& ou
 Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 		   gfx::SpriteBatch& spriteBatch, audio::AudioEngine& audio)
 	: m_window(window), m_device(device), m_renderer(renderer),
-	  m_spriteBatch(spriteBatch), m_audio(audio),
+	  m_spriteBatch(spriteBatch), m_audio(audio), m_postProcess(device),
 	  m_project(Project::Load(paths::Asset("projects\\dungeon-demo"))),
 	  m_world(device, renderer, audio, m_sounds, m_settings, m_project, m_threads),
 	  m_ui(window, device, spriteBatch, audio, m_sounds, m_settings,
@@ -79,6 +79,7 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	  m_modelPreview(device, 512),
 	  m_assetDialog(device, window),
 	  m_monsterDialog(device), m_balanceDialog(device),
+	  m_levelSettingsDialog(device),
 	  m_entityInspector(device), m_fixtureInspector(device),
 	  m_propInspector(device), m_doorInspector(device), m_buttonInspector(device),
 	  m_inspectPicker(device), m_previewParticles(device) {
@@ -125,12 +126,36 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 		if (m_world.onMessage)
 			m_world.onMessage(loc::Tr(ok ? "map.balance.saved" : "map.save.failed"));
 	};
+	// The editor toolbar's Level button → the per-level atmosphere dialog,
+	// opened on the VIEWED level's effective values (a browsed level's come
+	// from its stash-backed snapshot). Edits preview live only while that
+	// level is the active one — a browsed level isn't on screen to preview.
+	// Save commits to the level's map/stash; the values persist as the .map
+	// `atmosphere` record on the next savemap (the toolbar Save).
+	m_mapView.onLevelSettings = [this] {
+		float dust, haze, ambient;
+		DungeonWorld::EffectiveAtmosphere(m_mapView.ViewedMap(), dust, haze, ambient);
+		m_levelSettingsDialog.Open(m_mapView.ViewedLevel(), dust, haze, ambient);
+	};
+	m_levelSettingsDialog.onApply = [this](float dust, float haze, float ambient) {
+		if (m_levelSettingsDialog.Level() != m_world.CurrentLevel()) return;
+		m_world.SetDustDensity(dust);
+		m_world.SetHazeAmbient(haze);
+		m_world.SetAmbientScale(ambient);
+	};
+	m_levelSettingsDialog.onSave = [this](float dust, float haze, float ambient) {
+		m_world.SetLevelAtmosphere(m_levelSettingsDialog.Level(), dust, haze, ambient);
+		if (m_world.onMessage)
+			m_world.onMessage(loc::Format("map.level.applied",
+										  m_levelSettingsDialog.Level()));
+	};
 	m_settings.Load();
 	ApplyLanguage(false); // strings must exist before any UI builds
 	m_audio.SetMasterVolume(m_settings.volume);
 	m_device.SetPresentInterval(m_settings.presentInterval);
 	m_world.GetParty().SetKeys(m_settings.moveKeys);
 	m_world.GetParty().SetLook(m_settings.look);
+	m_world.GetParty().SetHeadBob(m_settings.headBob);
 
 	m_characters = CreateDefaultParty();
 	ApplyMemberColors(); // the settings palette wins over the authored defaults
@@ -274,6 +299,9 @@ void Game::WireModuleCallbacks() {
 	m_ui.onLookChanged = [this] {
 		m_world.GetParty().SetLook(m_settings.look);
 	};
+	m_ui.onHeadBobChanged = [this] {
+		m_world.GetParty().SetHeadBob(m_settings.headBob);
+	};
 	// Recorded only — the rebuild would destroy the dropdown mid-callback;
 	// Update applies it first thing next frame.
 	m_ui.onLanguageSelected = [this](const std::string& code) {
@@ -328,6 +356,7 @@ void Game::WireModuleCallbacks() {
 		m_previewType.clear(); // force the preview animator to (re)build on first frame
 		m_previewClip.clear();
 		m_previewMonMesh = nullptr;
+		m_previewMonSubs.clear();
 	};
 	// Live-apply on every edit; persist on Save.
 	m_monsterDialog.onApply = [this](const MonsterConfigDialog::Config& c) {
@@ -501,7 +530,7 @@ void Game::OpenInspectorFor(const InspectTarget& t) {
 		PreviewSpec pv;
 		if (m_world.MonsterModelAvailable(c.type)) {
 			const auto d = m_world.MonsterPreviewFor(c.type);
-			pv.subs.push_back({d.mesh, d.material});
+			pv.subs = d.subs; // one entry, or one per primitive (multi-material)
 			pv.scale = d.modelScale;
 			pv.yaw = d.modelYaw;
 			pv.skeleton = d.skeleton;
@@ -1103,10 +1132,37 @@ void Game::RegisterDevCommands() {
 						   m_console.Print(m_world.ShadowsEnabled() ? "shadows on"
 																	: "shadows off");
 					   });
-	m_console.Register("dust", "toggle volumetric dust (on/off)",
+	m_console.Register("dust", "volumetric dust: on/off, or a density (default 0.075)",
 					   [this](const std::vector<std::string>& args) {
-						   if (!args.empty()) m_world.SetDustEnabled(ArgOn(args[0]));
-						   m_console.Print(m_world.DustEnabled() ? "dust on" : "dust off");
+						   if (!args.empty()) {
+							   if (args[0] == "on" || args[0] == "off") {
+								   m_world.SetDustEnabled(ArgOn(args[0]));
+							   } else {
+								   m_world.SetDustDensity(
+									   static_cast<float>(std::atof(args[0].c_str())));
+								   m_world.SetDustEnabled(true);
+							   }
+						   }
+						   m_console.Print(m_world.DustEnabled()
+											   ? std::format("dust on, density {:.3f}",
+															 m_world.DustDensity())
+											   : "dust off");
+					   });
+	m_console.Register("haze", "dust ambient pickup (mood tuning, default 0.9)",
+					   [this](const std::vector<std::string>& args) {
+						   if (!args.empty())
+							   m_world.SetHazeAmbient(
+								   static_cast<float>(std::atof(args[0].c_str())));
+						   m_console.Print(
+							   std::format("haze ambient {:.2f}", m_world.HazeAmbient()));
+					   });
+	m_console.Register("ambient", "scale the ambient fill (mood tuning, default 1.0)",
+					   [this](const std::vector<std::string>& args) {
+						   if (!args.empty())
+							   m_world.SetAmbientScale(
+								   static_cast<float>(std::atof(args[0].c_str())));
+						   m_console.Print(
+							   std::format("ambient x{:.2f}", m_world.AmbientScale()));
 					   });
 	m_console.Register("fov", "set camera field of view in degrees (default 70)",
 					   [this](const std::vector<std::string>& args) {
@@ -1980,6 +2036,12 @@ void Game::Update(float dt) {
 							   static_cast<float>(m_window.Height()));
 		return;
 	}
+	// The per-level settings dialog is likewise modal over the editor.
+	if (m_levelSettingsDialog.IsOpen()) {
+		m_levelSettingsDialog.Update(input, static_cast<float>(m_window.Width()),
+									 static_cast<float>(m_window.Height()));
+		return;
+	}
 	// The monster-config dialog is likewise modal over the editor.
 	if (m_monsterDialog.IsOpen()) {
 		m_monsterDialog.Update(input, static_cast<float>(m_window.Width()),
@@ -1990,6 +2052,7 @@ void Game::Update(float dt) {
 		const std::string& clip = m_monsterDialog.PreviewClip();
 		if (clip.empty()) {
 			m_previewMonMesh = nullptr;
+		m_previewMonSubs.clear();
 			m_previewClip.clear();
 		} else if (type != m_previewType) {
 			// New type: (re)build the Animator over its skeleton/clips + cache the
@@ -1997,6 +2060,7 @@ void Game::Update(float dt) {
 			const auto d = m_world.MonsterPreviewFor(type);
 			m_previewMonMesh = d.mesh;
 			m_previewMonMat = d.material;
+			m_previewMonSubs = d.subs; // multi-material rigs preview every piece
 			m_previewMonScale = d.modelScale;
 			m_previewMonYaw = d.modelYaw;
 			m_previewAnim = anim::Animator(d.skeleton, d.clips);
@@ -2225,10 +2289,10 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 		// The monster-config dialog's live animation: a fixed front-on view (the
 		// mesh faces +Z / the camera is at -Z, so ~π turns it toward the camera),
 		// rendered at the (tall) preview pane's aspect so it isn't squashed.
+		// Every piece draws (a multi-material rig previews bones+armor+weapons).
 		const gfx::Rect pv = m_monsterDialog.PreviewRect(
 			static_cast<float>(m_device.Width()), static_cast<float>(m_device.Height()));
-		pvMesh = m_previewMonMesh;
-		pvMat = m_previewMonMat;
+		pvSubs = m_previewMonSubs;
 		pvScale = m_previewMonScale;
 		pvOrbit = kPi + m_previewMonYaw; // face the camera + the model's facing fixup
 		pvAspect = pv.h > 0.0f ? pv.w / pv.h : 1.0f;
@@ -2282,7 +2346,12 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 		m_world.UpdateItemIcons(list, m_spriteBatch); // 3D item icons (static + spin)
 		m_world.UpdateMapIcons(list, m_spriteBatch);  // map marker icons (one-shot)
 		m_world.RenderShadowMaps(list);
+		// The scene renders linear HDR into the post target; Resolve runs the
+		// bloom chain + ACES composite and leaves the back buffer bound for
+		// the 2D pass below.
+		m_postProcess.BeginScene(list);
 		m_world.RenderScene(list);
+		m_postProcess.Resolve(list);
 	} else if (editorMap) {
 		// The editor covers the scene, but its map overlay draws the baked
 		// marker icons — keep the bakes running (a kind placed from the palette
@@ -2355,6 +2424,8 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 	}
 	if (m_balanceDialog.IsOpen()) // modal over the editor, like the others
 		m_balanceDialog.Render(m_spriteBatch, m_settings.theme, dw, dh);
+	if (m_levelSettingsDialog.IsOpen())
+		m_levelSettingsDialog.Render(m_spriteBatch, m_settings.theme, dw, dh);
 	// The per-instance edit dialogs, each drawn (panel + controls) THEN, once all
 	// are drawn, the 3D preview blitted into the active one's pane — the blit must
 	// come last so a dialog's backing box never covers it.

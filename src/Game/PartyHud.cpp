@@ -2,6 +2,7 @@
 
 #include "Core/Loc.h"
 #include "Game/Spell/Spell.h"
+#include "UI/Skin.h"
 
 #include <algorithm>
 #include <format>
@@ -163,11 +164,26 @@ void CharacterPanel::Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	const ui::Theme& theme = ctx.GetTheme();
 	const gfx::Rect& px = Pixel();
 
-	Vec4 background =
-		m_held ? theme.controlActive : (m_hot ? theme.controlHot : theme.panel);
-	background.w *= backgroundOpacity;
-	batch.DrawRect(px, background);
-	ui::DrawBorder(batch, px, m_hot ? theme.accent : theme.panelBorder);
+	// Skinned: the panel part is the slot face (frame baked in), hover/press
+	// wash the theme's control colors over it and hover keeps its accent
+	// border. The flat look stays as the debug mode, exactly as before.
+	const ui::Skin* skin = ctx.GetSkin();
+	if (skin && skin->panel.texture) {
+		ui::DrawNineSlice(batch, px, skin->panel,
+						  {1, 1, 1, theme.panel.w * backgroundOpacity});
+		if (m_held || m_hot) {
+			Vec4 wash = m_held ? theme.controlActive : theme.controlHot;
+			wash.w = 0.3f;
+			batch.DrawRect(px, wash);
+		}
+		if (m_hot) ui::DrawBorder(batch, px, theme.accent);
+	} else {
+		Vec4 background =
+			m_held ? theme.controlActive : (m_hot ? theme.controlHot : theme.panel);
+		background.w *= backgroundOpacity;
+		batch.DrawRect(px, background);
+		ui::DrawBorder(batch, px, m_hot ? theme.accent : theme.panelBorder);
+	}
 
 	// Internals scale with the slot height (the slot itself is normalized).
 	const float pad = px.h * 0.08f;
@@ -250,8 +266,7 @@ void CharacterPanel::Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 		const gfx::Rect tip{px.x, px.y + px.h + 2.0f,
 							font.MeasureWidth(label) + 12.0f,
 							font.LineAdvance() + 6.0f};
-		batch.DrawRect(tip, theme.panel);
-		ui::DrawBorder(batch, tip, theme.panelBorder);
+		ui::DrawPanelFace(ctx, batch, tip);
 		font.Draw(batch, label, tip.x + 6.0f, tip.y + 3.0f, theme.text);
 	}
 }
@@ -294,10 +309,31 @@ void HandSlot::Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	if (!m_character) return; // roster shorter than this slot — draw nothing
 	const ui::Theme& theme = ctx.GetTheme();
 	const gfx::Rect& px = Pixel();
-	// Black slot background (the light-haloed item reads against it); a subtle
-	// grey lift on hover/press keeps the interaction feedback.
-	batch.DrawRect(px, m_held ? Vec4{0.22f, 0.22f, 0.24f, 1.0f}
-							  : (m_hot ? Vec4{0.12f, 0.12f, 0.13f, 1.0f} : kSlotBg));
+	// Skinned: prefer the dedicated SOCKET FRAME part (an open-centred ring
+	// with transparent middle texels, drawn OVER the socket fill), falling
+	// back to the button part (opaque face, the socket inset into it). The
+	// black socket stays in every mode — the light-haloed item icons read
+	// against it.
+	const ui::Skin* skin = ctx.GetSkin();
+	const bool framed = skin && skin->slot.texture;
+	const bool skinned = framed || (skin && skin->button.texture);
+	gfx::Rect socket = px;
+	if (framed) {
+		// Content lives inside the frame ring; the fill overlaps the ring by a
+		// couple of px so no seam shows at the hole's antialiased edge.
+		const float ring = skin->slot.corner * skin->slot.scale;
+		const float in = std::max(2.0f, ring - 2.0f);
+		socket = {px.x + in, px.y + in, px.w - 2 * in, px.h - 2 * in};
+	} else if (skinned) {
+		ui::DrawNineSlice(batch, px, skin->button, {1, 1, 1, 1});
+		const float in = 4.0f;
+		socket = {px.x + in, px.y + in, px.w - 2 * in, px.h - 2 * in};
+	}
+	// A subtle grey lift on hover/press keeps the interaction feedback.
+	batch.DrawRect(socket, m_held ? Vec4{0.22f, 0.22f, 0.24f, 1.0f}
+								  : (m_hot ? Vec4{0.12f, 0.12f, 0.13f, 1.0f} : kSlotBg));
+	if (framed) // the ring draws over the fill; its open middle shows the socket
+		ui::DrawNineSlice(batch, px, skin->slot, {1, 1, 1, 1});
 	// The item held in this hand, if any, drawn inset from the border.
 	const ItemSlot& slot = m_character->inventory.Hand(m_hand);
 	if (!slot.Empty() && m_icons) {
@@ -307,10 +343,13 @@ void HandSlot::Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 							 {0, 0, 1, 1}, *icon, {1, 1, 1, 1});
 		}
 	}
-	// Identity stripe along the bottom edge.
-	batch.DrawRect({px.x + 1, px.y + px.h - 4, px.w - 2, 3},
+	// Identity stripe along the socket's bottom edge.
+	batch.DrawRect({socket.x + 1, socket.y + socket.h - 4, socket.w - 2, 3},
 				   m_character->portraitColor);
-	ui::DrawBorder(batch, px, m_hot ? theme.accent : theme.panelBorder);
+	if (m_hot)
+		ui::DrawBorder(batch, px, theme.accent);
+	else if (!skinned)
+		ui::DrawBorder(batch, px, theme.panelBorder);
 }
 
 // --- SpellbookPanel ------------------------------------------------------------
@@ -352,10 +391,12 @@ bool SpellbookPanel::MemberEligible(size_t i) const {
 // the 222px design box. Top to bottom: the member selector row, then the rune
 // grid; the sequence row and Cast/Clear anchor to the bottom.
 gfx::Rect SpellbookPanel::MemberButtonRect(const gfx::Rect& px, size_t i) const {
+	// A touch more pad/gap than the rune grid: the skinned button faces carry
+	// their own frame, so the row needs air to keep the four from fusing.
 	const float s = px.w / 222.0f;
-	const float pad = 10.0f * s, gap = 6.0f * s;
+	const float pad = 12.0f * s, gap = 8.0f * s;
 	const float cell = (px.w - 2 * pad - 3 * gap) / 4.0f;
-	return {px.x + pad + (cell + gap) * static_cast<float>(i), px.y + 8.0f * s,
+	return {px.x + pad + (cell + gap) * static_cast<float>(i), px.y + 10.0f * s,
 			cell, 24.0f * s};
 }
 
@@ -380,10 +421,13 @@ gfx::Rect SpellbookPanel::SequenceRect(const gfx::Rect& px, size_t i) const {
 }
 
 gfx::Rect SpellbookPanel::CastRect(const gfx::Rect& px) const {
+	// Tall enough for the round icon faces to read (they draw at the rect
+	// height; 28 was sized for text buttons and left the circles tiny). The
+	// sequence row anchors off this rect, so it rides up automatically.
 	const float s = px.w / 222.0f;
 	const float pad = 10.0f * s;
 	const float w = (px.w - 2 * pad - 8.0f * s) / 2.0f;
-	return {px.x + pad, px.y + px.h - pad - 28.0f * s, w, 28.0f * s};
+	return {px.x + pad, px.y + px.h - pad - 42.0f * s, w, 42.0f * s};
 }
 
 gfx::Rect SpellbookPanel::ClearRect(const gfx::Rect& px) const {
@@ -553,6 +597,10 @@ void SpellbookPanel::Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 
 	// The member selector row: one button per party slot in the member's
 	// identity color — pressed = the open book, washed out = absent/down.
+	// Skinned, the identity color TINTS the wood face (lerped toward white
+	// first so a dark identity blue doesn't crush the grain to black),
+	// stepped by state; the flat path stays as the skinless fallback.
+	const ui::Skin* skin = ctx.GetSkin();
 	for (size_t i = 0; i < 4; ++i) {
 		const gfx::Rect r = MemberButtonRect(px, i);
 		const Character* m =
@@ -561,7 +609,24 @@ void SpellbookPanel::Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 		const bool selected = static_cast<int>(i) == m_member;
 		const bool hot = static_cast<int>(i) == m_hotMember;
 		const Vec4 col = m ? m->portraitColor : theme.control;
-		if (!eligible) {
+		if (skin && skin->button.texture) {
+			// The FRAME stays natural wood/iron (untinted); the FACE is a flat
+			// identity fill inside the frame ring — pure color, no grain
+			// (Michael's call after the tinted-wood cuts read muddy).
+			ui::DrawNineSlice(batch, r, skin->button,
+							  eligible ? Vec4{1, 1, 1, 1}
+									   : Vec4{0.55f, 0.55f, 0.55f, 1.0f});
+			const float ring = skin->button.corner * skin->button.scale;
+			const float in = std::max(2.0f, ring - 2.0f);
+			const gfx::Rect face{r.x + in, r.y + in, r.w - 2 * in, r.h - 2 * in};
+			if (eligible) {
+				const float f = selected ? 1.0f : (hot ? 0.95f : 0.75f);
+				batch.DrawRect(face, {col.x * f, col.y * f, col.z * f, 1.0f});
+			} else {
+				batch.DrawRect(face, theme.control);
+			}
+			if (selected) ui::DrawBorder(batch, r, theme.accent);
+		} else if (!eligible) {
 			batch.DrawRect(r, theme.control);
 			ui::DrawBorder(batch, r, theme.panelBorder);
 		} else {
@@ -570,13 +635,6 @@ void SpellbookPanel::Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 			ui::DrawBorder(batch, r,
 						   selected ? theme.accent
 									: Vec4{col.x, col.y, col.z, 1.0f});
-		}
-		if (m) { // initial letter, centered (the name draws under the row)
-			const std::string initial(1, m->name.empty() ? '?' : m->name[0]);
-			const Vec4 ink = eligible ? theme.text : theme.textDim;
-			font.Draw(batch, initial,
-					  r.x + (r.w - font.MeasureWidth(initial)) * 0.5f,
-					  r.y + (r.h - font.Height()) * 0.5f, ink);
 		}
 	}
 	// No selection: the placeholder line where the grid would start. (No name
@@ -625,10 +683,24 @@ void SpellbookPanel::Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 		font.Draw(batch, "= " + loc::Tr(def->NameKey()), px.x + 10.0f * s,
 				  seq0.y - 8.0f * s - font.Height(), theme.accent);
 
-	ui::DrawButtonFace(batch, font, CastRect(px), m_castLabel, theme, m_hotCast,
-					   false, !m_sequence.empty());
-	ui::DrawButtonFace(batch, font, ClearRect(px), m_clearLabel, theme,
-					   m_hotClear, false, !m_sequence.empty());
+	// Cast / Clear. With icon faces (round buttons with their own chrome +
+	// alpha) each draws centered at the rect's height — the WHOLE rect stays
+	// the hit target, so the small circles keep the generous click area.
+	// Without icons, the localized text buttons return.
+	const bool armed = !m_sequence.empty();
+	auto iconButton = [&](const gfx::Rect& r, const gfx::Texture* icon,
+						  const std::string& label, bool hot) {
+		if (!icon) {
+			ui::DrawButtonFace(batch, font, r, label, theme, hot, false, armed);
+			return;
+		}
+		const float d = std::min(r.h, r.w);
+		const gfx::Rect ir{r.x + (r.w - d) * 0.5f, r.y + (r.h - d) * 0.5f, d, d};
+		const float f = armed && hot ? 1.0f : 0.78f; // brighten on hover
+		batch.DrawSprite(ir, {0, 0, 1, 1}, *icon, {f, f, f, armed ? 1.0f : 0.35f});
+	};
+	iconButton(CastRect(px), castIcon, m_castLabel, m_hotCast);
+	iconButton(ClearRect(px), clearIcon, m_clearLabel, m_hotClear);
 }
 
 // --- InventoryWindow ---------------------------------------------------------
@@ -709,8 +781,7 @@ void InventoryWindow::DrawOverlay(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	ui::Font& font = ctx.GetFont();
 	batch.DrawRect({0, 0, ctx.Width(), ctx.Height()}, {0, 0, 0, 0.5f}); // dim wash
 	const gfx::Rect panel = PanelRect(ctx);
-	batch.DrawRect(panel, theme.panel);
-	ui::DrawBorder(batch, panel, theme.panelBorder);
+	ui::DrawPanelFace(ctx, batch, panel);
 	font.Draw(batch, m_title, panel.x + kInvPad, panel.y + kInvPad, theme.accent);
 
 	const float colW = (panel.w - 2 * kInvPad) / static_cast<float>(MemberCount());
@@ -1051,8 +1122,7 @@ void CharacterSheet::Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	const ui::Theme& theme = ctx.GetTheme();
 	const gfx::Rect& px = Pixel();
 
-	batch.DrawRect(px, theme.panel);
-	ui::DrawBorder(batch, px, theme.panelBorder);
+	ui::DrawPanelFace(ctx, batch, px);
 	if (!m_character) return;
 
 	const float sx = px.w / kSheetDesignW;

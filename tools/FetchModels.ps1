@@ -110,6 +110,24 @@ function Find-Mesh {
 #   Rig        $true for a rigged monster: convert with --keep-rig + --height and
 #              drop the normalized rigged .glb straight into assets/models
 #              (bypasses import-model, which strips joints). Wire via monsters.cat.
+#   Objects    comma list -> ConvertMesh --objects: keep ONLY these mesh objects
+#              (packs that bundle decorative flame shells/reference junk).
+#   Lift       meters -> import-model --lift: raise the grounded mesh to a
+#              hanging height (wall fixtures render at y=0, the mesh carries it).
+#   Wall       $true -> import-model --wall: back face at z=0 (mount wall),
+#              room side +Z, instead of centering Z.
+#   TexDir     texture folder relative to Src (when the maps aren't beside the
+#              mesh, e.g. an extracted zip's textures\ sibling).
+#   TexPrefix  filename prefix filter: stage only matching maps to a temp dir
+#              before import (a pack whose one folder mixes several sets).
+#   TexExclude filename substring to DROP from the staged maps (a prefix that
+#              is itself the prefix of another set: Brazier_ vs Brazier_lamp_).
+#   SplitWhole $true -> ConvertMesh --split-whole: per-object .glb export but
+#              the scene normalizes as ONE (Height on combined bounds), so
+#              co-located parts of one prop stay aligned; Object picks the
+#              piece. Pair with Raw so import-model doesn't re-fit the piece.
+#   Raw        $true -> import-model --raw: trust the glb's placement (no
+#              orient/scale/ground/center/lift).
 #
 # The entries below are the listings we scouted - they install only once the
 # matching pack is downloaded to the archive (missing Src is skipped, not fatal).
@@ -131,8 +149,47 @@ $modelSets = @(
     # scaled down to a floor-loot size.
     @{ Src = "fab\armor"; Name = "leather_armor"; MultiMaterial = $true; Height = 0.90 }
 
-    # Rigged-monster scaffold (left commented until a rigged character is bought):
-    # @{ Src = "fab\monsters\skeleton-warrior"; Name = "skeleton_warrior"; Rig = $true; Height = 1.9; FlipGreen = $true }
+    # Assets Animated rigged crawlers (fab, 2026-07-10): one mesh + one material
+    # each, the 4K PBR maps EMBEDDED in the FBX (the Rig path dumps + imports
+    # them), full motion libraries as named actions (Atk/Dead/Hit/Idle/Walk/...).
+    # Crawlers size by FIT (longest extent — leg span / body length inside the
+    # 2 m cell), not standing height; fine-tune per type with the catalog's
+    # modelscale field in the editor's monster dialog.
+    @{ Src = "fab\monsters\centipede";    Name = "centipede";    Rig = $true; Fit = 1.8; FlipGreen = $true }
+    @{ Src = "fab\monsters\giant_spider"; Name = "giant_spider"; Rig = $true; Fit = 1.7; FlipGreen = $true }
+
+    # Perunir "Medieval Stylized Torch" (fab, 2026-07-11) — the authored wall
+    # sconce (fixtures.cat [sconce]): bracket (Holder) + torch, the decorative
+    # flame shells + coal dropped (the engine's particle flame burns at the
+    # catalog's flame_* point). One material for both kept meshes; the pack's
+    # textures folder also carries the coal's separate set, hence TexPrefix.
+    # Lifted/wall-aligned to hang like the procedural sconce (y 1.10..1.75).
+    @{ Src = "fab\props\medieval-stylized-torch\extracted\source"; Name = "wall_torch"
+       Objects = "Holder,Torch"; Height = 0.65; Lift = 1.10; Wall = $true
+       TexDir = "..\textures"; TexPrefix = "T_Torch" }
+
+    # Mavas3D "Fantastic brazier lamp" (fab, 2026-07-11) — the authored brazier
+    # (fixtures.cat [brazier]), TWO co-located parts with separate materials:
+    # the ornate metal bowl + the hot-coals insert (its own set, emissive map
+    # unused — the particle fire + light sell the glow). SplitWhole keeps the
+    # coals seated in the bowl (each piece re-fit on its own bounds would blow
+    # the 0.08 m coal bed up to bowl height); Raw imports trust that placement.
+    # The vendor's texture names cross: Brazier_* = the BOWL, Brazier_lamp_* =
+    # the COALS (confirmed by eye), and Brazier_ prefixes Brazier_lamp_, hence
+    # the exclude.
+    @{ Src = "fab\props\brazier_lamp_fbx\extracted"; Name = "brazier_bowl"
+       Object = "fantasy_brazier_lamp"; SplitWhole = $true; Raw = $true; Height = 0.75
+       TexDir = "Textures_brazier_lamp_2K"; TexPrefix = "Brazier_"; TexExclude = "Brazier_lamp_" }
+    @{ Src = "fab\props\brazier_lamp_fbx\extracted"; Name = "brazier_coals"
+       Object = "hot_coals"; SplitWhole = $true; Raw = $true; Height = 0.75
+       TexDir = "Textures_brazier_lamp_2K"; TexPrefix = "Brazier_lamp_" }
+
+    # Mavas3D "Fantastic brazier" (fab, 2026-07-11) — the same bowl WITHOUT
+    # coals, one mesh + one set. Imported as spare assets (the world loads ONE
+    # brazier kind — the default id's — so this can't coexist as a separate
+    # placeable fixture yet; swap fixtures.cat [brazier] model/texture to use).
+    @{ Src = "fab\props\brazier_fbx\extracted"; Name = "brazier_empty"; Height = 0.75
+       TexDir = "Textures_brazier_2K" }
 )
 
 $wanted = $Materials.Count -gt 0
@@ -190,26 +247,45 @@ foreach ($m in $modelSets) {
         $modelsDir = Join-Path $assets "models"
         $stage = Join-Path $stageRoot $m.Name
         if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
-        $h = if ($m.Height) { $m.Height } else { 1.8 }
-        if ((Invoke-Convert $mesh $stage "--keep-rig" "--height" $h) -ne 0) { throw "Convert failed for $($m.Name)" }
+        # Size by Fit (longest extent; crawlers) when given, else Height (Z;
+        # standing creatures).
+        $sizeArgs = if ($m.Fit) { @('--fit', $m.Fit) }
+                    else { @('--height', $(if ($m.Height) { $m.Height } else { 1.8 })) }
+        # fab monster FBXs usually EMBED their PBR maps — have the convert dump
+        # them as loose PNGs so the set import below has something to pack.
+        $texDump = Join-Path $stage "dumped_textures"
+        if ((Invoke-Convert $mesh $stage "--keep-rig" @sizeArgs `
+                            "--dump-images" $texDump) -ne 0) { throw "Convert failed for $($m.Name)" }
         $glb = Get-ChildItem -Path $stage -Filter *.glb -File | Select-Object -First 1
         if (-not $glb) { throw "No rigged glb produced for $($m.Name)" }
         Copy-Item $glb.FullName (Join-Path $modelsDir "$($m.Name).gltf") -Force
         Write-Host "  rigged model -> models\$($m.Name).gltf"
-        # Its texture set (imported like a normal prop set).
+        # Its texture set (imported like a normal prop set). Source priority:
+        # loose maps beside the mesh, a textures\ subfolder (Sketchfab-style
+        # gltf downloads), then the maps dumped out of the embedded FBX.
+        $texSrc = $srcDir
+        if (-not (Get-ChildItem $srcDir -File -ErrorAction SilentlyContinue |
+                  Where-Object { $_.Extension -in '.png', '.jpg', '.jpeg', '.tga' })) {
+            if (Test-Path (Join-Path $srcDir 'textures')) { $texSrc = Join-Path $srcDir 'textures' }
+            elseif (Test-Path $texDump) { $texSrc = $texDump }
+        }
         $flip = if ($m.FlipGreen) { @('--flip-green') } else { @() }
-        if ((Invoke-Baker import $srcDir $assets "$($m.Name)_2k" @flip) -ne 0) { throw "Texture import failed for $($m.Name)" }
+        if ((Invoke-Baker import $texSrc $assets "$($m.Name)_2k" @flip) -ne 0) { throw "Texture import failed for $($m.Name)" }
         $installed++
         continue
     }
 
     # --- pick the .glb to feed import-model -----------------------------------
     $importMesh = $mesh
-    if ($m.Split) {
+    if ($m.Split -or $m.SplitWhole) {
         $stage = Join-Path $stageRoot ($m.Src -replace '[\\/:]', '_')
         if (-not (Test-Path (Join-Path $stage "$($m.Object).glb"))) {
             if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
-            if ((Invoke-Convert $mesh $stage "--split") -ne 0) { throw "Split convert failed for $($m.Src)" }
+            $cargs = @($mesh, $stage)
+            if ($m.SplitWhole) { $cargs += @('--split-whole', '--height', $m.Height) }
+            else { $cargs += '--split' }
+            if ($m.Objects) { $cargs += @('--objects', $m.Objects) }
+            if ((Invoke-Convert @cargs) -ne 0) { throw "Split convert failed for $($m.Src)" }
         }
         $importMesh = Join-Path $stage "$($m.Object).glb"
         if (-not (Test-Path $importMesh)) {
@@ -221,7 +297,9 @@ foreach ($m in $modelSets) {
         # Non-pack but needs conversion (fbx/usd) -> one combined glb.
         $stage = Join-Path $stageRoot ($m.Src -replace '[\\/:]', '_')
         if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
-        if ((Invoke-Convert $mesh $stage) -ne 0) { throw "Convert failed for $($m.Name)" }
+        $cargs = @($mesh, $stage)
+        if ($m.Objects) { $cargs += @('--objects', $m.Objects) }
+        if ((Invoke-Convert @cargs) -ne 0) { throw "Convert failed for $($m.Name)" }
         $importMesh = (Get-ChildItem -Path $stage -Filter *.glb -File | Select-Object -First 1).FullName
     }
 
@@ -233,15 +311,34 @@ foreach ($m in $modelSets) {
     # import once per set, then point import-model at it with --texture-set.
     $set = if ($m.TextureSet) { $m.TextureSet } else { $m.Name }
     if (-not $importedSets.Contains($set)) {
+        # The maps may live in a sibling folder (TexDir) and share it with other
+        # sets (TexPrefix stages only the matching files, since DiscoverMaps
+        # binds the FIRST match per map kind).
+        $texSrc = if ($m.TexDir) { [IO.Path]::GetFullPath((Join-Path $srcDir $m.TexDir)) } else { $srcDir }
+        if ($m.TexPrefix) {
+            $texStage = Join-Path $stageRoot "$($m.Name)_tex"
+            if (Test-Path $texStage) { Remove-Item -Recurse -Force $texStage }
+            New-Item -ItemType Directory -Force $texStage | Out-Null
+            Get-ChildItem $texSrc -File |
+                Where-Object { $_.Name -like "$($m.TexPrefix)*" -and
+                               (-not $m.TexExclude -or $_.Name -notlike "$($m.TexExclude)*") } |
+                Copy-Item -Destination $texStage
+            $texSrc = $texStage
+        }
         $flip = if ($m.FlipGreen) { @('--flip-green') } else { @() }
-        if ((Invoke-Baker import $srcDir $assets "$($set)_2k" @flip) -ne 0) {
+        if ((Invoke-Baker import $texSrc $assets "$($set)_2k" @flip) -ne 0) {
             throw "Texture import failed for set $set"
         }
         [void]$importedSets.Add($set)
     }
 
     $importArgs = @('import-model', $importMesh, $assets, $m.Name, '--texture-set', $set)
-    if ($m.Height) { $importArgs += @('--height', $m.Height) }
+    if ($m.Raw) { $importArgs += @('--raw') }
+    else {
+        if ($m.Height) { $importArgs += @('--height', $m.Height) }
+        if ($m.Lift) { $importArgs += @('--lift', $m.Lift) }
+        if ($m.Wall) { $importArgs += @('--wall') }
+    }
     if ((Invoke-Baker @importArgs) -ne 0) { throw "Model import failed for $($m.Name)" }
     $installed++
 }

@@ -122,6 +122,34 @@ void GameUI::LoadTitleArt() {
 	m_titleBackground = LoadTextureFile(m_device, paths::Asset("ui\\title_bg"));
 	// Small UI glyph; optional (the SlotList falls back to a text "X").
 	m_deleteIcon = TryLoadTextureFile(m_device, paths::Asset("ui\\delete"));
+
+	// UI skin parts (assets/ui/skin_*.png, committed source like the other UI
+	// images). All optional — a missing part leaves that chrome flat, and the
+	// flat look survives whole as the debug mode / uiskin=0.
+	m_skinPanelTex = TryLoadTextureFile(m_device, paths::Asset("ui\\skin_panel"));
+	m_skinButtonTex = TryLoadTextureFile(m_device, paths::Asset("ui\\skin_button"));
+	m_skinSlotTex = TryLoadTextureFile(m_device, paths::Asset("ui\\skin_slot"));
+	// The spellbook's Cast/Clear icon faces (optional — text buttons without).
+	m_castIconTex = TryLoadTextureFile(m_device, paths::Asset("ui\\icon_cast"));
+	m_clearIconTex = TryLoadTextureFile(m_device, paths::Asset("ui\\icon_clear"));
+	// The movement pad's chevrons (single = step, double = turn), rotated in
+	// quarter turns per direction by ui::Button::iconTurns.
+	m_chevronTex = TryLoadTextureFile(m_device, paths::Asset("ui\\icon_chevron"));
+	m_chevron2Tex = TryLoadTextureFile(m_device, paths::Asset("ui\\icon_chevron2"));
+	// The panel part is a QUIET bake (near-black + faint noise, one thin brass
+	// edge, no black rim — the old stone face read too busy under the kit's
+	// wooden buttons); it tiles, so the noise stays dense at any panel size.
+	m_skin.panel = {m_skinPanelTex.get(), 8.0f, 1.0f};
+	// The button part (Medieval RPG UI kit slot #17: planked face, iron corner
+	// plates) is baked 64px with a ~14px frame; scale 0.65 renders it ~9px
+	// (full-scale read as heavy on the small movement/hand chrome). Both kit
+	// parts are AUTHORED faces with baked lighting, so they stretch rather
+	// than tile (tiling their gradients banded visibly).
+	m_skin.button = {m_skinButtonTex.get(), 14.0f, 0.65f, /*stretch*/ true};
+	// The socket frame (kit slot #12) is baked 96px with a ~20px ring;
+	// scale 0.42 renders it ~8px so a hand slot keeps its item visible.
+	m_skin.slot = {m_skinSlotTex.get(), 20.0f, 0.42f, /*stretch*/ true};
+	ApplySkin();
 }
 
 void GameUI::ApplyTheme() {
@@ -129,6 +157,14 @@ void GameUI::ApplyTheme() {
 		 {&m_hudUi, &m_menuUi, &m_settingsUi, &m_pauseUi, &m_savesUi, &m_sheetUi,
 		  &m_confirmUi})
 		ctx->SetTheme(m_settings.theme);
+}
+
+void GameUI::ApplySkin() {
+	const ui::Skin* skin = m_settings.uiSkin ? &m_skin : nullptr;
+	for (ui::UIContext* ctx :
+		 {&m_hudUi, &m_menuUi, &m_settingsUi, &m_pauseUi, &m_savesUi, &m_sheetUi,
+		  &m_confirmUi})
+		ctx->SetSkin(skin);
 }
 
 void GameUI::Click(float volume) { m_audio.Play(m_sounds.click, volume); }
@@ -808,11 +844,34 @@ void GameUI::BuildSettings() {
 		});
 	volume->onRelease = [this] { m_settings.Save(); };
 
+	// UI → Textured UI: flips every context between the skinned chrome and the
+	// flat theme-fill look (kept as a debug mode — containment/extents read at
+	// a glance). Live — widgets re-check the skin pointer each draw.
+	Flow uf{pad, rowW, pad};
+	tabs->AddChild<ui::Checkbox>(
+		tabUi, Norm(uf.Place(ctrlH, mGroup, mTight), page),
+		loc::Tr("settings.uiskin"), m_settings.uiSkin, [this](bool on) {
+			Click();
+			m_settings.uiSkin = on;
+			ApplySkin();
+			m_settings.Save();
+		});
+
+	// UI → Head bob: the walking camera's footfall dip/sway. Off for motion-
+	// sensitive players; pushed to the Party via onHeadBobChanged.
+	tabs->AddChild<ui::Checkbox>(
+		tabUi, Norm(uf.Place(ctrlH, mTight, mGroup), page),
+		loc::Tr("settings.headbob"), m_settings.headBob, [this](bool on) {
+			Click();
+			m_settings.headBob = on;
+			if (onHeadBobChanged) onHeadBobChanged();
+			m_settings.Save();
+		});
+
 	// UI → Party Bar: scale resizes the bar live (about its top center) and
 	// opacity fades the slot backgrounds. Both apply while dragging and
 	// persist on release; safe before the HUD exists (the panel list is empty
 	// until the first game load).
-	Flow uf{pad, rowW, pad};
 	tabs->AddChild<ui::Label>(tabUi, Norm(uf.Place(labelH, mGroup, mTight), page),
 							  loc::Tr("settings.party_bar"));
 	auto* barScale = tabs->AddChild<ui::Slider>(
@@ -1460,45 +1519,49 @@ void GameUI::BuildHud() {
 		Norm({px, belowBar, panelW, panelBottom - belowBar}, window)));
 
 	// Movement arrows: turn left / forward / turn right over strafe left /
-	// back / strafe right (the classic six), square, three across.
+	// back / strafe right (the classic six), square, three across. Icon faces
+	// when the chevron textures exist (single chevron = step, double = turn,
+	// rotated per direction; the icons point RIGHT at 0 turns); the text
+	// glyphs stay as the fallback.
 	const struct {
 		const char* glyph;
 		MoveAction action;
+		bool turn;    // double chevron
+		int quarters; // clockwise quarter turns from pointing right
 	} moves[] = {
-		{"«", MoveAction::TurnLeft}, {"^", MoveAction::Forward},
-		{"»", MoveAction::TurnRight}, {"<", MoveAction::StrafeLeft},
-		{"v", MoveAction::Back},      {">", MoveAction::StrafeRight},
+		{"«", MoveAction::TurnLeft, true, 2},  {"^", MoveAction::Forward, false, 3},
+		{"»", MoveAction::TurnRight, true, 0}, {"<", MoveAction::StrafeLeft, false, 2},
+		{"v", MoveAction::Back, false, 1},     {">", MoveAction::StrafeRight, false, 0},
 	};
 	const float moveW = (innerW - 2 * 8.0f) / 3.0f;
 	for (size_t i = 0; i < std::size(moves); ++i) {
-		below(m_hudUi.Add<ui::Button>(
+		auto* btn = m_hudUi.Add<ui::Button>(
 			Norm({px + pad + (moveW + 8.0f) * static_cast<float>(i % 3),
 				  belowBar + 12 + (moveW + 8.0f) * static_cast<float>(i / 3),
 				  moveW, moveW},
 				 window),
 			moves[i].glyph,
-			[this, action = moves[i].action] { onMoveAction(action); }));
+			[this, action = moves[i].action] { onMoveAction(action); });
+		btn->icon = moves[i].turn ? m_chevron2Tex.get() : m_chevronTex.get();
+		btn->iconTurns = moves[i].quarters;
+		below(btn);
 	}
 
 	// Hand pairs, two members side by side per row (so the four-member
-	// roster makes a 2x2 grid of sets): the name over a left and a right
-	// hand box, square. The slots stay empty until items exist; clicking one
-	// logs that.
+	// roster makes a 2x2 grid of sets): a left and a right hand box, square.
+	// No name label — each slot's identity stripe says whose hands these are
+	// (the labels doubled that and crowded the panel).
 	const float setW = (innerW - 8.0f) / 2.0f;
 	const float handW = (setW - 4.0f) / 2.0f;
-	const float setH = 20 + handW + 8;
+	const float setH = handW + 8;
 	const float handsTop = belowBar + 12 + 2 * moveW + 8 + 14;
 	for (size_t i = 0; i < m_characters.size() && i < 4; ++i) {
 		const float setX = px + pad + (setW + 8.0f) * static_cast<float>(i % 2);
 		const float setTop = handsTop + setH * static_cast<float>(i / 2);
-		auto* name = m_hudUi.Add<ui::Label>(
-			Norm({setX, setTop, setW, 18}, window), m_characters[i].name);
-		name->dim = true;
-		below(name);
 		for (int hand = 0; hand < 2; ++hand) {
 			below(m_hudUi.Add<HandSlot>(
 				Norm({setX + (handW + 4.0f) * static_cast<float>(hand),
-					  setTop + 20, handW, handW},
+					  setTop, handW, handW},
 					 window),
 				&m_characters, i, hand, m_itemIcons,
 					// Left-click: place a held tablet here / pick this hand's item
@@ -1524,6 +1587,8 @@ void GameUI::BuildHud() {
 			 window),
 		&m_characters, m_itemIcons);
 	m_spellbook->onClick = [this] { Click(); };
+	m_spellbook->castIcon = m_castIconTex.get();
+	m_spellbook->clearIcon = m_clearIconTex.get();
 	m_spellbook->spells = [this] {
 		return spellDefs ? spellDefs()
 						 : std::span<const std::unique_ptr<Spell>>{};
@@ -1750,10 +1815,23 @@ void GameUI::DrawLoadProgress(const LoadQueue& queue, float barY) {
 	const ui::Theme& theme = m_menuUi.GetTheme();
 
 	const gfx::Rect bar{w * 0.3f, barY, w * 0.4f, h * (14.0f / kFontDesignWindowH)};
-	m_spriteBatch.DrawRect(bar, theme.control);
-	m_spriteBatch.DrawRect({bar.x, bar.y, bar.w * queue.Progress(), bar.h},
-						   theme.accent);
-	ui::DrawBorder(m_spriteBatch, bar, theme.panelBorder);
+	// Skinned: the button part frames the bar with the track inset as a dark
+	// socket (the HandSlot treatment); flat mode keeps the bordered fill.
+	const ui::Skin* skin = m_menuUi.GetSkin();
+	if (skin && skin->button.texture) {
+		ui::DrawNineSlice(m_spriteBatch, bar, skin->button, {1, 1, 1, 1});
+		const float in = 3.0f;
+		const gfx::Rect track{bar.x + in, bar.y + in, bar.w - 2 * in,
+							  bar.h - 2 * in};
+		m_spriteBatch.DrawRect(track, {0.0f, 0.0f, 0.0f, 1.0f});
+		m_spriteBatch.DrawRect({track.x, track.y, track.w * queue.Progress(), track.h},
+							   theme.accent);
+	} else {
+		m_spriteBatch.DrawRect(bar, theme.control);
+		m_spriteBatch.DrawRect({bar.x, bar.y, bar.w * queue.Progress(), bar.h},
+							   theme.accent);
+		ui::DrawBorder(m_spriteBatch, bar, theme.panelBorder);
+	}
 
 	const std::string_view step = queue.CurrentLabel();
 	ui::Font& font = m_menuUi.GetFont();

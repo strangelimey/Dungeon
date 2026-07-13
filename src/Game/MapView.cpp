@@ -107,33 +107,31 @@ gfx::Rect MapView::LevelDownButton(const gfx::Rect& panel) const {
 	return {up.x + up.w + DockPad(panel), up.y, up.w, up.h};
 }
 
-gfx::Rect MapView::SaveSourceButton(const gfx::Rect& panel) const {
+std::vector<MapView::ToolButton> MapView::ToolbarButtons(const gfx::Rect& panel) const {
+	std::vector<ToolButton> btns;
+	if (m_mode != Mode::Editor) return btns;
 	const gfx::Rect g = GridArea(panel);
 	const float pad = DockPad(panel);
 	const float s = std::clamp(panel.h * 0.042f, 22.0f, 40.0f);
-	const float w = s * 4.0f; // room for the localized label
-	return {g.x + g.w - pad * 2 - w, panel.y + pad * 2, w, s};
-}
-
-gfx::Rect MapView::SaveButton(const gfx::Rect& panel) const {
-	const gfx::Rect src = SaveSourceButton(panel);
-	return {src.x - DockPad(panel) - src.w, src.y, src.w, src.h};
-}
-
-gfx::Rect MapView::RedoButton(const gfx::Rect& panel) const {
-	const gfx::Rect save = SaveButton(panel);
-	return {save.x - DockPad(panel) - save.h, save.y, save.h, save.h};
-}
-
-gfx::Rect MapView::UndoButton(const gfx::Rect& panel) const {
-	const gfx::Rect redo = RedoButton(panel);
-	return {redo.x - DockPad(panel) - redo.w, redo.y, redo.w, redo.h};
-}
-
-gfx::Rect MapView::BalanceButton(const gfx::Rect& panel) const {
-	const gfx::Rect undo = UndoButton(panel);
-	const float w = undo.h * 4.0f; // labelled like Save/To source
-	return {undo.x - DockPad(panel) - w, undo.y, w, undo.h};
+	const float wide = s * 4.0f; // room for a localized label
+	const bool busy = m_pendingHistory != 0;
+	// Built right-to-left from the grid's top-right corner; every consumer
+	// (hover, click, render) walks this same list.
+	float right = g.x + g.w - pad * 2;
+	auto add = [&](HoverBtn id, std::string label, float w, bool visible,
+				   bool enabled) {
+		right -= w;
+		btns.push_back(
+			{id, {right, panel.y + pad * 2, w, s}, std::move(label), visible, enabled});
+		right -= pad;
+	};
+	add(HoverBtn::SaveSource, loc::Tr("map.btn.source"), wide, true, true);
+	add(HoverBtn::Save, loc::Tr("map.btn.save"), wide, true, true);
+	add(HoverBtn::Redo, ">", s, m_world.CanRedo(), !busy);
+	add(HoverBtn::Undo, "<", s, m_world.CanUndo(), !busy);
+	add(HoverBtn::Balance, loc::Tr("map.btn.balance"), wide, true, true);
+	add(HoverBtn::LevelSettings, loc::Tr("map.btn.level"), wide, true, true);
+	return btns;
 }
 
 void MapView::DoUndoRedo(bool redo) {
@@ -286,20 +284,16 @@ bool MapView::Update(const Input& input, const gfx::Rect& panel) {
 		m_hoverBtn = HoverBtn::LevelUp;
 	else if (!LevelNeighbor(+1).empty() && LevelDownButton(panel).Contains(mx, my))
 		m_hoverBtn = HoverBtn::LevelDown;
-	else if (editor && m_world.CanUndo() && UndoButton(panel).Contains(mx, my))
-		m_hoverBtn = HoverBtn::Undo;
-	else if (editor && m_world.CanRedo() && RedoButton(panel).Contains(mx, my))
-		m_hoverBtn = HoverBtn::Redo;
-	else if (editor && SaveButton(panel).Contains(mx, my))
-		m_hoverBtn = HoverBtn::Save;
-	else if (editor && SaveSourceButton(panel).Contains(mx, my))
-		m_hoverBtn = HoverBtn::SaveSource;
-	else if (editor && BalanceButton(panel).Contains(mx, my))
-		m_hoverBtn = HoverBtn::Balance;
 	else if (editor && LeftCollapseButton(panel).Contains(mx, my))
 		m_hoverBtn = HoverBtn::CollapseL;
 	else if (RightCollapseButton(panel).Contains(mx, my))
 		m_hoverBtn = HoverBtn::CollapseR;
+	if (m_hoverBtn == HoverBtn::None) // the header toolbar (editor only)
+		for (const ToolButton& b : ToolbarButtons(panel))
+			if (b.visible && b.enabled && b.rect.Contains(mx, my)) {
+				m_hoverBtn = b.id;
+				break;
+			}
 
 	// Wheel zooms about the cursor: keep the map point under the pointer fixed.
 	if (overGrid && input.WheelDelta() != 0.0f && map.Width() > 0) {
@@ -332,32 +326,26 @@ bool MapView::Update(const Input& input, const gfx::Rect& panel) {
 			StepViewLevel(+1);
 			return true;
 		}
-		// Editor save buttons (top-right of the grid): Save / To source.
-		if (editor && onSave) {
-			if (SaveButton(panel).Contains(mx, my)) {
-				onSave(false);
-				return true;
-			}
-			if (SaveSourceButton(panel).Contains(mx, my)) {
-				onSave(true);
-				return true;
-			}
-		}
-		// Balance button (left of undo/redo): the combat-tuning dialog.
-		if (editor && onBalance && BalanceButton(panel).Contains(mx, my)) {
-			onBalance();
-			return true;
-		}
-		// Undo/redo buttons (left of Save) — hidden when their stack is empty,
-		// so a click there falls through like a hidden level arrow; disabled
-		// (latched trigger pending) they swallow the click but do nothing.
+		// The header toolbar (editor only). A hidden button (empty undo/redo
+		// stack) is not hit-tested — a click there falls through like a hidden
+		// level arrow; a disabled one (latched undo/redo trigger) swallows the
+		// click but does nothing.
 		if (editor) {
-			if (m_world.CanUndo() && UndoButton(panel).Contains(mx, my)) {
-				if (m_pendingHistory == 0) m_pendingHistory = -1;
-				return true;
-			}
-			if (m_world.CanRedo() && RedoButton(panel).Contains(mx, my)) {
-				if (m_pendingHistory == 0) m_pendingHistory = +1;
+			for (const ToolButton& b : ToolbarButtons(panel)) {
+				if (!b.visible || !b.rect.Contains(mx, my)) continue;
+				switch (b.id) {
+				case HoverBtn::Save:          if (onSave) onSave(false); break;
+				case HoverBtn::SaveSource:    if (onSave) onSave(true); break;
+				case HoverBtn::Balance:       if (onBalance) onBalance(); break;
+				case HoverBtn::LevelSettings: if (onLevelSettings) onLevelSettings(); break;
+				case HoverBtn::Undo:
+					if (b.enabled && m_pendingHistory == 0) m_pendingHistory = -1;
+					break;
+				case HoverBtn::Redo:
+					if (b.enabled && m_pendingHistory == 0) m_pendingHistory = +1;
+					break;
+				default: break;
+				}
 				return true;
 			}
 		}
@@ -989,25 +977,14 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 					upR.y + (upR.h - m_font.Height()) * 0.5f,
 					m_browse ? theme.accent : theme.text);
 
-		// Editor save buttons, top-right of the grid (Update hit-tests the same
-		// rects): Save = write every edited level; To source = also copy the
-		// project into the repo tree. Undo/redo draw only while their stacks
-		// have steps (hit-testing matches, so a hidden button never eats a
-		// click); while a restore is latched they draw DISABLED for the frame
-		// it executes on, so the click visibly takes even if it hitches.
-		if (m_mode == Mode::Editor) {
-			face(SaveButton(panel), loc::Tr("map.btn.save"), HoverBtn::Save);
-			face(SaveSourceButton(panel), loc::Tr("map.btn.source"),
-				 HoverBtn::SaveSource);
-			const bool busy = m_pendingHistory != 0;
-			if (m_world.CanUndo())
-				face(UndoButton(panel), "<", HoverBtn::Undo, !busy);
-			if (m_world.CanRedo())
-				face(RedoButton(panel), ">", HoverBtn::Redo, !busy);
-			// The combat-tuning dialog (balance.cat/attacks.cat front-end).
-			face(BalanceButton(panel), loc::Tr("map.btn.balance"),
-				 HoverBtn::Balance);
-		}
+		// The editor's header toolbar, top-right of the grid (Update hit-tests
+		// the same list): Level settings / Balance / undo / redo / Save / To
+		// source. Hidden buttons (empty undo/redo stack) keep their slot but
+		// don't draw; while a history restore is latched, undo/redo draw
+		// DISABLED for the frame it executes on, so the click visibly takes
+		// even if it hitches.
+		for (const ToolButton& b : ToolbarButtons(panel))
+			if (b.visible) face(b.rect, b.label, b.id, b.enabled);
 	}
 
 	// Player title, centered over the grid area (clear of the key dock).

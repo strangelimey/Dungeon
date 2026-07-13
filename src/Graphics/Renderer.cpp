@@ -28,7 +28,8 @@ struct FrameConstants {
 	Vec4 dirDirection;
 	Vec4 dirColor;
 	u32 pointLightCount;
-	u32 pad[3];
+	u32 tonemapInline; // 1 = tonemap in the scene PS (LDR targets), 0 = HDR out
+	u32 pad[2];
 	Vec4 fogGrid;     // xy = 1 / atmosphere world extent, z = density, w = haze ambient
 	Vec4 hazeColor;   // rgb = dust albedo tint
 	Vec4 shadowLight; // shadow pass only: xyz = light pos, w = 1 / radius
@@ -82,8 +83,8 @@ Renderer::Renderer(GraphicsDevice& device) : m_device(device) {
 	//   3: t0 base color texture (table)
 	//   4: t1 normal+height map (table)
 	//   5: t2 air turbidity grid (table)
-	//   6: t3..t6 shadow cubes (one table, contiguous descriptors)
-	//   7: t7 occlusion/roughness/metallic ORM map (table)
+	//   6: t3..t10 shadow cubes (one table, contiguous descriptors)
+	//   7: t11 occlusion/roughness/metallic ORM map (table)
 	D3D12_DESCRIPTOR_RANGE srvRange0{};
 	srvRange0.RangeType = D3D12_DESCRIPTOR_RANGE_TYPE_SRV;
 	srvRange0.NumDescriptors = 1;
@@ -96,7 +97,7 @@ Renderer::Renderer(GraphicsDevice& device) : m_device(device) {
 	srvRangeShadow.BaseShaderRegister = 3;
 	srvRangeShadow.NumDescriptors = kShadowSlots;
 	D3D12_DESCRIPTOR_RANGE srvRangeMR = srvRange0;
-	srvRangeMR.BaseShaderRegister = 7;
+	srvRangeMR.BaseShaderRegister = 3 + kShadowSlots; // t11: first SRV after the cubes
 
 	D3D12_ROOT_PARAMETER params[8]{};
 	for (int i = 0; i < 3; ++i) {
@@ -200,6 +201,15 @@ Renderer::Renderer(GraphicsDevice& device) : m_device(device) {
 	culledPso.RasterizerState.FrontCounterClockwise = TRUE;
 	DN_HR(m_device.Device()->CreateGraphicsPipelineState(&culledPso,
 														 IID_PPV_ARGS(&m_psoCull)));
+
+	// The same pair again targeting the HDR scene intermediate (the main pass
+	// renders there and PostProcess composites into the back buffer; the LDR
+	// pair above keeps serving the model previews and icon bakes).
+	pso.RTVFormats[0] = kSceneColorFormat;
+	DN_HR(m_device.Device()->CreateGraphicsPipelineState(&pso, IID_PPV_ARGS(&m_psoHdr)));
+	culledPso.RTVFormats[0] = kSceneColorFormat;
+	DN_HR(m_device.Device()->CreateGraphicsPipelineState(&culledPso,
+														 IID_PPV_ARGS(&m_psoCullHdr)));
 
 	// Shadow pass pipeline: same root signature and input layout, writing
 	// normalized light->fragment distance into an R16_FLOAT cube face.
@@ -318,7 +328,8 @@ void Renderer::CreateShadowResources() {
 		device->CreateDepthStencilView(m_shadowDepth[slot].Get(), nullptr, dsv);
 	}
 
-	// Cube SRVs — allocated back to back so all four bind as ONE root table.
+	// Cube SRVs — allocated back to back (boot-time, before any free-list
+	// recycling can fragment the heap) so every slot binds as ONE root table.
 	for (u32 slot = 0; slot < kShadowSlots; ++slot) {
 		m_shadowSrv[slot] = m_device.AllocateSrv();
 		D3D12_SHADER_RESOURCE_VIEW_DESC srv{};
@@ -342,9 +353,11 @@ void Renderer::NewFrame(u32 frameIndex) {
 }
 
 void Renderer::BeginScene(ID3D12GraphicsCommandList* list, const Camera& camera,
-						  const LightSet& lights, const Atmosphere& atmosphere) {
+						  const LightSet& lights, const Atmosphere& atmosphere,
+						  bool hdrTarget) {
 	FrameConstants frame{};
 	frame.viewProj = camera.ViewProj();
+	frame.tonemapInline = hdrTarget ? 0u : 1u;
 	const Vec3& cam = camera.Position();
 	frame.cameraPos = {cam.x, cam.y, cam.z, 1.0f};
 	frame.ambient = {lights.ambient.x, lights.ambient.y, lights.ambient.z, 1.0f};
@@ -375,9 +388,11 @@ void Renderer::BeginScene(ID3D12GraphicsCommandList* list, const Camera& camera,
 	std::memcpy(alloc.cpu, &frame, sizeof(frame));
 
 	m_shadowPass = false;
+	m_hdrPass = hdrTarget;
+	ID3D12PipelineState* pso = hdrTarget ? m_psoHdr.Get() : m_pso.Get();
 	list->SetGraphicsRootSignature(m_rootSignature.Get());
-	list->SetPipelineState(m_pso.Get());
-	m_currentPso = m_pso.Get();
+	list->SetPipelineState(pso);
+	m_currentPso = pso;
 	list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 	list->SetGraphicsRootConstantBufferView(0, alloc.gpu);
 
@@ -466,7 +481,9 @@ void Renderer::DrawMesh(ID3D12GraphicsCommandList* list, const Mesh& mesh,
 	// double-sided. Never swap during the shadow pass (it owns m_shadowPso), and
 	// only issue a state change when the PSO actually differs.
 	if (!m_shadowPass) {
-		ID3D12PipelineState* want = material.doubleSided ? m_pso.Get() : m_psoCull.Get();
+		ID3D12PipelineState* want =
+			material.doubleSided ? (m_hdrPass ? m_psoHdr.Get() : m_pso.Get())
+								 : (m_hdrPass ? m_psoCullHdr.Get() : m_psoCull.Get());
 		if (want != m_currentPso) {
 			list->SetPipelineState(want);
 			m_currentPso = want;

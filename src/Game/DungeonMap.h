@@ -46,8 +46,12 @@ enum class Cell : u8 { Wall, Floor };
 
 // Per-torch light/smoke defaults (also the "don't write it" baseline for the
 // .map fixture record — only non-default values are serialized).
+// Turbidity defaults were halved in the lighting mood pass (0.28/0.55 →
+// 0.16/0.38): fire smoke used to SUM linearly across neighbours, so a
+// sconce-lined hall saturated to 'D'-cell thickness and the in-scatter wash
+// buried every surface shadow (~1.5% mean pixel effect with shadows off).
 inline constexpr float kSconceBrightness = 3.0f; // light reach, in cells
-inline constexpr float kSconceTurbidity = 0.28f; // smokiness added to cell + ring
+inline constexpr float kSconceTurbidity = 0.16f; // smokiness added to cell + ring
 // Floor for a fixture record's bright= value: a zero-radius lit light would
 // feed 1/radius = inf into the shadow pass, so the parser clamps up to this.
 inline constexpr float kFixtureMinBrightness = 0.25f;
@@ -68,7 +72,7 @@ struct WallSconce {
 // Per-brazier defaults (bigger reach + more smoke than a sconce), same "don't
 // write the default" rule on the .map record.
 inline constexpr float kBrazierBrightness = 6.0f; // light reach, in cells
-inline constexpr float kBrazierTurbidity = 0.55f;
+inline constexpr float kBrazierTurbidity = 0.38f;
 
 // A floor-standing brazier: its cell plus the same light/smoke knobs a sconce
 // has (no wall — it stands at the cell centre).
@@ -138,6 +142,22 @@ public:
 	float Turbidity(int x, int z) const {
 		if (x < 0 || z < 0 || x >= m_width || z >= m_height) return 0.0f;
 		return m_turbidity[static_cast<size_t>(z) * m_width + x];
+	}
+
+	// --- per-level atmosphere (the lighting mood knobs) ----------------------
+	// Overrides for the level: dust in-scatter density, the dust's ambient
+	// pickup, and the ambient-fill scale. < 0 = unset (the world applies its
+	// global defaults — gfx::Atmosphere{} and ambient scale 1). Parsed from
+	// the .map's `atmosphere` record (`atmosphere dust=0.06 haze=0.8
+	// ambient=1.1`, any subset of keys); the editor's Level settings dialog
+	// writes them, and the .map writer emits only set values.
+	float DustDensity() const { return m_dustDensity; }
+	float HazeAmbient() const { return m_hazeAmbient; }
+	float AmbientScale() const { return m_ambientScale; }
+	void SetAtmosphere(float dust, float haze, float ambient) {
+		m_dustDensity = dust;
+		m_hazeAmbient = haze;
+		m_ambientScale = ambient;
 	}
 
 	Vec3 CellCenter(int x, int z, float y = 0.0f) const {
@@ -259,6 +279,8 @@ private:
 	std::vector<Cell> m_cells;
 	std::vector<float> m_turbidity; // parallel to m_cells
 	std::vector<u8> m_dusty;        // authored 'D' cells (for the writer)
+	// Per-level atmosphere overrides (< 0 = unset; see SetAtmosphere).
+	float m_dustDensity = -1.0f, m_hazeAmbient = -1.0f, m_ambientScale = -1.0f;
 	// Per-cell variant overrides, parallel to m_cells; -1 = use the hash default.
 	std::vector<int> m_wallVar, m_floorVar, m_ceilingVar;
 	std::vector<WallSconce> m_torches;

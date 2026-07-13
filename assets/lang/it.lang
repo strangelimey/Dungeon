@@ -110,6 +110,8 @@ settings.framelimit=Frequenza
 settings.framelimit.vsync=VSync ({} FPS)
 settings.framelimit.fps={} FPS
 settings.volume=Volume
+settings.uiskin=Interfaccia con texture (no = aspetto semplice di debug)
+settings.headbob=Oscillazione della testa camminando
 settings.party_bar=Barra del gruppo
 settings.bar_scale=Dimensione
 settings.bar_opacity=Opacità dello sfondo
@@ -304,6 +306,12 @@ monster.skel_swarm=lo sciame di ossa
 monster.skel_lurker=lo scheletro in agguato
 monster.blob=la melma
 monster.mummy=la mummia
+monster.giant_spider=il ragno gigante
+monster.centipede=il centopiedi gigante
+monster.skel_warrior=lo scheletro guerriero
+monster.skel_bare=lo scheletro predone
+monster.skel_berserker=lo scheletro berserker
+monster.skel_spearman=lo scheletro lanciere
 monster.skel_human=il cavaliere d'ossa
 
 ; --- character sheet / party bar -------------------------------------------------
@@ -375,6 +383,12 @@ map.erase.reset=Superfici della cella {}, {} ripristinate
 map.btn.save=Salva
 map.btn.source=Nei sorgenti
 map.btn.balance=Bilanciamento
+map.btn.level=Livello
+map.level.title=Impostazioni del livello
+map.level.dust=Densità della polvere
+map.level.haze=Ambiente della foschia
+map.level.ambient=Luce ambientale
+map.level.applied=Impostazioni applicate a '{}' — salva la mappa per conservarle.
 map.balance.title=Bilanciamento del combattimento
 map.balance.tab.formula=Formula
 map.balance.tab.attacks=Attacchi

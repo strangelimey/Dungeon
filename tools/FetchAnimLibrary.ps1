@@ -88,6 +88,85 @@ $animSets = @(
        Library = "anim\humanoid";
        Ref = "models\skeleton.gltf";
        MeshYaw = 90 }
+
+    # Skeleton Army Kit (Konjo Design, fab 2026-07-10): four PRE-BUILT armed
+    # variants. The unrigged A-pose OBJs defeated the scripted rigid bind
+    # (shield bound to the pelvis; the arm-drop re-rest stole hip geometry), so
+    # each variant goes through MIXAMO'S AUTO-RIGGER instead: upload FBXs live
+    # in the archive's mixamo_upload\, the skinned T-pose downloads in
+    # mixamo_rigged\<name>_rigged.fbx (Skinned=$true skips the bind — the clip
+    # actions attach straight onto the download's own Mixamo skeleton).
+    # Textures maps material slot -> albedo[:normal] under TexDir (the kit's
+    # MTLs point at the author's desktop and omit normals); the bake keeps the
+    # material slots and embeds the images — the engine's multi-material
+    # monster path renders one primitive per material.
+    $(
+        $kitTex = @{
+            'Skeleton_Bones_Mat' = 'Skeleton_C1.png:Skeleton_N1.png'
+            'Skelly_armor'       = 'Skelly_armor_C2.png:Skelly_armor_N2.png'
+            'Berserker_weps'     = 'Berserker_weps1_albedo.png:Berserker_weps1_normal.png'
+            'Skel_war_weps'      = 'Skel_warrior_wep_C.png:Skel_warrior_wep_N1.png'
+        }
+        $kitDir = "fab\monsters\skeleton-army"
+        # Per-variant island overrides (--islands; keys = min vertex index, per
+        # that variant's rigged FBX — read them off the [rigid] log; bone SIDES
+        # are authored POST-mirror). Warrior: the art carries its sword in the
+        # off hand, so it MIRRORS (the library's attack clips lead right); its
+        # strapped SHIELD is six islands (face 86, edge plate 123, straps
+        # 537/779, grip bars 658/900) that nearest-segment scatters across the
+        # arm — all ride the (post-mirror LEFT) forearm as one rigid assembly —
+        # and wrist cuff 4698 mirror-matches its twin on the forearm side of
+        # the joint.
+        # `=soft` keeps Mixamo's blended weights for bones that BRIDGE joints —
+        # rigid-snapped they follow one bone and float free of the other end:
+        # the VERTEBRAL COLUMN (pelvis to neck, folds with hit reacts), the
+        # CLAVICLES (sternum to shoulder) and the SCAPULAE (glide on the ribs
+        # with every arm raise).
+        $kitIslands = @{
+            'skel_warrior' = '86=LeftForeArm;123=LeftForeArm;537=LeftForeArm;' +
+                             '658=LeftForeArm;779=LeftForeArm;900=LeftForeArm;' +
+                             '4698=RightForeArm;8961=soft;' +
+                             '10723=soft;10797=soft;13197=soft;13308=soft'
+            'skel_bare'    = '1341=soft;3103=soft;3177=soft;5577=soft;5688=soft'
+            'skel_berserker' = '2671=soft;4433=soft;4507=soft;6907=soft;7018=soft'
+            # Spearman: round shield (0/56) + two javelins (905/1083) ride the
+            # BACK (Spine2), the vest (1605) is torso armor not a collar, and
+            # the throwing spear (12) stays in the right hand.
+            'skel_spearman'  = '0=Spine2;56=Spine2;905=Spine2;1083=Spine2;' +
+                               '1605=Spine2;12=RightHand;' +
+                               '5005=soft;6767=soft;6841=soft;9241=soft;9352=soft'
+        }
+        $kitMirror = @{ 'skel_warrior' = $true }
+        # Variants Mixamo's auto-rigger refuses ("unknown error while
+        # generating motion", markers verified): skip Mixamo — bind the
+        # variant's UNRIGGED upload to a sibling download's fitted armature
+        # (kit variants share one body) with the weights transferred by
+        # nearest vertex (--rig-from).
+        $kitRigFrom = @{
+            'skel_berserker' = "$kitDir\mixamo_rigged\skel_bare_rigged.fbx"
+            'skel_spearman'  = "$kitDir\mixamo_rigged\skel_bare_rigged.fbx"
+        }
+        foreach ($v in @("skel_warrior", "skel_berserker", "skel_spearman", "skel_bare")) {
+            $rigFrom = $kitRigFrom[$v]
+            @{ Name = $v;
+               Mesh = if ($rigFrom) { "$kitDir\mixamo_upload\$($v)_mixamo_upload.fbx" }
+                      else { "$kitDir\mixamo_rigged\$($v)_rigged.fbx" };
+               Library = "anim\humanoid";
+               Ref = "models\skeleton.gltf";
+               Skinned = -not $rigFrom;
+               RigFrom = $rigFrom;
+               RigidIslands = $true; # bones + plate: every island is a hard piece
+               # The clean pre-Mixamo art: repairs rest positions Mixamo's
+               # weight-driven re-posing displaced (arm plates at the chest).
+               # (A --rig-from variant IS its original — no repair needed.)
+               Original = if ($rigFrom) { $null }
+                          else { "$kitDir\mixamo_upload\$($v)_mixamo_upload.fbx" };
+               Textures = $kitTex;
+               TexDir = "$kitDir\obj\Skeleton_obj\Skeletal_textures";
+               Islands = $kitIslands[$v];
+               Mirror = $kitMirror[$v] }
+        }
+    )
 )
 
 $wanted = $Creatures.Count -gt 0
@@ -119,7 +198,21 @@ foreach ($c in $animSets) {
     if (-not (Test-Path $ref)) { throw "Ref model not found: $ref" }
     $yaw = if ($null -ne $c.MeshYaw) { $c.MeshYaw } else { 90 }
 
-    $rc = Invoke-Blender $mesh $library $outGltf $ref "--catalog-out" $catOut "--mesh-yaw" $yaw
+    # Multi-material kits: compose the material->texture wiring for the bake.
+    $texArgs = @()
+    if ($c.Textures) {
+        $texSpec = ($c.Textures.GetEnumerator() | ForEach-Object { "$($_.Key)=$($_.Value)" }) -join ';'
+        $texArgs = @('--textures', $texSpec, '--tex-dir', (Join-Path $archive $c.TexDir))
+    }
+    if ($c.ArmDrop) { $texArgs += @('--arm-drop', $c.ArmDrop) }
+    if ($c.Skinned) { $texArgs += @('--skinned') }
+    if ($c.RigidIslands) { $texArgs += @('--rigid-islands') }
+    if ($c.Original) { $texArgs += @('--original', (Join-Path $archive $c.Original)) }
+    if ($c.Islands) { $texArgs += @('--islands', $c.Islands) }
+    if ($c.Mirror) { $texArgs += @('--mirror') }
+    if ($c.RigFrom) { $texArgs += @('--rig-from', (Join-Path $archive $c.RigFrom)) }
+
+    $rc = Invoke-Blender $mesh $library $outGltf $ref "--catalog-out" $catOut "--mesh-yaw" $yaw @texArgs
     if ($rc -ne 0) { throw "Bake failed for $($c.Name)" }
     Write-Host "  model -> models\$($c.Name).gltf"
     Write-Host "  catalog rows -> models\$($c.Name).anim.cat"

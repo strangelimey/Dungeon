@@ -114,6 +114,8 @@ settings.framelimit=Частота кадров
 settings.framelimit.vsync=Верт. синхр. ({} FPS)
 settings.framelimit.fps={} FPS
 settings.volume=Громкость
+settings.uiskin=Текстурированный интерфейс (выкл = простой отладочный вид)
+settings.headbob=Покачивание камеры при ходьбе
 settings.party_bar=Панель отряда
 settings.bar_scale=Размер
 settings.bar_opacity=Непрозрачность фона
@@ -308,6 +310,12 @@ monster.skel_swarm=костяной рой
 monster.skel_lurker=затаившийся скелет
 monster.blob=слизь
 monster.mummy=мумия
+monster.giant_spider=гигантский паук
+monster.centipede=гигантская многоножка
+monster.skel_warrior=скелет-воин
+monster.skel_bare=скелет-разбойник
+monster.skel_berserker=скелет-берсерк
+monster.skel_spearman=скелет-копейщик
 monster.skel_human=костяной рыцарь
 
 ; --- character sheet / party bar -------------------------------------------------
@@ -379,6 +387,12 @@ map.erase.reset=Поверхности ячейки {}, {} сброшены
 map.btn.save=Сохранить
 map.btn.source=В исходники
 map.btn.balance=Баланс
+map.btn.level=Уровень
+map.level.title=Настройки уровня
+map.level.dust=Плотность пыли
+map.level.haze=Подсветка дымки
+map.level.ambient=Фоновый свет
+map.level.applied=Настройки уровня '{}' применены — сохраните карту, чтобы они остались.
 map.balance.title=Боевой баланс
 map.balance.tab.formula=Формула
 map.balance.tab.attacks=Атаки

@@ -15,6 +15,16 @@ docs/*.png
 # .glb is heavy — regenerated from OneDrive\DungeonAssets by tools/FetchModels.ps1
 # (committed models stay .gltf). See the fab.com mesh pipeline.
 assets/models/*.glb
+# Bought rigged monsters land as .gltf (the monster loader's name convention)
+# but are heavy embedded-texture GLBs inside — regenerable the same way, so
+# ignored by NAME (the baked procedural .gltf models stay committed).
+assets/models/centipede.gltf
+assets/models/giant_spider.gltf
+# Skeleton Army Kit variants (FetchAnimLibrary bakes, embedded textures too).
+assets/models/skel_warrior.gltf
+assets/models/skel_berserker.gltf
+assets/models/skel_spearman.gltf
+assets/models/skel_bare.gltf
 
 # Temp file for git commit -F (never track)
 .git-commit-msg.txt

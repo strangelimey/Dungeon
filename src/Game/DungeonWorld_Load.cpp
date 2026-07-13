@@ -206,18 +206,41 @@ void DungeonWorld::AppendLoadTasks(LoadQueue& queue) {
 		auto fixtureAssets = [this](const std::string& id, const char* fallback,
 									std::unique_ptr<gfx::Mesh>& mesh, Vec4& color,
 									const PropTextures*& tex,
-									assets::ModelData& modelOut) {
+									assets::ModelData& modelOut,
+									FixtureFlame& flame) {
 			const CatalogEntry* def = m_project.fixtures.Find(id);
 			const auto [model, set] = ModelAndTexture(def, fallback);
 			modelOut = LoadModelOrDie(model + ".gltf"); // kept: map-icon bounds
 			mesh = std::make_unique<gfx::Mesh>(m_device, modelOut.meshes[0]);
 			color = modelOut.materials[0].baseColorFactor;
 			tex = LoadPropTextures(set);
+			// Flame attachment: catalog fields override the procedural mesh's
+			// constants so an authored prop's fire burns where its bowl/basket
+			// actually is.
+			if (def) {
+				flame.height = def->GetFloat("flame_height", flame.height);
+				flame.scale = def->GetFloat("flame_scale", flame.scale);
+				flame.out = def->GetFloat("flame_out", flame.out);
+			}
 		};
 		fixtureAssets(m_project.defaultSconce, "sconce", m_sconceMesh, m_sconceColor,
-					  m_sconceTex, m_sconceModel);   // worn-medieval iron
+					  m_sconceTex, m_sconceModel, m_sconceFlame); // worn-medieval iron
 		fixtureAssets(m_project.defaultBrazier, "brazier", m_brazierMesh,
-					  m_brazierColor, m_brazierTex, m_brazierModel); // bronze
+					  m_brazierColor, m_brazierTex, m_brazierModel,
+					  m_brazierFlame); // bronze
+		// Optional second brazier part (part2_model / part2_texture): the
+		// bought brazier's coal bed — its own mesh + texture set, drawn
+		// co-located with the bowl (the two models were normalized TOGETHER at
+		// import — ConvertMesh --split-whole + import-model --raw — so their
+		// placements already align).
+		if (const CatalogEntry* def = m_project.fixtures.Find(m_project.defaultBrazier)) {
+			if (const std::string model2 = def->Get("part2_model"); !model2.empty()) {
+				const assets::ModelData data = LoadModelOrDie(model2 + ".gltf");
+				m_brazierMesh2 = std::make_unique<gfx::Mesh>(m_device, data.meshes[0]);
+				m_brazierColor2 = data.materials[0].baseColorFactor;
+				m_brazierTex2 = LoadPropTextures(def->Get("part2_texture", model2));
+			}
+		}
 		m_particleBatch = std::make_unique<gfx::ParticleBatch>(m_device);
 		BuildFires();
 	});
@@ -334,6 +357,10 @@ DungeonWorld::MonsterKind& DungeonWorld::MonsterKindFor(const std::string& type)
 		assets->name = type; // catalog id — drives the monster.<id> loc key
 		assets->mesh = std::make_unique<gfx::Mesh>(m_device, assets->model.meshes[0]);
 		assets->tex = LoadPropTextures(tex); // <tex>_<res> PBR set, if present
+		// Authored multi-material rig (bones/armor/weapons primitives, embedded
+		// textures): build the per-material submeshes the draw paths loop.
+		if (assets->model.meshes.size() > 1)
+			assets->multi = BuildMultiMaterialModel(m_device, assets->model);
 		// Map head-shot icon RT; a fresh kind re-arms the one-shot bake pass.
 		assets->iconTarget = gfx::Texture::RenderTarget(m_device, kIconSize);
 		m_monsterIconsBaked = false;
@@ -516,6 +543,12 @@ DungeonWorld::MonsterPreviewData DungeonWorld::MonsterPreviewFor(const std::stri
 	d.modelYaw = kind.modelYaw;
 	ApplyPropMaterial(d.material, kind.tex, kind.model.materials[0].baseColorFactor,
 					  kind.fallbackRoughness);
+	if (kind.multi) { // one drawable per primitive, each with its own material
+		for (const MultiMaterialModel::Sub& sub : kind.multi->subs)
+			d.subs.push_back({sub.mesh.get(), sub.material});
+	} else {
+		d.subs.push_back({d.mesh, d.material});
+	}
 	return d;
 }
 
@@ -535,13 +568,20 @@ DungeonWorld::FixturePreviewData DungeonWorld::FixturePreview(const PropTextures
 }
 
 DungeonWorld::FixturePreviewData DungeonWorld::SconcePreview() const {
-	return FixturePreview(m_sconceTex, m_sconceColor, m_sconceMesh.get(), kSconceFlameY,
-						  kSconceFlameScale);
+	return FixturePreview(m_sconceTex, m_sconceColor, m_sconceMesh.get(),
+						  m_sconceFlame.height, m_sconceFlame.scale);
 }
 
 DungeonWorld::FixturePreviewData DungeonWorld::BrazierPreview() const {
-	return FixturePreview(m_brazierTex, m_brazierColor, m_brazierMesh.get(), kBrazierFlameY,
-						  kBrazierFlameScale);
+	FixturePreviewData d =
+		FixturePreview(m_brazierTex, m_brazierColor, m_brazierMesh.get(),
+					   m_brazierFlame.height, m_brazierFlame.scale);
+	if (m_brazierMesh2) { // the coal bed previews with the bowl
+		gfx::MaterialParams coals;
+		ApplyPropMaterial(coals, m_brazierTex2, m_brazierColor2, 0.9f);
+		d.subs.push_back({m_brazierMesh2.get(), coals});
+	}
+	return d;
 }
 
 std::vector<gfx::PreviewSubmesh> DungeonWorld::DecorationPreviewSubs(int index) const {
@@ -1166,11 +1206,13 @@ void DungeonWorld::BuildFires() {
 		fire.lightRadius = sconce.brightness * kCellSize; // "squares" -> metres
 		XMStoreFloat4x4(&fire.world, XMMatrixRotationY(yaw) *
 										 XMMatrixTranslation(m.pos.x, 0, m.pos.z));
-		// Flame local offset (0, kSconceFlameY, 0.22) rotated by yaw.
-		fire.flamePos = {m.pos.x + std::sin(yaw) * 0.22f, kSconceFlameY,
-						 m.pos.z + std::cos(yaw) * 0.22f};
+		// Flame local offset (0, height, out) rotated by yaw (fixtures.cat
+		// flame_* fields; defaults = the procedural sconce's constants).
+		fire.flamePos = {m.pos.x + std::sin(yaw) * m_sconceFlame.out,
+						 m_sconceFlame.height,
+						 m.pos.z + std::cos(yaw) * m_sconceFlame.out};
 		fire.phase = static_cast<float>(seed) * 1.7f;
-		fire.effect = FireEffect(fire.flamePos, kSconceFlameScale, seed++);
+		fire.effect = FireEffect(fire.flamePos, m_sconceFlame.scale, seed++);
 		m_fires.push_back(std::move(fire));
 	}
 
@@ -1181,9 +1223,9 @@ void DungeonWorld::BuildFires() {
 		fire.lit = b.lit;
 		fire.lightRadius = b.brightness * kCellSize; // "squares" -> metres
 		XMStoreFloat4x4(&fire.world, XMMatrixTranslation(center.x, 0, center.z));
-		fire.flamePos = {center.x, kBrazierFlameY, center.z};
+		fire.flamePos = {center.x, m_brazierFlame.height, center.z};
 		fire.phase = static_cast<float>(seed) * 1.7f;
-		fire.effect = FireEffect(fire.flamePos, kBrazierFlameScale, seed++);
+		fire.effect = FireEffect(fire.flamePos, m_brazierFlame.scale, seed++);
 		m_fires.push_back(std::move(fire));
 	}
 	log::Info("Lit {} fires ({} sconces, {} braziers)", m_fires.size(),
@@ -1209,6 +1251,15 @@ void DungeonWorld::BuildTurbidityMap() {
 	m_atmosphere.turbidityMap = m_turbidityMap.get();
 	m_atmosphere.worldExtent = {m_map.Width() * kCellSize,
 								m_map.Height() * kCellSize};
+	// Apply the level's atmosphere overrides (the .map `atmosphere` record /
+	// the editor's Level settings dialog); unset values fall back to the
+	// global defaults. Done here because every path that changes the level's
+	// air — initial load, level swap, fixture edits — ends in this rebuild.
+	float dust, haze, ambient;
+	EffectiveAtmosphere(m_map, dust, haze, ambient);
+	m_atmosphere.density = dust;
+	m_atmosphere.hazeAmbient = haze;
+	SetAmbientScale(ambient);
 }
 
 // ============================================================================

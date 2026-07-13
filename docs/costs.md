@@ -38,8 +38,22 @@ complete inventory of 3rd-party content (not just a spend total).
 
 | date | listing | seller | price | license | formats | in-game / status |
 |---|---|---|---|---|---|---|
-| 2026-06-22 | Fantasy Assassin Weapon Pack | Deepanshu | $1.99 | Fab Standard | glb/obj/fbx/usd | 4 dagger items (viking/khukri/snake/french), 3D icons — done |
+| 2026-06-22 | Fantasy Assassin Weapon Pack | Deepanshu | $1.99 (**$2.18 charged**) | Fab Standard | glb/obj/fbx/usd | 4 dagger items (viking/khukri/snake/french), 3D icons — done |
 | 2026-06-23 | Leather Sentinel Armor | ebbelende3D | Free | **CC BY 4.0** ‡ | glb/obj/fbx/usdz | `leather_armor` item (3D floor model + icon) — done |
+| 2026-06-24 | Low-poly Human Skeleton | Gamefruit | $6.99 (**$7.65 charged**) | Fab Standard | fbx | `skeleton` monster (Blender rigid-bind + Mixamo clip library) — done |
+| 2026-07-10 | Centipede Monster_V2 | Assets Animated | $4.99 † | Fab Standard | blend/fbx | `centipede` monster (rigged, 23 own clips, 4K PBR) — done |
+| 2026-07-10 | Spider_V3 | Assets Animated | $9.99 † | Fab Standard | blend/fbx | `giant_spider` monster (rigged, 17 own clips, 4K PBR) — done |
+| 2026-07-10 | Insectoid Monster Rig | DM-913 | Free | **CC BY 4.0** ‡ | gltf/glb/usdz | archived (`fab\monsters\insectoid`); pipeline-test candidate, 2 clips only — not imported |
+| 2026-07-10 | Cursed Undead Soldier Rig | DM-913 | Free | **CC BY 4.0** ‡ | gltf/glb/usdz | archived (`fab\monsters\undead_soldier`); parked — 14 meshes / 3 materials, exceeds the single-mesh monster path |
+| 2026-07-10 | Skeleton Army Kit | Konjo Design | $19.99 (**$21.87 charged**) | Fab Standard | obj/fbx/gltf/glb/usdz | 4 skeleton monsters (warrior/raider/berserker/spearman, Mixamo clip library) — done |
+| 2026-07-11 | Medieval Stylized Torch | Perunir | $1.99 ★ | Fab Standard | fbx (+conv. gltf/glb/usdz) | `wall_torch` — the authored wall sconce (fixtures.cat [sconce]); flame shells + coal dropped — done |
+| 2026-07-11 | Torch pack | AnimaZ | $18.99 ★ | Fab Standard | fbx | 6 handheld torch variants (own PBR set each) — archived with textures, not yet imported (no in-game use wired; future carried-torch / sconce variants) |
+| 2026-07-11 | Fantastic brazier | Mavas3D | $6.99 ★ | Fab Standard | fbx | `brazier_empty` — the coal-less bowl, imported as spare assets (the world loads one brazier kind; swap fixtures.cat to use) |
+| 2026-07-11 | Fantastic brazier lamp | Mavas3D | $7.99 ★ | Fab Standard | fbx | `brazier_bowl` + `brazier_coals` — THE brazier (fixtures.cat [brazier], two co-located parts) — done |
+
+† Charged together as one order: **$16.39** (the $14.98 list + $1.41 tax).
+★ Charged together as one order (A2607111637553770): **$39.34** (the $35.96
+list + $3.38 tax).
 
 ‡ **Attribution required** — CC BY 4.0 means the project must credit the author.
 See the Attributions section below; add a creditable line before any release.
@@ -50,12 +64,24 @@ surface it in an in-game credits screen / NOTICE file before shipping.
 - **Leather Sentinel Armor** by **ebbelende3D** — fab.com, CC BY 4.0
   (https://www.fab.com/listings/f9e00fed-ea1d-4464-8580-7e430a2e3607).
   Note: listing marks it AI-generated.
+- **Insectoid Monster Rig** by **DM-913** — fab.com, CC BY 4.0
+  (https://www.fab.com/listings/ff1306d9-c968-4745-8437-0388a8d7aa5a).
+  Credit required only if it actually ships in-game (archived, unused so far).
+- **Cursed Undead Soldier Rig** by **DM-913** — fab.com, CC BY 4.0
+  (https://www.fab.com/listings/cf236a92-88d9-4f0d-af10-d4f878560b39).
+  Ditto — archived, unused so far.
 
 Scouted candidates (prices as seen 2026-06-22, not bought):
 - Fantasy Assassin Weapon Pack (Deepanshu) — **$1.99–4.99**, glb+obj+fbx, 18 meshes
   — recommended first real purchase to prove the pipeline.
 - Medieval One Hand Swords w/ Scabbard (Quantum Assets) — $29.99–49.99 —
   **Unreal-only, do NOT buy** (unimportable).
+
+### itch.io — UI art packs
+| date | listing | seller | price | license | formats | in-game / status |
+|---|---|---|---|---|---|---|
+| 2026-07-12 | UI Medieval RPG (+180 Medieval Fantasy RPG UI Kit, Gothic & Gold 4K) | Vill8tion | $2.70 | itch standard (commercial ok) | PNG (3072², AI-4x upscale, black bg — keyed at cut) | skin_button (slot #17) + skin_slot (slot #12) — done; 175+ unused variants archived (buttons/frames/bars) |
+| 2026-07-12 | Assets: UI Medieval Interface | Wenrexa | $3.99 | itch standard (commercial ok) | PNG + PSD + vector | archived (ui\wenrexa-medieval-interface) — panel candidates flatter than the current stone skin; unused so far |
 
 ### Other asset packs (sound / music / etc.)
 | date | item | source | price | notes |
@@ -85,10 +111,14 @@ One-off or recurring software bought for the project.
 
 ---
 
-## Totals (as of 2026-06-23)
+## Totals (as of 2026-07-11)
 - **Asset purchases:** textures.com **$39.00** (5,000-credit bundle; 3,425 left,
-  ~$26.71 prepaid headroom); fab.com **$1.99** (Fantasy Assassin Weapon Pack;
-  Leather Sentinel Armor was free); other $0.
+  ~$26.71 prepaid headroom); fab.com **$87.43 charged** (all five orders, tax
+  incl.: Fantasy Assassin $2.18 + skeleton $7.65 + crawlers $16.39 + Skeleton
+  Army Kit $21.87 + fixtures/torches $39.34; the CC-BY freebies cost $0);
+  itch.io **$6.69** (Medieval RPG UI kit $2.70 + Wenrexa UI $3.99); other $0.
 - **AI / API:** not yet recorded.
 - **Dev tools / licenses:** $0 (all free so far).
-- **Cash out of pocket so far:** **$40.99** ($39.00 textures.com + $1.99 fab.com).
+- **Cash out of pocket so far:** **$133.12** ($39.00 textures.com + $87.43
+  fab.com + $6.69 itch.io; fab amounts are actual charges from the Epic
+  purchases page).

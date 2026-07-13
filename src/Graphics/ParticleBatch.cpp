@@ -93,6 +93,11 @@ ParticleBatch::ParticleBatch(GraphicsDevice& device) : m_device(device) {
 
 	DN_HR(m_device.Device()->CreateGraphicsPipelineState(&pso, IID_PPV_ARGS(&m_pso)));
 
+	// Same pass into the PostProcess HDR scene target (the main scene pass);
+	// the LDR m_pso keeps serving the torch preview's UNORM RT.
+	pso.RTVFormats[0] = kSceneColorFormat;
+	DN_HR(m_device.Device()->CreateGraphicsPipelineState(&pso, IID_PPV_ARGS(&m_psoHdr)));
+
 	for (u32 i = 0; i < kFrameCount; ++i)
 		m_frameAllocators[i] =
 			std::make_unique<UploadAllocator>(m_device.Device(), 1024 * 1024);
@@ -124,7 +129,8 @@ void ParticleBatch::NewFrame(u32 frameIndex) {
 }
 
 void ParticleBatch::Render(ID3D12GraphicsCommandList* list, const Camera& camera,
-						   std::span<const ParticleInstance> instances) {
+						   std::span<const ParticleInstance> instances,
+						   bool hdrTarget) {
 	if (instances.empty()) return;
 	UploadAllocator& allocator = *m_frameAllocators[m_frameIndex];
 
@@ -162,7 +168,7 @@ void ParticleBatch::Render(ID3D12GraphicsCommandList* list, const Camera& camera
 	std::memcpy(cbAlloc.cpu, &viewProj, sizeof(viewProj));
 
 	list->SetGraphicsRootSignature(m_rootSignature.Get());
-	list->SetPipelineState(m_pso.Get());
+	list->SetPipelineState(hdrTarget ? m_psoHdr.Get() : m_pso.Get());
 	list->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
 	list->SetGraphicsRootConstantBufferView(0, cbAlloc.gpu);
 	list->SetGraphicsRootDescriptorTable(1, m_sprite->GpuHandle());

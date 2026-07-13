@@ -65,11 +65,12 @@ int main(int argc, char** argv) {
 		if (argc < 5) {
 			log::Error("usage: AssetBaker import-model <model-file|folder> "
 					   "<assets-dir> <name> [--height M] [--yaw deg] [--up y|z] "
-					   "[--texture-set name]");
+					   "[--texture-set name] [--lift M] [--wall] [--raw]");
 			return 1;
 		}
-		float height = 0.0f, yaw = 0.0f;
+		float height = 0.0f, yaw = 0.0f, lift = 0.0f;
 		char up = 'y';
+		bool wall = false, raw = false;
 		std::string textureSet;
 		for (int i = 5; i < argc; ++i) {
 			const std::string a = argv[i];
@@ -77,9 +78,12 @@ int main(int argc, char** argv) {
 			else if (a == "--yaw" && i + 1 < argc) yaw = std::stof(argv[++i]);
 			else if (a == "--up" && i + 1 < argc) up = argv[++i][0];
 			else if (a == "--texture-set" && i + 1 < argc) textureSet = argv[++i];
+			else if (a == "--lift" && i + 1 < argc) lift = std::stof(argv[++i]);
+			else if (a == "--wall") wall = true;
+			else if (a == "--raw") raw = true;
 		}
 		return baker::ImportModel(argv[2], argv[3], argv[4], height, yaw, up,
-								  textureSet)
+								  textureSet, lift, wall, raw)
 				   ? 0
 				   : 1;
 	}

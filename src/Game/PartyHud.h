@@ -263,6 +263,11 @@ public:
 	// spellDefs source). Null-safe: no registry, no label.
 	std::function<std::span<const std::unique_ptr<Spell>>()> spells;
 	std::function<void()> onClick; // UI click feedback
+	// Optional icon faces for Cast/Clear (assets/ui/icon_cast / icon_clear —
+	// complete round buttons with alpha, from the Wenrexa UI pack). Null =
+	// the localized text buttons (the fallback keeps the lang keys alive).
+	const gfx::Texture* castIcon = nullptr;
+	const gfx::Texture* clearIcon = nullptr;
 
 	void Update(ui::UIContext& ctx) override;
 	void Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) override;
