@@ -25,6 +25,7 @@ inline const Vec4 kDecoration{0.74f, 0.54f, 0.92f, 1.0f}; // static props (colum
 inline const Vec4 kCeiling{0.30f, 0.30f, 0.34f, 1.0f};    // ceiling palette swatch
 inline const Vec4 kDoor{0.78f, 0.60f, 0.35f, 1.0f};       // door category
 inline const Vec4 kStair{0.60f, 0.72f, 0.78f, 1.0f};      // stair category
+inline const Vec4 kPillar{0.28f, 0.78f, 0.55f, 1.0f};     // the jade serpent pillar
 inline const Vec4 kMarkerInk{0.96f, 0.96f, 0.98f, 1.0f};  // initials drawn over markers
 inline const Vec4 kFacingArrow{0.25f, 1.0f, 0.40f, 1.0f}; // editor: which way a placed thing faces
 

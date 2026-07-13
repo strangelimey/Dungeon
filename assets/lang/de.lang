@@ -448,6 +448,7 @@ map.key.wall=Wand
 map.key.floor=Boden
 map.key.torch=Fackel
 map.key.brazier=Kohlebecken
+map.key.pillar=Schlangensäule
 map.key.monster=Monster
 map.key.item=Gegenstand
 map.key.button=Knopf

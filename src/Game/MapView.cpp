@@ -757,6 +757,12 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 		else
 			marker(b.x, b.z, 0.46f, kBrazier);
 	}
+	// The serpent pillar: code-bound level-1 flavor, absent from every record
+	// list — asked for explicitly so the editor doesn't build over it blind.
+	// Live like the party marker (it only exists while its level is active).
+	if (int px, pz; !m_browse && m_world.PillarMarker(px, pz) &&
+					CellVisible(px, pz))
+		marker(px, pz, 0.52f, kPillar);
 	// Decorations: the LIVE world list for the active level (so editor
 	// placements/removals show), the map's records for a browsed one.
 	std::vector<DungeonWorld::MapMarker> decos;
@@ -997,6 +1003,7 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 				{Sym::Filled, kFloor, "map.key.floor", false},
 				{Sym::Filled, kTorch, "map.key.torch", true},
 				{Sym::Filled, kBrazier, "map.key.brazier", true},
+				{Sym::Filled, kPillar, "map.key.pillar", true},
 				{Sym::Filled, kMonster, "map.key.monster", true},
 				{Sym::Filled, kItem, "map.key.item", true},
 				{Sym::Filled, kButton, "map.key.button", true},

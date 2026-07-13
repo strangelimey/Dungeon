@@ -448,6 +448,7 @@ map.key.wall=Muro
 map.key.floor=Pavimento
 map.key.torch=Torcia
 map.key.brazier=Braciere
+map.key.pillar=Pilastro del serpente
 map.key.monster=Mostro
 map.key.item=Oggetto
 map.key.button=Pulsante

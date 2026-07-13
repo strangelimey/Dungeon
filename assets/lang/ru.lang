@@ -452,6 +452,7 @@ map.key.wall=Стена
 map.key.floor=Пол
 map.key.torch=Факел
 map.key.brazier=Жаровня
+map.key.pillar=Змеиная колонна
 map.key.monster=Монстр
 map.key.item=Предмет
 map.key.button=Кнопка

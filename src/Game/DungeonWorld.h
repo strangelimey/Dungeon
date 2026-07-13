@@ -643,6 +643,9 @@ public:
 	};
 	std::vector<MapMarker> MonsterMarkers() const;
 	std::vector<MapMarker> DecorationMarkers() const;
+	// The serpent pillar's cell (code-bound level-1 flavor, absent from the
+	// record-driven lists above). False while it isn't live.
+	bool PillarMarker(int& x, int& z) const;
 
 	// A read-only snapshot of ANOTHER level for the map overlay's up/down level
 	// browsing: its static map (the in-session edit stash wins over the file),

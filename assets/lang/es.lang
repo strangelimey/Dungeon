@@ -448,6 +448,7 @@ map.key.wall=Muro
 map.key.floor=Suelo
 map.key.torch=Antorcha
 map.key.brazier=Brasero
+map.key.pillar=Pilar de la serpiente
 map.key.monster=Monstruo
 map.key.item=Objeto
 map.key.button=Botón

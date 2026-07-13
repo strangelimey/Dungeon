@@ -1157,6 +1157,18 @@ std::vector<DungeonWorld::MapMarker> DungeonWorld::DecorationMarkers() const {
 	return markers;
 }
 
+bool DungeonWorld::PillarMarker(int& x, int& z) const {
+	// The serpent pillar is code-bound level-1 flavor (see the load.pillar
+	// task), invisible to the record-driven marker lists — the map overlay
+	// asks for it explicitly so nobody builds over it unknowingly. Active
+	// level only, like every live marker (the pillar doesn't EXIST while
+	// another level is live).
+	if (!m_pillarActive) return false;
+	x = static_cast<int>(m_pillarPos.x / kCellSize);
+	z = static_cast<int>(m_pillarPos.z / kCellSize);
+	return true;
+}
+
 void DungeonWorld::BeginLevelLoad(const std::string& stem, bool stashCurrent) {
 	m_device.WaitIdle(); // the GPU may still be reading the old level's meshes
 
