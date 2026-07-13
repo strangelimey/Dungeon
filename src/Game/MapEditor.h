@@ -98,6 +98,22 @@ public:
 	// (only paint brushes act on a drag; placement acts on the click only). A
 	// no-op until a palette row is armed.
 	void Paint(int cx, int cz, bool dragging) { ApplyBrush(cx, cz, dragging); }
+	// Modifier gestures (MapView routes by the modifier held at the press).
+	// All three work on the paint brushes (Structure + surface variants);
+	// rect/flood fall back to a normal click for the placement categories.
+	// Shift+click: fill the rectangle spanned by the LAST painted cell (the
+	// anchor every plain paint and gesture leaves behind) and this one — the
+	// Photoshop shift-line idiom. One undo step.
+	void PaintRect(int cx, int cz);
+	// Ctrl+click: contiguous flood fill (4-connected) of the clicked region —
+	// same cell type, and for surface brushes the same RESOLVED variant
+	// (override-or-hash, so it matches what the 3D scene shows). One undo step.
+	void FloodFill(int cx, int cz);
+	// Alt+click: eyedropper — arms the brush from the clicked square (a solid
+	// square arms its wall texture, a floor square its floor texture; ceilings
+	// are picked while the Ceilings brush is armed, since they share the floor
+	// square). Never mutates.
+	void PickAt(int cx, int cz);
 	// The armed brush's palette category, or Count when nothing is armed.
 	// MapView reads it to flip the grid's textured cell fill to the surface
 	// being painted (Walls/Floors/Ceilings show their textures while armed).
@@ -177,6 +193,21 @@ private:
 	// Applies the armed selection to cell (cx,cz): structural/variant paints, tool
 	// actions, or entity placement.
 	void ApplyBrush(int cx, int cz, bool dragging);
+	// True for the brushes that PAINT cells (rect/flood/drag apply); the
+	// placement categories act per click only.
+	static bool PaintableCat(PaletteCat cat) {
+		return cat == PaletteCat::Structure || cat == PaletteCat::Walls ||
+			   cat == PaletteCat::Floors || cat == PaletteCat::Ceilings;
+	}
+	// One structural/surface application of the armed brush to a cell — the
+	// shared inner body of ApplyBrush/PaintRect/FloodFill. No undo bracketing
+	// or change detection (callers bracket a whole gesture as one step).
+	void PaintCell(int cx, int cz, bool remote, const std::string& stem);
+	// The viewed cell's RESOLVED surface variant (override else the mesh
+	// builder's hash — exactly what the scene shows): the flood fill's region
+	// key and the eyedropper's pick. -1 when the palette is empty.
+	int ResolvedVariant(int cx, int cz, int sel) const; // sel = SurfaceSel
+	int m_lastX = -1, m_lastZ = -1; // rect anchor: the last painted cell
 
 	MapView& m_view;          // the viewport (layout helpers, shared font)
 	DungeonWorld& m_world;

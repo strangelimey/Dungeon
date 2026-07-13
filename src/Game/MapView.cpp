@@ -504,18 +504,28 @@ bool MapView::Update(const Input& input, const gfx::Rect& panel) {
 
 	// Editor painting over the grid: a fresh press always acts; holding paints a
 	// stroke for the structural/surface brushes (MapEditor ignores drags for the
-	// click-only Select/Erase tools and entity placement). The Edit* calls no-op
+	// click-only Select/Erase tools and entity placement). Modifiers on the
+	// press pick a GESTURE instead: Shift = rectangle from the last painted
+	// cell, Ctrl = contiguous flood fill, Alt = eyedropper (arm from the cell);
+	// held strokes stay plain paints (no modifier). The Edit* calls no-op
 	// on unchanged cells, so a held stroke over one cell is cheap. On a BROWSED
 	// level the brush routes to the level's stash (MapEditor reads ViewedLevel);
 	// the snapshot is rebuilt after a paint so the edit draws next frame (pure
 	// in-memory copies — no file IO).
 	if (editor && m_editor && overGrid) {
+		const bool shift = input.IsKeyDown(0x10 /*VK_SHIFT*/);
+		const bool ctrl = input.IsKeyDown(0x11 /*VK_CONTROL*/);
+		const bool alt = input.IsKeyDown(0x12 /*VK_MENU*/);
 		int cx, cz;
 		bool painted = false;
 		if (input.WasMousePressed(MouseButton::Left) && CellAt(mx, my, panel, cx, cz)) {
-			m_editor->Paint(cx, cz, /*dragging*/ false);
-			painted = true;
-		} else if (input.IsMouseDown(MouseButton::Left) && CellAt(mx, my, panel, cx, cz)) {
+			if (alt) m_editor->PickAt(cx, cz); // never mutates — no refresh needed
+			else if (shift) { m_editor->PaintRect(cx, cz); painted = true; }
+			else if (ctrl) { m_editor->FloodFill(cx, cz); painted = true; }
+			else { m_editor->Paint(cx, cz, /*dragging*/ false); painted = true; }
+		} else if (!shift && !ctrl && !alt &&
+				   input.IsMouseDown(MouseButton::Left) &&
+				   CellAt(mx, my, panel, cx, cz)) {
 			m_editor->Paint(cx, cz, /*dragging*/ true);
 			painted = true;
 		}

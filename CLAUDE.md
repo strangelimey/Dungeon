@@ -286,12 +286,18 @@ buffer, reused across all ~25 submissions).
     (grid glyphs are never lowercase): `textures <wall|floor|ceiling>
     <set> ...` declares the level's surface palette — MANDATORY, the game
     loads only those sets + their worn meshes, order = variant index —
-    plus `decoration <type> <x> <z> [facing]` and `fixture <sconce|brazier>
-    <x> <z> [facing]` records. The 'T'/'F' glyphs are one-per-cell shorthand
-    for an auto-faced sconce/brazier; the fixture record places them
-    explicitly so several can share a cell (e.g. two sconces on different
-    walls — sconce facing names the solid wall it mounts on). Sconces resolve
-    their mount wall at load (DungeonMap::WallSconce). A decoration record can
+    plus `decoration <type> <x> <z> [facing]` and `fixture <id> <x> <z>
+    [facing]` records — the kind token is a fixtures.cat id, EVERY entry is
+    placeable (per-record FIXTURE KINDS: DungeonWorld::FixtureKind caches
+    id→mesh/tex/flame like DecorationKind; the parser routes wall-vs-floor
+    via the FixtureTypes info DungeonWorld passes at every DungeonMap
+    construction, since the map has no catalog access; fixtures.cat
+    `flame = 0` = a flameless kind, placed lit=0 — brazier_empty). The
+    'T'/'F' glyphs are one-per-cell shorthand for an auto-faced default
+    sconce/brazier; the fixture record places kinds explicitly so several
+    can share a cell (e.g. two sconces on different walls — sconce facing
+    names the solid wall it mounts on). Sconces resolve their mount wall at
+    load (DungeonMap::WallSconce). A decoration record can
     also take `wall=<dir>` to hang flat on that wall instead of standing at the
     cell centre, so a sconce + a banner + other wall props can share one square.
     The wall mount (offset to the wall face, +Z turned to face the room) is one
@@ -597,22 +603,43 @@ the armed brush (nothing armed until a palette row is picked), a stationary
 RIGHT-CLICK inspects the cell (select + contents + the object's edit dialog
 immediately; ≤3px press-release = click) while a right-DRAG pans, and
 MIDDLE-CLICK erases (the ladder: stair pair → entity → fixture → variant
-reset; one undo step each). The editor map has a header TOOLBAR top-right —
-Level (per-level settings dialog) / Balance (combat tuning) / </> undo/redo /
-Save (savemap) / To source (synctosource) — built by MapView::ToolbarButtons
-(ONE right-to-left item list that geometry, hover, click dispatch and render
-all walk; adding a tool is one `add` line), each face drawn via
-ui::DrawButtonFace (THE one button face, shared with ui::Button, hover
-included; hover on hand-drawn chrome is tracked by HoverBtn identity across
-the window-px/device-px split). The Level button opens LevelSettingsDialog
-for the VIEWED level (active or browsed): the three lighting mood knobs —
-dust density / haze ambient / ambient scale — live-previewed while that
-level is active, committed to the level's map/stash on Save, and persisted
-as the .map `atmosphere` record (`atmosphere dust=… haze=… ambient=…`, only
-set values written; DungeonWorld::EffectiveAtmosphere resolves unset ones to
-the gfx::Atmosphere defaults, applied in BuildTurbidityMap on every load/
+reset; one undo step each). MODIFIER GESTURES on a left press (paint brushes
+only — Structure + surface variants; placement falls back to a plain click):
+Shift+click fills the RECTANGLE from the last painted cell (every paint
+leaves the anchor, so click-then-shift-click is the Photoshop line idiom),
+Ctrl+click FLOOD-fills the contiguous region (same cell type + same RESOLVED
+variant — override-or-hash, matching the 3D scene), Alt+click is the
+EYEDROPPER (arms the clicked square's wall/floor texture; ceilings pick while
+the Ceilings brush is armed). Rect/flood are ONE undo step and message
+map.fill.done. The editor's TOOLBAR is a full-width band fixed across the
+panel top (docks + grid inset below it): the level DROPDOWN (all levels in
+project order; hand-rolled popup — picking one browses it; Player mode keeps
+the [^]/[v] arrows instead) and the [+] NEW LEVEL button pin its left end
+(Game::CreateNewLevel writes a minimal 16x16 .map/.ent — 3x3 'P' room,
+palettes copied from the ACTIVE level — appends the manifest, and the view
+jumps onto the new canvas); the tools sit right as house-style ICON DISCS
+(assets/ui/icon_tb_*.png: Wenrexa discs + composited glyphs; hover brightens
++ shows a tooltip under the band; a missing icon falls back to the text
+face) — Level (per-level settings dialog) / Balance (combat tuning) /
+undo/redo (dimmed when their stack is empty) / Save (savemap) / To source
+(synctosource) — built by MapView::ToolbarButtons (ONE item list that
+geometry, hover, click dispatch and render all walk; adding a tool is one
+`add` line; hover on hand-drawn chrome is tracked by HoverBtn identity
+across the window-px/device-px split). The Level button opens
+LevelSettingsDialog for the VIEWED level (active or browsed): the three
+lighting mood knobs — dust density / haze ambient / ambient scale —
+live-previewed while that level is active, committed to the level's
+map/stash on Save, and persisted as the .map `atmosphere` record
+(`atmosphere dust=… haze=… ambient=…`, only set values written;
+DungeonWorld::EffectiveAtmosphere resolves unset ones to the
+gfx::Atmosphere defaults, applied in BuildTurbidityMap on every load/
 swap/fixture-rebuild — the dev console dust/haze/ambient knobs override live
-but are reset by that application).
+but are reset by that application). The dialog's title stem is a RENAME
+affordance: click it, edit inline ([A-Za-z0-9_-]), Enter commits —
+Game::RenameLevel (manifest + browse fix-up) + DungeonWorld::RenameLevel
+(file moves, stash rekeys, stair dest= sweep via lazy EnsureMapStash, undo
+history drop). Old SAVE FILES keep the old stem and won't load past a
+rename (dev-cycle cost).
 A structural paint → DungeonWorld::EditCell → DungeonMap::SetCell (bumps
 Revision()) → RebuildChunksAround(x,z), which rebuilds ONLY the touched chunk +
 its orthogonal-neighbour chunks (≤5), not the whole map — so paints are near-

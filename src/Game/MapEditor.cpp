@@ -9,6 +9,7 @@
 #include "Game/MapEditor.h"
 
 #include "Core/Loc.h"
+#include "Game/DungeonMeshBuilder.h" // SurfaceVariantFor (eyedropper/flood key)
 #include "Game/DungeonWorld.h"
 #include "Game/Entity.h"
 #include "Game/GameSettings.h"
@@ -256,36 +257,15 @@ void MapEditor::ApplyBrush(int cx, int cz, bool dragging) {
 	bool changed = false;
 
 	switch (m_sel.cat) {
-	case PaletteCat::Structure: {
-		const Cell target = m_sel.index == 0 ? Cell::Wall : Cell::Floor;
-		if (remote) { // the party is never on a browsed level — no trap check
-			m_world.EditCellRemote(stem, cx, cz, target);
-			changed = true;
-			break;
-		}
-		const Party& party = m_world.GetParty();
-		const bool wouldTrapParty = target == Cell::Wall && cx == party.GridX() &&
-									cz == party.GridZ();
-		if (!wouldTrapParty) m_world.EditCell(cx, cz, target);
-		changed = m_world.Map().Revision() != rev0;
-		break;
-	}
+	case PaletteCat::Structure:
 	case PaletteCat::Walls:
 	case PaletteCat::Floors:
 	case PaletteCat::Ceilings: {
-		const SS sel = m_sel.cat == PaletteCat::Walls    ? SS::Wall
-					   : m_sel.cat == PaletteCat::Floors ? SS::Floor
-														 : SS::Ceiling;
-		// The brush paints the square that was clicked: wall variants land on
-		// the solid block itself, floor/ceiling on the floor cell (EditVariant
-		// no-ops the wrong cell type).
-		if (remote) {
-			m_world.EditVariantRemote(stem, cx, cz, sel, m_sel.index);
-			changed = true;
-		} else {
-			m_world.EditVariant(cx, cz, sel, m_sel.index);
-			changed = m_world.Map().Revision() != rev0;
-		}
+		PaintCell(cx, cz, remote, stem);
+		// Remote edits are conservatively "changed" (see the bracket note).
+		changed = remote || m_world.Map().Revision() != rev0;
+		m_lastX = cx; // the shift-rectangle gesture anchors on the last paint
+		m_lastZ = cz;
 		break;
 	}
 	case PaletteCat::Decorations:
@@ -347,6 +327,167 @@ void MapEditor::ApplyBrush(int cx, int cz, bool dragging) {
 	}
 
 	if (strokeStart) m_world.CommitUndoStep(changed);
+}
+
+void MapEditor::PaintCell(int cx, int cz, bool remote, const std::string& stem) {
+	using SS = DungeonWorld::SurfaceSel;
+	switch (m_sel.cat) {
+	case PaletteCat::Structure: {
+		const Cell target = m_sel.index == 0 ? Cell::Wall : Cell::Floor;
+		if (remote) { // the party is never on a browsed level — no trap check
+			m_world.EditCellRemote(stem, cx, cz, target);
+			return;
+		}
+		const Party& party = m_world.GetParty();
+		const bool wouldTrapParty = target == Cell::Wall &&
+									cx == party.GridX() && cz == party.GridZ();
+		if (!wouldTrapParty) m_world.EditCell(cx, cz, target);
+		return;
+	}
+	case PaletteCat::Walls:
+	case PaletteCat::Floors:
+	case PaletteCat::Ceilings: {
+		const SS sel = m_sel.cat == PaletteCat::Walls    ? SS::Wall
+					   : m_sel.cat == PaletteCat::Floors ? SS::Floor
+														 : SS::Ceiling;
+		// The brush paints the square that was clicked: wall variants land on
+		// the solid block itself, floor/ceiling on the floor cell (EditVariant
+		// no-ops the wrong cell type).
+		if (remote) m_world.EditVariantRemote(stem, cx, cz, sel, m_sel.index);
+		else m_world.EditVariant(cx, cz, sel, m_sel.index);
+		return;
+	}
+	default: return; // placement categories never reach here
+	}
+}
+
+void MapEditor::PaintRect(int cx, int cz) {
+	if (m_sel.index < 0) return;
+	// Placement categories (and a rect with no anchor yet) act as a plain click.
+	if (!PaintableCat(m_sel.cat) || m_lastX < 0) {
+		ApplyBrush(cx, cz, /*dragging*/ false);
+		return;
+	}
+	const bool remote = m_view.Browsing();
+	const std::string& stem = m_view.ViewedLevel();
+	const int x0 = std::min(m_lastX, cx), x1 = std::max(m_lastX, cx);
+	const int z0 = std::min(m_lastZ, cz), z1 = std::max(m_lastZ, cz);
+	m_world.BeginUndoStep();
+	const u32 rev0 = m_world.Map().Revision();
+	for (int z = z0; z <= z1; ++z)
+		for (int x = x0; x <= x1; ++x) PaintCell(x, z, remote, stem);
+	m_world.CommitUndoStep(remote || m_world.Map().Revision() != rev0);
+	m_lastX = cx; // chainable: the far corner anchors the next rectangle
+	m_lastZ = cz;
+	if (m_world.onMessage)
+		m_world.onMessage(loc::Format("map.fill.done",
+									  (x1 - x0 + 1) * (z1 - z0 + 1)));
+}
+
+void MapEditor::FloodFill(int cx, int cz) {
+	if (m_sel.index < 0) return;
+	if (!PaintableCat(m_sel.cat)) { // placement acts as a plain click
+		ApplyBrush(cx, cz, /*dragging*/ false);
+		return;
+	}
+	const DungeonMap& map = m_view.ViewedMap();
+	if (cx < 0 || cz < 0 || cx >= map.Width() || cz >= map.Height()) return;
+	using SS = DungeonWorld::SurfaceSel;
+	const Cell baseCell = map.At(cx, cz);
+	const bool surface = m_sel.cat != PaletteCat::Structure;
+	const SS sel = m_sel.cat == PaletteCat::Walls    ? SS::Wall
+				   : m_sel.cat == PaletteCat::Floors ? SS::Floor
+													 : SS::Ceiling;
+	int baseVar = -1;
+	if (surface) {
+		// The brush only applies to its own square type (wall variants live on
+		// the solid block) — a fill started on the wrong type is a no-op, like
+		// a plain click there.
+		if ((baseCell == Cell::Wall) != (sel == SS::Wall)) return;
+		baseVar = ResolvedVariant(cx, cz, static_cast<int>(sel));
+	} else if (baseCell == (m_sel.index == 0 ? Cell::Wall : Cell::Floor)) {
+		return; // structural fill over its own type: nothing to change
+	}
+	// 4-connected region of same cell type (+ same resolved variant for the
+	// surface brushes, so the fill stops where the visible texture changes).
+	std::vector<std::pair<int, int>> region, stack{{cx, cz}};
+	std::vector<u8> seen(static_cast<size_t>(map.Width()) * map.Height(), 0);
+	auto idx = [&](int x, int z) {
+		return static_cast<size_t>(z) * map.Width() + x;
+	};
+	seen[idx(cx, cz)] = 1;
+	while (!stack.empty()) {
+		const auto [x, z] = stack.back();
+		stack.pop_back();
+		region.push_back({x, z});
+		const int nb[4][2] = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
+		for (const auto& d : nb) {
+			const int nx = x + d[0], nz = z + d[1];
+			if (nx < 0 || nz < 0 || nx >= map.Width() || nz >= map.Height())
+				continue;
+			if (seen[idx(nx, nz)]) continue;
+			if (map.At(nx, nz) != baseCell) continue;
+			if (surface &&
+				ResolvedVariant(nx, nz, static_cast<int>(sel)) != baseVar)
+				continue;
+			seen[idx(nx, nz)] = 1;
+			stack.push_back({nx, nz});
+		}
+	}
+	const bool remote = m_view.Browsing();
+	const std::string& stem = m_view.ViewedLevel();
+	m_world.BeginUndoStep();
+	const u32 rev0 = m_world.Map().Revision();
+	for (const auto& [x, z] : region) PaintCell(x, z, remote, stem);
+	m_world.CommitUndoStep(remote || m_world.Map().Revision() != rev0);
+	m_lastX = cx;
+	m_lastZ = cz;
+	if (m_world.onMessage)
+		m_world.onMessage(loc::Format("map.fill.done", region.size()));
+}
+
+void MapEditor::PickAt(int cx, int cz) {
+	const DungeonMap& map = m_view.ViewedMap();
+	if (cx < 0 || cz < 0 || cx >= map.Width() || cz >= map.Height()) return;
+	using SS = DungeonWorld::SurfaceSel;
+	// A solid square arms its wall texture, a floor square its floor texture;
+	// ceilings (sharing the floor square) are picked while already on the
+	// Ceilings brush.
+	const bool solid = map.At(cx, cz) == Cell::Wall;
+	const PaletteCat cat =
+		solid ? PaletteCat::Walls
+			  : (m_sel.cat == PaletteCat::Ceilings ? PaletteCat::Ceilings
+												   : PaletteCat::Floors);
+	const SS sel = cat == PaletteCat::Walls    ? SS::Wall
+				   : cat == PaletteCat::Floors ? SS::Floor
+											   : SS::Ceiling;
+	const int v = ResolvedVariant(cx, cz, static_cast<int>(sel));
+	if (v < 0) return; // empty palette
+	m_sel = {cat, v};
+	const std::vector<PaletteItem> items = CategoryItems(cat);
+	if (m_world.onMessage && v < static_cast<int>(items.size()))
+		m_world.onMessage(loc::Format("map.pick.done", items[v].label));
+}
+
+int MapEditor::ResolvedVariant(int cx, int cz, int selRaw) const {
+	using SS = DungeonWorld::SurfaceSel;
+	const SS sel = static_cast<SS>(selRaw);
+	const DungeonMap& map = m_view.ViewedMap();
+	const std::vector<std::string>& pal =
+		sel == SS::Wall    ? map.WallPalette()
+		: sel == SS::Floor ? map.FloorPalette()
+						   : map.CeilingPalette();
+	const int count = static_cast<int>(pal.size());
+	if (count == 0) return -1;
+	// Override else the mesh builder's hash — StampCell's exact pick, the same
+	// resolution the map's textured fill uses.
+	const int over = sel == SS::Wall    ? map.WallVariant(cx, cz)
+					 : sel == SS::Floor ? map.FloorVariant(cx, cz)
+										: map.CeilingVariant(cx, cz);
+	if (over >= 0) return std::min(over, count - 1);
+	const u32 salt = sel == SS::Wall ? 3u : sel == SS::Floor ? 1u : 2u;
+	return static_cast<int>(
+		SurfaceVariantFor(cx, cz, salt, static_cast<u32>(count)));
 }
 
 void MapEditor::InspectAt(int cx, int cz) {
