@@ -11,7 +11,7 @@
 
 namespace dungeon::game {
 
-DungeonMap::DungeonMap(const std::string& path) {
+DungeonMap::DungeonMap(const std::string& path, FixtureTypes fixtures) {
 	auto bytes = assets::ReadBinaryFile(path);
 	DN_ASSERT(bytes.has_value(), bytes.error());
 
@@ -44,8 +44,15 @@ DungeonMap::DungeonMap(const std::string& path) {
 		bool lit = true;
 		float brightness = kSconceBrightness;
 		float turbidity = kSconceTurbidity;
+		std::string type = "sconce"; // fixtures.cat id (glyphs take the default)
 	};
 	std::vector<RawSconce> rawSconces;
+	// A record's kind token routes by the catalog's mount field (wall-mount ids
+	// become sconces, everything else stands on the floor).
+	const auto isWallMount = [&](std::string_view id) {
+		return std::find(fixtures.wallMount.begin(), fixtures.wallMount.end(),
+						 id) != fixtures.wallMount.end();
+	};
 
 	bool foundStart = false;
 	for (int z = 0; z < m_height; ++z) {
@@ -61,8 +68,17 @@ DungeonMap::DungeonMap(const std::string& path) {
 				m_turbidity[static_cast<size_t>(z) * m_width + x] = 1.0f;
 				m_dusty[static_cast<size_t>(z) * m_width + x] = 1;
 				break;
-			case 'T': rawSconces.push_back({x, z, false, Direction::North}); break;
-			case 'F': m_braziers.push_back({x, z}); break;
+			case 'T':
+				rawSconces.push_back({x, z, false, Direction::North, true,
+									  kSconceBrightness, kSconceTurbidity,
+									  fixtures.sconceDefault});
+				break;
+			case 'F': {
+				FloorBrazier b{x, z};
+				b.type = fixtures.brazierDefault;
+				m_braziers.push_back(std::move(b));
+				break;
+			}
 			case 'P':
 				DN_ASSERT(!foundStart,
 						  std::format("multiple 'P' start cells in {}", path));
@@ -134,8 +150,13 @@ DungeonMap::DungeonMap(const std::string& path) {
 					DN_ASSERT(false, std::format("unknown fixture key \"{}\": \"{}\" in {}",
 												 key, record, path));
 			};
-			if (tok[1] == "sconce") {
+			// The kind token is a fixtures.cat id; the catalog's mount field
+			// (threaded in as FixtureTypes) decides wall vs floor. An unknown
+			// id stands on the floor — DungeonWorld's kind resolution warns
+			// there, where the catalog is actually known.
+			if (isWallMount(tok[1])) {
 				RawSconce rs{fx, fz, false, Direction::North};
+				rs.type = std::string(tok[1]);
 				for (size_t i = 4; i < tok.size(); ++i) {
 					Direction d;
 					if (ParseDirection(tok[i], d)) {
@@ -145,19 +166,16 @@ DungeonMap::DungeonMap(const std::string& path) {
 					}
 					fireKey(tok[i], rs.lit, rs.brightness, rs.turbidity);
 				}
-				rawSconces.push_back(rs);
-			} else if (tok[1] == "brazier") {
+				rawSconces.push_back(std::move(rs));
+			} else {
 				FloorBrazier b{fx, fz};
+				b.type = std::string(tok[1]);
 				for (size_t i = 4; i < tok.size(); ++i) {
 					Direction d;
 					if (ParseDirection(tok[i], d)) continue; // no wall to mount on — ignored
 					fireKey(tok[i], b.lit, b.brightness, b.turbidity);
 				}
-				m_braziers.push_back(b);
-			} else {
-				DN_ASSERT(false,
-						  std::format("unknown fixture \"{}\" (sconce or brazier): \"{}\" in {}",
-									  tok[1], record, path));
+				m_braziers.push_back(std::move(b));
 			}
 			continue;
 		}
@@ -237,7 +255,8 @@ DungeonMap::DungeonMap(const std::string& path) {
 					break;
 				}
 		}
-		m_torches.push_back({rs.x, rs.z, wall, rs.lit, rs.brightness, rs.turbidity});
+		m_torches.push_back(
+			{rs.x, rs.z, wall, rs.lit, rs.brightness, rs.turbidity, rs.type});
 	}
 
 	// Fires thicken the air around them (braziers more than sconces); recomputed
@@ -483,14 +502,15 @@ bool DungeonMap::FreeSconceWall(int x, int z, Direction& out) const {
 	return false;
 }
 
-bool DungeonMap::AddSconce(int x, int z) {
+bool DungeonMap::AddSconce(int x, int z, std::string type, bool lit) {
 	if (!IsWalkable(x, z)) return false;
 	// Mount on the first free solid neighbour (N, E, S, W) — the 'T'-glyph rule.
 	// Walls already holding a sconce are skipped, so repeat clicks ring the cell
 	// with one sconce per wall instead of stacking twins on the same wall.
 	Direction d;
 	if (!FreeSconceWall(x, z, d)) return false; // no free wall to hang on
-	m_torches.push_back({x, z, d});
+	m_torches.push_back({x, z, d, lit, kSconceBrightness, kSconceTurbidity,
+						 std::move(type)});
 	RebuildTurbidity(); // bumps Revision()
 	return true;
 }
@@ -507,11 +527,12 @@ bool DungeonMap::SetSconceWall(int x, int z, Direction from, Direction to) {
 	return false;
 }
 
-bool DungeonMap::AddBrazier(int x, int z) {
+bool DungeonMap::AddBrazier(int x, int z, std::string type, bool lit) {
 	// One per cell: every per-instance surface (inspect, edit, erase) addresses
 	// a brazier by its cell, so a stacked twin would be an uneditable ghost.
 	if (!IsWalkable(x, z) || BrazierAt(x, z)) return false;
-	m_braziers.push_back({x, z});
+	m_braziers.push_back(
+		{x, z, lit, kBrazierBrightness, kBrazierTurbidity, std::move(type)});
 	RebuildTurbidity(); // bumps Revision()
 	return true;
 }
@@ -550,6 +571,17 @@ bool DungeonMap::RemoveStair(int x, int z, StairLink* removed) {
 			return true;
 		}
 	return false;
+}
+
+size_t DungeonMap::RenameStairDest(const std::string& oldStem,
+								   const std::string& newStem) {
+	size_t n = 0;
+	for (StairLink& s : m_stairs)
+		if (s.destLevel == oldStem) {
+			s.destLevel = newStem;
+			++n;
+		}
+	return n;
 }
 
 void DungeonMap::SetCell(int x, int z, Cell cell) {

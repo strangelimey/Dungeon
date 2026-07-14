@@ -3,10 +3,13 @@
 // ============================================================================
 #include "Game/Projectiles.h"
 
+#include <algorithm> // std::erase_if
+
 namespace dungeon::game {
 
 void ProjectileSystem::Spawn(const ProjectileSpec& spec) {
 	Item it;
+	it.id = m_nextId++;
 	it.pos = spec.pos;
 	it.dir = spec.dir;
 	it.speed = spec.speed;
@@ -17,6 +20,28 @@ void ProjectileSystem::Spawn(const ProjectileSpec& spec) {
 	it.target = spec.target;
 	it.push = spec.push;
 	m_items.push_back(it);
+}
+
+std::vector<ProjectileInfo> ProjectileSystem::Live() const {
+	std::vector<ProjectileInfo> out;
+	out.reserve(m_items.size());
+	for (const Item& it : m_items)
+		out.push_back({it.id, it.pos, it.dir, it.speed, it.rangeLeft, it.atk,
+					   it.target});
+	return out;
+}
+
+bool ProjectileSystem::Find(u32 id, ProjectileInfo& out) const {
+	for (const Item& it : m_items)
+		if (it.id == id) {
+			out = {it.id, it.pos, it.dir, it.speed, it.rangeLeft, it.atk, it.target};
+			return true;
+		}
+	return false;
+}
+
+bool ProjectileSystem::Remove(u32 id) {
+	return std::erase_if(m_items, [id](const Item& it) { return it.id == id; }) > 0;
 }
 
 void ProjectileSystem::SpawnSparkBurst(const Vec3& pos, const Vec4& color, int count) {

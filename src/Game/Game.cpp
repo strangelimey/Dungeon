@@ -14,6 +14,7 @@
 #include "Graphics/Texture.h"
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <chrono>
 #include <cstdlib>
@@ -82,7 +83,8 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	  m_levelSettingsDialog(device),
 	  m_entityInspector(device), m_fixtureInspector(device),
 	  m_propInspector(device), m_doorInspector(device), m_buttonInspector(device),
-	  m_inspectPicker(device), m_previewParticles(device) {
+	  m_projectileInspector(device), m_inspectPicker(device),
+	  m_previewParticles(device) {
 	m_mapView.SetEditor(&m_mapEditor); // the view drives the editor in Editor mode
 	// The editor's header save buttons: Save = write every edited level (what the
 	// savemap console command does); To source = also copy the project into the
@@ -148,6 +150,14 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 		if (m_world.onMessage)
 			m_world.onMessage(loc::Format("map.level.applied",
 										  m_levelSettingsDialog.Level()));
+	};
+	// The editor toolbar's [+] button: mint a fresh level (files + manifest)
+	// and hand the stem back so the view jumps onto the new canvas.
+	m_mapView.onNewLevel = [this] { return CreateNewLevel(); };
+	// The Level dialog's inline name edit → the full rename flow.
+	m_levelSettingsDialog.onRename = [this](const std::string& oldStem,
+											const std::string& newStem) {
+		return RenameLevel(oldStem, newStem);
 	};
 	m_settings.Load();
 	ApplyLanguage(false); // strings must exist before any UI builds
@@ -312,7 +322,7 @@ void Game::WireModuleCallbacks() {
 	// (Walls/Floors/Ceilings import a texture folder; the rest import a model).
 	m_mapEditor.onNewAsset = [this](MapEditor::PaletteCat cat) {
 		const char* key = MapEditor::CategoryCatalogKey(cat);
-		if (!*key) return; // Tools/Structure aren't creatable
+		if (!*key) return; // belt-and-braces: every category names a catalog
 		m_assetDialog.Open(loc::Tr(MapEditor::CategoryNameKey(cat)), key,
 						   MapEditor::CategoryTextureSet(cat), m_settings.theme);
 	};
@@ -424,6 +434,14 @@ void Game::WireModuleCallbacks() {
 			t.type = display(m_project.items.Find(type), type);
 			m_inspectTargets.push_back(t);
 			labels.push_back(t.type);
+		}
+		// In-flight projectiles passing through the cell (transient combat
+		// content — freeze the world with the pause button to catch a fast one).
+		for (const ProjectileInfo& p : m_world.ProjectilesAt(cx, cz)) {
+			InspectTarget t{InspectTarget::Kind::Projectile};
+			t.runtimeId = p.id;
+			m_inspectTargets.push_back(t);
+			labels.push_back(loc::Tr("map.proj.title"));
 		}
 		if (m_inspectTargets.empty()) return;
 		if (m_inspectTargets.size() == 1) { // exactly one — skip the chooser
@@ -559,7 +577,8 @@ void Game::OpenInspectorFor(const InspectTarget& t) {
 		fc.wall = t.wall;
 		if (!m_world.TorchSettings(cx, cz, t.wall, fc.lit, fc.brightness, fc.turbidity))
 			return; // gone since the picker listed it
-		OpenFixtureInspector(fc, walls, m_world.SconcePreview());
+		OpenFixtureInspector(fc, walls,
+							 m_world.FixturePreviewOf(m_world.SconceTypeAt(cx, cz, t.wall)));
 		break;
 	}
 	case InspectTarget::Kind::Brazier: {
@@ -569,7 +588,8 @@ void Game::OpenInspectorFor(const InspectTarget& t) {
 		fc.z = cz;
 		if (!m_world.BrazierSettings(cx, cz, fc.lit, fc.brightness, fc.turbidity))
 			return; // gone since the picker listed it
-		OpenFixtureInspector(fc, /*walls*/ {}, m_world.BrazierPreview()); // no facing
+		OpenFixtureInspector(fc, /*walls*/ {},
+							 m_world.FixturePreviewOf(m_world.BrazierTypeAt(cx, cz)));
 		break;
 	}
 	case InspectTarget::Kind::Door: {
@@ -659,6 +679,30 @@ void Game::OpenInspectorFor(const InspectTarget& t) {
 		};
 		m_propInspector.facingExtra.reset(); // items draw no map arrow anyway
 		m_propInspector.Open(c, std::move(pv));
+		break;
+	}
+	case InspectTarget::Kind::Projectile: {
+		ProjectileInfo p;
+		if (!m_world.ProjectileById(t.runtimeId, p))
+			return; // landed since the picker listed it
+		ProjectileInspector::Config c;
+		c.id = p.id;
+		// A shot targeting the PARTY was fired by a monster, and vice versa.
+		c.side = loc::Tr(p.target == TargetSide::Party ? "map.proj.frommonster"
+													   : "map.proj.fromparty");
+		static constexpr std::array<const char*, kDamageTypeCount> kDmgKeys = {
+			"dmg.slash", "dmg.pierce", "dmg.bash",
+			"dmg.fire", "dmg.earth", "dmg.air", "dmg.water"};
+		c.dmgType = loc::Tr(kDmgKeys[static_cast<size_t>(p.atk.type)]);
+		c.damage = p.atk.damage;
+		c.accuracy = p.atk.accuracy;
+		c.speed = p.speed;
+		c.rangeLeft = p.rangeLeft;
+		m_projectileInspector.onRemove = [this, id = p.id] {
+			if (m_world.RemoveProjectile(id) && m_world.onMessage)
+				m_world.onMessage(loc::Tr("map.proj.removed"));
+		};
+		m_projectileInspector.Open(c);
 		break;
 	}
 	}
@@ -1263,6 +1307,82 @@ bool Game::SyncProjectToSource() {
 		return false;
 	}
 	log::Info("Synced project {} -> source", src.filename().string());
+	return true;
+}
+
+// Mints a fresh level for the editor's [+] toolbar button: writes a minimal
+// valid .map/.ent pair next to the project's other levels (all-rock 16x16
+// canvas with a 3x3 start room — the palette gate demands all three surface
+// records, copied from the ACTIVE level so the new one shares its look), then
+// appends the stem to the manifest. Everything downstream (browse, remote
+// edits, stair dests, savemap) reads Project::levels or lazy-parses the files,
+// so no other state needs touching. Returns the stem, or "" on failure.
+std::string Game::CreateNewLevel() {
+	// Next free levelN stem (numeric suffixes only; foreign stems just don't
+	// bump the counter, and the find() guard keeps the pick collision-free).
+	int maxN = 0;
+	for (const std::string& s : m_project.levels)
+		if (s.starts_with("level"))
+			if (int n = std::atoi(s.c_str() + 5); n > maxN) maxN = n;
+	const std::string stem = "level" + std::to_string(maxN + 1);
+	if (std::find(m_project.levels.begin(), m_project.levels.end(), stem) !=
+		m_project.levels.end()) {
+		log::Warn("new level: stem {} already exists", stem);
+		return {};
+	}
+
+	auto join = [](const std::vector<std::string>& ids) {
+		std::string out;
+		for (const std::string& id : ids) out += (out.empty() ? "" : " ") + id;
+		return out;
+	};
+	const DungeonMap& live = m_world.Map(); // active level: the palette donor
+	std::string map = "; " + stem + " - created in the editor.\n";
+	map += "palette wall " + join(live.WallPalette()) + "\n";
+	map += "palette floor " + join(live.FloorPalette()) + "\n";
+	map += "palette ceiling " + join(live.CeilingPalette()) + "\n\n";
+	constexpr int kSize = 16;
+	for (int z = 0; z < kSize; ++z) {
+		for (int x = 0; x < kSize; ++x) {
+			const bool room = x >= 7 && x <= 9 && z >= 7 && z <= 9;
+			map += !room ? '#' : (x == 8 && z == 8) ? 'P' : '.';
+		}
+		map += '\n';
+	}
+	const std::string ent = "; " + stem + " - dynamic layer (empty).\n";
+	if (!assets::WriteBinaryFile(m_project.LevelMapPath(stem), map.data(),
+								 map.size()) ||
+		!assets::WriteBinaryFile(m_project.LevelEntPath(stem), ent.data(),
+								 ent.size())) {
+		log::Warn("new level: failed to write {} files", stem);
+		return {};
+	}
+	m_project.levels.push_back(stem);
+	m_project.Save();
+	if (m_world.onMessage)
+		m_world.onMessage(loc::Format("map.level.created", stem));
+	return stem;
+}
+
+// The Level dialog's rename: validate against the manifest, let the world
+// move files / rekey stashes / repoint stair dests, then commit the manifest
+// and keep the map view's browse snapshot truthful. (The dialog adopts the
+// new stem itself on true.)
+bool Game::RenameLevel(const std::string& oldStem, const std::string& newStem) {
+	std::vector<std::string>& levels = m_project.levels;
+	const auto it = std::find(levels.begin(), levels.end(), oldStem);
+	if (it == levels.end()) return false;
+	if (std::find(levels.begin(), levels.end(), newStem) != levels.end()) {
+		if (m_world.onMessage)
+			m_world.onMessage(loc::Format("map.level.dupname", newStem));
+		return false;
+	}
+	if (!m_world.RenameLevel(oldStem, newStem)) return false;
+	*it = newStem;
+	m_project.Save();
+	m_mapView.OnLevelRenamed(oldStem, newStem);
+	if (m_world.onMessage)
+		m_world.onMessage(loc::Format("map.level.renamed", oldStem, newStem));
 	return true;
 }
 
@@ -2115,11 +2235,30 @@ void Game::Update(float dt) {
 								 static_cast<float>(m_window.Height()));
 		return;
 	}
+	// And the in-flight projectile inspector (read-only details + dismiss).
+	if (m_projectileInspector.IsOpen()) {
+		m_projectileInspector.Update(input, static_cast<float>(m_window.Width()),
+									 static_cast<float>(m_window.Height()));
+		return;
+	}
 
 	// Map overlay: a toggle that never pauses the world. While it is open the
 	// party still walks (keyboard) — the overlay only claims the mouse for
 	// panning/zooming/editing, and Esc/M closes it instead of pausing.
-	if (input.WasKeyPressed('M')) m_mapView.Toggle();
+	// EXCEPTION: while the editor's palette filter box holds focus, typed
+	// keys are ITS (an 'm' must not toggle the map, Esc only unfocuses, and
+	// the party must not walk on WASD) — capture is checked before the
+	// overlay update runs so a releasing Esc doesn't also act here.
+	const bool typingFilter = m_mapView.IsOpen() &&
+							  m_mapView.CurrentMode() == MapView::Mode::Editor &&
+							  m_mapEditor.KeyboardCaptured();
+	if (!typingFilter && input.WasKeyPressed('M')) m_mapView.Toggle();
+
+	// The editor's pause/play button freezes the world so the level can be
+	// edited against a still scene: no sim time step and no party input. Never
+	// set outside Editor mode (MapView::EditorPaused gates on it), and the
+	// overlay clears it on close/mode-flip, so a closed editor always runs.
+	const bool worldFrozen = m_mapView.EditorPaused();
 
 	// Deferred editor-geometry rebake: undo/redo skips the expensive surface
 	// rebuild while the full-screen editor hides the scene. The debt comes due
@@ -2142,7 +2281,7 @@ void Game::Update(float dt) {
 	if (m_mapView.IsOpen()) {
 		// While laying a patrol route (grid clicks lay waypoints), keys finish/undo
 		// it — ahead of the overlay's own Esc-to-close.
-		if (m_mapEditor.LayingRoute()) {
+		if (!typingFilter && m_mapEditor.LayingRoute()) {
 			if (input.WasKeyPressed(VK_BACK))
 				m_world.RemoveLastPatrolWaypoint(m_mapEditor.RouteId());
 			if (input.WasKeyPressed(VK_RETURN) || input.WasKeyPressed(VK_ESCAPE)) {
@@ -2155,20 +2294,32 @@ void Game::Update(float dt) {
 				return;
 			}
 		}
-		if (input.WasKeyPressed(VK_ESCAPE)) {
+		if (!typingFilter && input.WasKeyPressed(VK_ESCAPE)) {
 			m_mapView.Close();
 			return;
 		}
 		m_mapView.Update(input, MapPanel(static_cast<float>(m_window.Width()),
 										 static_cast<float>(m_window.Height())));
-		m_world.Update(input, wdt, m_time); // keyboard still moves the party
-		if (auto t = m_world.ConsumeLevelTransition()) {
-			m_mapView.Close(); // a stair step starts a new level load
-			BeginLevelTransition(t->level, t->x, t->z, t->facing);
-			return;
+		// The world keeps simulating while the map is open (the party still
+		// walks on the keyboard) — EXCEPT while the editor is PAUSED, where the
+		// whole world update is skipped so every persistent bit freezes:
+		// monster AI decisions (they act off cooldowns, not dt, so dt=0 alone
+		// wouldn't stop a ready monster), party tweens, particles, door slides,
+		// animators. Editing routes through MapEditor→DungeonWorld directly, not
+		// through Update, so it works while frozen; the full-screen editor
+		// renders no 3D scene, so the skipped camera/light refresh is unseen.
+		// The filter box eats the keyboard when it holds focus (blank Input).
+		if (!worldFrozen) {
+			static const Input kNoInput;
+			m_world.Update(typingFilter ? kNoInput : input, wdt, m_time);
+			if (auto t = m_world.ConsumeLevelTransition()) {
+				m_mapView.Close(); // a stair step starts a new level load
+				BeginLevelTransition(t->level, t->x, t->z, t->facing);
+				return;
+			}
+			Party& party = m_world.GetParty();
+			m_ui.SetHudStatus(party);
 		}
-		Party& party = m_world.GetParty();
-		m_ui.SetHudStatus(party);
 		return;
 	}
 
@@ -2439,6 +2590,8 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 		m_doorInspector.Render(m_spriteBatch, m_settings.theme, dw, dh);
 	if (m_buttonInspector.IsOpen())
 		m_buttonInspector.Render(m_spriteBatch, m_settings.theme, dw, dh);
+	if (m_projectileInspector.IsOpen())
+		m_projectileInspector.Render(m_spriteBatch, m_settings.theme, dw, dh);
 	if (InstanceInspector* ii = ActiveInstanceInspector(); ii && ii->HasPreview())
 		m_spriteBatch.DrawSprite(ii->PreviewRect(dw, dh), {0, 0, 1, 1}, m_modelPreview.Srv(),
 								 {1, 1, 1, 1});

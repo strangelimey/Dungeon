@@ -48,7 +48,7 @@ public:
 
 	// Whether slot `light.shadowSlot`'s cube must be re-rendered this frame for
 	// the light at list index `lightIndex`. `mapRevision` is the live geometry
-	// revision; `animatedCasterNear` is the world's verdict that a monster/pillar
+	// revision; `animatedCasterNear` is the world's verdict that a monster
 	// animates within the light. Returns true AND records the render in the slot
 	// cache; false means the cube (still bound as an SRV) is reused.
 	bool ShouldRender(const gfx::PointLight& light, size_t lightIndex,

@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <filesystem>
 #include <format>
 
 using namespace DirectX;
@@ -39,13 +40,30 @@ std::string DungeonWorld::FirstLevel(const Project& p) {
 	return p.levels.empty() ? std::string("level1") : p.levels.front();
 }
 
+// The fixture-record routing DungeonMap's parser needs (it has no catalog
+// access): which ids hang on walls, and what the 'T'/'F' glyphs resolve to.
+FixtureTypes DungeonWorld::FixtureTypesOf(const Project& p) {
+	FixtureTypes t;
+	t.wallMount.clear();
+	for (const CatalogEntry& e : p.fixtures.Entries())
+		if (e.Get("mount", "floor") == "wall") t.wallMount.push_back(e.id);
+	t.sconceDefault = p.defaultSconce;
+	t.brazierDefault = p.defaultBrazier;
+	return t;
+}
+
+const gfx::Texture* DungeonWorld::FixtureIcon(const std::string& type) const {
+	const auto it = m_fixtureKinds.find(type);
+	return it == m_fixtureKinds.end() ? nullptr : it->second->iconTarget.get();
+}
+
 DungeonWorld::DungeonWorld(gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 						   audio::AudioEngine& audio, const SoundBank& sounds,
 						   const GameSettings& settings, const Project& project,
 						   threads::Manager& threadManager)
 	: m_device(device), m_renderer(renderer), m_audio(audio), m_sounds(sounds),
 	  m_settings(settings), m_project(project),
-	  m_map(project.LevelMapPath(FirstLevel(project))),
+	  m_map(project.LevelMapPath(FirstLevel(project)), FixtureTypesOf(project)),
 	  m_entities(project.LevelEntPath(FirstLevel(project)), m_map),
 	  m_party(m_map, m_map.StartX(), m_map.StartZ()), m_director(threadManager) {
 	m_currentLevel = FirstLevel(project);
@@ -340,8 +358,13 @@ bool DungeonWorld::AddMonster(const std::string& type, int x, int z,
 
 bool DungeonWorld::AddFixture(const std::string& type, int x, int z) {
 	if (!m_map.IsWalkable(x, z)) return false;
-	const std::string mount = CatalogGet(m_project.fixtures.Find(type), "mount", "floor");
-	const bool ok = mount == "wall" ? m_map.AddSconce(x, z) : m_map.AddBrazier(x, z);
+	const CatalogEntry* def = m_project.fixtures.Find(type);
+	// A flameless kind (empty bowl) places UNLIT so the map's turbidity grid —
+	// which only smokes lit fixtures — stays truthful in the record too.
+	const bool lit = CatalogBool(def, "flame", true);
+	const bool ok = CatalogGet(def, "mount", "floor") == "wall"
+						? m_map.AddSconce(x, z, type, lit)
+						: m_map.AddBrazier(x, z, type, lit);
 	if (!ok) return false;
 	RebuildFiresAndDust(); // lights/flame/smoke pick the new fire up next frame
 	MarkSeen(x, z);
@@ -778,7 +801,8 @@ DungeonMap& DungeonWorld::EnsureMapStash(const std::string& stem) {
 	if (it == m_levelMaps.end())
 		it = m_levelMaps
 				 .insert_or_assign(stem, std::make_unique<DungeonMap>(
-											 m_project.LevelMapPath(stem)))
+											 m_project.LevelMapPath(stem),
+											 FixtureTypesOf(m_project)))
 				 .first;
 	return *it->second;
 }
@@ -983,12 +1007,14 @@ bool DungeonWorld::AddMonsterRemote(const std::string& stem,
 bool DungeonWorld::AddFixtureRemote(const std::string& stem,
 									const std::string& type, int x, int z) {
 	DungeonMap& map = EnsureMapStash(stem);
-	if (!m_project.fixtures.Contains(type)) return false;
-	const std::string mount =
-		CatalogGet(m_project.fixtures.Find(type), "mount", "floor");
+	const CatalogEntry* def = m_project.fixtures.Find(type);
+	if (!def) return false;
+	const bool lit = CatalogBool(def, "flame", true);
 	// AddSconce/AddBrazier validate the cell themselves (and rebuild the map's
 	// turbidity); the live-only fire/particle rebuild does not apply here.
-	return mount == "wall" ? map.AddSconce(x, z) : map.AddBrazier(x, z);
+	return def->Get("mount", "floor") == "wall"
+			   ? map.AddSconce(x, z, type, lit)
+			   : map.AddBrazier(x, z, type, lit);
 }
 
 void DungeonWorld::EraseRemote(const std::string& stem, int x, int z) {
@@ -1063,7 +1089,8 @@ std::unique_ptr<DungeonWorld::LevelBrowse> DungeonWorld::BrowseLevel(
 	const auto ms = m_levelMaps.find(stem);
 	DungeonMap map = ms != m_levelMaps.end()
 						 ? DungeonMap(*ms->second)
-						 : DungeonMap(m_project.LevelMapPath(stem));
+						 : DungeonMap(m_project.LevelMapPath(stem),
+									  FixtureTypesOf(m_project));
 	const auto es = m_levelEnts.find(stem);
 	auto browse =
 		es != m_levelEnts.end()
@@ -1157,7 +1184,7 @@ void DungeonWorld::BeginLevelLoad(const std::string& stem, bool stashCurrent) {
 		m_map = std::move(*it->second);
 		m_levelMaps.erase(it);
 	} else {
-		m_map = DungeonMap(m_project.LevelMapPath(stem));
+		m_map = DungeonMap(m_project.LevelMapPath(stem), FixtureTypesOf(m_project));
 	}
 	if (auto it = m_levelEnts.find(stem); it != m_levelEnts.end()) {
 		m_entities = std::move(*it->second);
@@ -1285,8 +1312,10 @@ static std::string SerializeMapStatic(const std::string& stem,
 	}
 	m += ";\n";
 
+	// The kind token is the instance's fixtures.cat id (the parser fills the
+	// default for glyph shorthand, so it is never empty).
 	for (const WallSconce& s : map.Sconces()) {
-		m += std::format("fixture sconce {} {} {}", s.x, s.z, DirName(s.wall));
+		m += std::format("fixture {} {} {} {}", s.type, s.x, s.z, DirName(s.wall));
 		// Only non-default light/smoke settings are written (keeps the .map minimal).
 		if (!s.lit) m += " lit=0";
 		if (s.brightness != kSconceBrightness) m += std::format(" bright={:g}", s.brightness);
@@ -1294,7 +1323,7 @@ static std::string SerializeMapStatic(const std::string& stem,
 		m += '\n';
 	}
 	for (const FloorBrazier& b : map.Braziers()) {
-		m += std::format("fixture brazier {} {}", b.x, b.z);
+		m += std::format("fixture {} {} {}", b.type, b.x, b.z);
 		if (!b.lit) m += " lit=0";
 		if (b.brightness != kBrazierBrightness) m += std::format(" bright={:g}", b.brightness);
 		if (b.turbidity != kBrazierTurbidity) m += std::format(" turb={:g}", b.turbidity);
@@ -1433,6 +1462,72 @@ std::vector<std::string> DungeonWorld::SaveAllLevels() {
 	for (const auto& [stem, map] : m_levelMaps)
 		if (WriteStashedLevel(stem)) saved.push_back(stem);
 	return saved;
+}
+
+bool DungeonWorld::RenameLevel(const std::string& oldStem,
+							   const std::string& newStem) {
+	// Disk first (the .ent failure path can roll the .map back, keeping the
+	// pair consistent) — a stash-backed level renames its files too, so the
+	// next savemap writes to the new paths and no stale pair lingers.
+	namespace fs = std::filesystem;
+	std::error_code ec;
+	fs::rename(m_project.LevelMapPath(oldStem), m_project.LevelMapPath(newStem),
+			   ec);
+	if (ec) {
+		log::Warn("rename level: map move failed: {}", ec.message());
+		return false;
+	}
+	fs::rename(m_project.LevelEntPath(oldStem), m_project.LevelEntPath(newStem),
+			   ec);
+	if (ec) {
+		std::error_code undo;
+		fs::rename(m_project.LevelMapPath(newStem),
+				   m_project.LevelMapPath(oldStem), undo);
+		log::Warn("rename level: ent move failed: {}", ec.message());
+		return false;
+	}
+
+	// In-memory keys follow the stem: the three per-level stashes...
+	auto rekey = [&](auto& stash) {
+		auto it = stash.find(oldStem);
+		if (it == stash.end()) return;
+		auto node = std::move(it->second);
+		stash.erase(oldStem);
+		stash.insert_or_assign(newStem, std::move(node));
+	};
+	rekey(m_levelMaps);
+	rekey(m_levelEnts);
+	if (auto it = m_levelStates.find(oldStem); it != m_levelStates.end()) {
+		SaveData::LevelState state = std::move(it->second);
+		m_levelStates.erase(oldStem);
+		state.stem = newStem; // the block writes its own stem line
+		m_levelStates.insert_or_assign(newStem, std::move(state));
+	}
+	// ...and the active stem.
+	if (m_currentLevel == oldStem) m_currentLevel = newStem;
+
+	// Repoint every stair dest= that names the old stem: the active map is
+	// fixed live, every other level via its stash — EnsureMapStash lazily
+	// parses disk-only levels, so their fix persists on the next savemap.
+	// (The caller updates Project::levels after this returns, so the walk
+	// still sees the OLD stem in the list — map it to the new one.)
+	m_map.RenameStairDest(oldStem, newStem);
+	for (const std::string& stem : m_project.levels) {
+		const std::string& actual = stem == oldStem ? newStem : stem;
+		if (actual == m_currentLevel) continue;
+		EnsureMapStash(actual).RenameStairDest(oldStem, newStem);
+	}
+
+	// Undo snapshots hold whole stash sets keyed by the old stem (and the old
+	// file paths' contents); restoring one across a rename would resurrect the
+	// dead name. Renames are rare — drop the history like a level transition.
+	ClearUndoHistory();
+
+	// NOTE: existing save FILES still reference the old stem (save current= /
+	// level blocks) — loading one after a rename will die on the missing
+	// level. Editor-side renames assume dev-cycle saves; re-save after.
+	log::Info("Renamed level {} -> {}", oldStem, newStem);
+	return true;
 }
 
 // ============================================================================
@@ -1672,7 +1767,6 @@ void DungeonWorld::Update(const Input& input, float dt, float time, bool acceptI
 			m_fallT = -1.0f;
 		}
 	}
-	if (m_pillarActive) m_pillarAnimator.Update(dt);
 	UpdateMonsters(dt);
 	m_projectiles.Update(dt); // fly bolts, resolve impacts/fizzles via the hooks
 	UpdateLights(time);
@@ -1793,8 +1887,8 @@ float DungeonWorld::RunePulse(float time, int id) {
 }
 
 // Rebuilds the light list every frame: the carried torch follows the camera,
-// wall torches flicker with independent phases, the pillar glows. All
-// flicker is product-of-sines — cheap, deterministic, and aperiodic enough.
+// wall torches flicker with independent phases. All flicker is
+// product-of-sines — cheap, deterministic, and aperiodic enough.
 void DungeonWorld::UpdateLights(float time) {
 	m_lights.points.clear();
 
@@ -1841,22 +1935,6 @@ void DungeonWorld::UpdateLights(float time) {
 		m_lights.points.push_back(light);
 	}
 
-	if (m_pillarActive) {
-		gfx::PointLight glow;
-		// Low and soft: near the base so its hotspot pools on the FLOOR around the
-		// pillar (a magical ground glow) instead of burning a spotlight onto the
-		// ceiling directly above, which it did when sitting high at mid-height.
-		glow.position = {m_pillarPos.x, 0.7f, m_pillarPos.z};
-		glow.radius = 3.6f;
-		glow.color = {0.35f, 0.85f, 0.6f};
-		glow.intensity = 0.7f + 0.12f * std::sin(time * 2.2f);
-		// The glow casts the pillar's coil shadows from inside the mesh; that is
-		// a fixture of the scene, not a fire popping in, and its short range
-		// would otherwise fade the shadow out at any normal viewing distance.
-		glow.fadeShadow = false;
-		m_lights.points.push_back(glow);
-	}
-
 	// Each uncollected rune throws a soft pulsing light in its element colour,
 	// breathing in lockstep with the tablet's emissive glow (same RunePulse).
 	// Pure fill light — castsShadow=false keeps the cluster near the start from
@@ -1876,8 +1954,8 @@ void DungeonWorld::UpdateLights(float time) {
 
 	// The renderer uploads only the active light budget (Settings → Video → Max
 	// Lights, Low=16 .. Ultra=64) and shadow slots only consider those, so on a
-	// large level the fire count alone can crowd out a light pushed late (the
-	// pillar glow). Keep the ones NEAREST the eye instead of the first ones
+	// large level the fire count alone can crowd out a light pushed late (a
+	// rune glow). Keep the ones NEAREST the eye instead of the first ones
 	// pushed; the carried torch sits at the eye, so it always survives (and
 	// still wins shadow slot 0 in AssignShadowSlots).
 	const size_t budget = static_cast<size_t>(
@@ -2449,6 +2527,17 @@ bool DungeonWorld::BrazierSettings(int cx, int cz, bool& lit, float& brightness,
 	return true;
 }
 
+std::string DungeonWorld::SconceTypeAt(int cx, int cz, Direction wall) const {
+	for (const WallSconce& s : m_map.Sconces())
+		if (s.x == cx && s.z == cz && s.wall == wall) return s.type;
+	return "sconce";
+}
+
+std::string DungeonWorld::BrazierTypeAt(int cx, int cz) const {
+	const FloorBrazier* b = m_map.BrazierAt(cx, cz);
+	return b ? b->type : "brazier";
+}
+
 bool DungeonWorld::SetBrazierSettings(int cx, int cz, bool lit, float brightness,
 									  float turbidity) {
 	if (!m_map.SetBrazierProps(cx, cz, lit, brightness, turbidity)) return false;
@@ -2477,6 +2566,15 @@ std::vector<std::pair<int, std::string>> DungeonWorld::ItemsAt(int cx, int cz) c
 	for (const Entity& e : m_entities.All())
 		if (e.kind == EntityKind::Item && e.x == cx && e.z == cz)
 			out.emplace_back(e.id, e.type);
+	return out;
+}
+
+std::vector<ProjectileInfo> DungeonWorld::ProjectilesAt(int cx, int cz) const {
+	std::vector<ProjectileInfo> out;
+	for (const ProjectileInfo& p : m_projectiles.Live())
+		if (static_cast<int>(p.pos.x / kCellSize) == cx &&
+			static_cast<int>(p.pos.z / kCellSize) == cz)
+			out.push_back(p);
 	return out;
 }
 
@@ -2554,7 +2652,8 @@ bool DungeonWorld::AnyInspectableAt(int cx, int cz) const {
 	std::string target;
 	return MonsterRuntimeIdAt(cx, cz) != 0 || SconceAt(cx, cz) || BrazierAt(cx, cz) ||
 		   DoorAt(cx, cz) != nullptr || ButtonSettings(cx, cz, target) ||
-		   !DecorationsAt(cx, cz).empty() || !ItemsAt(cx, cz).empty();
+		   !DecorationsAt(cx, cz).empty() || !ItemsAt(cx, cz).empty() ||
+		   !ProjectilesAt(cx, cz).empty();
 }
 
 void DungeonWorld::ReconcileGroups() {

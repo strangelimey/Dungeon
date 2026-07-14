@@ -1,22 +1,4 @@
-; Spells — NUMERIC OVERRIDES over the spell classes (src/Game/Spell/, one
-; file pair per spell). Each spell's IDENTITY — its symbol recipe and what a
-; cast DOES — lives in its C++ class; an entry here (matched to the class by
-; its [id]) gets the last word on the NUMBERS, so tuning needs no rebuild.
-; An entry naming no class is ignored with a warning; a `symbols` field that
-; disagrees with the class recipe is warned about and the class wins.
-; Overridable fields:
-;   name    = loc key for the display name (default spell.<id>)
-;   power   = base damage on a clean hit / a ward's magnitude (school skill
-;             scales it at cast time — docs/skills.md)
-;   mana    = mana points the cast costs (no cast below this)
-;   speed   = bolt travel speed in metres/sec        (bolt spells)
-;   range   = bolt reach in metres before it fizzles (bolt spells)
-;   push    = cells a struck (surviving) monster is shoved along the bolt's
-;             travel; walls/doors/occupied cells stop the shove (bolt spells)
-;   duration= ward lifetime in seconds               (ward spells)
-; The values below currently MIRROR the class defaults — edit one to diverge.
-; THE SPELL LIST — what each spell is meant to do and how it grows with the
-; caster's school power — lives in docs/spells.md.
+; Spells: symbol-sequence recipes -> effect + element + power/mana/speed/range.
 
 [flame]
 name = spell.flame
@@ -58,13 +40,6 @@ mana = 4
 speed = 7
 range = 9
 
-; --- Tier 2: <school>,project — the shared Project form rune ("throw it
-; ahead") behind each school. Stronger, costlier directed casts; the element
-; (= the leading school rune) still drives the bolt colour. `push` shoves a
-; struck-and-surviving monster that many cells along the bolt's travel (the
-; air school's displacement identity — its "bolt" moves the target, it
-; barely hurts it). Growth forms (flamethrower, deluge, ...) in docs/spells.md.
-
 [fireburst]
 name = spell.fireburst
 symbols = fire,project
@@ -105,15 +80,6 @@ mana = 6
 speed = 12
 range = 8
 push = 1
-
-; --- Tier 2: <school>,protect — the shared Protect form rune ("guard the
-; caster"). One ward per member (a recast replaces it); the school picks HOW
-; it guards and how `power` reads: earth HARDENS (armor bonus), fire
-; RETALIATES (a monster landing a melee blow on the warded member burns for
-; power), water ABSORBS (a damage pool it spends soaking hits — BURSTS when
-; spent), air DEFLECTS (charges it spends turning ranged bolts aside — the
-; wind STILLS when spent). Water/air can end early by spending; every ward
-; also fades when its duration runs out.
 
 [stoneskin]
 name = spell.stoneskin

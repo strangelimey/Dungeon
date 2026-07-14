@@ -1,30 +1,4 @@
-; Items. Fields:
-;   name     = loc key for the display name (item.rune_fire -> "Fire rune")
-;   category = rune|weapon|armor|clothing|food|misc (free-form; drives behaviour)
-;   weight   = carry weight in kg (sums into a member's carry load; default 0)
-;   command  = the item's USES, a whitespace/comma list of command ids shown in
-;              the hand's right-click use menu (e.g. "eat", "stab, slash"); the
-;              chosen use becomes the hand's left-click default (remembered per
-;              item type, per member). Runes always gain "memorize" implicitly
-;              (menu-only — a consuming action never becomes a default).
-;   holdable = 1 lets the item be dropped into a hand slot (control bar or the
-;              sheet's hand cells). Unset items are refused by the hands.
-;   damage   = weapon: base damage of a clean hit (docs/combat.md; absent = the
-;              unarmed knobs)
-;   speed    = weapon: seconds between swings, before DEX (absent = unarmed)
-;   stats    = weapon: associated stats, "str, dex" — their average is the
-;              attack bonus AND what trains on a landed blow
-;   reach    = weapon: melee|polearm (default melee). A polearm swings from
-;              the party's REAR rank (slots 3-4); everything else is
-;              front-rank only (Phase 7)
-;   armor    = worn: small flat damage soak, summed across equipment
-;   resists  = worn: per-damage-type cells, "slash 0.2, pierce 0.1"
-;   symbol   = (rune only) the spell symbol it teaches: fire|earth|air|water
-;              or a shared tier-2 form symbol (project)
-; A rune is a carved-stone tablet the party picks up by clicking it; carry it on
-; the cursor and drop it into a hand, then right-click the hand and Memorize to
-; learn the symbol (the tablet is consumed). Level .ent `item <id> <x> <z>`
-; records reference these ids.
+; Items: runes (and later weapons/consumables).
 
 [rune_fire]
 name = item.rune_fire
@@ -67,14 +41,6 @@ category = rune
 weight = 0.5
 holdable = 1
 symbol = protect
-
-; --- Non-rune items ----------------------------------------------------------
-; A `model` (multi-material .glb in assets/models) makes the item render as that
-; 3D model on the floor AND as a baked 3D thumbnail for its icon/cursor; without
-; one the item keeps the tablet mesh + category tint placeholder.
-; Weapon stats (docs/combat.md): damage = base damage of a clean hit (strength
-; assists); speed = seconds between swings (dexterity shaves it). Either absent
-; -> the swing falls back to the attacker's unarmed attribute formulas.
 
 [dagger]
 name = item.dagger
@@ -125,9 +91,6 @@ holdable = 1
 command = stab, slash
 model = french_dagger
 
-; The first blunt-class weapon (docs/combat.md Phase 1): slow, hits hard,
-; trains skill.blunt. No authored model yet — tablet placeholder (a fab.com
-; mace is a candidate buy).
 [club]
 name = item.club
 category = weapon
@@ -139,8 +102,6 @@ weight = 3.0
 holdable = 1
 command = bash, swing
 
-; Worn defense (docs/combat.md part 4): per-type resist cells + a small flat
-; armor soak, summed across a member's equipment slots.
 [leather_armor]
 name = item.leather_armor
 category = armor
@@ -156,12 +117,6 @@ weight = 2.0
 armor = 0.25
 resists = slash 0.05
 
-; Containers (category=container) are carried in the pack row; pick one up and
-; drop it onto a pack slot to equip it. Each holds its own contents; `capacity`
-; is how many content slots it has (the backpack's must match kBackpackStart).
-; `accepts` = the item categories its contents may hold (whitespace/comma list,
-; "any" or omitted = unrestricted); a pack NEVER holds another container (no
-; nesting bags), so the backpack is "anything but bags".
 [backpack]
 name = item.backpack
 category = container
@@ -189,7 +144,6 @@ weight = 0.3
 capacity = 4
 accepts = ingredient
 
-; Potion ingredients — only fit an ingredient pouch (e.g. the herb pouch).
 [herb]
 name = item.herb
 category = ingredient
@@ -200,10 +154,6 @@ name = item.mushroom
 category = ingredient
 weight = 0.1
 
-; Keys (category=key) unlock doors: a door record's key= param names the item
-; id it requires; the party just needs one member carrying it (hands, worn, or
-; any pack) — clicking the door then unlocks and opens it. The key is NOT
-; consumed. The door inspector's "Requires key" dropdown lists these entries.
 [iron_key]
 name = item.iron_key
 category = key

@@ -71,9 +71,9 @@ void ShadowScheduler::AssignSlots(std::span<gfx::PointLight> lights, const Vec3&
 		gfx::PointLight& light = lights[m_candidates[slot].second];
 		light.shadowSlot = static_cast<int>(slot);
 
-		// Persistent short-range lights (the pillar glow) keep full-strength
-		// shadows at any distance; only fade the fires that pop in on approach.
-		if (light.fadeShadow) {
+		// Fade the shadow in over distance so it dissolves in on approach
+		// instead of popping when the light wins a slot.
+		{
 			// True distance, not the hysteresis-discounted sort key.
 			const Vec3 d = Sub(light.position, eye);
 			const float dist = std::sqrt(d.x * d.x + d.y * d.y + d.z * d.z);

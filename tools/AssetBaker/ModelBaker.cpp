@@ -6,8 +6,6 @@
 //     +Z over x∈[±kCellHalf], y∈[0,2.5]), flat floor, flat ceiling (facing down,
 //     placed at wall height by the game); worn variants per surface texture,
 //     displaced by that texture's scanned height map (see the worn section)
-//   * serpent pillar — skinned cylinder with coil bulges, 4-joint chain,
-//     looping sway clip
 //   * monsters — skeleton & mummy share a 15-joint humanoid rig (torso +
 //     three-joint arms shoulder/elbow/wrist & legs hip/knee/ankle) with
 //     segmented tapered-tube bones, ball joints, a skull, and idle/walk/attack/
@@ -18,8 +16,8 @@
 // tapered tube between two arbitrary points — splayed legs, forged arms,
 // skinned limbs) / AddSphere; TileUvs reprojects to world-aligned tiles.
 // Conventions: joints are emitted parent-before-child; inverse binds are
-// pure translations (-joint global position); rigid limbs weight fully to one
-// joint, while the pillar blends between neighboring joints.
+// pure translations (-joint global position); rigid limbs weight fully to
+// one joint.
 // ============================================================================
 #include "ModelBaker.h"
 
@@ -711,7 +709,7 @@ assets::ModelData BuildWornCeilingBlock(int kN, const WearField& wear) {
 // same triplanar-by-dominant-axis idea WallFaceUv uses). This keeps the texel
 // density even across a blocky prop's differently-sized faces, instead of the
 // one-stretched-tile-per-face that AddBox emits. Good for box assemblies;
-// curved surfaces (the pillar, the blob) keep their own natural UVs.
+// curved surfaces (the blob) keep their own natural UVs.
 void TileUvs(assets::MeshData& mesh, float tileMeters) {
 	const float inv = 1.0f / tileMeters;
 	for (assets::Vertex& v : mesh.vertices) {
@@ -1096,101 +1094,6 @@ assets::ModelData BuildBanner() {
 	for (const float xs : {-0.16f, 0.16f})                   // two tails below
 		AddBox(mesh, {xs, 0.82f, 0.03f}, {0.13f, 0.13f, 0.018f});
 	return FinishProp(std::move(mesh), {0.55f, 0.11f, 0.13f, 1.0f}); // crimson
-}
-
-// --- serpent pillar ----------------------------------------------------------------
-
-assets::ModelData BuildSerpentPillar() {
-	constexpr int kJoints = 4;
-	constexpr float kSegment = 0.55f;
-	constexpr float kRadius = 0.14f;
-	constexpr int kRadial = 18, kRings = 44; // smoother, enough rings for the coils
-	constexpr float kTotal = kSegment * kJoints;
-	constexpr float kCoils = 3.5f; // serpentine bulges up the shaft
-
-	// Tapered shaft with sinusoidal coil bulges, sampled (and its slope) by v.
-	auto radiusAt = [](float v) {
-		return kRadius * (1.0f - 0.30f * v) *
-			   (1.0f + 0.13f * std::sin(v * kCoils * 2.0f * kPi));
-	};
-
-	assets::ModelData model;
-	for (int j = 0; j < kJoints; ++j) {
-		assets::JointData joint;
-		joint.name = "spine" + std::to_string(j);
-		joint.parent = j - 1;
-		joint.restTranslation = {0, j == 0 ? 0.0f : kSegment, 0};
-		joint.inverseBind = InverseBindForGlobal({0, kSegment * j, 0});
-		model.skeleton.joints.push_back(joint);
-	}
-
-	assets::MeshData mesh;
-	mesh.skinned = true;
-	for (int ring = 0; ring <= kRings; ++ring) {
-		const float v = static_cast<float>(ring) / kRings;
-		const float y = v * kTotal;
-		const float radius = radiusAt(v);
-		// Profile slope for lit coils: d(radius)/d(y) via a small central step.
-		const float dv = 0.5f / kRings;
-		const float dr = radiusAt(std::min(v + dv, 1.0f)) - radiusAt(std::max(v - dv, 0.0f));
-		const float dy = (std::min(v + dv, 1.0f) - std::max(v - dv, 0.0f)) * kTotal;
-		const float nlen = std::sqrt(dr * dr + dy * dy);
-		const float nr = nlen > 1e-6f ? dy / nlen : 1.0f;  // radial normal weight
-		const float ny = nlen > 1e-6f ? -dr / nlen : 0.0f; // vertical normal weight
-		const float jointPos = v * (kJoints - 1);
-		const u32 j0 = static_cast<u32>(jointPos);
-		const u32 j1 = std::min(j0 + 1, static_cast<u32>(kJoints - 1));
-		const float w1 = jointPos - static_cast<float>(j0);
-		for (int seg = 0; seg <= kRadial; ++seg) {
-			const float a = static_cast<float>(seg) / kRadial * 2.0f * kPi;
-			assets::Vertex vert;
-			vert.position = {std::cos(a) * radius, y, std::sin(a) * radius};
-			vert.normal = {std::cos(a) * nr, ny, std::sin(a) * nr};
-			vert.uv = {static_cast<float>(seg) / kRadial, v * 4.0f};
-			vert.joints[0] = j0;
-			vert.joints[1] = j1;
-			vert.weights[0] = 1.0f - w1;
-			vert.weights[1] = w1;
-			mesh.vertices.push_back(vert);
-		}
-	}
-	const u32 stride = kRadial + 1;
-	for (u32 ring = 0; ring < kRings; ++ring)
-		for (u32 seg = 0; seg < kRadial; ++seg) {
-			const u32 a = ring * stride + seg, b = a + 1, c = a + stride, d = c + 1;
-			mesh.indices.insert(mesh.indices.end(), {a, c, b, b, c, d});
-		}
-	mesh.material = 0;
-	model.meshes.push_back(std::move(mesh));
-	// Deep, muted jade (the flat surface color — the game discards the stone set's
-	// purple albedo and keeps only its normal/ORM relief). A pale mint read as soap;
-	// this darker, grayer green reads as carved gemstone.
-	model.materials.push_back({{0.20f, 0.45f, 0.33f, 1.0f}, -1});
-
-	// A faint, slow shimmer — NOT a writhe. Tiny per-joint amplitudes keep the
-	// silhouette a near-rigid carved column (large amplitudes compounded over the
-	// 4-joint chain into a snake-like S-bend that read as intestinal); the slow
-	// period reads as a living-stone breath rather than a wriggle.
-	assets::AnimationClipData clip;
-	clip.name = "sway";
-	clip.duration = 6.0f;
-	constexpr int kKeys = 33;
-	for (int j = 1; j < kJoints; ++j) {
-		assets::AnimationChannelData channel;
-		channel.joint = j;
-		channel.path = assets::ChannelPath::Rotation;
-		for (int k = 0; k < kKeys; ++k) {
-			const float t = clip.duration * static_cast<float>(k) / (kKeys - 1);
-			channel.times.push_back(t);
-			const float phase = t / clip.duration * 2.0f * kPi;
-			const Quat q = QuatFromEuler(std::cos(phase * 2.0f + j * 0.5f) * 0.025f, 0,
-										 std::sin(phase + j * 0.9f) * 0.045f);
-			channel.values.push_back({q.x, q.y, q.z, q.w});
-		}
-		clip.channels.push_back(std::move(channel));
-	}
-	model.clips.push_back(std::move(clip));
-	return model;
 }
 
 // --- monsters --------------------------------------------------------------------
@@ -1885,7 +1788,6 @@ bool BakeModels(const std::string& dir, const std::string& texturesDir) {
 
 	ok &= WriteGltf(BuildSconce(), dir + "\\sconce.gltf");
 	ok &= WriteGltf(BuildBrazier(), dir + "\\brazier.gltf");
-	ok &= WriteGltf(BuildSerpentPillar(), dir + "\\pillar.gltf");
 
 	// Static architecture decorations (placed by .map "decoration" records).
 	ok &= WriteGltf(BuildColumn(), dir + "\\column.gltf");

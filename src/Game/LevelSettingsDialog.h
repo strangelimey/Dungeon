@@ -24,6 +24,10 @@
 #include <functional>
 #include <string>
 
+namespace dungeon::ui {
+class TextField; // Controls.h — only a pointer here (the rename field)
+}
+
 namespace dungeon::game {
 
 class LevelSettingsDialog {
@@ -48,6 +52,12 @@ public:
 	std::function<void(float dust, float haze, float ambient)> onApply;
 	// The Save button: commit the values to the level (map or stash).
 	std::function<void(float dust, float haze, float ambient)> onSave;
+	// Renaming: clicking the stem in the title opens an inline edit; Enter
+	// commits through this. The owner does the real work (files, stashes,
+	// stair dests, manifest) and returns success — false keeps the edit open
+	// (the owner logs why). The dialog adopts the new stem on true.
+	std::function<bool(const std::string& oldStem, const std::string& newStem)>
+		onRename;
 
 private:
 	void BuildUI();
@@ -63,6 +73,17 @@ private:
 	std::string m_stem; // the level being edited (title + the owner's routing)
 	float m_dust = 0.0f, m_haze = 0.0f, m_ambient = 1.0f;    // working copy
 	float m_oDust = 0.0f, m_oHaze = 0.0f, m_oAmbient = 1.0f; // revert snapshot
+
+	// Inline name edit (click the stem). The rebuild after entering/leaving
+	// edit mode is DEFERRED to the next Update when triggered from a widget
+	// callback — UIContext::Clear from inside one dangles the caller (the
+	// m_pendingLanguage convention).
+	bool m_editName = false;    // title row is the edit field
+	bool m_uiRebuild = false;   // deferred BuildUI request
+	bool m_nameHover = false;   // stem hover (Update tracks, Render styles)
+	ui::TextField* m_nameField = nullptr; // valid until the next Clear
+	// The stem's pixel rect within the title line (Update-computed hit box).
+	gfx::Rect StemRect(float w, float h);
 };
 
 } // namespace dungeon::game

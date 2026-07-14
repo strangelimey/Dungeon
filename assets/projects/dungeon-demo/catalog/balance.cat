@@ -1,28 +1,4 @@
-; Balance: the attack-formula knob sheet (docs/combat.md part 5). Every named
-; constant in the combat model lives here — per PROJECT, so a total conversion
-; rebalances the whole dungeon without touching code. Missing fields keep the
-; C++ first-cut defaults. Edited live by the editor's Balance dialog.
-;
-; Damage:  rolled = (base + stat_damage x statAvg) x attack.dmg
-;                   x (1 + skill_damage x skillLevel) x jitter
-;          final  = (rolled - soak) x (1 - resist[type]), floor wound_floor
-; To-hit:  chance = clamp(acc_base + acc_stat x DEX + acc_skill x skillLevel
-;                         + attack.acc - evasion, hit_floor, hit_ceil)
-; Pace:    interval = clamp(speed x (speed_base - speed_stat x DEX)
-;                           x attack.speed, interval_min, interval_max)
-; Maxima:  maxHealth  = base + k_health  x VIT
-;          maxStamina = base + k_stamina x (STR + VIT) / 2
-;          maxMana    = base + k_mana    x (INT + WIL) / 2
-; Stamina: a swing spends (stamina_swing + stamina_weight x weapon kg)
-;          x the attack's stamina; a step spends stamina_step per member.
-;          Regen = stamina_regen + stamina_regen_max x maxStamina per second,
-;          after stamina_holdoff seconds without a spend. An empty bar =
-;          EXHAUSTED (damage x exhaust_damage, pace x exhaust_pace) until it
-;          recovers past exhaust_recover of max.
-; Death:   0 HP = unconscious; after stabilize_time seconds with no monster
-;          in aggro of the party they wake at stabilize_health of max. DEAD
-;          takes overkill (one blow >= overkill x maxHealth, or a hit on a
-;          member already at 0) and never wakes.
+; Balance: the attack-formula knob sheet ([formula] block; docs/combat.md).
 
 [formula]
 unarmed_base = 4

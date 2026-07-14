@@ -60,6 +60,19 @@ struct ProjectileImpact {
 	int push = 0;
 };
 
+// A read-only snapshot of one live item, for the editor's map marker + inspect
+// dialog (projectiles are transient content the builder may want to freeze and
+// examine). Keyed by a stable per-item runtime id, like monsters.
+struct ProjectileInfo {
+	u32 id = 0;
+	Vec3 pos{};
+	Vec3 dir{};
+	float speed = 0.0f;
+	float rangeLeft = 0.0f;
+	AttackProfile atk{};
+	TargetSide target = TargetSide::Monsters;
+};
+
 class ProjectileSystem {
 public:
 	// Launches a moving item described by `spec` (adds it "to the map").
@@ -79,6 +92,14 @@ public:
 		m_sparks.clear();
 	}
 
+	// --- editor introspection (transient content, shown on the map) ----------
+	// A snapshot of every live item, for the editor map markers.
+	std::vector<ProjectileInfo> Live() const;
+	// One live item by its stable runtime id (false if it already landed/died).
+	bool Find(u32 id, ProjectileInfo& out) const;
+	// Removes a live item by id (the inspector's "dismiss" action). False if gone.
+	bool Remove(u32 id);
+
 	// --- world seam (wired once by the owner) -------------------------------
 	// True if an item is stopped by the cell at world position `p` (wall / off-map).
 	std::function<bool(const Vec3& p)> isBlocked;
@@ -93,6 +114,7 @@ private:
 	// strike profile applied on a hit against its `target` side, and draws as a
 	// glowing billboard. Transient: never saved.
 	struct Item {
+		u32 id = 0;             // stable runtime id (editor inspect); never reused
 		Vec3 pos{};
 		Vec3 dir{};             // unit travel direction (horizontal)
 		float speed = 7.0f;     // m/s
@@ -118,6 +140,7 @@ private:
 
 	std::vector<Item> m_items;
 	std::vector<Spark> m_sparks;
+	u32 m_nextId = 1; // monotonic runtime-id source (0 = "none")
 	std::mt19937 m_rng{0x5EED1234u}; // spark scatter (cosmetic; not the combat RNG)
 };
 

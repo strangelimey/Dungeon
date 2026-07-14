@@ -173,23 +173,6 @@ void DungeonWorld::AppendLoadTasks(LoadQueue& queue) {
 	}
 
 	queue.Add(loc::Tr("load.dungeon"), [this] { BuildDungeonMeshes(); });
-	queue.Add(loc::Tr("load.pillar"), [this] {
-		m_pillarModel = LoadModelOrDie("pillar.gltf");
-		m_pillarMesh = std::make_unique<gfx::Mesh>(m_device, m_pillarModel.meshes[0]);
-		m_pillarAnimator = anim::Animator(&m_pillarModel.skeleton, &m_pillarModel.clips);
-		m_pillarAnimator.Play("sway");
-		// Tucked into the NW corner of the start room (one cell up-left of the
-		// start) so it greets the player without standing on the cells in front
-		// of the entrance.
-		m_pillarPos = m_map.CellCenter(m_map.StartX() - 1, m_map.StartZ() - 1);
-		// Borrow the peacock-ore stone set for its NORMAL + ORM maps only (carved
-		// micro-relief + roughness variation, so the pillar reads as stone, not a
-		// smooth wet tube). The albedo is discarded in DrawProps — that texture is
-		// purple; the jade color comes from the model's flat baseColorFactor.
-		m_pillarTex = LoadPropTextures("pillar");
-		// Flavor for the opening level only — don't spawn it on every level.
-		m_pillarActive = m_currentLevel == FirstLevel(m_project);
-	});
 	queue.Add(loc::Tr("load.monsters"), [this] {
 		LoadMonsters();
 		LoadItems();
@@ -201,46 +184,8 @@ void DungeonWorld::AppendLoadTasks(LoadQueue& queue) {
 		LoadDoors(); // after decorations: shares the prop texture/model caches
 	});
 	queue.Add(loc::Tr("load.fires"), [this] {
-		// Resolve the sconce/brazier model + texture through the fixtures catalog
-		// (the ids the 'T'/'F' glyphs map to); fall back to the old names.
-		auto fixtureAssets = [this](const std::string& id, const char* fallback,
-									std::unique_ptr<gfx::Mesh>& mesh, Vec4& color,
-									const PropTextures*& tex,
-									assets::ModelData& modelOut,
-									FixtureFlame& flame) {
-			const CatalogEntry* def = m_project.fixtures.Find(id);
-			const auto [model, set] = ModelAndTexture(def, fallback);
-			modelOut = LoadModelOrDie(model + ".gltf"); // kept: map-icon bounds
-			mesh = std::make_unique<gfx::Mesh>(m_device, modelOut.meshes[0]);
-			color = modelOut.materials[0].baseColorFactor;
-			tex = LoadPropTextures(set);
-			// Flame attachment: catalog fields override the procedural mesh's
-			// constants so an authored prop's fire burns where its bowl/basket
-			// actually is.
-			if (def) {
-				flame.height = def->GetFloat("flame_height", flame.height);
-				flame.scale = def->GetFloat("flame_scale", flame.scale);
-				flame.out = def->GetFloat("flame_out", flame.out);
-			}
-		};
-		fixtureAssets(m_project.defaultSconce, "sconce", m_sconceMesh, m_sconceColor,
-					  m_sconceTex, m_sconceModel, m_sconceFlame); // worn-medieval iron
-		fixtureAssets(m_project.defaultBrazier, "brazier", m_brazierMesh,
-					  m_brazierColor, m_brazierTex, m_brazierModel,
-					  m_brazierFlame); // bronze
-		// Optional second brazier part (part2_model / part2_texture): the
-		// bought brazier's coal bed — its own mesh + texture set, drawn
-		// co-located with the bowl (the two models were normalized TOGETHER at
-		// import — ConvertMesh --split-whole + import-model --raw — so their
-		// placements already align).
-		if (const CatalogEntry* def = m_project.fixtures.Find(m_project.defaultBrazier)) {
-			if (const std::string model2 = def->Get("part2_model"); !model2.empty()) {
-				const assets::ModelData data = LoadModelOrDie(model2 + ".gltf");
-				m_brazierMesh2 = std::make_unique<gfx::Mesh>(m_device, data.meshes[0]);
-				m_brazierColor2 = data.materials[0].baseColorFactor;
-				m_brazierTex2 = LoadPropTextures(def->Get("part2_texture", model2));
-			}
-		}
+		// Fixture kinds resolve lazily per placed record (FixtureKindFor, the
+		// DecorationKind pattern) — BuildFires pulls in whatever the level uses.
 		m_particleBatch = std::make_unique<gfx::ParticleBatch>(m_device);
 		BuildFires();
 	});
@@ -356,10 +301,17 @@ DungeonWorld::MonsterKind& DungeonWorld::MonsterKindFor(const std::string& type)
 		assets->model = LoadModelOrDie(model + ".gltf");
 		assets->name = type; // catalog id — drives the monster.<id> loc key
 		assets->mesh = std::make_unique<gfx::Mesh>(m_device, assets->model.meshes[0]);
-		assets->tex = LoadPropTextures(tex); // <tex>_<res> PBR set, if present
+		// A bound PBR set serves the single-mesh path; an authored
+		// multi-material rig carries its textures EMBEDDED and its entry
+		// usually names no set — don't warn-hunt one by the id (the skeleton
+		// kit's four kinds fired a bogus missing-set warning each) unless the
+		// catalog names one explicitly.
+		const bool multi = assets->model.meshes.size() > 1;
+		if (!multi || (def && def->Find("texture")))
+			assets->tex = LoadPropTextures(tex); // <tex>_<res> PBR set, if present
 		// Authored multi-material rig (bones/armor/weapons primitives, embedded
 		// textures): build the per-material submeshes the draw paths loop.
-		if (assets->model.meshes.size() > 1)
+		if (multi)
 			assets->multi = BuildMultiMaterialModel(m_device, assets->model);
 		// Map head-shot icon RT; a fresh kind re-arms the one-shot bake pass.
 		assets->iconTarget = gfx::Texture::RenderTarget(m_device, kIconSize);
@@ -552,34 +504,19 @@ DungeonWorld::MonsterPreviewData DungeonWorld::MonsterPreviewFor(const std::stri
 	return d;
 }
 
-DungeonWorld::FixturePreviewData DungeonWorld::FixturePreview(const PropTextures* tex,
-															  const Vec4& color,
-															  const gfx::Mesh* mesh,
-															  float flameY,
-															  float flameScale) const {
+DungeonWorld::FixturePreviewData DungeonWorld::FixturePreviewOf(const std::string& type) {
+	FixtureKind& k = FixtureKindFor(type);
 	FixturePreviewData d;
-	d.flameHeight = flameY;
-	d.flameScale = flameScale;
+	d.flameHeight = k.flame.height;
+	d.flameScale = k.flameless ? 0.0f : k.flame.scale; // empty bowl: no flame
 	gfx::MaterialParams mat;
-	ApplyPropMaterial(mat, tex, color, 0.5f);
+	ApplyPropMaterial(mat, k.tex, k.color, 0.5f);
 	if (!mat.albedo) mat.metallic = 1.0f; // flat fallback reads as metal
-	if (mesh) d.subs.push_back({mesh, mat});
-	return d;
-}
-
-DungeonWorld::FixturePreviewData DungeonWorld::SconcePreview() const {
-	return FixturePreview(m_sconceTex, m_sconceColor, m_sconceMesh.get(),
-						  m_sconceFlame.height, m_sconceFlame.scale);
-}
-
-DungeonWorld::FixturePreviewData DungeonWorld::BrazierPreview() const {
-	FixturePreviewData d =
-		FixturePreview(m_brazierTex, m_brazierColor, m_brazierMesh.get(),
-					   m_brazierFlame.height, m_brazierFlame.scale);
-	if (m_brazierMesh2) { // the coal bed previews with the bowl
+	if (k.mesh) d.subs.push_back({k.mesh.get(), mat});
+	if (k.mesh2) { // the coal bed previews with the bowl
 		gfx::MaterialParams coals;
-		ApplyPropMaterial(coals, m_brazierTex2, m_brazierColor2, 0.9f);
-		d.subs.push_back({m_brazierMesh2.get(), coals});
+		ApplyPropMaterial(coals, k.tex2, k.color2, 0.9f);
+		d.subs.push_back({k.mesh2.get(), coals});
 	}
 	return d;
 }
@@ -922,11 +859,14 @@ int DungeonWorld::FreeItemSlotNear(int cx, int cz, float wx, float wz, int self)
 }
 
 // Loads a prop PBR set once and caches it (shared across decorations, fires,
-// the pillar, and monsters): sRGB albedo + linear normal/height + ORM, with the
+// and monsters): sRGB albedo + linear normal/height + ORM, with the
 // same res→2k fallback the surfaces use (props ship at 2k, so higher tiers fall
 // back). Returns null only if even the 2k albedo is absent — callers then keep
 // their flat glTF material color.
 const DungeonWorld::PropTextures* DungeonWorld::LoadPropTextures(const std::string& set) {
+	// `texture = none` declares "flat glTF material by design" (the banner) —
+	// a silent null, so the missing-set warning keeps meaning a real mistake.
+	if (set.empty() || set == "none") return nullptr;
 	auto it = m_propTextures.find(set);
 	if (it != m_propTextures.end()) return it->second.get();
 	PbrMaps maps = LoadPbrSet(set, /*required*/ false);
@@ -1118,6 +1058,53 @@ DungeonWorld::DecorationKind& DungeonWorld::DecorationKindFor(const std::string&
 	return *it->second;
 }
 
+// Fixture counterpart of DecorationKindFor: resolves a fixtures.cat id into
+// its renderable assets once and caches it. An unknown id still resolves (the
+// ModelAndTexture fallback names the id itself) so a stale record aborts with
+// a clear missing-model message instead of silently vanishing.
+DungeonWorld::FixtureKind& DungeonWorld::FixtureKindFor(const std::string& type) {
+	auto it = m_fixtureKinds.find(type);
+	if (it == m_fixtureKinds.end()) {
+		const CatalogEntry* def = m_project.fixtures.Find(type);
+		if (!def) log::Warn("fixture kind '{}' is not in fixtures.cat", type);
+		const auto [model, set] = ModelAndTexture(def, type);
+		auto kind = std::make_unique<FixtureKind>();
+		kind->id = type;
+		kind->wallMount = CatalogGet(def, "mount", "floor") == "wall";
+		kind->flameless = !CatalogBool(def, "flame", true);
+		kind->model = LoadModelOrDie(model + ".gltf");
+		kind->mesh = std::make_unique<gfx::Mesh>(m_device, kind->model.meshes[0]);
+		kind->color = kind->model.materials[0].baseColorFactor;
+		kind->tex = LoadPropTextures(set);
+		// Flame attachment: catalog fields override the mount's defaults so an
+		// authored prop's fire burns where its bowl/basket actually is.
+		kind->flame = kind->wallMount
+						  ? FixtureFlame{kSconceFlameY, kSconceFlameScale, 0.22f}
+						  : FixtureFlame{kBrazierFlameY, kBrazierFlameScale, 0.0f};
+		if (def) {
+			kind->flame.height = def->GetFloat("flame_height", kind->flame.height);
+			kind->flame.scale = def->GetFloat("flame_scale", kind->flame.scale);
+			kind->flame.out = def->GetFloat("flame_out", kind->flame.out);
+			// Optional second part (part2_model / part2_texture): a co-located
+			// sub-prop with its own material — the bought brazier's coal bed
+			// (the two models were normalized TOGETHER at import, so their
+			// placements already align).
+			if (const std::string model2 = def->Get("part2_model"); !model2.empty()) {
+				const assets::ModelData data = LoadModelOrDie(model2 + ".gltf");
+				kind->mesh2 = std::make_unique<gfx::Mesh>(m_device, data.meshes[0]);
+				kind->color2 = data.materials[0].baseColorFactor;
+				kind->tex2 = LoadPropTextures(def->Get("part2_texture", model2));
+			}
+		}
+		// Every kind bakes a whole-model map icon; a fresh kind re-arms the
+		// one-shot bake pass (UpdateMapIcons).
+		kind->iconTarget = gfx::Texture::RenderTarget(m_device, kIconSize);
+		m_fixtureIconsBaked = false;
+		it = m_fixtureKinds.emplace(type, std::move(kind)).first;
+	}
+	return *it->second;
+}
+
 void DungeonWorld::LoadDecorations() {
 	for (const Entity& record : m_map.Decorations()) {
 		DecorationKind& kind = DecorationKindFor(record.type, m_project.decorations);
@@ -1196,40 +1183,45 @@ void DungeonWorld::BuildFires() {
 	u32 seed = 1234;
 
 	for (const WallSconce& sconce : m_map.Sconces()) {
+		const FixtureKind& kind = FixtureKindFor(sconce.type);
 		// Hang on the wall resolved at map load (shared with decorations).
 		const WallMount m = MountOnWall(sconce.x, sconce.z, sconce.wall);
 		const float yaw = m.yaw;
 
 		Fire fire;
+		fire.kind = &kind;
 		fire.brazier = false;
-		fire.lit = sconce.lit;
+		fire.lit = sconce.lit && !kind.flameless;
 		fire.lightRadius = sconce.brightness * kCellSize; // "squares" -> metres
 		XMStoreFloat4x4(&fire.world, XMMatrixRotationY(yaw) *
 										 XMMatrixTranslation(m.pos.x, 0, m.pos.z));
 		// Flame local offset (0, height, out) rotated by yaw (fixtures.cat
-		// flame_* fields; defaults = the procedural sconce's constants).
-		fire.flamePos = {m.pos.x + std::sin(yaw) * m_sconceFlame.out,
-						 m_sconceFlame.height,
-						 m.pos.z + std::cos(yaw) * m_sconceFlame.out};
+		// flame_* fields; defaults = the mount's procedural constants).
+		fire.flamePos = {m.pos.x + std::sin(yaw) * kind.flame.out,
+						 kind.flame.height,
+						 m.pos.z + std::cos(yaw) * kind.flame.out};
 		fire.phase = static_cast<float>(seed) * 1.7f;
-		fire.effect = FireEffect(fire.flamePos, m_sconceFlame.scale, seed++);
+		fire.effect = FireEffect(fire.flamePos, kind.flame.scale, seed++);
 		m_fires.push_back(std::move(fire));
 	}
 
 	for (const FloorBrazier& b : m_map.Braziers()) {
+		const FixtureKind& kind = FixtureKindFor(b.type);
 		const Vec3 center = m_map.CellCenter(b.x, b.z);
 		Fire fire;
+		fire.kind = &kind;
 		fire.brazier = true;
-		fire.lit = b.lit;
+		fire.lit = b.lit && !kind.flameless;
 		fire.lightRadius = b.brightness * kCellSize; // "squares" -> metres
 		XMStoreFloat4x4(&fire.world, XMMatrixTranslation(center.x, 0, center.z));
-		fire.flamePos = {center.x, m_brazierFlame.height, center.z};
+		fire.flamePos = {center.x, kind.flame.height, center.z};
 		fire.phase = static_cast<float>(seed) * 1.7f;
-		fire.effect = FireEffect(fire.flamePos, m_brazierFlame.scale, seed++);
+		fire.effect = FireEffect(fire.flamePos, kind.flame.scale, seed++);
 		m_fires.push_back(std::move(fire));
 	}
-	log::Info("Lit {} fires ({} sconces, {} braziers)", m_fires.size(),
-			  m_map.Sconces().size(), m_map.Braziers().size());
+	log::Info("Lit {} fires ({} sconces, {} braziers, {} kinds)", m_fires.size(),
+			  m_map.Sconces().size(), m_map.Braziers().size(),
+			  m_fixtureKinds.size());
 }
 
 // Per-cell turbidity as a top-down density grid: one texel per dungeon cell,

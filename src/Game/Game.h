@@ -57,6 +57,7 @@
 #include "Game/MonsterConfigDialog.h"
 #include "Game/ButtonInspector.h"
 #include "Game/DoorInspector.h"
+#include "Game/ProjectileInspector.h"
 #include "Game/PropInspector.h"
 #include "Game/Project.h"
 #include "Game/SoundBank.h"
@@ -119,6 +120,16 @@ private:
 	// baked in (shipped build) or the copy fails. Shared by the editor's
 	// "To source" button and the synctosource console command.
 	bool SyncProjectToSource();
+
+	// The editor toolbar's [+] button: writes a minimal .map/.ent pair next to
+	// the project's other levels, appends the stem to the manifest, and returns
+	// it ("" on failure) so the map view can jump straight onto the new canvas.
+	std::string CreateNewLevel();
+
+	// The Level dialog's inline rename: validates (unique stem), drives
+	// DungeonWorld::RenameLevel (files, stashes, stair dests), then updates
+	// the manifest and the map view's browse snapshot. False = refused.
+	bool RenameLevel(const std::string& oldStem, const std::string& newStem);
 
 	// Persists a monster type's edited animation config (the right-click dialog's
 	// Save): rewrites the `states` + `anim_<state>` rows of its monsters-catalog
@@ -321,13 +332,16 @@ private:
 	DoorInspector m_doorInspector;
 	// Per-instance button editor (target door wiring).
 	ButtonInspector m_buttonInspector;
+	// In-flight projectile details (read-only + dismiss); transient content.
+	ProjectileInspector m_projectileInspector;
 	// Chooser shown when a Select-clicked cell holds >1 inspectable object; picking a
 	// row opens the matching inspector. One target per object at the clicked cell.
 	InspectPicker m_inspectPicker;
 	struct InspectTarget {
-		enum class Kind { Monster, Sconce, Brazier, Door, Button, Decoration, Item } kind =
-			Kind::Monster;
-		u32 runtimeId = 0;        // Monster: the stable id
+		enum class Kind {
+			Monster, Sconce, Brazier, Door, Button, Decoration, Item, Projectile
+		} kind = Kind::Monster;
+		u32 runtimeId = 0;        // Monster / Projectile: the stable id
 		Direction wall = Direction::North; // Sconce: the wall it hangs on
 		int handle = 0;           // Decoration: list index; Item: stable entity id
 		std::string type;         // catalog display name (Decoration/Item title)

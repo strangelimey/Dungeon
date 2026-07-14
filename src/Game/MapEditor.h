@@ -27,6 +27,10 @@
 #include <string>
 #include <vector>
 
+namespace dungeon {
+class Input; // Platform/Input.h — the filter box consumes TypedChars
+}
+
 namespace dungeon::game {
 
 class MapView;
@@ -35,15 +39,19 @@ struct GameSettings;
 
 class MapEditor {
 public:
-	// Left-dock palette categories, drawn as a collapsible accordion. Structure
-	// toggles a cell solid/floor; Walls/Floors/Ceilings pin a surface variant on
-	// the clicked floor cell; the rest place catalog entities. Left-click paints/
-	// places the armed brush (nothing armed until a row is picked); the former
-	// Select/Erase tools live on the mouse instead — right-CLICK inspects a cell
-	// (InspectAt), middle-click erases (EraseAt). Keep Count last (it sizes the
-	// per-category open-state array).
+	// Left-dock palette categories, drawn as a collapsible accordion.
+	// Walls/Floors/Ceilings are THE structural brushes: they pin a surface
+	// variant AND convert the cell type to match (a wall texture on a floor
+	// square raises the wall, a floor/ceiling texture carves rock walkable) —
+	// the old Structure Wall/Floor rows folded into them; the default
+	// hash-mix look is still reachable per cell via the middle-click erase
+	// ladder's variant reset. The rest place catalog entities. Left-click
+	// paints/places the armed brush (nothing armed until a row is picked);
+	// the former Select/Erase tools live on the mouse instead — right-CLICK
+	// inspects a cell (InspectAt), middle-click erases (EraseAt). Keep Count
+	// last (it sizes the per-category open-state array).
 	enum class PaletteCat {
-		Structure, Walls, Floors, Ceilings,
+		Walls, Floors, Ceilings,
 		Decorations, Fixtures, Monsters, Buttons, Doors, Stairs, Items, Count
 	};
 
@@ -84,6 +92,21 @@ public:
 	static const char* CategoryCatalogKey(PaletteCat cat);
 	static bool CategoryTextureSet(PaletteCat cat);
 
+	// --- palette controls row (filter box + clear + collapse-all) ------------
+	// A fixed strip at the top of the dock body, above the scrolled accordion.
+	// The FILTER restricts the palette to items whose label contains the text
+	// (case-insensitive); while active, matching items show flat under their
+	// category header regardless of accordion state, and empty categories
+	// drop out. Clicking the box focuses it: typed characters land here and
+	// the GAME's keyboard is captured (Game gates the party/M/Esc on
+	// KeyboardCaptured), Esc/Enter release it, Backspace edits.
+	void HandleTyping(const Input& input);
+	// Hover tracking for the controls row (called per Update with the live
+	// mouse — render styles by identity across the window/device px split).
+	void TrackMouse(float mx, float my, const gfx::Rect& panel);
+	bool KeyboardCaptured() const { return m_filterFocused; }
+	void DropFilterFocus() { m_filterFocused = false; } // grid click steals focus
+
 	// Mouse wheel over the (expanded) left dock scrolls the accordion.
 	void OnWheel(float delta, const gfx::Rect& panel);
 	// A click inside the palette body: toggle a category, arm an item, or fire
@@ -98,6 +121,22 @@ public:
 	// (only paint brushes act on a drag; placement acts on the click only). A
 	// no-op until a palette row is armed.
 	void Paint(int cx, int cz, bool dragging) { ApplyBrush(cx, cz, dragging); }
+	// Modifier gestures (MapView routes by the modifier held at the press).
+	// All three work on the paint brushes (the surface categories);
+	// rect/flood fall back to a normal click for the placement categories.
+	// Shift+click: fill the rectangle spanned by the LAST painted cell (the
+	// anchor every plain paint and gesture leaves behind) and this one — the
+	// Photoshop shift-line idiom. One undo step.
+	void PaintRect(int cx, int cz);
+	// Ctrl+click: contiguous flood fill (4-connected) of the clicked region —
+	// same cell type, and for surface brushes the same RESOLVED variant
+	// (override-or-hash, so it matches what the 3D scene shows). One undo step.
+	void FloodFill(int cx, int cz);
+	// Alt+click: eyedropper — arms the brush from the clicked square (a solid
+	// square arms its wall texture, a floor square its floor texture; ceilings
+	// are picked while the Ceilings brush is armed, since they share the floor
+	// square). Never mutates.
+	void PickAt(int cx, int cz);
 	// The armed brush's palette category, or Count when nothing is armed.
 	// MapView reads it to flip the grid's textured cell fill to the surface
 	// being painted (Walls/Floors/Ceilings show their textures while armed).
@@ -123,7 +162,7 @@ private:
 	// index -1 = nothing armed yet (left-click does nothing until a row is
 	// picked — the mouse-button inspect/erase work regardless).
 	struct Selection {
-		PaletteCat cat = PaletteCat::Structure;
+		PaletteCat cat = PaletteCat::Walls;
 		int index = -1;
 	};
 
@@ -165,25 +204,56 @@ private:
 		return it != m_groupOpen.end() && it->second;
 	}
 
-	// Categories that can author new assets (everything but the built-in
-	// structure brushes) get a "+ New..." row that opens the asset dialog.
-	static bool Creatable(PaletteCat cat) { return cat != PaletteCat::Structure; }
+	// Every category authors new assets — each gets a "+ New..." row that
+	// opens the asset dialog.
+	static bool Creatable(PaletteCat) { return true; }
 
-	// The items of a category: built-in (Tools/Structure) or resolved from the
-	// project's catalogs / the level palette (Walls/Floors/Ceilings/entities).
+	// The items of a category, resolved from the project's catalogs / the
+	// level palette (Walls/Floors/Ceilings/entities).
 	std::vector<PaletteItem> CategoryItems(PaletteCat cat) const;
+
+	// Controls-row geometry (all derived from the panel like the dock chrome):
+	// [filter box............][x][-] on one line at the dock body's top; the
+	// accordion lays out in the remainder (AccordionBody).
+	gfx::Rect ControlsRow(const gfx::Rect& panel) const;
+	gfx::Rect FilterBoxRect(const gfx::Rect& panel) const;
+	gfx::Rect FilterClearRect(const gfx::Rect& panel) const;
+	gfx::Rect CollapseAllRect(const gfx::Rect& panel) const;
+	gfx::Rect AccordionBody(const gfx::Rect& panel) const;
+	bool MatchesFilter(const std::string& label) const;
+
+	std::string m_filter;         // case-insensitive substring, "" = off
+	bool m_filterFocused = false; // typed chars land in the box
+	// Which control the mouse is over (hover styling; None = neither).
+	enum class HotCtrl { None, Filter, Clear, Collapse };
+	HotCtrl m_hotCtrl = HotCtrl::None;
 	void BuildPaletteRows(const gfx::Rect& panel, std::vector<PaletteRow>& out,
 						  float& contentHeight) const;
 	// Applies the armed selection to cell (cx,cz): structural/variant paints, tool
 	// actions, or entity placement.
 	void ApplyBrush(int cx, int cz, bool dragging);
+	// True for the brushes that PAINT cells (rect/flood/drag apply); the
+	// placement categories act per click only.
+	static bool PaintableCat(PaletteCat cat) {
+		return cat == PaletteCat::Walls || cat == PaletteCat::Floors ||
+			   cat == PaletteCat::Ceilings;
+	}
+	// One structural/surface application of the armed brush to a cell — the
+	// shared inner body of ApplyBrush/PaintRect/FloodFill. No undo bracketing
+	// or change detection (callers bracket a whole gesture as one step).
+	void PaintCell(int cx, int cz, bool remote, const std::string& stem);
+	// The viewed cell's RESOLVED surface variant (override else the mesh
+	// builder's hash — exactly what the scene shows): the flood fill's region
+	// key and the eyedropper's pick. -1 when the palette is empty.
+	int ResolvedVariant(int cx, int cz, int sel) const; // sel = SurfaceSel
+	int m_lastX = -1, m_lastZ = -1; // rect anchor: the last painted cell
 
 	MapView& m_view;          // the viewport (layout helpers, shared font)
 	DungeonWorld& m_world;
 	GameSettings& m_settings; // owns the palette-collapse flag (read for layout)
 
 	Selection m_sel; // armed palette entry
-	// Per-category accordion expand state; Tools + Structure + Walls open by default.
+	// Per-category accordion expand state; Walls opens by default.
 	std::array<bool, static_cast<size_t>(PaletteCat::Count)> m_catOpen{};
 	std::map<std::string, bool> m_groupOpen; // sub-accordions (see GroupKey)
 	float m_paletteScroll = 0.0f; // left-dock vertical scroll (pixels)

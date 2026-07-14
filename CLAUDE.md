@@ -18,6 +18,9 @@ Built collaboratively with Claude across sessions; this file is the handoff.
 - `gen-vs.cmd` → `build\vs\Dungeon.slnx` (VS 2026 emits .slnx, not .sln).
 - Debug builds open a console for logs; DN_ASSERT failures abort() — in
   debug that means a CRT dialog and the process LOOKS alive but is stuck.
+- The full log also writes to `dungeon.log` NEXT TO THE EXE (truncated per
+  run, flushed per line so the tail survives a crash/abort) — read that
+  instead of scraping the console window.
 
 ## Architecture (docs/ARCHITECTURE.md has the full version)
 
@@ -172,11 +175,11 @@ into spatial chunks (DungeonMeshBuilder GeometryChunk, kChunkCells=4, each
 with an AABB + texture variant), so the main pass frustum-culls off-screen
 chunks (DungeonWorld::ViewCull, Gribb-Hartmann from Camera::ViewProj) and
 each shadow cube sphere-culls out-of-range chunks; discrete meshes (props/
-monsters/fires/pillar) cull by bounding sphere too. Shadow cubes are CACHED
+monsters/fires) cull by bounding sphere too. Shadow cubes are CACHED
 per slot (ShadowSlotCache): a cube re-renders only when its light changed/
 moved (>2cm), a flicker tick is due (fire cubes throttle to half rate via
 PointLight::flickerShadow), geometry changed (map Revision), or an animating
-caster (monster/pillar) is in range — otherwise the cube stays in its SRV
+caster (a monster) is in range — otherwise the cube stays in its SRV
 state and is reused (the per-slot RT/SRV barrier guard makes the skip safe).
 DrawMesh skips redundant PSO swaps and, in the shadow pass, the texture-table
 binds; skinning palettes upload once per frame (cached by the animator's
@@ -185,7 +188,7 @@ buffer, reused across all ~25 submissions).
 ## Asset pipeline (everything loads from assets/, nothing generated at runtime)
 
 - `AssetBaker <assets>` — regenerates all procedural assets (block models
-  incl. worn tiers, monsters, sconce/brazier, pillar, sounds, title art,
+  incl. worn tiers, monsters, sconce/brazier, sounds, title art,
   party portraits) and ends with a mip bake.
 - `AssetBaker import <folder> <assets> <name> [--flip-green]` — packs a
   downloaded PBR set into three files: <name>.png (albedo), <name>_n.png
@@ -259,7 +262,7 @@ buffer, reused across all ~25 submissions).
   all 2k native; the models/ and bonus/ categories carry .obj prop meshes
   with their textures). `tools\FetchTextures.ps1` imports the materials the
   maps' `textures` records reference PLUS a fixed `$propSets` table — the
-  code-bound prop/creature sets (sconce/brazier/pillar/skeleton/mummy/blob,
+  code-bound prop/creature sets (sconce/brazier/skeleton/mummy/blob,
   renamed from their archive folders, 2k-native) — since those load by code
   convention, not a map record (override: -Materials list skips props, -All
   for everything — slow, hundreds of BC7 bakes; -Resolutions 1k,2k,4k). A
@@ -286,12 +289,18 @@ buffer, reused across all ~25 submissions).
     (grid glyphs are never lowercase): `textures <wall|floor|ceiling>
     <set> ...` declares the level's surface palette — MANDATORY, the game
     loads only those sets + their worn meshes, order = variant index —
-    plus `decoration <type> <x> <z> [facing]` and `fixture <sconce|brazier>
-    <x> <z> [facing]` records. The 'T'/'F' glyphs are one-per-cell shorthand
-    for an auto-faced sconce/brazier; the fixture record places them
-    explicitly so several can share a cell (e.g. two sconces on different
-    walls — sconce facing names the solid wall it mounts on). Sconces resolve
-    their mount wall at load (DungeonMap::WallSconce). A decoration record can
+    plus `decoration <type> <x> <z> [facing]` and `fixture <id> <x> <z>
+    [facing]` records — the kind token is a fixtures.cat id, EVERY entry is
+    placeable (per-record FIXTURE KINDS: DungeonWorld::FixtureKind caches
+    id→mesh/tex/flame like DecorationKind; the parser routes wall-vs-floor
+    via the FixtureTypes info DungeonWorld passes at every DungeonMap
+    construction, since the map has no catalog access; fixtures.cat
+    `flame = 0` = a flameless kind, placed lit=0 — brazier_empty). The
+    'T'/'F' glyphs are one-per-cell shorthand for an auto-faced default
+    sconce/brazier; the fixture record places kinds explicitly so several
+    can share a cell (e.g. two sconces on different walls — sconce facing
+    names the solid wall it mounts on). Sconces resolve their mount wall at
+    load (DungeonMap::WallSconce). A decoration record can
     also take `wall=<dir>` to hang flat on that wall instead of standing at the
     cell centre, so a sconce + a banner + other wall props can share one square.
     The wall mount (offset to the wall face, +Z turned to face the room) is one
@@ -569,9 +578,19 @@ own 3D model once into a small RT (UpdateMapIcons: monster kinds get a
 head-shot framing the model's top quarter, decorations/fixtures bake whole,
 floor items reuse their HUD item icons at the cell corner; colored square +
 type initial is the not-yet-baked fallback), semantic glyphs stay glyphs (the
-start cell's accent outline, door bars, stair/pit triangles, and the party as
+start cell's accent outline, door bars, stair/pit triangles, the party as
 a rotated triangle — facing*90° CW from north-up; screen Y is down so it
-matches the compass; SpriteBatch::DrawTriangle). Editor-only green facing
+matches the compass; SpriteBatch::DrawTriangle — and IN-FLIGHT PROJECTILES
+as small arrowheads at their SUB-CELL world positions, pointing along
+travel, colored by side (blue = party shot, amber = monster shot). The
+projectile is TRANSIENT combat content — ProjectileSystem gives each item a
+stable runtime id (DungeonWorld::LiveProjectiles / ProjectilesAt /
+ProjectileById / RemoveProjectile pass through); right-clicking one opens the
+ProjectileInspector (a standalone read-only modal — side / damage type+amount
+/ accuracy / speed / range-left, with a Remove that dismisses the in-flight
+item). Freeze one with the editor's pause button to catch a fast shot.
+AnyInspectableAt counts projectiles so InspectAt fires onInspect on their
+cell.). Editor-only green facing
 arrows skip types with catalog `facing_arrow = 0` (monsters: `faces = false`);
 the instance inspector's "Map arrow" checkbox beside its Facing dropdown edits
 that per type. Visibility goes through
@@ -579,14 +598,26 @@ MapView::CellVisible (always true in Editor, else IsSeen). The transform is
 resolution-independent (pan = fraction of the grid area, zoom = unitless,
 fit-whole-map at zoom 1) and resolves against GridArea, so Update (window-
 pixel panel, matches mouse coords) and Render (device-pixel panel) agree;
-zoom is cursor-anchored. CellAt is the inverse pick. The left-dock palette is a
+zoom is cursor-anchored. CellAt is the inverse pick. The left-dock palette has a
+fixed CONTROLS ROW at the top of its body (above the scrolled accordion): a
+FILTER text box + [x] clear + [-] collapse-all. Clicking the box focuses it
+(typed chars land there and MapEditor::KeyboardCaptured gates the game's
+party keys / M / Esc so an 'm' doesn't toggle the map; Esc/Enter or a grid
+paint release it); a set filter lists matching items FLAT under each category
+header regardless of accordion/group state and drops empty categories, [x]
+clears it, [-] collapses every accordion + sub-group. Below it, the palette is a
 catalog-driven collapsible accordion (MapEditor::PaletteCat + the kCategoryInfo
-table): Structure (Wall/Floor), Walls/Floors/Ceilings
-(per-cell surface VARIANT paint via DungeonMap variant grids — the BLOCK owns
-its texture: wall variants live on the SOLID cell, one texture for all four
-faces of that block both sides included, floor/ceiling variants on the floor
-cell; the brush paints exactly the square clicked, and EditVariant no-ops the
-wrong cell type. Stale variant records on the wrong cell type — pre-2026-07-13
+table): Walls/Floors/Ceilings — THE structural brushes (the old Structure
+Wall/Floor rows folded in): per-cell surface VARIANT paint via DungeonMap
+variant grids that also CONVERTS the cell type on click/rect — a wall
+texture on a floor square raises the wall, a floor/ceiling texture carves
+rock walkable — while FLOOD stays a recolor (its region keys on the
+resolved variant, so a wrong-type start is a no-op, not a room-to-solid
+foot-gun). The BLOCK owns its texture: wall variants live on the SOLID
+cell, one texture for all four faces of that block both sides included,
+floor/ceiling variants on the floor cell; middle-click's variant-reset
+rung restores the default hash-varied mix (no override pinned). Stale
+variant records on the wrong cell type — pre-2026-07-13
 files kept wall variants on bordering floor cells — are DROPPED at load), and the entity
 categories Decorations/Fixtures/Monsters/Buttons/Doors/Stairs/Items (live
 placement). Entries carrying a `category` field group under collapsible
@@ -597,22 +628,50 @@ the armed brush (nothing armed until a palette row is picked), a stationary
 RIGHT-CLICK inspects the cell (select + contents + the object's edit dialog
 immediately; ≤3px press-release = click) while a right-DRAG pans, and
 MIDDLE-CLICK erases (the ladder: stair pair → entity → fixture → variant
-reset; one undo step each). The editor map has a header TOOLBAR top-right —
-Level (per-level settings dialog) / Balance (combat tuning) / </> undo/redo /
-Save (savemap) / To source (synctosource) — built by MapView::ToolbarButtons
-(ONE right-to-left item list that geometry, hover, click dispatch and render
-all walk; adding a tool is one `add` line), each face drawn via
-ui::DrawButtonFace (THE one button face, shared with ui::Button, hover
-included; hover on hand-drawn chrome is tracked by HoverBtn identity across
-the window-px/device-px split). The Level button opens LevelSettingsDialog
-for the VIEWED level (active or browsed): the three lighting mood knobs —
-dust density / haze ambient / ambient scale — live-previewed while that
-level is active, committed to the level's map/stash on Save, and persisted
-as the .map `atmosphere` record (`atmosphere dust=… haze=… ambient=…`, only
-set values written; DungeonWorld::EffectiveAtmosphere resolves unset ones to
-the gfx::Atmosphere defaults, applied in BuildTurbidityMap on every load/
+reset; one undo step each). MODIFIER GESTURES on a left press (paint brushes
+only — Structure + surface variants; placement falls back to a plain click):
+Shift+click fills the RECTANGLE from the last painted cell (every paint
+leaves the anchor, so click-then-shift-click is the Photoshop line idiom),
+Ctrl+click FLOOD-fills the contiguous region (same cell type + same RESOLVED
+variant — override-or-hash, matching the 3D scene), Alt+click is the
+EYEDROPPER (arms the clicked square's wall/floor texture; ceilings pick while
+the Ceilings brush is armed). Rect/flood are ONE undo step and message
+map.fill.done. The editor's TOOLBAR is a full-width band fixed across the
+panel top (docks + grid inset below it): the level DROPDOWN (all levels in
+project order; hand-rolled popup — picking one browses it; Player mode keeps
+the [^]/[v] arrows instead) and the [+] NEW LEVEL button pin its left end
+(Game::CreateNewLevel writes a minimal 16x16 .map/.ent — 3x3 'P' room,
+palettes copied from the ACTIVE level — appends the manifest, and the view
+jumps onto the new canvas); the tools sit right as house-style ICON DISCS
+(assets/ui/icon_tb_*.png: Wenrexa discs + composited glyphs; hover brightens
++ shows a tooltip under the band; a missing icon falls back to the text
+face) — Level (per-level settings dialog) / Balance (combat tuning) /
+undo/redo (dimmed when their stack is empty) / PLAY-PAUSE (the editor is a
+LIVE view — the world keeps simulating while it is open; this freezes it so
+you edit against a still scene: MapView::EditorPaused → Game SKIPS the whole
+m_world.Update, since monster actions fire off cooldowns not dt and a full-
+screen editor renders no scene needing a camera/light refresh. The button
+shows the ACTION — pause glyph while running, play glyph + "resume" tooltip
+while frozen — and the flag ALWAYS clears when the overlay closes or flips to
+Player mode, so a closed editor is never left paused) / Save (savemap) / To
+source (synctosource) — built by MapView::ToolbarButtons (ONE item list that
+geometry, hover, click dispatch and render all walk; adding a tool is one
+`add` line; hover on hand-drawn chrome is tracked by HoverBtn identity
+across the window-px/device-px split). The Level button opens
+LevelSettingsDialog for the VIEWED level (active or browsed): the three
+lighting mood knobs — dust density / haze ambient / ambient scale —
+live-previewed while that level is active, committed to the level's
+map/stash on Save, and persisted as the .map `atmosphere` record
+(`atmosphere dust=… haze=… ambient=…`, only set values written;
+DungeonWorld::EffectiveAtmosphere resolves unset ones to the
+gfx::Atmosphere defaults, applied in BuildTurbidityMap on every load/
 swap/fixture-rebuild — the dev console dust/haze/ambient knobs override live
-but are reset by that application).
+but are reset by that application). The dialog's title stem is a RENAME
+affordance: click it, edit inline ([A-Za-z0-9_-]), Enter commits —
+Game::RenameLevel (manifest + browse fix-up) + DungeonWorld::RenameLevel
+(file moves, stash rekeys, stair dest= sweep via lazy EnsureMapStash, undo
+history drop). Old SAVE FILES keep the old stem and won't load past a
+rename (dev-cycle cost).
 A structural paint → DungeonWorld::EditCell → DungeonMap::SetCell (bumps
 Revision()) → RebuildChunksAround(x,z), which rebuilds ONLY the touched chunk +
 its orthogonal-neighbour chunks (≤5), not the whole map — so paints are near-
@@ -792,7 +851,7 @@ memory.
   rigged glTF would drop in via LoadModel (JOINTS_0 remap already handled).
   Everything is PBR-textured: each generated prop binds a scanned set by name
   (DungeonWorld::LoadPropTextures, shared with decorations) — sconce=worn-
-  medieval iron, brazier=bronze, pillar=peacock-ore, skeleton=carved limestone
+  medieval iron, brazier=bronze, skeleton=carved limestone
   (bone), mummy=stained burlap, blob=alien-slime. ModelBaker gives the box-
   built props world-aligned tiling UVs (TileUvs); the glTF baseColor stays as
   the flat fallback if a set is missing. Bought authored decoration meshes

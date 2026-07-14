@@ -108,8 +108,6 @@ bool DungeonWorld::AnimatedCasterNear(const gfx::PointLight& light) const {
 		const float reach = light.radius + r;
 		return d.x * d.x + d.y * d.y + d.z * d.z <= reach * reach;
 	};
-	if (m_pillarActive && inReach({m_pillarPos.x, 1.2f, m_pillarPos.z}, 1.2f))
-		return true; // sway
 	for (const Monster& m : m_monsters) {
 		if (!m.Alive() && m.deathAnim <= 0.0f) continue; // a dying monster still animates its cube
 		const Vec3 c = m_map.CellCenter(m.x, m.z);
@@ -176,27 +174,6 @@ void DungeonWorld::SubmitSceneGeometry(ID3D12GraphicsCommandList* list,
 	DrawSurface(list, m_walls, cull);
 	DrawSurface(list, m_floors, cull);
 	DrawSurface(list, m_ceilings, cull);
-
-	// Pillar — carved jade. The color is the model's flat baseColorFactor (a deep,
-	// muted jade); the stone set contributes ONLY its normal + ORM maps, giving the
-	// surface real micro-relief and roughness variation so it reads as polished
-	// mineral rather than a smooth wet tube. The peacock-ore albedo (purple) is
-	// deliberately dropped. Satin roughness, fully non-metallic.
-	if (m_pillarActive && visible({m_pillarPos.x, 1.2f, m_pillarPos.z}, 1.8f)) {
-		Mat4 pillarWorld = Mat4Identity();
-		pillarWorld._41 = m_pillarPos.x;
-		pillarWorld._43 = m_pillarPos.z;
-		gfx::MaterialParams pillarMaterial;
-		pillarMaterial.baseColor = m_pillarModel.materials[0].baseColorFactor;
-		pillarMaterial.metallic = 0.0f;
-		pillarMaterial.roughness = 0.55f;
-		if (m_pillarTex) {
-			pillarMaterial.normalMap = m_pillarTex->normal.get();
-			pillarMaterial.metalRough = m_pillarTex->mr.get(); // modulates rough/metal
-		}
-		m_renderer.DrawMesh(list, *m_pillarMesh, pillarWorld, pillarMaterial,
-							m_pillarAnimator.Palette());
-	}
 
 	// Static architecture decorations (columns, archways, fountains, ...):
 	// textured stone/wood with bump + parallax + ORM, falling back to the flat
@@ -344,23 +321,21 @@ void DungeonWorld::SubmitSceneGeometry(ID3D12GraphicsCommandList* list,
 							monster.animator.Palette());
 	}
 
-	// Fire props: worn iron sconce + bronze brazier (bump + parallax + ORM),
-	// falling back to flat metallic iron if the sets are missing.
+	// Fire props (bump + parallax + ORM), each drawn as its resolved fixture
+	// kind, falling back to flat metallic iron if the texture set is missing.
 	for (const Fire& fire : m_fires) {
+		if (!fire.kind || !fire.kind->mesh) continue;
 		if (!visible(fire.flamePos, 1.2f)) continue;
 		gfx::MaterialParams metal;
-		const Vec4 fallback = fire.brazier ? m_brazierColor : m_sconceColor;
-		ApplyPropMaterial(metal, fire.brazier ? m_brazierTex : m_sconceTex,
-						  fallback, 0.5f);
+		ApplyPropMaterial(metal, fire.kind->tex, fire.kind->color, 0.5f);
 		if (!metal.albedo) metal.metallic = 1.0f; // flat fallback reads as metal
-		m_renderer.DrawMesh(list, fire.brazier ? *m_brazierMesh : *m_sconceMesh,
-							fire.world, metal);
-		// The optional coal bed rides the same world transform (the two parts
-		// were normalized together at import, so their geometry pre-aligns).
-		if (fire.brazier && m_brazierMesh2) {
+		m_renderer.DrawMesh(list, *fire.kind->mesh, fire.world, metal);
+		// The optional second part (coal bed) rides the same world transform
+		// (the parts were normalized together at import, so they pre-align).
+		if (fire.kind->mesh2) {
 			gfx::MaterialParams coals;
-			ApplyPropMaterial(coals, m_brazierTex2, m_brazierColor2, 0.9f);
-			m_renderer.DrawMesh(list, *m_brazierMesh2, fire.world, coals);
+			ApplyPropMaterial(coals, fire.kind->tex2, fire.kind->color2, 0.9f);
+			m_renderer.DrawMesh(list, *fire.kind->mesh2, fire.world, coals);
 		}
 	}
 }
@@ -590,10 +565,7 @@ void DungeonWorld::BakeIcon(ID3D12GraphicsCommandList* list, gfx::SpriteBatch& s
 
 void DungeonWorld::UpdateMapIcons(ID3D12GraphicsCommandList* list,
 								  gfx::SpriteBatch& sprites) {
-	const bool sconcePending = m_sconceMesh && !m_sconceIcon;
-	const bool brazierPending = m_brazierMesh && !m_brazierIcon;
-	if (m_monsterIconsBaked && m_decorationIconsBaked && !sconcePending &&
-		!brazierPending)
+	if (m_monsterIconsBaked && m_decorationIconsBaked && m_fixtureIconsBaked)
 		return; // all one-shot bakes done
 	EnsureIconBakeTargets();
 	bool any = false;
@@ -642,24 +614,23 @@ void DungeonWorld::UpdateMapIcons(ID3D12GraphicsCommandList* list,
 		m_decorationIconsBaked = true;
 	}
 
-	// The two fixture meshes (loaded once at boot; icons gate on existing).
-	auto bakeFixture = [&](const gfx::Mesh* mesh, const assets::ModelData& model,
-						   const PropTextures* tex, const Vec4& color,
-						   std::unique_ptr<gfx::Texture>& icon) {
-		if (!mesh || icon || model.meshes.empty()) return;
-		icon = gfx::Texture::RenderTarget(m_device, kIconSize);
-		gfx::MaterialParams mat;
-		ApplyPropMaterial(mat, tex, color, 0.5f);
-		if (!mat.albedo) mat.metallic = 1.0f; // flat fallback reads as metal
-		Vec3 lo, hi;
-		meshBounds(model.meshes[0], lo, hi);
-		BakeMeshIcon(list, sprites, *mesh, mat, lo, hi, *icon);
-		any = true;
-	};
-	bakeFixture(m_sconceMesh.get(), m_sconceModel, m_sconceTex, m_sconceColor,
-				m_sconceIcon);
-	bakeFixture(m_brazierMesh.get(), m_brazierModel, m_brazierTex, m_brazierColor,
-				m_brazierIcon);
+	// Fixture kinds bake whole-model like decorations (per-kind iconTarget;
+	// a fresh kind re-arms this pass via m_fixtureIconsBaked).
+	if (!m_fixtureIconsBaked) {
+		for (auto&& [id, kind] : m_fixtureKinds) {
+			if (!kind->mesh || !kind->iconTarget || kind->model.meshes.empty())
+				continue;
+			gfx::MaterialParams mat;
+			ApplyPropMaterial(mat, kind->tex, kind->color, 0.5f);
+			if (!mat.albedo) mat.metallic = 1.0f; // flat fallback reads as metal
+			Vec3 lo, hi;
+			meshBounds(kind->model.meshes[0], lo, hi);
+			BakeMeshIcon(list, sprites, *kind->mesh, mat, lo, hi,
+						 *kind->iconTarget);
+			any = true;
+		}
+		m_fixtureIconsBaked = true;
+	}
 
 	if (any) m_device.BindBackBuffer(list); // the bakes redirected the OM
 }
