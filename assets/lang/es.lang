@@ -453,6 +453,27 @@ map.key.button=Botón
 map.key.decoration=Decoración
 map.key.door=Puerta
 map.key.stairs=Escalera
+map.key.projectile=Proyectil
+; --- editor: in-flight projectile inspector ---
+map.proj.title=Proyectil
+map.proj.side=Origen
+map.proj.fromparty=Disparo del grupo
+map.proj.frommonster=Disparo de monstruo
+map.proj.dmgtype=Tipo de daño
+map.proj.damage=Daño
+map.proj.accuracy=Precisión
+map.proj.speed=Velocidad
+map.proj.range=Alcance restante
+map.proj.remove=Eliminar
+map.proj.removed=Proyectil eliminado.
+; damage types (shared with combat)
+dmg.slash=Corte
+dmg.pierce=Perforación
+dmg.bash=Golpe
+dmg.fire=Fuego
+dmg.earth=Tierra
+dmg.air=Aire
+dmg.water=Agua
 map.cat.new=+ Nuevo...
 ; --- instance inspectors (per-placed object edit dialogs) ---
 map.insp.facing=Orientación

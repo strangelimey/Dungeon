@@ -451,6 +451,27 @@ map.key.button=Button
 map.key.decoration=Decoration
 map.key.door=Door
 map.key.stairs=Stairs
+map.key.projectile=Projectile
+; --- editor: in-flight projectile inspector ---
+map.proj.title=Projectile
+map.proj.side=Source
+map.proj.fromparty=Party shot
+map.proj.frommonster=Monster shot
+map.proj.dmgtype=Damage type
+map.proj.damage=Damage
+map.proj.accuracy=Accuracy
+map.proj.speed=Speed
+map.proj.range=Range left
+map.proj.remove=Remove
+map.proj.removed=Projectile removed.
+; damage types (shared with combat)
+dmg.slash=Slash
+dmg.pierce=Pierce
+dmg.bash=Bash
+dmg.fire=Fire
+dmg.earth=Earth
+dmg.air=Air
+dmg.water=Water
 map.cat.new=+ New...
 
 ; --- asset-creation dialog -------------------------------------------------------

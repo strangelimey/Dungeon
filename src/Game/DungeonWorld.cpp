@@ -2569,6 +2569,15 @@ std::vector<std::pair<int, std::string>> DungeonWorld::ItemsAt(int cx, int cz) c
 	return out;
 }
 
+std::vector<ProjectileInfo> DungeonWorld::ProjectilesAt(int cx, int cz) const {
+	std::vector<ProjectileInfo> out;
+	for (const ProjectileInfo& p : m_projectiles.Live())
+		if (static_cast<int>(p.pos.x / kCellSize) == cx &&
+			static_cast<int>(p.pos.z / kCellSize) == cz)
+			out.push_back(p);
+	return out;
+}
+
 std::string DungeonWorld::DecorationTypeByIndex(int index) const {
 	if (index < 0 || index >= static_cast<int>(m_decorations.size())) return {};
 	const Decoration& d = m_decorations[static_cast<size_t>(index)];
@@ -2643,7 +2652,8 @@ bool DungeonWorld::AnyInspectableAt(int cx, int cz) const {
 	std::string target;
 	return MonsterRuntimeIdAt(cx, cz) != 0 || SconceAt(cx, cz) || BrazierAt(cx, cz) ||
 		   DoorAt(cx, cz) != nullptr || ButtonSettings(cx, cz, target) ||
-		   !DecorationsAt(cx, cz).empty() || !ItemsAt(cx, cz).empty();
+		   !DecorationsAt(cx, cz).empty() || !ItemsAt(cx, cz).empty() ||
+		   !ProjectilesAt(cx, cz).empty();
 }
 
 void DungeonWorld::ReconcileGroups() {

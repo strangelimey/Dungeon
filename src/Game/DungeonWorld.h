@@ -305,6 +305,17 @@ public:
 	// (stable entity id, type). Those handles drive the *Facing accessors below.
 	std::vector<std::pair<int, std::string>> DecorationsAt(int cx, int cz) const;
 	std::vector<std::pair<int, std::string>> ItemsAt(int cx, int cz) const;
+
+	// In-flight projectiles (spells/arrows/thrown items): transient content the
+	// editor draws on the map and can inspect. LiveProjectiles is every one (map
+	// markers); ProjectilesAt filters to a cell (the inspect picker); Find/Remove
+	// address one by its stable runtime id (the inspector's dismiss action).
+	std::vector<ProjectileInfo> LiveProjectiles() const { return m_projectiles.Live(); }
+	std::vector<ProjectileInfo> ProjectilesAt(int cx, int cz) const;
+	bool ProjectileById(u32 id, ProjectileInfo& out) const {
+		return m_projectiles.Find(id, out);
+	}
+	bool RemoveProjectile(u32 id) { return m_projectiles.Remove(id); }
 	Direction DecorationFacing(int index) const;
 	void SetDecorationFacing(int index, Direction facing); // rebakes the transform
 	Direction ItemFacing(int entityId) const;

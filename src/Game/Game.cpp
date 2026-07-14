@@ -14,6 +14,7 @@
 #include "Graphics/Texture.h"
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <chrono>
 #include <cstdlib>
@@ -82,7 +83,8 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	  m_levelSettingsDialog(device),
 	  m_entityInspector(device), m_fixtureInspector(device),
 	  m_propInspector(device), m_doorInspector(device), m_buttonInspector(device),
-	  m_inspectPicker(device), m_previewParticles(device) {
+	  m_projectileInspector(device), m_inspectPicker(device),
+	  m_previewParticles(device) {
 	m_mapView.SetEditor(&m_mapEditor); // the view drives the editor in Editor mode
 	// The editor's header save buttons: Save = write every edited level (what the
 	// savemap console command does); To source = also copy the project into the
@@ -433,6 +435,14 @@ void Game::WireModuleCallbacks() {
 			m_inspectTargets.push_back(t);
 			labels.push_back(t.type);
 		}
+		// In-flight projectiles passing through the cell (transient combat
+		// content — freeze the world with the pause button to catch a fast one).
+		for (const ProjectileInfo& p : m_world.ProjectilesAt(cx, cz)) {
+			InspectTarget t{InspectTarget::Kind::Projectile};
+			t.runtimeId = p.id;
+			m_inspectTargets.push_back(t);
+			labels.push_back(loc::Tr("map.proj.title"));
+		}
 		if (m_inspectTargets.empty()) return;
 		if (m_inspectTargets.size() == 1) { // exactly one — skip the chooser
 			OpenInspectorFor(m_inspectTargets.front());
@@ -669,6 +679,30 @@ void Game::OpenInspectorFor(const InspectTarget& t) {
 		};
 		m_propInspector.facingExtra.reset(); // items draw no map arrow anyway
 		m_propInspector.Open(c, std::move(pv));
+		break;
+	}
+	case InspectTarget::Kind::Projectile: {
+		ProjectileInfo p;
+		if (!m_world.ProjectileById(t.runtimeId, p))
+			return; // landed since the picker listed it
+		ProjectileInspector::Config c;
+		c.id = p.id;
+		// A shot targeting the PARTY was fired by a monster, and vice versa.
+		c.side = loc::Tr(p.target == TargetSide::Party ? "map.proj.frommonster"
+													   : "map.proj.fromparty");
+		static constexpr std::array<const char*, kDamageTypeCount> kDmgKeys = {
+			"dmg.slash", "dmg.pierce", "dmg.bash",
+			"dmg.fire", "dmg.earth", "dmg.air", "dmg.water"};
+		c.dmgType = loc::Tr(kDmgKeys[static_cast<size_t>(p.atk.type)]);
+		c.damage = p.atk.damage;
+		c.accuracy = p.atk.accuracy;
+		c.speed = p.speed;
+		c.rangeLeft = p.rangeLeft;
+		m_projectileInspector.onRemove = [this, id = p.id] {
+			if (m_world.RemoveProjectile(id) && m_world.onMessage)
+				m_world.onMessage(loc::Tr("map.proj.removed"));
+		};
+		m_projectileInspector.Open(c);
 		break;
 	}
 	}
@@ -2201,6 +2235,12 @@ void Game::Update(float dt) {
 								 static_cast<float>(m_window.Height()));
 		return;
 	}
+	// And the in-flight projectile inspector (read-only details + dismiss).
+	if (m_projectileInspector.IsOpen()) {
+		m_projectileInspector.Update(input, static_cast<float>(m_window.Width()),
+									 static_cast<float>(m_window.Height()));
+		return;
+	}
 
 	// Map overlay: a toggle that never pauses the world. While it is open the
 	// party still walks (keyboard) — the overlay only claims the mouse for
@@ -2550,6 +2590,8 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 		m_doorInspector.Render(m_spriteBatch, m_settings.theme, dw, dh);
 	if (m_buttonInspector.IsOpen())
 		m_buttonInspector.Render(m_spriteBatch, m_settings.theme, dw, dh);
+	if (m_projectileInspector.IsOpen())
+		m_projectileInspector.Render(m_spriteBatch, m_settings.theme, dw, dh);
 	if (InstanceInspector* ii = ActiveInstanceInspector(); ii && ii->HasPreview())
 		m_spriteBatch.DrawSprite(ii->PreviewRect(dw, dh), {0, 0, 1, 1}, m_modelPreview.Srv(),
 								 {1, 1, 1, 1});

@@ -453,6 +453,27 @@ map.key.button=Knopf
 map.key.decoration=Dekoration
 map.key.door=Tür
 map.key.stairs=Treppe
+map.key.projectile=Geschoss
+; --- editor: in-flight projectile inspector ---
+map.proj.title=Geschoss
+map.proj.side=Quelle
+map.proj.fromparty=Schuss der Gruppe
+map.proj.frommonster=Schuss eines Monsters
+map.proj.dmgtype=Schadensart
+map.proj.damage=Schaden
+map.proj.accuracy=Genauigkeit
+map.proj.speed=Geschwindigkeit
+map.proj.range=Restreichweite
+map.proj.remove=Entfernen
+map.proj.removed=Geschoss entfernt.
+; damage types (shared with combat)
+dmg.slash=Hieb
+dmg.pierce=Stich
+dmg.bash=Wucht
+dmg.fire=Feuer
+dmg.earth=Erde
+dmg.air=Luft
+dmg.water=Wasser
 map.cat.new=+ Neu...
 ; --- instance inspectors (per-placed object edit dialogs) ---
 map.insp.facing=Ausrichtung

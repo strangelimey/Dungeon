@@ -457,6 +457,27 @@ map.key.button=Кнопка
 map.key.decoration=Декорация
 map.key.door=Дверь
 map.key.stairs=Лестница
+map.key.projectile=Снаряд
+; --- editor: in-flight projectile inspector ---
+map.proj.title=Снаряд
+map.proj.side=Источник
+map.proj.fromparty=Выстрел отряда
+map.proj.frommonster=Выстрел монстра
+map.proj.dmgtype=Тип урона
+map.proj.damage=Урон
+map.proj.accuracy=Точность
+map.proj.speed=Скорость
+map.proj.range=Остаток дальности
+map.proj.remove=Убрать
+map.proj.removed=Снаряд убран.
+; damage types (shared with combat)
+dmg.slash=Рубящий
+dmg.pierce=Колющий
+dmg.bash=Дробящий
+dmg.fire=Огонь
+dmg.earth=Земля
+dmg.air=Воздух
+dmg.water=Вода
 map.cat.new=+ Создать...
 ; --- instance inspectors (per-placed object edit dialogs) ---
 map.insp.facing=Направление

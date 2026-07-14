@@ -960,6 +960,33 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 						   rot(r * 0.72f, r * 0.7f), theme.accent);
 	}
 
+	// 5b) In-flight projectiles (spells/arrows/thrown items) at their SUB-CELL
+	// world positions — a small arrowhead pointing along travel, colored by
+	// side (blue = a party shot, amber = a monster shot). Transient live
+	// content, so active level only; fog-gated in Player mode. Pause the world
+	// (editor toolbar) to freeze one for a right-click inspect.
+	if (!m_browse) {
+		auto worldToScreen = [&](float wx, float wz) -> Vec2 {
+			return {t.ox + (wx / kCellSize) * t.cell, t.oy + (wz / kCellSize) * t.cell};
+		};
+		for (const ProjectileInfo& p : m_world.LiveProjectiles()) {
+			const int cx = static_cast<int>(p.pos.x / kCellSize);
+			const int cz = static_cast<int>(p.pos.z / kCellSize);
+			if (!CellVisible(cx, cz)) continue;
+			const Vec2 c = worldToScreen(p.pos.x, p.pos.z);
+			const float r = std::clamp(t.cell * 0.16f, 3.0f, 10.0f);
+			const float a = std::atan2(p.dir.x, p.dir.z); // screen +x=east,+y=south
+			const float cs = std::cos(a), sn = std::sin(a);
+			auto rot = [&](float lx, float ly) -> Vec2 {
+				return {c.x + lx * cs - ly * sn, c.y + lx * sn + ly * cs};
+			};
+			const Vec4 col = p.target == TargetSide::Party ? kProjMonster : kProjParty;
+			// A monster shot targets the PARTY, so its color is the monster hue.
+			batch.DrawTriangle(rot(0, -r), rot(-r * 0.7f, r * 0.7f),
+							   rot(r * 0.7f, r * 0.7f), col);
+		}
+	}
+
 	batch.SetScissor(nullptr);
 	ui::DrawBorder(batch, panel, theme.panelBorder);
 
@@ -1019,6 +1046,7 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 				{Sym::Filled, kDecoration, "map.key.decoration", true},
 				{Sym::Filled, kDoor, "map.key.door", true},
 				{Sym::Filled, kStair, "map.key.stairs", true},
+				{Sym::Triangle, kProjParty, "map.key.projectile", true},
 			};
 			const gfx::Rect rclip{rd.x + 2, rd.y + 2, rd.w - 4, rd.h - 4};
 			batch.SetScissor(&rclip);

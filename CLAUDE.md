@@ -578,9 +578,19 @@ own 3D model once into a small RT (UpdateMapIcons: monster kinds get a
 head-shot framing the model's top quarter, decorations/fixtures bake whole,
 floor items reuse their HUD item icons at the cell corner; colored square +
 type initial is the not-yet-baked fallback), semantic glyphs stay glyphs (the
-start cell's accent outline, door bars, stair/pit triangles, and the party as
+start cell's accent outline, door bars, stair/pit triangles, the party as
 a rotated triangle — facing*90° CW from north-up; screen Y is down so it
-matches the compass; SpriteBatch::DrawTriangle). Editor-only green facing
+matches the compass; SpriteBatch::DrawTriangle — and IN-FLIGHT PROJECTILES
+as small arrowheads at their SUB-CELL world positions, pointing along
+travel, colored by side (blue = party shot, amber = monster shot). The
+projectile is TRANSIENT combat content — ProjectileSystem gives each item a
+stable runtime id (DungeonWorld::LiveProjectiles / ProjectilesAt /
+ProjectileById / RemoveProjectile pass through); right-clicking one opens the
+ProjectileInspector (a standalone read-only modal — side / damage type+amount
+/ accuracy / speed / range-left, with a Remove that dismisses the in-flight
+item). Freeze one with the editor's pause button to catch a fast shot.
+AnyInspectableAt counts projectiles so InspectAt fires onInspect on their
+cell.). Editor-only green facing
 arrows skip types with catalog `facing_arrow = 0` (monsters: `faces = false`);
 the instance inspector's "Map arrow" checkbox beside its Facing dropdown edits
 that per type. Visibility goes through

@@ -36,6 +36,7 @@ add_library(Game STATIC
 	PartyHud.cpp
 	Project.cpp
 	Projectiles.cpp
+	ProjectileInspector.cpp
 	PropInspector.cpp
 	SaveGame.cpp
 	Serialize.cpp
