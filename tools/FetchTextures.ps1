@@ -11,7 +11,7 @@
 #
 # By default the materials referenced by the levels' "textures" records
 # (assets\maps\*.map) are imported, plus the fixed set of prop/creature sets
-# the game binds in code ($propSets below: sconce, brazier, pillar, monsters).
+# the game binds in code ($propSets below: sconce, brazier, monsters).
 # Use -Materials to pull specific sets by name (props are skipped then), or
 # -All for the whole archive (hundreds of sets - the BC7 bake takes a while).
 #
@@ -144,7 +144,6 @@ foreach ($res in $Resolutions) {
 $propSets = @(
     @{ Src = "metals\worn-medieval";        Name = "sconce" }   # iron torch holder
     @{ Src = "metals\bronze";               Name = "brazier" }  # bronze fire bowl
-    @{ Src = "rocks\peacock-ore";           Name = "pillar" }   # serpent pillar
     @{ Src = "rocks\carvedlimestoneground1"; Name = "skeleton" } # bone
     @{ Src = "fabric\burlap-stained1";      Name = "mummy" }    # bandages
     @{ Src = "organic\alien-slime1";        Name = "blob" }     # slime

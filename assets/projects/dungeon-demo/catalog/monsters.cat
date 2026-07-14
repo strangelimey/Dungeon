@@ -1,52 +1,4 @@
-; Monsters. Fields:
-;   model    = assets/models/<model>.gltf
-;   texture  = PBR set in assets/textures (omit -> flat glTF material)
-;   hp       = max hit points
-;   damage   = base melee damage per hit
-;   accuracy = 0..1 chance to land before the target's evasion
-;   defense  = 0..1 evasion subtracted from an attacker's accuracy
-;   armor    = flat damage soaked per hit
-;   resists  = per-damage-type cells, "pierce 0.5, bash -0.5" (docs/combat.md
-;              part 4; negative = vulnerability, 1.0 = authored immunity)
-;   dmgtype  = the damage type this monster's melee deals AS (default bash)
-;   poison   = "<dps> <seconds> [chance]" on-hit DoT rolled per landed blow
-;   bleed    = ditto (Phase 6; reapply refreshes, ticks even the downed)
-;   reach    = melee reach in cells (default 1). 2 = a pike: strikes from its
-;              QUEUE post down a clear shared row/column (Phase 7)
-;   attackcd = seconds between the monster's swings
-;   aggro    = cells of party distance at which it engages
-;   movecd   = seconds per grid step while chasing (lower = faster)
-;   iq       = how OFTEN it re-thinks, not how well: maps to an AI tick bucket
-;              (default ~100). >=130 fastest (4x/s), >=100 (2x/s), >=70 (1x/s),
-;              else slowest (0.5x/s). Smart foes react crisply; dim ones lag.
-;   faces    = turn to face the party once engaged (default true; radially
-;              symmetric models like the blob set false to skip the rotation)
-;   roughness= flat-material roughness when no PBR texture set is installed
-;              (default 0.9 = matte; lower = glossier, e.g. wet slime)
-;   size     = sub-cell footprint (default large). huge = a 2x2-cell block (can't
-;              fit 1-wide corridors); large = one whole cell; medium = 4 per cell
-;              (human, 2x2 slots); small = 9 (3x3); tiny = 16 (4x4). Same-size
-;              monsters share a cell in distinct slots — see docs/movement.md.
-;   states   = the CreatureStates this monster type CAN be in (e.g.
-;              `states = spawn idle incombat walk attack hit die`). The animation
-;              resolution ladder only resolves to a listed state, falling through
-;              to a simpler one otherwise — so a mindless monster with no `incombat`
-;              just stays idle when it notices the party. Omit the row to support
-;              every state that has a clip (back-compat). idle is always on (the
-;              rest pose); die is always considered on death regardless.
-;   anim_<state> = clipA clipB ...  the data-driven animation table (one row per
-;              CreatureState: spawn/idle/incombat/walk/run/flee/attack/defend/hit/
-;              die). Lists the candidate clips for that state; a variation is
-;              chosen at random each time the state is entered. A state with no row
-;              defaults to a clip named after itself when the model ships one (so a
-;              plain idle/walk/attack/die rig needs zero rows); a row is only needed
-;              to add variations or to point a state at a differently-named clip
-;              (e.g. anim_spawn = rise). Names not in the model are dropped.
-;              States with table rows but no behaviour wired up yet (run/flee/
-;              defend) are authored-ahead, harmless until the sim drives them.
-;   category = free-form group token; entries sharing one collapse under a
-;              sub-accordion in the editor palette (like items.cat)
-; Level .ent monster records reference these ids.
+; Monsters: model + texture set.
 
 [skeleton]
 display = Skeleton
@@ -62,15 +14,10 @@ attackcd = 1.6
 aggro = 6
 movecd = 0.45
 iq = 135
-; Breaks off and runs once wounded below 30% hp (docs/ai.md P2 flee).
 fleebelow = 0.3
-; Defender side (docs/combat.md part 4): bone shrugs blades, shatters to blunt.
 resists = pierce 0.5, slash 0.25, bash -0.5
 dmgtype = slash
 
-; Skirmisher archetype demo: reuses the procedural skeleton mesh but holds its
-;   distance and shoots (archetype=skirmisher, keeprange = cells it tries to keep).
-;   Proves the data-driven behaviour path (docs/ai.md P1c).
 [skel_archer]
 display = Skeleton Archer
 category = skeleton
@@ -90,9 +37,6 @@ keeprange = 4
 resists = pierce 0.5, slash 0.25, bash -0.5
 dmgtype = pierce
 
-; Caster archetype demo (docs/ai.md P2): kites like the archer but its bolt is a
-;   named spell from spells.cat (spell=flame) thrown through the shared
-;   moving-item engine — the payoff of the one-projectile-engine decision.
 [skel_mage]
 display = Skeleton Mage
 category = skeleton
@@ -112,10 +56,6 @@ keeprange = 5
 spell = flame
 resists = pierce 0.5, slash 0.25, bash -0.5
 
-; Flee demo (docs/ai.md P2): a skittish critter that runs the moment it sees the
-;   party. fleebelow > 1 means hpFrac (max 1.0) is always under it, so it flees on
-;   sight — a clean way to watch the run-away executor. (Realistic use is a
-;   fraction like 0.3, which triggers only once the monster is wounded.) damage=0.
 [skel_coward]
 display = Skittish Skeleton
 category = skeleton
@@ -133,9 +73,6 @@ iq = 130
 fleebelow = 2.0
 resists = pierce 0.5, slash 0.25, bash -0.5
 
-; Swarm archetype (docs/ai.md P2): brute melee, but senses omnidirectionally (no
-;   blind spot — the archetype bundles it, no faces= needed) and is meant to come
-;   in numbers. size=medium packs several per cell so they truly swarm/surround.
 [skel_swarm]
 display = Bone Swarm
 category = skeleton
@@ -155,9 +92,6 @@ archetype = swarm
 resists = pierce 0.5, slash 0.25, bash -0.5
 dmgtype = slash
 
-; Lurker archetype (docs/ai.md P2): sits dormant until the party comes within ~2
-;   cells (ambush), then springs and pursues at full aggro — relentless, unlike a
-;   short-aggro brute. Place it in a spot the party walks past.
 [skel_lurker]
 display = Lurking Skeleton
 category = skeleton
@@ -175,7 +109,6 @@ iq = 130
 archetype = lurker
 resists = pierce 0.5, slash 0.25, bash -0.5
 dmgtype = slash
-; The ambusher opens a wound you carry away (Phase 6): 2/s for 10s, half its blows.
 bleed = 2 10 0.5
 
 [blob]
@@ -194,11 +127,8 @@ movecd = 0.95
 iq = 60
 faces = false
 roughness = 0.18
-; Gelatinous: points pass through, blunt splashes — but a slash TEARS the
-; surface tension that is its body.
 resists = pierce 0.6, bash 0.3, slash -0.25
 dmgtype = bash
-; Its touch envenoms (Phase 6): 1/s for 20s, every landed blow.
 poison = 1 20 1
 
 [mummy]
@@ -215,13 +145,9 @@ attackcd = 2.0
 aggro = 5
 movecd = 0.7
 iq = 100
-; Dry wrappings: kindling to fire, padded against points.
 resists = pierce 0.4, slash 0.1, fire -1.0
 dmgtype = bash
 
-; Authored, Mixamo-animated anatomical skeleton (fab Gamefruit mesh, rigid-bound
-; in Blender). Flat-shaded for now (no texture set). damage=0 for safe in-engine
-; observation of the animation.
 [skel_human]
 display = Bone Knight
 category = skeleton
@@ -238,11 +164,6 @@ size = large
 modelscale = 0.65
 resists = pierce 0.5, slash 0.25, bash -0.5
 dmgtype = slash
-; Animation rows generated by ImportAnimLibrary from the state-organized clip
-; library (OneDrive\DungeonAssets\anim\humanoid). 40 Mixamo clips named
-; <state>__<clip> (the state is in the clip name), a variation picked at random
-; per state. run/defend have clips but no sim behaviour yet (authored-ahead); the
-; ladder drives spawn/idle/incombat/walk/attack/hit/die.
 states = spawn idle incombat walk run attack defend hit die
 anim_spawn = spawn__getting_up_1 spawn__getting_up_2 spawn__getting_up spawn__standing_up
 anim_idle = idle__breathing_idle idle__dwarf_idle idle__happy_idle idle__idle_1 idle__idle_2 idle__idle_3 idle__idle idle__neutral_idle idle__orc_idle_1 idle__orc_idle
@@ -254,12 +175,6 @@ anim_defend = defend__body_block defend__dodging_right
 anim_hit = hit__big_hit_to_head_1 hit__big_hit_to_head_2 hit__big_hit_to_head hit__head_hit hit__hit_to_body
 anim_die = die__dying die__falling_back_death die__falling_forward_death die__standing_death_forward_01 die__standing_death_left_01 die__standing_react_death_backward die__standing_react_death_forward
 anim_spawn = rise
-
-; --- Bought rigged crawlers (fab.com "Assets Animated", 2026-07-10) -----------
-;   Authored single-mesh rigs installed by FetchModels.ps1's Rig path: the
-;   motion library ships IN the model as named actions (anim rows below), the
-;   4K PBR set is dumped from the FBX's embedded maps. Stats are first-cut;
-;   sizes tune live via modelscale in the editor's monster dialog.
 
 [giant_spider]
 display = Giant Spider
@@ -282,7 +197,6 @@ dmgtype = pierce
 states = idle incombat walk run attack hit die
 anim_idle = Idle
 anim_incombat = Roar
-; The source asset's walk take really is named "Wak" (typo ships in the FBX).
 anim_walk = Wak
 anim_run = Run
 anim_attack = Atk1 Atk2 Atk3 Atk4 Atk5 Atk6
@@ -318,12 +232,6 @@ anim_attack = Atk Atk2 Atk3
 anim_hit = Hit Hit2
 anim_die = Dead Dead2 Dead3
 
-; --- Skeleton Army Kit (Konjo Design, fab 2026-07-10) -------------------------
-;   Pre-built armed variants, Mixamo rigid-bound onto the shared humanoid clip
-;   library (FetchAnimLibrary skel_warrior/...). Multi-material: bones/armor/
-;   weapons render their own embedded textures — no texture= set. Stats are
-;   first cut; the armored warrior out-soaks the bare skeleton.
-
 [skel_warrior]
 display = Skeleton Warrior
 category = skeleton
@@ -341,7 +249,6 @@ size = large
 modelscale = 0.65
 resists = pierce 0.5, slash 0.25, bash -0.5
 dmgtype = slash
-; --- animation rows generated by ImportAnimLibrary ---
 states = spawn idle incombat walk run attack defend hit die
 anim_spawn = spawn__getting_up_1 spawn__getting_up_2 spawn__getting_up spawn__standing_up
 anim_idle = idle__breathing_idle idle__dwarf_idle idle__happy_idle idle__idle_1 idle__idle_2 idle__idle_3 idle__idle idle__neutral_idle idle__orc_idle_1 idle__orc_idle
@@ -353,9 +260,6 @@ anim_defend = defend__body_block defend__dodging_right
 anim_hit = hit__big_hit_to_head_1 hit__big_hit_to_head_2 hit__big_hit_to_head hit__head_hit hit__hit_to_body
 anim_die = die__dying die__falling_back_death die__falling_forward_death die__standing_death_forward_01 die__standing_death_left_01 die__standing_react_death_backward die__standing_react_death_forward
 
-; The kit's unarmored variant ("bare" bones, no plate) — fights with an axe in
-; the right hand and a spear in the left. Lighter and quicker than the warrior,
-; but nothing between a blow and its ribs.
 [skel_bare]
 display = Skeleton Raider
 category = skeleton
@@ -373,7 +277,6 @@ size = large
 modelscale = 0.65
 resists = pierce 0.5, slash 0.25, bash -0.5
 dmgtype = slash
-; --- animation rows generated by ImportAnimLibrary ---
 states = spawn idle incombat walk run attack defend hit die
 anim_spawn = spawn__getting_up_1 spawn__getting_up_2 spawn__getting_up spawn__standing_up
 anim_idle = idle__breathing_idle idle__dwarf_idle idle__happy_idle idle__idle_1 idle__idle_2 idle__idle_3 idle__idle idle__neutral_idle idle__orc_idle_1 idle__orc_idle
@@ -385,10 +288,6 @@ anim_defend = defend__body_block defend__dodging_right
 anim_hit = hit__big_hit_to_head_1 hit__big_hit_to_head_2 hit__big_hit_to_head hit__head_hit hit__hit_to_body
 anim_die = die__dying die__falling_back_death die__falling_forward_death die__standing_death_forward_01 die__standing_death_left_01 die__standing_react_death_backward die__standing_react_death_forward
 
-; The kit's frenzied variant — pauldrons and helm over bare bone, axe in the
-; right hand, spear in the left. Swings faster and harder than the warrior,
-; with only a token soak. (Mixamo refused this variant's auto-rig, so it binds
-; to the bare download's fitted armature via --rig-from.)
 [skel_berserker]
 display = Skeleton Berserker
 category = skeleton
@@ -406,7 +305,6 @@ size = large
 modelscale = 0.65
 resists = pierce 0.5, slash 0.25, bash -0.5
 dmgtype = slash
-; --- animation rows generated by ImportAnimLibrary ---
 states = spawn idle incombat walk run attack defend hit die
 anim_spawn = spawn__getting_up_1 spawn__getting_up_2 spawn__getting_up spawn__standing_up
 anim_idle = idle__breathing_idle idle__dwarf_idle idle__happy_idle idle__idle_1 idle__idle_2 idle__idle_3 idle__idle idle__neutral_idle idle__orc_idle_1 idle__orc_idle
@@ -418,9 +316,6 @@ anim_defend = defend__body_block defend__dodging_right
 anim_hit = hit__big_hit_to_head_1 hit__big_hit_to_head_2 hit__big_hit_to_head hit__head_hit hit__hit_to_body
 anim_die = die__dying die__falling_back_death die__falling_forward_death die__standing_death_forward_01 die__standing_death_left_01 die__standing_react_death_backward die__standing_react_death_forward
 
-; The kit's skirmisher — throwing spear in the right hand, round shield and a
-; javelin quiver across the back. The spear thrusts from the second rank:
-; the first monster with reach 2.
 [skel_spearman]
 display = Skeleton Spearman
 category = skeleton
@@ -439,7 +334,6 @@ size = large
 modelscale = 0.65
 resists = pierce 0.5, slash 0.25, bash -0.5
 dmgtype = pierce
-; --- animation rows generated by ImportAnimLibrary ---
 states = spawn idle incombat walk run attack defend hit die
 anim_spawn = spawn__getting_up_1 spawn__getting_up_2 spawn__getting_up spawn__standing_up
 anim_idle = idle__breathing_idle idle__dwarf_idle idle__happy_idle idle__idle_1 idle__idle_2 idle__idle_3 idle__idle idle__neutral_idle idle__orc_idle_1 idle__orc_idle

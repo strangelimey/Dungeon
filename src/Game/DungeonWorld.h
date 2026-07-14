@@ -3,9 +3,9 @@
 //
 // Owns the dungeon's two map layers (static .map structure, dynamic .ent
 // spawns), the party, the monsters, the fires (sconces + braziers with
-// particle effects), the serpent pillar, the batched surface geometry with
-// its texture variants, the lights, and the camera — plus the per-frame
-// simulation and both render passes (cube shadow maps, then the main scene).
+// particle effects), the batched surface geometry with its texture
+// variants, the lights, and the camera — plus the per-frame simulation and
+// both render passes (cube shadow maps, then the main scene).
 //
 // The world knows nothing about menus or the app state machine: Game decides
 // when to load it (AppendLoadTasks feeds the staged loader), when to step it
@@ -70,7 +70,7 @@ public:
 				 threads::Manager& threadManager);
 
 	// Appends the dungeon's load tasks (blocks, textures, batched meshes,
-	// pillar, monsters, fires, dust) to the staged loader. Order matters:
+	// monsters, fires, dust) to the staged loader. Order matters:
 	// textures register their variant counts before the geometry task buckets
 	// cells by variant. The texture work is split one task per material — the
 	// scanned sets are the bulk of the load (~300 MB at Ultra), and
@@ -643,9 +643,6 @@ public:
 	};
 	std::vector<MapMarker> MonsterMarkers() const;
 	std::vector<MapMarker> DecorationMarkers() const;
-	// The serpent pillar's cell (code-bound level-1 flavor, absent from the
-	// record-driven lists above). False while it isn't live.
-	bool PillarMarker(int& x, int& z) const;
 
 	// A read-only snapshot of ANOTHER level for the map overlay's up/down level
 	// browsing: its static map (the in-session edit stash wins over the file),
@@ -1256,7 +1253,7 @@ private:
 						 float fallbackRoughness);
 	// Fills a draw's material from a prop set (albedo + bump/parallax + ORM), or
 	// a flat color + roughness when the set is missing. Shared by every textured
-	// prop draw (decorations, fires, pillar, monsters).
+	// prop draw (decorations, fires, monsters).
 	static void ApplyPropMaterial(gfx::MaterialParams& m, const PropTextures* tex,
 								  const Vec4& fallbackColor, float fallbackRoughness);
 	// The DecorationKind flavour: the set/color fill above plus the kind's catalog
@@ -1409,8 +1406,8 @@ private:
 	// default non-solid, so only floor-standing blockers register.
 	bool SolidDecorationAt(int cx, int cz) const;
 
-	// True if a continuously-animating caster (a monster, or the swaying pillar)
-	// is within the light's reach — such a cube must re-render every frame.
+	// True if a continuously-animating caster (a monster) is within the
+	// light's reach — such a cube must re-render every frame.
 	// Fed to m_shadows.ShouldRender as the world's per-light verdict.
 	bool AnimatedCasterNear(const gfx::PointLight& light) const;
 
@@ -1503,12 +1500,6 @@ private:
 	// surface texture sets), held between the load and mesh-build tasks.
 	std::vector<assets::MeshData> m_wallBlocks, m_floorBlocks, m_ceilingBlocks;
 
-	assets::ModelData m_pillarModel;
-	std::unique_ptr<gfx::Mesh> m_pillarMesh;
-	anim::Animator m_pillarAnimator;
-	Vec3 m_pillarPos{};
-	const PropTextures* m_pillarTex = nullptr; // null: pillar uses flat jade baseColorFactor
-	bool m_pillarActive = false; // the serpent pillar is level-1 flavor only
 
 	std::flat_map<std::string, std::unique_ptr<MonsterKind>> m_monsterKinds;
 	std::vector<Monster> m_monsters;

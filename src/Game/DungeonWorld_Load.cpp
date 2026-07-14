@@ -173,23 +173,6 @@ void DungeonWorld::AppendLoadTasks(LoadQueue& queue) {
 	}
 
 	queue.Add(loc::Tr("load.dungeon"), [this] { BuildDungeonMeshes(); });
-	queue.Add(loc::Tr("load.pillar"), [this] {
-		m_pillarModel = LoadModelOrDie("pillar.gltf");
-		m_pillarMesh = std::make_unique<gfx::Mesh>(m_device, m_pillarModel.meshes[0]);
-		m_pillarAnimator = anim::Animator(&m_pillarModel.skeleton, &m_pillarModel.clips);
-		m_pillarAnimator.Play("sway");
-		// Tucked into the NW corner of the start room (one cell up-left of the
-		// start) so it greets the player without standing on the cells in front
-		// of the entrance.
-		m_pillarPos = m_map.CellCenter(m_map.StartX() - 1, m_map.StartZ() - 1);
-		// Borrow the peacock-ore stone set for its NORMAL + ORM maps only (carved
-		// micro-relief + roughness variation, so the pillar reads as stone, not a
-		// smooth wet tube). The albedo is discarded in DrawProps — that texture is
-		// purple; the jade color comes from the model's flat baseColorFactor.
-		m_pillarTex = LoadPropTextures("pillar");
-		// Flavor for the opening level only — don't spawn it on every level.
-		m_pillarActive = m_currentLevel == FirstLevel(m_project);
-	});
 	queue.Add(loc::Tr("load.monsters"), [this] {
 		LoadMonsters();
 		LoadItems();
@@ -876,7 +859,7 @@ int DungeonWorld::FreeItemSlotNear(int cx, int cz, float wx, float wz, int self)
 }
 
 // Loads a prop PBR set once and caches it (shared across decorations, fires,
-// the pillar, and monsters): sRGB albedo + linear normal/height + ORM, with the
+// and monsters): sRGB albedo + linear normal/height + ORM, with the
 // same res→2k fallback the surfaces use (props ship at 2k, so higher tiers fall
 // back). Returns null only if even the 2k albedo is absent — callers then keep
 // their flat glTF material color.

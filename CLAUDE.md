@@ -175,11 +175,11 @@ into spatial chunks (DungeonMeshBuilder GeometryChunk, kChunkCells=4, each
 with an AABB + texture variant), so the main pass frustum-culls off-screen
 chunks (DungeonWorld::ViewCull, Gribb-Hartmann from Camera::ViewProj) and
 each shadow cube sphere-culls out-of-range chunks; discrete meshes (props/
-monsters/fires/pillar) cull by bounding sphere too. Shadow cubes are CACHED
+monsters/fires) cull by bounding sphere too. Shadow cubes are CACHED
 per slot (ShadowSlotCache): a cube re-renders only when its light changed/
 moved (>2cm), a flicker tick is due (fire cubes throttle to half rate via
 PointLight::flickerShadow), geometry changed (map Revision), or an animating
-caster (monster/pillar) is in range — otherwise the cube stays in its SRV
+caster (a monster) is in range — otherwise the cube stays in its SRV
 state and is reused (the per-slot RT/SRV barrier guard makes the skip safe).
 DrawMesh skips redundant PSO swaps and, in the shadow pass, the texture-table
 binds; skinning palettes upload once per frame (cached by the animator's
@@ -188,7 +188,7 @@ buffer, reused across all ~25 submissions).
 ## Asset pipeline (everything loads from assets/, nothing generated at runtime)
 
 - `AssetBaker <assets>` — regenerates all procedural assets (block models
-  incl. worn tiers, monsters, sconce/brazier, pillar, sounds, title art,
+  incl. worn tiers, monsters, sconce/brazier, sounds, title art,
   party portraits) and ends with a mip bake.
 - `AssetBaker import <folder> <assets> <name> [--flip-green]` — packs a
   downloaded PBR set into three files: <name>.png (albedo), <name>_n.png
@@ -262,7 +262,7 @@ buffer, reused across all ~25 submissions).
   all 2k native; the models/ and bonus/ categories carry .obj prop meshes
   with their textures). `tools\FetchTextures.ps1` imports the materials the
   maps' `textures` records reference PLUS a fixed `$propSets` table — the
-  code-bound prop/creature sets (sconce/brazier/pillar/skeleton/mummy/blob,
+  code-bound prop/creature sets (sconce/brazier/skeleton/mummy/blob,
   renamed from their archive folders, 2k-native) — since those load by code
   convention, not a map record (override: -Materials list skips props, -All
   for everything — slow, hundreds of BC7 bakes; -Resolutions 1k,2k,4k). A
@@ -822,7 +822,7 @@ memory.
   rigged glTF would drop in via LoadModel (JOINTS_0 remap already handled).
   Everything is PBR-textured: each generated prop binds a scanned set by name
   (DungeonWorld::LoadPropTextures, shared with decorations) — sconce=worn-
-  medieval iron, brazier=bronze, pillar=peacock-ore, skeleton=carved limestone
+  medieval iron, brazier=bronze, skeleton=carved limestone
   (bone), mummy=stained burlap, blob=alien-slime. ModelBaker gives the box-
   built props world-aligned tiling UVs (TileUvs); the glTF baseColor stays as
   the flat fallback if a set is missing. Bought authored decoration meshes

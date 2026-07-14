@@ -1157,18 +1157,6 @@ std::vector<DungeonWorld::MapMarker> DungeonWorld::DecorationMarkers() const {
 	return markers;
 }
 
-bool DungeonWorld::PillarMarker(int& x, int& z) const {
-	// The serpent pillar is code-bound level-1 flavor (see the load.pillar
-	// task), invisible to the record-driven marker lists — the map overlay
-	// asks for it explicitly so nobody builds over it unknowingly. Active
-	// level only, like every live marker (the pillar doesn't EXIST while
-	// another level is live).
-	if (!m_pillarActive) return false;
-	x = static_cast<int>(m_pillarPos.x / kCellSize);
-	z = static_cast<int>(m_pillarPos.z / kCellSize);
-	return true;
-}
-
 void DungeonWorld::BeginLevelLoad(const std::string& stem, bool stashCurrent) {
 	m_device.WaitIdle(); // the GPU may still be reading the old level's meshes
 
@@ -1779,7 +1767,6 @@ void DungeonWorld::Update(const Input& input, float dt, float time, bool acceptI
 			m_fallT = -1.0f;
 		}
 	}
-	if (m_pillarActive) m_pillarAnimator.Update(dt);
 	UpdateMonsters(dt);
 	m_projectiles.Update(dt); // fly bolts, resolve impacts/fizzles via the hooks
 	UpdateLights(time);
@@ -1900,8 +1887,8 @@ float DungeonWorld::RunePulse(float time, int id) {
 }
 
 // Rebuilds the light list every frame: the carried torch follows the camera,
-// wall torches flicker with independent phases, the pillar glows. All
-// flicker is product-of-sines — cheap, deterministic, and aperiodic enough.
+// wall torches flicker with independent phases. All flicker is
+// product-of-sines — cheap, deterministic, and aperiodic enough.
 void DungeonWorld::UpdateLights(float time) {
 	m_lights.points.clear();
 
@@ -1948,22 +1935,6 @@ void DungeonWorld::UpdateLights(float time) {
 		m_lights.points.push_back(light);
 	}
 
-	if (m_pillarActive) {
-		gfx::PointLight glow;
-		// Low and soft: near the base so its hotspot pools on the FLOOR around the
-		// pillar (a magical ground glow) instead of burning a spotlight onto the
-		// ceiling directly above, which it did when sitting high at mid-height.
-		glow.position = {m_pillarPos.x, 0.7f, m_pillarPos.z};
-		glow.radius = 3.6f;
-		glow.color = {0.35f, 0.85f, 0.6f};
-		glow.intensity = 0.7f + 0.12f * std::sin(time * 2.2f);
-		// The glow casts the pillar's coil shadows from inside the mesh; that is
-		// a fixture of the scene, not a fire popping in, and its short range
-		// would otherwise fade the shadow out at any normal viewing distance.
-		glow.fadeShadow = false;
-		m_lights.points.push_back(glow);
-	}
-
 	// Each uncollected rune throws a soft pulsing light in its element colour,
 	// breathing in lockstep with the tablet's emissive glow (same RunePulse).
 	// Pure fill light — castsShadow=false keeps the cluster near the start from
@@ -1983,8 +1954,8 @@ void DungeonWorld::UpdateLights(float time) {
 
 	// The renderer uploads only the active light budget (Settings → Video → Max
 	// Lights, Low=16 .. Ultra=64) and shadow slots only consider those, so on a
-	// large level the fire count alone can crowd out a light pushed late (the
-	// pillar glow). Keep the ones NEAREST the eye instead of the first ones
+	// large level the fire count alone can crowd out a light pushed late (a
+	// rune glow). Keep the ones NEAREST the eye instead of the first ones
 	// pushed; the carried torch sits at the eye, so it always survives (and
 	// still wins shadow slot 0 in AssignShadowSlots).
 	const size_t budget = static_cast<size_t>(

@@ -108,8 +108,6 @@ bool DungeonWorld::AnimatedCasterNear(const gfx::PointLight& light) const {
 		const float reach = light.radius + r;
 		return d.x * d.x + d.y * d.y + d.z * d.z <= reach * reach;
 	};
-	if (m_pillarActive && inReach({m_pillarPos.x, 1.2f, m_pillarPos.z}, 1.2f))
-		return true; // sway
 	for (const Monster& m : m_monsters) {
 		if (!m.Alive() && m.deathAnim <= 0.0f) continue; // a dying monster still animates its cube
 		const Vec3 c = m_map.CellCenter(m.x, m.z);
@@ -176,27 +174,6 @@ void DungeonWorld::SubmitSceneGeometry(ID3D12GraphicsCommandList* list,
 	DrawSurface(list, m_walls, cull);
 	DrawSurface(list, m_floors, cull);
 	DrawSurface(list, m_ceilings, cull);
-
-	// Pillar — carved jade. The color is the model's flat baseColorFactor (a deep,
-	// muted jade); the stone set contributes ONLY its normal + ORM maps, giving the
-	// surface real micro-relief and roughness variation so it reads as polished
-	// mineral rather than a smooth wet tube. The peacock-ore albedo (purple) is
-	// deliberately dropped. Satin roughness, fully non-metallic.
-	if (m_pillarActive && visible({m_pillarPos.x, 1.2f, m_pillarPos.z}, 1.8f)) {
-		Mat4 pillarWorld = Mat4Identity();
-		pillarWorld._41 = m_pillarPos.x;
-		pillarWorld._43 = m_pillarPos.z;
-		gfx::MaterialParams pillarMaterial;
-		pillarMaterial.baseColor = m_pillarModel.materials[0].baseColorFactor;
-		pillarMaterial.metallic = 0.0f;
-		pillarMaterial.roughness = 0.55f;
-		if (m_pillarTex) {
-			pillarMaterial.normalMap = m_pillarTex->normal.get();
-			pillarMaterial.metalRough = m_pillarTex->mr.get(); // modulates rough/metal
-		}
-		m_renderer.DrawMesh(list, *m_pillarMesh, pillarWorld, pillarMaterial,
-							m_pillarAnimator.Palette());
-	}
 
 	// Static architecture decorations (columns, archways, fountains, ...):
 	// textured stone/wood with bump + parallax + ORM, falling back to the flat
