@@ -191,15 +191,9 @@ decoration iron_door 16 23 north solid=0
 decoration crate 29 20 south
 decoration barrel 25 29 south
 decoration pot 27 22 south
-decoration column_marble 3 10 south
 decoration column_marble 3 11 south
-decoration column_marble 3 12 south
 decoration column_marble 3 13 south
-decoration column_marble 3 14 south
 decoration column_marble 3 15 south
 decoration column_marble 5 15 south
-decoration column_marble 5 14 south
 decoration column_marble 5 13 south
-decoration column_marble 5 12 south
 decoration column_marble 5 11 south
-decoration column_marble 5 10 south

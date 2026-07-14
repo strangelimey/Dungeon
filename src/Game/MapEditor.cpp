@@ -350,11 +350,24 @@ void MapEditor::PaintCell(int cx, int cz, bool remote, const std::string& stem) 
 		const SS sel = m_sel.cat == PaletteCat::Walls    ? SS::Wall
 					   : m_sel.cat == PaletteCat::Floors ? SS::Floor
 														 : SS::Ceiling;
-		// The brush paints the square that was clicked: wall variants land on
-		// the solid block itself, floor/ceiling on the floor cell (EditVariant
-		// no-ops the wrong cell type).
-		if (remote) m_world.EditVariantRemote(stem, cx, cz, sel, m_sel.index);
-		else m_world.EditVariant(cx, cz, sel, m_sel.index);
+		// The texture brush owns the CELL TYPE too: painting a wall texture
+		// on a floor square raises the wall, a floor/ceiling texture carves
+		// solid rock walkable — one gesture instead of Structure-then-texture
+		// (Structure remains the "default hash mix, no override pinned"
+		// brush). The variant then lands on the converted square.
+		const Cell want = sel == SS::Wall ? Cell::Wall : Cell::Floor;
+		if (remote) {
+			m_world.EditCellRemote(stem, cx, cz, want); // no-op when already right
+			m_world.EditVariantRemote(stem, cx, cz, sel, m_sel.index);
+			return;
+		}
+		if (m_world.Map().At(cx, cz) != want) {
+			const Party& party = m_world.GetParty();
+			if (want == Cell::Wall && cx == party.GridX() && cz == party.GridZ())
+				return; // never wall the party in (skip; a fill keeps going)
+			m_world.EditCell(cx, cz, want);
+		}
+		m_world.EditVariant(cx, cz, sel, m_sel.index);
 		return;
 	}
 	default: return; // placement categories never reach here
@@ -400,9 +413,11 @@ void MapEditor::FloodFill(int cx, int cz) {
 													 : SS::Ceiling;
 	int baseVar = -1;
 	if (surface) {
-		// The brush only applies to its own square type (wall variants live on
-		// the solid block) — a fill started on the wrong type is a no-op, like
-		// a plain click there.
+		// FLOOD stays a recolor: the region keys on the brush surface's
+		// RESOLVED variant, which the wrong square type doesn't have — so a
+		// fill started there is a no-op. (A plain click or a shift-rect DOES
+		// convert the cell type; flood converting a whole room to solid on a
+		// misclick would be a foot-gun.)
 		if ((baseCell == Cell::Wall) != (sel == SS::Wall)) return;
 		baseVar = ResolvedVariant(cx, cz, static_cast<int>(sel));
 	} else if (baseCell == (m_sel.index == 0 ? Cell::Wall : Cell::Floor)) {

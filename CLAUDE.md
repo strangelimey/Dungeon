@@ -590,12 +590,16 @@ fit-whole-map at zoom 1) and resolves against GridArea, so Update (window-
 pixel panel, matches mouse coords) and Render (device-pixel panel) agree;
 zoom is cursor-anchored. CellAt is the inverse pick. The left-dock palette is a
 catalog-driven collapsible accordion (MapEditor::PaletteCat + the kCategoryInfo
-table): Structure (Wall/Floor), Walls/Floors/Ceilings
+table): Structure (Wall/Floor — the ROUGH-BLOCKING brush: cell type with the
+default hash-varied surface mix, no override records), Walls/Floors/Ceilings
 (per-cell surface VARIANT paint via DungeonMap variant grids — the BLOCK owns
 its texture: wall variants live on the SOLID cell, one texture for all four
 faces of that block both sides included, floor/ceiling variants on the floor
-cell; the brush paints exactly the square clicked, and EditVariant no-ops the
-wrong cell type. Stale variant records on the wrong cell type — pre-2026-07-13
+cell. The texture brush also CONVERTS the cell type on click/rect — a wall
+texture on a floor square raises the wall, a floor/ceiling texture carves
+rock — while FLOOD stays a recolor (its region keys on the resolved variant,
+so a wrong-type start is a no-op, not a room-to-solid foot-gun). Stale
+variant records on the wrong cell type — pre-2026-07-13
 files kept wall variants on bordering floor cells — are DROPPED at load), and the entity
 categories Decorations/Fixtures/Monsters/Buttons/Doors/Stairs/Items (live
 placement). Entries carrying a `category` field group under collapsible

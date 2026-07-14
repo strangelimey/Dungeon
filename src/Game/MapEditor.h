@@ -36,10 +36,13 @@ struct GameSettings;
 class MapEditor {
 public:
 	// Left-dock palette categories, drawn as a collapsible accordion. Structure
-	// toggles a cell solid/floor; Walls/Floors/Ceilings pin a surface variant on
-	// the clicked floor cell; the rest place catalog entities. Left-click paints/
-	// places the armed brush (nothing armed until a row is picked); the former
-	// Select/Erase tools live on the mouse instead — right-CLICK inspects a cell
+	// toggles a cell solid/floor with the DEFAULT surface mix (hash-varied, no
+	// override records — the rough-blocking brush); Walls/Floors/Ceilings pin
+	// a surface variant AND convert the cell type to match (a wall texture on
+	// a floor square raises the wall, a floor/ceiling texture carves rock);
+	// the rest place catalog entities. Left-click paints/places the armed
+	// brush (nothing armed until a row is picked); the former Select/Erase
+	// tools live on the mouse instead — right-CLICK inspects a cell
 	// (InspectAt), middle-click erases (EraseAt). Keep Count last (it sizes the
 	// per-category open-state array).
 	enum class PaletteCat {

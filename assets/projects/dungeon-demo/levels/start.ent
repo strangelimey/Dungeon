@@ -9,7 +9,6 @@ monster skel_swarm 13 7 north
 monster skel_swarm 14 7 north
 monster skeleton 15 7 west
 monster skel_swarm 13 8 north
-monster centipede 5 10 north
 monster mummy 4 12 east
 monster mummy 27 13 west
 monster skeleton 12 14 east
