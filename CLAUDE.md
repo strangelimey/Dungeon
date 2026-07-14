@@ -636,8 +636,15 @@ jumps onto the new canvas); the tools sit right as house-style ICON DISCS
 (assets/ui/icon_tb_*.png: Wenrexa discs + composited glyphs; hover brightens
 + shows a tooltip under the band; a missing icon falls back to the text
 face) — Level (per-level settings dialog) / Balance (combat tuning) /
-undo/redo (dimmed when their stack is empty) / Save (savemap) / To source
-(synctosource) — built by MapView::ToolbarButtons (ONE item list that
+undo/redo (dimmed when their stack is empty) / PLAY-PAUSE (the editor is a
+LIVE view — the world keeps simulating while it is open; this freezes it so
+you edit against a still scene: MapView::EditorPaused → Game SKIPS the whole
+m_world.Update, since monster actions fire off cooldowns not dt and a full-
+screen editor renders no scene needing a camera/light refresh. The button
+shows the ACTION — pause glyph while running, play glyph + "resume" tooltip
+while frozen — and the flag ALWAYS clears when the overlay closes or flips to
+Player mode, so a closed editor is never left paused) / Save (savemap) / To
+source (synctosource) — built by MapView::ToolbarButtons (ONE item list that
 geometry, hover, click dispatch and render all walk; adding a tool is one
 `add` line; hover on hand-drawn chrome is tracked by HoverBtn identity
 across the window-px/device-px split). The Level button opens

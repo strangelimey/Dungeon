@@ -81,6 +81,8 @@ MapView::MapView(gfx::GraphicsDevice& device, DungeonWorld& world,
 	m_icoSave = TryLoadTextureFile(device, paths::Asset("ui\\icon_tb_save"));
 	m_icoSource = TryLoadTextureFile(device, paths::Asset("ui\\icon_tb_source"));
 	m_icoNew = TryLoadTextureFile(device, paths::Asset("ui\\icon_tb_new"));
+	m_icoPlay = TryLoadTextureFile(device, paths::Asset("ui\\icon_tb_play"));
+	m_icoPause = TryLoadTextureFile(device, paths::Asset("ui\\icon_tb_pause"));
 }
 
 const DungeonMap& MapView::ViewedMap() const {
@@ -170,6 +172,11 @@ std::vector<MapView::ToolButton> MapView::ToolbarButtons(const gfx::Rect& panel)
 		m_world.CanUndo() && !busy);
 	add(HoverBtn::Balance, loc::Tr("map.btn.balance"), m_icoBalance.get(), true);
 	add(HoverBtn::LevelSettings, loc::Tr("map.btn.level"), m_icoLevel.get(), true);
+	// Pause/play: the button shows the ACTION available — a pause glyph while
+	// the world runs, a play glyph (+ "resume" tooltip) while frozen.
+	add(HoverBtn::PlayPause,
+		loc::Tr(m_editorPaused ? "map.btn.play" : "map.btn.pause"),
+		(m_editorPaused ? m_icoPlay : m_icoPause).get(), true);
 	// The level cluster pins the band's LEFT end (dropdown + [+]); routing it
 	// through the same list keeps hover/click/render single-pass.
 	btns.push_back({HoverBtn::LevelPick, LevelPickRect(panel), ViewedLevel(),
@@ -422,6 +429,7 @@ bool MapView::Update(const Input& input, const gfx::Rect& panel) {
 				case HoverBtn::Balance:       if (onBalance) onBalance(); break;
 				case HoverBtn::LevelSettings: if (onLevelSettings) onLevelSettings(); break;
 				case HoverBtn::LevelPick:     m_levelsOpen = true; break;
+				case HoverBtn::PlayPause:     m_editorPaused = !m_editorPaused; break;
 				case HoverBtn::NewLevel:
 					// Game creates the level (files + manifest) and returns
 					// the stem; jump the view straight onto the new canvas.

@@ -92,8 +92,12 @@ public:
 		m_pan = {0.0f, 0.0f};
 		m_browse.reset();
 		m_levelsOpen = false;
+		m_editorPaused = false; // closing/reopening always resumes the world
 	}
-	void Close() { m_open = false; }
+	void Close() {
+		m_open = false;
+		m_editorPaused = false; // "editor closed => game always un-paused"
+	}
 	// The M-key player-map toggle: open in Player mode, or close.
 	void Toggle() {
 		if (m_open) Close();
@@ -104,6 +108,16 @@ public:
 	void SetMode(Mode mode) {
 		m_mode = mode;
 		m_levelsOpen = false; // the level dropdown is Editor toolbar chrome
+		m_editorPaused = false; // leaving Editor mode resumes the world
+	}
+
+	// The editor's pause/play toolbar button: while true, Game freezes the
+	// world simulation (monsters, party, particles) so the level can be
+	// edited against a still scene. Editor-mode only, and always cleared when
+	// the overlay closes or flips to Player mode (Open/Close/SetMode) — so a
+	// closed editor never leaves the game paused.
+	bool EditorPaused() const {
+		return m_mode == Mode::Editor && m_editorPaused;
 	}
 
 	// A level was renamed (the Level dialog's inline edit): if the viewport is
@@ -222,7 +236,8 @@ private:
 	// see the editor-polish thread notes). A missing file leaves the pointer
 	// null and that button falls back to its text face.
 	std::unique_ptr<gfx::Texture> m_icoLevel, m_icoBalance, m_icoUndo,
-		m_icoRedo, m_icoSave, m_icoSource, m_icoNew;
+		m_icoRedo, m_icoSave, m_icoSource, m_icoNew, m_icoPlay, m_icoPause;
+	bool m_editorPaused = false; // pause/play toolbar toggle (see EditorPaused)
 
 	bool m_open = false;
 	Mode m_mode = Mode::Player;
@@ -245,7 +260,7 @@ private:
 	// ui::DrawButtonFace hover styling on the hand-drawn buttons.
 	enum class HoverBtn {
 		None, LevelUp, LevelDown, Undo, Redo, Save, SaveSource, Balance,
-		LevelSettings, NewLevel, LevelPick, CollapseL, CollapseR
+		LevelSettings, NewLevel, LevelPick, PlayPause, CollapseL, CollapseR
 	};
 	HoverBtn m_hoverBtn = HoverBtn::None;
 

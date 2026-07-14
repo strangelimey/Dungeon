@@ -2214,6 +2214,12 @@ void Game::Update(float dt) {
 							  m_mapEditor.KeyboardCaptured();
 	if (!typingFilter && input.WasKeyPressed('M')) m_mapView.Toggle();
 
+	// The editor's pause/play button freezes the world so the level can be
+	// edited against a still scene: no sim time step and no party input. Never
+	// set outside Editor mode (MapView::EditorPaused gates on it), and the
+	// overlay clears it on close/mode-flip, so a closed editor always runs.
+	const bool worldFrozen = m_mapView.EditorPaused();
+
 	// Deferred editor-geometry rebake: undo/redo skips the expensive surface
 	// rebuild while the full-screen editor hides the scene. The debt comes due
 	// the moment the scene can show again (editor closed OR flipped to the
@@ -2254,17 +2260,26 @@ void Game::Update(float dt) {
 		}
 		m_mapView.Update(input, MapPanel(static_cast<float>(m_window.Width()),
 										 static_cast<float>(m_window.Height())));
-		// Keyboard still moves the party — unless the filter box is eating it
-		// (the world keeps simulating either way; only key edges are blanked).
-		static const Input kNoInput;
-		m_world.Update(typingFilter ? kNoInput : input, wdt, m_time);
-		if (auto t = m_world.ConsumeLevelTransition()) {
-			m_mapView.Close(); // a stair step starts a new level load
-			BeginLevelTransition(t->level, t->x, t->z, t->facing);
-			return;
+		// The world keeps simulating while the map is open (the party still
+		// walks on the keyboard) — EXCEPT while the editor is PAUSED, where the
+		// whole world update is skipped so every persistent bit freezes:
+		// monster AI decisions (they act off cooldowns, not dt, so dt=0 alone
+		// wouldn't stop a ready monster), party tweens, particles, door slides,
+		// animators. Editing routes through MapEditor→DungeonWorld directly, not
+		// through Update, so it works while frozen; the full-screen editor
+		// renders no 3D scene, so the skipped camera/light refresh is unseen.
+		// The filter box eats the keyboard when it holds focus (blank Input).
+		if (!worldFrozen) {
+			static const Input kNoInput;
+			m_world.Update(typingFilter ? kNoInput : input, wdt, m_time);
+			if (auto t = m_world.ConsumeLevelTransition()) {
+				m_mapView.Close(); // a stair step starts a new level load
+				BeginLevelTransition(t->level, t->x, t->z, t->facing);
+				return;
+			}
+			Party& party = m_world.GetParty();
+			m_ui.SetHudStatus(party);
 		}
-		Party& party = m_world.GetParty();
-		m_ui.SetHudStatus(party);
 		return;
 	}
 
