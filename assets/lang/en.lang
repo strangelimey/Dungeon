@@ -358,6 +358,7 @@ map.title=Map
 map.position={}, {}
 map.hint=Drag to pan, wheel to zoom
 map.brushes=Palette
+map.filter.hint=Filter...
 map.cat.walls=Walls
 map.cat.floors=Floors
 map.cat.ceilings=Ceilings

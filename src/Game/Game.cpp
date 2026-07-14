@@ -2205,7 +2205,14 @@ void Game::Update(float dt) {
 	// Map overlay: a toggle that never pauses the world. While it is open the
 	// party still walks (keyboard) — the overlay only claims the mouse for
 	// panning/zooming/editing, and Esc/M closes it instead of pausing.
-	if (input.WasKeyPressed('M')) m_mapView.Toggle();
+	// EXCEPTION: while the editor's palette filter box holds focus, typed
+	// keys are ITS (an 'm' must not toggle the map, Esc only unfocuses, and
+	// the party must not walk on WASD) — capture is checked before the
+	// overlay update runs so a releasing Esc doesn't also act here.
+	const bool typingFilter = m_mapView.IsOpen() &&
+							  m_mapView.CurrentMode() == MapView::Mode::Editor &&
+							  m_mapEditor.KeyboardCaptured();
+	if (!typingFilter && input.WasKeyPressed('M')) m_mapView.Toggle();
 
 	// Deferred editor-geometry rebake: undo/redo skips the expensive surface
 	// rebuild while the full-screen editor hides the scene. The debt comes due
@@ -2228,7 +2235,7 @@ void Game::Update(float dt) {
 	if (m_mapView.IsOpen()) {
 		// While laying a patrol route (grid clicks lay waypoints), keys finish/undo
 		// it — ahead of the overlay's own Esc-to-close.
-		if (m_mapEditor.LayingRoute()) {
+		if (!typingFilter && m_mapEditor.LayingRoute()) {
 			if (input.WasKeyPressed(VK_BACK))
 				m_world.RemoveLastPatrolWaypoint(m_mapEditor.RouteId());
 			if (input.WasKeyPressed(VK_RETURN) || input.WasKeyPressed(VK_ESCAPE)) {
@@ -2241,13 +2248,16 @@ void Game::Update(float dt) {
 				return;
 			}
 		}
-		if (input.WasKeyPressed(VK_ESCAPE)) {
+		if (!typingFilter && input.WasKeyPressed(VK_ESCAPE)) {
 			m_mapView.Close();
 			return;
 		}
 		m_mapView.Update(input, MapPanel(static_cast<float>(m_window.Width()),
 										 static_cast<float>(m_window.Height())));
-		m_world.Update(input, wdt, m_time); // keyboard still moves the party
+		// Keyboard still moves the party — unless the filter box is eating it
+		// (the world keeps simulating either way; only key edges are blanked).
+		static const Input kNoInput;
+		m_world.Update(typingFilter ? kNoInput : input, wdt, m_time);
 		if (auto t = m_world.ConsumeLevelTransition()) {
 			m_mapView.Close(); // a stair step starts a new level load
 			BeginLevelTransition(t->level, t->x, t->z, t->facing);

@@ -375,6 +375,13 @@ bool MapView::Update(const Input& input, const gfx::Rect& panel) {
 		m_editor->OnWheel(input.WheelDelta(), panel);
 	}
 
+	// Palette filter box: typed characters while it holds focus, hover for
+	// its controls row (Game gates the party keys on KeyboardCaptured).
+	if (editor && m_editor && !m_settings.mapPaletteCollapsed) {
+		m_editor->HandleTyping(input);
+		m_editor->TrackMouse(mx, my, panel);
+	}
+
 	// Dock interactions, each claiming the click so it never also pans/paints.
 	if (input.WasMousePressed(MouseButton::Left)) {
 		// The open level dropdown claims the whole click first: a row picks
@@ -519,6 +526,7 @@ bool MapView::Update(const Input& input, const gfx::Rect& panel) {
 		int cx, cz;
 		bool painted = false;
 		if (input.WasMousePressed(MouseButton::Left) && CellAt(mx, my, panel, cx, cz)) {
+			m_editor->DropFilterFocus(); // painting reclaims the keyboard
 			if (alt) m_editor->PickAt(cx, cz); // never mutates — no refresh needed
 			else if (shift) { m_editor->PaintRect(cx, cz); painted = true; }
 			else if (ctrl) { m_editor->FloodFill(cx, cz); painted = true; }

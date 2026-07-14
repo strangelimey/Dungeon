@@ -360,6 +360,7 @@ map.title=Mappa
 map.position={}, {}
 map.hint=Trascina per spostare, rotellina per zoom
 map.brushes=Tavolozza
+map.filter.hint=Filtra...
 map.cat.walls=Muri
 map.cat.floors=Pavimenti
 map.cat.ceilings=Soffitti

@@ -360,6 +360,7 @@ map.title=Mapa
 map.position={}, {}
 map.hint=Arrastra para mover, rueda para zoom
 map.brushes=Paleta
+map.filter.hint=Filtrar...
 map.cat.walls=Muros
 map.cat.floors=Suelos
 map.cat.ceilings=Techos

@@ -588,7 +588,14 @@ MapView::CellVisible (always true in Editor, else IsSeen). The transform is
 resolution-independent (pan = fraction of the grid area, zoom = unitless,
 fit-whole-map at zoom 1) and resolves against GridArea, so Update (window-
 pixel panel, matches mouse coords) and Render (device-pixel panel) agree;
-zoom is cursor-anchored. CellAt is the inverse pick. The left-dock palette is a
+zoom is cursor-anchored. CellAt is the inverse pick. The left-dock palette has a
+fixed CONTROLS ROW at the top of its body (above the scrolled accordion): a
+FILTER text box + [x] clear + [-] collapse-all. Clicking the box focuses it
+(typed chars land there and MapEditor::KeyboardCaptured gates the game's
+party keys / M / Esc so an 'm' doesn't toggle the map; Esc/Enter or a grid
+paint release it); a set filter lists matching items FLAT under each category
+header regardless of accordion/group state and drops empty categories, [x]
+clears it, [-] collapses every accordion + sub-group. Below it, the palette is a
 catalog-driven collapsible accordion (MapEditor::PaletteCat + the kCategoryInfo
 table): Walls/Floors/Ceilings — THE structural brushes (the old Structure
 Wall/Floor rows folded in): per-cell surface VARIANT paint via DungeonMap

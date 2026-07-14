@@ -27,6 +27,10 @@
 #include <string>
 #include <vector>
 
+namespace dungeon {
+class Input; // Platform/Input.h — the filter box consumes TypedChars
+}
+
 namespace dungeon::game {
 
 class MapView;
@@ -87,6 +91,21 @@ public:
 	static const char* CategoryNameKey(PaletteCat cat);
 	static const char* CategoryCatalogKey(PaletteCat cat);
 	static bool CategoryTextureSet(PaletteCat cat);
+
+	// --- palette controls row (filter box + clear + collapse-all) ------------
+	// A fixed strip at the top of the dock body, above the scrolled accordion.
+	// The FILTER restricts the palette to items whose label contains the text
+	// (case-insensitive); while active, matching items show flat under their
+	// category header regardless of accordion state, and empty categories
+	// drop out. Clicking the box focuses it: typed characters land here and
+	// the GAME's keyboard is captured (Game gates the party/M/Esc on
+	// KeyboardCaptured), Esc/Enter release it, Backspace edits.
+	void HandleTyping(const Input& input);
+	// Hover tracking for the controls row (called per Update with the live
+	// mouse — render styles by identity across the window/device px split).
+	void TrackMouse(float mx, float my, const gfx::Rect& panel);
+	bool KeyboardCaptured() const { return m_filterFocused; }
+	void DropFilterFocus() { m_filterFocused = false; } // grid click steals focus
 
 	// Mouse wheel over the (expanded) left dock scrolls the accordion.
 	void OnWheel(float delta, const gfx::Rect& panel);
@@ -192,6 +211,22 @@ private:
 	// The items of a category, resolved from the project's catalogs / the
 	// level palette (Walls/Floors/Ceilings/entities).
 	std::vector<PaletteItem> CategoryItems(PaletteCat cat) const;
+
+	// Controls-row geometry (all derived from the panel like the dock chrome):
+	// [filter box............][x][-] on one line at the dock body's top; the
+	// accordion lays out in the remainder (AccordionBody).
+	gfx::Rect ControlsRow(const gfx::Rect& panel) const;
+	gfx::Rect FilterBoxRect(const gfx::Rect& panel) const;
+	gfx::Rect FilterClearRect(const gfx::Rect& panel) const;
+	gfx::Rect CollapseAllRect(const gfx::Rect& panel) const;
+	gfx::Rect AccordionBody(const gfx::Rect& panel) const;
+	bool MatchesFilter(const std::string& label) const;
+
+	std::string m_filter;         // case-insensitive substring, "" = off
+	bool m_filterFocused = false; // typed chars land in the box
+	// Which control the mouse is over (hover styling; None = neither).
+	enum class HotCtrl { None, Filter, Clear, Collapse };
+	HotCtrl m_hotCtrl = HotCtrl::None;
 	void BuildPaletteRows(const gfx::Rect& panel, std::vector<PaletteRow>& out,
 						  float& contentHeight) const;
 	// Applies the armed selection to cell (cx,cz): structural/variant paints, tool

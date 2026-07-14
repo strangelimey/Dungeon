@@ -12,6 +12,7 @@
 #include "Game/DungeonMeshBuilder.h" // SurfaceVariantFor (eyedropper/flood key)
 #include "Game/DungeonWorld.h"
 #include "Game/Entity.h"
+#include "Platform/Input.h" // the filter box consumes TypedChars/VK edges
 #include "Game/GameSettings.h"
 #include "Game/MapColors.h"
 #include "Game/MapView.h"
@@ -121,17 +122,109 @@ std::vector<MapEditor::PaletteItem> MapEditor::CategoryItems(PaletteCat cat) con
 	}
 }
 
+// --- palette controls row (filter + clear + collapse-all) --------------------
+
+gfx::Rect MapEditor::ControlsRow(const gfx::Rect& panel) const {
+	const gfx::Rect body = m_view.PaletteBody(panel);
+	const float h = std::clamp(panel.h * 0.040f, 20.0f, 36.0f);
+	return {body.x, body.y, body.w, h};
+}
+
+gfx::Rect MapEditor::CollapseAllRect(const gfx::Rect& panel) const {
+	const gfx::Rect row = ControlsRow(panel);
+	return {row.x + row.w - row.h, row.y, row.h, row.h}; // square, right end
+}
+
+gfx::Rect MapEditor::FilterClearRect(const gfx::Rect& panel) const {
+	const gfx::Rect c = CollapseAllRect(panel);
+	const float pad = MapView::DockPad(panel);
+	return {c.x - pad - c.h, c.y, c.h, c.h}; // square, left of collapse-all
+}
+
+gfx::Rect MapEditor::FilterBoxRect(const gfx::Rect& panel) const {
+	const gfx::Rect row = ControlsRow(panel);
+	const gfx::Rect clear = FilterClearRect(panel);
+	const float pad = MapView::DockPad(panel);
+	return {row.x, row.y, clear.x - pad - row.x, row.h};
+}
+
+gfx::Rect MapEditor::AccordionBody(const gfx::Rect& panel) const {
+	const gfx::Rect body = m_view.PaletteBody(panel);
+	const float used = ControlsRow(panel).h + MapView::DockPad(panel);
+	return {body.x, body.y + used, body.w, body.h - used};
+}
+
+bool MapEditor::MatchesFilter(const std::string& label) const {
+	if (m_filter.empty()) return true;
+	auto lower = [](const std::string& s) {
+		std::string out = s;
+		for (char& ch : out)
+			ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+		return out;
+	};
+	return lower(label).find(lower(m_filter)) != std::string::npos;
+}
+
+void MapEditor::HandleTyping(const Input& input) {
+	if (!m_filterFocused) return;
+	bool edited = false;
+	for (const char c : input.TypedChars()) {
+		if (static_cast<unsigned char>(c) < 0x20) continue; // printable only
+		if (m_filter.size() >= 24) break;
+		m_filter.push_back(c);
+		edited = true;
+	}
+	if (input.WasKeyPressed(vk::Back) && !m_filter.empty()) {
+		m_filter.pop_back();
+		edited = true;
+	}
+	// Esc/Enter release the keyboard back to the game (Game gates the party
+	// keys and its own Esc/M on KeyboardCaptured while we hold it).
+	if (input.WasKeyPressed(vk::Escape) || input.WasKeyPressed(vk::Return))
+		m_filterFocused = false;
+	if (edited) m_paletteScroll = 0.0f; // a changed filter restarts at the top
+}
+
+void MapEditor::TrackMouse(float mx, float my, const gfx::Rect& panel) {
+	m_hotCtrl = FilterBoxRect(panel).Contains(mx, my)     ? HotCtrl::Filter
+				: FilterClearRect(panel).Contains(mx, my) ? HotCtrl::Clear
+				: CollapseAllRect(panel).Contains(mx, my) ? HotCtrl::Collapse
+														  : HotCtrl::None;
+}
+
 void MapEditor::BuildPaletteRows(const gfx::Rect& panel, std::vector<PaletteRow>& out,
 								 float& contentHeight) const {
 	out.clear();
-	const gfx::Rect body = m_view.PaletteBody(panel);
+	const gfx::Rect body = AccordionBody(panel);
 	const float pad = MapView::DockPad(panel);
 	const float headerH = std::clamp(panel.h * 0.045f, 22.0f, 42.0f);
 	const float itemH = std::clamp(panel.h * 0.040f, 20.0f, 36.0f);
+	// While a filter is set, matching items list FLAT under their category
+	// header regardless of accordion/group state (a filter over collapsed
+	// accordions would otherwise show nothing), "+ New..." rows hide, and a
+	// category with no matches drops out entirely.
+	const bool filtering = !m_filter.empty();
 
 	float y = body.y - m_paletteScroll;
 	for (int c = 0; c < static_cast<int>(PaletteCat::Count); ++c) {
 		const PaletteCat cat = static_cast<PaletteCat>(c);
+		const std::vector<PaletteItem> items = CategoryItems(cat);
+		if (filtering) {
+			std::vector<int> matches;
+			for (int i = 0; i < static_cast<int>(items.size()); ++i)
+				if (MatchesFilter(items[i].label)) matches.push_back(i);
+			if (matches.empty()) continue; // category drops out
+			out.push_back({PaletteRow::Kind::Header, cat, -1,
+						   {body.x, y, body.w, headerH}});
+			y += headerH;
+			for (const int i : matches) {
+				out.push_back({PaletteRow::Kind::Item, cat, i,
+							   {body.x, y, body.w, itemH}, std::string()});
+				y += itemH;
+			}
+			y += pad;
+			continue;
+		}
 		out.push_back({PaletteRow::Kind::Header, cat, -1, {body.x, y, body.w, headerH}});
 		y += headerH;
 		if (m_catOpen[c]) {
@@ -140,7 +233,6 @@ void MapEditor::BuildPaletteRows(const gfx::Rect& panel, std::vector<PaletteRow>
 							   {body.x, y, body.w, itemH}});
 				y += itemH;
 			}
-			const std::vector<PaletteItem> items = CategoryItems(cat);
 			if (items.empty()) {
 				out.push_back({PaletteRow::Kind::Empty, cat, -1, {body.x, y, body.w, itemH}});
 				y += itemH;
@@ -181,11 +273,30 @@ void MapEditor::OnWheel(float delta, const gfx::Rect& panel) {
 	std::vector<PaletteRow> rows;
 	float content = 0.0f;
 	BuildPaletteRows(panel, rows, content);
-	const float maxScroll = std::max(0.0f, content - m_view.PaletteBody(panel).h);
+	const float maxScroll = std::max(0.0f, content - AccordionBody(panel).h);
 	m_paletteScroll = std::clamp(m_paletteScroll - delta * 28.0f, 0.0f, maxScroll);
 }
 
 bool MapEditor::OnClick(float mx, float my, const gfx::Rect& panel) {
+	// Controls row first: the filter box takes focus, [x] clears, [-]
+	// collapses every accordion (and sub-group). Any other palette click
+	// releases the filter's keyboard capture.
+	if (FilterBoxRect(panel).Contains(mx, my)) {
+		m_filterFocused = true;
+		return true;
+	}
+	m_filterFocused = false;
+	if (FilterClearRect(panel).Contains(mx, my)) {
+		m_filter.clear();
+		m_paletteScroll = 0.0f;
+		return true;
+	}
+	if (CollapseAllRect(panel).Contains(mx, my)) {
+		m_catOpen.fill(false);
+		m_groupOpen.clear(); // groups default collapsed
+		m_paletteScroll = 0.0f;
+		return true;
+	}
 	std::vector<PaletteRow> rows;
 	float content = 0.0f;
 	BuildPaletteRows(panel, rows, content);
@@ -533,7 +644,33 @@ void MapEditor::RenderBody(gfx::SpriteBatch& batch, const ui::Theme& theme,
 						   const gfx::Rect& panel) {
 	ui::Font& font = m_view.Font();
 	const float dpad = MapView::DockPad(panel);
-	const gfx::Rect body = m_view.PaletteBody(panel);
+
+	// Controls row (fixed above the scrolled accordion): filter box with
+	// placeholder/caret, [x] clear, [-] collapse-all.
+	{
+		const gfx::Rect box = FilterBoxRect(panel);
+		batch.DrawRect(box, theme.control);
+		ui::DrawBorder(batch, box,
+					   m_filterFocused ? theme.accent : theme.panelBorder);
+		const float ty = box.y + (box.h - font.Height()) * 0.5f;
+		if (m_filter.empty() && !m_filterFocused) {
+			font.Draw(batch, loc::Tr("map.filter.hint"), box.x + dpad, ty,
+					  theme.textDim);
+		} else {
+			font.Draw(batch, m_filter, box.x + dpad, ty, theme.text);
+			if (m_filterFocused) { // caret at the text end
+				const float cx = box.x + dpad + font.MeasureWidth(m_filter) + 1.0f;
+				batch.DrawRect({cx, box.y + 4.0f, 1.0f, box.h - 8.0f}, theme.text);
+			}
+		}
+		ui::DrawButtonFace(batch, font, FilterClearRect(panel), "x", theme,
+						   m_hotCtrl == HotCtrl::Clear && !m_filter.empty(),
+						   false, !m_filter.empty());
+		ui::DrawButtonFace(batch, font, CollapseAllRect(panel), "-", theme,
+						   m_hotCtrl == HotCtrl::Collapse, false, true);
+	}
+
+	const gfx::Rect body = AccordionBody(panel);
 	batch.SetScissor(&body);
 
 	std::vector<PaletteRow> rows;

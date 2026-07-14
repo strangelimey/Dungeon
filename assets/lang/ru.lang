@@ -364,6 +364,7 @@ map.title=Карта
 map.position={}, {}
 map.hint=Тяните для перемещения, колесо для масштаба
 map.brushes=Палитра
+map.filter.hint=Фильтр...
 map.cat.walls=Стены
 map.cat.floors=Полы
 map.cat.ceilings=Потолки

@@ -360,6 +360,7 @@ map.title=Karte
 map.position={}, {}
 map.hint=Ziehen zum Verschieben, Rad zum Zoomen
 map.brushes=Palette
+map.filter.hint=Filtern...
 map.cat.walls=Wände
 map.cat.floors=Böden
 map.cat.ceilings=Decken
