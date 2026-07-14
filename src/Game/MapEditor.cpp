@@ -35,8 +35,8 @@ struct CatInfo {
 	bool textureSet;
 };
 constexpr CatInfo kCategoryInfo[] = {
-	{"map.cat.structure", "", false},       {"map.cat.walls", "walls", true},
-	{"map.cat.floors", "floors", true},     {"map.cat.ceilings", "ceilings", true},
+	{"map.cat.walls", "walls", true},       {"map.cat.floors", "floors", true},
+	{"map.cat.ceilings", "ceilings", true},
 	{"map.cat.decorations", "decorations", false},
 	{"map.cat.fixtures", "fixtures", false}, {"map.cat.monsters", "monsters", false},
 	{"map.cat.buttons", "buttons", false},  {"map.cat.doors", "doors", false},
@@ -52,8 +52,7 @@ const CatInfo& CatInfoFor(MapEditor::PaletteCat cat) {
 
 MapEditor::MapEditor(MapView& view, DungeonWorld& world, GameSettings& settings)
 	: m_view(view), m_world(world), m_settings(settings) {
-	// Open the most-used categories by default; the rest start collapsed.
-	m_catOpen[static_cast<size_t>(PaletteCat::Structure)] = true;
+	// Open the most-used category by default; the rest start collapsed.
 	m_catOpen[static_cast<size_t>(PaletteCat::Walls)] = true;
 }
 
@@ -61,9 +60,9 @@ const char* MapEditor::CategoryNameKey(PaletteCat cat) { return CatInfoFor(cat).
 const char* MapEditor::CategoryCatalogKey(PaletteCat cat) { return CatInfoFor(cat).catalogKey; }
 bool MapEditor::CategoryTextureSet(PaletteCat cat) { return CatInfoFor(cat).textureSet; }
 
-// Resolves a category's items: built-in tools/structure, the level's surface
-// palette (Walls/Floors/Ceilings, display names from the project's surface
-// catalogs), or the project's entity catalogs.
+// Resolves a category's items: the level's surface palette (Walls/Floors/
+// Ceilings, display names from the project's surface catalogs), or the
+// project's entity catalogs.
 std::vector<MapEditor::PaletteItem> MapEditor::CategoryItems(PaletteCat cat) const {
 	// Surface palettes come from the VIEWED level (level browsing edits any
 	// level, and each declares its own palette ids).
@@ -102,9 +101,6 @@ std::vector<MapEditor::PaletteItem> MapEditor::CategoryItems(PaletteCat cat) con
 	};
 
 	switch (cat) {
-	case PaletteCat::Structure:
-		return {{loc::Tr("map.brush.wall"), kWall},
-				{loc::Tr("map.brush.floor"), kFloor}};
 	case PaletteCat::Walls:
 		return surfaceItems(map.WallPalette(), proj.walls, kWall,
 							DungeonWorld::SurfaceSel::Wall);
@@ -257,7 +253,6 @@ void MapEditor::ApplyBrush(int cx, int cz, bool dragging) {
 	bool changed = false;
 
 	switch (m_sel.cat) {
-	case PaletteCat::Structure:
 	case PaletteCat::Walls:
 	case PaletteCat::Floors:
 	case PaletteCat::Ceilings: {
@@ -331,47 +326,27 @@ void MapEditor::ApplyBrush(int cx, int cz, bool dragging) {
 
 void MapEditor::PaintCell(int cx, int cz, bool remote, const std::string& stem) {
 	using SS = DungeonWorld::SurfaceSel;
-	switch (m_sel.cat) {
-	case PaletteCat::Structure: {
-		const Cell target = m_sel.index == 0 ? Cell::Wall : Cell::Floor;
-		if (remote) { // the party is never on a browsed level — no trap check
-			m_world.EditCellRemote(stem, cx, cz, target);
-			return;
-		}
+	if (!PaintableCat(m_sel.cat)) return; // placement never reaches here
+	const SS sel = m_sel.cat == PaletteCat::Walls    ? SS::Wall
+				   : m_sel.cat == PaletteCat::Floors ? SS::Floor
+													 : SS::Ceiling;
+	// The texture brush owns the CELL TYPE too: painting a wall texture on a
+	// floor square raises the wall, a floor/ceiling texture carves solid rock
+	// walkable, then the variant lands on the converted square — these ARE
+	// the structural brushes (the old Structure Wall/Floor rows folded in).
+	const Cell want = sel == SS::Wall ? Cell::Wall : Cell::Floor;
+	if (remote) {
+		m_world.EditCellRemote(stem, cx, cz, want); // no-op when already right
+		m_world.EditVariantRemote(stem, cx, cz, sel, m_sel.index);
+		return;
+	}
+	if (m_world.Map().At(cx, cz) != want) {
 		const Party& party = m_world.GetParty();
-		const bool wouldTrapParty = target == Cell::Wall &&
-									cx == party.GridX() && cz == party.GridZ();
-		if (!wouldTrapParty) m_world.EditCell(cx, cz, target);
-		return;
+		if (want == Cell::Wall && cx == party.GridX() && cz == party.GridZ())
+			return; // never wall the party in (skip; a fill keeps going)
+		m_world.EditCell(cx, cz, want);
 	}
-	case PaletteCat::Walls:
-	case PaletteCat::Floors:
-	case PaletteCat::Ceilings: {
-		const SS sel = m_sel.cat == PaletteCat::Walls    ? SS::Wall
-					   : m_sel.cat == PaletteCat::Floors ? SS::Floor
-														 : SS::Ceiling;
-		// The texture brush owns the CELL TYPE too: painting a wall texture
-		// on a floor square raises the wall, a floor/ceiling texture carves
-		// solid rock walkable — one gesture instead of Structure-then-texture
-		// (Structure remains the "default hash mix, no override pinned"
-		// brush). The variant then lands on the converted square.
-		const Cell want = sel == SS::Wall ? Cell::Wall : Cell::Floor;
-		if (remote) {
-			m_world.EditCellRemote(stem, cx, cz, want); // no-op when already right
-			m_world.EditVariantRemote(stem, cx, cz, sel, m_sel.index);
-			return;
-		}
-		if (m_world.Map().At(cx, cz) != want) {
-			const Party& party = m_world.GetParty();
-			if (want == Cell::Wall && cx == party.GridX() && cz == party.GridZ())
-				return; // never wall the party in (skip; a fill keeps going)
-			m_world.EditCell(cx, cz, want);
-		}
-		m_world.EditVariant(cx, cz, sel, m_sel.index);
-		return;
-	}
-	default: return; // placement categories never reach here
-	}
+	m_world.EditVariant(cx, cz, sel, m_sel.index);
 }
 
 void MapEditor::PaintRect(int cx, int cz) {
@@ -407,22 +382,16 @@ void MapEditor::FloodFill(int cx, int cz) {
 	if (cx < 0 || cz < 0 || cx >= map.Width() || cz >= map.Height()) return;
 	using SS = DungeonWorld::SurfaceSel;
 	const Cell baseCell = map.At(cx, cz);
-	const bool surface = m_sel.cat != PaletteCat::Structure;
 	const SS sel = m_sel.cat == PaletteCat::Walls    ? SS::Wall
 				   : m_sel.cat == PaletteCat::Floors ? SS::Floor
 													 : SS::Ceiling;
-	int baseVar = -1;
-	if (surface) {
-		// FLOOD stays a recolor: the region keys on the brush surface's
-		// RESOLVED variant, which the wrong square type doesn't have — so a
-		// fill started there is a no-op. (A plain click or a shift-rect DOES
-		// convert the cell type; flood converting a whole room to solid on a
-		// misclick would be a foot-gun.)
-		if ((baseCell == Cell::Wall) != (sel == SS::Wall)) return;
-		baseVar = ResolvedVariant(cx, cz, static_cast<int>(sel));
-	} else if (baseCell == (m_sel.index == 0 ? Cell::Wall : Cell::Floor)) {
-		return; // structural fill over its own type: nothing to change
-	}
+	// FLOOD stays a recolor: the region keys on the brush surface's
+	// RESOLVED variant, which the wrong square type doesn't have — so a
+	// fill started there is a no-op. (A plain click or a shift-rect DOES
+	// convert the cell type; flood converting a whole room to solid on a
+	// misclick would be a foot-gun.)
+	if ((baseCell == Cell::Wall) != (sel == SS::Wall)) return;
+	const int baseVar = ResolvedVariant(cx, cz, static_cast<int>(sel));
 	// 4-connected region of same cell type (+ same resolved variant for the
 	// surface brushes, so the fill stops where the visible texture changes).
 	std::vector<std::pair<int, int>> region, stack{{cx, cz}};
@@ -442,8 +411,7 @@ void MapEditor::FloodFill(int cx, int cz) {
 				continue;
 			if (seen[idx(nx, nz)]) continue;
 			if (map.At(nx, nz) != baseCell) continue;
-			if (surface &&
-				ResolvedVariant(nx, nz, static_cast<int>(sel)) != baseVar)
+			if (ResolvedVariant(nx, nz, static_cast<int>(sel)) != baseVar)
 				continue;
 			seen[idx(nx, nz)] = 1;
 			stack.push_back({nx, nz});

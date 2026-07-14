@@ -320,7 +320,7 @@ void Game::WireModuleCallbacks() {
 	// (Walls/Floors/Ceilings import a texture folder; the rest import a model).
 	m_mapEditor.onNewAsset = [this](MapEditor::PaletteCat cat) {
 		const char* key = MapEditor::CategoryCatalogKey(cat);
-		if (!*key) return; // Tools/Structure aren't creatable
+		if (!*key) return; // belt-and-braces: every category names a catalog
 		m_assetDialog.Open(loc::Tr(MapEditor::CategoryNameKey(cat)), key,
 						   MapEditor::CategoryTextureSet(cat), m_settings.theme);
 	};

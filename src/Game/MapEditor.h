@@ -35,18 +35,19 @@ struct GameSettings;
 
 class MapEditor {
 public:
-	// Left-dock palette categories, drawn as a collapsible accordion. Structure
-	// toggles a cell solid/floor with the DEFAULT surface mix (hash-varied, no
-	// override records — the rough-blocking brush); Walls/Floors/Ceilings pin
-	// a surface variant AND convert the cell type to match (a wall texture on
-	// a floor square raises the wall, a floor/ceiling texture carves rock);
-	// the rest place catalog entities. Left-click paints/places the armed
-	// brush (nothing armed until a row is picked); the former Select/Erase
-	// tools live on the mouse instead — right-CLICK inspects a cell
-	// (InspectAt), middle-click erases (EraseAt). Keep Count last (it sizes the
-	// per-category open-state array).
+	// Left-dock palette categories, drawn as a collapsible accordion.
+	// Walls/Floors/Ceilings are THE structural brushes: they pin a surface
+	// variant AND convert the cell type to match (a wall texture on a floor
+	// square raises the wall, a floor/ceiling texture carves rock walkable) —
+	// the old Structure Wall/Floor rows folded into them; the default
+	// hash-mix look is still reachable per cell via the middle-click erase
+	// ladder's variant reset. The rest place catalog entities. Left-click
+	// paints/places the armed brush (nothing armed until a row is picked);
+	// the former Select/Erase tools live on the mouse instead — right-CLICK
+	// inspects a cell (InspectAt), middle-click erases (EraseAt). Keep Count
+	// last (it sizes the per-category open-state array).
 	enum class PaletteCat {
-		Structure, Walls, Floors, Ceilings,
+		Walls, Floors, Ceilings,
 		Decorations, Fixtures, Monsters, Buttons, Doors, Stairs, Items, Count
 	};
 
@@ -102,7 +103,7 @@ public:
 	// no-op until a palette row is armed.
 	void Paint(int cx, int cz, bool dragging) { ApplyBrush(cx, cz, dragging); }
 	// Modifier gestures (MapView routes by the modifier held at the press).
-	// All three work on the paint brushes (Structure + surface variants);
+	// All three work on the paint brushes (the surface categories);
 	// rect/flood fall back to a normal click for the placement categories.
 	// Shift+click: fill the rectangle spanned by the LAST painted cell (the
 	// anchor every plain paint and gesture leaves behind) and this one — the
@@ -142,7 +143,7 @@ private:
 	// index -1 = nothing armed yet (left-click does nothing until a row is
 	// picked — the mouse-button inspect/erase work regardless).
 	struct Selection {
-		PaletteCat cat = PaletteCat::Structure;
+		PaletteCat cat = PaletteCat::Walls;
 		int index = -1;
 	};
 
@@ -184,12 +185,12 @@ private:
 		return it != m_groupOpen.end() && it->second;
 	}
 
-	// Categories that can author new assets (everything but the built-in
-	// structure brushes) get a "+ New..." row that opens the asset dialog.
-	static bool Creatable(PaletteCat cat) { return cat != PaletteCat::Structure; }
+	// Every category authors new assets — each gets a "+ New..." row that
+	// opens the asset dialog.
+	static bool Creatable(PaletteCat) { return true; }
 
-	// The items of a category: built-in (Tools/Structure) or resolved from the
-	// project's catalogs / the level palette (Walls/Floors/Ceilings/entities).
+	// The items of a category, resolved from the project's catalogs / the
+	// level palette (Walls/Floors/Ceilings/entities).
 	std::vector<PaletteItem> CategoryItems(PaletteCat cat) const;
 	void BuildPaletteRows(const gfx::Rect& panel, std::vector<PaletteRow>& out,
 						  float& contentHeight) const;
@@ -199,8 +200,8 @@ private:
 	// True for the brushes that PAINT cells (rect/flood/drag apply); the
 	// placement categories act per click only.
 	static bool PaintableCat(PaletteCat cat) {
-		return cat == PaletteCat::Structure || cat == PaletteCat::Walls ||
-			   cat == PaletteCat::Floors || cat == PaletteCat::Ceilings;
+		return cat == PaletteCat::Walls || cat == PaletteCat::Floors ||
+			   cat == PaletteCat::Ceilings;
 	}
 	// One structural/surface application of the armed brush to a cell — the
 	// shared inner body of ApplyBrush/PaintRect/FloodFill. No undo bracketing
@@ -217,7 +218,7 @@ private:
 	GameSettings& m_settings; // owns the palette-collapse flag (read for layout)
 
 	Selection m_sel; // armed palette entry
-	// Per-category accordion expand state; Tools + Structure + Walls open by default.
+	// Per-category accordion expand state; Walls opens by default.
 	std::array<bool, static_cast<size_t>(PaletteCat::Count)> m_catOpen{};
 	std::map<std::string, bool> m_groupOpen; // sub-accordions (see GroupKey)
 	float m_paletteScroll = 0.0f; // left-dock vertical scroll (pixels)
