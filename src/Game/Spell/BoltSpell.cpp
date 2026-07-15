@@ -42,8 +42,10 @@ void BoltSpell::Cast(CastContext& ctx) const {
 	const float accuracy =
 		0.70f + static_cast<float>(ctx.caster.intelligence) * 0.012f +
 		0.02f * static_cast<float>(ctx.schoolLevel);
-	ctx.services.spawnBolt(
-		MakeBolt(ctx.origin, ctx.dir, ctx.power, accuracy, TargetSide::Monsters));
+	ProjectileSpec bolt =
+		MakeBolt(ctx.origin, ctx.dir, ctx.power, accuracy, TargetSide::Monsters);
+	bolt.attacker = ctx.casterIndex; // the impact credits its caster (threat)
+	ctx.services.spawnBolt(bolt);
 }
 
 std::optional<ProjectileSpec> BoltSpell::MonsterBolt(const Vec3& origin,

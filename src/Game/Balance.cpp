@@ -50,6 +50,10 @@ constexpr BalanceField kBalanceFields[] = {
 	{"stabilize_time", &Balance::stabilizeTime},
 	{"stabilize_health", &Balance::stabilizeHealth},
 	{"overkill", &Balance::overkill},
+	{"threat_scale", &Balance::threatScale},
+	{"threat_threshold", &Balance::threatThreshold},
+	{"threat_switch", &Balance::threatSwitch},
+	{"threat_decay", &Balance::threatDecay},
 };
 
 // Whitespace/comma tokens (the catalog list convention).

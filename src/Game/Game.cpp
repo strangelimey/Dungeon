@@ -542,6 +542,7 @@ void Game::OpenInspectorFor(const InspectTarget& t) {
 			return;
 		if (const auto* r = m_world.MonsterPatrol(c.runtimeId))
 			c.patrolCount = static_cast<int>(r->size());
+		m_world.MonsterThreatById(t.runtimeId, c.threat, c.threatLock);
 		m_inspectCfg = c; // remembered so route-laying can reopen the inspector
 		// Preview: the type's mesh + an idle animation (front-on). Build the animator
 		// now (the spec carries the skeleton/clips the render loop reads).
@@ -1119,6 +1120,13 @@ void Game::RegisterDevCommands() {
 						   else
 							   m_console.Print(std::format("{} pack += {}",
 														   m_characters[m].name, args[0]));
+					   });
+	m_console.Register("threat",
+					   "list per-member threat for every monster holding a grudge (dev)",
+					   [this](const std::vector<std::string>&) {
+						   const std::string report = m_world.ThreatReport();
+						   m_console.Print(report.empty() ? "no threat anywhere"
+														  : report);
 					   });
 	m_console.Register("cast", "cast a spell by symbol sequence (dev): cast <member> [hand 0/1] <sym>...",
 					   [this](const std::vector<std::string>& args) {

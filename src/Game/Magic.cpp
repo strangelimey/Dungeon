@@ -14,7 +14,7 @@ MagicSystem::MagicSystem() = default;
 
 void MagicSystem::LoadSpells(const Catalog& spells) { m_spellBook.Build(spells); }
 
-MagicSystem::CastReport MagicSystem::Cast(Character& caster,
+MagicSystem::CastReport MagicSystem::Cast(Character& caster, int casterIndex,
 										  std::span<const SpellSymbol> sequence,
 										  const Vec3& origin, const Vec3& dir,
 										  std::mt19937& rng) {
@@ -53,7 +53,7 @@ MagicSystem::CastReport MagicSystem::Cast(Character& caster,
 	if (m_balance)
 		power *= 1.0f + m_balance->spellStat *
 							caster.StatAvg(SchoolStats(spell->School()));
-	CastContext ctx{caster, origin, dir, power, level, m_services};
+	CastContext ctx{caster, origin, dir, power, level, m_services, casterIndex};
 	spell->Cast(ctx);
 
 	return {CastOutcome::Cast, spell};

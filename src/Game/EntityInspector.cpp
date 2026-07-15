@@ -6,6 +6,8 @@
 #include "Core/Loc.h"
 #include "UI/Controls.h"
 
+#include <format>
+
 namespace dungeon::game {
 
 namespace {
@@ -104,7 +106,18 @@ void EntityInspector::BuildContent(const gfx::Rect& content) {
 											   m_cfg.spell = m_spellIds[i];
 										   ApplyLive();
 									   });
+		y += 0.10f;
 	}
+	// Live threat readout (runtime aggro, display only — snapshot at Open, like
+	// the patrol count; per-member scores in roster order + the locked index).
+	m_tabs->AddChild<ui::Label>(
+		tabAi, gfx::Rect{0.05f, y, 0.9f, 0.06f},
+		loc::Format("map.insp.threat",
+					std::format("{:.1f} / {:.1f} / {:.1f} / {:.1f}",
+								m_cfg.threat[0], m_cfg.threat[1], m_cfg.threat[2],
+								m_cfg.threat[3]),
+					m_cfg.threatLock >= 0 ? std::to_string(m_cfg.threatLock)
+										  : std::string("-")));
 
 	// Patrol tab: waypoint count + author on the map (grid-click) or clear.
 	m_tabs->AddChild<ui::Label>(tabPatrol, gfx::Rect{0.05f, 0.05f, 0.9f, 0.08f},

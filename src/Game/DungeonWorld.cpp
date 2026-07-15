@@ -2089,6 +2089,14 @@ void DungeonWorld::UpdateMonsters(float dt) {
 		if (!monster.Alive()) continue; // downed — no AI, no movement, not solid
 		if (monster.attackCd > 0.0f) monster.attackCd -= dt;
 		if (monster.moveCd > 0.0f) monster.moveCd -= dt;
+		// Threat drains toward zero — grudges fade back to the uniform-random
+		// pick between fights. Decay never raises a score, so the silent
+		// re-evaluation can only RELEASE a lock, never announce a new one.
+		if (monster.ThreatAny()) {
+			const float drain = m_balance.threatDecay * dt;
+			for (float& t : monster.threat) t = std::max(0.0f, t - drain);
+			UpdateThreatLock(monster, false);
+		}
 
 		// Advance an in-flight glide; the logical cell already moved when the
 		// step committed, so the tween just slides visualPos to the new centre.
@@ -2126,9 +2134,16 @@ void DungeonWorld::UpdateMonsters(float dt) {
 						SlotsPerCell(o.kind->size) == cap && o.slot >= 0 && o.slot < cap)
 						used |= (1u << o.slot);
 				}
+				// A grudge-holding monster crowds toward its THREAT target's
+				// quadrant instead of the cell centre — a sub-cell shooter
+				// lines its lane up with them, a swarm piles onto their side.
+				const int aimAt = ThreatTarget(monster);
+				const Vec3 aimPt =
+					aimAt >= 0 ? PartyMemberSubPos(static_cast<size_t>(aimAt))
+							   : partyPos;
 				auto slotDistSq = [&](int s) {
 					const Vec3 c = SlotCenter(monster.x, monster.z, monster.kind->size, s);
-					const float dx = partyPos.x - c.x, dz = partyPos.z - c.z;
+					const float dx = aimPt.x - c.x, dz = aimPt.z - c.z;
 					return dx * dx + dz * dz;
 				};
 				int best = monster.slot;
@@ -2352,6 +2367,34 @@ DungeonWorld::Monster* DungeonWorld::MonsterByRuntimeId(u32 id) {
 	for (Monster& m : m_monsters)
 		if (m.runtimeId == id) return &m;
 	return nullptr;
+}
+
+bool DungeonWorld::MonsterThreatById(u32 runtimeId, std::array<float, 4>& threat,
+									 int& lock) const {
+	for (const Monster& m : m_monsters)
+		if (m.runtimeId == runtimeId) {
+			threat = m.threat;
+			lock = m.threatLock;
+			return true;
+		}
+	return false;
+}
+
+std::string DungeonWorld::ThreatReport() const {
+	std::string out;
+	for (const Monster& m : m_monsters) {
+		if (!m.kind || !m.ThreatAny()) continue;
+		const std::string lock =
+			m.threatLock >= 0 && m_roster &&
+					static_cast<size_t>(m.threatLock) < m_roster->size()
+				? (*m_roster)[m.threatLock].name
+				: std::string("-");
+		if (!out.empty()) out += '\n';
+		out += std::format("{}#{} [{:.1f} {:.1f} {:.1f} {:.1f}] lock={}",
+						   m.kind->name, m.runtimeId, m.threat[0], m.threat[1],
+						   m.threat[2], m.threat[3], lock);
+	}
+	return out;
 }
 
 bool DungeonWorld::MonsterInstanceAt(int cx, int cz, u32& runtimeId, std::string& type,
@@ -2969,6 +3012,66 @@ void DungeonWorld::ProvokeMonster(Monster& monster) {
 	monster.intent.targetZ = m_party.GridZ();
 }
 
+void DungeonWorld::AddThreat(Monster& monster, size_t member, float damage) {
+	if (member >= monster.threat.size() || damage <= 0.0f) return;
+	monster.threat[member] += damage * m_balance.threatScale;
+	UpdateThreatLock(monster, true);
+}
+
+void DungeonWorld::UpdateThreatLock(Monster& monster, bool announce) {
+	if (!m_roster) return;
+	const float threshold = m_balance.threatThreshold;
+	const int prev = monster.threatLock;
+	const bool held = prev >= 0 &&
+					  static_cast<size_t>(prev) < m_roster->size() &&
+					  (*m_roster)[prev].IsAlive() &&
+					  monster.threat[prev] >= threshold;
+
+	// The alive argmax at/above the threshold — the strongest claim right now.
+	int top = -1;
+	for (size_t i = 0; i < m_roster->size() && i < monster.threat.size(); ++i) {
+		if (!(*m_roster)[i].IsAlive() || monster.threat[i] < threshold) continue;
+		if (top < 0 || monster.threat[i] > monster.threat[top])
+			top = static_cast<int>(i);
+	}
+
+	// A held lock is STICKY: the challenger must exceed it by the switch margin
+	// (two even attackers must not trade aggro every hit). An unheld lock just
+	// takes the argmax (or stays released).
+	int next = top;
+	if (held && !(top >= 0 && top != prev &&
+				  monster.threat[top] >
+					  monster.threat[prev] + m_balance.threatSwitch))
+		next = prev;
+
+	monster.threatLock = next;
+	if (announce && next >= 0 && next != prev)
+		MemberMessage((*m_roster)[next],
+					  loc::Format("log.monster_locks",
+								  loc::Tr("monster." + monster.kind->name),
+								  (*m_roster)[next].name));
+}
+
+int DungeonWorld::ThreatTarget(const Monster& monster) const {
+	if (!m_roster) return -1;
+	const float threshold = m_balance.threatThreshold;
+	// The locked member keeps the monster's attention while they stand...
+	if (monster.threatLock >= 0 &&
+		static_cast<size_t>(monster.threatLock) < m_roster->size() &&
+		(*m_roster)[monster.threatLock].IsAlive() &&
+		monster.threat[monster.threatLock] >= threshold)
+		return monster.threatLock;
+	// ...else the alive argmax at/above threshold (a downed lock's aggro passes
+	// to the next-worst offender without touching the stored lock).
+	int best = -1;
+	for (size_t i = 0; i < m_roster->size() && i < monster.threat.size(); ++i) {
+		if (!(*m_roster)[i].IsAlive() || monster.threat[i] < threshold) continue;
+		if (best < 0 || monster.threat[i] > monster.threat[best])
+			best = static_cast<int>(i);
+	}
+	return best;
+}
+
 int DungeonWorld::FreeSlotInCell(int x, int z, SizeClass size, int self) const {
 	const int f = FootprintCells(size); // 1, or 2 for Huge (a 2x2-cell block)
 	const int cap = SlotsPerCell(size);
@@ -3200,17 +3303,105 @@ bool DungeonWorld::CheckPartyWipe() {
 	return true;
 }
 
-void DungeonWorld::MonsterAttack(Monster& monster) {
-	if (!m_roster || m_partyWiped) return;
+Vec3 DungeonWorld::PartyMemberSubPos(size_t member) const {
+	// The facing-relative quadrant the portraits read (front-left/front-right/
+	// rear-left/rear-right; Michael, 2026-07-10): the front pair stands a
+	// quarter-cell toward the facing, the rear pair away, even indices in the
+	// faced+3 column and odd in faced+1 (the projectile lane idiom — one home
+	// for the handedness, shared by the lane test, the ranged aim, and the
+	// melee near-row math).
+	const Direction faced = static_cast<Direction>(m_party.Facing());
+	const float q = kCellSize * 0.25f;
+	const Vec3 center{(static_cast<float>(m_party.GridX()) + 0.5f) * kCellSize,
+					  0.0f,
+					  (static_cast<float>(m_party.GridZ()) + 0.5f) * kCellSize};
+	const Direction lateral = static_cast<Direction>(
+		(static_cast<int>(faced) + (member % 2 == 0 ? 3 : 1)) % 4);
+	const float row = member < 2 ? q : -q; // front pair toward the facing
+	return {center.x + static_cast<float>(DirDX(faced)) * row +
+				static_cast<float>(DirDX(lateral)) * q,
+			0.0f,
+			center.z + static_cast<float>(DirDZ(faced)) * row +
+				static_cast<float>(DirDZ(lateral)) * q};
+}
 
-	// Pick uniformly among the members still up.
-	std::array<size_t, 4> alive;
+int DungeonWorld::PickMeleeVictim(Monster& monster) {
+	if (!m_roster) return -1;
+	// The standing members (the old candidate list).
+	std::array<size_t, 4> alive{};
 	size_t n = 0;
 	for (size_t i = 0; i < m_roster->size() && n < alive.size(); ++i)
 		if ((*m_roster)[i].IsAlive()) alive[n++] = i;
-	if (n == 0) return;
+	if (n == 0) return -1;
 
-	Character& target = (*m_roster)[alive[m_combatRng() % n]];
+	// The NEAR-ROW blocking rule: a reach-1 monster only touches the pair of
+	// members nearest its approach — from ahead the front rank shields the
+	// rear, from behind the rear shields the front, and from a flank that
+	// side's column stands in the way. A pike (reach 2) skewers past the near
+	// row; ranged/casters never come through here. Approach is the dominant-
+	// axis cardinal from the party cell toward the monster, taken relative to
+	// the party facing (rel 0 = ahead ... 2 = behind); the column pairs come
+	// from the quadrant math's lateral idiom (even members hold the faced+3
+	// column, odd faced+1 — PartyMemberSubPos).
+	const bool blocking = monster.kind->reach < 2;
+	std::array<int, 2> nearPair{-1, -1};
+	bool rowPair = true; // front/rear pair (blocker = t^2) vs column (t^1)
+	if (blocking) {
+		const int dx = monster.x - m_party.GridX();
+		const int dz = monster.z - m_party.GridZ();
+		Direction approach;
+		if (std::abs(dx) >= std::abs(dz))
+			approach = dx >= 0 ? Direction::East : Direction::West;
+		else
+			approach = dz > 0 ? Direction::South : Direction::North;
+		const int rel =
+			(static_cast<int>(approach) - m_party.Facing() + 4) % 4;
+		switch (rel) {
+		case 0: nearPair = {0, 1}; rowPair = true; break;  // the front line
+		case 2: nearPair = {2, 3}; rowPair = true; break;  // from behind
+		case 1: nearPair = {1, 3}; rowPair = false; break; // faced+1 column
+		default: nearPair = {0, 2}; rowPair = false; break; // faced+3 column
+		}
+	}
+	auto inNear = [&](int i) {
+		return !blocking || i == nearPair[0] || i == nearPair[1];
+	};
+	auto standing = [&](int i) {
+		return i >= 0 && static_cast<size_t>(i) < m_roster->size() &&
+			   (*m_roster)[i].IsAlive();
+	};
+
+	// The grudge first: the threat target when touchable, else the near member
+	// standing directly in their way (their row/column mate), else whoever of
+	// the near pair still stands — the BLOCKER soaks the swing.
+	if (const int t = ThreatTarget(monster); t >= 0) {
+		if (inNear(t)) return t;
+		const int blocker = t ^ (rowPair ? 2 : 1);
+		if (standing(blocker)) return blocker;
+		const int other = blocker == nearPair[0] ? nearPair[1] : nearPair[0];
+		if (standing(other)) return other;
+		return t; // the whole near row is down — nothing shields them now
+	}
+
+	// No grudge: uniform-random among the standing near pair (the old pick,
+	// narrowed to the reachable row); an empty near row opens the whole cell.
+	std::array<size_t, 4> reachable;
+	size_t rn = 0;
+	for (size_t k = 0; k < n; ++k)
+		if (inNear(static_cast<int>(alive[k]))) reachable[rn++] = alive[k];
+	if (rn == 0) {
+		reachable = alive;
+		rn = n;
+	}
+	return static_cast<int>(reachable[rn == 1 ? 0 : m_combatRng() % rn]);
+}
+
+void DungeonWorld::MonsterAttack(Monster& monster) {
+	if (!m_roster || m_partyWiped) return;
+
+	const int victim = PickMeleeVictim(monster);
+	if (victim < 0) return;
+	Character& target = (*m_roster)[victim];
 	monster.attackCd = monster.kind->attackInterval;
 	// Request the swing animation (one-shot; DriveMonsterAnim picks the variation
 	// and times the hold, then the state machine returns to walk/idle). No attack
@@ -3250,6 +3441,8 @@ void DungeonWorld::MonsterAttack(Monster& monster) {
 			onMessage(loc::Format("log.monster_slain", name));
 		} else {
 			monster.hitReq = true; // the burn stings — flinch like any hit
+			// The burn is the ward-bearer's damage — it feeds their threat.
+			AddThreat(monster, static_cast<size_t>(victim), ward->magnitude);
 		}
 	}
 	CheckPartyWipe();
@@ -3419,6 +3612,19 @@ void DungeonWorld::MonsterRangedAttack(Monster& monster) {
 	Vec3 origin = SlotCenter(monster.x, monster.z, monster.kind->size, monster.slot);
 	origin.y += 0.6f;
 
+	// AIM the lane at the threat target: slide the launch point's LATERAL
+	// coordinate (the one LaneOffset measures — flight is straight, so the
+	// lateral never changes) onto the target's quadrant. The shift is at most
+	// a quarter-cell, and the shared row/column means the aligned coordinate
+	// stays inside the monster's own cell. No target → the old slot lane.
+	if (const int aimAt = ThreatTarget(monster); aimAt >= 0) {
+		const Vec3 aim = PartyMemberSubPos(static_cast<size_t>(aimAt));
+		if (dir.x != 0.0f)
+			origin.z = aim.z;
+		else
+			origin.x = aim.x;
+	}
+
 	// A CASTER (archetype = caster with a monsters.cat `spell`) throws that
 	// spell's bolt — Spell::MonsterBolt, the same class the party casts from,
 	// at the monster's accuracy (no monster mana/vocab; it just shoots on
@@ -3427,8 +3633,9 @@ void DungeonWorld::MonsterRangedAttack(Monster& monster) {
 	const Spell* spell =
 		monster.Spell().empty() ? nullptr : m_magic.FindSpell(monster.Spell());
 	if (spell) {
-		if (const std::optional<ProjectileSpec> bolt =
+		if (std::optional<ProjectileSpec> bolt =
 				spell->MonsterBolt(origin, dir, monster.kind->accuracy)) {
+			bolt->shooter = monster.runtimeId; // the impact reads its threat
 			m_projectiles.Spawn(*bolt);
 			m_audio.Play(m_sounds.spellCast, 0.6f); // the cast voice
 			return;
@@ -3446,6 +3653,7 @@ void DungeonWorld::MonsterRangedAttack(Monster& monster) {
 				monster.kind->damageType};
 	bolt.color = {1.6f, 0.5f, 0.2f, 0.0f}; // ember-orange additive
 	bolt.size = 0.18f;
+	bolt.shooter = monster.runtimeId; // the impact reads its threat
 	m_projectiles.Spawn(bolt);
 	m_audio.Play(m_sounds.monster, 0.5f); // soft launch cue (reuse the monster voice)
 }
@@ -3561,6 +3769,7 @@ bool DungeonWorld::PartyAttack(size_t member, size_t hand, std::string_view verb
 	}
 	target->hp -= r.damage;
 	ProvokeMonster(*target); // the struck monster alone notices + turns to the party
+	AddThreat(*target, member, r.damage);
 	int dmg = static_cast<int>(r.damage + 0.5f);
 	MemberMessage(attacker, loc::Format("log.party_hits", attacker.name, name, dmg));
 	GrantSkillXp(attacker, skillId, 1.0f, stats); // a LANDED blow trains its class
@@ -3608,7 +3817,8 @@ bool DungeonWorld::CastSpell(size_t member, std::span<const SpellSymbol> sequenc
 				   static_cast<float>(DirDZ(faced))};
 
 	const MagicSystem::CastReport r =
-		m_magic.Cast(caster, sequence, origin, dir, m_combatRng);
+		m_magic.Cast(caster, static_cast<int>(member), sequence, origin, dir,
+					 m_combatRng);
 	switch (r.outcome) {
 	case MagicSystem::CastOutcome::Cast:
 		// The spell's own Cast() override has already landed the effect
@@ -3708,6 +3918,8 @@ bool DungeonWorld::ResolveSpellHit(const ProjectileImpact& impact) {
 	if (r.hit) {
 		hit->hp -= r.damage;
 		ProvokeMonster(*hit); // a spell strike also wakes its target
+		if (impact.attacker >= 0)
+			AddThreat(*hit, static_cast<size_t>(impact.attacker), r.damage);
 		onMessage(loc::Format("log.spell_hits", name, static_cast<int>(r.damage + 0.5f)));
 		m_audio.Play(m_sounds.spellImpact, 0.7f);
 		if (!hit->Alive()) {
@@ -3751,31 +3963,38 @@ bool DungeonWorld::ResolveMonsterProjectileHit(const ProjectileImpact& impact) {
 	// Reached the party: the LANE mirror of the party's shots (Michael,
 	// 2026-07-10) — the bolt can only strike a standing member whose facing-
 	// relative QUADRANT (portraits read front-left/front-right/rear-left/
-	// rear-right) sits in its lane; with nobody in the lane it flies straight
-	// past the party. A random in-lane member takes the strike. Consumed once
-	// it connects with anyone, hit or miss (like a spell bolt).
-	const Direction faced = static_cast<Direction>(m_party.Facing());
-	const float q = kCellSize * 0.25f;
-	const Vec3 center{(static_cast<float>(m_party.GridX()) + 0.5f) * kCellSize,
-					  0.0f,
-					  (static_cast<float>(m_party.GridZ()) + 0.5f) * kCellSize};
+	// rear-right; PartyMemberSubPos) sits in its lane; with nobody in the lane
+	// it flies straight past the party. Consumed once it connects with anyone,
+	// hit or miss (like a spell bolt).
 	std::array<size_t, 4> inLane;
 	size_t n = 0;
 	for (size_t i = 0; i < m_roster->size() && i < 4; ++i) {
 		if (!(*m_roster)[i].IsAlive()) continue;
-		const Direction lateral = static_cast<Direction>(
-			(static_cast<int>(faced) + (i % 2 == 0 ? 3 : 1)) % 4);
-		const float row = i < 2 ? q : -q; // front pair toward the facing
-		const Vec3 mp{center.x + static_cast<float>(DirDX(faced)) * row +
-						  static_cast<float>(DirDX(lateral)) * q,
-					  0.0f,
-					  center.z + static_cast<float>(DirDZ(faced)) * row +
-						  static_cast<float>(DirDZ(lateral)) * q};
-		if (std::abs(LaneOffset(impact, mp)) <= kLaneHalfWidth) inLane[n++] = i;
+		if (std::abs(LaneOffset(impact, PartyMemberSubPos(i))) <= kLaneHalfWidth)
+			inLane[n++] = i;
 	}
 	if (n == 0) return false; // nobody in this lane — the bolt flies past
 
-	Character& target = (*m_roster)[inLane[m_combatRng() % n]];
+	// The shooter's grudge picks among the lane's bodies: its THREAT target
+	// when the lane offers them, else the in-lane member it hates most, else
+	// the old uniform-random pick (no threat, or a stale/slain shooter id).
+	size_t pick = inLane[n == 1 ? 0 : m_combatRng() % n];
+	if (const Monster* shooter = MonsterByRuntimeId(impact.shooter)) {
+		const int want = ThreatTarget(*shooter);
+		int best = -1;
+		for (size_t k = 0; k < n; ++k) {
+			const int i = static_cast<int>(inLane[k]);
+			if (i == want) {
+				best = i;
+				break;
+			}
+			if (shooter->threat[i] > 0.0f &&
+				(best < 0 || shooter->threat[i] > shooter->threat[best]))
+				best = i;
+		}
+		if (best >= 0) pick = static_cast<size_t>(best);
+	}
+	Character& target = (*m_roster)[pick];
 	// Wind Ward: air guards by DEFLECTING — a bolt aimed at the warded member
 	// is turned aside outright (no strike roll), spending one of the ward's
 	// charges (its magnitude); the last deflection stills the wind. Bolts

@@ -53,6 +53,9 @@ struct CastContext {
 	float power;      // the spell's base power scaled by school skill
 	int schoolLevel;  // the caster's level in the spell's school
 	CastServices& services;
+	// The caster's roster index (-1 when unknown) — rides a spawned bolt so
+	// the impact can credit the hit to its caster (the threat system).
+	int casterIndex = -1;
 };
 
 class Spell {

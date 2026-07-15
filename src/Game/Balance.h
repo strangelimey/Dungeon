@@ -84,6 +84,15 @@ struct Balance {
 	float stabilizeTime = 30.0f;
 	float stabilizeHealth = 0.2f;
 	float overkill = 1.5f;
+	// Threat (aggro). Damage a member deals a monster accrues threat_scale ×
+	// damage on that monster; past threat_threshold the monster LOCKS onto the
+	// highest-threat member (another member must exceed the locked score by
+	// threat_switch to steal it), and all scores drain threat_decay/second, so
+	// grudges fade back to the old uniform-random targeting between fights.
+	float threatScale = 1.0f;
+	float threatThreshold = 15.0f;
+	float threatSwitch = 5.0f;
+	float threatDecay = 1.0f;
 
 	// The attack table, seeded with the identity defaults; Load overrides the
 	// numbers from attacks.cat.

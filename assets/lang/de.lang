@@ -173,6 +173,7 @@ log.member_wakes={} kommt zu sich.
 log.monster_slain={} wurde erschlagen!
 log.monster_hits={} trifft {} für {} Schaden.
 log.monster_misses={} schlägt nach {} und verfehlt.
+log.monster_locks={} nimmt {} ins Visier!
 log.monster_ranged_hits=Ein Geschoss trifft {} für {} Schaden.
 log.monster_ranged_misses=Ein Geschoss pfeift an {} vorbei.
 log.member_down={} ist gefallen!
@@ -485,6 +486,7 @@ map.insp.tab.patrol=Patrouille
 map.insp.asleep=Schlafend starten (Hinterhalt)
 map.insp.leash=Leinenreichweite (Zellen, 0 = keine)
 map.insp.waypoints=Wegpunkte: {}
+map.insp.threat=Bedrohung: {} (Ziel: {})
 map.insp.editroute=Route auf der Karte bearbeiten
 map.insp.clearroute=Route löschen
 map.insp.saved=Instanz-Überschreibungen für „{}“ gespeichert

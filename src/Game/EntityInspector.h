@@ -13,6 +13,7 @@
 #include "Game/InstanceInspector.h"
 #include "Game/MonsterAI.h" // ai::Archetype
 
+#include <array>
 #include <functional>
 #include <string>
 #include <vector>
@@ -39,6 +40,9 @@ public:
 		std::string spell;
 		Direction facing = Direction::South;
 		int patrolCount = 0; // waypoints on the current route (display only)
+		// Live threat readout (display only — runtime aggro, never authored).
+		std::array<float, 4> threat{};
+		int threatLock = -1;
 	};
 
 	explicit EntityInspector(gfx::GraphicsDevice& device) : InstanceInspector(device) {}
