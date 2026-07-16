@@ -3334,18 +3334,22 @@ int DungeonWorld::PickMeleeVictim(Monster& monster) {
 		if ((*m_roster)[i].IsAlive()) alive[n++] = i;
 	if (n == 0) return -1;
 
-	// The NEAR-ROW blocking rule: a reach-1 monster only touches the pair of
-	// members nearest its approach — from ahead the front rank shields the
-	// rear, from behind the rear shields the front, and from a flank that
-	// side's column stands in the way. A pike (reach 2) skewers past the near
-	// row; ranged/casters never come through here. Approach is the dominant-
-	// axis cardinal from the party cell toward the monster, taken relative to
-	// the party facing (rel 0 = ahead ... 2 = behind); the column pairs come
-	// from the quadrant math's lateral idiom (even members hold the faced+3
-	// column, odd faced+1 — PartyMemberSubPos).
+	// The PER-FILE blocking rule: relative to a reach-1 monster's approach the
+	// party stands in two FILES (from ahead/behind the files are the columns,
+	// each a front member backed by a rear one; from a flank they're the rows,
+	// that side's member backing the other). In each file the FIRST STANDING
+	// member is the one the monster can touch — a living near member shields
+	// the far one, and a fallen near member OPENS the file: the monster steps
+	// into the gap and reaches the far member directly (it does NOT get walled
+	// by the other file's blocker). A pike (reach 2) skewers past blocking
+	// entirely; ranged/casters never come through here. Approach is the
+	// dominant-axis cardinal from the party cell toward the monster, relative
+	// to the party facing (rel 0 = ahead ... 2 = behind); the file pairing
+	// comes from the quadrant math's lateral idiom (even members hold the
+	// faced+3 column, odd faced+1 — PartyMemberSubPos).
 	const bool blocking = monster.kind->reach < 2;
 	std::array<int, 2> nearPair{-1, -1};
-	bool rowPair = true; // front/rear pair (blocker = t^2) vs column (t^1)
+	bool rowPair = true; // near pair is a rank (file mate = ^2) vs column (^1)
 	if (blocking) {
 		const int dx = monster.x - m_party.GridX();
 		const int dz = monster.z - m_party.GridZ();
@@ -3363,37 +3367,43 @@ int DungeonWorld::PickMeleeVictim(Monster& monster) {
 		default: nearPair = {0, 2}; rowPair = false; break; // faced+3 column
 		}
 	}
-	auto inNear = [&](int i) {
-		return !blocking || i == nearPair[0] || i == nearPair[1];
-	};
 	auto standing = [&](int i) {
 		return i >= 0 && static_cast<size_t>(i) < m_roster->size() &&
 			   (*m_roster)[i].IsAlive();
 	};
+	// The first standing member of each file (near, else the far one through
+	// the gap); -1 = the whole file is down.
+	std::array<int, 2> fileReach{-1, -1};
+	if (blocking)
+		for (size_t f = 0; f < 2; ++f) {
+			const int nearI = nearPair[f];
+			const int farI = nearI ^ (rowPair ? 2 : 1);
+			fileReach[f] = standing(nearI) ? nearI
+										   : (standing(farI) ? farI : -1);
+		}
+	auto reachable = [&](int i) {
+		return !blocking || i == fileReach[0] || i == fileReach[1];
+	};
 
-	// The grudge first: the threat target when touchable, else the near member
-	// standing directly in their way (their row/column mate), else whoever of
-	// the near pair still stands — the BLOCKER soaks the swing.
+	// The grudge first: the threat target when the monster can get at them —
+	// in the near row, or through a fallen blocker's gap — else the file mate
+	// standing directly in their way (the BLOCKER soaks the swing).
 	if (const int t = ThreatTarget(monster); t >= 0) {
-		if (inNear(t)) return t;
-		const int blocker = t ^ (rowPair ? 2 : 1);
-		if (standing(blocker)) return blocker;
-		const int other = blocker == nearPair[0] ? nearPair[1] : nearPair[0];
-		if (standing(other)) return other;
-		return t; // the whole near row is down — nothing shields them now
+		if (reachable(t)) return t;
+		return t ^ (rowPair ? 2 : 1); // unreachable ⇒ their file mate stands
 	}
 
-	// No grudge: uniform-random among the standing near pair (the old pick,
-	// narrowed to the reachable row); an empty near row opens the whole cell.
-	std::array<size_t, 4> reachable;
-	size_t rn = 0;
+	// No grudge: uniform-random among the reachable members (the old pick,
+	// narrowed to the first standing member of each file).
+	std::array<size_t, 4> pool{};
+	size_t pn = 0;
 	for (size_t k = 0; k < n; ++k)
-		if (inNear(static_cast<int>(alive[k]))) reachable[rn++] = alive[k];
-	if (rn == 0) {
-		reachable = alive;
-		rn = n;
+		if (reachable(static_cast<int>(alive[k]))) pool[pn++] = alive[k];
+	if (pn == 0) { // can't happen (an alive member always heads their file) —
+		pool = alive; // belt and braces against a future pairing change
+		pn = n;
 	}
-	return static_cast<int>(reachable[rn == 1 ? 0 : m_combatRng() % rn]);
+	return static_cast<int>(pool[pn == 1 ? 0 : m_combatRng() % pn]);
 }
 
 void DungeonWorld::MonsterAttack(Monster& monster) {

@@ -1359,12 +1359,14 @@ private:
 	// else -1 (uniform-random targeting). Pure read — used by the melee pick,
 	// the ranged lane aim, and the projectile impact preference.
 	int ThreatTarget(const Monster& monster) const;
-	// Picks the melee victim's roster index (-1 = nobody standing): the threat
-	// target when reachable, else the NEAR-ROW blocking rule — a reach-1 monster
-	// only touches the pair of members nearest its approach direction, so a far-
-	// pair threat target is shielded and the blocker takes the swing instead.
-	// Below the threshold: uniform-random among the reachable pair (the old
-	// behaviour, narrowed to the near row).
+	// Picks the melee victim's roster index (-1 = nobody standing) under the
+	// PER-FILE blocking rule: relative to a reach-1 monster's approach the
+	// party stands in two files, and the FIRST STANDING member of each file is
+	// touchable — a living near member shields the one behind, a fallen one
+	// opens the file so the monster steps into the gap and reaches the far
+	// member directly. The threat target is taken when reachable, else their
+	// standing file mate (the blocker) soaks the swing. Below the threshold:
+	// uniform-random among the reachable members.
 	int PickMeleeVictim(Monster& monster);
 	// A standing member's facing-relative sub-cell position (the quadrant the
 	// portraits read: front pair a quarter-cell toward the facing, rear away,
