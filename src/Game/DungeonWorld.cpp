@@ -2099,11 +2099,11 @@ void DungeonWorld::UpdateMonsters(float dt) {
 		}
 
 		// Advance an in-flight glide; the logical cell already moved when the
-		// step committed, so the tween just slides visualPos to the new centre.
+		// step committed, so the tween just slides visualPos to the new anchor
+		// (cell centre for a lone idle wanderer, else the slot centre).
 		if (monster.moving) {
 			monster.moveT += dt / std::max(monster.kind->moveInterval, 0.05f);
-			const Vec3 target = SlotCenter(monster.x, monster.z, monster.kind->size,
-										   monster.slot);
+			const Vec3 target = MonsterStepTarget(monster);
 			if (monster.moveT >= 1.0f) {
 				monster.moving = false;
 				monster.moveT = 0.0f;
@@ -2172,8 +2172,7 @@ void DungeonWorld::UpdateMonsters(float dt) {
 		// turns glide. Radially-symmetric monsters (faces=false, the blob) never turn.
 		if (monster.kind->facesTarget) {
 			if (monster.moving) {
-				const Vec3 dest = SlotCenter(monster.x, monster.z, monster.kind->size,
-											 monster.slot);
+				const Vec3 dest = MonsterStepTarget(monster);
 				const float dx = dest.x - monster.moveFrom.x;
 				const float dz = dest.z - monster.moveFrom.z;
 				if (dx * dx + dz * dz > 1e-6f) monster.targetYaw = std::atan2(dx, dz);
@@ -2744,6 +2743,16 @@ Vec3 DungeonWorld::DesiredAnchor(const Monster& m, const Vec3& partyPos) const {
 			return {c.x + (dx >= 0.0f ? frontOff : -frontOff), c.y, c.z};
 		return {c.x, c.y, c.z + (dz >= 0.0f ? frontOff : -frontOff)}; // mainly N/S
 	}
+	return MonsterStepTarget(m);
+}
+
+Vec3 DungeonWorld::MonsterStepTarget(const Monster& m) const {
+	// A lone wanderer owns its whole square — walk its centre, not the slot
+	// corner its size class would grid it to. Engaging (or grouped, or
+	// cell-filling) monsters keep the slot so formation/occupancy reads true.
+	if (m.intent.mode == ai::Intent::Mode::Idle && IsSubCellSize(m.kind->size) &&
+		AliveInGroup(m.groupId) <= 1)
+		return m_map.CellCenter(m.x, m.z);
 	return SlotCenter(m.x, m.z, m.kind->size, m.slot);
 }
 

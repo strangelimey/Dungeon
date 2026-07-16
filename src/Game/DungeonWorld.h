@@ -1251,6 +1251,13 @@ private:
 	// the front-centre toward the party for a lone Medium-or-smaller monster, else
 	// its slot centre. partyPos is the party's cell centre.
 	Vec3 DesiredAnchor(const Monster& m, const Vec3& partyPos) const;
+	// Where a step's glide lands in the monster's CURRENT cell: a LONE
+	// sub-cell monster that isn't engaging the party (intent Idle —
+	// wandering / patrolling / asleep) walks the CENTRE of each square (a
+	// solo creature hugging one quarter of every cell reads wrong); anything
+	// grouped, engaged, or cell-filling keeps its slot centre. Shared by the
+	// move tween and DesiredAnchor's settled fallback.
+	Vec3 MonsterStepTarget(const Monster& m) const;
 	void LoadDecorations();
 	void LoadStairs(); // places stair props (P6) from the map's stair links
 	// Instantiates one stair link's prop (a non-solid decoration flagged stair).
