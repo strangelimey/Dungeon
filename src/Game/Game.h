@@ -116,11 +116,14 @@ private:
 	bool StartBakeStep();
 	void FinishBake();
 
-	// Wall Style dialog Save: write the wall type's `wear`/`columns` fields to
-	// the catalog, then re-bake that texture's worn meshes and (on success)
-	// reload the dungeon blocks in place. Launches the async wornblock bake.
-	void WriteWallStyle(const std::string& id, float wear, bool columns);
-	void StartRestyleBake(const std::string& texture, float wear, bool columns);
+	// Surface Style dialog Save: write the type's `wear`/`columns` fields to its
+	// catalog (walls/floors/ceilings), then re-bake that texture's worn meshes
+	// and (on success) reload the dungeon blocks in place. Launches the async
+	// wornblock bake.
+	void WriteWallStyle(const std::string& catalogKey, const std::string& id,
+						float wear, bool columns);
+	void StartRestyleBake(const std::string& catalogKey, const std::string& texture,
+						  float wear, bool columns);
 
 	// Copies the active project (with its edits) from the exe-side asset copy
 	// back into the repo source tree. False (with a log) when no source path is

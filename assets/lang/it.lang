@@ -397,7 +397,7 @@ map.level.applied=Impostazioni applicate a '{}' — salva la mappa per conservar
 map.level.created=Livello '{}' creato — salva la mappa per conservarne le celle.
 map.level.renamed=Livello '{}' rinominato in '{}' — i salvataggi esistenti mantengono il vecchio nome.
 map.level.dupname=Esiste già un livello chiamato '{}'.
-map.wallstyle.title=Stile muro
+map.wallstyle.title=Stile superficie
 map.wallstyle.wear=Usura (0 = piatto)
 map.wallstyle.columns=Colonne
 map.wallstyle.applied=Stile muro aggiornato.

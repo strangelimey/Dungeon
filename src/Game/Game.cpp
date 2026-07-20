@@ -345,10 +345,16 @@ void Game::WireModuleCallbacks() {
 
 	// Right-click a monster in the palette → open its animation config dialog.
 	m_mapEditor.onConfigure = [this](MapEditor::PaletteCat cat, const std::string& id) {
-		// Walls: open the geometry-style dialog (worn/columns) for the wall type.
-		if (cat == MapEditor::PaletteCat::Walls) {
-			const CatalogEntry* e = m_project.walls.Find(id);
-			m_wallStyleDialog.Open(id, e ? e->Display() : id, CatalogGet(e, "texture", id),
+		// Surfaces (walls/floors/ceilings): open the geometry-style dialog. Columns
+		// is a wall-block feature, so only walls show that knob.
+		if (cat == MapEditor::PaletteCat::Walls || cat == MapEditor::PaletteCat::Floors ||
+			cat == MapEditor::PaletteCat::Ceilings) {
+			const std::string key = MapEditor::CategoryCatalogKey(cat);
+			const Catalog* catlg = m_project.CatalogForKey(key);
+			const CatalogEntry* e = catlg ? catlg->Find(id) : nullptr;
+			m_wallStyleDialog.Open(id, key, e ? e->Display() : id,
+								   CatalogGet(e, "texture", id),
+								   cat == MapEditor::PaletteCat::Walls,
 								   e ? e->GetFloat("wear", 1.0f) : 1.0f,
 								   e ? e->GetBool("columns", true) : true);
 			return;
@@ -390,12 +396,15 @@ void Game::WireModuleCallbacks() {
 		WriteMonsterAnim(c);
 	};
 
-	// Wall Style Save: persist the type's wear/columns, then rebake + reload the
-	// worn mesh (geometry is baked, so there is no live preview — this is it).
-	m_wallStyleDialog.onSave = [this](const std::string& id, const std::string& texture,
-									  float wear, bool columns) {
-		WriteWallStyle(id, wear, columns);
-		StartRestyleBake(texture, wear, columns);
+	// Surface Style Save: persist the type's wear/columns, then rebake + reload
+	// the worn mesh (geometry is baked, so no live preview). The async bake shows
+	// a "baking…" notice on the dialog until the Update poll closes it.
+	m_wallStyleDialog.onSave = [this](const std::string& id, const std::string& catalogKey,
+									  const std::string& texture, float wear, bool columns) {
+		WriteWallStyle(catalogKey, id, wear, columns);
+		StartRestyleBake(catalogKey, texture, wear, columns);
+		if (m_restyleBake) m_wallStyleDialog.SetBusy(true); // bake launched
+		else m_wallStyleDialog.Close();                     // failed to launch
 	};
 
 	// Per-instance inspector: Select-click a placed monster → edit its .ent overrides.
@@ -1458,35 +1467,44 @@ void Game::FinishBake() {
 	m_assetDialog.Close();
 }
 
-// Persists a wall type's geometry style. Starts from the existing entry so every
-// other field (texture/display/height_scale/category) survives; only the knobs
-// nudged off their defaults are written (absent = worn + columns), keeping the
-// .cat tidy like the monster/threat writers.
-void Game::WriteWallStyle(const std::string& id, float wear, bool columns) {
+// Persists a surface type's geometry style to its catalog (walls/floors/
+// ceilings). Starts from the existing entry so every other field (texture/
+// display/height_scale/category) survives; only the knobs nudged off their
+// defaults are written (absent = worn + columns), keeping the .cat tidy like
+// the monster/threat writers.
+void Game::WriteWallStyle(const std::string& catalogKey, const std::string& id,
+						  float wear, bool columns) {
+	Catalog* cat = m_project.CatalogForKey(catalogKey);
+	if (!cat) {
+		log::Warn("surface style: unknown catalog '{}'", catalogKey);
+		return;
+	}
 	CatalogEntry entry;
-	if (const CatalogEntry* e = m_project.walls.Find(id)) entry = *e;
+	if (const CatalogEntry* e = cat->Find(id)) entry = *e;
 	else entry.id = id;
 	std::erase_if(entry.fields, [](const serialize::Field& f) {
 		return f.key == "wear" || f.key == "columns";
 	});
 	if (wear != 1.0f) entry.Set("wear", std::format("{:.3f}", wear));
 	if (!columns) entry.Set("columns", "0");
-	m_project.walls.Add(std::move(entry)); // add-or-replace by id
+	cat->Add(std::move(entry)); // add-or-replace by id
 	if (!m_project.Save())
-		log::Warn("wall style: failed to save project catalogs");
+		log::Warn("surface style: failed to save project catalogs");
 }
 
-// Kicks the async worn-mesh rebake for a Wall Style Save: reuses the asset-bake
-// subprocess flow, jumping straight to the wornblock step. m_restyleBake tells
-// the Update poll to reload the dungeon blocks (not FinishBake) on success.
-void Game::StartRestyleBake(const std::string& texture, float wear, bool columns) {
+// Kicks the async worn-mesh rebake for a Surface Style Save: reuses the
+// asset-bake subprocess flow, jumping straight to the wornblock step.
+// m_restyleBake tells the Update poll to reload the dungeon blocks (not
+// FinishBake) on success.
+void Game::StartRestyleBake(const std::string& catalogKey, const std::string& texture,
+						   float wear, bool columns) {
 	if (m_baking) {
-		log::Warn("wall style: a bake is already running — try again in a moment");
+		log::Warn("surface style: a bake is already running — try again in a moment");
 		return;
 	}
-	m_bakeReq = {};               // a wornblock-only bake, no CreateRequest data
-	m_bakeReq.textureSet = true;  // routes StartBakeStep to the wornblock branch
-	m_bakeReq.catalogKey = "walls";
+	m_bakeReq = {};              // a wornblock-only bake, no CreateRequest data
+	m_bakeReq.textureSet = true; // routes StartBakeStep to the wornblock branch
+	m_bakeReq.catalogKey = catalogKey; // picks wall/floor/ceiling in StartBakeStep
 	m_bakeReq.name = texture;
 	m_bakeStep = 1;               // skip the texture-import step
 	m_bakeWear = wear;
@@ -2097,7 +2115,7 @@ void Game::Update(float dt) {
 		if (m_bake.ExitCode() != 0) {
 			log::Warn("AssetBaker failed (exit {})", m_bake.ExitCode());
 			m_baking = false;
-			if (m_restyleBake) m_restyleBake = false;
+			if (m_restyleBake) { m_restyleBake = false; m_wallStyleDialog.Close(); }
 			else m_assetDialog.SetBusy(false);
 		} else if (m_bakeReq.textureSet && m_bakeStep == 0) {
 			m_bakeStep = 1; // textures imported — now rebake worn block meshes
@@ -2106,10 +2124,11 @@ void Game::Update(float dt) {
 				m_assetDialog.SetBusy(false);
 			}
 		} else if (m_restyleBake) {
-			// Wall Style rebake done: swap the new worn geometry in live.
+			// Surface Style rebake done: swap the new worn geometry in live.
 			m_world.ReloadDungeonBlocks();
 			m_restyleBake = false;
 			m_baking = false;
+			m_wallStyleDialog.Close();
 			if (m_world.onMessage) m_world.onMessage(loc::Tr("map.wallstyle.applied"));
 		} else {
 			FinishBake();

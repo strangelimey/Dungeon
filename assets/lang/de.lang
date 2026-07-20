@@ -397,7 +397,7 @@ map.level.applied=Ebenen-Einstellungen auf '{}' angewendet — Karte speichern, 
 map.level.created=Ebene '{}' erstellt — Karte speichern, um die Zellen zu behalten.
 map.level.renamed=Ebene '{}' in '{}' umbenannt — bestehende Spielstände behalten den alten Namen.
 map.level.dupname=Eine Ebene namens '{}' existiert bereits.
-map.wallstyle.title=Wandstil
+map.wallstyle.title=Oberflächenstil
 map.wallstyle.wear=Abnutzung (0 = flach)
 map.wallstyle.columns=Säulen
 map.wallstyle.applied=Wandstil aktualisiert.

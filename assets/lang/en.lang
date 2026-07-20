@@ -395,7 +395,7 @@ map.level.applied=Level settings applied to '{}' — Save the map to persist.
 map.level.created=Level '{}' created — Save the map to persist its cells.
 map.level.renamed=Level '{}' renamed to '{}' — existing saves keep the old name.
 map.level.dupname=A level named '{}' already exists.
-map.wallstyle.title=Wall style
+map.wallstyle.title=Surface style
 map.wallstyle.wear=Wear (0 = flat)
 map.wallstyle.columns=Columns
 map.wallstyle.applied=Wall style updated.
