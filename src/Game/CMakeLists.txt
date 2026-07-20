@@ -59,5 +59,6 @@ add_library(Game STATIC
 	Spell/Waterveil.cpp
 	Spell/Windward.cpp
 	Spells.cpp
+	WallStyleDialog.cpp
 )
 target_link_libraries(Game PUBLIC Core Platform Assets Animation Graphics UI Audio)

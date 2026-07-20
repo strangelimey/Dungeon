@@ -350,7 +350,7 @@ void DungeonWorld::DrawSurface(ID3D12GraphicsCommandList* list,
 		// unused here; the ORM map (when present) drives roughness/metallic.
 		gfx::MaterialParams material;
 		ApplyPbr(material, surface.albedo[v].get(), surface.normal[v].get(),
-				 surface.mr[v].get(), surface.heightScale, {}, 0.0f);
+				 surface.mr[v].get(), surface.heightScale[v], {}, 0.0f);
 		m_renderer.DrawMesh(list, *chunk.mesh, identity, material);
 	}
 }

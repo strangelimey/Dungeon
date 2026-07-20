@@ -397,6 +397,10 @@ map.level.applied=Ajustes aplicados a '{}' — guarda el mapa para conservarlos.
 map.level.created=Nivel '{}' creado — guarda el mapa para conservar sus celdas.
 map.level.renamed=Nivel '{}' renombrado a '{}' — las partidas guardadas conservan el nombre antiguo.
 map.level.dupname=Ya existe un nivel llamado '{}'.
+map.wallstyle.title=Estilo de muro
+map.wallstyle.wear=Desgaste (0 = plano)
+map.wallstyle.columns=Columnas
+map.wallstyle.applied=Estilo de muro actualizado.
 map.balance.title=Balance de combate
 map.balance.tab.formula=Fórmula
 map.balance.tab.attacks=Ataques

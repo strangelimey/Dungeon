@@ -599,8 +599,12 @@ WearField TextureCeilingWear(const TextureHeight& height, float relief, int grid
 
 // Grid resolutions are parameters: the baker emits each worn block at three
 // complexity tiers (low/med/high) so the game can trade geometric detail for
-// performance via the Settings menu.
-assets::ModelData BuildWornWallBlock(int kNx, int kNy, const WearField& wear) {
+// performance via the Settings menu. `columns` gates the edge pillars/border
+// strips (a wall-style knob — walls.cat `columns`); a flat wall (wear == 0,
+// see BakeWornTiers) passes kNx = kNy = 1 so it is a bare quad, not a dense
+// flat grid.
+assets::ModelData BuildWornWallBlock(int kNx, int kNy, const WearField& wear,
+									 bool columns) {
 	assets::ModelData model;
 	assets::MeshData mesh;
 
@@ -630,7 +634,7 @@ assets::ModelData BuildWornWallBlock(int kNx, int kNy, const WearField& wear) {
 			mesh.indices.insert(mesh.indices.end(), {a, b, d2, a, d2, c});
 		}
 
-	AddWallPillars(mesh);
+	if (columns) AddWallPillars(mesh);
 	model.meshes.push_back(std::move(mesh));
 	model.materials.push_back({{1, 1, 1, 1}, -1});
 	return model;
@@ -1708,8 +1712,12 @@ assets::ModelData BuildLever() {
 // displaced by that texture's packed height map (procedural wear when absent).
 // kind: 0 = wall, 1 = floor, 2 = ceiling. Shared by the full bake and the
 // editor's per-set import (so a newly imported set gets its worn meshes).
+// `wearScale` scales the block's displacement (walls.cat `wear`; 0 = flat) and
+// `columns` gates a wall's edge pillars. Defaults (1, true) reproduce the
+// original worn blocks.
 bool BakeWornTiers(int kind, const std::string& texture, float relief, u32 seed,
-				   const std::string& modelsDir, const std::string& texturesDir) {
+				   const std::string& modelsDir, const std::string& texturesDir,
+				   float wearScale = 1.0f, bool columns = true) {
 	struct Tier {
 		const char* suffix;
 		int wallX, wallY, floor, ceiling;
@@ -1717,21 +1725,30 @@ bool BakeWornTiers(int kind, const std::string& texture, float relief, u32 seed,
 	static const Tier tiers[] = {
 		{"low", 14, 16, 14, 12}, {"med", 34, 36, 34, 29}, {"high", 53, 56, 53, 43}};
 
+	relief *= wearScale;
+	const bool flat = wearScale <= 0.0f; // no displacement — bake a bare quad
 	const TextureHeight height(std::format("{}\\{}_1k_n.png", texturesDir, texture));
-	if (!height.IsValid())
+	if (!flat && !height.IsValid())
 		log::Warn("{}: no packed height map — baking procedural wear "
 				  "(run tools/FetchTextures.ps1, then rebake)", texture);
 	bool ok = true;
 	for (const Tier& tier : tiers) {
 		const std::string out =
 			std::format("{}\\worn_{}_{}.gltf", modelsDir, texture, tier.suffix);
-		if (kind == 0)
-			ok &= WriteGltf(BuildWornWallBlock(tier.wallX, tier.wallY,
-											   height.IsValid()
+		if (kind == 0) {
+			// Flat: a single quad spanning the panel (kNx=kNy=1) with a zero wear
+			// field, regardless of tier. Worn: the tier grid, height-map- or
+			// procedurally-displaced.
+			const int nx = flat ? 1 : tier.wallX, ny = flat ? 1 : tier.wallY;
+			ok &= WriteGltf(BuildWornWallBlock(nx, ny,
+											   flat ? WearField([](float, float) { return 0.0f; })
+											   : height.IsValid()
 												   ? TextureWallWear(height, relief, tier.wallX,
 																	 tier.wallY, seed)
-												   : WearField(WallWearDepth)),
+												   : WearField(WallWearDepth),
+											   columns),
 							out);
+		}
 		else if (kind == 1)
 			ok &= WriteGltf(BuildWornFloorBlock(tier.floor,
 												height.IsValid()
@@ -1819,12 +1836,12 @@ bool BakeModels(const std::string& dir, const std::string& texturesDir) {
 }
 
 bool BakeWornBlocks(const std::string& kind, const std::string& name,
-					const std::string& assetsDir) {
+					const std::string& assetsDir, float wearScale, bool columns) {
 	const int k = kind == "floor" ? 1 : (kind == "ceiling" ? 2 : 0);
 	const float relief = k == 2 ? 0.08f : (k == 1 ? 0.045f : 0.055f);
 	const u32 seed = static_cast<u32>(std::hash<std::string>{}(name)) | 1u;
 	return BakeWornTiers(k, name, relief, seed, assetsDir + "\\models",
-						 assetsDir + "\\textures");
+						 assetsDir + "\\textures", wearScale, columns);
 }
 
 } // namespace dungeon::baker

@@ -60,6 +60,7 @@
 #include "Game/ProjectileInspector.h"
 #include "Game/PropInspector.h"
 #include "Game/Project.h"
+#include "Game/WallStyleDialog.h"
 #include "Game/SoundBank.h"
 #include "Graphics/ModelPreview.h"
 #include "Graphics/PostProcess.h"
@@ -114,6 +115,12 @@ private:
 	// when the bake finishes, write the new catalog entry + save the project.
 	bool StartBakeStep();
 	void FinishBake();
+
+	// Wall Style dialog Save: write the wall type's `wear`/`columns` fields to
+	// the catalog, then re-bake that texture's worn meshes and (on success)
+	// reload the dungeon blocks in place. Launches the async wornblock bake.
+	void WriteWallStyle(const std::string& id, float wear, bool columns);
+	void StartRestyleBake(const std::string& texture, float wear, bool columns);
 
 	// Copies the active project (with its edits) from the exe-side asset copy
 	// back into the repo source tree. False (with a log) when no source path is
@@ -322,6 +329,9 @@ private:
 	// Per-level atmosphere dialog (the .map `atmosphere` record front-end),
 	// opened by the editor toolbar's Level button for the VIEWED level.
 	LevelSettingsDialog m_levelSettingsDialog;
+	// Per-wall-type geometry style dialog (walls.cat `wear`/`columns`), opened by
+	// right-clicking a Walls palette row; Save re-bakes that texture's worn mesh.
+	WallStyleDialog m_wallStyleDialog;
 	// Per-instance entity inspector, opened by Select-clicking a placed monster.
 	EntityInspector m_entityInspector;
 	// Per-instance fixture inspector, opened by Select-clicking a wall torch/sconce.
@@ -388,6 +398,14 @@ private:
 	AssetDialog::CreateRequest m_bakeReq;
 	bool m_baking = false;
 	int m_bakeStep = 0;
+	// Wall-style knobs for a `wornblock` bake (StartBakeStep appends them as
+	// --wear/--columns). Defaults reproduce the original worn look, so the
+	// asset-create path leaves them untouched; the Wall Style rebake sets them.
+	float m_bakeWear = 1.0f;
+	bool m_bakeColumns = true;
+	// True while the running bake is a Wall Style RESTYLE (no new catalog entry;
+	// on success reload the dungeon blocks in place instead of FinishBake).
+	bool m_restyleBake = false;
 
 	// Child process launched to restart the game on an adapter change (it
 	// outlives us; we quit right after).

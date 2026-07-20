@@ -112,41 +112,42 @@ static ai::Archetype ParseArchetype(const std::string& v) {
 // the single source of those constants, shared by the staged loader and the
 // quality hot-swap (LoadAllSurfaceTextures).
 std::array<DungeonWorld::SurfaceDef, 3> DungeonWorld::SurfaceDefs() {
-	return {{{m_walls, m_wallSets, m_wallHeight},
-			 {m_floors, m_floorSets, m_floorHeight},
-			 {m_ceilings, m_ceilingSets, m_ceilingHeight}}};
+	return {{{m_walls, m_wallSets, m_wallHeights},
+			 {m_floors, m_floorSets, m_floorHeights},
+			 {m_ceilings, m_ceilingSets, m_ceilingHeights}}};
 }
 
 // Resolves each surface palette id through its project catalog into a texture
-// set name (DungeonWorld loads <set>_<res> and worn_<set>_<tier>.gltf) and the
-// surface's parallax height scale (taken from the first entry — a surface's
-// entries share a scale). An unknown id falls back to using the id verbatim as
-// the set name, so a hand-edited level still loads something.
+// set name (DungeonWorld loads <set>_<res> and worn_<set>_<tier>.gltf) and a
+// PER-VARIANT parallax height scale. The scale is the type's `height_scale`
+// folded with its `wear` (a flat wall type gets 0 parallax so it reads flat,
+// matching its flat mesh). An unknown id falls back to the id verbatim as the
+// set name, so a hand-edited level still loads something.
 void DungeonWorld::ResolveSurfacePalettes() {
 	struct Def {
 		const std::vector<std::string>& palette;
 		const Catalog& catalog;
 		std::vector<std::string>& sets;
-		float& height;
+		std::vector<float>& heights;
 		float fallbackHeight;
 	};
 	const Def defs[] = {
-		{m_map.WallPalette(), m_project.walls, m_wallSets, m_wallHeight, 0.055f},
-		{m_map.FloorPalette(), m_project.floors, m_floorSets, m_floorHeight, 0.045f},
-		{m_map.CeilingPalette(), m_project.ceilings, m_ceilingSets, m_ceilingHeight,
+		{m_map.WallPalette(), m_project.walls, m_wallSets, m_wallHeights, 0.055f},
+		{m_map.FloorPalette(), m_project.floors, m_floorSets, m_floorHeights, 0.045f},
+		{m_map.CeilingPalette(), m_project.ceilings, m_ceilingSets, m_ceilingHeights,
 		 0.035f},
 	};
 	for (const Def& d : defs) {
 		d.sets.clear();
-		bool first = true;
+		d.heights.clear();
 		for (const std::string& id : d.palette) {
 			const CatalogEntry* e = d.catalog.Find(id);
 			d.sets.push_back(CatalogGet(e, "texture", id));
-			if (first) {
-				d.height = e ? e->GetFloat("height_scale", d.fallbackHeight)
-							 : d.fallbackHeight;
-				first = false;
-			}
+			const float h = e ? e->GetFloat("height_scale", d.fallbackHeight)
+							  : d.fallbackHeight;
+			const float wear = e ? std::clamp(e->GetFloat("wear", 1.0f), 0.0f, 1.0f)
+								 : 1.0f;
+			d.heights.push_back(h * wear);
 		}
 	}
 }
@@ -158,16 +159,16 @@ void DungeonWorld::AppendLoadTasks(LoadQueue& queue) {
 	// material of each set resets the surface, exactly as LoadTextureSet does.
 	for (const SurfaceDef& def : SurfaceDefs()) {
 		Surface& surface = def.surface;
-		const float heightScale = def.heightScale;
 		for (size_t i = 0; i < def.names.size(); ++i) {
 			const std::string& name = def.names[i];
+			const float heightScale = def.heights[i]; // per-variant parallax depth
 			const bool first = i == 0; // first material resets the set
 			std::string spaced = name; // asset id, shown with the '_'s opened up
 			std::ranges::replace(spaced, '_', ' ');
 			queue.Add(loc::Format("load.surface", spaced),
 					  [this, &surface, name, heightScale, first] {
-						  if (first) surface.ResetTextures(heightScale);
-						  LoadSurfaceMaterial(surface, name);
+						  if (first) surface.ResetTextures();
+						  LoadSurfaceMaterial(surface, name, heightScale);
 					  });
 		}
 	}
@@ -242,18 +243,21 @@ DungeonWorld::PbrMaps DungeonWorld::LoadPbrSet(const std::string& name, bool req
 	return maps;
 }
 
-// Loads one material's PBR set and appends it to the surface's variant arrays.
-void DungeonWorld::LoadSurfaceMaterial(Surface& surface, const std::string& name) {
+// Loads one material's PBR set and appends it to the surface's variant arrays
+// (albedo/normal/mr + the variant's parallax depth).
+void DungeonWorld::LoadSurfaceMaterial(Surface& surface, const std::string& name,
+									   float heightScale) {
 	PbrMaps maps = LoadPbrSet(name, /*required*/ true);
 	surface.albedo.push_back(std::move(maps.albedo));
 	surface.normal.push_back(std::move(maps.normal));
 	surface.mr.push_back(std::move(maps.mr));
+	surface.heightScale.push_back(heightScale);
 }
 
 void DungeonWorld::LoadTextureSet(const SurfaceDef& def) {
-	def.surface.ResetTextures(def.heightScale); // hot-swap reuses the same Surface
-	for (const std::string& name : def.names)
-		LoadSurfaceMaterial(def.surface, name);
+	def.surface.ResetTextures(); // hot-swap reuses the same Surface
+	for (size_t i = 0; i < def.names.size(); ++i)
+		LoadSurfaceMaterial(def.surface, def.names[i], def.heights[i]);
 }
 
 void DungeonWorld::LoadAllSurfaceTextures() {
@@ -1271,21 +1275,35 @@ void DungeonWorld::BuildTurbidityMap() {
 // ============================================================================
 void DungeonWorld::ApplyQuality(bool textureResChanged) {
 	if (m_walls.chunks.empty()) return; // not built yet — the load tasks will
+	ReloadDungeonBlocks(textureResChanged);
+	log::Info("Quality switched to {} ({} meshes, {} textures)",
+			  m_settings.QualityLabel(), m_settings.MeshSuffix(),
+			  m_settings.TextureSuffix());
+}
+
+// Reloads the worn block meshes and rebuilds the batched dungeon geometry in
+// place — shared by the quality hot-swap and the editor's Wall Style rebake
+// (which re-bakes a texture's worn_*.gltf then calls this to swap it in live).
+// The map Revision is unchanged, so the cached shadow cubes are force-refreshed.
+void DungeonWorld::ReloadDungeonBlocks(bool textureResChanged) {
+	if (m_walls.chunks.empty()) return; // not built yet — the load tasks will
 
 	// The GPU may still be reading the old resources, so drain it first.
 	m_device.WaitIdle();
+	// Re-resolve palettes so an edited `wear` updates BOTH the worn mesh (via
+	// LoadDungeonBlocks below) and the parallax depth together — the two must
+	// move in lockstep or a flat mesh still shows faked relief.
+	ResolveSurfacePalettes();
 	m_walls.chunks.clear();
 	m_floors.chunks.clear();
 	m_ceilings.chunks.clear();
 	LoadDungeonBlocks();
-	if (textureResChanged) LoadAllSurfaceTextures();
+	if (textureResChanged)
+		LoadAllSurfaceTextures(); // re-pushes each variant's parallax depth
+	else                          // textures unchanged — just refresh the depths
+		for (const SurfaceDef& def : SurfaceDefs())
+			def.surface.heightScale.assign(def.heights.begin(), def.heights.end());
 	BuildDungeonMeshes();
-	// The surface tessellation changed but the map Revision did not, so force a
-	// re-render of every cached shadow cube (otherwise standing still after a
-	// quality swap leaves the torch/glow cubes showing the old geometry).
 	m_shadows.InvalidateCubes();
-	log::Info("Quality switched to {} ({} meshes, {} textures)",
-			  m_settings.QualityLabel(), m_settings.MeshSuffix(),
-			  m_settings.TextureSuffix());
 }
 } // namespace dungeon::game

@@ -80,7 +80,7 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	  m_modelPreview(device, 512),
 	  m_assetDialog(device, window),
 	  m_monsterDialog(device), m_balanceDialog(device),
-	  m_levelSettingsDialog(device),
+	  m_levelSettingsDialog(device), m_wallStyleDialog(device),
 	  m_entityInspector(device), m_fixtureInspector(device),
 	  m_propInspector(device), m_doorInspector(device), m_buttonInspector(device),
 	  m_projectileInspector(device), m_inspectPicker(device),
@@ -345,6 +345,14 @@ void Game::WireModuleCallbacks() {
 
 	// Right-click a monster in the palette → open its animation config dialog.
 	m_mapEditor.onConfigure = [this](MapEditor::PaletteCat cat, const std::string& id) {
+		// Walls: open the geometry-style dialog (worn/columns) for the wall type.
+		if (cat == MapEditor::PaletteCat::Walls) {
+			const CatalogEntry* e = m_project.walls.Find(id);
+			m_wallStyleDialog.Open(id, e ? e->Display() : id, CatalogGet(e, "texture", id),
+								   e ? e->GetFloat("wear", 1.0f) : 1.0f,
+								   e ? e->GetBool("columns", true) : true);
+			return;
+		}
 		if (cat != MapEditor::PaletteCat::Monsters) return;
 		// Guard the force-load: a catalog id whose <model>.gltf is missing would
 		// abort in LoadModelOrDie. Warn and skip instead of crashing the editor.
@@ -380,6 +388,14 @@ void Game::WireModuleCallbacks() {
 		m_world.ApplyMonsterBehavior(c.type, c.archetype, c.keepRange, c.fleeBelow, c.spell,
 									 c.threat);
 		WriteMonsterAnim(c);
+	};
+
+	// Wall Style Save: persist the type's wear/columns, then rebake + reload the
+	// worn mesh (geometry is baked, so there is no live preview — this is it).
+	m_wallStyleDialog.onSave = [this](const std::string& id, const std::string& texture,
+									  float wear, bool columns) {
+		WriteWallStyle(id, wear, columns);
+		StartRestyleBake(texture, wear, columns);
 	};
 
 	// Per-instance inspector: Select-click a placed monster → edit its .ent overrides.
@@ -1297,6 +1313,10 @@ bool Game::StartBakeStep() {
 								 : m_bakeReq.catalogKey == "ceilings" ? "ceiling"
 																	  : "wall";
 		cmd = q(baker) + " wornblock " + kind + " " + m_bakeReq.name + " " + q(assets);
+		// Wall-style knobs (default 1/on for an asset-create; set by a restyle).
+		if (m_bakeWear != 1.0f)
+			cmd += std::format(" --wear {:.3f}", m_bakeWear);
+		if (!m_bakeColumns) cmd += " --columns 0";
 	}
 	log::Info("AssetBaker: {}", cmd);
 	return m_bake.Start(cmd);
@@ -1436,6 +1456,48 @@ void Game::FinishBake() {
 	}
 	m_assetDialog.SetBusy(false);
 	m_assetDialog.Close();
+}
+
+// Persists a wall type's geometry style. Starts from the existing entry so every
+// other field (texture/display/height_scale/category) survives; only the knobs
+// nudged off their defaults are written (absent = worn + columns), keeping the
+// .cat tidy like the monster/threat writers.
+void Game::WriteWallStyle(const std::string& id, float wear, bool columns) {
+	CatalogEntry entry;
+	if (const CatalogEntry* e = m_project.walls.Find(id)) entry = *e;
+	else entry.id = id;
+	std::erase_if(entry.fields, [](const serialize::Field& f) {
+		return f.key == "wear" || f.key == "columns";
+	});
+	if (wear != 1.0f) entry.Set("wear", std::format("{:.3f}", wear));
+	if (!columns) entry.Set("columns", "0");
+	m_project.walls.Add(std::move(entry)); // add-or-replace by id
+	if (!m_project.Save())
+		log::Warn("wall style: failed to save project catalogs");
+}
+
+// Kicks the async worn-mesh rebake for a Wall Style Save: reuses the asset-bake
+// subprocess flow, jumping straight to the wornblock step. m_restyleBake tells
+// the Update poll to reload the dungeon blocks (not FinishBake) on success.
+void Game::StartRestyleBake(const std::string& texture, float wear, bool columns) {
+	if (m_baking) {
+		log::Warn("wall style: a bake is already running — try again in a moment");
+		return;
+	}
+	m_bakeReq = {};               // a wornblock-only bake, no CreateRequest data
+	m_bakeReq.textureSet = true;  // routes StartBakeStep to the wornblock branch
+	m_bakeReq.catalogKey = "walls";
+	m_bakeReq.name = texture;
+	m_bakeStep = 1;               // skip the texture-import step
+	m_bakeWear = wear;
+	m_bakeColumns = columns;
+	m_restyleBake = true;
+	if (StartBakeStep())
+		m_baking = true;
+	else {
+		log::Warn("wall style: could not launch AssetBaker");
+		m_restyleBake = false;
+	}
 }
 
 void Game::WriteMonsterAnim(const MonsterConfigDialog::Config& cfg) {
@@ -2035,17 +2097,25 @@ void Game::Update(float dt) {
 		if (m_bake.ExitCode() != 0) {
 			log::Warn("AssetBaker failed (exit {})", m_bake.ExitCode());
 			m_baking = false;
-			m_assetDialog.SetBusy(false);
+			if (m_restyleBake) m_restyleBake = false;
+			else m_assetDialog.SetBusy(false);
 		} else if (m_bakeReq.textureSet && m_bakeStep == 0) {
 			m_bakeStep = 1; // textures imported — now rebake worn block meshes
 			if (!StartBakeStep()) {
 				m_baking = false;
 				m_assetDialog.SetBusy(false);
 			}
+		} else if (m_restyleBake) {
+			// Wall Style rebake done: swap the new worn geometry in live.
+			m_world.ReloadDungeonBlocks();
+			m_restyleBake = false;
+			m_baking = false;
+			if (m_world.onMessage) m_world.onMessage(loc::Tr("map.wallstyle.applied"));
 		} else {
 			FinishBake();
 			m_baking = false;
 		}
+		if (!m_baking) { m_bakeWear = 1.0f; m_bakeColumns = true; } // reset to defaults
 	}
 
 	const Input& input = m_window.GetInput();
@@ -2184,6 +2254,12 @@ void Game::Update(float dt) {
 	if (m_levelSettingsDialog.IsOpen()) {
 		m_levelSettingsDialog.Update(input, static_cast<float>(m_window.Width()),
 									 static_cast<float>(m_window.Height()));
+		return;
+	}
+	// The wall-style dialog is likewise modal over the editor.
+	if (m_wallStyleDialog.IsOpen()) {
+		m_wallStyleDialog.Update(input, static_cast<float>(m_window.Width()),
+								 static_cast<float>(m_window.Height()));
 		return;
 	}
 	// The monster-config dialog is likewise modal over the editor.
@@ -2601,6 +2677,8 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 		m_balanceDialog.Render(m_spriteBatch, m_settings.theme, dw, dh);
 	if (m_levelSettingsDialog.IsOpen())
 		m_levelSettingsDialog.Render(m_spriteBatch, m_settings.theme, dw, dh);
+	if (m_wallStyleDialog.IsOpen())
+		m_wallStyleDialog.Render(m_spriteBatch, m_settings.theme, dw, dh);
 	// The per-instance edit dialogs, each drawn (panel + controls) THEN, once all
 	// are drawn, the 3D preview blitted into the active one's pane — the blit must
 	// come last so a dialog's backing box never covers it.

@@ -321,8 +321,10 @@ bool MapEditor::OnRightClick(float mx, float my, const gfx::Rect& panel) {
 	BuildPaletteRows(panel, rows, content);
 	for (const PaletteRow& r : rows) {
 		if (!r.rect.Contains(mx, my)) continue;
-		// Only items in a configurable category open a config dialog (Monsters).
-		if (r.kind == PaletteRow::Kind::Item && r.cat == PaletteCat::Monsters && onConfigure) {
+		// Items in a configurable category open a config dialog: Monsters (their
+		// animation/behaviour) and Walls (their geometry style — worn/columns).
+		if (r.kind == PaletteRow::Kind::Item && onConfigure &&
+			(r.cat == PaletteCat::Monsters || r.cat == PaletteCat::Walls)) {
 			const std::vector<PaletteItem> items = CategoryItems(r.cat);
 			if (r.index >= 0 && r.index < static_cast<int>(items.size()))
 				onConfigure(r.cat, items[r.index].id);
