@@ -507,6 +507,11 @@ map.cfg.keeprange=Keep range (cells)
 map.cfg.fleebelow=Flee below (HP fraction)
 map.cfg.spell=Spell
 map.cfg.nospells=(no spells in project)
+map.cfg.threat=Threat (x global)
+map.cfg.threat_scale=Damage weight
+map.cfg.threat_threshold=Lock threshold
+map.cfg.threat_switch=Switch margin
+map.cfg.threat_decay=Memory (decay)
 ; archetype names (Behavior tab dropdown)
 archetype.brute=Brute (melee)
 archetype.skirmisher=Skirmisher (kite + bolt)

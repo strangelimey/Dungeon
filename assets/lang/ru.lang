@@ -540,6 +540,11 @@ map.cfg.keeprange=Держать дистанцию (ячеек)
 map.cfg.fleebelow=Бегство ниже (доля здоровья)
 map.cfg.spell=Заклинание
 map.cfg.nospells=(в проекте нет заклинаний)
+map.cfg.threat=Угроза (x глобал)
+map.cfg.threat_scale=Вес урона
+map.cfg.threat_threshold=Порог фиксации
+map.cfg.threat_switch=Порог смены
+map.cfg.threat_decay=Память (затухание)
 ; archetype names (Behavior tab dropdown)
 archetype.brute=Громила (ближний бой)
 archetype.skirmisher=Застрельщик (дистанция + снаряд)

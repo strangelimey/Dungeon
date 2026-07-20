@@ -536,6 +536,11 @@ map.cfg.keeprange=Abstand halten (Zellen)
 map.cfg.fleebelow=Flucht unter (LP-Anteil)
 map.cfg.spell=Zauber
 map.cfg.nospells=(keine Zauber im Projekt)
+map.cfg.threat=Bedrohung (x global)
+map.cfg.threat_scale=Schadensgewicht
+map.cfg.threat_threshold=Fixierschwelle
+map.cfg.threat_switch=Wechselspanne
+map.cfg.threat_decay=Gedaechtnis (Zerfall)
 ; archetype names (Behavior tab dropdown)
 archetype.brute=Schläger (Nahkampf)
 archetype.skirmisher=Plänkler (Distanz + Geschoss)

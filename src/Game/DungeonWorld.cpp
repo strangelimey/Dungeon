@@ -2093,7 +2093,8 @@ void DungeonWorld::UpdateMonsters(float dt) {
 		// pick between fights. Decay never raises a score, so the silent
 		// re-evaluation can only RELEASE a lock, never announce a new one.
 		if (monster.ThreatAny()) {
-			const float drain = m_balance.threatDecay * dt;
+			const float drain =
+				m_balance.threatDecay * monster.kind->threatTuning.decay * dt;
 			for (float& t : monster.threat) t = std::max(0.0f, t - drain);
 			UpdateThreatLock(monster, false);
 		}
@@ -2379,8 +2380,8 @@ bool DungeonWorld::MonsterThreatById(u32 runtimeId, std::array<float, 4>& threat
 	return false;
 }
 
-std::string DungeonWorld::ThreatReport() const {
-	std::string out;
+std::vector<std::string> DungeonWorld::ThreatReport() const {
+	std::vector<std::string> out;
 	for (const Monster& m : m_monsters) {
 		if (!m.kind || !m.ThreatAny()) continue;
 		const std::string lock =
@@ -2388,10 +2389,9 @@ std::string DungeonWorld::ThreatReport() const {
 					static_cast<size_t>(m.threatLock) < m_roster->size()
 				? (*m_roster)[m.threatLock].name
 				: std::string("-");
-		if (!out.empty()) out += '\n';
-		out += std::format("{}#{} [{:.1f} {:.1f} {:.1f} {:.1f}] lock={}",
-						   m.kind->name, m.runtimeId, m.threat[0], m.threat[1],
-						   m.threat[2], m.threat[3], lock);
+		out.push_back(std::format("{}#{} [{:.1f} {:.1f} {:.1f} {:.1f}] lock={}",
+								  m.kind->name, m.runtimeId, m.threat[0],
+								  m.threat[1], m.threat[2], m.threat[3], lock));
 	}
 	return out;
 }
@@ -3023,13 +3023,15 @@ void DungeonWorld::ProvokeMonster(Monster& monster) {
 
 void DungeonWorld::AddThreat(Monster& monster, size_t member, float damage) {
 	if (member >= monster.threat.size() || damage <= 0.0f) return;
-	monster.threat[member] += damage * m_balance.threatScale;
+	monster.threat[member] +=
+		damage * m_balance.threatScale * monster.kind->threatTuning.scale;
 	UpdateThreatLock(monster, true);
 }
 
 void DungeonWorld::UpdateThreatLock(Monster& monster, bool announce) {
 	if (!m_roster) return;
-	const float threshold = m_balance.threatThreshold;
+	const float threshold =
+		m_balance.threatThreshold * monster.kind->threatTuning.threshold;
 	const int prev = monster.threatLock;
 	const bool held = prev >= 0 &&
 					  static_cast<size_t>(prev) < m_roster->size() &&
@@ -3047,10 +3049,11 @@ void DungeonWorld::UpdateThreatLock(Monster& monster, bool announce) {
 	// A held lock is STICKY: the challenger must exceed it by the switch margin
 	// (two even attackers must not trade aggro every hit). An unheld lock just
 	// takes the argmax (or stays released).
+	const float switchMargin =
+		m_balance.threatSwitch * monster.kind->threatTuning.switchMargin;
 	int next = top;
 	if (held && !(top >= 0 && top != prev &&
-				  monster.threat[top] >
-					  monster.threat[prev] + m_balance.threatSwitch))
+				  monster.threat[top] > monster.threat[prev] + switchMargin))
 		next = prev;
 
 	monster.threatLock = next;
@@ -3063,7 +3066,8 @@ void DungeonWorld::UpdateThreatLock(Monster& monster, bool announce) {
 
 int DungeonWorld::ThreatTarget(const Monster& monster) const {
 	if (!m_roster) return -1;
-	const float threshold = m_balance.threatThreshold;
+	const float threshold =
+		m_balance.threatThreshold * monster.kind->threatTuning.threshold;
 	// The locked member keeps the monster's attention while they stand...
 	if (monster.threatLock >= 0 &&
 		static_cast<size_t>(monster.threatLock) < m_roster->size() &&

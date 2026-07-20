@@ -1,4 +1,11 @@
 ; Monsters: model + texture set.
+; Per-type THREAT shading (optional, default 1 = the balance.cat global as-is):
+;   threat_scale     x how hard a landed hit builds this kind's aggro
+;   threat_threshold x the aggro needed before it LOCKS onto one member
+;                      (< 1 = single-minded, locks fast; > 1 = erratic, random longer)
+;   threat_switch    x the margin another member must beat the lock by to steal it
+;   threat_decay     x how fast the grudge fades (> 1 = short memory)
+; Editable live in the editor's monster config dialog (Behavior tab).
 
 [skeleton]
 display = Skeleton
@@ -235,6 +242,9 @@ anim_die = Dead Dead2 Dead3
 [skel_warrior]
 display = Skeleton Warrior
 category = skeleton
+; A single-minded brute: locks onto its tormentor at 0.6x the global threat
+; threshold (see the threat_* note at the top of this file).
+threat_threshold = 0.6
 model = skel_warrior
 hp = 22
 damage = 7

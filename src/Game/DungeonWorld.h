@@ -237,9 +237,11 @@ public:
 	// dialog's Behavior tab, mirroring the anim-config pair. Apply sets the live
 	// kind (AI reads it via the snapshot next frame); it does NOT persist.
 	void MonsterBehaviorConfig(const std::string& type, ai::Archetype& archetype,
-							   float& keepRange, float& fleeBelow, std::string& spell);
+							   float& keepRange, float& fleeBelow, std::string& spell,
+							   ThreatTuning& threat);
 	void ApplyMonsterBehavior(const std::string& type, ai::Archetype archetype,
-							  float keepRange, float fleeBelow, const std::string& spell);
+							  float keepRange, float fleeBelow, const std::string& spell,
+							  const ThreatTuning& threat);
 	// Catalog ids of the project's spells — the options for the caster spell dropdown.
 	std::vector<std::string> SpellIds() const;
 
@@ -262,10 +264,10 @@ public:
 	// row; display-only runtime state, never authored). False if id not found.
 	bool MonsterThreatById(u32 runtimeId, std::array<float, 4>& threat,
 						   int& lock) const;
-	// Every grudge in the live world, one line per monster with any threat
+	// Every grudge in the live world, ONE STRING PER monster with any threat
 	// ("<type>#<runtimeId> [b c d e] lock=<name|->") — the dev console `threat`
-	// command. Empty = nobody holds one.
-	std::string ThreatReport() const;
+	// command prints them a line each. Empty = nobody holds one.
+	std::vector<std::string> ThreatReport() const;
 
 	// Patrol-route editing (grid-click authoring in the editor). Append/undo/clear a
 	// monster's waypoint route by runtimeId (live; the .ent writer persists it on
@@ -822,6 +824,9 @@ private:
 		float fleeBelow = 0.0f;      // flees when hp/maxHp drops below this (0 = never)
 		std::string spell;           // caster: spells.cat id its bolt casts (empty = a
 									 // plain bolt, e.g. a skirmisher's arrow)
+		// Per-type threat shading (monsters.cat threat_*): multipliers on the
+		// balance.cat globals, 1 = the global as-is (see Balance.h ThreatTuning).
+		ThreatTuning threatTuning;
 		// Behaviour/appearance, data-driven from the catalog so AI and the
 		// flat-material fallback never branch on the type name.
 		bool facesTarget = true;     // turn to face the party once engaged

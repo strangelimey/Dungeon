@@ -48,12 +48,12 @@ MonsterConfigDialog::MonsterConfigDialog(gfx::GraphicsDevice& device)
 void MonsterConfigDialog::Open(const std::string& type, const std::string& display,
 							   const Support& supported, const Clips& clips,
 							   ai::Archetype archetype, float keepRange, float fleeBelow,
-							   const std::string& spell,
+							   const std::string& spell, const ThreatTuning& threat,
 							   const std::vector<std::string>& modelClips,
 							   const std::vector<std::string>& spellIds) {
 	m_open = true;
 	m_display = display;
-	m_cfg = {type, supported, clips, archetype, keepRange, fleeBelow, spell};
+	m_cfg = {type, supported, clips, archetype, keepRange, fleeBelow, spell, threat};
 	m_original = m_cfg; // snapshot for revert
 	m_modelClips = modelClips;
 	m_spellIds = spellIds;
@@ -152,6 +152,32 @@ void MonsterConfigDialog::BuildBehaviorTab(size_t tab) {
 											   m_cfg.spell = m_spellIds[i];
 										   Apply();
 									   });
+		y += 0.13f;
+	}
+
+	// Per-type THREAT multipliers (× the balance.cat globals; 1 = unchanged) —
+	// this kind's targeting personality. Rows past the tab bottom scroll.
+	m_tabs->AddChild<ui::Label>(tab, gfx::Rect{0.05f, y, 0.9f, 0.06f},
+								loc::Tr("map.cfg.threat"));
+	y += 0.08f;
+	struct ThreatRow {
+		const char* key;
+		float ThreatTuning::*field;
+	};
+	static const ThreatRow kThreatRows[] = {
+		{"map.cfg.threat_scale", &ThreatTuning::scale},
+		{"map.cfg.threat_threshold", &ThreatTuning::threshold},
+		{"map.cfg.threat_switch", &ThreatTuning::switchMargin},
+		{"map.cfg.threat_decay", &ThreatTuning::decay},
+	};
+	for (const ThreatRow& r : kThreatRows) {
+		m_tabs->AddChild<ui::Slider>(
+			tab, gfx::Rect{0.05f, y, 0.9f, 0.10f}, loc::Tr(r.key), 0.0f, 3.0f,
+			m_cfg.threat.*(r.field), [this, f = r.field](float v) {
+				m_cfg.threat.*f = v;
+				Apply();
+			});
+		y += 0.135f;
 	}
 }
 

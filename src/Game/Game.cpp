@@ -360,9 +360,10 @@ void Game::WireModuleCallbacks() {
 		ai::Archetype archetype;
 		float keepRange, fleeBelow;
 		std::string spell;
-		m_world.MonsterBehaviorConfig(id, archetype, keepRange, fleeBelow, spell);
+		ThreatTuning threat;
+		m_world.MonsterBehaviorConfig(id, archetype, keepRange, fleeBelow, spell, threat);
 		m_monsterDialog.Open(id, display, supported, clips, archetype, keepRange, fleeBelow,
-							 spell, m_world.MonsterClipNames(id), m_world.SpellIds());
+							 spell, threat, m_world.MonsterClipNames(id), m_world.SpellIds());
 		m_previewType.clear(); // force the preview animator to (re)build on first frame
 		m_previewClip.clear();
 		m_previewMonMesh = nullptr;
@@ -371,11 +372,13 @@ void Game::WireModuleCallbacks() {
 	// Live-apply on every edit; persist on Save.
 	m_monsterDialog.onApply = [this](const MonsterConfigDialog::Config& c) {
 		m_world.ApplyMonsterAnimConfig(c.type, c.supported, c.clips);
-		m_world.ApplyMonsterBehavior(c.type, c.archetype, c.keepRange, c.fleeBelow, c.spell);
+		m_world.ApplyMonsterBehavior(c.type, c.archetype, c.keepRange, c.fleeBelow, c.spell,
+									 c.threat);
 	};
 	m_monsterDialog.onSave = [this](const MonsterConfigDialog::Config& c) {
 		m_world.ApplyMonsterAnimConfig(c.type, c.supported, c.clips);
-		m_world.ApplyMonsterBehavior(c.type, c.archetype, c.keepRange, c.fleeBelow, c.spell);
+		m_world.ApplyMonsterBehavior(c.type, c.archetype, c.keepRange, c.fleeBelow, c.spell,
+									 c.threat);
 		WriteMonsterAnim(c);
 	};
 
@@ -1124,9 +1127,12 @@ void Game::RegisterDevCommands() {
 	m_console.Register("threat",
 					   "list per-member threat for every monster holding a grudge (dev)",
 					   [this](const std::vector<std::string>&) {
-						   const std::string report = m_world.ThreatReport();
-						   m_console.Print(report.empty() ? "no threat anywhere"
-														  : report);
+						   const std::vector<std::string> lines = m_world.ThreatReport();
+						   if (lines.empty()) {
+							   m_console.Print("no threat anywhere");
+							   return;
+						   }
+						   for (const std::string& l : lines) m_console.Print("  " + l);
 					   });
 	m_console.Register("cast", "cast a spell by symbol sequence (dev): cast <member> [hand 0/1] <sym>...",
 					   [this](const std::vector<std::string>& args) {
@@ -1441,7 +1447,9 @@ void Game::WriteMonsterAnim(const MonsterConfigDialog::Config& cfg) {
 	// Drop the rows this dialog owns, then rewrite them authoritatively.
 	std::erase_if(entry.fields, [](const serialize::Field& f) {
 		return f.key == "states" || f.key.starts_with("anim_") || f.key == "archetype" ||
-			   f.key == "keeprange" || f.key == "fleebelow" || f.key == "spell";
+			   f.key == "keeprange" || f.key == "fleebelow" || f.key == "spell" ||
+			   f.key == "threat_scale" || f.key == "threat_threshold" ||
+			   f.key == "threat_switch" || f.key == "threat_decay";
 	});
 
 	// Behaviour fields (Behavior tab). archetype is always written; the params are
@@ -1454,6 +1462,14 @@ void Game::WriteMonsterAnim(const MonsterConfigDialog::Config& cfg) {
 	if (cfg.fleeBelow > 0.0f) entry.Set("fleebelow", std::format("{:g}", cfg.fleeBelow));
 	if (cfg.archetype == ai::Archetype::Caster && !cfg.spell.empty())
 		entry.Set("spell", cfg.spell);
+	// Threat multipliers: write only the ones nudged off 1 (keep the .cat tidy).
+	auto setThreat = [&](const char* key, float v) {
+		if (v != 1.0f) entry.Set(key, std::format("{:g}", v));
+	};
+	setThreat("threat_scale", cfg.threat.scale);
+	setThreat("threat_threshold", cfg.threat.threshold);
+	setThreat("threat_switch", cfg.threat.switchMargin);
+	setThreat("threat_decay", cfg.threat.decay);
 
 	auto join = [](const std::vector<std::string>& v) {
 		std::string out;

@@ -536,6 +536,11 @@ map.cfg.keeprange=Mantieni la distanza (celle)
 map.cfg.fleebelow=Fuga sotto (frazione di vita)
 map.cfg.spell=Incantesimo
 map.cfg.nospells=(nessun incantesimo nel progetto)
+map.cfg.threat=Minaccia (x globale)
+map.cfg.threat_scale=Peso del danno
+map.cfg.threat_threshold=Soglia di aggancio
+map.cfg.threat_switch=Margine di cambio
+map.cfg.threat_decay=Memoria (decadimento)
 ; archetype names (Behavior tab dropdown)
 archetype.brute=Bruto (mischia)
 archetype.skirmisher=Schermagliatore (distanza + dardo)

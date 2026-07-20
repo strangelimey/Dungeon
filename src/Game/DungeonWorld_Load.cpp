@@ -359,6 +359,12 @@ DungeonWorld::MonsterKind& DungeonWorld::MonsterKindFor(const std::string& type)
 			assets->keepRange = def->GetFloat("keeprange", 4.0f);
 			assets->fleeBelow = def->GetFloat("fleebelow", 0.0f);
 			assets->spell = CatalogGet(def, "spell", "");
+			// Per-type threat multipliers (Balance.h ThreatTuning; 1 = the
+			// balance.cat global unchanged).
+			assets->threatTuning.scale = def->GetFloat("threat_scale", 1.0f);
+			assets->threatTuning.threshold = def->GetFloat("threat_threshold", 1.0f);
+			assets->threatTuning.switchMargin = def->GetFloat("threat_switch", 1.0f);
+			assets->threatTuning.decay = def->GetFloat("threat_decay", 1.0f);
 			if (assets->archetype == ai::Archetype::Caster && assets->spell.empty())
 				log::Warn("monsters.cat [{}]: archetype=caster but no spell= set", type);
 			assets->facesTarget = def->GetBool("faces", true);
@@ -451,22 +457,25 @@ void DungeonWorld::ApplyMonsterAnimConfig(const std::string& type,
 }
 
 void DungeonWorld::MonsterBehaviorConfig(const std::string& type, ai::Archetype& archetype,
-										 float& keepRange, float& fleeBelow, std::string& spell) {
+										 float& keepRange, float& fleeBelow, std::string& spell,
+										 ThreatTuning& threat) {
 	const MonsterKind& kind = MonsterKindFor(type);
 	archetype = kind.archetype;
 	keepRange = kind.keepRange;
 	fleeBelow = kind.fleeBelow;
 	spell = kind.spell;
+	threat = kind.threatTuning;
 }
 
 void DungeonWorld::ApplyMonsterBehavior(const std::string& type, ai::Archetype archetype,
 										float keepRange, float fleeBelow,
-										const std::string& spell) {
+										const std::string& spell, const ThreatTuning& threat) {
 	MonsterKind& kind = MonsterKindFor(type);
 	kind.archetype = archetype;
 	kind.keepRange = keepRange;
 	kind.fleeBelow = fleeBelow;
 	kind.spell = spell;
+	kind.threatTuning = threat;
 }
 
 std::vector<std::string> DungeonWorld::SpellIds() const {
