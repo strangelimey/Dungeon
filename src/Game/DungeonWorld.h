@@ -237,9 +237,11 @@ public:
 	// dialog's Behavior tab, mirroring the anim-config pair. Apply sets the live
 	// kind (AI reads it via the snapshot next frame); it does NOT persist.
 	void MonsterBehaviorConfig(const std::string& type, ai::Archetype& archetype,
-							   float& keepRange, float& fleeBelow, std::string& spell);
+							   float& keepRange, float& fleeBelow, std::string& spell,
+							   ThreatTuning& threat);
 	void ApplyMonsterBehavior(const std::string& type, ai::Archetype archetype,
-							  float keepRange, float fleeBelow, const std::string& spell);
+							  float keepRange, float fleeBelow, const std::string& spell,
+							  const ThreatTuning& threat);
 	// Catalog ids of the project's spells — the options for the caster spell dropdown.
 	std::vector<std::string> SpellIds() const;
 
@@ -258,6 +260,14 @@ public:
 	void ApplyMonsterInstance(u32 runtimeId, bool asleep, float leashRange,
 							  ai::Archetype archetype, float keepRange, float fleeBelow,
 							  const std::string& spell, Direction facing);
+	// A live monster's threat table + lock, read-only (the inspector's threat
+	// row; display-only runtime state, never authored). False if id not found.
+	bool MonsterThreatById(u32 runtimeId, std::array<float, 4>& threat,
+						   int& lock) const;
+	// Every grudge in the live world, ONE STRING PER monster with any threat
+	// ("<type>#<runtimeId> [b c d e] lock=<name|->") — the dev console `threat`
+	// command prints them a line each. Empty = nobody holds one.
+	std::vector<std::string> ThreatReport() const;
 
 	// Patrol-route editing (grid-click authoring in the editor). Append/undo/clear a
 	// monster's waypoint route by runtimeId (live; the .ent writer persists it on
@@ -814,6 +824,9 @@ private:
 		float fleeBelow = 0.0f;      // flees when hp/maxHp drops below this (0 = never)
 		std::string spell;           // caster: spells.cat id its bolt casts (empty = a
 									 // plain bolt, e.g. a skirmisher's arrow)
+		// Per-type threat shading (monsters.cat threat_*): multipliers on the
+		// balance.cat globals, 1 = the global as-is (see Balance.h ThreatTuning).
+		ThreatTuning threatTuning;
 		// Behaviour/appearance, data-driven from the catalog so AI and the
 		// flat-material fallback never branch on the type name.
 		bool facesTarget = true;     // turn to face the party once engaged
@@ -901,6 +914,18 @@ private:
 		// sight cone, or immediately on a hit (provoke). Once aware the monster
 		// stays engaged even if the party slips behind it. Saved (dynamic state).
 		bool aware = false;
+		// Threat (aggro): damage each roster member has dealt this monster,
+		// scaled by balance threat_scale and draining threat_decay/second. Once
+		// a member crosses threat_threshold the monster LOCKS onto the highest
+		// (threatLock = roster index; sticky — another member must EXCEED the
+		// locked score by threat_switch to steal it); with nobody above the
+		// threshold targeting stays uniform-random. Saved (v19).
+		std::array<float, 4> threat{};
+		int threatLock = -1;
+		bool ThreatAny() const {
+			return threat[0] > 0.0f || threat[1] > 0.0f || threat[2] > 0.0f ||
+				   threat[3] > 0.0f;
+		}
 		float hp = 1.0f;          // current hit points (maxHp at spawn)
 		float attackCd = 0.0f;    // seconds until this monster can swing again
 
@@ -1231,6 +1256,13 @@ private:
 	// the front-centre toward the party for a lone Medium-or-smaller monster, else
 	// its slot centre. partyPos is the party's cell centre.
 	Vec3 DesiredAnchor(const Monster& m, const Vec3& partyPos) const;
+	// Where a step's glide lands in the monster's CURRENT cell: a LONE
+	// sub-cell monster that isn't engaging the party (intent Idle —
+	// wandering / patrolling / asleep) walks the CENTRE of each square (a
+	// solo creature hugging one quarter of every cell reads wrong); anything
+	// grouped, engaged, or cell-filling keeps its slot centre. Shared by the
+	// move tween and DesiredAnchor's settled fallback.
+	Vec3 MonsterStepTarget(const Monster& m) const;
 	void LoadDecorations();
 	void LoadStairs(); // places stair props (P6) from the map's stair links
 	// Instantiates one stair link's prop (a non-solid decoration flagged stair).
@@ -1303,8 +1335,10 @@ private:
 	void UpdateCamera();
 	void UpdateLights(float time);
 	void UpdateMonsters(float dt);
-	// One monster's melee strike against a random standing party member (called
-	// from UpdateMonsters when the monster is adjacent and off cooldown).
+	// One monster's melee strike against a standing party member (called from
+	// UpdateMonsters when the monster is adjacent and off cooldown). The victim
+	// comes from PickMeleeVictim — threat-driven with the near-row blocking rule,
+	// uniform-random below the threat threshold.
 	void MonsterAttack(Monster& monster);
 	// Per-frame clip state machine: resolves the monster's CreatureState from its
 	// live state (DesiredState), looks the state up in the kind's animClips table
@@ -1323,6 +1357,34 @@ private:
 	// party THIS frame, independent of its neighbours. Called where party damage
 	// (melee or spell) lands on a monster.
 	void ProvokeMonster(Monster& monster);
+	// --- threat (aggro; see the Monster::threat comment) ----------------------
+	// Accrues member-dealt damage onto the monster's threat table (× balance
+	// threat_scale) and re-evaluates the lock, announcing a lock change.
+	void AddThreat(Monster& monster, size_t member, float damage);
+	// The lock state machine: keeps a valid lock until another alive member
+	// EXCEEDS it by threat_switch; otherwise locks the alive argmax at/above
+	// threat_threshold (or releases). `announce` logs a lock CHANGE (the accrual
+	// path); the decay tick re-evaluates silently.
+	void UpdateThreatLock(Monster& monster, bool announce);
+	// The member this monster wants dead right now: the locked member while
+	// alive and at/above threshold, else the alive argmax at/above threshold,
+	// else -1 (uniform-random targeting). Pure read — used by the melee pick,
+	// the ranged lane aim, and the projectile impact preference.
+	int ThreatTarget(const Monster& monster) const;
+	// Picks the melee victim's roster index (-1 = nobody standing) under the
+	// PER-FILE blocking rule: relative to a reach-1 monster's approach the
+	// party stands in two files, and the FIRST STANDING member of each file is
+	// touchable — a living near member shields the one behind, a fallen one
+	// opens the file so the monster steps into the gap and reaches the far
+	// member directly. The threat target is taken when reachable, else their
+	// standing file mate (the blocker) soaks the swing. Below the threshold:
+	// uniform-random among the reachable members.
+	int PickMeleeVictim(Monster& monster);
+	// A standing member's facing-relative sub-cell position (the quadrant the
+	// portraits read: front pair a quarter-cell toward the facing, rear away,
+	// even indices the on-screen-LEFT column). Shared by the projectile lane
+	// test, the ranged lane aim, and the melee near-row math.
+	Vec3 PartyMemberSubPos(size_t member) const;
 	// Resolves a spell bolt reaching `impact.pos` with its strike profile: finds
 	// a live monster in that cell, runs the strike (combat + log + slain), and
 	// returns true if a monster was there (the bolt is consumed). A landed hit

@@ -48,16 +48,25 @@ struct ProjectileSpec {
 	float size = 0.2f;       // billboard half-extent
 	TargetSide target = TargetSide::Monsters;
 	int push = 0;            // cells the struck target is shoved along `dir`
+	// Who launched it, for the threat system (Monster::threat). At most one is
+	// set: a party bolt carries its caster's roster index (threat accrual on
+	// impact), a monster bolt its shooter's runtimeId (the impact reads the
+	// shooter's threat table to prefer its target in the lane).
+	int attacker = -1;       // party roster index, -1 = not a party shot
+	u32 shooter = 0;         // monster runtimeId, 0 = not a monster shot
 };
 
 // Everything the owner needs to resolve one impact: where it landed, the strike
-// profile, and the item's travel direction + push so displacement effects (the
-// air school's shove) know which way and how far to move the target.
+// profile, the item's travel direction + push so displacement effects (the
+// air school's shove) know which way and how far to move the target, and who
+// launched it (threat attribution/preference — see ProjectileSpec).
 struct ProjectileImpact {
 	Vec3 pos{};
 	Vec3 dir{};
 	AttackProfile atk{};
 	int push = 0;
+	int attacker = -1; // party roster index, -1 = not a party shot
+	u32 shooter = 0;   // monster runtimeId, 0 = not a monster shot
 };
 
 // A read-only snapshot of one live item, for the editor's map marker + inspect
@@ -124,6 +133,8 @@ private:
 		float size = 0.2f;      // billboard half-extent
 		TargetSide target = TargetSide::Monsters;
 		int push = 0;           // cells the struck target is shoved along `dir`
+		int attacker = -1;      // party roster index (threat; see ProjectileSpec)
+		u32 shooter = 0;        // monster runtimeId (threat; see ProjectileSpec)
 	};
 	// A short-lived impact/fizzle spark (a burst of these sells a hit). Flies out,
 	// fades over its life, additive.

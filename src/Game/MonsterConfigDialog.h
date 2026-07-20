@@ -21,6 +21,7 @@
 #pragma once
 
 #include "Animation/CreatureState.h"
+#include "Game/Balance.h"   // ThreatTuning
 #include "Game/MonsterAI.h" // ai::Archetype
 #include "Graphics/GraphicsDevice.h"
 #include "Graphics/SpriteBatch.h"
@@ -55,6 +56,7 @@ public:
 		float keepRange = 4.0f;
 		float fleeBelow = 0.0f;
 		std::string spell;
+		ThreatTuning threat; // per-type aggro multipliers (Behavior tab)
 	};
 
 	explicit MonsterConfigDialog(gfx::GraphicsDevice& device);
@@ -66,7 +68,7 @@ public:
 	void Open(const std::string& type, const std::string& display,
 			  const Support& supported, const Clips& clips, ai::Archetype archetype,
 			  float keepRange, float fleeBelow, const std::string& spell,
-			  const std::vector<std::string>& modelClips,
+			  const ThreatTuning& threat, const std::vector<std::string>& modelClips,
 			  const std::vector<std::string>& spellIds);
 	void Close() { m_open = false; }
 

@@ -145,13 +145,21 @@ bool WriteSave(const SaveData& data, const std::string& path) {
 		for (const SaveData::EntityState& e : lvl.entities) {
 			switch (e.kind) {
 			case EntityKind::Monster:
+				// v19 appends the threat table (four member scores + the lock)
+				// as trailing tokens on both forms — older readers ignore them,
+				// older saves leave them at their zero defaults.
 				if (e.id >= 0) // baseline .ent monster: store the diff, keyed by id
-					t += std::format("ent {} {} {} {} {:.3f} {} {}\n", e.id, e.x, e.z,
-									 e.announced ? 1 : 0, e.hp, e.aware ? 1 : 0, e.slot);
+					t += std::format(
+						"ent {} {} {} {} {:.3f} {} {} {:.2f} {:.2f} {:.2f} {:.2f} {}\n",
+						e.id, e.x, e.z, e.announced ? 1 : 0, e.hp,
+						e.aware ? 1 : 0, e.slot, e.threat[0], e.threat[1],
+						e.threat[2], e.threat[3], e.threatLock);
 				else // editor-placed monster (no baseline): store it whole to recreate
-					t += std::format("monster {} {} {} {} {} {:.3f} {} {} {} {}\n", e.type,
-									 e.x, e.z, e.facing, e.announced ? 1 : 0, e.hp,
-									 e.spawnX, e.spawnZ, e.aware ? 1 : 0, e.slot);
+					t += std::format(
+						"monster {} {} {} {} {} {:.3f} {} {} {} {} {:.2f} {:.2f} {:.2f} {:.2f} {}\n",
+						e.type, e.x, e.z, e.facing, e.announced ? 1 : 0, e.hp,
+						e.spawnX, e.spawnZ, e.aware ? 1 : 0, e.slot, e.threat[0],
+						e.threat[1], e.threat[2], e.threat[3], e.threatLock);
 				break;
 			case EntityKind::Item:
 				if (e.id >= 0) // baseline rune lifted off the floor: a one-bit diff
@@ -394,7 +402,8 @@ std::optional<SaveData> ReadSave(const std::string& path) {
 			data.levels.push_back({std::string(tok[1]), {}, {}});
 			cur = &data.levels.back();
 		} else if (kw == "ent" && tok.size() >= 4) {
-			// Baseline monster diff: id x z [announced] [hp] [aware] [slot].
+			// Baseline monster diff: id x z [announced] [hp] [aware] [slot]
+			// [threat x4 + lock (v19)].
 			SaveData::EntityState e;
 			e.kind = EntityKind::Monster;
 			e.id = IntOf(tok[1]);
@@ -404,10 +413,15 @@ std::optional<SaveData> ReadSave(const std::string& path) {
 			if (tok.size() >= 6) e.hp = FloatOf(tok[5]);           // older saves omit it
 			if (tok.size() >= 7) e.aware = IntOf(tok[6]) != 0;     // older saves omit it
 			if (tok.size() >= 8) e.slot = IntOf(tok[7]);           // older saves omit it
+			if (tok.size() >= 13) {                                // pre-v19 saves omit it
+				for (size_t k = 0; k < 4; ++k) e.threat[k] = FloatOf(tok[8 + k]);
+				e.threatLock = IntOf(tok[12]);
+			}
 			currentBlock().entities.push_back(e);
 		} else if (kw == "monster" && tok.size() >= 9) {
 			// Whole editor-placed monster:
-			// type x z facing announced hp spawnX spawnZ [aware] [slot].
+			// type x z facing announced hp spawnX spawnZ [aware] [slot]
+			// [threat x4 + lock (v19)].
 			SaveData::EntityState e;
 			e.kind = EntityKind::Monster;
 			e.id = -1; // editor-placed (no .ent baseline)
@@ -421,6 +435,10 @@ std::optional<SaveData> ReadSave(const std::string& path) {
 			e.spawnZ = IntOf(tok[8]);
 			if (tok.size() >= 10) e.aware = IntOf(tok[9]) != 0;    // older saves omit it
 			if (tok.size() >= 11) e.slot = IntOf(tok[10]);         // older saves omit it
+			if (tok.size() >= 16) {                                // pre-v19 saves omit it
+				for (size_t k = 0; k < 4; ++k) e.threat[k] = FloatOf(tok[11 + k]);
+				e.threatLock = IntOf(tok[15]);
+			}
 			currentBlock().entities.push_back(e);
 		} else if (kw == "item" && tok.size() >= 2) {
 			// Baseline rune lifted off the floor (v7 diff): just the id.

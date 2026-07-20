@@ -177,6 +177,7 @@ log.member_wakes={} приходит в себя.
 log.monster_slain=Гибнет {}!
 log.monster_hits=Удар наносит {}: {} получает {} урона.
 log.monster_misses=Удар наносит {}, но {} уворачивается.
+log.monster_locks={} обращает ярость на {}!
 log.monster_ranged_hits={} получает {} урона от снаряда.
 log.monster_ranged_misses={} уклоняется от снаряда.
 log.member_down={} выбывает из боя!
@@ -489,6 +490,7 @@ map.insp.tab.patrol=Патруль
 map.insp.asleep=Начинает спящим (засада)
 map.insp.leash=Радиус привязи (ячеек, 0 = без)
 map.insp.waypoints=Точек маршрута: {}
+map.insp.threat=Угроза: {} (цель: {})
 map.insp.editroute=Редактировать маршрут на карте
 map.insp.clearroute=Очистить маршрут
 map.insp.saved=Настройки экземпляра «{}» сохранены
@@ -538,6 +540,11 @@ map.cfg.keeprange=Держать дистанцию (ячеек)
 map.cfg.fleebelow=Бегство ниже (доля здоровья)
 map.cfg.spell=Заклинание
 map.cfg.nospells=(в проекте нет заклинаний)
+map.cfg.threat=Угроза (x глобал)
+map.cfg.threat_scale=Вес урона
+map.cfg.threat_threshold=Порог фиксации
+map.cfg.threat_switch=Порог смены
+map.cfg.threat_decay=Память (затухание)
 ; archetype names (Behavior tab dropdown)
 archetype.brute=Громила (ближний бой)
 archetype.skirmisher=Застрельщик (дистанция + снаряд)

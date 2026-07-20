@@ -40,6 +40,21 @@ struct AttackSpec {
 	float stam = 1.0f; // × the swing's stamina cost (chop exerts, jab doesn't)
 };
 
+// Per-monster-type threat (aggro) shading: MULTIPLIERS on the balance.cat
+// threat_* globals (1 = the global as-authored), so the Balance dialog stays
+// the master dial while each kind keeps its own targeting PERSONALITY. A low
+// `threshold` locks a kind onto its tormentor sooner (a single-minded brute);
+// a high one keeps it flitting at random longer (an erratic skirmisher).
+// `scale` shades how hard it weights damage, `switchMargin` how sticky the
+// lock, `decay` how fast the grudge fades. Loaded from monsters.cat
+// threat_scale/threat_threshold/threat_switch/threat_decay.
+struct ThreatTuning {
+	float scale = 1.0f;
+	float threshold = 1.0f;
+	float switchMargin = 1.0f;
+	float decay = 1.0f;
+};
+
 struct Balance {
 	// --- the knob sheet (docs/combat.md part 5; all driven by BalanceFields) --
 	float unarmedBase = 4.0f;   // fist "weapon damage"
@@ -84,6 +99,15 @@ struct Balance {
 	float stabilizeTime = 30.0f;
 	float stabilizeHealth = 0.2f;
 	float overkill = 1.5f;
+	// Threat (aggro). Damage a member deals a monster accrues threat_scale ×
+	// damage on that monster; past threat_threshold the monster LOCKS onto the
+	// highest-threat member (another member must exceed the locked score by
+	// threat_switch to steal it), and all scores drain threat_decay/second, so
+	// grudges fade back to the old uniform-random targeting between fights.
+	float threatScale = 1.0f;
+	float threatThreshold = 15.0f;
+	float threatSwitch = 5.0f;
+	float threatDecay = 1.0f;
 
 	// The attack table, seeded with the identity defaults; Load overrides the
 	// numbers from attacks.cat.

@@ -69,9 +69,11 @@ public:
 	// nothing else. On success the spell's own Cast() lands the effect through
 	// the wired services (a bolt spawns, a ward settles, ...) at skill-scaled
 	// power. On the non-Fumble failures nothing is deducted and the outcome
-	// explains why.
-	CastReport Cast(Character& caster, std::span<const SpellSymbol> sequence,
-					const Vec3& origin, const Vec3& dir, std::mt19937& rng);
+	// explains why. `casterIndex` is the caster's roster index (-1 unknown) —
+	// it rides any spawned bolt so the impact credits its caster (threat).
+	CastReport Cast(Character& caster, int casterIndex,
+					std::span<const SpellSymbol> sequence, const Vec3& origin,
+					const Vec3& dir, std::mt19937& rng);
 
 private:
 	SpellBook m_spellBook;

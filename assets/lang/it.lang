@@ -173,6 +173,7 @@ log.member_wakes={} riprende i sensi.
 log.monster_slain={} soccombe!
 log.monster_hits={} colpisce {} per {} danni.
 log.monster_misses={} attacca {} e manca.
+log.monster_locks={} si accanisce su {}!
 log.monster_ranged_hits=Un dardo colpisce {} per {} danni.
 log.monster_ranged_misses=Un dardo sibila accanto a {}.
 log.member_down={} è caduto!
@@ -485,6 +486,7 @@ map.insp.tab.patrol=Pattuglia
 map.insp.asleep=Inizia addormentato (imboscata)
 map.insp.leash=Raggio di guinzaglio (celle, 0 = nessuno)
 map.insp.waypoints=Tappe: {}
+map.insp.threat=Minaccia: {} (bersaglio: {})
 map.insp.editroute=Modifica percorso sulla mappa
 map.insp.clearroute=Cancella percorso
 map.insp.saved=Modifiche dell'istanza salvate per "{}"
@@ -534,6 +536,11 @@ map.cfg.keeprange=Mantieni la distanza (celle)
 map.cfg.fleebelow=Fuga sotto (frazione di vita)
 map.cfg.spell=Incantesimo
 map.cfg.nospells=(nessun incantesimo nel progetto)
+map.cfg.threat=Minaccia (x globale)
+map.cfg.threat_scale=Peso del danno
+map.cfg.threat_threshold=Soglia di aggancio
+map.cfg.threat_switch=Margine di cambio
+map.cfg.threat_decay=Memoria (decadimento)
 ; archetype names (Behavior tab dropdown)
 archetype.brute=Bruto (mischia)
 archetype.skirmisher=Schermagliatore (distanza + dardo)

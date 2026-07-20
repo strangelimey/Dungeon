@@ -52,6 +52,8 @@ struct SaveData {
 	//      time left, starting duration, magnitude, display-name loc key) —
 	//      the unified Character::effects list; replaces the v13 "shield"
 	//      line (still read, loaded as a ward effect).
+	// v19: per-monster THREAT (four member scores + the lock index appended to
+	//      the ent/monster tokens) — the aggro system; older saves load zeroes.
 	// v13: per-member active ward ("shield" line: school symbol id, seconds
 	//      left, magnitude) — the Protect form rune's shields.
 	// v12: per-member spell MRU ("mru" line, order = newest first) — the hand
@@ -70,7 +72,7 @@ struct SaveData {
 	//     buttons as a diff (keyed by .ent id) or a whole spawn (no baseline);
 	//     replaces the v6 split of "ent"/"monster" rows + a whole "floor" item
 	//     snapshot. v6: free-look offset ("look" line); v5 folded hands into equip[].
-	int version = 18;
+	int version = 19;
 	std::string name;         // display name (free text; may contain spaces)
 	std::string currentLevel; // the level stem the party is on (where to resume)
 	std::string timestamp;    // human-readable local time, for the slot list
@@ -183,6 +185,8 @@ struct SaveData {
 		int slot = 0;                           // sub-cell slot: item quarter (0..3)
 												// or monster slot on its size's grid
 		bool activated = false;                 // button: pressed / toggled on
+		std::array<float, 4> threat{};          // monster: per-member aggro (v19)
+		int threatLock = -1;                    // monster: locked member (v19)
 	};
 
 	// Dynamic state of one level: revealed cells (fog, stored whole) + the entity

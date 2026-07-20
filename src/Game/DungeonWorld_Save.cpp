@@ -30,6 +30,8 @@ void DungeonWorld::ResetForNewGame() {
 		monster.announced = false;
 		monster.aware = false; // forget the party — a fresh game starts unalerted
 		monster.intent = {};   // drop standing orders so it idles until it notices
+		monster.threat = {};   // and every grudge with them (threat/lock reset)
+		monster.threatLock = -1;
 		monster.hp = monster.MaxHp();
 		monster.attackCd = 0.0f;
 		// Monsters roam now (AI v1) — return them to their .ent spawn cell and
@@ -93,9 +95,11 @@ SaveData::LevelState DungeonWorld::SnapshotActive() const {
 			e.slot = m.slot;
 			e.spawnX = m.spawnX;
 			e.spawnZ = m.spawnZ;
+			e.threat = m.threat;
+			e.threatLock = m.threatLock;
 			ls.entities.push_back(std::move(e));
 		} else if (m.x != m.spawnX || m.z != m.spawnZ || m.announced || m.aware ||
-				   m.hp != m.MaxHp()) {
+				   m.hp != m.MaxHp() || m.ThreatAny() || m.threatLock >= 0) {
 			e.id = m.id;
 			e.x = m.x;
 			e.z = m.z;
@@ -103,6 +107,8 @@ SaveData::LevelState DungeonWorld::SnapshotActive() const {
 			e.aware = m.aware;
 			e.hp = m.hp;
 			e.slot = m.slot;
+			e.threat = m.threat;
+			e.threatLock = m.threatLock;
 			ls.entities.push_back(std::move(e));
 		}
 	}
@@ -194,6 +200,8 @@ void DungeonWorld::ApplyActiveSnapshot() {
 				m.aware = e.aware;
 				if (e.hp >= 0.0f) m.hp = e.hp; // -1 = older save → keep spawn hp
 				m.slot = e.slot; // saved sub-cell slot (Phase 3)
+				m.threat = e.threat; // v19 (older saves: zeroes / -1)
+				m.threatLock = e.threatLock;
 				m.visualPos = SlotCenter(m.x, m.z, m.kind->size, m.slot);
 				m_monsters.push_back(std::move(m));
 			} else {
@@ -207,6 +215,8 @@ void DungeonWorld::ApplyActiveSnapshot() {
 						m.moving = false; // snap to the saved cell, no glide from origin
 						m.moveT = 0.0f;
 						m.slot = e.slot; // saved sub-cell slot (Phase 3)
+						m.threat = e.threat; // v19 (older saves: zeroes / -1)
+						m.threatLock = e.threatLock;
 						m.visualPos = SlotCenter(m.x, m.z, m.kind->size, m.slot);
 						break;
 					}

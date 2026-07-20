@@ -173,6 +173,7 @@ log.member_wakes={} vuelve en sí.
 log.monster_slain=¡{} sucumbe!
 log.monster_hits={} hiere a {} y causa {} de daño.
 log.monster_misses={} ataca a {} y falla.
+log.monster_locks=¡{} se ensaña con {}!
 log.monster_ranged_hits=Un proyectil golpea a {} y causa {} de daño.
 log.monster_ranged_misses=Un proyectil pasa silbando junto a {}.
 log.member_down=¡{} ha caído!
@@ -485,6 +486,7 @@ map.insp.tab.patrol=Patrulla
 map.insp.asleep=Empieza dormido (emboscada)
 map.insp.leash=Radio de correa (celdas, 0 = sin límite)
 map.insp.waypoints=Puntos de ruta: {}
+map.insp.threat=Amenaza: {} (fijado: {})
 map.insp.editroute=Editar ruta en el mapa
 map.insp.clearroute=Borrar ruta
 map.insp.saved=Ajustes de instancia guardados para «{}»
@@ -534,6 +536,11 @@ map.cfg.keeprange=Mantener distancia (celdas)
 map.cfg.fleebelow=Huir por debajo de (fracción de vida)
 map.cfg.spell=Hechizo
 map.cfg.nospells=(no hay hechizos en el proyecto)
+map.cfg.threat=Amenaza (x global)
+map.cfg.threat_scale=Peso del dano
+map.cfg.threat_threshold=Umbral de fijacion
+map.cfg.threat_switch=Margen de cambio
+map.cfg.threat_decay=Memoria (decaimiento)
 ; archetype names (Behavior tab dropdown)
 archetype.brute=Bruto (cuerpo a cuerpo)
 archetype.skirmisher=Hostigador (distancia + proyectil)
