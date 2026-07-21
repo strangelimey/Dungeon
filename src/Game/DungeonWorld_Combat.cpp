@@ -583,15 +583,15 @@ bool DungeonWorld::CellHasLineOfSight(int x0, int z0, int x1, int z1) const {
 	// with every cell strictly between walkable; endpoints never block.
 	if (x0 == x1 && z0 == z1) return true;
 	if (x0 == x1) {
-		const int s = z0 < z1 ? 1 : -1;
+		const int s = z0 < z1 ? 1 : -1; // sight runs along Z (axis 1)
 		for (int z = z0 + s; z != z1; z += s)
-			if (!m_map.IsWalkable(x0, z)) return false;
+			if (!m_map.IsWalkable(x0, z) && !WallSeeThrough(x0, z, 1)) return false;
 		return true;
 	}
 	if (z0 == z1) {
-		const int s = x0 < x1 ? 1 : -1;
+		const int s = x0 < x1 ? 1 : -1; // sight runs along X (axis 0)
 		for (int x = x0 + s; x != x1; x += s)
-			if (!m_map.IsWalkable(x, z0)) return false;
+			if (!m_map.IsWalkable(x, z0) && !WallSeeThrough(x, z0, 0)) return false;
 		return true;
 	}
 	return false; // not axis-aligned — no orthogonal line

@@ -230,6 +230,31 @@ DungeonMap::DungeonMap(const std::string& path, FixtureTypes fixtures) {
 								/*open=*/!hidden});
 			continue;
 		}
+		if (record.starts_with("bore")) {
+			// bore [<type>] <x> <z> <axis> — a see-through hole through a solid wall
+			// block (axis 0 = X, 1 = Z; optional type = the wallfeatures.cat bore
+			// shape, absent = "window"). Dropped if the cell isn't a solid wall
+			// whose two flanking cells on that axis are floor (tolerant, like niches).
+			const std::vector<std::string_view> tok = SplitRecordTokens(record);
+			const auto asInt = [](std::string_view t, int& out) {
+				const auto [end, ec] = std::from_chars(t.data(), t.data() + t.size(), out);
+				return ec == std::errc{} && end == t.data() + t.size();
+			};
+			int probe = 0;
+			const bool typed = tok.size() >= 2 && !asInt(tok[1], probe);
+			const size_t c = typed ? 2 : 1; // index of the x token
+			std::string type = typed ? std::string(tok[1]) : "window";
+			int bx = 0, bz = 0, axis = 0;
+			DN_ASSERT(tok.size() >= c + 3 && asInt(tok[c], bx) && asInt(tok[c + 1], bz) &&
+						  asInt(tok[c + 2], axis),
+					  std::format("bore needs <x> <z> <axis>: \"{}\" in {}", record, path));
+			if (IsWalkable(bx, bz)) continue; // not a wall
+			const bool ok = axis == 0 ? (IsWalkable(bx - 1, bz) && IsWalkable(bx + 1, bz))
+									  : (IsWalkable(bx, bz - 1) && IsWalkable(bx, bz + 1));
+			if (!ok) continue; // flanks aren't both floor — nothing to see through
+			m_bores.push_back({bx, bz, axis, std::move(type)});
+			continue;
+		}
 		if (record.starts_with("stairs")) {
 			ParseStairRecord(record, path);
 			continue;
@@ -518,6 +543,15 @@ bool DungeonMap::PruneFixturesForCell(int x, int z) {
 			changed = true;
 		}
 	}
+	// A bore whose cell is no longer a solid wall between two floor cells (on its
+	// axis) is invalid — the edit that walkable-painted its cell or a flank drops
+	// it. Cheap to revalidate every bore (there are few).
+	changed |= std::erase_if(m_bores, [&](const WallBore& b) {
+				   if (IsWalkable(b.x, b.z)) return true;
+				   return b.axis == 0
+							  ? !(IsWalkable(b.x - 1, b.z) && IsWalkable(b.x + 1, b.z))
+							  : !(IsWalkable(b.x, b.z - 1) && IsWalkable(b.x, b.z + 1));
+			   }) > 0;
 	if (changed) RebuildTurbidity(); // bumps Revision() (re-stamps the chunk too)
 	return changed;
 }
@@ -708,6 +742,35 @@ std::vector<std::pair<int, int>> DungeonMap::ToggleNichesNamed(const std::string
 		}
 	if (!touched.empty()) ++m_revision;
 	return touched;
+}
+
+const WallBore* DungeonMap::BoreAlong(int x, int z, int axis) const {
+	for (const WallBore& b : m_bores)
+		if (b.x == x && b.z == z && b.axis == axis) return &b;
+	return nullptr;
+}
+
+bool DungeonMap::AddBore(std::string type, int x, int z) {
+	if (IsWalkable(x, z)) return false; // a bore is through a SOLID wall block
+	int axis = -1;
+	if (IsWalkable(x - 1, z) && IsWalkable(x + 1, z)) axis = 0;      // floor E+W → X
+	else if (IsWalkable(x, z - 1) && IsWalkable(x, z + 1)) axis = 1; // floor N+S → Z
+	if (axis < 0) return false;                                     // not a 1-block wall
+	for (const WallBore& b : m_bores)
+		if (b.x == x && b.z == z) return false; // already bored
+	m_bores.push_back({x, z, axis, std::move(type)});
+	++m_revision;
+	return true;
+}
+
+bool DungeonMap::RemoveBoreAt(int x, int z) {
+	for (size_t i = 0; i < m_bores.size(); ++i)
+		if (m_bores[i].x == x && m_bores[i].z == z) {
+			m_bores.erase(m_bores.begin() + static_cast<ptrdiff_t>(i));
+			++m_revision;
+			return true;
+		}
+	return false;
 }
 
 std::vector<std::string> DungeonMap::NicheNames() const {

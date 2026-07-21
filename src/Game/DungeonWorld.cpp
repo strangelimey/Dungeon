@@ -178,10 +178,14 @@ DungeonWorld::DungeonWorld(gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	// Moving-item engine: wire its world seam so a projectile lives "on the map"
 	// without the engine depending on the map/combat. resolveHit is faction-aware —
 	// it dispatches by the item's target side.
-	m_projectiles.isBlocked = [this](const Vec3& p) {
+	m_projectiles.isBlocked = [this](const Vec3& p, const Vec3& dir) {
 		const int cx = static_cast<int>(std::floor(p.x / kCellSize));
 		const int cz = static_cast<int>(std::floor(p.z / kCellSize));
-		if (!m_map.IsWalkable(cx, cz)) return true; // wall / off-map stops it
+		if (!m_map.IsWalkable(cx, cz)) {
+			// A bore along the bolt's travel axis lets it fly through the wall.
+			const int axis = std::abs(dir.x) >= std::abs(dir.z) ? 0 : 1;
+			return !WallSeeThrough(cx, cz, axis); // solid & unbored stops it
+		}
 		const Door* door = DoorAt(cx, cz);
 		return door && !door->open; // a closed door stops bolts like a wall
 	};
@@ -241,7 +245,8 @@ void DungeonWorld::RebuildChunkRegion(int chunkX, int chunkZ) {
 		[this](int x, int z) {
 			return CellHoles{FloorHoleAt(x, z), CeilingHoleAt(x, z)};
 		},
-		[this](const std::string& type) { return NicheMeshFor(type); });
+		[this](const std::string& type) { return NicheMeshFor(type); },
+		[this](const std::string& type) { return BoreMeshFor(type); });
 	auto replace = [&](Surface& surface, std::vector<GeometryChunk>& fresh) {
 		std::erase_if(surface.chunks,
 					  [&](const SurfaceChunk& sc) { return sc.chunk == chunkIndex; });

@@ -396,9 +396,15 @@ void MapEditor::ApplyBrush(int cx, int cz, bool dragging) {
 		else if (m_sel.cat == PaletteCat::Fixtures)
 			ok = remote ? m_world.AddFixtureRemote(stem, id, cx, cz)
 						: m_world.AddFixture(id, cx, cz);
-		else if (m_sel.cat == PaletteCat::WallFeatures)
-			ok = remote ? m_world.AddNicheRemote(stem, id, cx, cz)
-						: m_world.AddNiche(id, cx, cz);
+		else if (m_sel.cat == PaletteCat::WallFeatures) {
+			// A `bore` feature (a see-through window) is placed on the SOLID wall
+			// block it bores; a niche mounts on a floor cell.
+			if (CatalogBool(m_world.GetProject().wallfeatures.Find(id), "bore", false))
+				ok = m_world.AddBore(id, cx, cz); // active level only for now
+			else
+				ok = remote ? m_world.AddNicheRemote(stem, id, cx, cz)
+							: m_world.AddNiche(id, cx, cz);
+		}
 		else if (m_sel.cat == PaletteCat::Buttons)
 			ok = remote ? m_world.AddButtonRemote(stem, id, cx, cz)
 						: m_world.AddButton(id, cx, cz);
@@ -650,7 +656,7 @@ void MapEditor::EraseAt(int cx, int cz) {
 	} else if (m_world.RemoveStairAt(cx, cz)) {
 		// stairs message themselves (they name the paired level's cleanup)
 	} else if (m_world.RemoveEntityAt(cx, cz) || m_world.RemoveFixtureAt(cx, cz) ||
-			   m_world.RemoveNicheAtWall(cx, cz)) {
+			   m_world.RemoveNicheAtWall(cx, cz) || m_world.RemoveBoreAt(cx, cz)) {
 		log(loc::Tr("map.erase.removed"));
 	} else {
 		m_world.EditVariant(cx, cz, SS::Wall, -1);

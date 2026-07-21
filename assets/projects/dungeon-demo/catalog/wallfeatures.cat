@@ -9,3 +9,16 @@ model = wall_niche
 [niche_arch]
 display = Arched Niche
 model = wall_niche_arch
+
+; A see-through bore through a solid wall block (Phase 3). `bore = 1` places it
+; on the SOLID cell (auto-detects the axis with floor on both sides), not a floor
+; cell; LoS + projectiles pass through, movement does not.
+[window]
+display = Round Window
+model = wall_window
+bore = 1
+
+[window_rect]
+display = Square Window
+model = wall_window_rect
+bore = 1

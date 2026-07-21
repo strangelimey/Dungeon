@@ -501,6 +501,15 @@ public:
 	// re-stamps the cell's wall panel as the recessed niche. False if no free
 	// solid wall. Removes it with RemoveNicheAt.
 	bool AddNiche(const std::string& type, int x, int z);
+	// Bores a see-through window (wallfeatures.cat `type`) through solid wall block
+	// (x,z) and re-stamps the two flanking faces. False if it isn't a 1-block wall
+	// between two spaces.
+	bool AddBore(const std::string& type, int x, int z);
+	bool RemoveBoreAt(int x, int z);
+	// True if solid cell (x,z) can be seen/shot through along `axis` (0=X, 1=Z).
+	// Permanent bores now; a future see-through SPELL layers a transient set here,
+	// so LoS/projectiles gain it without re-baking chunk geometry.
+	bool WallSeeThrough(int x, int z, int axis) const;
 	// Removes the niche carved into solid wall block (wx,wz) — the erase tool
 	// selects niches by their wall, matching the inspector.
 	bool RemoveNicheAtWall(int wx, int wz);
@@ -1629,6 +1638,10 @@ private:
 	// builder stamps the one matching a niche's type. NicheMeshFor resolves it.
 	std::flat_map<std::string, assets::MeshData> m_nicheMeshes;
 	const assets::MeshData* NicheMeshFor(const std::string& type) const;
+	// See-through bore panels by wallfeatures.cat type (its `model`.gltf); stamped
+	// on the two flanking faces of a bored wall block. BoreMeshFor resolves it.
+	std::flat_map<std::string, assets::MeshData> m_boreMeshes;
+	const assets::MeshData* BoreMeshFor(const std::string& type) const;
 
 
 	std::flat_map<std::string, std::unique_ptr<MonsterKind>> m_monsterKinds;

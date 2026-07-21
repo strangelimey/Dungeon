@@ -72,12 +72,15 @@ using NicheMeshFn = std::function<const assets::MeshData*(const std::string& typ
 // type→mesh resolver, nullable) stamps a niche panel in place of the plain wall
 // panel on an edge carrying a niche (DungeonMap::NicheAt) — it rides the same
 // variant bucket, so it keeps the wall's texture.
+// `bore` (a type→mesh resolver, nullable) is stamped on a face whose solid
+// neighbour is bored see-through (DungeonMap::BoreAlong), same variant bucket.
 DungeonGeometry BuildDungeonGeometry(const DungeonMap& map,
 									 std::span<const assets::MeshData> wallBlocks,
 									 std::span<const assets::MeshData> floorBlocks,
 									 std::span<const assets::MeshData> ceilingBlocks,
 									 const CellHolesFn& holes = {},
-									 const NicheMeshFn& niche = {});
+									 const NicheMeshFn& niche = {},
+									 const NicheMeshFn& bore = {});
 
 // Builds just the geometry for one spatial chunk region (chunk coords
 // chunkX/chunkZ, each covering kChunkCells cells), with every returned chunk
@@ -90,6 +93,7 @@ DungeonGeometry BuildDungeonRegion(const DungeonMap& map,
 								   std::span<const assets::MeshData> ceilingBlocks,
 								   int chunkX, int chunkZ,
 								   const CellHolesFn& holes = {},
-								   const NicheMeshFn& niche = {});
+								   const NicheMeshFn& niche = {},
+								   const NicheMeshFn& bore = {});
 
 } // namespace dungeon::game

@@ -106,6 +106,17 @@ struct WallNiche {
 	bool open = true;
 };
 
+// A wall WINDOW/bore: a see-through hole THROUGH a solid wall block (Phase 3).
+// Stored on the SOLID cell it bores; `axis` is the see-through direction
+// (0 = X / east-west, 1 = Z / north-south — the axis whose two flanking cells
+// are floor). LoS + projectiles pass through it; movement does not (the cell
+// stays solid). The mesh builder stamps a bore panel on the two flanking faces.
+struct WallBore {
+	int x = 0, z = 0;
+	int axis = 0;
+	std::string type = "window"; // wallfeatures.cat id (its bore mesh / shape)
+};
+
 // How the parser routes a `fixture <id> ...` record and the 'T'/'F' glyphs
 // without knowing the fixtures catalog: ids listed in `wallMount` become
 // WallSconces (everything else stands on the floor), and the glyphs resolve
@@ -283,6 +294,26 @@ public:
 	// Distinct non-empty niche names on the level (the button inspector's targets).
 	std::vector<std::string> NicheNames() const;
 
+	// Wall windows (see-through bores through a solid block). The mesh builder
+	// reads WallBoredAlong per stamped face; LoS/projectiles read it per cell.
+	const std::vector<WallBore>& Bores() const { return m_bores; }
+	// The bore on solid cell (x,z) with the given `axis` (0 = X, 1 = Z), or null —
+	// the mesh builder resolves its `type` to the bore mesh to stamp.
+	const WallBore* BoreAlong(int x, int z, int axis) const;
+	// True if solid cell (x,z) is bored along `axis` (LoS/projectiles).
+	bool WallBoredAlong(int x, int z, int axis) const { return BoreAlong(x, z, axis); }
+	// Bores solid cell (x,z) with `type` along whichever axis has floor on both
+	// sides (a 1-block wall between two spaces). False if it isn't such a wall /
+	// already bored. Bumps Revision().
+	bool AddBore(std::string type, int x, int z);
+	// Adds a bore with an explicit axis (the parser). Bumps Revision().
+	void AddBoreRecord(WallBore b) {
+		m_bores.push_back(std::move(b));
+		++m_revision;
+	}
+	// Removes the first bore on (x,z). Bumps Revision(); false if none.
+	bool RemoveBoreAt(int x, int z);
+
 	// Static decoration records (banners, rubble, ...) from the .map file.
 	const std::vector<Entity>& Decorations() const { return m_decorations; }
 	// Replaces the decoration records wholesale. The static-map stash syncs the
@@ -370,6 +401,7 @@ private:
 	std::vector<WallSconce> m_torches;
 	std::vector<FloorBrazier> m_braziers;
 	std::vector<WallNiche> m_niches;
+	std::vector<WallBore> m_bores;
 	std::vector<Entity> m_decorations;
 	std::vector<StairLink> m_stairs;
 	std::vector<std::string> m_wallPalette;   // catalog ids (walls.cat)

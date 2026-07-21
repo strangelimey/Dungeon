@@ -493,6 +493,96 @@ assets::ModelData BuildWallNicheArch() {
 	return model;
 }
 
+// A wall WINDOW: a circular bore THROUGH the wall block (see-through, Phase 3).
+// Unlike a niche it has NO back — the tunnel recedes to the block centre
+// (kCellHalf), so the two flanking floor cells' bore panels meet into one tunnel
+// through the block. A frame (the cell face minus the circle) surrounds a circular
+// hole; the tunnel walls (top/bottom reveals per x-strip, closing at the sides)
+// are the "sides of the hole" the see-through spell will also want. Authored
+// facing +Z like every wall block; the game grants LoS/fire through it separately.
+assets::ModelData BuildWallWindow() {
+	assets::ModelData model;
+	assets::MeshData mesh;
+
+	constexpr float r = 0.55f;         // hole radius
+	constexpr float cy = 1.25f;        // hole centre height (roughly eye level)
+	constexpr float depth = kCellHalf; // tunnel to the block centre
+	constexpr int M = 40;              // x-strips across the hole (smoother rim)
+	const float zb = -depth;
+
+	auto wq = [&](const Vec3& a, const Vec3& b, const Vec3& c, const Vec3& e,
+				  const Vec3& n) {
+		AddQuad(mesh, a, b, c, e, n, WallFaceUv(a, n), WallFaceUv(b, n),
+				WallFaceUv(c, n), WallFaceUv(e, n));
+	};
+	const auto arc = [&](float x, float sign) { // circle y at |x| (sign ±1)
+		return cy + sign * std::sqrt(std::max(0.0f, r * r - x * x));
+	};
+	const auto xAt = [&](int j) { return -r + 2.0f * r * static_cast<float>(j) / M; };
+
+	// Frame outside the hole's width: full-height strips left and right of it.
+	wq({-kCellHalf, 0, 0}, {-r, 0, 0}, {-r, kWallH, 0}, {-kCellHalf, kWallH, 0},
+	   {0, 0, 1});
+	wq({r, 0, 0}, {kCellHalf, 0, 0}, {kCellHalf, kWallH, 0}, {r, kWallH, 0}, {0, 0, 1});
+	for (int j = 0; j < M; ++j) {
+		const float x0 = xAt(j), x1 = xAt(j + 1);
+		const float b0 = arc(x0, -1.0f), b1 = arc(x1, -1.0f); // bottom of circle
+		const float t0 = arc(x0, 1.0f), t1 = arc(x1, 1.0f);   // top of circle
+		// Frame below and above the circle (z=0, facing the room).
+		wq({x0, 0, 0}, {x1, 0, 0}, {x1, b1, 0}, {x0, b0, 0}, {0, 0, 1});
+		wq({x0, t0, 0}, {x1, t1, 0}, {x1, kWallH, 0}, {x0, kWallH, 0}, {0, 0, 1});
+		// Tunnel walls: the hole rim (z=0) extruded into the block (zb). Normal
+		// points RADIALLY inward (toward the bore axis) so the cylinder lights
+		// smoothly — a fixed up/down normal would flip hard at the sides. Uses the
+		// strip midpoint's rim direction: (-xm, ±sq)/r for the bottom/top arc.
+		const float xm = (x0 + x1) * 0.5f;
+		const float sq = std::sqrt(std::max(0.0f, r * r - xm * xm)); // circle half-height
+		const float inv = 1.0f / r;
+		wq({x0, b0, 0}, {x1, b1, 0}, {x1, b1, zb}, {x0, b0, zb}, {-xm * inv, sq * inv, 0});
+		wq({x0, t0, zb}, {x1, t1, zb}, {x1, t1, 0}, {x0, t0, 0}, {-xm * inv, -sq * inv, 0});
+	}
+
+	AddWallPillars(mesh);
+	model.meshes.push_back(std::move(mesh));
+	model.materials.push_back({{1, 1, 1, 1}, -1});
+	return model;
+}
+
+// A RECTANGULAR see-through bore — like BuildWallWindow but a straight-sided
+// opening (a framed window). Frame around a rectangle + a four-walled tunnel to
+// the block centre, no back. Axis-aligned normals, so no smooth-normal concerns.
+assets::ModelData BuildWallWindowRect() {
+	assets::ModelData model;
+	assets::MeshData mesh;
+
+	constexpr float hw = 0.55f, hh = 0.60f; // opening half-width / half-height
+	constexpr float cy = 1.25f, depth = kCellHalf;
+	const float y0 = cy - hh, y1 = cy + hh, zb = -depth;
+
+	auto wq = [&](const Vec3& a, const Vec3& b, const Vec3& c, const Vec3& e,
+				  const Vec3& n) {
+		AddQuad(mesh, a, b, c, e, n, WallFaceUv(a, n), WallFaceUv(b, n),
+				WallFaceUv(c, n), WallFaceUv(e, n));
+	};
+	// Frame around the opening (z=0, facing the room).
+	wq({-kCellHalf, 0, 0}, {kCellHalf, 0, 0}, {kCellHalf, y0, 0}, {-kCellHalf, y0, 0},
+	   {0, 0, 1}); // below
+	wq({-kCellHalf, y1, 0}, {kCellHalf, y1, 0}, {kCellHalf, kWallH, 0},
+	   {-kCellHalf, kWallH, 0}, {0, 0, 1}); // above
+	wq({-kCellHalf, y0, 0}, {-hw, y0, 0}, {-hw, y1, 0}, {-kCellHalf, y1, 0}, {0, 0, 1}); // left
+	wq({hw, y0, 0}, {kCellHalf, y0, 0}, {kCellHalf, y1, 0}, {hw, y1, 0}, {0, 0, 1});     // right
+	// Tunnel: four walls from the opening edge (z=0) into the block (zb), no back.
+	wq({-hw, y0, 0}, {hw, y0, 0}, {hw, y0, zb}, {-hw, y0, zb}, {0, 1, 0});  // floor (up)
+	wq({-hw, y1, zb}, {hw, y1, zb}, {hw, y1, 0}, {-hw, y1, 0}, {0, -1, 0}); // ceiling (down)
+	wq({-hw, y0, zb}, {-hw, y1, zb}, {-hw, y1, 0}, {-hw, y0, 0}, {1, 0, 0}); // left (+X)
+	wq({hw, y0, 0}, {hw, y1, 0}, {hw, y1, zb}, {hw, y0, zb}, {-1, 0, 0});    // right (-X)
+
+	AddWallPillars(mesh);
+	model.meshes.push_back(std::move(mesh));
+	model.materials.push_back({{1, 1, 1, 1}, -1});
+	return model;
+}
+
 assets::ModelData BuildFloorBlock() {
 	assets::ModelData model;
 	assets::MeshData mesh;
@@ -1891,6 +1981,8 @@ bool BakeModels(const std::string& dir, const std::string& texturesDir) {
 	ok &= WriteGltf(BuildWallBlock(), dir + "\\wall_block.gltf");
 	ok &= WriteGltf(BuildWallNiche(), dir + "\\wall_niche.gltf");
 	ok &= WriteGltf(BuildWallNicheArch(), dir + "\\wall_niche_arch.gltf");
+	ok &= WriteGltf(BuildWallWindow(), dir + "\\wall_window.gltf");
+	ok &= WriteGltf(BuildWallWindowRect(), dir + "\\wall_window_rect.gltf");
 	ok &= WriteGltf(BuildFloorBlock(), dir + "\\floor_block.gltf");
 	ok &= WriteGltf(BuildCeilingBlock(), dir + "\\ceiling_block.gltf");
 

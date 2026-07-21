@@ -150,13 +150,33 @@ Remaining niche work (follow-ons):
 - **Secret/revealed niche**: a named, hidden-by-default niche wired to a button
   (the door pattern — `ToggleNichesNamed`, a dynamic revealed flag in the save).
 
-## Phase 3 — real opening (window / passage)
+## Phase 3 — see-through windows (bores)  ← BUILT
 
-Structural. A per-edge feature grid (a `.map` record like `variant`), checked in
-`StampCell`: an opening edge stamps a framed-aperture panel instead of the plain
-worn panel. The cell stays solid (blocks movement like a barred window) but LoS +
-projectiles get a per-edge "transparent" exception — consistent with the
-orthogonal-grid rule (sight/shots pass along that one cardinal). A full passage
-is doorway-adjacent (doors already fill a doorway cell and toggle blocking).
-Chunk-local rebuild handles the live edit; the feature grid round-trips through
-the `.map` writer.
+A `WallBore {x, z, axis, type}` on the SOLID cell (stored on `DungeonMap`, `.map`
+record `bore <type> <x> <z> <axis>`; axis 0=X/1=Z = the direction whose two
+flanking cells are floor — a 1-block wall between two spaces). See + shoot
+through, but NOT walk through (the cell stays solid).
+
+Split into two DECOUPLED layers so a future see-through SPELL can add a
+*temporary* bore without re-baking:
+- **Runtime query** `DungeonWorld::WallSeeThrough(x, z, axis)` (→ `WallBoredAlong`
+  → `BoreAlong`). `CellHasLineOfSight` no longer blocks on a solid cell bored
+  along the sight axis; the projectile `isBlocked` (now given the bolt `dir`)
+  lets a bolt fly through a bore along its travel axis. The spell later ORs a
+  transient set into `WallSeeThrough` — LoS/fire gain it with no rebake.
+- **Rendering** = baked. The mesh builder stamps a bore panel (a circular or
+  rectangular hole + a tunnel to the block centre, NO back — the two flanking
+  cells' panels meet into one through-tunnel) in place of the plain panel on a
+  bored face. Multi-type like niches: `wallfeatures.cat` `bore = 1` entries
+  ([window] round / [window_rect] square), a type→mesh map (`m_boreMeshes`) +
+  a resolver in the builder. The spell's transient hole would be a transient
+  overlay reusing these bore meshes.
+
+Editor: the Wall Features palette bore entries place on a SOLID wall (auto-detect
+axis; `AddBore(type, cell)`); middle-click removes; a cyan bar marks the bore in
+the top-down map. Pruned when the cell/flanks stop being a valid 1-block wall.
+Bore mesh normals: the circular tunnel walls use RADIAL-inward normals (a fixed
+up/down normal flips hard at the circle's sides); M=40 strips for a smooth rim.
+
+REMAINING (deferred): the see-through spell itself (transient bore + overlay
+render); a walk-through passage (doorway-adjacent — movement/occupancy/pathing).

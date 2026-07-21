@@ -199,6 +199,23 @@ bool DungeonWorld::RemoveNicheAtWall(int wx, int wz) {
 	return true;
 }
 
+bool DungeonWorld::AddBore(const std::string& type, int x, int z) {
+	if (!m_map.AddBore(type, x, z)) return false;
+	RebuildChunksAround(x, z); // re-stamps the two flanking floor cells' faces
+	return true;
+}
+
+bool DungeonWorld::RemoveBoreAt(int x, int z) {
+	if (!m_map.RemoveBoreAt(x, z)) return false;
+	RebuildChunksAround(x, z);
+	return true;
+}
+
+bool DungeonWorld::WallSeeThrough(int x, int z, int axis) const {
+	// Permanent authored bores; a future see-through spell ORs a transient set in.
+	return m_map.WallBoredAlong(x, z, axis);
+}
+
 bool DungeonWorld::RemoveEntityAt(int x, int z) {
 	for (auto it = m_monsters.begin(); it != m_monsters.end(); ++it)
 		if (it->x == x && it->z == z) {
@@ -1246,6 +1263,8 @@ static std::string SerializeMapStatic(const std::string& stem,
 		if (n.hidden) m += " hidden=1"; // starts closed (runtime open state = save)
 		m += '\n';
 	}
+	for (const WallBore& b : map.Bores())
+		m += std::format("bore {} {} {} {}\n", b.type, b.x, b.z, b.axis);
 
 	for (const StairLink& s : map.Stairs())
 		m += std::format("stairs {} {} {} {} dest={} destx={} destz={} destfacing={}\n",

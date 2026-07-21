@@ -215,10 +215,19 @@ void DungeonWorld::LoadDungeonBlocks() {
 	// stamped per niche edge into the wall's variant bucket so they take the wall
 	// texture (see DungeonMeshBuilder). Loaded once; a level references types.
 	m_nicheMeshes.clear();
+	m_boreMeshes.clear();
 	for (const CatalogEntry& e : m_project.wallfeatures.Entries()) {
 		const std::string model = CatalogGet(&e, "model", e.id);
-		m_nicheMeshes.emplace(e.id, LoadModelOrDie(model + ".gltf").meshes[0]);
+		// A `bore` feature is a see-through window (its own mesh map); everything
+		// else is a niche.
+		(e.GetBool("bore", false) ? m_boreMeshes : m_nicheMeshes)
+			.emplace(e.id, LoadModelOrDie(model + ".gltf").meshes[0]);
 	}
+}
+
+const assets::MeshData* DungeonWorld::BoreMeshFor(const std::string& type) const {
+	const auto it = m_boreMeshes.find(type);
+	return it != m_boreMeshes.end() ? &it->second : nullptr;
 }
 
 const assets::MeshData* DungeonWorld::NicheMeshFor(const std::string& type) const {
@@ -294,7 +303,8 @@ void DungeonWorld::BuildDungeonMeshes() {
 		[this](int x, int z) {
 			return CellHoles{FloorHoleAt(x, z), CeilingHoleAt(x, z)};
 		},
-		[this](const std::string& type) { return NicheMeshFor(type); });
+		[this](const std::string& type) { return NicheMeshFor(type); },
+		[this](const std::string& type) { return BoreMeshFor(type); });
 
 	auto upload = [&](Surface& surface, std::vector<GeometryChunk>& chunks) {
 		surface.chunks.clear();

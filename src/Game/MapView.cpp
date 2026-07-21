@@ -794,6 +794,16 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 		const Vec4 col{0.88f, 0.72f, 0.32f, n.hidden ? 0.4f : 1.0f};
 		batch.DrawRect({cx - w * 0.5f, cy - h * 0.5f, w, h}, col);
 	}
+	// Wall bores (see-through windows): a thin cyan bar across the solid cell
+	// along its see-through axis, so the designer sees the hole in the top-down.
+	for (const WallBore& b : map.Bores()) {
+		if (!CellVisible(b.x, b.z)) continue;
+		const Vec2 ctr = cellCenter(b.x, b.z);
+		const float lng = t.cell * 0.7f, thin = t.cell * 0.14f;
+		const float w = b.axis == 0 ? lng : thin; // axis 0 = X (east-west bar)
+		const float h = b.axis == 0 ? thin : lng;
+		batch.DrawRect({ctr.x - w * 0.5f, ctr.y - h * 0.5f, w, h}, {0.4f, 0.8f, 0.95f, 1});
+	}
 	// Decorations: the LIVE world list for the active level (so editor
 	// placements/removals show), the map's records for a browsed one.
 	std::vector<DungeonWorld::MapMarker> decos;
