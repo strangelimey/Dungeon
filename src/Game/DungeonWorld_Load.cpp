@@ -211,9 +211,19 @@ void DungeonWorld::LoadDungeonBlocks() {
 	load(m_floorBlocks, m_floorSets);
 	load(m_ceilingBlocks, m_ceilingSets);
 
-	// The wall niche panel (one mesh, stamped per niche edge into the wall's
-	// variant bucket so it takes the wall texture — see DungeonMeshBuilder).
-	m_nicheMesh = LoadModelOrDie("wall_niche.gltf").meshes[0];
+	// Wall-feature niche panels, one per wallfeatures.cat type (its `model`.gltf),
+	// stamped per niche edge into the wall's variant bucket so they take the wall
+	// texture (see DungeonMeshBuilder). Loaded once; a level references types.
+	m_nicheMeshes.clear();
+	for (const CatalogEntry& e : m_project.wallfeatures.Entries()) {
+		const std::string model = CatalogGet(&e, "model", e.id);
+		m_nicheMeshes.emplace(e.id, LoadModelOrDie(model + ".gltf").meshes[0]);
+	}
+}
+
+const assets::MeshData* DungeonWorld::NicheMeshFor(const std::string& type) const {
+	const auto it = m_nicheMeshes.find(type);
+	return it != m_nicheMeshes.end() ? &it->second : nullptr;
 }
 
 // Loads a PBR set (albedo sRGB + normal/height + ORM) by base name at the
@@ -284,7 +294,7 @@ void DungeonWorld::BuildDungeonMeshes() {
 		[this](int x, int z) {
 			return CellHoles{FloorHoleAt(x, z), CeilingHoleAt(x, z)};
 		},
-		m_nicheMesh.vertices.empty() ? nullptr : &m_nicheMesh);
+		[this](const std::string& type) { return NicheMeshFor(type); });
 
 	auto upload = [&](Surface& surface, std::vector<GeometryChunk>& chunks) {
 		surface.chunks.clear();

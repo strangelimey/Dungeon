@@ -57,6 +57,7 @@
 #include "Game/MonsterConfigDialog.h"
 #include "Game/ButtonInspector.h"
 #include "Game/DoorInspector.h"
+#include "Game/NicheInspector.h"
 #include "Game/ProjectileInspector.h"
 #include "Game/PropInspector.h"
 #include "Game/Project.h"
@@ -345,6 +346,8 @@ private:
 	DoorInspector m_doorInspector;
 	// Per-instance button editor (target door wiring).
 	ButtonInspector m_buttonInspector;
+	// Per-instance wall-niche editor (shape / secret start / name).
+	NicheInspector m_nicheInspector;
 	// In-flight projectile details (read-only + dismiss); transient content.
 	ProjectileInspector m_projectileInspector;
 	// Chooser shown when a Select-clicked cell holds >1 inspectable object; picking a
@@ -352,11 +355,12 @@ private:
 	InspectPicker m_inspectPicker;
 	struct InspectTarget {
 		enum class Kind {
-			Monster, Sconce, Brazier, Door, Button, Decoration, Item, Projectile
+			Monster, Sconce, Brazier, Door, Button, Decoration, Item, Projectile, Niche
 		} kind = Kind::Monster;
 		u32 runtimeId = 0;        // Monster / Projectile: the stable id
-		Direction wall = Direction::North; // Sconce: the wall it hangs on
+		Direction wall = Direction::North; // Sconce / Niche: the wall it is on
 		int handle = 0;           // Decoration: list index; Item: stable entity id
+		int nicheX = 0, nicheZ = 0; // Niche: its floor cell (with `wall` = its face)
 		std::string type;         // catalog display name (Decoration/Item title)
 	};
 	std::vector<InspectTarget> m_inspectTargets; // objects at the last inspected cell

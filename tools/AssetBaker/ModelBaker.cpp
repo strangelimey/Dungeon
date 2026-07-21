@@ -425,6 +425,74 @@ assets::ModelData BuildWallNiche() {
 	return model;
 }
 
+// An arched wall niche: like BuildWallNiche but the pocket's top is a
+// semicircular arch springing from vertical sides, with a proud KEYSTONE wedge
+// at the crown. The opening for a column at x is [py0 .. archTop(x)], where
+// archTop is flat-topped vertical sides below the springline and a semicircle
+// above. Walls render backface-culling OFF, so only the authored normals matter.
+assets::ModelData BuildWallNicheArch() {
+	assets::ModelData model;
+	assets::MeshData mesh;
+
+	constexpr float kDepth = 0.55f;   // pocket depth into the rock
+	constexpr float px = 0.52f;       // opening half-width = arch radius
+	constexpr float py0 = 0.50f;      // opening bottom
+	constexpr float springY = 1.25f;  // where the vertical sides meet the arch
+	constexpr float R = px;           // semicircular arch
+	constexpr float crown = springY + R;
+	constexpr int N = 14;             // arch segments across the width
+	const float zb = -kDepth;
+
+	auto wq = [&](const Vec3& a, const Vec3& b, const Vec3& c, const Vec3& e,
+				  const Vec3& n) {
+		AddQuad(mesh, a, b, c, e, n, WallFaceUv(a, n), WallFaceUv(b, n),
+				WallFaceUv(c, n), WallFaceUv(e, n));
+	};
+	const auto archTop = [&](float x) {
+		return springY + std::sqrt(std::max(0.0f, R * R - x * x));
+	};
+	const auto xAt = [&](int j) { return -px + 2.0f * px * static_cast<float>(j) / N; };
+
+	// Frame at the wall face (+Z): the panel minus the arched opening.
+	wq({-kCellHalf, 0, 0}, {kCellHalf, 0, 0}, {kCellHalf, py0, 0}, {-kCellHalf, py0, 0},
+	   {0, 0, 1}); // below the opening
+	wq({-kCellHalf, py0, 0}, {-px, py0, 0}, {-px, kWallH, 0}, {-kCellHalf, kWallH, 0},
+	   {0, 0, 1}); // left of the opening
+	wq({px, py0, 0}, {kCellHalf, py0, 0}, {kCellHalf, kWallH, 0}, {px, kWallH, 0},
+	   {0, 0, 1}); // right of the opening
+	for (int j = 0; j < N; ++j) {
+		const float x0 = xAt(j), x1 = xAt(j + 1), a0 = archTop(x0), a1 = archTop(x1);
+		// Frame above the arch, and the pocket back below it (per x-strip).
+		wq({x0, a0, 0}, {x1, a1, 0}, {x1, kWallH, 0}, {x0, kWallH, 0}, {0, 0, 1});
+		wq({x0, py0, zb}, {x1, py0, zb}, {x1, a1, zb}, {x0, a0, zb}, {0, 0, 1});
+		// Arch soffit: the curved reveal from the front rim into the pocket. Normal
+		// points inward (toward the arch centre) so it lights like a ceiling.
+		const float mx = (x0 + x1) * 0.5f, my = (a0 + a1) * 0.5f;
+		const float nx = -mx, ny = springY - my;
+		const float inv = 1.0f / std::sqrt(nx * nx + ny * ny + 1e-4f);
+		wq({x0, a0, 0}, {x1, a1, 0}, {x1, a1, zb}, {x0, a0, zb}, {nx * inv, ny * inv, 0});
+	}
+
+	// Straight reveals: the opening bottom and the two vertical sides (py0..spring).
+	wq({-px, py0, 0}, {px, py0, 0}, {px, py0, zb}, {-px, py0, zb}, {0, 1, 0}); // floor
+	wq({-px, py0, zb}, {-px, springY, zb}, {-px, springY, 0}, {-px, py0, 0}, {1, 0, 0});
+	wq({px, py0, 0}, {px, springY, 0}, {px, springY, zb}, {px, py0, zb}, {-1, 0, 0});
+
+	// Keystone: a proud wedge (wider at the top) centred on the crown.
+	constexpr float kwb = 0.10f, kwt = 0.15f, ky0 = crown - 0.12f, ky1 = crown + 0.16f,
+					kp = 0.07f;
+	wq({-kwb, ky0, kp}, {kwb, ky0, kp}, {kwt, ky1, kp}, {-kwt, ky1, kp}, {0, 0, 1}); // face
+	wq({-kwb, ky0, 0}, {-kwb, ky0, kp}, {-kwt, ky1, kp}, {-kwt, ky1, 0}, {-1, 0, 0}); // left
+	wq({kwb, ky0, kp}, {kwb, ky0, 0}, {kwt, ky1, 0}, {kwt, ky1, kp}, {1, 0, 0});      // right
+	wq({-kwt, ky1, 0}, {-kwt, ky1, kp}, {kwt, ky1, kp}, {kwt, ky1, 0}, {0, 1, 0});    // top
+	wq({-kwb, ky0, kp}, {-kwb, ky0, 0}, {kwb, ky0, 0}, {kwb, ky0, kp}, {0, -1, 0});   // bottom
+
+	AddWallPillars(mesh);
+	model.meshes.push_back(std::move(mesh));
+	model.materials.push_back({{1, 1, 1, 1}, -1});
+	return model;
+}
+
 assets::ModelData BuildFloorBlock() {
 	assets::ModelData model;
 	assets::MeshData mesh;
@@ -1822,6 +1890,7 @@ bool BakeModels(const std::string& dir, const std::string& texturesDir) {
 	bool ok = true;
 	ok &= WriteGltf(BuildWallBlock(), dir + "\\wall_block.gltf");
 	ok &= WriteGltf(BuildWallNiche(), dir + "\\wall_niche.gltf");
+	ok &= WriteGltf(BuildWallNicheArch(), dir + "\\wall_niche_arch.gltf");
 	ok &= WriteGltf(BuildFloorBlock(), dir + "\\floor_block.gltf");
 	ok &= WriteGltf(BuildCeilingBlock(), dir + "\\ceiling_block.gltf");
 

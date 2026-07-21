@@ -501,7 +501,9 @@ public:
 	// re-stamps the cell's wall panel as the recessed niche. False if no free
 	// solid wall. Removes it with RemoveNicheAt.
 	bool AddNiche(const std::string& type, int x, int z);
-	bool RemoveNicheAt(int cx, int cz);
+	// Removes the niche carved into solid wall block (wx,wz) — the erase tool
+	// selects niches by their wall, matching the inspector.
+	bool RemoveNicheAtWall(int wx, int wz);
 	// Removes the topmost runtime entity in a cell (a monster first, then a
 	// door — live instance + its .ent record — else a decoration). Stair props
 	// are skipped — a stair is link + prop + a paired record on another level,
@@ -545,6 +547,28 @@ public:
 	// Distinct non-empty door names on the ACTIVE level, for the inspector's
 	// Target dropdown (buttons only reach doors on their own level).
 	std::vector<std::string> DoorNames() const;
+	// Distinct non-empty niche names on the ACTIVE level — the button inspector's
+	// Target dropdown lists these alongside door names (a button reveals either).
+	std::vector<std::string> NicheNames() const;
+	// A button targeting `name` flips every niche with that name open/closed and
+	// re-stamps their walls (the secret-niche reveal). False if none matched.
+	bool ToggleNichesNamed(const std::string& name);
+	// One niche face: its floor cell + the wall it is carved into. A niche is
+	// SELECTABLE from either side — clicking its floor cell or the wall block.
+	struct NicheFace {
+		int x = 0, z = 0;
+		Direction wall = Direction::North;
+	};
+	// Every niche face touching cell (cx,cz): the niches on this floor cell's
+	// walls, OR (when cx,cz is a solid wall) the niches on adjacent floor cells
+	// carved into it. Each is one selectable target ("Niche — <wall>").
+	std::vector<NicheFace> NicheFacesAt(int cx, int cz) const;
+	// The niche on (x,z) facing `wall`, or null (the inspector reads its props).
+	const WallNiche* NicheOn(int x, int z, Direction wall) const;
+	// Save the (x,z)/wall niche's authored props (name / hidden / type); Delete it.
+	void SetNichePropsAt(int x, int z, Direction wall, const std::string& name,
+						 bool hidden, const std::string& type);
+	bool RemoveNiche(int x, int z, Direction wall);
 	// The button's lever mesh for the inspector's preview pane.
 	std::vector<gfx::PreviewSubmesh> ButtonPreviewSubs(int x, int z) const;
 	// Live doors for the map overlay (bar markers across the travel axis).
@@ -1589,8 +1613,10 @@ private:
 	// Worn block geometry, one mesh per texture variant (same order as the
 	// surface texture sets), held between the load and mesh-build tasks.
 	std::vector<assets::MeshData> m_wallBlocks, m_floorBlocks, m_ceilingBlocks;
-	// The recessed wall-niche panel (wall_niche.gltf); stamped per niche edge.
-	assets::MeshData m_nicheMesh;
+	// Niche panels by wallfeatures.cat type (each entry's `model`.gltf); the mesh
+	// builder stamps the one matching a niche's type. NicheMeshFor resolves it.
+	std::flat_map<std::string, assets::MeshData> m_nicheMeshes;
+	const assets::MeshData* NicheMeshFor(const std::string& type) const;
 
 
 	std::flat_map<std::string, std::unique_ptr<MonsterKind>> m_monsterKinds;

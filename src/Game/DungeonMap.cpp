@@ -180,29 +180,54 @@ DungeonMap::DungeonMap(const std::string& path, FixtureTypes fixtures) {
 			continue;
 		}
 		if (record.starts_with("niche")) {
-			// niche <x> <z> [facing] — a recessed pocket on a solid wall of a
-			// walkable cell. facing names the wall (else the first solid neighbour,
-			// the sconce mount rule). A niche that no longer faces solid rock is
-			// dropped (tolerant, unlike a decoration's hard assert).
+			// niche [<type>] <x> <z> [facing] — a recessed pocket on a solid wall of
+			// a walkable cell. The optional first token is the wallfeatures.cat id
+			// (absent = "niche"; detected by whether it parses as a coordinate, so
+			// old untyped records still load). facing names the wall (else the first
+			// solid neighbour, the sconce mount rule). A niche that no longer faces
+			// solid rock is dropped (tolerant, unlike a decoration's hard assert).
 			const std::vector<std::string_view> tok = SplitRecordTokens(record);
-			DN_ASSERT(tok.size() >= 3,
-					  std::format("niche needs <x> <z>: \"{}\" in {}", record, path));
-			const auto coord = [&](std::string_view t) {
-				int v = 0;
-				const auto [end, ec] = std::from_chars(t.data(), t.data() + t.size(), v);
-				DN_ASSERT(ec == std::errc{} && end == t.data() + t.size(),
-						  std::format("bad niche coordinate \"{}\": \"{}\" in {}", t,
-									  record, path));
-				return v;
+			const auto asInt = [](std::string_view t, int& out) {
+				const auto [end, ec] = std::from_chars(t.data(), t.data() + t.size(), out);
+				return ec == std::errc{} && end == t.data() + t.size();
 			};
-			const int nx = coord(tok[1]), nz = coord(tok[2]);
+			// tok[1] is the type unless it parses as the x coordinate (untyped form).
+			int probe = 0;
+			const bool typed = tok.size() >= 2 && !asInt(tok[1], probe);
+			const size_t c = typed ? 2 : 1; // index of the x token
+			std::string type = typed ? std::string(tok[1]) : "niche";
+			DN_ASSERT(tok.size() >= c + 2,
+					  std::format("niche needs <x> <z>: \"{}\" in {}", record, path));
+			int nx = 0, nz = 0;
+			DN_ASSERT(asInt(tok[c], nx) && asInt(tok[c + 1], nz),
+					  std::format("bad niche coordinate: \"{}\" in {}", record, path));
 			if (!IsWalkable(nx, nz)) continue; // buried — drop it
+			// The facing token is optional; key=value params (name=, hidden=) may
+			// follow it OR take its slot, so scan from the first post-coordinate
+			// token and treat a bare direction as the wall.
 			Direction wall = Direction::North;
 			bool haveWall = false;
-			if (tok.size() >= 4 && ParseDirection(tok[3], wall))
-				haveWall = !IsWalkable(nx + DirDX(wall), nz + DirDZ(wall));
+			std::string name;
+			bool hidden = false;
+			for (size_t i = c + 2; i < tok.size(); ++i) {
+				Direction d;
+				if (!haveWall && ParseDirection(tok[i], d)) {
+					if (!IsWalkable(nx + DirDX(d), nz + DirDZ(d))) {
+						wall = d;
+						haveWall = true;
+					}
+					continue;
+				}
+				const size_t eq = tok[i].find('=');
+				if (eq == std::string_view::npos) continue; // unknown bare token
+				const std::string_view key = tok[i].substr(0, eq), val = tok[i].substr(eq + 1);
+				if (key == "name") name = std::string(val);
+				else if (key == "hidden")
+					hidden = val.empty() || (val.front() != '0' && val.front() != 'f');
+			}
 			if (!haveWall && !FreeNicheWall(nx, nz, wall)) continue; // no solid wall
-			m_niches.push_back({nx, nz, wall, "niche"});
+			m_niches.push_back({nx, nz, wall, std::move(type), std::move(name), hidden,
+								/*open=*/!hidden});
 			continue;
 		}
 		if (record.starts_with("stairs")) {
@@ -594,11 +619,11 @@ bool DungeonMap::FreeNicheWall(int x, int z, Direction& out) const {
 	return false;
 }
 
-bool DungeonMap::HasNiche(int x, int z, int dx, int dz) const {
+const WallNiche* DungeonMap::NicheAt(int x, int z, int dx, int dz) const {
 	for (const WallNiche& n : m_niches)
 		if (n.x == x && n.z == z && DirDX(n.wall) == dx && DirDZ(n.wall) == dz)
-			return true;
-	return false;
+			return &n;
+	return nullptr;
 }
 
 bool DungeonMap::AddNiche(int x, int z, std::string type) {
@@ -610,14 +635,77 @@ bool DungeonMap::AddNiche(int x, int z, std::string type) {
 	return true;
 }
 
-bool DungeonMap::RemoveNicheAt(int x, int z) {
+bool DungeonMap::RemoveNiche(int x, int z, Direction wall) {
 	for (size_t i = 0; i < m_niches.size(); ++i)
-		if (m_niches[i].x == x && m_niches[i].z == z) {
+		if (m_niches[i].x == x && m_niches[i].z == z && m_niches[i].wall == wall) {
 			m_niches.erase(m_niches.begin() + static_cast<ptrdiff_t>(i));
 			++m_revision;
 			return true;
 		}
 	return false;
+}
+
+bool DungeonMap::RemoveNicheFacingWall(int wx, int wz) {
+	if (IsWalkable(wx, wz)) return false; // must be a solid wall block
+	const int nbr[4][2] = {{wx, wz - 1}, {wx + 1, wz}, {wx, wz + 1}, {wx - 1, wz}};
+	for (const auto& f : nbr)
+		if (const WallNiche* n = NicheAt(f[0], f[1], wx - f[0], wz - f[1]))
+			return RemoveNiche(f[0], f[1], n->wall);
+	return false;
+}
+
+std::vector<Direction> DungeonMap::NicheWallsAt(int x, int z) const {
+	std::vector<Direction> walls;
+	for (const WallNiche& n : m_niches)
+		if (n.x == x && n.z == z) walls.push_back(n.wall);
+	return walls;
+}
+
+bool DungeonMap::SetNichePropsAt(int x, int z, Direction wall, std::string name,
+								 bool hidden, std::string type) {
+	for (WallNiche& n : m_niches)
+		if (n.x == x && n.z == z && n.wall == wall) {
+			n.name = std::move(name);
+			n.hidden = hidden;
+			n.open = !hidden; // the authored start state changed; reset runtime open
+			n.type = std::move(type);
+			++m_revision;
+			return true;
+		}
+	return false;
+}
+
+bool DungeonMap::SetNicheOpen(int x, int z, bool open) {
+	for (WallNiche& n : m_niches)
+		if (n.x == x && n.z == z) {
+			if (n.open != open) {
+				n.open = open;
+				++m_revision;
+			}
+			return true;
+		}
+	return false;
+}
+
+std::vector<std::pair<int, int>> DungeonMap::ToggleNichesNamed(const std::string& name) {
+	std::vector<std::pair<int, int>> touched;
+	if (name.empty()) return touched;
+	for (WallNiche& n : m_niches)
+		if (n.name == name) {
+			n.open = !n.open;
+			touched.emplace_back(n.x, n.z);
+		}
+	if (!touched.empty()) ++m_revision;
+	return touched;
+}
+
+std::vector<std::string> DungeonMap::NicheNames() const {
+	std::vector<std::string> names;
+	for (const WallNiche& n : m_niches)
+		if (!n.name.empty() &&
+			std::find(names.begin(), names.end(), n.name) == names.end())
+			names.push_back(n.name);
+	return names;
 }
 
 bool DungeonMap::RemoveDecorationRecordAt(int x, int z) {

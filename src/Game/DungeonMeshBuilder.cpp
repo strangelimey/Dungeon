@@ -73,7 +73,7 @@ void StampCell(const DungeonMap& map, int x, int z, CellHoles holes,
 			   std::span<const assets::MeshData> wallBlocks,
 			   std::span<const assets::MeshData> floorBlocks,
 			   std::span<const assets::MeshData> ceilingBlocks,
-			   const assets::MeshData* niche,
+			   const NicheMeshFn& niche,
 			   std::vector<assets::MeshData>& wallB,
 			   std::vector<assets::MeshData>& floorB,
 			   std::vector<assets::MeshData>& ceilB) {
@@ -125,12 +125,16 @@ void StampCell(const DungeonMap& map, int x, int z, CellHoles holes,
 									  SurfaceVariantFor(wx, wz, 3u, wallVariants), wallVariants);
 		const XMMATRIX m =
 			XMMatrixRotationY(e.yaw) * XMMatrixTranslation(e.pos.x, e.pos.y, e.pos.z);
-		// A niche on this edge stamps the recessed niche panel in place of the
-		// plain wall panel (into the same variant bucket, so it keeps the wall's
-		// texture); everything else is a normal wall block.
-		const assets::MeshData& src =
-			(niche && map.HasNiche(x, z, e.dx, e.dz)) ? *niche : wallBlocks[wallVariant];
-		AppendTransformed(wallB[wallVariant], src, m);
+		// A niche on this edge stamps its recessed panel in place of the plain
+		// wall panel (into the same variant bucket, so it keeps the wall's
+		// texture); an unknown type or no niche keeps the normal wall block.
+		const assets::MeshData* nicheMesh = nullptr;
+		if (niche)
+			// A closed (secret) niche renders as the plain wall until it is opened.
+			if (const WallNiche* n = map.NicheAt(x, z, e.dx, e.dz); n && n->open)
+				nicheMesh = niche(n->type);
+		AppendTransformed(wallB[wallVariant],
+						  nicheMesh ? *nicheMesh : wallBlocks[wallVariant], m);
 	}
 }
 
@@ -142,7 +146,7 @@ DungeonGeometry BuildDungeonRegion(const DungeonMap& map,
 								   std::span<const assets::MeshData> ceilingBlocks,
 								   int chunkX, int chunkZ,
 								   const CellHolesFn& holes,
-								   const assets::MeshData* niche) {
+								   const NicheMeshFn& niche) {
 	const int chunksX = (map.Width() + kChunkCells - 1) / kChunkCells;
 	const int chunkIndex = chunkZ * chunksX + chunkX;
 	const int x0 = chunkX * kChunkCells, z0 = chunkZ * kChunkCells;
@@ -170,7 +174,7 @@ DungeonGeometry BuildDungeonGeometry(const DungeonMap& map,
 									 std::span<const assets::MeshData> floorBlocks,
 									 std::span<const assets::MeshData> ceilingBlocks,
 									 const CellHolesFn& holes,
-									 const assets::MeshData* niche) {
+									 const NicheMeshFn& niche) {
 	const int chunksX = (map.Width() + kChunkCells - 1) / kChunkCells;
 	const int chunksZ = (map.Height() + kChunkCells - 1) / kChunkCells;
 	DungeonGeometry geo;

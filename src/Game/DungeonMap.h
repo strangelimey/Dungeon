@@ -96,6 +96,14 @@ struct WallNiche {
 	int x = 0, z = 0;
 	Direction wall = Direction::North;
 	std::string type = "niche";
+	// A secret niche starts CLOSED (a blank wall) and is opened by a button whose
+	// target= names it, or the editor's inspector. `name` is that target id (""
+	// = not button-toggleable). `hidden` is the authored start state; `open` is
+	// the runtime visibility (initialised to !hidden). The mesh builder stamps
+	// the niche panel only when `open`, else the plain wall panel.
+	std::string name;
+	bool hidden = false;
+	bool open = true;
 };
 
 // How the parser routes a `fixture <id> ...` record and the 'T'/'F' glyphs
@@ -236,11 +244,11 @@ public:
 	const std::vector<WallSconce>& Sconces() const { return m_torches; }
 	const std::vector<FloorBrazier>& Braziers() const { return m_braziers; }
 
-	// Wall niches (recessed pockets). The mesh builder reads HasNiche per edge.
+	// Wall niches (recessed pockets). The mesh builder reads NicheAt per edge.
 	const std::vector<WallNiche>& Niches() const { return m_niches; }
-	// True if cell (x,z) has a niche whose wall faces (dx,dz) — the mesh builder's
-	// per-edge query to stamp the niche panel instead of the plain wall panel.
-	bool HasNiche(int x, int z, int dx, int dz) const;
+	// The niche on cell (x,z) whose wall faces (dx,dz), or null — the mesh
+	// builder's per-edge query (its `type` resolves to the panel mesh to stamp).
+	const WallNiche* NicheAt(int x, int z, int dx, int dz) const;
 	// Places a niche on the first free solid wall of (x,z) (the sconce mount
 	// rule); false if no free solid wall. Bumps Revision().
 	bool AddNiche(int x, int z, std::string type);
@@ -250,8 +258,27 @@ public:
 		m_niches.push_back(std::move(n));
 		++m_revision;
 	}
-	// Removes the first niche on (x,z). Bumps Revision(); false if none.
-	bool RemoveNicheAt(int x, int z);
+	// Removes the niche on (x,z) facing `wall`. Bumps Revision(); false if none.
+	bool RemoveNiche(int x, int z, Direction wall);
+	// Removes the first niche carved into solid wall block (wx,wz) — from any
+	// adjacent floor cell facing it (the erase tool selects niches by their wall,
+	// like the inspector). Bumps Revision(); false if (wx,wz) isn't such a wall.
+	bool RemoveNicheFacingWall(int wx, int wz);
+	// The walls of every niche on (x,z) — several niches may share a cell (a
+	// dead-end has one per solid wall). Drives per-face selection.
+	std::vector<Direction> NicheWallsAt(int x, int z) const;
+	// Sets the (x,z)/`wall` niche's authored props (inspector Save): name, the
+	// hidden start state (resets open = !hidden), and type. Bumps Revision().
+	bool SetNichePropsAt(int x, int z, Direction wall, std::string name, bool hidden,
+						 std::string type);
+	// Sets the first niche on (x,z)'s runtime open state (editor preview / a
+	// direct toggle). Bumps Revision(); false if none.
+	bool SetNicheOpen(int x, int z, bool open);
+	// Flips `open` on every niche named `name` (a button press). Returns the cells
+	// touched so the caller can rebuild their chunks. Bumps Revision().
+	std::vector<std::pair<int, int>> ToggleNichesNamed(const std::string& name);
+	// Distinct non-empty niche names on the level (the button inspector's targets).
+	std::vector<std::string> NicheNames() const;
 
 	// Static decoration records (banners, rubble, ...) from the .map file.
 	const std::vector<Entity>& Decorations() const { return m_decorations; }

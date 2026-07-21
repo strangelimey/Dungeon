@@ -5,3 +5,7 @@
 [niche]
 display = Niche
 model = wall_niche
+
+[niche_arch]
+display = Arched Niche
+model = wall_niche_arch

@@ -639,7 +639,7 @@ void MapEditor::EraseAt(int cx, int cz) {
 	} else if (m_world.RemoveStairAt(cx, cz)) {
 		// stairs message themselves (they name the paired level's cleanup)
 	} else if (m_world.RemoveEntityAt(cx, cz) || m_world.RemoveFixtureAt(cx, cz) ||
-			   m_world.RemoveNicheAt(cx, cz)) {
+			   m_world.RemoveNicheAtWall(cx, cz)) {
 		log(loc::Tr("map.erase.removed"));
 	} else {
 		m_world.EditVariant(cx, cz, SS::Wall, -1);

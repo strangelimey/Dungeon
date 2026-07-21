@@ -773,6 +773,27 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 		else
 			marker(b.x, b.z, 0.46f, kBrazier);
 	}
+	// Wall niches: a thin, long slot drawn just INSIDE the wall block the niche is
+	// carved into (long along the wall, thin into it), so it reads as a recess in
+	// the wall rather than a marker on the floor. Gold, DIMMED for a secret niche
+	// (starts closed) so a designer can still find the blank-wall pocket. Editor
+	// always shows them (CellVisible is true there); the player map only revealed.
+	for (const WallNiche& n : map.Niches()) {
+		if (!CellVisible(n.x, n.z)) continue;
+		const int dx = DirDX(n.wall), dz = DirDZ(n.wall);
+		const Vec2 wc = cellCenter(n.x + dx, n.z + dz); // the wall block it cuts into
+		const float thin = t.cell * 0.10f;              // depth into the wall
+		const float lng = t.cell * 0.55f;               // length along the wall
+		const float inset = t.cell * 0.04f;
+		// Slide from the wall-cell centre toward the floor cell (-dir), stopping
+		// just inside the shared edge.
+		const float cx = wc.x - dx * (t.cell * 0.5f - thin * 0.5f - inset);
+		const float cy = wc.y - dz * (t.cell * 0.5f - thin * 0.5f - inset);
+		const float w = dx != 0 ? thin : lng; // thin across the wall, long along it
+		const float h = dx != 0 ? lng : thin;
+		const Vec4 col{0.88f, 0.72f, 0.32f, n.hidden ? 0.4f : 1.0f};
+		batch.DrawRect({cx - w * 0.5f, cy - h * 0.5f, w, h}, col);
+	}
 	// Decorations: the LIVE world list for the active level (so editor
 	// placements/removals show), the map's records for a browsed one.
 	std::vector<DungeonWorld::MapMarker> decos;
