@@ -372,7 +372,8 @@ public:
 	void Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) override;
 
 	// Which body the sheet shows; the mode buttons under the portrait switch it.
-	enum class Mode { Inventory, Stats, Skills, Effects };
+	// (Order == the mode-button strip order — Spells sits before Effects.)
+	enum class Mode { Inventory, Stats, Skills, Spells, Effects };
 	// Opens the sheet on a specific tab (the party bar uses this: portrait ->
 	// Inventory, the stat bars -> Stats).
 	void SetMode(Mode m) { m_mode = m; }
@@ -387,6 +388,10 @@ public:
 	// the selected pack) — GameUI opens the item's use menu there (a rune's
 	// Memorize works from the pack, not just a hand; Michael, 2026-07-10).
 	std::function<void(int slot)> onSlotMenu;
+	// The project's spell registry (wired to DungeonWorld::SpellDefs), so the
+	// Spells tab can resolve a learned spell id -> its school, rune count, and
+	// description. Null-safe: no registry, an empty Spells tab.
+	std::function<std::span<const std::unique_ptr<Spell>>()> spells;
 
 private:
 	// Design-space rect of doll cell i (an index into the placed-cell table),
@@ -406,6 +411,18 @@ private:
 					float sx, float sy);
 	void DrawEffects(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 					 const gfx::Rect& px, float sx, float sy);
+	void DrawSpells(ui::UIContext& ctx, gfx::SpriteBatch& batch,
+					const gfx::Rect& px, float sx, float sy);
+	// Shared vertical scroll for the list tabs (Skills / Spells / Effects):
+	// m_scroll is the pixel offset, clamped each frame against the content vs
+	// view height that the active tab's Draw caches. ScrollViewRect is the
+	// scissored list region (below the header); the list Draws bracket their
+	// rows with it and call DrawScrollbar.
+	gfx::Rect ScrollViewRect(const gfx::Rect& px, float sy) const;
+	gfx::Rect ScrollThumbRect(const gfx::Rect& view, float maxScroll) const;
+	void UpdateScroll(ui::UIContext& ctx, const gfx::Rect& px, float sx, float sy);
+	void DrawScrollbar(ui::UIContext& ctx, gfx::SpriteBatch& batch,
+					   const gfx::Rect& view);
 	// Applies a held-aware click to a slot: place / swap / pick up.
 	void ClickSlot(ItemSlot& slot);
 	// Pack-row slot i was clicked: equip a held container into it, else select it.
@@ -430,6 +447,11 @@ private:
 	std::optional<std::string>* m_held;
 	Mode m_mode = Mode::Inventory;
 	int m_hotMode = -1; // mode button under the cursor (Update → Draw), -1 = none
+	// List-tab scroll state (see the Scroll helpers above). Content/view heights
+	// are cached by the active list Draw each frame; Update clamps against them.
+	float m_scroll = 0.0f, m_scrollGrab = 0.0f;
+	bool m_scrollDragging = false;
+	float m_scrollContentH = 0.0f, m_scrollViewH = 0.0f;
 	std::string m_healthText, m_staminaText, m_manaText; // "42 / 42"
 	std::array<std::string, 5> m_attrValues;             // per-attribute numbers
 	// Skills-tab rows, baked by SetCharacter like the attribute values: the
@@ -443,6 +465,16 @@ private:
 		Vec4 tint{0, 0, 0, 0};
 	};
 	std::vector<SkillRow> m_skillRows;
+	// Spells-tab rows, baked by SetCharacter: the member's LEARNED spells in
+	// school -> rune-count order, each with a school-tinted name and a
+	// description (the spell's <id>.desc, its base power formatted in).
+	// Resolved through the `spells` registry callback.
+	struct SpellRow {
+		std::vector<SpellSymbol> symbols; // the recipe, drawn as rune icons first
+		std::string name, desc;
+		Vec4 tint{1, 1, 1, 1};
+	};
+	std::vector<SpellRow> m_spellRows;
 	// Effects-tab rows, likewise baked by SetCharacter (the world is frozen
 	// while the sheet is open, so effects can't change under it): the HUD
 	// indicator's icon look (kind art + school tint + time sliver) plus the
@@ -460,6 +492,7 @@ private:
 	std::string m_healthLabel, m_staminaLabel, m_manaLabel;
 	std::string m_attributesLabel, m_skillsLabel, m_noSkills;
 	std::string m_effectsLabel, m_noEffects;
+	std::string m_spellsLabel, m_noSpells;
 	std::array<std::string, 5> m_attrLabels;            // localized attribute names
 };
 

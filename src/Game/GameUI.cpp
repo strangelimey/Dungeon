@@ -1199,6 +1199,12 @@ void GameUI::BuildCharacterSheet() {
 	// Right-clicked backpack slot → its use menu (a rune memorizes from the
 	// pack too, not just a hand).
 	m_sheet->onSlotMenu = [this](int slot) { OpenPackUseMenu(slot); };
+	// The Spells tab resolves learned-spell ids through the same registry the
+	// spellbook uses (deferred so spellDefs is wired by cast time).
+	m_sheet->spells = [this] {
+		return spellDefs ? spellDefs()
+						 : std::span<const std::unique_ptr<Spell>>{};
+	};
 
 	const float btnY = sy + sheetH + 16.0f;
 	m_sheetUi.Add<ui::Button>(Norm({sx, btnY, 64, 40}, window), "<", [this] {
