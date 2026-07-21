@@ -82,6 +82,20 @@ struct Atmosphere {
 	// `haze <h>`) — bake re-tuned values back here.
 	float density = 0.075f;            // optical depth per meter at turbidity 1
 	float hazeAmbient = 0.9f;          // how much ambient light the dust catches
+
+	// See-through peek (the Sight spell): the wall cell directly ahead the
+	// party ghosts in the scene pixel shader while a Sight effect is active.
+	// sightCell xy = the cell's world min (X,Z), zw = its max; INACTIVE when
+	// zw <= xy (the default). sightTint rgb = the ghost/glow tint (the active
+	// school's colour), a = strength (0 = off). Set per-frame by
+	// DungeonWorld::RenderScene — a transient, not a level mood knob.
+	Vec4 sightCell{0.0f, 0.0f, 0.0f, 0.0f};
+	Vec4 sightTint{0.0f, 0.0f, 0.0f, 0.0f};
+	// The peek is a round HOLE in the middle of the wall face, not the whole
+	// cell: x = the hole's centre world Y (party eye height), y = radius (m),
+	// z = whether the face's across-axis is world X (>0.5 for N/S facing, else
+	// the across-axis is Z), w unused.
+	Vec4 sightHole{0.0f, 0.0f, 0.0f, 0.0f};
 };
 
 } // namespace dungeon::gfx

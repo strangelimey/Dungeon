@@ -77,7 +77,8 @@ Key conventions (memorize, they bite):
   callbacks, both wired in the Game constructor.
 - MAGIC (full model: docs/magic system.md + spells.md + skills.md): every
   spell is a CLASS in src/Game/Spell/ (one file pair per spell; Spell base →
-  BoltSpell/WardSpell forms; behaviour = the Cast() override, reaching the
+  BoltSpell/WardSpell/SightSpell forms — the shared tier-2 form runes Project/
+  Protect/Sight; behaviour = the Cast() override, reaching the
   world only through host-wired CastServices) — spells.cat is NUMERIC
   OVERRIDES only, the class recipe is identity. MagicSystem runs the common
   gates (vocab, mana, skill/fumble roll, power ×(1+0.10×school level) ×

@@ -116,3 +116,39 @@ element = air
 power = 3
 mana = 8
 duration = 60
+
+[embersight]
+name = spell.embersight
+symbols = fire,sight
+effect = sight
+element = fire
+power = 8
+mana = 6
+duration = 20
+
+[farsight]
+name = spell.farsight
+symbols = air,sight
+effect = sight
+element = air
+power = 3
+mana = 6
+duration = 20
+
+[stonesight]
+name = spell.stonesight
+symbols = earth,sight
+effect = sight
+element = earth
+power = 1
+mana = 6
+duration = 30
+
+[scrying]
+name = spell.scrying
+symbols = water,sight
+effect = sight
+element = water
+power = 1
+mana = 6
+duration = 20

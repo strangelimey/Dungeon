@@ -42,6 +42,13 @@ weight = 0.5
 holdable = 1
 symbol = protect
 
+[rune_sight]
+name = item.rune_sight
+category = rune
+weight = 0.5
+holdable = 1
+symbol = sight
+
 [dagger]
 name = item.dagger
 category = weapon

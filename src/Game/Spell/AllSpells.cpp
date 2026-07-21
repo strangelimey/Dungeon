@@ -7,14 +7,18 @@
 // ============================================================================
 #include "Game/Spell/Spell.h"
 
+#include "Game/Spell/Embersight.h"
+#include "Game/Spell/Farsight.h"
 #include "Game/Spell/Fireburst.h"
 #include "Game/Spell/Fireshield.h"
 #include "Game/Spell/Flame.h"
 #include "Game/Spell/Gust.h"
 #include "Game/Spell/Push.h"
 #include "Game/Spell/Rock.h"
+#include "Game/Spell/Scrying.h"
 #include "Game/Spell/Slingshot.h"
 #include "Game/Spell/Splash.h"
+#include "Game/Spell/Stonesight.h"
 #include "Game/Spell/Stoneskin.h"
 #include "Game/Spell/Waterbolt.h"
 #include "Game/Spell/Waterveil.h"
@@ -41,6 +45,11 @@ std::vector<std::unique_ptr<Spell>> MakeAllSpells() {
 	all.push_back(std::make_unique<spells::Fireshield>());
 	all.push_back(std::make_unique<spells::Waterveil>());
 	all.push_back(std::make_unique<spells::Windward>());
+	// Tier 2 — the Sight form ("see through the wall ahead") behind each school.
+	all.push_back(std::make_unique<spells::Embersight>());
+	all.push_back(std::make_unique<spells::Farsight>());
+	all.push_back(std::make_unique<spells::Stonesight>());
+	all.push_back(std::make_unique<spells::Scrying>());
 	return all;
 }
 

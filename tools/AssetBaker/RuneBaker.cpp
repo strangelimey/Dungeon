@@ -56,7 +56,7 @@ struct RuneSpec {
 };
 
 // Coordinates picked to read as the named Futhark rune at a glance.
-const std::array<RuneSpec, 6> kRunes = {{
+const std::array<RuneSpec, 7> kRunes = {{
 	// Fire — Kenaz "<" (beacon/torch).
 	{"fire", {0.55f, 0.42f, 0.36f}, {0.95f, 0.45f, 0.18f},
 	 {{0.58f, 0.84f, 0.40f, 0.50f}, {0.40f, 0.50f, 0.58f, 0.16f}}},
@@ -87,6 +87,14 @@ const std::array<RuneSpec, 6> kRunes = {{
 	 {{0.50f, 0.86f, 0.50f, 0.14f},
 	  {0.50f, 0.58f, 0.32f, 0.84f},
 	  {0.50f, 0.58f, 0.68f, 0.84f}}},
+	// Sight (shared tier-2 form) — Dagaz: two upright staves joined by a
+	// crossing X (the "day/clarity" hourglass ᛞ — an eye between two posts).
+	// Same neutral stone + arcane gold as the other form runes.
+	{"sight", {0.48f, 0.47f, 0.44f}, {0.92f, 0.76f, 0.30f},
+	 {{0.34f, 0.14f, 0.34f, 0.86f},
+	  {0.66f, 0.14f, 0.66f, 0.86f},
+	  {0.34f, 0.14f, 0.66f, 0.86f},
+	  {0.34f, 0.86f, 0.66f, 0.14f}}},
 }};
 
 // Distance from point (px,py) to segment (a→b), all in uv space.

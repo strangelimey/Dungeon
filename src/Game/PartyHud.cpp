@@ -21,6 +21,7 @@ inline constexpr Vec4 kSlotBg{0.0f, 0.0f, 0.0f, 1.0f};
 const char* EffectIconItem(StatusKind kind) {
 	switch (kind) {
 	case StatusKind::Ward: return "rune_protect";
+	case StatusKind::Sight: return "rune_sight";
 	}
 	return "";
 }

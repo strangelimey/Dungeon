@@ -8,7 +8,7 @@ namespace dungeon::game {
 // Save-file / record names, indexed by StatusKind. Append with the enum.
 
 namespace {
-constexpr const char* kStatusKindIds[] = {"ward", "poison", "bleed"};
+constexpr const char* kStatusKindIds[] = {"ward", "poison", "bleed", "sight"};
 } // namespace
 
 const char* StatusKindId(StatusKind kind) {

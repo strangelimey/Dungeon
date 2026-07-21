@@ -71,6 +71,7 @@ Water=Laguz, Air=Ansuz, Earth=Berkano):
 | --- | --- | --- | --- |
 | **Project** | Tiwaz (the up arrow) | "throw it ahead" — the directed/thrown form | BUILT — see the four `<school>,project` spells in docs/spells.md |
 | **Protect** | Algiz (the warding stave) | "guard the caster" — a ward whose behaviour the school picks: earth hardens, air deflects, water absorbs, fire retaliates | BUILT — all four shields (docs/spells.md) |
+| **Sight** | Dagaz (the day-rune) | "see through the wall ahead" — a round peephole bored through the block directly in front, the school picking what it reveals: fire lights, air sees deep, earth remembers, water scrys | BUILT — the four `<school>,sight` spells (docs/spells.md) |
 
 Form runes carry no school: their tablets/UI ink use a neutral **arcane gold**
 (`ElementColor(Project)`), and a cast spell always tints by its SCHOOL — the
@@ -218,16 +219,24 @@ Magic is a **walled-off module** (it knows nothing of map/monsters/HUD):
 - **School-first + tier-2: BUILT.** The one-school rule (exactly one element
   rune, first position) is enforced in `Spells.h`/`SpellBook::Build` and the
   spellbook UI (`SymbolAvailable`: the four schools go dark once one is down;
-  form runes wait until a school leads). Two shared form runes are live:
+  form runes wait until a school leads). Three shared form runes are live:
   **Project** with its four `<school>,project` spells — including the engine's
-  first displacement effect (`push`, the air shove) — and **Protect** with the
+  first displacement effect (`push`, the air shove) — **Protect** with the
   shield framework (`SpellEffect::Shield`: caster-only wards that stack
   across schools — same school recast replaces — school-keyed behaviour,
   timed fade) carrying all four shields: Stone Skin
   (armor), Fire Shield (melee retaliation), Water Veil (absorb pool, bursts
-  when spent), Wind Ward (bolt deflection charges, stills when spent).
-  Recipes are still matched as exact ordered sequences; that IS the
-  model now (the grammar is authored into the recipes, not parsed).
+  when spent), Wind Ward (bolt deflection charges, stills when spent) — and
+  **Sight** (`StatusKind::Sight`, a caster-only timed marker like a ward) that
+  ghosts a round PEEPHOLE through the wall block directly ahead in the
+  first-person view (a scene-shader hole + thin school-tinted rim, driven by
+  the `sightCell`/`sightTint`/`sightHole` frame constants — no mesh rebuild),
+  carrying all four peeks: Ember Sight (fire lights the room beyond), Far Sight
+  (air bores the hole deep down the row), Stone Sight (earth maps the revealed
+  room + longest duration), Scrying (water's wider, clearer window; hidden-
+  content reveal is future). Recipes are still matched as exact ordered
+  sequences; that IS the model now (the grammar is authored into the recipes,
+  not parsed).
 - **Status effects are a unified list, and they STACK.** A ward lives in
   `Character::effects` (`StatusEffect`: kind + school + magnitude + time;
   save v14 "effect" lines, v13 "shield" lines still load) — the one list

@@ -210,6 +210,8 @@ log.shield_soaks={}'s water veil soaks the blow!
 log.shield_bursts={}'s water veil bursts!
 log.shield_deflects=The wind turns the bolt away from {}!
 log.shield_stills=The wind around {} stills.
+log.sight_up={}'s sight pierces the stone ahead.
+log.sight_fades=The stone closes to {}'s sight.
 ; Spell display names (spells.cat ids -> spell.<id>).
 spell.flame=Puff of Flame
 spell.rock=Pebble
@@ -223,11 +225,19 @@ spell.stoneskin=Stone Skin
 spell.fireshield=Fire Shield
 spell.waterveil=Water Veil
 spell.windward=Wind Ward
+spell.embersight=Ember Sight
+spell.farsight=Far Sight
+spell.stonesight=Stone Sight
+spell.scrying=Scrying
 ; Effect descriptions (sheet Effects tab; <nameKey>.desc, {} = magnitude).
 spell.stoneskin.desc=Skin like stone — soaks {} damage from every blow.
 spell.fireshield.desc=Wreathed in flame — a landed blow scorches the attacker for {}.
 spell.waterveil.desc=A flowing veil soaks the next {} damage, then bursts.
 spell.windward.desc=The wind turns aside the next {} bolts.
+spell.embersight.desc=See the living heat glow through the wall ahead.
+spell.farsight.desc=Sight carries down the passage, wall after wall.
+spell.stonesight.desc=Read the stone ahead — and remember what lies there.
+spell.scrying.desc=Reveal what lies hidden in the wall ahead.
 ; Status-effect hover label: effect name, seconds left.
 hud.effect_time={} — {}s
 ; Skill display names (docs/skills.md): the four schools + weapon classes.
@@ -277,6 +287,7 @@ item.rune_air=Air rune
 item.rune_water=Water rune
 item.rune_project=Project rune
 item.rune_protect=Protect rune
+item.rune_sight=Sight rune
 item.dagger=Dagger
 item.khukri=Khukri
 item.snake_dagger=Snake dagger
@@ -353,6 +364,7 @@ symbol.air=Air
 symbol.water=Water
 symbol.project=Project
 symbol.protect=Protect
+symbol.sight=Sight
 
 ; --- map overlay / editor --------------------------------------------------------
 map.title=Map

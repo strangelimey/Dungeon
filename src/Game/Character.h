@@ -50,6 +50,13 @@ enum class StatusKind : u8 {
 			// and each other. DoT ticks a DOWNED member too — the wound that
 			// lands on someone already at 0 is death by the overkill rule,
 			// so get the poisoned to safety (Michael's call, 2026-07-09).
+	Sight,  // the Sight form (see-through the wall ahead): school keys WHAT the
+			// peek shows (fire lights the beyond, air sees deeper, earth maps +
+			// lingers, water reveals the hidden). Purely a marker the world
+			// reads to ghost the front block — no per-member behaviour. STACKS
+			// across schools (a member may hold several), same-school recast
+			// refreshes (RemoveEffect(Sight, school)); the party shares one
+			// camera, so the world unions the active sights.
 };
 
 struct StatusEffect {
@@ -216,6 +223,13 @@ struct Character {
 	void RemoveEffect(StatusKind kind) {
 		std::erase_if(effects,
 					  [kind](const StatusEffect& e) { return e.kind == kind; });
+	}
+	// Remove only the entry of `kind` carrying `school` — the school-keyed
+	// stack semantics (a same-school recast replaces just its own, like wards).
+	void RemoveEffect(StatusKind kind, SpellSymbol school) {
+		std::erase_if(effects, [kind, school](const StatusEffect& e) {
+			return e.kind == kind && e.school == school;
+		});
 	}
 
 	// --- ward queries (the Protect form rune, docs/spells.md "Protect") ------

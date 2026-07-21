@@ -44,15 +44,20 @@ add_library(Game STATIC
 	SoundBank.cpp
 	Spell/AllSpells.cpp
 	Spell/BoltSpell.cpp
+	Spell/Embersight.cpp
+	Spell/Farsight.cpp
 	Spell/Fireburst.cpp
 	Spell/Fireshield.cpp
 	Spell/Flame.cpp
 	Spell/Gust.cpp
 	Spell/Push.cpp
 	Spell/Rock.cpp
+	Spell/Scrying.cpp
+	Spell/SightSpell.cpp
 	Spell/Slingshot.cpp
 	Spell/Spell.cpp
 	Spell/Splash.cpp
+	Spell/Stonesight.cpp
 	Spell/Stoneskin.cpp
 	Spell/WardSpell.cpp
 	Spell/Waterbolt.cpp

@@ -28,10 +28,10 @@ class Catalog; // Catalog.h — SpellBook::Build reads the spells catalog.
 
 // The spell symbols: the four tier-1 SCHOOL elements first, then the shared
 // tier-2 FORM symbols (Project = "throw it ahead", Protect = "guard the
-// caster"; more forms follow — see docs/magic system.md). The enum order is
-// the serialization order (save + catalog tokens) — APPEND new symbols,
-// never reorder.
-enum class SpellSymbol : u8 { Fire, Earth, Air, Water, Project, Protect, Count };
+// caster", Sight = "see through the wall ahead"; more forms follow — see
+// docs/magic system.md). The enum order is the serialization order (save +
+// catalog tokens) — APPEND new symbols, never reorder.
+enum class SpellSymbol : u8 { Fire, Earth, Air, Water, Project, Protect, Sight, Count };
 
 inline constexpr u32 kSymbolCount = static_cast<u32>(SpellSymbol::Count);
 
