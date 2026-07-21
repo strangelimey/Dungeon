@@ -675,9 +675,9 @@ bool DungeonMap::SetNichePropsAt(int x, int z, Direction wall, std::string name,
 	return false;
 }
 
-bool DungeonMap::SetNicheOpen(int x, int z, bool open) {
+bool DungeonMap::SetNicheOpenAt(int x, int z, Direction wall, bool open) {
 	for (WallNiche& n : m_niches)
-		if (n.x == x && n.z == z) {
+		if (n.x == x && n.z == z && n.wall == wall) {
 			if (n.open != open) {
 				n.open = open;
 				++m_revision;
@@ -685,6 +685,17 @@ bool DungeonMap::SetNicheOpen(int x, int z, bool open) {
 			return true;
 		}
 	return false;
+}
+
+bool DungeonMap::ResetNicheOpen() {
+	bool changed = false;
+	for (WallNiche& n : m_niches)
+		if (n.open != !n.hidden) {
+			n.open = !n.hidden;
+			changed = true;
+		}
+	if (changed) ++m_revision;
+	return changed;
 }
 
 std::vector<std::pair<int, int>> DungeonMap::ToggleNichesNamed(const std::string& name) {

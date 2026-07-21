@@ -271,9 +271,12 @@ public:
 	// hidden start state (resets open = !hidden), and type. Bumps Revision().
 	bool SetNichePropsAt(int x, int z, Direction wall, std::string name, bool hidden,
 						 std::string type);
-	// Sets the first niche on (x,z)'s runtime open state (editor preview / a
-	// direct toggle). Bumps Revision(); false if none.
-	bool SetNicheOpen(int x, int z, bool open);
+	// Sets the (x,z)/`wall` niche's runtime open state (save/load restore of a
+	// revealed secret niche). Bumps Revision() if it changed; false if no match.
+	bool SetNicheOpenAt(int x, int z, Direction wall, bool open);
+	// Resets every niche to its authored open default (open = !hidden) — a new
+	// game re-hides any secret niche opened this session. True if any changed.
+	bool ResetNicheOpen();
 	// Flips `open` on every niche named `name` (a button press). Returns the cells
 	// touched so the caller can rebuild their chunks. Bumps Revision().
 	std::vector<std::pair<int, int>> ToggleNichesNamed(const std::string& name);

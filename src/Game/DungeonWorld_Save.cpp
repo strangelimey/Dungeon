@@ -59,6 +59,9 @@ void DungeonWorld::ResetForNewGame() {
 		d.open = d.initialOpen;
 		d.openT = d.open ? 1.0f : 0.0f;
 	}
+	// Re-hide any secret niche opened this session; re-stamp the changed walls.
+	if (m_map.ResetNicheOpen())
+		for (const WallNiche& n : m_map.Niches()) RebuildChunksAround(n.x, n.z);
 	std::fill(m_seen.begin(), m_seen.end(), static_cast<u8>(0));
 	MarkSeen(m_party.GridX(), m_party.GridZ());
 	SetTorchPalette(0);
@@ -152,6 +155,11 @@ SaveData::LevelState DungeonWorld::SnapshotActive() const {
 			e.activated = d.open;
 			ls.entities.push_back(std::move(e));
 		}
+	// Wall niches: a diff once the runtime open state differs from the authored
+	// default (!hidden) — a secret niche a button revealed (or an editor toggle).
+	for (const WallNiche& n : m_map.Niches())
+		if (n.open != !n.hidden)
+			ls.niches.push_back({n.x, n.z, static_cast<int>(n.wall), n.open});
 	return ls;
 }
 
@@ -272,6 +280,12 @@ void DungeonWorld::ApplyActiveSnapshot() {
 		default: break; // decorations are static — never in a save
 		}
 	}
+	// Wall-niche reveal state: set each saved niche's open flag, then re-stamp its
+	// wall (a no-op if the geometry isn't built yet — the load's mesh bake then
+	// reads the restored open state directly).
+	for (const SaveData::NicheOpen& n : ls.niches)
+		if (m_map.SetNicheOpenAt(n.x, n.z, static_cast<Direction>(n.wall), n.open))
+			RebuildChunksAround(n.x, n.z);
 	m_levelStates.erase(it); // the live state is authoritative now
 }
 

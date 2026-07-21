@@ -176,6 +176,9 @@ bool WriteSave(const SaveData& data, const std::string& path) {
 			default: break; // decorations are static (.map) — never saved
 			}
 		}
+		// v20: wall-niche reveal-state diffs (open != authored default).
+		for (const SaveData::NicheOpen& n : lvl.niches)
+			t += std::format("niche {} {} {} {}\n", n.x, n.z, n.wall, n.open ? 1 : 0);
 		if (!lvl.seen.empty()) {
 			t += "seen";
 			for (const auto& [x, z] : lvl.seen) t += std::format(" {},{}", x, z);
@@ -484,6 +487,14 @@ std::optional<SaveData> ReadSave(const std::string& path) {
 			SaveData::LevelState& lvl = currentBlock();
 			lvl.entities.push_back(e);
 			lvl.fullFloorSnapshot = true;
+		} else if (kw == "niche" && tok.size() >= 5) {
+			// v20: a wall-niche reveal-state diff: <x> <z> <wall> <open>.
+			SaveData::NicheOpen n;
+			n.x = IntOf(tok[1]);
+			n.z = IntOf(tok[2]);
+			n.wall = IntOf(tok[3]);
+			n.open = IntOf(tok[4]) != 0;
+			currentBlock().niches.push_back(n);
 		} else if (kw == "seen") {
 			SaveData::LevelState& lvl = currentBlock();
 			for (size_t i = 1; i < tok.size(); ++i) {
