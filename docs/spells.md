@@ -177,3 +177,58 @@ its caster alone. Melee is out of its reach: the defensive mirror of Push.
 - Growth: charge count with air power, then melee attacks straying too.
   Tier-3: a wind wall cell bolts can't cross (reusing push for whatever
   walks in).
+
+### Sight (Dagaz, the day-rune) — "see through the wall ahead"
+
+The divination form: a round PEEPHOLE bored through the middle of the wall
+block directly in front of the caster — you peer through the stone into the
+cell beyond, in the first-person view (a screen-door aperture with a thin
+school-tinted rim; the scene pixel shader carves it from the `sightCell`/
+`sightHole` frame constants — no mesh rebuild). One block, following the
+party's facing LIVE, for the spell's duration; a wall (or off-map) cell ahead
+ghosts, an open cell is a no-op (you already see it). Four spells,
+`symbols = <school>,sight`, the school picking WHAT the peek shows. All four
+are BUILT. Framework: the peek is a caster-only timed `StatusEffect`
+(`StatusKind::Sight`) — it STACKS across schools (hold several at once; the
+party shares ONE camera, so when several are up Fire's flavour wins the single
+ghost), a same-school recast REFRESHES, and it rides the save on the effects
+line (the "effect" v14 format, generic over kind — no new save version). Cast
+entry, the party-bar/Effects-tab icon (`rune_sight`), and the fade line all
+reuse the ward machinery. The host reads the active Sight in
+`DungeonWorld::UpdateLights`, computes the ghosted cell + hole, and
+`RenderScene` carries them into the frame's `Atmosphere`.
+
+#### Fire — Ember Sight (`embersight`) — BUILT
+
+Fire LIGHTS what it reveals: a warm fill light (no shadow cube) drops into the
+first open cell past the wall, so the room beyond — and any creature in it —
+shows through the stone in the dark. Red rim.
+
+- Growth: brightness/reach with fire power; a heat-outline on creatures later.
+
+#### Air — Far Sight (`farsight`) — BUILT
+
+Air sees FAR: the hole bores DEEP down the row, piercing successive wall
+blocks (the sight box extends `depth` cells along the facing, so the cylinder
+holes every wall in that span) rather than the single block ahead — the one
+school that beats the one-block rule, distance being air's identity. White rim.
+
+- Growth: tunnel depth scales with air power (today a fixed 6 cells).
+
+#### Earth — Stone Sight (`stonesight`) — BUILT
+
+Earth READS and REMEMBERS: the revealed room is permanently written into the
+fog-of-war set (`MarkSeen`), so its layout stays on the M-map after the peek
+fades, and its effect lasts the LONGEST (catalog `duration`). Brown-green rim.
+
+- Growth: reveal depth / thickness of rock read with earth power.
+
+#### Water — Scrying (`scrying`) — BUILT (interim)
+
+Water's scrying window is WIDER and clearer than the others (a larger hole
+radius). Its true identity is revealing the HIDDEN — secret doors, hidden
+buttons, trap pits — but until that content exists it stands in as the
+clearest plain peek. Blue rim.
+
+- Growth: the hidden-thing reveal once secret content lands (the divination
+  reads what's concealed in the cell beyond).

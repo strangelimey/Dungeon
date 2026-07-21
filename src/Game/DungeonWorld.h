@@ -1560,6 +1560,14 @@ private:
 	ShadowScheduler m_shadows;
 	gfx::Atmosphere m_atmosphere; // per-cell air turbidity (dust)
 	std::unique_ptr<gfx::Texture> m_turbidityMap;
+	// See-through peek (the Sight spell): recomputed each UpdateLights from the
+	// active Sight effects. m_sightCell xy/zw = the ghosted wall cell's world
+	// box (inactive when zw <= xy); m_sightTint rgb/a = the school ghost tint.
+	// RenderScene copies them into the frame's Atmosphere; a fire-school peek
+	// also drops a fill light in the revealed cell (UpdateLights).
+	Vec4 m_sightCell{0.0f, 0.0f, 0.0f, 0.0f};
+	Vec4 m_sightTint{0.0f, 0.0f, 0.0f, 0.0f};
+	Vec4 m_sightHole{0.0f, 0.0f, 0.0f, 0.0f}; // x = eye Y, y = radius, z = across-axis is X
 
 	Surface m_walls;
 	Surface m_floors;

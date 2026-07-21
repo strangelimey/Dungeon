@@ -11,10 +11,11 @@ namespace dungeon::game {
 namespace {
 // Parallel to the SpellSymbol enum order.
 constexpr const char* kIds[kSymbolCount] = {"fire", "earth", "air", "water",
-											"project", "protect"};
+											"project", "protect", "sight"};
 constexpr const char* kKeys[kSymbolCount] = {"symbol.fire", "symbol.earth",
 											 "symbol.air", "symbol.water",
-											 "symbol.project", "symbol.protect"};
+											 "symbol.project", "symbol.protect",
+											 "symbol.sight"};
 
 // Parses a comma-separated symbol list ("fire,air") into a sequence. Returns
 // false (and leaves `out` partial) on the first unknown token; an empty / blank
@@ -72,7 +73,8 @@ Vec4 ElementColor(SpellSymbol s) {
 	// from all four school accents (a cast spell never shows this — bolts tint
 	// by Spell::School(), the first rune).
 	case SpellSymbol::Project:
-	case SpellSymbol::Protect: return {0.92f, 0.76f, 0.30f, 0.0f}; // gold
+	case SpellSymbol::Protect:
+	case SpellSymbol::Sight:   return {0.92f, 0.76f, 0.30f, 0.0f}; // gold
 	default:                 return {1.0f, 1.0f, 1.0f, 0.0f};
 	}
 }

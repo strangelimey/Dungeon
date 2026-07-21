@@ -33,6 +33,9 @@ struct FrameConstants {
 	Vec4 fogGrid;     // xy = 1 / atmosphere world extent, z = density, w = haze ambient
 	Vec4 hazeColor;   // rgb = dust albedo tint
 	Vec4 shadowLight; // shadow pass only: xyz = light pos, w = 1 / radius
+	Vec4 sightCell;   // see-through peek: xy = cell world min XZ, zw = max (inactive when zw <= xy)
+	Vec4 sightTint;   // rgb = ghost tint (school colour), a = strength (0 = off)
+	Vec4 sightHole;   // round peephole: x = centre world Y, y = radius (m), z = across-axis is X (>0.5), w unused
 	GpuPointLight pointLights[kMaxPointLights];
 };
 
@@ -367,6 +370,9 @@ void Renderer::BeginScene(ID3D12GraphicsCommandList* list, const Camera& camera,
 					 atmosphere.hazeAmbient};
 	frame.hazeColor = {atmosphere.hazeColor.x, atmosphere.hazeColor.y,
 					   atmosphere.hazeColor.z, 0.0f};
+	frame.sightCell = atmosphere.sightCell;
+	frame.sightTint = atmosphere.sightTint;
+	frame.sightHole = atmosphere.sightHole;
 	frame.dirDirection = {lights.directional.direction.x, lights.directional.direction.y,
 						  lights.directional.direction.z, 0.0f};
 	frame.dirColor = {lights.directional.color.x, lights.directional.color.y,

@@ -148,9 +148,14 @@ void DungeonWorld::RenderShadowMaps(ID3D12GraphicsCommandList* list) {
 // PostProcess::BeginScene/Resolve), so the pass outputs linear HDR — the
 // tonemap runs in the post composite, after bloom.
 void DungeonWorld::RenderScene(ID3D12GraphicsCommandList* list) {
-	m_renderer.BeginScene(list, m_camera, m_lights,
-						  m_dustEnabled ? m_atmosphere : gfx::Atmosphere{},
-						  /*hdrTarget=*/true);
+	// See-through peek: UpdateLights recomputed the ghosted wall cell + school
+	// tint (and dropped a fire-school fill light); carry them into the frame so
+	// the scene PS dithers the block ahead (inactive m_sightCell is a no-op).
+	gfx::Atmosphere atmo = m_dustEnabled ? m_atmosphere : gfx::Atmosphere{};
+	atmo.sightCell = m_sightCell;
+	atmo.sightTint = m_sightTint;
+	atmo.sightHole = m_sightHole;
+	m_renderer.BeginScene(list, m_camera, m_lights, atmo, /*hdrTarget=*/true);
 	const ViewCull cull = ViewCull::FromFrustum(m_camera.ViewProj());
 	SubmitSceneGeometry(list, &cull);
 	// Transparent flame/spark/smoke billboards last, over the opaque scene.

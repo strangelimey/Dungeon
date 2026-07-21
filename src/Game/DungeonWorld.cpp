@@ -1889,6 +1889,29 @@ float DungeonWorld::RunePulse(float time, int id) {
 // Rebuilds the light list every frame: the carried torch follows the camera,
 // wall torches flicker with independent phases. All flicker is
 // product-of-sines — cheap, deterministic, and aperiodic enough.
+namespace {
+// Party facing -> front-cell delta (N E S W; matches Party's kDirX/kDirZ).
+constexpr int kFrontDX[4] = {0, 1, 0, -1};
+constexpr int kFrontDZ[4] = {-1, 0, 1, 0};
+
+// The school flavouring the active see-through peek, if any LIVE member holds a
+// Sight effect. Fire wins when several schools are up (its lighting drives the
+// reveal); the party shares one camera, so one school flavours the single ghost.
+bool ActiveSightSchool(const std::vector<Character>* roster, SpellSymbol& out) {
+	if (!roster) return false;
+	bool found = false;
+	for (const Character& c : *roster) {
+		if (!c.IsAlive()) continue;
+		for (const StatusEffect& e : c.effects) {
+			if (e.kind != StatusKind::Sight) continue;
+			if (!found || e.school == SpellSymbol::Fire) out = e.school;
+			found = true;
+		}
+	}
+	return found;
+}
+} // namespace
+
 void DungeonWorld::UpdateLights(float time) {
 	m_lights.points.clear();
 
@@ -1950,6 +1973,58 @@ void DungeonWorld::UpdateLights(float time) {
 		glow.intensity = 2.3f * RunePulse(time, item.id);
 		glow.castsShadow = false;
 		m_lights.points.push_back(glow);
+	}
+
+	// See-through peek (the Sight spell): recompute the ghosted wall cell from
+	// the active Sight effects. Only a SOLID cell directly ahead ghosts (an open
+	// cell is a no-op — you already see it). A fire-school peek (Ember Sight)
+	// also drops a warm FILL light in the first open cell past the wall so the
+	// revealed room — and any creature in it — shows through the ghost; pushed
+	// before the budget cull so its near position keeps it (it's adjacent).
+	m_sightCell = {0.0f, 0.0f, 0.0f, 0.0f};
+	m_sightTint = {0.0f, 0.0f, 0.0f, 0.0f};
+	m_sightHole = {0.0f, 0.0f, 0.0f, 0.0f};
+	if (SpellSymbol sightSchool; ActiveSightSchool(m_roster, sightSchool)) {
+		const int f = m_party.Facing() & 3;
+		const int gx = m_party.GridX(), gz = m_party.GridZ();
+		if (!m_map.IsWalkable(gx + kFrontDX[f], gz + kFrontDZ[f])) {
+			// One round hole through the wall ahead, flavoured by the school:
+			//  Air   — bores the tunnel DEEP down the row (many walls: "far sight");
+			//  Water — a WIDER, clearer scrying window (hidden-content reveal is future);
+			//  Earth — permanently MAPS the room it reveals (and lasts longest);
+			//  Fire  — lights the revealed room so its contents show in the dark.
+			const int depth = (sightSchool == SpellSymbol::Air) ? 6 : 1;
+			const float radius = (sightSchool == SpellSymbol::Water) ? 0.72f : 0.55f;
+			const int ax = gx + kFrontDX[f], az = gz + kFrontDZ[f];             // front cell
+			const int bx = gx + kFrontDX[f] * depth, bz = gz + kFrontDZ[f] * depth; // far end
+			m_sightCell = {std::min(ax, bx) * kCellSize, std::min(az, bz) * kCellSize,
+						   (std::max(ax, bx) + 1) * kCellSize,
+						   (std::max(az, bz) + 1) * kCellSize};
+			const Vec4 c = ElementColor(sightSchool);
+			m_sightTint = {c.x, c.y, c.z, 0.5f};
+			// Round hole centred on the face at eye height. N/S facing (f 0/2)
+			// faces a wall whose across-axis is world X; E/W faces one across Z.
+			const bool acrossIsX = (f == 0 || f == 2);
+			m_sightHole = {eye.y, radius, acrossIsX ? 1.0f : 0.0f, 0.0f};
+			// The first OPEN cell past the wall — the room the hole reveals.
+			int rvx = 0, rvz = 0;
+			bool revealed = false;
+			for (int i = 2; i <= depth + 3; ++i) {
+				const int cx = gx + kFrontDX[f] * i, cz = gz + kFrontDZ[f] * i;
+				if (m_map.IsWalkable(cx, cz)) { rvx = cx; rvz = cz; revealed = true; break; }
+			}
+			if (revealed && sightSchool == SpellSymbol::Fire) {
+				gfx::PointLight lp;
+				lp.position = m_map.CellCenter(rvx, rvz, 1.2f);
+				lp.radius = kCellSize * 2.2f;
+				lp.color = {1.0f, 0.55f, 0.25f}; // warm ember
+				lp.intensity = 2.0f;
+				lp.castsShadow = false; // fill only — no cube stolen
+				m_lights.points.push_back(lp);
+			}
+			if (revealed && sightSchool == SpellSymbol::Earth)
+				MarkSeen(rvx, rvz); // the surveyor remembers the room it read
+		}
 	}
 
 	// The renderer uploads only the active light budget (Settings → Video → Max
@@ -2059,6 +2134,8 @@ void DungeonWorld::UpdateMonsters(float dt) {
 				if (e.timeLeft > 0.0f) continue;
 				if (e.kind == StatusKind::Ward)
 					MemberMessage(member, loc::Format("log.shield_fades", member.name));
+				else if (e.kind == StatusKind::Sight)
+					MemberMessage(member, loc::Format("log.sight_fades", member.name));
 				else if (e.kind == StatusKind::Poison || e.kind == StatusKind::Bleed)
 					MemberMessage(member, loc::Format("log.effect_fades", member.name,
 													  loc::Tr(e.nameKey)));

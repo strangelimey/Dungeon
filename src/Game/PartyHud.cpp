@@ -21,6 +21,7 @@ inline constexpr Vec4 kSlotBg{0.0f, 0.0f, 0.0f, 1.0f};
 const char* EffectIconItem(StatusKind kind) {
 	switch (kind) {
 	case StatusKind::Ward: return "rune_protect";
+	case StatusKind::Sight: return "rune_sight";
 	}
 	return "";
 }
@@ -859,9 +860,9 @@ constexpr float kPackRowY = 210.0f; // the pack-row (one row of kPackRowSlots)
 constexpr float kPackSepY = kPackRowY + kPackSlot + 9.0f;  // divider rule
 constexpr float kPackY    = kPackRowY + kPackSlot + 18.0f; // contents grid
 
-// --- mode toggle buttons (Inventory / Stats / Skills / Effects), a row under
-// the portrait
-constexpr int kModeCount = 4;
+// --- mode toggle buttons (Inventory / Stats / Skills / Spells / Effects), a row
+// under the portrait
+constexpr int kModeCount = 5;
 constexpr float kModeBtnSize = 30.0f, kModeBtnGap = 5.0f;
 constexpr float kModeBtnX = 24.0f;  // aligns with the portrait's left edge
 constexpr float kModeBtnY = 132.0f; // just below the 100px portrait (top at y20)
@@ -884,7 +885,9 @@ CharacterSheet::CharacterSheet(const gfx::Rect& rect,
 	  m_attributesLabel(loc::Tr("sheet.attributes")),
 	  m_skillsLabel(loc::Tr("sheet.skills")), m_noSkills(loc::Tr("sheet.no_skills")),
 	  m_effectsLabel(loc::Tr("sheet.effects")),
-	  m_noEffects(loc::Tr("sheet.no_effects")) {
+	  m_noEffects(loc::Tr("sheet.no_effects")),
+	  m_spellsLabel(loc::Tr("sheet.spells")),
+	  m_noSpells(loc::Tr("sheet.no_spells")) {
 	bounds = rect;
 	m_attrLabels = {loc::Tr("attr.strength"), loc::Tr("attr.dexterity"),
 					loc::Tr("attr.vitality"), loc::Tr("attr.willpower"),
@@ -894,6 +897,8 @@ CharacterSheet::CharacterSheet(const gfx::Rect& rect,
 void CharacterSheet::SetCharacter(size_t member) {
 	m_member = member;
 	m_character = RosterMember(m_roster, m_member);
+	m_scroll = 0.0f; // a fresh member starts its list tabs at the top
+	m_scrollDragging = false;
 	if (!m_character) return; // out of range — the sheet body just stays empty
 	const Character& character = *m_character;
 	m_healthText = std::format("{} / {}", static_cast<int>(character.health),
@@ -953,6 +958,33 @@ void CharacterSheet::SetCharacter(size_t member) {
 						 static_cast<int>(e.magnitude + 0.5f)),
 			 loc::Format("sheet.effect_time",
 						 static_cast<int>(e.timeLeft + 0.5f))});
+	}
+
+	// Spells-tab rows: the member's LEARNED spells, resolved through the
+	// registry to school + rune count, then sorted school-first, then by rune
+	// count (tier), then id. The description is the spell's <id>.desc with its
+	// BASE power formatted in — magnitude-bearing descs (wards/veils) fill the
+	// number, the plain ones ignore the extra arg.
+	m_spellRows.clear();
+	if (spells) {
+		std::vector<const Spell*> defs;
+		for (const auto& def : spells())
+			if (character.HasLearnedSpell(def->Id())) defs.push_back(def.get());
+		std::ranges::sort(defs, [](const Spell* a, const Spell* b) {
+			const int sa = static_cast<int>(a->School()), sb = static_cast<int>(b->School());
+			if (sa != sb) return sa < sb;
+			const auto na = a->Sequence().size(), nb = b->Sequence().size();
+			if (na != nb) return na < nb;
+			return a->Id() < b->Id();
+		});
+		for (const Spell* def : defs) {
+			const Vec4 c = ElementColor(def->School());
+			m_spellRows.push_back(
+				{{def->Sequence().begin(), def->Sequence().end()},
+				 loc::Tr(def->NameKey()),
+				 loc::Format(def->DescKey(), static_cast<int>(def->Power() + 0.5f)),
+				 {c.x, c.y, c.z, 1.0f}});
+		}
 	}
 }
 
@@ -1049,11 +1081,20 @@ void CharacterSheet::Update(ui::UIContext& ctx) {
 		if (ModeButtonRect(px, sx, sy, i).Contains(mx, my)) {
 			m_hotMode = i;
 			if (clicked) {
-				m_mode = static_cast<Mode>(i);
+				const Mode next = static_cast<Mode>(i);
+				if (next != m_mode) { // a fresh tab starts at the top
+					m_scroll = 0.0f;
+					m_scrollDragging = false;
+				}
+				m_mode = next;
 				ctx.ConsumeMouse();
 			}
 			break;
 		}
+
+	// The list tabs (Skills / Spells / Effects) scroll — wheel + thumb drag.
+	if (m_mode == Mode::Skills || m_mode == Mode::Spells || m_mode == Mode::Effects)
+		UpdateScroll(ctx, px, sx, sy);
 
 	// Item slots are only live (and only hit-tested) in Inventory mode.
 	if (clicked && m_mode == Mode::Inventory && !ctx.IsMouseConsumed()) {
@@ -1140,15 +1181,16 @@ void CharacterSheet::Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	case Mode::Inventory: DrawInventory(ctx, batch, px, sx, sy); break;
 	case Mode::Stats:     DrawStats(ctx, batch, px, sx, sy); break;
 	case Mode::Skills:    DrawSkills(ctx, batch, px, sx, sy); break;
+	case Mode::Spells:    DrawSpells(ctx, batch, px, sx, sy); break;
 	case Mode::Effects:   DrawEffects(ctx, batch, px, sx, sy); break;
 	}
 }
 
-// The four little icon buttons under the portrait. The active mode's button is
+// The five little icon buttons under the portrait. The active mode's button is
 // drawn "pressed" (active fill + accent border); hovered buttons lighten. Icons
 // are primitive-drawn (no atlas): a 2x2 grid (Inventory), ascending bars
-// (Stats), a six-point star (Skills), an hourglass (Effects — time-limited
-// conditions).
+// (Stats), a six-point star (Skills), a rune diamond (Spells), an hourglass
+// (Effects — time-limited conditions).
 void CharacterSheet::DrawModeButtons(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 									 const gfx::Rect& px, float sx, float sy) {
 	const ui::Theme& theme = ctx.GetTheme();
@@ -1176,6 +1218,10 @@ void CharacterSheet::DrawModeButtons(ui::UIContext& ctx, gfx::SpriteBatch& batch
 			const float rad = r.w * 0.26f, dx = rad * 0.866f, dy = rad * 0.5f;
 			batch.DrawTriangle({cx, cy - rad}, {cx - dx, cy + dy}, {cx + dx, cy + dy}, ink);
 			batch.DrawTriangle({cx, cy + rad}, {cx - dx, cy - dy}, {cx + dx, cy - dy}, ink);
+		} else if (i == 3) { // Spells: a rune diamond/gem (two triangles, a rhombus)
+			const float hw = r.w * 0.20f, hh = r.h * 0.28f;
+			batch.DrawTriangle({cx, cy - hh}, {cx - hw, cy}, {cx + hw, cy}, ink);
+			batch.DrawTriangle({cx, cy + hh}, {cx - hw, cy}, {cx + hw, cy}, ink);
 		} else { // Effects: an hourglass (two triangles meeting at the waist)
 			const float hw = r.w * 0.22f, hh = r.h * 0.26f;
 			batch.DrawTriangle({cx - hw, cy - hh}, {cx + hw, cy - hh}, {cx, cy}, ink);
@@ -1331,6 +1377,67 @@ void CharacterSheet::DrawStats(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 	}
 }
 
+gfx::Rect CharacterSheet::ScrollViewRect(const gfx::Rect& px, float sy) const {
+	// Below the tab header, down to a small bottom margin — the scissored band
+	// the list rows scroll within.
+	const float top = px.y + 206.0f * sy;
+	const float bot = px.y + px.h - 12.0f * sy;
+	return {px.x, top, px.w, std::max(bot - top, 0.0f)};
+}
+
+gfx::Rect CharacterSheet::ScrollThumbRect(const gfx::Rect& view,
+										  float maxScroll) const {
+	const float barW = view.w * (10.0f / kSheetDesignW);
+	const gfx::Rect track{view.x + view.w - barW - 4.0f, view.y, barW, view.h};
+	const float thumbH = std::max(track.h * view.h / (view.h + maxScroll), 24.0f);
+	const float t = maxScroll > 0.0f ? m_scroll / maxScroll : 0.0f;
+	return {track.x, track.y + (track.h - thumbH) * t, track.w, thumbH};
+}
+
+void CharacterSheet::UpdateScroll(ui::UIContext& ctx, const gfx::Rect& px,
+								  float sx, float sy) {
+	(void)sx;
+	const Input* input = ctx.CurrentInput();
+	if (!input) return;
+	const float mx = input->MouseX(), my = input->MouseY();
+	const gfx::Rect view = ScrollViewRect(px, sy);
+	const float maxScroll = std::max(0.0f, m_scrollContentH - m_scrollViewH);
+	if (m_scrollDragging && !input->IsMouseDown(MouseButton::Left))
+		m_scrollDragging = false;
+	if (maxScroll > 0.0f) {
+		const gfx::Rect thumb = ScrollThumbRect(view, maxScroll);
+		if (!ctx.IsMouseConsumed() && thumb.Contains(mx, my) &&
+			input->WasMousePressed(MouseButton::Left)) {
+			m_scrollDragging = true;
+			m_scrollGrab = my - thumb.y;
+			ctx.ConsumeMouse();
+		}
+		if (m_scrollDragging) {
+			const float range = view.h - thumb.h;
+			if (range > 0.0f)
+				m_scroll = std::clamp(
+					(my - m_scrollGrab - view.y) / range * maxScroll, 0.0f, maxScroll);
+			ctx.ConsumeMouse();
+		} else if (!ctx.IsMouseConsumed() && px.Contains(mx, my) &&
+				   input->WheelDelta() != 0.0f) {
+			m_scroll = std::clamp(m_scroll - input->WheelDelta() * 40.0f, 0.0f,
+								  maxScroll);
+		}
+	}
+	m_scroll = std::clamp(m_scroll, 0.0f, maxScroll);
+}
+
+void CharacterSheet::DrawScrollbar(ui::UIContext& ctx, gfx::SpriteBatch& batch,
+								   const gfx::Rect& view) {
+	const float maxScroll = std::max(0.0f, m_scrollContentH - m_scrollViewH);
+	if (maxScroll <= 0.0f) return;
+	const ui::Theme& theme = ctx.GetTheme();
+	const gfx::Rect thumb = ScrollThumbRect(view, maxScroll);
+	batch.DrawRect({thumb.x, view.y, thumb.w, view.h}, theme.control);
+	batch.DrawRect(thumb, m_scrollDragging ? theme.accent : theme.controlHot);
+	ui::DrawBorder(batch, thumb, theme.panelBorder);
+}
+
 void CharacterSheet::DrawSkills(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 								const gfx::Rect& px, float sx, float sy) {
 	const ui::Theme& theme = ctx.GetTheme();
@@ -1340,28 +1447,34 @@ void CharacterSheet::DrawSkills(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 	if (m_skillRows.empty()) {
 		font.Draw(batch, m_noSkills, px.x + kDollX * sx, px.y + 230.0f * sy,
 				  theme.textDim);
+		m_scrollContentH = 0.0f;
 		return;
 	}
 
 	// One row per trained skill, mirroring the attributes layout: name, the
 	// level right-aligned, and a progress bar toward the next level (school
-	// rows tint their bar; weapon classes ride the theme accent).
-	constexpr float kFirstRowY = 218.0f, kRowH = 40.0f;
+	// rows tint their bar; weapon classes ride the theme accent). Rows scroll
+	// within the scissored view.
+	constexpr float kRowH = 40.0f;
 	constexpr float kLabelX = 56.0f, kValueRight = 300.0f;
 	constexpr float kBarX = 360.0f, kBarW = 340.0f, kBarH = 22.0f;
+	const gfx::Rect view = ScrollViewRect(px, sy);
+	const float rowH = kRowH * sy;
+	batch.SetScissor(&view);
 	for (size_t i = 0; i < m_skillRows.size(); ++i) {
 		const SkillRow& row = m_skillRows[i];
-		const float y = kFirstRowY + static_cast<float>(i) * kRowH;
-		font.Draw(batch, row.label, px.x + kLabelX * sx, px.y + y * sy,
-				  theme.textDim);
+		const float y = view.y - m_scroll + static_cast<float>(i) * rowH;
+		font.Draw(batch, row.label, px.x + kLabelX * sx, y, theme.textDim);
 		const float vw = font.MeasureWidth(row.level);
-		font.Draw(batch, row.level, px.x + kValueRight * sx - vw, px.y + y * sy,
-				  theme.text);
-		const gfx::Rect bar{px.x + kBarX * sx, px.y + y * sy, kBarW * sx,
-							kBarH * sy};
+		font.Draw(batch, row.level, px.x + kValueRight * sx - vw, y, theme.text);
+		const gfx::Rect bar{px.x + kBarX * sx, y, kBarW * sx, kBarH * sy};
 		DrawStatBar(batch, bar, row.frac,
 					row.tint.w > 0.0f ? row.tint : theme.accent, theme);
 	}
+	batch.SetScissor(nullptr);
+	m_scrollContentH = static_cast<float>(m_skillRows.size()) * rowH;
+	m_scrollViewH = view.h;
+	DrawScrollbar(ctx, batch, view);
 }
 
 void CharacterSheet::DrawEffects(ui::UIContext& ctx, gfx::SpriteBatch& batch,
@@ -1373,6 +1486,7 @@ void CharacterSheet::DrawEffects(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 	if (m_effectRows.empty()) {
 		font.Draw(batch, m_noEffects, px.x + kDollX * sx, px.y + 230.0f * sy,
 				  theme.textDim);
+		m_scrollContentH = 0.0f;
 		return;
 	}
 
@@ -1381,8 +1495,9 @@ void CharacterSheet::DrawEffects(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 	// then the long form beside it — name, time left right-aligned on the
 	// name line, and the magnitude-formatted description beneath, word-
 	// wrapped inside the panel (rows grow with their text; the cursor runs
-	// in pixels because the wrap measures the live font).
-	constexpr float kFirstRowY = 218.0f, kRowGap = 22.0f;
+	// in pixels because the wrap measures the live font). Rows scroll within
+	// the scissored view.
+	constexpr float kRowGap = 22.0f;
 	constexpr float kIconX = 56.0f, kIconSize = 48.0f;
 	constexpr float kTextX = kIconX + kIconSize + 16.0f, kTextRight = 724.0f;
 
@@ -1408,7 +1523,9 @@ void CharacterSheet::DrawEffects(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 		return y;
 	};
 
-	float y = px.y + kFirstRowY * sy;
+	const gfx::Rect view = ScrollViewRect(px, sy);
+	batch.SetScissor(&view);
+	float y = view.y - m_scroll;
 	for (const EffectRow& row : m_effectRows) {
 		const gfx::Rect r{px.x + kIconX * sx, y, kIconSize * sx, kIconSize * sy};
 		batch.DrawRect(r, kSlotBg);
@@ -1433,6 +1550,78 @@ void CharacterSheet::DrawEffects(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 			row.desc, textX, y + font.LineAdvance() + 4.0f, maxW, theme.textDim);
 		y = std::max(descBottom, r.y + r.h) + kRowGap * sy;
 	}
+	batch.SetScissor(nullptr);
+	m_scrollContentH = y + m_scroll - view.y;
+	m_scrollViewH = view.h;
+	DrawScrollbar(ctx, batch, view);
+}
+
+void CharacterSheet::DrawSpells(ui::UIContext& ctx, gfx::SpriteBatch& batch,
+								const gfx::Rect& px, float sx, float sy) {
+	const ui::Theme& theme = ctx.GetTheme();
+	ui::Font& font = ctx.GetFont();
+	font.Draw(batch, m_spellsLabel, px.x + kDollX * sx, px.y + kInvHeaderY * sy,
+			  theme.accent);
+	if (m_spellRows.empty()) {
+		font.Draw(batch, m_noSpells, px.x + kDollX * sx, px.y + 230.0f * sy,
+				  theme.textDim);
+		m_scrollContentH = 0.0f;
+		return;
+	}
+
+	// One block per learned spell (school -> rune-count order): the recipe's
+	// rune icons, then the school-tinted name, then the description word-
+	// wrapped beneath. Rows scroll within the scissored view; same greedy wrap
+	// as the Effects tab — string_view slices, no per-frame allocation.
+	constexpr float kRowGap = 14.0f;
+	constexpr float kTextX = 56.0f, kTextRight = 724.0f;
+	auto drawWrapped = [&font, &batch](std::string_view text, float x, float y,
+									   float maxW, const Vec4& color) -> float {
+		while (!text.empty()) {
+			size_t end = text.size();
+			while (end > 0 && font.MeasureWidth(text.substr(0, end)) > maxW) {
+				const size_t space = text.rfind(' ', end - 1);
+				if (space == std::string_view::npos || space == 0) break;
+				end = space;
+			}
+			font.Draw(batch, text.substr(0, end), x, y, color);
+			y += font.LineAdvance();
+			const size_t next = text.find_first_not_of(' ', end);
+			text = next == std::string_view::npos ? std::string_view{} : text.substr(next);
+		}
+		return y;
+	};
+
+	const float textX = px.x + kTextX * sx;
+	const float maxW = (kTextRight - kTextX) * sx;
+	const float ish = font.Height(); // rune-icon square ~ the text height
+	const gfx::Rect view = ScrollViewRect(px, sy);
+	batch.SetScissor(&view);
+	float y = view.y - m_scroll;
+	for (const SpellRow& row : m_spellRows) {
+		// The recipe's rune icons run before the name.
+		float nameX = textX;
+		for (SpellSymbol sym : row.symbols) {
+			const gfx::Rect ir{nameX, y, ish, ish};
+			const gfx::Texture* ic = m_icons ? m_icons->For(RuneItemId(sym)) : nullptr;
+			if (ic)
+				batch.DrawSprite(ir, {0, 0, 1, 1}, *ic, {1, 1, 1, 1});
+			else {
+				const Vec4 sc = ElementColor(sym);
+				batch.DrawRect(ir, {sc.x, sc.y, sc.z, 0.6f});
+			}
+			nameX += ish + 3.0f * sx;
+		}
+		font.Draw(batch, row.name, nameX + 4.0f * sx, y,
+				  {row.tint.x, row.tint.y, row.tint.z, 1.0f});
+		y = drawWrapped(row.desc, textX, y + font.LineAdvance() + 2.0f, maxW,
+						theme.textDim) +
+			kRowGap * sy;
+	}
+	batch.SetScissor(nullptr);
+	m_scrollContentH = y + m_scroll - view.y;
+	m_scrollViewH = view.h;
+	DrawScrollbar(ctx, batch, view);
 }
 
 } // namespace dungeon::game

@@ -27,6 +27,9 @@ cbuffer FrameConstants : register(b0) {
 	float4 gFogGrid;     // xy = 1 / atmosphere world extent, z = density/m, w = haze ambient
 	float4 gHazeColor;   // rgb = dust albedo tint
 	float4 gShadowLight; // shadow pass only (see shadow.hlsl)
+	float4 gSightCell;   // see-through peek: xy = cell world min XZ, zw = max (inactive when zw <= xy)
+	float4 gSightTint;   // rgb = ghost tint (school colour), a = strength
+	float4 gSightHole;   // round hole: x = centre world Y, y = radius, z = across-axis is X (>0.5)
 	PointLight gPointLights[MAX_POINT_LIGHTS];
 };
 
@@ -398,6 +401,38 @@ float4 PSMain(PSInput input) : SV_TARGET {
 		color += gEmissive.rgb * (0.30 + 0.70 * rim);
 	}
 	color = ApplyDust(color, input.worldPos);
+
+	// See-through peek (the Sight spell): a round HOLE bored through the middle
+	// of the wall block directly ahead — not the whole face. Inside the hole the
+	// fragments are discarded (opening a clean aperture to the geometry already
+	// behind the wall — it stays submitted, chunk culling is frustum not
+	// occlusion); a thin rim just outside glows the caster's school colour so
+	// the opening reads as magical. The hole is a cylinder along the view axis:
+	// only the ACROSS-face horizontal + vertical offsets count (depth ignored),
+	// so it stays a circle whatever the wall's thickness.
+	if (gSightCell.z > gSightCell.x) {
+		const float2 p = input.worldPos.xz;
+		if (p.x >= gSightCell.x && p.x <= gSightCell.z &&
+			p.y >= gSightCell.y && p.y <= gSightCell.w) {
+			const float cx = (gSightCell.x + gSightCell.z) * 0.5;
+			const float cz = (gSightCell.y + gSightCell.w) * 0.5;
+			const float across = (gSightHole.z > 0.5) ? (input.worldPos.x - cx)
+													  : (input.worldPos.z - cz);
+			const float dv = input.worldPos.y - gSightHole.x;
+			const float latDist = sqrt(across * across + dv * dv);
+			const float R = gSightHole.y;
+			if (latDist < R) {
+				// Soft edge: a one-pixel-ish stipple band at the rim antialiases
+				// the circle; the interior clips fully.
+				const int2 sp = int2(input.position.xy);
+				if (R - latDist > 0.05 || ((sp.x + sp.y) & 1) == 0)
+					clip(-1.0);
+				color = lerp(color, gSightTint.rgb, gSightTint.a);
+			} else if (latDist < R + 0.06) {
+				color = lerp(color, gSightTint.rgb, gSightTint.a); // thin glowing rim
+			}
+		}
+	}
 
 	// LDR targets (previews, icon bakes) tonemap + gamma here; the main scene
 	// pass outputs linear HDR and PostProcess tonemaps after bloom. Same ACES
