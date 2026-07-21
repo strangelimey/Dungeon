@@ -565,6 +565,14 @@ public:
 	std::vector<NicheFace> NicheFacesAt(int cx, int cz) const;
 	// The niche on (x,z) facing `wall`, or null (the inspector reads its props).
 	const WallNiche* NicheOn(int x, int z, Direction wall) const;
+	// True if the (x,z)/wall niche exists AND is open (items in it are visible).
+	bool NicheOpenAt(int x, int z, Direction wall) const;
+	// World position an item sitting in the (x,z)/wall niche renders + pick-tests
+	// at (the pocket centre — recessed into the wall, at pocket-floor height).
+	Vec3 NicheItemPos(int x, int z, Direction wall) const;
+	// Places an item into the (x,z)/wall niche (record-backed, piles at the
+	// pocket). False if there is no niche there. Editor placement + in-game drop.
+	bool AddNicheItem(const std::string& type, int x, int z, Direction wall);
 	// Save the (x,z)/wall niche's authored props (name / hidden / type); Delete it.
 	void SetNichePropsAt(int x, int z, Direction wall, const std::string& name,
 						 bool hidden, const std::string& type);
@@ -1097,6 +1105,10 @@ private:
 		// item snaps to the quarter nearest the cursor; up to 4 share a cell. Render
 		// + pick + the glow light use SlotCenter(x,z,Medium,slot). See SlotGrid.h.
 		int slot = 0;
+		// The wall NICHE this item sits in (Direction index; -1 = an ordinary floor
+		// item). Niche items pile at the pocket centre (NicheItemPos), ignore `slot`,
+		// and are hidden + unpickable while the niche is closed.
+		int niche = -1;
 	};
 
 	// A wall-mounted button/lever (EntityKind::Button from the .ent layer). The

@@ -402,9 +402,20 @@ void MapEditor::ApplyBrush(int cx, int cz, bool dragging) {
 		else if (m_sel.cat == PaletteCat::Buttons)
 			ok = remote ? m_world.AddButtonRemote(stem, id, cx, cz)
 						: m_world.AddButton(id, cx, cz);
-		else if (m_sel.cat == PaletteCat::Items)
+		else if (m_sel.cat == PaletteCat::Items) {
+			// A niche on the clicked WALL takes the item (piled in its pocket);
+			// a floor cell places on the floor as usual.
+			if (!remote)
+				if (auto faces = m_world.NicheFacesAt(cx, cz); !faces.empty()) {
+					ok = m_world.AddNicheItem(id, faces[0].x, faces[0].z, faces[0].wall);
+					log(loc::Format(ok ? "map.place.done" : "map.place.blocked",
+									items[m_sel.index].label));
+					changed = ok;
+					break;
+				}
 			ok = remote ? m_world.AddItemRemote(stem, id, cx, cz)
 						: m_world.AddItem(id, cx, cz);
+		}
 		else
 			ok = remote ? m_world.AddDecorationRemote(stem, id, cx, cz)
 						: m_world.AddDecoration(id, cx, cz, Direction::South);

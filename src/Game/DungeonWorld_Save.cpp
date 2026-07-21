@@ -133,6 +133,7 @@ SaveData::LevelState DungeonWorld::SnapshotActive() const {
 			e.x = item.x;
 			e.z = item.z;
 			e.slot = item.slot;
+			e.niche = item.niche; // -1 = floor drop; else the wall it fell into
 			ls.entities.push_back(std::move(e));
 		}
 	}
@@ -249,10 +250,11 @@ void DungeonWorld::ApplyActiveSnapshot() {
 					m_items.push_back({&kind, m_nextDropId--, e.x, e.z, false, slot});
 				}
 			} else if (e.id < 0) {
-				// Dropped tablet — lay it on the floor with a fresh runtime id, at
-				// its saved quarter slot.
+				// Dropped tablet — lay it back with a fresh runtime id, at its saved
+				// quarter slot (or piled in its wall niche, e.niche >= 0).
 				ItemKind& kind = ItemKindFor(e.type);
-				m_items.push_back({&kind, m_nextDropId--, e.x, e.z, false, e.slot});
+				m_items.push_back(
+					{&kind, m_nextDropId--, e.x, e.z, false, e.slot, e.niche});
 			} else {
 				// Baseline rune collected — mark the kept instance lifted.
 				for (Item& item : m_items)

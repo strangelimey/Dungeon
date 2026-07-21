@@ -32,6 +32,10 @@ namespace dungeon::game {
 
 // The serializable dynamic state of one in-progress game.
 struct SaveData {
+	// v21: a DROPPED item that landed in a wall niche carries its wall as a 6th
+	//      token on the "drop" line ("drop <type> <x> <z> <slot> <niche>");
+	//      absent/-1 = an ordinary floor item. Editor-authored niche items ride
+	//      their .ent `niche=` param, so only runtime drops need this.
 	// v20: per-level wall-niche OPEN state ("niche <x> <z> <wall> <open>" line,
 	//      one per niche whose runtime open differs from its authored default —
 	//      a secret niche a button revealed). Absent = every niche at its default.
@@ -75,7 +79,7 @@ struct SaveData {
 	//     buttons as a diff (keyed by .ent id) or a whole spawn (no baseline);
 	//     replaces the v6 split of "ent"/"monster" rows + a whole "floor" item
 	//     snapshot. v6: free-look offset ("look" line); v5 folded hands into equip[].
-	int version = 20;
+	int version = 21;
 	std::string name;         // display name (free text; may contain spaces)
 	std::string currentLevel; // the level stem the party is on (where to resume)
 	std::string timestamp;    // human-readable local time, for the slot list
@@ -187,6 +191,7 @@ struct SaveData {
 		bool collected = false;                 // item: lifted off the floor
 		int slot = 0;                           // sub-cell slot: item quarter (0..3)
 												// or monster slot on its size's grid
+		int niche = -1;                         // item: wall niche it sits in (-1 = floor)
 		bool activated = false;                 // button: pressed / toggled on
 		std::array<float, 4> threat{};          // monster: per-member aggro (v19)
 		int threatLock = -1;                    // monster: locked member (v19)

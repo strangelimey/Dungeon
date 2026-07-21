@@ -754,8 +754,15 @@ void DungeonWorld::LoadItems() {
 	for (const Entity& spawn : m_entities.All()) {
 		if (spawn.kind != EntityKind::Item) continue;
 		ItemKind& kind = ItemKindFor(spawn.type);
-		// Baseline items have no authored slot — fan multiples in a cell out across
-		// quarters (target = cell centre, so it fills by quarter index, fill order).
+		// A `niche=<dir>` param puts the item IN that wall niche (it piles at the
+		// pocket, ignores the floor quarters). Otherwise it's a floor item — fan
+		// multiples in a cell across quarters (target = cell centre, fill order).
+		Direction nd;
+		if (const std::string* np = spawn.Param("niche"); np && ParseDirection(*np, nd)) {
+			m_items.push_back(
+				{&kind, spawn.id, spawn.x, spawn.z, false, 0, static_cast<int>(nd)});
+			continue;
+		}
 		const Vec3 c = m_map.CellCenter(spawn.x, spawn.z);
 		const int slot = FreeItemSlotNear(spawn.x, spawn.z, c.x, c.z, -1);
 		m_items.push_back({&kind, spawn.id, spawn.x, spawn.z, false, slot});
@@ -801,13 +808,27 @@ std::optional<std::string> DungeonWorld::TryPickItem(float mx, float my, float w
 	// standing tablet/model clickable: intersecting the floor would land the hit
 	// behind the item's base (you look down at an angle), missing the quarter.
 	const gfx::Camera::Ray ray = m_camera.ScreenRay(mx, my, w, h);
-	if (ray.dir.y >= -1e-4f) return std::nullopt; // not looking down toward the floor
 	// Top item = the last one in render order (drawn over the others in a stack).
 	int best = -1;
 	for (size_t i = 0; i < m_items.size(); ++i) {
 		const Item& item = m_items[i];
 		if (item.collected || !InReach(item.x, item.z, px, pz)) continue;
 		if (!IsSeen(item.x, item.z)) continue;
+		if (item.niche >= 0) {
+			// Niche item: a small sphere at the pocket (the player looks roughly
+			// level at the wall, so no floor-plane test), and only while open.
+			const Direction wall = static_cast<Direction>(item.niche);
+			if (!NicheOpenAt(item.x, item.z, wall)) continue;
+			const Vec3 p = NicheItemPos(item.x, item.z, wall);
+			const Vec3 oc{ray.origin.x - p.x, ray.origin.y - (p.y + 0.35f),
+						  ray.origin.z - p.z};
+			const float bb = oc.x * ray.dir.x + oc.y * ray.dir.y + oc.z * ray.dir.z;
+			const float cc = oc.x * oc.x + oc.y * oc.y + oc.z * oc.z - 0.4f * 0.4f;
+			const float disc = bb * bb - cc;
+			if (disc >= 0.0f && -bb - std::sqrt(disc) > 0.0f) best = static_cast<int>(i);
+			continue;
+		}
+		if (ray.dir.y >= -1e-4f) continue; // floor pick needs a look down at the floor
 		// Plane at the item's visible mid-height — a model spans 0..Height; the
 		// tablet placeholders sit low (rune slab shorter than the scaled-up others).
 		const float centreY = item.kind->model
@@ -838,12 +859,38 @@ std::optional<std::string> DungeonWorld::TryPickItem(float mx, float my, float w
 void DungeonWorld::DropItemAt(const std::string& typeId, float mx, float my,
 							  float w, float h) {
 	const int px = m_party.GridX(), pz = m_party.GridZ();
+	const gfx::Camera::Ray ray = m_camera.ScreenRay(mx, my, w, h);
+	// First: does the ray land in an OPEN niche's pocket within reach? Drop into
+	// it (a runtime item that piles at the pocket, saved as a `drop` with niche).
+	int bestNiche = -1;
+	float bestT = 1e9f;
+	const std::vector<WallNiche>& niches = m_map.Niches();
+	for (size_t i = 0; i < niches.size(); ++i) {
+		const WallNiche& n = niches[i];
+		if (!n.open || !InReach(n.x, n.z, px, pz) || !IsSeen(n.x, n.z)) continue;
+		const Vec3 p = NicheItemPos(n.x, n.z, n.wall);
+		const Vec3 oc{ray.origin.x - p.x, ray.origin.y - (p.y + 0.35f), ray.origin.z - p.z};
+		const float bb = oc.x * ray.dir.x + oc.y * ray.dir.y + oc.z * ray.dir.z;
+		const float cc = oc.x * oc.x + oc.y * oc.y + oc.z * oc.z - 0.4f * 0.4f;
+		const float disc = bb * bb - cc;
+		if (disc < 0.0f) continue;
+		const float t = -bb - std::sqrt(disc);
+		if (t > 0.0f && t < bestT) { bestT = t; bestNiche = static_cast<int>(i); }
+	}
+	if (bestNiche >= 0) {
+		const WallNiche& n = niches[static_cast<size_t>(bestNiche)];
+		ItemKind& kind = ItemKindFor(typeId);
+		m_items.push_back(
+			{&kind, m_nextDropId--, n.x, n.z, false, 0, static_cast<int>(n.wall)});
+		m_audio.Play(m_sounds.click, 0.5f);
+		if (onMessage) onMessage(loc::Format("log.drop_rune", loc::Tr(kind.nameKey)));
+		return;
+	}
 	int cx = px, cz = pz; // fallback: drop at the party's feet
 	// Desired drop point in world space — used to pick the nearest quarter slot.
 	// Defaults to the fallback cell's centre (feet); a floor hit overrides it.
 	Vec3 feet = m_map.CellCenter(cx, cz);
 	float wx = feet.x, wz = feet.z;
-	const gfx::Camera::Ray ray = m_camera.ScreenRay(mx, my, w, h);
 	if (ray.dir.y < -1e-3f) { // looking down toward the floor plane y=0
 		const float t = -ray.origin.y / ray.dir.y;
 		const float hxw = ray.origin.x + ray.dir.x * t;

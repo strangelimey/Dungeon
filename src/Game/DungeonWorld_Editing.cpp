@@ -545,10 +545,11 @@ bool DungeonWorld::AddButtonRemote(const std::string& stem,
 bool DungeonWorld::AddItem(const std::string& type, int x, int z) {
 	if (!m_project.items.Contains(type) || !m_map.IsWalkable(x, z)) return false;
 	// One item per quarter slot — a full cell (4 on the floor) refuses rather
-	// than letting FreeItemSlotNear stack overlapping tablets.
+	// than letting FreeItemSlotNear stack overlapping tablets. Niche items pile
+	// separately (they don't use the floor quarters), so they don't count.
 	int here = 0;
 	for (const Item& it : m_items)
-		if (!it.collected && it.x == x && it.z == z) ++here;
+		if (!it.collected && it.niche < 0 && it.x == x && it.z == z) ++here;
 	if (here >= 4) return false;
 	Entity record;
 	record.kind = EntityKind::Item;
@@ -561,6 +562,42 @@ bool DungeonWorld::AddItem(const std::string& type, int x, int z) {
 	const Vec3 c = m_map.CellCenter(x, z);
 	const int slot = FreeItemSlotNear(x, z, c.x, c.z, -1);
 	m_items.push_back({&kind, record.id, x, z, false, slot});
+	MarkSeen(x, z);
+	return true;
+}
+
+bool DungeonWorld::NicheOpenAt(int x, int z, Direction wall) const {
+	const WallNiche* n = m_map.NicheAt(x, z, DirDX(wall), DirDZ(wall));
+	return n && n->open;
+}
+
+Vec3 DungeonWorld::NicheItemPos(int x, int z, Direction wall) const {
+	const int dx = DirDX(wall), dz = DirDZ(wall);
+	const Vec3 c = m_map.CellCenter(x, z);
+	const float into = kCellSize * 0.5f + 0.18f; // just inside the wall, in the pocket
+	// Rest on the pocket floor — its height is the niche mesh's py0 (must track
+	// ModelBaker's BuildWallNiche / BuildWallNicheArch): 0.75 for the plain niche,
+	// 0.50 for the arch. Placing below it would bury the item behind the frame.
+	float floorY = 0.75f;
+	if (const WallNiche* n = m_map.NicheAt(x, z, dx, dz); n && n->type == "niche_arch")
+		floorY = 0.50f;
+	return {c.x + dx * into, floorY + 0.02f, c.z + dz * into};
+}
+
+bool DungeonWorld::AddNicheItem(const std::string& type, int x, int z, Direction wall) {
+	if (!m_project.items.Contains(type)) return false;
+	if (!m_map.NicheAt(x, z, DirDX(wall), DirDZ(wall))) return false; // no niche here
+	Entity record;
+	record.kind = EntityKind::Item;
+	record.type = type;
+	record.x = x;
+	record.z = z;
+	static const char* kDirName[4] = {"north", "east", "south", "west"}; // Direction order
+	record.params.emplace_back("niche", kDirName[static_cast<int>(wall)]); // .ent round-trips it
+	record.id = m_entities.Add(record);
+	m_entsDirty = true;
+	ItemKind& kind = ItemKindFor(type);
+	m_items.push_back({&kind, record.id, x, z, false, 0, static_cast<int>(wall)});
 	MarkSeen(x, z);
 	return true;
 }
