@@ -369,6 +369,7 @@ map.cat.monsters=Monsters
 map.cat.doors=Doors
 map.cat.stairs=Stairs & Pits
 map.cat.items=Items
+map.cat.wallfeatures=Wall Features
 map.cat.empty=(none defined)
 map.select.empty=Cell {}, {}: empty {}
 map.select.contents=Cell {}, {}: {}

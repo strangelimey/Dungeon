@@ -87,6 +87,17 @@ struct FloorBrazier {
 	std::string type = "brazier";
 };
 
+// A wall NICHE: a recessed pocket carved into one solid wall of a walkable cell
+// (`x`,`z` = the cell; `wall` = the direction to the solid neighbour, like a
+// WallSconce). It is not a discrete prop — the mesh builder stamps the
+// wall_niche panel instead of the plain wall panel on that edge (see
+// wall-details.md Phase 2). `type` is the wallfeatures.cat id.
+struct WallNiche {
+	int x = 0, z = 0;
+	Direction wall = Direction::North;
+	std::string type = "niche";
+};
+
 // How the parser routes a `fixture <id> ...` record and the 'T'/'F' glyphs
 // without knowing the fixtures catalog: ids listed in `wallMount` become
 // WallSconces (everything else stands on the floor), and the glyphs resolve
@@ -225,6 +236,23 @@ public:
 	const std::vector<WallSconce>& Sconces() const { return m_torches; }
 	const std::vector<FloorBrazier>& Braziers() const { return m_braziers; }
 
+	// Wall niches (recessed pockets). The mesh builder reads HasNiche per edge.
+	const std::vector<WallNiche>& Niches() const { return m_niches; }
+	// True if cell (x,z) has a niche whose wall faces (dx,dz) — the mesh builder's
+	// per-edge query to stamp the niche panel instead of the plain wall panel.
+	bool HasNiche(int x, int z, int dx, int dz) const;
+	// Places a niche on the first free solid wall of (x,z) (the sconce mount
+	// rule); false if no free solid wall. Bumps Revision().
+	bool AddNiche(int x, int z, std::string type);
+	// Adds a niche with an explicit wall (the parser + remote/stash editing).
+	// Bumps Revision().
+	void AddNicheRecord(WallNiche n) {
+		m_niches.push_back(std::move(n));
+		++m_revision;
+	}
+	// Removes the first niche on (x,z). Bumps Revision(); false if none.
+	bool RemoveNicheAt(int x, int z);
+
 	// Static decoration records (banners, rubble, ...) from the .map file.
 	const std::vector<Entity>& Decorations() const { return m_decorations; }
 	// Replaces the decoration records wholesale. The static-map stash syncs the
@@ -280,6 +308,8 @@ private:
 	// First solid neighbour wall of (x,z) with no sconce on it yet (the 'T'-glyph
 	// mount rule, skipping occupied walls). False if the cell has no free wall.
 	bool FreeSconceWall(int x, int z, Direction& out) const;
+	// First solid neighbour wall of (x,z) with no niche on it yet.
+	bool FreeNicheWall(int x, int z, Direction& out) const;
 
 	// Shared body of the variant getters/setters (one grid per surface).
 	int VariantAt(const std::vector<int>& grid, int x, int z) const {
@@ -309,6 +339,7 @@ private:
 	std::vector<int> m_wallVar, m_floorVar, m_ceilingVar;
 	std::vector<WallSconce> m_torches;
 	std::vector<FloorBrazier> m_braziers;
+	std::vector<WallNiche> m_niches;
 	std::vector<Entity> m_decorations;
 	std::vector<StairLink> m_stairs;
 	std::vector<std::string> m_wallPalette;   // catalog ids (walls.cat)

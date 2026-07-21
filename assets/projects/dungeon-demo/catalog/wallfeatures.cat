@@ -1,0 +1,7 @@
+; Wall features: recessed pockets carved into a wall panel (Phase 2).
+; A feature is placed on a solid wall of a walkable cell; the mesh builder stamps
+; its panel in place of the plain wall panel (keeping the wall's texture).
+
+[niche]
+display = Niche
+model = wall_niche

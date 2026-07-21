@@ -376,6 +376,55 @@ assets::ModelData BuildWallBlock() {
 	return model;
 }
 
+// A wall NICHE: an alternate full-cell wall panel with a deep rectangular pocket
+// carved into the rock. The DungeonMeshBuilder stamps this instead of the plain
+// worn panel on a cell edge carrying a niche wall-feature (see wall-details.md
+// Phase 2), so it shares the wall's texture/variant and chunk. A flat frame
+// surrounds the opening; the pocket is a back wall + four reveals receding to
+// z = -kNicheDepth (into the rock). Authored facing +Z (the room side) like
+// every wall block. UVs reuse WallFaceUv so the brick/stone tiles continuously
+// across the frame and into the pocket.
+assets::ModelData BuildWallNiche() {
+	assets::ModelData model;
+	assets::MeshData mesh;
+
+	constexpr float kNicheDepth = 0.55f;      // pocket depth into the rock
+	constexpr float px = 0.55f;               // pocket opening half-width
+	constexpr float py0 = 0.75f, py1 = 1.80f; // pocket opening bottom/top
+	constexpr float d = -kNicheDepth;
+
+	auto wq = [&](const Vec3& a, const Vec3& b, const Vec3& c, const Vec3& e,
+				  const Vec3& n) {
+		AddQuad(mesh, a, b, c, e, n, WallFaceUv(a, n), WallFaceUv(b, n),
+				WallFaceUv(c, n), WallFaceUv(e, n));
+	};
+
+	// Flat frame around the opening (four border strips at the wall face, +Z).
+	wq({-kCellHalf, 0, 0}, {kCellHalf, 0, 0}, {kCellHalf, py0, 0}, {-kCellHalf, py0, 0},
+	   {0, 0, 1}); // below
+	wq({-kCellHalf, py1, 0}, {kCellHalf, py1, 0}, {kCellHalf, kWallH, 0},
+	   {-kCellHalf, kWallH, 0}, {0, 0, 1}); // above
+	wq({-kCellHalf, py0, 0}, {-px, py0, 0}, {-px, py1, 0}, {-kCellHalf, py1, 0},
+	   {0, 0, 1}); // left
+	wq({px, py0, 0}, {kCellHalf, py0, 0}, {kCellHalf, py1, 0}, {px, py1, 0},
+	   {0, 0, 1}); // right
+
+	// Pocket: back wall + four reveals connecting the opening (z=0) to the back.
+	wq({-px, py0, d}, {px, py0, d}, {px, py1, d}, {-px, py1, d}, {0, 0, 1}); // back
+	wq({-px, py0, 0}, {px, py0, 0}, {px, py0, d}, {-px, py0, d}, {0, 1, 0});  // floor
+	wq({-px, py1, d}, {px, py1, d}, {px, py1, 0}, {-px, py1, 0}, {0, -1, 0}); // ceiling
+	wq({-px, py0, d}, {-px, py1, d}, {-px, py1, 0}, {-px, py0, 0}, {1, 0, 0}); // left
+	wq({px, py0, 0}, {px, py1, 0}, {px, py1, d}, {px, py0, d}, {-1, 0, 0});    // right
+
+	// Same edge pillars as the plain block so the niche's cell edges line up with
+	// neighbouring wall panels.
+	AddWallPillars(mesh);
+
+	model.meshes.push_back(std::move(mesh));
+	model.materials.push_back({{1, 1, 1, 1}, -1});
+	return model;
+}
+
 assets::ModelData BuildFloorBlock() {
 	assets::ModelData model;
 	assets::MeshData mesh;
@@ -1772,6 +1821,7 @@ bool BakeWornTiers(int kind, const std::string& texture, float relief, u32 seed,
 bool BakeModels(const std::string& dir, const std::string& texturesDir) {
 	bool ok = true;
 	ok &= WriteGltf(BuildWallBlock(), dir + "\\wall_block.gltf");
+	ok &= WriteGltf(BuildWallNiche(), dir + "\\wall_niche.gltf");
 	ok &= WriteGltf(BuildFloorBlock(), dir + "\\floor_block.gltf");
 	ok &= WriteGltf(BuildCeilingBlock(), dir + "\\ceiling_block.gltf");
 

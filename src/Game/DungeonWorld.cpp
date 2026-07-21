@@ -371,6 +371,19 @@ bool DungeonWorld::AddFixture(const std::string& type, int x, int z) {
 	return true;
 }
 
+bool DungeonWorld::AddNiche(const std::string& type, int x, int z) {
+	if (!m_map.AddNiche(x, z, type)) return false; // no free solid wall
+	RebuildChunksAround(x, z); // re-stamp the cell's wall panel as the niche
+	MarkSeen(x, z);
+	return true;
+}
+
+bool DungeonWorld::RemoveNicheAt(int cx, int cz) {
+	if (!m_map.RemoveNicheAt(cx, cz)) return false;
+	RebuildChunksAround(cx, cz); // restore the plain wall panel
+	return true;
+}
+
 bool DungeonWorld::RemoveEntityAt(int x, int z) {
 	for (auto it = m_monsters.begin(); it != m_monsters.end(); ++it)
 		if (it->x == x && it->z == z) {
@@ -1017,6 +1030,12 @@ bool DungeonWorld::AddFixtureRemote(const std::string& stem,
 			   : map.AddBrazier(x, z, type, lit);
 }
 
+bool DungeonWorld::AddNicheRemote(const std::string& stem, const std::string& type,
+								  int x, int z) {
+	// Edits the level's stashed map; MapView rebuilds the browse snapshot after.
+	return EnsureMapStash(stem).AddNiche(x, z, type);
+}
+
 void DungeonWorld::EraseRemote(const std::string& stem, int x, int z) {
 	auto say = [&](const std::string& s) {
 		if (onMessage) onMessage(s);
@@ -1038,7 +1057,8 @@ void DungeonWorld::EraseRemote(const std::string& stem, int x, int z) {
 			say(loc::Tr("map.erase.removed"));
 			return;
 		}
-	if (map.RemoveDecorationRecordAt(x, z) || map.RemoveFixtureAt(x, z)) {
+	if (map.RemoveDecorationRecordAt(x, z) || map.RemoveFixtureAt(x, z) ||
+		map.RemoveNicheAt(x, z)) {
 		say(loc::Tr("map.erase.removed"));
 		return;
 	}
@@ -1329,6 +1349,9 @@ static std::string SerializeMapStatic(const std::string& stem,
 		if (b.turbidity != kBrazierTurbidity) m += std::format(" turb={:g}", b.turbidity);
 		m += '\n';
 	}
+
+	for (const WallNiche& n : map.Niches())
+		m += std::format("niche {} {} {}\n", n.x, n.z, DirName(n.wall));
 
 	for (const StairLink& s : map.Stairs())
 		m += std::format("stairs {} {} {} {} dest={} destx={} destz={} destfacing={}\n",
@@ -1684,7 +1707,8 @@ void DungeonWorld::RebuildChunkRegion(int chunkX, int chunkZ) {
 		m_map, m_wallBlocks, m_floorBlocks, m_ceilingBlocks, chunkX, chunkZ,
 		[this](int x, int z) {
 			return CellHoles{FloorHoleAt(x, z), CeilingHoleAt(x, z)};
-		});
+		},
+		m_nicheMesh.vertices.empty() ? nullptr : &m_nicheMesh);
 	auto replace = [&](Surface& surface, std::vector<GeometryChunk>& fresh) {
 		std::erase_if(surface.chunks,
 					  [&](const SurfaceChunk& sc) { return sc.chunk == chunkIndex; });

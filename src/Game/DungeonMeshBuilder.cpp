@@ -73,6 +73,7 @@ void StampCell(const DungeonMap& map, int x, int z, CellHoles holes,
 			   std::span<const assets::MeshData> wallBlocks,
 			   std::span<const assets::MeshData> floorBlocks,
 			   std::span<const assets::MeshData> ceilingBlocks,
+			   const assets::MeshData* niche,
 			   std::vector<assets::MeshData>& wallB,
 			   std::vector<assets::MeshData>& floorB,
 			   std::vector<assets::MeshData>& ceilB) {
@@ -124,7 +125,12 @@ void StampCell(const DungeonMap& map, int x, int z, CellHoles holes,
 									  SurfaceVariantFor(wx, wz, 3u, wallVariants), wallVariants);
 		const XMMATRIX m =
 			XMMatrixRotationY(e.yaw) * XMMatrixTranslation(e.pos.x, e.pos.y, e.pos.z);
-		AppendTransformed(wallB[wallVariant], wallBlocks[wallVariant], m);
+		// A niche on this edge stamps the recessed niche panel in place of the
+		// plain wall panel (into the same variant bucket, so it keeps the wall's
+		// texture); everything else is a normal wall block.
+		const assets::MeshData& src =
+			(niche && map.HasNiche(x, z, e.dx, e.dz)) ? *niche : wallBlocks[wallVariant];
+		AppendTransformed(wallB[wallVariant], src, m);
 	}
 }
 
@@ -135,7 +141,8 @@ DungeonGeometry BuildDungeonRegion(const DungeonMap& map,
 								   std::span<const assets::MeshData> floorBlocks,
 								   std::span<const assets::MeshData> ceilingBlocks,
 								   int chunkX, int chunkZ,
-								   const CellHolesFn& holes) {
+								   const CellHolesFn& holes,
+								   const assets::MeshData* niche) {
 	const int chunksX = (map.Width() + kChunkCells - 1) / kChunkCells;
 	const int chunkIndex = chunkZ * chunksX + chunkX;
 	const int x0 = chunkX * kChunkCells, z0 = chunkZ * kChunkCells;
@@ -149,7 +156,7 @@ DungeonGeometry BuildDungeonRegion(const DungeonMap& map,
 		for (int x = x0; x < x1; ++x)
 			if (map.IsWalkable(x, z))
 				StampCell(map, x, z, holes ? holes(x, z) : CellHoles{}, wallBlocks,
-						  floorBlocks, ceilingBlocks, wallB, floorB, ceilB);
+						  floorBlocks, ceilingBlocks, niche, wallB, floorB, ceilB);
 
 	DungeonGeometry geo;
 	Collect(wallB, chunkIndex, geo.walls);
@@ -162,14 +169,15 @@ DungeonGeometry BuildDungeonGeometry(const DungeonMap& map,
 									 std::span<const assets::MeshData> wallBlocks,
 									 std::span<const assets::MeshData> floorBlocks,
 									 std::span<const assets::MeshData> ceilingBlocks,
-									 const CellHolesFn& holes) {
+									 const CellHolesFn& holes,
+									 const assets::MeshData* niche) {
 	const int chunksX = (map.Width() + kChunkCells - 1) / kChunkCells;
 	const int chunksZ = (map.Height() + kChunkCells - 1) / kChunkCells;
 	DungeonGeometry geo;
 	for (int cz = 0; cz < chunksZ; ++cz)
 		for (int cx = 0; cx < chunksX; ++cx) {
 			DungeonGeometry r = BuildDungeonRegion(map, wallBlocks, floorBlocks,
-												   ceilingBlocks, cx, cz, holes);
+												   ceilingBlocks, cx, cz, holes, niche);
 			for (GeometryChunk& c : r.walls) geo.walls.push_back(std::move(c));
 			for (GeometryChunk& c : r.floors) geo.floors.push_back(std::move(c));
 			for (GeometryChunk& c : r.ceilings) geo.ceilings.push_back(std::move(c));

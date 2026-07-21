@@ -42,6 +42,7 @@ constexpr CatInfo kCategoryInfo[] = {
 	{"map.cat.fixtures", "fixtures", false}, {"map.cat.monsters", "monsters", false},
 	{"map.cat.buttons", "buttons", false},  {"map.cat.doors", "doors", false},
 	{"map.cat.stairs", "stairs", false},    {"map.cat.items", "items", false},
+	{"map.cat.wallfeatures", "wallfeatures", false},
 };
 static_assert(sizeof(kCategoryInfo) / sizeof(kCategoryInfo[0]) ==
 				  static_cast<size_t>(MapEditor::PaletteCat::Count),
@@ -118,6 +119,7 @@ std::vector<MapEditor::PaletteItem> MapEditor::CategoryItems(PaletteCat cat) con
 	case PaletteCat::Doors:       return catalogItems(proj.doors, kDoor);
 	case PaletteCat::Stairs:      return catalogItems(proj.stairs, kStair);
 	case PaletteCat::Items:       return catalogItems(proj.items, kItem);
+	case PaletteCat::WallFeatures: return catalogItems(proj.wallfeatures, kDecoration);
 	default:                      return {};
 	}
 }
@@ -381,6 +383,7 @@ void MapEditor::ApplyBrush(int cx, int cz, bool dragging) {
 	case PaletteCat::Monsters:
 	case PaletteCat::Buttons:
 	case PaletteCat::Items:
+	case PaletteCat::WallFeatures:
 	case PaletteCat::Fixtures: {
 		if (dragging) break; // placement is a single click
 		const std::vector<PaletteItem> items = CategoryItems(m_sel.cat);
@@ -393,6 +396,9 @@ void MapEditor::ApplyBrush(int cx, int cz, bool dragging) {
 		else if (m_sel.cat == PaletteCat::Fixtures)
 			ok = remote ? m_world.AddFixtureRemote(stem, id, cx, cz)
 						: m_world.AddFixture(id, cx, cz);
+		else if (m_sel.cat == PaletteCat::WallFeatures)
+			ok = remote ? m_world.AddNicheRemote(stem, id, cx, cz)
+						: m_world.AddNiche(id, cx, cz);
 		else if (m_sel.cat == PaletteCat::Buttons)
 			ok = remote ? m_world.AddButtonRemote(stem, id, cx, cz)
 						: m_world.AddButton(id, cx, cz);
@@ -632,7 +638,8 @@ void MapEditor::EraseAt(int cx, int cz) {
 		m_world.EraseRemote(stem, cx, cz);
 	} else if (m_world.RemoveStairAt(cx, cz)) {
 		// stairs message themselves (they name the paired level's cleanup)
-	} else if (m_world.RemoveEntityAt(cx, cz) || m_world.RemoveFixtureAt(cx, cz)) {
+	} else if (m_world.RemoveEntityAt(cx, cz) || m_world.RemoveFixtureAt(cx, cz) ||
+			   m_world.RemoveNicheAt(cx, cz)) {
 		log(loc::Tr("map.erase.removed"));
 	} else {
 		m_world.EditVariant(cx, cz, SS::Wall, -1);

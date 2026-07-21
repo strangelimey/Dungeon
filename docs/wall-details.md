@@ -117,14 +117,38 @@ chunk's variant). Columns has no parallax effect.
   tiers are always baked and the game picks by quality).
 - Floors/ceilings UI (the bake honours `wear` for them; only walls get a dialog).
 
-## Phase 2 — blind niche (per segment)
+## Phase 2 — recessed niche (per segment)  ← BUILT
 
-A `wallfeatures.cat` of authored recessed meshes (`niche`, `torch_niche`, …),
-placed on a wall edge via a per-edge record reusing the `wall=<dir>` mount +
-`MountOnWall`. Rendered as a discrete sphere-culled mesh (like a decoration) in
-front of the base panel — no stamping-loop change, no chunk rebuild. A "Wall
-Features" palette category + a right-click inspector (swap type / place an item
-in it).
+A recessed pocket carved into one wall of a walkable cell. NOTE: the original
+"discrete mesh in front of the panel, no stamping change" plan does NOT give a
+real recess — the opaque base panel spans the whole cell face and occludes any
+pocket behind it. The niche is instead an **alternate wall panel**: the mesh
+builder stamps the `wall_niche` mesh (a flat frame around a ~55 cm pocket, +Z
+authored like every wall block) in place of the plain worn panel on that edge,
+into the SAME variant bucket — so it keeps the wall's texture and rides the
+per-chunk rebuild. This pulls Phase 3's structural machinery forward.
+
+- Storage lives on `DungeonMap` (like `WallSconce`): `struct WallNiche {x,z,wall,
+  type}`, `m_niches`, `AddNiche` (first free solid wall — the sconce mount rule),
+  `RemoveNicheAt`, `HasNiche(x,z,dx,dz)` (the mesh builder's per-edge query),
+  pruned by `PruneFixturesForCell` when its wall is opened/buried.
+- Mesh builder: `BuildDungeonGeometry/Region/StampCell` take a `const MeshData*
+  niche`; the edge loop stamps it instead of `wallBlocks[variant]` when
+  `map.HasNiche`. `DungeonWorld::m_nicheMesh` (wall_niche.gltf) is passed through;
+  add/erase call `RebuildChunksAround`.
+- `.map` record `niche <x> <z> <dir>`; parsed tolerantly (dropped if not facing
+  solid). Editor: a "Wall Features" palette category (wallfeatures.cat `[niche]`),
+  placement on a wall edge, middle-click erase; live + remote (stash) seams.
+- The mesh: `BuildWallNiche` in ModelBaker (frame border quads + pocket back +
+  four reveals + shared edge pillars), baked to `wall_niche.gltf`.
+
+Remaining niche work (follow-ons):
+- **Multiple niche types** (e.g. an arched niche with a keystone): make the mesh
+  per catalog `model` (type→mesh map + a resolver in the builder; the record
+  carries the type). Placement/save already carry `type`.
+- **Item in a niche**: a niche-relative mount for a placed item/decoration.
+- **Secret/revealed niche**: a named, hidden-by-default niche wired to a button
+  (the door pattern — `ToggleNichesNamed`, a dynamic revealed flag in the save).
 
 ## Phase 3 — real opening (window / passage)
 

@@ -497,6 +497,11 @@ public:
 	// floor) and rebuilds the fire instances + dust so it lights immediately and
 	// persists. Returns false on an invalid cell (e.g. a sconce with no wall).
 	bool AddFixture(const std::string& type, int x, int z);
+	// Places a wall niche (wallfeatures.cat) on a free solid wall of (x,z) and
+	// re-stamps the cell's wall panel as the recessed niche. False if no free
+	// solid wall. Removes it with RemoveNicheAt.
+	bool AddNiche(const std::string& type, int x, int z);
+	bool RemoveNicheAt(int cx, int cz);
 	// Removes the topmost runtime entity in a cell (a monster first, then a
 	// door — live instance + its .ent record — else a decoration). Stair props
 	// are skipped — a stair is link + prop + a paired record on another level,
@@ -596,6 +601,8 @@ public:
 						  int x, int z);
 	bool AddFixtureRemote(const std::string& stem, const std::string& type,
 						  int x, int z);
+	bool AddNicheRemote(const std::string& stem, const std::string& type, int x,
+						int z);
 	bool AddDoorRemote(const std::string& stem, const std::string& type, int x,
 					   int z);
 	bool AddButtonRemote(const std::string& stem, const std::string& type, int x,
@@ -1582,6 +1589,8 @@ private:
 	// Worn block geometry, one mesh per texture variant (same order as the
 	// surface texture sets), held between the load and mesh-build tasks.
 	std::vector<assets::MeshData> m_wallBlocks, m_floorBlocks, m_ceilingBlocks;
+	// The recessed wall-niche panel (wall_niche.gltf); stamped per niche edge.
+	assets::MeshData m_nicheMesh;
 
 
 	std::flat_map<std::string, std::unique_ptr<MonsterKind>> m_monsterKinds;

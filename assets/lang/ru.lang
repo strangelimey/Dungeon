@@ -375,6 +375,7 @@ map.cat.monsters=Монстры
 map.cat.doors=Двери
 map.cat.stairs=Лестницы и ямы
 map.cat.items=Предметы
+map.cat.wallfeatures=Элементы стен
 map.cat.empty=(не задано)
 map.select.empty=Ячейка {}, {}: пусто {}
 map.select.contents=Ячейка {}, {}: {}

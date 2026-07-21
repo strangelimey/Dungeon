@@ -179,6 +179,32 @@ DungeonMap::DungeonMap(const std::string& path, FixtureTypes fixtures) {
 			}
 			continue;
 		}
+		if (record.starts_with("niche")) {
+			// niche <x> <z> [facing] — a recessed pocket on a solid wall of a
+			// walkable cell. facing names the wall (else the first solid neighbour,
+			// the sconce mount rule). A niche that no longer faces solid rock is
+			// dropped (tolerant, unlike a decoration's hard assert).
+			const std::vector<std::string_view> tok = SplitRecordTokens(record);
+			DN_ASSERT(tok.size() >= 3,
+					  std::format("niche needs <x> <z>: \"{}\" in {}", record, path));
+			const auto coord = [&](std::string_view t) {
+				int v = 0;
+				const auto [end, ec] = std::from_chars(t.data(), t.data() + t.size(), v);
+				DN_ASSERT(ec == std::errc{} && end == t.data() + t.size(),
+						  std::format("bad niche coordinate \"{}\": \"{}\" in {}", t,
+									  record, path));
+				return v;
+			};
+			const int nx = coord(tok[1]), nz = coord(tok[2]);
+			if (!IsWalkable(nx, nz)) continue; // buried — drop it
+			Direction wall = Direction::North;
+			bool haveWall = false;
+			if (tok.size() >= 4 && ParseDirection(tok[3], wall))
+				haveWall = !IsWalkable(nx + DirDX(wall), nz + DirDZ(wall));
+			if (!haveWall && !FreeNicheWall(nx, nz, wall)) continue; // no solid wall
+			m_niches.push_back({nx, nz, wall, "niche"});
+			continue;
+		}
 		if (record.starts_with("stairs")) {
 			ParseStairRecord(record, path);
 			continue;
@@ -442,6 +468,9 @@ bool DungeonMap::PruneFixturesForCell(int x, int z) {
 		changed |= std::erase_if(m_braziers, [&](const FloorBrazier& b) {
 					   return b.x == x && b.z == z;
 				   }) > 0;
+		changed |= std::erase_if(m_niches, [&](const WallNiche& n) {
+					   return n.x == x && n.z == z;
+				   }) > 0;
 	} else {
 		// Cell painted open: sconces that hung on it face open floor now. Re-mount
 		// each on a free solid wall of its own cell, else drop it.
@@ -453,8 +482,18 @@ bool DungeonMap::PruneFixturesForCell(int x, int z) {
 			else m_torches.erase(m_torches.begin() + static_cast<ptrdiff_t>(i));
 			changed = true;
 		}
+		// A niche whose wall was painted open loses its backing rock — re-mount on
+		// a free solid wall of its own cell, else drop it (no light to rebuild).
+		for (size_t i = m_niches.size(); i-- > 0;) {
+			WallNiche& n = m_niches[i];
+			if (n.x + DirDX(n.wall) != x || n.z + DirDZ(n.wall) != z) continue;
+			Direction d;
+			if (FreeNicheWall(n.x, n.z, d)) n.wall = d;
+			else m_niches.erase(m_niches.begin() + static_cast<ptrdiff_t>(i));
+			changed = true;
+		}
 	}
-	if (changed) RebuildTurbidity(); // bumps Revision()
+	if (changed) RebuildTurbidity(); // bumps Revision() (re-stamps the chunk too)
 	return changed;
 }
 
@@ -535,6 +574,50 @@ bool DungeonMap::AddBrazier(int x, int z, std::string type, bool lit) {
 		{x, z, lit, kBrazierBrightness, kBrazierTurbidity, std::move(type)});
 	RebuildTurbidity(); // bumps Revision()
 	return true;
+}
+
+bool DungeonMap::FreeNicheWall(int x, int z, Direction& out) const {
+	constexpr Direction kScan[4] = {Direction::North, Direction::East,
+									Direction::South, Direction::West};
+	for (const Direction d : kScan) {
+		if (IsWalkable(x + DirDX(d), z + DirDZ(d))) continue; // needs a solid wall
+		bool taken = false;
+		for (const WallNiche& n : m_niches)
+			if (n.x == x && n.z == z && n.wall == d) {
+				taken = true;
+				break;
+			}
+		if (taken) continue;
+		out = d;
+		return true;
+	}
+	return false;
+}
+
+bool DungeonMap::HasNiche(int x, int z, int dx, int dz) const {
+	for (const WallNiche& n : m_niches)
+		if (n.x == x && n.z == z && DirDX(n.wall) == dx && DirDZ(n.wall) == dz)
+			return true;
+	return false;
+}
+
+bool DungeonMap::AddNiche(int x, int z, std::string type) {
+	if (!IsWalkable(x, z)) return false;
+	Direction d;
+	if (!FreeNicheWall(x, z, d)) return false; // no free solid wall to carve into
+	m_niches.push_back({x, z, d, std::move(type)});
+	++m_revision; // the mesh builder re-stamps this cell's panel as a niche
+	return true;
+}
+
+bool DungeonMap::RemoveNicheAt(int x, int z) {
+	for (size_t i = 0; i < m_niches.size(); ++i)
+		if (m_niches[i].x == x && m_niches[i].z == z) {
+			m_niches.erase(m_niches.begin() + static_cast<ptrdiff_t>(i));
+			++m_revision;
+			return true;
+		}
+	return false;
 }
 
 bool DungeonMap::RemoveDecorationRecordAt(int x, int z) {

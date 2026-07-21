@@ -371,6 +371,7 @@ map.cat.monsters=Monstruos
 map.cat.doors=Puertas
 map.cat.stairs=Escaleras y fosos
 map.cat.items=Objetos
+map.cat.wallfeatures=Elementos de muro
 map.cat.empty=(ninguno definido)
 map.select.empty=Celda {}, {}: vacía {}
 map.select.contents=Celda {}, {}: {}
