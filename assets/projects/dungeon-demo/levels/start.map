@@ -65,6 +65,7 @@ fixture brazier 5 24
 fixture brazier 18 25
 fixture brazier 27 25
 fixture brazier 4 4
+niche niche 2 3 west
 stairs stairs_down 18 4 south dest=level2 destx=2 destz=1 destfacing=south
 variant wall 1 1 0
 variant wall 2 1 0
