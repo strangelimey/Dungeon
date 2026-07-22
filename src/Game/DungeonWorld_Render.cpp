@@ -168,6 +168,65 @@ void DungeonWorld::DrawMultiMaterial(ID3D12GraphicsCommandList* list,
 		m_renderer.DrawMesh(list, *sub.mesh, world, sub.material);
 }
 
+// ----------------------------------------------------------------------------
+// Floor-item orientation. A floor item draws at the pose its mesh was BAKED in:
+// daggers are authored lying along a horizontal axis (flat), but the rune
+// tablet, armour, and other meshes rest on edge / stand up. This resolves a flat
+// resting pose GENERICALLY from the mesh AABB, keying off the shape rather than
+// on Y being tallest (the rune tablet is a thin CARD wider than it is tall —
+// 0.17 x 0.15 x 0.032 — so its glyph face stands vertical even though Y is not
+// its largest extent):
+//   * SLAB / plate / figure (no single dominant axis): lay it on its flattest
+//     side — rotate so its THINNEST axis points up. For the tablet that turns
+//     the thin Z up, so the +Z glyph face reads from above; an item already
+//     lying flat (thin axis vertical) is left alone.
+//   * ROD / blade (one axis clearly longest): rest it along its length. A blade
+//     already horizontal (a dagger) is untouched; only a rod standing on end is
+//     tipped down.
+// After any tip it re-grounds (min-y to the floor) and re-centres the footprint
+// over the slot, so no per-item authoring is needed and every current or future
+// item lands right.
+static Mat4 FloorItemWorld(const Vec3& bmin, const Vec3& bmax, float scale,
+						   float cx, float cz) {
+	const float ex = bmax.x - bmin.x;
+	const float ey = bmax.y - bmin.y;
+	const float ez = bmax.z - bmin.z;
+	const float lo3 = std::min({ex, ey, ez});           // thinnest extent
+	const float hi3 = std::max({ex, ey, ez});           // longest extent
+	const float mid = ex + ey + ez - lo3 - hi3;         // the middle extent
+	XMMATRIX rot = XMMatrixIdentity();
+	if (hi3 > mid * 1.5f) {
+		// Rod / blade: lay it along its length. Only a VERTICAL long axis needs
+		// tipping; a horizontal one (dagger) is already resting right.
+		if (ey == hi3) rot = XMMatrixRotationX(XM_PIDIV2); // long Y -> horizontal
+	} else {
+		// Slab / plate / figure: bring the thinnest axis UP so it rests on its
+		// broad face. Y already thinnest -> already flat, leave it.
+		if (ez == lo3) rot = XMMatrixRotationX(-XM_PIDIV2);     // thin Z -> up
+		else if (ex == lo3) rot = XMMatrixRotationZ(XM_PIDIV2); // thin X -> up
+	}
+	const XMMATRIX sr = XMMatrixScaling(scale, scale, scale) * rot;
+	// Ground + centre against the rotated, scaled AABB (transform its 8 corners).
+	XMVECTOR lo = XMVectorReplicate(1e9f), hi = XMVectorReplicate(-1e9f);
+	for (int i = 0; i < 8; ++i) {
+		XMVECTOR corner = XMVectorSet((i & 1) ? bmax.x : bmin.x,
+									  (i & 2) ? bmax.y : bmin.y,
+									  (i & 4) ? bmax.z : bmin.z, 1.0f);
+		corner = XMVector3Transform(corner, sr);
+		lo = XMVectorMin(lo, corner);
+		hi = XMVectorMax(hi, corner);
+	}
+	XMFLOAT3 mn, mx;
+	XMStoreFloat3(&mn, lo);
+	XMStoreFloat3(&mx, hi);
+	const XMMATRIX world = sr * XMMatrixTranslation(cx - 0.5f * (mn.x + mx.x),
+													-mn.y,
+													cz - 0.5f * (mn.z + mx.z));
+	Mat4 w;
+	XMStoreFloat4x4(&w, world);
+	return w;
+}
+
 void DungeonWorld::SubmitSceneGeometry(ID3D12GraphicsCommandList* list,
 									  const ViewCull* cull) {
 	// A discrete mesh draws only if its bounding sphere passes the cull (camera
@@ -258,21 +317,18 @@ void DungeonWorld::SubmitSceneGeometry(ID3D12GraphicsCommandList* list,
 			// (grounded via GroundOffsetY, real-size), each part with its own
 			// material — not the tablet.
 			if (item.kind->model) {
-				Mat4 w = Mat4Identity();
-				w._41 = c.x;
-				w._42 = item.kind->model->GroundOffsetY();
-				w._43 = c.z;
-				DrawMultiMaterial(list, *item.kind->model, w);
+				const MultiMaterialModel& mm = *item.kind->model;
+				DrawMultiMaterial(
+					list, mm,
+					FloorItemWorld(mm.boundsMin, mm.boundsMax, 1.0f, c.x, c.z));
 				continue;
 			}
 			// Non-rune placeholders render scaled UP (kItemPlaceholderScale) — bigger
 			// than the rune tablet so they read on a dark floor (pickup is a
 			// floor-quarter click test, independent of the rendered size).
 			const float scale = item.kind->isRune ? 1.0f : kItemPlaceholderScale;
-			Mat4 world = Mat4Identity();
-			world._11 = world._22 = world._33 = scale;
-			world._41 = c.x;
-			world._43 = c.z;
+			Mat4 world =
+				FloorItemWorld(m_runeBoundsMin, m_runeBoundsMax, scale, c.x, c.z);
 			gfx::MaterialParams material;
 			material.doubleSided = false; // authored slab: back-cull
 			const Vec4& g = item.kind->glow;

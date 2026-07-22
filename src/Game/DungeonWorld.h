@@ -1616,6 +1616,9 @@ private:
 	// draws this mesh with its own element texture set.
 	assets::ModelData m_runeModel;
 	std::unique_ptr<gfx::Mesh> m_runeMesh;
+	// Tablet AABB, cached on load so the floor draw (FloorItemWorld) can lay the
+	// upright slab flat and re-ground it without rescanning the mesh each frame.
+	Vec3 m_runeBoundsMin{}, m_runeBoundsMax{};
 	// Ids for items dropped at runtime (not from the .ent baseline, which use
 	// id >= 0). Decreasing from -2 so each dropped tablet has a unique save id
 	// (-1 is the "no id" sentinel).
