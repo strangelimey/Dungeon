@@ -275,6 +275,11 @@ public:
 	// one). False if that neighbour isn't solid or the face already holds a
 	// niche. Bumps Revision().
 	bool AddNiche(int x, int z, std::string type, Direction wall);
+	// Re-carves the niche at (x,z) from one face onto another (the inspector's
+	// Face dropdown), keeping its shape/name/secret state. False if `to` isn't
+	// solid, already holds a niche, or no niche sits on `from`. Bumps Revision();
+	// the caller moves any items in the pocket (DungeonWorld::RemountNiche).
+	bool SetNicheWall(int x, int z, Direction from, Direction to);
 	// Adds a niche with an explicit wall (the parser + remote/stash editing).
 	// Bumps Revision().
 	void AddNicheRecord(WallNiche n) {

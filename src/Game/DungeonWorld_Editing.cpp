@@ -238,6 +238,34 @@ bool DungeonWorld::AddNiche(const std::string& type, int x, int z, Direction wal
 	return true;
 }
 
+bool DungeonWorld::RemountNiche(int x, int z, Direction from, Direction to) {
+	if (from == to) return true;
+	if (!m_map.SetNicheWall(x, z, from, to)) return false;
+	// Treasure in the pocket is keyed by the wall it sits in, so it has to travel
+	// with the niche — otherwise it would be stranded on a face with no niche
+	// (invisible and unpickable, since niche items only draw while their niche is
+	// open). The live item AND its .ent record both move; a runtime drop (id < 0)
+	// has no record to keep in step.
+	static const char* kDirName[4] = {"north", "east", "south", "west"}; // Direction order
+	for (Item& it : m_items) {
+		if (it.x != x || it.z != z || it.niche != static_cast<int>(from)) continue;
+		it.niche = static_cast<int>(to);
+		if (Entity* rec = m_entities.MutableById(it.id)) {
+			bool set = false;
+			for (auto& p : rec->params)
+				if (p.first == "niche") {
+					p.second = kDirName[static_cast<int>(to)];
+					set = true;
+					break;
+				}
+			if (!set) rec->params.emplace_back("niche", kDirName[static_cast<int>(to)]);
+			m_entsDirty = true;
+		}
+	}
+	RebuildChunksAround(x, z); // old face becomes plain wall, new face the niche
+	return true;
+}
+
 bool DungeonWorld::RemoveNicheAtFace(int x, int z, Direction wall) {
 	if (!m_map.RemoveNiche(x, z, wall)) return false;
 	RebuildChunksAround(x, z); // re-stamp that face as a plain wall panel again

@@ -232,7 +232,18 @@ void Game::OpenInspectorFor(const InspectTarget& t) {
 			m_world.CommitUndoStep(m_world.RemoveNiche(x, z, w));
 			if (m_world.onMessage) m_world.onMessage(loc::Tr("map.erase.removed"));
 		};
-		m_nicheInspector.Open(c, std::move(types));
+		// Faces it may move to: the cell's SOLID walls that aren't already carved,
+		// plus the one it currently occupies (so the dropdown can show itself).
+		std::vector<Direction> walls;
+		for (const Direction d : {Direction::North, Direction::East,
+								  Direction::South, Direction::West}) {
+			if (d == t.wall) { walls.push_back(d); continue; }
+			if (m_world.Map().IsWalkable(t.nicheX + DirDX(d), t.nicheZ + DirDZ(d)))
+				continue; // no rock to carve into
+			if (m_world.NicheOn(t.nicheX, t.nicheZ, d)) continue; // face already carved
+			walls.push_back(d);
+		}
+		m_nicheInspector.Open(c, std::move(types), std::move(walls));
 		break;
 	}
 	}

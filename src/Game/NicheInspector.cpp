@@ -12,10 +12,13 @@ namespace dungeon::game {
 
 void NicheInspector::Open(const Config& cfg,
 						  std::vector<std::pair<std::string, std::string>> types,
-						  PreviewSpec preview) {
+						  std::vector<Direction> walls, PreviewSpec preview) {
 	m_cfg = cfg;
 	m_original = cfg;
 	m_types = std::move(types);
+	m_walls = std::move(walls);
+	m_currentWall = cfg.wall;
+	SetFacingValue(cfg.wall); // the common strip is this niche's FACE picker
 	SetPreview(std::move(preview));
 	OpenModal();
 }
@@ -63,12 +66,28 @@ void NicheInspector::BuildContent(const gfx::Rect& c) {
 	};
 }
 
+void NicheInspector::ApplyLive() { // the common Facing strip re-faces the niche
+	const Direction to = FacingValue();
+	if (to == m_currentWall) return;
+	if (onRemount && onRemount(m_cfg.x, m_cfg.z, m_currentWall, to)) {
+		m_currentWall = to;
+		m_cfg.wall = to; // later edits (type/name/hidden) address the new face
+	} else { // couldn't move it — snap the dropdown back to the live face
+		SetFacingValue(m_currentWall);
+		RequestRebuild();
+	}
+}
+
 void NicheInspector::Persist() {
 	if (onApply) onApply(m_cfg);
 	if (onSave) onSave();
 }
 
 void NicheInspector::Revert() {
+	// Put the niche back on its original face, then restore the authored fields.
+	if (m_currentWall != m_original.wall && onRemount &&
+		onRemount(m_cfg.x, m_cfg.z, m_currentWall, m_original.wall))
+		m_currentWall = m_original.wall;
 	if (onApply) onApply(m_original);
 }
 

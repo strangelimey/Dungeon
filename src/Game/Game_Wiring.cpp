@@ -377,6 +377,10 @@ void Game::WireModuleCallbacks() {
 	m_nicheInspector.onApply = [this](const NicheInspector::Config& c) {
 		m_world.SetNichePropsAt(c.x, c.z, c.wall, c.name, c.hidden, c.type);
 	};
+	// The Face dropdown moves it to another wall of the same cell, treasure and all.
+	m_nicheInspector.onRemount = [this](int x, int z, Direction from, Direction to) {
+		return m_world.RemountNiche(x, z, from, to);
+	};
 	m_nicheInspector.onSave = [this] {
 		if (m_world.SaveAllLevels().empty())
 			log::Warn("niche inspector: failed to save map");

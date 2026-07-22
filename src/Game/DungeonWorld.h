@@ -535,6 +535,11 @@ public:
 	// placeable, a block can hold several niches — this erases the one pointed
 	// at instead of whichever RemoveNicheAtWall happens to find first.
 	bool RemoveNicheAtFace(int x, int z, Direction wall);
+	// Moves the niche at (x,z) from one face to another (the inspector's Face
+	// dropdown), carrying any treasure in its pocket — live items and their .ent
+	// records — so nothing is stranded on a face with no niche. False if `to`
+	// isn't solid, already holds a niche, or no niche sits on `from`.
+	bool RemountNiche(int x, int z, Direction from, Direction to);
 	// Removes the topmost runtime entity in a cell (a monster first, then a
 	// door — live instance + its .ent record — else a decoration). Stair props
 	// are skipped — a stair is link + prop + a paired record on another level,

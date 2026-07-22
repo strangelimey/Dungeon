@@ -698,6 +698,19 @@ bool DungeonMap::AddNiche(int x, int z, std::string type, Direction wall) {
 	return true;
 }
 
+bool DungeonMap::SetNicheWall(int x, int z, Direction from, Direction to) {
+	if (from == to) return true;
+	if (IsWalkable(x + DirDX(to), z + DirDZ(to))) return false; // target wall not solid
+	if (NicheAt(x, z, DirDX(to), DirDZ(to))) return false;      // target face already carved
+	for (WallNiche& n : m_niches)
+		if (n.x == x && n.z == z && n.wall == from) {
+			n.wall = to;
+			++m_revision; // both faces re-stamp (one loses the niche, one gains it)
+			return true;
+		}
+	return false;
+}
+
 bool DungeonMap::RemoveNiche(int x, int z, Direction wall) {
 	for (size_t i = 0; i < m_niches.size(); ++i)
 		if (m_niches[i].x == x && m_niches[i].z == z && m_niches[i].wall == wall) {
