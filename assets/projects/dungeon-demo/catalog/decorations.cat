@@ -43,6 +43,10 @@ texture = wood_planks
 solid = 1
 authored = 0
 category = gate
+; A door PROP is a wall-plane object (0.28 deep), so it hangs on a face rather
+; than standing mid-cell — a sealed/false door. A door you can actually open is
+; the functional entity in doors.cat, not this.
+mount = wall
 
 [barrel]
 display = Barrel
@@ -141,6 +145,8 @@ texture = rusted_iron
 solid = 1
 authored = 0
 category = gate
+; Wall-plane prop, as wood_door.
+mount = wall
 
 [portcullis]
 display = Portcullis
@@ -149,6 +155,8 @@ texture = rusted_iron
 solid = 1
 authored = 0
 category = gate
+; A grate flat in the wall plane (0.15 deep).
+mount = wall
 
 [viking_dagger]
 display = Viking Dagger
