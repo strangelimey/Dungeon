@@ -34,6 +34,7 @@
 #include "SoundBaker.h"
 #include "TextureBaker.h"
 
+#include <cstdlib>
 #include <filesystem>
 #include <string>
 
@@ -99,10 +100,21 @@ int main(int argc, char** argv) {
 	if (argc >= 2 && std::string(argv[1]) == "wornblock") {
 		if (argc < 5) {
 			log::Error("usage: AssetBaker wornblock <wall|floor|ceiling> <name> "
-					   "<assets-dir>");
+					   "<assets-dir> [--wear <0..1>] [--columns <0|1>]");
 			return 1;
 		}
-		return baker::BakeWornBlocks(argv[2], argv[3], argv[4]) ? 0 : 1;
+		// Optional wall-style flags (editor's Wall Style dialog): wear scales the
+		// displacement (0 = flat), columns gates a wall's edge pillars.
+		float wear = 1.0f;
+		bool columns = true;
+		for (int i = 5; i + 1 < argc; i += 2) {
+			const std::string flag = argv[i];
+			if (flag == "--wear")
+				wear = std::strtof(argv[i + 1], nullptr);
+			else if (flag == "--columns")
+				columns = std::string(argv[i + 1]) != "0";
+		}
+		return baker::BakeWornBlocks(argv[2], argv[3], argv[4], wear, columns) ? 0 : 1;
 	}
 
 	if (argc >= 3 && std::string(argv[1]) == "runes") {

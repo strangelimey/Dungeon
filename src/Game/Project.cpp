@@ -35,6 +35,7 @@ const CatalogSlot kCatalogs[] = {
 	{"spells.cat", &Project::spells, "Spells: symbol-sequence recipes -> effect + element + power/mana/speed/range."},
 	{"attacks.cat", &Project::attacks, "Attacks: per-melee-verb numbers (damage/accuracy/speed multipliers); identity (damage type) is C++ (Balance.h)."},
 	{"balance.cat", &Project::balance, "Balance: the attack-formula knob sheet ([formula] block; docs/combat.md)."},
+	{"wallfeatures.cat", &Project::wallfeatures, "Wall features: recessed niches carved into a wall panel."},
 };
 
 // Splits a space-separated list (the manifest's "levels" field) into stems.
@@ -115,6 +116,7 @@ Catalog* Project::CatalogForKey(const std::string& key) {
 	if (key == "spells") return &spells;
 	if (key == "attacks") return &attacks;
 	if (key == "balance") return &balance;
+	if (key == "wallfeatures") return &wallfeatures;
 	return nullptr;
 }
 

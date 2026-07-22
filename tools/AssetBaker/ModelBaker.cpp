@@ -376,6 +376,213 @@ assets::ModelData BuildWallBlock() {
 	return model;
 }
 
+// A wall NICHE: an alternate full-cell wall panel with a deep rectangular pocket
+// carved into the rock. The DungeonMeshBuilder stamps this instead of the plain
+// worn panel on a cell edge carrying a niche wall-feature (see wall-details.md
+// Phase 2), so it shares the wall's texture/variant and chunk. A flat frame
+// surrounds the opening; the pocket is a back wall + four reveals receding to
+// z = -kNicheDepth (into the rock). Authored facing +Z (the room side) like
+// every wall block. UVs reuse WallFaceUv so the brick/stone tiles continuously
+// across the frame and into the pocket.
+assets::ModelData BuildWallNiche() {
+	assets::ModelData model;
+	assets::MeshData mesh;
+
+	constexpr float kNicheDepth = 0.55f;      // pocket depth into the rock
+	constexpr float px = 0.55f;               // pocket opening half-width
+	constexpr float py0 = 0.75f, py1 = 1.80f; // pocket opening bottom/top
+	constexpr float d = -kNicheDepth;
+
+	auto wq = [&](const Vec3& a, const Vec3& b, const Vec3& c, const Vec3& e,
+				  const Vec3& n) {
+		AddQuad(mesh, a, b, c, e, n, WallFaceUv(a, n), WallFaceUv(b, n),
+				WallFaceUv(c, n), WallFaceUv(e, n));
+	};
+
+	// Flat frame around the opening (four border strips at the wall face, +Z).
+	wq({-kCellHalf, 0, 0}, {kCellHalf, 0, 0}, {kCellHalf, py0, 0}, {-kCellHalf, py0, 0},
+	   {0, 0, 1}); // below
+	wq({-kCellHalf, py1, 0}, {kCellHalf, py1, 0}, {kCellHalf, kWallH, 0},
+	   {-kCellHalf, kWallH, 0}, {0, 0, 1}); // above
+	wq({-kCellHalf, py0, 0}, {-px, py0, 0}, {-px, py1, 0}, {-kCellHalf, py1, 0},
+	   {0, 0, 1}); // left
+	wq({px, py0, 0}, {kCellHalf, py0, 0}, {kCellHalf, py1, 0}, {px, py1, 0},
+	   {0, 0, 1}); // right
+
+	// Pocket: back wall + four reveals connecting the opening (z=0) to the back.
+	wq({-px, py0, d}, {px, py0, d}, {px, py1, d}, {-px, py1, d}, {0, 0, 1}); // back
+	wq({-px, py0, 0}, {px, py0, 0}, {px, py0, d}, {-px, py0, d}, {0, 1, 0});  // floor
+	wq({-px, py1, d}, {px, py1, d}, {px, py1, 0}, {-px, py1, 0}, {0, -1, 0}); // ceiling
+	wq({-px, py0, d}, {-px, py1, d}, {-px, py1, 0}, {-px, py0, 0}, {1, 0, 0}); // left
+	wq({px, py0, 0}, {px, py1, 0}, {px, py1, d}, {px, py0, d}, {-1, 0, 0});    // right
+
+	// Same edge pillars as the plain block so the niche's cell edges line up with
+	// neighbouring wall panels.
+	AddWallPillars(mesh);
+
+	model.meshes.push_back(std::move(mesh));
+	model.materials.push_back({{1, 1, 1, 1}, -1});
+	return model;
+}
+
+// An arched wall niche: like BuildWallNiche but the pocket's top is a
+// semicircular arch springing from vertical sides, with a proud KEYSTONE wedge
+// at the crown. The opening for a column at x is [py0 .. archTop(x)], where
+// archTop is flat-topped vertical sides below the springline and a semicircle
+// above. Walls render backface-culling OFF, so only the authored normals matter.
+assets::ModelData BuildWallNicheArch() {
+	assets::ModelData model;
+	assets::MeshData mesh;
+
+	constexpr float kDepth = 0.55f;   // pocket depth into the rock
+	constexpr float px = 0.52f;       // opening half-width = arch radius
+	constexpr float py0 = 0.50f;      // opening bottom
+	constexpr float springY = 1.25f;  // where the vertical sides meet the arch
+	constexpr float R = px;           // semicircular arch
+	constexpr float crown = springY + R;
+	constexpr int N = 14;             // arch segments across the width
+	const float zb = -kDepth;
+
+	auto wq = [&](const Vec3& a, const Vec3& b, const Vec3& c, const Vec3& e,
+				  const Vec3& n) {
+		AddQuad(mesh, a, b, c, e, n, WallFaceUv(a, n), WallFaceUv(b, n),
+				WallFaceUv(c, n), WallFaceUv(e, n));
+	};
+	const auto archTop = [&](float x) {
+		return springY + std::sqrt(std::max(0.0f, R * R - x * x));
+	};
+	const auto xAt = [&](int j) { return -px + 2.0f * px * static_cast<float>(j) / N; };
+
+	// Frame at the wall face (+Z): the panel minus the arched opening.
+	wq({-kCellHalf, 0, 0}, {kCellHalf, 0, 0}, {kCellHalf, py0, 0}, {-kCellHalf, py0, 0},
+	   {0, 0, 1}); // below the opening
+	wq({-kCellHalf, py0, 0}, {-px, py0, 0}, {-px, kWallH, 0}, {-kCellHalf, kWallH, 0},
+	   {0, 0, 1}); // left of the opening
+	wq({px, py0, 0}, {kCellHalf, py0, 0}, {kCellHalf, kWallH, 0}, {px, kWallH, 0},
+	   {0, 0, 1}); // right of the opening
+	for (int j = 0; j < N; ++j) {
+		const float x0 = xAt(j), x1 = xAt(j + 1), a0 = archTop(x0), a1 = archTop(x1);
+		// Frame above the arch, and the pocket back below it (per x-strip).
+		wq({x0, a0, 0}, {x1, a1, 0}, {x1, kWallH, 0}, {x0, kWallH, 0}, {0, 0, 1});
+		wq({x0, py0, zb}, {x1, py0, zb}, {x1, a1, zb}, {x0, a0, zb}, {0, 0, 1});
+		// Arch soffit: the curved reveal from the front rim into the pocket. Normal
+		// points inward (toward the arch centre) so it lights like a ceiling.
+		const float mx = (x0 + x1) * 0.5f, my = (a0 + a1) * 0.5f;
+		const float nx = -mx, ny = springY - my;
+		const float inv = 1.0f / std::sqrt(nx * nx + ny * ny + 1e-4f);
+		wq({x0, a0, 0}, {x1, a1, 0}, {x1, a1, zb}, {x0, a0, zb}, {nx * inv, ny * inv, 0});
+	}
+
+	// Straight reveals: the opening bottom and the two vertical sides (py0..spring).
+	wq({-px, py0, 0}, {px, py0, 0}, {px, py0, zb}, {-px, py0, zb}, {0, 1, 0}); // floor
+	wq({-px, py0, zb}, {-px, springY, zb}, {-px, springY, 0}, {-px, py0, 0}, {1, 0, 0});
+	wq({px, py0, 0}, {px, springY, 0}, {px, springY, zb}, {px, py0, zb}, {-1, 0, 0});
+
+	// Keystone: a proud wedge (wider at the top) centred on the crown.
+	constexpr float kwb = 0.10f, kwt = 0.15f, ky0 = crown - 0.12f, ky1 = crown + 0.16f,
+					kp = 0.07f;
+	wq({-kwb, ky0, kp}, {kwb, ky0, kp}, {kwt, ky1, kp}, {-kwt, ky1, kp}, {0, 0, 1}); // face
+	wq({-kwb, ky0, 0}, {-kwb, ky0, kp}, {-kwt, ky1, kp}, {-kwt, ky1, 0}, {-1, 0, 0}); // left
+	wq({kwb, ky0, kp}, {kwb, ky0, 0}, {kwt, ky1, 0}, {kwt, ky1, kp}, {1, 0, 0});      // right
+	wq({-kwt, ky1, 0}, {-kwt, ky1, kp}, {kwt, ky1, kp}, {kwt, ky1, 0}, {0, 1, 0});    // top
+	wq({-kwb, ky0, kp}, {-kwb, ky0, 0}, {kwb, ky0, 0}, {kwb, ky0, kp}, {0, -1, 0});   // bottom
+
+	AddWallPillars(mesh);
+	model.meshes.push_back(std::move(mesh));
+	model.materials.push_back({{1, 1, 1, 1}, -1});
+	return model;
+}
+
+// A wall WINDOW: a circular bore THROUGH the wall block (see-through, Phase 3).
+// Unlike a niche it has NO back — the tunnel recedes to the block centre
+// (kCellHalf), so the two flanking floor cells' bore panels meet into one tunnel
+// through the block. A frame (the cell face minus the circle) surrounds a circular
+// hole; the tunnel walls (top/bottom reveals per x-strip, closing at the sides)
+// are the "sides of the hole" the see-through spell will also want. Authored
+// facing +Z like every wall block; the game grants LoS/fire through it separately.
+assets::ModelData BuildWallWindow() {
+	assets::ModelData model;
+	assets::MeshData mesh;
+
+	constexpr float r = 0.55f;         // hole radius
+	constexpr float cy = 1.25f;        // hole centre height (roughly eye level)
+	constexpr float depth = kCellHalf; // tunnel to the block centre
+	constexpr int M = 40;              // x-strips across the hole (smoother rim)
+	const float zb = -depth;
+
+	auto wq = [&](const Vec3& a, const Vec3& b, const Vec3& c, const Vec3& e,
+				  const Vec3& n) {
+		AddQuad(mesh, a, b, c, e, n, WallFaceUv(a, n), WallFaceUv(b, n),
+				WallFaceUv(c, n), WallFaceUv(e, n));
+	};
+	const auto arc = [&](float x, float sign) { // circle y at |x| (sign ±1)
+		return cy + sign * std::sqrt(std::max(0.0f, r * r - x * x));
+	};
+	const auto xAt = [&](int j) { return -r + 2.0f * r * static_cast<float>(j) / M; };
+
+	// Frame outside the hole's width: full-height strips left and right of it.
+	wq({-kCellHalf, 0, 0}, {-r, 0, 0}, {-r, kWallH, 0}, {-kCellHalf, kWallH, 0},
+	   {0, 0, 1});
+	wq({r, 0, 0}, {kCellHalf, 0, 0}, {kCellHalf, kWallH, 0}, {r, kWallH, 0}, {0, 0, 1});
+	for (int j = 0; j < M; ++j) {
+		const float x0 = xAt(j), x1 = xAt(j + 1);
+		const float b0 = arc(x0, -1.0f), b1 = arc(x1, -1.0f); // bottom of circle
+		const float t0 = arc(x0, 1.0f), t1 = arc(x1, 1.0f);   // top of circle
+		// Frame below and above the circle (z=0, facing the room).
+		wq({x0, 0, 0}, {x1, 0, 0}, {x1, b1, 0}, {x0, b0, 0}, {0, 0, 1});
+		wq({x0, t0, 0}, {x1, t1, 0}, {x1, kWallH, 0}, {x0, kWallH, 0}, {0, 0, 1});
+		// Tunnel walls: the hole rim (z=0) extruded into the block (zb). Normal
+		// points RADIALLY inward (toward the bore axis) so the cylinder lights
+		// smoothly — a fixed up/down normal would flip hard at the sides. Uses the
+		// strip midpoint's rim direction: (-xm, ±sq)/r for the bottom/top arc.
+		const float xm = (x0 + x1) * 0.5f;
+		const float sq = std::sqrt(std::max(0.0f, r * r - xm * xm)); // circle half-height
+		const float inv = 1.0f / r;
+		wq({x0, b0, 0}, {x1, b1, 0}, {x1, b1, zb}, {x0, b0, zb}, {-xm * inv, sq * inv, 0});
+		wq({x0, t0, zb}, {x1, t1, zb}, {x1, t1, 0}, {x0, t0, 0}, {-xm * inv, -sq * inv, 0});
+	}
+
+	AddWallPillars(mesh);
+	model.meshes.push_back(std::move(mesh));
+	model.materials.push_back({{1, 1, 1, 1}, -1});
+	return model;
+}
+
+// A RECTANGULAR see-through bore — like BuildWallWindow but a straight-sided
+// opening (a framed window). Frame around a rectangle + a four-walled tunnel to
+// the block centre, no back. Axis-aligned normals, so no smooth-normal concerns.
+assets::ModelData BuildWallWindowRect() {
+	assets::ModelData model;
+	assets::MeshData mesh;
+
+	constexpr float hw = 0.55f, hh = 0.60f; // opening half-width / half-height
+	constexpr float cy = 1.25f, depth = kCellHalf;
+	const float y0 = cy - hh, y1 = cy + hh, zb = -depth;
+
+	auto wq = [&](const Vec3& a, const Vec3& b, const Vec3& c, const Vec3& e,
+				  const Vec3& n) {
+		AddQuad(mesh, a, b, c, e, n, WallFaceUv(a, n), WallFaceUv(b, n),
+				WallFaceUv(c, n), WallFaceUv(e, n));
+	};
+	// Frame around the opening (z=0, facing the room).
+	wq({-kCellHalf, 0, 0}, {kCellHalf, 0, 0}, {kCellHalf, y0, 0}, {-kCellHalf, y0, 0},
+	   {0, 0, 1}); // below
+	wq({-kCellHalf, y1, 0}, {kCellHalf, y1, 0}, {kCellHalf, kWallH, 0},
+	   {-kCellHalf, kWallH, 0}, {0, 0, 1}); // above
+	wq({-kCellHalf, y0, 0}, {-hw, y0, 0}, {-hw, y1, 0}, {-kCellHalf, y1, 0}, {0, 0, 1}); // left
+	wq({hw, y0, 0}, {kCellHalf, y0, 0}, {kCellHalf, y1, 0}, {hw, y1, 0}, {0, 0, 1});     // right
+	// Tunnel: four walls from the opening edge (z=0) into the block (zb), no back.
+	wq({-hw, y0, 0}, {hw, y0, 0}, {hw, y0, zb}, {-hw, y0, zb}, {0, 1, 0});  // floor (up)
+	wq({-hw, y1, zb}, {hw, y1, zb}, {hw, y1, 0}, {-hw, y1, 0}, {0, -1, 0}); // ceiling (down)
+	wq({-hw, y0, zb}, {-hw, y1, zb}, {-hw, y1, 0}, {-hw, y0, 0}, {1, 0, 0}); // left (+X)
+	wq({hw, y0, 0}, {hw, y1, 0}, {hw, y1, zb}, {hw, y0, zb}, {-1, 0, 0});    // right (-X)
+
+	AddWallPillars(mesh);
+	model.meshes.push_back(std::move(mesh));
+	model.materials.push_back({{1, 1, 1, 1}, -1});
+	return model;
+}
+
 assets::ModelData BuildFloorBlock() {
 	assets::ModelData model;
 	assets::MeshData mesh;
@@ -599,8 +806,12 @@ WearField TextureCeilingWear(const TextureHeight& height, float relief, int grid
 
 // Grid resolutions are parameters: the baker emits each worn block at three
 // complexity tiers (low/med/high) so the game can trade geometric detail for
-// performance via the Settings menu.
-assets::ModelData BuildWornWallBlock(int kNx, int kNy, const WearField& wear) {
+// performance via the Settings menu. `columns` gates the edge pillars/border
+// strips (a wall-style knob — walls.cat `columns`); a flat wall (wear == 0,
+// see BakeWornTiers) passes kNx = kNy = 1 so it is a bare quad, not a dense
+// flat grid.
+assets::ModelData BuildWornWallBlock(int kNx, int kNy, const WearField& wear,
+									 bool columns) {
 	assets::ModelData model;
 	assets::MeshData mesh;
 
@@ -630,7 +841,7 @@ assets::ModelData BuildWornWallBlock(int kNx, int kNy, const WearField& wear) {
 			mesh.indices.insert(mesh.indices.end(), {a, b, d2, a, d2, c});
 		}
 
-	AddWallPillars(mesh);
+	if (columns) AddWallPillars(mesh);
 	model.meshes.push_back(std::move(mesh));
 	model.materials.push_back({{1, 1, 1, 1}, -1});
 	return model;
@@ -1708,8 +1919,12 @@ assets::ModelData BuildLever() {
 // displaced by that texture's packed height map (procedural wear when absent).
 // kind: 0 = wall, 1 = floor, 2 = ceiling. Shared by the full bake and the
 // editor's per-set import (so a newly imported set gets its worn meshes).
+// `wearScale` scales the block's displacement (walls.cat `wear`; 0 = flat) and
+// `columns` gates a wall's edge pillars. Defaults (1, true) reproduce the
+// original worn blocks.
 bool BakeWornTiers(int kind, const std::string& texture, float relief, u32 seed,
-				   const std::string& modelsDir, const std::string& texturesDir) {
+				   const std::string& modelsDir, const std::string& texturesDir,
+				   float wearScale = 1.0f, bool columns = true) {
 	struct Tier {
 		const char* suffix;
 		int wallX, wallY, floor, ceiling;
@@ -1717,21 +1932,30 @@ bool BakeWornTiers(int kind, const std::string& texture, float relief, u32 seed,
 	static const Tier tiers[] = {
 		{"low", 14, 16, 14, 12}, {"med", 34, 36, 34, 29}, {"high", 53, 56, 53, 43}};
 
+	relief *= wearScale;
+	const bool flat = wearScale <= 0.0f; // no displacement — bake a bare quad
 	const TextureHeight height(std::format("{}\\{}_1k_n.png", texturesDir, texture));
-	if (!height.IsValid())
+	if (!flat && !height.IsValid())
 		log::Warn("{}: no packed height map — baking procedural wear "
 				  "(run tools/FetchTextures.ps1, then rebake)", texture);
 	bool ok = true;
 	for (const Tier& tier : tiers) {
 		const std::string out =
 			std::format("{}\\worn_{}_{}.gltf", modelsDir, texture, tier.suffix);
-		if (kind == 0)
-			ok &= WriteGltf(BuildWornWallBlock(tier.wallX, tier.wallY,
-											   height.IsValid()
+		if (kind == 0) {
+			// Flat: a single quad spanning the panel (kNx=kNy=1) with a zero wear
+			// field, regardless of tier. Worn: the tier grid, height-map- or
+			// procedurally-displaced.
+			const int nx = flat ? 1 : tier.wallX, ny = flat ? 1 : tier.wallY;
+			ok &= WriteGltf(BuildWornWallBlock(nx, ny,
+											   flat ? WearField([](float, float) { return 0.0f; })
+											   : height.IsValid()
 												   ? TextureWallWear(height, relief, tier.wallX,
 																	 tier.wallY, seed)
-												   : WearField(WallWearDepth)),
+												   : WearField(WallWearDepth),
+											   columns),
 							out);
+		}
 		else if (kind == 1)
 			ok &= WriteGltf(BuildWornFloorBlock(tier.floor,
 												height.IsValid()
@@ -1755,6 +1979,10 @@ bool BakeWornTiers(int kind, const std::string& texture, float relief, u32 seed,
 bool BakeModels(const std::string& dir, const std::string& texturesDir) {
 	bool ok = true;
 	ok &= WriteGltf(BuildWallBlock(), dir + "\\wall_block.gltf");
+	ok &= WriteGltf(BuildWallNiche(), dir + "\\wall_niche.gltf");
+	ok &= WriteGltf(BuildWallNicheArch(), dir + "\\wall_niche_arch.gltf");
+	ok &= WriteGltf(BuildWallWindow(), dir + "\\wall_window.gltf");
+	ok &= WriteGltf(BuildWallWindowRect(), dir + "\\wall_window_rect.gltf");
 	ok &= WriteGltf(BuildFloorBlock(), dir + "\\floor_block.gltf");
 	ok &= WriteGltf(BuildCeilingBlock(), dir + "\\ceiling_block.gltf");
 
@@ -1819,12 +2047,12 @@ bool BakeModels(const std::string& dir, const std::string& texturesDir) {
 }
 
 bool BakeWornBlocks(const std::string& kind, const std::string& name,
-					const std::string& assetsDir) {
+					const std::string& assetsDir, float wearScale, bool columns) {
 	const int k = kind == "floor" ? 1 : (kind == "ceiling" ? 2 : 0);
 	const float relief = k == 2 ? 0.08f : (k == 1 ? 0.045f : 0.055f);
 	const u32 seed = static_cast<u32>(std::hash<std::string>{}(name)) | 1u;
 	return BakeWornTiers(k, name, relief, seed, assetsDir + "\\models",
-						 assetsDir + "\\textures");
+						 assetsDir + "\\textures", wearScale, columns);
 }
 
 } // namespace dungeon::baker

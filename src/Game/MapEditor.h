@@ -52,7 +52,8 @@ public:
 	// last (it sizes the per-category open-state array).
 	enum class PaletteCat {
 		Walls, Floors, Ceilings,
-		Decorations, Fixtures, Monsters, Buttons, Doors, Stairs, Items, Count
+		Decorations, Fixtures, Monsters, Buttons, Doors, Stairs, Items, WallFeatures,
+		Count
 	};
 
 	MapEditor(MapView& view, DungeonWorld& world, GameSettings& settings);

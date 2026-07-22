@@ -164,8 +164,9 @@ bool WriteSave(const SaveData& data, const std::string& path) {
 			case EntityKind::Item:
 				if (e.id >= 0) // baseline rune lifted off the floor: a one-bit diff
 					t += std::format("item {}\n", e.id);
-				else // dropped tablet (no baseline): store it whole at its cell + slot
-					t += std::format("drop {} {} {} {}\n", e.type, e.x, e.z, e.slot);
+				else // dropped tablet (no baseline): cell + slot, + niche wall (v21)
+					t += std::format("drop {} {} {} {} {}\n", e.type, e.x, e.z, e.slot,
+									 e.niche);
 				break;
 			case EntityKind::Button: // baseline button toggle, keyed by id
 				t += std::format("button {} {}\n", e.id, e.activated ? 1 : 0);
@@ -176,6 +177,9 @@ bool WriteSave(const SaveData& data, const std::string& path) {
 			default: break; // decorations are static (.map) — never saved
 			}
 		}
+		// v20: wall-niche reveal-state diffs (open != authored default).
+		for (const SaveData::NicheOpen& n : lvl.niches)
+			t += std::format("niche {} {} {} {}\n", n.x, n.z, n.wall, n.open ? 1 : 0);
 		if (!lvl.seen.empty()) {
 			t += "seen";
 			for (const auto& [x, z] : lvl.seen) t += std::format(" {},{}", x, z);
@@ -455,7 +459,8 @@ std::optional<SaveData> ReadSave(const std::string& path) {
 			e.type = std::string(tok[1]);
 			e.x = IntOf(tok[2]);
 			e.z = IntOf(tok[3]);
-			if (tok.size() >= 5) e.slot = IntOf(tok[4]); // older saves omit it
+			if (tok.size() >= 5) e.slot = IntOf(tok[4]);  // older saves omit it
+			if (tok.size() >= 6) e.niche = IntOf(tok[5]); // v21: wall niche it fell into
 			currentBlock().entities.push_back(e);
 		} else if (kw == "button" && tok.size() >= 3) {
 			// Baseline button toggle (v7 diff): id activated.
@@ -484,6 +489,14 @@ std::optional<SaveData> ReadSave(const std::string& path) {
 			SaveData::LevelState& lvl = currentBlock();
 			lvl.entities.push_back(e);
 			lvl.fullFloorSnapshot = true;
+		} else if (kw == "niche" && tok.size() >= 5) {
+			// v20: a wall-niche reveal-state diff: <x> <z> <wall> <open>.
+			SaveData::NicheOpen n;
+			n.x = IntOf(tok[1]);
+			n.z = IntOf(tok[2]);
+			n.wall = IntOf(tok[3]);
+			n.open = IntOf(tok[4]) != 0;
+			currentBlock().niches.push_back(n);
 		} else if (kw == "seen") {
 			SaveData::LevelState& lvl = currentBlock();
 			for (size_t i = 1; i < tok.size(); ++i) {

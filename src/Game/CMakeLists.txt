@@ -13,6 +13,8 @@ add_library(Game STATIC
 	DungeonMap.cpp
 	DungeonMeshBuilder.cpp
 	DungeonWorld.cpp
+	DungeonWorld_Combat.cpp
+	DungeonWorld_Editing.cpp
 	DungeonWorld_Load.cpp
 	DungeonWorld_Render.cpp
 	DungeonWorld_Save.cpp
@@ -21,6 +23,10 @@ add_library(Game STATIC
 	FireEffect.cpp
 	FixtureInspector.cpp
 	Game.cpp
+	Game_DevCommands.cpp
+	Game_Editor.cpp
+	Game_Inspect.cpp
+	Game_Wiring.cpp
 	GameSettings.cpp
 	GameUI.cpp
 	InspectPicker.cpp
@@ -31,6 +37,7 @@ add_library(Game STATIC
 	MapView.cpp
 	MonsterAI.cpp
 	MonsterConfigDialog.cpp
+	NicheInspector.cpp
 	MessageLog.cpp
 	Party.cpp
 	PartyHud.cpp
@@ -64,5 +71,6 @@ add_library(Game STATIC
 	Spell/Waterveil.cpp
 	Spell/Windward.cpp
 	Spells.cpp
+	WallStyleDialog.cpp
 )
 target_link_libraries(Game PUBLIC Core Platform Assets Animation Graphics UI Audio)

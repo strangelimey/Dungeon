@@ -42,6 +42,7 @@ constexpr CatInfo kCategoryInfo[] = {
 	{"map.cat.fixtures", "fixtures", false}, {"map.cat.monsters", "monsters", false},
 	{"map.cat.buttons", "buttons", false},  {"map.cat.doors", "doors", false},
 	{"map.cat.stairs", "stairs", false},    {"map.cat.items", "items", false},
+	{"map.cat.wallfeatures", "wallfeatures", false},
 };
 static_assert(sizeof(kCategoryInfo) / sizeof(kCategoryInfo[0]) ==
 				  static_cast<size_t>(MapEditor::PaletteCat::Count),
@@ -118,6 +119,7 @@ std::vector<MapEditor::PaletteItem> MapEditor::CategoryItems(PaletteCat cat) con
 	case PaletteCat::Doors:       return catalogItems(proj.doors, kDoor);
 	case PaletteCat::Stairs:      return catalogItems(proj.stairs, kStair);
 	case PaletteCat::Items:       return catalogItems(proj.items, kItem);
+	case PaletteCat::WallFeatures: return catalogItems(proj.wallfeatures, kDecoration);
 	default:                      return {};
 	}
 }
@@ -321,8 +323,11 @@ bool MapEditor::OnRightClick(float mx, float my, const gfx::Rect& panel) {
 	BuildPaletteRows(panel, rows, content);
 	for (const PaletteRow& r : rows) {
 		if (!r.rect.Contains(mx, my)) continue;
-		// Only items in a configurable category open a config dialog (Monsters).
-		if (r.kind == PaletteRow::Kind::Item && r.cat == PaletteCat::Monsters && onConfigure) {
+		// Items in a configurable category open a config dialog: Monsters (their
+		// animation/behaviour) and surfaces (their geometry style — worn/columns).
+		if (r.kind == PaletteRow::Kind::Item && onConfigure &&
+			(r.cat == PaletteCat::Monsters || r.cat == PaletteCat::Walls ||
+			 r.cat == PaletteCat::Floors || r.cat == PaletteCat::Ceilings)) {
 			const std::vector<PaletteItem> items = CategoryItems(r.cat);
 			if (r.index >= 0 && r.index < static_cast<int>(items.size()))
 				onConfigure(r.cat, items[r.index].id);
@@ -378,6 +383,7 @@ void MapEditor::ApplyBrush(int cx, int cz, bool dragging) {
 	case PaletteCat::Monsters:
 	case PaletteCat::Buttons:
 	case PaletteCat::Items:
+	case PaletteCat::WallFeatures:
 	case PaletteCat::Fixtures: {
 		if (dragging) break; // placement is a single click
 		const std::vector<PaletteItem> items = CategoryItems(m_sel.cat);
@@ -390,12 +396,32 @@ void MapEditor::ApplyBrush(int cx, int cz, bool dragging) {
 		else if (m_sel.cat == PaletteCat::Fixtures)
 			ok = remote ? m_world.AddFixtureRemote(stem, id, cx, cz)
 						: m_world.AddFixture(id, cx, cz);
+		else if (m_sel.cat == PaletteCat::WallFeatures) {
+			// A `bore` feature (a see-through window) is placed on the SOLID wall
+			// block it bores; a niche mounts on a floor cell.
+			if (CatalogBool(m_world.GetProject().wallfeatures.Find(id), "bore", false))
+				ok = m_world.AddBore(id, cx, cz); // active level only for now
+			else
+				ok = remote ? m_world.AddNicheRemote(stem, id, cx, cz)
+							: m_world.AddNiche(id, cx, cz);
+		}
 		else if (m_sel.cat == PaletteCat::Buttons)
 			ok = remote ? m_world.AddButtonRemote(stem, id, cx, cz)
 						: m_world.AddButton(id, cx, cz);
-		else if (m_sel.cat == PaletteCat::Items)
+		else if (m_sel.cat == PaletteCat::Items) {
+			// A niche on the clicked WALL takes the item (piled in its pocket);
+			// a floor cell places on the floor as usual.
+			if (!remote)
+				if (auto faces = m_world.NicheFacesAt(cx, cz); !faces.empty()) {
+					ok = m_world.AddNicheItem(id, faces[0].x, faces[0].z, faces[0].wall);
+					log(loc::Format(ok ? "map.place.done" : "map.place.blocked",
+									items[m_sel.index].label));
+					changed = ok;
+					break;
+				}
 			ok = remote ? m_world.AddItemRemote(stem, id, cx, cz)
 						: m_world.AddItem(id, cx, cz);
+		}
 		else
 			ok = remote ? m_world.AddDecorationRemote(stem, id, cx, cz)
 						: m_world.AddDecoration(id, cx, cz, Direction::South);
@@ -629,7 +655,8 @@ void MapEditor::EraseAt(int cx, int cz) {
 		m_world.EraseRemote(stem, cx, cz);
 	} else if (m_world.RemoveStairAt(cx, cz)) {
 		// stairs message themselves (they name the paired level's cleanup)
-	} else if (m_world.RemoveEntityAt(cx, cz) || m_world.RemoveFixtureAt(cx, cz)) {
+	} else if (m_world.RemoveEntityAt(cx, cz) || m_world.RemoveFixtureAt(cx, cz) ||
+			   m_world.RemoveNicheAtWall(cx, cz) || m_world.RemoveBoreAt(cx, cz)) {
 		log(loc::Tr("map.erase.removed"));
 	} else {
 		m_world.EditVariant(cx, cz, SS::Wall, -1);

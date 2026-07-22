@@ -252,15 +252,24 @@ void DungeonWorld::SubmitSceneGeometry(ID3D12GraphicsCommandList* list,
 	if (m_runeMesh) {
 		for (const Item& item : m_items) {
 			if (item.collected) continue;
-			const Vec3 c = SlotCenter(item.x, item.z, SizeClass::Medium, item.slot);
-			if (!visible({c.x, 0.3f, c.z}, 0.8f)) continue;
-			// A model item (e.g. a weapon) draws as its actual 3D model on the floor
-			// (grounded via GroundOffsetY, real-size), each part with its own
-			// material — not the tablet.
+			// Niche items sit in the wall pocket (piled at one spot) and only show
+			// while the niche is OPEN — a closed niche conceals its treasure.
+			Vec3 c;
+			if (item.niche >= 0) {
+				const Direction wall = static_cast<Direction>(item.niche);
+				if (!NicheOpenAt(item.x, item.z, wall)) continue;
+				c = NicheItemPos(item.x, item.z, wall);
+			} else {
+				c = SlotCenter(item.x, item.z, SizeClass::Medium, item.slot);
+			}
+			if (!visible({c.x, c.y + 0.3f, c.z}, 0.8f)) continue;
+			// A model item (e.g. a weapon) draws as its actual 3D model, grounded on
+			// the floor (or the pocket floor c.y) via GroundOffsetY, each part with
+			// its own material — not the tablet.
 			if (item.kind->model) {
 				Mat4 w = Mat4Identity();
 				w._41 = c.x;
-				w._42 = item.kind->model->GroundOffsetY();
+				w._42 = c.y + item.kind->model->GroundOffsetY();
 				w._43 = c.z;
 				DrawMultiMaterial(list, *item.kind->model, w);
 				continue;
@@ -272,6 +281,7 @@ void DungeonWorld::SubmitSceneGeometry(ID3D12GraphicsCommandList* list,
 			Mat4 world = Mat4Identity();
 			world._11 = world._22 = world._33 = scale;
 			world._41 = c.x;
+			world._42 = c.y; // 0 on the floor; pocket-floor height in a niche
 			world._43 = c.z;
 			gfx::MaterialParams material;
 			material.doubleSided = false; // authored slab: back-cull
@@ -355,7 +365,7 @@ void DungeonWorld::DrawSurface(ID3D12GraphicsCommandList* list,
 		// unused here; the ORM map (when present) drives roughness/metallic.
 		gfx::MaterialParams material;
 		ApplyPbr(material, surface.albedo[v].get(), surface.normal[v].get(),
-				 surface.mr[v].get(), surface.heightScale, {}, 0.0f);
+				 surface.mr[v].get(), surface.heightScale[v], {}, 0.0f);
 		m_renderer.DrawMesh(list, *chunk.mesh, identity, material);
 	}
 }
