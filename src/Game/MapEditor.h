@@ -18,6 +18,7 @@
 #pragma once
 
 #include "Core/MathTypes.h"        // Vec4
+#include "Game/Entity.h"           // Direction, WallFace
 #include "Graphics/SpriteBatch.h"  // gfx::Rect, gfx::SpriteBatch
 #include "UI/UIContext.h"          // ui::Theme
 
@@ -121,7 +122,15 @@ public:
 	// a fresh press and per-frame while held; `dragging` is true for held strokes
 	// (only paint brushes act on a drag; placement acts on the click only). A
 	// no-op until a palette row is armed.
-	void Paint(int cx, int cz, bool dragging) { ApplyBrush(cx, cz, dragging); }
+	void Paint(int cx, int cz, bool dragging, const WallFace& face = {}) {
+		ApplyBrush(cx, cz, dragging, face);
+	}
+	// True when the armed brush hangs on a WALL FACE rather than occupying a
+	// square: a niche, or any catalog kind declaring `mount = wall` (the sconce
+	// today, any future wall decoration for free). MapView keys its edge-pick and
+	// hover highlight off this, so adding a wall-mounted kind is a catalog edit,
+	// not a code change.
+	bool BrushIsWallMounted() const;
 	// Modifier gestures (MapView routes by the modifier held at the press).
 	// All three work on the paint brushes (the surface categories);
 	// rect/flood fall back to a normal click for the placement categories.
@@ -152,7 +161,9 @@ public:
 	void InspectAt(int cx, int cz);
 	// The former Erase tool, now on middle-click: the removal ladder (stair pair
 	// → entity → fixture → reset surface variants), one undo step per click.
-	void EraseAt(int cx, int cz);
+	// `face` (when valid) is the wall face under the pointer, so a niche on a
+	// specific face erases precisely; invalid falls back to the cell-wide ladder.
+	void EraseAt(int cx, int cz, const WallFace& face = {});
 	// Draws the accordion inside the left dock body. MapView draws the dock frame,
 	// collapse button and "Brushes" header around it; this scissors to the body.
 	void RenderBody(gfx::SpriteBatch& batch, const ui::Theme& theme,
@@ -232,7 +243,7 @@ private:
 						  float& contentHeight) const;
 	// Applies the armed selection to cell (cx,cz): structural/variant paints, tool
 	// actions, or entity placement.
-	void ApplyBrush(int cx, int cz, bool dragging);
+	void ApplyBrush(int cx, int cz, bool dragging, const WallFace& face = {});
 	// True for the brushes that PAINT cells (rect/flood/drag apply); the
 	// placement categories act per click only.
 	static bool PaintableCat(PaletteCat cat) {

@@ -811,11 +811,17 @@ memory.
   a link):
   - `assets\textures` — whole dir, BOTH `.dds` (BC7) and source `.png` (dds-only
     still renders magenta; ~273 dds + ~261 png).
-  - `assets\models\*.glb` — the 5 imported authored meshes (viking_dagger,
-    french_dagger, khukri, snake_dagger, leather_armor) — PLUS the bought rigged
-    monsters, gitignored BY NAME despite the `.gltf` extension (centipede.gltf,
-    giant_spider.gltf — embedded-texture GLBs inside; see .gitignore). Committed
-    `.gltf` models come with the checkout; only those files need copying.
+  - `assets\models` gitignored files — the imported authored meshes (`.glb`) AND
+    the bought rigged monsters gitignored BY NAME despite the `.gltf` extension
+    (embedded-texture GLBs inside), each often with an `.anim.cat` sidecar.
+    DON'T trust a hardcoded list — the set GROWS over time (the daggers +
+    centipede/giant_spider were once "the whole list", then a skeleton-warrior
+    kit — skel_bare/berserker/spearman/warrior + their .anim.cat — was added and
+    an old-list provision still aborted on `skel_warrior.gltf`, 2026-07-21).
+    DISCOVER the real set from a populated sibling and copy exactly those:
+    `git -C <populated> status --ignored --porcelain assets/models | grep '^!!'`
+    (or just robocopy the whole `assets\models` dir — the committed `.gltf` that
+    come with the checkout copy identically, so it's safe and future-proof).
   - then `robocopy <new>\assets <new>\build\<cfg>\bin\assets /MIR`.
   Use BACKSLASH paths (robocopy rejects forward slashes → copies nothing) and
   VERIFY with a file count afterward — robocopy returns exit 0 when it copied

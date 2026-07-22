@@ -722,6 +722,17 @@ DungeonWorld::ItemKind& DungeonWorld::ItemKindFor(const std::string& type) {
 		if (!m_runeMesh) {
 			m_runeModel = LoadModelOrDie("rune_tablet.gltf");
 			m_runeMesh = std::make_unique<gfx::Mesh>(m_device, m_runeModel.meshes[0]);
+			// Cache the tablet AABB so the floor draw can tip it flat + re-ground.
+			m_runeBoundsMin = {1e9f, 1e9f, 1e9f};
+			m_runeBoundsMax = {-1e9f, -1e9f, -1e9f};
+			for (const auto& v : m_runeModel.meshes[0].vertices) {
+				m_runeBoundsMin = {std::min(m_runeBoundsMin.x, v.position.x),
+								   std::min(m_runeBoundsMin.y, v.position.y),
+								   std::min(m_runeBoundsMin.z, v.position.z)};
+				m_runeBoundsMax = {std::max(m_runeBoundsMax.x, v.position.x),
+								   std::max(m_runeBoundsMax.y, v.position.y),
+								   std::max(m_runeBoundsMax.z, v.position.z)};
+			}
 		}
 		// RUNES are the built-out specialization — category=rune, symbol=<sym>.
 		if (kind->category == "rune") {

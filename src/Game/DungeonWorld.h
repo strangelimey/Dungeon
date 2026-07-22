@@ -354,6 +354,9 @@ public:
 	bool AnyInspectableAt(int cx, int cz) const;
 	// Erase a fixture (sconce or brazier) at the cell, live (rebuilds fires/dust).
 	bool RemoveFixtureAt(int cx, int cz);
+	// Removes the sconce on ONE named face (the editor's edge-pick). A cell can
+	// ring itself with a sconce per wall, so the cell-wide call picks arbitrarily.
+	bool RemoveFixtureAtFace(int x, int z, Direction wall);
 
 	// Everything the editor's monster-config dialog preview needs to animate a
 	// type's mesh: the (stable, cached) mesh + skeleton + clips a borrowed Animator
@@ -492,19 +495,34 @@ public:
 	// when the cell is solid, the type is unknown, or (monsters) the cell is
 	// already occupied. Edits are in-memory only (no .map/.ent write yet).
 	bool AddDecoration(const std::string& type, int x, int z, Direction facing);
+	// Hangs a `mount = wall` decoration flat on ONE wall of (x,z) — the editor's
+	// edge-pick names the face. Mounts like a sconce (offset to the wall, turned
+	// into the room), non-solid so the floor stays clear, and round-trips as the
+	// record's `wall=` param. False if that neighbour isn't solid.
+	bool AddWallDecoration(const std::string& type, int x, int z, Direction wall);
 	bool AddMonster(const std::string& type, int x, int z, Direction facing);
 	// Places a fixture (sconce/brazier from fixtures.cat — `mount` decides wall vs
 	// floor) and rebuilds the fire instances + dust so it lights immediately and
 	// persists. Returns false on an invalid cell (e.g. a sconce with no wall).
 	bool AddFixture(const std::string& type, int x, int z);
+	// Same, but hangs a wall kind on the NAMED face (the editor's edge-pick). A
+	// floor kind ignores the face and stands at the cell centre.
+	bool AddFixture(const std::string& type, int x, int z, Direction wall);
 	// Places a wall niche (wallfeatures.cat) on a free solid wall of (x,z) and
 	// re-stamps the cell's wall panel as the recessed niche. False if no free
 	// solid wall. Removes it with RemoveNicheAt.
 	bool AddNiche(const std::string& type, int x, int z);
+	// Same, but carves the NAMED face (the editor's edge-pick), so a corridor's
+	// two walls — or a lone block's four — are each addressable. False if that
+	// neighbour isn't solid or the face already holds a niche.
+	bool AddNiche(const std::string& type, int x, int z, Direction wall);
 	// Bores a see-through window (wallfeatures.cat `type`) through solid wall block
 	// (x,z) and re-stamps the two flanking faces. False if it isn't a 1-block wall
 	// between two spaces.
 	bool AddBore(const std::string& type, int x, int z);
+	// Same, along an EXPLICIT axis (0 = X, 1 = Z) — the editor derives it from
+	// the wall face pointed at, so a free-standing block can be bored either way.
+	bool AddBore(const std::string& type, int x, int z, int axis);
 	bool RemoveBoreAt(int x, int z);
 	// True if solid cell (x,z) can be seen/shot through along `axis` (0=X, 1=Z).
 	// Permanent bores now; a future see-through SPELL layers a transient set here,
@@ -513,6 +531,10 @@ public:
 	// Removes the niche carved into solid wall block (wx,wz) — the erase tool
 	// selects niches by their wall, matching the inspector.
 	bool RemoveNicheAtWall(int wx, int wz);
+	// Removes the niche on ONE named face. Now that faces are individually
+	// placeable, a block can hold several niches — this erases the one pointed
+	// at instead of whichever RemoveNicheAtWall happens to find first.
+	bool RemoveNicheAtFace(int x, int z, Direction wall);
 	// Removes the topmost runtime entity in a cell (a monster first, then a
 	// door — live instance + its .ent record — else a decoration). Stair props
 	// are skipped — a stair is link + prop + a paired record on another level,
@@ -644,6 +666,14 @@ public:
 						  int x, int z);
 	bool AddNicheRemote(const std::string& stem, const std::string& type, int x,
 						int z);
+	// Wall-face variants of the three above (the editor's edge-pick, applied to a
+	// browsed level's stash rather than the live world).
+	bool AddDecorationRemote(const std::string& stem, const std::string& type,
+							 int x, int z, Direction wall);
+	bool AddFixtureRemote(const std::string& stem, const std::string& type, int x,
+						  int z, Direction wall);
+	bool AddNicheRemote(const std::string& stem, const std::string& type, int x,
+						int z, Direction wall);
 	bool AddDoorRemote(const std::string& stem, const std::string& type, int x,
 					   int z);
 	bool AddButtonRemote(const std::string& stem, const std::string& type, int x,
@@ -1686,6 +1716,9 @@ private:
 	// draws this mesh with its own element texture set.
 	assets::ModelData m_runeModel;
 	std::unique_ptr<gfx::Mesh> m_runeMesh;
+	// Tablet AABB, cached on load so the floor draw (FloorItemWorld) can lay the
+	// upright slab flat and re-ground it without rescanning the mesh each frame.
+	Vec3 m_runeBoundsMin{}, m_runeBoundsMax{};
 	// Ids for items dropped at runtime (not from the .ent baseline, which use
 	// id >= 0). Decreasing from -2 so each dropped tablet has a unique save id
 	// (-1 is the "no id" sentinel).

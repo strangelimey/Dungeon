@@ -156,6 +156,30 @@ bool DungeonWorld::AddDecoration(const std::string& type, int x, int z,
 	return true;
 }
 
+bool DungeonWorld::AddWallDecoration(const std::string& type, int x, int z,
+									 Direction wall) {
+	if (!m_map.IsWalkable(x, z)) return false;
+	if (m_map.IsWalkable(x + DirDX(wall), z + DirDZ(wall))) return false; // nothing to hang on
+	if (!m_project.decorations.Contains(type)) return false;
+	DecorationKind& kind = DecorationKindFor(type, m_project.decorations);
+	Decoration deco;
+	deco.kind = &kind;
+	deco.x = x;
+	deco.z = z;
+	deco.facing = wall;
+	deco.wallMounted = true; // written back as the `wall=` record param
+	deco.wall = wall;
+	// Offset to the wall face and turned to look into the room — the same mount
+	// helper the sconces use, so hung props line up with them.
+	const WallMount m = MountOnWall(x, z, wall);
+	XMStoreFloat4x4(&deco.world, XMMatrixRotationY(m.yaw) *
+									 XMMatrixTranslation(m.pos.x, 0, m.pos.z));
+	deco.solid = false; // it's on the wall — the floor stays walkable
+	m_decorations.push_back(std::move(deco));
+	MarkSeen(x, z);
+	return true;
+}
+
 bool DungeonWorld::AddMonster(const std::string& type, int x, int z,
 							  Direction facing) {
 	if (!m_map.IsWalkable(x, z)) return false;
@@ -186,10 +210,37 @@ bool DungeonWorld::AddFixture(const std::string& type, int x, int z) {
 	return true;
 }
 
+bool DungeonWorld::AddFixture(const std::string& type, int x, int z,
+							  Direction wall) {
+	if (!m_map.IsWalkable(x, z)) return false;
+	const CatalogEntry* def = m_project.fixtures.Find(type);
+	// Only a `mount = wall` kind has a face to hang on; a floor kind (brazier)
+	// ignores the pick and stands at the cell centre as usual.
+	if (CatalogGet(def, "mount", "floor") != "wall") return AddFixture(type, x, z);
+	if (!m_map.AddSconce(x, z, type, CatalogBool(def, "flame", true), wall))
+		return false;
+	RebuildFiresAndDust();
+	MarkSeen(x, z);
+	return true;
+}
+
 bool DungeonWorld::AddNiche(const std::string& type, int x, int z) {
 	if (!m_map.AddNiche(x, z, type)) return false; // no free solid wall
 	RebuildChunksAround(x, z); // re-stamp the cell's wall panel as the niche
 	MarkSeen(x, z);
+	return true;
+}
+
+bool DungeonWorld::AddNiche(const std::string& type, int x, int z, Direction wall) {
+	if (!m_map.AddNiche(x, z, type, wall)) return false; // not solid, or face taken
+	RebuildChunksAround(x, z); // re-stamp that face's wall panel as the niche
+	MarkSeen(x, z);
+	return true;
+}
+
+bool DungeonWorld::RemoveNicheAtFace(int x, int z, Direction wall) {
+	if (!m_map.RemoveNiche(x, z, wall)) return false;
+	RebuildChunksAround(x, z); // re-stamp that face as a plain wall panel again
 	return true;
 }
 
@@ -202,6 +253,18 @@ bool DungeonWorld::RemoveNicheAtWall(int wx, int wz) {
 bool DungeonWorld::AddBore(const std::string& type, int x, int z) {
 	if (!m_map.AddBore(type, x, z)) return false;
 	RebuildChunksAround(x, z); // re-stamps the two flanking floor cells' faces
+	return true;
+}
+
+bool DungeonWorld::AddBore(const std::string& type, int x, int z, int axis) {
+	if (!m_map.AddBore(type, x, z, axis)) return false;
+	RebuildChunksAround(x, z); // re-stamps the two flanking floor cells' faces
+	return true;
+}
+
+bool DungeonWorld::RemoveFixtureAtFace(int x, int z, Direction wall) {
+	if (!m_map.RemoveSconceAt(x, z, wall)) return false;
+	RebuildFiresAndDust(); // the light/flame/smoke instance goes with it
 	return true;
 }
 
@@ -910,6 +973,24 @@ bool DungeonWorld::AddDecorationRemote(const std::string& stem,
 	return true;
 }
 
+bool DungeonWorld::AddDecorationRemote(const std::string& stem,
+									   const std::string& type, int x, int z,
+									   Direction wall) {
+	DungeonMap& map = EnsureMapStash(stem);
+	if (!map.IsWalkable(x, z) || !m_project.decorations.Contains(type))
+		return false;
+	if (map.IsWalkable(x + DirDX(wall), z + DirDZ(wall))) return false; // nothing to hang on
+	Entity e;
+	e.kind = EntityKind::Decoration;
+	e.type = type;
+	e.x = x;
+	e.z = z;
+	e.facing = wall;
+	e.params.emplace_back("wall", DirName(wall)); // hangs flat on that wall
+	map.AddDecorationRecord(std::move(e));
+	return true;
+}
+
 bool DungeonWorld::AddMonsterRemote(const std::string& stem,
 									const std::string& type, int x, int z) {
 	DungeonEntities& ents = EnsureEntStash(stem);
@@ -939,10 +1020,27 @@ bool DungeonWorld::AddFixtureRemote(const std::string& stem,
 			   : map.AddBrazier(x, z, type, lit);
 }
 
+bool DungeonWorld::AddFixtureRemote(const std::string& stem,
+									const std::string& type, int x, int z,
+									Direction wall) {
+	DungeonMap& map = EnsureMapStash(stem);
+	const CatalogEntry* def = m_project.fixtures.Find(type);
+	if (!def) return false;
+	// Only a wall kind has a face; a floor kind ignores the pick (see AddFixture).
+	if (def->Get("mount", "floor") != "wall")
+		return AddFixtureRemote(stem, type, x, z);
+	return map.AddSconce(x, z, type, CatalogBool(def, "flame", true), wall);
+}
+
 bool DungeonWorld::AddNicheRemote(const std::string& stem, const std::string& type,
 								  int x, int z) {
 	// Edits the level's stashed map; MapView rebuilds the browse snapshot after.
 	return EnsureMapStash(stem).AddNiche(x, z, type);
+}
+
+bool DungeonWorld::AddNicheRemote(const std::string& stem, const std::string& type,
+								  int x, int z, Direction wall) {
+	return EnsureMapStash(stem).AddNiche(x, z, type, wall);
 }
 
 void DungeonWorld::EraseRemote(const std::string& stem, int x, int z) {

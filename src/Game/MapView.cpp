@@ -275,15 +275,59 @@ bool MapView::CellVisible(int x, int z) const {
 
 bool MapView::CellAt(float px, float py, const gfx::Rect& panel, int& outX,
 					 int& outZ) const {
+	float fx, fz; // discarded — the integer cell is all this overload promises
+	return CellAtF(px, py, panel, outX, outZ, fx, fz);
+}
+
+bool MapView::CellAtF(float px, float py, const gfx::Rect& panel, int& outX,
+					  int& outZ, float& outFx, float& outFz) const {
 	const Transform t = ComputeTransform(panel);
 	if (t.cell <= 0.0f) return false;
-	const int x = static_cast<int>(std::floor((px - t.ox) / t.cell));
-	const int z = static_cast<int>(std::floor((py - t.oy) / t.cell));
+	const float gx = (px - t.ox) / t.cell; // grid space, 1 unit = 1 cell
+	const float gz = (py - t.oy) / t.cell;
+	const int x = static_cast<int>(std::floor(gx));
+	const int z = static_cast<int>(std::floor(gz));
 	const DungeonMap& map = ViewedMap();
 	if (x < 0 || z < 0 || x >= map.Width() || z >= map.Height()) return false;
 	outX = x;
 	outZ = z;
+	outFx = gx - static_cast<float>(x); // 0 at the west edge, 1 at the east
+	outFz = gz - static_cast<float>(z); // 0 at the north edge, 1 at the south
 	return true;
+}
+
+WallFace MapView::FaceAt(float px, float py, const gfx::Rect& panel) const {
+	WallFace face;
+	int cx, cz;
+	float fx, fz;
+	if (!CellAtF(px, py, panel, cx, cz, fx, fz)) return face;
+	const DungeonMap& map = ViewedMap();
+	// Rank the four edges by how near the pointer landed to each — the diagonals
+	// of the square partition it into one triangle per edge, and the smallest of
+	// these four distances is the triangle the pointer is in.
+	struct Candidate {
+		float dist;
+		Direction dir;
+	};
+	// (not `near` — that is a legacy Windows macro and cannot be an identifier.)
+	Candidate edges[4] = {{fz, Direction::North},
+						  {1.0f - fx, Direction::East},
+						  {1.0f - fz, Direction::South},
+						  {fx, Direction::West}};
+	std::sort(std::begin(edges), std::end(edges),
+			  [](const Candidate& a, const Candidate& b) { return a.dist < b.dist; });
+	// Take the nearest edge that is a real floor/rock boundary. Both sides
+	// resolve to the same face: from the floor it is this cell's edge; from the
+	// block it is the neighbour's edge looking back. Out-of-bounds reads as rock
+	// (DungeonMap::At), so the map border can still host a face.
+	const bool here = map.IsWalkable(cx, cz);
+	for (const Candidate& c : edges) {
+		const int nx = cx + DirDX(c.dir), nz = cz + DirDZ(c.dir);
+		const bool there = map.IsWalkable(nx, nz);
+		if (here && !there) return {cx, cz, c.dir, true};
+		if (!here && there) return {nx, nz, DirOpposite(c.dir), true};
+	}
+	return face; // not over any boundary (open floor, or deep inside rock)
 }
 
 bool MapView::Update(const Input& input, const gfx::Rect& panel) {
@@ -330,6 +374,13 @@ bool MapView::Update(const Input& input, const gfx::Rect& panel) {
 	} else {
 		m_hoverX = m_hoverZ = -1;
 	}
+
+	// The wall FACE under the pointer, tracked only while a wall-mounted brush is
+	// armed — that is exactly when the target is an edge rather than a square.
+	// Render draws it, so which face a click will take is visible beforehand.
+	m_hoverFace = {};
+	if (editor && overGrid && m_editor && m_editor->BrushIsWallMounted())
+		m_hoverFace = FaceAt(mx, my, panel);
 
 	// Track the hovered chrome button (Render styles it via the shared
 	// ui::DrawButtonFace). Mirrors the click gating: hidden/unavailable
@@ -510,7 +561,9 @@ bool MapView::Update(const Input& input, const gfx::Rect& panel) {
 	if (editor && m_editor && overGrid &&
 		input.WasMousePressed(MouseButton::Middle)) {
 		if (int cx, cz; CellAt(mx, my, panel, cx, cz)) {
-			m_editor->EraseAt(cx, cz);
+			// Erase resolves its own face (the hover one is only tracked while a
+			// wall brush is armed), so pointing at a wall face erases THAT niche.
+			m_editor->EraseAt(cx, cz, FaceAt(mx, my, panel));
 			// A remote erase edits the browsed level's stash — refresh the view.
 			if (m_browse) m_browse = m_world.BrowseLevel(m_browse->stem);
 			return true;
@@ -538,11 +591,13 @@ bool MapView::Update(const Input& input, const gfx::Rect& panel) {
 			if (alt) m_editor->PickAt(cx, cz); // never mutates — no refresh needed
 			else if (shift) { m_editor->PaintRect(cx, cz); painted = true; }
 			else if (ctrl) { m_editor->FloodFill(cx, cz); painted = true; }
-			else { m_editor->Paint(cx, cz, /*dragging*/ false); painted = true; }
+			// m_hoverFace was resolved from this same pointer position earlier
+			// this frame, so a wall-mounted brush lands on the highlighted face.
+			else { m_editor->Paint(cx, cz, /*dragging*/ false, m_hoverFace); painted = true; }
 		} else if (!shift && !ctrl && !alt &&
 				   input.IsMouseDown(MouseButton::Left) &&
 				   CellAt(mx, my, panel, cx, cz)) {
-			m_editor->Paint(cx, cz, /*dragging*/ true);
+			m_editor->Paint(cx, cz, /*dragging*/ true, m_hoverFace);
 			painted = true;
 		}
 		if (painted && m_browse) m_browse = m_world.BrowseLevel(m_browse->stem);
@@ -733,6 +788,22 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 	// 2) Start cell — an accent outline.
 	if (CellVisible(map.StartX(), map.StartZ()))
 		ui::DrawBorder(batch, cellRect(map.StartX(), map.StartZ()), theme.accent);
+
+	// 2b) Wall-mounted brush: a bar on the FACE the pointer resolved to. Drawn
+	// on the floor-cell side of the boundary, which is the side the thing hangs
+	// on, so the target wall of the target cell is unambiguous before clicking.
+	if (m_hoverFace.valid) {
+		const gfx::Rect r = cellRect(m_hoverFace.x, m_hoverFace.z);
+		const float thick = std::max(2.0f, t.cell * 0.18f);
+		gfx::Rect bar;
+		switch (m_hoverFace.wall) {
+		case Direction::North: bar = {r.x, r.y, r.w, thick}; break;
+		case Direction::South: bar = {r.x, r.y + r.h - thick, r.w, thick}; break;
+		case Direction::West:  bar = {r.x, r.y, thick, r.h}; break;
+		default:               bar = {r.x + r.w - thick, r.y, thick, r.h}; break;
+		}
+		batch.DrawRect(bar, kFaceHighlight);
+	}
 
 	// A baked-icon marker: the kind's own model rendered into a small RT
 	// (UpdateMapIcons), drawn centred at `frac` of the cell. The square+letter
