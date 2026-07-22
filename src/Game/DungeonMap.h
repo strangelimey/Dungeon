@@ -87,6 +87,36 @@ struct FloorBrazier {
 	std::string type = "brazier";
 };
 
+// A wall NICHE: a recessed pocket carved into one solid wall of a walkable cell
+// (`x`,`z` = the cell; `wall` = the direction to the solid neighbour, like a
+// WallSconce). It is not a discrete prop — the mesh builder stamps the
+// wall_niche panel instead of the plain wall panel on that edge (see
+// wall-details.md Phase 2). `type` is the wallfeatures.cat id.
+struct WallNiche {
+	int x = 0, z = 0;
+	Direction wall = Direction::North;
+	std::string type = "niche";
+	// A secret niche starts CLOSED (a blank wall) and is opened by a button whose
+	// target= names it, or the editor's inspector. `name` is that target id (""
+	// = not button-toggleable). `hidden` is the authored start state; `open` is
+	// the runtime visibility (initialised to !hidden). The mesh builder stamps
+	// the niche panel only when `open`, else the plain wall panel.
+	std::string name;
+	bool hidden = false;
+	bool open = true;
+};
+
+// A wall WINDOW/bore: a see-through hole THROUGH a solid wall block (Phase 3).
+// Stored on the SOLID cell it bores; `axis` is the see-through direction
+// (0 = X / east-west, 1 = Z / north-south — the axis whose two flanking cells
+// are floor). LoS + projectiles pass through it; movement does not (the cell
+// stays solid). The mesh builder stamps a bore panel on the two flanking faces.
+struct WallBore {
+	int x = 0, z = 0;
+	int axis = 0;
+	std::string type = "window"; // wallfeatures.cat id (its bore mesh / shape)
+};
+
 // How the parser routes a `fixture <id> ...` record and the 'T'/'F' glyphs
 // without knowing the fixtures catalog: ids listed in `wallMount` become
 // WallSconces (everything else stands on the floor), and the glyphs resolve
@@ -225,6 +255,65 @@ public:
 	const std::vector<WallSconce>& Sconces() const { return m_torches; }
 	const std::vector<FloorBrazier>& Braziers() const { return m_braziers; }
 
+	// Wall niches (recessed pockets). The mesh builder reads NicheAt per edge.
+	const std::vector<WallNiche>& Niches() const { return m_niches; }
+	// The niche on cell (x,z) whose wall faces (dx,dz), or null — the mesh
+	// builder's per-edge query (its `type` resolves to the panel mesh to stamp).
+	const WallNiche* NicheAt(int x, int z, int dx, int dz) const;
+	// Places a niche on the first free solid wall of (x,z) (the sconce mount
+	// rule); false if no free solid wall. Bumps Revision().
+	bool AddNiche(int x, int z, std::string type);
+	// Adds a niche with an explicit wall (the parser + remote/stash editing).
+	// Bumps Revision().
+	void AddNicheRecord(WallNiche n) {
+		m_niches.push_back(std::move(n));
+		++m_revision;
+	}
+	// Removes the niche on (x,z) facing `wall`. Bumps Revision(); false if none.
+	bool RemoveNiche(int x, int z, Direction wall);
+	// Removes the first niche carved into solid wall block (wx,wz) — from any
+	// adjacent floor cell facing it (the erase tool selects niches by their wall,
+	// like the inspector). Bumps Revision(); false if (wx,wz) isn't such a wall.
+	bool RemoveNicheFacingWall(int wx, int wz);
+	// The walls of every niche on (x,z) — several niches may share a cell (a
+	// dead-end has one per solid wall). Drives per-face selection.
+	std::vector<Direction> NicheWallsAt(int x, int z) const;
+	// Sets the (x,z)/`wall` niche's authored props (inspector Save): name, the
+	// hidden start state (resets open = !hidden), and type. Bumps Revision().
+	bool SetNichePropsAt(int x, int z, Direction wall, std::string name, bool hidden,
+						 std::string type);
+	// Sets the (x,z)/`wall` niche's runtime open state (save/load restore of a
+	// revealed secret niche). Bumps Revision() if it changed; false if no match.
+	bool SetNicheOpenAt(int x, int z, Direction wall, bool open);
+	// Resets every niche to its authored open default (open = !hidden) — a new
+	// game re-hides any secret niche opened this session. True if any changed.
+	bool ResetNicheOpen();
+	// Flips `open` on every niche named `name` (a button press). Returns the cells
+	// touched so the caller can rebuild their chunks. Bumps Revision().
+	std::vector<std::pair<int, int>> ToggleNichesNamed(const std::string& name);
+	// Distinct non-empty niche names on the level (the button inspector's targets).
+	std::vector<std::string> NicheNames() const;
+
+	// Wall windows (see-through bores through a solid block). The mesh builder
+	// reads WallBoredAlong per stamped face; LoS/projectiles read it per cell.
+	const std::vector<WallBore>& Bores() const { return m_bores; }
+	// The bore on solid cell (x,z) with the given `axis` (0 = X, 1 = Z), or null —
+	// the mesh builder resolves its `type` to the bore mesh to stamp.
+	const WallBore* BoreAlong(int x, int z, int axis) const;
+	// True if solid cell (x,z) is bored along `axis` (LoS/projectiles).
+	bool WallBoredAlong(int x, int z, int axis) const { return BoreAlong(x, z, axis); }
+	// Bores solid cell (x,z) with `type` along whichever axis has floor on both
+	// sides (a 1-block wall between two spaces). False if it isn't such a wall /
+	// already bored. Bumps Revision().
+	bool AddBore(std::string type, int x, int z);
+	// Adds a bore with an explicit axis (the parser). Bumps Revision().
+	void AddBoreRecord(WallBore b) {
+		m_bores.push_back(std::move(b));
+		++m_revision;
+	}
+	// Removes the first bore on (x,z). Bumps Revision(); false if none.
+	bool RemoveBoreAt(int x, int z);
+
 	// Static decoration records (banners, rubble, ...) from the .map file.
 	const std::vector<Entity>& Decorations() const { return m_decorations; }
 	// Replaces the decoration records wholesale. The static-map stash syncs the
@@ -280,6 +369,8 @@ private:
 	// First solid neighbour wall of (x,z) with no sconce on it yet (the 'T'-glyph
 	// mount rule, skipping occupied walls). False if the cell has no free wall.
 	bool FreeSconceWall(int x, int z, Direction& out) const;
+	// First solid neighbour wall of (x,z) with no niche on it yet.
+	bool FreeNicheWall(int x, int z, Direction& out) const;
 
 	// Shared body of the variant getters/setters (one grid per surface).
 	int VariantAt(const std::vector<int>& grid, int x, int z) const {
@@ -309,6 +400,8 @@ private:
 	std::vector<int> m_wallVar, m_floorVar, m_ceilingVar;
 	std::vector<WallSconce> m_torches;
 	std::vector<FloorBrazier> m_braziers;
+	std::vector<WallNiche> m_niches;
+	std::vector<WallBore> m_bores;
 	std::vector<Entity> m_decorations;
 	std::vector<StairLink> m_stairs;
 	std::vector<std::string> m_wallPalette;   // catalog ids (walls.cat)

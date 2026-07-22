@@ -42,6 +42,7 @@ struct Project {
 	Catalog decorations, fixtures, monsters;
 	Catalog doors, stairs, buttons, items, spells;
 	Catalog attacks, balance;
+	Catalog wallfeatures; // recessed wall niches (Phase 2)
 
 	// The catalog for a kind key ("walls", "floors", "ceilings", "decorations",
 	// "fixtures", "monsters", "doors", "stairs", "buttons", "items", "spells",

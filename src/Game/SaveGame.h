@@ -32,6 +32,13 @@ namespace dungeon::game {
 
 // The serializable dynamic state of one in-progress game.
 struct SaveData {
+	// v21: a DROPPED item that landed in a wall niche carries its wall as a 6th
+	//      token on the "drop" line ("drop <type> <x> <z> <slot> <niche>");
+	//      absent/-1 = an ordinary floor item. Editor-authored niche items ride
+	//      their .ent `niche=` param, so only runtime drops need this.
+	// v20: per-level wall-niche OPEN state ("niche <x> <z> <wall> <open>" line,
+	//      one per niche whose runtime open differs from its authored default —
+	//      a secret niche a button revealed). Absent = every niche at its default.
 	// v18: per-member DEAD flag ("dead" line, written only when set) — the
 	//      unconscious/dead split (docs/combat.md Phase 5). Absent = alive or
 	//      merely unconscious (health 0 self-stabilizes once safe).
@@ -72,7 +79,7 @@ struct SaveData {
 	//     buttons as a diff (keyed by .ent id) or a whole spawn (no baseline);
 	//     replaces the v6 split of "ent"/"monster" rows + a whole "floor" item
 	//     snapshot. v6: free-look offset ("look" line); v5 folded hands into equip[].
-	int version = 19;
+	int version = 21;
 	std::string name;         // display name (free text; may contain spaces)
 	std::string currentLevel; // the level stem the party is on (where to resume)
 	std::string timestamp;    // human-readable local time, for the slot list
@@ -184,6 +191,7 @@ struct SaveData {
 		bool collected = false;                 // item: lifted off the floor
 		int slot = 0;                           // sub-cell slot: item quarter (0..3)
 												// or monster slot on its size's grid
+		int niche = -1;                         // item: wall niche it sits in (-1 = floor)
 		bool activated = false;                 // button: pressed / toggled on
 		std::array<float, 4> threat{};          // monster: per-member aggro (v19)
 		int threatLock = -1;                    // monster: locked member (v19)
@@ -192,10 +200,20 @@ struct SaveData {
 	// Dynamic state of one level: revealed cells (fog, stored whole) + the entity
 	// diff/spawn list. One entry per VISITED level — the world keeps each level's
 	// state so leaving and returning preserves fog/progress (P6 multi-level).
+	// A wall niche whose runtime open state drifted from its authored default
+	// (open != !hidden) — e.g. a secret niche a button opened. Keyed by cell +
+	// wall (a niche is registered on its floor cell, facing a wall direction).
+	struct NicheOpen {
+		int x = 0, z = 0;
+		int wall = 0; // Direction as int
+		bool open = true;
+	};
+
 	struct LevelState {
 		std::string stem;
 		std::vector<std::pair<int, int>> seen;
 		std::vector<EntityState> entities; // all kinds, diffs + spawns
+		std::vector<NicheOpen> niches;     // v20: reveal-state diffs
 		// v6 read compat: a v6 save stored every floor item as a whole "floor"
 		// snapshot (no per-item diff). When loaded, those rows land in `entities`
 		// as Item spawns and this flag is set, so ApplyActiveSnapshot REPLACES the

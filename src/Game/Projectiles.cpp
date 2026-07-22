@@ -76,7 +76,7 @@ void ProjectileSystem::Update(float dt) {
 		it.pos = Add(it.pos, Scale(it.dir, step));
 		it.rangeLeft -= step;
 
-		if (isBlocked && isBlocked(it.pos)) { // hit a wall (or left the map)
+		if (isBlocked && isBlocked(it.pos, it.dir)) { // hit a wall (or left the map)
 			SpawnSparkBurst(it.pos, it.color, 8);
 			if (onFizzle) onFizzle(it.pos);
 			it.rangeLeft = -1.0f;

@@ -73,6 +73,7 @@ void StampCell(const DungeonMap& map, int x, int z, CellHoles holes,
 			   std::span<const assets::MeshData> wallBlocks,
 			   std::span<const assets::MeshData> floorBlocks,
 			   std::span<const assets::MeshData> ceilingBlocks,
+			   const NicheMeshFn& niche, const NicheMeshFn& bore,
 			   std::vector<assets::MeshData>& wallB,
 			   std::vector<assets::MeshData>& floorB,
 			   std::vector<assets::MeshData>& ceilB) {
@@ -124,7 +125,20 @@ void StampCell(const DungeonMap& map, int x, int z, CellHoles holes,
 									  SurfaceVariantFor(wx, wz, 3u, wallVariants), wallVariants);
 		const XMMATRIX m =
 			XMMatrixRotationY(e.yaw) * XMMatrixTranslation(e.pos.x, e.pos.y, e.pos.z);
-		AppendTransformed(wallB[wallVariant], wallBlocks[wallVariant], m);
+		// A niche on this edge stamps its recessed panel in place of the plain
+		// wall panel (into the same variant bucket, so it keeps the wall's
+		// texture); an unknown type or no niche keeps the normal wall block.
+		const assets::MeshData* alt = nullptr;
+		if (niche)
+			// A closed (secret) niche renders as the plain wall until it is opened.
+			if (const WallNiche* n = map.NicheAt(x, z, e.dx, e.dz); n && n->open)
+				alt = niche(n->type);
+		// A bored solid neighbour (a see-through window) stamps its bore panel on
+		// this face (axis 0 = X for a horizontal edge, 1 = Z for a vertical one).
+		if (!alt && bore)
+			if (const WallBore* b = map.BoreAlong(wx, wz, e.dx != 0 ? 0 : 1))
+				alt = bore(b->type);
+		AppendTransformed(wallB[wallVariant], alt ? *alt : wallBlocks[wallVariant], m);
 	}
 }
 
@@ -135,7 +149,9 @@ DungeonGeometry BuildDungeonRegion(const DungeonMap& map,
 								   std::span<const assets::MeshData> floorBlocks,
 								   std::span<const assets::MeshData> ceilingBlocks,
 								   int chunkX, int chunkZ,
-								   const CellHolesFn& holes) {
+								   const CellHolesFn& holes,
+								   const NicheMeshFn& niche,
+								   const NicheMeshFn& bore) {
 	const int chunksX = (map.Width() + kChunkCells - 1) / kChunkCells;
 	const int chunkIndex = chunkZ * chunksX + chunkX;
 	const int x0 = chunkX * kChunkCells, z0 = chunkZ * kChunkCells;
@@ -149,7 +165,7 @@ DungeonGeometry BuildDungeonRegion(const DungeonMap& map,
 		for (int x = x0; x < x1; ++x)
 			if (map.IsWalkable(x, z))
 				StampCell(map, x, z, holes ? holes(x, z) : CellHoles{}, wallBlocks,
-						  floorBlocks, ceilingBlocks, wallB, floorB, ceilB);
+						  floorBlocks, ceilingBlocks, niche, bore, wallB, floorB, ceilB);
 
 	DungeonGeometry geo;
 	Collect(wallB, chunkIndex, geo.walls);
@@ -162,14 +178,17 @@ DungeonGeometry BuildDungeonGeometry(const DungeonMap& map,
 									 std::span<const assets::MeshData> wallBlocks,
 									 std::span<const assets::MeshData> floorBlocks,
 									 std::span<const assets::MeshData> ceilingBlocks,
-									 const CellHolesFn& holes) {
+									 const CellHolesFn& holes,
+									 const NicheMeshFn& niche,
+									 const NicheMeshFn& bore) {
 	const int chunksX = (map.Width() + kChunkCells - 1) / kChunkCells;
 	const int chunksZ = (map.Height() + kChunkCells - 1) / kChunkCells;
 	DungeonGeometry geo;
 	for (int cz = 0; cz < chunksZ; ++cz)
 		for (int cx = 0; cx < chunksX; ++cx) {
 			DungeonGeometry r = BuildDungeonRegion(map, wallBlocks, floorBlocks,
-												   ceilingBlocks, cx, cz, holes);
+												   ceilingBlocks, cx, cz, holes, niche,
+												   bore);
 			for (GeometryChunk& c : r.walls) geo.walls.push_back(std::move(c));
 			for (GeometryChunk& c : r.floors) geo.floors.push_back(std::move(c));
 			for (GeometryChunk& c : r.ceilings) geo.ceilings.push_back(std::move(c));

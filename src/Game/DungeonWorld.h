@@ -82,6 +82,11 @@ public:
 	// built. Drains the GPU first — it may still be reading the old data.
 	void ApplyQuality(bool textureResChanged);
 
+	// Reloads the worn block meshes and rebuilds the batched dungeon geometry in
+	// place (the ApplyQuality core). The editor's Wall Style rebake calls this
+	// after re-baking a texture's worn_*.gltf to swap the new geometry in live.
+	void ReloadDungeonBlocks(bool textureResChanged = false);
+
 	// "Start New Game": snaps the party home, re-arms the monster
 	// announcements, and resets the torch palette (which speaks via
 	// onMessage — the caller clears the log right after, as before).
@@ -492,6 +497,22 @@ public:
 	// floor) and rebuilds the fire instances + dust so it lights immediately and
 	// persists. Returns false on an invalid cell (e.g. a sconce with no wall).
 	bool AddFixture(const std::string& type, int x, int z);
+	// Places a wall niche (wallfeatures.cat) on a free solid wall of (x,z) and
+	// re-stamps the cell's wall panel as the recessed niche. False if no free
+	// solid wall. Removes it with RemoveNicheAt.
+	bool AddNiche(const std::string& type, int x, int z);
+	// Bores a see-through window (wallfeatures.cat `type`) through solid wall block
+	// (x,z) and re-stamps the two flanking faces. False if it isn't a 1-block wall
+	// between two spaces.
+	bool AddBore(const std::string& type, int x, int z);
+	bool RemoveBoreAt(int x, int z);
+	// True if solid cell (x,z) can be seen/shot through along `axis` (0=X, 1=Z).
+	// Permanent bores now; a future see-through SPELL layers a transient set here,
+	// so LoS/projectiles gain it without re-baking chunk geometry.
+	bool WallSeeThrough(int x, int z, int axis) const;
+	// Removes the niche carved into solid wall block (wx,wz) — the erase tool
+	// selects niches by their wall, matching the inspector.
+	bool RemoveNicheAtWall(int wx, int wz);
 	// Removes the topmost runtime entity in a cell (a monster first, then a
 	// door — live instance + its .ent record — else a decoration). Stair props
 	// are skipped — a stair is link + prop + a paired record on another level,
@@ -535,6 +556,36 @@ public:
 	// Distinct non-empty door names on the ACTIVE level, for the inspector's
 	// Target dropdown (buttons only reach doors on their own level).
 	std::vector<std::string> DoorNames() const;
+	// Distinct non-empty niche names on the ACTIVE level — the button inspector's
+	// Target dropdown lists these alongside door names (a button reveals either).
+	std::vector<std::string> NicheNames() const;
+	// A button targeting `name` flips every niche with that name open/closed and
+	// re-stamps their walls (the secret-niche reveal). False if none matched.
+	bool ToggleNichesNamed(const std::string& name);
+	// One niche face: its floor cell + the wall it is carved into. A niche is
+	// SELECTABLE from either side — clicking its floor cell or the wall block.
+	struct NicheFace {
+		int x = 0, z = 0;
+		Direction wall = Direction::North;
+	};
+	// Every niche face touching cell (cx,cz): the niches on this floor cell's
+	// walls, OR (when cx,cz is a solid wall) the niches on adjacent floor cells
+	// carved into it. Each is one selectable target ("Niche — <wall>").
+	std::vector<NicheFace> NicheFacesAt(int cx, int cz) const;
+	// The niche on (x,z) facing `wall`, or null (the inspector reads its props).
+	const WallNiche* NicheOn(int x, int z, Direction wall) const;
+	// True if the (x,z)/wall niche exists AND is open (items in it are visible).
+	bool NicheOpenAt(int x, int z, Direction wall) const;
+	// World position an item sitting in the (x,z)/wall niche renders + pick-tests
+	// at (the pocket centre — recessed into the wall, at pocket-floor height).
+	Vec3 NicheItemPos(int x, int z, Direction wall) const;
+	// Places an item into the (x,z)/wall niche (record-backed, piles at the
+	// pocket). False if there is no niche there. Editor placement + in-game drop.
+	bool AddNicheItem(const std::string& type, int x, int z, Direction wall);
+	// Save the (x,z)/wall niche's authored props (name / hidden / type); Delete it.
+	void SetNichePropsAt(int x, int z, Direction wall, const std::string& name,
+						 bool hidden, const std::string& type);
+	bool RemoveNiche(int x, int z, Direction wall);
 	// The button's lever mesh for the inspector's preview pane.
 	std::vector<gfx::PreviewSubmesh> ButtonPreviewSubs(int x, int z) const;
 	// Live doors for the map overlay (bar markers across the travel axis).
@@ -591,6 +642,8 @@ public:
 						  int x, int z);
 	bool AddFixtureRemote(const std::string& stem, const std::string& type,
 						  int x, int z);
+	bool AddNicheRemote(const std::string& stem, const std::string& type, int x,
+						int z);
 	bool AddDoorRemote(const std::string& stem, const std::string& type, int x,
 					   int z);
 	bool AddButtonRemote(const std::string& stem, const std::string& type, int x,
@@ -755,14 +808,17 @@ private:
 		std::vector<std::unique_ptr<gfx::Texture>> normal;
 		std::vector<std::unique_ptr<gfx::Texture>> mr; // ORM map (null = none yet)
 		std::vector<SurfaceChunk> chunks;              // cullable, tagged by variant
-		float heightScale = 0.0f;
+		// Parallax depth PER texture variant (parallel to albedo). Each type's
+		// height_scale folded with its `wear` so a flat (wear 0) wall type reads
+		// flat — the mesh loses its relief AND the per-pixel parallax goes to 0.
+		std::vector<float> heightScale;
 		// Drops the texture variants (keeps the chunks) before a (re)load of the
 		// set — the staged loader and the quality hot-swap both reuse the Surface.
-		void ResetTextures(float hs) {
+		void ResetTextures() {
 			albedo.clear();
 			normal.clear();
 			mr.clear();
-			heightScale = hs;
+			heightScale.clear();
 		}
 	};
 
@@ -1058,6 +1114,10 @@ private:
 		// item snaps to the quarter nearest the cursor; up to 4 share a cell. Render
 		// + pick + the glow light use SlotCenter(x,z,Medium,slot). See SlotGrid.h.
 		int slot = 0;
+		// The wall NICHE this item sits in (Direction index; -1 = an ordinary floor
+		// item). Niche items pile at the pocket centre (NicheItemPos), ignore `slot`,
+		// and are hidden + unpickable while the niche is closed.
+		int niche = -1;
 	};
 
 	// A wall-mounted button/lever (EntityKind::Button from the .ent layer). The
@@ -1179,7 +1239,7 @@ private:
 	struct SurfaceDef {
 		Surface& surface;
 		std::span<const std::string> names;
-		float heightScale;
+		std::span<const float> heights; // per-variant parallax depth (× wear)
 	};
 	std::array<SurfaceDef, 3> SurfaceDefs();
 	// Resolves the map's palette ids (DungeonMap::WallPalette etc.) through the
@@ -1201,7 +1261,8 @@ private:
 	PbrMaps LoadPbrSet(const std::string& name, bool required);
 
 	void LoadDungeonBlocks();      // loads the worn block set for the quality tier
-	void LoadSurfaceMaterial(Surface& surface, const std::string& name);
+	void LoadSurfaceMaterial(Surface& surface, const std::string& name,
+							 float heightScale);
 	void LoadTextureSet(const SurfaceDef& def); // resets, then loads the set
 	void LoadAllSurfaceTextures(); // reloads every set (quality hot-swap)
 	void BuildDungeonMeshes();
@@ -1576,10 +1637,19 @@ private:
 	// ids, plus the per-surface parallax height scale — filled by
 	// ResolveSurfacePalettes, read by SurfaceDefs and LoadDungeonBlocks.
 	std::vector<std::string> m_wallSets, m_floorSets, m_ceilingSets;
-	float m_wallHeight = 0.055f, m_floorHeight = 0.045f, m_ceilingHeight = 0.035f;
+	// Per-variant parallax depth (height_scale × wear), parallel to the *Sets.
+	std::vector<float> m_wallHeights, m_floorHeights, m_ceilingHeights;
 	// Worn block geometry, one mesh per texture variant (same order as the
 	// surface texture sets), held between the load and mesh-build tasks.
 	std::vector<assets::MeshData> m_wallBlocks, m_floorBlocks, m_ceilingBlocks;
+	// Niche panels by wallfeatures.cat type (each entry's `model`.gltf); the mesh
+	// builder stamps the one matching a niche's type. NicheMeshFor resolves it.
+	std::flat_map<std::string, assets::MeshData> m_nicheMeshes;
+	const assets::MeshData* NicheMeshFor(const std::string& type) const;
+	// See-through bore panels by wallfeatures.cat type (its `model`.gltf); stamped
+	// on the two flanking faces of a bored wall block. BoreMeshFor resolves it.
+	std::flat_map<std::string, assets::MeshData> m_boreMeshes;
+	const assets::MeshData* BoreMeshFor(const std::string& type) const;
 
 
 	std::flat_map<std::string, std::unique_ptr<MonsterKind>> m_monsterKinds;

@@ -112,41 +112,42 @@ static ai::Archetype ParseArchetype(const std::string& v) {
 // the single source of those constants, shared by the staged loader and the
 // quality hot-swap (LoadAllSurfaceTextures).
 std::array<DungeonWorld::SurfaceDef, 3> DungeonWorld::SurfaceDefs() {
-	return {{{m_walls, m_wallSets, m_wallHeight},
-			 {m_floors, m_floorSets, m_floorHeight},
-			 {m_ceilings, m_ceilingSets, m_ceilingHeight}}};
+	return {{{m_walls, m_wallSets, m_wallHeights},
+			 {m_floors, m_floorSets, m_floorHeights},
+			 {m_ceilings, m_ceilingSets, m_ceilingHeights}}};
 }
 
 // Resolves each surface palette id through its project catalog into a texture
-// set name (DungeonWorld loads <set>_<res> and worn_<set>_<tier>.gltf) and the
-// surface's parallax height scale (taken from the first entry — a surface's
-// entries share a scale). An unknown id falls back to using the id verbatim as
-// the set name, so a hand-edited level still loads something.
+// set name (DungeonWorld loads <set>_<res> and worn_<set>_<tier>.gltf) and a
+// PER-VARIANT parallax height scale. The scale is the type's `height_scale`
+// folded with its `wear` (a flat wall type gets 0 parallax so it reads flat,
+// matching its flat mesh). An unknown id falls back to the id verbatim as the
+// set name, so a hand-edited level still loads something.
 void DungeonWorld::ResolveSurfacePalettes() {
 	struct Def {
 		const std::vector<std::string>& palette;
 		const Catalog& catalog;
 		std::vector<std::string>& sets;
-		float& height;
+		std::vector<float>& heights;
 		float fallbackHeight;
 	};
 	const Def defs[] = {
-		{m_map.WallPalette(), m_project.walls, m_wallSets, m_wallHeight, 0.055f},
-		{m_map.FloorPalette(), m_project.floors, m_floorSets, m_floorHeight, 0.045f},
-		{m_map.CeilingPalette(), m_project.ceilings, m_ceilingSets, m_ceilingHeight,
+		{m_map.WallPalette(), m_project.walls, m_wallSets, m_wallHeights, 0.055f},
+		{m_map.FloorPalette(), m_project.floors, m_floorSets, m_floorHeights, 0.045f},
+		{m_map.CeilingPalette(), m_project.ceilings, m_ceilingSets, m_ceilingHeights,
 		 0.035f},
 	};
 	for (const Def& d : defs) {
 		d.sets.clear();
-		bool first = true;
+		d.heights.clear();
 		for (const std::string& id : d.palette) {
 			const CatalogEntry* e = d.catalog.Find(id);
 			d.sets.push_back(CatalogGet(e, "texture", id));
-			if (first) {
-				d.height = e ? e->GetFloat("height_scale", d.fallbackHeight)
-							 : d.fallbackHeight;
-				first = false;
-			}
+			const float h = e ? e->GetFloat("height_scale", d.fallbackHeight)
+							  : d.fallbackHeight;
+			const float wear = e ? std::clamp(e->GetFloat("wear", 1.0f), 0.0f, 1.0f)
+								 : 1.0f;
+			d.heights.push_back(h * wear);
 		}
 	}
 }
@@ -158,16 +159,16 @@ void DungeonWorld::AppendLoadTasks(LoadQueue& queue) {
 	// material of each set resets the surface, exactly as LoadTextureSet does.
 	for (const SurfaceDef& def : SurfaceDefs()) {
 		Surface& surface = def.surface;
-		const float heightScale = def.heightScale;
 		for (size_t i = 0; i < def.names.size(); ++i) {
 			const std::string& name = def.names[i];
+			const float heightScale = def.heights[i]; // per-variant parallax depth
 			const bool first = i == 0; // first material resets the set
 			std::string spaced = name; // asset id, shown with the '_'s opened up
 			std::ranges::replace(spaced, '_', ' ');
 			queue.Add(loc::Format("load.surface", spaced),
 					  [this, &surface, name, heightScale, first] {
-						  if (first) surface.ResetTextures(heightScale);
-						  LoadSurfaceMaterial(surface, name);
+						  if (first) surface.ResetTextures();
+						  LoadSurfaceMaterial(surface, name, heightScale);
 					  });
 		}
 	}
@@ -209,6 +210,29 @@ void DungeonWorld::LoadDungeonBlocks() {
 	load(m_wallBlocks, m_wallSets);
 	load(m_floorBlocks, m_floorSets);
 	load(m_ceilingBlocks, m_ceilingSets);
+
+	// Wall-feature niche panels, one per wallfeatures.cat type (its `model`.gltf),
+	// stamped per niche edge into the wall's variant bucket so they take the wall
+	// texture (see DungeonMeshBuilder). Loaded once; a level references types.
+	m_nicheMeshes.clear();
+	m_boreMeshes.clear();
+	for (const CatalogEntry& e : m_project.wallfeatures.Entries()) {
+		const std::string model = CatalogGet(&e, "model", e.id);
+		// A `bore` feature is a see-through window (its own mesh map); everything
+		// else is a niche.
+		(e.GetBool("bore", false) ? m_boreMeshes : m_nicheMeshes)
+			.emplace(e.id, LoadModelOrDie(model + ".gltf").meshes[0]);
+	}
+}
+
+const assets::MeshData* DungeonWorld::BoreMeshFor(const std::string& type) const {
+	const auto it = m_boreMeshes.find(type);
+	return it != m_boreMeshes.end() ? &it->second : nullptr;
+}
+
+const assets::MeshData* DungeonWorld::NicheMeshFor(const std::string& type) const {
+	const auto it = m_nicheMeshes.find(type);
+	return it != m_nicheMeshes.end() ? &it->second : nullptr;
 }
 
 // Loads a PBR set (albedo sRGB + normal/height + ORM) by base name at the
@@ -242,18 +266,21 @@ DungeonWorld::PbrMaps DungeonWorld::LoadPbrSet(const std::string& name, bool req
 	return maps;
 }
 
-// Loads one material's PBR set and appends it to the surface's variant arrays.
-void DungeonWorld::LoadSurfaceMaterial(Surface& surface, const std::string& name) {
+// Loads one material's PBR set and appends it to the surface's variant arrays
+// (albedo/normal/mr + the variant's parallax depth).
+void DungeonWorld::LoadSurfaceMaterial(Surface& surface, const std::string& name,
+									   float heightScale) {
 	PbrMaps maps = LoadPbrSet(name, /*required*/ true);
 	surface.albedo.push_back(std::move(maps.albedo));
 	surface.normal.push_back(std::move(maps.normal));
 	surface.mr.push_back(std::move(maps.mr));
+	surface.heightScale.push_back(heightScale);
 }
 
 void DungeonWorld::LoadTextureSet(const SurfaceDef& def) {
-	def.surface.ResetTextures(def.heightScale); // hot-swap reuses the same Surface
-	for (const std::string& name : def.names)
-		LoadSurfaceMaterial(def.surface, name);
+	def.surface.ResetTextures(); // hot-swap reuses the same Surface
+	for (size_t i = 0; i < def.names.size(); ++i)
+		LoadSurfaceMaterial(def.surface, def.names[i], def.heights[i]);
 }
 
 void DungeonWorld::LoadAllSurfaceTextures() {
@@ -275,7 +302,9 @@ void DungeonWorld::BuildDungeonMeshes() {
 		m_map, m_wallBlocks, m_floorBlocks, m_ceilingBlocks,
 		[this](int x, int z) {
 			return CellHoles{FloorHoleAt(x, z), CeilingHoleAt(x, z)};
-		});
+		},
+		[this](const std::string& type) { return NicheMeshFor(type); },
+		[this](const std::string& type) { return BoreMeshFor(type); });
 
 	auto upload = [&](Surface& surface, std::vector<GeometryChunk>& chunks) {
 		surface.chunks.clear();
@@ -746,8 +775,15 @@ void DungeonWorld::LoadItems() {
 	for (const Entity& spawn : m_entities.All()) {
 		if (spawn.kind != EntityKind::Item) continue;
 		ItemKind& kind = ItemKindFor(spawn.type);
-		// Baseline items have no authored slot — fan multiples in a cell out across
-		// quarters (target = cell centre, so it fills by quarter index, fill order).
+		// A `niche=<dir>` param puts the item IN that wall niche (it piles at the
+		// pocket, ignores the floor quarters). Otherwise it's a floor item — fan
+		// multiples in a cell across quarters (target = cell centre, fill order).
+		Direction nd;
+		if (const std::string* np = spawn.Param("niche"); np && ParseDirection(*np, nd)) {
+			m_items.push_back(
+				{&kind, spawn.id, spawn.x, spawn.z, false, 0, static_cast<int>(nd)});
+			continue;
+		}
 		const Vec3 c = m_map.CellCenter(spawn.x, spawn.z);
 		const int slot = FreeItemSlotNear(spawn.x, spawn.z, c.x, c.z, -1);
 		m_items.push_back({&kind, spawn.id, spawn.x, spawn.z, false, slot});
@@ -793,13 +829,27 @@ std::optional<std::string> DungeonWorld::TryPickItem(float mx, float my, float w
 	// standing tablet/model clickable: intersecting the floor would land the hit
 	// behind the item's base (you look down at an angle), missing the quarter.
 	const gfx::Camera::Ray ray = m_camera.ScreenRay(mx, my, w, h);
-	if (ray.dir.y >= -1e-4f) return std::nullopt; // not looking down toward the floor
 	// Top item = the last one in render order (drawn over the others in a stack).
 	int best = -1;
 	for (size_t i = 0; i < m_items.size(); ++i) {
 		const Item& item = m_items[i];
 		if (item.collected || !InReach(item.x, item.z, px, pz)) continue;
 		if (!IsSeen(item.x, item.z)) continue;
+		if (item.niche >= 0) {
+			// Niche item: a small sphere at the pocket (the player looks roughly
+			// level at the wall, so no floor-plane test), and only while open.
+			const Direction wall = static_cast<Direction>(item.niche);
+			if (!NicheOpenAt(item.x, item.z, wall)) continue;
+			const Vec3 p = NicheItemPos(item.x, item.z, wall);
+			const Vec3 oc{ray.origin.x - p.x, ray.origin.y - (p.y + 0.35f),
+						  ray.origin.z - p.z};
+			const float bb = oc.x * ray.dir.x + oc.y * ray.dir.y + oc.z * ray.dir.z;
+			const float cc = oc.x * oc.x + oc.y * oc.y + oc.z * oc.z - 0.4f * 0.4f;
+			const float disc = bb * bb - cc;
+			if (disc >= 0.0f && -bb - std::sqrt(disc) > 0.0f) best = static_cast<int>(i);
+			continue;
+		}
+		if (ray.dir.y >= -1e-4f) continue; // floor pick needs a look down at the floor
 		// Plane at the item's visible mid-height — a model spans 0..Height; the
 		// tablet placeholders sit low (rune slab shorter than the scaled-up others).
 		const float centreY = item.kind->model
@@ -830,12 +880,38 @@ std::optional<std::string> DungeonWorld::TryPickItem(float mx, float my, float w
 void DungeonWorld::DropItemAt(const std::string& typeId, float mx, float my,
 							  float w, float h) {
 	const int px = m_party.GridX(), pz = m_party.GridZ();
+	const gfx::Camera::Ray ray = m_camera.ScreenRay(mx, my, w, h);
+	// First: does the ray land in an OPEN niche's pocket within reach? Drop into
+	// it (a runtime item that piles at the pocket, saved as a `drop` with niche).
+	int bestNiche = -1;
+	float bestT = 1e9f;
+	const std::vector<WallNiche>& niches = m_map.Niches();
+	for (size_t i = 0; i < niches.size(); ++i) {
+		const WallNiche& n = niches[i];
+		if (!n.open || !InReach(n.x, n.z, px, pz) || !IsSeen(n.x, n.z)) continue;
+		const Vec3 p = NicheItemPos(n.x, n.z, n.wall);
+		const Vec3 oc{ray.origin.x - p.x, ray.origin.y - (p.y + 0.35f), ray.origin.z - p.z};
+		const float bb = oc.x * ray.dir.x + oc.y * ray.dir.y + oc.z * ray.dir.z;
+		const float cc = oc.x * oc.x + oc.y * oc.y + oc.z * oc.z - 0.4f * 0.4f;
+		const float disc = bb * bb - cc;
+		if (disc < 0.0f) continue;
+		const float t = -bb - std::sqrt(disc);
+		if (t > 0.0f && t < bestT) { bestT = t; bestNiche = static_cast<int>(i); }
+	}
+	if (bestNiche >= 0) {
+		const WallNiche& n = niches[static_cast<size_t>(bestNiche)];
+		ItemKind& kind = ItemKindFor(typeId);
+		m_items.push_back(
+			{&kind, m_nextDropId--, n.x, n.z, false, 0, static_cast<int>(n.wall)});
+		m_audio.Play(m_sounds.click, 0.5f);
+		if (onMessage) onMessage(loc::Format("log.drop_rune", loc::Tr(kind.nameKey)));
+		return;
+	}
 	int cx = px, cz = pz; // fallback: drop at the party's feet
 	// Desired drop point in world space — used to pick the nearest quarter slot.
 	// Defaults to the fallback cell's centre (feet); a floor hit overrides it.
 	Vec3 feet = m_map.CellCenter(cx, cz);
 	float wx = feet.x, wz = feet.z;
-	const gfx::Camera::Ray ray = m_camera.ScreenRay(mx, my, w, h);
 	if (ray.dir.y < -1e-3f) { // looking down toward the floor plane y=0
 		const float t = -ray.origin.y / ray.dir.y;
 		const float hxw = ray.origin.x + ray.dir.x * t;
@@ -1282,21 +1358,35 @@ void DungeonWorld::BuildTurbidityMap() {
 // ============================================================================
 void DungeonWorld::ApplyQuality(bool textureResChanged) {
 	if (m_walls.chunks.empty()) return; // not built yet — the load tasks will
+	ReloadDungeonBlocks(textureResChanged);
+	log::Info("Quality switched to {} ({} meshes, {} textures)",
+			  m_settings.QualityLabel(), m_settings.MeshSuffix(),
+			  m_settings.TextureSuffix());
+}
+
+// Reloads the worn block meshes and rebuilds the batched dungeon geometry in
+// place — shared by the quality hot-swap and the editor's Wall Style rebake
+// (which re-bakes a texture's worn_*.gltf then calls this to swap it in live).
+// The map Revision is unchanged, so the cached shadow cubes are force-refreshed.
+void DungeonWorld::ReloadDungeonBlocks(bool textureResChanged) {
+	if (m_walls.chunks.empty()) return; // not built yet — the load tasks will
 
 	// The GPU may still be reading the old resources, so drain it first.
 	m_device.WaitIdle();
+	// Re-resolve palettes so an edited `wear` updates BOTH the worn mesh (via
+	// LoadDungeonBlocks below) and the parallax depth together — the two must
+	// move in lockstep or a flat mesh still shows faked relief.
+	ResolveSurfacePalettes();
 	m_walls.chunks.clear();
 	m_floors.chunks.clear();
 	m_ceilings.chunks.clear();
 	LoadDungeonBlocks();
-	if (textureResChanged) LoadAllSurfaceTextures();
+	if (textureResChanged)
+		LoadAllSurfaceTextures(); // re-pushes each variant's parallax depth
+	else                          // textures unchanged — just refresh the depths
+		for (const SurfaceDef& def : SurfaceDefs())
+			def.surface.heightScale.assign(def.heights.begin(), def.heights.end());
 	BuildDungeonMeshes();
-	// The surface tessellation changed but the map Revision did not, so force a
-	// re-render of every cached shadow cube (otherwise standing still after a
-	// quality swap leaves the torch/glow cubes showing the old geometry).
 	m_shadows.InvalidateCubes();
-	log::Info("Quality switched to {} ({} meshes, {} textures)",
-			  m_settings.QualityLabel(), m_settings.MeshSuffix(),
-			  m_settings.TextureSuffix());
 }
 } // namespace dungeon::game

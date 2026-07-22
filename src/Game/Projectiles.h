@@ -110,8 +110,9 @@ public:
 	bool Remove(u32 id);
 
 	// --- world seam (wired once by the owner) -------------------------------
-	// True if an item is stopped by the cell at world position `p` (wall / off-map).
-	std::function<bool(const Vec3& p)> isBlocked;
+	// True if an item flying `dir` is stopped by the cell at world position `p`
+	// (a wall / off-map — but a bore along the travel axis lets it fly through).
+	std::function<bool(const Vec3& p, const Vec3& dir)> isBlocked;
 	// An item reached `impact.pos`; resolve a strike there on `side`. Return true
 	// if it struck a target (the item is consumed). The owner does combat + feedback.
 	std::function<bool(TargetSide side, const ProjectileImpact& impact)> resolveHit;

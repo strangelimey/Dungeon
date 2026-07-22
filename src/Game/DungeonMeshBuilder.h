@@ -59,16 +59,28 @@ struct CellHoles {
 };
 using CellHolesFn = std::function<CellHoles(int x, int z)>;
 
+// Resolves a niche's wallfeatures.cat type to the panel mesh to stamp (null =
+// unknown type → the plain wall panel is kept). Lets the builder support any
+// number of niche shapes without knowing the catalog.
+using NicheMeshFn = std::function<const assets::MeshData*(const std::string& type)>;
+
 // Instances the baked block models over every floor cell: floor + ceiling
 // per cell and a wall block on each edge that borders solid rock. Each block
 // span holds one mesh per texture variant; a cell picks its variant by a
 // stable hash and stamps the MATCHING mesh into that variant's bucket, so
-// geometric relief always pairs with the texture drawn over it.
+// geometric relief always pairs with the texture drawn over it. `niche` (a
+// type→mesh resolver, nullable) stamps a niche panel in place of the plain wall
+// panel on an edge carrying a niche (DungeonMap::NicheAt) — it rides the same
+// variant bucket, so it keeps the wall's texture.
+// `bore` (a type→mesh resolver, nullable) is stamped on a face whose solid
+// neighbour is bored see-through (DungeonMap::BoreAlong), same variant bucket.
 DungeonGeometry BuildDungeonGeometry(const DungeonMap& map,
 									 std::span<const assets::MeshData> wallBlocks,
 									 std::span<const assets::MeshData> floorBlocks,
 									 std::span<const assets::MeshData> ceilingBlocks,
-									 const CellHolesFn& holes = {});
+									 const CellHolesFn& holes = {},
+									 const NicheMeshFn& niche = {},
+									 const NicheMeshFn& bore = {});
 
 // Builds just the geometry for one spatial chunk region (chunk coords
 // chunkX/chunkZ, each covering kChunkCells cells), with every returned chunk
@@ -80,6 +92,8 @@ DungeonGeometry BuildDungeonRegion(const DungeonMap& map,
 								   std::span<const assets::MeshData> floorBlocks,
 								   std::span<const assets::MeshData> ceilingBlocks,
 								   int chunkX, int chunkZ,
-								   const CellHolesFn& holes = {});
+								   const CellHolesFn& holes = {},
+								   const NicheMeshFn& niche = {},
+								   const NicheMeshFn& bore = {});
 
 } // namespace dungeon::game

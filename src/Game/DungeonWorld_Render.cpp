@@ -183,11 +183,12 @@ void DungeonWorld::DrawMultiMaterial(ID3D12GraphicsCommandList* list,
 //   * ROD / blade (one axis clearly longest): rest it along its length. A blade
 //     already horizontal (a dagger) is untouched; only a rod standing on end is
 //     tipped down.
-// After any tip it re-grounds (min-y to the floor) and re-centres the footprint
-// over the slot, so no per-item authoring is needed and every current or future
-// item lands right.
+// After any tip it re-grounds (min-y to the rest height cy — 0 on the floor,
+// the pocket-floor height for an item sitting in a wall niche) and re-centres
+// the footprint over the slot, so no per-item authoring is needed and every
+// current or future item lands right.
 static Mat4 FloorItemWorld(const Vec3& bmin, const Vec3& bmax, float scale,
-						   float cx, float cz) {
+						   float cx, float cy, float cz) {
 	const float ex = bmax.x - bmin.x;
 	const float ey = bmax.y - bmin.y;
 	const float ez = bmax.z - bmin.z;
@@ -220,7 +221,7 @@ static Mat4 FloorItemWorld(const Vec3& bmin, const Vec3& bmax, float scale,
 	XMStoreFloat3(&mn, lo);
 	XMStoreFloat3(&mx, hi);
 	const XMMATRIX world = sr * XMMatrixTranslation(cx - 0.5f * (mn.x + mx.x),
-													-mn.y,
+													cy - mn.y,
 													cz - 0.5f * (mn.z + mx.z));
 	Mat4 w;
 	XMStoreFloat4x4(&w, world);
@@ -311,24 +312,33 @@ void DungeonWorld::SubmitSceneGeometry(ID3D12GraphicsCommandList* list,
 	if (m_runeMesh) {
 		for (const Item& item : m_items) {
 			if (item.collected) continue;
-			const Vec3 c = SlotCenter(item.x, item.z, SizeClass::Medium, item.slot);
-			if (!visible({c.x, 0.3f, c.z}, 0.8f)) continue;
-			// A model item (e.g. a weapon) draws as its actual 3D model on the floor
-			// (grounded via GroundOffsetY, real-size), each part with its own
-			// material — not the tablet.
+			// Niche items sit in the wall pocket (piled at one spot) and only show
+			// while the niche is OPEN — a closed niche conceals its treasure.
+			Vec3 c;
+			if (item.niche >= 0) {
+				const Direction wall = static_cast<Direction>(item.niche);
+				if (!NicheOpenAt(item.x, item.z, wall)) continue;
+				c = NicheItemPos(item.x, item.z, wall);
+			} else {
+				c = SlotCenter(item.x, item.z, SizeClass::Medium, item.slot);
+			}
+			if (!visible({c.x, c.y + 0.3f, c.z}, 0.8f)) continue;
+			// A model item (e.g. a weapon) draws as its actual 3D model, grounded on
+			// the floor (or the pocket floor c.y) via GroundOffsetY, each part with
+			// its own material — not the tablet.
 			if (item.kind->model) {
 				const MultiMaterialModel& mm = *item.kind->model;
 				DrawMultiMaterial(
 					list, mm,
-					FloorItemWorld(mm.boundsMin, mm.boundsMax, 1.0f, c.x, c.z));
+					FloorItemWorld(mm.boundsMin, mm.boundsMax, 1.0f, c.x, c.y, c.z));
 				continue;
 			}
 			// Non-rune placeholders render scaled UP (kItemPlaceholderScale) — bigger
 			// than the rune tablet so they read on a dark floor (pickup is a
 			// floor-quarter click test, independent of the rendered size).
 			const float scale = item.kind->isRune ? 1.0f : kItemPlaceholderScale;
-			Mat4 world =
-				FloorItemWorld(m_runeBoundsMin, m_runeBoundsMax, scale, c.x, c.z);
+			Mat4 world = FloorItemWorld(m_runeBoundsMin, m_runeBoundsMax, scale,
+										c.x, c.y, c.z);
 			gfx::MaterialParams material;
 			material.doubleSided = false; // authored slab: back-cull
 			const Vec4& g = item.kind->glow;
@@ -411,7 +421,7 @@ void DungeonWorld::DrawSurface(ID3D12GraphicsCommandList* list,
 		// unused here; the ORM map (when present) drives roughness/metallic.
 		gfx::MaterialParams material;
 		ApplyPbr(material, surface.albedo[v].get(), surface.normal[v].get(),
-				 surface.mr[v].get(), surface.heightScale, {}, 0.0f);
+				 surface.mr[v].get(), surface.heightScale[v], {}, 0.0f);
 		m_renderer.DrawMesh(list, *chunk.mesh, identity, material);
 	}
 }

@@ -1,4 +1,10 @@
 ; Wall surface types: texture set + worn-block height displacement.
+; Optional geometry-style knobs (editor: right-click a Walls palette row):
+;   wear    = 0..1  displacement amount (0 = flat panel; default 1)
+;   columns = 0|1   the wall's edge pillars / border strips (default 1)
+; Absent = full worn relief with columns. Changing them re-bakes the texture's
+; worn_<texture>_<tier>.gltf, so a value applies after the editor's rebake (a
+; plain `AssetBaker <assets>` bakes the defaults).
 
 [wall_brick]
 display = Brick
