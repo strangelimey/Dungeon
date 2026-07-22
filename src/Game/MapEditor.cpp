@@ -341,11 +341,9 @@ bool MapEditor::BrushIsWallMounted() const {
 	const std::vector<PaletteItem> items = CategoryItems(m_sel.cat);
 	if (m_sel.index < 0 || m_sel.index >= static_cast<int>(items.size())) return false;
 	const std::string& id = items[m_sel.index].id;
-	if (m_sel.cat == PaletteCat::WallFeatures) {
-		// Niches carve a face; bores tunnel THROUGH a block (axis, not face), so
-		// they keep the plain cell click for now.
-		return !CatalogBool(m_world.GetProject().wallfeatures.Find(id), "bore", false);
-	}
+	// Both wall features resolve from a face: a niche carves the face itself, a
+	// bore tunnels through the block behind it (the face gives the axis).
+	if (m_sel.cat == PaletteCat::WallFeatures) return true;
 	// Everything else is data-driven: the kind's own `mount` field decides.
 	const Catalog* cat = nullptr;
 	if (m_sel.cat == PaletteCat::Fixtures) cat = &m_world.GetProject().fixtures;
@@ -428,11 +426,18 @@ void MapEditor::ApplyBrush(int cx, int cz, bool dragging, const WallFace& face) 
 					 : (remote ? m_world.AddFixtureRemote(stem, id, cx, cz)
 							   : m_world.AddFixture(id, cx, cz));
 		else if (m_sel.cat == PaletteCat::WallFeatures) {
-			// A `bore` feature (a see-through window) is placed on the SOLID wall
-			// block it bores; a niche carves one FACE of a floor cell's wall.
-			if (CatalogBool(m_world.GetProject().wallfeatures.Find(id), "bore", false))
-				ok = m_world.AddBore(id, cx, cz); // active level only for now
-			else
+			// A `bore` (see-through window) tunnels THROUGH the solid block behind
+			// the picked face, and that face names the axis it runs along — so a
+			// free-standing block can be bored either way instead of always X.
+			// Pointing from either side works, as the block is derived from the face.
+			if (CatalogBool(m_world.GetProject().wallfeatures.Find(id), "bore", false)) {
+				const int bx = face.x + DirDX(face.wall), bz = face.z + DirDZ(face.wall);
+				const int axis = (face.wall == Direction::North ||
+								  face.wall == Direction::South)
+									 ? 1  // through a N/S face -> the bore runs along Z
+									 : 0; // through an E/W face -> along X
+				ok = m_world.AddBore(id, bx, bz, axis); // active level only for now
+			} else
 				ok = remote ? m_world.AddNicheRemote(stem, id, px, pz, face.wall)
 							: m_world.AddNiche(id, px, pz, face.wall);
 		}
@@ -689,10 +694,13 @@ void MapEditor::EraseAt(int cx, int cz, const WallFace& face) {
 		m_world.EraseRemote(stem, cx, cz);
 	} else if (m_world.RemoveStairAt(cx, cz)) {
 		// stairs message themselves (they name the paired level's cleanup)
-	} else if (face.valid && m_world.RemoveNicheAtFace(face.x, face.z, face.wall)) {
-		// Faces are individually placeable, so a block can carry several niches:
-		// erase the one being POINTED at before falling back to the block-wide
-		// rung below (which takes whichever it finds first).
+	} else if (face.valid &&
+			   (m_world.RemoveFixtureAtFace(face.x, face.z, face.wall) ||
+				m_world.RemoveNicheAtFace(face.x, face.z, face.wall))) {
+		// Wall things are placed per FACE, so one cell/block can carry several:
+		// erase the one being POINTED at before the cell-wide rungs below (which
+		// take whichever they find first). Sconce before niche, matching the
+		// order of the cell-wide ladder.
 		log(loc::Tr("map.erase.removed"));
 	} else if (m_world.RemoveEntityAt(cx, cz) || m_world.RemoveFixtureAt(cx, cz) ||
 			   m_world.RemoveNicheAtWall(cx, cz) || m_world.RemoveBoreAt(cx, cz)) {

@@ -243,6 +243,10 @@ public:
 	// click aims at), else the first sconce there by any wall. Bumps Revision() +
 	// recomputes turbidity. Returns false if the cell has no fixture.
 	bool RemoveFixtureAt(int x, int z);
+	// Removes the sconce on ONE named face. A cell can hold a sconce per wall,
+	// so the cell-wide call above picks arbitrarily; this takes the face the
+	// editor's edge-pick pointed at.
+	bool RemoveSconceAt(int x, int z, Direction wall);
 	// After a structural edit at (x,z): a cell painted solid buries the fixtures
 	// standing on it (removed), a wall painted open strands the sconces hanging
 	// on it (re-mounted on a free solid wall like the 'T' glyph, else removed).
@@ -314,6 +318,11 @@ public:
 	// sides (a 1-block wall between two spaces). False if it isn't such a wall /
 	// already bored. Bumps Revision().
 	bool AddBore(std::string type, int x, int z);
+	// Bores along an EXPLICIT axis (0 = X/east-west, 1 = Z/north-south) — the
+	// editor derives it from the face pointed at, so a block with floor on all
+	// four sides can be bored either way instead of always taking X. False if
+	// that axis doesn't open into floor at both ends.
+	bool AddBore(std::string type, int x, int z, int axis);
 	// Adds a bore with an explicit axis (the parser). Bumps Revision().
 	void AddBoreRecord(WallBore b) {
 		m_bores.push_back(std::move(b));

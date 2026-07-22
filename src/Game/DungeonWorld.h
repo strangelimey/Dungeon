@@ -354,6 +354,9 @@ public:
 	bool AnyInspectableAt(int cx, int cz) const;
 	// Erase a fixture (sconce or brazier) at the cell, live (rebuilds fires/dust).
 	bool RemoveFixtureAt(int cx, int cz);
+	// Removes the sconce on ONE named face (the editor's edge-pick). A cell can
+	// ring itself with a sconce per wall, so the cell-wide call picks arbitrarily.
+	bool RemoveFixtureAtFace(int x, int z, Direction wall);
 
 	// Everything the editor's monster-config dialog preview needs to animate a
 	// type's mesh: the (stable, cached) mesh + skeleton + clips a borrowed Animator
@@ -517,6 +520,9 @@ public:
 	// (x,z) and re-stamps the two flanking faces. False if it isn't a 1-block wall
 	// between two spaces.
 	bool AddBore(const std::string& type, int x, int z);
+	// Same, along an EXPLICIT axis (0 = X, 1 = Z) — the editor derives it from
+	// the wall face pointed at, so a free-standing block can be bored either way.
+	bool AddBore(const std::string& type, int x, int z, int axis);
 	bool RemoveBoreAt(int x, int z);
 	// True if solid cell (x,z) can be seen/shot through along `axis` (0=X, 1=Z).
 	// Permanent bores now; a future see-through SPELL layers a transient set here,

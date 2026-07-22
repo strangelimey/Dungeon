@@ -256,6 +256,18 @@ bool DungeonWorld::AddBore(const std::string& type, int x, int z) {
 	return true;
 }
 
+bool DungeonWorld::AddBore(const std::string& type, int x, int z, int axis) {
+	if (!m_map.AddBore(type, x, z, axis)) return false;
+	RebuildChunksAround(x, z); // re-stamps the two flanking floor cells' faces
+	return true;
+}
+
+bool DungeonWorld::RemoveFixtureAtFace(int x, int z, Direction wall) {
+	if (!m_map.RemoveSconceAt(x, z, wall)) return false;
+	RebuildFiresAndDust(); // the light/flame/smoke instance goes with it
+	return true;
+}
+
 bool DungeonWorld::RemoveBoreAt(int x, int z) {
 	if (!m_map.RemoveBoreAt(x, z)) return false;
 	RebuildChunksAround(x, z);

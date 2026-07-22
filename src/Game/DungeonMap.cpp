@@ -508,6 +508,18 @@ bool DungeonMap::RemoveFixtureAt(int x, int z) {
 	return false;
 }
 
+bool DungeonMap::RemoveSconceAt(int x, int z, Direction wall) {
+	// One cell can ring itself with a sconce per wall, so an erase that only
+	// knows the cell picks arbitrarily — this takes the face pointed at.
+	for (size_t i = 0; i < m_torches.size(); ++i)
+		if (m_torches[i].x == x && m_torches[i].z == z && m_torches[i].wall == wall) {
+			m_torches.erase(m_torches.begin() + static_cast<ptrdiff_t>(i));
+			RebuildTurbidity(); // bumps Revision()
+			return true;
+		}
+	return false;
+}
+
 bool DungeonMap::PruneFixturesForCell(int x, int z) {
 	bool changed = false;
 	if (!IsWalkable(x, z)) {
@@ -768,11 +780,25 @@ const WallBore* DungeonMap::BoreAlong(int x, int z, int axis) const {
 }
 
 bool DungeonMap::AddBore(std::string type, int x, int z) {
+	// No axis named: auto-detect. A block with floor on ALL four sides can be
+	// bored either way and silently takes X — the editor names the axis from the
+	// face pointed at instead (see the overload below).
 	if (IsWalkable(x, z)) return false; // a bore is through a SOLID wall block
 	int axis = -1;
 	if (IsWalkable(x - 1, z) && IsWalkable(x + 1, z)) axis = 0;      // floor E+W → X
 	else if (IsWalkable(x, z - 1) && IsWalkable(x, z + 1)) axis = 1; // floor N+S → Z
 	if (axis < 0) return false;                                     // not a 1-block wall
+	return AddBore(std::move(type), x, z, axis);
+}
+
+bool DungeonMap::AddBore(std::string type, int x, int z, int axis) {
+	if (IsWalkable(x, z)) return false; // a bore is through a SOLID wall block
+	if (axis != 0 && axis != 1) return false;
+	// The named axis must actually open into floor at both ends, or the tunnel
+	// would dead-end inside rock.
+	const bool open = axis == 0 ? IsWalkable(x - 1, z) && IsWalkable(x + 1, z)
+								: IsWalkable(x, z - 1) && IsWalkable(x, z + 1);
+	if (!open) return false;
 	for (const WallBore& b : m_bores)
 		if (b.x == x && b.z == z) return false; // already bored
 	m_bores.push_back({x, z, axis, std::move(type)});
