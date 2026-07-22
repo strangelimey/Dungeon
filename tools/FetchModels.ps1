@@ -41,18 +41,25 @@ $oneDrive = if ($env:OneDrive) { $env:OneDrive } else { Join-Path $env:USERPROFI
 $archive = Join-Path $oneDrive "DungeonAssets"
 if (-not (Test-Path $archive)) { throw "Asset archive not found: $archive" }
 
+# Newest "Blender <version>" under Program Files that actually has the exe.
+function Find-Blender {
+    Get-ChildItem "$env:ProgramFiles\Blender Foundation" -Directory -ErrorAction SilentlyContinue |
+        ForEach-Object {
+            $exe = Join-Path $_.FullName "blender.exe"
+            if ($_.Name -match '^Blender\s+(\d+(\.\d+)*)$' -and (Test-Path $exe)) {
+                [pscustomobject]@{ Version = [version]$Matches[1]; Path = $exe }
+            }
+        } | Sort-Object Version -Descending | Select-Object -First 1 -ExpandProperty Path
+}
+
 $baker = Join-Path $repo "build\release\bin\AssetBaker.exe"
 if (-not (Test-Path $baker)) { $baker = Join-Path $repo "build\debug\bin\AssetBaker.exe" }
 if (-not (Test-Path $baker)) { throw "Build AssetBaker first (build.cmd release)" }
 
-# Resolve Blender (only needed for fbx/usd sources or Split packs).
-if (-not $Blender) {
-    $candidates = @(
-        "$env:ProgramFiles\Blender Foundation\Blender 5.1\blender.exe",
-        "$env:ProgramFiles\Blender Foundation\Blender 5.0\blender.exe"
-    )
-    $Blender = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
-}
+# Resolve Blender (only needed for fbx/usd sources or Split packs). The NEWEST
+# installed version wins - a hardcoded version list silently skips every mesh
+# import the day Blender updates itself (it went 5.1 -> 5.2 mid-session once).
+if (-not $Blender) { $Blender = Find-Blender }
 
 # Run AssetBaker keying success ONLY off the process exit code (its stderr
 # warnings would otherwise abort the batch under -ErrorActionPreference Stop).

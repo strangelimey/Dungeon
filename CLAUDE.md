@@ -238,7 +238,9 @@ buffer, reused across all ~25 submissions).
   convert with --keep-rig + --height straight into assets/models (bypassing
   import-model's joint-strip). Then wire a catalog [id] (decorations/monsters/
   items.cat) and place it in a level. ConvertMesh.py needs Blender (auto-found
-  at %ProgramFiles%\Blender Foundation\Blender 5.1, or -Blender <path>).
+  the NEWEST %ProgramFiles%\Blender Foundation\Blender <ver>, or -Blender
+  <path>; the version is discovered, never hardcoded — a pinned list silently
+  skips every import the day Blender self-updates).
 - `tools\ImportAnimLibrary.py` + `tools\FetchAnimLibrary.ps1` — the ANIMATION
   side of the monster pipeline: bake a creature's STATE-ORGANIZED clip library
   onto its mesh. The library is one folder PER CreatureState (Idle/ InCombat/

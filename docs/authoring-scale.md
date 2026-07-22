@@ -65,6 +65,17 @@ handedness; you only have to get the facing and the origin right.
 
 ## Blender setup
 
+Fastest route: open **`docs/dungeon_starter.blend`**, which is already
+configured — unit-space grid, a `CELL` / `WALL_FACE` / `EYE_LEVEL` / `DOORWAY`
+reference collection (wireframe, click-through, never exported), and an empty
+`MODEL` collection set active. Regenerate it any time with:
+
+```bash
+blender --background --factory-startup --python tools/BlenderStarter.py -- docs/dungeon_starter.blend
+```
+
+To configure a file by hand instead:
+
 1. **Scene Properties → Units → Unit Scale = 1.0**, Unit System = Metric,
    Length = Metres. Then treat **1 Blender metre = 1 dungeon square**. Do not
    change the unit scale — the glTF exporter writes Blender units straight
