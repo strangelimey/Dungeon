@@ -19,6 +19,13 @@ solid = 0
 authored = 0
 category = architecture
 
+[wall_arch]
+display = Wall Arch
+model = wall_arch
+texture = stacked_stone
+solid = 0
+category = architecture
+
 [fountain]
 display = Fountain
 model = fountain
