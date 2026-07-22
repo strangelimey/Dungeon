@@ -92,13 +92,14 @@ void StampCell(const DungeonMap& map, int x, int z, CellHoles holes,
 		const u32 floorVariant = pick(map.FloorVariant(x, z),
 									   SurfaceVariantFor(x, z, 1u, floorVariants), floorVariants);
 		AppendTransformed(floorB[floorVariant], floorBlocks[floorVariant],
-						  XMMatrixTranslation(center.x, 0, center.z));
+						  UnitScale() * XMMatrixTranslation(center.x, 0, center.z));
 	}
 	if (!holes.ceiling) {
 		const u32 ceilingVariant = pick(map.CeilingVariant(x, z),
 										 SurfaceVariantFor(x, z, 2u, ceilingVariants), ceilingVariants);
 		AppendTransformed(ceilB[ceilingVariant], ceilingBlocks[ceilingVariant],
-						  XMMatrixTranslation(center.x, kWallHeight, center.z));
+						  UnitScale() *
+							  XMMatrixTranslation(center.x, kWallHeight, center.z));
 	}
 
 	// Wall blocks are authored facing +Z; rotate so the face points into the
@@ -123,8 +124,8 @@ void StampCell(const DungeonMap& map, int x, int z, CellHoles holes,
 		if (map.IsWalkable(wx, wz)) continue;
 		const u32 wallVariant = pick(map.WallVariant(wx, wz),
 									  SurfaceVariantFor(wx, wz, 3u, wallVariants), wallVariants);
-		const XMMATRIX m =
-			XMMatrixRotationY(e.yaw) * XMMatrixTranslation(e.pos.x, e.pos.y, e.pos.z);
+		const XMMATRIX m = UnitScale() * XMMatrixRotationY(e.yaw) *
+						   XMMatrixTranslation(e.pos.x, e.pos.y, e.pos.z);
 		// A niche on this edge stamps its recessed panel in place of the plain
 		// wall panel (into the same variant bucket, so it keeps the wall's
 		// texture); an unknown type or no niche keeps the normal wall block.

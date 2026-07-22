@@ -106,13 +106,20 @@ function Find-Mesh {
 #   Object     (Split only) the split glb basename (lowercased object name) to
 #              import as Name.
 #   FlipGreen  $true if the PBR normals are OpenGL (most fab/textures.com sets).
-#   Height     meters; 0 = auto-fit (import-model fits largest extent to ~2 m).
+#   Height     UNITS (1.0 = one dungeon square — see game::kUnit); 0 = auto-fit
+#              (import-model fits the largest extent to ~0.8 of a square). Every
+#              size below is units: the pipeline's normalizers (ConvertMesh
+#              --height/--fit, import-model --height/--lift) just scale the mesh
+#              to the number they are given, and the engine multiplies models by
+#              kUnit, so authoring these in units is what keeps a bought prop the
+#              right size whatever a square measures. Divide a real-world metre
+#              size by 2.5 to get the number to put here.
 #   Rig        $true for a rigged monster: convert with --keep-rig + --height and
 #              drop the normalized rigged .glb straight into assets/models
 #              (bypasses import-model, which strips joints). Wire via monsters.cat.
 #   Objects    comma list -> ConvertMesh --objects: keep ONLY these mesh objects
 #              (packs that bundle decorative flame shells/reference junk).
-#   Lift       meters -> import-model --lift: raise the grounded mesh to a
+#   Lift       UNITS -> import-model --lift: raise the grounded mesh to a
 #              hanging height (wall fixtures render at y=0, the mesh carries it).
 #   Wall       $true -> import-model --wall: back face at z=0 (mount wall),
 #              room side +Z, instead of centering Z.
@@ -139,15 +146,15 @@ $modelSets = @(
     # brass guard, leather/wood grip). MultiMaterial -> split per weapon + keep
     # each weapon's own glTF materials in one embedded-texture .glb (downscaled),
     # rendered by the engine's multi-material path. Height = target longest extent.
-    @{ Src = "fab\weapons\fantasy-assassin"; Name = "viking_dagger"; Object = "viking_dagger"; MultiMaterial = $true; Height = 0.55 }
-    @{ Src = "fab\weapons\fantasy-assassin"; Name = "khukri";        Object = "khukri";        MultiMaterial = $true; Height = 0.45 }
-    @{ Src = "fab\weapons\fantasy-assassin"; Name = "snake_dagger";  Object = "snake_dagger";  MultiMaterial = $true; Height = 0.50 }
-    @{ Src = "fab\weapons\fantasy-assassin"; Name = "french_dagger"; Object = "french_dagger"; MultiMaterial = $true; Height = 0.50 }
+    @{ Src = "fab\weapons\fantasy-assassin"; Name = "viking_dagger"; Object = "viking_dagger"; MultiMaterial = $true; Height = 0.22 }
+    @{ Src = "fab\weapons\fantasy-assassin"; Name = "khukri";        Object = "khukri";        MultiMaterial = $true; Height = 0.18 }
+    @{ Src = "fab\weapons\fantasy-assassin"; Name = "snake_dagger";  Object = "snake_dagger";  MultiMaterial = $true; Height = 0.20 }
+    @{ Src = "fab\weapons\fantasy-assassin"; Name = "french_dagger"; Object = "french_dagger"; MultiMaterial = $true; Height = 0.20 }
 
     # Leather Sentinel armor (fab, free) - a single-object, single-material body
     # of armour (~2 m worn-size); no Object -> converted as one combined .glb,
     # scaled down to a floor-loot size.
-    @{ Src = "fab\armor"; Name = "leather_armor"; MultiMaterial = $true; Height = 0.90 }
+    @{ Src = "fab\armor"; Name = "leather_armor"; MultiMaterial = $true; Height = 0.36 }
 
     # Assets Animated rigged crawlers (fab, 2026-07-10): one mesh + one material
     # each, the 4K PBR maps EMBEDDED in the FBX (the Rig path dumps + imports
@@ -155,8 +162,8 @@ $modelSets = @(
     # Crawlers size by FIT (longest extent — leg span / body length inside the
     # 2 m cell), not standing height; fine-tune per type with the catalog's
     # modelscale field in the editor's monster dialog.
-    @{ Src = "fab\monsters\centipede";    Name = "centipede";    Rig = $true; Fit = 1.8; FlipGreen = $true }
-    @{ Src = "fab\monsters\giant_spider"; Name = "giant_spider"; Rig = $true; Fit = 1.7; FlipGreen = $true }
+    @{ Src = "fab\monsters\centipede";    Name = "centipede";    Rig = $true; Fit = 0.72; FlipGreen = $true }
+    @{ Src = "fab\monsters\giant_spider"; Name = "giant_spider"; Rig = $true; Fit = 0.68; FlipGreen = $true }
 
     # Perunir "Medieval Stylized Torch" (fab, 2026-07-11) — the authored wall
     # sconce (fixtures.cat [sconce]): bracket (Holder) + torch, the decorative
@@ -165,7 +172,7 @@ $modelSets = @(
     # textures folder also carries the coal's separate set, hence TexPrefix.
     # Lifted/wall-aligned to hang like the procedural sconce (y 1.10..1.75).
     @{ Src = "fab\props\medieval-stylized-torch\extracted\source"; Name = "wall_torch"
-       Objects = "Holder,Torch"; Height = 0.65; Lift = 1.10; Wall = $true
+       Objects = "Holder,Torch"; Height = 0.26; Lift = 0.44; Wall = $true
        TexDir = "..\textures"; TexPrefix = "T_Torch" }
 
     # Mavas3D "Fantastic brazier lamp" (fab, 2026-07-11) — the authored brazier
@@ -178,17 +185,17 @@ $modelSets = @(
     # the COALS (confirmed by eye), and Brazier_ prefixes Brazier_lamp_, hence
     # the exclude.
     @{ Src = "fab\props\brazier_lamp_fbx\extracted"; Name = "brazier_bowl"
-       Object = "fantasy_brazier_lamp"; SplitWhole = $true; Raw = $true; Height = 0.75
+       Object = "fantasy_brazier_lamp"; SplitWhole = $true; Raw = $true; Height = 0.30
        TexDir = "Textures_brazier_lamp_2K"; TexPrefix = "Brazier_"; TexExclude = "Brazier_lamp_" }
     @{ Src = "fab\props\brazier_lamp_fbx\extracted"; Name = "brazier_coals"
-       Object = "hot_coals"; SplitWhole = $true; Raw = $true; Height = 0.75
+       Object = "hot_coals"; SplitWhole = $true; Raw = $true; Height = 0.30
        TexDir = "Textures_brazier_lamp_2K"; TexPrefix = "Brazier_lamp_" }
 
     # Mavas3D "Fantastic brazier" (fab, 2026-07-11) — the same bowl WITHOUT
     # coals, one mesh + one set. Imported as spare assets (the world loads ONE
     # brazier kind — the default id's — so this can't coexist as a separate
     # placeable fixture yet; swap fixtures.cat [brazier] model/texture to use).
-    @{ Src = "fab\props\brazier_fbx\extracted"; Name = "brazier_empty"; Height = 0.75
+    @{ Src = "fab\props\brazier_fbx\extracted"; Name = "brazier_empty"; Height = 0.30
        TexDir = "Textures_brazier_2K" }
 )
 
@@ -220,7 +227,7 @@ foreach ($m in $modelSets) {
         $glbOut = if ($m.Object) { Join-Path $stage "$($m.Object).glb" } else { $null }
         if (-not $glbOut -or -not (Test-Path $glbOut)) {
             if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
-            $h = if ($m.Height) { $m.Height } else { 0.6 }
+            $h = if ($m.Height) { $m.Height } else { 0.24 } # units
             $maxTex = if ($m.MaxTex) { $m.MaxTex } else { 512 }
             $cargs = @($mesh, $stage)
             if ($m.Object) { $cargs += '--split' }
@@ -250,7 +257,7 @@ foreach ($m in $modelSets) {
         # Size by Fit (longest extent; crawlers) when given, else Height (Z;
         # standing creatures).
         $sizeArgs = if ($m.Fit) { @('--fit', $m.Fit) }
-                    else { @('--height', $(if ($m.Height) { $m.Height } else { 1.8 })) }
+                    else { @('--height', $(if ($m.Height) { $m.Height } else { 0.72 })) } # units
         # fab monster FBXs usually EMBED their PBR maps — have the convert dump
         # them as loose PNGs so the set import below has something to pack.
         $texDump = Join-Path $stage "dumped_textures"

@@ -34,13 +34,31 @@
 
 namespace dungeon::game {
 
-// World-space dimensions shared by geometry, lighting, and the camera.
-inline constexpr float kCellSize = 2.4f;   // square cells, 2.4m on a side
-// Block meshes are authored at this exact size (AssetBaker's kCellHalf in
-// tools/AssetBaker/ModelBaker.cpp must equal kCellSize/2) — changing it
-// means rebaking models: AssetBaker models <assets>.
-inline constexpr float kWallHeight = 2.5f; // floor to ceiling
-inline constexpr float kEyeHeight = 1.55f; // camera height above the floor
+// THE SCALE AUTHORITY. Metres per dungeon square — and the square is a CUBE,
+// so this one number is the cell footprint AND the floor-to-ceiling height.
+//
+// Every model on disk (assets/models/*.gltf, procedural and imported alike) is
+// authored in UNITS, where 1.0 = one square: a hand-built column 1.0 tall
+// reaches the ceiling exactly. The engine multiplies by kUnit at the handful of
+// places a mesh becomes world geometry (DungeonMeshBuilder::StampCell, the
+// decoration/fixture/stair/door/button transforms, the monster and item draws).
+// So changing this number rescales the whole world coherently with NO asset
+// rebake — see docs/authoring-scale.md.
+inline constexpr float kUnit = 2.5f;
+// World-space dimensions shared by geometry, lighting, and the camera. All
+// three derive from the unit; nothing else should hardcode a metre.
+inline constexpr float kCellSize = kUnit;   // square cells, one unit on a side
+inline constexpr float kWallHeight = kUnit; // floor to ceiling (the cell is a cube)
+inline constexpr float kEyeHeight = 0.62f * kUnit; // camera height above the floor
+
+// The scale that turns a unit-space authored mesh into world geometry. Every
+// mesh-to-world transform in the engine starts with this (see the seam list in
+// docs/authoring-scale.md). `extra` is the per-kind multiplier a catalog may
+// add on top — monsters' `modelscale`, an item's placeholder scale.
+inline DirectX::XMMATRIX UnitScale(float extra = 1.0f) {
+	const float s = kUnit * extra;
+	return DirectX::XMMatrixScaling(s, s, s);
+}
 
 enum class Cell : u8 { Wall, Floor };
 

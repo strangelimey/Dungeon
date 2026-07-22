@@ -762,6 +762,8 @@ DungeonWorld::ItemKind& DungeonWorld::ItemKindFor(const std::string& type) {
 			kind->iconAnimated = CatalogBool(def, "icon_spin", false);
 			m_itemIconsBaked = false; // a freshly added icon needs baking
 		}
+		// Uniform size trim over the authored unit size, like DecorationKind's.
+		kind->modelScale = def ? def->GetFloat("scale", 1.0f) : 1.0f;
 		it = m_itemKinds.emplace(type, std::move(kind)).first;
 	}
 	return *it->second;
@@ -1125,6 +1127,9 @@ DungeonWorld::DecorationKind& DungeonWorld::DecorationKindFor(const std::string&
 			kind->roughness = def->GetFloat("roughness", -1.0f);
 			kind->heightScale = def->GetFloat("height_scale", -1.0f);
 			kind->hasTint = ParseColorField(CatalogGet(def, "color", ""), kind->tint);
+			// Uniform size trim on top of the authored unit size (monsters' long-
+			// standing `modelscale`, now available to every prop): 1 = as authored.
+			kind->modelScale = def->GetFloat("scale", 1.0f);
 		}
 		// Every kind bakes a whole-model map icon; a fresh kind re-arms the
 		// one-shot bake pass (UpdateMapIcons).
@@ -1175,9 +1180,10 @@ DungeonWorld::FixtureKind& DungeonWorld::FixtureKindFor(const std::string& type)
 		// Flame attachment: catalog fields override the mount's defaults so an
 		// authored prop's fire burns where its bowl/basket actually is.
 		kind->flame = kind->wallMount
-						  ? FixtureFlame{kSconceFlameY, kSconceFlameScale, 0.22f}
+						  ? FixtureFlame{kSconceFlameY, kSconceFlameScale, 0.088f}
 						  : FixtureFlame{kBrazierFlameY, kBrazierFlameScale, 0.0f};
 		if (def) {
+			kind->modelScale = def->GetFloat("scale", 1.0f);
 			kind->flame.height = def->GetFloat("flame_height", kind->flame.height);
 			kind->flame.scale = def->GetFloat("flame_scale", kind->flame.scale);
 			kind->flame.out = def->GetFloat("flame_out", kind->flame.out);
@@ -1222,12 +1228,13 @@ void DungeonWorld::LoadDecorations() {
 		deco.wall = wall;
 		if (wallMounted) {
 			const WallMount m = MountOnWall(deco.x, deco.z, wall);
-			XMStoreFloat4x4(&deco.world, XMMatrixRotationY(m.yaw) *
+			XMStoreFloat4x4(&deco.world, UnitScale(kind.modelScale) * XMMatrixRotationY(m.yaw) *
 											 XMMatrixTranslation(m.pos.x, 0, m.pos.z));
 			deco.solid = false;
 		} else {
 			const Vec3 pos = m_map.CellCenter(deco.x, deco.z);
-			XMStoreFloat4x4(&deco.world, XMMatrixRotationY(DirYaw(record.facing)) *
+			XMStoreFloat4x4(&deco.world, UnitScale(kind.modelScale) *
+											 XMMatrixRotationY(DirYaw(record.facing)) *
 											 XMMatrixTranslation(pos.x, 0, pos.z));
 			deco.solid = kind.solidDefault; // passages (archway) let the party through
 		}
@@ -1257,7 +1264,7 @@ void DungeonWorld::PlaceStairProp(const StairLink& s) {
 	deco.facing = s.facing;
 	deco.stair = true; // written as a stairs record, not a decoration
 	const Vec3 pos = m_map.CellCenter(s.x, s.z);
-	XMStoreFloat4x4(&deco.world, XMMatrixRotationY(DirYaw(s.facing)) *
+	XMStoreFloat4x4(&deco.world, UnitScale(kind.modelScale) * XMMatrixRotationY(DirYaw(s.facing)) *
 									 XMMatrixTranslation(pos.x, 0, pos.z));
 	deco.solid = false; // the party walks onto a stair to use it
 	m_decorations.push_back(std::move(deco));
@@ -1289,15 +1296,17 @@ void DungeonWorld::BuildFires() {
 		fire.brazier = false;
 		fire.lit = sconce.lit && !kind.flameless;
 		fire.lightRadius = sconce.brightness * kCellSize; // "squares" -> metres
-		XMStoreFloat4x4(&fire.world, XMMatrixRotationY(yaw) *
+		const float fs = kind.modelScale; // fixtures.cat `scale`
+		XMStoreFloat4x4(&fire.world, UnitScale(fs) * XMMatrixRotationY(yaw) *
 										 XMMatrixTranslation(m.pos.x, 0, m.pos.z));
 		// Flame local offset (0, height, out) rotated by yaw (fixtures.cat
-		// flame_* fields; defaults = the mount's procedural constants).
-		fire.flamePos = {m.pos.x + std::sin(yaw) * kind.flame.out,
-						 kind.flame.height,
-						 m.pos.z + std::cos(yaw) * kind.flame.out};
+		// flame_* fields; defaults = the mount's procedural constants). Those are
+		// points on the model, so they are UNITS -> metres here like the mesh.
+		fire.flamePos = {m.pos.x + std::sin(yaw) * kind.flame.out * kUnit * fs,
+						 kind.flame.height * kUnit * fs,
+						 m.pos.z + std::cos(yaw) * kind.flame.out * kUnit * fs};
 		fire.phase = static_cast<float>(seed) * 1.7f;
-		fire.effect = FireEffect(fire.flamePos, kind.flame.scale, seed++);
+		fire.effect = FireEffect(fire.flamePos, kind.flame.scale * fs, seed++);
 		m_fires.push_back(std::move(fire));
 	}
 
@@ -1309,10 +1318,12 @@ void DungeonWorld::BuildFires() {
 		fire.brazier = true;
 		fire.lit = b.lit && !kind.flameless;
 		fire.lightRadius = b.brightness * kCellSize; // "squares" -> metres
-		XMStoreFloat4x4(&fire.world, XMMatrixTranslation(center.x, 0, center.z));
-		fire.flamePos = {center.x, kind.flame.height, center.z};
+		const float fs = kind.modelScale; // fixtures.cat `scale`
+		XMStoreFloat4x4(&fire.world,
+						UnitScale(fs) * XMMatrixTranslation(center.x, 0, center.z));
+		fire.flamePos = {center.x, kind.flame.height * kUnit * fs, center.z};
 		fire.phase = static_cast<float>(seed) * 1.7f;
-		fire.effect = FireEffect(fire.flamePos, kind.flame.scale, seed++);
+		fire.effect = FireEffect(fire.flamePos, kind.flame.scale * fs, seed++);
 		m_fires.push_back(std::move(fire));
 	}
 	log::Info("Lit {} fires ({} sconces, {} braziers, {} kinds)", m_fires.size(),

@@ -27,6 +27,22 @@ Built collaboratively with Claude across sessions; this file is the handoff.
 Nine strictly layered static libs, one-way deps:
 Core → Platform/Assets → Animation/Graphics → UI/Audio → Game → Main(exe).
 Key conventions (memorize, they bite):
+- SCALE: every model on disk is authored in UNITS, 1.0 = one dungeon SQUARE,
+  and the square is a CUBE. `kUnit` (Game/DungeonMap.h, 2.5 m) is the single
+  authority; kCellSize and kWallHeight both derive from it, and `UnitScale()`
+  multiplies it in at the handful of mesh-to-world seams (DungeonMeshBuilder
+  StampCell; decoration/stair/fixture transforms in DungeonWorld_Load +
+  _Editing; doors/buttons/monsters/items in _Render). Change kUnit, rebuild,
+  and the whole world rescales with NO rebake — that invariant is the point,
+  so a NEW draw site must go through UnitScale() or its content comes out
+  2.5x small. AssetBaker authors the block family directly in units
+  (kCellHalf=0.5, kWallH=1.0, U(metres)/M(units) convert) and pushes its
+  metre-proportioned props/creatures through ScaleMeshToUnits /
+  ScaleModelToUnits at one boundary (FinishProp + the few self-assembling
+  builders). import-model's --height/--lift and FetchModels' $modelSets
+  Height/Fit/Lift are UNITS too. Per-kind `scale` (monsters: `modelscale`)
+  trims a prop on top of its authored size. Full authoring guide (Blender
+  setup, reference dimensions, export/import): docs/authoring-scale.md.
 - DirectXMath ROW-vector convention: v' = v*M, translation in row 4
   (_41.._43); matrices uploaded raw; HLSL always uses mul(matrix, vector).
   glTF column-major memcpy is CORRECT under this pairing (same bytes).

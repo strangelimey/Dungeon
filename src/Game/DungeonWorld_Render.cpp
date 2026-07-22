@@ -244,8 +244,9 @@ void DungeonWorld::SubmitSceneGeometry(ID3D12GraphicsCommandList* list,
 	// textured stone/wood with bump + parallax + ORM, falling back to the flat
 	// glTF material color if the texture set is missing.
 	for (const Decoration& deco : m_decorations) {
-		// radius 2.0 covers the widest prop (the archway spans the full cell).
-		if (!visible({deco.world._41, 1.2f, deco.world._43}, 2.0f)) continue;
+		// radius 0.85 units covers the widest prop (the archway spans the full cell).
+		if (!visible({deco.world._41, 0.5f * kUnit, deco.world._43}, 0.85f * kUnit))
+			continue;
 		// Authored multi-material model: draw each submesh with its own glTF
 		// material (steel blade, brass guard, leather grip, ...). Shared by the
 		// shadow + main passes, so these also cast shadows.
@@ -266,8 +267,11 @@ void DungeonWorld::SubmitSceneGeometry(ID3D12GraphicsCommandList* list,
 	// decorations above.
 	for (const Door& door : m_doors) {
 		const Vec3 c = m_map.CellCenter(door.x, door.z);
-		if (!visible({c.x, 1.2f, c.z}, 2.0f)) continue;
-		const XMMATRIX base = XMMatrixRotationY(DirYaw(door.facing)) *
+		if (!visible({c.x, 0.5f * kUnit, c.z}, 0.85f * kUnit)) continue;
+		// Frame and panel are DecorationKinds, so they honour the catalog `scale`;
+		// they share the frame's (a mismatched pair would not meet anyway).
+		const float ds = door.frame ? door.frame->modelScale : 1.0f;
+		const XMMATRIX base = UnitScale(ds) * XMMatrixRotationY(DirYaw(door.facing)) *
 							  XMMatrixTranslation(c.x, 0, c.z);
 		auto draw = [&](const DecorationKind* kind, const XMMATRIX& world) {
 			if (!kind || !kind->mesh) return;
@@ -280,7 +284,9 @@ void DungeonWorld::SubmitSceneGeometry(ID3D12GraphicsCommandList* list,
 		};
 		draw(door.frame, base);
 		const float t = door.openT;
-		const float slide = (t * t * (3.0f - 2.0f * t)) * 1.8f; // into the wall
+		// Model-space (pre-scale) offset, so it is in UNITS: three quarters of a
+		// square sideways buries the panel in the flanking wall.
+		const float slide = (t * t * (3.0f - 2.0f * t)) * 0.75f; // into the wall
 		draw(door.panel, XMMatrixTranslation(slide, 0, 0) * base);
 	}
 
@@ -290,11 +296,12 @@ void DungeonWorld::SubmitSceneGeometry(ID3D12GraphicsCommandList* list,
 	for (const Button& b : m_buttons) {
 		if (!b.kind || !b.kind->mesh) continue; // legacy type the catalog lacks
 		const WallMount mount = MountOnWall(b.x, b.z, b.facing);
-		if (!visible({mount.pos.x, 1.2f, mount.pos.z}, 1.0f)) continue;
+		if (!visible({mount.pos.x, 0.5f * kUnit, mount.pos.z}, 0.45f * kUnit)) continue;
 		const XMMATRIX world =
+			UnitScale(b.kind->modelScale) *
 			XMMatrixRotationX(b.activated ? 0.5f : -0.5f) *
 			XMMatrixRotationY(mount.yaw) *
-			XMMatrixTranslation(mount.pos.x, 1.15f, mount.pos.z);
+			XMMatrixTranslation(mount.pos.x, 0.46f * kUnit, mount.pos.z);
 		gfx::MaterialParams material;
 		material.doubleSided = true;
 		ApplyPropMaterial(material, *b.kind, 0.85f);
@@ -322,7 +329,7 @@ void DungeonWorld::SubmitSceneGeometry(ID3D12GraphicsCommandList* list,
 			} else {
 				c = SlotCenter(item.x, item.z, SizeClass::Medium, item.slot);
 			}
-			if (!visible({c.x, c.y + 0.3f, c.z}, 0.8f)) continue;
+			if (!visible({c.x, c.y + 0.12f * kUnit, c.z}, 0.35f * kUnit)) continue;
 			// A model item (e.g. a weapon) draws as its actual 3D model, grounded on
 			// the floor (or the pocket floor c.y) via GroundOffsetY, each part with
 			// its own material — not the tablet.
@@ -330,13 +337,15 @@ void DungeonWorld::SubmitSceneGeometry(ID3D12GraphicsCommandList* list,
 				const MultiMaterialModel& mm = *item.kind->model;
 				DrawMultiMaterial(
 					list, mm,
-					FloorItemWorld(mm.boundsMin, mm.boundsMax, 1.0f, c.x, c.y, c.z));
+					FloorItemWorld(mm.boundsMin, mm.boundsMax,
+								   kUnit * item.kind->modelScale, c.x, c.y, c.z));
 				continue;
 			}
 			// Non-rune placeholders render scaled UP (kItemPlaceholderScale) — bigger
 			// than the rune tablet so they read on a dark floor (pickup is a
 			// floor-quarter click test, independent of the rendered size).
-			const float scale = item.kind->isRune ? 1.0f : kItemPlaceholderScale;
+			const float scale = kUnit * item.kind->modelScale *
+								(item.kind->isRune ? 1.0f : kItemPlaceholderScale);
 			Mat4 world = FloorItemWorld(m_runeBoundsMin, m_runeBoundsMax, scale,
 										c.x, c.y, c.z);
 			gfx::MaterialParams material;
@@ -370,10 +379,9 @@ void DungeonWorld::SubmitSceneGeometry(ID3D12GraphicsCommandList* list,
 		if (!monster.Alive() && monster.deathAnim <= 0.0f) continue; // gone once death anim ends
 		const MonsterKind& kind = *monster.kind;
 		const Vec3 pos = monster.visualPos; // glides between cells while chasing
-		if (!visible({pos.x, 1.0f, pos.z}, 1.5f)) continue;
+		if (!visible({pos.x, 0.4f * kUnit, pos.z}, 0.65f * kUnit)) continue;
 		Mat4 world;
-		XMStoreFloat4x4(&world, XMMatrixScaling(kind.modelScale, kind.modelScale,
-												kind.modelScale) *
+		XMStoreFloat4x4(&world, UnitScale(kind.modelScale) *
 									XMMatrixRotationY(monster.yaw + kind.modelYaw) *
 									XMMatrixTranslation(pos.x, 0, pos.z));
 		if (kind.multi) {
@@ -396,7 +404,7 @@ void DungeonWorld::SubmitSceneGeometry(ID3D12GraphicsCommandList* list,
 	// kind, falling back to flat metallic iron if the texture set is missing.
 	for (const Fire& fire : m_fires) {
 		if (!fire.kind || !fire.kind->mesh) continue;
-		if (!visible(fire.flamePos, 1.2f)) continue;
+		if (!visible(fire.flamePos, 0.5f * kUnit)) continue;
 		gfx::MaterialParams metal;
 		ApplyPropMaterial(metal, fire.kind->tex, fire.kind->color, 0.5f);
 		if (!metal.albedo) metal.metallic = 1.0f; // flat fallback reads as metal

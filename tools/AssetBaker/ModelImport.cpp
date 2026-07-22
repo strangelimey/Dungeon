@@ -52,7 +52,7 @@ std::string ResolveModelFile(const std::string& sourcePath) {
 
 bool ImportModel(const std::string& sourcePath, const std::string& assetsDir,
 				 const std::string& name, float targetHeight, float yawDegrees,
-				 char upAxis, const std::string& textureSet, float liftMeters,
+				 char upAxis, const std::string& textureSet, float liftUnits,
 				 bool wallAlign, bool rawTransform) {
 	const std::string modelFile = ResolveModelFile(sourcePath);
 	if (modelFile.empty()) {
@@ -136,25 +136,26 @@ bool ImportModel(const std::string& sourcePath, const std::string& assetsDir,
 		}
 		const float ext[3] = {hi.x - lo.x, hi.y - lo.y, hi.z - lo.z};
 		const float maxExt = std::max({ext[0], ext[1], ext[2], 1e-4f});
-		// targetHeight scales the model's height to that value; auto-fit puts
-		// the largest extent at ~2.0 m (comfortably inside a 2.4 m cell).
+		// targetHeight scales the model's height to that value IN UNITS (1.0 =
+		// one dungeon square); auto-fit puts the largest extent at 0.8 of a
+		// square, comfortably inside the cell.
 		const float scale = targetHeight > 0.0f
 								? targetHeight / std::max(ext[1], 1e-4f)
-								: 2.0f / maxExt;
+								: 0.8f / maxExt;
 		// Wall fixtures align their back face to z=0 (the mount wall) instead
-		// of centering Z, and hang at liftMeters instead of standing on the
+		// of centering Z, and hang at liftUnits instead of standing on the
 		// floor.
 		const float cx = (lo.x + hi.x) * 0.5f;
 		const float cz = wallAlign ? lo.z : (lo.z + hi.z) * 0.5f;
 		for (assets::Vertex& v : merged.vertices) {
 			v.position = {(v.position.x - cx) * scale,
-						  (v.position.y - lo.y) * scale + liftMeters,
+						  (v.position.y - lo.y) * scale + liftUnits,
 						  (v.position.z - cz) * scale};
 		}
 		log::Info("Imported model '{}': {} verts, source extent "
-				  "{:.2f}x{:.2f}x{:.2f} m, scaled x{:.3f}{}{}",
+				  "{:.2f}x{:.2f}x{:.2f}, scaled x{:.3f} (units, 1.0 = one square){}{}",
 				  name, merged.vertices.size(), ext[0], ext[1], ext[2], scale,
-				  liftMeters != 0.0f ? std::format(", lifted to y={:.2f}", liftMeters)
+				  liftUnits != 0.0f ? std::format(", lifted to y={:.2f}", liftUnits)
 									 : "",
 				  wallAlign ? ", back at z=0 (wall)" : "");
 	}
@@ -198,6 +199,40 @@ bool ImportModel(const std::string& sourcePath, const std::string& assetsDir,
 		log::Warn("No PBR maps imported for '{}' — it will draw with a flat color",
 				  name);
 	}
+	return true;
+}
+
+bool RescaleModel(const std::string& assetsDir, const std::string& name,
+				  float factor) {
+	const std::string path = assetsDir + "\\models\\" + name + ".gltf";
+	auto loaded = assets::LoadModel(path);
+	if (!loaded) {
+		log::Error("{}", loaded.error());
+		return false;
+	}
+	assets::ModelData model = std::move(*loaded);
+	// Refuse anything the single-mesh writer would flatten (see the header).
+	if (model.meshes.size() != 1 || !model.skeleton.joints.empty() ||
+		!model.clips.empty() || !model.images.empty()) {
+		log::Error("rescale '{}': not a plain single-mesh import ({} meshes, {} "
+				   "joints, {} clips, {} embedded images) — re-run its import "
+				   "pipeline instead",
+				   name, model.meshes.size(), model.skeleton.joints.size(),
+				   model.clips.size(), model.images.size());
+		return false;
+	}
+	Vec3 lo{1e9f, 1e9f, 1e9f}, hi{-1e9f, -1e9f, -1e9f};
+	for (assets::Vertex& v : model.meshes[0].vertices) {
+		v.position = {v.position.x * factor, v.position.y * factor,
+					  v.position.z * factor};
+		lo = {std::min(lo.x, v.position.x), std::min(lo.y, v.position.y),
+			  std::min(lo.z, v.position.z)};
+		hi = {std::max(hi.x, v.position.x), std::max(hi.y, v.position.y),
+			  std::max(hi.z, v.position.z)};
+	}
+	if (!WriteGltf(model, path)) return false;
+	log::Info("Rescaled '{}' x{:.4f} -> bounds {:.3f}x{:.3f}x{:.3f}", name, factor,
+			  hi.x - lo.x, hi.y - lo.y, hi.z - lo.z);
 	return true;
 }
 

@@ -29,9 +29,10 @@ constexpr float kLookSnap = kPi * 0.25f;
 constexpr float kLookPitchMax = kPi * 0.40f;
 
 // Head-bob amplitudes (see EyePosition): the vertical footfall dip and the
-// alternating lateral sway, in world metres (a cell is 2 m, eye at 1.55 m).
-constexpr float kBobDip = 0.05f;
-constexpr float kBobSway = 0.022f;
+// alternating lateral sway. In UNITS (a square is 1.0, the eye rides at 0.62),
+// scaled to metres by kUnit so the bob tracks the world scale.
+constexpr float kBobDip = 0.02f * kUnit;
+constexpr float kBobSway = 0.0088f * kUnit;
 
 float YawForFacing(int facing) {
 	// Camera forward is (sin(yaw), 0, cos(yaw)): N=-Z, E=+X, S=+Z, W=-X.

@@ -382,9 +382,11 @@ public:
 
 	// Fixture flame geometry, shared by the in-world fires (BuildFires) and the
 	// inspector previews so the preview flame sits exactly where the world one
-	// burns: local Y of the flame origin, and the particle-effect scale.
-	static constexpr float kSconceFlameY = 1.78f, kSconceFlameScale = 0.55f;
-	static constexpr float kBrazierFlameY = 0.72f, kBrazierFlameScale = 1.0f;
+	// burns: local Y of the flame origin IN UNITS (it is a point on the model,
+	// so it scales with kUnit like the mesh), and the dimensionless
+	// particle-effect scale (a sconce burns smaller than a brazier).
+	static constexpr float kSconceFlameY = 0.712f, kSconceFlameScale = 0.55f;
+	static constexpr float kBrazierFlameY = 0.288f, kBrazierFlameScale = 1.0f;
 	// The fixture prop submesh(es) + resolved material for the fixture inspector's
 	// 3D preview (mesh pointers are stable for the session). `flameHeight` is the
 	// local Y of the flame origin above the base, so the preview can place its fire.
@@ -1123,6 +1125,9 @@ private:
 		float weight = 0.0f;     // carry weight (kg); sums into a member's load
 		std::vector<std::string> commands; // hand right-click command ids (data-driven)
 		bool isRune = false;
+		// Uniform size trim (items.cat `scale`) over the model's authored unit
+		// size — the DecorationKind knob, for floor/niche draws. 1 = as authored.
+		float modelScale = 1.0f;
 		SpellSymbol runeSymbol = SpellSymbol::Fire;
 		Vec4 glow{1, 1, 1, 1};   // accent-glow tint (element colour / category tint)
 		// Carved-stone tablet look: the shared tablet mesh (m_runeMesh) drawn with
@@ -1233,6 +1238,11 @@ private:
 		float heightScale = -1.0f;
 		bool hasTint = false;
 		Vec4 tint{1, 1, 1, 1};
+		// Uniform size trim (catalog `scale`) applied ON TOP of the model's
+		// authored unit size, so a prop can be nudged without re-exporting it
+		// from Blender. 1 = as authored. The same knob monsters have had as
+		// `modelscale`; multiplied into UnitScale at every draw.
+		float modelScale = 1.0f;
 	};
 	struct Decoration {
 		const DecorationKind* kind = nullptr; // points into m_decorationKinds
@@ -1887,6 +1897,8 @@ private:
 	// replacement prop declares where its fire burns instead of having to be
 	// modelled to the old mesh's proportions.
 	struct FixtureFlame {
+		// height/out are UNITS (points on the model, scaled by kUnit at use);
+		// scale is a dimensionless particle-effect multiplier.
 		float height, scale, out; // local Y, particle scale, offset from wall
 	};
 	// A fixture catalog id resolved to its renderable assets — the fixture
@@ -1906,6 +1918,7 @@ private:
 		Vec4 color2{1, 1, 1, 1};
 		const PropTextures* tex = nullptr;
 		const PropTextures* tex2 = nullptr;
+		float modelScale = 1.0f; // fixtures.cat `scale`, like DecorationKind's
 		FixtureFlame flame{0.0f, 0.0f, 0.0f};
 		std::unique_ptr<gfx::Texture> iconTarget; // baked map icon
 	};

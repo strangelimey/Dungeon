@@ -1,5 +1,7 @@
 #include "Game/FireEffect.h"
 
+#include "Game/DungeonMap.h" // kUnit
+
 #include <algorithm>
 #include <cmath>
 
@@ -10,6 +12,10 @@ namespace {
 constexpr float kFlameRate = 26.0f;
 constexpr float kSmokeRate = 4.5f;
 constexpr float kSparkRate = 2.0f;
+// Every LENGTH below — jitters, particle sizes, velocities, the gravity and
+// drift terms — is authored in UNITS (fractions of a square), like every model
+// on disk, and multiplied by kUnit here. So a fire scales with the world.
+constexpr float kU = kUnit;
 } // namespace
 
 FireEffect::FireEffect(const Vec3& origin, float scale, u32 seed)
@@ -26,27 +32,30 @@ float FireEffect::Rand(float lo, float hi) {
 void FireEffect::Spawn(Kind kind) {
 	Particle p;
 	p.kind = kind;
-	const float s = m_scale;
-	const float jitter = 0.07f * s;
+	const float s = m_scale * kU; // fixture size x metres-per-unit
+	const float jitter = 0.028f * s;
 	p.pos = {m_origin.x + Rand(-jitter, jitter), m_origin.y,
 			 m_origin.z + Rand(-jitter, jitter)};
 
 	switch (kind) {
 	case Kind::Flame:
 		p.life = Rand(0.40f, 0.70f);
-		p.vel = {Rand(-0.12f, 0.12f), Rand(0.65f, 1.05f) * s, Rand(-0.12f, 0.12f)};
-		p.size = Rand(0.10f, 0.16f) * s;
+		p.vel = {Rand(-0.048f, 0.048f) * kU, Rand(0.26f, 0.42f) * s,
+				 Rand(-0.048f, 0.048f) * kU};
+		p.size = Rand(0.040f, 0.064f) * s;
 		break;
 	case Kind::Spark:
 		p.life = Rand(0.40f, 0.90f);
-		p.vel = {Rand(-0.8f, 0.8f), Rand(1.6f, 2.6f) * s, Rand(-0.8f, 0.8f)};
-		p.size = 0.022f * s;
+		p.vel = {Rand(-0.32f, 0.32f) * kU, Rand(0.64f, 1.04f) * s,
+				 Rand(-0.32f, 0.32f) * kU};
+		p.size = 0.0088f * s;
 		break;
 	case Kind::Smoke:
 		p.life = Rand(1.6f, 2.6f);
-		p.vel = {Rand(-0.06f, 0.06f), Rand(0.30f, 0.45f), Rand(-0.06f, 0.06f)};
-		p.size = Rand(0.08f, 0.12f) * s;
-		p.pos.y += 0.15f * s; // smoke starts above the flame
+		p.vel = {Rand(-0.024f, 0.024f) * kU, Rand(0.12f, 0.18f) * kU,
+				 Rand(-0.024f, 0.024f) * kU};
+		p.size = Rand(0.032f, 0.048f) * s;
+		p.pos.y += 0.06f * s; // smoke starts above the flame
 		break;
 	}
 	m_particles.push_back(p);
@@ -71,13 +80,13 @@ void FireEffect::Update(float dt) {
 		}
 		switch (p.kind) {
 		case Kind::Flame:
-			p.vel.y += 0.4f * dt; // hot air accelerates upward
+			p.vel.y += 0.16f * kU * dt; // hot air accelerates upward
 			break;
 		case Kind::Spark:
-			p.vel.y -= 3.5f * dt; // gravity arc
+			p.vel.y -= 1.4f * kU * dt; // gravity arc
 			break;
 		case Kind::Smoke:
-			p.pos.x += std::sin(p.age * 1.7f) * 0.10f * dt; // lazy drift
+			p.pos.x += std::sin(p.age * 1.7f) * 0.04f * kU * dt; // lazy drift
 			break;
 		}
 		p.pos = Add(p.pos, Scale(p.vel, dt));
