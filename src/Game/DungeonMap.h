@@ -222,6 +222,10 @@ public:
 	// record's light flag (a flameless kind places unlit, so the turbidity
 	// grid — which only smokes LIT fixtures — stays truthful).
 	bool AddSconce(int x, int z, std::string type = "sconce", bool lit = true);
+	// Explicit-face mount: hang it on THIS wall of the cell (the editor's
+	// edge-pick names one). False if that neighbour isn't solid or the face is
+	// already taken. The overload above auto-picks when no face is named.
+	bool AddSconce(int x, int z, std::string type, bool lit, Direction wall);
 	bool AddBrazier(int x, int z, std::string type = "brazier", bool lit = true);
 	// Re-hang the sconce at (x,z) currently on `from` onto `to` (which must be a
 	// solid neighbour wall). Bumps Revision(); false if no such sconce or `to`
@@ -263,6 +267,10 @@ public:
 	// Places a niche on the first free solid wall of (x,z) (the sconce mount
 	// rule); false if no free solid wall. Bumps Revision().
 	bool AddNiche(int x, int z, std::string type);
+	// Carves the niche into THIS wall of the cell (the editor's edge-pick names
+	// one). False if that neighbour isn't solid or the face already holds a
+	// niche. Bumps Revision().
+	bool AddNiche(int x, int z, std::string type, Direction wall);
 	// Adds a niche with an explicit wall (the parser + remote/stash editing).
 	// Bumps Revision().
 	void AddNicheRecord(WallNiche n) {

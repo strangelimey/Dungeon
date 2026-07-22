@@ -175,6 +175,19 @@ private:
 	// Pixel → cell. Returns false when the point is outside the grid bounds.
 	bool CellAt(float px, float py, const gfx::Rect& panel, int& outX,
 				int& outZ) const;
+	// Pixel → cell PLUS the fractional position within it (0..1 each axis, from
+	// the cell's north-west corner). The sub-cell part is what lets a click name
+	// an EDGE rather than just a square — see FaceAt.
+	bool CellAtF(float px, float py, const gfx::Rect& panel, int& outX, int& outZ,
+				 float& outFx, float& outFz) const;
+	// Pixel → the wall FACE being pointed at: the nearest edge (of the four,
+	// splitting the square diagonally) that actually separates a walkable cell
+	// from solid rock. Either side works — point at the floor square near a wall
+	// or at the wall block near that floor and you name the SAME face, because an
+	// edge is shared by exactly one of each. Nearer-but-invalid edges are skipped
+	// so a sloppy click still lands on something sensible. Invalid result = the
+	// pointer isn't over any floor/rock boundary.
+	WallFace FaceAt(float px, float py, const gfx::Rect& panel) const;
 	// Whether a cell (and its contents) should draw: always in Editor mode,
 	// only once revealed in Player mode. The future map-fragment / reveal-spell
 	// mechanics feed the same fog set (DungeonWorld::MarkSeen), so they need no
@@ -254,6 +267,11 @@ private:
 	// indices are resolution-independent, so this is valid across the window-pixel
 	// (Update) / device-pixel (Render) split.
 	int m_hoverX = -1, m_hoverZ = -1;
+	// The wall face under the mouse, tracked the same way but only while a
+	// wall-mounted brush is armed (niche, sconce, any `mount = wall` kind). Render
+	// draws it as a highlight bar on the target edge, so the face a click will
+	// take is visible BEFORE committing — the gesture explains itself.
+	WallFace m_hoverFace;
 	// Which chrome button the mouse is over, tracked the same way (Update
 	// hit-tests in window pixels; Render styles the matching device-pixel rect
 	// by IDENTITY, since the two spaces disagree numerically). Drives the shared

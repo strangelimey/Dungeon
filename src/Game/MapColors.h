@@ -29,6 +29,8 @@ inline const Vec4 kProjParty{0.55f, 0.85f, 1.0f, 1.0f};   // in-flight party sho
 inline const Vec4 kProjMonster{1.0f, 0.72f, 0.35f, 1.0f}; // in-flight monster shot
 inline const Vec4 kMarkerInk{0.96f, 0.96f, 0.98f, 1.0f};  // initials drawn over markers
 inline const Vec4 kFacingArrow{0.25f, 1.0f, 0.40f, 1.0f}; // editor: which way a placed thing faces
+// Editor: the wall FACE a wall-mounted brush (niche/sconce/hung prop) will use.
+inline const Vec4 kFaceHighlight{0.40f, 0.95f, 1.0f, 0.95f};
 
 // Editor textured cell fill. The dim base view draws each cell's albedo with a
 // CURVE, not a pure multiply: the texture (alpha < 1) composites over a flat

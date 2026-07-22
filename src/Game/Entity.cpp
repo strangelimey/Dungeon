@@ -24,6 +24,15 @@ int DirDZ(Direction d) {
 	}
 }
 
+Direction DirOpposite(Direction d) {
+	switch (d) {
+	case Direction::North: return Direction::South;
+	case Direction::East: return Direction::West;
+	case Direction::South: return Direction::North;
+	default: return Direction::East;
+	}
+}
+
 float DirYaw(Direction d) {
 	switch (d) {
 	case Direction::North: return kPi;

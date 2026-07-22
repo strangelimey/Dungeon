@@ -602,12 +602,20 @@ bool DungeonMap::FreeSconceWall(int x, int z, Direction& out) const {
 
 bool DungeonMap::AddSconce(int x, int z, std::string type, bool lit) {
 	if (!IsWalkable(x, z)) return false;
-	// Mount on the first free solid neighbour (N, E, S, W) — the 'T'-glyph rule.
-	// Walls already holding a sconce are skipped, so repeat clicks ring the cell
-	// with one sconce per wall instead of stacking twins on the same wall.
+	// No face named (the 'T' glyph, or a map load): mount on the first free solid
+	// neighbour (N, E, S, W). The editor names the face explicitly instead.
 	Direction d;
 	if (!FreeSconceWall(x, z, d)) return false; // no free wall to hang on
-	m_torches.push_back({x, z, d, lit, kSconceBrightness, kSconceTurbidity,
+	return AddSconce(x, z, std::move(type), lit, d);
+}
+
+bool DungeonMap::AddSconce(int x, int z, std::string type, bool lit,
+						   Direction wall) {
+	if (!IsWalkable(x, z)) return false;
+	if (IsWalkable(x + DirDX(wall), z + DirDZ(wall))) return false; // nothing to hang on
+	for (const WallSconce& s : m_torches)
+		if (s.x == x && s.z == z && s.wall == wall) return false; // face already used
+	m_torches.push_back({x, z, wall, lit, kSconceBrightness, kSconceTurbidity,
 						 std::move(type)});
 	RebuildTurbidity(); // bumps Revision()
 	return true;
@@ -661,10 +669,19 @@ const WallNiche* DungeonMap::NicheAt(int x, int z, int dx, int dz) const {
 }
 
 bool DungeonMap::AddNiche(int x, int z, std::string type) {
+	// No face named (map load, or a caller with nothing to point at): fall back
+	// to the first free solid wall. The editor names the face explicitly.
 	if (!IsWalkable(x, z)) return false;
 	Direction d;
 	if (!FreeNicheWall(x, z, d)) return false; // no free solid wall to carve into
-	m_niches.push_back({x, z, d, std::move(type)});
+	return AddNiche(x, z, std::move(type), d);
+}
+
+bool DungeonMap::AddNiche(int x, int z, std::string type, Direction wall) {
+	if (!IsWalkable(x, z)) return false;
+	if (IsWalkable(x + DirDX(wall), z + DirDZ(wall))) return false; // no rock to carve
+	if (NicheAt(x, z, DirDX(wall), DirDZ(wall))) return false;      // face already used
+	m_niches.push_back({x, z, wall, std::move(type)});
 	++m_revision; // the mesh builder re-stamps this cell's panel as a niche
 	return true;
 }

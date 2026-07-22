@@ -85,6 +85,10 @@ texture = none
 solid = 1
 authored = 1
 category = clutter
+; The model is authored wall-backed, so it hangs on a wall FACE rather than
+; standing at the cell centre: the editor edge-picks the face, and it mounts
+; non-solid so the floor stays walkable.
+mount = wall
 
 [pot]
 display = Pot

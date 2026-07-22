@@ -337,7 +337,24 @@ bool MapEditor::OnRightClick(float mx, float my, const gfx::Rect& panel) {
 	return false;
 }
 
-void MapEditor::ApplyBrush(int cx, int cz, bool dragging) {
+bool MapEditor::BrushIsWallMounted() const {
+	const std::vector<PaletteItem> items = CategoryItems(m_sel.cat);
+	if (m_sel.index < 0 || m_sel.index >= static_cast<int>(items.size())) return false;
+	const std::string& id = items[m_sel.index].id;
+	if (m_sel.cat == PaletteCat::WallFeatures) {
+		// Niches carve a face; bores tunnel THROUGH a block (axis, not face), so
+		// they keep the plain cell click for now.
+		return !CatalogBool(m_world.GetProject().wallfeatures.Find(id), "bore", false);
+	}
+	// Everything else is data-driven: the kind's own `mount` field decides.
+	const Catalog* cat = nullptr;
+	if (m_sel.cat == PaletteCat::Fixtures) cat = &m_world.GetProject().fixtures;
+	else if (m_sel.cat == PaletteCat::Decorations) cat = &m_world.GetProject().decorations;
+	if (!cat) return false;
+	return CatalogGet(cat->Find(id), "mount", "floor") == "wall";
+}
+
+void MapEditor::ApplyBrush(int cx, int cz, bool dragging, const WallFace& face) {
 	// Edit target: the VIEWED level. The active level edits live world state;
 	// a browsed level routes to DungeonWorld's remote seam (its in-memory
 	// stash — see the level-browsing section in MapView.h).
@@ -390,20 +407,34 @@ void MapEditor::ApplyBrush(int cx, int cz, bool dragging) {
 		if (m_sel.index < 0 || m_sel.index >= static_cast<int>(items.size())) break;
 		const std::string& id = items[m_sel.index].id;
 		bool ok = false;
+		// A wall-mounted brush targets the FACE the pointer resolved to, never
+		// just the square under it: the click names one wall of one cell, so a
+		// corridor's two walls (or a lone block's four faces) are each reachable,
+		// and repeat clicks no longer march around the cell in N/E/S/W order.
+		const bool wallBrush = BrushIsWallMounted();
+		if (wallBrush && !face.valid) {
+			log(loc::Format("map.place.blocked", items[m_sel.index].label));
+			break; // pointer isn't over a floor/rock boundary — nothing to hang on
+		}
+		const int px = wallBrush ? face.x : cx;
+		const int pz = wallBrush ? face.z : cz;
 		if (m_sel.cat == PaletteCat::Monsters)
 			ok = remote ? m_world.AddMonsterRemote(stem, id, cx, cz)
 						: m_world.AddMonster(id, cx, cz, Direction::South);
 		else if (m_sel.cat == PaletteCat::Fixtures)
-			ok = remote ? m_world.AddFixtureRemote(stem, id, cx, cz)
-						: m_world.AddFixture(id, cx, cz);
+			ok = wallBrush
+					 ? (remote ? m_world.AddFixtureRemote(stem, id, px, pz, face.wall)
+							   : m_world.AddFixture(id, px, pz, face.wall))
+					 : (remote ? m_world.AddFixtureRemote(stem, id, cx, cz)
+							   : m_world.AddFixture(id, cx, cz));
 		else if (m_sel.cat == PaletteCat::WallFeatures) {
 			// A `bore` feature (a see-through window) is placed on the SOLID wall
-			// block it bores; a niche mounts on a floor cell.
+			// block it bores; a niche carves one FACE of a floor cell's wall.
 			if (CatalogBool(m_world.GetProject().wallfeatures.Find(id), "bore", false))
 				ok = m_world.AddBore(id, cx, cz); // active level only for now
 			else
-				ok = remote ? m_world.AddNicheRemote(stem, id, cx, cz)
-							: m_world.AddNiche(id, cx, cz);
+				ok = remote ? m_world.AddNicheRemote(stem, id, px, pz, face.wall)
+							: m_world.AddNiche(id, px, pz, face.wall);
 		}
 		else if (m_sel.cat == PaletteCat::Buttons)
 			ok = remote ? m_world.AddButtonRemote(stem, id, cx, cz)
@@ -422,6 +453,9 @@ void MapEditor::ApplyBrush(int cx, int cz, bool dragging) {
 			ok = remote ? m_world.AddItemRemote(stem, id, cx, cz)
 						: m_world.AddItem(id, cx, cz);
 		}
+		else if (wallBrush) // a `mount = wall` decoration hangs on the picked face
+			ok = remote ? m_world.AddDecorationRemote(stem, id, px, pz, face.wall)
+						: m_world.AddWallDecoration(id, px, pz, face.wall);
 		else
 			ok = remote ? m_world.AddDecorationRemote(stem, id, cx, cz)
 						: m_world.AddDecoration(id, cx, cz, Direction::South);
@@ -643,7 +677,7 @@ void MapEditor::InspectAt(int cx, int cz) {
 	if (m_world.AnyInspectableAt(cx, cz) && onInspect) onInspect(cx, cz);
 }
 
-void MapEditor::EraseAt(int cx, int cz) {
+void MapEditor::EraseAt(int cx, int cz, const WallFace& face) {
 	using SS = DungeonWorld::SurfaceSel;
 	const bool remote = m_view.Browsing();
 	const std::string& stem = m_view.ViewedLevel();
@@ -655,6 +689,11 @@ void MapEditor::EraseAt(int cx, int cz) {
 		m_world.EraseRemote(stem, cx, cz);
 	} else if (m_world.RemoveStairAt(cx, cz)) {
 		// stairs message themselves (they name the paired level's cleanup)
+	} else if (face.valid && m_world.RemoveNicheAtFace(face.x, face.z, face.wall)) {
+		// Faces are individually placeable, so a block can carry several niches:
+		// erase the one being POINTED at before falling back to the block-wide
+		// rung below (which takes whichever it finds first).
+		log(loc::Tr("map.erase.removed"));
 	} else if (m_world.RemoveEntityAt(cx, cz) || m_world.RemoveFixtureAt(cx, cz) ||
 			   m_world.RemoveNicheAtWall(cx, cz) || m_world.RemoveBoreAt(cx, cz)) {
 		log(loc::Tr("map.erase.removed"));

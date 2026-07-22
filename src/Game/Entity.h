@@ -31,6 +31,9 @@ enum class Direction : u8 { North, East, South, West };
 
 int DirDX(Direction d);
 int DirDZ(Direction d);
+// The reverse heading (north<->south, east<->west). A wall face read from the
+// solid side flips to the floor side through this.
+Direction DirOpposite(Direction d);
 // Parses "north"/"east"/"south"/"west" into `out`; false on anything else.
 bool ParseDirection(std::string_view token, Direction& out);
 // Yaw under the camera convention forward = (sin yaw, 0, cos yaw):
@@ -38,6 +41,18 @@ bool ParseDirection(std::string_view token, Direction& out);
 float DirYaw(Direction d);
 // The loc key naming a Direction ("facing.north" ...), for UI dropdowns/labels.
 const char* FacingLocKey(Direction d);
+
+// A wall FACE: the walkable cell that owns it plus the direction toward the
+// solid block it mounts on. Everything hung on a wall — a niche, a sconce, a
+// banner, any future `mount = wall` kind — addresses one of these, so the
+// editor can resolve a click to exactly one face instead of guessing a cell's
+// "first free" wall. Invalid (`valid == false`) means the pointer wasn't near
+// any edge that separates floor from rock.
+struct WallFace {
+	int x = 0, z = 0;                  // the walkable cell the face belongs to
+	Direction wall = Direction::North; // toward the solid block
+	bool valid = false;
+};
 
 enum class EntityKind : u8 { Monster, Item, Button, Decoration, Door };
 
