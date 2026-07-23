@@ -158,7 +158,9 @@ variant wall 7 12 0
 variant wall 7 13 0
 variant wall 7 14 0
 variant wall 7 15 0
+decoration plinth 6 2 south
 decoration wall_arch 8 4 east
+decoration wall_arch_rough 9 4 east
 decoration wall_arch_rustic 10 4 east
 decoration banner 21 2 wall=east
 decoration column_marble 12 3 south

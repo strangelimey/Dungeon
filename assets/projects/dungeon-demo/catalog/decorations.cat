@@ -36,6 +36,25 @@ texture = stacked_stone
 solid = 0
 category = architecture
 
+; A moulded pedestal, waist height — script-authored (tools/BuildPlinth.py),
+; so its proportions are a profile table rather than a hand-modelled .blend.
+[plinth]
+display = Plinth
+model = plinth
+texture = marble_pillar
+solid = 1
+category = architecture
+facing_arrow = 0
+
+; Weathered version of the rustic arch — same stones, tilted and surface-noised
+; by tools/RoughenArch.py. Kept as its own model so both looks stay available.
+[wall_arch_rough]
+display = Wall Arch (Rough)
+model = wall_arch_rough
+texture = stacked_stone
+solid = 0
+category = architecture
+
 [fountain]
 display = Fountain
 model = fountain
