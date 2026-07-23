@@ -26,6 +26,16 @@ texture = stacked_stone
 solid = 0
 category = architecture
 
+; The rustic variant: the same passage opening ringed with stacked voussoirs
+; (jambs to the floor, proud keystone at the crown). Rings out to z +/-0.11
+; because the stone band stands proud of the wall face.
+[wall_arch_rustic]
+display = Wall Arch (Rustic)
+model = wall_arch_rustic
+texture = stacked_stone
+solid = 0
+category = architecture
+
 [fountain]
 display = Fountain
 model = fountain
