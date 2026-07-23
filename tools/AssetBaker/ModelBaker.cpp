@@ -276,9 +276,58 @@ Quat QuatFromEuler(float pitch, float yaw, float roll) {
 // y in [0,2.5]. A recessed center panel framed by edge pillars gives real 3D
 // relief that the parallax-mapped textures then deepen.
 
-constexpr float kWallH = 2.5f;    // must match game::kWallHeight (DungeonMap.h)
-constexpr float kCellHalf = 1.2f; // half of game::kCellSize (DungeonMap.h)
+// EVERYTHING THIS BAKER WRITES IS IN UNIT SPACE: 1.0 = one dungeon square. The
+// square is a cube, so a block spans x,z in [-0.5, 0.5] and y in [0, 1]. The
+// game multiplies by game::kUnit (src/Game/DungeonMap.h) when it stamps a mesh
+// into the world — so changing the metre size of a square needs NO rebake, and
+// hand-built Blender assets drop in on exactly these conventions
+// (docs/authoring-scale.md).
+constexpr float kWallH = 1.0f;    // floor to ceiling — one square
+constexpr float kCellHalf = 0.5f; // half a square
 constexpr float kUvScale = 1.0f / (2.0f * kCellHalf); // one texture tile per cell
+
+// Real-world detail sizes still read better as metres — a 14 cm border strip, an
+// 8.5 cm pillar protrusion, a 1.7 m torch height. U() converts such a dimension
+// to units against the REFERENCE square this art was proportioned for. It is an
+// AUTHORING convenience only: the baked numbers are units either way, and
+// nothing at runtime consults kRefSquare.
+constexpr float kRefSquare = 2.5f; // metres per square the art was proportioned for
+constexpr float U(float metres) { return metres / kRefSquare; }
+// The inverse. Named in full: BuildWallWindow has a local `M` (strip count).
+constexpr float Metres(float units) { return units * kRefSquare; }
+
+// PROPS AND CREATURES are proportioned in METRES throughout — a barrel is 0.9 m
+// tall, a lever handle 20 cm long, a skeleton 1.7 m — and those numbers carry no
+// cell meaning, so they stay authored as metres and are converted here, at the
+// single boundary where a finished prop becomes a model (FinishProp and the few
+// builders that assemble their own). CELL-RELATIVE geometry — the block family,
+// the archway that must meet the flanking walls — is authored directly in units
+// instead, off kCellHalf/kWallH. A prop mixing the two expresses its cell
+// dimensions as Metres(kCellHalf) so they land exactly on the cell edge after this.
+void ScaleMeshToUnits(assets::MeshData& mesh) {
+	for (assets::Vertex& v : mesh.vertices)
+		v.position = {U(v.position.x), U(v.position.y), U(v.position.z)};
+	// Normals are unaffected by a uniform scale.
+}
+
+// The rigged counterpart: the mesh, the skeleton's rest translations and inverse
+// binds (pure translations here — see the file banner), and every translation
+// animation track. Rotations and scales are scale-invariant, so they are left.
+void ScaleModelToUnits(assets::ModelData& model) {
+	for (assets::MeshData& mesh : model.meshes) ScaleMeshToUnits(mesh);
+	for (assets::JointData& joint : model.skeleton.joints) {
+		joint.restTranslation = {U(joint.restTranslation.x), U(joint.restTranslation.y),
+								 U(joint.restTranslation.z)};
+		joint.inverseBind._41 = U(joint.inverseBind._41);
+		joint.inverseBind._42 = U(joint.inverseBind._42);
+		joint.inverseBind._43 = U(joint.inverseBind._43);
+	}
+	for (assets::AnimationClipData& clip : model.clips)
+		for (assets::AnimationChannelData& ch : clip.channels)
+			if (ch.path == assets::ChannelPath::Translation)
+				for (Vec4& value : ch.values)
+					value = {U(value.x), U(value.y), U(value.z), value.w};
+}
 
 // Planar UV projection chosen by the face normal's dominant axis, with a
 // consistent texel scale (one texture tile per cell width, so adjacent
@@ -294,7 +343,7 @@ Vec2 WallFaceUv(const Vec3& p, const Vec3& n) {
 }
 
 constexpr float kPanelX = 0.80f * kCellHalf; // panel half-width (between pillars)
-constexpr float kPillarOut = 0.085f; // pillar protrusion
+constexpr float kPillarOut = U(0.085f); // pillar protrusion
 
 // Edge pillars plus the corner seals (outer cap + wall-plane backing strip).
 // Shared by the clean and worn wall blocks so both stay watertight at convex
@@ -340,9 +389,9 @@ assets::ModelData BuildWallBlock() {
 	assets::ModelData model;
 	assets::MeshData mesh;
 
-	const float panelZ = -0.10f;     // recess depth
+	const float panelZ = -U(0.10f);  // recess depth
 	const float panelX = kPanelX;
-	const float borderY0 = 0.14f, borderY1 = kWallH - 0.14f;
+	const float borderY0 = U(0.14f), borderY1 = kWallH - U(0.14f);
 
 	auto wq = [&](const Vec3& a, const Vec3& b, const Vec3& c, const Vec3& d,
 				  const Vec3& n) {
@@ -388,9 +437,11 @@ assets::ModelData BuildWallNiche() {
 	assets::ModelData model;
 	assets::MeshData mesh;
 
-	constexpr float kNicheDepth = 0.55f;      // pocket depth into the rock
-	constexpr float px = 0.55f;               // pocket opening half-width
-	constexpr float py0 = 0.75f, py1 = 1.80f; // pocket opening bottom/top
+	constexpr float kNicheDepth = U(0.55f);   // pocket depth into the rock
+	constexpr float px = U(0.55f);            // pocket opening half-width
+	// py0 is the pocket floor — DungeonWorld::NicheItemPos rests items on it and
+	// hardcodes the same 0.30, so the two must move together.
+	constexpr float py0 = U(0.75f), py1 = U(1.80f); // pocket opening bottom/top
 	constexpr float d = -kNicheDepth;
 
 	auto wq = [&](const Vec3& a, const Vec3& b, const Vec3& c, const Vec3& e,
@@ -434,10 +485,11 @@ assets::ModelData BuildWallNicheArch() {
 	assets::ModelData model;
 	assets::MeshData mesh;
 
-	constexpr float kDepth = 0.55f;   // pocket depth into the rock
-	constexpr float px = 0.52f;       // opening half-width = arch radius
-	constexpr float py0 = 0.50f;      // opening bottom
-	constexpr float springY = 1.25f;  // where the vertical sides meet the arch
+	constexpr float kDepth = U(0.55f); // pocket depth into the rock
+	constexpr float px = U(0.52f);     // opening half-width = arch radius
+	// Like BuildWallNiche's py0, this pocket floor is mirrored in NicheItemPos (0.20).
+	constexpr float py0 = U(0.50f);      // opening bottom
+	constexpr float springY = U(1.25f);  // where the vertical sides meet the arch
 	constexpr float R = px;           // semicircular arch
 	constexpr float crown = springY + R;
 	constexpr int N = 14;             // arch segments across the width
@@ -479,8 +531,8 @@ assets::ModelData BuildWallNicheArch() {
 	wq({px, py0, 0}, {px, springY, 0}, {px, springY, zb}, {px, py0, zb}, {-1, 0, 0});
 
 	// Keystone: a proud wedge (wider at the top) centred on the crown.
-	constexpr float kwb = 0.10f, kwt = 0.15f, ky0 = crown - 0.12f, ky1 = crown + 0.16f,
-					kp = 0.07f;
+	constexpr float kwb = U(0.10f), kwt = U(0.15f), ky0 = crown - U(0.12f),
+					ky1 = crown + U(0.16f), kp = U(0.07f);
 	wq({-kwb, ky0, kp}, {kwb, ky0, kp}, {kwt, ky1, kp}, {-kwt, ky1, kp}, {0, 0, 1}); // face
 	wq({-kwb, ky0, 0}, {-kwb, ky0, kp}, {-kwt, ky1, kp}, {-kwt, ky1, 0}, {-1, 0, 0}); // left
 	wq({kwb, ky0, kp}, {kwb, ky0, 0}, {kwt, ky1, 0}, {kwt, ky1, kp}, {1, 0, 0});      // right
@@ -504,8 +556,8 @@ assets::ModelData BuildWallWindow() {
 	assets::ModelData model;
 	assets::MeshData mesh;
 
-	constexpr float r = 0.55f;         // hole radius
-	constexpr float cy = 1.25f;        // hole centre height (roughly eye level)
+	constexpr float r = U(0.55f);      // hole radius
+	constexpr float cy = U(1.25f);     // hole centre height (roughly eye level)
 	constexpr float depth = kCellHalf; // tunnel to the block centre
 	constexpr int M = 40;              // x-strips across the hole (smoother rim)
 	const float zb = -depth;
@@ -555,8 +607,8 @@ assets::ModelData BuildWallWindowRect() {
 	assets::ModelData model;
 	assets::MeshData mesh;
 
-	constexpr float hw = 0.55f, hh = 0.60f; // opening half-width / half-height
-	constexpr float cy = 1.25f, depth = kCellHalf;
+	constexpr float hw = U(0.55f), hh = U(0.60f); // opening half-width / half-height
+	constexpr float cy = U(1.25f), depth = kCellHalf;
 	const float y0 = cy - hh, y1 = cy + hh, zb = -depth;
 
 	auto wq = [&](const Vec3& a, const Vec3& b, const Vec3& c, const Vec3& e,
@@ -688,11 +740,14 @@ private:
 
 // --- procedural wear (fallback when the scanned sets are not installed) ----
 
-// Erosion depth (into the rock) for the worn wall surface, in wall-local
-// coordinates (x across [-kCellHalf, kCellHalf], y up [0,kWallH]).
+// Erosion depth (into the rock) for the worn wall surface, in wall-local UNIT
+// coordinates (x across [-kCellHalf, kCellHalf], y up [0,kWallH]). The masonry
+// PATTERN is physical — bricks are bricks whatever a square measures — so the
+// field samples in metres (kRefSquare) and converts its displacement back to
+// units on the way out.
 float WallWearDepth(float x, float y) {
-	const float u = x + kCellHalf;  // 0..cell width along the wall, in meters
-	const float v = kWallH - y;     // 0..2.5 down the wall
+	const float u = (x + kCellHalf) * kRefSquare; // metres along the wall
+	const float v = (kWallH - y) * kRefSquare;    // metres down the wall
 
 	// Generic brick grid (0.5 x 0.3125) — only an approximation of the
 	// scanned textures; the texture-driven fields below replace this.
@@ -713,18 +768,20 @@ float WallWearDepth(float x, float y) {
 	// Large undulation (bowed masonry) + fine roughness + ground-level wear.
 	const float undulation = (Fbm(u * 0.9f, v * 0.9f, 103u) - 0.5f) * 0.05f;
 	const float rough = (Fbm(u * 4.0f, v * 4.0f, 105u) - 0.5f) * 0.022f;
-	const float low = std::clamp(1.0f - y, 0.0f, 1.0f) * 0.02f;
+	const float low = std::clamp(1.0f - y * kRefSquare, 0.0f, 1.0f) * 0.02f;
 
-	const float depth = mortar + brick + undulation + rough + low;
-	// Pin to the flat plane at every block edge so seams stay closed.
-	const float pin = PinRamp(kCellHalf - std::fabs(x), 0.12f) * PinRamp(y, 0.10f) *
-					  PinRamp(kWallH - y, 0.10f);
-	return std::clamp(depth, 0.0f, 0.12f) * pin;
+	const float depth = mortar + brick + undulation + rough + low; // metres
+	// Pin to the flat plane at every block edge so seams stay closed (block-local
+	// distances, so the ramp widths are units).
+	const float pin = PinRamp(kCellHalf - std::fabs(x), U(0.12f)) *
+					  PinRamp(y, U(0.10f)) * PinRamp(kWallH - y, U(0.10f));
+	return U(std::clamp(depth, 0.0f, 0.12f)) * pin;
 }
 
 // Height offset for the worn floor: sunken, tilted slabs with eroded joints.
 float FloorWearHeight(float x, float z) {
-	const float u = x + kCellHalf, v = z + kCellHalf; // meters, slabs are 1m
+	// Physical pattern (slabs are 1 m), so sample in metres — see WallWearDepth.
+	const float u = (x + kCellHalf) * kRefSquare, v = (z + kCellHalf) * kRefSquare;
 	const u32 col = static_cast<u32>(u), row = static_cast<u32>(v);
 
 	const float sink = -Hash(col + 17u, row + 9u, 201u) * 0.035f;
@@ -737,28 +794,31 @@ float FloorWearHeight(float x, float z) {
 	const float ju = std::min(std::fmod(u, 1.0f), 1.0f - std::fmod(u, 1.0f));
 	const float jv = std::min(std::fmod(v, 1.0f), 1.0f - std::fmod(v, 1.0f));
 	h -= std::clamp(1.0f - std::min(ju, jv) / 0.06f, 0.0f, 1.0f) * 0.02f;
-	h += (Fbm(u * 2.2f, v * 2.2f, 207u) - 0.5f) * 0.03f;
+	h += (Fbm(u * 2.2f, v * 2.2f, 207u) - 0.5f) * 0.03f; // metres
 
-	const float pin = PinRamp(kCellHalf - std::fabs(x), 0.10f) *
-					  PinRamp(kCellHalf - std::fabs(z), 0.10f);
-	return std::clamp(h, -0.07f, 0.035f) * pin;
+	const float pin = PinRamp(kCellHalf - std::fabs(x), U(0.10f)) *
+					  PinRamp(kCellHalf - std::fabs(z), U(0.10f));
+	return U(std::clamp(h, -0.07f, 0.035f)) * pin;
 }
 
 // Erosion pockets (upward, into the rock) for the worn ceiling.
 float CeilingWearDepth(float x, float z) {
-	const float u = x + kCellHalf, v = z + kCellHalf;
+	const float u = (x + kCellHalf) * kRefSquare, v = (z + kCellHalf) * kRefSquare;
 	float d = std::max(0.0f, Fbm(u * 1.5f, v * 1.5f, 301u) - 0.42f) * 0.20f;
-	d += (Fbm(u * 4.0f, v * 4.0f, 303u) - 0.5f) * 0.015f;
-	const float pin = PinRamp(kCellHalf - std::fabs(x), 0.10f) *
-					  PinRamp(kCellHalf - std::fabs(z), 0.10f);
-	return std::clamp(d, 0.0f, 0.10f) * pin;
+	d += (Fbm(u * 4.0f, v * 4.0f, 303u) - 0.5f) * 0.015f; // metres
+	const float pin = PinRamp(kCellHalf - std::fabs(x), U(0.10f)) *
+					  PinRamp(kCellHalf - std::fabs(z), U(0.10f));
+	return U(std::clamp(d, 0.0f, 0.10f)) * pin;
 }
 
 // --- texture-driven wear ----------------------------------------------------
 // Each field samples the matching texture's height map with the SAME UV
 // mapping the mesh (and therefore the renderer) uses, so geometric relief
-// lines up with the painted bricks/slabs. `relief` is the world-space
-// displacement amplitude; du/dv pass the grid footprint to SampleBox.
+// lines up with the painted bricks/slabs. `relief` is the displacement
+// amplitude IN METRES (it describes how deep real masonry is eroded); each
+// field converts its result to units on return. du/dv pass the grid footprint
+// to SampleBox. The u,v here are UV space (0..1 per cell), unaffected by the
+// unit change.
 
 WearField TextureWallWear(const TextureHeight& height, float relief, int gridX,
 						  int gridY, u32 seed) {
@@ -768,12 +828,13 @@ WearField TextureWallWear(const TextureHeight& height, float relief, int gridX,
 		const float u = (x + kCellHalf) * kUvScale;
 		const float v = (kWallH - y) * kUvScale;
 		// Low texture height = recessed surface (mortar, broken bricks).
-		float d = (1.0f - height.SampleBox(u, v, du, dv)) * relief;
-		d += (Fbm(u * 1.8f, v * 1.8f, seed) - 0.5f) * 0.045f; // bowed masonry
-		d += std::clamp(1.0f - y, 0.0f, 1.0f) * 0.018f;       // ground-level wear
-		const float pin = PinRamp(kCellHalf - std::fabs(x), 0.12f) * PinRamp(y, 0.10f) *
-						  PinRamp(kWallH - y, 0.10f);
-		return std::clamp(d, 0.0f, relief + 0.05f) * pin;
+		float d = (1.0f - height.SampleBox(u, v, du, dv)) * relief; // metres
+		d += (Fbm(u * 1.8f, v * 1.8f, seed) - 0.5f) * 0.045f;      // bowed masonry
+		// Ground-level wear over the lowest metre (y is units, so scale it).
+		d += std::clamp(1.0f - y * kRefSquare, 0.0f, 1.0f) * 0.018f;
+		const float pin = PinRamp(kCellHalf - std::fabs(x), U(0.12f)) *
+						  PinRamp(y, U(0.10f)) * PinRamp(kWallH - y, U(0.10f));
+		return U(std::clamp(d, 0.0f, relief + 0.05f)) * pin;
 	};
 }
 
@@ -782,11 +843,11 @@ WearField TextureFloorWear(const TextureHeight& height, float relief, int grid,
 	const float du = 0.5f / grid, dv = 0.5f / grid;
 	return [&height, relief, du, dv, seed](float x, float z) {
 		const float u = (x + kCellHalf) * kUvScale, v = (z + kCellHalf) * kUvScale;
-		float h = (height.SampleBox(u, v, du, dv) - 0.5f) * relief;
+		float h = (height.SampleBox(u, v, du, dv) - 0.5f) * relief; // metres
 		h += (Fbm(u * 2.2f, v * 2.2f, seed) - 0.5f) * 0.02f; // general unevenness
-		const float pin = PinRamp(kCellHalf - std::fabs(x), 0.10f) *
-						  PinRamp(kCellHalf - std::fabs(z), 0.10f);
-		return std::clamp(h, -0.07f, 0.05f) * pin;
+		const float pin = PinRamp(kCellHalf - std::fabs(x), U(0.10f)) *
+						  PinRamp(kCellHalf - std::fabs(z), U(0.10f));
+		return U(std::clamp(h, -0.07f, 0.05f)) * pin;
 	};
 }
 
@@ -796,11 +857,11 @@ WearField TextureCeilingWear(const TextureHeight& height, float relief, int grid
 	return [&height, relief, du, dv, seed](float x, float z) {
 		const float u = (x + kCellHalf) * kUvScale, v = (z + kCellHalf) * kUvScale;
 		// Low texture height = deeper erosion pocket (upward, into the rock).
-		float d = (1.0f - height.SampleBox(u, v, du, dv)) * relief;
+		float d = (1.0f - height.SampleBox(u, v, du, dv)) * relief; // metres
 		d += (Fbm(u * 3.0f, v * 3.0f, seed) - 0.5f) * 0.015f;
-		const float pin = PinRamp(kCellHalf - std::fabs(x), 0.10f) *
-						  PinRamp(kCellHalf - std::fabs(z), 0.10f);
-		return std::clamp(d, 0.0f, relief) * pin;
+		const float pin = PinRamp(kCellHalf - std::fabs(x), U(0.10f)) *
+						  PinRamp(kCellHalf - std::fabs(z), U(0.10f));
+		return U(std::clamp(d, 0.0f, relief)) * pin;
 	};
 }
 
@@ -816,7 +877,7 @@ assets::ModelData BuildWornWallBlock(int kNx, int kNy, const WearField& wear,
 	assets::MeshData mesh;
 
 	// Displaced surface replacing the clean block's panel/border relief.
-	constexpr float kEps = 0.02f; // finite-difference step for normals
+	constexpr float kEps = U(0.02f); // finite-difference step for normals
 	for (int j = 0; j <= kNy; ++j) {
 		const float y = kWallH * static_cast<float>(j) / kNy;
 		for (int i = 0; i <= kNx; ++i) {
@@ -851,7 +912,7 @@ assets::ModelData BuildWornFloorBlock(int kN, const WearField& wear) {
 	assets::ModelData model;
 	assets::MeshData mesh;
 
-	constexpr float kEps = 0.02f;
+	constexpr float kEps = U(0.02f);
 	for (int j = 0; j <= kN; ++j) {
 		const float z = kCellHalf * (2.0f * static_cast<float>(j) / kN - 1.0f);
 		for (int i = 0; i <= kN; ++i) {
@@ -885,7 +946,7 @@ assets::ModelData BuildWornCeilingBlock(int kN, const WearField& wear) {
 	assets::MeshData mesh;
 
 	// Authored at y=0 facing down (like the clean block); erosion goes up.
-	constexpr float kEps = 0.02f;
+	constexpr float kEps = U(0.02f);
 	for (int j = 0; j <= kN; ++j) {
 		const float z = kCellHalf * (2.0f * static_cast<float>(j) / kN - 1.0f);
 		for (int i = 0; i <= kN; ++i) {
@@ -966,6 +1027,7 @@ assets::ModelData BuildSconce() {
 	AddStrut(mesh, {0, 1.55f, 0.22f}, {0, 1.73f, 0.22f}, 0.017f, 0.021f, 8); // shaft
 	AddStrut(mesh, {0, 1.71f, 0.22f}, {0, 1.79f, 0.22f}, 0.046f, 0.034f, 8); // cloth head
 	TileUvs(mesh, 0.30f); // worn-iron grain repeats every 30 cm
+	ScaleMeshToUnits(mesh); // metre-authored prop -> unit space
 	mesh.material = 0;
 	model.meshes.push_back(std::move(mesh));
 	model.materials.push_back({{0.35f, 0.32f, 0.30f, 1.0f}, -1}); // dark iron
@@ -998,6 +1060,7 @@ assets::ModelData BuildBrazier() {
 	AddRevolution(mesh, 0, 0, {{0.0f, 0.605f}, {0.12f, 0.625f}, {0.205f, 0.635f}}, 18,
 				  false, true);
 	TileUvs(mesh, 0.40f); // bronze pattern repeats every 40 cm
+	ScaleMeshToUnits(mesh); // metre-authored prop -> unit space
 	mesh.material = 0;
 	model.meshes.push_back(std::move(mesh));
 	model.materials.push_back({{0.38f, 0.33f, 0.29f, 1.0f}, -1}); // bronzed iron
@@ -1017,9 +1080,15 @@ assets::ModelData BuildBrazier() {
 // wraps the mesh in a single-material model. The projection picks the plane
 // from each vertex's dominant normal axis (same idea as the wall blocks'
 // WallFaceUv) — good enough for stone/wood tiling on these simple shapes.
+// `authoredInUnits` opts out of the metre conversion for a prop already built
+// off kCellHalf/kWallH (the archway).
 assets::ModelData FinishProp(assets::MeshData&& mesh, const Vec4& color,
-							 float tileMeters = 0.6f) {
-	TileUvs(mesh, tileMeters);
+							 float tileMeters = 0.6f,
+							 bool authoredInUnits = false) {
+	// UVs project from the authored positions, so tile BEFORE converting —
+	// tileMeters then means what it says.
+	TileUvs(mesh, authoredInUnits ? U(tileMeters) : tileMeters);
+	if (!authoredInUnits) ScaleMeshToUnits(mesh);
 	assets::ModelData model;
 	mesh.material = 0;
 	model.meshes.push_back(std::move(mesh));
@@ -1045,11 +1114,14 @@ assets::ModelData BuildColumn() {
 // ring framing the opening keeps the arch relief. Authored facing +Z (passage
 // along Z); placed facing East/West it spans the corridor between its walls.
 assets::ModelData BuildArchway() {
-	constexpr float kIn = 0.62f;       // opening half-width / soffit radius
-	constexpr float kOut = 0.92f;      // voussoir ring outer radius
-	constexpr float kSpring = 1.55f;   // springline height
-	constexpr float kD = 0.20f;        // wall half-thickness
-	constexpr float kProud = 0.06f;    // ring relief proud of the wall face
+	// AUTHORED IN UNITS: the slab has to meet the flanking walls at ±kCellHalf and
+	// the ceiling at kWallH, so this prop is cell-relative and skips FinishProp's
+	// metre conversion (hence the U() on the real-world dimensions).
+	constexpr float kIn = U(0.62f);    // opening half-width / soffit radius
+	constexpr float kOut = U(0.92f);   // voussoir ring outer radius
+	constexpr float kSpring = U(1.55f); // springline height
+	constexpr float kD = U(0.20f);     // wall half-thickness
+	constexpr float kProud = U(0.06f); // ring relief proud of the wall face
 	constexpr float kDf = kD + kProud; // ring face / opening reveal half-depth
 	constexpr int kN = 22;             // arch segments
 	assets::MeshData mesh;
@@ -1122,7 +1194,8 @@ assets::ModelData BuildArchway() {
 	quad({kCellHalf, 0, -kD}, {kCellHalf, kWallH, -kD}, {kCellHalf, kWallH, kD}, {kCellHalf, 0, kD}, {1, 0, 0});
 	quad({-kCellHalf, kWallH, kD}, {-kCellHalf, kWallH, -kD}, {kCellHalf, kWallH, -kD}, {kCellHalf, kWallH, kD}, {0, 1, 0});
 
-	return FinishProp(std::move(mesh), {0.60f, 0.58f, 0.55f, 1.0f});
+	return FinishProp(std::move(mesh), {0.60f, 0.58f, 0.55f, 1.0f}, 0.6f,
+					  /*authoredInUnits*/ true);
 }
 
 // Closed wooden door in a timber frame (facing +Z blocks Z-passage): jambs,
@@ -1247,6 +1320,7 @@ assets::ModelData BuildRope() {
 			mesh.indices.insert(mesh.indices.end(), {a, b, a + 1, a + 1, b, b + 1});
 		}
 	assets::ModelData model;
+	ScaleMeshToUnits(mesh); // metre-authored prop -> unit space (keeps its own UVs)
 	mesh.material = 0;
 	model.meshes.push_back(std::move(mesh));
 	model.materials.push_back({Vec4{0.62f, 0.49f, 0.30f, 1.0f}, -1});
@@ -1593,6 +1667,9 @@ assets::ModelData BuildHumanoid(const HumanoidStyle& style) {
 		model.clips.push_back(std::move(die));
 	}
 
+	// Metre-authored creature (a ~1.7 m humanoid) -> unit space, rig and clips
+	// included. Done last so the joint globals above stay readable in metres.
+	ScaleModelToUnits(model);
 	return model;
 }
 
@@ -1754,6 +1831,7 @@ assets::ModelData BuildBlob() {
 		model.clips.push_back(std::move(die));
 	}
 
+	ScaleModelToUnits(model); // metre-authored creature -> unit space
 	return model;
 }
 
@@ -1783,7 +1861,10 @@ assets::ModelData BuildStairsDown() {
 	assets::MeshData mesh;
 	constexpr int kSteps = 7;
 	constexpr float kRise = 0.17f, kRun = 0.24f, kHalfX = 0.85f;
-	constexpr float kHalfCell = 1.2f; // kCellSize/2 — the prop fills its cell
+	// Metre-authored like every prop, but this dimension is CELL-derived — take it
+	// from kCellHalf so the collar lands exactly on the cell edge after FinishProp
+	// converts back to units.
+	constexpr float kHalfCell = Metres(kCellHalf); // the prop fills its cell
 	const float depth = kSteps * kRise + 0.08f; // shaft bottom below grade
 
 	// Descending flight: step i's tread at -i*kRise, each a full column down to
@@ -1823,7 +1904,8 @@ assets::ModelData BuildStairsDown() {
 // to a floor slab ~one wall-height down (the level below's floor, faked).
 assets::ModelData BuildPit() {
 	assets::MeshData mesh;
-	constexpr float kOpen = 0.85f, kHalfCell = 1.2f, kDepth = 2.5f;
+	// kHalfCell / kDepth are cell-derived (see BuildStairsDown); the rest is metres.
+	constexpr float kOpen = 0.85f, kHalfCell = Metres(kCellHalf), kDepth = Metres(kWallH);
 	// Collar: two full-length x strips, two z strips between them.
 	AddBox(mesh, {(kOpen + kHalfCell) * 0.5f, -0.04f, 0.0f},
 		   {(kHalfCell - kOpen) * 0.5f, 0.04f, kHalfCell});
@@ -1853,7 +1935,8 @@ assets::ModelData BuildPit() {
 // y=0 like every prop — the geometry lives up at ceiling height.
 assets::ModelData BuildPitCeiling() {
 	assets::MeshData mesh;
-	constexpr float kOpen = 0.85f, kHalfCell = 1.2f, kCeil = 2.5f, kRise = 2.3f;
+	constexpr float kOpen = 0.85f, kHalfCell = Metres(kCellHalf), kCeil = Metres(kWallH),
+					kRise = 2.3f;
 	const float collarY = kCeil + 0.04f; // slab undersides flush with the ceiling
 	AddBox(mesh, {(kOpen + kHalfCell) * 0.5f, collarY, 0.0f},
 		   {(kHalfCell - kOpen) * 0.5f, 0.04f, kHalfCell});
@@ -1879,13 +1962,14 @@ assets::ModelData BuildPitCeiling() {
 // so it can move while the frame stays put.
 assets::ModelData BuildDoorFrame() {
 	assets::MeshData mesh;
-	constexpr float kHalfCell = 1.2f, kOpen = 0.85f, kH = 2.1f, kD = 0.14f;
+	constexpr float kHalfCell = Metres(kCellHalf), kOpen = 0.85f, kH = 2.1f, kD = 0.14f;
+	constexpr float kCeil = Metres(kWallH); // lintel reaches the ceiling
 	AddBox(mesh, {(kOpen + kHalfCell) * 0.5f, kH * 0.5f, 0.0f},
 		   {(kHalfCell - kOpen) * 0.5f, kH * 0.5f, kD});
 	AddBox(mesh, {-(kOpen + kHalfCell) * 0.5f, kH * 0.5f, 0.0f},
 		   {(kHalfCell - kOpen) * 0.5f, kH * 0.5f, kD});
-	AddBox(mesh, {0.0f, (kH + 2.5f) * 0.5f, 0.0f},
-		   {kHalfCell, (2.5f - kH) * 0.5f, kD});
+	AddBox(mesh, {0.0f, (kH + kCeil) * 0.5f, 0.0f},
+		   {kHalfCell, (kCeil - kH) * 0.5f, kD});
 	return FinishProp(std::move(mesh), {0.50f, 0.48f, 0.45f, 1.0f});
 }
 

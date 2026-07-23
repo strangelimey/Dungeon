@@ -21,6 +21,11 @@
 //       and mip bakes). The worn blocks sample the installed texture height
 //       maps, so re-run this after FetchTextures.ps1 or an import.
 //
+//   AssetBaker rescale <assets-dir> <factor> <name> [name...]
+//       Uniformly rescales already-imported single-mesh models in place. The
+//       fix-up when a model landed at the wrong size — notably the one-time
+//       metres-to-units migration (see docs/authoring-scale.md).
+//
 //   AssetBaker runes <assets-dir>
 //       Regenerates the rune tablet model + carved per-element texture sets
 //       (fast; PNG only — run `mips` after to derive the .dds).
@@ -87,6 +92,17 @@ int main(int argc, char** argv) {
 								  textureSet, lift, wall, raw)
 				   ? 0
 				   : 1;
+	}
+
+	if (argc >= 2 && std::string(argv[1]) == "rescale") {
+		if (argc < 5) {
+			log::Error("usage: AssetBaker rescale <assets-dir> <factor> <name> [name...]");
+			return 1;
+		}
+		const float factor = std::stof(argv[3]);
+		bool ok = true;
+		for (int i = 4; i < argc; ++i) ok &= baker::RescaleModel(argv[2], argv[i], factor);
+		return ok ? 0 : 1;
 	}
 
 	if (argc >= 3 && std::string(argv[1]) == "mips")

@@ -1,4 +1,7 @@
 ; Fixtures: sconces and braziers (model + texture + mount).
+; flame_height / flame_out are UNITS (1.0 = one dungeon square), like every
+; model on disk — they name a point ON the mesh, so they scale with it.
+; flame_scale is a dimensionless particle-effect size (brazier 1.0, sconce ~0.55).
 
 [sconce]
 display = Wall Sconce
@@ -6,9 +9,9 @@ category = light
 model = wall_torch
 texture = wall_torch
 mount = wall
-flame_height = 1.70
+flame_height = 0.68
 flame_scale = 0.55
-flame_out = 0.16
+flame_out = 0.064
 
 [brazier]
 display = Brazier
@@ -18,7 +21,7 @@ texture = brazier_bowl
 part2_model = brazier_coals
 part2_texture = brazier_coals
 mount = floor
-flame_height = 0.74
+flame_height = 0.296
 flame_scale = 1.0
 
 [brazier_empty]

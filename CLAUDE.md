@@ -27,6 +27,22 @@ Built collaboratively with Claude across sessions; this file is the handoff.
 Nine strictly layered static libs, one-way deps:
 Core → Platform/Assets → Animation/Graphics → UI/Audio → Game → Main(exe).
 Key conventions (memorize, they bite):
+- SCALE: every model on disk is authored in UNITS, 1.0 = one dungeon SQUARE,
+  and the square is a CUBE. `kUnit` (Game/DungeonMap.h, 2.5 m) is the single
+  authority; kCellSize and kWallHeight both derive from it, and `UnitScale()`
+  multiplies it in at the handful of mesh-to-world seams (DungeonMeshBuilder
+  StampCell; decoration/stair/fixture transforms in DungeonWorld_Load +
+  _Editing; doors/buttons/monsters/items in _Render). Change kUnit, rebuild,
+  and the whole world rescales with NO rebake — that invariant is the point,
+  so a NEW draw site must go through UnitScale() or its content comes out
+  2.5x small. AssetBaker authors the block family directly in units
+  (kCellHalf=0.5, kWallH=1.0, U(metres)/M(units) convert) and pushes its
+  metre-proportioned props/creatures through ScaleMeshToUnits /
+  ScaleModelToUnits at one boundary (FinishProp + the few self-assembling
+  builders). import-model's --height/--lift and FetchModels' $modelSets
+  Height/Fit/Lift are UNITS too. Per-kind `scale` (monsters: `modelscale`)
+  trims a prop on top of its authored size. Full authoring guide (Blender
+  setup, reference dimensions, export/import): docs/authoring-scale.md.
 - DirectXMath ROW-vector convention: v' = v*M, translation in row 4
   (_41.._43); matrices uploaded raw; HLSL always uses mul(matrix, vector).
   glTF column-major memcpy is CORRECT under this pairing (same bytes).
@@ -208,6 +224,32 @@ buffer, reused across all ~25 submissions).
   type and renders it back-face culled (authored=true). `--texture-set <name>`
   skips the per-call PBR import and points the model at an already-imported set
   instead, so every item split out of one multi-mesh pack shares a single set.
+- `tools\Build*.py` — SCRIPT-AUTHORED props, the default way to make new
+  architecture (docs/authoring-scale.md; Michael does not hand-model). Each is
+  run headless — `blender --background --factory-startup --python
+  tools\BuildX.py -- <out.glb>` — then `import-model --raw`, a catalog entry,
+  and place. The asset is DEFINED BY THE SCRIPT, so it is diffable and a
+  revision is a constant change plus a re-run; the .glb is a build artifact,
+  not a source. Two patterns, both emitting UNIT space:
+  * CONSTRUCTED — BuildWallArch.py assembles a slab (opening built from panels
+    + a fan, NOT booleaned, so the topology stays predictable) plus individually
+    placed stones. Stones carry real MORTAR GAPS and are inset inside the
+    opening, so islands never fuse, a whole-mesh bevel is safe, and the slab's
+    cut edge is hidden — all by construction rather than later correction.
+    `--rough` weathers each stone (tilt/scale jitter + two noise octaves).
+  * PROFILE-LOFTED — BuildPlinth.py and BuildFountain.py walk a table of
+    (radius, height) stations. The lofter takes any segment count and any
+    angular sweep, so 4 = a square plinth, 40 = a basin, a 180-degree sweep =
+    a wall fountain. A profile is a CLOSED section (up the outside, over the
+    rim, back down the inside) so a revolve is watertight; radius 0 fans.
+  UV RULE THAT BITES: dominant-axis projection (TileUvs, Cube Projection) is
+  only valid on BOX-ISH geometry. On a swept or revolved surface the normal
+  rotates 90 degrees and the dominant axis FLIPS mid-surface, which seams —
+  arch reveals and basins are UNROLLED instead (u = arc length, v = depth or
+  height). tools\FixArchSoffitUv.py retrofits that onto the hand-built arch.
+  Two Blender traps, both cost a run: glTF stores attributes PER CORNER so an
+  imported mesh has NO shared verts (weld before anything connectivity-based),
+  and subdividing invalidates held BMVert refs (re-derive, don't carry).
 - `tools\FetchModels.ps1` — the mesh analog of FetchTextures.ps1 for fab.com
   (or any authored-model) sources. SELECTION RULE: a fab listing's "Included
   formats" must include glb/obj/fbx; Unreal-Engine-ONLY listings are .uasset
@@ -222,7 +264,9 @@ buffer, reused across all ~25 submissions).
   convert with --keep-rig + --height straight into assets/models (bypassing
   import-model's joint-strip). Then wire a catalog [id] (decorations/monsters/
   items.cat) and place it in a level. ConvertMesh.py needs Blender (auto-found
-  at %ProgramFiles%\Blender Foundation\Blender 5.1, or -Blender <path>).
+  the NEWEST %ProgramFiles%\Blender Foundation\Blender <ver>, or -Blender
+  <path>; the version is discovered, never hardcoded — a pinned list silently
+  skips every import the day Blender self-updates).
 - `tools\ImportAnimLibrary.py` + `tools\FetchAnimLibrary.ps1` — the ANIMATION
   side of the monster pipeline: bake a creature's STATE-ORGANIZED clip library
   onto its mesh. The library is one folder PER CreatureState (Idle/ InCombat/

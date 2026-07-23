@@ -38,13 +38,22 @@ $oneDrive = if ($env:OneDrive) { $env:OneDrive } else { Join-Path $env:USERPROFI
 $archive = Join-Path $oneDrive "DungeonAssets"
 if (-not $Plan -and -not (Test-Path $archive)) { throw "Asset archive not found: $archive" }
 
+# Newest "Blender <version>" under Program Files that actually has the exe. A
+# hardcoded version list breaks silently the day Blender updates itself (it went
+# 5.1 -> 5.2 mid-session once) - here that would abort the bake outright.
+function Find-Blender {
+    Get-ChildItem "$env:ProgramFiles\Blender Foundation" -Directory -ErrorAction SilentlyContinue |
+        ForEach-Object {
+            $exe = Join-Path $_.FullName "blender.exe"
+            if ($_.Name -match '^Blender\s+(\d+(\.\d+)*)$' -and (Test-Path $exe)) {
+                [pscustomobject]@{ Version = [version]$Matches[1]; Path = $exe }
+            }
+        } | Sort-Object Version -Descending | Select-Object -First 1 -ExpandProperty Path
+}
+
 # Resolve Blender (only needed for the actual bake, not -Plan).
 if (-not $Plan -and -not $Blender) {
-    $candidates = @(
-        "$env:ProgramFiles\Blender Foundation\Blender 5.1\blender.exe",
-        "$env:ProgramFiles\Blender Foundation\Blender 5.0\blender.exe"
-    )
-    $Blender = $candidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+    $Blender = Find-Blender
     if (-not $Blender) { throw "Blender not found - pass -Blender <path>" }
 }
 

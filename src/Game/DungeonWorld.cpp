@@ -1315,7 +1315,7 @@ void DungeonWorld::SetDecorationFacing(int index, Direction facing) {
 	// orientation (the record facing is stored, but the transform stays wall-baked).
 	if (!d.wallMounted) {
 		const Vec3 pos = m_map.CellCenter(d.x, d.z);
-		XMStoreFloat4x4(&d.world, XMMatrixRotationY(DirYaw(facing)) *
+		XMStoreFloat4x4(&d.world, UnitScale(d.kind->modelScale) * XMMatrixRotationY(DirYaw(facing)) *
 									  XMMatrixTranslation(pos.x, 0, pos.z));
 	}
 }

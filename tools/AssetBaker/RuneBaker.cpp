@@ -403,6 +403,15 @@ assets::ModelData BuildRuneTablet() {
 	addFace({-hx, y1, hz}, {2 * hx, 0, 0}, {0, 0, -2 * hz}, N, M, s, s, s, s);                // top +Y
 	addFace({-hx, y0, -hz}, {2 * hx, 0, 0}, {0, 0, 2 * hz}, N, M, s, s, s, s);                // bottom -Y
 
+	// The tablet is proportioned in METRES above (~17 cm wide), like every prop;
+	// models on disk are UNIT space (1.0 = one dungeon square — see game::kUnit
+	// and ModelBaker's banner), so convert on the way out. Uniform, so normals
+	// and UVs are untouched.
+	constexpr float kRefSquare = 2.5f; // metres per square the art is sized against
+	for (assets::Vertex& v : mesh.vertices)
+		v.position = {v.position.x / kRefSquare, v.position.y / kRefSquare,
+					  v.position.z / kRefSquare};
+
 	assets::ModelData model;
 	mesh.material = 0;
 	model.meshes.push_back(std::move(mesh));

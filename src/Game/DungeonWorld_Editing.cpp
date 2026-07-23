@@ -98,7 +98,7 @@ void DungeonWorld::PruneEntitiesForCell(int x, int z) {
 			deco.wall = d;
 			const WallMount m = MountOnWall(deco.x, deco.z, d);
 			XMStoreFloat4x4(&deco.world,
-							XMMatrixRotationY(m.yaw) *
+							UnitScale(deco.kind->modelScale) * XMMatrixRotationY(m.yaw) *
 								XMMatrixTranslation(m.pos.x, 0, m.pos.z));
 		} else {
 			m_decorations.erase(m_decorations.begin() + static_cast<ptrdiff_t>(i));
@@ -148,7 +148,7 @@ bool DungeonWorld::AddDecoration(const std::string& type, int x, int z,
 	deco.z = z;
 	deco.facing = facing;
 	const Vec3 pos = m_map.CellCenter(x, z);
-	XMStoreFloat4x4(&deco.world, XMMatrixRotationY(DirYaw(facing)) *
+	XMStoreFloat4x4(&deco.world, UnitScale(kind.modelScale) * XMMatrixRotationY(DirYaw(facing)) *
 									 XMMatrixTranslation(pos.x, 0, pos.z));
 	deco.solid = kind.solidDefault;
 	m_decorations.push_back(std::move(deco));
@@ -172,7 +172,7 @@ bool DungeonWorld::AddWallDecoration(const std::string& type, int x, int z,
 	// Offset to the wall face and turned to look into the room — the same mount
 	// helper the sconces use, so hung props line up with them.
 	const WallMount m = MountOnWall(x, z, wall);
-	XMStoreFloat4x4(&deco.world, XMMatrixRotationY(m.yaw) *
+	XMStoreFloat4x4(&deco.world, UnitScale(kind.modelScale) * XMMatrixRotationY(m.yaw) *
 									 XMMatrixTranslation(m.pos.x, 0, m.pos.z));
 	deco.solid = false; // it's on the wall — the floor stays walkable
 	m_decorations.push_back(std::move(deco));
@@ -682,14 +682,15 @@ bool DungeonWorld::NicheOpenAt(int x, int z, Direction wall) const {
 Vec3 DungeonWorld::NicheItemPos(int x, int z, Direction wall) const {
 	const int dx = DirDX(wall), dz = DirDZ(wall);
 	const Vec3 c = m_map.CellCenter(x, z);
-	const float into = kCellSize * 0.5f + 0.18f; // just inside the wall, in the pocket
+	// Units (fractions of a square) -> metres, like every other model dimension.
+	const float into = kCellSize * 0.5f + 0.072f * kUnit; // inside the wall pocket
 	// Rest on the pocket floor — its height is the niche mesh's py0 (must track
-	// ModelBaker's BuildWallNiche / BuildWallNicheArch): 0.75 for the plain niche,
-	// 0.50 for the arch. Placing below it would bury the item behind the frame.
-	float floorY = 0.75f;
+	// ModelBaker's BuildWallNiche / BuildWallNicheArch): 0.30 for the plain niche,
+	// 0.20 for the arch. Placing below it would bury the item behind the frame.
+	float floorY = 0.30f;
 	if (const WallNiche* n = m_map.NicheAt(x, z, dx, dz); n && n->type == "niche_arch")
-		floorY = 0.50f;
-	return {c.x + dx * into, floorY + 0.02f, c.z + dz * into};
+		floorY = 0.20f;
+	return {c.x + dx * into, (floorY + 0.008f) * kUnit, c.z + dz * into};
 }
 
 bool DungeonWorld::AddNicheItem(const std::string& type, int x, int z, Direction wall) {
