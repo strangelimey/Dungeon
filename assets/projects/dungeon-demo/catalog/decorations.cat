@@ -55,6 +55,25 @@ texture = stacked_stone
 solid = 0
 category = architecture
 
+; Script-authored (tools/BuildFountain.py) — one revolved profile each, so the
+; proportions are a table rather than modelled geometry.
+[fountain_round]
+display = Fountain (Round)
+model = fountain_round
+texture = marble_pillar
+solid = 1
+category = architecture
+facing_arrow = 0
+
+; Authored wall-backed like the banner: its back face is at the wall and the
+; basin reaches into the room, so it hangs on a FACE and leaves the floor clear.
+[fountain_wall]
+display = Fountain (Wall)
+model = fountain_wall
+texture = marble_pillar
+category = architecture
+mount = wall
+
 [fountain]
 display = Fountain
 model = fountain
