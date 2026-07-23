@@ -224,6 +224,32 @@ buffer, reused across all ~25 submissions).
   type and renders it back-face culled (authored=true). `--texture-set <name>`
   skips the per-call PBR import and points the model at an already-imported set
   instead, so every item split out of one multi-mesh pack shares a single set.
+- `tools\Build*.py` — SCRIPT-AUTHORED props, the default way to make new
+  architecture (docs/authoring-scale.md; Michael does not hand-model). Each is
+  run headless — `blender --background --factory-startup --python
+  tools\BuildX.py -- <out.glb>` — then `import-model --raw`, a catalog entry,
+  and place. The asset is DEFINED BY THE SCRIPT, so it is diffable and a
+  revision is a constant change plus a re-run; the .glb is a build artifact,
+  not a source. Two patterns, both emitting UNIT space:
+  * CONSTRUCTED — BuildWallArch.py assembles a slab (opening built from panels
+    + a fan, NOT booleaned, so the topology stays predictable) plus individually
+    placed stones. Stones carry real MORTAR GAPS and are inset inside the
+    opening, so islands never fuse, a whole-mesh bevel is safe, and the slab's
+    cut edge is hidden — all by construction rather than later correction.
+    `--rough` weathers each stone (tilt/scale jitter + two noise octaves).
+  * PROFILE-LOFTED — BuildPlinth.py and BuildFountain.py walk a table of
+    (radius, height) stations. The lofter takes any segment count and any
+    angular sweep, so 4 = a square plinth, 40 = a basin, a 180-degree sweep =
+    a wall fountain. A profile is a CLOSED section (up the outside, over the
+    rim, back down the inside) so a revolve is watertight; radius 0 fans.
+  UV RULE THAT BITES: dominant-axis projection (TileUvs, Cube Projection) is
+  only valid on BOX-ISH geometry. On a swept or revolved surface the normal
+  rotates 90 degrees and the dominant axis FLIPS mid-surface, which seams —
+  arch reveals and basins are UNROLLED instead (u = arc length, v = depth or
+  height). tools\FixArchSoffitUv.py retrofits that onto the hand-built arch.
+  Two Blender traps, both cost a run: glTF stores attributes PER CORNER so an
+  imported mesh has NO shared verts (weld before anything connectivity-based),
+  and subdividing invalidates held BMVert refs (re-derive, don't carry).
 - `tools\FetchModels.ps1` — the mesh analog of FetchTextures.ps1 for fab.com
   (or any authored-model) sources. SELECTION RULE: a fab listing's "Included
   formats" must include glb/obj/fbx; Unreal-Engine-ONLY listings are .uasset
