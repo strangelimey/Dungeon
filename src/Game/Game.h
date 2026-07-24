@@ -121,6 +121,11 @@ private:
 	// the viewed level's palette. Shared by the bake path and the no-bake
 	// sources (Installed / Duplicate), which have nothing to bake.
 	void CreateCatalogEntry(const AssetDialog::CreateRequest& req);
+	// Records an IMPORT in the project's provenance manifest (imports.cat):
+	// which pool asset, from where, with which options. The baked asset is
+	// gitignored, so this is what makes a created type reproducible from a
+	// clean checkout (tools/ReplayImports.ps1 replays them).
+	void RecordImport(const AssetDialog::CreateRequest& req);
 
 	// Type editor Save: merge the dialog's working fields into the catalog entry
 	// and persist. Starts from the EXISTING entry, so fields the dialog doesn't

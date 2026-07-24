@@ -36,6 +36,9 @@ const CatalogSlot kCatalogs[] = {
 	{"attacks.cat", &Project::attacks, "Attacks: per-melee-verb numbers (damage/accuracy/speed multipliers); identity (damage type) is C++ (Balance.h)."},
 	{"balance.cat", &Project::balance, "Balance: the attack-formula knob sheet ([formula] block; docs/combat.md)."},
 	{"wallfeatures.cat", &Project::wallfeatures, "Wall features: recessed niches carved into a wall panel."},
+	{"imports.cat", &Project::imports,
+	 "Imported assets: where each editor-imported texture set / model came from, "
+	 "so tools/ReplayImports.ps1 can rebuild it (the baked files are gitignored)."},
 };
 
 // Splits a space-separated list (the manifest's "levels" field) into stems.

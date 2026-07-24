@@ -687,7 +687,18 @@ pre-ticks the --flip-green override from the normal map's filename. The preview
 pane shows the picked mesh, or wall_block.gltf wearing the picked texture set —
 including one still loose in a download folder, since the maps are loaded from
 their source files. A failed bake now lands in the dialog with the exit code
-instead of only in the log. EXCEPT the three surface categories,
+instead of only in the log. An import is RECORDED in the project's provenance
+manifest (`catalog/imports.cat`: pool asset name → kind / source path /
+flip_green / the surface kind its worn meshes were baked as), because the baked
+pool is gitignored — without it a created type reaches git as a catalog entry
+whose asset a fresh clone cannot rebuild. `tools\ReplayImports.ps1` replays the
+missing ones (re-rooting a source path from another machine onto this one's
+OneDrive archive), and `synctosource` now also copies the manifest's asset FILES
+from the exe-side pool into the source tree, so a `build/` wipe doesn't take
+them. NOTE the naming rule an editor import must follow: a PBR set installs under
+its RESOLUTION-tagged name (`<set>_2k` — LoadPbrSet's universal fallback) while
+the catalog's `texture` field names the BASE; the worn-block bake takes the base
+and finds the height map at any installed resolution. EXCEPT the three surface categories,
 whose rows come from the VIEWED LEVEL's `palette` record, not the catalog — a
 catalog type must JOIN that palette before the brush can reach it, which is what
 their extra "+ Catalog..." row does (a chooser of the types this level doesn't

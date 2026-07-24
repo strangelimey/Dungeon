@@ -43,8 +43,7 @@ type is explicit; that's the model, not a gap.
 
 ---
 
-> **Status.** Phases 1–5 landed — see the notes at the end of each. Phase 6 is
-> unstarted.
+> **Status.** ALL SIX PHASES LANDED — see the notes at the end of each.
 
 ## Phase 1 — Palette membership (makes everything else usable)  ← DONE
 
@@ -279,7 +278,7 @@ it hasn't been tested against an old save.
 
 ---
 
-## Phase 6 — Reproducibility of created assets
+## Phase 6 — Reproducibility of created assets  ← DONE
 
 `SyncProjectToSource` copies only `projects/<name>`. A type created in the editor
 therefore reaches git as a catalog entry whose texture/model exist **only** in
@@ -298,6 +297,40 @@ Options (needs a decision — see below):
 Also: the next build's `copy_directory` overwrites bin catalogs from source, so a
 created type is lost if `synctosource` wasn't run. Worth a dirty-state warning on
 editor close.
+
+**As built — the manifest option, plus a belt.** `catalog/imports.cat` records
+one entry per imported asset (pool name → `kind`, `source`, `flip_green`, and
+for a surface the `surface` kind), written by `Game::RecordImport` and riding
+`Project::Save` like any other catalog. `tools\ReplayImports.ps1` replays the
+missing ones, re-rooting a `source` path recorded on another machine onto this
+one's OneDrive archive (the tail from `DungeonAssets\`), and skips what is
+already installed unless `-Force`.
+
+The belt: `synctosource` also copies the manifest's asset FILES out of the
+exe-side pool into the source tree. They stay gitignored, but the source tree is
+what a build copies from and what a new worktree is provisioned from — leaving
+them build-only meant the next `build/` wipe took them.
+
+`surface` is in the manifest because the worn block meshes are baked per kind
+but named per SET (`worn_<set>_<tier>.gltf`, one per set) — the first version of
+the script baked all three kinds and silently left the ceiling shape on a wall.
+
+**Two bugs this phase surfaced**, both of which made an editor import produce a
+broken asset:
+
+- A PBR set installs under its RESOLUTION-tagged name (`<set>_2k`) — that is
+  what `LoadPbrSet` asks for. The editor's import passed the bare name, so a
+  surface created by "+ New → Import" would have rendered as the magenta
+  placeholder. `import-model` already got this right; only the surface path was
+  wrong. Phase 3 never caught it because the native folder picker can't be
+  driven from the verification script.
+- `BakeWornTiers` looked for the height map at `_1k` only, so an editor-imported
+  set (which installs at `_2k`) silently fell back to procedural wear. It now
+  falls back `_1k` → `_2k` → `_4k`.
+
+Limitation: the manifest only knows about imports made from now on. The ~270
+sets already installed are covered by `FetchTextures.ps1` (`$propSets` plus the
+levels' palette records), which remains the way to rebuild those.
 
 ---
 

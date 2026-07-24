@@ -35,8 +35,12 @@ bool Game::StartBakeStep() {
 		cmd = q(baker) + " import-model " + q(m_bakeReq.sourcePath) + " " + q(assets) +
 			  " " + m_bakeReq.name;
 	else if (m_bakeStep == 0) {
+		// A PBR set installs under its RESOLUTION-tagged name (<set>_1k/_2k/_4k)
+		// — that is what LoadPbrSet asks for, and _2k is its universal fallback,
+		// so an editor import lands there whatever the source resolution was.
+		// The catalog's `texture` field names the base, as always.
 		cmd = q(baker) + " import " + q(m_bakeReq.sourcePath) + " " + q(assets) + " " +
-			  m_bakeReq.name;
+			  m_bakeReq.name + "_2k";
 		// GL-convention normals (green up) need flipping; the importer sniffs the
 		// filename, and this is the dialog's override for sets that don't say so.
 		if (m_bakeReq.flipGreen) cmd += " --flip-green";
@@ -76,7 +80,41 @@ bool Game::SyncProjectToSource() {
 		log::Warn("sync to source failed: {}", ec.message());
 		return false;
 	}
-	log::Info("Synced project {} -> source", src.filename().string());
+
+	// The project's catalogs now reference assets that exist only in the
+	// exe-side pool (an editor import writes there). They are gitignored either
+	// way, but the SOURCE tree is what a build copies from and what a new
+	// worktree is provisioned from, so leaving them build-only means the next
+	// `rm -rf build` takes them with it. imports.cat says exactly which.
+	int copied = 0;
+	for (const CatalogEntry& e : m_project.imports.Entries()) {
+		const std::string kind = e.Get("kind", "texture");
+		// A texture set is its map trio (source PNG + baked DDS) plus the worn
+		// block meshes derived from it; a model is its .gltf plus the PBR set
+		// import-model brought in under <name>_2k.
+		const std::pair<const char*, std::string> globs[] = {
+			{"textures", e.id},
+			{"models", kind == "texture" ? "worn_" + e.id : e.id},
+			{"textures", kind == "model" ? e.id + "_2k" : std::string()},
+		};
+		for (const auto& [dir, prefix] : globs) {
+			if (prefix.empty()) continue;
+			const fs::path from = fs::path(paths::ExecutableDir()) / "assets" / dir;
+			const fs::path to = fs::path(repo) / dir;
+			fs::create_directories(to, ec);
+			for (const auto& entry : fs::directory_iterator(from, ec)) {
+				if (ec || !entry.is_regular_file()) continue;
+				const std::string name = entry.path().filename().string();
+				if (!name.starts_with(prefix)) continue;
+				std::error_code copyEc;
+				fs::copy_file(entry.path(), to / name,
+							  fs::copy_options::overwrite_existing, copyEc);
+				if (!copyEc) ++copied;
+			}
+		}
+	}
+	log::Info("Synced project {} -> source ({} imported asset file(s))",
+			  src.filename().string(), copied);
 	return true;
 }
 
@@ -229,6 +267,9 @@ void Game::CreateCatalogEntry(const AssetDialog::CreateRequest& req) {
 								   m.baseColor.z));
 
 	cat->Add(std::move(e));
+	// An IMPORT brought a new asset into the pool; the pool is gitignored, so
+	// record where it came from before saving (both ride the same Save).
+	if (req.source == AssetDialog::Source::Import) RecordImport(req);
 	m_project.Save();
 	log::Info("Created type '{}' in {}", req.name, req.catalogKey);
 
@@ -294,6 +335,33 @@ void Game::OpenMonsterConfig(const std::string& id) {
 	m_previewClip.clear();
 	m_previewMonMesh = nullptr;
 	m_previewMonSubs.clear();
+}
+
+// One line of provenance per imported asset. The key is the POOL name (what a
+// catalog's texture=/model= field binds to), not the catalog id, because several
+// types can share one imported asset — the second and third bind it through the
+// dialog's "Use installed", which imports nothing and records nothing.
+void Game::RecordImport(const AssetDialog::CreateRequest& req) {
+	CatalogEntry e;
+	// Texture sets install under their resolution-tagged name (see StartBakeStep);
+	// models keep theirs, and their PBR maps ride along as <name>_2k.
+	e.id = req.textureSet ? req.name + "_2k" : req.name;
+	e.Set("kind", req.textureSet ? "texture" : "model");
+	// The source path verbatim. Machine-specific by nature — the replay script
+	// knows how to re-root a path under the asset archive onto another machine,
+	// which is where that knowledge already lives (FetchTextures.ps1).
+	e.Set("source", req.sourcePath);
+	if (req.flipGreen) e.Set("flip_green", "1");
+	// A SURFACE set also has worn block meshes baked from it, and their geometry
+	// is kind-specific (a wall panel is not a floor slab) while their FILE NAME
+	// is not — worn_<set>_<tier>.gltf, one per set. So the replay has to know
+	// which kind to bake, or baking "all three" would just overwrite twice.
+	if (req.catalogKey == "walls" || req.catalogKey == "floors" ||
+		req.catalogKey == "ceilings")
+		e.Set("surface", req.catalogKey == "walls"      ? "wall"
+						 : req.catalogKey == "floors" ? "floor"
+													  : "ceiling");
+	m_project.imports.Add(std::move(e));
 }
 
 // References to a type that live OUTSIDE the level files: another catalog

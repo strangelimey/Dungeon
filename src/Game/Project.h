@@ -43,6 +43,13 @@ struct Project {
 	Catalog doors, stairs, buttons, items, spells;
 	Catalog attacks, balance;
 	Catalog wallfeatures; // recessed wall niches (Phase 2)
+	// PROVENANCE, not content: one entry per asset the editor imported, keyed by
+	// its pool name, recording where it came from and how. The baked assets
+	// themselves are gitignored (assets/textures, assets/models), so without
+	// this a type created in the editor reaches git as a catalog entry whose
+	// asset a fresh clone cannot rebuild. tools/ReplayImports.ps1 re-runs them.
+	// Deliberately absent from CatalogForKey — it is not a content category.
+	Catalog imports;
 
 	// The catalog for a kind key ("walls", "floors", "ceilings", "decorations",
 	// "fixtures", "monsters", "doors", "stairs", "buttons", "items", "spells",
