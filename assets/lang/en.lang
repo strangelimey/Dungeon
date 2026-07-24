@@ -508,6 +508,11 @@ dmg.earth=Earth
 dmg.air=Air
 dmg.water=Water
 map.cat.new=+ New...
+map.cat.add=+ Catalog...
+map.palette.title=Add to this level: {}
+map.palette.added=Added '{}' to the level palette — Save the map to persist.
+map.palette.failed=Could not add '{}' (its baked assets are missing).
+map.palette.none=Every catalog type is already in this level's palette.
 
 ; --- asset-creation dialog -------------------------------------------------------
 newasset.title=New {}

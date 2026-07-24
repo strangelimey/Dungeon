@@ -488,6 +488,11 @@ dmg.earth=Tierra
 dmg.air=Aire
 dmg.water=Agua
 map.cat.new=+ Nuevo...
+map.cat.add=+ Catálogo...
+map.palette.title=Añadir a este nivel: {}
+map.palette.added='{}' añadido a la paleta — guarda el mapa para conservarlo.
+map.palette.failed=No se pudo añadir '{}' (faltan sus recursos generados).
+map.palette.none=Todos los tipos del catálogo ya están en la paleta de este nivel.
 ; --- instance inspectors (per-placed object edit dialogs) ---
 map.insp.facing=Orientación
 map.insp.arrow=Flecha en mapa

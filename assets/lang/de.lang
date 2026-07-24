@@ -488,6 +488,11 @@ dmg.earth=Erde
 dmg.air=Luft
 dmg.water=Wasser
 map.cat.new=+ Neu...
+map.cat.add=+ Katalog...
+map.palette.title=Zu dieser Ebene hinzufügen: {}
+map.palette.added='{}' zur Palette hinzugefügt — Karte speichern, um es zu behalten.
+map.palette.failed='{}' konnte nicht hinzugefügt werden (gebackene Assets fehlen).
+map.palette.none=Alle Katalogtypen sind bereits in der Palette dieser Ebene.
 ; --- instance inspectors (per-placed object edit dialogs) ---
 map.insp.facing=Ausrichtung
 map.insp.arrow=Kartenpfeil

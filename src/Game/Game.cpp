@@ -50,6 +50,7 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	  m_propInspector(device), m_doorInspector(device), m_buttonInspector(device),
 	  m_nicheInspector(device),
 	  m_projectileInspector(device), m_inspectPicker(device),
+	  m_paletteAddPicker(device),
 	  m_previewParticles(device) {
 	m_mapView.SetEditor(&m_mapEditor); // the view drives the editor in Editor mode
 	// The editor's header save buttons: Save = write every edited level (what the
@@ -954,6 +955,12 @@ void Game::Update(float dt) {
 							   static_cast<float>(m_window.Height()));
 		return;
 	}
+	// The palette's add-from-catalog chooser is modal over the editor too.
+	if (m_paletteAddPicker.IsOpen()) {
+		m_paletteAddPicker.Update(input, static_cast<float>(m_window.Width()),
+								  static_cast<float>(m_window.Height()));
+		return;
+	}
 	// The per-instance entity inspector is likewise modal over the editor.
 	if (m_entityInspector.IsOpen()) {
 		m_entityInspector.Update(input, static_cast<float>(m_window.Width()),
@@ -1360,6 +1367,8 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 								 {1, 1, 1, 1});
 	if (m_inspectPicker.IsOpen()) // multi-object chooser, modal over the editor
 		m_inspectPicker.Render(m_spriteBatch, m_settings.theme, dw, dh);
+	if (m_paletteAddPicker.IsOpen()) // palette add-from-catalog chooser, ditto
+		m_paletteAddPicker.Render(m_spriteBatch, m_settings.theme, dw, dh);
 	if (m_console.IsOpen())
 		m_console.Render(m_spriteBatch, m_device, static_cast<float>(m_device.Width()),
 						 static_cast<float>(m_device.Height()));

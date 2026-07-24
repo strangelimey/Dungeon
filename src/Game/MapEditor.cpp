@@ -124,6 +124,71 @@ std::vector<MapEditor::PaletteItem> MapEditor::CategoryItems(PaletteCat cat) con
 	}
 }
 
+// --- surface palette membership ---------------------------------------------
+
+namespace {
+// The surface selector behind a surface palette category.
+DungeonWorld::SurfaceSel SelFor(MapEditor::PaletteCat cat) {
+	return cat == MapEditor::PaletteCat::Walls	  ? DungeonWorld::SurfaceSel::Wall
+		   : cat == MapEditor::PaletteCat::Floors ? DungeonWorld::SurfaceSel::Floor
+												  : DungeonWorld::SurfaceSel::Ceiling;
+}
+} // namespace
+
+std::vector<MapEditor::Candidate> MapEditor::CatalogCandidates(PaletteCat cat) const {
+	std::vector<Candidate> out;
+	if (!SurfaceCat(cat)) return out;
+	const DungeonMap& map = m_view.ViewedMap();
+	const std::vector<std::string>& palette =
+		cat == PaletteCat::Walls	? map.WallPalette()
+		: cat == PaletteCat::Floors ? map.FloorPalette()
+									: map.CeilingPalette();
+	const Catalog& catalog = m_world.SurfaceCatalog(SelFor(cat));
+	for (const CatalogEntry& e : catalog.Entries()) {
+		if (CatalogBool(&e, "hidden", false)) continue;
+		if (std::find(palette.begin(), palette.end(), e.id) != palette.end()) continue;
+		// The group prefix keeps a long catalog readable in the flat chooser
+		// list (the palette itself gets sub-accordions instead).
+		const std::string group = e.Get("category", "");
+		out.push_back({e.id, group.empty() ? e.Display()
+										   : group + " / " + e.Display()});
+	}
+	return out;
+}
+
+void MapEditor::AddToPalette(PaletteCat cat, const std::string& id) {
+	if (!SurfaceCat(cat)) return;
+	auto log = [&](const std::string& s) {
+		if (m_world.onMessage) m_world.onMessage(s);
+	};
+	const DungeonWorld::SurfaceSel sel = SelFor(cat);
+	// The palette lives on the map, which the undo snapshot copies wholesale —
+	// so bracketing here is all an undoable palette add needs.
+	m_world.BeginUndoStep();
+	const bool ok = m_view.Browsing()
+						? m_world.AddPaletteEntryRemote(m_view.ViewedLevel(), sel, id)
+						: m_world.AddPaletteEntry(sel, id);
+	m_world.CommitUndoStep(ok);
+	if (!ok) {
+		log(loc::Format("map.palette.failed", id));
+		return;
+	}
+	log(loc::Format("map.palette.added", id));
+	// Arm the newcomer: it is the last row of its category, and painting it is
+	// the reason the user added it.
+	m_catOpen[static_cast<size_t>(cat)] = true;
+	const std::vector<PaletteItem> items = CategoryItems(cat);
+	for (int i = 0; i < static_cast<int>(items.size()); ++i)
+		if (items[i].id == id) {
+			m_sel = {cat, i};
+			// A grouped item hides inside a collapsed sub-accordion; open it so
+			// the armed row is visible.
+			if (!items[i].group.empty())
+				m_groupOpen[GroupKey(cat, items[i].group)] = true;
+			break;
+		}
+}
+
 // --- palette controls row (filter + clear + collapse-all) --------------------
 
 gfx::Rect MapEditor::ControlsRow(const gfx::Rect& panel) const {
@@ -235,6 +300,13 @@ void MapEditor::BuildPaletteRows(const gfx::Rect& panel, std::vector<PaletteRow>
 							   {body.x, y, body.w, itemH}});
 				y += itemH;
 			}
+			// Surfaces also offer the catalog types this level doesn't list yet
+			// (the row hides once the level uses them all).
+			if (SurfaceCat(cat) && !CatalogCandidates(cat).empty()) {
+				out.push_back({PaletteRow::Kind::AddButton, cat, -1,
+							   {body.x, y, body.w, itemH}});
+				y += itemH;
+			}
 			if (items.empty()) {
 				out.push_back({PaletteRow::Kind::Empty, cat, -1, {body.x, y, body.w, itemH}});
 				y += itemH;
@@ -312,6 +384,8 @@ bool MapEditor::OnClick(float mx, float my, const gfx::Rect& panel) {
 			m_sel = {r.cat, r.index};
 		else if (r.kind == PaletteRow::Kind::NewButton && onNewAsset)
 			onNewAsset(r.cat);
+		else if (r.kind == PaletteRow::Kind::AddButton && onAddFromCatalog)
+			onAddFromCatalog(r.cat);
 		return true;
 	}
 	return false;
@@ -506,6 +580,15 @@ void MapEditor::PaintCell(int cx, int cz, bool remote, const std::string& stem) 
 	const SS sel = m_sel.cat == PaletteCat::Walls    ? SS::Wall
 				   : m_sel.cat == PaletteCat::Floors ? SS::Floor
 													 : SS::Ceiling;
+	// The armed index addresses the VIEWED level's palette, which can be
+	// SHORTER than the one the brush was armed against — browse a level with a
+	// smaller palette, or undo a palette add. Painting a stale index would pin
+	// a variant with no texture set or block mesh behind it.
+	const DungeonMap& viewed = m_view.ViewedMap();
+	const size_t palette = sel == SS::Wall	  ? viewed.WallPalette().size()
+						   : sel == SS::Floor ? viewed.FloorPalette().size()
+											  : viewed.CeilingPalette().size();
+	if (m_sel.index < 0 || static_cast<size_t>(m_sel.index) >= palette) return;
 	// The texture brush owns the CELL TYPE too: painting a wall texture on a
 	// floor square raises the wall, a floor/ceiling texture carves solid rock
 	// walkable, then the variant lands on the converted square — these ARE
@@ -769,6 +852,9 @@ void MapEditor::RenderBody(gfx::SpriteBatch& batch, const ui::Theme& theme,
 		}
 		case PaletteRow::Kind::NewButton:
 			font.Draw(batch, loc::Tr("map.cat.new"), rc.x + dpad * 3, ty, theme.accent);
+			break;
+		case PaletteRow::Kind::AddButton:
+			font.Draw(batch, loc::Tr("map.cat.add"), rc.x + dpad * 3, ty, theme.accent);
 			break;
 		case PaletteRow::Kind::Empty:
 			font.Draw(batch, loc::Tr("map.cat.empty"), rc.x + dpad * 3, ty, theme.textDim);

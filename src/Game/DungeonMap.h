@@ -29,6 +29,7 @@
 #include "Core/Types.h"
 #include "Game/Entity.h"
 
+#include <algorithm>
 #include <string>
 #include <vector>
 
@@ -400,6 +401,21 @@ public:
 	const std::vector<std::string>& WallPalette() const { return m_wallPalette; }
 	const std::vector<std::string>& FloorPalette() const { return m_floorPalette; }
 	const std::vector<std::string>& CeilingPalette() const { return m_ceilingPalette; }
+	// Editor: APPEND a catalog id to a palette (false = already there). Append
+	// only — the `variant` records store the palette INDEX, so inserting or
+	// removing in the middle would silently repaint every cell above it. The
+	// .map writer emits the palettes from here, so a placement persists.
+	// The caller reloads that surface's textures/worn meshes (DungeonWorld::
+	// AddPaletteEntry); no revision bump, since no cell changed.
+	bool AddToWallPalette(std::string id) {
+		return AddPaletteId(m_wallPalette, std::move(id));
+	}
+	bool AddToFloorPalette(std::string id) {
+		return AddPaletteId(m_floorPalette, std::move(id));
+	}
+	bool AddToCeilingPalette(std::string id) {
+		return AddPaletteId(m_ceilingPalette, std::move(id));
+	}
 
 private:
 	void ParsePaletteRecord(const std::string& record, const std::string& path);
@@ -411,6 +427,14 @@ private:
 	bool FreeSconceWall(int x, int z, Direction& out) const;
 	// First solid neighbour wall of (x,z) with no niche on it yet.
 	bool FreeNicheWall(int x, int z, Direction& out) const;
+
+	// Shared body of the palette appenders (one list per surface).
+	static bool AddPaletteId(std::vector<std::string>& list, std::string id) {
+		if (id.empty() || std::find(list.begin(), list.end(), id) != list.end())
+			return false;
+		list.push_back(std::move(id));
+		return true;
+	}
 
 	// Shared body of the variant getters/setters (one grid per surface).
 	int VariantAt(const std::vector<int>& grid, int x, int z) const {

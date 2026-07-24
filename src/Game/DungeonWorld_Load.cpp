@@ -1399,5 +1399,8 @@ void DungeonWorld::ReloadDungeonBlocks(bool textureResChanged) {
 			def.surface.heightScale.assign(def.heights.begin(), def.heights.end());
 	BuildDungeonMeshes();
 	m_shadows.InvalidateCubes();
+	// This IS the deferred work FlushGeometry would do (BuildDungeonMeshes
+	// clears m_geometryDirty itself), so a pending restore doesn't repeat it.
+	m_surfacesDirty = false;
 }
 } // namespace dungeon::game

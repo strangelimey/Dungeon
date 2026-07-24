@@ -668,7 +668,22 @@ categories Decorations/Fixtures/Monsters/Buttons/Doors/Stairs/Items (live
 placement). Entries carrying a `category` field group under collapsible
 SUB-accordions ("+ Weapon (4)"); every catalog is authored with them.
 Items in each category come from the active project's catalogs; a "+ New..." row
-opens the asset-creation dialog (see below). Mouse model: LEFT paints/places
+opens the asset-creation dialog (see below). EXCEPT the three surface categories,
+whose rows come from the VIEWED LEVEL's `palette` record, not the catalog — a
+catalog type must JOIN that palette before the brush can reach it, which is what
+their extra "+ Catalog..." row does (a chooser of the types this level doesn't
+list yet → DungeonWorld::AddPaletteEntry, or ...Remote for a browsed level's
+stash; the row hides once the level uses them all). The append is UNDOABLE (the
+palette rides the map through the undo snapshot; RestoreEditorState flags
+m_surfacesDirty so FlushGeometry reloads the sets, not just the chunks) and
+reloads that surface's textures + worn meshes live (ReloadDungeonBlocks), gated
+by SurfaceAssetsAvailable — the worn-mesh load is a LoadModelOrDie that would
+ABORT on an unbaked type. APPEND-ONLY, and that rule is load-bearing: `variant`
+records store the palette INDEX, so inserting or removing mid-list would
+silently repaint every cell above it (removal needs an index remap — not built).
+For the same reason a paint validates the armed index against the viewed
+palette's CURRENT size (MapEditor::PaintCell): browsing a level with a shorter
+palette, or undoing an add, outlives the index the brush was armed with. Mouse model: LEFT paints/places
 the armed brush (nothing armed until a palette row is picked), a stationary
 RIGHT-CLICK inspects the cell (select + contents + the object's edit dialog
 immediately; ≤3px press-release = click) while a right-DRAG pans, and

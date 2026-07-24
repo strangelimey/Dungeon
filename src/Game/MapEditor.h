@@ -62,6 +62,11 @@ public:
 	// Fired when a category's "+ New..." row is clicked (the owner opens the
 	// asset-creation dialog for that category).
 	std::function<void(PaletteCat)> onNewAsset;
+	// Fired when a surface category's "+ Add from catalog..." row is clicked
+	// (the owner opens a chooser over CatalogCandidates and calls AddToPalette
+	// with the pick). Surfaces only: a level paints just the types its palette
+	// record lists, so a catalog type must JOIN the palette to be reachable.
+	std::function<void(PaletteCat)> onAddFromCatalog;
 	// Fired when a configurable palette item is right-clicked (the owner opens the
 	// per-type config dialog). Currently only Monsters are configurable.
 	std::function<void(PaletteCat, const std::string& id)> onConfigure;
@@ -93,6 +98,24 @@ public:
 	static const char* CategoryNameKey(PaletteCat cat);
 	static const char* CategoryCatalogKey(PaletteCat cat);
 	static bool CategoryTextureSet(PaletteCat cat);
+	// The surface categories are the ones whose items come from the LEVEL's
+	// palette record rather than straight from a catalog — the ones that can
+	// gain members (see onAddFromCatalog).
+	static bool SurfaceCat(PaletteCat cat) { return PaintableCat(cat); }
+
+	// --- surface palette membership ------------------------------------------
+	// One offerable type: a catalog entry of a surface category that the VIEWED
+	// level's palette does not list yet.
+	struct Candidate {
+		std::string id;
+		std::string label; // display name, with its group as "<group> / <name>"
+	};
+	// The types `cat` could gain, in catalog order (empty for a non-surface
+	// category, or when the level already lists them all).
+	std::vector<Candidate> CatalogCandidates(PaletteCat cat) const;
+	// Appends `id` to the viewed level's palette (live world or browsed stash),
+	// as one undo step, and arms it as the brush. Reports through onMessage.
+	void AddToPalette(PaletteCat cat, const std::string& id);
 
 	// --- palette controls row (filter box + clear + collapse-all) ------------
 	// A fixed strip at the top of the dock body, above the scrolled accordion.
@@ -199,7 +222,7 @@ private:
 	// per visible item, per group sub-header, and per empty-expanded placeholder.
 	// Rects are in panel pixel space with the scroll already applied.
 	struct PaletteRow {
-		enum class Kind { Header, NewButton, SubHeader, Item, Empty } kind;
+		enum class Kind { Header, NewButton, AddButton, SubHeader, Item, Empty } kind;
 		PaletteCat cat;
 		int index; // item index for Kind::Item
 		gfx::Rect rect;

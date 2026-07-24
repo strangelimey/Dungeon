@@ -137,6 +137,61 @@ const gfx::Texture* DungeonWorld::SurfaceAlbedoForId(SurfaceSel sel,
 	return nullptr;
 }
 
+// --- surface palette membership (editor) ------------------------------------
+
+const Catalog& DungeonWorld::SurfaceCatalog(SurfaceSel sel) const {
+	return sel == SurfaceSel::Wall	  ? m_project.walls
+		   : sel == SurfaceSel::Floor ? m_project.floors
+									  : m_project.ceilings;
+}
+
+bool DungeonWorld::SurfaceAssetsAvailable(SurfaceSel sel,
+										  const std::string& id) const {
+	const CatalogEntry* def = SurfaceCatalog(sel).Find(id);
+	if (!def) return false;
+	const std::string set = CatalogGet(def, "texture", id);
+	// A texture stem resolves as .dds (baked) else .png (source) — TryLoadTextureFile's
+	// order.
+	const auto textureAt = [](const std::string& stem) {
+		return std::filesystem::exists(paths::Asset("textures\\" + stem + ".dds")) ||
+			   std::filesystem::exists(paths::Asset("textures\\" + stem + ".png"));
+	};
+	// The worn block mesh is baked per texture set AND per mesh tier, and its
+	// load is a LoadModelOrDie — a missing one would abort, so it gates first.
+	if (!std::filesystem::exists(paths::Asset(
+			std::format("models\\worn_{}_{}.gltf", set, m_settings.MeshSuffix()))))
+		return false;
+	// The tier's texture resolution may be uninstalled; LoadPbrSet falls back
+	// to the always-present 2k set, so either satisfies the load.
+	return textureAt(std::format("{}_{}", set, m_settings.TextureSuffix())) ||
+		   textureAt(set + "_2k");
+}
+
+bool DungeonWorld::AddPaletteEntry(SurfaceSel sel, const std::string& id) {
+	if (!SurfaceAssetsAvailable(sel, id)) return false;
+	const bool added = sel == SurfaceSel::Wall	  ? m_map.AddToWallPalette(id)
+					   : sel == SurfaceSel::Floor ? m_map.AddToFloorPalette(id)
+												  : m_map.AddToCeilingPalette(id);
+	if (!added) return false; // unknown/duplicate: nothing to load
+	// The palette IS the variant order, so the loaded texture arrays and worn
+	// block meshes must grow with it before anything can paint the new index.
+	// The full reload is the quality-swap path (drains the GPU, re-resolves,
+	// reloads both, rebuilds the chunks) — an interactive edit, not per-frame.
+	ReloadDungeonBlocks(/*textureResChanged*/ true);
+	return true;
+}
+
+bool DungeonWorld::AddPaletteEntryRemote(const std::string& stem, SurfaceSel sel,
+										 const std::string& id) {
+	if (!SurfaceCatalog(sel).Contains(id)) return false;
+	// No texture/mesh work: a browsed level isn't rendered in 3D. Its assets are
+	// checked when the party (or the editor) enters it.
+	DungeonMap& map = EnsureMapStash(stem);
+	return sel == SurfaceSel::Wall	  ? map.AddToWallPalette(id)
+		   : sel == SurfaceSel::Floor ? map.AddToFloorPalette(id)
+									  : map.AddToCeilingPalette(id);
+}
+
 bool DungeonWorld::AddDecoration(const std::string& type, int x, int z,
 								 Direction facing) {
 	if (!m_map.IsWalkable(x, z)) return false;
@@ -1618,6 +1673,14 @@ void DungeonWorld::RestoreEditorState(EditorSnapshot snap) {
 	// read a freed resource.
 	m_device.WaitIdle();
 
+	// A palette add/remove rides the snapshot (the whole map does), but the
+	// LOADED texture sets and worn meshes don't — they'd stay at the old count
+	// and the variant indices would disagree. Compare before the map moves and
+	// mark the surfaces for a full reload if the membership changed.
+	const bool paletteChanged = m_map.WallPalette() != snap.map.WallPalette() ||
+								m_map.FloorPalette() != snap.map.FloorPalette() ||
+								m_map.CeilingPalette() != snap.map.CeilingPalette();
+
 	// Static layer + records (move-assign like BeginLevelLoad — Party holds a
 	// reference to m_map, so the object must persist, only its data changes).
 	m_map = std::move(snap.map);
@@ -1657,9 +1720,18 @@ void DungeonWorld::RestoreEditorState(EditorSnapshot snap) {
 	// and a whole editing session pays for one rebake on the way out.
 	RebuildFiresAndDust();
 	m_geometryDirty = true;
+	if (paletteChanged) m_surfacesDirty = true;
 }
 
 void DungeonWorld::FlushGeometry() {
+	// A restored palette needs the heavier path: re-resolve, then reload the
+	// worn meshes AND texture sets so the variant arrays match the palette
+	// again (ReloadDungeonBlocks rebuilds the chunks itself).
+	if (m_surfacesDirty) {
+		m_surfacesDirty = false;
+		ReloadDungeonBlocks(/*textureResChanged*/ true);
+		return;
+	}
 	if (!m_geometryDirty) return;
 	m_device.WaitIdle(); // in-flight frames may still read the old chunk meshes
 	m_walls.chunks.clear();

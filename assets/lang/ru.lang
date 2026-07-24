@@ -492,6 +492,11 @@ dmg.earth=Земля
 dmg.air=Воздух
 dmg.water=Вода
 map.cat.new=+ Создать...
+map.cat.add=+ Каталог...
+map.palette.title=Добавить на этот уровень: {}
+map.palette.added=«{}» добавлено в палитру — сохраните карту, чтобы это осталось.
+map.palette.failed=Не удалось добавить «{}» (нет собранных ресурсов).
+map.palette.none=Все типы каталога уже есть в палитре этого уровня.
 ; --- instance inspectors (per-placed object edit dialogs) ---
 map.insp.facing=Направление
 map.insp.arrow=Стрелка

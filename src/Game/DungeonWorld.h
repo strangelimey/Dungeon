@@ -490,6 +490,27 @@ public:
 	const gfx::Texture* SurfaceAlbedoForId(SurfaceSel sel,
 										   const std::string& id) const;
 
+	// --- surface palette membership (editor) --------------------------------
+	// A level paints only the surface types its `palette` record lists (the
+	// order IS the variant index), so a catalog type has to JOIN the palette
+	// before the brush can reach it. Appends `id` to the active level's palette
+	// and reloads that surface's texture sets + worn block meshes so it paints
+	// immediately. False when the id is unknown, already in the palette, or its
+	// baked assets are missing (SurfaceAssetsAvailable). Append-only by design:
+	// `variant` records key on the INDEX, so an insert would repaint cells.
+	bool AddPaletteEntry(SurfaceSel sel, const std::string& id);
+	// The browsed-level counterpart: appends to that level's stashed map (no
+	// texture work — the level isn't rendered). Same append-only contract.
+	bool AddPaletteEntryRemote(const std::string& stem, SurfaceSel sel,
+							   const std::string& id);
+	// True when the type's baked assets are on disk at the CURRENT quality tier
+	// (its texture set and worn_<set>_<tier>.gltf). Guards AddPaletteEntry: the
+	// worn-mesh load is a LoadModelOrDie, so an unbaked type would abort the
+	// game instead of failing the edit (the MonsterModelAvailable pattern).
+	bool SurfaceAssetsAvailable(SurfaceSel sel, const std::string& id) const;
+	// The project catalog behind a surface selector (walls/floors/ceilings).
+	const Catalog& SurfaceCatalog(SurfaceSel sel) const;
+
 	// Live entity placement (editor). type is a catalog id (decorations.cat /
 	// monsters.cat). Each instantiates the kind (loading its model/textures on
 	// first use — ExecuteImmediate uploads synchronously, so it is safe mid-
@@ -1890,6 +1911,9 @@ private:
 	std::vector<EditorSnapshot> m_redoStack;
 	std::optional<EditorSnapshot> m_pendingUndo; // BeginUndoStep .. CommitUndoStep
 	bool m_geometryDirty = false; // a restore skipped the rebake (FlushGeometry)
+	// A restore also changed a level's surface PALETTE, so FlushGeometry must
+	// reload the texture sets + worn meshes, not just re-stamp the chunks.
+	bool m_surfacesDirty = false;
 
 	std::vector<Fire> m_fires;
 	// Per-fixture flame attachment (fixtures.cat flame_height / flame_scale /

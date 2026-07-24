@@ -353,6 +353,13 @@ private:
 	// Chooser shown when a Select-clicked cell holds >1 inspectable object; picking a
 	// row opens the matching inspector. One target per object at the clicked cell.
 	InspectPicker m_inspectPicker;
+	// The same chooser, serving the palette's "+ Add from catalog..." row: the
+	// surface types the viewed level's palette doesn't list yet. Its own
+	// instance rather than a mode flag on m_inspectPicker, so the two lists and
+	// their onPick handlers can't cross (the picker holds the labels it shows).
+	InspectPicker m_paletteAddPicker;
+	std::vector<MapEditor::Candidate> m_paletteCandidates; // what it is showing
+	MapEditor::PaletteCat m_paletteAddCat = MapEditor::PaletteCat::Walls;
 	struct InspectTarget {
 		enum class Kind {
 			Monster, Sconce, Brazier, Door, Button, Decoration, Item, Projectile, Niche
