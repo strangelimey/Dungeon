@@ -98,6 +98,9 @@ public:
 	static const char* CategoryNameKey(PaletteCat cat);
 	static const char* CategoryCatalogKey(PaletteCat cat);
 	static bool CategoryTextureSet(PaletteCat cat);
+	// The reverse lookup, for code that starts from a catalog key (the asset
+	// dialog's request); Count when no category owns it.
+	static PaletteCat CatForCatalogKey(std::string_view catalogKey);
 	// The surface categories are the ones whose items come from the LEVEL's
 	// palette record rather than straight from a catalog — the ones that can
 	// gain members (see onAddFromCatalog).

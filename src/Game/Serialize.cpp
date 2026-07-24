@@ -91,7 +91,9 @@ std::vector<Block> ParseBlocks(std::string_view text) {
 		if (eq == std::string_view::npos) continue; // not a field
 		// Append verbatim (don't dedupe) so a load → save round-trip is faithful.
 		blocks.back().fields.push_back({std::string(Trim(line.substr(0, eq))),
-										std::string(Trim(line.substr(eq + 1)))});
+										std::string(Trim(line.substr(eq + 1))),
+										std::move(pendingComments)});
+		pendingComments.clear();
 	}
 
 	// Drop the leading unnamed block when it carried nothing, so catalogs (which
@@ -108,8 +110,10 @@ std::string WriteBlocks(const std::vector<Block>& blocks) {
 		first = false;
 		for (const std::string& comment : b.lead) out += comment + "\n";
 		if (!b.id.empty()) out += std::format("[{}]\n", b.id);
-		for (const Field& f : b.fields)
+		for (const Field& f : b.fields) {
+			for (const std::string& comment : f.lead) out += comment + "\n";
 			out += std::format("{} = {}\n", f.key, f.value);
+		}
 	}
 	return out;
 }

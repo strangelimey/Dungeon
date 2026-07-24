@@ -29,6 +29,11 @@ namespace dungeon::game::serialize {
 struct Field {
 	std::string key;
 	std::string value;
+	// Comment lines that preceded this field, verbatim. A comment inside a block
+	// annotates the field under it (monsters.cat explains a threat_threshold that
+	// way), so it has to travel with that field — attaching it to the block would
+	// float it to the top on the next write, describing the wrong thing.
+	std::vector<std::string> lead;
 };
 
 // Field accessors over a raw field list — the one implementation shared by

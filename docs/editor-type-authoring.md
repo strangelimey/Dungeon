@@ -43,8 +43,8 @@ type is explicit; that's the model, not a gap.
 
 ---
 
-> **Status.** Phase 1 landed (adfa715), Phase 2 landed — see the notes at the end
-> of each. Phases 3–6 are unstarted.
+> **Status.** Phases 1–3 landed — see the notes at the end of each. Phases 4–6
+> are unstarted.
 
 ## Phase 1 — Palette membership (makes everything else usable)  ← DONE
 
@@ -150,7 +150,7 @@ omits exactly the fields it owns, so there is one writer per field.
 
 ---
 
-## Phase 3 — Rewrite `+ New` on top of the schema
+## Phase 3 — Rewrite `+ New` on top of the schema  ← DONE
 
 **Source modes** (a three-way radio at the top of the dialog):
 
@@ -184,6 +184,23 @@ rig so roughness and height are tuned by eye.
 **Done when**: creating a wall type from an installed set, with a chosen
 roughness, takes one dialog, no file browsing, no restart — and the type is in
 the palette and paintable when the dialog closes.
+
+**As built.** All of the above. Notes:
+
+- `DiscoverPbrMaps` moved **out of AssetBaker into the Assets lib**, so the
+  dialog's report and the baker's import are the same code rather than two
+  copies of a substring table.
+- An installed texture set adopted as a *surface* still needs its worn block
+  mesh, so that one case enters the bake flow at its second step. Model
+  categories and Duplicate write the catalog and are done — no subprocess.
+- **A second comment bug fell out of testing.** Phase 2 attached comments to the
+  block they introduced, but `monsters.cat` annotates a *field* mid-entry
+  (`; A single-minded brute…` above `threat_threshold`). Those floated to the top
+  of the NEXT entry on save — describing the wrong monster. Comments now attach
+  to fields as well as blocks (`serialize::Field::lead`), and a save is
+  byte-stable apart from the intended change.
+- Not done: Duplicate of a model shows no preview (the dialog would have to
+  resolve the source entry's `model` field). Cheap to add later.
 
 ---
 

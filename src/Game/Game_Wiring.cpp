@@ -146,8 +146,14 @@ void Game::WireModuleCallbacks() {
 	m_mapEditor.onNewAsset = [this](MapEditor::PaletteCat cat) {
 		const char* key = MapEditor::CategoryCatalogKey(cat);
 		if (!*key) return; // belt-and-braces: every category names a catalog
+		// The category's existing ids drive both the duplicate-name check and the
+		// "copy from" list.
+		std::vector<std::string> existing;
+		if (const Catalog* c = m_project.CatalogForKey(key))
+			for (const CatalogEntry& e : c->Entries()) existing.push_back(e.id);
 		m_assetDialog.Open(loc::Tr(MapEditor::CategoryNameKey(cat)), key,
-						   MapEditor::CategoryTextureSet(cat), m_settings.theme);
+						   MapEditor::CategoryTextureSet(cat), std::move(existing),
+						   m_settings.theme);
 	};
 	// A surface category's "+ Add from catalog": offer the types this level's
 	// palette doesn't list yet, and append the pick (the brush can only reach
@@ -176,17 +182,24 @@ void Game::WireModuleCallbacks() {
 	// Create runs AssetBaker on the picked source (P4c); the dialog stays open in
 	// a "baking…" state until Update sees the subprocess finish.
 	m_assetDialog.onCreate = [this](const AssetDialog::CreateRequest& req) {
-		if (req.name.empty() || req.sourcePath.empty()) {
-			log::Warn("asset create: need a name and a source");
+		// Installed / Duplicate bind an asset that is already baked, so the type
+		// exists the moment its catalog entry does — no subprocess, no wait. The
+		// one exception: a pool TEXTURE set adopted as a surface may never have
+		// been used as one, so its worn block mesh still has to be baked (the
+		// import path's second step, entered directly).
+		const bool needsWornBake =
+			req.source == AssetDialog::Source::Installed && req.textureSet;
+		if (!req.NeedsBake() && !needsWornBake) {
+			CreateCatalogEntry(req);
 			return;
 		}
 		m_bakeReq = req;
-		m_bakeStep = 0;
+		m_bakeStep = needsWornBake ? 1 : 0;
 		if (StartBakeStep()) {
 			m_baking = true;
 			m_assetDialog.SetBusy(true);
 		} else {
-			log::Warn("asset create: could not launch AssetBaker");
+			m_assetDialog.SetError(loc::Tr("newasset.err.launch"));
 		}
 	};
 

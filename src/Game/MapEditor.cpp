@@ -62,6 +62,13 @@ const char* MapEditor::CategoryNameKey(PaletteCat cat) { return CatInfoFor(cat).
 const char* MapEditor::CategoryCatalogKey(PaletteCat cat) { return CatInfoFor(cat).catalogKey; }
 bool MapEditor::CategoryTextureSet(PaletteCat cat) { return CatInfoFor(cat).textureSet; }
 
+MapEditor::PaletteCat MapEditor::CatForCatalogKey(std::string_view catalogKey) {
+	for (size_t i = 0; i < static_cast<size_t>(PaletteCat::Count); ++i)
+		if (catalogKey == kCategoryInfo[i].catalogKey)
+			return static_cast<PaletteCat>(i);
+	return PaletteCat::Count;
+}
+
 // Resolves a category's items: the level's surface palette (Walls/Floors/
 // Ceilings, display names from the project's surface catalogs), or the
 // project's entity catalogs.

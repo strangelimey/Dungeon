@@ -668,7 +668,26 @@ categories Decorations/Fixtures/Monsters/Buttons/Doors/Stairs/Items (live
 placement). Entries carrying a `category` field group under collapsible
 SUB-accordions ("+ Weapon (4)"); every catalog is authored with them.
 Items in each category come from the active project's catalogs; a "+ New..." row
-opens the asset-creation dialog (see below). EXCEPT the three surface categories,
+opens the asset-creation dialog — which makes a type THREE ways (AssetDialog::
+Source): Import new (browse + AssetBaker, the original), Use installed (bind an
+asset already in the pool — no bake, so a second wall type off an existing set
+is seconds, not a re-import) and Duplicate (copy another entry of this category,
+including fields no schema row covers). The id is validated as you type
+([A-Za-z0-9_-], records are whitespace-tokenised) and CHECKED FOR COLLISION —
+Catalog::Add replaces by id, so an unchecked name silently overwrote a type
+every level used. The new entry's SHAPE comes from the category's schema
+defaults (Game::CreateCatalogEntry), so a new stair gets its up/pair/hole rows
+and a new item its weight/holdable, where the old writer stamped
+authored=1/solid=1 on everything; a surface type also joins the viewed level's
+palette on creation (Phase 1's seam), since otherwise it would be unreachable.
+An import REPORTS what it will do first: assets::DiscoverPbrMaps (moved out of
+AssetBaker into Assets so the dialog and the baker cannot disagree) lists the
+maps recognised in the folder, warns when no height map means flat parallax, and
+pre-ticks the --flip-green override from the normal map's filename. The preview
+pane shows the picked mesh, or wall_block.gltf wearing the picked texture set —
+including one still loose in a download folder, since the maps are loaded from
+their source files. A failed bake now lands in the dialog with the exit code
+instead of only in the log. EXCEPT the three surface categories,
 whose rows come from the VIEWED LEVEL's `palette` record, not the catalog — a
 catalog type must JOIN that palette before the brush can reach it, which is what
 their extra "+ Catalog..." row does (a chooser of the types this level doesn't

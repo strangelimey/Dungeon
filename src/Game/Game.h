@@ -116,6 +116,11 @@ private:
 	// when the bake finishes, write the new catalog entry + save the project.
 	bool StartBakeStep();
 	void FinishBake();
+	// Writes a newly created type's catalog entry (its shape seeded from the
+	// category's schema defaults) and makes it reachable — a surface type joins
+	// the viewed level's palette. Shared by the bake path and the no-bake
+	// sources (Installed / Duplicate), which have nothing to bake.
+	void CreateCatalogEntry(const AssetDialog::CreateRequest& req);
 
 	// Type editor Save: merge the dialog's working fields into the catalog entry
 	// and persist. Starts from the EXISTING entry, so fields the dialog doesn't

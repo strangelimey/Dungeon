@@ -34,15 +34,21 @@ bool Game::StartBakeStep() {
 	if (!m_bakeReq.textureSet)
 		cmd = q(baker) + " import-model " + q(m_bakeReq.sourcePath) + " " + q(assets) +
 			  " " + m_bakeReq.name;
-	else if (m_bakeStep == 0)
+	else if (m_bakeStep == 0) {
 		cmd = q(baker) + " import " + q(m_bakeReq.sourcePath) + " " + q(assets) + " " +
 			  m_bakeReq.name;
-	else {
+		// GL-convention normals (green up) need flipping; the importer sniffs the
+		// filename, and this is the dialog's override for sets that don't say so.
+		if (m_bakeReq.flipGreen) cmd += " --flip-green";
+	} else {
 		// Bake worn block meshes for just the new set (its kind = the catalog).
 		const std::string kind = m_bakeReq.catalogKey == "floors"    ? "floor"
 								 : m_bakeReq.catalogKey == "ceilings" ? "ceiling"
 																	  : "wall";
-		cmd = q(baker) + " wornblock " + kind + " " + m_bakeReq.name + " " + q(assets);
+		// A wornblock bake names the TEXTURE SET, which for an Installed-source
+		// type is the pool asset, not the new catalog id.
+		const std::string set = m_bakeReq.asset.empty() ? m_bakeReq.name : m_bakeReq.asset;
+		cmd = q(baker) + " wornblock " + kind + " " + set + " " + q(assets);
 		// Wall-style knobs (default 1/on for an asset-create; set by a restyle).
 		if (m_bakeWear != 1.0f)
 			cmd += std::format(" --wear {:.3f}", m_bakeWear);
@@ -154,38 +160,85 @@ bool Game::RenameLevel(const std::string& oldStem, const std::string& newStem) {
 // (so the type is usable — model kinds load lazily on first placement). Writes go
 // to the asset copy next to the exe, not the git source tree.
 void Game::FinishBake() {
-	if (Catalog* cat = m_project.CatalogForKey(m_bakeReq.catalogKey)) {
-		CatalogEntry e;
-		e.id = m_bakeReq.name;
-		e.Set("display", m_bakeReq.name);
-		if (m_bakeReq.textureSet) {
-			e.Set("texture", m_bakeReq.name);
-			e.Set("height_scale", std::format("{:.3f}", m_bakeReq.material.heightScale));
-		} else {
-			e.Set("model", m_bakeReq.name);
-			e.Set("texture", m_bakeReq.name);
-			e.Set("authored", "1");
-			e.Set("solid", "1");
-			// The dialog's material sliders, persisted only when the user moved
-			// them: metallic/roughness become the draw's factors (with an ORM map
-			// the shader scales the map by them), color tints the albedo, and
-			// height_scale overrides the bound set's parallax depth. Untouched
-			// sliders leave the imported model's own material authoritative.
-			const gfx::MaterialParams& m = m_bakeReq.material;
-			if (m_bakeReq.metallicSet) e.Set("metallic", std::format("{:.3f}", m.metallic));
-			if (m_bakeReq.roughnessSet) e.Set("roughness", std::format("{:.3f}", m.roughness));
-			if (m_bakeReq.heightSet)
-				e.Set("height_scale", std::format("{:.3f}", m.heightScale));
-			if (m_bakeReq.colorSet)
-				e.Set("color", std::format("{:.3f},{:.3f},{:.3f}", m.baseColor.x,
-										   m.baseColor.y, m.baseColor.z));
-		}
-		cat->Add(std::move(e));
-		m_project.Save();
-		log::Info("Created asset '{}' in {}", m_bakeReq.name, m_bakeReq.catalogKey);
-	}
+	CreateCatalogEntry(m_bakeReq);
 	m_assetDialog.SetBusy(false);
 	m_assetDialog.Close();
+}
+
+// Writes the new type's catalog entry and makes it reachable. The entry's SHAPE
+// comes from the category's schema (CatalogSchema): every row with a default is
+// seeded, so a new stair gets its up/pair/hole rows and a new item its
+// weight/holdable — where the old one-shape-fits-all writer stamped
+// authored=1/solid=1 on everything and left doors, stairs and items broken.
+void Game::CreateCatalogEntry(const AssetDialog::CreateRequest& req) {
+	Catalog* cat = m_project.CatalogForKey(req.catalogKey);
+	if (!cat) {
+		log::Warn("asset create: unknown catalog '{}'", req.catalogKey);
+		return;
+	}
+	CatalogEntry e;
+	// Duplicate starts from the source entry, so everything hand-authored on it
+	// (fields no schema row covers included) comes along.
+	if (req.source == AssetDialog::Source::Duplicate)
+		if (const CatalogEntry* src = cat->Find(req.asset)) {
+			e = *src;
+			e.lead.clear(); // the source's comment introduced the source, not this
+		}
+	e.id = req.name;
+	// Identity first, so the entry reads like a hand-authored one. Items name
+	// themselves with a loc key by convention; everything else carries a display
+	// string.
+	if (req.catalogKey == "items") e.Set("name", "item." + req.name);
+	else e.Set("display", req.name);
+	if (!req.group.empty()) e.Set("category", req.group);
+
+	// What the type binds to: an import writes its own name (the baker wrote the
+	// asset under it), the other sources point at what the user picked.
+	const std::string asset =
+		req.source == AssetDialog::Source::Import ? req.name : req.asset;
+	if (req.source != AssetDialog::Source::Duplicate) {
+		if (req.textureSet) e.Set("texture", asset);
+		else {
+			e.Set("model", asset);
+			// An imported model brings its own PBR set under the same name; a pool
+			// model keeps whatever the entry already binds (the schema default).
+			if (req.source == AssetDialog::Source::Import) e.Set("texture", asset);
+		}
+	}
+	if (!req.textureSet && req.source == AssetDialog::Source::Import)
+		e.Set("authored", "1"); // bought/authored meshes are back-face culled
+
+	// Then the category's own shape: every schema row with a default that the
+	// entry doesn't already carry. This is what gives a new stair its up/pair/
+	// hole rows and a new item its weight/holdable, where the old writer stamped
+	// authored=1/solid=1 on every category alike.
+	for (const FieldSpec& spec : SchemaFor(req.catalogKey))
+		if (*spec.def && !e.Find(spec.key)) e.Set(spec.key, spec.def);
+
+	// The dialog's material sliders, persisted only when the user moved them:
+	// metallic/roughness become the draw's factors (with an ORM map the shader
+	// scales the map by them), color tints the albedo, and height_scale overrides
+	// the bound set's parallax depth. Untouched sliders leave the asset's own
+	// material authoritative.
+	const gfx::MaterialParams& m = req.material;
+	if (req.metallicSet) e.Set("metallic", std::format("{:.3f}", m.metallic));
+	if (req.roughnessSet) e.Set("roughness", std::format("{:.3f}", m.roughness));
+	if (req.heightSet) e.Set("height_scale", std::format("{:.3f}", m.heightScale));
+	if (req.colorSet)
+		e.Set("color", std::format("{:.3f},{:.3f},{:.3f}", m.baseColor.x, m.baseColor.y,
+								   m.baseColor.z));
+
+	cat->Add(std::move(e));
+	m_project.Save();
+	log::Info("Created type '{}' in {}", req.name, req.catalogKey);
+
+	// A surface type is only reachable once the level's palette lists it (the
+	// palette IS the variant order) — otherwise "+ New" would drop the type into
+	// the catalog and leave the brush unable to touch it.
+	const MapEditor::PaletteCat pcat = MapEditor::CatForCatalogKey(req.catalogKey);
+	if (MapEditor::SurfaceCat(pcat)) m_mapEditor.AddToPalette(pcat, req.name);
+	else if (m_world.onMessage)
+		m_world.onMessage(loc::Format("newasset.created", req.name));
 }
 
 // Opens the per-type catalog editor for a palette row. The dialog edits a COPY

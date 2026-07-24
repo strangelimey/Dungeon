@@ -17,6 +17,7 @@
 #include "ImportTextures.h"
 
 #include "Assets/Image.h"
+#include "Assets/PbrMaps.h"
 #include "Core/Log.h"
 #include "Core/Types.h"
 
@@ -34,26 +35,8 @@ namespace dungeon::baker {
 
 namespace {
 
-std::string Lower(std::string s) {
-	std::ranges::transform(s, s.begin(),
-						   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-	return s;
-}
-
-bool ContainsAny(const std::string& haystack, std::initializer_list<const char*> needles) {
-	for (const char* needle : needles)
-		if (haystack.find(needle) != std::string::npos) return true;
-	return false;
-}
-
-// Unreal-style exports abbreviate the map kind to a single-letter suffix
-// (T_Torch_R / T_Torch_M). Those are too short to match as substrings — a
-// stem like "wood_render" contains "_r" — so they anchor to the stem's end.
-bool EndsWithAny(const std::string& haystack, std::initializer_list<const char*> needles) {
-	for (const char* needle : needles)
-		if (haystack.ends_with(needle)) return true;
-	return false;
-}
+// (Map-role detection by filename moved to Assets/PbrMaps.h — the editor's
+// asset dialog reports the same answer this import acts on.)
 
 // Height (displacement) maps need special handling: download sites ship them
 // as 16-bit grayscale PNGs whose useful range may occupy a tiny slice of
@@ -130,60 +113,6 @@ bool SavePng(const std::string& path, const assets::ImageData& image) {
 	return ok != 0;
 }
 
-// What we managed to find in the source folder.
-struct FoundMaps {
-	std::string albedo, normal, height, ao, roughness, metallic, opacity;
-	bool normalLooksGl = false;
-};
-
-FoundMaps DiscoverMaps(const std::string& sourceDir) {
-	FoundMaps found;
-	std::vector<std::filesystem::path> files;
-	for (const auto& entry : std::filesystem::directory_iterator(sourceDir))
-		if (entry.is_regular_file()) files.push_back(entry.path());
-	std::ranges::sort(files); // deterministic pick when several match
-
-	for (const auto& file : files) {
-		const std::string ext = Lower(file.extension().string());
-		if (ext != ".png" && ext != ".jpg" && ext != ".jpeg" && ext != ".tga" &&
-			ext != ".bmp")
-			continue;
-		const std::string stem = Lower(file.stem().string());
-		const std::string path = file.string();
-
-		// Order matters: "ambientocclusion" must not be mistaken for albedo.
-		if (found.ao.empty() &&
-			ContainsAny(stem, {"ambientocclusion", "ambient_occlusion", "_ao", "occ"})) {
-			found.ao = path;
-		} else if (found.normal.empty() &&
-				   (ContainsAny(stem, {"normal", "_nor", "_nrm"}) ||
-					EndsWithAny(stem, {"_n"}))) {
-			found.normal = path;
-			found.normalLooksGl = ContainsAny(stem, {"gl"});
-		} else if (found.height.empty() &&
-				   ContainsAny(stem, {"height", "displacement", "_disp", "bump"})) {
-			found.height = path;
-		} else if (found.roughness.empty() &&
-				   (ContainsAny(stem, {"rough"}) || EndsWithAny(stem, {"_r"}))) {
-			found.roughness = path;
-		} else if (found.metallic.empty() &&
-				   (ContainsAny(stem, {"metallic", "metalness", "metal", "_met"}) ||
-					EndsWithAny(stem, {"_m"}))) {
-			found.metallic = path;
-		} else if (found.albedo.empty() &&
-				   ContainsAny(stem, {"albedo", "basecolor", "base_color", "diffuse",
-									  "color", "_col", "_diff", "_alb"})) {
-			found.albedo = path;
-		} else if (found.opacity.empty() &&
-				   ContainsAny(stem, {"opacity", "alpha", "opac", "transp", "mask"})) {
-			// Checked after albedo so a combined "basecolor_alpha" name binds as
-			// the albedo, not stolen here as the mask.
-			found.opacity = path;
-		}
-	}
-	return found;
-}
-
 } // namespace
 
 bool ImportPbrTextureSet(const std::string& sourceDir, const std::string& texturesDir,
@@ -192,7 +121,9 @@ bool ImportPbrTextureSet(const std::string& sourceDir, const std::string& textur
 		log::Error("Import source is not a directory: {}", sourceDir);
 		return false;
 	}
-	const FoundMaps found = DiscoverMaps(sourceDir);
+	// Role detection is shared with the editor's asset dialog (Assets/PbrMaps.h),
+	// so what the dialog reports is exactly what this import will do.
+	const assets::PbrMapSet found = assets::DiscoverPbrMaps(sourceDir);
 	if (found.albedo.empty()) {
 		log::Error("No albedo/basecolor map found in {}", sourceDir);
 		return false;

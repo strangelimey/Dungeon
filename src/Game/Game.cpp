@@ -748,10 +748,14 @@ void Game::Update(float dt) {
 	// done; on success FinishBake writes the catalog entry.
 	if (m_baking && !m_bake.Running()) {
 		if (m_bake.ExitCode() != 0) {
+			// Surface the failure where the user is looking: the dialog stays up
+			// with the exit code so the form can be fixed and retried (the full
+			// baker output is in dungeon.log next to the exe).
 			log::Warn("AssetBaker failed (exit {})", m_bake.ExitCode());
 			m_baking = false;
 			if (m_restyleBake) { m_restyleBake = false; m_typeDialog.Close(); }
-			else m_assetDialog.SetBusy(false);
+			else m_assetDialog.SetError(loc::Format("newasset.err.bake",
+													m_bake.ExitCode()));
 		} else if (m_bakeReq.textureSet && m_bakeStep == 0) {
 			m_bakeStep = 1; // textures imported — now rebake worn block meshes
 			if (!StartBakeStep()) {
