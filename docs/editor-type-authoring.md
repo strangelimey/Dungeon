@@ -43,7 +43,10 @@ type is explicit; that's the model, not a gap.
 
 ---
 
-## Phase 1 — Palette membership (makes everything else usable)
+> **Status.** Phase 1 landed (adfa715), Phase 2 landed — see the notes at the end
+> of each. Phases 3–6 are unstarted.
+
+## Phase 1 — Palette membership (makes everything else usable)  ← DONE
 
 Without this, nothing created in Phases 2–3 can be painted. Do it first.
 
@@ -80,7 +83,7 @@ and Ctrl+Z removes it again.
 
 ---
 
-## Phase 2 — The schema + `TypeEditorDialog`
+## Phase 2 — The schema + `TypeEditorDialog`  ← DONE
 
 **New file `Game/CatalogSchema.h/.cpp`.**
 
@@ -124,6 +127,26 @@ catalog key.
 **Done when**: right-clicking any palette row in any category opens an editor
 showing that category's real fields, Save round-trips the `.cat` losslessly, and
 `wear` still rebakes + hot-swaps as it does today.
+
+**As built.** All of the above, plus three things the plan didn't foresee:
+
+- Field **labels come from the key itself** (`PrettyFieldName`), and `help` is
+  English in the table. A catalog field name is project vocabulary like an ini
+  key or an asset name, which CLAUDE.md keeps out of Loc — and per-field loc
+  keys would have meant ~180 new strings across five languages. Only the dialog
+  chrome and section names are translated.
+- Sliders **snap to a per-field `step`**, because the first save wrote
+  `hp = 68.9157` where the catalog wants `hp = 69`.
+- **Catalog comments now survive a write.** `ParseBlocks` dropped them, so every
+  catalog write (this dialog, monster config, asset create) silently deleted the
+  header that documents that category's fields. They ride as
+  `serialize::Block::lead` → `CatalogEntry::lead`, and `Catalog::Save` yields its
+  generic header to the file's own.
+
+`WallStyleDialog` is deleted — `wear`/`columns` are schema rows. Monster
+animation/behaviour stays in `MonsterConfigDialog` (it rewrites those rows
+authoritatively), reached by the type editor's "Animation..." button; the schema
+omits exactly the fields it owns, so there is one writer per field.
 
 ---
 

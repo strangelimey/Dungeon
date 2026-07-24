@@ -28,6 +28,10 @@ namespace dungeon::game {
 // delegate to the shared serialize:: field helpers.
 struct CatalogEntry {
 	std::string id;
+	// Comment lines that introduced this entry in the .cat, kept verbatim so an
+	// editor write preserves the file's authoring notes (serialize::Block::lead).
+	// An entry rebuilt from an existing one carries them along for free.
+	std::vector<std::string> lead;
 	std::vector<serialize::Field> fields;
 
 	// Human-readable name (the "display" field, falling back to the id).

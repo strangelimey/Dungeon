@@ -398,9 +398,6 @@ map.level.applied=Impostazioni applicate a '{}' — salva la mappa per conservar
 map.level.created=Livello '{}' creato — salva la mappa per conservarne le celle.
 map.level.renamed=Livello '{}' rinominato in '{}' — i salvataggi esistenti mantengono il vecchio nome.
 map.level.dupname=Esiste già un livello chiamato '{}'.
-map.wallstyle.title=Stile superficie
-map.wallstyle.wear=Usura (0 = piatto)
-map.wallstyle.columns=Colonne
 map.wallstyle.applied=Stile muro aggiornato.
 map.balance.title=Bilanciamento del combattimento
 map.balance.tab.formula=Formula
@@ -493,6 +490,16 @@ map.palette.title=Aggiungi a questo livello: {}
 map.palette.added='{}' aggiunto alla tavolozza — salva la mappa per conservarlo.
 map.palette.failed=Impossibile aggiungere '{}' (mancano le sue risorse generate).
 map.palette.none=Tutti i tipi del catalogo sono già nella tavolozza di questo livello.
+map.type.title=Tipo {} — {}
+map.type.saved='{}' salvato — usa "Alla sorgente" per conservarlo.
+map.type.unknown='{}' non ha una voce di catalogo da modificare.
+map.type.none=(nessuno)
+map.type.anims=Animazione...
+map.type.sec.identity=Identità
+map.type.sec.look=Aspetto
+map.type.sec.material=Materiale
+map.type.sec.stats=Statistiche
+map.type.sec.rules=Regole
 ; --- instance inspectors (per-placed object edit dialogs) ---
 map.insp.facing=Orientamento
 map.insp.arrow=Freccia mappa

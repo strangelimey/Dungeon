@@ -188,29 +188,87 @@ void Game::FinishBake() {
 	m_assetDialog.Close();
 }
 
-// Persists a surface type's geometry style to its catalog (walls/floors/
-// ceilings). Starts from the existing entry so every other field (texture/
-// display/height_scale/category) survives; only the knobs nudged off their
-// defaults are written (absent = worn + columns), keeping the .cat tidy like
-// the monster/threat writers.
-void Game::WriteWallStyle(const std::string& catalogKey, const std::string& id,
-						  float wear, bool columns) {
-	Catalog* cat = m_project.CatalogForKey(catalogKey);
+// Opens the per-type catalog editor for a palette row. The dialog edits a COPY
+// of the entry's fields against its category's schema (CatalogSchema), so it
+// needs nothing but the entry itself; Monsters additionally get the button
+// through to their animation/behaviour dialog, which owns the rows the schema
+// leaves out.
+void Game::OpenTypeEditor(MapEditor::PaletteCat cat, const std::string& id) {
+	const std::string key = MapEditor::CategoryCatalogKey(cat);
+	const Catalog* catalog = m_project.CatalogForKey(key);
+	const CatalogEntry* entry = catalog ? catalog->Find(id) : nullptr;
+	if (!entry) {
+		// A level palette can name an id its catalog doesn't define (hand-edited
+		// map, or a foreign project) — there is nothing to edit.
+		log::Warn("type editor: '{}' is not in {}.cat", id, key);
+		if (m_world.onMessage) m_world.onMessage(loc::Format("map.type.unknown", id));
+		return;
+	}
+	TypeEditorDialog::Config cfg;
+	cfg.catalogKey = key;
+	cfg.categoryLabel = loc::Tr(MapEditor::CategoryNameKey(cat));
+	cfg.id = id;
+	cfg.fields = entry->fields;
+	m_typeDialog.extraLabel = cat == MapEditor::PaletteCat::Monsters
+								  ? loc::Tr("map.type.anims")
+								  : std::string();
+	m_typeDialog.Open(std::move(cfg), SchemaFor(key));
+}
+
+// The monster type's animation + behaviour dialog (the type editor's extra
+// button). It owns the states/anim_*/archetype/threat_* rows and rewrites them
+// authoritatively, which is why the schema leaves them out.
+void Game::OpenMonsterConfig(const std::string& id) {
+	// Guard the force-load: a catalog id whose <model>.gltf is missing would
+	// abort in LoadModelOrDie. Warn and skip instead of crashing the editor.
+	if (!m_world.MonsterModelAvailable(id)) {
+		log::Warn("monster config: '{}' has no loadable model — skipped", id);
+		return;
+	}
+	const CatalogEntry* e = m_project.monsters.Find(id);
+	const std::string display = e ? e->Display() : id;
+	DungeonWorld::AnimSupport supported;
+	DungeonWorld::AnimClips clips;
+	m_world.MonsterAnimConfig(id, supported, clips);
+	ai::Archetype archetype;
+	float keepRange, fleeBelow;
+	std::string spell;
+	ThreatTuning threat;
+	m_world.MonsterBehaviorConfig(id, archetype, keepRange, fleeBelow, spell, threat);
+	m_monsterDialog.Open(id, display, supported, clips, archetype, keepRange, fleeBelow,
+						 spell, threat, m_world.MonsterClipNames(id), m_world.SpellIds());
+	m_previewType.clear(); // force the preview animator to (re)build on first frame
+	m_previewClip.clear();
+	m_previewMonMesh = nullptr;
+	m_previewMonSubs.clear();
+}
+
+// Type editor Save: merge the dialog's working fields into the catalog entry.
+// Starts from the EXISTING entry so anything the schema doesn't cover — a
+// hand-authored field, or MonsterConfigDialog's states/anim_* rows — survives,
+// and an empty value REMOVES the field (absent means "the loader's default",
+// which is not the same as an empty string).
+void Game::WriteTypeFields(const TypeEditorDialog::Config& cfg) {
+	Catalog* cat = m_project.CatalogForKey(cfg.catalogKey);
 	if (!cat) {
-		log::Warn("surface style: unknown catalog '{}'", catalogKey);
+		log::Warn("type editor: unknown catalog '{}'", cfg.catalogKey);
 		return;
 	}
 	CatalogEntry entry;
-	if (const CatalogEntry* e = cat->Find(id)) entry = *e;
-	else entry.id = id;
-	std::erase_if(entry.fields, [](const serialize::Field& f) {
-		return f.key == "wear" || f.key == "columns";
-	});
-	if (wear != 1.0f) entry.Set("wear", std::format("{:.3f}", wear));
-	if (!columns) entry.Set("columns", "0");
+	if (const CatalogEntry* e = cat->Find(cfg.id)) entry = *e;
+	else entry.id = cfg.id;
+	for (const serialize::Field& f : cfg.fields) {
+		if (f.value.empty()) {
+			std::erase_if(entry.fields, [&](const serialize::Field& g) {
+				return g.key == f.key;
+			});
+			continue;
+		}
+		entry.Set(f.key, f.value);
+	}
 	cat->Add(std::move(entry)); // add-or-replace by id
 	if (!m_project.Save())
-		log::Warn("surface style: failed to save project catalogs");
+		log::Warn("type editor: failed to save project catalogs");
 }
 
 // Kicks the async worn-mesh rebake for a Surface Style Save: reuses the

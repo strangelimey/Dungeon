@@ -683,7 +683,26 @@ records store the palette INDEX, so inserting or removing mid-list would
 silently repaint every cell above it (removal needs an index remap — not built).
 For the same reason a paint validates the armed index against the viewed
 palette's CURRENT size (MapEditor::PaintCell): browsing a level with a shorter
-palette, or undoing an add, outlives the index the brush was armed with. Mouse model: LEFT paints/places
+palette, or undoing an add, outlives the index the brush was armed with.
+RIGHT-CLICKING a palette row opens the per-TYPE catalog editor
+(TypeEditorDialog) for EVERY category — one dialog, because it renders its form
+from a SCHEMA: Game/CatalogSchema.h is a FieldSpec table per catalog (key, kind,
+section, range/step, options, one-line help), so exposing a field is one table
+row and a new category is one table (the kBalanceFields idiom). Sections become
+tabs, kinds become widgets (Bool→checkbox, Float→snapped slider, Enum/
+TextureSet/Model/CatalogRef→dropdown filled by Game through optionsFor —
+AssetUtil::InstalledTextureSets/InstalledModels scan the pool), and "?" explains
+the active tab's fields. NO live apply (a type is referenced by every placement
+and, for surfaces, by baked geometry): Save writes the .cat and, when a touched
+field is `rebakes` (a surface's texture/wear/columns), re-runs the wornblock bake
+behind the busy overlay. Only fields the user TOUCHED are written and an empty
+value REMOVES the field, so rows the schema doesn't cover survive — including the
+ones MonsterConfigDialog owns and rewrites (states/anim_*/archetype/threat_*),
+which is why the monster schema omits them and offers an "Animation..." button
+through to that dialog instead. WallStyleDialog is GONE — wear/columns are just
+schema rows now. Catalog comments survive a write (serialize::Block::lead →
+CatalogEntry::lead): the .cat headers document each category's fields, and an
+editor write used to delete them. Mouse model: LEFT paints/places
 the armed brush (nothing armed until a palette row is picked), a stationary
 RIGHT-CLICK inspects the cell (select + contents + the object's edit dialog
 immediately; ≤3px press-release = click) while a right-DRAG pans, and

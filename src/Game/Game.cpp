@@ -45,7 +45,7 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	  m_modelPreview(device, 512),
 	  m_assetDialog(device, window),
 	  m_monsterDialog(device), m_balanceDialog(device),
-	  m_levelSettingsDialog(device), m_wallStyleDialog(device),
+	  m_levelSettingsDialog(device), m_typeDialog(device),
 	  m_entityInspector(device), m_fixtureInspector(device),
 	  m_propInspector(device), m_doorInspector(device), m_buttonInspector(device),
 	  m_nicheInspector(device),
@@ -750,7 +750,7 @@ void Game::Update(float dt) {
 		if (m_bake.ExitCode() != 0) {
 			log::Warn("AssetBaker failed (exit {})", m_bake.ExitCode());
 			m_baking = false;
-			if (m_restyleBake) { m_restyleBake = false; m_wallStyleDialog.Close(); }
+			if (m_restyleBake) { m_restyleBake = false; m_typeDialog.Close(); }
 			else m_assetDialog.SetBusy(false);
 		} else if (m_bakeReq.textureSet && m_bakeStep == 0) {
 			m_bakeStep = 1; // textures imported — now rebake worn block meshes
@@ -759,11 +759,11 @@ void Game::Update(float dt) {
 				m_assetDialog.SetBusy(false);
 			}
 		} else if (m_restyleBake) {
-			// Surface Style rebake done: swap the new worn geometry in live.
+			// Surface restyle rebake done: swap the new worn geometry in live.
 			m_world.ReloadDungeonBlocks();
 			m_restyleBake = false;
 			m_baking = false;
-			m_wallStyleDialog.Close();
+			m_typeDialog.Close();
 			if (m_world.onMessage) m_world.onMessage(loc::Tr("map.wallstyle.applied"));
 		} else {
 			FinishBake();
@@ -910,10 +910,10 @@ void Game::Update(float dt) {
 									 static_cast<float>(m_window.Height()));
 		return;
 	}
-	// The wall-style dialog is likewise modal over the editor.
-	if (m_wallStyleDialog.IsOpen()) {
-		m_wallStyleDialog.Update(input, static_cast<float>(m_window.Width()),
-								 static_cast<float>(m_window.Height()));
+	// The per-type catalog editor is likewise modal over the editor.
+	if (m_typeDialog.IsOpen()) {
+		m_typeDialog.Update(input, static_cast<float>(m_window.Width()),
+							static_cast<float>(m_window.Height()));
 		return;
 	}
 	// The monster-config dialog is likewise modal over the editor.
@@ -1343,8 +1343,8 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 		m_balanceDialog.Render(m_spriteBatch, m_settings.theme, dw, dh);
 	if (m_levelSettingsDialog.IsOpen())
 		m_levelSettingsDialog.Render(m_spriteBatch, m_settings.theme, dw, dh);
-	if (m_wallStyleDialog.IsOpen())
-		m_wallStyleDialog.Render(m_spriteBatch, m_settings.theme, dw, dh);
+	if (m_typeDialog.IsOpen())
+		m_typeDialog.Render(m_spriteBatch, m_settings.theme, dw, dh);
 	// The per-instance edit dialogs, each drawn (panel + controls) THEN, once all
 	// are drawn, the 3D preview blitted into the active one's pane — the blit must
 	// come last so a dialog's backing box never covers it.

@@ -402,9 +402,6 @@ map.level.applied=Настройки уровня '{}' применены — с
 map.level.created=Уровень '{}' создан — сохраните карту, чтобы его клетки остались.
 map.level.renamed=Уровень '{}' переименован в '{}' — старые сохранения хранят прежнее имя.
 map.level.dupname=Уровень с именем '{}' уже существует.
-map.wallstyle.title=Стиль поверхности
-map.wallstyle.wear=Износ (0 = плоско)
-map.wallstyle.columns=Колонны
 map.wallstyle.applied=Стиль стены обновлён.
 map.balance.title=Боевой баланс
 map.balance.tab.formula=Формула
@@ -497,6 +494,16 @@ map.palette.title=Добавить на этот уровень: {}
 map.palette.added=«{}» добавлено в палитру — сохраните карту, чтобы это осталось.
 map.palette.failed=Не удалось добавить «{}» (нет собранных ресурсов).
 map.palette.none=Все типы каталога уже есть в палитре этого уровня.
+map.type.title=Тип «{}» — {}
+map.type.saved=«{}» сохранён — нажмите «В исходники», чтобы сохранить насовсем.
+map.type.unknown=У «{}» нет записи в каталоге для правки.
+map.type.none=(нет)
+map.type.anims=Анимация...
+map.type.sec.identity=Идентичность
+map.type.sec.look=Вид
+map.type.sec.material=Материал
+map.type.sec.stats=Характеристики
+map.type.sec.rules=Правила
 ; --- instance inspectors (per-placed object edit dialogs) ---
 map.insp.facing=Направление
 map.insp.arrow=Стрелка

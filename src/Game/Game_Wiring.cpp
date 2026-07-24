@@ -190,46 +190,51 @@ void Game::WireModuleCallbacks() {
 		}
 	};
 
-	// Right-click a monster in the palette → open its animation config dialog.
+	// Right-click ANY palette row → the per-type catalog editor (the form comes
+	// from CatalogSchema, so every category is served by one dialog).
 	m_mapEditor.onConfigure = [this](MapEditor::PaletteCat cat, const std::string& id) {
-		// Surfaces (walls/floors/ceilings): open the geometry-style dialog. Columns
-		// is a wall-block feature, so only walls show that knob.
-		if (cat == MapEditor::PaletteCat::Walls || cat == MapEditor::PaletteCat::Floors ||
-			cat == MapEditor::PaletteCat::Ceilings) {
-			const std::string key = MapEditor::CategoryCatalogKey(cat);
-			const Catalog* catlg = m_project.CatalogForKey(key);
-			const CatalogEntry* e = catlg ? catlg->Find(id) : nullptr;
-			m_wallStyleDialog.Open(id, key, e ? e->Display() : id,
-								   CatalogGet(e, "texture", id),
-								   cat == MapEditor::PaletteCat::Walls,
-								   e ? e->GetFloat("wear", 1.0f) : 1.0f,
-								   e ? e->GetBool("columns", true) : true);
-			return;
-		}
-		if (cat != MapEditor::PaletteCat::Monsters) return;
-		// Guard the force-load: a catalog id whose <model>.gltf is missing would
-		// abort in LoadModelOrDie. Warn and skip instead of crashing the editor.
-		if (!m_world.MonsterModelAvailable(id)) {
-			log::Warn("monster config: '{}' has no loadable model — skipped", id);
-			return;
-		}
-		const CatalogEntry* e = m_project.monsters.Find(id);
-		const std::string display = e ? e->Display() : id;
-		DungeonWorld::AnimSupport supported;
-		DungeonWorld::AnimClips clips;
-		m_world.MonsterAnimConfig(id, supported, clips);
-		ai::Archetype archetype;
-		float keepRange, fleeBelow;
-		std::string spell;
-		ThreatTuning threat;
-		m_world.MonsterBehaviorConfig(id, archetype, keepRange, fleeBelow, spell, threat);
-		m_monsterDialog.Open(id, display, supported, clips, archetype, keepRange, fleeBelow,
-							 spell, threat, m_world.MonsterClipNames(id), m_world.SpellIds());
-		m_previewType.clear(); // force the preview animator to (re)build on first frame
-		m_previewClip.clear();
-		m_previewMonMesh = nullptr;
-		m_previewMonSubs.clear();
+		OpenTypeEditor(cat, id);
 	};
+	// The type editor's dropdowns for asset/reference fields.
+	m_typeDialog.optionsFor = [this](const FieldSpec& spec) -> std::vector<std::string> {
+		switch (spec.kind) {
+		case FieldKind::TextureSet: return InstalledTextureSets();
+		case FieldKind::Model: return InstalledModels();
+		case FieldKind::CatalogRef: {
+			std::vector<std::string> ids;
+			if (const Catalog* c = m_project.CatalogForKey(spec.options))
+				for (const CatalogEntry& e : c->Entries()) ids.push_back(e.id);
+			return ids;
+		}
+		default: return {};
+		}
+	};
+	// Save: merge the touched fields into the catalog, then apply. A surface
+	// whose look changed needs its worn meshes re-baked before it shows.
+	m_typeDialog.onSave = [this](const TypeEditorDialog::Config& cfg) {
+		WriteTypeFields(cfg);
+		if (!cfg.rebake) {
+			// Nothing baked is stale; a reload picks up model/material changes on
+			// the next level entry, and surfaces re-resolve their scales now.
+			if (m_world.onMessage)
+				m_world.onMessage(loc::Format("map.type.saved", cfg.id));
+			return;
+		}
+		const CatalogEntry* e = m_project.CatalogForKey(cfg.catalogKey)
+									? m_project.CatalogForKey(cfg.catalogKey)->Find(cfg.id)
+									: nullptr;
+		StartRestyleBake(cfg.catalogKey, CatalogGet(e, "texture", cfg.id),
+						 e ? e->GetFloat("wear", 1.0f) : 1.0f,
+						 e ? e->GetBool("columns", true) : true);
+		if (m_restyleBake) m_typeDialog.SetBusy(true); // bake launched
+	};
+	// Monsters keep their specialised dialog for animation + behaviour (it
+	// REWRITES those rows, so the schema deliberately leaves them out); the type
+	// editor's extra button is the way through to it.
+	m_typeDialog.onExtra = [this](const TypeEditorDialog::Config& cfg) {
+		OpenMonsterConfig(cfg.id);
+	};
+
 	// Live-apply on every edit; persist on Save.
 	m_monsterDialog.onApply = [this](const MonsterConfigDialog::Config& c) {
 		m_world.ApplyMonsterAnimConfig(c.type, c.supported, c.clips);
@@ -241,17 +246,6 @@ void Game::WireModuleCallbacks() {
 		m_world.ApplyMonsterBehavior(c.type, c.archetype, c.keepRange, c.fleeBelow, c.spell,
 									 c.threat);
 		WriteMonsterAnim(c);
-	};
-
-	// Surface Style Save: persist the type's wear/columns, then rebake + reload
-	// the worn mesh (geometry is baked, so no live preview). The async bake shows
-	// a "baking…" notice on the dialog until the Update poll closes it.
-	m_wallStyleDialog.onSave = [this](const std::string& id, const std::string& catalogKey,
-									  const std::string& texture, float wear, bool columns) {
-		WriteWallStyle(catalogKey, id, wear, columns);
-		StartRestyleBake(catalogKey, texture, wear, columns);
-		if (m_restyleBake) m_wallStyleDialog.SetBusy(true); // bake launched
-		else m_wallStyleDialog.Close();                     // failed to launch
 	};
 
 	// Per-instance inspector: Select-click a placed monster → edit its .ent overrides.

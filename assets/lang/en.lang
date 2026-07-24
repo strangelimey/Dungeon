@@ -418,9 +418,6 @@ map.level.applied=Level settings applied to '{}' — Save the map to persist.
 map.level.created=Level '{}' created — Save the map to persist its cells.
 map.level.renamed=Level '{}' renamed to '{}' — existing saves keep the old name.
 map.level.dupname=A level named '{}' already exists.
-map.wallstyle.title=Surface style
-map.wallstyle.wear=Wear (0 = flat)
-map.wallstyle.columns=Columns
 map.wallstyle.applied=Wall style updated.
 map.balance.title=Combat balance
 map.balance.tab.formula=Formula
@@ -513,6 +510,16 @@ map.palette.title=Add to this level: {}
 map.palette.added=Added '{}' to the level palette — Save the map to persist.
 map.palette.failed=Could not add '{}' (its baked assets are missing).
 map.palette.none=Every catalog type is already in this level's palette.
+map.type.title={} type — {}
+map.type.saved=Saved '{}' — use To source to keep it.
+map.type.unknown='{}' has no catalog entry to edit.
+map.type.none=(none)
+map.type.anims=Animation...
+map.type.sec.identity=Identity
+map.type.sec.look=Look
+map.type.sec.material=Material
+map.type.sec.stats=Stats
+map.type.sec.rules=Rules
 
 ; --- asset-creation dialog -------------------------------------------------------
 newasset.title=New {}

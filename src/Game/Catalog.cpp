@@ -27,7 +27,7 @@ void Catalog::Load(const std::string& path) {
 	const std::string text(bytes->begin(), bytes->end());
 	for (serialize::Block& b : serialize::ParseBlocks(text)) {
 		if (b.id.empty()) continue; // catalogs use only [id] blocks
-		m_entries.push_back({std::move(b.id), std::move(b.fields)});
+		m_entries.push_back({std::move(b.id), std::move(b.lead), std::move(b.fields)});
 	}
 }
 
@@ -35,10 +35,15 @@ bool Catalog::Save(const std::string& path, std::string_view headerComment) cons
 	std::vector<serialize::Block> blocks;
 	blocks.reserve(m_entries.size());
 	for (const CatalogEntry& e : m_entries)
-		blocks.push_back({e.id, e.fields});
+		blocks.push_back({e.id, e.lead, e.fields});
 
 	std::string text;
-	if (!headerComment.empty()) text += std::format("; {}\n\n", headerComment);
+	// The file's own header (the comments that introduced its first entry) wins:
+	// it is hand-written documentation of that category's fields, and prepending
+	// the generic line as well would duplicate it a little more on every write.
+	const bool hasOwnHeader = !m_entries.empty() && !m_entries.front().lead.empty();
+	if (!headerComment.empty() && !hasOwnHeader)
+		text += std::format("; {}\n\n", headerComment);
 	text += serialize::WriteBlocks(blocks);
 
 	if (!assets::WriteBinaryFile(path, text.data(), text.size())) {

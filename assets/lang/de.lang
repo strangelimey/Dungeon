@@ -398,9 +398,6 @@ map.level.applied=Ebenen-Einstellungen auf '{}' angewendet — Karte speichern, 
 map.level.created=Ebene '{}' erstellt — Karte speichern, um die Zellen zu behalten.
 map.level.renamed=Ebene '{}' in '{}' umbenannt — bestehende Spielstände behalten den alten Namen.
 map.level.dupname=Eine Ebene namens '{}' existiert bereits.
-map.wallstyle.title=Oberflächenstil
-map.wallstyle.wear=Abnutzung (0 = flach)
-map.wallstyle.columns=Säulen
 map.wallstyle.applied=Wandstil aktualisiert.
 map.balance.title=Kampfbalance
 map.balance.tab.formula=Formel
@@ -493,6 +490,16 @@ map.palette.title=Zu dieser Ebene hinzufügen: {}
 map.palette.added='{}' zur Palette hinzugefügt — Karte speichern, um es zu behalten.
 map.palette.failed='{}' konnte nicht hinzugefügt werden (gebackene Assets fehlen).
 map.palette.none=Alle Katalogtypen sind bereits in der Palette dieser Ebene.
+map.type.title={}-Typ — {}
+map.type.saved='{}' gespeichert — mit "Zur Quelle" dauerhaft sichern.
+map.type.unknown='{}' hat keinen Katalogeintrag zum Bearbeiten.
+map.type.none=(keiner)
+map.type.anims=Animation...
+map.type.sec.identity=Identität
+map.type.sec.look=Aussehen
+map.type.sec.material=Material
+map.type.sec.stats=Werte
+map.type.sec.rules=Regeln
 ; --- instance inspectors (per-placed object edit dialogs) ---
 map.insp.facing=Ausrichtung
 map.insp.arrow=Kartenpfeil

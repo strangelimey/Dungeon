@@ -398,9 +398,6 @@ map.level.applied=Ajustes aplicados a '{}' — guarda el mapa para conservarlos.
 map.level.created=Nivel '{}' creado — guarda el mapa para conservar sus celdas.
 map.level.renamed=Nivel '{}' renombrado a '{}' — las partidas guardadas conservan el nombre antiguo.
 map.level.dupname=Ya existe un nivel llamado '{}'.
-map.wallstyle.title=Estilo de superficie
-map.wallstyle.wear=Desgaste (0 = plano)
-map.wallstyle.columns=Columnas
 map.wallstyle.applied=Estilo de muro actualizado.
 map.balance.title=Balance de combate
 map.balance.tab.formula=Fórmula
@@ -493,6 +490,16 @@ map.palette.title=Añadir a este nivel: {}
 map.palette.added='{}' añadido a la paleta — guarda el mapa para conservarlo.
 map.palette.failed=No se pudo añadir '{}' (faltan sus recursos generados).
 map.palette.none=Todos los tipos del catálogo ya están en la paleta de este nivel.
+map.type.title=Tipo de {} — {}
+map.type.saved='{}' guardado — usa "A la fuente" para conservarlo.
+map.type.unknown='{}' no tiene entrada de catálogo que editar.
+map.type.none=(ninguno)
+map.type.anims=Animación...
+map.type.sec.identity=Identidad
+map.type.sec.look=Aspecto
+map.type.sec.material=Material
+map.type.sec.stats=Estadísticas
+map.type.sec.rules=Reglas
 ; --- instance inspectors (per-placed object edit dialogs) ---
 map.insp.facing=Orientación
 map.insp.arrow=Flecha en mapa

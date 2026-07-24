@@ -15,6 +15,7 @@
 
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace dungeon::game {
 
@@ -36,5 +37,15 @@ std::unique_ptr<gfx::Texture> TryLoadTextureFile(gfx::GraphicsDevice& device,
 std::unique_ptr<gfx::Texture> LoadTextureFile(gfx::GraphicsDevice& device,
 											  const std::string& stemPath,
 											  bool srgb = false);
+
+// --- what the asset pool actually holds (the editor's dropdowns) ------------
+// Installed PBR set names, sorted: the base names behind assets/textures'
+// <name>_<res>.dds|png trio, with the _<res>, _n and _mr suffixes folded away
+// (so one set appears once, whatever resolutions are installed).
+std::vector<std::string> InstalledTextureSets();
+// Model names in assets/models, sorted, extension stripped — what a catalog's
+// `model` field names. The worn_* block meshes are baked per surface texture,
+// not authored types, so they are left out.
+std::vector<std::string> InstalledModels();
 
 } // namespace dungeon::game

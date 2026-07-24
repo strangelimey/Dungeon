@@ -43,6 +43,11 @@ void Set(std::vector<Field>& fields, std::string key, std::string value);
 
 struct Block {
 	std::string id; // "" for the leading unnamed block (the manifest)
+	// Comment lines that preceded this block's "[id]" header, verbatim (';'
+	// included). Carried so a load → save round-trip keeps the file's authoring
+	// notes — the catalogs document their own fields at the top, and an editor
+	// write used to delete that documentation.
+	std::vector<std::string> lead;
 	std::vector<Field> fields;
 
 	const std::string* Find(std::string_view key) const {
