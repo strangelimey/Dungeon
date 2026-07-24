@@ -87,8 +87,20 @@ std::vector<MapEditor::PaletteItem> MapEditor::CategoryItems(PaletteCat cat) con
 	auto surfaceItems = [&](const std::vector<std::string>& palette,
 							const Catalog& catalog, const Vec4& swatch,
 							DungeonWorld::SurfaceSel sel) {
+		// The "Catalogue" toggle swaps the SOURCE of ids: the whole catalog
+		// (minus hidden), or just the level's palette. Everything downstream
+		// keys off the id, so the two views paint the same — a catalogue-view id
+		// the level lacks is enrolled on first paint (EnsureSurfaceVariant).
+		std::vector<std::string> ids;
+		if (m_settings.mapShowCatalog)
+			for (const CatalogEntry& e : catalog.Entries()) {
+				if (CatalogBool(&e, "hidden", false)) continue;
+				ids.push_back(e.id);
+			}
+		const std::vector<std::string>& source =
+			m_settings.mapShowCatalog ? ids : palette;
 		std::vector<PaletteItem> items;
-		for (const std::string& id : palette) {
+		for (const std::string& id : source) {
 			const CatalogEntry* e = catalog.Find(id);
 			items.push_back({e ? e->Display() : id, swatch, id,
 							 e ? e->Get("category", "") : std::string(),
@@ -141,27 +153,6 @@ DungeonWorld::SurfaceSel SelFor(MapEditor::PaletteCat cat) {
 												  : DungeonWorld::SurfaceSel::Ceiling;
 }
 } // namespace
-
-std::vector<MapEditor::Candidate> MapEditor::CatalogCandidates(PaletteCat cat) const {
-	std::vector<Candidate> out;
-	if (!SurfaceCat(cat)) return out;
-	const DungeonMap& map = m_view.ViewedMap();
-	const std::vector<std::string>& palette =
-		cat == PaletteCat::Walls	? map.WallPalette()
-		: cat == PaletteCat::Floors ? map.FloorPalette()
-									: map.CeilingPalette();
-	const Catalog& catalog = m_world.SurfaceCatalog(SelFor(cat));
-	for (const CatalogEntry& e : catalog.Entries()) {
-		if (CatalogBool(&e, "hidden", false)) continue;
-		if (std::find(palette.begin(), palette.end(), e.id) != palette.end()) continue;
-		// The group prefix keeps a long catalog readable in the flat chooser
-		// list (the palette itself gets sub-accordions instead).
-		const std::string group = e.Get("category", "");
-		out.push_back({e.id, group.empty() ? e.Display()
-										   : group + " / " + e.Display()});
-	}
-	return out;
-}
 
 void MapEditor::AddToPalette(PaletteCat cat, const std::string& id) {
 	if (!SurfaceCat(cat)) return;
@@ -222,9 +213,16 @@ gfx::Rect MapEditor::FilterBoxRect(const gfx::Rect& panel) const {
 	return {row.x, row.y, clear.x - pad - row.x, row.h};
 }
 
+gfx::Rect MapEditor::CatalogToggleRect(const gfx::Rect& panel) const {
+	const gfx::Rect row = ControlsRow(panel);
+	const float pad = MapView::DockPad(panel);
+	return {row.x, row.y + row.h + pad, row.w, row.h};
+}
+
 gfx::Rect MapEditor::AccordionBody(const gfx::Rect& panel) const {
 	const gfx::Rect body = m_view.PaletteBody(panel);
-	const float used = ControlsRow(panel).h + MapView::DockPad(panel);
+	const gfx::Rect toggle = CatalogToggleRect(panel);
+	const float used = (toggle.y + toggle.h + MapView::DockPad(panel)) - body.y;
 	return {body.x, body.y + used, body.w, body.h - used};
 }
 
@@ -263,7 +261,8 @@ void MapEditor::TrackMouse(float mx, float my, const gfx::Rect& panel) {
 	m_hotCtrl = FilterBoxRect(panel).Contains(mx, my)     ? HotCtrl::Filter
 				: FilterClearRect(panel).Contains(mx, my) ? HotCtrl::Clear
 				: CollapseAllRect(panel).Contains(mx, my) ? HotCtrl::Collapse
-														  : HotCtrl::None;
+				: CatalogToggleRect(panel).Contains(mx, my) ? HotCtrl::Catalog
+															: HotCtrl::None;
 }
 
 void MapEditor::BuildPaletteRows(const gfx::Rect& panel, std::vector<PaletteRow>& out,
@@ -304,13 +303,6 @@ void MapEditor::BuildPaletteRows(const gfx::Rect& panel, std::vector<PaletteRow>
 		if (m_catOpen[c]) {
 			if (Creatable(cat)) {
 				out.push_back({PaletteRow::Kind::NewButton, cat, -1,
-							   {body.x, y, body.w, itemH}});
-				y += itemH;
-			}
-			// Surfaces also offer the catalog types this level doesn't list yet
-			// (the row hides once the level uses them all).
-			if (SurfaceCat(cat) && !CatalogCandidates(cat).empty()) {
-				out.push_back({PaletteRow::Kind::AddButton, cat, -1,
 							   {body.x, y, body.w, itemH}});
 				y += itemH;
 			}
@@ -378,6 +370,28 @@ bool MapEditor::OnClick(float mx, float my, const gfx::Rect& panel) {
 		m_paletteScroll = 0.0f;
 		return true;
 	}
+	// The "Catalogue" checkbox: surfaces show the whole catalog vs the level's
+	// palette. The armed selection is a ROW index, and the row set differs
+	// between the two views, so keep the same TYPE armed across the toggle
+	// (or disarm if it isn't shown in the new view).
+	if (CatalogToggleRect(panel).Contains(mx, my)) {
+		std::string armedId;
+		if (m_sel.index >= 0 && SurfaceCat(m_sel.cat)) {
+			const std::vector<PaletteItem> before = CategoryItems(m_sel.cat);
+			if (m_sel.index < static_cast<int>(before.size()))
+				armedId = before[m_sel.index].id;
+		}
+		m_settings.mapShowCatalog = !m_settings.mapShowCatalog;
+		m_settings.Save(); // a workflow preference, persisted like the dock flags
+		m_paletteScroll = 0.0f;
+		if (!armedId.empty()) {
+			const std::vector<PaletteItem> after = CategoryItems(m_sel.cat);
+			m_sel.index = -1;
+			for (int i = 0; i < static_cast<int>(after.size()); ++i)
+				if (after[i].id == armedId) { m_sel.index = i; break; }
+		}
+		return true;
+	}
 	std::vector<PaletteRow> rows;
 	float content = 0.0f;
 	BuildPaletteRows(panel, rows, content);
@@ -391,8 +405,6 @@ bool MapEditor::OnClick(float mx, float my, const gfx::Rect& panel) {
 			m_sel = {r.cat, r.index};
 		else if (r.kind == PaletteRow::Kind::NewButton && onNewAsset)
 			onNewAsset(r.cat);
-		else if (r.kind == PaletteRow::Kind::AddButton && onAddFromCatalog)
-			onAddFromCatalog(r.cat);
 		return true;
 	}
 	return false;
@@ -586,15 +598,15 @@ void MapEditor::PaintCell(int cx, int cz, bool remote, const std::string& stem) 
 	const SS sel = m_sel.cat == PaletteCat::Walls    ? SS::Wall
 				   : m_sel.cat == PaletteCat::Floors ? SS::Floor
 													 : SS::Ceiling;
-	// The armed index addresses the VIEWED level's palette, which can be
-	// SHORTER than the one the brush was armed against — browse a level with a
-	// smaller palette, or undo a palette add. Painting a stale index would pin
-	// a variant with no texture set or block mesh behind it.
-	const DungeonMap& viewed = m_view.ViewedMap();
-	const size_t palette = sel == SS::Wall	  ? viewed.WallPalette().size()
-						   : sel == SS::Floor ? viewed.FloorPalette().size()
-											  : viewed.CeilingPalette().size();
-	if (m_sel.index < 0 || static_cast<size_t>(m_sel.index) >= palette) return;
+	// Resolve the armed ROW to a catalog id, then to the level's VARIANT INDEX.
+	// The row index is a position in the displayed list (which the "Catalogue"
+	// toggle changes), NOT the variant index — so we key off the id and let the
+	// world enrol a catalogue-view type the level lacks (append-only; a type
+	// already present keeps its index). -1 = its baked assets are missing.
+	const std::vector<PaletteItem> items = CategoryItems(m_sel.cat);
+	if (m_sel.index < 0 || m_sel.index >= static_cast<int>(items.size())) return;
+	const int variant = m_world.EnsureSurfaceVariant(stem, sel, items[m_sel.index].id);
+	if (variant < 0) return;
 	// The texture brush owns the CELL TYPE too: painting a wall texture on a
 	// floor square raises the wall, a floor/ceiling texture carves solid rock
 	// walkable, then the variant lands on the converted square — these ARE
@@ -602,7 +614,7 @@ void MapEditor::PaintCell(int cx, int cz, bool remote, const std::string& stem) 
 	const Cell want = sel == SS::Wall ? Cell::Wall : Cell::Floor;
 	if (remote) {
 		m_world.EditCellRemote(stem, cx, cz, want); // no-op when already right
-		m_world.EditVariantRemote(stem, cx, cz, sel, m_sel.index);
+		m_world.EditVariantRemote(stem, cx, cz, sel, variant);
 		return;
 	}
 	if (m_world.Map().At(cx, cz) != want) {
@@ -611,7 +623,7 @@ void MapEditor::PaintCell(int cx, int cz, bool remote, const std::string& stem) 
 			return; // never wall the party in (skip; a fill keeps going)
 		m_world.EditCell(cx, cz, want);
 	}
-	m_world.EditVariant(cx, cz, sel, m_sel.index);
+	m_world.EditVariant(cx, cz, sel, variant);
 }
 
 void MapEditor::PaintRect(int cx, int cz) {
@@ -711,10 +723,22 @@ void MapEditor::PickAt(int cx, int cz) {
 											   : SS::Ceiling;
 	const int v = ResolvedVariant(cx, cz, static_cast<int>(sel));
 	if (v < 0) return; // empty palette
-	m_sel = {cat, v};
+	// v is the picked cell's VARIANT index (into the level palette); the armed
+	// selection is a ROW index into the displayed list, which the "Catalogue"
+	// view reorders. Map variant → id → the row showing that id.
+	const std::vector<std::string>& pal = sel == SS::Wall	? map.WallPalette()
+										  : sel == SS::Floor ? map.FloorPalette()
+															 : map.CeilingPalette();
+	if (v >= static_cast<int>(pal.size())) return;
+	const std::string& id = pal[v];
 	const std::vector<PaletteItem> items = CategoryItems(cat);
-	if (m_world.onMessage && v < static_cast<int>(items.size()))
-		m_world.onMessage(loc::Format("map.pick.done", items[v].label));
+	for (int i = 0; i < static_cast<int>(items.size()); ++i)
+		if (items[i].id == id) {
+			m_sel = {cat, i};
+			if (m_world.onMessage)
+				m_world.onMessage(loc::Format("map.pick.done", items[i].label));
+			return;
+		}
 }
 
 int MapEditor::ResolvedVariant(int cx, int cz, int selRaw) const {
@@ -833,6 +857,20 @@ void MapEditor::RenderBody(gfx::SpriteBatch& batch, const ui::Theme& theme,
 						   m_hotCtrl == HotCtrl::Collapse, false, true);
 	}
 
+	// "Catalogue" checkbox (second controls line): a small box + label. Checked
+	// shows the whole surface catalog; unchecked, only the level's palette.
+	{
+		const gfx::Rect row = CatalogToggleRect(panel);
+		const float bs = row.h - dpad * 2; // the box side
+		const gfx::Rect box{row.x, row.y + dpad, bs, bs};
+		batch.DrawRect(box, m_settings.mapShowCatalog ? theme.accent : theme.control);
+		ui::DrawBorder(batch, box,
+					   m_hotCtrl == HotCtrl::Catalog ? theme.accent : theme.panelBorder);
+		font.Draw(batch, loc::Tr("map.cat.catalogue"), box.x + bs + dpad,
+				  row.y + (row.h - font.Height()) * 0.5f,
+				  m_hotCtrl == HotCtrl::Catalog ? theme.text : theme.textDim);
+	}
+
 	const gfx::Rect body = AccordionBody(panel);
 	batch.SetScissor(&body);
 
@@ -858,9 +896,6 @@ void MapEditor::RenderBody(gfx::SpriteBatch& batch, const ui::Theme& theme,
 		}
 		case PaletteRow::Kind::NewButton:
 			font.Draw(batch, loc::Tr("map.cat.new"), rc.x + dpad * 3, ty, theme.accent);
-			break;
-		case PaletteRow::Kind::AddButton:
-			font.Draw(batch, loc::Tr("map.cat.add"), rc.x + dpad * 3, ty, theme.accent);
 			break;
 		case PaletteRow::Kind::Empty:
 			font.Draw(batch, loc::Tr("map.cat.empty"), rc.x + dpad * 3, ty, theme.textDim);

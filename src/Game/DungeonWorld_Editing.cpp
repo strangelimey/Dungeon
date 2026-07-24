@@ -269,6 +269,27 @@ bool DungeonWorld::AddPaletteEntryRemote(const std::string& stem, SurfaceSel sel
 									  : map.AddToCeilingPalette(id);
 }
 
+int DungeonWorld::EnsureSurfaceVariant(const std::string& stem, SurfaceSel sel,
+									   const std::string& id) {
+	const auto indexIn = [&](const DungeonMap& map) -> int {
+		const std::vector<std::string>& pal = sel == SurfaceSel::Wall	? map.WallPalette()
+											  : sel == SurfaceSel::Floor ? map.FloorPalette()
+																		 : map.CeilingPalette();
+		const auto it = std::find(pal.begin(), pal.end(), id);
+		return it == pal.end() ? -1 : static_cast<int>(it - pal.begin());
+	};
+	if (stem == m_currentLevel) {
+		if (const int i = indexIn(m_map); i >= 0) return i;
+		if (!AddPaletteEntry(sel, id)) return -1; // assets missing / unknown
+		return indexIn(m_map);
+	}
+	// A browsed level: the stash is truth (ViewedMap is a snapshot copy that
+	// only refreshes after the paint, so read the stash directly here).
+	if (const int i = indexIn(EnsureMapStash(stem)); i >= 0) return i;
+	if (!AddPaletteEntryRemote(stem, sel, id)) return -1;
+	return indexIn(EnsureMapStash(stem));
+}
+
 bool DungeonWorld::AddDecoration(const std::string& type, int x, int z,
 								 Direction facing) {
 	if (!m_map.IsWalkable(x, z)) return false;

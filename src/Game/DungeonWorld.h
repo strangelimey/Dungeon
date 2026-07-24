@@ -514,6 +514,14 @@ public:
 	// texture work — the level isn't rendered). Same append-only contract.
 	bool AddPaletteEntryRemote(const std::string& stem, SurfaceSel sel,
 							   const std::string& id);
+	// Ensures `id` is in level `stem`'s <sel> palette (appending it, and on the
+	// active level reloading its textures) and returns its VARIANT INDEX; -1 if
+	// the type's baked assets are missing. Chooses the live map or the stash by
+	// whether `stem` is the current level. The editor's surface paint calls this
+	// so a "Catalogue"-view type joins the level the moment it is first painted —
+	// append-only, so a type already present keeps its index.
+	int EnsureSurfaceVariant(const std::string& stem, SurfaceSel sel,
+							 const std::string& id);
 	// True when the type's baked assets are on disk at the CURRENT quality tier
 	// (its texture set and worn_<set>_<tier>.gltf). Guards AddPaletteEntry: the
 	// worn-mesh load is a LoadModelOrDie, so an unbaked type would abort the

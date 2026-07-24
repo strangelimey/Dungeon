@@ -169,6 +169,7 @@ struct GameSettings {
 	bool mapPaletteCollapsed = false;  // map editor: left brush dock collapsed
 	bool mapLegendCollapsed = false;   // map editor: right key dock collapsed
 	bool mapPlayerKeyCollapsed = false; // player map: right key dock collapsed
+	bool mapShowCatalog = false;       // map editor: surfaces show the whole catalog
 
 	// --- display (Settings → Video) ---------------------------------------------
 	// The chosen GPU (packed LUID, 0 = auto), the monitor (output index on that

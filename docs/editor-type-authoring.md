@@ -81,6 +81,19 @@ palette **INDEX**, so:
 be added to the level from the palette, painted immediately, survives `savemap`,
 and Ctrl+Z removes it again.
 
+**As built, then reworked.** First cut was a `+ Add from catalog…` row + a modal
+chooser of the not-yet-listed types. Reworked on review (it read clumsy): the
+surface categories now carry a persisted **"Catalogue" checkbox** below the
+filter controls (`GameSettings::mapShowCatalog`, ini `map_show_catalog`, default
+OFF = level-only). Checked, the surface palette lists the WHOLE catalog; painting
+a type the level lacks ENROLS it on first paint (`DungeonWorld::
+EnsureSurfaceVariant` — find the id's variant index, appending it if absent, via
+the live map or the browse stash). The row index is no longer the variant index,
+so paint / eyedropper / flood resolve by ID; toggling the checkbox keeps the same
+TYPE armed (re-resolves the row) rather than the same row number. The chooser,
+`CatalogCandidates`, and the `AddButton` row are gone; `AddToPalette` survives as
+the "+ New" create-flow's enrol-and-arm.
+
 ---
 
 ## Phase 2 — The schema + `TypeEditorDialog`  ← DONE

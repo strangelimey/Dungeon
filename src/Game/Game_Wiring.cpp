@@ -155,30 +155,6 @@ void Game::WireModuleCallbacks() {
 						   MapEditor::CategoryTextureSet(cat), std::move(existing),
 						   m_settings.theme);
 	};
-	// A surface category's "+ Add from catalog": offer the types this level's
-	// palette doesn't list yet, and append the pick (the brush can only reach
-	// palette members — the palette IS the variant order).
-	m_mapEditor.onAddFromCatalog = [this](MapEditor::PaletteCat cat) {
-		m_paletteCandidates = m_mapEditor.CatalogCandidates(cat);
-		if (m_paletteCandidates.empty()) { // the row hides in this state anyway
-			if (m_world.onMessage) m_world.onMessage(loc::Tr("map.palette.none"));
-			return;
-		}
-		m_paletteAddCat = cat;
-		std::vector<std::string> labels;
-		labels.reserve(m_paletteCandidates.size());
-		for (const MapEditor::Candidate& c : m_paletteCandidates)
-			labels.push_back(c.label);
-		m_paletteAddPicker.Open(
-			loc::Format("map.palette.title", loc::Tr(MapEditor::CategoryNameKey(cat))),
-			labels);
-	};
-	m_paletteAddPicker.onPick = [this](int i) {
-		if (i >= 0 && i < static_cast<int>(m_paletteCandidates.size()))
-			m_mapEditor.AddToPalette(m_paletteAddCat,
-									 m_paletteCandidates[static_cast<size_t>(i)].id);
-	};
-
 	// Create runs AssetBaker on the picked source (P4c); the dialog stays open in
 	// a "baking…" state until Update sees the subprocess finish.
 	m_assetDialog.onCreate = [this](const AssetDialog::CreateRequest& req) {
