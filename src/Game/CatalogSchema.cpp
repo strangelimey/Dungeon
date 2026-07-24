@@ -47,6 +47,18 @@ namespace {
 	 .help = "Parallax depth of the height map, in units. 0 = flat.",               \
 	 .lo = 0.0f, .hi = 0.2f, .step = 0.005f}
 
+// A surface type's material factors. No default, because ABSENT is meaningful:
+// it leaves the set's ORM map authoritative (a value replaces the draw's factor,
+// which the shader then multiplies over the map). Neither is baked, so saving
+// one takes effect immediately — DungeonWorld::RefreshSurfaceMaterials.
+#define SURFACE_MATERIAL_ROWS                                                        \
+	{.key = "metallic", .kind = FieldKind::Float, .sectionKey = kSectionMaterial,     \
+	 .help = "Scales the set's metalness; absent leaves its ORM map authoritative.",  \
+	 .lo = 0.0f, .hi = 1.0f, .step = 0.05f},                                          \
+	{.key = "roughness", .kind = FieldKind::Float, .sectionKey = kSectionMaterial,    \
+	 .help = "Scales the set's roughness; absent leaves its ORM map authoritative.",  \
+	 .lo = 0.0f, .hi = 1.0f, .step = 0.05f}
+
 // --- walls ------------------------------------------------------------------
 // The worn block mesh is baked per texture set, so `texture`, `wear` and
 // `columns` all invalidate it (rebakes = the owner re-runs AssetBaker).
@@ -64,6 +76,7 @@ constexpr FieldSpec kWallFields[] = {
 	 .lo = 0.0f, .hi = 1.0f, .step = 0.05f, .def = "1", .rebakes = true},
 	{.key = "columns", .kind = FieldKind::Bool, .sectionKey = kSectionLook,
 	 .help = "The wall's edge pillars / border strips.", .def = "1", .rebakes = true},
+	SURFACE_MATERIAL_ROWS,
 };
 
 // --- floors / ceilings ------------------------------------------------------
@@ -80,6 +93,7 @@ constexpr FieldSpec kFlatSurfaceFields[] = {
 	{.key = "wear", .kind = FieldKind::Float, .sectionKey = kSectionLook,
 	 .help = "Displacement of the block mesh: 0 = a flat panel, 1 = full worn relief.",
 	 .lo = 0.0f, .hi = 1.0f, .step = 0.05f, .def = "1", .rebakes = true},
+	SURFACE_MATERIAL_ROWS,
 };
 
 // --- decorations ------------------------------------------------------------

@@ -112,9 +112,26 @@ static ai::Archetype ParseArchetype(const std::string& v) {
 // the single source of those constants, shared by the staged loader and the
 // quality hot-swap (LoadAllSurfaceTextures).
 std::array<DungeonWorld::SurfaceDef, 3> DungeonWorld::SurfaceDefs() {
-	return {{{m_walls, m_wallSets, m_wallHeights},
-			 {m_floors, m_floorSets, m_floorHeights},
-			 {m_ceilings, m_ceilingSets, m_ceilingHeights}}};
+	return {{{m_walls, m_wallSets, m_wallHeights, m_wallFactors},
+			 {m_floors, m_floorSets, m_floorHeights, m_floorFactors},
+			 {m_ceilings, m_ceilingSets, m_ceilingHeights, m_ceilingFactors}}};
+}
+
+void DungeonWorld::ApplySurfaceFactors() {
+	for (const SurfaceDef& def : SurfaceDefs())
+		def.surface.factors.assign(def.factors.begin(), def.factors.end());
+}
+
+// Re-reads the surface catalogs' non-baked material knobs and pushes them at the
+// live scene: the parallax depth and the metallic/roughness factors. Nothing is
+// reloaded or rebuilt — these are per-draw values, which is exactly why the type
+// editor can apply them the moment a surface type is saved (only `texture`,
+// `wear` and `columns` change baked geometry and need the wornblock re-bake).
+void DungeonWorld::RefreshSurfaceMaterials() {
+	ResolveSurfacePalettes();
+	for (const SurfaceDef& def : SurfaceDefs())
+		def.surface.heightScale.assign(def.heights.begin(), def.heights.end());
+	ApplySurfaceFactors();
 }
 
 // Resolves each surface palette id through its project catalog into a texture
@@ -129,17 +146,21 @@ void DungeonWorld::ResolveSurfacePalettes() {
 		const Catalog& catalog;
 		std::vector<std::string>& sets;
 		std::vector<float>& heights;
+		std::vector<SurfaceMaterial>& factors;
 		float fallbackHeight;
 	};
 	const Def defs[] = {
-		{m_map.WallPalette(), m_project.walls, m_wallSets, m_wallHeights, 0.055f},
-		{m_map.FloorPalette(), m_project.floors, m_floorSets, m_floorHeights, 0.045f},
+		{m_map.WallPalette(), m_project.walls, m_wallSets, m_wallHeights,
+		 m_wallFactors, 0.055f},
+		{m_map.FloorPalette(), m_project.floors, m_floorSets, m_floorHeights,
+		 m_floorFactors, 0.045f},
 		{m_map.CeilingPalette(), m_project.ceilings, m_ceilingSets, m_ceilingHeights,
-		 0.035f},
+		 m_ceilingFactors, 0.035f},
 	};
 	for (const Def& d : defs) {
 		d.sets.clear();
 		d.heights.clear();
+		d.factors.clear();
 		for (const std::string& id : d.palette) {
 			const CatalogEntry* e = d.catalog.Find(id);
 			d.sets.push_back(CatalogGet(e, "texture", id));
@@ -148,6 +169,9 @@ void DungeonWorld::ResolveSurfacePalettes() {
 			const float wear = e ? std::clamp(e->GetFloat("wear", 1.0f), 0.0f, 1.0f)
 								 : 1.0f;
 			d.heights.push_back(h * wear);
+			// Absent = -1 = the set's ORM map stays authoritative (the prop rule).
+			d.factors.push_back({e ? e->GetFloat("metallic", -1.0f) : -1.0f,
+								 e ? e->GetFloat("roughness", -1.0f) : -1.0f});
 		}
 	}
 }
@@ -298,6 +322,10 @@ DungeonWorld::SurfaceChunk DungeonWorld::MakeSurfaceChunk(GeometryChunk& gc) {
 }
 
 void DungeonWorld::BuildDungeonMeshes() {
+	// Every path that (re)builds the surfaces runs through here — the staged
+	// load, the quality swap, an undo restore — so this is the one place the
+	// per-variant material factors need refreshing.
+	ApplySurfaceFactors();
 	DungeonGeometry geo = BuildDungeonGeometry(
 		m_map, m_wallBlocks, m_floorBlocks, m_ceilingBlocks,
 		[this](int x, int z) {

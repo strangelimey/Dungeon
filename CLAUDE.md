@@ -714,7 +714,16 @@ AssetUtil::InstalledTextureSets/InstalledModels scan the pool), and "?" explains
 the active tab's fields. NO live apply (a type is referenced by every placement
 and, for surfaces, by baked geometry): Save writes the .cat and, when a touched
 field is `rebakes` (a surface's texture/wear/columns), re-runs the wornblock bake
-behind the busy overlay. Only fields the user TOUCHED are written and an empty
+behind the busy overlay. A surface's PER-DRAW knobs are the exception —
+`height_scale`, `metallic` and `roughness` are per-variant values the draw reads
+(Surface::heightScale / ::factors, filled by ResolveSurfacePalettes →
+ApplySurfaceFactors), so saving them pushes at the live scene through
+DungeonWorld::RefreshSurfaceMaterials: no reload, no rebuild. The factors follow
+the PROP rule — absent = -1 = the set's ORM map stays authoritative, a value
+REPLACES the draw's factor (which the shader multiplies over the map). Wart: an
+absent factor draws as 0.00 on its slider, indistinguishable from an explicit 0
+(only TOUCHED fields are written, so the behaviour is right — the display just
+doesn't say "map-driven"). Only fields the user TOUCHED are written and an empty
 value REMOVES the field, so rows the schema doesn't cover survive — including the
 ones MonsterConfigDialog owns and rewrites (states/anim_*/archetype/threat_*),
 which is why the monster schema omits them and offers an "Animation..." button

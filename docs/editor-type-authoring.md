@@ -43,7 +43,7 @@ type is explicit; that's the model, not a gap.
 
 ---
 
-> **Status.** Phases 1–3 landed — see the notes at the end of each. Phases 4–6
+> **Status.** Phases 1–4 landed — see the notes at the end of each. Phases 5–6
 > are unstarted.
 
 ## Phase 1 — Palette membership (makes everything else usable)  ← DONE
@@ -204,7 +204,7 @@ the palette and paintable when the dialog closes.
 
 ---
 
-## Phase 4 — Surface material factors (what "set roughness" actually needs)
+## Phase 4 — Surface material factors (what "set roughness" actually needs)  ← DONE
 
 Engine-side, small, and independent of the UI phases.
 
@@ -219,6 +219,18 @@ Engine-side, small, and independent of the UI phases.
 
 **Done when**: dragging Roughness in a wall type's editor changes the scene the
 same frame, and the value persists to `walls.cat`.
+
+**As built.** As planned, with the refresh hung off two choke points rather than
+sprinkled: `BuildDungeonMeshes` calls `ApplySurfaceFactors` (so every load,
+quality swap and undo restore is covered), and `RefreshSurfaceMaterials`
+re-resolves + re-pushes for a live catalog edit. Saving a surface type now
+applies `height_scale` live too — that was silently waiting for a level reload
+before.
+
+Known wart: an absent factor draws as 0.00 on its slider, indistinguishable from
+an explicit 0. Only TOUCHED fields are written so nothing is corrupted, but the
+form can't currently say "map-driven" or set an explicit 0 from the absent state.
+A "use the map" checkbox per factor would fix both.
 
 ---
 

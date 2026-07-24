@@ -86,6 +86,11 @@ public:
 	// place (the ApplyQuality core). The editor's Wall Style rebake calls this
 	// after re-baking a texture's worn_*.gltf to swap the new geometry in live.
 	void ReloadDungeonBlocks(bool textureResChanged = false);
+	// Re-reads the surface catalogs' PER-DRAW material knobs (parallax depth,
+	// metallic/roughness) and pushes them live — no reload, no rebuild. The type
+	// editor calls it when a surface type is saved: only texture/wear/columns
+	// change baked geometry, everything else can just take effect.
+	void RefreshSurfaceMaterials();
 
 	// "Start New Game": snaps the party home, re-arms the monster
 	// announcements, and resets the torch palette (which speaks via
@@ -861,6 +866,14 @@ private:
 		std::unique_ptr<gfx::Mesh> mesh;
 		Vec3 boundsMin{}, boundsMax{};
 	};
+	// A surface TYPE's material overrides, the counterpart of DecorationKind's
+	// (catalog metallic=/roughness=). -1 = "leave the ORM map authoritative",
+	// which is what every hand-authored set wants; a value REPLACES the draw's
+	// factor, and with an ORM map the shader multiplies it over the map.
+	struct SurfaceMaterial {
+		float metallic = -1.0f;
+		float roughness = -1.0f;
+	};
 	struct Surface {
 		std::vector<std::unique_ptr<gfx::Texture>> albedo;
 		std::vector<std::unique_ptr<gfx::Texture>> normal;
@@ -870,6 +883,9 @@ private:
 		// height_scale folded with its `wear` so a flat (wear 0) wall type reads
 		// flat — the mesh loses its relief AND the per-pixel parallax goes to 0.
 		std::vector<float> heightScale;
+		// Material factors per variant, likewise parallel (ApplySurfaceFactors
+		// refills them; a short/empty vector simply means no overrides).
+		std::vector<SurfaceMaterial> factors;
 		// Drops the texture variants (keeps the chunks) before a (re)load of the
 		// set — the staged loader and the quality hot-swap both reuse the Surface.
 		void ResetTextures() {
@@ -877,6 +893,7 @@ private:
 			normal.clear();
 			mr.clear();
 			heightScale.clear();
+			factors.clear();
 		}
 	};
 
@@ -1306,8 +1323,13 @@ private:
 		Surface& surface;
 		std::span<const std::string> names;
 		std::span<const float> heights; // per-variant parallax depth (× wear)
+		std::span<const SurfaceMaterial> factors; // per-variant metallic/roughness
 	};
 	std::array<SurfaceDef, 3> SurfaceDefs();
+	// Copies the resolved per-variant factors into each Surface. Called from
+	// BuildDungeonMeshes (every load / quality swap / restore path runs through
+	// it) and by RefreshSurfaceMaterials for a live catalog edit.
+	void ApplySurfaceFactors();
 	// Resolves the map's palette ids (DungeonMap::WallPalette etc.) through the
 	// project's surface catalogs into texture set names + per-surface height
 	// scales. Called once at construction; the results drive both the texture
@@ -1705,6 +1727,8 @@ private:
 	std::vector<std::string> m_wallSets, m_floorSets, m_ceilingSets;
 	// Per-variant parallax depth (height_scale × wear), parallel to the *Sets.
 	std::vector<float> m_wallHeights, m_floorHeights, m_ceilingHeights;
+	// Per-variant material factors (catalog metallic=/roughness=), likewise.
+	std::vector<SurfaceMaterial> m_wallFactors, m_floorFactors, m_ceilingFactors;
 	// Worn block geometry, one mesh per texture variant (same order as the
 	// surface texture sets), held between the load and mesh-build tasks.
 	std::vector<assets::MeshData> m_wallBlocks, m_floorBlocks, m_ceilingBlocks;
