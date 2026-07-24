@@ -39,13 +39,13 @@ namespace {
 #define MATERIAL_ROWS                                                              \
 	{.key = "metallic", .kind = FieldKind::Float, .sectionKey = kSectionMaterial,   \
 	 .help = "Scales the ORM map's metalness; absent leaves the map authoritative.", \
-	 .lo = 0.0f, .hi = 1.0f, .step = 0.05f},                                        \
+	 .lo = 0.0f, .hi = 1.0f, .step = 0.05f, .neutral = "1"},                        \
 	{.key = "roughness", .kind = FieldKind::Float, .sectionKey = kSectionMaterial,  \
 	 .help = "Scales the ORM map's roughness; absent leaves the map authoritative.", \
-	 .lo = 0.0f, .hi = 1.0f, .step = 0.05f},                                        \
+	 .lo = 0.0f, .hi = 1.0f, .step = 0.05f, .neutral = "1"},                        \
 	{.key = "height_scale", .kind = FieldKind::Float, .sectionKey = kSectionMaterial, \
 	 .help = "Parallax depth of the height map, in units. 0 = flat.",               \
-	 .lo = 0.0f, .hi = 0.2f, .step = 0.005f}
+	 .lo = 0.0f, .hi = 0.2f, .step = 0.005f, .neutral = "0.05"}
 
 // A surface type's material factors. No default, because ABSENT is meaningful:
 // it leaves the set's ORM map authoritative (a value replaces the draw's factor,
@@ -54,10 +54,10 @@ namespace {
 #define SURFACE_MATERIAL_ROWS                                                        \
 	{.key = "metallic", .kind = FieldKind::Float, .sectionKey = kSectionMaterial,     \
 	 .help = "Scales the set's metalness; absent leaves its ORM map authoritative.",  \
-	 .lo = 0.0f, .hi = 1.0f, .step = 0.05f},                                          \
+	 .lo = 0.0f, .hi = 1.0f, .step = 0.05f, .neutral = "1"},                          \
 	{.key = "roughness", .kind = FieldKind::Float, .sectionKey = kSectionMaterial,    \
 	 .help = "Scales the set's roughness; absent leaves its ORM map authoritative.",  \
-	 .lo = 0.0f, .hi = 1.0f, .step = 0.05f}
+	 .lo = 0.0f, .hi = 1.0f, .step = 0.05f, .neutral = "1"}
 
 // --- walls ------------------------------------------------------------------
 // The worn block mesh is baked per texture set, so `texture`, `wear` and

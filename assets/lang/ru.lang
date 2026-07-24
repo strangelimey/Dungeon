@@ -511,6 +511,8 @@ map.type.deleted=«{}» удалён.
 map.type.renamed=«{}» переименован в «{}» (записей обновлено: {}) — сохраните карту.
 map.type.inuse=Ещё используется записями ({}) на уровнях: {}
 map.type.inuse.catalog=Ещё упоминается в записях каталога: {}.
+map.type.frommap=: из карты текстуры
+map.type.stalesaves=Сохранения, где ещё есть «{}»: {} — размещённое там загрузится без настроек.
 ; --- instance inspectors (per-placed object edit dialogs) ---
 map.insp.facing=Направление
 map.insp.arrow=Стрелка

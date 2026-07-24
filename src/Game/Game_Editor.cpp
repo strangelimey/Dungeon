@@ -400,6 +400,22 @@ int Game::SweepCatalogRefs(const std::string& catalogKey, const std::string& id,
 	return hits;
 }
 
+std::vector<std::string> Game::SavesReferencingType(const std::string& id) const {
+	std::vector<std::string> names;
+	for (const SaveSlot& slot : ListSaves()) {
+		const std::optional<SaveData> data = ReadSave(slot.path);
+		if (!data) continue;
+		bool hit = false;
+		for (const SaveData::LevelState& level : data->levels)
+			for (const SaveData::EntityState& e : level.entities)
+				// Only a SPAWN row carries a type; a diff references its .ent
+				// baseline by id, which the level sweep already retyped.
+				if (e.id < 0 && e.type == id) { hit = true; break; }
+		if (hit) names.push_back(slot.name);
+	}
+	return names;
+}
+
 // Renames a type everywhere it is named. The level sweep is the big one (every
 // level, including those not in memory); the catalog/project references are the
 // long tail. Live objects are re-spawned from the retyped records afterwards, so
@@ -431,7 +447,21 @@ bool Game::RenameType(const std::string& catalogKey, const std::string& id,
 			  used.count, used.levels.size());
 	if (m_world.onMessage)
 		m_world.onMessage(loc::Format("map.type.renamed", id, newId, used.count));
+	WarnStaleSaves(id);
 	return true;
+}
+
+// Saves are not swept (see SavesReferencingType) — say so when any of them
+// still name the type, so the surprise happens here and not at the next load.
+void Game::WarnStaleSaves(const std::string& id) {
+	const std::vector<std::string> saves = SavesReferencingType(id);
+	if (saves.empty()) return;
+	std::string list;
+	for (const std::string& name : saves)
+		list += (list.empty() ? "" : ", ") + name;
+	log::Warn("Save file(s) still reference type '{}': {}", id, list);
+	if (m_world.onMessage)
+		m_world.onMessage(loc::Format("map.type.stalesaves", id, list));
 }
 
 // Deletes a type — but only an UNUSED one. A record naming a missing type is
@@ -457,6 +487,7 @@ bool Game::DeleteType(const std::string& catalogKey, const std::string& id,
 	if (!m_project.Save()) log::Warn("delete type: failed to save catalogs");
 	log::Info("Deleted type '{}' from {}", id, catalogKey);
 	if (m_world.onMessage) m_world.onMessage(loc::Format("map.type.deleted", id));
+	WarnStaleSaves(id); // a save's spawn rows are outside the level sweep
 	return true;
 }
 

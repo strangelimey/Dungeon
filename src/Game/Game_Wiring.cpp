@@ -227,12 +227,14 @@ void Game::WireModuleCallbacks() {
 	m_typeDialog.onSave = [this](const TypeEditorDialog::Config& cfg) {
 		WriteTypeFields(cfg);
 		if (!cfg.rebake) {
-			// Nothing BAKED is stale, so the change can just take effect: a
+			// Nothing BAKED is stale, so the change can just take effect. A
 			// surface's per-draw knobs (parallax depth, metallic/roughness) push
-			// straight at the live scene. Prop material changes still wait for the
-			// kind to reload on the next level entry.
+			// straight at the live scene; a prop's are baked into its cached
+			// KIND at load, so that kind is dropped and its instances re-spawned.
 			if (MapEditor::SurfaceCat(MapEditor::CatForCatalogKey(cfg.catalogKey)))
 				m_world.RefreshSurfaceMaterials();
+			else
+				m_world.ReloadTypeKind(cfg.catalogKey, cfg.id);
 			if (m_world.onMessage)
 				m_world.onMessage(loc::Format("map.type.saved", cfg.id));
 			return;

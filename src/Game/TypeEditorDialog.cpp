@@ -65,6 +65,9 @@ void TypeEditorDialog::Open(Config cfg, std::span<const FieldSpec> schema) {
 	m_editName = false;
 	m_nameHover = false;
 	m_deleteArmed = false;
+	// A fresh open starts on the first tab: null the (now stale) control so
+	// BuildUI's tab-preservation reads 0, not the previously-closed dialog's tab.
+	m_tabs = nullptr;
 
 	// Tab order = the order the sections first appear in the schema table.
 	m_sections.clear();
@@ -100,7 +103,10 @@ gfx::Rect TypeEditorDialog::IdRect(float w, float h) {
 }
 
 void TypeEditorDialog::BuildUI() {
+	// Read the open tab BEFORE Clear frees the control (a rebuild keeps the tab).
+	const int activeTab = m_tabs ? m_tabs->ActiveTab() : 0;
 	m_ui.Clear();
+	m_tabs = nullptr; // the Clear just freed it; don't read it again below
 	m_nameField = nullptr;
 	if (m_editName) {
 		// The title row becomes the rename field. Enter commits through
@@ -136,8 +142,11 @@ void TypeEditorDialog::BuildUI() {
 			m_uiRebuild = true; // deferred — we are inside a widget callback
 		};
 	}
+	// A rebuild (an optional field toggled between checkbox and slider) recreates
+	// the tab control; activeTab (captured before Clear) keeps the open tab.
 	m_tabs = m_ui.Add<ui::TabControl>(kTabs, 0.07f);
 	for (const char* section : m_sections) m_tabs->AddTab(loc::Tr(section));
+	m_tabs->SetActiveTab(activeTab);
 
 	// One row per field, stacked within its section's page. The widget callbacks
 	// capture the spec BY POINTER: the schema is a static table (SchemaFor
@@ -164,9 +173,25 @@ void TypeEditorDialog::BuildUI() {
 			break;
 		}
 		case FieldKind::Float: {
+			// A field whose ABSENCE is meaningful (no schema default: the loader
+			// falls back to the texture's own map) can't say so on a slider —
+			// position 0 would read as an explicit zero. So an unset one shows as
+			// a checkbox instead, and a set one gets an "x" to unset it again.
+			const bool optional = !*spec.def;
+			if (optional && value.empty()) {
+				m_tabs->AddChild<ui::Checkbox>(
+					tab, gfx::Rect{kRowX, y, kRowW, kRowH * 0.62f},
+					label + loc::Tr("map.type.frommap"), true, [this, s](bool on) {
+						if (on) return; // already unset
+						SetValue(*s, *s->neutral ? s->neutral : "0");
+						m_uiRebuild = true; // the row becomes a slider
+					});
+				break;
+			}
 			float v = spec.lo;
 			std::from_chars(value.data(), value.data() + value.size(), v);
-			m_tabs->AddChild<ui::Slider>(tab, gfx::Rect{kRowX, y, kRowW, kRowH * 0.92f},
+			const float sliderW = optional ? kRowW - 0.06f : kRowW;
+			m_tabs->AddChild<ui::Slider>(tab, gfx::Rect{kRowX, y, sliderW, kRowH * 0.92f},
 										 label, spec.lo, spec.hi, v,
 										 [this, s](float f) {
 											 // Snap to the field's granularity so the
@@ -175,6 +200,13 @@ void TypeEditorDialog::BuildUI() {
 											 const float snapped = std::round(f / step) * step;
 											 SetValue(*s, std::format("{:g}", snapped));
 										 });
+			if (optional)
+				m_tabs->AddChild<ui::Button>(
+					tab, gfx::Rect{kRowX + sliderW + 0.01f, y, 0.05f, kRowH * 0.55f},
+					"x", [this, s] {
+						SetValue(*s, ""); // empty = the writer REMOVES the field
+						m_uiRebuild = true;
+					});
 			break;
 		}
 		case FieldKind::Text: {

@@ -527,6 +527,8 @@ map.type.deleted=Deleted '{}'.
 map.type.renamed=Renamed '{}' to '{}' ({} record(s) updated) — Save the map.
 map.type.inuse=Still used by {} record(s) in: {}
 map.type.inuse.catalog=Still referenced by {} other catalog entry/entries.
+map.type.frommap=: from the texture's map
+map.type.stalesaves=Save file(s) still holding '{}': {} — anything placed there loads unconfigured.
 
 ; --- asset-creation dialog -------------------------------------------------------
 newasset.title=New {}

@@ -43,7 +43,8 @@ type is explicit; that's the model, not a gap.
 
 ---
 
-> **Status.** ALL SIX PHASES LANDED — see the notes at the end of each.
+> **Status.** ALL SIX PHASES LANDED, plus a post-phase polish pass — see the
+> notes at the end of each phase, and "Polish pass" at the very bottom.
 
 ## Phase 1 — Palette membership (makes everything else usable)  ← DONE
 
@@ -331,6 +332,49 @@ broken asset:
 Limitation: the manifest only knows about imports made from now on. The ~270
 sets already installed are covered by `FetchTextures.ps1` (`$propSets` plus the
 levels' palette records), which remains the way to rebuild those.
+
+---
+
+## Polish pass (post-phase, the "open items" review)
+
+Three follow-ups from the phase notes, plus a real bug the review turned up.
+
+1. **Rename/delete vs an existing save.** Confirmed safe by TEST: a save stores
+   an editor-placed monster / dropped item as a WHOLE spawn row carrying its
+   `type` (EntityState id < 0), so a rename strands those rows — on load they hit
+   the "unlisted type" fallback (`<type>.gltf` + default stats) or, if the id and
+   the model name differ, abort. Saves are NOT rewritten (dev-cycle artifacts,
+   like a level rename). Instead `Game::SavesReferencingType` scans them and
+   `WarnStaleSaves` reports the names after a rename or delete, so the surprise
+   is announced, not sprung at the next load. Diff-mode entity rows (id ≥ 0)
+   reference their `.ent` baseline by id, which the level sweep already retyped —
+   only spawn rows carry a type, so only they are scanned.
+
+2. **Prop material edits now apply live.** Phase 4 did surfaces;
+   `DungeonWorld::ReloadTypeKind` does props — drop the cached kind
+   (`m_monsterKinds` / `m_fixtureKinds` / `m_decorationKinds`) so the next resolve
+   re-reads the catalog, then `RespawnFromRecords`. A kind is loaded once and
+   cached by type name, which is why a saved edit used to wait for the next level
+   entry.
+
+3. **Absent vs explicit 0 on the material sliders.** A Float field with no schema
+   default (metallic/roughness/height_scale — absence means "the map decides")
+   now renders as a "from the texture's map" CHECKBOX when unset; ticking it off
+   seeds `FieldSpec::neutral` (1 for the factors, so the value you already see)
+   and turns the row into a slider with an `x` to unset it again. An empty value
+   makes the writer REMOVE the field.
+
+**The bug:** `MapEditor::OnRightClick` still carried a Phase-1-era category
+allowlist (`Monsters || Walls || Floors || Ceilings`), so right-click only
+opened the type editor for those four — Decorations / Fixtures / Doors / Stairs /
+Items / Buttons / WallFeatures were UNREACHABLE. Phase 2's "one dialog for every
+category" was real in the wiring but gated here, and Phase 2's verification
+happened to test only a wall and a monster. Guard removed; every category's
+right-click reaches the editor now (checked against a barrel).
+
+Two smaller fixes fell out: a use-after-free reading `m_tabs->ActiveTab()` after
+`Clear()` freed it (the tab-preservation across a checkbox↔slider rebuild), and a
+fresh Open inheriting the previously-closed dialog's tab index.
 
 ---
 

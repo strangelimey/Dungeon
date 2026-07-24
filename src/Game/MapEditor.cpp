@@ -404,11 +404,10 @@ bool MapEditor::OnRightClick(float mx, float my, const gfx::Rect& panel) {
 	BuildPaletteRows(panel, rows, content);
 	for (const PaletteRow& r : rows) {
 		if (!r.rect.Contains(mx, my)) continue;
-		// Items in a configurable category open a config dialog: Monsters (their
-		// animation/behaviour) and surfaces (their geometry style — worn/columns).
-		if (r.kind == PaletteRow::Kind::Item && onConfigure &&
-			(r.cat == PaletteCat::Monsters || r.cat == PaletteCat::Walls ||
-			 r.cat == PaletteCat::Floors || r.cat == PaletteCat::Ceilings)) {
+		// Any item row opens its per-type editor (the owner routes it through the
+		// schema-driven TypeEditorDialog — EVERY category is configurable now, so
+		// there is no per-category allowlist here any more).
+		if (r.kind == PaletteRow::Kind::Item && onConfigure) {
 			const std::vector<PaletteItem> items = CategoryItems(r.cat);
 			if (r.index >= 0 && r.index < static_cast<int>(items.size()))
 				onConfigure(r.cat, items[r.index].id);

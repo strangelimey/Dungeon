@@ -507,6 +507,8 @@ map.type.deleted='{}' eliminato.
 map.type.renamed='{}' rinominato in '{}' ({} record aggiornati) — salva la mappa.
 map.type.inuse=Ancora usato da {} record in: {}
 map.type.inuse.catalog=Ancora referenziato da {} voce/voci di catalogo.
+map.type.frommap=: dalla mappa della texture
+map.type.stalesaves=Salvataggi che contengono ancora '{}': {} — ciò che vi è collocato si carica non configurato.
 ; --- instance inspectors (per-placed object edit dialogs) ---
 map.insp.facing=Orientamento
 map.insp.arrow=Freccia mappa

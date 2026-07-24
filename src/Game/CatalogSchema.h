@@ -55,6 +55,13 @@ struct FieldSpec {
 	float step = 0.0f;
 	const char* options = ""; // Enum: tokens; CatalogRef: the catalog key
 	const char* def = "";     // value shown when the entry doesn't carry the field
+	// Float only, and only for a field whose ABSENCE is meaningful (no `def`):
+	// the value to seed when the user takes manual control of it. An absent
+	// metallic/roughness means "the texture's ORM map decides", which no slider
+	// position can represent — so the form offers the choice as a checkbox and
+	// starts the slider here (1 = "scale the map by 1", i.e. what you already
+	// see) rather than at the range's bottom.
+	const char* neutral = "";
 	// Changing this field invalidates BAKED geometry (the worn block meshes),
 	// so saving it has to re-run AssetBaker before the change is visible.
 	bool rebakes = false;

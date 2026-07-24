@@ -91,6 +91,12 @@ public:
 	// editor calls it when a surface type is saved: only texture/wear/columns
 	// change baked geometry, everything else can just take effect.
 	void RefreshSurfaceMaterials();
+	// The PROP counterpart: drops one catalog type's cached kind so the next
+	// resolve re-reads the catalog (model, texture set, material overrides,
+	// scale, flags), then re-spawns the live objects that used it. A kind is
+	// loaded once and cached by type name, so without this a saved edit only
+	// showed on the next level entry. `catalogKey` picks the cache.
+	void ReloadTypeKind(const std::string& catalogKey, const std::string& id);
 
 	// "Start New Game": snaps the party home, re-arms the monster
 	// announcements, and resets the torch palette (which speaks via

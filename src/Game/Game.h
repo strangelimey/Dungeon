@@ -155,6 +155,17 @@ private:
 	// number found, rewriting them when `newId` is given.
 	int SweepCatalogRefs(const std::string& catalogKey, const std::string& id,
 						 const std::string* newId);
+	// Save files naming a type. A save stores an editor-placed monster or a
+	// dropped item as a WHOLE spawn row carrying its type (SaveData::EntityState
+	// with id < 0), so a rename or delete strands those rows: on load the type
+	// resolves through the "unlisted type" fallback (<type>.gltf + default
+	// stats) — or aborts, if the type's id and model name differ. Saves are not
+	// rewritten (they are dev-cycle artifacts, like a level rename's), so the
+	// names are REPORTED and the caller says so.
+	std::vector<std::string> SavesReferencingType(const std::string& id) const;
+	// Reports (log + world message) the saves that still name a type after it
+	// was renamed or deleted.
+	void WarnStaleSaves(const std::string& id);
 	// Opens a monster type's animation + behaviour dialog (the type editor's
 	// extra button — that dialog owns those rows).
 	void OpenMonsterConfig(const std::string& id);

@@ -182,6 +182,27 @@ bool DungeonWorld::AddPaletteEntry(SurfaceSel sel, const std::string& id) {
 	return true;
 }
 
+void DungeonWorld::ReloadTypeKind(const std::string& catalogKey,
+								  const std::string& id) {
+	// The caches are keyed by catalog id and hold GPU resources the live objects
+	// point INTO, so drop the entry only after the instances are gone — the
+	// respawn below rebuilds both. Draining first: in-flight frames may still
+	// reference the mesh/textures we are about to free.
+	m_device.WaitIdle();
+	m_monsters.clear(); // they hold MonsterKind pointers
+	m_items.clear();
+	m_buttons.clear();
+	m_doors.clear();
+	m_decorations.clear();
+	if (catalogKey == "monsters") m_monsterKinds.erase(id);
+	else if (catalogKey == "fixtures") m_fixtureKinds.erase(id);
+	else m_decorationKinds.erase(id); // decorations/doors/buttons/stairs/items
+	// Fixtures are props AND light sources, so their rebuild goes through the
+	// fire/turbidity path; everything else just re-spawns.
+	RespawnFromRecords(catalogKey == "wallfeatures");
+	RebuildFiresAndDust();
+}
+
 // --- type rename / delete (editor) ------------------------------------------
 
 DungeonWorld::TypeUsage DungeonWorld::SweepTypeRefs(const std::string& catalogKey,
