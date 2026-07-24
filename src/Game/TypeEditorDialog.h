@@ -118,6 +118,7 @@ private:
 	gfx::GraphicsDevice& m_device;
 	ui::Font m_font;    // title + the help overlay
 	ui::UIContext m_ui; // the tabbed form
+	std::unique_ptr<gfx::Texture> m_closeIcon; // shared top-right close box
 
 	bool m_open = false;
 	bool m_busy = false;     // a re-bake is running; freeze the form

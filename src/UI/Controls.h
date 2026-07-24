@@ -534,4 +534,13 @@ void DrawButtonFace(gfx::SpriteBatch& batch, Font& font, const gfx::Rect& rect,
 					bool held = false, bool enabled = true,
 					const Skin* skin = nullptr);
 
+// The standard close affordance every dialog uses: a small square button in the
+// top-right CORNER of `panel` (window-fraction space, like the widgets it joins).
+// `icon` is the shared close box (assets/ui/icon_close); a null icon falls back
+// to a text "x". Returns the button (owned by `ui`). The rule is one place so
+// every dialog closes the same way — top-right, never a footer button.
+gfx::Rect CloseButtonRect(const gfx::Rect& panel);
+Button* AddCloseButton(UIContext& ui, const gfx::Rect& panel,
+					   const gfx::Texture* icon, std::function<void()> onClose);
+
 } // namespace dungeon::ui

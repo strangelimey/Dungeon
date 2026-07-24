@@ -68,6 +68,7 @@ private:
 	gfx::GraphicsDevice& m_device;
 	ui::Font m_font;    // the dialog's own text (title)
 	ui::UIContext m_ui; // labels + numeric fields + footer buttons
+	std::unique_ptr<gfx::Texture> m_closeIcon; // shared top-right close box
 
 	bool m_open = false;
 	std::string m_stem; // the level being edited (title + the owner's routing)

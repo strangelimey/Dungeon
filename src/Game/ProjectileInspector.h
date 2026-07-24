@@ -63,7 +63,8 @@ private:
 
 	gfx::GraphicsDevice& m_device;
 	ui::Font m_font;    // title + info lines
-	ui::UIContext m_ui; // Remove / Close footer buttons
+	ui::UIContext m_ui; // Remove footer button
+	std::unique_ptr<gfx::Texture> m_closeIcon; // shared top-right close box
 
 	bool m_open = false;
 	Config m_cfg;

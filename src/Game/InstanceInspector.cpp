@@ -4,6 +4,8 @@
 #include "Game/InstanceInspector.h"
 
 #include "Core/Loc.h"
+#include "Core/Paths.h"
+#include "Game/AssetUtil.h"
 #include "UI/Controls.h"
 
 #include <algorithm>
@@ -25,7 +27,9 @@ constexpr float kPaneX0 = 0.62f; // preview pane left edge (panel fraction)
 } // namespace
 
 InstanceInspector::InstanceInspector(gfx::GraphicsDevice& device)
-	: m_device(device), m_font(device, "", 18.0f), m_ui(device, "", 18.0f) {}
+	: m_device(device), m_font(device, "", 18.0f), m_ui(device, "", 18.0f) {
+	m_closeIcon = TryLoadTextureFile(device, paths::Asset("ui\\icon_close"));
+}
 
 InstanceInspector::~InstanceInspector() = default;
 
@@ -91,12 +95,11 @@ void InstanceInspector::BuildUI() {
 	BuildContent(rel(kPad, contentTop + 0.02f, innerW,
 					 1.0f - contentTop - 0.02f - kFooterH));
 
-	// Close: an "x" in the panel's top-right corner (revert, like Esc).
-	m_ui.Add<ui::Button>(rel(1.0f - kPad - 0.07f, 0.02f, 0.07f, kTitleH * 0.62f),
-						 "x", [this] {
-							 Revert();
-							 Close();
-						 });
+	// Close: the shared box icon in the panel's top-right corner (revert, like Esc).
+	ui::AddCloseButton(m_ui, p, m_closeIcon.get(), [this] {
+		Revert();
+		Close();
+	});
 
 	// Footer: Save (persist), plus Delete (remove the object from the map)
 	// when the owner armed it — closing lives in the "x"/Esc, not down here.

@@ -36,6 +36,7 @@ bool IdChar(char c) {
 AssetDialog::AssetDialog(gfx::GraphicsDevice& device, Window& window)
 	: m_device(device), m_window(window) {
 	m_ui = std::make_unique<ui::UIContext>(device, "", 18.0f);
+	m_closeIcon = TryLoadTextureFile(device, paths::Asset("ui\\icon_close"));
 }
 
 void AssetDialog::Open(const std::string& category, const std::string& catalogKey,
@@ -238,8 +239,9 @@ void AssetDialog::Rebuild(const ui::Theme& theme) {
 							  // sources are done the moment the catalog is written.
 							  if (!m_busy) Close();
 						  });
-	m_ui->Add<ui::Button>(gfx::Rect{0.34f, 0.79f, 0.14f, 0.05f},
-						  loc::Tr("newasset.cancel"), [this] { Close(); });
+	// Close (= cancel) is the top-right corner box now, not a footer button.
+	ui::AddCloseButton(*m_ui, gfx::Rect{0.14f, 0.09f, 0.72f, 0.82f},
+					   m_closeIcon.get(), [this] { Close(); });
 }
 
 void AssetDialog::Browse() {

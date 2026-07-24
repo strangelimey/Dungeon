@@ -133,6 +133,7 @@ private:
 
 	ui::Font m_font;    // title text
 	ui::UIContext m_ui; // common strip + derived content + footer
+	std::unique_ptr<gfx::Texture> m_closeIcon; // shared top-right close box
 
 	bool m_open = false;
 	bool m_rebuild = false;

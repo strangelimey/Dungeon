@@ -4,6 +4,8 @@
 #include "Game/LevelSettingsDialog.h"
 
 #include "Core/Loc.h"
+#include "Core/Paths.h"
+#include "Game/AssetUtil.h"
 #include "UI/Controls.h"
 
 #include <algorithm>
@@ -21,8 +23,8 @@ constexpr gfx::Rect kTitle{0.375f, 0.315f, 0.25f, 0.04f};
 constexpr float kRowX = 0.375f, kRowW = 0.14f;   // label column
 constexpr float kFieldX = 0.52f, kFieldW = 0.10f; // value column
 constexpr float kRowY0 = 0.385f, kRowH = 0.055f;
-constexpr gfx::Rect kSave{0.40f, 0.585f, 0.09f, 0.045f};
-constexpr gfx::Rect kClose{0.51f, 0.585f, 0.09f, 0.045f};
+// Save centered in the footer; Close is the top-right corner box now.
+constexpr gfx::Rect kSave{0.455f, 0.585f, 0.09f, 0.045f};
 
 // A numeric text field: shows `value` ({:g}), and while edited writes every
 // PARSEABLE state back through `commit` (the live-apply pattern the Balance
@@ -42,7 +44,9 @@ void AddNumericField(ui::UIContext& ui, const gfx::Rect& r, float value,
 } // namespace
 
 LevelSettingsDialog::LevelSettingsDialog(gfx::GraphicsDevice& device)
-	: m_device(device), m_font(device, "", 18.0f), m_ui(device, "", 18.0f) {}
+	: m_device(device), m_font(device, "", 18.0f), m_ui(device, "", 18.0f) {
+	m_closeIcon = TryLoadTextureFile(device, paths::Asset("ui\\icon_close"));
+}
 
 void LevelSettingsDialog::Open(const std::string& stem, float dust, float haze,
 							   float ambient) {
@@ -117,7 +121,7 @@ void LevelSettingsDialog::BuildUI() {
 		if (onSave) onSave(m_dust, m_haze, m_ambient);
 		Close();
 	});
-	m_ui.Add<ui::Button>(kClose, loc::Tr("map.cfg.close"), [this] {
+	ui::AddCloseButton(m_ui, kPanel, m_closeIcon.get(), [this] {
 		if (onApply) onApply(m_oDust, m_oHaze, m_oAmbient); // revert the preview
 		Close();
 	});

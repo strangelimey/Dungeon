@@ -1292,4 +1292,21 @@ void TabControl::DrawOverlay(UIContext& ctx, gfx::SpriteBatch& batch) {
 		if (child->visible) child->DrawOverlay(ctx, batch);
 }
 
+// --- shared close button -------------------------------------------------
+
+gfx::Rect CloseButtonRect(const gfx::Rect& panel) {
+	// A small square button just inside the panel's top-right corner. The icon
+	// self-squares to the box's min dimension, so ~square window fractions on a
+	// typical widescreen keep it from stretching.
+	constexpr float kMargin = 0.008f, kW = 0.026f, kH = 0.044f;
+	return {panel.x + panel.w - kW - kMargin, panel.y + kMargin, kW, kH};
+}
+
+Button* AddCloseButton(UIContext& ui, const gfx::Rect& panel,
+					   const gfx::Texture* icon, std::function<void()> onClose) {
+	Button* b = ui.Add<Button>(CloseButtonRect(panel), "x", std::move(onClose));
+	b->icon = icon; // the text "x" shows only if the asset is missing
+	return b;
+}
+
 } // namespace dungeon::ui

@@ -4,6 +4,8 @@
 #include "Game/TypeEditorDialog.h"
 
 #include "Core/Loc.h"
+#include "Core/Paths.h"
+#include "Game/AssetUtil.h"
 #include "UI/Controls.h"
 
 #include <algorithm>
@@ -20,11 +22,13 @@ namespace {
 constexpr gfx::Rect kPanel{0.26f, 0.12f, 0.48f, 0.76f};
 constexpr gfx::Rect kTitle{0.28f, 0.145f, 0.40f, 0.04f};
 constexpr gfx::Rect kTabs{0.28f, 0.195f, 0.44f, 0.60f};
+// Footer: Save pinned left; the rest right-aligned to the panel's inner edge
+// (~0.72) so nothing overruns it. Close is no longer here — it's the top-right
+// corner box now.
 constexpr gfx::Rect kSave{0.28f, 0.815f, 0.09f, 0.045f};
-constexpr gfx::Rect kExtra{0.39f, 0.815f, 0.13f, 0.045f};
-constexpr gfx::Rect kDelete{0.53f, 0.815f, 0.075f, 0.045f};
-constexpr gfx::Rect kHelp{0.615f, 0.815f, 0.035f, 0.045f};
-constexpr gfx::Rect kClose{0.66f, 0.815f, 0.09f, 0.045f};
+constexpr gfx::Rect kExtra{0.46f, 0.815f, 0.13f, 0.045f};   // Animation (monsters)
+constexpr gfx::Rect kDelete{0.60f, 0.815f, 0.075f, 0.045f};
+constexpr gfx::Rect kHelp{0.685f, 0.815f, 0.035f, 0.045f};
 
 // Row metrics inside a tab page (fractions of the page). A row past 1.0 is what
 // makes the page scroll, so a long section simply runs on.
@@ -50,7 +54,9 @@ std::vector<std::string> SplitOptions(std::string_view text) {
 } // namespace
 
 TypeEditorDialog::TypeEditorDialog(gfx::GraphicsDevice& device)
-	: m_device(device), m_font(device, "", 18.0f), m_ui(device, "", 18.0f) {}
+	: m_device(device), m_font(device, "", 18.0f), m_ui(device, "", 18.0f) {
+	m_closeIcon = TryLoadTextureFile(device, paths::Asset("ui\\icon_close"));
+}
 
 void TypeEditorDialog::Open(Config cfg, std::span<const FieldSpec> schema) {
 	m_open = true;
@@ -298,7 +304,7 @@ void TypeEditorDialog::BuildUI() {
 			m_uiRebuild = true;
 		});
 	m_ui.Add<ui::Button>(kHelp, "?", [this] { m_helpOpen = true; });
-	m_ui.Add<ui::Button>(kClose, loc::Tr("map.cfg.close"), [this] { Close(); });
+	ui::AddCloseButton(m_ui, kPanel, m_closeIcon.get(), [this] { Close(); });
 }
 
 void TypeEditorDialog::Update(const Input& input, float w, float h) {

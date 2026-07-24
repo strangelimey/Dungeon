@@ -1044,3 +1044,17 @@ memory.
   clears on level transitions). Instance dialogs: footer = Save (+ Delete
   on the item/decoration dialog — targeted RemoveItemById/
   RemoveDecorationByIndex, undo-bracketed), closing = top-right "x" or Esc.
+  DIALOG CLOSE CONVENTION (all of them, editor AND main game): the close
+  affordance is the shared box icon (assets/ui/icon_close.png) in the panel's
+  TOP-RIGHT CORNER, never a footer "Close"/"Cancel"/"Back" button —
+  ui::AddCloseButton(ctx, panelRect, icon, onClose) places it identically
+  everywhere (it's a ui::Button with the icon; text "x" is the missing-asset
+  fallback). Each dialog owns a std::unique_ptr<gfx::Texture> m_closeIcon
+  loaded from paths::Asset("ui\\icon_close"). Footer keeps only ACTION buttons
+  (Save/Delete/Remove/Animation/?), right-aligned to the panel's inner edge so
+  nothing overruns it. Covered: the InstanceInspector base (all 6 per-instance
+  inspectors), TypeEditorDialog, AssetDialog, BalanceDialog, MonsterConfigDialog,
+  LevelSettingsDialog, ProjectileInspector, InspectPicker, and the character
+  sheet (GameUI). NOT touched: Yes/No confirm modals (their explicit choice
+  buttons aren't a "Close") and the full-screen menu/settings/save PAGES (Back
+  is page navigation, not a dialog dismiss).

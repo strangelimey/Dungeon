@@ -136,6 +136,9 @@ void GameUI::LoadTitleArt() {
 	// quarter turns per direction by ui::Button::iconTurns.
 	m_chevronTex = TryLoadTextureFile(m_device, paths::Asset("ui\\icon_chevron"));
 	m_chevron2Tex = TryLoadTextureFile(m_device, paths::Asset("ui\\icon_chevron2"));
+	// The shared top-right close box (assets/ui/icon_close) — the character
+	// sheet's corner close, matching every editor dialog.
+	m_closeIcon = TryLoadTextureFile(m_device, paths::Asset("ui\\icon_close"));
 	// The panel part is a QUIET bake (near-black + faint noise, one thin brass
 	// edge, no black rim — the old stone face read too busy under the kit's
 	// wooden buttons); it tiles, so the noise stays dense at any panel size.
@@ -1222,11 +1225,13 @@ void GameUI::BuildCharacterSheet() {
 								  Click();
 								  if (onShowPartyInventory) onShowPartyInventory();
 							  });
-	m_sheetUi.Add<ui::Button>(Norm({(w - 180.0f) * 0.5f, btnY, 180, 40}, window),
-							  loc::Tr("menu.back"), [this] {
-								  Click();
-								  onResume();
-							  });
+	// Close (= resume) is the shared corner box at the sheet panel's top-right,
+	// matching every other dialog — no footer Back button.
+	ui::AddCloseButton(m_sheetUi, Norm({sx, sy, sheetW, sheetH}, window),
+					   m_closeIcon.get(), [this] {
+						   Click();
+						   onResume();
+					   });
 	// The sheet's own context menu (backpack-slot actions), added LAST so it
 	// updates first and its popup draws over everything.
 	m_sheetMenu = m_sheetUi.Add<ui::ContextMenu>();

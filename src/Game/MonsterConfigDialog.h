@@ -110,6 +110,7 @@ private:
 	gfx::GraphicsDevice& m_device;
 	ui::Font m_font;      // the dialog's own text (title / preview header / hints)
 	ui::UIContext m_ui;   // the tab content + footer buttons
+	std::unique_ptr<gfx::Texture> m_closeIcon; // shared top-right close box
 
 	bool m_open = false;
 	std::string m_display;
