@@ -728,7 +728,20 @@ value REMOVES the field, so rows the schema doesn't cover survive — including 
 ones MonsterConfigDialog owns and rewrites (states/anim_*/archetype/threat_*),
 which is why the monster schema omits them and offers an "Animation..." button
 through to that dialog instead. WallStyleDialog is GONE — wear/columns are just
-schema rows now. Catalog comments survive a write (serialize::Block::lead →
+schema rows now. RENAME + DELETE live here too: the id in the title is a rename
+affordance (click it, edit, Enter — the LevelSettingsDialog stem pattern), and
+Delete arms on the first click. Both go through a REFERENCE SWEEP
+(DungeonWorld::SweepTypeRefs) that walks EVERY level — the live one, the edit
+stashes, and any not yet in memory, parsed on demand — plus the cross-catalog
+fields (stairs `pair`, doors `key`) and the project's default fixture ids
+(Game::SweepCatalogRefs, a closed list). A rename rewrites all of them, renames
+the entry IN PLACE (Catalog::Rename — a remove + re-add would move it to the end
+of the file, dragging its lead comments, i.e. the file header, with it),
+re-spawns the live objects from the retyped records (RespawnFromRecords) and
+CLEARS the undo history (every held snapshot names the old id). A delete REFUSES
+while anything still references the type and says which levels — a record naming
+a missing type is not a soft failure at load. `savemap` persists the touched
+levels. Catalog comments survive a write (serialize::Block::lead →
 CatalogEntry::lead): the .cat headers document each category's fields, and an
 editor write used to delete them. Mouse model: LEFT paints/places
 the armed brush (nothing armed until a palette row is picked), a stationary

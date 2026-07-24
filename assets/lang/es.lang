@@ -500,6 +500,13 @@ map.type.sec.look=Aspecto
 map.type.sec.material=Material
 map.type.sec.stats=Estadísticas
 map.type.sec.rules=Reglas
+map.type.delete=Eliminar
+map.type.delete.confirm=¡Eliminar!
+map.type.delete.arm=Pulsa Eliminar otra vez para quitar este tipo.
+map.type.deleted='{}' eliminado.
+map.type.renamed='{}' renombrado a '{}' ({} registros actualizados) — guarda el mapa.
+map.type.inuse=Todavía lo usan {} registro(s) en: {}
+map.type.inuse.catalog=Todavía lo referencian {} entrada(s) del catálogo.
 ; --- instance inspectors (per-placed object edit dialogs) ---
 map.insp.facing=Orientación
 map.insp.arrow=Flecha en mapa

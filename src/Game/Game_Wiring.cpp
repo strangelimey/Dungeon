@@ -251,6 +251,15 @@ void Game::WireModuleCallbacks() {
 	m_typeDialog.onExtra = [this](const TypeEditorDialog::Config& cfg) {
 		OpenMonsterConfig(cfg.id);
 	};
+	// Rename / delete: the owner sweeps every level (and the cross-catalog
+	// references) and refuses with a reason the dialog shows.
+	m_typeDialog.onRename = [this](const std::string& id, const std::string& newId,
+								   std::string& problem) {
+		return RenameType(m_typeDialog.CatalogKey(), id, newId, problem);
+	};
+	m_typeDialog.onDelete = [this](const std::string& id, std::string& problem) {
+		return DeleteType(m_typeDialog.CatalogKey(), id, problem);
+	};
 
 	// Live-apply on every edit; persist on Save.
 	m_monsterDialog.onApply = [this](const MonsterConfigDialog::Config& c) {

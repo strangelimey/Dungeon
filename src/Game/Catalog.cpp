@@ -69,6 +69,16 @@ CatalogEntry& Catalog::Add(CatalogEntry entry) {
 	return m_entries.back();
 }
 
+bool Catalog::Rename(std::string_view id, std::string newId) {
+	if (id == newId || Contains(newId)) return false;
+	for (CatalogEntry& e : m_entries)
+		if (e.id == id) {
+			e.id = std::move(newId);
+			return true;
+		}
+	return false;
+}
+
 void Catalog::Remove(std::string_view id) {
 	for (auto it = m_entries.begin(); it != m_entries.end(); ++it)
 		if (it->id == id) {

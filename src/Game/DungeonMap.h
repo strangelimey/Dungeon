@@ -417,6 +417,19 @@ public:
 		return AddPaletteId(m_ceilingPalette, std::move(id));
 	}
 
+	// Which family of records a type sweep walks (see SweepTypeRefs). One per
+	// catalog category that a .map record can name.
+	enum class TypeRecords {
+		WallPalette, FloorPalette, CeilingPalette,
+		Decoration, Fixture, WallFeature, Stair
+	};
+	// Editor type rename/delete: counts this level's references to catalog id
+	// `id` within one record family and, when `newId` is given, rewrites them.
+	// A palette entry is rewritten IN PLACE — the position is the variant index,
+	// so reordering would repaint every cell that pinned it.
+	int SweepTypeRefs(TypeRecords records, std::string_view id,
+					  const std::string* newId);
+
 private:
 	void ParsePaletteRecord(const std::string& record, const std::string& path);
 	void ParseStairRecord(const std::string& record, const std::string& path);

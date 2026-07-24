@@ -43,8 +43,8 @@ type is explicit; that's the model, not a gap.
 
 ---
 
-> **Status.** Phases 1–4 landed — see the notes at the end of each. Phases 5–6
-> are unstarted.
+> **Status.** Phases 1–5 landed — see the notes at the end of each. Phase 6 is
+> unstarted.
 
 ## Phase 1 — Palette membership (makes everything else usable)  ← DONE
 
@@ -234,7 +234,7 @@ A "use the map" checkbox per factor would fix both.
 
 ---
 
-## Phase 5 — Lifecycle: duplicate / rename / delete
+## Phase 5 — Lifecycle: duplicate / rename / delete  ← DONE
 
 The risky ops; they need a shared **reference sweep** (the `RenameLevel` stair
 `dest=` sweep is the precedent):
@@ -248,6 +248,34 @@ The risky ops; they need a shared **reference sweep** (the `RenameLevel` stair
 referring levels), else remove; removing from a palette must **remap every
 `variant` record's index** on that level. **Duplicate** is trivial and belongs in
 Phase 3's source modes.
+
+**As built.** The sweep is three layers, each owning what it knows:
+`DungeonEntities::SweepTypeRefs` (dynamic records), `DungeonMap::SweepTypeRefs`
+(the static families: palettes, decorations, fixtures, wall features, stairs),
+and `DungeonWorld::SweepTypeRefs` walking every level in the project — including
+levels not in memory, parsed on demand through the same lazy stash the map
+overlay browses with. `Game::SweepCatalogRefs` covers the long tail outside the
+levels (stairs `pair`, doors `key`, the project's default fixture ids).
+
+Details worth remembering:
+
+- A rename **re-spawns the live objects** from the retyped records
+  (`RespawnFromRecords`, extracted from the undo restore, which had exactly this
+  code) — live monsters and props hold their type by name and resolve kinds
+  through a cache keyed by it.
+- A rename **clears the undo history**: every held snapshot names the type by its
+  old id, so restoring one after a rename would resurrect dangling references.
+- `Catalog::Rename` renames **in place**. The first attempt did remove + re-add,
+  which moved the entry to the end of the file — and since Phase 2 attaches lead
+  comments to the entry they introduce, that dragged the file's header comment
+  down with it.
+- The **variant remap is not needed**: delete refuses while the type is in any
+  palette, so the only way to remove a palette member is still the "not built"
+  remove-from-palette op. Recorded here so the next person doesn't assume it.
+
+Not done: no rename/delete for a type referenced ONLY by a save file — saves
+store dynamic diffs keyed by record id, not type, so this is believed safe, but
+it hasn't been tested against an old save.
 
 ---
 

@@ -516,6 +516,29 @@ public:
 	// The project catalog behind a surface selector (walls/floors/ceilings).
 	const Catalog& SurfaceCatalog(SurfaceSel sel) const;
 
+	// --- type rename / delete (editor) --------------------------------------
+	// What a sweep found: how many records name the type, and which levels.
+	struct TypeUsage {
+		int count = 0;
+		std::vector<std::string> levels; // stems referencing it, in project order
+		bool Any() const { return count > 0; }
+	};
+	// Walks EVERY level of the project — the live one, the edit stashes, and
+	// any not yet in memory (parsed on demand, like a browse) — counting the
+	// records that name catalog type `id` of category `catalogKey`. With
+	// `newId`, retypes them all instead: that is the rename, and it has to be
+	// this exhaustive or a level would load a record naming a type that no
+	// longer exists. The caller re-spawns live objects afterwards
+	// (RespawnFromRecords) and saves (`savemap`) to persist.
+	TypeUsage SweepTypeRefs(const std::string& catalogKey, const std::string& id,
+							const std::string* newId = nullptr);
+	// Rebuilds the live dynamic objects from the current records — the tail of
+	// an undo restore, reused after a type rename retypes those records.
+	// Surfaces are untouched (a rename doesn't move geometry) EXCEPT wall
+	// features, whose panels are baked into the chunks; those set the geometry
+	// dirty flag so the editor's FlushGeometry re-stamps on the way out.
+	void RespawnFromRecords(bool geometryToo = false);
+
 	// Live entity placement (editor). type is a catalog id (decorations.cat /
 	// monsters.cat). Each instantiates the kind (loading its model/textures on
 	// first use — ExecuteImmediate uploads synchronously, so it is safe mid-
@@ -754,6 +777,10 @@ public:
 	bool CanRedo() const { return !m_redoStack.empty(); }
 	void Undo();
 	void Redo();
+	// Drops both stacks. A level transition does this (a step's snapshot is
+	// only meaningful while its level is live), and so does a type RENAME:
+	// every held snapshot names the type by its old id.
+	void ClearUndoHistory();
 	// An undo/redo restore DEFERS the expensive surface rebake: the full-screen
 	// editor hides the scene and shadow passes, so the stale chunks are never
 	// drawn while it stays up, and repeated undos pay nothing. GeometryDirty
@@ -1930,7 +1957,6 @@ private:
 	// captured diffs (the level-swap flow), geometry fully rebaked (the
 	// quality-swap path).
 	void RestoreEditorState(EditorSnapshot snap);
-	void ClearUndoHistory(); // level transitions invalidate active-level snaps
 	std::vector<EditorSnapshot> m_undoStack;
 	std::vector<EditorSnapshot> m_redoStack;
 	std::optional<EditorSnapshot> m_pendingUndo; // BeginUndoStep .. CommitUndoStep

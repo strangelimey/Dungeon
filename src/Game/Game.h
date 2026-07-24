@@ -134,6 +134,22 @@ private:
 	// Opens the type editor for a catalog id (the palette's right-click), or
 	// does nothing when the catalog/entry is unknown.
 	void OpenTypeEditor(MapEditor::PaletteCat cat, const std::string& id);
+	// Renames a catalog type EVERYWHERE: the entry, every level record that
+	// names it (DungeonWorld::SweepTypeRefs), the cross-catalog references
+	// (stairs `pair`, doors `key`) and the project's default fixture ids. False
+	// (with a reason in `problem`) when the new id is taken or invalid.
+	bool RenameType(const std::string& catalogKey, const std::string& id,
+					const std::string& newId, std::string& problem);
+	// Deletes a catalog type, but only when NOTHING references it — the sweep
+	// names the levels that do, so the caller can say where. Refusing is the
+	// point: a dangling type id would abort the level load that meets it.
+	bool DeleteType(const std::string& catalogKey, const std::string& id,
+					std::string& problem);
+	// Every reference to a type OUTSIDE the levels: another catalog entry's
+	// field (stairs `pair`, doors `key`) or a project.ini default. Returns the
+	// number found, rewriting them when `newId` is given.
+	int SweepCatalogRefs(const std::string& catalogKey, const std::string& id,
+						 const std::string* newId);
 	// Opens a monster type's animation + behaviour dialog (the type editor's
 	// extra button — that dialog owns those rows).
 	void OpenMonsterConfig(const std::string& id);

@@ -86,6 +86,11 @@ public:
 	// path. Returns a reference stable only until the next Add/Remove.
 	CatalogEntry& Add(CatalogEntry entry);
 	void Remove(std::string_view id);
+	// Renames an entry IN PLACE (the editor's type rename). Remove + Add would
+	// move it to the end of the file, taking its lead comments — including a
+	// first entry's, which is the file's header — along with it. False when
+	// `id` is absent or `newId` is taken.
+	bool Rename(std::string_view id, std::string newId);
 
 private:
 	std::vector<CatalogEntry> m_entries;

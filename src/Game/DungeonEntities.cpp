@@ -94,4 +94,15 @@ bool DungeonEntities::RemoveById(int id) {
 	return std::erase_if(m_entities, [&](const Entity& e) { return e.id == id; }) > 0;
 }
 
+int DungeonEntities::SweepTypeRefs(EntityKind kind, std::string_view id,
+								   const std::string* newId) {
+	int hits = 0;
+	for (Entity& e : m_entities) {
+		if (e.kind != kind || e.type != id) continue;
+		++hits;
+		if (newId) e.type = *newId;
+	}
+	return hits;
+}
+
 } // namespace dungeon::game

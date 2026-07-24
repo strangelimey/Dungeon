@@ -7,6 +7,7 @@
 #include "UI/Controls.h"
 
 #include <algorithm>
+#include <cctype>
 #include <charconv>
 #include <cmath>
 #include <format>
@@ -20,7 +21,8 @@ constexpr gfx::Rect kPanel{0.26f, 0.12f, 0.48f, 0.76f};
 constexpr gfx::Rect kTitle{0.28f, 0.145f, 0.40f, 0.04f};
 constexpr gfx::Rect kTabs{0.28f, 0.195f, 0.44f, 0.60f};
 constexpr gfx::Rect kSave{0.28f, 0.815f, 0.09f, 0.045f};
-constexpr gfx::Rect kExtra{0.39f, 0.815f, 0.15f, 0.045f};
+constexpr gfx::Rect kExtra{0.39f, 0.815f, 0.13f, 0.045f};
+constexpr gfx::Rect kDelete{0.53f, 0.815f, 0.075f, 0.045f};
 constexpr gfx::Rect kHelp{0.615f, 0.815f, 0.035f, 0.045f};
 constexpr gfx::Rect kClose{0.66f, 0.815f, 0.09f, 0.045f};
 
@@ -59,6 +61,10 @@ void TypeEditorDialog::Open(Config cfg, std::span<const FieldSpec> schema) {
 	m_cfg.rebake = false;
 	m_schema = schema;
 	m_touched.clear();
+	m_notice.clear();
+	m_editName = false;
+	m_nameHover = false;
+	m_deleteArmed = false;
 
 	// Tab order = the order the sections first appear in the schema table.
 	m_sections.clear();
@@ -84,8 +90,52 @@ void TypeEditorDialog::SetValue(const FieldSpec& spec, std::string value) {
 	if (!Touched(spec.key)) m_touched.emplace_back(spec.key);
 }
 
+// The id's pixel rect inside the title line: hover styles it, a click swaps it
+// for the rename field (the LevelSettingsDialog stem affordance).
+gfx::Rect TypeEditorDialog::IdRect(float w, float h) {
+	const std::string prefix =
+		loc::Format("map.type.title", m_cfg.categoryLabel, "");
+	return {kTitle.x * w + m_font.MeasureWidth(prefix), kTitle.y * h,
+			m_font.MeasureWidth(m_cfg.id) + 6.0f, m_font.Height()};
+}
+
 void TypeEditorDialog::BuildUI() {
 	m_ui.Clear();
+	m_nameField = nullptr;
+	if (m_editName) {
+		// The title row becomes the rename field. Enter commits through
+		// onRename; Esc or losing focus cancels.
+		m_nameField = m_ui.Add<ui::TextField>(
+			gfx::Rect{kTitle.x, kTitle.y, 0.22f, 0.035f}, m_cfg.id);
+		m_nameField->maxLength = 32;
+		m_nameField->SetFocused(true);
+		ui::TextField* raw = m_nameField;
+		raw->onChange = [raw] {
+			// A catalog id is a record word and an asset-safe name (the door /
+			// level-stem rule) — strip anything else as it is typed.
+			std::erase_if(raw->text, [](char ch) {
+				const unsigned char u = static_cast<unsigned char>(ch);
+				return !(std::isalnum(u) || ch == '_' || ch == '-');
+			});
+		};
+		raw->onSubmit = [this, raw] {
+			const std::string next = raw->text;
+			std::string problem;
+			if (next.empty() || next == m_cfg.id) {
+				m_editName = false;
+				m_uiRebuild = true;
+				return;
+			}
+			if (onRename && onRename(m_cfg.id, next, problem)) {
+				m_cfg.id = next;
+				m_notice.clear();
+				m_editName = false;
+			} else {
+				m_notice = problem; // refused: the field stays open to fix it
+			}
+			m_uiRebuild = true; // deferred — we are inside a widget callback
+		};
+	}
 	m_tabs = m_ui.Add<ui::TabControl>(kTabs, 0.07f);
 	for (const char* section : m_sections) m_tabs->AddTab(loc::Tr(section));
 
@@ -195,6 +245,26 @@ void TypeEditorDialog::BuildUI() {
 			Close();
 			if (onExtra) onExtra(cfg);
 		});
+	// Delete is two clicks: the first arms it (the label switches to the
+	// confirm), so a destructive action never fires on a stray click.
+	m_ui.Add<ui::Button>(
+		kDelete, loc::Tr(m_deleteArmed ? "map.type.delete.confirm" : "map.type.delete"),
+		[this] {
+			if (!m_deleteArmed) {
+				m_deleteArmed = true;
+				m_notice = loc::Tr("map.type.delete.arm");
+				m_uiRebuild = true; // the label changes
+				return;
+			}
+			std::string problem;
+			if (onDelete && onDelete(m_cfg.id, problem)) {
+				Close();
+				return;
+			}
+			m_deleteArmed = false;
+			m_notice = problem; // refused: it says which levels still use it
+			m_uiRebuild = true;
+		});
 	m_ui.Add<ui::Button>(kHelp, "?", [this] { m_helpOpen = true; });
 	m_ui.Add<ui::Button>(kClose, loc::Tr("map.cfg.close"), [this] { Close(); });
 }
@@ -219,11 +289,37 @@ void TypeEditorDialog::Update(const Input& input, float w, float h) {
 			m_helpOpen = false;
 		return;
 	}
-	if (input.WasKeyPressed(VK_ESCAPE)) { // discard: nothing was applied live
-		Close();
+	if (input.WasKeyPressed(VK_ESCAPE)) {
+		if (m_editName) { // first Esc only cancels the rename
+			m_editName = false;
+			m_uiRebuild = true;
+			return;
+		}
+		Close(); // discard: nothing was applied live
 		return;
 	}
+
+	// The id in the title is the rename affordance: hover styles it, a click
+	// swaps the title row for the edit field (safe to rebuild immediately —
+	// this is not a widget callback).
+	m_nameHover = false;
+	if (!m_editName) {
+		const gfx::Rect id = IdRect(w, h);
+		m_nameHover = id.Contains(input.MouseX(), input.MouseY());
+		if (m_nameHover && input.WasMousePressed(MouseButton::Left)) {
+			m_editName = true;
+			BuildUI();
+			return; // the press belongs to the affordance, not the new field
+		}
+	}
+
 	m_ui.Update(input, w, h);
+
+	// Clicking away from the open rename field cancels it (Enter is the commit).
+	if (m_editName && m_nameField && !m_nameField->Focused()) {
+		m_editName = false;
+		m_uiRebuild = true;
+	}
 }
 
 void TypeEditorDialog::Render(gfx::SpriteBatch& batch, const ui::Theme& th, float w,
@@ -234,9 +330,24 @@ void TypeEditorDialog::Render(gfx::SpriteBatch& batch, const ui::Theme& th, floa
 	batch.DrawRect(panel, th.panel);
 	ui::DrawBorder(batch, panel, th.panelBorder);
 
-	m_font.Draw(batch, loc::Format("map.type.title", m_cfg.categoryLabel, m_cfg.id),
-				kTitle.x * w, kTitle.y * h, th.text);
+	if (!m_editName) {
+		// Title: the category prefix as plain text, the id as the rename
+		// affordance (accent on hover + an underline so it reads clickable).
+		const std::string prefix =
+			loc::Format("map.type.title", m_cfg.categoryLabel, "");
+		m_font.Draw(batch, prefix, kTitle.x * w, kTitle.y * h, th.text);
+		const gfx::Rect id{kTitle.x * w + m_font.MeasureWidth(prefix), kTitle.y * h,
+						   m_font.MeasureWidth(m_cfg.id), m_font.Height()};
+		m_font.Draw(batch, m_cfg.id, id.x, id.y, m_nameHover ? th.accent : th.text);
+		batch.DrawRect({id.x, id.y + id.h + 1.0f, id.w, 1.0f},
+					   m_nameHover ? th.accent : th.textDim);
+	}
 	m_ui.Render(batch, w, h);
+
+	// A refusal (a rename collision, a type still in use) or the delete arming
+	// note, between the form and the footer.
+	if (!m_notice.empty() && !m_busy)
+		m_font.Draw(batch, m_notice, kTitle.x * w, 0.785f * h, th.accent);
 
 	// While re-baking, freeze the form behind a notice (the owner runs AssetBaker).
 	if (m_busy) {

@@ -504,6 +504,13 @@ map.type.sec.look=Вид
 map.type.sec.material=Материал
 map.type.sec.stats=Характеристики
 map.type.sec.rules=Правила
+map.type.delete=Удалить
+map.type.delete.confirm=Удалить!
+map.type.delete.arm=Нажмите «Удалить» ещё раз, чтобы убрать этот тип.
+map.type.deleted=«{}» удалён.
+map.type.renamed=«{}» переименован в «{}» (записей обновлено: {}) — сохраните карту.
+map.type.inuse=Ещё используется записями ({}) на уровнях: {}
+map.type.inuse.catalog=Ещё упоминается в записях каталога: {}.
 ; --- instance inspectors (per-placed object edit dialogs) ---
 map.insp.facing=Направление
 map.insp.arrow=Стрелка

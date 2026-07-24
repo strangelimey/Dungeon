@@ -296,6 +296,102 @@ void Game::OpenMonsterConfig(const std::string& id) {
 	m_previewMonSubs.clear();
 }
 
+// References to a type that live OUTSIDE the level files: another catalog
+// entry's field, or a project default. Small and closed — every cross-catalog
+// field in the project is listed here — so a rename can't quietly strand one.
+int Game::SweepCatalogRefs(const std::string& catalogKey, const std::string& id,
+						   const std::string* newId) {
+	int hits = 0;
+	// One field of one catalog naming an id of another. The matches are
+	// collected before any write: Catalog::Add mutates the entry vector being
+	// walked.
+	const auto sweepField = [&](Catalog& cat, const char* field) {
+		std::vector<std::string> matches;
+		for (const CatalogEntry& e : cat.Entries())
+			if (e.Get(field, "") == id) matches.push_back(e.id);
+		hits += static_cast<int>(matches.size());
+		if (!newId) return;
+		for (const std::string& entryId : matches) {
+			CatalogEntry copy = *cat.Find(entryId);
+			copy.Set(field, *newId);
+			cat.Add(std::move(copy)); // add-or-replace by id
+		}
+	};
+	// A stair type names the type auto-authored on the other side.
+	if (catalogKey == "stairs") sweepField(m_project.stairs, "pair");
+	// A door names the KEY ITEM that unlocks it.
+	if (catalogKey == "items") sweepField(m_project.doors, "key");
+	// The 'T'/'F' map glyphs resolve through the project's default fixtures.
+	if (catalogKey == "fixtures") {
+		for (std::string* slot : {&m_project.defaultSconce, &m_project.defaultBrazier})
+			if (*slot == id) {
+				++hits;
+				if (newId) *slot = *newId;
+			}
+	}
+	return hits;
+}
+
+// Renames a type everywhere it is named. The level sweep is the big one (every
+// level, including those not in memory); the catalog/project references are the
+// long tail. Live objects are re-spawned from the retyped records afterwards, so
+// what is on screen matches what was written.
+bool Game::RenameType(const std::string& catalogKey, const std::string& id,
+					  const std::string& newId, std::string& problem) {
+	Catalog* cat = m_project.CatalogForKey(catalogKey);
+	if (!cat || !cat->Find(id)) return false;
+	if (newId.empty() || newId == id) return false;
+	if (cat->Contains(newId)) {
+		problem = loc::Format("newasset.err.dup", newId);
+		return false;
+	}
+	// The entry itself, renamed WHERE IT SITS — a remove + re-add would drop it
+	// at the end of the file and take its lead comments (the first entry's are
+	// the file's header) with it.
+	if (!cat->Rename(id, newId)) return false;
+	SweepCatalogRefs(catalogKey, id, &newId);
+	if (!m_project.Save()) log::Warn("rename type: failed to save catalogs");
+
+	const DungeonWorld::TypeUsage used = m_world.SweepTypeRefs(catalogKey, id, &newId);
+	// Live objects still point at kinds cached under the old id (and monsters
+	// hold their type by name), so rebuild them from the records we just wrote.
+	m_world.RespawnFromRecords(catalogKey == "wallfeatures");
+	// The undo stack holds level snapshots taken BEFORE the rename; restoring
+	// one would bring back records naming a type that no longer exists.
+	m_world.ClearUndoHistory();
+	log::Info("Renamed type '{}' -> '{}' ({} record(s) in {} level(s))", id, newId,
+			  used.count, used.levels.size());
+	if (m_world.onMessage)
+		m_world.onMessage(loc::Format("map.type.renamed", id, newId, used.count));
+	return true;
+}
+
+// Deletes a type — but only an UNUSED one. A record naming a missing type is
+// not a soft failure: the level loaders reject or abort on it, so the safe rule
+// is to refuse and say which levels still use it.
+bool Game::DeleteType(const std::string& catalogKey, const std::string& id,
+					  std::string& problem) {
+	Catalog* cat = m_project.CatalogForKey(catalogKey);
+	if (!cat || !cat->Contains(id)) return false;
+	const DungeonWorld::TypeUsage used = m_world.SweepTypeRefs(catalogKey, id);
+	if (used.Any()) {
+		std::string levels;
+		for (const std::string& stem : used.levels)
+			levels += (levels.empty() ? "" : ", ") + stem;
+		problem = loc::Format("map.type.inuse", used.count, levels);
+		return false;
+	}
+	if (const int refs = SweepCatalogRefs(catalogKey, id, nullptr); refs > 0) {
+		problem = loc::Format("map.type.inuse.catalog", refs);
+		return false;
+	}
+	cat->Remove(id);
+	if (!m_project.Save()) log::Warn("delete type: failed to save catalogs");
+	log::Info("Deleted type '{}' from {}", id, catalogKey);
+	if (m_world.onMessage) m_world.onMessage(loc::Format("map.type.deleted", id));
+	return true;
+}
+
 // Type editor Save: merge the dialog's working fields into the catalog entry.
 // Starts from the EXISTING entry so anything the schema doesn't cover — a
 // hand-authored field, or MonsterConfigDialog's states/anim_* rows — survives,

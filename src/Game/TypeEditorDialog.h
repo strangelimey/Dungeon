@@ -39,7 +39,8 @@
 
 namespace dungeon::ui {
 class TabControl;
-}
+class TextField;
+} // namespace dungeon::ui
 
 namespace dungeon::game {
 
@@ -90,6 +91,21 @@ public:
 	// specialised dialog (Monsters: animations + behaviour). No label = no button.
 	std::function<void(const Config&)> onExtra;
 	std::string extraLabel;
+	// Renaming: clicking the id in the title opens an inline edit; Enter commits
+	// through this (the LevelSettingsDialog affordance). The owner does the real
+	// work — catalog entry, every level's records, the cross-catalog references
+	// — and returns false with a reason when it refuses. The dialog adopts the
+	// new id on true.
+	std::function<bool(const std::string& id, const std::string& newId,
+					   std::string& problem)>
+		onRename;
+	// Delete: the owner refuses (false + reason) while anything still references
+	// the type. Two clicks — the first arms the button, so a stray click on a
+	// destructive action can't land.
+	std::function<bool(const std::string& id, std::string& problem)> onDelete;
+
+	// A refusal (or any note) to show under the form until the next edit.
+	void SetNotice(std::string text) { m_notice = std::move(text); }
 
 private:
 	void BuildUI();
@@ -113,6 +129,15 @@ private:
 	std::vector<std::string> m_touched;
 	ui::TabControl* m_tabs = nullptr; // owned by m_ui; the help overlay reads its tab
 	std::vector<const char*> m_sections; // tab order, resolved from the schema
+
+	// --- rename / delete ------------------------------------------------------
+	std::string m_notice;      // refusal or note, drawn under the form
+	bool m_editName = false;   // the title's id is an edit field right now
+	bool m_nameHover = false;  // hover on the id (Update tracks, Render styles)
+	bool m_deleteArmed = false; // the Delete button is one click from firing
+	ui::TextField* m_nameField = nullptr; // valid until the next Clear
+	// The id's pixel rect within the title line — the rename click target.
+	gfx::Rect IdRect(float w, float h);
 };
 
 } // namespace dungeon::game

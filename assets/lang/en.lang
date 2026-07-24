@@ -520,6 +520,13 @@ map.type.sec.look=Look
 map.type.sec.material=Material
 map.type.sec.stats=Stats
 map.type.sec.rules=Rules
+map.type.delete=Delete
+map.type.delete.confirm=Delete!
+map.type.delete.arm=Click Delete again to remove this type.
+map.type.deleted=Deleted '{}'.
+map.type.renamed=Renamed '{}' to '{}' ({} record(s) updated) — Save the map.
+map.type.inuse=Still used by {} record(s) in: {}
+map.type.inuse.catalog=Still referenced by {} other catalog entry/entries.
 
 ; --- asset-creation dialog -------------------------------------------------------
 newasset.title=New {}

@@ -19,6 +19,7 @@
 #include <cmath>
 #include <filesystem>
 #include <format>
+#include <optional>
 
 using namespace DirectX;
 
@@ -179,6 +180,61 @@ bool DungeonWorld::AddPaletteEntry(SurfaceSel sel, const std::string& id) {
 	// reloads both, rebuilds the chunks) — an interactive edit, not per-frame.
 	ReloadDungeonBlocks(/*textureResChanged*/ true);
 	return true;
+}
+
+// --- type rename / delete (editor) ------------------------------------------
+
+DungeonWorld::TypeUsage DungeonWorld::SweepTypeRefs(const std::string& catalogKey,
+													const std::string& id,
+													const std::string* newId) {
+	TypeUsage usage;
+	// Which record family holds this category's ids. A category the static and
+	// dynamic layers both ignore (none today) would simply find nothing.
+	using TR = DungeonMap::TypeRecords;
+	std::optional<TR> statics;
+	std::optional<EntityKind> dynamics;
+	if (catalogKey == "walls") statics = TR::WallPalette;
+	else if (catalogKey == "floors") statics = TR::FloorPalette;
+	else if (catalogKey == "ceilings") statics = TR::CeilingPalette;
+	else if (catalogKey == "decorations") statics = TR::Decoration;
+	else if (catalogKey == "fixtures") statics = TR::Fixture;
+	else if (catalogKey == "wallfeatures") statics = TR::WallFeature;
+	else if (catalogKey == "stairs") statics = TR::Stair;
+	else if (catalogKey == "monsters") dynamics = EntityKind::Monster;
+	else if (catalogKey == "items") dynamics = EntityKind::Item;
+	else if (catalogKey == "buttons") dynamics = EntityKind::Button;
+	else if (catalogKey == "doors") dynamics = EntityKind::Door;
+	if (!statics && !dynamics) return usage;
+
+	// The ACTIVE level's decorations live as instances, not records — sync them
+	// back first (the stash/save rule) so the sweep sees the truth and the
+	// respawn afterwards reads what we wrote.
+	if (statics == TR::Decoration && newId)
+		m_map.SetDecorationRecords(LiveDecorationRecords());
+
+	for (const std::string& stem : m_project.levels) {
+		const bool active = stem == m_currentLevel;
+		int hits = 0;
+		if (statics) {
+			// A level not in memory is parsed on demand — the same lazy stash
+			// the map overlay uses to edit a level it isn't standing on.
+			DungeonMap& map = active ? m_map : EnsureMapStash(stem);
+			hits += map.SweepTypeRefs(*statics, id, newId);
+		}
+		if (dynamics) {
+			DungeonEntities& ents = active ? m_entities : EnsureEntStash(stem);
+			const int n = ents.SweepTypeRefs(*dynamics, id, newId);
+			hits += n;
+			// The active level's records diverge from its file once touched;
+			// the writer only rewrites a .ent it knows is dirty.
+			if (n > 0 && newId && active) m_entsDirty = true;
+		}
+		if (hits > 0) {
+			usage.count += hits;
+			usage.levels.push_back(stem);
+		}
+	}
+	return usage;
 }
 
 bool DungeonWorld::AddPaletteEntryRemote(const std::string& stem, SurfaceSel sel,
@@ -1698,6 +1754,25 @@ void DungeonWorld::RestoreEditorState(EditorSnapshot snap) {
 	// Dynamic layer: respawn from the records, then apply the captured live
 	// diffs — the same flow a level re-entry uses (editor-placed monsters ride
 	// the snapshot's whole-spawn rows).
+	RespawnFromRecords();
+	m_levelStates[m_currentLevel] = std::move(snap.state);
+	ApplyActiveSnapshot();
+
+	// Fires/turbidity from the restored fixtures. The SURFACE rebake is
+	// deferred (m_geometryDirty → FlushGeometry): any cell may differ, so it
+	// would be the full quality-swap rebuild — but the full-screen editor
+	// hides the scene, so the stale chunks are never drawn, undo stays fast,
+	// and a whole editing session pays for one rebake on the way out.
+	RebuildFiresAndDust();
+	m_geometryDirty = true;
+	if (paletteChanged) m_surfacesDirty = true;
+}
+
+// The dynamic layer, rebuilt from whatever the records currently say. Shared by
+// the undo restore (which replaces the records wholesale) and the type rename
+// (which retypes them in place) — in both cases every live object has to be
+// re-resolved through its kind cache, since the type it names may have moved.
+void DungeonWorld::RespawnFromRecords(bool geometryToo) {
 	m_monsters.clear(); // fresh runtimeIds; stale async AI plans find no match
 	m_items.clear();
 	m_buttons.clear();
@@ -1710,17 +1785,12 @@ void DungeonWorld::RestoreEditorState(EditorSnapshot snap) {
 	LoadItems();
 	LoadButtons();
 	LoadDoors();
-	m_levelStates[m_currentLevel] = std::move(snap.state);
-	ApplyActiveSnapshot();
-
-	// Fires/turbidity from the restored fixtures. The SURFACE rebake is
-	// deferred (m_geometryDirty → FlushGeometry): any cell may differ, so it
-	// would be the full quality-swap rebuild — but the full-screen editor
-	// hides the scene, so the stale chunks are never drawn, undo stays fast,
-	// and a whole editing session pays for one rebake on the way out.
-	RebuildFiresAndDust();
-	m_geometryDirty = true;
-	if (paletteChanged) m_surfacesDirty = true;
+	// Fires are NOT rebuilt here: the undo path has to do it after applying its
+	// dynamic diffs (which carry each fixture's lit state), so both callers own
+	// that step themselves.
+	// Wall features are stamped INTO the surface chunks, so retyping one only
+	// shows after a re-stamp; deferred like the undo restore's.
+	if (geometryToo) m_geometryDirty = true;
 }
 
 void DungeonWorld::FlushGeometry() {
