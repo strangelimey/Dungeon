@@ -34,6 +34,11 @@ struct CatInfo {
 	const char* nameKey;
 	const char* catalogKey;
 	bool textureSet;
+	// Whether this category's types go INTO the level. Effects don't — they are
+	// content you author and tune, not content you place — so their rows open
+	// the type editor instead of arming a brush, and they offer no "+ New..."
+	// (an effect needs a CLASS behind it, docs/effects.md).
+	bool placeable = true;
 };
 constexpr CatInfo kCategoryInfo[] = {
 	{"map.cat.walls", "walls", true},       {"map.cat.floors", "floors", true},
@@ -44,6 +49,7 @@ constexpr CatInfo kCategoryInfo[] = {
 	{"map.cat.stairs", "stairs", false},    {"map.cat.items", "items", false},
 	{"map.cat.weapons", "weapons", false},  {"map.cat.armor", "armor", false},
 	{"map.cat.wallfeatures", "wallfeatures", false},
+	{"map.cat.effects", "effects", false, /*placeable*/ false},
 };
 static_assert(sizeof(kCategoryInfo) / sizeof(kCategoryInfo[0]) ==
 				  static_cast<size_t>(MapEditor::PaletteCat::Count),
@@ -62,6 +68,7 @@ MapEditor::MapEditor(MapView& view, DungeonWorld& world, GameSettings& settings)
 const char* MapEditor::CategoryNameKey(PaletteCat cat) { return CatInfoFor(cat).nameKey; }
 const char* MapEditor::CategoryCatalogKey(PaletteCat cat) { return CatInfoFor(cat).catalogKey; }
 bool MapEditor::CategoryTextureSet(PaletteCat cat) { return CatInfoFor(cat).textureSet; }
+bool MapEditor::CategoryPlaceable(PaletteCat cat) { return CatInfoFor(cat).placeable; }
 
 MapEditor::PaletteCat MapEditor::CatForCatalogKey(std::string_view catalogKey) {
 	for (size_t i = 0; i < static_cast<size_t>(PaletteCat::Count); ++i)
@@ -142,6 +149,7 @@ std::vector<MapEditor::PaletteItem> MapEditor::CategoryItems(PaletteCat cat) con
 	case PaletteCat::Weapons:     return catalogItems(proj.weapons, kItem);
 	case PaletteCat::Armor:       return catalogItems(proj.armor, kItem);
 	case PaletteCat::WallFeatures: return catalogItems(proj.wallfeatures, kDecoration);
+	case PaletteCat::Effects:     return catalogItems(proj.effects, kMonster);
 	default:                      return {};
 	}
 }
@@ -404,8 +412,17 @@ bool MapEditor::OnClick(float mx, float my, const gfx::Rect& panel) {
 			m_catOpen[static_cast<size_t>(r.cat)] = !m_catOpen[static_cast<size_t>(r.cat)];
 		else if (r.kind == PaletteRow::Kind::SubHeader)
 			m_groupOpen[GroupKey(r.cat, r.group)] = !GroupOpen(r.cat, r.group);
-		else if (r.kind == PaletteRow::Kind::Item)
-			m_sel = {r.cat, r.index};
+		else if (r.kind == PaletteRow::Kind::Item) {
+			// A placeable type arms the brush; a non-placeable one has nothing
+			// to arm, so a click opens its editor (what right-click does for
+			// every row) rather than silently doing nothing.
+			if (CategoryPlaceable(r.cat)) m_sel = {r.cat, r.index};
+			else if (onConfigure) {
+				const std::vector<PaletteItem> items = CategoryItems(r.cat);
+				if (r.index >= 0 && r.index < static_cast<int>(items.size()))
+					onConfigure(r.cat, items[r.index].id);
+			}
+		}
 		else if (r.kind == PaletteRow::Kind::NewButton && onNewAsset)
 			onNewAsset(r.cat);
 		return true;

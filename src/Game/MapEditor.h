@@ -55,6 +55,7 @@ public:
 		Walls, Floors, Ceilings,
 		Decorations, Fixtures, Monsters, Buttons, Doors, Stairs,
 		Items, Weapons, Armor, WallFeatures,
+		Effects, // authored + tuned, never placed (see CategoryPlaceable)
 		Count
 	};
 
@@ -94,6 +95,10 @@ public:
 	static const char* CategoryNameKey(PaletteCat cat);
 	static const char* CategoryCatalogKey(PaletteCat cat);
 	static bool CategoryTextureSet(PaletteCat cat);
+	// Whether this category's types go INTO the level. False for the ones you
+	// only author and tune (Effects): their rows open the type editor rather
+	// than arming a brush, and they offer no "+ New...".
+	static bool CategoryPlaceable(PaletteCat cat);
 	// The reverse lookup, for code that starts from a catalog key (the asset
 	// dialog's request); Count when no category owns it.
 	static PaletteCat CatForCatalogKey(std::string_view catalogKey);
@@ -233,7 +238,10 @@ private:
 
 	// Every category authors new assets — each gets a "+ New..." row that
 	// opens the asset dialog.
-	static bool Creatable(PaletteCat) { return true; }
+	// "+ New..." appears only where the editor can actually author a new type.
+	// An effect can't be created from data alone — it needs a C++ class — so
+	// its category offers browse-and-edit only.
+	static bool Creatable(PaletteCat cat) { return CategoryPlaceable(cat); }
 
 	// The items of a category, resolved from the project's catalogs / the
 	// level palette (Walls/Floors/Ceilings/entities).

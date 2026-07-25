@@ -325,6 +325,39 @@ constexpr FieldSpec kArmorFields[] = {
 	 .help = "Per-type resistance granted when worn, e.g. 'slash 0.2, fire 0.1'."},
 };
 
+// --- status effects ---------------------------------------------------------
+// What an effect IS and how it reads (docs/effects.md). Deliberately no dps or
+// duration: those are authored at the SOURCE that inflicts it — a weapon's or a
+// monster's `on_hit` — because the same burn is a different fire on every blade.
+// An effect's BEHAVIOUR is its class, so this catalog cannot create one.
+constexpr FieldSpec kEffectFields[] = {
+	{.key = "name", .kind = FieldKind::Text, .sectionKey = kSectionIdentity,
+	 .help = "Display name loc key; the sheet appends '.desc' for the long form."},
+	{.key = "icon", .kind = FieldKind::Text, .sectionKey = kSectionLook,
+	 .help = "Item id whose baked icon it borrows in the HUD strip; empty = a tinted square."},
+	{.key = "school", .kind = FieldKind::Enum, .sectionKey = kSectionLook,
+	 .help = "Tint (and flavour) when the source lends none of its own.",
+	 .options = "fire earth air water", .def = "fire"},
+	{.key = "plume", .kind = FieldKind::Bool, .sectionKey = kSectionLook,
+	 .help = "Its bearer visibly burns: a flame plume and its own coloured light.",
+	 .def = "0"},
+	// NOTE the shown value is the schema default when the entry omits the field,
+	// and `burn` omits it deliberately — its class resolves the type per
+	// instance. Hence the second sentence: without it the row reads as a claim
+	// that a burn deals bash damage.
+	{.key = "damage_type", .kind = FieldKind::Enum, .sectionKey = kSectionStats,
+	 .help = "What a DoT is RESISTED as — not its tint (bleeding is pierce). "
+			 "A burn ignores this: it answers to whatever element lit it.",
+	 .options = "slash pierce bash fire earth air water", .def = "bash"},
+	{.key = "stacking", .kind = FieldKind::Enum, .sectionKey = kSectionRules,
+	 .help = "refresh = replace it; school = replace only the same school's; stack = pile up.",
+	 .options = "refresh school stack", .def = "refresh"},
+	{.key = "apply_party", .kind = FieldKind::Text, .sectionKey = kSectionRules,
+	 .help = "Loc key announcing it took hold on a MEMBER; takes their name."},
+	{.key = "apply_monster", .kind = FieldKind::Text, .sectionKey = kSectionRules,
+	 .help = "Loc key announcing it took hold on a MONSTER; takes its name."},
+};
+
 // --- wall features ----------------------------------------------------------
 constexpr FieldSpec kWallFeatureFields[] = {
 	IDENTITY_DISPLAY,
@@ -350,6 +383,7 @@ std::span<const FieldSpec> SchemaFor(std::string_view catalogKey) {
 	if (catalogKey == "weapons") return kWeaponFields;
 	if (catalogKey == "armor") return kArmorFields;
 	if (catalogKey == "wallfeatures") return kWallFeatureFields;
+	if (catalogKey == "effects") return kEffectFields;
 	return {};
 }
 

@@ -329,9 +329,54 @@ re-saved, showing both effects still on it with their timers ticked down
 by the elapsed seconds, which is the proof they came back LIVE rather
 than as an echo.
 
-**P6 — the editor.**
-`effects.cat` gets a `CatalogSchema` entry and a palette/dialog like
-every other catalog, so effects are tunable live next to Balance.
+**P6 — the editor. LANDED 2026-07-24.**
+`effects.cat` has a `CatalogSchema` entry (name / icon / school / plume /
+damage_type / stacking / the two apply lines) and an **Effects** palette
+category, so an effect is browsable and editable like every other type.
+
+The interesting part was what an effect is NOT: content you author and
+tune, never content you place. So `CatInfo` gained a `placeable` flag, and
+where it is false:
+- a row click opens the type editor instead of arming a brush (there is
+  nothing to arm, and doing nothing would just look broken);
+- there is no **+ New...** row — an effect needs a C++ CLASS, and data
+  alone cannot make one;
+- **Delete refuses**, with a reason. Removing the entry would not remove
+  the effect; it would silently revert it to its class defaults, which is
+  not what a Delete button promises.
+
+Known wart, inherited rather than introduced: a field the entry OMITS
+shows the schema default, indistinguishable from an explicit value. It
+bites `burn`, which deliberately has no `damage_type` (its class resolves
+one per instance from whatever lit it) and so displays "bash". The help
+text names the exception; the real fix is a dialog that renders "unset"
+distinctly — an open item from the type-authoring thread.
+
+*Verified in game:* the Effects category lists the kinds with no "+ New";
+clicking `burn` opens "Effects type — burn" with its four tabs; Look shows
+icon/school/plume read from the catalog (plume ticked); poison's Stats
+shows its explicit `earth`; and Save round-trips the file with every field
+and comment intact, still valid UTF-8.
+
+---
+
+## Status — all six phases landed
+
+What began as "the fire sword needs somewhere to put a burn" is now one
+pipeline: every source of damage builds a `DamageEvent`, one `ITarget`
+serves members and monsters alike, effects are classes with catalog-tuned
+numbers, content names them by id, they survive a save, and they are
+editable in the editor.
+
+Left undone, deliberately:
+- The **wind ward deflecting a real bolt** has never been observed live —
+  the test level's one caster never fires before the swarms close. It
+  wants a scratch level with a single ranged monster.
+- **Party poison and bleed are now resisted** (P3's per-tick rule), which
+  they never were. Nothing in the current content has enough earth or
+  pierce resistance for it to show, but it is a live balance change.
+- The **modifier hook** (`StatBonus`/`SpeedScale`) ships unused, waiting
+  for the first slow or blessing.
 
 ## Decisions (Michael, 2026-07-24 — SETTLED)
 
