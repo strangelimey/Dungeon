@@ -952,14 +952,6 @@ private:
 
 	struct MultiMaterialModel; // defined below (shared with decorations/items)
 
-	// A damage-over-time proc authored on ONE catalog line, "<dps> <seconds>
-	// [chance]" (ParseHitEffect): a landed blow rolls the chance and lands the
-	// DoT. Shared by the two sides — a monster's on-hit poison/bleed and an
-	// enchanted weapon's elemental burn. dps 0 = the line was absent.
-	struct HitEffect {
-		float dps = 0.0f, duration = 0.0f, chance = 1.0f;
-	};
-
 	// Per-kind monster assets (shared) and per-instance state. Kinds are
 	// entity type names from the .ent file ("skeleton" loads skeleton.gltf).
 	struct MonsterKind {
@@ -985,10 +977,11 @@ private:
 		// (`dmgtype`, default bash). Ranged/spell attacks type by school.
 		ResistTable resists;
 		DamageType damageType = DamageType::Bash;
-		// On-hit status effects (Phase 6, catalog `poison = <dps> <seconds>
-		// [chance]` / `bleed = ...`): a LANDED melee blow rolls the chance
-		// and lands the DoT (reapply refreshes). dps 0 = the type carries none.
-		HitEffect poison, bleed;
+		// What a LANDED melee blow may leave behind (monsters.cat `on_hit =
+		// poison 1 20, bleed 2 10 0.5`): effects named by ID, rolled and
+		// landed by fx::ApplyProcs. The older one-per-line `poison =` /
+		// `bleed =` fields still load, appended as the same procs.
+		std::vector<fx::Proc> onHit;
 		// Melee reach in cells (Phase 7, catalog `reach`): 1 = must be in the
 		// adjacent ring; 2 = a pike — melees from its QUEUE post down a clear
 		// shared row/column (the monster mirror of the party's rear-rank
@@ -1228,13 +1221,17 @@ private:
 		// ENCHANTMENT (the fire sword, catalog `element = fire`): the weapon
 		// carries a school's element into every LANDED blow, on top of the
 		// physical damage — `element_bonus` of the blow's assembled damage as
-		// that element (through the target's resist for it), then a roll on
-		// `element_dot` to leave the target burning. enchanted=false (no
-		// `element` line) = an ordinary weapon, both terms skipped.
+		// that element, through the target's resist for it. enchanted=false
+		// (no `element` line) = an ordinary weapon, the term skipped.
 		bool enchanted = false;
 		SpellSymbol element = SpellSymbol::Fire;
 		float elementBonus = 0.0f;
-		HitEffect elementDot;
+		// What a landed blow leaves behind (`on_hit = burn 3 6 0.5`), the same
+		// authored form a monster uses. An enchanted weapon lends its element
+		// as the effects' flavour, so the SAME `on_hit = burn` reads as fire on
+		// one blade and as a freezing burn on another. The older `element_dot`
+		// line still loads, appended as an `on_hit = burn ...` proc.
+		std::vector<fx::Proc> onHit;
 		// The defender side of a WORN piece (part 4): per-type resist cells
 		// plus a small flat soak, summed across the equipment slots.
 		ResistTable resists;
@@ -1669,13 +1666,6 @@ private:
 	Fall WoundMember(Character& target, float damage, bool quiet = false);
 	// A landed monster blow rolls its type's on-hit DoT (Phase 6): chance,
 	// then land/refresh the effect with its log line. No-op for dps 0.
-	void ApplyHitEffect(Character& target, std::string_view effectId,
-						const HitEffect& fx);
-	// The monster mirror: a landed blow with an ENCHANTED weapon rolls the
-	// weapon's `element_dot` and, on a hit, sets the target alight (refreshing
-	// any fire already on it). A target IMMUNE to the element never catches.
-	void IgniteMonster(Monster& monster, SpellSymbol school, const HitEffect& fx,
-					   int source);
 	// Strip a monster's effects (and with them its plume) — a corpse carries
 	// nothing. Called from the apply stage when a blow finishes it.
 	static void Extinguish(Monster& monster);
@@ -1711,8 +1701,7 @@ private:
 			fx::DamageEvent ev = fx::DamageEvent::Tick(
 				static_cast<DamageType>(i), bite[i], DotSource(effects));
 			ev.resisted = true; // a DoT answers to resistance as it bites
-			fx::Deal(ev, target, nullptr, m_balance.Strike(), EffectKnobs(),
-					 m_combatRng);
+			fx::Deal(ev, target, m_balance.Strike(), m_combatRng);
 		}
 	}
 	// Who to credit a DoT tick's damage to: the first sourced DoT on the list
@@ -1730,11 +1719,12 @@ private:
 	// effects.cat `plume`), or null. The plume and its light both read it, so
 	// what is drawn always follows what is actually on the monster.
 	static const fx::Inst* PlumeEffect(const Monster& monster);
-	// Read one catalog DoT line, "<dps> <seconds> [chance]" (`where` names the
-	// entry in the warning). An empty spec leaves `fx` untouched (dps 0 = none).
-	// Shared by the monster kinds' poison/bleed and a weapon's element_dot.
-	static void ParseHitEffect(const std::string& spec, HitEffect& fx,
-							   std::string_view where);
+	// Read a catalog's on-hit procs: the `on_hit` list, plus the older
+	// one-effect-per-line fields (`poison`/`bleed` on a monster,
+	// `element_dot` on a weapon) appended as procs naming the same effects.
+	// `where` names the entry in any warning.
+	static void ParseOnHit(const CatalogEntry* def, std::vector<fx::Proc>& out,
+						   std::string_view where);
 	// A log line ABOUT `member`: routes through onMemberMessage with their
 	// identity color (the HUD tints it), falling back to plain onMessage.
 	void MemberMessage(const Character& member, const std::string& line) const;
@@ -1771,6 +1761,7 @@ private:
 		void Wound(float amount, fx::DamageEvent& ev) override;
 		std::string Name() const override { return m_member.name; }
 		void Say(const std::string& line) const override;
+		void SayApplied(const fx::EffectKind& kind) const override;
 
 		// Say the one-shot fall line for the wound just applied ("has
 		// fallen!" / "has died!"), if any. The CALLER calls this after its own
@@ -1795,6 +1786,7 @@ private:
 		void Wound(float amount, fx::DamageEvent& ev) override;
 		std::string Name() const override;
 		void Say(const std::string& line) const override;
+		void SayApplied(const fx::EffectKind& kind) const override;
 
 	private:
 		DungeonWorld& m_world;

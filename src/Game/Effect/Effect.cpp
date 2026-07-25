@@ -7,6 +7,9 @@
 #include "Game/Catalog.h"
 
 #include <algorithm>
+#include <array>
+#include <cctype>
+#include <cstdlib>
 
 namespace dungeon::game::fx {
 
@@ -24,10 +27,15 @@ DamageType EffectKind::DamageTypeOf(const Inst&) const { return m_damageType; }
 void EffectKind::ApplyOverrides(const CatalogEntry& e) {
 	m_nameKey = e.Get("name", m_nameKey);
 	m_iconItem = e.Get("icon", m_iconItem);
+	m_applyParty = e.Get("apply_party", m_applyParty);
+	m_applyMonster = e.Get("apply_monster", m_applyMonster);
 	m_plume = e.GetBool("plume", m_plume);
 	if (const std::string type = e.Get("damage_type", ""); !type.empty())
 		if (!ParseDamageType(type, m_damageType))
 			log::Warn("effects.cat [{}]: unknown damage_type '{}'", m_id, type);
+	if (const std::string school = e.Get("school", ""); !school.empty())
+		if (!ParseSymbol(school, m_school))
+			log::Warn("effects.cat [{}]: unknown school '{}'", m_id, school);
 	const std::string stacking = e.Get("stacking", "");
 	if (stacking == "refresh") m_stacking = Stacking::Refresh;
 	else if (stacking == "school") m_stacking = Stacking::RefreshPerSchool;
@@ -73,6 +81,71 @@ DamageEvent DamageEvent::Impact(DamageType type, float amount, int source) {
 			.resisted = false};
 }
 
+// --- authored procs -----------------------------------------------------------
+
+void ParseProcs(std::string_view spec, std::vector<Proc>& out,
+				std::string_view where) {
+	size_t start = 0;
+	while (start < spec.size()) {
+		size_t end = spec.find_first_of(",;", start);
+		if (end == std::string_view::npos) end = spec.size();
+		const std::string_view entry = spec.substr(start, end - start);
+		start = end + 1;
+		// Split the entry on whitespace: <id> <magnitude> <seconds> [chance].
+		std::array<std::string_view, 4> token{};
+		size_t n = 0, i = 0;
+		while (i < entry.size() && n < token.size()) {
+			while (i < entry.size() && std::isspace(static_cast<unsigned char>(entry[i]))) ++i;
+			const size_t from = i;
+			while (i < entry.size() && !std::isspace(static_cast<unsigned char>(entry[i]))) ++i;
+			if (i > from) token[n++] = entry.substr(from, i - from);
+		}
+		if (n == 0) continue; // blank entry (trailing comma) — not an error
+		if (n < 3) {
+			log::Warn("{}: on-hit '{}' needs <id> <magnitude> <seconds> [chance]",
+					  where, entry);
+			continue;
+		}
+		Proc proc;
+		proc.id = std::string(token[0]);
+		proc.magnitude = std::strtof(std::string(token[1]).c_str(), nullptr);
+		proc.duration = std::strtof(std::string(token[2]).c_str(), nullptr);
+		if (n >= 4) proc.chance = std::strtof(std::string(token[3]).c_str(), nullptr);
+		out.push_back(std::move(proc));
+	}
+}
+
+void ApplyProcs(ITarget& target, std::span<const Proc> procs,
+				std::optional<SpellSymbol> school, int source,
+				const EffectBook& book, std::mt19937& rng) {
+	std::uniform_real_distribution<float> roll(0.0f, 1.0f);
+	for (const Proc& proc : procs) {
+		if (proc.magnitude <= 0.0f || proc.duration <= 0.0f) continue;
+		if (roll(rng) > proc.chance) continue;
+		const EffectKind* kind = book.Find(proc.id);
+		if (!kind) {
+			log::Warn("on-hit proc names effect '{}', which has no kind", proc.id);
+			continue;
+		}
+		const SpellSymbol flavour = school.value_or(kind->DefaultSchool());
+		// IMMUNITY refuses outright: flames find no purchase on a fire
+		// elemental, and it would be odd to watch one burn for nothing.
+		if (kind->Kind() == Category::Dot) {
+			const Inst probe{kind, flavour};
+			if (target.Resist(kind->DamageTypeOf(probe)) >= 1.0f) continue;
+		}
+		// Announce only what's NEW: a refresh is the same affliction lasting
+		// longer, not a fresh alarm.
+		const bool already =
+			std::ranges::any_of(target.Effects(), [&](const Inst& e) {
+				return e.kind == kind;
+			});
+		Apply(target.Effects(), *kind, flavour, proc.magnitude, proc.duration,
+			  source);
+		if (!already) target.SayApplied(*kind);
+	}
+}
+
 // --- the pipeline -------------------------------------------------------------
 
 float EffectResist(const std::vector<Inst>& effects, DamageType type,
@@ -92,8 +165,8 @@ void DropSpent(std::vector<Inst>& effects) {
 }
 } // namespace
 
-void Deal(DamageEvent& ev, ITarget& target, ITarget* attacker,
-		  const StrikeRules& rules, const Knobs& knobs, std::mt19937& rng) {
+void Deal(DamageEvent& ev, ITarget& target, const StrikeRules& rules,
+		  std::mt19937& rng) {
 	// --- 1. deflect: an effect may turn it aside before anything is rolled ---
 	for (Inst& e : target.Effects()) {
 		if (e.kind) e.kind->OnDeflect(e, ev, target);

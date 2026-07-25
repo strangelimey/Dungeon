@@ -28,7 +28,9 @@
 #include "Game/Spells.h" // SpellSymbol (an effect's school: tint + flavour)
 
 #include <memory>
+#include <optional>
 #include <random>
+#include <span>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -61,6 +63,28 @@ enum class Stacking : u8 {
 struct Inst;
 struct DamageEvent;
 class ITarget;
+class EffectKind;
+class EffectBook;
+
+// An ON-HIT PROC as content authors it: an effect id plus the numbers to land
+// it with — "burn 3 6 0.5" is "burn at 3 a second for 6 seconds, half the
+// time". A landed blow rolls each of its source's procs (ApplyProcs).
+//
+// This is how a weapon or a monster names an effect: by ID, so a serrated
+// blade authors `on_hit = bleed` and a frost axe `element = water` +
+// `on_hit = burn` with no engine change at all.
+struct Proc {
+	std::string id;         // effects.cat / class id
+	float magnitude = 0.0f; // a DoT's damage per second
+	float duration = 0.0f;  // seconds
+	float chance = 1.0f;    // 0..1 roll on a landed blow
+};
+
+// Parse an authored proc list: entries separated by commas or semicolons, each
+// "<id> <magnitude> <seconds> [chance]". `where` names the catalog entry in any
+// warning. An empty spec adds nothing.
+void ParseProcs(std::string_view spec, std::vector<Proc>& out,
+				std::string_view where);
 
 // The few balance.cat knobs an effect's own maths needs, handed in by the host
 // so this module never includes Balance.h (and the knobs stay in the editor's
@@ -153,6 +177,11 @@ public:
 	// For the lines effects write about their bearer.
 	virtual std::string Name() const = 0;
 	virtual void Say(const std::string& line) const = 0;
+	// Announce that `kind` has just taken hold. The two sides word the same
+	// affliction differently — "Sera is poisoned!" against "The blob catches
+	// fire!" — so each effect supplies BOTH lines (effects.cat apply_party /
+	// apply_monster) and the target picks the one that fits its grammar.
+	virtual void SayApplied(const EffectKind& kind) const = 0;
 };
 
 // One effect's shared half: what it IS, what it looks like, how it stacks.
@@ -223,14 +252,25 @@ public:
 	// it to decide what to draw, and the effect list stays the single truth of
 	// what is actually happening (effects.cat `plume`).
 	bool Plume() const { return m_plume; }
+	// The lines announcing that this effect took hold, one per side (either may
+	// be empty for an effect that arrives silently). Both take the bearer's
+	// name. effects.cat apply_party / apply_monster.
+	const std::string& ApplyLine(bool onMonster) const {
+		return onMonster ? m_applyMonster : m_applyParty;
+	}
+	// The school an instance takes when its source doesn't name one — a
+	// monster's poison has no element behind it, but still wants earth green.
+	SpellSymbol DefaultSchool() const { return m_school; }
 
 protected:
 	std::string m_id;
 	std::string m_nameKey;
 	std::string m_iconItem;
+	std::string m_applyParty, m_applyMonster;
 	Category m_category;
 	Stacking m_stacking;
 	DamageType m_damageType = DamageType::Bash;
+	SpellSymbol m_school = SpellSymbol::Fire;
 	bool m_plume = false;
 };
 
@@ -273,13 +313,28 @@ Inst& Apply(std::vector<Inst>& effects, const EffectKind& kind,
 float EffectResist(const std::vector<Inst>& effects, DamageType type,
 				   const Knobs& knobs);
 
+// Roll a landed blow's on-hit procs against `target` and land the ones that
+// take, announcing each through the target. THE one place a proc becomes an
+// effect — a monster's venom, an enchanted blade's fire, a serrated edge's
+// bleed all arrive here.
+//
+// `school` flavours them when the source has an element to lend (a weapon's);
+// without one each effect falls back to its own default. A target IMMUNE to
+// what a DoT deals never catches it at all. `source` is the roster index to
+// credit the ticks to, or -1.
+void ApplyProcs(ITarget& target, std::span<const Proc> procs,
+				std::optional<SpellSymbol> school, int source,
+				const EffectBook& book, std::mt19937& rng);
+
 // THE path damage takes: walk `ev` through stages 1-5 against `target` —
 // deflect, strike, mitigate, absorb, apply. Everything is reported back in
 // `ev` (deflected / hit / dealt / slew); the caller narrates from that.
 //
-// `attacker` is whoever dealt it (null for a wall, a tick, an unowned source).
-void Deal(DamageEvent& ev, ITarget& target, ITarget* attacker,
-		  const StrikeRules& rules, const Knobs& knobs, std::mt19937& rng);
+// (Whoever DEALT it matters only to the react stage, which is React's job, so
+// it is not a parameter here; the target's own adapter applies the knobs when
+// it resolves a resist, so those are not either.)
+void Deal(DamageEvent& ev, ITarget& target, const StrikeRules& rules,
+		  std::mt19937& rng);
 
 // Stage 6, split out so the CALLER can narrate first: a reaction writes its own
 // line ("the blob is scorched by the fire shield") and that has to read after

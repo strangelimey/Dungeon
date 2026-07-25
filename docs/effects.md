@@ -263,12 +263,45 @@ has ever carried a poison. Dev: `effect <id> ahead [magnitude] [seconds]`
 is the only hand-authored way onto a monster, and the way to watch an
 effect tick without a weapon that procs it.
 
-**P4 — content authors effects by id.**
-Weapons: `on_hit = <effect id> <numbers>` (superseding `element_dot`,
-which stays parsed as a deprecated alias for one release). Spells:
-`WardSpell`/`BoltSpell` apply effects through the system instead of
-pushing onto `caster.effects` directly. Monsters: `poison`/`bleed`
-become the same `on_hit` list.
+**P4 — content authors effects by id. LANDED 2026-07-24.**
+`fx::Proc` — an effect id plus its numbers — is what a weapon or a monster
+authors: `on_hit = burn 3 6 0.5, bleed 2 10`, comma-separated, parsed by
+`fx::ParseProcs` and rolled by `fx::ApplyProcs`. Both sides use the same
+field and the same function; `IgniteMonster` and `ApplyHitEffect` are
+gone, and with them the last per-side copy of "roll it, land it, announce
+it". The older one-effect-per-line fields (`poison`/`bleed` on a monster,
+`element_dot` on a weapon) still load, appended as procs naming the same
+effects, so no catalog had to be rewritten — though the demo's were.
+
+(The spell half of this phase was already done: wards and sights have
+applied through `CastServices::applyEffect` since P1.)
+
+As built:
+- **Each effect owns its two announce lines** (effects.cat `apply_party` /
+  `apply_monster`), because the two sides word the same affliction
+  differently — "Sera is poisoned!" against "The blob is poisoned!". The
+  target picks the one that fits its grammar (`ITarget::SayApplied`), and
+  only a NEW affliction announces: a refresh is the same thing lasting
+  longer, not a fresh alarm.
+- **An element is a flavour, not a separate mechanism.** A weapon's
+  `element` lends its school to whatever its procs land, so the *same*
+  `on_hit = burn` is fire on the flamebrand and a freezing burn on the
+  frostbrand — resisted as water, plume running cold blue.
+- **Immunity refuses outright** rather than letting something burn for
+  nothing.
+- `fx::Deal` lost its `attacker` and `knobs` parameters — React took the
+  first, the target's adapter applies the second. An unused parameter
+  that suggests otherwise is worse than none.
+
+*Content proving it:* `[frostbrand]` (same burn, water element) and
+`[serrated_blade]` (no enchantment at all — just `on_hit = bleed`), both
+pure catalog entries, placed on the start level. The demo's monsters were
+converted to `on_hit` in place.
+
+*Verified in game:* both new weapons load, equip and fight; the monster
+side lands its converted `on_hit = poison` on a member; and a traced run
+confirmed the weapon path — proc parsed (1 proc from `on_hit`), landed on
+the blob, announced once, then silent on the refreshing hits.
 
 **P5 — save.** (Half of this landed in P1: the character side is already
 id-keyed, with the legacy tokens mapping forward.) What is left is the

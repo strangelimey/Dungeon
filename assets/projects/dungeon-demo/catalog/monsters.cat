@@ -116,7 +116,7 @@ iq = 130
 archetype = lurker
 resists = pierce 0.5, slash 0.25, bash -0.5
 dmgtype = slash
-bleed = 2 10 0.5
+on_hit = bleed 2 10 0.5
 
 [blob]
 display = Blob
@@ -136,7 +136,7 @@ faces = false
 roughness = 0.18
 resists = pierce 0.6, bash 0.3, slash -0.25
 dmgtype = bash
-poison = 1 20 1
+on_hit = poison 1 20 1
 
 [mummy]
 display = Mummy
@@ -198,7 +198,7 @@ aggro = 7
 movecd = 0.4
 iq = 120
 size = large
-poison = 1.5 6 0.35
+on_hit = poison 1.5 6 0.35
 resists = bash -0.25
 dmgtype = pierce
 states = idle incombat walk run attack hit die
@@ -226,7 +226,7 @@ movecd = 0.5
 iq = 90
 size = large
 archetype = lurker
-poison = 2 8 0.5
+on_hit = poison 2 8 0.5
 resists = pierce 0.25
 dmgtype = pierce
 states = spawn idle incombat walk run attack hit die

@@ -137,10 +137,6 @@ void DungeonWorld::RecomputePartyMaxima() {
 							   m_balance.kMana);
 }
 
-// --- the defender side (docs/combat.md part 4) --------------------------------
-// One resist table per side, summed from its sources and clamped by the
-// balance rule (±resist_clamp; an authored nature cell at 1.0 = immunity).
-
 // --- the pipeline's two faces (docs/effects.md) -------------------------------
 // Everything fx::Deal needs to know about a combatant. The defender numbers are
 // what PartyDefense/MonsterDefense used to assemble; the difference is that the
@@ -182,6 +178,11 @@ void DungeonWorld::PartyTarget::Say(const std::string& line) const {
 	m_world.MemberMessage(m_member, line);
 }
 
+void DungeonWorld::PartyTarget::SayApplied(const fx::EffectKind& kind) const {
+	const std::string& key = kind.ApplyLine(/*onMonster=*/false);
+	if (!key.empty()) Say(loc::Format(key, m_member.name));
+}
+
 float DungeonWorld::MonsterTarget::Evasion() const {
 	return m_monster.kind->evasion;
 }
@@ -201,6 +202,11 @@ std::string DungeonWorld::MonsterTarget::Name() const {
 
 void DungeonWorld::MonsterTarget::Say(const std::string& line) const {
 	m_world.onMessage(line);
+}
+
+void DungeonWorld::MonsterTarget::SayApplied(const fx::EffectKind& kind) const {
+	const std::string& key = kind.ApplyLine(/*onMonster=*/true);
+	if (!key.empty()) Say(loc::Format(key, Name()));
 }
 
 // The monster half of the apply stage: hit points, the grudge, the flinch, and
@@ -224,32 +230,10 @@ void DungeonWorld::MonsterTarget::Wound(float amount, fx::DamageEvent& ev) {
 	}
 }
 
-void DungeonWorld::ApplyHitEffect(Character& target, std::string_view effectId,
-								  const HitEffect& proc) {
-	if (proc.dps <= 0.0f || proc.duration <= 0.0f) return;
-	std::uniform_real_distribution<float> roll(0.0f, 1.0f);
-	if (roll(m_combatRng) > proc.chance) return;
-	const fx::EffectKind* kind = m_effects.Find(effectId);
-	if (!kind) {
-		log::Warn("on-hit effect '{}' has no kind; not applied", effectId);
-		return;
-	}
-	// Reapply REFRESHES — but that is the KIND's rule now (fx::Apply reads its
-	// stacking policy), not something each application site restates. School
-	// carries only the HUD tint here: poison rides earth green, bleed fire red
-	// (the palette convention until richer art exists).
-	const bool poison = effectId == "poison";
-	fx::Apply(target.effects, *kind,
-			  poison ? SpellSymbol::Earth : SpellSymbol::Fire, proc.dps,
-			  proc.duration);
-	MemberMessage(target, loc::Format(poison ? "log.poisoned" : "log.bleeding",
-									  target.name));
-}
-
-// --- burning monsters (the enchanted-weapon proc) -----------------------------
-// The mirror of ApplyHitEffect above, for the other side of the fight. A
-// Character carries a LIST of status effects; a monster carries this one slot,
-// which is all the content needs so far — see Monster::burnDps.
+// --- burning bodies -----------------------------------------------------------
+// What being ON FIRE looks like. The fire itself is an ordinary effect on the
+// monster's list (Effect/DotEffect.h); these two answer "so where do the flames
+// go, and what colour are they" for whichever effect happens to burn.
 
 // How the flames read per school: the FireEffect palette is authored orange, so
 // fire burns untinted and the other three recolour it (a water "burn" is the
@@ -269,29 +253,6 @@ Vec3 DungeonWorld::BurnTint(SpellSymbol school) {
 Vec3 DungeonWorld::BurnOrigin(const Monster& monster) {
 	return {monster.visualPos.x, monster.visualPos.y + 0.34f * kUnit,
 			monster.visualPos.z};
-}
-
-void DungeonWorld::IgniteMonster(Monster& monster, SpellSymbol school,
-								 const HitEffect& proc, int source) {
-	if (proc.dps <= 0.0f || proc.duration <= 0.0f) return;
-	std::uniform_real_distribution<float> roll(0.0f, 1.0f);
-	if (roll(m_combatRng) > proc.chance) return;
-	const fx::EffectKind* kind = m_effects.Find("burn");
-	if (!kind) return;
-	// An authored IMMUNITY simply won't catch — flames find no purchase on a
-	// fire elemental. Everything short of that catches and is resisted as it
-	// burns, tick by tick (docs/effects.md decision 1), so the magnitude
-	// stored here is the RAW dps.
-	const MonsterTarget kindling{*this, monster};
-	if (kindling.Resist(SchoolDamageType(school)) >= 1.0f) return;
-	const bool relit = monster.effects.end() !=
-					   std::ranges::find_if(monster.effects, [](const fx::Inst& e) {
-						   return e.Is("burn");
-					   });
-	fx::Apply(monster.effects, *kind, school, proc.dps, proc.duration, source);
-	if (!relit)
-		onMessage(loc::Format("log.monster_ignites",
-							  loc::Tr("monster." + monster.kind->name)));
 }
 
 void DungeonWorld::Extinguish(Monster& monster) {
@@ -463,7 +424,7 @@ void DungeonWorld::MonsterAttack(Monster& monster) {
 	fx::DamageEvent ev = fx::DamageEvent::Blow(
 		monster.kind->damageType, monster.kind->damage, monster.kind->accuracy,
 		victim);
-	fx::Deal(ev, defender, &striker, m_balance.Strike(), EffectKnobs(), m_combatRng);
+	fx::Deal(ev, defender, m_balance.Strike(), m_combatRng);
 
 	if (!ev.hit) {
 		MemberMessage(target, loc::Format("log.monster_misses", name, target.name));
@@ -473,10 +434,11 @@ void DungeonWorld::MonsterAttack(Monster& monster) {
 									  static_cast<int>(ev.dealt + 0.5f)));
 	defender.NarrateFall();
 	m_audio.Play(m_sounds.monster, 0.6f);
-	// On-hit DoTs (Phase 6): the landed blow may envenom/open a wound —
-	// applied even if the blow itself downed them (the ticks finish the job).
-	ApplyHitEffect(target, "poison", monster.kind->poison);
-	ApplyHitEffect(target, "bleed", monster.kind->bleed);
+	// Whatever its blows leave behind — applied even if the blow itself downed
+	// them (the ticks finish the job). A monster lends no element, so each
+	// effect arrives in its own colours.
+	fx::ApplyProcs(defender, monster.kind->onHit, std::nullopt, -1, m_effects,
+				   m_combatRng);
 	// ...and now the blow has been reported, whatever guards them answers it
 	// (the fire shield scorches its attacker). Its own death line comes from
 	// the ward, since nothing else is narrating this reprisal.
@@ -499,7 +461,7 @@ void DungeonWorld::OnBumpImpact() {
 		// veil comes to soak a wall, exactly as it always has.
 		PartyTarget jarred{*this, member};
 		fx::DamageEvent ev = fx::DamageEvent::Impact(DamageType::Bash, kBumpDamage);
-		fx::Deal(ev, jarred, nullptr, m_balance.Strike(), EffectKnobs(), m_combatRng);
+		fx::Deal(ev, jarred, m_balance.Strike(), m_combatRng);
 		jarred.NarrateFall();
 		anyHurt = true;
 	}
@@ -805,7 +767,7 @@ bool DungeonWorld::PartyAttack(size_t member, size_t hand, std::string_view verb
 	MonsterTarget defender{*this, *target};
 	fx::DamageEvent ev = fx::DamageEvent::Blow(atk.type, atk.damage, atk.accuracy,
 											   static_cast<int>(member));
-	fx::Deal(ev, defender, &striker, m_balance.Strike(), EffectKnobs(), m_combatRng);
+	fx::Deal(ev, defender, m_balance.Strike(), m_combatRng);
 
 	if (!ev.hit) {
 		MemberMessage(attacker, loc::Format("log.party_misses", attacker.name, name));
@@ -822,8 +784,7 @@ bool DungeonWorld::PartyAttack(size_t member, size_t hand, std::string_view verb
 			SchoolDamageType(weapon->element), atk.damage * weapon->elementBonus,
 			static_cast<int>(member));
 		burst.resisted = true; // by element — the one part it does answer to
-		fx::Deal(burst, defender, &striker, m_balance.Strike(), EffectKnobs(),
-				 m_combatRng);
+		fx::Deal(burst, defender, m_balance.Strike(), m_combatRng);
 		elemental = burst.dealt;
 	}
 	const int dmg = static_cast<int>(ev.dealt + elemental + 0.5f);
@@ -834,10 +795,15 @@ bool DungeonWorld::PartyAttack(size_t member, size_t hand, std::string_view verb
 	fx::React(ev, defender, &striker); // whatever guards it answers the blow
 	if (!target->Alive()) {
 		onMessage(loc::Format("log.monster_slain", name));
-	} else if (weapon && weapon->enchanted) {
-		// A survivor may be left alight by the weapon's proc.
-		IgniteMonster(*target, weapon->element, weapon->elementDot,
-					  static_cast<int>(member));
+	} else if (weapon && !weapon->onHit.empty()) {
+		// A survivor wears whatever the weapon leaves — burning from an
+		// enchanted blade, bleeding from a serrated one. An enchanted weapon
+		// lends its element as the flavour; a plain one lets each effect keep
+		// its own.
+		fx::ApplyProcs(defender, weapon->onHit,
+					   weapon->enchanted ? std::optional{weapon->element}
+										 : std::nullopt,
+					   static_cast<int>(member), m_effects, m_combatRng);
 	}
 	return true;
 }
@@ -972,7 +938,7 @@ bool DungeonWorld::ResolveSpellHit(const ProjectileImpact& impact) {
 	MonsterTarget defender{*this, *hit};
 	fx::DamageEvent ev = fx::DamageEvent::Bolt(impact.atk.type, impact.atk.damage,
 											   impact.atk.accuracy, impact.attacker);
-	fx::Deal(ev, defender, nullptr, m_balance.Strike(), EffectKnobs(), m_combatRng);
+	fx::Deal(ev, defender, m_balance.Strike(), m_combatRng);
 	if (ev.hit) {
 		onMessage(loc::Format("log.spell_hits", name, static_cast<int>(ev.dealt + 0.5f)));
 		m_audio.Play(m_sounds.spellImpact, 0.7f);
@@ -1056,7 +1022,7 @@ bool DungeonWorld::ResolveMonsterProjectileHit(const ProjectileImpact& impact) {
 	PartyTarget defender{*this, target};
 	fx::DamageEvent ev = fx::DamageEvent::Bolt(impact.atk.type, impact.atk.damage,
 											   impact.atk.accuracy);
-	fx::Deal(ev, defender, nullptr, m_balance.Strike(), EffectKnobs(), m_combatRng);
+	fx::Deal(ev, defender, m_balance.Strike(), m_combatRng);
 	if (ev.deflected) return true; // spent against the wind
 	if (!ev.hit) {
 		MemberMessage(target, loc::Format("log.monster_ranged_misses", target.name));

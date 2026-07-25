@@ -27,4 +27,6 @@ item french_dagger 6 4 south
 door wooden_door 8 4 east
 item dagger 4 5 south
 item flamebrand 5 5 south
+item frostbrand 6 5 south
+item serrated_blade 3 5 south
 door wooden_door 4 7 north

@@ -42,19 +42,32 @@ stacking = refresh
 ; as pierce. (burn is the exception that needs no line here — it is resisted as
 ; whatever element lit it.)
 
+; apply_party / apply_monster are the lines announcing that it took hold — the
+; two sides word the same affliction differently, and each takes the bearer's
+; name. `school` is the HUD tint a source lends when it has no element of its
+; own (a monster's venom); an enchanted weapon overrides it with its element.
+
 [poison]
 name = effect.poison
 damage_type = earth
+school = earth
+apply_party = log.poisoned
+apply_monster = log.monster_poisoned
 stacking = refresh
 
 [bleed]
 name = effect.bleed
 damage_type = pierce
+school = fire
+apply_party = log.bleeding
+apply_monster = log.monster_bleeding
 stacking = refresh
 
 [burn]
 name = effect.burn
 plume = 1
+apply_party = log.member_ignites
+apply_monster = log.monster_ignites
 stacking = refresh
 
 ; --- the see-through mark ---------------------------------------------------

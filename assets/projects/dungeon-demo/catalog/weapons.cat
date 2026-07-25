@@ -25,9 +25,14 @@ holdable = 1
 command = chop, slash
 model = khukri
 
-; ENCHANTED (docs/combat.md "Enchanted weapons"): element/element_bonus add an
-; elemental term to every landed blow, element_dot ("<dps> <seconds> [chance]")
-; is the burn it may leave behind. The blade also glows on the floor.
+; ON-HIT EFFECTS (docs/effects.md): `on_hit = <effect id> <magnitude> <seconds>
+; [chance]`, comma-separated for several. The ids name effects.cat entries, so
+; a weapon that inflicts something is PURE CONTENT — no engine change.
+;
+; `element` additionally adds an elemental term to every landed blow AND lends
+; its element as the flavour those effects arrive with: the same `on_hit = burn`
+; is fire on the flamebrand below and a freezing burn on the frostbrand. An
+; enchanted blade also glows on the floor in its element.
 [flamebrand]
 name = item.flamebrand
 category = weapon
@@ -41,7 +46,39 @@ command = chop, slash
 model = khukri
 element = fire
 element_bonus = 0.5
-element_dot = 3 6 0.5
+on_hit = burn 3 6 0.5
+
+; The same enchantment in a different element. Its burn is the FREEZING kind —
+; resisted as water, and its plume runs cold blue.
+[frostbrand]
+name = item.frostbrand
+category = weapon
+skill = blade
+damage = 6
+speed = 1.0
+stats = str, dex
+weight = 1.3
+holdable = 1
+command = stab, slash
+model = french_dagger
+element = water
+element_bonus = 0.4
+on_hit = burn 2 8 0.6
+
+; No enchantment at all — a plain edge that leaves a wound which keeps
+; bleeding. Proof that an on-hit effect needs no element behind it.
+[serrated_blade]
+name = item.serrated_blade
+category = weapon
+skill = blade
+damage = 6
+speed = 1.0
+stats = dex
+weight = 1.4
+holdable = 1
+command = stab, slash
+model = snake_dagger
+on_hit = bleed 2 8 0.45
 
 [snake_dagger]
 name = item.snake_dagger
