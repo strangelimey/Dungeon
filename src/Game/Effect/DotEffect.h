@@ -22,22 +22,31 @@ namespace dungeon::game::fx {
 
 class DotEffect : public EffectKind {
 public:
-	DotEffect(std::string id, std::string nameKey);
+	DotEffect(std::string id, std::string nameKey, DamageType type);
 };
 
+// Venom in the blood — earth's nature damage. (Its HUD tint is earth green
+// too, but that is a coincidence of the palette convention, not the reason.)
 class PoisonEffect : public DotEffect {
 public:
 	PoisonEffect();
 };
 
+// An open wound: PIERCE damage, even though it rides fire red in the HUD.
+// Which is exactly why a DoT's damage type is authored rather than derived
+// from its school.
 class BleedEffect : public DotEffect {
 public:
 	BleedEffect();
 };
 
+// Alight. The one DoT whose damage type is PER INSTANCE: a burn lit by a fire
+// weapon is fire, one lit by a frost weapon is water — same kind, same plume
+// (recoloured), different thing to resist.
 class BurnEffect : public DotEffect {
 public:
 	BurnEffect();
+	DamageType DamageTypeOf(const Inst& inst) const override;
 };
 
 } // namespace dungeon::game::fx

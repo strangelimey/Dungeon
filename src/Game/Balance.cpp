@@ -161,16 +161,6 @@ void Balance::Save(Catalog& balanceCat, Catalog& attacksCat) const {
 
 std::span<const BalanceField> BalanceFields() { return kBalanceFields; }
 
-DamageType SchoolDamageType(SpellSymbol school) {
-	switch (school) {
-	case SpellSymbol::Fire: return DamageType::Fire;
-	case SpellSymbol::Earth: return DamageType::Earth;
-	case SpellSymbol::Air: return DamageType::Air;
-	case SpellSymbol::Water: return DamageType::Water;
-	default: return DamageType::Bash; // form symbols never deal damage alone
-	}
-}
-
 const std::vector<std::string>& SchoolStats(SpellSymbol school) {
 	// docs/combat.md part 2: earth + fire → INT, air + water → WIL.
 	static const std::vector<std::string> kInt{"intelligence"};

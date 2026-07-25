@@ -19,9 +19,15 @@ EffectKind::EffectKind(std::string id, Category category, std::string nameKey,
 
 std::string_view EffectKind::NameKey(const Inst&) const { return m_nameKey; }
 
+DamageType EffectKind::DamageTypeOf(const Inst&) const { return m_damageType; }
+
 void EffectKind::ApplyOverrides(const CatalogEntry& e) {
 	m_nameKey = e.Get("name", m_nameKey);
 	m_iconItem = e.Get("icon", m_iconItem);
+	m_plume = e.GetBool("plume", m_plume);
+	if (const std::string type = e.Get("damage_type", ""); !type.empty())
+		if (!ParseDamageType(type, m_damageType))
+			log::Warn("effects.cat [{}]: unknown damage_type '{}'", m_id, type);
 	const std::string stacking = e.Get("stacking", "");
 	if (stacking == "refresh") m_stacking = Stacking::Refresh;
 	else if (stacking == "school") m_stacking = Stacking::RefreshPerSchool;

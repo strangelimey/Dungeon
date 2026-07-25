@@ -180,6 +180,10 @@ public:
 	// kind. The save loader (Game::ApplyState) reads it to rebuild a member's
 	// effects; everything else already holds kind pointers.
 	const fx::EffectBook& Effects() const { return m_effects; }
+	// Land an effect on the monster the party faces (dev console). False if
+	// there is nothing ahead or no such effect. The monster side of the effect
+	// list has no other hand-authored entry point.
+	bool ApplyEffectAhead(std::string_view id, float magnitude, float seconds);
 
 	// --- spell casting ------------------------------------------------------
 	// Façade over the MagicSystem (m_magic): the given roster member casts the
@@ -1111,26 +1115,19 @@ private:
 		float attackCd = 0.0f;    // seconds until this monster can swing again
 
 		// Status effects riding this monster — the SAME list a Character
-		// carries (docs/effects.md decision 2: full symmetry). Empty until P3
-		// moves the burn below onto it; it exists now so the pipeline's
-		// monster adapter is honest rather than pretending nothing can stick
-		// to a monster. Not saved yet (P5).
+		// carries, holding the same fx::Inst (docs/effects.md decision 2: full
+		// symmetry). A burn lives here now rather than in fields of its own,
+		// which is what lets a monster be poisoned, chilled or warded without
+		// another slot being invented for each. Not saved yet (P5).
 		std::vector<fx::Inst> effects;
 
-		// BURNING (an enchanted weapon's elemental proc — IgniteMonster). A
-		// monster has no general status-effect list the way a Character does;
-		// this single slot IS the model: reapplying REFRESHES it (the ward
-		// rule), the dps is already resist-scaled at ignition, and the tick
-		// (TickBurn) can finish the monster off through the ordinary slain
-		// path. TRANSIENT — the fire goes out on save/reload, like a flinch.
-		float burnDps = 0.0f, burnLeft = 0.0f;
-		SpellSymbol burnSchool = SpellSymbol::Fire; // flame/light tint
-		int burnSource = -1; // roster member who lit it, for threat credit
-		// The plume rising off a burning body, allocated only while alight
-		// (null = not burning) — a FireEffect is fat (its own mt19937), so
-		// every monster carrying one by value would cost far more than the
-		// handful that are ever actually on fire.
-		std::unique_ptr<FireEffect> burnFx;
+		// The flame plume rising off a burning body — PRESENTATION, derived
+		// from the list above every frame (SyncPlumes): allocated when an
+		// effect that burns arrives, dropped when it goes. Not state: the
+		// effect is the truth, this is just what it looks like. Held by
+		// pointer because a FireEffect is fat (its own mt19937) and only the
+		// handful actually alight should pay for one.
+		std::unique_ptr<FireEffect> plume;
 
 		// Chase movement (AI v1). The logical cell (x,z) snaps the instant a step
 		// commits — like the party — so occupancy/blocking is atomic; visualPos
@@ -1675,20 +1672,64 @@ private:
 	void ApplyHitEffect(Character& target, std::string_view effectId,
 						const HitEffect& fx);
 	// The monster mirror: a landed blow with an ENCHANTED weapon rolls the
-	// weapon's `element_dot` and, on a hit, sets the target alight — the dps
-	// scaled by its resist for the element (an immune type simply won't
-	// catch), refreshing any fire already on it. Lights the plume + its glow.
+	// weapon's `element_dot` and, on a hit, sets the target alight (refreshing
+	// any fire already on it). A target IMMUNE to the element never catches.
 	void IgniteMonster(Monster& monster, SpellSymbol school, const HitEffect& fx,
 					   int source);
-	// One frame of a burning monster: the wound (credited to whoever lit it),
-	// the slain path if it finishes them, and the fade when the fire burns out.
-	void TickBurn(Monster& monster, float dt);
-	// Put a burning monster out — the timer, the plume, the light. Called by
-	// the fade, by death, and by anything that resets a monster's state.
+	// Strip a monster's effects (and with them its plume) — a corpse carries
+	// nothing. Called from the apply stage when a blow finishes it.
 	static void Extinguish(Monster& monster);
+
+	// ONE frame of a combatant's effects, whoever they are: age them, bite
+	// with their DoTs, and drop the expired.
+	//
+	// Each DoT is dealt as ITS OWN damage type (a burn as fire, a bleed as
+	// pierce) and RESISTED at the moment it bites — so a ward raised while
+	// you are burning starts helping immediately (docs/effects.md decision 1).
+	// The bites accumulate per type and land AFTER the aging loop: dealing
+	// damage runs the whole pipeline, which can mutate this very list (a water
+	// veil bursting as it soaks a tick), so it must not run mid-iteration.
+	//
+	// `onExpire(inst)` says the line for an effect that ran out — the one
+	// thing the two sides word differently. A template rather than a
+	// std::function so a per-frame call allocates nothing.
+	template <class OnExpire>
+	void TickEffects(fx::ITarget& target, std::vector<fx::Inst>& effects,
+					 float dt, OnExpire onExpire) {
+		std::array<float, kDamageTypeCount> bite{};
+		for (fx::Inst& e : effects) {
+			e.timeLeft -= dt;
+			if (e.IsDot())
+				bite[static_cast<size_t>(e.kind->DamageTypeOf(e))] +=
+					e.magnitude * dt;
+			if (e.timeLeft <= 0.0f) onExpire(e);
+		}
+		std::erase_if(effects,
+					  [](const fx::Inst& e) { return e.timeLeft <= 0.0f; });
+		for (size_t i = 0; i < bite.size(); ++i) {
+			if (bite[i] <= 0.0f) continue;
+			fx::DamageEvent ev = fx::DamageEvent::Tick(
+				static_cast<DamageType>(i), bite[i], DotSource(effects));
+			ev.resisted = true; // a DoT answers to resistance as it bites
+			fx::Deal(ev, target, nullptr, m_balance.Strike(), EffectKnobs(),
+					 m_combatRng);
+		}
+	}
+	// Who to credit a DoT tick's damage to: the first sourced DoT on the list
+	// (they are nearly always one, and threat is a coarse signal — the point
+	// is that a hit-and-run torch keeps the grudge alive).
+	static int DotSource(const std::vector<fx::Inst>& effects);
 	// Where a burning body's flames rise from (torso height above visualPos):
-	// the ignition point, the per-frame plume origin, and the glow all agree.
+	// the per-frame plume origin and the glow agree because both ask here.
 	static Vec3 BurnOrigin(const Monster& monster);
+	// How the flames READ per school — the FireEffect palette is authored
+	// orange, so fire burns untinted and the other three recolour it (a water
+	// burn is the freezing kind: the plume runs cold blue).
+	static Vec3 BurnTint(SpellSymbol school);
+	// The effect making this monster visibly burn (the first whose kind sets
+	// effects.cat `plume`), or null. The plume and its light both read it, so
+	// what is drawn always follows what is actually on the monster.
+	static const fx::Inst* PlumeEffect(const Monster& monster);
 	// Read one catalog DoT line, "<dps> <seconds> [chance]" (`where` names the
 	// entry in the warning). An empty spec leaves `fx` untouched (dps 0 = none).
 	// Shared by the monster kinds' poison/bleed and a weapon's element_dot.

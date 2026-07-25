@@ -45,4 +45,14 @@ AttackResult ResolveAttack(const AttackProfile& atk, const DefenseProfile& def,
 	return result;
 }
 
+DamageType SchoolDamageType(SpellSymbol school) {
+	switch (school) {
+	case SpellSymbol::Fire: return DamageType::Fire;
+	case SpellSymbol::Earth: return DamageType::Earth;
+	case SpellSymbol::Air: return DamageType::Air;
+	case SpellSymbol::Water: return DamageType::Water;
+	default: return DamageType::Bash; // form symbols never deal damage alone
+	}
+}
+
 } // namespace dungeon::game

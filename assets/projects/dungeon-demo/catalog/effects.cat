@@ -32,20 +32,29 @@ icon = rune_protect
 stacking = refresh
 
 ; --- damage over time -------------------------------------------------------
-; magnitude is damage per second. The dps/duration themselves are authored at
-; the SOURCE (monsters.cat poison/bleed, weapons.cat element_dot) — what lives
-; here is what the effect is called and how it stacks.
+; magnitude is damage per second, RESISTED as `damage_type` each time it bites
+; — so a ward raised mid-burn starts helping at once. The dps/duration are
+; authored at the SOURCE (monsters.cat poison/bleed, weapons.cat element_dot);
+; what lives here is what the effect is called, how it stacks, what it counts
+; as, and whether it visibly burns.
+;
+; NOTE the damage type is NOT the HUD tint: bleeding rides fire red and wounds
+; as pierce. (burn is the exception that needs no line here — it is resisted as
+; whatever element lit it.)
 
 [poison]
 name = effect.poison
+damage_type = earth
 stacking = refresh
 
 [bleed]
 name = effect.bleed
+damage_type = pierce
 stacking = refresh
 
 [burn]
 name = effect.burn
+plume = 1
 stacking = refresh
 
 ; --- the see-through mark ---------------------------------------------------

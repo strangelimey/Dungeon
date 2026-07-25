@@ -229,11 +229,39 @@ the phase that pays for the whole plan, and the one to feel-test hardest:
 every ward, an overkill death, a party wipe, a monster slain by each of
 melee/bolt/burn/retaliation.
 
-**P3 — monsters get the list.**
-`Monster::effects` replaces the burn slot; `BurnEffect` becomes a kind.
-Poison/bleed become applicable to monsters for free. The plume + glow
-become presentation *of an effect* (`effects.cat` fields: `plume`,
-`tint`, `icon`) rather than fields on `Monster`.
+**P3 — monsters get the list. LANDED 2026-07-24.**
+`Monster::effects` is the only status storage: `burnDps`/`burnLeft`/
+`burnSchool`/`burnSource` are gone, `BurnEffect` is a kind like any other,
+and `TickBurn` is gone too — both sides age and bite through ONE
+`TickEffects`, differing only in the lambda that words an expiry. Poison
+and bleed became applicable to monsters for free, which is the whole
+point of the symmetry.
+
+As built:
+- **The plume is derived, not stored.** `Monster::plume` is created and
+  dropped each frame from "does any effect on me have `plume = 1`", and
+  its light reads the same lookup. The effect list is the truth; the fire
+  is what that truth looks like.
+- **Resist moved to per-tick** (decision 1). A DoT stores RAW magnitude
+  and is resisted as it bites, so a ward raised mid-burn helps at once.
+  This also gives party poison/bleed a resist they never had — a
+  deliberate balance change, not a refactor.
+- **A DoT's damage type is authored, not derived from its school.**
+  Bleeding rides fire red in the HUD and wounds as PIERCE; poison is
+  earth; a burn is per-INSTANCE — whatever element lit it, so a frost
+  weapon's burn is resisted as water. `SchoolDamageType` moved from
+  Balance.h to Combat.h for this: it is a fact about damage, not a knob,
+  and the effects module can't see Balance.
+- **A death by DoT reads by cause**: burning away to nothing if it was
+  alight, plain "slain" otherwise.
+
+*Verified in game:* `effect burn ahead` on a fire-VULNERABLE mummy — it
+lit up, burned visibly faster than its raw dps (per-tick resist doing its
+work), and burned away to nothing; `effect poison ahead` on a blob —
+ticked with no plume and killed it as "slain", the first time a monster
+has ever carried a poison. Dev: `effect <id> ahead [magnitude] [seconds]`
+is the only hand-authored way onto a monster, and the way to watch an
+effect tick without a weapon that procs it.
 
 **P4 — content authors effects by id.**
 Weapons: `on_hit = <effect id> <numbers>` (superseding `element_dot`,

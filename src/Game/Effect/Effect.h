@@ -169,6 +169,12 @@ public:
 	// (never a temporary: the HUD calls this every frame).
 	virtual std::string_view NameKey(const Inst& inst) const;
 
+	// What a DoT's bite is RESISTED AS. Per instance, because a burn is only
+	// fire when it was lit by fire — the same kind carries a frost weapon's
+	// chill. The tint convention does NOT decide this: bleeding rides fire red
+	// in the HUD but wounds you as pierce.
+	virtual DamageType DamageTypeOf(const Inst& inst) const;
+
 	// Lay the project's effects.cat numbers over the class defaults, matched
 	// by id (EffectBook::Build calls this once per load). The base takes the
 	// name/icon/stacking; a derived kind adds its own fields.
@@ -212,6 +218,11 @@ public:
 	// The item id whose baked icon this effect borrows in the HUD strip
 	// ("rune_protect"); empty = the school-tinted square fallback.
 	const std::string& IconItem() const { return m_iconItem; }
+	// Whether a bearer of this effect visibly BURNS: a flame plume rising off
+	// the body plus its own coloured light. Presentation only — the host reads
+	// it to decide what to draw, and the effect list stays the single truth of
+	// what is actually happening (effects.cat `plume`).
+	bool Plume() const { return m_plume; }
 
 protected:
 	std::string m_id;
@@ -219,6 +230,8 @@ protected:
 	std::string m_iconItem;
 	Category m_category;
 	Stacking m_stacking;
+	DamageType m_damageType = DamageType::Bash;
+	bool m_plume = false;
 };
 
 // One live effect on one combatant. A POD by design — no string, no owning

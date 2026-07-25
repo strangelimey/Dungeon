@@ -255,7 +255,7 @@ void DungeonWorld::ApplyHitEffect(Character& target, std::string_view effectId,
 // fire burns untinted and the other three recolour it (a water "burn" is the
 // freezing kind — the plume runs cold blue). Multiplied over the flame/spark
 // colours, so these are ratios against orange, not absolute colours.
-static Vec3 BurnTint(SpellSymbol school) {
+Vec3 DungeonWorld::BurnTint(SpellSymbol school) {
 	switch (school) {
 	case SpellSymbol::Earth: return {0.55f, 1.25f, 0.45f}; // acrid green
 	case SpellSymbol::Air:   return {0.85f, 1.05f, 1.35f}; // pale white-blue
@@ -272,56 +272,58 @@ Vec3 DungeonWorld::BurnOrigin(const Monster& monster) {
 }
 
 void DungeonWorld::IgniteMonster(Monster& monster, SpellSymbol school,
-								 const HitEffect& fx, int source) {
-	if (fx.dps <= 0.0f || fx.duration <= 0.0f) return;
+								 const HitEffect& proc, int source) {
+	if (proc.dps <= 0.0f || proc.duration <= 0.0f) return;
 	std::uniform_real_distribution<float> roll(0.0f, 1.0f);
-	if (roll(m_combatRng) > fx.chance) return;
-	// The RESIST applies once, here: a fire-natured monster catches poorly (and
-	// an authored immunity, a cell of 1.0, never catches at all), rather than
-	// paying the resist every tick. Same clamp rule as any other damage.
-	// (P3 moves this to per-tick, per docs/effects.md decision 1.)
+	if (roll(m_combatRng) > proc.chance) return;
+	const fx::EffectKind* kind = m_effects.Find("burn");
+	if (!kind) return;
+	// An authored IMMUNITY simply won't catch — flames find no purchase on a
+	// fire elemental. Everything short of that catches and is resisted as it
+	// burns, tick by tick (docs/effects.md decision 1), so the magnitude
+	// stored here is the RAW dps.
 	const MonsterTarget kindling{*this, monster};
-	const float dps =
-		fx.dps * (1.0f - kindling.Resist(SchoolDamageType(school)));
-	if (dps <= 0.0f) return;
-	const bool relit = monster.burnLeft > 0.0f; // reapply REFRESHES (the ward rule)
-	monster.burnDps = dps;
-	monster.burnLeft = fx.duration;
-	monster.burnSchool = school;
-	monster.burnSource = source;
-	if (!monster.burnFx)
-		monster.burnFx = std::make_unique<FireEffect>(BurnOrigin(monster), 1.1f,
-													  monster.runtimeId * 2654435761u);
-	monster.burnFx->SetTint(BurnTint(school)); // a relight may change school
+	if (kindling.Resist(SchoolDamageType(school)) >= 1.0f) return;
+	const bool relit = monster.effects.end() !=
+					   std::ranges::find_if(monster.effects, [](const fx::Inst& e) {
+						   return e.Is("burn");
+					   });
+	fx::Apply(monster.effects, *kind, school, proc.dps, proc.duration, source);
 	if (!relit)
 		onMessage(loc::Format("log.monster_ignites",
 							  loc::Tr("monster." + monster.kind->name)));
 }
 
 void DungeonWorld::Extinguish(Monster& monster) {
-	monster.burnDps = 0.0f;
-	monster.burnLeft = 0.0f;
-	monster.burnSource = -1;
-	monster.burnFx.reset();
+	monster.effects.clear(); // a corpse carries nothing
+	monster.plume.reset();
 }
 
-void DungeonWorld::TickBurn(Monster& monster, float dt) {
-	monster.burnLeft -= dt;
-	// Through the pipeline: the fire keeps the grudge alive (the event carries
-	// whoever lit it, so a hit-and-run torch goes on earning threat), and the
-	// death path is the same one every other source of damage takes.
-	MonsterTarget burning{*this, monster};
-	fx::DamageEvent ev = fx::DamageEvent::Tick(
-		SchoolDamageType(monster.burnSchool), monster.burnDps * dt,
-		monster.burnSource);
-	fx::Deal(ev, burning, nullptr, m_balance.Strike(), EffectKnobs(), m_combatRng);
-	const std::string name = loc::Tr("monster." + monster.kind->name);
-	if (ev.slew) {
-		onMessage(loc::Format("log.monster_burns_away", name));
-	} else if (monster.burnLeft <= 0.0f) {
-		Extinguish(monster);
-		onMessage(loc::Format("log.monster_burns_out", name));
+bool DungeonWorld::ApplyEffectAhead(std::string_view id, float magnitude,
+									float seconds) {
+	const fx::EffectKind* kind = m_effects.Find(id);
+	if (!kind) return false;
+	const Direction faced = static_cast<Direction>(m_party.Facing());
+	const int tx = m_party.GridX() + DirDX(faced);
+	const int tz = m_party.GridZ() + DirDZ(faced);
+	for (Monster& m : m_monsters) {
+		if (!m.Alive() || m.x != tx || m.z != tz) continue;
+		fx::Apply(m.effects, *kind, SpellSymbol::Fire, magnitude, seconds);
+		return true;
 	}
+	return false;
+}
+
+const fx::Inst* DungeonWorld::PlumeEffect(const Monster& monster) {
+	for (const fx::Inst& e : monster.effects)
+		if (e.kind && e.kind->Plume()) return &e;
+	return nullptr;
+}
+
+int DungeonWorld::DotSource(const std::vector<fx::Inst>& effects) {
+	for (const fx::Inst& e : effects)
+		if (e.IsDot() && e.source >= 0) return e.source;
+	return -1;
 }
 
 // Latch the party wipe exactly once when the last member falls (message + callback).

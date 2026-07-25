@@ -144,9 +144,9 @@ struct BalanceField {
 std::span<const BalanceField> BalanceFields();
 
 // --- school helpers (docs/combat.md parts 1-2) -------------------------------
-// A damaging spell's type is its SCHOOL; a school's associated stat is
-// earth/fire → INT, air/water → WIL. Form symbols map through their element.
-DamageType SchoolDamageType(SpellSymbol school);
+// A school's associated stat is earth/fire → INT, air/water → WIL.
+// (SchoolDamageType moved to Combat.h: it is a fact about damage types rather
+// than a knob, and the effects module asks it without knowing Balance exists.)
 const std::vector<std::string>& SchoolStats(SpellSymbol school);
 // The unarmed source's associated stats ({"strength"}).
 const std::vector<std::string>& UnarmedStats();
