@@ -154,6 +154,7 @@ log.wait=Esperáis. Las antorchas titilan.
 log.hands_empty=Las manos de {} están vacías.
 log.bump=Chocáis contra un muro.
 log.bump_hurt=El grupo se estrella contra el obstáculo y sufre {} de daño.
+log.fall_hurt=El grupo golpea el suelo de piedra y sufre {} de daño.
 log.brazier_blocks=Un brasero encendido os corta el paso.
 log.decoration_blocks=Algo sólido bloquea el paso.
 log.monster_blocks={} os corta el paso!

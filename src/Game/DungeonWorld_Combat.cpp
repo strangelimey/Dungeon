@@ -475,7 +475,7 @@ void DungeonWorld::MonsterAttack(Monster& monster) {
 	// ...and now the blow has been reported, whatever guards them answers it
 	// (the fire shield scorches its attacker). Its own death line comes from
 	// the ward, since nothing else is narrating this reprisal.
-	fx::React(ev, defender, &striker);
+	fx::React(ev, defender, &striker, Reaction());
 	CheckPartyWipe();
 }
 
@@ -483,24 +483,32 @@ void DungeonWorld::MonsterAttack(Monster& monster) {
 // is jarred for a small flat amount, with the smallest splat over each portrait
 // and a single grunt — then we re-check for a wipe so a final stumble still ends
 // the run cleanly.
-void DungeonWorld::OnBumpImpact() {
-	if (!m_roster || m_partyWiped) return;
-
-	constexpr float kBumpDamage = 2.0f; // the collision; armour decides the rest
-	// A bump is a BLUDGEON — it goes through the pipeline as bash damage, so a
-	// breastplate blunts it, Stone Skin turns it, and a water veil drinks it,
-	// exactly as any other blow. Which means members no longer take the same
-	// amount: the line reports the WORST of them, and stays quiet when the
-	// party shrugged the wall off entirely.
+// The world's own blows — a wall the party walked into, a shaft they dropped
+// down. Neither has an attacker, so both are an Impact BLUDGEON through the one
+// pipeline: a breastplate blunts it, Stone Skin turns it, a water veil drinks
+// it, exactly as any other blow. Which means members do NOT all take the same
+// amount; the caller's line reports the WORST of them, and says nothing at all
+// when the party shrugged it off. Returns that worst dealt.
+float DungeonWorld::CollideParty(float amount) {
 	float worst = 0.0f;
 	for (Character& member : *m_roster) {
 		if (!member.IsAlive()) continue;
 		PartyTarget jarred{*this, member};
-		fx::DamageEvent ev = fx::DamageEvent::Impact(DamageType::Bash, kBumpDamage);
+		fx::DamageEvent ev = fx::DamageEvent::Impact(DamageType::Bash, amount);
 		fx::Deal(ev, jarred, m_balance.Strike(), m_combatRng);
 		jarred.NarrateFall();
+		// The collision answers itself: whatever guards a member scorches the
+		// wall for nothing (no attacker), but a veil that burst soaking it has
+		// to be dropped, and that is the react stage's business either way.
+		fx::React(ev, jarred, nullptr, Reaction());
 		worst = std::max(worst, ev.dealt);
 	}
+	return worst;
+}
+
+void DungeonWorld::OnBumpImpact() {
+	if (!m_roster || m_partyWiped) return;
+	const float worst = CollideParty(m_balance.bumpDamage);
 	// Quiet when the party shrugged the wall off: the log speaks in whole
 	// points, so a jar that rounds to nothing has nothing to report. (A heavily
 	// resisted collision still chips a fraction — it just isn't news.)
@@ -509,6 +517,20 @@ void DungeonWorld::OnBumpImpact() {
 
 	onMessage(loc::Format("log.bump_hurt", shown));
 	m_audio.Play(m_sounds.oof, 0.8f);
+	CheckPartyWipe();
+}
+
+// The plunge landed. Same collision as the bump, one knob heavier — the pit's
+// own "world.pitfall" line already said what happened, so this only reports the
+// bruise, and stays silent when the party rode it out.
+void DungeonWorld::OnFallImpact() {
+	if (!m_roster || m_partyWiped) return;
+	const float worst = CollideParty(m_balance.fallDamage);
+	const int shown = static_cast<int>(worst + 0.5f);
+	if (shown <= 0) return;
+
+	onMessage(loc::Format("log.fall_hurt", shown));
+	m_audio.Play(m_sounds.oof, 0.9f);
 	CheckPartyWipe();
 }
 
@@ -835,7 +857,7 @@ bool DungeonWorld::PartyAttack(size_t member, size_t hand, std::string_view verb
 	GrantSkillXp(attacker, skillId, 1.0f, stats); // a LANDED blow trains its class
 	m_audio.Play(m_sounds.monster, 0.7f);
 
-	fx::React(ev, defender, &striker); // whatever guards it answers the blow
+	fx::React(ev, defender, &striker, Reaction()); // whatever guards it answers
 	if (!target->Alive()) {
 		onMessage(loc::Format("log.monster_slain", name));
 	} else if (weapon && !weapon->onHit.empty()) {
@@ -989,7 +1011,7 @@ bool DungeonWorld::ResolveSpellHit(const ProjectileImpact& impact) {
 		else if (ev.dealt >= 0.0f)
 			onMessage(loc::Format("log.monster_unharmed", name));
 		m_audio.Play(m_sounds.spellImpact, 0.7f);
-		fx::React(ev, defender, nullptr); // whatever guards it answers the bolt
+		fx::React(ev, defender, nullptr, Reaction()); // whatever guards it answers
 		if (!hit->Alive()) {
 			onMessage(loc::Format("log.spell_slain", name));
 		} else {
@@ -1082,7 +1104,8 @@ bool DungeonWorld::ResolveMonsterProjectileHit(const ProjectileImpact& impact) {
 		MemberMessage(target, loc::Format("log.member_unharmed", target.name));
 	defender.NarrateFall();
 	m_audio.Play(m_sounds.monster, 0.6f);
-	fx::React(ev, defender, nullptr); // (a fire shield answers blows, not bolts)
+	// (a fire shield answers blows, not bolts)
+	fx::React(ev, defender, nullptr, Reaction());
 	CheckPartyWipe();
 	return true;
 }

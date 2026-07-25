@@ -38,22 +38,27 @@ float StoneskinEffect::ResistFor(const Inst& inst, DamageType type,
 FireshieldEffect::FireshieldEffect() : WardEffect("fireshield", "spell.fireshield") {}
 
 void FireshieldEffect::OnStruck(Inst& inst, const DamageEvent& ev, ITarget& self,
-								ITarget* attacker) const {
+								ITarget* attacker, const ReactCtx& ctx) const {
 	// Only a swung blow gets burned — you cannot scorch a bolt or a poison.
 	if (ev.delivery != Delivery::Melee || !attacker) return;
-	// A BURST: fire that armour cannot blunt but fire-resistance answers, so a
-	// salamander shrugs off the shield and a dry mummy suffers for touching it.
-	// Resolved here rather than through Deal because a reaction has no rolls to
-	// make and nothing to deflect it — and going straight to the apply stage is
-	// also what keeps a reprisal from cascading into another reaction.
+	// A BURST through the ORDINARY pipeline: fire that armour cannot blunt but
+	// fire-resistance answers, so a salamander shrugs off the shield and a dry
+	// mummy suffers for touching it. It goes through Deal like every other
+	// source of damage rather than doing its own arithmetic — which is what
+	// earns it the whole model for free: an attacker's own water veil eats the
+	// reprisal, and one that DRINKS fire (a nature resist past 1) is fed by the
+	// shield instead of hurt by it. Deal never calls React, so this cannot
+	// cascade into a counter-reprisal.
+	//
+	// The reprisal is the ward-BEARER's damage, so it feeds their threat: it
+	// carries the struck event's own source (the member the blow landed on).
 	DamageEvent back = DamageEvent::Burst(DamageType::Fire, inst.magnitude, ev.source);
-	back.dealt = back.amount * (1.0f - attacker->Resist(back.type));
-	if (back.dealt <= 0.0f) return; // immune — no burn, and nothing to report
+	Deal(back, *attacker, ctx.rules, ctx.rng);
+	// Nothing came of it (immune): no line. Being FED says so through the
+	// attacker's own Absorb, so only a real burn reports a number here.
+	if (back.dealt <= 0.0f) return;
 	self.Say(loc::Format("log.shield_burns", attacker->Name(),
 						 static_cast<int>(back.dealt + 0.5f)));
-	// The reprisal is the ward-BEARER's damage, so it feeds their threat: it
-	// carries the event's own source (the member the blow landed on).
-	attacker->Wound(back.dealt, back);
 	// Nothing else narrates a death here, so the ward does: through the
 	// ATTACKER's own channel, which is the plain world log a monster's death
 	// has always used.

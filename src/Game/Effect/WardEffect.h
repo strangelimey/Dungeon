@@ -48,7 +48,7 @@ class FireshieldEffect : public WardEffect {
 public:
 	FireshieldEffect();
 	void OnStruck(Inst& inst, const DamageEvent& ev, ITarget& self,
-				  ITarget* attacker) const override;
+				  ITarget* attacker, const ReactCtx& ctx) const override;
 };
 
 // Water ABSORBS: magnitude is a POOL, spent soaking damage before any reaches

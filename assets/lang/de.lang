@@ -154,6 +154,7 @@ log.wait=Ihr wartet. Die Fackeln flackern.
 log.hands_empty={}s Hände sind leer.
 log.bump=Ihr stoßt gegen eine Wand.
 log.bump_hurt=Die Gruppe prallt gegen das Hindernis und erleidet {} Schaden.
+log.fall_hurt=Die Gruppe schlägt auf dem Steinboden auf und erleidet {} Schaden.
 log.brazier_blocks=Ein brennendes Kohlebecken versperrt euch den Weg.
 log.decoration_blocks=Etwas Festes versperrt den Weg.
 log.monster_blocks={} versperrt euch den Weg!

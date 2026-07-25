@@ -317,6 +317,14 @@ static constexpr float kPitFallSeconds = 0.55f;
 
 void DungeonWorld::Update(const Input& input, float dt, float time, bool acceptInput) {
 	m_time = time; // drives the rune emissive pulse in SubmitSceneGeometry
+	// Landed from a pit on the level just below: the shaft's own blow, charged
+	// at the TOP of the first frame after the arrival — the flag is raised at
+	// the bottom of the frame that raised the transition, and the host clears
+	// the message log between the two, so this is where the line survives.
+	if (m_fellPending) {
+		m_fellPending = false;
+		OnFallImpact();
+	}
 	if (acceptInput && !m_pendingFall) m_party.HandleInput(input);
 	m_party.Update(dt);
 
@@ -339,6 +347,12 @@ void DungeonWorld::Update(const Input& input, float dt, float time, bool acceptI
 			m_pendingTransition = *m_pendingFall;
 			m_pendingFall.reset();
 			m_fallT = -1.0f;
+			// The landing IS a collision (docs/effects.md) — but it is charged
+			// on the far side of the swap, not here: the host CLEARS the message
+			// log as it places the party on the new level, so a bruise reported
+			// now would be wiped before anyone read it. Latched, and spent on
+			// the first frame after they arrive.
+			m_fellPending = true;
 		}
 	}
 	UpdateMonsters(dt);

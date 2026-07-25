@@ -160,7 +160,11 @@ Key conventions (memorize, they bite):
   the caller narrates and calls `fx::React` (stage 6 is split out so a
   reaction's line reads AFTER the blow it answers — the same reason
   `WoundMember` returns a `Fall` the caller says, and a monster's slain LINE
-  stays at its call site while the death PATH lives in the adapter).
+  stays at its call site while the death PATH lives in the adapter). A
+  REPRISAL is itself a `Deal`, so the react hook takes an `fx::ReactCtx`
+  (strike knobs + RNG, built by DungeonWorld::Reaction) and a fire shield's
+  burn is deflected/absorbed/DRUNK like any other damage; cascade is
+  prevented by `Deal` never calling `React`, not by skipping the pipeline.
   `fx::ITarget` is all the module knows of a combatant; DungeonWorld
   implements it twice (`PartyTarget`/`MonsterTarget`) and those adapters are
   the ONLY place the two sides differ. An effect is a CLASS in src/Game/
@@ -174,8 +178,10 @@ Key conventions (memorize, they bite):
   of that. `fx::Apply` owns the stacking rule. EVERYTHING IS RESISTED — the
   event PRESETS name a kind of damage and set the maths, so no caller sets
   flags by hand: Blow/Bolt (rolled+soaked+resisted), Impact (a COLLISION — a
-  wall, a door, a falling rock: bash damage armour blunts and Stone Skin
-  turns; unrolled but soaked+resisted), Burst (magic riding something else —
+  wall, a door, a PIT LANDING: bash damage armour blunts and Stone Skin
+  turns; unrolled but soaked+resisted — the world's two blows, OnBumpImpact
+  and OnFallImpact, share DungeonWorld::CollideParty and the balance.cat
+  `bump_damage`/`fall_damage` knobs), Burst (magic riding something else —
   an enchanted blade's element, a ward's reprisal: resisted, NOT soaked,
   "plate turns a blade not a flame"), Tick (a DoT's bite: resisted, not
   soaked). RESIST PAST 1 IS ABSORPTION: an authored NATURE cell (monsters.cat

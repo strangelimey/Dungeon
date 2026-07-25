@@ -93,6 +93,20 @@ struct Knobs {
 	float stoneskinResist = 1.0f; // ward magnitude -> physical resist
 };
 
+// What a REACTING effect needs to hit back with (stage 6). A reprisal is
+// damage like any other, so it goes through Deal rather than doing its own
+// arithmetic — which means the react hook has to carry the two things Deal
+// takes. Bundled so the hook signature stays one parameter wide.
+//
+// No cascade: Deal never calls React, so a fire shield answering a fire shield
+// stops after one exchange.
+// (StrikeRules by VALUE — four floats, and Balance hands them out by value, so
+// a call site can write the context inline without a dangling-reference trap.)
+struct ReactCtx {
+	StrikeRules rules;
+	std::mt19937& rng;
+};
+
 // HOW damage arrives. The stages read it to decide which effects care: the wind
 // ward turns aside bolts and not blows, the fire shield burns back at a swung
 // blow and not a poison tick.
@@ -246,9 +260,10 @@ public:
 	virtual void OnAbsorb(Inst& inst, float& remaining, const DamageEvent& ev,
 						  ITarget& self) const;
 	// Stage 6 — the blow landed on the bearer; react to whoever struck.
-	// `attacker` is null when nobody did (a wall, an unattributed tick).
+	// `attacker` is null when nobody did (a wall, an unattributed tick), and
+	// `ctx` is what a reprisal deals its own damage through.
 	virtual void OnStruck(Inst& inst, const DamageEvent& ev, ITarget& self,
-						  ITarget* attacker) const;
+						  ITarget* attacker, const ReactCtx& ctx) const;
 
 	// --- the modifier query (docs/effects.md decision 4) ---------------------
 	// Shipped unused: nothing implements these yet, and no read site asks. A
@@ -357,7 +372,8 @@ void Deal(DamageEvent& ev, ITarget& target, const StrikeRules& rules,
 // the blow it answers, not before it. Call it once the blow itself has been
 // reported. Harmless when the target has no reacting effects, which is why
 // every attack site calls it rather than only the ones that might matter.
-void React(const DamageEvent& ev, ITarget& target, ITarget* attacker);
+void React(const DamageEvent& ev, ITarget& target, ITarget* attacker,
+		   const ReactCtx& ctx);
 
 // The registry: every kind, constructed at its class defaults and then tuned
 // by the project's effects.cat. Built once per load, and every Inst in the

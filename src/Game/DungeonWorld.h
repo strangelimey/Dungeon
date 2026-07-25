@@ -1797,10 +1797,24 @@ private:
 	// The balance knobs an effect's own maths needs, in the shape the module
 	// takes them (it never sees Balance.h).
 	fx::Knobs EffectKnobs() const { return {m_balance.stoneskinResist}; }
+	// What a reacting effect deals its reprisal through (a fire shield's burn
+	// goes back out via fx::Deal like any other damage), so every React call
+	// site hands over the same two things this world resolves damage with.
+	fx::ReactCtx Reaction() { return {m_balance.Strike(), m_combatRng}; }
+	// The world lands a blow: Impact bash damage on every standing member,
+	// through the ordinary pipeline (armour, Stone Skin and a water veil all
+	// answer it), returning the WORST amount dealt for the caller's line.
+	float CollideParty(float amount);
 	// Blocked-move recoil reached its peak: jar every standing member for a
 	// small amount of damage, flash a splat over each portrait, grunt once, and
 	// latch a party wipe if the bruise is somehow the end of them.
 	void OnBumpImpact();
+	// The pit plunge LANDED (DungeonWorld::Update sequences the drop, then calls
+	// this the moment before the level swap). The world's other collision: the
+	// same Impact bash the bump deals, at the fall_damage knob — so armour,
+	// Stone Skin and a water veil all answer a shaft exactly as they answer a
+	// wall, and a party already at death's door can be finished by the floor.
+	void OnFallImpact();
 	// True if a monster of `self`'s size may stand on (x,z): in bounds, walkable,
 	// not the party cell, and with a free SLOT (see FreeSlotInCell). Thin wrapper
 	// over FreeSlotInCell for callers that only need yes/no.
@@ -2047,6 +2061,11 @@ private:
 	// stashed transition is raised. See Update's fall block.
 	std::optional<LevelTransition> m_pendingFall;
 	float m_fallT = -1.0f;
+	// The plunge's IMPACT, owed on the far side of the swap: the host clears
+	// the message log as it places the party on the new level, so the bruise is
+	// charged on the first frame after they arrive rather than before they
+	// leave (OnFallImpact — otherwise its line would never be read).
+	bool m_fellPending = false;
 	// The party's eye for the camera / carried torch / particle sort:
 	// Party::EyePosition plus the pit-fall drop, so the view and the light it
 	// carries sink through the opening together.

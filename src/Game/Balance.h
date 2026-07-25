@@ -99,6 +99,12 @@ struct Balance {
 	float stabilizeTime = 30.0f;
 	float stabilizeHealth = 0.2f;
 	float overkill = 1.5f;
+	// COLLISIONS (docs/effects.md): the two blows the WORLD lands, as opposed
+	// to anything holding a weapon. Both arrive as Impact bash through the one
+	// pipeline, so these are the amount BEFORE armour, Stone Skin and resists
+	// answer it — a plated party shrugs a wall off and barely feels a shaft.
+	float bumpDamage = 2.0f; // lurching into a wall / door / brazier
+	float fallDamage = 6.0f; // a storey's plunge down a pit shaft
 	// Threat (aggro). Damage a member deals a monster accrues threat_scale ×
 	// damage on that monster; past threat_threshold the monster LOCKS onto the
 	// highest-threat member (another member must exceed the locked score by

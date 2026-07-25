@@ -50,6 +50,8 @@ constexpr BalanceField kBalanceFields[] = {
 	{"stabilize_time", &Balance::stabilizeTime},
 	{"stabilize_health", &Balance::stabilizeHealth},
 	{"overkill", &Balance::overkill},
+	{"bump_damage", &Balance::bumpDamage},
+	{"fall_damage", &Balance::fallDamage},
 	{"threat_scale", &Balance::threatScale},
 	{"threat_threshold", &Balance::threatThreshold},
 	{"threat_switch", &Balance::threatSwitch},

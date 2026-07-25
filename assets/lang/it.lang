@@ -154,6 +154,7 @@ log.wait=Attendete. Le torce tremolano.
 log.hands_empty=Le mani di {} sono vuote.
 log.bump=Sbattete contro un muro.
 log.bump_hurt=Il gruppo urta contro l'ostacolo e subisce {} danni.
+log.fall_hurt=Il gruppo si schianta sul pavimento di pietra e subisce {} danni.
 log.brazier_blocks=Un braciere acceso vi sbarra la strada.
 log.decoration_blocks=Qualcosa di solido blocca il passaggio.
 log.monster_blocks={} vi sbarra la strada!

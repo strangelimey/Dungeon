@@ -209,7 +209,9 @@ Three things the build taught us:
   "Everything is resisted" below.)
 - **A reprisal goes straight to `Wound`,** not back through `Deal` — it
   is not itself deflectable or soakable, which also means a reaction can
-  never recurse into another one.
+  never recurse into another one. (SUPERSEDED by "The full sweep" below: it
+  goes through `Deal` now, and cascade is prevented by `Deal` never calling
+  `React` rather than by the reprisal skipping the pipeline.)
 
 *Verified in game:* stone skin halving a blow (4→2), the fire shield
 scorching for 9 — including a reprisal that KILLED the blob and narrated
@@ -434,6 +436,57 @@ per-frame tick that feeds says nothing at all.
 *Verified in game:* a mummy authored `fire 1.5` — "The mummy drinks it in
 and is strengthened by 5!" from a fire bolt. No shipped content absorbs
 anything yet; a real fire golem is a monsters.cat entry plus a model.
+
+### The full sweep (Michael, 2026-07-25)
+
+> "Go through the spells and weapon attacks and make sure they are all
+> executed through those two systems — a spell/bow/thrown creates something
+> in the projectile system, which creates something in the effect system
+> when it lands. Any attack, bump, fall, etc., creates something in the
+> effect system."
+
+An audit of every path that can reach a combatant. Nine were already whole:
+monster melee, party melee (plus its enchantment `Burst`), the party spell
+bolt, the monster/caster bolt, the wall bump, the DoT ticks on BOTH sides,
+the fire-shield reprisal, and the two non-damaging landings (a ward, a
+Sight mark). No spell touches hit points; every one either spawns a
+`ProjectileSpec` through `CastServices::spawnBolt` or lands an `fx::Inst`
+through `applyEffect`. Outside the two `ITarget` adapters, nothing in the
+codebase writes `health` or `hp` at all except load/save and the
+self-stabilize wake — which is the invariant the whole system was for.
+
+Three things the sweep found:
+
+**A pit fall did nothing.** The party dropped a storey and landed unhurt —
+the one collision the world can inflict that never reached the pipeline.
+It is `OnFallImpact` now, the same `Impact` bash the bump deals at the new
+`fall_damage` knob, fired at the moment the drop lands (before the level
+swap). It shares `CollideParty` with the bump, so both get armour, Stone
+Skin, the water veil and the worst-of-them line for free, and a fall can
+finish a member who was already down. `bump_damage` was promoted from a
+hard-coded 2.0 to a knob at the same time, so the world's two blows are
+tuned where every other number is.
+
+**The reprisal was still doing its own arithmetic.** "Everything is
+resisted" fixed the fire shield's *mitigation* by hand — `dealt = amount ×
+(1 − resist)` — which meant it still skipped the absorb stage and could not
+express drinking: a fire-eating monster that punched a fire shield took
+nothing instead of being *fed*. It goes through `Deal` now, which needs the
+strike knobs and the RNG at the react hook, so `OnStruck` takes a
+`ReactCtx` (`React` likewise; `DungeonWorld::Reaction()` builds it). There
+is still no cascade risk — `Deal` never calls `React`, so a shield
+answering a shield stops after one exchange.
+
+**No bow or thrown weapon exists.** The projectile side is ready — the
+engine is side-agnostic and `ProjectileSpec` is a generic moving item — but
+nothing on the party side spawns one except a spell. `PartyAttack` only
+ever swings at the cell ahead; `reach` parses `polearm` or melee and has no
+`ranged` value; every authored verb in attacks.cat is a swing. Firing a bow
+is `PartyAttack` growing a ranged branch (spawn a `ProjectileSpec` down the
+member's quadrant lane instead of resolving in place — `CastSpell` already
+does exactly this and `ResolveSpellHit` already handles the landing), plus
+a `shoot`/`throw` verb and an authored weapon. That is a content-and-verb
+job, not a pipeline one, and it is left for the ranged-weapon thread.
 
 ---
 

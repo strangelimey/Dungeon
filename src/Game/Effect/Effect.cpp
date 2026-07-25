@@ -50,7 +50,8 @@ float EffectKind::ResistFor(const Inst&, DamageType, const Knobs&) const {
 	return 0.0f;
 }
 void EffectKind::OnAbsorb(Inst&, float&, const DamageEvent&, ITarget&) const {}
-void EffectKind::OnStruck(Inst&, const DamageEvent&, ITarget&, ITarget*) const {}
+void EffectKind::OnStruck(Inst&, const DamageEvent&, ITarget&, ITarget*,
+						  const ReactCtx&) const {}
 
 float EffectKind::StatBonus(const Inst&, std::string_view) const { return 0.0f; }
 float EffectKind::SpeedScale(const Inst&) const { return 1.0f; }
@@ -227,7 +228,8 @@ void Deal(DamageEvent& ev, ITarget& target, const StrikeRules& rules,
 	// (stage 6 is React, below — the caller runs it once it has said its piece)
 }
 
-void React(const DamageEvent& ev, ITarget& target, ITarget* attacker) {
+void React(const DamageEvent& ev, ITarget& target, ITarget* attacker,
+		   const ReactCtx& ctx) {
 	if (!ev.hit || ev.deflected) return; // nothing landed to answer
 	// By INDEX, re-reading the list each step: a reaction reaches back into the
 	// world (a reprisal deals damage of its own), so the list must not be held
@@ -235,7 +237,7 @@ void React(const DamageEvent& ev, ITarget& target, ITarget* attacker) {
 	// the ATTACKER but must not add effects to its own bearer.
 	for (size_t i = 0; i < target.Effects().size(); ++i) {
 		Inst& e = target.Effects()[i];
-		if (e.kind) e.kind->OnStruck(e, ev, target, attacker);
+		if (e.kind) e.kind->OnStruck(e, ev, target, attacker, ctx);
 	}
 	DropSpent(target.Effects());
 }
