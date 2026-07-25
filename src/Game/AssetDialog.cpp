@@ -41,7 +41,8 @@ AssetDialog::AssetDialog(gfx::GraphicsDevice& device, Window& window)
 
 void AssetDialog::Open(const std::string& category, const std::string& catalogKey,
 					   bool textureSet, std::vector<std::string> existing,
-					   const ui::Theme& theme) {
+					   const ui::Theme& theme, Source source,
+					   const std::string& asset) {
 	m_open = true;
 	m_busy = false;
 	m_uiRebuild = false;
@@ -49,11 +50,13 @@ void AssetDialog::Open(const std::string& category, const std::string& catalogKe
 	m_category = category;
 	m_catalogKey = catalogKey;
 	m_textureSet = textureSet;
-	m_source = Source::Import;
-	m_name.clear();
+	// Preset by the type editor's Duplicate (source + the entry to copy); the
+	// palette's "+ New..." passes neither and lands on Import with nothing picked.
+	m_source = source;
+	m_name.clear(); // never prefilled: the clone has to be told what it IS
 	m_group.clear();
 	m_sourcePath.clear();
-	m_asset.clear();
+	m_asset = asset;
 	m_flipGreen = false;
 	m_existing = std::move(existing);
 	m_pool = textureSet ? InstalledTextureSets() : InstalledModels();

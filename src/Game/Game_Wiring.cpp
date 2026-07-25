@@ -144,16 +144,15 @@ void Game::WireModuleCallbacks() {
 	// Editor: a palette "+ New" opens the asset-creation dialog for that category
 	// (Walls/Floors/Ceilings import a texture folder; the rest import a model).
 	m_mapEditor.onNewAsset = [this](MapEditor::PaletteCat cat) {
-		const char* key = MapEditor::CategoryCatalogKey(cat);
-		if (!*key) return; // belt-and-braces: every category names a catalog
-		// The category's existing ids drive both the duplicate-name check and the
-		// "copy from" list.
-		std::vector<std::string> existing;
-		if (const Catalog* c = m_project.CatalogForKey(key))
-			for (const CatalogEntry& e : c->Entries()) existing.push_back(e.id);
-		m_assetDialog.Open(loc::Tr(MapEditor::CategoryNameKey(cat)), key,
-						   MapEditor::CategoryTextureSet(cat), std::move(existing),
-						   m_settings.theme);
+		OpenCreateDialog(cat, AssetDialog::Source::Import);
+	};
+	// The type editor's Duplicate: the same create dialog, opened on a copy of
+	// the entry being edited. It is still an explicit Create — the clone goes
+	// through id validation and the schema-seeded writer like any other new type.
+	m_typeDialog.onDuplicate = [this](const TypeEditorDialog::Config& cfg) {
+		const MapEditor::PaletteCat cat = MapEditor::CatForCatalogKey(cfg.catalogKey);
+		if (cat == MapEditor::PaletteCat::Count) return;
+		OpenCreateDialog(cat, AssetDialog::Source::Duplicate, cfg.id);
 	};
 	// Create runs AssetBaker on the picked source (P4c); the dialog stays open in
 	// a "baking…" state until Update sees the subprocess finish.

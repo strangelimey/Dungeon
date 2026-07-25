@@ -25,6 +25,20 @@
 #include <utility>
 
 namespace dungeon::game {
+void Game::OpenCreateDialog(MapEditor::PaletteCat cat, AssetDialog::Source source,
+							const std::string& asset) {
+	const char* key = MapEditor::CategoryCatalogKey(cat);
+	if (!*key) return; // belt-and-braces: every category names a catalog
+	// The category's existing ids drive both the duplicate-name check and the
+	// "copy from" list.
+	std::vector<std::string> existing;
+	if (const Catalog* c = m_project.CatalogForKey(key))
+		for (const CatalogEntry& e : c->Entries()) existing.push_back(e.id);
+	m_assetDialog.Open(loc::Tr(MapEditor::CategoryNameKey(cat)), key,
+					   MapEditor::CategoryTextureSet(cat), std::move(existing),
+					   m_settings.theme, source, asset);
+}
+
 bool Game::StartBakeStep() {
 	const std::string baker = paths::ExecutableDir() + "\\AssetBaker.exe";
 	const std::string assets = paths::ExecutableDir() + "\\assets";
@@ -308,6 +322,11 @@ void Game::OpenTypeEditor(MapEditor::PaletteCat cat, const std::string& id) {
 	m_typeDialog.extraLabel = cat == MapEditor::PaletteCat::Monsters
 								  ? loc::Tr("map.type.anims")
 								  : std::string();
+	// Duplicate is offered wherever a type can be authored at all — the same test
+	// the palette's "+ New..." row uses, since the button opens that same dialog.
+	m_typeDialog.duplicateLabel = MapEditor::CategoryPlaceable(cat)
+									  ? loc::Tr("map.type.duplicate")
+									  : std::string();
 	m_typeDialog.Open(std::move(cfg), SchemaFor(key));
 }
 

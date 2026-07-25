@@ -513,6 +513,7 @@ map.type.saved='{}' salvato — usa "Alla sorgente" per conservarlo.
 map.type.unknown='{}' non ha una voce di catalogo da modificare.
 map.type.none=(nessuno)
 map.type.anims=Animazione...
+map.type.duplicate=Duplica
 map.type.sec.identity=Identità
 map.type.sec.look=Aspetto
 map.type.sec.material=Materiale

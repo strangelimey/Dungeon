@@ -513,6 +513,7 @@ map.type.saved='{}' gespeichert — mit "Zur Quelle" dauerhaft sichern.
 map.type.unknown='{}' hat keinen Katalogeintrag zum Bearbeiten.
 map.type.none=(keiner)
 map.type.anims=Animation...
+map.type.duplicate=Kopie
 map.type.sec.identity=Identität
 map.type.sec.look=Aussehen
 map.type.sec.material=Material

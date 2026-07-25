@@ -91,6 +91,14 @@ public:
 	// specialised dialog (Monsters: animations + behaviour). No label = no button.
 	std::function<void(const Config&)> onExtra;
 	std::string extraLabel;
+	// Duplicate: clone this entry as a new type — "the same wall with a different
+	// texture" is a copy plus one field, not a form filled from scratch. The owner
+	// opens the CREATE dialog preset to Duplicate-of-this-id, so a clone still
+	// lands through the one create path (id validation, schema defaults, palette
+	// enrolment) instead of a second writer. Empty label = no button, which is how
+	// a category that cannot author a type (Effects, which need a class) opts out.
+	std::function<void(const Config&)> onDuplicate;
+	std::string duplicateLabel;
 	// Renaming: clicking the id in the title opens an inline edit; Enter commits
 	// through this (the LevelSettingsDialog affordance). The owner does the real
 	// work — catalog entry, every level's records, the cross-catalog references

@@ -26,8 +26,9 @@ constexpr gfx::Rect kTabs{0.28f, 0.195f, 0.44f, 0.60f};
 // (~0.72) so nothing overruns it. Close is no longer here — it's the top-right
 // corner box now.
 constexpr gfx::Rect kSave{0.28f, 0.815f, 0.09f, 0.045f};
-constexpr gfx::Rect kExtra{0.46f, 0.815f, 0.13f, 0.045f};   // Animation (monsters)
-constexpr gfx::Rect kDelete{0.60f, 0.815f, 0.075f, 0.045f};
+constexpr gfx::Rect kDuplicate{0.385f, 0.815f, 0.08f, 0.045f};
+constexpr gfx::Rect kExtra{0.475f, 0.815f, 0.12f, 0.045f};  // Animation (monsters)
+constexpr gfx::Rect kDelete{0.605f, 0.815f, 0.07f, 0.045f};
 constexpr gfx::Rect kHelp{0.685f, 0.815f, 0.035f, 0.045f};
 
 // Row metrics inside a tab page (fractions of the page). A row past 1.0 is what
@@ -277,6 +278,15 @@ void TypeEditorDialog::BuildUI() {
 		if (onSave) onSave(m_cfg);
 		if (!m_busy) Close(); // a launched re-bake closes us on completion
 	});
+	// Duplicate hands off to the create dialog, so this one closes first — the
+	// same handoff the extra button makes (copy the config, close, then call:
+	// the callback may not touch this dialog's widgets after Close).
+	if (!duplicateLabel.empty())
+		m_ui.Add<ui::Button>(kDuplicate, duplicateLabel, [this] {
+			Config cfg = m_cfg;
+			Close();
+			if (onDuplicate) onDuplicate(cfg);
+		});
 	if (!extraLabel.empty())
 		m_ui.Add<ui::Button>(kExtra, extraLabel, [this] {
 			Config cfg = m_cfg;

@@ -533,6 +533,7 @@ map.type.saved=Saved '{}' — use To source to keep it.
 map.type.unknown='{}' has no catalog entry to edit.
 map.type.none=(none)
 map.type.anims=Animation...
+map.type.duplicate=Duplicate
 map.type.sec.identity=Identity
 map.type.sec.look=Look
 map.type.sec.material=Material

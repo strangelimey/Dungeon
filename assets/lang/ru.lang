@@ -517,6 +517,7 @@ map.type.saved=«{}» сохранён — нажмите «В исходник�
 map.type.unknown=У «{}» нет записи в каталоге для правки.
 map.type.none=(нет)
 map.type.anims=Анимация...
+map.type.duplicate=Копия
 map.type.sec.identity=Идентичность
 map.type.sec.look=Вид
 map.type.sec.material=Материал

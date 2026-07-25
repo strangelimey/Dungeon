@@ -86,9 +86,13 @@ public:
 	// Opens for a category (display label + project catalog key); textureSet
 	// picks the folder vs file browse mode. `existing` are that catalog's ids
 	// (the Duplicate list AND the duplicate-name check). `theme` styles the form.
+	// `source`/`asset` preset the form — the type editor's Duplicate button opens
+	// straight onto Duplicate-of-that-entry; the name is NEVER prefilled, since a
+	// clone still has to be told what it is.
 	void Open(const std::string& category, const std::string& catalogKey,
 			  bool textureSet, std::vector<std::string> existing,
-			  const ui::Theme& theme);
+			  const ui::Theme& theme, Source source = Source::Import,
+			  const std::string& asset = {});
 	void Close() { m_open = false; m_busy = false; }
 
 	// The owner sets this while the bake subprocess runs: the form is frozen and

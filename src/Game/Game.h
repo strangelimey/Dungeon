@@ -112,6 +112,12 @@ private:
 	void BuildBootLoadTasks(); // menu essentials, run before the landing page
 	void BuildGameLoadTasks(); // the dungeon itself, run on first game start
 
+	// Opens the create dialog for a palette category. Both ways in come through
+	// here — the palette's "+ New..." (Import, nothing picked) and the type
+	// editor's Duplicate (preset to a copy of `asset`) — so the two can't drift
+	// on the category's label / catalog / texture-set-vs-model mode.
+	void OpenCreateDialog(MapEditor::PaletteCat cat, AssetDialog::Source source,
+						  const std::string& asset = {});
 	// Asset bake (P4c): launch the AssetBaker command for the current step; and,
 	// when the bake finishes, write the new catalog entry + save the project.
 	bool StartBakeStep();
