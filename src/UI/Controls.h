@@ -164,6 +164,11 @@ private:
 	bool m_dragging = false;
 };
 
+// Labeled selector whose open list is drawn as an overlay, so it covers the
+// widgets laid out after it. The list is CLAMPED to the window: it opens below
+// the control, flips above when there is more room there, and scrolls (wheel or
+// thumb drag, like SlotList) when it still doesn't fit — an installed-asset list
+// is as long as the pool, and it used to run off the bottom of the screen.
 class DropDown : public Widget {
 public:
 	DropDown(const gfx::Rect& rect, std::vector<std::string> items, int selected,
@@ -186,12 +191,22 @@ public:
 	std::function<void(int)> onSelect;
 
 private:
-	gfx::Rect ItemRect(size_t index) const;
+	// The open list's box, clamped to the window (below the control, or above it
+	// when that side has more room). Everything else resolves against it.
+	gfx::Rect PopupRect(const UIContext& ctx) const;
+	gfx::Rect ItemRect(const gfx::Rect& popup, size_t index) const;
+	float MaxScroll(const gfx::Rect& popup) const;
+	gfx::Rect ScrollTrackRect(const gfx::Rect& popup) const;
+	gfx::Rect ScrollThumbRect(const gfx::Rect& popup, float maxScroll) const;
 
 	int m_selected = 0;
 	int m_hoverItem = -1;
 	bool m_open = false;
 	bool m_hot = false;
+	float m_scroll = 0.0f; // pixels scrolled down the open list
+	bool m_scrollHot = false;
+	bool m_scrollDragging = false;
+	float m_scrollGrab = 0.0f; // pointer offset within the thumb while dragging
 };
 
 // Labeled color swatch. Clicking the swatch opens a popup with one slider per

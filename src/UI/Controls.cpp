@@ -262,27 +262,100 @@ void Slider::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
 
 // --- DropDown ------------------------------------------------------------
 
-gfx::Rect DropDown::ItemRect(size_t index) const {
+// The list opens below the control; when it doesn't fit there and the space
+// above is larger, it flips. Whatever is still too tall scrolls — a pool-length
+// list used to draw straight off the bottom of the window.
+gfx::Rect DropDown::PopupRect(const UIContext& ctx) const {
 	const gfx::Rect& px = Pixel();
-	return {px.x, px.y + px.h * static_cast<float>(index + 1), px.w, px.h};
+	const float pad = 4.0f;
+	const float content = px.h * static_cast<float>(items.size());
+	const float below = std::max(0.0f, ctx.Height() - (px.y + px.h) - pad);
+	const float above = std::max(0.0f, px.y - pad);
+	if (content <= below || below >= above) return {px.x, px.y + px.h, px.w,
+													std::min(content, below)};
+	const float h = std::min(content, above);
+	return {px.x, px.y - h, px.w, h};
+}
+
+float DropDown::MaxScroll(const gfx::Rect& popup) const {
+	return std::max(0.0f, Pixel().h * static_cast<float>(items.size()) - popup.h);
+}
+
+gfx::Rect DropDown::ItemRect(const gfx::Rect& popup, size_t index) const {
+	const float rowH = Pixel().h;
+	// Rows stop short of the scrollbar gutter, so a row hover never sits under
+	// the thumb (SlotList's rule).
+	const float gutter = MaxScroll(popup) > 0.0f ? 12.0f : 0.0f;
+	return {popup.x, popup.y + rowH * static_cast<float>(index) - m_scroll,
+			popup.w - gutter, rowH};
+}
+
+gfx::Rect DropDown::ScrollTrackRect(const gfx::Rect& popup) const {
+	const float barW = 10.0f;
+	return {popup.x + popup.w - barW - 1.0f, popup.y + 1.0f, barW, popup.h - 2.0f};
+}
+
+gfx::Rect DropDown::ScrollThumbRect(const gfx::Rect& popup, float maxScroll) const {
+	const gfx::Rect track = ScrollTrackRect(popup);
+	const float thumbH = std::max(track.h * popup.h / (popup.h + maxScroll), 24.0f);
+	const float t = maxScroll > 0.0f ? m_scroll / maxScroll : 0.0f;
+	return {track.x, track.y + (track.h - thumbH) * t, track.w, thumbH};
 }
 
 void DropDown::Update(UIContext& ctx) {
 	const Input* input = ctx.CurrentInput();
 	if (!input) return;
+	const float mx = input->MouseX(), my = input->MouseY();
 
 	if (m_open) {
 		// The open popup owns the mouse entirely.
-		m_hoverItem = -1;
-		for (size_t i = 0; i < items.size(); ++i) {
-			if (!ItemRect(i).Contains(input->MouseX(), input->MouseY())) continue;
-			m_hoverItem = static_cast<int>(i);
-			if (input->WasMousePressed(MouseButton::Left)) {
-				m_selected = static_cast<int>(i);
-				m_open = false;
+		const gfx::Rect popup = PopupRect(ctx);
+		const float maxScroll = MaxScroll(popup);
+		m_scroll = std::clamp(m_scroll, 0.0f, maxScroll);
+
+		// The scrollbar runs before the rows: a press on the thumb must neither
+		// pick the row behind it nor read as the click-outside that closes.
+		m_scrollHot = false;
+		if (maxScroll > 0.0f) {
+			const gfx::Rect track = ScrollTrackRect(popup);
+			const gfx::Rect thumb = ScrollThumbRect(popup, maxScroll);
+			if (m_scrollDragging && !input->IsMouseDown(MouseButton::Left))
+				m_scrollDragging = false;
+			m_scrollHot = thumb.Contains(mx, my);
+			if (m_scrollHot && input->WasMousePressed(MouseButton::Left)) {
+				m_scrollDragging = true;
+				m_scrollGrab = my - thumb.y;
+			}
+			if (m_scrollDragging) {
+				const float range = track.h - thumb.h;
+				if (range > 0.0f)
+					m_scroll = std::clamp(
+						(my - m_scrollGrab - track.y) / range * maxScroll, 0.0f,
+						maxScroll);
+			}
+			if (input->WheelDelta() != 0.0f && popup.Contains(mx, my))
+				m_scroll = std::clamp(m_scroll - input->WheelDelta() * Pixel().h,
+									  0.0f, maxScroll);
+			if (m_scrollHot || m_scrollDragging || track.Contains(mx, my)) {
 				ctx.ConsumeMouse();
-				if (onSelect) onSelect(m_selected);
 				return;
+			}
+		} else {
+			m_scrollDragging = false;
+		}
+
+		m_hoverItem = -1;
+		if (popup.Contains(mx, my)) { // a part-scrolled row reaches past the box
+			for (size_t i = 0; i < items.size(); ++i) {
+				if (!ItemRect(popup, i).Contains(mx, my)) continue;
+				m_hoverItem = static_cast<int>(i);
+				if (input->WasMousePressed(MouseButton::Left)) {
+					m_selected = static_cast<int>(i);
+					m_open = false;
+					ctx.ConsumeMouse();
+					if (onSelect) onSelect(m_selected);
+					return;
+				}
 			}
 		}
 		if (input->WasMousePressed(MouseButton::Left)) m_open = false;
@@ -290,10 +363,19 @@ void DropDown::Update(UIContext& ctx) {
 		return;
 	}
 
-	m_hot = !ctx.IsMouseConsumed() && Pixel().Contains(input->MouseX(), input->MouseY());
+	m_hot = !ctx.IsMouseConsumed() && Pixel().Contains(mx, my);
 	if (m_hot) {
 		ctx.ConsumeMouse();
-		if (input->WasMousePressed(MouseButton::Left)) m_open = true;
+		if (input->WasMousePressed(MouseButton::Left)) {
+			m_open = true;
+			// Open with the current selection in view — a long list otherwise
+			// opens at the top, nowhere near what it says it is showing.
+			const gfx::Rect popup = PopupRect(ctx);
+			const float rowH = Pixel().h;
+			m_scroll = std::clamp(rowH * static_cast<float>(m_selected) -
+									  (popup.h - rowH) * 0.5f,
+								  0.0f, MaxScroll(popup));
+		}
 	}
 }
 
@@ -321,13 +403,29 @@ void DropDown::DrawOverlay(UIContext& ctx, gfx::SpriteBatch& batch) {
 	if (!m_open) return;
 	const Theme& theme = ctx.GetTheme();
 	Font& font = ctx.GetFont();
+	const gfx::Rect popup = PopupRect(ctx);
+	const float maxScroll = MaxScroll(popup);
+
+	if (maxScroll > 0.0f) {
+		batch.DrawRect(popup, theme.control); // backing behind the part-rows
+		batch.SetScissor(&popup);
+	}
 	for (size_t i = 0; i < items.size(); ++i) {
-		const gfx::Rect rect = ItemRect(i);
+		const gfx::Rect rect = ItemRect(popup, i);
+		if (rect.y + rect.h <= popup.y || rect.y >= popup.y + popup.h) continue;
 		const bool hovered = static_cast<int>(i) == m_hoverItem;
 		batch.DrawRect(rect, hovered ? theme.controlHot : theme.control);
 		DrawBorder(batch, rect, theme.panelBorder);
 		font.Draw(batch, items[i], rect.x + 8, rect.y + (rect.h - font.Height()) * 0.5f,
 				  static_cast<int>(i) == m_selected ? theme.accent : theme.text);
+	}
+	if (maxScroll > 0.0f) {
+		batch.SetScissor(nullptr);
+		batch.DrawRect(ScrollTrackRect(popup), theme.control);
+		const gfx::Rect thumb = ScrollThumbRect(popup, maxScroll);
+		batch.DrawRect(thumb, m_scrollDragging || m_scrollHot ? theme.controlActive
+															  : theme.controlHot);
+		DrawBorder(batch, thumb, theme.panelBorder);
 	}
 }
 
