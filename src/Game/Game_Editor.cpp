@@ -67,10 +67,11 @@ bool Game::StartBakeStep() {
 		// type is the pool asset, not the new catalog id.
 		const std::string set = m_bakeReq.asset.empty() ? m_bakeReq.name : m_bakeReq.asset;
 		cmd = q(baker) + " wornblock " + kind + " " + set + " " + q(assets);
-		// Wall-style knobs (default 1/on for an asset-create; set by a restyle).
+		// Surface-look knobs (defaults for an asset-create; set by a restyle).
 		if (m_bakeWear != 1.0f)
 			cmd += std::format(" --wear {:.3f}", m_bakeWear);
 		if (!m_bakeColumns) cmd += " --columns 0";
+		if (m_bakeRelief >= 0.0f) cmd += std::format(" --relief {:.4f}", m_bakeRelief);
 	}
 	log::Info("AssetBaker: {}", cmd);
 	return m_bake.Start(cmd);
@@ -553,7 +554,7 @@ void Game::WriteTypeFields(const TypeEditorDialog::Config& cfg) {
 // m_restyleBake tells the Update poll to reload the dungeon blocks (not
 // FinishBake) on success.
 void Game::StartRestyleBake(const std::string& catalogKey, const std::string& texture,
-						   float wear, bool columns) {
+						   float wear, bool columns, float relief) {
 	if (m_baking) {
 		log::Warn("surface style: a bake is already running — try again in a moment");
 		return;
@@ -565,6 +566,7 @@ void Game::StartRestyleBake(const std::string& catalogKey, const std::string& te
 	m_bakeStep = 1;               // skip the texture-import step
 	m_bakeWear = wear;
 	m_bakeColumns = columns;
+	m_bakeRelief = relief;
 	m_restyleBake = true;
 	if (StartBakeStep())
 		m_baking = true;

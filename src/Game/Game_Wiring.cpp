@@ -217,9 +217,12 @@ void Game::WireModuleCallbacks() {
 		const CatalogEntry* e = m_project.CatalogForKey(cfg.catalogKey)
 									? m_project.CatalogForKey(cfg.catalogKey)->Find(cfg.id)
 									: nullptr;
+		// An unset `relief` passes -1, leaving the baker's per-kind amplitude —
+		// the depth every surface was baked at before the field existed.
 		StartRestyleBake(cfg.catalogKey, CatalogGet(e, "texture", cfg.id),
 						 e ? e->GetFloat("wear", 1.0f) : 1.0f,
-						 e ? e->GetBool("columns", true) : true);
+						 e ? e->GetBool("columns", true) : true,
+						 e ? e->GetFloat("relief", -1.0f) : -1.0f);
 		if (m_restyleBake) m_typeDialog.SetBusy(true); // bake launched
 	};
 	// Monsters keep their specialised dialog for animation + behaviour (it

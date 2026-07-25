@@ -2139,9 +2139,12 @@ bool BakeModels(const std::string& dir, const std::string& texturesDir) {
 }
 
 bool BakeWornBlocks(const std::string& kind, const std::string& name,
-					const std::string& assetsDir, float wearScale, bool columns) {
+					const std::string& assetsDir, float wearScale, bool columns,
+					float relief) {
 	const int k = kind == "floor" ? 1 : (kind == "ceiling" ? 2 : 0);
-	const float relief = k == 2 ? 0.08f : (k == 1 ? 0.045f : 0.055f);
+	// Negative = unspecified: keep the per-kind default this command has always
+	// baked at, so an unset `relief` field changes nothing.
+	if (relief < 0.0f) relief = k == 2 ? 0.08f : (k == 1 ? 0.045f : 0.055f);
 	const u32 seed = static_cast<u32>(std::hash<std::string>{}(name)) | 1u;
 	return BakeWornTiers(k, name, relief, seed, assetsDir + "\\models",
 						 assetsDir + "\\textures", wearScale, columns);

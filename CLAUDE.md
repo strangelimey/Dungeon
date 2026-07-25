@@ -426,7 +426,18 @@ buffer, reused across all ~25 submissions).
   bricks/slabs; DungeonMeshBuilder stamps the mesh matching each cell's
   texture variant. wall_stone's Poly Haven displacement export is flat
   (detected at import), so it uses procedural wear — its 0.5x0.31 block
-  grid happens to fit that texture's large blocks anyway.
+  grid happens to fit that texture's large blocks anyway. TWO KNOBS, not
+  one: `relief` is the displacement AMPLITUDE in metres (how far the stones
+  stand proud) and `wear` is a 0..1 SCALE over it, both catalog fields on
+  the surface schema and both `rebakes` (`AssetBaker wornblock ... --relief
+  --wear`; an absent relief keeps the baker's per-kind default — wall 0.055
+  / floor 0.045 / ceiling 0.08 — so untouched types bake as before). Before
+  relief existed the amplitude was a baker constant and `wear` could only
+  take relief AWAY, so "wear = 1" looked like a no-op. Don't confuse either
+  with `height_scale`, which is the SHADER's parallax depth: fake, per-draw,
+  no rebake, and by construction invisible head-on (the offset scales with
+  the view's tangential component) — real silhouette relief only comes from
+  the mesh, and deep relief on the `med` tier can facet.
 
 ## Quality system
 

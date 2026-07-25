@@ -71,17 +71,23 @@ constexpr FieldSpec kWallFields[] = {
 	{.key = "height_scale", .kind = FieldKind::Float, .sectionKey = kSectionLook,
 	 .help = "Parallax depth of the painted relief, in units.",
 	 .lo = 0.0f, .hi = 0.12f, .step = 0.005f, .def = "0.055"},
+	{.key = "relief", .kind = FieldKind::Float, .sectionKey = kSectionLook,
+	 .help = "How far the stones stand proud of the panel, in metres (real "
+			 "geometry, so it shows at any angle). `wear` scales this.",
+	 .lo = 0.0f, .hi = 0.25f, .step = 0.005f, .def = "0.055", .rebakes = true},
 	{.key = "wear", .kind = FieldKind::Float, .sectionKey = kSectionLook,
-	 .help = "Displacement of the block mesh: 0 = a flat panel, 1 = full worn relief.",
+	 .help = "Scales the relief: 0 = a flat panel, 1 = the full authored depth.",
 	 .lo = 0.0f, .hi = 1.0f, .step = 0.05f, .def = "1", .rebakes = true},
 	{.key = "columns", .kind = FieldKind::Bool, .sectionKey = kSectionLook,
 	 .help = "The wall's edge pillars / border strips.", .def = "1", .rebakes = true},
 	SURFACE_MATERIAL_ROWS,
 };
 
-// --- floors / ceilings ------------------------------------------------------
-// Same as walls minus the pillars (a wall-block feature).
-constexpr FieldSpec kFlatSurfaceFields[] = {
+// --- floors -----------------------------------------------------------------
+// Same as walls minus the pillars (a wall-block feature). Ceilings get their own
+// table below purely because they are baked at a DEEPER default relief, and a
+// `def` that doesn't match what the baker would do makes the slider lie.
+constexpr FieldSpec kFloorFields[] = {
 	IDENTITY_DISPLAY,
 	IDENTITY_CATEGORY,
 	{.key = "texture", .kind = FieldKind::TextureSet, .sectionKey = kSectionLook,
@@ -90,8 +96,34 @@ constexpr FieldSpec kFlatSurfaceFields[] = {
 	{.key = "height_scale", .kind = FieldKind::Float, .sectionKey = kSectionLook,
 	 .help = "Parallax depth of the painted relief, in units.",
 	 .lo = 0.0f, .hi = 0.12f, .step = 0.005f, .def = "0.045"},
+	{.key = "relief", .kind = FieldKind::Float, .sectionKey = kSectionLook,
+	 .help = "How far the surface stands proud of the panel, in metres (real "
+			 "geometry, so it shows at any angle). `wear` scales this.",
+	 .lo = 0.0f, .hi = 0.25f, .step = 0.005f, .def = "0.045", .rebakes = true},
 	{.key = "wear", .kind = FieldKind::Float, .sectionKey = kSectionLook,
-	 .help = "Displacement of the block mesh: 0 = a flat panel, 1 = full worn relief.",
+	 .help = "Scales the relief: 0 = a flat panel, 1 = the full authored depth.",
+	 .lo = 0.0f, .hi = 1.0f, .step = 0.05f, .def = "1", .rebakes = true},
+	SURFACE_MATERIAL_ROWS,
+};
+
+// --- ceilings ---------------------------------------------------------------
+// The floor table with a deeper default relief (a rough ceiling hangs further
+// down than a floor stands proud — BakeWornBlocks' per-kind default).
+constexpr FieldSpec kCeilingFields[] = {
+	IDENTITY_DISPLAY,
+	IDENTITY_CATEGORY,
+	{.key = "texture", .kind = FieldKind::TextureSet, .sectionKey = kSectionLook,
+	 .help = "The PBR set this surface paints with; its height map drives the worn relief.",
+	 .rebakes = true},
+	{.key = "height_scale", .kind = FieldKind::Float, .sectionKey = kSectionLook,
+	 .help = "Parallax depth of the painted relief, in units.",
+	 .lo = 0.0f, .hi = 0.12f, .step = 0.005f, .def = "0.045"},
+	{.key = "relief", .kind = FieldKind::Float, .sectionKey = kSectionLook,
+	 .help = "How far the surface hangs below the panel, in metres (real "
+			 "geometry, so it shows at any angle). `wear` scales this.",
+	 .lo = 0.0f, .hi = 0.25f, .step = 0.005f, .def = "0.08", .rebakes = true},
+	{.key = "wear", .kind = FieldKind::Float, .sectionKey = kSectionLook,
+	 .help = "Scales the relief: 0 = a flat panel, 1 = the full authored depth.",
 	 .lo = 0.0f, .hi = 1.0f, .step = 0.05f, .def = "1", .rebakes = true},
 	SURFACE_MATERIAL_ROWS,
 };
@@ -372,7 +404,8 @@ constexpr FieldSpec kWallFeatureFields[] = {
 
 std::span<const FieldSpec> SchemaFor(std::string_view catalogKey) {
 	if (catalogKey == "walls") return kWallFields;
-	if (catalogKey == "floors" || catalogKey == "ceilings") return kFlatSurfaceFields;
+	if (catalogKey == "floors") return kFloorFields;
+	if (catalogKey == "ceilings") return kCeilingFields;
 	if (catalogKey == "decorations") return kDecorationFields;
 	if (catalogKey == "fixtures") return kFixtureFields;
 	if (catalogKey == "monsters") return kMonsterFields;

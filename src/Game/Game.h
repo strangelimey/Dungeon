@@ -138,10 +138,11 @@ private:
 	// know (hand-authored, or MonsterConfigDialog's animation rows) survive.
 	void WriteTypeFields(const TypeEditorDialog::Config& cfg);
 	// Re-bakes a surface type's worn block meshes (its `texture` set at the
-	// type's wear/columns) and, on success, reloads the dungeon blocks in place.
-	// Launches the async wornblock bake; the caller freezes its dialog meanwhile.
+	// type's relief/wear/columns) and, on success, reloads the dungeon blocks in
+	// place. Launches the async wornblock bake; the caller freezes its dialog
+	// meanwhile. `relief` < 0 leaves the baker's per-kind default amplitude.
 	void StartRestyleBake(const std::string& catalogKey, const std::string& texture,
-						  float wear, bool columns);
+						  float wear, bool columns, float relief);
 	// Opens the type editor for a catalog id (the palette's right-click), or
 	// does nothing when the catalog/entry is unknown.
 	void OpenTypeEditor(MapEditor::PaletteCat cat, const std::string& id);
@@ -456,11 +457,13 @@ private:
 	AssetDialog::CreateRequest m_bakeReq;
 	bool m_baking = false;
 	int m_bakeStep = 0;
-	// Wall-style knobs for a `wornblock` bake (StartBakeStep appends them as
-	// --wear/--columns). Defaults reproduce the original worn look, so the
-	// asset-create path leaves them untouched; the Wall Style rebake sets them.
+	// Surface-look knobs for a `wornblock` bake (StartBakeStep appends them as
+	// --wear/--columns/--relief). Defaults reproduce the original worn look, so
+	// the asset-create path leaves them untouched; a type restyle sets them.
+	// Relief < 0 = unspecified: the baker keeps its per-kind default amplitude.
 	float m_bakeWear = 1.0f;
 	bool m_bakeColumns = true;
+	float m_bakeRelief = -1.0f;
 	// True while the running bake is a Wall Style RESTYLE (no new catalog entry;
 	// on success reload the dungeon blocks in place instead of FinishBake).
 	bool m_restyleBake = false;

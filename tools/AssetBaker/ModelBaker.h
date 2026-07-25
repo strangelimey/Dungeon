@@ -13,10 +13,14 @@ bool BakeModels(const std::string& modelsDir, const std::string& texturesDir);
 // Bakes the worn block meshes (3 tiers) for a single surface texture set —
 // `kind` is "wall", "floor", or "ceiling". Used after importing a new texture
 // set so a level can reference it. `assetsDir` holds models/ and textures/.
-// `wearScale` scales the displacement (a wall type's `wear`; 0 = flat) and
-// `columns` gates a wall's edge pillars — both default to the original look.
+// `relief` is the displacement AMPLITUDE in metres — how far the stones stand
+// proud of the panel — and `wearScale` (a type's `wear`) scales it, 0 = flat.
+// Splitting the two is the point: `wear` alone could only ever take relief
+// away, since 1.0 meant "the amount baked in". A negative `relief` keeps the
+// per-kind default, so an old call site bakes exactly as it did.
+// `columns` gates a wall's edge pillars.
 bool BakeWornBlocks(const std::string& kind, const std::string& name,
 					const std::string& assetsDir, float wearScale = 1.0f,
-					bool columns = true);
+					bool columns = true, float relief = -1.0f);
 
 } // namespace dungeon::baker
