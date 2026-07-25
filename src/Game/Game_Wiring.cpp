@@ -154,6 +154,14 @@ void Game::WireModuleCallbacks() {
 		if (cat == MapEditor::PaletteCat::Count) return;
 		OpenCreateDialog(cat, AssetDialog::Source::Duplicate, cfg.id);
 	};
+	// What a catalog entry binds — the create dialog's Duplicate mode resolves
+	// the id it is copying down to a texture set / model so it can preview it.
+	m_assetDialog.fieldOfType = [this](const std::string& key, const std::string& id,
+									   const std::string& field) {
+		const Catalog* cat = m_project.CatalogForKey(key);
+		const CatalogEntry* e = cat ? cat->Find(id) : nullptr;
+		return e ? e->Get(field, "") : std::string();
+	};
 	// Create runs AssetBaker on the picked source (P4c); the dialog stays open in
 	// a "baking…" state until Update sees the subprocess finish.
 	m_assetDialog.onCreate = [this](const AssetDialog::CreateRequest& req) {

@@ -72,6 +72,9 @@ void AssetDialog::Open(const std::string& category, const std::string& catalogKe
 	m_neutral = m_material; // Create writes only the sliders moved off these
 	m_theme = theme;
 	Rebuild(theme);
+	// Opened preset on an entry (the type editor's Duplicate): show it straight
+	// away. Rebuild's own seeding only fires when nothing is picked yet.
+	if (!m_asset.empty()) RefreshPreview();
 }
 
 gfx::Rect AssetDialog::PreviewRect(float w, float h) const {
@@ -285,13 +288,22 @@ void AssetDialog::RefreshPreview() {
 	m_material.normalMap = nullptr;
 	m_material.metalRough = nullptr;
 
+	// The pool asset to show. Installed picks one directly; Duplicate picks a
+	// catalog ID, whose entry names it — resolve that, or a clone previews
+	// nothing at all (which is exactly how it looked).
+	const std::string pool =
+		m_source == Source::Duplicate
+			? (fieldOfType ? fieldOfType(m_catalogKey, m_asset,
+										 m_textureSet ? "texture" : "model")
+						   : std::string())
+			: m_asset;
+
 	// --- a texture set: the shared block mesh, wearing those maps -------------
 	if (m_textureSet) {
-		if (m_source == Source::Duplicate) return; // a copy shows the same as its source
 		std::string albedoPath, normalPath;
-		if (m_source == Source::Installed && !m_asset.empty()) {
+		if (m_source != Source::Import && !pool.empty()) {
 			// Installed sets are baked: load by stem at 2k (always present).
-			const std::string stem = paths::Asset("textures\\" + m_asset + "_2k");
+			const std::string stem = paths::Asset("textures\\" + pool + "_2k");
 			m_previewAlbedo = TryLoadTextureFile(m_device, stem, /*srgb*/ true);
 			m_previewNormal = TryLoadTextureFile(m_device, stem + "_n");
 			m_previewMr = TryLoadTextureFile(m_device, stem + "_mr");
@@ -321,8 +333,13 @@ void AssetDialog::RefreshPreview() {
 	// --- a model -------------------------------------------------------------
 	std::string modelPath;
 	if (m_source == Source::Import) modelPath = m_sourcePath;
-	else if (m_source == Source::Installed && !m_asset.empty())
-		modelPath = paths::Asset("models\\" + m_asset + ".gltf");
+	else if (!pool.empty()) {
+		// A pool model is named without its extension (InstalledModels strips it)
+		// and the bought/authored ones are .glb, so try both rather than assuming.
+		modelPath = paths::Asset("models\\" + pool + ".gltf");
+		if (!std::filesystem::exists(modelPath))
+			modelPath = paths::Asset("models\\" + pool + ".glb");
+	}
 	if (modelPath.empty()) return;
 	auto model = assets::LoadModel(modelPath);
 	if (!model || model->meshes.empty()) {

@@ -120,6 +120,13 @@ public:
 
 	// Fired by the Create button with the gathered form.
 	std::function<void(const CreateRequest&)> onCreate;
+	// Reads one field off a catalog entry — (catalogKey, id, field) -> value, ""
+	// when unknown. The dialog holds ids, not the project, and Duplicate picks an
+	// ID where Installed picks a pool ASSET: this is how it resolves the entry it
+	// is about to copy down to the texture set or model to preview.
+	std::function<std::string(const std::string&, const std::string&,
+							  const std::string&)>
+		fieldOfType;
 
 private:
 	void Rebuild(const ui::Theme& theme); // (re)builds the form widgets
