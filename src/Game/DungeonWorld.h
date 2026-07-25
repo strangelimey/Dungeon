@@ -86,6 +86,17 @@ public:
 	// place (the ApplyQuality core). The editor's Wall Style rebake calls this
 	// after re-baking a texture's worn_*.gltf to swap the new geometry in live.
 	void ReloadDungeonBlocks(bool textureResChanged = false);
+	// Re-reads the surface catalogs' PER-DRAW material knobs (parallax depth,
+	// metallic/roughness) and pushes them live — no reload, no rebuild. The type
+	// editor calls it when a surface type is saved: only texture/wear/columns
+	// change baked geometry, everything else can just take effect.
+	void RefreshSurfaceMaterials();
+	// The PROP counterpart: drops one catalog type's cached kind so the next
+	// resolve re-reads the catalog (model, texture set, material overrides,
+	// scale, flags), then re-spawns the live objects that used it. A kind is
+	// loaded once and cached by type name, so without this a saved edit only
+	// showed on the next level entry. `catalogKey` picks the cache.
+	void ReloadTypeKind(const std::string& catalogKey, const std::string& id);
 
 	// "Start New Game": snaps the party home, re-arms the monster
 	// announcements, and resets the torch palette (which speaks via
@@ -490,6 +501,58 @@ public:
 	const gfx::Texture* SurfaceAlbedoForId(SurfaceSel sel,
 										   const std::string& id) const;
 
+	// --- surface palette membership (editor) --------------------------------
+	// A level paints only the surface types its `palette` record lists (the
+	// order IS the variant index), so a catalog type has to JOIN the palette
+	// before the brush can reach it. Appends `id` to the active level's palette
+	// and reloads that surface's texture sets + worn block meshes so it paints
+	// immediately. False when the id is unknown, already in the palette, or its
+	// baked assets are missing (SurfaceAssetsAvailable). Append-only by design:
+	// `variant` records key on the INDEX, so an insert would repaint cells.
+	bool AddPaletteEntry(SurfaceSel sel, const std::string& id);
+	// The browsed-level counterpart: appends to that level's stashed map (no
+	// texture work — the level isn't rendered). Same append-only contract.
+	bool AddPaletteEntryRemote(const std::string& stem, SurfaceSel sel,
+							   const std::string& id);
+	// Ensures `id` is in level `stem`'s <sel> palette (appending it, and on the
+	// active level reloading its textures) and returns its VARIANT INDEX; -1 if
+	// the type's baked assets are missing. Chooses the live map or the stash by
+	// whether `stem` is the current level. The editor's surface paint calls this
+	// so a "Catalogue"-view type joins the level the moment it is first painted —
+	// append-only, so a type already present keeps its index.
+	int EnsureSurfaceVariant(const std::string& stem, SurfaceSel sel,
+							 const std::string& id);
+	// True when the type's baked assets are on disk at the CURRENT quality tier
+	// (its texture set and worn_<set>_<tier>.gltf). Guards AddPaletteEntry: the
+	// worn-mesh load is a LoadModelOrDie, so an unbaked type would abort the
+	// game instead of failing the edit (the MonsterModelAvailable pattern).
+	bool SurfaceAssetsAvailable(SurfaceSel sel, const std::string& id) const;
+	// The project catalog behind a surface selector (walls/floors/ceilings).
+	const Catalog& SurfaceCatalog(SurfaceSel sel) const;
+
+	// --- type rename / delete (editor) --------------------------------------
+	// What a sweep found: how many records name the type, and which levels.
+	struct TypeUsage {
+		int count = 0;
+		std::vector<std::string> levels; // stems referencing it, in project order
+		bool Any() const { return count > 0; }
+	};
+	// Walks EVERY level of the project — the live one, the edit stashes, and
+	// any not yet in memory (parsed on demand, like a browse) — counting the
+	// records that name catalog type `id` of category `catalogKey`. With
+	// `newId`, retypes them all instead: that is the rename, and it has to be
+	// this exhaustive or a level would load a record naming a type that no
+	// longer exists. The caller re-spawns live objects afterwards
+	// (RespawnFromRecords) and saves (`savemap`) to persist.
+	TypeUsage SweepTypeRefs(const std::string& catalogKey, const std::string& id,
+							const std::string* newId = nullptr);
+	// Rebuilds the live dynamic objects from the current records — the tail of
+	// an undo restore, reused after a type rename retypes those records.
+	// Surfaces are untouched (a rename doesn't move geometry) EXCEPT wall
+	// features, whose panels are baked into the chunks; those set the geometry
+	// dirty flag so the editor's FlushGeometry re-stamps on the way out.
+	void RespawnFromRecords(bool geometryToo = false);
+
 	// Live entity placement (editor). type is a catalog id (decorations.cat /
 	// monsters.cat). Each instantiates the kind (loading its model/textures on
 	// first use — ExecuteImmediate uploads synchronously, so it is safe mid-
@@ -728,6 +791,10 @@ public:
 	bool CanRedo() const { return !m_redoStack.empty(); }
 	void Undo();
 	void Redo();
+	// Drops both stacks. A level transition does this (a step's snapshot is
+	// only meaningful while its level is live), and so does a type RENAME:
+	// every held snapshot names the type by its old id.
+	void ClearUndoHistory();
 	// An undo/redo restore DEFERS the expensive surface rebake: the full-screen
 	// editor hides the scene and shadow passes, so the stale chunks are never
 	// drawn while it stays up, and repeated undos pay nothing. GeometryDirty
@@ -840,6 +907,14 @@ private:
 		std::unique_ptr<gfx::Mesh> mesh;
 		Vec3 boundsMin{}, boundsMax{};
 	};
+	// A surface TYPE's material overrides, the counterpart of DecorationKind's
+	// (catalog metallic=/roughness=). -1 = "leave the ORM map authoritative",
+	// which is what every hand-authored set wants; a value REPLACES the draw's
+	// factor, and with an ORM map the shader multiplies it over the map.
+	struct SurfaceMaterial {
+		float metallic = -1.0f;
+		float roughness = -1.0f;
+	};
 	struct Surface {
 		std::vector<std::unique_ptr<gfx::Texture>> albedo;
 		std::vector<std::unique_ptr<gfx::Texture>> normal;
@@ -849,6 +924,9 @@ private:
 		// height_scale folded with its `wear` so a flat (wear 0) wall type reads
 		// flat — the mesh loses its relief AND the per-pixel parallax goes to 0.
 		std::vector<float> heightScale;
+		// Material factors per variant, likewise parallel (ApplySurfaceFactors
+		// refills them; a short/empty vector simply means no overrides).
+		std::vector<SurfaceMaterial> factors;
 		// Drops the texture variants (keeps the chunks) before a (re)load of the
 		// set — the staged loader and the quality hot-swap both reuse the Surface.
 		void ResetTextures() {
@@ -856,6 +934,7 @@ private:
 			normal.clear();
 			mr.clear();
 			heightScale.clear();
+			factors.clear();
 		}
 	};
 
@@ -864,6 +943,14 @@ private:
 	struct PropTextures;
 
 	struct MultiMaterialModel; // defined below (shared with decorations/items)
+
+	// A damage-over-time proc authored on ONE catalog line, "<dps> <seconds>
+	// [chance]" (ParseHitEffect): a landed blow rolls the chance and lands the
+	// DoT. Shared by the two sides — a monster's on-hit poison/bleed and an
+	// enchanted weapon's elemental burn. dps 0 = the line was absent.
+	struct HitEffect {
+		float dps = 0.0f, duration = 0.0f, chance = 1.0f;
+	};
 
 	// Per-kind monster assets (shared) and per-instance state. Kinds are
 	// entity type names from the .ent file ("skeleton" loads skeleton.gltf).
@@ -893,9 +980,6 @@ private:
 		// On-hit status effects (Phase 6, catalog `poison = <dps> <seconds>
 		// [chance]` / `bleed = ...`): a LANDED melee blow rolls the chance
 		// and lands the DoT (reapply refreshes). dps 0 = the type carries none.
-		struct HitEffect {
-			float dps = 0.0f, duration = 0.0f, chance = 1.0f;
-		};
 		HitEffect poison, bleed;
 		// Melee reach in cells (Phase 7, catalog `reach`): 1 = must be in the
 		// adjacent ring; 2 = a pike — melees from its QUEUE post down a clear
@@ -1022,6 +1106,21 @@ private:
 		float hp = 1.0f;          // current hit points (maxHp at spawn)
 		float attackCd = 0.0f;    // seconds until this monster can swing again
 
+		// BURNING (an enchanted weapon's elemental proc — IgniteMonster). A
+		// monster has no general status-effect list the way a Character does;
+		// this single slot IS the model: reapplying REFRESHES it (the ward
+		// rule), the dps is already resist-scaled at ignition, and the tick
+		// (TickBurn) can finish the monster off through the ordinary slain
+		// path. TRANSIENT — the fire goes out on save/reload, like a flinch.
+		float burnDps = 0.0f, burnLeft = 0.0f;
+		SpellSymbol burnSchool = SpellSymbol::Fire; // flame/light tint
+		int burnSource = -1; // roster member who lit it, for threat credit
+		// The plume rising off a burning body, allocated only while alight
+		// (null = not burning) — a FireEffect is fat (its own mt19937), so
+		// every monster carrying one by value would cost far more than the
+		// handful that are ever actually on fire.
+		std::unique_ptr<FireEffect> burnFx;
+
 		// Chase movement (AI v1). The logical cell (x,z) snaps the instant a step
 		// commits — like the party — so occupancy/blocking is atomic; visualPos
 		// glides from moveFrom to the new cell centre over moveInterval. moveCd
@@ -1118,6 +1217,16 @@ private:
 		// from the party's REAR rank (roster slots 2-3); everything else —
 		// bare hands included — is front-rank only.
 		bool polearm = false;
+		// ENCHANTMENT (the fire sword, catalog `element = fire`): the weapon
+		// carries a school's element into every LANDED blow, on top of the
+		// physical damage — `element_bonus` of the blow's assembled damage as
+		// that element (through the target's resist for it), then a roll on
+		// `element_dot` to leave the target burning. enchanted=false (no
+		// `element` line) = an ordinary weapon, both terms skipped.
+		bool enchanted = false;
+		SpellSymbol element = SpellSymbol::Fire;
+		float elementBonus = 0.0f;
+		HitEffect elementDot;
 		// The defender side of a WORN piece (part 4): per-type resist cells
 		// plus a small flat soak, summed across the equipment slots.
 		ResistTable resists;
@@ -1285,8 +1394,13 @@ private:
 		Surface& surface;
 		std::span<const std::string> names;
 		std::span<const float> heights; // per-variant parallax depth (× wear)
+		std::span<const SurfaceMaterial> factors; // per-variant metallic/roughness
 	};
 	std::array<SurfaceDef, 3> SurfaceDefs();
+	// Copies the resolved per-variant factors into each Surface. Called from
+	// BuildDungeonMeshes (every load / quality swap / restore path runs through
+	// it) and by RefreshSurfaceMaterials for a live catalog edit.
+	void ApplySurfaceFactors();
 	// Resolves the map's palette ids (DungeonMap::WallPalette etc.) through the
 	// project's surface catalogs into texture set names + per-surface height
 	// scales. Called once at construction; the results drive both the texture
@@ -1544,8 +1658,27 @@ private:
 	void WoundMember(Character& target, float damage, bool quiet = false);
 	// A landed monster blow rolls its type's on-hit DoT (Phase 6): chance,
 	// then land/refresh the effect with its log line. No-op for dps 0.
-	void ApplyHitEffect(Character& target, StatusKind kind,
-						const MonsterKind::HitEffect& fx);
+	void ApplyHitEffect(Character& target, StatusKind kind, const HitEffect& fx);
+	// The monster mirror: a landed blow with an ENCHANTED weapon rolls the
+	// weapon's `element_dot` and, on a hit, sets the target alight — the dps
+	// scaled by its resist for the element (an immune type simply won't
+	// catch), refreshing any fire already on it. Lights the plume + its glow.
+	void IgniteMonster(Monster& monster, SpellSymbol school, const HitEffect& fx,
+					   int source);
+	// One frame of a burning monster: the wound (credited to whoever lit it),
+	// the slain path if it finishes them, and the fade when the fire burns out.
+	void TickBurn(Monster& monster, float dt);
+	// Put a burning monster out — the timer, the plume, the light. Called by
+	// the fade, by death, and by anything that resets a monster's state.
+	static void Extinguish(Monster& monster);
+	// Where a burning body's flames rise from (torso height above visualPos):
+	// the ignition point, the per-frame plume origin, and the glow all agree.
+	static Vec3 BurnOrigin(const Monster& monster);
+	// Read one catalog DoT line, "<dps> <seconds> [chance]" (`where` names the
+	// entry in the warning). An empty spec leaves `fx` untouched (dps 0 = none).
+	// Shared by the monster kinds' poison/bleed and a weapon's element_dot.
+	static void ParseHitEffect(const std::string& spec, HitEffect& fx,
+							   std::string_view where);
 	// A log line ABOUT `member`: routes through onMemberMessage with their
 	// identity color (the HUD tints it), falling back to plain onMessage.
 	void MemberMessage(const Character& member, const std::string& line) const;
@@ -1684,6 +1817,8 @@ private:
 	std::vector<std::string> m_wallSets, m_floorSets, m_ceilingSets;
 	// Per-variant parallax depth (height_scale × wear), parallel to the *Sets.
 	std::vector<float> m_wallHeights, m_floorHeights, m_ceilingHeights;
+	// Per-variant material factors (catalog metallic=/roughness=), likewise.
+	std::vector<SurfaceMaterial> m_wallFactors, m_floorFactors, m_ceilingFactors;
 	// Worn block geometry, one mesh per texture variant (same order as the
 	// surface texture sets), held between the load and mesh-build tasks.
 	std::vector<assets::MeshData> m_wallBlocks, m_floorBlocks, m_ceilingBlocks;
@@ -1885,11 +2020,13 @@ private:
 	// captured diffs (the level-swap flow), geometry fully rebaked (the
 	// quality-swap path).
 	void RestoreEditorState(EditorSnapshot snap);
-	void ClearUndoHistory(); // level transitions invalidate active-level snaps
 	std::vector<EditorSnapshot> m_undoStack;
 	std::vector<EditorSnapshot> m_redoStack;
 	std::optional<EditorSnapshot> m_pendingUndo; // BeginUndoStep .. CommitUndoStep
 	bool m_geometryDirty = false; // a restore skipped the rebake (FlushGeometry)
+	// A restore also changed a level's surface PALETTE, so FlushGeometry must
+	// reload the texture sets + worn meshes, not just re-stamp the chunks.
+	bool m_surfacesDirty = false;
 
 	std::vector<Fire> m_fires;
 	// Per-fixture flame attachment (fixtures.cat flame_height / flame_scale /

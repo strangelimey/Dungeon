@@ -4,6 +4,7 @@ add_library(Assets STATIC
 	Image.cpp
 	Model.cpp
 	ObjLoader.cpp
+	PbrMaps.cpp
 	Wav.cpp
 )
 target_link_libraries(Assets PUBLIC Core PRIVATE ThirdPartyImpl)

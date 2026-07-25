@@ -143,10 +143,22 @@ Key conventions (memorize, they bite):
   queue post down a shared row/column. Projectiles fly QUADRANT LANES both
   ways: casts spawn a quarter-cell down the caster's lane and hits test
   lateral distance vs sub-cell position (kLaneHalfWidth = 0.35 cell) — an
-  opposite-quadrant body is flown past. Adding a weapon: items.cat
-  damage/speed/stats/reach + `command` (its attack list) + item.<id> lang
-  keys ×5; a new attack VERB is a Balance-ctor row + attacks.cat entry +
-  GameUI kMeleeUses + use.<verb> keys ×5.
+  opposite-quadrant body is flown past. Adding a weapon: weapons.cat
+  damage/speed/skill/stats/reach + `command` (its attack list) + item.<id> lang
+  keys ×5 (armor -> armor.cat with armor/resists; runes/keys/food/etc ->
+  items.cat — see the editor palette section for the three-catalog item split);
+  a new attack VERB is a Balance-ctor row + attacks.cat entry +
+  GameUI kMeleeUses + use.<verb> keys ×5. ENCHANTED weapons (weapons.cat
+  `element = fire` + `element_bonus` + `element_dot = <dps> <secs> [chance]`,
+  the poison/bleed line shape — one shared parser, ParseHitEffect): a landed
+  blow adds elemental damage through the target's resist for that element
+  (no soak, no separate to-hit roll) and may leave the monster BURNING —
+  Monster's single burn slot (the Character effect LIST's smaller sibling:
+  resist-scaled at ignition, refreshes on reapply, ticks in UpdateMonsters,
+  credits threat to whoever lit it, transient across saves) with a FireEffect
+  plume re-aimed every frame + a shadowless element-coloured light. Dev:
+  `equip <item> [member] [hand]`. NOTE this is the last hand-rolled damage
+  path — docs/effects.md folds them all into one pipeline.
 - ALL user-facing text goes through Core/Loc (loc::Tr(key) /
   loc::Format(key, args...) for {} placeholders), loaded from
   assets/lang/<code>.lang (UTF-8 key=value, ';' comments; en.lang is the
@@ -664,11 +676,105 @@ floor/ceiling variants on the floor cell; middle-click's variant-reset
 rung restores the default hash-varied mix (no override pinned). Stale
 variant records on the wrong cell type — pre-2026-07-13
 files kept wall variants on bordering floor cells — are DROPPED at load), and the entity
-categories Decorations/Fixtures/Monsters/Buttons/Doors/Stairs/Items (live
-placement). Entries carrying a `category` field group under collapsible
-SUB-accordions ("+ Weapon (4)"); every catalog is authored with them.
+categories Decorations/Fixtures/Monsters/Buttons/Doors/Stairs/Items/Weapons/Armor
+(live placement). Entries carrying a `category` field group under collapsible
+SUB-accordions ("+ Weapon (4)"); every catalog is authored with them. ITEMS
+are three catalogs — items.cat (runes/keys/food/containers/ingredients),
+weapons.cat, armor.cat — split ONLY so weapon (damage/speed/skill/stats/reach/
+command) and armor (armor/resists) settings don't clutter every other item's
+type editor. All three are EntityKind::Item at runtime and place/carry/equip
+identically; Project::FindItem / HasItem / AllItems resolve an item id across the
+three so nothing downstream cares which file it is in (a weapon/armor rename
+sweeps the same `item` .ent records). A new weapon/armor gets `name = item.<id>`
++ a `category` default like any item.
 Items in each category come from the active project's catalogs; a "+ New..." row
-opens the asset-creation dialog (see below). Mouse model: LEFT paints/places
+opens the asset-creation dialog — which makes a type THREE ways (AssetDialog::
+Source): Import new (browse + AssetBaker, the original), Use installed (bind an
+asset already in the pool — no bake, so a second wall type off an existing set
+is seconds, not a re-import) and Duplicate (copy another entry of this category,
+including fields no schema row covers). The id is validated as you type
+([A-Za-z0-9_-], records are whitespace-tokenised) and CHECKED FOR COLLISION —
+Catalog::Add replaces by id, so an unchecked name silently overwrote a type
+every level used. The new entry's SHAPE comes from the category's schema
+defaults (Game::CreateCatalogEntry), so a new stair gets its up/pair/hole rows
+and a new item its weight/holdable, where the old writer stamped
+authored=1/solid=1 on everything; a surface type also joins the viewed level's
+palette on creation (Phase 1's seam), since otherwise it would be unreachable.
+An import REPORTS what it will do first: assets::DiscoverPbrMaps (moved out of
+AssetBaker into Assets so the dialog and the baker cannot disagree) lists the
+maps recognised in the folder, warns when no height map means flat parallax, and
+pre-ticks the --flip-green override from the normal map's filename. The preview
+pane shows the picked mesh, or wall_block.gltf wearing the picked texture set —
+including one still loose in a download folder, since the maps are loaded from
+their source files. A failed bake now lands in the dialog with the exit code
+instead of only in the log. An import is RECORDED in the project's provenance
+manifest (`catalog/imports.cat`: pool asset name → kind / source path /
+flip_green / the surface kind its worn meshes were baked as), because the baked
+pool is gitignored — without it a created type reaches git as a catalog entry
+whose asset a fresh clone cannot rebuild. `tools\ReplayImports.ps1` replays the
+missing ones (re-rooting a source path from another machine onto this one's
+OneDrive archive), and `synctosource` now also copies the manifest's asset FILES
+from the exe-side pool into the source tree, so a `build/` wipe doesn't take
+them. NOTE the naming rule an editor import must follow: a PBR set installs under
+its RESOLUTION-tagged name (`<set>_2k` — LoadPbrSet's universal fallback) while
+the catalog's `texture` field names the BASE; the worn-block bake takes the base
+and finds the height map at any installed resolution. EXCEPT the three surface categories,
+whose rows come from the VIEWED LEVEL's `palette` record, not the catalog — a
+catalog type must JOIN that palette before the brush can reach it, which is what
+their extra "+ Catalog..." row does (a chooser of the types this level doesn't
+list yet → DungeonWorld::AddPaletteEntry, or ...Remote for a browsed level's
+stash; the row hides once the level uses them all). The append is UNDOABLE (the
+palette rides the map through the undo snapshot; RestoreEditorState flags
+m_surfacesDirty so FlushGeometry reloads the sets, not just the chunks) and
+reloads that surface's textures + worn meshes live (ReloadDungeonBlocks), gated
+by SurfaceAssetsAvailable — the worn-mesh load is a LoadModelOrDie that would
+ABORT on an unbaked type. APPEND-ONLY, and that rule is load-bearing: `variant`
+records store the palette INDEX, so inserting or removing mid-list would
+silently repaint every cell above it (removal needs an index remap — not built).
+For the same reason a paint validates the armed index against the viewed
+palette's CURRENT size (MapEditor::PaintCell): browsing a level with a shorter
+palette, or undoing an add, outlives the index the brush was armed with.
+RIGHT-CLICKING a palette row opens the per-TYPE catalog editor
+(TypeEditorDialog) for EVERY category — one dialog, because it renders its form
+from a SCHEMA: Game/CatalogSchema.h is a FieldSpec table per catalog (key, kind,
+section, range/step, options, one-line help), so exposing a field is one table
+row and a new category is one table (the kBalanceFields idiom). Sections become
+tabs, kinds become widgets (Bool→checkbox, Float→snapped slider, Enum/
+TextureSet/Model/CatalogRef→dropdown filled by Game through optionsFor —
+AssetUtil::InstalledTextureSets/InstalledModels scan the pool), and "?" explains
+the active tab's fields. NO live apply (a type is referenced by every placement
+and, for surfaces, by baked geometry): Save writes the .cat and, when a touched
+field is `rebakes` (a surface's texture/wear/columns), re-runs the wornblock bake
+behind the busy overlay. A surface's PER-DRAW knobs are the exception —
+`height_scale`, `metallic` and `roughness` are per-variant values the draw reads
+(Surface::heightScale / ::factors, filled by ResolveSurfacePalettes →
+ApplySurfaceFactors), so saving them pushes at the live scene through
+DungeonWorld::RefreshSurfaceMaterials: no reload, no rebuild. The factors follow
+the PROP rule — absent = -1 = the set's ORM map stays authoritative, a value
+REPLACES the draw's factor (which the shader multiplies over the map). Wart: an
+absent factor draws as 0.00 on its slider, indistinguishable from an explicit 0
+(only TOUCHED fields are written, so the behaviour is right — the display just
+doesn't say "map-driven"). Only fields the user TOUCHED are written and an empty
+value REMOVES the field, so rows the schema doesn't cover survive — including the
+ones MonsterConfigDialog owns and rewrites (states/anim_*/archetype/threat_*),
+which is why the monster schema omits them and offers an "Animation..." button
+through to that dialog instead. WallStyleDialog is GONE — wear/columns are just
+schema rows now. RENAME + DELETE live here too: the id in the title is a rename
+affordance (click it, edit, Enter — the LevelSettingsDialog stem pattern), and
+Delete arms on the first click. Both go through a REFERENCE SWEEP
+(DungeonWorld::SweepTypeRefs) that walks EVERY level — the live one, the edit
+stashes, and any not yet in memory, parsed on demand — plus the cross-catalog
+fields (stairs `pair`, doors `key`) and the project's default fixture ids
+(Game::SweepCatalogRefs, a closed list). A rename rewrites all of them, renames
+the entry IN PLACE (Catalog::Rename — a remove + re-add would move it to the end
+of the file, dragging its lead comments, i.e. the file header, with it),
+re-spawns the live objects from the retyped records (RespawnFromRecords) and
+CLEARS the undo history (every held snapshot names the old id). A delete REFUSES
+while anything still references the type and says which levels — a record naming
+a missing type is not a soft failure at load. `savemap` persists the touched
+levels. Catalog comments survive a write (serialize::Block::lead →
+CatalogEntry::lead): the .cat headers document each category's fields, and an
+editor write used to delete them. Mouse model: LEFT paints/places
 the armed brush (nothing armed until a palette row is picked), a stationary
 RIGHT-CLICK inspects the cell (select + contents + the object's edit dialog
 immediately; ≤3px press-release = click) while a right-DRAG pans, and
@@ -958,3 +1064,17 @@ memory.
   clears on level transitions). Instance dialogs: footer = Save (+ Delete
   on the item/decoration dialog — targeted RemoveItemById/
   RemoveDecorationByIndex, undo-bracketed), closing = top-right "x" or Esc.
+  DIALOG CLOSE CONVENTION (all of them, editor AND main game): the close
+  affordance is the shared box icon (assets/ui/icon_close.png) in the panel's
+  TOP-RIGHT CORNER, never a footer "Close"/"Cancel"/"Back" button —
+  ui::AddCloseButton(ctx, panelRect, icon, onClose) places it identically
+  everywhere (it's a ui::Button with the icon; text "x" is the missing-asset
+  fallback). Each dialog owns a std::unique_ptr<gfx::Texture> m_closeIcon
+  loaded from paths::Asset("ui\\icon_close"). Footer keeps only ACTION buttons
+  (Save/Delete/Remove/Animation/?), right-aligned to the panel's inner edge so
+  nothing overruns it. Covered: the InstanceInspector base (all 6 per-instance
+  inspectors), TypeEditorDialog, AssetDialog, BalanceDialog, MonsterConfigDialog,
+  LevelSettingsDialog, ProjectileInspector, InspectPicker, and the character
+  sheet (GameUI). NOT touched: Yes/No confirm modals (their explicit choice
+  buttons aren't a "Close") and the full-screen menu/settings/save PAGES (Back
+  is page navigation, not a dialog dismiss).

@@ -55,6 +55,13 @@ public:
 	// plate, a monster guarding both).
 	std::span<const Entity> At(int x, int z) const;
 
+	// Editor type rename/delete: counts the records of `kind` whose type is
+	// `id` and, when `newId` is given, retypes them. The dynamic layer is one of
+	// the places a catalog id is referenced, so a rename has to reach it — else
+	// the level would load records naming a type that no longer exists.
+	int SweepTypeRefs(EntityKind kind, std::string_view id,
+					  const std::string* newId);
+
 private:
 	std::vector<Entity> m_entities; // sorted by (z * map width + x)
 	int m_width = 0;

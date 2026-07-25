@@ -45,7 +45,7 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	  m_modelPreview(device, 512),
 	  m_assetDialog(device, window),
 	  m_monsterDialog(device), m_balanceDialog(device),
-	  m_levelSettingsDialog(device), m_wallStyleDialog(device),
+	  m_levelSettingsDialog(device), m_typeDialog(device),
 	  m_entityInspector(device), m_fixtureInspector(device),
 	  m_propInspector(device), m_doorInspector(device), m_buttonInspector(device),
 	  m_nicheInspector(device),
@@ -284,7 +284,8 @@ void Game::LoadItemIcons() {
 	// Non-rune items: a model item uses its baked 3D thumbnail (rendered once by
 	// DungeonWorld; the same texture feeds every slot/grid/cursor instance);
 	// model-less items keep a generated solid category-tint placeholder.
-	for (const CatalogEntry& def : m_project.items.Entries()) {
+	for (const CatalogEntry* defp : m_project.AllItems()) {
+		const CatalogEntry& def = *defp;
 		const std::string category = def.Get("category", "misc");
 		if (category == "rune") continue; // runes use their element PNG above
 		if (const gfx::Texture* model = m_world.ItemIconFor(def.id)) {
@@ -314,7 +315,8 @@ void Game::LoadItemIcons() {
 		if (!tok.empty()) out.push_back(tok);
 		return out;
 	};
-	for (const CatalogEntry& def : m_project.items.Entries()) {
+	for (const CatalogEntry* defp : m_project.AllItems()) {
+		const CatalogEntry& def = *defp;
 		m_itemWeights.byType[def.id] = def.GetFloat("weight", 0.0f);
 		m_itemCategories.byType[def.id] = def.Get("category", "misc");
 		m_itemCategories.capacityByType[def.id] =
@@ -747,10 +749,14 @@ void Game::Update(float dt) {
 	// done; on success FinishBake writes the catalog entry.
 	if (m_baking && !m_bake.Running()) {
 		if (m_bake.ExitCode() != 0) {
+			// Surface the failure where the user is looking: the dialog stays up
+			// with the exit code so the form can be fixed and retried (the full
+			// baker output is in dungeon.log next to the exe).
 			log::Warn("AssetBaker failed (exit {})", m_bake.ExitCode());
 			m_baking = false;
-			if (m_restyleBake) { m_restyleBake = false; m_wallStyleDialog.Close(); }
-			else m_assetDialog.SetBusy(false);
+			if (m_restyleBake) { m_restyleBake = false; m_typeDialog.Close(); }
+			else m_assetDialog.SetError(loc::Format("newasset.err.bake",
+													m_bake.ExitCode()));
 		} else if (m_bakeReq.textureSet && m_bakeStep == 0) {
 			m_bakeStep = 1; // textures imported — now rebake worn block meshes
 			if (!StartBakeStep()) {
@@ -758,11 +764,11 @@ void Game::Update(float dt) {
 				m_assetDialog.SetBusy(false);
 			}
 		} else if (m_restyleBake) {
-			// Surface Style rebake done: swap the new worn geometry in live.
+			// Surface restyle rebake done: swap the new worn geometry in live.
 			m_world.ReloadDungeonBlocks();
 			m_restyleBake = false;
 			m_baking = false;
-			m_wallStyleDialog.Close();
+			m_typeDialog.Close();
 			if (m_world.onMessage) m_world.onMessage(loc::Tr("map.wallstyle.applied"));
 		} else {
 			FinishBake();
@@ -909,10 +915,10 @@ void Game::Update(float dt) {
 									 static_cast<float>(m_window.Height()));
 		return;
 	}
-	// The wall-style dialog is likewise modal over the editor.
-	if (m_wallStyleDialog.IsOpen()) {
-		m_wallStyleDialog.Update(input, static_cast<float>(m_window.Width()),
-								 static_cast<float>(m_window.Height()));
+	// The per-type catalog editor is likewise modal over the editor.
+	if (m_typeDialog.IsOpen()) {
+		m_typeDialog.Update(input, static_cast<float>(m_window.Width()),
+							static_cast<float>(m_window.Height()));
 		return;
 	}
 	// The monster-config dialog is likewise modal over the editor.
@@ -1336,8 +1342,8 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 		m_balanceDialog.Render(m_spriteBatch, m_settings.theme, dw, dh);
 	if (m_levelSettingsDialog.IsOpen())
 		m_levelSettingsDialog.Render(m_spriteBatch, m_settings.theme, dw, dh);
-	if (m_wallStyleDialog.IsOpen())
-		m_wallStyleDialog.Render(m_spriteBatch, m_settings.theme, dw, dh);
+	if (m_typeDialog.IsOpen())
+		m_typeDialog.Render(m_spriteBatch, m_settings.theme, dw, dh);
 	// The per-instance edit dialogs, each drawn (panel + controls) THEN, once all
 	// are drawn, the 3D preview blitted into the active one's pane — the blit must
 	// come last so a dialog's backing box never covers it.

@@ -53,7 +53,8 @@ public:
 	// last (it sizes the per-category open-state array).
 	enum class PaletteCat {
 		Walls, Floors, Ceilings,
-		Decorations, Fixtures, Monsters, Buttons, Doors, Stairs, Items, WallFeatures,
+		Decorations, Fixtures, Monsters, Buttons, Doors, Stairs,
+		Items, Weapons, Armor, WallFeatures,
 		Count
 	};
 
@@ -93,6 +94,20 @@ public:
 	static const char* CategoryNameKey(PaletteCat cat);
 	static const char* CategoryCatalogKey(PaletteCat cat);
 	static bool CategoryTextureSet(PaletteCat cat);
+	// The reverse lookup, for code that starts from a catalog key (the asset
+	// dialog's request); Count when no category owns it.
+	static PaletteCat CatForCatalogKey(std::string_view catalogKey);
+	// The surface categories (walls/floors/ceilings): the ones whose palette is
+	// a per-LEVEL subset of the catalog, so the "Catalogue" toggle applies and a
+	// paint may have to enrol the type in the level first.
+	static bool SurfaceCat(PaletteCat cat) { return PaintableCat(cat); }
+
+	// --- surface palette membership ------------------------------------------
+	// Appends `id` to the viewed level's palette (live world or browsed stash),
+	// as one undo step, and arms it as the brush. Reports through onMessage.
+	// The "+ New" flow calls this so a freshly created surface type is paintable
+	// at once; the "Catalogue" view instead enrols a type lazily, on first paint.
+	void AddToPalette(PaletteCat cat, const std::string& id);
 
 	// --- palette controls row (filter box + clear + collapse-all) ------------
 	// A fixed strip at the top of the dock body, above the scrolled accordion.
@@ -231,13 +246,21 @@ private:
 	gfx::Rect FilterBoxRect(const gfx::Rect& panel) const;
 	gfx::Rect FilterClearRect(const gfx::Rect& panel) const;
 	gfx::Rect CollapseAllRect(const gfx::Rect& panel) const;
+	// The "Catalogue" checkbox, a second controls line below the filter row.
+	// Unchecked: surfaces list only the level's palette. Checked: they list the
+	// whole surface catalog, and painting a type the level lacks enrols it.
+	gfx::Rect CatalogToggleRect(const gfx::Rect& panel) const;
 	gfx::Rect AccordionBody(const gfx::Rect& panel) const;
 	bool MatchesFilter(const std::string& label) const;
 
 	std::string m_filter;         // case-insensitive substring, "" = off
 	bool m_filterFocused = false; // typed chars land in the box
+	// Whether surfaces show the whole catalog vs the level's palette lives on
+	// GameSettings (m_settings.mapShowCatalog) so it PERSISTS in settings.ini
+	// like the dock-collapse flags — a workflow preference, not per-session
+	// state. Toggling it Save()s (MapEditor holds a GameSettings&).
 	// Which control the mouse is over (hover styling; None = neither).
-	enum class HotCtrl { None, Filter, Clear, Collapse };
+	enum class HotCtrl { None, Filter, Clear, Collapse, Catalog };
 	HotCtrl m_hotCtrl = HotCtrl::None;
 	void BuildPaletteRows(const gfx::Rect& panel, std::vector<PaletteRow>& out,
 						  float& contentHeight) const;

@@ -106,13 +106,16 @@ void FireEffect::AppendParticles(std::vector<gfx::ParticleInstance>& out) const 
 			const Vec3 hot{1.15f, 0.55f, 0.16f}, cool{0.50f, 0.07f, 0.02f};
 			const float glow = 1.2f * (1.0f - t) + 0.15f;
 			const Vec3 c = Lerp(hot, cool, t);
-			instance.color = {c.x * glow, c.y * glow, c.z * glow, 0.0f}; // additive
+			// (the tint recolours the fire — {1,1,1} for an ordinary one)
+			instance.color = {c.x * glow * m_tint.x, c.y * glow * m_tint.y,
+							  c.z * glow * m_tint.z, 0.0f}; // additive
 			instance.size = p.size * (1.0f - 0.55f * t);
 			break;
 		}
 		case Kind::Spark: {
 			const float glow = 1.0f - t;
-			instance.color = {1.3f * glow, 0.75f * glow, 0.25f * glow, 0.0f};
+			instance.color = {1.3f * glow * m_tint.x, 0.75f * glow * m_tint.y,
+							  0.25f * glow * m_tint.z, 0.0f};
 			instance.size = p.size;
 			break;
 		}

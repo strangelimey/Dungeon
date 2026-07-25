@@ -4,6 +4,8 @@
 #include "Game/MonsterConfigDialog.h"
 
 #include "Core/Loc.h"
+#include "Core/Paths.h"
+#include "Game/AssetUtil.h"
 #include "UI/Controls.h"
 
 #include <algorithm>
@@ -18,8 +20,8 @@ constexpr gfx::Rect kTitle{0.155f, 0.115f, 0.55f, 0.045f};
 constexpr gfx::Rect kTabs{0.155f, 0.185f, 0.42f, 0.63f}; // TabControl (left)
 constexpr gfx::Rect kPrevHdr{0.60f, 0.165f, 0.25f, 0.03f};
 constexpr gfx::Rect kPreview{0.60f, 0.205f, 0.245f, 0.59f}; // preview pane (right)
-constexpr gfx::Rect kSave{0.62f, 0.83f, 0.105f, 0.05f};
-constexpr gfx::Rect kClose{0.74f, 0.83f, 0.105f, 0.05f};
+// Save centered in the footer; Close is the top-right corner box now.
+constexpr gfx::Rect kSave{0.4475f, 0.83f, 0.105f, 0.05f};
 
 // Archetype option order MUST match the ai::Archetype enum (dropdown index -> enum).
 constexpr const char* kArchKeys[] = {"brute",  "skirmisher", "caster",
@@ -43,7 +45,9 @@ std::string ClipLabel(const std::string& name) {
 } // namespace
 
 MonsterConfigDialog::MonsterConfigDialog(gfx::GraphicsDevice& device)
-	: m_device(device), m_font(device, "", 18.0f), m_ui(device, "", 18.0f) {}
+	: m_device(device), m_font(device, "", 18.0f), m_ui(device, "", 18.0f) {
+	m_closeIcon = TryLoadTextureFile(device, paths::Asset("ui\\icon_close"));
+}
 
 void MonsterConfigDialog::Open(const std::string& type, const std::string& display,
 							   const Support& supported, const Clips& clips,
@@ -98,7 +102,7 @@ void MonsterConfigDialog::BuildUI() {
 		if (onSave) onSave(m_cfg);
 		Close();
 	});
-	m_ui.Add<ui::Button>(kClose, loc::Tr("map.cfg.close"), [this] {
+	ui::AddCloseButton(m_ui, kPanel, m_closeIcon.get(), [this] {
 		if (onApply) onApply(m_original); // revert the live kind to the snapshot
 		Close();
 	});

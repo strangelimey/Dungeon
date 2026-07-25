@@ -343,6 +343,15 @@ void DungeonWorld::Update(const Input& input, float dt, float time, bool acceptI
 		fire.effect.Update(dt);
 		fire.effect.AppendParticles(m_particleScratch);
 	}
+	// A burning monster carries its own plume, which has to FOLLOW it — the
+	// origin is re-aimed at the body every frame (fixtures never move, so this
+	// is the one emitter that does).
+	for (Monster& monster : m_monsters) {
+		if (!monster.burnFx) continue;
+		monster.burnFx->SetOrigin(BurnOrigin(monster));
+		monster.burnFx->Update(dt);
+		monster.burnFx->AppendParticles(m_particleScratch);
+	}
 	// Projectiles in flight + their impact sparks render as additive billboards
 	// alongside the flames (same premultiplied-additive blend).
 	m_projectiles.AppendBillboards(m_particleScratch);
@@ -521,12 +530,33 @@ void DungeonWorld::UpdateLights(float time) {
 		m_lights.points.push_back(light);
 	}
 
+	// A burning monster is a moving lamp: its own flickering glow in the
+	// element's colour, so a torched skeleton lights the room it runs through.
+	// Shadowless (like the rune glows) — a transient light must not steal a
+	// shadow cube from the torch and the fires.
+	for (const Monster& monster : m_monsters) {
+		if (!monster.burnFx) continue;
+		const Vec3 o = BurnOrigin(monster);
+		gfx::PointLight glow;
+		glow.position = {o.x, o.y + 0.1f, o.z};
+		glow.radius = 5.5f;
+		const Vec4& c = ElementColor(monster.burnSchool);
+		glow.color = {c.x, c.y, c.z};
+		glow.intensity = 1.9f * (0.85f + 0.15f * std::sin(time * 12.0f +
+														  monster.runtimeId) *
+											 std::sin(time * 8.1f + monster.runtimeId));
+		glow.castsShadow = false;
+		m_lights.points.push_back(glow);
+	}
+
 	// Each uncollected rune throws a soft pulsing light in its element colour,
 	// breathing in lockstep with the tablet's emissive glow (same RunePulse).
-	// Pure fill light — castsShadow=false keeps the cluster near the start from
-	// stealing the few shadow cubes from the torch/fires.
+	// An ENCHANTED weapon lying on the floor does the same in its own element —
+	// the tell that this blade is the fiery one. Pure fill light —
+	// castsShadow=false keeps the cluster near the start from stealing the few
+	// shadow cubes from the torch/fires.
 	for (const Item& item : m_items) {
-		if (item.collected || !item.kind->isRune) continue;
+		if (item.collected || !(item.kind->isRune || item.kind->enchanted)) continue;
 		const Vec3 c = SlotCenter(item.x, item.z, SizeClass::Medium, item.slot);
 		gfx::PointLight glow;
 		glow.position = {c.x, 0.4f, c.z};
@@ -726,6 +756,10 @@ void DungeonWorld::UpdateMonsters(float dt) {
 	for (size_t i = 0; i < m_monsters.size(); ++i) {
 		Monster& monster = m_monsters[i];
 		DriveMonsterAnim(monster, dt); // animates the living AND the dying (death clip)
+		// Burning (an enchanted weapon's proc) eats away at it wherever it
+		// runs to — before the Alive check, so the fire's own killing blow
+		// takes the ordinary downed path this same frame.
+		if (monster.burnLeft > 0.0f) TickBurn(monster, dt);
 		if (!monster.Alive()) continue; // downed — no AI, no movement, not solid
 		if (monster.attackCd > 0.0f) monster.attackCd -= dt;
 		if (monster.moveCd > 0.0f) monster.moveCd -= dt;

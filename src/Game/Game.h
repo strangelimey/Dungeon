@@ -61,7 +61,7 @@
 #include "Game/ProjectileInspector.h"
 #include "Game/PropInspector.h"
 #include "Game/Project.h"
-#include "Game/WallStyleDialog.h"
+#include "Game/TypeEditorDialog.h"
 #include "Game/SoundBank.h"
 #include "Graphics/ModelPreview.h"
 #include "Graphics/PostProcess.h"
@@ -116,15 +116,59 @@ private:
 	// when the bake finishes, write the new catalog entry + save the project.
 	bool StartBakeStep();
 	void FinishBake();
+	// Writes a newly created type's catalog entry (its shape seeded from the
+	// category's schema defaults) and makes it reachable — a surface type joins
+	// the viewed level's palette. Shared by the bake path and the no-bake
+	// sources (Installed / Duplicate), which have nothing to bake.
+	void CreateCatalogEntry(const AssetDialog::CreateRequest& req);
+	// Records an IMPORT in the project's provenance manifest (imports.cat):
+	// which pool asset, from where, with which options. The baked asset is
+	// gitignored, so this is what makes a created type reproducible from a
+	// clean checkout (tools/ReplayImports.ps1 replays them).
+	void RecordImport(const AssetDialog::CreateRequest& req);
 
-	// Surface Style dialog Save: write the type's `wear`/`columns` fields to its
-	// catalog (walls/floors/ceilings), then re-bake that texture's worn meshes
-	// and (on success) reload the dungeon blocks in place. Launches the async
-	// wornblock bake.
-	void WriteWallStyle(const std::string& catalogKey, const std::string& id,
-						float wear, bool columns);
+	// Type editor Save: merge the dialog's working fields into the catalog entry
+	// and persist. Starts from the EXISTING entry, so fields the dialog doesn't
+	// know (hand-authored, or MonsterConfigDialog's animation rows) survive.
+	void WriteTypeFields(const TypeEditorDialog::Config& cfg);
+	// Re-bakes a surface type's worn block meshes (its `texture` set at the
+	// type's wear/columns) and, on success, reloads the dungeon blocks in place.
+	// Launches the async wornblock bake; the caller freezes its dialog meanwhile.
 	void StartRestyleBake(const std::string& catalogKey, const std::string& texture,
 						  float wear, bool columns);
+	// Opens the type editor for a catalog id (the palette's right-click), or
+	// does nothing when the catalog/entry is unknown.
+	void OpenTypeEditor(MapEditor::PaletteCat cat, const std::string& id);
+	// Renames a catalog type EVERYWHERE: the entry, every level record that
+	// names it (DungeonWorld::SweepTypeRefs), the cross-catalog references
+	// (stairs `pair`, doors `key`) and the project's default fixture ids. False
+	// (with a reason in `problem`) when the new id is taken or invalid.
+	bool RenameType(const std::string& catalogKey, const std::string& id,
+					const std::string& newId, std::string& problem);
+	// Deletes a catalog type, but only when NOTHING references it — the sweep
+	// names the levels that do, so the caller can say where. Refusing is the
+	// point: a dangling type id would abort the level load that meets it.
+	bool DeleteType(const std::string& catalogKey, const std::string& id,
+					std::string& problem);
+	// Every reference to a type OUTSIDE the levels: another catalog entry's
+	// field (stairs `pair`, doors `key`) or a project.ini default. Returns the
+	// number found, rewriting them when `newId` is given.
+	int SweepCatalogRefs(const std::string& catalogKey, const std::string& id,
+						 const std::string* newId);
+	// Save files naming a type. A save stores an editor-placed monster or a
+	// dropped item as a WHOLE spawn row carrying its type (SaveData::EntityState
+	// with id < 0), so a rename or delete strands those rows: on load the type
+	// resolves through the "unlisted type" fallback (<type>.gltf + default
+	// stats) — or aborts, if the type's id and model name differ. Saves are not
+	// rewritten (they are dev-cycle artifacts, like a level rename's), so the
+	// names are REPORTED and the caller says so.
+	std::vector<std::string> SavesReferencingType(const std::string& id) const;
+	// Reports (log + world message) the saves that still name a type after it
+	// was renamed or deleted.
+	void WarnStaleSaves(const std::string& id);
+	// Opens a monster type's animation + behaviour dialog (the type editor's
+	// extra button — that dialog owns those rows).
+	void OpenMonsterConfig(const std::string& id);
 
 	// Copies the active project (with its edits) from the exe-side asset copy
 	// back into the repo source tree. False (with a log) when no source path is
@@ -333,9 +377,10 @@ private:
 	// Per-level atmosphere dialog (the .map `atmosphere` record front-end),
 	// opened by the editor toolbar's Level button for the VIEWED level.
 	LevelSettingsDialog m_levelSettingsDialog;
-	// Per-wall-type geometry style dialog (walls.cat `wear`/`columns`), opened by
-	// right-clicking a Walls palette row; Save re-bakes that texture's worn mesh.
-	WallStyleDialog m_wallStyleDialog;
+	// Per-TYPE catalog editor, opened by right-clicking any palette row: a form
+	// rendered from CatalogSchema, so it serves every category. Save writes the
+	// .cat (and re-bakes the worn meshes when a surface's look changed).
+	TypeEditorDialog m_typeDialog;
 	// Per-instance entity inspector, opened by Select-clicking a placed monster.
 	EntityInspector m_entityInspector;
 	// Per-instance fixture inspector, opened by Select-clicking a wall torch/sconce.

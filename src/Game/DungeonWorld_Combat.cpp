@@ -183,7 +183,7 @@ DefenseProfile DungeonWorld::MonsterDefense(const MonsterKind& kind,
 }
 
 void DungeonWorld::ApplyHitEffect(Character& target, StatusKind kind,
-								  const MonsterKind::HitEffect& fx) {
+								  const HitEffect& fx) {
 	if (fx.dps <= 0.0f || fx.duration <= 0.0f) return;
 	std::uniform_real_distribution<float> roll(0.0f, 1.0f);
 	if (roll(m_combatRng) > fx.chance) return;
@@ -198,6 +198,82 @@ void DungeonWorld::ApplyHitEffect(Character& target, StatusKind kind,
 							  fx.duration, fx.duration, fx.dps});
 	MemberMessage(target, loc::Format(poison ? "log.poisoned" : "log.bleeding",
 									  target.name));
+}
+
+// --- burning monsters (the enchanted-weapon proc) -----------------------------
+// The mirror of ApplyHitEffect above, for the other side of the fight. A
+// Character carries a LIST of status effects; a monster carries this one slot,
+// which is all the content needs so far — see Monster::burnDps.
+
+// How the flames read per school: the FireEffect palette is authored orange, so
+// fire burns untinted and the other three recolour it (a water "burn" is the
+// freezing kind — the plume runs cold blue). Multiplied over the flame/spark
+// colours, so these are ratios against orange, not absolute colours.
+static Vec3 BurnTint(SpellSymbol school) {
+	switch (school) {
+	case SpellSymbol::Earth: return {0.55f, 1.25f, 0.45f}; // acrid green
+	case SpellSymbol::Air:   return {0.85f, 1.05f, 1.35f}; // pale white-blue
+	case SpellSymbol::Water: return {0.35f, 0.95f, 1.60f}; // cold blue
+	default:                 return {1.0f, 1.0f, 1.0f};    // fire, as authored
+	}
+}
+
+// The flame origin on a burning body: a third of a square up, so the plume
+// rises off the torso rather than the feet (UNITS, like every other length).
+Vec3 DungeonWorld::BurnOrigin(const Monster& monster) {
+	return {monster.visualPos.x, monster.visualPos.y + 0.34f * kUnit,
+			monster.visualPos.z};
+}
+
+void DungeonWorld::IgniteMonster(Monster& monster, SpellSymbol school,
+								 const HitEffect& fx, int source) {
+	if (fx.dps <= 0.0f || fx.duration <= 0.0f) return;
+	std::uniform_real_distribution<float> roll(0.0f, 1.0f);
+	if (roll(m_combatRng) > fx.chance) return;
+	// The RESIST applies once, here: a fire-natured monster catches poorly (and
+	// an authored immunity, a cell of 1.0, never catches at all), rather than
+	// paying the resist every tick. Same clamp rule as any other damage.
+	const float dps = fx.dps * (1.0f - MonsterDefense(*monster.kind,
+													  SchoolDamageType(school)).resist);
+	if (dps <= 0.0f) return;
+	const bool relit = monster.burnLeft > 0.0f; // reapply REFRESHES (the ward rule)
+	monster.burnDps = dps;
+	monster.burnLeft = fx.duration;
+	monster.burnSchool = school;
+	monster.burnSource = source;
+	if (!monster.burnFx)
+		monster.burnFx = std::make_unique<FireEffect>(BurnOrigin(monster), 1.1f,
+													  monster.runtimeId * 2654435761u);
+	monster.burnFx->SetTint(BurnTint(school)); // a relight may change school
+	if (!relit)
+		onMessage(loc::Format("log.monster_ignites",
+							  loc::Tr("monster." + monster.kind->name)));
+}
+
+void DungeonWorld::Extinguish(Monster& monster) {
+	monster.burnDps = 0.0f;
+	monster.burnLeft = 0.0f;
+	monster.burnSource = -1;
+	monster.burnFx.reset();
+}
+
+void DungeonWorld::TickBurn(Monster& monster, float dt) {
+	monster.burnLeft -= dt;
+	monster.hp -= monster.burnDps * dt;
+	// The fire keeps the grudge alive: whoever lit it goes on earning threat
+	// for as long as it burns, so a hit-and-run torch still holds attention.
+	if (monster.burnSource >= 0)
+		AddThreat(monster, static_cast<size_t>(monster.burnSource),
+				  monster.burnDps * dt);
+	const std::string name = loc::Tr("monster." + monster.kind->name);
+	if (!monster.Alive()) {
+		monster.hp = 0.0f; // the ordinary downed state — the death clip plays
+		Extinguish(monster);
+		onMessage(loc::Format("log.monster_burns_away", name));
+	} else if (monster.burnLeft <= 0.0f) {
+		Extinguish(monster);
+		onMessage(loc::Format("log.monster_burns_out", name));
+	}
 }
 
 // Latch the party wipe exactly once when the last member falls (message + callback).
@@ -686,10 +762,21 @@ bool DungeonWorld::PartyAttack(size_t member, size_t hand, std::string_view verb
 		MemberMessage(attacker, loc::Format("log.party_misses", attacker.name, name));
 		return true;
 	}
-	target->hp -= r.damage;
+	// ENCHANTMENT: a landed blow with an elemental weapon carries its element
+	// through as well — `element_bonus` of the assembled damage, resisted as
+	// that element (not soaked; plate turns a blade, not a flame). It rides the
+	// physical hit, so it gets no accuracy roll of its own.
+	float elemental = 0.0f;
+	if (weapon && weapon->enchanted && weapon->elementBonus > 0.0f) {
+		const DamageType type = SchoolDamageType(weapon->element);
+		elemental = atk.damage * weapon->elementBonus *
+					(1.0f - MonsterDefense(*target->kind, type).resist);
+		if (elemental < 0.0f) elemental = 0.0f;
+	}
+	target->hp -= r.damage + elemental;
 	ProvokeMonster(*target); // the struck monster alone notices + turns to the party
-	AddThreat(*target, member, r.damage);
-	int dmg = static_cast<int>(r.damage + 0.5f);
+	AddThreat(*target, member, r.damage + elemental);
+	int dmg = static_cast<int>(r.damage + elemental + 0.5f);
 	MemberMessage(attacker, loc::Format("log.party_hits", attacker.name, name, dmg));
 	GrantSkillXp(attacker, skillId, 1.0f, stats); // a LANDED blow trains its class
 	m_audio.Play(m_sounds.monster, 0.7f);
@@ -697,9 +784,14 @@ bool DungeonWorld::PartyAttack(size_t member, size_t hand, std::string_view verb
 	if (!target->Alive()) {
 		target->hp = 0.0f; // a downed monster stays in the list (so a new game /
 		// save can restore it) but renders, blocks, and acts as dead.
+		Extinguish(*target); // a corpse stops burning
 		onMessage(loc::Format("log.monster_slain", name));
 	} else {
 		target->hitReq = true; // survivor flinches (a fatal blow goes straight to Die)
+		// ...and a survivor may be left alight by the weapon's proc.
+		if (weapon && weapon->enchanted)
+			IgniteMonster(*target, weapon->element, weapon->elementDot,
+						  static_cast<int>(member));
 	}
 	return true;
 }
@@ -843,6 +935,7 @@ bool DungeonWorld::ResolveSpellHit(const ProjectileImpact& impact) {
 		m_audio.Play(m_sounds.spellImpact, 0.7f);
 		if (!hit->Alive()) {
 			hit->hp = 0.0f; // downed monster stays in the list (save can restore it)
+			Extinguish(*hit); // a corpse stops burning
 			onMessage(loc::Format("log.spell_slain", name));
 		} else {
 			hit->hitReq = true; // survivor flinches (a fatal blow goes straight to Die)

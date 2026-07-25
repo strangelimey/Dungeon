@@ -28,6 +28,10 @@ namespace dungeon::game {
 // delegate to the shared serialize:: field helpers.
 struct CatalogEntry {
 	std::string id;
+	// Comment lines that introduced this entry in the .cat, kept verbatim so an
+	// editor write preserves the file's authoring notes (serialize::Block::lead).
+	// An entry rebuilt from an existing one carries them along for free.
+	std::vector<std::string> lead;
 	std::vector<serialize::Field> fields;
 
 	// Human-readable name (the "display" field, falling back to the id).
@@ -82,6 +86,11 @@ public:
 	// path. Returns a reference stable only until the next Add/Remove.
 	CatalogEntry& Add(CatalogEntry entry);
 	void Remove(std::string_view id);
+	// Renames an entry IN PLACE (the editor's type rename). Remove + Add would
+	// move it to the end of the file, taking its lead comments — including a
+	// first entry's, which is the file's header — along with it. False when
+	// `id` is absent or `newId` is taken.
+	bool Rename(std::string_view id, std::string newId);
 
 private:
 	std::vector<CatalogEntry> m_entries;

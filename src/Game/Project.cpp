@@ -31,11 +31,16 @@ const CatalogSlot kCatalogs[] = {
 	{"doors.cat", &Project::doors, "Doors: sliding panel + shared frame (functional, block until opened)."},
 	{"stairs.cat", &Project::stairs, "Stairs and pits: cross-level links with auto-authored pairs."},
 	{"buttons.cat", &Project::buttons, "Buttons: wall levers (target= wires them to door names)."},
-	{"items.cat", &Project::items, "Items: runes (and later weapons/consumables)."},
+	{"items.cat", &Project::items, "Items: runes, keys, food, containers, ingredients (weapons/armor are their own catalogs)."},
+	{"weapons.cat", &Project::weapons, "Weapons: items with attack settings (skill/damage/speed/stats/reach/command)."},
+	{"armor.cat", &Project::armor, "Armor: worn items granting defense (armor soak + per-type resists)."},
 	{"spells.cat", &Project::spells, "Spells: symbol-sequence recipes -> effect + element + power/mana/speed/range."},
 	{"attacks.cat", &Project::attacks, "Attacks: per-melee-verb numbers (damage/accuracy/speed multipliers); identity (damage type) is C++ (Balance.h)."},
 	{"balance.cat", &Project::balance, "Balance: the attack-formula knob sheet ([formula] block; docs/combat.md)."},
 	{"wallfeatures.cat", &Project::wallfeatures, "Wall features: recessed niches carved into a wall panel."},
+	{"imports.cat", &Project::imports,
+	 "Imported assets: where each editor-imported texture set / model came from, "
+	 "so tools/ReplayImports.ps1 can rebuild it (the baked files are gitignored)."},
 };
 
 // Splits a space-separated list (the manifest's "levels" field) into stems.
@@ -113,11 +118,26 @@ Catalog* Project::CatalogForKey(const std::string& key) {
 	if (key == "stairs") return &stairs;
 	if (key == "buttons") return &buttons;
 	if (key == "items") return &items;
+	if (key == "weapons") return &weapons;
+	if (key == "armor") return &armor;
 	if (key == "spells") return &spells;
 	if (key == "attacks") return &attacks;
 	if (key == "balance") return &balance;
 	if (key == "wallfeatures") return &wallfeatures;
 	return nullptr;
+}
+
+const CatalogEntry* Project::FindItem(std::string_view id) const {
+	if (const CatalogEntry* e = items.Find(id)) return e;
+	if (const CatalogEntry* e = weapons.Find(id)) return e;
+	return armor.Find(id);
+}
+
+std::vector<const CatalogEntry*> Project::AllItems() const {
+	std::vector<const CatalogEntry*> out;
+	for (const Catalog* c : {&items, &weapons, &armor})
+		for (const CatalogEntry& e : c->Entries()) out.push_back(&e);
+	return out;
 }
 
 std::string Project::LevelMapPath(const std::string& stem) const {

@@ -1,0 +1,79 @@
+; Weapons: items with attack settings (skill/damage/speed/stats/reach/command).
+
+[dagger]
+name = item.dagger
+category = weapon
+skill = blade
+damage = 5
+speed = 0.9
+stats = dex
+weight = 1.5
+holdable = 1
+command = stab, slash
+model = viking_dagger
+icon_spin = 1
+
+[khukri]
+name = item.khukri
+category = weapon
+skill = blade
+damage = 7
+speed = 1.1
+stats = str, dex
+weight = 1.2
+holdable = 1
+command = chop, slash
+model = khukri
+
+; ENCHANTED (docs/combat.md "Enchanted weapons"): element/element_bonus add an
+; elemental term to every landed blow, element_dot ("<dps> <seconds> [chance]")
+; is the burn it may leave behind. The blade also glows on the floor.
+[flamebrand]
+name = item.flamebrand
+category = weapon
+skill = blade
+damage = 7
+speed = 1.1
+stats = str, dex
+weight = 1.4
+holdable = 1
+command = chop, slash
+model = khukri
+element = fire
+element_bonus = 0.5
+element_dot = 3 6 0.5
+
+[snake_dagger]
+name = item.snake_dagger
+category = weapon
+skill = blade
+damage = 6
+speed = 1.0
+stats = dex
+weight = 1.3
+holdable = 1
+command = stab, slash
+model = snake_dagger
+
+[french_dagger]
+name = item.french_dagger
+category = weapon
+skill = blade
+damage = 6
+speed = 1.1
+stats = dex
+weight = 1.4
+holdable = 1
+command = stab, slash
+model = french_dagger
+
+[club]
+name = item.club
+category = weapon
+skill = blunt
+damage = 10
+speed = 1.6
+stats = str
+weight = 3.0
+holdable = 1
+command = bash, swing

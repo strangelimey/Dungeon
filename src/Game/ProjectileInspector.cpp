@@ -4,6 +4,8 @@
 #include "Game/ProjectileInspector.h"
 
 #include "Core/Loc.h"
+#include "Core/Paths.h"
+#include "Game/AssetUtil.h"
 #include "UI/Controls.h"
 
 #include <algorithm>
@@ -20,12 +22,14 @@ constexpr gfx::Rect kPanel{0.36f, 0.28f, 0.28f, 0.40f};
 constexpr gfx::Rect kTitle{0.375f, 0.30f, 0.25f, 0.04f};
 constexpr float kRowX = 0.375f, kValX = 0.51f;
 constexpr float kRowY0 = 0.365f, kRowH = 0.042f;
-constexpr gfx::Rect kRemove{0.40f, 0.615f, 0.10f, 0.045f};
-constexpr gfx::Rect kClose{0.515f, 0.615f, 0.085f, 0.045f};
+// Remove centered in the footer; Close is the top-right corner box now.
+constexpr gfx::Rect kRemove{0.45f, 0.615f, 0.10f, 0.045f};
 } // namespace
 
 ProjectileInspector::ProjectileInspector(gfx::GraphicsDevice& device)
-	: m_device(device), m_font(device, "", 18.0f), m_ui(device, "", 18.0f) {}
+	: m_device(device), m_font(device, "", 18.0f), m_ui(device, "", 18.0f) {
+	m_closeIcon = TryLoadTextureFile(device, paths::Asset("ui\\icon_close"));
+}
 
 void ProjectileInspector::Open(const Config& cfg) {
 	m_open = true;
@@ -39,7 +43,7 @@ void ProjectileInspector::BuildUI() {
 		if (onRemove) onRemove();
 		Close();
 	});
-	m_ui.Add<ui::Button>(kClose, loc::Tr("map.cfg.close"), [this] { Close(); });
+	ui::AddCloseButton(m_ui, kPanel, m_closeIcon.get(), [this] { Close(); });
 }
 
 void ProjectileInspector::Update(const Input& input, float w, float h) {

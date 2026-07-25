@@ -430,6 +430,13 @@ void DungeonWorld::DrawSurface(ID3D12GraphicsCommandList* list,
 		gfx::MaterialParams material;
 		ApplyPbr(material, surface.albedo[v].get(), surface.normal[v].get(),
 				 surface.mr[v].get(), surface.heightScale[v], {}, 0.0f);
+		// The type's catalog overrides, if it authored any (the prop rule: a
+		// value REPLACES the factor, which with an ORM map scales the map).
+		if (static_cast<size_t>(v) < surface.factors.size()) {
+			const SurfaceMaterial& f = surface.factors[v];
+			if (f.metallic >= 0.0f) material.metallic = f.metallic;
+			if (f.roughness >= 0.0f) material.roughness = f.roughness;
+		}
 		m_renderer.DrawMesh(list, *chunk.mesh, identity, material);
 	}
 }

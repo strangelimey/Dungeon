@@ -4,6 +4,8 @@
 #include "Game/InspectPicker.h"
 
 #include "Core/Loc.h"
+#include "Core/Paths.h"
+#include "Game/AssetUtil.h"
 #include "UI/Controls.h"
 
 #include <algorithm>
@@ -21,16 +23,19 @@ constexpr float kGap = 0.01f;
 } // namespace
 
 InspectPicker::InspectPicker(gfx::GraphicsDevice& device)
-	: m_device(device), m_font(device, "", 18.0f), m_ui(device, "", 18.0f) {}
+	: m_device(device), m_font(device, "", 18.0f), m_ui(device, "", 18.0f) {
+	m_closeIcon = TryLoadTextureFile(device, paths::Asset("ui\\icon_close"));
+}
 
 void InspectPicker::Open(const std::string& title, const std::vector<std::string>& items) {
 	m_open = true;
 	m_title = title;
 	m_items = items;
 
-	// Size the panel to the content and centre it: title + one row per item + Close.
+	// Size the panel to the content and centre it: title + one row per item
+	// (Close is the top-right corner box now, not a row).
 	const int n = static_cast<int>(items.size());
-	const float bodyH = kPad + kTitleH + kGap + (n + 1) * (kRowH + kGap) + kPad;
+	const float bodyH = kPad + kTitleH + kGap + n * (kRowH + kGap) + kPad;
 	const float x = (1.0f - kPanelW) * 0.5f;
 	const float y = std::clamp((1.0f - bodyH) * 0.5f, 0.05f, 0.5f);
 	m_panel = {x, y, kPanelW, bodyH};
@@ -51,8 +56,7 @@ void InspectPicker::BuildUI() {
 		});
 		y += kRowH + kGap;
 	}
-	m_ui.Add<ui::Button>(gfx::Rect{x, y, w, kRowH}, loc::Tr("map.cfg.close"),
-						 [this] { Close(); });
+	ui::AddCloseButton(m_ui, m_panel, m_closeIcon.get(), [this] { Close(); });
 }
 
 void InspectPicker::Update(const Input& input, float w, float h) {

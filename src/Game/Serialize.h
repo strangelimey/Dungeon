@@ -29,6 +29,11 @@ namespace dungeon::game::serialize {
 struct Field {
 	std::string key;
 	std::string value;
+	// Comment lines that preceded this field, verbatim. A comment inside a block
+	// annotates the field under it (monsters.cat explains a threat_threshold that
+	// way), so it has to travel with that field — attaching it to the block would
+	// float it to the top on the next write, describing the wrong thing.
+	std::vector<std::string> lead;
 };
 
 // Field accessors over a raw field list — the one implementation shared by
@@ -43,6 +48,11 @@ void Set(std::vector<Field>& fields, std::string key, std::string value);
 
 struct Block {
 	std::string id; // "" for the leading unnamed block (the manifest)
+	// Comment lines that preceded this block's "[id]" header, verbatim (';'
+	// included). Carried so a load → save round-trip keeps the file's authoring
+	// notes — the catalogs document their own fields at the top, and an editor
+	// write used to delete that documentation.
+	std::vector<std::string> lead;
 	std::vector<Field> fields;
 
 	const std::string* Find(std::string_view key) const {

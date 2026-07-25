@@ -885,6 +885,46 @@ size_t DungeonMap::RenameStairDest(const std::string& oldStem,
 	return n;
 }
 
+int DungeonMap::SweepTypeRefs(TypeRecords records, std::string_view id,
+							  const std::string* newId) {
+	int hits = 0;
+	// One retyping step for every family: each names its catalog id in a plain
+	// `type` string (or, for a palette, IS one).
+	const auto sweep = [&](std::string& slot) {
+		if (slot != id) return;
+		++hits;
+		if (newId) slot = *newId;
+	};
+	switch (records) {
+	case TypeRecords::WallPalette:
+		for (std::string& s : m_wallPalette) sweep(s);
+		break;
+	case TypeRecords::FloorPalette:
+		for (std::string& s : m_floorPalette) sweep(s);
+		break;
+	case TypeRecords::CeilingPalette:
+		for (std::string& s : m_ceilingPalette) sweep(s);
+		break;
+	case TypeRecords::Decoration:
+		for (Entity& e : m_decorations) sweep(e.type);
+		break;
+	case TypeRecords::Fixture:
+		for (WallSconce& s : m_torches) sweep(s.type);
+		for (FloorBrazier& b : m_braziers) sweep(b.type);
+		break;
+	case TypeRecords::WallFeature:
+		for (WallNiche& n : m_niches) sweep(n.type);
+		for (WallBore& b : m_bores) sweep(b.type);
+		break;
+	case TypeRecords::Stair:
+		for (StairLink& s : m_stairs) sweep(s.type);
+		break;
+	}
+	// Nothing here moves a cell or changes the grid, so the revision stands —
+	// a rename is a relabelling, not an edit the mesh builder cares about.
+	return hits;
+}
+
 void DungeonMap::SetCell(int x, int z, Cell cell) {
 	if (x < 0 || z < 0 || x >= m_width || z >= m_height) return;
 	Cell& slot = m_cells[static_cast<size_t>(z) * m_width + x];

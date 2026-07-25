@@ -4,6 +4,8 @@
 #include "Game/BalanceDialog.h"
 
 #include "Core/Loc.h"
+#include "Core/Paths.h"
+#include "Game/AssetUtil.h"
 #include "UI/Controls.h"
 
 #include <charconv>
@@ -18,8 +20,8 @@ namespace {
 constexpr gfx::Rect kPanel{0.24f, 0.08f, 0.52f, 0.84f};
 constexpr gfx::Rect kTitle{0.255f, 0.095f, 0.45f, 0.045f};
 constexpr gfx::Rect kTabs{0.255f, 0.165f, 0.49f, 0.67f};
-constexpr gfx::Rect kSave{0.51f, 0.855f, 0.105f, 0.05f};
-constexpr gfx::Rect kClose{0.63f, 0.855f, 0.105f, 0.05f};
+// Save centered in the footer; Close is the top-right corner box now.
+constexpr gfx::Rect kSave{0.4475f, 0.855f, 0.105f, 0.05f};
 
 // A numeric text field: shows `value` ({:g}), and while edited writes every
 // PARSEABLE state back through `commit` (a live apply). An unparseable
@@ -41,7 +43,9 @@ void AddNumericField(ui::TabControl* tabs, size_t tab, const gfx::Rect& r,
 } // namespace
 
 BalanceDialog::BalanceDialog(gfx::GraphicsDevice& device)
-	: m_device(device), m_font(device, "", 18.0f), m_ui(device, "", 18.0f) {}
+	: m_device(device), m_font(device, "", 18.0f), m_ui(device, "", 18.0f) {
+	m_closeIcon = TryLoadTextureFile(device, paths::Asset("ui\\icon_close"));
+}
 
 void BalanceDialog::Open(const Balance& current) {
 	m_open = true;
@@ -64,7 +68,7 @@ void BalanceDialog::BuildUI() {
 		if (onSave) onSave(m_cfg);
 		Close();
 	});
-	m_ui.Add<ui::Button>(kClose, loc::Tr("map.cfg.close"), [this] {
+	ui::AddCloseButton(m_ui, kPanel, m_closeIcon.get(), [this] {
 		if (onApply) onApply(m_original); // revert the live tuning
 		Close();
 	});

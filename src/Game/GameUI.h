@@ -365,6 +365,7 @@ private:
 	// The movement pad's chevron icon faces (single = step, double = turn).
 	std::unique_ptr<gfx::Texture> m_chevronTex;
 	std::unique_ptr<gfx::Texture> m_chevron2Tex;
+	std::unique_ptr<gfx::Texture> m_closeIcon; // shared top-right dialog close box
 
 	MenuPage m_menuPage = MenuPage::Main;
 	SavesMode m_savesMode = SavesMode::Load;

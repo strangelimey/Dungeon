@@ -2018,7 +2018,15 @@ bool BakeWornTiers(int kind, const std::string& texture, float relief, u32 seed,
 
 	relief *= wearScale;
 	const bool flat = wearScale <= 0.0f; // no displacement — bake a bare quad
-	const TextureHeight height(std::format("{}\\{}_1k_n.png", texturesDir, texture));
+	// The displacement source is the set's packed normal+height map at ANY
+	// installed resolution: 1k is the cheapest to sample, but a set imported
+	// from the editor only installs at _2k (and a 4k-only set at _4k), and
+	// falling back beats silently baking procedural wear over a scanned texture.
+	TextureHeight height(std::format("{}\\{}_1k_n.png", texturesDir, texture));
+	for (const char* res : {"_2k", "_4k"}) {
+		if (height.IsValid()) break;
+		height = TextureHeight(std::format("{}\\{}{}_n.png", texturesDir, texture, res));
+	}
 	if (!flat && !height.IsValid())
 		log::Warn("{}: no packed height map — baking procedural wear "
 				  "(run tools/FetchTextures.ps1, then rebake)", texture);

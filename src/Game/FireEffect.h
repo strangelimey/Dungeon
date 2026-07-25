@@ -27,6 +27,15 @@ public:
 	void Update(float dt);
 	void AppendParticles(std::vector<gfx::ParticleInstance>& out) const;
 
+	// Move the emitter (a burning MONSTER walks around; a sconce never does).
+	// Only new particles spawn at the new origin — the ones already in the air
+	// keep their own velocity, so the plume trails the body.
+	void SetOrigin(const Vec3& origin) { m_origin = origin; }
+	// Recolour the flames and sparks: a multiplier over the authored orange
+	// palette, so {1,1,1} is an ordinary fire and a cold blue makes it a
+	// freezing one. Smoke is left alone (smoke is smoke).
+	void SetTint(const Vec3& tint) { m_tint = tint; }
+
 private:
 	enum class Kind { Flame, Spark, Smoke };
 	struct Particle {
@@ -42,6 +51,7 @@ private:
 	void Spawn(Kind kind);
 
 	Vec3 m_origin{};
+	Vec3 m_tint{1.0f, 1.0f, 1.0f};
 	float m_scale = 1.0f;
 	std::mt19937 m_rng;
 	std::vector<Particle> m_particles;

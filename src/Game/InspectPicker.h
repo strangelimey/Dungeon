@@ -43,7 +43,8 @@ private:
 
 	gfx::GraphicsDevice& m_device;
 	ui::Font m_font;    // the dialog's title text
-	ui::UIContext m_ui; // the row buttons + Close
+	ui::UIContext m_ui; // the row buttons
+	std::unique_ptr<gfx::Texture> m_closeIcon; // shared top-right close box
 
 	bool m_open = false;
 	std::string m_title;

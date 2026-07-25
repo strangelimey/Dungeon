@@ -112,9 +112,26 @@ static ai::Archetype ParseArchetype(const std::string& v) {
 // the single source of those constants, shared by the staged loader and the
 // quality hot-swap (LoadAllSurfaceTextures).
 std::array<DungeonWorld::SurfaceDef, 3> DungeonWorld::SurfaceDefs() {
-	return {{{m_walls, m_wallSets, m_wallHeights},
-			 {m_floors, m_floorSets, m_floorHeights},
-			 {m_ceilings, m_ceilingSets, m_ceilingHeights}}};
+	return {{{m_walls, m_wallSets, m_wallHeights, m_wallFactors},
+			 {m_floors, m_floorSets, m_floorHeights, m_floorFactors},
+			 {m_ceilings, m_ceilingSets, m_ceilingHeights, m_ceilingFactors}}};
+}
+
+void DungeonWorld::ApplySurfaceFactors() {
+	for (const SurfaceDef& def : SurfaceDefs())
+		def.surface.factors.assign(def.factors.begin(), def.factors.end());
+}
+
+// Re-reads the surface catalogs' non-baked material knobs and pushes them at the
+// live scene: the parallax depth and the metallic/roughness factors. Nothing is
+// reloaded or rebuilt — these are per-draw values, which is exactly why the type
+// editor can apply them the moment a surface type is saved (only `texture`,
+// `wear` and `columns` change baked geometry and need the wornblock re-bake).
+void DungeonWorld::RefreshSurfaceMaterials() {
+	ResolveSurfacePalettes();
+	for (const SurfaceDef& def : SurfaceDefs())
+		def.surface.heightScale.assign(def.heights.begin(), def.heights.end());
+	ApplySurfaceFactors();
 }
 
 // Resolves each surface palette id through its project catalog into a texture
@@ -129,17 +146,21 @@ void DungeonWorld::ResolveSurfacePalettes() {
 		const Catalog& catalog;
 		std::vector<std::string>& sets;
 		std::vector<float>& heights;
+		std::vector<SurfaceMaterial>& factors;
 		float fallbackHeight;
 	};
 	const Def defs[] = {
-		{m_map.WallPalette(), m_project.walls, m_wallSets, m_wallHeights, 0.055f},
-		{m_map.FloorPalette(), m_project.floors, m_floorSets, m_floorHeights, 0.045f},
+		{m_map.WallPalette(), m_project.walls, m_wallSets, m_wallHeights,
+		 m_wallFactors, 0.055f},
+		{m_map.FloorPalette(), m_project.floors, m_floorSets, m_floorHeights,
+		 m_floorFactors, 0.045f},
 		{m_map.CeilingPalette(), m_project.ceilings, m_ceilingSets, m_ceilingHeights,
-		 0.035f},
+		 m_ceilingFactors, 0.035f},
 	};
 	for (const Def& d : defs) {
 		d.sets.clear();
 		d.heights.clear();
+		d.factors.clear();
 		for (const std::string& id : d.palette) {
 			const CatalogEntry* e = d.catalog.Find(id);
 			d.sets.push_back(CatalogGet(e, "texture", id));
@@ -148,6 +169,9 @@ void DungeonWorld::ResolveSurfacePalettes() {
 			const float wear = e ? std::clamp(e->GetFloat("wear", 1.0f), 0.0f, 1.0f)
 								 : 1.0f;
 			d.heights.push_back(h * wear);
+			// Absent = -1 = the set's ORM map stays authoritative (the prop rule).
+			d.factors.push_back({e ? e->GetFloat("metallic", -1.0f) : -1.0f,
+								 e ? e->GetFloat("roughness", -1.0f) : -1.0f});
 		}
 	}
 }
@@ -298,6 +322,10 @@ DungeonWorld::SurfaceChunk DungeonWorld::MakeSurfaceChunk(GeometryChunk& gc) {
 }
 
 void DungeonWorld::BuildDungeonMeshes() {
+	// Every path that (re)builds the surfaces runs through here — the staged
+	// load, the quality swap, an undo restore — so this is the one place the
+	// per-variant material factors need refreshing.
+	ApplySurfaceFactors();
 	DungeonGeometry geo = BuildDungeonGeometry(
 		m_map, m_wallBlocks, m_floorBlocks, m_ceilingBlocks,
 		[this](int x, int z) {
@@ -314,6 +342,21 @@ void DungeonWorld::BuildDungeonMeshes() {
 	upload(m_floors, geo.floors);
 	upload(m_ceilings, geo.ceilings);
 	m_geometryDirty = false; // any full bake pays the deferred-undo debt
+}
+
+// One catalog DoT line, "<dps> <seconds> [chance]" — a monster's on-hit
+// poison/bleed and an enchanted weapon's element_dot are authored the same way.
+void DungeonWorld::ParseHitEffect(const std::string& spec, HitEffect& fx,
+								  std::string_view where) {
+	const std::vector<std::string> t = SplitTokens(spec);
+	if (t.empty()) return; // no line = the source carries no DoT
+	if (t.size() < 2) {
+		log::Warn("{}: needs <dps> <seconds> [chance]", where);
+		return;
+	}
+	fx.dps = std::strtof(t[0].c_str(), nullptr);
+	fx.duration = std::strtof(t[1].c_str(), nullptr);
+	if (t.size() >= 3) fx.chance = std::strtof(t[2].c_str(), nullptr);
 }
 
 // Loads each monster model once (shared per kind) and creates one animator
@@ -360,22 +403,10 @@ DungeonWorld::MonsterKind& DungeonWorld::MonsterKindFor(const std::string& type)
 				!t.empty() && !ParseDamageType(t, assets->damageType))
 				log::Warn("monsters.cat [{}]: unknown dmgtype '{}'", type, t);
 			// On-hit DoTs (Phase 6): "<dps> <seconds> [chance]" per kind.
-			const auto hitEffect = [&](const char* key,
-									   MonsterKind::HitEffect& fx) {
-				const std::vector<std::string> t =
-					SplitTokens(CatalogGet(def, key, ""));
-				if (t.empty()) return;
-				if (t.size() < 2) {
-					log::Warn("monsters.cat [{}]: {}= needs <dps> <seconds>",
-							  type, key);
-					return;
-				}
-				fx.dps = std::strtof(t[0].c_str(), nullptr);
-				fx.duration = std::strtof(t[1].c_str(), nullptr);
-				if (t.size() >= 3) fx.chance = std::strtof(t[2].c_str(), nullptr);
-			};
-			hitEffect("poison", assets->poison);
-			hitEffect("bleed", assets->bleed);
+			ParseHitEffect(CatalogGet(def, "poison", ""), assets->poison,
+						   "monsters.cat [" + type + "] poison");
+			ParseHitEffect(CatalogGet(def, "bleed", ""), assets->bleed,
+						   "monsters.cat [" + type + "] bleed");
 			// Melee reach in cells (Phase 7): 2 = a pike melees from its
 			// queue post down a clear shared row/column.
 			assets->reach = std::max(
@@ -681,7 +712,7 @@ DungeonWorld::ItemKind& DungeonWorld::ItemKindFor(const std::string& type) {
 	if (it == m_itemKinds.end()) {
 		auto kind = std::make_unique<ItemKind>();
 		kind->id = type;
-		const CatalogEntry* def = m_project.items.Find(type);
+		const CatalogEntry* def = m_project.FindItem(type);
 		// Display name: catalog `name` key, else item.<id> by convention.
 		kind->nameKey = CatalogGet(def, "name", std::format("item.{}", type));
 		// Shared, data-driven fields: category, carry weight, hand commands.
@@ -699,6 +730,26 @@ DungeonWorld::ItemKind& DungeonWorld::ItemKindFor(const std::string& type) {
 									"items.cat [" + type + "]");
 		// Weapon reach (Phase 7): `reach = polearm` swings from the rear rank.
 		kind->polearm = CatalogGet(def, "reach", "melee") == "polearm";
+		// ENCHANTMENT: `element = fire` turns the weapon elemental — every
+		// landed blow adds `element_bonus` of its damage as that element and
+		// rolls `element_dot` to leave the target burning. Absent (or "none")
+		// leaves both terms off, so a plain weapon swings exactly as before.
+		if (const std::string elem = CatalogGet(def, "element", "none");
+			!elem.empty() && elem != "none") {
+			if (ParseSymbol(elem, kind->element) &&
+				kind->element <= SpellSymbol::Water) {
+				kind->enchanted = true;
+				kind->elementBonus = def->GetFloat("element_bonus", 0.0f);
+				// An enchanted weapon lies on the floor lit by its own element
+				// (UpdateLights gives it a rune-style glow) — the one visual
+				// tell that this blade is not the plain one beside it.
+				kind->glow = ElementColor(kind->element);
+				ParseHitEffect(CatalogGet(def, "element_dot", ""), kind->elementDot,
+							   "weapons.cat [" + type + "] element_dot");
+			} else {
+				log::Warn("weapons.cat [{}]: element '{}' is not a school", type, elem);
+			}
+		}
 		ParseResists(CatalogGet(def, "resists", ""), kind->resists,
 					 "items.cat [" + type + "]");
 		kind->armor = def ? def->GetFloat("armor", 0.0f) : 0.0f;
@@ -1399,5 +1450,8 @@ void DungeonWorld::ReloadDungeonBlocks(bool textureResChanged) {
 			def.surface.heightScale.assign(def.heights.begin(), def.heights.end());
 	BuildDungeonMeshes();
 	m_shadows.InvalidateCubes();
+	// This IS the deferred work FlushGeometry would do (BuildDungeonMeshes
+	// clears m_geometryDirty itself), so a pending restore doesn't repeat it.
+	m_surfacesDirty = false;
 }
 } // namespace dungeon::game

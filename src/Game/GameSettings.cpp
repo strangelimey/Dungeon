@@ -149,6 +149,7 @@ void GameSettings::Load() {
 	ParseIniBool(text, "map_palette_collapsed=", mapPaletteCollapsed);
 	ParseIniBool(text, "map_legend_collapsed=", mapLegendCollapsed);
 	ParseIniBool(text, "map_player_key_collapsed=", mapPlayerKeyCollapsed);
+	ParseIniBool(text, "map_show_catalog=", mapShowCatalog);
 
 	ParseIniInt(text, "adapter=", adapterLuid);
 	ParseIniInt(text, "output=", displayOutput);
@@ -211,9 +212,10 @@ void GameSettings::Save() const {
 	text += std::format("usemenu_execute={}\n", useMenuExecutes ? 1 : 0);
 	text += std::format("spell_mru={}\n", spellMruCount);
 	text += std::format(
-		"map_palette_collapsed={}\nmap_legend_collapsed={}\nmap_player_key_collapsed={}\n",
+		"map_palette_collapsed={}\nmap_legend_collapsed={}\nmap_player_key_collapsed={}\n"
+		"map_show_catalog={}\n",
 		mapPaletteCollapsed ? 1 : 0, mapLegendCollapsed ? 1 : 0,
-		mapPlayerKeyCollapsed ? 1 : 0);
+		mapPlayerKeyCollapsed ? 1 : 0, mapShowCatalog ? 1 : 0);
 	text += std::format(
 		"adapter={}\noutput={}\nreswidth={}\nresheight={}\nfullscreen={}\n",
 		adapterLuid, displayOutput, displayWidth, displayHeight,

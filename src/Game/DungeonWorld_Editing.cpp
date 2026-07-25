@@ -19,6 +19,7 @@
 #include <cmath>
 #include <filesystem>
 #include <format>
+#include <optional>
 
 using namespace DirectX;
 
@@ -135,6 +136,162 @@ const gfx::Texture* DungeonWorld::SurfaceAlbedoForId(SurfaceSel sel,
 	for (size_t i = 0; i < pal.size() && i < surface.albedo.size(); ++i)
 		if (pal[i] == id) return surface.albedo[i].get();
 	return nullptr;
+}
+
+// --- surface palette membership (editor) ------------------------------------
+
+const Catalog& DungeonWorld::SurfaceCatalog(SurfaceSel sel) const {
+	return sel == SurfaceSel::Wall	  ? m_project.walls
+		   : sel == SurfaceSel::Floor ? m_project.floors
+									  : m_project.ceilings;
+}
+
+bool DungeonWorld::SurfaceAssetsAvailable(SurfaceSel sel,
+										  const std::string& id) const {
+	const CatalogEntry* def = SurfaceCatalog(sel).Find(id);
+	if (!def) return false;
+	const std::string set = CatalogGet(def, "texture", id);
+	// A texture stem resolves as .dds (baked) else .png (source) — TryLoadTextureFile's
+	// order.
+	const auto textureAt = [](const std::string& stem) {
+		return std::filesystem::exists(paths::Asset("textures\\" + stem + ".dds")) ||
+			   std::filesystem::exists(paths::Asset("textures\\" + stem + ".png"));
+	};
+	// The worn block mesh is baked per texture set AND per mesh tier, and its
+	// load is a LoadModelOrDie — a missing one would abort, so it gates first.
+	if (!std::filesystem::exists(paths::Asset(
+			std::format("models\\worn_{}_{}.gltf", set, m_settings.MeshSuffix()))))
+		return false;
+	// The tier's texture resolution may be uninstalled; LoadPbrSet falls back
+	// to the always-present 2k set, so either satisfies the load.
+	return textureAt(std::format("{}_{}", set, m_settings.TextureSuffix())) ||
+		   textureAt(set + "_2k");
+}
+
+bool DungeonWorld::AddPaletteEntry(SurfaceSel sel, const std::string& id) {
+	if (!SurfaceAssetsAvailable(sel, id)) return false;
+	const bool added = sel == SurfaceSel::Wall	  ? m_map.AddToWallPalette(id)
+					   : sel == SurfaceSel::Floor ? m_map.AddToFloorPalette(id)
+												  : m_map.AddToCeilingPalette(id);
+	if (!added) return false; // unknown/duplicate: nothing to load
+	// The palette IS the variant order, so the loaded texture arrays and worn
+	// block meshes must grow with it before anything can paint the new index.
+	// The full reload is the quality-swap path (drains the GPU, re-resolves,
+	// reloads both, rebuilds the chunks) — an interactive edit, not per-frame.
+	ReloadDungeonBlocks(/*textureResChanged*/ true);
+	return true;
+}
+
+void DungeonWorld::ReloadTypeKind(const std::string& catalogKey,
+								  const std::string& id) {
+	// The caches are keyed by catalog id and hold GPU resources the live objects
+	// point INTO, so drop the entry only after the instances are gone — the
+	// respawn below rebuilds both. Draining first: in-flight frames may still
+	// reference the mesh/textures we are about to free.
+	m_device.WaitIdle();
+	m_monsters.clear(); // they hold MonsterKind pointers
+	m_items.clear();
+	m_buttons.clear();
+	m_doors.clear();
+	m_decorations.clear();
+	if (catalogKey == "monsters") m_monsterKinds.erase(id);
+	else if (catalogKey == "fixtures") m_fixtureKinds.erase(id);
+	else m_decorationKinds.erase(id); // decorations/doors/buttons/stairs/items
+	// Fixtures are props AND light sources, so their rebuild goes through the
+	// fire/turbidity path; everything else just re-spawns.
+	RespawnFromRecords(catalogKey == "wallfeatures");
+	RebuildFiresAndDust();
+}
+
+// --- type rename / delete (editor) ------------------------------------------
+
+DungeonWorld::TypeUsage DungeonWorld::SweepTypeRefs(const std::string& catalogKey,
+													const std::string& id,
+													const std::string* newId) {
+	TypeUsage usage;
+	// Which record family holds this category's ids. A category the static and
+	// dynamic layers both ignore (none today) would simply find nothing.
+	using TR = DungeonMap::TypeRecords;
+	std::optional<TR> statics;
+	std::optional<EntityKind> dynamics;
+	if (catalogKey == "walls") statics = TR::WallPalette;
+	else if (catalogKey == "floors") statics = TR::FloorPalette;
+	else if (catalogKey == "ceilings") statics = TR::CeilingPalette;
+	else if (catalogKey == "decorations") statics = TR::Decoration;
+	else if (catalogKey == "fixtures") statics = TR::Fixture;
+	else if (catalogKey == "wallfeatures") statics = TR::WallFeature;
+	else if (catalogKey == "stairs") statics = TR::Stair;
+	else if (catalogKey == "monsters") dynamics = EntityKind::Monster;
+	// Weapons and armor place as Item entities too, so a rename/delete of one
+	// sweeps the same .ent record family.
+	else if (catalogKey == "items" || catalogKey == "weapons" ||
+			 catalogKey == "armor")
+		dynamics = EntityKind::Item;
+	else if (catalogKey == "buttons") dynamics = EntityKind::Button;
+	else if (catalogKey == "doors") dynamics = EntityKind::Door;
+	if (!statics && !dynamics) return usage;
+
+	// The ACTIVE level's decorations live as instances, not records — sync them
+	// back first (the stash/save rule) so the sweep sees the truth and the
+	// respawn afterwards reads what we wrote.
+	if (statics == TR::Decoration && newId)
+		m_map.SetDecorationRecords(LiveDecorationRecords());
+
+	for (const std::string& stem : m_project.levels) {
+		const bool active = stem == m_currentLevel;
+		int hits = 0;
+		if (statics) {
+			// A level not in memory is parsed on demand — the same lazy stash
+			// the map overlay uses to edit a level it isn't standing on.
+			DungeonMap& map = active ? m_map : EnsureMapStash(stem);
+			hits += map.SweepTypeRefs(*statics, id, newId);
+		}
+		if (dynamics) {
+			DungeonEntities& ents = active ? m_entities : EnsureEntStash(stem);
+			const int n = ents.SweepTypeRefs(*dynamics, id, newId);
+			hits += n;
+			// The active level's records diverge from its file once touched;
+			// the writer only rewrites a .ent it knows is dirty.
+			if (n > 0 && newId && active) m_entsDirty = true;
+		}
+		if (hits > 0) {
+			usage.count += hits;
+			usage.levels.push_back(stem);
+		}
+	}
+	return usage;
+}
+
+bool DungeonWorld::AddPaletteEntryRemote(const std::string& stem, SurfaceSel sel,
+										 const std::string& id) {
+	if (!SurfaceCatalog(sel).Contains(id)) return false;
+	// No texture/mesh work: a browsed level isn't rendered in 3D. Its assets are
+	// checked when the party (or the editor) enters it.
+	DungeonMap& map = EnsureMapStash(stem);
+	return sel == SurfaceSel::Wall	  ? map.AddToWallPalette(id)
+		   : sel == SurfaceSel::Floor ? map.AddToFloorPalette(id)
+									  : map.AddToCeilingPalette(id);
+}
+
+int DungeonWorld::EnsureSurfaceVariant(const std::string& stem, SurfaceSel sel,
+									   const std::string& id) {
+	const auto indexIn = [&](const DungeonMap& map) -> int {
+		const std::vector<std::string>& pal = sel == SurfaceSel::Wall	? map.WallPalette()
+											  : sel == SurfaceSel::Floor ? map.FloorPalette()
+																		 : map.CeilingPalette();
+		const auto it = std::find(pal.begin(), pal.end(), id);
+		return it == pal.end() ? -1 : static_cast<int>(it - pal.begin());
+	};
+	if (stem == m_currentLevel) {
+		if (const int i = indexIn(m_map); i >= 0) return i;
+		if (!AddPaletteEntry(sel, id)) return -1; // assets missing / unknown
+		return indexIn(m_map);
+	}
+	// A browsed level: the stash is truth (ViewedMap is a snapshot copy that
+	// only refreshes after the paint, so read the stash directly here).
+	if (const int i = indexIn(EnsureMapStash(stem)); i >= 0) return i;
+	if (!AddPaletteEntryRemote(stem, sel, id)) return -1;
+	return indexIn(EnsureMapStash(stem));
 }
 
 bool DungeonWorld::AddDecoration(const std::string& type, int x, int z,
@@ -651,7 +808,7 @@ bool DungeonWorld::AddButtonRemote(const std::string& stem,
 }
 
 bool DungeonWorld::AddItem(const std::string& type, int x, int z) {
-	if (!m_project.items.Contains(type) || !m_map.IsWalkable(x, z)) return false;
+	if (!m_project.HasItem(type) || !m_map.IsWalkable(x, z)) return false;
 	// One item per quarter slot — a full cell (4 on the floor) refuses rather
 	// than letting FreeItemSlotNear stack overlapping tablets. Niche items pile
 	// separately (they don't use the floor quarters), so they don't count.
@@ -694,7 +851,7 @@ Vec3 DungeonWorld::NicheItemPos(int x, int z, Direction wall) const {
 }
 
 bool DungeonWorld::AddNicheItem(const std::string& type, int x, int z, Direction wall) {
-	if (!m_project.items.Contains(type)) return false;
+	if (!m_project.HasItem(type)) return false;
 	if (!m_map.NicheAt(x, z, DirDX(wall), DirDZ(wall))) return false; // no niche here
 	Entity record;
 	record.kind = EntityKind::Item;
@@ -715,7 +872,7 @@ bool DungeonWorld::AddItemRemote(const std::string& stem,
 								 const std::string& type, int x, int z) {
 	DungeonEntities& ents = EnsureEntStash(stem);
 	const DungeonMap& map = *m_levelMaps.find(stem)->second;
-	if (!m_project.items.Contains(type) || !map.IsWalkable(x, z)) return false;
+	if (!m_project.HasItem(type) || !map.IsWalkable(x, z)) return false;
 	int here = 0;
 	for (const Entity& e : ents.At(x, z))
 		if (e.kind == EntityKind::Item) ++here;
@@ -1618,6 +1775,14 @@ void DungeonWorld::RestoreEditorState(EditorSnapshot snap) {
 	// read a freed resource.
 	m_device.WaitIdle();
 
+	// A palette add/remove rides the snapshot (the whole map does), but the
+	// LOADED texture sets and worn meshes don't — they'd stay at the old count
+	// and the variant indices would disagree. Compare before the map moves and
+	// mark the surfaces for a full reload if the membership changed.
+	const bool paletteChanged = m_map.WallPalette() != snap.map.WallPalette() ||
+								m_map.FloorPalette() != snap.map.FloorPalette() ||
+								m_map.CeilingPalette() != snap.map.CeilingPalette();
+
 	// Static layer + records (move-assign like BeginLevelLoad — Party holds a
 	// reference to m_map, so the object must persist, only its data changes).
 	m_map = std::move(snap.map);
@@ -1635,6 +1800,25 @@ void DungeonWorld::RestoreEditorState(EditorSnapshot snap) {
 	// Dynamic layer: respawn from the records, then apply the captured live
 	// diffs — the same flow a level re-entry uses (editor-placed monsters ride
 	// the snapshot's whole-spawn rows).
+	RespawnFromRecords();
+	m_levelStates[m_currentLevel] = std::move(snap.state);
+	ApplyActiveSnapshot();
+
+	// Fires/turbidity from the restored fixtures. The SURFACE rebake is
+	// deferred (m_geometryDirty → FlushGeometry): any cell may differ, so it
+	// would be the full quality-swap rebuild — but the full-screen editor
+	// hides the scene, so the stale chunks are never drawn, undo stays fast,
+	// and a whole editing session pays for one rebake on the way out.
+	RebuildFiresAndDust();
+	m_geometryDirty = true;
+	if (paletteChanged) m_surfacesDirty = true;
+}
+
+// The dynamic layer, rebuilt from whatever the records currently say. Shared by
+// the undo restore (which replaces the records wholesale) and the type rename
+// (which retypes them in place) — in both cases every live object has to be
+// re-resolved through its kind cache, since the type it names may have moved.
+void DungeonWorld::RespawnFromRecords(bool geometryToo) {
 	m_monsters.clear(); // fresh runtimeIds; stale async AI plans find no match
 	m_items.clear();
 	m_buttons.clear();
@@ -1647,19 +1831,23 @@ void DungeonWorld::RestoreEditorState(EditorSnapshot snap) {
 	LoadItems();
 	LoadButtons();
 	LoadDoors();
-	m_levelStates[m_currentLevel] = std::move(snap.state);
-	ApplyActiveSnapshot();
-
-	// Fires/turbidity from the restored fixtures. The SURFACE rebake is
-	// deferred (m_geometryDirty → FlushGeometry): any cell may differ, so it
-	// would be the full quality-swap rebuild — but the full-screen editor
-	// hides the scene, so the stale chunks are never drawn, undo stays fast,
-	// and a whole editing session pays for one rebake on the way out.
-	RebuildFiresAndDust();
-	m_geometryDirty = true;
+	// Fires are NOT rebuilt here: the undo path has to do it after applying its
+	// dynamic diffs (which carry each fixture's lit state), so both callers own
+	// that step themselves.
+	// Wall features are stamped INTO the surface chunks, so retyping one only
+	// shows after a re-stamp; deferred like the undo restore's.
+	if (geometryToo) m_geometryDirty = true;
 }
 
 void DungeonWorld::FlushGeometry() {
+	// A restored palette needs the heavier path: re-resolve, then reload the
+	// worn meshes AND texture sets so the variant arrays match the palette
+	// again (ReloadDungeonBlocks rebuilds the chunks itself).
+	if (m_surfacesDirty) {
+		m_surfacesDirty = false;
+		ReloadDungeonBlocks(/*textureResChanged*/ true);
+		return;
+	}
 	if (!m_geometryDirty) return;
 	m_device.WaitIdle(); // in-flight frames may still read the old chunk meshes
 	m_walls.chunks.clear();
