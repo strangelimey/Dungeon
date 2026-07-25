@@ -1,0 +1,62 @@
+; Status effects (docs/effects.md). NUMBERS AND LOOK ONLY — an effect's
+; identity and behaviour are its class in src/Game/Effect/, exactly like a
+; spell's. An entry naming no class is a warning, never a new effect.
+;
+; Fields: name = the display loc key (the sheet appends ".desc" for the long
+; form), icon = the item id whose baked icon it borrows in the HUD strip
+; ("" = the school-tinted square), stacking = refresh | school | stack.
+
+; --- the Protect wards ------------------------------------------------------
+; One kind per school, four different guards. They take their names from the
+; spells that cast them, so the HUD keeps reading "Stone Skin" and the sheet
+; finds the spell's existing description.
+
+[stoneskin]
+name = spell.stoneskin
+icon = rune_protect
+stacking = refresh
+
+[fireshield]
+name = spell.fireshield
+icon = rune_protect
+stacking = refresh
+
+[waterveil]
+name = spell.waterveil
+icon = rune_protect
+stacking = refresh
+
+[windward]
+name = spell.windward
+icon = rune_protect
+stacking = refresh
+
+; --- damage over time -------------------------------------------------------
+; magnitude is damage per second. The dps/duration themselves are authored at
+; the SOURCE (monsters.cat poison/bleed, weapons.cat element_dot) — what lives
+; here is what the effect is called and how it stacks.
+
+[poison]
+name = effect.poison
+stacking = refresh
+
+[bleed]
+name = effect.bleed
+stacking = refresh
+
+[burn]
+name = effect.burn
+stacking = refresh
+
+; --- the see-through mark ---------------------------------------------------
+; All four Sight spells share this kind; the school on the instance picks both
+; the flavour the world reads and the name shown, so it stacks per school.
+
+[sight]
+name = spell.embersight
+name_fire = spell.embersight
+name_earth = spell.stonesight
+name_air = spell.farsight
+name_water = spell.scrying
+icon = rune_sight
+stacking = school

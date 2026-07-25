@@ -14,6 +14,7 @@
 
 #include "Core/MathTypes.h"
 #include "Game/Combat.h" // ResistTable (the race/nature defense layer)
+#include "Game/Effect/Effect.h" // fx::Inst (the status-effect list)
 #include "Game/Inventory.h"
 #include "Game/Spells.h"
 
@@ -33,48 +34,19 @@ namespace dungeon::game {
 
 // ============================================================================
 // Status effects — every transient condition on a member lives in ONE list
-// (Character::effects): a Protect ward today; poison, injuries, item buffs
-// later. The HUD's portrait effect strip and the character sheet read the
-// list; behaviour code queries it by kind (the ward helpers below). The
-// world tick ages timeLeft and removes an expired effect with its kind's
-// fade message; spend-to-die effects (the water pool, the air charges) are
-// removed at their SPEND site instead, so their burst/still lines replace
-// the fade line.
+// (Character::effects): the Protect wards, poison and bleed, the Sight mark,
+// and whatever comes next. An entry is an fx::Inst (Effect/Effect.h) — a POD
+// pointing at the shared kind that carries the behaviour. The HUD's portrait
+// effect strip and the character sheet read the list; behaviour code queries
+// it by kind (the ward helpers below). The world tick ages timeLeft and
+// removes an expired effect with its kind's fade message; spend-to-die effects
+// (the water pool, the air charges) are removed at their SPEND site instead,
+// so their burst/still lines replace the fade line.
+//
+// A MONSTER will carry the same list (docs/effects.md P3) — that symmetry is
+// the point of the effects system, and why the type lives in its own module
+// instead of here.
 // ============================================================================
-enum class StatusKind : u8 {
-	Ward,   // the Protect shields — school keys the behaviour (see Character)
-	Poison, // damage over time (docs/combat.md Phase 6): magnitude = dps,
-	Bleed,  // ticked quietly by the world; school carries only the HUD tint
-			// (poison rides earth green, bleed fire red). Reapplying the same
-			// kind REFRESHES (replaces); poison and bleed stack with wards
-			// and each other. DoT ticks a DOWNED member too — the wound that
-			// lands on someone already at 0 is death by the overkill rule,
-			// so get the poisoned to safety (Michael's call, 2026-07-09).
-	Sight,  // the Sight form (see-through the wall ahead): school keys WHAT the
-			// peek shows (fire lights the beyond, air sees deeper, earth maps +
-			// lingers, water reveals the hidden). Purely a marker the world
-			// reads to ghost the front block — no per-member behaviour. STACKS
-			// across schools (a member may hold several), same-school recast
-			// refreshes (RemoveEffect(Sight, school)); the party shares one
-			// camera, so the world unions the active sights.
-};
-
-struct StatusEffect {
-	StatusKind kind = StatusKind::Ward;
-	// School flavour: a ward's behaviour key and every effect's HUD tint
-	// (ElementColor). Non-school effects (a future poison) pick a school
-	// purely for the tint until a richer palette exists.
-	SpellSymbol school = SpellSymbol::Fire;
-	std::string nameKey;    // loc key for the display name ("spell.stoneskin")
-	float timeLeft = 0.0f;  // seconds; the world tick removes at <= 0
-	float duration = 0.0f;  // starting timeLeft (the HUD's depletion fraction)
-	float magnitude = 0.0f; // kind-keyed number (armor / burn / pool / charges)
-};
-
-// Save/record token names for StatusKind ("ward"). Unknown tokens on load are
-// skipped, so a newer save's effect kinds degrade to "not present".
-const char* StatusKindId(StatusKind kind);
-bool ParseStatusKind(std::string_view token, StatusKind& out);
 
 struct Character {
 	std::string name; // proper noun — not localized
@@ -205,55 +177,55 @@ struct Character {
 	}
 	int SkillLevel(std::string_view id) const { return LevelForXp(SkillXpOf(id)); }
 
-	// --- status effects (see the StatusEffect banner above) ------------------
+	// --- status effects (see the banner above) --------------------------------
 	// The list holds only ACTIVE effects — expiry/spend removes the entry, so
-	// presence IS the active check. Saved per slot ("effect" lines, v14; v13
-	// "shield" lines load as the matching ward).
-	std::vector<StatusEffect> effects;
-	StatusEffect* FindEffect(StatusKind kind) {
-		for (StatusEffect& e : effects)
-			if (e.kind == kind) return &e;
+	// presence IS the active check. Landing one goes through fx::Apply, which
+	// owns the stacking rule. Saved per slot ("effect" lines, v14; v13 "shield"
+	// lines load as the matching ward).
+	std::vector<fx::Inst> effects;
+	fx::Inst* FindEffect(std::string_view id) {
+		for (fx::Inst& e : effects)
+			if (e.Is(id)) return &e;
 		return nullptr;
 	}
-	const StatusEffect* FindEffect(StatusKind kind) const {
-		for (const StatusEffect& e : effects)
-			if (e.kind == kind) return &e;
+	const fx::Inst* FindEffect(std::string_view id) const {
+		for (const fx::Inst& e : effects)
+			if (e.Is(id)) return &e;
 		return nullptr;
 	}
-	void RemoveEffect(StatusKind kind) {
-		std::erase_if(effects,
-					  [kind](const StatusEffect& e) { return e.kind == kind; });
+	void RemoveEffect(std::string_view id) {
+		std::erase_if(effects, [id](const fx::Inst& e) { return e.Is(id); });
 	}
-	// Remove only the entry of `kind` carrying `school` — the school-keyed
-	// stack semantics (a same-school recast replaces just its own, like wards).
-	void RemoveEffect(StatusKind kind, SpellSymbol school) {
-		std::erase_if(effects, [kind, school](const StatusEffect& e) {
-			return e.kind == kind && e.school == school;
+	// Remove only the entry of `id` carrying `school` — the school-keyed stack
+	// semantics (a same-school recast replaces just its own, like the sights).
+	void RemoveEffect(std::string_view id, SpellSymbol school) {
+		std::erase_if(effects, [id, school](const fx::Inst& e) {
+			return e.Is(id) && e.school == school;
 		});
 	}
 
 	// --- ward queries (the Protect form rune, docs/spells.md "Protect") ------
-	// Effects STACK across identities: a member may carry all four wards at
-	// once — only recasting the SAME school replaces (the cast site removes
-	// that school's ward before landing the new one). The school keys the
-	// behaviour AND how the ward's magnitude reads: earth = +armor via Armor()
-	// below, fire = melee attackers burn for it (both timed); water = an
-	// absorb POOL it spends soaking damage (DungeonWorld::WoundMember), air =
-	// deflect CHARGES it spends turning bolts aside
-	// (ResolveMonsterProjectileHit). Each behaviour queries ITS school here.
-	StatusEffect* FindWard(SpellSymbol school) {
-		for (StatusEffect& e : effects)
-			if (e.kind == StatusKind::Ward && e.school == school) return &e;
+	// Wards STACK across schools: a member may carry all four at once, because
+	// each school's ward is its OWN kind and a kind only refreshes itself. The
+	// school keys the behaviour AND how the ward's magnitude reads: earth =
+	// +physical resist, fire = melee attackers burn for it (both timed); water
+	// = an absorb POOL it spends soaking damage (DungeonWorld::WoundMember),
+	// air = deflect CHARGES it spends turning bolts aside
+	// (ResolveMonsterProjectileHit). Each behaviour queries ITS school here —
+	// and in P2 each moves inside its own kind class (docs/effects.md).
+	fx::Inst* FindWard(SpellSymbol school) {
+		for (fx::Inst& e : effects)
+			if (e.IsWard() && e.school == school) return &e;
 		return nullptr;
 	}
-	const StatusEffect* FindWard(SpellSymbol school) const {
-		for (const StatusEffect& e : effects)
-			if (e.kind == StatusKind::Ward && e.school == school) return &e;
+	const fx::Inst* FindWard(SpellSymbol school) const {
+		for (const fx::Inst& e : effects)
+			if (e.IsWard() && e.school == school) return &e;
 		return nullptr;
 	}
 	void RemoveWard(SpellSymbol school) {
-		std::erase_if(effects, [school](const StatusEffect& e) {
-			return e.kind == StatusKind::Ward && e.school == school;
+		std::erase_if(effects, [school](const fx::Inst& e) {
+			return e.IsWard() && e.school == school;
 		});
 	}
 	bool HasShield(SpellSymbol school) const { return FindWard(school) != nullptr; }

@@ -176,6 +176,10 @@ public:
 	// editor's Balance dialog edits it in place and Save()s it via the project.
 	Balance& GetBalance() { return m_balance; }
 	const Balance& GetBalance() const { return m_balance; }
+	// The status-effect registry — the one place an effect id resolves to its
+	// kind. The save loader (Game::ApplyState) reads it to rebuild a member's
+	// effects; everything else already holds kind pointers.
+	const fx::EffectBook& Effects() const { return m_effects; }
 
 	// --- spell casting ------------------------------------------------------
 	// Façade over the MagicSystem (m_magic): the given roster member casts the
@@ -1658,7 +1662,8 @@ private:
 	void WoundMember(Character& target, float damage, bool quiet = false);
 	// A landed monster blow rolls its type's on-hit DoT (Phase 6): chance,
 	// then land/refresh the effect with its log line. No-op for dps 0.
-	void ApplyHitEffect(Character& target, StatusKind kind, const HitEffect& fx);
+	void ApplyHitEffect(Character& target, std::string_view effectId,
+						const HitEffect& fx);
 	// The monster mirror: a landed blow with an ENCHANTED weapon rolls the
 	// weapon's `element_dot` and, on a hit, sets the target alight — the dps
 	// scaled by its resist for the element (an immune type simply won't
@@ -1887,6 +1892,12 @@ private:
 	// CastSpell delegates to it for the bolt spec, then Spawns it into m_projectiles.
 	// See Magic.h.
 	MagicSystem m_magic;
+
+	// The status-effect registry (Effect/Effect.h): every effect kind, built
+	// once from the classes + the project's effects.cat. EVERY fx::Inst in the
+	// world — on a party member, and on a monster from P3 — points into it, so
+	// it must outlive them all; being a member here, it does.
+	fx::EffectBook m_effects;
 
 	// The shared moving-item engine (Projectiles.h): flies + resolves + draws every
 	// projectile — spell bolts today, monster ranged attacks next. The world seam

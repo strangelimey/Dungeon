@@ -15,16 +15,10 @@ namespace {
 // black, so the light-haloed 3D item icons read clearly against it.
 inline constexpr Vec4 kSlotBg{0.0f, 0.0f, 0.0f, 1.0f};
 
-// Icon art for a status-effect kind, by the item id whose ItemIconBank icon
-// it borrows (a ward wears the Protect rune tablet's face; the school tint
-// around it tells the four shields apart). "" = no art (colored square).
-const char* EffectIconItem(StatusKind kind) {
-	switch (kind) {
-	case StatusKind::Ward: return "rune_protect";
-	case StatusKind::Sight: return "rune_sight";
-	}
-	return "";
-}
+// (Icon art for an effect used to be a switch over the kind enum here. Every
+// effect KIND names the item icon it borrows now — its own default, or
+// effects.cat `icon` — so the HUD simply asks the kind. A ward still wears the
+// Protect rune tablet's face, with the school tint telling the four apart.)
 
 void DrawStatBar(gfx::SpriteBatch& batch, const gfx::Rect& rect, float fraction,
 				 const Vec4& color, const ui::Theme& theme) {
@@ -210,14 +204,14 @@ void CharacterPanel::Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	// border, with a depleting time sliver beneath. Hovering one names it
 	// under the panel (Update tracks m_hotEffect). Spill past the name is a
 	// later problem — for now every effect draws.
-	const std::vector<StatusEffect>& effects = m_character->effects;
+	const std::vector<fx::Inst>& effects = m_character->effects;
 	for (size_t i = 0; i < effects.size(); ++i) {
 		const gfx::Rect r = EffectIconRect(ctx, i);
-		const StatusEffect& e = effects[i];
+		const fx::Inst& e = effects[i];
 		const Vec4 tint = ElementColor(e.school);
 		batch.DrawRect(r, kSlotBg);
 		const gfx::Texture* icon =
-			m_icons ? m_icons->For(EffectIconItem(e.kind)) : nullptr;
+			m_icons ? m_icons->For(e.kind->IconItem()) : nullptr;
 		if (icon)
 			batch.DrawSprite({r.x + 1, r.y + 1, r.w - 2, r.h - 2}, {0, 0, 1, 1},
 							 *icon, {1, 1, 1, 1});
@@ -260,9 +254,9 @@ void CharacterPanel::Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	// Hovered effect icon: name + time left on a small plaque just under the
 	// panel (the strip icons are too small to label in place).
 	if (m_hotEffect < effects.size()) {
-		const StatusEffect& e = effects[m_hotEffect];
+		const fx::Inst& e = effects[m_hotEffect];
 		const std::string label =
-			loc::Format("hud.effect_time", loc::Tr(e.nameKey),
+			loc::Format("hud.effect_time", loc::Tr(e.NameKey()),
 						static_cast<int>(e.timeLeft + 0.5f));
 		const gfx::Rect tip{px.x, px.y + px.h + 2.0f,
 							font.MeasureWidth(label) + 12.0f,
@@ -946,15 +940,15 @@ void CharacterSheet::SetCharacter(size_t member) {
 	// magnitude formatted in (each ward reads its number its own way). Baked
 	// here because the sheet freezes the world — nothing ticks while open.
 	m_effectRows.clear();
-	for (const StatusEffect& e : character.effects) {
+	for (const fx::Inst& e : character.effects) {
 		const Vec4 c = ElementColor(e.school);
 		m_effectRows.push_back(
 			{e.kind,
 			 {c.x, c.y, c.z, 1.0f},
 			 e.duration > 0.0f ? std::clamp(e.timeLeft / e.duration, 0.0f, 1.0f)
 							   : 1.0f,
-			 loc::Tr(e.nameKey),
-			 loc::Format(e.nameKey + ".desc",
+			 loc::Tr(e.NameKey()),
+			 loc::Format(std::string(e.NameKey()) + ".desc",
 						 static_cast<int>(e.magnitude + 0.5f)),
 			 loc::Format("sheet.effect_time",
 						 static_cast<int>(e.timeLeft + 0.5f))});
@@ -1530,7 +1524,7 @@ void CharacterSheet::DrawEffects(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 		const gfx::Rect r{px.x + kIconX * sx, y, kIconSize * sx, kIconSize * sy};
 		batch.DrawRect(r, kSlotBg);
 		const gfx::Texture* icon =
-			m_icons ? m_icons->For(EffectIconItem(row.kind)) : nullptr;
+			m_icons && row.kind ? m_icons->For(row.kind->IconItem()) : nullptr;
 		if (icon)
 			batch.DrawSprite({r.x + 2, r.y + 2, r.w - 4, r.h - 4}, {0, 0, 1, 1},
 							 *icon, {1, 1, 1, 1});

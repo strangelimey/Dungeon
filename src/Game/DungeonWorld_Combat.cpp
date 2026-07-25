@@ -42,7 +42,7 @@ void DungeonWorld::WoundMember(Character& target, float damage, bool quiet) {
 	// melee, ranged, a wall bump, even a poison tick (silently — quiet mode
 	// is per-frame). A partial soak lets the remainder through to the normal
 	// wound path below.
-	if (StatusEffect* ward = target.FindWard(SpellSymbol::Water);
+	if (fx::Inst* ward = target.FindWard(SpellSymbol::Water);
 		ward && damage > 0.0f) {
 		const float soaked = std::min(ward->magnitude, damage);
 		ward->magnitude -= soaked;
@@ -170,7 +170,7 @@ DefenseProfile DungeonWorld::PartyDefense(const Character& member,
 	// Stone Skin: earth hardens — the ward's magnitude converts to PHYSICAL
 	// resist at the stoneskin_resist knob (elemental bolts pass it by).
 	if (IsPhysical(type))
-		if (const StatusEffect* ward = member.FindWard(SpellSymbol::Earth))
+		if (const fx::Inst* ward = member.FindWard(SpellSymbol::Earth))
 			resist += ward->magnitude * m_balance.stoneskinResist;
 	return {member.Evasion(), soak,
 			m_balance.ClampResist(resist, member.natureResists[type])};
@@ -182,20 +182,24 @@ DefenseProfile DungeonWorld::MonsterDefense(const MonsterKind& kind,
 			m_balance.ClampResist(kind.resists[type], kind.resists[type])};
 }
 
-void DungeonWorld::ApplyHitEffect(Character& target, StatusKind kind,
-								  const HitEffect& fx) {
-	if (fx.dps <= 0.0f || fx.duration <= 0.0f) return;
+void DungeonWorld::ApplyHitEffect(Character& target, std::string_view effectId,
+								  const HitEffect& proc) {
+	if (proc.dps <= 0.0f || proc.duration <= 0.0f) return;
 	std::uniform_real_distribution<float> roll(0.0f, 1.0f);
-	if (roll(m_combatRng) > fx.chance) return;
-	// Reapply REFRESHES (the ward-recast rule): the old effect goes, the new
-	// one lands whole. School carries only the HUD tint — poison rides earth
-	// green, bleed fire red (the palette convention until richer art exists).
-	const bool poison = kind == StatusKind::Poison;
-	target.RemoveEffect(kind);
-	target.effects.push_back({kind,
-							  poison ? SpellSymbol::Earth : SpellSymbol::Fire,
-							  poison ? "effect.poison" : "effect.bleed",
-							  fx.duration, fx.duration, fx.dps});
+	if (roll(m_combatRng) > proc.chance) return;
+	const fx::EffectKind* kind = m_effects.Find(effectId);
+	if (!kind) {
+		log::Warn("on-hit effect '{}' has no kind; not applied", effectId);
+		return;
+	}
+	// Reapply REFRESHES — but that is the KIND's rule now (fx::Apply reads its
+	// stacking policy), not something each application site restates. School
+	// carries only the HUD tint here: poison rides earth green, bleed fire red
+	// (the palette convention until richer art exists).
+	const bool poison = effectId == "poison";
+	fx::Apply(target.effects, *kind,
+			  poison ? SpellSymbol::Earth : SpellSymbol::Fire, proc.dps,
+			  proc.duration);
 	MemberMessage(target, loc::Format(poison ? "log.poisoned" : "log.bleeding",
 									  target.name));
 }
@@ -420,14 +424,14 @@ void DungeonWorld::MonsterAttack(Monster& monster) {
 	WoundMember(target, r.damage);
 	// On-hit DoTs (Phase 6): the landed blow may envenom/open a wound —
 	// applied even if the blow itself downed them (the ticks finish the job).
-	ApplyHitEffect(target, StatusKind::Poison, monster.kind->poison);
-	ApplyHitEffect(target, StatusKind::Bleed, monster.kind->bleed);
+	ApplyHitEffect(target, "poison", monster.kind->poison);
+	ApplyHitEffect(target, "bleed", monster.kind->bleed);
 	// Fire Shield retaliation: fire guards by burning back — a monster that
 	// LANDS a melee blow on a fire-warded member is scorched for the ward's
 	// power (the hit itself is not reduced; earth is the school that hardens).
 	// Fires even if the blow downs the member — the ward outlives its bearer's
 	// last stand by exactly one burn.
-	if (const StatusEffect* ward = target.FindWard(SpellSymbol::Fire)) {
+	if (const fx::Inst* ward = target.FindWard(SpellSymbol::Fire)) {
 		monster.hp -= ward->magnitude;
 		onMessage(loc::Format("log.shield_burns", name,
 							  static_cast<int>(ward->magnitude + 0.5f)));
@@ -1011,7 +1015,7 @@ bool DungeonWorld::ResolveMonsterProjectileHit(const ProjectileImpact& impact) {
 	// is turned aside outright (no strike roll), spending one of the ward's
 	// charges (its magnitude); the last deflection stills the wind. Bolts
 	// aimed at unwarded neighbours fly true — the ward wraps its caster alone.
-	if (StatusEffect* ward = target.FindWard(SpellSymbol::Air)) {
+	if (fx::Inst* ward = target.FindWard(SpellSymbol::Air)) {
 		ward->magnitude -= 1.0f;
 		MemberMessage(target, loc::Format("log.shield_deflects", target.name));
 		if (ward->magnitude <= 0.0f) {

@@ -481,7 +481,9 @@ private:
 	// long form — name, a magnitude-formatted description (loc key =
 	// <nameKey>.desc), and the time left.
 	struct EffectRow {
-		StatusKind kind = StatusKind::Ward;
+		// The effect's kind, for the icon art it borrows. Safe to hold: the
+		// kinds live in the EffectBook for the app's lifetime (Effect.h).
+		const fx::EffectKind* kind = nullptr;
 		Vec4 tint{1, 1, 1, 1};
 		float frac = 0.0f; // timeLeft / duration, the icon's sliver
 		std::string name, desc, time;

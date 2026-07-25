@@ -82,10 +82,16 @@ class EffectKind {                    // ONE shared instance per id
 struct Inst {                         // the per-combatant POD (saved)
     const EffectKind* kind;
     SpellSymbol school;               // tint, and school-keyed behaviour
-    float magnitude, power, timeLeft, duration;
+    float magnitude, timeLeft, duration;
     int source;                       // who applied it (threat credit)
 };
 ```
+
+(This sketch once carried a separate `power` beside `magnitude`. As built
+there is one number: nothing today has two, and a dead field is worse
+than a rename later. The P2 hooks are likewise absent from the class
+until P2 — inventing `DamageEvent` and `ITarget` before their callers
+exist is how you design them wrong.)
 
 This is the codebase's dominant idiom (`ItemKind`/`Item`,
 `MonsterKind`/`Monster`): the fat, behaviour-carrying half is shared and
@@ -140,12 +146,41 @@ commit. The order is chosen so that behaviour is preserved until the last
 possible moment — the risky phase (2) has the previous phase's tests
 still meaningful.
 
-**P1 — the module, with today's behaviour.**
-`Game/Effect.h/.cpp` (namespace `fx`), the kind registry loaded from
-`effects.cat`, `Inst` replacing `StatusEffect`, and `Character::effects`
-ported to it. Ward/poison/bleed/sight behaviour stays exactly where it
-is — this phase only changes what the list holds. HUD + sheet + save read
-the new type. *Verify: nothing changed.*
+**P1 — the module, with today's behaviour. LANDED 2026-07-24.**
+`Game/Effect/` (namespace `fx`) laid out like `Game/Spell/`: `Effect.h/.cpp`
+(the base, `Inst`, `EffectBook`), a file pair per kind, and `AllEffects.cpp`
+hand-listing the eight. `Inst` replaces `StatusEffect`; `Character::effects`
+holds them. Ward/poison/bleed/sight behaviour stays exactly where it is —
+this phase only changes what the list holds.
+
+As built, three things worth knowing:
+- **Each ward is its own kind** (`stoneskin`/`fireshield`/`waterveil`/
+  `windward`), because in P2 each overrides a different hook. Wards
+  stacking across schools now falls out of that — a kind only refreshes
+  itself — instead of being a rule spelled out at the cast site. The four
+  Sight spells DO share one kind (they differ only in flavour, which the
+  school carries) and it names itself per school.
+- **`fx::Apply` owns the stacking rule.** Every landing site used to
+  open-code its own `RemoveEffect`/`RemoveWard` first; now the kind's
+  policy decides, and `CastServices::applyEffect` lets a spell land one
+  without knowing either the classes or the policy.
+- **The save is id-keyed already** (this was P5's job on paper). The kind
+  token was always a free-form string, so writing the effect id costs
+  nothing and `EffectBook::FindLegacy` maps the old category tokens
+  ("ward" + school → that school's kind) forward. No version bump, and
+  P5 shrinks to the monster side.
+
+*Verified in game:* wards cast and stack, the HUD strip and the sheet's
+Effects tab read identically (names, magnitude-formatted descriptions,
+time left, borrowed rune icons), poison lands and fades with its name, a
+save round-trips, a hand-edited legacy-token save loads as the right
+wards, and three of the four ward BEHAVIOURS were caught live — water
+veil soaking then bursting, fire shield scorching for 9, stone skin
+halving a blow. The air deflect needs a caster monster's bolt and wasn't
+observed; its site is the same one-line type change as the other three.
+Dev: `effect <id> [member] [magnitude] [seconds]` lands one directly,
+because setting a ward up by casting is a coin toss (vocabulary, mana,
+fumble) and then a monster still has to choose to hit its bearer.
 
 **P2 — the pipeline, and the four wards move home.**
 `ITarget` + the two adapters, `DamageEvent`, the six stages. Every damage
@@ -170,10 +205,10 @@ which stays parsed as a deprecated alias for one release). Spells:
 pushing onto `caster.effects` directly. Monsters: `poison`/`bleed`
 become the same `on_hit` list.
 
-**P5 — save.**
-Effect lines become id-keyed (old `ward`/`poison`/`bleed`/`sight` tokens
-map forward on load); monster effects round-trip in `EntityState`.
-Version bump, `CaptureState`/`ApplyState` + `SaveData` as always.
+**P5 — save.** (Half of this landed in P1: the character side is already
+id-keyed, with the legacy tokens mapping forward.) What is left is the
+MONSTER side — effects round-tripping in `EntityState`, a version bump,
+`CaptureState`/`ApplyState` + `SaveData` as always.
 
 **P6 — the editor.**
 `effects.cat` gets a `CatalogSchema` entry and a palette/dialog like

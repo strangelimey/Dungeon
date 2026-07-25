@@ -16,11 +16,10 @@ SightSpell::SightSpell(std::string id, std::vector<SpellSymbol> sequence,
 
 void SightSpell::Cast(CastContext& ctx) const {
 	// The peek marks the CASTER; the world reads any active Sight to ghost the
-	// wall ahead. Sights STACK across schools (all four may be up at once);
-	// only recasting the SAME school refreshes its own entry.
-	ctx.caster.RemoveEffect(StatusKind::Sight, School());
-	ctx.caster.effects.push_back({StatusKind::Sight, School(), NameKey(),
-								  m_duration, m_duration, ctx.power});
+	// wall ahead. All four sight spells share ONE effect kind (they differ only
+	// in flavour, which the school carries) and it stacks per school — so a
+	// recast refreshes just its own entry, the rule the kind now owns.
+	ctx.services.applyEffect(ctx.caster, "sight", School(), ctx.power, m_duration);
 	ctx.services.message(ctx.caster,
 						 loc::Format("log.sight_up", ctx.caster.name));
 }

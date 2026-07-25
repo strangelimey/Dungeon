@@ -167,12 +167,24 @@ DungeonWorld::DungeonWorld(gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	// project's spells.cat numeric overrides), and wire the CAST SERVICES —
 	// the capability surface a spell's Cast() lands its effect through
 	// (Spell/Spell.h), so the magic module stays walled off from the world.
+	// Status effects (docs/effects.md): the kind registry — every class in
+	// Game/Effect/ plus the project's effects.cat overrides. Built BEFORE the
+	// cast services, which hand spells an applyEffect resolving through it.
+	m_effects.Build(m_project.effects);
+
 	m_magic.LoadSpells(m_project.spells);
 	m_magic.SetBalance(&m_balance);
 	m_magic.SetCastServices(
 		{[this](const ProjectileSpec& bolt) { m_projectiles.Spawn(bolt); },
 		 [this](const Character& member, const std::string& line) {
 			 MemberMessage(member, line);
+		 },
+		 [this](Character& target, std::string_view id, SpellSymbol school,
+				float magnitude, float duration) {
+			 if (const fx::EffectKind* kind = m_effects.Find(id))
+				 fx::Apply(target.effects, *kind, school, magnitude, duration);
+			 else
+				 log::Warn("cast wants effect '{}', which has no kind", id);
 		 }});
 
 	// Moving-item engine: wire its world seam so a projectile lives "on the map"
@@ -474,8 +486,8 @@ bool ActiveSightSchool(const std::vector<Character>* roster, SpellSymbol& out) {
 	bool found = false;
 	for (const Character& c : *roster) {
 		if (!c.IsAlive()) continue;
-		for (const StatusEffect& e : c.effects) {
-			if (e.kind != StatusKind::Sight) continue;
+		for (const fx::Inst& e : c.effects) {
+			if (!e.Is("sight")) continue;
 			if (!found || e.school == SpellSymbol::Fire) out = e.school;
 			found = true;
 		}
@@ -720,21 +732,26 @@ void DungeonWorld::UpdateMonsters(float dt) {
 			// can mutate the effects list (a water ward bursts soaking it),
 			// so it must not run mid-iteration.
 			float dot = 0.0f;
-			for (StatusEffect& e : member.effects) {
+			for (fx::Inst& e : member.effects) {
 				e.timeLeft -= dt;
-				if (e.kind == StatusKind::Poison || e.kind == StatusKind::Bleed)
-					dot += e.magnitude * dt;
+				if (e.IsDot()) dot += e.magnitude * dt;
 				if (e.timeLeft > 0.0f) continue;
-				if (e.kind == StatusKind::Ward)
+				switch (e.kind->Kind()) {
+				case fx::Category::Ward:
 					MemberMessage(member, loc::Format("log.shield_fades", member.name));
-				else if (e.kind == StatusKind::Sight)
+					break;
+				case fx::Category::Marker:
 					MemberMessage(member, loc::Format("log.sight_fades", member.name));
-				else if (e.kind == StatusKind::Poison || e.kind == StatusKind::Bleed)
-					MemberMessage(member, loc::Format("log.effect_fades", member.name,
-													  loc::Tr(e.nameKey)));
+					break;
+				case fx::Category::Dot:
+					MemberMessage(member,
+								  loc::Format("log.effect_fades", member.name,
+											  loc::Tr(e.NameKey())));
+					break;
+				}
 			}
 			std::erase_if(member.effects,
-						  [](const StatusEffect& e) { return e.timeLeft <= 0.0f; });
+						  [](const fx::Inst& e) { return e.timeLeft <= 0.0f; });
 			// The quiet DoT wound — it ticks a DOWNED member too, and a wound
 			// on someone already at 0 is death by the overkill rule (Phase 5):
 			// poison finishes the fallen, so get them clear of the fight.

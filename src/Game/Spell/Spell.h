@@ -41,6 +41,14 @@ struct CastServices {
 	std::function<void(const ProjectileSpec&)> spawnBolt;
 	// A log line ABOUT a member, tinted with their identity color.
 	std::function<void(const Character&, const std::string&)> message;
+	// Land a status effect on a character (docs/effects.md): the id names the
+	// KIND, and the host resolves it through the registry and applies that
+	// kind's stacking rule. A spell that leaves something behind — a ward, the
+	// Sight mark — calls this instead of touching the effect list, so it knows
+	// neither the effect classes nor the stacking policy.
+	std::function<void(Character&, std::string_view id, SpellSymbol school,
+					   float magnitude, float duration)>
+		applyEffect;
 };
 
 // Everything a single cast knows: who, from where, at what strength. The

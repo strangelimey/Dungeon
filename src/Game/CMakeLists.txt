@@ -19,6 +19,11 @@ add_library(Game STATIC
 	DungeonWorld_Load.cpp
 	DungeonWorld_Render.cpp
 	DungeonWorld_Save.cpp
+	Effect/AllEffects.cpp
+	Effect/DotEffect.cpp
+	Effect/Effect.cpp
+	Effect/SightEffect.cpp
+	Effect/WardEffect.cpp
 	Entity.cpp
 	EntityInspector.cpp
 	FireEffect.cpp
