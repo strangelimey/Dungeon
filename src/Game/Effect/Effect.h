@@ -185,6 +185,10 @@ public:
 	// threat credit / flinch / corpse). The one genuinely per-side stage. Sets
 	// ev.slew when this is the damage that finished them.
 	virtual void Wound(float amount, DamageEvent& ev) = 0;
+	// The mirror: this target DRINKS the element (a nature resist past 1) and
+	// is healed by `amount` instead of hurt. Capped at its maximum, and it
+	// announces itself — being fed by a blow is worth saying out loud.
+	virtual void Absorb(float amount, DamageEvent& ev) = 0;
 
 	// For the lines effects write about their bearer.
 	virtual std::string Name() const = 0;

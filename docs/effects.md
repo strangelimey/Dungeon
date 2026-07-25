@@ -400,6 +400,41 @@ wall the party shrugged off is not news.
 and is "jarred for 2 damage"; with Stone Skin up, the same wall still
 reports "You bump into a wall" and no damage line, health untouched.
 
+### Immunity, and drinking the element (Michael, 2026-07-24)
+
+> "Full resistance should mean zero damage. A fire golem would take 0
+> fire damage — even more, it would be strengthened and healed by fire."
+
+Auditing that turned up a real bug and a real gap.
+
+**The bug:** `ClampResist` has always let an authored nature cell of 1.0
+reach true immunity — but `ResolveAttack` then floored every landed blow
+at `wound_floor` ("a blow always stings"), so a fire golem took 1 point
+from every fire bolt. Immunity was quietly worth 1 damage. The floor now
+applies only to a blow that got THROUGH (`dmg > 0`).
+
+**The gap:** absorption could not be expressed at all. Three places
+clamped it away — `ClampResist` capped at 1.0, the unrolled path clamped
+negatives to zero, and the apply stage only ever subtracted. Now:
+- a nature cell PAST 1.0 is absorption (1.5 = drinks half again), and
+  like immunity it escapes the ±clamp — it says what a thing IS, not how
+  much mitigation it has stacked;
+- negative damage flows through the pipeline untouched (soak can only
+  blunt, never invert; the absorb stage skips a healing so a ward cannot
+  grow itself on one);
+- `ITarget::Absorb` is the mirror of `Wound`, capped at the target's
+  maximum. A monster still PROVOKES on it — you fed it and it noticed —
+  but earns its feeder no threat, threat being a record of harm. A member
+  can be brought back from unconscious this way, but not from dead.
+
+Presentation follows: a blow that does nothing says "is unharmed" rather
+than "for 0 damage", a blow that feeds says so through the adapter, and a
+per-frame tick that feeds says nothing at all.
+
+*Verified in game:* a mummy authored `fire 1.5` — "The mummy drinks it in
+and is strengthened by 5!" from a fire bolt. No shipped content absorbs
+anything yet; a real fire golem is a monsters.cat entry plus a model.
+
 ---
 
 ## Status — all six phases landed

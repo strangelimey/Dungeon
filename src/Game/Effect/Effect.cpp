@@ -201,22 +201,29 @@ void Deal(DamageEvent& ev, ITarget& target, const StrikeRules& rules,
 	} else {
 		ev.hit = true;
 		damage = ev.amount;
-		if (ev.soaked) damage -= target.Soak();
+		// Soak can only blunt, never invert — armour does not heal you. Resist
+		// CAN invert: past 1 the target drinks this element (see ClampResist).
+		if (ev.soaked) damage = std::max(0.0f, damage - target.Soak());
 		if (ev.resisted) damage *= 1.0f - target.Resist(ev.type);
-		if (damage < 0.0f) damage = 0.0f;
 	}
 	if (!ev.hit) return;
 
 	// --- 4. absorb: pooled effects eat what they can -------------------------
+	// Only real damage is worth eating; a ward must not "soak" a healing and
+	// grow itself on it.
 	for (Inst& e : target.Effects()) {
-		if (e.kind) e.kind->OnAbsorb(e, damage, ev, target);
 		if (damage <= 0.0f) break;
+		if (e.kind) e.kind->OnAbsorb(e, damage, ev, target);
 	}
 	DropSpent(target.Effects());
 
 	// --- 5. apply: the one per-side stage ------------------------------------
+	// Three outcomes now, not one: it wounds, it does nothing at all (the
+	// target is immune), or it FEEDS them — a fire golem drinking a fire bolt.
+	// The caller reads ev.dealt to know which happened.
 	ev.dealt = damage;
 	if (damage > 0.0f) target.Wound(damage, ev);
+	else if (damage < 0.0f) target.Absorb(-damage, ev);
 	// (stage 6 is React, below — the caller runs it once it has said its piece)
 }
 

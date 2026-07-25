@@ -165,6 +165,20 @@ void DungeonWorld::PartyTarget::Wound(float amount, fx::DamageEvent& ev) {
 	ev.slew = m_fall != Fall::None;
 }
 
+// Fed rather than hurt: a member whose nature DRINKS this element (a resist
+// past 1). It cannot raise the dead — a corpse drinks nothing — but it will
+// bring someone back from unconscious, which is the point of being made of the
+// stuff that was just thrown at you.
+void DungeonWorld::PartyTarget::Absorb(float amount, fx::DamageEvent& ev) {
+	if (m_member.dead || amount <= 0.0f) return;
+	m_member.health = std::min(m_member.maxHealth, m_member.health + amount);
+	// Quiet for a per-frame tick: a burn feeding something that drinks fire is
+	// a steady trickle, not news forty times a second.
+	if (!ev.Quiet())
+		Say(loc::Format("log.member_absorbs", m_member.name,
+						static_cast<int>(amount + 0.5f)));
+}
+
 void DungeonWorld::PartyTarget::NarrateFall() const {
 	if (m_fall == Fall::Dead)
 		m_world.MemberMessage(m_member,
@@ -207,6 +221,18 @@ void DungeonWorld::MonsterTarget::Say(const std::string& line) const {
 void DungeonWorld::MonsterTarget::SayApplied(const fx::EffectKind& kind) const {
 	const std::string& key = kind.ApplyLine(/*onMonster=*/true);
 	if (!key.empty()) Say(loc::Format(key, Name()));
+}
+
+// The monster mirror: a fire golem drinking a fire bolt. It still PROVOKES —
+// you just made it stronger and it noticed — but earns its feeder no threat,
+// since threat is a record of harm done.
+void DungeonWorld::MonsterTarget::Absorb(float amount, fx::DamageEvent& ev) {
+	if (!m_monster.Alive() || amount <= 0.0f) return;
+	m_monster.hp = std::min(m_monster.MaxHp(), m_monster.hp + amount);
+	if (ev.Quiet()) return; // a tick feeding it is a trickle, not news
+	m_world.ProvokeMonster(m_monster);
+	m_world.onMessage(loc::Format("log.monster_absorbs", Name(),
+								  static_cast<int>(amount + 0.5f)));
 }
 
 // The monster half of the apply stage: hit points, the grudge, the flinch, and
@@ -432,8 +458,13 @@ void DungeonWorld::MonsterAttack(Monster& monster) {
 		MemberMessage(target, loc::Format("log.monster_misses", name, target.name));
 		return;
 	}
-	MemberMessage(target, loc::Format("log.monster_hits", name, target.name,
-									  static_cast<int>(ev.dealt + 0.5f)));
+	// Nothing got through (immune) says so; drinking it says so through the
+	// adapter, so only a real wound reports a number.
+	if (ev.dealt >= 0.5f)
+		MemberMessage(target, loc::Format("log.monster_hits", name, target.name,
+										  static_cast<int>(ev.dealt + 0.5f)));
+	else if (ev.dealt >= 0.0f)
+		MemberMessage(target, loc::Format("log.member_unharmed", target.name));
 	defender.NarrateFall();
 	m_audio.Play(m_sounds.monster, 0.6f);
 	// Whatever its blows leave behind — applied even if the blow itself downed
@@ -795,8 +826,12 @@ bool DungeonWorld::PartyAttack(size_t member, size_t hand, std::string_view verb
 		fx::Deal(burst, defender, m_balance.Strike(), m_combatRng);
 		elemental = burst.dealt;
 	}
-	const int dmg = static_cast<int>(ev.dealt + elemental + 0.5f);
-	MemberMessage(attacker, loc::Format("log.party_hits", attacker.name, name, dmg));
+	const float landed = ev.dealt + elemental;
+	if (landed >= 0.5f)
+		MemberMessage(attacker, loc::Format("log.party_hits", attacker.name, name,
+											static_cast<int>(landed + 0.5f)));
+	else if (landed >= 0.0f)
+		MemberMessage(attacker, loc::Format("log.monster_unharmed", name));
 	GrantSkillXp(attacker, skillId, 1.0f, stats); // a LANDED blow trains its class
 	m_audio.Play(m_sounds.monster, 0.7f);
 
@@ -948,7 +983,11 @@ bool DungeonWorld::ResolveSpellHit(const ProjectileImpact& impact) {
 											   impact.atk.accuracy, impact.attacker);
 	fx::Deal(ev, defender, m_balance.Strike(), m_combatRng);
 	if (ev.hit) {
-		onMessage(loc::Format("log.spell_hits", name, static_cast<int>(ev.dealt + 0.5f)));
+		if (ev.dealt >= 0.5f)
+			onMessage(loc::Format("log.spell_hits", name,
+								  static_cast<int>(ev.dealt + 0.5f)));
+		else if (ev.dealt >= 0.0f)
+			onMessage(loc::Format("log.monster_unharmed", name));
 		m_audio.Play(m_sounds.spellImpact, 0.7f);
 		fx::React(ev, defender, nullptr); // whatever guards it answers the bolt
 		if (!hit->Alive()) {
@@ -1036,8 +1075,11 @@ bool DungeonWorld::ResolveMonsterProjectileHit(const ProjectileImpact& impact) {
 		MemberMessage(target, loc::Format("log.monster_ranged_misses", target.name));
 		return true;
 	}
-	MemberMessage(target, loc::Format("log.monster_ranged_hits", target.name,
-									  static_cast<int>(ev.dealt + 0.5f)));
+	if (ev.dealt >= 0.5f)
+		MemberMessage(target, loc::Format("log.monster_ranged_hits", target.name,
+										  static_cast<int>(ev.dealt + 0.5f)));
+	else if (ev.dealt >= 0.0f)
+		MemberMessage(target, loc::Format("log.member_unharmed", target.name));
 	defender.NarrateFall();
 	m_audio.Play(m_sounds.monster, 0.6f);
 	fx::React(ev, defender, nullptr); // (a fire shield answers blows, not bolts)

@@ -1758,6 +1758,7 @@ private:
 		float Resist(DamageType type) const override;
 		std::vector<fx::Inst>& Effects() override { return m_member.effects; }
 		void Wound(float amount, fx::DamageEvent& ev) override;
+		void Absorb(float amount, fx::DamageEvent& ev) override;
 		std::string Name() const override { return m_member.name; }
 		void Say(const std::string& line) const override;
 		void SayApplied(const fx::EffectKind& kind) const override;
@@ -1783,6 +1784,7 @@ private:
 		float Resist(DamageType type) const override;
 		std::vector<fx::Inst>& Effects() override { return m_monster.effects; }
 		void Wound(float amount, fx::DamageEvent& ev) override;
+		void Absorb(float amount, fx::DamageEvent& ev) override;
 		std::string Name() const override;
 		void Say(const std::string& line) const override;
 		void SayApplied(const fx::EffectKind& kind) const override;

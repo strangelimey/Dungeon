@@ -178,7 +178,15 @@ Key conventions (memorize, they bite):
   turns; unrolled but soaked+resisted), Burst (magic riding something else —
   an enchanted blade's element, a ward's reprisal: resisted, NOT soaked,
   "plate turns a blade not a flame"), Tick (a DoT's bite: resisted, not
-  soaked). DoTs store RAW magnitude and
+  soaked). RESIST PAST 1 IS ABSORPTION: an authored NATURE cell (monsters.cat
+  `resists`) of 1.0 = true immunity (zero, not the wound_floor — ResolveAttack
+  only floors a blow that got through) and past 1.0 the target DRINKS that
+  element and is healed by it (`fire 1.5` = half again as healing). Both escape
+  the ±resist_clamp, which only caps STACKED mitigation. ITarget::Absorb is the
+  mirror of Wound: capped at max, provokes a monster but earns no threat, can
+  wake the unconscious but never the dead; a blow that does nothing says
+  "unharmed" rather than "for 0 damage", and a feeding TICK says nothing.
+  DoTs store RAW magnitude and
   are resisted AS THEY BITE (a ward raised mid-burn helps at once), each as
   its own authored damage type — bleeding tints fire red but wounds as pierce,
   and a burn takes the element that lit it. Content names effects BY ID:

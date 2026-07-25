@@ -119,7 +119,11 @@ const AttackSpec& Balance::Neutral() {
 }
 
 float Balance::ClampResist(float sum, float natureCell) const {
-	if (natureCell >= 1.0f) return 1.0f; // authored nature immunity
+	// An authored nature cell of 1.0 is IMMUNITY, and beyond it ABSORPTION: 1.5
+	// means the target drinks half again of what it is dealt, as healing. Both
+	// escape the clamp — they say what a thing IS (a fire golem, a water
+	// elemental), rather than stacking mitigation the clamp exists to cap.
+	if (natureCell >= 1.0f) return natureCell;
 	if (sum > resistClamp) return resistClamp;
 	if (sum < -resistClamp) return -resistClamp;
 	return sum;
