@@ -80,9 +80,21 @@ SaveData::LevelState DungeonWorld::SnapshotActive() const {
 	// (a runtime entity with no baseline, stored whole). The two modes and the
 	// per-kind fields live in SaveData::EntityState.
 
+	// What a monster is afflicted by (v22) — the same record a member stores, so
+	// a burn or a poison survives a save instead of quietly going out.
+	const auto captureEffects = [](const Monster& m, SaveData::EntityState& e) {
+		for (const fx::Inst& inst : m.effects) {
+			if (!inst.kind) continue;
+			e.effects.push_back({inst.kind->Id(), SymbolId(inst.school),
+								 inst.timeLeft, inst.duration, inst.magnitude,
+								 inst.source, std::string(inst.NameKey())});
+		}
+	};
+
 	// Monsters: a baseline gets a diff once it has moved off its spawn cell,
-	// announced itself, or taken damage (incl. being slain). An editor-placed
-	// monster (id < 0) has no baseline, so it is stored whole to recreate.
+	// announced itself, taken damage (incl. being slain), or picked up an
+	// affliction. An editor-placed monster (id < 0) has no baseline, so it is
+	// stored whole to recreate.
 	for (const Monster& m : m_monsters) {
 		SaveData::EntityState e;
 		e.kind = EntityKind::Monster;
@@ -100,9 +112,11 @@ SaveData::LevelState DungeonWorld::SnapshotActive() const {
 			e.spawnZ = m.spawnZ;
 			e.threat = m.threat;
 			e.threatLock = m.threatLock;
+			captureEffects(m, e);
 			ls.entities.push_back(std::move(e));
 		} else if (m.x != m.spawnX || m.z != m.spawnZ || m.announced || m.aware ||
-				   m.hp != m.MaxHp() || m.ThreatAny() || m.threatLock >= 0) {
+				   m.hp != m.MaxHp() || m.ThreatAny() || m.threatLock >= 0 ||
+				   !m.effects.empty()) {
 			e.id = m.id;
 			e.x = m.x;
 			e.z = m.z;
@@ -112,6 +126,7 @@ SaveData::LevelState DungeonWorld::SnapshotActive() const {
 			e.slot = m.slot;
 			e.threat = m.threat;
 			e.threatLock = m.threatLock;
+			captureEffects(m, e);
 			ls.entities.push_back(std::move(e));
 		}
 	}
@@ -193,6 +208,21 @@ void DungeonWorld::ApplyActiveSnapshot() {
 		for (Item& item : m_items)
 			if (item.id >= 0) item.collected = true;
 
+	// Rebuild a monster's afflictions from the snapshot (v22). An id the project's
+	// effect classes don't know — an older or newer save — is skipped, never
+	// misread; the plume follows automatically, since it is derived from the list.
+	const auto restoreEffects = [this](const SaveData::EntityState& e, Monster& m) {
+		m.effects.clear();
+		for (const SaveData::EffectState& fx : e.effects) {
+			SpellSymbol school = SpellSymbol::Fire;
+			ParseSymbol(fx.school, school);
+			const fx::EffectKind* kind = m_effects.FindLegacy(fx.id, school);
+			if (!kind || fx.time <= 0.0f) continue;
+			m.effects.push_back({kind, school, fx.magnitude, fx.time,
+								 std::max(fx.duration, fx.time), fx.source});
+		}
+	};
+
 	for (const SaveData::EntityState& e : ls.entities) {
 		switch (e.kind) {
 		case EntityKind::Monster:
@@ -211,6 +241,7 @@ void DungeonWorld::ApplyActiveSnapshot() {
 				m.slot = e.slot; // saved sub-cell slot (Phase 3)
 				m.threat = e.threat; // v19 (older saves: zeroes / -1)
 				m.threatLock = e.threatLock;
+				restoreEffects(e, m);
 				m.visualPos = SlotCenter(m.x, m.z, m.kind->size, m.slot);
 				m_monsters.push_back(std::move(m));
 			} else {
@@ -226,6 +257,7 @@ void DungeonWorld::ApplyActiveSnapshot() {
 						m.slot = e.slot; // saved sub-cell slot (Phase 3)
 						m.threat = e.threat; // v19 (older saves: zeroes / -1)
 						m.threatLock = e.threatLock;
+						restoreEffects(e, m);
 						m.visualPos = SlotCenter(m.x, m.z, m.kind->size, m.slot);
 						break;
 					}

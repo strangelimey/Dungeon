@@ -442,7 +442,7 @@ void Game::SaveGame(const std::string& name) {
 		// effect names itself through its kind.
 		for (const fx::Inst& e : member.effects)
 			c.effects.push_back({std::string(e.Id()), SymbolId(e.school),
-								 e.timeLeft, e.duration, e.magnitude,
+								 e.timeLeft, e.duration, e.magnitude, e.source,
 								 std::string(e.NameKey())});
 		// Skills, stat-creep pools, and the five attributes (they grow now).
 		for (const auto& [id, xp] : member.skillXp) c.skills.emplace_back(id, xp);
@@ -519,13 +519,14 @@ bool Game::LoadGame(const std::string& path) {
 		// category tokens ("ward" + school, "poison", ...). An unresolved one
 		// — a newer save, or an effect this project's classes don't have — is
 		// skipped, not misread.
-		for (const SaveData::CharState::EffectState& e : c.effects) {
+		for (const SaveData::EffectState& e : c.effects) {
 			SpellSymbol school = SpellSymbol::Fire;
 			ParseSymbol(e.school, school);
-			const fx::EffectKind* kind = m_world.Effects().FindLegacy(e.kind, school);
+			const fx::EffectKind* kind = m_world.Effects().FindLegacy(e.id, school);
 			if (!kind || e.time <= 0.0f) continue;
 			m_characters[i].effects.push_back({kind, school, e.magnitude, e.time,
-											   std::max(e.duration, e.time)});
+											   std::max(e.duration, e.time),
+											   e.source});
 		}
 		// Skills, stat-creep pools, and the grown attributes (pre-v15 saves
 		// carry none — skills fresh, archetype attributes stand).

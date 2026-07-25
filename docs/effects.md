@@ -303,10 +303,31 @@ side lands its converted `on_hit = poison` on a member; and a traced run
 confirmed the weapon path — proc parsed (1 proc from `on_hit`), landed on
 the blob, announced once, then silent on the refreshing hits.
 
-**P5 — save.** (Half of this landed in P1: the character side is already
-id-keyed, with the legacy tokens mapping forward.) What is left is the
-MONSTER side — effects round-tripping in `EntityState`, a version bump,
-`CaptureState`/`ApplyState` + `SaveData` as always.
+**P5 — save. LANDED 2026-07-24.** (Half had already landed in P1: the
+character side was id-keyed, with the legacy tokens mapping forward.) The
+monster side now rides `EntityState::effects`, written as `enteffect`
+lines — save **v22**.
+
+As built:
+- **One shared `SaveData::EffectState`**, hoisted out of `CharState`, used
+  by both sides. The effects system is symmetric, so its save record had
+  no reason not to be; it gained `source` (a DoT's threat credit) in the
+  move.
+- **The effect lines ATTACH to the entity line above them** rather than
+  carrying an index. The reader hangs each on `entities.back()`, so the
+  two can never drift out of step — and a stray line before any entity is
+  simply dropped.
+- **Nothing about the presentation is saved.** A reloaded monster's plume
+  and its light come back purely from the restored effect list, because
+  P3 made them derived.
+- A monster whose only change is an affliction now qualifies for a diff
+  (`!m.effects.empty()` joins the "worth saving" test).
+
+*Verified in game:* a blob given a burn and a poison, saved (both lines
+present, correct schools, v22), reloaded — visibly ablaze again — and
+re-saved, showing both effects still on it with their timers ticked down
+by the elapsed seconds, which is the proof they came back LIVE rather
+than as an echo.
 
 **P6 — the editor.**
 `effects.cat` gets a `CatalogSchema` entry and a palette/dialog like

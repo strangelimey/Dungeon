@@ -32,6 +32,11 @@ namespace dungeon::game {
 
 // The serializable dynamic state of one in-progress game.
 struct SaveData {
+	// v22: per-MONSTER status effects ("enteffect <id> <school> <time>
+	//      <duration> <magnitude> <source>" lines, each attaching to the entity
+	//      line just above it) — a monster carries the same effect list a member
+	//      does (docs/effects.md), so a burn or a poison survives a save now.
+	//      Older saves simply load their monsters unafflicted.
 	// v21: a DROPPED item that landed in a wall niche carries its wall as a 6th
 	//      token on the "drop" line ("drop <type> <x> <z> <slot> <niche>");
 	//      absent/-1 = an ordinary floor item. Editor-authored niche items ride
@@ -79,7 +84,25 @@ struct SaveData {
 	//     buttons as a diff (keyed by .ent id) or a whole spawn (no baseline);
 	//     replaces the v6 split of "ent"/"monster" rows + a whole "floor" item
 	//     snapshot. v6: free-look offset ("look" line); v5 folded hands into equip[].
-	int version = 21;
+	int version = 22;
+
+	// ONE active status effect, as it survives a save. Shared by both sides —
+	// a party member's list and (v22) a monster's — because the effects system
+	// is symmetric and the record has no reason not to be. `id` names the
+	// effect kind; older character saves put a CATEGORY token there instead
+	// ("ward"), which EffectBook::FindLegacy maps forward. `nameKey` is written
+	// for readability only (a kind names itself on load); `source` is the
+	// roster index credited with a DoT's ticks, or -1.
+	struct EffectState {
+		std::string id;
+		std::string school;
+		float time = 0.0f;
+		float duration = 0.0f;
+		float magnitude = 0.0f;
+		int source = -1;
+		std::string nameKey;
+	};
+
 	std::string name;         // display name (free text; may contain spaces)
 	std::string currentLevel; // the level stem the party is on (where to resume)
 	std::string timestamp;    // human-readable local time, for the slot list
@@ -128,20 +151,9 @@ struct SaveData {
 		// in pre-v12 saves (rebuilds by casting); a pre-v16 flat "mru" line
 		// loads into BOTH hands.
 		std::array<std::vector<std::string>, 2> mruSpells;
-		// Active status effects (Character::effects): kind as its token
-		// ("ward" — StatusKindId), school as its symbol id ("earth"), seconds
-		// left, starting duration, magnitude, and the display-name loc key.
-		// One "effect" line per entry (v14). A v13 "shield" line loads as the
-		// matching ward (duration = time left, name derived from the school).
-		// Absent in pre-v13 saves (wards simply expire).
-		struct EffectState {
-			std::string kind;
-			std::string school;
-			float time = 0.0f;
-			float duration = 0.0f;
-			float magnitude = 0.0f;
-			std::string nameKey;
-		};
+		// Active status effects (Character::effects) — one "effect" line each
+		// (v14). A v13 "shield" line loads as the matching ward (duration =
+		// time left, name derived from the school); pre-v13 saves carry none.
 		std::vector<EffectState> effects;
 		// Skill XP by skill id (Character::skillXp) and the stat-creep pools
 		// by stat id (Character::statProgress) — docs/skills.md. Flat pairs,
@@ -195,6 +207,9 @@ struct SaveData {
 		bool activated = false;                 // button: pressed / toggled on
 		std::array<float, 4> threat{};          // monster: per-member aggro (v19)
 		int threatLock = -1;                    // monster: locked member (v19)
+		// monster: what it is currently afflicted by (v22) — the same record a
+		// member's effects use, written as "enteffect" lines under its own.
+		std::vector<EffectState> effects;
 	};
 
 	// Dynamic state of one level: revealed cells (fog, stored whole) + the entity

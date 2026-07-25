@@ -104,11 +104,11 @@ bool WriteSave(const SaveData& data, const std::string& path) {
 			for (const std::string& id : c.mruSpells[hand]) t += " " + id;
 			t += '\n';
 		}
-		// "effect <i> <kind> <school> <time> <duration> <magnitude> <nameKey>"
+		// "effect <i> <id> <school> <time> <duration> <magnitude> <nameKey>"
 		// — one line per active status effect (v14; "-" pads an empty token).
-		for (const SaveData::CharState::EffectState& e : c.effects)
+		for (const SaveData::EffectState& e : c.effects)
 			t += std::format("effect {} {} {} {:.3f} {:.3f} {:.3f} {}\n", i,
-							 itemTok(e.kind), itemTok(e.school), e.time,
+							 itemTok(e.id), itemTok(e.school), e.time,
 							 e.duration, e.magnitude, itemTok(e.nameKey));
 		// "skill <i> <id> <xp> ..." / "statxp <i> <stat> <progress> ..." — the
 		// member's skill XP and stat-creep pools, flat pairs (v15).
@@ -160,6 +160,13 @@ bool WriteSave(const SaveData& data, const std::string& path) {
 						e.type, e.x, e.z, e.facing, e.announced ? 1 : 0, e.hp,
 						e.spawnX, e.spawnZ, e.aware ? 1 : 0, e.slot, e.threat[0],
 						e.threat[1], e.threat[2], e.threat[3], e.threatLock);
+				// What it is afflicted by (v22): one line each, ATTACHED to the
+				// entity line just written — the reader hangs them on the last
+				// entity it saw, so no index has to be kept in step.
+				for (const SaveData::EffectState& fx : e.effects)
+					t += std::format("enteffect {} {} {:.3f} {:.3f} {:.3f} {}\n",
+									 itemTok(fx.id), itemTok(fx.school), fx.time,
+									 fx.duration, fx.magnitude, fx.source);
 				break;
 			case EntityKind::Item:
 				if (e.id >= 0) // baseline rune lifted off the floor: a one-bit diff
@@ -310,8 +317,8 @@ std::optional<SaveData> ReadSave(const std::string& path) {
 			auto detok = [](std::string_view sv) {
 				return sv == "-" ? std::string() : std::string(sv);
 			};
-			SaveData::CharState::EffectState e;
-			e.kind = detok(tok[2]);
+			SaveData::EffectState e;
+			e.id = detok(tok[2]);
 			e.school = detok(tok[3]);
 			e.time = FloatOf(tok[4]);
 			e.duration = FloatOf(tok[5]);
@@ -326,8 +333,8 @@ std::optional<SaveData> ReadSave(const std::string& path) {
 			const size_t idx = static_cast<size_t>(IntOf(tok[1]));
 			if (idx >= data.characters.size()) data.characters.resize(idx + 1);
 			SaveData::CharState& c = data.characters[idx];
-			SaveData::CharState::EffectState e;
-			e.kind = "ward";
+			SaveData::EffectState e;
+			e.id = "ward";
 			e.school = std::string(tok[2]);
 			e.time = FloatOf(tok[3]);
 			e.duration = e.time;
@@ -422,6 +429,21 @@ std::optional<SaveData> ReadSave(const std::string& path) {
 				e.threatLock = IntOf(tok[12]);
 			}
 			currentBlock().entities.push_back(e);
+		} else if (kw == "enteffect" && tok.size() >= 6) {
+			// One status effect on the entity whose line came just above (v22):
+			// id school time duration magnitude [source]. Hanging it off the
+			// last entity keeps the two in step without an index to maintain —
+			// and a stray line before any entity is simply dropped.
+			if (!currentBlock().entities.empty()) {
+				SaveData::EffectState fx;
+				fx.id = std::string(tok[1]);
+				fx.school = std::string(tok[2]);
+				fx.time = FloatOf(tok[3]);
+				fx.duration = FloatOf(tok[4]);
+				fx.magnitude = FloatOf(tok[5]);
+				if (tok.size() >= 7) fx.source = IntOf(tok[6]);
+				currentBlock().entities.back().effects.push_back(std::move(fx));
+			}
 		} else if (kw == "monster" && tok.size() >= 9) {
 			// Whole editor-placed monster:
 			// type x z facing announced hp spawnX spawnZ [aware] [slot]

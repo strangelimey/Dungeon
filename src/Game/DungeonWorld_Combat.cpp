@@ -269,7 +269,9 @@ bool DungeonWorld::ApplyEffectAhead(std::string_view id, float magnitude,
 	const int tz = m_party.GridZ() + DirDZ(faced);
 	for (Monster& m : m_monsters) {
 		if (!m.Alive() || m.x != tx || m.z != tz) continue;
-		fx::Apply(m.effects, *kind, SpellSymbol::Fire, magnitude, seconds);
+		// The kind's own school, so a hand-applied effect looks and behaves
+		// exactly like one a weapon or a monster landed.
+		fx::Apply(m.effects, *kind, kind->DefaultSchool(), magnitude, seconds);
 		return true;
 	}
 	return false;
