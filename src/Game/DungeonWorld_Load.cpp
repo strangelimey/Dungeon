@@ -1438,12 +1438,21 @@ void DungeonWorld::ReloadDungeonBlocks(bool textureResChanged) {
 	// Re-resolve palettes so an edited `wear` updates BOTH the worn mesh (via
 	// LoadDungeonBlocks below) and the parallax depth together — the two must
 	// move in lockstep or a flat mesh still shows faked relief.
+	// Keep the sets we currently have LOADED: a re-resolve can now point a
+	// variant at a different texture entirely (the type editor's `texture` field),
+	// and the loaded texture arrays would otherwise keep painting the old set
+	// under the new worn mesh — a clone repointed at another texture went on
+	// looking exactly like the type it was cloned from.
+	const std::vector<std::string> wallsWere = m_wallSets, floorsWere = m_floorSets,
+								   ceilingsWere = m_ceilingSets;
 	ResolveSurfacePalettes();
+	const bool setsChanged = wallsWere != m_wallSets || floorsWere != m_floorSets ||
+							 ceilingsWere != m_ceilingSets;
 	m_walls.chunks.clear();
 	m_floors.chunks.clear();
 	m_ceilings.chunks.clear();
 	LoadDungeonBlocks();
-	if (textureResChanged)
+	if (textureResChanged || setsChanged)
 		LoadAllSurfaceTextures(); // re-pushes each variant's parallax depth
 	else                          // textures unchanged — just refresh the depths
 		for (const SurfaceDef& def : SurfaceDefs())
