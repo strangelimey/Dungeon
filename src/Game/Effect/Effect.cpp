@@ -69,16 +69,25 @@ DamageEvent DamageEvent::Bolt(DamageType type, float amount, float accuracy,
 			.delivery = Delivery::Ranged, .source = source};
 }
 
+// A collision: unavoidable, but a bludgeon like any other — armour blunts it.
+DamageEvent DamageEvent::Impact(DamageType type, float amount, int source) {
+	return {.type = type, .amount = amount, .delivery = Delivery::Impact,
+			.source = source, .rolled = false, .soaked = true,
+			.resisted = true};
+}
+
+// Magic riding something else: resistance answers it, armour does not.
+DamageEvent DamageEvent::Burst(DamageType type, float amount, int source) {
+	return {.type = type, .amount = amount, .delivery = Delivery::Impact,
+			.source = source, .rolled = false, .soaked = false,
+			.resisted = true};
+}
+
+// A DoT's per-frame bite: resisted as it lands, never soaked.
 DamageEvent DamageEvent::Tick(DamageType type, float amount, int source) {
 	return {.type = type, .amount = amount, .delivery = Delivery::Tick,
 			.source = source, .rolled = false, .soaked = false,
-			.resisted = false};
-}
-
-DamageEvent DamageEvent::Impact(DamageType type, float amount, int source) {
-	return {.type = type, .amount = amount, .delivery = Delivery::Impact,
-			.source = source, .rolled = false, .soaked = false,
-			.resisted = false};
+			.resisted = true};
 }
 
 // --- authored procs -----------------------------------------------------------

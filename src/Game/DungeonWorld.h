@@ -1700,7 +1700,6 @@ private:
 			if (bite[i] <= 0.0f) continue;
 			fx::DamageEvent ev = fx::DamageEvent::Tick(
 				static_cast<DamageType>(i), bite[i], DotSource(effects));
-			ev.resisted = true; // a DoT answers to resistance as it bites
 			fx::Deal(ev, target, m_balance.Strike(), m_combatRng);
 		}
 	}

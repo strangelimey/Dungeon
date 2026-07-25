@@ -204,7 +204,9 @@ Three things the build taught us:
 - **Flags, not delivery, decide the maths.** An enchanted weapon's
   elemental half is resisted by element but neither rolled nor soaked, so
   `DamageEvent` carries `rolled`/`soaked`/`resisted` separately from
-  `Delivery`; the presets set the usual combinations.
+  `Delivery`; the presets set the usual combinations. (P2 shipped the
+  presets preserving the old numbers — *everything* is resisted now, see
+  "Everything is resisted" below.)
 - **A reprisal goes straight to `Wound`,** not back through `Deal` — it
   is not itself deflectable or soakable, which also means a reaction can
   never recurse into another one.
@@ -357,6 +359,46 @@ clicking `burn` opens "Effects type — burn" with its four tabs; Look shows
 icon/school/plume read from the catalog (plume ticked); poison's Stats
 shows its explicit `earth`; and Save round-trips the file with every field
 and comment intact, still valid UTF-8.
+
+---
+
+## Everything is resisted (Michael, 2026-07-24)
+
+> "A bump is a bludgeon attack which is resisted by plate but not by cloth
+> or skin."
+
+P2 shipped the event presets set to reproduce the pre-refactor numbers,
+which left collisions and DoTs landing raw. That was refactor caution, not
+a design position, and the design position is the one above: if it damages
+you, your defenses answer it. The presets now name a KIND of damage rather
+than a set of flags, and each says what applies:
+
+| preset | rolled | soaked | resisted | what it is |
+|---|---|---|---|---|
+| `Blow` / `Bolt` | ✓ | ✓ | ✓ | a swing or a shot |
+| `Impact` | — | ✓ | ✓ | a COLLISION: a wall, a door, a falling rock |
+| `Burst` | — | — | ✓ | magic riding something else: an enchanted blade's element, a ward's reprisal |
+| `Tick` | — | — | ✓ | a DoT's bite |
+
+So a wall is bash damage that armour blunts and Stone Skin turns; only
+`Burst` and `Tick` skip soak, because plate does not help against a flame
+or against poison already in the blood. No caller sets flags by hand any
+more — picking the preset that describes what happened is the whole API.
+
+The **fire shield's reprisal** was the last thing bypassing mitigation: it
+went straight to `Wound` with its raw magnitude, so a fire-immune monster
+took a full scorching. It is a `Burst` now — resisted by the target's fire
+resist, silent when they are immune, and reporting what it actually dealt
+rather than the ward's magnitude.
+
+One presentation consequence: members no longer take the SAME amount from
+a collision, so the bump line reports the worst of them and says nothing
+at all when the jar rounds to zero — the log speaks in whole points, and a
+wall the party shrugged off is not news.
+
+*Verified in game, one continuous run:* an unarmoured party bumps a wall
+and is "jarred for 2 damage"; with Stone Skin up, the same wall still
+reports "You bump into a wall" and no damage line, health untouched.
 
 ---
 

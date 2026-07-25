@@ -41,15 +41,19 @@ void FireshieldEffect::OnStruck(Inst& inst, const DamageEvent& ev, ITarget& self
 								ITarget* attacker) const {
 	// Only a swung blow gets burned — you cannot scorch a bolt or a poison.
 	if (ev.delivery != Delivery::Melee || !attacker) return;
-	const float burn = inst.magnitude;
+	// A BURST: fire that armour cannot blunt but fire-resistance answers, so a
+	// salamander shrugs off the shield and a dry mummy suffers for touching it.
+	// Resolved here rather than through Deal because a reaction has no rolls to
+	// make and nothing to deflect it — and going straight to the apply stage is
+	// also what keeps a reprisal from cascading into another reaction.
+	DamageEvent back = DamageEvent::Burst(DamageType::Fire, inst.magnitude, ev.source);
+	back.dealt = back.amount * (1.0f - attacker->Resist(back.type));
+	if (back.dealt <= 0.0f) return; // immune — no burn, and nothing to report
 	self.Say(loc::Format("log.shield_burns", attacker->Name(),
-						 static_cast<int>(burn + 0.5f)));
+						 static_cast<int>(back.dealt + 0.5f)));
 	// The reprisal is the ward-BEARER's damage, so it feeds their threat: it
-	// carries the event's own source (the member the blow landed on). It goes
-	// straight to the apply stage — a reprisal is not itself deflectable or
-	// soakable — which also means it cannot recurse into another reaction.
-	DamageEvent back = DamageEvent::Impact(DamageType::Fire, burn, ev.source);
-	attacker->Wound(burn, back);
+	// carries the event's own source (the member the blow landed on).
+	attacker->Wound(back.dealt, back);
 	// Nothing else narrates a death here, so the ward does: through the
 	// ATTACKER's own channel, which is the plain world log a monster's death
 	// has always used.

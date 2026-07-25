@@ -140,15 +140,27 @@ struct DamageEvent {
 	// A per-frame tick stays silent: no splat, no flinch, no soak line.
 	bool Quiet() const { return delivery == Delivery::Tick; }
 
-	// The presets. Melee/Ranged are the full formula; Tick/Impact are raw
-	// amounts that land as authored (a poison tick and a bump are not armored
-	// against today, and P2 is a refactor — see docs/effects.md).
+	// The presets, each naming a KIND of damage rather than a set of flags —
+	// so a caller picks the thing that happened and the maths follows.
+	// Everything is resisted; they differ in what else applies.
+	//
+	//   Blow / Bolt  a swing or a shot: rolled, soaked, resisted
+	//   Impact       a COLLISION — a wall, a door, a falling rock. Not rolled
+	//                (it simply happens), but bludgeon damage that armour
+	//                genuinely blunts: soaked AND resisted.
+	//   Burst        magical damage riding something else: an enchanted
+	//                blade's element, a ward's reprisal. Resisted but NOT
+	//                soaked — plate turns a blade, not a flame.
+	//   Tick         a DoT's bite: resisted as it lands, so a ward raised
+	//                mid-burn helps at once. Never soaked (armour does not
+	//                help with poison already in the blood).
 	static DamageEvent Blow(DamageType type, float amount, float accuracy,
 							int source = -1);
 	static DamageEvent Bolt(DamageType type, float amount, float accuracy,
 							int source = -1);
-	static DamageEvent Tick(DamageType type, float amount, int source = -1);
 	static DamageEvent Impact(DamageType type, float amount, int source = -1);
+	static DamageEvent Burst(DamageType type, float amount, int source = -1);
+	static DamageEvent Tick(DamageType type, float amount, int source = -1);
 };
 
 // What the stages need to know about — and do to — a combatant, whoever it is.

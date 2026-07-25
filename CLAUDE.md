@@ -171,7 +171,14 @@ Key conventions (memorize, they bite):
   ALIKE, so a monster can be poisoned or warded. Each ward is its own kind
   overriding the stage it acts at (windward=deflect, stoneskin=mitigate,
   waterveil=absorb, fireshield=react); wards stacking across schools falls out
-  of that. `fx::Apply` owns the stacking rule. DoTs store RAW magnitude and
+  of that. `fx::Apply` owns the stacking rule. EVERYTHING IS RESISTED — the
+  event PRESETS name a kind of damage and set the maths, so no caller sets
+  flags by hand: Blow/Bolt (rolled+soaked+resisted), Impact (a COLLISION — a
+  wall, a door, a falling rock: bash damage armour blunts and Stone Skin
+  turns; unrolled but soaked+resisted), Burst (magic riding something else —
+  an enchanted blade's element, a ward's reprisal: resisted, NOT soaked,
+  "plate turns a blade not a flame"), Tick (a DoT's bite: resisted, not
+  soaked). DoTs store RAW magnitude and
   are resisted AS THEY BITE (a ward raised mid-burn helps at once), each as
   its own authored damage type — bleeding tints fire red but wounds as pierce,
   and a burn takes the element that lit it. Content names effects BY ID:

@@ -455,21 +455,28 @@ void DungeonWorld::MonsterAttack(Monster& monster) {
 void DungeonWorld::OnBumpImpact() {
 	if (!m_roster || m_partyWiped) return;
 
-	constexpr float kBumpDamage = 2.0f; // small flat jar, regardless of armor
-	bool anyHurt = false;
+	constexpr float kBumpDamage = 2.0f; // the collision; armour decides the rest
+	// A bump is a BLUDGEON — it goes through the pipeline as bash damage, so a
+	// breastplate blunts it, Stone Skin turns it, and a water veil drinks it,
+	// exactly as any other blow. Which means members no longer take the same
+	// amount: the line reports the WORST of them, and stays quiet when the
+	// party shrugged the wall off entirely.
+	float worst = 0.0f;
 	for (Character& member : *m_roster) {
 		if (!member.IsAlive()) continue;
-		// Through the pipeline like everything else — which is how a water
-		// veil comes to soak a wall, exactly as it always has.
 		PartyTarget jarred{*this, member};
 		fx::DamageEvent ev = fx::DamageEvent::Impact(DamageType::Bash, kBumpDamage);
 		fx::Deal(ev, jarred, m_balance.Strike(), m_combatRng);
 		jarred.NarrateFall();
-		anyHurt = true;
+		worst = std::max(worst, ev.dealt);
 	}
-	if (!anyHurt) return;
+	// Quiet when the party shrugged the wall off: the log speaks in whole
+	// points, so a jar that rounds to nothing has nothing to report. (A heavily
+	// resisted collision still chips a fraction — it just isn't news.)
+	const int shown = static_cast<int>(worst + 0.5f);
+	if (shown <= 0) return;
 
-	onMessage(loc::Format("log.bump_hurt", static_cast<int>(kBumpDamage + 0.5f)));
+	onMessage(loc::Format("log.bump_hurt", shown));
 	m_audio.Play(m_sounds.oof, 0.8f);
 	CheckPartyWipe();
 }
@@ -782,10 +789,9 @@ bool DungeonWorld::PartyAttack(size_t member, size_t hand, std::string_view verb
 	// element still answers it.
 	float elemental = 0.0f;
 	if (weapon && weapon->enchanted && weapon->elementBonus > 0.0f) {
-		fx::DamageEvent burst = fx::DamageEvent::Impact(
+		fx::DamageEvent burst = fx::DamageEvent::Burst(
 			SchoolDamageType(weapon->element), atk.damage * weapon->elementBonus,
 			static_cast<int>(member));
-		burst.resisted = true; // by element — the one part it does answer to
 		fx::Deal(burst, defender, m_balance.Strike(), m_combatRng);
 		elemental = burst.dealt;
 	}
