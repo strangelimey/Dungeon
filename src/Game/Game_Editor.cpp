@@ -473,6 +473,14 @@ bool Game::DeleteType(const std::string& catalogKey, const std::string& id,
 					  std::string& problem) {
 	Catalog* cat = m_project.CatalogForKey(catalogKey);
 	if (!cat || !cat->Contains(id)) return false;
+	// An effect is defined by its CLASS; the catalog entry only tunes it. So
+	// deleting the entry would not remove the effect — it would silently revert
+	// it to its class defaults, which is not what a Delete button promises.
+	// Refuse, and say why (docs/effects.md).
+	if (catalogKey == "effects") {
+		problem = loc::Tr("map.type.classbacked");
+		return false;
+	}
 	const DungeonWorld::TypeUsage used = m_world.SweepTypeRefs(catalogKey, id);
 	if (used.Any()) {
 		std::string levels;

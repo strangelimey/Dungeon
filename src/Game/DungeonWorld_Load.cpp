@@ -344,19 +344,20 @@ void DungeonWorld::BuildDungeonMeshes() {
 	m_geometryDirty = false; // any full bake pays the deferred-undo debt
 }
 
-// One catalog DoT line, "<dps> <seconds> [chance]" — a monster's on-hit
-// poison/bleed and an enchanted weapon's element_dot are authored the same way.
-void DungeonWorld::ParseHitEffect(const std::string& spec, HitEffect& fx,
-								  std::string_view where) {
-	const std::vector<std::string> t = SplitTokens(spec);
-	if (t.empty()) return; // no line = the source carries no DoT
-	if (t.size() < 2) {
-		log::Warn("{}: needs <dps> <seconds> [chance]", where);
-		return;
-	}
-	fx.dps = std::strtof(t[0].c_str(), nullptr);
-	fx.duration = std::strtof(t[1].c_str(), nullptr);
-	if (t.size() >= 3) fx.chance = std::strtof(t[2].c_str(), nullptr);
+// What a source leaves behind on a landed blow. The modern form NAMES its
+// effects — `on_hit = burn 3 6 0.5, bleed 2 10` — which is what makes a
+// serrated blade or a venomous monster pure content. The older
+// one-effect-per-line fields are still read, appended as procs naming the same
+// effects, so no catalog has to be rewritten to keep working.
+void DungeonWorld::ParseOnHit(const CatalogEntry* def, std::vector<fx::Proc>& out,
+							  std::string_view where) {
+	if (!def) return;
+	fx::ParseProcs(CatalogGet(def, "on_hit", ""), out, where);
+	for (const char* id : {"poison", "bleed"}) // deprecated: `<effect> = ...`
+		if (const std::string line = CatalogGet(def, id, ""); !line.empty())
+			fx::ParseProcs(std::string(id) + " " + line, out, where);
+	if (const std::string line = CatalogGet(def, "element_dot", ""); !line.empty())
+		fx::ParseProcs("burn " + line, out, where); // deprecated
 }
 
 // Loads each monster model once (shared per kind) and creates one animator
@@ -402,11 +403,8 @@ DungeonWorld::MonsterKind& DungeonWorld::MonsterKindFor(const std::string& type)
 			if (const std::string t = CatalogGet(def, "dmgtype", "");
 				!t.empty() && !ParseDamageType(t, assets->damageType))
 				log::Warn("monsters.cat [{}]: unknown dmgtype '{}'", type, t);
-			// On-hit DoTs (Phase 6): "<dps> <seconds> [chance]" per kind.
-			ParseHitEffect(CatalogGet(def, "poison", ""), assets->poison,
-						   "monsters.cat [" + type + "] poison");
-			ParseHitEffect(CatalogGet(def, "bleed", ""), assets->bleed,
-						   "monsters.cat [" + type + "] bleed");
+			// What its blows leave behind, named by effect id.
+			ParseOnHit(def, assets->onHit, "monsters.cat [" + type + "]");
 			// Melee reach in cells (Phase 7): 2 = a pike melees from its
 			// queue post down a clear shared row/column.
 			assets->reach = std::max(
@@ -730,10 +728,14 @@ DungeonWorld::ItemKind& DungeonWorld::ItemKindFor(const std::string& type) {
 									"items.cat [" + type + "]");
 		// Weapon reach (Phase 7): `reach = polearm` swings from the rear rank.
 		kind->polearm = CatalogGet(def, "reach", "melee") == "polearm";
+		// What its blows leave behind, named by effect id — the same authored
+		// form a monster uses. A plain weapon has none and swings as before.
+		ParseOnHit(def, kind->onHit, "weapons.cat [" + type + "]");
 		// ENCHANTMENT: `element = fire` turns the weapon elemental — every
-		// landed blow adds `element_bonus` of its damage as that element and
-		// rolls `element_dot` to leave the target burning. Absent (or "none")
-		// leaves both terms off, so a plain weapon swings exactly as before.
+		// landed blow adds `element_bonus` of its damage as that element, and
+		// the element becomes the FLAVOUR its on-hit effects arrive with (so
+		// the same `on_hit = burn` is fire on one blade, a freezing burn on
+		// another). Absent (or "none") = an ordinary weapon.
 		if (const std::string elem = CatalogGet(def, "element", "none");
 			!elem.empty() && elem != "none") {
 			if (ParseSymbol(elem, kind->element) &&
@@ -744,8 +746,6 @@ DungeonWorld::ItemKind& DungeonWorld::ItemKindFor(const std::string& type) {
 				// (UpdateLights gives it a rune-style glow) — the one visual
 				// tell that this blade is not the plain one beside it.
 				kind->glow = ElementColor(kind->element);
-				ParseHitEffect(CatalogGet(def, "element_dot", ""), kind->elementDot,
-							   "weapons.cat [" + type + "] element_dot");
 			} else {
 				log::Warn("weapons.cat [{}]: element '{}' is not a school", type, elem);
 			}

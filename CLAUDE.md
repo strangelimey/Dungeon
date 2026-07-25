@@ -148,17 +148,54 @@ Key conventions (memorize, they bite):
   keys ×5 (armor -> armor.cat with armor/resists; runes/keys/food/etc ->
   items.cat — see the editor palette section for the three-catalog item split);
   a new attack VERB is a Balance-ctor row + attacks.cat entry +
-  GameUI kMeleeUses + use.<verb> keys ×5. ENCHANTED weapons (weapons.cat
-  `element = fire` + `element_bonus` + `element_dot = <dps> <secs> [chance]`,
-  the poison/bleed line shape — one shared parser, ParseHitEffect): a landed
-  blow adds elemental damage through the target's resist for that element
-  (no soak, no separate to-hit roll) and may leave the monster BURNING —
-  Monster's single burn slot (the Character effect LIST's smaller sibling:
-  resist-scaled at ignition, refreshes on reapply, ticks in UpdateMonsters,
-  credits threat to whoever lit it, transient across saves) with a FireEffect
-  plume re-aimed every frame + a shadowless element-coloured light. Dev:
-  `equip <item> [member] [hand]`. NOTE this is the last hand-rolled damage
-  path — docs/effects.md folds them all into one pipeline.
+  GameUI kMeleeUses + use.<verb> keys ×5. ENCHANTED weapons: weapons.cat
+  `element = fire` + `element_bonus` — a landed blow adds elemental damage
+  through the target's resist for that element (no soak, no separate to-hit
+  roll), and the element becomes the FLAVOUR its on-hit effects arrive with.
+  Dev: `equip <item> [member] [hand]`.
+- EFFECTS (full model: docs/effects.md — the system every source of damage
+  goes through; built in six phases 2026-07-24): ONE pipeline for everything
+  that happens to a combatant. A source builds an `fx::DamageEvent` and calls
+  `fx::Deal`, which walks DEFLECT → strike → mitigate → ABSORB → apply, then
+  the caller narrates and calls `fx::React` (stage 6 is split out so a
+  reaction's line reads AFTER the blow it answers — the same reason
+  `WoundMember` returns a `Fall` the caller says, and a monster's slain LINE
+  stays at its call site while the death PATH lives in the adapter).
+  `fx::ITarget` is all the module knows of a combatant; DungeonWorld
+  implements it twice (`PartyTarget`/`MonsterTarget`) and those adapters are
+  the ONLY place the two sides differ. An effect is a CLASS in src/Game/
+  Effect/ (one file pair, hand-listed in AllEffects.cpp — the spells pattern);
+  effects.cat holds numbers/look only (name, icon, school, plume, damage_type,
+  stacking, apply_party/apply_monster) and an entry naming no class is a
+  warning. A combatant carries `std::vector<fx::Inst>` — Character and Monster
+  ALIKE, so a monster can be poisoned or warded. Each ward is its own kind
+  overriding the stage it acts at (windward=deflect, stoneskin=mitigate,
+  waterveil=absorb, fireshield=react); wards stacking across schools falls out
+  of that. `fx::Apply` owns the stacking rule. EVERYTHING IS RESISTED — the
+  event PRESETS name a kind of damage and set the maths, so no caller sets
+  flags by hand: Blow/Bolt (rolled+soaked+resisted), Impact (a COLLISION — a
+  wall, a door, a falling rock: bash damage armour blunts and Stone Skin
+  turns; unrolled but soaked+resisted), Burst (magic riding something else —
+  an enchanted blade's element, a ward's reprisal: resisted, NOT soaked,
+  "plate turns a blade not a flame"), Tick (a DoT's bite: resisted, not
+  soaked). RESIST PAST 1 IS ABSORPTION: an authored NATURE cell (monsters.cat
+  `resists`) of 1.0 = true immunity (zero, not the wound_floor — ResolveAttack
+  only floors a blow that got through) and past 1.0 the target DRINKS that
+  element and is healed by it (`fire 1.5` = half again as healing). Both escape
+  the ±resist_clamp, which only caps STACKED mitigation. ITarget::Absorb is the
+  mirror of Wound: capped at max, provokes a monster but earns no threat, can
+  wake the unconscious but never the dead; a blow that does nothing says
+  "unharmed" rather than "for 0 damage", and a feeding TICK says nothing.
+  DoTs store RAW magnitude and
+  are resisted AS THEY BITE (a ward raised mid-burn helps at once), each as
+  its own authored damage type — bleeding tints fire red but wounds as pierce,
+  and a burn takes the element that lit it. Content names effects BY ID:
+  `on_hit = burn 3 6 0.5, bleed 2 10` on a weapon or monster (`poison`/
+  `bleed`/`element_dot` still load as aliases). Presentation is DERIVED — a
+  burning body's plume + light come from "any effect with `plume = 1`", so
+  they restore for free. Save v22 round-trips both sides. Adding an effect:
+  a class + AllEffects.cpp + CMakeLists + an effects.cat block + effect.<id>
+  lang keys ×5. Dev: `effect <id> [member|ahead] [magnitude] [seconds]`.
 - ALL user-facing text goes through Core/Loc (loc::Tr(key) /
   loc::Format(key, args...) for {} placeholders), loaded from
   assets/lang/<code>.lang (UTF-8 key=value, ';' comments; en.lang is the
@@ -909,9 +946,12 @@ separate from the shared baked asset POOL (`assets/textures`, `assets/models`,
 worn_*, lang, shaders — what AssetBaker emits):
 - `project.ini` — manifest (name, level list, default fixture ids), block format.
 - `catalog/*.cat` — one Catalog per category (walls/floors/ceilings/decorations/
-  fixtures/monsters/doors/stairs/items), block format: `[id]` headers + `key =
-  value` fields naming pool assets (model/texture) + params (solid/authored/
-  height_scale/mount). Levels reference catalog ids.
+  fixtures/monsters/doors/stairs/items/weapons/armor/effects), block format:
+  `[id]` headers + `key = value` fields naming pool assets (model/texture) +
+  params (solid/authored/height_scale/mount). Levels reference catalog ids.
+  NOT every catalog is placeable: `effects` is authored + tuned only, so its
+  palette category opens the type editor on a row click and offers no
+  "+ New..." (an effect needs a class) — MapEditor's `placeable` flag.
 - `levels/<stem>.map` + `.ent` — the level layers. The .map's surface palette is
   a `palette <wall|floor|ceiling> <id>...` record (catalog ids), and it also
   carries `stairs <type> <x> <z> [facing] dest= destx= destz= [destfacing=]`,

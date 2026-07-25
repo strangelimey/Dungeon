@@ -12,6 +12,7 @@
 #pragma once
 
 #include "Core/Types.h"
+#include "Game/Spells.h" // SpellSymbol (a school's damage type, below)
 
 #include <array>
 #include <random>
@@ -29,6 +30,12 @@ inline constexpr bool IsPhysical(DamageType t) { return t <= DamageType::Bash; }
 // Record/catalog token for a type ("slash", ... "water") and its parse.
 const char* DamageTypeId(DamageType type);
 bool ParseDamageType(std::string_view token, DamageType& out);
+
+// A damaging spell's type is its SCHOOL — and so is an enchanted weapon's, and
+// a burn's. It belongs here beside the types rather than with the balance
+// knobs, because it is a FACT about damage and not a number to tune: the
+// effects module can ask it without needing to know Balance exists.
+DamageType SchoolDamageType(SpellSymbol school);
 
 // A defender's per-type resistance cells: the fraction of that type shrugged
 // off (0.5 = half), NEGATIVE = vulnerability (-0.5 = half again). Sources

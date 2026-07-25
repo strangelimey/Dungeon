@@ -436,10 +436,14 @@ void Game::SaveGame(const std::string& name) {
 		// Spells learned by first successful cast.
 		for (const std::string& id : member.learnedSpells)
 			c.learnedSpells.push_back(id);
-		// Active status effects — kind/school stored by their id tokens.
-		for (const StatusEffect& e : member.effects)
-			c.effects.push_back({StatusKindId(e.kind), SymbolId(e.school),
-								 e.timeLeft, e.duration, e.magnitude, e.nameKey});
+		// Active status effects — the EFFECT ID names the kind now (older saves
+		// stored the category token; EffectBook::FindLegacy maps those forward
+		// on load). The name key still rides along for readability only: an
+		// effect names itself through its kind.
+		for (const fx::Inst& e : member.effects)
+			c.effects.push_back({std::string(e.Id()), SymbolId(e.school),
+								 e.timeLeft, e.duration, e.magnitude, e.source,
+								 std::string(e.NameKey())});
 		// Skills, stat-creep pools, and the five attributes (they grow now).
 		for (const auto& [id, xp] : member.skillXp) c.skills.emplace_back(id, xp);
 		for (const auto& [stat, progress] : member.statProgress)
@@ -510,16 +514,19 @@ bool Game::LoadGame(const std::string& path) {
 		// And the spells learned by casting (likewise reset to empty).
 		for (const std::string& id : c.learnedSpells)
 			m_characters[i].learnedSpells.insert(id);
-		// Restore active status effects (pre-v13 saves carry none). An
-		// unknown kind token — a newer save — is skipped, not misread.
-		for (const SaveData::CharState::EffectState& e : c.effects) {
-			StatusKind kind;
+		// Restore active status effects (pre-v13 saves carry none). The token
+		// is an effect id; FindLegacy also accepts the pre-effects-system
+		// category tokens ("ward" + school, "poison", ...). An unresolved one
+		// — a newer save, or an effect this project's classes don't have — is
+		// skipped, not misread.
+		for (const SaveData::EffectState& e : c.effects) {
 			SpellSymbol school = SpellSymbol::Fire;
-			if (!ParseStatusKind(e.kind, kind) || e.time <= 0.0f) continue;
 			ParseSymbol(e.school, school);
-			m_characters[i].effects.push_back(
-				{kind, school, e.nameKey, e.time,
-				 std::max(e.duration, e.time), e.magnitude});
+			const fx::EffectKind* kind = m_world.Effects().FindLegacy(e.id, school);
+			if (!kind || e.time <= 0.0f) continue;
+			m_characters[i].effects.push_back({kind, school, e.magnitude, e.time,
+											   std::max(e.duration, e.time),
+											   e.source});
 		}
 		// Skills, stat-creep pools, and the grown attributes (pre-v15 saves
 		// carry none — skills fresh, archetype attributes stand).

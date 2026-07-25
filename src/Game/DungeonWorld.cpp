@@ -167,12 +167,24 @@ DungeonWorld::DungeonWorld(gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	// project's spells.cat numeric overrides), and wire the CAST SERVICES —
 	// the capability surface a spell's Cast() lands its effect through
 	// (Spell/Spell.h), so the magic module stays walled off from the world.
+	// Status effects (docs/effects.md): the kind registry — every class in
+	// Game/Effect/ plus the project's effects.cat overrides. Built BEFORE the
+	// cast services, which hand spells an applyEffect resolving through it.
+	m_effects.Build(m_project.effects);
+
 	m_magic.LoadSpells(m_project.spells);
 	m_magic.SetBalance(&m_balance);
 	m_magic.SetCastServices(
 		{[this](const ProjectileSpec& bolt) { m_projectiles.Spawn(bolt); },
 		 [this](const Character& member, const std::string& line) {
 			 MemberMessage(member, line);
+		 },
+		 [this](Character& target, std::string_view id, SpellSymbol school,
+				float magnitude, float duration) {
+			 if (const fx::EffectKind* kind = m_effects.Find(id))
+				 fx::Apply(target.effects, *kind, school, magnitude, duration);
+			 else
+				 log::Warn("cast wants effect '{}', which has no kind", id);
 		 }});
 
 	// Moving-item engine: wire its world seam so a projectile lives "on the map"
@@ -343,14 +355,23 @@ void DungeonWorld::Update(const Input& input, float dt, float time, bool acceptI
 		fire.effect.Update(dt);
 		fire.effect.AppendParticles(m_particleScratch);
 	}
-	// A burning monster carries its own plume, which has to FOLLOW it — the
-	// origin is re-aimed at the body every frame (fixtures never move, so this
-	// is the one emitter that does).
+	// A burning monster carries its own plume, DERIVED from its effects: an
+	// effect whose kind burns (effects.cat `plume`) gets one, and losing that
+	// effect puts it out. It also has to FOLLOW the body — the origin is
+	// re-aimed every frame, which no fixture's flame ever needs.
 	for (Monster& monster : m_monsters) {
-		if (!monster.burnFx) continue;
-		monster.burnFx->SetOrigin(BurnOrigin(monster));
-		monster.burnFx->Update(dt);
-		monster.burnFx->AppendParticles(m_particleScratch);
+		const fx::Inst* burning = PlumeEffect(monster);
+		if (!burning) {
+			monster.plume.reset();
+			continue;
+		}
+		if (!monster.plume)
+			monster.plume = std::make_unique<FireEffect>(
+				BurnOrigin(monster), 1.1f, monster.runtimeId * 2654435761u);
+		monster.plume->SetTint(BurnTint(burning->school));
+		monster.plume->SetOrigin(BurnOrigin(monster));
+		monster.plume->Update(dt);
+		monster.plume->AppendParticles(m_particleScratch);
 	}
 	// Projectiles in flight + their impact sparks render as additive billboards
 	// alongside the flames (same premultiplied-additive blend).
@@ -474,8 +495,8 @@ bool ActiveSightSchool(const std::vector<Character>* roster, SpellSymbol& out) {
 	bool found = false;
 	for (const Character& c : *roster) {
 		if (!c.IsAlive()) continue;
-		for (const StatusEffect& e : c.effects) {
-			if (e.kind != StatusKind::Sight) continue;
+		for (const fx::Inst& e : c.effects) {
+			if (!e.Is("sight")) continue;
 			if (!found || e.school == SpellSymbol::Fire) out = e.school;
 			found = true;
 		}
@@ -535,12 +556,13 @@ void DungeonWorld::UpdateLights(float time) {
 	// Shadowless (like the rune glows) — a transient light must not steal a
 	// shadow cube from the torch and the fires.
 	for (const Monster& monster : m_monsters) {
-		if (!monster.burnFx) continue;
+		const fx::Inst* burning = PlumeEffect(monster);
+		if (!burning) continue;
 		const Vec3 o = BurnOrigin(monster);
 		gfx::PointLight glow;
 		glow.position = {o.x, o.y + 0.1f, o.z};
 		glow.radius = 5.5f;
-		const Vec4& c = ElementColor(monster.burnSchool);
+		const Vec4& c = ElementColor(burning->school);
 		glow.color = {c.x, c.y, c.z};
 		glow.intensity = 1.9f * (0.85f + 0.15f * std::sin(time * 12.0f +
 														  monster.runtimeId) *
@@ -712,33 +734,32 @@ void DungeonWorld::UpdateMonsters(float dt) {
 								  loc::Format("log.recovered", member.name));
 				}
 			}
-			// Age the status effects; an expired one leaves with its kind's
-			// fade line. (Spend-to-die wards — the water pool, the air
-			// charges — are erased at their spend site instead, so their
-			// burst/still lines replace the fade.) Poison/bleed DoT damage
-			// accumulates HERE and wounds once after the loop — WoundMember
-			// can mutate the effects list (a water ward bursts soaking it),
-			// so it must not run mid-iteration.
-			float dot = 0.0f;
-			for (StatusEffect& e : member.effects) {
-				e.timeLeft -= dt;
-				if (e.kind == StatusKind::Poison || e.kind == StatusKind::Bleed)
-					dot += e.magnitude * dt;
-				if (e.timeLeft > 0.0f) continue;
-				if (e.kind == StatusKind::Ward)
+			// Age the effects and let their DoTs bite (the shared TickEffects —
+			// the monster loop below runs the very same call). An expired one
+			// leaves with its category's fade line; spend-to-die wards — the
+			// water pool, the air charges — are erased where they spend
+			// themselves instead, so their burst/still lines replace the fade.
+			//
+			// A DoT ticks a DOWNED member too, and a wound on someone already
+			// at 0 is death by the overkill rule (Phase 5): poison finishes
+			// the fallen, so get them clear of the fight.
+			PartyTarget bitten{*this, member};
+			TickEffects(bitten, member.effects, dt, [&](const fx::Inst& e) {
+				switch (e.kind->Kind()) {
+				case fx::Category::Ward:
 					MemberMessage(member, loc::Format("log.shield_fades", member.name));
-				else if (e.kind == StatusKind::Sight)
+					break;
+				case fx::Category::Marker:
 					MemberMessage(member, loc::Format("log.sight_fades", member.name));
-				else if (e.kind == StatusKind::Poison || e.kind == StatusKind::Bleed)
-					MemberMessage(member, loc::Format("log.effect_fades", member.name,
-													  loc::Tr(e.nameKey)));
-			}
-			std::erase_if(member.effects,
-						  [](const StatusEffect& e) { return e.timeLeft <= 0.0f; });
-			// The quiet DoT wound — it ticks a DOWNED member too, and a wound
-			// on someone already at 0 is death by the overkill rule (Phase 5):
-			// poison finishes the fallen, so get them clear of the fight.
-			if (dot > 0.0f) WoundMember(member, dot, /*quiet=*/true);
+					break;
+				case fx::Category::Dot:
+					MemberMessage(member,
+								  loc::Format("log.effect_fades", member.name,
+											  loc::Tr(e.NameKey())));
+					break;
+				}
+			});
+			bitten.NarrateFall(); // the one line a tick does say
 		}
 	// A DoT tick can down (or finish) the last standing member — the wipe
 	// latch must notice without a monster swinging.
@@ -756,10 +777,31 @@ void DungeonWorld::UpdateMonsters(float dt) {
 	for (size_t i = 0; i < m_monsters.size(); ++i) {
 		Monster& monster = m_monsters[i];
 		DriveMonsterAnim(monster, dt); // animates the living AND the dying (death clip)
-		// Burning (an enchanted weapon's proc) eats away at it wherever it
-		// runs to — before the Alive check, so the fire's own killing blow
-		// takes the ordinary downed path this same frame.
-		if (monster.burnLeft > 0.0f) TickBurn(monster, dt);
+		// A monster's effects age and bite exactly like a member's — the same
+		// TickEffects, differing only in what an expiry is called. Before the
+		// Alive check, so a DoT's own killing blow takes the ordinary downed
+		// path this same frame.
+		if (!monster.effects.empty()) {
+			const bool wasUp = monster.Alive();
+			// Whether it was ALIGHT decides how its death reads — burning away
+			// to nothing, or simply slain by whatever else was eating at it.
+			const bool wasBurning = PlumeEffect(monster) != nullptr;
+			const std::string name = loc::Tr("monster." + monster.kind->name);
+			MonsterTarget afflicted{*this, monster};
+			TickEffects(afflicted, monster.effects, dt, [&](const fx::Inst& e) {
+				onMessage(e.Is("burn")
+							  ? loc::Format("log.monster_burns_out", name)
+							  : loc::Format("log.effect_fades", name,
+											loc::Tr(e.NameKey())));
+			});
+			// A DoT that finished it says so — the counterpart of the "slain"
+			// a blow's caller would have printed. (The corpse was stripped of
+			// its effects by the apply stage on the way through.)
+			if (wasUp && !monster.Alive())
+				onMessage(loc::Format(
+					wasBurning ? "log.monster_burns_away" : "log.monster_slain",
+					name));
+		}
 		if (!monster.Alive()) continue; // downed — no AI, no movement, not solid
 		if (monster.attackCd > 0.0f) monster.attackCd -= dt;
 		if (monster.moveCd > 0.0f) monster.moveCd -= dt;

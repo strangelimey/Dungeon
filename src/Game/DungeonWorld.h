@@ -176,6 +176,14 @@ public:
 	// editor's Balance dialog edits it in place and Save()s it via the project.
 	Balance& GetBalance() { return m_balance; }
 	const Balance& GetBalance() const { return m_balance; }
+	// The status-effect registry — the one place an effect id resolves to its
+	// kind. The save loader (Game::ApplyState) reads it to rebuild a member's
+	// effects; everything else already holds kind pointers.
+	const fx::EffectBook& Effects() const { return m_effects; }
+	// Land an effect on the monster the party faces (dev console). False if
+	// there is nothing ahead or no such effect. The monster side of the effect
+	// list has no other hand-authored entry point.
+	bool ApplyEffectAhead(std::string_view id, float magnitude, float seconds);
 
 	// --- spell casting ------------------------------------------------------
 	// Façade over the MagicSystem (m_magic): the given roster member casts the
@@ -944,14 +952,6 @@ private:
 
 	struct MultiMaterialModel; // defined below (shared with decorations/items)
 
-	// A damage-over-time proc authored on ONE catalog line, "<dps> <seconds>
-	// [chance]" (ParseHitEffect): a landed blow rolls the chance and lands the
-	// DoT. Shared by the two sides — a monster's on-hit poison/bleed and an
-	// enchanted weapon's elemental burn. dps 0 = the line was absent.
-	struct HitEffect {
-		float dps = 0.0f, duration = 0.0f, chance = 1.0f;
-	};
-
 	// Per-kind monster assets (shared) and per-instance state. Kinds are
 	// entity type names from the .ent file ("skeleton" loads skeleton.gltf).
 	struct MonsterKind {
@@ -977,10 +977,11 @@ private:
 		// (`dmgtype`, default bash). Ranged/spell attacks type by school.
 		ResistTable resists;
 		DamageType damageType = DamageType::Bash;
-		// On-hit status effects (Phase 6, catalog `poison = <dps> <seconds>
-		// [chance]` / `bleed = ...`): a LANDED melee blow rolls the chance
-		// and lands the DoT (reapply refreshes). dps 0 = the type carries none.
-		HitEffect poison, bleed;
+		// What a LANDED melee blow may leave behind (monsters.cat `on_hit =
+		// poison 1 20, bleed 2 10 0.5`): effects named by ID, rolled and
+		// landed by fx::ApplyProcs. The older one-per-line `poison =` /
+		// `bleed =` fields still load, appended as the same procs.
+		std::vector<fx::Proc> onHit;
 		// Melee reach in cells (Phase 7, catalog `reach`): 1 = must be in the
 		// adjacent ring; 2 = a pike — melees from its QUEUE post down a clear
 		// shared row/column (the monster mirror of the party's rear-rank
@@ -1106,20 +1107,20 @@ private:
 		float hp = 1.0f;          // current hit points (maxHp at spawn)
 		float attackCd = 0.0f;    // seconds until this monster can swing again
 
-		// BURNING (an enchanted weapon's elemental proc — IgniteMonster). A
-		// monster has no general status-effect list the way a Character does;
-		// this single slot IS the model: reapplying REFRESHES it (the ward
-		// rule), the dps is already resist-scaled at ignition, and the tick
-		// (TickBurn) can finish the monster off through the ordinary slain
-		// path. TRANSIENT — the fire goes out on save/reload, like a flinch.
-		float burnDps = 0.0f, burnLeft = 0.0f;
-		SpellSymbol burnSchool = SpellSymbol::Fire; // flame/light tint
-		int burnSource = -1; // roster member who lit it, for threat credit
-		// The plume rising off a burning body, allocated only while alight
-		// (null = not burning) — a FireEffect is fat (its own mt19937), so
-		// every monster carrying one by value would cost far more than the
-		// handful that are ever actually on fire.
-		std::unique_ptr<FireEffect> burnFx;
+		// Status effects riding this monster — the SAME list a Character
+		// carries, holding the same fx::Inst (docs/effects.md decision 2: full
+		// symmetry). A burn lives here now rather than in fields of its own,
+		// which is what lets a monster be poisoned, chilled or warded without
+		// another slot being invented for each. Not saved yet (P5).
+		std::vector<fx::Inst> effects;
+
+		// The flame plume rising off a burning body — PRESENTATION, derived
+		// from the list above every frame (SyncPlumes): allocated when an
+		// effect that burns arrives, dropped when it goes. Not state: the
+		// effect is the truth, this is just what it looks like. Held by
+		// pointer because a FireEffect is fat (its own mt19937) and only the
+		// handful actually alight should pay for one.
+		std::unique_ptr<FireEffect> plume;
 
 		// Chase movement (AI v1). The logical cell (x,z) snaps the instant a step
 		// commits — like the party — so occupancy/blocking is atomic; visualPos
@@ -1220,13 +1221,17 @@ private:
 		// ENCHANTMENT (the fire sword, catalog `element = fire`): the weapon
 		// carries a school's element into every LANDED blow, on top of the
 		// physical damage — `element_bonus` of the blow's assembled damage as
-		// that element (through the target's resist for it), then a roll on
-		// `element_dot` to leave the target burning. enchanted=false (no
-		// `element` line) = an ordinary weapon, both terms skipped.
+		// that element, through the target's resist for it. enchanted=false
+		// (no `element` line) = an ordinary weapon, the term skipped.
 		bool enchanted = false;
 		SpellSymbol element = SpellSymbol::Fire;
 		float elementBonus = 0.0f;
-		HitEffect elementDot;
+		// What a landed blow leaves behind (`on_hit = burn 3 6 0.5`), the same
+		// authored form a monster uses. An enchanted weapon lends its element
+		// as the effects' flavour, so the SAME `on_hit = burn` reads as fire on
+		// one blade and as a freezing burn on another. The older `element_dot`
+		// line still loads, appended as an `on_hit = burn ...` proc.
+		std::vector<fx::Proc> onHit;
 		// The defender side of a WORN piece (part 4): per-type resist cells
 		// plus a small flat soak, summed across the equipment slots.
 		ResistTable resists;
@@ -1650,35 +1655,75 @@ private:
 	// map (walls block). The host mirror of ai::SnapshotView::HasLineOfSight, used by
 	// the kiter for firing + repositioning; endpoints never block.
 	bool CellHasLineOfSight(int x0, int z0, int x1, int z1) const;
+	// What a wound did to a member beyond taking health off: nothing, put them
+	// down, or killed them outright (the overkill rule).
+	enum class Fall : u8 { None, Down, Dead };
 	// Apply `damage` to a member: clamp health, flash the hit splat (severity
-	// by raw damage), and log a downing/death (the overkill rule). Shared by
-	// every party-damage path. `quiet` is the DoT ticks' mode: no splat and a
-	// silent water-ward soak (a per-frame tick must not spam), but the
-	// one-shot down/death transitions still log.
-	void WoundMember(Character& target, float damage, bool quiet = false);
+	// by raw damage), and REPORT a downing/death rather than logging it — the
+	// line is said by whoever narrated the blow (PartyTarget::NarrateFall), so
+	// the cause reads before the effect. `quiet` is the DoT ticks' mode: no
+	// splat (a per-frame tick must not flash one every frame).
+	Fall WoundMember(Character& target, float damage, bool quiet = false);
 	// A landed monster blow rolls its type's on-hit DoT (Phase 6): chance,
 	// then land/refresh the effect with its log line. No-op for dps 0.
-	void ApplyHitEffect(Character& target, StatusKind kind, const HitEffect& fx);
-	// The monster mirror: a landed blow with an ENCHANTED weapon rolls the
-	// weapon's `element_dot` and, on a hit, sets the target alight — the dps
-	// scaled by its resist for the element (an immune type simply won't
-	// catch), refreshing any fire already on it. Lights the plume + its glow.
-	void IgniteMonster(Monster& monster, SpellSymbol school, const HitEffect& fx,
-					   int source);
-	// One frame of a burning monster: the wound (credited to whoever lit it),
-	// the slain path if it finishes them, and the fade when the fire burns out.
-	void TickBurn(Monster& monster, float dt);
-	// Put a burning monster out — the timer, the plume, the light. Called by
-	// the fade, by death, and by anything that resets a monster's state.
+	// Strip a monster's effects (and with them its plume) — a corpse carries
+	// nothing. Called from the apply stage when a blow finishes it.
 	static void Extinguish(Monster& monster);
+
+	// ONE frame of a combatant's effects, whoever they are: age them, bite
+	// with their DoTs, and drop the expired.
+	//
+	// Each DoT is dealt as ITS OWN damage type (a burn as fire, a bleed as
+	// pierce) and RESISTED at the moment it bites — so a ward raised while
+	// you are burning starts helping immediately (docs/effects.md decision 1).
+	// The bites accumulate per type and land AFTER the aging loop: dealing
+	// damage runs the whole pipeline, which can mutate this very list (a water
+	// veil bursting as it soaks a tick), so it must not run mid-iteration.
+	//
+	// `onExpire(inst)` says the line for an effect that ran out — the one
+	// thing the two sides word differently. A template rather than a
+	// std::function so a per-frame call allocates nothing.
+	template <class OnExpire>
+	void TickEffects(fx::ITarget& target, std::vector<fx::Inst>& effects,
+					 float dt, OnExpire onExpire) {
+		std::array<float, kDamageTypeCount> bite{};
+		for (fx::Inst& e : effects) {
+			e.timeLeft -= dt;
+			if (e.IsDot())
+				bite[static_cast<size_t>(e.kind->DamageTypeOf(e))] +=
+					e.magnitude * dt;
+			if (e.timeLeft <= 0.0f) onExpire(e);
+		}
+		std::erase_if(effects,
+					  [](const fx::Inst& e) { return e.timeLeft <= 0.0f; });
+		for (size_t i = 0; i < bite.size(); ++i) {
+			if (bite[i] <= 0.0f) continue;
+			fx::DamageEvent ev = fx::DamageEvent::Tick(
+				static_cast<DamageType>(i), bite[i], DotSource(effects));
+			fx::Deal(ev, target, m_balance.Strike(), m_combatRng);
+		}
+	}
+	// Who to credit a DoT tick's damage to: the first sourced DoT on the list
+	// (they are nearly always one, and threat is a coarse signal — the point
+	// is that a hit-and-run torch keeps the grudge alive).
+	static int DotSource(const std::vector<fx::Inst>& effects);
 	// Where a burning body's flames rise from (torso height above visualPos):
-	// the ignition point, the per-frame plume origin, and the glow all agree.
+	// the per-frame plume origin and the glow agree because both ask here.
 	static Vec3 BurnOrigin(const Monster& monster);
-	// Read one catalog DoT line, "<dps> <seconds> [chance]" (`where` names the
-	// entry in the warning). An empty spec leaves `fx` untouched (dps 0 = none).
-	// Shared by the monster kinds' poison/bleed and a weapon's element_dot.
-	static void ParseHitEffect(const std::string& spec, HitEffect& fx,
-							   std::string_view where);
+	// How the flames READ per school — the FireEffect palette is authored
+	// orange, so fire burns untinted and the other three recolour it (a water
+	// burn is the freezing kind: the plume runs cold blue).
+	static Vec3 BurnTint(SpellSymbol school);
+	// The effect making this monster visibly burn (the first whose kind sets
+	// effects.cat `plume`), or null. The plume and its light both read it, so
+	// what is drawn always follows what is actually on the monster.
+	static const fx::Inst* PlumeEffect(const Monster& monster);
+	// Read a catalog's on-hit procs: the `on_hit` list, plus the older
+	// one-effect-per-line fields (`poison`/`bleed` on a monster,
+	// `element_dot` on a weapon) appended as procs naming the same effects.
+	// `where` names the entry in any warning.
+	static void ParseOnHit(const CatalogEntry* def, std::vector<fx::Proc>& out,
+						   std::string_view where);
 	// A log line ABOUT `member`: routes through onMemberMessage with their
 	// identity color (the HUD tints it), falling back to plain onMessage.
 	void MemberMessage(const Character& member, const std::string& line) const;
@@ -1695,11 +1740,63 @@ private:
 	// A whole stat point lands: increment, log, and re-derive the resource
 	// maxima (stats feed them now). Shared by the creep pools and SpendStamina.
 	void GrantStatPoint(Character& member, std::string_view stat);
-	// Assemble one side's DefenseProfile against an incoming damage type
-	// (docs/combat.md part 4). The party sums nature (race) + worn equipment
-	// + the earth ward's physical hardening; a monster reads its catalog.
-	DefenseProfile PartyDefense(const Character& member, DamageType type);
-	DefenseProfile MonsterDefense(const MonsterKind& kind, DamageType type) const;
+	// --- the effect pipeline's two faces (docs/effects.md) --------------------
+	// Damage flows through fx::Deal, which knows nothing of Character or
+	// Monster; these adapters ARE that knowledge, and they are the only place
+	// the two sides differ. Both are cheap stack values built at the call site.
+	//
+	// The one genuinely per-side stage is Wound: a member has splats, the
+	// unconscious/overkill rules and the wipe latch; a monster has threat
+	// credit, a flinch and a slain line. Everything before it — deflect,
+	// strike, mitigate, absorb — is shared.
+	class PartyTarget final : public fx::ITarget {
+	public:
+		PartyTarget(DungeonWorld& world, Character& member)
+			: m_world(world), m_member(member) {}
+		float Evasion() const override;
+		float Soak() const override;
+		float Resist(DamageType type) const override;
+		std::vector<fx::Inst>& Effects() override { return m_member.effects; }
+		void Wound(float amount, fx::DamageEvent& ev) override;
+		void Absorb(float amount, fx::DamageEvent& ev) override;
+		std::string Name() const override { return m_member.name; }
+		void Say(const std::string& line) const override;
+		void SayApplied(const fx::EffectKind& kind) const override;
+
+		// Say the one-shot fall line for the wound just applied ("has
+		// fallen!" / "has died!"), if any. The CALLER calls this after its own
+		// "hits for N", so that cause still precedes effect in the log — the
+		// apply stage knows what happened but not where to say it.
+		void NarrateFall() const;
+
+	private:
+		DungeonWorld& m_world;
+		Character& m_member;
+		Fall m_fall = Fall::None;
+	};
+
+	class MonsterTarget final : public fx::ITarget {
+	public:
+		MonsterTarget(DungeonWorld& world, Monster& monster)
+			: m_world(world), m_monster(monster) {}
+		float Evasion() const override;
+		float Soak() const override;
+		float Resist(DamageType type) const override;
+		std::vector<fx::Inst>& Effects() override { return m_monster.effects; }
+		void Wound(float amount, fx::DamageEvent& ev) override;
+		void Absorb(float amount, fx::DamageEvent& ev) override;
+		std::string Name() const override;
+		void Say(const std::string& line) const override;
+		void SayApplied(const fx::EffectKind& kind) const override;
+
+	private:
+		DungeonWorld& m_world;
+		Monster& m_monster;
+	};
+
+	// The balance knobs an effect's own maths needs, in the shape the module
+	// takes them (it never sees Balance.h).
+	fx::Knobs EffectKnobs() const { return {m_balance.stoneskinResist}; }
 	// Blocked-move recoil reached its peak: jar every standing member for a
 	// small amount of damage, flash a splat over each portrait, grunt once, and
 	// latch a party wipe if the bruise is somehow the end of them.
@@ -1887,6 +1984,12 @@ private:
 	// CastSpell delegates to it for the bolt spec, then Spawns it into m_projectiles.
 	// See Magic.h.
 	MagicSystem m_magic;
+
+	// The status-effect registry (Effect/Effect.h): every effect kind, built
+	// once from the classes + the project's effects.cat. EVERY fx::Inst in the
+	// world — on a party member, and on a monster from P3 — points into it, so
+	// it must outlive them all; being a member here, it does.
+	fx::EffectBook m_effects;
 
 	// The shared moving-item engine (Projectiles.h): flies + resolves + draws every
 	// projectile — spell bolts today, monster ranged attacks next. The world seam

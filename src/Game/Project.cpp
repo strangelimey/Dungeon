@@ -37,6 +37,7 @@ const CatalogSlot kCatalogs[] = {
 	{"spells.cat", &Project::spells, "Spells: symbol-sequence recipes -> effect + element + power/mana/speed/range."},
 	{"attacks.cat", &Project::attacks, "Attacks: per-melee-verb numbers (damage/accuracy/speed multipliers); identity (damage type) is C++ (Balance.h)."},
 	{"balance.cat", &Project::balance, "Balance: the attack-formula knob sheet ([formula] block; docs/combat.md)."},
+	{"effects.cat", &Project::effects, "Status effects: display name/icon/stacking per effect id; identity and behaviour are C++ (Game/Effect/)."},
 	{"wallfeatures.cat", &Project::wallfeatures, "Wall features: recessed niches carved into a wall panel."},
 	{"imports.cat", &Project::imports,
 	 "Imported assets: where each editor-imported texture set / model came from, "
@@ -121,6 +122,7 @@ Catalog* Project::CatalogForKey(const std::string& key) {
 	if (key == "weapons") return &weapons;
 	if (key == "armor") return &armor;
 	if (key == "spells") return &spells;
+	if (key == "effects") return &effects;
 	if (key == "attacks") return &attacks;
 	if (key == "balance") return &balance;
 	if (key == "wallfeatures") return &wallfeatures;

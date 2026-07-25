@@ -482,6 +482,59 @@ void Game::RegisterDevCommands() {
 													   hand == 0 ? "left" : "right",
 													   args[0]));
 					   });
+	// Land a status effect directly, skipping the cast. Setting a ward up in a
+	// live fight is otherwise a coin toss — vocabulary, mana, and the fumble
+	// roll all have to go your way, and then a monster has to choose to hit
+	// the bearer before you see the ward DO anything.
+	m_console.Register("effect", "apply a status effect to a member or the monster ahead (dev)",
+					   [this](const std::vector<std::string>& args) {
+						   if (!Need(m_console, args, 1,
+									 "usage: effect <id> [member 0-3 | ahead] [magnitude] [seconds]"))
+							   return;
+						   const float mag = args.size() > 2
+							   ? std::strtof(args[2].c_str(), nullptr) : 8.0f;
+						   const float secs = args.size() > 3
+							   ? std::strtof(args[3].c_str(), nullptr) : 60.0f;
+						   // "ahead" targets the monster the party is facing —
+						   // the only way to put an effect ON a monster by hand,
+						   // and the way to watch one tick without a weapon that
+						   // procs it (docs/effects.md P3).
+						   if (args.size() > 1 && args[1] == "ahead") {
+							   m_console.Print(m_world.ApplyEffectAhead(args[0], mag, secs)
+												   ? std::format("monster ahead gains {}", args[0])
+												   : "no monster ahead (or no such effect)");
+							   return;
+						   }
+						   const size_t m = args.size() > 1
+							   ? static_cast<size_t>(std::atoi(args[1].c_str())) : 0;
+						   if (m >= m_characters.size()) {
+							   m_console.Print("no such member");
+							   return;
+						   }
+						   const fx::EffectKind* kind = m_world.Effects().Find(args[0]);
+						   if (!kind) {
+							   m_console.Print(std::format("no effect '{}'", args[0]));
+							   return;
+						   }
+						   const float magnitude = args.size() > 2
+							   ? std::strtof(args[2].c_str(), nullptr) : 8.0f;
+						   const float seconds = args.size() > 3
+							   ? std::strtof(args[3].c_str(), nullptr) : 60.0f;
+						   // The school picks a ward's flavour and every effect's
+						   // tint, so derive it from the kind — `effect fireshield`
+						   // must land the FIRE ward, not an oddly tinted one.
+						   SpellSymbol school = SpellSymbol::Fire;
+						   if (args[0] == "stoneskin" || args[0] == "poison")
+							   school = SpellSymbol::Earth;
+						   else if (args[0] == "windward") school = SpellSymbol::Air;
+						   else if (args[0] == "waterveil") school = SpellSymbol::Water;
+						   fx::Apply(m_characters[m].effects, *kind, school, magnitude,
+									 seconds);
+						   m_ui.RefreshSheet();
+						   m_console.Print(std::format("{} gains {} ({} for {}s)",
+													   m_characters[m].name, args[0],
+													   magnitude, seconds));
+					   });
 	m_console.Register("threat",
 					   "list per-member threat for every monster holding a grudge (dev)",
 					   [this](const std::vector<std::string>&) {

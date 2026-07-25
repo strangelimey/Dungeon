@@ -42,6 +42,10 @@ struct Project {
 	Catalog decorations, fixtures, monsters;
 	Catalog doors, stairs, buttons, items, spells;
 	Catalog attacks, balance;
+	// Status effects (docs/effects.md): display name / icon / stacking per
+	// effect id — numbers and look only. An effect's identity and behaviour
+	// are its class (Game/Effect/), exactly like a spell's.
+	Catalog effects;
 	Catalog wallfeatures; // recessed wall niches (Phase 2)
 	// Weapons and armor are ITEMS at runtime (placed as item entities, carried,
 	// equipped) but authored in their own catalogs so their weapon/armor-only

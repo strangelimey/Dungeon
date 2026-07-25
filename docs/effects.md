@@ -82,10 +82,16 @@ class EffectKind {                    // ONE shared instance per id
 struct Inst {                         // the per-combatant POD (saved)
     const EffectKind* kind;
     SpellSymbol school;               // tint, and school-keyed behaviour
-    float magnitude, power, timeLeft, duration;
+    float magnitude, timeLeft, duration;
     int source;                       // who applied it (threat credit)
 };
 ```
+
+(This sketch once carried a separate `power` beside `magnitude`. As built
+there is one number: nothing today has two, and a dead field is worse
+than a rename later. The P2 hooks are likewise absent from the class
+until P2 — inventing `DamageEvent` and `ITarget` before their callers
+exist is how you design them wrong.)
 
 This is the codebase's dominant idiom (`ItemKind`/`Item`,
 `MonsterKind`/`Monster`): the fat, behaviour-carrying half is shared and
@@ -140,12 +146,80 @@ commit. The order is chosen so that behaviour is preserved until the last
 possible moment — the risky phase (2) has the previous phase's tests
 still meaningful.
 
-**P1 — the module, with today's behaviour.**
-`Game/Effect.h/.cpp` (namespace `fx`), the kind registry loaded from
-`effects.cat`, `Inst` replacing `StatusEffect`, and `Character::effects`
-ported to it. Ward/poison/bleed/sight behaviour stays exactly where it
-is — this phase only changes what the list holds. HUD + sheet + save read
-the new type. *Verify: nothing changed.*
+**P1 — the module, with today's behaviour. LANDED 2026-07-24.**
+`Game/Effect/` (namespace `fx`) laid out like `Game/Spell/`: `Effect.h/.cpp`
+(the base, `Inst`, `EffectBook`), a file pair per kind, and `AllEffects.cpp`
+hand-listing the eight. `Inst` replaces `StatusEffect`; `Character::effects`
+holds them. Ward/poison/bleed/sight behaviour stays exactly where it is —
+this phase only changes what the list holds.
+
+As built, three things worth knowing:
+- **Each ward is its own kind** (`stoneskin`/`fireshield`/`waterveil`/
+  `windward`), because in P2 each overrides a different hook. Wards
+  stacking across schools now falls out of that — a kind only refreshes
+  itself — instead of being a rule spelled out at the cast site. The four
+  Sight spells DO share one kind (they differ only in flavour, which the
+  school carries) and it names itself per school.
+- **`fx::Apply` owns the stacking rule.** Every landing site used to
+  open-code its own `RemoveEffect`/`RemoveWard` first; now the kind's
+  policy decides, and `CastServices::applyEffect` lets a spell land one
+  without knowing either the classes or the policy.
+- **The save is id-keyed already** (this was P5's job on paper). The kind
+  token was always a free-form string, so writing the effect id costs
+  nothing and `EffectBook::FindLegacy` maps the old category tokens
+  ("ward" + school → that school's kind) forward. No version bump, and
+  P5 shrinks to the monster side.
+
+*Verified in game:* wards cast and stack, the HUD strip and the sheet's
+Effects tab read identically (names, magnitude-formatted descriptions,
+time left, borrowed rune icons), poison lands and fades with its name, a
+save round-trips, a hand-edited legacy-token save loads as the right
+wards, and three of the four ward BEHAVIOURS were caught live — water
+veil soaking then bursting, fire shield scorching for 9, stone skin
+halving a blow. The air deflect needs a caster monster's bolt and wasn't
+observed; its site is the same one-line type change as the other three.
+Dev: `effect <id> [member] [magnitude] [seconds]` lands one directly,
+because setting a ward up by casting is a coin toss (vocabulary, mana,
+fumble) and then a monster still has to choose to hit its bearer.
+
+**P2 — the pipeline, and the four wards move home. LANDED 2026-07-24.**
+`fx::ITarget` with its two adapters (`DungeonWorld::PartyTarget` /
+`MonsterTarget`), `fx::DamageEvent`, and `fx::Deal` walking the stages.
+Every damage site now builds an event and hands it over: party melee,
+monster melee, both projectile resolvers, the wall bump, the party DoT
+tick, the monster burn tick. `PartyDefense`/`MonsterDefense` are gone
+(the adapters assemble it, and the effect term is a sum over whatever the
+target carries, not a hard-coded Stone Skin branch), and the four wards
+are four hooks in `Effect/WardEffect.cpp`.
+
+Three things the build taught us:
+- **Stage 6 is the CALLER's to run.** A reaction writes a line ("the blob
+  is scorched by the fire shield") that has to read *after* the blow it
+  answers. With react inside `Deal` the log came out backwards, so it
+  split into `fx::React`, called once the caller has narrated. The same
+  problem in miniature — the fall lines — is why `WoundMember` now
+  *reports* a `Fall` and `PartyTarget::NarrateFall` says it, and why the
+  monster's slain LINE stayed with its caller while the death PATH moved
+  into the adapter.
+- **Flags, not delivery, decide the maths.** An enchanted weapon's
+  elemental half is resisted by element but neither rolled nor soaked, so
+  `DamageEvent` carries `rolled`/`soaked`/`resisted` separately from
+  `Delivery`; the presets set the usual combinations. (P2 shipped the
+  presets preserving the old numbers — *everything* is resisted now, see
+  "Everything is resisted" below.)
+- **A reprisal goes straight to `Wound`,** not back through `Deal` — it
+  is not itself deflectable or soakable, which also means a reaction can
+  never recurse into another one.
+
+*Verified in game:* stone skin halving a blow (4→2), the fire shield
+scorching for 9 — including a reprisal that KILLED the blob and narrated
+it — the water veil soaking a wall bump with no health lost, the wind
+ward correctly NOT deflecting melee, monster melee with its poison proc
+and fall lines, a party melee kill, and a spell bolt ("seared for 8" then
+"destroyed") — every line in its original order. NOT verified live: the
+wind ward deflecting an actual bolt (the test level's one caster never
+fired — the swarms always closed first), and a burn kill after the
+retiming (its `slew` mechanism is the one three other kills proved).
 
 **P2 — the pipeline, and the four wards move home.**
 `ITarget` + the two adapters, `DamageEvent`, the six stages. Every damage
@@ -157,27 +231,229 @@ the phase that pays for the whole plan, and the one to feel-test hardest:
 every ward, an overkill death, a party wipe, a monster slain by each of
 melee/bolt/burn/retaliation.
 
-**P3 — monsters get the list.**
-`Monster::effects` replaces the burn slot; `BurnEffect` becomes a kind.
-Poison/bleed become applicable to monsters for free. The plume + glow
-become presentation *of an effect* (`effects.cat` fields: `plume`,
-`tint`, `icon`) rather than fields on `Monster`.
+**P3 — monsters get the list. LANDED 2026-07-24.**
+`Monster::effects` is the only status storage: `burnDps`/`burnLeft`/
+`burnSchool`/`burnSource` are gone, `BurnEffect` is a kind like any other,
+and `TickBurn` is gone too — both sides age and bite through ONE
+`TickEffects`, differing only in the lambda that words an expiry. Poison
+and bleed became applicable to monsters for free, which is the whole
+point of the symmetry.
 
-**P4 — content authors effects by id.**
-Weapons: `on_hit = <effect id> <numbers>` (superseding `element_dot`,
-which stays parsed as a deprecated alias for one release). Spells:
-`WardSpell`/`BoltSpell` apply effects through the system instead of
-pushing onto `caster.effects` directly. Monsters: `poison`/`bleed`
-become the same `on_hit` list.
+As built:
+- **The plume is derived, not stored.** `Monster::plume` is created and
+  dropped each frame from "does any effect on me have `plume = 1`", and
+  its light reads the same lookup. The effect list is the truth; the fire
+  is what that truth looks like.
+- **Resist moved to per-tick** (decision 1). A DoT stores RAW magnitude
+  and is resisted as it bites, so a ward raised mid-burn helps at once.
+  This also gives party poison/bleed a resist they never had — a
+  deliberate balance change, not a refactor.
+- **A DoT's damage type is authored, not derived from its school.**
+  Bleeding rides fire red in the HUD and wounds as PIERCE; poison is
+  earth; a burn is per-INSTANCE — whatever element lit it, so a frost
+  weapon's burn is resisted as water. `SchoolDamageType` moved from
+  Balance.h to Combat.h for this: it is a fact about damage, not a knob,
+  and the effects module can't see Balance.
+- **A death by DoT reads by cause**: burning away to nothing if it was
+  alight, plain "slain" otherwise.
 
-**P5 — save.**
-Effect lines become id-keyed (old `ward`/`poison`/`bleed`/`sight` tokens
-map forward on load); monster effects round-trip in `EntityState`.
-Version bump, `CaptureState`/`ApplyState` + `SaveData` as always.
+*Verified in game:* `effect burn ahead` on a fire-VULNERABLE mummy — it
+lit up, burned visibly faster than its raw dps (per-tick resist doing its
+work), and burned away to nothing; `effect poison ahead` on a blob —
+ticked with no plume and killed it as "slain", the first time a monster
+has ever carried a poison. Dev: `effect <id> ahead [magnitude] [seconds]`
+is the only hand-authored way onto a monster, and the way to watch an
+effect tick without a weapon that procs it.
 
-**P6 — the editor.**
-`effects.cat` gets a `CatalogSchema` entry and a palette/dialog like
-every other catalog, so effects are tunable live next to Balance.
+**P4 — content authors effects by id. LANDED 2026-07-24.**
+`fx::Proc` — an effect id plus its numbers — is what a weapon or a monster
+authors: `on_hit = burn 3 6 0.5, bleed 2 10`, comma-separated, parsed by
+`fx::ParseProcs` and rolled by `fx::ApplyProcs`. Both sides use the same
+field and the same function; `IgniteMonster` and `ApplyHitEffect` are
+gone, and with them the last per-side copy of "roll it, land it, announce
+it". The older one-effect-per-line fields (`poison`/`bleed` on a monster,
+`element_dot` on a weapon) still load, appended as procs naming the same
+effects, so no catalog had to be rewritten — though the demo's were.
+
+(The spell half of this phase was already done: wards and sights have
+applied through `CastServices::applyEffect` since P1.)
+
+As built:
+- **Each effect owns its two announce lines** (effects.cat `apply_party` /
+  `apply_monster`), because the two sides word the same affliction
+  differently — "Sera is poisoned!" against "The blob is poisoned!". The
+  target picks the one that fits its grammar (`ITarget::SayApplied`), and
+  only a NEW affliction announces: a refresh is the same thing lasting
+  longer, not a fresh alarm.
+- **An element is a flavour, not a separate mechanism.** A weapon's
+  `element` lends its school to whatever its procs land, so the *same*
+  `on_hit = burn` is fire on the flamebrand and a freezing burn on the
+  frostbrand — resisted as water, plume running cold blue.
+- **Immunity refuses outright** rather than letting something burn for
+  nothing.
+- `fx::Deal` lost its `attacker` and `knobs` parameters — React took the
+  first, the target's adapter applies the second. An unused parameter
+  that suggests otherwise is worse than none.
+
+*Content proving it:* `[frostbrand]` (same burn, water element) and
+`[serrated_blade]` (no enchantment at all — just `on_hit = bleed`), both
+pure catalog entries, placed on the start level. The demo's monsters were
+converted to `on_hit` in place.
+
+*Verified in game:* both new weapons load, equip and fight; the monster
+side lands its converted `on_hit = poison` on a member; and a traced run
+confirmed the weapon path — proc parsed (1 proc from `on_hit`), landed on
+the blob, announced once, then silent on the refreshing hits.
+
+**P5 — save. LANDED 2026-07-24.** (Half had already landed in P1: the
+character side was id-keyed, with the legacy tokens mapping forward.) The
+monster side now rides `EntityState::effects`, written as `enteffect`
+lines — save **v22**.
+
+As built:
+- **One shared `SaveData::EffectState`**, hoisted out of `CharState`, used
+  by both sides. The effects system is symmetric, so its save record had
+  no reason not to be; it gained `source` (a DoT's threat credit) in the
+  move.
+- **The effect lines ATTACH to the entity line above them** rather than
+  carrying an index. The reader hangs each on `entities.back()`, so the
+  two can never drift out of step — and a stray line before any entity is
+  simply dropped.
+- **Nothing about the presentation is saved.** A reloaded monster's plume
+  and its light come back purely from the restored effect list, because
+  P3 made them derived.
+- A monster whose only change is an affliction now qualifies for a diff
+  (`!m.effects.empty()` joins the "worth saving" test).
+
+*Verified in game:* a blob given a burn and a poison, saved (both lines
+present, correct schools, v22), reloaded — visibly ablaze again — and
+re-saved, showing both effects still on it with their timers ticked down
+by the elapsed seconds, which is the proof they came back LIVE rather
+than as an echo.
+
+**P6 — the editor. LANDED 2026-07-24.**
+`effects.cat` has a `CatalogSchema` entry (name / icon / school / plume /
+damage_type / stacking / the two apply lines) and an **Effects** palette
+category, so an effect is browsable and editable like every other type.
+
+The interesting part was what an effect is NOT: content you author and
+tune, never content you place. So `CatInfo` gained a `placeable` flag, and
+where it is false:
+- a row click opens the type editor instead of arming a brush (there is
+  nothing to arm, and doing nothing would just look broken);
+- there is no **+ New...** row — an effect needs a C++ CLASS, and data
+  alone cannot make one;
+- **Delete refuses**, with a reason. Removing the entry would not remove
+  the effect; it would silently revert it to its class defaults, which is
+  not what a Delete button promises.
+
+Known wart, inherited rather than introduced: a field the entry OMITS
+shows the schema default, indistinguishable from an explicit value. It
+bites `burn`, which deliberately has no `damage_type` (its class resolves
+one per instance from whatever lit it) and so displays "bash". The help
+text names the exception; the real fix is a dialog that renders "unset"
+distinctly — an open item from the type-authoring thread.
+
+*Verified in game:* the Effects category lists the kinds with no "+ New";
+clicking `burn` opens "Effects type — burn" with its four tabs; Look shows
+icon/school/plume read from the catalog (plume ticked); poison's Stats
+shows its explicit `earth`; and Save round-trips the file with every field
+and comment intact, still valid UTF-8.
+
+---
+
+## Everything is resisted (Michael, 2026-07-24)
+
+> "A bump is a bludgeon attack which is resisted by plate but not by cloth
+> or skin."
+
+P2 shipped the event presets set to reproduce the pre-refactor numbers,
+which left collisions and DoTs landing raw. That was refactor caution, not
+a design position, and the design position is the one above: if it damages
+you, your defenses answer it. The presets now name a KIND of damage rather
+than a set of flags, and each says what applies:
+
+| preset | rolled | soaked | resisted | what it is |
+|---|---|---|---|---|
+| `Blow` / `Bolt` | ✓ | ✓ | ✓ | a swing or a shot |
+| `Impact` | — | ✓ | ✓ | a COLLISION: a wall, a door, a falling rock |
+| `Burst` | — | — | ✓ | magic riding something else: an enchanted blade's element, a ward's reprisal |
+| `Tick` | — | — | ✓ | a DoT's bite |
+
+So a wall is bash damage that armour blunts and Stone Skin turns; only
+`Burst` and `Tick` skip soak, because plate does not help against a flame
+or against poison already in the blood. No caller sets flags by hand any
+more — picking the preset that describes what happened is the whole API.
+
+The **fire shield's reprisal** was the last thing bypassing mitigation: it
+went straight to `Wound` with its raw magnitude, so a fire-immune monster
+took a full scorching. It is a `Burst` now — resisted by the target's fire
+resist, silent when they are immune, and reporting what it actually dealt
+rather than the ward's magnitude.
+
+One presentation consequence: members no longer take the SAME amount from
+a collision, so the bump line reports the worst of them and says nothing
+at all when the jar rounds to zero — the log speaks in whole points, and a
+wall the party shrugged off is not news.
+
+*Verified in game, one continuous run:* an unarmoured party bumps a wall
+and is "jarred for 2 damage"; with Stone Skin up, the same wall still
+reports "You bump into a wall" and no damage line, health untouched.
+
+### Immunity, and drinking the element (Michael, 2026-07-24)
+
+> "Full resistance should mean zero damage. A fire golem would take 0
+> fire damage — even more, it would be strengthened and healed by fire."
+
+Auditing that turned up a real bug and a real gap.
+
+**The bug:** `ClampResist` has always let an authored nature cell of 1.0
+reach true immunity — but `ResolveAttack` then floored every landed blow
+at `wound_floor` ("a blow always stings"), so a fire golem took 1 point
+from every fire bolt. Immunity was quietly worth 1 damage. The floor now
+applies only to a blow that got THROUGH (`dmg > 0`).
+
+**The gap:** absorption could not be expressed at all. Three places
+clamped it away — `ClampResist` capped at 1.0, the unrolled path clamped
+negatives to zero, and the apply stage only ever subtracted. Now:
+- a nature cell PAST 1.0 is absorption (1.5 = drinks half again), and
+  like immunity it escapes the ±clamp — it says what a thing IS, not how
+  much mitigation it has stacked;
+- negative damage flows through the pipeline untouched (soak can only
+  blunt, never invert; the absorb stage skips a healing so a ward cannot
+  grow itself on one);
+- `ITarget::Absorb` is the mirror of `Wound`, capped at the target's
+  maximum. A monster still PROVOKES on it — you fed it and it noticed —
+  but earns its feeder no threat, threat being a record of harm. A member
+  can be brought back from unconscious this way, but not from dead.
+
+Presentation follows: a blow that does nothing says "is unharmed" rather
+than "for 0 damage", a blow that feeds says so through the adapter, and a
+per-frame tick that feeds says nothing at all.
+
+*Verified in game:* a mummy authored `fire 1.5` — "The mummy drinks it in
+and is strengthened by 5!" from a fire bolt. No shipped content absorbs
+anything yet; a real fire golem is a monsters.cat entry plus a model.
+
+---
+
+## Status — all six phases landed
+
+What began as "the fire sword needs somewhere to put a burn" is now one
+pipeline: every source of damage builds a `DamageEvent`, one `ITarget`
+serves members and monsters alike, effects are classes with catalog-tuned
+numbers, content names them by id, they survive a save, and they are
+editable in the editor.
+
+Left undone, deliberately:
+- The **wind ward deflecting a real bolt** has never been observed live —
+  the test level's one caster never fires before the swarms close. It
+  wants a scratch level with a single ranged monster.
+- **Party poison and bleed are now resisted** (P3's per-tick rule), which
+  they never were. Nothing in the current content has enough earth or
+  pierce resistance for it to show, but it is a live balance change.
+- The **modifier hook** (`StatBonus`/`SpeedScale`) ships unused, waiting
+  for the first slow or blessing.
 
 ## Decisions (Michael, 2026-07-24 — SETTLED)
 

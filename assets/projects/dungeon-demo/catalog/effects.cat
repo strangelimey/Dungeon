@@ -1,0 +1,84 @@
+; Status effects (docs/effects.md). NUMBERS AND LOOK ONLY — an effect's
+; identity and behaviour are its class in src/Game/Effect/, exactly like a
+; spell's. An entry naming no class is a warning, never a new effect.
+;
+; Fields: name = the display loc key (the sheet appends ".desc" for the long
+; form), icon = the item id whose baked icon it borrows in the HUD strip
+; ("" = the school-tinted square), stacking = refresh | school | stack.
+
+; --- the Protect wards ------------------------------------------------------
+; One kind per school, four different guards. They take their names from the
+; spells that cast them, so the HUD keeps reading "Stone Skin" and the sheet
+; finds the spell's existing description.
+
+[stoneskin]
+name = spell.stoneskin
+icon = rune_protect
+stacking = refresh
+
+[fireshield]
+name = spell.fireshield
+icon = rune_protect
+stacking = refresh
+
+[waterveil]
+name = spell.waterveil
+icon = rune_protect
+stacking = refresh
+
+[windward]
+name = spell.windward
+icon = rune_protect
+stacking = refresh
+
+; --- damage over time -------------------------------------------------------
+; magnitude is damage per second, RESISTED as `damage_type` each time it bites
+; — so a ward raised mid-burn starts helping at once. The dps/duration are
+; authored at the SOURCE (monsters.cat poison/bleed, weapons.cat element_dot);
+; what lives here is what the effect is called, how it stacks, what it counts
+; as, and whether it visibly burns.
+;
+; NOTE the damage type is NOT the HUD tint: bleeding rides fire red and wounds
+; as pierce. (burn is the exception that needs no line here — it is resisted as
+; whatever element lit it.)
+
+; apply_party / apply_monster are the lines announcing that it took hold — the
+; two sides word the same affliction differently, and each takes the bearer's
+; name. `school` is the HUD tint a source lends when it has no element of its
+; own (a monster's venom); an enchanted weapon overrides it with its element.
+
+[poison]
+name = effect.poison
+damage_type = earth
+school = earth
+apply_party = log.poisoned
+apply_monster = log.monster_poisoned
+stacking = refresh
+
+[bleed]
+name = effect.bleed
+damage_type = pierce
+school = fire
+apply_party = log.bleeding
+apply_monster = log.monster_bleeding
+stacking = refresh
+
+[burn]
+name = effect.burn
+plume = 1
+apply_party = log.member_ignites
+apply_monster = log.monster_ignites
+stacking = refresh
+
+; --- the see-through mark ---------------------------------------------------
+; All four Sight spells share this kind; the school on the instance picks both
+; the flavour the world reads and the name shown, so it stacks per school.
+
+[sight]
+name = spell.embersight
+name_fire = spell.embersight
+name_earth = spell.stonesight
+name_air = spell.farsight
+name_water = spell.scrying
+icon = rune_sight
+stacking = school

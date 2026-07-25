@@ -15,11 +15,11 @@ WardSpell::WardSpell(std::string id, std::vector<SpellSymbol> sequence,
 	  m_duration(duration) {}
 
 void WardSpell::Cast(CastContext& ctx) const {
-	// The ward wraps the CASTER. Wards STACK across schools (all four may be
-	// up at once); only recasting the SAME school replaces its ward.
-	ctx.caster.RemoveWard(School());
-	ctx.caster.effects.push_back({StatusKind::Ward, School(), NameKey(),
-								  m_duration, m_duration, ctx.power});
+	// The ward wraps the CASTER. Each school's ward is its OWN effect kind,
+	// sharing this spell's id — so wards still STACK across schools (all four
+	// may be up at once) while a recast refreshes only its own. The stacking
+	// rule lives in the kind now, not in a RemoveWard call here.
+	ctx.services.applyEffect(ctx.caster, Id(), School(), ctx.power, m_duration);
 	ctx.services.message(ctx.caster,
 						 loc::Format("log.shield_up", ctx.caster.name));
 }

@@ -4,25 +4,10 @@
 
 namespace dungeon::game {
 
-// --- status-effect kind tokens ----------------------------------------------
-// Save-file / record names, indexed by StatusKind. Append with the enum.
-
-namespace {
-constexpr const char* kStatusKindIds[] = {"ward", "poison", "bleed", "sight"};
-} // namespace
-
-const char* StatusKindId(StatusKind kind) {
-	return kStatusKindIds[static_cast<size_t>(kind)];
-}
-
-bool ParseStatusKind(std::string_view token, StatusKind& out) {
-	for (size_t i = 0; i < std::size(kStatusKindIds); ++i)
-		if (token == kStatusKindIds[i]) {
-			out = static_cast<StatusKind>(i);
-			return true;
-		}
-	return false;
-}
+// (The status-effect kind tokens used to live here: an enum plus an id table
+// indexed by it. An effect names ITSELF now — the kind's id, resolved through
+// fx::EffectBook — so the table is gone and the save stores that id. Old
+// tokens still load: EffectBook::FindLegacy maps them forward.)
 
 // Four archetypes with distinct stat spreads so the HUD bars and the sheet
 // read differently per slot. The resource BASES are authored (class identity);
