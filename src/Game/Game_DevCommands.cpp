@@ -447,8 +447,8 @@ void Game::RegisterDevCommands() {
 							   m_console.Print("no such member");
 							   return;
 						   }
-						   if (!m_project.items.Contains(args[0])) {
-							   m_console.Print(std::format("no item '{}' in items.cat", args[0]));
+						   if (!m_project.HasItem(args[0])) {
+							   m_console.Print(std::format("no item '{}' in items/weapons/armor", args[0]));
 							   return;
 						   }
 						   if (!m_characters[m].inventory.Stow(args[0]))

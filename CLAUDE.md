@@ -143,9 +143,11 @@ Key conventions (memorize, they bite):
   queue post down a shared row/column. Projectiles fly QUADRANT LANES both
   ways: casts spawn a quarter-cell down the caster's lane and hits test
   lateral distance vs sub-cell position (kLaneHalfWidth = 0.35 cell) — an
-  opposite-quadrant body is flown past. Adding a weapon: items.cat
-  damage/speed/stats/reach + `command` (its attack list) + item.<id> lang
-  keys ×5; a new attack VERB is a Balance-ctor row + attacks.cat entry +
+  opposite-quadrant body is flown past. Adding a weapon: weapons.cat
+  damage/speed/skill/stats/reach + `command` (its attack list) + item.<id> lang
+  keys ×5 (armor -> armor.cat with armor/resists; runes/keys/food/etc ->
+  items.cat — see the editor palette section for the three-catalog item split);
+  a new attack VERB is a Balance-ctor row + attacks.cat entry +
   GameUI kMeleeUses + use.<verb> keys ×5.
 - ALL user-facing text goes through Core/Loc (loc::Tr(key) /
   loc::Format(key, args...) for {} placeholders), loaded from
@@ -664,9 +666,17 @@ floor/ceiling variants on the floor cell; middle-click's variant-reset
 rung restores the default hash-varied mix (no override pinned). Stale
 variant records on the wrong cell type — pre-2026-07-13
 files kept wall variants on bordering floor cells — are DROPPED at load), and the entity
-categories Decorations/Fixtures/Monsters/Buttons/Doors/Stairs/Items (live
-placement). Entries carrying a `category` field group under collapsible
-SUB-accordions ("+ Weapon (4)"); every catalog is authored with them.
+categories Decorations/Fixtures/Monsters/Buttons/Doors/Stairs/Items/Weapons/Armor
+(live placement). Entries carrying a `category` field group under collapsible
+SUB-accordions ("+ Weapon (4)"); every catalog is authored with them. ITEMS
+are three catalogs — items.cat (runes/keys/food/containers/ingredients),
+weapons.cat, armor.cat — split ONLY so weapon (damage/speed/skill/stats/reach/
+command) and armor (armor/resists) settings don't clutter every other item's
+type editor. All three are EntityKind::Item at runtime and place/carry/equip
+identically; Project::FindItem / HasItem / AllItems resolve an item id across the
+three so nothing downstream cares which file it is in (a weapon/armor rename
+sweeps the same `item` .ent records). A new weapon/armor gets `name = item.<id>`
++ a `category` default like any item.
 Items in each category come from the active project's catalogs; a "+ New..." row
 opens the asset-creation dialog — which makes a type THREE ways (AssetDialog::
 Source): Import new (browse + AssetBaker, the original), Use installed (bind an

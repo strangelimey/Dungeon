@@ -43,6 +43,13 @@ struct Project {
 	Catalog doors, stairs, buttons, items, spells;
 	Catalog attacks, balance;
 	Catalog wallfeatures; // recessed wall niches (Phase 2)
+	// Weapons and armor are ITEMS at runtime (placed as item entities, carried,
+	// equipped) but authored in their own catalogs so their weapon/armor-only
+	// settings don't clutter every other item. The split is purely
+	// organizational: the runtime resolves an item id across all three via
+	// FindItem / AllItems below, so nothing downstream cares which file it came
+	// from.
+	Catalog weapons, armor;
 	// PROVENANCE, not content: one entry per asset the editor imported, keyed by
 	// its pool name, recording where it came from and how. The baked assets
 	// themselves are gitignored (assets/textures, assets/models), so without
@@ -52,9 +59,17 @@ struct Project {
 	Catalog imports;
 
 	// The catalog for a kind key ("walls", "floors", "ceilings", "decorations",
-	// "fixtures", "monsters", "doors", "stairs", "buttons", "items", "spells",
-	// "attacks", "balance"), or null if unknown.
+	// "fixtures", "monsters", "doors", "stairs", "buttons", "items", "weapons",
+	// "armor", "spells", "attacks", "balance"), or null if unknown.
 	Catalog* CatalogForKey(const std::string& key);
+
+	// --- item resolution across the three item catalogs ----------------------
+	// An item id may live in items, weapons OR armor. These resolve/iterate
+	// across all three (items first) so a placed weapon or worn armor loads the
+	// same as any other item — the runtime never needs to know the split.
+	const CatalogEntry* FindItem(std::string_view id) const;
+	bool HasItem(std::string_view id) const { return FindItem(id) != nullptr; }
+	std::vector<const CatalogEntry*> AllItems() const;
 
 	// Loads the project rooted at `folder` (reads project.ini + catalog/*.cat).
 	// A missing manifest or catalog is tolerated (empty), so a brand-new project

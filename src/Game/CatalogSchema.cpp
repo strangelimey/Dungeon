@@ -235,43 +235,84 @@ constexpr FieldSpec kStairFields[] = {
 	 .def = "0"},
 };
 
-// --- items ------------------------------------------------------------------
 // Items name themselves with a LOC KEY (`name = item.<id>`), not a display
-// string — they are the one category whose label is translated.
+// string — the one category family whose label is translated.
+#define ITEM_NAME                                                              \
+	{.key = "name", .kind = FieldKind::Text, .sectionKey = kSectionIdentity,     \
+	 .help = "Loc key of the item's name, by convention item.<id> (add it to every .lang)."}
+#define ITEM_WEIGHT                                                            \
+	{.key = "weight", .kind = FieldKind::Float, .sectionKey = kSectionStats,     \
+	 .help = "Kilograms, against the carry load.",                              \
+	 .lo = 0.0f, .hi = 50.0f, .step = 0.1f, .def = "1"}
+
+// --- items (the catch-all: runes, keys, food, containers, ingredients) ------
+// Weapons and armor moved to their own catalogs/schemas, so their attack/defense
+// fields no longer clutter a rune or an apple.
 constexpr FieldSpec kItemFields[] = {
-	{.key = "name", .kind = FieldKind::Text, .sectionKey = kSectionIdentity,
-	 .help = "Loc key of the item's name, by convention item.<id> (add it to every .lang)."},
+	ITEM_NAME,
 	IDENTITY_CATEGORY,
 	PROP_MODEL,
 	PROP_TEXTURE,
 	PROP_SCALE,
-	{.key = "weight", .kind = FieldKind::Float, .sectionKey = kSectionStats,
-	 .help = "Kilograms, against the carry load.",
-	 .lo = 0.0f, .hi = 50.0f, .step = 0.1f, .def = "1"},
-	{.key = "damage", .kind = FieldKind::Float, .sectionKey = kSectionStats,
-	 .help = "Weapon damage before stats and skill.", .lo = 0.0f, .hi = 50.0f, .step = 1.0f},
-	{.key = "speed", .kind = FieldKind::Float, .sectionKey = kSectionStats,
-	 .help = "Swing speed multiplier.", .lo = 0.1f, .hi = 3.0f, .step = 0.05f},
-	{.key = "armor", .kind = FieldKind::Float, .sectionKey = kSectionStats,
-	 .help = "Damage soak when worn.", .lo = 0.0f, .hi = 20.0f, .step = 1.0f},
-	{.key = "stats", .kind = FieldKind::Text, .sectionKey = kSectionStats,
-	 .help = "Which stats scale its damage, e.g. 'str dex'."},
-	{.key = "resists", .kind = FieldKind::Text, .sectionKey = kSectionStats,
-	 .help = "Per-type resistance granted when worn, e.g. 'fire 0.2'."},
+	ITEM_WEIGHT,
 	{.key = "holdable", .kind = FieldKind::Bool, .sectionKey = kSectionRules,
 	 .help = "Can be held in a hand slot.", .def = "1"},
+	{.key = "command", .kind = FieldKind::Text, .sectionKey = kSectionRules,
+	 .help = "Hand-menu verbs this item offers, e.g. 'eat'."},
 	{.key = "symbol", .kind = FieldKind::Enum, .sectionKey = kSectionRules,
 	 .help = "Rune symbol this item teaches (runes only).",
 	 .options = "fire earth air water project protect sight"},
-	{.key = "reach", .kind = FieldKind::Enum, .sectionKey = kSectionRules,
-	 .help = "Weapons that strike from the rear rank.",
-	 .options = "melee polearm ranged", .def = "melee"},
-	{.key = "command", .kind = FieldKind::Text, .sectionKey = kSectionRules,
-	 .help = "Hand-menu verbs this item offers, e.g. 'swing thrust'."},
 	{.key = "capacity", .kind = FieldKind::Float, .sectionKey = kSectionRules,
 	 .help = "Container capacity in kilograms.", .lo = 0.0f, .hi = 50.0f, .step = 0.5f},
 	{.key = "accepts", .kind = FieldKind::Text, .sectionKey = kSectionRules,
 	 .help = "Item categories a container takes, e.g. 'rune'."},
+};
+
+// --- weapons ----------------------------------------------------------------
+// The attack side of the combat formula (docs/combat.md). category defaults to
+// "weapon" so a new one behaves right at runtime.
+constexpr FieldSpec kWeaponFields[] = {
+	ITEM_NAME,
+	{.key = "category", .kind = FieldKind::Text, .sectionKey = kSectionIdentity,
+	 .help = "Groups it in the palette; keep 'weapon' so the runtime treats it as one.",
+	 .def = "weapon"},
+	PROP_MODEL,
+	PROP_TEXTURE,
+	PROP_SCALE,
+	ITEM_WEIGHT,
+	{.key = "damage", .kind = FieldKind::Float, .sectionKey = kSectionStats,
+	 .help = "Base weapon damage, before stats and skill.",
+	 .lo = 0.0f, .hi = 50.0f, .step = 1.0f, .def = "5"},
+	{.key = "speed", .kind = FieldKind::Float, .sectionKey = kSectionStats,
+	 .help = "Swing pace multiplier (higher = slower).", .lo = 0.1f, .hi = 3.0f, .step = 0.05f, .def = "1"},
+	{.key = "skill", .kind = FieldKind::Text, .sectionKey = kSectionStats,
+	 .help = "Weapon class trained + scaled by (e.g. blade, blunt); empty trains nothing."},
+	{.key = "stats", .kind = FieldKind::Text, .sectionKey = kSectionStats,
+	 .help = "Attributes whose average boosts its damage, e.g. 'str dex'."},
+	{.key = "reach", .kind = FieldKind::Enum, .sectionKey = kSectionRules,
+	 .help = "melee = adjacent only; polearm strikes from the rear rank; ranged flies.",
+	 .options = "melee polearm ranged", .def = "melee"},
+	{.key = "command", .kind = FieldKind::Text, .sectionKey = kSectionRules,
+	 .help = "Attack verbs the hand menu offers, e.g. 'stab, slash'."},
+	{.key = "holdable", .kind = FieldKind::Bool, .sectionKey = kSectionRules,
+	 .help = "Can be held in a hand slot (weapons should be on).", .def = "1"},
+};
+
+// --- armor ------------------------------------------------------------------
+// The worn defender side of the formula: a flat soak + per-type resists.
+constexpr FieldSpec kArmorFields[] = {
+	ITEM_NAME,
+	{.key = "category", .kind = FieldKind::Text, .sectionKey = kSectionIdentity,
+	 .help = "Groups it in the palette (armor / clothing); keep it a worn kind.",
+	 .def = "armor"},
+	PROP_MODEL,
+	PROP_TEXTURE,
+	PROP_SCALE,
+	ITEM_WEIGHT,
+	{.key = "armor", .kind = FieldKind::Float, .sectionKey = kSectionStats,
+	 .help = "Flat damage soak when worn.", .lo = 0.0f, .hi = 20.0f, .step = 0.25f, .def = "1"},
+	{.key = "resists", .kind = FieldKind::Text, .sectionKey = kSectionStats,
+	 .help = "Per-type resistance granted when worn, e.g. 'slash 0.2, fire 0.1'."},
 };
 
 // --- wall features ----------------------------------------------------------
@@ -296,6 +337,8 @@ std::span<const FieldSpec> SchemaFor(std::string_view catalogKey) {
 	if (catalogKey == "doors") return kDoorFields;
 	if (catalogKey == "stairs") return kStairFields;
 	if (catalogKey == "items") return kItemFields;
+	if (catalogKey == "weapons") return kWeaponFields;
+	if (catalogKey == "armor") return kArmorFields;
 	if (catalogKey == "wallfeatures") return kWallFeatureFields;
 	return {};
 }

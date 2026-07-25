@@ -709,7 +709,7 @@ DungeonWorld::ItemKind& DungeonWorld::ItemKindFor(const std::string& type) {
 	if (it == m_itemKinds.end()) {
 		auto kind = std::make_unique<ItemKind>();
 		kind->id = type;
-		const CatalogEntry* def = m_project.items.Find(type);
+		const CatalogEntry* def = m_project.FindItem(type);
 		// Display name: catalog `name` key, else item.<id> by convention.
 		kind->nameKey = CatalogGet(def, "name", std::format("item.{}", type));
 		// Shared, data-driven fields: category, carry weight, hand commands.

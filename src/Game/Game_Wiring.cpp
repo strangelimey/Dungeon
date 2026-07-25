@@ -315,7 +315,7 @@ void Game::WireModuleCallbacks() {
 		for (const auto& [id, type] : m_world.ItemsAt(cx, cz)) {
 			InspectTarget t{InspectTarget::Kind::Item};
 			t.handle = id;
-			t.type = display(m_project.items.Find(type), type);
+			t.type = display(m_project.FindItem(type), type);
 			m_inspectTargets.push_back(t);
 			labels.push_back(t.type);
 		}

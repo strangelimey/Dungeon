@@ -226,7 +226,9 @@ void Game::CreateCatalogEntry(const AssetDialog::CreateRequest& req) {
 	// Identity first, so the entry reads like a hand-authored one. Items name
 	// themselves with a loc key by convention; everything else carries a display
 	// string.
-	if (req.catalogKey == "items") e.Set("name", "item." + req.name);
+	if (req.catalogKey == "items" || req.catalogKey == "weapons" ||
+		req.catalogKey == "armor")
+		e.Set("name", "item." + req.name); // items name themselves with a loc key
 	else e.Set("display", req.name);
 	if (!req.group.empty()) e.Set("category", req.group);
 

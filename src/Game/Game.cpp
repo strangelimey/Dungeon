@@ -284,7 +284,8 @@ void Game::LoadItemIcons() {
 	// Non-rune items: a model item uses its baked 3D thumbnail (rendered once by
 	// DungeonWorld; the same texture feeds every slot/grid/cursor instance);
 	// model-less items keep a generated solid category-tint placeholder.
-	for (const CatalogEntry& def : m_project.items.Entries()) {
+	for (const CatalogEntry* defp : m_project.AllItems()) {
+		const CatalogEntry& def = *defp;
 		const std::string category = def.Get("category", "misc");
 		if (category == "rune") continue; // runes use their element PNG above
 		if (const gfx::Texture* model = m_world.ItemIconFor(def.id)) {
@@ -314,7 +315,8 @@ void Game::LoadItemIcons() {
 		if (!tok.empty()) out.push_back(tok);
 		return out;
 	};
-	for (const CatalogEntry& def : m_project.items.Entries()) {
+	for (const CatalogEntry* defp : m_project.AllItems()) {
+		const CatalogEntry& def = *defp;
 		m_itemWeights.byType[def.id] = def.GetFloat("weight", 0.0f);
 		m_itemCategories.byType[def.id] = def.Get("category", "misc");
 		m_itemCategories.capacityByType[def.id] =

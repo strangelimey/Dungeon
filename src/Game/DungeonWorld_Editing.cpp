@@ -222,7 +222,11 @@ DungeonWorld::TypeUsage DungeonWorld::SweepTypeRefs(const std::string& catalogKe
 	else if (catalogKey == "wallfeatures") statics = TR::WallFeature;
 	else if (catalogKey == "stairs") statics = TR::Stair;
 	else if (catalogKey == "monsters") dynamics = EntityKind::Monster;
-	else if (catalogKey == "items") dynamics = EntityKind::Item;
+	// Weapons and armor place as Item entities too, so a rename/delete of one
+	// sweeps the same .ent record family.
+	else if (catalogKey == "items" || catalogKey == "weapons" ||
+			 catalogKey == "armor")
+		dynamics = EntityKind::Item;
 	else if (catalogKey == "buttons") dynamics = EntityKind::Button;
 	else if (catalogKey == "doors") dynamics = EntityKind::Door;
 	if (!statics && !dynamics) return usage;
@@ -804,7 +808,7 @@ bool DungeonWorld::AddButtonRemote(const std::string& stem,
 }
 
 bool DungeonWorld::AddItem(const std::string& type, int x, int z) {
-	if (!m_project.items.Contains(type) || !m_map.IsWalkable(x, z)) return false;
+	if (!m_project.HasItem(type) || !m_map.IsWalkable(x, z)) return false;
 	// One item per quarter slot — a full cell (4 on the floor) refuses rather
 	// than letting FreeItemSlotNear stack overlapping tablets. Niche items pile
 	// separately (they don't use the floor quarters), so they don't count.
@@ -847,7 +851,7 @@ Vec3 DungeonWorld::NicheItemPos(int x, int z, Direction wall) const {
 }
 
 bool DungeonWorld::AddNicheItem(const std::string& type, int x, int z, Direction wall) {
-	if (!m_project.items.Contains(type)) return false;
+	if (!m_project.HasItem(type)) return false;
 	if (!m_map.NicheAt(x, z, DirDX(wall), DirDZ(wall))) return false; // no niche here
 	Entity record;
 	record.kind = EntityKind::Item;
@@ -868,7 +872,7 @@ bool DungeonWorld::AddItemRemote(const std::string& stem,
 								 const std::string& type, int x, int z) {
 	DungeonEntities& ents = EnsureEntStash(stem);
 	const DungeonMap& map = *m_levelMaps.find(stem)->second;
-	if (!m_project.items.Contains(type) || !map.IsWalkable(x, z)) return false;
+	if (!m_project.HasItem(type) || !map.IsWalkable(x, z)) return false;
 	int here = 0;
 	for (const Entity& e : ents.At(x, z))
 		if (e.kind == EntityKind::Item) ++here;

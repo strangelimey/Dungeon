@@ -42,6 +42,7 @@ constexpr CatInfo kCategoryInfo[] = {
 	{"map.cat.fixtures", "fixtures", false}, {"map.cat.monsters", "monsters", false},
 	{"map.cat.buttons", "buttons", false},  {"map.cat.doors", "doors", false},
 	{"map.cat.stairs", "stairs", false},    {"map.cat.items", "items", false},
+	{"map.cat.weapons", "weapons", false},  {"map.cat.armor", "armor", false},
 	{"map.cat.wallfeatures", "wallfeatures", false},
 };
 static_assert(sizeof(kCategoryInfo) / sizeof(kCategoryInfo[0]) ==
@@ -138,6 +139,8 @@ std::vector<MapEditor::PaletteItem> MapEditor::CategoryItems(PaletteCat cat) con
 	case PaletteCat::Doors:       return catalogItems(proj.doors, kDoor);
 	case PaletteCat::Stairs:      return catalogItems(proj.stairs, kStair);
 	case PaletteCat::Items:       return catalogItems(proj.items, kItem);
+	case PaletteCat::Weapons:     return catalogItems(proj.weapons, kItem);
+	case PaletteCat::Armor:       return catalogItems(proj.armor, kItem);
 	case PaletteCat::WallFeatures: return catalogItems(proj.wallfeatures, kDecoration);
 	default:                      return {};
 	}
@@ -490,6 +493,8 @@ void MapEditor::ApplyBrush(int cx, int cz, bool dragging, const WallFace& face) 
 	case PaletteCat::Monsters:
 	case PaletteCat::Buttons:
 	case PaletteCat::Items:
+	case PaletteCat::Weapons:
+	case PaletteCat::Armor:
 	case PaletteCat::WallFeatures:
 	case PaletteCat::Fixtures: {
 		if (dragging) break; // placement is a single click
@@ -536,7 +541,10 @@ void MapEditor::ApplyBrush(int cx, int cz, bool dragging, const WallFace& face) 
 		else if (m_sel.cat == PaletteCat::Buttons)
 			ok = remote ? m_world.AddButtonRemote(stem, id, cx, cz)
 						: m_world.AddButton(id, cx, cz);
-		else if (m_sel.cat == PaletteCat::Items) {
+		else if (m_sel.cat == PaletteCat::Items ||
+				 m_sel.cat == PaletteCat::Weapons ||
+				 m_sel.cat == PaletteCat::Armor) {
+			// Weapons and armor are item entities too — same placement path.
 			// A niche on the clicked WALL takes the item (piled in its pocket);
 			// a floor cell places on the floor as usual.
 			if (!remote)
