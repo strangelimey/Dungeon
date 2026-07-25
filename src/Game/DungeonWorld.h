@@ -1110,6 +1110,13 @@ private:
 		float hp = 1.0f;          // current hit points (maxHp at spawn)
 		float attackCd = 0.0f;    // seconds until this monster can swing again
 
+		// Status effects riding this monster — the SAME list a Character
+		// carries (docs/effects.md decision 2: full symmetry). Empty until P3
+		// moves the burn below onto it; it exists now so the pipeline's
+		// monster adapter is honest rather than pretending nothing can stick
+		// to a monster. Not saved yet (P5).
+		std::vector<fx::Inst> effects;
+
 		// BURNING (an enchanted weapon's elemental proc — IgniteMonster). A
 		// monster has no general status-effect list the way a Character does;
 		// this single slot IS the model: reapplying REFRESHES it (the ward
@@ -1654,12 +1661,15 @@ private:
 	// map (walls block). The host mirror of ai::SnapshotView::HasLineOfSight, used by
 	// the kiter for firing + repositioning; endpoints never block.
 	bool CellHasLineOfSight(int x0, int z0, int x1, int z1) const;
+	// What a wound did to a member beyond taking health off: nothing, put them
+	// down, or killed them outright (the overkill rule).
+	enum class Fall : u8 { None, Down, Dead };
 	// Apply `damage` to a member: clamp health, flash the hit splat (severity
-	// by raw damage), and log a downing/death (the overkill rule). Shared by
-	// every party-damage path. `quiet` is the DoT ticks' mode: no splat and a
-	// silent water-ward soak (a per-frame tick must not spam), but the
-	// one-shot down/death transitions still log.
-	void WoundMember(Character& target, float damage, bool quiet = false);
+	// by raw damage), and REPORT a downing/death rather than logging it — the
+	// line is said by whoever narrated the blow (PartyTarget::NarrateFall), so
+	// the cause reads before the effect. `quiet` is the DoT ticks' mode: no
+	// splat (a per-frame tick must not flash one every frame).
+	Fall WoundMember(Character& target, float damage, bool quiet = false);
 	// A landed monster blow rolls its type's on-hit DoT (Phase 6): chance,
 	// then land/refresh the effect with its log line. No-op for dps 0.
 	void ApplyHitEffect(Character& target, std::string_view effectId,
@@ -1700,11 +1710,59 @@ private:
 	// A whole stat point lands: increment, log, and re-derive the resource
 	// maxima (stats feed them now). Shared by the creep pools and SpendStamina.
 	void GrantStatPoint(Character& member, std::string_view stat);
-	// Assemble one side's DefenseProfile against an incoming damage type
-	// (docs/combat.md part 4). The party sums nature (race) + worn equipment
-	// + the earth ward's physical hardening; a monster reads its catalog.
-	DefenseProfile PartyDefense(const Character& member, DamageType type);
-	DefenseProfile MonsterDefense(const MonsterKind& kind, DamageType type) const;
+	// --- the effect pipeline's two faces (docs/effects.md) --------------------
+	// Damage flows through fx::Deal, which knows nothing of Character or
+	// Monster; these adapters ARE that knowledge, and they are the only place
+	// the two sides differ. Both are cheap stack values built at the call site.
+	//
+	// The one genuinely per-side stage is Wound: a member has splats, the
+	// unconscious/overkill rules and the wipe latch; a monster has threat
+	// credit, a flinch and a slain line. Everything before it — deflect,
+	// strike, mitigate, absorb — is shared.
+	class PartyTarget final : public fx::ITarget {
+	public:
+		PartyTarget(DungeonWorld& world, Character& member)
+			: m_world(world), m_member(member) {}
+		float Evasion() const override;
+		float Soak() const override;
+		float Resist(DamageType type) const override;
+		std::vector<fx::Inst>& Effects() override { return m_member.effects; }
+		void Wound(float amount, fx::DamageEvent& ev) override;
+		std::string Name() const override { return m_member.name; }
+		void Say(const std::string& line) const override;
+
+		// Say the one-shot fall line for the wound just applied ("has
+		// fallen!" / "has died!"), if any. The CALLER calls this after its own
+		// "hits for N", so that cause still precedes effect in the log — the
+		// apply stage knows what happened but not where to say it.
+		void NarrateFall() const;
+
+	private:
+		DungeonWorld& m_world;
+		Character& m_member;
+		Fall m_fall = Fall::None;
+	};
+
+	class MonsterTarget final : public fx::ITarget {
+	public:
+		MonsterTarget(DungeonWorld& world, Monster& monster)
+			: m_world(world), m_monster(monster) {}
+		float Evasion() const override;
+		float Soak() const override;
+		float Resist(DamageType type) const override;
+		std::vector<fx::Inst>& Effects() override { return m_monster.effects; }
+		void Wound(float amount, fx::DamageEvent& ev) override;
+		std::string Name() const override;
+		void Say(const std::string& line) const override;
+
+	private:
+		DungeonWorld& m_world;
+		Monster& m_monster;
+	};
+
+	// The balance knobs an effect's own maths needs, in the shape the module
+	// takes them (it never sees Balance.h).
+	fx::Knobs EffectKnobs() const { return {m_balance.stoneskinResist}; }
 	// Blocked-move recoil reached its peak: jar every standing member for a
 	// small amount of damage, flash a splat over each portrait, grunt once, and
 	// latch a party wipe if the bruise is somehow the end of them.

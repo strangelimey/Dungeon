@@ -206,13 +206,11 @@ struct Character {
 
 	// --- ward queries (the Protect form rune, docs/spells.md "Protect") ------
 	// Wards STACK across schools: a member may carry all four at once, because
-	// each school's ward is its OWN kind and a kind only refreshes itself. The
-	// school keys the behaviour AND how the ward's magnitude reads: earth =
-	// +physical resist, fire = melee attackers burn for it (both timed); water
-	// = an absorb POOL it spends soaking damage (DungeonWorld::WoundMember),
-	// air = deflect CHARGES it spends turning bolts aside
-	// (ResolveMonsterProjectileHit). Each behaviour queries ITS school here —
-	// and in P2 each moves inside its own kind class (docs/effects.md).
+	// each school's ward is its OWN kind and a kind only refreshes itself.
+	// Their BEHAVIOUR lives in those kinds now (Game/Effect/WardEffect.cpp) —
+	// each hooks the pipeline stage it acts at, and nothing outside asks a
+	// ward to do anything. These queries remain for the UI and for tests:
+	// "is this member warded?" is still a fair question to ask.
 	fx::Inst* FindWard(SpellSymbol school) {
 		for (fx::Inst& e : effects)
 			if (e.IsWard() && e.school == school) return &e;

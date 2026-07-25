@@ -726,11 +726,12 @@ void DungeonWorld::UpdateMonsters(float dt) {
 			}
 			// Age the status effects; an expired one leaves with its kind's
 			// fade line. (Spend-to-die wards — the water pool, the air
-			// charges — are erased at their spend site instead, so their
-			// burst/still lines replace the fade.) Poison/bleed DoT damage
-			// accumulates HERE and wounds once after the loop — WoundMember
-			// can mutate the effects list (a water ward bursts soaking it),
-			// so it must not run mid-iteration.
+			// charges — are erased where they spend themselves instead, so
+			// their burst/still lines replace the fade.) DoT damage
+			// accumulates HERE and is dealt once after the loop: the wound
+			// runs the whole pipeline, which can mutate this very list (a
+			// water veil bursting as it soaks the tick), so it must not run
+			// mid-iteration.
 			float dot = 0.0f;
 			for (fx::Inst& e : member.effects) {
 				e.timeLeft -= dt;
@@ -755,7 +756,16 @@ void DungeonWorld::UpdateMonsters(float dt) {
 			// The quiet DoT wound — it ticks a DOWNED member too, and a wound
 			// on someone already at 0 is death by the overkill rule (Phase 5):
 			// poison finishes the fallen, so get them clear of the fight.
-			if (dot > 0.0f) WoundMember(member, dot, /*quiet=*/true);
+			// Through the pipeline, so a water veil soaks a poison tick the
+			// way it always has (silently — a tick says nothing per frame).
+			if (dot > 0.0f) {
+				PartyTarget bitten{*this, member};
+				fx::DamageEvent ev =
+					fx::DamageEvent::Tick(DamageType::Earth, dot);
+				fx::Deal(ev, bitten, nullptr, m_balance.Strike(), EffectKnobs(),
+						 m_combatRng);
+				bitten.NarrateFall(); // the one line a tick does say
+			}
 		}
 	// A DoT tick can down (or finish) the last standing member — the wipe
 	// latch must notice without a monster swinging.

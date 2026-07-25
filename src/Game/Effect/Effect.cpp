@@ -30,8 +30,120 @@ void EffectKind::ApplyOverrides(const CatalogEntry& e) {
 		log::Warn("effects.cat [{}]: unknown stacking '{}'", m_id, stacking);
 }
 
+// The hooks all default to "this effect doesn't care about that stage".
+void EffectKind::OnDeflect(Inst&, DamageEvent&, ITarget&) const {}
+float EffectKind::ResistFor(const Inst&, DamageType, const Knobs&) const {
+	return 0.0f;
+}
+void EffectKind::OnAbsorb(Inst&, float&, const DamageEvent&, ITarget&) const {}
+void EffectKind::OnStruck(Inst&, const DamageEvent&, ITarget&, ITarget*) const {}
+
 float EffectKind::StatBonus(const Inst&, std::string_view) const { return 0.0f; }
 float EffectKind::SpeedScale(const Inst&) const { return 1.0f; }
+
+// --- the event presets --------------------------------------------------------
+
+DamageEvent DamageEvent::Blow(DamageType type, float amount, float accuracy,
+							  int source) {
+	return {.type = type, .amount = amount, .accuracy = accuracy,
+			.delivery = Delivery::Melee, .source = source};
+}
+
+DamageEvent DamageEvent::Bolt(DamageType type, float amount, float accuracy,
+							  int source) {
+	return {.type = type, .amount = amount, .accuracy = accuracy,
+			.delivery = Delivery::Ranged, .source = source};
+}
+
+DamageEvent DamageEvent::Tick(DamageType type, float amount, int source) {
+	return {.type = type, .amount = amount, .delivery = Delivery::Tick,
+			.source = source, .rolled = false, .soaked = false,
+			.resisted = false};
+}
+
+DamageEvent DamageEvent::Impact(DamageType type, float amount, int source) {
+	return {.type = type, .amount = amount, .delivery = Delivery::Impact,
+			.source = source, .rolled = false, .soaked = false,
+			.resisted = false};
+}
+
+// --- the pipeline -------------------------------------------------------------
+
+float EffectResist(const std::vector<Inst>& effects, DamageType type,
+				   const Knobs& knobs) {
+	float sum = 0.0f;
+	for (const Inst& e : effects)
+		if (e.kind) sum += e.kind->ResistFor(e, type, knobs);
+	return sum;
+}
+
+namespace {
+// Drop the effects that spent themselves during a stage. They have already
+// said their own line (a veil bursting, a ward stilling), which is exactly why
+// they are removed HERE and not left to the aging tick's generic fade line.
+void DropSpent(std::vector<Inst>& effects) {
+	std::erase_if(effects, [](const Inst& e) { return e.timeLeft <= 0.0f; });
+}
+} // namespace
+
+void Deal(DamageEvent& ev, ITarget& target, ITarget* attacker,
+		  const StrikeRules& rules, const Knobs& knobs, std::mt19937& rng) {
+	// --- 1. deflect: an effect may turn it aside before anything is rolled ---
+	for (Inst& e : target.Effects()) {
+		if (e.kind) e.kind->OnDeflect(e, ev, target);
+		if (ev.deflected) break;
+	}
+	DropSpent(target.Effects());
+	if (ev.deflected) return;
+
+	// --- 2/3. strike and mitigate -------------------------------------------
+	// A rolled event goes through the shared resolver, which does the hit roll,
+	// the damage jitter, soak and resist in one — the same maths every attack
+	// has always used. An unrolled one (a tick, a bump, an enchanted blow's
+	// elemental half) lands for what it says, subject only to the parts its
+	// flags admit.
+	float damage = 0.0f;
+	if (ev.rolled) {
+		const DefenseProfile def{target.Evasion(), ev.soaked ? target.Soak() : 0.0f,
+								 ev.resisted ? target.Resist(ev.type) : 0.0f};
+		const AttackResult r = ResolveAttack({ev.amount, ev.accuracy, ev.type},
+											 def, rules, rng);
+		ev.hit = r.hit;
+		damage = r.damage;
+	} else {
+		ev.hit = true;
+		damage = ev.amount;
+		if (ev.soaked) damage -= target.Soak();
+		if (ev.resisted) damage *= 1.0f - target.Resist(ev.type);
+		if (damage < 0.0f) damage = 0.0f;
+	}
+	if (!ev.hit) return;
+
+	// --- 4. absorb: pooled effects eat what they can -------------------------
+	for (Inst& e : target.Effects()) {
+		if (e.kind) e.kind->OnAbsorb(e, damage, ev, target);
+		if (damage <= 0.0f) break;
+	}
+	DropSpent(target.Effects());
+
+	// --- 5. apply: the one per-side stage ------------------------------------
+	ev.dealt = damage;
+	if (damage > 0.0f) target.Wound(damage, ev);
+	// (stage 6 is React, below — the caller runs it once it has said its piece)
+}
+
+void React(const DamageEvent& ev, ITarget& target, ITarget* attacker) {
+	if (!ev.hit || ev.deflected) return; // nothing landed to answer
+	// By INDEX, re-reading the list each step: a reaction reaches back into the
+	// world (a reprisal deals damage of its own), so the list must not be held
+	// across the call. The standing rule for a reaction is that it may damage
+	// the ATTACKER but must not add effects to its own bearer.
+	for (size_t i = 0; i < target.Effects().size(); ++i) {
+		Inst& e = target.Effects()[i];
+		if (e.kind) e.kind->OnStruck(e, ev, target, attacker);
+	}
+	DropSpent(target.Effects());
+}
 
 // --- landing one -------------------------------------------------------------
 

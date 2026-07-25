@@ -34,27 +34,12 @@ void DungeonWorld::MemberMessage(const Character& member,
 	else onMessage(line);
 }
 
-void DungeonWorld::WoundMember(Character& target, float damage, bool quiet) {
-	// Water Veil: water guards by ABSORBING — the ward soaks damage into its
-	// pool (the ward's magnitude) before any reaches health, and BURSTS when
-	// the pool is spent (unlike the timed wards, it dies by spending). Sitting
-	// in the one place a member takes damage, it soaks every source alike —
-	// melee, ranged, a wall bump, even a poison tick (silently — quiet mode
-	// is per-frame). A partial soak lets the remainder through to the normal
-	// wound path below.
-	if (fx::Inst* ward = target.FindWard(SpellSymbol::Water);
-		ward && damage > 0.0f) {
-		const float soaked = std::min(ward->magnitude, damage);
-		ward->magnitude -= soaked;
-		damage -= soaked;
-		if (!quiet)
-			MemberMessage(target, loc::Format("log.shield_soaks", target.name));
-		if (ward->magnitude <= 0.0f) {
-			target.RemoveWard(SpellSymbol::Water); // spent — burst, not fade
-			MemberMessage(target, loc::Format("log.shield_bursts", target.name));
-		}
-		if (damage <= 0.0f) return; // fully absorbed — no wound, no splat
-	}
+// The party half of the apply stage. Absorption happens BEFORE this now — the
+// water veil is an absorb-stage hook (Effect/WardEffect.cpp), not a special
+// case at the top of the one function that could hurt a member — so what is
+// left here is purely "put the damage into hit points and deal with falling".
+DungeonWorld::Fall DungeonWorld::WoundMember(Character& target, float damage,
+											 bool quiet) {
 	// Death needs deliberate OVERKILL (docs/combat.md Phase 5): a hit landing
 	// on a member ALREADY down — a poison tick against the unconscious counts
 	// — or a single blow past the overkill knob. Anything less leaves them
@@ -67,15 +52,14 @@ void DungeonWorld::WoundMember(Character& target, float damage, bool quiet) {
 		target.hitFlash = kHitFlashSeconds;
 		target.hitSeverity = damage < 5.0f ? 0 : (damage < 10.0f ? 1 : 2);
 	}
-	if (target.IsAlive()) return;
+	if (target.IsAlive()) return Fall::None;
 	target.stabilize = 0.0f; // the wound that downed them restarts the clock
 	if (!target.dead &&
 		(wasDown || damage >= m_balance.overkill * target.maxHealth)) {
 		target.dead = true;
-		MemberMessage(target, loc::Format("log.member_dies", target.name));
-	} else if (!target.dead && !wasDown) {
-		MemberMessage(target, loc::Format("log.member_down", target.name));
+		return Fall::Dead;
 	}
+	return !target.dead && !wasDown ? Fall::Down : Fall::None;
 }
 
 // The one place skills grow (docs/skills.md). Levels derive from raw XP
@@ -157,29 +141,87 @@ void DungeonWorld::RecomputePartyMaxima() {
 // One resist table per side, summed from its sources and clamped by the
 // balance rule (±resist_clamp; an authored nature cell at 1.0 = immunity).
 
-DefenseProfile DungeonWorld::PartyDefense(const Character& member,
-										  DamageType type) {
-	float resist = member.natureResists[type]; // the race layer
+// --- the pipeline's two faces (docs/effects.md) -------------------------------
+// Everything fx::Deal needs to know about a combatant. The defender numbers are
+// what PartyDefense/MonsterDefense used to assemble; the difference is that the
+// EFFECT term is no longer a hard-coded Stone Skin branch but a sum over
+// whatever effects the target happens to carry.
+
+float DungeonWorld::PartyTarget::Evasion() const { return m_member.Evasion(); }
+
+float DungeonWorld::PartyTarget::Soak() const {
 	float soak = 0.0f;
-	for (const ItemSlot& slot : member.inventory.equipment) {
-		if (slot.Empty()) continue;
-		const ItemKind& kind = ItemKindFor(slot.typeId);
-		resist += kind.resists[type];
-		soak += kind.armor;
-	}
-	// Stone Skin: earth hardens — the ward's magnitude converts to PHYSICAL
-	// resist at the stoneskin_resist knob (elemental bolts pass it by).
-	if (IsPhysical(type))
-		if (const fx::Inst* ward = member.FindWard(SpellSymbol::Earth))
-			resist += ward->magnitude * m_balance.stoneskinResist;
-	return {member.Evasion(), soak,
-			m_balance.ClampResist(resist, member.natureResists[type])};
+	for (const ItemSlot& slot : m_member.inventory.equipment)
+		if (!slot.Empty()) soak += m_world.ItemKindFor(slot.typeId).armor;
+	return soak;
 }
 
-DefenseProfile DungeonWorld::MonsterDefense(const MonsterKind& kind,
-											DamageType type) const {
-	return {kind.evasion, kind.armor,
-			m_balance.ClampResist(kind.resists[type], kind.resists[type])};
+float DungeonWorld::PartyTarget::Resist(DamageType type) const {
+	float resist = m_member.natureResists[type]; // the race layer
+	for (const ItemSlot& slot : m_member.inventory.equipment)
+		if (!slot.Empty()) resist += m_world.ItemKindFor(slot.typeId).resists[type];
+	resist += fx::EffectResist(m_member.effects, type, m_world.EffectKnobs());
+	return m_world.m_balance.ClampResist(resist, m_member.natureResists[type]);
+}
+
+void DungeonWorld::PartyTarget::Wound(float amount, fx::DamageEvent& ev) {
+	m_fall = m_world.WoundMember(m_member, amount, ev.Quiet());
+	ev.slew = m_fall != Fall::None;
+}
+
+void DungeonWorld::PartyTarget::NarrateFall() const {
+	if (m_fall == Fall::Dead)
+		m_world.MemberMessage(m_member,
+							  loc::Format("log.member_dies", m_member.name));
+	else if (m_fall == Fall::Down)
+		m_world.MemberMessage(m_member,
+							  loc::Format("log.member_down", m_member.name));
+}
+
+void DungeonWorld::PartyTarget::Say(const std::string& line) const {
+	m_world.MemberMessage(m_member, line);
+}
+
+float DungeonWorld::MonsterTarget::Evasion() const {
+	return m_monster.kind->evasion;
+}
+
+float DungeonWorld::MonsterTarget::Soak() const { return m_monster.kind->armor; }
+
+float DungeonWorld::MonsterTarget::Resist(DamageType type) const {
+	const float nature = m_monster.kind->resists[type];
+	const float resist =
+		nature + fx::EffectResist(m_monster.effects, type, m_world.EffectKnobs());
+	return m_world.m_balance.ClampResist(resist, nature);
+}
+
+std::string DungeonWorld::MonsterTarget::Name() const {
+	return loc::Tr("monster." + m_monster.kind->name);
+}
+
+void DungeonWorld::MonsterTarget::Say(const std::string& line) const {
+	m_world.onMessage(line);
+}
+
+// The monster half of the apply stage: hit points, the grudge, the flinch, and
+// the corpse — the five hand-written copies of this that used to sit at every
+// site able to hurt a monster. The killing LINE stays with the caller (it says
+// "slain" / "destroyed" / "burns away" depending on what did it, and has to
+// come after the caller's own "hits for N").
+void DungeonWorld::MonsterTarget::Wound(float amount, fx::DamageEvent& ev) {
+	m_monster.hp -= amount;
+	if (ev.source >= 0)
+		m_world.AddThreat(m_monster, static_cast<size_t>(ev.source), amount);
+	// A per-frame tick doesn't re-provoke or re-flinch every frame; anything
+	// else wakes the monster and turns it on whoever struck.
+	if (!ev.Quiet()) m_world.ProvokeMonster(m_monster);
+	if (!m_monster.Alive()) {
+		m_monster.hp = 0.0f; // a downed monster stays in the list (save restore)
+		Extinguish(m_monster); // a corpse stops burning
+		ev.slew = true;
+	} else if (!ev.Quiet()) {
+		m_monster.hitReq = true; // survivor flinches (a fatal blow plays Die)
+	}
 }
 
 void DungeonWorld::ApplyHitEffect(Character& target, std::string_view effectId,
@@ -237,8 +279,10 @@ void DungeonWorld::IgniteMonster(Monster& monster, SpellSymbol school,
 	// The RESIST applies once, here: a fire-natured monster catches poorly (and
 	// an authored immunity, a cell of 1.0, never catches at all), rather than
 	// paying the resist every tick. Same clamp rule as any other damage.
-	const float dps = fx.dps * (1.0f - MonsterDefense(*monster.kind,
-													  SchoolDamageType(school)).resist);
+	// (P3 moves this to per-tick, per docs/effects.md decision 1.)
+	const MonsterTarget kindling{*this, monster};
+	const float dps =
+		fx.dps * (1.0f - kindling.Resist(SchoolDamageType(school)));
 	if (dps <= 0.0f) return;
 	const bool relit = monster.burnLeft > 0.0f; // reapply REFRESHES (the ward rule)
 	monster.burnDps = dps;
@@ -263,16 +307,16 @@ void DungeonWorld::Extinguish(Monster& monster) {
 
 void DungeonWorld::TickBurn(Monster& monster, float dt) {
 	monster.burnLeft -= dt;
-	monster.hp -= monster.burnDps * dt;
-	// The fire keeps the grudge alive: whoever lit it goes on earning threat
-	// for as long as it burns, so a hit-and-run torch still holds attention.
-	if (monster.burnSource >= 0)
-		AddThreat(monster, static_cast<size_t>(monster.burnSource),
-				  monster.burnDps * dt);
+	// Through the pipeline: the fire keeps the grudge alive (the event carries
+	// whoever lit it, so a hit-and-run torch goes on earning threat), and the
+	// death path is the same one every other source of damage takes.
+	MonsterTarget burning{*this, monster};
+	fx::DamageEvent ev = fx::DamageEvent::Tick(
+		SchoolDamageType(monster.burnSchool), monster.burnDps * dt,
+		monster.burnSource);
+	fx::Deal(ev, burning, nullptr, m_balance.Strike(), EffectKnobs(), m_combatRng);
 	const std::string name = loc::Tr("monster." + monster.kind->name);
-	if (!monster.Alive()) {
-		monster.hp = 0.0f; // the ordinary downed state — the death clip plays
-		Extinguish(monster);
+	if (ev.slew) {
 		onMessage(loc::Format("log.monster_burns_away", name));
 	} else if (monster.burnLeft <= 0.0f) {
 		Extinguish(monster);
@@ -408,42 +452,33 @@ void DungeonWorld::MonsterAttack(Monster& monster) {
 	// empty, so nothing plays — the pre-clip look, as before.
 	monster.attackReq = true;
 
-	const AttackProfile atk{monster.kind->damage, monster.kind->accuracy,
-							monster.kind->damageType};
-	const DefenseProfile def = PartyDefense(target, atk.type);
-	const AttackResult r = ResolveAttack(atk, def, m_balance.Strike(), m_combatRng);
 	const std::string name = loc::Tr("monster." + monster.kind->name);
+	// One blow, through the one pipeline. The wind ward can't deflect it (it
+	// turns bolts), the water veil may soak it, and the fire shield answers it
+	// — all of that is the stages' business now, not this function's.
+	PartyTarget defender{*this, target};
+	MonsterTarget striker{*this, monster};
+	fx::DamageEvent ev = fx::DamageEvent::Blow(
+		monster.kind->damageType, monster.kind->damage, monster.kind->accuracy,
+		victim);
+	fx::Deal(ev, defender, &striker, m_balance.Strike(), EffectKnobs(), m_combatRng);
 
-	if (!r.hit) {
+	if (!ev.hit) {
 		MemberMessage(target, loc::Format("log.monster_misses", name, target.name));
 		return;
 	}
 	MemberMessage(target, loc::Format("log.monster_hits", name, target.name,
-									  static_cast<int>(r.damage + 0.5f)));
+									  static_cast<int>(ev.dealt + 0.5f)));
+	defender.NarrateFall();
 	m_audio.Play(m_sounds.monster, 0.6f);
-	WoundMember(target, r.damage);
 	// On-hit DoTs (Phase 6): the landed blow may envenom/open a wound —
 	// applied even if the blow itself downed them (the ticks finish the job).
 	ApplyHitEffect(target, "poison", monster.kind->poison);
 	ApplyHitEffect(target, "bleed", monster.kind->bleed);
-	// Fire Shield retaliation: fire guards by burning back — a monster that
-	// LANDS a melee blow on a fire-warded member is scorched for the ward's
-	// power (the hit itself is not reduced; earth is the school that hardens).
-	// Fires even if the blow downs the member — the ward outlives its bearer's
-	// last stand by exactly one burn.
-	if (const fx::Inst* ward = target.FindWard(SpellSymbol::Fire)) {
-		monster.hp -= ward->magnitude;
-		onMessage(loc::Format("log.shield_burns", name,
-							  static_cast<int>(ward->magnitude + 0.5f)));
-		if (!monster.Alive()) {
-			monster.hp = 0.0f; // downed monster stays in the list (save restore)
-			onMessage(loc::Format("log.monster_slain", name));
-		} else {
-			monster.hitReq = true; // the burn stings — flinch like any hit
-			// The burn is the ward-bearer's damage — it feeds their threat.
-			AddThreat(monster, static_cast<size_t>(victim), ward->magnitude);
-		}
-	}
+	// ...and now the blow has been reported, whatever guards them answers it
+	// (the fire shield scorches its attacker). Its own death line comes from
+	// the ward, since nothing else is narrating this reprisal.
+	fx::React(ev, defender, &striker);
 	CheckPartyWipe();
 }
 
@@ -458,7 +493,12 @@ void DungeonWorld::OnBumpImpact() {
 	bool anyHurt = false;
 	for (Character& member : *m_roster) {
 		if (!member.IsAlive()) continue;
-		WoundMember(member, kBumpDamage); // severity 0 at this damage; logs any downing
+		// Through the pipeline like everything else — which is how a water
+		// veil comes to soak a wall, exactly as it always has.
+		PartyTarget jarred{*this, member};
+		fx::DamageEvent ev = fx::DamageEvent::Impact(DamageType::Bash, kBumpDamage);
+		fx::Deal(ev, jarred, nullptr, m_balance.Strike(), EffectKnobs(), m_combatRng);
+		jarred.NarrateFall();
 		anyHurt = true;
 	}
 	if (!anyHurt) return;
@@ -758,44 +798,44 @@ bool DungeonWorld::PartyAttack(size_t member, size_t hand, std::string_view verb
 			m_balance.accStat * static_cast<float>(attacker.dexterity) +
 			m_balance.accSkill * static_cast<float>(level) + spec->acc,
 		spec->type};
-	const DefenseProfile def = MonsterDefense(*target->kind, atk.type);
-	const AttackResult r = ResolveAttack(atk, def, m_balance.Strike(), m_combatRng);
 	const std::string name = loc::Tr("monster." + target->kind->name);
+	PartyTarget striker{*this, attacker};
+	MonsterTarget defender{*this, *target};
+	fx::DamageEvent ev = fx::DamageEvent::Blow(atk.type, atk.damage, atk.accuracy,
+											   static_cast<int>(member));
+	fx::Deal(ev, defender, &striker, m_balance.Strike(), EffectKnobs(), m_combatRng);
 
-	if (!r.hit) {
+	if (!ev.hit) {
 		MemberMessage(attacker, loc::Format("log.party_misses", attacker.name, name));
 		return true;
 	}
 	// ENCHANTMENT: a landed blow with an elemental weapon carries its element
-	// through as well — `element_bonus` of the assembled damage, resisted as
-	// that element (not soaked; plate turns a blade, not a flame). It rides the
-	// physical hit, so it gets no accuracy roll of its own.
+	// through as well — a SECOND event of that element, `element_bonus` of the
+	// assembled damage. It rides the physical hit, so it is neither rolled nor
+	// soaked (plate turns a blade, not a flame) but the target's resist for the
+	// element still answers it.
 	float elemental = 0.0f;
 	if (weapon && weapon->enchanted && weapon->elementBonus > 0.0f) {
-		const DamageType type = SchoolDamageType(weapon->element);
-		elemental = atk.damage * weapon->elementBonus *
-					(1.0f - MonsterDefense(*target->kind, type).resist);
-		if (elemental < 0.0f) elemental = 0.0f;
+		fx::DamageEvent burst = fx::DamageEvent::Impact(
+			SchoolDamageType(weapon->element), atk.damage * weapon->elementBonus,
+			static_cast<int>(member));
+		burst.resisted = true; // by element — the one part it does answer to
+		fx::Deal(burst, defender, &striker, m_balance.Strike(), EffectKnobs(),
+				 m_combatRng);
+		elemental = burst.dealt;
 	}
-	target->hp -= r.damage + elemental;
-	ProvokeMonster(*target); // the struck monster alone notices + turns to the party
-	AddThreat(*target, member, r.damage + elemental);
-	int dmg = static_cast<int>(r.damage + elemental + 0.5f);
+	const int dmg = static_cast<int>(ev.dealt + elemental + 0.5f);
 	MemberMessage(attacker, loc::Format("log.party_hits", attacker.name, name, dmg));
 	GrantSkillXp(attacker, skillId, 1.0f, stats); // a LANDED blow trains its class
 	m_audio.Play(m_sounds.monster, 0.7f);
 
+	fx::React(ev, defender, &striker); // whatever guards it answers the blow
 	if (!target->Alive()) {
-		target->hp = 0.0f; // a downed monster stays in the list (so a new game /
-		// save can restore it) but renders, blocks, and acts as dead.
-		Extinguish(*target); // a corpse stops burning
 		onMessage(loc::Format("log.monster_slain", name));
-	} else {
-		target->hitReq = true; // survivor flinches (a fatal blow goes straight to Die)
-		// ...and a survivor may be left alight by the weapon's proc.
-		if (weapon && weapon->enchanted)
-			IgniteMonster(*target, weapon->element, weapon->elementDot,
-						  static_cast<int>(member));
+	} else if (weapon && weapon->enchanted) {
+		// A survivor may be left alight by the weapon's proc.
+		IgniteMonster(*target, weapon->element, weapon->elementDot,
+					  static_cast<int>(member));
 	}
 	return true;
 }
@@ -926,20 +966,16 @@ bool DungeonWorld::ResolveSpellHit(const ProjectileImpact& impact) {
 	}
 	if (!hit) return false; // open air (or only wrong-lane bodies) — flies on
 
-	const DefenseProfile def = MonsterDefense(*hit->kind, impact.atk.type);
-	const AttackResult r =
-		ResolveAttack(impact.atk, def, m_balance.Strike(), m_combatRng);
 	const std::string name = loc::Tr("monster." + hit->kind->name);
-	if (r.hit) {
-		hit->hp -= r.damage;
-		ProvokeMonster(*hit); // a spell strike also wakes its target
-		if (impact.attacker >= 0)
-			AddThreat(*hit, static_cast<size_t>(impact.attacker), r.damage);
-		onMessage(loc::Format("log.spell_hits", name, static_cast<int>(r.damage + 0.5f)));
+	MonsterTarget defender{*this, *hit};
+	fx::DamageEvent ev = fx::DamageEvent::Bolt(impact.atk.type, impact.atk.damage,
+											   impact.atk.accuracy, impact.attacker);
+	fx::Deal(ev, defender, nullptr, m_balance.Strike(), EffectKnobs(), m_combatRng);
+	if (ev.hit) {
+		onMessage(loc::Format("log.spell_hits", name, static_cast<int>(ev.dealt + 0.5f)));
 		m_audio.Play(m_sounds.spellImpact, 0.7f);
+		fx::React(ev, defender, nullptr); // whatever guards it answers the bolt
 		if (!hit->Alive()) {
-			hit->hp = 0.0f; // downed monster stays in the list (save can restore it)
-			Extinguish(*hit); // a corpse stops burning
 			onMessage(loc::Format("log.spell_slain", name));
 		} else {
 			hit->hitReq = true; // survivor flinches (a fatal blow goes straight to Die)
@@ -1011,30 +1047,24 @@ bool DungeonWorld::ResolveMonsterProjectileHit(const ProjectileImpact& impact) {
 		if (best >= 0) pick = static_cast<size_t>(best);
 	}
 	Character& target = (*m_roster)[pick];
-	// Wind Ward: air guards by DEFLECTING — a bolt aimed at the warded member
-	// is turned aside outright (no strike roll), spending one of the ward's
-	// charges (its magnitude); the last deflection stills the wind. Bolts
-	// aimed at unwarded neighbours fly true — the ward wraps its caster alone.
-	if (fx::Inst* ward = target.FindWard(SpellSymbol::Air)) {
-		ward->magnitude -= 1.0f;
-		MemberMessage(target, loc::Format("log.shield_deflects", target.name));
-		if (ward->magnitude <= 0.0f) {
-			target.RemoveWard(SpellSymbol::Air); // spent — stills, not fade
-			MemberMessage(target, loc::Format("log.shield_stills", target.name));
-		}
-		return true; // the bolt is spent against the wind
-	}
-	const DefenseProfile def = PartyDefense(target, impact.atk.type);
-	const AttackResult r =
-		ResolveAttack(impact.atk, def, m_balance.Strike(), m_combatRng);
-	if (!r.hit) {
+	// The bolt goes through the one pipeline: the Wind Ward turns it aside at
+	// the deflect stage (spending a charge), the Water Veil may soak what gets
+	// through, and the Fire Shield stays out of it — it burns back at blows,
+	// not at bolts. All of that is the effects' business, not this resolver's.
+	PartyTarget defender{*this, target};
+	fx::DamageEvent ev = fx::DamageEvent::Bolt(impact.atk.type, impact.atk.damage,
+											   impact.atk.accuracy);
+	fx::Deal(ev, defender, nullptr, m_balance.Strike(), EffectKnobs(), m_combatRng);
+	if (ev.deflected) return true; // spent against the wind
+	if (!ev.hit) {
 		MemberMessage(target, loc::Format("log.monster_ranged_misses", target.name));
 		return true;
 	}
 	MemberMessage(target, loc::Format("log.monster_ranged_hits", target.name,
-									  static_cast<int>(r.damage + 0.5f)));
+									  static_cast<int>(ev.dealt + 0.5f)));
+	defender.NarrateFall();
 	m_audio.Play(m_sounds.monster, 0.6f);
-	WoundMember(target, r.damage);
+	fx::React(ev, defender, nullptr); // (a fire shield answers blows, not bolts)
 	CheckPartyWipe();
 	return true;
 }

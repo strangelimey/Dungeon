@@ -182,6 +182,43 @@ Dev: `effect <id> [member] [magnitude] [seconds]` lands one directly,
 because setting a ward up by casting is a coin toss (vocabulary, mana,
 fumble) and then a monster still has to choose to hit its bearer.
 
+**P2 — the pipeline, and the four wards move home. LANDED 2026-07-24.**
+`fx::ITarget` with its two adapters (`DungeonWorld::PartyTarget` /
+`MonsterTarget`), `fx::DamageEvent`, and `fx::Deal` walking the stages.
+Every damage site now builds an event and hands it over: party melee,
+monster melee, both projectile resolvers, the wall bump, the party DoT
+tick, the monster burn tick. `PartyDefense`/`MonsterDefense` are gone
+(the adapters assemble it, and the effect term is a sum over whatever the
+target carries, not a hard-coded Stone Skin branch), and the four wards
+are four hooks in `Effect/WardEffect.cpp`.
+
+Three things the build taught us:
+- **Stage 6 is the CALLER's to run.** A reaction writes a line ("the blob
+  is scorched by the fire shield") that has to read *after* the blow it
+  answers. With react inside `Deal` the log came out backwards, so it
+  split into `fx::React`, called once the caller has narrated. The same
+  problem in miniature — the fall lines — is why `WoundMember` now
+  *reports* a `Fall` and `PartyTarget::NarrateFall` says it, and why the
+  monster's slain LINE stayed with its caller while the death PATH moved
+  into the adapter.
+- **Flags, not delivery, decide the maths.** An enchanted weapon's
+  elemental half is resisted by element but neither rolled nor soaked, so
+  `DamageEvent` carries `rolled`/`soaked`/`resisted` separately from
+  `Delivery`; the presets set the usual combinations.
+- **A reprisal goes straight to `Wound`,** not back through `Deal` — it
+  is not itself deflectable or soakable, which also means a reaction can
+  never recurse into another one.
+
+*Verified in game:* stone skin halving a blow (4→2), the fire shield
+scorching for 9 — including a reprisal that KILLED the blob and narrated
+it — the water veil soaking a wall bump with no health lost, the wind
+ward correctly NOT deflecting melee, monster melee with its poison proc
+and fall lines, a party melee kill, and a spell bolt ("seared for 8" then
+"destroyed") — every line in its original order. NOT verified live: the
+wind ward deflecting an actual bolt (the test level's one caster never
+fired — the swarms always closed first), and a burn kill after the
+retiming (its `slew` mechanism is the one three other kills proved).
+
 **P2 — the pipeline, and the four wards move home.**
 `ITarget` + the two adapters, `DamageEvent`, the six stages. Every damage
 site — party melee, monster melee, both projectile resolvers, the bump,

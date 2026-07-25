@@ -24,9 +24,11 @@
 #pragma once
 
 #include "Core/Types.h"
+#include "Game/Combat.h" // DamageType, StrikeRules, the strike resolver
 #include "Game/Spells.h" // SpellSymbol (an effect's school: tint + flavour)
 
 #include <memory>
+#include <random>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -57,6 +59,101 @@ enum class Stacking : u8 {
 };
 
 struct Inst;
+struct DamageEvent;
+class ITarget;
+
+// The few balance.cat knobs an effect's own maths needs, handed in by the host
+// so this module never includes Balance.h (and the knobs stay in the editor's
+// Balance dialog, where they are tuned).
+struct Knobs {
+	float stoneskinResist = 1.0f; // ward magnitude -> physical resist
+};
+
+// HOW damage arrives. The stages read it to decide which effects care: the wind
+// ward turns aside bolts and not blows, the fire shield burns back at a swung
+// blow and not a poison tick.
+enum class Delivery : u8 {
+	Melee,  // a swung blow, rolled against evasion
+	Ranged, // a flying bolt, likewise
+	Tick,   // a DoT's per-frame bite: unavoidable, and QUIET (a per-frame
+			// event must not spam the log or flash a splat every frame)
+	Impact, // unavoidable but not quiet — a wall bump, a ward's reprisal, the
+			// elemental half of an enchanted blow
+};
+
+// ONE incoming hit, walked through the six stages (docs/effects.md): deflect,
+// strike, mitigate, absorb, apply, react. Every source of damage — a swing, a
+// bolt, a burn, a bump — builds one of these and hands it to Deal, so that
+// resists, wards and knobs apply in exactly one place.
+//
+// The three booleans say which parts of the maths this kind of damage is
+// subject to; the Delivery presets below set them the usual way. They are
+// separate from Delivery because they genuinely vary independently — an
+// enchanted weapon's elemental term is resisted by element but neither rolled
+// nor soaked (plate turns a blade, not a flame).
+struct DamageEvent {
+	DamageType type = DamageType::Bash;
+	float amount = 0.0f;   // the attacker's assembled damage, before defenses
+	float accuracy = 0.0f; // 0..1, against the defender's evasion (if rolled)
+	Delivery delivery = Delivery::Melee;
+	// The roster index behind this damage (threat credit), or -1 for none —
+	// a monster's own blow, a wall, an unattributed tick.
+	int source = -1;
+	bool rolled = true;   // run the accuracy-vs-evasion strike roll
+	bool soaked = true;   // armor subtracts a flat amount
+	bool resisted = true; // the defender's resist for `type` scales it
+
+	// --- filled in by the stages ---
+	bool deflected = false; // an effect turned it aside outright
+	bool hit = false;       // the strike landed (always true when unrolled)
+	float dealt = 0.0f;     // what actually reached hit points
+	// This event finished the target. The apply stage sets it; the CALLER says
+	// the line, because only the caller knows what killed them ("slain" /
+	// "destroyed" / "burns away") and where it belongs in the narration — the
+	// blow's own "hits for 25" has to come first.
+	bool slew = false;
+
+	// A per-frame tick stays silent: no splat, no flinch, no soak line.
+	bool Quiet() const { return delivery == Delivery::Tick; }
+
+	// The presets. Melee/Ranged are the full formula; Tick/Impact are raw
+	// amounts that land as authored (a poison tick and a bump are not armored
+	// against today, and P2 is a refactor — see docs/effects.md).
+	static DamageEvent Blow(DamageType type, float amount, float accuracy,
+							int source = -1);
+	static DamageEvent Bolt(DamageType type, float amount, float accuracy,
+							int source = -1);
+	static DamageEvent Tick(DamageType type, float amount, int source = -1);
+	static DamageEvent Impact(DamageType type, float amount, int source = -1);
+};
+
+// What the stages need to know about — and do to — a combatant, whoever it is.
+// DungeonWorld implements it twice, over Character and over Monster; nothing in
+// this module knows either type exists. That wall is what makes the two sides
+// genuinely share one pipeline instead of two that merely resemble each other.
+class ITarget {
+public:
+	virtual ~ITarget() = default;
+
+	// The defender's numbers. Resist is FINAL — nature/catalog + equipment +
+	// this target's effects, summed and clamped by the host's rule.
+	virtual float Evasion() const = 0;
+	virtual float Soak() const = 0;
+	virtual float Resist(DamageType type) const = 0;
+
+	// The effects riding this combatant — the stages walk them for hooks.
+	virtual std::vector<Inst>& Effects() = 0;
+
+	// Stage 5: put `amount` into hit points and run this side's consequences
+	// (a member's splat / unconscious / overkill / wipe latch; a monster's
+	// threat credit / flinch / corpse). The one genuinely per-side stage. Sets
+	// ev.slew when this is the damage that finished them.
+	virtual void Wound(float amount, DamageEvent& ev) = 0;
+
+	// For the lines effects write about their bearer.
+	virtual std::string Name() const = 0;
+	virtual void Say(const std::string& line) const = 0;
+};
 
 // One effect's shared half: what it IS, what it looks like, how it stacks.
 class EffectKind {
@@ -76,6 +173,31 @@ public:
 	// by id (EffectBook::Build calls this once per load). The base takes the
 	// name/icon/stacking; a derived kind adds its own fields.
 	virtual void ApplyOverrides(const CatalogEntry& e);
+
+	// --- the pipeline hooks (docs/effects.md) --------------------------------
+	// One per stage an effect can intervene at. All default to doing nothing,
+	// so a kind implements only the stage it actually cares about — and which
+	// stage that is IS the effect's design:
+	//   windward   deflect   turns a bolt aside, spending a charge
+	//   stoneskin  mitigate  contributes physical resist
+	//   waterveil  absorb    eats damage from a pool, and bursts when spent
+	//   fireshield react     scorches whoever landed the blow
+	// An effect that dies by SPENDING (rather than timing out) says its own
+	// line and zeroes timeLeft; Deal erases it before the next stage, so the
+	// world's aging tick never also prints the generic fade line.
+
+	// Stage 1 — may cancel the event outright, before any roll.
+	virtual void OnDeflect(Inst& inst, DamageEvent& ev, ITarget& self) const;
+	// Stage 3 — this effect's contribution to its bearer's resist for `type`.
+	virtual float ResistFor(const Inst& inst, DamageType type,
+							const Knobs& knobs) const;
+	// Stage 4 — eat what you can of `remaining` (a pool that spends itself).
+	virtual void OnAbsorb(Inst& inst, float& remaining, const DamageEvent& ev,
+						  ITarget& self) const;
+	// Stage 6 — the blow landed on the bearer; react to whoever struck.
+	// `attacker` is null when nobody did (a wall, an unattributed tick).
+	virtual void OnStruck(Inst& inst, const DamageEvent& ev, ITarget& self,
+						  ITarget* attacker) const;
 
 	// --- the modifier query (docs/effects.md decision 4) ---------------------
 	// Shipped unused: nothing implements these yet, and no read site asks. A
@@ -131,6 +253,27 @@ struct Inst {
 Inst& Apply(std::vector<Inst>& effects, const EffectKind& kind,
 			SpellSymbol school, float magnitude, float duration,
 			int source = -1);
+
+// What a list of effects adds to their bearer's resist for `type` — the
+// mitigate stage's effect term. Both target adapters call it, so "effects can
+// harden you" is written once rather than once per side.
+float EffectResist(const std::vector<Inst>& effects, DamageType type,
+				   const Knobs& knobs);
+
+// THE path damage takes: walk `ev` through stages 1-5 against `target` —
+// deflect, strike, mitigate, absorb, apply. Everything is reported back in
+// `ev` (deflected / hit / dealt / slew); the caller narrates from that.
+//
+// `attacker` is whoever dealt it (null for a wall, a tick, an unowned source).
+void Deal(DamageEvent& ev, ITarget& target, ITarget* attacker,
+		  const StrikeRules& rules, const Knobs& knobs, std::mt19937& rng);
+
+// Stage 6, split out so the CALLER can narrate first: a reaction writes its own
+// line ("the blob is scorched by the fire shield") and that has to read after
+// the blow it answers, not before it. Call it once the blow itself has been
+// reported. Harmless when the target has no reacting effects, which is why
+// every attack site calls it rather than only the ones that might matter.
+void React(const DamageEvent& ev, ITarget& target, ITarget* attacker);
 
 // The registry: every kind, constructed at its class defaults and then tuned
 // by the project's effects.cat. Built once per load, and every Inst in the
