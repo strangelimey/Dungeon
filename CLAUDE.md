@@ -148,7 +148,17 @@ Key conventions (memorize, they bite):
   keys ×5 (armor -> armor.cat with armor/resists; runes/keys/food/etc ->
   items.cat — see the editor palette section for the three-catalog item split);
   a new attack VERB is a Balance-ctor row + attacks.cat entry +
-  GameUI kMeleeUses + use.<verb> keys ×5.
+  GameUI kMeleeUses + use.<verb> keys ×5. ENCHANTED weapons (weapons.cat
+  `element = fire` + `element_bonus` + `element_dot = <dps> <secs> [chance]`,
+  the poison/bleed line shape — one shared parser, ParseHitEffect): a landed
+  blow adds elemental damage through the target's resist for that element
+  (no soak, no separate to-hit roll) and may leave the monster BURNING —
+  Monster's single burn slot (the Character effect LIST's smaller sibling:
+  resist-scaled at ignition, refreshes on reapply, ticks in UpdateMonsters,
+  credits threat to whoever lit it, transient across saves) with a FireEffect
+  plume re-aimed every frame + a shadowless element-coloured light. Dev:
+  `equip <item> [member] [hand]`. NOTE this is the last hand-rolled damage
+  path — docs/effects.md folds them all into one pipeline.
 - ALL user-facing text goes through Core/Loc (loc::Tr(key) /
   loc::Format(key, args...) for {} placeholders), loaded from
   assets/lang/<code>.lang (UTF-8 key=value, ';' comments; en.lang is the

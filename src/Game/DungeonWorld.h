@@ -944,6 +944,14 @@ private:
 
 	struct MultiMaterialModel; // defined below (shared with decorations/items)
 
+	// A damage-over-time proc authored on ONE catalog line, "<dps> <seconds>
+	// [chance]" (ParseHitEffect): a landed blow rolls the chance and lands the
+	// DoT. Shared by the two sides — a monster's on-hit poison/bleed and an
+	// enchanted weapon's elemental burn. dps 0 = the line was absent.
+	struct HitEffect {
+		float dps = 0.0f, duration = 0.0f, chance = 1.0f;
+	};
+
 	// Per-kind monster assets (shared) and per-instance state. Kinds are
 	// entity type names from the .ent file ("skeleton" loads skeleton.gltf).
 	struct MonsterKind {
@@ -972,9 +980,6 @@ private:
 		// On-hit status effects (Phase 6, catalog `poison = <dps> <seconds>
 		// [chance]` / `bleed = ...`): a LANDED melee blow rolls the chance
 		// and lands the DoT (reapply refreshes). dps 0 = the type carries none.
-		struct HitEffect {
-			float dps = 0.0f, duration = 0.0f, chance = 1.0f;
-		};
 		HitEffect poison, bleed;
 		// Melee reach in cells (Phase 7, catalog `reach`): 1 = must be in the
 		// adjacent ring; 2 = a pike — melees from its QUEUE post down a clear
@@ -1101,6 +1106,21 @@ private:
 		float hp = 1.0f;          // current hit points (maxHp at spawn)
 		float attackCd = 0.0f;    // seconds until this monster can swing again
 
+		// BURNING (an enchanted weapon's elemental proc — IgniteMonster). A
+		// monster has no general status-effect list the way a Character does;
+		// this single slot IS the model: reapplying REFRESHES it (the ward
+		// rule), the dps is already resist-scaled at ignition, and the tick
+		// (TickBurn) can finish the monster off through the ordinary slain
+		// path. TRANSIENT — the fire goes out on save/reload, like a flinch.
+		float burnDps = 0.0f, burnLeft = 0.0f;
+		SpellSymbol burnSchool = SpellSymbol::Fire; // flame/light tint
+		int burnSource = -1; // roster member who lit it, for threat credit
+		// The plume rising off a burning body, allocated only while alight
+		// (null = not burning) — a FireEffect is fat (its own mt19937), so
+		// every monster carrying one by value would cost far more than the
+		// handful that are ever actually on fire.
+		std::unique_ptr<FireEffect> burnFx;
+
 		// Chase movement (AI v1). The logical cell (x,z) snaps the instant a step
 		// commits — like the party — so occupancy/blocking is atomic; visualPos
 		// glides from moveFrom to the new cell centre over moveInterval. moveCd
@@ -1197,6 +1217,16 @@ private:
 		// from the party's REAR rank (roster slots 2-3); everything else —
 		// bare hands included — is front-rank only.
 		bool polearm = false;
+		// ENCHANTMENT (the fire sword, catalog `element = fire`): the weapon
+		// carries a school's element into every LANDED blow, on top of the
+		// physical damage — `element_bonus` of the blow's assembled damage as
+		// that element (through the target's resist for it), then a roll on
+		// `element_dot` to leave the target burning. enchanted=false (no
+		// `element` line) = an ordinary weapon, both terms skipped.
+		bool enchanted = false;
+		SpellSymbol element = SpellSymbol::Fire;
+		float elementBonus = 0.0f;
+		HitEffect elementDot;
 		// The defender side of a WORN piece (part 4): per-type resist cells
 		// plus a small flat soak, summed across the equipment slots.
 		ResistTable resists;
@@ -1628,8 +1658,27 @@ private:
 	void WoundMember(Character& target, float damage, bool quiet = false);
 	// A landed monster blow rolls its type's on-hit DoT (Phase 6): chance,
 	// then land/refresh the effect with its log line. No-op for dps 0.
-	void ApplyHitEffect(Character& target, StatusKind kind,
-						const MonsterKind::HitEffect& fx);
+	void ApplyHitEffect(Character& target, StatusKind kind, const HitEffect& fx);
+	// The monster mirror: a landed blow with an ENCHANTED weapon rolls the
+	// weapon's `element_dot` and, on a hit, sets the target alight — the dps
+	// scaled by its resist for the element (an immune type simply won't
+	// catch), refreshing any fire already on it. Lights the plume + its glow.
+	void IgniteMonster(Monster& monster, SpellSymbol school, const HitEffect& fx,
+					   int source);
+	// One frame of a burning monster: the wound (credited to whoever lit it),
+	// the slain path if it finishes them, and the fade when the fire burns out.
+	void TickBurn(Monster& monster, float dt);
+	// Put a burning monster out — the timer, the plume, the light. Called by
+	// the fade, by death, and by anything that resets a monster's state.
+	static void Extinguish(Monster& monster);
+	// Where a burning body's flames rise from (torso height above visualPos):
+	// the ignition point, the per-frame plume origin, and the glow all agree.
+	static Vec3 BurnOrigin(const Monster& monster);
+	// Read one catalog DoT line, "<dps> <seconds> [chance]" (`where` names the
+	// entry in the warning). An empty spec leaves `fx` untouched (dps 0 = none).
+	// Shared by the monster kinds' poison/bleed and a weapon's element_dot.
+	static void ParseHitEffect(const std::string& spec, HitEffect& fx,
+							   std::string_view where);
 	// A log line ABOUT `member`: routes through onMemberMessage with their
 	// identity color (the HUD tints it), falling back to plain onMessage.
 	void MemberMessage(const Character& member, const std::string& line) const;

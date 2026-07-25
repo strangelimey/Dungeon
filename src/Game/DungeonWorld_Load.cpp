@@ -344,6 +344,21 @@ void DungeonWorld::BuildDungeonMeshes() {
 	m_geometryDirty = false; // any full bake pays the deferred-undo debt
 }
 
+// One catalog DoT line, "<dps> <seconds> [chance]" — a monster's on-hit
+// poison/bleed and an enchanted weapon's element_dot are authored the same way.
+void DungeonWorld::ParseHitEffect(const std::string& spec, HitEffect& fx,
+								  std::string_view where) {
+	const std::vector<std::string> t = SplitTokens(spec);
+	if (t.empty()) return; // no line = the source carries no DoT
+	if (t.size() < 2) {
+		log::Warn("{}: needs <dps> <seconds> [chance]", where);
+		return;
+	}
+	fx.dps = std::strtof(t[0].c_str(), nullptr);
+	fx.duration = std::strtof(t[1].c_str(), nullptr);
+	if (t.size() >= 3) fx.chance = std::strtof(t[2].c_str(), nullptr);
+}
+
 // Loads each monster model once (shared per kind) and creates one animator
 // per spawn. The shared ModelData must stay alive for the animators' sake —
 // it lives in m_monsterKinds for the app's lifetime.
@@ -388,22 +403,10 @@ DungeonWorld::MonsterKind& DungeonWorld::MonsterKindFor(const std::string& type)
 				!t.empty() && !ParseDamageType(t, assets->damageType))
 				log::Warn("monsters.cat [{}]: unknown dmgtype '{}'", type, t);
 			// On-hit DoTs (Phase 6): "<dps> <seconds> [chance]" per kind.
-			const auto hitEffect = [&](const char* key,
-									   MonsterKind::HitEffect& fx) {
-				const std::vector<std::string> t =
-					SplitTokens(CatalogGet(def, key, ""));
-				if (t.empty()) return;
-				if (t.size() < 2) {
-					log::Warn("monsters.cat [{}]: {}= needs <dps> <seconds>",
-							  type, key);
-					return;
-				}
-				fx.dps = std::strtof(t[0].c_str(), nullptr);
-				fx.duration = std::strtof(t[1].c_str(), nullptr);
-				if (t.size() >= 3) fx.chance = std::strtof(t[2].c_str(), nullptr);
-			};
-			hitEffect("poison", assets->poison);
-			hitEffect("bleed", assets->bleed);
+			ParseHitEffect(CatalogGet(def, "poison", ""), assets->poison,
+						   "monsters.cat [" + type + "] poison");
+			ParseHitEffect(CatalogGet(def, "bleed", ""), assets->bleed,
+						   "monsters.cat [" + type + "] bleed");
 			// Melee reach in cells (Phase 7): 2 = a pike melees from its
 			// queue post down a clear shared row/column.
 			assets->reach = std::max(
@@ -727,6 +730,26 @@ DungeonWorld::ItemKind& DungeonWorld::ItemKindFor(const std::string& type) {
 									"items.cat [" + type + "]");
 		// Weapon reach (Phase 7): `reach = polearm` swings from the rear rank.
 		kind->polearm = CatalogGet(def, "reach", "melee") == "polearm";
+		// ENCHANTMENT: `element = fire` turns the weapon elemental — every
+		// landed blow adds `element_bonus` of its damage as that element and
+		// rolls `element_dot` to leave the target burning. Absent (or "none")
+		// leaves both terms off, so a plain weapon swings exactly as before.
+		if (const std::string elem = CatalogGet(def, "element", "none");
+			!elem.empty() && elem != "none") {
+			if (ParseSymbol(elem, kind->element) &&
+				kind->element <= SpellSymbol::Water) {
+				kind->enchanted = true;
+				kind->elementBonus = def->GetFloat("element_bonus", 0.0f);
+				// An enchanted weapon lies on the floor lit by its own element
+				// (UpdateLights gives it a rune-style glow) — the one visual
+				// tell that this blade is not the plain one beside it.
+				kind->glow = ElementColor(kind->element);
+				ParseHitEffect(CatalogGet(def, "element_dot", ""), kind->elementDot,
+							   "weapons.cat [" + type + "] element_dot");
+			} else {
+				log::Warn("weapons.cat [{}]: element '{}' is not a school", type, elem);
+			}
+		}
 		ParseResists(CatalogGet(def, "resists", ""), kind->resists,
 					 "items.cat [" + type + "]");
 		kind->armor = def ? def->GetFloat("armor", 0.0f) : 0.0f;

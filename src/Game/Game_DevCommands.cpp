@@ -457,6 +457,31 @@ void Game::RegisterDevCommands() {
 							   m_console.Print(std::format("{} pack += {}",
 														   m_characters[m].name, args[0]));
 					   });
+	// `give` fills the pack; this puts a weapon straight in a hand, which is
+	// what a combat test actually needs (no cursor drag, no HUD clicking).
+	m_console.Register("equip", "put an item in a member's hand (dev)",
+					   [this](const std::vector<std::string>& args) {
+						   if (!Need(m_console, args, 1,
+									 "usage: equip <item id> [member 0-3] [hand 0/1]"))
+							   return;
+						   const size_t m = args.size() > 1
+							   ? static_cast<size_t>(std::atoi(args[1].c_str())) : 0;
+						   const int hand = args.size() > 2
+							   ? std::clamp(std::atoi(args[2].c_str()), 0, 1) : 0;
+						   if (m >= m_characters.size()) {
+							   m_console.Print("no such member");
+							   return;
+						   }
+						   if (!m_project.HasItem(args[0])) {
+							   m_console.Print(std::format("no item '{}' in items/weapons/armor", args[0]));
+							   return;
+						   }
+						   m_characters[m].inventory.Hand(hand).typeId = args[0];
+						   m_console.Print(std::format("{} {} hand = {}",
+													   m_characters[m].name,
+													   hand == 0 ? "left" : "right",
+													   args[0]));
+					   });
 	m_console.Register("threat",
 					   "list per-member threat for every monster holding a grudge (dev)",
 					   [this](const std::vector<std::string>&) {

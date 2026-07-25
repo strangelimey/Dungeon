@@ -25,6 +25,24 @@ holdable = 1
 command = chop, slash
 model = khukri
 
+; ENCHANTED (docs/combat.md "Enchanted weapons"): element/element_bonus add an
+; elemental term to every landed blow, element_dot ("<dps> <seconds> [chance]")
+; is the burn it may leave behind. The blade also glows on the floor.
+[flamebrand]
+name = item.flamebrand
+category = weapon
+skill = blade
+damage = 7
+speed = 1.1
+stats = str, dex
+weight = 1.4
+holdable = 1
+command = chop, slash
+model = khukri
+element = fire
+element_bonus = 0.5
+element_dot = 3 6 0.5
+
 [snake_dagger]
 name = item.snake_dagger
 category = weapon

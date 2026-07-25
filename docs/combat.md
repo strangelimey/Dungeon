@@ -428,6 +428,50 @@ SPELLS — same for monsters.
   monsters without reach still can't melee — which IS the rear-rank
   rule, emergent. Ranged/caster types are unaffected.
 
+### Enchanted weapons (LANDED 2026-07-24)
+
+The fire sword. A weapon may carry a SCHOOL'S ELEMENT into every landed
+blow, on top of its physical damage — weapons.cat, three fields, all
+optional (no `element` line = an ordinary weapon, both terms skipped):
+
+- `element = fire|earth|air|water` — the school it carries.
+- `element_bonus = 0.5` — extra damage as a fraction of the blow's
+  assembled damage, dealt AS that element: through the target's resist
+  for the element but NOT its soak (plate turns a blade, not a flame),
+  and with no accuracy roll of its own — it rides the physical hit. A
+  fire-vulnerable mummy (`resists = ... fire -1.0`) takes it doubled.
+- `element_dot = <dps> <seconds> [chance]` — the same authored line as a
+  monster's `poison`/`bleed` (one shared parser, DungeonWorld::
+  ParseHitEffect). A landed blow rolls the chance and leaves the survivor
+  BURNING.
+
+The monster side is deliberately smaller than the party's: a Character
+carries a LIST of status effects, a Monster carries ONE burn slot
+(burnDps/burnLeft/burnSchool/burnSource — reapply refreshes, the ward
+rule). The dps is resist-scaled ONCE at ignition, so an authored immunity
+never catches. The tick (TickBurn, in UpdateMonsters before the Alive
+check) wounds, credits threat to whoever lit it — the fire keeps the
+grudge alive — and takes the ordinary slain path if it finishes the
+monster (log.monster_burns_away; log.monster_burns_out when it just runs
+out). Transient: the fire goes out on save/reload.
+
+Visually a burning monster carries a FireEffect plume re-aimed at its
+body every frame (the one moving emitter — SetOrigin) plus a shadowless
+point light in the element's colour, so a torched blob lights the room it
+chases you through. FireEffect::SetTint recolours the authored orange
+palette per school, so a water "burn" runs cold blue. An enchanted weapon
+lying on the floor gets the rune-style glow in its element — the one tell
+that this blade is not the plain one beside it.
+
+Content: `[flamebrand]` in weapons.cat (khukri model, fire, 0.5 bonus,
+`3 6 0.5` burn), placed at 5,5 on the start level. Dev: `equip <item>
+[member] [hand]` puts a weapon straight in a hand (the `give` sibling —
+a combat test needs no cursor drag).
+
+**This is the last hand-rolled damage path.** The generic effects system
+(docs/effects.md) folds it, poison/bleed, wards and every plain hit into
+one pipeline; `element`/`element_dot` become an on-hit EFFECT reference.
+
 ## Phase order & save ladder
 
 1 → 2 → 3 → 4 → 5 → 6 → 7, committed per phase. 1–2 are one seam (weapon →

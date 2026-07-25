@@ -289,6 +289,16 @@ constexpr FieldSpec kWeaponFields[] = {
 	 .help = "Weapon class trained + scaled by (e.g. blade, blunt); empty trains nothing."},
 	{.key = "stats", .kind = FieldKind::Text, .sectionKey = kSectionStats,
 	 .help = "Attributes whose average boosts its damage, e.g. 'str dex'."},
+	// Enchantment (docs/combat.md "Enchanted weapons"): an element riding
+	// every landed blow — bonus damage of that type, then a burn it may leave.
+	{.key = "element", .kind = FieldKind::Enum, .sectionKey = kSectionStats,
+	 .help = "Element carried into every landed blow; none = a plain weapon.",
+	 .options = "none fire earth air water", .def = "none"},
+	{.key = "element_bonus", .kind = FieldKind::Float, .sectionKey = kSectionStats,
+	 .help = "Elemental damage added, as a fraction of the blow (resisted by element).",
+	 .lo = 0.0f, .hi = 2.0f, .step = 0.05f, .def = "0"},
+	{.key = "element_dot", .kind = FieldKind::Text, .sectionKey = kSectionStats,
+	 .help = "Burn left on the target: '<dps> <seconds> [chance]'; empty = none."},
 	{.key = "reach", .kind = FieldKind::Enum, .sectionKey = kSectionRules,
 	 .help = "melee = adjacent only; polearm strikes from the rear rank; ranged flies.",
 	 .options = "melee polearm ranged", .def = "melee"},
