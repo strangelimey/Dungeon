@@ -85,8 +85,14 @@ private:
 };
 
 AudioEngine::AudioEngine() {
-	// COM may already be initialized by the app; both outcomes are fine.
-	CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+	// NO CoInitializeEx here, deliberately. XAudio2 2.8+ (xaudio2.lib, in-box on
+	// Windows 10/11) is a flat API that does not need COM — and this object is
+	// constructed on the MAIN thread, so initializing COM here would join that
+	// thread to an apartment for the life of the process. It used to ask for the
+	// MTA, which silently broke every shell dialog: a thread's apartment is fixed
+	// once joined, so Platform/FileDialog's CoInitializeEx(APARTMENTTHREADED) got
+	// RPC_E_CHANGED_MODE and IFileOpenDialog::Show deadlocked from the MTA — the
+	// editor's "Browse Folder..." wedged the process with no window ever shown.
 	if (FAILED(XAudio2Create(&m_xaudio, 0, XAUDIO2_DEFAULT_PROCESSOR))) {
 		log::Warn("XAudio2 unavailable — running silent");
 		m_xaudio = nullptr;

@@ -78,7 +78,14 @@ Key conventions (memorize, they bite):
   Game; preview-mesh resets (dev console `preview`, AssetDialog) WaitIdle
   first since up to kFrameCount-1 in-flight frames still reference the
   buffers; C-API boundaries (cgltf, FILE*, shell COM) are RAII-wrapped —
-  keep new ones that way.
+  keep new ones that way. The MAIN THREAD MUST STAY STA-CAPABLE: never
+  CoInitializeEx it into the MTA (AudioEngine's ctor used to, for XAudio2,
+  which needs no COM since 2.8). A thread's apartment is fixed once joined,
+  so an MTA main thread makes every shell dialog return RPC_E_CHANGED_MODE
+  and DEADLOCK — the editor's "Browse Folder..." wedged the process with no
+  window ever shown. Platform/FileDialog now refuses (logged) rather than
+  hanging if it ever happens again; running the picker on a private STA
+  thread does NOT help, since Show() messages the owner window.
 - Constants that must match HLSL: kMaxPointLights=64 (the point-light array
   CEILING = the Ultra tier; the per-frame count is a runtime budget,
   GameSettings::maxPointLights, Low=16..Ultra=64 — see the quality system),
