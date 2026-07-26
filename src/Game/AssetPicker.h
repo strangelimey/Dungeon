@@ -137,6 +137,12 @@ private:
 	gfx::Rect TileRect(float w, float h, size_t shownIndex) const;
 	int TileAt(float w, float h, float mx, float my) const; // -1 = none
 	float MaxScroll(float w, float h) const;
+	// [first, end) shown-row indices on screen — the loader's work list.
+	std::pair<size_t, size_t> VisibleRange() const;
+	// Loads at most `max` on-screen tile images (textures) — called from Update,
+	// never from the draw: each load reads a .dds and uploads it, which drains
+	// the GPU, and doing a screenful at once is a visible stall.
+	void LoadVisibleThumbs(size_t max);
 
 	gfx::GraphicsDevice& m_device;
 	ui::Font m_font;
@@ -164,8 +170,13 @@ private:
 	int m_lastClickTile = -1;
 	double m_time = 0.0;
 
-	// Details for the selected asset, built on selection (not per frame).
+	// Details for the selected asset, built on selection (not per frame). Both
+	// are DEFERRED a frame: the preview loads three textures and a mesh, and the
+	// facts decode a normal map to answer real-vs-flat height — doing either
+	// during Open is a stall you can see, so the dialog draws first and fills in.
 	std::vector<std::string> m_facts;
+	bool m_previewDirty = false;
+	bool m_factsDirty = false;
 
 	std::unordered_map<std::string, Thumb> m_thumbs;
 	u64 m_frame = 0; // ages the cache

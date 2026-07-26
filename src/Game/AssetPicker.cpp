@@ -34,9 +34,18 @@ constexpr float kDetailX = 0.60f;
 constexpr gfx::Rect kChoose{0.60f, 0.815f, 0.10f, 0.045f};
 
 // Tile metrics inside the grid (fractions of the WINDOW, like everything else).
+// The grid shows WHOLE ROWS ONLY: the row pitch divides the grid's height
+// exactly, and scrolling snaps to it, so a half-row is never on screen.
 constexpr int kCols = 4;
-constexpr float kTileW = 0.108f, kTileH = 0.175f, kTilePad = 0.007f;
+constexpr int kRows = 3;
+constexpr float kTileW = 0.108f, kTilePad = 0.007f;
+constexpr float kRowPitch = (kGrid.h + kTilePad) / static_cast<float>(kRows);
+constexpr float kTileH = kRowPitch - kTilePad;
 constexpr float kScrollW = 0.010f;
+// Work per frame, so opening the picker draws immediately and fills in behind
+// itself: a .dds read plus its upload drains the GPU, and doing sixteen of them
+// in the first frame is what made the dialog take a beat to appear.
+constexpr size_t kThumbLoadsPerFrame = 2;
 // A thumbnail is the set's mip chain trimmed to levels this size or smaller.
 constexpr u32 kThumbPx = 128;
 // How many tile images to keep. Each is ~16 KB of VRAM and one SRV slot, so
@@ -104,15 +113,18 @@ void AssetPicker::Open(Mode mode, const std::string& current,
 	m_thumbs.clear();
 	ApplyFilter();
 	Rebuild();
-	RefreshPreview();
-	RefreshFacts();
+	// The preview and the facts are the expensive part; they land next frame so
+	// the dialog itself appears at once (LoadVisibleThumbs does the same for the
+	// tiles). Opening used to do all of it up front, and it showed.
+	m_previewDirty = true;
+	m_factsDirty = true;
 	// Scroll the current value into view: opening a hundred-tile grid at the top
 	// when the field already names one is the dropdown's failing all over again.
+	// Whole rows only, so the selected row sits one row down where it can.
 	for (size_t i = 0; i < m_shown.size(); ++i)
 		if (m_items[m_shown[i]].name == m_selected) {
 			const int row = static_cast<int>(i) / kCols;
-			m_scroll = std::max(0.0f, static_cast<float>(row) * (kTileH + kTilePad) -
-										  kGrid.h * 0.4f);
+			m_scroll = std::max(0, row - 1) * kRowPitch;
 			break;
 		}
 }
@@ -144,14 +156,23 @@ gfx::Rect AssetPicker::TileRect(float w, float h, size_t shownIndex) const {
 	const int col = static_cast<int>(shownIndex) % kCols;
 	const int row = static_cast<int>(shownIndex) / kCols;
 	return {grid.x + static_cast<float>(col) * (kTileW + kTilePad) * w,
-			grid.y + static_cast<float>(row) * (kTileH + kTilePad) * h - m_scroll * h,
+			grid.y + static_cast<float>(row) * kRowPitch * h - m_scroll * h,
 			kTileW * w, kTileH * h};
 }
 
-float AssetPicker::MaxScroll(float w, float h) const {
+float AssetPicker::MaxScroll(float, float) const {
+	// Whole rows only: the last scroll position puts the final row at the
+	// bottom of the grid, so scrolling never reveals a partial tile.
 	const int rows = (static_cast<int>(m_shown.size()) + kCols - 1) / kCols;
-	const float content = static_cast<float>(rows) * (kTileH + kTilePad);
-	return std::max(0.0f, content - kGrid.h);
+	return std::max(0.0f, static_cast<float>(rows - kRows) * kRowPitch);
+}
+
+// The shown-row indices currently on screen — what the thumbnail loader works
+// through, so an off-screen tile costs nothing until it is scrolled to.
+std::pair<size_t, size_t> AssetPicker::VisibleRange() const {
+	const int firstRow = static_cast<int>(std::round(m_scroll / kRowPitch));
+	const size_t first = static_cast<size_t>(std::max(0, firstRow) * kCols);
+	return {first, std::min(m_shown.size(), first + static_cast<size_t>(kRows * kCols))};
 }
 
 int AssetPicker::TileAt(float w, float h, float mx, float my) const {
@@ -197,16 +218,27 @@ std::unique_ptr<gfx::Texture> AssetPicker::LoadThumb(const std::string& name) co
 }
 
 const gfx::Texture* AssetPicker::ThumbFor(const std::string& name) {
+	// DRAW-TIME ONLY: this never loads. Both kinds of tile image are made in
+	// Update — textures by LoadVisibleThumbs, models by PrepareModelIcons plus
+	// the owner's bake — so a frame's drawing costs nothing but the blit.
 	Thumb& slot = m_thumbs[name];
 	slot.lastSeen = m_frame;
-	// Only a TEXTURE tile can load its own image. A model tile's icon has to be
-	// baked by the owner (SetModelIcon), so this must not mark it tried — that
-	// is the flag PendingModelIcons uses to know what still needs baking.
-	if (!slot.texture && !slot.tried && m_mode == Mode::Textures) {
-		slot.tried = true;
-		slot.texture = LoadThumb(name);
-	}
 	return slot.texture.get();
+}
+
+void AssetPicker::LoadVisibleThumbs(size_t max) {
+	if (m_mode != Mode::Textures) return;
+	const auto [first, end] = VisibleRange();
+	size_t loaded = 0;
+	for (size_t i = first; i < end && loaded < max; ++i) {
+		const std::string& name = m_items[m_shown[i]].name;
+		Thumb& slot = m_thumbs[name];
+		if (slot.texture || slot.tried) continue;
+		slot.tried = true; // one attempt per set, however it goes
+		slot.lastSeen = m_frame;
+		slot.texture = LoadThumb(name);
+		++loaded;
+	}
 }
 
 void AssetPicker::EvictThumbs() {
@@ -232,7 +264,8 @@ void AssetPicker::EvictThumbs() {
 void AssetPicker::PrepareModelIcons(size_t max) {
 	if (m_mode != Mode::Models) return;
 	size_t made = 0;
-	for (size_t i = 0; i < m_shown.size() && made < max; ++i) {
+	const auto [first, end] = VisibleRange();
+	for (size_t i = first; i < end && made < max; ++i) {
 		const AssetInfo& a = m_items[m_shown[i]];
 		Thumb& slot = m_thumbs[a.name];
 		if (slot.texture || slot.tried) continue;
@@ -281,8 +314,10 @@ void AssetPicker::MarkBaked(const std::string& name) {
 void AssetPicker::SelectIndex(int shownIndex) {
 	if (shownIndex < 0 || shownIndex >= static_cast<int>(m_shown.size())) return;
 	m_selected = m_items[m_shown[static_cast<size_t>(shownIndex)]].name;
-	RefreshPreview();
-	RefreshFacts();
+	// Deferred to the next Update: clicking through the grid should feel instant,
+	// and a click that loads three textures and decodes a normal map does not.
+	m_previewDirty = true;
+	m_factsDirty = true;
 }
 
 gfx::Rect AssetPicker::PreviewRect(float w, float h) const {
@@ -450,8 +485,8 @@ void AssetPicker::Update(const Input& input, float w, float h, float dt) {
 	// Wheel over the grid scrolls a row at a time.
 	const gfx::Rect grid = GridRect(w, h);
 	if (grid.Contains(mx, my) && input.WheelDelta() != 0.0f)
-		m_scroll = std::clamp(m_scroll - input.WheelDelta() * (kTileH + kTilePad),
-							  0.0f, maxScroll);
+		m_scroll = std::clamp(m_scroll - input.WheelDelta() * kRowPitch, 0.0f,
+							  maxScroll);
 
 	// Scrollbar drag, in the gutter at the grid's right edge.
 	if (maxScroll > 0.0f) {
@@ -493,10 +528,23 @@ void AssetPicker::Update(const Input& input, float w, float h, float dt) {
 		}
 	}
 
-	// Ready a couple of model icons per frame — the loads and the render-target
-	// creation both stall the GPU, so they belong here and not in the frame's
-	// recording (see PendingBake). Textures load themselves, in Render.
-	PrepareModelIcons(2);
+	// Whole rows only — a drag or a clamp can leave the scroll mid-row, and half
+	// a tile peeking over the grid edge is exactly what this layout avoids.
+	m_scroll = std::clamp(std::round(m_scroll / kRowPitch) * kRowPitch, 0.0f, maxScroll);
+
+	// The deferred work, at most one job a frame and cheapest first: tile images,
+	// then the selected asset's preview, then its facts (which decode a normal
+	// map). Everything here reads a file and touches the GPU, so spreading it is
+	// what keeps opening the picker — and clicking through it — immediate.
+	LoadVisibleThumbs(kThumbLoadsPerFrame);
+	PrepareModelIcons(kThumbLoadsPerFrame);
+	if (m_previewDirty) {
+		m_previewDirty = false;
+		RefreshPreview();
+	} else if (m_factsDirty) {
+		m_factsDirty = false;
+		RefreshFacts();
+	}
 	EvictThumbs();
 }
 
