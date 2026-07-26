@@ -59,7 +59,6 @@ void AssetDialog::Open(const std::string& category, const std::string& catalogKe
 	m_asset = asset;
 	m_flipGreen = false;
 	m_existing = std::move(existing);
-	m_pool = textureSet ? InstalledTextureSets() : InstalledModels();
 	m_found = {};
 	m_orbit = 0.0f;
 	// Prior preview resources may still be referenced by in-flight frames.
@@ -168,18 +167,31 @@ void AssetDialog::Rebuild(const ui::Theme& theme) {
 			m_ui->Add<ui::Checkbox>(gfx::Rect{0.18f, 0.425f, 0.30f, 0.04f},
 									loc::Tr("newasset.flipgreen"), m_flipGreen,
 									[this](bool on) { m_flipGreen = on; });
+	} else if (m_source == Source::Installed) {
+		// The POOL: hundreds of entries whose names say nothing, so this is the
+		// picker's job, not a dropdown's (the type editor's asset fields the same).
+		m_ui->Add<ui::Label>(gfx::Rect{0.18f, 0.375f, 0.13f, 0.04f},
+							 loc::Tr("newasset.asset"));
+		m_ui->Add<ui::Button>(
+			gfx::Rect{0.31f, 0.375f, 0.21f, 0.042f},
+			m_asset.empty() ? loc::Tr("map.type.none") : m_asset, [this] {
+				if (onPickAsset)
+					onPickAsset(m_textureSet, m_asset, [this](const std::string& picked) {
+						m_asset = picked;
+						RefreshPreview();
+						m_uiRebuild = true; // the button's face is its value
+					});
+			});
 	} else {
-		// Installed: the asset pool. Duplicate: this catalog's existing ids.
-		const std::vector<std::string>& items =
-			m_source == Source::Installed ? m_pool : m_existing;
+		// Duplicate: this catalog's own ids — a short, meaningful list.
+		const std::vector<std::string>& items = m_existing;
 		std::vector<std::string> shown = items;
 		if (shown.empty()) shown.push_back(loc::Tr("newasset.err.noasset"));
 		int sel = 0;
 		for (size_t i = 0; i < items.size(); ++i)
 			if (items[i] == m_asset) { sel = static_cast<int>(i); break; }
 		m_ui->Add<ui::Label>(gfx::Rect{0.18f, 0.375f, 0.13f, 0.04f},
-							 loc::Tr(m_source == Source::Installed ? "newasset.asset"
-																   : "newasset.copyfrom"));
+							 loc::Tr("newasset.copyfrom"));
 		// Stops short of the preview pane at 0.55 (PreviewRect).
 		m_ui->Add<ui::DropDown>(gfx::Rect{0.31f, 0.375f, 0.21f, 0.042f}, shown, sel,
 								[this, items](int i) {

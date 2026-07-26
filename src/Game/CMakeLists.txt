@@ -1,5 +1,6 @@
 add_library(Game STATIC
 	AssetDialog.cpp
+	AssetPicker.cpp
 	AssetUtil.cpp
 	Balance.cpp
 	BalanceDialog.cpp

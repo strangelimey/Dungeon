@@ -550,6 +550,26 @@ map.type.frommap=: from the texture's map
 map.type.stalesaves=Save file(s) still holding '{}': {} — anything placed there loads unconfigured.
 
 ; --- asset-creation dialog -------------------------------------------------------
+; --- asset picker (browse the pool: textures, models) ---
+map.type.texture=texture
+map.type.model=model
+pick.title=Choose a {}
+pick.search=search...
+pick.count={} of {}
+pick.choose=Choose
+pick.none=Nothing selected.
+pick.chip.used=In use
+pick.chip.surface=Paintable
+pick.inuse=Used by this project.
+pick.worn=Worn block meshes baked.
+pick.map.albedo=albedo
+pick.map.normal=normal+height
+pick.map.orm=ORM
+pick.fact.res=Installed: {}
+pick.fact.source=From: {}
+pick.height.real=Height map: real relief.
+pick.height.flat=Height map: FLAT (parallax will do nothing).
+pick.height.none=No normal map — no parallax.
 newasset.title=New {}
 newasset.name=name
 newasset.browse_model=Browse Model...

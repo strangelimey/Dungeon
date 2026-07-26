@@ -80,10 +80,17 @@ public:
 	void Render(gfx::SpriteBatch& batch, const ui::Theme& theme, float width,
 				float height);
 
-	// Fills a dropdown for the asset/reference field kinds (TextureSet, Model,
-	// CatalogRef). The empty string is prepended by the dialog itself as
-	// "(none)", so a provider only returns real values.
+	// Fills a dropdown for the reference field kinds (Enum's options come from
+	// the schema; CatalogRef's from the project). The empty string is prepended
+	// by the dialog itself as "(none)", so a provider only returns real values.
 	std::function<std::vector<std::string>(const FieldSpec&)> optionsFor;
+	// A POOL asset field (TextureSet / Model) is picked in the asset picker, not
+	// a dropdown — there are hundreds and a name tells you nothing. The owner
+	// opens it (textures vs models, on `current`) and calls `apply` with the
+	// chosen name; the dialog writes it into the working copy like any edit.
+	std::function<void(bool textures, const std::string& current,
+					   std::function<void(const std::string&)> apply)>
+		onPickAsset;
 	// Save: commit the working copy (the owner writes the catalog, then reloads
 	// or re-bakes per Config::rebake).
 	std::function<void(const Config&)> onSave;

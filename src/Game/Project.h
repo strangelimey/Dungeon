@@ -67,6 +67,12 @@ struct Project {
 	// "armor", "spells", "attacks", "balance"), or null if unknown.
 	Catalog* CatalogForKey(const std::string& key);
 
+	// Every CONTENT catalog, for sweeps that don't care which category a type is
+	// in — the asset picker's "does anything bind this asset" check. `imports` is
+	// provenance rather than content, so it stays out, as it does of
+	// CatalogForKey.
+	std::vector<const Catalog*> AllCatalogs() const;
+
 	// --- item resolution across the three item catalogs ----------------------
 	// An item id may live in items, weapons OR armor. These resolve/iterate
 	// across all three (items first) so a placed weapon or worn armor loads the

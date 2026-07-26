@@ -134,6 +134,17 @@ public:
 	// UpdateItemIcons (and unlike it, also while the editor covers the scene —
 	// the map overlay is what draws these). Redirects the OM and rebinds.
 	void UpdateMapIcons(ID3D12GraphicsCommandList* list, gfx::SpriteBatch& sprites);
+	// Every baked icon target is this square (the shared depth target and the
+	// bake's viewport), so a caller supplying its OWN target must match it.
+	static constexpr u32 kIconSize = 256;
+	// Bakes an arbitrary POOL mesh into a caller-owned icon target (the asset
+	// picker's model tiles): the map-icon rig, nothing cached here. The target is
+	// the CALLER's because creating one drains the GPU (gfx::Texture::
+	// RenderTarget), which must not happen while a frame is being recorded.
+	// LIFETIME: this only RECORDS the draw, so `mesh` must outlive the frame.
+	void BakeIconFor(ID3D12GraphicsCommandList* list, gfx::SpriteBatch& sprites,
+					 const gfx::Mesh& mesh, const Vec3& lo, const Vec3& hi,
+					 const gfx::Texture& target);
 	// The baked icons for already-loaded kinds, or null (not loaded / not baked
 	// yet) — the map overlay then falls back to its square markers. These never
 	// force-load a model (browse markers may name unloaded types).
@@ -1950,7 +1961,7 @@ private:
 	// Baked 3D item-icon thumbnails: each model ItemKind owns its RT texture
 	// (ItemKind::iconTarget), rendered once before the first scene via
 	// BakeItemIconsIfNeeded. Shared depth target + halo for the bakes.
-	static constexpr u32 kIconSize = 256;
+	// (kIconSize is public — a caller that supplies its own target must match it.)
 	gfx::ComPtr<ID3D12Resource> m_iconDepth;
 	gfx::ComPtr<ID3D12DescriptorHeap> m_iconDsvHeap;
 	std::unique_ptr<gfx::Texture> m_iconHalo; // soft round disc, white w/ radial alpha

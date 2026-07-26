@@ -226,9 +226,30 @@ void TypeEditorDialog::BuildUI() {
 			field->onChange = [this, raw, s] { SetValue(*s, raw->text); };
 			break;
 		}
-		case FieldKind::Enum:
 		case FieldKind::TextureSet:
-		case FieldKind::Model:
+		case FieldKind::Model: {
+			// A POOL asset: too many to scroll and nothing to see in a list of
+			// names, so the row is a button that opens the asset picker (its
+			// grid shows the texture itself, its resolutions and its maps). The
+			// button reads as the current value, "(none)" when unset.
+			m_tabs->AddChild<ui::Label>(tab, gfx::Rect{kRowX, y, kLabelW, kRowH * 0.55f},
+										label);
+			const bool textures = spec.kind == FieldKind::TextureSet;
+			m_tabs->AddChild<ui::Button>(
+				tab, gfx::Rect{kFieldX, y, kFieldW, kRowH * 0.55f},
+				value.empty() ? loc::Tr("map.type.none") : value,
+				[this, s, textures] {
+					// The picker is modal over this dialog; the owner routes it
+					// and hands the pick back through onPickAsset's callback.
+					if (onPickAsset)
+						onPickAsset(textures, ValueOf(*s), [this, s](const std::string& picked) {
+							SetValue(*s, picked);
+							m_uiRebuild = true; // the button's face is its value
+						});
+				});
+			break;
+		}
+		case FieldKind::Enum:
 		case FieldKind::CatalogRef: {
 			// "(none)" is index 0 for everything but a plain Enum, so a field can
 			// be left unset (an absent catalog field is meaningful — it means

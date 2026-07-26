@@ -795,6 +795,19 @@ silently repaint every cell above it (removal needs an index remap — not built
 For the same reason a paint validates the armed index against the viewed
 palette's CURRENT size (MapEditor::PaintCell): browsing a level with a shorter
 palette, or undoing an add, outlives the index the brush was armed with.
+A pool asset field (`texture` / `model`) is NOT a dropdown: those rows are
+buttons that open the ASSET PICKER (Game/AssetPicker.*, modal above whatever
+opened it — the type editor and the create dialog's "Use installed"), a
+searchable thumbnail GRID of the installed sets/models with resolution badges,
+a details pane (maps present, height-map real-vs-flat, size on disk, the
+imports.cat source) and the shared 3D preview. Texture tiles cost nothing to
+show: the installed .dds mip chain is loaded with its big levels DROPPED (the
+first level ≤128px down), ~16 KB a tile. Model tiles are RENDERED via
+DungeonWorld::BakeIconFor (the map-icon rig) — two rules there, each learned the
+hard way: create the render target in UPDATE, never mid-recording (gfx::Texture::
+RenderTarget drains the GPU), and REBIND THE BACK BUFFER after baking or the 2D
+pass draws itself into the last icon at its 256px viewport. Tiles evict
+least-recently-seen past a cap (drain before freeing — the SRV rule).
 RIGHT-CLICKING a palette row opens the per-TYPE catalog editor
 (TypeEditorDialog) for EVERY category — one dialog, because it renders its form
 from a SCHEMA: Game/CatalogSchema.h is a FieldSpec table per catalog (key, kind,

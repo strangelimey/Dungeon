@@ -106,6 +106,95 @@ std::vector<std::string> InstalledTextureSets() {
 	});
 }
 
+namespace {
+// Splits a texture file's stem into (set name, resolution bit, map suffix).
+// "cobblestone_wall_2k_n" -> {"cobblestone_wall", kRes2k, normal}. False when
+// the stem is not a resolution-tagged PBR map (so not part of a set at all).
+bool SplitSetStem(std::string stem, std::string& name, u32& res, bool& normal,
+				  bool& orm) {
+	normal = orm = false;
+	if (stem.ends_with("_n")) {
+		normal = true;
+		stem.resize(stem.size() - 2);
+	} else if (stem.ends_with("_mr")) {
+		orm = true;
+		stem.resize(stem.size() - 3);
+	}
+	const std::pair<const char*, u32> tags[] = {
+		{"_1k", kRes1k}, {"_2k", kRes2k}, {"_4k", kRes4k}};
+	for (const auto& [tag, bit] : tags)
+		if (stem.ends_with(tag)) {
+			stem.resize(stem.size() - std::strlen(tag));
+			name = std::move(stem);
+			res = bit;
+			return true;
+		}
+	return false;
+}
+
+// Whether a set has worn block meshes baked from it — i.e. whether it can be
+// painted as a surface at all. WHICH kind they were baked as is deliberately
+// not answered here: the bake writes one worn_<set>_<tier>.gltf per set and the
+// kind lives in the geometry, not the name. The project's catalogs are the
+// honest source for that (walls.cat/floors.cat/ceilings.cat name their sets),
+// and the picker gets it from its owner along with "in use".
+bool HasWornMeshes(const std::filesystem::path& modelsDir, const std::string& set) {
+	std::error_code ec;
+	return std::filesystem::exists(modelsDir / ("worn_" + set + "_med.gltf"), ec);
+}
+} // namespace
+
+std::vector<AssetInfo> InstalledTextureSetInfo() {
+	namespace fs = std::filesystem;
+	const fs::path dir = paths::Asset("textures");
+	const fs::path models = paths::Asset("models");
+	std::vector<AssetInfo> out;
+	std::error_code ec;
+	for (const auto& entry : fs::directory_iterator(dir, ec)) {
+		if (ec || !entry.is_regular_file()) continue;
+		const std::string ext = entry.path().extension().string();
+		const bool dds = ext == ".dds";
+		if (!dds && ext != ".png") continue;
+		std::string name;
+		u32 res = 0;
+		bool normal = false, orm = false;
+		if (!SplitSetStem(entry.path().stem().string(), name, res, normal, orm))
+			continue;
+		// One record per SET: the files fold into it as they are met.
+		auto it = std::ranges::find_if(out, [&](const AssetInfo& a) { return a.name == name; });
+		if (it == out.end()) {
+			out.push_back(AssetInfo{.name = name});
+			it = out.end() - 1;
+			it->worn = HasWornMeshes(models, name);
+		}
+		it->resolutions |= res;
+		it->normal |= normal;
+		it->orm |= orm;
+		it->baked |= dds;
+		it->bytes += entry.file_size(ec);
+	}
+	std::ranges::sort(out, {}, &AssetInfo::name);
+	return out;
+}
+
+std::vector<AssetInfo> InstalledModelInfo() {
+	namespace fs = std::filesystem;
+	std::vector<AssetInfo> out;
+	std::error_code ec;
+	for (const auto& entry : fs::directory_iterator(paths::Asset("models"), ec)) {
+		if (ec || !entry.is_regular_file()) continue;
+		const std::string ext = entry.path().extension().string();
+		if (ext != ".gltf" && ext != ".glb") continue;
+		std::string stem = entry.path().stem().string();
+		if (stem.starts_with("worn_")) continue; // baked per surface set, not a type
+		out.push_back(AssetInfo{.name = stem,
+								.file = entry.path().filename().string(),
+								.bytes = entry.file_size(ec)});
+	}
+	std::ranges::sort(out, {}, &AssetInfo::name);
+	return out;
+}
+
 std::vector<std::string> InstalledModels() {
 	return ScanStems(paths::Asset("models"), [](std::string& stem) {
 		// worn_<texture>_<tier> meshes are baked per SURFACE SET, not authored

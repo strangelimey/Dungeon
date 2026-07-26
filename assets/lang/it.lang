@@ -557,6 +557,26 @@ map.prop.deco=Decorazione: {}
 map.pick.title=Modifica nella cella {}, {}
 
 ; --- asset-creation dialog -------------------------------------------------------
+; --- selettore risorse (sfoglia il pool: texture, modelli) ---
+map.type.texture=texture
+map.type.model=modello
+pick.title=Scegli {}
+pick.search=cerca...
+pick.count={} di {}
+pick.choose=Scegli
+pick.none=Nulla selezionato.
+pick.chip.used=In uso
+pick.chip.surface=Dipingibile
+pick.inuse=Usato da questo progetto.
+pick.worn=Mesh dei blocchi consumati generate.
+pick.map.albedo=albedo
+pick.map.normal=normale+altezza
+pick.map.orm=ORM
+pick.fact.res=Installato: {}
+pick.fact.source=Da: {}
+pick.height.real=Mappa di altezza: rilievo reale.
+pick.height.flat=Mappa di altezza: PIATTA (la parallasse non farà nulla).
+pick.height.none=Nessuna mappa normale — niente parallasse.
 newasset.title=Nuovo: {}
 newasset.name=nome
 newasset.browse_model=Sfoglia modello...

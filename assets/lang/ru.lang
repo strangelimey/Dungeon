@@ -561,6 +561,26 @@ map.prop.deco=Декорация: {}
 map.pick.title=Правка в ячейке {}, {}
 
 ; --- asset-creation dialog -------------------------------------------------------
+; --- выбор ресурса (обзор пула: текстуры, модели) ---
+map.type.texture=текстуру
+map.type.model=модель
+pick.title=Выберите {}
+pick.search=поиск...
+pick.count={} из {}
+pick.choose=Выбрать
+pick.none=Ничего не выбрано.
+pick.chip.used=Используется
+pick.chip.surface=Для покраски
+pick.inuse=Используется этим проектом.
+pick.worn=Изношенные меши блоков испечены.
+pick.map.albedo=альбедо
+pick.map.normal=нормаль+высота
+pick.map.orm=ORM
+pick.fact.res=Установлено: {}
+pick.fact.source=Откуда: {}
+pick.height.real=Карта высот: настоящий рельеф.
+pick.height.flat=Карта высот: ПЛОСКАЯ (параллакс ничего не даст).
+pick.height.none=Нет карты нормалей — нет параллакса.
 newasset.title=Новый: {}
 newasset.name=имя
 newasset.browse_model=Выбрать модель...

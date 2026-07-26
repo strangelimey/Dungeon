@@ -129,6 +129,15 @@ Catalog* Project::CatalogForKey(const std::string& key) {
 	return nullptr;
 }
 
+std::vector<const Catalog*> Project::AllCatalogs() const {
+	// Same membership as CatalogForKey (minus `imports`, which is provenance) —
+	// if a category is added there, add it here.
+	return {&walls,  &floors,  &ceilings, &decorations,  &fixtures,
+			&monsters, &doors, &stairs,   &buttons,      &items,
+			&weapons, &armor,  &spells,   &effects,      &attacks,
+			&balance, &wallfeatures};
+}
+
 const CatalogEntry* Project::FindItem(std::string_view id) const {
 	if (const CatalogEntry* e = items.Find(id)) return e;
 	if (const CatalogEntry* e = weapons.Find(id)) return e;

@@ -233,6 +233,55 @@ void Game::WireModuleCallbacks() {
 						 e ? e->GetFloat("relief", -1.0f) : -1.0f);
 		if (m_restyleBake) m_typeDialog.SetBusy(true); // bake launched
 	};
+	// A `texture` / `model` field opens the POOL BROWSER rather than a dropdown.
+	// The picker knows nothing about catalogs: it is handed the current value and
+	// hands back the pick, which goes straight into the field that asked.
+	m_typeDialog.onPickAsset = [this](bool textures, const std::string& current,
+									  std::function<void(const std::string&)> apply) {
+		m_pickApply = std::move(apply);
+		m_assetPicker.Open(textures ? AssetPicker::Mode::Textures
+									: AssetPicker::Mode::Models,
+						   current,
+						   loc::Tr(textures ? "map.type.texture" : "map.type.model"),
+						   m_settings.theme);
+	};
+	// The create dialog's "Use installed" field browses the same pool the same way.
+	m_assetDialog.onPickAsset = [this](bool textures, const std::string& current,
+									   std::function<void(const std::string&)> apply) {
+		m_pickApply = std::move(apply);
+		m_assetPicker.Open(textures ? AssetPicker::Mode::Textures
+									: AssetPicker::Mode::Models,
+						   current,
+						   loc::Tr(textures ? "map.type.texture" : "map.type.model"),
+						   m_settings.theme);
+	};
+	m_assetPicker.onChoose = [this](const std::string& picked) {
+		if (m_pickApply) m_pickApply(picked);
+		m_pickApply = nullptr;
+	};
+	// "In use" = bound by some entry in some catalog of this project. Asked once
+	// per open, so walking every catalog is cheap enough to keep honest.
+	m_assetPicker.usedAssets = [this] {
+		std::vector<std::string> out;
+		const char* fields[] = {"texture", "model", "part2_texture", "part2_model"};
+		for (const Catalog* cat : m_project.AllCatalogs())
+			for (const CatalogEntry& e : cat->Entries())
+				for (const char* field : fields) {
+					const std::string v = e.Get(field, "");
+					if (!v.empty() && std::ranges::find(out, v) == out.end())
+						out.push_back(v);
+				}
+		return out;
+	};
+	// Provenance, for the details pane: what the editor's own imports recorded.
+	m_assetPicker.sourceOf = [this](const std::string& name) {
+		// Texture sets install resolution-tagged, and that is the key the
+		// manifest uses (RecordImport); models keep their bare name.
+		for (const std::string& key : {name + "_2k", name})
+			if (const CatalogEntry* e = m_project.imports.Find(key))
+				return e->Get("source", "");
+		return std::string();
+	};
 	// Monsters keep their specialised dialog for animation + behaviour (it
 	// REWRITES those rows, so the schema deliberately leaves them out); the type
 	// editor's extra button is the way through to it.

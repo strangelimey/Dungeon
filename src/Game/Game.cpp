@@ -45,7 +45,7 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	  m_modelPreview(device, 512),
 	  m_assetDialog(device, window),
 	  m_monsterDialog(device), m_balanceDialog(device),
-	  m_levelSettingsDialog(device), m_typeDialog(device),
+	  m_levelSettingsDialog(device), m_typeDialog(device), m_assetPicker(device),
 	  m_entityInspector(device), m_fixtureInspector(device),
 	  m_propInspector(device), m_doorInspector(device), m_buttonInspector(device),
 	  m_nicheInspector(device),
@@ -906,6 +906,14 @@ void Game::Update(float dt) {
 	// --- Playing -------------------------------------------------------------
 	// The asset-creation dialog is modal over the editor: while it is up it owns
 	// input and the world/overlay are frozen.
+	// The asset picker sits ABOVE every dialog that opens it (the type editor and
+	// the create dialog), so it comes first: while it is up it owns the mouse and
+	// the keyboard (its search box types).
+	if (m_assetPicker.IsOpen()) {
+		m_assetPicker.Update(input, static_cast<float>(m_window.Width()),
+							 static_cast<float>(m_window.Height()), dt);
+		return;
+	}
 	if (m_assetDialog.IsOpen()) {
 		m_assetDialog.Update(input, static_cast<float>(m_window.Width()),
 							 static_cast<float>(m_window.Height()), dt);
@@ -1205,7 +1213,13 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 	std::span<const gfx::PreviewSubmesh> pvSubs; // per-instance dialog (multi-material)
 	const Vec3* pvFitMin = nullptr;             // auto-fit AABB (small items)
 	const Vec3* pvFitMax = nullptr;
-	if (m_assetDialog.IsOpen() && m_assetDialog.HasPreview()) {
+	if (m_assetPicker.IsOpen() && m_assetPicker.HasPreview()) {
+		// The picker is above the type editor and above the create dialog, so it
+		// claims the shared preview RT first.
+		pvMesh = &m_assetPicker.PreviewMesh();
+		pvMat = m_assetPicker.PreviewMaterial();
+		pvOrbit = m_assetPicker.Orbit();
+	} else if (m_assetDialog.IsOpen() && m_assetDialog.HasPreview()) {
 		pvMesh = &m_assetDialog.PreviewMesh();
 		pvMat = m_assetDialog.PreviewMaterial();
 		pvOrbit = m_assetDialog.Orbit();
@@ -1284,6 +1298,24 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 		m_world.UpdateItemIcons(list, m_spriteBatch);
 		m_world.UpdateMapIcons(list, m_spriteBatch);
 	}
+	// The asset picker's model tiles bake in the same phase (they need the
+	// command list). Only the DRAW is recorded here — the picker made the mesh
+	// and the target back in Update, because creating a render target drains the
+	// GPU and doing that mid-recording corrupted the next bake in the frame.
+	if (m_assetPicker.IsOpen()) {
+		bool baked = false;
+		for (const AssetPicker::PendingBake& bake : m_assetPicker.PendingBakes(2)) {
+			m_world.BakeIconFor(list, m_spriteBatch, *bake.mesh, bake.lo, bake.hi,
+								*bake.target);
+			m_assetPicker.MarkBaked(bake.name);
+			baked = true;
+		}
+		// A bake redirects the output merger at its own 256px target; leaving it
+		// there sends the 2D pass into the last icon baked (a squashed copy of
+		// the whole screen, which is exactly what the tiles showed). Same
+		// epilogue UpdateMapIcons has.
+		if (baked) m_device.BindBackBuffer(list);
+	}
 
 	// 2D pass.
 	m_spriteBatch.Begin(list, m_device.Width(), m_device.Height());
@@ -1352,6 +1384,14 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 		m_levelSettingsDialog.Render(m_spriteBatch, m_settings.theme, dw, dh);
 	if (m_typeDialog.IsOpen())
 		m_typeDialog.Render(m_spriteBatch, m_settings.theme, dw, dh);
+	// The asset picker draws OVER the type editor it was opened from, and blits
+	// the selected asset's preview into its own pane (the asset dialog's seam).
+	if (m_assetPicker.IsOpen()) {
+		m_assetPicker.Render(m_spriteBatch, dw, dh);
+		if (m_assetPicker.HasPreview())
+			m_spriteBatch.DrawSprite(m_assetPicker.PreviewRect(dw, dh), {0, 0, 1, 1},
+									 m_modelPreview.Srv(), {1, 1, 1, 1});
+	}
 	// The per-instance edit dialogs, each drawn (panel + controls) THEN, once all
 	// are drawn, the 3D preview blitted into the active one's pane — the blit must
 	// come last so a dialog's backing box never covers it.

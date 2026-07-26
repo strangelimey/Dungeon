@@ -11,6 +11,7 @@
 
 #include "Assets/Model.h"
 #include "Assets/Wav.h"
+#include "Core/Types.h"
 #include "Graphics/Texture.h"
 
 #include <memory>
@@ -47,5 +48,33 @@ std::vector<std::string> InstalledTextureSets();
 // `model` field names. The worn_* block meshes are baked per surface texture,
 // not authored types, so they are left out.
 std::vector<std::string> InstalledModels();
+
+// --- what the pool holds, in detail (the asset picker) ----------------------
+// One installed asset as the picker describes it. Everything here comes from
+// the DIRECTORY WALK — file names and sizes — so listing hundreds of sets costs
+// no decoding. The questions a walk cannot answer (is the height map real or
+// flat? where was it imported from?) are answered per SELECTED asset instead.
+struct AssetInfo {
+	std::string name;   // what a catalog's `texture` / `model` field binds
+	std::string file;   // models only: the file, extension included
+	u32 resolutions = 0; // texture sets: bit 0/1/2 = 1k/2k/4k installed
+	bool normal = false; // <name>_<res>_n exists (normal + height in alpha)
+	bool orm = false;    // <name>_<res>_mr exists (occlusion/roughness/metallic)
+	bool baked = false;  // a .dds chain exists (else PNG source only)
+	u64 bytes = 0;       // every file of the set/model, summed
+	// Texture sets: worn block meshes exist for this set, so it can be PAINTED
+	// as a surface. Which kind they were baked as isn't knowable from the pool
+	// (one worn_<set>_<tier>.gltf per set, the kind is in the geometry) — the
+	// project's catalogs answer that, and the picker's owner supplies it.
+	bool worn = false;
+};
+
+// The installed PBR sets / models with the above filled in, sorted by name.
+// One directory walk each (plus one over models/ for the worn-mesh kinds).
+std::vector<AssetInfo> InstalledTextureSetInfo();
+std::vector<AssetInfo> InstalledModelInfo();
+
+// Resolution bits, so callers don't hand-roll the masks.
+constexpr u32 kRes1k = 1u, kRes2k = 2u, kRes4k = 4u;
 
 } // namespace dungeon::game

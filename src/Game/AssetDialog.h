@@ -120,6 +120,12 @@ public:
 
 	// Fired by the Create button with the gathered form.
 	std::function<void(const CreateRequest&)> onCreate;
+	// "Use installed" picks from the POOL, which is the asset picker's job — the
+	// owner opens it (textures vs models, on `current`) and calls `apply` with
+	// the chosen name. Same seam as the type editor's asset fields.
+	std::function<void(bool textures, const std::string& current,
+					   std::function<void(const std::string&)> apply)>
+		onPickAsset;
 	// Reads one field off a catalog entry — (catalogKey, id, field) -> value, ""
 	// when unknown. The dialog holds ids, not the project, and Duplicate picks an
 	// ID where Installed picks a pool ASSET: this is how it resolves the entry it
@@ -159,7 +165,7 @@ private:
 	std::string m_asset;     // Installed: pool asset; Duplicate: source catalog id
 	bool m_flipGreen = false;
 	std::vector<std::string> m_existing; // this catalog's ids
-	std::vector<std::string> m_pool;     // installed assets for the Installed mode
+	// (no pool listing here any more — "Use installed" browses it in AssetPicker)
 	assets::PbrMapSet m_found;           // Import: what the folder holds
 	gfx::MaterialParams m_material;
 	gfx::MaterialParams m_neutral; // opening values; Create diffs against these

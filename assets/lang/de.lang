@@ -557,6 +557,26 @@ map.prop.deco=Dekoration: {}
 map.pick.title=Bearbeiten bei Zelle {}, {}
 
 ; --- asset-creation dialog -------------------------------------------------------
+; --- Asset-Auswahl (Pool durchsuchen: Texturen, Modelle) ---
+map.type.texture=Textur
+map.type.model=Modell
+pick.title={} wählen
+pick.search=suchen...
+pick.count={} von {}
+pick.choose=Wählen
+pick.none=Nichts ausgewählt.
+pick.chip.used=In Benutzung
+pick.chip.surface=Malbar
+pick.inuse=Von diesem Projekt benutzt.
+pick.worn=Abgenutzte Blockmeshes gebacken.
+pick.map.albedo=Albedo
+pick.map.normal=Normal+Höhe
+pick.map.orm=ORM
+pick.fact.res=Installiert: {}
+pick.fact.source=Aus: {}
+pick.height.real=Höhenkarte: echtes Relief.
+pick.height.flat=Höhenkarte: FLACH (Parallaxe wirkt nicht).
+pick.height.none=Keine Normalkarte — keine Parallaxe.
 newasset.title=Neu: {}
 newasset.name=Name
 newasset.browse_model=Modell durchsuchen...

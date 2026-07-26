@@ -40,6 +40,7 @@
 #include "Audio/AudioEngine.h"
 #include "Core/ThreadManager.h"
 #include "Game/AssetDialog.h"
+#include "Game/AssetPicker.h"
 #include "Game/Character.h"
 #include "Game/DevConsole.h"
 #include "Game/DungeonWorld.h"
@@ -388,6 +389,12 @@ private:
 	// rendered from CatalogSchema, so it serves every category. Save writes the
 	// .cat (and re-bakes the worn meshes when a surface's look changed).
 	TypeEditorDialog m_typeDialog;
+	// The pool browser behind every `texture` / `model` field — modal OVER the
+	// type editor, since that is what opens it. What it picks goes back through
+	// m_pickApply (the field's own setter), so the picker knows nothing about
+	// catalogs.
+	AssetPicker m_assetPicker;
+	std::function<void(const std::string&)> m_pickApply;
 	// Per-instance entity inspector, opened by Select-clicking a placed monster.
 	EntityInspector m_entityInspector;
 	// Per-instance fixture inspector, opened by Select-clicking a wall torch/sconce.
