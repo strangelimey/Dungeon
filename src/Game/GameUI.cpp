@@ -1361,6 +1361,23 @@ void GameUI::ShowSheet(size_t index) {
 
 void GameUI::RefreshSheet() { m_sheet->SetCharacter(m_sheetIndex); }
 
+// --- dev: the widget trees by name (the console's `uitree dump`) -------------
+
+ui::UIContext* GameUI::UiTree(std::string_view name) {
+	if (name == "hud") return &m_hudUi;
+	if (name == "menu") return &m_menuUi;
+	if (name == "settings") return &m_settingsUi;
+	if (name == "pause") return &m_pauseUi;
+	if (name == "saves") return &m_savesUi;
+	if (name == "sheet") return &m_sheetUi;
+	if (name == "confirm") return &m_confirmUi;
+	return nullptr;
+}
+
+std::string GameUI::UiTreeNames() {
+	return "hud menu settings pause saves sheet confirm";
+}
+
 // ============================================================================
 // HUD — authored in design pixels from the initial window size, stored as
 // window fractions (Norm), so it scales with the screen. Widgets the game

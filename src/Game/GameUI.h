@@ -199,6 +199,12 @@ public:
 	// Video tab Apply with the adapter changed (confirmed): persist + relaunch.
 	std::function<void()> onAdapterRestart;
 
+	// One of this UI's widget trees, by name, for the dev console's `uitree
+	// dump` (dev-facing, so the names stay English). Null for an unknown name;
+	// UiTreeNames lists what is accepted.
+	ui::UIContext* UiTree(std::string_view name);
+	static std::string UiTreeNames();
+
 private:
 	enum class MenuPage { Main, Settings, Saves };
 	// The Saves sub-page serves two jobs: Load (a list of slots to load) and

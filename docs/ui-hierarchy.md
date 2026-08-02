@@ -111,10 +111,19 @@ Children hold an INDEX and re-resolve against the model every frame (the existin
 behaviour change; existing flat authoring keeps working, so nothing has to
 convert at once.
 
-**P1 — tree inspector.** A dev-console `uitree`: outline every widget's pixel
-rect with its class name, highlight the chain under the cursor, dump the tree to
-the log. This is how each phase below gets verified without pixel-hunting
-screenshots.
+**P1 — tree inspector. DONE.** Dev console `uitree` (on / off / no-arg toggle)
+outlines every widget in every context, tinted by depth, and highlights the
+chain under the cursor with a breadcrumb naming each link and its pixel rect.
+`uitree dump [hud|menu|settings|pause|saves|sheet|confirm]` prints the tree
+indented, each line carrying the widget's pixel rect and its bounds fractions.
+It hooks into `UIContext::Render`, so every context — the HUD, the pages, each
+dialog — is covered with no per-caller wiring, and only contexts that actually
+rendered draw an overlay. Names come from `typeid` with the namespace stripped,
+or from `Widget::debugName` when set.
+
+The hover pick descends into the SMALLEST child containing the point, which is
+deliberately NOT the input rule (reverse add order) — see the first finding
+below.
 
 **P2 — `TabControl` onto the shared mechanism.** Each tab becomes a page
 container child; scroll/clip/cull move into a reusable `ScrollArea` that the
@@ -138,7 +147,24 @@ selector, symbol grid and details as children. The `innerX` / `moveTop` /
 them, so doll cells are fractions of the doll area rather than of the sheet.
 
 **P6 — the remainder.** Left status/options column, message log, inventory
-overlay, then the dialogs.
+overlay, then the dialogs. Two items the inspector has already named:
+`MessageLog` must take its real bounds (below), and `ContextMenu` /
+`InventoryWindow` dump as `0x0` because they position themselves in absolute
+pixels — legitimate for a screen-anchored popup, but it should be stated in
+their headers rather than inferred from a zero rect.
+
+## What the inspector found
+
+- **`MessageLog` claims the whole window.** Its bounds are `{0,0,1,1}` and it
+  sizes itself down inside Draw, so on a pure reverse-add-order hit test it is
+  the topmost thing under every pixel on screen: hovering a party slot reported
+  the log. That is why the inspector picks the smallest match instead. The
+  widget still only CONSUMES the mouse over its real area, so input is correct
+  today — but a widget whose bounds overstate what it draws is a layout bug
+  waiting to happen, and P6 fixes it at the source.
+- **The HUD is 30-odd siblings all at depth 1.** The dump shows one flat row of
+  Panels, Labels, Buttons, HandSlots and the SpellbookPanel directly under root
+  — the flatness this thread exists to remove, now visible rather than inferred.
 
 ## Rules the tree carries
 

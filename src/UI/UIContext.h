@@ -84,6 +84,11 @@ public:
 	float Width() const { return m_width; }
 	float Height() const { return m_height; }
 
+	// Pointer position from the most recent Update. Render has no Input of its
+	// own, so the tree inspector reads the cursor from here.
+	float MouseX() const { return m_mouseX; }
+	float MouseY() const { return m_mouseY; }
+
 	// Input routing state (used by widgets during Update).
 	const Input* CurrentInput() const { return m_input; }
 	bool IsMouseConsumed() const { return m_mouseConsumed; }
@@ -99,6 +104,8 @@ private:
 	bool m_mouseConsumed = false;
 	float m_width = 1.0f;
 	float m_height = 1.0f;
+	float m_mouseX = 0.0f;
+	float m_mouseY = 0.0f;
 };
 
 } // namespace dungeon::ui

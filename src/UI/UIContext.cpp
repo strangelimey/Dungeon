@@ -1,5 +1,6 @@
 #include "UI/UIContext.h"
 
+#include "UI/TreeInspector.h"
 #include "UI/Widget.h"
 
 namespace dungeon::ui {
@@ -16,6 +17,8 @@ void UIContext::Update(const Input& input, float width, float height) {
 	m_mouseConsumed = false;
 	m_width = width;
 	m_height = height;
+	m_mouseX = input.MouseX();
+	m_mouseY = input.MouseY();
 	const gfx::Rect window{0, 0, width, height};
 	// Resolve the whole tree, then walk it for input (children before their
 	// parent, in reverse add order — see Widget.h).
@@ -31,6 +34,8 @@ void UIContext::Render(gfx::SpriteBatch& batch, float width, float height) {
 	m_root.Layout(window, *this);
 	m_root.Draw(*this, batch);
 	m_root.DrawOverlay(*this, batch);
+	// Debug view of the tree, above everything (no-op unless `uitree` is on).
+	inspect::Draw(*this, batch);
 }
 
 } // namespace dungeon::ui
