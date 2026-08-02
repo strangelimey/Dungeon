@@ -1,5 +1,11 @@
 // ============================================================================
 // Game/InventoryWindow.h — combined party inventory overlay (one backpack column per member).
+//
+// SCREEN-ANCHORED, not parent-relative: it centres itself on the window and
+// draws in the OVERLAY pass, so `bounds` stays zero and its rect comes from
+// PanelRect(ctx). That is deliberate for a floating panel — it must not be
+// clipped or positioned by whatever happens to own it — but it means the tree
+// inspector reports it as 0x0. See docs/ui-hierarchy.md.
 // ============================================================================
 #pragma once
 

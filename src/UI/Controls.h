@@ -35,12 +35,24 @@ namespace dungeon::ui {
 
 struct Skin;
 
-// Simple framed background rectangle (draws first if added first).
+// Framed background rectangle, and the plainest container there is: give it
+// `padX`/`padY` (fractions of its own width/height) and its children resolve
+// against the padded interior, so a plate of rows is authored as fractions of
+// the plate rather than of the window. Both default to 0, which leaves
+// ContentRect the whole rect — every Panel that predates this is unaffected.
 class Panel : public Widget {
 public:
 	explicit Panel(const gfx::Rect& rect) { bounds = rect; }
-	void UpdateSelf(UIContext&) override {}
 	void DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) override;
+
+	gfx::Rect ContentRect() const override {
+		const gfx::Rect& px = Pixel();
+		const float ix = padX * px.w, iy = padY * px.h;
+		return {px.x + ix, px.y + iy, px.w - 2 * ix, px.h - 2 * iy};
+	}
+
+	float padX = 0.0f;
+	float padY = 0.0f;
 };
 
 // Horizontal rule (like HTML <hr>): a 1px line centered in its bounds, spanning
@@ -315,8 +327,12 @@ private:
 // other groups remain in reach (clicking another group swaps the submenu, the
 // same group toggles it). One level deep. It is a persistent widget the owner
 // reuses — call Open() with the actions for whatever was right-clicked; an
-// empty list is a no-op. Position is absolute pixels (not the normalized
-// bounds), so leave bounds at zero.
+// empty list is a no-op.
+//
+// SCREEN-ANCHORED, not parent-relative: it opens at an absolute pixel point and
+// draws in the OVERLAY pass, so `bounds` stays zero — a context menu must not be
+// clipped or placed by whatever happens to own it. The tree inspector therefore
+// shows it as 0x0, which is correct rather than a missing rect.
 class ContextMenu : public Widget {
 public:
 	struct Entry {

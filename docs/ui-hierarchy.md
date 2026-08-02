@@ -219,12 +219,35 @@ and pack constants have not moved into a doll/pack area. And `ui::SlotList`
 still has its own scroll and thumb; folding it onto `ScrollArea` was named in
 this phase and hasn't been done.
 
-**P6 — the remainder.** Left status/options column, message log, inventory
-overlay, then the dialogs. Two items the inspector has already named:
-`MessageLog` must take its real bounds (below), and `ContextMenu` /
-`InventoryWindow` dump as `0x0` because they position themselves in absolute
-pixels — legitimate for a screen-anchored popup, but it should be stated in
-their headers rather than inferred from a zero rect.
+**P6 — the remainder. PART DONE.**
+
+Done:
+- **The left column** is two `ui::Panel` plates — status (compass, position) and
+  options (torchlight, Wait/Help) — each laying its rows out as fractions of
+  itself. `Panel` gained `padX`/`padY` and a `ContentRect` override, which makes
+  it the plainest container there is; both default to 0, so every Panel that
+  predates this is untouched.
+- **`MessageLog` takes its real bounds.** It was `{0,0,1,1}` — the whole window,
+  while drawing in one corner (the P1 finding). `LayoutSelf` now writes back what
+  it actually occupies: the animated footer while shown, the small restore button
+  once faded out. It dumps as `52x31` in the corner instead of `1600x900`.
+- **The two screen-anchored popups say so.** `ContextMenu` and `InventoryWindow`
+  open at absolute pixels in the overlay pass and keep zero bounds — correct for
+  a floating panel, which must not be clipped or placed by whatever owns it — and
+  their headers now state it rather than leaving a `0x0` dump to be puzzled over.
+
+Still outstanding, in rough value order:
+- `ui::SlotList` carries its own scroll, rows and thumb — the last copy of the
+  maths `ScrollArea` owns (named in P5, still not folded in).
+- `SpellbookPanel`'s interior: selector row, symbol grid, sequence, Cast/Clear
+  (named in P4).
+- The sheet's Inventory and Stats bodies still draw against the sheet rect, so
+  the doll and pack constants have not moved into areas of their own (P5).
+- The editor and asset dialogs each own a `UIContext` of flat widgets. They work,
+  and converting them is a separate thread's worth of work.
+- `MessageLog::DrawSelf` calls `batch.SetScissor` directly rather than going
+  through the tree's clip stack. It is a root child today so nothing is clobbered,
+  but it is the pattern P2 replaced.
 
 ## What the inspector found
 

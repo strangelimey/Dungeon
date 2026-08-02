@@ -1419,22 +1419,32 @@ void GameUI::BuildHud() {
 	m_belowBar = m_hudUi.Add<ui::Widget>();
 	m_belowBar->bounds = {0, 0, 1, 1};
 	m_belowBar->debugName = "BelowBar";
-	// Left status (compass + position).
+	// Left column: the status plate (compass + position) over the options plate
+	// (torchlight + Wait/Help). Two padded panels, each laying its own rows out
+	// as fractions of itself.
 	constexpr float kLeftX = 0.01f, kLeftW = 0.15f;
-	m_belowBar->Add<ui::Panel>(gfx::Rect{kLeftX, kBelowBar0, kLeftW, 0.071f});
-	m_compass = m_belowBar->Add<ui::Label>(gfx::Rect{kLeftX + 0.007f, kBelowBar0 + 0.011f, kLeftW - 0.014f, 0.022f}, "");
-	m_position = m_belowBar->Add<ui::Label>(gfx::Rect{kLeftX + 0.007f, kBelowBar0 + 0.038f, kLeftW - 0.014f, 0.022f}, "");
+	constexpr float kStatusH = 0.071f, kOptionsH = 0.16f;
+	constexpr float kOptionsGap = 0.013f;
+
+	auto* status =
+		m_belowBar->Add<ui::Panel>(gfx::Rect{kLeftX, kBelowBar0, kLeftW, kStatusH});
+	status->debugName = "StatusPlate";
+	status->padX = 0.0467f; // 0.007 of the window, as a fraction of the plate
+	status->padY = 0.1549f; // 0.011 likewise
+	m_compass = status->Add<ui::Label>(gfx::Rect{0, 0, 1, 0.449f}, "");
+	m_position = status->Add<ui::Label>(gfx::Rect{0, 0.551f, 1, 0.449f}, "");
 	m_position->dim = true;
 
-	// Options (torch + wait/help) under status.
-	const float optTop = kBelowBar0 + 0.084f;
-	m_belowBar->Add<ui::Panel>(gfx::Rect{kLeftX, optTop, kLeftW, 0.16f});
-	m_belowBar->Add<ui::Label>(gfx::Rect{kLeftX + 0.009f, optTop + 0.011f, kLeftW - 0.018f, 0.022f},
-		loc::Tr("hud.options"));
-	auto* torchLabel = m_belowBar->Add<ui::Label>(gfx::Rect{kLeftX + 0.009f, optTop + 0.044f, kLeftW - 0.018f, 0.022f},
-		loc::Tr("hud.torchlight"));
+	auto* options = m_belowBar->Add<ui::Panel>(gfx::Rect{
+		kLeftX, kBelowBar0 + kStatusH + kOptionsGap, kLeftW, kOptionsH});
+	options->debugName = "OptionsPlate";
+	options->padX = 0.0600f; // 0.009 of the window
+	options->padY = 0.0688f; // 0.011 of the window
+	options->Add<ui::Label>(gfx::Rect{0, 0, 1, 0.1594f}, loc::Tr("hud.options"));
+	auto* torchLabel = options->Add<ui::Label>(gfx::Rect{0, 0.2391f, 1, 0.1594f},
+											   loc::Tr("hud.torchlight"));
 	torchLabel->dim = true;
-	m_belowBar->Add<ui::DropDown>(gfx::Rect{kLeftX + 0.009f, optTop + 0.071f, kLeftW - 0.018f, 0.029f},
+	options->Add<ui::DropDown>(gfx::Rect{0, 0.4348f, 1, 0.2101f},
 		std::vector<std::string>{loc::Tr("torch.warm"), loc::Tr("torch.cold"),
 								 loc::Tr("torch.eerie")},
 		m_torchPalette, [this](int index) {
@@ -1442,13 +1452,14 @@ void GameUI::BuildHud() {
 			m_torchPalette = index;
 			onTorchPalette(index);
 		});
-	constexpr float kHalfBtn = 0.063f;
-	m_belowBar->Add<ui::Button>(gfx::Rect{kLeftX + 0.009f, optTop + 0.116f, kHalfBtn, 0.031f}, loc::Tr("hud.wait"),
+	constexpr float kHalfBtn = 0.4773f; // 0.063 of the window, of the inner width
+	options->Add<ui::Button>(gfx::Rect{0, 0.7609f, kHalfBtn, 0.2246f},
+		loc::Tr("hud.wait"),
 		[this] {
 			Click();
 			m_log->AddLine(loc::Tr("log.wait"));
 		});
-	m_belowBar->Add<ui::Button>(gfx::Rect{kLeftX + 0.009f + kHalfBtn + 0.008f, optTop + 0.116f, kHalfBtn, 0.031f},
+	options->Add<ui::Button>(gfx::Rect{0.5379f, 0.7609f, kHalfBtn, 0.2246f},
 		loc::Tr("hud.help"), [this] {
 			Click();
 			m_log->AddLine(m_settings.MoveKeysHelp());
@@ -1488,9 +1499,9 @@ void GameUI::BuildHud() {
 		if (onCastSequence) onCastSequence(member, kBookHands, seq);
 	};
 
-	// Message log: full window (sizes itself each frame from height fractions).
+	// Message log: screen-anchored, and it writes its own bounds each frame
+	// (footer or restore button — see MessageLog.h).
 	m_log = m_hudUi.Add<MessageLog>();
-	m_log->bounds = {0, 0, 1, 1};
 	m_log->restoreLabel = loc::Tr("hud.log_show");
 
 	m_handMenu = m_hudUi.Add<ui::ContextMenu>();
