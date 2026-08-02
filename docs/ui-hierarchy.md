@@ -236,18 +236,39 @@ Done:
   a floating panel, which must not be clipped or placed by whatever owns it — and
   their headers now state it rather than leaving a `0x0` dump to be puzzled over.
 
-Still outstanding, in rough value order:
-- `ui::SlotList` carries its own scroll, rows and thumb — the last copy of the
-  maths `ScrollArea` owns (named in P5, still not folded in).
-- `SpellbookPanel`'s interior: selector row, symbol grid, sequence, Cast/Clear
-  (named in P4).
-- The sheet's Inventory and Stats bodies still draw against the sheet rect, so
-  the doll and pack constants have not moved into areas of their own (P5).
-- The editor and asset dialogs each own a `UIContext` of flat widgets. They work,
-  and converting them is a separate thread's worth of work.
-- `MessageLog::DrawSelf` calls `batch.SetScissor` directly rather than going
-  through the tree's clip stack. It is a root child today so nothing is clobbered,
-  but it is the pattern P2 replaced.
+Then, in a follow-up pass:
+- **`SlotList` folded onto `ScrollArea`** — the fourth and last copy of the
+  scroll maths. Its rows are `SlotRow` widgets, direct children of the area (no
+  repeater: the rows are known when the page is built, so their bounds are what
+  it measures overflow from). The confirm modal moved to `UpdateBeforeChildren`,
+  which is what that hook is for — it has to take the mouse off the rows before
+  they see it.
+- **`ScopedClip`.** Three widgets clipped their own content with
+  `SetScissor(&rect)` then `SetScissor(nullptr)` — `TextOutput`, `MessageLog`,
+  and `DropDown`'s scrolling popup. That bare reset drops an ancestor's clip,
+  which is the bug P2's clip stack exists to prevent. `ScopedClip` intersects
+  with the clip in force and restores it, so self-clipping widgets and the draw
+  walk share one mechanism.
+- **The spellbook's selector row** is a `MemberRow` of `MemberButton`s — the
+  sketch's "character selection".
+
+## Left undone, and why
+
+- **The spellbook's symbol grid and sequence/Cast/Clear.** Its rects are already
+  parent-relative fractions of its own `Pixel()`, and the region is one tight
+  state machine: `m_sequence` decides which runes are available (the one-school
+  rule, spent symbols), clicking a sequence slot truncates the tail, and
+  Cast/Clear respond off the same state. Splitting it would couple four classes
+  back through the parent for that state and remove no bug — unlike the party
+  bar, where child-first input deleted a real ordering hack, or the sheet, where
+  it deleted a duplicated scroll. Worth doing only alongside a change that
+  actually wants per-rune widgets.
+- **The sheet's Inventory and Stats bodies.** They fill the sheet, so fractions
+  of the sheet are already parent-relative; a body container would buy structure
+  without moving a constant anywhere more meaningful.
+- **The editor and asset dialogs.** Each owns a `UIContext` of flat widgets.
+  They work; converting them is a separate thread's worth of work and touches
+  the editor rather than the game UI.
 
 ## What the inspector found
 
