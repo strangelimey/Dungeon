@@ -99,6 +99,14 @@ public:
 	// The pixel rect resolved by the most recent Layout().
 	const gfx::Rect& Pixel() const { return m_pixel; }
 
+	// --- typographic units (UI/Units.h has the model) -----------------------
+	// 1rem = the context's root font size, captured at Layout so that even a
+	// const rect helper can ask for it without being handed a UIContext. Use
+	// these for the DETAIL inside a control — padding, row heights, a
+	// scrollbar's width — while bounds stay [0..1] of the parent.
+	float Rem(float n = 1.0f) const { return m_rem * n; }
+	float Em(float n = 1.0f) const { return Rem(n); }
+
 	// The rect CHILDREN resolve against. Override to inset the children (a
 	// padded panel), to move them (a scrolled page), or to hand back a
 	// sub-region (a tab's page below its strip). Defaults to the whole rect.
@@ -134,6 +142,7 @@ protected:
 
 private:
 	gfx::Rect m_pixel{};
+	float m_rem = 16.0f; // root font size in pixels, refreshed every Layout
 	std::vector<std::unique_ptr<Widget>> m_children;
 };
 

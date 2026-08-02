@@ -63,7 +63,7 @@ void HandSlot::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 		socket = {px.x + in, px.y + in, px.w - 2 * in, px.h - 2 * in};
 	} else if (skinned) {
 		ui::DrawNineSlice(batch, px, skin->button, {1, 1, 1, 1});
-		const float in = 4.0f;
+		const float in = Rem(0.24f);
 		socket = {px.x + in, px.y + in, px.w - 2 * in, px.h - 2 * in};
 	}
 	// A subtle grey lift on hover/press keeps the interaction feedback.

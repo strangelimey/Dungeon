@@ -14,7 +14,7 @@ constexpr size_t kMaxLines = 200;
 constexpr float kHold = 6.0f;          // seconds a message stays fully opaque
 constexpr float kFade = 5.0f;          // seconds it then takes to fade out
 constexpr float kShrinkDelay = 0.5f;   // pause before collapsing once unhovered
-constexpr float kPad = 6.0f;           // inner text padding (pixels, like other controls)
+constexpr float kPadRem = 0.35f;       // inner text padding, in rem (UI/Units.h)
 constexpr float kCollapsedLines = 2.0f;
 constexpr float kExpandedLines = 11.0f;
 constexpr float kMaxExpandedFrac = 0.5f; // never taller than half the screen
@@ -54,9 +54,10 @@ gfx::Rect MessageLog::FooterRect(ui::UIContext& ctx) const {
 
 gfx::Rect MessageLog::RestoreRect(ui::UIContext& ctx) const {
 	ui::Font& font = ctx.GetFont();
-	const float bh = font.LineAdvance() + 10.0f;
-	const float bw = font.MeasureWidth(restoreLabel) + 24.0f;
-	return {8.0f, ctx.Height() - bh - 6.0f, bw, bh}; // bottom-left, where the footer sat
+	const float bh = font.LineAdvance() + Rem(0.6f);
+	const float bw = font.MeasureWidth(restoreLabel) + Rem(1.4f);
+	// bottom-left, where the footer sat
+	return {Rem(0.5f), ctx.Height() - bh - Rem(0.35f), bw, bh};
 }
 
 // Height targets track the live font (so they scale with the window), then the
@@ -69,9 +70,10 @@ void MessageLog::LayoutSelf(ui::UIContext& ctx) {
 	ui::Font& font = ctx.GetFont();
 	const float lineH = font.LineAdvance();
 	const float w = ctx.Width(), h = ctx.Height();
-	m_collapsedFrac = (kCollapsedLines * lineH + 2.0f * kPad) / h;
+	const float pad = Rem(kPadRem);
+	m_collapsedFrac = (kCollapsedLines * lineH + 2.0f * pad) / h;
 	m_expandedFrac =
-		std::min(kMaxExpandedFrac, (kExpandedLines * lineH + 2.0f * kPad) / h);
+		std::min(kMaxExpandedFrac, (kExpandedLines * lineH + 2.0f * pad) / h);
 	if (m_heightFrac <= 0.0f) m_heightFrac = m_collapsedFrac; // seed first frame
 
 	if (Dormant()) {
@@ -113,7 +115,7 @@ void MessageLog::UpdateSelf(ui::UIContext& ctx) {
 		m_hovered = true;
 		ctx.ConsumeMouse();
 		if (input->WheelDelta() != 0.0f) {
-			const float innerH = footer.h - 2.0f * kPad;
+			const float innerH = footer.h - 2.0f * Rem(kPadRem);
 			const float maxScroll = std::max(
 				0.0f, static_cast<float>(m_msgs.size()) - innerH / lineH);
 			m_scroll = std::clamp(m_scroll + input->WheelDelta() * 3.0f, 0.0f,
@@ -161,8 +163,8 @@ void MessageLog::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 		border.w *= ca;
 		ui::DrawBorder(batch, footer, border);
 
-		const gfx::Rect inner{footer.x + kPad, footer.y + kPad,
-							  footer.w - 2.0f * kPad, footer.h - 2.0f * kPad};
+		const gfx::Rect inner{footer.x + Rem(kPadRem), footer.y + Rem(kPadRem),
+							  footer.w - 2.0f * Rem(kPadRem), footer.h - 2.0f * Rem(kPadRem)};
 		const ui::ScopedClip clip(batch, inner);
 		const float lineH = font.LineAdvance();
 		// Newest at the bottom, offset upward by the scroll.

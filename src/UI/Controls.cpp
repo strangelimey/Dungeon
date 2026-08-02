@@ -1,6 +1,7 @@
 #include "UI/Controls.h"
 
 #include "UI/Skin.h"
+#include "UI/Units.h"
 
 #include <algorithm>
 #include <format>
@@ -90,7 +91,7 @@ void TextOutput::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 	DrawPanelFace(ctx, batch, px);
 
 	const float lineHeight = font.LineAdvance();
-	const float pad = 6.0f;
+	const float pad = Rem(0.25f);
 	const gfx::Rect inner{px.x + pad, px.y + pad, px.w - 2 * pad, px.h - 2 * pad};
 	const ScopedClip clip(batch, inner);
 
@@ -191,15 +192,15 @@ void Checkbox::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 		batch.DrawRect(px, theme.controlHot);
 	}
 	// The check box itself, left-aligned and vertically centered.
-	const float box = std::min(px.h * 0.6f, 18.0f);
-	const gfx::Rect b{px.x + 4.0f, px.y + (px.h - box) * 0.5f, box, box};
+	const float box = std::min(px.h * 0.6f, Rem(0.65f));
+	const gfx::Rect b{px.x + Rem(0.15f), px.y + (px.h - box) * 0.5f, box, box};
 	batch.DrawRect(b, theme.control);
 	DrawBorder(batch, b, theme.panelBorder);
 	if (m_checked) {
 		const float in = box * 0.24f;
 		batch.DrawRect({b.x + in, b.y + in, b.w - 2 * in, b.h - 2 * in}, theme.accent);
 	}
-	font.Draw(batch, label, b.x + b.w + 8.0f, px.y + (px.h - font.Height()) * 0.5f,
+	font.Draw(batch, label, b.x + b.w + Rem(0.3f), px.y + (px.h - font.Height()) * 0.5f,
 			  (m_checked || highlight) ? theme.text : theme.textDim);
 }
 
@@ -244,20 +245,21 @@ void Slider::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 	// with whatever sat above.) Bounds should be tall enough for both.
 	font.Draw(batch, m_display, px.x, px.y, theme.textDim);
 	const float bandY = px.y + font.LineAdvance();
-	const float bandH = std::max(px.h - font.LineAdvance(), 8.0f);
+	const float bandH = std::max(px.h - font.LineAdvance(), Rem(0.3f));
 
 	// Track.
-	const float trackH = 4.0f;
+	const float trackH = Rem(0.15f);
 	const float trackY = bandY + (bandH - trackH) * 0.5f;
 	batch.DrawRect({px.x, trackY, px.w, trackH}, theme.control);
 
 	// Filled portion + thumb.
 	const float t = (m_value - m_min) / std::max(m_max - m_min, 1e-6f);
 	batch.DrawRect({px.x, trackY, px.w * t, trackH}, theme.accent);
-	const float thumbX = px.x + px.w * t - 5.0f;
-	batch.DrawRect({thumbX, bandY, 10.0f, bandH},
+	const float thumbW = Rem(0.35f);
+	const float thumbX = px.x + px.w * t - thumbW * 0.5f;
+	batch.DrawRect({thumbX, bandY, thumbW, bandH},
 				   m_dragging ? theme.controlActive : theme.controlHot);
-	DrawBorder(batch, {thumbX, bandY, 10.0f, bandH}, theme.panelBorder);
+	DrawBorder(batch, {thumbX, bandY, thumbW, bandH}, theme.panelBorder);
 }
 
 // --- DropDown ------------------------------------------------------------
@@ -267,7 +269,7 @@ void Slider::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 // list used to draw straight off the bottom of the window.
 gfx::Rect DropDown::PopupRect(const UIContext& ctx) const {
 	const gfx::Rect& px = Pixel();
-	const float pad = 4.0f;
+	const float pad = Rem(0.15f);
 	const float content = px.h * static_cast<float>(items.size());
 	const float below = std::max(0.0f, ctx.Height() - (px.y + px.h) - pad);
 	const float above = std::max(0.0f, px.y - pad);
@@ -285,19 +287,20 @@ gfx::Rect DropDown::ItemRect(const gfx::Rect& popup, size_t index) const {
 	const float rowH = Pixel().h;
 	// Rows stop short of the scrollbar gutter, so a row hover never sits under
 	// the thumb (SlotList's rule).
-	const float gutter = MaxScroll(popup) > 0.0f ? 12.0f : 0.0f;
+	const float gutter = MaxScroll(popup) > 0.0f ? Rem(0.45f) : 0.0f;
 	return {popup.x, popup.y + rowH * static_cast<float>(index) - m_scroll,
 			popup.w - gutter, rowH};
 }
 
 gfx::Rect DropDown::ScrollTrackRect(const gfx::Rect& popup) const {
-	const float barW = 10.0f;
+	const float barW = Rem(0.35f);
 	return {popup.x + popup.w - barW - 1.0f, popup.y + 1.0f, barW, popup.h - 2.0f};
 }
 
 gfx::Rect DropDown::ScrollThumbRect(const gfx::Rect& popup, float maxScroll) const {
 	const gfx::Rect track = ScrollTrackRect(popup);
-	const float thumbH = std::max(track.h * popup.h / (popup.h + maxScroll), 24.0f);
+	const float thumbH =
+		std::max(track.h * popup.h / (popup.h + maxScroll), Rem(0.9f));
 	const float t = maxScroll > 0.0f ? m_scroll / maxScroll : 0.0f;
 	return {track.x, track.y + (track.h - thumbH) * t, track.w, thumbH};
 }
@@ -394,7 +397,7 @@ void DropDown::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 	// Arrow indicator, right-aligned with a margin so the glyph clears the
 	// border at any font size (measure it rather than assume a fixed width).
 	const char* arrow = m_open ? "^" : "v";
-	const float arrowX = px.x + px.w - font.MeasureWidth(arrow) - 10.0f;
+	const float arrowX = px.x + px.w - font.MeasureWidth(arrow) - Rem(0.35f);
 	font.Draw(batch, current, px.x + 8, textY, theme.text);
 	font.Draw(batch, arrow, arrowX, textY, theme.accent);
 }
@@ -462,11 +465,11 @@ void ContextMenu::UpdateSelf(UIContext& ctx) {
 	// Size to the widest label (groups reserve room for the "»" marker), then
 	// clamp the box on screen.
 	Font& font = ctx.GetFont();
-	m_rowH = font.Height() + 12.0f;
-	float w = 80.0f;
+	m_rowH = Rem(1.45f);
+	float w = Rem(2.85f);
 	for (const Entry& e : m_entries)
-		w = std::max(w, font.MeasureWidth(e.label) + 24.0f +
-							(e.children.empty() ? 0.0f : 16.0f));
+		w = std::max(w, font.MeasureWidth(e.label) + Rem(0.85f) +
+							(e.children.empty() ? 0.0f : Rem(0.6f)));
 	m_w = w;
 	const float menuH = m_rowH * static_cast<float>(m_entries.size());
 	m_x = std::clamp(m_x, 0.0f, std::max(0.0f, ctx.Width() - m_w));
@@ -478,8 +481,9 @@ void ContextMenu::UpdateSelf(UIContext& ctx) {
 	if (m_openChild >= 0 && m_openChild < static_cast<int>(m_entries.size())) {
 		const std::vector<Entry>& kids =
 			m_entries[static_cast<size_t>(m_openChild)].children;
-		float cw = 80.0f;
-		for (const Entry& e : kids) cw = std::max(cw, font.MeasureWidth(e.label) + 24.0f);
+		float cw = Rem(2.85f);
+		for (const Entry& e : kids)
+			cw = std::max(cw, font.MeasureWidth(e.label) + Rem(0.85f));
 		m_childW = cw;
 		m_childX = m_x + m_w;
 		if (m_childX + cw > ctx.Width()) m_childX = std::max(0.0f, m_x - cw);
@@ -603,12 +607,14 @@ void ContextMenu::DrawOverlaySelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 
 namespace {
 
-// Popup geometry (fixed pixels, like all control detail). Four channel rows,
-// each: letter | track | 0..255 value.
-constexpr float kPickerPopupW = 320.0f;
-constexpr float kPickerPopupPad = 12.0f;
-constexpr float kPickerRowPitch = 36.0f;
-constexpr float kPickerRowH = 28.0f;
+// Popup geometry in REM (UI/Units.h). Four channel rows, each:
+// letter | track | 0..255 value.
+constexpr float kPickerPopupW = 11.4f;
+constexpr float kPickerPopupPad = 0.45f;
+constexpr float kPickerRowPitch = 1.3f;
+constexpr float kPickerRowH = 1.0f;
+constexpr float kPickerLetter = 0.95f; // column before the track
+constexpr float kPickerValue = 2.0f;   // column after it
 constexpr float kPickerPopupH =
 	kPickerPopupPad * 2 + kPickerRowPitch * 3 + kPickerRowH;
 
@@ -621,32 +627,34 @@ float& Channel(Vec4& color, int index) {
 	}
 }
 
-gfx::Rect PickerRow(const gfx::Rect& popup, int index) {
+gfx::Rect PickerRow(const gfx::Rect& popup, int index, float rem) {
 	return {popup.x + kPickerPopupPad,
-			popup.y + kPickerPopupPad + kPickerRowPitch * static_cast<float>(index),
-			popup.w - 2 * kPickerPopupPad, kPickerRowH};
+			popup.y + (kPickerPopupPad + kPickerRowPitch * static_cast<float>(index)) * rem,
+			popup.w - 2 * kPickerPopupPad * rem, kPickerRowH * rem};
 }
 
-gfx::Rect PickerTrack(const gfx::Rect& row) {
-	return {row.x + 26.0f, row.y, row.w - 26.0f - 56.0f, row.h};
+gfx::Rect PickerTrack(const gfx::Rect& row, float rem) {
+	const float letter = kPickerLetter * rem, value = kPickerValue * rem;
+	return {row.x + letter, row.y, row.w - letter - value, row.h};
 }
 
 } // namespace
 
 gfx::Rect ColorPicker::SwatchRect() const {
 	const gfx::Rect& px = Pixel();
-	const float w = std::min(64.0f, px.w * 0.45f);
+	const float w = std::min(Rem(2.3f), px.w * 0.45f);
 	return {px.x + px.w - w, px.y, w, px.h};
 }
 
 gfx::Rect ColorPicker::PopupRect(const UIContext& ctx) const {
 	const gfx::Rect swatch = SwatchRect();
-	const float x = std::clamp(swatch.x + swatch.w - kPickerPopupW, 0.0f,
-							   std::max(0.0f, ctx.Width() - kPickerPopupW));
-	float y = swatch.y + swatch.h + 4.0f;
-	if (y + kPickerPopupH > ctx.Height()) // no room below: open above instead
-		y = swatch.y - 4.0f - kPickerPopupH;
-	return {x, y, kPickerPopupW, kPickerPopupH};
+	const float w = Rem(kPickerPopupW), h = Rem(kPickerPopupH);
+	const float x =
+		std::clamp(swatch.x + swatch.w - w, 0.0f, std::max(0.0f, ctx.Width() - w));
+	float y = swatch.y + swatch.h + Rem(0.15f);
+	if (y + h > ctx.Height()) // no room below: open above instead
+		y = swatch.y - Rem(0.15f) - h;
+	return {x, y, w, h};
 }
 
 void ColorPicker::UpdateSelf(UIContext& ctx) {
@@ -662,7 +670,7 @@ void ColorPicker::UpdateSelf(UIContext& ctx) {
 		if (m_dragChannel < 0 && input->WasMousePressed(MouseButton::Left)) {
 			if (popup.Contains(mx, my)) {
 				for (int i = 0; i < 4; ++i)
-					if (PickerRow(popup, i).Contains(mx, my)) m_dragChannel = i;
+					if (PickerRow(popup, i, Rem()).Contains(mx, my)) m_dragChannel = i;
 			} else {
 				m_open = false; // click anywhere else (incl. the swatch) closes
 				if (onClose) onClose();
@@ -674,7 +682,7 @@ void ColorPicker::UpdateSelf(UIContext& ctx) {
 			if (onClose) onClose();
 		}
 		if (m_dragChannel >= 0) {
-			const gfx::Rect track = PickerTrack(PickerRow(popup, m_dragChannel));
+			const gfx::Rect track = PickerTrack(PickerRow(popup, m_dragChannel, Rem()), Rem());
 			const float t =
 				std::clamp((mx - track.x) / std::max(track.w, 1.0f), 0.0f, 1.0f);
 			float& value = Channel(m_color, m_dragChannel);
@@ -729,25 +737,26 @@ void ColorPicker::DrawOverlaySelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 											  {0.35f, 0.55f, 1.0f, 1.0f},
 											  {0.8f, 0.8f, 0.8f, 1.0f}};
 	for (int i = 0; i < 4; ++i) {
-		const gfx::Rect row = PickerRow(popup, i);
-		const gfx::Rect track = PickerTrack(row);
+		const gfx::Rect row = PickerRow(popup, i, Rem());
+		const gfx::Rect track = PickerTrack(row, Rem());
 		const float value = Channel(m_color, i);
 		const float textY = row.y + (row.h - font.Height()) * 0.5f;
 
 		font.Draw(batch, kChannelNames[i], row.x, textY, theme.textDim);
 
-		const float trackH = 4.0f;
+		const float trackH = Rem(0.15f);
 		const float trackY = track.y + (track.h - trackH) * 0.5f;
 		batch.DrawRect({track.x, trackY, track.w, trackH}, theme.control);
 		batch.DrawRect({track.x, trackY, track.w * value, trackH}, kChannelTints[i]);
-		const gfx::Rect thumb{track.x + track.w * value - 4.0f, track.y + 2.0f, 8.0f,
-							  track.h - 4.0f};
+		const float tw = Rem(0.3f);
+		const gfx::Rect thumb{track.x + track.w * value - tw * 0.5f,
+							  track.y + Rem(0.08f), tw, track.h - Rem(0.16f)};
 		batch.DrawRect(thumb,
 					   m_dragChannel == i ? theme.controlActive : theme.controlHot);
 		DrawBorder(batch, thumb, theme.panelBorder);
 
 		font.Draw(batch, std::format("{}", static_cast<int>(value * 255.0f + 0.5f)),
-				  track.x + track.w + 10.0f, textY, theme.text);
+				  track.x + track.w + Rem(0.35f), textY, theme.text);
 	}
 }
 
@@ -767,7 +776,7 @@ void KeyBind::SetKey(int vkey) {
 
 gfx::Rect KeyBind::BoxRect() const {
 	const gfx::Rect& px = Pixel();
-	const float w = std::min(200.0f, px.w * 0.45f);
+	const float w = std::min(Rem(7.1f), px.w * 0.45f);
 	return {px.x + px.w - w, px.y, w, px.h};
 }
 
@@ -858,7 +867,7 @@ void TextField::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 								 : (m_hot ? theme.controlHot : theme.control));
 	DrawBorder(batch, px, m_focused || m_hot ? theme.accent : theme.panelBorder);
 
-	const float pad = 8.0f;
+	const float pad = Rem(0.3f);
 	const float ty = px.y + (px.h - font.Height()) * 0.5f;
 	if (text.empty() && !m_focused) {
 		font.Draw(batch, placeholder, px.x + pad, ty, theme.textDim);
@@ -866,7 +875,9 @@ void TextField::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 		font.Draw(batch, text, px.x + pad, ty, theme.text);
 		if (m_focused) {
 			const float caretX = px.x + pad + font.MeasureWidth(text) + 1.0f;
-			batch.DrawRect({caretX, px.y + 6.0f, 2.0f, px.h - 12.0f}, theme.accent);
+			// 2px caret is a hairline and stays one (Units.h).
+			batch.DrawRect({caretX, px.y + Rem(0.22f), 2.0f, px.h - Rem(0.44f)},
+						   theme.accent);
 		}
 	}
 }
@@ -886,8 +897,8 @@ SlotRow::SlotRow(std::string primary, std::string secondary,
 
 gfx::Rect SlotRow::DeleteRect() const {
 	const gfx::Rect& r = Pixel();
-	const float s = r.h - 14.0f;
-	return {r.x + r.w - s - 8.0f, r.y + (r.h - s) * 0.5f, s, s};
+	const float s = r.h - Rem(0.5f);
+	return {r.x + r.w - s - Rem(0.3f), r.y + (r.h - s) * 0.5f, s, s};
 }
 
 void SlotRow::UpdateSelf(UIContext& ctx) {
@@ -917,12 +928,12 @@ void SlotRow::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 	DrawBorder(batch, r, theme.panelBorder);
 
 	const float ty = r.y + (r.h - font.Height()) * 0.5f;
-	font.Draw(batch, m_primary, r.x + 12.0f, ty, theme.text);
+	font.Draw(batch, m_primary, r.x + Rem(0.45f), ty, theme.text);
 
 	const gfx::Rect del = DeleteRect();
 	if (!m_secondary.empty()) {
 		const float sw = font.MeasureWidth(m_secondary);
-		const float sx = (m_deletable ? del.x : r.x + r.w) - sw - 16.0f;
+		const float sx = (m_deletable ? del.x : r.x + r.w) - sw - Rem(0.6f);
 		font.Draw(batch, m_secondary, sx, ty, theme.textDim);
 	}
 	if (!m_deletable) return;
@@ -960,15 +971,15 @@ void SlotList::AddRow(Row row) {
 // the stack is assigned per layout. A left inset keeps them off the frame; the
 // area's gutter already holds the scrollbar clear.
 void SlotList::LayoutSelf(UIContext&) {
-	m_scroll->gutter = 14.0f;
+	m_scroll->gutter = Rem(0.5f);
 	const float view = m_scroll->ViewRect().h;
 	const float width = m_scroll->ViewRect().w;
 	if (view <= 0.0f || width <= 0.0f) return;
-	const float x = 4.0f / width;
+	const float x = Rem(0.15f) / width;
 	const auto& rows = m_scroll->Children();
 	for (size_t i = 0; i < rows.size(); ++i)
-		rows[i]->bounds = {x, rowHeight * static_cast<float>(i) / view, 1.0f - x,
-						   (rowHeight - 6.0f) / view};
+		rows[i]->bounds = {x, rowHeight * Rem() * static_cast<float>(i) / view,
+						   1.0f - x, (rowHeight * Rem() - Rem(0.2f)) / view};
 }
 
 // Modal confirm dialog: it owns the mouse entirely until Delete/Cancel (or a
@@ -999,16 +1010,17 @@ void SlotList::UpdateBeforeChildren(UIContext& ctx) {
 }
 
 gfx::Rect SlotList::ConfirmRect(const UIContext& ctx) const {
-	const float w = 380.0f, h = 168.0f;
+	const float w = Rem(13.5f), h = Rem(6.0f);
 	return {(ctx.Width() - w) * 0.5f, (ctx.Height() - h) * 0.5f, w, h};
 }
 
 gfx::Rect SlotList::ConfirmButton(const UIContext& ctx, bool deleteButton) const {
 	const gfx::Rect d = ConfirmRect(ctx);
-	const float bw = (d.w - 60.0f) * 0.5f, bh = 44.0f;
-	const float by = d.y + d.h - bh - 20.0f;
-	return deleteButton ? gfx::Rect{d.x + 20.0f, by, bw, bh}
-						: gfx::Rect{d.x + d.w - 20.0f - bw, by, bw, bh};
+	const float m = Rem(0.7f); // margin / gutter around the pair
+	const float bw = (d.w - 3.0f * m) * 0.5f, bh = Rem(1.6f);
+	const float by = d.y + d.h - bh - m;
+	return deleteButton ? gfx::Rect{d.x + m, by, bw, bh}
+						: gfx::Rect{d.x + d.w - m - bw, by, bw, bh};
 }
 
 void SlotList::DrawOverlaySelf(UIContext& ctx, gfx::SpriteBatch& batch) {
@@ -1023,10 +1035,11 @@ void SlotList::DrawOverlaySelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 	DrawPanelFace(ctx, batch, d);
 
 	const float pw = font.MeasureWidth(confirmPrompt);
-	font.Draw(batch, confirmPrompt, d.x + (d.w - pw) * 0.5f, d.y + 28.0f, theme.text);
+	font.Draw(batch, confirmPrompt, d.x + (d.w - pw) * 0.5f, d.y + Rem(1.0f),
+			  theme.text);
 	const std::string& name = m_entries[static_cast<size_t>(m_confirmRow)].primary;
 	const float nw = font.MeasureWidth(name);
-	font.Draw(batch, name, d.x + (d.w - nw) * 0.5f, d.y + 66.0f, theme.accent);
+	font.Draw(batch, name, d.x + (d.w - nw) * 0.5f, d.y + Rem(2.35f), theme.accent);
 
 	auto button = [&](const gfx::Rect& b, const std::string& label, bool hot,
 					  bool danger) {
@@ -1055,7 +1068,7 @@ gfx::Rect MenuList::ItemRect(size_t index) const {
 	const gfx::Rect& px = Pixel();
 	const float itemH = m_itemHeight * px.h;
 	return {px.x, px.y + itemH * static_cast<float>(index), px.w,
-			itemH - 8.0f}; // 8px gap between entries
+			itemH - Rem(0.3f)}; // gap between entries
 }
 
 void MenuList::MoveSelection(int delta) {
@@ -1125,8 +1138,8 @@ void MenuList::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 
 gfx::Rect ScrollArea::ViewRect() const {
 	const gfx::Rect& px = Pixel();
-	return {px.x + padding, px.y + padding, px.w - padding - gutter,
-			px.h - 2.0f * padding};
+	const float pad = Rem(padding), gut = Rem(gutter);
+	return {px.x + pad, px.y + pad, px.w - pad - gut, px.h - 2.0f * pad};
 }
 
 gfx::Rect ScrollArea::ContentRect() const {
@@ -1148,14 +1161,14 @@ float ScrollArea::MaxScroll() const {
 
 gfx::Rect ScrollArea::ScrollTrackRect() const {
 	const gfx::Rect& px = Pixel();
-	const float barW = 10.0f;
-	return {px.x + px.w - barW - 2.0f, px.y + 2.0f, barW, px.h - 4.0f};
+	const float barW = Rem(0.35f), inset = Rem(0.08f);
+	return {px.x + px.w - barW - inset, px.y + inset, barW, px.h - 2 * inset};
 }
 
 gfx::Rect ScrollArea::ScrollThumbRect(float maxScroll) const {
 	const gfx::Rect track = ScrollTrackRect();
 	const float view = ViewRect().h;
-	const float thumbH = std::max(track.h * view / (view + maxScroll), 24.0f);
+	const float thumbH = std::max(track.h * view / (view + maxScroll), Rem(0.9f));
 	const float t = maxScroll > 0.0f ? m_scroll / maxScroll : 0.0f;
 	return {track.x, track.y + (track.h - thumbH) * t, track.w, thumbH};
 }
@@ -1217,7 +1230,8 @@ void ScrollArea::UpdateSelf(UIContext& ctx) {
 	// Mouse wheel anywhere over the area.
 	if (!ctx.IsMouseConsumed() && Pixel().Contains(mx, my) &&
 		input->WheelDelta() != 0.0f) {
-		m_scroll = std::clamp(m_scroll - input->WheelDelta() * 48.0f, 0.0f, maxScroll);
+		m_scroll = std::clamp(m_scroll - input->WheelDelta() * Rem(1.75f), 0.0f,
+							  maxScroll);
 		ctx.ConsumeMouse();
 	}
 }
@@ -1264,7 +1278,7 @@ void TabControl::LayoutStrip(UIContext& ctx) {
 	const gfx::Rect& px = Pixel();
 	const float count = static_cast<float>(std::max<size_t>(m_tabs.size(), 1));
 	const float evenW = px.w / count;
-	const float padX = 22.0f; // breathing room each side of the label
+	const float padX = Rem(0.8f); // breathing room each side of the label
 	m_tabWidths.resize(m_tabs.size());
 	float total = 0.0f;
 	for (size_t i = 0; i < m_tabs.size(); ++i) {

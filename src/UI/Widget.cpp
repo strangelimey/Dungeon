@@ -43,6 +43,7 @@ void Widget::Layout(const gfx::Rect& container, UIContext& ctx) {
 	m_pixel = {container.x + bounds.x * container.w,
 			   container.y + bounds.y * container.h, bounds.w * container.w,
 			   bounds.h * container.h};
+	m_rem = ctx.GetFont().Height(); // this context's root font size (Units.h)
 	// Self first: a container sizes itself, clamps its scroll, or assigns its
 	// children's bounds here, so the recursion below sees the final values.
 	LayoutSelf(ctx);
