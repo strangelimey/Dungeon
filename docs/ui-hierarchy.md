@@ -172,10 +172,24 @@ area below the bar, so its children keep the window fractions they were authored
 with and the offset is all it contributes. P4/P6 give it a real rect as those
 widgets become containers.
 
-**P4 — Control Bar.** `ControlBar` → MovementPad (6 buttons as fractions of the
-pad) / HandsArea → HandPair → HandSlot → contents / MagicArea → the spellbook's
-selector, symbol grid and details as children. The `innerX` / `moveTop` /
-`handsTop` / `magicTop` arithmetic in `BuildHud` goes away.
+**P4 — Control Bar. DONE.** `ControlBar` (Game/ControlBar.h) → `MovementPad`
+(6 buttons) / `HandsArea` → `HandPair` → `HandSlot` / `MagicArea` → heading +
+`SpellbookPanel`. Four levels, every bound a fraction of its own parent, and the
+whole panel now moves by setting one rect. `BuildHud`'s share is a deps struct
+and one `Add` — the `innerX` / `moveTop` / `handsTop` / `magicTop` chain is gone,
+along with `setW` / `handW` / `setH` / `bookY` / `bookH`.
+
+The layout constants moved into `ControlBar.cpp` in the window fractions they
+were authored in, with each child dividing them through by its own parent's
+span. Keeping the source numbers (and the divisions) visible is what makes the
+"same pixels, new structure" claim checkable — and it held: every pixel rect in
+`uitree dump hud` is unchanged from P3.
+
+STILL SELF-DRAWN: `SpellbookPanel`'s interior — the member selector row, symbol
+grid, sequence row and Cast/Clear — is one widget laying its own parts out
+against its pixel rect. Splitting it into the sketch's "character selection /
+symbol selection / spell details" children is real work (interlocking sequence
+and disabled-symbol state) and hasn't been done.
 
 **P5 — Character Sheet.** Header (portrait, name), tab selector, body.
 `CharacterSheetLayout.h`'s constants get pushed down into whichever sub-area owns

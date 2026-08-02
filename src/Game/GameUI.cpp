@@ -1455,70 +1455,26 @@ void GameUI::BuildHud() {
 			m_log->AddLine(loc::Tr("log.scroll_hint"));
 		});
 
-	// Right control panel: movement, hands, magic. Stops above the log footer.
+	// Right control panel: movement, hands, magic — one container that lays its
+	// own parts out (Game/ControlBar.h). Stops above the log footer.
 	constexpr float kPanelW = 0.156f; // ~250/1600
 	constexpr float kPanelX = 1.0f - kPanelW - 0.01f;
-	constexpr float kPad = 0.009f; // pad inside panel as window fraction
 	constexpr float kFooter = 0.071f;
-	const float panelBottom = 1.0f - kFooter;
-	const float panelH = panelBottom - kBelowBar0;
-	const float innerX = kPanelX + kPad;
-	const float innerW = kPanelW - 2 * kPad;
-	m_belowBar->Add<ui::Panel>(gfx::Rect{kPanelX, kBelowBar0, kPanelW, panelH});
+	const float panelH = (1.0f - kFooter) - kBelowBar0;
 
-	// Movement pad: 3×2 grid of square buttons.
-	const struct {
-		const char* glyph;
-		MoveAction action;
-		bool turn;
-		int quarters;
-	} moves[] = {
-		{"«", MoveAction::TurnLeft, true, 2},  {"^", MoveAction::Forward, false, 3},
-		{"»", MoveAction::TurnRight, true, 0}, {"<", MoveAction::StrafeLeft, false, 2},
-		{"v", MoveAction::Back, false, 1},     {">", MoveAction::StrafeRight, false, 0},
-	};
-	const float moveGap = 0.005f;
-	const float moveW = (innerW - 2 * moveGap) / 3.0f;
-	const float moveTop = kBelowBar0 + 0.013f;
-	for (size_t i = 0; i < std::size(moves); ++i) {
-		auto* btn = m_belowBar->Add<ui::Button>(gfx::Rect{innerX + (moveW + moveGap) * static_cast<float>(i % 3),
-			 moveTop + (moveW + moveGap) * static_cast<float>(i / 3), moveW, moveW},
-			moves[i].glyph,
-			[this, action = moves[i].action] { onMoveAction(action); });
-		btn->icon = moves[i].turn ? m_chevron2Tex.get() : m_chevronTex.get();
-		btn->iconTurns = moves[i].quarters;
-	}
+	ControlBarDeps deps;
+	deps.roster = &m_characters;
+	deps.icons = m_itemIcons;
+	deps.chevron = m_chevronTex.get();
+	deps.chevron2 = m_chevron2Tex.get();
+	deps.onMove = [this](MoveAction action) { onMoveAction(action); };
+	deps.onHandLeft = [this](size_t i, size_t hand) { OnHandLeftClick(i, hand); };
+	deps.onHandRight = [this](size_t i, size_t hand) { OnHandRightClick(i, hand); };
+	deps.magicLabel = loc::Tr("hud.magic");
+	auto* controlBar = m_belowBar->Add<ControlBar>(
+		gfx::Rect{kPanelX, kBelowBar0, kPanelW, panelH}, deps);
 
-	// Hand pairs: 2×2 of left/right hand slots (window-fraction squares).
-	const float setGap = 0.005f;
-	const float setW = (innerW - setGap) / 2.0f;
-	const float handGap = 0.0025f;
-	const float handW = (setW - handGap) / 2.0f;
-	const float setH = handW + 0.009f;
-	const float handsTop = moveTop + 2 * (moveW + moveGap) + 0.016f;
-	for (size_t i = 0; i < m_characters.size() && i < 4; ++i) {
-		const float setX = innerX + (setW + setGap) * static_cast<float>(i % 2);
-		const float setTop = handsTop + setH * static_cast<float>(i / 2);
-		for (int hand = 0; hand < 2; ++hand) {
-			m_belowBar->Add<HandSlot>(gfx::Rect{setX + (handW + handGap) * static_cast<float>(hand), setTop, handW,
-				 handW},
-				&m_characters, i, hand, m_itemIcons,
-				[this, i, hand] { OnHandLeftClick(i, static_cast<size_t>(hand)); },
-				[this, i, hand] { OnHandRightClick(i, static_cast<size_t>(hand)); });
-		}
-	}
-	const size_t handRows = (std::min<size_t>(m_characters.size(), 4) + 1) / 2;
-	const float magicTop = handsTop + setH * static_cast<float>(handRows);
-
-	// Magic / spellbook fills the rest of the control panel.
-	m_belowBar->Add<ui::Label>(gfx::Rect{innerX, magicTop + 0.009f, innerW, 0.022f},
-							   loc::Tr("hud.magic"));
-	const float bookY = magicTop + 0.036f;
-	const float bookH = panelBottom - kPad - bookY;
-	m_belowBar->Add<ui::Panel>(gfx::Rect{innerX, bookY, innerW, bookH});
-	m_spellbook =
-		m_belowBar->Add<SpellbookPanel>(gfx::Rect{innerX, bookY, innerW, bookH},
-										&m_characters, m_itemIcons);
+	m_spellbook = controlBar->Spellbook();
 	m_spellbook->onClick = [this] { Click(); };
 	m_spellbook->castIcon = m_castIconTex.get();
 	m_spellbook->clearIcon = m_clearIconTex.get();

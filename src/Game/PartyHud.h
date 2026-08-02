@@ -12,6 +12,7 @@
 #include "Game/PartyHudTypes.h"
 #include "Game/PartyBar.h"
 #include "Game/CharacterPanel.h"
+#include "Game/ControlBar.h"
 #include "Game/HandSlot.h"
 #include "Game/SpellbookPanel.h"
 #include "Game/InventoryWindow.h"
