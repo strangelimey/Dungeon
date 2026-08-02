@@ -1396,9 +1396,12 @@ void GameUI::BuildHud() {
 	constexpr float kBarGap = 0.018f;
 	constexpr float kBelowBar0 = kBarTop + kBarH0 + kBarGap; // ~0.143
 
+	// The bar owns the slots: ApplyPartyBarScale moves this one rect and every
+	// panel (and everything inside a panel) follows.
+	m_partyBar = m_hudUi.Add<PartyBar>(gfx::Rect{});
 	m_partyPanels.clear();
-	for (size_t i = 0; i < m_characters.size() && i < 4; ++i) {
-		auto* panel = m_hudUi.Add<CharacterPanel>(
+	for (size_t i = 0; i < m_characters.size() && i < PartyBar::kSlots; ++i) {
+		auto* panel = m_partyBar->Add<CharacterPanel>(
 			gfx::Rect{}, &m_characters, i, &m_titleFont, &m_settings.barColors,
 			m_hitSplats, m_itemIcons, [this, i] { OnPortraitClick(i); },
 			[this, i] { OnPortraitRightClick(i); },
@@ -1408,51 +1411,49 @@ void GameUI::BuildHud() {
 		m_partyPanels.push_back(panel);
 	}
 
-	// Widgets under the bar: store their scale-1 fractional Y so
-	// ApplyPartyBarScale can shift them with the bar.
-	m_belowBarWidgets.clear();
-	auto below = [this](ui::Widget* widget) {
-		m_belowBarWidgets.push_back({widget, widget->bounds.y});
-	};
-
+	// Everything under the bar hangs off one container that slides down as the
+	// bar grows (ApplyPartyBarScale). It spans the whole window rather than
+	// just the area below the bar, so its children keep the window fractions
+	// they were authored with — the offset is the only thing it contributes.
+	// P4/P6 give it a real rect as those widgets become containers themselves.
+	m_belowBar = m_hudUi.Add<ui::Widget>();
+	m_belowBar->bounds = {0, 0, 1, 1};
+	m_belowBar->debugName = "BelowBar";
 	// Left status (compass + position).
 	constexpr float kLeftX = 0.01f, kLeftW = 0.15f;
-	below(m_hudUi.Add<ui::Panel>(gfx::Rect{kLeftX, kBelowBar0, kLeftW, 0.071f}));
-	m_compass = m_hudUi.Add<ui::Label>(gfx::Rect{kLeftX + 0.007f, kBelowBar0 + 0.011f, kLeftW - 0.014f, 0.022f}, "");
-	below(m_compass);
-	m_position = m_hudUi.Add<ui::Label>(gfx::Rect{kLeftX + 0.007f, kBelowBar0 + 0.038f, kLeftW - 0.014f, 0.022f}, "");
+	m_belowBar->Add<ui::Panel>(gfx::Rect{kLeftX, kBelowBar0, kLeftW, 0.071f});
+	m_compass = m_belowBar->Add<ui::Label>(gfx::Rect{kLeftX + 0.007f, kBelowBar0 + 0.011f, kLeftW - 0.014f, 0.022f}, "");
+	m_position = m_belowBar->Add<ui::Label>(gfx::Rect{kLeftX + 0.007f, kBelowBar0 + 0.038f, kLeftW - 0.014f, 0.022f}, "");
 	m_position->dim = true;
-	below(m_position);
 
 	// Options (torch + wait/help) under status.
 	const float optTop = kBelowBar0 + 0.084f;
-	below(m_hudUi.Add<ui::Panel>(gfx::Rect{kLeftX, optTop, kLeftW, 0.16f}));
-	below(m_hudUi.Add<ui::Label>(gfx::Rect{kLeftX + 0.009f, optTop + 0.011f, kLeftW - 0.018f, 0.022f},
-		loc::Tr("hud.options")));
-	auto* torchLabel = m_hudUi.Add<ui::Label>(gfx::Rect{kLeftX + 0.009f, optTop + 0.044f, kLeftW - 0.018f, 0.022f},
+	m_belowBar->Add<ui::Panel>(gfx::Rect{kLeftX, optTop, kLeftW, 0.16f});
+	m_belowBar->Add<ui::Label>(gfx::Rect{kLeftX + 0.009f, optTop + 0.011f, kLeftW - 0.018f, 0.022f},
+		loc::Tr("hud.options"));
+	auto* torchLabel = m_belowBar->Add<ui::Label>(gfx::Rect{kLeftX + 0.009f, optTop + 0.044f, kLeftW - 0.018f, 0.022f},
 		loc::Tr("hud.torchlight"));
 	torchLabel->dim = true;
-	below(torchLabel);
-	below(m_hudUi.Add<ui::DropDown>(gfx::Rect{kLeftX + 0.009f, optTop + 0.071f, kLeftW - 0.018f, 0.029f},
+	m_belowBar->Add<ui::DropDown>(gfx::Rect{kLeftX + 0.009f, optTop + 0.071f, kLeftW - 0.018f, 0.029f},
 		std::vector<std::string>{loc::Tr("torch.warm"), loc::Tr("torch.cold"),
 								 loc::Tr("torch.eerie")},
 		m_torchPalette, [this](int index) {
 			Click();
 			m_torchPalette = index;
 			onTorchPalette(index);
-		}));
+		});
 	constexpr float kHalfBtn = 0.063f;
-	below(m_hudUi.Add<ui::Button>(gfx::Rect{kLeftX + 0.009f, optTop + 0.116f, kHalfBtn, 0.031f}, loc::Tr("hud.wait"),
+	m_belowBar->Add<ui::Button>(gfx::Rect{kLeftX + 0.009f, optTop + 0.116f, kHalfBtn, 0.031f}, loc::Tr("hud.wait"),
 		[this] {
 			Click();
 			m_log->AddLine(loc::Tr("log.wait"));
-		}));
-	below(m_hudUi.Add<ui::Button>(gfx::Rect{kLeftX + 0.009f + kHalfBtn + 0.008f, optTop + 0.116f, kHalfBtn, 0.031f},
+		});
+	m_belowBar->Add<ui::Button>(gfx::Rect{kLeftX + 0.009f + kHalfBtn + 0.008f, optTop + 0.116f, kHalfBtn, 0.031f},
 		loc::Tr("hud.help"), [this] {
 			Click();
 			m_log->AddLine(m_settings.MoveKeysHelp());
 			m_log->AddLine(loc::Tr("log.scroll_hint"));
-		}));
+		});
 
 	// Right control panel: movement, hands, magic. Stops above the log footer.
 	constexpr float kPanelW = 0.156f; // ~250/1600
@@ -1463,7 +1464,7 @@ void GameUI::BuildHud() {
 	const float panelH = panelBottom - kBelowBar0;
 	const float innerX = kPanelX + kPad;
 	const float innerW = kPanelW - 2 * kPad;
-	below(m_hudUi.Add<ui::Panel>(gfx::Rect{kPanelX, kBelowBar0, kPanelW, panelH}));
+	m_belowBar->Add<ui::Panel>(gfx::Rect{kPanelX, kBelowBar0, kPanelW, panelH});
 
 	// Movement pad: 3×2 grid of square buttons.
 	const struct {
@@ -1480,13 +1481,12 @@ void GameUI::BuildHud() {
 	const float moveW = (innerW - 2 * moveGap) / 3.0f;
 	const float moveTop = kBelowBar0 + 0.013f;
 	for (size_t i = 0; i < std::size(moves); ++i) {
-		auto* btn = m_hudUi.Add<ui::Button>(gfx::Rect{innerX + (moveW + moveGap) * static_cast<float>(i % 3),
+		auto* btn = m_belowBar->Add<ui::Button>(gfx::Rect{innerX + (moveW + moveGap) * static_cast<float>(i % 3),
 			 moveTop + (moveW + moveGap) * static_cast<float>(i / 3), moveW, moveW},
 			moves[i].glyph,
 			[this, action = moves[i].action] { onMoveAction(action); });
 		btn->icon = moves[i].turn ? m_chevron2Tex.get() : m_chevronTex.get();
 		btn->iconTurns = moves[i].quarters;
-		below(btn);
 	}
 
 	// Hand pairs: 2×2 of left/right hand slots (window-fraction squares).
@@ -1500,25 +1500,25 @@ void GameUI::BuildHud() {
 		const float setX = innerX + (setW + setGap) * static_cast<float>(i % 2);
 		const float setTop = handsTop + setH * static_cast<float>(i / 2);
 		for (int hand = 0; hand < 2; ++hand) {
-			below(m_hudUi.Add<HandSlot>(gfx::Rect{setX + (handW + handGap) * static_cast<float>(hand), setTop, handW,
+			m_belowBar->Add<HandSlot>(gfx::Rect{setX + (handW + handGap) * static_cast<float>(hand), setTop, handW,
 				 handW},
 				&m_characters, i, hand, m_itemIcons,
 				[this, i, hand] { OnHandLeftClick(i, static_cast<size_t>(hand)); },
-				[this, i, hand] { OnHandRightClick(i, static_cast<size_t>(hand)); }));
+				[this, i, hand] { OnHandRightClick(i, static_cast<size_t>(hand)); });
 		}
 	}
 	const size_t handRows = (std::min<size_t>(m_characters.size(), 4) + 1) / 2;
 	const float magicTop = handsTop + setH * static_cast<float>(handRows);
 
 	// Magic / spellbook fills the rest of the control panel.
-	below(m_hudUi.Add<ui::Label>(gfx::Rect{innerX, magicTop + 0.009f, innerW, 0.022f},
-								 loc::Tr("hud.magic")));
+	m_belowBar->Add<ui::Label>(gfx::Rect{innerX, magicTop + 0.009f, innerW, 0.022f},
+							   loc::Tr("hud.magic"));
 	const float bookY = magicTop + 0.036f;
 	const float bookH = panelBottom - kPad - bookY;
-	below(m_hudUi.Add<ui::Panel>(gfx::Rect{innerX, bookY, innerW, bookH}));
+	m_belowBar->Add<ui::Panel>(gfx::Rect{innerX, bookY, innerW, bookH});
 	m_spellbook =
-		m_hudUi.Add<SpellbookPanel>(gfx::Rect{innerX, bookY, innerW, bookH}, &m_characters,
-									m_itemIcons);
+		m_belowBar->Add<SpellbookPanel>(gfx::Rect{innerX, bookY, innerW, bookH},
+										&m_characters, m_itemIcons);
 	m_spellbook->onClick = [this] { Click(); };
 	m_spellbook->castIcon = m_castIconTex.get();
 	m_spellbook->clearIcon = m_clearIconTex.get();
@@ -1531,7 +1531,6 @@ void GameUI::BuildHud() {
 		Click();
 		if (onCastSequence) onCastSequence(member, kBookHands, seq);
 	};
-	below(m_spellbook);
 
 	// Message log: full window (sizes itself each frame from height fractions).
 	m_log = m_hudUi.Add<MessageLog>();
@@ -1548,10 +1547,11 @@ void GameUI::OpenInventory() { if (m_inventory) m_inventory->Open(); }
 void GameUI::CloseInventory() { if (m_inventory) m_inventory->Close(); }
 bool GameUI::InventoryOpen() const { return m_inventory && m_inventory->IsOpen(); }
 
-// Re-derives party-bar slot rects from the settings scale (window fractions)
-// and shifts widgets under the bar so they stay clear of its bottom edge.
+// The scale slider now moves two rects: the bar (its slots, and everything
+// inside them, are fractions of it) and the container holding everything
+// underneath (which slides down by exactly the bar's growth).
 void GameUI::ApplyPartyBarScale() {
-	if (m_partyPanels.empty()) return;
+	if (!m_partyBar) return;
 	const float s = m_settings.partyBarScale;
 	// Width only shrinks when s < 1; height grows with s.
 	const float ws = std::min(s, 1.0f);
@@ -1561,17 +1561,11 @@ void GameUI::ApplyPartyBarScale() {
 	constexpr float kGap0 = 0.006f;
 	const float gap = kGap0 * ws;
 	const float usable = 1.0f - 2 * kMargin - 3 * gap;
-	const float slotW = (usable / 4.0f) * ws;
-	const float barX = (1.0f - 4 * slotW - 3 * gap) * 0.5f;
-	const float slotH = kBarH0 * s;
-	for (size_t i = 0; i < m_partyPanels.size(); ++i)
-		m_partyPanels[i]->bounds = {
-			barX + static_cast<float>(i) * (slotW + gap), kBarTop, slotW, slotH};
+	const float barW = (usable * ws) + 3 * gap;
+	m_partyBar->bounds = {(1.0f - barW) * 0.5f, kBarTop, barW, kBarH0 * s};
+	m_partyBar->gap = gap / barW; // the same pixel gap, as a bar fraction
 
-	// below-bar widgets stored their scale-1 Y; shift by bar growth.
-	const float shift = kBarH0 * (s - 1.0f);
-	for (auto& [widget, y0] : m_belowBarWidgets)
-		widget->bounds.y = y0 + shift;
+	m_belowBar->bounds.y = kBarH0 * (s - 1.0f);
 }
 
 // ============================================================================

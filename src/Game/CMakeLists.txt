@@ -48,6 +48,7 @@ add_library(Game STATIC
 	MessageLog.cpp
 	Party.cpp
 	PartyHudDraw.cpp
+	PartyBar.cpp
 	CharacterPanel.cpp
 	HandSlot.cpp
 	SpellbookPanel.cpp

@@ -42,7 +42,8 @@ void Widget::Layout(const gfx::Rect& container, UIContext& ctx) {
 
 void Widget::Update(UIContext& ctx) {
 	if (!visible) return;
-	// Children first, in reverse add order: the topmost child owning a pixel
+	UpdateBeforeChildren(ctx);
+	// Children next, in reverse add order: the topmost child owning a pixel
 	// claims the mouse before this widget's own hit test sees it.
 	for (auto it = m_children.rbegin(); it != m_children.rend(); ++it) {
 		Widget& child = **it;

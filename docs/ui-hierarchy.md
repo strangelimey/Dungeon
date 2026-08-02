@@ -141,12 +141,36 @@ The draw walk intersects a clip with whatever is already in force and restores
 the outer one afterwards, so a scroll area inside a scrolled page cannot widen
 its parent's clip — which the old single `SetScissor(nullptr)` would have done.
 
-**P3 — Party Bar.** A `PartyBar` container whose children are the four
-`CharacterPanel`s at `{i*step, 0, w, 1}`; each panel gets Portrait / EffectsArea
-(a repeater) / StatsArea children, and StatsArea gets three resource bars.
-`ApplyPartyBarScale` collapses to setting one `bounds`; `m_belowBarWidgets` and
-its saved-Y bookkeeping go away. Child-first input claim deletes the
-`m_hotEffect` vs `BarsRect` ordering in `CharacterPanel::Update`.
+**P3 — Party Bar. DONE.** `PartyBar` owns the slots and splits itself into
+`kSlots` columns; each `CharacterPanel` owns `PortraitBox`, an `EffectsArea`
+(the first `Repeater` — one `EffectIcon` per live effect) and `StatsArea`.
+`ApplyPartyBarScale` went from re-deriving every slot rect plus patching
+`bounds.y` on a saved-Y side list to setting two rects: the bar's, and the y of
+a `BelowBar` container everything else now hangs from. `m_belowBarWidgets` is
+gone. Each part owns its own hover and click, so `CharacterPanel::Update`'s
+`m_hotEffect` / `BarsRect` ordering is gone too, and the effect tooltip moved to
+`DrawOverlaySelf` — it now floats over the neighbouring slot instead of being
+paintable-over.
+
+Two things this phase established for the ones after it:
+
+- **Computed child bounds.** A panel's parts are aspect- and font-locked: the
+  portrait is a square sized by the slot's HEIGHT, so its width fraction depends
+  on the slot's aspect (which the scale slider changes), and the effect strip
+  and bar band are sized from the font's line advance. `LayoutSelf` works those
+  fractions out per frame from the live pixel rect. Still parent-relative — the
+  child multiplies out against its parent exactly as before — the parent just
+  derives the fractions rather than having them authored.
+- **`UpdateBeforeChildren`.** The slot highlights as one piece, but its children
+  cover most of it and claim the mouse first, so asking `IsMouseConsumed()`
+  after they run reads "not hovered". The new hook gives a container its first
+  look at the mouse, while consumption still reflects only what lies OUTSIDE its
+  subtree.
+
+`BelowBar` is a placeholder shape: it spans the whole window rather than the
+area below the bar, so its children keep the window fractions they were authored
+with and the offset is all it contributes. P4/P6 give it a real rect as those
+widgets become containers.
 
 **P4 — Control Bar.** `ControlBar` → MovementPad (6 buttons as fractions of the
 pad) / HandsArea → HandPair → HandSlot → contents / MagicArea → the spellbook's

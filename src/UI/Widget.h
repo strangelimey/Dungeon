@@ -88,6 +88,13 @@ public:
 protected:
 	// --- what a subclass implements: itself, never its children --------------
 
+	// Runs BEFORE this widget's children are updated — the container's first
+	// look at the mouse, while ConsumeMouse() still reflects only what lies
+	// OUTSIDE this subtree. A panel whose children cover most of it latches its
+	// own hover here (asking afterwards would see its own child's claim and
+	// read as "not hovered"). Claiming the mouse here takes it from the
+	// children, so only a modal should.
+	virtual void UpdateBeforeChildren(UIContext&) {}
 	virtual void UpdateSelf(UIContext&) {}
 	virtual void DrawSelf(UIContext&, gfx::SpriteBatch&) {}
 	virtual void DrawOverlaySelf(UIContext&, gfx::SpriteBatch&) {}
