@@ -1,5 +1,10 @@
 // ============================================================================
-// Game/CharacterSheet_Lists.cpp — Skills / Spells / Effects tabs + scroll.
+// Game/CharacterSheet_Lists.cpp — Skills / Spells / Effects tabs.
+//
+// The three tabs share SheetList (CharacterSheet.h): a heading plus one row
+// widget per item inside a ui::ScrollArea, which owns the scrolling, the
+// clipping, the culling and the scrollbar. This file supplies what differs —
+// how many rows there are, how tall each is, and how to draw one.
 // ============================================================================
 #include "Game/CharacterSheet.h"
 #include "Game/CharacterSheetLayout.h"
@@ -13,6 +18,111 @@
 
 namespace dungeon::game {
 using namespace sheet;
+
+namespace {
+
+// Word-wraps `text` to `maxW`, handing each line and its index to `sink`, and
+// returns the line count. string_view slices only — no per-frame allocation.
+// Measuring a row and drawing it walk the same function, so a description can
+// never be measured one height and drawn another.
+template <typename Sink>
+int WrapLines(const ui::Font& font, std::string_view text, float maxW, Sink&& sink) {
+	int lines = 0;
+	while (!text.empty()) {
+		size_t end = text.size();
+		while (end > 0 && font.MeasureWidth(text.substr(0, end)) > maxW) {
+			const size_t space = text.rfind(' ', end - 1);
+			if (space == std::string_view::npos || space == 0) break;
+			end = space;
+		}
+		sink(text.substr(0, end), lines);
+		++lines;
+		const size_t next = text.find_first_not_of(' ', end);
+		text = next == std::string_view::npos ? std::string_view{} : text.substr(next);
+	}
+	return lines;
+}
+
+int CountLines(const ui::Font& font, std::string_view text, float maxW) {
+	return WrapLines(font, text, maxW, [](std::string_view, int) {});
+}
+
+} // namespace
+
+// --- SheetList -------------------------------------------------------------
+
+SheetList::SheetList(const gfx::Rect& rect, std::string heading,
+					 std::string emptyText, Counter count, Measure measure,
+					 SheetRow::DrawFn drawRow)
+	: m_heading(std::move(heading)), m_empty(std::move(emptyText)),
+	  m_count(std::move(count)), m_measure(std::move(measure)) {
+	bounds = rect;
+	debugName = "SheetList";
+	m_scroll = Add<ui::ScrollArea>(gfx::Rect{});
+	m_scroll->padding = 0.0f; // the rows carry the sheet's own margins
+	m_scroll->debugName = "SheetScroll";
+	m_rows = m_scroll->Add<ui::Repeater>(
+		gfx::Rect{0, 0, 1, 1},
+		[draw = std::move(drawRow)](size_t i) -> std::unique_ptr<ui::Widget> {
+			return std::make_unique<SheetRow>(i, draw);
+		},
+		[this] { return m_count ? m_count() : 0; },
+		[this](size_t i) {
+			// Fractions of the REPEATER, which LayoutSelf has already sized to
+			// the full stacked height.
+			if (m_contentH <= 0.0f || i >= m_rowTop.size())
+				return gfx::Rect{0, 0, 1, 0};
+			return gfx::Rect{0.0f, m_rowTop[i] / m_contentH, 1.0f,
+							 m_rowH[i] / m_contentH};
+		});
+	m_rows->debugName = "SheetRows";
+}
+
+void SheetList::ScrollToTop() {
+	if (m_scroll) m_scroll->ScrollToTop();
+}
+
+float SheetList::ViewHeight() const {
+	return std::max((bandBottom - bandTop) * Pixel().h, 0.0f);
+}
+
+// Measure every row and stack them, before the repeater's placer (which runs
+// later in this same layout pass) asks for the offsets.
+void SheetList::LayoutSelf(ui::UIContext& ctx) {
+	const gfx::Rect& px = Pixel();
+	m_scroll->bounds = {0.0f, bandTop, 1.0f, bandBottom - bandTop};
+	// The scrollbar gutter, in the same terms the sheet's own layout used.
+	m_scroll->gutter = kScrollBarW * px.w + kScrollBarPadPx;
+
+	const size_t rows = m_count ? m_count() : 0;
+	m_rowTop.resize(rows);
+	m_rowH.resize(rows);
+	float y = 0.0f;
+	for (size_t i = 0; i < rows; ++i) {
+		m_rowTop[i] = y;
+		m_rowH[i] = m_measure ? m_measure(i, ctx.GetFont(), px.w) : 0.0f;
+		y += m_rowH[i];
+	}
+	m_contentH = y;
+
+	// The repeater carries the stacked height: the scroll area reads overflow
+	// off its own children's bounds, and the rows are one level deeper. A
+	// content box taller than the view is what makes the area scroll.
+	const float view = ViewHeight();
+	m_rows->bounds = {0.0f, 0.0f, 1.0f,
+					  view > 0.0f ? std::max(m_contentH / view, 1.0f) : 1.0f};
+}
+
+void SheetList::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
+	const gfx::Rect& px = Pixel();
+	ui::Font& font = ctx.GetFont();
+	const ui::Theme& theme = ctx.GetTheme();
+	font.Draw(batch, m_heading, Ax(px, kLeft), Ay(px, headingY), theme.accent);
+	if ((m_count ? m_count() : 0) == 0)
+		font.Draw(batch, m_empty, Ax(px, kLeft), Ay(px, kEmptyListY), theme.textDim);
+}
+
+// --- the bakes -------------------------------------------------------------
 
 void CharacterSheet::BakeSkills() {
 	m_skillRows.clear();
@@ -91,215 +201,114 @@ void CharacterSheet::BakeSpells() {
 	}
 }
 
-gfx::Rect CharacterSheet::ScrollViewRect(const gfx::Rect& px) const {
-	const float top = Ay(px, kScrollTop);
-	const float bot = px.y + px.h - kScrollBottomPad * px.h;
-	return {px.x, top, px.w, std::max(bot - top, 0.0f)};
+// --- rows: measure + draw --------------------------------------------------
+//
+// A row owns its Y (the list stacks it); the X fractions still resolve against
+// the SHEET, which is what keeps the columns lined up with the rest of the page.
+
+float CharacterSheet::MeasureSkillRow(size_t, ui::Font&, float) const {
+	return kRowH * Pixel().h;
 }
-gfx::Rect CharacterSheet::ScrollThumbRect(const gfx::Rect& px, const gfx::Rect& view,
-										  float maxScroll) const {
-	const float barW = kScrollBarW * px.w;
-	const gfx::Rect track{view.x + view.w - barW - kScrollBarPadPx, view.y, barW,
-						  view.h};
-	const float thumbH =
-		std::max(track.h * view.h / (view.h + maxScroll), kScrollThumbMinPx);
-	const float t = maxScroll > 0.0f ? m_scroll / maxScroll : 0.0f;
-	return {track.x, track.y + (track.h - thumbH) * t, track.w, thumbH};
-}
-void CharacterSheet::UpdateScroll(ui::UIContext& ctx, const gfx::Rect& px) {
-	const Input* input = ctx.CurrentInput();
-	if (!input) return;
-	const float mx = input->MouseX(), my = input->MouseY();
-	const gfx::Rect view = ScrollViewRect(px);
-	const float maxScroll = std::max(0.0f, m_scrollContentH - m_scrollViewH);
-	if (m_scrollDragging && !input->IsMouseDown(MouseButton::Left))
-		m_scrollDragging = false;
-	if (maxScroll > 0.0f) {
-		const gfx::Rect thumb = ScrollThumbRect(px, view, maxScroll);
-		if (!ctx.IsMouseConsumed() && thumb.Contains(mx, my) &&
-			input->WasMousePressed(MouseButton::Left)) {
-			m_scrollDragging = true;
-			m_scrollGrab = my - thumb.y;
-			ctx.ConsumeMouse();
-		}
-		if (m_scrollDragging) {
-			const float range = view.h - thumb.h;
-			if (range > 0.0f)
-				m_scroll = std::clamp(
-					(my - m_scrollGrab - view.y) / range * maxScroll, 0.0f, maxScroll);
-			ctx.ConsumeMouse();
-		} else if (!ctx.IsMouseConsumed() && px.Contains(mx, my) &&
-				   input->WheelDelta() != 0.0f) {
-			m_scroll = std::clamp(m_scroll - input->WheelDelta() * kWheelStepPx, 0.0f,
-								  maxScroll);
-		}
-	}
-	m_scroll = std::clamp(m_scroll, 0.0f, maxScroll);
-}
-void CharacterSheet::DrawScrollbar(ui::UIContext& ctx, gfx::SpriteBatch& batch,
-								   const gfx::Rect& px, const gfx::Rect& view) {
-	const float maxScroll = std::max(0.0f, m_scrollContentH - m_scrollViewH);
-	if (maxScroll <= 0.0f) return;
-	const ui::Theme& theme = ctx.GetTheme();
-	const gfx::Rect thumb = ScrollThumbRect(px, view, maxScroll);
-	batch.DrawRect({thumb.x, view.y, thumb.w, view.h}, theme.control);
-	batch.DrawRect(thumb, m_scrollDragging ? theme.accent : theme.controlHot);
-	ui::DrawBorder(batch, thumb, theme.panelBorder);
-}
-void CharacterSheet::DrawSkills(ui::UIContext& ctx, gfx::SpriteBatch& batch,
-								const gfx::Rect& px) {
+
+void CharacterSheet::DrawSkillRow(size_t i, ui::UIContext& ctx,
+								  gfx::SpriteBatch& batch, const gfx::Rect& r) {
+	if (i >= m_skillRows.size()) return;
+	const SkillRow& row = m_skillRows[i];
 	const ui::Theme& theme = ctx.GetTheme();
 	ui::Font& font = ctx.GetFont();
-	font.Draw(batch, m_skillsLabel, Ax(px, kLeft), Ay(px, kHeaderY), theme.accent);
-	if (m_skillRows.empty()) {
-		font.Draw(batch, m_noSkills, Ax(px, kLeft), Ay(px, kEmptyListY), theme.textDim);
-		m_scrollContentH = 0.0f;
-		return;
-	}
-
-	const gfx::Rect view = ScrollViewRect(px);
-	const float rowH = kRowH * px.h;
-	batch.SetScissor(&view);
-	for (size_t i = 0; i < m_skillRows.size(); ++i) {
-		const SkillRow& row = m_skillRows[i];
-		const float y = view.y - m_scroll + static_cast<float>(i) * rowH;
-		font.Draw(batch, row.label, Ax(px, kLabelX), y, theme.textDim);
-		const float vw = font.MeasureWidth(row.level);
-		font.Draw(batch, row.level, Ax(px, kValueRight) - vw, y, theme.text);
-		const gfx::Rect bar{Ax(px, kSkillBarX), y, kSkillBarW * px.w, kBarH * px.h};
-		DrawStatBar(batch, bar, row.frac,
-					row.tint.w > 0.0f ? row.tint : theme.accent, theme);
-	}
-	batch.SetScissor(nullptr);
-	m_scrollContentH = static_cast<float>(m_skillRows.size()) * rowH;
-	m_scrollViewH = view.h;
-	DrawScrollbar(ctx, batch, px, view);
+	const gfx::Rect& px = Pixel();
+	font.Draw(batch, row.label, Ax(px, kLabelX), r.y, theme.textDim);
+	const float vw = font.MeasureWidth(row.level);
+	font.Draw(batch, row.level, Ax(px, kValueRight) - vw, r.y, theme.text);
+	DrawStatBar(batch, {Ax(px, kSkillBarX), r.y, kSkillBarW * px.w, kBarH * px.h},
+				row.frac, row.tint.w > 0.0f ? row.tint : theme.accent, theme);
 }
-void CharacterSheet::DrawEffects(ui::UIContext& ctx, gfx::SpriteBatch& batch,
-								 const gfx::Rect& px) {
+
+float CharacterSheet::MeasureSpellRow(size_t i, ui::Font& font,
+									  float widthPx) const {
+	if (i >= m_spellRows.size()) return 0.0f;
+	const float maxW = (kTextRight - kSpellTextX) * widthPx;
+	const int lines = CountLines(font, m_spellRows[i].desc, maxW);
+	return font.LineAdvance() + 2.0f + static_cast<float>(lines) * font.LineAdvance() +
+		   kSpellRowGap * Pixel().h;
+}
+
+void CharacterSheet::DrawSpellRow(size_t i, ui::UIContext& ctx,
+								  gfx::SpriteBatch& batch, const gfx::Rect& r) {
+	if (i >= m_spellRows.size()) return;
+	const SpellRow& row = m_spellRows[i];
 	const ui::Theme& theme = ctx.GetTheme();
 	ui::Font& font = ctx.GetFont();
-	font.Draw(batch, m_effectsLabel, Ax(px, kLeft), Ay(px, kHeaderY), theme.accent);
-	if (m_effectRows.empty()) {
-		font.Draw(batch, m_noEffects, Ax(px, kLeft), Ay(px, kEmptyListY),
-				  theme.textDim);
-		m_scrollContentH = 0.0f;
-		return;
-	}
-
-	// Word wrap: string_view slices only — no per-frame allocation.
-	auto drawWrapped = [&font, &batch](std::string_view text, float x, float y,
-									   float maxW, const Vec4& color) -> float {
-		while (!text.empty()) {
-			size_t end = text.size();
-			while (end > 0 && font.MeasureWidth(text.substr(0, end)) > maxW) {
-				const size_t space = text.rfind(' ', end - 1);
-				if (space == std::string_view::npos || space == 0) break;
-				end = space;
-			}
-			font.Draw(batch, text.substr(0, end), x, y, color);
-			y += font.LineAdvance();
-			const size_t next = text.find_first_not_of(' ', end);
-			text = next == std::string_view::npos ? std::string_view{}
-												  : text.substr(next);
-		}
-		return y;
-	};
-
-	const gfx::Rect view = ScrollViewRect(px);
-	batch.SetScissor(&view);
-	float y = view.y - m_scroll;
-	const float rowGap = kEffectRowGap * px.h;
-	for (const EffectRow& row : m_effectRows) {
-		// y is absolute (scroll view); width/height still fractions of the sheet.
-		const gfx::Rect icon{Ax(px, kEffectIconX), y, kEffectIconW * px.w,
-							 kEffectIconH * px.h};
-		batch.DrawRect(icon, kSlotBg);
-		const gfx::Texture* iconTex =
-			m_icons && row.kind ? m_icons->For(row.kind->IconItem()) : nullptr;
-		if (iconTex)
-			batch.DrawSprite({icon.x + 2, icon.y + 2, icon.w - 4, icon.h - 4},
-							 {0, 0, 1, 1}, *iconTex, {1, 1, 1, 1});
-		else
-			batch.DrawRect({icon.x + 2, icon.y + 2, icon.w - 4, icon.h - 4},
-						   {row.tint.x, row.tint.y, row.tint.z, 0.5f});
-		batch.DrawRect({icon.x + 2, icon.y + icon.h - 5, (icon.w - 4) * row.frac, 3},
-					   row.tint);
-		ui::DrawBorder(batch, icon, row.tint);
-
-		const float textX = Ax(px, kEffectTextX);
-		const float maxW = (kTextRight - kEffectTextX) * px.w;
-		font.Draw(batch, row.name, textX, y, theme.text);
-		const float tw = font.MeasureWidth(row.time);
-		font.Draw(batch, row.time, Ax(px, kTextRight) - tw, y, theme.accent);
-		const float descBottom = drawWrapped(
-			row.desc, textX, y + font.LineAdvance() + 4.0f, maxW, theme.textDim);
-		y = std::max(descBottom, icon.y + icon.h) + rowGap;
-	}
-	batch.SetScissor(nullptr);
-	m_scrollContentH = y + m_scroll - view.y;
-	m_scrollViewH = view.h;
-	DrawScrollbar(ctx, batch, px, view);
-}
-void CharacterSheet::DrawSpells(ui::UIContext& ctx, gfx::SpriteBatch& batch,
-								const gfx::Rect& px) {
-	const ui::Theme& theme = ctx.GetTheme();
-	ui::Font& font = ctx.GetFont();
-	font.Draw(batch, m_spellsLabel, Ax(px, kLeft), Ay(px, kHeaderY), theme.accent);
-	if (m_spellRows.empty()) {
-		font.Draw(batch, m_noSpells, Ax(px, kLeft), Ay(px, kEmptyListY), theme.textDim);
-		m_scrollContentH = 0.0f;
-		return;
-	}
-
-	auto drawWrapped = [&font, &batch](std::string_view text, float x, float y,
-									   float maxW, const Vec4& color) -> float {
-		while (!text.empty()) {
-			size_t end = text.size();
-			while (end > 0 && font.MeasureWidth(text.substr(0, end)) > maxW) {
-				const size_t space = text.rfind(' ', end - 1);
-				if (space == std::string_view::npos || space == 0) break;
-				end = space;
-			}
-			font.Draw(batch, text.substr(0, end), x, y, color);
-			y += font.LineAdvance();
-			const size_t next = text.find_first_not_of(' ', end);
-			text = next == std::string_view::npos ? std::string_view{} : text.substr(next);
-		}
-		return y;
-	};
-
+	const gfx::Rect& px = Pixel();
 	const float textX = Ax(px, kSpellTextX);
 	const float maxW = (kTextRight - kSpellTextX) * px.w;
 	const float ish = font.Height(); // rune-icon square ~ the text height
 	const float runeGap = 0.004f * px.w;
-	const gfx::Rect view = ScrollViewRect(px);
-	batch.SetScissor(&view);
-	float y = view.y - m_scroll;
-	const float rowGap = kSpellRowGap * px.h;
-	for (const SpellRow& row : m_spellRows) {
-		float nameX = textX;
-		for (SpellSymbol sym : row.symbols) {
-			const gfx::Rect ir{nameX, y, ish, ish};
-			const gfx::Texture* ic = m_icons ? m_icons->For(RuneItemId(sym)) : nullptr;
-			if (ic)
-				batch.DrawSprite(ir, {0, 0, 1, 1}, *ic, {1, 1, 1, 1});
-			else {
-				const Vec4 sc = ElementColor(sym);
-				batch.DrawRect(ir, {sc.x, sc.y, sc.z, 0.6f});
-			}
-			nameX += ish + runeGap;
+
+	float nameX = textX;
+	for (SpellSymbol sym : row.symbols) {
+		const gfx::Rect ir{nameX, r.y, ish, ish};
+		const gfx::Texture* ic = m_icons ? m_icons->For(RuneItemId(sym)) : nullptr;
+		if (ic)
+			batch.DrawSprite(ir, {0, 0, 1, 1}, *ic, {1, 1, 1, 1});
+		else {
+			const Vec4 sc = ElementColor(sym);
+			batch.DrawRect(ir, {sc.x, sc.y, sc.z, 0.6f});
 		}
-		font.Draw(batch, row.name, nameX + runeGap, y,
-				  {row.tint.x, row.tint.y, row.tint.z, 1.0f});
-		y = drawWrapped(row.desc, textX, y + font.LineAdvance() + 2.0f, maxW,
-						theme.textDim) +
-			rowGap;
+		nameX += ish + runeGap;
 	}
-	batch.SetScissor(nullptr);
-	m_scrollContentH = y + m_scroll - view.y;
-	m_scrollViewH = view.h;
-	DrawScrollbar(ctx, batch, px, view);
+	font.Draw(batch, row.name, nameX + runeGap, r.y,
+			  {row.tint.x, row.tint.y, row.tint.z, 1.0f});
+	const float descTop = r.y + font.LineAdvance() + 2.0f;
+	WrapLines(font, row.desc, maxW, [&](std::string_view line, int n) {
+		font.Draw(batch, line, textX,
+				  descTop + static_cast<float>(n) * font.LineAdvance(), theme.textDim);
+	});
+}
+
+float CharacterSheet::MeasureEffectRow(size_t i, ui::Font& font,
+									   float widthPx) const {
+	if (i >= m_effectRows.size()) return 0.0f;
+	const float maxW = (kTextRight - kEffectTextX) * widthPx;
+	const int lines = CountLines(font, m_effectRows[i].desc, maxW);
+	const float textH =
+		font.LineAdvance() + 4.0f + static_cast<float>(lines) * font.LineAdvance();
+	return std::max(textH, kEffectIconH * Pixel().h) + kEffectRowGap * Pixel().h;
+}
+
+void CharacterSheet::DrawEffectRow(size_t i, ui::UIContext& ctx,
+								   gfx::SpriteBatch& batch, const gfx::Rect& r) {
+	if (i >= m_effectRows.size()) return;
+	const EffectRow& row = m_effectRows[i];
+	const ui::Theme& theme = ctx.GetTheme();
+	ui::Font& font = ctx.GetFont();
+	const gfx::Rect& px = Pixel();
+
+	const gfx::Rect icon{Ax(px, kEffectIconX), r.y, kEffectIconW * px.w,
+						 kEffectIconH * px.h};
+	batch.DrawRect(icon, kSlotBg);
+	const gfx::Texture* iconTex =
+		m_icons && row.kind ? m_icons->For(row.kind->IconItem()) : nullptr;
+	if (iconTex)
+		batch.DrawSprite({icon.x + 2, icon.y + 2, icon.w - 4, icon.h - 4},
+						 {0, 0, 1, 1}, *iconTex, {1, 1, 1, 1});
+	else
+		batch.DrawRect({icon.x + 2, icon.y + 2, icon.w - 4, icon.h - 4},
+					   {row.tint.x, row.tint.y, row.tint.z, 0.5f});
+	batch.DrawRect({icon.x + 2, icon.y + icon.h - 5, (icon.w - 4) * row.frac, 3},
+				   row.tint);
+	ui::DrawBorder(batch, icon, row.tint);
+
+	const float textX = Ax(px, kEffectTextX);
+	const float maxW = (kTextRight - kEffectTextX) * px.w;
+	font.Draw(batch, row.name, textX, r.y, theme.text);
+	const float tw = font.MeasureWidth(row.time);
+	font.Draw(batch, row.time, Ax(px, kTextRight) - tw, r.y, theme.accent);
+	const float descTop = r.y + font.LineAdvance() + 4.0f;
+	WrapLines(font, row.desc, maxW, [&](std::string_view line, int n) {
+		font.Draw(batch, line, textX,
+				  descTop + static_cast<float>(n) * font.LineAdvance(), theme.textDim);
+	});
 }
 
 } // namespace dungeon::game

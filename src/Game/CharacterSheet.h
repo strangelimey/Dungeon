@@ -21,6 +21,109 @@
 
 namespace dungeon::game {
 
+// The member's bust in the sheet's header band. Its own rect, no input.
+class SheetPortrait : public ui::Widget {
+public:
+	SheetPortrait(const gfx::Rect& rect, const std::vector<Character>* roster,
+				  const size_t* member, const ui::Font* font);
+
+private:
+	void DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) override;
+
+	const std::vector<Character>* m_roster;
+	const size_t* m_member; // the sheet's live selection
+	const ui::Font* m_font;
+};
+
+// One button of the mode strip: a hand-drawn glyph (grid / bars / star / gem /
+// hourglass), owning its own hover, pressed while its mode is the active one.
+class ModeButton : public ui::Widget {
+public:
+	ModeButton(const gfx::Rect& rect, int index, const int* activeIndex,
+			   std::function<void(int)> onSelect);
+
+private:
+	void UpdateSelf(ui::UIContext& ctx) override;
+	void DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) override;
+
+	int m_index;
+	const int* m_active; // the sheet's live mode, as an index
+	std::function<void(int)> m_onSelect;
+	bool m_hot = false;
+};
+
+// The strip of mode buttons; splits itself into even columns.
+class ModeSelector : public ui::Widget {
+public:
+	ModeSelector(const gfx::Rect& rect, int count, const int* activeIndex,
+				 std::function<void(int)> onSelect);
+};
+
+// One row of a list tab. Generic: it holds its index and asks its owner to draw
+// it, so all three tabs share the row/scroll machinery rather than each
+// re-implementing it.
+class SheetRow : public ui::Widget {
+public:
+	using DrawFn = std::function<void(size_t index, ui::UIContext&,
+									  gfx::SpriteBatch&, const gfx::Rect&)>;
+
+	SheetRow(size_t index, DrawFn draw) : m_index(index), m_draw(std::move(draw)) {
+		debugName = "SheetRow";
+	}
+
+private:
+	void DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) override {
+		m_draw(m_index, ctx, batch, Pixel());
+	}
+
+	size_t m_index;
+	DrawFn m_draw;
+};
+
+// A scrolling list tab body: a heading, then one SheetRow per item inside a
+// ui::ScrollArea. The owner says how many rows there are, how tall each one is
+// (rows wrap their descriptions, so height is measured, not authored) and how
+// to draw one — everything else, including the scrollbar, comes from ScrollArea.
+class SheetList : public ui::Widget {
+public:
+	using Counter = std::function<size_t()>;
+	// Row height in pixels, given the font and the width available to it.
+	using Measure = std::function<float(size_t index, ui::Font& font, float widthPx)>;
+
+	SheetList(const gfx::Rect& rect, std::string heading, std::string emptyText,
+			  Counter count, Measure measure, SheetRow::DrawFn drawRow);
+
+	void ScrollToTop();
+
+	// Fractions of this widget: where the heading sits and where the scrolling
+	// band starts/stops. Set by the sheet from its shared layout table.
+	float headingY = 0.0f;
+	float bandTop = 0.0f;
+	float bandBottom = 1.0f;
+
+private:
+	// Measures every row and stacks them, so the repeater's placer (which runs
+	// later in the same layout pass) has the offsets ready.
+	void LayoutSelf(ui::UIContext& ctx) override;
+	void DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) override;
+
+	// The scrolling band's view height in pixels, worked out from this widget's
+	// own rect (the ScrollArea itself is laid out after this runs).
+	float ViewHeight() const;
+
+	std::string m_heading, m_empty;
+	Counter m_count;
+	Measure m_measure;
+	ui::ScrollArea* m_scroll = nullptr;
+	ui::Repeater* m_rows = nullptr;
+	// Row tops and heights in pixels, rebuilt every layout, plus their total.
+	// The repeater's own bounds carry that total (as a multiple of the view
+	// height) — the scroll area measures overflow from its CHILDREN's bounds,
+	// and the rows are its grandchildren, so the repeater has to report it.
+	std::vector<float> m_rowTop, m_rowH;
+	float m_contentH = 0.0f;
+};
+
 class CharacterSheet : public ui::Widget {
 public:
 	CharacterSheet(const gfx::Rect& rect, std::vector<Character>* roster,
@@ -35,6 +138,7 @@ public:
 	// showing nothing (Draw bails), never a stale member.
 	void SetCharacter(size_t member);
 
+	void LayoutSelf(ui::UIContext& ctx) override;
 	void UpdateSelf(ui::UIContext& ctx) override;
 	void DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) override;
 
@@ -66,24 +170,24 @@ private:
 	gfx::Rect EquipRect(const gfx::Rect& px, int i) const;
 	gfx::Rect PackRect(const gfx::Rect& px, int i) const;
 	gfx::Rect PackRowRect(const gfx::Rect& px, int i) const;
-	gfx::Rect ModeButtonRect(const gfx::Rect& px, int i) const;
-	// Mode bodies + the shared mode-button strip (active button drawn pressed).
-	void DrawModeButtons(ui::UIContext& ctx, gfx::SpriteBatch& batch,
-						 const gfx::Rect& px);
+	// Builds the child widgets (portrait, mode strip, the three list tabs).
+	void BuildParts();
+	// The two bodies that neither scroll nor take a container of their own; they
+	// fill the sheet and draw against it directly.
 	void DrawInventory(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 					   const gfx::Rect& px);
 	void DrawStats(ui::UIContext& ctx, gfx::SpriteBatch& batch, const gfx::Rect& px);
-	void DrawSkills(ui::UIContext& ctx, gfx::SpriteBatch& batch, const gfx::Rect& px);
-	void DrawEffects(ui::UIContext& ctx, gfx::SpriteBatch& batch,
-					 const gfx::Rect& px);
-	void DrawSpells(ui::UIContext& ctx, gfx::SpriteBatch& batch, const gfx::Rect& px);
-	// Shared vertical scroll for the list tabs (Skills / Spells / Effects).
-	gfx::Rect ScrollViewRect(const gfx::Rect& px) const;
-	gfx::Rect ScrollThumbRect(const gfx::Rect& px, const gfx::Rect& view,
-							  float maxScroll) const;
-	void UpdateScroll(ui::UIContext& ctx, const gfx::Rect& px);
-	void DrawScrollbar(ui::UIContext& ctx, gfx::SpriteBatch& batch,
-					   const gfx::Rect& px, const gfx::Rect& view);
+	// One row of each list tab, drawn into the rect the list gives it, plus the
+	// height that row needs. Passed to the SheetLists as callbacks.
+	float MeasureSkillRow(size_t i, ui::Font& font, float widthPx) const;
+	float MeasureSpellRow(size_t i, ui::Font& font, float widthPx) const;
+	float MeasureEffectRow(size_t i, ui::Font& font, float widthPx) const;
+	void DrawSkillRow(size_t i, ui::UIContext& ctx, gfx::SpriteBatch& batch,
+					  const gfx::Rect& r);
+	void DrawSpellRow(size_t i, ui::UIContext& ctx, gfx::SpriteBatch& batch,
+					  const gfx::Rect& r);
+	void DrawEffectRow(size_t i, ui::UIContext& ctx, gfx::SpriteBatch& batch,
+					   const gfx::Rect& r);
 	// Inventory hit-testing (left/right click on doll + packs).
 	void UpdateInventory(ui::UIContext& ctx, const gfx::Rect& px, float mx, float my,
 						 bool clicked);
@@ -115,12 +219,11 @@ private:
 	const ItemCategoryBank* m_categories; // item id → category (pack = container)
 	std::optional<std::string>* m_held;
 	Mode m_mode = Mode::Inventory;
-	int m_hotMode = -1; // mode button under the cursor (Update → Draw), -1 = none
-	// List-tab scroll state (see the Scroll helpers above). Content/view heights
-	// are cached by the active list Draw each frame; Update clamps against them.
-	float m_scroll = 0.0f, m_scrollGrab = 0.0f;
-	bool m_scrollDragging = false;
-	float m_scrollContentH = 0.0f, m_scrollViewH = 0.0f;
+	// The mode as a plain index, for the button strip to read live.
+	int m_modeIndex = 0;
+	// The three scrolling tabs, in Mode order after Stats (Skills, Spells,
+	// Effects); only the active one is visible. Owned as children.
+	std::array<SheetList*, 3> m_lists{nullptr, nullptr, nullptr};
 	std::string m_healthText, m_staminaText, m_manaText; // "42 / 42"
 	std::array<std::string, 5> m_attrValues;             // per-attribute numbers
 	// Skills-tab rows, baked by SetCharacter like the attribute values: the

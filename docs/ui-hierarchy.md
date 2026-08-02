@@ -191,11 +191,33 @@ against its pixel rect. Splitting it into the sketch's "character selection /
 symbol selection / spell details" children is real work (interlocking sequence
 and disabled-symbol state) and hasn't been done.
 
-**P5 — Character Sheet.** Header (portrait, name), tab selector, body.
-`CharacterSheetLayout.h`'s constants get pushed down into whichever sub-area owns
-them, so doll cells are fractions of the doll area rather than of the sheet. The
-sheet's list tabs and `SlotList` each re-implement thumb maths that `ScrollArea`
-(P2) now owns — fold them onto it here.
+**P5 — Character Sheet. MOSTLY DONE.** The header portrait is a `SheetPortrait`
+child; the mode strip is a `ModeSelector` of five `ModeButton`s, each owning its
+own hover, which retired `m_hotMode`, `ModeButtonRect` and `DrawModeButtons`'
+hit-testing. The three list tabs became `SheetList` — a heading plus one
+`SheetRow` per item inside a P2 `ScrollArea` — deleting `ScrollViewRect`,
+`ScrollThumbRect`, `UpdateScroll`, `DrawScrollbar` and five members of scroll
+state, and with them the third copy of thumb maths in the codebase.
+
+Rows wrap their descriptions, so height is measured rather than authored:
+`SheetList::LayoutSelf` measures each row and stacks them before the repeater's
+placer runs. Measuring and drawing walk the SAME `WrapLines` helper, so a
+description can't be measured one height and drawn another.
+
+One trap, found by overflowing the list in-game (rows spilled past the panel
+with no scrollbar): **a `ScrollArea` measures overflow from its own children's
+bounds**, and rows behind a `Repeater` are grandchildren. The repeater's bounds
+stayed `{0,0,1,1}`, so the area saw no overflow, clipped nothing and drew no
+bar. `SheetList` now sizes the repeater to the full stacked height and places
+rows as fractions of THAT. Any future repeater inside a scroll area needs the
+same.
+
+STILL OUTSTANDING: the Inventory and Stats bodies draw against the sheet rect
+rather than a body container — legitimate as far as it goes (they fill the
+sheet, so "fractions of the sheet" IS parent-relative), but it means the doll
+and pack constants have not moved into a doll/pack area. And `ui::SlotList`
+still has its own scroll and thumb; folding it onto `ScrollArea` was named in
+this phase and hasn't been done.
 
 **P6 — the remainder.** Left status/options column, message log, inventory
 overlay, then the dialogs. Two items the inspector has already named:
