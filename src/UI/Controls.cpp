@@ -36,20 +36,20 @@ void DrawBorder(gfx::SpriteBatch& batch, const gfx::Rect& rect, const Vec4& colo
 
 // --- Panel -------------------------------------------------------------
 
-void Panel::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
+void Panel::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 	DrawPanelFace(ctx, batch, Pixel());
 }
 
 // --- Separator ---------------------------------------------------------
 
-void Separator::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
+void Separator::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 	const gfx::Rect& px = Pixel();
 	batch.DrawRect({px.x, px.y + px.h * 0.5f, px.w, 1.0f}, ctx.GetTheme().panelBorder);
 }
 
 // --- Label -------------------------------------------------------------
 
-void Label::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
+void Label::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 	const Theme& theme = ctx.GetTheme();
 	ctx.GetFont().Draw(batch, text, Pixel().x, Pixel().y,
 					   dim ? theme.textDim : theme.text);
@@ -68,7 +68,7 @@ void TextOutput::AddLine(std::string line) {
 	m_scroll = 0.0f; // snap to latest
 }
 
-void TextOutput::Update(UIContext& ctx) {
+void TextOutput::UpdateSelf(UIContext& ctx) {
 	const Input* input = ctx.CurrentInput();
 	if (!input || ctx.IsMouseConsumed()) return;
 	if (Pixel().Contains(input->MouseX(), input->MouseY()) && input->WheelDelta() != 0) {
@@ -81,7 +81,7 @@ void TextOutput::Update(UIContext& ctx) {
 	}
 }
 
-void TextOutput::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
+void TextOutput::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 	const Theme& theme = ctx.GetTheme();
 	Font& font = ctx.GetFont();
 	const gfx::Rect& px = Pixel();
@@ -106,7 +106,7 @@ void TextOutput::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
 
 // --- Button --------------------------------------------------------------
 
-void Button::Update(UIContext& ctx) {
+void Button::UpdateSelf(UIContext& ctx) {
 	const Input* input = ctx.CurrentInput();
 	if (!input) return;
 	m_hot = !ctx.IsMouseConsumed() && Pixel().Contains(input->MouseX(), input->MouseY());
@@ -120,7 +120,7 @@ void Button::Update(UIContext& ctx) {
 	}
 }
 
-void Button::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
+void Button::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 	const gfx::Rect& px = Pixel();
 	if (icon) {
 		// Icon-only: the round face IS the button (it carries its own chrome
@@ -167,7 +167,7 @@ void DrawButtonFace(gfx::SpriteBatch& batch, Font& font, const gfx::Rect& rect,
 
 // --- Checkbox ------------------------------------------------------------
 
-void Checkbox::Update(UIContext& ctx) {
+void Checkbox::UpdateSelf(UIContext& ctx) {
 	const Input* input = ctx.CurrentInput();
 	if (!input) return;
 	m_hot = !ctx.IsMouseConsumed() && Pixel().Contains(input->MouseX(), input->MouseY());
@@ -180,7 +180,7 @@ void Checkbox::Update(UIContext& ctx) {
 	}
 }
 
-void Checkbox::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
+void Checkbox::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 	const Theme& theme = ctx.GetTheme();
 	Font& font = ctx.GetFont();
 	const gfx::Rect& px = Pixel();
@@ -205,7 +205,7 @@ void Checkbox::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
 
 // --- Slider --------------------------------------------------------------
 
-void Slider::Update(UIContext& ctx) {
+void Slider::UpdateSelf(UIContext& ctx) {
 	const Input* input = ctx.CurrentInput();
 	if (!input) return;
 	const bool hovered =
@@ -233,7 +233,7 @@ void Slider::RefreshDisplay() {
 	m_display = std::format("{}: {:.2f}", label, m_value);
 }
 
-void Slider::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
+void Slider::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 	const Theme& theme = ctx.GetTheme();
 	Font& font = ctx.GetFont();
 	const gfx::Rect& px = Pixel();
@@ -302,7 +302,7 @@ gfx::Rect DropDown::ScrollThumbRect(const gfx::Rect& popup, float maxScroll) con
 	return {track.x, track.y + (track.h - thumbH) * t, track.w, thumbH};
 }
 
-void DropDown::Update(UIContext& ctx) {
+void DropDown::UpdateSelf(UIContext& ctx) {
 	const Input* input = ctx.CurrentInput();
 	if (!input) return;
 	const float mx = input->MouseX(), my = input->MouseY();
@@ -379,7 +379,7 @@ void DropDown::Update(UIContext& ctx) {
 	}
 }
 
-void DropDown::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
+void DropDown::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 	const Theme& theme = ctx.GetTheme();
 	Font& font = ctx.GetFont();
 	const gfx::Rect& px = Pixel();
@@ -399,7 +399,7 @@ void DropDown::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
 	font.Draw(batch, arrow, arrowX, textY, theme.accent);
 }
 
-void DropDown::DrawOverlay(UIContext& ctx, gfx::SpriteBatch& batch) {
+void DropDown::DrawOverlaySelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 	if (!m_open) return;
 	const Theme& theme = ctx.GetTheme();
 	Font& font = ctx.GetFont();
@@ -450,7 +450,7 @@ gfx::Rect ContextMenu::ChildRect(size_t i) const {
 	return {m_childX, m_childY + m_rowH * static_cast<float>(i), m_childW, m_rowH};
 }
 
-void ContextMenu::Update(UIContext& ctx) {
+void ContextMenu::UpdateSelf(UIContext& ctx) {
 	if (!m_open) return;
 	const Input* input = ctx.CurrentInput();
 	if (!input) return;
@@ -531,7 +531,7 @@ void ContextMenu::Update(UIContext& ctx) {
 	ctx.ConsumeMouse();
 }
 
-void ContextMenu::DrawOverlay(UIContext& ctx, gfx::SpriteBatch& batch) {
+void ContextMenu::DrawOverlaySelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 	if (!m_open) return;
 	const Theme& theme = ctx.GetTheme();
 	Font& font = ctx.GetFont();
@@ -645,7 +645,7 @@ gfx::Rect ColorPicker::PopupRect(const UIContext& ctx) const {
 	return {x, y, kPickerPopupW, kPickerPopupH};
 }
 
-void ColorPicker::Update(UIContext& ctx) {
+void ColorPicker::UpdateSelf(UIContext& ctx) {
 	const Input* input = ctx.CurrentInput();
 	if (!input) return;
 	const float mx = input->MouseX();
@@ -690,7 +690,7 @@ void ColorPicker::Update(UIContext& ctx) {
 	}
 }
 
-void ColorPicker::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
+void ColorPicker::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 	const Theme& theme = ctx.GetTheme();
 	Font& font = ctx.GetFont();
 	const gfx::Rect& px = Pixel();
@@ -704,7 +704,7 @@ void ColorPicker::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
 	DrawBorder(batch, swatch, m_hot || m_open ? theme.accent : theme.panelBorder);
 }
 
-void ColorPicker::DrawOverlay(UIContext& ctx, gfx::SpriteBatch& batch) {
+void ColorPicker::DrawOverlaySelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 	if (!m_open) return;
 	const Theme& theme = ctx.GetTheme();
 	Font& font = ctx.GetFont();
@@ -767,7 +767,7 @@ gfx::Rect KeyBind::BoxRect() const {
 	return {px.x + px.w - w, px.y, w, px.h};
 }
 
-void KeyBind::Update(UIContext& ctx) {
+void KeyBind::UpdateSelf(UIContext& ctx) {
 	const Input* input = ctx.CurrentInput();
 	if (!input) return;
 
@@ -792,7 +792,7 @@ void KeyBind::Update(UIContext& ctx) {
 	}
 }
 
-void KeyBind::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
+void KeyBind::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 	const Theme& theme = ctx.GetTheme();
 	Font& font = ctx.GetFont();
 	const gfx::Rect& px = Pixel();
@@ -814,7 +814,7 @@ void KeyBind::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
 
 // --- TextField -------------------------------------------------------------
 
-void TextField::Update(UIContext& ctx) {
+void TextField::UpdateSelf(UIContext& ctx) {
 	const Input* input = ctx.CurrentInput();
 	if (!input) return;
 
@@ -845,7 +845,7 @@ void TextField::Update(UIContext& ctx) {
 	if (changed && onChange) onChange();
 }
 
-void TextField::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
+void TextField::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 	const Theme& theme = ctx.GetTheme();
 	Font& font = ctx.GetFont();
 	const gfx::Rect& px = Pixel();
@@ -912,7 +912,7 @@ gfx::Rect SlotList::ScrollThumbRect(float maxScroll) const {
 	return {track.x, track.y + (track.h - thumbH) * t, track.w, thumbH};
 }
 
-void SlotList::Update(UIContext& ctx) {
+void SlotList::UpdateSelf(UIContext& ctx) {
 	const Input* input = ctx.CurrentInput();
 	if (!input) return;
 	const float mx = input->MouseX(), my = input->MouseY();
@@ -1003,7 +1003,7 @@ void SlotList::Update(UIContext& ctx) {
 	}
 }
 
-void SlotList::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
+void SlotList::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 	const Theme& theme = ctx.GetTheme();
 	Font& font = ctx.GetFont();
 	const gfx::Rect& px = Pixel();
@@ -1049,7 +1049,7 @@ void SlotList::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
 	}
 }
 
-void SlotList::DrawOverlay(UIContext& ctx, gfx::SpriteBatch& batch) {
+void SlotList::DrawOverlaySelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 	if (m_confirmRow < 0 || static_cast<size_t>(m_confirmRow) >= m_rows.size())
 		return;
 	const Theme& theme = ctx.GetTheme();
@@ -1109,7 +1109,7 @@ void MenuList::Activate() {
 	}
 }
 
-void MenuList::Update(UIContext& ctx) {
+void MenuList::UpdateSelf(UIContext& ctx) {
 	const Input* input = ctx.CurrentInput();
 	if (!input) return;
 
@@ -1130,7 +1130,7 @@ void MenuList::Update(UIContext& ctx) {
 	if (input->WasKeyPressed(vk::Return) || input->WasKeyPressed(vk::Space)) Activate();
 }
 
-void MenuList::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
+void MenuList::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 	const Theme& theme = ctx.GetTheme();
 	Font& font = ctx.GetFont();
 
@@ -1237,7 +1237,7 @@ gfx::Rect TabControl::ScrollThumbRect(const gfx::Rect& page, const Tab& tab,
 	return {track.x, track.y + (track.h - thumbH) * t, track.w, thumbH};
 }
 
-void TabControl::Update(UIContext& ctx) {
+void TabControl::UpdateSelf(UIContext& ctx) {
 	const Input* input = ctx.CurrentInput();
 	if (!input) return;
 	LayoutStrip(ctx); // size the strip + control before any rect math
@@ -1262,7 +1262,7 @@ void TabControl::Update(UIContext& ctx) {
 			const float bottom = (child.bounds.y + child.bounds.h) * inner.h -
 								 tab.scroll;
 			if (bottom <= 0.0f || top >= inner.h) continue;
-			child.Layout(content);
+			child.Layout(content, ctx);
 			child.Update(ctx);
 		}
 
@@ -1314,7 +1314,7 @@ void TabControl::Update(UIContext& ctx) {
 	}
 }
 
-void TabControl::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
+void TabControl::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 	const Theme& theme = ctx.GetTheme();
 	Font& font = ctx.GetFont();
 	LayoutStrip(ctx); // size the strip + control before any rect math
@@ -1368,7 +1368,7 @@ void TabControl::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
 			const float bottom = (child->bounds.y + child->bounds.h) * inner.h -
 								 tab.scroll;
 			if (bottom <= 0.0f || top >= inner.h) continue;
-			child->Layout(content);
+			child->Layout(content, ctx);
 			child->Draw(ctx, batch);
 		}
 		if (maxScroll > 0.0f) {
@@ -1383,11 +1383,32 @@ void TabControl::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
 	}
 }
 
-void TabControl::DrawOverlay(UIContext& ctx, gfx::SpriteBatch& batch) {
+void TabControl::DrawOverlaySelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 	// Children were laid out by Draw earlier in the same render pass.
 	if (m_active < 0 || m_active >= static_cast<int>(m_tabs.size())) return;
 	for (auto& child : m_tabs[static_cast<size_t>(m_active)].children)
 		if (child->visible) child->DrawOverlay(ctx, batch);
+}
+
+// --- Repeater ------------------------------------------------------------
+
+// Grow the pool to the live count, then place and reveal exactly that many.
+// Runs before the tree lays the children out, so the bounds set here are the
+// ones they resolve with this frame.
+void Repeater::LayoutSelf(UIContext&) {
+	m_live = m_count ? m_count() : 0;
+	while (Children().size() < m_live) {
+		std::unique_ptr<Widget> child = m_factory(Children().size());
+		if (!child) break; // factory declined — don't spin
+		AddChild(std::move(child));
+	}
+	m_live = std::min(m_live, Children().size());
+	const auto& kids = Children();
+	for (size_t i = 0; i < kids.size(); ++i) {
+		Widget& child = *kids[i];
+		child.visible = i < m_live;
+		if (child.visible && m_place) child.bounds = m_place(i);
+	}
 }
 
 // --- shared close button -------------------------------------------------

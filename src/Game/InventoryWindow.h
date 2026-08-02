@@ -21,9 +21,9 @@ public:
 	void Close() { m_open = false; }
 	bool IsOpen() const { return m_open; }
 
-	void Update(ui::UIContext& ctx) override;
-	void Draw(ui::UIContext&, gfx::SpriteBatch&) override {} // overlay-only
-	void DrawOverlay(ui::UIContext& ctx, gfx::SpriteBatch& batch) override;
+	void UpdateSelf(ui::UIContext& ctx) override;
+	void DrawSelf(ui::UIContext&, gfx::SpriteBatch&) override {} // overlay-only
+	void DrawOverlaySelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) override;
 
 private:
 	int MemberCount() const;

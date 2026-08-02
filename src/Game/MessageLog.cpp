@@ -59,7 +59,7 @@ gfx::Rect MessageLog::RestoreRect(ui::UIContext& ctx) const {
 	return {8.0f, ctx.Height() - bh - 6.0f, bw, bh}; // bottom-left, where the footer sat
 }
 
-void MessageLog::Update(ui::UIContext& ctx) {
+void MessageLog::UpdateSelf(ui::UIContext& ctx) {
 	// Height targets track the live font, so they scale with the window.
 	ui::Font& font = ctx.GetFont();
 	const float lineH = font.LineAdvance();
@@ -131,7 +131,7 @@ void MessageLog::Tick(float dt) {
 	m_heightFrac = Approach(m_heightFrac, heightTarget, kHeightRate, dt);
 }
 
-void MessageLog::Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
+void MessageLog::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	const ui::Theme& theme = ctx.GetTheme();
 	ui::Font& font = ctx.GetFont();
 	const float ca = m_chromeAlpha;

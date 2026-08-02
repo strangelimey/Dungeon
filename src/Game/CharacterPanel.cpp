@@ -63,7 +63,7 @@ gfx::Rect CharacterPanel::BarsRect(ui::UIContext& ctx) const {
 	return {left, barsTop, right - left, barsBottom - barsTop};
 }
 
-void CharacterPanel::Update(ui::UIContext& ctx) {
+void CharacterPanel::UpdateSelf(ui::UIContext& ctx) {
 	m_character = RosterMember(m_roster, m_member);
 	if (!m_character) return; // roster shorter than this slot — inert
 	const Input* input = ctx.CurrentInput();
@@ -106,7 +106,7 @@ void CharacterPanel::Update(ui::UIContext& ctx) {
 	}
 }
 
-void CharacterPanel::Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
+void CharacterPanel::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	m_character = RosterMember(m_roster, m_member);
 	if (!m_character) return; // roster shorter than this slot — draw nothing
 	const ui::Theme& theme = ctx.GetTheme();

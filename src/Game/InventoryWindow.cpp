@@ -56,7 +56,7 @@ gfx::Rect InventoryWindow::SlotRect(const gfx::Rect& panel, int member,
 			slotsTop + static_cast<float>(row) * (slotW + gap), slotW, slotW};
 }
 
-void InventoryWindow::Update(ui::UIContext& ctx) {
+void InventoryWindow::UpdateSelf(ui::UIContext& ctx) {
 	if (!m_open) return;
 	const Input* input = ctx.CurrentInput();
 	if (!input) return;
@@ -89,7 +89,7 @@ void InventoryWindow::Update(ui::UIContext& ctx) {
 	ctx.ConsumeMouse();
 }
 
-void InventoryWindow::DrawOverlay(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
+void InventoryWindow::DrawOverlaySelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	if (!m_open) return;
 	const ui::Theme& theme = ctx.GetTheme();
 	ui::Font& font = ctx.GetFont();

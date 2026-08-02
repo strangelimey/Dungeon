@@ -169,7 +169,7 @@ void SpellbookPanel::DrawRune(gfx::SpriteBatch& batch, const gfx::Rect& r,
 								 : Vec4{e.x * 0.6f, e.y * 0.6f, e.z * 0.6f, 1.0f});
 }
 
-void SpellbookPanel::Update(ui::UIContext& ctx) {
+void SpellbookPanel::UpdateSelf(ui::UIContext& ctx) {
 	m_hotSymbol = -1;
 	m_hotSeq = -1;
 	m_hotMember = -1;
@@ -252,7 +252,7 @@ void SpellbookPanel::Update(ui::UIContext& ctx) {
 	ctx.ConsumeMouse(); // the open book owns clicks over its box
 }
 
-void SpellbookPanel::Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
+void SpellbookPanel::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	const ui::Theme& theme = ctx.GetTheme();
 	ui::Font& font = ctx.GetFont();
 	const gfx::Rect px = Pixel();

@@ -38,8 +38,8 @@ public:
 	const gfx::Texture* castIcon = nullptr;
 	const gfx::Texture* clearIcon = nullptr;
 
-	void Update(ui::UIContext& ctx) override;
-	void Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) override;
+	void UpdateSelf(ui::UIContext& ctx) override;
+	void DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) override;
 
 private:
 	// One cell of the rune-button grid: the four SCHOOL runes always hold the

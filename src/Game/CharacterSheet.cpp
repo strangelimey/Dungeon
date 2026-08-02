@@ -54,7 +54,7 @@ gfx::Rect CharacterSheet::ModeButtonRect(const gfx::Rect& px, int i) const {
 	return At(px, x, kModeBtnY, kModeBtnW, kModeBtnH);
 }
 
-void CharacterSheet::Update(ui::UIContext& ctx) {
+void CharacterSheet::UpdateSelf(ui::UIContext& ctx) {
 	m_character = RosterMember(m_roster, m_member);
 	m_hotMode = -1;
 	const Input* input = ctx.CurrentInput();
@@ -90,7 +90,7 @@ void CharacterSheet::Update(ui::UIContext& ctx) {
 	ctx.ConsumeMouse(); // swallow other clicks over the sheet
 }
 
-void CharacterSheet::Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
+void CharacterSheet::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	m_character = RosterMember(m_roster, m_member);
 	const ui::Theme& theme = ctx.GetTheme();
 	const gfx::Rect& px = Pixel();

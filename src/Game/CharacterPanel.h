@@ -30,8 +30,8 @@ public:
 				   std::function<void()> onRight, std::function<void()> onBars,
 				   std::function<void()> onEffects);
 
-	void Update(ui::UIContext& ctx) override;
-	void Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) override;
+	void UpdateSelf(ui::UIContext& ctx) override;
+	void DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) override;
 
 	// Multiplier on the slot background alpha (Settings → UI → Party Bar);
 	// the border, portrait, name, and bars stay fully opaque.

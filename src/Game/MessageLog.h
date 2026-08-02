@@ -41,8 +41,8 @@ public:
 	// per frame with the real frame dt (UI animation, not world time).
 	void Tick(float dt);
 
-	void Update(ui::UIContext& ctx) override;
-	void Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) override;
+	void UpdateSelf(ui::UIContext& ctx) override;
+	void DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) override;
 
 	// Caption for the translucent restore button (the UI layer has no language
 	// table, so the owner localizes it).

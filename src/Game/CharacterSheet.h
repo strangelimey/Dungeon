@@ -35,8 +35,8 @@ public:
 	// showing nothing (Draw bails), never a stale member.
 	void SetCharacter(size_t member);
 
-	void Update(ui::UIContext& ctx) override;
-	void Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) override;
+	void UpdateSelf(ui::UIContext& ctx) override;
+	void DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) override;
 
 	// Which body the sheet shows; the mode buttons under the portrait switch it.
 	// (Order == the mode-button strip order — Spells sits before Effects.)

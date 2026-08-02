@@ -12,6 +12,7 @@
 //   KeyBind     labeled key box; click arms it, the next key press rebinds
 //   MenuList    vertical menu; hover or arrows/W/S select, click/Enter fire
 //   TabControl  tab strip + framed page; owns child widgets per tab
+//   Repeater    container whose children come from a per-frame count
 //
 // All bounds are normalized fractions (0..1) of the containing widget or
 // window (see Widget.h) — the UI scales with the screen. Fixed-pixel detail
@@ -37,8 +38,8 @@ struct Skin;
 class Panel : public Widget {
 public:
 	explicit Panel(const gfx::Rect& rect) { bounds = rect; }
-	void Update(UIContext&) override {}
-	void Draw(UIContext& ctx, gfx::SpriteBatch& batch) override;
+	void UpdateSelf(UIContext&) override {}
+	void DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) override;
 };
 
 // Horizontal rule (like HTML <hr>): a 1px line centered in its bounds, spanning
@@ -46,8 +47,8 @@ public:
 class Separator : public Widget {
 public:
 	explicit Separator(const gfx::Rect& rect) { bounds = rect; }
-	void Update(UIContext&) override {}
-	void Draw(UIContext& ctx, gfx::SpriteBatch& batch) override;
+	void UpdateSelf(UIContext&) override {}
+	void DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) override;
 };
 
 class Label : public Widget {
@@ -55,8 +56,8 @@ public:
 	Label(const gfx::Rect& rect, std::string text) : text(std::move(text)) {
 		bounds = rect;
 	}
-	void Update(UIContext&) override {}
-	void Draw(UIContext& ctx, gfx::SpriteBatch& batch) override;
+	void UpdateSelf(UIContext&) override {}
+	void DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) override;
 
 	std::string text;
 	bool dim = false;
@@ -73,8 +74,8 @@ public:
 
 	void AddLine(std::string line);
 	void Clear();
-	void Update(UIContext& ctx) override;
-	void Draw(UIContext& ctx, gfx::SpriteBatch& batch) override;
+	void UpdateSelf(UIContext& ctx) override;
+	void DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) override;
 
 private:
 	std::deque<std::string> m_lines;
@@ -89,8 +90,8 @@ public:
 		bounds = rect;
 	}
 
-	void Update(UIContext& ctx) override;
-	void Draw(UIContext& ctx, gfx::SpriteBatch& batch) override;
+	void UpdateSelf(UIContext& ctx) override;
+	void DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) override;
 
 	std::string text;
 	std::function<void()> onClick;
@@ -123,8 +124,8 @@ public:
 
 	bool Checked() const { return m_checked; }
 	void SetChecked(bool on) { m_checked = on; }
-	void Update(UIContext& ctx) override;
-	void Draw(UIContext& ctx, gfx::SpriteBatch& batch) override;
+	void UpdateSelf(UIContext& ctx) override;
+	void DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) override;
 
 	std::string label;
 	std::function<void(bool)> onChange;
@@ -147,8 +148,8 @@ public:
 	}
 
 	float Value() const { return m_value; }
-	void Update(UIContext& ctx) override;
-	void Draw(UIContext& ctx, gfx::SpriteBatch& batch) override;
+	void UpdateSelf(UIContext& ctx) override;
+	void DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) override;
 
 	std::string label;
 	std::function<void(float)> onChange;
@@ -183,9 +184,9 @@ public:
 	void SetSelected(int index) {
 		if (index >= 0 && index < static_cast<int>(items.size())) m_selected = index;
 	}
-	void Update(UIContext& ctx) override;
-	void Draw(UIContext& ctx, gfx::SpriteBatch& batch) override;
-	void DrawOverlay(UIContext& ctx, gfx::SpriteBatch& batch) override;
+	void UpdateSelf(UIContext& ctx) override;
+	void DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) override;
+	void DrawOverlaySelf(UIContext& ctx, gfx::SpriteBatch& batch) override;
 
 	std::vector<std::string> items;
 	std::function<void(int)> onSelect;
@@ -224,9 +225,9 @@ public:
 	const Vec4& Color() const { return m_color; }
 	void SetColor(const Vec4& color) { m_color = color; }
 
-	void Update(UIContext& ctx) override;
-	void Draw(UIContext& ctx, gfx::SpriteBatch& batch) override;
-	void DrawOverlay(UIContext& ctx, gfx::SpriteBatch& batch) override;
+	void UpdateSelf(UIContext& ctx) override;
+	void DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) override;
+	void DrawOverlaySelf(UIContext& ctx, gfx::SpriteBatch& batch) override;
 
 	std::string label;
 	std::function<void(const Vec4&)> onChange;
@@ -258,8 +259,8 @@ public:
 	// the capture's cancel.
 	bool IsCapturing() const { return m_capturing; }
 
-	void Update(UIContext& ctx) override;
-	void Draw(UIContext& ctx, gfx::SpriteBatch& batch) override;
+	void UpdateSelf(UIContext& ctx) override;
+	void DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) override;
 
 	std::string label;
 	std::function<void(int)> onChange;
@@ -291,8 +292,8 @@ public:
 	bool Focused() const { return m_focused; }
 	void SetFocused(bool on) { m_focused = on; }
 
-	void Update(UIContext& ctx) override;
-	void Draw(UIContext& ctx, gfx::SpriteBatch& batch) override;
+	void UpdateSelf(UIContext& ctx) override;
+	void DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) override;
 
 	std::string text;
 	std::string placeholder;          // shown dimmed when text is empty
@@ -334,9 +335,9 @@ public:
 	}
 	bool IsOpen() const { return m_open; }
 
-	void Update(UIContext& ctx) override;
-	void Draw(UIContext&, gfx::SpriteBatch&) override {} // overlay-only
-	void DrawOverlay(UIContext& ctx, gfx::SpriteBatch& batch) override;
+	void UpdateSelf(UIContext& ctx) override;
+	void DrawSelf(UIContext&, gfx::SpriteBatch&) override {} // overlay-only
+	void DrawOverlaySelf(UIContext& ctx, gfx::SpriteBatch& batch) override;
 
 private:
 	gfx::Rect EntryRect(size_t i) const;
@@ -377,9 +378,9 @@ public:
 	explicit SlotList(const gfx::Rect& rect) { bounds = rect; }
 	void AddRow(Row row) { m_rows.push_back(std::move(row)); }
 
-	void Update(UIContext& ctx) override;
-	void Draw(UIContext& ctx, gfx::SpriteBatch& batch) override;
-	void DrawOverlay(UIContext& ctx, gfx::SpriteBatch& batch) override;
+	void UpdateSelf(UIContext& ctx) override;
+	void DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) override;
+	void DrawOverlaySelf(UIContext& ctx, gfx::SpriteBatch& batch) override;
 
 	float rowHeight = 48.0f;                  // pixels (fixed, like borders/fonts)
 	const gfx::Texture* deleteIcon = nullptr; // red X; a text "X" is the fallback
@@ -429,8 +430,8 @@ public:
 	void SetLabel(size_t index, std::string label);
 
 	int Selected() const { return m_selected; }
-	void Update(UIContext& ctx) override;
-	void Draw(UIContext& ctx, gfx::SpriteBatch& batch) override;
+	void UpdateSelf(UIContext& ctx) override;
+	void DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) override;
 
 private:
 	struct Item {
@@ -482,9 +483,9 @@ public:
 	int ActiveTab() const { return m_active; }
 	void SetActiveTab(int index);
 
-	void Update(UIContext& ctx) override;
-	void Draw(UIContext& ctx, gfx::SpriteBatch& batch) override;
-	void DrawOverlay(UIContext& ctx, gfx::SpriteBatch& batch) override;
+	void UpdateSelf(UIContext& ctx) override;
+	void DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) override;
+	void DrawOverlaySelf(UIContext& ctx, gfx::SpriteBatch& batch) override;
 
 private:
 	struct Tab {
@@ -492,6 +493,10 @@ private:
 		std::vector<std::unique_ptr<Widget>> children;
 		float scroll = 0.0f; // pixels scrolled down, clamped every frame
 	};
+
+	// Sizes the strip before anything resolves against it — the tree calls this
+	// right after our own pixel rect lands and before ContentRect() is asked for.
+	void LayoutSelf(UIContext& ctx) override { LayoutStrip(ctx); }
 
 	// Measures each tab's label and sizes the strip: every tab is at least the
 	// even split, wider when its text needs it, and the control grows + recenters
@@ -506,7 +511,11 @@ private:
 	// The children's container: PageRect inset so content doesn't sit on the
 	// frame, with the right side clearing the scrollbar gutter. This is what
 	// child bounds resolve against (and the scroll/scissor math uses).
-	gfx::Rect ContentRect() const;
+	//
+	// NOTE this control still owns its pages' children itself (a list per tab,
+	// walked by UpdateSelf/DrawSelf) instead of through Widget's child list —
+	// the tabs move onto the shared mechanism in P2 (docs/ui-hierarchy.md).
+	gfx::Rect ContentRect() const override;
 	// Content height as a multiple of the page height: the lowest child
 	// bottom edge, never less than 1 (> 1 means the page scrolls).
 	static float ContentFraction(const Tab& tab);
@@ -523,6 +532,43 @@ private:
 	bool m_scrollHot = false;
 	bool m_scrollDragging = false;
 	float m_scrollGrab = 0.0f; // pointer offset within the thumb while dragging
+};
+
+// A container whose children come from a per-frame COUNT — the status-effect
+// strip, a rune grid, a list of rows. Each frame it reads `count`, grows the
+// pool with `factory` until it has that many children, and gives child N the
+// bounds `place(N)` (fractions of this widget, like any child). The children
+// are real widgets, so each repeated item owns its own hover and click.
+//
+// The pool only ever GROWS: a child past the live count is hidden, never
+// destroyed, so nothing dies mid-frame and no pointer can dangle. The corollary
+// is the rule every repeated child follows — hold the INDEX and re-resolve
+// against the model each frame (the RosterMember pattern), never cache a
+// pointer into the model. The repeater owns its children's `visible` flag; a
+// repeated child must not set its own.
+class Repeater : public Widget {
+public:
+	using Factory = std::function<std::unique_ptr<Widget>(size_t index)>;
+	using Counter = std::function<size_t()>;
+	using Placer = std::function<gfx::Rect(size_t index)>;
+
+	Repeater(const gfx::Rect& rect, Factory factory, Counter count, Placer place)
+		: m_factory(std::move(factory)), m_count(std::move(count)),
+		  m_place(std::move(place)) {
+		bounds = rect;
+	}
+
+	// How many children were live at the last layout (what `count` returned,
+	// capped by what the factory actually produced).
+	size_t LiveCount() const { return m_live; }
+
+private:
+	void LayoutSelf(UIContext& ctx) override;
+
+	Factory m_factory;
+	Counter m_count;
+	Placer m_place;
+	size_t m_live = 0;
 };
 
 // Draws a 1px border around a rectangle.
