@@ -1115,6 +1115,15 @@ memory.
   square sized by the parent's height; a row the height of a line advance) —
   still parent-relative, just derived. Screen-anchored popups (ContextMenu,
   InventoryWindow) keep zero bounds and draw in the overlay pass on purpose.
+  UNITS are typographic, the CSS model (UI/Units.h): bounds are [0..1] of the
+  parent, but the DETAIL inside a control — padding, row heights, a scrollbar's
+  width, a thumb's minimum — is in REM, where 1rem = that context's root font
+  size (Font::Height; the HUD's 17px, menus' 28px, sheet's 22px, all already
+  tracking window height). `Widget::Rem(n)` resolves it from a value captured at
+  Layout so even a const rect helper can ask. Detail belongs to the TEXT beside
+  it, not to whatever rect contains it — a fraction-of-parent label gap stretches
+  when the row is wide. THE ONLY RAW PIXELS ALLOWED are hairlines: the 1px
+  borders and the 2px caret (a fractional hairline blurs or vanishes).
   Dev console `uitree` outlines the whole tree by depth and names the chain
   under the cursor; `uitree dump <hud|menu|settings|pause|saves|sheet|confirm>`
   prints it with pixel rects. Fonts track the window height too (Font::SetHeight

@@ -87,9 +87,10 @@ inline constexpr float kSkillBarW = 0.436f;
 inline constexpr float kScrollTop = 0.368f;
 inline constexpr float kScrollBottomPad = 0.021f;
 inline constexpr float kScrollBarW = 0.013f;
-inline constexpr float kScrollBarPadPx = 4.0f;
-inline constexpr float kScrollThumbMinPx = 24.0f;
-inline constexpr float kWheelStepPx = 40.0f;
+// In REM (UI/Units.h) — the sheet's chrome tracks its own text size.
+inline constexpr float kScrollBarPadRem = 0.2f;
+inline constexpr float kScrollThumbMinRem = 1.1f;
+inline constexpr float kWheelStepRem = 1.8f;
 
 // --- effects / spells list rows ---------------------------------------------
 inline constexpr float kEffectRowGap = 0.039f;

@@ -283,10 +283,47 @@ Then, in a follow-up pass:
   Panels, Labels, Buttons, HandSlots and the SpellbookPanel directly under root
   — the flatness this thread exists to remove, now visible rather than inferred.
 
+## Units: rem and em
+
+Layout is parent-relative; the DETAIL inside a control is TYPOGRAPHIC. Padding,
+row heights, a scrollbar's width, a thumb's minimum grab size — these belong to
+the text they sit beside, not to whatever rect happens to contain them. A
+checkbox's label gap should not stretch because the row it was dropped into is
+wide, which is what a naive "everything is [0..1] of the parent" would do.
+
+So, the CSS model (UI/Units.h):
+
+    1rem = the context's ROOT font size (Font::Height)
+
+Every UIContext is its own document with its own root — the HUD's 17px, the
+menus' 28px, the sheet's 22px — and all of them already track the window height
+(GameUI::UpdateFonts), so anything in rem scales with the UI for free, at any
+resolution, with no second scaling rule. One line of text is 1.25rem
+(LineAdvance), so a row holding one line with air is ~1.75rem.
+
+`Widget::Rem(n)` resolves against a value captured at Layout, so even a const
+rect helper can ask for it without being handed a UIContext — the same "resolve
+once, then use everywhere" shape as CSS computing rem against the root. `Em(n)`
+is identical today (no widget has its own font) and exists so that the seam has
+a name: if per-widget font sizes ever arrive, Em is what changes, and every call
+site already says which one it meant.
+
+THE ONLY RAW PIXELS LEFT are hairlines — the 1px borders (DrawBorder,
+Separator) and the 2px text caret. A hairline expressed as a fraction blurs
+across two rows of pixels or vanishes, so it stays a hairline. Two skin-derived
+insets also stay in pixels because they are measured off the nine-slice's own
+corner radius rather than authored as layout.
+
+Verified at 2560x1440: chrome grows with the type instead of staying
+pixel-fixed. The checkbox that used to cap at 18px beside 45px text now scales
+to 29px, and the slider thumb, colour swatches, scrollbar and popup keep their
+proportions.
+
 ## Rules the tree carries
 
 - A child's bounds are fractions of its parent's `ContentRect()`, never of the
   window.
+- Detail INSIDE a control is in rem, not fractions of the parent — see above.
 - Screen-anchored things stay absolute and overlay-drawn, and say so in their
   header: `ContextMenu`'s absolute pixel position, and the `DropDown` /
   `ColorPicker` popups that clamp themselves to the window.

@@ -92,7 +92,7 @@ void SheetList::LayoutSelf(ui::UIContext& ctx) {
 	const gfx::Rect& px = Pixel();
 	m_scroll->bounds = {0.0f, bandTop, 1.0f, bandBottom - bandTop};
 	// The scrollbar gutter, in the same terms the sheet's own layout used.
-	m_scroll->gutter = kScrollBarW * px.w + kScrollBarPadPx;
+	m_scroll->gutter = (kScrollBarW * px.w) / Rem() + kScrollBarPadRem;
 
 	const size_t rows = m_count ? m_count() : 0;
 	m_rowTop.resize(rows);
@@ -229,7 +229,8 @@ float CharacterSheet::MeasureSpellRow(size_t i, ui::Font& font,
 	if (i >= m_spellRows.size()) return 0.0f;
 	const float maxW = (kTextRight - kSpellTextX) * widthPx;
 	const int lines = CountLines(font, m_spellRows[i].desc, maxW);
-	return font.LineAdvance() + 2.0f + static_cast<float>(lines) * font.LineAdvance() +
+	return font.LineAdvance() + Rem(0.1f) +
+		   static_cast<float>(lines) * font.LineAdvance() +
 		   kSpellRowGap * Pixel().h;
 }
 
@@ -259,7 +260,7 @@ void CharacterSheet::DrawSpellRow(size_t i, ui::UIContext& ctx,
 	}
 	font.Draw(batch, row.name, nameX + runeGap, r.y,
 			  {row.tint.x, row.tint.y, row.tint.z, 1.0f});
-	const float descTop = r.y + font.LineAdvance() + 2.0f;
+	const float descTop = r.y + font.LineAdvance() + Rem(0.1f);
 	WrapLines(font, row.desc, maxW, [&](std::string_view line, int n) {
 		font.Draw(batch, line, textX,
 				  descTop + static_cast<float>(n) * font.LineAdvance(), theme.textDim);
@@ -272,7 +273,7 @@ float CharacterSheet::MeasureEffectRow(size_t i, ui::Font& font,
 	const float maxW = (kTextRight - kEffectTextX) * widthPx;
 	const int lines = CountLines(font, m_effectRows[i].desc, maxW);
 	const float textH =
-		font.LineAdvance() + 4.0f + static_cast<float>(lines) * font.LineAdvance();
+		font.LineAdvance() + Rem(0.2f) + static_cast<float>(lines) * font.LineAdvance();
 	return std::max(textH, kEffectIconH * Pixel().h) + kEffectRowGap * Pixel().h;
 }
 
@@ -304,7 +305,7 @@ void CharacterSheet::DrawEffectRow(size_t i, ui::UIContext& ctx,
 	font.Draw(batch, row.name, textX, r.y, theme.text);
 	const float tw = font.MeasureWidth(row.time);
 	font.Draw(batch, row.time, Ax(px, kTextRight) - tw, r.y, theme.accent);
-	const float descTop = r.y + font.LineAdvance() + 4.0f;
+	const float descTop = r.y + font.LineAdvance() + Rem(0.2f);
 	WrapLines(font, row.desc, maxW, [&](std::string_view line, int n) {
 		font.Draw(batch, line, textX,
 				  descTop + static_cast<float>(n) * font.LineAdvance(), theme.textDim);

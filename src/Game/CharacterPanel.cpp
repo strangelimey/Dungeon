@@ -6,6 +6,7 @@
 #include "Core/Loc.h"
 #include "Game/PartyHudDraw.h"
 #include "UI/Skin.h"
+#include "UI/Units.h"
 
 #include <algorithm>
 #include <format>
@@ -133,10 +134,12 @@ void EffectIcon::DrawOverlaySelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	const std::string label =
 		loc::Format("hud.effect_time", loc::Tr(effect->NameKey()),
 					static_cast<int>(effect->timeLeft + 0.5f));
-	const gfx::Rect tip{r.x, r.y + r.h + 6.0f, font.MeasureWidth(label) + 12.0f,
-						font.LineAdvance() + 6.0f};
+	const gfx::Rect tip{r.x, r.y + r.h + Rem(0.35f),
+						font.MeasureWidth(label) + Rem(0.7f),
+						font.LineAdvance() + Rem(0.35f)};
 	ui::DrawPanelFace(ctx, batch, tip);
-	font.Draw(batch, label, tip.x + 6.0f, tip.y + 3.0f, ctx.GetTheme().text);
+	font.Draw(batch, label, tip.x + Rem(0.35f), tip.y + Rem(0.18f),
+			  ctx.GetTheme().text);
 }
 
 // --- StatsArea -------------------------------------------------------------
@@ -175,7 +178,7 @@ void StatsArea::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	const Character* c = RosterMember(m_roster, m_member);
 	if (!c) return;
 	const gfx::Rect& px = Pixel();
-	const float barGap = 4.0f;
+	const float barGap = Rem(0.25f);
 	const float barH = (px.h - 2 * barGap) / 3.0f;
 	const struct {
 		float value, max;
@@ -259,7 +262,7 @@ void CharacterPanel::LayoutSelf(ui::UIContext& ctx) {
 	const float right = 1.0f - padX;
 	m_effects->bounds = {left, padY, right - left, rowH};
 
-	const float barsTop = padY + rowH + 2.0f / px.h;
+	const float barsTop = padY + rowH + Rem(0.12f) / px.h;
 	m_stats->bounds = {left, barsTop, right - left, 1.0f - padY - barsTop};
 }
 

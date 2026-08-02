@@ -69,6 +69,8 @@ public:
 	void Render(gfx::SpriteBatch& batch, float width, float height);
 
 	Font& GetFont() { return m_font; }
+	// Const path, for the rem/em units (UI/Units.h) and other const rect maths.
+	const Font& GetFont() const { return m_font; }
 	const Theme& GetTheme() const { return m_theme; }
 	void SetTheme(const Theme& theme) { m_theme = theme; }
 

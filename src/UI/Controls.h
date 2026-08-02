@@ -423,7 +423,7 @@ public:
 	explicit SlotList(const gfx::Rect& rect);
 	void AddRow(Row row);
 
-	float rowHeight = 48.0f;                  // pixels (fixed, like borders/fonts)
+	float rowHeight = 1.75f;                  // rem (UI/Units.h): a line plus air
 	const gfx::Texture* deleteIcon = nullptr; // red X; a text "X" is the fallback
 	// Confirmation dialog strings (the owner localizes them).
 	std::string confirmPrompt = "Delete this save?";
@@ -509,8 +509,9 @@ public:
 	// The view box itself (unscrolled) — what the scroll maths and clip use.
 	gfx::Rect ViewRect() const;
 
-	float padding = 12.0f; // inset from this widget's own edge
-	float gutter = 14.0f;  // scrollbar track + margin, always reserved
+	// Both in REM (UI/Units.h), so the chrome tracks the text it wraps.
+	float padding = 0.45f; // inset from this widget's own edge
+	float gutter = 0.5f;   // scrollbar track + margin, always reserved
 
 private:
 	void LayoutSelf(UIContext& ctx) override;
