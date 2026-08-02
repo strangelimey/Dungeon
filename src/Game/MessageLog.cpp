@@ -59,15 +59,32 @@ gfx::Rect MessageLog::RestoreRect(ui::UIContext& ctx) const {
 	return {8.0f, ctx.Height() - bh - 6.0f, bw, bh}; // bottom-left, where the footer sat
 }
 
-void MessageLog::Update(ui::UIContext& ctx) {
-	// Height targets track the live font, so they scale with the window.
+// Height targets track the live font (so they scale with the window), then the
+// rect this widget actually occupies is written back into `bounds`: the footer
+// while it shows, the small restore button once it has faded out. Both are
+// screen-anchored, so the fractions are of the window — which is this widget's
+// parent. During the brief cross-fade both are painted; only one of them ever
+// takes input, and that is the one `bounds` follows.
+void MessageLog::LayoutSelf(ui::UIContext& ctx) {
 	ui::Font& font = ctx.GetFont();
 	const float lineH = font.LineAdvance();
-	m_collapsedFrac = (kCollapsedLines * lineH + 2.0f * kPad) / ctx.Height();
-	m_expandedFrac = std::min(kMaxExpandedFrac,
-							  (kExpandedLines * lineH + 2.0f * kPad) / ctx.Height());
+	const float w = ctx.Width(), h = ctx.Height();
+	m_collapsedFrac = (kCollapsedLines * lineH + 2.0f * kPad) / h;
+	m_expandedFrac =
+		std::min(kMaxExpandedFrac, (kExpandedLines * lineH + 2.0f * kPad) / h);
 	if (m_heightFrac <= 0.0f) m_heightFrac = m_collapsedFrac; // seed first frame
 
+	if (Dormant()) {
+		const gfx::Rect btn = RestoreRect(ctx);
+		bounds = {btn.x / w, btn.y / h, btn.w / w, btn.h / h};
+	} else {
+		bounds = {0.0f, 1.0f - m_heightFrac, 1.0f, m_heightFrac};
+	}
+}
+
+void MessageLog::UpdateSelf(ui::UIContext& ctx) {
+	ui::Font& font = ctx.GetFont();
+	const float lineH = font.LineAdvance();
 	m_hovered = false;
 	m_restoreHot = false;
 
@@ -77,8 +94,7 @@ void MessageLog::Update(ui::UIContext& ctx) {
 	const float my = input->MouseY();
 
 	// While the footer is faded out only the restore button is live.
-	const bool dormant = m_chromeAlpha < 0.5f && !m_expanded;
-	if (dormant) {
+	if (Dormant()) {
 		if (!ctx.IsMouseConsumed() && RestoreRect(ctx).Contains(mx, my)) {
 			m_restoreHot = true;
 			ctx.ConsumeMouse();
@@ -131,7 +147,7 @@ void MessageLog::Tick(float dt) {
 	m_heightFrac = Approach(m_heightFrac, heightTarget, kHeightRate, dt);
 }
 
-void MessageLog::Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
+void MessageLog::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	const ui::Theme& theme = ctx.GetTheme();
 	ui::Font& font = ctx.GetFont();
 	const float ca = m_chromeAlpha;
@@ -147,7 +163,7 @@ void MessageLog::Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 
 		const gfx::Rect inner{footer.x + kPad, footer.y + kPad,
 							  footer.w - 2.0f * kPad, footer.h - 2.0f * kPad};
-		batch.SetScissor(&inner);
+		const ui::ScopedClip clip(batch, inner);
 		const float lineH = font.LineAdvance();
 		// Newest at the bottom, offset upward by the scroll.
 		const int last =
@@ -160,7 +176,6 @@ void MessageLog::Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 			font.Draw(batch, msg.text, inner.x, y, col);
 			y -= lineH;
 		}
-		batch.SetScissor(nullptr);
 	}
 
 	// Restore button cross-fades in as the footer fades out.

@@ -23,8 +23,8 @@ public:
 			 const ItemIconBank* icons, std::function<void()> onLeft,
 			 std::function<void()> onRight);
 
-	void Update(ui::UIContext& ctx) override;
-	void Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) override;
+	void UpdateSelf(ui::UIContext& ctx) override;
+	void DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) override;
 
 private:
 	const std::vector<Character>* m_roster;

@@ -18,6 +18,21 @@ namespace {
 constexpr size_t kMaxSequence = 6;
 } // namespace
 
+namespace {
+// Horizontal / vertical pads as fractions of the panel.
+constexpr float kPadX = 0.045f;
+constexpr float kPadY = 0.035f;
+constexpr float kMemberY = 0.035f;
+constexpr float kMemberH = 0.085f;
+constexpr float kMemberGapX = 0.036f; // extra air for skinned button frames
+constexpr float kGridY = 0.145f;
+constexpr float kGridGap = 0.027f;
+constexpr float kSeqGap = 0.018f;
+constexpr float kCastH = 0.15f;
+constexpr float kCastGap = 0.036f; // between Cast and Clear
+constexpr float kSeqAboveCast = 0.03f;
+} // namespace
+
 SpellbookPanel::SpellbookPanel(const gfx::Rect& rect,
 							   const std::vector<Character>* roster,
 							   const ItemIconBank* icons)
@@ -25,6 +40,16 @@ SpellbookPanel::SpellbookPanel(const gfx::Rect& rect,
 	  m_placeholder(loc::Tr("hud.magic_none")), m_castLabel(loc::Tr("magic.cast")),
 	  m_clearLabel(loc::Tr("magic.clear")) {
 	bounds = rect;
+	debugName = "SpellbookPanel";
+	// The selector row is a child; the rune grid and the sequence/Cast/Clear
+	// below it stay this panel's own (docs/ui-hierarchy.md says why).
+	Add<MemberRow>(gfx::Rect{kPadX, kMemberY, 1.0f - 2.0f * kPadX, kMemberH},
+				   roster, &m_member,
+				   [this](size_t i) { return MemberEligible(i); },
+				   [this](size_t i) {
+					   SelectMember(i);
+					   if (onClick) onClick();
+				   });
 }
 
 void SpellbookPanel::SelectMember(size_t member) {
@@ -47,26 +72,82 @@ bool SpellbookPanel::MemberEligible(size_t i) const {
 // Layout: every region is a fraction of this panel's pixel rect (parent =
 // the spellbook). Top → bottom: member selector, rune grid; sequence + Cast/
 // Clear anchor to the bottom.
-namespace {
-// Horizontal / vertical pads as fractions of the panel.
-constexpr float kPadX = 0.045f;
-constexpr float kPadY = 0.035f;
-constexpr float kMemberY = 0.035f;
-constexpr float kMemberH = 0.085f;
-constexpr float kMemberGapX = 0.036f; // extra air for skinned button frames
-constexpr float kGridY = 0.145f;
-constexpr float kGridGap = 0.027f;
-constexpr float kSeqGap = 0.018f;
-constexpr float kCastH = 0.15f;
-constexpr float kCastGap = 0.036f; // between Cast and Clear
-constexpr float kSeqAboveCast = 0.03f;
-} // namespace
 
-gfx::Rect SpellbookPanel::MemberButtonRect(const gfx::Rect& px, size_t i) const {
-	const float pad = kPadX * px.w, gap = kMemberGapX * px.w;
-	const float cell = (px.w - 2 * pad - 3 * gap) / 4.0f;
-	return {px.x + pad + (cell + gap) * static_cast<float>(i),
-			px.y + kMemberY * px.h, cell, kMemberH * px.h};
+// --- MemberButton / MemberRow ----------------------------------------------
+
+MemberButton::MemberButton(size_t member, const std::vector<Character>* roster,
+						   const int* selected,
+						   std::function<bool(size_t)> eligible,
+						   std::function<void(size_t)> onSelect)
+	: m_member(member), m_roster(roster), m_selected(selected),
+	  m_eligible(std::move(eligible)), m_onSelect(std::move(onSelect)) {
+	debugName = "MemberButton";
+}
+
+void MemberButton::UpdateSelf(ui::UIContext& ctx) {
+	m_hot = false;
+	const Input* input = ctx.CurrentInput();
+	if (!input || ctx.IsMouseConsumed()) return;
+	if (!Pixel().Contains(input->MouseX(), input->MouseY())) return;
+	// A disabled button (absent / down / no symbols) is inert: it still swallows
+	// the click so the box beneath it doesn't act, but shows no hover.
+	ctx.ConsumeMouse();
+	if (!m_eligible || !m_eligible(m_member)) return;
+	m_hot = true;
+	if (input->WasMousePressed(MouseButton::Left) &&
+		static_cast<int>(m_member) != *m_selected && m_onSelect)
+		m_onSelect(m_member);
+}
+
+// A face in the member's identity color — pressed = the open book, washed out
+// = absent/down. Skinned, the FRAME stays natural wood/iron and the FACE is a
+// flat identity fill inside the frame ring (pure color, no grain — Michael's
+// call after the tinted-wood cuts read muddy); the flat path is the fallback.
+void MemberButton::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
+	const ui::Theme& theme = ctx.GetTheme();
+	const gfx::Rect& r = Pixel();
+	const Character* m =
+		m_roster && m_member < m_roster->size() ? &(*m_roster)[m_member] : nullptr;
+	const bool eligible = m_eligible && m_eligible(m_member);
+	const bool selected = static_cast<int>(m_member) == *m_selected;
+	const Vec4 col = m ? m->portraitColor : theme.control;
+	const ui::Skin* skin = ctx.GetSkin();
+	if (skin && skin->button.texture) {
+		ui::DrawNineSlice(batch, r, skin->button,
+						  eligible ? Vec4{1, 1, 1, 1}
+								   : Vec4{0.55f, 0.55f, 0.55f, 1.0f});
+		const float ring = skin->button.corner * skin->button.scale;
+		const float in = std::max(2.0f, ring - 2.0f);
+		const gfx::Rect face{r.x + in, r.y + in, r.w - 2 * in, r.h - 2 * in};
+		if (eligible) {
+			const float f = selected ? 1.0f : (m_hot ? 0.95f : 0.75f);
+			batch.DrawRect(face, {col.x * f, col.y * f, col.z * f, 1.0f});
+		} else {
+			batch.DrawRect(face, theme.control);
+		}
+		if (selected) ui::DrawBorder(batch, r, theme.accent);
+	} else if (!eligible) {
+		batch.DrawRect(r, theme.control);
+		ui::DrawBorder(batch, r, theme.panelBorder);
+	} else {
+		const float f = selected ? 0.85f : (m_hot ? 0.5f : 0.3f);
+		batch.DrawRect(r, {col.x * f, col.y * f, col.z * f, 1.0f});
+		ui::DrawBorder(batch, r,
+					   selected ? theme.accent : Vec4{col.x, col.y, col.z, 1.0f});
+	}
+}
+
+MemberRow::MemberRow(const gfx::Rect& rect, const std::vector<Character>* roster,
+					 const int* selected, std::function<bool(size_t)> eligible,
+					 std::function<void(size_t)> onSelect) {
+	bounds = rect;
+	debugName = "MemberRow";
+	// Four even columns with the authored gap, as fractions of the row.
+	const float gap = kMemberGapX / (1.0f - 2.0f * kPadX);
+	const float cell = (1.0f - 3.0f * gap) / 4.0f;
+	for (size_t i = 0; i < 4; ++i)
+		Add<MemberButton>(i, roster, selected, eligible, onSelect)->bounds = {
+			(cell + gap) * static_cast<float>(i), 0.0f, cell, 1.0f};
 }
 
 gfx::Rect SpellbookPanel::SymbolRect(const gfx::Rect& px, size_t i) const {
@@ -169,10 +250,9 @@ void SpellbookPanel::DrawRune(gfx::SpriteBatch& batch, const gfx::Rect& r,
 								 : Vec4{e.x * 0.6f, e.y * 0.6f, e.z * 0.6f, 1.0f});
 }
 
-void SpellbookPanel::Update(ui::UIContext& ctx) {
+void SpellbookPanel::UpdateSelf(ui::UIContext& ctx) {
 	m_hotSymbol = -1;
 	m_hotSeq = -1;
-	m_hotMember = -1;
 	m_hotCast = false;
 	m_hotClear = false;
 	// The selection must stay ELIGIBLE: a member who went down (or a roster
@@ -187,19 +267,7 @@ void SpellbookPanel::Update(ui::UIContext& ctx) {
 	if (!px.Contains(mx, my)) return;
 	const bool pressed = input->WasMousePressed(MouseButton::Left);
 
-	// The member selector row — a disabled button (absent/down member) is
-	// inert: no hover, no click.
-	for (size_t i = 0; i < 4; ++i) {
-		if (!MemberButtonRect(px, i).Contains(mx, my)) continue;
-		if (MemberEligible(i)) {
-			m_hotMember = static_cast<int>(i);
-			if (pressed && static_cast<int>(i) != m_member) {
-				SelectMember(i);
-				if (onClick) onClick();
-			}
-		}
-		break;
-	}
+	// The selector row is a child (MemberRow) and has already had the mouse.
 	if (m_member < 0) {
 		ctx.ConsumeMouse(); // the selector row owns clicks over the box
 		return;
@@ -252,61 +320,18 @@ void SpellbookPanel::Update(ui::UIContext& ctx) {
 	ctx.ConsumeMouse(); // the open book owns clicks over its box
 }
 
-void SpellbookPanel::Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
+void SpellbookPanel::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	const ui::Theme& theme = ctx.GetTheme();
 	ui::Font& font = ctx.GetFont();
 	const gfx::Rect px = Pixel();
 	const Character* c =
 		m_member < 0 ? nullptr : RosterMember(m_roster, static_cast<size_t>(m_member));
 
-	// The member selector row: one button per party slot in the member's
-	// identity color — pressed = the open book, washed out = absent/down.
-	// Skinned, the identity color TINTS the wood face (lerped toward white
-	// first so a dark identity blue doesn't crush the grain to black),
-	// stepped by state; the flat path stays as the skinless fallback.
-	const ui::Skin* skin = ctx.GetSkin();
-	for (size_t i = 0; i < 4; ++i) {
-		const gfx::Rect r = MemberButtonRect(px, i);
-		const Character* m =
-			m_roster && i < m_roster->size() ? &(*m_roster)[i] : nullptr;
-		const bool eligible = MemberEligible(i);
-		const bool selected = static_cast<int>(i) == m_member;
-		const bool hot = static_cast<int>(i) == m_hotMember;
-		const Vec4 col = m ? m->portraitColor : theme.control;
-		if (skin && skin->button.texture) {
-			// The FRAME stays natural wood/iron (untinted); the FACE is a flat
-			// identity fill inside the frame ring — pure color, no grain
-			// (Michael's call after the tinted-wood cuts read muddy).
-			ui::DrawNineSlice(batch, r, skin->button,
-							  eligible ? Vec4{1, 1, 1, 1}
-									   : Vec4{0.55f, 0.55f, 0.55f, 1.0f});
-			const float ring = skin->button.corner * skin->button.scale;
-			const float in = std::max(2.0f, ring - 2.0f);
-			const gfx::Rect face{r.x + in, r.y + in, r.w - 2 * in, r.h - 2 * in};
-			if (eligible) {
-				const float f = selected ? 1.0f : (hot ? 0.95f : 0.75f);
-				batch.DrawRect(face, {col.x * f, col.y * f, col.z * f, 1.0f});
-			} else {
-				batch.DrawRect(face, theme.control);
-			}
-			if (selected) ui::DrawBorder(batch, r, theme.accent);
-		} else if (!eligible) {
-			batch.DrawRect(r, theme.control);
-			ui::DrawBorder(batch, r, theme.panelBorder);
-		} else {
-			const float f = selected ? 0.85f : (hot ? 0.5f : 0.3f);
-			batch.DrawRect(r, {col.x * f, col.y * f, col.z * f, 1.0f});
-			ui::DrawBorder(batch, r,
-						   selected ? theme.accent
-									: Vec4{col.x, col.y, col.z, 1.0f});
-		}
-	}
 	// No selection: the placeholder line where the grid would start. (No name
 	// line — the pressed button and portrait row already say whose book.)
 	if (!c) {
-		const gfx::Rect b0 = MemberButtonRect(px, 0);
 		font.Draw(batch, m_placeholder, px.x + kPadX * px.w,
-				  b0.y + b0.h + 0.025f * px.h, theme.textDim);
+				  px.y + (kMemberY + kMemberH + 0.025f) * px.h, theme.textDim);
 		return;
 	}
 

@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <format>
+#include <optional>
 
 namespace dungeon::ui {
 
@@ -36,20 +37,20 @@ void DrawBorder(gfx::SpriteBatch& batch, const gfx::Rect& rect, const Vec4& colo
 
 // --- Panel -------------------------------------------------------------
 
-void Panel::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
+void Panel::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 	DrawPanelFace(ctx, batch, Pixel());
 }
 
 // --- Separator ---------------------------------------------------------
 
-void Separator::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
+void Separator::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 	const gfx::Rect& px = Pixel();
 	batch.DrawRect({px.x, px.y + px.h * 0.5f, px.w, 1.0f}, ctx.GetTheme().panelBorder);
 }
 
 // --- Label -------------------------------------------------------------
 
-void Label::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
+void Label::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 	const Theme& theme = ctx.GetTheme();
 	ctx.GetFont().Draw(batch, text, Pixel().x, Pixel().y,
 					   dim ? theme.textDim : theme.text);
@@ -68,7 +69,7 @@ void TextOutput::AddLine(std::string line) {
 	m_scroll = 0.0f; // snap to latest
 }
 
-void TextOutput::Update(UIContext& ctx) {
+void TextOutput::UpdateSelf(UIContext& ctx) {
 	const Input* input = ctx.CurrentInput();
 	if (!input || ctx.IsMouseConsumed()) return;
 	if (Pixel().Contains(input->MouseX(), input->MouseY()) && input->WheelDelta() != 0) {
@@ -81,7 +82,7 @@ void TextOutput::Update(UIContext& ctx) {
 	}
 }
 
-void TextOutput::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
+void TextOutput::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 	const Theme& theme = ctx.GetTheme();
 	Font& font = ctx.GetFont();
 	const gfx::Rect& px = Pixel();
@@ -91,7 +92,7 @@ void TextOutput::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
 	const float lineHeight = font.LineAdvance();
 	const float pad = 6.0f;
 	const gfx::Rect inner{px.x + pad, px.y + pad, px.w - 2 * pad, px.h - 2 * pad};
-	batch.SetScissor(&inner);
+	const ScopedClip clip(batch, inner);
 
 	const int visibleLines = static_cast<int>(inner.h / lineHeight) + 1;
 	// Index of the last line shown, offset by scroll (0 = newest).
@@ -101,12 +102,11 @@ void TextOutput::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
 		font.Draw(batch, m_lines[static_cast<size_t>(i)], inner.x, y, theme.text);
 		y -= lineHeight;
 	}
-	batch.SetScissor(nullptr);
 }
 
 // --- Button --------------------------------------------------------------
 
-void Button::Update(UIContext& ctx) {
+void Button::UpdateSelf(UIContext& ctx) {
 	const Input* input = ctx.CurrentInput();
 	if (!input) return;
 	m_hot = !ctx.IsMouseConsumed() && Pixel().Contains(input->MouseX(), input->MouseY());
@@ -120,7 +120,7 @@ void Button::Update(UIContext& ctx) {
 	}
 }
 
-void Button::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
+void Button::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 	const gfx::Rect& px = Pixel();
 	if (icon) {
 		// Icon-only: the round face IS the button (it carries its own chrome
@@ -167,7 +167,7 @@ void DrawButtonFace(gfx::SpriteBatch& batch, Font& font, const gfx::Rect& rect,
 
 // --- Checkbox ------------------------------------------------------------
 
-void Checkbox::Update(UIContext& ctx) {
+void Checkbox::UpdateSelf(UIContext& ctx) {
 	const Input* input = ctx.CurrentInput();
 	if (!input) return;
 	m_hot = !ctx.IsMouseConsumed() && Pixel().Contains(input->MouseX(), input->MouseY());
@@ -180,7 +180,7 @@ void Checkbox::Update(UIContext& ctx) {
 	}
 }
 
-void Checkbox::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
+void Checkbox::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 	const Theme& theme = ctx.GetTheme();
 	Font& font = ctx.GetFont();
 	const gfx::Rect& px = Pixel();
@@ -205,7 +205,7 @@ void Checkbox::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
 
 // --- Slider --------------------------------------------------------------
 
-void Slider::Update(UIContext& ctx) {
+void Slider::UpdateSelf(UIContext& ctx) {
 	const Input* input = ctx.CurrentInput();
 	if (!input) return;
 	const bool hovered =
@@ -233,7 +233,7 @@ void Slider::RefreshDisplay() {
 	m_display = std::format("{}: {:.2f}", label, m_value);
 }
 
-void Slider::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
+void Slider::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 	const Theme& theme = ctx.GetTheme();
 	Font& font = ctx.GetFont();
 	const gfx::Rect& px = Pixel();
@@ -302,7 +302,7 @@ gfx::Rect DropDown::ScrollThumbRect(const gfx::Rect& popup, float maxScroll) con
 	return {track.x, track.y + (track.h - thumbH) * t, track.w, thumbH};
 }
 
-void DropDown::Update(UIContext& ctx) {
+void DropDown::UpdateSelf(UIContext& ctx) {
 	const Input* input = ctx.CurrentInput();
 	if (!input) return;
 	const float mx = input->MouseX(), my = input->MouseY();
@@ -379,7 +379,7 @@ void DropDown::Update(UIContext& ctx) {
 	}
 }
 
-void DropDown::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
+void DropDown::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 	const Theme& theme = ctx.GetTheme();
 	Font& font = ctx.GetFont();
 	const gfx::Rect& px = Pixel();
@@ -399,28 +399,32 @@ void DropDown::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
 	font.Draw(batch, arrow, arrowX, textY, theme.accent);
 }
 
-void DropDown::DrawOverlay(UIContext& ctx, gfx::SpriteBatch& batch) {
+void DropDown::DrawOverlaySelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 	if (!m_open) return;
 	const Theme& theme = ctx.GetTheme();
 	Font& font = ctx.GetFont();
 	const gfx::Rect popup = PopupRect(ctx);
 	const float maxScroll = MaxScroll(popup);
 
-	if (maxScroll > 0.0f) {
-		batch.DrawRect(popup, theme.control); // backing behind the part-rows
-		batch.SetScissor(&popup);
+	{
+		// Scoped so the clip lifts before the scrollbar draws beside the list.
+		std::optional<ScopedClip> clip;
+		if (maxScroll > 0.0f) {
+			batch.DrawRect(popup, theme.control); // backing behind the part-rows
+			clip.emplace(batch, popup);
+		}
+		for (size_t i = 0; i < items.size(); ++i) {
+			const gfx::Rect rect = ItemRect(popup, i);
+			if (rect.y + rect.h <= popup.y || rect.y >= popup.y + popup.h) continue;
+			const bool hovered = static_cast<int>(i) == m_hoverItem;
+			batch.DrawRect(rect, hovered ? theme.controlHot : theme.control);
+			DrawBorder(batch, rect, theme.panelBorder);
+			font.Draw(batch, items[i], rect.x + 8,
+					  rect.y + (rect.h - font.Height()) * 0.5f,
+					  static_cast<int>(i) == m_selected ? theme.accent : theme.text);
+		}
 	}
-	for (size_t i = 0; i < items.size(); ++i) {
-		const gfx::Rect rect = ItemRect(popup, i);
-		if (rect.y + rect.h <= popup.y || rect.y >= popup.y + popup.h) continue;
-		const bool hovered = static_cast<int>(i) == m_hoverItem;
-		batch.DrawRect(rect, hovered ? theme.controlHot : theme.control);
-		DrawBorder(batch, rect, theme.panelBorder);
-		font.Draw(batch, items[i], rect.x + 8, rect.y + (rect.h - font.Height()) * 0.5f,
-				  static_cast<int>(i) == m_selected ? theme.accent : theme.text);
-	}
 	if (maxScroll > 0.0f) {
-		batch.SetScissor(nullptr);
 		batch.DrawRect(ScrollTrackRect(popup), theme.control);
 		const gfx::Rect thumb = ScrollThumbRect(popup, maxScroll);
 		batch.DrawRect(thumb, m_scrollDragging || m_scrollHot ? theme.controlActive
@@ -450,7 +454,7 @@ gfx::Rect ContextMenu::ChildRect(size_t i) const {
 	return {m_childX, m_childY + m_rowH * static_cast<float>(i), m_childW, m_rowH};
 }
 
-void ContextMenu::Update(UIContext& ctx) {
+void ContextMenu::UpdateSelf(UIContext& ctx) {
 	if (!m_open) return;
 	const Input* input = ctx.CurrentInput();
 	if (!input) return;
@@ -531,7 +535,7 @@ void ContextMenu::Update(UIContext& ctx) {
 	ctx.ConsumeMouse();
 }
 
-void ContextMenu::DrawOverlay(UIContext& ctx, gfx::SpriteBatch& batch) {
+void ContextMenu::DrawOverlaySelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 	if (!m_open) return;
 	const Theme& theme = ctx.GetTheme();
 	Font& font = ctx.GetFont();
@@ -645,7 +649,7 @@ gfx::Rect ColorPicker::PopupRect(const UIContext& ctx) const {
 	return {x, y, kPickerPopupW, kPickerPopupH};
 }
 
-void ColorPicker::Update(UIContext& ctx) {
+void ColorPicker::UpdateSelf(UIContext& ctx) {
 	const Input* input = ctx.CurrentInput();
 	if (!input) return;
 	const float mx = input->MouseX();
@@ -690,7 +694,7 @@ void ColorPicker::Update(UIContext& ctx) {
 	}
 }
 
-void ColorPicker::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
+void ColorPicker::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 	const Theme& theme = ctx.GetTheme();
 	Font& font = ctx.GetFont();
 	const gfx::Rect& px = Pixel();
@@ -704,7 +708,7 @@ void ColorPicker::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
 	DrawBorder(batch, swatch, m_hot || m_open ? theme.accent : theme.panelBorder);
 }
 
-void ColorPicker::DrawOverlay(UIContext& ctx, gfx::SpriteBatch& batch) {
+void ColorPicker::DrawOverlaySelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 	if (!m_open) return;
 	const Theme& theme = ctx.GetTheme();
 	Font& font = ctx.GetFont();
@@ -767,7 +771,7 @@ gfx::Rect KeyBind::BoxRect() const {
 	return {px.x + px.w - w, px.y, w, px.h};
 }
 
-void KeyBind::Update(UIContext& ctx) {
+void KeyBind::UpdateSelf(UIContext& ctx) {
 	const Input* input = ctx.CurrentInput();
 	if (!input) return;
 
@@ -792,7 +796,7 @@ void KeyBind::Update(UIContext& ctx) {
 	}
 }
 
-void KeyBind::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
+void KeyBind::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 	const Theme& theme = ctx.GetTheme();
 	Font& font = ctx.GetFont();
 	const gfx::Rect& px = Pixel();
@@ -814,7 +818,7 @@ void KeyBind::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
 
 // --- TextField -------------------------------------------------------------
 
-void TextField::Update(UIContext& ctx) {
+void TextField::UpdateSelf(UIContext& ctx) {
 	const Input* input = ctx.CurrentInput();
 	if (!input) return;
 
@@ -845,7 +849,7 @@ void TextField::Update(UIContext& ctx) {
 	if (changed && onChange) onChange();
 }
 
-void TextField::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
+void TextField::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 	const Theme& theme = ctx.GetTheme();
 	Font& font = ctx.GetFont();
 	const gfx::Rect& px = Pixel();
@@ -869,20 +873,129 @@ void TextField::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
 
 // --- SlotList ----------------------------------------------------------------
 
-float SlotList::MaxScroll() const {
-	return std::max(0.0f, ContentHeight() - Pixel().h);
+SlotRow::SlotRow(std::string primary, std::string secondary,
+				 std::function<void()> onActivate, bool deletable,
+				 const gfx::Texture* const* icon,
+				 std::function<void()> onDeleteClick)
+	: m_primary(std::move(primary)), m_secondary(std::move(secondary)),
+	  m_onActivate(std::move(onActivate)),
+	  m_onDeleteClick(std::move(onDeleteClick)), m_icon(icon),
+	  m_deletable(deletable) {
+	debugName = "SlotRow";
 }
 
-gfx::Rect SlotList::RowRect(size_t index) const {
-	const gfx::Rect& px = Pixel();
-	const float gutter = 14.0f; // leaves room for the scrollbar on the right
-	return {px.x + 4.0f, px.y + rowHeight * static_cast<float>(index) - m_scroll,
-			px.w - 4.0f - gutter, rowHeight - 6.0f};
+gfx::Rect SlotRow::DeleteRect() const {
+	const gfx::Rect& r = Pixel();
+	const float s = r.h - 14.0f;
+	return {r.x + r.w - s - 8.0f, r.y + (r.h - s) * 0.5f, s, s};
 }
 
-gfx::Rect SlotList::DeleteRect(const gfx::Rect& row) const {
-	const float s = row.h - 14.0f; // square icon button at the row's right end
-	return {row.x + row.w - s - 8.0f, row.y + (row.h - s) * 0.5f, s, s};
+void SlotRow::UpdateSelf(UIContext& ctx) {
+	m_hot = m_hotDelete = false;
+	const Input* input = ctx.CurrentInput();
+	if (!input || ctx.IsMouseConsumed()) return;
+	const float mx = input->MouseX(), my = input->MouseY();
+	if (!Pixel().Contains(mx, my)) return;
+	m_hot = true;
+	m_hotDelete = m_deletable && DeleteRect().Contains(mx, my);
+	ctx.ConsumeMouse();
+	if (!input->WasMousePressed(MouseButton::Left)) return;
+	// Either callback may (deferred) rebuild the page that owns this widget —
+	// fire and touch nothing afterwards.
+	if (m_hotDelete) {
+		if (m_onDeleteClick) m_onDeleteClick();
+	} else if (m_onActivate) {
+		m_onActivate();
+	}
+}
+
+void SlotRow::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
+	const Theme& theme = ctx.GetTheme();
+	Font& font = ctx.GetFont();
+	const gfx::Rect& r = Pixel();
+	batch.DrawRect(r, m_hot ? theme.controlHot : theme.control);
+	DrawBorder(batch, r, theme.panelBorder);
+
+	const float ty = r.y + (r.h - font.Height()) * 0.5f;
+	font.Draw(batch, m_primary, r.x + 12.0f, ty, theme.text);
+
+	const gfx::Rect del = DeleteRect();
+	if (!m_secondary.empty()) {
+		const float sw = font.MeasureWidth(m_secondary);
+		const float sx = (m_deletable ? del.x : r.x + r.w) - sw - 16.0f;
+		font.Draw(batch, m_secondary, sx, ty, theme.textDim);
+	}
+	if (!m_deletable) return;
+	if (const gfx::Texture* icon = m_icon ? *m_icon : nullptr) {
+		batch.DrawSprite(del, {0, 0, 1, 1}, *icon,
+						 {1, 1, 1, m_hotDelete ? 1.0f : 0.8f});
+	} else { // fallback: an "X" glyph in the accent color
+		const float xw = font.MeasureWidth("X");
+		font.Draw(batch, "X", del.x + (del.w - xw) * 0.5f,
+				  del.y + (del.h - font.Height()) * 0.5f, theme.accent);
+	}
+}
+
+SlotList::SlotList(const gfx::Rect& rect) {
+	bounds = rect;
+	debugName = "SlotList";
+	// The rows are DIRECT children of the scroll area (no repeater — they are
+	// known when the page is built), so their bounds are what it measures
+	// overflow from.
+	m_scroll = Add<ScrollArea>(gfx::Rect{0, 0, 1, 1});
+	m_scroll->padding = 0.0f;
+	m_scroll->debugName = "SlotScroll";
+}
+
+void SlotList::AddRow(Row row) {
+	const size_t index = m_entries.size();
+	const bool deletable = static_cast<bool>(row.onDelete);
+	m_entries.push_back({row.primary, std::move(row.onDelete)});
+	m_scroll->Add<SlotRow>(std::move(row.primary), std::move(row.secondary),
+						   std::move(row.onActivate), deletable, &deleteIcon,
+						   [this, index] { m_confirmRow = static_cast<int>(index); });
+}
+
+// rowHeight is in pixels and the rows are fractions of the scrolling area, so
+// the stack is assigned per layout. A left inset keeps them off the frame; the
+// area's gutter already holds the scrollbar clear.
+void SlotList::LayoutSelf(UIContext&) {
+	m_scroll->gutter = 14.0f;
+	const float view = m_scroll->ViewRect().h;
+	const float width = m_scroll->ViewRect().w;
+	if (view <= 0.0f || width <= 0.0f) return;
+	const float x = 4.0f / width;
+	const auto& rows = m_scroll->Children();
+	for (size_t i = 0; i < rows.size(); ++i)
+		rows[i]->bounds = {x, rowHeight * static_cast<float>(i) / view, 1.0f - x,
+						   (rowHeight - 6.0f) / view};
+}
+
+// Modal confirm dialog: it owns the mouse entirely until Delete/Cancel (or a
+// click outside it). Running before the children is what takes the mouse off
+// the rows underneath.
+void SlotList::UpdateBeforeChildren(UIContext& ctx) {
+	if (m_confirmRow < 0) return;
+	const Input* input = ctx.CurrentInput();
+	if (!input) return;
+	ctx.ConsumeMouse();
+	const float mx = input->MouseX(), my = input->MouseY();
+	const gfx::Rect del = ConfirmButton(ctx, true);
+	const gfx::Rect cancel = ConfirmButton(ctx, false);
+	m_confirmHot = del.Contains(mx, my) ? 0 : (cancel.Contains(mx, my) ? 1 : -1);
+	if (!input->WasMousePressed(MouseButton::Left)) return;
+	if (m_confirmHot == 0) {
+		// Copy first: onDelete may (deferred) rebuild the page, which destroys
+		// this widget — touch nothing after.
+		auto fn = static_cast<size_t>(m_confirmRow) < m_entries.size()
+					  ? m_entries[static_cast<size_t>(m_confirmRow)].onDelete
+					  : std::function<void()>{};
+		m_confirmRow = -1;
+		if (fn) fn();
+		return;
+	}
+	if (m_confirmHot == 1 || !ConfirmRect(ctx).Contains(mx, my))
+		m_confirmRow = -1; // Cancel button or a click outside the dialog
 }
 
 gfx::Rect SlotList::ConfirmRect(const UIContext& ctx) const {
@@ -898,159 +1011,8 @@ gfx::Rect SlotList::ConfirmButton(const UIContext& ctx, bool deleteButton) const
 						: gfx::Rect{d.x + d.w - 20.0f - bw, by, bw, bh};
 }
 
-gfx::Rect SlotList::ScrollTrackRect() const {
-	const gfx::Rect& px = Pixel();
-	const float barW = 10.0f;
-	return {px.x + px.w - barW - 2.0f, px.y + 2.0f, barW, px.h - 4.0f};
-}
-
-gfx::Rect SlotList::ScrollThumbRect(float maxScroll) const {
-	const gfx::Rect track = ScrollTrackRect();
-	const gfx::Rect& px = Pixel();
-	const float thumbH = std::max(track.h * px.h / (px.h + maxScroll), 24.0f);
-	const float t = maxScroll > 0.0f ? m_scroll / maxScroll : 0.0f;
-	return {track.x, track.y + (track.h - thumbH) * t, track.w, thumbH};
-}
-
-void SlotList::Update(UIContext& ctx) {
-	const Input* input = ctx.CurrentInput();
-	if (!input) return;
-	const float mx = input->MouseX(), my = input->MouseY();
-
-	// Modal confirm dialog: it owns the mouse entirely until Delete/Cancel (or
-	// a click outside it). Runs first so the rest of the page can't be touched
-	// behind it — the owner adds this list last so its ConsumeMouse wins.
-	if (m_confirmRow >= 0) {
-		ctx.ConsumeMouse();
-		const gfx::Rect del = ConfirmButton(ctx, true);
-		const gfx::Rect cancel = ConfirmButton(ctx, false);
-		m_confirmHot = del.Contains(mx, my) ? 0 : (cancel.Contains(mx, my) ? 1 : -1);
-		if (input->WasMousePressed(MouseButton::Left)) {
-			if (m_confirmHot == 0) {
-				// Copy first: onDelete may (deferred) rebuild the page, which
-				// destroys this widget — touch nothing after.
-				auto fn = static_cast<size_t>(m_confirmRow) < m_rows.size()
-							  ? m_rows[static_cast<size_t>(m_confirmRow)].onDelete
-							  : std::function<void()>{};
-				m_confirmRow = -1;
-				if (fn) fn();
-				return;
-			}
-			if (m_confirmHot == 1 || !ConfirmRect(ctx).Contains(mx, my))
-				m_confirmRow = -1; // Cancel button or a click outside the dialog
-		}
-		return;
-	}
-
-	const gfx::Rect& px = Pixel();
-	const float maxScroll = MaxScroll();
-	m_scroll = std::clamp(m_scroll, 0.0f, maxScroll);
-
-	m_hotRow = m_hotDelete = -1;
-	if (!ctx.IsMouseConsumed() && px.Contains(mx, my)) {
-		for (size_t i = 0; i < m_rows.size(); ++i) {
-			const gfx::Rect row = RowRect(i);
-			if (row.y + row.h <= px.y || row.y >= px.y + px.h) continue; // clipped
-			if (!row.Contains(mx, my)) continue;
-			m_hotRow = static_cast<int>(i);
-			const bool onDel = m_rows[i].onDelete &&
-							   DeleteRect(row).Contains(mx, my);
-			if (onDel) m_hotDelete = static_cast<int>(i);
-			ctx.ConsumeMouse();
-			if (input->WasMousePressed(MouseButton::Left)) {
-				if (onDel) {
-					m_confirmRow = static_cast<int>(i); // open the confirm dialog
-				} else if (auto fn = m_rows[i].onActivate) {
-					fn();
-					return;
-				}
-			}
-			break;
-		}
-	}
-
-	// Scrollbar after the rows, so a row hover can't block the thumb (the rows
-	// stop short of the scrollbar gutter, so the two never overlap anyway).
-	m_scrollHot = false;
-	if (maxScroll > 0.0f) {
-		const gfx::Rect track = ScrollTrackRect();
-		const gfx::Rect thumb = ScrollThumbRect(maxScroll);
-		if (m_scrollDragging && !input->IsMouseDown(MouseButton::Left))
-			m_scrollDragging = false;
-		if (!ctx.IsMouseConsumed() || m_scrollDragging) {
-			m_scrollHot = thumb.Contains(mx, my);
-			if (m_scrollHot && input->WasMousePressed(MouseButton::Left)) {
-				m_scrollDragging = true;
-				m_scrollGrab = my - thumb.y;
-			}
-			if (m_scrollDragging) {
-				const float range = track.h - thumb.h;
-				if (range > 0.0f)
-					m_scroll = std::clamp(
-						(my - m_scrollGrab - track.y) / range * maxScroll, 0.0f,
-						maxScroll);
-			}
-			if (m_scrollHot || m_scrollDragging) ctx.ConsumeMouse();
-		}
-		if (!ctx.IsMouseConsumed() && px.Contains(mx, my) &&
-			input->WheelDelta() != 0.0f) {
-			m_scroll = std::clamp(m_scroll - input->WheelDelta() * 48.0f, 0.0f,
-								  maxScroll);
-			ctx.ConsumeMouse();
-		}
-	} else {
-		m_scrollDragging = false;
-	}
-}
-
-void SlotList::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
-	const Theme& theme = ctx.GetTheme();
-	Font& font = ctx.GetFont();
-	const gfx::Rect& px = Pixel();
-	const float maxScroll = MaxScroll();
-
-	if (maxScroll > 0.0f) batch.SetScissor(&px);
-	for (size_t i = 0; i < m_rows.size(); ++i) {
-		const gfx::Rect row = RowRect(i);
-		if (row.y + row.h <= px.y || row.y >= px.y + px.h) continue; // clipped
-		const Row& r = m_rows[i];
-		const bool hot = static_cast<int>(i) == m_hotRow;
-		batch.DrawRect(row, hot ? theme.controlHot : theme.control);
-		DrawBorder(batch, row, theme.panelBorder);
-
-		const float ty = row.y + (row.h - font.Height()) * 0.5f;
-		font.Draw(batch, r.primary, row.x + 12.0f, ty, theme.text);
-
-		const gfx::Rect del = DeleteRect(row);
-		if (!r.secondary.empty()) {
-			const float sw = font.MeasureWidth(r.secondary);
-			const float sx = (r.onDelete ? del.x : row.x + row.w) - sw - 16.0f;
-			font.Draw(batch, r.secondary, sx, ty, theme.textDim);
-		}
-		if (r.onDelete) {
-			const bool dhot = static_cast<int>(i) == m_hotDelete;
-			if (deleteIcon) {
-				batch.DrawSprite(del, {0, 0, 1, 1}, *deleteIcon,
-								 {1, 1, 1, dhot ? 1.0f : 0.8f});
-			} else { // fallback: an "X" glyph in the accent color
-				const float xw = font.MeasureWidth("X");
-				font.Draw(batch, "X", del.x + (del.w - xw) * 0.5f,
-						  del.y + (del.h - font.Height()) * 0.5f, theme.accent);
-			}
-		}
-	}
-	if (maxScroll > 0.0f) {
-		batch.SetScissor(nullptr);
-		batch.DrawRect(ScrollTrackRect(), theme.control);
-		const gfx::Rect thumb = ScrollThumbRect(maxScroll);
-		batch.DrawRect(thumb, m_scrollDragging || m_scrollHot ? theme.controlActive
-															  : theme.controlHot);
-		DrawBorder(batch, thumb, theme.panelBorder);
-	}
-}
-
-void SlotList::DrawOverlay(UIContext& ctx, gfx::SpriteBatch& batch) {
-	if (m_confirmRow < 0 || static_cast<size_t>(m_confirmRow) >= m_rows.size())
+void SlotList::DrawOverlaySelf(UIContext& ctx, gfx::SpriteBatch& batch) {
+	if (m_confirmRow < 0 || static_cast<size_t>(m_confirmRow) >= m_entries.size())
 		return;
 	const Theme& theme = ctx.GetTheme();
 	Font& font = ctx.GetFont();
@@ -1062,7 +1024,7 @@ void SlotList::DrawOverlay(UIContext& ctx, gfx::SpriteBatch& batch) {
 
 	const float pw = font.MeasureWidth(confirmPrompt);
 	font.Draw(batch, confirmPrompt, d.x + (d.w - pw) * 0.5f, d.y + 28.0f, theme.text);
-	const std::string& name = m_rows[static_cast<size_t>(m_confirmRow)].primary;
+	const std::string& name = m_entries[static_cast<size_t>(m_confirmRow)].primary;
 	const float nw = font.MeasureWidth(name);
 	font.Draw(batch, name, d.x + (d.w - nw) * 0.5f, d.y + 66.0f, theme.accent);
 
@@ -1109,7 +1071,7 @@ void MenuList::Activate() {
 	}
 }
 
-void MenuList::Update(UIContext& ctx) {
+void MenuList::UpdateSelf(UIContext& ctx) {
 	const Input* input = ctx.CurrentInput();
 	if (!input) return;
 
@@ -1130,7 +1092,7 @@ void MenuList::Update(UIContext& ctx) {
 	if (input->WasKeyPressed(vk::Return) || input->WasKeyPressed(vk::Space)) Activate();
 }
 
-void MenuList::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
+void MenuList::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 	const Theme& theme = ctx.GetTheme();
 	Font& font = ctx.GetFont();
 
@@ -1159,15 +1121,142 @@ void MenuList::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
 	}
 }
 
+// --- ScrollArea ------------------------------------------------------------
+
+gfx::Rect ScrollArea::ViewRect() const {
+	const gfx::Rect& px = Pixel();
+	return {px.x + padding, px.y + padding, px.w - padding - gutter,
+			px.h - 2.0f * padding};
+}
+
+gfx::Rect ScrollArea::ContentRect() const {
+	const gfx::Rect view = ViewRect();
+	return {view.x, view.y - m_scroll, view.w, view.h};
+}
+
+float ScrollArea::ContentFraction() const {
+	float maxBottom = 1.0f;
+	for (const auto& child : Children())
+		if (child->visible)
+			maxBottom = std::max(maxBottom, child->bounds.y + child->bounds.h);
+	return maxBottom;
+}
+
+float ScrollArea::MaxScroll() const {
+	return (ContentFraction() - 1.0f) * ViewRect().h;
+}
+
+gfx::Rect ScrollArea::ScrollTrackRect() const {
+	const gfx::Rect& px = Pixel();
+	const float barW = 10.0f;
+	return {px.x + px.w - barW - 2.0f, px.y + 2.0f, barW, px.h - 4.0f};
+}
+
+gfx::Rect ScrollArea::ScrollThumbRect(float maxScroll) const {
+	const gfx::Rect track = ScrollTrackRect();
+	const float view = ViewRect().h;
+	const float thumbH = std::max(track.h * view / (view + maxScroll), 24.0f);
+	const float t = maxScroll > 0.0f ? m_scroll / maxScroll : 0.0f;
+	return {track.x, track.y + (track.h - thumbH) * t, track.w, thumbH};
+}
+
+// Clamp the scroll and cache the clip before the children resolve against
+// ContentRect() — which is the view box shifted by exactly this scroll.
+void ScrollArea::LayoutSelf(UIContext&) {
+	m_scroll = std::clamp(m_scroll, 0.0f, MaxScroll());
+	m_clip = ViewRect();
+	// Clip only while there is something to scroll: sliders draw their labels
+	// slightly above their bounds, and a static page shouldn't crop them.
+	m_clipping = MaxScroll() > 0.0f;
+}
+
+const gfx::Rect* ScrollArea::ChildClip() const {
+	return m_clipping ? &m_clip : nullptr;
+}
+
+// Skip children scrolled fully out of the view, in every pass.
+bool ScrollArea::ChildActive(const Widget& child) const {
+	const float view = ViewRect().h;
+	const float top = child.bounds.y * view - m_scroll;
+	const float bottom = (child.bounds.y + child.bounds.h) * view - m_scroll;
+	return bottom > 0.0f && top < view;
+}
+
+// Runs after the children (the tree walk's order), so an open popup — which
+// consumes the mouse — can't be scrolled out from under the user.
+void ScrollArea::UpdateSelf(UIContext& ctx) {
+	const Input* input = ctx.CurrentInput();
+	if (!input) return;
+	const float mx = input->MouseX(), my = input->MouseY();
+	const float maxScroll = MaxScroll();
+	m_scrollHot = false;
+	if (maxScroll <= 0.0f) {
+		m_scrollDragging = false;
+		return;
+	}
+
+	const gfx::Rect track = ScrollTrackRect();
+	const gfx::Rect thumb = ScrollThumbRect(maxScroll);
+	if (m_scrollDragging && !input->IsMouseDown(MouseButton::Left))
+		m_scrollDragging = false;
+	if (!ctx.IsMouseConsumed() || m_scrollDragging) {
+		m_scrollHot = thumb.Contains(mx, my);
+		if (m_scrollHot && input->WasMousePressed(MouseButton::Left)) {
+			m_scrollDragging = true;
+			m_scrollGrab = my - thumb.y;
+		}
+		if (m_scrollDragging) {
+			const float range = track.h - thumb.h;
+			if (range > 0.0f)
+				m_scroll = std::clamp((my - m_scrollGrab - track.y) / range * maxScroll,
+									  0.0f, maxScroll);
+		}
+		if (m_scrollHot || m_scrollDragging) ctx.ConsumeMouse();
+	}
+
+	// Mouse wheel anywhere over the area.
+	if (!ctx.IsMouseConsumed() && Pixel().Contains(mx, my) &&
+		input->WheelDelta() != 0.0f) {
+		m_scroll = std::clamp(m_scroll - input->WheelDelta() * 48.0f, 0.0f, maxScroll);
+		ctx.ConsumeMouse();
+	}
+}
+
+// The track sits in the reserved gutter, outside ContentRect, so drawing it
+// before the children (the tree walk's order) never puts it under them.
+void ScrollArea::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
+	const float maxScroll = MaxScroll();
+	if (maxScroll <= 0.0f) return;
+	const Theme& theme = ctx.GetTheme();
+	batch.DrawRect(ScrollTrackRect(), theme.control);
+	const gfx::Rect thumb = ScrollThumbRect(maxScroll);
+	batch.DrawRect(thumb, m_scrollDragging || m_scrollHot ? theme.controlActive
+														  : theme.controlHot);
+	DrawBorder(batch, thumb, theme.panelBorder);
+}
+
 // --- TabControl ------------------------------------------------------------
 
 size_t TabControl::AddTab(std::string label) {
-	m_tabs.push_back({std::move(label), {}});
+	// The page fills ContentRect() (the area below the strip) and is this
+	// control's Nth child, matching the tab's index.
+	ScrollArea* page = Add<ScrollArea>(gfx::Rect{0, 0, 1, 1});
+	page->debugName = "TabPage";
+	m_tabs.push_back({std::move(label), page});
 	return m_tabs.size() - 1;
 }
 
 void TabControl::SetActiveTab(int index) {
 	if (index >= 0 && index < static_cast<int>(m_tabs.size())) m_active = index;
+}
+
+gfx::Rect TabControl::ContentRect() const { return PageRect(); }
+
+void TabControl::LayoutSelf(UIContext& ctx) {
+	LayoutStrip(ctx); // size the strip + control before any rect math
+	// Only the active tab's page takes part in the walk.
+	for (size_t i = 0; i < m_tabs.size(); ++i)
+		m_tabs[i].page->visible = static_cast<int>(i) == m_active;
 }
 
 void TabControl::LayoutStrip(UIContext& ctx) {
@@ -1207,104 +1296,14 @@ gfx::Rect TabControl::PageRect() const {
 	return {base.x, base.y + stripH, base.w, base.h - stripH};
 }
 
-gfx::Rect TabControl::ContentRect() const {
-	const gfx::Rect page = PageRect();
-	const float pad = 12.0f;
-	const float gutter = 14.0f; // scrollbar track + margin, reserved always so
-								// the layout doesn't shift when the bar appears
-	return {page.x + pad, page.y + pad, page.w - pad - gutter, page.h - 2.0f * pad};
-}
-
-float TabControl::ContentFraction(const Tab& tab) {
-	float maxBottom = 1.0f;
-	for (const auto& child : tab.children)
-		if (child->visible)
-			maxBottom = std::max(maxBottom, child->bounds.y + child->bounds.h);
-	return maxBottom;
-}
-
-gfx::Rect TabControl::ScrollTrackRect(const gfx::Rect& page) const {
-	const float barW = 10.0f;
-	return {page.x + page.w - barW - 2.0f, page.y + 2.0f, barW, page.h - 4.0f};
-}
-
-gfx::Rect TabControl::ScrollThumbRect(const gfx::Rect& page, const Tab& tab,
-									  float maxScroll) const {
-	const gfx::Rect track = ScrollTrackRect(page);
-	const float thumbH =
-		std::max(track.h * page.h / (page.h + maxScroll), 24.0f);
-	const float t = maxScroll > 0.0f ? tab.scroll / maxScroll : 0.0f;
-	return {track.x, track.y + (track.h - thumbH) * t, track.w, thumbH};
-}
-
-void TabControl::Update(UIContext& ctx) {
+// The pages (and everything on them) are walked by the tree before this runs,
+// so the strip only gets the mouse when nothing on the page claimed it.
+void TabControl::UpdateSelf(UIContext& ctx) {
 	const Input* input = ctx.CurrentInput();
 	if (!input) return;
-	LayoutStrip(ctx); // size the strip + control before any rect math
-	const float mx = input->MouseX();
-	const float my = input->MouseY();
-
-	// Active page children first, in reverse add order — same topmost-first
-	// claim on the mouse as UIContext itself. Children scrolled fully out of
-	// the page get neither layout-visible input nor draw.
-	if (m_active >= 0 && m_active < static_cast<int>(m_tabs.size())) {
-		const gfx::Rect page = PageRect();
-		const gfx::Rect inner = ContentRect();
-		Tab& tab = m_tabs[static_cast<size_t>(m_active)];
-		const float maxScroll = (ContentFraction(tab) - 1.0f) * inner.h;
-		tab.scroll = std::clamp(tab.scroll, 0.0f, maxScroll);
-		const gfx::Rect content{inner.x, inner.y - tab.scroll, inner.w, inner.h};
-
-		for (auto it = tab.children.rbegin(); it != tab.children.rend(); ++it) {
-			Widget& child = **it;
-			if (!child.visible) continue;
-			const float top = child.bounds.y * inner.h - tab.scroll;
-			const float bottom = (child.bounds.y + child.bounds.h) * inner.h -
-								 tab.scroll;
-			if (bottom <= 0.0f || top >= inner.h) continue;
-			child.Layout(content);
-			child.Update(ctx);
-		}
-
-		// Scrollbar after the children, so an open popup (which consumes the
-		// mouse) can't be scrolled out from under the user.
-		m_scrollHot = false;
-		if (maxScroll > 0.0f) {
-			const gfx::Rect track = ScrollTrackRect(page);
-			const gfx::Rect thumb = ScrollThumbRect(page, tab, maxScroll);
-			if (m_scrollDragging && !input->IsMouseDown(MouseButton::Left))
-				m_scrollDragging = false;
-			if (!ctx.IsMouseConsumed() || m_scrollDragging) {
-				m_scrollHot = thumb.Contains(mx, my);
-				if (m_scrollHot && input->WasMousePressed(MouseButton::Left)) {
-					m_scrollDragging = true;
-					m_scrollGrab = my - thumb.y;
-				}
-				if (m_scrollDragging) {
-					const float range = track.h - thumb.h;
-					if (range > 0.0f)
-						tab.scroll = std::clamp(
-							(my - m_scrollGrab - track.y) / range * maxScroll,
-							0.0f, maxScroll);
-				}
-				if (m_scrollHot || m_scrollDragging) ctx.ConsumeMouse();
-			}
-
-			// Mouse wheel anywhere over the page.
-			if (!ctx.IsMouseConsumed() && page.Contains(mx, my) &&
-				input->WheelDelta() != 0.0f) {
-				tab.scroll = std::clamp(tab.scroll - input->WheelDelta() * 48.0f,
-										0.0f, maxScroll);
-				ctx.ConsumeMouse();
-			}
-		} else {
-			m_scrollDragging = false;
-		}
-	}
-
-	// Tab strip.
 	m_hover = -1;
 	if (ctx.IsMouseConsumed()) return;
+	const float mx = input->MouseX(), my = input->MouseY();
 	for (size_t i = 0; i < m_tabs.size(); ++i) {
 		if (!TabRect(i).Contains(mx, my)) continue;
 		m_hover = static_cast<int>(i);
@@ -1314,10 +1313,11 @@ void TabControl::Update(UIContext& ctx) {
 	}
 }
 
-void TabControl::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
+// Frame and strip only — the active page and its widgets are children, drawn
+// by the tree straight after this.
+void TabControl::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 	const Theme& theme = ctx.GetTheme();
 	Font& font = ctx.GetFont();
-	LayoutStrip(ctx); // size the strip + control before any rect math
 
 	// Page frame first so the active tab can open into it.
 	const gfx::Rect page = PageRect();
@@ -1351,43 +1351,27 @@ void TabControl::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
 				  rect.y + (rect.h - font.Height()) * 0.5f,
 				  active ? theme.accent : theme.text);
 	}
-
-	if (m_active >= 0 && m_active < static_cast<int>(m_tabs.size())) {
-		Tab& tab = m_tabs[static_cast<size_t>(m_active)];
-		const gfx::Rect inner = ContentRect();
-		const float maxScroll = (ContentFraction(tab) - 1.0f) * inner.h;
-		tab.scroll = std::clamp(tab.scroll, 0.0f, maxScroll);
-		const gfx::Rect content{inner.x, inner.y - tab.scroll, inner.w, inner.h};
-
-		// Clip to the content area while it scrolls (sliders draw their labels
-		// above their bounds, so a row leaving the top clips cleanly).
-		if (maxScroll > 0.0f) batch.SetScissor(&inner);
-		for (auto& child : tab.children) {
-			if (!child->visible) continue;
-			const float top = child->bounds.y * inner.h - tab.scroll;
-			const float bottom = (child->bounds.y + child->bounds.h) * inner.h -
-								 tab.scroll;
-			if (bottom <= 0.0f || top >= inner.h) continue;
-			child->Layout(content);
-			child->Draw(ctx, batch);
-		}
-		if (maxScroll > 0.0f) {
-			batch.SetScissor(nullptr);
-			batch.DrawRect(ScrollTrackRect(page), theme.control);
-			const gfx::Rect thumb = ScrollThumbRect(page, tab, maxScroll);
-			batch.DrawRect(thumb, m_scrollDragging || m_scrollHot
-									  ? theme.controlActive
-									  : theme.controlHot);
-			DrawBorder(batch, thumb, theme.panelBorder);
-		}
-	}
 }
 
-void TabControl::DrawOverlay(UIContext& ctx, gfx::SpriteBatch& batch) {
-	// Children were laid out by Draw earlier in the same render pass.
-	if (m_active < 0 || m_active >= static_cast<int>(m_tabs.size())) return;
-	for (auto& child : m_tabs[static_cast<size_t>(m_active)].children)
-		if (child->visible) child->DrawOverlay(ctx, batch);
+// --- Repeater ------------------------------------------------------------
+
+// Grow the pool to the live count, then place and reveal exactly that many.
+// Runs before the tree lays the children out, so the bounds set here are the
+// ones they resolve with this frame.
+void Repeater::LayoutSelf(UIContext&) {
+	m_live = m_count ? m_count() : 0;
+	while (Children().size() < m_live) {
+		std::unique_ptr<Widget> child = m_factory(Children().size());
+		if (!child) break; // factory declined — don't spin
+		AddChild(std::move(child));
+	}
+	m_live = std::min(m_live, Children().size());
+	const auto& kids = Children();
+	for (size_t i = 0; i < kids.size(); ++i) {
+		Widget& child = *kids[i];
+		child.visible = i < m_live;
+		if (child.visible && m_place) child.bounds = m_place(i);
+	}
 }
 
 // --- shared close button -------------------------------------------------

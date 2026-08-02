@@ -10,12 +10,15 @@
 // out, cross-fading into a small translucent button that brings it back. A new
 // line (AddLine) fades the footer back in automatically.
 //
-// Self-contained: it computes its own rect from the context's window size each
-// frame (full width, bottom-anchored) rather than its normalized bounds,
-// because the height animates. Time-based work (fades, height/opacity easing)
-// runs in Tick(dt), called once per frame; Update(ctx) handles hover, the wheel
-// scroll, and the restore-button click. AddLine/Clear match ui::TextOutput so
-// it drops in where the old log lived.
+// Screen-anchored: the footer's rect comes from the window (full width, bottom
+// edge) and its height animates, so LayoutSelf writes that rect back into
+// `bounds` each frame rather than the bounds being authored. What it occupies
+// is therefore what it claims — it used to sit at {0,0,1,1}, spanning the whole
+// window while drawing in one corner, which made it the topmost widget under
+// every pixel on screen (see docs/ui-hierarchy.md). Time-based work (fades,
+// height/opacity easing) runs in Tick(dt), called once per frame; Update(ctx)
+// handles hover, the wheel scroll, and the restore-button click. AddLine/Clear
+// match ui::TextOutput so it drops in where the old log lived.
 // ============================================================================
 #pragma once
 
@@ -30,7 +33,9 @@ namespace dungeon::game {
 
 class MessageLog : public ui::Widget {
 public:
-	MessageLog() = default;
+	// Starts as an empty strip on the bottom edge; LayoutSelf sizes it from the
+	// first frame on. (Never {0,0,1,1} — see the header note.)
+	MessageLog() { bounds = {0.0f, 1.0f, 1.0f, 0.0f}; }
 
 	// `color` tints the line (a character's identity color for lines about
 	// them); unset draws the theme's text ink. Fades apply either way.
@@ -41,8 +46,9 @@ public:
 	// per frame with the real frame dt (UI animation, not world time).
 	void Tick(float dt);
 
-	void Update(ui::UIContext& ctx) override;
-	void Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) override;
+	void LayoutSelf(ui::UIContext& ctx) override;
+	void UpdateSelf(ui::UIContext& ctx) override;
+	void DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) override;
 
 	// Caption for the translucent restore button (the UI layer has no language
 	// table, so the owner localizes it).
@@ -58,6 +64,8 @@ private:
 	gfx::Rect FooterRect(ui::UIContext& ctx) const;  // animated, bottom-anchored
 	gfx::Rect RestoreRect(ui::UIContext& ctx) const; // small bottom-left button
 	float MsgAlpha(const Msg& msg) const;            // per-message fade [0,1]
+	// Faded out: only the restore button is live, and it is what `bounds` holds.
+	bool Dormant() const { return m_chromeAlpha < 0.5f && !m_expanded; }
 
 	std::deque<Msg> m_msgs;
 

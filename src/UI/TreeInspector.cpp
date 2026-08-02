@@ -1,0 +1,153 @@
+// ============================================================================
+// UI/TreeInspector.cpp — see TreeInspector.h.
+// ============================================================================
+#include "UI/TreeInspector.h"
+
+#include "UI/Controls.h"
+#include "UI/UIContext.h"
+#include "UI/Widget.h"
+
+#include <algorithm>
+#include <format>
+#include <typeinfo>
+#include <vector>
+
+namespace dungeon::ui::inspect {
+
+namespace {
+
+bool g_enabled = false;
+
+// One tint per nesting level, cycled — sibling boxes at the same depth read as
+// a set, and a child's box reads as a different level from its parent's.
+constexpr Vec4 kDepthTint[] = {
+	{0.35f, 0.75f, 1.00f, 1.0f}, // 0 root
+	{0.45f, 1.00f, 0.55f, 1.0f}, // 1 top-level widgets
+	{1.00f, 0.85f, 0.35f, 1.0f}, // 2
+	{1.00f, 0.50f, 0.75f, 1.0f}, // 3
+	{0.70f, 0.60f, 1.00f, 1.0f}, // 4
+};
+constexpr size_t kDepthTintCount = sizeof(kDepthTint) / sizeof(kDepthTint[0]);
+
+Vec4 TintFor(size_t depth, float alpha) {
+	Vec4 c = kDepthTint[depth % kDepthTintCount];
+	c.w = alpha;
+	return c;
+}
+
+// Every visible widget, outlined. Deeper boxes draw later so they sit on top of
+// their parent's edge where the two coincide.
+void DrawOutlines(const Widget& widget, gfx::SpriteBatch& batch, size_t depth) {
+	if (!widget.visible) return;
+	DrawBorder(batch, widget.Pixel(), TintFor(depth, 0.55f));
+	for (const auto& child : widget.Children())
+		DrawOutlines(*child, batch, depth + 1);
+}
+
+// The chain from the root down to the widget under the cursor. Among the
+// children containing the point it descends into the SMALLEST, not the
+// last-added — deliberately NOT the input rule (reverse add order), because a
+// widget whose bounds overstate what it draws would otherwise swallow every
+// readout. MessageLog is exactly that: bounds {0,0,1,1} over the whole window,
+// added last, sizing itself down in Draw — hovering a party slot reported the
+// log. Smallest-first names the thing under the pointer; the input walk still
+// resolves as Widget.h describes, and a widget that claims a pixel it doesn't
+// draw on is a layout bug to fix, not something to model here.
+//
+// A widget with an empty rect (a popup positioning itself in absolute pixels,
+// e.g. ContextMenu) can't be hit — it has no bounds to test.
+void BuildChain(Widget& widget, float mx, float my,
+				std::vector<Widget*>& chain) {
+	if (!widget.visible || !widget.Pixel().Contains(mx, my)) return;
+	chain.push_back(&widget);
+	Widget* best = nullptr;
+	float bestArea = 0.0f;
+	for (const auto& child : widget.Children()) {
+		if (!child->visible || !child->Pixel().Contains(mx, my)) continue;
+		const float area = child->Pixel().w * child->Pixel().h;
+		if (!best || area <= bestArea) { // ties go to the later-added child
+			best = child.get();
+			bestArea = area;
+		}
+	}
+	if (best) BuildChain(*best, mx, my, chain);
+}
+
+std::string RectText(const gfx::Rect& r) {
+	return std::format("{:.0f},{:.0f} {:.0f}x{:.0f}", r.x, r.y, r.w, r.h);
+}
+
+void DumpNode(const Widget& widget, size_t depth,
+			  const std::function<void(const std::string&)>& out) {
+	const gfx::Rect& b = widget.bounds;
+	out(std::format("{}{}{}  px {}  bounds {:.3f},{:.3f} {:.3f}x{:.3f}",
+					std::string(depth * 2, ' '), Name(widget),
+					widget.visible ? "" : " (hidden)", RectText(widget.Pixel()),
+					b.x, b.y, b.w, b.h));
+	for (const auto& child : widget.Children())
+		DumpNode(*child, depth + 1, out);
+}
+
+} // namespace
+
+bool Enabled() { return g_enabled; }
+void SetEnabled(bool on) { g_enabled = on; }
+
+std::string Name(const Widget& widget) {
+	if (widget.debugName) return widget.debugName;
+	std::string name = typeid(widget).name(); // MSVC: "class dungeon::ui::Button"
+	if (const size_t pos = name.rfind("::"); pos != std::string::npos)
+		return name.substr(pos + 2);
+	if (name.rfind("class ", 0) == 0) return name.substr(6);
+	return name;
+}
+
+void Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
+	if (!g_enabled) return;
+	Widget& root = ctx.Root();
+	DrawOutlines(root, batch, 0);
+
+	// The chain under the cursor, from the pointer position the last Update
+	// saw (Render has no Input of its own).
+	std::vector<Widget*> chain;
+	BuildChain(root, ctx.MouseX(), ctx.MouseY(), chain);
+	if (chain.empty()) return;
+
+	// Wash + a solid border over each link, so the nesting reads as boxes
+	// inside boxes rather than one highlighted rect.
+	for (size_t i = 0; i < chain.size(); ++i) {
+		const gfx::Rect& px = chain[i]->Pixel();
+		batch.DrawRect(px, TintFor(i, 0.10f));
+		DrawBorder(batch, px, TintFor(i, 1.0f));
+	}
+
+	// The breadcrumb, beside the pointer and clamped on screen: one indented
+	// line per link, deepest last.
+	Font& font = ctx.GetFont();
+	const float lineH = font.LineAdvance();
+	const float pad = 6.0f;
+	float widest = 0.0f;
+	std::vector<std::string> lines;
+	lines.reserve(chain.size());
+	for (size_t i = 0; i < chain.size(); ++i) {
+		lines.push_back(std::format("{}{}  {}", std::string(i * 2, ' '),
+									Name(*chain[i]), RectText(chain[i]->Pixel())));
+		widest = std::max(widest, font.MeasureWidth(lines.back()));
+	}
+	gfx::Rect box{ctx.MouseX() + 16.0f, ctx.MouseY() + 16.0f, widest + 2 * pad,
+				  lineH * static_cast<float>(lines.size()) + 2 * pad};
+	box.x = std::min(box.x, ctx.Width() - box.w - 4.0f);
+	box.y = std::min(box.y, ctx.Height() - box.h - 4.0f);
+	batch.DrawRect(box, {0.02f, 0.02f, 0.03f, 0.88f});
+	DrawBorder(batch, box, TintFor(chain.size() - 1, 1.0f));
+	for (size_t i = 0; i < lines.size(); ++i)
+		font.Draw(batch, lines[i], box.x + pad,
+				  box.y + pad + lineH * static_cast<float>(i), TintFor(i, 1.0f));
+}
+
+void Dump(const UIContext& ctx,
+		  const std::function<void(const std::string&)>& out) {
+	DumpNode(ctx.Root(), 0, out);
+}
+
+} // namespace dungeon::ui::inspect

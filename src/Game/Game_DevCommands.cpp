@@ -12,6 +12,7 @@
 #include "Game/AssetUtil.h"
 #include "Graphics/DisplayEnum.h"
 #include "Graphics/Texture.h"
+#include "UI/TreeInspector.h"
 
 #include <algorithm>
 #include <array>
@@ -358,6 +359,28 @@ void Game::RegisterDevCommands() {
 						   m_console.Print(std::format("{} active point lights",
 													   m_world.ActiveLightCount()));
 					   });
+	m_console.Register(
+		"uitree",
+		"outline the UI control tree (on|off, or dump [<tree>] to print one)",
+		[this](const std::vector<std::string>& args) {
+			if (!args.empty() && args[0] == "dump") {
+				const std::string name = args.size() > 1 ? args[1] : "hud";
+				ui::UIContext* tree = m_ui.UiTree(name);
+				if (!tree) {
+					m_console.Print(std::format("unknown tree '{}'; try: {}", name,
+												GameUI::UiTreeNames()));
+					return;
+				}
+				m_console.Print(std::format("--- {} ---", name));
+				ui::inspect::Dump(
+					*tree, [this](const std::string& line) { m_console.Print(line); });
+				return;
+			}
+			const bool on = args.empty() ? !ui::inspect::Enabled() : args[0] != "off";
+			ui::inspect::SetEnabled(on);
+			m_console.Print(on ? "ui tree overlay ON (hover a widget to see its chain)"
+							   : "ui tree overlay off");
+		});
 	m_console.Register("ver", "print build and GPU info",
 					   [this](const std::vector<std::string>&) {
 #ifdef _DEBUG

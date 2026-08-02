@@ -199,6 +199,12 @@ public:
 	// Video tab Apply with the adapter changed (confirmed): persist + relaunch.
 	std::function<void()> onAdapterRestart;
 
+	// One of this UI's widget trees, by name, for the dev console's `uitree
+	// dump` (dev-facing, so the names stay English). Null for an unknown name;
+	// UiTreeNames lists what is accepted.
+	ui::UIContext* UiTree(std::string_view name);
+	static std::string UiTreeNames();
+
 private:
 	enum class MenuPage { Main, Settings, Saves };
 	// The Saves sub-page serves two jobs: Load (a list of slots to load) and
@@ -428,9 +434,12 @@ private:
 	// recreates the dropdown showing the palette that is actually active.
 	int m_torchPalette = 0;
 
-	// Party-bar slots and widgets under the bar (fractional Y at scale 1);
-	// ApplyPartyBarScale resizes the slots and shifts the rest with the bar.
-	std::vector<CharacterPanel*> m_partyPanels; // owned by m_hudUi
+	// The party bar (owns the slots) and the container holding everything under
+	// it; ApplyPartyBarScale resizes the one and slides the other, and the
+	// trees carry their contents. Both are owned by m_hudUi.
+	PartyBar* m_partyBar = nullptr;
+	ui::Widget* m_belowBar = nullptr;
+	std::vector<CharacterPanel*> m_partyPanels; // owned by m_partyBar
 	const HitSplatIcons* m_hitSplats = nullptr; // hit-feedback icons (Game-owned)
 	const ItemIconBank* m_itemIcons = nullptr;  // item icons (Game-owned)
 	const ItemWeightBank* m_itemWeights = nullptr; // item carry weights (Game-owned)
@@ -441,7 +450,6 @@ private:
 	// the held icon, which has no Input).
 	std::optional<std::string>* m_held = nullptr;
 	float m_hudMouseX = 0.0f, m_hudMouseY = 0.0f;
-	std::vector<std::pair<ui::Widget*, float>> m_belowBarWidgets;
 
 	// Font re-bake debounce: last seen window height and how long it has
 	// held (fonts re-bake once it settles — see UpdateFonts).

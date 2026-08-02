@@ -11,7 +11,9 @@
 //   ColorPicker labeled swatch; click opens an R/G/B/A slider popup
 //   KeyBind     labeled key box; click arms it, the next key press rebinds
 //   MenuList    vertical menu; hover or arrows/W/S select, click/Enter fire
-//   TabControl  tab strip + framed page; owns child widgets per tab
+//   ScrollArea  container that scrolls + clips its children when they overflow
+//   TabControl  tab strip + a framed ScrollArea page per tab
+//   Repeater    container whose children come from a per-frame count
 //
 // All bounds are normalized fractions (0..1) of the containing widget or
 // window (see Widget.h) — the UI scales with the screen. Fixed-pixel detail
@@ -32,13 +34,26 @@
 namespace dungeon::ui {
 
 struct Skin;
+class ScrollArea; // defined below; SlotList holds one
 
-// Simple framed background rectangle (draws first if added first).
+// Framed background rectangle, and the plainest container there is: give it
+// `padX`/`padY` (fractions of its own width/height) and its children resolve
+// against the padded interior, so a plate of rows is authored as fractions of
+// the plate rather than of the window. Both default to 0, which leaves
+// ContentRect the whole rect — every Panel that predates this is unaffected.
 class Panel : public Widget {
 public:
 	explicit Panel(const gfx::Rect& rect) { bounds = rect; }
-	void Update(UIContext&) override {}
-	void Draw(UIContext& ctx, gfx::SpriteBatch& batch) override;
+	void DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) override;
+
+	gfx::Rect ContentRect() const override {
+		const gfx::Rect& px = Pixel();
+		const float ix = padX * px.w, iy = padY * px.h;
+		return {px.x + ix, px.y + iy, px.w - 2 * ix, px.h - 2 * iy};
+	}
+
+	float padX = 0.0f;
+	float padY = 0.0f;
 };
 
 // Horizontal rule (like HTML <hr>): a 1px line centered in its bounds, spanning
@@ -46,8 +61,8 @@ public:
 class Separator : public Widget {
 public:
 	explicit Separator(const gfx::Rect& rect) { bounds = rect; }
-	void Update(UIContext&) override {}
-	void Draw(UIContext& ctx, gfx::SpriteBatch& batch) override;
+	void UpdateSelf(UIContext&) override {}
+	void DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) override;
 };
 
 class Label : public Widget {
@@ -55,8 +70,8 @@ public:
 	Label(const gfx::Rect& rect, std::string text) : text(std::move(text)) {
 		bounds = rect;
 	}
-	void Update(UIContext&) override {}
-	void Draw(UIContext& ctx, gfx::SpriteBatch& batch) override;
+	void UpdateSelf(UIContext&) override {}
+	void DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) override;
 
 	std::string text;
 	bool dim = false;
@@ -73,8 +88,8 @@ public:
 
 	void AddLine(std::string line);
 	void Clear();
-	void Update(UIContext& ctx) override;
-	void Draw(UIContext& ctx, gfx::SpriteBatch& batch) override;
+	void UpdateSelf(UIContext& ctx) override;
+	void DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) override;
 
 private:
 	std::deque<std::string> m_lines;
@@ -89,8 +104,8 @@ public:
 		bounds = rect;
 	}
 
-	void Update(UIContext& ctx) override;
-	void Draw(UIContext& ctx, gfx::SpriteBatch& batch) override;
+	void UpdateSelf(UIContext& ctx) override;
+	void DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) override;
 
 	std::string text;
 	std::function<void()> onClick;
@@ -123,8 +138,8 @@ public:
 
 	bool Checked() const { return m_checked; }
 	void SetChecked(bool on) { m_checked = on; }
-	void Update(UIContext& ctx) override;
-	void Draw(UIContext& ctx, gfx::SpriteBatch& batch) override;
+	void UpdateSelf(UIContext& ctx) override;
+	void DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) override;
 
 	std::string label;
 	std::function<void(bool)> onChange;
@@ -147,8 +162,8 @@ public:
 	}
 
 	float Value() const { return m_value; }
-	void Update(UIContext& ctx) override;
-	void Draw(UIContext& ctx, gfx::SpriteBatch& batch) override;
+	void UpdateSelf(UIContext& ctx) override;
+	void DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) override;
 
 	std::string label;
 	std::function<void(float)> onChange;
@@ -183,9 +198,9 @@ public:
 	void SetSelected(int index) {
 		if (index >= 0 && index < static_cast<int>(items.size())) m_selected = index;
 	}
-	void Update(UIContext& ctx) override;
-	void Draw(UIContext& ctx, gfx::SpriteBatch& batch) override;
-	void DrawOverlay(UIContext& ctx, gfx::SpriteBatch& batch) override;
+	void UpdateSelf(UIContext& ctx) override;
+	void DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) override;
+	void DrawOverlaySelf(UIContext& ctx, gfx::SpriteBatch& batch) override;
 
 	std::vector<std::string> items;
 	std::function<void(int)> onSelect;
@@ -224,9 +239,9 @@ public:
 	const Vec4& Color() const { return m_color; }
 	void SetColor(const Vec4& color) { m_color = color; }
 
-	void Update(UIContext& ctx) override;
-	void Draw(UIContext& ctx, gfx::SpriteBatch& batch) override;
-	void DrawOverlay(UIContext& ctx, gfx::SpriteBatch& batch) override;
+	void UpdateSelf(UIContext& ctx) override;
+	void DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) override;
+	void DrawOverlaySelf(UIContext& ctx, gfx::SpriteBatch& batch) override;
 
 	std::string label;
 	std::function<void(const Vec4&)> onChange;
@@ -258,8 +273,8 @@ public:
 	// the capture's cancel.
 	bool IsCapturing() const { return m_capturing; }
 
-	void Update(UIContext& ctx) override;
-	void Draw(UIContext& ctx, gfx::SpriteBatch& batch) override;
+	void UpdateSelf(UIContext& ctx) override;
+	void DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) override;
 
 	std::string label;
 	std::function<void(int)> onChange;
@@ -291,8 +306,8 @@ public:
 	bool Focused() const { return m_focused; }
 	void SetFocused(bool on) { m_focused = on; }
 
-	void Update(UIContext& ctx) override;
-	void Draw(UIContext& ctx, gfx::SpriteBatch& batch) override;
+	void UpdateSelf(UIContext& ctx) override;
+	void DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) override;
 
 	std::string text;
 	std::string placeholder;          // shown dimmed when text is empty
@@ -313,8 +328,12 @@ private:
 // other groups remain in reach (clicking another group swaps the submenu, the
 // same group toggles it). One level deep. It is a persistent widget the owner
 // reuses — call Open() with the actions for whatever was right-clicked; an
-// empty list is a no-op. Position is absolute pixels (not the normalized
-// bounds), so leave bounds at zero.
+// empty list is a no-op.
+//
+// SCREEN-ANCHORED, not parent-relative: it opens at an absolute pixel point and
+// draws in the OVERLAY pass, so `bounds` stays zero — a context menu must not be
+// clipped or placed by whatever happens to own it. The tree inspector therefore
+// shows it as 0x0, which is correct rather than a missing rect.
 class ContextMenu : public Widget {
 public:
 	struct Entry {
@@ -334,9 +353,9 @@ public:
 	}
 	bool IsOpen() const { return m_open; }
 
-	void Update(UIContext& ctx) override;
-	void Draw(UIContext&, gfx::SpriteBatch&) override {} // overlay-only
-	void DrawOverlay(UIContext& ctx, gfx::SpriteBatch& batch) override;
+	void UpdateSelf(UIContext& ctx) override;
+	void DrawSelf(UIContext&, gfx::SpriteBatch&) override {} // overlay-only
+	void DrawOverlaySelf(UIContext& ctx, gfx::SpriteBatch& batch) override;
 
 private:
 	gfx::Rect EntryRect(size_t i) const;
@@ -365,6 +384,33 @@ private:
 // because that rebuild destroys this widget, the owner must DEFER it (not
 // rebuild from inside the callback). Update returns immediately after firing a
 // row callback so it touches no members afterward.
+class SlotList;
+
+// One row of a SlotList: the name, the timestamp, and (when the row can be
+// deleted) the icon button at its right end. Owns its own hover, and the
+// delete icon's hover separately, so the list itself tracks neither.
+class SlotRow : public Widget {
+public:
+	SlotRow(std::string primary, std::string secondary,
+			std::function<void()> onActivate, bool deletable,
+			// The list's deleteIcon member, read live — the owner sets it after
+			// the rows are built.
+			const gfx::Texture* const* icon, std::function<void()> onDeleteClick);
+
+private:
+	void UpdateSelf(UIContext& ctx) override;
+	void DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) override;
+	gfx::Rect DeleteRect() const; // square icon button at the row's right end
+
+	std::string m_primary, m_secondary;
+	std::function<void()> m_onActivate;
+	std::function<void()> m_onDeleteClick;
+	const gfx::Texture* const* m_icon;
+	bool m_deletable;
+	bool m_hot = false;
+	bool m_hotDelete = false;
+};
+
 class SlotList : public Widget {
 public:
 	struct Row {
@@ -374,12 +420,8 @@ public:
 		std::function<void()> onDelete; // null hides the row's Delete icon
 	};
 
-	explicit SlotList(const gfx::Rect& rect) { bounds = rect; }
-	void AddRow(Row row) { m_rows.push_back(std::move(row)); }
-
-	void Update(UIContext& ctx) override;
-	void Draw(UIContext& ctx, gfx::SpriteBatch& batch) override;
-	void DrawOverlay(UIContext& ctx, gfx::SpriteBatch& batch) override;
+	explicit SlotList(const gfx::Rect& rect);
+	void AddRow(Row row);
 
 	float rowHeight = 48.0f;                  // pixels (fixed, like borders/fonts)
 	const gfx::Texture* deleteIcon = nullptr; // red X; a text "X" is the fallback
@@ -389,26 +431,25 @@ public:
 	std::string cancelLabel = "Cancel";
 
 private:
-	float ContentHeight() const {
-		return rowHeight * static_cast<float>(m_rows.size());
-	}
-	float MaxScroll() const;
-	gfx::Rect RowRect(size_t index) const; // pixel space, scroll applied
-	gfx::Rect DeleteRect(const gfx::Rect& row) const;
-	gfx::Rect ScrollTrackRect() const;
-	gfx::Rect ScrollThumbRect(float maxScroll) const;
+	// Stacks the rows down the scrolling area (their bounds are fractions of
+	// it, and rowHeight is in pixels, so they are assigned per layout).
+	void LayoutSelf(UIContext& ctx) override;
+	// The modal runs BEFORE the rows so it can take the mouse from them.
+	void UpdateBeforeChildren(UIContext& ctx) override;
+	void DrawOverlaySelf(UIContext& ctx, gfx::SpriteBatch& batch) override;
+
 	gfx::Rect ConfirmRect(const UIContext& ctx) const; // centered dialog
 	gfx::Rect ConfirmButton(const UIContext& ctx, bool deleteButton) const;
 
-	std::vector<Row> m_rows;
-	float m_scroll = 0.0f;
-	int m_hotRow = -1;
-	int m_hotDelete = -1;
+	ScrollArea* m_scroll = nullptr;
+	// What the modal needs about each row, parallel to the row widgets.
+	struct Entry {
+		std::string primary;
+		std::function<void()> onDelete;
+	};
+	std::vector<Entry> m_entries;
 	int m_confirmRow = -1; // row whose confirm dialog is open (-1 = none)
 	int m_confirmHot = -1; // dialog button under the mouse: 0 delete, 1 cancel
-	bool m_scrollHot = false;
-	bool m_scrollDragging = false;
-	float m_scrollGrab = 0.0f;
 };
 
 // Vertical list of selectable menu entries (the landing page). One entry is
@@ -429,8 +470,8 @@ public:
 	void SetLabel(size_t index, std::string label);
 
 	int Selected() const { return m_selected; }
-	void Update(UIContext& ctx) override;
-	void Draw(UIContext& ctx, gfx::SpriteBatch& batch) override;
+	void UpdateSelf(UIContext& ctx) override;
+	void DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) override;
 
 private:
 	struct Item {
@@ -447,18 +488,57 @@ private:
 	int m_selected = 0;
 };
 
+// A container that scrolls its children vertically when they overflow it.
+// Children are authored as fractions of ContentRect() — this widget's rect
+// inset by `padding`, with `gutter` reserved at the right for the scrollbar so
+// the layout doesn't shift when the bar appears — and a child authored past the
+// bottom (bounds.y + bounds.h > 1) is what makes the area scroll. Overflow is
+// clipped, the wheel scrolls anywhere over the area, and the thumb drags.
+// Children scrolled fully out of view get neither input nor draw; an open popup
+// can't scroll out from under the user because it consumes the mouse, which
+// blocks the wheel.
+class ScrollArea : public Widget {
+public:
+	explicit ScrollArea(const gfx::Rect& rect) { bounds = rect; }
+
+	float Scroll() const { return m_scroll; }
+	void ScrollToTop() { m_scroll = 0.0f; }
+
+	// The children's container: the view box, shifted up by the scroll.
+	gfx::Rect ContentRect() const override;
+	// The view box itself (unscrolled) — what the scroll maths and clip use.
+	gfx::Rect ViewRect() const;
+
+	float padding = 12.0f; // inset from this widget's own edge
+	float gutter = 14.0f;  // scrollbar track + margin, always reserved
+
+private:
+	void LayoutSelf(UIContext& ctx) override;
+	void UpdateSelf(UIContext& ctx) override;
+	void DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) override;
+	bool ChildActive(const Widget& child) const override;
+	const gfx::Rect* ChildClip() const override;
+
+	// Content height as a multiple of the view height: the lowest child bottom
+	// edge, never less than 1 (> 1 means the area scrolls).
+	float ContentFraction() const;
+	float MaxScroll() const;
+	gfx::Rect ScrollTrackRect() const;
+	gfx::Rect ScrollThumbRect(float maxScroll) const;
+
+	float m_scroll = 0.0f; // pixels scrolled down, clamped every layout
+	gfx::Rect m_clip{};    // ViewRect cached so ChildClip can hand back a pointer
+	bool m_clipping = false;
+	bool m_scrollHot = false;
+	bool m_scrollDragging = false;
+	float m_scrollGrab = 0.0f; // pointer offset within the thumb while dragging
+};
+
 // Tab strip across the top of the bounds plus a framed page area below it.
-// Each tab owns its child widgets; child bounds are fractions of the PAGE
-// area (the rect below the strip), and only the active tab's children
-// receive input and draw.
-//
-// Pages scroll vertically when their content overflows: children authored
-// below the page bottom simply have bounds.y + bounds.h > 1, and the control
-// detects that, clips the page while drawing, and shows a scrollbar at the
-// page's right edge (mouse wheel over the page, or drag the thumb). Each tab
-// keeps its own scroll position. Children scrolled fully out of view are
-// skipped for input and drawing; popups can't scroll out from under the
-// user because an open popup consumes the mouse, which blocks scrolling.
+// Each tab is a ScrollArea child filling that page, so a tab's widgets are
+// authored as fractions of the page and scroll for free when they overflow it
+// (see ScrollArea). Only the active tab's page is visible, so only its children
+// receive input and draw; each tab keeps its own scroll position.
 class TabControl : public Widget {
 public:
 	// tabHeight is a fraction of the control's own height.
@@ -469,50 +549,51 @@ public:
 	// Returns the new tab's index, used as the `tab` argument to AddChild.
 	size_t AddTab(std::string label);
 
-	// Creates a widget on the given tab; the control owns it (same contract
-	// as UIContext::Add, but scoped to one page).
+	// Creates a widget on the given tab's page; the page owns it (same contract
+	// as UIContext::Add, but scoped to that page).
 	template <typename T, typename... Args>
 	T* AddChild(size_t tab, Args&&... args) {
-		auto widget = std::make_unique<T>(std::forward<Args>(args)...);
-		T* raw = widget.get();
-		m_tabs[tab].children.push_back(std::move(widget));
-		return raw;
+		return m_tabs[tab].page->Add<T>(std::forward<Args>(args)...);
+	}
+
+	// A tab's page, for anything that needs the container itself (e.g. to reset
+	// its scroll). Null for an out-of-range index.
+	ScrollArea* Page(size_t tab) {
+		return tab < m_tabs.size() ? m_tabs[tab].page : nullptr;
 	}
 
 	int ActiveTab() const { return m_active; }
 	void SetActiveTab(int index);
 
-	void Update(UIContext& ctx) override;
-	void Draw(UIContext& ctx, gfx::SpriteBatch& batch) override;
-	void DrawOverlay(UIContext& ctx, gfx::SpriteBatch& batch) override;
+	// The page area below the strip — what a tab's ScrollArea fills.
+	gfx::Rect ContentRect() const override;
 
 private:
+	// A tab is its label plus the page that holds its widgets. `page` is one of
+	// this control's own children, added by AddTab — so tab index and child
+	// index coincide, and nothing else may be added as a direct child.
 	struct Tab {
 		std::string label;
-		std::vector<std::unique_ptr<Widget>> children;
-		float scroll = 0.0f; // pixels scrolled down, clamped every frame
+		ScrollArea* page = nullptr;
 	};
+
+	// Sizes the strip before anything resolves against it — the tree calls this
+	// right after our own pixel rect lands and before ContentRect() is asked
+	// for — and shows only the active tab's page.
+	void LayoutSelf(UIContext& ctx) override;
+	void UpdateSelf(UIContext& ctx) override;
+	void DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) override;
 
 	// Measures each tab's label and sizes the strip: every tab is at least the
 	// even split, wider when its text needs it, and the control grows + recenters
 	// to the total. Caches m_tabWidths / m_effRect for the const rect helpers
-	// below; called at the top of Update and Draw (needs the font from ctx).
+	// below (needs the font from ctx).
 	void LayoutStrip(UIContext& ctx);
 
 	gfx::Rect TabRect(size_t index) const;
 	// The page area below the tab strip, in pixels (the panel frame); only
 	// valid after LayoutStrip().
 	gfx::Rect PageRect() const;
-	// The children's container: PageRect inset so content doesn't sit on the
-	// frame, with the right side clearing the scrollbar gutter. This is what
-	// child bounds resolve against (and the scroll/scissor math uses).
-	gfx::Rect ContentRect() const;
-	// Content height as a multiple of the page height: the lowest child
-	// bottom edge, never less than 1 (> 1 means the page scrolls).
-	static float ContentFraction(const Tab& tab);
-	gfx::Rect ScrollTrackRect(const gfx::Rect& page) const;
-	gfx::Rect ScrollThumbRect(const gfx::Rect& page, const Tab& tab,
-							  float maxScroll) const;
 
 	std::vector<Tab> m_tabs;
 	std::vector<float> m_tabWidths; // per-tab strip width (LayoutStrip)
@@ -520,9 +601,43 @@ private:
 	float m_tabHeight;
 	int m_active = 0;
 	int m_hover = -1;
-	bool m_scrollHot = false;
-	bool m_scrollDragging = false;
-	float m_scrollGrab = 0.0f; // pointer offset within the thumb while dragging
+};
+
+// A container whose children come from a per-frame COUNT — the status-effect
+// strip, a rune grid, a list of rows. Each frame it reads `count`, grows the
+// pool with `factory` until it has that many children, and gives child N the
+// bounds `place(N)` (fractions of this widget, like any child). The children
+// are real widgets, so each repeated item owns its own hover and click.
+//
+// The pool only ever GROWS: a child past the live count is hidden, never
+// destroyed, so nothing dies mid-frame and no pointer can dangle. The corollary
+// is the rule every repeated child follows — hold the INDEX and re-resolve
+// against the model each frame (the RosterMember pattern), never cache a
+// pointer into the model. The repeater owns its children's `visible` flag; a
+// repeated child must not set its own.
+class Repeater : public Widget {
+public:
+	using Factory = std::function<std::unique_ptr<Widget>(size_t index)>;
+	using Counter = std::function<size_t()>;
+	using Placer = std::function<gfx::Rect(size_t index)>;
+
+	Repeater(const gfx::Rect& rect, Factory factory, Counter count, Placer place)
+		: m_factory(std::move(factory)), m_count(std::move(count)),
+		  m_place(std::move(place)) {
+		bounds = rect;
+	}
+
+	// How many children were live at the last layout (what `count` returned,
+	// capped by what the factory actually produced).
+	size_t LiveCount() const { return m_live; }
+
+private:
+	void LayoutSelf(UIContext& ctx) override;
+
+	Factory m_factory;
+	Counter m_count;
+	Placer m_place;
+	size_t m_live = 0;
 };
 
 // Draws a 1px border around a rectangle.

@@ -19,7 +19,7 @@ HandSlot::HandSlot(const gfx::Rect& rect, const std::vector<Character>* roster,
 	bounds = rect;
 }
 
-void HandSlot::Update(ui::UIContext& ctx) {
+void HandSlot::UpdateSelf(ui::UIContext& ctx) {
 	m_character = RosterMember(m_roster, m_member);
 	if (!m_character) return; // roster shorter than this slot — inert
 	const Input* input = ctx.CurrentInput();
@@ -41,7 +41,7 @@ void HandSlot::Update(ui::UIContext& ctx) {
 	}
 }
 
-void HandSlot::Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
+void HandSlot::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	m_character = RosterMember(m_roster, m_member);
 	if (!m_character) return; // roster shorter than this slot — draw nothing
 	const ui::Theme& theme = ctx.GetTheme();

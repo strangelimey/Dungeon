@@ -15,6 +15,39 @@
 
 namespace dungeon::game {
 
+// One party slot's button in the spellbook's selector row: a face in that
+// member's identity color, pressed while their book is open, washed out while
+// they are absent, down, or know no symbols. It owns its own hover, so the
+// panel tracks none.
+class MemberButton : public ui::Widget {
+public:
+	MemberButton(size_t member, const std::vector<Character>* roster,
+				 const int* selected, std::function<bool(size_t)> eligible,
+				 std::function<void(size_t)> onSelect);
+
+private:
+	void UpdateSelf(ui::UIContext& ctx) override;
+	void DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) override;
+
+	size_t m_member;
+	const std::vector<Character>* m_roster;
+	const int* m_selected; // the panel's live selection
+	std::function<bool(size_t)> m_eligible;
+	std::function<void(size_t)> m_onSelect;
+	bool m_hot = false;
+};
+
+// The selector row: one MemberButton per party slot, in even columns. This is
+// the sketch's "character selection" (docs/ui-hierarchy.md). The symbol grid
+// and the sequence/Cast/Clear below it stay the panel's own — see that doc for
+// why they were left whole.
+class MemberRow : public ui::Widget {
+public:
+	MemberRow(const gfx::Rect& rect, const std::vector<Character>* roster,
+			  const int* selected, std::function<bool(size_t)> eligible,
+			  std::function<void(size_t)> onSelect);
+};
+
 class SpellbookPanel : public ui::Widget {
 public:
 	SpellbookPanel(const gfx::Rect& rect, const std::vector<Character>* roster,
@@ -38,8 +71,8 @@ public:
 	const gfx::Texture* castIcon = nullptr;
 	const gfx::Texture* clearIcon = nullptr;
 
-	void Update(ui::UIContext& ctx) override;
-	void Draw(ui::UIContext& ctx, gfx::SpriteBatch& batch) override;
+	void UpdateSelf(ui::UIContext& ctx) override;
+	void DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) override;
 
 private:
 	// One cell of the rune-button grid: the four SCHOOL runes always hold the
@@ -54,9 +87,8 @@ private:
 	// is standing (absent / unconscious / dead all disable).
 	bool MemberEligible(size_t i) const;
 	// Layout inside the live box, shared by Update (hit-test) and Draw. The
-	// selector row indexes party slots 0-3; the symbol grid indexes RuneSlots
+	// symbol grid indexes RuneSlots
 	// (4 per row); the sequence row indexes m_sequence.
-	gfx::Rect MemberButtonRect(const gfx::Rect& px, size_t i) const;
 	gfx::Rect SymbolRect(const gfx::Rect& px, size_t i) const;
 	gfx::Rect SequenceRect(const gfx::Rect& px, size_t i) const;
 	gfx::Rect CastRect(const gfx::Rect& px) const;
@@ -73,7 +105,7 @@ private:
 	const ItemIconBank* m_icons;
 	int m_member = -1;  // roster slot whose book is open (-1 = none selected)
 	std::vector<SpellSymbol> m_sequence;
-	int m_hotSymbol = -1, m_hotSeq = -1, m_hotMember = -1;
+	int m_hotSymbol = -1, m_hotSeq = -1;
 	bool m_hotCast = false, m_hotClear = false;
 	std::string m_placeholder, m_castLabel, m_clearLabel; // localized once
 };
