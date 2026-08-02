@@ -1091,10 +1091,34 @@ memory.
   the flat fallback if a set is missing. Bought authored decoration meshes
   (boulder/mossy_rock/pot) ride the import-model path like ancient_pot.
 - BC7 encoder is mode-6 only (slight banding possible on smooth gradients).
-- UI widget bounds are normalized (0..1 of container, see UI/Widget.h) and
-  resolve against the live window each frame, so the HUD scales on resize.
-  Fonts track the window height too (Font::SetHeight re-bakes the atlas,
-  driven from the top of Game::Update).
+- The UI is a strict CONTROL TREE (docs/ui-hierarchy.md): every widget owns its
+  children, and a child's normalized bounds (0..1) resolve against its PARENT's
+  ContentRect(), recursively from a window-sized root down — so moving or
+  resizing a parent carries every descendant and no authoring site multiplies a
+  parent chain out by hand. The walk lives ONCE in Widget (Layout/Update/Draw/
+  DrawOverlay are non-virtual); a subclass overrides UpdateSelf/DrawSelf/
+  DrawOverlaySelf/LayoutSelf and handles only itself, so a container cannot
+  forget its children. Order is fixed: layout self then children; UPDATE
+  children in reverse add order BEFORE self (the child owning a pixel claims the
+  mouse first — UpdateBeforeChildren is the hook for a parent that needs first
+  look, e.g. a slot that highlights as one piece, or a modal); DRAW self then
+  children. Containers express themselves through hooks rather than driving
+  children: ContentRect (padding, a tab page, a scroll offset), ChildActive
+  (culling), ChildClip (clipping, intersected and restored so clips nest).
+  ui::ScrollArea owns ALL scroll/thumb/clip behaviour — nothing else may
+  re-implement it — and ui::Repeater builds children from a per-frame count with
+  a grow-only pool (repeated children hold an INDEX and re-resolve, never a
+  pointer into the model). CAVEAT that bit once: a ScrollArea measures overflow
+  from its OWN children's bounds, so rows behind a Repeater are invisible to it
+  — size the repeater to the stacked height. Bounds may be COMPUTED in
+  LayoutSelf rather than authored when a child is aspect- or font-locked (a
+  square sized by the parent's height; a row the height of a line advance) —
+  still parent-relative, just derived. Screen-anchored popups (ContextMenu,
+  InventoryWindow) keep zero bounds and draw in the overlay pass on purpose.
+  Dev console `uitree` outlines the whole tree by depth and names the chain
+  under the cursor; `uitree dump <hud|menu|settings|pause|saves|sheet|confirm>`
+  prints it with pixel rects. Fonts track the window height too (Font::SetHeight
+  re-bakes the atlas, driven from the top of Game::Update).
 - The clean (non-worn) block set is baked but unused — intended for newer
   dungeon areas, needs per-region block-set selection in DungeonMeshBuilder.
 - Texture sets are now installed at 1k/2k/4k with ORM maps, so Low/Medium and
