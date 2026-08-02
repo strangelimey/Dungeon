@@ -30,6 +30,25 @@ namespace dungeon::ui {
 
 class UIContext;
 
+// Clips drawing to `rect` INTERSECTED with whatever clip the draw walk already
+// has in force, and restores that clip on destruction. A widget that clips its
+// own content (a text log, a list of rows) uses this rather than calling
+// SpriteBatch::SetScissor directly — a bare SetScissor(nullptr) would drop an
+// ancestor's clip and let the content spill out of a scrolled page.
+class ScopedClip {
+public:
+	ScopedClip(gfx::SpriteBatch& batch, const gfx::Rect& rect);
+	~ScopedClip();
+
+	ScopedClip(const ScopedClip&) = delete;
+	ScopedClip& operator=(const ScopedClip&) = delete;
+
+private:
+	gfx::SpriteBatch& m_batch;
+	const gfx::Rect* m_outer;
+	gfx::Rect m_outerRect;
+};
+
 class Widget {
 public:
 	virtual ~Widget() = default;

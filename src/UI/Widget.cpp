@@ -26,6 +26,19 @@ gfx::Rect Intersect(const gfx::Rect& a, const gfx::Rect& b) {
 
 } // namespace
 
+ScopedClip::ScopedClip(gfx::SpriteBatch& batch, const gfx::Rect& rect)
+	: m_batch(batch), m_outer(g_clip), m_outerRect(g_clipRect) {
+	g_clipRect = m_outer ? Intersect(rect, m_outerRect) : rect;
+	g_clip = &g_clipRect;
+	m_batch.SetScissor(g_clip);
+}
+
+ScopedClip::~ScopedClip() {
+	g_clip = m_outer;
+	g_clipRect = m_outerRect;
+	m_batch.SetScissor(g_clip);
+}
+
 void Widget::Layout(const gfx::Rect& container, UIContext& ctx) {
 	m_pixel = {container.x + bounds.x * container.w,
 			   container.y + bounds.y * container.h, bounds.w * container.w,

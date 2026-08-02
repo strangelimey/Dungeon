@@ -163,7 +163,7 @@ void MessageLog::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 
 		const gfx::Rect inner{footer.x + kPad, footer.y + kPad,
 							  footer.w - 2.0f * kPad, footer.h - 2.0f * kPad};
-		batch.SetScissor(&inner);
+		const ui::ScopedClip clip(batch, inner);
 		const float lineH = font.LineAdvance();
 		// Newest at the bottom, offset upward by the scroll.
 		const int last =
@@ -176,7 +176,6 @@ void MessageLog::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 			font.Draw(batch, msg.text, inner.x, y, col);
 			y -= lineH;
 		}
-		batch.SetScissor(nullptr);
 	}
 
 	// Restore button cross-fades in as the footer fades out.

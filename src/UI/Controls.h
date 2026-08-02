@@ -34,6 +34,7 @@
 namespace dungeon::ui {
 
 struct Skin;
+class ScrollArea; // defined below; SlotList holds one
 
 // Framed background rectangle, and the plainest container there is: give it
 // `padX`/`padY` (fractions of its own width/height) and its children resolve
@@ -383,6 +384,33 @@ private:
 // because that rebuild destroys this widget, the owner must DEFER it (not
 // rebuild from inside the callback). Update returns immediately after firing a
 // row callback so it touches no members afterward.
+class SlotList;
+
+// One row of a SlotList: the name, the timestamp, and (when the row can be
+// deleted) the icon button at its right end. Owns its own hover, and the
+// delete icon's hover separately, so the list itself tracks neither.
+class SlotRow : public Widget {
+public:
+	SlotRow(std::string primary, std::string secondary,
+			std::function<void()> onActivate, bool deletable,
+			// The list's deleteIcon member, read live — the owner sets it after
+			// the rows are built.
+			const gfx::Texture* const* icon, std::function<void()> onDeleteClick);
+
+private:
+	void UpdateSelf(UIContext& ctx) override;
+	void DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) override;
+	gfx::Rect DeleteRect() const; // square icon button at the row's right end
+
+	std::string m_primary, m_secondary;
+	std::function<void()> m_onActivate;
+	std::function<void()> m_onDeleteClick;
+	const gfx::Texture* const* m_icon;
+	bool m_deletable;
+	bool m_hot = false;
+	bool m_hotDelete = false;
+};
+
 class SlotList : public Widget {
 public:
 	struct Row {
@@ -392,12 +420,8 @@ public:
 		std::function<void()> onDelete; // null hides the row's Delete icon
 	};
 
-	explicit SlotList(const gfx::Rect& rect) { bounds = rect; }
-	void AddRow(Row row) { m_rows.push_back(std::move(row)); }
-
-	void UpdateSelf(UIContext& ctx) override;
-	void DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) override;
-	void DrawOverlaySelf(UIContext& ctx, gfx::SpriteBatch& batch) override;
+	explicit SlotList(const gfx::Rect& rect);
+	void AddRow(Row row);
 
 	float rowHeight = 48.0f;                  // pixels (fixed, like borders/fonts)
 	const gfx::Texture* deleteIcon = nullptr; // red X; a text "X" is the fallback
@@ -407,26 +431,25 @@ public:
 	std::string cancelLabel = "Cancel";
 
 private:
-	float ContentHeight() const {
-		return rowHeight * static_cast<float>(m_rows.size());
-	}
-	float MaxScroll() const;
-	gfx::Rect RowRect(size_t index) const; // pixel space, scroll applied
-	gfx::Rect DeleteRect(const gfx::Rect& row) const;
-	gfx::Rect ScrollTrackRect() const;
-	gfx::Rect ScrollThumbRect(float maxScroll) const;
+	// Stacks the rows down the scrolling area (their bounds are fractions of
+	// it, and rowHeight is in pixels, so they are assigned per layout).
+	void LayoutSelf(UIContext& ctx) override;
+	// The modal runs BEFORE the rows so it can take the mouse from them.
+	void UpdateBeforeChildren(UIContext& ctx) override;
+	void DrawOverlaySelf(UIContext& ctx, gfx::SpriteBatch& batch) override;
+
 	gfx::Rect ConfirmRect(const UIContext& ctx) const; // centered dialog
 	gfx::Rect ConfirmButton(const UIContext& ctx, bool deleteButton) const;
 
-	std::vector<Row> m_rows;
-	float m_scroll = 0.0f;
-	int m_hotRow = -1;
-	int m_hotDelete = -1;
+	ScrollArea* m_scroll = nullptr;
+	// What the modal needs about each row, parallel to the row widgets.
+	struct Entry {
+		std::string primary;
+		std::function<void()> onDelete;
+	};
+	std::vector<Entry> m_entries;
 	int m_confirmRow = -1; // row whose confirm dialog is open (-1 = none)
 	int m_confirmHot = -1; // dialog button under the mouse: 0 delete, 1 cancel
-	bool m_scrollHot = false;
-	bool m_scrollDragging = false;
-	float m_scrollGrab = 0.0f;
 };
 
 // Vertical list of selectable menu entries (the landing page). One entry is
