@@ -5,7 +5,26 @@
 
 #include "UI/UIContext.h"
 
+#include <algorithm>
+
 namespace dungeon::ui {
+
+namespace {
+
+// The clip currently in force during the draw walk (null = none). Drawing is a
+// single pass on one thread, so one file-static is the whole stack: a nested
+// clip intersects this and restores it on the way out.
+const gfx::Rect* g_clip = nullptr;
+gfx::Rect g_clipRect{};
+
+gfx::Rect Intersect(const gfx::Rect& a, const gfx::Rect& b) {
+	const float x0 = std::max(a.x, b.x), y0 = std::max(a.y, b.y);
+	const float x1 = std::min(a.x + a.w, b.x + b.w);
+	const float y1 = std::min(a.y + a.h, b.y + b.h);
+	return {x0, y0, std::max(x1 - x0, 0.0f), std::max(y1 - y0, 0.0f)};
+}
+
+} // namespace
 
 void Widget::Layout(const gfx::Rect& container, UIContext& ctx) {
 	m_pixel = {container.x + bounds.x * container.w,
@@ -36,9 +55,25 @@ void Widget::Update(UIContext& ctx) {
 void Widget::Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
 	if (!visible) return;
 	DrawSelf(ctx, batch); // parent behind its children
+	if (m_children.empty()) return;
+
+	// Push this widget's child clip (intersected with whatever is already in
+	// force), draw the children, then restore.
+	const gfx::Rect* outer = g_clip;
+	const gfx::Rect outerRect = g_clipRect;
+	if (const gfx::Rect* clip = ChildClip()) {
+		g_clipRect = outer ? Intersect(*clip, outerRect) : *clip;
+		g_clip = &g_clipRect;
+		batch.SetScissor(g_clip);
+	}
 	for (auto& child : m_children) {
 		if (!child->visible || !ChildActive(*child)) continue;
 		child->Draw(ctx, batch);
+	}
+	if (g_clip != outer) {
+		g_clip = outer;
+		g_clipRect = outerRect;
+		batch.SetScissor(g_clip);
 	}
 }
 

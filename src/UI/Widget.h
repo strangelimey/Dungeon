@@ -100,6 +100,12 @@ protected:
 	// past a repeater's live count) without touching the child's own `visible`.
 	virtual bool ChildActive(const Widget&) const { return true; }
 
+	// Non-null clips this widget's CHILDREN to the given pixel rect while they
+	// draw (a scrolling page). Nesting is handled by the walk: an inner clip
+	// intersects the one already in force and the outer is restored after, so a
+	// scroll area inside a scrolled page cannot widen its parent's clip.
+	virtual const gfx::Rect* ChildClip() const { return nullptr; }
+
 private:
 	gfx::Rect m_pixel{};
 	std::vector<std::unique_ptr<Widget>> m_children;

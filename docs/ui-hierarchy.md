@@ -125,10 +125,21 @@ The hover pick descends into the SMALLEST child containing the point, which is
 deliberately NOT the input rule (reverse add order) — see the first finding
 below.
 
-**P2 — `TabControl` onto the shared mechanism.** Each tab becomes a page
-container child; scroll/clip/cull move into a reusable `ScrollArea` that the
-sheet's list tabs and `SlotList` can share instead of each re-implementing thumb
-math.
+**P2 — `TabControl` onto the shared mechanism. DONE.** Scroll, clip and cull
+came out into `ui::ScrollArea`, a container that scrolls its children when they
+overflow it: `ContentRect()` is its view box shifted by the scroll, so the
+offset applies to descendants for free; `ChildActive` culls what has scrolled
+out; `ChildClip` clips the rest. A tab is now just a label plus a `ScrollArea`
+child filling the page, and `TabControl` is down to the strip, the frame, and
+showing the active page — its own scroll state, per-tab child lists, manual
+child walk and manual `DrawOverlay` forwarding are all gone. Authoring is
+unchanged (`AddTab` / `AddChild(tab, ...)`), and so is the layout: the page's
+padding and gutter are the same numbers in their new home.
+
+Clipping needed one addition to the base: `virtual const gfx::Rect* ChildClip()`.
+The draw walk intersects a clip with whatever is already in force and restores
+the outer one afterwards, so a scroll area inside a scrolled page cannot widen
+its parent's clip — which the old single `SetScissor(nullptr)` would have done.
 
 **P3 — Party Bar.** A `PartyBar` container whose children are the four
 `CharacterPanel`s at `{i*step, 0, w, 1}`; each panel gets Portrait / EffectsArea
@@ -144,7 +155,9 @@ selector, symbol grid and details as children. The `innerX` / `moveTop` /
 
 **P5 — Character Sheet.** Header (portrait, name), tab selector, body.
 `CharacterSheetLayout.h`'s constants get pushed down into whichever sub-area owns
-them, so doll cells are fractions of the doll area rather than of the sheet.
+them, so doll cells are fractions of the doll area rather than of the sheet. The
+sheet's list tabs and `SlotList` each re-implement thumb maths that `ScrollArea`
+(P2) now owns — fold them onto it here.
 
 **P6 — the remainder.** Left status/options column, message log, inventory
 overlay, then the dialogs. Two items the inspector has already named:

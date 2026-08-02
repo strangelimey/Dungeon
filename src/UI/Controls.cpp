@@ -1159,15 +1159,142 @@ void MenuList::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 	}
 }
 
+// --- ScrollArea ------------------------------------------------------------
+
+gfx::Rect ScrollArea::ViewRect() const {
+	const gfx::Rect& px = Pixel();
+	return {px.x + padding, px.y + padding, px.w - padding - gutter,
+			px.h - 2.0f * padding};
+}
+
+gfx::Rect ScrollArea::ContentRect() const {
+	const gfx::Rect view = ViewRect();
+	return {view.x, view.y - m_scroll, view.w, view.h};
+}
+
+float ScrollArea::ContentFraction() const {
+	float maxBottom = 1.0f;
+	for (const auto& child : Children())
+		if (child->visible)
+			maxBottom = std::max(maxBottom, child->bounds.y + child->bounds.h);
+	return maxBottom;
+}
+
+float ScrollArea::MaxScroll() const {
+	return (ContentFraction() - 1.0f) * ViewRect().h;
+}
+
+gfx::Rect ScrollArea::ScrollTrackRect() const {
+	const gfx::Rect& px = Pixel();
+	const float barW = 10.0f;
+	return {px.x + px.w - barW - 2.0f, px.y + 2.0f, barW, px.h - 4.0f};
+}
+
+gfx::Rect ScrollArea::ScrollThumbRect(float maxScroll) const {
+	const gfx::Rect track = ScrollTrackRect();
+	const float view = ViewRect().h;
+	const float thumbH = std::max(track.h * view / (view + maxScroll), 24.0f);
+	const float t = maxScroll > 0.0f ? m_scroll / maxScroll : 0.0f;
+	return {track.x, track.y + (track.h - thumbH) * t, track.w, thumbH};
+}
+
+// Clamp the scroll and cache the clip before the children resolve against
+// ContentRect() — which is the view box shifted by exactly this scroll.
+void ScrollArea::LayoutSelf(UIContext&) {
+	m_scroll = std::clamp(m_scroll, 0.0f, MaxScroll());
+	m_clip = ViewRect();
+	// Clip only while there is something to scroll: sliders draw their labels
+	// slightly above their bounds, and a static page shouldn't crop them.
+	m_clipping = MaxScroll() > 0.0f;
+}
+
+const gfx::Rect* ScrollArea::ChildClip() const {
+	return m_clipping ? &m_clip : nullptr;
+}
+
+// Skip children scrolled fully out of the view, in every pass.
+bool ScrollArea::ChildActive(const Widget& child) const {
+	const float view = ViewRect().h;
+	const float top = child.bounds.y * view - m_scroll;
+	const float bottom = (child.bounds.y + child.bounds.h) * view - m_scroll;
+	return bottom > 0.0f && top < view;
+}
+
+// Runs after the children (the tree walk's order), so an open popup — which
+// consumes the mouse — can't be scrolled out from under the user.
+void ScrollArea::UpdateSelf(UIContext& ctx) {
+	const Input* input = ctx.CurrentInput();
+	if (!input) return;
+	const float mx = input->MouseX(), my = input->MouseY();
+	const float maxScroll = MaxScroll();
+	m_scrollHot = false;
+	if (maxScroll <= 0.0f) {
+		m_scrollDragging = false;
+		return;
+	}
+
+	const gfx::Rect track = ScrollTrackRect();
+	const gfx::Rect thumb = ScrollThumbRect(maxScroll);
+	if (m_scrollDragging && !input->IsMouseDown(MouseButton::Left))
+		m_scrollDragging = false;
+	if (!ctx.IsMouseConsumed() || m_scrollDragging) {
+		m_scrollHot = thumb.Contains(mx, my);
+		if (m_scrollHot && input->WasMousePressed(MouseButton::Left)) {
+			m_scrollDragging = true;
+			m_scrollGrab = my - thumb.y;
+		}
+		if (m_scrollDragging) {
+			const float range = track.h - thumb.h;
+			if (range > 0.0f)
+				m_scroll = std::clamp((my - m_scrollGrab - track.y) / range * maxScroll,
+									  0.0f, maxScroll);
+		}
+		if (m_scrollHot || m_scrollDragging) ctx.ConsumeMouse();
+	}
+
+	// Mouse wheel anywhere over the area.
+	if (!ctx.IsMouseConsumed() && Pixel().Contains(mx, my) &&
+		input->WheelDelta() != 0.0f) {
+		m_scroll = std::clamp(m_scroll - input->WheelDelta() * 48.0f, 0.0f, maxScroll);
+		ctx.ConsumeMouse();
+	}
+}
+
+// The track sits in the reserved gutter, outside ContentRect, so drawing it
+// before the children (the tree walk's order) never puts it under them.
+void ScrollArea::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
+	const float maxScroll = MaxScroll();
+	if (maxScroll <= 0.0f) return;
+	const Theme& theme = ctx.GetTheme();
+	batch.DrawRect(ScrollTrackRect(), theme.control);
+	const gfx::Rect thumb = ScrollThumbRect(maxScroll);
+	batch.DrawRect(thumb, m_scrollDragging || m_scrollHot ? theme.controlActive
+														  : theme.controlHot);
+	DrawBorder(batch, thumb, theme.panelBorder);
+}
+
 // --- TabControl ------------------------------------------------------------
 
 size_t TabControl::AddTab(std::string label) {
-	m_tabs.push_back({std::move(label), {}});
+	// The page fills ContentRect() (the area below the strip) and is this
+	// control's Nth child, matching the tab's index.
+	ScrollArea* page = Add<ScrollArea>(gfx::Rect{0, 0, 1, 1});
+	page->debugName = "TabPage";
+	m_tabs.push_back({std::move(label), page});
 	return m_tabs.size() - 1;
 }
 
 void TabControl::SetActiveTab(int index) {
 	if (index >= 0 && index < static_cast<int>(m_tabs.size())) m_active = index;
+}
+
+gfx::Rect TabControl::ContentRect() const { return PageRect(); }
+
+void TabControl::LayoutSelf(UIContext& ctx) {
+	LayoutStrip(ctx); // size the strip + control before any rect math
+	// Only the active tab's page takes part in the walk.
+	for (size_t i = 0; i < m_tabs.size(); ++i)
+		m_tabs[i].page->visible = static_cast<int>(i) == m_active;
 }
 
 void TabControl::LayoutStrip(UIContext& ctx) {
@@ -1207,104 +1334,14 @@ gfx::Rect TabControl::PageRect() const {
 	return {base.x, base.y + stripH, base.w, base.h - stripH};
 }
 
-gfx::Rect TabControl::ContentRect() const {
-	const gfx::Rect page = PageRect();
-	const float pad = 12.0f;
-	const float gutter = 14.0f; // scrollbar track + margin, reserved always so
-								// the layout doesn't shift when the bar appears
-	return {page.x + pad, page.y + pad, page.w - pad - gutter, page.h - 2.0f * pad};
-}
-
-float TabControl::ContentFraction(const Tab& tab) {
-	float maxBottom = 1.0f;
-	for (const auto& child : tab.children)
-		if (child->visible)
-			maxBottom = std::max(maxBottom, child->bounds.y + child->bounds.h);
-	return maxBottom;
-}
-
-gfx::Rect TabControl::ScrollTrackRect(const gfx::Rect& page) const {
-	const float barW = 10.0f;
-	return {page.x + page.w - barW - 2.0f, page.y + 2.0f, barW, page.h - 4.0f};
-}
-
-gfx::Rect TabControl::ScrollThumbRect(const gfx::Rect& page, const Tab& tab,
-									  float maxScroll) const {
-	const gfx::Rect track = ScrollTrackRect(page);
-	const float thumbH =
-		std::max(track.h * page.h / (page.h + maxScroll), 24.0f);
-	const float t = maxScroll > 0.0f ? tab.scroll / maxScroll : 0.0f;
-	return {track.x, track.y + (track.h - thumbH) * t, track.w, thumbH};
-}
-
+// The pages (and everything on them) are walked by the tree before this runs,
+// so the strip only gets the mouse when nothing on the page claimed it.
 void TabControl::UpdateSelf(UIContext& ctx) {
 	const Input* input = ctx.CurrentInput();
 	if (!input) return;
-	LayoutStrip(ctx); // size the strip + control before any rect math
-	const float mx = input->MouseX();
-	const float my = input->MouseY();
-
-	// Active page children first, in reverse add order — same topmost-first
-	// claim on the mouse as UIContext itself. Children scrolled fully out of
-	// the page get neither layout-visible input nor draw.
-	if (m_active >= 0 && m_active < static_cast<int>(m_tabs.size())) {
-		const gfx::Rect page = PageRect();
-		const gfx::Rect inner = ContentRect();
-		Tab& tab = m_tabs[static_cast<size_t>(m_active)];
-		const float maxScroll = (ContentFraction(tab) - 1.0f) * inner.h;
-		tab.scroll = std::clamp(tab.scroll, 0.0f, maxScroll);
-		const gfx::Rect content{inner.x, inner.y - tab.scroll, inner.w, inner.h};
-
-		for (auto it = tab.children.rbegin(); it != tab.children.rend(); ++it) {
-			Widget& child = **it;
-			if (!child.visible) continue;
-			const float top = child.bounds.y * inner.h - tab.scroll;
-			const float bottom = (child.bounds.y + child.bounds.h) * inner.h -
-								 tab.scroll;
-			if (bottom <= 0.0f || top >= inner.h) continue;
-			child.Layout(content, ctx);
-			child.Update(ctx);
-		}
-
-		// Scrollbar after the children, so an open popup (which consumes the
-		// mouse) can't be scrolled out from under the user.
-		m_scrollHot = false;
-		if (maxScroll > 0.0f) {
-			const gfx::Rect track = ScrollTrackRect(page);
-			const gfx::Rect thumb = ScrollThumbRect(page, tab, maxScroll);
-			if (m_scrollDragging && !input->IsMouseDown(MouseButton::Left))
-				m_scrollDragging = false;
-			if (!ctx.IsMouseConsumed() || m_scrollDragging) {
-				m_scrollHot = thumb.Contains(mx, my);
-				if (m_scrollHot && input->WasMousePressed(MouseButton::Left)) {
-					m_scrollDragging = true;
-					m_scrollGrab = my - thumb.y;
-				}
-				if (m_scrollDragging) {
-					const float range = track.h - thumb.h;
-					if (range > 0.0f)
-						tab.scroll = std::clamp(
-							(my - m_scrollGrab - track.y) / range * maxScroll,
-							0.0f, maxScroll);
-				}
-				if (m_scrollHot || m_scrollDragging) ctx.ConsumeMouse();
-			}
-
-			// Mouse wheel anywhere over the page.
-			if (!ctx.IsMouseConsumed() && page.Contains(mx, my) &&
-				input->WheelDelta() != 0.0f) {
-				tab.scroll = std::clamp(tab.scroll - input->WheelDelta() * 48.0f,
-										0.0f, maxScroll);
-				ctx.ConsumeMouse();
-			}
-		} else {
-			m_scrollDragging = false;
-		}
-	}
-
-	// Tab strip.
 	m_hover = -1;
 	if (ctx.IsMouseConsumed()) return;
+	const float mx = input->MouseX(), my = input->MouseY();
 	for (size_t i = 0; i < m_tabs.size(); ++i) {
 		if (!TabRect(i).Contains(mx, my)) continue;
 		m_hover = static_cast<int>(i);
@@ -1314,10 +1351,11 @@ void TabControl::UpdateSelf(UIContext& ctx) {
 	}
 }
 
+// Frame and strip only — the active page and its widgets are children, drawn
+// by the tree straight after this.
 void TabControl::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 	const Theme& theme = ctx.GetTheme();
 	Font& font = ctx.GetFont();
-	LayoutStrip(ctx); // size the strip + control before any rect math
 
 	// Page frame first so the active tab can open into it.
 	const gfx::Rect page = PageRect();
@@ -1351,43 +1389,6 @@ void TabControl::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 				  rect.y + (rect.h - font.Height()) * 0.5f,
 				  active ? theme.accent : theme.text);
 	}
-
-	if (m_active >= 0 && m_active < static_cast<int>(m_tabs.size())) {
-		Tab& tab = m_tabs[static_cast<size_t>(m_active)];
-		const gfx::Rect inner = ContentRect();
-		const float maxScroll = (ContentFraction(tab) - 1.0f) * inner.h;
-		tab.scroll = std::clamp(tab.scroll, 0.0f, maxScroll);
-		const gfx::Rect content{inner.x, inner.y - tab.scroll, inner.w, inner.h};
-
-		// Clip to the content area while it scrolls (sliders draw their labels
-		// above their bounds, so a row leaving the top clips cleanly).
-		if (maxScroll > 0.0f) batch.SetScissor(&inner);
-		for (auto& child : tab.children) {
-			if (!child->visible) continue;
-			const float top = child->bounds.y * inner.h - tab.scroll;
-			const float bottom = (child->bounds.y + child->bounds.h) * inner.h -
-								 tab.scroll;
-			if (bottom <= 0.0f || top >= inner.h) continue;
-			child->Layout(content, ctx);
-			child->Draw(ctx, batch);
-		}
-		if (maxScroll > 0.0f) {
-			batch.SetScissor(nullptr);
-			batch.DrawRect(ScrollTrackRect(page), theme.control);
-			const gfx::Rect thumb = ScrollThumbRect(page, tab, maxScroll);
-			batch.DrawRect(thumb, m_scrollDragging || m_scrollHot
-									  ? theme.controlActive
-									  : theme.controlHot);
-			DrawBorder(batch, thumb, theme.panelBorder);
-		}
-	}
-}
-
-void TabControl::DrawOverlaySelf(UIContext& ctx, gfx::SpriteBatch& batch) {
-	// Children were laid out by Draw earlier in the same render pass.
-	if (m_active < 0 || m_active >= static_cast<int>(m_tabs.size())) return;
-	for (auto& child : m_tabs[static_cast<size_t>(m_active)].children)
-		if (child->visible) child->DrawOverlay(ctx, batch);
 }
 
 // --- Repeater ------------------------------------------------------------

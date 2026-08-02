@@ -11,7 +11,8 @@
 //   ColorPicker labeled swatch; click opens an R/G/B/A slider popup
 //   KeyBind     labeled key box; click arms it, the next key press rebinds
 //   MenuList    vertical menu; hover or arrows/W/S select, click/Enter fire
-//   TabControl  tab strip + framed page; owns child widgets per tab
+//   ScrollArea  container that scrolls + clips its children when they overflow
+//   TabControl  tab strip + a framed ScrollArea page per tab
 //   Repeater    container whose children come from a per-frame count
 //
 // All bounds are normalized fractions (0..1) of the containing widget or
@@ -448,18 +449,57 @@ private:
 	int m_selected = 0;
 };
 
+// A container that scrolls its children vertically when they overflow it.
+// Children are authored as fractions of ContentRect() — this widget's rect
+// inset by `padding`, with `gutter` reserved at the right for the scrollbar so
+// the layout doesn't shift when the bar appears — and a child authored past the
+// bottom (bounds.y + bounds.h > 1) is what makes the area scroll. Overflow is
+// clipped, the wheel scrolls anywhere over the area, and the thumb drags.
+// Children scrolled fully out of view get neither input nor draw; an open popup
+// can't scroll out from under the user because it consumes the mouse, which
+// blocks the wheel.
+class ScrollArea : public Widget {
+public:
+	explicit ScrollArea(const gfx::Rect& rect) { bounds = rect; }
+
+	float Scroll() const { return m_scroll; }
+	void ScrollToTop() { m_scroll = 0.0f; }
+
+	// The children's container: the view box, shifted up by the scroll.
+	gfx::Rect ContentRect() const override;
+	// The view box itself (unscrolled) — what the scroll maths and clip use.
+	gfx::Rect ViewRect() const;
+
+	float padding = 12.0f; // inset from this widget's own edge
+	float gutter = 14.0f;  // scrollbar track + margin, always reserved
+
+private:
+	void LayoutSelf(UIContext& ctx) override;
+	void UpdateSelf(UIContext& ctx) override;
+	void DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) override;
+	bool ChildActive(const Widget& child) const override;
+	const gfx::Rect* ChildClip() const override;
+
+	// Content height as a multiple of the view height: the lowest child bottom
+	// edge, never less than 1 (> 1 means the area scrolls).
+	float ContentFraction() const;
+	float MaxScroll() const;
+	gfx::Rect ScrollTrackRect() const;
+	gfx::Rect ScrollThumbRect(float maxScroll) const;
+
+	float m_scroll = 0.0f; // pixels scrolled down, clamped every layout
+	gfx::Rect m_clip{};    // ViewRect cached so ChildClip can hand back a pointer
+	bool m_clipping = false;
+	bool m_scrollHot = false;
+	bool m_scrollDragging = false;
+	float m_scrollGrab = 0.0f; // pointer offset within the thumb while dragging
+};
+
 // Tab strip across the top of the bounds plus a framed page area below it.
-// Each tab owns its child widgets; child bounds are fractions of the PAGE
-// area (the rect below the strip), and only the active tab's children
-// receive input and draw.
-//
-// Pages scroll vertically when their content overflows: children authored
-// below the page bottom simply have bounds.y + bounds.h > 1, and the control
-// detects that, clips the page while drawing, and shows a scrollbar at the
-// page's right edge (mouse wheel over the page, or drag the thumb). Each tab
-// keeps its own scroll position. Children scrolled fully out of view are
-// skipped for input and drawing; popups can't scroll out from under the
-// user because an open popup consumes the mouse, which blocks scrolling.
+// Each tab is a ScrollArea child filling that page, so a tab's widgets are
+// authored as fractions of the page and scroll for free when they overflow it
+// (see ScrollArea). Only the active tab's page is visible, so only its children
+// receive input and draw; each tab keeps its own scroll position.
 class TabControl : public Widget {
 public:
 	// tabHeight is a fraction of the control's own height.
@@ -470,58 +510,51 @@ public:
 	// Returns the new tab's index, used as the `tab` argument to AddChild.
 	size_t AddTab(std::string label);
 
-	// Creates a widget on the given tab; the control owns it (same contract
-	// as UIContext::Add, but scoped to one page).
+	// Creates a widget on the given tab's page; the page owns it (same contract
+	// as UIContext::Add, but scoped to that page).
 	template <typename T, typename... Args>
 	T* AddChild(size_t tab, Args&&... args) {
-		auto widget = std::make_unique<T>(std::forward<Args>(args)...);
-		T* raw = widget.get();
-		m_tabs[tab].children.push_back(std::move(widget));
-		return raw;
+		return m_tabs[tab].page->Add<T>(std::forward<Args>(args)...);
+	}
+
+	// A tab's page, for anything that needs the container itself (e.g. to reset
+	// its scroll). Null for an out-of-range index.
+	ScrollArea* Page(size_t tab) {
+		return tab < m_tabs.size() ? m_tabs[tab].page : nullptr;
 	}
 
 	int ActiveTab() const { return m_active; }
 	void SetActiveTab(int index);
 
-	void UpdateSelf(UIContext& ctx) override;
-	void DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) override;
-	void DrawOverlaySelf(UIContext& ctx, gfx::SpriteBatch& batch) override;
+	// The page area below the strip — what a tab's ScrollArea fills.
+	gfx::Rect ContentRect() const override;
 
 private:
+	// A tab is its label plus the page that holds its widgets. `page` is one of
+	// this control's own children, added by AddTab — so tab index and child
+	// index coincide, and nothing else may be added as a direct child.
 	struct Tab {
 		std::string label;
-		std::vector<std::unique_ptr<Widget>> children;
-		float scroll = 0.0f; // pixels scrolled down, clamped every frame
+		ScrollArea* page = nullptr;
 	};
 
 	// Sizes the strip before anything resolves against it — the tree calls this
-	// right after our own pixel rect lands and before ContentRect() is asked for.
-	void LayoutSelf(UIContext& ctx) override { LayoutStrip(ctx); }
+	// right after our own pixel rect lands and before ContentRect() is asked
+	// for — and shows only the active tab's page.
+	void LayoutSelf(UIContext& ctx) override;
+	void UpdateSelf(UIContext& ctx) override;
+	void DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) override;
 
 	// Measures each tab's label and sizes the strip: every tab is at least the
 	// even split, wider when its text needs it, and the control grows + recenters
 	// to the total. Caches m_tabWidths / m_effRect for the const rect helpers
-	// below; called at the top of Update and Draw (needs the font from ctx).
+	// below (needs the font from ctx).
 	void LayoutStrip(UIContext& ctx);
 
 	gfx::Rect TabRect(size_t index) const;
 	// The page area below the tab strip, in pixels (the panel frame); only
 	// valid after LayoutStrip().
 	gfx::Rect PageRect() const;
-	// The children's container: PageRect inset so content doesn't sit on the
-	// frame, with the right side clearing the scrollbar gutter. This is what
-	// child bounds resolve against (and the scroll/scissor math uses).
-	//
-	// NOTE this control still owns its pages' children itself (a list per tab,
-	// walked by UpdateSelf/DrawSelf) instead of through Widget's child list —
-	// the tabs move onto the shared mechanism in P2 (docs/ui-hierarchy.md).
-	gfx::Rect ContentRect() const override;
-	// Content height as a multiple of the page height: the lowest child
-	// bottom edge, never less than 1 (> 1 means the page scrolls).
-	static float ContentFraction(const Tab& tab);
-	gfx::Rect ScrollTrackRect(const gfx::Rect& page) const;
-	gfx::Rect ScrollThumbRect(const gfx::Rect& page, const Tab& tab,
-							  float maxScroll) const;
 
 	std::vector<Tab> m_tabs;
 	std::vector<float> m_tabWidths; // per-tab strip width (LayoutStrip)
@@ -529,9 +562,6 @@ private:
 	float m_tabHeight;
 	int m_active = 0;
 	int m_hover = -1;
-	bool m_scrollHot = false;
-	bool m_scrollDragging = false;
-	float m_scrollGrab = 0.0f; // pointer offset within the thumb while dragging
 };
 
 // A container whose children come from a per-frame COUNT — the status-effect
