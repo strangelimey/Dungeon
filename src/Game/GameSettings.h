@@ -14,8 +14,9 @@
 #pragma once
 
 #include "Game/Party.h"           // MoveKeys
-#include "Game/PartyHud.h"        // ResourceBarColors
+#include "Game/PartyHudTypes.h"   // ResourceBarColors (not the whole HUD)
 #include "Graphics/DisplayEnum.h" // gfx::FullscreenMode
+#include "UI/Controls.h"          // ui::Widget complete for UIContext's unique_ptr
 #include "UI/UIContext.h"         // ui::Theme
 
 #include <array>

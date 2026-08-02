@@ -428,9 +428,8 @@ private:
 	// recreates the dropdown showing the palette that is actually active.
 	int m_torchPalette = 0;
 
-	// Party-bar slots and the widgets authored beneath the bar with their
-	// design-pixel Y at scale 1; ApplyPartyBarScale resizes the slots and
-	// shifts the rest so they track the bar's bottom edge.
+	// Party-bar slots and widgets under the bar (fractional Y at scale 1);
+	// ApplyPartyBarScale resizes the slots and shifts the rest with the bar.
 	std::vector<CharacterPanel*> m_partyPanels; // owned by m_hudUi
 	const HitSplatIcons* m_hitSplats = nullptr; // hit-feedback icons (Game-owned)
 	const ItemIconBank* m_itemIcons = nullptr;  // item icons (Game-owned)
@@ -443,7 +442,6 @@ private:
 	std::optional<std::string>* m_held = nullptr;
 	float m_hudMouseX = 0.0f, m_hudMouseY = 0.0f;
 	std::vector<std::pair<ui::Widget*, float>> m_belowBarWidgets;
-	float m_hudDesignW = 0.0f, m_hudDesignH = 0.0f; // window size at BuildHud
 
 	// Font re-bake debounce: last seen window height and how long it has
 	// held (fonts re-bake once it settles — see UpdateFonts).

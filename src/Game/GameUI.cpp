@@ -31,14 +31,9 @@ constexpr float kTitleFontH = 64.0f;
 // interactive resize drag doesn't drain the GPU on every size change.
 constexpr float kFontSettleDelay = 0.25f;
 
-// Widget bounds are normalized fractions of their container (see Widget.h).
-// Layouts here are still authored in design pixels for readability and
-// converted with this helper; they scale with the live window size.
-gfx::Rect Norm(const gfx::Rect& designPx, const gfx::Rect& container) {
-	return {(designPx.x - container.x) / container.w,
-			(designPx.y - container.y) / container.h, designPx.w / container.w,
-			designPx.h / container.h};
-}
+// Widget bounds are normalized fractions [0..1] of their container
+// (see Widget.h). Layouts are authored directly in those fractions — never
+// design pixels, never a post-hoc Norm() conversion.
 
 // Hand-use command ids that resolve to a melee swing: the verb IS the attack
 // (Balance's closed attack table: damage type + numbers), the strike is the
@@ -73,11 +68,9 @@ std::string UseKey(const std::string& itemId) {
 }
 
 // Vertical stack with CSS-style collapsing margins: the gap between two items is
-// max(upper.marginBottom, lower.marginTop) — never the sum — so equal margins on
-// neighbours overlap into one. Place() returns the next item's design-px rect (a
-// fixed column x/width); Norm turns it into page fractions. The first item gets
-// no top margin (it sits at startY, like a block whose top margin collapses
-// through its parent's padding). Used to lay out the settings tabs.
+// max(upper.marginBottom, lower.marginTop) — never the sum. All coordinates are
+// fractions [0..1] of the page (tab content). Place() returns bounds ready for
+// AddChild (no Norm). First item gets no top margin.
 class Flow {
 public:
 	Flow(float x, float width, float startY) : m_x(x), m_w(width), m_y(startY) {}
@@ -89,7 +82,7 @@ public:
 		m_prevBottom = marginBottom;
 		return r;
 	}
-	float Cursor() const { return m_y; } // y just below the last item
+	float Cursor() const { return m_y; }
 
 private:
 	float m_x, m_w, m_y;
@@ -470,19 +463,15 @@ void GameUI::EatFromHand(size_t i, size_t hand) {
 // Load opens the saves browser, Start New Game and Settings work as labeled.
 // ============================================================================
 void GameUI::BuildMenu() {
-	const float w = static_cast<float>(m_window.Width());
-	const float h = static_cast<float>(m_window.Height());
-	const gfx::Rect window{0, 0, w, h};
-
 	// Continue and Load only appear when at least one save exists, so the list
 	// is sized to whatever entries are present (one quarter each with all four,
-	// half each with just Start + Settings).
+	// half each with just Start + Settings). Bounds are window fractions.
 	const bool hasSaves = !ListSaves().empty();
 	const int itemCount = hasSaves ? 4 : 2;
-	const float menuW = 420.0f;
-	const float itemH = 58.0f;
-	auto* menu = m_menuUi.Add<ui::MenuList>(
-		Norm({(w - menuW) * 0.5f, h * 0.42f, menuW, itemH * itemCount}, window),
+	constexpr float kMenuW = 0.26f;   // ~420/1600
+	constexpr float kItemH = 0.064f;  // ~58/900
+	const float menuH = kItemH * static_cast<float>(itemCount);
+	auto* menu = m_menuUi.Add<ui::MenuList>(gfx::Rect{(1.0f - kMenuW) * 0.5f, 0.42f, kMenuW, menuH},
 		1.0f / static_cast<float>(itemCount));
 
 	// Order: Continue / Load (only when a save exists), then Start New Game just
@@ -517,61 +506,35 @@ void GameUI::BuildMenu() {
 // Split out of BuildMenu so a Video-tab adapter/monitor change can rebuild just
 // this page (different dropdown structure) without touching the menu list.
 void GameUI::BuildSettings() {
-	const float w = static_cast<float>(m_window.Width());
-	const float h = static_cast<float>(m_window.Height());
-	const gfx::Rect window{0, 0, w, h};
-
-	// Settings page: Game / Video / Audio tabs over a shared page area, with
-	// a Back button beneath. Tab children are fractions of the PAGE (the
-	// area below the strip); each row leaves room for the settings font.
-	//
-	// The page is authored in design pixels against a 900px-tall window and
-	// SCALED by the live window height (uiScale). The page fonts scale the SAME
-	// way (UpdateFonts: kMenuFontH * windowH / kFontDesignWindowH), so rows and
-	// text stay in step at any resolution — without this a taller window grows
-	// the font past its fixed-height row and the labels collide. `page` stays in
-	// unscaled design units (children keep their design-px layout); only the
-	// TabControl's pixel size scales, which scales every child with it.
-	const float uiScale = h / kFontDesignWindowH;
-	const float designW = 760.0f;
-	// Taller header strip so longer tab labels have room; designH grows with it so
-	// the content area below keeps its height (designH - stripH = 492 design px).
-	const float stripH = 60.0f;
-	const float designH = 552.0f;
-	const float tabsWpx = designW * uiScale;
-	const float tabsHpx = designH * uiScale;
-	const float tabsX = (w - tabsWpx) * 0.5f;
-	const float tabsY = h * 0.29f;
-	auto* tabs = m_settingsUi.Add<ui::TabControl>(
-		Norm({tabsX, tabsY, tabsWpx, tabsHpx}, window), stripH / designH);
+	// Settings page: tabs over a shared page + Back beneath.
+	// All bounds are [0..1] of parent (TabControl of the window; children of
+	// the tab page). Fonts still track window height via UpdateFonts.
+	constexpr float kTabsX = 0.10f, kTabsY = 0.29f, kTabsW = 0.80f, kTabsH = 0.55f;
+	constexpr float kStrip = 60.0f / 552.0f;
+	auto* tabs = m_settingsUi.Add<ui::TabControl>(gfx::Rect{kTabsX, kTabsY, kTabsW, kTabsH}, kStrip);
 	m_settingsTabs = tabs; // kept so a Video repopulate restores the active tab
 	const size_t tabGame = tabs->AddTab(loc::Tr("settings.tab.game"));
 	const size_t tabControls = tabs->AddTab(loc::Tr("settings.tab.controls"));
 	const size_t tabVideo = tabs->AddTab(loc::Tr("settings.tab.video"));
 	const size_t tabAudio = tabs->AddTab(loc::Tr("settings.tab.audio"));
 	const size_t tabUi = tabs->AddTab(loc::Tr("settings.tab.ui"));
-	const gfx::Rect page{0, 0, designW, designH - stripH}; // child design space
-	const float pad = 24.0f;
-	const float rowW = page.w - 2 * pad;
-	// A "setting" is a label stacked over its input control. Tabs lay out with a
-	// Flow (collapsing-margin vertical stack, see the helper up top): mTight binds
-	// a control to the label above it, mGroup separates settings/sections, mRow
-	// paces the key-bind list. Margins collapse, so a control's mGroup bottom and
-	// the next label's mGroup top overlap into one mGroup gap (not the sum). All
-	// design px; Norm turns the Flow rects into 0..1 page fractions.
-	const float labelH = 28.0f;  // a label row
-	const float ctrlH = 40.0f;   // dropdown / button height
-	const float sliderH = 50.0f; // self-contained slider (label line + track band)
-	const float mTight = 12.0f;  // label -> its own control
-	const float mRow = 14.0f;    // between list rows (key binds)
-	const float mGroup = 24.0f;  // between settings / sections
+	// Page metrics as fractions of the tab content area.
+	const float pad = 0.032f;
+	const float rowW = 1.0f - 2.0f * pad;
+	const float labelH = 0.057f;
+	const float ctrlH = 0.081f;
+	const float sliderH = 0.102f;
+	const float mTight = 0.024f;
+	const float mRow = 0.028f;
+	const float mGroup = 0.049f;
+	constexpr float kRule = 0.003f; // hairline separator height (page fraction)
 
 	// Game: language. The language list is whatever assets/lang holds;
 	// selecting one defers to Game (settings save + string reload +
 	// RebuildForLanguage at the top of the next frame — rebuilding here
 	// would destroy this dropdown mid-callback).
 	Flow gf{pad, rowW, pad};
-	tabs->AddChild<ui::Label>(tabGame, Norm(gf.Place(labelH, mGroup, mTight), page),
+	tabs->AddChild<ui::Label>(tabGame, gf.Place(labelH, mGroup, mTight),
 							  loc::Tr("settings.language"))
 		->dim = true;
 	m_languages = loc::ScanLanguages(paths::Asset("lang"));
@@ -583,7 +546,7 @@ void GameUI::BuildSettings() {
 			languageIndex = static_cast<int>(i);
 	}
 	tabs->AddChild<ui::DropDown>(
-		tabGame, Norm(gf.Place(ctrlH, mTight, mGroup), page), std::move(languageNames),
+		tabGame, gf.Place(ctrlH, mTight, mGroup), std::move(languageNames),
 		languageIndex, [this](int index) {
 			Click();
 			if (index >= 0 && index < static_cast<int>(m_languages.size()) &&
@@ -596,13 +559,13 @@ void GameUI::BuildSettings() {
 	// action the old key (swap) so the set stays conflict-free. Each rebind
 	// goes straight into the Party (onKeysChanged) and persists.
 	Flow cf{pad, rowW, pad};
-	tabs->AddChild<ui::Label>(tabControls, Norm(cf.Place(labelH, mGroup, mRow), page),
+	tabs->AddChild<ui::Label>(tabControls, cf.Place(labelH, mGroup, mRow),
 							  loc::Tr("settings.movement_keys"));
 	m_keyBinds.clear();
 	for (size_t i = 0; i < std::size(kKeyFields); ++i) {
 		const KeyField& field = kKeyFields[i];
 		auto* bind = tabs->AddChild<ui::KeyBind>(
-			tabControls, Norm(cf.Place(36, mRow, mRow), page),
+			tabControls, cf.Place(ctrlH, mRow, mRow),
 			loc::Tr(field.labelKey), m_settings.moveKeys.*(field.field),
 			[this, member = field.field](int vkey) {
 				Click();
@@ -627,13 +590,13 @@ void GameUI::BuildSettings() {
 	// dragging (onLookChanged pushes the values into the Party) and persist on
 	// release; the curve dropdowns apply + persist on selection. The page scrolls
 	// once these run past its height.
-	tabs->AddChild<ui::Separator>(tabControls, Norm(cf.Place(1.0f, mGroup, mGroup), page));
-	tabs->AddChild<ui::Label>(tabControls, Norm(cf.Place(labelH, mGroup, mTight), page),
+	tabs->AddChild<ui::Separator>(tabControls, cf.Place(kRule, mGroup, mGroup));
+	tabs->AddChild<ui::Label>(tabControls, cf.Place(labelH, mGroup, mTight),
 							  loc::Tr("settings.mouselook"));
 	auto lookSlider = [&](const char* key, float lo, float hi, float* field, float mTop,
 						  float mBot) {
 		auto* s = tabs->AddChild<ui::Slider>(
-			tabControls, Norm(cf.Place(sliderH, mTop, mBot), page), loc::Tr(key), lo, hi,
+			tabControls, cf.Place(sliderH, mTop, mBot), loc::Tr(key), lo, hi,
 			*field, [this, field](float v) {
 				*field = v;
 				if (onLookChanged) onLookChanged();
@@ -646,10 +609,10 @@ void GameUI::BuildSettings() {
 		return names;
 	};
 	auto easeDrop = [&](const char* labelKey, Easing* field) {
-		tabs->AddChild<ui::Label>(tabControls, Norm(cf.Place(labelH, mGroup, mTight), page),
+		tabs->AddChild<ui::Label>(tabControls, cf.Place(labelH, mGroup, mTight),
 								  loc::Tr(labelKey));
 		tabs->AddChild<ui::DropDown>(
-			tabControls, Norm(cf.Place(ctrlH, mTight, mGroup), page), easeNames(),
+			tabControls, cf.Place(ctrlH, mTight, mGroup), easeNames(),
 			LookEaseIndex(*field), [this, field](int index) {
 				Click();
 				if (index < 0 || index >= static_cast<int>(std::size(kLookEaseOptions)))
@@ -673,24 +636,24 @@ void GameUI::BuildSettings() {
 	// only sets the hand's left-click default) — and the Magic quick-cast
 	// count (how many recently-cast spells the menu lists). Both persist
 	// immediately.
-	tabs->AddChild<ui::Separator>(tabControls, Norm(cf.Place(1.0f, mGroup, mGroup), page));
-	tabs->AddChild<ui::Label>(tabControls, Norm(cf.Place(labelH, mGroup, mTight), page),
+	tabs->AddChild<ui::Separator>(tabControls, cf.Place(kRule, mGroup, mGroup));
+	tabs->AddChild<ui::Label>(tabControls, cf.Place(labelH, mGroup, mTight),
 							  loc::Tr("settings.hands"));
 	tabs->AddChild<ui::Checkbox>(
-		tabControls, Norm(cf.Place(ctrlH, mTight, mGroup), page),
+		tabControls, cf.Place(ctrlH, mTight, mGroup),
 		loc::Tr("settings.usemenu_execute"), m_settings.useMenuExecutes,
 		[this](bool on) {
 			Click();
 			m_settings.useMenuExecutes = on;
 			m_settings.Save();
 		});
-	tabs->AddChild<ui::Label>(tabControls, Norm(cf.Place(labelH, mGroup, mTight), page),
+	tabs->AddChild<ui::Label>(tabControls, cf.Place(labelH, mGroup, mTight),
 							  loc::Tr("settings.spell_mru"));
 	{
 		std::vector<std::string> counts;
 		for (int n = 1; n <= 10; ++n) counts.push_back(std::to_string(n));
 		tabs->AddChild<ui::DropDown>(
-			tabControls, Norm(cf.Place(ctrlH, mTight, mGroup), page),
+			tabControls, cf.Place(ctrlH, mTight, mGroup),
 			std::move(counts), m_settings.spellMruCount - 1, [this](int index) {
 				Click();
 				m_settings.spellMruCount = index + 1;
@@ -702,7 +665,7 @@ void GameUI::BuildSettings() {
 	// (collapsing-margin vertical stack) places each label-over-control setting.
 	Flow vf{pad, rowW, pad};
 	auto videoLabel = [&](const char* key) {
-		tabs->AddChild<ui::Label>(tabVideo, Norm(vf.Place(labelH, mGroup, mTight), page),
+		tabs->AddChild<ui::Label>(tabVideo, vf.Place(labelH, mGroup, mTight),
 								  loc::Tr(key))
 			->dim = true;
 	};
@@ -721,7 +684,7 @@ void GameUI::BuildSettings() {
 		std::vector<std::string> names;
 		for (const gfx::AdapterInfo& a : m_adapters) names.push_back(a.name);
 		tabs->AddChild<ui::DropDown>(
-			tabVideo, Norm(vf.Place(ctrlH, mTight, mGroup), page), std::move(names),
+			tabVideo, vf.Place(ctrlH, mTight, mGroup), std::move(names),
 			m_selAdapter, [this](int index) {
 				Click();
 				if (index == m_selAdapter) return;
@@ -731,7 +694,7 @@ void GameUI::BuildSettings() {
 				m_videoRebuildPending = true;
 			});
 	} else {
-		tabs->AddChild<ui::Label>(tabVideo, Norm(vf.Place(ctrlH, mTight, mGroup), page),
+		tabs->AddChild<ui::Label>(tabVideo, vf.Place(ctrlH, mTight, mGroup),
 								  selAdapter ? selAdapter->name : std::string("—"));
 	}
 	// Monitor (output) of the selected adapter.
@@ -740,7 +703,7 @@ void GameUI::BuildSettings() {
 		std::vector<std::string> names;
 		for (const gfx::OutputInfo& o : selAdapter->outputs) names.push_back(o.name);
 		tabs->AddChild<ui::DropDown>(
-			tabVideo, Norm(vf.Place(ctrlH, mTight, mGroup), page), std::move(names),
+			tabVideo, vf.Place(ctrlH, mTight, mGroup), std::move(names),
 			m_selOutput, [this](int index) {
 				Click();
 				if (index == m_selOutput) return;
@@ -749,7 +712,7 @@ void GameUI::BuildSettings() {
 				m_videoRebuildPending = true;
 			});
 	} else {
-		tabs->AddChild<ui::Label>(tabVideo, Norm(vf.Place(ctrlH, mTight, mGroup), page),
+		tabs->AddChild<ui::Label>(tabVideo, vf.Place(ctrlH, mTight, mGroup),
 								  selOutput ? selOutput->name : std::string("—"));
 	}
 	// Resolution supported by the adapter/monitor combination.
@@ -761,7 +724,7 @@ void GameUI::BuildSettings() {
 				resOptions.push_back(std::format("{} x {}", m.width, m.height));
 		if (resOptions.empty()) resOptions.push_back("—");
 		tabs->AddChild<ui::DropDown>(
-			tabVideo, Norm(vf.Place(ctrlH, mTight, mGroup), page), std::move(resOptions),
+			tabVideo, vf.Place(ctrlH, mTight, mGroup), std::move(resOptions),
 			m_selRes, [this](int index) {
 				Click();
 				m_selRes = index;
@@ -770,7 +733,7 @@ void GameUI::BuildSettings() {
 	// Display mode: Windowed / Borderless / Exclusive full-screen.
 	videoLabel("settings.display_mode");
 	tabs->AddChild<ui::DropDown>(
-		tabVideo, Norm(vf.Place(ctrlH, mTight, mGroup), page),
+		tabVideo, vf.Place(ctrlH, mTight, mGroup),
 		std::vector<std::string>{loc::Tr("mode.windowed"), loc::Tr("mode.borderless"),
 								 loc::Tr("mode.exclusive")},
 		static_cast<int>(m_selMode), [this](int index) {
@@ -780,7 +743,7 @@ void GameUI::BuildSettings() {
 	// Apply the staged display selection (the only Video control that isn't live).
 	gfx::Rect applyRect = vf.Place(ctrlH, mTight, mGroup);
 	applyRect.w = 220.0f; // narrower than a full row, like a button
-	tabs->AddChild<ui::Button>(tabVideo, Norm(applyRect, page),
+	tabs->AddChild<ui::Button>(tabVideo, applyRect,
 							   loc::Tr("settings.apply"), [this] {
 								   Click();
 								   OnVideoApply();
@@ -788,12 +751,12 @@ void GameUI::BuildSettings() {
 
 	// Divider between the display section above and the rendering section below.
 	tabs->AddChild<ui::Separator>(tabVideo,
-								  Norm(vf.Place(1.0f, mGroup, mGroup), page));
+								  vf.Place(kRule, mGroup, mGroup));
 
 	// Video: quality tier (hot-swaps meshes/textures in place).
 	videoLabel("settings.quality");
 	tabs->AddChild<ui::DropDown>(
-		tabVideo, Norm(vf.Place(ctrlH, mTight, mGroup), page),
+		tabVideo, vf.Place(ctrlH, mTight, mGroup),
 		std::vector<std::string>{
 			loc::Tr("settings.quality.low"), loc::Tr("settings.quality.medium"),
 			loc::Tr("settings.quality.high"), loc::Tr("settings.quality.ultra")},
@@ -808,7 +771,7 @@ void GameUI::BuildSettings() {
 	std::vector<std::string> lightOptions;
 	for (int budget : kLightBudgets) lightOptions.push_back(std::to_string(budget));
 	m_maxLightsDrop = tabs->AddChild<ui::DropDown>(
-		tabVideo, Norm(vf.Place(ctrlH, mTight, mGroup), page), std::move(lightOptions),
+		tabVideo, vf.Place(ctrlH, mTight, mGroup), std::move(lightOptions),
 		GameSettings::LightBudgetIndex(m_settings.maxPointLights), [this](int index) {
 			Click();
 			m_settings.maxPointLights = kLightBudgets[index];
@@ -829,7 +792,7 @@ void GameUI::BuildSettings() {
 							  (refreshHz + static_cast<int>(interval) / 2) /
 								  static_cast<int>(interval)));
 	tabs->AddChild<ui::DropDown>(
-		tabVideo, Norm(vf.Place(ctrlH, mTight, mGroup), page), std::move(fpsOptions),
+		tabVideo, vf.Place(ctrlH, mTight, mGroup), std::move(fpsOptions),
 		GameSettings::PresentIntervalIndex(m_settings.presentInterval),
 		[this](int index) {
 			Click();
@@ -840,7 +803,7 @@ void GameUI::BuildSettings() {
 	// Live while dragging; persisted once on release.
 	Flow af{pad, rowW, pad};
 	auto* volume = tabs->AddChild<ui::Slider>(
-		tabAudio, Norm(af.Place(sliderH, mGroup, mGroup), page),
+		tabAudio, af.Place(sliderH, mGroup, mGroup),
 		loc::Tr("settings.volume"), 0.0f, 1.0f, m_settings.volume, [this](float v) {
 			m_settings.volume = v;
 			m_audio.SetMasterVolume(v);
@@ -852,7 +815,7 @@ void GameUI::BuildSettings() {
 	// a glance). Live — widgets re-check the skin pointer each draw.
 	Flow uf{pad, rowW, pad};
 	tabs->AddChild<ui::Checkbox>(
-		tabUi, Norm(uf.Place(ctrlH, mGroup, mTight), page),
+		tabUi, uf.Place(ctrlH, mGroup, mTight),
 		loc::Tr("settings.uiskin"), m_settings.uiSkin, [this](bool on) {
 			Click();
 			m_settings.uiSkin = on;
@@ -863,7 +826,7 @@ void GameUI::BuildSettings() {
 	// UI → Head bob: the walking camera's footfall dip/sway. Off for motion-
 	// sensitive players; pushed to the Party via onHeadBobChanged.
 	tabs->AddChild<ui::Checkbox>(
-		tabUi, Norm(uf.Place(ctrlH, mTight, mGroup), page),
+		tabUi, uf.Place(ctrlH, mTight, mGroup),
 		loc::Tr("settings.headbob"), m_settings.headBob, [this](bool on) {
 			Click();
 			m_settings.headBob = on;
@@ -875,10 +838,10 @@ void GameUI::BuildSettings() {
 	// opacity fades the slot backgrounds. Both apply while dragging and
 	// persist on release; safe before the HUD exists (the panel list is empty
 	// until the first game load).
-	tabs->AddChild<ui::Label>(tabUi, Norm(uf.Place(labelH, mGroup, mTight), page),
+	tabs->AddChild<ui::Label>(tabUi, uf.Place(labelH, mGroup, mTight),
 							  loc::Tr("settings.party_bar"));
 	auto* barScale = tabs->AddChild<ui::Slider>(
-		tabUi, Norm(uf.Place(sliderH, mTight, mGroup), page),
+		tabUi, uf.Place(sliderH, mTight, mGroup),
 		loc::Tr("settings.bar_scale"), 0.5f, 1.5f, m_settings.partyBarScale,
 		[this](float v) {
 			m_settings.partyBarScale = v;
@@ -886,7 +849,7 @@ void GameUI::BuildSettings() {
 		});
 	barScale->onRelease = [this] { m_settings.Save(); };
 	auto* barOpacity = tabs->AddChild<ui::Slider>(
-		tabUi, Norm(uf.Place(sliderH, mGroup, mGroup), page),
+		tabUi, uf.Place(sliderH, mGroup, mGroup),
 		loc::Tr("settings.bar_opacity"), 0.0f, 1.0f, m_settings.partyBarOpacity,
 		[this](float v) {
 			m_settings.partyBarOpacity = v;
@@ -900,20 +863,21 @@ void GameUI::BuildSettings() {
 	// (ApplyTheme); bar edits show on the HUD widgets' next draw (they point
 	// at the settings' barColors). Both persist once when a picker's popup
 	// closes. Each grid is one Flow block (its rows are placed inside it).
-	const float colW = (rowW - 2 * 16.0f) / 3.0f;
-	const float pickRowH = 44.0f; // per grid row (3 pickers across)
-	const float pickH = 36.0f;    // a picker swatch row
+	const float colGap = 0.021f;
+	const float colW = (rowW - 2.0f * colGap) / 3.0f;
+	const float pickRowH = 0.089f; // per grid row (3 pickers across)
+	const float pickH = 0.073f;    // a picker swatch row
 	auto gridHeight = [&](size_t count) {
 		const size_t rows = (count + 2) / 3;
 		return rows == 0 ? 0.0f : static_cast<float>(rows - 1) * pickRowH + pickH;
 	};
 	auto pickerCell = [&](size_t index, float blockTop) {
-		return Norm({pad + (colW + 16.0f) * static_cast<float>(index % 3),
-					 blockTop + pickRowH * static_cast<float>(index / 3), colW, pickH},
-					page);
+		return gfx::Rect{pad + (colW + colGap) * static_cast<float>(index % 3),
+						 blockTop + pickRowH * static_cast<float>(index / 3), colW,
+						 pickH};
 	};
-	tabs->AddChild<ui::Separator>(tabUi, Norm(uf.Place(1.0f, mGroup, mGroup), page));
-	tabs->AddChild<ui::Label>(tabUi, Norm(uf.Place(labelH, mGroup, mTight), page),
+	tabs->AddChild<ui::Separator>(tabUi, uf.Place(kRule, mGroup, mGroup));
+	tabs->AddChild<ui::Label>(tabUi, uf.Place(labelH, mGroup, mTight),
 							  loc::Tr("settings.theme_colors"));
 	const float themeTop =
 		uf.Place(gridHeight(std::size(kThemeFields)), mTight, mGroup).y;
@@ -928,8 +892,8 @@ void GameUI::BuildSettings() {
 			});
 		picker->onClose = [this] { m_settings.Save(); };
 	}
-	tabs->AddChild<ui::Separator>(tabUi, Norm(uf.Place(1.0f, mGroup, mGroup), page));
-	tabs->AddChild<ui::Label>(tabUi, Norm(uf.Place(labelH, mGroup, mTight), page),
+	tabs->AddChild<ui::Separator>(tabUi, uf.Place(kRule, mGroup, mGroup));
+	tabs->AddChild<ui::Label>(tabUi, uf.Place(labelH, mGroup, mTight),
 							  loc::Tr("settings.resource_bars"));
 	const float barTop = uf.Place(gridHeight(std::size(kBarFields)), mTight, mGroup).y;
 	size_t barIndex = 0;
@@ -947,8 +911,8 @@ void GameUI::BuildSettings() {
 	// color (portrait border, hand stripe, log tint). Edits land in the
 	// settings (the master, member_<n>= in the ini) AND on the live roster,
 	// so the HUD recolors immediately; persists when the popup closes.
-	tabs->AddChild<ui::Separator>(tabUi, Norm(uf.Place(1.0f, mGroup, mGroup), page));
-	tabs->AddChild<ui::Label>(tabUi, Norm(uf.Place(labelH, mGroup, mTight), page),
+	tabs->AddChild<ui::Separator>(tabUi, uf.Place(kRule, mGroup, mGroup));
+	tabs->AddChild<ui::Label>(tabUi, uf.Place(labelH, mGroup, mTight),
 							  loc::Tr("settings.party_colors"));
 	const float memTop =
 		uf.Place(gridHeight(kMemberColorCount), mTight, mGroup).y;
@@ -968,11 +932,7 @@ void GameUI::BuildSettings() {
 		picker->onClose = [this] { m_settings.Save(); };
 	}
 
-	const float backW = 220.0f * uiScale;
-	m_settingsUi.Add<ui::Button>(
-		Norm({(w - backW) * 0.5f, tabsY + tabsHpx + 28.0f * uiScale, backW,
-			  44.0f * uiScale},
-			 window),
+	m_settingsUi.Add<ui::Button>(gfx::Rect{(1.0f - 0.14f) * 0.5f, kTabsY + kTabsH + 0.03f, 0.14f, 0.05f},
 		loc::Tr("menu.back"), [this] {
 			Click();
 			m_menuPage = MenuPage::Main;
@@ -984,18 +944,14 @@ void GameUI::BuildSettings() {
 // Settings routes to the same shared page as the landing menu; Save/Load
 // wait on the save system.
 void GameUI::BuildPauseMenu() {
-	const float w = static_cast<float>(m_window.Width());
-	const float h = static_cast<float>(m_window.Height());
-	const gfx::Rect window{0, 0, w, h};
-
 	// Load only appears when at least one save exists; the list is sized to the
 	// entries actually present (five with Load, four without).
 	const bool hasSaves = !ListSaves().empty();
 	const int itemCount = hasSaves ? 5 : 4;
-	const float menuW = 420.0f;
-	const float itemH = 58.0f;
-	auto* menu = m_pauseUi.Add<ui::MenuList>(
-		Norm({(w - menuW) * 0.5f, h * 0.42f, menuW, itemH * itemCount}, window),
+	constexpr float kMenuW = 0.26f;
+	constexpr float kItemH = 0.064f;
+	const float menuH = kItemH * static_cast<float>(itemCount);
+	auto* menu = m_pauseUi.Add<ui::MenuList>(gfx::Rect{(1.0f - kMenuW) * 0.5f, 0.42f, kMenuW, menuH},
 		1.0f / static_cast<float>(itemCount));
 	menu->AddItem(loc::Tr("menu.save"), [this] {
 		Click();
@@ -1033,22 +989,19 @@ void GameUI::OpenSavesPage(SavesMode mode) {
 	m_saveField = nullptr;
 	m_saveButton = nullptr;
 	m_savesUi.Clear();
-	const float w = static_cast<float>(m_window.Width());
-	const float h = static_cast<float>(m_window.Height());
-	const gfx::Rect window{0, 0, w, h};
 
 	const std::vector<SaveSlot> slots = ListSaves();
 
-	const float colW = 720.0f;
-	const float colX = (w - colW) * 0.5f;
+	// Column as window fractions (~720/1600 wide, centered).
+	constexpr float kColW = 0.45f;
+	constexpr float kColX = (1.0f - kColW) * 0.5f;
+	constexpr float kRowH = 0.05f;
+	constexpr float kLabelH = 0.032f;
 
-	// Builds the slots into a fixed-height scroll box at [ly, ly+lh]. In Save
-	// mode a row fills the name field (overwrite target); in Load mode it loads.
-	// Every row's Delete opens a confirm dialog, then removes the file and flags
-	// a deferred rebuild. Added LAST by the caller so its modal dialog claims
-	// the mouse ahead of the page's other widgets.
+	// Builds the slots into a scroll box at [ly, ly+lh] (window fractions).
+	// Added LAST by the caller so its modal dialog claims the mouse first.
 	auto buildList = [&](float ly, float lh) {
-		auto* list = m_savesUi.Add<ui::SlotList>(Norm({colX, ly, colW, lh}, window));
+		auto* list = m_savesUi.Add<ui::SlotList>(gfx::Rect{kColX, ly, kColW, lh});
 		list->deleteIcon = m_deleteIcon.get();
 		list->confirmPrompt = loc::Tr("saves.delete_prompt");
 		list->deleteLabel = loc::Tr("saves.delete");
@@ -1081,62 +1034,55 @@ void GameUI::OpenSavesPage(SavesMode mode) {
 		}
 	};
 
-	// Layout pass: place every widget except the slot list, recording the list's
-	// box so it can be added last (below).
 	float backY = 0.0f;
 	bool wantList = false;
 	float listY = 0.0f, listH = 0.0f;
 	if (mode == SavesMode::Save) {
-		float y = h * 0.16f;
-		m_saveField = m_savesUi.Add<ui::TextField>(
-			Norm({colX, y, colW, 44}, window),
+		float y = 0.16f;
+		m_saveField = m_savesUi.Add<ui::TextField>(gfx::Rect{kColX, y, kColW, kRowH},
 			loc::Format("saves.default_name", slots.size() + 1));
 		m_saveField->placeholder = loc::Tr("saves.name_placeholder");
 		m_saveField->onChange = [this] { DisarmOverwrite(); };
 		m_saveField->onSubmit = [this] { CommitSave(); };
 		m_saveField->SetFocused(true);
-		y += 60.0f;
+		y += 0.07f;
 
-		m_saveButton = m_savesUi.Add<ui::Button>(
-			Norm({colX, y, colW, 44}, window), loc::Tr("menu.save"),
+		m_saveButton = m_savesUi.Add<ui::Button>(gfx::Rect{kColX, y, kColW, kRowH}, loc::Tr("menu.save"),
 			[this] { CommitSave(); });
-		y += 76.0f;
+		y += 0.085f;
 
 		if (slots.empty()) {
 			backY = y;
 		} else {
-			m_savesUi.Add<ui::Label>(Norm({colX, y, colW, 28}, window),
+			m_savesUi.Add<ui::Label>(gfx::Rect{kColX, y, kColW, kLabelH},
 									 loc::Tr("saves.overwrite_label"))
 				->dim = true;
-			listY = y + 36.0f;
-			listH = h * 0.40f;
+			listY = y + 0.04f;
+			listH = 0.40f;
 			wantList = true;
-			backY = listY + listH + 16.0f;
+			backY = listY + listH + 0.02f;
 		}
 	} else {
-		listY = h * 0.24f;
+		listY = 0.24f;
 		if (slots.empty()) {
-			m_savesUi.Add<ui::Label>(Norm({colX, listY, colW, 28}, window),
+			m_savesUi.Add<ui::Label>(gfx::Rect{kColX, listY, kColW, kLabelH},
 									 loc::Tr("saves.none"))
 				->dim = true;
-			backY = listY + 56.0f;
+			backY = listY + 0.06f;
 		} else {
-			listH = h * 0.52f;
+			listH = 0.52f;
 			wantList = true;
-			backY = listY + listH + 16.0f;
+			backY = listY + listH + 0.02f;
 		}
 	}
 
-	const float backW = 220.0f;
-	m_savesUi.Add<ui::Button>(
-		Norm({(w - backW) * 0.5f, backY, backW, 44}, window), loc::Tr("menu.back"),
+	constexpr float kBackW = 0.14f;
+	m_savesUi.Add<ui::Button>(gfx::Rect{(1.0f - kBackW) * 0.5f, backY, kBackW, kRowH}, loc::Tr("menu.back"),
 		[this] {
 			Click();
 			m_menuPage = MenuPage::Main;
 		});
 
-	// The list goes last so its modal confirm dialog claims the mouse before
-	// the Back button / name field beneath it (UIContext updates topmost-first).
 	if (wantList) buildList(listY, listH);
 
 	m_menuPage = MenuPage::Saves;
@@ -1171,20 +1117,19 @@ void GameUI::DisarmOverwrite() {
 // draws the page itself; prev/next buttons cycle the roster and Back (or
 // Esc) resumes play. Like the pause menu it overlays the frozen scene.
 void GameUI::BuildCharacterSheet() {
-	const float w = static_cast<float>(m_window.Width());
-	const float h = static_cast<float>(m_window.Height());
-	const gfx::Rect window{0, 0, w, h};
+	// Parent-relative layout (fractions of the window) — no design-pixel Norm.
+	// Centered panel, slightly above geometric center so the footer buttons fit.
+	constexpr float kSheetW = 0.50f;
+	constexpr float kSheetH = 0.62f;
+	constexpr float kSheetX = (1.0f - kSheetW) * 0.5f;
+	constexpr float kSheetY = (1.0f - kSheetH) * 0.5f - 0.03f;
+	const gfx::Rect sheet{kSheetX, kSheetY, kSheetW, kSheetH};
 
-	const float sheetW = 780.0f;
-	const float sheetH = 560.0f;
-	const float sx = (w - sheetW) * 0.5f;
-	const float sy = (h - sheetH) * 0.5f - 24.0f;
 	// Added FIRST so the buttons below it update on top (and consume their clicks
 	// before the sheet's slot hit-testing).
-	m_sheet = m_sheetUi.Add<CharacterSheet>(Norm({sx, sy, sheetW, sheetH}, window),
-											&m_characters,
-											&m_titleFont, &m_settings.barColors,
-											m_itemIcons, m_itemWeights, m_slotIcons,
+	m_sheet = m_sheetUi.Add<CharacterSheet>(sheet, &m_characters, &m_titleFont,
+											&m_settings.barColors, m_itemIcons,
+											m_itemWeights, m_slotIcons,
 											m_itemCategories, m_held);
 	// A pack refused the held item: a soft thud + a "won't fit" log line. Item
 	// names follow the item.<id> loc convention (same as ItemKind::nameKey).
@@ -1209,29 +1154,30 @@ void GameUI::BuildCharacterSheet() {
 						 : std::span<const std::unique_ptr<Spell>>{};
 	};
 
-	const float btnY = sy + sheetH + 16.0f;
-	m_sheetUi.Add<ui::Button>(Norm({sx, btnY, 64, 40}, window), "<", [this] {
-		const size_t count = m_characters.size();
-		onOpenSheet((m_sheetIndex + count - 1) % count);
-	});
-	m_sheetUi.Add<ui::Button>(Norm({sx + sheetW - 64, btnY, 64, 40}, window), ">",
+	constexpr float kBtnH = 0.045f;
+	constexpr float kBtnW = 0.05f;
+	const float btnY = kSheetY + kSheetH + 0.02f;
+	m_sheetUi.Add<ui::Button>(gfx::Rect{kSheetX, btnY, kBtnW, kBtnH}, "<",
 							  [this] {
-								  onOpenSheet((m_sheetIndex + 1) %
-											  m_characters.size());
+								  const size_t count = m_characters.size();
+								  onOpenSheet((m_sheetIndex + count - 1) % count);
 							  });
+	m_sheetUi.Add<ui::Button>(
+		gfx::Rect{kSheetX + kSheetW - kBtnW, btnY, kBtnW, kBtnH}, ">", [this] {
+			onOpenSheet((m_sheetIndex + 1) % m_characters.size());
+		});
 	// "All" → the combined party-backpacks view (for cross-character swaps).
-	m_sheetUi.Add<ui::Button>(Norm({sx + 80, btnY, 100, 40}, window),
+	m_sheetUi.Add<ui::Button>(gfx::Rect{kSheetX + 0.06f, btnY, 0.08f, kBtnH},
 							  loc::Tr("ui.inv_all"), [this] {
 								  Click();
 								  if (onShowPartyInventory) onShowPartyInventory();
 							  });
 	// Close (= resume) is the shared corner box at the sheet panel's top-right,
 	// matching every other dialog — no footer Back button.
-	ui::AddCloseButton(m_sheetUi, Norm({sx, sy, sheetW, sheetH}, window),
-					   m_closeIcon.get(), [this] {
-						   Click();
-						   onResume();
-					   });
+	ui::AddCloseButton(m_sheetUi, sheet, m_closeIcon.get(), [this] {
+		Click();
+		onResume();
+	});
 	// The sheet's own context menu (backpack-slot actions), added LAST so it
 	// updates first and its popup draws over everything.
 	m_sheetMenu = m_sheetUi.Add<ui::ContextMenu>();
@@ -1373,40 +1319,27 @@ void GameUI::OnVideoApply() {
 void GameUI::OpenConfirm(const std::string& title, const std::string& body,
 						 std::function<void()> onYes) {
 	m_confirmUi.Clear();
-	const float w = WindowW();
-	const float h = WindowH();
-	const gfx::Rect window{0, 0, w, h};
-
-	// Scaled with the window height like the settings page (see BuildSettings).
-	const float uiScale = h / kFontDesignWindowH;
-	const float panelW = 540.0f * uiScale, panelH = 220.0f * uiScale;
-	const float px = (w - panelW) * 0.5f, py = (h - panelH) * 0.5f;
-	m_confirmUi.Add<ui::Panel>(Norm({px, py, panelW, panelH}, window));
-	m_confirmUi.Add<ui::Label>(
-		Norm({px + 24 * uiScale, py + 28 * uiScale, panelW - 48 * uiScale, 32 * uiScale},
-			 window),
-		title);
-	m_confirmUi.Add<ui::Label>(
-		Norm({px + 24 * uiScale, py + 84 * uiScale, panelW - 48 * uiScale, 28 * uiScale},
-			 window),
-		body)
+	// Centered panel as window fractions.
+	constexpr float kPW = 0.34f, kPH = 0.24f;
+	constexpr float kPX = (1.0f - kPW) * 0.5f, kPY = (1.0f - kPH) * 0.5f;
+	constexpr float kIn = 0.03f; // inset as fraction of window (~panel pad)
+	m_confirmUi.Add<ui::Panel>(gfx::Rect{kPX, kPY, kPW, kPH});
+	m_confirmUi.Add<ui::Label>(gfx::Rect{kPX + kIn, kPY + 0.03f, kPW - 2 * kIn, 0.04f}, title);
+	m_confirmUi.Add<ui::Label>(gfx::Rect{kPX + kIn, kPY + 0.09f, kPW - 2 * kIn, 0.035f}, body)
 		->dim = true;
 
-	const float bw = 200.0f * uiScale, bh = 44.0f * uiScale,
-				by = py + panelH - bh - 24.0f * uiScale;
-	m_confirmUi.Add<ui::Button>(Norm({px + 24 * uiScale, by, bw, bh}, window),
-								loc::Tr("confirm.yes"),
+	constexpr float kBW = 0.125f, kBH = 0.05f;
+	const float by = kPY + kPH - kBH - 0.025f;
+	m_confirmUi.Add<ui::Button>(gfx::Rect{kPX + kIn, by, kBW, kBH}, loc::Tr("confirm.yes"),
 								[this, onYes = std::move(onYes)] {
 									Click();
 									m_confirmActive = false;
 									onYes();
 								});
-	m_confirmUi.Add<ui::Button>(
-		Norm({px + panelW - bw - 24 * uiScale, by, bw, bh}, window),
-		loc::Tr("confirm.no"), [this] {
-									Click();
-									m_confirmActive = false;
-								});
+	m_confirmUi.Add<ui::Button>(gfx::Rect{kPX + kPW - kBW - kIn, by, kBW, kBH}, loc::Tr("confirm.no"), [this] {
+			Click();
+			m_confirmActive = false;
+		});
 
 	m_confirmUi.SetTheme(m_settings.theme);
 	m_confirmActive = true;
@@ -1435,17 +1368,17 @@ void GameUI::RefreshSheet() { m_sheet->SetCharacter(m_sheetIndex); }
 // UIContext owns all widgets.
 // ============================================================================
 void GameUI::BuildHud() {
-	const float w = static_cast<float>(m_window.Width());
-	const float h = static_cast<float>(m_window.Height());
-	const gfx::Rect window{0, 0, w, h};
+	// All HUD bounds are fractions of the window. Party-bar slots start empty
+	// and are sized by ApplyPartyBarScale (scale slider); everything below the
+	// bar is authored at scale 1 and shifted when the bar grows.
+	//
+	// Layout fractions (window): bar top margin 0.018, bar height 0.107 at
+	// scale 1, gap under bar 0.018 → content starts at kBelowBar0.
+	constexpr float kBarTop = 0.018f;
+	constexpr float kBarH0 = 0.107f; // scale-1 height
+	constexpr float kBarGap = 0.018f;
+	constexpr float kBelowBar0 = kBarTop + kBarH0 + kBarGap; // ~0.143
 
-	// Party bar across the top: one clickable slot per member (portrait,
-	// name, health/stamina/mana). Clicking opens the character sheet. The
-	// slot rects come from ApplyPartyBarScale (called below) so the Settings →
-	// UI scale slider can resize the bar at runtime; the layout always
-	// reserves four slots so a short roster keeps its slot size.
-	m_hudDesignW = w;
-	m_hudDesignH = h;
 	m_partyPanels.clear();
 	for (size_t i = 0; i < m_characters.size() && i < 4; ++i) {
 		auto* panel = m_hudUi.Add<CharacterPanel>(
@@ -1457,42 +1390,33 @@ void GameUI::BuildHud() {
 		panel->backgroundOpacity = m_settings.partyBarOpacity;
 		m_partyPanels.push_back(panel);
 	}
-	const float barH = 96.0f; // design height at scale 1
-	const float belowBar = 16.0f + barH + 16.0f; // top edge for the side panels
 
-	// Widgets under the bar register here so ApplyPartyBarScale can shift
-	// them when the bar grows or shrinks (design Y recovered from the
-	// fraction Norm just stored).
+	// Widgets under the bar: store their scale-1 fractional Y so
+	// ApplyPartyBarScale can shift them with the bar.
 	m_belowBarWidgets.clear();
-	auto below = [this, h](ui::Widget* widget) {
-		m_belowBarWidgets.push_back({widget, widget->bounds.y * h});
+	auto below = [this](ui::Widget* widget) {
+		m_belowBarWidgets.push_back({widget, widget->bounds.y});
 	};
 
-	// The message log is a full-width footer added LAST (see the end of this
-	// function) so it sits on top of the control panel when it expands.
-
-	// Status labels, below the party bar on the left. Their text arrives via
-	// SetHudStatus before the HUD's first visible frame.
-	below(m_hudUi.Add<ui::Panel>(Norm({16, belowBar, 240, 64}, window)));
-	m_compass = m_hudUi.Add<ui::Label>(Norm({28, belowBar + 10, 220, 20}, window), "");
+	// Left status (compass + position).
+	constexpr float kLeftX = 0.01f, kLeftW = 0.15f;
+	below(m_hudUi.Add<ui::Panel>(gfx::Rect{kLeftX, kBelowBar0, kLeftW, 0.071f}));
+	m_compass = m_hudUi.Add<ui::Label>(gfx::Rect{kLeftX + 0.007f, kBelowBar0 + 0.011f, kLeftW - 0.014f, 0.022f}, "");
 	below(m_compass);
-	m_position = m_hudUi.Add<ui::Label>(Norm({28, belowBar + 34, 220, 20}, window), "");
+	m_position = m_hudUi.Add<ui::Label>(gfx::Rect{kLeftX + 0.007f, kBelowBar0 + 0.038f, kLeftW - 0.014f, 0.022f}, "");
 	m_position->dim = true;
 	below(m_position);
 
-	// Options panel (torchlight + wait/help), on the left under the status
-	// panel — the right edge belongs to the control panel.
-	const float optTop = belowBar + 76;
-	below(m_hudUi.Add<ui::Panel>(Norm({16, optTop, 240, 144}, window)));
-	below(m_hudUi.Add<ui::Label>(Norm({30, optTop + 10, 212, 20}, window),
-								 loc::Tr("hud.options")));
-
-	auto* torchLabel = m_hudUi.Add<ui::Label>(
-		Norm({30, optTop + 40, 212, 20}, window), loc::Tr("hud.torchlight"));
+	// Options (torch + wait/help) under status.
+	const float optTop = kBelowBar0 + 0.084f;
+	below(m_hudUi.Add<ui::Panel>(gfx::Rect{kLeftX, optTop, kLeftW, 0.16f}));
+	below(m_hudUi.Add<ui::Label>(gfx::Rect{kLeftX + 0.009f, optTop + 0.011f, kLeftW - 0.018f, 0.022f},
+		loc::Tr("hud.options")));
+	auto* torchLabel = m_hudUi.Add<ui::Label>(gfx::Rect{kLeftX + 0.009f, optTop + 0.044f, kLeftW - 0.018f, 0.022f},
+		loc::Tr("hud.torchlight"));
 	torchLabel->dim = true;
 	below(torchLabel);
-	below(m_hudUi.Add<ui::DropDown>(
-		Norm({30, optTop + 64, 212, 26}, window),
+	below(m_hudUi.Add<ui::DropDown>(gfx::Rect{kLeftX + 0.009f, optTop + 0.071f, kLeftW - 0.018f, 0.029f},
 		std::vector<std::string>{loc::Tr("torch.warm"), loc::Tr("torch.cold"),
 								 loc::Tr("torch.eerie")},
 		m_torchPalette, [this](int index) {
@@ -1500,57 +1424,47 @@ void GameUI::BuildHud() {
 			m_torchPalette = index;
 			onTorchPalette(index);
 		}));
+	constexpr float kHalfBtn = 0.063f;
+	below(m_hudUi.Add<ui::Button>(gfx::Rect{kLeftX + 0.009f, optTop + 0.116f, kHalfBtn, 0.031f}, loc::Tr("hud.wait"),
+		[this] {
+			Click();
+			m_log->AddLine(loc::Tr("log.wait"));
+		}));
+	below(m_hudUi.Add<ui::Button>(gfx::Rect{kLeftX + 0.009f + kHalfBtn + 0.008f, optTop + 0.116f, kHalfBtn, 0.031f},
+		loc::Tr("hud.help"), [this] {
+			Click();
+			m_log->AddLine(m_settings.MoveKeysHelp());
+			m_log->AddLine(loc::Tr("log.scroll_hint"));
+		}));
 
-	below(m_hudUi.Add<ui::Button>(Norm({30, optTop + 104, 101, 28}, window),
-								  loc::Tr("hud.wait"), [this] {
-									  Click();
-									  m_log->AddLine(loc::Tr("log.wait"));
-								  }));
-	below(m_hudUi.Add<ui::Button>(Norm({141, optTop + 104, 101, 28}, window),
-								  loc::Tr("hud.help"), [this] {
-									  Click();
-									  m_log->AddLine(m_settings.MoveKeysHelp());
-									  m_log->AddLine(loc::Tr("log.scroll_hint"));
-								  }));
+	// Right control panel: movement, hands, magic. Stops above the log footer.
+	constexpr float kPanelW = 0.156f; // ~250/1600
+	constexpr float kPanelX = 1.0f - kPanelW - 0.01f;
+	constexpr float kPad = 0.009f; // pad inside panel as window fraction
+	constexpr float kFooter = 0.071f;
+	const float panelBottom = 1.0f - kFooter;
+	const float panelH = panelBottom - kBelowBar0;
+	const float innerX = kPanelX + kPad;
+	const float innerW = kPanelW - 2 * kPad;
+	below(m_hudUi.Add<ui::Panel>(gfx::Rect{kPanelX, kBelowBar0, kPanelW, panelH}));
 
-	// Control panel down the right edge, Dungeon Master style: movement
-	// arrows on top, then each member's two hands, then the (future) magic
-	// area. The arrows feed the same discrete Party actions as the bound
-	// keys — the world's own step/turn/bump feedback covers the audio, so
-	// they skip the UI click.
-	const float panelW = 250.0f;
-	const float px = w - panelW - 16.0f;
-	const float pad = 14.0f;
-	const float innerW = panelW - 2 * pad;
-	// The control panel stops short of the bottom so the full-width message
-	// footer (added last, flush to the bottom edge) has its collapsed strip.
-	const float footerReserve = 64.0f;
-	const float panelBottom = h - footerReserve;
-	below(m_hudUi.Add<ui::Panel>(
-		Norm({px, belowBar, panelW, panelBottom - belowBar}, window)));
-
-	// Movement arrows: turn left / forward / turn right over strafe left /
-	// back / strafe right (the classic six), square, three across. Icon faces
-	// when the chevron textures exist (single chevron = step, double = turn,
-	// rotated per direction; the icons point RIGHT at 0 turns); the text
-	// glyphs stay as the fallback.
+	// Movement pad: 3×2 grid of square buttons.
 	const struct {
 		const char* glyph;
 		MoveAction action;
-		bool turn;    // double chevron
-		int quarters; // clockwise quarter turns from pointing right
+		bool turn;
+		int quarters;
 	} moves[] = {
 		{"«", MoveAction::TurnLeft, true, 2},  {"^", MoveAction::Forward, false, 3},
 		{"»", MoveAction::TurnRight, true, 0}, {"<", MoveAction::StrafeLeft, false, 2},
 		{"v", MoveAction::Back, false, 1},     {">", MoveAction::StrafeRight, false, 0},
 	};
-	const float moveW = (innerW - 2 * 8.0f) / 3.0f;
+	const float moveGap = 0.005f;
+	const float moveW = (innerW - 2 * moveGap) / 3.0f;
+	const float moveTop = kBelowBar0 + 0.013f;
 	for (size_t i = 0; i < std::size(moves); ++i) {
-		auto* btn = m_hudUi.Add<ui::Button>(
-			Norm({px + pad + (moveW + 8.0f) * static_cast<float>(i % 3),
-				  belowBar + 12 + (moveW + 8.0f) * static_cast<float>(i / 3),
-				  moveW, moveW},
-				 window),
+		auto* btn = m_hudUi.Add<ui::Button>(gfx::Rect{innerX + (moveW + moveGap) * static_cast<float>(i % 3),
+			 moveTop + (moveW + moveGap) * static_cast<float>(i / 3), moveW, moveW},
 			moves[i].glyph,
 			[this, action = moves[i].action] { onMoveAction(action); });
 		btn->icon = moves[i].turn ? m_chevron2Tex.get() : m_chevronTex.get();
@@ -1558,45 +1472,36 @@ void GameUI::BuildHud() {
 		below(btn);
 	}
 
-	// Hand pairs, two members side by side per row (so the four-member
-	// roster makes a 2x2 grid of sets): a left and a right hand box, square.
-	// No name label — each slot's identity stripe says whose hands these are
-	// (the labels doubled that and crowded the panel).
-	const float setW = (innerW - 8.0f) / 2.0f;
-	const float handW = (setW - 4.0f) / 2.0f;
-	const float setH = handW + 8;
-	const float handsTop = belowBar + 12 + 2 * moveW + 8 + 14;
+	// Hand pairs: 2×2 of left/right hand slots (window-fraction squares).
+	const float setGap = 0.005f;
+	const float setW = (innerW - setGap) / 2.0f;
+	const float handGap = 0.0025f;
+	const float handW = (setW - handGap) / 2.0f;
+	const float setH = handW + 0.009f;
+	const float handsTop = moveTop + 2 * (moveW + moveGap) + 0.016f;
 	for (size_t i = 0; i < m_characters.size() && i < 4; ++i) {
-		const float setX = px + pad + (setW + 8.0f) * static_cast<float>(i % 2);
+		const float setX = innerX + (setW + setGap) * static_cast<float>(i % 2);
 		const float setTop = handsTop + setH * static_cast<float>(i / 2);
 		for (int hand = 0; hand < 2; ++hand) {
-			below(m_hudUi.Add<HandSlot>(
-				Norm({setX + (handW + 4.0f) * static_cast<float>(hand),
-					  setTop, handW, handW},
-					 window),
+			below(m_hudUi.Add<HandSlot>(gfx::Rect{setX + (handW + handGap) * static_cast<float>(hand), setTop, handW,
+				 handW},
 				&m_characters, i, hand, m_itemIcons,
-					// Left-click: place a held tablet here / pick this hand's item
-					// up / (empty-handed, empty slot) swing this hand. Right-click
-					// (a context menu) is wired in P6.
-					[this, i, hand] { OnHandLeftClick(i, static_cast<size_t>(hand)); },
-					[this, i, hand] { OnHandRightClick(i, static_cast<size_t>(hand)); }));
+				[this, i, hand] { OnHandLeftClick(i, static_cast<size_t>(hand)); },
+				[this, i, hand] { OnHandRightClick(i, static_cast<size_t>(hand)); }));
 		}
 	}
 	const size_t handRows = (std::min<size_t>(m_characters.size(), 4) + 1) / 2;
 	const float magicTop = handsTop + setH * static_cast<float>(handRows);
 
-	// Magic area — the spellbook panel (opened from a hand's use menu, Magic »
-	// Spellbook) fills whatever the panel has left down to the window bottom;
-	// closed, it draws the old "no spells" placeholder line itself.
-	below(m_hudUi.Add<ui::Label>(Norm({px + pad, magicTop + 8, innerW, 20}, window),
+	// Magic / spellbook fills the rest of the control panel.
+	below(m_hudUi.Add<ui::Label>(gfx::Rect{innerX, magicTop + 0.009f, innerW, 0.022f},
 								 loc::Tr("hud.magic")));
-	below(m_hudUi.Add<ui::Panel>(
-		Norm({px + pad, magicTop + 32, innerW, panelBottom - pad - (magicTop + 32)},
-			 window)));
-	m_spellbook = m_hudUi.Add<SpellbookPanel>(
-		Norm({px + pad, magicTop + 32, innerW, panelBottom - pad - (magicTop + 32)},
-			 window),
-		&m_characters, m_itemIcons);
+	const float bookY = magicTop + 0.036f;
+	const float bookH = panelBottom - kPad - bookY;
+	below(m_hudUi.Add<ui::Panel>(gfx::Rect{innerX, bookY, innerW, bookH}));
+	m_spellbook =
+		m_hudUi.Add<SpellbookPanel>(gfx::Rect{innerX, bookY, innerW, bookH}, &m_characters,
+									m_itemIcons);
 	m_spellbook->onClick = [this] { Click(); };
 	m_spellbook->castIcon = m_castIconTex.get();
 	m_spellbook->clearIcon = m_clearIconTex.get();
@@ -1607,24 +1512,15 @@ void GameUI::BuildHud() {
 	m_spellbook->onCast = [this](size_t member,
 								 const std::vector<SpellSymbol>& seq) {
 		Click();
-		// The book is member-driven (its selector row), not hand-fired —
-		// kBookHands credits BOTH hands' quick-cast MRU so a discovered spell
-		// reaches either hand menu.
 		if (onCastSequence) onCastSequence(member, kBookHands, seq);
 	};
 	below(m_spellbook);
 
-	// Full-width message footer, flush to the bottom edge. Added last so it is
-	// the topmost HUD widget — it claims the mouse first and draws over the
-	// control panel when the player hovers it open. It sizes itself from the
-	// window each frame, so its normalized bounds are nominal (full screen).
+	// Message log: full window (sizes itself each frame from height fractions).
 	m_log = m_hudUi.Add<MessageLog>();
 	m_log->bounds = {0, 0, 1, 1};
 	m_log->restoreLabel = loc::Tr("hud.log_show");
 
-	// Right-click context menu + the inventory window, added last so they update
-	// first (topmost) and their overlays draw over everything; both closed until
-	// opened. The inventory window claims the mouse while open.
 	m_handMenu = m_hudUi.Add<ui::ContextMenu>();
 	m_inventory = m_hudUi.Add<InventoryWindow>(&m_characters, m_itemIcons, m_held);
 
@@ -1635,34 +1531,30 @@ void GameUI::OpenInventory() { if (m_inventory) m_inventory->Open(); }
 void GameUI::CloseInventory() { if (m_inventory) m_inventory->Close(); }
 bool GameUI::InventoryOpen() const { return m_inventory && m_inventory->IsOpen(); }
 
-// Re-derives the party-bar slot rects from the settings scale — anchored to
-// the top center, so scale 1 reproduces the design layout above (16px
-// margins, 10px gaps, 96px tall) — and shifts the status/options widgets by
-// the bar's growth so they stay 16px clear of its bottom edge. No-op until
-// BuildHud has run (the settings sliders exist from boot, the HUD only after
-// a game load).
+// Re-derives party-bar slot rects from the settings scale (window fractions)
+// and shifts widgets under the bar so they stay clear of its bottom edge.
 void GameUI::ApplyPartyBarScale() {
 	if (m_partyPanels.empty()) return;
-	const float w = m_hudDesignW;
-	const float h = m_hudDesignH;
-	const gfx::Rect window{0, 0, w, h};
 	const float s = m_settings.partyBarScale;
-	// The bar already spans the full window at scale 1, so width is pinned
-	// there: scales above 1 grow the bar vertically only (the portraits and
-	// resource bars follow the slot height).
+	// Width only shrinks when s < 1; height grows with s.
 	const float ws = std::min(s, 1.0f);
-	const float slotGap = 10.0f * ws;
-	const float slotW = (w - 2 * 16.0f - 3 * 10.0f) / 4.0f * ws;
-	const float barX = (w - 4 * slotW - 3 * slotGap) * 0.5f;
+	constexpr float kBarTop = 0.018f;
+	constexpr float kBarH0 = 0.107f;
+	constexpr float kMargin = 0.01f;
+	constexpr float kGap0 = 0.006f;
+	const float gap = kGap0 * ws;
+	const float usable = 1.0f - 2 * kMargin - 3 * gap;
+	const float slotW = (usable / 4.0f) * ws;
+	const float barX = (1.0f - 4 * slotW - 3 * gap) * 0.5f;
+	const float slotH = kBarH0 * s;
 	for (size_t i = 0; i < m_partyPanels.size(); ++i)
-		m_partyPanels[i]->bounds =
-			Norm({barX + static_cast<float>(i) * (slotW + slotGap), 16.0f, slotW,
-				  96.0f * s},
-				 window);
+		m_partyPanels[i]->bounds = {
+			barX + static_cast<float>(i) * (slotW + gap), kBarTop, slotW, slotH};
 
-	const float shift = 96.0f * (s - 1.0f);
-	for (auto& [widget, designY] : m_belowBarWidgets)
-		widget->bounds.y = (designY + shift) / h;
+	// below-bar widgets stored their scale-1 Y; shift by bar growth.
+	const float shift = kBarH0 * (s - 1.0f);
+	for (auto& [widget, y0] : m_belowBarWidgets)
+		widget->bounds.y = y0 + shift;
 }
 
 // ============================================================================

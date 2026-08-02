@@ -47,7 +47,15 @@ add_library(Game STATIC
 	NicheInspector.cpp
 	MessageLog.cpp
 	Party.cpp
-	PartyHud.cpp
+	PartyHudDraw.cpp
+	CharacterPanel.cpp
+	HandSlot.cpp
+	SpellbookPanel.cpp
+	InventoryWindow.cpp
+	CharacterSheet.cpp
+	CharacterSheet_Inventory.cpp
+	CharacterSheet_Stats.cpp
+	CharacterSheet_Lists.cpp
 	Project.cpp
 	Projectiles.cpp
 	ProjectileInspector.cpp
