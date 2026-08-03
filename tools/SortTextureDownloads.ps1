@@ -60,7 +60,9 @@ $sets = @{
     "TCom_Wall_Stone30_4x2"                       = @{ Cat = "walls";    Name = "wall_stone_30" }
     "TCom_Wall_Stone34"                           = @{ Cat = "walls";    Name = "wall_stone_34" }
     "TCom_Wall_BrickWeatheredMossy_5x2.5"         = @{ Cat = "walls";    Name = "wall_brick_weathered" }
-    "TCom_Wall_BrickRough3_4x2"                   = @{ Cat = "walls";    Name = "wall_brick_rough" }
+    # "coarse", not "rough": a set name may not contain a map-type token — see
+    # the $reserved check below, which this row is the reason for.
+    "TCom_Wall_BrickRough3_4x2"                   = @{ Cat = "walls";    Name = "wall_brick_coarse" }
     "TCom_Wall_BrickOld3B_2x2"                    = @{ Cat = "walls";    Name = "wall_brick_plaster" }
     "TCom_Wall_BrickSloppy_2.5x2.5"               = @{ Cat = "walls";    Name = "wall_brick_distorted" }
     "TCom_Wall_BrickOld2_2.1x2.1"                 = @{ Cat = "walls";    Name = "wall_brick_old" }
@@ -108,6 +110,31 @@ $sets = @{
 # (mask/opacity in particular, which DiscoverPbrMaps would read as an ALPHA
 # channel and silently cut holes in the albedo).
 $knownMaps = @("albedo", "ao", "height", "normal", "roughness", "metallic")
+
+# A set NAME may not contain any substring the importer uses to identify a map
+# KIND, because the two meet in one filename: <name>_<map>.png. DiscoverPbrMaps
+# tests those substrings against the whole stem, IN ORDER, and roughness is
+# tested before albedo — so a set called wall_brick_rough has its
+# wall_brick_rough_albedo.png claimed as the ROUGHNESS map, and the import then
+# dies with "No albedo/basecolor map found". This list mirrors PbrMaps.cpp; the
+# check is here rather than in review because the failure looks like a bad
+# download rather than a bad name, and it only surfaces after the slow bake.
+$reserved = @("albedo", "basecolor", "base_color", "diffuse", "normal", "_nor",
+              "_nrm", "height", "displacement", "_disp", "bump", "rough",
+              "metallic", "metalness", "metal", "_met", "ambientocclusion",
+              "ambient_occlusion", "_ao", "occ", "opacity", "opac", "alpha",
+              "transp", "mask")
+$clashes = @()
+foreach ($k in $sets.Keys) {
+    $n = $sets[$k].Name
+    foreach ($tok in $reserved) {
+        if ($n.ToLower().Contains($tok)) { $clashes += "$n  (contains '$tok')" }
+    }
+}
+if ($clashes.Count -gt 0) {
+    throw ("Set name(s) collide with a map-type token, which would break the import:`n  " +
+           ($clashes -join "`n  "))
+}
 
 if (-not (Test-Path $Downloads)) { throw "Downloads folder not found: $Downloads" }
 if (-not (Test-Path $archive))   { throw "Archive not found: $archive" }

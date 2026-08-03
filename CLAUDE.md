@@ -395,7 +395,14 @@ buffer, reused across all ~25 submissions).
     record — one row per bought set, category + the name the catalog will use —
     because the name is permanent: the worn mesh bakes as worn_<name>_<tier>
     (so a set is one surface kind for life) and LoadPbrSet resolves a catalog's
-    `texture` to <name>_<res>. Unknown sets are reported, never guessed;
+    `texture` to <name>_<res>. A SET NAME MAY NOT CONTAIN A MAP-TYPE TOKEN
+    (rough/albedo/normal/height/metal/_ao/occ/mask/...): name and kind meet in
+    one filename, <name>_<map>.png, and DiscoverMaps tests those substrings over
+    the whole stem IN ORDER — roughness before albedo — so `wall_brick_rough`
+    had its _albedo.png claimed as the ROUGHNESS map and died with "No albedo
+    map found". The script now refuses such names up front, because the failure
+    reads like a bad download and only surfaces after the slow bake.
+    Unknown sets are reported, never guessed;
     -WhatIf / -Copy / -Force, and it refuses to overwrite. Pass its printed
     FetchTextures line through `powershell -Command`, NOT -File: -File binds
     `a,b,c` to [string[]] as ONE element, so every name matches nothing and the
