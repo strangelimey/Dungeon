@@ -972,7 +972,12 @@ void SlotList::AddRow(Row row) {
 // the stack is assigned per layout. A left inset keeps them off the frame; the
 // area's gutter already holds the scrollbar clear.
 void SlotList::LayoutSelf(UIContext&) {
-	m_scroll->gutter = Rem(0.5f);
+	// gutter is in REM (Controls.h) — ScrollArea multiplies it by its own root
+	// font size. Handing it Rem(0.5f) passed ALREADY-CONVERTED PIXELS, which it
+	// then converted again: 0.5rem became 14rem, a 392px gutter that ate more
+	// than half of a 720px list and squeezed every row down to 324px, so the
+	// name and the right-aligned timestamp landed on top of each other.
+	m_scroll->gutter = 0.5f;
 	const float view = m_scroll->ViewRect().h;
 	const float width = m_scroll->ViewRect().w;
 	if (view <= 0.0f || width <= 0.0f) return;
