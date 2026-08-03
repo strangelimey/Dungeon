@@ -118,6 +118,10 @@ inline constexpr float kNameRem = 1.3f;
 // kStatRowH / kStatBarH scale the row pitch and bar height with it: growing the
 // font alone would push the numbers straight out of the bars they sit in.
 inline constexpr float kStatRem = 1.5f;
+// A tab's TITLE — "Attributes", "Skills", "Known Spells", "Effects". Its own
+// name rather than a reuse of kStatRem, which happens to share the value: the
+// four titles should stay a set even if the stat readout is retuned alone.
+inline constexpr float kTabTitleRem = 1.5f;
 // Derived from the originals rather than re-authored, so the tabs stay in
 // proportion if either is ever retuned.
 inline constexpr float kStatRowH = kRowH * kStatRem;

@@ -83,14 +83,22 @@ void SheetList::ScrollToTop() {
 }
 
 float SheetList::ViewHeight() const {
-	return std::max((bandBottom - bandTop) * Pixel().h, 0.0f);
+	return std::max((bandBottom - m_bandTop) * Pixel().h, 0.0f);
 }
 
 // Measure every row and stack them, before the repeater's placer (which runs
 // later in this same layout pass) asks for the offsets.
 void SheetList::LayoutSelf(ui::UIContext& ctx) {
 	const gfx::Rect& px = Pixel();
-	m_scroll->bounds = {0.0f, bandTop, 1.0f, bandBottom - bandTop};
+	// The scrolling band starts a MEASURED line below the tab's title, the same
+	// rule the Stats tab uses for its own heading (DrawStats). An authored band
+	// top would have to be re-tuned by hand every time the title size moved —
+	// and at kTabTitleRem the old fraction put the title straight through the
+	// first row.
+	const ui::Font& title = ctx.FontAt(ui::FontRole::Body, Rem(kTabTitleRem));
+	m_bandTop = headingY + (title.LineAdvance() + Rem(0.4f)) / std::max(px.h, 1.0f);
+	m_scroll->bounds = {0.0f, m_bandTop, 1.0f,
+						std::max(bandBottom - m_bandTop, 0.0f)};
 	// The scrollbar gutter, in the same terms the sheet's own layout used.
 	m_scroll->gutter = (kScrollBarW * px.w) / Rem() + kScrollBarPadRem;
 
@@ -115,11 +123,15 @@ void SheetList::LayoutSelf(ui::UIContext& ctx) {
 
 void SheetList::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	const gfx::Rect& px = Pixel();
-	const ui::Font& font = TextFont();
 	const ui::Theme& theme = ctx.GetTheme();
-	font.Draw(batch, m_heading, Ax(px, kLeft), Ay(px, headingY), theme.accent);
+	// Title at kTabTitleRem, matching the Stats tab's "Attributes".
+	ctx.FontAt(ui::FontRole::Body, Rem(kTabTitleRem))
+		.Draw(batch, m_heading, Ax(px, kLeft), Ay(px, headingY), theme.accent);
+	// The empty-list line sits at the top of the band the rows would have
+	// filled, so it follows the title down instead of needing its own fraction.
 	if ((m_count ? m_count() : 0) == 0)
-		font.Draw(batch, m_empty, Ax(px, kLeft), Ay(px, kEmptyListY), theme.textDim);
+		TextFont().Draw(batch, m_empty, Ax(px, kLeft), Ay(px, m_bandTop),
+						theme.textDim);
 }
 
 // --- the bakes -------------------------------------------------------------

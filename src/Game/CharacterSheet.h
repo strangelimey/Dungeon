@@ -101,7 +101,8 @@ public:
 	// Fractions of this widget: where the heading sits and where the scrolling
 	// band starts/stops. Set by the sheet from its shared layout table.
 	float headingY = 0.0f;
-	float bandTop = 0.0f;
+	// The band's TOP is derived from the title's height in LayoutSelf (see
+	// m_bandTop); only its bottom is authored.
 	float bandBottom = 1.0f;
 
 private:
@@ -125,6 +126,9 @@ private:
 	// and the rows are its grandchildren, so the repeater has to report it.
 	std::vector<float> m_rowTop, m_rowH;
 	float m_contentH = 0.0f;
+	// Top of the scrolling band, resolved each layout from the title's line
+	// advance so the rows can never be crowded by the heading above them.
+	float m_bandTop = 0.0f;
 };
 
 class CharacterSheet : public ui::Widget {

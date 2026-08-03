@@ -111,7 +111,6 @@ void CharacterSheet::BuildParts() {
 									lists[n].empty, std::move(count),
 									std::move(measure), std::move(draw));
 		list->headingY = kHeaderY;
-		list->bandTop = kScrollTop;
 		list->bandBottom = 1.0f - kScrollBottomPad;
 		m_lists[n] = list;
 	}
