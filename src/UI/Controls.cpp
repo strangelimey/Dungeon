@@ -53,7 +53,7 @@ void Separator::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 
 void Label::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 	const Theme& theme = ctx.GetTheme();
-	ctx.GetFont().Draw(batch, text, Pixel().x, Pixel().y,
+	TextFont().Draw(batch, text, Pixel().x, Pixel().y,
 					   dim ? theme.textDim : theme.text);
 }
 
@@ -77,7 +77,7 @@ void TextOutput::UpdateSelf(UIContext& ctx) {
 		m_scroll += input->WheelDelta() * 3.0f;
 		const float maxScroll =
 			std::max(0.0f, static_cast<float>(m_lines.size()) -
-							   Pixel().h / ctx.GetFont().LineAdvance());
+							   Pixel().h / TextFont().LineAdvance());
 		m_scroll = std::clamp(m_scroll, 0.0f, maxScroll);
 		ctx.ConsumeMouse();
 	}
@@ -85,7 +85,7 @@ void TextOutput::UpdateSelf(UIContext& ctx) {
 
 void TextOutput::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 	const Theme& theme = ctx.GetTheme();
-	Font& font = ctx.GetFont();
+	const Font& font = TextFont();
 	const gfx::Rect& px = Pixel();
 
 	DrawPanelFace(ctx, batch, px);
@@ -135,11 +135,12 @@ void Button::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 								{0, 0, 1, 1}, *icon, {f, f, f, 1.0f});
 		return;
 	}
-	DrawButtonFace(batch, ctx.GetFont(), px, text, ctx.GetTheme(), m_hot,
+	DrawButtonFace(batch, TextFont(), px, text, ctx.GetTheme(), m_hot,
 				   m_held || active, true, ctx.GetSkin());
 }
 
-void DrawButtonFace(gfx::SpriteBatch& batch, Font& font, const gfx::Rect& rect,
+void DrawButtonFace(gfx::SpriteBatch& batch, const Font& font,
+					const gfx::Rect& rect,
 					const std::string& label, const Theme& theme, bool hot,
 					bool held, bool enabled, const Skin* skin) {
 	if (skin && skin->button.texture) {
@@ -183,7 +184,7 @@ void Checkbox::UpdateSelf(UIContext& ctx) {
 
 void Checkbox::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 	const Theme& theme = ctx.GetTheme();
-	Font& font = ctx.GetFont();
+	const Font& font = TextFont();
 	const gfx::Rect& px = Pixel();
 	if (highlight) {
 		batch.DrawRect(px, theme.controlActive);
@@ -236,7 +237,7 @@ void Slider::RefreshDisplay() {
 
 void Slider::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 	const Theme& theme = ctx.GetTheme();
-	Font& font = ctx.GetFont();
+	const Font& font = TextFont();
 	const gfx::Rect& px = Pixel();
 
 	// The whole control lives INSIDE its bounds: the label on the top line, the
@@ -384,7 +385,7 @@ void DropDown::UpdateSelf(UIContext& ctx) {
 
 void DropDown::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 	const Theme& theme = ctx.GetTheme();
-	Font& font = ctx.GetFont();
+	const Font& font = TextFont();
 	const gfx::Rect& px = Pixel();
 
 	batch.DrawRect(px, m_hot || m_open ? theme.controlHot : theme.control);
@@ -405,7 +406,7 @@ void DropDown::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 void DropDown::DrawOverlaySelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 	if (!m_open) return;
 	const Theme& theme = ctx.GetTheme();
-	Font& font = ctx.GetFont();
+	const Font& font = TextFont();
 	const gfx::Rect popup = PopupRect(ctx);
 	const float maxScroll = MaxScroll(popup);
 
@@ -464,7 +465,7 @@ void ContextMenu::UpdateSelf(UIContext& ctx) {
 
 	// Size to the widest label (groups reserve room for the "»" marker), then
 	// clamp the box on screen.
-	Font& font = ctx.GetFont();
+	const Font& font = TextFont();
 	m_rowH = Rem(1.45f);
 	float w = Rem(2.85f);
 	for (const Entry& e : m_entries)
@@ -542,7 +543,7 @@ void ContextMenu::UpdateSelf(UIContext& ctx) {
 void ContextMenu::DrawOverlaySelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 	if (!m_open) return;
 	const Theme& theme = ctx.GetTheme();
-	Font& font = ctx.GetFont();
+	const Font& font = TextFont();
 	// Skinned: ONE panel face behind the whole menu (opaque, like the other
 	// popups), rows keep only their hover/active washes; flat mode keeps the
 	// per-row fills + borders.
@@ -704,7 +705,7 @@ void ColorPicker::UpdateSelf(UIContext& ctx) {
 
 void ColorPicker::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 	const Theme& theme = ctx.GetTheme();
-	Font& font = ctx.GetFont();
+	const Font& font = TextFont();
 	const gfx::Rect& px = Pixel();
 
 	font.Draw(batch, label, px.x, px.y + (px.h - font.Height()) * 0.5f,
@@ -719,7 +720,7 @@ void ColorPicker::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 void ColorPicker::DrawOverlaySelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 	if (!m_open) return;
 	const Theme& theme = ctx.GetTheme();
-	Font& font = ctx.GetFont();
+	const Font& font = TextFont();
 	const gfx::Rect popup = PopupRect(ctx);
 
 	if (const SkinPart* part = PanelPart(ctx)) {
@@ -807,7 +808,7 @@ void KeyBind::UpdateSelf(UIContext& ctx) {
 
 void KeyBind::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 	const Theme& theme = ctx.GetTheme();
-	Font& font = ctx.GetFont();
+	const Font& font = TextFont();
 	const gfx::Rect& px = Pixel();
 
 	font.Draw(batch, label, px.x, px.y + (px.h - font.Height()) * 0.5f,
@@ -860,7 +861,7 @@ void TextField::UpdateSelf(UIContext& ctx) {
 
 void TextField::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 	const Theme& theme = ctx.GetTheme();
-	Font& font = ctx.GetFont();
+	const Font& font = TextFont();
 	const gfx::Rect& px = Pixel();
 
 	batch.DrawRect(px, m_focused ? theme.controlActive
@@ -922,7 +923,7 @@ void SlotRow::UpdateSelf(UIContext& ctx) {
 
 void SlotRow::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 	const Theme& theme = ctx.GetTheme();
-	Font& font = ctx.GetFont();
+	const Font& font = TextFont();
 	const gfx::Rect& r = Pixel();
 	batch.DrawRect(r, m_hot ? theme.controlHot : theme.control);
 	DrawBorder(batch, r, theme.panelBorder);
@@ -1027,7 +1028,7 @@ void SlotList::DrawOverlaySelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 	if (m_confirmRow < 0 || static_cast<size_t>(m_confirmRow) >= m_entries.size())
 		return;
 	const Theme& theme = ctx.GetTheme();
-	Font& font = ctx.GetFont();
+	const Font& font = TextFont();
 
 	// Dim the whole surface, then the dialog on top.
 	batch.DrawRect({0, 0, ctx.Width(), ctx.Height()}, {0, 0, 0, 0.55f});
@@ -1107,7 +1108,7 @@ void MenuList::UpdateSelf(UIContext& ctx) {
 
 void MenuList::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 	const Theme& theme = ctx.GetTheme();
-	Font& font = ctx.GetFont();
+	const Font& font = TextFont();
 
 	for (size_t i = 0; i < m_items.size(); ++i) {
 		const gfx::Rect rect = ItemRect(i);
@@ -1273,8 +1274,8 @@ void TabControl::LayoutSelf(UIContext& ctx) {
 		m_tabs[i].page->visible = static_cast<int>(i) == m_active;
 }
 
-void TabControl::LayoutStrip(UIContext& ctx) {
-	Font& font = ctx.GetFont();
+void TabControl::LayoutStrip(UIContext&) {
+	const Font& font = TextFont();
 	const gfx::Rect& px = Pixel();
 	const float count = static_cast<float>(std::max<size_t>(m_tabs.size(), 1));
 	const float evenW = px.w / count;
@@ -1331,7 +1332,7 @@ void TabControl::UpdateSelf(UIContext& ctx) {
 // by the tree straight after this.
 void TabControl::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 	const Theme& theme = ctx.GetTheme();
-	Font& font = ctx.GetFont();
+	const Font& font = TextFont();
 
 	// Page frame first so the active tab can open into it.
 	const gfx::Rect page = PageRect();

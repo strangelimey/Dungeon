@@ -322,7 +322,7 @@ void SpellbookPanel::UpdateSelf(ui::UIContext& ctx) {
 
 void SpellbookPanel::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	const ui::Theme& theme = ctx.GetTheme();
-	ui::Font& font = ctx.GetFont();
+	const ui::Font& font = TextFont();
 	const gfx::Rect px = Pixel();
 	const Character* c =
 		m_member < 0 ? nullptr : RosterMember(m_roster, static_cast<size_t>(m_member));

@@ -221,11 +221,40 @@ Also found while verifying, and NOT part of this thread: the Load page draws
 each save's name on top of its timestamp so both are unreadable. Confirmed
 pre-existing on main, spun off as its own task.
 
-### Phase 2 — The Em seam
+### Phase 2 — The Em seam — **DONE (2026-08-02)**
 
-`Widget::fontRole` + inherited resolution, `Em` following the widget, `Rem`
-explicitly unchanged. Extend `uitree` to print each widget's resolved role so
-inheritance is inspectable the way the rest of the tree already is.
+`Widget::fontRole` is an `optional<FontRole>` inherited down the subtree like
+CSS `font-family`, resolved in `Widget::Layout` BEFORE `LayoutSelf` so a
+container that sizes itself from its own text measures in the face it will
+actually draw in. `Em` follows the widget's font; `Rem` still reads the context
+root. The free `Em(ctx)` in Units.h is GONE rather than left as an alias — em is
+a property of a widget, and a free function could only ever have meant the root
+while reading as though it meant the widget.
+
+The other half is the draw path: a widget's `DrawSelf` now uses `TextFont()`
+instead of `ctx.GetFont()` (~35 sites across Controls.cpp, the character sheet,
+the message log, the spellbook and the inventory). Without that, `fontRole`
+would inherit correctly and change nothing on screen, because `ctx.GetFont()` is
+the document root and deliberately ignores roles. `ctx.GetFont()` remains right
+for things drawn OUTSIDE the tree — the tree inspector's own breadcrumb,
+GameUI's directly-drawn menu titles.
+
+Two small const ripples fell out, both correct on their own terms: `DrawButtonFace`
+and the sheet's `Measure` callback took a non-const `Font&` for work that only
+measures and draws.
+
+`uitree` shows roles both ways: the dump marks the widget that SET a role (the
+one that starts a re-faced subtree — marking inheritors would tag nearly every
+line), while the cursor breadcrumb shows each link's RESOLVED role, which is
+what you want when asking "which face is this leaf actually in".
+
+Verified two ways. Still pixel-identical to a clean build of main
+(0.000/255 mean, 0/765 max) with every role on the fallback. And the mechanism
+was proved by temporarily setting ONE role on the menu context's root: every
+menu item re-faced to IM Fell English Italic, and **no geometry moved** — the
+item spacing, the selection box and its width were unchanged. That is the
+rem/em invariant demonstrated rather than asserted. The temporary hook was
+reverted; the proof shot is docs/fonts_p2_script_role_proof.png.
 
 ### Phase 3 — Migrate the 26 owners
 

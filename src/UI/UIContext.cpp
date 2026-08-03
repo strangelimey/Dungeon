@@ -9,12 +9,14 @@ UIContext::UIContext(gfx::GraphicsDevice& device, const std::string& fontPath,
 					 float fontHeight)
 	: m_ownedFont(std::make_unique<Font>(device, fontPath, fontHeight)) {
 	m_font = m_ownedFont.get();
+	m_designHeight = fontHeight;
 	m_root.bounds = {0, 0, 1, 1};
 	m_root.debugName = "root";
 }
 
 UIContext::UIContext(FontLibrary& library, FontRole role, float fontHeight)
-	: m_library(&library), m_role(role), m_font(&library.Get(role, fontHeight)) {
+	: m_library(&library), m_role(role), m_font(&library.Get(role, fontHeight)),
+	  m_designHeight(fontHeight) {
 	m_root.bounds = {0, 0, 1, 1};
 	m_root.debugName = "root";
 }
@@ -22,7 +24,13 @@ UIContext::UIContext(FontLibrary& library, FontRole role, float fontHeight)
 void UIContext::UseFont(FontRole role, float pixelHeight) {
 	if (!m_library) return; // owned-Font form; the owner drives Font::SetHeight
 	m_role = role;
+	m_designHeight = pixelHeight;
 	m_font = &m_library->Get(role, pixelHeight);
+}
+
+const Font& UIContext::FontFor(FontRole role) const {
+	if (!m_library || role == m_role) return *m_font;
+	return m_library->Get(role, m_designHeight);
 }
 
 void UIContext::Update(const Input& input, float width, float height) {

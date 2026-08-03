@@ -80,9 +80,19 @@ public:
 	void Update(const Input& input, float width, float height);
 	void Render(gfx::SpriteBatch& batch, float width, float height);
 
+	// This context's ROOT font — the document's 1rem (UI/Units.h). A widget
+	// drawing in a different role asks for TextFont() instead; rem never moves.
 	Font& GetFont() { return *m_font; }
 	// Const path, for the rem/em units (UI/Units.h) and other const rect maths.
 	const Font& GetFont() const { return *m_font; }
+
+	// The font for `role` at THIS context's authored size — how a widget with a
+	// font role resolves (Widget::fontRole). The role's optical scale is applied
+	// by the library, so a Script label sits on the same baseline grid as the
+	// Body text around it. In the owned-Font form there is no library and every
+	// role resolves to the one font.
+	const Font& FontFor(FontRole role) const;
+	FontRole RootRole() const { return m_role; }
 	const Theme& GetTheme() const { return m_theme; }
 	void SetTheme(const Theme& theme) { m_theme = theme; }
 
@@ -116,6 +126,10 @@ private:
 	FontLibrary* m_library = nullptr;
 	FontRole m_role = FontRole::Body;
 	Font* m_font = nullptr;
+	// The size this context was AUTHORED at, before any role's optical scale.
+	// Kept so FontFor can resolve a second role at the same authored size —
+	// asking with m_font->Height() would apply the root role's scale twice.
+	float m_designHeight = 16.0f;
 	Theme m_theme;
 	const Skin* m_skin = nullptr;
 	// Covers the window; every top-level widget is one of its children.

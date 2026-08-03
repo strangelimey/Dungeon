@@ -88,7 +88,7 @@ float SheetList::ViewHeight() const {
 
 // Measure every row and stack them, before the repeater's placer (which runs
 // later in this same layout pass) asks for the offsets.
-void SheetList::LayoutSelf(ui::UIContext& ctx) {
+void SheetList::LayoutSelf(ui::UIContext&) {
 	const gfx::Rect& px = Pixel();
 	m_scroll->bounds = {0.0f, bandTop, 1.0f, bandBottom - bandTop};
 	// The scrollbar gutter, in the same terms the sheet's own layout used.
@@ -100,7 +100,7 @@ void SheetList::LayoutSelf(ui::UIContext& ctx) {
 	float y = 0.0f;
 	for (size_t i = 0; i < rows; ++i) {
 		m_rowTop[i] = y;
-		m_rowH[i] = m_measure ? m_measure(i, ctx.GetFont(), px.w) : 0.0f;
+		m_rowH[i] = m_measure ? m_measure(i, TextFont(), px.w) : 0.0f;
 		y += m_rowH[i];
 	}
 	m_contentH = y;
@@ -115,7 +115,7 @@ void SheetList::LayoutSelf(ui::UIContext& ctx) {
 
 void SheetList::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	const gfx::Rect& px = Pixel();
-	ui::Font& font = ctx.GetFont();
+	const ui::Font& font = TextFont();
 	const ui::Theme& theme = ctx.GetTheme();
 	font.Draw(batch, m_heading, Ax(px, kLeft), Ay(px, headingY), theme.accent);
 	if ((m_count ? m_count() : 0) == 0)
@@ -206,7 +206,7 @@ void CharacterSheet::BakeSpells() {
 // A row owns its Y (the list stacks it); the X fractions still resolve against
 // the SHEET, which is what keeps the columns lined up with the rest of the page.
 
-float CharacterSheet::MeasureSkillRow(size_t, ui::Font&, float) const {
+float CharacterSheet::MeasureSkillRow(size_t, const ui::Font&, float) const {
 	return kRowH * Pixel().h;
 }
 
@@ -215,7 +215,7 @@ void CharacterSheet::DrawSkillRow(size_t i, ui::UIContext& ctx,
 	if (i >= m_skillRows.size()) return;
 	const SkillRow& row = m_skillRows[i];
 	const ui::Theme& theme = ctx.GetTheme();
-	ui::Font& font = ctx.GetFont();
+	const ui::Font& font = TextFont();
 	const gfx::Rect& px = Pixel();
 	font.Draw(batch, row.label, Ax(px, kLabelX), r.y, theme.textDim);
 	const float vw = font.MeasureWidth(row.level);
@@ -224,7 +224,7 @@ void CharacterSheet::DrawSkillRow(size_t i, ui::UIContext& ctx,
 				row.frac, row.tint.w > 0.0f ? row.tint : theme.accent, theme);
 }
 
-float CharacterSheet::MeasureSpellRow(size_t i, ui::Font& font,
+float CharacterSheet::MeasureSpellRow(size_t i, const ui::Font& font,
 									  float widthPx) const {
 	if (i >= m_spellRows.size()) return 0.0f;
 	const float maxW = (kTextRight - kSpellTextX) * widthPx;
@@ -239,7 +239,7 @@ void CharacterSheet::DrawSpellRow(size_t i, ui::UIContext& ctx,
 	if (i >= m_spellRows.size()) return;
 	const SpellRow& row = m_spellRows[i];
 	const ui::Theme& theme = ctx.GetTheme();
-	ui::Font& font = ctx.GetFont();
+	const ui::Font& font = TextFont();
 	const gfx::Rect& px = Pixel();
 	const float textX = Ax(px, kSpellTextX);
 	const float maxW = (kTextRight - kSpellTextX) * px.w;
@@ -267,7 +267,7 @@ void CharacterSheet::DrawSpellRow(size_t i, ui::UIContext& ctx,
 	});
 }
 
-float CharacterSheet::MeasureEffectRow(size_t i, ui::Font& font,
+float CharacterSheet::MeasureEffectRow(size_t i, const ui::Font& font,
 									   float widthPx) const {
 	if (i >= m_effectRows.size()) return 0.0f;
 	const float maxW = (kTextRight - kEffectTextX) * widthPx;
@@ -282,7 +282,7 @@ void CharacterSheet::DrawEffectRow(size_t i, ui::UIContext& ctx,
 	if (i >= m_effectRows.size()) return;
 	const EffectRow& row = m_effectRows[i];
 	const ui::Theme& theme = ctx.GetTheme();
-	ui::Font& font = ctx.GetFont();
+	const ui::Font& font = TextFont();
 	const gfx::Rect& px = Pixel();
 
 	const gfx::Rect icon{Ax(px, kEffectIconX), r.y, kEffectIconW * px.w,

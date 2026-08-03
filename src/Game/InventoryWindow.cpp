@@ -92,7 +92,7 @@ void InventoryWindow::UpdateSelf(ui::UIContext& ctx) {
 void InventoryWindow::DrawOverlaySelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	if (!m_open) return;
 	const ui::Theme& theme = ctx.GetTheme();
-	ui::Font& font = ctx.GetFont();
+	const ui::Font& font = TextFont();
 	batch.DrawRect({0, 0, ctx.Width(), ctx.Height()}, {0, 0, 0, 0.5f});
 	const gfx::Rect panel = PanelRect(ctx);
 	ui::DrawPanelFace(ctx, batch, panel);

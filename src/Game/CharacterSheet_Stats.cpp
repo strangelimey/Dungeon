@@ -32,7 +32,7 @@ void CharacterSheet::BakeStats() {
 void CharacterSheet::DrawStats(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 							   const gfx::Rect& px) {
 	const ui::Theme& theme = ctx.GetTheme();
-	ui::Font& font = ctx.GetFont();
+	const ui::Font& font = TextFont();
 
 	// --- attributes (left column) -------------------------------------------
 	font.Draw(batch, m_attributesLabel, Ax(px, kLeft), Ay(px, kHeaderY), theme.accent);

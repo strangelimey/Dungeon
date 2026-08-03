@@ -77,7 +77,7 @@ void CharacterSheet::BuildParts() {
 		switch (lists[n].mode) {
 		case Mode::Skills:
 			count = [this] { return m_skillRows.size(); };
-			measure = [this](size_t i, ui::Font& f, float w) {
+			measure = [this](size_t i, const ui::Font& f, float w) {
 				return MeasureSkillRow(i, f, w);
 			};
 			draw = [this](size_t i, ui::UIContext& c, gfx::SpriteBatch& b,
@@ -85,7 +85,7 @@ void CharacterSheet::BuildParts() {
 			break;
 		case Mode::Spells:
 			count = [this] { return m_spellRows.size(); };
-			measure = [this](size_t i, ui::Font& f, float w) {
+			measure = [this](size_t i, const ui::Font& f, float w) {
 				return MeasureSpellRow(i, f, w);
 			};
 			draw = [this](size_t i, ui::UIContext& c, gfx::SpriteBatch& b,
@@ -93,7 +93,7 @@ void CharacterSheet::BuildParts() {
 			break;
 		default:
 			count = [this] { return m_effectRows.size(); };
-			measure = [this](size_t i, ui::Font& f, float w) {
+			measure = [this](size_t i, const ui::Font& f, float w) {
 				return MeasureEffectRow(i, f, w);
 			};
 			draw = [this](size_t i, ui::UIContext& c, gfx::SpriteBatch& b,

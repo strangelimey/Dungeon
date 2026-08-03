@@ -88,7 +88,8 @@ class SheetList : public ui::Widget {
 public:
 	using Counter = std::function<size_t()>;
 	// Row height in pixels, given the font and the width available to it.
-	using Measure = std::function<float(size_t index, ui::Font& font, float widthPx)>;
+	using Measure =
+		std::function<float(size_t index, const ui::Font& font, float widthPx)>;
 
 	SheetList(const gfx::Rect& rect, std::string heading, std::string emptyText,
 			  Counter count, Measure measure, SheetRow::DrawFn drawRow);
@@ -179,9 +180,9 @@ private:
 	void DrawStats(ui::UIContext& ctx, gfx::SpriteBatch& batch, const gfx::Rect& px);
 	// One row of each list tab, drawn into the rect the list gives it, plus the
 	// height that row needs. Passed to the SheetLists as callbacks.
-	float MeasureSkillRow(size_t i, ui::Font& font, float widthPx) const;
-	float MeasureSpellRow(size_t i, ui::Font& font, float widthPx) const;
-	float MeasureEffectRow(size_t i, ui::Font& font, float widthPx) const;
+	float MeasureSkillRow(size_t i, const ui::Font& font, float widthPx) const;
+	float MeasureSpellRow(size_t i, const ui::Font& font, float widthPx) const;
+	float MeasureEffectRow(size_t i, const ui::Font& font, float widthPx) const;
 	void DrawSkillRow(size_t i, ui::UIContext& ctx, gfx::SpriteBatch& batch,
 					  const gfx::Rect& r);
 	void DrawSpellRow(size_t i, ui::UIContext& ctx, gfx::SpriteBatch& batch,

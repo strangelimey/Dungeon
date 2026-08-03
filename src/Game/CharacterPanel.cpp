@@ -129,7 +129,7 @@ void EffectIcon::DrawSelf(ui::UIContext&, gfx::SpriteBatch& batch) {
 void EffectIcon::DrawOverlaySelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	const fx::Inst* effect = Effect();
 	if (!m_hot || !effect) return;
-	ui::Font& font = ctx.GetFont();
+	const ui::Font& font = TextFont();
 	const gfx::Rect& r = Pixel();
 	const std::string label =
 		loc::Format("hud.effect_time", loc::Tr(effect->NameKey()),
@@ -241,7 +241,7 @@ CharacterPanel::CharacterPanel(const gfx::Rect& rect,
 // Portrait square at the left, the effect strip along the name row, the bars
 // filling what is left beneath. All three are fractions of THIS slot, worked
 // out from its live pixel rect because they are aspect- and font-locked.
-void CharacterPanel::LayoutSelf(ui::UIContext& ctx) {
+void CharacterPanel::LayoutSelf(ui::UIContext&) {
 	const gfx::Rect& px = Pixel();
 	const bool present = RosterMember(m_roster, m_member) != nullptr;
 	m_portrait->visible = present;
@@ -257,7 +257,7 @@ void CharacterPanel::LayoutSelf(ui::UIContext& ctx) {
 
 	// The name row is one line advance tall, so the effect icons sit exactly
 	// on the name band.
-	const float rowH = ctx.GetFont().LineAdvance() / px.h;
+	const float rowH = TextFont().LineAdvance() / px.h;
 	const float left = padX + sideX + padX; // past the portrait
 	const float right = 1.0f - padX;
 	m_effects->bounds = {left, padY, right - left, rowH};
@@ -310,7 +310,7 @@ void CharacterPanel::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	// The name shares the row the effect strip sits on: name left, strip right.
 	const float pad = px.h * kPad;
 	const float left = px.x + pad + (px.h - 2 * pad) + pad; // past the portrait
-	ctx.GetFont().Draw(batch, character->name, left, px.y + pad, theme.text);
+	TextFont().Draw(batch, character->name, left, px.y + pad, theme.text);
 }
 
 } // namespace dungeon::game

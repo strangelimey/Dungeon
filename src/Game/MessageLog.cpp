@@ -53,7 +53,7 @@ gfx::Rect MessageLog::FooterRect(ui::UIContext& ctx) const {
 }
 
 gfx::Rect MessageLog::RestoreRect(ui::UIContext& ctx) const {
-	ui::Font& font = ctx.GetFont();
+	const ui::Font& font = TextFont();
 	const float bh = font.LineAdvance() + Rem(0.6f);
 	const float bw = font.MeasureWidth(restoreLabel) + Rem(1.4f);
 	// bottom-left, where the footer sat
@@ -67,7 +67,7 @@ gfx::Rect MessageLog::RestoreRect(ui::UIContext& ctx) const {
 // parent. During the brief cross-fade both are painted; only one of them ever
 // takes input, and that is the one `bounds` follows.
 void MessageLog::LayoutSelf(ui::UIContext& ctx) {
-	ui::Font& font = ctx.GetFont();
+	const ui::Font& font = TextFont();
 	const float lineH = font.LineAdvance();
 	const float w = ctx.Width(), h = ctx.Height();
 	const float pad = Rem(kPadRem);
@@ -85,7 +85,7 @@ void MessageLog::LayoutSelf(ui::UIContext& ctx) {
 }
 
 void MessageLog::UpdateSelf(ui::UIContext& ctx) {
-	ui::Font& font = ctx.GetFont();
+	const ui::Font& font = TextFont();
 	const float lineH = font.LineAdvance();
 	m_hovered = false;
 	m_restoreHot = false;
@@ -151,7 +151,7 @@ void MessageLog::Tick(float dt) {
 
 void MessageLog::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	const ui::Theme& theme = ctx.GetTheme();
-	ui::Font& font = ctx.GetFont();
+	const ui::Font& font = TextFont();
 	const float ca = m_chromeAlpha;
 
 	if (ca > 0.02f) {

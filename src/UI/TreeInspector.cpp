@@ -77,13 +77,21 @@ std::string RectText(const gfx::Rect& r) {
 	return std::format("{:.0f},{:.0f} {:.0f}x{:.0f}", r.x, r.y, r.w, r.h);
 }
 
+// A widget that SET a role is the interesting one — it starts a re-faced
+// subtree. Marking the inheritors too would tag almost every line.
+std::string RoleText(const Widget& widget) {
+	return widget.fontRole
+			   ? std::format("  font {}", FontRoleName(*widget.fontRole))
+			   : std::string();
+}
+
 void DumpNode(const Widget& widget, size_t depth,
 			  const std::function<void(const std::string&)>& out) {
 	const gfx::Rect& b = widget.bounds;
-	out(std::format("{}{}{}  px {}  bounds {:.3f},{:.3f} {:.3f}x{:.3f}",
+	out(std::format("{}{}{}  px {}  bounds {:.3f},{:.3f} {:.3f}x{:.3f}{}",
 					std::string(depth * 2, ' '), Name(widget),
 					widget.visible ? "" : " (hidden)", RectText(widget.Pixel()),
-					b.x, b.y, b.w, b.h));
+					b.x, b.y, b.w, b.h, RoleText(widget)));
 	for (const auto& child : widget.Children())
 		DumpNode(*child, depth + 1, out);
 }
@@ -130,8 +138,11 @@ void Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
 	std::vector<std::string> lines;
 	lines.reserve(chain.size());
 	for (size_t i = 0; i < chain.size(); ++i) {
-		lines.push_back(std::format("{}{}  {}", std::string(i * 2, ' '),
-									Name(*chain[i]), RectText(chain[i]->Pixel())));
+		// The chain shows the RESOLVED role, not just where it was set: under the
+		// cursor you want to know which face this leaf actually draws in.
+		lines.push_back(std::format("{}{}  {}  [{}]", std::string(i * 2, ' '),
+									Name(*chain[i]), RectText(chain[i]->Pixel()),
+									FontRoleName(chain[i]->ResolvedRole())));
 		widest = std::max(widest, font.MeasureWidth(lines.back()));
 	}
 	gfx::Rect box{ctx.MouseX() + 16.0f, ctx.MouseY() + 16.0f, widest + 2 * pad,

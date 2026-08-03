@@ -39,18 +39,37 @@ ScopedClip::~ScopedClip() {
 	m_batch.SetScissor(g_clip);
 }
 
-void Widget::Layout(const gfx::Rect& container, UIContext& ctx) {
+void Widget::Layout(const gfx::Rect& container, UIContext& ctx,
+					const Font* inherited) {
 	m_pixel = {container.x + bounds.x * container.w,
 			   container.y + bounds.y * container.h, bounds.w * container.w,
 			   bounds.h * container.h};
 	m_rem = ctx.GetFont().Height(); // this context's root font size (Units.h)
+
+	// Resolve the face BEFORE LayoutSelf, so a container that sizes itself from
+	// its own text measures in the face it will actually draw in. A role set
+	// here wins; otherwise inherit the parent's; the root takes the context's.
+	if (fontRole) {
+		m_resolvedRole = *fontRole;
+		m_font = &ctx.FontFor(*fontRole);
+	} else if (inherited) {
+		m_font = inherited;
+		// m_resolvedRole is only a label for the inspector, so carry the
+		// parent's rather than re-deriving it.
+	} else {
+		m_resolvedRole = ctx.RootRole();
+		m_font = &ctx.GetFont();
+	}
+	m_em = m_font->Height();
+
 	// Self first: a container sizes itself, clamps its scroll, or assigns its
 	// children's bounds here, so the recursion below sees the final values.
 	LayoutSelf(ctx);
 	const gfx::Rect content = ContentRect();
 	for (auto& child : m_children) {
 		if (!child->visible || !ChildActive(*child)) continue;
-		child->Layout(content, ctx);
+		child->m_resolvedRole = m_resolvedRole; // inherited unless it sets one
+		child->Layout(content, ctx, m_font);
 	}
 }
 

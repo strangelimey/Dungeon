@@ -303,10 +303,29 @@ resolution, with no second scaling rule. One line of text is 1.25rem
 
 `Widget::Rem(n)` resolves against a value captured at Layout, so even a const
 rect helper can ask for it without being handed a UIContext — the same "resolve
-once, then use everywhere" shape as CSS computing rem against the root. `Em(n)`
-is identical today (no widget has its own font) and exists so that the seam has
-a name: if per-widget font sizes ever arrive, Em is what changes, and every call
-site already says which one it meant.
+once, then use everywhere" shape as CSS computing rem against the root.
+
+`Em(n)` is the widget's OWN font size, and since the fonts thread it really does
+differ from rem: a widget can set `Widget::fontRole` and draw in another typeface
+(docs/fonts.md). The role is INHERITED down the subtree exactly like CSS
+`font-family` — unset means "whatever my parent resolved" — and it resolves in
+`Widget::Layout` BEFORE `LayoutSelf`, so a container that sizes itself from its
+own text measures in the face it will actually draw in.
+
+The split is load-bearing, and it is why the seam was reserved with a name in
+the first place: **rem is the document's grid and must not move when a widget
+changes face.** Padding, row heights and a scrollbar's width stay in rem, so
+re-facing one label cannot re-space the controls around it; detail belonging to
+a widget's own text uses em, so it tracks the face beside it. Demonstrated by
+setting a single `fontRole` on a menu context's root: every menu item re-faced,
+and no geometry moved by a pixel.
+
+The corollary for a widget's DrawSelf: draw with `TextFont()`, never
+`ctx.GetFont()`. The context's font is the DOCUMENT ROOT and deliberately
+ignores roles — that is exactly what makes it a stable 1rem — so a widget that
+reaches for it silently opts its own text out of inheritance. `ctx.GetFont()` is
+right only for things drawn OUTSIDE the tree: the tree inspector's breadcrumb,
+GameUI's directly-drawn menu titles.
 
 THE ONLY RAW PIXELS LEFT are hairlines — the 1px borders (DrawBorder,
 Separator) and the 2px text caret. A hairline expressed as a fraction blurs
