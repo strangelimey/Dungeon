@@ -33,6 +33,8 @@ void AddNumericField(ui::UIContext& ui, const gfx::Rect& r, float value,
 					 std::function<void(float)> commit) {
 	auto* field = ui.Add<ui::TextField>(r, std::format("{:g}", value));
 	field->fontRole = ui::FontRole::Mono; // a numeric readout, like Balance's
+	field->fontScale = 1.0f; // ...and sized to its digits, so it stays put while
+							 // the labels around it take kDialogTextScale
 	field->maxLength = 10;
 	ui::TextField* raw = field;
 	field->onChange = [raw, commit = std::move(commit)] {
@@ -46,6 +48,11 @@ void AddNumericField(ui::UIContext& ui, const gfx::Rect& r, float value,
 
 LevelSettingsDialog::LevelSettingsDialog(gfx::GraphicsDevice& device, ui::FontLibrary& fonts)
 	: m_device(device), m_ui(fonts, ui::FontRole::Body, 18.0f) {
+	// The whole form reads at the dialog text size. Set on the ROOT because
+	// fontScale inherits (Widget.h), so one line covers every row this dialog
+	// grows later; the numeric readouts pin themselves back in AddNumericField.
+	// It survives Clear(), which only drops the root's children.
+	m_ui.Root().fontScale = ui::kDialogTextScale;
 	m_closeIcon = TryLoadTextureFile(device, paths::Asset("ui\\icon_close"));
 }
 
@@ -81,6 +88,8 @@ void LevelSettingsDialog::BuildUI() {
 		// title meanwhile). Enter commits; losing focus or Esc cancels.
 		m_nameField = m_ui.Add<ui::TextField>(
 			gfx::Rect{kTitle.x, kTitle.y, kTitle.w, 0.035f}, m_stem);
+		// It stands in for the title, so it is sized as the title, not as a row.
+		m_nameField->fontScale = ui::kDialogTitleScale;
 		m_nameField->maxLength = 24;
 		m_nameField->SetFocused(true);
 		ui::TextField* raw = m_nameField;

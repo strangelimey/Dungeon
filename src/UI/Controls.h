@@ -675,6 +675,15 @@ gfx::Rect CloseButtonRect(const gfx::Rect& panel);
 Button* AddCloseButton(UIContext& ui, const gfx::Rect& panel,
 					   const gfx::Texture* icon, std::function<void()> onClose);
 
+// How much larger than its context an editor dialog sets its two kinds of text.
+// Constants rather than a size each dialog picks, for the same reason
+// AddCloseButton is one helper: every dialog then reads at the same two sizes.
+// Widgets take these through Widget::fontScale; raw draws take them through the
+// two font helpers below. The dialogs' numeric readouts deliberately take
+// NEITHER — they are sized to their digits and stay at the document size.
+inline constexpr float kDialogTitleScale = 2.9f;
+inline constexpr float kDialogTextScale = 2.0f;
+
 // A dialog's TITLE face: the context's own text, enlarged. One helper for the
 // same reason AddCloseButton is one helper — every dialog's title is then the
 // same size — and because a title is sometimes a HIT TARGET (the level and type
@@ -682,5 +691,10 @@ Button* AddCloseButton(UIContext& ui, const gfx::Rect& panel,
 // size and drawing it in another puts the click somewhere the text is not, so
 // the rect and the draw must ask the same function.
 const Font& DialogTitleFont(const UIContext& ctx);
+
+// A dialog's FORM face — setting names and footer buttons. The same size a
+// widget gets from `fontScale = kDialogTextScale`, for the dialogs that draw
+// their rows straight to the batch instead of through Label widgets.
+const Font& DialogTextFont(const UIContext& ctx);
 
 } // namespace dungeon::ui

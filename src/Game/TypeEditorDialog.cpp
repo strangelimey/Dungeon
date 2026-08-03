@@ -56,6 +56,7 @@ std::vector<std::string> SplitOptions(std::string_view text) {
 
 TypeEditorDialog::TypeEditorDialog(gfx::GraphicsDevice& device, ui::FontLibrary& fonts)
 	: m_device(device), m_ui(fonts, ui::FontRole::Body, 18.0f) {
+	m_ui.Root().fontScale = ui::kDialogTextScale; // inherits — see LevelSettings
 	m_closeIcon = TryLoadTextureFile(device, paths::Asset("ui\\icon_close"));
 }
 
@@ -105,8 +106,11 @@ void TypeEditorDialog::SetValue(const FieldSpec& spec, std::string value) {
 gfx::Rect TypeEditorDialog::IdRect(float w, float h) {
 	const std::string prefix =
 		loc::Format("map.type.title", m_cfg.categoryLabel, "");
-	return {kTitle.x * w + m_ui.GetFont().MeasureWidth(prefix), kTitle.y * h,
-			m_ui.GetFont().MeasureWidth(m_cfg.id) + 6.0f, m_ui.GetFont().Height()};
+	// The TITLE face, which Render draws the id with — this rect is its click
+	// target, so the two must measure with the same font.
+	const ui::Font& title = ui::DialogTitleFont(m_ui);
+	return {kTitle.x * w + title.MeasureWidth(prefix), kTitle.y * h,
+			title.MeasureWidth(m_cfg.id) + 6.0f, title.Height()};
 }
 
 void TypeEditorDialog::BuildUI() {
@@ -120,6 +124,8 @@ void TypeEditorDialog::BuildUI() {
 		// onRename; Esc or losing focus cancels.
 		m_nameField = m_ui.Add<ui::TextField>(
 			gfx::Rect{kTitle.x, kTitle.y, 0.22f, 0.035f}, m_cfg.id);
+		// It stands in for the title, so it is sized as the title, not as a row.
+		m_nameField->fontScale = ui::kDialogTitleScale;
 		m_nameField->maxLength = 32;
 		m_nameField->SetFocused(true);
 		ui::TextField* raw = m_nameField;
@@ -405,10 +411,11 @@ void TypeEditorDialog::Render(gfx::SpriteBatch& batch, const ui::Theme& th, floa
 		// affordance (accent on hover + an underline so it reads clickable).
 		const std::string prefix =
 			loc::Format("map.type.title", m_cfg.categoryLabel, "");
-		m_ui.GetFont().Draw(batch, prefix, kTitle.x * w, kTitle.y * h, th.text);
-		const gfx::Rect id{kTitle.x * w + m_ui.GetFont().MeasureWidth(prefix), kTitle.y * h,
-						   m_ui.GetFont().MeasureWidth(m_cfg.id), m_ui.GetFont().Height()};
-		m_ui.GetFont().Draw(batch, m_cfg.id, id.x, id.y, m_nameHover ? th.accent : th.text);
+		const ui::Font& title = ui::DialogTitleFont(m_ui); // same as IdRect
+		title.Draw(batch, prefix, kTitle.x * w, kTitle.y * h, th.text);
+		const gfx::Rect id{kTitle.x * w + title.MeasureWidth(prefix), kTitle.y * h,
+						   title.MeasureWidth(m_cfg.id), title.Height()};
+		title.Draw(batch, m_cfg.id, id.x, id.y, m_nameHover ? th.accent : th.text);
 		batch.DrawRect({id.x, id.y + id.h + 1.0f, id.w, 1.0f},
 					   m_nameHover ? th.accent : th.textDim);
 	}

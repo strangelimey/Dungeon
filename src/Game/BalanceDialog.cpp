@@ -35,6 +35,8 @@ void AddNumericField(ui::TabControl* tabs, size_t tab, const gfx::Rect& r,
 	// face gives every digit a different width, so the numbers will not line up
 	// with each other however the rows are placed.
 	field->fontRole = ui::FontRole::Mono;
+	field->fontScale = 1.0f; // ...and sized to its digits: a tuning table stays
+							 // at the document size while its labels grow
 	field->maxLength = 10;
 	ui::TextField* raw = field;
 	field->onChange = [raw, commit = std::move(commit)] {
@@ -48,6 +50,7 @@ void AddNumericField(ui::TabControl* tabs, size_t tab, const gfx::Rect& r,
 
 BalanceDialog::BalanceDialog(gfx::GraphicsDevice& device, ui::FontLibrary& fonts)
 	: m_device(device), m_ui(fonts, ui::FontRole::Body, 18.0f) {
+	m_ui.Root().fontScale = ui::kDialogTextScale; // inherits — see LevelSettings
 	m_closeIcon = TryLoadTextureFile(device, paths::Asset("ui\\icon_close"));
 }
 

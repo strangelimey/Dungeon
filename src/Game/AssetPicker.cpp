@@ -89,6 +89,7 @@ const char* SmallestRes(u32 mask) {
 
 AssetPicker::AssetPicker(gfx::GraphicsDevice& device, ui::FontLibrary& fonts)
 	: m_device(device), m_ui(fonts, ui::FontRole::Body, 18.0f) {
+	m_ui.Root().fontScale = ui::kDialogTextScale; // inherits — see LevelSettings
 	m_closeIcon = TryLoadTextureFile(device, paths::Asset("ui\\icon_close"));
 }
 
@@ -559,8 +560,8 @@ void AssetPicker::Render(gfx::SpriteBatch& batch, float w, float h) {
 	batch.DrawRect(panel, th.panel);
 	ui::DrawBorder(batch, panel, th.panelBorder);
 
-	m_ui.GetFont().Draw(batch, loc::Format("pick.title", m_label), kTitle.x * w,
-				kTitle.y * h, th.text);
+	ui::DialogTitleFont(m_ui).Draw(batch, loc::Format("pick.title", m_label),
+								   kTitle.x * w, kTitle.y * h, th.text);
 	// The count, so a filter that hides everything says so rather than looking
 	// like a broken grid.
 	m_ui.GetFont().Draw(batch,

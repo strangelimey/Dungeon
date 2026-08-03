@@ -46,6 +46,7 @@ std::string ClipLabel(const std::string& name) {
 
 MonsterConfigDialog::MonsterConfigDialog(gfx::GraphicsDevice& device, ui::FontLibrary& fonts)
 	: m_device(device), m_ui(fonts, ui::FontRole::Body, 18.0f) {
+	m_ui.Root().fontScale = ui::kDialogTextScale; // inherits — see LevelSettings
 	m_closeIcon = TryLoadTextureFile(device, paths::Asset("ui\\icon_close"));
 }
 
@@ -290,7 +291,8 @@ void MonsterConfigDialog::Render(gfx::SpriteBatch& batch, const ui::Theme& th, f
 	ui::DrawBorder(batch, panel, th.panelBorder);
 
 	const gfx::Rect title = px(kTitle);
-	m_ui.GetFont().Draw(batch, loc::Format("map.cfg.title", m_display), title.x, title.y, th.text);
+	ui::DialogTitleFont(m_ui).Draw(batch, loc::Format("map.cfg.title", m_display),
+								   title.x, title.y, th.text);
 
 	m_ui.Render(batch, w, h); // tabs + footer buttons (+ dropdown overlays)
 
