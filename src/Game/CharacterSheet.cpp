@@ -84,24 +84,24 @@ void CharacterSheet::BuildParts() {
 		switch (lists[n].mode) {
 		case Mode::Skills:
 			count = [this] { return m_skillRows.size(); };
-			measure = [this](size_t i, const ui::Font& f, float w) {
-				return MeasureSkillRow(i, f, w);
+			measure = [this](size_t i, ui::UIContext& c, const ui::Font& f, float w) {
+				return MeasureSkillRow(i, c, f, w);
 			};
 			draw = [this](size_t i, ui::UIContext& c, gfx::SpriteBatch& b,
 						  const gfx::Rect& r) { DrawSkillRow(i, c, b, r); };
 			break;
 		case Mode::Spells:
 			count = [this] { return m_spellRows.size(); };
-			measure = [this](size_t i, const ui::Font& f, float w) {
-				return MeasureSpellRow(i, f, w);
+			measure = [this](size_t i, ui::UIContext& c, const ui::Font& f, float w) {
+				return MeasureSpellRow(i, c, f, w);
 			};
 			draw = [this](size_t i, ui::UIContext& c, gfx::SpriteBatch& b,
 						  const gfx::Rect& r) { DrawSpellRow(i, c, b, r); };
 			break;
 		default:
 			count = [this] { return m_effectRows.size(); };
-			measure = [this](size_t i, const ui::Font& f, float w) {
-				return MeasureEffectRow(i, f, w);
+			measure = [this](size_t i, ui::UIContext& c, const ui::Font& f, float w) {
+				return MeasureEffectRow(i, c, f, w);
 			};
 			draw = [this](size_t i, ui::UIContext& c, gfx::SpriteBatch& b,
 						  const gfx::Rect& r) { DrawEffectRow(i, c, b, r); };
@@ -111,7 +111,6 @@ void CharacterSheet::BuildParts() {
 									lists[n].empty, std::move(count),
 									std::move(measure), std::move(draw));
 		list->headingY = kHeaderY;
-		list->bandTop = kScrollTop;
 		list->bandBottom = 1.0f - kScrollBottomPad;
 		m_lists[n] = list;
 	}

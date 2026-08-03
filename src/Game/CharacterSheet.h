@@ -86,9 +86,12 @@ private:
 class SheetList : public ui::Widget {
 public:
 	using Counter = std::function<size_t()>;
-	// Row height in pixels, given the font and the width available to it.
-	using Measure =
-		std::function<float(size_t index, const ui::Font& font, float widthPx)>;
+	// Row height in pixels. Takes the CONTEXT as well as the list's own font
+	// because a row may set part of itself in another role (a spell's
+	// description is Script) — and it has to MEASURE in the same face it will
+	// DRAW in, or the wrap and the row height disagree.
+	using Measure = std::function<float(size_t index, ui::UIContext& ctx,
+										const ui::Font& font, float widthPx)>;
 
 	SheetList(const gfx::Rect& rect, std::string heading, std::string emptyText,
 			  Counter count, Measure measure, SheetRow::DrawFn drawRow);
@@ -98,7 +101,8 @@ public:
 	// Fractions of this widget: where the heading sits and where the scrolling
 	// band starts/stops. Set by the sheet from its shared layout table.
 	float headingY = 0.0f;
-	float bandTop = 0.0f;
+	// The band's TOP is derived from the title's height in LayoutSelf (see
+	// m_bandTop); only its bottom is authored.
 	float bandBottom = 1.0f;
 
 private:
@@ -122,6 +126,13 @@ private:
 	// and the rows are its grandchildren, so the repeater has to report it.
 	std::vector<float> m_rowTop, m_rowH;
 	float m_contentH = 0.0f;
+	// The repeater's resolved pixel height: the stacked content, or the band
+	// when the content is shorter. Rows are placed as fractions of THIS, so a
+	// short list does not stretch its rows to fill the band.
+	float m_placeH = 0.0f;
+	// Top of the scrolling band, resolved each layout from the title's line
+	// advance so the rows can never be crowded by the heading above them.
+	float m_bandTop = 0.0f;
 };
 
 class CharacterSheet : public ui::Widget {
@@ -178,9 +189,20 @@ private:
 	void DrawStats(ui::UIContext& ctx, gfx::SpriteBatch& batch, const gfx::Rect& px);
 	// One row of each list tab, drawn into the rect the list gives it, plus the
 	// height that row needs. Passed to the SheetLists as callbacks.
-	float MeasureSkillRow(size_t i, const ui::Font& font, float widthPx) const;
-	float MeasureSpellRow(size_t i, const ui::Font& font, float widthPx) const;
-	float MeasureEffectRow(size_t i, const ui::Font& font, float widthPx) const;
+	// An effect row's symbol is square and spans exactly its NAME line, so the
+	// three line up: symbol top = name top, symbol bottom = description top.
+	// Both the size and the text column that follows it are shared by
+	// MeasureEffectRow and DrawEffectRow, which must agree or the row's height
+	// will not match what is drawn into it.
+	float EffectIconSize(const ui::Font& nameFont) const;
+	float EffectTextInset(const ui::Font& nameFont) const; // from the sheet's left
+
+	float MeasureSkillRow(size_t i, ui::UIContext& ctx, const ui::Font& font,
+					  float widthPx) const;
+	float MeasureSpellRow(size_t i, ui::UIContext& ctx, const ui::Font& font,
+					  float widthPx) const;
+	float MeasureEffectRow(size_t i, ui::UIContext& ctx, const ui::Font& font,
+					  float widthPx) const;
 	void DrawSkillRow(size_t i, ui::UIContext& ctx, gfx::SpriteBatch& batch,
 					  const gfx::Rect& r);
 	void DrawSpellRow(size_t i, ui::UIContext& ctx, gfx::SpriteBatch& batch,

@@ -68,12 +68,16 @@ SheetList::SheetList(const gfx::Rect& rect, std::string heading,
 		},
 		[this] { return m_count ? m_count() : 0; },
 		[this](size_t i) {
-			// Fractions of the REPEATER, which LayoutSelf has already sized to
-			// the full stacked height.
-			if (m_contentH <= 0.0f || i >= m_rowTop.size())
+			// Fractions of the REPEATER'S OWN pixel height (m_placeH), NOT of
+			// the stacked content height. Those differ whenever the list is
+			// shorter than its band: the repeater is held open to the band so
+			// the scroll area sees no overflow, and dividing by the smaller
+			// content height would inflate every row to fill it — a short list
+			// came out with rows half again as tall as they measured.
+			if (m_placeH <= 0.0f || i >= m_rowTop.size())
 				return gfx::Rect{0, 0, 1, 0};
-			return gfx::Rect{0.0f, m_rowTop[i] / m_contentH, 1.0f,
-							 m_rowH[i] / m_contentH};
+			return gfx::Rect{0.0f, m_rowTop[i] / m_placeH, 1.0f,
+							 m_rowH[i] / m_placeH};
 		});
 	m_rows->debugName = "SheetRows";
 }
@@ -83,14 +87,22 @@ void SheetList::ScrollToTop() {
 }
 
 float SheetList::ViewHeight() const {
-	return std::max((bandBottom - bandTop) * Pixel().h, 0.0f);
+	return std::max((bandBottom - m_bandTop) * Pixel().h, 0.0f);
 }
 
 // Measure every row and stack them, before the repeater's placer (which runs
 // later in this same layout pass) asks for the offsets.
-void SheetList::LayoutSelf(ui::UIContext&) {
+void SheetList::LayoutSelf(ui::UIContext& ctx) {
 	const gfx::Rect& px = Pixel();
-	m_scroll->bounds = {0.0f, bandTop, 1.0f, bandBottom - bandTop};
+	// The scrolling band starts a MEASURED line below the tab's title, the same
+	// rule the Stats tab uses for its own heading (DrawStats). An authored band
+	// top would have to be re-tuned by hand every time the title size moved —
+	// and at kTabTitleRem the old fraction put the title straight through the
+	// first row.
+	const ui::Font& title = ctx.FontAt(ui::FontRole::Body, Rem(kTabTitleRem));
+	m_bandTop = headingY + (title.LineAdvance() + Rem(0.4f)) / std::max(px.h, 1.0f);
+	m_scroll->bounds = {0.0f, m_bandTop, 1.0f,
+						std::max(bandBottom - m_bandTop, 0.0f)};
 	// The scrollbar gutter, in the same terms the sheet's own layout used.
 	m_scroll->gutter = (kScrollBarW * px.w) / Rem() + kScrollBarPadRem;
 
@@ -100,26 +112,33 @@ void SheetList::LayoutSelf(ui::UIContext&) {
 	float y = 0.0f;
 	for (size_t i = 0; i < rows; ++i) {
 		m_rowTop[i] = y;
-		m_rowH[i] = m_measure ? m_measure(i, TextFont(), px.w) : 0.0f;
+		m_rowH[i] = m_measure ? m_measure(i, ctx, TextFont(), px.w) : 0.0f;
 		y += m_rowH[i];
 	}
 	m_contentH = y;
 
 	// The repeater carries the stacked height: the scroll area reads overflow
 	// off its own children's bounds, and the rows are one level deeper. A
-	// content box taller than the view is what makes the area scroll.
+	// content box taller than the view is what makes the area scroll — and it
+	// never shrinks BELOW the view, or a short list would report overflow it
+	// does not have. m_placeH is that final height, which the row placer
+	// divides by so rows keep the size they were measured at either way.
 	const float view = ViewHeight();
-	m_rows->bounds = {0.0f, 0.0f, 1.0f,
-					  view > 0.0f ? std::max(m_contentH / view, 1.0f) : 1.0f};
+	m_placeH = std::max(m_contentH, view);
+	m_rows->bounds = {0.0f, 0.0f, 1.0f, view > 0.0f ? m_placeH / view : 1.0f};
 }
 
 void SheetList::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	const gfx::Rect& px = Pixel();
-	const ui::Font& font = TextFont();
 	const ui::Theme& theme = ctx.GetTheme();
-	font.Draw(batch, m_heading, Ax(px, kLeft), Ay(px, headingY), theme.accent);
+	// Title at kTabTitleRem, matching the Stats tab's "Attributes".
+	ctx.FontAt(ui::FontRole::Body, Rem(kTabTitleRem))
+		.Draw(batch, m_heading, Ax(px, kLeft), Ay(px, headingY), theme.accent);
+	// The empty-list line sits at the top of the band the rows would have
+	// filled, so it follows the title down instead of needing its own fraction.
 	if ((m_count ? m_count() : 0) == 0)
-		font.Draw(batch, m_empty, Ax(px, kLeft), Ay(px, kEmptyListY), theme.textDim);
+		TextFont().Draw(batch, m_empty, Ax(px, kLeft), Ay(px, m_bandTop),
+						theme.textDim);
 }
 
 // --- the bakes -------------------------------------------------------------
@@ -206,8 +225,12 @@ void CharacterSheet::BakeSpells() {
 // A row owns its Y (the list stacks it); the X fractions still resolve against
 // the SHEET, which is what keeps the columns lined up with the rest of the page.
 
-float CharacterSheet::MeasureSkillRow(size_t, const ui::Font&, float) const {
-	return kRowH * Pixel().h;
+float CharacterSheet::MeasureSkillRow(size_t, ui::UIContext& ctx, const ui::Font&,
+									  float) const {
+	// One line plus a small gap, measured — not a fixed pitch. A skill row is a
+	// single line of text, so anything more is dead space in a list that grows.
+	const ui::Font& font = ctx.FontAt(ui::FontRole::Body, Rem(kSkillRem));
+	return font.LineAdvance() + kSkillRowGap * Pixel().h;
 }
 
 void CharacterSheet::DrawSkillRow(size_t i, ui::UIContext& ctx,
@@ -215,22 +238,30 @@ void CharacterSheet::DrawSkillRow(size_t i, ui::UIContext& ctx,
 	if (i >= m_skillRows.size()) return;
 	const SkillRow& row = m_skillRows[i];
 	const ui::Theme& theme = ctx.GetTheme();
-	const ui::Font& font = TextFont();
+	const ui::Font& font = ctx.FontAt(ui::FontRole::Body, Rem(kSkillRem));
 	const gfx::Rect& px = Pixel();
 	font.Draw(batch, row.label, Ax(px, kLabelX), r.y, theme.textDim);
 	const float vw = font.MeasureWidth(row.level);
 	font.Draw(batch, row.level, Ax(px, kValueRight) - vw, r.y, theme.text);
-	DrawStatBar(batch, {Ax(px, kSkillBarX), r.y, kSkillBarW * px.w, kBarH * px.h},
+	// The bar stands as tall as the text beside it, so it tightens with the row
+	// instead of holding it open at the Stats tab's height.
+	DrawStatBar(batch, {Ax(px, kSkillBarX), r.y, kSkillBarW * px.w, font.Height()},
 				row.frac, row.tint.w > 0.0f ? row.tint : theme.accent, theme);
 }
 
-float CharacterSheet::MeasureSpellRow(size_t i, const ui::Font& font,
-									  float widthPx) const {
+float CharacterSheet::MeasureSpellRow(size_t i, ui::UIContext& ctx,
+									  const ui::Font&, float widthPx) const {
 	if (i >= m_spellRows.size()) return 0.0f;
+	// The NAME line is interface (the list's own face); the description is the
+	// world talking, so it is set in Script. Measured in the same two faces
+	// DrawSpellRow draws them in — measuring the wrap in one face and drawing it
+	// in another gives a row height that does not match its contents.
+	const ui::Font& name = ctx.FontAt(ui::FontRole::Body, Rem(kNameRem));
+	const ui::Font& desc = ctx.FontAt(ui::FontRole::Script, Rem(kDescRem));
 	const float maxW = (kTextRight - kSpellTextX) * widthPx;
-	const int lines = CountLines(font, m_spellRows[i].desc, maxW);
-	return font.LineAdvance() + Rem(0.1f) +
-		   static_cast<float>(lines) * font.LineAdvance() +
+	const int lines = CountLines(desc, m_spellRows[i].desc, maxW);
+	return name.Height() + Rem(kNameDescGapRem) +
+		   static_cast<float>(lines) * desc.LineAdvance() +
 		   kSpellRowGap * Pixel().h;
 }
 
@@ -239,7 +270,9 @@ void CharacterSheet::DrawSpellRow(size_t i, ui::UIContext& ctx,
 	if (i >= m_spellRows.size()) return;
 	const SpellRow& row = m_spellRows[i];
 	const ui::Theme& theme = ctx.GetTheme();
-	const ui::Font& font = TextFont();
+	// The name line (and with it the rune squares, which are sized off the text)
+	// runs at kNameRem; MeasureSpellRow uses the same font for that line.
+	const ui::Font& font = ctx.FontAt(ui::FontRole::Body, Rem(kNameRem));
 	const gfx::Rect& px = Pixel();
 	const float textX = Ax(px, kSpellTextX);
 	const float maxW = (kTextRight - kSpellTextX) * px.w;
@@ -260,21 +293,43 @@ void CharacterSheet::DrawSpellRow(size_t i, ui::UIContext& ctx,
 	}
 	font.Draw(batch, row.name, nameX + runeGap, r.y,
 			  {row.tint.x, row.tint.y, row.tint.z, 1.0f});
-	const float descTop = r.y + font.LineAdvance() + Rem(0.1f);
-	WrapLines(font, row.desc, maxW, [&](std::string_view line, int n) {
-		font.Draw(batch, line, textX,
-				  descTop + static_cast<float>(n) * font.LineAdvance(), theme.textDim);
+	// The description in Script — in-world text, as against the interface face
+	// the name and the rest of the sheet use. MeasureSpellRow splits it the same
+	// way, so the row is as tall as what lands in it.
+	const ui::Font& descFont = ctx.FontAt(ui::FontRole::Script, Rem(kDescRem));
+	const float descTop = r.y + font.Height() + Rem(kNameDescGapRem);
+	WrapLines(descFont, row.desc, maxW, [&](std::string_view line, int n) {
+		descFont.Draw(batch, line, textX,
+					  descTop + static_cast<float>(n) * descFont.LineAdvance(),
+					  theme.textDim);
 	});
 }
 
-float CharacterSheet::MeasureEffectRow(size_t i, const ui::Font& font,
-									   float widthPx) const {
+float CharacterSheet::EffectIconSize(const ui::Font& nameFont) const {
+	// Exactly the name line: its height plus the gap that separates it from the
+	// description, which is where the description begins.
+	return nameFont.Height() + Rem(kNameDescGapRem);
+}
+
+float CharacterSheet::EffectTextInset(const ui::Font& nameFont) const {
+	return kEffectIconX * Pixel().w + EffectIconSize(nameFont) +
+		   Rem(kEffectIconGapRem);
+}
+
+float CharacterSheet::MeasureEffectRow(size_t i, ui::UIContext& ctx,
+									   const ui::Font&, float widthPx) const {
 	if (i >= m_effectRows.size()) return 0.0f;
-	const float maxW = (kTextRight - kEffectTextX) * widthPx;
-	const int lines = CountLines(font, m_effectRows[i].desc, maxW);
-	const float textH =
-		font.LineAdvance() + Rem(0.2f) + static_cast<float>(lines) * font.LineAdvance();
-	return std::max(textH, kEffectIconH * Pixel().h) + kEffectRowGap * Pixel().h;
+	// Same split as a spell row: the name/timer line is interface, the
+	// description is the world, and each is measured in the face it draws in.
+	const ui::Font& name = ctx.FontAt(ui::FontRole::Body, Rem(kNameRem));
+	const ui::Font& desc = ctx.FontAt(ui::FontRole::Script, Rem(kDescRem));
+	const float maxW = kTextRight * widthPx - EffectTextInset(name);
+	const int lines = CountLines(desc, m_effectRows[i].desc, maxW);
+	// No max() against the icon any more: it spans the name line by
+	// construction, so it can never be taller than name + description.
+	return name.Height() + Rem(kNameDescGapRem) +
+		   static_cast<float>(lines) * desc.LineAdvance() +
+		   kEffectRowGap * Pixel().h;
 }
 
 void CharacterSheet::DrawEffectRow(size_t i, ui::UIContext& ctx,
@@ -282,11 +337,14 @@ void CharacterSheet::DrawEffectRow(size_t i, ui::UIContext& ctx,
 	if (i >= m_effectRows.size()) return;
 	const EffectRow& row = m_effectRows[i];
 	const ui::Theme& theme = ctx.GetTheme();
-	const ui::Font& font = TextFont();
+	// Name AND duration at kNameRem, matching a spell row's name line.
+	const ui::Font& font = ctx.FontAt(ui::FontRole::Body, Rem(kNameRem));
 	const gfx::Rect& px = Pixel();
 
-	const gfx::Rect icon{Ax(px, kEffectIconX), r.y, kEffectIconW * px.w,
-						 kEffectIconH * px.h};
+	// Square, spanning the name line: top on the name's top, bottom where the
+	// description starts.
+	const float iconSize = EffectIconSize(font);
+	const gfx::Rect icon{Ax(px, kEffectIconX), r.y, iconSize, iconSize};
 	batch.DrawRect(icon, kSlotBg);
 	const gfx::Texture* iconTex =
 		m_icons && row.kind ? m_icons->For(row.kind->IconItem()) : nullptr;
@@ -300,15 +358,18 @@ void CharacterSheet::DrawEffectRow(size_t i, ui::UIContext& ctx,
 				   row.tint);
 	ui::DrawBorder(batch, icon, row.tint);
 
-	const float textX = Ax(px, kEffectTextX);
-	const float maxW = (kTextRight - kEffectTextX) * px.w;
+	const float textX = px.x + EffectTextInset(font);
+	const float maxW = Ax(px, kTextRight) - textX;
 	font.Draw(batch, row.name, textX, r.y, theme.text);
 	const float tw = font.MeasureWidth(row.time);
 	font.Draw(batch, row.time, Ax(px, kTextRight) - tw, r.y, theme.accent);
-	const float descTop = r.y + font.LineAdvance() + Rem(0.2f);
-	WrapLines(font, row.desc, maxW, [&](std::string_view line, int n) {
-		font.Draw(batch, line, textX,
-				  descTop + static_cast<float>(n) * font.LineAdvance(), theme.textDim);
+	// The effect's description in Script, matching a spell's (kDescRem).
+	const ui::Font& descFont = ctx.FontAt(ui::FontRole::Script, Rem(kDescRem));
+	const float descTop = r.y + font.Height() + Rem(kNameDescGapRem);
+	WrapLines(descFont, row.desc, maxW, [&](std::string_view line, int n) {
+		descFont.Draw(batch, line, textX,
+					  descTop + static_cast<float>(n) * descFont.LineAdvance(),
+					  theme.textDim);
 	});
 }
 
