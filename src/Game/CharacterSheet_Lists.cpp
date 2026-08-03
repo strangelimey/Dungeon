@@ -260,7 +260,7 @@ float CharacterSheet::MeasureSpellRow(size_t i, ui::UIContext& ctx,
 	const ui::Font& desc = ctx.FontAt(ui::FontRole::Script, Rem(kDescRem));
 	const float maxW = (kTextRight - kSpellTextX) * widthPx;
 	const int lines = CountLines(desc, m_spellRows[i].desc, maxW);
-	return name.LineAdvance() + Rem(0.1f) +
+	return name.Height() + Rem(kNameDescGapRem) +
 		   static_cast<float>(lines) * desc.LineAdvance() +
 		   kSpellRowGap * Pixel().h;
 }
@@ -297,7 +297,7 @@ void CharacterSheet::DrawSpellRow(size_t i, ui::UIContext& ctx,
 	// the name and the rest of the sheet use. MeasureSpellRow splits it the same
 	// way, so the row is as tall as what lands in it.
 	const ui::Font& descFont = ctx.FontAt(ui::FontRole::Script, Rem(kDescRem));
-	const float descTop = r.y + font.LineAdvance() + Rem(0.1f);
+	const float descTop = r.y + font.Height() + Rem(kNameDescGapRem);
 	WrapLines(descFont, row.desc, maxW, [&](std::string_view line, int n) {
 		descFont.Draw(batch, line, textX,
 					  descTop + static_cast<float>(n) * descFont.LineAdvance(),
@@ -314,8 +314,8 @@ float CharacterSheet::MeasureEffectRow(size_t i, ui::UIContext& ctx,
 	const ui::Font& desc = ctx.FontAt(ui::FontRole::Script, Rem(kDescRem));
 	const float maxW = (kTextRight - kEffectTextX) * widthPx;
 	const int lines = CountLines(desc, m_effectRows[i].desc, maxW);
-	const float textH =
-		name.LineAdvance() + Rem(0.2f) + static_cast<float>(lines) * desc.LineAdvance();
+	const float textH = name.Height() + Rem(kNameDescGapRem) +
+						static_cast<float>(lines) * desc.LineAdvance();
 	return std::max(textH, kEffectIconH * Pixel().h) + kEffectRowGap * Pixel().h;
 }
 
@@ -350,7 +350,7 @@ void CharacterSheet::DrawEffectRow(size_t i, ui::UIContext& ctx,
 	font.Draw(batch, row.time, Ax(px, kTextRight) - tw, r.y, theme.accent);
 	// The effect's description in Script, matching a spell's (kDescRem).
 	const ui::Font& descFont = ctx.FontAt(ui::FontRole::Script, Rem(kDescRem));
-	const float descTop = r.y + font.LineAdvance() + Rem(0.2f);
+	const float descTop = r.y + font.Height() + Rem(kNameDescGapRem);
 	WrapLines(descFont, row.desc, maxW, [&](std::string_view line, int n) {
 		descFont.Draw(batch, line, textX,
 					  descTop + static_cast<float>(n) * descFont.LineAdvance(),

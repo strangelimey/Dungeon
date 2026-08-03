@@ -117,6 +117,12 @@ inline constexpr float kDescRem = 1.25f;
 // A row's NAME line — a spell's, an effect's, and an effect's duration. Sits
 // just above the description so the entry reads title-then-prose.
 inline constexpr float kNameRem = 1.3f;
+// Gap between a row's NAME line and the description beneath it, in rem. Both
+// the spell and effect rows measure AND draw with it, so they cannot drift.
+// The offset is taken from the name's HEIGHT, not its line advance: the
+// advance already carries a line's worth of leading, and adding a gap on top
+// of that is what pushed the title away from its own description.
+inline constexpr float kNameDescGapRem = 0.08f;
 // The Stats and Skills tabs are pure data — attribute names, numbers, bars —
 // and were far too small to read at a glance. This scales their TEXT, and
 // kStatRowH / kStatBarH scale the row pitch and bar height with it: growing the
