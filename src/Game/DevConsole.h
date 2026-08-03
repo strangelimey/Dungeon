@@ -32,8 +32,9 @@ namespace dungeon::game {
 
 class DevConsole {
 public:
-	DevConsole(gfx::GraphicsDevice& device, ui::FontLibrary& fonts,
-			   threads::Manager& threadManager);
+	// No GraphicsDevice: the console draws with a font borrowed from the
+	// library, and Render takes the device it queries for GPU/VRAM readouts.
+	DevConsole(ui::FontLibrary& fonts, threads::Manager& threadManager);
 
 	bool IsOpen() const { return m_open; }
 	void Toggle();

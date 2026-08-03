@@ -36,8 +36,7 @@ std::vector<std::string> Tokenize(const std::string& line) {
 }
 } // namespace
 
-DevConsole::DevConsole(gfx::GraphicsDevice& device, ui::FontLibrary& fonts,
-					   threads::Manager& threadManager)
+DevConsole::DevConsole(ui::FontLibrary& fonts, threads::Manager& threadManager)
 	: m_fonts(fonts), m_font(&fonts.Get(ui::FontRole::Mono, kFontH)),
 	  m_threadMgr(threadManager) {
 	// Generic built-ins. Gameplay-aware commands are registered by the Game.
