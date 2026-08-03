@@ -36,6 +36,7 @@ bool IdChar(char c) {
 AssetDialog::AssetDialog(gfx::GraphicsDevice& device, Window& window)
 	: m_device(device), m_window(window) {
 	m_ui = std::make_unique<ui::UIContext>(device, "", 18.0f);
+	m_ui->Root().fontScale = ui::kDialogTextScale; // inherits — see LevelSettings
 	m_closeIcon = TryLoadTextureFile(device, paths::Asset("ui\\icon_close"));
 }
 

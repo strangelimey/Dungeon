@@ -24,6 +24,7 @@ constexpr float kGap = 0.01f;
 
 InspectPicker::InspectPicker(gfx::GraphicsDevice& device, ui::FontLibrary& fonts)
 	: m_device(device), m_ui(fonts, ui::FontRole::Body, 18.0f) {
+	m_ui.Root().fontScale = ui::kDialogTextScale; // inherits — see LevelSettings
 	m_closeIcon = TryLoadTextureFile(device, paths::Asset("ui\\icon_close"));
 }
 
@@ -81,7 +82,7 @@ void InspectPicker::Render(gfx::SpriteBatch& batch, const ui::Theme& th, float w
 	ui::DrawBorder(batch, panel, th.panelBorder);
 
 	const gfx::Rect title = px(m_titleRect);
-	m_ui.GetFont().Draw(batch, m_title, title.x, title.y, th.text);
+	ui::DialogTitleFont(m_ui).Draw(batch, m_title, title.x, title.y, th.text);
 
 	m_ui.Render(batch, w, h);
 }

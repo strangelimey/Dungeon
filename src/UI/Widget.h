@@ -86,11 +86,14 @@ public:
 
 	// --- tree walk (non-virtual — see the header comment) --------------------
 
-	// `inherited` is the font this widget's PARENT resolved; null at the root,
-	// where the context's own font is used. Callers outside the walk pass
-	// nothing — the recursion supplies it.
+	// `inheritedRole`/`inheritedScale` are the face and size this widget's PARENT
+	// resolved; unset/1 at the root, where the context's own are used. Callers
+	// outside the walk pass nothing — the recursion supplies them. The ROLE is
+	// threaded rather than the resolved Font* because a child that changes only
+	// its SIZE still has to re-resolve its parent's face at the new size.
 	void Layout(const gfx::Rect& container, UIContext& ctx,
-				const Font* inherited = nullptr);
+				std::optional<FontRole> inheritedRole = std::nullopt,
+				float inheritedScale = 1.0f);
 	void Update(UIContext& ctx);
 	void Draw(UIContext& ctx, gfx::SpriteBatch& batch);
 	void DrawOverlay(UIContext& ctx, gfx::SpriteBatch& batch);
@@ -110,6 +113,20 @@ public:
 	//
 	// This changes the FACE, not the layout grid: see Rem/Em below.
 	std::optional<FontRole> fontRole;
+
+	// How BIG this widget's text is, as a multiple of the context's authored
+	// size — INHERITED by its whole subtree exactly like fontRole. Unset means
+	// "whatever my parent resolved", and the root is 1 = the document size. Set
+	// it to lift a heading row, or to hold one control back while everything
+	// around it grows (the editor dialogs enlarge their form text but pin the
+	// numeric readouts, which are sized to their digits).
+	//
+	// Where fontRole changes the FACE this changes the SIZE, and the pairing is
+	// deliberate: a role carries no size, so anything bigger than the document
+	// has to say how much bigger. It moves em — detail belonging to THIS
+	// widget's own text follows it — but deliberately NOT rem, which stays the
+	// document's grid so enlarging one label cannot re-space its neighbours.
+	std::optional<float> fontScale;
 
 	// The pixel rect resolved by the most recent Layout().
 	const gfx::Rect& Pixel() const { return m_pixel; }

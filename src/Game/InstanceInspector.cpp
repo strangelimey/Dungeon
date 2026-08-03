@@ -29,6 +29,8 @@ constexpr float kPaneX0 = 0.62f; // preview pane left edge (panel fraction)
 InstanceInspector::InstanceInspector(gfx::GraphicsDevice& device,
 									 ui::FontLibrary& fonts)
 	: m_device(device), m_ui(fonts, ui::FontRole::Body, 18.0f) {
+	// Covers all six per-instance inspectors: they build into THIS context.
+	m_ui.Root().fontScale = ui::kDialogTextScale; // inherits — see LevelSettings
 	m_closeIcon = TryLoadTextureFile(device, paths::Asset("ui\\icon_close"));
 }
 
@@ -155,8 +157,10 @@ void InstanceInspector::Render(gfx::SpriteBatch& batch, const ui::Theme& th, flo
 	batch.DrawRect(panel, th.panel);
 	ui::DrawBorder(batch, panel, th.panelBorder);
 
+	// The title heads the panel; the preview header below is body text.
+	ui::DialogTitleFont(m_ui).Draw(batch, Title(), panel.x + kPad * panel.w,
+								   panel.y + kPad * panel.h, th.text);
 	const ui::Font& font = m_ui.GetFont();
-	font.Draw(batch, Title(), panel.x + kPad * panel.w, panel.y + kPad * panel.h, th.text);
 
 	// Preview pane backing + header (the owner blits the 3D image on top).
 	if (HasPreview()) {

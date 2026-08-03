@@ -100,6 +100,13 @@ public:
 	// else. The role's optical scale still applies.
 	const Font& FontAt(FontRole role, float pixelHeight) const;
 
+	// The size this context was AUTHORED at, before any role's optical scale.
+	// This — not GetFont().Height() — is what to multiply when asking FontAt for
+	// a deliberately larger face: Get applies the optical scale itself, so
+	// scaling an already-scaled height would apply it twice, and a Script or
+	// Display root would drift further off the grid the bigger it got.
+	float DesignHeight() const { return m_designHeight; }
+
 	FontRole RootRole() const { return m_role; }
 	const Theme& GetTheme() const { return m_theme; }
 	void SetTheme(const Theme& theme) { m_theme = theme; }

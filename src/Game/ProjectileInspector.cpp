@@ -29,6 +29,7 @@ constexpr gfx::Rect kRemove{0.45f, 0.615f, 0.10f, 0.045f};
 ProjectileInspector::ProjectileInspector(gfx::GraphicsDevice& device,
 										 ui::FontLibrary& fonts)
 	: m_device(device), m_ui(fonts, ui::FontRole::Body, 18.0f) {
+	m_ui.Root().fontScale = ui::kDialogTextScale; // inherits — see LevelSettings
 	m_closeIcon = TryLoadTextureFile(device, paths::Asset("ui\\icon_close"));
 }
 
@@ -68,7 +69,8 @@ void ProjectileInspector::Render(gfx::SpriteBatch& batch, const ui::Theme& th,
 	batch.DrawRect(panel, th.panel);
 	ui::DrawBorder(batch, panel, th.panelBorder);
 
-	m_ui.GetFont().Draw(batch, loc::Tr("map.proj.title"), kTitle.x * w, kTitle.y * h, th.text);
+	ui::DialogTitleFont(m_ui).Draw(batch, loc::Tr("map.proj.title"), kTitle.x * w,
+								   kTitle.y * h, th.text);
 
 	// Read-only info rows: label (dim) + value (bright).
 	const std::array<std::pair<std::string, std::string>, 6> rows = {{
@@ -79,10 +81,13 @@ void ProjectileInspector::Render(gfx::SpriteBatch& batch, const ui::Theme& th,
 		{loc::Tr("map.proj.speed"), std::format("{:.1f} m/s", m_cfg.speed)},
 		{loc::Tr("map.proj.range"), std::format("{:.1f} m", m_cfg.rangeLeft)},
 	}};
+	// Drawn straight to the batch rather than through widgets, so they take the
+	// form size from the helper instead of inheriting it from the root.
+	const ui::Font& row = ui::DialogTextFont(m_ui);
 	for (size_t i = 0; i < rows.size(); ++i) {
 		const float y = (kRowY0 + i * kRowH) * h;
-		m_ui.GetFont().Draw(batch, rows[i].first, kRowX * w, y, th.textDim);
-		m_ui.GetFont().Draw(batch, rows[i].second, kValX * w, y, th.text);
+		row.Draw(batch, rows[i].first, kRowX * w, y, th.textDim);
+		row.Draw(batch, rows[i].second, kValX * w, y, th.text);
 	}
 
 	m_ui.Render(batch, w, h); // Remove / Close
