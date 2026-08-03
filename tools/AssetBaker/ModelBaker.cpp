@@ -2101,6 +2101,56 @@ bool BakeModels(const std::string& dir, const std::string& texturesDir) {
 		{1, "cobblestone_floor", 0.050f, 1041u}, {1, "broken_tile", 0.040f, 1051u},
 		{1, "rubble", 0.060f, 1061u},          {1, "rock_smooth", 0.045f, 1071u},
 		{2, "limestone", 0.080f, 1081u},
+
+		// --- batch 2 (2026-08-03): 36 scanned sets ---------------------------
+		// Relief is chosen by what the stone DOES, not by a flat per-kind
+		// default: round cobbles stand proud, dressed temple ashlar barely
+		// moves, and a carved wall keeps its detail in the map rather than the
+		// mesh (displacing it would smear the carving). Floors sit LOWER than
+		// the walls throughout — relief you walk over reads as lumpy long
+		// before the same amplitude looks wrong on a wall — and ceilings sit
+		// highest, since nothing ever gets close enough to betray the silhouette.
+		{0, "wall_cobble_mixed", 0.070f, 1101u},
+		{0, "wall_cobble_mixed4", 0.065f, 1111u},
+		{0, "wall_cobble_mossy", 0.070f, 1121u},
+		{0, "wall_cobble_round", 0.075f, 1131u},
+		{0, "wall_stone_plain", 0.055f, 1141u},
+		{0, "wall_stone_granite", 0.050f, 1151u},
+		{0, "wall_stone_28", 0.060f, 1161u},
+		{0, "wall_stone_30", 0.060f, 1171u},
+		{0, "wall_stone_34", 0.055f, 1181u},
+		{0, "wall_brick_weathered", 0.050f, 1191u},
+		{0, "wall_brick_coarse", 0.055f, 1201u},
+		{0, "wall_brick_plaster", 0.040f, 1211u}, // plaster skins the courses
+		{0, "wall_brick_distorted", 0.050f, 1221u},
+		{0, "wall_brick_old", 0.045f, 1231u},
+		{0, "wall_sandstone_blocks", 0.045f, 1241u},
+		{0, "wall_sandstone_block2", 0.045f, 1251u},
+		{0, "wall_temple_sandstone", 0.040f, 1261u}, // dressed: nearly flush
+		{0, "wall_temple_ancient", 0.045f, 1271u},
+		{0, "wall_carved", 0.035f, 1281u},        // keep the carving in the map
+		{1, "floor_medieval", 0.045f, 1291u},
+		{1, "floor_cobble_path", 0.050f, 1301u},
+		{1, "floor_cobble_medieval", 0.050f, 1311u},
+		{1, "floor_cobble_mossy", 0.050f, 1321u},
+		{1, "floor_stone_pavement", 0.040f, 1331u},
+		{1, "floor_temple", 0.035f, 1341u},
+		{1, "floor_ancient_stone", 0.040f, 1351u},
+		{1, "floor_paving_mossy", 0.050f, 1361u},
+		{1, "floor_slate", 0.035f, 1371u},
+		// A stair TREAD surface first, but worn as a floor too so the brush can
+		// place it — the mesh can still bind the plain texture either way.
+		{1, "floor_stairs", 0.045f, 1381u},
+		{1, "ground_rockbed", 0.055f, 1391u},
+		{1, "ground_soil_dusty", 0.030f, 1401u}, // soil slumps; it does not jut
+		{1, "ground_soil_rocky", 0.050f, 1411u},
+		{1, "ground_gravel", 0.050f, 1421u},
+		{2, "ceiling_rock", 0.100f, 1431u},
+		{2, "ceiling_rock_layered", 0.090f, 1441u},
+		{2, "ceiling_rock_porous", 0.070f, 1451u},
+		// The three wood sets are PROP textures (door panel, crate, barrel), not
+		// cell surfaces, so they get no worn block: a worn mesh would commit
+		// them to one surface kind for nothing.
 	};
 	for (const WornSpec& spec : specs)
 		ok &= BakeWornTiers(spec.kind, spec.texture, spec.relief, spec.seed, dir,

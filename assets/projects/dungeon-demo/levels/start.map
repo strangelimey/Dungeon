@@ -1,8 +1,8 @@
 ; start — written by the in-game editor.
 
-palette wall wall_cobblestone wall_stacked_stone wall_brick_red wall_rock
-palette floor floor_cobblestone floor_broken_tile floor_rubble floor_rock
-palette ceiling ceiling_stone ceiling_rough
+palette wall wall_cobblestone wall_stacked_stone wall_brick_red wall_rock wall_cobble_mixed wall_cobble_mossy wall_stone_30 wall_brick_weathered
+palette floor floor_cobblestone floor_broken_tile floor_rubble floor_rock floor_medieval floor_cobble_path floor_paving_mossy
+palette ceiling ceiling_stone ceiling_rough ceiling_rock ceiling_rock_layered
 atmosphere dust=0.075 haze=0.9 ambient=1
 ;
 ################################

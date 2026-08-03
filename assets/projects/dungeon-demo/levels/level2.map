@@ -1,8 +1,8 @@
 ; level2 — written by the in-game editor.
 
-palette wall wall_brick wall_stone wall_moss
-palette floor floor_slabs floor_cobble
-palette ceiling ceiling_rough ceiling_cracked
+palette wall wall_brick wall_stone wall_moss wall_temple_ancient wall_temple_sandstone wall_carved wall_sandstone_blocks
+palette floor floor_slabs floor_cobble floor_temple floor_ancient_stone floor_slate
+palette ceiling ceiling_rough ceiling_cracked ceiling_rock_porous
 ;
 ##############
 #P...........#

@@ -35,3 +35,94 @@ display = Cave Rock
 texture = rock_smooth
 height_scale = 0.045
 category = rock
+
+; --- batch 2: scanned 4K sets, large real-world tiles -----------------------
+; Floors are the surface a repeating tile betrays soonest — a whole room of it
+; is in frame at once — which is what the 5x5 and 6x3 metre scans are for.
+; See walls.cat on id-matches-texture and on height_scale vs the mesh relief.
+
+[floor_medieval]
+display = Medieval Floor
+texture = floor_medieval
+height_scale = 0.045
+category = stone
+
+[floor_cobble_path]
+display = Cobblestone Path
+texture = floor_cobble_path
+height_scale = 0.05
+category = stone
+
+[floor_cobble_medieval]
+display = Medieval Cobble
+texture = floor_cobble_medieval
+height_scale = 0.05
+category = stone
+
+[floor_cobble_mossy]
+display = Mossy Cobble
+texture = floor_cobble_mossy
+height_scale = 0.05
+category = stone
+
+[floor_stone_pavement]
+display = Stone Pavement
+texture = floor_stone_pavement
+height_scale = 0.04
+category = stone
+
+[floor_paving_mossy]
+display = Mossy Paving
+texture = floor_paving_mossy
+height_scale = 0.05
+category = stone
+
+[floor_slate]
+display = Slate Pavement
+texture = floor_slate
+height_scale = 0.035
+category = stone
+
+[floor_temple]
+display = Temple Floor
+texture = floor_temple
+height_scale = 0.035
+category = temple
+
+[floor_ancient_stone]
+display = Ancient Stone
+texture = floor_ancient_stone
+height_scale = 0.04
+category = temple
+
+; A stair TREAD scan. Worn as a floor so the brush can place it; the stairs
+; mesh can bind the plain texture set either way.
+[floor_stairs]
+display = Stair Treads
+texture = floor_stairs
+height_scale = 0.045
+category = stone
+
+[ground_rockbed]
+display = Rock Bed
+texture = ground_rockbed
+height_scale = 0.055
+category = ground
+
+[ground_soil_dusty]
+display = Dusty Soil
+texture = ground_soil_dusty
+height_scale = 0.03
+category = ground
+
+[ground_soil_rocky]
+display = Rocky Soil
+texture = ground_soil_rocky
+height_scale = 0.05
+category = ground
+
+[ground_gravel]
+display = Gravel
+texture = ground_gravel
+height_scale = 0.05
+category = ground
