@@ -87,8 +87,8 @@ const char* SmallestRes(u32 mask) {
 }
 } // namespace
 
-AssetPicker::AssetPicker(gfx::GraphicsDevice& device)
-	: m_device(device), m_font(device, "", 18.0f), m_ui(device, "", 18.0f) {
+AssetPicker::AssetPicker(gfx::GraphicsDevice& device, ui::FontLibrary& fonts)
+	: m_device(device), m_ui(fonts, ui::FontRole::Body, 18.0f) {
 	m_closeIcon = TryLoadTextureFile(device, paths::Asset("ui\\icon_close"));
 }
 
@@ -455,10 +455,11 @@ void AssetPicker::Update(const Input& input, float w, float h, float dt) {
 	++m_frame;
 	m_time += dt;
 	m_orbit += dt * 0.6f;
-	m_font.Commit();
+	// One font now: the title text used to be a second Font at the very same
+	// size as this context's. GameUI::UpdateFonts commits every library font
+	// once per frame, so there is nothing to flush here either.
 	const float fh = std::clamp(h * 0.020f, 12.0f, 24.0f);
-	m_font.SetHeight(fh);
-	m_ui.GetFont().SetHeight(fh);
+	m_ui.UseFont(ui::FontRole::Body, fh);
 
 	if (m_uiRebuild) {
 		m_uiRebuild = false;
@@ -558,11 +559,11 @@ void AssetPicker::Render(gfx::SpriteBatch& batch, float w, float h) {
 	batch.DrawRect(panel, th.panel);
 	ui::DrawBorder(batch, panel, th.panelBorder);
 
-	m_font.Draw(batch, loc::Format("pick.title", m_label), kTitle.x * w,
+	m_ui.GetFont().Draw(batch, loc::Format("pick.title", m_label), kTitle.x * w,
 				kTitle.y * h, th.text);
 	// The count, so a filter that hides everything says so rather than looking
 	// like a broken grid.
-	m_font.Draw(batch,
+	m_ui.GetFont().Draw(batch,
 				loc::Format("pick.count", m_shown.size(), m_items.size()),
 				(kGrid.x + kGrid.w) * w - 120.0f, kTitle.y * h, th.textDim);
 
@@ -580,7 +581,7 @@ void AssetPicker::Render(gfx::SpriteBatch& batch, float w, float h) {
 
 		// The image is the tile's top square, but never taller than what the two
 		// text lines leave — a square that fills the tile pushes them out of it.
-		const float textH = 2.0f * (m_font.Height() + 3.0f);
+		const float textH = 2.0f * (m_ui.GetFont().Height() + 3.0f);
 		const float imgSide = std::min(tile.w - 8.0f, tile.h - 8.0f - textH);
 		const gfx::Rect img{tile.x + (tile.w - imgSide) * 0.5f, tile.y + 4.0f, imgSide,
 							imgSide};
@@ -590,11 +591,11 @@ void AssetPicker::Render(gfx::SpriteBatch& batch, float w, float h) {
 			batch.DrawRect(img, {0.10f, 0.10f, 0.12f, 1.0f});
 
 		const float ty = img.y + img.h + 3.0f;
-		m_font.Draw(batch, a.name, tile.x + 5.0f, ty, picked ? th.accent : th.text);
+		m_ui.GetFont().Draw(batch, a.name, tile.x + 5.0f, ty, picked ? th.accent : th.text);
 		const std::string badge = m_mode == Mode::Textures
 									  ? ResBadge(a.resolutions)
 									  : (a.file.ends_with(".glb") ? "glb" : "gltf");
-		m_font.Draw(batch, badge, tile.x + 5.0f, ty + m_font.Height() + 1.0f,
+		m_ui.GetFont().Draw(batch, badge, tile.x + 5.0f, ty + m_ui.GetFont().Height() + 1.0f,
 					th.textDim);
 		if (picked) ui::DrawBorder(batch, tile, th.accent);
 	}
@@ -621,13 +622,13 @@ void AssetPicker::Render(gfx::SpriteBatch& batch, float w, float h) {
 	ui::DrawBorder(batch, pv, th.panelBorder);
 	float y = pv.y + pv.h + 12.0f;
 	if (m_selected.empty()) {
-		m_font.Draw(batch, loc::Tr("pick.none"), kDetailX * w, y, th.textDim);
+		m_ui.GetFont().Draw(batch, loc::Tr("pick.none"), kDetailX * w, y, th.textDim);
 	} else {
-		m_font.Draw(batch, m_selected, kDetailX * w, y, th.accent);
-		y += m_font.Height() + 6.0f;
+		m_ui.GetFont().Draw(batch, m_selected, kDetailX * w, y, th.accent);
+		y += m_ui.GetFont().Height() + 6.0f;
 		for (const std::string& line : m_facts) {
-			m_font.Draw(batch, line, kDetailX * w, y, th.textDim);
-			y += m_font.Height() + 2.0f;
+			m_ui.GetFont().Draw(batch, line, kDetailX * w, y, th.textDim);
+			y += m_ui.GetFont().Height() + 2.0f;
 		}
 	}
 

@@ -59,7 +59,7 @@ public:
 		bool rebake = false;
 	};
 
-	explicit TypeEditorDialog(gfx::GraphicsDevice& device);
+	TypeEditorDialog(gfx::GraphicsDevice& device, ui::FontLibrary& fonts);
 
 	bool IsOpen() const { return m_open; }
 	// Opens on a copy of the entry's fields, with the schema for its category.
@@ -131,7 +131,6 @@ private:
 	bool Touched(std::string_view key) const;
 
 	gfx::GraphicsDevice& m_device;
-	ui::Font m_font;    // title + the help overlay
 	ui::UIContext m_ui; // the tabbed form
 	std::unique_ptr<gfx::Texture> m_closeIcon; // shared top-right close box
 

@@ -26,8 +26,9 @@ constexpr float kCtrlCol = 0.60f;
 constexpr float kPaneX0 = 0.62f; // preview pane left edge (panel fraction)
 } // namespace
 
-InstanceInspector::InstanceInspector(gfx::GraphicsDevice& device)
-	: m_device(device), m_font(device, "", 18.0f), m_ui(device, "", 18.0f) {
+InstanceInspector::InstanceInspector(gfx::GraphicsDevice& device,
+									 ui::FontLibrary& fonts)
+	: m_device(device), m_ui(fonts, ui::FontRole::Body, 18.0f) {
 	m_closeIcon = TryLoadTextureFile(device, paths::Asset("ui\\icon_close"));
 }
 
@@ -127,10 +128,7 @@ gfx::Rect InstanceInspector::PreviewRect(float w, float h) const {
 
 void InstanceInspector::Update(const Input& input, float w, float h) {
 	if (!m_open) return;
-	m_font.Commit();
-	const float fh = std::clamp(h * 0.020f, 12.0f, 24.0f);
-	m_font.SetHeight(fh);
-	m_ui.GetFont().SetHeight(fh);
+	m_ui.UseFont(ui::FontRole::Body, std::clamp(h * 0.020f, 12.0f, 24.0f));
 
 	if (input.WasKeyPressed(VK_ESCAPE)) {
 		Revert();
@@ -157,13 +155,14 @@ void InstanceInspector::Render(gfx::SpriteBatch& batch, const ui::Theme& th, flo
 	batch.DrawRect(panel, th.panel);
 	ui::DrawBorder(batch, panel, th.panelBorder);
 
-	m_font.Draw(batch, Title(), panel.x + kPad * panel.w, panel.y + kPad * panel.h, th.text);
+	const ui::Font& font = m_ui.GetFont();
+	font.Draw(batch, Title(), panel.x + kPad * panel.w, panel.y + kPad * panel.h, th.text);
 
 	// Preview pane backing + header (the owner blits the 3D image on top).
 	if (HasPreview()) {
 		const gfx::Rect pv = PreviewRect(w, h);
-		m_font.Draw(batch, loc::Tr("map.cfg.preview"), pv.x, pv.y - m_font.Height() - 2.0f,
-					th.textDim);
+		font.Draw(batch, loc::Tr("map.cfg.preview"), pv.x, pv.y - font.Height() - 2.0f,
+				  th.textDim);
 		batch.DrawRect(pv, {0.02f, 0.02f, 0.03f, 1.0f});
 	}
 

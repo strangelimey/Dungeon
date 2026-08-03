@@ -26,6 +26,40 @@
 
 namespace dungeon::game {
 
+namespace {
+
+// Builds the font library with assets/fonts/fonts.cat already applied.
+//
+// It is a function rather than two statements in the constructor body because
+// the roles must be set BEFORE the UI contexts first resolve one: m_ui is a
+// member, so its constructor runs before any constructor body could configure
+// the library, and each context would otherwise build an atlas for the fallback
+// face and abandon it a frame later.
+//
+// The library cannot read its own config: Catalog/Serialize live in this lib,
+// which sits ABOVE UI in the layer order. Same split as DungeonMap taking
+// FixtureTypes because the map has no catalog access.
+ui::FontLibrary MakeFontLibrary(gfx::GraphicsDevice& device) {
+	ui::FontLibrary fonts(device);
+	Catalog cat;
+	cat.Load(paths::Asset("fonts\\fonts.cat"));
+	for (int i = 0; i < ui::kFontRoleCount; ++i) {
+		const auto role = static_cast<ui::FontRole>(i);
+		const CatalogEntry* entry = cat.Find(ui::FontRoleName(role));
+		if (!entry) continue;
+		ui::FaceSpec spec;
+		// An absent or empty `file` leaves the path empty, which the library
+		// reads as "system fallback" — how every role ships until the audition
+		// (docs/fonts.md Phase 4) picks a face.
+		if (const std::string file = entry->Get("file", ""); !file.empty())
+			spec.path = paths::Asset(file);
+		spec.scale = entry->GetFloat("scale", 1.0f);
+		fonts.SetFace(role, std::move(spec));
+	}
+	return fonts;
+}
+
+} // namespace
 
 // ============================================================================
 // Construction — cheap setup only; the heavy asset work is queued as load
@@ -37,19 +71,21 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	  m_spriteBatch(spriteBatch), m_audio(audio), m_postProcess(device),
 	  m_project(Project::Load(paths::Asset("projects\\dungeon-demo"))),
 	  m_world(device, renderer, audio, m_sounds, m_settings, m_project, m_threads),
+	  m_fonts(MakeFontLibrary(device)),
 	  m_ui(window, device, spriteBatch, audio, m_sounds, m_settings,
-		   m_characters),
-	  m_mapView(device, m_world, m_settings),
+		   m_characters, m_fonts),
+	  m_mapView(device, m_world, m_settings, m_fonts),
 	  m_mapEditor(m_mapView, m_world, m_settings),
-	  m_console(device, m_threads),
+	  m_console(device, m_fonts, m_threads),
 	  m_modelPreview(device, 512),
 	  m_assetDialog(device, window),
-	  m_monsterDialog(device), m_balanceDialog(device),
-	  m_levelSettingsDialog(device), m_typeDialog(device), m_assetPicker(device),
-	  m_entityInspector(device), m_fixtureInspector(device),
-	  m_propInspector(device), m_doorInspector(device), m_buttonInspector(device),
-	  m_nicheInspector(device),
-	  m_projectileInspector(device), m_inspectPicker(device),
+	  m_monsterDialog(device, m_fonts), m_balanceDialog(device, m_fonts),
+	  m_levelSettingsDialog(device, m_fonts), m_typeDialog(device, m_fonts),
+	  m_assetPicker(device, m_fonts),
+	  m_entityInspector(device, m_fonts), m_fixtureInspector(device, m_fonts),
+	  m_propInspector(device, m_fonts), m_doorInspector(device, m_fonts),
+	  m_buttonInspector(device, m_fonts), m_nicheInspector(device, m_fonts),
+	  m_projectileInspector(device, m_fonts), m_inspectPicker(device, m_fonts),
 	  m_previewParticles(device) {
 	m_mapView.SetEditor(&m_mapEditor); // the view drives the editor in Editor mode
 	// The editor's header save buttons: Save = write every edited level (what the
@@ -1341,7 +1377,7 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 		// The deferred-rebake notice (see Update): the frame the blocking
 		// FlushGeometry freezes on, so the pause reads as work, not a hang.
 		if (m_geomNoticeLatched) {
-			ui::Font& font = m_mapView.Font();
+			const ui::Font& font = m_mapView.Font();
 			const std::string msg = loc::Tr("map.rebuilding");
 			const float w = font.MeasureWidth(msg);
 			const gfx::Rect back{(dw - w) * 0.5f - 14.0f,

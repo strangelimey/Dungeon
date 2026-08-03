@@ -42,8 +42,8 @@ void AddNumericField(ui::TabControl* tabs, size_t tab, const gfx::Rect& r,
 }
 } // namespace
 
-BalanceDialog::BalanceDialog(gfx::GraphicsDevice& device)
-	: m_device(device), m_font(device, "", 18.0f), m_ui(device, "", 18.0f) {
+BalanceDialog::BalanceDialog(gfx::GraphicsDevice& device, ui::FontLibrary& fonts)
+	: m_device(device), m_ui(fonts, ui::FontRole::Body, 18.0f) {
 	m_closeIcon = TryLoadTextureFile(device, paths::Asset("ui\\icon_close"));
 }
 
@@ -127,10 +127,11 @@ void BalanceDialog::BuildAttacksTab(size_t tab) {
 
 void BalanceDialog::Update(const Input& input, float w, float h) {
 	if (!m_open) return;
-	m_font.Commit();
+	// One font now: the title text used to be a second Font at the very same
+	// size as this context's. GameUI::UpdateFonts commits every library font
+	// once per frame, so there is nothing to flush here either.
 	const float fh = std::clamp(h * 0.020f, 12.0f, 24.0f);
-	m_font.SetHeight(fh);
-	m_ui.GetFont().SetHeight(fh);
+	m_ui.UseFont(ui::FontRole::Body, fh);
 
 	// The column-help overlay owns the input while up: any click or Esc
 	// dismisses it, and the dialog beneath stays frozen.
@@ -160,7 +161,7 @@ void BalanceDialog::Render(gfx::SpriteBatch& batch, const ui::Theme& th, float w
 	batch.DrawRect(panel, th.panel);
 	ui::DrawBorder(batch, panel, th.panelBorder);
 
-	m_font.Draw(batch, loc::Tr("map.balance.title"), kTitle.x * w, kTitle.y * h,
+	m_ui.GetFont().Draw(batch, loc::Tr("map.balance.title"), kTitle.x * w, kTitle.y * h,
 				th.text);
 
 	m_ui.Render(batch, w, h); // tabs + fields + footer buttons
@@ -173,9 +174,9 @@ void BalanceDialog::Render(gfx::SpriteBatch& batch, const ui::Theme& th, float w
 		batch.DrawRect(help, th.panel);
 		ui::DrawBorder(batch, help, th.panelBorder);
 		const float pad = help.w * 0.05f;
-		const float lineH = m_font.Height() * 1.25f;
+		const float lineH = m_ui.GetFont().Height() * 1.25f;
 		float y = help.y + pad;
-		m_font.Draw(batch, loc::Tr("map.balance.help.title"), help.x + pad, y,
+		m_ui.GetFont().Draw(batch, loc::Tr("map.balance.help.title"), help.x + pad, y,
 					th.text);
 		y += lineH * 1.6f;
 		// Word-wrap each paragraph to the panel width; a blank line between.
@@ -194,8 +195,8 @@ void BalanceDialog::Render(gfx::SpriteBatch& batch, const ui::Theme& th, float w
 				const std::string tryLine =
 					line.empty() ? word : line + " " + word;
 				if (!line.empty() &&
-					m_font.MeasureWidth(tryLine) > help.w - pad * 2) {
-					m_font.Draw(batch, line, help.x + pad, y, th.textDim);
+					m_ui.GetFont().MeasureWidth(tryLine) > help.w - pad * 2) {
+					m_ui.GetFont().Draw(batch, line, help.x + pad, y, th.textDim);
 					y += lineH;
 					line = word;
 				} else {
@@ -205,7 +206,7 @@ void BalanceDialog::Render(gfx::SpriteBatch& batch, const ui::Theme& th, float w
 				start = sp + 1;
 			}
 			if (!line.empty()) {
-				m_font.Draw(batch, line, help.x + pad, y, th.textDim);
+				m_ui.GetFont().Draw(batch, line, help.x + pad, y, th.textDim);
 				y += lineH;
 			}
 			y += lineH * 0.5f; // paragraph gap

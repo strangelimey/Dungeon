@@ -25,14 +25,13 @@ namespace dungeon::game {
 class SheetPortrait : public ui::Widget {
 public:
 	SheetPortrait(const gfx::Rect& rect, const std::vector<Character>* roster,
-				  const size_t* member, const ui::Font* font);
+				  const size_t* member);
 
 private:
 	void DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) override;
 
 	const std::vector<Character>* m_roster;
 	const size_t* m_member; // the sheet's live selection
-	const ui::Font* m_font;
 };
 
 // One button of the mode strip: a hand-drawn glyph (grid / bars / star / gem /
@@ -88,7 +87,8 @@ class SheetList : public ui::Widget {
 public:
 	using Counter = std::function<size_t()>;
 	// Row height in pixels, given the font and the width available to it.
-	using Measure = std::function<float(size_t index, ui::Font& font, float widthPx)>;
+	using Measure =
+		std::function<float(size_t index, const ui::Font& font, float widthPx)>;
 
 	SheetList(const gfx::Rect& rect, std::string heading, std::string emptyText,
 			  Counter count, Measure measure, SheetRow::DrawFn drawRow);
@@ -127,7 +127,6 @@ private:
 class CharacterSheet : public ui::Widget {
 public:
 	CharacterSheet(const gfx::Rect& rect, std::vector<Character>* roster,
-				   const ui::Font* portraitFont,
 				   const ResourceBarColors* barColors, const ItemIconBank* icons,
 				   const ItemWeightBank* weights, const ItemIconBank* slotIcons,
 				   const ItemCategoryBank* categories,
@@ -179,9 +178,9 @@ private:
 	void DrawStats(ui::UIContext& ctx, gfx::SpriteBatch& batch, const gfx::Rect& px);
 	// One row of each list tab, drawn into the rect the list gives it, plus the
 	// height that row needs. Passed to the SheetLists as callbacks.
-	float MeasureSkillRow(size_t i, ui::Font& font, float widthPx) const;
-	float MeasureSpellRow(size_t i, ui::Font& font, float widthPx) const;
-	float MeasureEffectRow(size_t i, ui::Font& font, float widthPx) const;
+	float MeasureSkillRow(size_t i, const ui::Font& font, float widthPx) const;
+	float MeasureSpellRow(size_t i, const ui::Font& font, float widthPx) const;
+	float MeasureEffectRow(size_t i, const ui::Font& font, float widthPx) const;
 	void DrawSkillRow(size_t i, ui::UIContext& ctx, gfx::SpriteBatch& batch,
 					  const gfx::Rect& r);
 	void DrawSpellRow(size_t i, ui::UIContext& ctx, gfx::SpriteBatch& batch,
@@ -211,7 +210,6 @@ private:
 	// Re-resolved from (m_roster, m_member) at the top of every Update/Draw
 	// (see CharacterPanel); the body helpers null-check it.
 	Character* m_character = nullptr;
-	const ui::Font* m_portraitFont;
 	const ResourceBarColors* m_barColors;
 	const ItemIconBank* m_icons;
 	const ItemWeightBank* m_weights;

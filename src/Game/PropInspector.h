@@ -27,7 +27,8 @@ public:
 		Direction facing = Direction::South;
 	};
 
-	explicit PropInspector(gfx::GraphicsDevice& device) : InstanceInspector(device) {}
+	PropInspector(gfx::GraphicsDevice& device, ui::FontLibrary& fonts)
+		: InstanceInspector(device, fonts) {}
 
 	void Open(const Config& cfg, PreviewSpec preview = {});
 

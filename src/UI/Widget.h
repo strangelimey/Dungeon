@@ -21,8 +21,10 @@
 #pragma once
 
 #include "Graphics/SpriteBatch.h"
+#include "UI/FontLibrary.h"
 
 #include <memory>
+#include <optional>
 #include <utility>
 #include <vector>
 
@@ -84,7 +86,11 @@ public:
 
 	// --- tree walk (non-virtual — see the header comment) --------------------
 
-	void Layout(const gfx::Rect& container, UIContext& ctx);
+	// `inherited` is the font this widget's PARENT resolved; null at the root,
+	// where the context's own font is used. Callers outside the walk pass
+	// nothing — the recursion supplies it.
+	void Layout(const gfx::Rect& container, UIContext& ctx,
+				const Font* inherited = nullptr);
 	void Update(UIContext& ctx);
 	void Draw(UIContext& ctx, gfx::SpriteBatch& batch);
 	void DrawOverlay(UIContext& ctx, gfx::SpriteBatch& batch);
@@ -96,16 +102,40 @@ public:
 	// Optional label for the tree inspector; the class name is the fallback.
 	const char* debugName = nullptr;
 
+	// Which typeface this widget's text is drawn in, INHERITED by its whole
+	// subtree exactly like CSS font-family: unset means "whatever my parent
+	// resolved", and the root falls back to the context's own role. Set it on a
+	// container to re-face everything inside it — a scroll panel in Script, a
+	// heading row in Display — without touching a single leaf.
+	//
+	// This changes the FACE, not the layout grid: see Rem/Em below.
+	std::optional<FontRole> fontRole;
+
 	// The pixel rect resolved by the most recent Layout().
 	const gfx::Rect& Pixel() const { return m_pixel; }
 
 	// --- typographic units (UI/Units.h has the model) -----------------------
-	// 1rem = the context's root font size, captured at Layout so that even a
-	// const rect helper can ask for it without being handed a UIContext. Use
-	// these for the DETAIL inside a control — padding, row heights, a
-	// scrollbar's width — while bounds stay [0..1] of the parent.
+	// Both are captured at Layout so even a const rect helper can ask without
+	// being handed a UIContext. Use them for the DETAIL inside a control —
+	// padding, row heights, a scrollbar's width — while bounds stay [0..1] of
+	// the parent.
+	//
+	// 1rem = the CONTEXT's root font size. It is the document's grid and does
+	// NOT move when a widget changes role: if it did, re-facing one label would
+	// silently re-space every control around it.
+	// 1em  = THIS widget's own font size. Detail that belongs to the widget's
+	// own text — the gap beside a Script label — should follow the face it sits
+	// next to. Identical to rem for any widget that did not change role.
 	float Rem(float n = 1.0f) const { return m_rem * n; }
-	float Em(float n = 1.0f) const { return Rem(n); }
+	float Em(float n = 1.0f) const { return m_em * n; }
+
+	// The font this widget draws in: its own role's, or the nearest ancestor
+	// that set one, or the context's. Resolved every Layout. A widget's DrawSelf
+	// uses THIS rather than ctx.GetFont(), which is what makes fontRole
+	// inherit — ctx.GetFont() is the document root and ignores roles.
+	const Font& TextFont() const { return *m_font; }
+	// What fontRole actually resolved to, for the tree inspector.
+	FontRole ResolvedRole() const { return m_resolvedRole; }
 
 	// The rect CHILDREN resolve against. Override to inset the children (a
 	// padded panel), to move them (a scrolled page), or to hand back a
@@ -142,7 +172,13 @@ protected:
 
 private:
 	gfx::Rect m_pixel{};
-	float m_rem = 16.0f; // root font size in pixels, refreshed every Layout
+	float m_rem = 16.0f; // context root font size, refreshed every Layout
+	float m_em = 16.0f;  // THIS widget's font size, ditto
+	// Resolved every Layout, so it is valid for the Update/Draw that follow.
+	// Widgets skipped by ChildActive are never updated or drawn either, so a
+	// stale pointer here is unreachable.
+	const Font* m_font = nullptr;
+	FontRole m_resolvedRole = FontRole::Body;
 	std::vector<std::unique_ptr<Widget>> m_children;
 };
 

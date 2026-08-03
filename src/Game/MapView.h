@@ -56,7 +56,7 @@ public:
 	enum class Mode { Player, Editor };
 
 	MapView(gfx::GraphicsDevice& device, DungeonWorld& world,
-			GameSettings& settings);
+			GameSettings& settings, ui::FontLibrary& fonts);
 
 	// Wires the Editor-mode collaborator (Game owns both; see file banner). Until
 	// set, Editor mode shows an empty left dock.
@@ -130,7 +130,9 @@ public:
 
 	// Re-bakes the icon font when the window height changes (the overlay text
 	// scales with the screen like the rest of the UI).
-	void SetFontHeight(float pixelHeight) { m_font.SetHeight(pixelHeight); }
+	void SetFontHeight(float pixelHeight) {
+		m_font = &m_fonts.Get(ui::FontRole::Body, pixelHeight);
+	}
 
 	// Mouse-only interaction within `panel` (pan/zoom, or paint when a tool is
 	// armed). `panel` is in the same pixel space as Input's mouse coords
@@ -149,7 +151,7 @@ public:
 
 	// --- shared with MapEditor (the left dock lives partly in each class) ------
 	// The shared icon/label font (one atlas, sized to the panel each frame).
-	ui::Font& Font() { return m_font; }
+	const ui::Font& Font() const { return *m_font; }
 	// The level the viewport is SHOWING (the [^]/[v] arrows browse the project's
 	// level order). MapEditor routes the brush by these: the active level edits
 	// live state, any other level edits its in-memory stash (DungeonWorld's
@@ -243,7 +245,10 @@ private:
 	DungeonWorld& m_world;
 	GameSettings& m_settings; // owns the persisted dock-collapse flags
 	MapEditor* m_editor = nullptr; // Editor-mode brush palette + tools (not owned)
-	ui::Font m_font; // glyph icons + labels (own atlas, like the dev console)
+	ui::FontLibrary& m_fonts;
+	// Glyph icons + labels, borrowed from the library (Body) and re-pointed
+	// whenever the panel resizes -- no atlas of its own any more.
+	const ui::Font* m_font = nullptr;
 
 	// Toolbar icon discs (Wenrexa house style, baked by the icon factory —
 	// see the editor-polish thread notes). A missing file leaves the pointer

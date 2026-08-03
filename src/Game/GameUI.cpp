@@ -113,14 +113,18 @@ private:
 GameUI::GameUI(Window& window, gfx::GraphicsDevice& device,
 			   gfx::SpriteBatch& spriteBatch, audio::AudioEngine& audio,
 			   const SoundBank& sounds, GameSettings& settings,
-			   std::vector<Character>& characters)
-	: m_window(window), m_device(device), m_spriteBatch(spriteBatch),
-	  m_audio(audio), m_sounds(sounds), m_settings(settings),
-	  m_characters(characters), m_hudUi(device, "", kHudFontH),
-	  m_menuUi(device, "", kMenuFontH), m_settingsUi(device, "", kMenuFontH),
-	  m_pauseUi(device, "", kMenuFontH), m_savesUi(device, "", kMenuFontH),
-	  m_sheetUi(device, "", kSheetFontH), m_confirmUi(device, "", kMenuFontH),
-	  m_titleFont(device, "", kTitleFontH) {}
+			   std::vector<Character>& characters, ui::FontLibrary& fonts)
+	: m_window(window), m_device(device), m_fonts(fonts),
+	  m_spriteBatch(spriteBatch), m_audio(audio), m_sounds(sounds),
+	  m_settings(settings), m_characters(characters),
+	  m_hudUi(fonts, ui::FontRole::Body, kHudFontH),
+	  m_menuUi(fonts, ui::FontRole::Body, kMenuFontH),
+	  m_settingsUi(fonts, ui::FontRole::Body, kMenuFontH),
+	  m_pauseUi(fonts, ui::FontRole::Body, kMenuFontH),
+	  m_savesUi(fonts, ui::FontRole::Body, kMenuFontH),
+	  m_sheetUi(fonts, ui::FontRole::Body, kSheetFontH),
+	  m_confirmUi(fonts, ui::FontRole::Body, kMenuFontH),
+	  m_titleFont(&fonts.Get(ui::FontRole::Display, kTitleFontH)) {}
 
 void GameUI::BuildStaticUi() {
 	ApplyTheme();
@@ -1161,7 +1165,7 @@ void GameUI::BuildCharacterSheet() {
 
 	// Added FIRST so the buttons below it update on top (and consume their clicks
 	// before the sheet's slot hit-testing).
-	m_sheet = m_sheetUi.Add<CharacterSheet>(sheet, &m_characters, &m_titleFont,
+	m_sheet = m_sheetUi.Add<CharacterSheet>(sheet, &m_characters,
 											&m_settings.barColors, m_itemIcons,
 											m_itemWeights, m_slotIcons,
 											m_itemCategories, m_held);
@@ -1436,7 +1440,7 @@ void GameUI::BuildHud() {
 	m_partyPanels.clear();
 	for (size_t i = 0; i < m_characters.size() && i < PartyBar::kSlots; ++i) {
 		auto* panel = m_partyBar->Add<CharacterPanel>(
-			gfx::Rect{}, &m_characters, i, &m_titleFont, &m_settings.barColors,
+			gfx::Rect{}, &m_characters, i, &m_settings.barColors,
 			m_hitSplats, m_itemIcons, [this, i] { OnPortraitClick(i); },
 			[this, i] { OnPortraitRightClick(i); },
 			[this, i] { OnPortraitBars(i); },
@@ -1585,26 +1589,31 @@ void GameUI::UpdateFonts(float dt) {
 		m_fontSettle = 0.0f;
 	} else if (m_fontSettle < kFontSettleDelay &&
 			   (m_fontSettle += dt) >= kFontSettleDelay) {
-		const float fontScale = windowH / kFontDesignWindowH;
-		m_hudUi.GetFont().SetHeight(kHudFontH * fontScale);
-		m_menuUi.GetFont().SetHeight(kMenuFontH * fontScale);
-		m_settingsUi.GetFont().SetHeight(kMenuFontH * fontScale);
-		m_pauseUi.GetFont().SetHeight(kMenuFontH * fontScale);
-		m_confirmUi.GetFont().SetHeight(kMenuFontH * fontScale);
-		m_sheetUi.GetFont().SetHeight(kSheetFontH * fontScale);
-		m_titleFont.SetHeight(kTitleFontH * fontScale);
+		m_fontScale = windowH / kFontDesignWindowH;
 	}
+
+	// Re-resolve every context every frame. This is a map lookup per context,
+	// not a re-bake: the library returns the SAME Font while the role's face and
+	// the settled scale are unchanged. Doing it unconditionally means a face
+	// swapped live (the audition) is picked up next frame with no invalidation
+	// dance, and — unlike the seven hand-written SetHeight lines this replaces —
+	// a context cannot be left out. m_savesUi was exactly that bug: constructed
+	// and themed, but absent from the old list, so the saves page never tracked
+	// the window height and never committed new glyphs.
+	m_hudUi.UseFont(ui::FontRole::Body, kHudFontH * m_fontScale);
+	m_menuUi.UseFont(ui::FontRole::Body, kMenuFontH * m_fontScale);
+	m_settingsUi.UseFont(ui::FontRole::Body, kMenuFontH * m_fontScale);
+	m_pauseUi.UseFont(ui::FontRole::Body, kMenuFontH * m_fontScale);
+	m_savesUi.UseFont(ui::FontRole::Body, kMenuFontH * m_fontScale);
+	m_sheetUi.UseFont(ui::FontRole::Body, kSheetFontH * m_fontScale);
+	m_confirmUi.UseFont(ui::FontRole::Body, kMenuFontH * m_fontScale);
+	m_titleFont = &m_fonts.Get(ui::FontRole::Display, kTitleFontH * m_fontScale);
 
 	// Flush any glyphs cached during last frame's draw/measure to the GPU. Runs
 	// every frame (cheap no-op when nothing new was seen), before any widget
 	// draws this frame — the safe between-frames point the atlas upload needs.
-	m_hudUi.GetFont().Commit();
-	m_menuUi.GetFont().Commit();
-	m_settingsUi.GetFont().Commit();
-	m_pauseUi.GetFont().Commit();
-	m_confirmUi.GetFont().Commit();
-	m_sheetUi.GetFont().Commit();
-	m_titleFont.Commit();
+	// One call now covers every font in the game, dialogs and console included.
+	m_fonts.CommitAll();
 }
 
 // A save was written or deleted. Two things go stale, and each catches up at
@@ -1786,8 +1795,8 @@ void GameUI::DrawLoadProgress(const LoadQueue& queue, float barY) {
 // Title face, horizontally centered at y in the accent color — every title
 // screen draws "DUNGEON" this way.
 void GameUI::DrawCenteredTitle(const std::string& text, float y) {
-	const float titleW = m_titleFont.MeasureWidth(text);
-	m_titleFont.Draw(m_spriteBatch, text, (DeviceW() - titleW) * 0.5f, y,
+	const float titleW = m_titleFont->MeasureWidth(text);
+	m_titleFont->Draw(m_spriteBatch, text, (DeviceW() - titleW) * 0.5f, y,
 					 m_menuUi.GetTheme().accent);
 }
 

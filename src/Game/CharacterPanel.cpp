@@ -13,16 +13,23 @@
 
 namespace dungeon::game {
 
+// The bust's fallback initial, in rem of the HUD. It used to come from GameUI's
+// 64px title Font, handed down as a raw pointer; both that 64 and the HUD's 17
+// were authored against the same 900px design window and scaled by the same
+// factor, so 64/17 rem reproduces the old size EXACTLY at every resolution —
+// and now tracks the HUD by itself, with nothing passed in. (Roles carry a
+// face, not a size, so text deliberately larger than the body has to say how
+// much larger; see UIContext::FontAt.)
+constexpr float kBustRem = 64.0f / 17.0f;
+
 // --- PortraitBox -----------------------------------------------------------
 
 PortraitBox::PortraitBox(const std::vector<Character>* roster, size_t member,
-						 const ui::Font* portraitFont,
 						 const HitSplatIcons* hitSplats,
 						 std::function<void()> onClick,
 						 std::function<void()> onRight)
-	: m_roster(roster), m_member(member), m_portraitFont(portraitFont),
-	  m_hitSplats(hitSplats), m_onClick(std::move(onClick)),
-	  m_onRight(std::move(onRight)) {
+	: m_roster(roster), m_member(member), m_hitSplats(hitSplats),
+	  m_onClick(std::move(onClick)), m_onRight(std::move(onRight)) {
 	debugName = "Portrait";
 }
 
@@ -51,7 +58,8 @@ void PortraitBox::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	const Character* character = RosterMember(m_roster, m_member);
 	if (!character) return;
 	const gfx::Rect& px = Pixel();
-	DrawPortrait(batch, px, *character, *m_portraitFont, ctx.GetTheme());
+	DrawPortrait(batch, px, *character, ctx.FontAt(ui::FontRole::Display, Rem(kBustRem)),
+				 ctx.GetTheme());
 
 	// Hit feedback: a transient splat over the portrait while hitFlash > 0,
 	// fading out as the timer winds down (the world ticks it). No number — the
@@ -129,7 +137,7 @@ void EffectIcon::DrawSelf(ui::UIContext&, gfx::SpriteBatch& batch) {
 void EffectIcon::DrawOverlaySelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	const fx::Inst* effect = Effect();
 	if (!m_hot || !effect) return;
-	ui::Font& font = ctx.GetFont();
+	const ui::Font& font = TextFont();
 	const gfx::Rect& r = Pixel();
 	const std::string label =
 		loc::Format("hud.effect_time", loc::Tr(effect->NameKey()),
@@ -200,7 +208,6 @@ void StatsArea::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 
 CharacterPanel::CharacterPanel(const gfx::Rect& rect,
 							   const std::vector<Character>* roster, size_t member,
-							   const ui::Font* portraitFont,
 							   const ResourceBarColors* barColors,
 							   const HitSplatIcons* hitSplats,
 							   const ItemIconBank* icons,
@@ -211,8 +218,8 @@ CharacterPanel::CharacterPanel(const gfx::Rect& rect,
 	: m_roster(roster), m_member(member) {
 	bounds = rect;
 	debugName = "CharacterPanel";
-	m_portrait = Add<PortraitBox>(roster, member, portraitFont, hitSplats,
-								  std::move(onClick), std::move(onRight));
+	m_portrait = Add<PortraitBox>(roster, member, hitSplats, std::move(onClick),
+								  std::move(onRight));
 	// One icon per live effect, right-aligned in the name band and growing
 	// right-to-left as effects stack (index 0 is the rightmost). LayoutSelf
 	// gives the repeater its box; the placer splits that box into cells.
@@ -241,7 +248,7 @@ CharacterPanel::CharacterPanel(const gfx::Rect& rect,
 // Portrait square at the left, the effect strip along the name row, the bars
 // filling what is left beneath. All three are fractions of THIS slot, worked
 // out from its live pixel rect because they are aspect- and font-locked.
-void CharacterPanel::LayoutSelf(ui::UIContext& ctx) {
+void CharacterPanel::LayoutSelf(ui::UIContext&) {
 	const gfx::Rect& px = Pixel();
 	const bool present = RosterMember(m_roster, m_member) != nullptr;
 	m_portrait->visible = present;
@@ -257,7 +264,7 @@ void CharacterPanel::LayoutSelf(ui::UIContext& ctx) {
 
 	// The name row is one line advance tall, so the effect icons sit exactly
 	// on the name band.
-	const float rowH = ctx.GetFont().LineAdvance() / px.h;
+	const float rowH = TextFont().LineAdvance() / px.h;
 	const float left = padX + sideX + padX; // past the portrait
 	const float right = 1.0f - padX;
 	m_effects->bounds = {left, padY, right - left, rowH};
@@ -310,7 +317,7 @@ void CharacterPanel::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	// The name shares the row the effect strip sits on: name left, strip right.
 	const float pad = px.h * kPad;
 	const float left = px.x + pad + (px.h - 2 * pad) + pad; // past the portrait
-	ctx.GetFont().Draw(batch, character->name, left, px.y + pad, theme.text);
+	TextFont().Draw(batch, character->name, left, px.y + pad, theme.text);
 }
 
 } // namespace dungeon::game

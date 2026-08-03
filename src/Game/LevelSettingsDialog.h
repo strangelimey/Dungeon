@@ -32,7 +32,7 @@ namespace dungeon::game {
 
 class LevelSettingsDialog {
 public:
-	explicit LevelSettingsDialog(gfx::GraphicsDevice& device);
+	LevelSettingsDialog(gfx::GraphicsDevice& device, ui::FontLibrary& fonts);
 
 	bool IsOpen() const { return m_open; }
 	// Opens on the level's EFFECTIVE values (its overrides, or the world
@@ -66,7 +66,6 @@ private:
 	}
 
 	gfx::GraphicsDevice& m_device;
-	ui::Font m_font;    // the dialog's own text (title)
 	ui::UIContext m_ui; // labels + numeric fields + footer buttons
 	std::unique_ptr<gfx::Texture> m_closeIcon; // shared top-right close box
 

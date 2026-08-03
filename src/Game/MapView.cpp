@@ -70,9 +70,9 @@ float DockBodyTop(const gfx::Rect& dock, const gfx::Rect& panel) {
 float MapView::DockPad(const gfx::Rect& p) { return std::clamp(p.h * 0.010f, 3.0f, 9.0f); }
 
 MapView::MapView(gfx::GraphicsDevice& device, DungeonWorld& world,
-				 GameSettings& settings)
-	: m_device(device), m_world(world), m_settings(settings),
-	  m_font(device, "", kFontH) {
+				 GameSettings& settings, ui::FontLibrary& fonts)
+	: m_device(device), m_world(world), m_settings(settings), m_fonts(fonts),
+	  m_font(&fonts.Get(ui::FontRole::Body, kFontH)) {
 	// Toolbar icon discs; a missing file leaves that button on its text face.
 	m_icoLevel = TryLoadTextureFile(device, paths::Asset("ui\\icon_tb_level"));
 	m_icoBalance = TryLoadTextureFile(device, paths::Asset("ui\\icon_tb_balance"));
@@ -338,7 +338,7 @@ bool MapView::Update(const Input& input, const gfx::Rect& panel) {
 
 	// Keep the icon/label font sized to the panel (re-bakes only when the
 	// rounded height actually changes, i.e. on window resize — not on zoom).
-	m_font.SetHeight(std::clamp(panel.h * 0.030f, 11.0f, 30.0f));
+	SetFontHeight(std::clamp(panel.h * 0.030f, 11.0f, 30.0f));
 
 	// If the party arrived on the level being browsed (the world keeps
 	// simulating under the open map), snap to the live view of it.
@@ -701,16 +701,16 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 		if (ch >= 'a' && ch <= 'z') ch -= 32;
 		const std::string s(1, ch);
 		const Vec2 c = cellCenter(x, z);
-		m_font.Draw(batch, s, c.x - m_font.MeasureWidth(s) * 0.5f,
-					c.y - m_font.Height() * 0.5f, kMarkerInk);
+		m_font->Draw(batch, s, c.x - m_font->MeasureWidth(s) * 0.5f,
+					c.y - m_font->Height() * 0.5f, kMarkerInk);
 	};
 	// A small stack-count badge ("x3") at the cell's bottom-right corner.
 	auto countBadge = [&](int x, int z, int n) {
 		if (n < 2 || t.cell < 20.0f) return;
 		const std::string s = "x" + std::to_string(n);
 		const Vec2 c = cellCenter(x, z);
-		m_font.Draw(batch, s, c.x + t.cell * 0.5f - m_font.MeasureWidth(s) - 1.0f,
-					c.y + t.cell * 0.5f - m_font.Height(), theme.text);
+		m_font->Draw(batch, s, c.x + t.cell * 0.5f - m_font->MeasureWidth(s) - 1.0f,
+					c.y + t.cell * 0.5f - m_font->Height(), theme.text);
 	};
 
 	// 1) Cell fill. Player mode keeps the stylized flat inks; Editor mode fills
@@ -1103,7 +1103,7 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 							 const char* arrow, HoverBtn id) {
 		batch.DrawRect(dock, theme.panel);
 		ui::DrawBorder(batch, dock, theme.panelBorder);
-		ui::DrawButtonFace(batch, m_font, btn, arrow, theme, m_hoverBtn == id);
+		ui::DrawButtonFace(batch, *m_font, btn, arrow, theme, m_hoverBtn == id);
 	};
 
 	// --- Left palette dock (Editor only; collapsed -> only the ">>" button). The
@@ -1115,7 +1115,7 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 					  m_settings.mapPaletteCollapsed ? ">>" : "<<",
 					  HoverBtn::CollapseL);
 		if (!m_settings.mapPaletteCollapsed) {
-			m_font.Draw(batch, loc::Tr("map.brushes"), ld.x + dpad,
+			m_font->Draw(batch, loc::Tr("map.brushes"), ld.x + dpad,
 						ld.y + dpad + btnH + dpad, theme.textDim);
 			if (m_editor) m_editor->RenderBody(batch, theme, panel);
 		}
@@ -1128,7 +1128,7 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 		drawDockFrame(rd, RightCollapseButton(panel),
 					  LegendCollapsed() ? "<<" : ">>", HoverBtn::CollapseR);
 		if (!LegendCollapsed()) {
-			m_font.Draw(batch, loc::Tr("map.key"), rd.x + dpad,
+			m_font->Draw(batch, loc::Tr("map.key"), rd.x + dpad,
 						rd.y + dpad + btnH + dpad, theme.textDim);
 			// A swatch (filled / outlined / triangle) + label per symbol; the
 			// `player` flag drops a row from the Player key. Party and start use
@@ -1167,8 +1167,8 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 									   row.color);
 					break;
 				}
-				m_font.Draw(batch, loc::Tr(row.key), box.x + sw + dpad,
-							y + (rowH - m_font.Height()) * 0.5f, theme.text);
+				m_font->Draw(batch, loc::Tr(row.key), box.x + sw + dpad,
+							y + (rowH - m_font->Height()) * 0.5f, theme.text);
 				y += rowH;
 			}
 			batch.SetScissor(nullptr);
@@ -1187,7 +1187,7 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 		// Update/Render pixel-space split).
 		auto face = [&](const gfx::Rect& r, const std::string& label,
 						HoverBtn id, bool enabled = true) {
-			ui::DrawButtonFace(batch, m_font, r, label, theme,
+			ui::DrawButtonFace(batch, *m_font, r, label, theme,
 							   enabled && m_hoverBtn == id, /*held*/ false,
 							   enabled);
 		};
@@ -1196,8 +1196,8 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 			const gfx::Rect upR = LevelUpButton(panel), dnR = LevelDownButton(panel);
 			if (!above.empty()) face(upR, "^", HoverBtn::LevelUp);
 			if (!below.empty()) face(dnR, "v", HoverBtn::LevelDown);
-			m_font.Draw(batch, ViewedLevel(), dnR.x + dnR.w + dpad * 2,
-						upR.y + (upR.h - m_font.Height()) * 0.5f,
+			m_font->Draw(batch, ViewedLevel(), dnR.x + dnR.w + dpad * 2,
+						upR.y + (upR.h - m_font->Height()) * 0.5f,
 						m_browse ? theme.accent : theme.text);
 		} else {
 			// The band: a subtle lift over the panel base + a 1px seam, so it
@@ -1243,16 +1243,16 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 			// Tooltip: the hovered icon's localized name, just under the band
 			// (icons dropped the text labels; this keeps them discoverable).
 			if (tip) {
-				const float tw = m_font.MeasureWidth(tip->label);
+				const float tw = m_font->MeasureWidth(tip->label);
 				const float pad2 = dpad * 1.5f;
 				gfx::Rect tr{tip->rect.x + tip->rect.w * 0.5f - tw * 0.5f - pad2,
 							 tb.y + tb.h + 2.0f, tw + pad2 * 2,
-							 m_font.Height() + pad2};
+							 m_font->Height() + pad2};
 				tr.x = std::clamp(tr.x, panel.x + 2.0f,
 								  panel.x + panel.w - tr.w - 2.0f);
 				batch.DrawRect(tr, kMapBg);
 				ui::DrawBorder(batch, tr, theme.panelBorder);
-				m_font.Draw(batch, tip->label, tr.x + pad2,
+				m_font->Draw(batch, tip->label, tr.x + pad2,
 							tr.y + pad2 * 0.5f, theme.text);
 			}
 
@@ -1281,8 +1281,8 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 							batch.DrawRect(r, wash);
 						}
 						const bool live = levels[i] == m_world.CurrentLevel();
-						m_font.Draw(batch, levels[i], r.x + dpad * 2,
-									r.y + (r.h - m_font.Height()) * 0.5f,
+						m_font->Draw(batch, levels[i], r.x + dpad * 2,
+									r.y + (r.h - m_font->Height()) * 0.5f,
 									live ? theme.accent : theme.text);
 					}
 				}
@@ -1293,8 +1293,8 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 	// Player title, centered over the grid area (clear of the key dock).
 	if (m_mode == Mode::Player) {
 		const std::string title = loc::Tr("map.title");
-		m_font.Draw(batch, title,
-					grid.x + (grid.w - m_font.MeasureWidth(title)) * 0.5f,
+		m_font->Draw(batch, title,
+					grid.x + (grid.w - m_font->MeasureWidth(title)) * 0.5f,
 					panel.y + pad, theme.text);
 	}
 
@@ -1302,13 +1302,13 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 	// (left) + party cell (right). PLAYER mode only — the editor keeps its
 	// bottom row clear for map cells (its controls are discoverable enough).
 	if (m_mode == Mode::Player) {
-		const float footY = panel.y + panel.h - m_font.Height() - pad;
-		m_font.Draw(batch, loc::Tr("map.hint"), grid.x + pad, footY, theme.textDim);
+		const float footY = panel.y + panel.h - m_font->Height() - pad;
+		m_font->Draw(batch, loc::Tr("map.hint"), grid.x + pad, footY, theme.textDim);
 
 		const Party& party = m_world.GetParty();
 		const std::string pos =
 			loc::Format("map.position", party.GridX(), party.GridZ());
-		m_font.Draw(batch, pos, grid.x + grid.w - m_font.MeasureWidth(pos) - pad,
+		m_font->Draw(batch, pos, grid.x + grid.w - m_font->MeasureWidth(pos) - pad,
 					footY, theme.textDim);
 	}
 

@@ -59,7 +59,7 @@ public:
 		ThreatTuning threat; // per-type aggro multipliers (Behavior tab)
 	};
 
-	explicit MonsterConfigDialog(gfx::GraphicsDevice& device);
+	MonsterConfigDialog(gfx::GraphicsDevice& device, ui::FontLibrary& fonts);
 
 	bool IsOpen() const { return m_open; }
 	// Opens for a monster type: its id + display name, current supported set + clip
@@ -108,7 +108,6 @@ private:
 	std::string FirstClipOf(int state) const;
 
 	gfx::GraphicsDevice& m_device;
-	ui::Font m_font;      // the dialog's own text (title / preview header / hints)
 	ui::UIContext m_ui;   // the tab content + footer buttons
 	std::unique_ptr<gfx::Texture> m_closeIcon; // shared top-right close box
 

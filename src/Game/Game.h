@@ -64,6 +64,7 @@
 #include "Game/Project.h"
 #include "Game/TypeEditorDialog.h"
 #include "Game/SoundBank.h"
+#include "UI/FontLibrary.h"
 #include "Graphics/ModelPreview.h"
 #include "Graphics/PostProcess.h"
 #include "Graphics/Renderer.h"
@@ -183,6 +184,11 @@ private:
 	// baked in (shipped build) or the copy fails. Shared by the editor's
 	// "To source" button and the synctosource console command.
 	bool SyncProjectToSource();
+
+	// The typeface audition (docs/fonts.md Phase 4): the `font` console
+	// command's body, and the fonts.cat writer behind `font save`.
+	void FontCommand(const std::vector<std::string>& args);
+	bool SaveFontCatalog();
 
 	// The editor toolbar's [+] button: writes a minimal .map/.ent pair next to
 	// the project's other levels, appends the stem to the manifest, and returns
@@ -352,6 +358,11 @@ private:
 	float m_governorScale = 1.0f;
 	float m_governorTargetMs = 1000.0f / 60.0f;
 	DungeonWorld m_world;
+	// Typefaces, addressed by role (UI/FontLibrary.h). Declared BEFORE m_ui
+	// because every UIContext there borrows a Font from it, and configured from
+	// assets/fonts/fonts.cat before those contexts first resolve a role — see
+	// MakeFontLibrary in Game.cpp.
+	ui::FontLibrary m_fonts;
 	GameUI m_ui;
 	// Map/editor overlay (toggle with `M` while playing). Like the console it
 	// does NOT pause the world — the party keeps walking; the overlay only

@@ -1,0 +1,54 @@
+; fonts.cat — which typeface serves each text ROLE.
+;
+; Layout and content name a role, never a filename (UI/FontLibrary.h). Change a
+; role here and every surface drawn in it follows, with no code change.
+;
+; Fields:
+;   file   path under assets/, e.g. fonts/Cinzel/Cinzel-Regular.ttf
+;          EMPTY = the system fallback (Consolas -> Segoe UI -> Arial), which is
+;          what shipped before any face was chosen.
+;   scale  optical multiplier folded into every size drawn in this role. Faces
+;          differ ~30% in x-height at the same em size, so a swap without this
+;          resizes the UI and looks like the layout broke. 1.0 = as authored.
+;
+; Installed candidates and their x-height per 1000 upem (assets/fonts/README.md
+; has the full table; seed a scale as target_x_height / face_x_height):
+;
+;   DISPLAY   fonts/Cinzel/Cinzel-Regular.ttf                   500
+;             fonts/Marcellus/Marcellus-Regular.ttf             500
+;             fonts/GrenzeGotisch/GrenzeGotisch-Regular.ttf     448
+;   BODY      fonts/Alegreya/Alegreya-Regular.ttf               452
+;             fonts/Spectral/Spectral-Regular.ttf               450
+;             fonts/GentiumBookPlus/GentiumBookPlus-Regular.ttf 454
+;             fonts/Bitter/Bitter-Regular.ttf                   528
+;   SCRIPT    fonts/IMFellEnglish/IMFeENit28P.ttf               445  (italic)
+;             fonts/IMFellEnglish/IMFeENrm28P.ttf               470  (roman)
+;             fonts/PetitFormalScript/PetitFormalScript-Regular.ttf  579
+;   MONO      fonts/JetBrainsMono/JetBrainsMono-Regular.ttf     550
+;
+; Every role is deliberately left on the system fallback: the faces are chosen
+; in the in-game audition (docs/fonts.md Phase 4), against real dungeon art at
+; real sizes, not from a specimen sheet. Until then the game looks exactly as it
+; always has. Try one live with the dev console: `font body <path>`.
+
+; HUD, message log, settings, character sheet, every dialog. Must stay legible
+; at 17px, where stb_truetype's unhinted grayscale AA is least forgiving.
+[body]
+file =
+scale = 1.0
+
+; The DUNGEON title, menu and character-sheet headings.
+[display]
+file =
+scale = 1.0
+
+; Scrolls, spell descriptions, item flavour — text the WORLD is showing you
+; rather than text the interface is telling you.
+[script]
+file =
+scale = 1.0
+
+; Dev console and editor numeric fields, where column alignment matters.
+[mono]
+file =
+scale = 1.0

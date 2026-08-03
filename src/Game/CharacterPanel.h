@@ -27,8 +27,8 @@ namespace dungeon::game {
 class PortraitBox : public ui::Widget {
 public:
 	PortraitBox(const std::vector<Character>* roster, size_t member,
-				const ui::Font* portraitFont, const HitSplatIcons* hitSplats,
-				std::function<void()> onClick, std::function<void()> onRight);
+				const HitSplatIcons* hitSplats, std::function<void()> onClick,
+				std::function<void()> onRight);
 
 private:
 	void UpdateSelf(ui::UIContext& ctx) override;
@@ -36,7 +36,6 @@ private:
 
 	const std::vector<Character>* m_roster;
 	size_t m_member;
-	const ui::Font* m_portraitFont;
 	const HitSplatIcons* m_hitSplats; // may be null (icons not loaded)
 	std::function<void()> m_onClick;
 	std::function<void()> m_onRight;
@@ -91,15 +90,14 @@ private:
 
 class CharacterPanel : public ui::Widget {
 public:
-	// portraitFont draws the big placeholder initial (the Game passes its
-	// title font, which tracks the window scale like everything else).
+	// The big placeholder initial resolves its own font now (Display at kBustRem
+	// of the HUD — CharacterPanel.cpp), so nothing is handed down for it.
 	// onClick fires on a left click on the PORTRAIT (open the sheet / place a
 	// held tablet); onRight on a right click there (open this member's
 	// inventory). onBars fires on either button over the stat bars (the Stats
 	// tab), onEffects on a click on an effect icon (the Effects tab).
 	CharacterPanel(const gfx::Rect& rect, const std::vector<Character>* roster,
-				   size_t member,
-				   const ui::Font* portraitFont, const ResourceBarColors* barColors,
+				   size_t member, const ResourceBarColors* barColors,
 				   const HitSplatIcons* hitSplats, const ItemIconBank* icons,
 				   std::function<void()> onClick,
 				   std::function<void()> onRight, std::function<void()> onBars,

@@ -149,7 +149,7 @@ void CharacterSheet::UpdateInventory(ui::UIContext& ctx, const gfx::Rect& px,
 void CharacterSheet::DrawInventory(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 								   const gfx::Rect& px) {
 	const ui::Theme& theme = ctx.GetTheme();
-	ui::Font& font = ctx.GetFont();
+	const ui::Font& font = TextFont();
 
 	// --- equipment paper doll (left) ----------------------------------------
 	for (int i = 0; i < kDollCellCount; ++i) {

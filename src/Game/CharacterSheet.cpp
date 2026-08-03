@@ -11,16 +11,23 @@
 namespace dungeon::game {
 using namespace sheet;
 
+// The sheet's name heading and bust initial, in rem of the SHEET. Both used to
+// come from GameUI's 64px title Font passed down as a raw pointer; that 64 and
+// the sheet's 22 were authored against the same 900px design window and scale
+// by the same factor, so 64/22 rem is the old size EXACTLY, at any resolution,
+// resolved by the widget itself. (Roles carry a face, not a size — see
+// UIContext::FontAt.)
+constexpr float kHeadingRem = 64.0f / 22.0f;
+
 CharacterSheet::CharacterSheet(const gfx::Rect& rect,
 							   std::vector<Character>* roster,
-							   const ui::Font* portraitFont,
 							   const ResourceBarColors* barColors,
 							   const ItemIconBank* icons,
 							   const ItemWeightBank* weights,
 							   const ItemIconBank* slotIcons,
 							   const ItemCategoryBank* categories,
 							   std::optional<std::string>* held)
-	: m_roster(roster), m_portraitFont(portraitFont), m_barColors(barColors),
+	: m_roster(roster), m_barColors(barColors),
 	  m_icons(icons), m_weights(weights), m_slotIcons(slotIcons),
 	  m_categories(categories), m_held(held),
 	  m_healthLabel(loc::Tr("bar.health")),
@@ -46,7 +53,7 @@ CharacterSheet::CharacterSheet(const gfx::Rect& rect,
 // lives (see the header).
 void CharacterSheet::BuildParts() {
 	Add<SheetPortrait>(gfx::Rect{kPortraitX, kPortraitY, kPortraitW, kPortraitH},
-					   m_roster, &m_member, m_portraitFont);
+					   m_roster, &m_member);
 
 	const float stripW = kModeCount * kModeBtnW + (kModeCount - 1) * kModeBtnGap;
 	Add<ModeSelector>(gfx::Rect{kModeBtnX, kModeBtnY, stripW, kModeBtnH},
@@ -77,7 +84,7 @@ void CharacterSheet::BuildParts() {
 		switch (lists[n].mode) {
 		case Mode::Skills:
 			count = [this] { return m_skillRows.size(); };
-			measure = [this](size_t i, ui::Font& f, float w) {
+			measure = [this](size_t i, const ui::Font& f, float w) {
 				return MeasureSkillRow(i, f, w);
 			};
 			draw = [this](size_t i, ui::UIContext& c, gfx::SpriteBatch& b,
@@ -85,7 +92,7 @@ void CharacterSheet::BuildParts() {
 			break;
 		case Mode::Spells:
 			count = [this] { return m_spellRows.size(); };
-			measure = [this](size_t i, ui::Font& f, float w) {
+			measure = [this](size_t i, const ui::Font& f, float w) {
 				return MeasureSpellRow(i, f, w);
 			};
 			draw = [this](size_t i, ui::UIContext& c, gfx::SpriteBatch& b,
@@ -93,7 +100,7 @@ void CharacterSheet::BuildParts() {
 			break;
 		default:
 			count = [this] { return m_effectRows.size(); };
-			measure = [this](size_t i, ui::Font& f, float w) {
+			measure = [this](size_t i, const ui::Font& f, float w) {
 				return MeasureEffectRow(i, f, w);
 			};
 			draw = [this](size_t i, ui::UIContext& c, gfx::SpriteBatch& b,
@@ -156,8 +163,9 @@ void CharacterSheet::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	if (!m_character) return;
 
 	// --- header band: the name (the portrait is a child) --------------------
-	m_portraitFont->Draw(batch, m_character->name, Ax(px, kNameX), Ay(px, kNameY),
-						 theme.accent);
+	ctx.FontAt(ui::FontRole::Display, Rem(kHeadingRem))
+		.Draw(batch, m_character->name, Ax(px, kNameX), Ay(px, kNameY),
+			  theme.accent);
 
 	// The two bodies that aren't containers; the list tabs draw as children.
 	switch (m_mode) {
@@ -171,15 +179,17 @@ void CharacterSheet::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 
 SheetPortrait::SheetPortrait(const gfx::Rect& rect,
 							 const std::vector<Character>* roster,
-							 const size_t* member, const ui::Font* font)
-	: m_roster(roster), m_member(member), m_font(font) {
+							 const size_t* member)
+	: m_roster(roster), m_member(member) {
 	bounds = rect;
 	debugName = "SheetPortrait";
 }
 
 void SheetPortrait::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	if (const Character* c = RosterMember(m_roster, *m_member))
-		DrawPortrait(batch, Pixel(), *c, *m_font, ctx.GetTheme());
+		DrawPortrait(batch, Pixel(), *c,
+					 ctx.FontAt(ui::FontRole::Display, Rem(kHeadingRem)),
+					 ctx.GetTheme());
 }
 
 // --- ModeButton / ModeSelector ---------------------------------------------

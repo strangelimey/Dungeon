@@ -37,7 +37,7 @@ namespace dungeon::game {
 
 class BalanceDialog {
 public:
-	explicit BalanceDialog(gfx::GraphicsDevice& device);
+	BalanceDialog(gfx::GraphicsDevice& device, ui::FontLibrary& fonts);
 
 	bool IsOpen() const { return m_open; }
 	// Opens on a snapshot of the live tuning (the working copy starts there).
@@ -62,7 +62,6 @@ private:
 	void Apply() { if (onApply) onApply(m_cfg); }
 
 	gfx::GraphicsDevice& m_device;
-	ui::Font m_font;    // the dialog's own text (title)
 	ui::UIContext m_ui; // tabs + numeric fields + footer buttons
 	std::unique_ptr<gfx::Texture> m_closeIcon; // shared top-right close box
 

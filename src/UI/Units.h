@@ -18,10 +18,17 @@
 // Useful conversions: one line of text is 1.25rem (Font::LineAdvance), so a row
 // holding a single line with comfortable air above and below is ~1.75rem.
 //
-// `em` — relative to the widget's OWN font — collapses onto rem while every
-// widget draws with its context's font. Em() exists so the seam has a name: if
-// per-widget font sizes ever arrive, Em is the one that changes and every call
-// site already says which it meant.
+// `em` — relative to the widget's OWN font — is now REAL: a widget can set
+// Widget::fontRole and draw in a different face from the document root, and its
+// em follows that face while rem does not. Because em is a property of a
+// particular widget it lives ONLY on Widget (Widget::Em); there is deliberately
+// no free Em(ctx), which could only have meant the root while reading as though
+// it meant the widget.
+//
+// The division is load-bearing. Layout geometry — a row's height, a page's
+// padding, the gap between controls — stays in REM, so re-facing one label
+// cannot re-space the controls around it. Detail belonging to a widget's own
+// text is in EM, so it tracks the face it sits beside.
 //
 // THE ONLY RAW PIXELS LEFT are hairlines: the 1px borders (DrawBorder,
 // Separator) and the 2px text caret. A hairline expressed as a fraction blurs
@@ -34,9 +41,8 @@ namespace dungeon::ui {
 class UIContext;
 
 // `n` rem in pixels — n x the context's root font size.
+//
+// There is no free Em(): em belongs to a widget, so it is Widget::Em(n).
 float Rem(const UIContext& ctx, float n = 1.0f);
-
-// `n` em in pixels. Identical to Rem today; see the header note.
-float Em(const UIContext& ctx, float n = 1.0f);
 
 } // namespace dungeon::ui

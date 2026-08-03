@@ -26,8 +26,9 @@ constexpr float kRowY0 = 0.365f, kRowH = 0.042f;
 constexpr gfx::Rect kRemove{0.45f, 0.615f, 0.10f, 0.045f};
 } // namespace
 
-ProjectileInspector::ProjectileInspector(gfx::GraphicsDevice& device)
-	: m_device(device), m_font(device, "", 18.0f), m_ui(device, "", 18.0f) {
+ProjectileInspector::ProjectileInspector(gfx::GraphicsDevice& device,
+										 ui::FontLibrary& fonts)
+	: m_device(device), m_ui(fonts, ui::FontRole::Body, 18.0f) {
 	m_closeIcon = TryLoadTextureFile(device, paths::Asset("ui\\icon_close"));
 }
 
@@ -48,10 +49,10 @@ void ProjectileInspector::BuildUI() {
 
 void ProjectileInspector::Update(const Input& input, float w, float h) {
 	if (!m_open) return;
-	m_font.Commit();
-	const float fh = std::clamp(h * 0.020f, 12.0f, 24.0f);
-	m_font.SetHeight(fh);
-	m_ui.GetFont().SetHeight(fh);
+	// One font now (the dialog's title text used to be a second Font at the very
+	// same size as this context's); GameUI::UpdateFonts commits every library
+	// font once per frame, so there is nothing to flush here.
+	m_ui.UseFont(ui::FontRole::Body, std::clamp(h * 0.020f, 12.0f, 24.0f));
 	if (input.WasKeyPressed(VK_ESCAPE)) {
 		Close();
 		return;
@@ -67,7 +68,7 @@ void ProjectileInspector::Render(gfx::SpriteBatch& batch, const ui::Theme& th,
 	batch.DrawRect(panel, th.panel);
 	ui::DrawBorder(batch, panel, th.panelBorder);
 
-	m_font.Draw(batch, loc::Tr("map.proj.title"), kTitle.x * w, kTitle.y * h, th.text);
+	m_ui.GetFont().Draw(batch, loc::Tr("map.proj.title"), kTitle.x * w, kTitle.y * h, th.text);
 
 	// Read-only info rows: label (dim) + value (bright).
 	const std::array<std::pair<std::string, std::string>, 6> rows = {{
@@ -80,8 +81,8 @@ void ProjectileInspector::Render(gfx::SpriteBatch& batch, const ui::Theme& th,
 	}};
 	for (size_t i = 0; i < rows.size(); ++i) {
 		const float y = (kRowY0 + i * kRowH) * h;
-		m_font.Draw(batch, rows[i].first, kRowX * w, y, th.textDim);
-		m_font.Draw(batch, rows[i].second, kValX * w, y, th.text);
+		m_ui.GetFont().Draw(batch, rows[i].first, kRowX * w, y, th.textDim);
+		m_ui.GetFont().Draw(batch, rows[i].second, kValX * w, y, th.text);
 	}
 
 	m_ui.Render(batch, w, h); // Remove / Close

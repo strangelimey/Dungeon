@@ -54,8 +54,8 @@ std::vector<std::string> SplitOptions(std::string_view text) {
 }
 } // namespace
 
-TypeEditorDialog::TypeEditorDialog(gfx::GraphicsDevice& device)
-	: m_device(device), m_font(device, "", 18.0f), m_ui(device, "", 18.0f) {
+TypeEditorDialog::TypeEditorDialog(gfx::GraphicsDevice& device, ui::FontLibrary& fonts)
+	: m_device(device), m_ui(fonts, ui::FontRole::Body, 18.0f) {
 	m_closeIcon = TryLoadTextureFile(device, paths::Asset("ui\\icon_close"));
 }
 
@@ -105,8 +105,8 @@ void TypeEditorDialog::SetValue(const FieldSpec& spec, std::string value) {
 gfx::Rect TypeEditorDialog::IdRect(float w, float h) {
 	const std::string prefix =
 		loc::Format("map.type.title", m_cfg.categoryLabel, "");
-	return {kTitle.x * w + m_font.MeasureWidth(prefix), kTitle.y * h,
-			m_font.MeasureWidth(m_cfg.id) + 6.0f, m_font.Height()};
+	return {kTitle.x * w + m_ui.GetFont().MeasureWidth(prefix), kTitle.y * h,
+			m_ui.GetFont().MeasureWidth(m_cfg.id) + 6.0f, m_ui.GetFont().Height()};
 }
 
 void TypeEditorDialog::BuildUI() {
@@ -340,10 +340,11 @@ void TypeEditorDialog::BuildUI() {
 
 void TypeEditorDialog::Update(const Input& input, float w, float h) {
 	if (!m_open) return;
-	m_font.Commit();
+	// One font now: the title text used to be a second Font at the very same
+	// size as this context's. GameUI::UpdateFonts commits every library font
+	// once per frame, so there is nothing to flush here either.
 	const float fh = std::clamp(h * 0.020f, 12.0f, 24.0f);
-	m_font.SetHeight(fh);
-	m_ui.GetFont().SetHeight(fh);
+	m_ui.UseFont(ui::FontRole::Body, fh);
 
 	if (m_uiRebuild) { // deferred from a widget callback
 		m_uiRebuild = false;
@@ -404,10 +405,10 @@ void TypeEditorDialog::Render(gfx::SpriteBatch& batch, const ui::Theme& th, floa
 		// affordance (accent on hover + an underline so it reads clickable).
 		const std::string prefix =
 			loc::Format("map.type.title", m_cfg.categoryLabel, "");
-		m_font.Draw(batch, prefix, kTitle.x * w, kTitle.y * h, th.text);
-		const gfx::Rect id{kTitle.x * w + m_font.MeasureWidth(prefix), kTitle.y * h,
-						   m_font.MeasureWidth(m_cfg.id), m_font.Height()};
-		m_font.Draw(batch, m_cfg.id, id.x, id.y, m_nameHover ? th.accent : th.text);
+		m_ui.GetFont().Draw(batch, prefix, kTitle.x * w, kTitle.y * h, th.text);
+		const gfx::Rect id{kTitle.x * w + m_ui.GetFont().MeasureWidth(prefix), kTitle.y * h,
+						   m_ui.GetFont().MeasureWidth(m_cfg.id), m_ui.GetFont().Height()};
+		m_ui.GetFont().Draw(batch, m_cfg.id, id.x, id.y, m_nameHover ? th.accent : th.text);
 		batch.DrawRect({id.x, id.y + id.h + 1.0f, id.w, 1.0f},
 					   m_nameHover ? th.accent : th.textDim);
 	}
@@ -416,14 +417,14 @@ void TypeEditorDialog::Render(gfx::SpriteBatch& batch, const ui::Theme& th, floa
 	// A refusal (a rename collision, a type still in use) or the delete arming
 	// note, between the form and the footer.
 	if (!m_notice.empty() && !m_busy)
-		m_font.Draw(batch, m_notice, kTitle.x * w, 0.785f * h, th.accent);
+		m_ui.GetFont().Draw(batch, m_notice, kTitle.x * w, 0.785f * h, th.accent);
 
 	// While re-baking, freeze the form behind a notice (the owner runs AssetBaker).
 	if (m_busy) {
 		batch.DrawRect(panel, {0.0f, 0.0f, 0.0f, 0.55f});
 		const std::string msg = loc::Tr("newasset.baking");
-		m_font.Draw(batch, msg, panel.x + (panel.w - m_font.MeasureWidth(msg)) * 0.5f,
-					panel.y + panel.h * 0.5f - m_font.Height() * 0.5f, th.accent);
+		m_ui.GetFont().Draw(batch, msg, panel.x + (panel.w - m_ui.GetFont().MeasureWidth(msg)) * 0.5f,
+					panel.y + panel.h * 0.5f - m_ui.GetFont().Height() * 0.5f, th.accent);
 		return;
 	}
 
@@ -437,18 +438,18 @@ void TypeEditorDialog::Render(gfx::SpriteBatch& batch, const ui::Theme& th, floa
 		batch.DrawRect(help, th.panel);
 		ui::DrawBorder(batch, help, th.panelBorder);
 		const float pad = help.w * 0.04f;
-		const float lineH = m_font.Height() * 1.25f;
+		const float lineH = m_ui.GetFont().Height() * 1.25f;
 		float y = help.y + pad;
 		const int active = m_tabs ? m_tabs->ActiveTab() : 0;
 		const char* section =
 			active >= 0 && active < static_cast<int>(m_sections.size())
 				? m_sections[static_cast<size_t>(active)]
 				: kSectionIdentity;
-		m_font.Draw(batch, loc::Tr(section), help.x + pad, y, th.accent);
+		m_ui.GetFont().Draw(batch, loc::Tr(section), help.x + pad, y, th.accent);
 		y += lineH * 1.5f;
 		for (const FieldSpec& spec : m_schema) {
 			if (std::string_view(spec.sectionKey) != std::string_view(section)) continue;
-			m_font.Draw(batch, PrettyFieldName(spec.key), help.x + pad, y, th.text);
+			m_ui.GetFont().Draw(batch, PrettyFieldName(spec.key), help.x + pad, y, th.text);
 			y += lineH;
 			// Greedy word wrap into the card width.
 			std::string line;
@@ -460,8 +461,8 @@ void TypeEditorDialog::Render(gfx::SpriteBatch& batch, const ui::Theme& th, floa
 					text.substr(i, space == std::string::npos ? std::string::npos : space - i);
 				const std::string tryLine = line.empty() ? word : line + " " + word;
 				if (!line.empty() &&
-					m_font.MeasureWidth(tryLine) > help.w - pad * 3) {
-					m_font.Draw(batch, line, help.x + pad * 2, y, th.textDim);
+					m_ui.GetFont().MeasureWidth(tryLine) > help.w - pad * 3) {
+					m_ui.GetFont().Draw(batch, line, help.x + pad * 2, y, th.textDim);
 					y += lineH;
 					line = word;
 				} else {
@@ -471,7 +472,7 @@ void TypeEditorDialog::Render(gfx::SpriteBatch& batch, const ui::Theme& th, floa
 				i = space + 1;
 			}
 			if (!line.empty()) {
-				m_font.Draw(batch, line, help.x + pad * 2, y, th.textDim);
+				m_ui.GetFont().Draw(batch, line, help.x + pad * 2, y, th.textDim);
 				y += lineH;
 			}
 			y += lineH * 0.35f;

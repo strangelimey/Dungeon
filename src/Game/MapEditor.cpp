@@ -854,7 +854,7 @@ void MapEditor::EraseAt(int cx, int cz, const WallFace& face) {
 
 void MapEditor::RenderBody(gfx::SpriteBatch& batch, const ui::Theme& theme,
 						   const gfx::Rect& panel) {
-	ui::Font& font = m_view.Font();
+	const ui::Font& font = m_view.Font();
 	const float dpad = MapView::DockPad(panel);
 
 	// Controls row (fixed above the scrolled accordion): filter box with

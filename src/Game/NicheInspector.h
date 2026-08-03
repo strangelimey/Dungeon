@@ -33,7 +33,8 @@ public:
 		std::string name;                  // button-target id ("" = unwired)
 	};
 
-	explicit NicheInspector(gfx::GraphicsDevice& device) : InstanceInspector(device) {}
+	NicheInspector(gfx::GraphicsDevice& device, ui::FontLibrary& fonts)
+		: InstanceInspector(device, fonts) {}
 
 	// `types` are the selectable niche shapes as (id, display) pairs; `walls` are
 	// the faces this niche may move to (the cell's solid walls not already

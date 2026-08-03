@@ -22,8 +22,8 @@ constexpr float kRowH = 0.058f;
 constexpr float kGap = 0.01f;
 } // namespace
 
-InspectPicker::InspectPicker(gfx::GraphicsDevice& device)
-	: m_device(device), m_font(device, "", 18.0f), m_ui(device, "", 18.0f) {
+InspectPicker::InspectPicker(gfx::GraphicsDevice& device, ui::FontLibrary& fonts)
+	: m_device(device), m_ui(fonts, ui::FontRole::Body, 18.0f) {
 	m_closeIcon = TryLoadTextureFile(device, paths::Asset("ui\\icon_close"));
 }
 
@@ -61,10 +61,7 @@ void InspectPicker::BuildUI() {
 
 void InspectPicker::Update(const Input& input, float w, float h) {
 	if (!m_open) return;
-	m_font.Commit();
-	const float fh = std::clamp(h * 0.020f, 12.0f, 24.0f);
-	m_font.SetHeight(fh);
-	m_ui.GetFont().SetHeight(fh);
+	m_ui.UseFont(ui::FontRole::Body, std::clamp(h * 0.020f, 12.0f, 24.0f));
 
 	if (input.WasKeyPressed(VK_ESCAPE)) {
 		Close();
@@ -84,7 +81,7 @@ void InspectPicker::Render(gfx::SpriteBatch& batch, const ui::Theme& th, float w
 	ui::DrawBorder(batch, panel, th.panelBorder);
 
 	const gfx::Rect title = px(m_titleRect);
-	m_font.Draw(batch, m_title, title.x, title.y, th.text);
+	m_ui.GetFont().Draw(batch, m_title, title.x, title.y, th.text);
 
 	m_ui.Render(batch, w, h);
 }
