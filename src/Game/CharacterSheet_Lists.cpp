@@ -68,12 +68,16 @@ SheetList::SheetList(const gfx::Rect& rect, std::string heading,
 		},
 		[this] { return m_count ? m_count() : 0; },
 		[this](size_t i) {
-			// Fractions of the REPEATER, which LayoutSelf has already sized to
-			// the full stacked height.
-			if (m_contentH <= 0.0f || i >= m_rowTop.size())
+			// Fractions of the REPEATER'S OWN pixel height (m_placeH), NOT of
+			// the stacked content height. Those differ whenever the list is
+			// shorter than its band: the repeater is held open to the band so
+			// the scroll area sees no overflow, and dividing by the smaller
+			// content height would inflate every row to fill it — a short list
+			// came out with rows half again as tall as they measured.
+			if (m_placeH <= 0.0f || i >= m_rowTop.size())
 				return gfx::Rect{0, 0, 1, 0};
-			return gfx::Rect{0.0f, m_rowTop[i] / m_contentH, 1.0f,
-							 m_rowH[i] / m_contentH};
+			return gfx::Rect{0.0f, m_rowTop[i] / m_placeH, 1.0f,
+							 m_rowH[i] / m_placeH};
 		});
 	m_rows->debugName = "SheetRows";
 }
@@ -115,10 +119,13 @@ void SheetList::LayoutSelf(ui::UIContext& ctx) {
 
 	// The repeater carries the stacked height: the scroll area reads overflow
 	// off its own children's bounds, and the rows are one level deeper. A
-	// content box taller than the view is what makes the area scroll.
+	// content box taller than the view is what makes the area scroll — and it
+	// never shrinks BELOW the view, or a short list would report overflow it
+	// does not have. m_placeH is that final height, which the row placer
+	// divides by so rows keep the size they were measured at either way.
 	const float view = ViewHeight();
-	m_rows->bounds = {0.0f, 0.0f, 1.0f,
-					  view > 0.0f ? std::max(m_contentH / view, 1.0f) : 1.0f};
+	m_placeH = std::max(m_contentH, view);
+	m_rows->bounds = {0.0f, 0.0f, 1.0f, view > 0.0f ? m_placeH / view : 1.0f};
 }
 
 void SheetList::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
@@ -218,9 +225,12 @@ void CharacterSheet::BakeSpells() {
 // A row owns its Y (the list stacks it); the X fractions still resolve against
 // the SHEET, which is what keeps the columns lined up with the rest of the page.
 
-float CharacterSheet::MeasureSkillRow(size_t, ui::UIContext&, const ui::Font&,
+float CharacterSheet::MeasureSkillRow(size_t, ui::UIContext& ctx, const ui::Font&,
 									  float) const {
-	return kStatRowH * Pixel().h; // the pitch that matches the enlarged text
+	// One line plus a small gap, measured — not a fixed pitch. A skill row is a
+	// single line of text, so anything more is dead space in a list that grows.
+	const ui::Font& font = ctx.FontAt(ui::FontRole::Body, Rem(kSkillRem));
+	return font.LineAdvance() + kSkillRowGap * Pixel().h;
 }
 
 void CharacterSheet::DrawSkillRow(size_t i, ui::UIContext& ctx,
@@ -228,13 +238,14 @@ void CharacterSheet::DrawSkillRow(size_t i, ui::UIContext& ctx,
 	if (i >= m_skillRows.size()) return;
 	const SkillRow& row = m_skillRows[i];
 	const ui::Theme& theme = ctx.GetTheme();
-	// Enlarged to match the Stats tab — both are the same kind of readout.
-	const ui::Font& font = ctx.FontAt(ui::FontRole::Body, Rem(kStatRem));
+	const ui::Font& font = ctx.FontAt(ui::FontRole::Body, Rem(kSkillRem));
 	const gfx::Rect& px = Pixel();
 	font.Draw(batch, row.label, Ax(px, kLabelX), r.y, theme.textDim);
 	const float vw = font.MeasureWidth(row.level);
 	font.Draw(batch, row.level, Ax(px, kValueRight) - vw, r.y, theme.text);
-	DrawStatBar(batch, {Ax(px, kSkillBarX), r.y, kSkillBarW * px.w, kStatBarH * px.h},
+	// The bar stands as tall as the text beside it, so it tightens with the row
+	// instead of holding it open at the Stats tab's height.
+	DrawStatBar(batch, {Ax(px, kSkillBarX), r.y, kSkillBarW * px.w, font.Height()},
 				row.frac, row.tint.w > 0.0f ? row.tint : theme.accent, theme);
 }
 

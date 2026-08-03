@@ -95,13 +95,17 @@ inline constexpr float kScrollThumbMinRem = 1.1f;
 inline constexpr float kWheelStepRem = 1.8f;
 
 // --- effects / spells list rows ---------------------------------------------
-inline constexpr float kEffectRowGap = 0.039f;
+// Gaps BETWEEN rows in the three scrolling tabs. Deliberately tight: these
+// lists grow (every weapon class trains its own skill, every spell learned
+// stays listed), so the tabs are read by scanning down them and a generous gap
+// costs visible rows for nothing. The rows' own heights come from their text.
+inline constexpr float kEffectRowGap = 0.014f;
 inline constexpr float kEffectIconX = 0.072f;
 inline constexpr float kEffectIconW = 0.062f;
 inline constexpr float kEffectIconH = 0.086f;
 inline constexpr float kEffectTextX = 0.154f;
 inline constexpr float kTextRight = 0.928f;
-inline constexpr float kSpellRowGap = 0.025f;
+inline constexpr float kSpellRowGap = 0.010f;
 inline constexpr float kSpellTextX = 0.072f;
 // Description prose — a spell's, an effect's — is drawn in the Script role at
 // this multiple of the sheet's root font. It runs LARGER than the interface
@@ -118,6 +122,13 @@ inline constexpr float kNameRem = 1.3f;
 // kStatRowH / kStatBarH scale the row pitch and bar height with it: growing the
 // font alone would push the numbers straight out of the bars they sit in.
 inline constexpr float kStatRem = 1.5f;
+// The SKILLS readout is the same kind of thing as the Stats one but has to
+// stay dense: attributes are a fixed five, while skills accumulate one per
+// school and one per weapon class as they train. So it takes its own, smaller
+// scale, and its rows are sized from that text (MeasureSkillRow) rather than
+// riding the Stats row pitch, which was built for a fixed five.
+inline constexpr float kSkillRem = 1.25f;
+inline constexpr float kSkillRowGap = 0.008f;
 // A tab's TITLE — "Attributes", "Skills", "Known Spells", "Effects". Its own
 // name rather than a reuse of kStatRem, which happens to share the value: the
 // four titles should stay a set even if the stat readout is retuned alone.

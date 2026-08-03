@@ -126,6 +126,10 @@ private:
 	// and the rows are its grandchildren, so the repeater has to report it.
 	std::vector<float> m_rowTop, m_rowH;
 	float m_contentH = 0.0f;
+	// The repeater's resolved pixel height: the stacked content, or the band
+	// when the content is shorter. Rows are placed as fractions of THIS, so a
+	// short list does not stretch its rows to fill the band.
+	float m_placeH = 0.0f;
 	// Top of the scrolling band, resolved each layout from the title's line
 	// advance so the rows can never be crowded by the heading above them.
 	float m_bandTop = 0.0f;
