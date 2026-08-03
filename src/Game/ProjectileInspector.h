@@ -41,7 +41,7 @@ public:
 		float rangeLeft = 0.0f; // metres
 	};
 
-	explicit ProjectileInspector(gfx::GraphicsDevice& device);
+	ProjectileInspector(gfx::GraphicsDevice& device, ui::FontLibrary& fonts);
 
 	bool IsOpen() const { return m_open; }
 	void Open(const Config& cfg);
@@ -62,8 +62,7 @@ private:
 	void BuildUI();
 
 	gfx::GraphicsDevice& m_device;
-	ui::Font m_font;    // title + info lines
-	ui::UIContext m_ui; // Remove footer button
+	ui::UIContext m_ui; // Remove footer button; also draws the title + info lines
 	std::unique_ptr<gfx::Texture> m_closeIcon; // shared top-right close box
 
 	bool m_open = false;

@@ -33,6 +33,11 @@ const Font& UIContext::FontFor(FontRole role) const {
 	return m_library->Get(role, m_designHeight);
 }
 
+const Font& UIContext::FontAt(FontRole role, float pixelHeight) const {
+	if (!m_library) return *m_font; // owned-Font form: one font, one size
+	return m_library->Get(role, pixelHeight);
+}
+
 void UIContext::Update(const Input& input, float width, float height) {
 	m_input = &input;
 	m_mouseConsumed = false;

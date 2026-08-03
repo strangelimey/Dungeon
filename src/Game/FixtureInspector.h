@@ -29,7 +29,8 @@ public:
 		float turbidity = 0.28f; // smokiness
 	};
 
-	explicit FixtureInspector(gfx::GraphicsDevice& device) : InstanceInspector(device) {}
+	FixtureInspector(gfx::GraphicsDevice& device, ui::FontLibrary& fonts)
+		: InstanceInspector(device, fonts) {}
 
 	// `walls` are the facings the torch may take (the cell's solid, unoccupied
 	// walls, including its current one).

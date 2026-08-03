@@ -24,7 +24,7 @@ namespace dungeon::game {
 
 class InspectPicker {
 public:
-	explicit InspectPicker(gfx::GraphicsDevice& device);
+	InspectPicker(gfx::GraphicsDevice& device, ui::FontLibrary& fonts);
 
 	bool IsOpen() const { return m_open; }
 	// Show a titled list; each entry is one selectable object at the clicked cell.
@@ -42,8 +42,7 @@ private:
 	void BuildUI();
 
 	gfx::GraphicsDevice& m_device;
-	ui::Font m_font;    // the dialog's title text
-	ui::UIContext m_ui; // the row buttons
+	ui::UIContext m_ui; // the row buttons; also draws the title
 	std::unique_ptr<gfx::Texture> m_closeIcon; // shared top-right close box
 
 	bool m_open = false;

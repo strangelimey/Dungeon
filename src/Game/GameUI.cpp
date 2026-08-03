@@ -106,7 +106,7 @@ GameUI::GameUI(Window& window, gfx::GraphicsDevice& device,
 	  m_savesUi(fonts, ui::FontRole::Body, kMenuFontH),
 	  m_sheetUi(fonts, ui::FontRole::Body, kSheetFontH),
 	  m_confirmUi(fonts, ui::FontRole::Body, kMenuFontH),
-	  m_titleFont(device, "", kTitleFontH) {}
+	  m_titleFont(&fonts.Get(ui::FontRole::Display, kTitleFontH)) {}
 
 void GameUI::BuildStaticUi() {
 	ApplyTheme();
@@ -1131,7 +1131,7 @@ void GameUI::BuildCharacterSheet() {
 
 	// Added FIRST so the buttons below it update on top (and consume their clicks
 	// before the sheet's slot hit-testing).
-	m_sheet = m_sheetUi.Add<CharacterSheet>(sheet, &m_characters, &m_titleFont,
+	m_sheet = m_sheetUi.Add<CharacterSheet>(sheet, &m_characters,
 											&m_settings.barColors, m_itemIcons,
 											m_itemWeights, m_slotIcons,
 											m_itemCategories, m_held);
@@ -1406,7 +1406,7 @@ void GameUI::BuildHud() {
 	m_partyPanels.clear();
 	for (size_t i = 0; i < m_characters.size() && i < PartyBar::kSlots; ++i) {
 		auto* panel = m_partyBar->Add<CharacterPanel>(
-			gfx::Rect{}, &m_characters, i, &m_titleFont, &m_settings.barColors,
+			gfx::Rect{}, &m_characters, i, &m_settings.barColors,
 			m_hitSplats, m_itemIcons, [this, i] { OnPortraitClick(i); },
 			[this, i] { OnPortraitRightClick(i); },
 			[this, i] { OnPortraitBars(i); },
@@ -1556,7 +1556,6 @@ void GameUI::UpdateFonts(float dt) {
 	} else if (m_fontSettle < kFontSettleDelay &&
 			   (m_fontSettle += dt) >= kFontSettleDelay) {
 		m_fontScale = windowH / kFontDesignWindowH;
-		m_titleFont.SetHeight(kTitleFontH * m_fontScale); // owned; see the header
 	}
 
 	// Re-resolve every context every frame. This is a map lookup per context,
@@ -1574,12 +1573,13 @@ void GameUI::UpdateFonts(float dt) {
 	m_savesUi.UseFont(ui::FontRole::Body, kMenuFontH * m_fontScale);
 	m_sheetUi.UseFont(ui::FontRole::Body, kSheetFontH * m_fontScale);
 	m_confirmUi.UseFont(ui::FontRole::Body, kMenuFontH * m_fontScale);
+	m_titleFont = &m_fonts.Get(ui::FontRole::Display, kTitleFontH * m_fontScale);
 
 	// Flush any glyphs cached during last frame's draw/measure to the GPU. Runs
 	// every frame (cheap no-op when nothing new was seen), before any widget
 	// draws this frame — the safe between-frames point the atlas upload needs.
+	// One call now covers every font in the game, dialogs and console included.
 	m_fonts.CommitAll();
-	m_titleFont.Commit();
 }
 
 // A deletion last frame asks for a fresh page; rebuild here, before any widget
@@ -1733,8 +1733,8 @@ void GameUI::DrawLoadProgress(const LoadQueue& queue, float barY) {
 // Title face, horizontally centered at y in the accent color — every title
 // screen draws "DUNGEON" this way.
 void GameUI::DrawCenteredTitle(const std::string& text, float y) {
-	const float titleW = m_titleFont.MeasureWidth(text);
-	m_titleFont.Draw(m_spriteBatch, text, (DeviceW() - titleW) * 0.5f, y,
+	const float titleW = m_titleFont->MeasureWidth(text);
+	m_titleFont->Draw(m_spriteBatch, text, (DeviceW() - titleW) * 0.5f, y,
 					 m_menuUi.GetTheme().accent);
 }
 

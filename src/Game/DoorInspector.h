@@ -30,7 +30,8 @@ public:
 		std::string name;    // button-target id ("" = unwired); record-safe chars
 	};
 
-	explicit DoorInspector(gfx::GraphicsDevice& device) : InstanceInspector(device) {}
+	DoorInspector(gfx::GraphicsDevice& device, ui::FontLibrary& fonts)
+		: InstanceInspector(device, fonts) {}
 
 	// `keys` are the selectable key items as (id, display) pairs; the dialog
 	// prepends the "None" row itself.

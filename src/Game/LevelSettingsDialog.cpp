@@ -43,8 +43,8 @@ void AddNumericField(ui::UIContext& ui, const gfx::Rect& r, float value,
 }
 } // namespace
 
-LevelSettingsDialog::LevelSettingsDialog(gfx::GraphicsDevice& device)
-	: m_device(device), m_font(device, "", 18.0f), m_ui(device, "", 18.0f) {
+LevelSettingsDialog::LevelSettingsDialog(gfx::GraphicsDevice& device, ui::FontLibrary& fonts)
+	: m_device(device), m_ui(fonts, ui::FontRole::Body, 18.0f) {
 	m_closeIcon = TryLoadTextureFile(device, paths::Asset("ui\\icon_close"));
 }
 
@@ -65,9 +65,9 @@ void LevelSettingsDialog::Open(const std::string& stem, float dust, float haze,
 gfx::Rect LevelSettingsDialog::StemRect(float w, float h) {
 	const std::string prefix =
 		std::format("{} — ", loc::Tr("map.level.title"));
-	const float x = kTitle.x * w + m_font.MeasureWidth(prefix);
-	return {x, kTitle.y * h, m_font.MeasureWidth(m_stem) + 6.0f,
-			m_font.Height()};
+	const float x = kTitle.x * w + m_ui.GetFont().MeasureWidth(prefix);
+	return {x, kTitle.y * h, m_ui.GetFont().MeasureWidth(m_stem) + 6.0f,
+			m_ui.GetFont().Height()};
 }
 
 void LevelSettingsDialog::BuildUI() {
@@ -129,10 +129,11 @@ void LevelSettingsDialog::BuildUI() {
 
 void LevelSettingsDialog::Update(const Input& input, float w, float h) {
 	if (!m_open) return;
-	m_font.Commit();
+	// One font now: the title text used to be a second Font at the very same
+	// size as this context's. GameUI::UpdateFonts commits every library font
+	// once per frame, so there is nothing to flush here either.
 	const float fh = std::clamp(h * 0.020f, 12.0f, 24.0f);
-	m_font.SetHeight(fh);
-	m_ui.GetFont().SetHeight(fh);
+	m_ui.UseFont(ui::FontRole::Body, fh);
 
 	if (m_uiRebuild) { // deferred from a widget callback (see BuildUI)
 		m_uiRebuild = false;
@@ -187,11 +188,11 @@ void LevelSettingsDialog::Render(gfx::SpriteBatch& batch, const ui::Theme& th,
 		// (accent on hover + a hint underline so it reads clickable).
 		const std::string prefix =
 			std::format("{} — ", loc::Tr("map.level.title"));
-		m_font.Draw(batch, prefix, kTitle.x * w, kTitle.y * h, th.text);
-		const gfx::Rect stem{kTitle.x * w + m_font.MeasureWidth(prefix),
-							 kTitle.y * h, m_font.MeasureWidth(m_stem),
-							 m_font.Height()};
-		m_font.Draw(batch, m_stem, stem.x, stem.y,
+		m_ui.GetFont().Draw(batch, prefix, kTitle.x * w, kTitle.y * h, th.text);
+		const gfx::Rect stem{kTitle.x * w + m_ui.GetFont().MeasureWidth(prefix),
+							 kTitle.y * h, m_ui.GetFont().MeasureWidth(m_stem),
+							 m_ui.GetFont().Height()};
+		m_ui.GetFont().Draw(batch, m_stem, stem.x, stem.y,
 					m_nameHover ? th.accent : th.text);
 		batch.DrawRect({stem.x, stem.y + stem.h + 1.0f, stem.w, 1.0f},
 					   m_nameHover ? th.accent : th.textDim);

@@ -21,6 +21,7 @@
 #include "Platform/Input.h"
 #include "Platform/PerfMonitor.h"
 #include "UI/Font.h"
+#include "UI/FontLibrary.h"
 
 #include <deque>
 #include <functional>
@@ -31,7 +32,8 @@ namespace dungeon::game {
 
 class DevConsole {
 public:
-	DevConsole(gfx::GraphicsDevice& device, threads::Manager& threadManager);
+	DevConsole(gfx::GraphicsDevice& device, ui::FontLibrary& fonts,
+			   threads::Manager& threadManager);
 
 	bool IsOpen() const { return m_open; }
 	void Toggle();
@@ -62,7 +64,10 @@ public:
 private:
 	void Execute(const std::string& line);
 
-	ui::Font m_font;
+	ui::FontLibrary& m_fonts;
+	// Borrowed from the library (Mono: this is a column-aligned readout).
+	// Re-pointed every Update, so a face swap lands next frame.
+	const ui::Font* m_font = nullptr;
 	PerfMonitor m_perf;
 	threads::Manager& m_threadMgr;
 

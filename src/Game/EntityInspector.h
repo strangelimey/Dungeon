@@ -45,7 +45,8 @@ public:
 		int threatLock = -1;
 	};
 
-	explicit EntityInspector(gfx::GraphicsDevice& device) : InstanceInspector(device) {}
+	EntityInspector(gfx::GraphicsDevice& device, ui::FontLibrary& fonts)
+		: InstanceInspector(device, fonts) {}
 
 	void Open(const Config& cfg, const std::vector<std::string>& spellIds,
 			  PreviewSpec preview = {});

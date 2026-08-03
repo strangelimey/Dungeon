@@ -74,17 +74,18 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	  m_fonts(MakeFontLibrary(device)),
 	  m_ui(window, device, spriteBatch, audio, m_sounds, m_settings,
 		   m_characters, m_fonts),
-	  m_mapView(device, m_world, m_settings),
+	  m_mapView(device, m_world, m_settings, m_fonts),
 	  m_mapEditor(m_mapView, m_world, m_settings),
-	  m_console(device, m_threads),
+	  m_console(device, m_fonts, m_threads),
 	  m_modelPreview(device, 512),
 	  m_assetDialog(device, window),
-	  m_monsterDialog(device), m_balanceDialog(device),
-	  m_levelSettingsDialog(device), m_typeDialog(device), m_assetPicker(device),
-	  m_entityInspector(device), m_fixtureInspector(device),
-	  m_propInspector(device), m_doorInspector(device), m_buttonInspector(device),
-	  m_nicheInspector(device),
-	  m_projectileInspector(device), m_inspectPicker(device),
+	  m_monsterDialog(device, m_fonts), m_balanceDialog(device, m_fonts),
+	  m_levelSettingsDialog(device, m_fonts), m_typeDialog(device, m_fonts),
+	  m_assetPicker(device, m_fonts),
+	  m_entityInspector(device, m_fonts), m_fixtureInspector(device, m_fonts),
+	  m_propInspector(device, m_fonts), m_doorInspector(device, m_fonts),
+	  m_buttonInspector(device, m_fonts), m_nicheInspector(device, m_fonts),
+	  m_projectileInspector(device, m_fonts), m_inspectPicker(device, m_fonts),
 	  m_previewParticles(device) {
 	m_mapView.SetEditor(&m_mapEditor); // the view drives the editor in Editor mode
 	// The editor's header save buttons: Save = write every edited level (what the
@@ -1376,7 +1377,7 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 		// The deferred-rebake notice (see Update): the frame the blocking
 		// FlushGeometry freezes on, so the pause reads as work, not a hang.
 		if (m_geomNoticeLatched) {
-			ui::Font& font = m_mapView.Font();
+			const ui::Font& font = m_mapView.Font();
 			const std::string msg = loc::Tr("map.rebuilding");
 			const float w = font.MeasureWidth(msg);
 			const gfx::Rect back{(dw - w) * 0.5f - 14.0f,

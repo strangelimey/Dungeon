@@ -25,14 +25,13 @@ namespace dungeon::game {
 class SheetPortrait : public ui::Widget {
 public:
 	SheetPortrait(const gfx::Rect& rect, const std::vector<Character>* roster,
-				  const size_t* member, const ui::Font* font);
+				  const size_t* member);
 
 private:
 	void DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) override;
 
 	const std::vector<Character>* m_roster;
 	const size_t* m_member; // the sheet's live selection
-	const ui::Font* m_font;
 };
 
 // One button of the mode strip: a hand-drawn glyph (grid / bars / star / gem /
@@ -128,7 +127,6 @@ private:
 class CharacterSheet : public ui::Widget {
 public:
 	CharacterSheet(const gfx::Rect& rect, std::vector<Character>* roster,
-				   const ui::Font* portraitFont,
 				   const ResourceBarColors* barColors, const ItemIconBank* icons,
 				   const ItemWeightBank* weights, const ItemIconBank* slotIcons,
 				   const ItemCategoryBank* categories,
@@ -212,7 +210,6 @@ private:
 	// Re-resolved from (m_roster, m_member) at the top of every Update/Draw
 	// (see CharacterPanel); the body helpers null-check it.
 	Character* m_character = nullptr;
-	const ui::Font* m_portraitFont;
 	const ResourceBarColors* m_barColors;
 	const ItemIconBank* m_icons;
 	const ItemWeightBank* m_weights;

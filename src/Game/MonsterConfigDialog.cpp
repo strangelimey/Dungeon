@@ -44,8 +44,8 @@ std::string ClipLabel(const std::string& name) {
 }
 } // namespace
 
-MonsterConfigDialog::MonsterConfigDialog(gfx::GraphicsDevice& device)
-	: m_device(device), m_font(device, "", 18.0f), m_ui(device, "", 18.0f) {
+MonsterConfigDialog::MonsterConfigDialog(gfx::GraphicsDevice& device, ui::FontLibrary& fonts)
+	: m_device(device), m_ui(fonts, ui::FontRole::Body, 18.0f) {
 	m_closeIcon = TryLoadTextureFile(device, paths::Asset("ui\\icon_close"));
 }
 
@@ -256,10 +256,11 @@ void MonsterConfigDialog::BuildAnimationTab(size_t tab) {
 
 void MonsterConfigDialog::Update(const Input& input, float w, float h) {
 	if (!m_open) return;
-	m_font.Commit();
+	// One font now: the title text used to be a second Font at the very same
+	// size as this context's. GameUI::UpdateFonts commits every library font
+	// once per frame, so there is nothing to flush here either.
 	const float fh = std::clamp(h * 0.020f, 12.0f, 24.0f);
-	m_font.SetHeight(fh);
-	m_ui.GetFont().SetHeight(fh);
+	m_ui.UseFont(ui::FontRole::Body, fh);
 
 	if (input.WasKeyPressed(VK_ESCAPE)) { // cancel: revert live to the snapshot
 		if (onApply) onApply(m_original);
@@ -289,21 +290,21 @@ void MonsterConfigDialog::Render(gfx::SpriteBatch& batch, const ui::Theme& th, f
 	ui::DrawBorder(batch, panel, th.panelBorder);
 
 	const gfx::Rect title = px(kTitle);
-	m_font.Draw(batch, loc::Format("map.cfg.title", m_display), title.x, title.y, th.text);
+	m_ui.GetFont().Draw(batch, loc::Format("map.cfg.title", m_display), title.x, title.y, th.text);
 
 	m_ui.Render(batch, w, h); // tabs + footer buttons (+ dropdown overlays)
 
 	// Preview pane: header + backing box; the owner (Game) blits the live looping
 	// animation into PreviewRect on top afterwards.
 	const gfx::Rect ph = px(kPrevHdr);
-	m_font.Draw(batch, loc::Tr("map.cfg.preview"), ph.x, ph.y, th.textDim);
+	m_ui.GetFont().Draw(batch, loc::Tr("map.cfg.preview"), ph.x, ph.y, th.textDim);
 	const gfx::Rect pv = px(kPreview);
 	batch.DrawRect(pv, {0.02f, 0.02f, 0.03f, 1.0f});
 	ui::DrawBorder(batch, pv, th.panelBorder);
 	if (m_selClip.empty()) {
 		const std::string hint = loc::Tr("map.cfg.nopreview");
-		m_font.Draw(batch, hint, pv.x + (pv.w - m_font.MeasureWidth(hint)) * 0.5f,
-					pv.y + pv.h * 0.5f - m_font.Height() * 0.5f, th.textDim);
+		m_ui.GetFont().Draw(batch, hint, pv.x + (pv.w - m_ui.GetFont().MeasureWidth(hint)) * 0.5f,
+					pv.y + pv.h * 0.5f - m_ui.GetFont().Height() * 0.5f, th.textDim);
 	}
 }
 

@@ -53,7 +53,7 @@ public:
 	// comes from and what the details pane can say about it.
 	enum class Mode { Textures, Models };
 
-	explicit AssetPicker(gfx::GraphicsDevice& device);
+	AssetPicker(gfx::GraphicsDevice& device, ui::FontLibrary& fonts);
 
 	bool IsOpen() const { return m_open; }
 	// Opens on `current` (selected and scrolled into view; empty = nothing
@@ -145,7 +145,6 @@ private:
 	void LoadVisibleThumbs(size_t max);
 
 	gfx::GraphicsDevice& m_device;
-	ui::Font m_font;
 	ui::UIContext m_ui;
 	std::unique_ptr<gfx::Texture> m_closeIcon;
 	ui::Theme m_theme; // kept for the deferred rebuild

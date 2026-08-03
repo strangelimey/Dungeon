@@ -25,7 +25,8 @@ public:
 		std::string target; // wired door name ("" = unwired)
 	};
 
-	explicit ButtonInspector(gfx::GraphicsDevice& device) : InstanceInspector(device) {}
+	ButtonInspector(gfx::GraphicsDevice& device, ui::FontLibrary& fonts)
+		: InstanceInspector(device, fonts) {}
 
 	// `doorNames` are the level's wired-up door names (the dropdown's choices).
 	void Open(const Config& cfg, std::vector<std::string> doorNames,

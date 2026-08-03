@@ -36,8 +36,10 @@ std::vector<std::string> Tokenize(const std::string& line) {
 }
 } // namespace
 
-DevConsole::DevConsole(gfx::GraphicsDevice& device, threads::Manager& threadManager)
-	: m_font(device, "", kFontH), m_threadMgr(threadManager) {
+DevConsole::DevConsole(gfx::GraphicsDevice& device, ui::FontLibrary& fonts,
+					   threads::Manager& threadManager)
+	: m_fonts(fonts), m_font(&fonts.Get(ui::FontRole::Mono, kFontH)),
+	  m_threadMgr(threadManager) {
 	// Generic built-ins. Gameplay-aware commands are registered by the Game.
 	Register("help", "list available commands", [this](const std::vector<std::string>&) {
 		for (const Command& cmd : m_commands)
@@ -103,8 +105,9 @@ void DevConsole::Update(const Input& input, float dt, float windowW, float windo
 
 	m_caretBlink += dt;
 	(void)windowW;
-	m_font.SetHeight(kFontH * (windowH / kDesignWindowH));
-	m_font.Commit(); // flush glyphs cached last frame (no-op unless new ones appeared)
+	// Re-resolve rather than re-bake: same size + same face is a map lookup.
+	// GameUI::UpdateFonts commits every library font, this one included.
+	m_font = &m_fonts.Get(ui::FontRole::Mono, kFontH * (windowH / kDesignWindowH));
 
 	// Thread-panel control buttons (hit-tested against the rects Render laid out
 	// last frame). Left-click toggles pause, halves/doubles the rate, or kills.
@@ -179,7 +182,7 @@ void DevConsole::Update(const Input& input, float dt, float windowW, float windo
 
 void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& device,
 						float width, float height) {
-	const float line = m_font.LineAdvance();
+	const float line = m_font->LineAdvance();
 	const float pad = line * 0.5f;
 
 	// Full-screen dim background.
@@ -216,30 +219,30 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 		ui::DrawBorder(batch, {gaugeX, oy, gaugeW, gh}, kBorder);
 	};
 	auto row = [&](const std::string& text) {
-		m_font.Draw(batch, text, labelX, y, kText);
+		m_font->Draw(batch, text, labelX, y, kText);
 		y += line;
 	};
 
-	m_font.Draw(batch, "PERFORMANCE", labelX, y, kAccent);
-	m_font.Draw(batch, std::format("FPS {:.0f}", m.fps), gaugeX, y, kAccent);
+	m_font->Draw(batch, "PERFORMANCE", labelX, y, kAccent);
+	m_font->Draw(batch, std::format("FPS {:.0f}", m.fps), gaugeX, y, kAccent);
 	y += line;
 
-	m_font.Draw(batch, std::format("CPU  {:.0f}%", m.cpuPercent), labelX, y, kText);
+	m_font->Draw(batch, std::format("CPU  {:.0f}%", m.cpuPercent), labelX, y, kText);
 	gauge(y, m.cpuPercent / 100.0f, {0.45f, 0.70f, 0.95f, 1.0f});
 	y += line;
 
 	if (m.gpuPercent >= 0.0f) {
-		m_font.Draw(batch, std::format("GPU  {:.0f}%", m.gpuPercent), labelX, y, kText);
+		m_font->Draw(batch, std::format("GPU  {:.0f}%", m.gpuPercent), labelX, y, kText);
 		gauge(y, m.gpuPercent / 100.0f, {0.55f, 0.85f, 0.55f, 1.0f});
 	} else {
-		m_font.Draw(batch, "GPU  n/a", labelX, y, kDim);
+		m_font->Draw(batch, "GPU  n/a", labelX, y, kDim);
 	}
 	y += line;
 
 	const float sysFrac = m.sysMemTotalMB > 0
 							   ? static_cast<float>(m.sysMemUsedMB / m.sysMemTotalMB)
 							   : 0.0f;
-	m_font.Draw(batch,
+	m_font->Draw(batch,
 				std::format("RAM  {:.1f} / {:.1f} GB", m.sysMemUsedMB / 1024.0,
 							m.sysMemTotalMB / 1024.0),
 				labelX, y, kText);
@@ -247,7 +250,7 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 	y += line;
 
 	const float vramFrac = gpuBudgetGB > 0 ? static_cast<float>(gpuUsedGB / gpuBudgetGB) : 0.0f;
-	m_font.Draw(batch, std::format("VRAM {:.2f} / {:.2f} GB", gpuUsedGB, gpuBudgetGB),
+	m_font->Draw(batch, std::format("VRAM {:.2f} / {:.2f} GB", gpuUsedGB, gpuBudgetGB),
 				labelX, y, kText);
 	gauge(y, vramFrac, {0.80f, 0.55f, 0.85f, 1.0f});
 	y += line;
@@ -264,10 +267,10 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 		float ty = threadsTop;
 		batch.DrawRect({0, ty, width, 1.0f}, kBorder); // divider from the perf block
 		ty += line * 0.4f;
-		m_font.Draw(batch, "THREADS", labelX, ty, kAccent);
+		m_font->Draw(batch, "THREADS", labelX, ty, kAccent);
 		const float gov = m_threadMgr.GlobalThrottle();
 		if (gov != 1.0f)
-			m_font.Draw(batch, std::format("governor {:.2f}x", gov), width * 0.15f, ty,
+			m_font->Draw(batch, std::format("governor {:.2f}x", gov), width * 0.15f, ty,
 						{0.55f, 0.85f, 0.95f, 1.0f});
 		ty += line;
 
@@ -280,8 +283,8 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 		auto button = [&](const gfx::Rect& r, const std::string& label, const Vec4& col) {
 			batch.DrawRect(r, kGaugeBg);
 			ui::DrawBorder(batch, r, kBorder);
-			const float tw = m_font.MeasureWidth(label);
-			m_font.Draw(batch, label, r.x + (r.w - tw) * 0.5f, r.y, col);
+			const float tw = m_font->MeasureWidth(label);
+			m_font->Draw(batch, label, r.x + (r.w - tw) * 0.5f, r.y, col);
 		};
 
 		for (const threads::WorkerInfo& w : workers) {
@@ -292,21 +295,21 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 							 : w.state == threads::State::Stalled ? kStalled
 							 : w.paused ? kPaused
 							 : kAccent;
-			m_font.Draw(batch, w.name, labelX, ty, kText);
-			m_font.Draw(batch, threads::StateName(w.state), width * 0.15f, ty, stCol);
-			m_font.Draw(batch, std::format("it {}", w.iterations), width * 0.25f, ty, kDim);
-			m_font.Draw(batch, std::format("{:.2f}/{:.2f}ms", w.lastMs, w.avgMs),
+			m_font->Draw(batch, w.name, labelX, ty, kText);
+			m_font->Draw(batch, threads::StateName(w.state), width * 0.15f, ty, stCol);
+			m_font->Draw(batch, std::format("it {}", w.iterations), width * 0.25f, ty, kDim);
+			m_font->Draw(batch, std::format("{:.2f}/{:.2f}ms", w.lastMs, w.avgMs),
 						width * 0.34f, ty, kDim);
-			m_font.Draw(batch, std::format("{:.2f}hz", w.hz), width * 0.44f, ty, kDim);
+			m_font->Draw(batch, std::format("{:.2f}hz", w.hz), width * 0.44f, ty, kDim);
 			// Re-think PERIOD in ms — the actual cadence value, which reveals the
 			// coprime/prime bucket intervals (251/499/997/1999) that the rounded Hz
 			// hides (499ms reads as 2.00hz, etc.). Derived from hz (= 1000/hz).
 			if (w.hz > 0.0f)
-				m_font.Draw(batch, std::format("{:.0f}ms", 1000.0f / w.hz),
+				m_font->Draw(batch, std::format("{:.0f}ms", 1000.0f / w.hz),
 							width * 0.50f, ty, kDim);
-			m_font.Draw(batch, std::format("p{}", w.priority), width * 0.55f, ty, kDim);
+			m_font->Draw(batch, std::format("p{}", w.priority), width * 0.55f, ty, kDim);
 			if (w.restarts > 0)
-				m_font.Draw(batch, std::format("re {}", w.restarts), width * 0.585f, ty,
+				m_font->Draw(batch, std::format("re {}", w.restarts), width * 0.585f, ty,
 							kDim);
 
 			const float killX = width - pad * 2.0f - bw;
@@ -339,11 +342,11 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 
 	// --- output log + input line (bottom) -----------------------------------
 	const float inputY = height - line - pad;
-	const float promptW = m_font.MeasureWidth("> ");
-	m_font.Draw(batch, "> ", labelX, inputY, kAccent);
-	m_font.Draw(batch, m_input, labelX + promptW, inputY, kText);
+	const float promptW = m_font->MeasureWidth("> ");
+	m_font->Draw(batch, "> ", labelX, inputY, kAccent);
+	m_font->Draw(batch, m_input, labelX + promptW, inputY, kText);
 	if (std::fmod(m_caretBlink, 1.0f) < 0.5f) {
-		const float caretX = labelX + promptW + m_font.MeasureWidth(m_input);
+		const float caretX = labelX + promptW + m_font->MeasureWidth(m_input);
 		batch.DrawRect({caretX + 1.0f, inputY, 2.0f, line}, kText);
 	}
 	batch.DrawRect({0, inputY - pad * 0.5f, width, 1.0f}, kBorder);
@@ -358,7 +361,7 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 	const int start = std::max(0, end - visible);
 	float ly = logBottom - line;
 	for (int i = end - 1; i >= start; --i) {
-		m_font.Draw(batch, m_output[static_cast<size_t>(i)], labelX, ly, kText);
+		m_font->Draw(batch, m_output[static_cast<size_t>(i)], labelX, ly, kText);
 		ly -= line;
 	}
 }

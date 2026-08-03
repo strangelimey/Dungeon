@@ -356,14 +356,12 @@ private:
 	ui::UIContext m_savesUi;    // save-slot browser (28px font, shared by both)
 	ui::UIContext m_sheetUi;    // character sheet (22px font)
 	ui::UIContext m_confirmUi;  // modal Yes/No (adapter-change restart confirm)
-	// Big face for "DUNGEON" titles, and the portrait name band. Still an OWNED
-	// Font rather than the library's Display role: two widgets cache a raw
-	// ui::Font* to it (CharacterSheet, CharacterPanel), and a library font is
-	// re-resolved per frame, so those caches would go stale on a resize or a
-	// live face swap. The fix is the per-widget font role (Phase 2), which
-	// removes the passed-down pointer entirely — so this migrates with it
-	// rather than growing a pointer-to-pointer in the meantime.
-	ui::Font m_titleFont;
+	// Big face for the "DUNGEON" titles, which GameUI draws itself (outside the
+	// widget tree). Borrowed from the library at the Display role, re-resolved
+	// every UpdateFonts. Nothing else holds it: the sheet and the party panel
+	// used to be handed this pointer and now resolve their own heading font
+	// through UIContext::FontAt.
+	const ui::Font* m_titleFont = nullptr;
 	std::unique_ptr<gfx::Texture> m_titleBackground; // landing-page art
 	std::unique_ptr<gfx::Texture> m_deleteIcon;      // red X for the save browser
 	// Textured-chrome skin (UI/Skin.h): the part textures + the Skin handed to

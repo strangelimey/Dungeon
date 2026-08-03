@@ -256,14 +256,42 @@ item spacing, the selection box and its width were unchanged. That is the
 rem/em invariant demonstrated rather than asserted. The temporary hook was
 reverted; the proof shot is docs/fonts_p2_script_role_proof.png.
 
-### Phase 3 — Migrate the 26 owners
+### Phase 3 — Migrate the 26 owners — **DONE (2026-08-02)**
 
-GameUI's 8, DevConsole, MapView, and the 8 dialogs' font+context pairs become
-library lookups. Centralizing `SetHeight`/`Commit` into one loop over live fonts
-also **fixes a live bug**: `m_savesUi` is constructed and themed (GameUI.cpp:153,
-161) but is absent from `UpdateFonts`, so the saves page font never rescales
-with the window and never commits new glyphs. One loop cannot forget a context
-the way seven hand-written lines can.
+**There is no longer a single owned `ui::Font` anywhere in the codebase** — the
+grep that used to find 26 members finds none. All of them resolve through the
+library, and `fonts` reports the result: **6 live fonts** serving what were 26
+owners (16px console, 17px HUD, 18px shared by all eight dialogs, 22px sheet,
+28px shared by the five menu contexts, 64px title).
+
+The dialogs turned out to be a pure subtraction. Each held BOTH an `m_font` and
+an `m_ui`, and set them to the SAME pixel height every frame — so `m_font` was a
+second atlas of the same face at the same size, eight times over. Deleting it
+and drawing the title through `m_ui.GetFont()` removed eight atlases and eight
+copies of the .ttf without changing a pixel.
+
+`m_titleFont` needed a correction to what Phase 1 predicted. It said Phase 2's
+per-widget role would delete the passed-down pointer; that was half right. Roles
+carry a FACE, not a size, and the title font is 64px against a 17px HUD context
+— so a role alone would have shrunk it. The fix is `UIContext::FontAt(role,
+px)`: text deliberately larger than the document says HOW MUCH larger, in rem.
+And the ratio is exact, which is what makes this a migration rather than a
+redesign: 64 and 17 were both authored against the same 900px design window and
+scale by the same factor, so `Rem(64/17)` in the HUD and `Rem(64/22)` in the
+sheet reproduce the old pixel sizes at every resolution. `CharacterPanel` and
+`CharacterSheet` now resolve their own heading font and are handed nothing.
+
+Centralizing `Commit` also finished the job UpdateFonts started: one
+`CommitAll()` now covers every font in the game, dialogs and console included,
+where each dialog used to call its own.
+
+Verified: the sheet's heading + bust region diffs against a clean build of main
+at max **2/765** — and the surrounding non-text panel diffs *more* (max 28/765),
+which places the residual on the torch flickering behind an 0.85-alpha panel
+rather than on type. A font size change would read in the hundreds. The editor
+overlay, the party HUD and LevelSettingsDialog were all exercised in-game; the
+dialog's rename-affordance underline still lands exactly under the stem, which
+is `MeasureWidth` agreeing with the migrated font.
 
 ### Phase 4 — The audition harness
 

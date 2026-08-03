@@ -58,7 +58,7 @@ struct PreviewSpec {
 
 class InstanceInspector {
 public:
-	explicit InstanceInspector(gfx::GraphicsDevice& device);
+	InstanceInspector(gfx::GraphicsDevice& device, ui::FontLibrary& fonts);
 	// Out-of-line (defined in the .cpp): m_ui holds unique_ptr<ui::Widget>, which is
 	// only forward-declared via UIContext.h here — the .cpp includes the full type.
 	virtual ~InstanceInspector();
@@ -131,8 +131,7 @@ protected:
 private:
 	void BuildUI();
 
-	ui::Font m_font;    // title text
-	ui::UIContext m_ui; // common strip + derived content + footer
+	ui::UIContext m_ui; // common strip + derived content + footer; also the title
 	std::unique_ptr<gfx::Texture> m_closeIcon; // shared top-right close box
 
 	bool m_open = false;

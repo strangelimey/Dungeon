@@ -92,6 +92,14 @@ public:
 	// Body text around it. In the owned-Font form there is no library and every
 	// role resolves to the one font.
 	const Font& FontFor(FontRole role) const;
+
+	// A role at an EXPLICIT size — for text that is deliberately larger than the
+	// document, like a heading or a portrait's initial. Roles carry a face, not
+	// a size, so anything bigger than the body has to say how much bigger; say
+	// it in rem (Widget::Rem) and it keeps tracking the window like everything
+	// else. The role's optical scale still applies.
+	const Font& FontAt(FontRole role, float pixelHeight) const;
+
 	FontRole RootRole() const { return m_role; }
 	const Theme& GetTheme() const { return m_theme; }
 	void SetTheme(const Theme& theme) { m_theme = theme; }
