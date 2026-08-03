@@ -617,6 +617,23 @@ void Game::RegisterDevCommands() {
 						   m_console.Print(p.Noclip() ? "noclip on" : "noclip off");
 					   });
 
+	// --- fonts ---
+	m_console.Register(
+		"fonts", "show which typeface each role resolves to, and the live atlases",
+		[this](const std::vector<std::string>&) {
+			for (int i = 0; i < ui::kFontRoleCount; ++i) {
+				const auto role = static_cast<ui::FontRole>(i);
+				const ui::FaceSpec& spec = m_fonts.Face(role);
+				m_console.Print(std::format(
+					"  {:<8} {:<48} scale {:.2f}", ui::FontRoleName(role),
+					spec.path.empty() ? "(system fallback)" : spec.path, spec.scale));
+			}
+			const auto live = m_fonts.LiveFonts();
+			m_console.Print(std::format("{} live font(s):", live.size()));
+			for (const auto& f : live)
+				m_console.Print(std::format("  {:>4}px  {}", f.pixelHeight, f.face));
+		});
+
 	// --- render debug ---
 	m_console.Register("shadows", "toggle shadow rendering (on/off)",
 					   [this](const std::vector<std::string>& args) {

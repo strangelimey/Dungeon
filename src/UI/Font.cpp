@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <optional>
 
 #include <stb_truetype.h>
 
@@ -41,24 +42,39 @@ u32 NextCodepoint(std::string_view text, size_t& i) {
 }
 } // namespace
 
-Font::Font(gfx::GraphicsDevice& device, const std::string& path, float pixelHeight)
-	: m_device(device), m_info(std::make_unique<stbtt_fontinfo>()) {
-	auto ttf = assets::ReadBinaryFile(path);
-	if (!ttf) {
+FaceData LoadFace(const std::string& path) {
+	std::optional<std::vector<u8>> bytes;
+	if (!path.empty()) {
+		if (auto file = assets::ReadBinaryFile(path))
+			bytes = std::move(*file);
+		else
+			log::Info("Font: '{}' unreadable, using a system fallback", path);
+	}
+	// Nothing asked for (or it was missing): the standard Windows faces. They
+	// cover Latin + Cyrillic + Greek but NOT CJK — see the header note.
+	if (!bytes) {
 		for (const char* fallback :
 			 {"C:\\Windows\\Fonts\\consola.ttf", "C:\\Windows\\Fonts\\segoeui.ttf",
 			  "C:\\Windows\\Fonts\\arial.ttf"}) {
-			ttf = assets::ReadBinaryFile(fallback);
-			if (ttf) {
-				log::Info("Font fallback: {}", fallback);
+			if (auto file = assets::ReadBinaryFile(fallback)) {
+				bytes = std::move(*file);
 				break;
 			}
 		}
 	}
-	DN_ASSERT(ttf.has_value(), "no usable font found");
-	m_ttf = std::move(*ttf);
-	stbtt_InitFont(m_info.get(), m_ttf.data(),
-				   stbtt_GetFontOffsetForIndex(m_ttf.data(), 0));
+	DN_ASSERT(bytes.has_value(), "no usable font found");
+	return std::make_shared<const std::vector<u8>>(std::move(*bytes));
+}
+
+Font::Font(gfx::GraphicsDevice& device, const std::string& path, float pixelHeight)
+	: Font(device, LoadFace(path), pixelHeight) {}
+
+Font::Font(gfx::GraphicsDevice& device, FaceData face, float pixelHeight)
+	: m_device(device), m_face(std::move(face)),
+	  m_info(std::make_unique<stbtt_fontinfo>()) {
+	DN_ASSERT(m_face && !m_face->empty(), "Font needs a non-empty face");
+	const u8* data = m_face->data();
+	stbtt_InitFont(m_info.get(), data, stbtt_GetFontOffsetForIndex(data, 0));
 	Rebake(std::round(pixelHeight));
 }
 

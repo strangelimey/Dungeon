@@ -44,7 +44,7 @@ public:
 	GameUI(Window& window, gfx::GraphicsDevice& device,
 		   gfx::SpriteBatch& spriteBatch, audio::AudioEngine& audio,
 		   const SoundBank& sounds, GameSettings& settings,
-		   std::vector<Character>& characters);
+		   std::vector<Character>& characters, ui::FontLibrary& fonts);
 
 	// --- building ---------------------------------------------------------------
 	void BuildStaticUi(); // theme + landing menu, pause menu, character sheet
@@ -342,6 +342,7 @@ private:
 
 	Window& m_window;
 	gfx::GraphicsDevice& m_device;
+	ui::FontLibrary& m_fonts; // owned by Game; outlives every context here
 	gfx::SpriteBatch& m_spriteBatch;
 	audio::AudioEngine& m_audio;
 	const SoundBank& m_sounds;
@@ -355,7 +356,14 @@ private:
 	ui::UIContext m_savesUi;    // save-slot browser (28px font, shared by both)
 	ui::UIContext m_sheetUi;    // character sheet (22px font)
 	ui::UIContext m_confirmUi;  // modal Yes/No (adapter-change restart confirm)
-	ui::Font m_titleFont;       // big face for "DUNGEON" titles
+	// Big face for "DUNGEON" titles, and the portrait name band. Still an OWNED
+	// Font rather than the library's Display role: two widgets cache a raw
+	// ui::Font* to it (CharacterSheet, CharacterPanel), and a library font is
+	// re-resolved per frame, so those caches would go stale on a resize or a
+	// live face swap. The fix is the per-widget font role (Phase 2), which
+	// removes the passed-down pointer entirely — so this migrates with it
+	// rather than growing a pointer-to-pointer in the meantime.
+	ui::Font m_titleFont;
 	std::unique_ptr<gfx::Texture> m_titleBackground; // landing-page art
 	std::unique_ptr<gfx::Texture> m_deleteIcon;      // red X for the save browser
 	// Textured-chrome skin (UI/Skin.h): the part textures + the Skin handed to
@@ -455,6 +463,11 @@ private:
 	// held (fonts re-bake once it settles — see UpdateFonts).
 	float m_fontWindowH = 0.0f;
 	float m_fontSettle = 0.0f;
+	// The settled window/design height ratio. Held rather than recomputed per
+	// frame precisely BECAUSE it must not move every frame: UpdateFonts asks the
+	// library for a font at this scale every frame, and a size that changed
+	// continuously would mint a new atlas each time (UI/FontLibrary.h).
+	float m_fontScale = 1.0f;
 
 	// Last values shown in the HUD labels (reformat only on change).
 	int m_lastFacing = -1;

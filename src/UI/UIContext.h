@@ -21,6 +21,7 @@
 
 #include "Platform/Input.h"
 #include "UI/Font.h"
+#include "UI/FontLibrary.h"
 #include "UI/Widget.h"
 
 #include <memory>
@@ -46,8 +47,19 @@ struct Theme {
 // top and receive input first.
 class UIContext {
 public:
+	// Owns its own Font, loaded from `fontPath` (empty = the system fallback).
+	// The pre-FontLibrary form, kept while the remaining owners migrate.
 	UIContext(gfx::GraphicsDevice& device, const std::string& fontPath,
 			  float fontHeight);
+	// Draws in `role`, resolved through the shared library — the form to use.
+	// `library` must outlive the context.
+	UIContext(FontLibrary& library, FontRole role, float fontHeight);
+
+	// Re-resolves this context's font: a new size (window resize) or, once the
+	// audition can swap faces live, a new face for the same role. Cheap enough
+	// to call every frame; a no-op in the owned-Font form, which keeps its size
+	// through Font::SetHeight instead.
+	void UseFont(FontRole role, float pixelHeight);
 
 	// Creates a TOP-LEVEL widget — a child of the root, so its bounds are
 	// fractions of the window. Nest deeper with Widget::Add on the parent.
@@ -68,9 +80,9 @@ public:
 	void Update(const Input& input, float width, float height);
 	void Render(gfx::SpriteBatch& batch, float width, float height);
 
-	Font& GetFont() { return m_font; }
+	Font& GetFont() { return *m_font; }
 	// Const path, for the rem/em units (UI/Units.h) and other const rect maths.
-	const Font& GetFont() const { return m_font; }
+	const Font& GetFont() const { return *m_font; }
 	const Theme& GetTheme() const { return m_theme; }
 	void SetTheme(const Theme& theme) { m_theme = theme; }
 
@@ -97,7 +109,13 @@ public:
 	void ConsumeMouse() { m_mouseConsumed = true; }
 
 private:
-	Font m_font;
+	// Exactly one of these backs m_font: an owned Font (legacy form) or one
+	// borrowed from the library. Library fonts live as long as the library, so
+	// the borrowed pointer is stable (see FontLibrary.h "LIFETIME").
+	std::unique_ptr<Font> m_ownedFont;
+	FontLibrary* m_library = nullptr;
+	FontRole m_role = FontRole::Body;
+	Font* m_font = nullptr;
 	Theme m_theme;
 	const Skin* m_skin = nullptr;
 	// Covers the window; every top-level widget is one of its children.

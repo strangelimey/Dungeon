@@ -7,9 +7,22 @@ namespace dungeon::ui {
 
 UIContext::UIContext(gfx::GraphicsDevice& device, const std::string& fontPath,
 					 float fontHeight)
-	: m_font(device, fontPath, fontHeight) {
+	: m_ownedFont(std::make_unique<Font>(device, fontPath, fontHeight)) {
+	m_font = m_ownedFont.get();
 	m_root.bounds = {0, 0, 1, 1};
 	m_root.debugName = "root";
+}
+
+UIContext::UIContext(FontLibrary& library, FontRole role, float fontHeight)
+	: m_library(&library), m_role(role), m_font(&library.Get(role, fontHeight)) {
+	m_root.bounds = {0, 0, 1, 1};
+	m_root.debugName = "root";
+}
+
+void UIContext::UseFont(FontRole role, float pixelHeight) {
+	if (!m_library) return; // owned-Font form; the owner drives Font::SetHeight
+	m_role = role;
+	m_font = &m_library->Get(role, pixelHeight);
 }
 
 void UIContext::Update(const Input& input, float width, float height) {

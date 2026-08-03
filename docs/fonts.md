@@ -174,12 +174,52 @@ cap-heights 603 to 786. At an identical pixel size those faces do not read as
 the same size. Full table in `assets/fonts/README.md`; use it to seed each
 role's initial `scale`.
 
-### Phase 1 — FontLibrary
+### Phase 1 — FontLibrary — **DONE (2026-08-02)**
 
-Shared face blobs, (face, size) keying, `CommitAll`, fonts.cat loading. No
-behaviour change: every role points at the Consolas fallback and the game looks
-identical. This phase is pure plumbing and should be verifiable by "nothing
-moved".
+`UI/FontLibrary.{h,cpp}`: shared face blobs, (face, rounded size) keying,
+`CommitAll`, and the four roles. `ui::FaceData` is a
+`shared_ptr<const vector<u8>>` that `Font` now holds instead of its own copy of
+the .ttf, so N sizes of one family share one set of bytes.
+
+`Game` owns the library and configures it from `assets/fonts/fonts.cat` — via a
+`MakeFontLibrary` helper used in the member init list, because `m_ui` is a
+member and its constructor runs before any constructor body could call
+`SetFace`; each context would otherwise build a fallback atlas and abandon it a
+frame later. The library cannot read its own config: `Catalog`/`Serialize` live
+in the Game lib, ABOVE UI, so Game reads and pushes down — the same split as
+`DungeonMap` taking `FixtureTypes`.
+
+`UIContext` gained a second, library-backed form alongside the owning one, plus
+`UseFont(role, px)`. Making it additive means the remaining owners migrate in
+Phase 3 without a flag day. GameUI's seven contexts use it now.
+
+Verified: **pixel-identical** to a clean build of main (75b797c) across the
+save-row region — mean channel diff 0.000/255, max 0/765. "Nothing moved" is
+measured, not asserted.
+
+Two results worth recording:
+
+**7 contexts collapsed to 3 fonts.** `fonts` in the dev console reports 17px,
+22px and 28px live — the five 28px contexts (menu, settings, pause, saves,
+confirm) now share one atlas where each previously had its own. The log shows
+exactly one face load where there were seven copies of the file.
+
+**The `m_savesUi` bug is fixed by construction.** It was constructed and themed
+but absent from `UpdateFonts`'s seven hand-written `SetHeight` lines, so the
+saves page never tracked the window height. `UseFont` is now called for every
+context in one place, and a resize test confirms the page rescales. This is the
+argument for the loop: a list you can forget a member of, eventually forgets one.
+
+Deliberately NOT migrated: `m_titleFont` stays an owned `Font`. Two widgets
+(`CharacterSheet`, `CharacterPanel`) cache a raw `ui::Font*` to it, and library
+fonts are re-resolved per frame, so those caches would go stale on a resize or a
+live face swap. The real fix is the per-widget role in Phase 2, which deletes
+the passed-down pointer entirely — so it migrates once, then, rather than
+growing a pointer-to-pointer now.
+
+Also found while verifying, and NOT part of this thread: the Load page draws
+each save's name on top of its timestamp so both are unreadable. Confirmed
+pre-existing on main, spun off as its own task.
 
 ### Phase 2 — The Em seam
 

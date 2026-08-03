@@ -64,6 +64,7 @@
 #include "Game/Project.h"
 #include "Game/TypeEditorDialog.h"
 #include "Game/SoundBank.h"
+#include "UI/FontLibrary.h"
 #include "Graphics/ModelPreview.h"
 #include "Graphics/PostProcess.h"
 #include "Graphics/Renderer.h"
@@ -352,6 +353,11 @@ private:
 	float m_governorScale = 1.0f;
 	float m_governorTargetMs = 1000.0f / 60.0f;
 	DungeonWorld m_world;
+	// Typefaces, addressed by role (UI/FontLibrary.h). Declared BEFORE m_ui
+	// because every UIContext there borrows a Font from it, and configured from
+	// assets/fonts/fonts.cat before those contexts first resolve a role — see
+	// MakeFontLibrary in Game.cpp.
+	ui::FontLibrary m_fonts;
 	GameUI m_ui;
 	// Map/editor overlay (toggle with `M` while playing). Like the console it
 	// does NOT pause the world — the party keeps walking; the overlay only

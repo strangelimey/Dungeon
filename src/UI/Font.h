@@ -39,10 +39,25 @@
 struct stbtt_fontinfo; // resident font info, kept opaque to avoid leaking stb
 
 namespace dungeon::ui {
+
+// The bytes of one typeface. Kept resident because SetHeight re-rasterizes from
+// them, and SHARED because a face is immutable once loaded and the same file
+// backs every size it is drawn at: FontLibrary hands one blob to many Fonts
+// instead of each keeping its own copy (see FontLibrary.h).
+using FaceData = std::shared_ptr<const std::vector<u8>>;
+
+// Reads a typeface, falling back to standard Windows fonts (Consolas -> Segoe
+// UI -> Arial) when `path` is empty or missing. Never returns null — a machine
+// with no usable font at all is a hard failure.
+FaceData LoadFace(const std::string& path);
+
 class Font {
 public:
 	// Tries `path` first, then common Windows fonts as fallback.
 	Font(gfx::GraphicsDevice& device, const std::string& path, float pixelHeight);
+	// Draws from an already-loaded face. `face` must be non-null; several Fonts
+	// (one per pixel size) normally share one blob.
+	Font(gfx::GraphicsDevice& device, FaceData face, float pixelHeight);
 	~Font(); // out-of-line for the unique_ptr<stbtt_fontinfo> member
 
 	// Re-bakes every cached glyph at a new size. No-op unless the rounded
@@ -78,7 +93,7 @@ private:
 	const Glyph* EnsureGlyph(u32 cp) const;
 
 	gfx::GraphicsDevice& m_device;
-	std::vector<u8> m_ttf;                       // kept resident so we can re-bake
+	FaceData m_face;                             // kept resident so we can re-bake
 	std::unique_ptr<stbtt_fontinfo> m_info;      // resident font info
 	std::unique_ptr<gfx::Texture> m_atlas;
 	float m_scale = 0;       // stb pixel scale for the current height
