@@ -481,10 +481,22 @@ void GameUI::EatFromHand(size_t i, size_t hand) {
 // Load opens the saves browser, Start New Game and Settings work as labeled.
 // ============================================================================
 void GameUI::BuildMenu() {
+	BuildMenuList();
+	SeedVideoStaging(); // fresh edit: stage = applied settings
+	BuildSettings();
+}
+
+// Just the landing list. Split out of BuildMenu because it is REBUILT whenever
+// the saves on disk change (see RefreshMenuEntriesIfDirty) and the settings
+// page must not be rebuilt with it — m_settingsUi is a different context, and
+// BuildSettings would double up its widgets.
+void GameUI::BuildMenuList() {
+	m_menuUi.Clear(); // the list is this context's only content
 	// Continue and Load only appear when at least one save exists, so the list
 	// is sized to whatever entries are present (one quarter each with all four,
 	// half each with just Start + Settings). Bounds are window fractions.
 	const bool hasSaves = !ListSaves().empty();
+	m_menuHasSaves = hasSaves;
 	const int itemCount = hasSaves ? 4 : 2;
 	constexpr float kMenuW = 0.26f;   // ~420/1600
 	constexpr float kItemH = 0.064f;  // ~58/900
@@ -515,9 +527,6 @@ void GameUI::BuildMenu() {
 		Click();
 		m_menuPage = MenuPage::Settings;
 	});
-
-	SeedVideoStaging(); // fresh edit: stage = applied settings
-	BuildSettings();
 }
 
 // The shared settings page (landing + pause route to the same m_settingsUi).
@@ -961,10 +970,14 @@ void GameUI::BuildSettings() {
 // drawn over the frozen scene under a dark wash (RenderPauseOverlay).
 // Settings routes to the same shared page as the landing menu; Save/Load
 // wait on the save system.
+// Rebuilt on the same signal as the landing list: an in-game Save has to make
+// Load appear, and deleting the last save has to take it away again.
 void GameUI::BuildPauseMenu() {
+	m_pauseUi.Clear(); // the list is this context's only content
 	// Load only appears when at least one save exists; the list is sized to the
 	// entries actually present (five with Load, four without).
 	const bool hasSaves = !ListSaves().empty();
+	m_menuHasSaves = hasSaves;
 	const int itemCount = hasSaves ? 5 : 4;
 	constexpr float kMenuW = 0.26f;
 	constexpr float kItemH = 0.064f;
@@ -1046,7 +1059,7 @@ void GameUI::OpenSavesPage(SavesMode mode) {
 				Click(0.4f);
 				std::error_code ec;
 				std::filesystem::remove(path, ec);
-				m_savesDirty = true; // rebuilt next frame (UpdateMenu/UpdatePause)
+				MarkSavesChanged(); // caught up next frame, never from here
 			};
 			list->AddRow(std::move(row));
 		}
@@ -1124,6 +1137,7 @@ void GameUI::CommitSave() {
 	}
 	Click(0.6f);
 	m_menuPage = MenuPage::Main;
+	MarkSavesChanged(); // the first save has to make Load appear
 	onSaveSlot(name);
 }
 
@@ -1593,6 +1607,13 @@ void GameUI::UpdateFonts(float dt) {
 	m_titleFont.Commit();
 }
 
+// A save was written or deleted. Two things go stale, and each catches up at
+// its own moment, so the flags are set together and cleared apart.
+void GameUI::MarkSavesChanged() {
+	m_savesDirty = true;        // the open browser, if one is open
+	m_menuEntriesDirty = true;  // Continue / Load, which need a save to exist
+}
+
 // A deletion last frame asks for a fresh page; rebuild here, before any widget
 // updates, so the list isn't cleared from inside its own callback.
 void GameUI::RefreshSavesIfDirty() {
@@ -1602,8 +1623,28 @@ void GameUI::RefreshSavesIfDirty() {
 	}
 }
 
+// Continue / Load (landing) and Load (pause) are hidden when no save exists,
+// and both lists were built once at startup — so deleting the last save left a
+// Continue that loaded nothing, and writing the FIRST save never grew a Load
+// entry until the next launch. Re-filter whenever the saves have changed.
+//
+// Deferred to the same top-of-frame point as RefreshSavesIfDirty: rebuilding a
+// list destroys the widgets, so it must never run from inside one of their
+// callbacks. Gated on the list page actually being the one showing, which also
+// means a browser the player is still looking at is never yanked away — the
+// flag simply waits until they come back.
+void GameUI::RefreshMenuEntriesIfDirty() {
+	if (!m_menuEntriesDirty || m_menuPage != MenuPage::Main) return;
+	m_menuEntriesDirty = false;
+	const bool hasSaves = !ListSaves().empty();
+	if (hasSaves == m_menuHasSaves) return; // the entries would come out the same
+	BuildMenuList();
+	BuildPauseMenu();
+}
+
 void GameUI::UpdateMenu(const Input& input) {
 	RefreshSavesIfDirty();
+	RefreshMenuEntriesIfDirty();
 	if (m_confirmActive) { // modal: freeze the page beneath it
 		m_confirmUi.Update(input, WindowW(), WindowH());
 		return;
@@ -1613,6 +1654,7 @@ void GameUI::UpdateMenu(const Input& input) {
 
 void GameUI::UpdatePause(const Input& input) {
 	RefreshSavesIfDirty();
+	RefreshMenuEntriesIfDirty();
 	if (m_confirmActive) {
 		m_confirmUi.Update(input, WindowW(), WindowH());
 		return;
