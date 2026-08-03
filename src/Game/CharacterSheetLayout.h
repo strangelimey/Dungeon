@@ -74,7 +74,8 @@ inline constexpr float kNameX = 0.179f, kNameY = 0.054f;
 // --- stats / skills columns -------------------------------------------------
 inline constexpr float kLabelX = 0.072f;
 inline constexpr float kValueRight = 0.385f;
-inline constexpr float kFirstRowY = 0.389f;
+// (No kFirstRowY: the Stats rows start a measured line below the heading —
+// see DrawStats — so the gap tracks the text instead of being authored twice.)
 inline constexpr float kRowH = 0.071f;
 inline constexpr float kBarLabelX = 0.462f;
 inline constexpr float kBarX = 0.603f;
