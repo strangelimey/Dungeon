@@ -387,7 +387,19 @@ buffer, reused across all ~25 submissions).
     Roughness/AO), NOT the .sbsar Substance file (procedural, unreadable) and
     NOT the "Regular Photos" (diffuse-only JPG, no relief). Map filenames match
     DiscoverMaps substrings as-is; stone has no metallic map (importer defaults
-    metal=0).
+    metal=0). SKIP the Mask maps a scan sometimes offers: DiscoverMaps reads
+    "mask" as an OPACITY map and would pack it into the albedo's alpha.
+  - `tools\SortTextureDownloads.ps1` files a textures.com batch from Downloads
+    into the archive, renaming TCom_<theirName>_<res>_<map>.tif to the game's
+    <res>\<category>\<name>\<name>_<map>.tif. Its `$sets` table IS the decision
+    record — one row per bought set, category + the name the catalog will use —
+    because the name is permanent: the worn mesh bakes as worn_<name>_<tier>
+    (so a set is one surface kind for life) and LoadPbrSet resolves a catalog's
+    `texture` to <name>_<res>. Unknown sets are reported, never guessed;
+    -WhatIf / -Copy / -Force, and it refuses to overwrite. Pass its printed
+    FetchTextures line through `powershell -Command`, NOT -File: -File binds
+    `a,b,c` to [string[]] as ONE element, so every name matches nothing and the
+    import dies with "Nothing imported".
 - Maps are two files per level, split static vs dynamic for the future
   save system (saves will only ever store the dynamic side):
   - assets/maps/level1.map — STATIC layer (DungeonMap): ASCII grid, ';'
