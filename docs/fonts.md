@@ -293,16 +293,41 @@ overlay, the party HUD and LevelSettingsDialog were all exercised in-game; the
 dialog's rename-affordance underline still lands exactly under the stem, which
 is `MeasureWidth` agreeing with the migrated font.
 
-### Phase 4 — The audition harness
+### Phase 4 — The audition harness — **BUILT (2026-08-02); the choice is open**
 
-Dev console `font <role> <file>` hot-swaps live, `fonts` lists installed
-families. Then drive the game (docs/drive.ps1) across HUD, menu, character
-sheet, editor and console for each candidate and judge them **in-game at real
-sizes against real dungeon art** — not from a specimen sheet. The winner is a
-one-line fonts.cat edit, not a code change.
+```
+font <role> <name|index|next|prev|off>   swap a face live
+font scale <role> <n>                    optical size
+font save                                write fonts.cat
+fonts                                    roles + installed faces + live atlases
+```
 
-This is the phase that actually decides the typefaces. Everything before it is
-scaffolding to make the decision cheap and reversible.
+No restart, no invalidation: roles resolve through the library every frame, so
+the next frame simply resolves somewhere else. `next`/`prev` cycle the installed
+faces with the system fallback as slot 0, so a cycle always passes back through
+"as it shipped" for comparison. A face is named by index, or by any unambiguous
+substring (`font body alegreya`); an ambiguous one lists its matches instead of
+guessing.
+
+`font save` round-trips the existing fonts.cat, so the header and the per-role
+comments survive, and writes it **twice**: the exe-side copy (so it takes effect)
+AND the repo source when `DN_REPO_ASSETS` is baked in. That second write is not
+optional — fonts.cat lives in the shared POOL, which `synctosource` does not
+carry (it copies the project), and the post-build step copies `assets/` OVER the
+exe-side copy. Writing only one would lose the chosen faces at the next build.
+
+**What the audition already shows.** Swapping all four roles live works
+(docs/fonts_p4_menu_alegreya.png: Cinzel titles over an Alegreya menu). And the
+17px body test is exactly as suspicious as predicted: Alegreya is legible in the
+HUD but reads noticeably smaller and lighter than the Consolas the layout was
+tuned against — its x-height is 452/1000 against Consolas' much larger one. So
+a body face wants its `scale` set (Alegreya ≈ 1.12) rather than being judged at
+1.0. That is the optical knob earning its place, in the only way that could have
+been settled: on the real HUD.
+
+**The roles are deliberately still on the system fallback in git.** The harness
+exists to let Michael choose in-game, and a choice made from a specimen sheet —
+or by me — is exactly what this thread set out to avoid.
 
 ### Phase 5 — Apply the roles
 

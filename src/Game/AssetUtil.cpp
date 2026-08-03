@@ -10,6 +10,7 @@
 #include "Core/Paths.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cstring>
 #include <filesystem>
 #include <functional>
@@ -201,6 +202,28 @@ std::vector<std::string> InstalledModels() {
 		// types — they are never what a catalog's `model` field names.
 		return !stem.starts_with("worn_");
 	});
+}
+
+std::vector<std::string> InstalledFonts() {
+	std::vector<std::string> out;
+	std::error_code ec;
+	const std::filesystem::path root = paths::Asset("fonts");
+	// Recursive, because assets/fonts holds one directory per family.
+	for (const auto& entry : std::filesystem::recursive_directory_iterator(root, ec)) {
+		if (ec || !entry.is_regular_file()) continue;
+		std::string ext = entry.path().extension().string();
+		std::ranges::transform(ext, ext.begin(),
+							   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+		if (ext != ".ttf" && ext != ".otf") continue;
+		// Relative to assets/, forward slashes — what fonts.cat's `file` takes,
+		// so a listed entry can be handed straight back as a face.
+		std::string rel =
+			std::filesystem::relative(entry.path(), root.parent_path(), ec).string();
+		std::ranges::replace(rel, '\\', '/');
+		out.push_back(std::move(rel));
+	}
+	std::ranges::sort(out);
+	return out;
 }
 
 } // namespace dungeon::game

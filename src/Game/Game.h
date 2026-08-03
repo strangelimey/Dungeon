@@ -185,6 +185,11 @@ private:
 	// "To source" button and the synctosource console command.
 	bool SyncProjectToSource();
 
+	// The typeface audition (docs/fonts.md Phase 4): the `font` console
+	// command's body, and the fonts.cat writer behind `font save`.
+	void FontCommand(const std::vector<std::string>& args);
+	bool SaveFontCatalog();
+
 	// The editor toolbar's [+] button: writes a minimal .map/.ent pair next to
 	// the project's other levels, appends the stem to the manifest, and returns
 	// it ("" on failure) so the map view can jump straight onto the new canvas.

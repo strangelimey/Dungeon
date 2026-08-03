@@ -48,6 +48,11 @@ std::vector<std::string> InstalledTextureSets();
 // `model` field names. The worn_* block meshes are baked per surface texture,
 // not authored types, so they are left out.
 std::vector<std::string> InstalledModels();
+// Every typeface under assets/fonts, as a path RELATIVE to assets/ and using
+// forward slashes — exactly the form fonts.cat's `file` field takes, so a
+// listing entry can be handed straight back as a face. Sorted, families first
+// (the walk is recursive: one directory per family).
+std::vector<std::string> InstalledFonts();
 
 // --- what the pool holds, in detail (the asset picker) ----------------------
 // One installed asset as the picker describes it. Everything here comes from

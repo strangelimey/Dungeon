@@ -617,22 +617,33 @@ void Game::RegisterDevCommands() {
 						   m_console.Print(p.Noclip() ? "noclip on" : "noclip off");
 					   });
 
-	// --- fonts ---
+	// --- fonts: the audition (docs/fonts.md Phase 4) ---
 	m_console.Register(
-		"fonts", "show which typeface each role resolves to, and the live atlases",
+		"fonts", "show each role's typeface, the installed faces, and the live atlases",
 		[this](const std::vector<std::string>&) {
+			m_console.Print("roles:");
 			for (int i = 0; i < ui::kFontRoleCount; ++i) {
 				const auto role = static_cast<ui::FontRole>(i);
 				const ui::FaceSpec& spec = m_fonts.Face(role);
 				m_console.Print(std::format(
-					"  {:<8} {:<48} scale {:.2f}", ui::FontRoleName(role),
+					"  {:<8} {:<46} scale {:.2f}", ui::FontRoleName(role),
 					spec.path.empty() ? "(system fallback)" : spec.path, spec.scale));
 			}
+			const auto faces = InstalledFonts();
+			m_console.Print(std::format("{} installed face(s):", faces.size()));
+			for (size_t i = 0; i < faces.size(); ++i)
+				m_console.Print(std::format("  [{}] {}", i, faces[i]));
 			const auto live = m_fonts.LiveFonts();
-			m_console.Print(std::format("{} live font(s):", live.size()));
+			m_console.Print(std::format("{} live atlas(es):", live.size()));
 			for (const auto& f : live)
 				m_console.Print(std::format("  {:>4}px  {}", f.pixelHeight, f.face));
 		});
+
+	m_console.Register(
+		"font",
+		"audition a face live: font <role> <name|index|next|prev|off> | "
+		"font scale <role> <n> | font save",
+		[this](const std::vector<std::string>& args) { FontCommand(args); });
 
 	// --- render debug ---
 	m_console.Register("shadows", "toggle shadow rendering (on/off)",
@@ -679,6 +690,169 @@ void Game::RegisterDevCommands() {
 							   m_world.SetFov(static_cast<float>(std::atof(args[0].c_str())));
 						   m_console.Print(std::format("fov {:.0f}", m_world.Fov()));
 					   });
+}
+
+// ============================================================================
+// The typeface audition (docs/fonts.md Phase 4).
+//
+// Roles resolve through the library on EVERY frame (UIContext::UseFont, and the
+// FontAt/FontFor lookups), so swapping a face here needs no invalidation: the
+// next frame simply resolves somewhere else. That is what makes it possible to
+// flip through candidates while looking at the real HUD at its real 17px, which
+// is the only way this decision should be made.
+// ============================================================================
+
+namespace {
+// fonts.cat stores `file` relative to assets/; FaceSpec holds the resolved
+// absolute path. These two convert, so the console can talk in the short form.
+std::string FontToRelative(const std::string& absolute) {
+	const std::string prefix = paths::Asset("");
+	std::string rel = absolute.starts_with(prefix) ? absolute.substr(prefix.size())
+												   : absolute;
+	std::ranges::replace(rel, '\\', '/');
+	return rel;
+}
+} // namespace
+
+void Game::FontCommand(const std::vector<std::string>& args) {
+	const std::vector<std::string> faces = InstalledFonts();
+
+	auto describe = [this](ui::FontRole role) {
+		const ui::FaceSpec& s = m_fonts.Face(role);
+		m_console.Print(std::format(
+			"{} = {}  scale {:.2f}", ui::FontRoleName(role),
+			s.path.empty() ? "(system fallback)" : FontToRelative(s.path), s.scale));
+	};
+
+	if (args.empty()) {
+		m_console.Print("font <role> <name|index|next|prev|off>   swap a face live");
+		m_console.Print("font scale <role> <n>                    optical size");
+		m_console.Print("font save                                write fonts.cat");
+		m_console.Print("`fonts` lists the roles, installed faces and live atlases.");
+		return;
+	}
+
+	if (args[0] == "save") {
+		m_console.Print(SaveFontCatalog() ? "fonts.cat written"
+										  : "could not write fonts.cat (see the log)");
+		return;
+	}
+
+	if (args[0] == "scale") {
+		ui::FontRole role{};
+		if (args.size() < 3 || !ui::FontRoleFromName(args[1], role)) {
+			m_console.Print("usage: font scale <body|display|script|mono> <n>");
+			return;
+		}
+		ui::FaceSpec spec = m_fonts.Face(role);
+		spec.scale = static_cast<float>(std::atof(args[2].c_str()));
+		m_fonts.SetFace(role, spec);
+		describe(role);
+		return;
+	}
+
+	ui::FontRole role{};
+	if (!ui::FontRoleFromName(args[0], role)) {
+		m_console.Print(std::format("unknown role '{}' (body|display|script|mono)",
+									args[0]));
+		return;
+	}
+	if (args.size() < 2) { // `font body` just reports
+		describe(role);
+		return;
+	}
+
+	ui::FaceSpec spec = m_fonts.Face(role);
+	const std::string& what = args[1];
+
+	if (what == "off") {
+		spec.path.clear();
+	} else if (what == "next" || what == "prev") {
+		// Slot 0 is the system fallback, 1..N the installed faces, so a cycle
+		// always passes back through "as it shipped" for comparison.
+		const int slots = static_cast<int>(faces.size()) + 1;
+		int slot = 0;
+		for (size_t i = 0; i < faces.size(); ++i)
+			if (spec.path == paths::Asset(faces[i])) {
+				slot = static_cast<int>(i) + 1;
+				break;
+			}
+		slot = (slot + (what == "next" ? 1 : slots - 1)) % slots;
+		spec.path = slot == 0 ? std::string() : paths::Asset(faces[slot - 1]);
+	} else if (std::isdigit(static_cast<unsigned char>(what[0]))) {
+		const size_t index = static_cast<size_t>(std::atoi(what.c_str()));
+		if (index >= faces.size()) {
+			m_console.Print(std::format("no face [{}] — `fonts` lists them", index));
+			return;
+		}
+		spec.path = paths::Asset(faces[index]);
+	} else {
+		// Substring match on the relative path, case-insensitive: `font body
+		// alegreya` is enough. Ambiguity is reported rather than guessed at.
+		std::string needle = what;
+		std::ranges::transform(needle, needle.begin(), [](unsigned char c) {
+			return static_cast<char>(std::tolower(c));
+		});
+		std::vector<std::string> hits;
+		for (const std::string& f : faces) {
+			std::string hay = f;
+			std::ranges::transform(hay, hay.begin(), [](unsigned char c) {
+				return static_cast<char>(std::tolower(c));
+			});
+			if (hay.find(needle) != std::string::npos) hits.push_back(f);
+		}
+		if (hits.empty()) {
+			m_console.Print(std::format("no installed face matches '{}'", what));
+			return;
+		}
+		if (hits.size() > 1) {
+			m_console.Print(std::format("'{}' matches {} faces:", what, hits.size()));
+			for (const std::string& h : hits) m_console.Print("  " + h);
+			return;
+		}
+		spec.path = paths::Asset(hits.front());
+	}
+
+	m_fonts.SetFace(role, spec);
+	describe(role);
+}
+
+bool Game::SaveFontCatalog() {
+	// Round-trip the existing file so its header and per-role comments survive
+	// (serialize::Block::lead); Catalog::Add replaces an entry IN PLACE, so the
+	// role order is stable too.
+	const std::string binPath = paths::Asset("fonts\\fonts.cat");
+	Catalog cat;
+	cat.Load(binPath);
+	for (int i = 0; i < ui::kFontRoleCount; ++i) {
+		const auto role = static_cast<ui::FontRole>(i);
+		const ui::FaceSpec& spec = m_fonts.Face(role);
+		CatalogEntry entry;
+		if (const CatalogEntry* existing = cat.Find(ui::FontRoleName(role)))
+			entry = *existing;
+		else
+			entry.id = ui::FontRoleName(role);
+		entry.Set("file", spec.path.empty() ? std::string() : FontToRelative(spec.path));
+		entry.Set("scale", std::format("{:.2f}", spec.scale));
+		cat.Add(std::move(entry));
+	}
+
+	bool ok = cat.Save(binPath);
+	if (!ok) log::Warn("font save: could not write {}", binPath);
+
+	// fonts.cat lives in the shared POOL, which synctosource does not copy (it
+	// carries the project). Writing only the exe-side copy would lose the chosen
+	// faces on the next build, since the post-build step copies assets/ OVER it.
+	if (const std::string& repo = paths::RepoAssetsDir(); !repo.empty()) {
+		const std::string srcPath = repo + "\\fonts\\fonts.cat";
+		if (cat.Save(srcPath))
+			log::Info("font save: also wrote {}", srcPath);
+		else {
+			log::Warn("font save: could not write {}", srcPath);
+			ok = false;
+		}
+	}
+	return ok;
 }
 
 // ============================================================================
