@@ -32,6 +32,7 @@ constexpr gfx::Rect kSave{0.455f, 0.585f, 0.09f, 0.045f};
 void AddNumericField(ui::UIContext& ui, const gfx::Rect& r, float value,
 					 std::function<void(float)> commit) {
 	auto* field = ui.Add<ui::TextField>(r, std::format("{:g}", value));
+	field->fontRole = ui::FontRole::Mono; // a numeric readout, like Balance's
 	field->maxLength = 10;
 	ui::TextField* raw = field;
 	field->onChange = [raw, commit = std::move(commit)] {
