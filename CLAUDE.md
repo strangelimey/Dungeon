@@ -1147,6 +1147,28 @@ memory.
   under the cursor; `uitree dump <hud|menu|settings|pause|saves|sheet|confirm>`
   prints it with pixel rects. Fonts track the window height too (Font::SetHeight
   re-bakes the atlas, driven from the top of Game::Update).
+  TYPE is addressed by ROLE, never by path (docs/fonts.md; assets/fonts/fonts.cat
+  maps Body/Display/Script/Mono → file + an optical `scale`, live-switchable with
+  the console `font <role> <name|index|next|prev|off>` / `font scale` / `font
+  save`). UI\FontLibrary shares face bytes per path and hands out ONE Font per
+  (face, ROUNDED pixel height) — a safety property, not tidiness: Font re-rasters
+  every glyph in SetHeight and Commit calls WaitIdle, so two owners sharing a Font
+  at different sizes would re-bake each other every frame. FACE AND SIZE ARE TWO
+  INHERITED FIELDS on Widget, both optional and both flowing down the subtree like
+  CSS: `fontRole` picks the face, `fontScale` the size, resolved in Layout BEFORE
+  LayoutSelf. `fontScale` moves `em` but NOT `rem` (rem stays the CONTEXT root),
+  so enlarging one label cannot re-space its neighbours. A DrawSelf uses
+  `TextFont()`, never `ctx.GetFont()` — the context font is the document root and
+  ignores roles BY DESIGN (that is what makes it a stable 1rem), so a widget
+  reaching for it silently opts out of inheritance; `ctx.GetFont()` is right only
+  OUTSIDE the tree, and a raw draw takes `UIContext::FontAt(role, px)`. Resolve
+  sizes off `UIContext::DesignHeight()`, NOT GetFont().Height(): the library
+  applies the role's optical scale inside Get, so multiplying an already-scaled
+  height applies it twice (they agree for a Body root and diverge for any other).
+  Editor dialogs read at `ui::kDialogTitleScale` / `kDialogTextScale` (widgets via
+  fontScale, raw draws via the DialogTitleFont / DialogTextFont helpers); numeric
+  readouts take NEITHER — sized to their digits, document size, Mono. And MEASURE
+  IN THE FACE AND SIZE YOU DRAW IN, or a row will not fit its own contents.
 - The clean (non-worn) block set is baked but unused — intended for newer
   dungeon areas, needs per-region block-set selection in DungeonMeshBuilder.
 - Texture sets are now installed at 1k/2k/4k with ORM maps, so Low/Medium and
