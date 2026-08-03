@@ -82,6 +82,7 @@ inline constexpr float kBarW = 0.308f;
 inline constexpr float kBarH = 0.039f;
 inline constexpr float kSkillBarX = 0.462f;
 inline constexpr float kSkillBarW = 0.436f;
+// (kStatRowH / kStatBarH are defined with kStatRem, further down.)
 
 // --- list scroll band -------------------------------------------------------
 inline constexpr float kScrollTop = 0.368f;
@@ -108,6 +109,18 @@ inline constexpr float kSpellTextX = 0.072f;
 // so matched pixel sizes do not read as matched. Shared by both row kinds so
 // the two cannot drift, and used by their MEASURE as well as their DRAW.
 inline constexpr float kDescRem = 1.25f;
+// A row's NAME line — a spell's, an effect's, and an effect's duration. Sits
+// just above the description so the entry reads title-then-prose.
+inline constexpr float kNameRem = 1.3f;
+// The Stats and Skills tabs are pure data — attribute names, numbers, bars —
+// and were far too small to read at a glance. This scales their TEXT, and
+// kStatRowH / kStatBarH scale the row pitch and bar height with it: growing the
+// font alone would push the numbers straight out of the bars they sit in.
+inline constexpr float kStatRem = 1.5f;
+// Derived from the originals rather than re-authored, so the tabs stay in
+// proportion if either is ever retuned.
+inline constexpr float kStatRowH = kRowH * kStatRem;
+inline constexpr float kStatBarH = kBarH * kStatRem;
 
 } // namespace sheet
 } // namespace dungeon::game

@@ -50,8 +50,12 @@ scale = 1.0
 
 ; Scrolls, spell descriptions, item flavour — text the WORLD is showing you
 ; rather than text the interface is telling you.
+; IM Fell English ROMAN, not its italic. Same 17th-century Fell type — the
+; classic, slightly inky letterpress voice — but upright, so it reads as an
+; old book rather than as calligraphy. The italic cut (IMFeENit28P) is the
+; florid one; Petit Formal Script is more florid still.
 [script]
-file = fonts/IMFellEnglish/IMFeENit28P.ttf
+file = fonts/IMFellEnglish/IMFeENrm28P.ttf
 scale = 1.0
 
 ; Dev console and editor numeric fields, where column alignment matters.

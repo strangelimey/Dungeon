@@ -32,12 +32,14 @@ void CharacterSheet::BakeStats() {
 void CharacterSheet::DrawStats(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 							   const gfx::Rect& px) {
 	const ui::Theme& theme = ctx.GetTheme();
-	const ui::Font& font = TextFont();
+	// Enlarged (kStatRem) with the row pitch and bar height to match, so the
+	// values still sit inside the bars they label.
+	const ui::Font& font = ctx.FontAt(ui::FontRole::Body, Rem(kStatRem));
 
 	// --- attributes (left column) -------------------------------------------
 	font.Draw(batch, m_attributesLabel, Ax(px, kLeft), Ay(px, kHeaderY), theme.accent);
 	for (size_t i = 0; i < m_attrLabels.size(); ++i) {
-		const float y = kFirstRowY + static_cast<float>(i) * kRowH;
+		const float y = kFirstRowY + static_cast<float>(i) * kStatRowH;
 		font.Draw(batch, m_attrLabels[i], Ax(px, kLabelX), Ay(px, y), theme.textDim);
 		const float vw = font.MeasureWidth(m_attrValues[i]);
 		font.Draw(batch, m_attrValues[i], Ax(px, kValueRight) - vw, Ay(px, y),
@@ -60,8 +62,8 @@ void CharacterSheet::DrawStats(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 	};
 	for (size_t i = 0; i < std::size(bars); ++i) {
 		const auto& b = bars[i];
-		const float by = kFirstRowY + static_cast<float>(i) * kRowH;
-		const gfx::Rect bar = At(px, kBarX, by, kBarW, kBarH);
+		const float by = kFirstRowY + static_cast<float>(i) * kStatRowH;
+		const gfx::Rect bar = At(px, kBarX, by, kBarW, kStatBarH);
 		font.Draw(batch, b.label, Ax(px, kBarLabelX),
 				  bar.y + (bar.h - font.Height()) * 0.5f, theme.textDim);
 		DrawStatBar(batch, bar, b.value / std::max(b.max, 1.0f), b.color, theme);

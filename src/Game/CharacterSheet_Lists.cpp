@@ -208,7 +208,7 @@ void CharacterSheet::BakeSpells() {
 
 float CharacterSheet::MeasureSkillRow(size_t, ui::UIContext&, const ui::Font&,
 									  float) const {
-	return kRowH * Pixel().h;
+	return kStatRowH * Pixel().h; // the pitch that matches the enlarged text
 }
 
 void CharacterSheet::DrawSkillRow(size_t i, ui::UIContext& ctx,
@@ -216,26 +216,28 @@ void CharacterSheet::DrawSkillRow(size_t i, ui::UIContext& ctx,
 	if (i >= m_skillRows.size()) return;
 	const SkillRow& row = m_skillRows[i];
 	const ui::Theme& theme = ctx.GetTheme();
-	const ui::Font& font = TextFont();
+	// Enlarged to match the Stats tab — both are the same kind of readout.
+	const ui::Font& font = ctx.FontAt(ui::FontRole::Body, Rem(kStatRem));
 	const gfx::Rect& px = Pixel();
 	font.Draw(batch, row.label, Ax(px, kLabelX), r.y, theme.textDim);
 	const float vw = font.MeasureWidth(row.level);
 	font.Draw(batch, row.level, Ax(px, kValueRight) - vw, r.y, theme.text);
-	DrawStatBar(batch, {Ax(px, kSkillBarX), r.y, kSkillBarW * px.w, kBarH * px.h},
+	DrawStatBar(batch, {Ax(px, kSkillBarX), r.y, kSkillBarW * px.w, kStatBarH * px.h},
 				row.frac, row.tint.w > 0.0f ? row.tint : theme.accent, theme);
 }
 
 float CharacterSheet::MeasureSpellRow(size_t i, ui::UIContext& ctx,
-									  const ui::Font& font, float widthPx) const {
+									  const ui::Font&, float widthPx) const {
 	if (i >= m_spellRows.size()) return 0.0f;
 	// The NAME line is interface (the list's own face); the description is the
 	// world talking, so it is set in Script. Measured in the same two faces
 	// DrawSpellRow draws them in — measuring the wrap in one face and drawing it
 	// in another gives a row height that does not match its contents.
+	const ui::Font& name = ctx.FontAt(ui::FontRole::Body, Rem(kNameRem));
 	const ui::Font& desc = ctx.FontAt(ui::FontRole::Script, Rem(kDescRem));
 	const float maxW = (kTextRight - kSpellTextX) * widthPx;
 	const int lines = CountLines(desc, m_spellRows[i].desc, maxW);
-	return font.LineAdvance() + Rem(0.1f) +
+	return name.LineAdvance() + Rem(0.1f) +
 		   static_cast<float>(lines) * desc.LineAdvance() +
 		   kSpellRowGap * Pixel().h;
 }
@@ -245,7 +247,9 @@ void CharacterSheet::DrawSpellRow(size_t i, ui::UIContext& ctx,
 	if (i >= m_spellRows.size()) return;
 	const SpellRow& row = m_spellRows[i];
 	const ui::Theme& theme = ctx.GetTheme();
-	const ui::Font& font = TextFont();
+	// The name line (and with it the rune squares, which are sized off the text)
+	// runs at kNameRem; MeasureSpellRow uses the same font for that line.
+	const ui::Font& font = ctx.FontAt(ui::FontRole::Body, Rem(kNameRem));
 	const gfx::Rect& px = Pixel();
 	const float textX = Ax(px, kSpellTextX);
 	const float maxW = (kTextRight - kSpellTextX) * px.w;
@@ -279,15 +283,16 @@ void CharacterSheet::DrawSpellRow(size_t i, ui::UIContext& ctx,
 }
 
 float CharacterSheet::MeasureEffectRow(size_t i, ui::UIContext& ctx,
-									   const ui::Font& font, float widthPx) const {
+									   const ui::Font&, float widthPx) const {
 	if (i >= m_effectRows.size()) return 0.0f;
 	// Same split as a spell row: the name/timer line is interface, the
 	// description is the world, and each is measured in the face it draws in.
+	const ui::Font& name = ctx.FontAt(ui::FontRole::Body, Rem(kNameRem));
 	const ui::Font& desc = ctx.FontAt(ui::FontRole::Script, Rem(kDescRem));
 	const float maxW = (kTextRight - kEffectTextX) * widthPx;
 	const int lines = CountLines(desc, m_effectRows[i].desc, maxW);
 	const float textH =
-		font.LineAdvance() + Rem(0.2f) + static_cast<float>(lines) * desc.LineAdvance();
+		name.LineAdvance() + Rem(0.2f) + static_cast<float>(lines) * desc.LineAdvance();
 	return std::max(textH, kEffectIconH * Pixel().h) + kEffectRowGap * Pixel().h;
 }
 
@@ -296,7 +301,8 @@ void CharacterSheet::DrawEffectRow(size_t i, ui::UIContext& ctx,
 	if (i >= m_effectRows.size()) return;
 	const EffectRow& row = m_effectRows[i];
 	const ui::Theme& theme = ctx.GetTheme();
-	const ui::Font& font = TextFont();
+	// Name AND duration at kNameRem, matching a spell row's name line.
+	const ui::Font& font = ctx.FontAt(ui::FontRole::Body, Rem(kNameRem));
 	const gfx::Rect& px = Pixel();
 
 	const gfx::Rect icon{Ax(px, kEffectIconX), r.y, kEffectIconW * px.w,
