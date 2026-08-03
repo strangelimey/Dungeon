@@ -17,3 +17,27 @@ display = Stone
 texture = limestone
 height_scale = 0.035
 category = stone
+
+; --- batch 2: rock surfaces DESIGNATED ceilings -----------------------------
+; textures.com sells no vaulted stone ceiling, so these are rock scans put to
+; the same use ceiling_rough already is. They carry the deepest worn relief of
+; the batch (0.07-0.10) because nothing ever gets close enough to a ceiling to
+; betray its silhouette. A real ribbed vault has to be modelled, not bought.
+
+[ceiling_rock]
+display = Rock Face
+texture = ceiling_rock
+height_scale = 0.045
+category = rock
+
+[ceiling_rock_layered]
+display = Layered Rock
+texture = ceiling_rock_layered
+height_scale = 0.04
+category = rock
+
+[ceiling_rock_porous]
+display = Porous Rock
+texture = ceiling_rock_porous
+height_scale = 0.035
+category = rock

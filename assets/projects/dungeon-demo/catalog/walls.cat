@@ -59,3 +59,125 @@ display = Marble
 texture = marble_white
 height_scale = 0.02
 category = smooth
+
+; --- batch 2: scanned 4K sets, large real-world tiles -----------------------
+; The id and the texture set share a name here, unlike the older entries above
+; (wall_cobblestone -> cobblestone_wall), because keeping the two in step is one
+; less thing to mix up when a palette record names one and a catalog the other.
+; height_scale is the SHADER's parallax depth — per-draw, no rebake, and by
+; construction invisible head-on; the real silhouette comes from the worn mesh's
+; relief in ModelBaker's specs[]. The two are deliberately not the same number.
+
+[wall_cobble_mixed]
+display = Mixed Cobblestone
+texture = wall_cobble_mixed
+height_scale = 0.07
+category = stone
+
+[wall_cobble_mixed4]
+display = Mixed Cobblestone 2
+texture = wall_cobble_mixed4
+height_scale = 0.065
+category = stone
+
+[wall_cobble_mossy]
+display = Mossy Cobblestone
+texture = wall_cobble_mossy
+height_scale = 0.07
+category = stone
+
+[wall_cobble_round]
+display = Round Cobblestone
+texture = wall_cobble_round
+height_scale = 0.075
+category = stone
+
+[wall_stone_plain]
+display = Plain Stone
+texture = wall_stone_plain
+height_scale = 0.055
+category = stone
+
+[wall_stone_granite]
+display = Granite
+texture = wall_stone_granite
+height_scale = 0.05
+category = stone
+
+[wall_stone_28]
+display = Rubble Stone
+texture = wall_stone_28
+height_scale = 0.06
+category = stone
+
+[wall_stone_30]
+display = Coursed Stone
+texture = wall_stone_30
+height_scale = 0.06
+category = stone
+
+[wall_stone_34]
+display = Mixed Stone
+texture = wall_stone_34
+height_scale = 0.055
+category = stone
+
+[wall_brick_weathered]
+display = Weathered Brick
+texture = wall_brick_weathered
+height_scale = 0.05
+category = brick
+
+[wall_brick_coarse]
+display = Coarse Brick
+texture = wall_brick_coarse
+height_scale = 0.055
+category = brick
+
+[wall_brick_plaster]
+display = Bricks with Plaster
+texture = wall_brick_plaster
+height_scale = 0.04
+category = brick
+
+[wall_brick_distorted]
+display = Distorted Brick
+texture = wall_brick_distorted
+height_scale = 0.05
+category = brick
+
+[wall_brick_old]
+display = Old Brick
+texture = wall_brick_old
+height_scale = 0.045
+category = brick
+
+[wall_sandstone_blocks]
+display = Sandstone Blocks
+texture = wall_sandstone_blocks
+height_scale = 0.045
+category = sandstone
+
+[wall_sandstone_block2]
+display = Sandstone Blocks 2
+texture = wall_sandstone_block2
+height_scale = 0.045
+category = sandstone
+
+[wall_temple_sandstone]
+display = Temple Sandstone
+texture = wall_temple_sandstone
+height_scale = 0.04
+category = temple
+
+[wall_temple_ancient]
+display = Ancient Temple
+texture = wall_temple_ancient
+height_scale = 0.045
+category = temple
+
+[wall_carved]
+display = Carved Sandstone
+texture = wall_carved
+height_scale = 0.035
+category = temple
