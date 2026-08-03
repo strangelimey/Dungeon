@@ -33,19 +33,25 @@
 
 ; HUD, message log, settings, character sheet, every dialog. Must stay legible
 ; at 17px, where stb_truetype's unhinted grayscale AA is least forgiving.
+; Spectral was drawn for reading ON SCREEN: modest stroke contrast, open
+; counters, a large-ish x-height. That is what keeps the backpack and stats
+; tabs legible at a glance while still reading as a book face rather than a
+; terminal. scale lifts it to the apparent size the layouts were tuned at
+; against Consolas' taller lowercase. Swap live: `font body gentium`, `bitter`,
+; `alegreya` — see assets/fonts/README.md for the x-height table.
 [body]
-file =
-scale = 1.0
+file = fonts/Spectral/Spectral-Regular.ttf
+scale = 1.1
 
 ; The DUNGEON title, menu and character-sheet headings.
 [display]
-file =
+file = fonts/Cinzel/Cinzel-Regular.ttf
 scale = 1.0
 
 ; Scrolls, spell descriptions, item flavour — text the WORLD is showing you
 ; rather than text the interface is telling you.
 [script]
-file =
+file = fonts/IMFellEnglish/IMFeENit28P.ttf
 scale = 1.0
 
 ; Dev console and editor numeric fields, where column alignment matters.

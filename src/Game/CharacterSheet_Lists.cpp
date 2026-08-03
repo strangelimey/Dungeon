@@ -232,7 +232,7 @@ float CharacterSheet::MeasureSpellRow(size_t i, ui::UIContext& ctx,
 	// world talking, so it is set in Script. Measured in the same two faces
 	// DrawSpellRow draws them in — measuring the wrap in one face and drawing it
 	// in another gives a row height that does not match its contents.
-	const ui::Font& desc = ctx.FontFor(ui::FontRole::Script);
+	const ui::Font& desc = ctx.FontAt(ui::FontRole::Script, Rem(kDescRem));
 	const float maxW = (kTextRight - kSpellTextX) * widthPx;
 	const int lines = CountLines(desc, m_spellRows[i].desc, maxW);
 	return font.LineAdvance() + Rem(0.1f) +
@@ -269,7 +269,7 @@ void CharacterSheet::DrawSpellRow(size_t i, ui::UIContext& ctx,
 	// The description in Script — in-world text, as against the interface face
 	// the name and the rest of the sheet use. MeasureSpellRow splits it the same
 	// way, so the row is as tall as what lands in it.
-	const ui::Font& descFont = ctx.FontFor(ui::FontRole::Script);
+	const ui::Font& descFont = ctx.FontAt(ui::FontRole::Script, Rem(kDescRem));
 	const float descTop = r.y + font.LineAdvance() + Rem(0.1f);
 	WrapLines(descFont, row.desc, maxW, [&](std::string_view line, int n) {
 		descFont.Draw(batch, line, textX,
@@ -278,13 +278,16 @@ void CharacterSheet::DrawSpellRow(size_t i, ui::UIContext& ctx,
 	});
 }
 
-float CharacterSheet::MeasureEffectRow(size_t i, ui::UIContext&,
+float CharacterSheet::MeasureEffectRow(size_t i, ui::UIContext& ctx,
 									   const ui::Font& font, float widthPx) const {
 	if (i >= m_effectRows.size()) return 0.0f;
+	// Same split as a spell row: the name/timer line is interface, the
+	// description is the world, and each is measured in the face it draws in.
+	const ui::Font& desc = ctx.FontAt(ui::FontRole::Script, Rem(kDescRem));
 	const float maxW = (kTextRight - kEffectTextX) * widthPx;
-	const int lines = CountLines(font, m_effectRows[i].desc, maxW);
+	const int lines = CountLines(desc, m_effectRows[i].desc, maxW);
 	const float textH =
-		font.LineAdvance() + Rem(0.2f) + static_cast<float>(lines) * font.LineAdvance();
+		font.LineAdvance() + Rem(0.2f) + static_cast<float>(lines) * desc.LineAdvance();
 	return std::max(textH, kEffectIconH * Pixel().h) + kEffectRowGap * Pixel().h;
 }
 
@@ -316,10 +319,13 @@ void CharacterSheet::DrawEffectRow(size_t i, ui::UIContext& ctx,
 	font.Draw(batch, row.name, textX, r.y, theme.text);
 	const float tw = font.MeasureWidth(row.time);
 	font.Draw(batch, row.time, Ax(px, kTextRight) - tw, r.y, theme.accent);
+	// The effect's description in Script, matching a spell's (kDescRem).
+	const ui::Font& descFont = ctx.FontAt(ui::FontRole::Script, Rem(kDescRem));
 	const float descTop = r.y + font.LineAdvance() + Rem(0.2f);
-	WrapLines(font, row.desc, maxW, [&](std::string_view line, int n) {
-		font.Draw(batch, line, textX,
-				  descTop + static_cast<float>(n) * font.LineAdvance(), theme.textDim);
+	WrapLines(descFont, row.desc, maxW, [&](std::string_view line, int n) {
+		descFont.Draw(batch, line, textX,
+					  descTop + static_cast<float>(n) * descFont.LineAdvance(),
+					  theme.textDim);
 	});
 }
 

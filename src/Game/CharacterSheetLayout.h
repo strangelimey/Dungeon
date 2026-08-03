@@ -101,6 +101,13 @@ inline constexpr float kEffectTextX = 0.154f;
 inline constexpr float kTextRight = 0.928f;
 inline constexpr float kSpellRowGap = 0.025f;
 inline constexpr float kSpellTextX = 0.072f;
+// Description prose — a spell's, an effect's — is drawn in the Script role at
+// this multiple of the sheet's root font. It runs LARGER than the interface
+// text beside it because a script face carries much less x-height per em
+// (IM Fell English sits at 445/1000 against Consolas' far taller lowercase),
+// so matched pixel sizes do not read as matched. Shared by both row kinds so
+// the two cannot drift, and used by their MEASURE as well as their DRAW.
+inline constexpr float kDescRem = 1.25f;
 
 } // namespace sheet
 } // namespace dungeon::game
