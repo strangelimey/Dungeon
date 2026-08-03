@@ -1411,4 +1411,12 @@ Button* AddCloseButton(UIContext& ui, const gfx::Rect& panel,
 	return b;
 }
 
+const Font& DialogTitleFont(const UIContext& ctx) {
+	// A dialog's body text is small by design — these are dense forms — which
+	// left the titles too quiet to head them. Scaled off the context's own root
+	// so it still tracks the window like everything else.
+	constexpr float kTitleScale = 1.45f;
+	return ctx.FontAt(ctx.RootRole(), ctx.GetFont().Height() * kTitleScale);
+}
+
 } // namespace dungeon::ui

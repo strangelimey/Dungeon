@@ -31,6 +31,10 @@ void AddNumericField(ui::TabControl* tabs, size_t tab, const gfx::Rect& r,
 					 float value, std::function<void(float)> commit) {
 	auto* field =
 		tabs->AddChild<ui::TextField>(tab, r, std::format("{:g}", value));
+	// Mono: these are the tuning TABLES, read down a column. A proportional
+	// face gives every digit a different width, so the numbers will not line up
+	// with each other however the rows are placed.
+	field->fontRole = ui::FontRole::Mono;
 	field->maxLength = 10;
 	ui::TextField* raw = field;
 	field->onChange = [raw, commit = std::move(commit)] {
@@ -161,8 +165,8 @@ void BalanceDialog::Render(gfx::SpriteBatch& batch, const ui::Theme& th, float w
 	batch.DrawRect(panel, th.panel);
 	ui::DrawBorder(batch, panel, th.panelBorder);
 
-	m_ui.GetFont().Draw(batch, loc::Tr("map.balance.title"), kTitle.x * w, kTitle.y * h,
-				th.text);
+	ui::DialogTitleFont(m_ui).Draw(batch, loc::Tr("map.balance.title"),
+								   kTitle.x * w, kTitle.y * h, th.text);
 
 	m_ui.Render(batch, w, h); // tabs + fields + footer buttons
 
