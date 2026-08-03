@@ -189,6 +189,14 @@ private:
 	void DrawStats(ui::UIContext& ctx, gfx::SpriteBatch& batch, const gfx::Rect& px);
 	// One row of each list tab, drawn into the rect the list gives it, plus the
 	// height that row needs. Passed to the SheetLists as callbacks.
+	// An effect row's symbol is square and spans exactly its NAME line, so the
+	// three line up: symbol top = name top, symbol bottom = description top.
+	// Both the size and the text column that follows it are shared by
+	// MeasureEffectRow and DrawEffectRow, which must agree or the row's height
+	// will not match what is drawn into it.
+	float EffectIconSize(const ui::Font& nameFont) const;
+	float EffectTextInset(const ui::Font& nameFont) const; // from the sheet's left
+
 	float MeasureSkillRow(size_t i, ui::UIContext& ctx, const ui::Font& font,
 					  float widthPx) const;
 	float MeasureSpellRow(size_t i, ui::UIContext& ctx, const ui::Font& font,

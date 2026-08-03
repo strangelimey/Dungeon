@@ -305,6 +305,17 @@ void CharacterSheet::DrawSpellRow(size_t i, ui::UIContext& ctx,
 	});
 }
 
+float CharacterSheet::EffectIconSize(const ui::Font& nameFont) const {
+	// Exactly the name line: its height plus the gap that separates it from the
+	// description, which is where the description begins.
+	return nameFont.Height() + Rem(kNameDescGapRem);
+}
+
+float CharacterSheet::EffectTextInset(const ui::Font& nameFont) const {
+	return kEffectIconX * Pixel().w + EffectIconSize(nameFont) +
+		   Rem(kEffectIconGapRem);
+}
+
 float CharacterSheet::MeasureEffectRow(size_t i, ui::UIContext& ctx,
 									   const ui::Font&, float widthPx) const {
 	if (i >= m_effectRows.size()) return 0.0f;
@@ -312,11 +323,13 @@ float CharacterSheet::MeasureEffectRow(size_t i, ui::UIContext& ctx,
 	// description is the world, and each is measured in the face it draws in.
 	const ui::Font& name = ctx.FontAt(ui::FontRole::Body, Rem(kNameRem));
 	const ui::Font& desc = ctx.FontAt(ui::FontRole::Script, Rem(kDescRem));
-	const float maxW = (kTextRight - kEffectTextX) * widthPx;
+	const float maxW = kTextRight * widthPx - EffectTextInset(name);
 	const int lines = CountLines(desc, m_effectRows[i].desc, maxW);
-	const float textH = name.Height() + Rem(kNameDescGapRem) +
-						static_cast<float>(lines) * desc.LineAdvance();
-	return std::max(textH, kEffectIconH * Pixel().h) + kEffectRowGap * Pixel().h;
+	// No max() against the icon any more: it spans the name line by
+	// construction, so it can never be taller than name + description.
+	return name.Height() + Rem(kNameDescGapRem) +
+		   static_cast<float>(lines) * desc.LineAdvance() +
+		   kEffectRowGap * Pixel().h;
 }
 
 void CharacterSheet::DrawEffectRow(size_t i, ui::UIContext& ctx,
@@ -328,8 +341,10 @@ void CharacterSheet::DrawEffectRow(size_t i, ui::UIContext& ctx,
 	const ui::Font& font = ctx.FontAt(ui::FontRole::Body, Rem(kNameRem));
 	const gfx::Rect& px = Pixel();
 
-	const gfx::Rect icon{Ax(px, kEffectIconX), r.y, kEffectIconW * px.w,
-						 kEffectIconH * px.h};
+	// Square, spanning the name line: top on the name's top, bottom where the
+	// description starts.
+	const float iconSize = EffectIconSize(font);
+	const gfx::Rect icon{Ax(px, kEffectIconX), r.y, iconSize, iconSize};
 	batch.DrawRect(icon, kSlotBg);
 	const gfx::Texture* iconTex =
 		m_icons && row.kind ? m_icons->For(row.kind->IconItem()) : nullptr;
@@ -343,8 +358,8 @@ void CharacterSheet::DrawEffectRow(size_t i, ui::UIContext& ctx,
 				   row.tint);
 	ui::DrawBorder(batch, icon, row.tint);
 
-	const float textX = Ax(px, kEffectTextX);
-	const float maxW = (kTextRight - kEffectTextX) * px.w;
+	const float textX = px.x + EffectTextInset(font);
+	const float maxW = Ax(px, kTextRight) - textX;
 	font.Draw(batch, row.name, textX, r.y, theme.text);
 	const float tw = font.MeasureWidth(row.time);
 	font.Draw(batch, row.time, Ax(px, kTextRight) - tw, r.y, theme.accent);

@@ -101,9 +101,11 @@ inline constexpr float kWheelStepRem = 1.8f;
 // costs visible rows for nothing. The rows' own heights come from their text.
 inline constexpr float kEffectRowGap = 0.014f;
 inline constexpr float kEffectIconX = 0.072f;
-inline constexpr float kEffectIconW = 0.062f;
-inline constexpr float kEffectIconH = 0.086f;
-inline constexpr float kEffectTextX = 0.154f;
+// The symbol's SIZE is derived, not authored: it is square and spans exactly
+// the name line, so its top sits on the name's top and its bottom on the
+// description's — see CharacterSheet::EffectIconSize. This is the gap from its
+// right edge to the text column that follows it, in rem.
+inline constexpr float kEffectIconGapRem = 0.7f;
 inline constexpr float kTextRight = 0.928f;
 inline constexpr float kSpellRowGap = 0.010f;
 inline constexpr float kSpellTextX = 0.072f;
