@@ -83,6 +83,27 @@ Scouted candidates (prices as seen 2026-06-22, not bought):
 | 2026-07-12 | UI Medieval RPG (+180 Medieval Fantasy RPG UI Kit, Gothic & Gold 4K) | Vill8tion | $2.70 | itch standard (commercial ok) | PNG (3072², AI-4x upscale, black bg — keyed at cut) | skin_button (slot #17) + skin_slot (slot #12) — done; 175+ unused variants archived (buttons/frames/bars) |
 | 2026-07-12 | Assets: UI Medieval Interface | Wenrexa | $3.99 | itch standard (commercial ok) | PNG + PSD + vector | archived (ui\wenrexa-medieval-interface) — panel candidates flatter than the current stone skin; unused so far |
 
+### Fonts
+All **free**, all **SIL Open Font License 1.1**, all from the
+[google/fonts](https://github.com/google/fonts) repo (`ofl/<family>/`). Each
+ships its unmodified `OFL.txt` in `assets/fonts/<Family>/` — that redistribution
+requirement is the only obligation. Full provenance, the variable-font
+instancing rationale and the Reserved Font Name audit live in
+`assets/fonts/README.md`.
+
+| date | family | price | license | role candidate | status |
+|---|---|---|---|---|---|
+| 2026-08-02 | Cinzel | **free** | OFL 1.1 (no RFN) | Display | instanced wght=400; audition |
+| 2026-08-02 | Marcellus | **free** | OFL 1.1 (RFN "Marcellus", unmodified) | Display | audition |
+| 2026-08-02 | Grenze Gotisch | **free** | OFL 1.1 (no RFN) | Display | instanced wght=400; audition |
+| 2026-08-02 | Alegreya | **free** | OFL 1.1 (no RFN) | Body | instanced wght=400; audition |
+| 2026-08-02 | Spectral | **free** | OFL 1.1 (no RFN) | Body | audition |
+| 2026-08-02 | Gentium Book Plus | **free** | OFL 1.1 (RFN "Gentium"/"SIL", unmodified) | Body | audition |
+| 2026-08-02 | Bitter | **free** | OFL 1.1 (RFN "Bitter Pro") | Body | instanced wght=400 — **RFN check if it ships** (see README) |
+| 2026-08-02 | IM Fell English (roman + italic) | **free** | OFL 1.1 (no RFN) | Script | audition |
+| 2026-08-02 | Petit Formal Script | **free** | OFL 1.1 (RFN, unmodified) | Script | audition |
+| 2026-08-02 | JetBrains Mono | **free** | OFL 1.1 (no RFN) | Mono | instanced wght=400; audition |
+
 ### Other asset packs (sound / music / etc.)
 | date | item | source | price | notes |
 |---|---|---|---|---|
@@ -107,6 +128,7 @@ One-off or recurring software bought for the project.
 |---|---|---|
 | Blender 5.1 | **free** | FBX/USD→glTF conversion in the fab pipeline (`tools/ConvertMesh.py`) |
 | Visual Studio 2026 Community | **free** | compiler + bundled CMake/Ninja (`build.cmd`) |
+| fontTools (Python) | **free** | MIT; one-off, instanced the variable fonts to static at Phase 0 (`assets/fonts/README.md`). Not a build dependency — the instanced faces are committed |
 | _(add paid tools/licenses here)_ | | |
 
 ---
