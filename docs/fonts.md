@@ -329,12 +329,48 @@ been settled: on the real HUD.
 exists to let Michael choose in-game, and a choice made from a specimen sheet —
 or by me — is exactly what this thread set out to avoid.
 
-### Phase 5 — Apply the roles
+### Phase 5 — Apply the roles — **MOSTLY DONE (2026-08-03)**
 
-Display on the title and menu/sheet headers; Mono on the dev console and editor
-numeric fields; Script on spell descriptions in the sheet's Known Spells tab
-(scrolls do not exist as content yet, but spell `.desc` text does, and it is
-exactly the in-world register Script is for).
+Faces chosen in-game, live, and written to fonts.cat: **Body Spectral** (drawn
+for on-screen reading; it has to hold up at the HUD's 17px, where a bookish
+face falls apart) at `scale = 1.1`, **Display Cinzel**, **Script IM Fell
+English ROMAN** — the roman cut, not the italic, which read as florid.
+
+Roles in place: Display on the titles and the sheet's name heading; Mono on the
+dev console; Script on spell AND effect descriptions. Still unwired: Mono on the
+editor's numeric fields, and item flavour text (and scrolls, which are not
+content yet).
+
+Applying Script pulled the sheet's typography apart, and the retune is the bulk
+of the phase. All of it lives in named constants in `CharacterSheetLayout.h` —
+`kStatRem`, `kSkillRem`, `kTabTitleRem`, `kNameRem`, `kDescRem`,
+`kNameDescGapRem` — rather than multipliers sprinkled through the draws.
+
+**The rule that kept being the actual bug: a row must MEASURE in the same faces
+and sizes it DRAWS in.** A sheet row's height comes from its name line plus its
+wrapped description, so measuring either in a different face than it is drawn
+in gives a row that does not fit its contents. Every size added here is used by
+both. It is the same failure the save browser had from the other direction —
+geometry computed against one thing, rendered against another.
+
+Three things were found by looking rather than assumed:
+
+- **Short lists were stretching their rows.** `SheetList` sized the repeater to
+  `max(contentH, view)` — never below the band, so a short list reports no
+  overflow — but placed rows as fractions of `contentH`. Those differ exactly
+  when the list is shorter than its band, and rows inflated by `view/contentH`
+  to fill it: rows measuring ~42px drew ~77px apart. Rows are now fractions of
+  the repeater's resolved height. This predates the thread and affected any
+  short list in these tabs.
+- **Gaps were being measured from `LineAdvance`**, which already carries a
+  line's leading, so a name sat a full line plus a gap above its own
+  description. Offsets now come from `Height()`.
+- **Authored positions do not know the type moved.** The Stats rows' start, the
+  list band's top, and the effect symbol's size were all authored fractions
+  that had to agree with a font size by hand — and stopped agreeing the moment
+  it changed. Each is now derived from the text it sits against, so the
+  alignment is structural: the effect symbol spans exactly its name line, top
+  on the name's top and bottom on the description's.
 
 ### Phase 6 — Localization hook and docs
 
