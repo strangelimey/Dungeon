@@ -99,6 +99,7 @@ confirm.restart.body=Changing the graphics adapter restarts the game. Continue?
 confirm.yes=Restart
 confirm.no=Cancel
 settings.quality=Quality
+settings.applying=Applying quality settings...
 settings.quality.low=Low
 settings.quality.medium=Medium
 settings.quality.high=High

@@ -100,6 +100,7 @@ confirm.restart.body=Das Ändern der Grafikkarte startet das Spiel neu. Fortfahr
 confirm.yes=Neustart
 confirm.no=Abbrechen
 settings.quality=Qualität
+settings.applying=Qualitätseinstellungen werden übernommen ...
 settings.quality.low=Niedrig
 settings.quality.medium=Mittel
 settings.quality.high=Hoch

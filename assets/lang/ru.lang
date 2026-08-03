@@ -104,6 +104,7 @@ confirm.restart.body=Смена видеокарты перезапустит и
 confirm.yes=Перезапустить
 confirm.no=Отмена
 settings.quality=Качество
+settings.applying=Применение настроек качества...
 settings.quality.low=Низкое
 settings.quality.medium=Среднее
 settings.quality.high=Высокое

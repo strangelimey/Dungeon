@@ -80,7 +80,7 @@ void Game::RegisterDevCommands() {
 							   m_console.Print("quality must be 0-3");
 							   return;
 						   }
-						   SetQuality(static_cast<Quality>(q));
+						   m_pendingQuality = static_cast<Quality>(q); // applied next frame
 						   m_console.Print(std::format("quality set to {}", q));
 					   });
 	m_console.Register("lang", "switch language by code (e.g. en, de)",

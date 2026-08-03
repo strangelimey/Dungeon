@@ -100,6 +100,7 @@ confirm.restart.body=Cambiare la scheda grafica riavvia il gioco. Continuare?
 confirm.yes=Riavvia
 confirm.no=Annulla
 settings.quality=Qualità
+settings.applying=Applicazione delle impostazioni di qualità...
 settings.quality.low=Bassa
 settings.quality.medium=Media
 settings.quality.high=Alta

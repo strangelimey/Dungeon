@@ -76,8 +76,13 @@ void Game::WireModuleCallbacks() {
 		m_state = AppState::Playing;
 		m_ui.OpenInventory();
 	};
+	// Quality: recorded, not applied — the swap blocks for seconds, so Update
+	// runs it next frame with the "applying" notice already on screen. A
+	// re-pick of the live tier is dropped so the notice never flashes for a
+	// no-op (SetQuality would early-out anyway).
 	m_ui.onQualitySelected = [this](int index) {
-		SetQuality(static_cast<Quality>(index));
+		const Quality q = static_cast<Quality>(index);
+		if (q != m_settings.quality) m_pendingQuality = q;
 	};
 	// Video tab frame-rate cap: live (just a present-interval change on the
 	// device), persisted immediately like the language/key binds.

@@ -677,6 +677,16 @@ void Game::ApplyLanguage(bool rebuild) {
 	if (rebuild) m_ui.RebuildForLanguage();
 }
 
+void Game::DrawBusyNotice(const std::string& text, float dw, float dh) {
+	const ui::Font& font = m_mapView.Font();
+	const float w = font.MeasureWidth(text);
+	const gfx::Rect back{(dw - w) * 0.5f - 14.0f, (dh - font.Height()) * 0.5f - 10.0f,
+						 w + 28.0f, font.Height() + 20.0f};
+	m_spriteBatch.DrawRect(back, {0.0f, 0.0f, 0.0f, 0.75f});
+	font.Draw(m_spriteBatch, text, (dw - w) * 0.5f, (dh - font.Height()) * 0.5f,
+			  m_settings.theme.accent);
+}
+
 void Game::SetQuality(Quality quality) {
 	if (quality == m_settings.quality) return;
 	const std::string oldTextureSuffix = m_settings.TextureSuffix();
@@ -780,6 +790,14 @@ void Game::Update(float dt) {
 	// A language picked last frame applies now, before any widget updates —
 	// the rebuild destroys every widget, so none may be mid-callback.
 	if (!m_pendingLanguage.empty()) ApplyLanguage(true);
+	// A quality tier picked last frame applies now — the frame that showed the
+	// "applying" notice has presented, so the multi-second texture reload stalls
+	// with that notice on screen instead of on a frozen settings page.
+	if (m_pendingQuality) {
+		const Quality q = *m_pendingQuality;
+		m_pendingQuality.reset();
+		SetQuality(q);
+	}
 	// A Video-tab adapter/monitor change last frame repopulates the settings page
 	// now, for the same reason: the rebuild destroys the dropdown that triggered it.
 	m_ui.ApplyPendingVideoRebuild();
@@ -1376,17 +1394,7 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 		}
 		// The deferred-rebake notice (see Update): the frame the blocking
 		// FlushGeometry freezes on, so the pause reads as work, not a hang.
-		if (m_geomNoticeLatched) {
-			const ui::Font& font = m_mapView.Font();
-			const std::string msg = loc::Tr("map.rebuilding");
-			const float w = font.MeasureWidth(msg);
-			const gfx::Rect back{(dw - w) * 0.5f - 14.0f,
-								 (dh - font.Height()) * 0.5f - 10.0f, w + 28.0f,
-								 font.Height() + 20.0f};
-			m_spriteBatch.DrawRect(back, {0.0f, 0.0f, 0.0f, 0.75f});
-			font.Draw(m_spriteBatch, msg, (dw - w) * 0.5f,
-					  (dh - font.Height()) * 0.5f, m_settings.theme.accent);
-		}
+		if (m_geomNoticeLatched) DrawBusyNotice(loc::Tr("map.rebuilding"), dw, dh);
 		break;
 	}
 	case AppState::Paused:      m_ui.RenderPauseOverlay(); break;
@@ -1453,6 +1461,11 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 	if (m_console.IsOpen())
 		m_console.Render(m_spriteBatch, m_device, static_cast<float>(m_device.Width()),
 						 static_cast<float>(m_device.Height()));
+	// The pending quality swap's notice. Drawn LAST and outside the per-state
+	// switch on purpose: the tier can be picked from the landing page (Menu),
+	// the pause menu (Paused) or the dev console over any state, and this is the
+	// frame the reload will stall on — nothing may cover it.
+	if (m_pendingQuality) DrawBusyNotice(loc::Tr("settings.applying"), dw, dh);
 	m_spriteBatch.End();
 
 	++m_framesRendered;

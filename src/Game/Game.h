@@ -234,6 +234,10 @@ private:
 	bool LoadGame(const std::string& path);
 	void OpenCharacterSheet(size_t index); // freezes the world, shows the page
 	void SetQuality(Quality quality);      // persists + hot-swaps the world
+	// Centered "working..." box, drawn on the frame a blocking operation is
+	// about to stall on (see m_pendingQuality / m_geomNoticeLatched). Shared so
+	// every such notice reads the same.
+	void DrawBusyNotice(const std::string& text, float dw, float dh);
 	// Applies m_settings' display mode (windowed/borderless/exclusive + monitor
 	// + resolution) to the window and swapchain in place. Called at boot and by
 	// the Video tab's Apply button for non-adapter changes.
@@ -282,6 +286,14 @@ private:
 	// Language code picked in Settings this frame, applied (strings reloaded,
 	// UI rebuilt) at the top of the next Update; empty = no change pending.
 	std::string m_pendingLanguage;
+	// Quality tier picked in Settings (or by the dev `quality` command) this
+	// frame, applied at the top of the next Update. Deferred for a DIFFERENT
+	// reason than the language: the swap BLOCKS for seconds (every surface
+	// texture reloads at the new resolution, and Ultra's 4k sets are the slow
+	// case), and a frame that never presents reads as a hang. Latching one
+	// frame gets the "applying" notice on screen first, so the stall freezes on
+	// it — the same trick as m_geomNoticeLatched. The optional IS the latch.
+	std::optional<Quality> m_pendingQuality;
 	// Save chosen from the landing page before the dungeon was resident: the
 	// heavy load runs first (LoadingGame), then this save is applied instead of
 	// starting fresh. Empty = the load should StartNewGame as usual.
