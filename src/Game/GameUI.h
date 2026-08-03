@@ -212,6 +212,7 @@ private:
 	enum class SavesMode { Load, Save };
 
 	void BuildMenu();     // landing list (then BuildSettings for the shared page)
+	void BuildMenuList(); // just the landing list — rebuilt when saves change
 	void BuildSettings(); // the tabbed settings page (Game/Controls/Video/Audio/UI)
 	void BuildPauseMenu();
 	void BuildCharacterSheet();
@@ -236,6 +237,12 @@ private:
 	// Rebuilds the Saves page if a deletion flagged it dirty (deferred so the
 	// SlotList isn't cleared from inside its own row callback).
 	void RefreshSavesIfDirty();
+	// Flags everything that depends on WHICH saves exist. Call from any path
+	// that writes or removes one.
+	void MarkSavesChanged();
+	// Re-filters the landing and pause lists (Continue / Load appear only with
+	// a save) once the saves have changed. Deferred like RefreshSavesIfDirty.
+	void RefreshMenuEntriesIfDirty();
 	// Pushes the settings theme into every UIContext (each owns a copy).
 	void ApplyTheme();
 	// Pushes the skin (or null, per settings.uiSkin) into every UIContext.
@@ -385,6 +392,14 @@ private:
 	// top of the next Update (rebuilding inside the row callback would destroy
 	// the list mid-iteration).
 	bool m_savesDirty = false;
+	// Ditto for the landing/pause lists, which hide Continue and Load when no
+	// save exists. Cleared separately from m_savesDirty because the two catch
+	// up at different moments: the browser while it is open, these once the
+	// player is back on the list page.
+	bool m_menuEntriesDirty = false;
+	// Whether those lists were built WITH the save-only entries, so a rebuild
+	// is skipped when deleting one of several saves changes nothing.
+	bool m_menuHasSaves = false;
 
 	// Widgets the game updates later; the UIContexts own them.
 	MessageLog* m_log = nullptr;
