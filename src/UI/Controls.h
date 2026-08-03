@@ -675,4 +675,12 @@ gfx::Rect CloseButtonRect(const gfx::Rect& panel);
 Button* AddCloseButton(UIContext& ui, const gfx::Rect& panel,
 					   const gfx::Texture* icon, std::function<void()> onClose);
 
+// A dialog's TITLE face: the context's own text, enlarged. One helper for the
+// same reason AddCloseButton is one helper — every dialog's title is then the
+// same size — and because a title is sometimes a HIT TARGET (the level and type
+// dialogs make their name a click-to-rename affordance). Measuring that in one
+// size and drawing it in another puts the click somewhere the text is not, so
+// the rect and the draw must ask the same function.
+const Font& DialogTitleFont(const UIContext& ctx);
+
 } // namespace dungeon::ui

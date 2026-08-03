@@ -165,8 +165,8 @@ void BalanceDialog::Render(gfx::SpriteBatch& batch, const ui::Theme& th, float w
 	batch.DrawRect(panel, th.panel);
 	ui::DrawBorder(batch, panel, th.panelBorder);
 
-	m_ui.GetFont().Draw(batch, loc::Tr("map.balance.title"), kTitle.x * w, kTitle.y * h,
-				th.text);
+	ui::DialogTitleFont(m_ui).Draw(batch, loc::Tr("map.balance.title"),
+								   kTitle.x * w, kTitle.y * h, th.text);
 
 	m_ui.Render(batch, w, h); // tabs + fields + footer buttons
 

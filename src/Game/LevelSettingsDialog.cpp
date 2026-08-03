@@ -66,9 +66,11 @@ void LevelSettingsDialog::Open(const std::string& stem, float dust, float haze,
 gfx::Rect LevelSettingsDialog::StemRect(float w, float h) {
 	const std::string prefix =
 		std::format("{} — ", loc::Tr("map.level.title"));
-	const float x = kTitle.x * w + m_ui.GetFont().MeasureWidth(prefix);
-	return {x, kTitle.y * h, m_ui.GetFont().MeasureWidth(m_stem) + 6.0f,
-			m_ui.GetFont().Height()};
+	// The TITLE face, not the body one — Render draws the stem with the same,
+	// and this rect is the click target for it.
+	const ui::Font& title = ui::DialogTitleFont(m_ui);
+	const float x = kTitle.x * w + title.MeasureWidth(prefix);
+	return {x, kTitle.y * h, title.MeasureWidth(m_stem) + 6.0f, title.Height()};
 }
 
 void LevelSettingsDialog::BuildUI() {
@@ -189,12 +191,13 @@ void LevelSettingsDialog::Render(gfx::SpriteBatch& batch, const ui::Theme& th,
 		// (accent on hover + a hint underline so it reads clickable).
 		const std::string prefix =
 			std::format("{} — ", loc::Tr("map.level.title"));
-		m_ui.GetFont().Draw(batch, prefix, kTitle.x * w, kTitle.y * h, th.text);
-		const gfx::Rect stem{kTitle.x * w + m_ui.GetFont().MeasureWidth(prefix),
-							 kTitle.y * h, m_ui.GetFont().MeasureWidth(m_stem),
-							 m_ui.GetFont().Height()};
-		m_ui.GetFont().Draw(batch, m_stem, stem.x, stem.y,
-					m_nameHover ? th.accent : th.text);
+		const ui::Font& title = ui::DialogTitleFont(m_ui); // same as StemRect
+		title.Draw(batch, prefix, kTitle.x * w, kTitle.y * h, th.text);
+		const gfx::Rect stem{kTitle.x * w + title.MeasureWidth(prefix),
+							 kTitle.y * h, title.MeasureWidth(m_stem),
+							 title.Height()};
+		title.Draw(batch, m_stem, stem.x, stem.y,
+				   m_nameHover ? th.accent : th.text);
 		batch.DrawRect({stem.x, stem.y + stem.h + 1.0f, stem.w, 1.0f},
 					   m_nameHover ? th.accent : th.textDim);
 	}
