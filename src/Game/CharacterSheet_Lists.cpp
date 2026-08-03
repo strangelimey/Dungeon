@@ -88,7 +88,7 @@ float SheetList::ViewHeight() const {
 
 // Measure every row and stack them, before the repeater's placer (which runs
 // later in this same layout pass) asks for the offsets.
-void SheetList::LayoutSelf(ui::UIContext&) {
+void SheetList::LayoutSelf(ui::UIContext& ctx) {
 	const gfx::Rect& px = Pixel();
 	m_scroll->bounds = {0.0f, bandTop, 1.0f, bandBottom - bandTop};
 	// The scrollbar gutter, in the same terms the sheet's own layout used.
@@ -100,7 +100,7 @@ void SheetList::LayoutSelf(ui::UIContext&) {
 	float y = 0.0f;
 	for (size_t i = 0; i < rows; ++i) {
 		m_rowTop[i] = y;
-		m_rowH[i] = m_measure ? m_measure(i, TextFont(), px.w) : 0.0f;
+		m_rowH[i] = m_measure ? m_measure(i, ctx, TextFont(), px.w) : 0.0f;
 		y += m_rowH[i];
 	}
 	m_contentH = y;
@@ -206,7 +206,8 @@ void CharacterSheet::BakeSpells() {
 // A row owns its Y (the list stacks it); the X fractions still resolve against
 // the SHEET, which is what keeps the columns lined up with the rest of the page.
 
-float CharacterSheet::MeasureSkillRow(size_t, const ui::Font&, float) const {
+float CharacterSheet::MeasureSkillRow(size_t, ui::UIContext&, const ui::Font&,
+									  float) const {
 	return kRowH * Pixel().h;
 }
 
@@ -224,13 +225,18 @@ void CharacterSheet::DrawSkillRow(size_t i, ui::UIContext& ctx,
 				row.frac, row.tint.w > 0.0f ? row.tint : theme.accent, theme);
 }
 
-float CharacterSheet::MeasureSpellRow(size_t i, const ui::Font& font,
-									  float widthPx) const {
+float CharacterSheet::MeasureSpellRow(size_t i, ui::UIContext& ctx,
+									  const ui::Font& font, float widthPx) const {
 	if (i >= m_spellRows.size()) return 0.0f;
+	// The NAME line is interface (the list's own face); the description is the
+	// world talking, so it is set in Script. Measured in the same two faces
+	// DrawSpellRow draws them in — measuring the wrap in one face and drawing it
+	// in another gives a row height that does not match its contents.
+	const ui::Font& desc = ctx.FontFor(ui::FontRole::Script);
 	const float maxW = (kTextRight - kSpellTextX) * widthPx;
-	const int lines = CountLines(font, m_spellRows[i].desc, maxW);
+	const int lines = CountLines(desc, m_spellRows[i].desc, maxW);
 	return font.LineAdvance() + Rem(0.1f) +
-		   static_cast<float>(lines) * font.LineAdvance() +
+		   static_cast<float>(lines) * desc.LineAdvance() +
 		   kSpellRowGap * Pixel().h;
 }
 
@@ -260,15 +266,20 @@ void CharacterSheet::DrawSpellRow(size_t i, ui::UIContext& ctx,
 	}
 	font.Draw(batch, row.name, nameX + runeGap, r.y,
 			  {row.tint.x, row.tint.y, row.tint.z, 1.0f});
+	// The description in Script — in-world text, as against the interface face
+	// the name and the rest of the sheet use. MeasureSpellRow splits it the same
+	// way, so the row is as tall as what lands in it.
+	const ui::Font& descFont = ctx.FontFor(ui::FontRole::Script);
 	const float descTop = r.y + font.LineAdvance() + Rem(0.1f);
-	WrapLines(font, row.desc, maxW, [&](std::string_view line, int n) {
-		font.Draw(batch, line, textX,
-				  descTop + static_cast<float>(n) * font.LineAdvance(), theme.textDim);
+	WrapLines(descFont, row.desc, maxW, [&](std::string_view line, int n) {
+		descFont.Draw(batch, line, textX,
+					  descTop + static_cast<float>(n) * descFont.LineAdvance(),
+					  theme.textDim);
 	});
 }
 
-float CharacterSheet::MeasureEffectRow(size_t i, const ui::Font& font,
-									   float widthPx) const {
+float CharacterSheet::MeasureEffectRow(size_t i, ui::UIContext&,
+									   const ui::Font& font, float widthPx) const {
 	if (i >= m_effectRows.size()) return 0.0f;
 	const float maxW = (kTextRight - kEffectTextX) * widthPx;
 	const int lines = CountLines(font, m_effectRows[i].desc, maxW);
