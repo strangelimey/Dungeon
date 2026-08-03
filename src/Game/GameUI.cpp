@@ -31,6 +31,24 @@ constexpr float kTitleFontH = 64.0f;
 // interactive resize drag doesn't drain the GPU on every size change.
 constexpr float kFontSettleDelay = 0.25f;
 
+// The chrome every menu-style page draws above its own widgets: the big title,
+// then the subtitle a line under it. Both the landing page and the pause
+// overlay draw them, so the positions live HERE rather than being repeated at
+// each draw site — which is how the saves page came to start its content at
+// 0.16/0.24, straight on top of the subtitle it could not see.
+//
+// kMenuContentY is the first row of page-owned space: below the subtitle, plus
+// air. A page that authors its widgets from here cannot collide with the
+// chrome, whatever the chrome later does.
+constexpr float kMenuTitleY = 0.16f;
+constexpr float kMenuSubtitleY = kMenuTitleY + 74.0f / kFontDesignWindowH;
+constexpr float kMenuContentY =
+	kMenuSubtitleY + (kMenuFontH + 20.0f) / kFontDesignWindowH;
+// Where the saves page parks its Back button. The list above it is SIZED from
+// this rather than authored separately, so moving the content start can never
+// push the button off the bottom.
+constexpr float kSavesBackY = 0.85f;
+
 // Widget bounds are normalized fractions [0..1] of their container
 // (see Widget.h). Layouts are authored directly in those fractions — never
 // design pixels, never a post-hoc Norm() conversion.
@@ -1038,7 +1056,7 @@ void GameUI::OpenSavesPage(SavesMode mode) {
 	bool wantList = false;
 	float listY = 0.0f, listH = 0.0f;
 	if (mode == SavesMode::Save) {
-		float y = 0.16f;
+		float y = kMenuContentY;
 		m_saveField = m_savesUi.Add<ui::TextField>(gfx::Rect{kColX, y, kColW, kRowH},
 			loc::Format("saves.default_name", slots.size() + 1));
 		m_saveField->placeholder = loc::Tr("saves.name_placeholder");
@@ -1058,21 +1076,23 @@ void GameUI::OpenSavesPage(SavesMode mode) {
 									 loc::Tr("saves.overwrite_label"))
 				->dim = true;
 			listY = y + 0.04f;
-			listH = 0.40f;
+			// Fill what is left above the Back button instead of authoring a
+			// height here too: the two would drift the moment either moves.
+			listH = kSavesBackY - 0.02f - listY;
 			wantList = true;
-			backY = listY + listH + 0.02f;
+			backY = kSavesBackY;
 		}
 	} else {
-		listY = 0.24f;
+		listY = kMenuContentY;
 		if (slots.empty()) {
 			m_savesUi.Add<ui::Label>(gfx::Rect{kColX, listY, kColW, kLabelH},
 									 loc::Tr("saves.none"))
 				->dim = true;
 			backY = listY + 0.06f;
 		} else {
-			listH = 0.52f;
+			listH = kSavesBackY - 0.02f - listY;
 			wantList = true;
-			backY = listY + listH + 0.02f;
+			backY = kSavesBackY;
 		}
 	}
 
@@ -1746,13 +1766,13 @@ void GameUI::RenderGameLoadingScreen(const LoadQueue& queue) {
 							 {1, 1, 1, 1});
 	m_spriteBatch.DrawRect({0, 0, w, h}, {0, 0, 0, 0.55f});
 
-	DrawCenteredTitle(loc::Tr("title"), h * 0.16f);
+	DrawCenteredTitle(loc::Tr("title"), h * kMenuTitleY);
 
 	const std::string subtitle = loc::Tr("loading.descending");
 	ui::Font& font = m_menuUi.GetFont();
 	const float subW = font.MeasureWidth(subtitle);
 	font.Draw(m_spriteBatch, subtitle, (w - subW) * 0.5f,
-			  h * (0.16f + 74.0f / kFontDesignWindowH), theme.textDim);
+			  h * kMenuSubtitleY, theme.textDim);
 
 	DrawLoadProgress(queue, h * 0.56f);
 }
@@ -1769,7 +1789,7 @@ void GameUI::RenderMenuOverlay() {
 	m_spriteBatch.DrawRect({0, 0, w, h}, {0, 0, 0, 0.30f});
 
 	// Title + subtitle.
-	DrawCenteredTitle(loc::Tr("title"), h * 0.16f);
+	DrawCenteredTitle(loc::Tr("title"), h * kMenuTitleY);
 
 	const char* subKey = "menu.subtitle";
 	if (m_menuPage == MenuPage::Settings) subKey = "menu.subtitle_settings";
@@ -1780,7 +1800,7 @@ void GameUI::RenderMenuOverlay() {
 	ui::Font& font = m_menuUi.GetFont();
 	const float subW = font.MeasureWidth(subtitle);
 	font.Draw(m_spriteBatch, subtitle, (w - subW) * 0.5f,
-			  h * (0.16f + 74.0f / kFontDesignWindowH), theme.textDim);
+			  h * kMenuSubtitleY, theme.textDim);
 
 	MenuContext().Render(m_spriteBatch, w, h);
 	RenderConfirmOverlay();
@@ -1806,7 +1826,7 @@ void GameUI::RenderPauseOverlay() {
 
 	m_spriteBatch.DrawRect({0, 0, w, h}, {0, 0, 0, 0.55f});
 
-	DrawCenteredTitle(loc::Tr("pause.title"), h * 0.16f);
+	DrawCenteredTitle(loc::Tr("pause.title"), h * kMenuTitleY);
 
 	if (m_menuPage != MenuPage::Main) {
 		const char* subKey = "menu.subtitle_load";
@@ -1816,7 +1836,7 @@ void GameUI::RenderPauseOverlay() {
 		ui::Font& font = m_pauseUi.GetFont();
 		const float subW = font.MeasureWidth(subtitle);
 		font.Draw(m_spriteBatch, subtitle, (w - subW) * 0.5f,
-				  h * (0.16f + 74.0f / kFontDesignWindowH), theme.textDim);
+				  h * kMenuSubtitleY, theme.textDim);
 	}
 
 	PauseContext().Render(m_spriteBatch, w, h);
