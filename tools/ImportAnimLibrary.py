@@ -987,11 +987,20 @@ def run_bake(opts):
                 node.image = img
                 nt.links.new(node.outputs["Color"], bsdf.inputs["Base Color"])
             if len(spec) > 1 and spec[1]:
-                # A glTF-authored normal map is green-UP by spec; the engine
-                # runs green-DOWN (ImportTextures flips OpenGL sources on the
-                # way in, and an embedded map never passes through it). Unflipped,
-                # every bump is lit as a dent — which reads as blotchy shading
-                # rather than as anything obviously inverted.
+                # An embedded map never passes through ImportTextures, so it
+                # never gets that importer's green flip. DON'T assume it needs
+                # one: reasoning from "glTF is green-up by spec" is a trap,
+                # because glTF also puts v=0 at the TOP of the image while
+                # OpenGL puts it at the bottom, and the two flips cancel. Every
+                # bought normal map measured so far — the Skeleton Army kit's
+                # four included — already matched the engine.
+                # MEASURE instead. A normal map is a height GRADIENT, so it must
+                # be curl-free: compare median|dp/dy - dq/dx| against the same
+                # with green negated (p=-nx/nz, q=-ny/nz). The smaller residual
+                # is the real orientation, and assets/textures/*_n.png are 200-odd
+                # known-good samples to calibrate against. Flip only on a clear
+                # margin — the engine's own maps score ~3.4x, and anything near
+                # 1x is noise.
                 img = load_map(spec[1], non_color=True, flip_green=opts["flip_green"])
                 node = nt.nodes.new("ShaderNodeTexImage")
                 node.image = img
