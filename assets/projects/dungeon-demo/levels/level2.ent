@@ -1,4 +1,2 @@
-; Dungeon Demo — level 2, dynamic layer.
-monster skeleton 6 2 south
-monster blob 8 7
-monster mummy 11 2 west
+; level2 — texture gallery (dynamic layer).
+; Deliberately empty: nothing should be fighting you while you look at walls.
