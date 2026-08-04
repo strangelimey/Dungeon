@@ -2,6 +2,7 @@
 // runs the frame loop. No game logic lives here.
 
 #include "Audio/AudioEngine.h"
+#include "Core/AllocTrack.h"
 #include "Core/Log.h"
 #include "Core/Time.h"
 #include "Game/Game.h"
@@ -23,6 +24,11 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
 	freopen_s(&unused, "CONOUT$", "w", stdout);
 	freopen_s(&unused, "CONOUT$", "w", stderr);
 #endif
+
+	// Names this thread for the allocation counters — and, because the operator
+	// new replacements live in that translation unit, is what makes the linker
+	// pull them in at all (see Core/AllocTrack.h's linker note).
+	alloc::Init();
 
 	log::Info("Dungeon starting...");
 
@@ -54,11 +60,18 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
 
 	while (window.PumpMessages()) {
 		const float dt = timer.Tick();
+
+		// The steady-state allocation guard brackets the WHOLE frame — update,
+		// render and present — because the rule covers all of it. Game::Update
+		// decides whether this frame counts (alloc::ArmFrame).
+		alloc::BeginFrame();
 		game.Update(dt);
 
 		ID3D12GraphicsCommandList* list = device.BeginFrame(clearColor);
 		game.Render(list);
 		device.EndFrame();
+
+		alloc::ReportFrame(alloc::EndFrame());
 
 		window.GetInput().EndFrame();
 
@@ -69,5 +82,19 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
 
 	device.WaitIdle();
 	log::Info("Dungeon shutting down.");
+
+	// Whole-run heap totals per thread. Cheap, and it is the standing check
+	// that the operator new replacements are actually linked in — all-zero
+	// counters mean the CRT's own new is still in play, not a quiet run.
+	if constexpr (alloc::kEnabled) {
+		alloc::ThreadReport reports[alloc::kMaxThreads];
+		const int n = alloc::SnapshotAll(reports, alloc::kMaxThreads);
+		for (int i = 0; i < n; ++i) {
+			const alloc::Counters& c = reports[i].counters;
+			log::Info("heap[{}] tid {}: {} allocs ({} excused), {} frees, {:.1f} MB requested",
+					  reports[i].name, reports[i].osThreadId, c.allocs, c.excused, c.frees,
+					  static_cast<double>(c.bytes) / (1024.0 * 1024.0));
+		}
+	}
 	return 0;
 }

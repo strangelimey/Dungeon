@@ -6,12 +6,14 @@
 
 #include "Assets/File.h"
 #include "Assets/Image.h"
+#include "Core/AllocTrack.h"
 #include "Core/Loc.h"
 #include "Core/Log.h"
 #include "Core/Paths.h"
 #include "Game/AssetUtil.h"
 #include "Graphics/DisplayEnum.h"
 #include "Graphics/Texture.h"
+#include "Platform/PerfMonitor.h"
 
 #include <algorithm>
 #include <array>
@@ -207,23 +209,26 @@ Game::~Game() {
 void Game::BuildBootLoadTasks() {
 	m_loadQueue.Clear();
 	m_loadQueue.SetDoneLabel(loc::Tr("load.done"));
-	m_loadQueue.Add(loc::Tr("load.echoes"), [this] { m_sounds.Load(); });
-	m_loadQueue.Add(loc::Tr("load.title_art"), [this] { m_ui.LoadTitleArt(); });
+	m_loadQueue.Add(loc::Tr("load.echoes"), [this] { m_sounds.Load(); }, "sounds");
+	m_loadQueue.Add(loc::Tr("load.title_art"), [this] { m_ui.LoadTitleArt(); }, "title art");
 }
 
 void Game::BuildGameLoadTasks() {
 	m_loadQueue.Clear();
 	m_loadQueue.SetDoneLabel(loc::Tr("load.done"));
 	m_world.AppendLoadTasks(m_loadQueue);
-	m_loadQueue.Add(loc::Tr("load.portraits"), [this] { LoadPortraits(); });
-	m_loadQueue.Add(loc::Tr("load.portraits"), [this] { LoadHitSplats(); });
-	m_loadQueue.Add(loc::Tr("load.portraits"), [this] { LoadItemIcons(); });
-	m_loadQueue.Add(loc::Tr("load.hud"), [this] {
-		m_ui.BuildHud();
-		log::Info("Game loaded: {}x{} dungeon, {} torches, {} monsters",
-				  m_world.Map().Width(), m_world.Map().Height(),
-				  m_world.Map().Sconces().size(), m_world.MonsterCount());
-	});
+	m_loadQueue.Add(loc::Tr("load.portraits"), [this] { LoadPortraits(); }, "portraits");
+	m_loadQueue.Add(loc::Tr("load.portraits"), [this] { LoadHitSplats(); }, "hit splats");
+	m_loadQueue.Add(loc::Tr("load.portraits"), [this] { LoadItemIcons(); }, "item icons");
+	m_loadQueue.Add(
+		loc::Tr("load.hud"),
+		[this] {
+			m_ui.BuildHud();
+			log::Info("Game loaded: {}x{} dungeon, {} torches, {} monsters",
+					  m_world.Map().Width(), m_world.Map().Height(),
+					  m_world.Map().Sconces().size(), m_world.MonsterCount());
+		},
+		"hud");
 }
 
 void Game::BeginLevelTransition(const std::string& stem, int x, int z,
@@ -247,8 +252,52 @@ void Game::BeginLevelTransition(const std::string& stem, int x, int z,
 // single import-model; texture sets import the maps (step 0) then rebake the
 // worn block meshes that sample them (step 1).
 bool Game::RunLoadTasks() {
+	const bool wasDone = m_loadQueue.Done();
 	if (m_framesRendered > m_stateFrameMark) m_loadQueue.RunOne();
-	return m_loadQueue.Done();
+	const bool done = m_loadQueue.Done();
+	if (done && !wasDone) LogLoadStats(); // the frame the last task landed
+	return done;
+}
+
+// The load-time counterpart to the steady-state rule: staged loading is ALLOWED
+// to allocate, but until now nobody had measured how much. Sorted by time, since
+// that is what a player feels; the allocation columns say where the time went.
+void Game::LogLoadStats(bool echoToConsole) {
+	const std::vector<LoadQueue::TaskStat>& stats = m_loadQueue.Stats();
+	if (stats.empty()) {
+		if (echoToConsole) m_console.Print("no load has run yet");
+		return;
+	}
+	auto say = [this, echoToConsole](std::string line) {
+		if (echoToConsole) m_console.Print(line);
+		log::Info("{}", line);
+	};
+
+	double totalMs = 0.0;
+	u64 totalAllocs = 0, totalBytes = 0;
+	for (const LoadQueue::TaskStat& s : stats) {
+		totalMs += s.ms;
+		totalAllocs += s.allocs;
+		totalBytes += s.bytes;
+	}
+
+	// Sorted by cost, not run order — the table is read top-down for suspects.
+	std::vector<const LoadQueue::TaskStat*> byCost;
+	byCost.reserve(stats.size());
+	for (const LoadQueue::TaskStat& s : stats) byCost.push_back(&s);
+	std::ranges::sort(byCost, [](const LoadQueue::TaskStat* a, const LoadQueue::TaskStat* b) {
+		return a->ms > b->ms;
+	});
+
+	const ProcessMemory mem = QueryProcessMemory();
+	say(std::format("--- load: {} tasks, {:.0f} ms, {} allocs, {:.1f} MB requested "
+					"(working set {:.0f} MB, peak {:.0f} MB) ---",
+					stats.size(), totalMs, totalAllocs,
+					static_cast<double>(totalBytes) / (1024.0 * 1024.0),
+					mem.workingSetMB, mem.peakWorkingSetMB));
+	for (const LoadQueue::TaskStat* s : byCost)
+		say(std::format("  {:>8.1f} ms  {:>8} allocs  {:>9.2f} MB  {}", s->ms, s->allocs,
+						static_cast<double>(s->bytes) / (1024.0 * 1024.0), s->name));
 }
 
 void Game::LoadPortraits() {
@@ -783,7 +832,59 @@ void Game::UpdateGovernor(float dt) {
 		m_threads.SetGlobalThrottle(m_governorScale, /*wakeNow=*/false);
 }
 
+// Is the frame now starting one the "steady-state frames allocate nothing" rule
+// actually covers? Playing, with nothing that legitimately builds or rebuilds in
+// flight — and it must have been that way for a WARM-UP, because the first
+// frames after a load or after an overlay closes are still settling (first-time
+// icon bakes, a shadow cube filling in, a widget tree laying out).
+bool Game::SteadyStateFrame() {
+	constexpr u32 kWarmupFrames = 120;
+	const bool quiet = m_state == AppState::Playing && !m_console.IsOpen() &&
+					   !m_mapView.IsOpen() && !m_baking && m_pendingLanguage.empty() &&
+					   !m_pendingQuality;
+	m_steadyFrames = quiet ? m_steadyFrames + 1 : 0;
+	return m_steadyFrames > kWarmupFrames;
+}
+
+// One `alloctest` window: spend the budget only on frames that actually armed,
+// so the load, the warm-up and the console being open cost the test nothing. The
+// verdict is the guard's own stats, differenced across the window.
+void Game::UpdateAllocTest(float dt, bool steady) {
+	m_allocTestDeadline -= dt;
+	if (steady) {
+		m_allocTestRemaining -= dt;
+		++m_allocTestFrames;
+	}
+	if (m_allocTestRemaining > 0.0f && m_allocTestDeadline > 0.0f) return;
+
+	const alloc::GuardStats now = alloc::Stats();
+	const u64 violations = now.violations - m_allocTestStart.violations;
+	const u64 badFrames = now.framesViolating - m_allocTestStart.framesViolating;
+	const bool timedOut = m_allocTestRemaining > 0.0f;
+	// One machine-readable line: tools\AllocTest.ps1 greps for it and nothing
+	// else, so the format is part of the contract.
+	const std::string line =
+		std::format("alloctest RESULT={} frames={} violations={} violating_frames={}{}",
+					timedOut ? "SKIP" : (violations == 0 ? "PASS" : "FAIL"),
+					m_allocTestFrames, violations, badFrames,
+					timedOut ? " reason=never_reached_a_steady_frame" : "");
+	log::Info("{}", line);
+	m_console.Print(line);
+	if (violations > 0)
+		m_console.Print("call sites are in dungeon.log (each reported once per session)");
+	m_allocTestRemaining = 0.0f;
+}
+
 void Game::Update(float dt) {
+	const bool steady = SteadyStateFrame();
+	alloc::ArmFrame(steady);
+	if (m_allocTestRemaining > 0.0f) UpdateAllocTest(dt, steady);
+	// `allocpoke`: a deliberate violation, so the guard can be seen to catch one.
+	if (m_allocPokeRemaining > 0.0f) {
+		m_allocPokeRemaining -= dt;
+		m_pokeScratch = std::make_unique<u32>(m_framesRendered);
+	}
+
 	const float wdt = dt * m_timeScale; // world dt (dev console `timescale`)
 	m_time += wdt;
 

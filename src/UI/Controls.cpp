@@ -390,10 +390,15 @@ void DropDown::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 
 	batch.DrawRect(px, m_hot || m_open ? theme.controlHot : theme.control);
 	DrawBorder(batch, px, theme.panelBorder);
+	// The empty case is a named string, NOT a "" literal: a ternary mixing
+	// std::string with const char* has common type std::string, so binding the
+	// reference COPIED the selected item — a heap allocation per dropdown per
+	// frame, in a draw path (found by the steady-state allocation guard).
+	static const std::string kNoSelection;
 	const std::string& current =
 		(m_selected >= 0 && m_selected < static_cast<int>(items.size()))
 			? items[static_cast<size_t>(m_selected)]
-			: "";
+			: kNoSelection;
 	const float textY = px.y + (px.h - font.Height()) * 0.5f;
 	// Arrow indicator, right-aligned with a margin so the glyph clears the
 	// border at any font size (measure it rather than assume a fixed width).

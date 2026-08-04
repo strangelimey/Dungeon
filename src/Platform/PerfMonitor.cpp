@@ -23,6 +23,12 @@ unsigned long long FtToU64(const FILETIME& ft) {
 }
 } // namespace
 
+ProcessMemory QueryProcessMemory() {
+	PROCESS_MEMORY_COUNTERS pmc{};
+	if (!GetProcessMemoryInfo(GetCurrentProcess(), &pmc, sizeof(pmc))) return {};
+	return {ToMB(pmc.WorkingSetSize), ToMB(pmc.PeakWorkingSetSize)};
+}
+
 PerfMonitor::PerfMonitor() {
 	// GPU utilization via the PDH "GPU Engine" counter set (WDDM 2.x+). The
 	// instance wildcard expands to one entry per (process, GPU engine); we sum
@@ -114,8 +120,11 @@ void PerfMonitor::SampleGpu() {
 		bufferSize == 0)
 		return;
 
-	std::vector<unsigned char> buffer(bufferSize);
-	auto* items = reinterpret_cast<PDH_FMT_COUNTERVALUE_ITEM_W*>(buffer.data());
+	// Retained capacity: PDH wants a byte buffer whose size it dictates, and the
+	// instance list barely changes, so the member vector settles after the first
+	// sample instead of allocating one per sample inside a steady frame.
+	if (m_gpuBuffer.size() < bufferSize) m_gpuBuffer.resize(bufferSize);
+	auto* items = reinterpret_cast<PDH_FMT_COUNTERVALUE_ITEM_W*>(m_gpuBuffer.data());
 	if (PdhGetFormattedCounterArrayW(counter, PDH_FMT_DOUBLE, &bufferSize,
 									 &itemCount, items) != ERROR_SUCCESS)
 		return;

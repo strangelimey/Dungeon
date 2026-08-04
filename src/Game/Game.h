@@ -38,6 +38,7 @@
 #pragma once
 
 #include "Audio/AudioEngine.h"
+#include "Core/AllocTrack.h"
 #include "Core/ThreadManager.h"
 #include "Game/AssetDialog.h"
 #include "Game/AssetPicker.h"
@@ -211,7 +212,18 @@ private:
 	// for a later return; pass false when leaving a throwaway baseline (save load).
 	void BeginLevelTransition(const std::string& stem, int x, int z,
 							  Direction facing, bool stashCurrent = true);
+	// True when the frame now starting is one the steady-state allocation rule
+	// covers (Core/AllocTrack). Stateful — it counts the warm-up.
+	bool SteadyStateFrame();
+	// Advances a running `alloctest` window and reports when it closes. The
+	// window is measured in ARMED frames, so time spent loading, warming up or
+	// with the console open does not spend it.
+	void UpdateAllocTest(float dt, bool steady);
 	bool RunLoadTasks();       // executes one task per frame; true when done
+	// Dumps the finished queue's per-task time/allocation table to the log —
+	// once as the last task lands, and again on demand (`loadstats`, which also
+	// echoes it into the console scrollback).
+	void LogLoadStats(bool echoToConsole = false);
 	void LoadPortraits();      // baked party portraits (load task)
 	void LoadHitSplats();      // hit-feedback splat icons (load task)
 	void LoadItemIcons();      // rune + placeholder item cursor/inventory icons (load task)
@@ -276,6 +288,22 @@ private:
 	LoadQueue m_loadQueue;
 	bool m_gameLoaded = false; // dungeon assets resident (first start done)
 	u32 m_framesRendered = 0;
+	// Consecutive frames that have been quietly Playing — the allocation guard's
+	// warm-up counter (see SteadyStateFrame).
+	u32 m_steadyFrames = 0;
+	// `alloctest`: an armed-seconds budget, a wall-clock deadline so a test that
+	// never reaches steady state reports SKIP instead of hanging, and the guard
+	// stats at the window's start (the result is their delta).
+	float m_allocTestRemaining = 0.0f;
+	float m_allocTestDeadline = 0.0f;
+	u32 m_allocTestFrames = 0;
+	alloc::GuardStats m_allocTestStart;
+	// `allocpoke`: allocate deliberately, every frame, for this many seconds.
+	// It exists so the guard and tools\AllocTest.ps1 can be shown to FAIL — a
+	// regression test that cannot fail proves nothing. m_pokeScratch holds the
+	// result so the allocation cannot be optimized away.
+	float m_allocPokeRemaining = 0.0f;
+	std::unique_ptr<u32> m_pokeScratch;
 	// Frame count when the current loading state was entered; tasks only run
 	// once its screen has been presented at least once.
 	u32 m_stateFrameMark = 0;

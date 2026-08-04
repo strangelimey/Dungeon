@@ -72,7 +72,9 @@ Platform::Window::PumpMessages
 
 ## Memory strategy
 
-Steady-state frames perform no heap allocation. The patterns, by subsystem:
+Steady-state frames perform no heap allocation — and that is now *checked*
+rather than taken on trust (see "Checking the rule" below). The patterns, by
+subsystem:
 
 - **GPU transient data — linear arena.** `gfx::UploadAllocator` is a per-frame
   bump allocator over a persistently mapped upload buffer (one per frame in
@@ -104,6 +106,18 @@ Steady-state frames perform no heap allocation. The patterns, by subsystem:
   in-flight frames, so whoever overwrites it must drain the GPU first
   (`Texture::Upload` drains via `ExecuteImmediate`; `Texture::RenderTarget`
   calls `WaitIdle` before its descriptor write).
+  It is still a hard CEILING, and reaching it is an abort rather than a
+  degradation — so the occupancy is now visible instead of silent:
+  `SrvLive()`/`SrvHighWater()` feed an `SRV 275 / 1024 (peak 275)` gauge in the
+  dev console's perf panel, crossing 75% and 90% logs a warning, and the
+  exhaustion assert quotes the peak so the message reads as "something is
+  leaking" rather than "the limit is 1024". Measured: the showcase level sits
+  at 275 slots, and two full quality swaps (every texture reloaded twice)
+  leave live *and* peak unchanged at 275 — the recycling holds exactly.
+  Removing the ceiling by GROWING the heap is deliberately not done: it needs
+  index-only `SrvHandle`s first (the absolute CPU/GPU pointers handed out today
+  would dangle when the heap is reallocated), and at 27% occupancy the
+  measurement says that work has not earned itself yet.
 - **Per-frame containers — retained capacity.** Containers rebuilt every frame
   (light list, sprite batch vertices, animator pose/palette buffers) are
   long-lived members that are cleared, never destroyed, and reserved up front,
@@ -114,12 +128,60 @@ Steady-state frames perform no heap allocation. The patterns, by subsystem:
   one-shot `ExecuteImmediate` upload path) deliberately uses plain ownership —
   it runs once at startup, where clarity beats allocator ceremony. C-API
   boundaries (cgltf, `FILE*`, shell COM) ride RAII wrappers so even an
-  exception mid-parse can't leak.
+  exception mid-parse can't leak. Plain does not mean unmeasured: `LoadQueue`
+  times and counts every staged task and dumps a table to `dungeon.log` when
+  the last one lands (`loadstats` reprints it). The showcase level's load is
+  22 tasks, ~223k allocations, 2.1 GB requested, 706 MB peak working set — and
+  **88% of those allocations are one task** (monsters + items + buttons), which
+  is where to look first if load time ever becomes the complaint.
 - **In-flight frame safety.** With `kFrameCount` = 3, up to two prior frames'
   GPU work may still reference a resource; every destroy-or-replace path
   (quality swap, level load, chunk edit rebuild, undo restore, font atlas
   swap, editor preview-mesh reset) calls `WaitIdle` first, and all run from
   `Update`, before the frame's command list opens.
+
+### Checking the rule
+
+`Core/AllocTrack` replaces the global `::operator new`/`delete` family and
+counts allocations into a per-thread, constant-initialized slot — no lock, no
+allocation, nothing to re-enter. On in Debug; `-DDN_TRACK_ALLOCS=ON` puts it in
+a Release build for a measurement run at real speed. It sees our containers (one
+statically linked exe, so `std` allocations route through it) and deliberately
+not raw `malloc`/`HeapAlloc` or anything a DLL allocates inside itself (D3D12,
+DXGI, XAudio2, PDH) — driver allocations are not ours to remove.
+
+Around that, a frame guard: `Main` brackets the whole frame, `Game::Update` arms
+it when the game is simply playing (no load, console, overlay or deferred
+rebuild, and has been so for 120 frames), and a violating frame gets its call
+stacks symbolized through DbgHelp into `dungeon.log`, each unique stack once per
+session. `alloctest [seconds]` measures a window of armed frames and prints one
+machine-readable verdict line; `tools\AllocTest.ps1` drives the whole run and
+exits non-zero on failure. `allocguard` shows the running stats and per-thread
+totals; `allocguard strict on` turns a violation into an assert (off by default
+— an abort in a debug build leaves a CRT dialog and a process that looks alive).
+
+Three per-frame allocations turned up the first time it ran: a `const
+std::string&` bound to a ternary whose other arm was `""` (so it bound to a
+*copy*) in `ui::DropDown::DrawSelf`, a per-sample buffer in
+`PerfMonitor::SampleGpu`, and `DungeonWorld::PickClip` returning `std::string`
+by value. After those, 21,338 armed frames with the party idle allocate nothing,
+and the AI workers total 8–50 allocations for a whole session.
+
+Two boundaries worth stating, because they are policy and not oversight:
+
+- **Event frames are not steady frames.** A bump message walks `loc::Tr` and
+  `MessageLog::AddLine`, both of which build strings. That is allocation
+  proportional to *events*, not to frames, and the rule is about the latter. It
+  is measured and reported but not asserted on — and deliberately not wrapped in
+  an `alloc::Excused` scope, since that would equally hide the bug where
+  something starts logging every frame.
+- **A test that cannot fail proves nothing.** `allocpoke` allocates every frame
+  on purpose and `AllocTest.ps1 -SelfTest` inverts the expected verdict, so the
+  harness must catch a real violation to pass.
+
+Not done: the counter covers the main thread's frame and each worker's totals,
+but a worker TICK is not individually guarded, and nothing runs this in CI (the
+test drives a real window).
 
 ## Asset pipeline
 

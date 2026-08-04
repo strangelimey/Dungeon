@@ -1036,9 +1036,15 @@ anim::CreatureState DungeonWorld::DesiredState(const Monster& m) const {
 
 // Resolves a state to an actual clip name through the kind's table, choosing a
 // random variation when several are authored (empty = the state is unauthored).
-std::string DungeonWorld::PickClip(const MonsterKind& kind, anim::CreatureState state) {
+// Returns a REFERENCE into the kind's table (which outlives every call) rather
+// than a copy: clip names run past the small-string buffer, so returning by
+// value put a heap allocation in the per-frame monster update every time a
+// state changed (found by the steady-state allocation guard).
+const std::string& DungeonWorld::PickClip(const MonsterKind& kind,
+										  anim::CreatureState state) {
+	static const std::string kNoClip;
 	const auto& cands = kind.animClips[static_cast<int>(state)];
-	if (cands.empty()) return {};
+	if (cands.empty()) return kNoClip;
 	if (cands.size() == 1) return cands.front();
 	return cands[m_combatRng() % cands.size()];
 }
@@ -1063,7 +1069,7 @@ void DungeonWorld::DriveMonsterAnim(Monster& monster, float dt) {
 
 	const anim::CreatureState want = DesiredState(monster);
 	if (want != monster.animState) {
-		const std::string clip = PickClip(*monster.kind, want);
+		const std::string& clip = PickClip(*monster.kind, want);
 		if (!clip.empty()) {
 			monster.animator.Play(clip, anim::IsLooping(want), kAnimFade);
 			// Arm this state's hold timer from the variation we actually chose, so

@@ -6,6 +6,7 @@
 
 #include "Assets/File.h"
 #include "Assets/Image.h"
+#include "Core/AllocTrack.h"
 #include "Core/Loc.h"
 #include "Core/Log.h"
 #include "Core/Paths.h"
@@ -71,6 +72,83 @@ void Game::RegisterDevCommands() {
 	m_console.Register("fps", "print the current frame rate",
 					   [this](const std::vector<std::string>&) {
 						   m_console.Print(std::format("{:.1f} fps", m_console.Fps()));
+					   });
+	m_console.Register(
+		"alloctest", "measure N seconds (default 10) of steady frames; PASS = zero allocations",
+		[this](const std::vector<std::string>& args) {
+			if (!alloc::kEnabled) {
+				m_console.Print("allocation tracking is compiled out of this build");
+				return;
+			}
+			const float seconds =
+				args.empty() ? 10.0f
+							 : std::clamp(static_cast<float>(std::atof(args[0].c_str())),
+										  1.0f, 600.0f);
+			m_allocTestRemaining = seconds;
+			// Generous: the window only spends on armed frames, and reaching one
+			// costs a console close plus the 120-frame warm-up.
+			m_allocTestDeadline = seconds * 3.0f + 15.0f;
+			m_allocTestFrames = 0;
+			m_allocTestStart = alloc::Stats();
+			m_console.Print(std::format(
+				"alloctest: {:.0f}s of steady frames — closing the console (frames only "
+				"arm while it is shut); the result lands here and in dungeon.log",
+				seconds));
+			if (m_console.IsOpen()) m_console.Toggle();
+		});
+	m_console.Register(
+		"allocpoke", "allocate on purpose for N seconds (proves the guard can fail)",
+		[this](const std::vector<std::string>& args) {
+			const float seconds =
+				args.empty() ? 30.0f
+							 : std::clamp(static_cast<float>(std::atof(args[0].c_str())),
+										  1.0f, 600.0f);
+			m_allocPokeRemaining = seconds;
+			m_console.Print(std::format("allocpoke: allocating every frame for {:.0f}s",
+										seconds));
+			if (m_console.IsOpen()) m_console.Toggle();
+		});
+	m_console.Register(
+		"allocguard", "steady-state allocation guard: status | strict on|off | reset",
+		[this](const std::vector<std::string>& args) {
+			const std::string sub = args.empty() ? "status" : args[0];
+			if (sub == "strict") {
+				if (!Need(m_console, args, 2, "usage: allocguard strict <on|off>")) return;
+				alloc::SetStrict(args[1] == "on" || args[1] == "1");
+				m_console.Print(std::format("strict mode {}",
+											alloc::Strict() ? "ON — a violating frame will abort"
+															: "off"));
+				return;
+			}
+			if (sub == "reset") {
+				alloc::ResetStats();
+				m_console.Print("guard stats + reported-stack memory cleared");
+				return;
+			}
+			if (!alloc::kEnabled) {
+				m_console.Print("allocation tracking is compiled out of this build");
+				return;
+			}
+			const alloc::GuardStats g = alloc::Stats();
+			m_console.Print(std::format("armed {} frames, {} violating, {} allocs, "
+										"{} call sites reported (strict {})",
+										g.framesArmed, g.framesViolating, g.violations,
+										g.stacksReported, alloc::Strict() ? "on" : "off"));
+			m_console.Print(m_steadyFrames > 120
+								? "this frame: steady (armed)"
+								: std::format("this frame: settling ({} quiet frames)",
+											  m_steadyFrames));
+			alloc::ThreadReport threads[alloc::kMaxThreads];
+			const int n = alloc::SnapshotAll(threads, alloc::kMaxThreads);
+			for (int i = 0; i < n; ++i)
+				m_console.Print(std::format("  {:<12} {:>10} allocs  {:>10} frees",
+											threads[i].name, threads[i].counters.allocs,
+											threads[i].counters.frees));
+		});
+	m_console.Register("loadstats",
+					   "reprint the last staged load's per-task time/allocation table",
+					   [this](const std::vector<std::string>&) {
+						   LogLoadStats(/*echoToConsole=*/true);
 					   });
 	m_console.Register("quality", "set quality tier 0-3 (low/med/high/ultra)",
 					   [this](const std::vector<std::string>& args) {

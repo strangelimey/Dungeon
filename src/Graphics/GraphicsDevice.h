@@ -131,6 +131,14 @@ public:
 	void FreeSrv(u32 index);
 	ID3D12DescriptorHeap* SrvHeap() const { return m_srvHeap.Get(); }
 
+	// Descriptor-heap occupancy, for the dev console's perf panel. Recycling
+	// made this ceiling much harder to reach — which is exactly why it needs
+	// watching: nothing else shows the approach, and arriving is an abort, not
+	// a degradation.
+	u32 SrvLive() const { return m_srvLive; }
+	u32 SrvHighWater() const { return m_srvHighWater; }
+	static constexpr u32 SrvCapacity() { return kSrvHeapCapacity; }
+
 	// Records `record` into a one-shot command list and blocks until the GPU
 	// finishes it. Used for resource uploads at load time.
 	void ExecuteImmediate(const std::function<void(ID3D12GraphicsCommandList*)>& record);
@@ -160,8 +168,10 @@ private:
 	ComPtr<ID3D12DescriptorHeap> m_srvHeap;
 	u32 m_rtvSize = 0;
 	u32 m_srvSize = 0;
-	u32 m_srvNext = 0;             // high-water mark; slots below it may be free
+	u32 m_srvNext = 0;             // first never-used slot; below it may be free
 	std::vector<u32> m_srvFree;    // recycled slots, reused LIFO by AllocateSrv
+	u32 m_srvLive = 0;             // allocated minus freed: the number that matters
+	u32 m_srvHighWater = 0;        // the most ever live at once
 
 	ComPtr<ID3D12Resource> m_backBuffers[kFrameCount];
 	ComPtr<ID3D12Resource> m_depthBuffer;
