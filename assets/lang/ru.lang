@@ -333,7 +333,6 @@ monster.skel_warrior=скелет-воин
 monster.skel_bare=скелет-разбойник
 monster.skel_berserker=скелет-берсерк
 monster.skel_spearman=скелет-копейщик
-monster.skel_human=костяной рыцарь
 
 ; --- character sheet / party bar -------------------------------------------------
 class.fighter=Воин

@@ -329,7 +329,6 @@ monster.skel_warrior=Der Skelettkrieger
 monster.skel_bare=Der Skelettplünderer
 monster.skel_berserker=Der Skelettberserker
 monster.skel_spearman=Der Skelettspeerträger
-monster.skel_human=Der Knochenritter
 
 ; --- character sheet / party bar -------------------------------------------------
 class.fighter=Krieger

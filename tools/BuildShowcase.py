@@ -96,11 +96,10 @@ DECORATIONS = [
 ]
 
 # --- monsters (.ent) --------------------------------------------------------
-# The five REAL skeleton models, not the procedural `skeleton` placeholder.
+# The four REAL skeleton models, not the procedural `skeleton` placeholder.
 # asleep=1 keeps each one standing where it was placed instead of charging the
 # camera; it gates the AI decision only, so they still play their idle clip.
 MONSTERS = [
-	("skel_human", 13, 4, "south"),      # Bone Knight, framed by the apse
 	("skel_warrior", 12, 9, "south"),
 	("skel_berserker", 15, 9, "south"),
 	("skel_spearman", 14, 6, "south"),

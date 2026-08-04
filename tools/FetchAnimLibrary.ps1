@@ -19,7 +19,7 @@
 #
 # Usage:
 #   powershell -File tools\FetchAnimLibrary.ps1                 # all table entries
-#   powershell -File tools\FetchAnimLibrary.ps1 -Creatures skel_human
+#   powershell -File tools\FetchAnimLibrary.ps1 -Creatures skel_bare
 #   powershell -File tools\FetchAnimLibrary.ps1 -Plan          # dry run (no Blender)
 #   powershell -File tools\FetchAnimLibrary.ps1 -Blender "C:\...\blender.exe"
 
@@ -95,11 +95,16 @@ function Resolve-Python {
 $animSets = @(
     # 0.76 units = 1.90 m, the height the procedural skeleton.gltf stands at, so
     # the bought and the built skeletons see eye to eye in the same room.
-    @{ Name = "skel_human";
-       Mesh = "fab\monsters\lowpoly-human-skeleton\skeleton_mixamo_upload.fbx";
-       Library = "anim\humanoid";
-       Height = 0.76;
-       MeshYaw = 90 }
+    #
+    # RETIRED 2026-08-04: the lowpoly-human-skeleton pack ("skel_human", Bone
+    # Knight). It is an ANATOMICAL skeleton — 81 loose islands, no connective
+    # tissue — and nothing we tried bound it cleanly: the scripted bind's
+    # per-vertex fallback shredded the ribcage and flipped the scapulae up like
+    # wings, forcing every island rigid left it stiff and still wrong, and the
+    # pack's Mixamo rig only ships as .glb, which imports with bone orientations
+    # and a scale that do not match the .fbx clip library. The Skeleton Army kit
+    # covers the same role. Rebuild the entry from git history if the pack is
+    # ever revisited — it wants a rigged FBX downloaded from Mixamo.
 
     # Skeleton Army Kit (Konjo Design, fab 2026-07-10): four PRE-BUILT armed
     # variants. The unrigged A-pose OBJs defeated the scripted rigid bind
@@ -221,6 +226,7 @@ foreach ($c in $animSets) {
     if ($c.Original) { $texArgs += @('--original', (Join-Path $archive $c.Original)) }
     if ($c.Islands) { $texArgs += @('--islands', $c.Islands) }
     if ($c.Mirror) { $texArgs += @('--mirror') }
+    if ($c.FlipGreen) { $texArgs += @('--flip-green') }
     if ($c.RigFrom) { $texArgs += @('--rig-from', (Join-Path $archive $c.RigFrom)) }
 
     $rc = Invoke-Blender $mesh $library $outGltf "--height" $c.Height "--catalog-out" $catOut "--mesh-yaw" $yaw @texArgs

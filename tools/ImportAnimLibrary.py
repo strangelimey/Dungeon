@@ -57,6 +57,7 @@ import sys
 import os
 import glob
 import re
+import tempfile
 
 # The canonical state tokens — MUST stay in sync with dungeon::anim::CreatureState
 # (src/Animation/CreatureState.h). A library subfolder maps to a state by name
@@ -142,11 +143,11 @@ def parse_args(argv):
             "catalog_out": None, "mesh_yaw": 90.0, "keep_fingers": False,
             "textures": "", "tex_dir": "", "arm_drop": 0.0, "skinned": False,
             "rigid_islands": False, "original": "", "islands": "",
-            "mirror": False, "rig_from": ""}
+            "mirror": False, "rig_from": "", "flip_green": False}
     usage = ("usage: <mesh.fbx|.obj> <library_root> <out.gltf> --height <units> "
              "[--catalog-out f] [--mesh-yaw deg] [--keep-fingers] "
-             "[--textures '<mat>=<albedo>[:<normal>];...' --tex-dir <dir>] "
-             "[--islands '<minvert>=<bone>;...'] [--mirror] "
+             "[--textures '<mat>=<albedo>[:<normal>[:<orm>]];...' --tex-dir <dir>] "
+             "[--flip-green] [--islands '<minvert>=<bone>;...'] [--mirror] "
              "[--rig-from <sibling_rigged.fbx>]  |  "
              "--plan <library_root> [--catalog-out f]")
 
@@ -181,6 +182,8 @@ def parse_args(argv):
             opts["islands"] = value(i, a); i += 2
         elif a == "--mirror":
             opts["mirror"] = True; i += 1
+        elif a == "--flip-green":
+            opts["flip_green"] = True; i += 1
         elif a == "--rig-from":
             opts["rig_from"] = value(i, a); i += 2
         elif a == "--arm-drop":
@@ -266,6 +269,11 @@ def run_bake(opts):
 
     clear_scene()
 
+    # NOTE a --skinned mesh must be an FBX. A Mixamo rig re-exported as .glb
+    # imports with different bone orientations and scale (glTF stores no bone
+    # roll or length, so Blender synthesises them), which leaves the rig at a
+    # different scale from its own mesh and gives the re-rest a basis that
+    # doesn't match the clip library's. Download the rigged FBX from Mixamo.
     def import_fbx(path):
         before = set(bpy.data.objects)
         bpy.ops.import_scene.fbx(filepath=path)
@@ -931,6 +939,32 @@ def run_bake(opts):
     for pair in (p for p in opts["textures"].split(";") if p.strip()):
         mat_name, _, files = pair.partition("=")
         tex_map[mat_name.strip()] = files.strip()
+
+    flip_dir = tempfile.mkdtemp(prefix="animlib_norm_") if opts["flip_green"] else ""
+
+    def load_map(fname, non_color=False, flip_green=False):
+        img = bpy.data.images.load(os.path.join(opts["tex_dir"], fname))
+        if non_color:  # read/write the stored bytes, not a colour-managed view
+            img.colorspace_settings.name = "Non-Color"
+        if not flip_green:
+            return img
+        import numpy as np
+        px = np.empty(len(img.pixels), dtype=np.float32)
+        img.pixels.foreach_get(px)
+        px[1::4] = 1.0 - px[1::4]
+        img.pixels.foreach_set(px)
+        # Save the flipped pixels out and re-load THAT file. The glTF exporter
+        # embeds an image's source file whenever it can, so an in-memory edit
+        # would be dropped without a word and ship the unflipped map.
+        out = os.path.join(flip_dir, fname)
+        img.filepath_raw = out
+        img.file_format = "PNG"
+        img.save()
+        bpy.data.images.remove(img)
+        img = bpy.data.images.load(out)
+        img.colorspace_settings.name = "Non-Color"
+        return img
+
     if tex_map:
         for slot in mesh.material_slots:
             mat = slot.material
@@ -948,21 +982,41 @@ def run_bake(opts):
                            None) or nt.nodes.new("ShaderNodeOutputMaterial")
                 nt.links.new(bsdf.outputs["BSDF"], out.inputs["Surface"])
             if spec[0]:
-                img = bpy.data.images.load(os.path.join(opts["tex_dir"], spec[0]))
+                img = load_map(spec[0])
                 node = nt.nodes.new("ShaderNodeTexImage")
                 node.image = img
                 nt.links.new(node.outputs["Color"], bsdf.inputs["Base Color"])
             if len(spec) > 1 and spec[1]:
-                img = bpy.data.images.load(os.path.join(opts["tex_dir"], spec[1]))
-                img.colorspace_settings.name = "Non-Color"
+                # A glTF-authored normal map is green-UP by spec; the engine
+                # runs green-DOWN (ImportTextures flips OpenGL sources on the
+                # way in, and an embedded map never passes through it). Unflipped,
+                # every bump is lit as a dent — which reads as blotchy shading
+                # rather than as anything obviously inverted.
+                img = load_map(spec[1], non_color=True, flip_green=opts["flip_green"])
                 node = nt.nodes.new("ShaderNodeTexImage")
                 node.image = img
                 nm = nt.nodes.new("ShaderNodeNormalMap")
                 nt.links.new(node.outputs["Color"], nm.inputs["Color"])
                 nt.links.new(nm.outputs["Normal"], bsdf.inputs["Normal"])
-            bsdf.inputs["Roughness"].default_value = 0.75
+            orm = len(spec) > 2 and spec[2]
+            if orm:
+                # glTF ORM: R=occlusion, G=roughness, B=metallic — the layout the
+                # engine's MaterialParams::metalRough slot samples, so exporting
+                # this image as the metallicRoughness texture hands the shader its
+                # occlusion for free. Drive Roughness from G and leave Metallic on
+                # its 0 default: B is 1.0 across both of this pack's maps, and a
+                # metallic FACTOR of 1 would render the bones as chrome.
+                img = load_map(spec[2], non_color=True)
+                node = nt.nodes.new("ShaderNodeTexImage")
+                node.image = img
+                sep = nt.nodes.new("ShaderNodeSeparateColor")
+                nt.links.new(node.outputs["Color"], sep.inputs["Color"])
+                nt.links.new(sep.outputs["Green"], bsdf.inputs["Roughness"])
+            else:
+                bsdf.inputs["Roughness"].default_value = 0.75
             bsdf.inputs["Metallic"].default_value = 0.0
-            print(f"[tex] '{mat.name}' <- {tex_map[mat.name]}")
+            print(f"[tex] '{mat.name}' <- {tex_map[mat.name]}"
+                  f"{' (green-flipped)' if opts['flip_green'] else ''}")
     else:
         # merge to ONE material -> single glTF primitive (single-set monsters)
         for p in mesh.data.polygons:
@@ -1021,7 +1075,15 @@ def run_bake(opts):
             if len(comp) > 300:  # the big pieces (shield, blade, torso shells)
                 print(f"[bind] island({len(comp)} verts) -> {dom} "
                       f"({dom_n / len(comp):.0%})")  # eyeball the assignment
-            if dom_n / len(comp) >= 0.70:  # compact shell -> one rigid bone
+            # A spanning island falls back to a PER-VERTEX snap, which tears it
+            # apart: each vertex chases whatever bone is nearest, so a ribcage
+            # that reaches from pelvis to neck comes apart rib by rib and a
+            # scapula splits across the joint it lies over. --rigid-islands says
+            # the model has no soft tissue — every island is a hard piece — so
+            # keep it whole on its dominant bone however poorly it scored. It is
+            # the same call the Skeleton Army kit makes, and a stiff torso beats
+            # a shredded one.
+            if opts["rigid_islands"] or dom_n / len(comp) >= 0.70:
                 vgs[dom].add(comp, 1.0, "REPLACE")
                 rigid_n += 1
             else:                          # spanning island -> per-vertex
