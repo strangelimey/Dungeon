@@ -56,7 +56,26 @@ Key conventions (memorize, they bite):
   heap (docs/ARCHITECTURE.md "Memory strategy"). A full allocation audit
   (2026-07-03) verified the rule and closed its last violations (formation
   scratch, flat AI-snapshot grids, shared icon light rig — see the AI
-  section). One convention carries an invariant no compiler checks: cached
+  section). The rule is now CHECKED, not just held (docs/ARCHITECTURE.md
+  "Checking the rule"): Core/AllocTrack replaces the global ::operator new
+  family and counts per THREAD (lock-free, constant-initialized slot; Debug,
+  or -DDN_TRACK_ALLOCS=ON in Release). Main brackets each frame,
+  Game::SteadyStateFrame arms it (Playing, no console/overlay/load/deferred
+  rebuild, 120-frame warm-up), and a violating frame's call stacks are
+  symbolized into dungeon.log once per unique site. Dev: `alloctest [secs]`
+  (one machine-readable verdict line), `allocguard [status|strict on|off|
+  reset]`, `allocpoke` (violate on purpose); `tools\AllocTest.ps1` is the
+  re-runnable regression run (`-SelfTest` inverts the verdict, so the harness
+  must catch a real violation to pass). TWO POLICIES to know before "fixing" a
+  report: EVENT frames (a bump message → loc::Tr + MessageLog::AddLine) DO
+  allocate and are reported but not asserted on — allocation proportional to
+  events isn't what the rule forbids, and they are deliberately NOT wrapped in
+  alloc::Excused because that would also hide something logging every frame;
+  and anything reporting from inside a guarded frame must excuse ITSELF
+  (log::Write formats a string). Staged loading is measured too — LoadQueue
+  times/counts every task and dumps a table when the last lands (`loadstats`
+  reprints; each Add takes an English dev name beside its localized label).
+  One convention carries an invariant no compiler checks: cached
   UIContext widget pointers die on Clear(), so any callback that triggers
   a page rebuild must DEFER it a frame (the m_pendingLanguage /
   m_videoRebuildPending pattern). The party roster is resize-safe: the
@@ -72,7 +91,16 @@ Key conventions (memorize, they bite):
   slots instead of leaking the heap. RULE for any new AllocateSrv caller:
   a recycled slot's old descriptor can still be referenced by in-flight
   frames — drain the GPU before overwriting it (Texture::Upload drains via
-  ExecuteImmediate; Texture::RenderTarget calls WaitIdle first).
+  ExecuteImmediate; Texture::RenderTarget calls WaitIdle first). It is still
+  a hard CEILING whose arrival is an abort, so occupancy is VISIBLE now:
+  SrvLive()/SrvHighWater() draw an `SRV 275 / 1024 (peak 275)` gauge in the
+  console perf panel, 75%/90% crossings log a warning, and the exhaustion
+  assert quotes the peak (reads as "something leaks", not "the limit is
+  1024"). Measured: showcase = 275 live, and two quality swaps (every
+  texture reloaded twice) leave live AND peak at 275. GROWING the heap is
+  deliberately NOT built — it needs index-only SrvHandles first, since the
+  absolute CPU/GPU pointers handed out today would dangle across a
+  reallocation, and 27% occupancy says that work hasn't earned itself.
 - Lifetime conventions: ~Game calls AudioEngine::StopAll() because sound
   playback is ZERO-COPY from SoundBank memory and the engine outlives
   Game; preview-mesh resets (dev console `preview`, AssetDialog) WaitIdle

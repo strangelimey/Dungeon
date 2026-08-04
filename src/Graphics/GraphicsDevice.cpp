@@ -386,8 +386,24 @@ SrvHandle GraphicsDevice::AllocateSrv() {
 		handle.index = m_srvFree.back();
 		m_srvFree.pop_back();
 	} else {
-		DN_ASSERT(m_srvNext < kSrvHeapCapacity, "SRV heap exhausted");
+		// The free list recycles, so this bounds LIVE textures — but it is still
+		// a ceiling, and one that was invisible right up to the abort. Say what
+		// the number was when it blew, so the message points at a leak rather
+		// than just a limit.
+		DN_ASSERT(m_srvNext < kSrvHeapCapacity,
+				  std::format("SRV heap exhausted: {} slots, all live (peak {}). "
+							  "Something is holding textures it should have freed.",
+							  kSrvHeapCapacity, m_srvHighWater));
 		handle.index = m_srvNext++;
+	}
+	++m_srvLive;
+	if (m_srvLive > m_srvHighWater) {
+		m_srvHighWater = m_srvLive;
+		// On the crossing only, never per allocation.
+		for (const u32 pct : {75u, 90u})
+			if (m_srvHighWater == kSrvHeapCapacity * pct / 100)
+				log::Warn("SRV heap {}% full ({} of {} slots live)", pct, m_srvHighWater,
+						  kSrvHeapCapacity);
 	}
 	handle.cpu = m_srvHeap->GetCPUDescriptorHandleForHeapStart();
 	handle.cpu.ptr += static_cast<size_t>(handle.index) * m_srvSize;
@@ -398,6 +414,7 @@ SrvHandle GraphicsDevice::AllocateSrv() {
 
 void GraphicsDevice::FreeSrv(u32 index) {
 	m_srvFree.push_back(index);
+	if (m_srvLive > 0) --m_srvLive;
 }
 
 void GraphicsDevice::ExecuteImmediate(

@@ -25,6 +25,7 @@ const Vec4 kBorder{0.35f, 0.38f, 0.48f, 1.0f};
 const Vec4 kText{0.85f, 0.88f, 0.92f, 1.0f};
 const Vec4 kDim{0.55f, 0.58f, 0.66f, 1.0f};
 const Vec4 kAccent{0.55f, 0.85f, 0.55f, 1.0f};
+const Vec4 kWarn{0.95f, 0.65f, 0.35f, 1.0f}; // a readout near a hard ceiling
 const Vec4 kGaugeBg{0.13f, 0.13f, 0.17f, 1.0f};
 
 std::vector<std::string> Tokenize(const std::string& line) {
@@ -252,6 +253,18 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 	m_font->Draw(batch, std::format("VRAM {:.2f} / {:.2f} GB", gpuUsedGB, gpuBudgetGB),
 				labelX, y, kText);
 	gauge(y, vramFrac, {0.80f, 0.55f, 0.85f, 1.0f});
+	y += line;
+
+	// Descriptor slots: a FIXED ceiling, unlike the two gauges above, so the
+	// gauge is against capacity and the peak rides along — a number that climbs
+	// and never comes back down is the shape of a leak.
+	const float srvFrac = static_cast<float>(device.SrvLive()) /
+						  static_cast<float>(gfx::GraphicsDevice::SrvCapacity());
+	m_font->Draw(batch,
+				std::format("SRV  {} / {} (peak {})", device.SrvLive(),
+							gfx::GraphicsDevice::SrvCapacity(), device.SrvHighWater()),
+				labelX, y, srvFrac > 0.9f ? kWarn : kText);
+	gauge(y, srvFrac, {0.60f, 0.75f, 0.90f, 1.0f});
 	y += line;
 
 	row(std::format("Process working set: {:.0f} MB", m.procMemMB));
