@@ -22,6 +22,7 @@
 // ============================================================================
 #include "Assets/Model.h"
 
+#include "Core/AllocTrack.h"
 #include "Core/Log.h"
 
 #include <cgltf.h>
@@ -194,6 +195,7 @@ void ReadPrimitive(const cgltf_primitive* prim, MeshData& mesh,
 } // namespace
 
 std::expected<ModelData, std::string> LoadGltf(const std::string& path) {
+	const alloc::Counters before = alloc::ThisThread();
 	cgltf_options options{};
 	cgltf_data* data = nullptr;
 	if (cgltf_parse_file(&options, path.c_str(), &data) != cgltf_result_success)
@@ -205,6 +207,7 @@ std::expected<ModelData, std::string> LoadGltf(const std::string& path) {
 		return std::unexpected(std::format("failed to load glTF buffers: {}", path));
 
 	ModelData model;
+	model.clips.reserve(data->animations_count); // see the clip loop below
 	ImageCache imageCache{data, std::filesystem::path(path).parent_path(), &model, {}};
 
 	// Materials (indices must match cgltf's so primitives can look them up).
@@ -261,11 +264,19 @@ std::expected<ModelData, std::string> LoadGltf(const std::string& path) {
 		}
 	}
 
-	// Animation clips.
+	// Animation clips. Both vectors are RESERVED before their loops: a growing
+	// vector of channels re-allocates ~13 times per clip, and in a DEBUG build
+	// each of those re-allocations COPIES every channel it holds rather than
+	// moving them (MSVC's _ITERATOR_DEBUG_LEVEL makes vector's move constructor
+	// allocate an iterator-debug proxy, so it is not noexcept, so
+	// move_if_noexcept picks the copy). Every copied channel re-allocates its
+	// times and values buffers. Reserving turns a rigged monster's clip load
+	// from 47.7k allocations into 8.5k in debug, and costs one line.
 	for (cgltf_size a = 0; a < data->animations_count; ++a) {
 		const cgltf_animation& src = data->animations[a];
 		AnimationClipData clip;
 		clip.name = src.name ? src.name : std::format("clip{}", a);
+		clip.channels.reserve(src.channels_count);
 		for (cgltf_size c = 0; c < src.channels_count; ++c) {
 			const cgltf_animation_channel& ch = src.channels[c];
 			if (!ch.target_node || !nodeToJoint.contains(ch.target_node)) continue;
@@ -298,9 +309,16 @@ std::expected<ModelData, std::string> LoadGltf(const std::string& path) {
 		if (!clip.channels.empty()) model.clips.push_back(std::move(clip));
 	}
 
-	log::Info("Loaded glTF '{}': {} meshes, {} materials, {} joints, {} clips", path,
-			  model.meshes.size(), model.materials.size(), model.skeleton.joints.size(),
-			  model.clips.size());
+	// Allocation cost rides the existing line: model loading is the heaviest
+	// allocator in the game and the per-model number is what turns "loading
+	// allocates a lot" into a name (see LoadQueue's table).
+	const alloc::Counters after = alloc::ThisThread();
+	log::Info("Loaded glTF '{}': {} meshes, {} materials, {} joints, {} clips "
+			  "[{} allocs, {:.1f} MB]",
+			  path, model.meshes.size(), model.materials.size(),
+			  model.skeleton.joints.size(), model.clips.size(),
+			  after.allocs - before.allocs,
+			  static_cast<double>(after.bytes - before.bytes) / (1024.0 * 1024.0));
 	return model;
 }
 

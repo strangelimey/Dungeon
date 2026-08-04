@@ -74,7 +74,15 @@ Key conventions (memorize, they bite):
   and anything reporting from inside a guarded frame must excuse ITSELF
   (log::Write formats a string). Staged loading is measured too — LoadQueue
   times/counts every task and dumps a table when the last lands (`loadstats`
-  reprints; each Add takes an English dev name beside its localized label).
+  reprints; each Add takes an English dev name beside its localized label),
+  and LoadGltf reports allocs/MB per model. TRAP when reading those numbers:
+  DEBUG allocation counts are NOT release ones — MSVC iterator debugging makes
+  vector's move ctor allocate a proxy (so it isn't noexcept, so push_back
+  growth COPIES elements; each copied anim channel re-allocates both its
+  buffers). Same load: 223k allocs debug vs 43k release. Reserving the clip
+  vectors fixed the copies (debug → 129k); the residue is the per-move proxy
+  and is intrinsic to the debug CRT. 80% of the load is four rigged skeletons
+  (40 clips × 99 channels × 2 buffers = the floor for that layout).
   One convention carries an invariant no compiler checks: cached
   UIContext widget pointers die on Clear(), so any callback that triggers
   a page rebuild must DEFER it a frame (the m_pendingLanguage /

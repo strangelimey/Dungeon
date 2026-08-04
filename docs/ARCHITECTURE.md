@@ -130,10 +130,30 @@ subsystem:
   boundaries (cgltf, `FILE*`, shell COM) ride RAII wrappers so even an
   exception mid-parse can't leak. Plain does not mean unmeasured: `LoadQueue`
   times and counts every staged task and dumps a table to `dungeon.log` when
-  the last one lands (`loadstats` reprints it). The showcase level's load is
-  22 tasks, ~223k allocations, 2.1 GB requested, 706 MB peak working set — and
-  **88% of those allocations are one task** (monsters + items + buttons), which
-  is where to look first if load time ever becomes the complaint.
+  the last one lands (`loadstats` reprints it), and `assets::LoadGltf` reports
+  allocations and bytes per model on its own log line. The showcase level's
+  load is 22 tasks, ~41k allocations and 2.0 GB requested in Release (~129k in
+  Debug — see below), 680 MB peak working set.
+  **80% of it is four rigged skeletons**: 40 Mixamo clips × 99 animation
+  channels each, and a channel needs a `times` and a `values` buffer, so 7,920
+  allocations per model is the floor for this data layout. Going below it means
+  flattening a clip's channels into one arena and teaching the sampler to index
+  it — not worth it for a path that runs once per level.
+  Two things found while measuring, both worth remembering:
+  - **Debug allocation counts are not release allocation counts.** MSVC's
+    iterator debugging gives `std::vector` a move constructor that allocates an
+    iterator-debug proxy, so it is not `noexcept`, so `move_if_noexcept` makes
+    every `push_back` re-allocation *copy* its elements instead of moving them
+    — and each copied animation channel re-allocates both its buffers. The same
+    load measured 223k allocations in Debug against 43k in Release. Reserving
+    both clip vectors (`LoadGltf`) removed the copies and took Debug to 129k;
+    the rest of the gap is the per-move proxy, which is intrinsic to the debug
+    CRT. Time is inflated in Debug too, but by a different factor — compare
+    like with like.
+  - The dagger models load **twice**, once as `weapons.cat` items and once as
+    `decorations.cat` props, because each catalog caches kinds separately. It
+    is a few hundred allocations and a few MB, so it stays on the list rather
+    than in the code, but a shared model cache across catalogs would close it.
 - **In-flight frame safety.** With `kFrameCount` = 3, up to two prior frames'
   GPU work may still reference a resource; every destroy-or-replace path
   (quality swap, level load, chunk edit rebuild, undo restore, font atlas
