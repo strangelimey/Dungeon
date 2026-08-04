@@ -60,11 +60,18 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
 
 	while (window.PumpMessages()) {
 		const float dt = timer.Tick();
+
+		// The steady-state allocation guard brackets the WHOLE frame — update,
+		// render and present — because the rule covers all of it. Game::Update
+		// decides whether this frame counts (alloc::ArmFrame).
+		alloc::BeginFrame();
 		game.Update(dt);
 
 		ID3D12GraphicsCommandList* list = device.BeginFrame(clearColor);
 		game.Render(list);
 		device.EndFrame();
+
+		alloc::ReportFrame(alloc::EndFrame());
 
 		window.GetInput().EndFrame();
 

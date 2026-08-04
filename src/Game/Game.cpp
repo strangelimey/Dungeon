@@ -6,6 +6,7 @@
 
 #include "Assets/File.h"
 #include "Assets/Image.h"
+#include "Core/AllocTrack.h"
 #include "Core/Loc.h"
 #include "Core/Log.h"
 #include "Core/Paths.h"
@@ -831,7 +832,23 @@ void Game::UpdateGovernor(float dt) {
 		m_threads.SetGlobalThrottle(m_governorScale, /*wakeNow=*/false);
 }
 
+// Is the frame now starting one the "steady-state frames allocate nothing" rule
+// actually covers? Playing, with nothing that legitimately builds or rebuilds in
+// flight — and it must have been that way for a WARM-UP, because the first
+// frames after a load or after an overlay closes are still settling (first-time
+// icon bakes, a shadow cube filling in, a widget tree laying out).
+bool Game::SteadyStateFrame() {
+	constexpr u32 kWarmupFrames = 120;
+	const bool quiet = m_state == AppState::Playing && !m_console.IsOpen() &&
+					   !m_mapView.IsOpen() && !m_baking && m_pendingLanguage.empty() &&
+					   !m_pendingQuality;
+	m_steadyFrames = quiet ? m_steadyFrames + 1 : 0;
+	return m_steadyFrames > kWarmupFrames;
+}
+
 void Game::Update(float dt) {
+	alloc::ArmFrame(SteadyStateFrame());
+
 	const float wdt = dt * m_timeScale; // world dt (dev console `timescale`)
 	m_time += wdt;
 

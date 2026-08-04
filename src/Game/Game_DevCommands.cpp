@@ -6,6 +6,7 @@
 
 #include "Assets/File.h"
 #include "Assets/Image.h"
+#include "Core/AllocTrack.h"
 #include "Core/Loc.h"
 #include "Core/Log.h"
 #include "Core/Paths.h"
@@ -72,6 +73,43 @@ void Game::RegisterDevCommands() {
 					   [this](const std::vector<std::string>&) {
 						   m_console.Print(std::format("{:.1f} fps", m_console.Fps()));
 					   });
+	m_console.Register(
+		"allocguard", "steady-state allocation guard: status | strict on|off | reset",
+		[this](const std::vector<std::string>& args) {
+			const std::string sub = args.empty() ? "status" : args[0];
+			if (sub == "strict") {
+				if (!Need(m_console, args, 2, "usage: allocguard strict <on|off>")) return;
+				alloc::SetStrict(args[1] == "on" || args[1] == "1");
+				m_console.Print(std::format("strict mode {}",
+											alloc::Strict() ? "ON — a violating frame will abort"
+															: "off"));
+				return;
+			}
+			if (sub == "reset") {
+				alloc::ResetStats();
+				m_console.Print("guard stats + reported-stack memory cleared");
+				return;
+			}
+			if (!alloc::kEnabled) {
+				m_console.Print("allocation tracking is compiled out of this build");
+				return;
+			}
+			const alloc::GuardStats g = alloc::Stats();
+			m_console.Print(std::format("armed {} frames, {} violating, {} allocs, "
+										"{} call sites reported (strict {})",
+										g.framesArmed, g.framesViolating, g.violations,
+										g.stacksReported, alloc::Strict() ? "on" : "off"));
+			m_console.Print(m_steadyFrames > 120
+								? "this frame: steady (armed)"
+								: std::format("this frame: settling ({} quiet frames)",
+											  m_steadyFrames));
+			alloc::ThreadReport threads[alloc::kMaxThreads];
+			const int n = alloc::SnapshotAll(threads, alloc::kMaxThreads);
+			for (int i = 0; i < n; ++i)
+				m_console.Print(std::format("  {:<12} {:>10} allocs  {:>10} frees",
+											threads[i].name, threads[i].counters.allocs,
+											threads[i].counters.frees));
+		});
 	m_console.Register("loadstats",
 					   "reprint the last staged load's per-task time/allocation table",
 					   [this](const std::vector<std::string>&) {

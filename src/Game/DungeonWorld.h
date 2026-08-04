@@ -1586,7 +1586,8 @@ private:
 	anim::CreatureState DesiredState(const Monster& monster) const;
 	// Picks a clip name for a state from the kind's table — a random variation when
 	// several are authored, or empty when the state is unauthored for the kind.
-	std::string PickClip(const MonsterKind& kind, anim::CreatureState state);
+	// Returns a REFERENCE into that table, never a copy (see the definition).
+	const std::string& PickClip(const MonsterKind& kind, anim::CreatureState state);
 	// Duration (seconds) of a named clip in the kind's model, or 0 if absent.
 	float ClipDuration(const MonsterKind& kind, const std::string& name) const;
 	// Wakes a struck monster: latches awareness (sticky) and engages it toward the

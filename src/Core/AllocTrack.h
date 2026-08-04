@@ -88,6 +88,48 @@ struct ThreadReport {
 // over a counting thread, so it cannot stall a worker mid-tick.
 int SnapshotAll(ThreadReport* out, int capacity);
 
+// --- the frame guard --------------------------------------------------------
+// BeginFrame latches this thread's counters, ArmFrame says whether the frame
+// now running counts as steady state, EndFrame returns the verdict.
+//
+// STACK CAPTURE is decided at BeginFrame from the PREVIOUS frame's arming, not
+// the current one: a frame is armed a few lines into Game::Update, and steady
+// state is a RUN of frames rather than a single one, so last frame's answer is
+// both available in time and correct in practice. Capture is bounded per frame
+// (kMaxFrameStacks) and only happens in a frame that is already broken.
+inline constexpr int kMaxFrameStacks = 8;
+inline constexpr int kStackDepth = 24;
+
+struct FrameResult {
+	bool armed = false;
+	u64 violations = 0; // allocations that were not excused
+	u64 bytes = 0;
+	int stacks = 0; // how many were captured for ReportFrame to symbolize
+};
+
+void BeginFrame();
+void ArmFrame(bool steady);
+FrameResult EndFrame();
+
+// Logs a violating frame: each UNIQUE stack is symbolized once per session
+// (DbgHelp), and a frame that only repeats known stacks stays silent so a
+// standing violation cannot drown the log. Excuses its own allocations.
+// In strict mode a violation asserts instead — off by default, because an
+// abort in a debug build leaves a CRT dialog and a process that looks alive.
+void ReportFrame(const FrameResult& result);
+
+void SetStrict(bool strict);
+bool Strict();
+
+struct GuardStats {
+	u64 framesArmed = 0;
+	u64 framesViolating = 0;
+	u64 violations = 0;
+	u64 stacksReported = 0;
+};
+GuardStats Stats();
+void ResetStats();
+
 // RAII: allocations on this thread while alive are counted AND excused. Nests.
 class Excused {
 public:

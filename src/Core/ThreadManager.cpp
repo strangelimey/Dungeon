@@ -3,6 +3,7 @@
 // ============================================================================
 #include "Core/ThreadManager.h"
 
+#include "Core/AllocTrack.h"
 #include "Core/Log.h"
 
 #include <algorithm>
@@ -136,6 +137,11 @@ WorkerId Manager::Spawn(JobFn job, Options opt) {
 
 void Manager::Run(Worker* w, std::stop_token st) {
 	SetOsThreadName(w->name);
+	// Same name to the allocation counters: "allocates nothing per tick" is the
+	// steady-state rule on this side too, and the AI's snapshot/plan pools exist
+	// precisely to hold it. Registering here rather than inside the job keeps the
+	// one-time atexit bookkeeping out of the tick.
+	alloc::RegisterThread(w->name);
 #ifdef _WIN32
 	SetThreadPriority(GetCurrentThread(), Win32Priority(w->priority.load()));
 	if (const u64 mask = w->affinity.load())

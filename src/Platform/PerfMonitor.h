@@ -10,6 +10,8 @@
 // ============================================================================
 #pragma once
 
+#include <vector>
+
 namespace dungeon {
 
 // This process's working set right now, and the highest it has ever been, in
@@ -66,6 +68,8 @@ private:
 	// PDH GPU query handles (void* keeps <pdh.h> out of the header).
 	void* m_pdhQuery = nullptr;
 	void* m_pdhCounter = nullptr;
+	// Scratch for the PDH counter array, kept across samples (see SampleGpu).
+	std::vector<unsigned char> m_gpuBuffer;
 };
 
 } // namespace dungeon

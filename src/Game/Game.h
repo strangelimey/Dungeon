@@ -211,6 +211,9 @@ private:
 	// for a later return; pass false when leaving a throwaway baseline (save load).
 	void BeginLevelTransition(const std::string& stem, int x, int z,
 							  Direction facing, bool stashCurrent = true);
+	// True when the frame now starting is one the steady-state allocation rule
+	// covers (Core/AllocTrack). Stateful — it counts the warm-up.
+	bool SteadyStateFrame();
 	bool RunLoadTasks();       // executes one task per frame; true when done
 	// Dumps the finished queue's per-task time/allocation table to the log —
 	// once as the last task lands, and again on demand (`loadstats`, which also
@@ -280,6 +283,9 @@ private:
 	LoadQueue m_loadQueue;
 	bool m_gameLoaded = false; // dungeon assets resident (first start done)
 	u32 m_framesRendered = 0;
+	// Consecutive frames that have been quietly Playing — the allocation guard's
+	// warm-up counter (see SteadyStateFrame).
+	u32 m_steadyFrames = 0;
 	// Frame count when the current loading state was entered; tasks only run
 	// once its screen has been presented at least once.
 	u32 m_stateFrameMark = 0;
