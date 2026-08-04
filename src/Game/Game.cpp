@@ -846,8 +846,44 @@ bool Game::SteadyStateFrame() {
 	return m_steadyFrames > kWarmupFrames;
 }
 
+// One `alloctest` window: spend the budget only on frames that actually armed,
+// so the load, the warm-up and the console being open cost the test nothing. The
+// verdict is the guard's own stats, differenced across the window.
+void Game::UpdateAllocTest(float dt, bool steady) {
+	m_allocTestDeadline -= dt;
+	if (steady) {
+		m_allocTestRemaining -= dt;
+		++m_allocTestFrames;
+	}
+	if (m_allocTestRemaining > 0.0f && m_allocTestDeadline > 0.0f) return;
+
+	const alloc::GuardStats now = alloc::Stats();
+	const u64 violations = now.violations - m_allocTestStart.violations;
+	const u64 badFrames = now.framesViolating - m_allocTestStart.framesViolating;
+	const bool timedOut = m_allocTestRemaining > 0.0f;
+	// One machine-readable line: tools\AllocTest.ps1 greps for it and nothing
+	// else, so the format is part of the contract.
+	const std::string line =
+		std::format("alloctest RESULT={} frames={} violations={} violating_frames={}{}",
+					timedOut ? "SKIP" : (violations == 0 ? "PASS" : "FAIL"),
+					m_allocTestFrames, violations, badFrames,
+					timedOut ? " reason=never_reached_a_steady_frame" : "");
+	log::Info("{}", line);
+	m_console.Print(line);
+	if (violations > 0)
+		m_console.Print("call sites are in dungeon.log (each reported once per session)");
+	m_allocTestRemaining = 0.0f;
+}
+
 void Game::Update(float dt) {
-	alloc::ArmFrame(SteadyStateFrame());
+	const bool steady = SteadyStateFrame();
+	alloc::ArmFrame(steady);
+	if (m_allocTestRemaining > 0.0f) UpdateAllocTest(dt, steady);
+	// `allocpoke`: a deliberate violation, so the guard can be seen to catch one.
+	if (m_allocPokeRemaining > 0.0f) {
+		m_allocPokeRemaining -= dt;
+		m_pokeScratch = std::make_unique<u32>(m_framesRendered);
+	}
 
 	const float wdt = dt * m_timeScale; // world dt (dev console `timescale`)
 	m_time += wdt;
