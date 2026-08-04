@@ -6,6 +6,18 @@
 ;   threat_switch    x the margin another member must beat the lock by to steal it
 ;   threat_decay     x how fast the grudge fades (> 1 = short memory)
 ; Editable live in the editor's monster config dialog (Behavior tab).
+;
+; modelscale — uniform trim on top of UnitScale (Game/DungeonMap.h). A model
+; authored to convention needs none: docs/authoring-scale.md puts a humanoid at
+; ~0.68 units, and the procedural skeleton/mummy/blob already measure that.
+; The five BOUGHT skeletons (skel_bare / berserker / spearman / warrior / human)
+; are the exception — their meshes are still in METRE space, ~2.9 units tall, so
+; they missed the re-import in 1ac6c0a ("Lock the dungeon scale") and their old
+; 0.65 trim then got multiplied by kUnit, standing them 4.8 m tall in a 2.5 m
+; room. The values below bring them back to ~0.68 units; the four Skeleton Army
+; models share a rig and so share ONE factor (the spearman's taller bounds are
+; his raised spear, not a taller skeleton). The real fix is re-importing those
+; five in unit space, after which these trims should go back to 1.0.
 
 [skeleton]
 display = Skeleton
@@ -168,7 +180,7 @@ aggro = 8
 movecd = 0.5
 iq = 135
 size = large
-modelscale = 0.65
+modelscale = 0.34
 resists = pierce 0.5, slash 0.25, bash -0.5
 dmgtype = slash
 states = spawn idle incombat walk run attack defend hit die
@@ -256,7 +268,7 @@ aggro = 7
 movecd = 0.5
 iq = 125
 size = large
-modelscale = 0.65
+modelscale = 0.231
 resists = pierce 0.5, slash 0.25, bash -0.5
 dmgtype = slash
 states = spawn idle incombat walk run attack defend hit die
@@ -284,7 +296,7 @@ aggro = 7
 movecd = 0.45
 iq = 100
 size = large
-modelscale = 0.65
+modelscale = 0.231
 resists = pierce 0.5, slash 0.25, bash -0.5
 dmgtype = slash
 states = spawn idle incombat walk run attack defend hit die
@@ -312,7 +324,7 @@ aggro = 8
 movecd = 0.45
 iq = 110
 size = large
-modelscale = 0.65
+modelscale = 0.231
 resists = pierce 0.5, slash 0.25, bash -0.5
 dmgtype = slash
 states = spawn idle incombat walk run attack defend hit die
@@ -341,7 +353,7 @@ movecd = 0.5
 iq = 115
 reach = 2
 size = large
-modelscale = 0.65
+modelscale = 0.231
 resists = pierce 0.5, slash 0.25, bash -0.5
 dmgtype = pierce
 states = spawn idle incombat walk run attack defend hit die
