@@ -1,124 +1,72 @@
 // ============================================================================
-// Bc7Encoder.cpp — a compact BC7 encoder trialling two modes per block.
+// Bc7Encoder.cpp — a compact BC7 encoder trialling three modes per block.
 //
-// Each 4x4 block is encoded two ways and the cheaper reconstruction wins:
+// Each 4x4 block is encoded every eligible way and the cheapest reconstruction
+// wins:
 //   * Mode 6 — one subset, RGBA 7.7.7.7 endpoints + per-endpoint p-bit, 4-bit
-//     indices. The workhorse for photographic albedo and packed normal+height;
-//     the ONLY trialled mode that carries alpha, so blocks whose alpha varies
-//     (height-in-alpha normal maps) can only use it.
+//     indices. The workhorse for photographic albedo: the most index positions
+//     (16) of any mode we emit, spent on a single 4-D colour line.
 //   * Mode 1 — two subsets, RGB 6.6.6 endpoints + one shared p-bit per subset,
 //     3-bit indices, chosen from BC7's 64 fixed partition shapes. Gives a block
 //     straddling two materials (brick/mortar) its OWN colour line per region
 //     instead of one line smeared through the middle. RGB-only: alpha is forced
 //     opaque, so it is a candidate only for fully-opaque blocks.
+//   * Mode 5 — one subset, RGB 7.7.7 endpoints and a SEPARATE alpha 8.8 pair,
+//     each with its own 2-bit index set. The mode for this project's
+//     normal+height maps: those pack height into alpha, uncorrelated with the
+//     normal in RGB, and mode 6's single 4-D line cannot serve both — a height
+//     edge drags the normal off the line and vice versa. Mode 5 decouples them,
+//     paying 2-bit indices (4 steps) on each. Those blocks are also exactly the
+//     ones mode 1 can never take, so before this they had a single option.
 //
 // Per subset the solve is the same: principal axis of the pixels (power
 // iteration on the covariance) -> extreme projections as endpoints -> iterate
 // (quantize -> assign best indices -> least-squares refit). Mode 1 prescreens
 // the 64 partitions by a cheap bounding-box score and fully evaluates the best
-// few. The partition / anchor (fix-up) tables and the 3-bit interpolation
-// weights are the BC7 hardware constants (values from Microsoft's DirectXTex,
-// MIT-licensed) — the decoder indexes the same tables, so they must be exact.
+// few. The partition / anchor tables and the interpolation weights are hardware
+// constants shared with the test harness — see Bc7Tables.h.
+//
+// EVERY MODE'S ERROR IS COMPARABLE BY CONSTRUCTION: each is the sum of squared
+// differences over the same 16 pixels x 4 channels (mode 1 contributes no alpha
+// error because it only runs where alpha is already 255). That is what makes
+// "keep the lower error" meaningful ACROSS modes — and each estimate is
+// computed with the hardware blend on the reconstructed endpoints, so it equals
+// a real decode's error to the bit. tools/Bc7Test asserts that per block;
+// without it, adding a mode would be a leap of faith.
+//
+// Blocks are independent, so encoding is fanned out over block rows. The output
+// is byte-identical at any thread count.
 // ============================================================================
 #include "Bc7Encoder.h"
 
+#include "Bc7Tables.h"
+
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cmath>
 #include <cstring>
+#include <thread>
+#include <vector>
 
 namespace dungeon::baker {
 
 namespace {
 
-// BC7 interpolation weights (out of 64): 4-bit (mode 6), 3-bit (mode 1).
-constexpr int kWeights4[16] = {0,  4,  9,  13, 17, 21, 26, 30,
-							   34, 38, 43, 47, 51, 55, 60, 64};
-constexpr int kWeights3[8] = {0, 9, 18, 27, 37, 46, 55, 64};
+using bc7::Expand;
+using bc7::kAnchor2;
+using bc7::kPartition2;
+using bc7::kWeights2;
+using bc7::kWeights3;
+using bc7::kWeights4;
+using bc7::Lerp8;
 
-// BC7 2-subset partition shapes: shape -> per-pixel subset (0/1) for the 16
-// pixels of the block. (DirectXTex g_aPartitionTable[1].)
-constexpr u8 kPartition2[64][16] = {
-	{0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1},
-	{0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1},
-	{0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1},
-	{0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 1, 1, 1},
-	{0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1, 1},
-	{0, 0, 1, 1, 0, 1, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1},
-	{0, 0, 0, 1, 0, 0, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1},
-	{0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 1, 0, 1, 1, 1},
-	{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 1},
-	{0, 0, 1, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1},
-	{0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 1, 1, 1, 1, 1, 1},
-	{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1, 1, 1},
-	{0, 0, 0, 1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1},
-	{0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1},
-	{0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1},
-	{0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1},
-	{0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 1, 0, 1, 1, 1, 1},
-	{0, 1, 1, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0},
-	{0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 1, 0},
-	{0, 1, 1, 1, 0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 0, 0},
-	{0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0},
-	{0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0, 1, 1, 1, 0},
-	{0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0},
-	{0, 1, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 0, 1},
-	{0, 0, 1, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0},
-	{0, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 0},
-	{0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 0},
-	{0, 0, 1, 1, 0, 1, 1, 0, 0, 1, 1, 0, 1, 1, 0, 0},
-	{0, 0, 0, 1, 0, 1, 1, 1, 1, 1, 1, 0, 1, 0, 0, 0},
-	{0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0},
-	{0, 1, 1, 1, 0, 0, 0, 1, 1, 0, 0, 0, 1, 1, 1, 0},
-	{0, 0, 1, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1, 1, 0, 0},
-	{0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1},
-	{0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1},
-	{0, 1, 0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1, 0},
-	{0, 0, 1, 1, 0, 0, 1, 1, 1, 1, 0, 0, 1, 1, 0, 0},
-	{0, 0, 1, 1, 1, 1, 0, 0, 0, 0, 1, 1, 1, 1, 0, 0},
-	{0, 1, 0, 1, 0, 1, 0, 1, 1, 0, 1, 0, 1, 0, 1, 0},
-	{0, 1, 1, 0, 1, 0, 0, 1, 0, 1, 1, 0, 1, 0, 0, 1},
-	{0, 1, 0, 1, 1, 0, 1, 0, 1, 0, 1, 0, 0, 1, 0, 1},
-	{0, 1, 1, 1, 0, 0, 1, 1, 1, 1, 0, 0, 1, 1, 1, 0},
-	{0, 0, 0, 1, 0, 0, 1, 1, 1, 1, 0, 0, 1, 0, 0, 0},
-	{0, 0, 1, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 1, 0, 0},
-	{0, 0, 1, 1, 1, 0, 1, 1, 1, 1, 0, 1, 1, 1, 0, 0},
-	{0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 1, 1, 0},
-	{0, 0, 1, 1, 1, 1, 0, 0, 1, 1, 0, 0, 0, 0, 1, 1},
-	{0, 1, 1, 0, 0, 1, 1, 0, 1, 0, 0, 1, 1, 0, 0, 1},
-	{0, 0, 0, 0, 0, 1, 1, 0, 0, 1, 1, 0, 0, 0, 0, 0},
-	{0, 1, 0, 0, 1, 1, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0},
-	{0, 0, 1, 0, 0, 1, 1, 1, 0, 0, 1, 0, 0, 0, 0, 0},
-	{0, 0, 0, 0, 0, 0, 1, 0, 0, 1, 1, 1, 0, 0, 1, 0},
-	{0, 0, 0, 0, 0, 1, 0, 0, 1, 1, 1, 0, 0, 1, 0, 0},
-	{0, 1, 1, 0, 1, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 1},
-	{0, 0, 1, 1, 0, 1, 1, 0, 1, 1, 0, 0, 1, 0, 0, 1},
-	{0, 1, 1, 0, 0, 0, 1, 1, 1, 0, 0, 1, 1, 1, 0, 0},
-	{0, 0, 1, 1, 1, 0, 0, 1, 1, 1, 0, 0, 0, 1, 1, 0},
-	{0, 1, 1, 0, 1, 1, 0, 0, 1, 1, 0, 0, 1, 0, 0, 1},
-	{0, 1, 1, 0, 0, 0, 1, 1, 0, 0, 1, 1, 1, 0, 0, 1},
-	{0, 1, 1, 1, 1, 1, 1, 0, 1, 0, 0, 0, 0, 0, 0, 1},
-	{0, 0, 0, 1, 1, 0, 0, 0, 1, 1, 1, 0, 0, 1, 1, 1},
-	{0, 0, 0, 0, 1, 1, 1, 1, 0, 0, 1, 1, 0, 0, 1, 1},
-	{0, 0, 1, 1, 0, 0, 1, 1, 1, 1, 1, 1, 0, 0, 0, 0},
-	{0, 0, 1, 0, 0, 0, 1, 0, 1, 1, 1, 0, 1, 1, 1, 0},
-	{0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 1, 1, 0, 1, 1, 1},
-};
-
-// Second-subset anchor (fix-up) pixel per shape; subset 0's anchor is always
-// pixel 0. (DirectXTex g_aFixUp[1], middle column.)
-constexpr u8 kAnchor2[64] = {
-	15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15, 15,
-	15, 2,  8,  2,  2,  8,  8,  15, 2,  8,  2,  2,  8,  8,  2,  2,
-	15, 15, 6,  8,  2,  8,  15, 15, 2,  8,  2,  2,  2,  15, 15, 6,
-	6,  2,  6,  8,  15, 15, 2,  2,  15, 15, 15, 15, 15, 2,  2,  15,
-};
-
-// Number of partition shapes fully evaluated (best by bounding-box prescore).
-constexpr int kShapeTrials = 8;
+// All 16 pixels, for the single-subset modes.
+constexpr int kAllPixels[16] = {0, 1, 2,  3,  4,  5,  6,  7,
+								8, 9, 10, 11, 12, 13, 14, 15};
 
 struct Vec4f {
-	float v[4];
+	float v[4]{};
 	float& operator[](int i) { return v[i]; }
 	float operator[](int i) const { return v[i]; }
 };
@@ -129,21 +77,15 @@ float Dot(const Vec4f& a, const Vec4f& b, int nch) {
 	return s;
 }
 
-// BC7 bit replication: expand a `bits`-bit endpoint component to 8 bits the way
-// the hardware does. bits==8 (mode 6 endpoint = 7 colour bits + p-bit) is a
-// no-op; bits==7 (mode 1 = 6 + shared p) replicates the top bit down.
-int Expand(int value, int bits) {
-	if (bits >= 8) return value & 0xff;
-	return ((value << (8 - bits)) | (value >> (2 * bits - 8))) & 0xff;
-}
-
-// Quantizes one float channel (0..255) to `cb` colour bits given a fixed p-bit,
-// returning the cb-bit code and the 8-bit reconstruction. Mirrors the hardware:
-// the stored value is (code<<1)|p over cb+1 bits, then bit-expanded to 8.
+// One quantized channel: the stored code and its 8-bit reconstruction.
 struct Quant {
 	int code;
 	float recon;
 };
+
+// Quantizes one float channel (0..255) to `cb` colour bits given a fixed p-bit
+// (modes 1 and 6). Mirrors the hardware: the stored value is (code<<1)|p over
+// cb+1 bits, then bit-expanded to 8.
 Quant QuantizeChannel(float value, int cb, int pBit) {
 	const int maxCombined = (1 << (cb + 1)) - 1;
 	const float target = value / 255.0f * static_cast<float>(maxCombined);
@@ -153,10 +95,15 @@ Quant QuantizeChannel(float value, int cb, int pBit) {
 	return {code, static_cast<float>(Expand(combined, cb + 1))};
 }
 
-// Reconstructed colour at interpolation step `weight` between two 8-bit
-// endpoints (the hardware's rounded blend).
-float Lerp8(float a, float b, int weight) {
-	return std::floor((a * (64 - weight) + b * weight + 32.0f) / 64.0f);
+// Quantizes one float channel to `bits` bits with NO p-bit (mode 5): the stored
+// code IS the value, bit-expanded to 8. At bits==8 (mode 5's alpha) this is
+// exact, which is the point of giving alpha its own endpoints.
+Quant QuantizeChannelNoP(float value, int bits) {
+	const int maxCode = (1 << bits) - 1;
+	const int code = std::clamp(
+		static_cast<int>(std::lround(value / 255.0f * static_cast<float>(maxCode))), 0,
+		maxCode);
+	return {code, static_cast<float>(Expand(code, bits))};
 }
 
 // Best index for one pixel against a reconstructed endpoint segment, plus the
@@ -191,8 +138,8 @@ int BestIndex(const Vec4f& px, const Vec4f& r0, const Vec4f& r1, int nch,
 }
 
 // Principal-axis float endpoints for a set of member pixels over nch channels.
-void FitFloatEndpoints(const Vec4f px[16], const int* mem, int n, int nch,
-					   Vec4f& e0, Vec4f& e1) {
+void FitFloatEndpoints(const Vec4f px[16], const int* mem, int n, int nch, Vec4f& e0,
+					   Vec4f& e1) {
 	Vec4f mean{};
 	for (int i = 0; i < n; ++i)
 		for (int c = 0; c < nch; ++c) mean[c] += px[mem[i]][c];
@@ -269,51 +216,79 @@ struct BitWriter {
 
 // ---- Mode 6: one subset, RGBA, 7-bit endpoints + p-bit, 4-bit indices -------
 
-// Per-endpoint p-bit quantize (mode 6: cb=7, the p-bit is per endpoint).
-void QuantizeEndpoint6(const Vec4f& e, int q7[4], int& pBit, Vec4f& recon) {
-	float bestErr = 1e30f;
-	for (int p = 0; p <= 1; ++p) {
-		int q[4];
-		Vec4f r;
-		float err = 0;
-		for (int c = 0; c < 4; ++c) {
-			const Quant qt = QuantizeChannel(e[c], 7, p);
-			q[c] = qt.code;
-			r[c] = qt.recon;
-			const float d = r[c] - e[c];
-			err += d * d;
-		}
-		if (err < bestErr) {
-			bestErr = err;
-			pBit = p;
-			std::memcpy(q7, q, sizeof(q));
-			recon = r;
-		}
+// Quantizes an RGBA endpoint at a GIVEN p-bit (cb=7), returning the
+// endpoint-quantization error.
+float QuantizeEndpoint6(const Vec4f& e, int pBit, int q[4], Vec4f& recon) {
+	float err = 0;
+	for (int c = 0; c < 4; ++c) {
+		const Quant qt = QuantizeChannel(e[c], 7, pBit);
+		q[c] = qt.code;
+		recon[c] = qt.recon;
+		const float d = recon[c] - e[c];
+		err += d * d;
 	}
+	return err;
 }
 
-float EncodeMode6(const Vec4f px[16], u8 out[16]) {
-	static const int kAll[16] = {0, 1, 2, 3, 4,  5,  6,  7,
-								 8, 9, 10, 11, 12, 13, 14, 15};
-	Vec4f e0, e1;
-	FitFloatEndpoints(px, kAll, 16, 4, e0, e1);
+// The cheap p-bit choice: whichever reconstructs this endpoint more closely.
+// Only a PROXY for the block error — Bc7Options::trialPBits skips it and
+// carries every combination through to the real thing.
+int ProxyPBit6(const Vec4f& e) {
+	int q[4];
+	Vec4f r;
+	return QuantizeEndpoint6(e, 0, q, r) <= QuantizeEndpoint6(e, 1, q, r) ? 0 : 1;
+}
 
-	int q0[4], q1[4], p0 = 0, p1 = 0, idx[16];
-	Vec4f r0, r1;
+float EncodeMode6(const Vec4f px[16], u8 out[16], const Bc7Options& opt) {
+	Vec4f e0, e1;
+	FitFloatEndpoints(px, kAllPixels, 16, 4, e0, e1);
+
+	int q0[4]{}, q1[4]{}, p0 = 0, p1 = 0, idx[16]{};
 	float err = 0;
 	for (int iter = 0; iter < 3; ++iter) {
-		QuantizeEndpoint6(e0, q0, p0, r0);
-		QuantizeEndpoint6(e1, q1, p1, r1);
-		err = 0;
-		for (int i = 0; i < 16; ++i) {
-			float e;
-			idx[i] = BestIndex(px[i], r0, r1, 4, kWeights4, 16, e);
-			err += e;
+		// Candidate (p0,p1) pairs: every combination when trialling, else the
+		// one each endpoint's own quantization error prefers.
+		int pairs[4][2], npairs = 0;
+		if (opt.trialPBits) {
+			for (int a = 0; a <= 1; ++a)
+				for (int b = 0; b <= 1; ++b) {
+					pairs[npairs][0] = a;
+					pairs[npairs][1] = b;
+					++npairs;
+				}
+		} else {
+			pairs[0][0] = ProxyPBit6(e0);
+			pairs[0][1] = ProxyPBit6(e1);
+			npairs = 1;
 		}
-		if (iter < 2) LeastSquaresFit(px, kAll, 16, 4, kWeights4, idx, e0, e1);
+
+		err = 1e30f;
+		for (int k = 0; k < npairs; ++k) {
+			int tq0[4], tq1[4], tidx[16];
+			Vec4f r0, r1;
+			QuantizeEndpoint6(e0, pairs[k][0], tq0, r0);
+			QuantizeEndpoint6(e1, pairs[k][1], tq1, r1);
+			float terr = 0;
+			for (int i = 0; i < 16; ++i) {
+				float e;
+				tidx[i] = BestIndex(px[i], r0, r1, 4, kWeights4, 16, e);
+				terr += e;
+			}
+			if (terr < err) {
+				err = terr;
+				p0 = pairs[k][0];
+				p1 = pairs[k][1];
+				std::memcpy(q0, tq0, sizeof(q0));
+				std::memcpy(q1, tq1, sizeof(q1));
+				std::memcpy(idx, tidx, sizeof(idx));
+			}
+		}
+
+		if (iter < 2) LeastSquaresFit(px, kAllPixels, 16, 4, kWeights4, idx, e0, e1);
 	}
 
-	// Anchor constraint: index 0's MSB must be 0; swap endpoints if not.
+	// Anchor constraint: index 0's MSB must be 0. Swapping the endpoints and
+	// inverting every index is decode-identical, so `err` still describes it.
 	if (idx[0] & 8) {
 		std::swap(q0, q1);
 		std::swap(p0, p1);
@@ -345,21 +320,35 @@ struct SubsetSolve {
 	float error;
 };
 
-// Float fit -> quantize (best shared p) -> index -> refit, twice (RGB).
-SubsetSolve SolveSubsetMode1(const Vec4f px[16], const int* mem, int n) {
+// Float fit -> quantize (shared p) -> index -> refit, three times (RGB).
+SubsetSolve SolveSubsetMode1(const Vec4f px[16], const int* mem, int n,
+							 const Bc7Options& opt) {
 	Vec4f e0, e1;
 	FitFloatEndpoints(px, mem, n, 3, e0, e1);
 
 	SubsetSolve best{};
 	for (int iter = 0; iter < 3; ++iter) {
-		// Pick the shared p-bit minimising both endpoints' quantization error.
-		int bestQ[2][3], bestP = 0;
-		Vec4f bestR0{}, bestR1{};
-		float bestQErr = 1e30f;
-		for (int p = 0; p <= 1; ++p) {
+		// Candidate shared p-bits. The cheap path picks the one minimising both
+		// endpoints' quantization error; trialling carries both to block error.
+		int ps[2] = {0, 1}, nps = 2;
+		if (!opt.trialPBits) {
+			float qe[2] = {0, 0};
+			for (int p = 0; p <= 1; ++p)
+				for (int c = 0; c < 3; ++c) {
+					const Quant a = QuantizeChannel(e0[c], 6, p);
+					const Quant b = QuantizeChannel(e1[c], 6, p);
+					qe[p] += (a.recon - e0[c]) * (a.recon - e0[c]);
+					qe[p] += (b.recon - e1[c]) * (b.recon - e1[c]);
+				}
+			ps[0] = qe[0] <= qe[1] ? 0 : 1;
+			nps = 1;
+		}
+
+		best.error = 1e30f;
+		for (int k = 0; k < nps; ++k) {
+			const int p = ps[k];
 			int q[2][3];
 			Vec4f r0, r1;
-			float qErr = 0;
 			for (int c = 0; c < 3; ++c) {
 				const Quant a = QuantizeChannel(e0[c], 6, p);
 				const Quant b = QuantizeChannel(e1[c], 6, p);
@@ -367,32 +356,23 @@ SubsetSolve SolveSubsetMode1(const Vec4f px[16], const int* mem, int n) {
 				q[1][c] = b.code;
 				r0[c] = a.recon;
 				r1[c] = b.recon;
-				qErr += (a.recon - e0[c]) * (a.recon - e0[c]);
-				qErr += (b.recon - e1[c]) * (b.recon - e1[c]);
 			}
-			if (qErr < bestQErr) {
-				bestQErr = qErr;
-				bestP = p;
-				std::memcpy(bestQ, q, sizeof(q));
-				bestR0 = r0;
-				bestR1 = r1;
+			int idx[16];
+			float err = 0;
+			for (int i = 0; i < n; ++i) {
+				float e;
+				idx[i] = BestIndex(px[mem[i]], r0, r1, 3, kWeights3, 8, e);
+				err += e;
+			}
+			if (err < best.error) {
+				std::memcpy(best.q, q, sizeof(q));
+				best.pBit = p;
+				std::memcpy(best.idx, idx, sizeof(int) * n);
+				best.error = err;
 			}
 		}
 
-		int idx[16];
-		float err = 0;
-		for (int i = 0; i < n; ++i) {
-			float e;
-			idx[i] = BestIndex(px[mem[i]], bestR0, bestR1, 3, kWeights3, 8, e);
-			err += e;
-		}
-
-		std::memcpy(best.q, bestQ, sizeof(bestQ));
-		best.pBit = bestP;
-		std::memcpy(best.idx, idx, sizeof(int) * n);
-		best.error = err;
-
-		if (iter < 2) LeastSquaresFit(px, mem, n, 3, kWeights3, idx, e0, e1);
+		if (iter < 2) LeastSquaresFit(px, mem, n, 3, kWeights3, best.idx, e0, e1);
 	}
 	return best;
 }
@@ -420,15 +400,17 @@ float PrescoreShape(const Vec4f px[16], int shape) {
 	return score;
 }
 
-// Encodes the best of kShapeTrials partition shapes; returns its error (or +inf
-// if no shape was usable). `out` is written only on a finite result.
-float EncodeMode1(const Vec4f px[16], u8 out[16]) {
+// Encodes the best of opt.shapeTrials partition shapes; returns its error (or
+// +inf if no shape was usable). `out` is written only on a finite result.
+float EncodeMode1(const Vec4f px[16], u8 out[16], const Bc7Options& opt) {
+	const int trials = std::clamp(opt.shapeTrials, 1, 64);
+
 	// Rank shapes by prescore, keep the cheapest few.
 	std::array<int, 64> order;
 	for (int s = 0; s < 64; ++s) order[s] = s;
 	std::array<float, 64> score;
 	for (int s = 0; s < 64; ++s) score[s] = PrescoreShape(px, s);
-	std::partial_sort(order.begin(), order.begin() + kShapeTrials, order.end(),
+	std::partial_sort(order.begin(), order.begin() + trials, order.end(),
 					  [&](int a, int b) { return score[a] < score[b]; });
 
 	float bestErr = 1e30f;
@@ -436,15 +418,15 @@ float EncodeMode1(const Vec4f px[16], u8 out[16]) {
 	SubsetSolve bestS0{}, bestS1{};
 	int memo0[16], memo1[16], n0 = 0, n1 = 0; // members of the best shape
 
-	for (int t = 0; t < kShapeTrials; ++t) {
+	for (int t = 0; t < trials; ++t) {
 		const int shape = order[t];
 		int m0[16], m1[16], c0 = 0, c1 = 0;
 		for (int i = 0; i < 16; ++i)
 			(kPartition2[shape][i] == 0 ? m0[c0++] : m1[c1++]) = i;
 		if (c0 == 0 || c1 == 0) continue; // shapes always split, but be safe
 
-		const SubsetSolve s0 = SolveSubsetMode1(px, m0, c0);
-		const SubsetSolve s1 = SolveSubsetMode1(px, m1, c1);
+		const SubsetSolve s0 = SolveSubsetMode1(px, m0, c0, opt);
+		const SubsetSolve s1 = SolveSubsetMode1(px, m1, c1, opt);
 		const float err = s0.error + s1.error;
 		if (err < bestErr) {
 			bestErr = err;
@@ -497,43 +479,178 @@ float EncodeMode1(const Vec4f px[16], u8 out[16]) {
 	return bestErr;
 }
 
-void EncodeBlock(const Vec4f px[16], u8 out[16]) {
-	const float err6 = EncodeMode6(px, out);
+// ---- Mode 5: one subset, RGB 7.7.7 + separate alpha 8.8, 2-bit indices ------
+//
+// Field order (BC7 spec, LSB first):
+//   mode[6] rotation[2] R0[7] R1[7] G0[7] G1[7] B0[7] B1[7] A0[8] A1[8]
+//   colour-index[31] alpha-index[31]   = 128 bits. No p-bits.
+// Both index sets are 2-bit and BOTH drop the MSB at pixel 0 (the single
+// subset's anchor), which is where the two 31s come from.
+//
+// ROTATION IS ALWAYS 0 HERE. A non-zero rotation swaps alpha with one of R/G/B
+// before encoding, which would let a block whose ODD channel is a colour use
+// the decoupled path. For height-in-alpha content channel 3 already IS the odd
+// one out, so the rotations are left unexplored rather than guessed at —
+// tools/Bc7Test can settle whether they would pay for the 4x solve.
 
-	// Modes 0-3 force alpha opaque, so mode 1 is eligible only when every
-	// pixel is fully opaque (excludes height-in-alpha normal maps).
+float EncodeMode5(const Vec4f px[16], u8 out[16]) {
+	// --- RGB: the usual principal-axis solve, 7-bit endpoints, no p-bit.
+	Vec4f e0, e1;
+	FitFloatEndpoints(px, kAllPixels, 16, 3, e0, e1);
+
+	int q0[3]{}, q1[3]{}, cidx[16]{};
+	float cerr = 0;
+	for (int iter = 0; iter < 3; ++iter) {
+		Vec4f r0, r1;
+		for (int c = 0; c < 3; ++c) {
+			const Quant a = QuantizeChannelNoP(e0[c], 7);
+			const Quant b = QuantizeChannelNoP(e1[c], 7);
+			q0[c] = a.code;
+			q1[c] = b.code;
+			r0[c] = a.recon;
+			r1[c] = b.recon;
+		}
+		cerr = 0;
+		for (int i = 0; i < 16; ++i) {
+			float e;
+			cidx[i] = BestIndex(px[i], r0, r1, 3, kWeights2, 4, e);
+			cerr += e;
+		}
+		if (iter < 2) LeastSquaresFit(px, kAllPixels, 16, 3, kWeights2, cidx, e0, e1);
+	}
+
+	// --- Alpha: the same machinery over ONE channel, alpha moved into slot 0.
+	// The endpoints are 8-bit, so they are exact and every bit of the error
+	// comes from having only 4 steps between them.
+	Vec4f ap[16]{};
+	for (int i = 0; i < 16; ++i) ap[i][0] = px[i][3];
+
+	Vec4f a0, a1;
+	FitFloatEndpoints(ap, kAllPixels, 16, 1, a0, a1);
+
+	int qa0 = 0, qa1 = 0, aidx[16]{};
+	float aerr = 0;
+	for (int iter = 0; iter < 3; ++iter) {
+		const Quant a = QuantizeChannelNoP(a0[0], 8);
+		const Quant b = QuantizeChannelNoP(a1[0], 8);
+		qa0 = a.code;
+		qa1 = b.code;
+		Vec4f r0{}, r1{};
+		r0[0] = a.recon;
+		r1[0] = b.recon;
+		aerr = 0;
+		for (int i = 0; i < 16; ++i) {
+			float e;
+			aidx[i] = BestIndex(ap[i], r0, r1, 1, kWeights2, 4, e);
+			aerr += e;
+		}
+		if (iter < 2) LeastSquaresFit(ap, kAllPixels, 16, 1, kWeights2, aidx, a0, a1);
+	}
+
+	// Anchor fix-up, independently per index set: pixel 0 drops each set's MSB,
+	// so each must have it clear. Swap-and-invert is decode-identical.
+	if (cidx[0] & 2) {
+		std::swap(q0, q1);
+		for (int i = 0; i < 16; ++i) cidx[i] = 3 - cidx[i];
+	}
+	if (aidx[0] & 2) {
+		std::swap(qa0, qa1);
+		for (int i = 0; i < 16; ++i) aidx[i] = 3 - aidx[i];
+	}
+
+	std::memset(out, 0, 16);
+	BitWriter bits{out};
+	bits.Write(0x20, 6); // mode 5 (five zeros then a one, LSB first)
+	bits.Write(0, 2);    // rotation: none
+	for (int c = 0; c < 3; ++c) {
+		bits.Write(static_cast<u32>(q0[c]), 7);
+		bits.Write(static_cast<u32>(q1[c]), 7);
+	}
+	bits.Write(static_cast<u32>(qa0), 8);
+	bits.Write(static_cast<u32>(qa1), 8);
+	for (int i = 0; i < 16; ++i) bits.Write(static_cast<u32>(cidx[i]), i == 0 ? 1 : 2);
+	for (int i = 0; i < 16; ++i) bits.Write(static_cast<u32>(aidx[i]), i == 0 ? 1 : 2);
+	return cerr + aerr;
+}
+
+// ---- Mode selection ---------------------------------------------------------
+
+Bc7BlockStat EncodeBlock(const Vec4f px[16], u8 out[16], const Bc7Options& opt) {
+	// Modes 0-3 force alpha opaque, so mode 1 is eligible only when every pixel
+	// already is. Modes 5 and 6 both carry alpha and are always eligible.
 	bool opaque = true;
 	for (int i = 0; i < 16 && opaque; ++i) opaque = (px[i][3] >= 255.0f);
-	if (!opaque) return;
 
+	Bc7BlockStat best{0, 1e30f};
 	u8 candidate[16];
-	if (EncodeMode1(px, candidate) < err6) std::memcpy(out, candidate, 16);
+	const auto consider = [&](u32 mode, float err) {
+		if (err < best.error) {
+			std::memcpy(out, candidate, 16);
+			best = {mode, err};
+		}
+	};
+
+	if (opt.modes & kBc7Mode6) consider(6, EncodeMode6(px, candidate, opt));
+	if ((opt.modes & kBc7Mode1) && opaque) consider(1, EncodeMode1(px, candidate, opt));
+	if (opt.modes & kBc7Mode5) consider(5, EncodeMode5(px, candidate));
+
+	// A mask that excluded every eligible mode would leave `out` unwritten;
+	// mode 6 is the universal fallback.
+	if (best.mode == 0) consider(6, EncodeMode6(px, candidate, opt));
+	return best;
+}
+
+// Reads one block's 16 pixels, replicating at the image edge.
+void GatherBlock(const assets::ImageData& image, u32 bx, u32 by, Vec4f px[16]) {
+	for (u32 j = 0; j < 4; ++j) {
+		for (u32 i = 0; i < 4; ++i) {
+			const u32 x = std::min(bx * 4 + i, image.width - 1);
+			const u32 y = std::min(by * 4 + j, image.height - 1);
+			const u8* p = &image.pixels[(static_cast<size_t>(y) * image.width + x) * 4];
+			for (int c = 0; c < 4; ++c) px[j * 4 + i][c] = static_cast<float>(p[c]);
+		}
+	}
 }
 
 } // namespace
 
-std::vector<u8> EncodeBc7(const assets::ImageData& image) {
+std::vector<u8> EncodeBc7(const assets::ImageData& image, const Bc7Options& opt,
+						  std::vector<Bc7BlockStat>* stats) {
 	const u32 blocksX = (image.width + 3) / 4;
 	const u32 blocksY = (image.height + 3) / 4;
-	std::vector<u8> out(static_cast<size_t>(blocksX) * blocksY * 16);
+	const size_t blockCount = static_cast<size_t>(blocksX) * blocksY;
+	std::vector<u8> out(blockCount * 16);
+	if (stats) stats->assign(blockCount, Bc7BlockStat{});
 
-	for (u32 by = 0; by < blocksY; ++by) {
-		for (u32 bx = 0; bx < blocksX; ++bx) {
-			Vec4f px[16];
-			for (u32 j = 0; j < 4; ++j) {
-				for (u32 i = 0; i < 4; ++i) {
-					// Clamp into the image so edge blocks replicate pixels.
-					const u32 x = std::min(bx * 4 + i, image.width - 1);
-					const u32 y = std::min(by * 4 + j, image.height - 1);
-					const u8* p =
-						&image.pixels[(static_cast<size_t>(y) * image.width + x) * 4];
-					for (int c = 0; c < 4; ++c)
-						px[j * 4 + i][c] = static_cast<float>(p[c]);
-				}
+	// Blocks are independent, so this is a plain fan-out over block ROWS: a row
+	// is contiguous in `out`, and one row of a 2K texture is far more work than
+	// the hand-off costs. Deliberately NOT a Core/ThreadManager client — that
+	// registry is for long-lived workers with cadences, watchdogs and a
+	// supervisor, and this wants a batch that starts, saturates, and joins.
+	unsigned nthreads = opt.threads ? opt.threads : std::thread::hardware_concurrency();
+	nthreads = std::clamp(nthreads, 1u, std::max(1u, blocksY));
+
+	std::atomic<u32> nextRow{0};
+	const auto encodeRows = [&] {
+		for (u32 by = nextRow.fetch_add(1); by < blocksY; by = nextRow.fetch_add(1)) {
+			for (u32 bx = 0; bx < blocksX; ++bx) {
+				Vec4f px[16];
+				GatherBlock(image, bx, by, px);
+				const size_t b = static_cast<size_t>(by) * blocksX + bx;
+				const Bc7BlockStat st = EncodeBlock(px, &out[b * 16], opt);
+				if (stats) (*stats)[b] = st;
 			}
-			EncodeBlock(px, &out[(static_cast<size_t>(by) * blocksX + bx) * 16]);
 		}
-	}
+	};
+
+	if (nthreads <= 1) {
+		encodeRows();
+	} else {
+		std::vector<std::jthread> pool;
+		pool.reserve(nthreads);
+		for (unsigned t = 0; t < nthreads; ++t) pool.emplace_back(encodeRows);
+	} // jthread joins on destruction
+
 	return out;
 }
 
