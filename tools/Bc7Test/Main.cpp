@@ -376,25 +376,51 @@ void RunAudit(const std::vector<Sample>& corpus) {
 	};
 	std::vector<Config> configs;
 	auto add = [&](const char* label, u32 modes, int shapes, bool ptrial,
-				   unsigned threads = 0) {
+				   unsigned threads = 0,
+				   baker::Bc7Prescore pre = baker::Bc7Prescore::Scatter) {
 		baker::Bc7Options o;
 		o.modes = modes;
 		o.shapeTrials = shapes;
 		o.trialPBits = ptrial;
 		o.threads = threads;
+		o.prescore = pre;
 		configs.push_back({label, o});
 	};
 	using namespace dungeon::baker;
-	add("mode6 only (the original)", kBc7Mode6, 8, true);
-	add("modes 1+6 (what shipped)", kBc7Mode1 | kBc7Mode6, 8, true);
-	add("modes 1+5+6, p-trial", kBc7AllModes, 8, true);
-	add("  shapes=4", kBc7AllModes, 4, true);
-	add("  shapes=16", kBc7AllModes, 16, true);
+	// The two historical rows are pinned to what those encoders ACTUALLY did —
+	// bounding-box prescore, 8 shapes, the cheap p-bit proxy — so the deltas
+	// below stay honest as the defaults move on underneath them.
+	add("mode6 only (the original)", kBc7Mode6, 8, false, 0, Bc7Prescore::BoundingBox);
+	add("modes 1+6 (what shipped)", kBc7Mode1 | kBc7Mode6, 8, false, 0,
+		Bc7Prescore::BoundingBox);
+	add("modes 1+5+6", kBc7Mode1 | kBc7Mode5 | kBc7Mode6, 16, true);
+	add("modes 1+3+6 (no alpha mode)", kBc7Mode1 | kBc7Mode3 | kBc7Mode6, 16, true);
+	add("all modes, shapes=8", kBc7AllModes, 8, true);
+	add("  shapes=16 (the default)", kBc7AllModes, 16, true);
 	add("  shapes=64 (exhaustive)", kBc7AllModes, 64, true);
-	add("p-bit PROXY, shapes=8", kBc7AllModes, 8, false);
-	add("  shapes=16 (the default)", kBc7AllModes, 16, false);
-	add("  shapes=64", kBc7AllModes, 64, false);
+	add("  p-bit proxy", kBc7AllModes, 16, false);
 	add("the default, ONE thread", kBc7AllModes, 16, true, 1);
+	{
+		baker::Bc7Options o; // mode 5 without its channel rotations
+		o.trialRotations = false;
+		configs.push_back({"no mode-5 rotations", o});
+	}
+
+	// The prescore rows re-run the headline configuration under each shortlist
+	// score, so the comparison is like-for-like.
+	{
+		baker::Bc7Options o;
+		o.shapeTrials = 8;
+		o.prescore = baker::Bc7Prescore::BoundingBox;
+		configs.push_back({"bbox prescore, shapes=8", o});
+		o.shapeTrials = 16;
+		configs.push_back({"bbox prescore, shapes=16", o});
+		o.prescore = baker::Bc7Prescore::Scatter;
+		o.shapeTrials = 8;
+		configs.push_back({"scatter prescore, shapes=8", o});
+		o.shapeTrials = 16;
+		configs.push_back({"scatter prescore, shapes=16", o});
+	}
 
 	// AGGREGATE AS THE MEAN OF PER-IMAGE PSNR, one vote each. Pooling the squared
 	// error instead would be arithmetically tidier and completely misleading: an
@@ -448,26 +474,52 @@ void RunAudit(const std::vector<Sample>& corpus) {
 					a, b, b - a);
 	}
 
-	// Per-block prescore audit: does the top-8 shortlist ever miss a shape that
-	// exhaustive search would have taken?
-	baker::Bc7Options top8, all64;
-	top8.shapeTrials = 8;
-	all64.shapeTrials = 64;
-	size_t missed = 0, total = 0;
-	for (const auto& s : corpus) {
-		std::vector<baker::Bc7BlockStat> a, b;
-		baker::EncodeBc7(s.image, top8, &a);
-		baker::EncodeBc7(s.image, all64, &b);
-		for (size_t i = 0; i < a.size(); ++i) {
-			++total;
-			if (b[i].error < a[i].error) ++missed;
+	// Per-block prescore audit. A shortlist can only be judged against what it
+	// EXCLUDED, so each candidate score is compared to exhaustive search on the
+	// same blocks: how often it misses, and how much the misses cost. The miss
+	// RATE alone would be misleading — missing a shape that was a hair better is
+	// not the same failure as missing the only good one — so the excess error is
+	// reported alongside it.
+	struct PrescoreRow {
+		const char* label;
+		baker::Bc7Prescore kind;
+		int shapes;
+	};
+	const PrescoreRow rows[] = {
+		{"bounding box, top 8", baker::Bc7Prescore::BoundingBox, 8},
+		{"bounding box, top 16", baker::Bc7Prescore::BoundingBox, 16},
+		{"scatter, top 8", baker::Bc7Prescore::Scatter, 8},
+		{"scatter, top 16", baker::Bc7Prescore::Scatter, 16},
+	};
+
+	std::printf("\n%-24s %10s %14s\n", "partition shortlist", "miss rate",
+				"excess error");
+	std::printf("%s\n", std::string(50, '-').c_str());
+	for (const auto& row : rows) {
+		baker::Bc7Options shortlist, exhaustive;
+		shortlist.prescore = exhaustive.prescore = row.kind;
+		shortlist.shapeTrials = row.shapes;
+		exhaustive.shapeTrials = 64;
+
+		size_t missed = 0, total = 0;
+		double excess = 0, best = 0;
+		for (const auto& s : corpus) {
+			std::vector<baker::Bc7BlockStat> a, b;
+			baker::EncodeBc7(s.image, shortlist, &a);
+			baker::EncodeBc7(s.image, exhaustive, &b);
+			for (size_t i = 0; i < a.size(); ++i) {
+				++total;
+				if (b[i].error < a[i].error) ++missed;
+				excess += a[i].error - b[i].error;
+				best += b[i].error;
+			}
 		}
+		std::printf("%-24s %9.2f%% %13.2f%%\n", row.label,
+					total ? 100.0 * static_cast<double>(missed) /
+								static_cast<double>(total)
+						  : 0.0,
+					best > 0 ? 100.0 * excess / best : 0.0);
 	}
-	std::printf("\nprescore: exhaustive beat the top-8 shortlist on %zu of %zu blocks"
-				" (%.3f%%)\n",
-				missed, total,
-				total ? 100.0 * static_cast<double>(missed) / static_cast<double>(total)
-					  : 0.0);
 }
 
 void Usage() {
@@ -515,6 +567,7 @@ int main(int argc, char** argv) {
 			opt.modes = 0;
 			for (const char* p = argv[++i]; *p; ++p) {
 				if (*p == '1') opt.modes |= baker::kBc7Mode1;
+				else if (*p == '3') opt.modes |= baker::kBc7Mode3;
 				else if (*p == '5') opt.modes |= baker::kBc7Mode5;
 				else if (*p == '6') opt.modes |= baker::kBc7Mode6;
 			}

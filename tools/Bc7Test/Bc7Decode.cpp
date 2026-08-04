@@ -55,28 +55,41 @@ void FillMagenta(u8 out[16][4]) {
 	}
 }
 
-// ---- Mode 1 -----------------------------------------------------------------
-// 2 subsets, 6 partition bits, RGB endpoints of 6 bits each, ONE p-bit shared
-// by both endpoints of a subset, 3-bit indices, alpha implicitly opaque.
-// Layout: partition[6] R[4x6] G[4x6] B[4x6] P[2] indices.
-// The four endpoints per channel are (subset0.lo, subset0.hi, subset1.lo,
-// subset1.hi).
-void DecodeMode1(BitReader& r, u8 out[16][4]) {
+// ---- Modes 1 and 3 (the two-subset, RGB-only modes) -------------------------
+// Both: 6 partition bits, then every channel's four endpoint components grouped
+// together (subset0.lo, subset0.hi, subset1.lo, subset1.hi), then the p-bits,
+// then the indices. Alpha is implicitly opaque. They differ in three numbers:
+//
+//   mode 1 — 6 colour bits, ONE p-bit shared by a subset's two endpoints
+//            (so 2 p-bits total), 3-bit indices.
+//   mode 3 — 7 colour bits, a p-bit PER ENDPOINT (4 total), 2-bit indices.
+//
+// In both cases the code plus its p-bit forms a value one bit wider, which the
+// hardware then replicates up to 8.
+void DecodeTwoSubset(BitReader& r, u8 out[16][4], int colourBits, int indexBits,
+					 bool perEndpointP, const int* weights) {
 	const int shape = static_cast<int>(r.Read(6));
 
 	int code[4][3]; // [endpoint][channel]
 	for (int c = 0; c < 3; ++c)
-		for (int e = 0; e < 4; ++e) code[e][c] = static_cast<int>(r.Read(6));
+		for (int e = 0; e < 4; ++e) code[e][c] = static_cast<int>(r.Read(colourBits));
 
-	int p[2];
-	p[0] = static_cast<int>(r.Read(1));
-	p[1] = static_cast<int>(r.Read(1));
+	// Shared: one p-bit per subset, so endpoints 0,1 share and 2,3 share.
+	// Per-endpoint: four p-bits, in the same endpoint order as the codes.
+	int p[4];
+	if (perEndpointP) {
+		for (int e = 0; e < 4; ++e) p[e] = static_cast<int>(r.Read(1));
+	} else {
+		const int p0 = static_cast<int>(r.Read(1));
+		const int p1 = static_cast<int>(r.Read(1));
+		p[0] = p[1] = p0;
+		p[2] = p[3] = p1;
+	}
 
-	// A 6-bit code plus the subset's shared p-bit makes a 7-bit value, which the
-	// hardware then replicates up to 8.
 	int ep[4][3];
 	for (int e = 0; e < 4; ++e)
-		for (int c = 0; c < 3; ++c) ep[e][c] = Expand((code[e][c] << 1) | p[e / 2], 7);
+		for (int c = 0; c < 3; ++c)
+			ep[e][c] = Expand((code[e][c] << 1) | p[e], colourBits + 1);
 
 	// Anchors: pixel 0 for subset 0, the shape's fix-up pixel for subset 1. Both
 	// store one bit fewer.
@@ -84,12 +97,12 @@ void DecodeMode1(BitReader& r, u8 out[16][4]) {
 	int idx[16];
 	for (int i = 0; i < 16; ++i) {
 		const bool anchor = (i == 0) || (i == anchor1);
-		idx[i] = static_cast<int>(r.Read(anchor ? 2 : 3));
+		idx[i] = static_cast<int>(r.Read(anchor ? indexBits - 1 : indexBits));
 	}
 
 	for (int i = 0; i < 16; ++i) {
 		const int s = kPartition2[shape][i];
-		const int w = kWeights3[idx[i]];
+		const int w = weights[idx[i]];
 		for (int c = 0; c < 3; ++c)
 			out[i][c] = static_cast<u8>(Interp(ep[s * 2][c], ep[s * 2 + 1][c], w));
 		out[i][3] = 255;
@@ -174,7 +187,8 @@ int DecodeBc7Block(const u8 block[16], u8 out[16][4]) {
 	}
 
 	switch (mode) {
-	case 1: DecodeMode1(r, out); return 1;
+	case 1: DecodeTwoSubset(r, out, 6, 3, false, kWeights3); return 1;
+	case 3: DecodeTwoSubset(r, out, 7, 2, true, kWeights2); return 3;
 	case 5: DecodeMode5(r, out); return 5;
 	case 6: DecodeMode6(r, out); return 6;
 	default: FillMagenta(out); return -1;

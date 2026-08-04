@@ -29,15 +29,15 @@ the same 128 bits between those axes in different proportions. A block is encode
 in whichever mode suits its content, and the decoder just reads the marker — so
 mixing modes freely across an image costs nothing at runtime.
 
-## The three modes we implement
+## The four modes we implement
 
-| | mode 6 | mode 1 | mode 5 |
-|---|---|---|---|
-| subsets | 1 | 2 (of 64 fixed shapes) | 1 |
-| colour endpoints | RGBA 7 bits + p-bit each | RGB 6 bits + 1 p-bit shared per subset | RGB 7 bits, no p-bit |
-| alpha | on the same line as RGB | forced opaque | **its own 8-bit endpoints and own index set** |
-| index steps | 16 | 8 | 4 (colour), 4 (alpha) |
-| good at | photographic albedo, smooth blocks | material boundaries | height-in-alpha, cutouts |
+| | mode 6 | mode 1 | mode 3 | mode 5 |
+|---|---|---|---|---|
+| subsets | 1 | 2 (of 64 fixed shapes) | 2 (same shapes) | 1 |
+| colour endpoints | RGBA 7 bits + p-bit each | RGB 6 bits + 1 p-bit shared per subset | RGB 7 bits + p-bit each | RGB 7 bits, no p-bit |
+| alpha | on the same line as RGB | forced opaque | forced opaque | **its own 8-bit endpoints and own index set**, optionally swapped with a colour channel |
+| index steps | 16 | 8 | 4 | 4 (colour), 4 (alpha) |
+| good at | photographic albedo, smooth blocks | material boundaries with internal gradients | material boundaries, each region smooth | one channel that will not fit the line |
 
 **Mode 6** is the workhorse. It spends everything on one line with the most index
 positions available, which is exactly right when the block's 16 pixels really do
@@ -59,8 +59,35 @@ index steps each. Those blocks are also precisely the ones mode 1 can never take
 (it forces alpha opaque), so before mode 5 existed, every normal map in the
 project had exactly one option and no benefit from multi-mode encoding at all.
 
-Mode 5 turns out to earn its keep beyond normal maps: it also wins on alpha
-cutouts and on a surprising share of ORM blocks (up to 25% on scanned stone).
+**Mode 3** is mode 1's opposite trade on the same 64 partition shapes: more
+endpoint precision (a p-bit per endpoint, so 8 real bits) bought with fewer index
+steps. Mode 1 places its *pixels* precisely, mode 3 places its *endpoints*
+precisely. Mode 3 wins where the two regions are far apart and each is internally
+smooth — there is little for intermediate steps to do, and the endpoints need to
+be exact. Mode 1 wins where the regions have gradients inside them. Neither
+dominates. Mode 3 also makes flat blocks *lossless*, which mode 6 could not
+manage: the flat test tile went from 54.15 dB to 99.99.
+
+**Mode 5's channel rotation** deserves its own note, because the reasoning that
+first left it unimplemented was wrong. The argument was: this project's odd
+channel out is the height in alpha, and mode 5 already decouples alpha, so
+rotations would only serve content we do not have. In fact the rotations are
+worth **+0.89 dB**, and the biggest single beneficiary is exactly the content the
+argument was about — one scanned normal map went from 35.77 to 39.94 dB, its
+mode-5 share rising from 2% of blocks to 93%. The reason is that in a normal map
+the awkward channel is frequently *blue*: z is derived from x and y and behaves
+nothing like them. Decoupling alpha was never the point; decoupling **whichever**
+channel refuses to lie on the line is.
+
+Mode 5 also earns its keep beyond normal maps: alpha cutouts, and up to 59% of
+the blocks in a scanned ORM map.
+
+**These modes overlap, and the audit shows it.** Measured against the full set,
+mode 3 is worth +0.31 dB and mode 5 +3.45 dB — but with mode 5's rotations
+disabled, mode 3's contribution is +3.40 dB. They are competing to solve the same
+problem (a block with more structure than one line can carry) from different
+directions, so their individual "worth" figures are not additive and depend on
+what else is enabled. Quote the full-set number, not a sum.
 
 ## The invariant that makes mode selection work
 
@@ -120,13 +147,14 @@ means an in-game look, not just a green harness. That check is not automatable
 without either a GPU readback harness or a DirectXTex dependency, and neither has
 earned itself yet.
 
-Mode 5 was cleared this way on 2026-08-04: the whole texture set rebaked, then
-the showcase level walked. The floor there is `floor_slabs`, whose normal+height
-map is **21% mode-5 blocks**, and it draws with coherent parallax relief — a
-wrong alpha field layout would have made that depth noise. Do the same for the
-next mode, and pick a surface whose mode mix you have actually measured rather
-than one you assume uses it (`Bc7Test <file.png>` prints the mix for any image;
-the wall in that same room turned out to be 1%).
+Modes 5, 3 and mode 5's rotations were all cleared this way on 2026-08-04: the
+whole texture set rebaked, then the showcase level walked. Pick the surface by
+its MEASURED mode mix, not by assumption — `Bc7Test <file.png>` prints the mix
+for any image. That mattered: for plain mode 5 the obvious candidate (the brick
+wall) turned out to be 1% mode 5 while the floor was 21%, so checking the wall
+would have proved almost nothing. After rotations landed the picture inverted —
+`wall_brick_old_2k_n` became 99% mode 5 and the albedo 48% mode 3 — so the
+corridor view exercises both new layouts on nearly every visible pixel.
 
 The corpus is mostly synthetic and generated in the harness, deterministically:
 the real textures are gitignored, so a corpus depending on them would not run on
@@ -143,19 +171,25 @@ content no shipped texture contains.
 
 | configuration | mean PSNR | vs mode 6 | ms |
 |---|---|---|---|
-| mode 6 only (the original encoder) | 42.91 | — | 44 |
-| modes 1+6 (the previous default) | 44.55 | +1.65 | 116 |
-| modes 1+5+6, 8 shapes | 46.88 | +3.97 | 132 |
-| modes 1+5+6, 16 shapes **(current)** | 47.10 | +4.19 | 206 |
-| modes 1+5+6, 64 shapes (exhaustive) | 47.27 | +4.37 | 677 |
-| current, single-threaded | 47.10 | +4.19 | 2492 |
+| mode 6 only (the original encoder) | 42.80 | — | 28 |
+| modes 1+6 (what shipped before this work) | 44.41 | +1.61 | 79 |
+| modes 1+5+6 (+ rotations) | 51.15 | +8.35 | 190 |
+| modes 1+3+6 (no alpha mode) | 48.01 | +5.21 | 347 |
+| **all four modes, 8 shapes (current)** | **51.39** | **+8.59** | 225 |
+| all four, 16 shapes | 51.46 | +8.65 | 372 |
+| all four, 64 shapes (exhaustive) | 51.53 | +8.73 | 1256 |
+| all four, no mode-5 rotations | 50.57 | +7.77 | 344 |
+| all four, p-bit proxy | 51.33 | +8.53 | 223 |
+| current, single-threaded | 51.39 | +8.59 | ~3100 |
 
-Mode 5 is the single biggest win available: **+2.33 dB** over what shipped, for
-about 14% more time.
+**+7.0 dB over what shipped**, for about 3x the encode time — nearly all of which
+the fan-out gives back.
 
 A full `AssetBaker mips` over the installed set — 639 PNGs at every resolution,
-1k through 4k — takes **23.6 minutes**. That is the number to compare against
-when a future change claims to be affordable.
+1k through 4k — takes **33.7 minutes**, against 23.6 for the three-mode encoder.
+That is the real-world number to compare against when a change claims to be
+affordable; the corpus milliseconds above are for ranking knobs, not for
+budgeting a bake.
 
 **Aggregate as the mean of per-image PSNR, never by pooling squared error.** This
 is the methodological trap and it cost a wrong decision before it was caught.
@@ -166,23 +200,46 @@ cost. Per image, dropping it costs **1.35 dB on the brick tile** and 0.16–0.27
 on real scanned stone: exactly what this dungeon is built out of. The audit's
 `worst img` column exists to catch that class of mistake.
 
-Both non-obvious defaults were set by measurement, and their reasoning lives in
-the `Bc7Options` comments so it stays with the code:
+Every non-obvious default was set by measurement, and the reasoning lives in the
+`Bc7Options` comments so it stays with the code:
 
-- `shapeTrials = 16`. The bounding-box prescore that shortlists partition shapes
-  **is** lossy — exhaustive search finds a better shape on ~31% of blocks, which
-  answers a question that had been open on argument alone. But the shortlist is
-  cheap to widen and expensive to perfect: 8 → 16 buys +0.22 dB for +66% time,
-  16 → 64 a further +0.17 dB for another +200%. 16 is the knee.
-- `trialPBits = true`. See above.
+- `prescore = Scatter`. The shortlist score was a sum of per-subset bounding-box
+  extents, which is blind to how many pixels each subset holds — a 15/1 split
+  scores well trivially because the lone pixel's box has zero extent. Scoring
+  total *within-subset scatter* (Σ n·variance, the k-means objective) instead is
+  the same cost and strictly better, because it is scoring what the solve
+  actually goes on to optimise:
+
+  | shortlist | miss rate | excess error |
+  |---|---|---|
+  | bounding box, top 8 | 30.50% | 15.93% |
+  | bounding box, top 16 | 20.64% | 7.43% |
+  | scatter, top 8 | 25.53% | **6.56%** |
+  | scatter, top 16 | 16.77% | **3.32%** |
+
+  Note that scatter@8 leaves less excess error than bbox@16 at half the solve
+  cost — **fixing the score was worth more than doubling the shortlist**, which
+  is what the "still open" list had guessed. Note also the two columns disagree
+  about how bad bbox@8 is: a miss that costs a hair is not the same failure as
+  missing the only good shape, so the rate alone would have understated it.
+
+- `shapeTrials = 8`, having been 16. This number moved *down* when modes were
+  added, and that is the interesting part: a block the shortlist mis-partitions
+  usually has another *mode* that suits it, and the extra modes get there first.
+  Search breadth and mode coverage buy overlapping things. Re-measure this
+  whenever a mode lands rather than ratcheting it upward.
+
+- `trialPBits = true`. See the pooled-vs-per-image trap above.
+
+- `trialRotations = true`. Worth +0.89 dB; see the mode 5 section for why the
+  argument against it was wrong.
 
 ## Parallelism
 
-Blocks are independent, so `EncodeBc7` fans out over block rows — **12.1x** on
-this machine (206 ms vs 2492 ms for the same corpus), which more than repays the
-multi-mode search: the current encoder does three modes and twice the partition
-search of the old one and still finishes a bake in a fraction of the time.
-Deliberately **not** a
+Blocks are independent, so `EncodeBc7` fans out over block rows — **~14x** on
+this machine, which is what makes the multi-mode search affordable at all: the
+encoder now trials four modes and mode 5 four times over, and still bakes faster
+than the old serial two-mode one. Deliberately **not** a
 `Core/ThreadManager` client: that registry is for long-lived workers with
 cadences, watchdogs and a supervisor, and this wants a batch that starts,
 saturates, and joins. Plain `std::jthread` over an atomic row counter is the
@@ -212,18 +269,33 @@ faith.
 
 ## Still open
 
-- **Modes 3, 0, 2.** Mode 3 (two subsets, 7-bit endpoints, 2-bit indices) is the
-  natural companion to mode 1 for two-material blocks that are smooth *within*
-  each region. Modes 0 and 2 are three-subset and narrow. Diminishing returns
-  after mode 3.
-- **Mode 5 channel rotation.** A non-zero rotation swaps alpha with one of R/G/B
-  before encoding, letting a block whose odd channel out is a *colour* use the
-  decoupled path. Currently always 0, so only literal alpha benefits. Costs a 4x
-  solve; unmeasured.
-- **A better prescore.** The current one sums bounding-box extents with no
-  population term, so a 15/1 split scores well trivially. It misses on ~31% of
-  blocks; a population-weighted score might close some of that for free, which
-  would be worth more than raising `shapeTrials` further.
-- **GPU-side verification**, to close the one hole the harness cannot: decode a
-  block on the GPU and read it back, making a new mode's field layout provable
-  without a human looking at it.
+Four of the eight modes remain unimplemented, and the case for each is now much
+weaker than it was, because the four we have overlap so heavily. Every remaining
+item should be measured before it is built, not after.
+
+- **Modes 0 and 2 — three subsets.** The last real quality on the table, and the
+  narrowest. Mode 0 gives three regions but only 4-bit endpoints and 16 partition
+  shapes; mode 2 gives 5-bit endpoints and 64 shapes but 2-bit indices. A 4x4
+  block containing three distinct materials is not common, and both mode 3 and a
+  rotated mode 5 already rescue many of the blocks that motivated them. Estimate
+  the ceiling first: encode the corpus with the current set, then check how much
+  error remains in blocks whose best mode is still a poor fit. If that number is
+  small, this is finished work.
+- **Modes 4 and 7.** Mode 4 is mode 5's sibling with an index-selector bit and
+  3-bit indices on one of the two index sets; mode 7 is two subsets *with* alpha.
+  Mode 7 is the more interesting of the two — nothing we have gives a
+  material boundary and real alpha at the same time, so an alpha-cutout texture
+  with two materials in a block currently has to give one of them up.
+- **A smarter prescore still.** Scatter closed most of the gap (6.56% excess at
+  top 8, from 15.93%), but exhaustive search still wins on a quarter of blocks.
+  The remaining error is a line-fit problem, not a clustering one: scatter scores
+  a subset by spread about its *mean*, while the solve fits a *line*. Subtracting
+  the principal component would score the real residual, but computing an
+  eigenvector per shape per block is far too slow. A cheap approximation might
+  not be.
+- **GPU-side verification**, the one structural hole in the harness: decode a
+  block on the GPU and read it back, so a new mode's field layout is provable
+  without a human looking at the game. Deferred twice now on the same reasoning —
+  the manual check takes five minutes and has twice been sufficient — but the
+  argument weakens each time a mode is added, since the modes are getting rarer
+  and harder to find on screen. Mode 7 would be the point to build it.

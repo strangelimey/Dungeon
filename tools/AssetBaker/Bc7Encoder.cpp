@@ -40,6 +40,7 @@
 #include "Bc7Encoder.h"
 
 #include "Bc7Tables.h"
+#include "Core/Assert.h"
 
 #include <algorithm>
 #include <array>
@@ -203,16 +204,29 @@ void LeastSquaresFit(const Vec4f px[16], const int* mem, int n, int nch,
 }
 
 // LSB-first bit packing into the 16-byte block.
+//
+// A block is exactly 128 bits, and every mode's field widths must add up to it.
+// Get one wrong and this would run off the end of a 16-byte buffer, so the
+// arithmetic is checked rather than trusted: Write refuses to leave the block,
+// and each mode asserts it landed exactly on 128. That check is what makes it
+// safe to describe a new mode as a table of field widths (TwoSubsetSpec) — a
+// typo there becomes a loud failure instead of a smashed stack.
 struct BitWriter {
 	u8* out;
 	int bit = 0;
 	void Write(u32 value, int count) {
+		DN_ASSERT(bit + count <= 128, "BC7 block overflow: field widths are wrong");
 		for (int i = 0; i < count; ++i) {
 			if ((value >> i) & 1) out[bit >> 3] |= static_cast<u8>(1 << (bit & 7));
 			++bit;
 		}
 	}
 };
+
+// Every mode's packing ends here.
+void AssertBlockFull(const BitWriter& bits) {
+	DN_ASSERT(bits.bit == 128, "BC7 block is not exactly 128 bits");
+}
 
 // ---- Mode 6: one subset, RGBA, 7-bit endpoints + p-bit, 4-bit indices -------
 
@@ -306,52 +320,102 @@ float EncodeMode6(const Vec4f px[16], u8 out[16], const Bc7Options& opt) {
 	bits.Write(static_cast<u32>(p1), 1);
 	bits.Write(static_cast<u32>(idx[0]), 3); // anchor: implicit 0 MSB
 	for (int i = 1; i < 16; ++i) bits.Write(static_cast<u32>(idx[i]), 4);
+	AssertBlockFull(bits);
 	return err;
 }
 
-// ---- Mode 1: two subsets, RGB, 6-bit endpoints + shared p-bit, 3-bit idx ----
+// ---- The two-subset modes (1 and 3) -----------------------------------------
+//
+// Both partition the 16 pixels into two subsets by one of 64 fixed shapes and
+// fit a colour line per subset; they differ only in how they spend the bits the
+// second line costs:
+//
+//   mode 1 — 6 colour bits per component and ONE p-bit shared by a subset's two
+//     endpoints (7 bits of effective precision), 3-bit indices: 8 steps.
+//   mode 3 — 7 colour bits and a p-bit PER ENDPOINT (8 bits effective), 2-bit
+//     indices: 4 steps.
+//
+// So mode 3 places its endpoints more precisely and mode 1 places its pixels
+// more precisely. Mode 3 wins where each region is smooth and the two regions
+// are far apart — the endpoints then need to be exact and there is little for
+// the intermediate steps to do. Mode 1 wins where the regions have internal
+// gradients. Neither dominates, so both are trialled and measured.
+//
+// One solve serves both, parameterised by this:
+struct TwoSubsetSpec {
+	u32 marker;       // mode marker value, LSB-first
+	int markerBits;   // mode N is N zeros then a one
+	int colourBits;   // per endpoint component, BEFORE the p-bit
+	int indexBits;    // per pixel
+	const int* weights;
+	int weightCount;
+	bool perEndpointP; // false = one p-bit shared by the subset's endpoints
+};
 
-// One solved subset: 6-bit codes per endpoint, the shared p-bit, the chosen
-// per-member indices, and the subset's squared error.
+constexpr TwoSubsetSpec kSpecMode1{0x2, 2, 6, 3, kWeights3, 8, false};
+constexpr TwoSubsetSpec kSpecMode3{0x8, 4, 7, 2, kWeights2, 4, true};
+
+// One solved subset: the endpoint codes, each endpoint's p-bit (for a shared-p
+// mode both entries hold the same value, which makes the packing and the
+// endpoint swap below uniform), the chosen per-member indices, and the error.
 struct SubsetSolve {
 	int q[2][3]; // [endpoint][channel]
-	int pBit;
+	int pBit[2]; // [endpoint]
 	int idx[16]; // by member position
 	float error;
 };
 
-// Float fit -> quantize (shared p) -> index -> refit, three times (RGB).
-SubsetSolve SolveSubsetMode1(const Vec4f px[16], const int* mem, int n,
-							 const Bc7Options& opt) {
+// Float fit -> quantize -> index -> refit, three times (RGB).
+SubsetSolve SolveSubset(const Vec4f px[16], const int* mem, int n,
+						const TwoSubsetSpec& spec, const Bc7Options& opt) {
 	Vec4f e0, e1;
 	FitFloatEndpoints(px, mem, n, 3, e0, e1);
 
 	SubsetSolve best{};
 	for (int iter = 0; iter < 3; ++iter) {
-		// Candidate shared p-bits. The cheap path picks the one minimising both
-		// endpoints' quantization error; trialling carries both to block error.
-		int ps[2] = {0, 1}, nps = 2;
-		if (!opt.trialPBits) {
-			float qe[2] = {0, 0};
+		// Candidate p-bit assignments for this subset's two endpoints.
+		int pairs[4][2], npairs = 0;
+		if (opt.trialPBits) {
+			if (spec.perEndpointP) {
+				for (int a = 0; a <= 1; ++a)
+					for (int b = 0; b <= 1; ++b) {
+						pairs[npairs][0] = a;
+						pairs[npairs][1] = b;
+						++npairs;
+					}
+			} else {
+				pairs[0][0] = pairs[0][1] = 0;
+				pairs[1][0] = pairs[1][1] = 1;
+				npairs = 2;
+			}
+		} else {
+			// The cheap proxy: whichever p-bit reconstructs the endpoint(s) most
+			// closely, ignoring where that leaves the interpolated steps.
+			float qe[2] = {0, 0}, qe1[2] = {0, 0};
 			for (int p = 0; p <= 1; ++p)
 				for (int c = 0; c < 3; ++c) {
-					const Quant a = QuantizeChannel(e0[c], 6, p);
-					const Quant b = QuantizeChannel(e1[c], 6, p);
+					const Quant a = QuantizeChannel(e0[c], spec.colourBits, p);
+					const Quant b = QuantizeChannel(e1[c], spec.colourBits, p);
 					qe[p] += (a.recon - e0[c]) * (a.recon - e0[c]);
-					qe[p] += (b.recon - e1[c]) * (b.recon - e1[c]);
+					qe1[p] += (b.recon - e1[c]) * (b.recon - e1[c]);
 				}
-			ps[0] = qe[0] <= qe[1] ? 0 : 1;
-			nps = 1;
+			if (spec.perEndpointP) {
+				pairs[0][0] = qe[0] <= qe[1] ? 0 : 1;
+				pairs[0][1] = qe1[0] <= qe1[1] ? 0 : 1;
+			} else {
+				pairs[0][0] = pairs[0][1] =
+					(qe[0] + qe1[0] <= qe[1] + qe1[1]) ? 0 : 1;
+			}
+			npairs = 1;
 		}
 
 		best.error = 1e30f;
-		for (int k = 0; k < nps; ++k) {
-			const int p = ps[k];
+		for (int k = 0; k < npairs; ++k) {
 			int q[2][3];
 			Vec4f r0, r1;
 			for (int c = 0; c < 3; ++c) {
-				const Quant a = QuantizeChannel(e0[c], 6, p);
-				const Quant b = QuantizeChannel(e1[c], 6, p);
+				const Quant a = QuantizeChannel(e0[c], spec.colourBits, pairs[k][0]);
+				const Quant b = QuantizeChannel(e1[c], spec.colourBits, pairs[k][1]);
 				q[0][c] = a.code;
 				q[1][c] = b.code;
 				r0[c] = a.recon;
@@ -361,25 +425,28 @@ SubsetSolve SolveSubsetMode1(const Vec4f px[16], const int* mem, int n,
 			float err = 0;
 			for (int i = 0; i < n; ++i) {
 				float e;
-				idx[i] = BestIndex(px[mem[i]], r0, r1, 3, kWeights3, 8, e);
+				idx[i] = BestIndex(px[mem[i]], r0, r1, 3, spec.weights,
+								   spec.weightCount, e);
 				err += e;
 			}
 			if (err < best.error) {
 				std::memcpy(best.q, q, sizeof(q));
-				best.pBit = p;
+				best.pBit[0] = pairs[k][0];
+				best.pBit[1] = pairs[k][1];
 				std::memcpy(best.idx, idx, sizeof(int) * n);
 				best.error = err;
 			}
 		}
 
-		if (iter < 2) LeastSquaresFit(px, mem, n, 3, kWeights3, best.idx, e0, e1);
+		if (iter < 2)
+			LeastSquaresFit(px, mem, n, 3, spec.weights, best.idx, e0, e1);
 	}
 	return best;
 }
 
-// Cheap per-shape score: sum over subsets of the RGB bounding-box extent. Lower
-// means the partition cleanly separates the block's colours.
-float PrescoreShape(const Vec4f px[16], int shape) {
+// Per-shape score: sum over subsets of the RGB bounding-box extent. Lower means
+// the partition separates the block's colours. Blind to subset population.
+float PrescoreBoundingBox(const Vec4f px[16], int shape) {
 	float lo[2][3], hi[2][3];
 	for (int s = 0; s < 2; ++s)
 		for (int c = 0; c < 3; ++c) {
@@ -400,16 +467,46 @@ float PrescoreShape(const Vec4f px[16], int shape) {
 	return score;
 }
 
+// Per-shape score: total within-subset scatter, sum over subsets and channels of
+// (n * variance), computed from first and second moments in one pass. Lower
+// means less spread left for the per-subset colour line to explain — which is
+// what the solve then goes and does.
+float PrescoreScatter(const Vec4f px[16], int shape) {
+	float sum[2][3] = {}, sq[2][3] = {};
+	int n[2] = {0, 0};
+	for (int i = 0; i < 16; ++i) {
+		const int s = kPartition2[shape][i];
+		++n[s];
+		for (int c = 0; c < 3; ++c) {
+			sum[s][c] += px[i][c];
+			sq[s][c] += px[i][c] * px[i][c];
+		}
+	}
+	float score = 0;
+	for (int s = 0; s < 2; ++s) {
+		if (n[s] == 0) continue;
+		for (int c = 0; c < 3; ++c)
+			score += sq[s][c] - sum[s][c] * sum[s][c] / static_cast<float>(n[s]);
+	}
+	return score;
+}
+
+float PrescoreShape(const Vec4f px[16], int shape, Bc7Prescore kind) {
+	return kind == Bc7Prescore::Scatter ? PrescoreScatter(px, shape)
+										: PrescoreBoundingBox(px, shape);
+}
+
 // Encodes the best of opt.shapeTrials partition shapes; returns its error (or
 // +inf if no shape was usable). `out` is written only on a finite result.
-float EncodeMode1(const Vec4f px[16], u8 out[16], const Bc7Options& opt) {
+float EncodeTwoSubset(const Vec4f px[16], u8 out[16], const Bc7Options& opt,
+					  const TwoSubsetSpec& spec) {
 	const int trials = std::clamp(opt.shapeTrials, 1, 64);
 
 	// Rank shapes by prescore, keep the cheapest few.
 	std::array<int, 64> order;
 	for (int s = 0; s < 64; ++s) order[s] = s;
 	std::array<float, 64> score;
-	for (int s = 0; s < 64; ++s) score[s] = PrescoreShape(px, s);
+	for (int s = 0; s < 64; ++s) score[s] = PrescoreShape(px, s, opt.prescore);
 	std::partial_sort(order.begin(), order.begin() + trials, order.end(),
 					  [&](int a, int b) { return score[a] < score[b]; });
 
@@ -425,8 +522,8 @@ float EncodeMode1(const Vec4f px[16], u8 out[16], const Bc7Options& opt) {
 			(kPartition2[shape][i] == 0 ? m0[c0++] : m1[c1++]) = i;
 		if (c0 == 0 || c1 == 0) continue; // shapes always split, but be safe
 
-		const SubsetSolve s0 = SolveSubsetMode1(px, m0, c0, opt);
-		const SubsetSolve s1 = SolveSubsetMode1(px, m1, c1, opt);
+		const SubsetSolve s0 = SolveSubset(px, m0, c0, spec, opt);
+		const SubsetSolve s1 = SolveSubset(px, m1, c1, spec, opt);
 		const float err = s0.error + s1.error;
 		if (err < bestErr) {
 			bestErr = err;
@@ -446,36 +543,50 @@ float EncodeMode1(const Vec4f px[16], u8 out[16], const Bc7Options& opt) {
 	for (int i = 0; i < n0; ++i) idx[memo0[i]] = bestS0.idx[i];
 	for (int i = 0; i < n1; ++i) idx[memo1[i]] = bestS1.idx[i];
 
-	// Per-subset anchor fix-up: the anchor pixel's index MSB must be 0; else
-	// swap that subset's endpoints and invert its indices.
+	// Per-subset anchor fix-up: the anchor pixel's index MSB must be 0; else swap
+	// that subset's endpoints (codes AND p-bits) and invert its indices, which
+	// is decode-identical.
+	const int msb = 1 << (spec.indexBits - 1);
+	const int maxIdx = (1 << spec.indexBits) - 1;
 	const int anchor1 = kAnchor2[bestShape];
 	SubsetSolve* solves[2] = {&bestS0, &bestS1};
 	const int* mems[2] = {memo0, memo1};
 	const int counts[2] = {n0, n1};
 	const int anchors[2] = {0, anchor1};
 	for (int s = 0; s < 2; ++s) {
-		if (idx[anchors[s]] & 4) {
+		if (idx[anchors[s]] & msb) {
 			std::swap(solves[s]->q[0], solves[s]->q[1]);
+			std::swap(solves[s]->pBit[0], solves[s]->pBit[1]);
 			for (int i = 0; i < counts[s]; ++i)
-				idx[mems[s][i]] = 7 - idx[mems[s][i]];
+				idx[mems[s][i]] = maxIdx - idx[mems[s][i]];
 		}
 	}
 
 	std::memset(out, 0, 16);
 	BitWriter bits{out};
-	bits.Write(0x2, 2); // mode 1 (one zero then a one, LSB first)
+	bits.Write(spec.marker, spec.markerBits);
 	bits.Write(static_cast<u32>(bestShape), 6);
-	// Endpoints: per channel, in order s0e0, s0e1, s1e0, s1e1 (6 bits each).
+	// Endpoints: per channel, in order s0e0, s0e1, s1e0, s1e1.
 	const int* qs[4] = {bestS0.q[0], bestS0.q[1], bestS1.q[0], bestS1.q[1]};
 	for (int c = 0; c < 3; ++c)
-		for (int e = 0; e < 4; ++e) bits.Write(static_cast<u32>(qs[e][c]), 6);
-	bits.Write(static_cast<u32>(bestS0.pBit), 1);
-	bits.Write(static_cast<u32>(bestS1.pBit), 1);
-	// Indices (3 bits each; the two anchors implicitly drop their MSB).
+		for (int e = 0; e < 4; ++e)
+			bits.Write(static_cast<u32>(qs[e][c]), spec.colourBits);
+	// p-bits: one per subset when shared, one per endpoint otherwise.
+	if (spec.perEndpointP) {
+		bits.Write(static_cast<u32>(bestS0.pBit[0]), 1);
+		bits.Write(static_cast<u32>(bestS0.pBit[1]), 1);
+		bits.Write(static_cast<u32>(bestS1.pBit[0]), 1);
+		bits.Write(static_cast<u32>(bestS1.pBit[1]), 1);
+	} else {
+		bits.Write(static_cast<u32>(bestS0.pBit[0]), 1);
+		bits.Write(static_cast<u32>(bestS1.pBit[0]), 1);
+	}
+	// Indices; the two anchors implicitly drop their MSB.
 	for (int i = 0; i < 16; ++i) {
 		const bool anchor = (i == 0) || (i == anchor1);
-		bits.Write(static_cast<u32>(idx[i]), anchor ? 2 : 3);
+		bits.Write(static_cast<u32>(idx[i]), anchor ? spec.indexBits - 1 : spec.indexBits);
 	}
+	AssertBlockFull(bits);
 	return bestErr;
 }
 
@@ -487,13 +598,20 @@ float EncodeMode1(const Vec4f px[16], u8 out[16], const Bc7Options& opt) {
 // Both index sets are 2-bit and BOTH drop the MSB at pixel 0 (the single
 // subset's anchor), which is where the two 31s come from.
 //
-// ROTATION IS ALWAYS 0 HERE. A non-zero rotation swaps alpha with one of R/G/B
-// before encoding, which would let a block whose ODD channel is a colour use
-// the decoupled path. For height-in-alpha content channel 3 already IS the odd
-// one out, so the rotations are left unexplored rather than guessed at —
-// tools/Bc7Test can settle whether they would pay for the 4x solve.
+// ROTATION: a non-zero rotation swaps alpha with one of R/G/B before encoding,
+// so the decoupled endpoint pair serves that COLOUR channel and alpha rides the
+// shared line instead. It is the right choice whenever the odd channel out is
+// not literally alpha — a block whose blue varies independently of red and
+// green, say. The encoder trials all four and keeps the best; the rotation is
+// written into the block and the decoder swaps back.
+//
+// The trial is free of any comparability worry: a rotation only PERMUTES the
+// channels, and the error sums squares over all four, so a rotated block's
+// error is directly comparable to an unrotated one's and to every other mode's.
 
-float EncodeMode5(const Vec4f px[16], u8 out[16]) {
+// Solves mode 5 for pixels already permuted by `rotation`, writing that
+// rotation into the block.
+float EncodeMode5Rotated(const Vec4f px[16], u8 out[16], int rotation) {
 	// --- RGB: the usual principal-axis solve, 7-bit endpoints, no p-bit.
 	Vec4f e0, e1;
 	FitFloatEndpoints(px, kAllPixels, 16, 3, e0, e1);
@@ -561,7 +679,7 @@ float EncodeMode5(const Vec4f px[16], u8 out[16]) {
 	std::memset(out, 0, 16);
 	BitWriter bits{out};
 	bits.Write(0x20, 6); // mode 5 (five zeros then a one, LSB first)
-	bits.Write(0, 2);    // rotation: none
+	bits.Write(static_cast<u32>(rotation), 2);
 	for (int c = 0; c < 3; ++c) {
 		bits.Write(static_cast<u32>(q0[c]), 7);
 		bits.Write(static_cast<u32>(q1[c]), 7);
@@ -570,7 +688,28 @@ float EncodeMode5(const Vec4f px[16], u8 out[16]) {
 	bits.Write(static_cast<u32>(qa1), 8);
 	for (int i = 0; i < 16; ++i) bits.Write(static_cast<u32>(cidx[i]), i == 0 ? 1 : 2);
 	for (int i = 0; i < 16; ++i) bits.Write(static_cast<u32>(aidx[i]), i == 0 ? 1 : 2);
+	AssertBlockFull(bits);
 	return cerr + aerr;
+}
+
+float EncodeMode5(const Vec4f px[16], u8 out[16], const Bc7Options& opt) {
+	const int rotations = opt.trialRotations ? 4 : 1;
+	float bestErr = 1e30f;
+	u8 candidate[16];
+	for (int rot = 0; rot < rotations; ++rot) {
+		Vec4f rp[16];
+		for (int i = 0; i < 16; ++i) {
+			rp[i] = px[i];
+			// Rotation r puts channel r-1 where alpha was, and vice versa.
+			if (rot != 0) std::swap(rp[i][rot - 1], rp[i][3]);
+		}
+		const float err = EncodeMode5Rotated(rp, candidate, rot);
+		if (err < bestErr) {
+			bestErr = err;
+			std::memcpy(out, candidate, 16);
+		}
+	}
+	return bestErr;
 }
 
 // ---- Mode selection ---------------------------------------------------------
@@ -591,8 +730,11 @@ Bc7BlockStat EncodeBlock(const Vec4f px[16], u8 out[16], const Bc7Options& opt) 
 	};
 
 	if (opt.modes & kBc7Mode6) consider(6, EncodeMode6(px, candidate, opt));
-	if ((opt.modes & kBc7Mode1) && opaque) consider(1, EncodeMode1(px, candidate, opt));
-	if (opt.modes & kBc7Mode5) consider(5, EncodeMode5(px, candidate));
+	if ((opt.modes & kBc7Mode1) && opaque)
+		consider(1, EncodeTwoSubset(px, candidate, opt, kSpecMode1));
+	if ((opt.modes & kBc7Mode3) && opaque)
+		consider(3, EncodeTwoSubset(px, candidate, opt, kSpecMode3));
+	if (opt.modes & kBc7Mode5) consider(5, EncodeMode5(px, candidate, opt));
 
 	// A mask that excluded every eligible mode would leave `out` unwritten;
 	// mode 6 is the universal fallback.
