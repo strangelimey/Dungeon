@@ -212,6 +212,10 @@ private:
 	void BeginLevelTransition(const std::string& stem, int x, int z,
 							  Direction facing, bool stashCurrent = true);
 	bool RunLoadTasks();       // executes one task per frame; true when done
+	// Dumps the finished queue's per-task time/allocation table to the log —
+	// once as the last task lands, and again on demand (`loadstats`, which also
+	// echoes it into the console scrollback).
+	void LogLoadStats(bool echoToConsole = false);
 	void LoadPortraits();      // baked party portraits (load task)
 	void LoadHitSplats();      // hit-feedback splat icons (load task)
 	void LoadItemIcons();      // rune + placeholder item cursor/inventory icons (load task)

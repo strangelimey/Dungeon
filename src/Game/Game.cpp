@@ -12,6 +12,7 @@
 #include "Game/AssetUtil.h"
 #include "Graphics/DisplayEnum.h"
 #include "Graphics/Texture.h"
+#include "Platform/PerfMonitor.h"
 
 #include <algorithm>
 #include <array>
@@ -207,23 +208,26 @@ Game::~Game() {
 void Game::BuildBootLoadTasks() {
 	m_loadQueue.Clear();
 	m_loadQueue.SetDoneLabel(loc::Tr("load.done"));
-	m_loadQueue.Add(loc::Tr("load.echoes"), [this] { m_sounds.Load(); });
-	m_loadQueue.Add(loc::Tr("load.title_art"), [this] { m_ui.LoadTitleArt(); });
+	m_loadQueue.Add(loc::Tr("load.echoes"), [this] { m_sounds.Load(); }, "sounds");
+	m_loadQueue.Add(loc::Tr("load.title_art"), [this] { m_ui.LoadTitleArt(); }, "title art");
 }
 
 void Game::BuildGameLoadTasks() {
 	m_loadQueue.Clear();
 	m_loadQueue.SetDoneLabel(loc::Tr("load.done"));
 	m_world.AppendLoadTasks(m_loadQueue);
-	m_loadQueue.Add(loc::Tr("load.portraits"), [this] { LoadPortraits(); });
-	m_loadQueue.Add(loc::Tr("load.portraits"), [this] { LoadHitSplats(); });
-	m_loadQueue.Add(loc::Tr("load.portraits"), [this] { LoadItemIcons(); });
-	m_loadQueue.Add(loc::Tr("load.hud"), [this] {
-		m_ui.BuildHud();
-		log::Info("Game loaded: {}x{} dungeon, {} torches, {} monsters",
-				  m_world.Map().Width(), m_world.Map().Height(),
-				  m_world.Map().Sconces().size(), m_world.MonsterCount());
-	});
+	m_loadQueue.Add(loc::Tr("load.portraits"), [this] { LoadPortraits(); }, "portraits");
+	m_loadQueue.Add(loc::Tr("load.portraits"), [this] { LoadHitSplats(); }, "hit splats");
+	m_loadQueue.Add(loc::Tr("load.portraits"), [this] { LoadItemIcons(); }, "item icons");
+	m_loadQueue.Add(
+		loc::Tr("load.hud"),
+		[this] {
+			m_ui.BuildHud();
+			log::Info("Game loaded: {}x{} dungeon, {} torches, {} monsters",
+					  m_world.Map().Width(), m_world.Map().Height(),
+					  m_world.Map().Sconces().size(), m_world.MonsterCount());
+		},
+		"hud");
 }
 
 void Game::BeginLevelTransition(const std::string& stem, int x, int z,
@@ -247,8 +251,52 @@ void Game::BeginLevelTransition(const std::string& stem, int x, int z,
 // single import-model; texture sets import the maps (step 0) then rebake the
 // worn block meshes that sample them (step 1).
 bool Game::RunLoadTasks() {
+	const bool wasDone = m_loadQueue.Done();
 	if (m_framesRendered > m_stateFrameMark) m_loadQueue.RunOne();
-	return m_loadQueue.Done();
+	const bool done = m_loadQueue.Done();
+	if (done && !wasDone) LogLoadStats(); // the frame the last task landed
+	return done;
+}
+
+// The load-time counterpart to the steady-state rule: staged loading is ALLOWED
+// to allocate, but until now nobody had measured how much. Sorted by time, since
+// that is what a player feels; the allocation columns say where the time went.
+void Game::LogLoadStats(bool echoToConsole) {
+	const std::vector<LoadQueue::TaskStat>& stats = m_loadQueue.Stats();
+	if (stats.empty()) {
+		if (echoToConsole) m_console.Print("no load has run yet");
+		return;
+	}
+	auto say = [this, echoToConsole](std::string line) {
+		if (echoToConsole) m_console.Print(line);
+		log::Info("{}", line);
+	};
+
+	double totalMs = 0.0;
+	u64 totalAllocs = 0, totalBytes = 0;
+	for (const LoadQueue::TaskStat& s : stats) {
+		totalMs += s.ms;
+		totalAllocs += s.allocs;
+		totalBytes += s.bytes;
+	}
+
+	// Sorted by cost, not run order — the table is read top-down for suspects.
+	std::vector<const LoadQueue::TaskStat*> byCost;
+	byCost.reserve(stats.size());
+	for (const LoadQueue::TaskStat& s : stats) byCost.push_back(&s);
+	std::ranges::sort(byCost, [](const LoadQueue::TaskStat* a, const LoadQueue::TaskStat* b) {
+		return a->ms > b->ms;
+	});
+
+	const ProcessMemory mem = QueryProcessMemory();
+	say(std::format("--- load: {} tasks, {:.0f} ms, {} allocs, {:.1f} MB requested "
+					"(working set {:.0f} MB, peak {:.0f} MB) ---",
+					stats.size(), totalMs, totalAllocs,
+					static_cast<double>(totalBytes) / (1024.0 * 1024.0),
+					mem.workingSetMB, mem.peakWorkingSetMB));
+	for (const LoadQueue::TaskStat* s : byCost)
+		say(std::format("  {:>8.1f} ms  {:>8} allocs  {:>9.2f} MB  {}", s->ms, s->allocs,
+						static_cast<double>(s->bytes) / (1024.0 * 1024.0), s->name));
 }
 
 void Game::LoadPortraits() {

@@ -72,6 +72,11 @@ void Game::RegisterDevCommands() {
 					   [this](const std::vector<std::string>&) {
 						   m_console.Print(std::format("{:.1f} fps", m_console.Fps()));
 					   });
+	m_console.Register("loadstats",
+					   "reprint the last staged load's per-task time/allocation table",
+					   [this](const std::vector<std::string>&) {
+						   LogLoadStats(/*echoToConsole=*/true);
+					   });
 	m_console.Register("quality", "set quality tier 0-3 (low/med/high/ultra)",
 					   [this](const std::vector<std::string>& args) {
 						   if (!Need(m_console, args, 1, "usage: quality <0-3>")) return;

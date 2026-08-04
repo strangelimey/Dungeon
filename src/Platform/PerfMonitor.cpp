@@ -23,6 +23,12 @@ unsigned long long FtToU64(const FILETIME& ft) {
 }
 } // namespace
 
+ProcessMemory QueryProcessMemory() {
+	PROCESS_MEMORY_COUNTERS pmc{};
+	if (!GetProcessMemoryInfo(GetCurrentProcess(), &pmc, sizeof(pmc))) return {};
+	return {ToMB(pmc.WorkingSetSize), ToMB(pmc.PeakWorkingSetSize)};
+}
+
 PerfMonitor::PerfMonitor() {
 	// GPU utilization via the PDH "GPU Engine" counter set (WDDM 2.x+). The
 	// instance wildcard expands to one entry per (process, GPU engine); we sum

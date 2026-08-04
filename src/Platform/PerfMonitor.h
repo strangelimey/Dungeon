@@ -12,6 +12,16 @@
 
 namespace dungeon {
 
+// This process's working set right now, and the highest it has ever been, in
+// MB. The peak is the OS's own high-water mark (it survives a drop back), which
+// is what makes it worth reporting after a staged load: it says what the load
+// actually demanded, not what it kept.
+struct ProcessMemory {
+	double workingSetMB = 0.0;
+	double peakWorkingSetMB = 0.0;
+};
+ProcessMemory QueryProcessMemory();
+
 class PerfMonitor {
 public:
 	PerfMonitor();

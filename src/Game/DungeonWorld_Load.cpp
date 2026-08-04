@@ -177,7 +177,7 @@ void DungeonWorld::ResolveSurfacePalettes() {
 }
 
 void DungeonWorld::AppendLoadTasks(LoadQueue& queue) {
-	queue.Add(loc::Tr("load.blocks"), [this] { LoadDungeonBlocks(); });
+	queue.Add(loc::Tr("load.blocks"), [this] { LoadDungeonBlocks(); }, "blocks");
 
 	// One task per material (the scanned sets dominate the load); the first
 	// material of each set resets the surface, exactly as LoadTextureSet does.
@@ -189,32 +189,43 @@ void DungeonWorld::AppendLoadTasks(LoadQueue& queue) {
 			const bool first = i == 0; // first material resets the set
 			std::string spaced = name; // asset id, shown with the '_'s opened up
 			std::ranges::replace(spaced, '_', ' ');
-			queue.Add(loc::Format("load.surface", spaced),
-					  [this, &surface, name, heightScale, first] {
-						  if (first) surface.ResetTextures();
-						  LoadSurfaceMaterial(surface, name, heightScale);
-					  });
+			queue.Add(
+				loc::Format("load.surface", spaced),
+				[this, &surface, name, heightScale, first] {
+					if (first) surface.ResetTextures();
+					LoadSurfaceMaterial(surface, name, heightScale);
+				},
+				"surface " + name);
 		}
 	}
 
-	queue.Add(loc::Tr("load.dungeon"), [this] { BuildDungeonMeshes(); });
-	queue.Add(loc::Tr("load.monsters"), [this] {
-		LoadMonsters();
-		LoadItems();
-		LoadButtons();
-	});
-	queue.Add(loc::Tr("load.decorations"), [this] {
-		LoadDecorations();
-		LoadStairs();
-		LoadDoors(); // after decorations: shares the prop texture/model caches
-	});
-	queue.Add(loc::Tr("load.fires"), [this] {
-		// Fixture kinds resolve lazily per placed record (FixtureKindFor, the
-		// DecorationKind pattern) — BuildFires pulls in whatever the level uses.
-		m_particleBatch = std::make_unique<gfx::ParticleBatch>(m_device);
-		BuildFires();
-	});
-	queue.Add(loc::Tr("load.dust"), [this] { BuildTurbidityMap(); });
+	queue.Add(loc::Tr("load.dungeon"), [this] { BuildDungeonMeshes(); }, "dungeon meshes");
+	queue.Add(
+		loc::Tr("load.monsters"),
+		[this] {
+			LoadMonsters();
+			LoadItems();
+			LoadButtons();
+		},
+		"monsters + items + buttons");
+	queue.Add(
+		loc::Tr("load.decorations"),
+		[this] {
+			LoadDecorations();
+			LoadStairs();
+			LoadDoors(); // after decorations: shares the prop texture/model caches
+		},
+		"decorations + stairs + doors");
+	queue.Add(
+		loc::Tr("load.fires"),
+		[this] {
+			// Fixture kinds resolve lazily per placed record (FixtureKindFor, the
+			// DecorationKind pattern) — BuildFires pulls in whatever the level uses.
+			m_particleBatch = std::make_unique<gfx::ParticleBatch>(m_device);
+			BuildFires();
+		},
+		"fires");
+	queue.Add(loc::Tr("load.dust"), [this] { BuildTurbidityMap(); }, "turbidity");
 }
 
 void DungeonWorld::LoadDungeonBlocks() {
