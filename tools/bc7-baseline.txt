@@ -1,0 +1,19 @@
+# BC7 quality baseline - PSNR in dB per corpus image.
+# Regenerate with: Bc7Test --assets <dir> --write-baseline <this file>
+# A drop here is a regression; a rise is an improvement worth a commit message.
+syn.brick 56.31
+syn.gradient 54.69
+syn.noise 18.58
+syn.flat 99.99
+syn.normalheight 43.26
+syn.alpharamp 75.22
+syn.cutout 60.03
+ancient_pot_2k 43.75
+floor_stone_pavement_1k 52.87
+wall_brick_distorted_4k 49.60
+ancient_pot_2k_n 32.74
+floor_stone_pavement_1k_n 40.92
+wall_brick_distorted_4k_n 39.94
+ancient_pot_2k_mr 49.39
+floor_stone_pavement_1k_mr 53.03
+wall_brick_distorted_4k_mr 51.94

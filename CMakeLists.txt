@@ -37,6 +37,7 @@ add_subdirectory(src/Main)
 
 # Offline tooling (not part of the game).
 add_subdirectory(tools/AssetBaker)
+add_subdirectory(tools/Bc7Test)
 add_subdirectory(tools/ThreadStress)
 
 # Visual Studio solution: open with the game as the startup project.

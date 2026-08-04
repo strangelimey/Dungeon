@@ -400,8 +400,40 @@ buffer, reused across all ~25 submissions).
   the boxes in the editor's monster config dialog (it auto-discovers the model's
   clips). Humanoid Mixamo defaults (mesh +90 yaw to co-face the armature, finger
   bones excluded); non-humanoid rigs may need --mesh-yaw/--keep-fingers tuning.
-- `AssetBaker mips <assets>` — rebakes derived .dds (BC7 mode-6 encoder in
-  tools/AssetBaker/Bc7Encoder.cpp; use the RELEASE baker, encode is slow).
+- `AssetBaker mips <assets>` — rebakes derived .dds (BC7 encoder in
+  tools/AssetBaker/Bc7Encoder.cpp; use the RELEASE baker). The encoder trials
+  FOUR modes per 4x4 block and keeps the lowest error: mode 6 (one RGBA line, 16
+  index steps — photographic albedo), modes 1 and 3 (two subsets with a colour
+  line EACH, so a block straddling brick and mortar stops smearing one line
+  through the middle — mode 1 spends its bits on index steps, mode 3 on endpoint
+  precision, so neither dominates; RGB-only, opaque blocks only), and mode 5 (one
+  channel gets its OWN endpoints and index set, plus a ROTATION naming which
+  channel that is). Every mode's error is the same quantity — squared difference
+  over 16 px x 4 channels — which is what makes "keep the lowest" meaningful
+  across them. Mode 5's rotation is the one to understand: it was nearly left out
+  on the argument that this project's odd channel out is the height in alpha,
+  which mode 5 already decouples. Wrong — in a normal map the awkward channel is
+  usually BLUE (z is derived from x and y and behaves nothing like them), and the
+  rotations took one scanned normal map from 35.8 to 39.9 dB, its mode-5 share
+  going from 2% of blocks to 93%.
+  The knobs live in Bc7Options (Bc7Encoder.h), each with its measured
+  justification in the comment; every non-obvious default was SET by
+  `Bc7Test --audit`, not guessed. TWO of those measurements are worth carrying
+  forward: the partition shortlist is ranked by within-subset SCATTER, not
+  bounding-box extent (the old score was blind to subset population, and fixing
+  it was worth more than doubling the shortlist); and shapeTrials went 8 -> 16 ->
+  8 as modes were added, because a block the shortlist mis-partitions usually has
+  another MODE that suits it. Search breadth and mode coverage buy overlapping
+  things — re-measure both whenever a mode lands.
+  CHECKED, not assumed — `tools\Bc7Test.ps1` (docs/bc7.md): the encoder records
+  the error it believes each block carries, and the harness decodes the packed
+  bytes with an INDEPENDENT decoder and demands exact agreement. That estimate
+  is what picks the mode, so if it lies, mode selection is a coin toss and every
+  quality claim is void. `-SelfTest` corrupts the bytes and requires a FAIL.
+  TRAP when reading its numbers: aggregate PSNR by the MEAN of per-image PSNR,
+  never by pooling squared error — pooling is dominated by whichever tile
+  compresses worst (the noise tile sits ~1000x higher in MSE than a smooth one),
+  and it hid a knob worth 1.35 dB on brick behind an average of +0.01 dB.
 - `AssetBaker models <assets>` — rebakes only the .gltf models (fast). Worn
   blocks sample the installed texture height maps, so rerun after
   FetchTextures.ps1 or a texture import.
@@ -1158,7 +1190,14 @@ memory.
   built props world-aligned tiling UVs (TileUvs); the glTF baseColor stays as
   the flat fallback if a set is missing. Bought authored decoration meshes
   (boulder/mossy_rock/pot) ride the import-model path like ancient_pot.
-- BC7 encoder is mode-6 only (slight banding possible on smooth gradients).
+- BC7 encoder implements 4 of the 8 modes (6, 1, 3, 5 — see the `AssetBaker mips`
+  bullet and docs/bc7.md). The unimplemented ones are quality left on the table,
+  not a correctness gap: a mode is only ever chosen when it MEASURES better, so
+  the missing ones cost dB, never pixels. Remaining candidates are mode 7 (two
+  subsets WITH alpha — nothing we have gives a material boundary and real alpha
+  at once) and modes 0/2/4; all are narrow, since the four implemented modes
+  overlap heavily and already rescue most of what motivated them. Measure the
+  remaining headroom before building any of them.
 - The UI is a strict CONTROL TREE (docs/ui-hierarchy.md): every widget owns its
   children, and a child's normalized bounds (0..1) resolve against its PARENT's
   ContentRect(), recursively from a window-sized root down — so moving or
