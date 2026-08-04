@@ -45,7 +45,7 @@ fixture sconce 17 4 east
 fixture sconce 17 7 east
 fixture sconce 17 10 east
 fixture sconce 17 13 east
-fixture sconce 11 3 north
+fixture sconce 10 3 north
 fixture sconce 16 3 north
 fixture sconce 11 14 south
 fixture sconce 16 14 south

@@ -30,6 +30,15 @@
 # standard skeleton, so any number bind to a single rigid bind — drop more .fbx in
 # a state folder and re-run, no re-binding.
 #
+# The output is authored in UNIT SPACE like every other model on disk (1.0 = one
+# dungeon square; docs/authoring-scale.md puts a humanoid at ~0.68 units), so
+# --height is in UNITS — the same convention as import-model's --height and
+# FetchModels' $modelSets Height. It used to be "match this reference model's
+# height" instead, which is how five bought skeletons ended up in metre space:
+# the reference was measured over EVERY mesh in the scene, and Blender's glTF
+# importer leaves a stray 2-unit Icosphere behind, so the "reference height" was
+# a constant 2.000 whatever model was named. An explicit number can't drift.
+#
 # Two modes:
 #   --plan : walk the library, print the clip plan + catalog rows, and exit. Pure
 #            python (NO Blender) — a dry run / CI check of the folder layout.
@@ -37,7 +46,7 @@
 #
 # Usage (bake, under Blender):
 #   blender --background --factory-startup --python tools/ImportAnimLibrary.py -- \
-#       <mesh.fbx> <library_root> <out.gltf> <ref_skeleton.gltf> \
+#       <mesh.fbx> <library_root> <out.gltf> --height <units> \
 #       [--catalog-out <file>] [--mesh-yaw DEG] [--keep-fingers]
 # Usage (plan, plain python):
 #   python tools/ImportAnimLibrary.py --plan <library_root> [--catalog-out <file>]
@@ -129,12 +138,12 @@ def parse_args(argv):
     argv = argv[argv.index("--") + 1:] if "--" in argv else argv[1:]
     plan = "--plan" in argv
     argv = [a for a in argv if a != "--plan"]
-    opts = {"plan": plan, "mesh": None, "library": None, "out": None, "ref": None,
+    opts = {"plan": plan, "mesh": None, "library": None, "out": None, "height": 0.0,
             "catalog_out": None, "mesh_yaw": 90.0, "keep_fingers": False,
             "textures": "", "tex_dir": "", "arm_drop": 0.0, "skinned": False,
             "rigid_islands": False, "original": "", "islands": "",
             "mirror": False, "rig_from": ""}
-    usage = ("usage: <mesh.fbx|.obj> <library_root> <out.gltf> <ref_skeleton.gltf> "
+    usage = ("usage: <mesh.fbx|.obj> <library_root> <out.gltf> --height <units> "
              "[--catalog-out f] [--mesh-yaw deg] [--keep-fingers] "
              "[--textures '<mat>=<albedo>[:<normal>];...' --tex-dir <dir>] "
              "[--islands '<minvert>=<bone>;...'] [--mirror] "
@@ -152,6 +161,8 @@ def parse_args(argv):
         a = argv[i]
         if a == "--catalog-out":
             opts["catalog_out"] = value(i, a); i += 2
+        elif a == "--height":
+            opts["height"] = float(value(i, a)); i += 2
         elif a == "--mesh-yaw":
             opts["mesh_yaw"] = float(value(i, a)); i += 2
         elif a == "--keep-fingers":
@@ -183,11 +194,15 @@ def parse_args(argv):
             raise SystemExit("usage: --plan <library_root> [--catalog-out f]")
         opts["library"] = pos[0]
     else:
-        if len(pos) < 4:
-            raise SystemExit("usage: <mesh.fbx> <library_root> <out.gltf> "
-                             "<ref_skeleton.gltf> [--catalog-out f] [--mesh-yaw deg] "
-                             "[--keep-fingers]")
-        opts["mesh"], opts["library"], opts["out"], opts["ref"] = pos[:4]
+        if len(pos) < 3:
+            raise SystemExit(usage)
+        opts["mesh"], opts["library"], opts["out"] = pos[:3]
+        # No default: a silently-assumed height is what put five skeletons in
+        # metre space. Say the number, in units.
+        if opts["height"] <= 0.0:
+            raise SystemExit("--height <units> is required (1.0 = one dungeon "
+                             "square; a humanoid is ~0.68 — see "
+                             "docs/authoring-scale.md)\n" + usage)
     return opts
 
 
@@ -236,25 +251,30 @@ def run_bake(opts):
     if unknown:
         print(f"[warn] folders not matching a CreatureState (ignored): {', '.join(unknown)}")
 
-    mesh_fbx, out_path, ref_gltf = opts["mesh"], opts["out"], opts["ref"]
+    mesh_fbx, out_path = opts["mesh"], opts["out"]
     mesh_yaw = math.radians(opts["mesh_yaw"])
     fingers_excluded = not opts["keep_fingers"]
 
-    bpy.ops.wm.read_factory_settings(use_empty=True)
+    def clear_scene():
+        # read_factory_settings is not enough on its own to trust: an importer
+        # can leave objects of its own behind (Blender's glTF importer parks a
+        # stray 2-unit 'Icosphere' beside every rig it reads), and anything left
+        # in the scene poisons the next whole-scene measurement. Purge by hand.
+        bpy.ops.wm.read_factory_settings(use_empty=True)
+        for o in list(bpy.data.objects):
+            bpy.data.objects.remove(o, do_unlink=True)
+
+    clear_scene()
 
     def import_fbx(path):
         before = set(bpy.data.objects)
         bpy.ops.import_scene.fbx(filepath=path)
         return [o for o in bpy.data.objects if o not in before]
 
-    # Measure the reference model (existing <type>.gltf) to match its in-engine
-    # height + ground placement exactly, then clear the scene.
-    bpy.ops.import_scene.gltf(filepath=ref_gltf)
-    _rp = [o.matrix_world @ v.co for o in bpy.data.objects if o.type == "MESH"
-           for v in o.data.vertices]
-    ref_h = max(p.z for p in _rp) - min(p.z for p in _rp)
-    bpy.ops.wm.read_factory_settings(use_empty=True)
-    print(f"[ref] height={ref_h:.3f}")
+    # The height the finished creature stands, in UNITS (1.0 = one dungeon
+    # square). Everything below fits and grounds to this one number.
+    ref_h = opts["height"]
+    print(f"[fit] target height={ref_h:.3f} units")
 
     # ---- import every clip; keep the first armature as THE rig ----------------
     rig = None
@@ -344,6 +364,14 @@ def run_bake(opts):
 
     def bone_world(b, head=True):
         return rig.matrix_world @ (b.head_local if head else b.tail_local)
+
+    def rig_height():
+        # The ARMATURE is the yardstick for "how big is this creature", never
+        # the mesh: a mesh's bounds include whatever it carries (the spearman's
+        # raised spear tops his skull by a fifth of his height), and the kit
+        # variants share one rig, so the armature reads the same for all four.
+        zs = [bone_world(b, h).z for b in rig.data.bones for h in (True, False)]
+        return max(zs) - min(zs)
 
     def apply_all(obj, location=True, rotation=True, scale=True):
         bpy.ops.object.select_all(action="DESELECT")
@@ -505,6 +533,7 @@ def run_bake(opts):
             mesh.parent = rig  # tidy hierarchy for the exporter
         print(f"[fit] skinned mesh dims {mesh.dimensions.x:.2f} x "
               f"{mesh.dimensions.y:.2f} x {mesh.dimensions.z:.2f}")
+        rig_h_fit = rig_height()
 
         # --mirror: flip the model LEFT<->RIGHT (art authored with the weapon
         # in the off hand — the library's attack clips lead with the RIGHT).
@@ -826,6 +855,26 @@ def run_bake(opts):
         arm_mod.object = rig
         print(f"[rest] re-rested {reposed} bone(s) onto the clip library's "
               f"skeleton basis")
+
+        # Re-GROUND. fit_ground put the feet on z=0, but that was before the
+        # rest repair and the re-rest, which reshape the body and take the feet
+        # with them (a re-rested A-pose stands up straighter and lifts off the
+        # floor). Models are authored feet-at-y=0 and the engine draws a monster
+        # from there, so whatever the last pass leaves is what the player sees
+        # floating. Ground AFTER the reshaping, not before it.
+        # (Unparent for the shift, as the mirror pass does: both objects sit at
+        # identity here, so the re-parent is lossless. Applying the translation
+        # into the data matters — the engine walks the joint hierarchy only and
+        # would drop a translation left on the rig OBJECT.)
+        zs = [(mesh.matrix_world @ v.co).z for v in mesh.data.vertices]
+        dz = -min(zs)
+        if abs(dz) > 1e-5:
+            mesh.parent = None
+            for o in (mesh, rig):
+                o.location.z += dz
+                apply_all(o, rotation=False, scale=False)
+            mesh.parent = rig
+            print(f"[fit] re-grounded {dz:+.3f} units after re-resting")
     else:
         # ---- import our mesh, co-face the armature, fit to it -------------------
         # OBJ sources (bought kits) import via the wm importer and often split
@@ -871,6 +920,7 @@ def run_bake(opts):
         bpy.ops.object.transform_apply(location=True)
         print(f"[fit] mesh dims {mesh.dimensions.x:.2f} x {mesh.dimensions.y:.2f} "
               f"x {mesh.dimensions.z:.2f}")
+        rig_h_fit = rig_height()
 
     # Materials: with a --textures map, KEEP the material slots (the engine's
     # multi-material monster path renders one primitive per material) and wire
@@ -987,6 +1037,22 @@ def run_bake(opts):
     # (--skinned / --rig-from: the weights + armature modifier already drive
     # the mesh — re-binding here would CLOBBER the rigid-island overrides and
     # the soft islands.)
+
+    # ---- verify the size survived the reshaping passes -------------------------
+    # The fit lands mid-pipeline and everything after it reshapes the model —
+    # mirroring, the Kabsch rest repair, re-resting onto the clip skeleton — any
+    # of which can quietly rescale it. A wrong scale is invisible in the file and
+    # only shows up in-game as a monster standing through the ceiling, so measure
+    # again and refuse to write rather than emit a model that needs a modelscale
+    # to correct it.
+    drift = rig_height() / rig_h_fit
+    if abs(drift - 1.0) > 0.02:
+        raise SystemExit(f"[fit] size drifted {drift:.3f}x between the fit and "
+                         f"export (rig {rig_h_fit:.3f} -> {rig_height():.3f} "
+                         f"units) — refusing to write {out_path}")
+    zs = [(mesh.matrix_world @ v.co).z for v in mesh.data.vertices]
+    print(f"[fit] final: rig {rig_height():.3f}, mesh {max(zs) - min(zs):.3f} "
+          f"units standing on {min(zs):+.3f} (target {ref_h:.3f})")
 
     # ---- push actions onto NLA tracks so glTF exports all as clips ------------
     if rig.animation_data is None:

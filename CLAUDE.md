@@ -345,8 +345,21 @@ buffer, reused across all ~25 submissions).
   one assets/models/<name>.gltf, and EMITS the matching monsters.cat rows
   (`states = ...` + `anim_<state> = <clips>`) to <name>.anim.cat. `--plan`
   (plain python, no Blender) prints the clip plan + rows for a dry run. The
-  FetchAnimLibrary.ps1 `$animSets` table drives it (Name/Mesh/Library/Ref/MeshYaw,
-  archive-relative); raw clips live in OneDrive\DungeonAssets\anim\<library>\.
+  FetchAnimLibrary.ps1 `$animSets` table drives it (Name/Mesh/Library/Height/
+  MeshYaw, archive-relative); raw clips live in
+  OneDrive\DungeonAssets\anim\<library>\. `Height` (→ `--height`) is the finished
+  creature's height in UNITS like every other import knob, and the bake FITS AND
+  GROUNDS to it: the fit rides the ARMATURE, not the mesh bounds, so a raised
+  spear tops the skull without shrinking the skeleton under it, and the size +
+  feet are re-checked AFTER the reshaping passes (mirror / rest repair /
+  re-rest), which refuses to write rather than emit a model needing a
+  `modelscale` to correct it. Height used to be "match this reference model",
+  measured over every mesh in the scene — and Blender's glTF importer leaves a
+  stray 2-unit Icosphere beside each rig it reads, so the reference was a
+  constant 2.000 and five bought skeletons baked in metre space, 4.8 m tall in a
+  2.5 m room. Any whole-scene measurement in a Blender tool needs the scene
+  purged BY HAND first (read_factory_settings clears the startup file, not an
+  importer's leftovers).
   Paste the emitted rows into the creature's monsters.cat [id] — or just check
   the boxes in the editor's monster config dialog (it auto-discovers the model's
   clips). Humanoid Mixamo defaults (mesh +90 yaw to co-face the armature, finger

@@ -85,17 +85,20 @@ function Resolve-Python {
 #   Mesh     creature source mesh, relative to the archive (the bind target)
 #   Library  state-organized clip library root, relative to the archive
 #            (one subfolder per CreatureState; see ImportAnimLibrary.py)
-#   Ref      existing model in assets/ to match in-engine height/ground to
-#            (relative to assets/), e.g. models\skeleton.gltf
+#   Height   how tall the creature stands, in UNITS (1.0 = one dungeon square;
+#            docs/authoring-scale.md's card puts a humanoid at ~0.68). Same
+#            convention as import-model's --height and FetchModels' Height.
 #   MeshYaw  degrees to rotate the mesh to co-face the +Y Mixamo armature
 #            (default 90; a mesh that faces the armature already wants 0)
 # Entries install only once their archive paths exist (missing = skipped).
 # ===========================================================================
 $animSets = @(
+    # 0.76 units = 1.90 m, the height the procedural skeleton.gltf stands at, so
+    # the bought and the built skeletons see eye to eye in the same room.
     @{ Name = "skel_human";
        Mesh = "fab\monsters\lowpoly-human-skeleton\skeleton_mixamo_upload.fbx";
        Library = "anim\humanoid";
-       Ref = "models\skeleton.gltf";
+       Height = 0.76;
        MeshYaw = 90 }
 
     # Skeleton Army Kit (Konjo Design, fab 2026-07-10): four PRE-BUILT armed
@@ -161,7 +164,7 @@ $animSets = @(
                Mesh = if ($rigFrom) { "$kitDir\mixamo_upload\$($v)_mixamo_upload.fbx" }
                       else { "$kitDir\mixamo_rigged\$($v)_rigged.fbx" };
                Library = "anim\humanoid";
-               Ref = "models\skeleton.gltf";
+               Height = 0.76;
                Skinned = -not $rigFrom;
                RigFrom = $rigFrom;
                RigidIslands = $true; # bones + plate: every island is a hard piece
@@ -203,8 +206,7 @@ foreach ($c in $animSets) {
 
     $mesh = Join-Path $archive $c.Mesh
     if (-not (Test-Path $mesh)) { Write-Host "  mesh $($c.Mesh) missing - skipped"; continue }
-    $ref = Join-Path $assets $c.Ref
-    if (-not (Test-Path $ref)) { throw "Ref model not found: $ref" }
+    if (-not $c.Height -or $c.Height -le 0) { throw "$($c.Name) has no Height (units)" }
     $yaw = if ($null -ne $c.MeshYaw) { $c.MeshYaw } else { 90 }
 
     # Multi-material kits: compose the material->texture wiring for the bake.
@@ -221,7 +223,7 @@ foreach ($c in $animSets) {
     if ($c.Mirror) { $texArgs += @('--mirror') }
     if ($c.RigFrom) { $texArgs += @('--rig-from', (Join-Path $archive $c.RigFrom)) }
 
-    $rc = Invoke-Blender $mesh $library $outGltf $ref "--catalog-out" $catOut "--mesh-yaw" $yaw @texArgs
+    $rc = Invoke-Blender $mesh $library $outGltf "--height" $c.Height "--catalog-out" $catOut "--mesh-yaw" $yaw @texArgs
     if ($rc -ne 0) { throw "Bake failed for $($c.Name)" }
     Write-Host "  model -> models\$($c.Name).gltf"
     Write-Host "  catalog rows -> models\$($c.Name).anim.cat"
