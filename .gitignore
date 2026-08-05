@@ -32,3 +32,6 @@ __pycache__/
 
 # Generated animation-catalog snippets (ImportAnimLibrary --catalog-out)
 assets/models/*.anim.cat
+
+# Blender bridge transcript (working material; the distilled tools\Build*.py is the asset)
+tools/.bridge-log.py

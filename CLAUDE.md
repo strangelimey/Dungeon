@@ -357,6 +357,23 @@ buffer, reused across all ~25 submissions).
   Two Blender traps, both cost a run: glTF stores attributes PER CORNER so an
   imported mesh has NO shared verts (weld before anything connectivity-based),
   and subdividing invalidates held BMVert refs (re-derive, don't carry).
+- `tools\blender-bridge.cmd` (→ `.ps1`) + `tools\blender_bridge.py` +
+  `tools\bsend.py` — the INTERACTIVE counterpart to the headless Build*.py flow:
+  launch Blender with the bridge and Claude executes Python inside the LIVE
+  session (`python tools\bsend.py -c "..."`) while Michael watches the viewport
+  and says "wider" / "more weathered". He is the judge, Claude is the
+  translator; he does not learn the menus. THE ONE RULE THE DESIGN TURNS ON:
+  `bpy` is NOT thread-safe, so the socket thread only ENQUEUES and a
+  `bpy.app.timers` callback (main thread) is the sole executor — a handler
+  touching the scene directly crashes Blender far from the cause. A shared
+  namespace persists across calls, so a model is built up over many small
+  steps like a REPL. Every executed snippet is appended to `tools\.bridge-log.py`
+  (gitignored), which is what keeps the SCRIPT-IS-THE-ASSET rule intact: the
+  transcript distils into a committed `tools\Build*.py`. Use `--no-log` for
+  INSPECTION (measuring, listing) so the log stays a buildable recipe. Errors
+  come back as a traceback with exit 1. Binds 127.0.0.1 only and executes what
+  it is sent — local dev tool, never exposed. Blender is DISCOVERED (newest
+  install, sorted by [version]), never pinned.
 - `tools\FetchModels.ps1` — the mesh analog of FetchTextures.ps1 for fab.com
   (or any authored-model) sources. SELECTION RULE: a fab listing's "Included
   formats" must include glb/obj/fbx; Unreal-Engine-ONLY listings are .uasset
