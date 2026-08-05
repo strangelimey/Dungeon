@@ -267,25 +267,75 @@ better — but that guarantee rests entirely on the error estimate being honest,
 which is what step 4 establishes. Without the harness, step 2 would be a leap of
 faith.
 
+## Mode 7: measured, and declined
+
+Mode 7 was the strongest remaining candidate, and it was the one worth a real
+number rather than an argument. It is the only BC7 mode with two subsets **and**
+alpha, so it is the only one that could ever help a block whose alpha varies —
+modes 1 and 3 force alpha opaque and are ineligible there, which leaves such a
+block on a single colour line however good the encoder gets.
+
+`Bc7Test --headroom` answers it in two steps, and **the two steps disagree by a
+factor of forty**, which is the reason this section exists.
+
+**Step one, the bound.** How much error currently sits in blocks mode 7 could
+address — non-opaque, and structured enough that a partition would explain their
+spread? If every one of those blocks dropped to *zero* error:
+
+| | mean corpus PSNR |
+|---|---|
+| now | 51.39 dB |
+| every addressable block at zero error | 54.44 dB (**+3.05**) |
+
+Read alone, that says build it. Two of the real scanned normal maps show a
+ceiling around +4 dB each.
+
+**Step two, the mode.** `EstimateMode7Error` runs mode 7's actual search — the
+same solver the other two-subset modes use, at mode 7's precision — and lets it
+compete for the win on every block, which is exactly what shipping it would do:
+
+| | mean corpus PSNR |
+|---|---|
+| now | 51.39 dB |
+| with mode 7 competing | 51.47 dB (**+0.08**) |
+
+It wins **2.3% of blocks** and reaches **3% of its own ceiling**. At exhaustive
+partition search on both sides it is +0.09 dB. The best real texture gains
++0.29 dB.
+
+The gap is not a measurement error, it is the format. Mode 7 buys its second
+subset and its alpha by being the **coarsest** two-subset mode there is: 5 colour
+bits plus a p-bit across all four channels, and four index positions. On the
+blocks it was meant to rescue, mode 5's decoupled channel — 7-bit RGB, 8-bit
+alpha, two independent index sets — is still worth more than a second region at
+6-bit precision. Mode 7 addresses the right blocks and then cannot afford them.
+
+**So it is declined**, at +0.09 dB for a packer, a decoder, GPU verification and
+permanent maintenance. For scale: mode 5 was +2.33 dB and the scatter prescore
+was twenty lines. The measurement hook stays in the tree so the question can be
+re-asked cheaply — if this project ever grows a lot of two-material alpha-cutout
+content, mode 7's case changes and `--headroom` will say so.
+
+**The transferable part:** for BC7, "how much error is addressable" is a very
+weak proxy for "how much a mode recovers". The modes that can describe more
+structure pay for it in precision, so a ceiling computed from block statistics
+overstates by whatever that trade costs — here 40x. Bounds are cheap and they
+rule things *in* far less reliably than they rule things *out*. Run the solver.
+
 ## Still open
 
-Four of the eight modes remain unimplemented, and the case for each is now much
-weaker than it was, because the four we have overlap so heavily. Every remaining
-item should be measured before it is built, not after.
+Three of the eight modes remain unimplemented and none has a strong case, because
+the four we have overlap heavily and mode 7 has now been measured and declined.
 
-- **Modes 0 and 2 — three subsets.** The last real quality on the table, and the
-  narrowest. Mode 0 gives three regions but only 4-bit endpoints and 16 partition
-  shapes; mode 2 gives 5-bit endpoints and 64 shapes but 2-bit indices. A 4x4
-  block containing three distinct materials is not common, and both mode 3 and a
-  rotated mode 5 already rescue many of the blocks that motivated them. Estimate
-  the ceiling first: encode the corpus with the current set, then check how much
-  error remains in blocks whose best mode is still a poor fit. If that number is
-  small, this is finished work.
-- **Modes 4 and 7.** Mode 4 is mode 5's sibling with an index-selector bit and
-  3-bit indices on one of the two index sets; mode 7 is two subsets *with* alpha.
-  Mode 7 is the more interesting of the two — nothing we have gives a
-  material boundary and real alpha at the same time, so an alpha-cutout texture
-  with two materials in a block currently has to give one of them up.
+- **Modes 0 and 2 — three subsets.** Narrower than mode 7 was, and mode 7 lost.
+  Mode 0 gives three regions but only 4-bit endpoints and 16 partition shapes;
+  mode 2 gives 5-bit endpoints and 64 shapes but 2-bit indices. Both pay for the
+  extra region in exactly the currency mode 7 could not afford, on a rarer kind
+  of block. If anyone revisits this, extend `--headroom` with a three-subset
+  estimate rather than reasoning about it — the tooling is in place.
+- **Mode 4.** Mode 5's sibling: an index-selector bit and 3-bit indices on one of
+  the two index sets. Genuinely close to mode 5 rather than a new capability, so
+  the expected gain is a refinement of a mode we already have.
 - **A smarter prescore still.** Scatter closed most of the gap (6.56% excess at
   top 8, from 15.93%), but exhaustive search still wins on a quarter of blocks.
   The remaining error is a line-fit problem, not a clustering one: scatter scores

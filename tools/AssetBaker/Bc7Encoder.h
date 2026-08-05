@@ -102,4 +102,19 @@ struct Bc7BlockStat {
 std::vector<u8> EncodeBc7(const assets::ImageData& image, const Bc7Options& opt = {},
 						  std::vector<Bc7BlockStat>* stats = nullptr);
 
+// MEASUREMENT ONLY — runs mode 7's search on one block and returns the error it
+// would achieve, without packing anything. Nothing emits mode 7.
+//
+// Mode 7 is the only BC7 mode with two subsets AND alpha, so it is the only
+// candidate that could help a block whose alpha varies: modes 1 and 3 force
+// alpha opaque and are ineligible there, which leaves such a block with one
+// colour line however good the encoder gets. Mode 7 is also the COARSEST
+// two-subset mode — 5 colour bits plus a p-bit per endpoint across all four
+// channels, and only four index positions — so whether that trade pays is an
+// empirical question rather than an obvious yes. This exists so the question can
+// be answered with a number before the packer and the harness decoder are
+// written. `px` is 16 RGBA pixels in raster order.
+// See `Bc7Test --headroom` and docs/bc7.md.
+float EstimateMode7Error(const u8 px[16][4], const Bc7Options& opt);
+
 } // namespace dungeon::baker

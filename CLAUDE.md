@@ -1193,11 +1193,18 @@ memory.
 - BC7 encoder implements 4 of the 8 modes (6, 1, 3, 5 — see the `AssetBaker mips`
   bullet and docs/bc7.md). The unimplemented ones are quality left on the table,
   not a correctness gap: a mode is only ever chosen when it MEASURES better, so
-  the missing ones cost dB, never pixels. Remaining candidates are mode 7 (two
-  subsets WITH alpha — nothing we have gives a material boundary and real alpha
-  at once) and modes 0/2/4; all are narrow, since the four implemented modes
-  overlap heavily and already rescue most of what motivated them. Measure the
-  remaining headroom before building any of them.
+  the missing ones cost dB, never pixels. MODE 7 (the strongest candidate — the
+  only mode with two subsets AND alpha) was measured and DECLINED: `Bc7Test
+  --headroom` runs its real search and it wins 2.3% of blocks for +0.09 dB. It
+  buys its second subset by being the coarsest two-subset mode there is (5 colour
+  bits + a p-bit across all four channels, four index positions), and mode 5's
+  decoupled channel beats that on the very blocks it targets. Modes 0/2/4 are
+  narrower still. THE LESSON, which generalises past BC7: the CEILING said +3.05
+  dB and the mode delivered +0.08 — a 40x overstatement, because a bound counts
+  ADDRESSABLE error while a real mode also has to pay for the structure in
+  precision. Bounds rule things OUT well and rule things IN badly, so run the
+  solver before building anything (`EstimateMode7Error` is the pattern: search
+  only, no packer, no decoder, no GPU check).
 - The UI is a strict CONTROL TREE (docs/ui-hierarchy.md): every widget owns its
   children, and a child's normalized bounds (0..1) resolve against its PARENT's
   ContentRect(), recursively from a window-sized root down — so moving or
