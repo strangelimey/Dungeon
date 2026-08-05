@@ -1,8 +1,2 @@
 ; showcase — written by the in-game editor (dynamic layer).
 
-monster skel_spearman 14 6 south asleep=1
-monster skel_warrior 22 7 south asleep=1
-monster skel_warrior 12 9 south asleep=1
-monster skel_berserker 15 9 south asleep=1
-monster skel_bare 24 10 west asleep=1
-monster skel_bare 12 12 south asleep=1

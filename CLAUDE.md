@@ -373,9 +373,25 @@ buffer, reused across all ~25 submissions).
   rotates 90 degrees and the dominant axis FLIPS mid-surface, which seams —
   arch reveals and basins are UNROLLED instead (u = arc length, v = depth or
   height). tools\FixArchSoffitUv.py retrofits that onto the hand-built arch.
-  Two Blender traps, both cost a run: glTF stores attributes PER CORNER so an
-  imported mesh has NO shared verts (weld before anything connectivity-based),
-  and subdividing invalidates held BMVert refs (re-derive, don't carry).
+  Three Blender traps, each of which cost a run: glTF stores attributes PER
+  CORNER so an imported mesh has NO shared verts (weld before anything
+  connectivity-based); subdividing invalidates held BMVert refs (re-derive,
+  don't carry); and — the same principle, the expensive way —
+  `recalc_face_normals` NEEDS CONNECTIVITY. A generator that builds each face
+  from fresh `bm.verts.new()` calls produces a soup of disconnected quads with
+  no shared edges, and recalc then orients them ARBITRARILY: BuildStairsSpiral
+  came out with 24 of 96 newel faces inverted. `remove_doubles` is not the fix
+  either — welding the treads' abutting edges fuses them into 4-face
+  NON-manifold junctions, which recalc also cannot orient. So for a
+  script-authored solid, WINDING IS THE CONTRACT: emit every quad
+  counter-clockwise seen from outside (a `flip` flag for the far side of each
+  solid) and call neither op. THE SYMPTOM IS WHY THIS IS WORTH KNOWING: an
+  inward normal lights as though the face were turned away, so it reads as dark
+  slots cut in the stone and is INVISIBLE to `shadows off`, to a parallax
+  change, and to any texture swap. Three A/Bs came back negative before the
+  normals were measured directly. When a visual defect survives an A/B, stop
+  hypothesising and measure the mesh attribute — for each face at a known
+  radius, `dot(normal, radial)` should be positive on an outward surface.
 - `tools\blender-bridge.cmd` (→ `.ps1`) + `tools\blender_bridge.py` +
   `tools\bsend.py` — the INTERACTIVE counterpart to the headless Build*.py flow:
   launch Blender with the bridge and Claude executes Python inside the LIVE

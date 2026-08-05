@@ -25,6 +25,39 @@ pair = stairs_down
 ; roof and made them read as steps to nowhere.
 hole = ceiling
 
+; A helix around a central newel, one full turn per storey. It exists because a
+; STRAIGHT flight climbing kWallH inside one cell is forced to 45 degrees — the
+; run is the cell, and that is all there is. Winding the flight measures the run
+; along the ARC instead, which buys a 31.5-degree pitch in the same square.
+; Treads are one rise thick, so the wedges stack into a solid mass of stone
+; rather than a set of cantilevered slabs with daylight between them.
+; Script-authored: tools\BuildStairsSpiral.py.
+[stairs_spiral]
+display = Spiral Stairs
+category = stairs
+model = stairs_spiral
+texture = wall_stone
+solid = 0
+authored = 0
+up = 1
+pair = stairs_spiral_down
+hole = ceiling
+
+; The DOWN half: the same helix seen from the other side of the floor. The
+; engine draws a cross-level stair twice — a descending shaft on the upper
+; level, a rising flight on the lower — so both come out of one generator with
+; the sign flipped (tools\BuildStairsSpiral.py emits the pair).
+[stairs_spiral_down]
+display = Spiral Stairs Down
+category = stairs
+model = stairs_spiral_down
+texture = wall_stone
+solid = 0
+authored = 0
+up = 0
+pair = stairs_spiral
+hole = floor
+
 [pit]
 display = Pit
 category = pit
