@@ -1315,8 +1315,18 @@ memory.
   TOP-RIGHT CORNER, never a footer "Close"/"Cancel"/"Back" button —
   ui::AddCloseButton(ctx, panelRect, icon, onClose) places it identically
   everywhere (it's a ui::Button with the icon; text "x" is the missing-asset
-  fallback). Each dialog owns a std::unique_ptr<gfx::Texture> m_closeIcon
-  loaded from paths::Asset("ui\\icon_close"). Footer keeps only ACTION buttons
+  fallback). ONE texture serves them all: AssetUtil's CloseIcon(device) loads
+  it on the first ask and each dialog borrows a `const gfx::Texture*
+  m_closeIcon`; ~Game calls ReleaseSharedIcons() while the device is still
+  alive, since a gfx::Texture returns its SRV slot on destruction. Each dialog
+  USED to own a unique_ptr and load its own — 15 loads (9 dialog classes + the
+  6 InstanceInspector subclasses) and 15 SRV slots for one icon; sharing them
+  measured 275 -> 261 live. TRAP that cost the character sheet its icon for
+  months: AddCloseButton copies the POINTER, so whoever builds the widget must
+  have loaded the icon ALREADY — the sheet is built from Game's ctor
+  (BuildStaticUi) while GameUI only loaded it in the LoadTitleArt load task, so
+  it captured a null and drew the "x" fallback forever. Load in BuildStaticUi,
+  not in a load task. Footer keeps only ACTION buttons
   (Save/Delete/Remove/Animation/?), right-aligned to the panel's inner edge so
   nothing overruns it. Covered: the InstanceInspector base (all 6 per-instance
   inspectors), TypeEditorDialog, AssetDialog, BalanceDialog, MonsterConfigDialog,
