@@ -1429,4 +1429,32 @@ const Font& DialogTextFont(const UIContext& ctx) {
 	return ctx.FontAt(ctx.RootRole(), ctx.DesignHeight() * kDialogTextScale);
 }
 
+FittedTitle FitDialogTitle(const UIContext& ctx, std::string_view text, gfx::Rect band) {
+	// Height first: a line advance is 1.25x the pixel height, and it is the
+	// ADVANCE that has to clear the band, or whatever sits below is drawn
+	// through. Never shrink past the document size — under that it stops
+	// reading as a title, and a band that tight is a layout bug to fix rather
+	// than something to paper over here.
+	float px = ctx.DesignHeight() * kDialogTitleScale;
+	if (band.h > 0.0f) px = std::min(px, band.h / 1.25f);
+	px = std::max(px, ctx.DesignHeight());
+
+	FittedTitle fit{&ctx.FontAt(ctx.RootRole(), px), std::string(text)};
+	if (band.w <= 0.0f || fit.font->MeasureWidth(fit.text) <= band.w) return fit;
+
+	// Ellipsise. Trim whole UTF-8 CODE POINTS: Loc strings are UTF-8 and the
+	// font decodes them, so dropping a single byte would leave a broken
+	// sequence and a garbage glyph exactly at the cut.
+	static constexpr std::string_view kEllipsis = "...";
+	while (!fit.text.empty() &&
+		   fit.font->MeasureWidth(fit.text + std::string(kEllipsis)) > band.w) {
+		fit.text.pop_back();
+		while (!fit.text.empty() &&
+			   (static_cast<unsigned char>(fit.text.back()) & 0xC0) == 0x80)
+			fit.text.pop_back();
+	}
+	fit.text += kEllipsis;
+	return fit;
+}
+
 } // namespace dungeon::ui

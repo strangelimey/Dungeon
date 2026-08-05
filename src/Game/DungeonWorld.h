@@ -371,6 +371,13 @@ public:
 	// item's .ent record goes with it. Both return false on a stale handle.
 	bool RemoveDecorationByIndex(int index);
 	bool RemoveItemById(int entityId);
+	// The rest of the inspectors' Delete, likewise TARGETED rather than
+	// RemoveEntityAt's ladder — a cell can hold several kinds at once, and the
+	// dialog knows which one it is showing. Monsters key off the stable
+	// runtimeId because they move; the others are one-per-cell.
+	bool RemoveMonsterByRuntimeId(u32 runtimeId);
+	bool RemoveDoorAt(int x, int z);
+	bool RemoveButtonAt(int x, int z);
 	// The inspected decoration's raw catalog id (its display name is what the
 	// picker shows) — "" on a stale handle.
 	std::string DecorationTypeByIndex(int index) const;

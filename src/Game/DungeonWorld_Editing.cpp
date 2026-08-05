@@ -500,6 +500,49 @@ bool DungeonWorld::RemoveEntityAt(int x, int z) {
 	return false;
 }
 
+// --- targeted removals, for the instance inspectors' Delete button ----------
+// RemoveEntityAt above is a LADDER: it takes whatever it finds FIRST on the
+// cell. That is right for the middle-click erase tool, where the user points at
+// a square, and WRONG for a dialog, where they are looking at one specific
+// object — press Delete in the door inspector on a cell that also holds a
+// monster and the ladder would take the monster. These take exactly what was
+// inspected, like RemoveDecorationByIndex and RemoveItemById already do.
+
+// Keyed by the STABLE runtimeId rather than the cell, because monsters MOVE:
+// the editor need not be paused, so a cell lookup could resolve to a different
+// monster than the one the dialog was opened on.
+bool DungeonWorld::RemoveMonsterByRuntimeId(u32 runtimeId) {
+	if (runtimeId == 0) return false;
+	for (auto it = m_monsters.begin(); it != m_monsters.end(); ++it)
+		if (it->runtimeId == runtimeId) {
+			m_monsters.erase(it);
+			return true;
+		}
+	return false;
+}
+
+bool DungeonWorld::RemoveDoorAt(int x, int z) {
+	for (auto it = m_doors.begin(); it != m_doors.end(); ++it)
+		if (it->x == x && it->z == z) {
+			m_entities.RemoveById(it->id); // record-backed, like the ladder's rung
+			m_entsDirty = true;
+			m_doors.erase(it);
+			return true;
+		}
+	return false;
+}
+
+bool DungeonWorld::RemoveButtonAt(int x, int z) {
+	for (auto it = m_buttons.begin(); it != m_buttons.end(); ++it)
+		if (it->x == x && it->z == z) {
+			m_entities.RemoveById(it->id);
+			m_entsDirty = true;
+			m_buttons.erase(it);
+			return true;
+		}
+	return false;
+}
+
 // ============================================================================
 // Doors. Record-backed (the .ent layer carries them, like items/buttons):
 // placement authors the record AND spawns the live instance, so the writer,

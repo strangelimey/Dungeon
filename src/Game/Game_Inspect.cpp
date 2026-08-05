@@ -52,6 +52,13 @@ void Game::OpenInspectorFor(const InspectTarget& t) {
 			if (!pv.idleClip.empty()) m_previewAnim.Play(pv.idleClip, /*loop*/ true);
 		}
 		m_inspectPreview = pv; // cached so route-laying can re-pass it on reopen
+		// Delete: by runtimeId, so it takes THIS monster even if several share
+		// the cell or it walks off mid-dialog.
+		m_entityInspector.onDelete = [this, id = t.runtimeId] {
+			m_world.BeginUndoStep();
+			m_world.CommitUndoStep(m_world.RemoveMonsterByRuntimeId(id));
+			if (m_world.onMessage) m_world.onMessage(loc::Tr("map.erase.removed"));
+		};
 		m_entityInspector.Open(c, m_world.SpellIds(), std::move(pv));
 		break;
 	}
@@ -98,6 +105,11 @@ void Game::OpenInspectorFor(const InspectTarget& t) {
 			if (e.Get("category", "") == "key") keys.emplace_back(e.id, e.Display());
 		PreviewSpec pv;
 		pv.subs = m_world.DoorPreviewSubs(cx, cz);
+		m_doorInspector.onDelete = [this, cx, cz] {
+			m_world.BeginUndoStep();
+			m_world.CommitUndoStep(m_world.RemoveDoorAt(cx, cz));
+			if (m_world.onMessage) m_world.onMessage(loc::Tr("map.erase.removed"));
+		};
 		m_doorInspector.Open(c, std::move(keys), std::move(pv));
 		break;
 	}
@@ -112,6 +124,11 @@ void Game::OpenInspectorFor(const InspectTarget& t) {
 		// A button can target a door OR a niche name — offer both.
 		std::vector<std::string> targets = m_world.DoorNames();
 		for (std::string& n : m_world.NicheNames()) targets.push_back(std::move(n));
+		m_buttonInspector.onDelete = [this, cx, cz] {
+			m_world.BeginUndoStep();
+			m_world.CommitUndoStep(m_world.RemoveButtonAt(cx, cz));
+			if (m_world.onMessage) m_world.onMessage(loc::Tr("map.erase.removed"));
+		};
 		m_buttonInspector.Open(c, std::move(targets), std::move(pv));
 		break;
 	}
@@ -250,6 +267,15 @@ void Game::OpenFixtureInspector(const FixtureInspector::Config& fc,
 	pv.flameScale = sp.flameScale;
 	pv.showFire = fc.lit;
 	m_previewFire = FireEffect({0.0f, sp.flameHeight * sp.scale, 0.0f}, pv.flameScale, 1234);
+	// Delete: a sconce goes by its FACE, since a cell can ring itself with one
+	// per wall and the cell-wide call would pick arbitrarily. A brazier stands
+	// on the floor and has no face, so it takes the cell form.
+	m_fixtureInspector.onDelete = [this, fc] {
+		m_world.BeginUndoStep();
+		m_world.CommitUndoStep(fc.brazier ? m_world.RemoveFixtureAt(fc.x, fc.z)
+										  : m_world.RemoveFixtureAtFace(fc.x, fc.z, fc.wall));
+		if (m_world.onMessage) m_world.onMessage(loc::Tr("map.erase.removed"));
+	};
 	m_fixtureInspector.Open(fc, walls, std::move(pv));
 }
 

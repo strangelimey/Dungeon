@@ -692,6 +692,24 @@ inline constexpr float kDialogTextScale = 2.0f;
 // the rect and the draw must ask the same function.
 const Font& DialogTitleFont(const UIContext& ctx);
 
+// A title FITTED to the space it actually has. `band` is the rect (window
+// pixels) the title may occupy — for a dialog with a preview pane that means
+// stopping at the PANE's edge, not the panel's. Shrinks from the standard title
+// size only as far as the band's height demands (never below the document
+// size), then ellipsises to its width.
+//
+// This exists because a title is drawn RAW, so nothing else bounds it. The
+// instance inspectors reserved a fixed panel FRACTION for the title band, and
+// when the fonts thread scaled titles to 2.9x nothing re-derived it: long
+// titles ran DOWN into the facing row and SIDEWAYS under the preview pane,
+// burying its header too. A fraction cannot hold font-sized content — measure
+// in the face you draw in.
+struct FittedTitle {
+	const Font* font; // never null; owned by the FontLibrary
+	std::string text; // possibly ellipsised
+};
+FittedTitle FitDialogTitle(const UIContext& ctx, std::string_view text, gfx::Rect band);
+
 // A dialog's FORM face — setting names and footer buttons. The same size a
 // widget gets from `fontScale = kDialogTextScale`, for the dialogs that draw
 // their rows straight to the batch instead of through Label widgets.
