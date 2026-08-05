@@ -344,6 +344,20 @@ buffer, reused across all ~25 submissions).
     opening, so islands never fuse, a whole-mesh bevel is safe, and the slab's
     cut edge is hidden — all by construction rather than later correction.
     `--rough` weathers each stone (tilt/scale jitter + two noise octaves).
+  * SHAPE-PER-STATION — BuildPillar.py extends the loft: each station names a
+    SHAPE (octagon or circle) as well as a radius, every ring is built at the
+    SAME segment count, and only the RADIUS varies with angle
+    (`radius_at`: a polygon peaks at its corners and falls to the apothem at
+    each edge midpoint). Same topology, different silhouette — so an octagonal
+    plinth lofts straight into a round shaft with no stitching. SEGMENTS must
+    be a MULTIPLE of the polygon's side count or its corners land between
+    samples and it reads as a lumpy circle (the script refuses otherwise).
+    Shading is the other half of "round": 24 facets FLAT-shaded still read as a
+    polygon, so the shaft band is marked `face.smooth` and everything else left
+    flat — AFTER the bevel, so the bevel's own faces get classified, and side
+    faces only, since catching a cap or a moulding step smears the arris it is
+    meant to define. Cost to know: 24 segments = 2064 verts in Blender but
+    6268 after the glTF per-corner split.
   * PROFILE-LOFTED — BuildPlinth.py and BuildFountain.py walk a table of
     (radius, height) stations. The lofter takes any segment count and any
     angular sweep, so 4 = a square plinth, 40 = a basin, a 180-degree sweep =

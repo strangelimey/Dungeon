@@ -11,6 +11,30 @@ authored = 0
 category = architecture
 facing_arrow = 0
 
+; Octagonal turned pillar authored in Blender: plinth, tapered shaft, flared
+; capital. Exactly kWallH tall, so it meets the ceiling with no gap.
+; authored = 1 — a closed solid with correct normals, so it back-face culls.
+[pillar]
+display = Pillar
+model = pillar
+texture = marble_pillar
+solid = 1
+authored = 1
+category = architecture
+facing_arrow = 0
+
+; The same mesh wearing the dungeon's wall stone instead of marble — a texture
+; set is just a binding for a decoration, so a variant costs an entry, not a
+; model. This is the comparison against the procedural [column] above.
+[pillar_stone]
+display = Pillar (Stone)
+model = pillar
+texture = wall_stone
+solid = 1
+authored = 1
+category = architecture
+facing_arrow = 0
+
 [archway]
 display = Archway
 model = archway

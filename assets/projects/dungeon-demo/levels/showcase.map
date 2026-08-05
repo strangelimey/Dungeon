@@ -58,6 +58,9 @@ fixture brazier 23 8
 fixture sconce 21 7 west
 fixture sconce 25 10 east
 ;
+decoration pillar 10 5
+decoration pillar_stone 12 5
+decoration pillar 17 5
 decoration column 11 5
 decoration column 11 8
 decoration column 11 11
