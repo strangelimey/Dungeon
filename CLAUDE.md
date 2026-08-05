@@ -12,9 +12,18 @@ Built collaboratively with Claude across sessions; this file is the handoff.
   finds vswhere.exe by PATH (it otherwise runs a bare `vswhere.exe` that fails
   under NoDefaultCurrentDirectoryInExePath=1, printing a harmless but noisy
   "'vswhere.exe' is not recognized" warning).
-- Output: `build\<config>\bin\Dungeon.exe`. Assets copy next to the exe on
-  link (post-build); after changing assets without code, sync manually:
-  `robocopy assets build\debug\bin\assets /MIR` (MIR also removes stale).
+- Output: `build\<config>\bin\Dungeon.exe`. There is NO asset copy: every
+  config runs straight out of the repo's `assets\` (baked in as
+  `DN_ASSETS_DIR`, resolved by `paths::AssetsDir`), so debug/release/vs/any
+  future profile build share ONE tree and changing an asset needs only a
+  relaunch — no rebuild, no robocopy. Two consequences to hold: an editor
+  save or import lands in the GIT TREE immediately (it shows in `git status`
+  instead of needing "To source"), and a rebuild can no longer clobber
+  unsynced editor work the way the old post-build copy did. Only PACKAGING
+  copies assets beside the exe — `paths::AssetsDir` falls back to that copy
+  when the baked-in source path isn't present, which is what makes a shipped
+  build work. Genuinely per-config files stay exe-side: `dungeon.log`,
+  `settings.ini`, `shadercache\`.
 - `gen-vs.cmd` → `build\vs\Dungeon.slnx` (VS 2026 emits .slnx, not .sln).
 - Debug builds open a console for logs; DN_ASSERT failures abort() — in
   debug that means a CRT dialog and the process LOOKS alive but is stuck.
@@ -1103,10 +1112,13 @@ adds CatalogGet/CatalogBool (null-safe). Project.* loads/saves the manifest +
 catalogs and maps a key→Catalog (CatalogForKey). DungeonWorld resolves catalog ids
 to model+texture at load (ModelAndTexture helper). Game owns the active Project,
 passes it to DungeonWorld; MapView reads it for the palette. NOTE: editor/asset/
-level WRITES go to the asset copy next to the exe (paths::Asset), not the git
-source — `synctosource` (or paths::RepoAssetsDir, compiled via DN_REPO_ASSETS)
-pushes them back. Full per-phase history + gotchas live in the editor-overhaul
-memory.
+level WRITES go through paths::Asset, which in a dev build IS the git source
+tree — a `savemap` or an editor import dirties the working copy immediately, so
+`git status` (and `git checkout` to discard) is the review surface. The "To
+source" button and `synctosource` survive only for a PACKAGED build, where
+assets are the copy beside the exe; in a dev build they detect
+paths::AssetsDir() == paths::RepoAssetsDir() and report "nothing to copy".
+Full per-phase history + gotchas live in the editor-overhaul memory.
 
 ## Workflow conventions used so far
 
@@ -1129,13 +1141,15 @@ memory.
   session collided in the same tree).
 - IMMEDIATELY AFTER `git worktree add`, PROVISION THE GITIGNORED ASSETS before
   launching — a fresh worktree only checks out TRACKED files, and the game
-  load-or-dies on derived/imported assets that are gitignored. There are THREE,
-  not one (a missing-texture magenta-placeholder fallback exists, but there is NO
-  fallback for models — a missing `.glb` aborts hard at level load, e.g.
+  load-or-dies on derived/imported assets that are gitignored. There are TWO —
+  and only two, confirmed with `git status --ignored --porcelain assets` (a
+  missing-texture magenta-placeholder fallback exists, but there is NO fallback
+  for models — a missing `.glb` aborts hard at level load, e.g.
   `AssetUtil.cpp model.has_value()` "failed to parse glTF: ...viking_dagger.glb").
-  Copy all three from a populated sibling worktree (e.g. `C:\Dev\Dungeon`), then
-  MIRROR into `build\<cfg>\bin\assets` too (the post-build asset copy only runs on
-  a link):
+  Copy both from a populated sibling worktree (e.g. `C:\Dev\Dungeon`). There is
+  NO third step: the game reads `<worktree>\assets` directly, so nothing is
+  mirrored into `build\<cfg>\bin` and a worktree costs one copy, not one per
+  config:
   - `assets\textures` — whole dir, BOTH `.dds` (BC7) and source `.png` (dds-only
     still renders magenta; ~273 dds + ~261 png).
   - `assets\models` gitignored files — the imported authored meshes (`.glb`) AND
@@ -1149,7 +1163,6 @@ memory.
     `git -C <populated> status --ignored --porcelain assets/models | grep '^!!'`
     (or just robocopy the whole `assets\models` dir — the committed `.gltf` that
     come with the checkout copy identically, so it's safe and future-proof).
-  - then `robocopy <new>\assets <new>\build\<cfg>\bin\assets /MIR`.
   Use BACKSLASH paths (robocopy rejects forward slashes → copies nothing) and
   VERIFY with a file count afterward — robocopy returns exit 0 when it copied
   NOTHING (exit 1 = files copied), so a "successful" run can leave you empty. The

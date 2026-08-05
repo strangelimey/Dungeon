@@ -914,9 +914,11 @@ bool Game::SaveFontCatalog() {
 	if (!ok) log::Warn("font save: could not write {}", binPath);
 
 	// fonts.cat lives in the shared POOL, which synctosource does not copy (it
-	// carries the project). Writing only the exe-side copy would lose the chosen
-	// faces on the next build, since the post-build step copies assets/ OVER it.
-	if (const std::string& repo = paths::RepoAssetsDir(); !repo.empty()) {
+	// carries the project). A dev build writes the source tree already (binPath
+	// IS under it), so only a packaged build needs the second write to keep the
+	// chosen faces.
+	if (const std::string& repo = paths::RepoAssetsDir();
+		!repo.empty() && paths::AssetsDir() != repo) {
 		const std::string srcPath = repo + "\\fonts\\fonts.cat";
 		if (cat.Save(srcPath))
 			log::Info("font save: also wrote {}", srcPath);

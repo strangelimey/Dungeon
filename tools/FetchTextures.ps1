@@ -6,8 +6,8 @@
 # FreePBR pack (walls, floors, rocks, metals, ...) plus ceilings for the
 # Poly Haven sets. This script imports materials into assets/textures as
 # packed PNG + BC7 DDS pairs (<name>_<res>.png / _n.png / .dds). None of
-# those files are committed - run after cloning, then build (the build
-# copies assets next to the exe).
+# those files are committed - run after cloning. The game reads this tree
+# directly, so nothing needs copying afterwards.
 #
 # By default the materials referenced by the levels' "textures" records
 # (assets\maps\*.map) are imported, plus the fixed set of prop/creature sets
@@ -172,5 +172,5 @@ if ($Materials.Count -eq 0) {
 if ($imported -eq 0) { throw "Nothing imported - check the material names against the archive" }
 
 Write-Host ""
-Write-Host "$imported texture sets installed. Build (or robocopy assets) to sync them"
-Write-Host "next to the game exe, then pick a quality tier in Settings."
+Write-Host "$imported texture sets installed. The game reads this tree directly,"
+Write-Host "so just relaunch, then pick a quality tier in Settings."

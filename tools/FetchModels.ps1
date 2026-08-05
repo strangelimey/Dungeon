@@ -366,5 +366,5 @@ if ($installed -eq 0) {
     Write-Host "or check the names against the table in this script)."
 } else {
     Write-Host "$installed model(s) installed. Wire a catalog [id] at each (model=<Name>,"
-    Write-Host "texture=<set>), place it in a level, then build (or robocopy assets)."
+    Write-Host "texture=<set>), place it in a level, then relaunch the game."
 }

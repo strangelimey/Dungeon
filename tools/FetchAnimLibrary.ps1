@@ -243,5 +243,5 @@ if ($done -eq 0) {
 } else {
     Write-Host "$done creature(s) processed. Paste each <Name>.anim.cat block's rows"
     Write-Host "into its monsters.cat [id] (or check the boxes in the editor's monster"
-    Write-Host "config dialog), then build (or robocopy assets) to pick up the model."
+    Write-Host "config dialog), then relaunch the game to pick up the model."
 }

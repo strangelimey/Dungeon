@@ -21,17 +21,41 @@ const std::string& ExecutableDir() {
 	return dir;
 }
 
+const std::string& AssetsDir() {
+	static const std::string dir = [] {
+		// A dev build runs straight out of the repo's assets tree: one copy for
+		// every config, no post-build duplication, and an editor write lands
+		// exactly where the next build reads from. The directory check is what
+		// makes a PACKAGED exe work — copy assets\ beside it, leave the stale
+		// build machine's path baked in, and this falls through to the copy.
+#ifdef DN_ASSETS_DIR
+		std::error_code ec;
+		if (const std::string baked = DN_ASSETS_DIR;
+			!baked.empty() && std::filesystem::is_directory(baked, ec)) {
+			// CMake hands us forward slashes; normalise so paths logged (and
+			// compared, see RepoAssetsDir) match the rest of the codebase.
+			return std::filesystem::path(baked).make_preferred().string();
+		}
+#endif
+		return ExecutableDir() + "\\assets";
+	}();
+	return dir;
+}
+
 std::string Asset(const std::string& relative) {
-	return ExecutableDir() + "\\assets\\" + relative;
+	return AssetsDir() + "\\" + relative;
 }
 
 const std::string& RepoAssetsDir() {
-	static const std::string dir =
+	static const std::string dir = [] {
 #ifdef DN_REPO_ASSETS
-		DN_REPO_ASSETS;
-#else
-		"";
+		// Normalised like AssetsDir(), so the two compare equal by string when
+		// they name the same directory (the usual dev-build case).
+		if (const std::string baked = DN_REPO_ASSETS; !baked.empty())
+			return std::filesystem::path(baked).make_preferred().string();
 #endif
+		return std::string();
+	}();
 	return dir;
 }
 

@@ -32,8 +32,10 @@ void Game::OpenCreateDialog(MapEditor::PaletteCat cat, AssetDialog::Source sourc
 }
 
 bool Game::StartBakeStep() {
+	// The baker is a sibling of this exe (per-config build output); the assets it
+	// writes into are the ONE shared tree every config reads.
 	const std::string baker = paths::ExecutableDir() + "\\AssetBaker.exe";
-	const std::string assets = paths::ExecutableDir() + "\\assets";
+	const std::string assets = paths::AssetsDir();
 	const auto q = [](const std::string& s) { return "\"" + s + "\""; };
 
 	std::string cmd;
@@ -75,6 +77,15 @@ bool Game::SyncProjectToSource() {
 		log::Warn("sync to source: no source path baked in");
 		return false;
 	}
+	// A dev build already RUNS from the source tree (paths::AssetsDir), so a save
+	// has landed in git the moment it was written and there is nothing to copy —
+	// copying here would be a directory onto itself. Only a packaged build, whose
+	// assets are the copy beside the exe, still has real work to do.
+	if (paths::AssetsDir() == repo) {
+		log::Info("sync to source: already running from the source tree, nothing to copy");
+		return true;
+	}
+
 	namespace fs = std::filesystem;
 	const fs::path src = m_project.folder; // the build-copy project
 	const fs::path dst = fs::path(repo) / "projects" / src.filename();
@@ -88,11 +99,11 @@ bool Game::SyncProjectToSource() {
 		return false;
 	}
 
-	// The project's catalogs now reference assets that exist only in the
-	// exe-side pool (an editor import writes there). They are gitignored either
-	// way, but the SOURCE tree is what a build copies from and what a new
-	// worktree is provisioned from, so leaving them build-only means the next
-	// `rm -rf build` takes them with it. imports.cat says exactly which.
+	// The project's catalogs may reference assets that exist only in this build's
+	// own pool (an editor import writes into paths::AssetsDir). They are
+	// gitignored either way, but the SOURCE tree is what a new worktree is
+	// provisioned from, so leaving them build-only loses them with the build
+	// directory. imports.cat says exactly which.
 	int copied = 0;
 	for (const CatalogEntry& e : m_project.imports.Entries()) {
 		const std::string kind = e.Get("kind", "texture");
@@ -106,7 +117,7 @@ bool Game::SyncProjectToSource() {
 		};
 		for (const auto& [dir, prefix] : globs) {
 			if (prefix.empty()) continue;
-			const fs::path from = fs::path(paths::ExecutableDir()) / "assets" / dir;
+			const fs::path from = fs::path(paths::AssetsDir()) / dir;
 			const fs::path to = fs::path(repo) / dir;
 			fs::create_directories(to, ec);
 			for (const auto& entry : fs::directory_iterator(from, ec)) {
