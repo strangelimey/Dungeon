@@ -25,13 +25,22 @@ const char* Prefix(Level level) {
 	return "";
 }
 
-// The file sink: dungeon.log next to the exe, truncated per run. Opened
+// The file sink: <exename>.log next to the exe, truncated per run. Opened
 // lazily on the first Write (under g_mutex) and flushed per line, so the
 // tail survives a crash/abort — the whole point of a debugging log. RAII
 // like every C-API boundary; process exit closes it either way.
+//
+// Named after the RUNNING EXE, not hardcoded to dungeon.log. Every tool links
+// Core and so shares this sink, and they all sit in the same build\<cfg>\bin —
+// so with a fixed name an AssetBaker run silently truncated the GAME's log and
+// wrote its own output over it. That destroyed the evidence mid-debug once
+// (2026-08-05), and CLAUDE.md points at dungeon.log as THE diagnostic.
+// The game's file keeps its documented name; the tools get assetbaker.log,
+// bc7test.log, threadstress.log.
 FILE* LogFile() {
 	static const std::unique_ptr<FILE, decltype(&fclose)> file(
-		fopen((paths::ExecutableDir() + "\\dungeon.log").c_str(), "w"),
+		fopen((paths::ExecutableDir() + "\\" + paths::ExecutableName() + ".log").c_str(),
+			  "w"),
 		&fclose);
 	return file.get();
 }

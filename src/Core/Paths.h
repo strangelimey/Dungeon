@@ -9,6 +9,12 @@ namespace dungeon::paths {
 // each build config wants its own.
 const std::string& ExecutableDir();
 
+// The running executable's own name, lowercased, without extension or path —
+// "dungeon", "assetbaker", "bc7test". Every tool links Core and so shares its
+// log sink; keying the file on this is what stops one clobbering another's,
+// since they all live in the same build\<cfg>\bin.
+const std::string& ExecutableName();
+
 // The one assets directory this build reads AND writes (no trailing slash).
 // A dev build resolves to the repo's source tree (DN_ASSETS_DIR), so every
 // config — debug, release, vs, any future profile build — shares a SINGLE copy

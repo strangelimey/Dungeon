@@ -29,7 +29,12 @@ Built collaboratively with Claude across sessions; this file is the handoff.
   debug that means a CRT dialog and the process LOOKS alive but is stuck.
 - The full log also writes to `dungeon.log` NEXT TO THE EXE (truncated per
   run, flushed per line so the tail survives a crash/abort) — read that
-  instead of scraping the console window.
+  instead of scraping the console window. The file is named after the RUNNING
+  EXE (Core/Log.cpp via paths::ExecutableName), so the tools that also link
+  Core get `assetbaker.log`, `bc7test.log`, `threadstress.log`. That matters
+  because they all share `build\<cfg>\bin`: with the old hardcoded name an
+  asset import silently truncated the GAME's log and wrote its own output
+  over it, which destroyed the evidence mid-debug once.
 
 ## Architecture (docs/ARCHITECTURE.md has the full version)
 

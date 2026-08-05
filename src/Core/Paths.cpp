@@ -5,6 +5,8 @@
 #include <Windows.h>
 #include <ShlObj.h>
 
+#include <algorithm>
+#include <cctype>
 #include <filesystem>
 
 #pragma comment(lib, "Shell32.lib")
@@ -19,6 +21,23 @@ const std::string& ExecutableDir() {
 		return std::filesystem::path(buffer).parent_path().string();
 	}();
 	return dir;
+}
+
+const std::string& ExecutableName() {
+	static const std::string name = [] {
+		wchar_t buffer[MAX_PATH]{};
+		GetModuleFileNameW(nullptr, buffer, MAX_PATH);
+		std::string stem = std::filesystem::path(buffer).stem().string();
+		// Lowercased so the game's log keeps the exact name every doc, script
+		// and habit already spells — dungeon.log, not Dungeon.log. Windows
+		// would treat them as the same file, but the listing would not match
+		// what CLAUDE.md tells the next person to open.
+		std::transform(stem.begin(), stem.end(), stem.begin(), [](unsigned char c) {
+			return static_cast<char>(std::tolower(c));
+		});
+		return stem;
+	}();
+	return name;
 }
 
 const std::string& AssetsDir() {
