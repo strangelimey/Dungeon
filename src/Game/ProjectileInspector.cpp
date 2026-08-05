@@ -30,7 +30,7 @@ ProjectileInspector::ProjectileInspector(gfx::GraphicsDevice& device,
 										 ui::FontLibrary& fonts)
 	: m_device(device), m_ui(fonts, ui::FontRole::Body, 18.0f) {
 	m_ui.Root().fontScale = ui::kDialogTextScale; // inherits — see LevelSettings
-	m_closeIcon = TryLoadTextureFile(device, paths::Asset("ui\\icon_close"));
+	m_closeIcon = CloseIcon(device);
 }
 
 void ProjectileInspector::Open(const Config& cfg) {
@@ -45,7 +45,7 @@ void ProjectileInspector::BuildUI() {
 		if (onRemove) onRemove();
 		Close();
 	});
-	ui::AddCloseButton(m_ui, kPanel, m_closeIcon.get(), [this] { Close(); });
+	ui::AddCloseButton(m_ui, kPanel, m_closeIcon, [this] { Close(); });
 }
 
 void ProjectileInspector::Update(const Input& input, float w, float h) {

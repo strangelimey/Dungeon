@@ -460,7 +460,8 @@ bool DungeonWorld::RemoveBoreAt(int x, int z) {
 }
 
 bool DungeonWorld::WallSeeThrough(int x, int z, int axis) const {
-	// Permanent authored bores; a future see-through spell ORs a transient set in.
+	// Authored bores only — the Sight spells are a shader peephole, not a hole
+	// in the world (see the declaration in DungeonWorld.h).
 	return m_map.WallBoredAlong(x, z, axis);
 }
 

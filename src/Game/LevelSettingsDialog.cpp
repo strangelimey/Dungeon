@@ -53,7 +53,7 @@ LevelSettingsDialog::LevelSettingsDialog(gfx::GraphicsDevice& device, ui::FontLi
 	// grows later; the numeric readouts pin themselves back in AddNumericField.
 	// It survives Clear(), which only drops the root's children.
 	m_ui.Root().fontScale = ui::kDialogTextScale;
-	m_closeIcon = TryLoadTextureFile(device, paths::Asset("ui\\icon_close"));
+	m_closeIcon = CloseIcon(device);
 }
 
 void LevelSettingsDialog::Open(const std::string& stem, float dust, float haze,
@@ -133,7 +133,7 @@ void LevelSettingsDialog::BuildUI() {
 		if (onSave) onSave(m_dust, m_haze, m_ambient);
 		Close();
 	});
-	ui::AddCloseButton(m_ui, kPanel, m_closeIcon.get(), [this] {
+	ui::AddCloseButton(m_ui, kPanel, m_closeIcon, [this] {
 		if (onApply) onApply(m_oDust, m_oHaze, m_oAmbient); // revert the preview
 		Close();
 	});

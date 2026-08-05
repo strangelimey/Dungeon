@@ -47,7 +47,7 @@ std::string ClipLabel(const std::string& name) {
 MonsterConfigDialog::MonsterConfigDialog(gfx::GraphicsDevice& device, ui::FontLibrary& fonts)
 	: m_device(device), m_ui(fonts, ui::FontRole::Body, 18.0f) {
 	m_ui.Root().fontScale = ui::kDialogTextScale; // inherits — see LevelSettings
-	m_closeIcon = TryLoadTextureFile(device, paths::Asset("ui\\icon_close"));
+	m_closeIcon = CloseIcon(device);
 }
 
 void MonsterConfigDialog::Open(const std::string& type, const std::string& display,
@@ -103,7 +103,7 @@ void MonsterConfigDialog::BuildUI() {
 		if (onSave) onSave(m_cfg);
 		Close();
 	});
-	ui::AddCloseButton(m_ui, kPanel, m_closeIcon.get(), [this] {
+	ui::AddCloseButton(m_ui, kPanel, m_closeIcon, [this] {
 		if (onApply) onApply(m_original); // revert the live kind to the snapshot
 		Close();
 	});

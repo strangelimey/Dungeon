@@ -132,7 +132,7 @@ private:
 	void BuildUI();
 
 	ui::UIContext m_ui; // common strip + derived content + footer; also the title
-	std::unique_ptr<gfx::Texture> m_closeIcon; // shared top-right close box
+	const gfx::Texture* m_closeIcon = nullptr; // shared, owned by AssetUtil
 
 	bool m_open = false;
 	bool m_rebuild = false;

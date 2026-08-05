@@ -199,6 +199,11 @@ Game::~Game() {
 	// voice before that memory goes away, or the mixer thread reads freed
 	// buffers on a quit mid-sound.
 	m_audio.StopAll();
+	// The shared dialog icons hold SRV slots on the GraphicsDevice, which
+	// outlives Game (Main owns it) but not by much — drop them HERE, while the
+	// device is certainly alive, rather than leaving a namespace-scope texture
+	// to destruct at exit against a dead device. See AssetUtil::CloseIcon.
+	ReleaseSharedIcons();
 }
 
 // ============================================================================
@@ -1131,44 +1136,21 @@ void Game::Update(float dt) {
 							   static_cast<float>(m_window.Height()));
 		return;
 	}
-	// The per-instance entity inspector is likewise modal over the editor.
-	if (m_entityInspector.IsOpen()) {
-		m_entityInspector.Update(input, static_cast<float>(m_window.Width()),
-								 static_cast<float>(m_window.Height()));
-		if (m_entityInspector.Preview().skeleton) m_previewAnim.Update(dt); // idle loop
-		return;
-	}
-	// The per-instance fixture (torch) inspector is likewise modal over the editor.
-	if (m_fixtureInspector.IsOpen()) {
-		m_fixtureInspector.Update(input, static_cast<float>(m_window.Width()),
-								  static_cast<float>(m_window.Height()));
-		const PreviewSpec& sp = m_fixtureInspector.Preview();
-		if (sp.fire && sp.showFire) m_previewFire.Update(dt); // preview flame
-		return;
-	}
-	// The per-instance item/decoration inspector is likewise modal over the editor.
-	if (m_propInspector.IsOpen()) {
-		m_propInspector.Update(input, static_cast<float>(m_window.Width()),
-							   static_cast<float>(m_window.Height()));
-		if (m_propInspector.Preview().spin) m_previewSpin += dt * 0.9f; // turntable
-		return;
-	}
-	// The per-instance door inspector too (open/closed + required key).
-	if (m_doorInspector.IsOpen()) {
-		m_doorInspector.Update(input, static_cast<float>(m_window.Width()),
-							   static_cast<float>(m_window.Height()));
-		return;
-	}
-	// And the button inspector (target-door wiring).
-	if (m_buttonInspector.IsOpen()) {
-		m_buttonInspector.Update(input, static_cast<float>(m_window.Width()),
-								 static_cast<float>(m_window.Height()));
-		return;
-	}
-	// And the wall-niche inspector (shape / secret / name).
-	if (m_nicheInspector.IsOpen()) {
-		m_nicheInspector.Update(input, static_cast<float>(m_window.Width()),
-								static_cast<float>(m_window.Height()));
+	// The per-instance edit dialogs (monster / torch / item+decoration / door /
+	// button / niche) are likewise modal over the editor. They share a base, so
+	// one walk of InstanceInspectors() covers all six, and the preview
+	// simulation is driven off the open dialog's SPEC rather than off which
+	// dialog it is — the three flags are disjoint across the six (only a monster
+	// spec carries a skeleton, only a fixture's carries fire, only a loose
+	// item's spins), so this is the per-type chain it replaces, minus the
+	// chance of adding a seventh dialog and forgetting one of its three sites.
+	if (InstanceInspector* ii = ActiveInstanceInspector()) {
+		ii->Update(input, static_cast<float>(m_window.Width()),
+				   static_cast<float>(m_window.Height()));
+		const PreviewSpec& sp = ii->Preview();
+		if (sp.skeleton) m_previewAnim.Update(dt);            // skinned idle loop
+		if (sp.fire && sp.showFire) m_previewFire.Update(dt); // lit torch flame
+		if (sp.spin) m_previewSpin += dt * 0.9f;              // turntable
 		return;
 	}
 	// And the in-flight projectile inspector (read-only details + dismiss).
@@ -1540,18 +1522,8 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 	// The per-instance edit dialogs, each drawn (panel + controls) THEN, once all
 	// are drawn, the 3D preview blitted into the active one's pane — the blit must
 	// come last so a dialog's backing box never covers it.
-	if (m_entityInspector.IsOpen())
-		m_entityInspector.Render(m_spriteBatch, m_settings.theme, dw, dh);
-	if (m_fixtureInspector.IsOpen())
-		m_fixtureInspector.Render(m_spriteBatch, m_settings.theme, dw, dh);
-	if (m_propInspector.IsOpen())
-		m_propInspector.Render(m_spriteBatch, m_settings.theme, dw, dh);
-	if (m_doorInspector.IsOpen())
-		m_doorInspector.Render(m_spriteBatch, m_settings.theme, dw, dh);
-	if (m_buttonInspector.IsOpen())
-		m_buttonInspector.Render(m_spriteBatch, m_settings.theme, dw, dh);
-	if (m_nicheInspector.IsOpen())
-		m_nicheInspector.Render(m_spriteBatch, m_settings.theme, dw, dh);
+	for (InstanceInspector* ii : InstanceInspectors())
+		if (ii->IsOpen()) ii->Render(m_spriteBatch, m_settings.theme, dw, dh);
 	if (m_projectileInspector.IsOpen())
 		m_projectileInspector.Render(m_spriteBatch, m_settings.theme, dw, dh);
 	if (InstanceInspector* ii = ActiveInstanceInspector(); ii && ii->HasPreview())

@@ -25,13 +25,14 @@
 #include <utility>
 
 namespace dungeon::game {
+std::array<InstanceInspector*, 6> Game::InstanceInspectors() {
+	return {&m_entityInspector, &m_fixtureInspector, &m_propInspector,
+			&m_doorInspector,   &m_buttonInspector,  &m_nicheInspector};
+}
+
 InstanceInspector* Game::ActiveInstanceInspector() {
-	if (m_entityInspector.IsOpen()) return &m_entityInspector;
-	if (m_fixtureInspector.IsOpen()) return &m_fixtureInspector;
-	if (m_propInspector.IsOpen()) return &m_propInspector;
-	if (m_doorInspector.IsOpen()) return &m_doorInspector;
-	if (m_buttonInspector.IsOpen()) return &m_buttonInspector;
-	if (m_nicheInspector.IsOpen()) return &m_nicheInspector;
+	for (InstanceInspector* ii : InstanceInspectors())
+		if (ii->IsOpen()) return ii;
 	return nullptr;
 }
 

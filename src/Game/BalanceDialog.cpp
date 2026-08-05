@@ -51,7 +51,7 @@ void AddNumericField(ui::TabControl* tabs, size_t tab, const gfx::Rect& r,
 BalanceDialog::BalanceDialog(gfx::GraphicsDevice& device, ui::FontLibrary& fonts)
 	: m_device(device), m_ui(fonts, ui::FontRole::Body, 18.0f) {
 	m_ui.Root().fontScale = ui::kDialogTextScale; // inherits — see LevelSettings
-	m_closeIcon = TryLoadTextureFile(device, paths::Asset("ui\\icon_close"));
+	m_closeIcon = CloseIcon(device);
 }
 
 void BalanceDialog::Open(const Balance& current) {
@@ -75,7 +75,7 @@ void BalanceDialog::BuildUI() {
 		if (onSave) onSave(m_cfg);
 		Close();
 	});
-	ui::AddCloseButton(m_ui, kPanel, m_closeIcon.get(), [this] {
+	ui::AddCloseButton(m_ui, kPanel, m_closeIcon, [this] {
 		if (onApply) onApply(m_original); // revert the live tuning
 		Close();
 	});

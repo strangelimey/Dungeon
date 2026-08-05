@@ -43,7 +43,7 @@ private:
 
 	gfx::GraphicsDevice& m_device;
 	ui::UIContext m_ui; // the row buttons; also draws the title
-	std::unique_ptr<gfx::Texture> m_closeIcon; // shared top-right close box
+	const gfx::Texture* m_closeIcon = nullptr; // shared, owned by AssetUtil
 
 	bool m_open = false;
 	std::string m_title;

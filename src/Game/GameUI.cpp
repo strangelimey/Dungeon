@@ -128,6 +128,14 @@ GameUI::GameUI(Window& window, gfx::GraphicsDevice& device,
 
 void GameUI::BuildStaticUi() {
 	ApplyTheme();
+	// BEFORE the pages: BuildCharacterSheet hands the close box to a Button,
+	// which copies the POINTER at Add time. This used to be loaded over in
+	// LoadTitleArt — a boot LOAD TASK, i.e. long after this runs — so the sheet
+	// captured a null and drew the text "x" fallback for the life of the
+	// process while every editor dialog (which loads in its own constructor)
+	// showed the real icon. Cheap to do here: CloseIcon loads once and hands
+	// back the same texture to everyone.
+	m_closeIcon = CloseIcon(m_device);
 	BuildMenu();
 	BuildPauseMenu();
 	BuildCharacterSheet();
@@ -151,9 +159,8 @@ void GameUI::LoadTitleArt() {
 	// quarter turns per direction by ui::Button::iconTurns.
 	m_chevronTex = TryLoadTextureFile(m_device, paths::Asset("ui\\icon_chevron"));
 	m_chevron2Tex = TryLoadTextureFile(m_device, paths::Asset("ui\\icon_chevron2"));
-	// The shared top-right close box (assets/ui/icon_close) — the character
-	// sheet's corner close, matching every editor dialog.
-	m_closeIcon = TryLoadTextureFile(m_device, paths::Asset("ui\\icon_close"));
+	// (The shared close box is loaded in BuildStaticUi, which needs it before
+	// this load task runs — see the note there.)
 	// The panel part is a QUIET bake (near-black + faint noise, one thin brass
 	// edge, no black rim — the old stone face read too busy under the kit's
 	// wooden buttons); it tiles, so the noise stays dense at any panel size.
@@ -1212,7 +1219,7 @@ void GameUI::BuildCharacterSheet() {
 							  });
 	// Close (= resume) is the shared corner box at the sheet panel's top-right,
 	// matching every other dialog — no footer Back button.
-	ui::AddCloseButton(m_sheetUi, sheet, m_closeIcon.get(), [this] {
+	ui::AddCloseButton(m_sheetUi, sheet, m_closeIcon, [this] {
 		Click();
 		onResume();
 	});

@@ -484,7 +484,8 @@ public:
 	// --- fog of war (dynamic/save-side state, not in DungeonMap) -------------
 	// Whether a cell has been revealed (the party has stood on it or an
 	// adjacent cell). The map overlay draws only seen cells. This belongs to
-	// the dynamic layer — a future save serializes it, never the .map file.
+	// the dynamic layer — the save serializes it (SaveData::LevelState::seen),
+	// never the .map file.
 	bool IsSeen(int x, int z) const;
 
 	// --- save / load --------------------------------------------------------
@@ -609,8 +610,12 @@ public:
 	bool AddBore(const std::string& type, int x, int z, int axis);
 	bool RemoveBoreAt(int x, int z);
 	// True if solid cell (x,z) can be seen/shot through along `axis` (0=X, 1=Z).
-	// Permanent bores now; a future see-through SPELL layers a transient set here,
-	// so LoS/projectiles gain it without re-baking chunk geometry.
+	// AUTHORED BORES ONLY. The Sight spells (SightSpell — Farsight and friends)
+	// deliberately do NOT come through here: they are a shader peephole
+	// (Renderer's sightHole), so they let the party SEE past a wall without
+	// letting line-of-sight or projectiles through it. If a spell should ever
+	// open a real hole, a transient set ORed in here is the seam for it — that
+	// gains LoS/projectiles without re-baking chunk geometry.
 	bool WallSeeThrough(int x, int z, int axis) const;
 	// Removes the niche carved into solid wall block (wx,wz) — the erase tool
 	// selects niches by their wall, matching the inspector.
