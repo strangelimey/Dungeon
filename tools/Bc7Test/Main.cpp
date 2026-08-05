@@ -38,6 +38,7 @@
 //   Bc7Test --self-test                        corrupt the bytes; must FAIL
 // ============================================================================
 #include "AssetBaker/Bc7Encoder.h"
+#include "AssetBaker/Bc7Tables.h"
 #include "Assets/Image.h"
 #include "Bc7Decode.h"
 #include "Core/Types.h"
@@ -522,6 +523,263 @@ void RunAudit(const std::vector<Sample>& corpus) {
 	}
 }
 
+// ---- Headroom -------------------------------------------------------------
+//
+// "Should the next BC7 mode be built?" is a question about where the REMAINING
+// error lives, and that is answerable without writing the mode. Modes 1 and 3
+// are the only two-subset modes and both force alpha opaque, so a block whose
+// alpha varies can never have more than one colour line no matter how good the
+// encoder gets. Mode 7 (two subsets WITH alpha) is the only candidate that
+// changes that, which means its entire opportunity is bounded by the error
+// currently sitting in non-opaque blocks. If that pool is small, mode 7 cannot
+// be worth building however well it is implemented — and no solver has to be
+// written to find out.
+//
+// Two refinements keep the bound from flattering the case:
+//   * Not every non-opaque block WANTS two subsets. A block is only a candidate
+//     if partitioning it actually explains its spread, measured the same way the
+//     encoder's shortlist measures it — within-subset scatter, over RGBA here
+//     rather than RGB, because alpha is exactly what mode 7 would be carrying.
+//   * The ceiling assumes mode 7 drives its blocks to ZERO error, which no mode
+//     does. Mode 7 is in fact the coarsest two-subset mode there is — 5-bit
+//     endpoints plus a p-bit, and 2-bit indices — so the real figure would be a
+//     fraction of the number printed here.
+struct BlockFacts {
+	float error = 0;
+	bool opaque = true;
+	float scatterReduction = 0; // 0 = a partition explains nothing, 1 = everything
+	float mode7Error = 0;       // what mode 7's search would actually achieve
+};
+
+// Total within-subset scatter over `nch` channels for one partition shape.
+float ScatterForShape(const float px[16][4], int shape, int nch) {
+	float sum[2][4] = {}, sq[2][4] = {};
+	int n[2] = {0, 0};
+	for (int i = 0; i < 16; ++i) {
+		const int s = baker::bc7::kPartition2[shape][i];
+		++n[s];
+		for (int c = 0; c < nch; ++c) {
+			sum[s][c] += px[i][c];
+			sq[s][c] += px[i][c] * px[i][c];
+		}
+	}
+	float total = 0;
+	for (int s = 0; s < 2; ++s) {
+		if (n[s] == 0) continue;
+		for (int c = 0; c < nch; ++c)
+			total += sq[s][c] - sum[s][c] * sum[s][c] / static_cast<float>(n[s]);
+	}
+	return total;
+}
+
+BlockFacts FactsForBlock(const assets::ImageData& img, u32 bx, u32 by, float error,
+						 const baker::Bc7Options& opt) {
+	BlockFacts f;
+	f.error = error;
+
+	float px[16][4];
+	u8 raw[16][4];
+	for (u32 j = 0; j < 4; ++j)
+		for (u32 i = 0; i < 4; ++i) {
+			const u32 x = std::min(bx * 4 + i, img.width - 1);
+			const u32 y = std::min(by * 4 + j, img.height - 1);
+			const u8* p = &img.pixels[(static_cast<size_t>(y) * img.width + x) * 4];
+			for (int c = 0; c < 4; ++c) {
+				px[j * 4 + i][c] = static_cast<float>(p[c]);
+				raw[j * 4 + i][c] = p[c];
+			}
+			if (p[3] < 255) f.opaque = false;
+		}
+
+	f.mode7Error = baker::EstimateMode7Error(raw, opt);
+
+	// Whole-block scatter is shape 0 with everything in one subset; compute it
+	// directly rather than borrowing a partition.
+	float sum[4] = {}, sq[4] = {};
+	for (int i = 0; i < 16; ++i)
+		for (int c = 0; c < 4; ++c) {
+			sum[c] += px[i][c];
+			sq[c] += px[i][c] * px[i][c];
+		}
+	float whole = 0;
+	for (int c = 0; c < 4; ++c) whole += sq[c] - sum[c] * sum[c] / 16.0f;
+
+	if (whole > 1e-3f) {
+		float best = whole;
+		for (int s = 0; s < 64; ++s)
+			best = std::min(best, ScatterForShape(px, s, 4));
+		f.scatterReduction = 1.0f - best / whole;
+	}
+	return f;
+}
+
+// `opt` applies to BOTH sides — the current encoder and mode 7's search — so
+// raising the search effort compares them on equal terms rather than handing one
+// an advantage.
+void RunHeadroom(const std::vector<Sample>& corpus, const baker::Bc7Options& opt) {
+
+	double total = 0, nonOpaque = 0, nonOpaqueStructured = 0;
+	size_t blocks = 0, nonOpaqueBlocks = 0, structuredBlocks = 0;
+	std::map<int, double> errByMode;
+	std::map<int, size_t> countByMode;
+
+	// A block only counts as wanting two subsets if partitioning explains most
+	// of its spread. 0.5 is deliberately generous — it over-counts candidates,
+	// which is the right direction for a bound meant to rule something OUT.
+	constexpr float kStructuredThreshold = 0.5f;
+
+	// Per-image, because the corpus total is not the question. Pooled squared
+	// error is dominated by whichever image compresses worst — here the noise
+	// tile, which is fully opaque — so a pooled "% of error in non-opaque
+	// blocks" is mostly a statement about noise and would understate the case
+	// for a mode that only ever helps alpha content. Same trap that hid a
+	// 1.35 dB knob during the p-bit measurement.
+	struct ImageRow {
+		std::string name;
+		double total = 0, structured = 0, px = 0;
+		double withMode7 = 0; // total error if mode 7 competed for every block
+	};
+	std::vector<ImageRow> rows;
+	size_t mode7Wins = 0;
+
+	std::printf("\n%-26s %10s %12s %12s\n", "image", "blocks", "err in a>", "structured");
+	std::printf("%s\n", std::string(64, '-').c_str());
+
+	for (const auto& s : corpus) {
+		std::vector<baker::Bc7BlockStat> stats;
+		baker::EncodeBc7(s.image, opt, &stats);
+
+		const u32 bx = (s.image.width + 3) / 4;
+		const u32 by = (s.image.height + 3) / 4;
+		double imgTotal = 0, imgNonOpaque = 0, imgStructured = 0, imgWithMode7 = 0;
+
+		for (u32 y = 0; y < by; ++y)
+			for (u32 x = 0; x < bx; ++x) {
+				const size_t b = static_cast<size_t>(y) * bx + x;
+				const BlockFacts f = FactsForBlock(s.image, x, y, stats[b].error, opt);
+				++blocks;
+				imgTotal += f.error;
+				// What the block would cost if mode 7 were simply one more
+				// candidate: the encoder keeps the lower error either way.
+				const double best = std::min<double>(f.error, f.mode7Error);
+				imgWithMode7 += best;
+				if (f.mode7Error < f.error) ++mode7Wins;
+				errByMode[static_cast<int>(stats[b].mode)] += f.error;
+				++countByMode[static_cast<int>(stats[b].mode)];
+				if (!f.opaque) {
+					++nonOpaqueBlocks;
+					imgNonOpaque += f.error;
+					if (f.scatterReduction >= kStructuredThreshold) {
+						++structuredBlocks;
+						imgStructured += f.error;
+					}
+				}
+			}
+
+		total += imgTotal;
+		nonOpaque += imgNonOpaque;
+		nonOpaqueStructured += imgStructured;
+		rows.push_back({s.name, imgTotal, imgStructured,
+						static_cast<double>(s.image.pixels.size()), imgWithMode7});
+		std::printf("%-26s %10u %11.2f%% %11.2f%%\n", s.name.c_str(), bx * by,
+					imgTotal > 0 ? 100.0 * imgNonOpaque / imgTotal : 0.0,
+					imgTotal > 0 ? 100.0 * imgStructured / imgTotal : 0.0);
+	}
+
+	std::printf("\n--- where the remaining error is ---\n");
+	std::printf("blocks                        %zu\n", blocks);
+	std::printf("non-opaque blocks             %zu (%.2f%% of blocks)\n", nonOpaqueBlocks,
+				100.0 * static_cast<double>(nonOpaqueBlocks) /
+					static_cast<double>(blocks));
+	std::printf("  ...that want two subsets    %zu (%.2f%% of blocks)\n",
+				structuredBlocks,
+				100.0 * static_cast<double>(structuredBlocks) /
+					static_cast<double>(blocks));
+	std::printf("error in non-opaque blocks    %.2f%% of all error\n",
+				100.0 * nonOpaque / total);
+	std::printf("  ...that want two subsets    %.2f%% of all error\n",
+				100.0 * nonOpaqueStructured / total);
+
+	std::printf("\nerror by chosen mode:\n");
+	for (const auto& [mode, err] : errByMode)
+		std::printf("  mode %d  %6.2f%% of error   %6.2f%% of blocks\n", mode,
+					100.0 * err / total,
+					100.0 * static_cast<double>(countByMode[mode]) /
+						static_cast<double>(blocks));
+
+	// The ceiling, PER IMAGE: what each image's PSNR would become if every
+	// addressable block dropped to zero error. Absurdly generous on purpose —
+	// it is an upper bound meant to rule things OUT. Mode 7 could not approach
+	// it: it is the coarsest two-subset mode in the format, 5-bit endpoints
+	// plus a p-bit and only four index positions.
+	std::printf("\nCEILING for a two-subset mode that carries alpha (per image):\n");
+	std::printf("%-26s %10s %10s %9s\n", "image", "PSNR now", "ceiling", "delta");
+	std::printf("%s\n", std::string(58, '-').c_str());
+
+	double sumNow = 0, sumCeil = 0;
+	int affected = 0;
+	double worstCase = 0;
+	for (const auto& r : rows) {
+		const double now = Psnr(r.total / r.px);
+		const double ceil = Psnr((r.total - r.structured) / r.px);
+		sumNow += now;
+		sumCeil += ceil;
+		if (r.structured > 0) {
+			++affected;
+			worstCase = std::max(worstCase, ceil - now);
+			std::printf("%-26s %10.2f %10.2f %+9.2f\n", r.name.c_str(), now, ceil,
+						ceil - now);
+		}
+	}
+	std::printf("%s\n", std::string(58, '-').c_str());
+	std::printf("images with anything to gain   %d of %zu\n", affected, rows.size());
+	std::printf("mean corpus PSNR now           %.2f dB\n",
+				sumNow / static_cast<double>(rows.size()));
+	std::printf("mean corpus PSNR at ceiling    %.2f dB  (+%.2f)\n",
+				sumCeil / static_cast<double>(rows.size()),
+				(sumCeil - sumNow) / static_cast<double>(rows.size()));
+	std::printf("best single image would gain   %.2f dB (at zero error, which is\n"
+				"                               not attainable)\n",
+				worstCase);
+
+	// And what mode 7 ACTUALLY achieves. The ceiling above is a bound; this runs
+	// mode 7's real search on every block and lets it compete for the win, which
+	// is exactly what shipping it would do.
+	std::printf("\nMODE 7, ACTUALLY MEASURED (its real search, competing per block):\n");
+	std::printf("%-26s %10s %10s %9s\n", "image", "PSNR now", "with m7", "delta");
+	std::printf("%s\n", std::string(58, '-').c_str());
+	double sumWith = 0;
+	double bestGain = 0;
+	std::string bestImage;
+	for (const auto& r : rows) {
+		const double now = Psnr(r.total / r.px);
+		const double with = Psnr(r.withMode7 / r.px);
+		sumWith += with;
+		if (with - now > bestGain) {
+			bestGain = with - now;
+			bestImage = r.name;
+		}
+		if (with - now > 0.005)
+			std::printf("%-26s %10.2f %10.2f %+9.2f\n", r.name.c_str(), now, with,
+						with - now);
+	}
+	std::printf("%s\n", std::string(58, '-').c_str());
+	const double meanGain =
+		(sumWith - sumNow) / static_cast<double>(rows.size());
+	std::printf("blocks mode 7 would win        %zu of %zu (%.2f%%)\n", mode7Wins,
+				blocks,
+				100.0 * static_cast<double>(mode7Wins) / static_cast<double>(blocks));
+	std::printf("mean corpus PSNR with mode 7   %.2f dB  (%+.2f)\n",
+				sumWith / static_cast<double>(rows.size()), meanGain);
+	if (!bestImage.empty())
+		std::printf("best single image            %s %+.2f dB\n", bestImage.c_str(),
+					bestGain);
+	std::printf("\nfraction of the ceiling actually reached: %.0f%%\n",
+				(sumCeil - sumNow) > 0
+					? 100.0 * (sumWith - sumNow) / (sumCeil - sumNow)
+					: 0.0);
+}
+
 void Usage() {
 	std::printf(
 		"usage: Bc7Test [options] [image.png ...]\n"
@@ -535,6 +793,8 @@ void Usage() {
 		"  --baseline <file>     fail if PSNR regresses against <file>\n"
 		"  --write-baseline <f>  record the current PSNR as the baseline\n"
 		"  --audit               print the knob-by-knob measurement table\n"
+		"  --headroom            where the remaining error is, and what a new\n"
+		"                        mode could address (see RunHeadroom)\n"
 		"  --self-test           corrupt encoded bytes; the run MUST fail\n");
 }
 
@@ -546,7 +806,7 @@ int main(int argc, char** argv) {
 	std::vector<std::string> explicitImages;
 	int perKind = 3;
 	u32 maxDim = 256;
-	bool audit = false, selfTest = false;
+	bool audit = false, selfTest = false, headroom = false;
 
 	for (int i = 1; i < argc; ++i) {
 		const std::string a = argv[i];
@@ -562,6 +822,7 @@ int main(int argc, char** argv) {
 		else if (a == "--baseline" && i + 1 < argc) baselinePath = argv[++i];
 		else if (a == "--write-baseline" && i + 1 < argc) writeBaselinePath = argv[++i];
 		else if (a == "--audit") audit = true;
+		else if (a == "--headroom") headroom = true;
 		else if (a == "--self-test") selfTest = true;
 		else if (a == "--modes" && i + 1 < argc) {
 			opt.modes = 0;
@@ -601,6 +862,11 @@ int main(int argc, char** argv) {
 
 	if (audit) {
 		RunAudit(corpus);
+		return 0;
+	}
+
+	if (headroom) {
+		RunHeadroom(corpus, opt);
 		return 0;
 	}
 

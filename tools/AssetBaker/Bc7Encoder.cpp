@@ -350,26 +350,35 @@ struct TwoSubsetSpec {
 	const int* weights;
 	int weightCount;
 	bool perEndpointP; // false = one p-bit shared by the subset's endpoints
+	int channels;      // 3 = RGB with alpha forced opaque, 4 = RGBA
 };
 
-constexpr TwoSubsetSpec kSpecMode1{0x2, 2, 6, 3, kWeights3, 8, false};
-constexpr TwoSubsetSpec kSpecMode3{0x8, 4, 7, 2, kWeights2, 4, true};
+constexpr TwoSubsetSpec kSpecMode1{0x2, 2, 6, 3, kWeights3, 8, false, 3};
+constexpr TwoSubsetSpec kSpecMode3{0x8, 4, 7, 2, kWeights2, 4, true, 3};
+
+// Mode 7 — the only two-subset mode that carries alpha, and the coarsest of the
+// three: 5 colour bits plus a p-bit per endpoint (6 effective) across all FOUR
+// channels, and 2-bit indices. It exists here as a spec so its search can be
+// MEASURED before anyone writes its packer or teaches the harness to decode it.
+// Nothing emits mode 7; see EstimateMode7Error and docs/bc7.md.
+constexpr TwoSubsetSpec kSpecMode7{0x80, 8, 5, 2, kWeights2, 4, true, 4};
 
 // One solved subset: the endpoint codes, each endpoint's p-bit (for a shared-p
 // mode both entries hold the same value, which makes the packing and the
 // endpoint swap below uniform), the chosen per-member indices, and the error.
 struct SubsetSolve {
-	int q[2][3]; // [endpoint][channel]
+	int q[2][4]; // [endpoint][channel]; [3] unused by the RGB-only modes
 	int pBit[2]; // [endpoint]
 	int idx[16]; // by member position
 	float error;
 };
 
-// Float fit -> quantize -> index -> refit, three times (RGB).
+// Float fit -> quantize -> index -> refit, three times, over spec.channels.
 SubsetSolve SolveSubset(const Vec4f px[16], const int* mem, int n,
 						const TwoSubsetSpec& spec, const Bc7Options& opt) {
+	const int nch = spec.channels;
 	Vec4f e0, e1;
-	FitFloatEndpoints(px, mem, n, 3, e0, e1);
+	FitFloatEndpoints(px, mem, n, nch, e0, e1);
 
 	SubsetSolve best{};
 	for (int iter = 0; iter < 3; ++iter) {
@@ -393,7 +402,7 @@ SubsetSolve SolveSubset(const Vec4f px[16], const int* mem, int n,
 			// closely, ignoring where that leaves the interpolated steps.
 			float qe[2] = {0, 0}, qe1[2] = {0, 0};
 			for (int p = 0; p <= 1; ++p)
-				for (int c = 0; c < 3; ++c) {
+				for (int c = 0; c < nch; ++c) {
 					const Quant a = QuantizeChannel(e0[c], spec.colourBits, p);
 					const Quant b = QuantizeChannel(e1[c], spec.colourBits, p);
 					qe[p] += (a.recon - e0[c]) * (a.recon - e0[c]);
@@ -411,9 +420,9 @@ SubsetSolve SolveSubset(const Vec4f px[16], const int* mem, int n,
 
 		best.error = 1e30f;
 		for (int k = 0; k < npairs; ++k) {
-			int q[2][3];
+			int q[2][4]{};
 			Vec4f r0, r1;
-			for (int c = 0; c < 3; ++c) {
+			for (int c = 0; c < nch; ++c) {
 				const Quant a = QuantizeChannel(e0[c], spec.colourBits, pairs[k][0]);
 				const Quant b = QuantizeChannel(e1[c], spec.colourBits, pairs[k][1]);
 				q[0][c] = a.code;
@@ -425,7 +434,7 @@ SubsetSolve SolveSubset(const Vec4f px[16], const int* mem, int n,
 			float err = 0;
 			for (int i = 0; i < n; ++i) {
 				float e;
-				idx[i] = BestIndex(px[mem[i]], r0, r1, 3, spec.weights,
+				idx[i] = BestIndex(px[mem[i]], r0, r1, nch, spec.weights,
 								   spec.weightCount, e);
 				err += e;
 			}
@@ -439,30 +448,30 @@ SubsetSolve SolveSubset(const Vec4f px[16], const int* mem, int n,
 		}
 
 		if (iter < 2)
-			LeastSquaresFit(px, mem, n, 3, spec.weights, best.idx, e0, e1);
+			LeastSquaresFit(px, mem, n, nch, spec.weights, best.idx, e0, e1);
 	}
 	return best;
 }
 
 // Per-shape score: sum over subsets of the RGB bounding-box extent. Lower means
 // the partition separates the block's colours. Blind to subset population.
-float PrescoreBoundingBox(const Vec4f px[16], int shape) {
-	float lo[2][3], hi[2][3];
+float PrescoreBoundingBox(const Vec4f px[16], int shape, int nch) {
+	float lo[2][4], hi[2][4];
 	for (int s = 0; s < 2; ++s)
-		for (int c = 0; c < 3; ++c) {
+		for (int c = 0; c < nch; ++c) {
 			lo[s][c] = 1e30f;
 			hi[s][c] = -1e30f;
 		}
 	for (int i = 0; i < 16; ++i) {
 		const int s = kPartition2[shape][i];
-		for (int c = 0; c < 3; ++c) {
+		for (int c = 0; c < nch; ++c) {
 			lo[s][c] = std::min(lo[s][c], px[i][c]);
 			hi[s][c] = std::max(hi[s][c], px[i][c]);
 		}
 	}
 	float score = 0;
 	for (int s = 0; s < 2; ++s)
-		for (int c = 0; c < 3; ++c)
+		for (int c = 0; c < nch; ++c)
 			if (hi[s][c] >= lo[s][c]) score += hi[s][c] - lo[s][c];
 	return score;
 }
@@ -471,13 +480,13 @@ float PrescoreBoundingBox(const Vec4f px[16], int shape) {
 // (n * variance), computed from first and second moments in one pass. Lower
 // means less spread left for the per-subset colour line to explain — which is
 // what the solve then goes and does.
-float PrescoreScatter(const Vec4f px[16], int shape) {
-	float sum[2][3] = {}, sq[2][3] = {};
+float PrescoreScatter(const Vec4f px[16], int shape, int nch) {
+	float sum[2][4] = {}, sq[2][4] = {};
 	int n[2] = {0, 0};
 	for (int i = 0; i < 16; ++i) {
 		const int s = kPartition2[shape][i];
 		++n[s];
-		for (int c = 0; c < 3; ++c) {
+		for (int c = 0; c < nch; ++c) {
 			sum[s][c] += px[i][c];
 			sq[s][c] += px[i][c] * px[i][c];
 		}
@@ -485,15 +494,15 @@ float PrescoreScatter(const Vec4f px[16], int shape) {
 	float score = 0;
 	for (int s = 0; s < 2; ++s) {
 		if (n[s] == 0) continue;
-		for (int c = 0; c < 3; ++c)
+		for (int c = 0; c < nch; ++c)
 			score += sq[s][c] - sum[s][c] * sum[s][c] / static_cast<float>(n[s]);
 	}
 	return score;
 }
 
-float PrescoreShape(const Vec4f px[16], int shape, Bc7Prescore kind) {
-	return kind == Bc7Prescore::Scatter ? PrescoreScatter(px, shape)
-										: PrescoreBoundingBox(px, shape);
+float PrescoreShape(const Vec4f px[16], int shape, Bc7Prescore kind, int nch) {
+	return kind == Bc7Prescore::Scatter ? PrescoreScatter(px, shape, nch)
+										: PrescoreBoundingBox(px, shape, nch);
 }
 
 // Encodes the best of opt.shapeTrials partition shapes; returns its error (or
@@ -506,7 +515,7 @@ float EncodeTwoSubset(const Vec4f px[16], u8 out[16], const Bc7Options& opt,
 	std::array<int, 64> order;
 	for (int s = 0; s < 64; ++s) order[s] = s;
 	std::array<float, 64> score;
-	for (int s = 0; s < 64; ++s) score[s] = PrescoreShape(px, s, opt.prescore);
+	for (int s = 0; s < 64; ++s) score[s] = PrescoreShape(px, s, opt.prescore, spec.channels);
 	std::partial_sort(order.begin(), order.begin() + trials, order.end(),
 					  [&](int a, int b) { return score[a] < score[b]; });
 
@@ -537,6 +546,10 @@ float EncodeTwoSubset(const Vec4f px[16], u8 out[16], const Bc7Options& opt,
 		}
 	}
 	if (bestShape < 0) return 1e30f;
+
+	// A null `out` runs the SEARCH only. That is how a mode's worth gets
+	// measured before its packer exists — see EstimateMode7Error.
+	if (out == nullptr) return bestErr;
 
 	// Expand the per-member indices back to the 16-pixel raster order.
 	int idx[16];
@@ -755,6 +768,13 @@ void GatherBlock(const assets::ImageData& image, u32 bx, u32 by, Vec4f px[16]) {
 }
 
 } // namespace
+
+float EstimateMode7Error(const u8 px[16][4], const Bc7Options& opt) {
+	Vec4f v[16];
+	for (int i = 0; i < 16; ++i)
+		for (int c = 0; c < 4; ++c) v[i][c] = static_cast<float>(px[i][c]);
+	return EncodeTwoSubset(v, nullptr, opt, kSpecMode7);
+}
 
 std::vector<u8> EncodeBc7(const assets::ImageData& image, const Bc7Options& opt,
 						  std::vector<Bc7BlockStat>* stats) {
