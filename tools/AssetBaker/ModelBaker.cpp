@@ -1848,18 +1848,72 @@ assets::ModelData BuildBlob() {
 	return model;
 }
 
-// A stone staircase: a flight of rising steps centred in the cell. The
-// stair/portal prop (the party transitions on stepping onto the tile).
+// A stone staircase climbing a FULL STOREY and continuing up through a hole in
+// the ceiling — the exit to the level above, and the mirror of BuildStairsDown.
+//
+// It used to be a 7-step stub 1.19 m tall in a 2.5 m room, and stairs_up
+// carried `hole = none`, so a solid ceiling capped it: steps that went nowhere.
+// The catalog now gives it `hole = ceiling` and this mesh brings the shaft, the
+// same way BuildPitCeiling does for a pit's upper half.
+//
+// THE PITCH IS FORCED BY THE GRID. Climbing kWallH inside ONE cell means
+// rise == run == cell/steps — 45 degrees. Steep for a real building, normal for
+// the genre, and unavoidable here: a gentler flight needs two cells, and the
+// other way to buy height in a single square is to turn it into a spiral.
 assets::ModelData BuildStairs() {
 	assets::MeshData mesh;
-	constexpr int kSteps = 7;
-	constexpr float kRise = 0.17f, kRun = 0.24f, kHalfX = 0.85f;
-	const float zBack = kSteps * kRun * 0.5f; // centre the flight along z
+	constexpr int kSteps = 10;
+	constexpr float kHalfCell = Metres(kCellHalf), kCeil = Metres(kWallH);
+	constexpr float kRise = kCeil / kSteps;             // 0.25 m — tops out flush
+	constexpr float kRun = (2.0f * kHalfCell) / kSteps; // 0.25 m — fills the cell
+	constexpr float kHalfX = 0.85f;  // flight half-width
+	constexpr float kShaft = 1.30f;  // stairwell height above the ceiling
+	constexpr float kSlab = 0.04f;   // collar thickness
+
+	// Rising flight, front (+Z, the room side) to back. Each step is a column
+	// down to the floor, so the flight is solid underneath rather than a
+	// floating ribbon — same construction as the descending twin.
 	for (int i = 0; i < kSteps; ++i) {
-		const float top = (i + 1) * kRise; // tread height of step i
-		const float zc = zBack - kRun * 0.5f - i * kRun;
+		const float top = (i + 1) * kRise;
+		const float zc = kHalfCell - kRun * 0.5f - i * kRun;
 		AddBox(mesh, {0.0f, top * 0.5f, zc}, {kHalfX, top * 0.5f, kRun * 0.5f});
 	}
+
+	// The ceiling block is skipped for the whole cell, so this mesh closes
+	// everything the stairwell does NOT open. HEADROOM sets the opening: a
+	// climber has kCeil minus the tread height, so from the third step (0.75 m)
+	// on there is under 2 m of clearance and the ceiling has to be gone. The
+	// hole therefore runs from two treads in, all the way to the back wall,
+	// leaving a narrow front lip and a strip either side of the flight.
+	constexpr float zOpen = kHalfCell - 2.0f * kRun; // front edge of the opening
+	constexpr float openMidZ = (zOpen - kHalfCell) * 0.5f;
+	constexpr float openHalfZ = (zOpen + kHalfCell) * 0.5f;
+	const float collarY = kCeil + kSlab;
+	AddBox(mesh, {0.0f, collarY, (zOpen + kHalfCell) * 0.5f},
+		   {kHalfCell, kSlab, (kHalfCell - zOpen) * 0.5f}); // lip at the front
+	for (const float side : {-1.0f, 1.0f})
+		AddBox(mesh, {side * (kHalfX + kHalfCell) * 0.5f, collarY, openMidZ},
+			   {(kHalfCell - kHalfX) * 0.5f, kSlab, openHalfZ}); // beside the flight
+
+	// The stairwell above: four walls around the opening and a cap, standing in
+	// for the underside of the next level's stairwell.
+	//
+	// NO FURTHER TREADS. The flight reaches the ceiling hard against the back
+	// wall, so there is nowhere left in THIS cell for the climb to carry on —
+	// the next flight belongs to the cell on the level above. An earlier cut put
+	// three treads in the middle of the shaft, which read as a second flight
+	// floating free of the first, because that is exactly what it was.
+	const float wallY = kCeil + kShaft * 0.5f;
+	for (const float side : {-1.0f, 1.0f})
+		AddBox(mesh, {side * (kHalfX + 0.05f), wallY, openMidZ},
+			   {0.05f, kShaft * 0.5f, openHalfZ});
+	AddBox(mesh, {0.0f, wallY, -(kHalfCell - 0.05f)},
+		   {kHalfX + 0.1f, kShaft * 0.5f, 0.05f}); // back
+	AddBox(mesh, {0.0f, wallY, zOpen + 0.05f},
+		   {kHalfX + 0.1f, kShaft * 0.5f, 0.05f}); // front, over the lip
+	AddBox(mesh, {0.0f, kCeil + kShaft - kSlab, openMidZ},
+		   {kHalfX + 0.1f, kSlab, openHalfZ});     // cap, so you cannot see out
+
 	return FinishProp(std::move(mesh), {0.55f, 0.53f, 0.50f, 1.0f});
 }
 

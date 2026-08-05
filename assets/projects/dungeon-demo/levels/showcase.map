@@ -49,8 +49,9 @@ fixture sconce 19 8 north
 fixture sconce 21 7 west
 fixture sconce 25 10 east
 fixture brazier 10 8
-fixture brazier 17 8
 fixture brazier 23 8
+stairs stairs_up 25 11 north dest=start destx=50 destz=9 destfacing=south
+stairs stairs_down 11 2 south dest=start destx=11 destz=2 destfacing=south
 variant wall 10 0 1
 variant wall 11 0 1
 variant wall 12 0 1

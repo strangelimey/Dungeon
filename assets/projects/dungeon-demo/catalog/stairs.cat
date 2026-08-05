@@ -20,7 +20,10 @@ solid = 0
 authored = 0
 up = 1
 pair = stairs_down
-hole = none
+; The flight climbs a full storey and carries on into a stairwell above, so the
+; ceiling block has to go. This was `none`, which capped the stairs with a solid
+; roof and made them read as steps to nowhere.
+hole = ceiling
 
 [pit]
 display = Pit
