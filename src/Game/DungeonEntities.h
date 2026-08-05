@@ -2,11 +2,13 @@
 // Game/DungeonEntities.h — the dynamic layer of a level: everything that can
 // change during play.
 //
-// Loaded from assets/maps/<level>.ent, one record per line (format in
-// Entity.h): monsters, items, buttons. This file is the level's INITIAL
-// dynamic state — a future save system serializes the live counterparts of
-// these records, while the static structure (DungeonMap, the .map file)
-// never needs saving. Static decorations live in the .map file, not here.
+// Loaded from the project's levels/<stem>.ent (assets/projects/<name>/levels
+// — see Project::EntPath), one record per line (format in Entity.h): monsters,
+// items, buttons, doors. This file is the level's INITIAL dynamic state; the
+// save layer stores the live counterparts as a per-level DIFF against it
+// (DungeonWorld::SnapshotActive / SaveData::LevelState), while the static
+// structure (DungeonMap, the .map file) never needs saving. Static decorations
+// live in the .map file, not here.
 //
 // Records are validated against the map at load (in bounds, monsters and
 // items on walkable cells, buttons mounted on a solid wall) and sorted by

@@ -2,19 +2,39 @@
 // Game/DungeonMap.h — the STATIC layer of a level: everything that never
 // changes during play, so a save system never needs to store it.
 //
-// Levels are ASCII grid text files under assets/maps/ (see level1.map for
-// the glyph legend: '#' rock, '.' floor, 'D' dust, 'T' sconce, 'F' brazier,
-// 'P' start; ';' lines are comments). Lines starting with a lowercase letter
-// are records — grid glyphs are never lowercase, so the two can't collide:
-//   palette <wall|floor|ceiling> <id> [...]     surface palette (catalog ids)
-//   decoration <type> <x> <z> [facing]          static entity (Entity.h)
-//   fixture <sconce|brazier> <x> <z> [facing]   wall sconce / floor brazier
-// The 'T'/'F' glyphs are terse shorthand for a single auto-faced sconce/
-// brazier; the fixture record places them explicitly, so several can share a
-// cell (e.g. two sconces on different walls) — records always allow that.
+// Levels are ASCII grid text files under the project's levels/ folder
+// (assets/projects/<name>/levels/<stem>.map — see Project::MapPath; the glyph
+// legend: '#' rock, '.' floor, 'D' dust, 'T' sconce, 'F' brazier, 'P' start;
+// ';' lines are comments). Lines starting with a lowercase letter are records
+// — grid glyphs are never lowercase, so the two can't collide. The whole
+// grammar, in the constructor's dispatch order:
+//   palette <wall|floor|ceiling> <id> [...]  surface palette (catalog ids)
+//   fixture <id> <x> <z> [facing] [lit=] [bright=] [turb=]
+//                                     a fixtures.cat kind — `mount = wall`
+//                                     puts it on a wall (facing names which),
+//                                     anything else stands on the floor
+//   niche [<type>] <x> <z> [facing] [name=] [hidden=]
+//                                     recessed pocket on a solid wall
+//   bore [<type>] <x> <z> <axis>      see-through hole THROUGH a wall block
+//   stairs <type> <x> <z> [facing] dest= destx= destz= [destfacing=]
+//   variant <wall|floor|ceiling> <x> <z> <index>   per-cell surface override
+//   atmosphere [dust=] [haze=] [ambient=]  the level's mood knobs
+//   decoration <type> <x> <z> [facing] [wall=]
+//                                     static entity (Entity.h) — and the
+//                                     FALL-THROUGH: any record matching none
+//                                     of the above is parsed as one
+// A niche/bore whose wall no longer suits it is DROPPED with a warning
+// (tolerant, since the editor can repaint around it); a decoration that lands
+// in rock is a hard assert. Both take an optional leading type token,
+// distinguished from the x coordinate by whether it parses as an integer, so
+// pre-typing records still load.
+// The 'T'/'F' glyphs are terse shorthand for a single auto-faced default
+// sconce/brazier (FixtureTypes carries those ids); the fixture record names
+// kinds explicitly, so several can share a cell (e.g. two sconces on different
+// walls) — records always allow that.
 // Every level declares its texture palette; the game loads only those sets
 // (and their worn block meshes), nothing else. Dynamic content (monsters,
-// items, buttons) lives in the .ent file next to the .map — see
+// items, buttons, doors) lives in the .ent file beside the .map — see
 // DungeonEntities.h. The constructor parses and validates the file — unknown
 // glyphs, ragged rows, a missing start cell, or a missing/duplicate texture
 // palette fail hard with the file name and position.

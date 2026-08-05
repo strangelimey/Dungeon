@@ -7,13 +7,7 @@
 // ============================================================================
 #include "Game/DungeonWorld.h"
 
-#include "Assets/File.h"
 #include "Assets/Image.h"
-#include "Core/Loc.h"
-#include "Core/Log.h"
-#include "Core/Paths.h"
-#include "Game/AssetUtil.h"
-#include "Game/DungeonMeshBuilder.h"
 #include "Graphics/Lights.h"
 #include "Graphics/ModelPreview.h"
 #include "Graphics/Texture.h"
@@ -21,7 +15,6 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
-#include <format>
 #include <queue>
 
 using namespace DirectX;

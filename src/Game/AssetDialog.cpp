@@ -37,7 +37,7 @@ AssetDialog::AssetDialog(gfx::GraphicsDevice& device, Window& window)
 	: m_device(device), m_window(window) {
 	m_ui = std::make_unique<ui::UIContext>(device, "", 18.0f);
 	m_ui->Root().fontScale = ui::kDialogTextScale; // inherits — see LevelSettings
-	m_closeIcon = TryLoadTextureFile(device, paths::Asset("ui\\icon_close"));
+	m_closeIcon = CloseIcon(device);
 }
 
 void AssetDialog::Open(const std::string& category, const std::string& catalogKey,
@@ -260,7 +260,7 @@ void AssetDialog::Rebuild(const ui::Theme& theme) {
 						  });
 	// Close (= cancel) is the top-right corner box now, not a footer button.
 	ui::AddCloseButton(*m_ui, gfx::Rect{0.14f, 0.09f, 0.72f, 0.82f},
-					   m_closeIcon.get(), [this] { Close(); });
+					   m_closeIcon, [this] { Close(); });
 }
 
 void AssetDialog::Browse() {

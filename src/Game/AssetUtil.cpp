@@ -38,6 +38,36 @@ std::unique_ptr<gfx::Texture> TryLoadTextureFile(gfx::GraphicsDevice& device,
 	return nullptr;
 }
 
+namespace {
+// The one close-box texture, shared by every dialog. A namespace-scope owner
+// rather than a function-local static so the lifetime is EXPLICIT:
+// ReleaseSharedIcons drops it from ~Game, while the device that owns its SRV
+// slot is still alive. A static would destruct at exit, after the device.
+std::unique_ptr<gfx::Texture> g_closeIcon;
+bool g_closeIconTried = false;
+} // namespace
+
+const gfx::Texture* CloseIcon(gfx::GraphicsDevice& device) {
+	// Tried-once, not loaded-once: a missing asset must not re-hit the disk for
+	// every dialog that opens.
+	if (!g_closeIconTried) {
+		g_closeIconTried = true;
+		const std::string stem = paths::Asset("ui\\icon_close");
+		g_closeIcon = TryLoadTextureFile(device, stem);
+		// Say so once. This used to fail SILENTLY in ten places at once — every
+		// dialog just drew the text "x" fallback and nothing named the cause.
+		if (!g_closeIcon) log::Warn("close icon missing: {}(.dds|.png)", stem);
+	}
+	return g_closeIcon.get();
+}
+
+void ReleaseSharedIcons() {
+	g_closeIcon.reset();
+	// Re-arm: a later device (the adapter-change relaunch builds a fresh one)
+	// must reload rather than be handed the dead texture.
+	g_closeIconTried = false;
+}
+
 // An 8x8 magenta/black checker texture, built in memory. Stands in for any
 // texture that failed to load so a provisioning gap (e.g. a fresh clone or
 // worktree without the gitignored .dds sets baked yet) renders glaringly wrong

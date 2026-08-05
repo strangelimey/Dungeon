@@ -25,32 +25,9 @@ namespace dungeon::baker {
 
 namespace {
 
-// Mirrors the runtime fallback in Graphics/Texture.cpp: 2x2 box filter, good
-// enough for albedo and for normal maps (the shader renormalizes).
-assets::ImageData Downsample(const assets::ImageData& src) {
-	assets::ImageData dst;
-	dst.width = std::max(1u, src.width / 2);
-	dst.height = std::max(1u, src.height / 2);
-	dst.pixels.resize(static_cast<size_t>(dst.width) * dst.height * 4);
-	for (u32 y = 0; y < dst.height; ++y) {
-		for (u32 x = 0; x < dst.width; ++x) {
-			const u32 sx = std::min(x * 2, src.width - 1);
-			const u32 sy = std::min(y * 2, src.height - 1);
-			const u32 sx1 = std::min(sx + 1, src.width - 1);
-			const u32 sy1 = std::min(sy + 1, src.height - 1);
-			for (u32 c = 0; c < 4; ++c) {
-				const u32 sum =
-					src.pixels[(static_cast<size_t>(sy) * src.width + sx) * 4 + c] +
-					src.pixels[(static_cast<size_t>(sy) * src.width + sx1) * 4 + c] +
-					src.pixels[(static_cast<size_t>(sy1) * src.width + sx) * 4 + c] +
-					src.pixels[(static_cast<size_t>(sy1) * src.width + sx1) * 4 + c];
-				dst.pixels[(static_cast<size_t>(y) * dst.width + x) * 4 + c] =
-					static_cast<u8>(sum / 4);
-			}
-		}
-	}
-	return dst;
-}
+using assets::Downsample; // the shared 2x2 box filter (Assets/Image.h) — the
+						  // runtime fallback in Graphics/Texture uses the SAME
+						  // one, so a chain is identical whichever built it
 
 bool WriteDdsBc7(const std::string& path, u32 width, u32 height,
 				 const std::vector<std::vector<u8>>& levels) {

@@ -39,6 +39,21 @@ std::unique_ptr<gfx::Texture> LoadTextureFile(gfx::GraphicsDevice& device,
 											  const std::string& stemPath,
 											  bool srgb = false);
 
+// --- shared UI icons --------------------------------------------------------
+// The close box every dialog draws in its top-right corner (assets/ui/
+// icon_close — see ui::AddCloseButton). Loaded on the first ask and owned HERE
+// so the ten dialogs that show it share ONE texture: a gfx::Texture holds a
+// shader-visible SRV slot for life, and ten copies of one icon spent ten slots
+// out of a heap whose exhaustion is an abort. Null if the asset is missing —
+// AddCloseButton then falls back to a text "x".
+const gfx::Texture* CloseIcon(gfx::GraphicsDevice& device);
+
+// Drops every shared icon. MUST be called while the GraphicsDevice is still
+// alive (~Game does it): the texture returns its SRV slot to the device's free
+// list on destruction, so it may not outlive the device the way a plain
+// function-local static would.
+void ReleaseSharedIcons();
+
 // --- what the asset pool actually holds (the editor's dropdowns) ------------
 // Installed PBR set names, sorted: the base names behind assets/textures'
 // <name>_<res>.dds|png trio, with the _<res>, _n and _mr suffixes folded away

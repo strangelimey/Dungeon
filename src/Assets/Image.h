@@ -44,4 +44,17 @@ struct MipChain {
 std::expected<ImageData, std::string> LoadImageFile(const std::string& path);
 std::expected<ImageData, std::string> LoadImageMemory(const u8* bytes, size_t size);
 
+// Halve an RGBA8 image with a 2x2 box filter (odd sizes clamp, so a 1px
+// dimension stays 1). Good enough for albedo and for normal maps too, since the
+// shader renormalizes after sampling.
+//
+// Lives HERE, in the lib that owns ImageData, because BOTH mip producers need
+// exactly this and each used to carry its own byte-identical copy: the baker
+// (AssetBaker/MipBaker, writing the .dds chains) and the runtime fallback
+// (Graphics/Texture, for images generated in memory or loaded from a PNG that
+// was never baked). The two have to agree — a mip chain that differs by which
+// path built it is a bug nobody would think to look for — and two copies can
+// only agree by luck.
+ImageData Downsample(const ImageData& src);
+
 } // namespace dungeon::assets

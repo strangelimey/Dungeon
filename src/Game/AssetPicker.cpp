@@ -90,7 +90,7 @@ const char* SmallestRes(u32 mask) {
 AssetPicker::AssetPicker(gfx::GraphicsDevice& device, ui::FontLibrary& fonts)
 	: m_device(device), m_ui(fonts, ui::FontRole::Body, 18.0f) {
 	m_ui.Root().fontScale = ui::kDialogTextScale; // inherits — see LevelSettings
-	m_closeIcon = TryLoadTextureFile(device, paths::Asset("ui\\icon_close"));
+	m_closeIcon = CloseIcon(device);
 }
 
 void AssetPicker::Open(Mode mode, const std::string& current,
@@ -446,7 +446,7 @@ void AssetPicker::Rebuild() {
 		Close();
 		if (onChoose) onChoose(picked);
 	});
-	ui::AddCloseButton(m_ui, kPanel, m_closeIcon.get(), [this] { Close(); });
+	ui::AddCloseButton(m_ui, kPanel, m_closeIcon, [this] { Close(); });
 }
 
 // --- input -------------------------------------------------------------------

@@ -502,6 +502,13 @@ private:
 	// render/update loop reads it generically via ActiveInstanceInspector()->Preview()
 	// — no per-type switch. m_previewAnim (skinned monster) and m_previewFire (torch)
 	// hold the per-frame simulation state the spec drives.
+	// Every per-instance dialog, in the order they take input and draw. ONE list,
+	// so the modal chain in Update, the draw pass in Render and
+	// ActiveInstanceInspector cannot disagree about which dialogs exist — adding
+	// an inspector is one entry here rather than three hand-written `if` blocks
+	// that must be kept in step. They share a base (InstanceInspector), so
+	// nothing in those loops needs the concrete type.
+	std::array<InstanceInspector*, 6> InstanceInspectors();
 	InstanceInspector* ActiveInstanceInspector(); // the open per-instance dialog, or null
 	PreviewSpec m_inspectPreview;                 // cached spec (re-pass on route return)
 	gfx::ParticleBatch m_previewParticles;        // preview-only particle batch (torch)

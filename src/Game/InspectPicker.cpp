@@ -25,7 +25,7 @@ constexpr float kGap = 0.01f;
 InspectPicker::InspectPicker(gfx::GraphicsDevice& device, ui::FontLibrary& fonts)
 	: m_device(device), m_ui(fonts, ui::FontRole::Body, 18.0f) {
 	m_ui.Root().fontScale = ui::kDialogTextScale; // inherits — see LevelSettings
-	m_closeIcon = TryLoadTextureFile(device, paths::Asset("ui\\icon_close"));
+	m_closeIcon = CloseIcon(device);
 }
 
 void InspectPicker::Open(const std::string& title, const std::vector<std::string>& items) {
@@ -57,7 +57,7 @@ void InspectPicker::BuildUI() {
 		});
 		y += kRowH + kGap;
 	}
-	ui::AddCloseButton(m_ui, m_panel, m_closeIcon.get(), [this] { Close(); });
+	ui::AddCloseButton(m_ui, m_panel, m_closeIcon, [this] { Close(); });
 }
 
 void InspectPicker::Update(const Input& input, float w, float h) {

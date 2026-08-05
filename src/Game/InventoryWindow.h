@@ -43,16 +43,4 @@ private:
 	std::string m_title; // localized once at construction
 };
 
-// The character sheet. A fixed header (portrait, name, the health/stamina/mana
-// bars) tops three switchable modes, toggled by the small icon buttons under
-// the portrait (the active mode's button draws "pressed"):
-//   * Inventory — the worn-equipment paper doll + the (dynamic) backpack grid.
-//     Held-aware: a tablet carried on the cursor drops into an equipment or
-//     backpack slot (swapping any occupant onto the cursor); empty-handed, a
-//     click picks the slot's item up.
-//   * Stats     — the member's attributes.
-//   * Skills    — placeholder until a skill system exists.
-// icons resolves item art; held is Game's cursor item (the overlay cursor is
-// drawn by GameUI). The sheet is frozen-state, so it edits its member live
-// (mutable pointer).
 } // namespace dungeon::game

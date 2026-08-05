@@ -4,34 +4,23 @@
 // ============================================================================
 #include "Game/Game.h"
 
-#include "Assets/File.h"
-#include "Assets/Image.h"
 #include "Core/Loc.h"
 #include "Core/Log.h"
-#include "Core/Paths.h"
-#include "Game/AssetUtil.h"
-#include "Graphics/DisplayEnum.h"
-#include "Graphics/Texture.h"
 
 #include <algorithm>
 #include <array>
-#include <cctype>
-#include <chrono>
-#include <cstdlib>
-#include <filesystem>
-#include <format>
 #include <string>
-#include <thread>
 #include <utility>
 
 namespace dungeon::game {
+std::array<InstanceInspector*, 6> Game::InstanceInspectors() {
+	return {&m_entityInspector, &m_fixtureInspector, &m_propInspector,
+			&m_doorInspector,   &m_buttonInspector,  &m_nicheInspector};
+}
+
 InstanceInspector* Game::ActiveInstanceInspector() {
-	if (m_entityInspector.IsOpen()) return &m_entityInspector;
-	if (m_fixtureInspector.IsOpen()) return &m_fixtureInspector;
-	if (m_propInspector.IsOpen()) return &m_propInspector;
-	if (m_doorInspector.IsOpen()) return &m_doorInspector;
-	if (m_buttonInspector.IsOpen()) return &m_buttonInspector;
-	if (m_nicheInspector.IsOpen()) return &m_nicheInspector;
+	for (InstanceInspector* ii : InstanceInspectors())
+		if (ii->IsOpen()) return ii;
 	return nullptr;
 }
 

@@ -67,7 +67,7 @@ private:
 
 	gfx::GraphicsDevice& m_device;
 	ui::UIContext m_ui; // labels + numeric fields + footer buttons
-	std::unique_ptr<gfx::Texture> m_closeIcon; // shared top-right close box
+	const gfx::Texture* m_closeIcon = nullptr; // shared, owned by AssetUtil
 
 	bool m_open = false;
 	std::string m_stem; // the level being edited (title + the owner's routing)

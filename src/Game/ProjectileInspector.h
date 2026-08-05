@@ -63,7 +63,7 @@ private:
 
 	gfx::GraphicsDevice& m_device;
 	ui::UIContext m_ui; // Remove footer button; also draws the title + info lines
-	std::unique_ptr<gfx::Texture> m_closeIcon; // shared top-right close box
+	const gfx::Texture* m_closeIcon = nullptr; // shared, owned by AssetUtil
 
 	bool m_open = false;
 	Config m_cfg;

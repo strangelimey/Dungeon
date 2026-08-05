@@ -148,7 +148,7 @@ private:
 	gfx::GraphicsDevice& m_device;
 	Window& m_window;
 	std::unique_ptr<ui::UIContext> m_ui;
-	std::unique_ptr<gfx::Texture> m_closeIcon; // shared top-right close box
+	const gfx::Texture* m_closeIcon = nullptr; // shared, owned by AssetUtil
 	ui::Theme m_theme; // kept for the deferred rebuild (Clear kills the caller)
 
 	bool m_open = false;

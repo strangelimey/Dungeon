@@ -31,7 +31,7 @@ InstanceInspector::InstanceInspector(gfx::GraphicsDevice& device,
 	: m_device(device), m_ui(fonts, ui::FontRole::Body, 18.0f) {
 	// Covers all six per-instance inspectors: they build into THIS context.
 	m_ui.Root().fontScale = ui::kDialogTextScale; // inherits — see LevelSettings
-	m_closeIcon = TryLoadTextureFile(device, paths::Asset("ui\\icon_close"));
+	m_closeIcon = CloseIcon(device);
 }
 
 InstanceInspector::~InstanceInspector() = default;
@@ -99,7 +99,7 @@ void InstanceInspector::BuildUI() {
 					 1.0f - contentTop - 0.02f - kFooterH));
 
 	// Close: the shared box icon in the panel's top-right corner (revert, like Esc).
-	ui::AddCloseButton(m_ui, p, m_closeIcon.get(), [this] {
+	ui::AddCloseButton(m_ui, p, m_closeIcon, [this] {
 		Revert();
 		Close();
 	});
