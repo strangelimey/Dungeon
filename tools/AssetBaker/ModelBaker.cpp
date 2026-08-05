@@ -346,8 +346,20 @@ constexpr float kPanelX = 0.80f * kCellHalf; // panel half-width (between pillar
 constexpr float kPillarOut = U(0.085f); // pillar protrusion
 
 // Edge pillars plus the corner seals (outer cap + wall-plane backing strip).
-// Shared by the clean and worn wall blocks so both stay watertight at convex
-// corners — see the corner-notch fix notes on the cap below.
+//
+// USED ONLY BY THE CLEAN BLOCK NOW. The worn blocks and both niches dropped
+// their pillars when the `columns` knob was retired (2026-08-05) — plain walls,
+// with pillars placed as decorations instead, so one pillar model serves all 54
+// surface types rather than being baked into each. That was safe for them
+// because their faces span the FULL cell and the worn displacement is pinned to
+// zero at the edges (PinRamp in TextureWallWear), so they already tile
+// watertight on their own.
+//
+// It CANNOT simply go, because the clean block is a different shape: its
+// recessed panel stops at kPanelX, so the backing strip below is the only thing
+// covering |x| in [kPanelX, kCellHalf] and the outer cap is the only thing
+// closing the convex-corner notch. The clean set is currently unbaked/unused
+// (see CLAUDE.md), so it keeps its pillars until something actually uses it.
 void AddWallPillars(assets::MeshData& mesh) {
 	auto wq = [&](const Vec3& a, const Vec3& b, const Vec3& c, const Vec3& d,
 				  const Vec3& n) {
@@ -417,7 +429,9 @@ assets::ModelData BuildWallBlock() {
 	wq({panelX, borderY0, 0}, {panelX, borderY1, 0}, {panelX, borderY1, panelZ},
 	   {panelX, borderY0, panelZ}, {-1, 0, 0});
 
-	// Edge pillars + corner seals (shared with the worn wall).
+	// Edge pillars + corner seals. The clean block is the ONE remaining user:
+	// its panel stops at kPanelX, so the backing strip is what covers the rest
+	// of the wall plane out to the cell edge.
 	AddWallPillars(mesh);
 
 	model.meshes.push_back(std::move(mesh));
@@ -467,10 +481,8 @@ assets::ModelData BuildWallNiche() {
 	wq({-px, py0, d}, {-px, py1, d}, {-px, py1, 0}, {-px, py0, 0}, {1, 0, 0}); // left
 	wq({px, py0, 0}, {px, py1, 0}, {px, py1, d}, {px, py0, d}, {-1, 0, 0});    // right
 
-	// Same edge pillars as the plain block so the niche's cell edges line up with
-	// neighbouring wall panels.
-	AddWallPillars(mesh);
-
+	// No edge pillars: the frame above already spans the full cell, and the
+	// plain wall it sits beside has none either since `columns` was retired.
 	model.meshes.push_back(std::move(mesh));
 	model.materials.push_back({{1, 1, 1, 1}, -1});
 	return model;
@@ -539,7 +551,7 @@ assets::ModelData BuildWallNicheArch() {
 	wq({-kwt, ky1, 0}, {-kwt, ky1, kp}, {kwt, ky1, kp}, {kwt, ky1, 0}, {0, 1, 0});    // top
 	wq({-kwb, ky0, kp}, {-kwb, ky0, 0}, {kwb, ky0, 0}, {kwb, ky0, kp}, {0, -1, 0});   // bottom
 
-	AddWallPillars(mesh);
+	// No edge pillars — see BuildWallNiche.
 	model.meshes.push_back(std::move(mesh));
 	model.materials.push_back({{1, 1, 1, 1}, -1});
 	return model;
@@ -594,7 +606,7 @@ assets::ModelData BuildWallWindow() {
 		wq({x0, t0, zb}, {x1, t1, zb}, {x1, t1, 0}, {x0, t0, 0}, {-xm * inv, -sq * inv, 0});
 	}
 
-	AddWallPillars(mesh);
+	// No edge pillars — the strips above already reach both cell edges.
 	model.meshes.push_back(std::move(mesh));
 	model.materials.push_back({{1, 1, 1, 1}, -1});
 	return model;
@@ -629,7 +641,7 @@ assets::ModelData BuildWallWindowRect() {
 	wq({-hw, y0, zb}, {-hw, y1, zb}, {-hw, y1, 0}, {-hw, y0, 0}, {1, 0, 0}); // left (+X)
 	wq({hw, y0, 0}, {hw, y1, 0}, {hw, y1, zb}, {hw, y0, zb}, {-1, 0, 0});    // right (-X)
 
-	AddWallPillars(mesh);
+	// No edge pillars — the frame above already reaches both cell edges.
 	model.meshes.push_back(std::move(mesh));
 	model.materials.push_back({{1, 1, 1, 1}, -1});
 	return model;
@@ -867,12 +879,14 @@ WearField TextureCeilingWear(const TextureHeight& height, float relief, int grid
 
 // Grid resolutions are parameters: the baker emits each worn block at three
 // complexity tiers (low/med/high) so the game can trade geometric detail for
-// performance via the Settings menu. `columns` gates the edge pillars/border
-// strips (a wall-style knob — walls.cat `columns`); a flat wall (wear == 0,
-// see BakeWornTiers) passes kNx = kNy = 1 so it is a bare quad, not a dense
-// flat grid.
-assets::ModelData BuildWornWallBlock(int kNx, int kNy, const WearField& wear,
-									 bool columns) {
+// performance via the Settings menu. A flat wall (wear == 0, see BakeWornTiers)
+// passes kNx = kNy = 1 so it is a bare quad, not a dense flat grid.
+//
+// The surface spans the FULL cell and its displacement is pinned to zero at
+// every edge, so the block is watertight by itself — nothing decorative is
+// added on top (the `columns` edge pillars were retired 2026-08-05; place a
+// pillar decoration instead).
+assets::ModelData BuildWornWallBlock(int kNx, int kNy, const WearField& wear) {
 	assets::ModelData model;
 	assets::MeshData mesh;
 
@@ -902,7 +916,6 @@ assets::ModelData BuildWornWallBlock(int kNx, int kNy, const WearField& wear,
 			mesh.indices.insert(mesh.indices.end(), {a, b, d2, a, d2, c});
 		}
 
-	if (columns) AddWallPillars(mesh);
 	model.meshes.push_back(std::move(mesh));
 	model.materials.push_back({{1, 1, 1, 1}, -1});
 	return model;
@@ -2003,12 +2016,10 @@ assets::ModelData BuildLever() {
 // displaced by that texture's packed height map (procedural wear when absent).
 // kind: 0 = wall, 1 = floor, 2 = ceiling. Shared by the full bake and the
 // editor's per-set import (so a newly imported set gets its worn meshes).
-// `wearScale` scales the block's displacement (walls.cat `wear`; 0 = flat) and
-// `columns` gates a wall's edge pillars. Defaults (1, true) reproduce the
-// original worn blocks.
+// `wearScale` scales the block's displacement (walls.cat `wear`; 0 = flat).
 bool BakeWornTiers(int kind, const std::string& texture, float relief, u32 seed,
 				   const std::string& modelsDir, const std::string& texturesDir,
-				   float wearScale = 1.0f, bool columns = true) {
+				   float wearScale = 1.0f) {
 	struct Tier {
 		const char* suffix;
 		int wallX, wallY, floor, ceiling;
@@ -2044,8 +2055,7 @@ bool BakeWornTiers(int kind, const std::string& texture, float relief, u32 seed,
 											   : height.IsValid()
 												   ? TextureWallWear(height, relief, tier.wallX,
 																	 tier.wallY, seed)
-												   : WearField(WallWearDepth),
-											   columns),
+												   : WearField(WallWearDepth)),
 							out);
 		}
 		else if (kind == 1)
@@ -2189,15 +2199,14 @@ bool BakeModels(const std::string& dir, const std::string& texturesDir) {
 }
 
 bool BakeWornBlocks(const std::string& kind, const std::string& name,
-					const std::string& assetsDir, float wearScale, bool columns,
-					float relief) {
+					const std::string& assetsDir, float wearScale, float relief) {
 	const int k = kind == "floor" ? 1 : (kind == "ceiling" ? 2 : 0);
 	// Negative = unspecified: keep the per-kind default this command has always
 	// baked at, so an unset `relief` field changes nothing.
 	if (relief < 0.0f) relief = k == 2 ? 0.08f : (k == 1 ? 0.045f : 0.055f);
 	const u32 seed = static_cast<u32>(std::hash<std::string>{}(name)) | 1u;
 	return BakeWornTiers(k, name, relief, seed, assetsDir + "\\models",
-						 assetsDir + "\\textures", wearScale, columns);
+						 assetsDir + "\\textures", wearScale);
 }
 
 } // namespace dungeon::baker

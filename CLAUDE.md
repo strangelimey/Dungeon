@@ -564,6 +564,23 @@ buffer, reused across all ~25 submissions).
   no rebake, and by construction invisible head-on (the offset scales with
   the view's tangential component) — real silhouette relief only comes from
   the mesh, and deep relief on the `med` tier can facet.
+- WALLS ARE PLAIN. The old `columns` knob baked edge pillars / border strips
+  into every wall block (default ON, so 26 of 28 wall types carried them); it
+  was RETIRED 2026-08-05 in favour of COMPOSITION — a pillar is a decoration you
+  place, so one model serves all 54 surface types instead of being baked into
+  each and multiplied by 3 tiers. The general rule behind it: bake detail into
+  the mesh only when it is structurally bound and must align exactly (a door
+  frame, a vault that IS the ceiling); compose anything that varies
+  independently of its host. Surface-level detail is the expensive kind — it
+  multiplies by texture set and needs a rebake — while decorations are N+M.
+  Removal was safe because a worn block's surface spans the FULL cell and its
+  displacement is pinned to zero at every edge (PinRamp in TextureWallWear), so
+  blocks already tile watertight on their own; the same held for both niches and
+  both window bores, whose frames also reach the cell edges. `AddWallPillars`
+  SURVIVES for the clean (baked-but-unused) block set ALONE, whose recessed
+  panel stops at kPanelX so its backing strip is the only thing covering the
+  wall plane out to the edge and its outer cap the only thing closing the
+  convex-corner notch — don't delete it without widening that panel first.
 
 ## Quality system
 
@@ -944,7 +961,7 @@ TextureSet/Model/CatalogRef→dropdown filled by Game through optionsFor —
 AssetUtil::InstalledTextureSets/InstalledModels scan the pool), and "?" explains
 the active tab's fields. NO live apply (a type is referenced by every placement
 and, for surfaces, by baked geometry): Save writes the .cat and, when a touched
-field is `rebakes` (a surface's texture/wear/columns), re-runs the wornblock bake
+field is `rebakes` (a surface's texture/relief/wear), re-runs the wornblock bake
 behind the busy overlay. A surface's PER-DRAW knobs are the exception —
 `height_scale`, `metallic` and `roughness` are per-variant values the draw reads
 (Surface::heightScale / ::factors, filled by ResolveSurfacePalettes →
@@ -958,8 +975,8 @@ doesn't say "map-driven"). Only fields the user TOUCHED are written and an empty
 value REMOVES the field, so rows the schema doesn't cover survive — including the
 ones MonsterConfigDialog owns and rewrites (states/anim_*/archetype/threat_*),
 which is why the monster schema omits them and offers an "Animation..." button
-through to that dialog instead. WallStyleDialog is GONE — wear/columns are just
-schema rows now. RENAME + DELETE live here too: the id in the title is a rename
+through to that dialog instead. WallStyleDialog is GONE — relief/wear are just
+schema rows now (`columns` is gone too, see the worn-block bullet). RENAME + DELETE live here too: the id in the title is a rename
 affordance (click it, edit, Enter — the LevelSettingsDialog stem pattern), and
 Delete arms on the first click. Both go through a REFERENCE SWEEP
 (DungeonWorld::SweepTypeRefs) that walks EVERY level — the live one, the edit

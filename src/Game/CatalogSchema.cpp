@@ -60,8 +60,11 @@ namespace {
 	 .lo = 0.0f, .hi = 1.0f, .step = 0.05f, .neutral = "1"}
 
 // --- walls ------------------------------------------------------------------
-// The worn block mesh is baked per texture set, so `texture`, `wear` and
-// `columns` all invalidate it (rebakes = the owner re-runs AssetBaker).
+// The worn block mesh is baked per texture set, so `texture`, `relief` and
+// `wear` all invalidate it (rebakes = the owner re-runs AssetBaker). The old
+// `columns` knob (edge pillars baked into every wall) was retired 2026-08-05:
+// walls are plain now and a pillar is a DECORATION, so one pillar model serves
+// all 54 surface types instead of being baked into each of them.
 constexpr FieldSpec kWallFields[] = {
 	IDENTITY_DISPLAY,
 	IDENTITY_CATEGORY,
@@ -78,8 +81,6 @@ constexpr FieldSpec kWallFields[] = {
 	{.key = "wear", .kind = FieldKind::Float, .sectionKey = kSectionLook,
 	 .help = "Scales the relief: 0 = a flat panel, 1 = the full authored depth.",
 	 .lo = 0.0f, .hi = 1.0f, .step = 0.05f, .def = "1", .rebakes = true},
-	{.key = "columns", .kind = FieldKind::Bool, .sectionKey = kSectionLook,
-	 .help = "The wall's edge pillars / border strips.", .def = "1", .rebakes = true},
 	SURFACE_MATERIAL_ROWS,
 };
 

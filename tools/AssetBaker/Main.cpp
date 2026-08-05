@@ -116,28 +116,23 @@ int main(int argc, char** argv) {
 	if (argc >= 2 && std::string(argv[1]) == "wornblock") {
 		if (argc < 5) {
 			log::Error("usage: AssetBaker wornblock <wall|floor|ceiling> <name> "
-					   "<assets-dir> [--wear <0..1>] [--columns <0|1>] "
-					   "[--relief <metres>]");
+					   "<assets-dir> [--wear <0..1>] [--relief <metres>]");
 			return 1;
 		}
 		// Optional surface-look flags (the editor's type dialog): relief is the
-		// displacement amplitude in metres, wear scales it (0 = flat), columns
-		// gates a wall's edge pillars. Relief unset (-1) keeps the per-kind default.
+		// displacement amplitude in metres and wear scales it (0 = flat). Relief
+		// unset (-1) keeps the per-kind default. (`--columns` retired 2026-08-05
+		// with the wall pillars; pillars are decorations now.)
 		float wear = 1.0f;
-		bool columns = true;
 		float relief = -1.0f;
 		for (int i = 5; i + 1 < argc; i += 2) {
 			const std::string flag = argv[i];
 			if (flag == "--wear")
 				wear = std::strtof(argv[i + 1], nullptr);
-			else if (flag == "--columns")
-				columns = std::string(argv[i + 1]) != "0";
 			else if (flag == "--relief")
 				relief = std::strtof(argv[i + 1], nullptr);
 		}
-		return baker::BakeWornBlocks(argv[2], argv[3], argv[4], wear, columns, relief)
-				   ? 0
-				   : 1;
+		return baker::BakeWornBlocks(argv[2], argv[3], argv[4], wear, relief) ? 0 : 1;
 	}
 
 	if (argc >= 3 && std::string(argv[1]) == "runes") {

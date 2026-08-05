@@ -221,7 +221,6 @@ void Game::WireModuleCallbacks() {
 		// the depth every surface was baked at before the field existed.
 		StartRestyleBake(cfg.catalogKey, CatalogGet(e, "texture", cfg.id),
 						 e ? e->GetFloat("wear", 1.0f) : 1.0f,
-						 e ? e->GetBool("columns", true) : true,
 						 e ? e->GetFloat("relief", -1.0f) : -1.0f);
 		if (m_restyleBake) m_typeDialog.SetBusy(true); // bake launched
 	};

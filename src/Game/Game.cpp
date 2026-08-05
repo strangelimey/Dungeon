@@ -937,7 +937,7 @@ void Game::Update(float dt) {
 			m_baking = false;
 		}
 		// Reset to defaults (relief < 0 = the baker's own per-kind amplitude).
-		if (!m_baking) { m_bakeWear = 1.0f; m_bakeColumns = true; m_bakeRelief = -1.0f; }
+		if (!m_baking) { m_bakeWear = 1.0f; m_bakeRelief = -1.0f; }
 	}
 
 	const Input& input = m_window.GetInput();
