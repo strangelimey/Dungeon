@@ -124,7 +124,7 @@ void DungeonWorld::ApplySurfaceFactors() {
 // live scene: the parallax depth and the metallic/roughness factors. Nothing is
 // reloaded or rebuilt — these are per-draw values, which is exactly why the type
 // editor can apply them the moment a surface type is saved (only `texture`,
-// `wear` and `columns` change baked geometry and need the wornblock re-bake).
+// `relief` and `wear` change baked geometry and need the wornblock re-bake).
 void DungeonWorld::RefreshSurfaceMaterials() {
 	ResolveSurfacePalettes();
 	for (const SurfaceDef& def : SurfaceDefs())
@@ -1170,6 +1170,21 @@ std::unique_ptr<DungeonWorld::MultiMaterialModel> DungeonWorld::BuildMultiMateri
 	return out;
 }
 
+// Farthest vertex from the model's own origin, in model UNITS. Props are
+// authored grounded (min y = 0) and XZ-centred, so the origin sits at the base
+// centre and a sphere about it covers the whole mesh however the placement
+// rotates it — no per-instance bounds bookkeeping, and never a false cull.
+static float ModelOriginRadius(const assets::ModelData& model) {
+	float worst = 0.0f;
+	for (const assets::MeshData& mesh : model.meshes)
+		for (const assets::Vertex& v : mesh.vertices) {
+			const float d2 = v.position.x * v.position.x + v.position.y * v.position.y +
+							 v.position.z * v.position.z;
+			worst = std::max(worst, d2);
+		}
+	return std::sqrt(worst);
+}
+
 DungeonWorld::DecorationKind& DungeonWorld::DecorationKindFor(const std::string& type,
 															 const Catalog& catalog) {
 	auto it = m_decorationKinds.find(type);
@@ -1203,6 +1218,7 @@ DungeonWorld::DecorationKind& DungeonWorld::DecorationKindFor(const std::string&
 			kind->multi = BuildMultiMaterialModel(m_device, kind->model);
 			BakeCatalogMaterial(*kind->multi, def); // overrides baked per submesh
 			kind->solidDefault = CatalogBool(def, "solid", true);
+			kind->cullRadius = ModelOriginRadius(kind->model) * kUnit * kind->modelScale;
 			it = m_decorationKinds.emplace(type, std::move(kind)).first;
 			return *it->second;
 		}
@@ -1214,6 +1230,7 @@ DungeonWorld::DecorationKind& DungeonWorld::DecorationKindFor(const std::string&
 		// Optional alpha-test cutout (a masked set like wood planks renders its
 		// gaps); absent/0 = opaque, the usual case.
 		kind->alphaCutoff = def ? def->GetFloat("alpha_test", 0.0f) : 0.0f;
+		kind->cullRadius = ModelOriginRadius(kind->model) * kUnit * kind->modelScale;
 		it = m_decorationKinds.emplace(type, std::move(kind)).first;
 	}
 	return *it->second;

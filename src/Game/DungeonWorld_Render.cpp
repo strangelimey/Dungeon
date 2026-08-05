@@ -237,8 +237,12 @@ void DungeonWorld::SubmitSceneGeometry(ID3D12GraphicsCommandList* list,
 	// textured stone/wood with bump + parallax + ORM, falling back to the flat
 	// glTF material color if the texture set is missing.
 	for (const Decoration& deco : m_decorations) {
-		// radius 0.85 units covers the widest prop (the archway spans the full cell).
-		if (!visible({deco.world._41, 0.5f * kUnit, deco.world._43}, 0.85f * kUnit))
+		// Per-KIND sphere measured from the model (DecorationKind::cullRadius),
+		// centred on the instance's own origin. A fixed 0.85-unit radius used to
+		// stand in for "the widest prop", which quietly clipped the edges off
+		// anything spanning more than a cell — the composed architecture this
+		// thread builds is full of exactly that.
+		if (!visible({deco.world._41, deco.world._42, deco.world._43}, deco.kind->cullRadius))
 			continue;
 		// Authored multi-material model: draw each submesh with its own glTF
 		// material (steel blade, brass guard, leather grip, ...). Shared by the
@@ -260,7 +264,13 @@ void DungeonWorld::SubmitSceneGeometry(ID3D12GraphicsCommandList* list,
 	// decorations above.
 	for (const Door& door : m_doors) {
 		const Vec3 c = m_map.CellCenter(door.x, door.z);
-		if (!visible({c.x, 0.5f * kUnit, c.z}, 0.85f * kUnit)) continue;
+		// The wider of the pair, and the panel slides a further 0.75 units out
+		// as it opens — so a frame taller or broader than a cell (the framed
+		// doorways this thread adds) stays whole at the screen edge.
+		const float doorRadius =
+			std::max(door.frame ? door.frame->cullRadius : 0.0f,
+					 (door.panel ? door.panel->cullRadius : 0.0f) + 0.75f * kUnit);
+		if (!visible({c.x, 0.0f, c.z}, doorRadius)) continue;
 		// Frame and panel are DecorationKinds, so they honour the catalog `scale`;
 		// they share the frame's (a mismatched pair would not meet anyway).
 		const float ds = door.frame ? door.frame->modelScale : 1.0f;

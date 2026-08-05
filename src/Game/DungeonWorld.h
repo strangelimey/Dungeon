@@ -88,7 +88,7 @@ public:
 	void ReloadDungeonBlocks(bool textureResChanged = false);
 	// Re-reads the surface catalogs' PER-DRAW material knobs (parallax depth,
 	// metallic/roughness) and pushes them live — no reload, no rebuild. The type
-	// editor calls it when a surface type is saved: only texture/wear/columns
+	// editor calls it when a surface type is saved: only texture/relief/wear
 	// change baked geometry, everything else can just take effect.
 	void RefreshSurfaceMaterials();
 	// The PROP counterpart: drops one catalog type's cached kind so the next
@@ -1373,6 +1373,15 @@ private:
 		// from Blender. 1 = as authored. The same knob monsters have had as
 		// `modelscale`; multiplied into UnitScale at every draw.
 		float modelScale = 1.0f;
+		// World-space cull radius: the farthest vertex from the model's OWN
+		// ORIGIN, carried through kUnit and modelScale (DecorationKindFor).
+		// Origin-centred rather than AABB-centred, so an instance's translation
+		// is a valid sphere centre under any yaw the placement applied — a
+		// little conservative, correct by construction. This replaced a
+		// hardcoded 0.85-unit sphere that silently clipped the edges off
+		// anything larger than one cell, which is exactly what the composed
+		// architecture (multi-cell arches, ceiling vaults) is made of.
+		float cullRadius = 0.0f;
 	};
 	struct Decoration {
 		const DecorationKind* kind = nullptr; // points into m_decorationKinds
