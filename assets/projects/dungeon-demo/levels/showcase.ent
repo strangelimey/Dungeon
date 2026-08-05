@@ -1,12 +1,8 @@
-; showcase — dynamic layer.
-; The four bought skeleton models (skel_bare / berserker / spearman / warrior),
-; NOT the procedural `skeleton` placeholder. asleep=1 holds each one on its
-; mark for the camera; it gates the AI decision only, so the idle clip still
-; plays.
+; showcase — written by the in-game editor (dynamic layer).
 
+monster skel_spearman 14 6 south asleep=1
+monster skel_warrior 22 7 south asleep=1
 monster skel_warrior 12 9 south asleep=1
 monster skel_berserker 15 9 south asleep=1
-monster skel_spearman 14 6 south asleep=1
-monster skel_bare 12 12 south asleep=1
-monster skel_warrior 22 7 south asleep=1
 monster skel_bare 24 10 west asleep=1
+monster skel_bare 12 12 south asleep=1
