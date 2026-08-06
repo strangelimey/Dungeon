@@ -4,98 +4,121 @@
 #   blender --background --factory-startup --python tools\BuildFloorDrain.py -- <out.glb>
 #   AssetBaker import-model <out.glb> <assets> floor_drain --raw
 #
-# A dished drain sunk into a cell: gentle basin, steep throat, flat bottom. Like
+# A dished drain whose throat drops a full storey into darkness. Like
 # floor_recess this REPLACES the cell's floor block (floorfeatures.cat), so it
 # wears whatever floor texture the cell wears — see that script's header for the
 # extent/UV contract, which this asserts too.
 #
-# BUILT AS A HEIGHTFIELD, not as placed faces, because the shape is radial: a
-# grid over the cell with z = a function of radius. That is exactly how the
-# engine builds its own worn floor blocks (ModelBaker's BuildWornFloorBlock over
-# a wear field), and it buys three things at once — the outer boundary is flat
-# by construction, the floor UVs fall straight out of x and y, and the normals
-# come from a finite difference rather than needing planar faces.
+# BUILT AS A POLAR LOFT, and the reason is worth keeping. The first version was a
+# HEIGHTFIELD (a grid with z = f(radius)), which is how the engine builds its own
+# worn floor blocks and was the right shape for a shallow basin. It cannot
+# survive the throat going deep: a heightfield has ONE z per (x,y), so it can
+# never be vertical — asking for a storey-deep shaft just turns the throat into a
+# smeared cone, and projecting its UVs from above streaks the texture radially
+# down the sides. So: heightfield for a shape that is a SURFACE, a loft once it
+# has WALLS.
 #
-# It also sidesteps the UV trap in CLAUDE.md. Dominant-axis projection is only
-# valid on box-ish geometry; on a dish the normal rotates through 90 degrees and
-# the dominant axis would FLIP mid-surface and seam. Here every vertex is
-# projected from ABOVE, the same mapping the flat part uses, so the basin is
-# continuous with the floor around it. A shallow dish stretches only slightly;
-# the throat stretches more, but it is a small dark hole.
+# The awkward part of a polar mesh in a square cell is the skirt out to the
+# boundary, and it falls out neatly: the outermost ring puts a vertex ON the
+# square perimeter at each of the ring's own angles (d = 0.5 / max(|cos|,|sin|)).
+# Consecutive boundary points along one side are collinear, so the mesh edge lies
+# exactly on the cell edge — and with N a multiple of 8 the four corners are hit
+# exactly. The skirt is then just another quad band.
 #
 # EVERYTHING IS IN UNITS: 1.0 = one dungeon square (2.5 m), Z up. The exporter
 # turns Blender Z into the engine's Y and Blender -Y into the engine's +Z.
 # ============================================================================
+import math
 import sys
 
 import bmesh
 import bpy
 
-HALF = 0.5   # the cell — the floor block's extent, do not change
-GRID = 40    # quads per side; 41x41 verts
+HALF = 0.5    # the cell — the floor block's extent, do not change
+N = 32        # segments; a multiple of 8 so the square's corners are hit exactly
 
-# (radius, z) stations, inner to outer, smoothstepped between. The last two put
-# the surface back at 0 well inside the cell edge, so the whole boundary is flat
-# and meets the neighbouring floor blocks exactly.
-PROFILE = [
-    (0.000, -0.220),  # throat floor
-    (0.100, -0.220),
-    (0.140, -0.070),  # throat wall — steep, reads as a hole
-    (0.320, -0.015),  # the basin, gentle
-    (0.360, 0.000),
-    (1.000, 0.000),   # flat, out to the corners (r = 0.707 at a corner)
+# A DRAIN IS AN OPENING, NOT A DIP. The first shape here was a wide gentle
+# saucer — 1.5 cm at the rim easing to 6 cm, spread over 1.8 m — and Michael's
+# verdict was "it just looks like a bumpy floor". He was right: at that gradient
+# it is indistinguishable from the relief the worn floor blocks already carry.
+# What makes a hole read is a CRISP EDGE and a STEEP drop, so the profile is now
+# a narrow chamfered lip, a near-vertical funnel, and then the shaft.
+R_SHAFT = 0.170    # the throat — 85 cm across
+Z_BOTTOM = -4.000  # four storeys — see BuildFloorRecess's DEPTH for why that deep
+Z_THROAT = -0.200  # where the vertical shaft meets the funnel
+R_FUNNEL, Z_FUNNEL = 0.220, -0.035  # steep: 16.5 cm of drop over 5 cm of radius
+R_RIM = 0.250      # the lip meets the flat floor — 1.25 m opening
+
+SQUARE = None      # sentinel: this ring rides the cell perimeter, not a radius
+
+# Inner/lower to outer/upper. The first band is the vertical shaft; then the
+# funnel, the lip chamfer, and the flat skirt out to the cell edge.
+RINGS = [
+    (R_SHAFT, Z_BOTTOM),
+    (R_SHAFT, Z_THROAT),
+    (R_FUNNEL, Z_FUNNEL),
+    (R_RIM, 0.0),
+    (SQUARE, 0.0),
 ]
 
 OUT = sys.argv[sys.argv.index("--") + 1] if "--" in sys.argv else "floor_drain.glb"
-
-
-def smoothstep(t):
-    t = min(max(t, 0.0), 1.0)
-    return t * t * (3.0 - 2.0 * t)
-
-
-def height(x, y):
-    r = (x * x + y * y) ** 0.5
-    for (r0, z0), (r1, z1) in zip(PROFILE, PROFILE[1:]):
-        if r <= r1:
-            if r1 - r0 <= 0.0:
-                return z1
-            return z0 + (z1 - z0) * smoothstep((r - r0) / (r1 - r0))
-    return PROFILE[-1][1]
-
 
 # --- empty the factory scene ------------------------------------------------
 bpy.ops.object.select_all(action="SELECT")
 bpy.ops.object.delete()
 
 bm = bmesh.new()
+uv = bm.loops.layers.uv.verify()  # before any face, so UVs are set as we build
 
-verts = []
-for j in range(GRID + 1):
-    y = -HALF + 2.0 * HALF * j / GRID
-    row = []
-    for i in range(GRID + 1):
-        x = -HALF + 2.0 * HALF * i / GRID
-        row.append(bm.verts.new((x, y, height(x, y))))
-    verts.append(row)
 
-# CCW seen from +Z, so every face comes out pointing up. Stated, not recalculated
-# (recalc_face_normals needs connectivity and flips hand-built shapes).
-for j in range(GRID):
-    for i in range(GRID):
-        bm.faces.new((verts[j][i], verts[j][i + 1],
-                      verts[j + 1][i + 1], verts[j + 1][i]))
+def ring_pos(radius, z, i):
+    theta = 2.0 * math.pi * i / N
+    c, s = math.cos(theta), math.sin(theta)
+    if radius is SQUARE:
+        d = HALF / max(abs(c), abs(s))  # lands ON the cell perimeter
+        return (d * c, d * s, z)
+    return (radius * c, radius * s, z)
 
-bm.normal_update()  # a grid IS connected, so smooth vertex normals are honest here
 
-# --- UVs --------------------------------------------------------------------
-# The floor block's mapping, for every vertex — flat part and basin alike, which
-# is what keeps the two continuous. v is flipped because Blender -Y is engine +Z.
-uv = bm.loops.layers.uv.verify()
-for face in bm.faces:
+def floor_uv(co):
+    """The floor block's mapping — what keeps the cell tiling with its neighbours.
+    v is flipped because Blender -Y is the engine's +Z."""
+    return (co[0] + 0.5, -co[1] + 0.5)
+
+
+rings = [[bm.verts.new(ring_pos(r, z, i)) for i in range(N)] for r, z in RINGS]
+
+for k in range(len(RINGS) - 1):
+    lower, upper = rings[k], rings[k + 1]
+    z_lo, z_hi = RINGS[k][1], RINGS[k + 1][1]
+    # The shaft is the one band with no radial extent — it is a wall, and gets an
+    # UNROLLED mapping (u = arc length, v = depth) instead of a projection from
+    # above, which would collapse it to a line. The CLAUDE.md rule for swept
+    # surfaces, applied where it actually bites.
+    vertical = RINGS[k][0] is not SQUARE and RINGS[k + 1][0] is not SQUARE \
+        and abs(RINGS[k][0] - RINGS[k + 1][0]) < 1e-9
+    arc = 2.0 * math.pi * (RINGS[k][0] or 0.0) / N
+    for i in range(N):
+        j = (i + 1) % N
+        # (lower_i, upper_i, upper_j, lower_j) — CCW seen from above for a flat
+        # band, and inward-facing for the shaft. Stated, never recalculated.
+        face = bm.faces.new((lower[i], upper[i], upper[j], lower[j]))
+        if vertical:
+            u0, u1 = i * arc, (i + 1) * arc
+            uvs = [(u0, -z_lo), (u0, -z_hi), (u1, -z_hi), (u1, -z_lo)]
+        else:
+            uvs = [floor_uv(loop.vert.co) for loop in face.loops]
+        for loop, p in zip(face.loops, uvs):
+            loop[uv].uv = p
+
+# The shaft's floor, a fan from the centre. Present rather than left open so the
+# mesh never shows the void through it; at a storey down it reads as black.
+centre = bm.verts.new((0.0, 0.0, Z_BOTTOM))
+for i in range(N):
+    j = (i + 1) % N
+    face = bm.faces.new((centre, rings[0][i], rings[0][j]))
     for loop in face.loops:
-        co = loop.vert.co
-        loop[uv].uv = (co.x + 0.5, -co.y + 0.5)
+        loop[uv].uv = floor_uv(loop.vert.co)
 
 mesh = bpy.data.meshes.new("floor_drain")
 bm.to_mesh(mesh)
@@ -115,6 +138,7 @@ assert abs(min(xs) + HALF) < 1e-6 and abs(max(xs) - HALF) < 1e-6, "x extent move
 assert abs(min(ys) + HALF) < 1e-6 and abs(max(ys) - HALF) < 1e-6, "y extent moved"
 edge = [v.co.z for v in mesh.vertices
         if abs(abs(v.co.x) - HALF) < 1e-6 or abs(abs(v.co.y) - HALF) < 1e-6]
+assert len(edge) == N, f"expected {N} verts on the cell perimeter, got {len(edge)}"
 assert max(abs(z) for z in edge) < 1e-6, "the cell boundary left z = 0"
 
 bpy.ops.export_scene.gltf(filepath=OUT, export_format="GLB")

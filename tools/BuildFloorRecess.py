@@ -33,12 +33,15 @@ import bpy
 
 HALF = 0.5      # the cell — do not change, it is the floor block's extent
 MOUTH = 0.20    # half-width of the opening — 1.0 m across
-# A FULL STOREY down (kWallH), the depth pit.gltf drops. It was 0.10 — 25 cm —
-# and at that depth you simply see the floor of the tray, which reads as a dish
-# with a grille over it rather than a hole. A shaft has to go down far enough
-# that the near wall fills the opening at any normal viewing angle and the
-# bottom is too far and too steeply lit to register.
-DEPTH = 1.00
+# FOUR STOREYS down — 10 m. This has been wrong twice in the same direction, so
+# the reasoning is worth writing down. At 0.10 (25 cm) you simply saw the floor
+# of a tray. At 1.00 (one storey, the depth pit.gltf drops) the bottom went dark
+# under torchlight but was still THERE, and a hole you can find the bottom of is
+# not a hole. Depth alone cannot beat the ambient fill, which is flat and does
+# not attenuate — what it beats is the VIEWING ANGLE: the deeper the shaft, the
+# more steeply you must stand over it to see the bottom at all, and past a few
+# storeys there is no standing position in the cell that finds it.
+DEPTH = 4.00
 
 BEVEL = 0.006   # MOUTH RIM ONLY (see above)
 SEGMENTS = 2
