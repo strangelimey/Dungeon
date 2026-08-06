@@ -33,7 +33,12 @@ import bpy
 
 HALF = 0.5      # the cell — do not change, it is the floor block's extent
 MOUTH = 0.20    # half-width of the opening — 1.0 m across
-DEPTH = 0.10    # 25 cm deep, enough to read as a hole and still show its floor
+# A FULL STOREY down (kWallH), the depth pit.gltf drops. It was 0.10 — 25 cm —
+# and at that depth you simply see the floor of the tray, which reads as a dish
+# with a grille over it rather than a hole. A shaft has to go down far enough
+# that the near wall fills the opening at any normal viewing angle and the
+# bottom is too far and too steeply lit to register.
+DEPTH = 1.00
 
 BEVEL = 0.006   # MOUTH RIM ONLY (see above)
 SEGMENTS = 2
