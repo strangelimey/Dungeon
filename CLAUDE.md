@@ -561,11 +561,21 @@ buffer, reused across all ~25 submissions).
     they share that mapping precisely so the displacement lands on the painted
     stones, and correcting one alone slides them apart. Re-bake with `AssetBaker
     models`; the square sets come out byte-identical, which is the check that a
-    change here is a no-op at aspect 1. KNOWN GAP: the shared wall-feature
-    meshes (`wall_niche`, `wall_niche_arch`, `wall_window`, `wall_window_rect`)
-    are baked ONCE for all 54 surfaces, so they cannot take a per-texture
-    aspect — a niche cut into one of the ten will disagree with the wall around
-    it until those are baked per surface too.
+    change here is a no-op at aspect 1. The shared WALL FEATURES (`wall_niche`,
+    `wall_niche_arch`, `wall_window`, `wall_window_rect`) take the SAME
+    correction by a different route, and the split is principled: one feature
+    mesh serves all 54 surfaces, so it cannot carry an aspect in its baked UVs —
+    but it is stamped into `wallB[wallVariant]`, the wall block's own variant
+    bucket, so the builder knows its surface at that moment. `Surface::uAspect`
+    (read off the loaded albedo) rides a span into BuildDungeonGeometry /
+    BuildDungeonRegion and `AppendTransformed` scales `uv.x` for the FEATURE
+    ONLY. A worn block's aspect must be fixed at BAKE because its wear field
+    samples the height map through those UVs; a feature has no displacement, so
+    its aspect is free to be applied at STAMP — and that is also the only place
+    a shared mesh can learn which surface it landed on. Nothing to rebake, and
+    a set imported later is right for free. NOTE when testing this: a feature
+    replaces the WHOLE wall panel for its edge, so a mismatch squishes the
+    entire face, not just the recess — and no level currently places one.
 - Maps are two files per level, split static vs dynamic for the future
   save system (saves will only ever store the dynamic side):
   - assets/maps/level1.map — STATIC layer (DungeonMap): ASCII grid, ';'
