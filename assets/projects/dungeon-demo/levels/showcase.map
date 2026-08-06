@@ -241,3 +241,11 @@ floorfeature drain 12 8
 floorfeature cracked 14 8
 floorfeature cracked 11 9
 floorfeature drain 15 8
+ceilingfeature vault 12 11
+ceilingfeature vault 13 11
+ceilingfeature vault 14 11
+decoration ceiling_beam 12 12
+decoration ceiling_beam 13 12
+decoration ceiling_beam 14 12
+decoration hanging_chain 12 13
+decoration hanging_chain 14 13

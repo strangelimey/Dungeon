@@ -875,16 +875,19 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 		const float h = b.axis == 0 ? thin : lng;
 		batch.DrawRect({ctr.x - w * 0.5f, ctr.y - h * 0.5f, w, h}, {0.4f, 0.8f, 0.95f, 1});
 	}
-	// Floor recesses: a hollow square inset in the cell — an outline rather than a
-	// fill, because the cell is still floor you walk on and a solid marker would
-	// read as an obstacle. Same gold as a niche: both are recesses.
-	for (const FloorFeature& f : map.FloorFeatures()) {
+	// Surface features: a hollow square inset in the cell — an outline rather
+	// than a fill, because the cell is still floor you walk on and a solid marker
+	// would read as an obstacle. Same gold as a niche: all three are recesses.
+	// A CEILING feature draws the same box slightly larger and dimmer, so a cell
+	// carrying both shows two nested outlines and the vault reads as the one
+	// further away.
+	for (const SurfaceFeature& f : map.SurfaceFeatures()) {
 		if (!CellVisible(f.x, f.z)) continue;
 		const Vec2 ctr = cellCenter(f.x, f.z);
-		const float side = t.cell * 0.44f; // the recess mouth, near enough
+		const float side = t.cell * (f.ceiling ? 0.62f : 0.44f);
 		const float bar = std::max(1.0f, t.cell * 0.07f);
 		const gfx::Rect box{ctr.x - side * 0.5f, ctr.y - side * 0.5f, side, side};
-		const Vec4 col{0.88f, 0.72f, 0.32f, 1.0f};
+		const Vec4 col{0.88f, 0.72f, 0.32f, f.ceiling ? 0.55f : 1.0f};
 		batch.DrawRect({box.x, box.y, box.w, bar}, col);                    // top
 		batch.DrawRect({box.x, box.y + box.h - bar, box.w, bar}, col);      // bottom
 		batch.DrawRect({box.x, box.y, bar, box.h}, col);                    // left

@@ -78,8 +78,9 @@ void StampCell(const DungeonMap& map, int x, int z, CellHoles holes,
 			   std::span<const assets::MeshData> ceilingBlocks,
 			   std::span<const float> wallUAspect,
 			   std::span<const float> floorUAspect,
+			   std::span<const float> ceilingUAspect,
 			   const NicheMeshFn& niche, const NicheMeshFn& bore,
-			   const NicheMeshFn& floorFeature,
+			   const NicheMeshFn& floorFeature, const NicheMeshFn& ceilingFeature,
 			   std::vector<assets::MeshData>& wallB,
 			   std::vector<assets::MeshData>& floorB,
 			   std::vector<assets::MeshData>& ceilB) {
@@ -103,7 +104,8 @@ void StampCell(const DungeonMap& map, int x, int z, CellHoles holes,
 		// lets a hole in the floor be part of the floor.
 		const assets::MeshData* alt = nullptr;
 		if (floorFeature)
-			if (const FloorFeature* f = map.FloorFeatureAt(x, z)) alt = floorFeature(f->type);
+			if (const SurfaceFeature* f = map.FeatureAt(x, z, /*ceiling*/ false))
+				alt = floorFeature(f->type);
 		// Like the wall features: the tile is ONE mesh shared by every surface, so
 		// its baked UVs cannot carry a 2:1 set's aspect and it takes the correction
 		// here. The floor block is left alone — its UVs are pre-scaled at bake.
@@ -115,9 +117,21 @@ void StampCell(const DungeonMap& map, int x, int z, CellHoles holes,
 	if (!holes.ceiling) {
 		const u32 ceilingVariant = pick(map.CeilingVariant(x, z),
 										 SurfaceVariantFor(x, z, 2u, ceilingVariants), ceilingVariants);
-		AppendTransformed(ceilB[ceilingVariant], ceilingBlocks[ceilingVariant],
+		// The floor substitution, pointing the other way: a vault replaces the
+		// plain ceiling block and rides the ceiling's variant bucket, so it wears
+		// the cell's own ceiling texture.
+		const assets::MeshData* alt = nullptr;
+		if (ceilingFeature)
+			if (const SurfaceFeature* f = map.FeatureAt(x, z, /*ceiling*/ true))
+				alt = ceilingFeature(f->type);
+		const float uScale = alt && ceilingVariant < ceilingUAspect.size()
+								 ? 1.0f / ceilingUAspect[ceilingVariant]
+								 : 1.0f;
+		AppendTransformed(ceilB[ceilingVariant],
+						  alt ? *alt : ceilingBlocks[ceilingVariant],
 						  UnitScale() *
-							  XMMatrixTranslation(center.x, kWallHeight, center.z));
+							  XMMatrixTranslation(center.x, kWallHeight, center.z),
+						  uScale);
 	}
 
 	// Wall blocks are authored facing +Z; rotate so the face points into the
@@ -180,11 +194,13 @@ DungeonGeometry BuildDungeonRegion(const DungeonMap& map,
 								   std::span<const assets::MeshData> ceilingBlocks,
 								   std::span<const float> wallUAspect,
 								   std::span<const float> floorUAspect,
+								   std::span<const float> ceilingUAspect,
 								   int chunkX, int chunkZ,
 								   const CellHolesFn& holes,
 								   const NicheMeshFn& niche,
 								   const NicheMeshFn& bore,
-								   const NicheMeshFn& floorFeature) {
+								   const NicheMeshFn& floorFeature,
+								   const NicheMeshFn& ceilingFeature) {
 	const int chunksX = (map.Width() + kChunkCells - 1) / kChunkCells;
 	const int chunkIndex = chunkZ * chunksX + chunkX;
 	const int x0 = chunkX * kChunkCells, z0 = chunkZ * kChunkCells;
@@ -198,8 +214,9 @@ DungeonGeometry BuildDungeonRegion(const DungeonMap& map,
 		for (int x = x0; x < x1; ++x)
 			if (map.IsWalkable(x, z))
 				StampCell(map, x, z, holes ? holes(x, z) : CellHoles{}, wallBlocks,
-						  floorBlocks, ceilingBlocks, wallUAspect, floorUAspect, niche,
-						  bore, floorFeature, wallB, floorB, ceilB);
+						  floorBlocks, ceilingBlocks, wallUAspect, floorUAspect,
+						  ceilingUAspect, niche, bore, floorFeature, ceilingFeature,
+						  wallB, floorB, ceilB);
 
 	DungeonGeometry geo;
 	Collect(wallB, chunkIndex, geo.walls);
@@ -214,10 +231,12 @@ DungeonGeometry BuildDungeonGeometry(const DungeonMap& map,
 									 std::span<const assets::MeshData> ceilingBlocks,
 									 std::span<const float> wallUAspect,
 									 std::span<const float> floorUAspect,
+									 std::span<const float> ceilingUAspect,
 									 const CellHolesFn& holes,
 									 const NicheMeshFn& niche,
 									 const NicheMeshFn& bore,
-									 const NicheMeshFn& floorFeature) {
+									 const NicheMeshFn& floorFeature,
+									 const NicheMeshFn& ceilingFeature) {
 	const int chunksX = (map.Width() + kChunkCells - 1) / kChunkCells;
 	const int chunksZ = (map.Height() + kChunkCells - 1) / kChunkCells;
 	DungeonGeometry geo;
@@ -225,8 +244,9 @@ DungeonGeometry BuildDungeonGeometry(const DungeonMap& map,
 		for (int cx = 0; cx < chunksX; ++cx) {
 			DungeonGeometry r = BuildDungeonRegion(map, wallBlocks, floorBlocks,
 												   ceilingBlocks, wallUAspect,
-												   floorUAspect, cx, cz, holes, niche,
-												   bore, floorFeature);
+												   floorUAspect, ceilingUAspect, cx, cz,
+												   holes, niche, bore, floorFeature,
+												   ceilingFeature);
 			for (GeometryChunk& c : r.walls) geo.walls.push_back(std::move(c));
 			for (GeometryChunk& c : r.floors) geo.floors.push_back(std::move(c));
 			for (GeometryChunk& c : r.ceilings) geo.ceilings.push_back(std::move(c));

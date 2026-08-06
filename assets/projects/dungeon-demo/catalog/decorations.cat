@@ -292,3 +292,27 @@ solid = 0
 authored = 1
 category = floor
 facing_arrow = 0
+
+; Ceiling detail. These are DECORATIONS, not surface features: a feature IS the
+; surface and so must wear the cell's texture, whereas timber and iron want their
+; own. They need no engine support either — a decoration's transform is just a
+; translation to the cell centre at y = 0, so the model's own geometry sets its
+; height, and these are authored up at the ceiling (tools/BuildCeilingBeam.py,
+; tools/BuildHangingChain.py). solid = 0: they are overhead, the floor is clear.
+[ceiling_beam]
+display = Ceiling Beam
+model = ceiling_beam
+texture = wood_planks
+solid = 0
+authored = 1
+category = ceiling
+facing_arrow = 0
+
+[hanging_chain]
+display = Hanging Chain
+model = hanging_chain
+texture = rusted_iron
+solid = 0
+authored = 1
+category = ceiling
+facing_arrow = 0

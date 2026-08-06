@@ -608,11 +608,13 @@ public:
 	// two walls — or a lone block's four — are each addressable. False if that
 	// neighbour isn't solid or the face already holds a niche.
 	bool AddNiche(const std::string& type, int x, int z, Direction wall);
-	// Sinks a floor recess (floorfeatures.cat) into walkable cell (x,z) and
-	// re-stamps its floor block as the recess tile. False if the cell isn't
-	// walkable or already has one. Removed with RemoveFloorFeatureAt.
-	bool AddFloorFeature(const std::string& type, int x, int z);
-	bool RemoveFloorFeatureAt(int x, int z);
+	// Puts a surface feature (surfacefeatures.cat) on walkable cell (x,z) and
+	// re-stamps that surface's block as the feature tile. The TYPE decides which
+	// surface (`surface = floor|ceiling`), so a caller never has to. False if the
+	// cell isn't walkable or already carries one on that surface. Removed with
+	// RemoveFeatureAt, which drops whichever surface has one.
+	bool AddSurfaceFeature(const std::string& type, int x, int z);
+	bool RemoveFeatureAt(int x, int z);
 	// Bores a see-through window (wallfeatures.cat `type`) through solid wall block
 	// (x,z) and re-stamps the two flanking faces. False if it isn't a 1-block wall
 	// between two spaces.
@@ -780,9 +782,9 @@ public:
 						  int z, Direction wall);
 	bool AddNicheRemote(const std::string& stem, const std::string& type, int x,
 						int z, Direction wall);
-	// A floor has no face to pick, so there is only the cell form.
-	bool AddFloorFeatureRemote(const std::string& stem, const std::string& type,
-							   int x, int z);
+	// A floor or ceiling has no face to pick, so there is only the cell form.
+	bool AddSurfaceFeatureRemote(const std::string& stem, const std::string& type,
+								 int x, int z);
 	bool AddDoorRemote(const std::string& stem, const std::string& type, int x,
 					   int z);
 	bool AddButtonRemote(const std::string& stem, const std::string& type, int x,
@@ -1989,10 +1991,17 @@ private:
 	// on the two flanking faces of a bored wall block. BoreMeshFor resolves it.
 	std::flat_map<std::string, assets::MeshData> m_boreMeshes;
 	const assets::MeshData* BoreMeshFor(const std::string& type) const;
-	// Floor-recess tiles by floorfeatures.cat type (its `model`.gltf); stamped in
-	// place of a cell's floor block. FloorFeatureMeshFor resolves it.
+	// Surface-feature tiles by surfacefeatures.cat type (its `model`.gltf), split
+	// by the type's `surface` so each resolver answers only for its own side —
+	// which is what lets the builder ask "is there a floor feature here?" and
+	// "is there a ceiling one?" independently, without knowing the catalog.
 	std::flat_map<std::string, assets::MeshData> m_floorFeatureMeshes;
+	std::flat_map<std::string, assets::MeshData> m_ceilingFeatureMeshes;
 	const assets::MeshData* FloorFeatureMeshFor(const std::string& type) const;
+	const assets::MeshData* CeilingFeatureMeshFor(const std::string& type) const;
+	// True if the surfacefeatures.cat type mounts on the ceiling (`surface =
+	// ceiling`). The editor routes a placement through this.
+	bool FeatureIsCeiling(const std::string& type) const;
 
 
 	std::flat_map<std::string, std::unique_ptr<MonsterKind>> m_monsterKinds;

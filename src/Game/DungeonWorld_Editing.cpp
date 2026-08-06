@@ -430,16 +430,17 @@ bool DungeonWorld::RemoveNicheAtWall(int wx, int wz) {
 	return true;
 }
 
-bool DungeonWorld::AddFloorFeature(const std::string& type, int x, int z) {
-	if (!m_map.AddFloorFeature(x, z, type)) return false; // not walkable, or taken
-	RebuildChunksAround(x, z); // re-stamp the cell's floor block as the recess
+bool DungeonWorld::AddSurfaceFeature(const std::string& type, int x, int z) {
+	// The TYPE names the surface, so no caller has to thread it through.
+	if (!m_map.AddFeature(x, z, type, FeatureIsCeiling(type))) return false;
+	RebuildChunksAround(x, z); // re-stamp that surface's block as the feature
 	MarkSeen(x, z);
 	return true;
 }
 
-bool DungeonWorld::RemoveFloorFeatureAt(int x, int z) {
-	if (!m_map.RemoveFloorFeature(x, z)) return false;
-	RebuildChunksAround(x, z); // the plain floor block comes back
+bool DungeonWorld::RemoveFeatureAt(int x, int z) {
+	if (!m_map.RemoveAnyFeature(x, z)) return false;
+	RebuildChunksAround(x, z); // the plain block comes back
 	return true;
 }
 
@@ -1281,9 +1282,9 @@ bool DungeonWorld::AddNicheRemote(const std::string& stem, const std::string& ty
 	return EnsureMapStash(stem).AddNiche(x, z, type, wall);
 }
 
-bool DungeonWorld::AddFloorFeatureRemote(const std::string& stem,
-										 const std::string& type, int x, int z) {
-	return EnsureMapStash(stem).AddFloorFeature(x, z, type);
+bool DungeonWorld::AddSurfaceFeatureRemote(const std::string& stem,
+										   const std::string& type, int x, int z) {
+	return EnsureMapStash(stem).AddFeature(x, z, type, FeatureIsCeiling(type));
 }
 
 void DungeonWorld::EraseRemote(const std::string& stem, int x, int z) {
@@ -1308,7 +1309,7 @@ void DungeonWorld::EraseRemote(const std::string& stem, int x, int z) {
 			return;
 		}
 	if (map.RemoveDecorationRecordAt(x, z) || map.RemoveFixtureAt(x, z) ||
-		map.RemoveNicheFacingWall(x, z) || map.RemoveFloorFeature(x, z)) {
+		map.RemoveNicheFacingWall(x, z) || map.RemoveAnyFeature(x, z)) {
 		say(loc::Tr("map.erase.removed"));
 		return;
 	}
@@ -1606,8 +1607,9 @@ static std::string SerializeMapStatic(const std::string& stem,
 	}
 	for (const WallBore& b : map.Bores())
 		m += std::format("bore {} {} {} {}\n", b.type, b.x, b.z, b.axis);
-	for (const FloorFeature& f : map.FloorFeatures())
-		m += std::format("floorfeature {} {} {}\n", f.type, f.x, f.z);
+	for (const SurfaceFeature& f : map.SurfaceFeatures())
+		m += std::format("{} {} {} {}\n", f.ceiling ? "ceilingfeature" : "floorfeature",
+						 f.type, f.x, f.z);
 
 	for (const StairLink& s : map.Stairs())
 		m += std::format("stairs {} {} {} {} dest={} destx={} destz={} destfacing={}\n",

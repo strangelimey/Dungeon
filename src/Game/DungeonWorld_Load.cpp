@@ -257,12 +257,16 @@ void DungeonWorld::LoadDungeonBlocks() {
 			.emplace(e.id, LoadModelOrDie(model + ".gltf").meshes[0]);
 	}
 
-	// Floor-feature tiles, one per floorfeatures.cat type. Same shape as the
-	// niches above — loaded once, referenced by a level's `floorfeature` records.
+	// Surface-feature tiles, one per surfacefeatures.cat type, filed by the
+	// type's `surface`. Same shape as the niches above — loaded once, referenced
+	// by a level's `floorfeature` / `ceilingfeature` records. Splitting the map
+	// here is what lets each resolver answer only for its own side.
 	m_floorFeatureMeshes.clear();
-	for (const CatalogEntry& e : m_project.floorfeatures.Entries())
-		m_floorFeatureMeshes.emplace(
-			e.id, LoadModelOrDie(CatalogGet(&e, "model", e.id) + ".gltf").meshes[0]);
+	m_ceilingFeatureMeshes.clear();
+	for (const CatalogEntry& e : m_project.surfacefeatures.Entries())
+		(CatalogGet(&e, "surface", "floor") == "ceiling" ? m_ceilingFeatureMeshes
+														 : m_floorFeatureMeshes)
+			.emplace(e.id, LoadModelOrDie(CatalogGet(&e, "model", e.id) + ".gltf").meshes[0]);
 }
 
 const assets::MeshData* DungeonWorld::BoreMeshFor(const std::string& type) const {
@@ -278,6 +282,16 @@ const assets::MeshData* DungeonWorld::NicheMeshFor(const std::string& type) cons
 const assets::MeshData* DungeonWorld::FloorFeatureMeshFor(const std::string& type) const {
 	const auto it = m_floorFeatureMeshes.find(type);
 	return it != m_floorFeatureMeshes.end() ? &it->second : nullptr;
+}
+
+const assets::MeshData* DungeonWorld::CeilingFeatureMeshFor(const std::string& type) const {
+	const auto it = m_ceilingFeatureMeshes.find(type);
+	return it != m_ceilingFeatureMeshes.end() ? &it->second : nullptr;
+}
+
+bool DungeonWorld::FeatureIsCeiling(const std::string& type) const {
+	return CatalogGet(m_project.surfacefeatures.Find(type), "surface", "floor") ==
+		   "ceiling";
 }
 
 // Loads a PBR set (albedo sRGB + normal/height + ORM) by base name at the
@@ -357,13 +371,14 @@ void DungeonWorld::BuildDungeonMeshes() {
 	ApplySurfaceFactors();
 	DungeonGeometry geo = BuildDungeonGeometry(
 		m_map, m_wallBlocks, m_floorBlocks, m_ceilingBlocks, m_walls.uAspect,
-		m_floors.uAspect,
+		m_floors.uAspect, m_ceilings.uAspect,
 		[this](int x, int z) {
 			return CellHoles{FloorHoleAt(x, z), CeilingHoleAt(x, z)};
 		},
 		[this](const std::string& type) { return NicheMeshFor(type); },
 		[this](const std::string& type) { return BoreMeshFor(type); },
-		[this](const std::string& type) { return FloorFeatureMeshFor(type); });
+		[this](const std::string& type) { return FloorFeatureMeshFor(type); },
+		[this](const std::string& type) { return CeilingFeatureMeshFor(type); });
 
 	auto upload = [&](Surface& surface, std::vector<GeometryChunk>& chunks) {
 		surface.chunks.clear();

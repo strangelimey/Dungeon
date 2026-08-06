@@ -1,0 +1,51 @@
+; Surface features: a tile stamped IN PLACE OF a cell's FLOOR or CEILING block —
+; the wall-niche idea laid flat, pointing down or up. `surface` picks which.
+; The tile rides that surface's variant bucket, so it wears whatever texture the
+; cell wears. That is the whole point: a hole in the floor that is actually part
+; of the floor, rather than a prop parked on top of one.
+;
+; Floor and ceiling are ONE catalog because they differ in exactly one bit. The
+; RECORD keyword still names the surface (`floorfeature` / `ceilingfeature`),
+; which is what lets the map parser stay catalog-blind.
+;
+; A feature mesh must span the full cell (x,z in [-0.5, 0.5]) with its surface at
+; y = 0 and use its block's UVs (u = x + 0.5, v = z + 0.5), or the cell stops
+; tiling with its neighbours. tools/BuildFloorRecess.py is the reference and
+; asserts both. A CEILING tile is authored facing DOWN and rises in +y, matching
+; the ceiling block (ModelBaker's BuildWornCeilingBlock).
+;
+; `texture` is deliberately absent — the cell supplies it.
+
+[recess]
+display = Floor Recess
+model = floor_recess
+
+; A dished drain dropping into a shaft. A POLAR LOFT (tools/BuildFloorDrain.py):
+; it began as a heightfield, which suited a shallow basin and could not survive
+; the throat going deep — a heightfield has one z per (x,y) so it can never be
+; vertical.
+[drain]
+display = Floor Drain
+model = floor_drain
+
+; Broken paving: slabs settled onto a bed, two of them gone. Placed faces
+; (tools/BuildFloorCracked.py) — a crack wants a crisp edge, and a grid fine
+; enough for a 5 cm gap would cost thousands of verts to say "nine flat slabs".
+[cracked]
+display = Cracked Paving
+model = floor_cracked
+
+; --- ceiling ----------------------------------------------------------------
+
+; A CLOISTER vault: four webs springing from the four edges of the bay to a
+; crown, groins up the diagonals. A heightfield (tools/BuildCeilingVault.py) —
+; it is a surface, not a shape with walls.
+;
+; Not a GROIN vault, which is the more obvious choice over a square bay: a groin
+; vault is two crossing barrels and a barrel is OPEN AT ITS ENDS, so its boundary
+; sits at crown height along two edges — exactly what a per-cell tile may not do.
+; A cloister vault springs from all four edges and meets its neighbours flat.
+[vault]
+display = Cloister Vault
+surface = ceiling
+model = ceiling_vault

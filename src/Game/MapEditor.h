@@ -54,7 +54,7 @@ public:
 	enum class PaletteCat {
 		Walls, Floors, Ceilings,
 		Decorations, Fixtures, Monsters, Buttons, Doors, Stairs,
-		Items, Weapons, Armor, WallFeatures, FloorFeatures,
+		Items, Weapons, Armor, WallFeatures, SurfaceFeatures,
 		Effects, // authored + tuned, never placed (see CategoryPlaceable)
 		Count
 	};

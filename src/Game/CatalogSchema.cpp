@@ -402,15 +402,21 @@ constexpr FieldSpec kWallFeatureFields[] = {
 	 .def = "0"},
 };
 
-// Floor features. No `texture` row on purpose: the tile is stamped into the
-// cell's floor variant bucket, so the CELL supplies the texture — offering one
-// here would be a setting that does nothing.
-constexpr FieldSpec kFloorFeatureFields[] = {
+// Surface features. No `texture` row on purpose: the tile is stamped into the
+// cell's own floor/ceiling variant bucket, so the CELL supplies the texture —
+// offering one here would be a setting that does nothing.
+constexpr const char* kSurfaceOptions = "floor ceiling";
+constexpr FieldSpec kSurfaceFeatureFields[] = {
 	IDENTITY_DISPLAY,
 	IDENTITY_CATEGORY,
+	{.key = "surface", .kind = FieldKind::Enum, .sectionKey = kSectionRules,
+	 .help = "Which block this replaces — a recess sunk into the floor, or a "
+			 "vault raised into the ceiling.",
+	 .options = kSurfaceOptions, .def = "floor"},
 	{.key = "model", .kind = FieldKind::Model, .sectionKey = kSectionLook,
-	 .help = "The tile stamped in place of the cell's floor block. Must span the "
-			 "full cell with its surface at y = 0 (tools/BuildFloorRecess.py)."},
+	 .help = "The tile stamped in place of that block. Must span the full cell "
+			 "with its surface at y = 0 (tools/BuildFloorRecess.py is the "
+			 "reference and asserts the contract)."},
 };
 } // namespace
 
@@ -428,7 +434,7 @@ std::span<const FieldSpec> SchemaFor(std::string_view catalogKey) {
 	if (catalogKey == "weapons") return kWeaponFields;
 	if (catalogKey == "armor") return kArmorFields;
 	if (catalogKey == "wallfeatures") return kWallFeatureFields;
-	if (catalogKey == "floorfeatures") return kFloorFeatureFields;
+	if (catalogKey == "surfacefeatures") return kSurfaceFeatureFields;
 	if (catalogKey == "effects") return kEffectFields;
 	return {};
 }

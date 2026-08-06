@@ -156,18 +156,28 @@ struct WallBore {
 	std::string type = "window"; // wallfeatures.cat id (its bore mesh / shape)
 };
 
-// A FLOOR FEATURE: the WallNiche idea laid flat. A recess carved into a walkable
-// cell's floor — the mesh builder stamps the feature's tile instead of the plain
-// floor block for that cell, into the same variant bucket, so it wears the
-// cell's floor texture. `type` is the floorfeatures.cat id.
+// A SURFACE FEATURE: the WallNiche idea laid flat, pointing either down or up. A
+// recess carved into a walkable cell's FLOOR, or a vault rising out of its
+// CEILING — the mesh builder stamps the feature's tile instead of the plain
+// block for that cell, into the same variant bucket, so it wears the cell's own
+// floor/ceiling texture. `type` is the surfacefeatures.cat id.
+//
+// Floor and ceiling differ in exactly one bit, so they are ONE list and one code
+// path rather than two near-identical systems. `ceiling` comes from the RECORD
+// KEYWORD (`floorfeature` / `ceilingfeature`), not from the catalog, which is
+// what lets DungeonMap stay catalog-blind — the alternative would have been a
+// routing struct passed into every construction, the FixtureTypes pattern.
+// A cell may carry one of each: a vaulted room with a drain in the floor is an
+// ordinary thing to want.
 //
 // No `wall` and no facing: a floor has one orientation. And no `hidden`/`open`
 // pair — a secret niche has a blank wall to hide behind, whereas a hole in the
 // floor either is there or is not. If a covered pit ever wants one, it should
 // arrive as a trapdoor with real state, not as a mesh swap.
-struct FloorFeature {
+struct SurfaceFeature {
 	int x = 0, z = 0;
 	std::string type = "recess";
+	bool ceiling = false; // false = sunk into the floor, true = raised into the ceiling
 };
 
 // How the parser routes a `fixture <id> ...` record and the 'T'/'F' glyphs
@@ -364,21 +374,29 @@ public:
 	// Distinct non-empty niche names on the level (the button inspector's targets).
 	std::vector<std::string> NicheNames() const;
 
-	// Floor features (recesses sunk into a cell's floor). The mesh builder reads
-	// FloorFeatureAt per cell and stamps the tile in place of the floor block.
-	const std::vector<FloorFeature>& FloorFeatures() const { return m_floorFeatures; }
-	// The feature on walkable cell (x,z), or null — the builder's per-cell query.
-	const FloorFeature* FloorFeatureAt(int x, int z) const;
-	// Sinks a feature into (x,z). False if the cell isn't walkable or already has
-	// one. Bumps Revision().
-	bool AddFloorFeature(int x, int z, std::string type);
+	// Surface features (recesses sunk into a floor, vaults raised into a ceiling).
+	// The mesh builder reads FeatureAt per cell and stamps the tile in place of
+	// the matching block.
+	const std::vector<SurfaceFeature>& SurfaceFeatures() const { return m_features; }
+	// The feature on walkable cell (x,z) for that surface, or null — the builder's
+	// per-cell query, asked once for the floor and once for the ceiling.
+	const SurfaceFeature* FeatureAt(int x, int z, bool ceiling) const;
+	// Adds a feature to (x,z). False if the cell isn't walkable or already carries
+	// one on THAT surface. Bumps Revision().
+	bool AddFeature(int x, int z, std::string type, bool ceiling);
 	// Adds one unchecked (the parser + remote/stash editing). Bumps Revision().
-	void AddFloorFeatureRecord(FloorFeature f) {
-		m_floorFeatures.push_back(std::move(f));
+	void AddFeatureRecord(SurfaceFeature f) {
+		m_features.push_back(std::move(f));
 		++m_revision;
 	}
-	// Removes the feature on (x,z). Bumps Revision(); false if none.
-	bool RemoveFloorFeature(int x, int z);
+	// Removes the feature on (x,z) for that surface. Bumps Revision(); false if
+	// none. RemoveAnyFeature drops whichever surface has one (the erase ladder,
+	// which has no way to say which the user meant): ceiling first, since a
+	// vault is what you are looking at when you point at the cell from inside.
+	bool RemoveFeature(int x, int z, bool ceiling);
+	bool RemoveAnyFeature(int x, int z) {
+		return RemoveFeature(x, z, true) || RemoveFeature(x, z, false);
+	}
 
 	// Wall windows (see-through bores through a solid block). The mesh builder
 	// reads WallBoredAlong per stamped face; LoS/projectiles read it per cell.
@@ -529,7 +547,7 @@ private:
 	std::vector<FloorBrazier> m_braziers;
 	std::vector<WallNiche> m_niches;
 	std::vector<WallBore> m_bores;
-	std::vector<FloorFeature> m_floorFeatures;
+	std::vector<SurfaceFeature> m_features;
 	std::vector<Entity> m_decorations;
 	std::vector<StairLink> m_stairs;
 	std::vector<std::string> m_wallPalette;   // catalog ids (walls.cat)

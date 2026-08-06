@@ -230,12 +230,21 @@ DungeonMap::DungeonMap(const std::string& path, FixtureTypes fixtures) {
 								/*open=*/!hidden});
 			continue;
 		}
-		if (record.starts_with("floorfeature")) {
-			// floorfeature [<type>] <x> <z> — a recess sunk into a walkable cell's
-			// floor. The optional first token is the floorfeatures.cat id (absent =
+		if (record.starts_with("floorfeature") || record.starts_with("ceilingfeature")) {
+			// floorfeature   [<type>] <x> <z> — a recess sunk into a cell's floor
+			// ceilingfeature [<type>] <x> <z> — a vault raised into its ceiling
+			//
+			// The KEYWORD names the surface, which is what keeps this parser
+			// catalog-blind: the alternative was a routing struct threaded into
+			// every DungeonMap construction (the FixtureTypes pattern), for one
+			// bit of information the record can simply carry itself.
+			//
+			// The optional first token is the surfacefeatures.cat id (absent =
 			// "recess"; detected by whether it parses as a coordinate, the niche
-			// rule). Dropped if the cell isn't walkable or already has one
-			// (tolerant, like niches — a stale record is not worth dying over).
+			// rule). Dropped if the cell isn't walkable or already has one on that
+			// surface (tolerant, like niches — a stale record is not worth dying
+			// over).
+			const bool ceiling = record.starts_with("ceilingfeature");
 			const std::vector<std::string_view> tok = SplitRecordTokens(record);
 			const auto asInt = [](std::string_view t, int& out) {
 				const auto [end, ec] = std::from_chars(t.data(), t.data() + t.size(), out);
@@ -247,9 +256,10 @@ DungeonMap::DungeonMap(const std::string& path, FixtureTypes fixtures) {
 			std::string type = typed ? std::string(tok[1]) : "recess";
 			int fx = 0, fz = 0;
 			DN_ASSERT(tok.size() >= c + 2 && asInt(tok[c], fx) && asInt(tok[c + 1], fz),
-					  std::format("floorfeature needs <x> <z>: \"{}\" in {}", record, path));
-			if (!IsWalkable(fx, fz) || FloorFeatureAt(fx, fz)) continue;
-			m_floorFeatures.push_back({fx, fz, std::move(type)});
+					  std::format("{} needs <x> <z>: \"{}\" in {}",
+								  ceiling ? "ceilingfeature" : "floorfeature", record, path));
+			if (!IsWalkable(fx, fz) || FeatureAt(fx, fz, ceiling)) continue;
+			m_features.push_back({fx, fz, std::move(type), ceiling});
 			continue;
 		}
 		if (record.starts_with("bore")) {
@@ -555,9 +565,9 @@ bool DungeonMap::PruneFixturesForCell(int x, int z) {
 		changed |= std::erase_if(m_niches, [&](const WallNiche& n) {
 					   return n.x == x && n.z == z;
 				   }) > 0;
-		// A floor feature is the cell's FLOOR — painting the cell solid takes the
-		// floor away, so there is nothing left for the recess to be sunk into.
-		changed |= std::erase_if(m_floorFeatures, [&](const FloorFeature& f) {
+		// A surface feature IS the cell's floor or ceiling — painting the cell
+		// solid takes both away, so there is nothing left to sink or raise it into.
+		changed |= std::erase_if(m_features, [&](const SurfaceFeature& f) {
 					   return f.x == x && f.z == z;
 				   }) > 0;
 	} else {
@@ -707,25 +717,27 @@ const WallNiche* DungeonMap::NicheAt(int x, int z, int dx, int dz) const {
 	return nullptr;
 }
 
-const FloorFeature* DungeonMap::FloorFeatureAt(int x, int z) const {
-	for (const FloorFeature& f : m_floorFeatures)
-		if (f.x == x && f.z == z) return &f;
+const SurfaceFeature* DungeonMap::FeatureAt(int x, int z, bool ceiling) const {
+	for (const SurfaceFeature& f : m_features)
+		if (f.x == x && f.z == z && f.ceiling == ceiling) return &f;
 	return nullptr;
 }
 
-bool DungeonMap::AddFloorFeature(int x, int z, std::string type) {
-	// One per cell: the tile REPLACES the floor block, so a second would only
-	// draw through the first.
-	if (!IsWalkable(x, z) || FloorFeatureAt(x, z)) return false;
-	m_floorFeatures.push_back({x, z, std::move(type)});
+bool DungeonMap::AddFeature(int x, int z, std::string type, bool ceiling) {
+	// One per cell PER SURFACE: the tile REPLACES that surface's block, so a
+	// second on the same surface would only draw through the first. The other
+	// surface is free — a vault over a drain is an ordinary thing to want.
+	if (!IsWalkable(x, z) || FeatureAt(x, z, ceiling)) return false;
+	m_features.push_back({x, z, std::move(type), ceiling});
 	++m_revision;
 	return true;
 }
 
-bool DungeonMap::RemoveFloorFeature(int x, int z) {
-	for (size_t i = 0; i < m_floorFeatures.size(); ++i)
-		if (m_floorFeatures[i].x == x && m_floorFeatures[i].z == z) {
-			m_floorFeatures.erase(m_floorFeatures.begin() + static_cast<ptrdiff_t>(i));
+bool DungeonMap::RemoveFeature(int x, int z, bool ceiling) {
+	for (size_t i = 0; i < m_features.size(); ++i)
+		if (m_features[i].x == x && m_features[i].z == z &&
+			m_features[i].ceiling == ceiling) {
+			m_features.erase(m_features.begin() + static_cast<ptrdiff_t>(i));
 			++m_revision;
 			return true;
 		}

@@ -39,7 +39,7 @@ const CatalogSlot kCatalogs[] = {
 	{"balance.cat", &Project::balance, "Balance: the attack-formula knob sheet ([formula] block; docs/combat.md)."},
 	{"effects.cat", &Project::effects, "Status effects: display name/icon/stacking per effect id; identity and behaviour are C++ (Game/Effect/)."},
 	{"wallfeatures.cat", &Project::wallfeatures, "Wall features: recessed niches carved into a wall panel."},
-	{"floorfeatures.cat", &Project::floorfeatures, "Floor features: recesses carved into a floor block (the wall-niche idea, laid flat)."},
+	{"surfacefeatures.cat", &Project::surfacefeatures, "Surface features: a tile stamped in place of a cell's floor or ceiling block (the wall-niche idea, laid flat). `surface` picks which."},
 	{"imports.cat", &Project::imports,
 	 "Imported assets: where each editor-imported texture set / model came from, "
 	 "so tools/ReplayImports.ps1 can rebuild it (the baked files are gitignored)."},
@@ -127,7 +127,7 @@ Catalog* Project::CatalogForKey(const std::string& key) {
 	if (key == "attacks") return &attacks;
 	if (key == "balance") return &balance;
 	if (key == "wallfeatures") return &wallfeatures;
-	if (key == "floorfeatures") return &floorfeatures;
+	if (key == "surfacefeatures") return &surfacefeatures;
 	return nullptr;
 }
 
@@ -137,7 +137,7 @@ std::vector<const Catalog*> Project::AllCatalogs() const {
 	return {&walls,  &floors,  &ceilings, &decorations,  &fixtures,
 			&monsters, &doors, &stairs,   &buttons,      &items,
 			&weapons, &armor,  &spells,   &effects,      &attacks,
-			&balance, &wallfeatures, &floorfeatures};
+			&balance, &wallfeatures, &surfacefeatures};
 }
 
 const CatalogEntry* Project::FindItem(std::string_view id) const {

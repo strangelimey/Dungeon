@@ -84,21 +84,24 @@ using NicheMeshFn = std::function<const assets::MeshData*(const std::string& typ
 // feature rides the wall's variant bucket. Empty = every surface square, which
 // is what the code assumed before ten of them turned out not to be.
 //
-// `floorFeature` is the same substitution one cell lower: a type→mesh resolver
-// whose tile is stamped IN PLACE OF the cell's floor block (DungeonMap::
-// FloorFeatureAt), into the floor's variant bucket, so a recess sunk into the
-// floor wears that cell's floor texture. `floorUAspect` corrects it exactly as
-// `wallUAspect` corrects a niche.
+// `floorFeature` / `ceilingFeature` are the same substitution turned to face down
+// and up: a type→mesh resolver whose tile is stamped IN PLACE OF the cell's floor
+// or ceiling block (DungeonMap::FeatureAt), into that surface's variant bucket,
+// so a recess sunk into the floor or a vault raised into the ceiling wears the
+// cell's own texture for it. The matching `*UAspect` span corrects each exactly
+// as `wallUAspect` corrects a niche. A cell may carry one of each.
 DungeonGeometry BuildDungeonGeometry(const DungeonMap& map,
 									 std::span<const assets::MeshData> wallBlocks,
 									 std::span<const assets::MeshData> floorBlocks,
 									 std::span<const assets::MeshData> ceilingBlocks,
 									 std::span<const float> wallUAspect = {},
 									 std::span<const float> floorUAspect = {},
+									 std::span<const float> ceilingUAspect = {},
 									 const CellHolesFn& holes = {},
 									 const NicheMeshFn& niche = {},
 									 const NicheMeshFn& bore = {},
-									 const NicheMeshFn& floorFeature = {});
+									 const NicheMeshFn& floorFeature = {},
+									 const NicheMeshFn& ceilingFeature = {});
 
 // Builds just the geometry for one spatial chunk region (chunk coords
 // chunkX/chunkZ, each covering kChunkCells cells), with every returned chunk
@@ -111,10 +114,12 @@ DungeonGeometry BuildDungeonRegion(const DungeonMap& map,
 								   std::span<const assets::MeshData> ceilingBlocks,
 								   std::span<const float> wallUAspect,
 								   std::span<const float> floorUAspect,
+								   std::span<const float> ceilingUAspect,
 								   int chunkX, int chunkZ,
 								   const CellHolesFn& holes = {},
 								   const NicheMeshFn& niche = {},
 								   const NicheMeshFn& bore = {},
-								   const NicheMeshFn& floorFeature = {});
+								   const NicheMeshFn& floorFeature = {},
+								   const NicheMeshFn& ceilingFeature = {});
 
 } // namespace dungeon::game

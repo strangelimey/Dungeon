@@ -249,13 +249,14 @@ void DungeonWorld::RebuildChunkRegion(int chunkX, int chunkZ) {
 	const int chunkIndex = chunkZ * chunksX + chunkX;
 	DungeonGeometry r = BuildDungeonRegion(
 		m_map, m_wallBlocks, m_floorBlocks, m_ceilingBlocks, m_walls.uAspect,
-		m_floors.uAspect, chunkX, chunkZ,
+		m_floors.uAspect, m_ceilings.uAspect, chunkX, chunkZ,
 		[this](int x, int z) {
 			return CellHoles{FloorHoleAt(x, z), CeilingHoleAt(x, z)};
 		},
 		[this](const std::string& type) { return NicheMeshFor(type); },
 		[this](const std::string& type) { return BoreMeshFor(type); },
-		[this](const std::string& type) { return FloorFeatureMeshFor(type); });
+		[this](const std::string& type) { return FloorFeatureMeshFor(type); },
+		[this](const std::string& type) { return CeilingFeatureMeshFor(type); });
 	auto replace = [&](Surface& surface, std::vector<GeometryChunk>& fresh) {
 		std::erase_if(surface.chunks,
 					  [&](const SurfaceChunk& sc) { return sc.chunk == chunkIndex; });
