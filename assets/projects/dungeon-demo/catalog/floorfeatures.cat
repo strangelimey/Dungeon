@@ -14,3 +14,19 @@
 [recess]
 display = Floor Recess
 model = floor_recess
+
+; A dished drain. Built as a HEIGHTFIELD (tools/BuildFloorDrain.py) because the
+; shape is smooth and radial — placed faces would need a fan and would seam
+; where the dominant UV axis flipped round the basin.
+[drain]
+display = Floor Drain
+model = floor_drain
+
+; Broken paving: slabs settled onto a bed, two of them gone. Placed faces rather
+; than a heightfield (tools/BuildFloorCracked.py) — a crack wants a crisp edge,
+; and a grid fine enough for a 5 cm gap would cost thousands of verts to say
+; "nine flat slabs". Heightfield for a SMOOTH shape, placed faces for a BROKEN
+; one.
+[cracked]
+display = Cracked Paving
+model = floor_cracked

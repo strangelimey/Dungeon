@@ -237,3 +237,7 @@ decoration floor_grate 13 8
 decoration floor_grate 13 17
 floorfeature recess 13 8
 floorfeature recess 13 17
+floorfeature drain 12 8
+floorfeature cracked 14 8
+floorfeature cracked 11 8
+floorfeature drain 15 8
