@@ -49,6 +49,7 @@ constexpr CatInfo kCategoryInfo[] = {
 	{"map.cat.stairs", "stairs", false},    {"map.cat.items", "items", false},
 	{"map.cat.weapons", "weapons", false},  {"map.cat.armor", "armor", false},
 	{"map.cat.wallfeatures", "wallfeatures", false},
+	{"map.cat.floorfeatures", "floorfeatures", false},
 	{"map.cat.effects", "effects", false, /*placeable*/ false},
 };
 static_assert(sizeof(kCategoryInfo) / sizeof(kCategoryInfo[0]) ==
@@ -149,6 +150,7 @@ std::vector<MapEditor::PaletteItem> MapEditor::CategoryItems(PaletteCat cat) con
 	case PaletteCat::Weapons:     return catalogItems(proj.weapons, kItem);
 	case PaletteCat::Armor:       return catalogItems(proj.armor, kItem);
 	case PaletteCat::WallFeatures: return catalogItems(proj.wallfeatures, kDecoration);
+	case PaletteCat::FloorFeatures: return catalogItems(proj.floorfeatures, kDecoration);
 	case PaletteCat::Effects:     return catalogItems(proj.effects, kMonster);
 	default:                      return {};
 	}
@@ -513,6 +515,7 @@ void MapEditor::ApplyBrush(int cx, int cz, bool dragging, const WallFace& face) 
 	case PaletteCat::Weapons:
 	case PaletteCat::Armor:
 	case PaletteCat::WallFeatures:
+	case PaletteCat::FloorFeatures:
 	case PaletteCat::Fixtures: {
 		if (dragging) break; // placement is a single click
 		const std::vector<PaletteItem> items = CategoryItems(m_sel.cat);
@@ -555,6 +558,10 @@ void MapEditor::ApplyBrush(int cx, int cz, bool dragging, const WallFace& face) 
 				ok = remote ? m_world.AddNicheRemote(stem, id, px, pz, face.wall)
 							: m_world.AddNiche(id, px, pz, face.wall);
 		}
+		else if (m_sel.cat == PaletteCat::FloorFeatures)
+			// The plain cell under the pointer — a floor has no face to pick.
+			ok = remote ? m_world.AddFloorFeatureRemote(stem, id, cx, cz)
+						: m_world.AddFloorFeature(id, cx, cz);
 		else if (m_sel.cat == PaletteCat::Buttons)
 			ok = remote ? m_world.AddButtonRemote(stem, id, cx, cz)
 						: m_world.AddButton(id, cx, cz);
@@ -841,7 +848,10 @@ void MapEditor::EraseAt(int cx, int cz, const WallFace& face) {
 		// order of the cell-wide ladder.
 		log(loc::Tr("map.erase.removed"));
 	} else if (m_world.RemoveEntityAt(cx, cz) || m_world.RemoveFixtureAt(cx, cz) ||
-			   m_world.RemoveNicheAtWall(cx, cz) || m_world.RemoveBoreAt(cx, cz)) {
+			   m_world.RemoveNicheAtWall(cx, cz) || m_world.RemoveBoreAt(cx, cz) ||
+			   // Below the wall rungs: a floor recess is the cell's own floor, so
+			   // erasing it should not beat anything STANDING on that floor.
+			   m_world.RemoveFloorFeatureAt(cx, cz)) {
 		log(loc::Tr("map.erase.removed"));
 	} else {
 		m_world.EditVariant(cx, cz, SS::Wall, -1);

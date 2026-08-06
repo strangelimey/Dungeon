@@ -233,3 +233,7 @@ decoration boulder 24 6 south
 decoration mossy_rock 21 9 south
 decoration chest 25 6 south
 decoration wall_arch 13 16 north
+decoration floor_grate 13 8
+decoration floor_grate 13 17
+floorfeature recess 13 8
+floorfeature recess 13 17

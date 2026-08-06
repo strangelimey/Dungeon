@@ -410,6 +410,7 @@ map.cat.items=Items
 map.cat.weapons=Weapons
 map.cat.armor=Armor
 map.cat.wallfeatures=Wall Features
+map.cat.floorfeatures=Floor Features
 map.cat.effects=Effects
 map.type.classbacked=An effect is defined by its class — this entry only tunes it.
 map.cat.empty=(none defined)

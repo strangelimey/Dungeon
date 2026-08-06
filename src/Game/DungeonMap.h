@@ -156,6 +156,20 @@ struct WallBore {
 	std::string type = "window"; // wallfeatures.cat id (its bore mesh / shape)
 };
 
+// A FLOOR FEATURE: the WallNiche idea laid flat. A recess carved into a walkable
+// cell's floor — the mesh builder stamps the feature's tile instead of the plain
+// floor block for that cell, into the same variant bucket, so it wears the
+// cell's floor texture. `type` is the floorfeatures.cat id.
+//
+// No `wall` and no facing: a floor has one orientation. And no `hidden`/`open`
+// pair — a secret niche has a blank wall to hide behind, whereas a hole in the
+// floor either is there or is not. If a covered pit ever wants one, it should
+// arrive as a trapdoor with real state, not as a mesh swap.
+struct FloorFeature {
+	int x = 0, z = 0;
+	std::string type = "recess";
+};
+
 // How the parser routes a `fixture <id> ...` record and the 'T'/'F' glyphs
 // without knowing the fixtures catalog: ids listed in `wallMount` become
 // WallSconces (everything else stands on the floor), and the glyphs resolve
@@ -350,6 +364,22 @@ public:
 	// Distinct non-empty niche names on the level (the button inspector's targets).
 	std::vector<std::string> NicheNames() const;
 
+	// Floor features (recesses sunk into a cell's floor). The mesh builder reads
+	// FloorFeatureAt per cell and stamps the tile in place of the floor block.
+	const std::vector<FloorFeature>& FloorFeatures() const { return m_floorFeatures; }
+	// The feature on walkable cell (x,z), or null — the builder's per-cell query.
+	const FloorFeature* FloorFeatureAt(int x, int z) const;
+	// Sinks a feature into (x,z). False if the cell isn't walkable or already has
+	// one. Bumps Revision().
+	bool AddFloorFeature(int x, int z, std::string type);
+	// Adds one unchecked (the parser + remote/stash editing). Bumps Revision().
+	void AddFloorFeatureRecord(FloorFeature f) {
+		m_floorFeatures.push_back(std::move(f));
+		++m_revision;
+	}
+	// Removes the feature on (x,z). Bumps Revision(); false if none.
+	bool RemoveFloorFeature(int x, int z);
+
 	// Wall windows (see-through bores through a solid block). The mesh builder
 	// reads WallBoredAlong per stamped face; LoS/projectiles read it per cell.
 	const std::vector<WallBore>& Bores() const { return m_bores; }
@@ -499,6 +529,7 @@ private:
 	std::vector<FloorBrazier> m_braziers;
 	std::vector<WallNiche> m_niches;
 	std::vector<WallBore> m_bores;
+	std::vector<FloorFeature> m_floorFeatures;
 	std::vector<Entity> m_decorations;
 	std::vector<StairLink> m_stairs;
 	std::vector<std::string> m_wallPalette;   // catalog ids (walls.cat)

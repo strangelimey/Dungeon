@@ -401,6 +401,17 @@ constexpr FieldSpec kWallFeatureFields[] = {
 	 .help = "A see-through window bored THROUGH the block, not a pocket in its face.",
 	 .def = "0"},
 };
+
+// Floor features. No `texture` row on purpose: the tile is stamped into the
+// cell's floor variant bucket, so the CELL supplies the texture — offering one
+// here would be a setting that does nothing.
+constexpr FieldSpec kFloorFeatureFields[] = {
+	IDENTITY_DISPLAY,
+	IDENTITY_CATEGORY,
+	{.key = "model", .kind = FieldKind::Model, .sectionKey = kSectionLook,
+	 .help = "The tile stamped in place of the cell's floor block. Must span the "
+			 "full cell with its surface at y = 0 (tools/BuildFloorRecess.py)."},
+};
 } // namespace
 
 std::span<const FieldSpec> SchemaFor(std::string_view catalogKey) {
@@ -417,6 +428,7 @@ std::span<const FieldSpec> SchemaFor(std::string_view catalogKey) {
 	if (catalogKey == "weapons") return kWeaponFields;
 	if (catalogKey == "armor") return kArmorFields;
 	if (catalogKey == "wallfeatures") return kWallFeatureFields;
+	if (catalogKey == "floorfeatures") return kFloorFeatureFields;
 	if (catalogKey == "effects") return kEffectFields;
 	return {};
 }

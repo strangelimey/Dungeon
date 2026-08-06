@@ -277,3 +277,18 @@ solid = 0
 authored = 0
 category = clutter
 facing_arrow = 0
+
+; Floor detail (tools/BuildFloorGrate.py): JUST THE IRON BARS, hanging below the
+; floor plane. The hole they cover is a FLOOR FEATURE — floorfeatures.cat
+; `recess` — which replaces the cell's floor block and so wears that cell's floor
+; texture. The bars cannot live in that mesh (it would draw them in stone), so a
+; grate is the two composed: place a recess on the cell, then this on top.
+; solid = 0 — the party walks over it.
+[floor_grate]
+display = Floor Grate
+model = floor_grate
+texture = rusted_iron
+solid = 0
+authored = 1
+category = floor
+facing_arrow = 0

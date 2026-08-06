@@ -1,0 +1,16 @@
+; Floor features: a recess carved into a floor block — the wall-niche idea laid
+; flat. The mesh builder stamps the feature's tile IN PLACE OF the cell's floor
+; block, into the same variant bucket, so it wears whatever floor texture that
+; cell wears. That is the whole point: a hole in the floor that is actually part
+; of the floor, rather than a prop parked on top of one.
+;
+; A feature mesh must span the full cell (x,z in [-0.5, 0.5]) with its surface at
+; y = 0 and use the floor block's UVs (u = x + 0.5, v = z + 0.5), or the cell
+; stops tiling with its neighbours. tools/BuildFloorRecess.py is the reference,
+; and asserts both.
+;
+; `texture` is deliberately absent — the cell supplies it.
+
+[recess]
+display = Floor Recess
+model = floor_recess

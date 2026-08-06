@@ -390,6 +390,7 @@ map.cat.items=Gegenstände
 map.cat.weapons=Waffen
 map.cat.armor=Rüstung
 map.cat.wallfeatures=Wandelemente
+map.cat.floorfeatures=Bodenelemente
 map.cat.effects=Effekte
 map.type.classbacked=Ein Effekt wird durch seine Klasse definiert — dieser Eintrag stimmt ihn nur ab.
 map.cat.empty=(keine definiert)

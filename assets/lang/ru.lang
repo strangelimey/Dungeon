@@ -394,6 +394,7 @@ map.cat.items=Предметы
 map.cat.weapons=Оружие
 map.cat.armor=Броня
 map.cat.wallfeatures=Элементы стен
+map.cat.floorfeatures=Элементы пола
 map.cat.effects=Эффекты
 map.type.classbacked=Эффект задаётся своим классом — эта запись лишь настраивает его.
 map.cat.empty=(не задано)

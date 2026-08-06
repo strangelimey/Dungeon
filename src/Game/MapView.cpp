@@ -875,6 +875,21 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 		const float h = b.axis == 0 ? thin : lng;
 		batch.DrawRect({ctr.x - w * 0.5f, ctr.y - h * 0.5f, w, h}, {0.4f, 0.8f, 0.95f, 1});
 	}
+	// Floor recesses: a hollow square inset in the cell — an outline rather than a
+	// fill, because the cell is still floor you walk on and a solid marker would
+	// read as an obstacle. Same gold as a niche: both are recesses.
+	for (const FloorFeature& f : map.FloorFeatures()) {
+		if (!CellVisible(f.x, f.z)) continue;
+		const Vec2 ctr = cellCenter(f.x, f.z);
+		const float side = t.cell * 0.44f; // the recess mouth, near enough
+		const float bar = std::max(1.0f, t.cell * 0.07f);
+		const gfx::Rect box{ctr.x - side * 0.5f, ctr.y - side * 0.5f, side, side};
+		const Vec4 col{0.88f, 0.72f, 0.32f, 1.0f};
+		batch.DrawRect({box.x, box.y, box.w, bar}, col);                    // top
+		batch.DrawRect({box.x, box.y + box.h - bar, box.w, bar}, col);      // bottom
+		batch.DrawRect({box.x, box.y, bar, box.h}, col);                    // left
+		batch.DrawRect({box.x + box.w - bar, box.y, bar, box.h}, col);      // right
+	}
 	// Decorations: the LIVE world list for the active level (so editor
 	// placements/removals show), the map's records for a browsed one.
 	std::vector<DungeonWorld::MapMarker> decos;

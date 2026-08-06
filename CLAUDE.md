@@ -1201,6 +1201,26 @@ worn_*, lang, shaders — what AssetBaker emits):
   [haze=…] [ambient=…]` (per-level mood knobs, authored by the editor's Level
   settings dialog) records. (The old `assets/maps/level1.*` with `textures`
   records is dead — superseded by the project copies.)
+- FEATURES are the one kind of content that is not a prop: a mesh stamped IN
+  PLACE OF a surface block, into that block's own variant bucket, so it wears
+  the cell's texture and IS the surface rather than sitting on it. Two flavours,
+  the same idea turned 90 degrees: `niche <type> <x> <z> [facing]` replaces a
+  wall panel (wallfeatures.cat), and `floorfeature <type> <x> <z>` replaces a
+  cell's FLOOR block (floorfeatures.cat, `[recess]`). REACH FOR A FEATURE, NOT A
+  PROP, whenever the thing is a hole: a floor grate modelled as a prop can only
+  ever be a box parked on the floor, because the floor is a displaced grid and
+  nothing below y=0 is visible — Michael rejected exactly that on sight, and the
+  recess is the honest fix. A feature mesh MUST match the block it replaces: full
+  cell extent, surface at y = 0, and the block's own UVs (floor: u = x + 0.5,
+  v = z + 0.5). What makes a flat tile meet its displaced neighbours seamlessly
+  is that the worn blocks pin their displacement to zero at the cell edges
+  (PinRamp), the same property that lets them tile at all;
+  `tools/BuildFloorRecess.py` asserts both and is the reference. A feature is ONE
+  mesh shared by all 54 surfaces, so like the wall features it takes the 2:1
+  aspect correction at STAMP time (`floorUAspect`), never baked. And because it
+  rides the variant bucket it can only wear the cell's texture — so anything
+  needing its OWN material composes on top as a decoration, which is why an iron
+  grate is two records: `floorfeature recess` plus `decoration floor_grate`.
 
 Serialize.* is the block (de)serialization primitive (free Find/Get/GetFloat/
 GetBool/Set over a Field vector; Block + CatalogEntry both delegate). Catalog.*

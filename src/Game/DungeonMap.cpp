@@ -230,6 +230,28 @@ DungeonMap::DungeonMap(const std::string& path, FixtureTypes fixtures) {
 								/*open=*/!hidden});
 			continue;
 		}
+		if (record.starts_with("floorfeature")) {
+			// floorfeature [<type>] <x> <z> — a recess sunk into a walkable cell's
+			// floor. The optional first token is the floorfeatures.cat id (absent =
+			// "recess"; detected by whether it parses as a coordinate, the niche
+			// rule). Dropped if the cell isn't walkable or already has one
+			// (tolerant, like niches — a stale record is not worth dying over).
+			const std::vector<std::string_view> tok = SplitRecordTokens(record);
+			const auto asInt = [](std::string_view t, int& out) {
+				const auto [end, ec] = std::from_chars(t.data(), t.data() + t.size(), out);
+				return ec == std::errc{} && end == t.data() + t.size();
+			};
+			int probe = 0;
+			const bool typed = tok.size() >= 2 && !asInt(tok[1], probe);
+			const size_t c = typed ? 2 : 1; // index of the x token
+			std::string type = typed ? std::string(tok[1]) : "recess";
+			int fx = 0, fz = 0;
+			DN_ASSERT(tok.size() >= c + 2 && asInt(tok[c], fx) && asInt(tok[c + 1], fz),
+					  std::format("floorfeature needs <x> <z>: \"{}\" in {}", record, path));
+			if (!IsWalkable(fx, fz) || FloorFeatureAt(fx, fz)) continue;
+			m_floorFeatures.push_back({fx, fz, std::move(type)});
+			continue;
+		}
 		if (record.starts_with("bore")) {
 			// bore [<type>] <x> <z> <axis> — a see-through hole through a solid wall
 			// block (axis 0 = X, 1 = Z; optional type = the wallfeatures.cat bore
@@ -533,6 +555,11 @@ bool DungeonMap::PruneFixturesForCell(int x, int z) {
 		changed |= std::erase_if(m_niches, [&](const WallNiche& n) {
 					   return n.x == x && n.z == z;
 				   }) > 0;
+		// A floor feature is the cell's FLOOR — painting the cell solid takes the
+		// floor away, so there is nothing left for the recess to be sunk into.
+		changed |= std::erase_if(m_floorFeatures, [&](const FloorFeature& f) {
+					   return f.x == x && f.z == z;
+				   }) > 0;
 	} else {
 		// Cell painted open: sconces that hung on it face open floor now. Re-mount
 		// each on a free solid wall of its own cell, else drop it.
@@ -678,6 +705,31 @@ const WallNiche* DungeonMap::NicheAt(int x, int z, int dx, int dz) const {
 		if (n.x == x && n.z == z && DirDX(n.wall) == dx && DirDZ(n.wall) == dz)
 			return &n;
 	return nullptr;
+}
+
+const FloorFeature* DungeonMap::FloorFeatureAt(int x, int z) const {
+	for (const FloorFeature& f : m_floorFeatures)
+		if (f.x == x && f.z == z) return &f;
+	return nullptr;
+}
+
+bool DungeonMap::AddFloorFeature(int x, int z, std::string type) {
+	// One per cell: the tile REPLACES the floor block, so a second would only
+	// draw through the first.
+	if (!IsWalkable(x, z) || FloorFeatureAt(x, z)) return false;
+	m_floorFeatures.push_back({x, z, std::move(type)});
+	++m_revision;
+	return true;
+}
+
+bool DungeonMap::RemoveFloorFeature(int x, int z) {
+	for (size_t i = 0; i < m_floorFeatures.size(); ++i)
+		if (m_floorFeatures[i].x == x && m_floorFeatures[i].z == z) {
+			m_floorFeatures.erase(m_floorFeatures.begin() + static_cast<ptrdiff_t>(i));
+			++m_revision;
+			return true;
+		}
+	return false;
 }
 
 bool DungeonMap::AddNiche(int x, int z, std::string type) {

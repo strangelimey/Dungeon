@@ -256,6 +256,13 @@ void DungeonWorld::LoadDungeonBlocks() {
 		(e.GetBool("bore", false) ? m_boreMeshes : m_nicheMeshes)
 			.emplace(e.id, LoadModelOrDie(model + ".gltf").meshes[0]);
 	}
+
+	// Floor-feature tiles, one per floorfeatures.cat type. Same shape as the
+	// niches above — loaded once, referenced by a level's `floorfeature` records.
+	m_floorFeatureMeshes.clear();
+	for (const CatalogEntry& e : m_project.floorfeatures.Entries())
+		m_floorFeatureMeshes.emplace(
+			e.id, LoadModelOrDie(CatalogGet(&e, "model", e.id) + ".gltf").meshes[0]);
 }
 
 const assets::MeshData* DungeonWorld::BoreMeshFor(const std::string& type) const {
@@ -266,6 +273,11 @@ const assets::MeshData* DungeonWorld::BoreMeshFor(const std::string& type) const
 const assets::MeshData* DungeonWorld::NicheMeshFor(const std::string& type) const {
 	const auto it = m_nicheMeshes.find(type);
 	return it != m_nicheMeshes.end() ? &it->second : nullptr;
+}
+
+const assets::MeshData* DungeonWorld::FloorFeatureMeshFor(const std::string& type) const {
+	const auto it = m_floorFeatureMeshes.find(type);
+	return it != m_floorFeatureMeshes.end() ? &it->second : nullptr;
 }
 
 // Loads a PBR set (albedo sRGB + normal/height + ORM) by base name at the
@@ -345,11 +357,13 @@ void DungeonWorld::BuildDungeonMeshes() {
 	ApplySurfaceFactors();
 	DungeonGeometry geo = BuildDungeonGeometry(
 		m_map, m_wallBlocks, m_floorBlocks, m_ceilingBlocks, m_walls.uAspect,
+		m_floors.uAspect,
 		[this](int x, int z) {
 			return CellHoles{FloorHoleAt(x, z), CeilingHoleAt(x, z)};
 		},
 		[this](const std::string& type) { return NicheMeshFor(type); },
-		[this](const std::string& type) { return BoreMeshFor(type); });
+		[this](const std::string& type) { return BoreMeshFor(type); },
+		[this](const std::string& type) { return FloorFeatureMeshFor(type); });
 
 	auto upload = [&](Surface& surface, std::vector<GeometryChunk>& chunks) {
 		surface.chunks.clear();

@@ -47,6 +47,11 @@ struct Project {
 	// are its class (Game/Effect/), exactly like a spell's.
 	Catalog effects;
 	Catalog wallfeatures; // recessed wall niches (Phase 2)
+	// The same idea laid flat: a tile stamped IN PLACE OF a cell's floor block,
+	// carrying a recess sunk into it. Separate from wallfeatures because the
+	// record has no facing (a floor has one orientation) and the mesh must match
+	// the FLOOR block's extent and UVs, not a wall panel's.
+	Catalog floorfeatures;
 	// Weapons and armor are ITEMS at runtime (placed as item entities, carried,
 	// equipped) but authored in their own catalogs so their weapon/armor-only
 	// settings don't clutter every other item. The split is purely

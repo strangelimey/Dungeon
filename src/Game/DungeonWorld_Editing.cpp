@@ -430,6 +430,19 @@ bool DungeonWorld::RemoveNicheAtWall(int wx, int wz) {
 	return true;
 }
 
+bool DungeonWorld::AddFloorFeature(const std::string& type, int x, int z) {
+	if (!m_map.AddFloorFeature(x, z, type)) return false; // not walkable, or taken
+	RebuildChunksAround(x, z); // re-stamp the cell's floor block as the recess
+	MarkSeen(x, z);
+	return true;
+}
+
+bool DungeonWorld::RemoveFloorFeatureAt(int x, int z) {
+	if (!m_map.RemoveFloorFeature(x, z)) return false;
+	RebuildChunksAround(x, z); // the plain floor block comes back
+	return true;
+}
+
 bool DungeonWorld::AddBore(const std::string& type, int x, int z) {
 	if (!m_map.AddBore(type, x, z)) return false;
 	RebuildChunksAround(x, z); // re-stamps the two flanking floor cells' faces
@@ -1268,6 +1281,11 @@ bool DungeonWorld::AddNicheRemote(const std::string& stem, const std::string& ty
 	return EnsureMapStash(stem).AddNiche(x, z, type, wall);
 }
 
+bool DungeonWorld::AddFloorFeatureRemote(const std::string& stem,
+										 const std::string& type, int x, int z) {
+	return EnsureMapStash(stem).AddFloorFeature(x, z, type);
+}
+
 void DungeonWorld::EraseRemote(const std::string& stem, int x, int z) {
 	auto say = [&](const std::string& s) {
 		if (onMessage) onMessage(s);
@@ -1290,7 +1308,7 @@ void DungeonWorld::EraseRemote(const std::string& stem, int x, int z) {
 			return;
 		}
 	if (map.RemoveDecorationRecordAt(x, z) || map.RemoveFixtureAt(x, z) ||
-		map.RemoveNicheFacingWall(x, z)) {
+		map.RemoveNicheFacingWall(x, z) || map.RemoveFloorFeature(x, z)) {
 		say(loc::Tr("map.erase.removed"));
 		return;
 	}
@@ -1588,6 +1606,8 @@ static std::string SerializeMapStatic(const std::string& stem,
 	}
 	for (const WallBore& b : map.Bores())
 		m += std::format("bore {} {} {} {}\n", b.type, b.x, b.z, b.axis);
+	for (const FloorFeature& f : map.FloorFeatures())
+		m += std::format("floorfeature {} {} {}\n", f.type, f.x, f.z);
 
 	for (const StairLink& s : map.Stairs())
 		m += std::format("stairs {} {} {} {} dest={} destx={} destz={} destfacing={}\n",

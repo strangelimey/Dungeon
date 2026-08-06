@@ -83,14 +83,22 @@ using NicheMeshFn = std::function<const assets::MeshData*(const std::string& typ
 // from the wall it is cut into. Here is the one place both are known, since the
 // feature rides the wall's variant bucket. Empty = every surface square, which
 // is what the code assumed before ten of them turned out not to be.
+//
+// `floorFeature` is the same substitution one cell lower: a type→mesh resolver
+// whose tile is stamped IN PLACE OF the cell's floor block (DungeonMap::
+// FloorFeatureAt), into the floor's variant bucket, so a recess sunk into the
+// floor wears that cell's floor texture. `floorUAspect` corrects it exactly as
+// `wallUAspect` corrects a niche.
 DungeonGeometry BuildDungeonGeometry(const DungeonMap& map,
 									 std::span<const assets::MeshData> wallBlocks,
 									 std::span<const assets::MeshData> floorBlocks,
 									 std::span<const assets::MeshData> ceilingBlocks,
 									 std::span<const float> wallUAspect = {},
+									 std::span<const float> floorUAspect = {},
 									 const CellHolesFn& holes = {},
 									 const NicheMeshFn& niche = {},
-									 const NicheMeshFn& bore = {});
+									 const NicheMeshFn& bore = {},
+									 const NicheMeshFn& floorFeature = {});
 
 // Builds just the geometry for one spatial chunk region (chunk coords
 // chunkX/chunkZ, each covering kChunkCells cells), with every returned chunk
@@ -102,9 +110,11 @@ DungeonGeometry BuildDungeonRegion(const DungeonMap& map,
 								   std::span<const assets::MeshData> floorBlocks,
 								   std::span<const assets::MeshData> ceilingBlocks,
 								   std::span<const float> wallUAspect,
+								   std::span<const float> floorUAspect,
 								   int chunkX, int chunkZ,
 								   const CellHolesFn& holes = {},
 								   const NicheMeshFn& niche = {},
-								   const NicheMeshFn& bore = {});
+								   const NicheMeshFn& bore = {},
+								   const NicheMeshFn& floorFeature = {});
 
 } // namespace dungeon::game
