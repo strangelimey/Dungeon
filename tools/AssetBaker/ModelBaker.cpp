@@ -716,6 +716,20 @@ public:
 
 	bool IsValid() const { return m_valid; }
 
+	// Width / height of the scan. NOT always 1: eleven of the installed sets are
+	// 2:1 tiles (a 4096x2048 scan holds two squares' worth of stone across and
+	// one down), and the UV mapping below is otherwise isotropic, so they were
+	// being squeezed into a square footprint and rendered half as wide as the
+	// material actually is. Valid even when IsValid() is false — a flat height
+	// map still has dimensions, and the aspect has to correct the painted
+	// texture whether the relief came from the scan or from procedural wear.
+	float Aspect() const {
+		return m_image.width > 0 && m_image.height > 0
+				   ? static_cast<float>(m_image.width) /
+						 static_cast<float>(m_image.height)
+				   : 1.0f;
+	}
+
 	float Sample(float u, float v) const {
 		const int w = static_cast<int>(m_image.width);
 		const int h = static_cast<int>(m_image.height);
@@ -831,13 +845,22 @@ float CeilingWearDepth(float x, float z) {
 // field converts its result to units on return. du/dv pass the grid footprint
 // to SampleBox. The u,v here are UV space (0..1 per cell), unaffected by the
 // unit change.
+//
+// U IS DIVIDED BY THE TEXTURE'S ASPECT (TextureHeight::Aspect) so a non-square
+// scan covers proportionally more world width per repeat instead of being
+// squashed into one square. Both the mesh UVs and these fields take the same
+// correction, which is the whole reason it can be applied at all — they share
+// kUvScale precisely so the relief lands on the painted stones, and correcting
+// only one of them would slide the two apart. `du`, the SampleBox footprint in
+// u, is scaled with it.
 
 WearField TextureWallWear(const TextureHeight& height, float relief, int gridX,
 						  int gridY, u32 seed) {
-	const float du = 1.0f / gridX;
+	const float uScale = kUvScale / height.Aspect();
+	const float du = 1.0f / (gridX * height.Aspect());
 	const float dv = (kWallH / gridY) * kUvScale;
-	return [&height, relief, du, dv, seed](float x, float y) {
-		const float u = (x + kCellHalf) * kUvScale;
+	return [&height, relief, du, dv, uScale, seed](float x, float y) {
+		const float u = (x + kCellHalf) * uScale;
 		const float v = (kWallH - y) * kUvScale;
 		// Low texture height = recessed surface (mortar, broken bricks).
 		float d = (1.0f - height.SampleBox(u, v, du, dv)) * relief; // metres
@@ -852,9 +875,10 @@ WearField TextureWallWear(const TextureHeight& height, float relief, int gridX,
 
 WearField TextureFloorWear(const TextureHeight& height, float relief, int grid,
 						   u32 seed) {
-	const float du = 0.5f / grid, dv = 0.5f / grid;
-	return [&height, relief, du, dv, seed](float x, float z) {
-		const float u = (x + kCellHalf) * kUvScale, v = (z + kCellHalf) * kUvScale;
+	const float uScale = kUvScale / height.Aspect();
+	const float du = 0.5f / (grid * height.Aspect()), dv = 0.5f / grid;
+	return [&height, relief, du, dv, uScale, seed](float x, float z) {
+		const float u = (x + kCellHalf) * uScale, v = (z + kCellHalf) * kUvScale;
 		float h = (height.SampleBox(u, v, du, dv) - 0.5f) * relief; // metres
 		h += (Fbm(u * 2.2f, v * 2.2f, seed) - 0.5f) * 0.02f; // general unevenness
 		const float pin = PinRamp(kCellHalf - std::fabs(x), U(0.10f)) *
@@ -865,9 +889,10 @@ WearField TextureFloorWear(const TextureHeight& height, float relief, int grid,
 
 WearField TextureCeilingWear(const TextureHeight& height, float relief, int grid,
 							 u32 seed) {
-	const float du = 0.5f / grid, dv = 0.5f / grid;
-	return [&height, relief, du, dv, seed](float x, float z) {
-		const float u = (x + kCellHalf) * kUvScale, v = (z + kCellHalf) * kUvScale;
+	const float uScale = kUvScale / height.Aspect();
+	const float du = 0.5f / (grid * height.Aspect()), dv = 0.5f / grid;
+	return [&height, relief, du, dv, uScale, seed](float x, float z) {
+		const float u = (x + kCellHalf) * uScale, v = (z + kCellHalf) * kUvScale;
 		// Low texture height = deeper erosion pocket (upward, into the rock).
 		float d = (1.0f - height.SampleBox(u, v, du, dv)) * relief; // metres
 		d += (Fbm(u * 3.0f, v * 3.0f, seed) - 0.5f) * 0.015f;
@@ -886,9 +911,16 @@ WearField TextureCeilingWear(const TextureHeight& height, float relief, int grid
 // every edge, so the block is watertight by itself — nothing decorative is
 // added on top (the `columns` edge pillars were retired 2026-08-05; place a
 // pillar decoration instead).
-assets::ModelData BuildWornWallBlock(int kNx, int kNy, const WearField& wear) {
+// `uAspect` is the texture's width/height (1 for a square scan) — the U axis is
+// divided by it so a 2:1 tile spans two squares of world width per repeat
+// instead of being squashed into one. It MUST match the wear field's own
+// correction: the two share this mapping so the displacement lands on the
+// painted stones.
+assets::ModelData BuildWornWallBlock(int kNx, int kNy, const WearField& wear,
+									 float uAspect) {
 	assets::ModelData model;
 	assets::MeshData mesh;
+	const float uScale = kUvScale / uAspect;
 
 	// Displaced surface replacing the clean block's panel/border relief.
 	constexpr float kEps = U(0.02f); // finite-difference step for normals
@@ -905,7 +937,7 @@ assets::ModelData BuildWornWallBlock(int kNx, int kNy, const WearField& wear) {
 			assets::Vertex vert;
 			vert.position = {x, y, -d};
 			vert.normal = {ddx * inv, ddy * inv, inv};
-			vert.uv = {(x + kCellHalf) * kUvScale, (kWallH - y) * kUvScale};
+			vert.uv = {(x + kCellHalf) * uScale, (kWallH - y) * kUvScale};
 			mesh.vertices.push_back(vert);
 		}
 	}
@@ -921,9 +953,11 @@ assets::ModelData BuildWornWallBlock(int kNx, int kNy, const WearField& wear) {
 	return model;
 }
 
-assets::ModelData BuildWornFloorBlock(int kN, const WearField& wear) {
+assets::ModelData BuildWornFloorBlock(int kN, const WearField& wear,
+									  float uAspect) {
 	assets::ModelData model;
 	assets::MeshData mesh;
+	const float uScale = kUvScale / uAspect; // see BuildWornWallBlock
 
 	constexpr float kEps = U(0.02f);
 	for (int j = 0; j <= kN; ++j) {
@@ -938,7 +972,7 @@ assets::ModelData BuildWornFloorBlock(int kN, const WearField& wear) {
 			assets::Vertex vert;
 			vert.position = {x, h, z};
 			vert.normal = {-hx * inv, inv, -hz * inv};
-			vert.uv = {(x + kCellHalf) * kUvScale, (z + kCellHalf) * kUvScale};
+			vert.uv = {(x + kCellHalf) * uScale, (z + kCellHalf) * kUvScale};
 			mesh.vertices.push_back(vert);
 		}
 	}
@@ -954,9 +988,11 @@ assets::ModelData BuildWornFloorBlock(int kN, const WearField& wear) {
 	return model;
 }
 
-assets::ModelData BuildWornCeilingBlock(int kN, const WearField& wear) {
+assets::ModelData BuildWornCeilingBlock(int kN, const WearField& wear,
+										float uAspect) {
 	assets::ModelData model;
 	assets::MeshData mesh;
+	const float uScale = kUvScale / uAspect; // see BuildWornWallBlock
 
 	// Authored at y=0 facing down (like the clean block); erosion goes up.
 	constexpr float kEps = U(0.02f);
@@ -972,7 +1008,7 @@ assets::ModelData BuildWornCeilingBlock(int kN, const WearField& wear) {
 			assets::Vertex vert;
 			vert.position = {x, d, z};
 			vert.normal = {dx * inv, -inv, dz * inv};
-			vert.uv = {(x + kCellHalf) * kUvScale, (z + kCellHalf) * kUvScale};
+			vert.uv = {(x + kCellHalf) * uScale, (z + kCellHalf) * kUvScale};
 			mesh.vertices.push_back(vert);
 		}
 	}
@@ -2095,6 +2131,14 @@ bool BakeWornTiers(int kind, const std::string& texture, float relief, u32 seed,
 	if (!flat && !height.IsValid())
 		log::Warn("{}: no packed height map — baking procedural wear "
 				  "(run tools/FetchTextures.ps1, then rebake)", texture);
+	// A non-square scan tiles across proportionally more world width. Read from
+	// the image rather than authored, so a set cannot drift from its own texture
+	// — and note this holds even for a set baking PROCEDURAL wear, since it is
+	// the painted texture being corrected, not the displacement.
+	const float uAspect = height.Aspect();
+	if (uAspect != 1.0f)
+		log::Info("{}: {:.2f}:1 texture — one tile spans {:.2f} squares across",
+				  texture, uAspect, uAspect);
 	bool ok = true;
 	for (const Tier& tier : tiers) {
 		const std::string out =
@@ -2109,7 +2153,8 @@ bool BakeWornTiers(int kind, const std::string& texture, float relief, u32 seed,
 											   : height.IsValid()
 												   ? TextureWallWear(height, relief, tier.wallX,
 																	 tier.wallY, seed)
-												   : WearField(WallWearDepth)),
+												   : WearField(WallWearDepth),
+											   uAspect),
 							out);
 		}
 		else if (kind == 1)
@@ -2117,14 +2162,16 @@ bool BakeWornTiers(int kind, const std::string& texture, float relief, u32 seed,
 												height.IsValid()
 													? TextureFloorWear(height, relief,
 																	   tier.floor, seed)
-													: WearField(FloorWearHeight)),
+													: WearField(FloorWearHeight),
+												uAspect),
 							out);
 		else
 			ok &= WriteGltf(BuildWornCeilingBlock(tier.ceiling,
 												  height.IsValid()
 													  ? TextureCeilingWear(height, relief,
 																		   tier.ceiling, seed)
-													  : WearField(CeilingWearDepth)),
+													  : WearField(CeilingWearDepth),
+												  uAspect),
 							out);
 	}
 	return ok;

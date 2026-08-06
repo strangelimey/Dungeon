@@ -549,6 +549,23 @@ buffer, reused across all ~25 submissions).
     FetchTextures line through `powershell -Command`, NOT -File: -File binds
     `a,b,c` to [string[]] as ONE element, so every name matches nothing and the
     import dies with "Nothing imported".
+  - A SCAN NEED NOT BE SQUARE, and ten of the installed sets are 2:1 (a
+    4096x2048 tile holds two squares of stone across and one down). The worn
+    bake CORRECTS for that automatically — `TextureHeight::Aspect` reads the
+    image and every U in ModelBaker is divided by it, so one repeat spans that
+    many squares of world width instead of being squashed into one. Nothing is
+    authored and nothing can drift from its own texture. It went unnoticed for a
+    whole texture batch because the defect reads as "these stones are a bit
+    narrow", not as an error: `kUvScale` is "one tile per cell" in BOTH axes.
+    The correction MUST stay paired between the mesh UVs and the wear field —
+    they share that mapping precisely so the displacement lands on the painted
+    stones, and correcting one alone slides them apart. Re-bake with `AssetBaker
+    models`; the square sets come out byte-identical, which is the check that a
+    change here is a no-op at aspect 1. KNOWN GAP: the shared wall-feature
+    meshes (`wall_niche`, `wall_niche_arch`, `wall_window`, `wall_window_rect`)
+    are baked ONCE for all 54 surfaces, so they cannot take a per-texture
+    aspect — a niche cut into one of the ten will disagree with the wall around
+    it until those are baked per surface too.
 - Maps are two files per level, split static vs dynamic for the future
   save system (saves will only ever store the dynamic side):
   - assets/maps/level1.map — STATIC layer (DungeonMap): ASCII grid, ';'
