@@ -20,8 +20,14 @@ namespace {
 // Panel geometry as window fractions — the BalanceDialog card, a little taller
 // (a schema can run to a dozen rows; the tab pages scroll past that).
 constexpr gfx::Rect kPanel{0.26f, 0.12f, 0.48f, 0.76f};
-constexpr gfx::Rect kTitle{0.28f, 0.145f, 0.40f, 0.04f};
-constexpr gfx::Rect kTabs{0.28f, 0.195f, 0.44f, 0.60f};
+// The title gets the FULL inner width (the instance inspectors' rule — these
+// names share long prefixes, so the tail is what identifies them), and the tabs
+// start a whole TITLE BAND below it. At 0.195 the band was 0.050 against the
+// 0.0725 a title's line advance needs, and the title drew through the tab strip.
+// The strip keeps its old bottom edge (0.795, just above the footer) by giving
+// up the height instead — a tab page that no longer fits simply scrolls.
+constexpr gfx::Rect kTitle{0.28f, 0.145f, 0.44f, 0.04f};
+constexpr gfx::Rect kTabs{0.28f, kTitle.y + ui::kDialogTitleBandH, 0.44f, 0.575f};
 // Footer: Save pinned left; the rest right-aligned to the panel's inner edge
 // (~0.72) so nothing overruns it. Close is no longer here — it's the top-right
 // corner box now.
@@ -101,15 +107,29 @@ void TypeEditorDialog::SetValue(const FieldSpec& spec, std::string value) {
 	if (!Touched(spec.key)) m_touched.emplace_back(spec.key);
 }
 
+std::string TypeEditorDialog::TitlePrefix() const {
+	return loc::Format("map.type.title", m_cfg.categoryLabel, "");
+}
+
+gfx::Rect TypeEditorDialog::TitleBand(float w, float h) const {
+	const gfx::Rect band = ui::DialogTitleBand(kPanel, kTitle.x, kTitle.y);
+	return {band.x * w, band.y * h, band.w * w, band.h * h};
+}
+
+// Fitted to that band. "Decoration type — wall_arch_rustic" at the standard
+// title size is wider than the panel, and the id is both the identity and the
+// thing being renamed, so FitDialogTitle shrinks rather than cutting it off.
+const ui::Font& TypeEditorDialog::TitleFont(float w, float h) const {
+	return *ui::FitDialogTitle(m_ui, TitlePrefix() + m_cfg.id, TitleBand(w, h)).font;
+}
+
 // The id's pixel rect inside the title line: hover styles it, a click swaps it
 // for the rename field (the LevelSettingsDialog stem affordance).
 gfx::Rect TypeEditorDialog::IdRect(float w, float h) {
-	const std::string prefix =
-		loc::Format("map.type.title", m_cfg.categoryLabel, "");
-	// The TITLE face, which Render draws the id with — this rect is its click
-	// target, so the two must measure with the same font.
-	const ui::Font& title = ui::DialogTitleFont(m_ui);
-	return {kTitle.x * w + title.MeasureWidth(prefix), kTitle.y * h,
+	// The fitted TITLE face, which Render draws the id with — this rect is its
+	// click target, so the two must measure with the same font.
+	const ui::Font& title = TitleFont(w, h);
+	return {kTitle.x * w + title.MeasureWidth(TitlePrefix()), kTitle.y * h,
 			title.MeasureWidth(m_cfg.id) + 6.0f, title.Height()};
 }
 
@@ -123,8 +143,10 @@ void TypeEditorDialog::BuildUI() {
 		// The title row becomes the rename field. Enter commits through
 		// onRename; Esc or losing focus cancels.
 		m_nameField = m_ui.Add<ui::TextField>(
-			gfx::Rect{kTitle.x, kTitle.y, 0.22f, 0.035f}, m_cfg.id);
-		// It stands in for the title, so it is sized as the title, not as a row.
+			gfx::Rect{kTitle.x, kTitle.y, 0.22f, ui::kDialogTitleBandH}, m_cfg.id);
+		// It stands in for the title, so it is sized as the title, not as a row —
+		// and its BOX is the title band for the same reason, or the face it is
+		// about to draw does not fit the field holding it.
 		m_nameField->fontScale = ui::kDialogTitleScale;
 		m_nameField->maxLength = 32;
 		m_nameField->SetFocused(true);
@@ -409,9 +431,10 @@ void TypeEditorDialog::Render(gfx::SpriteBatch& batch, const ui::Theme& th, floa
 	if (!m_editName) {
 		// Title: the category prefix as plain text, the id as the rename
 		// affordance (accent on hover + an underline so it reads clickable).
-		const std::string prefix =
-			loc::Format("map.type.title", m_cfg.categoryLabel, "");
-		const ui::Font& title = ui::DialogTitleFont(m_ui); // same as IdRect
+		// Two pieces because they are styled differently, so this takes the
+		// fitted FONT rather than FitDialogTitle's joined string.
+		const std::string prefix = TitlePrefix();
+		const ui::Font& title = TitleFont(w, h); // same as IdRect
 		title.Draw(batch, prefix, kTitle.x * w, kTitle.y * h, th.text);
 		const gfx::Rect id{kTitle.x * w + title.MeasureWidth(prefix), kTitle.y * h,
 						   title.MeasureWidth(m_cfg.id), title.Height()};

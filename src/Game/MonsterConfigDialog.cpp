@@ -16,10 +16,17 @@ namespace {
 // Panel + region geometry, as fractions (0..1) of the window. Widgets take
 // normalized bounds directly; the self-drawn frame/preview convert to pixels.
 constexpr gfx::Rect kPanel{0.14f, 0.10f, 0.72f, 0.80f};
-constexpr gfx::Rect kTitle{0.155f, 0.115f, 0.55f, 0.045f};
-constexpr gfx::Rect kTabs{0.155f, 0.185f, 0.42f, 0.63f}; // TabControl (left)
-constexpr gfx::Rect kPrevHdr{0.60f, 0.165f, 0.25f, 0.03f};
-constexpr gfx::Rect kPreview{0.60f, 0.205f, 0.245f, 0.59f}; // preview pane (right)
+// Everything below the title starts a whole TITLE BAND down (ui::kDialogTitleBandH).
+// At 0.050 the band was well short of the 0.0725 a title's line advance needs,
+// and "Configure: <monster>" drew straight through the preview pane's header.
+// The title takes the FULL inner width and runs over the pane's column — the
+// instance inspectors' rule, since the type name is the tail — which is safe
+// because the pane now starts below the band. Tabs and pane keep their bottoms.
+constexpr gfx::Rect kTitle{0.155f, 0.115f, 0.69f, 0.045f};
+constexpr float kBelowTitle = kTitle.y + ui::kDialogTitleBandH;
+constexpr gfx::Rect kTabs{0.155f, kBelowTitle, 0.42f, 0.625f}; // TabControl (left)
+constexpr gfx::Rect kPrevHdr{0.60f, kBelowTitle, 0.25f, 0.03f};
+constexpr gfx::Rect kPreview{0.60f, 0.225f, 0.245f, 0.57f}; // preview pane (right)
 // Save centered in the footer; Close is the top-right corner box now.
 constexpr gfx::Rect kSave{0.4475f, 0.83f, 0.105f, 0.05f};
 
@@ -290,9 +297,14 @@ void MonsterConfigDialog::Render(gfx::SpriteBatch& batch, const ui::Theme& th, f
 	batch.DrawRect(panel, th.panel);
 	ui::DrawBorder(batch, panel, th.panelBorder);
 
-	const gfx::Rect title = px(kTitle);
-	ui::DialogTitleFont(m_ui).Draw(batch, loc::Format("map.cfg.title", m_display),
-								   title.x, title.y, th.text);
+	// Through FitDialogTitle: a monster's display name is arbitrary content, so
+	// this is the one title here that can genuinely run long, and it is a RAW
+	// draw with nothing else to bound it.
+	const gfx::Rect band = ui::DialogTitleBand(kPanel, kTitle.x, kTitle.y);
+	const gfx::Rect title{band.x * w, band.y * h, band.w * w, band.h * h};
+	const ui::FittedTitle fitted =
+		ui::FitDialogTitle(m_ui, loc::Format("map.cfg.title", m_display), title);
+	fitted.font->Draw(batch, fitted.text, title.x, title.y, th.text);
 
 	m_ui.Render(batch, w, h); // tabs + footer buttons (+ dropdown overlays)
 

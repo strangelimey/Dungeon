@@ -675,6 +675,12 @@ gfx::Rect CloseButtonRect(const gfx::Rect& panel);
 Button* AddCloseButton(UIContext& ui, const gfx::Rect& panel,
 					   const gfx::Texture* icon, std::function<void()> onClose);
 
+// The rect a dialog's title may occupy, in the same fraction space as `panel`:
+// from `left` across to the close box (never under it) and kDialogTitleBandH
+// tall, `top` down. Pass it to FitDialogTitle. Declared after CloseButtonRect
+// because the whole point is that the two agree about that corner.
+gfx::Rect DialogTitleBand(const gfx::Rect& panel, float left, float top);
+
 // How much larger than its context an editor dialog sets its two kinds of text.
 // Constants rather than a size each dialog picks, for the same reason
 // AddCloseButton is one helper: every dialog then reads at the same two sizes.
@@ -692,11 +698,38 @@ inline constexpr float kDialogTextScale = 2.0f;
 // the rect and the draw must ask the same function.
 const Font& DialogTitleFont(const UIContext& ctx);
 
+// The height a TITLE BAND needs, as a fraction of the WINDOW height — the gap a
+// dialog must leave between its title's top edge and whatever it puts below.
+//
+// Derived once here because every editor dialog authored its regions as window
+// fractions at a time when titles drew at 1x, and when the fonts thread took
+// them to kDialogTitleScale nothing re-derived a single band. All eight were
+// then too short (0.050..0.070 against the 0.0725 below), so every one of them
+// drew its title down through the row, tab strip or preview header beneath it.
+//
+// The derivation: these dialogs all size their context font the same way,
+// clamp(h * 0.020, 12, 24), and a title's line advance is that x
+// kDialogTitleScale x 1.25. Below the clamp both terms scale with h, so the
+// requirement is a constant 0.020 * 2.9 * 1.25 = 0.0725 of the window height;
+// above it (h >= 1200) the advance pins at 87px while the band keeps growing,
+// so the fraction only ever gets easier. 0.075 is the worst case plus headroom.
+//
+// It is the ADVANCE, not the ink height, that has to clear: leave only the ink
+// and the next row sits on the title's descenders. FitDialogTitle is the
+// backstop for a band that still cannot be made this tall.
+inline constexpr float kDialogTitleBandH = 0.075f;
+
 // A title FITTED to the space it actually has. `band` is the rect (window
 // pixels) the title may occupy — for a dialog with a preview pane that means
 // stopping at the PANE's edge, not the panel's. Shrinks from the standard title
-// size only as far as the band's height demands (never below the document
-// size), then ellipsises to its width.
+// size as far as the band's HEIGHT demands and then as far as its WIDTH does
+// (never below the document size), and only ellipsises once it has run out of
+// shrink. Shrinking first is deliberate: two of these titles carry the object's
+// id and are the rename affordance, so the tail is what identifies the thing —
+// dropping it is worse than a smaller title.
+//
+// The returned font is also what a caller must MEASURE with when the title is a
+// hit target, since the size is no longer fixed (see DialogTitleFont's note).
 //
 // This exists because a title is drawn RAW, so nothing else bounds it. The
 // instance inspectors reserved a fixed panel FRACTION for the title band, and

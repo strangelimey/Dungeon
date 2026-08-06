@@ -17,7 +17,10 @@ namespace {
 // everything else keys off these so title/rows/Close stack without overlap.
 constexpr float kPanelW = 0.30f;
 constexpr float kPad = 0.02f;    // panel inner margin
-constexpr float kTitleH = 0.05f;
+// The title band, which the panel height is built from — so widening it to what
+// a title at kDialogTitleScale actually needs (it was 0.05 against 0.0725) grows
+// the card and pushes the rows down on its own.
+constexpr float kTitleH = ui::kDialogTitleBandH;
 constexpr float kRowH = 0.058f;
 constexpr float kGap = 0.01f;
 } // namespace
@@ -40,7 +43,9 @@ void InspectPicker::Open(const std::string& title, const std::vector<std::string
 	const float x = (1.0f - kPanelW) * 0.5f;
 	const float y = std::clamp((1.0f - bodyH) * 0.5f, 0.05f, 0.5f);
 	m_panel = {x, y, kPanelW, bodyH};
-	m_titleRect = {x + kPad, y + kPad, kPanelW - 2 * kPad, kTitleH};
+	// The title stops at the close box in the corner it runs toward, not at the
+	// panel's inner edge (the shared rule).
+	m_titleRect = ui::DialogTitleBand(m_panel, x + kPad, y + kPad);
 
 	BuildUI();
 }
@@ -81,8 +86,11 @@ void InspectPicker::Render(gfx::SpriteBatch& batch, const ui::Theme& th, float w
 	batch.DrawRect(panel, th.panel);
 	ui::DrawBorder(batch, panel, th.panelBorder);
 
+	// Through FitDialogTitle: m_title is caller-supplied text and this is a raw
+	// draw, so nothing else bounds it. m_titleRect IS the band.
 	const gfx::Rect title = px(m_titleRect);
-	ui::DialogTitleFont(m_ui).Draw(batch, m_title, title.x, title.y, th.text);
+	const ui::FittedTitle fitted = ui::FitDialogTitle(m_ui, m_title, title);
+	fitted.font->Draw(batch, fitted.text, title.x, title.y, th.text);
 
 	m_ui.Render(batch, w, h);
 }

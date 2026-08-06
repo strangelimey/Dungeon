@@ -18,8 +18,12 @@ namespace {
 // config dialog's proportions, minus its preview pane — the tabs get the
 // width).
 constexpr gfx::Rect kPanel{0.24f, 0.08f, 0.52f, 0.84f};
-constexpr gfx::Rect kTitle{0.255f, 0.095f, 0.45f, 0.045f};
-constexpr gfx::Rect kTabs{0.255f, 0.165f, 0.49f, 0.67f};
+// The title takes the full inner width, and the tabs start a whole TITLE BAND
+// below it (ui::kDialogTitleBandH) rather than at a hand-picked 0.070 gap — that
+// was just short of the 0.0725 a title's line advance needs, so the title's
+// descenders reached into the tab strip. The strip keeps its bottom edge.
+constexpr gfx::Rect kTitle{0.255f, 0.095f, 0.49f, 0.045f};
+constexpr gfx::Rect kTabs{0.255f, kTitle.y + ui::kDialogTitleBandH, 0.49f, 0.665f};
 // Save centered in the footer; Close is the top-right corner box now.
 constexpr gfx::Rect kSave{0.4475f, 0.855f, 0.105f, 0.05f};
 
@@ -168,8 +172,14 @@ void BalanceDialog::Render(gfx::SpriteBatch& batch, const ui::Theme& th, float w
 	batch.DrawRect(panel, th.panel);
 	ui::DrawBorder(batch, panel, th.panelBorder);
 
-	ui::DialogTitleFont(m_ui).Draw(batch, loc::Tr("map.balance.title"),
-								   kTitle.x * w, kTitle.y * h, th.text);
+	// Through FitDialogTitle so a longer translation shrinks into the band
+	// rather than drawing across the tabs — the title is a RAW draw, so nothing
+	// else bounds it.
+	const gfx::Rect band = ui::DialogTitleBand(kPanel, kTitle.x, kTitle.y);
+	const gfx::Rect titleBand{band.x * w, band.y * h, band.w * w, band.h * h};
+	const ui::FittedTitle title =
+		ui::FitDialogTitle(m_ui, loc::Tr("map.balance.title"), titleBand);
+	title.font->Draw(batch, title.text, titleBand.x, titleBand.y, th.text);
 
 	m_ui.Render(batch, w, h); // tabs + fields + footer buttons
 

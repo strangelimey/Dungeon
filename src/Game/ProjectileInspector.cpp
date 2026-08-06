@@ -18,12 +18,19 @@ namespace dungeon::game {
 namespace {
 // A compact centered card: title, six info rows, a two-button footer — the
 // LevelSettingsDialog proportions.
-constexpr gfx::Rect kPanel{0.36f, 0.28f, 0.28f, 0.40f};
-constexpr gfx::Rect kTitle{0.375f, 0.30f, 0.25f, 0.04f};
+// Re-derived from the sizes this card actually draws at. Two 1x-era fractions
+// were left behind by the fonts thread: the title band (0.065 against the 0.0725
+// a title's line advance needs) and the ROW PITCH — 0.042 for rows drawn at
+// kDialogTextScale, whose advance is 0.020 * 2.0 * 1.25 = 0.050 of the window.
+// The rows cleared each other only by their ink. Both are the advance now, and
+// the panel grew to hold the result rather than the rows being squeezed.
+constexpr gfx::Rect kPanel{0.36f, 0.26f, 0.28f, 0.48f};
+constexpr gfx::Rect kTitle{0.375f, 0.275f, 0.25f, 0.04f};
 constexpr float kRowX = 0.375f, kValX = 0.51f;
-constexpr float kRowY0 = 0.365f, kRowH = 0.042f;
-// Remove centered in the footer; Close is the top-right corner box now.
-constexpr gfx::Rect kRemove{0.45f, 0.615f, 0.10f, 0.045f};
+constexpr float kRowY0 = kTitle.y + ui::kDialogTitleBandH, kRowH = 0.050f;
+// Remove centered in the footer, below the last of the six rows; Close is the
+// top-right corner box now.
+constexpr gfx::Rect kRemove{0.45f, kRowY0 + 6 * kRowH + 0.005f, 0.10f, 0.045f};
 } // namespace
 
 ProjectileInspector::ProjectileInspector(gfx::GraphicsDevice& device,
@@ -69,8 +76,13 @@ void ProjectileInspector::Render(gfx::SpriteBatch& batch, const ui::Theme& th,
 	batch.DrawRect(panel, th.panel);
 	ui::DrawBorder(batch, panel, th.panelBorder);
 
-	ui::DialogTitleFont(m_ui).Draw(batch, loc::Tr("map.proj.title"), kTitle.x * w,
-								   kTitle.y * h, th.text);
+	// Through FitDialogTitle — a raw draw, so nothing else bounds a longer
+	// translation of the word.
+	const gfx::Rect band = ui::DialogTitleBand(kPanel, kTitle.x, kTitle.y);
+	const gfx::Rect titleBand{band.x * w, band.y * h, band.w * w, band.h * h};
+	const ui::FittedTitle title =
+		ui::FitDialogTitle(m_ui, loc::Tr("map.proj.title"), titleBand);
+	title.font->Draw(batch, title.text, titleBand.x, titleBand.y, th.text);
 
 	// Read-only info rows: label (dim) + value (bright).
 	const std::array<std::pair<std::string, std::string>, 6> rows = {{

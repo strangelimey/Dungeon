@@ -4,6 +4,7 @@
 #include "UI/Units.h"
 
 #include <algorithm>
+#include <cmath>
 #include <format>
 #include <optional>
 
@@ -1409,6 +1410,16 @@ gfx::Rect CloseButtonRect(const gfx::Rect& panel) {
 	return {panel.x + panel.w - kW - kMargin, panel.y + kMargin, kW, kH};
 }
 
+gfx::Rect DialogTitleBand(const gfx::Rect& panel, float left, float top) {
+	// Stop at the close box, not at the panel's inner edge. Every dialog puts
+	// that box in its top-right corner — the same corner the title line runs
+	// into — so "the full inner width" quietly means "under the close button",
+	// which is what "Level settings — showcase" was doing to its own stem.
+	constexpr float kGap = 0.008f;
+	const float right = CloseButtonRect(panel).x - kGap;
+	return {left, top, std::max(right - left, 0.0f), kDialogTitleBandH};
+}
+
 Button* AddCloseButton(UIContext& ui, const gfx::Rect& panel,
 					   const gfx::Texture* icon, std::function<void()> onClose) {
 	Button* b = ui.Add<Button>(CloseButtonRect(panel), "x", std::move(onClose));
@@ -1438,6 +1449,26 @@ FittedTitle FitDialogTitle(const UIContext& ctx, std::string_view text, gfx::Rec
 	float px = ctx.DesignHeight() * kDialogTitleScale;
 	if (band.h > 0.0f) px = std::min(px, band.h / 1.25f);
 	px = std::max(px, ctx.DesignHeight());
+
+	// Then WIDTH, by shrinking before ellipsising. Dropping characters is the
+	// destructive option here: two of these titles carry the object's ID and are
+	// the click-to-rename affordance, so the tail is the only part that says
+	// WHICH type or level you have open — cutting it is exactly the failure the
+	// instance inspectors hit. A smaller title still says everything.
+	//
+	// One computed size, not a search: glyph widths scale with the pixel height,
+	// so the size that fits is px * band.w / measured. QUANTIZED to 2px because
+	// FontLibrary bakes an atlas per distinct rounded height (and Commit drains
+	// the GPU) — sizing continuously to the text would mint a new atlas for every
+	// id length. The re-measure below is what makes the estimate safe: rounding,
+	// hinting and the floor can all leave it still over, and then it ellipsises.
+	if (band.w > 0.0f) {
+		const float wide = ctx.FontAt(ctx.RootRole(), px).MeasureWidth(text);
+		if (wide > band.w) {
+			px = std::max(std::floor(px * band.w / wide * 0.5f) * 2.0f,
+						  ctx.DesignHeight());
+		}
+	}
 
 	FittedTitle fit{&ctx.FontAt(ctx.RootRole(), px), std::string(text)};
 	if (band.w <= 0.0f || fit.font->MeasureWidth(fit.text) <= band.w) return fit;

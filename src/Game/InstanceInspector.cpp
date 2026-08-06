@@ -189,8 +189,15 @@ void InstanceInspector::Render(gfx::SpriteBatch& batch, const ui::Theme& th, flo
 	// which type you opened. Nothing is overlapped by this: the pane starts at
 	// kTitleH, BELOW the band, and the pane's own header moved under it.
 	// FitDialogTitle stays as the guard for a pathologically long name.
-	const gfx::Rect titleBand{panel.x + kPad * panel.w, panel.y + kPad * panel.h,
-							  (1.0f - 2 * kPad) * panel.w, (kTitleH - kPad) * panel.h};
+	//
+	// "Full inner width" stops at the CLOSE BOX, though — that sits in the same
+	// top-right corner the title line runs toward, so the panel's inner edge is
+	// one affordance too far and the longest names drew under the button.
+	// (Only the WIDTH comes from the shared helper — this panel's band height is
+	// its own derived kTitleH, a PANEL fraction, not the window one.)
+	const gfx::Rect band = px(ui::DialogTitleBand(p, p.x + kPad * p.w, p.y));
+	const gfx::Rect titleBand{band.x, panel.y + kPad * panel.h, band.w,
+							  (kTitleH - kPad) * panel.h};
 	const ui::FittedTitle title = ui::FitDialogTitle(m_ui, Title(), titleBand);
 	title.font->Draw(batch, title.text, titleBand.x, titleBand.y, th.text);
 	const ui::Font& font = m_ui.GetFont();

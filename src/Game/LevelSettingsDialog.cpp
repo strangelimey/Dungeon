@@ -18,11 +18,18 @@ namespace dungeon::game {
 namespace {
 // Panel + region geometry, as fractions (0..1) of the window — a compact
 // centered card (three rows + footer), the BalanceDialog proportions shrunk.
-constexpr gfx::Rect kPanel{0.36f, 0.30f, 0.28f, 0.36f};
-constexpr gfx::Rect kTitle{0.375f, 0.315f, 0.25f, 0.04f};
-constexpr float kRowX = 0.375f, kRowW = 0.14f;   // label column
-constexpr float kFieldX = 0.52f, kFieldW = 0.10f; // value column
-constexpr float kRowY0 = 0.385f, kRowH = 0.055f;
+// Half again as wide as it was (0.28), which the title and the setting names
+// both wanted: "Level settings — <stem>" is a long line for a narrow card, and
+// the label column was tight enough at kDialogTextScale to be worth checking.
+// Still centered, so only x and the column fractions move.
+constexpr gfx::Rect kPanel{0.29f, 0.30f, 0.42f, 0.36f};
+constexpr gfx::Rect kTitle{0.305f, 0.315f, 0.25f, 0.04f};
+constexpr float kRowX = 0.305f, kRowW = 0.21f;   // label column
+constexpr float kFieldX = 0.545f, kFieldW = 0.13f; // value column
+// The rows start below the TITLE BAND (ui::kDialogTitleBandH) rather than at a
+// hand-picked gap: at 0.385 the band was 0.070, short of the 0.0725 a title's
+// line advance needs, and the title's descenders reached into the first label.
+constexpr float kRowY0 = kTitle.y + ui::kDialogTitleBandH, kRowH = 0.055f;
 // Save centered in the footer; Close is the top-right corner box now.
 constexpr gfx::Rect kSave{0.455f, 0.585f, 0.09f, 0.045f};
 
@@ -68,15 +75,32 @@ void LevelSettingsDialog::Open(const std::string& stem, float dust, float haze,
 	BuildUI();
 }
 
+std::string LevelSettingsDialog::TitlePrefix() const {
+	return std::format("{} — ", loc::Tr("map.level.title"));
+}
+
+// The band the title may occupy: the title line, one band tall, stopping short
+// of the close box in the corner it runs toward.
+gfx::Rect LevelSettingsDialog::TitleBand(float w, float h) const {
+	const gfx::Rect band = ui::DialogTitleBand(kPanel, kTitle.x, kTitle.y);
+	return {band.x * w, band.y * h, band.w * w, band.h * h};
+}
+
+// Fitted to that band. This panel is a narrow card (0.28 of the window) and the
+// title carries the level's name, so the standard title size runs off the edge
+// for all but the shortest stems — FitDialogTitle shrinks it instead of cutting
+// the stem off, which is the part being renamed.
+const ui::Font& LevelSettingsDialog::TitleFont(float w, float h) const {
+	return *ui::FitDialogTitle(m_ui, TitlePrefix() + m_stem, TitleBand(w, h)).font;
+}
+
 // The stem's pixel rect within the title line — the click target that opens
 // the inline rename (Update hit-tests it, Render styles the hover).
 gfx::Rect LevelSettingsDialog::StemRect(float w, float h) {
-	const std::string prefix =
-		std::format("{} — ", loc::Tr("map.level.title"));
-	// The TITLE face, not the body one — Render draws the stem with the same,
-	// and this rect is the click target for it.
-	const ui::Font& title = ui::DialogTitleFont(m_ui);
-	const float x = kTitle.x * w + title.MeasureWidth(prefix);
+	// The fitted TITLE face, not the body one — Render draws the stem with the
+	// same, and this rect is the click target for it.
+	const ui::Font& title = TitleFont(w, h);
+	const float x = kTitle.x * w + title.MeasureWidth(TitlePrefix());
 	return {x, kTitle.y * h, title.MeasureWidth(m_stem) + 6.0f, title.Height()};
 }
 
@@ -87,8 +111,10 @@ void LevelSettingsDialog::BuildUI() {
 		// The title row becomes the rename field (Render skips the drawn
 		// title meanwhile). Enter commits; losing focus or Esc cancels.
 		m_nameField = m_ui.Add<ui::TextField>(
-			gfx::Rect{kTitle.x, kTitle.y, kTitle.w, 0.035f}, m_stem);
-		// It stands in for the title, so it is sized as the title, not as a row.
+			ui::DialogTitleBand(kPanel, kTitle.x, kTitle.y), m_stem);
+		// It stands in for the title, so it is sized as the title, not as a row —
+		// and its BOX is the title band for the same reason, or the face it is
+		// about to draw does not fit the field holding it.
 		m_nameField->fontScale = ui::kDialogTitleScale;
 		m_nameField->maxLength = 24;
 		m_nameField->SetFocused(true);
@@ -197,10 +223,11 @@ void LevelSettingsDialog::Render(gfx::SpriteBatch& batch, const ui::Theme& th,
 
 	if (!m_editName) {
 		// Title: prefix in plain text, the stem as the rename affordance
-		// (accent on hover + a hint underline so it reads clickable).
-		const std::string prefix =
-			std::format("{} — ", loc::Tr("map.level.title"));
-		const ui::Font& title = ui::DialogTitleFont(m_ui); // same as StemRect
+		// (accent on hover + a hint underline so it reads clickable). Drawn in
+		// two pieces because they are styled differently, so this takes the
+		// fitted FONT rather than FitDialogTitle's joined string.
+		const std::string prefix = TitlePrefix();
+		const ui::Font& title = TitleFont(w, h); // same as StemRect
 		title.Draw(batch, prefix, kTitle.x * w, kTitle.y * h, th.text);
 		const gfx::Rect stem{kTitle.x * w + title.MeasureWidth(prefix),
 							 kTitle.y * h, title.MeasureWidth(m_stem),

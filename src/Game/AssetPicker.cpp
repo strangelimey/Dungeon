@@ -23,13 +23,20 @@ namespace {
 // Panel + region geometry as window fractions — a large card, since the whole
 // point is to see many assets at once.
 constexpr gfx::Rect kPanel{0.08f, 0.07f, 0.84f, 0.86f};
-constexpr gfx::Rect kTitle{0.10f, 0.095f, 0.40f, 0.04f};
-constexpr gfx::Rect kSearch{0.10f, 0.145f, 0.26f, 0.040f};
-constexpr gfx::Rect kClear{0.365f, 0.145f, 0.030f, 0.040f};
-constexpr gfx::Rect kUsedChip{0.41f, 0.145f, 0.14f, 0.040f};
-constexpr gfx::Rect kSurfaceChip{0.41f, 0.185f, 0.14f, 0.040f};
+// The search row starts a whole TITLE BAND below the title (ui::kDialogTitleBandH);
+// at 0.050 the band was short of the 0.0725 a title's line advance needs and the
+// title drew down into the search box. Everything under it shifts by the same
+// 0.025, and the grid gives up that height rather than its bottom edge.
+// kTitle.w stops short of the count text on the same line (drawn right of the
+// grid in Render), so a long "Choose a ..." shrinks instead of colliding.
+constexpr gfx::Rect kTitle{0.10f, 0.095f, 0.38f, 0.04f};
+constexpr float kBelowTitle = kTitle.y + ui::kDialogTitleBandH;
+constexpr gfx::Rect kSearch{0.10f, kBelowTitle, 0.26f, 0.040f};
+constexpr gfx::Rect kClear{0.365f, kBelowTitle, 0.030f, 0.040f};
+constexpr gfx::Rect kUsedChip{0.41f, kBelowTitle, 0.14f, 0.040f};
+constexpr gfx::Rect kSurfaceChip{0.41f, kBelowTitle + 0.040f, 0.14f, 0.040f};
 // The grid, and the details column beside it.
-constexpr gfx::Rect kGrid{0.10f, 0.235f, 0.46f, 0.63f};
+constexpr gfx::Rect kGrid{0.10f, 0.260f, 0.46f, 0.605f};
 constexpr float kDetailX = 0.60f;
 constexpr gfx::Rect kChoose{0.60f, 0.815f, 0.10f, 0.045f};
 
@@ -560,8 +567,16 @@ void AssetPicker::Render(gfx::SpriteBatch& batch, float w, float h) {
 	batch.DrawRect(panel, th.panel);
 	ui::DrawBorder(batch, panel, th.panelBorder);
 
-	ui::DialogTitleFont(m_ui).Draw(batch, loc::Format("pick.title", m_label),
-								   kTitle.x * w, kTitle.y * h, th.text);
+	// Through FitDialogTitle — a raw draw with nothing else bounding it, and
+	// m_label is the field's own name, so its length is not fixed here.
+	// Narrower of the two things sharing this line: the close box (the shared
+	// helper) and the count text below, which is drawn further left than that.
+	const gfx::Rect fband = ui::DialogTitleBand(kPanel, kTitle.x, kTitle.y);
+	const gfx::Rect titleBand{fband.x * w, fband.y * h,
+							  std::min(fband.w, kTitle.w) * w, fband.h * h};
+	const ui::FittedTitle title =
+		ui::FitDialogTitle(m_ui, loc::Format("pick.title", m_label), titleBand);
+	title.font->Draw(batch, title.text, titleBand.x, titleBand.y, th.text);
 	// The count, so a filter that hides everything says so rather than looking
 	// like a broken grid.
 	m_ui.GetFont().Draw(batch,

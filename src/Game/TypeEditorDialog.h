@@ -153,6 +153,13 @@ private:
 	ui::TextField* m_nameField = nullptr; // valid until the next Clear
 	// The id's pixel rect within the title line — the rename click target.
 	gfx::Rect IdRect(float w, float h);
+	// The title's band and the face fitted to it — ONE place, because the id is
+	// a CLICK TARGET and FitDialogTitle's size depends on the text: IdRect
+	// measures with this and Render draws with it, so a second call site asking
+	// with a different string would land the click where the text is not.
+	gfx::Rect TitleBand(float w, float h) const;
+	const ui::Font& TitleFont(float w, float h) const;
+	std::string TitlePrefix() const; // "<Category> type — ", before the id
 };
 
 } // namespace dungeon::game

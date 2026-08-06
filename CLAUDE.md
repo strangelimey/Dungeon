@@ -1346,6 +1346,26 @@ Full per-phase history + gotchas live in the editor-overhaul memory.
   fontScale, raw draws via the DialogTitleFont / DialogTextFont helpers); numeric
   readouts take NEITHER — sized to their digits, document size, Mono. And MEASURE
   IN THE FACE AND SIZE YOU DRAW IN, or a row will not fit its own contents.
+  That rule has a STANDING CONSEQUENCE for the editor dialogs, which author their
+  regions as window FRACTIONS: every one of the eight was authored when titles
+  drew at 1x, and when the fonts thread took them to kDialogTitleScale nothing
+  re-derived a single band — so all eight drew their title down through the row,
+  tab strip or preview header beneath it. `ui::kDialogTitleBandH` (0.075 of the
+  window height) is that gap DERIVED ONCE — the contexts all size their font
+  clamp(h*0.020, 12, 24) and a title's line advance is that x2.9 x1.25 = 0.0725h,
+  the clamp only making it easier above h=1200 — and it is the ADVANCE, not the
+  ink, that has to clear or the next row sits on the descenders. Place whatever
+  follows a title at `kTitle.y + kDialogTitleBandH`; take the title's rect from
+  `ui::DialogTitleBand(panel, left, top)`, which also stops it short of the CLOSE
+  BOX (the same top-right corner the title line runs toward — "the full inner
+  width" silently means "under the close button"); and draw through
+  `ui::FitDialogTitle`, which shrinks for height then WIDTH and only ellipsises
+  once it has run out of shrink. Shrinking before cutting matters because two of
+  those titles carry the object's id AND are the click-to-rename affordance — and
+  there the hit-target rect and the draw must ask ONE function for the fitted
+  font (TypeEditorDialog::TitleFont / LevelSettingsDialog::TitleFont), since the
+  size now depends on the text. The same audit found ProjectileInspector's ROW
+  PITCH short for the same reason; a row's advance is 0.020 x 2.0 x 1.25 = 0.050h.
 - The clean (non-worn) block set is baked but unused — intended for newer
   dungeon areas, needs per-region block-set selection in DungeonMeshBuilder.
 - Texture sets are now installed at 1k/2k/4k with ORM maps, so Low/Medium and
