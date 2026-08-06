@@ -248,7 +248,8 @@ void DungeonWorld::RebuildChunkRegion(int chunkX, int chunkZ) {
 	const int chunksX = (m_map.Width() + kChunkCells - 1) / kChunkCells;
 	const int chunkIndex = chunkZ * chunksX + chunkX;
 	DungeonGeometry r = BuildDungeonRegion(
-		m_map, m_wallBlocks, m_floorBlocks, m_ceilingBlocks, chunkX, chunkZ,
+		m_map, m_wallBlocks, m_floorBlocks, m_ceilingBlocks, m_walls.uAspect, chunkX,
+		chunkZ,
 		[this](int x, int z) {
 			return CellHoles{FloorHoleAt(x, z), CeilingHoleAt(x, z)};
 		},

@@ -74,10 +74,20 @@ using NicheMeshFn = std::function<const assets::MeshData*(const std::string& typ
 // variant bucket, so it keeps the wall's texture.
 // `bore` (a type→mesh resolver, nullable) is stamped on a face whose solid
 // neighbour is bored see-through (DungeonMap::BoreAlong), same variant bucket.
+//
+// `wallUAspect` is each wall variant's texture aspect (width/height; 1 for a
+// square scan), parallel to `wallBlocks`. It scales the U of a stamped wall
+// FEATURE only. A feature mesh is ONE mesh shared by all 54 surfaces, so unlike
+// the worn blocks it cannot carry a per-texture aspect in its baked UVs — and
+// on a 2:1 set (ten of ours are) a niche would then tile at a different rate
+// from the wall it is cut into. Here is the one place both are known, since the
+// feature rides the wall's variant bucket. Empty = every surface square, which
+// is what the code assumed before ten of them turned out not to be.
 DungeonGeometry BuildDungeonGeometry(const DungeonMap& map,
 									 std::span<const assets::MeshData> wallBlocks,
 									 std::span<const assets::MeshData> floorBlocks,
 									 std::span<const assets::MeshData> ceilingBlocks,
+									 std::span<const float> wallUAspect = {},
 									 const CellHolesFn& holes = {},
 									 const NicheMeshFn& niche = {},
 									 const NicheMeshFn& bore = {});
@@ -91,6 +101,7 @@ DungeonGeometry BuildDungeonRegion(const DungeonMap& map,
 								   std::span<const assets::MeshData> wallBlocks,
 								   std::span<const assets::MeshData> floorBlocks,
 								   std::span<const assets::MeshData> ceilingBlocks,
+								   std::span<const float> wallUAspect,
 								   int chunkX, int chunkZ,
 								   const CellHolesFn& holes = {},
 								   const NicheMeshFn& niche = {},

@@ -958,6 +958,12 @@ private:
 		// Material factors per variant, likewise parallel (ApplySurfaceFactors
 		// refills them; a short/empty vector simply means no overrides).
 		std::vector<SurfaceMaterial> factors;
+		// Each variant's texture ASPECT (width/height; 1 for a square scan), read
+		// off the loaded albedo — ten installed sets are 2:1 tiles. The worn
+		// blocks already carry it in their baked UVs (ModelBaker); this exists for
+		// the wall FEATURES, one shared mesh across all 54 surfaces, which can
+		// therefore only be corrected where it is stamped (DungeonMeshBuilder).
+		std::vector<float> uAspect;
 		// Drops the texture variants (keeps the chunks) before a (re)load of the
 		// set — the staged loader and the quality hot-swap both reuse the Surface.
 		void ResetTextures() {
@@ -966,6 +972,7 @@ private:
 			mr.clear();
 			heightScale.clear();
 			factors.clear();
+			uAspect.clear();
 		}
 	};
 

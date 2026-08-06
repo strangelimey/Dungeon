@@ -304,6 +304,14 @@ DungeonWorld::PbrMaps DungeonWorld::LoadPbrSet(const std::string& name, bool req
 void DungeonWorld::LoadSurfaceMaterial(Surface& surface, const std::string& name,
 									   float heightScale) {
 	PbrMaps maps = LoadPbrSet(name, /*required*/ true);
+	// Read the aspect BEFORE the move — a non-square scan (ten of ours are 2:1)
+	// has to reach the wall-feature stamp. `required` means the albedo is never
+	// null here, but a zero dimension would still fall back to square.
+	const gfx::Texture& tex = *maps.albedo;
+	surface.uAspect.push_back(tex.Width() > 0 && tex.Height() > 0
+								  ? static_cast<float>(tex.Width()) /
+										static_cast<float>(tex.Height())
+								  : 1.0f);
 	surface.albedo.push_back(std::move(maps.albedo));
 	surface.normal.push_back(std::move(maps.normal));
 	surface.mr.push_back(std::move(maps.mr));
@@ -336,7 +344,7 @@ void DungeonWorld::BuildDungeonMeshes() {
 	// per-variant material factors need refreshing.
 	ApplySurfaceFactors();
 	DungeonGeometry geo = BuildDungeonGeometry(
-		m_map, m_wallBlocks, m_floorBlocks, m_ceilingBlocks,
+		m_map, m_wallBlocks, m_floorBlocks, m_ceilingBlocks, m_walls.uAspect,
 		[this](int x, int z) {
 			return CellHoles{FloorHoleAt(x, z), CeilingHoleAt(x, z)};
 		},
