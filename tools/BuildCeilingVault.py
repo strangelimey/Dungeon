@@ -57,6 +57,19 @@ SPRING = 0.50  # springs from the cell edge itself, so the whole bay is vaulted
 OUT = sys.argv[sys.argv.index("--") + 1] if "--" in sys.argv else "ceiling_vault.glb"
 
 
+def height_r(r):
+    """The arch profile, as a function of the SQUARE radius alone."""
+    if r >= SPRING:
+        return 0.0
+    # Flat-topped at the crown (zero slope at r = 0) rather than pointed. Note
+    # it does NOT meet the flat ceiling tangentially at the springing — the
+    # slope there is RISE * pi, about 47 degrees, which is the steepest point on
+    # the whole surface. (An earlier comment here claimed the opposite.) That is
+    # a deliberate spring line rather than a defect: a vault that eased into the
+    # ceiling would have no visible impost at all.
+    return RISE * math.cos(0.5 * math.pi * r / SPRING)
+
+
 def height(x, y):
     """A cloister vault: one arch profile swept over the SQUARE radius.
 
@@ -67,12 +80,44 @@ def height(x, y):
     the GROINS. Both the flat boundary and the groins fall out of the maths
     instead of being modelled.
     """
-    r = max(abs(x), abs(y))
-    if r >= SPRING:
-        return 0.0
-    # cos meets the flat ceiling tangentially at the springing rather than at a
-    # crease, and reaches the crown flat-topped rather than pointed.
-    return RISE * math.cos(0.5 * math.pi * r / SPRING)
+    return height_r(max(abs(x), abs(y)))
+
+
+# --- the UV remap -----------------------------------------------------------
+# THE DEFECT THIS FIXES: the vault's texture streaked radially up the webs. The
+# mapping is projected from ABOVE, which is what keeps it seamless with the flat
+# ceiling blocks around it — but a planar projection is the surface's SHADOW,
+# and on a web climbing at 47 degrees a centimetre of shadow is a centimetre and
+# a half of stone. The texture gets stretched along the slope by exactly that
+# ratio.
+#
+# THE REALISATION THAT MAKES IT FIXABLE: the tiling contract binds only the
+# BOUNDARY. A feature tile has to carry the block's own UVs where it meets its
+# neighbours (u = x + 0.5, v = z + 0.5) or the stone jumps at the cell edge —
+# but nothing constrains the interior at all. So the interior can be
+# redistributed by SURFACE ARC LENGTH while the edge stays pinned to the block
+# mapping, and both properties hold at once.
+#
+# The remap scales the (x, y) UV vector by s(r)/s(0.5), the cumulative arc
+# length along the profile normalised to the cell edge. At r = 0.5 that is 1 by
+# construction, so the boundary is untouched; inside, the texture advances
+# fastest where the surface is steepest, which is what evens out the density.
+# It is exact along the radial direction (the direction of the stretch, since
+# the height depends only on r) and leaves a second-order tangential error,
+# which is invisible next to what it removes.
+_ARC_N = 512
+_ARC = [0.0]
+for _i in range(1, _ARC_N + 1):
+    _r0, _r1 = HALF * (_i - 1) / _ARC_N, HALF * _i / _ARC_N
+    _ARC.append(_ARC[-1] + math.hypot(_r1 - _r0, height_r(_r1) - height_r(_r0)))
+
+
+def uv_radius(r):
+    """The radius the texture should sit at, so density follows the stone."""
+    t = min(max(r / HALF, 0.0), 1.0) * _ARC_N
+    i = min(int(t), _ARC_N - 1)
+    s = _ARC[i] + (_ARC[i + 1] - _ARC[i]) * (t - i)
+    return HALF * s / _ARC[-1]
 
 
 # --- empty the factory scene ------------------------------------------------
@@ -107,7 +152,13 @@ uv = bm.loops.layers.uv.verify()
 for face in bm.faces:
     for loop in face.loops:
         co = loop.vert.co
-        loop[uv].uv = (co.x + 0.5, -co.y + 0.5)
+        r = max(abs(co.x), abs(co.y))
+        # Scale the UV vector, not each axis: k depends on r alone, so this stays
+        # continuous across the diagonals where the square metric switches axis.
+        # Correcting only the dominant axis would be exact but would tear along
+        # every groin.
+        k = uv_radius(r) / r if r > 1e-9 else 1.0
+        loop[uv].uv = (co.x * k + 0.5, -co.y * k + 0.5)
 
 mesh = bpy.data.meshes.new("ceiling_vault")
 bm.to_mesh(mesh)
@@ -131,6 +182,21 @@ edge = [v.co.z for v in mesh.vertices
 assert max(abs(z) for z in edge) < 1e-6, "the cell boundary left z = 0"
 # And it must actually be a vault, not a flat plate.
 assert max(zs) > RISE * 0.9, "the crown did not rise"
+
+# THE TILING CONTRACT, checked on the UVs rather than assumed. The arc-length
+# remap is free to do what it likes inside, but every vertex ON the cell
+# boundary must still carry the plain block mapping or the stone jumps against
+# the flat ceiling next door — which is the whole reason the projection is from
+# above in the first place.
+uv_layer = mesh.uv_layers.active.data
+for poly in mesh.polygons:
+    for li in poly.loop_indices:
+        v = mesh.vertices[mesh.loops[li].vertex_index].co
+        if abs(abs(v.x) - HALF) < 1e-6 or abs(abs(v.y) - HALF) < 1e-6:
+            want = (v.x + 0.5, -v.y + 0.5)
+            got = uv_layer[li].uv
+            assert abs(got[0] - want[0]) < 1e-5 and abs(got[1] - want[1]) < 1e-5, (
+                f"boundary UV drifted off the block mapping at {tuple(v)}")
 
 bpy.ops.export_scene.gltf(filepath=OUT, export_format="GLB")
 print(f"BuildCeilingVault: wrote {OUT}")

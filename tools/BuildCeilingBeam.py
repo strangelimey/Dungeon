@@ -37,7 +37,11 @@ CORBEL_DROP = 0.11
 
 BEVEL = 0.004     # a chamfer, so torchlight catches the arrises
 SEGMENTS = 2
-TILE = 0.30       # texture repeat — 75 cm, so the grain reads along the timber
+
+# UV tile rates. TWO of them, and which axis gets which is the whole point — see
+# the mapping block near the bottom for why one number could not do this.
+TILE_ACROSS = 2.2  # u: one plank (1/20 of a repeat) spans the beam's 0.11 face
+TILE_ALONG = 1.1   # v: half of ACROSS, keeping texels square on a 2:1 scan
 
 OUT = sys.argv[sys.argv.index("--") + 1] if "--" in sys.argv else "ceiling_beam.glb"
 
@@ -88,18 +92,36 @@ if BEVEL > 0.0:
         clamp_overlap=True,
     )
 
-# --- world-aligned tiling UVs ----------------------------------------------
-# Dominant-axis projection, valid because every face is box-ish (the CLAUDE.md
-# rule: a swept or revolved surface would seam and wants unrolling instead).
+# --- UVs: the grain has to run ALONG the timber -----------------------------
+# Still dominant-axis projection, valid here because every face is box-ish (the
+# CLAUDE.md rule: a swept or revolved surface would seam and wants unrolling
+# instead). But that rule only governs whether a projection SEAMS. It says
+# nothing about ORIENTATION, and wood is not isotropic.
+#
+# THE BUG THIS FIXES, in Michael's words: "the texture looks like it's made out
+# of vertical matchsticks, side by side". wood_planks runs its planks along the
+# image's V, about twenty across its width. The old mapping put the beam's
+# LENGTH on u at a single 0.30 tile, so the plank direction lay ACROSS the
+# timber and one square carried 3.33 repeats x 20 planks — 67 stripes.
+#
+# So: length -> v, section -> u, and two tile rates rather than one. They sit in
+# 2:1 because the scan is (1024x512) and equal texel density wants the world
+# spans in the same ratio; ACROSS is sized so ONE plank covers the beam's face,
+# which is what makes it read as a single piece of timber rather than a bundle.
 uv = bm.loops.layers.uv.verify()
 for face in bm.faces:
     nx, ny, nz = (abs(c) for c in face.normal)
     for loop in face.loops:
         co = loop.vert.co
-        if nz >= nx and nz >= ny:   p = (co.x, co.y)
-        elif nx >= ny:              p = (co.y, co.z)
-        else:                       p = (co.x, co.z)
-        loop[uv].uv = (p[0] / TILE, p[1] / TILE)
+        if nx >= ny and nx >= nz:
+            # An END of the timber. The section IS the face, so both axes cross
+            # the grain; only ever seen where a beam is cut, and tiny.
+            across, along = co.y, co.z
+        elif nz >= ny:
+            across, along = co.y, co.x  # top and bottom
+        else:
+            across, along = co.z, co.x  # the two sides
+        loop[uv].uv = (across / TILE_ACROSS, along / TILE_ALONG)
 
 mesh = bpy.data.meshes.new("ceiling_beam")
 bm.to_mesh(mesh)
