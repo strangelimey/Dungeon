@@ -22,6 +22,7 @@
 #include "ModelBaker.h"
 
 #include "Assets/Image.h"
+#include "Assets/WornPanel.h"
 #include "Core/Log.h"
 #include "Core/MathTypes.h"
 #include "GltfWriter.h"
@@ -29,9 +30,11 @@
 
 #include <algorithm>
 #include <cmath>
+#include <filesystem>
 #include <format>
 #include <functional>
 #include <initializer_list>
+#include <system_error>
 #include <string>
 #include <utility>
 #include <vector>
@@ -695,6 +698,45 @@ float PinRamp(float distance, float width) {
 	return t * t * (3.0f - 2.0f * t);
 }
 
+// How far from a block edge the displacement takes to return to the flat wall
+// plane. ZERO AT THE EDGE IS NON-NEGOTIABLE — it is the one value two
+// independently stamped blocks can agree on without knowing each other, and it
+// is what keeps a seam closed when two different surface types meet, or a wall
+// meets a floor block, or a convex corner exposes a block's side. The DISTANCE
+// it takes to get there is pure aesthetics, and it trades two defects against
+// each other: wide, and every cell reads as a shallow dish (a cove up each side
+// and along the floor); narrow, and the return becomes a crease that risks
+// reading as a grid down a long corridor.
+//
+// The side ramp used to be invisible. AddWallPillars covered |x| in
+// [0.40, 0.50] units and stood U(0.085) proud, while the ramp only acts past
+// |x| = 0.452 — so the pillars contained it entirely, and retiring the
+// `columns` knob (8574f3a) exposed a curve that had always been there.
+constexpr float kWallPinSide = U(0.045f); // was U(0.12f)
+constexpr float kWallPinVert = U(0.040f); // was U(0.10f)
+
+// Which of a wall panel's two SIDE edges are pinned. `left` is the panel's -X
+// edge and `right` its +X (the panel is authored facing +Z; DungeonMeshBuilder
+// maps those to world axes when it rotates the panel onto an edge).
+//
+// A side may be left OPEN only when the neighbouring panel is the same surface,
+// because then the two carry the same displacement field and meet exactly — see
+// the periodic-noise note in TextureWallWear. Top and bottom are ALWAYS pinned:
+// the floor and ceiling blocks are different meshes displaced by different
+// rules, so they can never agree with a wall no matter who its neighbours are.
+struct SidePins {
+	bool left = true;
+	bool right = true;
+};
+
+// The bowed-masonry noise's frequency across a panel. It must be a POWER OF TWO
+// so every fBm octave lands on an integer lattice period and the term can be
+// made exactly periodic (Fbm's periodX) — that periodicity is what lets a side
+// go unpinned. It was 1.8 while every edge was pinned and the discontinuity was
+// hidden; a non-integer frequency cannot tile.
+constexpr float kBowFreqU = 2.0f;
+constexpr u32 kBowPeriodU = 2u; // lattice cells per panel at the first octave
+
 // Samples the height channel (alpha) of a packed normal+height texture:
 // bilinear, wrapping, and box-filtered to the mesh grid spacing so coarse
 // tiers don't alias detail finer than their vertices.
@@ -799,8 +841,8 @@ float WallWearDepth(float x, float y) {
 	const float depth = mortar + brick + undulation + rough + low; // metres
 	// Pin to the flat plane at every block edge so seams stay closed (block-local
 	// distances, so the ramp widths are units).
-	const float pin = PinRamp(kCellHalf - std::fabs(x), U(0.12f)) *
-					  PinRamp(y, U(0.10f)) * PinRamp(kWallH - y, U(0.10f));
+	const float pin = PinRamp(kCellHalf - std::fabs(x), kWallPinSide) *
+					  PinRamp(y, kWallPinVert) * PinRamp(kWallH - y, kWallPinVert);
 	return U(std::clamp(depth, 0.0f, 0.12f)) * pin;
 }
 
@@ -854,21 +896,54 @@ float CeilingWearDepth(float x, float z) {
 // only one of them would slide the two apart. `du`, the SampleBox footprint in
 // u, is scaled with it.
 
+// WHY THIS FIELD IS PERIODIC IN U, which is what makes an unpinned side legal.
+// Two neighbouring panels of the same surface must agree exactly at the edge
+// they share, and neither knows the other exists — so the field has to repeat
+// with the cell. Each term either already did or was made to:
+//   * the height-map term wraps, because SampleBox wraps (u = 1 IS u = 0);
+//   * the ground-wear term depends on y alone;
+//   * the bowed-masonry noise did NOT, and was the whole obstacle — a ±2.2 cm
+//     step at every seam, comfortably visible against 6 cm of relief. Fbm's
+//     periodX now wraps its lattice, so u = 1 and u = 0 are the same lattice
+//     cell and the value AND its derivative match.
+// The derivative mattering is the part worth remembering: BuildWornWallBlock
+// takes its normals from this field by central difference, sampling PAST the
+// panel edge. A field that is periodic hands the neighbour's own samples back,
+// so the normals come out continuous across the seam for free — with a merely
+// continuous field the geometry would close but the lighting would still crease.
+//
+// A NON-SQUARE scan reaches the same place by a different route. At aspect 2 a
+// cell spans only half the image, so the map does not wrap WITHIN a cell — but
+// two consecutive PHASES span u = 0..0.5 and 0.5..1.0, meeting at the same u
+// and closing the loop over the pair. The noise needs nothing extra: its period
+// is 1 in u and the phases partition exactly that, so a phase boundary lands
+// inside the period and the final phase's far edge is the wrap. The one thing
+// ruled out is a FRACTIONAL aspect, which cannot divide a repeat into whole
+// cells at all — BakeWornTiers refuses those.
+// `uOffset` slides the whole panel along the texture — the PHASE. A 2:1 scan
+// shows only half the image per square, so if every cell used offset 0 they
+// would all show the same half and nothing would join; phase p shows the slice
+// starting at p/aspect, and the caller lays consecutive phases along the wall.
+// It MUST be the same value BuildWornWallBlock puts in the UVs (BakeWornTiers
+// computes it once and hands it to both), or the relief stops landing on the
+// stones it was sampled from.
 WearField TextureWallWear(const TextureHeight& height, float relief, int gridX,
-						  int gridY, u32 seed) {
+						  int gridY, u32 seed, SidePins pins = {},
+						  float uOffset = 0.0f) {
 	const float uScale = kUvScale / height.Aspect();
 	const float du = 1.0f / (gridX * height.Aspect());
 	const float dv = (kWallH / gridY) * kUvScale;
-	return [&height, relief, du, dv, uScale, seed](float x, float y) {
-		const float u = (x + kCellHalf) * uScale;
+	return [&height, relief, du, dv, uScale, uOffset, seed, pins](float x, float y) {
+		const float u = (x + kCellHalf) * uScale + uOffset;
 		const float v = (kWallH - y) * kUvScale;
 		// Low texture height = recessed surface (mortar, broken bricks).
 		float d = (1.0f - height.SampleBox(u, v, du, dv)) * relief; // metres
-		d += (Fbm(u * 1.8f, v * 1.8f, seed) - 0.5f) * 0.045f;      // bowed masonry
+		d += (Fbm(u * kBowFreqU, v * 1.8f, seed, 4, kBowPeriodU) - 0.5f) * 0.045f;
 		// Ground-level wear over the lowest metre (y is units, so scale it).
 		d += std::clamp(1.0f - y * kRefSquare, 0.0f, 1.0f) * 0.018f;
-		const float pin = PinRamp(kCellHalf - std::fabs(x), U(0.12f)) *
-						  PinRamp(y, U(0.10f)) * PinRamp(kWallH - y, U(0.10f));
+		float pin = PinRamp(y, kWallPinVert) * PinRamp(kWallH - y, kWallPinVert);
+		if (pins.left) pin *= PinRamp(x + kCellHalf, kWallPinSide);
+		if (pins.right) pin *= PinRamp(kCellHalf - x, kWallPinSide);
 		return U(std::clamp(d, 0.0f, relief + 0.05f)) * pin;
 	};
 }
@@ -917,7 +992,7 @@ WearField TextureCeilingWear(const TextureHeight& height, float relief, int grid
 // correction: the two share this mapping so the displacement lands on the
 // painted stones.
 assets::ModelData BuildWornWallBlock(int kNx, int kNy, const WearField& wear,
-									 float uAspect) {
+									 float uAspect, float uOffset = 0.0f) {
 	assets::ModelData model;
 	assets::MeshData mesh;
 	const float uScale = kUvScale / uAspect;
@@ -937,7 +1012,9 @@ assets::ModelData BuildWornWallBlock(int kNx, int kNy, const WearField& wear,
 			assets::Vertex vert;
 			vert.position = {x, y, -d};
 			vert.normal = {ddx * inv, ddy * inv, inv};
-			vert.uv = {(x + kCellHalf) * uScale, (kWallH - y) * kUvScale};
+			// uOffset is the panel's PHASE — the same slide the wear field above
+			// was sampled through, so relief still lands on the painted stones.
+			vert.uv = {(x + kCellHalf) * uScale + uOffset, (kWallH - y) * kUvScale};
 			mesh.vertices.push_back(vert);
 		}
 	}
@@ -2139,6 +2216,29 @@ bool BakeWornTiers(int kind, const std::string& texture, float relief, u32 seed,
 	if (uAspect != 1.0f)
 		log::Info("{}: {:.2f}:1 texture — one tile spans {:.2f} squares across",
 				  texture, uAspect, uAspect);
+	// PHASES: how many squares one repeat of the texture is spread over. A square
+	// scan is one, and a 2:1 scan is two — a cell shows half the image, so
+	// consecutive cells must show CONSECUTIVE halves or the pattern (and the
+	// height map beneath it) restarts at every boundary. A fractional aspect
+	// could not divide a repeat into whole cells at all and is refused.
+	//
+	// Each phase is baked in all four side-pin combinations, because a panel of
+	// any phase can meet a matching neighbour on either side. So a set emits
+	// phases x 4 panels per tier: 4 for a square scan, 8 for a 2:1 one.
+	const float phasesF = std::round(uAspect);
+	const bool wholeAspect = std::fabs(uAspect - phasesF) < 1e-3f && phasesF >= 1.0f;
+	const int phases = static_cast<int>(phasesF);
+	// The remaining exclusion is a wall with no per-cell field to continue at
+	// all: WallWearDepth samples a METRE lattice, which does not divide a 2.5 m
+	// square, so a procedurally worn set stays pinned however square it is.
+	const bool seamless = kind == 0 && !flat && height.IsValid() && wholeAspect;
+	if (kind == 0 && !flat && !seamless)
+		log::Info("{}: wall seams stay pinned ({})", texture,
+				  height.IsValid() ? "aspect is not a whole number of squares"
+								   : "no height map");
+	else if (seamless && phases > 1)
+		log::Info("{}: {} phases — one repeat walks across {} squares", texture,
+				  phases, phases);
 	bool ok = true;
 	for (const Tier& tier : tiers) {
 		const std::string out =
@@ -2148,14 +2248,41 @@ bool BakeWornTiers(int kind, const std::string& texture, float relief, u32 seed,
 			// field, regardless of tier. Worn: the tier grid, height-map- or
 			// procedurally-displaced.
 			const int nx = flat ? 1 : tier.wallX, ny = flat ? 1 : tier.wallY;
-			ok &= WriteGltf(BuildWornWallBlock(nx, ny,
-											   flat ? WearField([](float, float) { return 0.0f; })
-											   : height.IsValid()
-												   ? TextureWallWear(height, relief, tier.wallX,
-																	 tier.wallY, seed)
-												   : WearField(WallWearDepth),
-											   uAspect),
-							out);
+			// Phase 0 fully pinned is written even when the set earns nothing
+			// else, because it is what every fallback lands on: a set that loses
+			// its right to the siblings (a re-import at a fractional aspect, a
+			// height map going missing) degrades to today's behaviour rather than
+			// to a hole. A STALE sibling would be silently preferred over it
+			// though, so the ones not written this run are removed.
+			for (int phase = 0; phase < assets::kMaxWornPhases; ++phase)
+				for (int open = 0; open < 4; ++open) {
+					const std::string path =
+						std::format("{}\\worn_{}_{}{}.gltf", modelsDir, texture,
+									tier.suffix, assets::WornPanelSuffix(phase, open));
+					const bool wanted =
+						phase == 0 && open == 0 ? true : seamless && phase < phases;
+					if (!wanted) {
+						if (phase != 0 || open != 0) {
+							std::error_code ec;
+							std::filesystem::remove(path, ec);
+						}
+						continue;
+					}
+					// ONE uOffset feeds both the UVs and the height sampling, so
+					// the two cannot drift apart and slide the relief off its
+					// stones. Phase p starts p/aspect of the way through the image.
+					const float uOffset =
+						static_cast<float>(phase) * kUvScale / uAspect;
+					const SidePins pins{!(open & 1), !(open & 2)};
+					WearField field =
+						flat ? WearField([](float, float) { return 0.0f; })
+						: height.IsValid()
+							? TextureWallWear(height, relief, tier.wallX, tier.wallY,
+											  seed, pins, uOffset)
+							: WearField(WallWearDepth);
+					ok &= WriteGltf(
+						BuildWornWallBlock(nx, ny, field, uAspect, uOffset), path);
+				}
 		}
 		else if (kind == 1)
 			ok &= WriteGltf(BuildWornFloorBlock(tier.floor,

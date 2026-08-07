@@ -13,6 +13,7 @@
 #include "Assets/Model.h"
 #include "Game/DungeonMap.h"
 
+#include <array>
 #include <functional>
 #include <span>
 #include <vector>
@@ -64,6 +65,39 @@ using CellHolesFn = std::function<CellHoles(int x, int z)>;
 // number of niche shapes without knowing the catalog.
 using NicheMeshFn = std::function<const assets::MeshData*(const std::string& type)>;
 
+// One wall surface's worn panels — every phase in every side-pin combination.
+// Assets/WornPanel.h states the naming convention and what the two axes mean.
+//
+// A worn panel's displacement is normally pinned back to the flat wall plane at
+// every edge, because two panels are stamped independently and zero is the only
+// value they can agree on sight unseen. That pin is what makes each square read
+// as a shallow dish. Two panels of the SAME surface carry the same periodic
+// field though, so they meet exactly with no pin at all — hence the OPEN-SIDED
+// panels. And a non-square texture needs PHASES on top of that: one square shows
+// only part of the image, so consecutive squares have to show consecutive parts
+// or nothing joins, however the edges are pinned.
+//
+// A set that earns neither still bakes its one pinned panel, so an absent
+// variant is normal rather than an error and `Panel` degrades to it.
+struct WallPanels {
+	// byPhase[phase][open bits]; open bits are (open -X ? 1 : 0) | (open +X ? 2).
+	// Phase 0 slot 0 is always present — the loader will not build one without it.
+	std::vector<std::array<assets::MeshData, 4>> byPhase;
+
+	int PhaseCount() const {
+		return byPhase.empty() ? 1 : static_cast<int>(byPhase.size());
+	}
+
+	const assets::MeshData& Panel(int phase, bool openLeft, bool openRight) const {
+		const size_t p = static_cast<size_t>(phase) % byPhase.size();
+		const size_t i = (openLeft ? 1u : 0u) | (openRight ? 2u : 0u);
+		const std::array<assets::MeshData, 4>& row = byPhase[p];
+		if (!row[i].vertices.empty()) return row[i];
+		if (!row[0].vertices.empty()) return row[0];
+		return byPhase[0][0];
+	}
+};
+
 // Instances the baked block models over every floor cell: floor + ceiling
 // per cell and a wall block on each edge that borders solid rock. Each block
 // span holds one mesh per texture variant; a cell picks its variant by a
@@ -91,7 +125,7 @@ using NicheMeshFn = std::function<const assets::MeshData*(const std::string& typ
 // cell's own texture for it. The matching `*UAspect` span corrects each exactly
 // as `wallUAspect` corrects a niche. A cell may carry one of each.
 DungeonGeometry BuildDungeonGeometry(const DungeonMap& map,
-									 std::span<const assets::MeshData> wallBlocks,
+									 std::span<const WallPanels> wallBlocks,
 									 std::span<const assets::MeshData> floorBlocks,
 									 std::span<const assets::MeshData> ceilingBlocks,
 									 std::span<const float> wallUAspect = {},
@@ -109,7 +143,7 @@ DungeonGeometry BuildDungeonGeometry(const DungeonMap& map,
 // an edit touched instead of the whole map. BuildDungeonGeometry is this run
 // over every region.
 DungeonGeometry BuildDungeonRegion(const DungeonMap& map,
-								   std::span<const assets::MeshData> wallBlocks,
+								   std::span<const WallPanels> wallBlocks,
 								   std::span<const assets::MeshData> floorBlocks,
 								   std::span<const assets::MeshData> ceilingBlocks,
 								   std::span<const float> wallUAspect,

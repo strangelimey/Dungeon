@@ -23,6 +23,12 @@ assets::ModelData LoadModelOrDie(const std::string& name) {
 	return std::move(*model);
 }
 
+std::optional<assets::ModelData> LoadModelIfPresent(const std::string& name) {
+	auto model = assets::LoadModel(paths::Asset("models\\" + name));
+	if (!model) return std::nullopt;
+	return std::move(*model);
+}
+
 assets::SoundData LoadSound(const std::string& name) {
 	auto sound = assets::LoadWavFile(paths::Asset("sounds\\" + name));
 	if (!sound) log::Warn("{} (running silent)", sound.error());

@@ -15,6 +15,7 @@
 #include "Graphics/Texture.h"
 
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -22,6 +23,13 @@ namespace dungeon::game {
 
 // Loads models/<name> or aborts with the loader's error.
 assets::ModelData LoadModelOrDie(const std::string& name);
+
+// Loads models/<name>, or nullopt when it is absent. For an OPTIONAL sibling of
+// a required asset, where missing is a legitimate answer rather than a broken
+// install: the worn wall panels' open-sided variants exist only for the surface
+// sets whose displacement repeats with the cell (BakeWornTiers), and the caller
+// falls back to the fully pinned panel for the rest.
+std::optional<assets::ModelData> LoadModelIfPresent(const std::string& name);
 
 // Loads sounds/<name>; a missing file warns and returns silence.
 assets::SoundData LoadSound(const std::string& name);

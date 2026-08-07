@@ -8,6 +8,7 @@
 #include "Game/DungeonWorld.h"
 
 #include "Assets/Image.h"
+#include "Assets/WornPanel.h"
 #include "Core/Loc.h"
 #include "Core/Log.h"
 #include "Core/Paths.h"
@@ -240,9 +241,47 @@ void DungeonWorld::LoadDungeonBlocks() {
 					std::format("worn_{}_{}.gltf", name, m_settings.MeshSuffix()))
 					.meshes[0]);
 	};
-	load(m_wallBlocks, m_wallSets);
 	load(m_floorBlocks, m_floorSets);
 	load(m_ceilingBlocks, m_ceilingSets);
+
+	// Walls carry more than one mesh per set: the baker emits a panel per PHASE
+	// (which slice of a non-square texture the square shows) and per combination
+	// of OPEN SIDES (which edges skip the pin because the neighbour matches).
+	// Assets/WornPanel.h owns the naming both sides use.
+	//
+	// THE FILES DECIDE THE PHASE COUNT, not the albedo's aspect. The game could
+	// compute an aspect of its own and be a half-pixel off the baker's, which
+	// would index a panel that was never written; probing for what is actually
+	// on disk cannot disagree with what was actually baked. Only the bare name
+	// is required — everything else is optional, and a set that earned none of
+	// it (procedural wear, a fractional aspect) degrades to that one panel.
+	m_wallBlocks.clear();
+	for (const std::string& name : m_wallSets) {
+		const std::string tier = m_settings.MeshSuffix();
+		const auto panelName = [&](int phase, int open) {
+			return std::format("worn_{}_{}{}.gltf", name, tier,
+							   assets::WornPanelSuffix(phase, open));
+		};
+		WallPanels panels;
+		for (int phase = 0; phase < assets::kMaxWornPhases; ++phase) {
+			std::array<assets::MeshData, 4> row;
+			if (phase == 0) {
+				row[0] = LoadModelOrDie(panelName(0, 0)).meshes[0];
+			} else {
+				// A phase with no fully pinned panel does not exist; stop rather
+				// than leave a hole in the middle of the sequence.
+				auto base = LoadModelIfPresent(panelName(phase, 0));
+				if (!base || base->meshes.empty()) break;
+				row[0] = std::move(base->meshes[0]);
+			}
+			for (int open = 1; open < 4; ++open)
+				if (auto model = LoadModelIfPresent(panelName(phase, open));
+					model && !model->meshes.empty())
+					row[open] = std::move(model->meshes[0]);
+			panels.byPhase.push_back(std::move(row));
+		}
+		m_wallBlocks.push_back(std::move(panels));
+	}
 
 	// Wall-feature niche panels, one per wallfeatures.cat type (its `model`.gltf),
 	// stamped per niche edge into the wall's variant bucket so they take the wall

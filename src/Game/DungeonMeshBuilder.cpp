@@ -73,7 +73,7 @@ void Collect(std::vector<assets::MeshData>& buckets, int chunkIndex,
 // `holes` drops the cell's floor and/or ceiling block (a stair/pit shaft
 // opening; the prop mesh brings its own shaft geometry).
 void StampCell(const DungeonMap& map, int x, int z, CellHoles holes,
-			   std::span<const assets::MeshData> wallBlocks,
+			   std::span<const WallPanels> wallBlocks,
 			   std::span<const assets::MeshData> floorBlocks,
 			   std::span<const assets::MeshData> ceilingBlocks,
 			   std::span<const float> wallUAspect,
@@ -136,17 +136,43 @@ void StampCell(const DungeonMap& map, int x, int z, CellHoles holes,
 
 	// Wall blocks are authored facing +Z; rotate so the face points into the
 	// room. Camera convention: forward = (sin yaw, 0, cos yaw).
+	//
+	// `rdx,rdz` is where the panel's +X axis ends up in the world after that
+	// rotation — the direction of its RIGHT edge. XMMatrixRotationY(yaw) sends
+	// +X to (cos yaw, 0, -sin yaw) under the row-vector convention, which is the
+	// face normal turned a quarter clockwise. The panel's two side neighbours
+	// therefore live one cell along ±(rdx,rdz), and that is what decides whether
+	// each side can go unpinned.
 	struct Edge {
 		int dx, dz;
 		float yaw;
 		Vec3 pos;
+		int rdx, rdz;
 	};
 	const float s = kCellSize;
 	const Edge edges[4] = {
-		{0, -1, 0.0f, {center.x, 0, z * s}},              // north
-		{0, +1, kPi, {center.x, 0, (z + 1) * s}},         // south
-		{-1, 0, kPi * 0.5f, {x * s, 0, center.z}},        // west
-		{+1, 0, -kPi * 0.5f, {(x + 1) * s, 0, center.z}}, // east
+		{0, -1, 0.0f, {center.x, 0, z * s}, +1, 0},              // north
+		{0, +1, kPi, {center.x, 0, (z + 1) * s}, -1, 0},         // south
+		{-1, 0, kPi * 0.5f, {x * s, 0, center.z}, 0, -1},        // west
+		{+1, 0, -kPi * 0.5f, {(x + 1) * s, 0, center.z}, 0, +1}, // east
+	};
+
+	// The variant a wall face would stamp for the room cell (cx,cz) on its edge
+	// toward (cx+dx,cz+dz), or -1 when that face is not a PLAIN worn panel —
+	// no face there, or a niche/bore substituted for it. A feature panel is one
+	// mesh shared by all 54 surfaces and keeps its own pinned edges, so a
+	// neighbour has to pin against it or the two would step apart.
+	const auto plainFaceVariant = [&](int cx, int cz, int dx, int dz) -> int {
+		if (!map.IsWalkable(cx, cz)) return -1;
+		const int sx = cx + dx, sz = cz + dz;
+		if (map.IsWalkable(sx, sz)) return -1;
+		if (niche)
+			if (const WallNiche* n = map.NicheAt(cx, cz, dx, dz); n && n->open) return -1;
+		if (bore)
+			if (map.BoreAlong(sx, sz, dx != 0 ? 0 : 1)) return -1;
+		return static_cast<int>(pick(map.WallVariant(sx, sz),
+									 SurfaceVariantFor(sx, sz, 3u, wallVariants),
+									 wallVariants));
 	};
 	// Each wall face takes its texture from the SOLID block it belongs to: the
 	// block owns its texture (all faces of one block agree, both sides of a
@@ -181,15 +207,35 @@ void StampCell(const DungeonMap& map, int x, int z, CellHoles holes,
 		// its wear field samples the height map through them (ModelBaker).
 		const float uScale =
 			alt && wallVariant < wallUAspect.size() ? 1.0f / wallUAspect[wallVariant] : 1.0f;
-		AppendTransformed(wallB[wallVariant], alt ? *alt : wallBlocks[wallVariant], m,
-						  uScale);
+		// A side may drop its pin only where the panel beside it is the SAME
+		// surface — then both carry the same periodic displacement and meet
+		// exactly. Anything else (a different texture, a niche, the open air at a
+		// convex corner) leaves that side pinned, which is what closes the seam.
+		// A substituted feature panel is never re-picked; it has one shape.
+		const int mine = static_cast<int>(wallVariant);
+		const bool openL =
+			!alt && plainFaceVariant(x - e.rdx, z - e.rdz, e.dx, e.dz) == mine;
+		const bool openR =
+			!alt && plainFaceVariant(x + e.rdx, z + e.rdz, e.dx, e.dz) == mine;
+		// The PHASE — which slice of a non-square texture this square shows. The
+		// run index is the cell's own coordinate along the panel's +X direction,
+		// so the neighbour one step that way indexes one higher and lands on the
+		// next phase BY CONSTRUCTION, for all four edge orientations. Floor-mod,
+		// since the run index is negative on two of them. A square texture has
+		// one phase and this is always 0.
+		const int phases = wallBlocks[wallVariant].PhaseCount();
+		const int run = x * e.rdx + z * e.rdz;
+		const int phase = ((run % phases) + phases) % phases;
+		AppendTransformed(wallB[wallVariant],
+						  alt ? *alt : wallBlocks[wallVariant].Panel(phase, openL, openR),
+						  m, uScale);
 	}
 }
 
 } // namespace
 
 DungeonGeometry BuildDungeonRegion(const DungeonMap& map,
-								   std::span<const assets::MeshData> wallBlocks,
+								   std::span<const WallPanels> wallBlocks,
 								   std::span<const assets::MeshData> floorBlocks,
 								   std::span<const assets::MeshData> ceilingBlocks,
 								   std::span<const float> wallUAspect,
@@ -226,7 +272,7 @@ DungeonGeometry BuildDungeonRegion(const DungeonMap& map,
 }
 
 DungeonGeometry BuildDungeonGeometry(const DungeonMap& map,
-									 std::span<const assets::MeshData> wallBlocks,
+									 std::span<const WallPanels> wallBlocks,
 									 std::span<const assets::MeshData> floorBlocks,
 									 std::span<const assets::MeshData> ceilingBlocks,
 									 std::span<const float> wallUAspect,

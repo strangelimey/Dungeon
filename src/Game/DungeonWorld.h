@@ -23,6 +23,7 @@
 #include "Game/Combat.h"
 #include "Game/DungeonEntities.h"
 #include "Game/DungeonMap.h"
+#include "Game/DungeonMeshBuilder.h" // WallPanels (the worn wall block's variants)
 #include "Game/FireEffect.h"
 #include "Game/GameSettings.h"
 #include "Game/LoadQueue.h"
@@ -1980,9 +1981,12 @@ private:
 	std::vector<float> m_wallHeights, m_floorHeights, m_ceilingHeights;
 	// Per-variant material factors (catalog metallic=/roughness=), likewise.
 	std::vector<SurfaceMaterial> m_wallFactors, m_floorFactors, m_ceilingFactors;
-	// Worn block geometry, one mesh per texture variant (same order as the
-	// surface texture sets), held between the load and mesh-build tasks.
-	std::vector<assets::MeshData> m_wallBlocks, m_floorBlocks, m_ceilingBlocks;
+	// Worn block geometry, one entry per texture variant (same order as the
+	// surface texture sets), held between the load and mesh-build tasks. A wall
+	// carries its side-pin combinations (WallPanels) rather than a single mesh,
+	// so a face whose neighbour is the same surface can be stamped unpinned.
+	std::vector<WallPanels> m_wallBlocks;
+	std::vector<assets::MeshData> m_floorBlocks, m_ceilingBlocks;
 	// Niche panels by wallfeatures.cat type (each entry's `model`.gltf); the mesh
 	// builder stamps the one matching a niche's type. NicheMeshFor resolves it.
 	std::flat_map<std::string, assets::MeshData> m_nicheMeshes;
