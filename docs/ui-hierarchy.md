@@ -5,10 +5,12 @@ strict parent/child tree, where every control's `[0..1]` bounds resolve against
 its parent's pixel rect, recursively from the window down — and then the record
 of what that took.
 
-The tree answers WHOSE area a widget's is (P0–P6). Two later parts answer the
+The tree answers WHOSE area a widget's is (P0–P6). Three later parts answer the
 questions it left open: P7, that the area is the widget's own and nothing may
-paint into it, which is what `ui::Stack` and the `uioverlap` audit are for; and
-P8, that "using the mouse" is two claims, not one.
+paint into it, which is what `ui::Stack` and the `uioverlap` audit are for; P8,
+that "using the mouse" is two claims, not one; and P9, that input is clipped
+exactly as drawing is. The last two are one rule seen twice — **a widget must
+not claim a pixel it does not paint.**
 
 ## Where we start from
 
@@ -353,6 +355,36 @@ claimed by whoever is UNDER it, the wheel by whoever can ACT on it.** Two
 different questions, and answering both with one boolean is how a slider came to
 own a gesture it ignores.
 
+**P9 — the tile grid, and input clipped like drawing. DONE.** The asset picker's
+grid was the last hand-drawn surface: its own tiles, its own scroll, its own
+`TileAt`, its own thumb drag — a fifth copy of the scroll maths. A tile is an
+`AssetTile` widget now, rows are horizontal Stacks inside a content-sized one
+inside a `ScrollArea`, and the deferred thumbnail loaders ask the TILES what is
+on screen rather than re-deriving it from a scroll offset.
+
+Doing it surfaced three defects, each the same shape as the work:
+
+- **Input is now clipped like drawing.** A scrolled subtree is full of widgets
+  whose rects run past the window they are seen through, and every one of them
+  was still hit-testing: the grid's top row sat under the search box and ate its
+  clicks, so the box could not be focused. `ChildActive` covers a scroll area's
+  DIRECT children; a row inside a stack inside the area is a grandchild, and
+  only the clip knows where it really shows. `Widget::Update` carries the draw
+  walk's clip stack, in two parts — skip a widget clipped away entirely, and
+  suppress the pointer through a subtree the cursor is outside the clip of,
+  which is what keeps the VISIBLE half of a half-clipped tile clickable while
+  its hidden half is not. Same rule as P8: a widget must not claim a pixel it
+  does not paint.
+- **A filter changes on every keystroke**, so rebuilding the tree for it
+  destroyed the field being typed into — the first character landed and the rest
+  went nowhere. Only the grid's rows are refilled now (`Stack::ClearRows`, which
+  drops the parallel extent list `ClearChildren` would leave behind).
+- **A content-sized Stack writes its height during its OWN layout**, which runs
+  after the ScrollArea above it has clamped the scroll for the frame. Set a
+  scroll before that clamp and it is clamped to zero against a grid the area
+  does not yet know is tall — so restoring a position across a rebuild, and
+  `ScrollIntoView` on open, both happen after the layout.
+
 ## Left undone, and why
 
 - **The spellbook's symbol grid and sequence/Cast/Clear.** Its rects are already
@@ -373,11 +405,6 @@ own a gesture it ignores.
   sub-containers. That is the same trade the sheet's Inventory body makes, and
   for the same reason: the structure would not move a constant anywhere more
   meaningful.
-- **The asset picker's tile grid.** It draws its own tiles, scroll and hit test
-  straight to the batch. P7 gave it a reserved `Box` so it holds a place in the
-  layout and every tile metric measures off THAT box, but the grid itself is not
-  a widget tree. Converting it would want a repeater inside a scroll area, which
-  is the P5 trap; it earns nothing today.
 
 ## What the inspector found
 
@@ -460,6 +487,9 @@ proportions.
 - Detail INSIDE a control is in rem, not fractions of the parent — see above.
 - The pointer is claimed by whoever is UNDER it; the wheel by whoever can ACT on
   it. `ConsumeMouse` and `ConsumeWheel` are separate, and a modal takes both.
+- A widget never claims a pixel it does not paint. Input is clipped like
+  drawing, so a scrolled-out row is not hot; bounds that overstate what a widget
+  draws are a layout bug, not a hit-test convenience.
 - Screen-anchored things stay absolute and overlay-drawn, and say so in their
   header: `ContextMenu`'s absolute pixel position, and the `DropDown` /
   `ColorPicker` popups that clamp themselves to the window.
