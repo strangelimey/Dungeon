@@ -27,6 +27,7 @@
 #include "Graphics/Texture.h"
 #include "Platform/Window.h"
 #include "UI/Controls.h"
+#include "UI/Layout.h" // ui::Stack — the settings page's rows
 #include "UI/Skin.h"
 #include "UI/UIContext.h"
 
