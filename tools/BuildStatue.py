@@ -9,16 +9,33 @@
 # human?" It cannot be fixed by adding boxes — a human reads by its SILHOUETTE
 # and boxes have the wrong one at every height.
 #
-# ONE GENERATOR, FOUR FIGURES, the BuildStairsSpiral precedent. The plinth, the
-# lofted robe, the drapery folds, the swept arms and the head are the bulk of
-# the work and all four share them; a figure is a parameter table plus its
-# attribute. Four scripts would have been four places to fix the same fold.
+# ONE FIGURE, NOT FOUR — and the reason is the useful part of this file.
 #
-# WHAT THIS DELIBERATELY DOES NOT ATTEMPT: bare anatomy. Procedural musculature
-# goes wrong fast and a blank modelled face is worse than no face — so three of
-# the four are draped, and the hooded one shadows its face rather than carving
-# one. Drapery is the right problem for profile lofting, which is the machinery
-# this project already has (BuildPlinth, BuildFountain).
+# The plan was four: this hooded sentinel, an armoured knight, a classical
+# draped figure and a bare-headed mourner, sharing a plinth and a lofter. The
+# sentinel works. The knight was built and REJECTED on sight — Michael: "that
+# looks like a nutcracker wearing an acorn as a hat" — and the other two are not
+# being attempted procedurally.
+#
+# WHY THE ROBE WORKS AND THE ARMOUR DOES NOT, since the two look like the same
+# job. Drapery IS a lofted surface: a smooth column with a periodic ripple, and
+# both of those are things a profile lofter expresses natively and exactly.
+# Plate armour is a set of hard-edged shells — pauldron, breastplate, fauld,
+# greave — whose entire appeal is the crispness of the joints between them, and
+# a stack of lofted sections renders that as a stack of pots. Bare anatomy fails
+# the same way: procedural musculature goes wrong fast, and a blank modelled
+# face is worse than no face.
+#
+# IT IS THE SAME WALL AS THE HANDS, ONE LEVEL UP. Down there, every feature
+# small enough to be a hand's feature was too small to resolve. Here, every
+# feature that would make armour read as armour is a hard edge a lofter cannot
+# put where it needs to be. The answer both times is not more stations.
+#
+# THE DECISION (2026-08-07): the remaining figures wait on a BOUGHT OR SCULPTED
+# base mesh, imported through the FetchModels path and dressed with this file's
+# plinth and plaque. That is what tools\FetchModels.ps1 exists for. The knight
+# attempt is preserved in the branch's stash rather than in this file, because a
+# rejected shape is worth remembering as a sentence, not as dead code.
 #
 # AUTHORED IN METRES, SCALED TO UNITS AT THE END. Anatomy is the one thing in
 # this codebase easier to reason about in real dimensions — a 1.85 m figure, a
