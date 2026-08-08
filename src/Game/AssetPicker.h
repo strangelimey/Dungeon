@@ -105,6 +105,31 @@ public:
 	void MarkBaked(const std::string& name);
 
 private:
+	// One tile: the asset's image over its name and badge, owning its own hover
+	// and clicks. A nested class so it can read the picker's model directly —
+	// they are one unit, and the alternative is a bundle of callbacks that only
+	// re-states the coupling. It holds an INDEX into m_shown and re-resolves
+	// every frame (the Repeater rule), so a filter change cannot dangle it.
+	class AssetTile : public ui::Widget {
+	public:
+		AssetTile(const gfx::Rect& rect, AssetPicker& owner, size_t shownIndex)
+			: m_owner(owner), m_index(shownIndex) {
+			bounds = rect;
+		}
+		// The name this tile stands for, or "" once the filter has moved past it.
+		const std::string& Name() const;
+		size_t ShownIndex() const { return m_index; }
+
+	protected:
+		void UpdateSelf(ui::UIContext& ctx) override;
+		void DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) override;
+
+	private:
+		AssetPicker& m_owner;
+		size_t m_index;
+		bool m_hot = false;
+	};
+
 	// A tile's image plus when it was last on screen (the eviction key). A model
 	// tile also holds the mesh its icon was baked from — the bake only RECORDS a
 	// draw, so the mesh must outlive the frame, and both die together.
@@ -122,9 +147,15 @@ private:
 	// recorded (see PendingBake).
 	void PrepareModelIcons(size_t max);
 
-	void Rebuild();          // (re)builds the widget tree (search box, buttons)
+	void Rebuild();          // (re)builds the whole widget tree
+	// Refills the grid's rows from m_shown. Separate from Rebuild because the
+	// filter changes on every KEYSTROKE: rebuilding the tree would destroy the
+	// search field being typed into, and the second character would go nowhere.
+	void RebuildTiles();
 	void ApplyFilter();      // recomputes m_shown from the search text + chips
 	void SelectIndex(int i); // selects a shown-row index, loads its preview
+	// A tile was clicked: select it, and choose it on the second click.
+	void OnTileClicked(size_t shownIndex);
 	void RefreshPreview();   // the selected asset on the block mesh / itself
 	void RefreshFacts();     // the details lines (decodes the normal map once)
 	// Loads a tile image: the set's .dds trimmed to its small mips. Null when
@@ -133,13 +164,10 @@ private:
 	const gfx::Texture* ThumbFor(const std::string& name); // caches + marks seen
 	void EvictThumbs();                                    // over the cap, oldest first
 
-	// Geometry (window fractions resolved per draw, so the panel scales).
-	gfx::Rect GridRect(float w, float h) const;
-	gfx::Rect TileRect(float w, float h, size_t shownIndex) const;
-	int TileAt(float w, float h, float mx, float my) const; // -1 = none
-	float MaxScroll(float w, float h) const;
-	// [first, end) shown-row indices on screen — the loader's work list.
-	std::pair<size_t, size_t> VisibleRange() const;
+	// The tiles currently inside the grid's view — the deferred loaders' work
+	// list. Read from the tiles' own PIXEL rects rather than re-derived from a
+	// scroll offset, so there is no second copy of the grid's geometry to drift.
+	std::vector<AssetTile*> VisibleTiles() const;
 	// Loads at most `max` on-screen tile images (textures) — called from Update,
 	// never from the draw: each load reads a .dds and uploads it, which drains
 	// the GPU, and doing a screenful at once is a visible stall.
@@ -162,13 +190,17 @@ private:
 	std::string m_search;
 	bool m_onlyUsed = false;    // chip: only assets some catalog already binds
 	bool m_onlySurface = false; // chip: only sets with worn block meshes
-	float m_scroll = 0.0f;
-	bool m_scrollDragging = false;
-	float m_scrollGrab = 0.0f;
-	int m_hover = -1;           // hovered shown-row index
 	double m_lastClickTime = 0.0; // double-click detection on a tile
 	int m_lastClickTile = -1;
 	double m_time = 0.0;
+	// Both applied by Update AFTER m_ui.Update, and for the same reason: a
+	// content-sized Stack writes its height during ITS layout, which runs after
+	// the ScrollArea has already clamped the scroll for the frame. Set either
+	// before that clamp and it is clamped to zero against a grid the area does
+	// not yet know is tall.
+	bool m_scrollToSelected = false; // Open: show the current value
+	float m_restoreScroll = -1.0f;   // Rebuild: keep the position across a rebuild
+	bool m_tilesDirty = false;       // the filter moved; refill the grid's rows
 
 	// Details for the selected asset, built on selection (not per frame). Both
 	// are DEFERRED a frame: the preview loads three textures and a mesh, and the
@@ -183,9 +215,12 @@ private:
 
 	// Widgets the picker reads back (all owned by m_ui, dead after a Clear).
 	ui::TextField* m_searchField = nullptr;
-	// The area reserved for the tile grid: GridRect hands out its rect and every
-	// tile metric is measured off it, so the grid and the layout cannot disagree.
-	ui::Box* m_gridBox = nullptr;
+	// The grid: a ScrollArea holding a content-sized Stack of tile rows. It owns
+	// the scrolling, the clip and the scrollbar — the picker used to have its
+	// own copy of all three, the last one in the codebase.
+	ui::ScrollArea* m_grid = nullptr;
+	ui::Stack* m_tileRows = nullptr;   // the grid's rows; refilled by RebuildTiles
+	std::vector<AssetTile*> m_tiles;   // in m_shown order; dead after a Clear
 	ui::Label* m_countLabel = nullptr; // "n of m", refreshed by ApplyFilter
 	ui::Label* m_nameLabel = nullptr;  // the selected asset, over its facts
 	PreviewPane* m_pane = nullptr;     // PreviewRect hands out its rect

@@ -135,6 +135,11 @@ public:
 	// over it, so a click cannot also land on whatever is behind.
 	bool IsMouseConsumed() const { return m_mouseConsumed; }
 	void ConsumeMouse() { m_mouseConsumed = true; }
+	// Puts the claim back. ONLY for the update walk's clip handling, which
+	// suppresses the pointer through a subtree the cursor is outside of and has
+	// to un-suppress it afterwards — a widget must never hand back a claim it
+	// made, or the thing behind it gets the same click.
+	void SetMouseConsumed(bool consumed) { m_mouseConsumed = consumed; }
 
 	// The WHEEL, claimed separately — and that separation is the point. Nearly
 	// every ConsumeMouse call is a hover claim by a control that has no use for

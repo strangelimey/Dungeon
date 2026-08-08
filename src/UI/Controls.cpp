@@ -1223,6 +1223,18 @@ float ScrollArea::MaxScroll() const {
 	return (ContentFraction() - 1.0f) * ViewRect().h;
 }
 
+void ScrollArea::ScrollIntoView(const Widget& child) {
+	const gfx::Rect view = ViewRect();
+	if (view.h <= 0.0f) return;
+	// The child's rect is already shifted by the current scroll; undo that to get
+	// where it sits in the CONTENT, then move the window the shortest way.
+	const float top = child.Pixel().y - view.y + m_scroll;
+	const float bottom = top + child.Pixel().h;
+	if (top < m_scroll) m_scroll = top;
+	else if (bottom > m_scroll + view.h) m_scroll = bottom - view.h;
+	m_scroll = std::clamp(m_scroll, 0.0f, MaxScroll());
+}
+
 gfx::Rect ScrollArea::ScrollTrackRect() const {
 	const gfx::Rect& px = Pixel();
 	const float barW = Rem(0.35f), inset = Rem(0.08f);

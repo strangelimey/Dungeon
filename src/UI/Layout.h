@@ -82,6 +82,16 @@ public:
 	// see, instead of being invisible to the layout).
 	Box* Space(Len len) { return Row<Box>(len); }
 
+	// Drops every row, extents included. Widget::ClearChildren alone would leave
+	// the parallel extent list behind, so a refilled stack would lay its new rows
+	// out to the old ones' sizes. For a list whose CONTENT changes while the rest
+	// of the page stands — refilling one stack keeps the focus, and the scroll,
+	// that rebuilding the whole tree would throw away.
+	void ClearRows() {
+		ClearChildren();
+		m_lens.clear();
+	}
+
 	bool horizontal = false;
 	float gapRem = 0.0f; // space between rows
 	float padRem = 0.0f; // inset around the whole stack

@@ -516,6 +516,15 @@ public:
 
 	float Scroll() const { return m_scroll; }
 	void ScrollToTop() { m_scroll = 0.0f; }
+	// Restores a scroll position — for a list that REBUILDS its rows and would
+	// otherwise jump to the top every time its model changed. Clamped by the
+	// next layout, so a position past a now-shorter list is safe to hand back.
+	void SetScroll(float pixels) { m_scroll = pixels; }
+	// Scrolls the least distance that brings `child` fully into the view. Reads
+	// PIXEL rects, so call it after a layout has run — which is what makes it
+	// safe for a caller that knows a widget but not where the layout put it (a
+	// list opening on its current selection).
+	void ScrollIntoView(const Widget& child);
 
 	// The children's container: the view box, shifted up by the scroll.
 	gfx::Rect ContentRect() const override;

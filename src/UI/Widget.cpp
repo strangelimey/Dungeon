@@ -3,6 +3,7 @@
 // ============================================================================
 #include "UI/Widget.h"
 
+#include "Platform/Input.h"
 #include "UI/UIContext.h"
 
 #include <algorithm>
@@ -11,9 +12,10 @@ namespace dungeon::ui {
 
 namespace {
 
-// The clip currently in force during the draw walk (null = none). Drawing is a
-// single pass on one thread, so one file-static is the whole stack: a nested
-// clip intersects this and restores it on the way out.
+// The clip currently in force during the draw OR update walk (null = none).
+// Each is a single pass on one thread and they never overlap, so one file-static
+// is the whole stack: a nested clip intersects this and restores it on the way
+// out. Input honours it for the same reason drawing does — see Widget::Update.
 const gfx::Rect* g_clip = nullptr;
 gfx::Rect g_clipRect{};
 
@@ -22,6 +24,11 @@ gfx::Rect Intersect(const gfx::Rect& a, const gfx::Rect& b) {
 	const float x1 = std::min(a.x + a.w, b.x + b.w);
 	const float y1 = std::min(a.y + a.h, b.y + b.h);
 	return {x0, y0, std::max(x1 - x0, 0.0f), std::max(y1 - y0, 0.0f)};
+}
+
+bool Intersects(const gfx::Rect& a, const gfx::Rect& b) {
+	const gfx::Rect i = Intersect(a, b);
+	return i.w > 0.0f && i.h > 0.0f;
 }
 
 } // namespace
@@ -75,13 +82,44 @@ void Widget::Layout(const gfx::Rect& container, UIContext& ctx,
 
 void Widget::Update(UIContext& ctx) {
 	if (!visible) return;
+	// INPUT IS CLIPPED LIKE DRAWING. A widget that hit-tests a pixel it does not
+	// paint is claiming someone else's area, and a scrolled subtree is full of
+	// them: the asset picker's grid scrolls its top row up under the search box,
+	// whose clicks the (invisible) tiles were taking. ChildActive covers a scroll
+	// area's DIRECT children; a row inside a stack inside the area is a
+	// grandchild, and only the clip knows where it really shows.
+	//
+	// Two parts, because a HALF-clipped widget is the hard case: skip a widget
+	// clipped away entirely, and — for the rest — suppress the pointer through
+	// any subtree the cursor is outside the clip of, so the visible half of a
+	// tile stays clickable while its hidden half does not.
+	if (g_clip && !Intersects(m_pixel, *g_clip)) return;
+
 	UpdateBeforeChildren(ctx);
-	// Children next, in reverse add order: the topmost child owning a pixel
-	// claims the mouse before this widget's own hit test sees it.
+	const gfx::Rect* outer = g_clip;
+	const gfx::Rect outerRect = g_clipRect;
+	bool suppressed = false;
+	if (const gfx::Rect* clip = ChildClip()) {
+		g_clipRect = outer ? Intersect(*clip, outerRect) : *clip;
+		g_clip = &g_clipRect;
+		const Input* input = ctx.CurrentInput();
+		if (input && !g_clip->Contains(input->MouseX(), input->MouseY()) &&
+			!ctx.IsMouseConsumed()) {
+			suppressed = true; // only ever un-suppressed below
+			ctx.ConsumeMouse();
+		}
+	}
+	// Children in reverse add order: the topmost child owning a pixel claims the
+	// mouse before this widget's own hit test sees it.
 	for (auto it = m_children.rbegin(); it != m_children.rend(); ++it) {
 		Widget& child = **it;
 		if (!child.visible || !ChildActive(child)) continue;
 		child.Update(ctx);
+	}
+	if (suppressed) ctx.SetMouseConsumed(false);
+	if (g_clip != outer) {
+		g_clip = outer;
+		g_clipRect = outerRect;
 	}
 	UpdateSelf(ctx);
 }
