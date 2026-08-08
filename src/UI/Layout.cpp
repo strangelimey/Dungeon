@@ -43,6 +43,15 @@ void Stack::LayoutSelf(UIContext&) {
 	}
 	const float gaps = shown > 1 ? gap * static_cast<float>(shown - 1) : 0.0f;
 	const float free = std::max(span - fixed - gaps, 0.0f);
+	// A stack whose FIXED rows want more than it has: shrink them all to fit
+	// rather than letting the tail run out of the box. Overflowing is the one
+	// outcome this class exists to prevent — a row past the end lands on
+	// whatever the parent put after the stack (the level dialog's Save button,
+	// under its own settings rows), and no sibling check can see it because the
+	// colliding pair are not siblings. Squeezed rows look wrong; overrunning
+	// ones look broken and hide their cause.
+	const float squeeze =
+		fixed > 0.0f ? std::min(1.0f, std::max(span - gaps, 0.0f) / fixed) : 1.0f;
 
 	// Bounds are fractions of ContentRect, since that is what the walk resolves
 	// the children against.
@@ -52,7 +61,7 @@ void Stack::LayoutSelf(UIContext&) {
 		if (!child.visible) continue;
 		const float extent = m_lens[i].fill > 0.0f
 								 ? free * (m_lens[i].fill / fills)
-								 : Rem(m_lens[i].rem);
+								 : Rem(m_lens[i].rem) * squeeze;
 		child.bounds = horizontal
 						   ? gfx::Rect{at / content.w, 0.0f, extent / content.w, 1.0f}
 						   : gfx::Rect{0.0f, at / content.h, 1.0f, extent / content.h};

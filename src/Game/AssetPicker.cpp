@@ -9,6 +9,7 @@
 #include "Core/Log.h"
 #include "Core/Paths.h"
 #include "Game/AssetUtil.h"
+#include "Game/DialogLayout.h"
 #include "Game/DungeonWorld.h" // kIconSize: an icon target must match the bake
 #include "UI/Controls.h"
 
@@ -20,28 +21,34 @@
 namespace dungeon::game {
 
 namespace {
-// Panel + region geometry as window fractions — a large card, since the whole
-// point is to see many assets at once.
+// The panel as a window fraction — a large card, since the whole point is to
+// see many assets at once. The card inside it is stacked (Game/DialogLayout.h);
+// the grid gets a reserved area from that stack and everything about a tile is
+// measured off THAT, not off the window.
 constexpr gfx::Rect kPanel{0.08f, 0.07f, 0.84f, 0.86f};
-constexpr gfx::Rect kTitle{0.10f, 0.095f, 0.40f, 0.04f};
-constexpr gfx::Rect kSearch{0.10f, 0.145f, 0.26f, 0.040f};
-constexpr gfx::Rect kClear{0.365f, 0.145f, 0.030f, 0.040f};
-constexpr gfx::Rect kUsedChip{0.41f, 0.145f, 0.14f, 0.040f};
-constexpr gfx::Rect kSurfaceChip{0.41f, 0.185f, 0.14f, 0.040f};
-// The grid, and the details column beside it.
-constexpr gfx::Rect kGrid{0.10f, 0.235f, 0.46f, 0.63f};
-constexpr float kDetailX = 0.60f;
-constexpr gfx::Rect kChoose{0.60f, 0.815f, 0.10f, 0.045f};
+constexpr float kGridFill = 1.0f, kDetailFill = 0.62f, kGutterRow = 1.0f;
 
-// Tile metrics inside the grid (fractions of the WINDOW, like everything else).
-// The grid shows WHOLE ROWS ONLY: the row pitch divides the grid's height
-// exactly, and scrolling snaps to it, so a half-row is never on screen.
+// Tile metrics, as fractions of the GRID's own box. The grid shows WHOLE ROWS
+// ONLY: the row pitch divides the box height exactly, and the scroll is
+// measured IN ROWS (not pixels, not window fractions), so a half-row cannot be
+// on screen and no unit conversion can drift.
 constexpr int kCols = 4;
 constexpr int kRows = 3;
-constexpr float kTileW = 0.108f, kTilePad = 0.007f;
-constexpr float kRowPitch = (kGrid.h + kTilePad) / static_cast<float>(kRows);
-constexpr float kTileH = kRowPitch - kTilePad;
-constexpr float kScrollW = 0.010f;
+constexpr float kTilePadFrac = 0.015f; // of the grid width
+constexpr float kScrollWFrac = 0.022f; // of the grid width
+
+// The pixel metrics of one tile, derived from the grid's box.
+struct TileMetrics {
+	float pad = 0.0f, w = 0.0f, h = 0.0f, pitch = 0.0f;
+};
+TileMetrics MetricsFor(const gfx::Rect& grid) {
+	TileMetrics m;
+	m.pad = grid.w * kTilePadFrac;
+	m.w = (grid.w - m.pad * static_cast<float>(kCols - 1)) / static_cast<float>(kCols);
+	m.pitch = (grid.h + m.pad) / static_cast<float>(kRows);
+	m.h = m.pitch - m.pad;
+	return m;
+}
 // Work per frame, so opening the picker draws immediately and fills in behind
 // itself: a .dds read plus its upload drains the GPU, and doing sixteen of them
 // in the first frame is what made the dialog take a beat to appear.
@@ -125,7 +132,7 @@ void AssetPicker::Open(Mode mode, const std::string& current,
 	for (size_t i = 0; i < m_shown.size(); ++i)
 		if (m_items[m_shown[i]].name == m_selected) {
 			const int row = static_cast<int>(i) / kCols;
-			m_scroll = std::max(0, row - 1) * kRowPitch;
+			m_scroll = static_cast<float>(std::max(0, row - 1)); // in rows
 			break;
 		}
 }
@@ -144,34 +151,42 @@ void AssetPicker::ApplyFilter() {
 		m_shown.push_back(i);
 	}
 	m_scroll = 0.0f;
+	// The count follows the filter, not the frame — reformatting it every frame
+	// would allocate a string in a draw path for a number that rarely changes.
+	if (m_countLabel)
+		m_countLabel->text =
+			loc::Format("pick.count", m_shown.size(), m_items.size());
 }
 
 // --- geometry ----------------------------------------------------------------
 
-gfx::Rect AssetPicker::GridRect(float w, float h) const {
-	return {kGrid.x * w, kGrid.y * h, kGrid.w * w, kGrid.h * h};
+gfx::Rect AssetPicker::GridRect(float, float) const {
+	// The area the layout reserved for the grid. It used to be a window-fraction
+	// constant sitting beside the widgets rather than among them — so nothing
+	// stopped a row of chips growing down into it.
+	return m_gridBox ? m_gridBox->Pixel() : gfx::Rect{0.0f, 0.0f, 0.0f, 0.0f};
 }
 
 gfx::Rect AssetPicker::TileRect(float w, float h, size_t shownIndex) const {
 	const gfx::Rect grid = GridRect(w, h);
+	const TileMetrics m = MetricsFor(grid);
 	const int col = static_cast<int>(shownIndex) % kCols;
 	const int row = static_cast<int>(shownIndex) / kCols;
-	return {grid.x + static_cast<float>(col) * (kTileW + kTilePad) * w,
-			grid.y + static_cast<float>(row) * kRowPitch * h - m_scroll * h,
-			kTileW * w, kTileH * h};
+	return {grid.x + static_cast<float>(col) * (m.w + m.pad),
+			grid.y + (static_cast<float>(row) - m_scroll) * m.pitch, m.w, m.h};
 }
 
 float AssetPicker::MaxScroll(float, float) const {
-	// Whole rows only: the last scroll position puts the final row at the
-	// bottom of the grid, so scrolling never reveals a partial tile.
+	// IN ROWS: the last position puts the final row at the bottom of the grid,
+	// so scrolling never reveals a partial tile.
 	const int rows = (static_cast<int>(m_shown.size()) + kCols - 1) / kCols;
-	return std::max(0.0f, static_cast<float>(rows - kRows) * kRowPitch);
+	return static_cast<float>(std::max(0, rows - kRows));
 }
 
 // The shown-row indices currently on screen — what the thumbnail loader works
 // through, so an off-screen tile costs nothing until it is scrolled to.
 std::pair<size_t, size_t> AssetPicker::VisibleRange() const {
-	const int firstRow = static_cast<int>(std::round(m_scroll / kRowPitch));
+	const int firstRow = static_cast<int>(std::round(m_scroll));
 	const size_t first = static_cast<size_t>(std::max(0, firstRow) * kCols);
 	return {first, std::min(m_shown.size(), first + static_cast<size_t>(kRows * kCols))};
 }
@@ -321,9 +336,8 @@ void AssetPicker::SelectIndex(int shownIndex) {
 	m_factsDirty = true;
 }
 
-gfx::Rect AssetPicker::PreviewRect(float w, float h) const {
-	const float side = std::min(0.26f * w, 0.34f * h);
-	return {kDetailX * w, 0.24f * h, side, side};
+gfx::Rect AssetPicker::PreviewRect(float, float) const {
+	return m_pane ? m_pane->Pixel() : gfx::Rect{0.0f, 0.0f, 0.0f, 0.0f};
 }
 
 void AssetPicker::RefreshPreview() {
@@ -415,8 +429,28 @@ void AssetPicker::Rebuild() {
 	m_ui.SetTheme(m_theme);
 	m_ui.Clear();
 	m_searchField = nullptr;
+	m_gridBox = nullptr;
+	m_countLabel = nullptr;
+	m_pane = nullptr;
+	m_nameLabel = nullptr;
 
-	m_searchField = m_ui.Add<ui::TextField>(kSearch, m_search);
+	DialogChrome chrome =
+		BuildDialogChrome(m_ui, kPanel, loc::Format("pick.title", m_label),
+						  m_closeIcon, [this] { Close(); });
+	// Two columns: the filter row over the tile grid, and the details beside.
+	chrome.body->horizontal = true;
+	ui::Stack* left = chrome.body->Row<ui::Stack>(ui::Len::Fill(kGridFill));
+	left->debugName = "grid-column";
+	left->gapRem = 0.5f;
+	chrome.body->Space(ui::Len::Fixed(kGutterRow));
+	ui::Stack* right = chrome.body->Row<ui::Stack>(ui::Len::Fill(kDetailFill));
+	right->debugName = "details";
+	right->gapRem = 0.4f;
+
+	// --- filter row ----------------------------------------------------------
+	ui::Stack* filter = left->Row<ui::Stack>(FormRow(), true);
+	filter->gapRem = 0.5f;
+	m_searchField = filter->Row<ui::TextField>(ui::Len::Fill(1.6f), m_search);
 	m_searchField->placeholder = loc::Tr("pick.search");
 	m_searchField->maxLength = 40;
 	ui::TextField* raw = m_searchField;
@@ -424,29 +458,56 @@ void AssetPicker::Rebuild() {
 		m_search = raw->text;
 		ApplyFilter();
 	};
-	m_ui.Add<ui::Button>(kClear, "x", [this] {
+	filter->Row<ui::Button>(FooterButton(0.35f), "x", [this] {
 		m_search.clear();
 		ApplyFilter();
 		m_uiRebuild = true; // the field's text is its own state — rebuild it
 	});
-	m_ui.Add<ui::Checkbox>(kUsedChip, loc::Tr("pick.chip.used"), m_onlyUsed,
-						   [this](bool on) {
-							   m_onlyUsed = on;
-							   ApplyFilter();
-						   });
+	filter->Row<ui::Checkbox>(ui::Len::Fill(0.9f), loc::Tr("pick.chip.used"),
+							  m_onlyUsed, [this](bool on) {
+								  m_onlyUsed = on;
+								  ApplyFilter();
+							  });
 	if (m_mode == Mode::Textures)
-		m_ui.Add<ui::Checkbox>(kSurfaceChip, loc::Tr("pick.chip.surface"),
-							   m_onlySurface, [this](bool on) {
-								   m_onlySurface = on;
-								   ApplyFilter();
-							   });
-	m_ui.Add<ui::Button>(kChoose, loc::Tr("pick.choose"), [this] {
+		filter->Row<ui::Checkbox>(ui::Len::Fill(1.0f), loc::Tr("pick.chip.surface"),
+								  m_onlySurface, [this](bool on) {
+									  m_onlySurface = on;
+									  ApplyFilter();
+								  });
+	// The count ends the filter row — it IS what the filter left, and it belongs
+	// beside the controls that produced it rather than up beside the close box,
+	// where it had nothing but the panel's corner to sit against.
+	m_countLabel = filter->Row<ui::Label>(
+		ui::Len::Fill(0.9f),
+		loc::Format("pick.count", m_shown.size(), m_items.size()));
+	m_countLabel->centerV = true;
+	m_countLabel->dim = true;
+
+	// The grid's area. It draws itself (its own tiles, scroll and hit test), but
+	// it holds a place in the layout like everything else, and its tile metrics
+	// are measured off THIS box — see MetricsFor.
+	m_gridBox = left->Space(ui::Len::Fill());
+	m_gridBox->debugName = "grid";
+
+	// --- details column ------------------------------------------------------
+	m_pane = right->Row<PreviewPane>(ui::Len::Fill());
+	m_pane->border = true;
+	m_nameLabel = right->Row<ui::Label>(
+		FormRow(0.9f), m_selected.empty() ? loc::Tr("pick.none") : m_selected);
+	m_nameLabel->accent = !m_selected.empty();
+	m_nameLabel->dim = m_selected.empty();
+	// The facts are rebuilt with the selection (SelectIndex defers a rebuild),
+	// so they can be plain rows rather than something redrawn every frame.
+	for (const std::string& line : m_facts)
+		right->Row<ui::Label>(FormRow(0.8f), line)->dim = true;
+
+	chrome.footer->Space(ui::Len::Fill());
+	chrome.footer->Row<ui::Button>(FooterButton(), loc::Tr("pick.choose"), [this] {
 		if (m_selected.empty()) return;
 		const std::string picked = m_selected;
 		Close();
 		if (onChoose) onChoose(picked);
 	});
-	ui::AddCloseButton(m_ui, kPanel, m_closeIcon, [this] { Close(); });
 }
 
 // --- input -------------------------------------------------------------------
@@ -487,15 +548,14 @@ void AssetPicker::Update(const Input& input, float w, float h, float dt) {
 	// Wheel over the grid scrolls a row at a time.
 	const gfx::Rect grid = GridRect(w, h);
 	if (grid.Contains(mx, my) && input.WheelDelta() != 0.0f)
-		m_scroll = std::clamp(m_scroll - input.WheelDelta() * kRowPitch, 0.0f,
-							  maxScroll);
+		m_scroll = std::clamp(m_scroll - input.WheelDelta(), 0.0f, maxScroll);
 
 	// Scrollbar drag, in the gutter at the grid's right edge.
 	if (maxScroll > 0.0f) {
-		const gfx::Rect track{grid.x + grid.w - kScrollW * w, grid.y, kScrollW * w,
-							  grid.h};
-		const float thumbH =
-			std::max(track.h * (kGrid.h / (kGrid.h + maxScroll)), 24.0f);
+		const float trackW = grid.w * kScrollWFrac;
+		const gfx::Rect track{grid.x + grid.w - trackW, grid.y, trackW, grid.h};
+		const float thumbH = std::max(
+			track.h * (static_cast<float>(kRows) / (kRows + maxScroll)), 24.0f);
 		const float t = maxScroll > 0.0f ? m_scroll / maxScroll : 0.0f;
 		const gfx::Rect thumb{track.x, track.y + (track.h - thumbH) * t, track.w,
 							  thumbH};
@@ -532,7 +592,7 @@ void AssetPicker::Update(const Input& input, float w, float h, float dt) {
 
 	// Whole rows only — a drag or a clamp can leave the scroll mid-row, and half
 	// a tile peeking over the grid edge is exactly what this layout avoids.
-	m_scroll = std::clamp(std::round(m_scroll / kRowPitch) * kRowPitch, 0.0f, maxScroll);
+	m_scroll = std::clamp(std::round(m_scroll), 0.0f, maxScroll);
 
 	// The deferred work, at most one job a frame and cheapest first: tile images,
 	// then the selected asset's preview, then its facts (which decode a normal
@@ -546,6 +606,9 @@ void AssetPicker::Update(const Input& input, float w, float h, float dt) {
 	} else if (m_factsDirty) {
 		m_factsDirty = false;
 		RefreshFacts();
+		// The facts are Label rows, so a new set is a new tree — rebuilt here,
+		// outside the widget walk, which is where they were about to be read.
+		m_uiRebuild = true;
 	}
 	EvictThumbs();
 }
@@ -559,14 +622,9 @@ void AssetPicker::Render(gfx::SpriteBatch& batch, float w, float h) {
 	const gfx::Rect panel{kPanel.x * w, kPanel.y * h, kPanel.w * w, kPanel.h * h};
 	batch.DrawRect(panel, th.panel);
 	ui::DrawBorder(batch, panel, th.panelBorder);
-
-	ui::DialogTitleFont(m_ui).Draw(batch, loc::Format("pick.title", m_label),
-								   kTitle.x * w, kTitle.y * h, th.text);
-	// The count, so a filter that hides everything says so rather than looking
-	// like a broken grid.
-	m_ui.GetFont().Draw(batch,
-				loc::Format("pick.count", m_shown.size(), m_items.size()),
-				(kGrid.x + kGrid.w) * w - 120.0f, kTitle.y * h, th.textDim);
+	// Title, count, filter row, preview, facts and footer are widgets; the tile
+	// grid draws itself into the area the layout reserved for it.
+	m_ui.Render(batch, w, h);
 
 	// --- the grid ------------------------------------------------------------
 	const gfx::Rect grid = GridRect(w, h);
@@ -605,10 +663,10 @@ void AssetPicker::Render(gfx::SpriteBatch& batch, float w, float h) {
 	// Scrollbar, drawn after the tiles so it is never under one.
 	const float maxScroll = MaxScroll(w, h);
 	if (maxScroll > 0.0f) {
-		const gfx::Rect track{grid.x + grid.w - kScrollW * w, grid.y, kScrollW * w,
-							  grid.h};
-		const float thumbH =
-			std::max(track.h * (kGrid.h / (kGrid.h + maxScroll)), 24.0f);
+		const float trackW = grid.w * kScrollWFrac;
+		const gfx::Rect track{grid.x + grid.w - trackW, grid.y, trackW, grid.h};
+		const float thumbH = std::max(
+			track.h * (static_cast<float>(kRows) / (kRows + maxScroll)), 24.0f);
 		const float t = m_scroll / maxScroll;
 		batch.DrawRect(track, th.control);
 		const gfx::Rect thumb{track.x, track.y + (track.h - thumbH) * t, track.w,
@@ -616,24 +674,6 @@ void AssetPicker::Render(gfx::SpriteBatch& batch, float w, float h) {
 		batch.DrawRect(thumb, m_scrollDragging ? th.controlActive : th.controlHot);
 		ui::DrawBorder(batch, thumb, th.panelBorder);
 	}
-
-	// --- the details column --------------------------------------------------
-	const gfx::Rect pv = PreviewRect(w, h);
-	batch.DrawRect(pv, {0.02f, 0.02f, 0.03f, 1.0f});
-	ui::DrawBorder(batch, pv, th.panelBorder);
-	float y = pv.y + pv.h + 12.0f;
-	if (m_selected.empty()) {
-		m_ui.GetFont().Draw(batch, loc::Tr("pick.none"), kDetailX * w, y, th.textDim);
-	} else {
-		m_ui.GetFont().Draw(batch, m_selected, kDetailX * w, y, th.accent);
-		y += m_ui.GetFont().Height() + 6.0f;
-		for (const std::string& line : m_facts) {
-			m_ui.GetFont().Draw(batch, line, kDetailX * w, y, th.textDim);
-			y += m_ui.GetFont().Height() + 2.0f;
-		}
-	}
-
-	m_ui.Render(batch, w, h); // search row, chips, Choose, close box
 }
 
 } // namespace dungeon::game

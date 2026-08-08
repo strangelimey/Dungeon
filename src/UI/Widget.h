@@ -171,6 +171,11 @@ public:
 	// rather than bounded.
 	virtual gfx::Rect InkRect() const { return m_pixel; }
 
+	// True if this widget clips its children (a scroll area, a tab page). Its
+	// children are then MEANT to run past its bounds — the excess paints on
+	// nothing — which is why the overlap audit does not count that as an escape.
+	bool ClipsChildren() const { return ChildClip() != nullptr; }
+
 	// Opts this widget out of the overlap audit: it is deliberately UNDER (or
 	// over) its siblings — a Panel used as a backdrop for the rows added after
 	// it, a popup that draws in the overlay pass. Not a licence to overlap by

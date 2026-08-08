@@ -148,11 +148,8 @@ private:
 	// --- rename / delete ------------------------------------------------------
 	std::string m_notice;      // refusal or note, drawn under the form
 	bool m_editName = false;   // the title's id is an edit field right now
-	bool m_nameHover = false;  // hover on the id (Update tracks, Render styles)
 	bool m_deleteArmed = false; // the Delete button is one click from firing
 	ui::TextField* m_nameField = nullptr; // valid until the next Clear
-	// The id's pixel rect within the title line — the rename click target.
-	gfx::Rect IdRect(float w, float h);
 };
 
 } // namespace dungeon::game

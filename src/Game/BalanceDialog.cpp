@@ -6,6 +6,7 @@
 #include "Core/Loc.h"
 #include "Core/Paths.h"
 #include "Game/AssetUtil.h"
+#include "Game/DialogLayout.h"
 #include "UI/Controls.h"
 
 #include <charconv>
@@ -14,14 +15,10 @@
 namespace dungeon::game {
 
 namespace {
-// Panel + region geometry, as fractions (0..1) of the window (the monster-
-// config dialog's proportions, minus its preview pane — the tabs get the
-// width).
+// The panel, as fractions (0..1) of the window (the monster-config dialog's
+// proportions, minus its preview pane — the tabs get the width). The card
+// inside it is stacked (Game/DialogLayout.h).
 constexpr gfx::Rect kPanel{0.24f, 0.08f, 0.52f, 0.84f};
-constexpr gfx::Rect kTitle{0.255f, 0.095f, 0.45f, 0.045f};
-constexpr gfx::Rect kTabs{0.255f, 0.165f, 0.49f, 0.67f};
-// Save centered in the footer; Close is the top-right corner box now.
-constexpr gfx::Rect kSave{0.4475f, 0.855f, 0.105f, 0.05f};
 
 // A numeric text field: shows `value` ({:g}), and while edited writes every
 // PARSEABLE state back through `commit` (a live apply). An unparseable
@@ -64,21 +61,26 @@ void BalanceDialog::Open(const Balance& current) {
 
 void BalanceDialog::BuildUI() {
 	m_ui.Clear();
-	m_tabs = m_ui.Add<ui::TabControl>(kTabs, 0.075f);
+	DialogChrome chrome =
+		BuildDialogChrome(m_ui, kPanel, loc::Tr("map.balance.title"), m_closeIcon,
+						  [this] {
+							  if (onApply) onApply(m_original); // revert live
+							  Close();
+						  });
+
+	m_tabs = chrome.body->Row<ui::TabControl>(ui::Len::Fill(), 0.075f);
 	const size_t tabFormula = m_tabs->AddTab(loc::Tr("map.balance.tab.formula"));
 	const size_t tabAttacks = m_tabs->AddTab(loc::Tr("map.balance.tab.attacks"));
 	BuildFormulaTab(tabFormula);
 	BuildAttacksTab(tabAttacks);
 	m_tabs->SetActiveTab(m_activeTab);
 
-	m_ui.Add<ui::Button>(kSave, loc::Tr("map.cfg.save"), [this] {
+	chrome.footer->Space(ui::Len::Fill());
+	chrome.footer->Row<ui::Button>(FooterButton(), loc::Tr("map.cfg.save"), [this] {
 		if (onSave) onSave(m_cfg);
 		Close();
 	});
-	ui::AddCloseButton(m_ui, kPanel, m_closeIcon, [this] {
-		if (onApply) onApply(m_original); // revert the live tuning
-		Close();
-	});
+	chrome.footer->Space(ui::Len::Fill());
 }
 
 void BalanceDialog::BuildFormulaTab(size_t tab) {
@@ -86,7 +88,11 @@ void BalanceDialog::BuildFormulaTab(size_t tab) {
 	// Balance.h shows up here with no dialog change). Labels are the raw
 	// balance.cat keys — WYSIWYG with the file. Rows past the tab bottom
 	// scroll (TabControl's per-tab scrollbar).
-	constexpr float rowH = 0.062f, top = 0.03f;
+	// The row pitch has to clear the TEXT: these labels draw at
+	// ui::kDialogTextScale, and at 0.062 of the page they were pitched 29px
+	// apart around 40px type — every row sat on the one below it, which the
+	// overlap audit reported once it could see inside a tab page.
+	constexpr float rowH = 0.10f, top = 0.03f;
 	int row = 0;
 	for (const BalanceField& f : BalanceFields()) {
 		const float y = top + row * rowH;
@@ -104,7 +110,7 @@ void BalanceDialog::BuildFormulaTab(size_t tab) {
 void BalanceDialog::BuildAttacksTab(size_t tab) {
 	// Header row (raw attacks.cat keys), then one row per attack: id + its
 	// damage type (identity, read-only) and the four numeric fields.
-	constexpr float rowH = 0.068f, top = 0.03f;
+	constexpr float rowH = 0.105f, top = 0.03f; // clears the text — see above
 	constexpr float colW = 0.155f;
 	constexpr float colX[4] = {0.26f, 0.435f, 0.61f, 0.785f};
 	// "?" — the column explainer overlay (what the four numbers do).
@@ -167,11 +173,7 @@ void BalanceDialog::Render(gfx::SpriteBatch& batch, const ui::Theme& th, float w
 	const gfx::Rect panel{kPanel.x * w, kPanel.y * h, kPanel.w * w, kPanel.h * h};
 	batch.DrawRect(panel, th.panel);
 	ui::DrawBorder(batch, panel, th.panelBorder);
-
-	ui::DialogTitleFont(m_ui).Draw(batch, loc::Tr("map.balance.title"),
-								   kTitle.x * w, kTitle.y * h, th.text);
-
-	m_ui.Render(batch, w, h); // tabs + fields + footer buttons
+	m_ui.Render(batch, w, h); // title + tabs + fields + footer
 
 	// The "?" overlay: title + word-wrapped paragraphs (one lang key each),
 	// drawn over a second dim wash so the dialog visibly freezes beneath it.

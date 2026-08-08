@@ -10,6 +10,7 @@ add_library(Game STATIC
 	Character.cpp
 	Combat.cpp
 	DevConsole.cpp
+	DialogLayout.cpp
 	DoorInspector.cpp
 	DungeonEntities.cpp
 	DungeonMap.cpp

@@ -27,6 +27,7 @@
 
 #include "Assets/Model.h"
 #include "Game/AssetUtil.h"
+#include "Game/DialogLayout.h" // PreviewPane, the card chrome
 #include "Graphics/GraphicsDevice.h"
 #include "Graphics/Mesh.h"
 #include "Graphics/Renderer.h" // MaterialParams
@@ -180,7 +181,14 @@ private:
 	std::unordered_map<std::string, Thumb> m_thumbs;
 	u64 m_frame = 0; // ages the cache
 
-	ui::TextField* m_searchField = nullptr; // owned by m_ui
+	// Widgets the picker reads back (all owned by m_ui, dead after a Clear).
+	ui::TextField* m_searchField = nullptr;
+	// The area reserved for the tile grid: GridRect hands out its rect and every
+	// tile metric is measured off it, so the grid and the layout cannot disagree.
+	ui::Box* m_gridBox = nullptr;
+	ui::Label* m_countLabel = nullptr; // "n of m", refreshed by ApplyFilter
+	ui::Label* m_nameLabel = nullptr;  // the selected asset, over its facts
+	PreviewPane* m_pane = nullptr;     // PreviewRect hands out its rect
 
 	// Preview resources (the AssetDialog pattern: the dialog owns them, the
 	// owner renders them into its RT and blits).

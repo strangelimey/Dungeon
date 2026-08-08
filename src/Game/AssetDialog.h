@@ -32,6 +32,7 @@
 
 #include "Assets/Model.h"
 #include "Assets/PbrMaps.h"
+#include "Game/DialogLayout.h" // PreviewPane
 #include "Graphics/GraphicsDevice.h"
 #include "Graphics/Mesh.h"
 #include "Graphics/Renderer.h" // MaterialParams
@@ -181,6 +182,11 @@ private:
 	ui::TextField* m_nameField = nullptr;
 	ui::TextField* m_groupField = nullptr;
 	ui::Label* m_pathLabel = nullptr;
+	// Rewritten every frame in Update: the reason Create is refused follows what
+	// is typed, and typing does not rebuild the tree.
+	ui::Label* m_problemLabel = nullptr;
+	// The preview pane widget; PreviewRect hands out its rect.
+	PreviewPane* m_pane = nullptr;
 };
 
 } // namespace dungeon::game

@@ -80,10 +80,7 @@ private:
 	// m_pendingLanguage convention).
 	bool m_editName = false;    // title row is the edit field
 	bool m_uiRebuild = false;   // deferred BuildUI request
-	bool m_nameHover = false;   // stem hover (Update tracks, Render styles)
 	ui::TextField* m_nameField = nullptr; // valid until the next Clear
-	// The stem's pixel rect within the title line (Update-computed hit box).
-	gfx::Rect StemRect(float w, float h);
 };
 
 } // namespace dungeon::game

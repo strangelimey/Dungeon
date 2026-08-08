@@ -53,9 +53,14 @@ std::string Name(const Widget& widget);
 //
 // Armed for ONE frame, it walks every context that renders — the HUD, the
 // pages, and whichever dialog happens to be open, with no per-caller wiring —
-// and reports each pair of siblings whose INK rects (Widget::InkRect, so a
-// label wider than its row counts) intersect. Widgets marked `overlapOk` are
-// skipped; so are empty rects, which is what a screen-anchored popup has.
+// and reports two things, using INK rects (Widget::InkRect, so a label wider
+// than its row counts): SIBLINGS whose areas intersect, and any child that
+// ESCAPES its parent's ContentRect. The second matters as much as the first: a
+// row that runs off the end of its container lands on something with a
+// different parent, which no sibling check would ever compare.
+//
+// Widgets marked `overlapOk` are skipped; so are empty rects, which is what a
+// screen-anchored popup has.
 //
 // Arm it, and the next frame's contexts report through `out`.
 void ArmOverlapAudit(std::function<void(const std::string&)> out);

@@ -6,6 +6,7 @@
 #include "Core/Loc.h"
 #include "Core/Paths.h"
 #include "Game/AssetUtil.h"
+#include "Game/DialogLayout.h"
 #include "UI/Controls.h"
 
 #include <algorithm>
@@ -13,46 +14,20 @@
 namespace dungeon::game {
 
 namespace {
-// The panel's inner margin, the one rect this file still authors as a fraction
-// (of the derived Panel()). EVERYTHING inside it is stacked: the bands used to
-// be fractions too — kTitleH 0.12, kFacingH 0.14 — which is a guess at how tall
-// a title is, and the guess was wrong the moment the title face grew. A 52px
-// title in a 45px band is exactly the overlap the user saw. See UI/Layout.h.
-constexpr float kPad = 0.04f;
-// Row extents, in rem (Units.h). See InstanceInspector::FormRow for why the
-// dialog scale is folded in.
-constexpr float kTitleRow = ui::kDialogTitleScale * 1.35f;
-constexpr float kFooterRow = ui::kDialogTextScale * 1.9f;
+// The bands used to be fractions of the panel — kTitleH 0.12, kFacingH 0.14 —
+// which is a guess at how tall a title is, and the guess was wrong the moment
+// the title face grew. A 52px title in a 45px band is exactly the overlap the
+// user saw. The card is Game/DialogLayout's now; only what goes INSIDE it is
+// here. See UI/Layout.h.
 constexpr float kSeparatorRow = 0.6f;
-// The close box lives at the panel's top-right in absolute panel fractions
-// (ui::AddCloseButton), so the title row RESERVES its width rather than
-// discovering it — the two are not siblings, and nothing else would stop a long
-// title running underneath the "x".
-constexpr float kCloseRow = ui::kDialogTitleScale * 0.85f;
 // With a preview pane the controls take this share of the body and the pane
 // takes the rest, with a gutter between.
 constexpr float kColumnFill = 0.60f;
 constexpr float kPaneFill = 0.40f;
 constexpr float kGutterRow = 1.0f;
-
-// The preview pane: the dark backing the owner blits the live 3D image over.
-// A WIDGET, not a rect drawn on the side — as furniture outside the tree it had
-// no area anything could respect, which is how a checkbox label ended up
-// underneath it.
-class PreviewPane : public ui::Widget {
-public:
-	explicit PreviewPane(const gfx::Rect& rect) { bounds = rect; }
-
-protected:
-	void DrawSelf(ui::UIContext&, gfx::SpriteBatch& batch) override {
-		batch.DrawRect(Pixel(), {0.02f, 0.02f, 0.03f, 1.0f});
-	}
-};
 } // namespace
 
-ui::Len InstanceInspector::FormRow(float lines) {
-	return ui::Len::Fixed(ui::kDialogTextScale * 1.6f * lines);
-}
+ui::Len InstanceInspector::FormRow(float lines) { return game::FormRow(lines); }
 
 InstanceInspector::InstanceInspector(gfx::GraphicsDevice& device,
 									 ui::FontLibrary& fonts)
@@ -77,36 +52,19 @@ void InstanceInspector::OpenModal() {
 void InstanceInspector::BuildUI() {
 	m_ui.Clear();
 	m_pane = nullptr;
-	const gfx::Rect p = Panel();
 
-	// ONE authored rect — the panel's padded interior — and every band inside it
-	// computed. Nothing below writes a coordinate.
-	ui::Stack* page = m_ui.Add<ui::Stack>(
-		gfx::Rect{p.x + kPad * p.w, p.y + kPad * p.h, (1.0f - 2 * kPad) * p.w,
-				  (1.0f - 2 * kPad) * p.h});
-	page->debugName = "page";
-	page->gapRem = 0.4f;
-
-	// Title row: the title beside the space the close box occupies.
-	ui::Stack* titleRow = page->Row<ui::Stack>(ui::Len::Fixed(kTitleRow), true);
-	titleRow->debugName = "title";
-	ui::Label* title = titleRow->Row<ui::Label>(ui::Len::Fill(), Title());
-	title->fontScale = ui::kDialogTitleScale;
-	title->centerV = true;
-	// Close (revert, like Esc): the shared box icon, in a slot the title row
-	// RESERVED for it rather than floated over the panel corner. As a floating
-	// widget it sat on top of the page stack — which the overlap audit duly
-	// reported, and which a long enough title would have made visible.
-	ui::Box* closeSlot = titleRow->Space(ui::Len::Fixed(kCloseRow));
-	closeSlot->debugName = "close";
-	ui::AddCloseButton(*closeSlot, m_closeIcon, [this] {
-		Revert();
-		Close();
-	});
+	// The shared card (Game/DialogLayout.h): panel padding, title row with the
+	// close box in a slot of its own, body, footer. Nothing here writes a
+	// coordinate; the rest of this function only says how tall each row is.
+	DialogChrome chrome = BuildDialogChrome(m_ui, Panel(), Title(), m_closeIcon,
+											[this] {
+												Revert();
+												Close();
+											});
 
 	// Body: the control column, and beside it the preview pane when there is one.
-	ui::Stack* body = page->Row<ui::Stack>(ui::Len::Fill(), true);
-	body->debugName = "body";
+	ui::Stack* body = chrome.body;
+	body->horizontal = true;
 	ui::Stack* column =
 		body->Row<ui::Stack>(ui::Len::Fill(HasPreview() ? kColumnFill : 1.0f));
 	column->debugName = "column";
@@ -159,8 +117,8 @@ void InstanceInspector::BuildUI() {
 										  facingExtra->onChange(on);
 								  });
 
-	// Divider, then the derived content, then the footer. The content is a Fill
-	// row, so it takes whatever the fixed chrome leaves.
+	// Divider, then the derived content. The content is a Fill row, so it takes
+	// whatever the fixed chrome leaves.
 	column->Row<ui::Separator>(ui::Len::Fixed(kSeparatorRow));
 	ui::Stack* content = column->Row<ui::Stack>(ui::Len::Fill());
 	content->debugName = "content";
@@ -169,20 +127,18 @@ void InstanceInspector::BuildUI() {
 
 	// Footer: Save (persist), plus Delete (remove the object from the map)
 	// when the owner armed it — closing lives in the "x"/Esc, not down here.
-	ui::Stack* footer = column->Row<ui::Stack>(ui::Len::Fixed(kFooterRow), true);
-	footer->debugName = "footer";
-	footer->gapRem = 0.8f;
-	footer->Row<ui::Button>(ui::Len::Fill(), loc::Tr("map.cfg.save"), [this] {
+	// Left-aligned under the control column, so the preview pane keeps its side.
+	chrome.footer->Row<ui::Button>(FooterButton(), loc::Tr("map.cfg.save"), [this] {
 		Persist();
 		Close();
 	});
 	if (onDelete)
-		footer->Row<ui::Button>(ui::Len::Fill(), loc::Tr("map.cfg.delete"), [this] {
-			onDelete(); // the object is gone — no Revert
-			Close();
-		});
-	else
-		footer->Space(ui::Len::Fill()); // keep Save at half width, as with Delete
+		chrome.footer->Row<ui::Button>(FooterButton(), loc::Tr("map.cfg.delete"),
+									   [this] {
+										   onDelete(); // gone — no Revert
+										   Close();
+									   });
+	chrome.footer->Space(ui::Len::Fill());
 }
 
 gfx::Rect InstanceInspector::PreviewRect(float, float) const {

@@ -189,11 +189,23 @@ bool Auditable(const Widget& w) {
 	return px.w > 0.0f && px.h > 0.0f;
 }
 
+// How far `inner` sticks out of `outer`, in pixels, on its worst side. Slack
+// again: a border hairline or a rounding remainder is not an escape.
+float Overflow(const gfx::Rect& inner, const gfx::Rect& outer) {
+	constexpr float kSlack = 2.0f;
+	const float over = std::max(
+		{outer.x - inner.x, outer.y - inner.y, (inner.x + inner.w) - (outer.x + outer.w),
+		 (inner.y + inner.h) - (outer.y + outer.h)});
+	return over > kSlack ? over : 0.0f;
+}
+
 void AuditNode(const Widget& parent, const std::string& path,
 			   const std::function<void(const std::string&)>& out) {
 	const auto& kids = parent.Children();
+	const gfx::Rect content = parent.ContentRect();
 	for (size_t i = 0; i < kids.size(); ++i) {
 		if (!Auditable(*kids[i])) continue;
+		// Sibling collisions: two widgets in the same area.
 		for (size_t j = i + 1; j < kids.size(); ++j) {
 			if (!Auditable(*kids[j])) continue;
 			if (!Collides(kids[i]->InkRect(), kids[j]->InkRect())) continue;
@@ -202,6 +214,24 @@ void AuditNode(const Widget& parent, const std::string& path,
 							Name(*kids[i]), RectText(kids[i]->InkRect()),
 							Name(*kids[j]), RectText(kids[j]->InkRect()));
 			if (g_auditSeen.insert(line).second) out(line);
+		}
+		// ESCAPES: a child painting outside the area its parent gave it. This is
+		// the other half of the rule, and the half a sibling check cannot see —
+		// when a row runs off the end of its stack it lands on something with a
+		// DIFFERENT parent, so the two are never compared. A long title over the
+		// close box and a settings row under the Save button are both this.
+		//
+		// NOT for a parent that CLIPS: a scroll area's children are meant to run
+		// past it — that is what scrolling is — and the clip means the excess
+		// paints on nothing. Overflow is only a defect where it is visible.
+		if (content.w > 0.0f && content.h > 0.0f && !parent.ClipsChildren()) {
+			if (const float over = Overflow(kids[i]->InkRect(), content); over > 0.0f) {
+				std::string line = std::format(
+					"  {} > {} [{}] escapes its parent [{}] by {:.0f}px", path,
+					Name(*kids[i]), RectText(kids[i]->InkRect()), RectText(content),
+					over);
+				if (g_auditSeen.insert(line).second) out(line);
+			}
 		}
 	}
 	for (const auto& child : kids) {

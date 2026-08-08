@@ -6,6 +6,7 @@
 #include "Core/Loc.h"
 #include "Core/Paths.h"
 #include "Game/AssetUtil.h"
+#include "Game/DialogLayout.h"
 #include "UI/Controls.h"
 
 #include <algorithm>
@@ -16,14 +17,12 @@
 namespace dungeon::game {
 
 namespace {
-// A compact centered card: title, six info rows, a two-button footer — the
-// LevelSettingsDialog proportions.
+// A compact centered card: title, six info rows, a Remove footer — the
+// LevelSettingsDialog proportions. The panel is the only rect; the card inside
+// it is stacked (Game/DialogLayout.h).
 constexpr gfx::Rect kPanel{0.36f, 0.28f, 0.28f, 0.40f};
-constexpr gfx::Rect kTitle{0.375f, 0.30f, 0.25f, 0.04f};
-constexpr float kRowX = 0.375f, kValX = 0.51f;
-constexpr float kRowY0 = 0.365f, kRowH = 0.042f;
-// Remove centered in the footer; Close is the top-right corner box now.
-constexpr gfx::Rect kRemove{0.45f, 0.615f, 0.10f, 0.045f};
+// The label column's share of an info row; the value takes the rest.
+constexpr float kLabelFill = 1.0f, kValueFill = 1.1f;
 } // namespace
 
 ProjectileInspector::ProjectileInspector(gfx::GraphicsDevice& device,
@@ -41,11 +40,36 @@ void ProjectileInspector::Open(const Config& cfg) {
 
 void ProjectileInspector::BuildUI() {
 	m_ui.Clear();
-	m_ui.Add<ui::Button>(kRemove, loc::Tr("map.proj.remove"), [this] {
-		if (onRemove) onRemove();
-		Close();
-	});
-	ui::AddCloseButton(m_ui, kPanel, m_closeIcon, [this] { Close(); });
+	DialogChrome chrome = BuildDialogChrome(m_ui, kPanel, loc::Tr("map.proj.title"),
+											m_closeIcon, [this] { Close(); });
+
+	// Read-only info rows: label (dim) + value (bright). They used to be drawn
+	// straight to the batch from a hand-stepped y cursor, which is furniture the
+	// layout could not see — as widgets they get areas like everything else.
+	const std::array<std::pair<std::string, std::string>, 6> rows = {{
+		{loc::Tr("map.proj.side"), m_cfg.side},
+		{loc::Tr("map.proj.dmgtype"), m_cfg.dmgType},
+		{loc::Tr("map.proj.damage"), std::format("{:.1f}", m_cfg.damage)},
+		{loc::Tr("map.proj.accuracy"), std::format("{:.0f}%", m_cfg.accuracy * 100.0f)},
+		{loc::Tr("map.proj.speed"), std::format("{:.1f} m/s", m_cfg.speed)},
+		{loc::Tr("map.proj.range"), std::format("{:.1f} m", m_cfg.rangeLeft)},
+	}};
+	for (const auto& [label, value] : rows) {
+		ui::Stack* row = chrome.body->Row<ui::Stack>(FormRow(), true);
+		ui::Label* l = row->Row<ui::Label>(ui::Len::Fill(kLabelFill), label);
+		l->dim = true;
+		l->centerV = true;
+		row->Row<ui::Label>(ui::Len::Fill(kValueFill), value)->centerV = true;
+	}
+	chrome.body->Space(ui::Len::Fill()); // the rows sit at the top
+
+	chrome.footer->Space(ui::Len::Fill());
+	chrome.footer->Row<ui::Button>(FooterButton(), loc::Tr("map.proj.remove"),
+								   [this] {
+									   if (onRemove) onRemove();
+									   Close();
+								   });
+	chrome.footer->Space(ui::Len::Fill());
 }
 
 void ProjectileInspector::Update(const Input& input, float w, float h) {
@@ -68,29 +92,7 @@ void ProjectileInspector::Render(gfx::SpriteBatch& batch, const ui::Theme& th,
 	const gfx::Rect panel{kPanel.x * w, kPanel.y * h, kPanel.w * w, kPanel.h * h};
 	batch.DrawRect(panel, th.panel);
 	ui::DrawBorder(batch, panel, th.panelBorder);
-
-	ui::DialogTitleFont(m_ui).Draw(batch, loc::Tr("map.proj.title"), kTitle.x * w,
-								   kTitle.y * h, th.text);
-
-	// Read-only info rows: label (dim) + value (bright).
-	const std::array<std::pair<std::string, std::string>, 6> rows = {{
-		{loc::Tr("map.proj.side"), m_cfg.side},
-		{loc::Tr("map.proj.dmgtype"), m_cfg.dmgType},
-		{loc::Tr("map.proj.damage"), std::format("{:.1f}", m_cfg.damage)},
-		{loc::Tr("map.proj.accuracy"), std::format("{:.0f}%", m_cfg.accuracy * 100.0f)},
-		{loc::Tr("map.proj.speed"), std::format("{:.1f} m/s", m_cfg.speed)},
-		{loc::Tr("map.proj.range"), std::format("{:.1f} m", m_cfg.rangeLeft)},
-	}};
-	// Drawn straight to the batch rather than through widgets, so they take the
-	// form size from the helper instead of inheriting it from the root.
-	const ui::Font& row = ui::DialogTextFont(m_ui);
-	for (size_t i = 0; i < rows.size(); ++i) {
-		const float y = (kRowY0 + i * kRowH) * h;
-		row.Draw(batch, rows[i].first, kRowX * w, y, th.textDim);
-		row.Draw(batch, rows[i].second, kValX * w, y, th.text);
-	}
-
-	m_ui.Render(batch, w, h); // Remove / Close
+	m_ui.Render(batch, w, h); // title, info rows, Remove, close — all widgets
 }
 
 } // namespace dungeon::game

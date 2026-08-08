@@ -6,6 +6,7 @@
 #include "Core/Loc.h"
 #include "Core/Paths.h"
 #include "Game/AssetUtil.h"
+#include "Game/DialogLayout.h"
 #include "UI/Controls.h"
 
 #include <algorithm>
@@ -16,22 +17,23 @@
 namespace dungeon::game {
 
 namespace {
-// Panel + region geometry, as fractions (0..1) of the window — a compact
-// centered card (three rows + footer), the BalanceDialog proportions shrunk.
-constexpr gfx::Rect kPanel{0.36f, 0.30f, 0.28f, 0.36f};
-constexpr gfx::Rect kTitle{0.375f, 0.315f, 0.25f, 0.04f};
-constexpr float kRowX = 0.375f, kRowW = 0.14f;   // label column
-constexpr float kFieldX = 0.52f, kFieldW = 0.10f; // value column
-constexpr float kRowY0 = 0.385f, kRowH = 0.055f;
-// Save centered in the footer; Close is the top-right corner box now.
-constexpr gfx::Rect kSave{0.455f, 0.585f, 0.09f, 0.045f};
+// A compact centered card (three rows + footer), the BalanceDialog proportions
+// shrunk. The panel is the only rect now; the card inside it is stacked
+// (Game/DialogLayout.h).
+// Wide enough for the TITLE: "Level settings — <stem>" is drawn at
+// kDialogTitleScale, and the old 0.28-wide card could not hold it — the stem
+// ran out past the panel edge and under the close box long before any of this
+// was stacked. A card has to be sized for the text it carries.
+constexpr gfx::Rect kPanel{0.30f, 0.26f, 0.40f, 0.48f};
+// A settings row's label column against its value column.
+constexpr float kLabelFill = 1.4f, kFieldFill = 1.0f;
 
 // A numeric text field: shows `value` ({:g}), and while edited writes every
 // PARSEABLE state back through `commit` (the live-apply pattern the Balance
 // dialog uses; an in-progress "" / "-" / "0." just waits).
-void AddNumericField(ui::UIContext& ui, const gfx::Rect& r, float value,
+void AddNumericField(ui::Stack& row, ui::Len len, float value,
 					 std::function<void(float)> commit) {
-	auto* field = ui.Add<ui::TextField>(r, std::format("{:g}", value));
+	auto* field = row.Row<ui::TextField>(len, std::format("{:g}", value));
 	field->fontRole = ui::FontRole::Mono; // a numeric readout, like Balance's
 	field->fontScale = 1.0f; // ...and sized to its digits, so it stays put while
 							 // the labels around it take kDialogTextScale
@@ -68,26 +70,22 @@ void LevelSettingsDialog::Open(const std::string& stem, float dust, float haze,
 	BuildUI();
 }
 
-// The stem's pixel rect within the title line — the click target that opens
-// the inline rename (Update hit-tests it, Render styles the hover).
-gfx::Rect LevelSettingsDialog::StemRect(float w, float h) {
-	const std::string prefix =
-		std::format("{} — ", loc::Tr("map.level.title"));
-	// The TITLE face, not the body one — Render draws the stem with the same,
-	// and this rect is the click target for it.
-	const ui::Font& title = ui::DialogTitleFont(m_ui);
-	const float x = kTitle.x * w + title.MeasureWidth(prefix);
-	return {x, kTitle.y * h, title.MeasureWidth(m_stem) + 6.0f, title.Height()};
-}
-
 void LevelSettingsDialog::BuildUI() {
 	m_ui.Clear();
 	m_nameField = nullptr;
+	// The title band is the dialog's own: either the prefix + rename affordance,
+	// or the rename field standing in for it. Either way it is a WIDGET in the
+	// band the chrome reserved, so it cannot land on the rows beneath.
+	DialogChrome chrome = BuildDialogChrome(m_ui, kPanel, /*title*/ "", m_closeIcon,
+											[this] {
+												if (onApply)
+													onApply(m_oDust, m_oHaze, m_oAmbient);
+												Close();
+											});
 	if (m_editName) {
-		// The title row becomes the rename field (Render skips the drawn
-		// title meanwhile). Enter commits; losing focus or Esc cancels.
-		m_nameField = m_ui.Add<ui::TextField>(
-			gfx::Rect{kTitle.x, kTitle.y, kTitle.w, 0.035f}, m_stem);
+		// Enter commits; losing focus or Esc cancels.
+		m_nameField =
+			chrome.titleSlot->Add<ui::TextField>(gfx::Rect{0, 0, 1, 1}, m_stem);
 		// It stands in for the title, so it is sized as the title, not as a row.
 		m_nameField->fontScale = ui::kDialogTitleScale;
 		m_nameField->maxLength = 24;
@@ -111,7 +109,17 @@ void LevelSettingsDialog::BuildUI() {
 			}
 			// A refused rename (duplicate etc.) keeps the field open.
 		};
+	} else {
+		// Clicking the stem opens the rename. DEFERRED: this fires from inside
+		// the tree walk, and rebuilding destroys the widget that called it.
+		chrome.titleSlot->Add<EditableTitle>(
+			gfx::Rect{0, 0, 1, 1}, std::format("{} — ", loc::Tr("map.level.title")),
+			m_stem, [this] {
+				m_editName = true;
+				m_uiRebuild = true;
+			});
 	}
+
 	struct Row {
 		const char* labelKey;
 		float* value;
@@ -119,24 +127,25 @@ void LevelSettingsDialog::BuildUI() {
 	const Row rows[3] = {{"map.level.dust", &m_dust},
 						 {"map.level.haze", &m_haze},
 						 {"map.level.ambient", &m_ambient}};
-	for (int i = 0; i < 3; ++i) {
-		const float y = kRowY0 + i * kRowH;
-		m_ui.Add<ui::Label>(gfx::Rect{kRowX, y, kRowW, kRowH * 0.8f},
-							loc::Tr(rows[i].labelKey));
-		AddNumericField(m_ui, gfx::Rect{kFieldX, y, kFieldW, kRowH * 0.8f},
-						*rows[i].value, [this, v = rows[i].value](float f) {
+	for (const Row& r : rows) {
+		ui::Stack* row = chrome.body->Row<ui::Stack>(FormRow(), true);
+		row->gapRem = 0.5f;
+		row->Row<ui::Label>(ui::Len::Fill(kLabelFill), loc::Tr(r.labelKey))->centerV =
+			true;
+		AddNumericField(*row, ui::Len::Fill(kFieldFill), *r.value,
+						[this, v = r.value](float f) {
 							*v = f;
 							Apply();
 						});
 	}
-	m_ui.Add<ui::Button>(kSave, loc::Tr("map.cfg.save"), [this] {
+	chrome.body->Space(ui::Len::Fill()); // the rows sit at the top
+
+	chrome.footer->Space(ui::Len::Fill());
+	chrome.footer->Row<ui::Button>(FooterButton(), loc::Tr("map.cfg.save"), [this] {
 		if (onSave) onSave(m_dust, m_haze, m_ambient);
 		Close();
 	});
-	ui::AddCloseButton(m_ui, kPanel, m_closeIcon, [this] {
-		if (onApply) onApply(m_oDust, m_oHaze, m_oAmbient); // revert the preview
-		Close();
-	});
+	chrome.footer->Space(ui::Len::Fill());
 }
 
 void LevelSettingsDialog::Update(const Input& input, float w, float h) {
@@ -163,20 +172,9 @@ void LevelSettingsDialog::Update(const Input& input, float w, float h) {
 		return;
 	}
 
-	// The stem in the title is the rename affordance: hover styles it,
-	// a click swaps the title row for the edit field (safe to rebuild
-	// immediately — this is not a widget callback).
-	m_nameHover = false;
-	if (!m_editName) {
-		const gfx::Rect stem = StemRect(w, h);
-		m_nameHover = stem.Contains(input.MouseX(), input.MouseY());
-		if (m_nameHover && input.WasMousePressed(MouseButton::Left)) {
-			m_editName = true;
-			BuildUI();
-			return; // the press is the affordance's, not the new field's
-		}
-	}
-
+	// (The stem's hover and click are the StemTitle widget's own business now —
+	// it owns the rect it draws, so there is no second copy of the geometry
+	// here to drift out of step with the drawing.)
 	m_ui.Update(input, w, h);
 
 	// Clicking away from the open name field drops its focus — treat that as
@@ -194,24 +192,7 @@ void LevelSettingsDialog::Render(gfx::SpriteBatch& batch, const ui::Theme& th,
 	const gfx::Rect panel{kPanel.x * w, kPanel.y * h, kPanel.w * w, kPanel.h * h};
 	batch.DrawRect(panel, th.panel);
 	ui::DrawBorder(batch, panel, th.panelBorder);
-
-	if (!m_editName) {
-		// Title: prefix in plain text, the stem as the rename affordance
-		// (accent on hover + a hint underline so it reads clickable).
-		const std::string prefix =
-			std::format("{} — ", loc::Tr("map.level.title"));
-		const ui::Font& title = ui::DialogTitleFont(m_ui); // same as StemRect
-		title.Draw(batch, prefix, kTitle.x * w, kTitle.y * h, th.text);
-		const gfx::Rect stem{kTitle.x * w + title.MeasureWidth(prefix),
-							 kTitle.y * h, title.MeasureWidth(m_stem),
-							 title.Height()};
-		title.Draw(batch, m_stem, stem.x, stem.y,
-				   m_nameHover ? th.accent : th.text);
-		batch.DrawRect({stem.x, stem.y + stem.h + 1.0f, stem.w, 1.0f},
-					   m_nameHover ? th.accent : th.textDim);
-	}
-
-	m_ui.Render(batch, w, h); // rows + footer buttons (+ the rename field)
+	m_ui.Render(batch, w, h); // title/rename, rows, footer — all widgets
 }
 
 } // namespace dungeon::game

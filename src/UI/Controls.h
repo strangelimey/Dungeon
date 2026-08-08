@@ -78,6 +78,10 @@ public:
 
 	std::string text;
 	bool dim = false;
+	// Draws in the theme's accent instead — for a line that has to be NOTICED
+	// (a dialog's refusal or warning). Wins over `dim`; both take the color from
+	// the live theme, never a captured copy, so the user's palette applies.
+	bool accent = false;
 	// Center the text vertically in the bounds instead of drawing from the top.
 	// For a label that shares a row with a control: the control fills the row's
 	// height, and top-aligned text beside it sits high.

@@ -57,7 +57,8 @@ void Label::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 	const gfx::Rect& px = Pixel();
 	const float y =
 		centerV ? px.y + (px.h - TextFont().Height()) * 0.5f : px.y;
-	TextFont().Draw(batch, text, px.x, y, dim ? theme.textDim : theme.text);
+	TextFont().Draw(batch, text, px.x, y,
+					accent ? theme.accent : dim ? theme.textDim : theme.text);
 }
 
 gfx::Rect Label::InkRect() const {

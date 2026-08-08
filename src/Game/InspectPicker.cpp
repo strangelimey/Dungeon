@@ -6,6 +6,7 @@
 #include "Core/Loc.h"
 #include "Core/Paths.h"
 #include "Game/AssetUtil.h"
+#include "Game/DialogLayout.h"
 #include "UI/Controls.h"
 
 #include <algorithm>
@@ -13,13 +14,13 @@
 namespace dungeon::game {
 
 namespace {
-// Layout, as fractions (0..1) of the window. The panel grows with the row count;
-// everything else keys off these so title/rows/Close stack without overlap.
+// The panel's width and the height ONE row costs, as window fractions — the
+// only two numbers left, and both are about sizing the card to its contents.
+// Where the rows go inside it is the stack's business (Game/DialogLayout.h).
 constexpr float kPanelW = 0.30f;
-constexpr float kPad = 0.02f;    // panel inner margin
-constexpr float kTitleH = 0.05f;
+constexpr float kTitleH = 0.075f; // the title band, for the panel height sum
 constexpr float kRowH = 0.058f;
-constexpr float kGap = 0.01f;
+constexpr float kChromeH = 0.05f; // padding above and below
 } // namespace
 
 InspectPicker::InspectPicker(gfx::GraphicsDevice& device, ui::FontLibrary& fonts)
@@ -35,29 +36,25 @@ void InspectPicker::Open(const std::string& title, const std::vector<std::string
 
 	// Size the panel to the content and centre it: title + one row per item
 	// (Close is the top-right corner box now, not a row).
-	const int n = static_cast<int>(items.size());
-	const float bodyH = kPad + kTitleH + kGap + n * (kRowH + kGap) + kPad;
+	const float bodyH =
+		kChromeH + kTitleH + static_cast<float>(items.size()) * kRowH;
 	const float x = (1.0f - kPanelW) * 0.5f;
 	const float y = std::clamp((1.0f - bodyH) * 0.5f, 0.05f, 0.5f);
 	m_panel = {x, y, kPanelW, bodyH};
-	m_titleRect = {x + kPad, y + kPad, kPanelW - 2 * kPad, kTitleH};
 
 	BuildUI();
 }
 
 void InspectPicker::BuildUI() {
 	m_ui.Clear();
-	const float x = m_panel.x + kPad;
-	const float w = m_panel.w - 2 * kPad;
-	float y = m_panel.y + kPad + kTitleH + kGap;
-	for (int i = 0; i < static_cast<int>(m_items.size()); ++i) {
-		m_ui.Add<ui::Button>(gfx::Rect{x, y, w, kRowH}, m_items[i], [this, i] {
+	DialogChrome chrome = BuildDialogChrome(m_ui, m_panel, m_title, m_closeIcon,
+											[this] { Close(); },
+											/*withFooter*/ false);
+	for (int i = 0; i < static_cast<int>(m_items.size()); ++i)
+		chrome.body->Row<ui::Button>(FormRow(1.2f), m_items[i], [this, i] {
 			Close();
 			if (onPick) onPick(i);
 		});
-		y += kRowH + kGap;
-	}
-	ui::AddCloseButton(m_ui, m_panel, m_closeIcon, [this] { Close(); });
 }
 
 void InspectPicker::Update(const Input& input, float w, float h) {
@@ -80,11 +77,7 @@ void InspectPicker::Render(gfx::SpriteBatch& batch, const ui::Theme& th, float w
 	const gfx::Rect panel = px(m_panel);
 	batch.DrawRect(panel, th.panel);
 	ui::DrawBorder(batch, panel, th.panelBorder);
-
-	const gfx::Rect title = px(m_titleRect);
-	ui::DialogTitleFont(m_ui).Draw(batch, m_title, title.x, title.y, th.text);
-
-	m_ui.Render(batch, w, h);
+	m_ui.Render(batch, w, h); // title, rows, close — all widgets now
 }
 
 } // namespace dungeon::game

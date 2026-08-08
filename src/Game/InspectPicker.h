@@ -49,7 +49,6 @@ private:
 	std::string m_title;
 	std::vector<std::string> m_items;
 	gfx::Rect m_panel{}; // computed in Open (sized to the row count), used by Render
-	gfx::Rect m_titleRect{};
 };
 
 } // namespace dungeon::game

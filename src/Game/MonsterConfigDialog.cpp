@@ -6,6 +6,7 @@
 #include "Core/Loc.h"
 #include "Core/Paths.h"
 #include "Game/AssetUtil.h"
+#include "Game/DialogLayout.h"
 #include "UI/Controls.h"
 
 #include <algorithm>
@@ -13,15 +14,10 @@
 namespace dungeon::game {
 
 namespace {
-// Panel + region geometry, as fractions (0..1) of the window. Widgets take
-// normalized bounds directly; the self-drawn frame/preview convert to pixels.
+// The panel, as fractions (0..1) of the window; the card inside it is stacked
+// (Game/DialogLayout.h) — tabs on the left, preview pane on the right.
 constexpr gfx::Rect kPanel{0.14f, 0.10f, 0.72f, 0.80f};
-constexpr gfx::Rect kTitle{0.155f, 0.115f, 0.55f, 0.045f};
-constexpr gfx::Rect kTabs{0.155f, 0.185f, 0.42f, 0.63f}; // TabControl (left)
-constexpr gfx::Rect kPrevHdr{0.60f, 0.165f, 0.25f, 0.03f};
-constexpr gfx::Rect kPreview{0.60f, 0.205f, 0.245f, 0.59f}; // preview pane (right)
-// Save centered in the footer; Close is the top-right corner box now.
-constexpr gfx::Rect kSave{0.4475f, 0.83f, 0.105f, 0.05f};
+constexpr float kTabsFill = 0.62f, kPaneFill = 0.38f, kGutterRow = 1.0f;
 
 // Archetype option order MUST match the ai::Archetype enum (dropdown index -> enum).
 constexpr const char* kArchKeys[] = {"brute",  "skirmisher", "caster",
@@ -82,31 +78,48 @@ std::string MonsterConfigDialog::FirstClipOf(int state) const {
 	return {};
 }
 
-gfx::Rect MonsterConfigDialog::PreviewNorm() const { return kPreview; }
-
-gfx::Rect MonsterConfigDialog::PreviewRect(float w, float h) const {
-	return {kPreview.x * w, kPreview.y * h, kPreview.w * w, kPreview.h * h};
+gfx::Rect MonsterConfigDialog::PreviewRect(float, float) const {
+	// The pane widget's own rect, from the layout that just ran — one truth for
+	// the backing it draws and the animation the owner blits over it.
+	return m_pane ? m_pane->Pixel() : gfx::Rect{0.0f, 0.0f, 0.0f, 0.0f};
 }
 
 // --- widget tree ----------------------------------------------------------
 
 void MonsterConfigDialog::BuildUI() {
 	m_ui.Clear();
-	m_tabs = m_ui.Add<ui::TabControl>(kTabs, 0.075f);
+	m_pane = nullptr;
+	DialogChrome chrome = BuildDialogChrome(
+		m_ui, kPanel, loc::Format("map.cfg.title", m_display), m_closeIcon, [this] {
+			if (onApply) onApply(m_original); // revert the live kind
+			Close();
+		});
+
+	chrome.body->horizontal = true;
+	m_tabs = chrome.body->Row<ui::TabControl>(ui::Len::Fill(kTabsFill), 0.075f);
 	const size_t tabBehav = m_tabs->AddTab(loc::Tr("map.cfg.tab.behavior"));
 	const size_t tabAnim = m_tabs->AddTab(loc::Tr("map.cfg.tab.animation"));
 	BuildBehaviorTab(tabBehav);
 	BuildAnimationTab(tabAnim);
 	m_tabs->SetActiveTab(m_activeTab);
 
-	m_ui.Add<ui::Button>(kSave, loc::Tr("map.cfg.save"), [this] {
+	// Preview column: header over the pane, so neither can sit on the other.
+	chrome.body->Space(ui::Len::Fixed(kGutterRow));
+	ui::Stack* pane = chrome.body->Row<ui::Stack>(ui::Len::Fill(kPaneFill));
+	pane->debugName = "preview";
+	pane->Row<ui::Label>(FormRow(0.8f), loc::Tr("map.cfg.preview"))->dim = true;
+	m_pane = pane->Row<PreviewPane>(ui::Len::Fill());
+	m_pane->border = true;
+	// Cached once: selecting a clip does not rebuild the tree, so Update flips
+	// the flag rather than re-translating the string every frame.
+	m_pane->hint = loc::Tr("map.cfg.nopreview");
+
+	chrome.footer->Space(ui::Len::Fill());
+	chrome.footer->Row<ui::Button>(FooterButton(), loc::Tr("map.cfg.save"), [this] {
 		if (onSave) onSave(m_cfg);
 		Close();
 	});
-	ui::AddCloseButton(m_ui, kPanel, m_closeIcon, [this] {
-		if (onApply) onApply(m_original); // revert the live kind to the snapshot
-		Close();
-	});
+	chrome.footer->Space(ui::Len::Fill());
 }
 
 void MonsterConfigDialog::BuildBehaviorTab(size_t tab) {
@@ -271,6 +284,7 @@ void MonsterConfigDialog::Update(const Input& input, float w, float h) {
 
 	m_ui.Update(input, w, h);
 	if (!m_open) return; // a footer button (Save/Close) closed us this frame
+	if (m_pane) m_pane->showHint = m_selClip.empty();
 	if (m_tabs) m_activeTab = m_tabs->ActiveTab();
 	if (m_rebuild) { // a callback changed which rows exist — rebuild off the stack
 		m_rebuild = false;
@@ -289,25 +303,9 @@ void MonsterConfigDialog::Render(gfx::SpriteBatch& batch, const ui::Theme& th, f
 	const gfx::Rect panel = px(kPanel);
 	batch.DrawRect(panel, th.panel);
 	ui::DrawBorder(batch, panel, th.panelBorder);
-
-	const gfx::Rect title = px(kTitle);
-	ui::DialogTitleFont(m_ui).Draw(batch, loc::Format("map.cfg.title", m_display),
-								   title.x, title.y, th.text);
-
-	m_ui.Render(batch, w, h); // tabs + footer buttons (+ dropdown overlays)
-
-	// Preview pane: header + backing box; the owner (Game) blits the live looping
-	// animation into PreviewRect on top afterwards.
-	const gfx::Rect ph = px(kPrevHdr);
-	m_ui.GetFont().Draw(batch, loc::Tr("map.cfg.preview"), ph.x, ph.y, th.textDim);
-	const gfx::Rect pv = px(kPreview);
-	batch.DrawRect(pv, {0.02f, 0.02f, 0.03f, 1.0f});
-	ui::DrawBorder(batch, pv, th.panelBorder);
-	if (m_selClip.empty()) {
-		const std::string hint = loc::Tr("map.cfg.nopreview");
-		m_ui.GetFont().Draw(batch, hint, pv.x + (pv.w - m_ui.GetFont().MeasureWidth(hint)) * 0.5f,
-					pv.y + pv.h * 0.5f - m_ui.GetFont().Height() * 0.5f, th.textDim);
-	}
+	// Title, tabs, preview pane and footer are all widgets; the owner (Game)
+	// blits the live looping animation into PreviewRect on top afterwards.
+	m_ui.Render(batch, w, h);
 }
 
 } // namespace dungeon::game
