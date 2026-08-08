@@ -1,2 +1,5 @@
 ; showcase — written by the in-game editor (dynamic layer).
 
+; A lever on the west wall of the entry hall, for looking at the prop. It wires
+; to nothing yet (no doors on this level), so pressing it just flips the handle.
+button lever 10 3 west

@@ -937,10 +937,15 @@ void DungeonWorld::LoadButtons() {
 		b.z = spawn.z;
 		b.facing = spawn.facing;
 		if (const std::string* t = spawn.Param("target")) b.target = *t;
-		// The lever mesh, when the catalog knows the type (a legacy record with
-		// an unknown type still works — it just has no 3D presence).
-		if (m_project.buttons.Contains(spawn.type))
+		// The lever's two meshes, when the catalog knows the type (a legacy
+		// record with an unknown type still works — it just has no 3D presence).
+		// The mount is shared by every lever type, resolved by its well-known
+		// id the way a door resolves [door_frame].
+		if (m_project.buttons.Contains(spawn.type)) {
 			b.kind = &DecorationKindFor(spawn.type, m_project.buttons);
+			if (m_project.buttons.Contains("lever_plate"))
+				b.plate = &DecorationKindFor("lever_plate", m_project.buttons);
+		}
 		m_buttons.push_back(std::move(b));
 	}
 }

@@ -293,24 +293,51 @@ void DungeonWorld::SubmitSceneGeometry(ID3D12GraphicsCommandList* list,
 		draw(door.panel, XMMatrixTranslation(slide, 0, 0) * base);
 	}
 
-	// Buttons: wall levers at hand height. The prop's origin is its pivot, so
-	// tilting the whole mesh around X reads as the handle flipping (up = off,
-	// down = pressed) while the thin back plate stays visually in the wall.
+	// Buttons: wall levers at hand height, drawn as a STATIC MOUNT plus a
+	// HANDLE that tilts around X by `activated` (up = off, down = pressed) —
+	// the same static-plus-moving split the doors above use for frame/panel.
+	//
+	// It used to be one mesh for both, and the plate tilted with the handle:
+	// bolted ironwork rocking in and out of the stone, got away with only
+	// because the plate was thin. Splitting it also lets the two parts carry
+	// their own textures (stone mount, wooden handle), which one mesh could not.
+	//
+	// The tilt is about the X axis THROUGH THE ORIGIN, so the handle model's
+	// origin has to BE its pin — see tools/BuildLever.py, where the old mesh's
+	// pivot boss sat 5.5 cm proud of it and the handle orbited a point behind
+	// itself.
 	for (const Button& b : m_buttons) {
 		if (!b.kind || !b.kind->mesh) continue; // legacy type the catalog lacks
 		const WallMount mount = MountOnWall(b.x, b.z, b.facing);
 		if (!visible({mount.pos.x, 0.5f * kUnit, mount.pos.z}, 0.45f * kUnit)) continue;
-		const XMMATRIX world =
-			UnitScale(b.kind->modelScale) *
-			XMMatrixRotationX(b.activated ? 0.5f : -0.5f) *
+		// JUST BELOW THE EYE, and derived from kEyeHeight rather than from the
+		// wall. A fixed fraction of the wall is the wrong reference: the eye is
+		// at 0.62 of it, so "half way up" sits 30 cm BELOW the viewer and reads
+		// as low no matter that the number says half. What makes a lever look
+		// placed is where it falls relative to the person looking at it.
+		constexpr float kLeverDrop = 0.06f * kUnit; // a natural reach below eye
+		const XMMATRIX base =
 			XMMatrixRotationY(mount.yaw) *
-			XMMatrixTranslation(mount.pos.x, 0.46f * kUnit, mount.pos.z);
-		gfx::MaterialParams material;
-		material.doubleSided = true;
-		ApplyPropMaterial(material, *b.kind, 0.85f);
-		Mat4 w;
-		XMStoreFloat4x4(&w, world);
-		m_renderer.DrawMesh(list, *b.kind->mesh, w, material);
+			XMMatrixTranslation(mount.pos.x, kEyeHeight - kLeverDrop, mount.pos.z);
+		auto draw = [&](const DecorationKind* kind, const XMMATRIX& world) {
+			if (!kind || !kind->mesh) return;
+			gfx::MaterialParams material;
+			material.doubleSided = true;
+			ApplyPropMaterial(material, *kind, 0.85f);
+			Mat4 w;
+			XMStoreFloat4x4(&w, world);
+			m_renderer.DrawMesh(list, *kind->mesh, w, material);
+		};
+		// 45 degrees each way: handle up when off, down when thrown, a 90 degree
+		// throw. The handle model points straight OUT of the wall, so the tilt
+		// IS the pose — it was +/- 0.5 rad (28.6 degrees), which left the
+		// handle nearly horizontal in both states and read as a rod rather than
+		// a switch. Negative is up, which is why `activated` takes the positive.
+		constexpr float kLeverThrow = XM_PIDIV4;
+		draw(b.plate, UnitScale(b.plate ? b.plate->modelScale : 1.0f) * base);
+		draw(b.kind, UnitScale(b.kind->modelScale) *
+						 XMMatrixRotationX(b.activated ? kLeverThrow : -kLeverThrow) *
+						 base);
 	}
 
 	// Floor items: the shared carved-stone tablet. RUNES draw per element with

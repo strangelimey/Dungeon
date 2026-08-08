@@ -1,8 +1,26 @@
 ; Buttons: wall levers (target= wires them to door names).
+;
+; A lever is TWO entries, the same shape as doors: the type's own entry is the
+; part that MOVES and [lever_plate] is the static mount the render draws
+; untilted. That split exists because the render tilts the button prop around X
+; by `activated` — with one mesh the back plate tilted too and rocked in and out
+; of the stone. It also lets each part carry its own texture, which one mesh
+; could not: the mount is stone, the handle is wood.
 
 [lever]
 display = Lever
 category = switch
-model = lever
-texture = sconce
-authored = 0
+model = lever_handle
+texture = wood_planks
+authored = 1
+
+; The mount. `hidden = 1` keeps it out of the palette — it is never placed on
+; its own, only resolved beside whichever lever type is (the [door_frame]
+; pattern).
+[lever_plate]
+display = Lever Mount
+category = switch
+model = lever_plate
+texture = wall_stone
+authored = 1
+hidden = 1

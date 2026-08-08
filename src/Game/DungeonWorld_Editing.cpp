@@ -824,6 +824,8 @@ bool DungeonWorld::AddButton(const std::string& type, int x, int z) {
 	b.z = z;
 	b.facing = wall;
 	b.kind = &DecorationKindFor(type, m_project.buttons);
+	if (m_project.buttons.Contains("lever_plate"))
+		b.plate = &DecorationKindFor("lever_plate", m_project.buttons);
 	m_buttons.push_back(std::move(b));
 	MarkSeen(x, z);
 	return true;

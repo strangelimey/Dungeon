@@ -1329,10 +1329,16 @@ private:
 		Direction facing = Direction::South; // the solid wall it faces
 		std::string target;                  // wired door name (target= param)
 		bool activated = false;              // pressed / toggled on (saved)
-		// Lever mesh (buttons.cat), wall-mounted at hand height; the render
-		// tilts it by `activated`. Null for a type the catalog doesn't know
+		// The lever, in TWO parts (buttons.cat), wall-mounted at hand height.
+		// `kind` is the HANDLE and the render tilts it by `activated`; `plate`
+		// is the static mount ([lever_plate]) drawn without the tilt, because a
+		// plate bolted to stone does not move — one mesh for both rocked it in
+		// and out of the wall. The door's frame/panel pair does the same thing.
+		// Splitting them also gives each its own texture: stone mount, wooden
+		// handle. Either may be null for a type the catalog doesn't know
 		// (hand-authored legacy records) — such a button works but is invisible.
 		const DecorationKind* kind = nullptr;
+		const DecorationKind* plate = nullptr;
 	};
 
 	// A door filling a doorway cell (side walls flank the travel axis). Closed
