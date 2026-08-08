@@ -2163,14 +2163,16 @@ assets::ModelData BuildPitCeiling() {
 // granite rather than wood — so the number stands, but not the reasoning.
 constexpr float kDoorTile = 2.7f;
 
-// The leaf, and the pull sunk into its meeting edge. Shared by the leaf and its
-// trim band, because the pocket is cut through BOTH and a disagreement between
-// them would show as a ledge — so tools/BuildDoorLeaf.py carries unit-space
-// copies of the kPull* three and says where they came from.
+// The leaf, and the pull sunk into its meeting edge. The pull now belongs
+// entirely to the wooden leaf — tools/BuildDoorLeaf.py cuts it into the meeting
+// stile — so these are the SOURCE of that script's unit-space PULL_* copies
+// rather than a shape cut in two places. kPullY is still read here, by the
+// middle strap, which is level with the hand the pull is for.
 constexpr float kLeafHalfW = 0.85f, kLeafH = 2.1f, kLeafHalfT = 0.05f;
 constexpr float kPullY = 1.05f;        // hand height on a 2.1 m leaf
+[[maybe_unused]]
 constexpr float kPullHalfH = 0.075f;   // 15 cm tall — a hand, not a fingertip
-constexpr float kPullHalfW = 0.045f;   // half the band's width, so both cut alike
+constexpr float kPullHalfW = 0.045f;   // half a band bar's width
 
 // The door panel filling the frame's opening. A PLAIN slab: it used to carry
 // two cross braces "so it reads as a built door rather than a plain slab", and
@@ -2214,19 +2216,14 @@ assets::ModelData BuildDoorPanel() {
 // leaf too takes it to 4.7 cm.
 
 // --- door trim ---------------------------------------------------------------
-// A leaf's EDGE TREATMENT, drawn with the leaf through the door type's `trim`
-// field so it carries its own texture (iron over wood, bronze over stone). It
-// exists to give the leaf a legible SILHOUETTE: without it a door is a flat
-// rectangle whose edges vanish against the frame, and a split door's centre
-// line — the thing that makes the motion read — vanishes with them.
-//
-// Wraps the leaf's 10 cm thickness and stands 1.5 cm proud of both faces, so it
-// reads from either side and shows as a raised edge in grazing torchlight.
+// A leaf's IRONWORK, drawn with the leaf through the door type's `trim` field
+// so it carries its own texture — an iron strap cannot be iron inside a
+// wood-textured mesh, which is the whole reason it is a separate model.
 //
 // The TEXTURE these wear matters as much as the tile (doors.cat carries the
-// reasoning): a band is a run of 9 cm bars, so its set must have no feature
-// bigger than that, or every bar picks up a different part of the scan and the
-// strap looks assembled from offcuts.
+// reasoning): a strap is a 9 cm bar, so its set must have no feature bigger
+// than that, or every bar picks up a different part of the scan and the strap
+// looks assembled from offcuts.
 constexpr float kBandW = kPullHalfW;                 // half-width of a band bar
 constexpr float kBandT = kLeafHalfT + 0.015f;        // stands proud both faces
 
@@ -2234,20 +2231,15 @@ constexpr float kBandT = kLeafHalfT + 0.015f;        // stands proud both faces
 // full height and the rails span only BETWEEN them: overlapping them at the
 // corners would put two coplanar faces in the same place, and one solid's face
 // buried in another's is exactly the kind of joint that z-fights.
-// `innerPull` breaks the x1 upright open at the pull, so the recess cut into
-// the leaf behind it is reachable — band and leaf are cut to the SAME rect
-// (kPull*), because a disagreement between them would leave a ledge.
-void AddBandRect(assets::MeshData& mesh, float x0, float x1, bool innerPull = false) {
+//
+// A FRAME, which is right for the portcullis and wrong for a plank door. A
+// portcullis is a lattice and a lattice needs a surround; a plank door is
+// boards, and boards are held by straps laid ACROSS them. See
+// BuildDoorBandHalf for what the wooden leaf takes instead, and why.
+void AddBandRect(assets::MeshData& mesh, float x0, float x1) {
 	const float xa = x0 + kBandW, xb = x1 - kBandW;
 	AddBox(mesh, {xa, kLeafH * 0.5f, 0.0f}, {kBandW, kLeafH * 0.5f, kBandT});
-	if (!innerPull) {
-		AddBox(mesh, {xb, kLeafH * 0.5f, 0.0f}, {kBandW, kLeafH * 0.5f, kBandT});
-	} else {
-		const float y0 = kPullY - kPullHalfH, y1 = kPullY + kPullHalfH;
-		AddBox(mesh, {xb, y0 * 0.5f, 0.0f}, {kBandW, y0 * 0.5f, kBandT});
-		AddBox(mesh, {xb, (y1 + kLeafH) * 0.5f, 0.0f},
-			   {kBandW, (kLeafH - y1) * 0.5f, kBandT});
-	}
+	AddBox(mesh, {xb, kLeafH * 0.5f, 0.0f}, {kBandW, kLeafH * 0.5f, kBandT});
 	const float railHalf = (xb - xa) * 0.5f - kBandW, railX = (xa + xb) * 0.5f;
 	AddBox(mesh, {railX, kBandW, 0.0f}, {railHalf, kBandW, kBandT});
 	AddBox(mesh, {railX, kLeafH - kBandW, 0.0f}, {railHalf, kBandW, kBandT});
@@ -2260,16 +2252,87 @@ assets::ModelData BuildDoorBand() {
 	return FinishProp(std::move(mesh), {0.30f, 0.28f, 0.27f, 1.0f}, 0.35f);
 }
 
-// Iron band for the LEFT HALF of a split leaf. Its inner upright runs out to
-// x = 0 EXACTLY, so the two halves' uprights meet into one broad meeting stile
-// closed — which is the whole point, since that bar is what makes the split
-// visible before the door ever moves. (See the near-miss note on the half leaf:
-// stopping this bar a centimetre short would read as a seam, not a stile.) That
-// upright also carries the flush pull, so the two halves' pockets meet into one
-// hand-wide recess on the centre line.
+// --- the plank door's ironwork: HINGE STRAPS ---------------------------------
+// This was a picture frame too — uprights down both edges, rails top and
+// bottom — and its INNER upright was the problem. Nine centimetres of iron down
+// each half's closing edge made an 18 cm bar at the centre when the two halves
+// met, standing 1.5 cm proud of everything around it. Against the old flat leaf
+// that was invisible, because a flat leaf has no relief for a proud bar to be
+// brighter than. Against the authored leaf it lit brighter than the wood and
+// read as a LIT SLOT STRAIGHT THROUGH THE DOOR — convincingly enough that
+// finding it took a travel = 0 run, a motion = slide run and finally dropping
+// `trim` altogether to prove the leaf was whole.
+//
+// So the centre is left to the wood: BuildDoorLeaf.py gives the leaf a proud
+// meeting STILE and the pull is cut into that. What iron is left is what a
+// plank door actually wears — hinge straps running from the hanging edge across
+// the boards, stopping well clear of the closing edge, clench-nailed through
+// each board they cross. A strap that reached the centre would not be a hinge
+// strap; that is why it never looked like one.
+//
+// The nails are pitched on the LEAF'S BOARDS, so the three numbers below mirror
+// BuildDoorLeaf.py's layout (its units x kUnit). A nail landing a centimetre
+// off a board's middle is exactly the kind of near miss this thread keeps
+// paying for, so the pitch is derived rather than eyeballed — and the strap
+// ends ON a groove rather than somewhere inside a board.
+constexpr float kStileW = 0.205f;      // BuildDoorLeaf.py STILE_W
+constexpr float kBoardGap = 0.010f;    // ... GROOVE_W
+constexpr float kBoardW = (kLeafHalfW - kStileW - 4.0f * kBoardGap) / 4.0f;
+constexpr float kBoardPitch = kBoardW + kBoardGap;
+
+constexpr float kStrapT = 0.056f;      // half-thickness — BuildDoorLeaf.py
+                                       // asserts its boards stay inside this,
+                                       // so a strap always sits ON the door
+constexpr float kStrapRootH = 0.048f;  // 9.6 cm at the hanging edge...
+constexpr float kStrapTipH = 0.026f;   // ... tapering to 5.2 cm at the tip
+constexpr float kNailR = 0.014f;
+
+// A forged strap: a slab TAPERING along x, which AddBox cannot express. Root at
+// x0 with half-height h0, tip at x1 with h1, symmetric through the leaf so it
+// reads from both faces (a door is walked through in both directions).
+void AddStrap(assets::MeshData& mesh, float y, float x0, float x1, float h0,
+			  float h1, float t) {
+	const Vec3 a{x0, y - h0, t}, b{x1, y - h1, t}, c{x1, y + h1, t}, d{x0, y + h0, t};
+	const Vec3 A{x0, y - h0, -t}, B{x1, y - h1, -t}, C{x1, y + h1, -t},
+		D{x0, y + h0, -t};
+	const Vec2 q0{0, 0}, q1{1, 0}, q2{1, 1}, q3{0, 1}; // FinishProp re-tiles these
+	// The taper tilts the long edges' normals; flat when h0 == h1.
+	const float run = x1 - x0, drop = h0 - h1;
+	const float n = std::sqrt(run * run + drop * drop);
+	const Vec3 up{drop / n, run / n, 0.0f}, down{drop / n, -run / n, 0.0f};
+	AddQuad(mesh, a, b, c, d, {0, 0, 1}, q0, q1, q2, q3);
+	AddQuad(mesh, B, A, D, C, {0, 0, -1}, q0, q1, q2, q3);
+	AddQuad(mesh, A, a, d, D, {-1, 0, 0}, q0, q1, q2, q3);
+	AddQuad(mesh, b, B, C, c, {1, 0, 0}, q0, q1, q2, q3);
+	AddQuad(mesh, d, c, C, D, up, q0, q1, q2, q3);
+	AddQuad(mesh, A, B, b, a, down, q0, q1, q2, q3);
+}
+
 assets::ModelData BuildDoorBandHalf() {
 	assets::MeshData mesh;
-	AddBandRect(mesh, -kLeafHalfW, 0.0f, /*innerPull=*/true);
+	// The tip lands on the groove between the last BOARD and the STILE: iron
+	// crosses every board and stops where the joinery starts, which is both what
+	// a hinge strap does and a stop on a modelled joint rather than half way
+	// across a board. It was first cut a board shorter, and the 70 cm of blank
+	// wood that left across the middle of the door read as ironwork that had
+	// given up early.
+	constexpr float kTipX = -kLeafHalfW + 4.0f * kBoardPitch - kBoardGap;
+	// Low, hand height, high. The middle one takes kPullY on purpose: the strap
+	// a hand reaches past should be the one level with what it reaches for.
+	for (const float y : {0.30f, kPullY, 1.80f}) {
+		AddStrap(mesh, y, -kLeafHalfW, kTipX, kStrapRootH, kStrapTipH, kStrapT);
+		// A clench nail through the middle of every board the strap crosses,
+		// on both faces. Squashed to a dome like the stone door's bosses: a
+		// full sphere reads as a ball sitting on the iron, where a nail head is
+		// a swelling of it.
+		for (int b = 0; b < 4; ++b) {
+			const float x =
+				-kLeafHalfW + static_cast<float>(b) * kBoardPitch + kBoardW * 0.5f;
+			for (const float sz : {-1.0f, 1.0f})
+				AddSphere(mesh, {x, y, sz * kStrapT}, kNailR, 6, 10, -1,
+						  {1.0f, 1.0f, 0.45f});
+		}
+	}
 	return FinishProp(std::move(mesh), {0.30f, 0.28f, 0.27f, 1.0f}, 0.35f);
 }
 

@@ -11,9 +11,18 @@
 #
 # Replaces ModelBaker's BuildDoorPanelHalf(), which was four boxes making a flat
 # slab with a pocket in it. The asset keeps its name (`door_panel_half`) so the
-# catalog and the trim that meets it need no edit; the builder is retired there
-# the same way BuildDoorFrame's was, since `AssetBaker models` would otherwise
-# overwrite the imported mesh with boxes again.
+# catalog needs no edit; the builder is retired there the same way
+# BuildDoorFrame's was, since `AssetBaker models` would otherwise overwrite the
+# imported mesh with boxes again.
+#
+# IT IS HALF OF A PAIR with ModelBaker's BuildDoorBandHalf, and the split
+# between them is by MATERIAL, not by convenience: the import path binds one
+# texture set per model, so the iron cannot live in a wood-textured mesh. What
+# each carries follows from that and from how a real plank door is built — the
+# wood carries the boards, the meeting stile and the pull; the iron carries
+# hinge straps across the boards and stops clear of the stile. Their one shared
+# number is the BOARD PITCH, which the straps' clench nails are driven on, so
+# BuildDoorBandHalf mirrors this file's layout and says so.
 #
 # EVERYTHING IS IN UNITS: 1.0 = one dungeon square (game::kUnit, 2.5 m), Z up.
 # Blender X is the engine's X, Blender Z is the engine's Y (up), and Blender Y
@@ -37,16 +46,18 @@
 # 3. ANYTHING IT CARRIES REACHES x = 0 EXACTLY OR STOPS WELL SHORT. The old
 #    braces stopped at 96% of the half width; on a split door the two insets
 #    met, and the 3.4 cm notch where they did read as a downward arrow stamped
-#    on the door. So the meeting edge is SQUARE — the chamfer that separates
-#    every other pair of boards is suppressed there.
+#    on the door. So the meeting edge's CORE is square and butts exactly, and
+#    the only thing cut there is half a groove — which the turned copy completes
+#    into a whole one, symmetric by construction rather than by luck.
 # 4. THE OPENING IS A CONTRACT WITH THE FRAME (tools/BuildDoorFrame.py):
 #    OPEN 0.34 x DOOR_H 0.84 units, asserted at both ends. The frame's jambs
 #    lap 2 cm over it as a rebate, so the leaf's outer edge is never seen.
-# 5. IT MUST STAY THINNER THAN ITS IRONWORK. The trim (door_band_half, still
-#    ModelBaker) stands 0.026 units proud; the frame's mortice is 0.032 half-
-#    high. Boards that bow past either would poke through their own straps or
-#    jam in the slot, so the bow, the jitter and the noise are all budgeted
-#    against BAND_T and asserted.
+# 5. IT MUST STAY UNDER TWO CEILINGS, because it has two surfaces at two depths.
+#    A BOARD must stay inside the iron strap laid across it (STRAP_T), or the
+#    strap stops reading as ironwork over the door; the STILE is free of that,
+#    since the straps stop clear of the centre, but NOTHING may exceed the
+#    frame's mortice (SLOT_T) or an opening leaf jams in its own slot. Both are
+#    asserted, and the bow, jitter and warp are budgeted against them.
 #
 # ---------------------------------------------------------------------------
 # THE BOARDS, and why they are MEASURED off the texture rather than chosen
@@ -82,17 +93,39 @@ DOOR_H = 0.84       # height
 
 # --- the leaf ---------------------------------------------------------------
 T = 0.020           # half-thickness (ModelBaker kLeafHalfT 0.05 m / kUnit)
-BAND_T = 0.026      # the trim's proud half-thickness — the ceiling for our bow
+STRAP_T = 0.0224    # the iron strap's half-thickness (ModelBaker kStrapT
+                    # 0.056 m / kUnit) — the ceiling for a BOARD's bow, since a
+                    # strap that a board grew through would stop being ironwork
+                    # laid over the door and start being a slot cut in it
+SLOT_T = 0.032      # the frame's mortice half-height (BuildDoorFrame.py) — the
+                    # ceiling for everything, the stile included
 
-N_BOARD = 5         # boards across the half leaf: 5 x ~16 cm, 10 on the door
+N_BOARD = 4         # plain boards outside the meeting stile: 4 x ~15 cm
 GROOVE_W = 0.004    # gap between two boards at the face (1 cm)
 GROOVE_D = 0.003    # how deep that gap cuts (7.5 mm) — a groove, not a slit:
                     # the boards stay solid through their middle, so no light
                     # passes and the door still reads as one leaf edge-on
 
-# --- the flush pull, cut through BOTH leaf and band -------------------------
+# --- the meeting stile ------------------------------------------------------
+# The innermost member is not a board: it is the STILE the two halves close
+# against, wider than a board and standing STILE_SET proud of them (the boards
+# are set BACK rather than the stile pushed forward, so the thickness budget
+# above is unmoved). It carries the pull.
+#
+# It exists because the ironwork stopped carrying it. The trim used to run a
+# 9 cm iron upright down each half's inner edge, so the pair made an 18 cm bar
+# at the centre — and against an authored leaf with real relief that bar lit
+# brighter than the wood and read as a lit slot straight through the door. The
+# straps that replaced it stop well clear of the centre (ModelBaker
+# BuildDoorBandHalf), which leaves the split to be told in wood. That is what a
+# double door actually does: the stiles meet, the straps are hinge ironwork and
+# never reach the closing edge.
+STILE_W = 0.082     # ~20 cm — a stile reads as structure, a board as infill
+STILE_SET = 0.004   # how far the boards sit back from the stile's face (1 cm)
+
+# --- the flush pull, cut into the stile -------------------------------------
 # Shared with ModelBaker's kPull* constants, converted to units. The pocket was
-# first cut into the band alone, which made it 1.5 cm deep and invisible: the
+# first cut into the trim alone, which made it 1.5 cm deep and invisible: the
 # meeting stile is the nearest surface to a torch held at the eye, so it is the
 # BRIGHTEST thing on the door and a shallow step throws no shadow against a
 # hotspot. Cutting the leaf as well takes it to 4.7 cm, which goes dark.
@@ -120,10 +153,11 @@ BEVEL = 0.0015      # arris break: rounds the groove lips into a soft V
 # entries — the ten boards' edges, first and last being the tiling seam.
 SEAMS_U = (0.0000, 0.0986, 0.1992, 0.2949, 0.3936, 0.5020,
            0.6045, 0.7031, 0.7998, 0.9014, 1.0000)
-# Which scan board each mesh board wears, outside in. Shuffled rather than
-# sequential so no two neighbours share a grain — and so the CENTRE, where the
-# turned copy puts board 4 against itself, is the one the iron meeting stile
-# covers anyway.
+# Which scan board each member wears, outside in — four boards then the stile.
+# Shuffled rather than sequential so no two neighbours share a grain. The stile
+# is half again as wide as a board and still takes ONE scan board, so its grain
+# is stretched about 36%; that is invisible on wood and worth it, because the
+# alternative is a painted seam somewhere down the middle of the stile.
 BOARDS = (2, 7, 0, 5, 3)
 
 args = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
@@ -149,29 +183,56 @@ bpy.ops.object.delete()
 # construction rather than a restatement of it.
 #
 # Hand-listing was tried in ModelBaker and worked there because the leaf was
-# four boxes. Four boards each cut by a groove, one of them also cut by a
+# four boxes. Five members each parted by a groove, one of them also cut by a
 # pocket, is where that stops paying.
-BOARD_W = (OPEN - (N_BOARD - 1) * GROOVE_W) / N_BOARD
+#
+# MEMBERS is the layout every later pass reads — the grid, the displacement and
+# the UVs all ask it which member owns an x, so the stile's extra width and its
+# proud face are stated once. Four boards, then the stile; a groove between
+# each neighbouring pair and none at either end (the outer edge sits in the
+# frame's rebate, the inner one is the closing edge and must be square).
+BOARD_W = (OPEN - STILE_W - N_BOARD * GROOVE_W) / N_BOARD
+
+MEMBERS = []                        # (x0, x1, is_stile)
+_x = -OPEN
+for _m in range(N_BOARD + 1):
+    stile = _m == N_BOARD
+    w = STILE_W if stile else BOARD_W
+    MEMBERS.append((_x, _x + w, stile))
+    _x += w + GROOVE_W
 
 XS, KIND, OWNER = [-OPEN], [], []   # KIND/OWNER are per COLUMN, so len = len(XS)-1
-_x = -OPEN
-for b in range(N_BOARD):
-    for s in range(1, 4):           # two interior stations, so a board can bow
-        XS.append(_x + BOARD_W * s / 3.0)
+for m, (x0, x1, _s) in enumerate(MEMBERS):
+    for s in range(1, 4):           # two interior stations, so a member can bow
+        XS.append(x0 + (x1 - x0) * s / 3.0)
         KIND.append("board")
-        OWNER.append(b)
-    _x += BOARD_W
-    if b < N_BOARD - 1:
-        _x += GROOVE_W
-        XS.append(_x)
+        OWNER.append(m)
+    if m < len(MEMBERS) - 1:
+        XS.append(x1 + GROOVE_W)
         KIND.append("groove")
-        OWNER.append(b)             # a groove belongs to the board on its left
+        OWNER.append(m)             # a groove belongs to the member on its left
 
-# The pocket's side wall has to be a grid plane. It lands inside the innermost
-# board, between two of its bow stations.
+# The pocket's side wall has to be a grid plane. It lands inside the stile,
+# between two of its bow stations.
 _i = next(i for i in range(len(XS) - 1) if XS[i] < PULL_X < XS[i + 1])
 XS.insert(_i + 1, PULL_X)
 KIND.insert(_i + 1, KIND[_i])
+OWNER.insert(_i + 1, OWNER[_i])
+
+# THE MEETING EDGE TAKES HALF A GROOVE, so the two halves make a whole one.
+# Without it the pair of stiles read as ONE 41 cm board across the middle of the
+# door and the split is invisible until it moves — which is the same complaint
+# the iron meeting stile was there to answer, arrived at from the other side.
+# Half each, rather than one groove on one half, because the leaf is drawn
+# turned as well as straight: anything asymmetric here shows up mirrored.
+#
+# The core still reaches x = 0 (a groove only cuts the two outer layers), so the
+# halves butt exactly and only the faces are chamfered — the meeting-edge assert
+# is unaffected.
+_h = GROOVE_W * 0.5
+_i = next(i for i in range(len(XS) - 1) if XS[i] < -_h < XS[i + 1])
+XS.insert(_i + 1, -_h)
+KIND.insert(_i + 1, "groove")
 OWNER.insert(_i + 1, OWNER[_i])
 
 # Five layers through the thickness: the groove's depth on each face, then the
@@ -193,10 +254,12 @@ def solid(i, j, k):
     """Is there wood in grid cell (i, j, k)? Outside the grid there is not."""
     if not (0 <= i < NX and 0 <= j < NY and 0 <= k < NZ):
         return False
-    if KIND[i] == "groove":
-        return 1 <= j <= 3            # a groove cuts GROOVE_D into both faces
+    # The pull is tested FIRST because the meeting edge's half-groove runs
+    # through it: the pocket is the deeper cut, so it has to win where they meet.
     if i in POCKET_I and k in POCKET_K:
         return j == 2                 # the pull: only the web is left
+    if KIND[i] == "groove":
+        return 1 <= j <= 3            # a groove cuts GROOVE_D into both faces
     return True
 
 
@@ -251,33 +314,32 @@ bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
 # The web is left alone (|y| <= WEB), so the pull's recess keeps its depth.
 
 
-def board_at(x):
-    """Which board owns this x. Grooves belong to the board on their left, so a
-    vertex shared between a board and its groove moves with that board."""
+def member_at(x):
+    """Which member owns this x. Grooves belong to the member on their left, so
+    a vertex shared between a member and its groove moves with that member."""
     for i in range(NX):
         if x <= XS[i + 1] + 1e-9:
             return OWNER[i]
-    return N_BOARD - 1
-
-
-def board_span(b):
-    x0 = -OPEN + b * (BOARD_W + GROOVE_W)
-    return x0, x0 + BOARD_W
+    return len(MEMBERS) - 1
 
 
 for v in bm.verts:
     y = v.co.y
     if abs(y) <= WEB + 1e-9:
         continue
-    b = board_at(v.co.x)
-    x0, x1 = board_span(b)
-    u = 2.0 * (v.co.x - 0.5 * (x0 + x1)) / BOARD_W        # -1..1 across the board
+    m = member_at(v.co.x)
+    x0, x1, stile = MEMBERS[m]
+    u = 2.0 * (v.co.x - 0.5 * (x0 + x1)) / (x1 - x0)      # -1..1 across it
     crown = BOW * max(0.0, 1.0 - u * u)
-    # One jitter value per board, sampled from the noise field at its centre so
+    # One jitter value per member, sampled from the noise field at its index so
     # the script stays free of a random seed's ordering.
-    jit = JITTER * noise.noise(Vector((float(b) * 3.7, 0.0, 0.0)))
-    warp = WARP_AMP * noise.noise(Vector((float(b) * 5.1, v.co.z * WARP_FREQ, 0.0)))
-    v.co.y = y + (1.0 if y > 0.0 else -1.0) * (crown + jit + warp)
+    jit = JITTER * noise.noise(Vector((float(m) * 3.7, 0.0, 0.0)))
+    warp = WARP_AMP * noise.noise(Vector((float(m) * 5.1, v.co.z * WARP_FREQ, 0.0)))
+    # The BOARDS are set back, not the stile pushed forward: the stile's face
+    # stays at T, so the thickness budget the frame and the straps agree on is
+    # untouched by giving the door a proud closing edge.
+    back = 0.0 if stile else STILE_SET
+    v.co.y = y + (1.0 if y > 0.0 else -1.0) * (crown + jit + warp - back)
 
 bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
 
@@ -304,9 +366,9 @@ for f in bm.faces:
     cap = abs(f.normal.z) >= max(abs(f.normal.x), abs(f.normal.y))
     for loop in f.loops:
         co = loop.vert.co
-        b = board_at(co.x)
-        x0, x1 = board_span(b)
-        u0, u1 = SEAMS_U[BOARDS[b]], SEAMS_U[BOARDS[b] + 1]
+        m = member_at(co.x)
+        x0, x1, _stile = MEMBERS[m]
+        u0, u1 = SEAMS_U[BOARDS[m]], SEAMS_U[BOARDS[m] + 1]
         u = u0 + (co.x - x0) / (x1 - x0) * (u1 - u0)
         v = (0.5 + co.y / DOOR_H) if cap else (co.z / DOOR_H)
         loop[uv].uv = (u, v)
@@ -318,7 +380,8 @@ obj = bpy.data.objects.new("door_panel_half", mesh)
 bpy.context.scene.collection.objects.link(obj)
 
 co = [v.co for v in mesh.vertices]
-print(f"BuildDoorLeaf: {N_BOARD} boards of {BOARD_W * 2.5 * 100:.1f} cm, "
+print(f"BuildDoorLeaf: {N_BOARD} boards of {BOARD_W * 2.5 * 100:.1f} cm and a "
+      f"{STILE_W * 2.5 * 100:.1f} cm stile, "
       f"{len(co)} verts, x {min(c.x for c in co):+.4f}..{max(c.x for c in co):+.4f}  "
       f"y {min(c.y for c in co):+.4f}..{max(c.y for c in co):+.4f}  "
       f"z {min(c.z for c in co):+.4f}..{max(c.z for c in co):+.4f}")
@@ -337,11 +400,20 @@ assert abs(min(c.z for c in co)) < 1e-4, "the leaf does not reach the floor"
 # not move it, so this is exact — and it is the one that bit before.
 assert abs(max(c.x for c in co)) < 1e-4, "the meeting edge misses the centre line"
 
-# THE THICKNESS BUDGET (constraint 5). Room left for the trim to stand proud
-# and for the frame's mortice to swallow the pair.
+# THE THICKNESS BUDGET (constraint 5), which is now TWO ceilings because the
+# leaf has two surfaces at two depths. A BOARD must stay under the iron strap
+# laid across it, or the strap stops reading as ironwork over the door and
+# starts reading as a slot cut in it. The STILE is free of that — the straps
+# stop well clear of the centre — but nothing may exceed the frame's mortice,
+# or an opening leaf jams in its own slot.
+boards = [c for c in co if c.x < MEMBERS[-1][0] - 1e-6]
+board_thick = max(abs(c.y) for c in boards)
+assert board_thick < STRAP_T - 0.001, (
+    f"the boards bow to {board_thick:.4f}, past the strap's {STRAP_T:.4f}")
 thick = max(abs(c.y) for c in co)
-assert thick < BAND_T - 0.001, (
-    f"the boards bow to {thick:.4f}, past the trim's {BAND_T:.4f}")
+assert thick < SLOT_T - 0.002, (
+    f"the leaf is {thick:.4f} thick, past the mortice's {SLOT_T:.4f}")
+assert thick > board_thick, "the stile does not stand proud of the boards"
 
 # SYMMETRIC IN SECTION (constraint 2). Every vertex must have a mirror in y, or
 # the turned copy shows a different door. Checked rather than reasoned about,
