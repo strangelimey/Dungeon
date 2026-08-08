@@ -112,20 +112,26 @@ opener_side = right
 ; `mount` is the surround, bolted to the stone, and only the centre square
 ; sinks. A button whose frame goes in with it reads as the whole fitting being
 ; shoved into the wall rather than as something being pressed.
+;
+; They are also two MATERIALS, which is what decides where the studs go: a
+; studded wooden pad is the obvious picture, but a stud is iron and would have
+; to live inside the wood-textured mesh. So the bolts belong to the iron MOUNT,
+; where they are more honest anyway — they are what fixes the fitting to the
+; stone, and they are the part that does not move.
 [door_pad]
 display = Jamb Pad
 model = door_pad
 texture = wood_planks_old8
 style = pad
 mount = door_pad_mount
-authored = 0
+authored = 1
 hidden = 1
 
 [door_pad_mount]
 display = Jamb Pad Surround
 model = door_pad_mount
-texture = wood_planks_old8
-authored = 0
+texture = sconce
+authored = 1
 hidden = 1
 
 ; Grimrock: a chain hanging beside the door, pulled to work it. `mount` names
@@ -149,14 +155,14 @@ offset = 0.465
 ; feel within each.
 ease_in = expo
 ease_out = sine
-authored = 0
+authored = 1
 hidden = 1
 
 [door_chain_socket]
 display = Chain Socket
 model = door_chain_socket
 texture = sconce
-authored = 0
+authored = 1
 hidden = 1
 
 ; --- frames ----------------------------------------------------------------

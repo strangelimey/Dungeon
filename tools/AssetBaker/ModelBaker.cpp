@@ -2378,110 +2378,26 @@ assets::ModelData BuildDoorBosses() {
 }
 
 // --- door openers ------------------------------------------------------------
-// The hand-hold on the jamb, drawn on both faces of a door. Both are authored
-// the WALL PROP way — +Z out of the wall, origin ON the wall face — because the
-// render places them by translating to the jamb and turning the far copy about
-// Y, exactly as the sconce and the lever are placed. Their origin is also the
-// point the hand meets, which is what the pull animation will rotate about.
+// RETIRED (2026-08-08): all four are authored now and imported, so none may be
+// baked here — `AssetBaker models` would overwrite the imported meshes with
+// boxes again. The jamb pad and its surround are tools/BuildDoorPad.py; the
+// chain and its socket are parts of tools/BuildHangingChain.py, which is where a
+// chain belongs whatever it hangs from.
 //
-// PLACEHOLDERS, like door_panel_half was: enough to judge placement, height and
-// whether the gate reads, before anything is authored in Blender.
-
-// Dungeon Master's square pad, in TWO parts for the same reason the chain is:
-// only the middle moves. The surround is bolted to the stone and a button whose
-// frame sinks with it reads as the whole fitting being shoved into the wall.
-// The mount is the static half (doors.cat `mount`), the pad the moving one.
+// What they were: four boxes, deliberately, to judge PLACEMENT and HEIGHT before
+// any shape existed — the door_panel_half move, and it worked. Three numbers
+// they settled are now in the scripts and worth keeping visible here, because
+// each was found by looking at the screen rather than by reasoning:
 //
-// The travel is bounded by the geometry: the pad's face stands 2.4 cm above the
-// plate, so it can sink about 1.75 cm and still show a lip. Push it as far as
-// the first cut did (3.5 cm, more than the whole fitting is deep) and the
-// button vanishes into the jamb instead of being pressed.
-constexpr float kPadPlateZ = 0.050f;  // front of the surround
-constexpr float kPadFaceZ = 0.074f;   // front of the moving square
-
-assets::ModelData BuildDoorPadMount() {
-	assets::MeshData mesh;
-	AddBox(mesh, {0.0f, 0.0f, kPadPlateZ * 0.5f},
-		   {0.110f, 0.110f, kPadPlateZ * 0.5f});
-	return FinishProp(std::move(mesh), {0.34f, 0.24f, 0.14f, 1.0f}, 0.55f);
-}
-
-assets::ModelData BuildDoorPad() {
-	assets::MeshData mesh;
-	const float mid = (kPadPlateZ + kPadFaceZ) * 0.5f;
-	const float half = (kPadFaceZ - kPadPlateZ) * 0.5f;
-	AddBox(mesh, {0.0f, 0.0f, mid}, {0.085f, 0.085f, half});
-	return FinishProp(std::move(mesh), {0.42f, 0.30f, 0.18f, 1.0f}, 0.55f);
-}
-
-// Grimrock's chain: links climbing from the grip UP toward the lintel, with a
-// ring at the bottom. It hangs from above, so the model runs +Y from an origin
-// at HAND HEIGHT — the render puts that origin where the hand goes, and a
-// chain authored downward from its anchor would need the anchor's height
-// instead, which is a second number to keep in step with the frame.
-// Where the chain comes OUT of the wall. Its own model because it must NOT
-// move: the chain slides up behind it, so the links still inside are hidden and
-// the ones below look drawn out of the socket. One mesh for both and the chain
-// would simply slide down the jamb, which is what the first version did.
-//
-// A plain solid box is enough to hide them — from anywhere outside it, its
-// surface is nearer than whatever is within, so the depth buffer does the
-// occluding and no actual hole has to be modelled.
-// High on the jamb — the socket sits just under the ceiling (its top lands at
-// 2.43 m of a 2.5 m room, measured from the opener's origin at hand height), so
-// the chain has a long visible run. LENGTH COMES FROM RAISING THE ANCHOR, not
-// from dropping the ring: the ring is where the hand goes and that height is
-// fixed by kOpenerY, so hanging it lower to get more chain would put the grip
-// round the party's knees.
-constexpr float kChainSocketY0 = 0.85f, kChainSocketY1 = 1.03f;
-
-assets::ModelData BuildDoorChainSocket() {
-	assets::MeshData mesh;
-	const float mid = (kChainSocketY0 + kChainSocketY1) * 0.5f;
-	const float half = (kChainSocketY1 - kChainSocketY0) * 0.5f;
-	AddBox(mesh, {0.0f, mid, 0.038f}, {0.052f, half, 0.040f});          // the boss
-	AddBox(mesh, {0.0f, kChainSocketY0 + 0.018f, 0.048f},
-		   {0.062f, 0.018f, 0.030f});                                    // a lip
-	return FinishProp(std::move(mesh), {0.30f, 0.28f, 0.27f, 1.0f}, 0.35f);
-}
-
-assets::ModelData BuildDoorChain() {
-	assets::MeshData mesh;
-	// Sized up half again from the first cut, which read as jewellery beside a
-	// 2.1 m door. A hand-hold has to look like something a hand pulls HARD, and
-	// at this distance the silhouette is all there is to say so.
-	//
-	// The links run all the way to the TOP OF THE SOCKET, not to where the chain
-	// stops being visible. That buried length is what the pull draws out: as the
-	// chain descends, its top end must still be inside the socket or the end of
-	// the chain walks out of the bottom of its own anchor.
-	// The pull ring at the bottom, in the wall's plane so a hand goes through it.
-	constexpr float kRingR = 0.065f, kTubeR = 0.012f;
-	constexpr float kRingTop = 0.075f; // where the ring's crown sits
-	constexpr int kSeg = 16;
-
-	// Links from the ring up into the socket. The first one STARTS BELOW the
-	// ring's crown so the two overlap: the first cut began the links a link's
-	// half-height above it, which left a 24 mm gap and the ring hung in the air
-	// unattached. Butting them exactly would be no better — the tilt on either
-	// piece would open the seam again — so they interpenetrate on purpose.
-	constexpr float kLink = 0.075f;
-	constexpr float kLinkBase = kRingTop - kLink * 0.25f;
-	for (int i = 0; kLinkBase + static_cast<float>(i) * kLink < kChainSocketY1; ++i) {
-		const float y = kLinkBase + static_cast<float>(i) * kLink;
-		// Alternate the flat axis so it reads as a chain and not a rod.
-		const bool flat = (i % 2) == 0;
-		AddBox(mesh, {0.0f, y, 0.038f},
-			   {flat ? 0.027f : 0.011f, kLink * 0.55f, flat ? 0.011f : 0.027f});
-	}
-	auto at = [&](int i) {
-		const float a = 2.0f * kPi * static_cast<float>(i) / kSeg;
-		return Vec3{kRingR * std::sin(a), kRingR * std::cos(a) - kRingR + kRingTop,
-					0.038f};
-	};
-	for (int i = 0; i < kSeg; ++i) AddStrut(mesh, at(i), at(i + 1), kTubeR, kTubeR, 8);
-	return FinishProp(std::move(mesh), {0.30f, 0.28f, 0.27f, 1.0f}, 0.35f);
-}
+//  * A pad's face must stand further off its surround than kPadPress, or a press
+//    swallows it. The first cut pressed 3.5 cm, deeper than the whole fitting,
+//    and the button vanished into the jamb instead of being pushed.
+//  * A chain's socket must conceal more length than kChainDrop, or the chain's
+//    top end walks out of the bottom of its own anchor.
+//  * An opener is authored the WALL PROP way — +Z out of the wall, origin ON the
+//    wall face at hand height — because the render translates to the jamb and
+//    turns the far copy about Y, exactly as the sconce and the lever are placed.
+//    That origin is also the point the hand meets, which is what the pull moves.
 
 // RETIRED (2026-08-07): the wall lever is authored in tools/BuildLever.py now
 // and imported as TWO models — lever_plate (static) and lever_handle (tilts) —
@@ -2734,11 +2650,8 @@ bool BakeModels(const std::string& dir, const std::string& texturesDir) {
 	// (the portcullis moved to tools/BuildPortcullis.py and took door_band with
 	// it — a lattice that is iron all through needs no separate trim)
 	ok &= WriteGltf(BuildDoorBosses(), dir + "\\door_bosses.gltf");
-	// Openers (doors.cat `opener`): the hand-hold on the jamb.
-	ok &= WriteGltf(BuildDoorPad(), dir + "\\door_pad.gltf");
-	ok &= WriteGltf(BuildDoorPadMount(), dir + "\\door_pad_mount.gltf");
-	ok &= WriteGltf(BuildDoorChain(), dir + "\\door_chain.gltf");
-	ok &= WriteGltf(BuildDoorChainSocket(), dir + "\\door_chain_socket.gltf");
+	// (the openers moved too — door_pad/door_pad_mount to tools/BuildDoorPad.py,
+	// door_chain/door_chain_socket to tools/BuildHangingChain.py's parts)
 	// (the lever moved to tools/BuildLever.py — see the note at BuildLever's
 	// old site; lever_plate.gltf and lever_handle.gltf are import-model output)
 
