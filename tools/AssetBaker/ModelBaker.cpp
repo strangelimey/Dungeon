@@ -2153,6 +2153,15 @@ assets::ModelData BuildDoorFrame() {
 	return FinishProp(std::move(mesh), {0.50f, 0.48f, 0.45f, 1.0f});
 }
 
+// UV tile for the door leaves, and it is NOT the 0.6 m the other props take.
+// A prop's tile has to be read off the TEXTURE, not chosen for the prop: the
+// wood sets here are wall-scale scans of a whole boarded surface, so 0.6 m
+// crammed a full fence into two thirds of a metre and the door came out
+// striped in 1.3 cm slivers — "vertical lollipop sticks". `wood_planks_old8`
+// carries about 16 boards across a square scan, so 2.7 m lands them at a
+// door-sized 17 cm. Any future leaf texture wants the same sum done.
+constexpr float kDoorTile = 2.7f;
+
 // The door panel filling the frame's opening, with two cross braces so it
 // reads as a built door rather than a plain slab. Slides sideways (+X in
 // authored space, into the neighbouring wall) as the door opens.
@@ -2162,7 +2171,7 @@ assets::ModelData BuildDoorPanel() {
 	AddBox(mesh, {0.0f, kH * 0.5f, 0.0f}, {kOpen, kH * 0.5f, 0.05f});
 	AddBox(mesh, {0.0f, kH * 0.26f, 0.0f}, {kOpen * 0.96f, 0.07f, 0.075f});
 	AddBox(mesh, {0.0f, kH * 0.74f, 0.0f}, {kOpen * 0.96f, 0.07f, 0.075f});
-	return FinishProp(std::move(mesh), {0.45f, 0.33f, 0.20f, 1.0f});
+	return FinishProp(std::move(mesh), {0.45f, 0.33f, 0.20f, 1.0f}, kDoorTile);
 }
 
 // The LEFT HALF of a split door's leaf, spanning the opening's left half only.
@@ -2177,7 +2186,7 @@ assets::ModelData BuildDoorPanelHalf() {
 	AddBox(mesh, {-kHalf, kH * 0.5f, 0.0f}, {kHalf, kH * 0.5f, 0.05f});
 	AddBox(mesh, {-kHalf, kH * 0.26f, 0.0f}, {kHalf * 0.96f, 0.07f, 0.075f});
 	AddBox(mesh, {-kHalf, kH * 0.74f, 0.0f}, {kHalf * 0.96f, 0.07f, 0.075f});
-	return FinishProp(std::move(mesh), {0.45f, 0.33f, 0.20f, 1.0f});
+	return FinishProp(std::move(mesh), {0.45f, 0.33f, 0.20f, 1.0f}, kDoorTile);
 }
 
 // RETIRED (2026-08-07): the wall lever is authored in tools/BuildLever.py now

@@ -14,7 +14,7 @@
 display = Wooden Door
 category = door
 model = door_panel_half
-texture = wood_planks
+texture = wood_planks_old8
 authored = 0
 motion = split
 travel = 0.4
