@@ -20,6 +20,7 @@
 #include "Graphics/SpriteBatch.h"
 #include "Platform/Input.h"
 #include "UI/Font.h"
+#include "UI/Layout.h" // ui::Stack — the derived contract takes one
 #include "UI/UIContext.h"
 #include "UI/Widget.h" // complete ui::Widget: m_ui (UIContext) holds it by value
 
@@ -106,9 +107,20 @@ protected:
 	// The selectable facings for THIS object. Default = all four cardinals; a
 	// wall-mounted fixture overrides to the solid walls it may hang on.
 	virtual std::vector<Direction> FacingChoices() const;
-	// Add type-specific widgets into m_ui within `content` (window fractions).
-	// Base already placed the Facing strip above it and the footer below.
-	virtual void BuildContent(const gfx::Rect& /*content*/) {}
+	// Add type-specific rows to `content` — a ui::Stack, so a dialog says how
+	// TALL each row is and never where it sits (UI/Layout.h). Rows are added in
+	// order, sized in rem, and cannot overlap each other or the chrome the base
+	// stacked above and below them. Use kFormRow for a one-line control;
+	// ui::Len::Fill() for something that should take the rest (a tab control).
+	virtual void BuildContent(ui::Stack& /*content*/) {}
+
+	// The extent a control of `lines` text lines wants in these dialogs' stacks
+	// (1 = a label, a dropdown, a checkbox; ~1.8 = a Slider, which stacks its
+	// label over its track). Rem is the CONTEXT's document size while an editor
+	// dialog draws at ui::kDialogTextScale times it, so a row's height in rem is
+	// its height in lines times the scale it is actually drawn at — one place
+	// that knows it, rather than the factor written out at every row.
+	static ui::Len FormRow(float lines = 1.0f);
 	// Push the working values (incl. facing) to the live object — called on
 	// every edit. Persist writes to disk (Save button); Revert restores the
 	// pre-edit state (Close/Esc).
@@ -131,8 +143,12 @@ protected:
 private:
 	void BuildUI();
 
-	ui::UIContext m_ui; // common strip + derived content + footer; also the title
+	ui::UIContext m_ui; // title + common strip + derived content + footer
 	const gfx::Texture* m_closeIcon = nullptr; // shared, owned by AssetUtil
+	// The preview pane widget, owned by the tree; null when there is no preview.
+	// PreviewRect hands its rect out, so the backing and the 3D blit are the
+	// same area by construction.
+	ui::Widget* m_pane = nullptr;
 
 	bool m_open = false;
 	bool m_rebuild = false;

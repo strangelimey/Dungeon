@@ -21,8 +21,9 @@
 #pragma once
 
 #include "Animation/CreatureState.h"
-#include "Game/Balance.h"   // ThreatTuning
-#include "Game/MonsterAI.h" // ai::Archetype
+#include "Game/Balance.h"       // ThreatTuning
+#include "Game/DialogLayout.h"  // PreviewPane
+#include "Game/MonsterAI.h"     // ai::Archetype
 #include "Graphics/GraphicsDevice.h"
 #include "Graphics/SpriteBatch.h"
 #include "Platform/Input.h"
@@ -99,9 +100,6 @@ private:
 	void BuildAnimationTab(size_t tab);
 	void Apply() { if (onApply) onApply(m_cfg); }
 
-	// The preview pane's normalized (0..1 of window) rect — right of the tabs. Both
-	// Render (backing box) and PreviewRect (owner blit) resolve against it.
-	gfx::Rect PreviewNorm() const;
 	// Whether a clip belongs to `state`'s column (name-encoded <state>__… or already
 	// an assigned clip), and the selected state's first candidate clip (auto-preview).
 	bool ClipBelongs(const std::string& name, int state) const;
@@ -120,6 +118,9 @@ private:
 	int m_selState = static_cast<int>(anim::CreatureState::Idle);
 	std::string m_selClip; // clip selected for preview ("" = none)
 
+	// The preview pane widget (owned by m_ui): PreviewRect hands out its rect,
+	// so the backing it draws and the owner's blit are the same area.
+	PreviewPane* m_pane = nullptr;
 	ui::TabControl* m_tabs = nullptr; // owned by m_ui; kept to restore the tab
 	int m_activeTab = 0;
 	bool m_rebuild = false; // a widget callback queued a rebuild (done after Update)

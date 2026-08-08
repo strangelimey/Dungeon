@@ -80,18 +80,7 @@ private:
 	// m_pendingLanguage convention).
 	bool m_editName = false;    // title row is the edit field
 	bool m_uiRebuild = false;   // deferred BuildUI request
-	bool m_nameHover = false;   // stem hover (Update tracks, Render styles)
 	ui::TextField* m_nameField = nullptr; // valid until the next Clear
-	// The stem's pixel rect within the title line (Update-computed hit box).
-	gfx::Rect StemRect(float w, float h);
-	// The title's band, and the face fitted to it. ONE place for both, because
-	// the stem is a CLICK TARGET and FitDialogTitle's size now depends on the
-	// text: StemRect measures with this and Render draws with it, so a second
-	// call site asking with a different string would land the click where the
-	// text is not.
-	gfx::Rect TitleBand(float w, float h) const;
-	const ui::Font& TitleFont(float w, float h) const;
-	std::string TitlePrefix() const; // "Level settings — ", before the stem
 };
 
 } // namespace dungeon::game

@@ -46,6 +46,10 @@
 int main(int argc, char** argv) {
 	using namespace dungeon;
 
+	// Log lines are UTF-8; a console decodes in its own code page unless told
+	// (Core/Log.h). The baker's output is full of em-dashes and asset names.
+	log::UseUtf8Console();
+
 	if (argc >= 2 && std::string(argv[1]) == "import") {
 		if (argc < 5) {
 			log::Error("usage: AssetBaker import <source-folder> <assets-dir> "

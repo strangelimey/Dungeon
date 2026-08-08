@@ -72,9 +72,20 @@ public:
 	}
 	void UpdateSelf(UIContext&) override {}
 	void DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) override;
+	// A Label draws its whole string from its top-left corner, however narrow
+	// its bounds — so what it paints is measured, not bounded (Widget::InkRect).
+	gfx::Rect InkRect() const override;
 
 	std::string text;
 	bool dim = false;
+	// Draws in the theme's accent instead — for a line that has to be NOTICED
+	// (a dialog's refusal or warning). Wins over `dim`; both take the color from
+	// the live theme, never a captured copy, so the user's palette applies.
+	bool accent = false;
+	// Center the text vertically in the bounds instead of drawing from the top.
+	// For a label that shares a row with a control: the control fills the row's
+	// height, and top-aligned text beside it sits high.
+	bool centerV = false;
 };
 
 // Scrolling multi-line text log (message window). New lines append at the
@@ -140,6 +151,8 @@ public:
 	void SetChecked(bool on) { m_checked = on; }
 	void UpdateSelf(UIContext& ctx) override;
 	void DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) override;
+	// The box is bounded but the label beside it is measured — see Label.
+	gfx::Rect InkRect() const override;
 
 	std::string label;
 	std::function<void(bool)> onChange;
@@ -503,6 +516,15 @@ public:
 
 	float Scroll() const { return m_scroll; }
 	void ScrollToTop() { m_scroll = 0.0f; }
+	// Restores a scroll position — for a list that REBUILDS its rows and would
+	// otherwise jump to the top every time its model changed. Clamped by the
+	// next layout, so a position past a now-shorter list is safe to hand back.
+	void SetScroll(float pixels) { m_scroll = pixels; }
+	// Scrolls the least distance that brings `child` fully into the view. Reads
+	// PIXEL rects, so call it after a layout has run — which is what makes it
+	// safe for a caller that knows a widget but not where the layout put it (a
+	// list opening on its current selection).
+	void ScrollIntoView(const Widget& child);
 
 	// The children's container: the view box, shifted up by the scroll.
 	gfx::Rect ContentRect() const override;
@@ -666,6 +688,18 @@ void DrawButtonFace(gfx::SpriteBatch& batch, const Font& font,
 					bool held = false, bool enabled = true,
 					const Skin* skin = nullptr);
 
+// Draws a drop-down's EXPANDER at the right end of `rect`: the authored box
+// (ui::ControlIcons::dropDown), turned half a rotation while `open`, brightened
+// while open or hovered — or the text arrow when no icon is installed. The look
+// belongs to the drop-down, not to any one drawing site: DropDown routes
+// through it, and so does hand-drawn chrome that presents a drop-down outside
+// the widget tree (the map editor's level picker), exactly as they already
+// share DrawButtonFace. `rect` is the whole CONTROL; the expander sizes and
+// insets itself off `font` so it clears the border at any text size.
+void DrawDropDownExpander(gfx::SpriteBatch& batch, const Font& font,
+						  const gfx::Rect& rect, const Theme& theme, bool open,
+						  bool hot);
+
 // The standard close affordance every dialog uses: a small square button in the
 // top-right CORNER of `panel` (window-fraction space, like the widgets it joins).
 // `icon` is the shared close box (assets/ui/icon_close); a null icon falls back
@@ -675,11 +709,13 @@ gfx::Rect CloseButtonRect(const gfx::Rect& panel);
 Button* AddCloseButton(UIContext& ui, const gfx::Rect& panel,
 					   const gfx::Texture* icon, std::function<void()> onClose);
 
-// The rect a dialog's title may occupy, in the same fraction space as `panel`:
-// from `left` across to the close box (never under it) and kDialogTitleBandH
-// tall, `top` down. Pass it to FitDialogTitle. Declared after CloseButtonRect
-// because the whole point is that the two agree about that corner.
-gfx::Rect DialogTitleBand(const gfx::Rect& panel, float left, float top);
+// The same affordance, placed INSIDE a slot a layout reserved for it (a Stack's
+// Space — UI/Layout.h). Prefer this wherever the dialog's chrome is stacked: the
+// panel-fraction form floats the button over whatever happens to be beneath it,
+// which is a collision waiting for a longer title, while a slot is an area the
+// layout has already kept clear. The icon self-squares inside the slot.
+Button* AddCloseButton(Widget& slot, const gfx::Texture* icon,
+					   std::function<void()> onClose);
 
 // How much larger than its context an editor dialog sets its two kinds of text.
 // Constants rather than a size each dialog picks, for the same reason
@@ -697,51 +733,6 @@ inline constexpr float kDialogTextScale = 2.0f;
 // size and drawing it in another puts the click somewhere the text is not, so
 // the rect and the draw must ask the same function.
 const Font& DialogTitleFont(const UIContext& ctx);
-
-// The height a TITLE BAND needs, as a fraction of the WINDOW height — the gap a
-// dialog must leave between its title's top edge and whatever it puts below.
-//
-// Derived once here because every editor dialog authored its regions as window
-// fractions at a time when titles drew at 1x, and when the fonts thread took
-// them to kDialogTitleScale nothing re-derived a single band. All eight were
-// then too short (0.050..0.070 against the 0.0725 below), so every one of them
-// drew its title down through the row, tab strip or preview header beneath it.
-//
-// The derivation: these dialogs all size their context font the same way,
-// clamp(h * 0.020, 12, 24), and a title's line advance is that x
-// kDialogTitleScale x 1.25. Below the clamp both terms scale with h, so the
-// requirement is a constant 0.020 * 2.9 * 1.25 = 0.0725 of the window height;
-// above it (h >= 1200) the advance pins at 87px while the band keeps growing,
-// so the fraction only ever gets easier. 0.075 is the worst case plus headroom.
-//
-// It is the ADVANCE, not the ink height, that has to clear: leave only the ink
-// and the next row sits on the title's descenders. FitDialogTitle is the
-// backstop for a band that still cannot be made this tall.
-inline constexpr float kDialogTitleBandH = 0.075f;
-
-// A title FITTED to the space it actually has. `band` is the rect (window
-// pixels) the title may occupy — for a dialog with a preview pane that means
-// stopping at the PANE's edge, not the panel's. Shrinks from the standard title
-// size as far as the band's HEIGHT demands and then as far as its WIDTH does
-// (never below the document size), and only ellipsises once it has run out of
-// shrink. Shrinking first is deliberate: two of these titles carry the object's
-// id and are the rename affordance, so the tail is what identifies the thing —
-// dropping it is worse than a smaller title.
-//
-// The returned font is also what a caller must MEASURE with when the title is a
-// hit target, since the size is no longer fixed (see DialogTitleFont's note).
-//
-// This exists because a title is drawn RAW, so nothing else bounds it. The
-// instance inspectors reserved a fixed panel FRACTION for the title band, and
-// when the fonts thread scaled titles to 2.9x nothing re-derived it: long
-// titles ran DOWN into the facing row and SIDEWAYS under the preview pane,
-// burying its header too. A fraction cannot hold font-sized content — measure
-// in the face you draw in.
-struct FittedTitle {
-	const Font* font; // never null; owned by the FontLibrary
-	std::string text; // possibly ellipsised
-};
-FittedTitle FitDialogTitle(const UIContext& ctx, std::string_view text, gfx::Rect band);
 
 // A dialog's FORM face — setting names and footer buttons. The same size a
 // widget gets from `fontScale = kDialogTextScale`, for the dialogs that draw

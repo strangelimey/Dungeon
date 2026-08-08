@@ -1367,9 +1367,36 @@ Full per-phase history + gotchas live in the editor-overhaul memory.
   it, not to whatever rect contains it — a fraction-of-parent label gap stretches
   when the row is wide. THE ONLY RAW PIXELS ALLOWED are hairlines: the 1px
   borders and the 2px caret (a fractional hairline blurs or vanishes).
+  A WIDGET'S AREA IS ITS OWN, and that is a CHECKED rule, not a held one. ROWS
+  GO IN A ui::Stack (UI/Layout.h): a site says how much room a row NEEDS
+  (Len::Fixed(n) rem / Len::Fill(w)) and never where it goes, so two rows cannot
+  overlap — positions are computed in LayoutSelf, the moment the font and
+  therefore rem are known, which is what build-time fractions could never see. A
+  Stack shrinks its fixed rows rather than overrunning; `fitContent` inverts it
+  for the inside of a scrolling page, measuring the rows and writing the extent
+  back into `bounds` (what ScrollArea reads) — so any scroll you set must be
+  applied AFTER the layout, or it clamps to zero against a height the area does
+  not yet know. Editor dialogs get the whole card from game::BuildDialogChrome
+  (Game/DialogLayout.h); tab-page rows from game::TabStack. IF YOU ARE WRITING A
+  Y COORDINATE OR STEPPING A CURSOR, the layout is about to drift.
   Dev console `uitree` outlines the whole tree by depth and names the chain
   under the cursor; `uitree dump <hud|menu|settings|pause|saves|sheet|confirm>`
-  prints it with pixel rects. Fonts track the window height too (Font::SetHeight
+  prints it with pixel rects. `uioverlap [label]` AUDITS the rule: it arms a
+  two-frame pass over every context that renders — no per-caller wiring, so
+  whichever dialog is open is covered — and reports both SIBLINGS whose ink
+  intersects and any child that ESCAPES its parent's ContentRect, to the console
+  and (labelled) to dungeon.log. Widget::InkRect is what a widget PAINTS as
+  against Pixel(), what the layout gave it: Label and Checkbox measure their
+  text, so a label wider than its row counts. `overlapOk` opts out the
+  deliberately layered; a parent that CLIPS is exempt from the escape check,
+  since a scroll area's children are meant to run past it. RUN IT AFTER TOUCHING
+  ANY SCREEN — a full sweep (2026-08-08) found four defects nobody had reported,
+  three of them placeholder bounds earlier phases had promised to fix. The rule
+  it enforces has a second half in INPUT: the pointer is claimed by whoever is
+  UNDER it and the wheel by whoever can ACT on it (ConsumeMouse / ConsumeWheel
+  are separate; a modal takes both), and input is CLIPPED like drawing, so a
+  scrolled-out row is not hot. A widget never claims a pixel it does not paint.
+  Fonts track the window height too (Font::SetHeight
   re-bakes the atlas, driven from the top of Game::Update).
   TYPE is addressed by ROLE, never by path (docs/fonts.md; assets/fonts/fonts.cat
   maps Body/Display/Script/Mono → file + an optical `scale`, live-switchable with

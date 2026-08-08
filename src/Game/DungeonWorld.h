@@ -2406,7 +2406,13 @@ private:
 	bool m_fixtureIconsBaked = false; // re-armed by a fresh kind (like decorations)
 	FixtureKind& FixtureKindFor(const std::string& type);
 	std::unique_ptr<gfx::ParticleBatch> m_particleBatch;
+	// The per-frame billboard buffer: cleared and refilled every Update, so it
+	// keeps its capacity and only allocates on a frame that beats every previous
+	// frame's particle count. That high-water growth lands INSIDE a steady-state
+	// frame (the fires are still settling when the guard's warm-up expires), so
+	// the peak is reserved up front instead — see ReserveParticleScratch.
 	std::vector<gfx::ParticleInstance> m_particleScratch;
+	void ReserveParticleScratch();
 
 	Vec3 m_torchColor{1.0f, 0.62f, 0.28f};
 	int m_torchPalette = 0; // index behind m_torchColor (saved/restored)

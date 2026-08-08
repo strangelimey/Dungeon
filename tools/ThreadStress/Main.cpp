@@ -27,6 +27,7 @@
 // no "FORCE-TERMINATED" warning) — it would have risked the deadlock before.
 // ============================================================================
 #include "Game/MonsterAI.h"
+#include "Core/Log.h"
 #include "Core/ThreadManager.h"
 
 #include <algorithm>
@@ -172,6 +173,9 @@ static void ReportPhase(threads::Manager& mgr, ai::AsyncDirector& dir,
 }
 
 int main() {
+	// This harness prints em-dashes; a console decodes bytes in its own code
+	// page unless told otherwise (Core/Log.h).
+	dungeon::log::UseUtf8Console();
 	std::setvbuf(stdout, nullptr, _IONBF, 0);
 	std::printf("=== Thread-system stress harness =================================\n");
 	std::printf("HW concurrency: %u threads\n\n", std::thread::hardware_concurrency());

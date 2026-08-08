@@ -27,6 +27,18 @@ public:
 	void Update(float dt);
 	void AppendParticles(std::vector<gfx::ParticleInstance>& out) const;
 
+	// How many particles this fire settles at — each kind's spawn rate times its
+	// mean lifetime, summed. The caller that owns the buffer AppendParticles
+	// writes into reserves from this (DungeonWorld::ReserveParticleScratch), so
+	// a steady-state frame never grows it. It is a MEAN and the live count
+	// wanders above it (spawn times and lifetimes are both random), which is why
+	// that caller adds headroom rather than trusting this number flat.
+	int SteadyCount() const { return SteadyCountFor(m_scale); }
+	// The same estimate for a fire that does not exist yet — a monster's plume is
+	// created only when it catches alight, and the reserve has to cover it before
+	// then. Constructing one to ask would run the ctor's 30-tick pre-warm.
+	static int SteadyCountFor(float scale);
+
 	// Move the emitter (a burning MONSTER walks around; a sconce never does).
 	// Only new particles spawn at the new origin — the ones already in the air
 	// keep their own velocity, so the plume trails the body.

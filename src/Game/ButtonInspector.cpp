@@ -29,10 +29,10 @@ std::string ButtonInspector::Title() const {
 	return loc::Format("map.btn.title", m_cfg.x, m_cfg.z);
 }
 
-void ButtonInspector::BuildContent(const gfx::Rect& c) {
+void ButtonInspector::BuildContent(ui::Stack& c) {
 	// Target: the door name this button toggles (doors are named in the door
 	// inspector). None = unwired.
-	UI().Add<ui::Label>(gfx::Rect{c.x, c.y, c.w, 0.05f}, loc::Tr("map.btn.target"));
+	c.Row<ui::Label>(FormRow(), loc::Tr("map.btn.target"));
 	std::vector<std::string> names;
 	names.push_back(loc::Tr("map.btn.notarget"));
 	int sel = 0;
@@ -40,13 +40,11 @@ void ButtonInspector::BuildContent(const gfx::Rect& c) {
 		names.push_back(m_doorNames[i]);
 		if (m_doorNames[i] == m_cfg.target) sel = static_cast<int>(i) + 1;
 	}
-	UI().Add<ui::DropDown>(gfx::Rect{c.x, c.y + 0.05f, c.w, 0.05f}, names, sel,
-						   [this](int i) {
-							   m_cfg.target =
-								   i <= 0 ? std::string()
-										  : m_doorNames[static_cast<size_t>(i) - 1];
-							   if (onApply) onApply(m_cfg);
-						   });
+	c.Row<ui::DropDown>(FormRow(), names, sel, [this](int i) {
+		m_cfg.target =
+			i <= 0 ? std::string() : m_doorNames[static_cast<size_t>(i) - 1];
+		if (onApply) onApply(m_cfg);
+	});
 }
 
 void ButtonInspector::Persist() {

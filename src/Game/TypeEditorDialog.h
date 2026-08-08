@@ -148,18 +148,8 @@ private:
 	// --- rename / delete ------------------------------------------------------
 	std::string m_notice;      // refusal or note, drawn under the form
 	bool m_editName = false;   // the title's id is an edit field right now
-	bool m_nameHover = false;  // hover on the id (Update tracks, Render styles)
 	bool m_deleteArmed = false; // the Delete button is one click from firing
 	ui::TextField* m_nameField = nullptr; // valid until the next Clear
-	// The id's pixel rect within the title line — the rename click target.
-	gfx::Rect IdRect(float w, float h);
-	// The title's band and the face fitted to it — ONE place, because the id is
-	// a CLICK TARGET and FitDialogTitle's size depends on the text: IdRect
-	// measures with this and Render draws with it, so a second call site asking
-	// with a different string would land the click where the text is not.
-	gfx::Rect TitleBand(float w, float h) const;
-	const ui::Font& TitleFont(float w, float h) const;
-	std::string TitlePrefix() const; // "<Category> type — ", before the id
 };
 
 } // namespace dungeon::game

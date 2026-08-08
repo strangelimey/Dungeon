@@ -1,10 +1,10 @@
 #include "UI/Controls.h"
 
+#include "UI/ControlIcons.h"
 #include "UI/Skin.h"
 #include "UI/Units.h"
 
 #include <algorithm>
-#include <cmath>
 #include <format>
 #include <optional>
 
@@ -54,19 +54,18 @@ void Separator::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 
 void Label::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 	const Theme& theme = ctx.GetTheme();
-	const Font& font = TextFont();
 	const gfx::Rect& px = Pixel();
-	// VERTICALLY CENTRED IN ITS BOX, like every other control's text (compare
-	// Checkbox, Button, DropDown). It used to draw at px.y — the box TOP — with
-	// the font's own height and no regard for the box at all, so a label given a
-	// box shorter than a line hung its glyphs out of the bottom and onto
-	// whatever came next. That is not a fault of any one caller's numbers: it
-	// made the label's height mean nothing, so no caller could reserve space for
-	// one correctly. Centring gives a label with air in its box a margin at both
-	// ends for free, and a tight one degrades symmetrically instead of only
-	// downward.
-	const float y = px.y + (px.h - font.Height()) * 0.5f;
-	font.Draw(batch, text, px.x, y, dim ? theme.textDim : theme.text);
+	const float y =
+		centerV ? px.y + (px.h - TextFont().Height()) * 0.5f : px.y;
+	TextFont().Draw(batch, text, px.x, y,
+					accent ? theme.accent : dim ? theme.textDim : theme.text);
+}
+
+gfx::Rect Label::InkRect() const {
+	const gfx::Rect& px = Pixel();
+	const float h = TextFont().Height();
+	const float y = centerV ? px.y + (px.h - h) * 0.5f : px.y;
+	return {px.x, y, std::max(TextFont().MeasureWidth(text), px.w), h};
 }
 
 // --- TextOutput ----------------------------------------------------------
@@ -91,7 +90,7 @@ void TextOutput::UpdateSelf(UIContext& ctx) {
 			std::max(0.0f, static_cast<float>(m_lines.size()) -
 							   Pixel().h / TextFont().LineAdvance());
 		m_scroll = std::clamp(m_scroll, 0.0f, maxScroll);
-		ctx.ConsumeWheel(); // the WHEEL only: a log takes no clicks
+		ctx.ConsumeWheel();
 	}
 }
 
@@ -217,6 +216,16 @@ void Checkbox::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 			  (m_checked || highlight) ? theme.text : theme.textDim);
 }
 
+gfx::Rect Checkbox::InkRect() const {
+	// Mirrors DrawSelf's geometry: the box is bounded, the label runs on past
+	// the bounds if it was not given the room.
+	const gfx::Rect& px = Pixel();
+	const float box = std::min(px.h * 0.6f, Rem(0.65f));
+	const float textX = px.x + Rem(0.15f) + box + Rem(0.3f);
+	const float right = std::max(px.x + px.w, textX + TextFont().MeasureWidth(label));
+	return {px.x, px.y, right - px.x, px.h};
+}
+
 // --- Slider --------------------------------------------------------------
 
 void Slider::UpdateSelf(UIContext& ctx) {
@@ -324,7 +333,10 @@ void DropDown::UpdateSelf(UIContext& ctx) {
 	const float mx = input->MouseX(), my = input->MouseY();
 
 	if (m_open) {
-		// The open popup owns the mouse entirely.
+		// The open popup owns the mouse entirely — including the wheel, which a
+		// modal claims whether or not it scrolls: a list open over a page must
+		// not let the page scroll out from under it.
+		ctx.ConsumeWheel();
 		const gfx::Rect popup = PopupRect(ctx);
 		const float maxScroll = MaxScroll(popup);
 		m_scroll = std::clamp(m_scroll, 0.0f, maxScroll);
@@ -353,7 +365,7 @@ void DropDown::UpdateSelf(UIContext& ctx) {
 				m_scroll = std::clamp(m_scroll - input->WheelDelta() * Pixel().h,
 									  0.0f, maxScroll);
 			if (m_scrollHot || m_scrollDragging || track.Contains(mx, my)) {
-				ctx.ConsumeAll();
+				ctx.ConsumeMouse();
 				return;
 			}
 		} else {
@@ -368,23 +380,17 @@ void DropDown::UpdateSelf(UIContext& ctx) {
 				if (input->WasMousePressed(MouseButton::Left)) {
 					m_selected = static_cast<int>(i);
 					m_open = false;
-					ctx.ConsumeAll();
+					ctx.ConsumeMouse();
 					if (onSelect) onSelect(m_selected);
 					return;
 				}
 			}
 		}
 		if (input->WasMousePressed(MouseButton::Left)) m_open = false;
-		// An OPEN list blocks everything beneath it, wheel included — otherwise
-		// the container behind would scroll the list out from under the cursor.
-		ctx.ConsumeAll();
+		ctx.ConsumeMouse();
 		return;
 	}
 
-	// SHUT, it is just a box that takes clicks. It must NOT claim the wheel:
-	// a dropdown is the commonest thing sitting inside a scrolling dialog, and
-	// claiming a wheel it ignores is exactly what stopped those dialogs
-	// scrolling wherever the cursor happened to rest.
 	m_hot = !ctx.IsMouseConsumed() && Pixel().Contains(mx, my);
 	if (m_hot) {
 		ctx.ConsumeMouse();
@@ -418,12 +424,37 @@ void DropDown::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 			? items[static_cast<size_t>(m_selected)]
 			: kNoSelection;
 	const float textY = px.y + (px.h - font.Height()) * 0.5f;
-	// Arrow indicator, right-aligned with a margin so the glyph clears the
-	// border at any font size (measure it rather than assume a fixed width).
-	const char* arrow = m_open ? "^" : "v";
-	const float arrowX = px.x + px.w - font.MeasureWidth(arrow) - Rem(0.35f);
 	font.Draw(batch, current, px.x + 8, textY, theme.text);
-	font.Draw(batch, arrow, arrowX, textY, theme.accent);
+	DrawDropDownExpander(batch, font, px, theme, m_open, m_hot);
+}
+
+void DrawDropDownExpander(gfx::SpriteBatch& batch, const Font& font,
+						  const gfx::Rect& rect, const Theme& theme, bool open,
+						  bool hot) {
+	// The authored box is a SQUARE sized off the control's height and inset so
+	// it clears the border, turned half a rotation while open — the triangle is
+	// the only asymmetric thing in it, so ONE asset serves both states.
+	// Brightness carries the hover/open read the flat glyph used to get from
+	// the accent color (the same idiom Button's icon path uses).
+	//
+	// The inset is a fraction of the TEXT height, not of the rect: the box has
+	// to clear a 1px border beside type of whatever size, and a rect fraction
+	// would grow the gap on a tall control and lose it on a short one.
+	const float inset = font.Height() * 0.12f;
+	if (const gfx::Texture* icon = GetControlIcons().dropDown) {
+		const float d = rect.h - inset * 2.0f;
+		const float f = (hot || open) ? 1.15f : 0.9f;
+		batch.DrawSpriteRotated(
+			{rect.x + rect.w - inset - d * 0.5f, rect.y + rect.h * 0.5f}, {d, d},
+			open ? kPi : 0.0f, {0, 0, 1, 1}, *icon, {f, f, f, 1.0f});
+		return;
+	}
+	// Fallback with no icon installed: the text arrow, right-aligned with a
+	// margin so it clears the border at any font size (measure it rather than
+	// assume a fixed width).
+	const char* arrow = open ? "^" : "v";
+	font.Draw(batch, arrow, rect.x + rect.w - font.MeasureWidth(arrow) - inset * 3.0f,
+			  rect.y + (rect.h - font.Height()) * 0.5f, theme.accent);
 }
 
 void DropDown::DrawOverlaySelf(UIContext& ctx, gfx::SpriteBatch& batch) {
@@ -516,10 +547,8 @@ void ContextMenu::UpdateSelf(UIContext& ctx) {
 							  std::max(0.0f, ctx.Height() - childH));
 	}
 
-	// The open menu owns the pointer AND the wheel — a menu that let the wheel
-	// past would scroll its own anchor away underneath itself.
-	// The submenu is checked first (it can overlap the parent when flipped
-	// left): a leaf pick closes everything.
+	// The open menu owns the mouse. The submenu is checked first (it can
+	// overlap the parent when flipped left): a leaf pick closes everything.
 	m_hover = -1;
 	m_childHover = -1;
 	if (m_openChild >= 0 && m_openChild < static_cast<int>(m_entries.size())) {
@@ -531,11 +560,11 @@ void ContextMenu::UpdateSelf(UIContext& ctx) {
 			if (input->WasMousePressed(MouseButton::Left)) {
 				auto fn = kids[i].onSelect; // copy: the callback may rebuild us
 				Close();
-				ctx.ConsumeAll();
+				ctx.ConsumeMouse();
 				if (fn) fn();
 				return;
 			}
-			ctx.ConsumeAll();
+			ctx.ConsumeMouse();
 			return; // over the submenu — the parent rows don't hit-test
 		}
 	}
@@ -551,18 +580,18 @@ void ContextMenu::UpdateSelf(UIContext& ctx) {
 			} else {
 				auto fn = m_entries[i].onSelect; // copy: may rebuild us
 				Close();
-				ctx.ConsumeAll();
+				ctx.ConsumeMouse();
 				if (fn) fn();
 				return;
 			}
 		}
-		ctx.ConsumeAll();
+		ctx.ConsumeMouse();
 		return;
 	}
 	if (input->WasMousePressed(MouseButton::Left) ||
 		input->WasMousePressed(MouseButton::Right))
 		Close();
-	ctx.ConsumeAll();
+	ctx.ConsumeMouse();
 }
 
 void ContextMenu::DrawOverlaySelf(UIContext& ctx, gfx::SpriteBatch& batch) {
@@ -717,7 +746,10 @@ void ColorPicker::UpdateSelf(UIContext& ctx) {
 				if (onChange) onChange(m_color);
 			}
 		}
-		ctx.ConsumeAll(); // an open popup owns the pointer AND the wheel
+		// The open popup owns the mouse entirely — wheel included, so the page
+		// behind cannot scroll the popup off its own swatch.
+		ctx.ConsumeMouse();
+		ctx.ConsumeWheel();
 		return;
 	}
 
@@ -819,7 +851,7 @@ void KeyBind::UpdateSelf(UIContext& ctx) {
 			SetKey(vkey);
 			if (onChange) onChange(m_vkey);
 		}
-		ctx.ConsumeAll(); // an armed capture owns the pointer AND the wheel
+		ctx.ConsumeMouse(); // the armed box owns the mouse entirely
 		return;
 	}
 
@@ -1020,7 +1052,8 @@ void SlotList::UpdateBeforeChildren(UIContext& ctx) {
 	if (m_confirmRow < 0) return;
 	const Input* input = ctx.CurrentInput();
 	if (!input) return;
-	ctx.ConsumeAll(); // an armed confirm is modal: nothing beneath it moves
+	ctx.ConsumeMouse();
+	ctx.ConsumeWheel(); // a modal freezes the list behind it, scroll included
 	const float mx = input->MouseX(), my = input->MouseY();
 	const gfx::Rect del = ConfirmButton(ctx, true);
 	const gfx::Rect cancel = ConfirmButton(ctx, false);
@@ -1190,6 +1223,18 @@ float ScrollArea::MaxScroll() const {
 	return (ContentFraction() - 1.0f) * ViewRect().h;
 }
 
+void ScrollArea::ScrollIntoView(const Widget& child) {
+	const gfx::Rect view = ViewRect();
+	if (view.h <= 0.0f) return;
+	// The child's rect is already shifted by the current scroll; undo that to get
+	// where it sits in the CONTENT, then move the window the shortest way.
+	const float top = child.Pixel().y - view.y + m_scroll;
+	const float bottom = top + child.Pixel().h;
+	if (top < m_scroll) m_scroll = top;
+	else if (bottom > m_scroll + view.h) m_scroll = bottom - view.h;
+	m_scroll = std::clamp(m_scroll, 0.0f, MaxScroll());
+}
+
 gfx::Rect ScrollArea::ScrollTrackRect() const {
 	const gfx::Rect& px = Pixel();
 	const float barW = Rem(0.35f), inset = Rem(0.08f);
@@ -1258,12 +1303,9 @@ void ScrollArea::UpdateSelf(UIContext& ctx) {
 		if (m_scrollHot || m_scrollDragging) ctx.ConsumeMouse();
 	}
 
-	// Mouse wheel anywhere over the area — and it asks whether the WHEEL is
-	// spoken for, not whether the pointer is. The children ran first (the walk
-	// is bubble-ordered), so by here any of them that genuinely scrolls has
-	// claimed it; the ones that merely wanted a click or a hover have not, and
-	// their wheel bubbles up to here. That is the whole fix for "you have to
-	// find a gap between the controls before a dialog will scroll".
+	// Mouse wheel anywhere over the area — including over the controls INSIDE
+	// it, which is the whole point of the wheel having its own claim: a slider
+	// under the cursor wants the click, not the scroll.
 	if (!ctx.IsWheelConsumed() && Pixel().Contains(mx, my) &&
 		input->WheelDelta() != 0.0f) {
 		m_scroll = std::clamp(m_scroll - input->WheelDelta() * Rem(1.75f), 0.0f,
@@ -1434,20 +1476,19 @@ gfx::Rect CloseButtonRect(const gfx::Rect& panel) {
 	return {panel.x + panel.w - kW - kMargin, panel.y + kMargin, kW, kH};
 }
 
-gfx::Rect DialogTitleBand(const gfx::Rect& panel, float left, float top) {
-	// Stop at the close box, not at the panel's inner edge. Every dialog puts
-	// that box in its top-right corner — the same corner the title line runs
-	// into — so "the full inner width" quietly means "under the close button",
-	// which is what "Level settings — showcase" was doing to its own stem.
-	constexpr float kGap = 0.008f;
-	const float right = CloseButtonRect(panel).x - kGap;
-	return {left, top, std::max(right - left, 0.0f), kDialogTitleBandH};
-}
-
 Button* AddCloseButton(UIContext& ui, const gfx::Rect& panel,
 					   const gfx::Texture* icon, std::function<void()> onClose) {
 	Button* b = ui.Add<Button>(CloseButtonRect(panel), "x", std::move(onClose));
 	b->icon = icon; // the text "x" shows only if the asset is missing
+	return b;
+}
+
+Button* AddCloseButton(Widget& slot, const gfx::Texture* icon,
+					   std::function<void()> onClose) {
+	// Fills the slot; Button's icon path squares the icon to the smaller side
+	// and centres it, so the slot only has to be big enough.
+	Button* b = slot.Add<Button>(gfx::Rect{0, 0, 1, 1}, "x", std::move(onClose));
+	b->icon = icon;
 	return b;
 }
 
@@ -1462,54 +1503,6 @@ const Font& DialogTitleFont(const UIContext& ctx) {
 
 const Font& DialogTextFont(const UIContext& ctx) {
 	return ctx.FontAt(ctx.RootRole(), ctx.DesignHeight() * kDialogTextScale);
-}
-
-FittedTitle FitDialogTitle(const UIContext& ctx, std::string_view text, gfx::Rect band) {
-	// Height first: a line advance is 1.25x the pixel height, and it is the
-	// ADVANCE that has to clear the band, or whatever sits below is drawn
-	// through. Never shrink past the document size — under that it stops
-	// reading as a title, and a band that tight is a layout bug to fix rather
-	// than something to paper over here.
-	float px = ctx.DesignHeight() * kDialogTitleScale;
-	if (band.h > 0.0f) px = std::min(px, band.h / 1.25f);
-	px = std::max(px, ctx.DesignHeight());
-
-	// Then WIDTH, by shrinking before ellipsising. Dropping characters is the
-	// destructive option here: two of these titles carry the object's ID and are
-	// the click-to-rename affordance, so the tail is the only part that says
-	// WHICH type or level you have open — cutting it is exactly the failure the
-	// instance inspectors hit. A smaller title still says everything.
-	//
-	// One computed size, not a search: glyph widths scale with the pixel height,
-	// so the size that fits is px * band.w / measured. QUANTIZED to 2px because
-	// FontLibrary bakes an atlas per distinct rounded height (and Commit drains
-	// the GPU) — sizing continuously to the text would mint a new atlas for every
-	// id length. The re-measure below is what makes the estimate safe: rounding,
-	// hinting and the floor can all leave it still over, and then it ellipsises.
-	if (band.w > 0.0f) {
-		const float wide = ctx.FontAt(ctx.RootRole(), px).MeasureWidth(text);
-		if (wide > band.w) {
-			px = std::max(std::floor(px * band.w / wide * 0.5f) * 2.0f,
-						  ctx.DesignHeight());
-		}
-	}
-
-	FittedTitle fit{&ctx.FontAt(ctx.RootRole(), px), std::string(text)};
-	if (band.w <= 0.0f || fit.font->MeasureWidth(fit.text) <= band.w) return fit;
-
-	// Ellipsise. Trim whole UTF-8 CODE POINTS: Loc strings are UTF-8 and the
-	// font decodes them, so dropping a single byte would leave a broken
-	// sequence and a garbage glyph exactly at the cut.
-	static constexpr std::string_view kEllipsis = "...";
-	while (!fit.text.empty() &&
-		   fit.font->MeasureWidth(fit.text + std::string(kEllipsis)) > band.w) {
-		fit.text.pop_back();
-		while (!fit.text.empty() &&
-			   (static_cast<unsigned char>(fit.text.back()) & 0xC0) == 0x80)
-			fit.text.pop_back();
-	}
-	fit.text += kEllipsis;
-	return fit;
 }
 
 } // namespace dungeon::ui

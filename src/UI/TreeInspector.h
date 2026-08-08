@@ -46,5 +46,29 @@ void Dump(const UIContext& ctx,
 // namespace stripped.
 std::string Name(const Widget& widget);
 
+// --- the overlap audit (dev console `uioverlap`) -----------------------------
+// The rule it checks: a widget's area is ITS OWN — no sibling may paint into
+// it. UI/Layout.h's Stack is how a layout keeps that true by construction; this
+// is how the parts that don't go through a Stack get told when they break it.
+//
+// Armed for ONE frame, it walks every context that renders — the HUD, the
+// pages, and whichever dialog happens to be open, with no per-caller wiring —
+// and reports two things, using INK rects (Widget::InkRect, so a label wider
+// than its row counts): SIBLINGS whose areas intersect, and any child that
+// ESCAPES its parent's ContentRect. The second matters as much as the first: a
+// row that runs off the end of its container lands on something with a
+// different parent, which no sibling check would ever compare.
+//
+// Widgets marked `overlapOk` are skipped; so are empty rects, which is what a
+// screen-anchored popup has.
+//
+// Arm it, and the next frame's contexts report through `out`.
+void ArmOverlapAudit(std::function<void(const std::string&)> out);
+// UIContext::Render calls this after laying its tree out. No-op unless armed.
+void RunOverlapAudit(UIContext& ctx);
+// Closes the armed window and prints the verdict. Called once per frame from
+// the game's render path — no UIContext can know it was the frame's last.
+void EndOverlapAuditFrame();
+
 } // namespace inspect
 } // namespace dungeon::ui

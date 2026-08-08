@@ -56,6 +56,14 @@ std::unique_ptr<gfx::Texture> LoadTextureFile(gfx::GraphicsDevice& device,
 // AddCloseButton then falls back to a text "x".
 const gfx::Texture* CloseIcon(gfx::GraphicsDevice& device);
 
+// Loads the glyphs the control library draws itself with (assets/ui/
+// icon_dropdown — the drop-down's expander box) and installs them in
+// ui::SetControlIcons. Owned here for the same reason as the close box: ONE
+// texture, one SRV slot, shared by every context — including the editor
+// dialogs, which carry no Skin. Call once at startup; a missing asset leaves
+// the control on its text glyph.
+void LoadSharedControlIcons(gfx::GraphicsDevice& device);
+
 // Drops every shared icon. MUST be called while the GraphicsDevice is still
 // alive (~Game does it): the texture returns its SRV slot to the device's free
 // list on destruction, so it may not outlive the device the way a plain

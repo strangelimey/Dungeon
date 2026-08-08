@@ -6,6 +6,7 @@
 #include "Core/Loc.h"
 #include "Core/Paths.h"
 #include "Game/AssetUtil.h"
+#include "Game/DialogLayout.h"
 #include "UI/Controls.h"
 
 #include <charconv>
@@ -14,27 +15,21 @@
 namespace dungeon::game {
 
 namespace {
-// Panel + region geometry, as fractions (0..1) of the window (the monster-
-// config dialog's proportions, minus its preview pane — the tabs get the
-// width).
+// The panel, as fractions (0..1) of the window (the monster-config dialog's
+// proportions, minus its preview pane — the tabs get the width). The card
+// inside it is stacked (Game/DialogLayout.h).
 constexpr gfx::Rect kPanel{0.24f, 0.08f, 0.52f, 0.84f};
-// The title takes the full inner width, and the tabs start a whole TITLE BAND
-// below it (ui::kDialogTitleBandH) rather than at a hand-picked 0.070 gap — that
-// was just short of the 0.0725 a title's line advance needs, so the title's
-// descenders reached into the tab strip. The strip keeps its bottom edge.
-constexpr gfx::Rect kTitle{0.255f, 0.095f, 0.49f, 0.045f};
-constexpr gfx::Rect kTabs{0.255f, kTitle.y + ui::kDialogTitleBandH, 0.49f, 0.665f};
-// Save centered in the footer; Close is the top-right corner box now.
-constexpr gfx::Rect kSave{0.4475f, 0.855f, 0.105f, 0.05f};
+
+// A row's label column against its value column.
+constexpr float kLabelFill = 1.3f, kFieldFill = 1.0f;
 
 // A numeric text field: shows `value` ({:g}), and while edited writes every
 // PARSEABLE state back through `commit` (a live apply). An unparseable
 // in-progress state ("", "-", "0.") just waits — the knob keeps its last
 // valid value until the text reads as a number again.
-void AddNumericField(ui::TabControl* tabs, size_t tab, const gfx::Rect& r,
-					 float value, std::function<void(float)> commit) {
-	auto* field =
-		tabs->AddChild<ui::TextField>(tab, r, std::format("{:g}", value));
+void AddNumericField(ui::Stack& row, ui::Len len, float value,
+					 std::function<void(float)> commit) {
+	auto* field = row.Row<ui::TextField>(len, std::format("{:g}", value));
 	// Mono: these are the tuning TABLES, read down a column. A proportional
 	// face gives every digit a different width, so the numbers will not line up
 	// with each other however the rows are placed.
@@ -68,71 +63,81 @@ void BalanceDialog::Open(const Balance& current) {
 
 void BalanceDialog::BuildUI() {
 	m_ui.Clear();
-	m_tabs = m_ui.Add<ui::TabControl>(kTabs, 0.075f);
+	DialogChrome chrome =
+		BuildDialogChrome(m_ui, kPanel, loc::Tr("map.balance.title"), m_closeIcon,
+						  [this] {
+							  if (onApply) onApply(m_original); // revert live
+							  Close();
+						  });
+
+	m_tabs = chrome.body->Row<ui::TabControl>(ui::Len::Fill(), 0.075f);
 	const size_t tabFormula = m_tabs->AddTab(loc::Tr("map.balance.tab.formula"));
 	const size_t tabAttacks = m_tabs->AddTab(loc::Tr("map.balance.tab.attacks"));
 	BuildFormulaTab(tabFormula);
 	BuildAttacksTab(tabAttacks);
 	m_tabs->SetActiveTab(m_activeTab);
 
-	m_ui.Add<ui::Button>(kSave, loc::Tr("map.cfg.save"), [this] {
+	chrome.footer->Space(ui::Len::Fill());
+	chrome.footer->Row<ui::Button>(FooterButton(), loc::Tr("map.cfg.save"), [this] {
 		if (onSave) onSave(m_cfg);
 		Close();
 	});
-	ui::AddCloseButton(m_ui, kPanel, m_closeIcon, [this] {
-		if (onApply) onApply(m_original); // revert the live tuning
-		Close();
-	});
+	chrome.footer->Space(ui::Len::Fill());
 }
 
 void BalanceDialog::BuildFormulaTab(size_t tab) {
-	// One row per knob, straight from the fields table (a new knob in
-	// Balance.h shows up here with no dialog change). Labels are the raw
-	// balance.cat keys — WYSIWYG with the file. Rows past the tab bottom
-	// scroll (TabControl's per-tab scrollbar).
-	constexpr float rowH = 0.062f, top = 0.03f;
-	int row = 0;
+	// One row per knob, straight from the fields table (a new knob in Balance.h
+	// shows up here with no dialog change). Labels are the raw balance.cat keys
+	// — WYSIWYG with the file. The stack is content-sized, so the list is as
+	// long as the table and the page scrolls; the pitch used to be a fraction
+	// of the page (0.062 = 29px around 40px type, every row on the one below).
+	ui::Stack* rows = TabStack(*m_tabs, tab);
 	for (const BalanceField& f : BalanceFields()) {
-		const float y = top + row * rowH;
-		m_tabs->AddChild<ui::Label>(tab, gfx::Rect{0.05f, y, 0.5f, rowH * 0.85f},
-									f.key);
-		AddNumericField(m_tabs, tab, gfx::Rect{0.58f, y, 0.3f, rowH * 0.85f},
-						m_cfg.*(f.value), [this, &f](float v) {
+		ui::Stack* row = rows->Row<ui::Stack>(FormRow(), true);
+		row->gapRem = 0.5f;
+		row->Row<ui::Label>(ui::Len::Fill(kLabelFill), f.key)->centerV = true;
+		AddNumericField(*row, ui::Len::Fill(kFieldFill), m_cfg.*(f.value),
+						[this, &f](float v) {
 							m_cfg.*(f.value) = v;
 							Apply();
 						});
-		++row;
 	}
 }
 
 void BalanceDialog::BuildAttacksTab(size_t tab) {
-	// Header row (raw attacks.cat keys), then one row per attack: id + its
-	// damage type (identity, read-only) and the four numeric fields.
-	constexpr float rowH = 0.068f, top = 0.03f;
-	constexpr float colW = 0.155f;
-	constexpr float colX[4] = {0.26f, 0.435f, 0.61f, 0.785f};
+	// A table: a header row (raw attacks.cat keys), then one row per attack —
+	// id + damage type (identity, read-only) and the four numeric fields. Every
+	// row is the same horizontal stack, so the columns line up by construction
+	// instead of by four x constants agreeing with each other.
+	constexpr float kIdFill = 1.1f, kTypeFill = 0.9f, kNumFill = 1.0f;
+	ui::Stack* rows = TabStack(*m_tabs, tab);
+
+	ui::Stack* header = rows->Row<ui::Stack>(FormRow(), true);
+	header->gapRem = 0.4f;
+	header->Space(ui::Len::Fill(kIdFill + kTypeFill));
+	for (const char* h : {"damage", "accuracy", "speed", "stamina"})
+		header->Row<ui::Label>(ui::Len::Fill(kNumFill), h)->centerV = true;
 	// "?" — the column explainer overlay (what the four numbers do).
-	m_tabs->AddChild<ui::Button>(tab, gfx::Rect{0.95f, top, 0.045f, rowH * 0.85f},
-								 "?", [this] { m_helpOpen = true; });
-	const char* headers[4] = {"damage", "accuracy", "speed", "stamina"};
-	for (int c = 0; c < 4; ++c)
-		m_tabs->AddChild<ui::Label>(
-			tab, gfx::Rect{colX[c], top, colW, rowH * 0.8f}, headers[c]);
-	for (size_t i = 0; i < m_cfg.attacks.size(); ++i) {
-		AttackSpec& a = m_cfg.attacks[i];
-		const float y = top + (1 + static_cast<float>(i)) * rowH;
-		m_tabs->AddChild<ui::Label>(tab, gfx::Rect{0.02f, y, 0.13f, rowH * 0.85f},
-									a.id);
-		m_tabs->AddChild<ui::Label>(tab, gfx::Rect{0.15f, y, 0.10f, rowH * 0.85f},
-									DamageTypeId(a.type));
-		AddNumericField(m_tabs, tab, gfx::Rect{colX[0], y, colW, rowH * 0.85f},
-						a.dmg, [this, &a](float v) { a.dmg = v; Apply(); });
-		AddNumericField(m_tabs, tab, gfx::Rect{colX[1], y, colW, rowH * 0.85f},
-						a.acc, [this, &a](float v) { a.acc = v; Apply(); });
-		AddNumericField(m_tabs, tab, gfx::Rect{colX[2], y, colW, rowH * 0.85f},
-						a.pace, [this, &a](float v) { a.pace = v; Apply(); });
-		AddNumericField(m_tabs, tab, gfx::Rect{colX[3], y, colW, rowH * 0.85f},
-						a.stam, [this, &a](float v) { a.stam = v; Apply(); });
+	header->Row<ui::Button>(FooterButton(0.35f), "?", [this] { m_helpOpen = true; });
+
+	for (AttackSpec& a : m_cfg.attacks) {
+		ui::Stack* row = rows->Row<ui::Stack>(FormRow(), true);
+		row->gapRem = 0.4f;
+		row->Row<ui::Label>(ui::Len::Fill(kIdFill), a.id)->centerV = true;
+		ui::Label* type =
+			row->Row<ui::Label>(ui::Len::Fill(kTypeFill), DamageTypeId(a.type));
+		type->centerV = true;
+		type->dim = true;
+		AddNumericField(*row, ui::Len::Fill(kNumFill), a.dmg,
+						[this, &a](float v) { a.dmg = v; Apply(); });
+		AddNumericField(*row, ui::Len::Fill(kNumFill), a.acc,
+						[this, &a](float v) { a.acc = v; Apply(); });
+		AddNumericField(*row, ui::Len::Fill(kNumFill), a.pace,
+						[this, &a](float v) { a.pace = v; Apply(); });
+		AddNumericField(*row, ui::Len::Fill(kNumFill), a.stam,
+						[this, &a](float v) { a.stam = v; Apply(); });
+		// The header's "?" column keeps the numbers clear of the scrollbar.
+		row->Space(FooterButton(0.35f));
 	}
 }
 
@@ -171,17 +176,7 @@ void BalanceDialog::Render(gfx::SpriteBatch& batch, const ui::Theme& th, float w
 	const gfx::Rect panel{kPanel.x * w, kPanel.y * h, kPanel.w * w, kPanel.h * h};
 	batch.DrawRect(panel, th.panel);
 	ui::DrawBorder(batch, panel, th.panelBorder);
-
-	// Through FitDialogTitle so a longer translation shrinks into the band
-	// rather than drawing across the tabs — the title is a RAW draw, so nothing
-	// else bounds it.
-	const gfx::Rect band = ui::DialogTitleBand(kPanel, kTitle.x, kTitle.y);
-	const gfx::Rect titleBand{band.x * w, band.y * h, band.w * w, band.h * h};
-	const ui::FittedTitle title =
-		ui::FitDialogTitle(m_ui, loc::Tr("map.balance.title"), titleBand);
-	title.font->Draw(batch, title.text, titleBand.x, titleBand.y, th.text);
-
-	m_ui.Render(batch, w, h); // tabs + fields + footer buttons
+	m_ui.Render(batch, w, h); // title + tabs + fields + footer
 
 	// The "?" overlay: title + word-wrapped paragraphs (one lang key each),
 	// drawn over a second dim wash so the dialog visibly freezes beneath it.

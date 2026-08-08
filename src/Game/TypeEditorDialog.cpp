@@ -6,6 +6,7 @@
 #include "Core/Loc.h"
 #include "Core/Paths.h"
 #include "Game/AssetUtil.h"
+#include "Game/DialogLayout.h"
 #include "UI/Controls.h"
 
 #include <algorithm>
@@ -20,27 +21,9 @@ namespace {
 // Panel geometry as window fractions — the BalanceDialog card, a little taller
 // (a schema can run to a dozen rows; the tab pages scroll past that).
 constexpr gfx::Rect kPanel{0.26f, 0.12f, 0.48f, 0.76f};
-// The title gets the FULL inner width (the instance inspectors' rule — these
-// names share long prefixes, so the tail is what identifies them), and the tabs
-// start a whole TITLE BAND below it. At 0.195 the band was 0.050 against the
-// 0.0725 a title's line advance needs, and the title drew through the tab strip.
-// The strip keeps its old bottom edge (0.795, just above the footer) by giving
-// up the height instead — a tab page that no longer fits simply scrolls.
-constexpr gfx::Rect kTitle{0.28f, 0.145f, 0.44f, 0.04f};
-constexpr gfx::Rect kTabs{0.28f, kTitle.y + ui::kDialogTitleBandH, 0.44f, 0.575f};
-// Footer: Save pinned left; the rest right-aligned to the panel's inner edge
-// (~0.72) so nothing overruns it. Close is no longer here — it's the top-right
-// corner box now.
-constexpr gfx::Rect kSave{0.28f, 0.815f, 0.09f, 0.045f};
-constexpr gfx::Rect kDuplicate{0.385f, 0.815f, 0.08f, 0.045f};
-constexpr gfx::Rect kExtra{0.475f, 0.815f, 0.12f, 0.045f};  // Animation (monsters)
-constexpr gfx::Rect kDelete{0.605f, 0.815f, 0.07f, 0.045f};
-constexpr gfx::Rect kHelp{0.685f, 0.815f, 0.035f, 0.045f};
 
-// Row metrics inside a tab page (fractions of the page). A row past 1.0 is what
-// makes the page scroll, so a long section simply runs on.
-constexpr float kRowX = 0.04f, kRowW = 0.92f;
-constexpr float kRowY0 = 0.03f, kRowH = 0.115f;
+// A field row's label column against its control column.
+constexpr float kLabelFill = 1.0f, kFieldFill = 1.5f;
 constexpr float kLabelW = 0.34f, kFieldX = 0.40f, kFieldW = 0.56f;
 
 // "1"/"0" the way the catalogs write booleans.
@@ -77,7 +60,6 @@ void TypeEditorDialog::Open(Config cfg, std::span<const FieldSpec> schema) {
 	m_touched.clear();
 	m_notice.clear();
 	m_editName = false;
-	m_nameHover = false;
 	m_deleteArmed = false;
 	// A fresh open starts on the first tab: null the (now stale) control so
 	// BuildUI's tab-preservation reads 0, not the previously-closed dialog's tab.
@@ -107,46 +89,20 @@ void TypeEditorDialog::SetValue(const FieldSpec& spec, std::string value) {
 	if (!Touched(spec.key)) m_touched.emplace_back(spec.key);
 }
 
-std::string TypeEditorDialog::TitlePrefix() const {
-	return loc::Format("map.type.title", m_cfg.categoryLabel, "");
-}
-
-gfx::Rect TypeEditorDialog::TitleBand(float w, float h) const {
-	const gfx::Rect band = ui::DialogTitleBand(kPanel, kTitle.x, kTitle.y);
-	return {band.x * w, band.y * h, band.w * w, band.h * h};
-}
-
-// Fitted to that band. "Decoration type — wall_arch_rustic" at the standard
-// title size is wider than the panel, and the id is both the identity and the
-// thing being renamed, so FitDialogTitle shrinks rather than cutting it off.
-const ui::Font& TypeEditorDialog::TitleFont(float w, float h) const {
-	return *ui::FitDialogTitle(m_ui, TitlePrefix() + m_cfg.id, TitleBand(w, h)).font;
-}
-
-// The id's pixel rect inside the title line: hover styles it, a click swaps it
-// for the rename field (the LevelSettingsDialog stem affordance).
-gfx::Rect TypeEditorDialog::IdRect(float w, float h) {
-	// The fitted TITLE face, which Render draws the id with — this rect is its
-	// click target, so the two must measure with the same font.
-	const ui::Font& title = TitleFont(w, h);
-	return {kTitle.x * w + title.MeasureWidth(TitlePrefix()), kTitle.y * h,
-			title.MeasureWidth(m_cfg.id) + 6.0f, title.Height()};
-}
-
 void TypeEditorDialog::BuildUI() {
 	// Read the open tab BEFORE Clear frees the control (a rebuild keeps the tab).
 	const int activeTab = m_tabs ? m_tabs->ActiveTab() : 0;
 	m_ui.Clear();
 	m_tabs = nullptr; // the Clear just freed it; don't read it again below
 	m_nameField = nullptr;
+	DialogChrome chrome = BuildDialogChrome(m_ui, kPanel, /*title*/ "", m_closeIcon,
+											[this] { Close(); });
 	if (m_editName) {
-		// The title row becomes the rename field. Enter commits through
+		// The title slot holds the rename field instead. Enter commits through
 		// onRename; Esc or losing focus cancels.
-		m_nameField = m_ui.Add<ui::TextField>(
-			gfx::Rect{kTitle.x, kTitle.y, 0.22f, ui::kDialogTitleBandH}, m_cfg.id);
-		// It stands in for the title, so it is sized as the title, not as a row —
-		// and its BOX is the title band for the same reason, or the face it is
-		// about to draw does not fit the field holding it.
+		m_nameField =
+			chrome.titleSlot->Add<ui::TextField>(gfx::Rect{0, 0, 1, 1}, m_cfg.id);
+		// It stands in for the title, so it is sized as the title, not as a row.
 		m_nameField->fontScale = ui::kDialogTitleScale;
 		m_nameField->maxLength = 32;
 		m_nameField->SetFocused(true);
@@ -176,44 +132,58 @@ void TypeEditorDialog::BuildUI() {
 			}
 			m_uiRebuild = true; // deferred — we are inside a widget callback
 		};
+	} else {
+		// The category prefix, then the id as the RENAME affordance. Deferred
+		// rebuild: this fires from inside the tree walk.
+		chrome.titleSlot->Add<EditableTitle>(
+			gfx::Rect{0, 0, 1, 1},
+			loc::Format("map.type.title", m_cfg.categoryLabel, ""), m_cfg.id,
+			[this] {
+				m_editName = true;
+				m_uiRebuild = true;
+			});
 	}
 	// A rebuild (an optional field toggled between checkbox and slider) recreates
 	// the tab control; activeTab (captured before Clear) keeps the open tab.
-	m_tabs = m_ui.Add<ui::TabControl>(kTabs, 0.07f);
+	m_tabs = chrome.body->Row<ui::TabControl>(ui::Len::Fill(), 0.07f);
 	for (const char* section : m_sections) m_tabs->AddTab(loc::Tr(section));
 	m_tabs->SetActiveTab(activeTab);
 
-	// One row per field, stacked within its section's page. The widget callbacks
-	// capture the spec BY POINTER: the schema is a static table (SchemaFor
-	// returns a span over one), so the row outlives every widget it built.
-	std::vector<float> nextY(m_sections.size(), kRowY0);
+	// One row per field, stacked within its section's page — a content-sized
+	// stack per tab (Game/DialogLayout.h TabStack), so a section is as long as
+	// its schema and the page scrolls. It used to step a y cursor by a guessed
+	// pitch, which every kind of row then had to agree with; a Slider needs two
+	// lines and laid its track across the row below.
+	std::vector<ui::Stack*> pages;
+	for (size_t i = 0; i < m_sections.size(); ++i)
+		pages.push_back(TabStack(*m_tabs, i));
+
+	// The widget callbacks capture the spec BY POINTER: the schema is a static
+	// table (SchemaFor returns a span over one), so the row outlives every
+	// widget it built.
 	for (const FieldSpec& spec : m_schema) {
 		const FieldSpec* s = &spec;
 		const auto it = std::find_if(m_sections.begin(), m_sections.end(),
 									 [&](const char* s) {
 										 return std::string_view(s) == spec.sectionKey;
 									 });
-		const size_t tab = static_cast<size_t>(it - m_sections.begin());
-		float& y = nextY[tab];
+		ui::Stack& page = *pages[static_cast<size_t>(it - m_sections.begin())];
 		const std::string label = PrettyFieldName(spec.key);
 		const std::string value = ValueOf(spec);
-		// How far to step DOWN after this row. Uniform for every control that is
-		// a single line, but a SLIDER is not: ui::Slider is self-contained — its
-		// label sits on a top line with the track in the band beneath — so it
-		// fills 0.92 of the row where a dropdown or a checkbox fills 0.55–0.62.
-		// At a uniform pitch it therefore eats its own gap and the next row lands
-		// on its track, which is exactly what "Offset" did to "Ease in" the first
-		// time a float sat above another field. The advance now follows the
-		// control's own height, so the GAP is the constant rather than the pitch.
-		float advance = kRowH;
+		// A labelled control: the name on the left, the control on the right.
+		auto labelled = [&](ui::Len rowLen) -> ui::Stack* {
+			ui::Stack* row = page.Row<ui::Stack>(rowLen, true);
+			row->gapRem = 0.5f;
+			row->Row<ui::Label>(ui::Len::Fill(kLabelFill), label)->centerV = true;
+			return row;
+		};
 
 		switch (spec.kind) {
 		case FieldKind::Bool: {
 			const bool on = value == "1" || value == "true";
-			m_tabs->AddChild<ui::Checkbox>(tab, gfx::Rect{kRowX, y, kRowW, kRowH * 0.62f},
-										   label, on, [this, s](bool checked) {
-											   SetValue(*s, BoolText(checked));
-										   });
+			page.Row<ui::Checkbox>(FormRow(), label, on, [this, s](bool checked) {
+				SetValue(*s, BoolText(checked));
+			});
 			break;
 		}
 		case FieldKind::Float: {
@@ -223,43 +193,37 @@ void TypeEditorDialog::BuildUI() {
 			// a checkbox instead, and a set one gets an "x" to unset it again.
 			const bool optional = !*spec.def;
 			if (optional && value.empty()) {
-				m_tabs->AddChild<ui::Checkbox>(
-					tab, gfx::Rect{kRowX, y, kRowW, kRowH * 0.62f},
-					label + loc::Tr("map.type.frommap"), true, [this, s](bool on) {
-						if (on) return; // already unset
-						SetValue(*s, *s->neutral ? s->neutral : "0");
-						m_uiRebuild = true; // the row becomes a slider
-					});
+				page.Row<ui::Checkbox>(FormRow(), label + loc::Tr("map.type.frommap"),
+									   true, [this, s](bool on) {
+										   if (on) return; // already unset
+										   SetValue(*s, *s->neutral ? s->neutral : "0");
+										   m_uiRebuild = true; // becomes a slider
+									   });
 				break;
 			}
 			float v = spec.lo;
 			std::from_chars(value.data(), value.data() + value.size(), v);
-			const float sliderW = optional ? kRowW - 0.06f : kRowW;
-			// 0.92 tall + the same ~0.40 gap every other row leaves below itself.
-			advance = kRowH * 1.32f;
-			m_tabs->AddChild<ui::Slider>(tab, gfx::Rect{kRowX, y, sliderW, kRowH * 0.92f},
-										 label, spec.lo, spec.hi, v,
-										 [this, s](float f) {
-											 // Snap to the field's granularity so the
-											 // catalog keeps authored-looking numbers.
-											 const float step = s->step > 0.0f ? s->step : 0.001f;
-											 const float snapped = std::round(f / step) * step;
-											 SetValue(*s, std::format("{:g}", snapped));
-										 });
+			// A Slider stacks its label OVER its track, so it asks for two lines.
+			ui::Stack* row = page.Row<ui::Stack>(FormRow(1.9f), true);
+			row->gapRem = 0.4f;
+			row->Row<ui::Slider>(ui::Len::Fill(), label, spec.lo, spec.hi, v,
+								 [this, s](float f) {
+									 // Snap to the field's granularity so the
+									 // catalog keeps authored-looking numbers.
+									 const float step = s->step > 0.0f ? s->step : 0.001f;
+									 const float snapped = std::round(f / step) * step;
+									 SetValue(*s, std::format("{:g}", snapped));
+								 });
 			if (optional)
-				m_tabs->AddChild<ui::Button>(
-					tab, gfx::Rect{kRowX + sliderW + 0.01f, y, 0.05f, kRowH * 0.55f},
-					"x", [this, s] {
-						SetValue(*s, ""); // empty = the writer REMOVES the field
-						m_uiRebuild = true;
-					});
+				row->Row<ui::Button>(FooterButton(0.35f), "x", [this, s] {
+					SetValue(*s, ""); // empty = the writer REMOVES the field
+					m_uiRebuild = true;
+				});
 			break;
 		}
 		case FieldKind::Text: {
-			m_tabs->AddChild<ui::Label>(tab, gfx::Rect{kRowX, y, kLabelW, kRowH * 0.55f},
-										label);
-			auto* field = m_tabs->AddChild<ui::TextField>(
-				tab, gfx::Rect{kFieldX, y, kFieldW, kRowH * 0.55f}, value);
+			auto* field =
+				labelled(FormRow())->Row<ui::TextField>(ui::Len::Fill(kFieldFill), value);
 			field->maxLength = 64;
 			ui::TextField* raw = field;
 			field->onChange = [this, raw, s] { SetValue(*s, raw->text); };
@@ -271,11 +235,9 @@ void TypeEditorDialog::BuildUI() {
 			// names, so the row is a button that opens the asset picker (its
 			// grid shows the texture itself, its resolutions and its maps). The
 			// button reads as the current value, "(none)" when unset.
-			m_tabs->AddChild<ui::Label>(tab, gfx::Rect{kRowX, y, kLabelW, kRowH * 0.55f},
-										label);
 			const bool textures = spec.kind == FieldKind::TextureSet;
-			m_tabs->AddChild<ui::Button>(
-				tab, gfx::Rect{kFieldX, y, kFieldW, kRowH * 0.55f},
+			labelled(FormRow())->Row<ui::Button>(
+				ui::Len::Fill(kFieldFill),
 				value.empty() ? loc::Tr("map.type.none") : value,
 				[this, s, textures] {
 					// The picker is modal over this dialog; the owner routes it
@@ -313,10 +275,8 @@ void TypeEditorDialog::BuildUI() {
 					sel = static_cast<int>(i) + (nullable ? 1 : 0);
 					break;
 				}
-			m_tabs->AddChild<ui::Label>(tab, gfx::Rect{kRowX, y, kLabelW, kRowH * 0.55f},
-										label);
-			m_tabs->AddChild<ui::DropDown>(
-				tab, gfx::Rect{kFieldX, y, kFieldW, kRowH * 0.55f}, items, sel,
+			labelled(FormRow())->Row<ui::DropDown>(
+				ui::Len::Fill(kFieldFill), items, sel,
 				[this, s, values, nullable](int i) {
 					const int v = nullable ? i - 1 : i;
 					SetValue(*s, v >= 0 && v < static_cast<int>(values.size())
@@ -326,10 +286,14 @@ void TypeEditorDialog::BuildUI() {
 			break;
 		}
 		}
-		y += advance;
 	}
 
-	m_ui.Add<ui::Button>(kSave, loc::Tr("map.cfg.save"), [this] {
+	// A refusal (a rename collision, a type still in use) or the delete arming
+	// note, in a band of its own between the form and the footer — it used to be
+	// drawn at a hand-picked y, which is a row nothing else knew about.
+	chrome.body->Row<ui::Label>(FormRow(0.9f), m_notice)->accent = true;
+
+	chrome.footer->Row<ui::Button>(FooterButton(), loc::Tr("map.cfg.save"), [this] {
 		// A touched field that invalidates baked geometry tells the owner to
 		// re-run AssetBaker (it keeps the dialog up, busy, meanwhile).
 		m_cfg.rebake = false;
@@ -342,21 +306,22 @@ void TypeEditorDialog::BuildUI() {
 	// same handoff the extra button makes (copy the config, close, then call:
 	// the callback may not touch this dialog's widgets after Close).
 	if (!duplicateLabel.empty())
-		m_ui.Add<ui::Button>(kDuplicate, duplicateLabel, [this] {
+		chrome.footer->Row<ui::Button>(FooterButton(), duplicateLabel, [this] {
 			Config cfg = m_cfg;
 			Close();
 			if (onDuplicate) onDuplicate(cfg);
 		});
 	if (!extraLabel.empty())
-		m_ui.Add<ui::Button>(kExtra, extraLabel, [this] {
+		chrome.footer->Row<ui::Button>(FooterButton(1.2f), extraLabel, [this] {
 			Config cfg = m_cfg;
 			Close();
 			if (onExtra) onExtra(cfg);
 		});
 	// Delete is two clicks: the first arms it (the label switches to the
 	// confirm), so a destructive action never fires on a stray click.
-	m_ui.Add<ui::Button>(
-		kDelete, loc::Tr(m_deleteArmed ? "map.type.delete.confirm" : "map.type.delete"),
+	chrome.footer->Row<ui::Button>(
+		FooterButton(), loc::Tr(m_deleteArmed ? "map.type.delete.confirm"
+											  : "map.type.delete"),
 		[this] {
 			if (!m_deleteArmed) {
 				m_deleteArmed = true;
@@ -373,8 +338,9 @@ void TypeEditorDialog::BuildUI() {
 			m_notice = problem; // refused: it says which levels still use it
 			m_uiRebuild = true;
 		});
-	m_ui.Add<ui::Button>(kHelp, "?", [this] { m_helpOpen = true; });
-	ui::AddCloseButton(m_ui, kPanel, m_closeIcon, [this] { Close(); });
+	chrome.footer->Space(ui::Len::Fill()); // the "?" sits at the far edge
+	chrome.footer->Row<ui::Button>(FooterButton(0.4f), "?",
+								   [this] { m_helpOpen = true; });
 }
 
 void TypeEditorDialog::Update(const Input& input, float w, float h) {
@@ -408,20 +374,8 @@ void TypeEditorDialog::Update(const Input& input, float w, float h) {
 		return;
 	}
 
-	// The id in the title is the rename affordance: hover styles it, a click
-	// swaps the title row for the edit field (safe to rebuild immediately —
-	// this is not a widget callback).
-	m_nameHover = false;
-	if (!m_editName) {
-		const gfx::Rect id = IdRect(w, h);
-		m_nameHover = id.Contains(input.MouseX(), input.MouseY());
-		if (m_nameHover && input.WasMousePressed(MouseButton::Left)) {
-			m_editName = true;
-			BuildUI();
-			return; // the press belongs to the affordance, not the new field
-		}
-	}
-
+	// (The id's hover and click belong to the EditableTitle widget now — it owns
+	// the rect it draws, so no second copy of that geometry lives here.)
 	m_ui.Update(input, w, h);
 
 	// Clicking away from the open rename field cancels it (Enter is the commit).
@@ -439,26 +393,9 @@ void TypeEditorDialog::Render(gfx::SpriteBatch& batch, const ui::Theme& th, floa
 	batch.DrawRect(panel, th.panel);
 	ui::DrawBorder(batch, panel, th.panelBorder);
 
-	if (!m_editName) {
-		// Title: the category prefix as plain text, the id as the rename
-		// affordance (accent on hover + an underline so it reads clickable).
-		// Two pieces because they are styled differently, so this takes the
-		// fitted FONT rather than FitDialogTitle's joined string.
-		const std::string prefix = TitlePrefix();
-		const ui::Font& title = TitleFont(w, h); // same as IdRect
-		title.Draw(batch, prefix, kTitle.x * w, kTitle.y * h, th.text);
-		const gfx::Rect id{kTitle.x * w + title.MeasureWidth(prefix), kTitle.y * h,
-						   title.MeasureWidth(m_cfg.id), title.Height()};
-		title.Draw(batch, m_cfg.id, id.x, id.y, m_nameHover ? th.accent : th.text);
-		batch.DrawRect({id.x, id.y + id.h + 1.0f, id.w, 1.0f},
-					   m_nameHover ? th.accent : th.textDim);
-	}
+	// Title (or the rename field), the form, the notice line and the footer are
+	// all widgets in the card's stack now.
 	m_ui.Render(batch, w, h);
-
-	// A refusal (a rename collision, a type still in use) or the delete arming
-	// note, between the form and the footer.
-	if (!m_notice.empty() && !m_busy)
-		m_ui.GetFont().Draw(batch, m_notice, kTitle.x * w, 0.785f * h, th.accent);
 
 	// While re-baking, freeze the form behind a notice (the owner runs AssetBaker).
 	if (m_busy) {

@@ -61,6 +61,17 @@ void FireEffect::Spawn(Kind kind) {
 	m_particles.push_back(p);
 }
 
+int FireEffect::SteadyCountFor(float scale) {
+	// Little's law, one term per kind: a population settles at rate x lifetime.
+	// The lifetimes are the midpoints of the Rand() ranges in Spawn().
+	constexpr float kFlameLife = 0.55f; // 0.40..0.70
+	constexpr float kSmokeLife = 2.10f; // 1.60..2.60
+	constexpr float kSparkLife = 0.65f; // 0.40..0.90
+	const float n = scale * (kFlameRate * kFlameLife + kSmokeRate * kSmokeLife +
+							 kSparkRate * kSparkLife);
+	return static_cast<int>(n) + 1;
+}
+
 void FireEffect::Update(float dt) {
 	// Spawning via rate accumulators (frame-rate independent).
 	m_flameAccum += kFlameRate * m_scale * dt;

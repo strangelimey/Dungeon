@@ -107,11 +107,20 @@ void CharacterSheet::BuildParts() {
 						  const gfx::Rect& r) { DrawEffectRow(i, c, b, r); };
 			break;
 		}
-		auto* list = Add<SheetList>(gfx::Rect{0, 0, 1, 1}, lists[n].heading,
-									lists[n].empty, std::move(count),
-									std::move(measure), std::move(draw));
-		list->headingY = kHeaderY;
-		list->bandBottom = 1.0f - kScrollBottomPad;
+		// The list takes the BAND it actually occupies — heading line included —
+		// not the whole sheet. It used to be {0,0,1,1} with the band expressed
+		// as sheet fractions, which meant it lay across the portrait and the
+		// mode strip: an area claimed and not drawn in, which is exactly what
+		// `uioverlap` is for. Inside its own rect the heading is at the top and
+		// the band runs to the bottom.
+		constexpr float kListTop = kHeaderY;
+		constexpr float kListH = (1.0f - kScrollBottomPad) - kListTop;
+		auto* list = Add<SheetList>(gfx::Rect{0, kListTop, 1, kListH},
+									lists[n].heading, lists[n].empty,
+									std::move(count), std::move(measure),
+									std::move(draw));
+		list->headingY = 0.0f;
+		list->bandBottom = 1.0f;
 		m_lists[n] = list;
 	}
 }

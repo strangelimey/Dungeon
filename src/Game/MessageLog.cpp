@@ -120,7 +120,7 @@ void MessageLog::UpdateSelf(ui::UIContext& ctx) {
 				0.0f, static_cast<float>(m_msgs.size()) - innerH / lineH);
 			m_scroll = std::clamp(m_scroll + input->WheelDelta() * 3.0f, 0.0f,
 								  maxScroll);
-			ctx.ConsumeWheel(); // the log scrolls history: it really uses this one
+			ctx.ConsumeWheel();
 		}
 	}
 }

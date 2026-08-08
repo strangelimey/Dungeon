@@ -59,6 +59,10 @@ void UIContext::Render(gfx::SpriteBatch& batch, float width, float height) {
 	m_height = height;
 	const gfx::Rect window{0, 0, width, height};
 	m_root.Layout(window, *this);
+	// Armed by the dev console; checks THIS tree's siblings for overlapping
+	// areas. Between Layout and Draw so it reads the rects that are about to be
+	// drawn, and so every context is covered with no per-caller wiring.
+	inspect::RunOverlapAudit(*this);
 	m_root.Draw(*this, batch);
 	m_root.DrawOverlay(*this, batch);
 	// Debug view of the tree, above everything (no-op unless `uitree` is on).

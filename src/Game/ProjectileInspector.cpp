@@ -6,6 +6,7 @@
 #include "Core/Loc.h"
 #include "Core/Paths.h"
 #include "Game/AssetUtil.h"
+#include "Game/DialogLayout.h"
 #include "UI/Controls.h"
 
 #include <algorithm>
@@ -16,21 +17,12 @@
 namespace dungeon::game {
 
 namespace {
-// A compact centered card: title, six info rows, a two-button footer — the
-// LevelSettingsDialog proportions.
-// Re-derived from the sizes this card actually draws at. Two 1x-era fractions
-// were left behind by the fonts thread: the title band (0.065 against the 0.0725
-// a title's line advance needs) and the ROW PITCH — 0.042 for rows drawn at
-// kDialogTextScale, whose advance is 0.020 * 2.0 * 1.25 = 0.050 of the window.
-// The rows cleared each other only by their ink. Both are the advance now, and
-// the panel grew to hold the result rather than the rows being squeezed.
-constexpr gfx::Rect kPanel{0.36f, 0.26f, 0.28f, 0.48f};
-constexpr gfx::Rect kTitle{0.375f, 0.275f, 0.25f, 0.04f};
-constexpr float kRowX = 0.375f, kValX = 0.51f;
-constexpr float kRowY0 = kTitle.y + ui::kDialogTitleBandH, kRowH = 0.050f;
-// Remove centered in the footer, below the last of the six rows; Close is the
-// top-right corner box now.
-constexpr gfx::Rect kRemove{0.45f, kRowY0 + 6 * kRowH + 0.005f, 0.10f, 0.045f};
+// A compact centered card: title, six info rows, a Remove footer — the
+// LevelSettingsDialog proportions. The panel is the only rect; the card inside
+// it is stacked (Game/DialogLayout.h).
+constexpr gfx::Rect kPanel{0.36f, 0.28f, 0.28f, 0.40f};
+// The label column's share of an info row; the value takes the rest.
+constexpr float kLabelFill = 1.0f, kValueFill = 1.1f;
 } // namespace
 
 ProjectileInspector::ProjectileInspector(gfx::GraphicsDevice& device,
@@ -48,11 +40,36 @@ void ProjectileInspector::Open(const Config& cfg) {
 
 void ProjectileInspector::BuildUI() {
 	m_ui.Clear();
-	m_ui.Add<ui::Button>(kRemove, loc::Tr("map.proj.remove"), [this] {
-		if (onRemove) onRemove();
-		Close();
-	});
-	ui::AddCloseButton(m_ui, kPanel, m_closeIcon, [this] { Close(); });
+	DialogChrome chrome = BuildDialogChrome(m_ui, kPanel, loc::Tr("map.proj.title"),
+											m_closeIcon, [this] { Close(); });
+
+	// Read-only info rows: label (dim) + value (bright). They used to be drawn
+	// straight to the batch from a hand-stepped y cursor, which is furniture the
+	// layout could not see — as widgets they get areas like everything else.
+	const std::array<std::pair<std::string, std::string>, 6> rows = {{
+		{loc::Tr("map.proj.side"), m_cfg.side},
+		{loc::Tr("map.proj.dmgtype"), m_cfg.dmgType},
+		{loc::Tr("map.proj.damage"), std::format("{:.1f}", m_cfg.damage)},
+		{loc::Tr("map.proj.accuracy"), std::format("{:.0f}%", m_cfg.accuracy * 100.0f)},
+		{loc::Tr("map.proj.speed"), std::format("{:.1f} m/s", m_cfg.speed)},
+		{loc::Tr("map.proj.range"), std::format("{:.1f} m", m_cfg.rangeLeft)},
+	}};
+	for (const auto& [label, value] : rows) {
+		ui::Stack* row = chrome.body->Row<ui::Stack>(FormRow(), true);
+		ui::Label* l = row->Row<ui::Label>(ui::Len::Fill(kLabelFill), label);
+		l->dim = true;
+		l->centerV = true;
+		row->Row<ui::Label>(ui::Len::Fill(kValueFill), value)->centerV = true;
+	}
+	chrome.body->Space(ui::Len::Fill()); // the rows sit at the top
+
+	chrome.footer->Space(ui::Len::Fill());
+	chrome.footer->Row<ui::Button>(FooterButton(), loc::Tr("map.proj.remove"),
+								   [this] {
+									   if (onRemove) onRemove();
+									   Close();
+								   });
+	chrome.footer->Space(ui::Len::Fill());
 }
 
 void ProjectileInspector::Update(const Input& input, float w, float h) {
@@ -75,34 +92,7 @@ void ProjectileInspector::Render(gfx::SpriteBatch& batch, const ui::Theme& th,
 	const gfx::Rect panel{kPanel.x * w, kPanel.y * h, kPanel.w * w, kPanel.h * h};
 	batch.DrawRect(panel, th.panel);
 	ui::DrawBorder(batch, panel, th.panelBorder);
-
-	// Through FitDialogTitle — a raw draw, so nothing else bounds a longer
-	// translation of the word.
-	const gfx::Rect band = ui::DialogTitleBand(kPanel, kTitle.x, kTitle.y);
-	const gfx::Rect titleBand{band.x * w, band.y * h, band.w * w, band.h * h};
-	const ui::FittedTitle title =
-		ui::FitDialogTitle(m_ui, loc::Tr("map.proj.title"), titleBand);
-	title.font->Draw(batch, title.text, titleBand.x, titleBand.y, th.text);
-
-	// Read-only info rows: label (dim) + value (bright).
-	const std::array<std::pair<std::string, std::string>, 6> rows = {{
-		{loc::Tr("map.proj.side"), m_cfg.side},
-		{loc::Tr("map.proj.dmgtype"), m_cfg.dmgType},
-		{loc::Tr("map.proj.damage"), std::format("{:.1f}", m_cfg.damage)},
-		{loc::Tr("map.proj.accuracy"), std::format("{:.0f}%", m_cfg.accuracy * 100.0f)},
-		{loc::Tr("map.proj.speed"), std::format("{:.1f} m/s", m_cfg.speed)},
-		{loc::Tr("map.proj.range"), std::format("{:.1f} m", m_cfg.rangeLeft)},
-	}};
-	// Drawn straight to the batch rather than through widgets, so they take the
-	// form size from the helper instead of inheriting it from the root.
-	const ui::Font& row = ui::DialogTextFont(m_ui);
-	for (size_t i = 0; i < rows.size(); ++i) {
-		const float y = (kRowY0 + i * kRowH) * h;
-		row.Draw(batch, rows[i].first, kRowX * w, y, th.textDim);
-		row.Draw(batch, rows[i].second, kValX * w, y, th.text);
-	}
-
-	m_ui.Render(batch, w, h); // Remove / Close
+	m_ui.Render(batch, w, h); // title, info rows, Remove, close — all widgets
 }
 
 } // namespace dungeon::game

@@ -30,24 +30,25 @@ void FixtureInspector::ApplySettings() {
 				   m_cfg.turbidity);
 }
 
-void FixtureInspector::BuildContent(const gfx::Rect& c) {
+void FixtureInspector::BuildContent(ui::Stack& c) {
 	// Lit gates the light, flame particles and smoke; brightness is the light reach
 	// (squares); turbidity is how much haze it adds to its cell and neighbours.
-	UI().Add<ui::Checkbox>(gfx::Rect{c.x, c.y, c.w, 0.055f}, loc::Tr("map.fix.lit"), m_cfg.lit,
-						   [this](bool on) {
-							   m_cfg.lit = on;
-							   ApplySettings();
-						   });
-	UI().Add<ui::Slider>(gfx::Rect{c.x, c.y + 0.09f, c.w, 0.11f}, loc::Tr("map.fix.brightness"),
-						 1.0f, 8.0f, m_cfg.brightness, [this](float v) {
-							 m_cfg.brightness = v;
-							 ApplySettings();
-						 });
-	UI().Add<ui::Slider>(gfx::Rect{c.x, c.y + 0.21f, c.w, 0.11f}, loc::Tr("map.fix.turbidity"),
-						 0.0f, 1.0f, m_cfg.turbidity, [this](float v) {
-							 m_cfg.turbidity = v;
-							 ApplySettings();
-						 });
+	c.Row<ui::Checkbox>(FormRow(), loc::Tr("map.fix.lit"), m_cfg.lit,
+						[this](bool on) {
+							m_cfg.lit = on;
+							ApplySettings();
+						});
+	// A Slider stacks its label over its track, so it asks for two lines.
+	c.Row<ui::Slider>(FormRow(1.9f), loc::Tr("map.fix.brightness"), 1.0f, 8.0f,
+					  m_cfg.brightness, [this](float v) {
+						  m_cfg.brightness = v;
+						  ApplySettings();
+					  });
+	c.Row<ui::Slider>(FormRow(1.9f), loc::Tr("map.fix.turbidity"), 0.0f, 1.0f,
+					  m_cfg.turbidity, [this](float v) {
+						  m_cfg.turbidity = v;
+						  ApplySettings();
+					  });
 }
 
 void FixtureInspector::ApplyLive() { // the common Facing dropdown re-mounts the torch

@@ -13,13 +13,6 @@
 //     A widget that uses the mouse calls ConsumeMouse() so widgets visited
 //     later ignore the same event. Keyboard input is not consumed — the party
 //     always receives movement keys.
-//
-//     THAT WALK ORDER *IS* EVENT BUBBLING: a widget is always visited before
-//     its ancestors, so anything it does not claim reaches its parent. What
-//     makes bubbling work is therefore not the walk but the DISCIPLINE —
-//     claim only what you actually handle, and per event KIND (see
-//     ConsumeMouse / ConsumeWheel below). A control that claims an event it
-//     ignores is the only way an outer container can be starved of one.
 //   Render(batch, w, h): the tree draws parent-behind-children in add order,
 //     then a second DrawOverlay pass lets popups (open drop-downs) paint above
 //     everything.
@@ -136,29 +129,28 @@ public:
 	float MouseY() const { return m_mouseY; }
 
 	// Input routing state (used by widgets during Update).
-	//
-	// THE WHEEL IS CLAIMED SEPARATELY FROM THE POINTER, and that separation is
-	// the point. Hovering a text box, a slider or a SHUT dropdown claims the
-	// mouse — those controls want the click and the hover — but none of them
-	// does anything with a WHEEL. While one flag covered both, a wheel over any
-	// such control was swallowed and the ScrollArea around it never moved: you
-	// had to find a gap between the controls to scroll a dialog, which is
-	// maddening in exactly the dialogs crowded enough to need scrolling.
-	//
-	// So: claim the pointer with ConsumeMouse, and claim the wheel ONLY if you
-	// act on it. A widget that must block everything beneath it — an open popup,
-	// an armed key capture, a modal row — calls ConsumeAll, because there the
-	// blocking IS the behaviour and a wheel reaching past it would scroll the
-	// popup out from under the user.
 	const Input* CurrentInput() const { return m_input; }
+
+	// The POINTER — position and buttons. A widget claims it when the cursor is
+	// over it, so a click cannot also land on whatever is behind.
 	bool IsMouseConsumed() const { return m_mouseConsumed; }
 	void ConsumeMouse() { m_mouseConsumed = true; }
+	// Puts the claim back. ONLY for the update walk's clip handling, which
+	// suppresses the pointer through a subtree the cursor is outside of and has
+	// to un-suppress it afterwards — a widget must never hand back a claim it
+	// made, or the thing behind it gets the same click.
+	void SetMouseConsumed(bool consumed) { m_mouseConsumed = consumed; }
+
+	// The WHEEL, claimed separately — and that separation is the point. Nearly
+	// every ConsumeMouse call is a hover claim by a control that has no use for
+	// the wheel at all (a Slider, a Button, a Checkbox). While the two shared
+	// one flag, resting the cursor on any of them stopped the page underneath
+	// scrolling: the settings page is mostly sliders, and the wheel did nothing
+	// over most of it. A widget that SCROLLS claims this one; a widget that
+	// merely wants the click does not, and the wheel falls through to whatever
+	// can use it. A modal (an open popup) claims both.
 	bool IsWheelConsumed() const { return m_wheelConsumed; }
 	void ConsumeWheel() { m_wheelConsumed = true; }
-	void ConsumeAll() {
-		m_mouseConsumed = true;
-		m_wheelConsumed = true;
-	}
 
 private:
 	// Exactly one of these backs m_font: an owned Font (legacy form) or one

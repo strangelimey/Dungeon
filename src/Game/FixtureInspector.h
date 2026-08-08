@@ -49,7 +49,7 @@ protected:
 	std::string Title() const override;
 	gfx::Rect Panel() const override { return {0.29f, 0.16f, 0.44f, 0.66f}; }
 	std::vector<Direction> FacingChoices() const override { return m_walls; }
-	void BuildContent(const gfx::Rect& content) override;
+	void BuildContent(ui::Stack& content) override;
 	void ApplyLive() override;
 	void Persist() override;
 	void Revert() override;

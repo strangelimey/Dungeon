@@ -15,8 +15,10 @@
 //   Update  children in REVERSE add order, then self — so the topmost child
 //           owning a pixel claims the mouse before its parent sees it
 //   Draw    self, then children in add order (painter's: parent behind)
-// Input consumption is unchanged: a widget that uses the mouse calls
-// ConsumeMouse() and everything visited later ignores the same event.
+// Input consumption: a widget that uses the mouse calls ConsumeMouse() and
+// everything visited later ignores the same event. The WHEEL is a SEPARATE
+// claim (UIContext::ConsumeWheel) — a control that merely wants the click under
+// the cursor must not also stop the page beneath it scrolling.
 // ============================================================================
 #pragma once
 
@@ -159,6 +161,29 @@ public:
 	// sub-region (a tab's page below its strip). Defaults to the whole rect.
 	virtual gfx::Rect ContentRect() const { return m_pixel; }
 
+	// The rect this widget actually PAINTS INTO — its area as the eye sees it,
+	// where Pixel() is its area as the layout sees it. They differ whenever a
+	// widget draws text it was not given room for: a Label draws its whole
+	// string from its top-left corner however narrow its bounds, so a label too
+	// long for its row lands on whatever sits to the right of it. Overriding
+	// this is what lets the `uioverlap` audit (UI/TreeInspector.h) see that as
+	// the collision it is instead of passing the pair as disjoint.
+	//
+	// Defaults to Pixel(); override in any widget whose drawing is measured
+	// rather than bounded.
+	virtual gfx::Rect InkRect() const { return m_pixel; }
+
+	// True if this widget clips its children (a scroll area, a tab page). Its
+	// children are then MEANT to run past its bounds — the excess paints on
+	// nothing — which is why the overlap audit does not count that as an escape.
+	bool ClipsChildren() const { return ChildClip() != nullptr; }
+
+	// Opts this widget out of the overlap audit: it is deliberately UNDER (or
+	// over) its siblings — a Panel used as a backdrop for the rows added after
+	// it, a popup that draws in the overlay pass. Not a licence to overlap by
+	// accident; every use should be a thing that is meant to be layered.
+	bool overlapOk = false;
+
 protected:
 	// --- what a subclass implements: itself, never its children --------------
 
@@ -177,6 +202,12 @@ protected:
 	// clamps a scroll offset, or assigns its children's bounds by index.
 	virtual void LayoutSelf(UIContext&) {}
 
+	// The rect this widget's `bounds` were resolved against — its parent's
+	// ContentRect, from the most recent Layout. A container that sizes ITSELF
+	// from its content needs it: `bounds` is a fraction, so writing a measured
+	// height back means dividing by the height it was a fraction OF.
+	const gfx::Rect& ContainerRect() const { return m_container; }
+
 	// Lets a container skip a child in every pass (scrolled out of a page,
 	// past a repeater's live count) without touching the child's own `visible`.
 	virtual bool ChildActive(const Widget&) const { return true; }
@@ -189,6 +220,7 @@ protected:
 
 private:
 	gfx::Rect m_pixel{};
+	gfx::Rect m_container{}; // what bounds resolved against (ContainerRect)
 	float m_rem = 16.0f; // context root font size, refreshed every Layout
 	float m_em = 16.0f;  // THIS widget's font size, ditto
 	// Resolved every Layout, so it is valid for the Update/Draw that follow.

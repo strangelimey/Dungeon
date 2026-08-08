@@ -19,7 +19,8 @@
 #pragma once
 
 #include "Game/InstanceInspector.h"
-#include "UI/Controls.h" // ui::TabControl (the grouped pages EaseRow appends to)
+#include "UI/Controls.h" // ui::TabControl (the pages EaseRow appends to)
+#include "UI/Layout.h"   // ui::Stack (a tab page's rows)
 
 #include <cstddef>
 #include <functional>
@@ -83,17 +84,18 @@ public:
 protected:
 	std::string Title() const override;
 	// WIDER than the other inspectors, and grouped into tabs rather than grown
-	// taller. A door instance now carries seven settings; stacked in one column
+	// taller. A door instance now carries eight settings; stacked in one column
 	// beside the preview pane they were a scrolling ribbon of half-width
 	// dropdowns, which is busy however tall the panel gets.
 	gfx::Rect Panel() const override { return {0.22f, 0.13f, 0.56f, 0.70f}; }
 	// No facing row: the doorway's flanking walls fix the orientation.
 	std::vector<Direction> FacingChoices() const override { return {}; }
-	void BuildContent(const gfx::Rect& content) override;
-	// One label plus a side-by-side [ease in] [ease out] pair, appended to
-	// `tab`'s page at the cursor `y` (page fractions) and advancing it.
-	void EaseRow(ui::TabControl& tabs, std::size_t tab, float& y,
-				 const std::string& label, std::string& in, std::string& out);
+	void BuildContent(ui::Stack& content) override;
+	// One label plus a side-by-side [ease in] [ease out] pair, appended to a
+	// tab's page. The page is a Stack, so this adds rows and says how much room
+	// each needs — it does not place them.
+	void EaseRow(ui::Stack& page, const std::string& label, std::string& in,
+				 std::string& out);
 	void ApplyLive() override {} // no common-strip edits (no facing)
 	void Persist() override;
 	void Revert() override;

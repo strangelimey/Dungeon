@@ -58,7 +58,7 @@ protected:
 	// The faces this niche may occupy — the common Facing strip becomes a "which
 	// wall" picker, so a mis-placed niche is re-faced instead of deleted+redone.
 	std::vector<Direction> FacingChoices() const override { return m_walls; }
-	void BuildContent(const gfx::Rect& content) override;
+	void BuildContent(ui::Stack& content) override;
 	void ApplyLive() override;
 	void Persist() override;
 	void Revert() override;

@@ -42,7 +42,7 @@ protected:
 	gfx::Rect Panel() const override { return {0.31f, 0.26f, 0.40f, 0.42f}; }
 	// No facing row: the mount wall was auto-picked at placement.
 	std::vector<Direction> FacingChoices() const override { return {}; }
-	void BuildContent(const gfx::Rect& content) override;
+	void BuildContent(ui::Stack& content) override;
 	void ApplyLive() override {} // no common-strip edits
 	void Persist() override;
 	void Revert() override;

@@ -6,6 +6,7 @@
 #include "Core/Loc.h"
 #include "Core/Paths.h"
 #include "Game/AssetUtil.h"
+#include "Game/DialogLayout.h"
 #include "UI/Controls.h"
 
 #include <algorithm>
@@ -13,22 +14,10 @@
 namespace dungeon::game {
 
 namespace {
-// Panel + region geometry, as fractions (0..1) of the window. Widgets take
-// normalized bounds directly; the self-drawn frame/preview convert to pixels.
+// The panel, as fractions (0..1) of the window; the card inside it is stacked
+// (Game/DialogLayout.h) — tabs on the left, preview pane on the right.
 constexpr gfx::Rect kPanel{0.14f, 0.10f, 0.72f, 0.80f};
-// Everything below the title starts a whole TITLE BAND down (ui::kDialogTitleBandH).
-// At 0.050 the band was well short of the 0.0725 a title's line advance needs,
-// and "Configure: <monster>" drew straight through the preview pane's header.
-// The title takes the FULL inner width and runs over the pane's column — the
-// instance inspectors' rule, since the type name is the tail — which is safe
-// because the pane now starts below the band. Tabs and pane keep their bottoms.
-constexpr gfx::Rect kTitle{0.155f, 0.115f, 0.69f, 0.045f};
-constexpr float kBelowTitle = kTitle.y + ui::kDialogTitleBandH;
-constexpr gfx::Rect kTabs{0.155f, kBelowTitle, 0.42f, 0.625f}; // TabControl (left)
-constexpr gfx::Rect kPrevHdr{0.60f, kBelowTitle, 0.25f, 0.03f};
-constexpr gfx::Rect kPreview{0.60f, 0.225f, 0.245f, 0.57f}; // preview pane (right)
-// Save centered in the footer; Close is the top-right corner box now.
-constexpr gfx::Rect kSave{0.4475f, 0.83f, 0.105f, 0.05f};
+constexpr float kTabsFill = 0.62f, kPaneFill = 0.38f, kGutterRow = 1.0f;
 
 // Archetype option order MUST match the ai::Archetype enum (dropdown index -> enum).
 constexpr const char* kArchKeys[] = {"brute",  "skirmisher", "caster",
@@ -89,89 +78,98 @@ std::string MonsterConfigDialog::FirstClipOf(int state) const {
 	return {};
 }
 
-gfx::Rect MonsterConfigDialog::PreviewNorm() const { return kPreview; }
-
-gfx::Rect MonsterConfigDialog::PreviewRect(float w, float h) const {
-	return {kPreview.x * w, kPreview.y * h, kPreview.w * w, kPreview.h * h};
+gfx::Rect MonsterConfigDialog::PreviewRect(float, float) const {
+	// The pane widget's own rect, from the layout that just ran — one truth for
+	// the backing it draws and the animation the owner blits over it.
+	return m_pane ? m_pane->Pixel() : gfx::Rect{0.0f, 0.0f, 0.0f, 0.0f};
 }
 
 // --- widget tree ----------------------------------------------------------
 
 void MonsterConfigDialog::BuildUI() {
 	m_ui.Clear();
-	m_tabs = m_ui.Add<ui::TabControl>(kTabs, 0.075f);
+	m_pane = nullptr;
+	DialogChrome chrome = BuildDialogChrome(
+		m_ui, kPanel, loc::Format("map.cfg.title", m_display), m_closeIcon, [this] {
+			if (onApply) onApply(m_original); // revert the live kind
+			Close();
+		});
+
+	chrome.body->horizontal = true;
+	m_tabs = chrome.body->Row<ui::TabControl>(ui::Len::Fill(kTabsFill), 0.075f);
 	const size_t tabBehav = m_tabs->AddTab(loc::Tr("map.cfg.tab.behavior"));
 	const size_t tabAnim = m_tabs->AddTab(loc::Tr("map.cfg.tab.animation"));
 	BuildBehaviorTab(tabBehav);
 	BuildAnimationTab(tabAnim);
 	m_tabs->SetActiveTab(m_activeTab);
 
-	m_ui.Add<ui::Button>(kSave, loc::Tr("map.cfg.save"), [this] {
+	// Preview column: header over the pane, so neither can sit on the other.
+	chrome.body->Space(ui::Len::Fixed(kGutterRow));
+	ui::Stack* pane = chrome.body->Row<ui::Stack>(ui::Len::Fill(kPaneFill));
+	pane->debugName = "preview";
+	pane->Row<ui::Label>(FormRow(0.8f), loc::Tr("map.cfg.preview"))->dim = true;
+	m_pane = pane->Row<PreviewPane>(ui::Len::Fill());
+	m_pane->border = true;
+	// Cached once: selecting a clip does not rebuild the tree, so Update flips
+	// the flag rather than re-translating the string every frame.
+	m_pane->hint = loc::Tr("map.cfg.nopreview");
+
+	chrome.footer->Space(ui::Len::Fill());
+	chrome.footer->Row<ui::Button>(FooterButton(), loc::Tr("map.cfg.save"), [this] {
 		if (onSave) onSave(m_cfg);
 		Close();
 	});
-	ui::AddCloseButton(m_ui, kPanel, m_closeIcon, [this] {
-		if (onApply) onApply(m_original); // revert the live kind to the snapshot
-		Close();
-	});
+	chrome.footer->Space(ui::Len::Fill());
 }
 
 void MonsterConfigDialog::BuildBehaviorTab(size_t tab) {
+	// A content-sized stack per tab (Game/DialogLayout.h): the rows that exist
+	// depend on the archetype, and a cursor stepped by hand had to know each
+	// row's height twice — once to place it and once to advance past it.
+	ui::Stack* rows = TabStack(*m_tabs, tab);
+
 	std::vector<std::string> archItems;
 	for (const char* k : kArchKeys) archItems.push_back(loc::Tr("archetype." + std::string(k)));
+	rows->Row<ui::Label>(FormRow(), loc::Tr("map.cfg.archetype"))->centerV = true;
+	rows->Row<ui::DropDown>(FormRow(), archItems,
+							static_cast<int>(m_cfg.archetype), [this](int i) {
+								m_cfg.archetype = static_cast<ai::Archetype>(i);
+								Apply();
+								m_rebuild = true; // dependent fields change
+							});
 
-	m_tabs->AddChild<ui::Label>(tab, gfx::Rect{0.05f, 0.04f, 0.9f, 0.06f},
-								loc::Tr("map.cfg.archetype"));
-	m_tabs->AddChild<ui::DropDown>(tab, gfx::Rect{0.05f, 0.11f, 0.62f, 0.08f}, archItems,
-								   static_cast<int>(m_cfg.archetype), [this](int i) {
-									   m_cfg.archetype = static_cast<ai::Archetype>(i);
-									   Apply();
-									   m_rebuild = true; // dependent fields change
-								   });
-
-	float y = 0.24f;
 	const bool kites = m_cfg.archetype == ai::Archetype::Skirmisher ||
 					   m_cfg.archetype == ai::Archetype::Caster;
-	if (kites) {
-		m_tabs->AddChild<ui::Slider>(tab, gfx::Rect{0.05f, y, 0.9f, 0.10f},
-									 loc::Tr("map.cfg.keeprange"), 1.0f, 10.0f,
-									 m_cfg.keepRange, [this](float v) {
-										 m_cfg.keepRange = v;
-										 Apply();
-									 });
-		y += 0.15f;
-	}
+	if (kites)
+		rows->Row<ui::Slider>(FormRow(1.9f), loc::Tr("map.cfg.keeprange"), 1.0f,
+							  10.0f, m_cfg.keepRange, [this](float v) {
+								  m_cfg.keepRange = v;
+								  Apply();
+							  });
 	// Flee threshold applies to any archetype (0 = never).
-	m_tabs->AddChild<ui::Slider>(tab, gfx::Rect{0.05f, y, 0.9f, 0.10f},
-								 loc::Tr("map.cfg.fleebelow"), 0.0f, 1.0f, m_cfg.fleeBelow,
-								 [this](float v) {
-									 m_cfg.fleeBelow = v;
-									 Apply();
-								 });
-	y += 0.17f;
+	rows->Row<ui::Slider>(FormRow(1.9f), loc::Tr("map.cfg.fleebelow"), 0.0f, 1.0f,
+						  m_cfg.fleeBelow, [this](float v) {
+							  m_cfg.fleeBelow = v;
+							  Apply();
+						  });
 	if (m_cfg.archetype == ai::Archetype::Caster) {
-		m_tabs->AddChild<ui::Label>(tab, gfx::Rect{0.05f, y, 0.9f, 0.06f},
-									loc::Tr("map.cfg.spell"));
-		y += 0.07f;
+		rows->Row<ui::Label>(FormRow(), loc::Tr("map.cfg.spell"))->centerV = true;
 		int sel = 0;
 		for (size_t i = 0; i < m_spellIds.size(); ++i)
 			if (m_spellIds[i] == m_cfg.spell) { sel = static_cast<int>(i); break; }
 		std::vector<std::string> items = m_spellIds;
 		if (items.empty()) items.push_back(loc::Tr("map.cfg.nospells"));
-		m_tabs->AddChild<ui::DropDown>(tab, gfx::Rect{0.05f, y, 0.62f, 0.08f}, items, sel,
-									   [this](int i) {
-										   if (i >= 0 && i < static_cast<int>(m_spellIds.size()))
-											   m_cfg.spell = m_spellIds[i];
-										   Apply();
-									   });
-		y += 0.13f;
+		rows->Row<ui::DropDown>(FormRow(), items, sel, [this](int i) {
+			if (i >= 0 && i < static_cast<int>(m_spellIds.size()))
+				m_cfg.spell = m_spellIds[i];
+			Apply();
+		});
 	}
 
 	// Per-type THREAT multipliers (× the balance.cat globals; 1 = unchanged) —
 	// this kind's targeting personality. Rows past the tab bottom scroll.
-	m_tabs->AddChild<ui::Label>(tab, gfx::Rect{0.05f, y, 0.9f, 0.06f},
-								loc::Tr("map.cfg.threat"));
-	y += 0.08f;
+	rows->Row<ui::Separator>(ui::Len::Fixed(0.6f));
+	rows->Row<ui::Label>(FormRow(), loc::Tr("map.cfg.threat"))->centerV = true;
 	struct ThreatRow {
 		const char* key;
 		float ThreatTuning::*field;
@@ -182,81 +180,94 @@ void MonsterConfigDialog::BuildBehaviorTab(size_t tab) {
 		{"map.cfg.threat_switch", &ThreatTuning::switchMargin},
 		{"map.cfg.threat_decay", &ThreatTuning::decay},
 	};
-	for (const ThreatRow& r : kThreatRows) {
-		m_tabs->AddChild<ui::Slider>(
-			tab, gfx::Rect{0.05f, y, 0.9f, 0.10f}, loc::Tr(r.key), 0.0f, 3.0f,
-			m_cfg.threat.*(r.field), [this, f = r.field](float v) {
-				m_cfg.threat.*f = v;
-				Apply();
-			});
-		y += 0.135f;
-	}
+	for (const ThreatRow& r : kThreatRows)
+		rows->Row<ui::Slider>(FormRow(1.9f), loc::Tr(r.key), 0.0f, 3.0f,
+							  m_cfg.threat.*(r.field), [this, f = r.field](float v) {
+								  m_cfg.threat.*f = v;
+								  Apply();
+							  });
 }
 
 void MonsterConfigDialog::BuildAnimationTab(size_t tab) {
-	constexpr float rowH = 0.062f, top = 0.09f;
-	m_tabs->AddChild<ui::Label>(tab, gfx::Rect{0.02f, 0.01f, 0.32f, 0.06f},
-								loc::Tr("map.cfg.states"));
-	m_tabs->AddChild<ui::Label>(
-		tab, gfx::Rect{0.37f, 0.01f, 0.6f, 0.06f},
-		loc::Format("map.cfg.anims",
-					StateLabel(static_cast<anim::CreatureState>(m_selState))));
+	// Two columns — the creature's states on the left, the selected state's
+	// clips on the right — laid out as ONE table of rows rather than two
+	// independent y cursors that happened to share a pitch. A row holds
+	// whichever cells still exist at its index, so the columns stay aligned
+	// however differently long they are.
+	constexpr float kStateFill = 1.0f, kClipFill = 2.0f;
+	ui::Stack* rows = TabStack(*m_tabs, tab);
 
-	// State column: a Button spans the row (click = pick this state's clips), with a
-	// Checkbox box at the right for its supported flag (added after, so it wins its
-	// area). Idle is the rest floor — always supported, no toggle.
-	for (int i = 0; i < N; ++i) {
-		const auto s = static_cast<anim::CreatureState>(i);
-		const float y = top + i * rowH;
-		auto* btn = m_tabs->AddChild<ui::Button>(
-			tab, gfx::Rect{0.02f, y, 0.24f, rowH * 0.9f}, StateLabel(s), [this, i] {
-				if (m_selState != i) {
-					m_selState = i;
-					m_selClip = FirstClipOf(i);
-					m_rebuild = true;
-				}
-			});
-		btn->active = (i == m_selState);
-		if (i != static_cast<int>(anim::CreatureState::Idle)) {
-			m_tabs->AddChild<ui::Checkbox>(tab, gfx::Rect{0.27f, y, 0.06f, rowH * 0.9f}, "",
-										   m_cfg.supported[i], [this, i](bool on) {
-											   m_cfg.supported[i] = on;
-											   Apply();
-										   });
-		}
-	}
+	ui::Stack* header = rows->Row<ui::Stack>(FormRow(), true);
+	header->gapRem = 0.5f;
+	header->Row<ui::Label>(ui::Len::Fill(kStateFill), loc::Tr("map.cfg.states"))
+		->centerV = true;
+	header->Row<ui::Label>(
+			  ui::Len::Fill(kClipFill),
+			  loc::Format("map.cfg.anims",
+						  StateLabel(static_cast<anim::CreatureState>(m_selState))))
+		->centerV = true;
 
-	// Clip column for the selected state (name-encoded or already assigned). Rows
-	// past the tab bottom scroll (TabControl handles it). Empty = a hint label.
+	// The clips of the selected state (name-encoded, or already assigned).
 	std::vector<int> clips;
 	for (int i = 0; i < static_cast<int>(m_modelClips.size()); ++i)
 		if (ClipBelongs(m_modelClips[i], m_selState)) clips.push_back(i);
-	if (clips.empty()) {
-		m_tabs->AddChild<ui::Label>(tab, gfx::Rect{0.37f, top, 0.6f, rowH},
-									loc::Tr("map.cfg.noclips"));
-		return;
-	}
+
 	const auto& vec = m_cfg.clips[m_selState];
-	for (size_t r = 0; r < clips.size(); ++r) {
+	const size_t count = std::max<size_t>(N, clips.size());
+	for (size_t r = 0; r < count; ++r) {
+		ui::Stack* row = rows->Row<ui::Stack>(FormRow(1.1f), true);
+		row->gapRem = 0.5f;
+
+		// State cell: a Button spanning the cell (click = pick this state's
+		// clips) with its supported flag beside it. Idle is the rest floor —
+		// always supported, so it has no toggle.
+		ui::Stack* state = row->Row<ui::Stack>(ui::Len::Fill(kStateFill), true);
+		if (r < static_cast<size_t>(N)) {
+			const int i = static_cast<int>(r);
+			auto* btn = state->Row<ui::Button>(
+				ui::Len::Fill(),
+				StateLabel(static_cast<anim::CreatureState>(i)), [this, i] {
+					if (m_selState != i) {
+						m_selState = i;
+						m_selClip = FirstClipOf(i);
+						m_rebuild = true;
+					}
+				});
+			btn->active = (i == m_selState);
+			if (i != static_cast<int>(anim::CreatureState::Idle))
+				state->Row<ui::Checkbox>(FooterButton(0.35f), "", m_cfg.supported[i],
+										 [this, i](bool on) {
+											 m_cfg.supported[i] = on;
+											 Apply();
+										 });
+			else
+				state->Space(FooterButton(0.35f)); // keep the column aligned
+		}
+
+		// Clip cell, or the "no clips" hint on the first row when there are none.
+		ui::Stack* clip = row->Row<ui::Stack>(ui::Len::Fill(kClipFill), true);
+		if (clips.empty()) {
+			if (r == 0)
+				clip->Row<ui::Label>(ui::Len::Fill(), loc::Tr("map.cfg.noclips"))
+					->centerV = true;
+			continue;
+		}
+		if (r >= clips.size()) continue;
 		const std::string name = m_modelClips[clips[r]]; // full <state>__<clip>
-		const float y = top + r * rowH;
-		auto* btn = m_tabs->AddChild<ui::Button>(
-			tab, gfx::Rect{0.37f, y, 0.46f, rowH * 0.9f}, ClipLabel(name), [this, name] {
-				m_selClip = name; // select for preview
-			});
+		auto* btn = clip->Row<ui::Button>(ui::Len::Fill(), ClipLabel(name),
+										  [this, name] {
+											  m_selClip = name; // select for preview
+										  });
 		btn->active = (name == m_selClip);
 		const bool on = std::find(vec.begin(), vec.end(), name) != vec.end();
-		m_tabs->AddChild<ui::Checkbox>(tab, gfx::Rect{0.85f, y, 0.06f, rowH * 0.9f}, "", on,
-									   [this, name](bool checked) {
-										   auto& v = m_cfg.clips[m_selState];
-										   const auto it = std::find(v.begin(), v.end(), name);
-										   if (checked && it == v.end())
-											   v.push_back(name);
-										   else if (!checked && it != v.end())
-											   v.erase(it);
-										   m_selClip = name; // toggling also previews it
-										   Apply();
-									   });
+		clip->Row<ui::Checkbox>(FooterButton(0.35f), "", on, [this, name](bool checked) {
+			auto& v = m_cfg.clips[m_selState];
+			const auto it = std::find(v.begin(), v.end(), name);
+			if (checked && it == v.end()) v.push_back(name);
+			else if (!checked && it != v.end()) v.erase(it);
+			m_selClip = name; // toggling also previews it
+			Apply();
+		});
 	}
 }
 
@@ -278,6 +289,7 @@ void MonsterConfigDialog::Update(const Input& input, float w, float h) {
 
 	m_ui.Update(input, w, h);
 	if (!m_open) return; // a footer button (Save/Close) closed us this frame
+	if (m_pane) m_pane->showHint = m_selClip.empty();
 	if (m_tabs) m_activeTab = m_tabs->ActiveTab();
 	if (m_rebuild) { // a callback changed which rows exist — rebuild off the stack
 		m_rebuild = false;
@@ -296,30 +308,9 @@ void MonsterConfigDialog::Render(gfx::SpriteBatch& batch, const ui::Theme& th, f
 	const gfx::Rect panel = px(kPanel);
 	batch.DrawRect(panel, th.panel);
 	ui::DrawBorder(batch, panel, th.panelBorder);
-
-	// Through FitDialogTitle: a monster's display name is arbitrary content, so
-	// this is the one title here that can genuinely run long, and it is a RAW
-	// draw with nothing else to bound it.
-	const gfx::Rect band = ui::DialogTitleBand(kPanel, kTitle.x, kTitle.y);
-	const gfx::Rect title{band.x * w, band.y * h, band.w * w, band.h * h};
-	const ui::FittedTitle fitted =
-		ui::FitDialogTitle(m_ui, loc::Format("map.cfg.title", m_display), title);
-	fitted.font->Draw(batch, fitted.text, title.x, title.y, th.text);
-
-	m_ui.Render(batch, w, h); // tabs + footer buttons (+ dropdown overlays)
-
-	// Preview pane: header + backing box; the owner (Game) blits the live looping
-	// animation into PreviewRect on top afterwards.
-	const gfx::Rect ph = px(kPrevHdr);
-	m_ui.GetFont().Draw(batch, loc::Tr("map.cfg.preview"), ph.x, ph.y, th.textDim);
-	const gfx::Rect pv = px(kPreview);
-	batch.DrawRect(pv, {0.02f, 0.02f, 0.03f, 1.0f});
-	ui::DrawBorder(batch, pv, th.panelBorder);
-	if (m_selClip.empty()) {
-		const std::string hint = loc::Tr("map.cfg.nopreview");
-		m_ui.GetFont().Draw(batch, hint, pv.x + (pv.w - m_ui.GetFont().MeasureWidth(hint)) * 0.5f,
-					pv.y + pv.h * 0.5f - m_ui.GetFont().Height() * 0.5f, th.textDim);
-	}
+	// Title, tabs, preview pane and footer are all widgets; the owner (Game)
+	// blits the live looping animation into PreviewRect on top afterwards.
+	m_ui.Render(batch, w, h);
 }
 
 } // namespace dungeon::game

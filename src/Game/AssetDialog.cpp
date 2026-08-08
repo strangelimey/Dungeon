@@ -9,6 +9,7 @@
 #include "Core/Log.h"
 #include "Core/Paths.h"
 #include "Game/AssetUtil.h"
+#include "Game/DialogLayout.h"
 #include "Platform/FileDialog.h"
 #include "UI/Controls.h"
 
@@ -24,6 +25,11 @@ namespace {
 // The mesh a texture set is previewed on: the clean (non-worn) wall block, which
 // is baked for every project and reads as "a wall" at a glance.
 constexpr const char* kSwatchMesh = "wall_block.gltf";
+
+// The panel, as window fractions; the card inside it is stacked
+// (Game/DialogLayout.h) — the form on the left, the preview on the right.
+constexpr gfx::Rect kPanel{0.14f, 0.09f, 0.72f, 0.82f};
+constexpr float kFormFill = 1.0f, kPaneFill = 0.85f, kGutterRow = 1.0f;
 
 // Catalog ids are whitespace-tokenised in .map/.ent records and become file-safe
 // asset names, so the field accepts only these (the door/level name rule).
@@ -77,9 +83,10 @@ void AssetDialog::Open(const std::string& category, const std::string& catalogKe
 	if (!m_asset.empty()) RefreshPreview();
 }
 
-gfx::Rect AssetDialog::PreviewRect(float w, float h) const {
-	const float side = std::min(0.30f * w, 0.50f * h);
-	return {0.55f * w, 0.22f * h, side, side};
+gfx::Rect AssetDialog::PreviewRect(float, float) const {
+	// The pane widget's own rect, from the layout that just ran — one truth for
+	// the backing it draws and the model the owner blits over it.
+	return m_pane ? m_pane->Pixel() : gfx::Rect{0.0f, 0.0f, 0.0f, 0.0f};
 }
 
 std::string AssetDialog::Validate() const {
@@ -110,26 +117,43 @@ void AssetDialog::Rebuild(const ui::Theme& theme) {
 	m_nameField = nullptr;
 	m_groupField = nullptr;
 	m_pathLabel = nullptr;
+	m_problemLabel = nullptr;
+	m_pane = nullptr;
 
-	m_ui->Add<ui::Label>(gfx::Rect{0.18f, 0.13f, 0.64f, 0.05f},
-						 loc::Format("newasset.title", m_category));
+	DialogChrome chrome =
+		BuildDialogChrome(*m_ui, kPanel, loc::Format("newasset.title", m_category),
+						  m_closeIcon, [this] { Close(); });
+	// Two columns: the form on the left, the preview and what the import found
+	// on the right. Both are stacks, so neither can run into the other.
+	chrome.body->horizontal = true;
+	ui::Stack* form = chrome.body->Row<ui::Stack>(ui::Len::Fill(kFormFill));
+	form->debugName = "form";
+	form->gapRem = 0.5f;
+	chrome.body->Space(ui::Len::Fixed(kGutterRow));
+	ui::Stack* right = chrome.body->Row<ui::Stack>(ui::Len::Fill(kPaneFill));
+	right->debugName = "preview";
+	right->gapRem = 0.4f;
 
 	// --- source mode ---------------------------------------------------------
-	m_ui->Add<ui::Label>(gfx::Rect{0.18f, 0.20f, 0.12f, 0.04f},
-						 loc::Tr("newasset.source"));
-	std::vector<std::string> modes = {loc::Tr("newasset.src.import"),
-									  loc::Tr("newasset.src.installed"),
-									  loc::Tr("newasset.src.duplicate")};
-	m_ui->Add<ui::DropDown>(gfx::Rect{0.30f, 0.20f, 0.18f, 0.042f}, modes,
-							static_cast<int>(m_source), [this](int i) {
-								m_source = static_cast<Source>(i);
-								m_asset.clear();
-								m_error.clear();
-								m_uiRebuild = true; // the form's middle changes
-							});
+	{
+		ui::Stack* row = form->Row<ui::Stack>(FormRow(), true);
+		row->gapRem = 0.5f;
+		row->Row<ui::Label>(ui::Len::Fill(0.8f), loc::Tr("newasset.source"))->centerV =
+			true;
+		std::vector<std::string> modes = {loc::Tr("newasset.src.import"),
+										  loc::Tr("newasset.src.installed"),
+										  loc::Tr("newasset.src.duplicate")};
+		row->Row<ui::DropDown>(ui::Len::Fill(1.2f), modes,
+							   static_cast<int>(m_source), [this](int i) {
+								   m_source = static_cast<Source>(i);
+								   m_asset.clear();
+								   m_error.clear();
+								   m_uiRebuild = true; // the form's middle changes
+							   });
+	}
 
 	// --- id + group ----------------------------------------------------------
-	m_nameField = m_ui->Add<ui::TextField>(gfx::Rect{0.18f, 0.26f, 0.30f, 0.042f}, m_name);
+	m_nameField = form->Row<ui::TextField>(FormRow(), m_name);
 	m_nameField->placeholder = loc::Tr("newasset.name");
 	m_nameField->maxLength = 32;
 	{
@@ -139,7 +163,7 @@ void AssetDialog::Rebuild(const ui::Theme& theme) {
 			m_name = raw->text;
 		};
 	}
-	m_groupField = m_ui->Add<ui::TextField>(gfx::Rect{0.18f, 0.315f, 0.30f, 0.042f}, m_group);
+	m_groupField = form->Row<ui::TextField>(FormRow(), m_group);
 	m_groupField->placeholder = loc::Tr("newasset.group");
 	m_groupField->maxLength = 24;
 	{
@@ -152,12 +176,14 @@ void AssetDialog::Rebuild(const ui::Theme& theme) {
 
 	// --- the source's own controls ------------------------------------------
 	if (m_source == Source::Import) {
-		m_ui->Add<ui::Button>(
-			gfx::Rect{0.18f, 0.375f, 0.16f, 0.042f},
+		ui::Stack* row = form->Row<ui::Stack>(FormRow(), true);
+		row->gapRem = 0.5f;
+		row->Row<ui::Button>(
+			ui::Len::Fill(0.9f),
 			loc::Tr(m_textureSet ? "newasset.browse_folder" : "newasset.browse_model"),
 			[this] { Browse(); });
-		m_pathLabel = m_ui->Add<ui::Label>(gfx::Rect{0.35f, 0.375f, 0.30f, 0.042f},
-										   loc::Tr("newasset.none"));
+		m_pathLabel = row->Row<ui::Label>(ui::Len::Fill(1.1f), loc::Tr("newasset.none"));
+		m_pathLabel->centerV = true;
 		m_pathLabel->dim = m_sourcePath.empty();
 		if (!m_sourcePath.empty()) {
 			const size_t slash = m_sourcePath.find_last_of("\\/");
@@ -165,16 +191,17 @@ void AssetDialog::Rebuild(const ui::Theme& theme) {
 														   : m_sourcePath.substr(slash + 1);
 		}
 		if (m_textureSet && !m_sourcePath.empty())
-			m_ui->Add<ui::Checkbox>(gfx::Rect{0.18f, 0.425f, 0.30f, 0.04f},
-									loc::Tr("newasset.flipgreen"), m_flipGreen,
-									[this](bool on) { m_flipGreen = on; });
+			form->Row<ui::Checkbox>(FormRow(), loc::Tr("newasset.flipgreen"),
+									m_flipGreen, [this](bool on) { m_flipGreen = on; });
 	} else if (m_source == Source::Installed) {
 		// The POOL: hundreds of entries whose names say nothing, so this is the
 		// picker's job, not a dropdown's (the type editor's asset fields the same).
-		m_ui->Add<ui::Label>(gfx::Rect{0.18f, 0.375f, 0.13f, 0.04f},
-							 loc::Tr("newasset.asset"));
-		m_ui->Add<ui::Button>(
-			gfx::Rect{0.31f, 0.375f, 0.21f, 0.042f},
+		ui::Stack* row = form->Row<ui::Stack>(FormRow(), true);
+		row->gapRem = 0.5f;
+		row->Row<ui::Label>(ui::Len::Fill(0.8f), loc::Tr("newasset.asset"))->centerV =
+			true;
+		row->Row<ui::Button>(
+			ui::Len::Fill(1.2f),
 			m_asset.empty() ? loc::Tr("map.type.none") : m_asset, [this] {
 				if (onPickAsset)
 					onPickAsset(m_textureSet, m_asset, [this](const std::string& picked) {
@@ -191,16 +218,17 @@ void AssetDialog::Rebuild(const ui::Theme& theme) {
 		int sel = 0;
 		for (size_t i = 0; i < items.size(); ++i)
 			if (items[i] == m_asset) { sel = static_cast<int>(i); break; }
-		m_ui->Add<ui::Label>(gfx::Rect{0.18f, 0.375f, 0.13f, 0.04f},
-							 loc::Tr("newasset.copyfrom"));
-		// Stops short of the preview pane at 0.55 (PreviewRect).
-		m_ui->Add<ui::DropDown>(gfx::Rect{0.31f, 0.375f, 0.21f, 0.042f}, shown, sel,
-								[this, items](int i) {
-									if (i >= 0 && i < static_cast<int>(items.size())) {
-										m_asset = items[static_cast<size_t>(i)];
-										RefreshPreview();
-									}
-								});
+		ui::Stack* row = form->Row<ui::Stack>(FormRow(), true);
+		row->gapRem = 0.5f;
+		row->Row<ui::Label>(ui::Len::Fill(0.8f), loc::Tr("newasset.copyfrom"))
+			->centerV = true;
+		row->Row<ui::DropDown>(ui::Len::Fill(1.2f), shown, sel,
+							   [this, items](int i) {
+								   if (i >= 0 && i < static_cast<int>(items.size())) {
+									   m_asset = items[static_cast<size_t>(i)];
+									   RefreshPreview();
+								   }
+							   });
 		// Seed the pick so a single-entry list isn't silently "unset".
 		if (m_asset.empty() && !items.empty()) {
 			m_asset = items.front();
@@ -209,21 +237,27 @@ void AssetDialog::Rebuild(const ui::Theme& theme) {
 	}
 
 	// --- material ------------------------------------------------------------
-	m_ui->Add<ui::Slider>(gfx::Rect{0.18f, 0.49f, 0.30f, 0.04f},
-						  loc::Tr("newasset.metallic"), 0.0f, 1.0f, m_material.metallic,
+	form->Row<ui::Separator>(ui::Len::Fixed(0.6f));
+	form->Row<ui::Slider>(FormRow(1.9f), loc::Tr("newasset.metallic"), 0.0f, 1.0f,
+						  m_material.metallic,
 						  [this](float v) { m_material.metallic = v; });
-	m_ui->Add<ui::Slider>(gfx::Rect{0.18f, 0.55f, 0.30f, 0.04f},
-						  loc::Tr("newasset.roughness"), 0.0f, 1.0f, m_material.roughness,
+	form->Row<ui::Slider>(FormRow(1.9f), loc::Tr("newasset.roughness"), 0.0f, 1.0f,
+						  m_material.roughness,
 						  [this](float v) { m_material.roughness = v; });
-	m_ui->Add<ui::Slider>(gfx::Rect{0.18f, 0.61f, 0.30f, 0.04f},
-						  loc::Tr("newasset.height"), 0.0f, 0.1f, m_material.heightScale,
+	form->Row<ui::Slider>(FormRow(1.9f), loc::Tr("newasset.height"), 0.0f, 0.1f,
+						  m_material.heightScale,
 						  [this](float v) { m_material.heightScale = v; });
-	m_ui->Add<ui::ColorPicker>(gfx::Rect{0.18f, 0.67f, 0.30f, 0.042f},
-							   loc::Tr("newasset.color"), m_material.baseColor,
+	form->Row<ui::ColorPicker>(FormRow(), loc::Tr("newasset.color"),
+							   m_material.baseColor,
 							   [this](const Vec4& c) { m_material.baseColor = c; });
+	form->Space(ui::Len::Fill()); // the rows sit at the top of the column
 
-	m_ui->Add<ui::Button>(gfx::Rect{0.18f, 0.79f, 0.14f, 0.05f},
-						  loc::Tr("newasset.create"), [this] {
+	// Why Create is refused (or the last bake failure). Its text is rewritten
+	// every frame in Update: the reason depends on what is typed, which does not
+	// rebuild the tree.
+	m_problemLabel = chrome.footer->Row<ui::Label>(ui::Len::Fill(), "");
+	m_problemLabel->centerV = true;
+	chrome.footer->Row<ui::Button>(FooterButton(), loc::Tr("newasset.create"), [this] {
 							  if (!Validate().empty()) return; // the label says why
 							  CreateRequest req;
 							  req.category = m_category;
@@ -258,9 +292,33 @@ void AssetDialog::Rebuild(const ui::Theme& theme) {
 							  // sources are done the moment the catalog is written.
 							  if (!m_busy) Close();
 						  });
-	// Close (= cancel) is the top-right corner box now, not a footer button.
-	ui::AddCloseButton(*m_ui, gfx::Rect{0.14f, 0.09f, 0.72f, 0.82f},
-					   m_closeIcon, [this] { Close(); });
+
+	// Right column: the preview, then what the import found in the folder — one
+	// row per recognised map, with the loud cases (no albedo = can't import; no
+	// height = flat parallax) called out. They used to be drawn from a y cursor
+	// running down from the pane's bottom edge, off the end of the panel if the
+	// list ever grew.
+	m_pane = right->Row<PreviewPane>(ui::Len::Fill());
+	m_pane->border = true;
+	if (m_source == Source::Import && m_textureSet && !m_sourcePath.empty()) {
+		const auto row = [&](const char* labelKey, const std::string& path, bool warn) {
+			const std::string name =
+				path.empty() ? loc::Tr("newasset.map.missing")
+							 : std::filesystem::path(path).filename().string();
+			ui::Label* l =
+				right->Row<ui::Label>(FormRow(0.8f), loc::Tr(labelKey) + ": " + name);
+			l->dim = path.empty() && !warn;
+			l->accent = path.empty() && warn;
+		};
+		row("newasset.map.albedo", m_found.albedo, true);
+		row("newasset.map.normal", m_found.normal, false);
+		row("newasset.map.height", m_found.height, true);
+		row("newasset.map.rough", m_found.roughness, false);
+		row("newasset.map.ao", m_found.ao, false);
+		if (m_found.height.empty())
+			right->Row<ui::Label>(FormRow(0.8f), loc::Tr("newasset.warn.noheight"))
+				->accent = true;
+	}
 }
 
 void AssetDialog::Browse() {
@@ -380,6 +438,13 @@ void AssetDialog::Update(const Input& input, float width, float height, float dt
 	}
 	if (m_busy) return; // a bake is running — ignore form input until it finishes
 	m_ui->Update(input, width, height);
+	// The refusal reason follows what is TYPED, which does not rebuild the tree.
+	if (m_problemLabel) {
+		const std::string problem = m_error.empty() ? Validate() : m_error;
+		m_problemLabel->text = problem;
+		m_problemLabel->accent = !m_error.empty();
+		m_problemLabel->dim = m_error.empty();
+	}
 }
 
 void AssetDialog::Render(gfx::SpriteBatch& batch, float width, float height) {
@@ -387,49 +452,15 @@ void AssetDialog::Render(gfx::SpriteBatch& batch, float width, float height) {
 	const ui::Theme& th = m_ui->GetTheme();
 	batch.DrawRect({0, 0, width, height}, {0, 0, 0, 0.6f}); // dim the editor behind
 
-	const gfx::Rect panel{0.14f * width, 0.09f * height, 0.72f * width, 0.82f * height};
+	const gfx::Rect panel{kPanel.x * width, kPanel.y * height, kPanel.w * width,
+						  kPanel.h * height};
 	batch.DrawRect(panel, th.panel);
 	ui::DrawBorder(batch, panel, th.panelBorder);
-
-	// Preview pane backing (the owner blits the rendered model on top).
-	const gfx::Rect pv = PreviewRect(width, height);
-	batch.DrawRect(pv, {0.02f, 0.02f, 0.03f, 1.0f});
-	ui::DrawBorder(batch, pv, th.panelBorder);
-
+	// Title, form, preview pane, map report and footer are all widgets; the
+	// owner blits the rendered model into PreviewRect afterwards.
 	m_ui->Render(batch, width, height);
 
 	ui::Font& font = m_ui->GetFont();
-	const float lineH = font.Height() * 1.2f;
-
-	// What the import found, under the preview pane: one line per recognised
-	// map, and the loud cases (no albedo = can't import; no height = flat
-	// parallax) called out.
-	if (m_source == Source::Import && m_textureSet && !m_sourcePath.empty()) {
-		float y = pv.y + pv.h + lineH * 0.5f;
-		const auto row = [&](const char* labelKey, const std::string& path, bool warn) {
-			const std::string name =
-				path.empty() ? loc::Tr("newasset.map.missing")
-							 : std::filesystem::path(path).filename().string();
-			font.Draw(batch, loc::Tr(labelKey) + ": " + name, pv.x, y,
-					  path.empty() ? (warn ? th.accent : th.textDim) : th.text);
-			y += lineH;
-		};
-		row("newasset.map.albedo", m_found.albedo, true);
-		row("newasset.map.normal", m_found.normal, false);
-		row("newasset.map.height", m_found.height, true);
-		row("newasset.map.rough", m_found.roughness, false);
-		row("newasset.map.ao", m_found.ao, false);
-		if (m_found.height.empty()) {
-			font.Draw(batch, loc::Tr("newasset.warn.noheight"), pv.x, y, th.accent);
-			y += lineH;
-		}
-	}
-
-	// Why Create is refused (or the last bake failure), under the id field.
-	const std::string problem = m_error.empty() ? Validate() : m_error;
-	if (!problem.empty() && !m_busy)
-		font.Draw(batch, problem, 0.18f * width, 0.735f * height,
-				  m_error.empty() ? th.textDim : th.accent);
 
 	// While baking, freeze the form behind a notice (the owner runs AssetBaker).
 	if (m_busy) {
