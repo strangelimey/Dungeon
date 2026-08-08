@@ -22,12 +22,8 @@ namespace {
 // (a schema can run to a dozen rows; the tab pages scroll past that).
 constexpr gfx::Rect kPanel{0.26f, 0.12f, 0.48f, 0.76f};
 
-// Row metrics inside a tab page (fractions of the page). A row past 1.0 is what
-// makes the page scroll, so a long section simply runs on.
-constexpr float kRowX = 0.04f, kRowW = 0.92f;
-constexpr float kRowY0 = 0.03f, kRowH = 0.115f;
-// A Slider row: its label sits OVER its track, so it is about two rows tall.
-constexpr float kSliderRowH = 0.20f;
+// A field row's label column against its control column.
+constexpr float kLabelFill = 1.0f, kFieldFill = 1.5f;
 constexpr float kLabelW = 0.34f, kFieldX = 0.40f, kFieldW = 0.56f;
 
 // "1"/"0" the way the catalogs write booleans.
@@ -153,33 +149,41 @@ void TypeEditorDialog::BuildUI() {
 	for (const char* section : m_sections) m_tabs->AddTab(loc::Tr(section));
 	m_tabs->SetActiveTab(activeTab);
 
-	// One row per field, stacked within its section's page. The widget callbacks
-	// capture the spec BY POINTER: the schema is a static table (SchemaFor
-	// returns a span over one), so the row outlives every widget it built.
-	std::vector<float> nextY(m_sections.size(), kRowY0);
+	// One row per field, stacked within its section's page — a content-sized
+	// stack per tab (Game/DialogLayout.h TabStack), so a section is as long as
+	// its schema and the page scrolls. It used to step a y cursor by a guessed
+	// pitch, which every kind of row then had to agree with; a Slider needs two
+	// lines and laid its track across the row below.
+	std::vector<ui::Stack*> pages;
+	for (size_t i = 0; i < m_sections.size(); ++i)
+		pages.push_back(TabStack(*m_tabs, i));
+
+	// The widget callbacks capture the spec BY POINTER: the schema is a static
+	// table (SchemaFor returns a span over one), so the row outlives every
+	// widget it built.
 	for (const FieldSpec& spec : m_schema) {
 		const FieldSpec* s = &spec;
 		const auto it = std::find_if(m_sections.begin(), m_sections.end(),
 									 [&](const char* s) {
 										 return std::string_view(s) == spec.sectionKey;
 									 });
-		const size_t tab = static_cast<size_t>(it - m_sections.begin());
-		float& y = nextY[tab];
+		ui::Stack& page = *pages[static_cast<size_t>(it - m_sections.begin())];
 		const std::string label = PrettyFieldName(spec.key);
 		const std::string value = ValueOf(spec);
-		// How far the cursor moves after this row. A Slider stacks its label
-		// OVER its track, so it needs about twice the height of a one-line
-		// control — pitching every row the same put each slider's track across
-		// the row below it (the overlap audit's finding on the Look tab).
-		float rowH = kRowH;
+		// A labelled control: the name on the left, the control on the right.
+		auto labelled = [&](ui::Len rowLen) -> ui::Stack* {
+			ui::Stack* row = page.Row<ui::Stack>(rowLen, true);
+			row->gapRem = 0.5f;
+			row->Row<ui::Label>(ui::Len::Fill(kLabelFill), label)->centerV = true;
+			return row;
+		};
 
 		switch (spec.kind) {
 		case FieldKind::Bool: {
 			const bool on = value == "1" || value == "true";
-			m_tabs->AddChild<ui::Checkbox>(tab, gfx::Rect{kRowX, y, kRowW, kRowH * 0.62f},
-										   label, on, [this, s](bool checked) {
-											   SetValue(*s, BoolText(checked));
-										   });
+			page.Row<ui::Checkbox>(FormRow(), label, on, [this, s](bool checked) {
+				SetValue(*s, BoolText(checked));
+			});
 			break;
 		}
 		case FieldKind::Float: {
@@ -189,43 +193,37 @@ void TypeEditorDialog::BuildUI() {
 			// a checkbox instead, and a set one gets an "x" to unset it again.
 			const bool optional = !*spec.def;
 			if (optional && value.empty()) {
-				m_tabs->AddChild<ui::Checkbox>(
-					tab, gfx::Rect{kRowX, y, kRowW, kRowH * 0.62f},
-					label + loc::Tr("map.type.frommap"), true, [this, s](bool on) {
-						if (on) return; // already unset
-						SetValue(*s, *s->neutral ? s->neutral : "0");
-						m_uiRebuild = true; // the row becomes a slider
-					});
+				page.Row<ui::Checkbox>(FormRow(), label + loc::Tr("map.type.frommap"),
+									   true, [this, s](bool on) {
+										   if (on) return; // already unset
+										   SetValue(*s, *s->neutral ? s->neutral : "0");
+										   m_uiRebuild = true; // becomes a slider
+									   });
 				break;
 			}
 			float v = spec.lo;
 			std::from_chars(value.data(), value.data() + value.size(), v);
-			const float sliderW = optional ? kRowW - 0.06f : kRowW;
-			rowH = kSliderRowH; // label over track — see the note above
-			m_tabs->AddChild<ui::Slider>(tab,
-										 gfx::Rect{kRowX, y, sliderW, kSliderRowH * 0.9f},
-										 label, spec.lo, spec.hi, v,
-										 [this, s](float f) {
-											 // Snap to the field's granularity so the
-											 // catalog keeps authored-looking numbers.
-											 const float step = s->step > 0.0f ? s->step : 0.001f;
-											 const float snapped = std::round(f / step) * step;
-											 SetValue(*s, std::format("{:g}", snapped));
-										 });
+			// A Slider stacks its label OVER its track, so it asks for two lines.
+			ui::Stack* row = page.Row<ui::Stack>(FormRow(1.9f), true);
+			row->gapRem = 0.4f;
+			row->Row<ui::Slider>(ui::Len::Fill(), label, spec.lo, spec.hi, v,
+								 [this, s](float f) {
+									 // Snap to the field's granularity so the
+									 // catalog keeps authored-looking numbers.
+									 const float step = s->step > 0.0f ? s->step : 0.001f;
+									 const float snapped = std::round(f / step) * step;
+									 SetValue(*s, std::format("{:g}", snapped));
+								 });
 			if (optional)
-				m_tabs->AddChild<ui::Button>(
-					tab, gfx::Rect{kRowX + sliderW + 0.01f, y, 0.05f, kRowH * 0.55f},
-					"x", [this, s] {
-						SetValue(*s, ""); // empty = the writer REMOVES the field
-						m_uiRebuild = true;
-					});
+				row->Row<ui::Button>(FooterButton(0.35f), "x", [this, s] {
+					SetValue(*s, ""); // empty = the writer REMOVES the field
+					m_uiRebuild = true;
+				});
 			break;
 		}
 		case FieldKind::Text: {
-			m_tabs->AddChild<ui::Label>(tab, gfx::Rect{kRowX, y, kLabelW, kRowH * 0.55f},
-										label);
-			auto* field = m_tabs->AddChild<ui::TextField>(
-				tab, gfx::Rect{kFieldX, y, kFieldW, kRowH * 0.55f}, value);
+			auto* field =
+				labelled(FormRow())->Row<ui::TextField>(ui::Len::Fill(kFieldFill), value);
 			field->maxLength = 64;
 			ui::TextField* raw = field;
 			field->onChange = [this, raw, s] { SetValue(*s, raw->text); };
@@ -237,11 +235,9 @@ void TypeEditorDialog::BuildUI() {
 			// names, so the row is a button that opens the asset picker (its
 			// grid shows the texture itself, its resolutions and its maps). The
 			// button reads as the current value, "(none)" when unset.
-			m_tabs->AddChild<ui::Label>(tab, gfx::Rect{kRowX, y, kLabelW, kRowH * 0.55f},
-										label);
 			const bool textures = spec.kind == FieldKind::TextureSet;
-			m_tabs->AddChild<ui::Button>(
-				tab, gfx::Rect{kFieldX, y, kFieldW, kRowH * 0.55f},
+			labelled(FormRow())->Row<ui::Button>(
+				ui::Len::Fill(kFieldFill),
 				value.empty() ? loc::Tr("map.type.none") : value,
 				[this, s, textures] {
 					// The picker is modal over this dialog; the owner routes it
@@ -279,10 +275,8 @@ void TypeEditorDialog::BuildUI() {
 					sel = static_cast<int>(i) + (nullable ? 1 : 0);
 					break;
 				}
-			m_tabs->AddChild<ui::Label>(tab, gfx::Rect{kRowX, y, kLabelW, kRowH * 0.55f},
-										label);
-			m_tabs->AddChild<ui::DropDown>(
-				tab, gfx::Rect{kFieldX, y, kFieldW, kRowH * 0.55f}, items, sel,
+			labelled(FormRow())->Row<ui::DropDown>(
+				ui::Len::Fill(kFieldFill), items, sel,
 				[this, s, values, nullable](int i) {
 					const int v = nullable ? i - 1 : i;
 					SetValue(*s, v >= 0 && v < static_cast<int>(values.size())
@@ -292,7 +286,6 @@ void TypeEditorDialog::BuildUI() {
 			break;
 		}
 		}
-		y += rowH;
 	}
 
 	// A refusal (a rename collision, a type still in use) or the delete arming

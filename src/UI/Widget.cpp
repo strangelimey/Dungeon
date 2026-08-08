@@ -42,6 +42,7 @@ ScopedClip::~ScopedClip() {
 void Widget::Layout(const gfx::Rect& container, UIContext& ctx,
 					std::optional<FontRole> inheritedRole,
 					float inheritedScale) {
+	m_container = container;
 	m_pixel = {container.x + bounds.x * container.w,
 			   container.y + bounds.y * container.h, bounds.w * container.w,
 			   bounds.h * container.h};

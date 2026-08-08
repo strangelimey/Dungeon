@@ -200,6 +200,12 @@ protected:
 	// clamps a scroll offset, or assigns its children's bounds by index.
 	virtual void LayoutSelf(UIContext&) {}
 
+	// The rect this widget's `bounds` were resolved against — its parent's
+	// ContentRect, from the most recent Layout. A container that sizes ITSELF
+	// from its content needs it: `bounds` is a fraction, so writing a measured
+	// height back means dividing by the height it was a fraction OF.
+	const gfx::Rect& ContainerRect() const { return m_container; }
+
 	// Lets a container skip a child in every pass (scrolled out of a page,
 	// past a repeater's live count) without touching the child's own `visible`.
 	virtual bool ChildActive(const Widget&) const { return true; }
@@ -212,6 +218,7 @@ protected:
 
 private:
 	gfx::Rect m_pixel{};
+	gfx::Rect m_container{}; // what bounds resolved against (ContainerRect)
 	float m_rem = 16.0f; // context root font size, refreshed every Layout
 	float m_em = 16.0f;  // THIS widget's font size, ditto
 	// Resolved every Layout, so it is valid for the Update/Draw that follow.

@@ -76,6 +76,15 @@ ui::Len FooterButton(float widths) {
 	return ui::Len::Fixed(kFooterBtn * widths);
 }
 
+ui::Stack* TabStack(ui::TabControl& tabs, size_t tab) {
+	ui::Stack* stack = tabs.AddChild<ui::Stack>(tab, gfx::Rect{0, 0, 1, 1});
+	stack->debugName = "rows";
+	stack->fitContent = true;
+	stack->padRem = 0.5f;
+	stack->gapRem = 0.5f;
+	return stack;
+}
+
 DialogChrome BuildDialogChrome(ui::UIContext& ui, const gfx::Rect& panel,
 							   const std::string& title,
 							   const gfx::Texture* closeIcon,

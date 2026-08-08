@@ -86,6 +86,17 @@ public:
 	float gapRem = 0.0f; // space between rows
 	float padRem = 0.0f; // inset around the whole stack
 
+	// Sizes the stack to its ROWS instead of fitting them into a given box —
+	// for the inside of a scrolling page, where the content is as long as it is
+	// and the container is a window onto it. The stack writes its measured
+	// extent back into `bounds` (a fraction of its container), which is what a
+	// ScrollArea reads to decide how far it scrolls, and lays its children out
+	// against that extent rather than its own rect.
+	//
+	// Fill rows are meaningless here — there is no leftover to share, because
+	// the extent IS the sum of the fixed rows — and are treated as zero.
+	bool fitContent = false;
+
 	gfx::Rect ContentRect() const override;
 
 protected:
@@ -93,6 +104,11 @@ protected:
 
 private:
 	std::vector<Len> m_lens; // parallel to Children(), by add order
+	// fitContent: the measured extent along the stacking axis, in pixels.
+	// ContentRect hands this back rather than the pixel rect, so the children
+	// are placed correctly on the SAME frame the measurement is taken — only
+	// `bounds` (and therefore the scroll range) catches up on the next one.
+	float m_fitExtent = 0.0f;
 };
 
 } // namespace dungeon::ui

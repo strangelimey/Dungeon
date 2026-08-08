@@ -113,4 +113,12 @@ ui::Len FormRow(float lines = 1.0f);
 // that needs it ("Animation..." beside "Save").
 ui::Len FooterButton(float widths = 1.0f);
 
+// The stack a TabControl page's rows go in. CONTENT-SIZED (UI/Layout.h
+// fitContent): a tab page is a window onto its rows, not a box they have to fit
+// in, so the stack measures itself and the page scrolls when the rows outrun
+// it. Rows are added with Row() as anywhere else, which is the point — a
+// schema-driven form no longer steps a y cursor by a guessed row pitch, and a
+// row that needs two lines just says so.
+ui::Stack* TabStack(ui::TabControl& tabs, size_t tab);
+
 } // namespace dungeon::game

@@ -123,61 +123,53 @@ void MonsterConfigDialog::BuildUI() {
 }
 
 void MonsterConfigDialog::BuildBehaviorTab(size_t tab) {
+	// A content-sized stack per tab (Game/DialogLayout.h): the rows that exist
+	// depend on the archetype, and a cursor stepped by hand had to know each
+	// row's height twice — once to place it and once to advance past it.
+	ui::Stack* rows = TabStack(*m_tabs, tab);
+
 	std::vector<std::string> archItems;
 	for (const char* k : kArchKeys) archItems.push_back(loc::Tr("archetype." + std::string(k)));
+	rows->Row<ui::Label>(FormRow(), loc::Tr("map.cfg.archetype"))->centerV = true;
+	rows->Row<ui::DropDown>(FormRow(), archItems,
+							static_cast<int>(m_cfg.archetype), [this](int i) {
+								m_cfg.archetype = static_cast<ai::Archetype>(i);
+								Apply();
+								m_rebuild = true; // dependent fields change
+							});
 
-	m_tabs->AddChild<ui::Label>(tab, gfx::Rect{0.05f, 0.04f, 0.9f, 0.06f},
-								loc::Tr("map.cfg.archetype"));
-	m_tabs->AddChild<ui::DropDown>(tab, gfx::Rect{0.05f, 0.11f, 0.62f, 0.08f}, archItems,
-								   static_cast<int>(m_cfg.archetype), [this](int i) {
-									   m_cfg.archetype = static_cast<ai::Archetype>(i);
-									   Apply();
-									   m_rebuild = true; // dependent fields change
-								   });
-
-	float y = 0.24f;
 	const bool kites = m_cfg.archetype == ai::Archetype::Skirmisher ||
 					   m_cfg.archetype == ai::Archetype::Caster;
-	if (kites) {
-		m_tabs->AddChild<ui::Slider>(tab, gfx::Rect{0.05f, y, 0.9f, 0.10f},
-									 loc::Tr("map.cfg.keeprange"), 1.0f, 10.0f,
-									 m_cfg.keepRange, [this](float v) {
-										 m_cfg.keepRange = v;
-										 Apply();
-									 });
-		y += 0.15f;
-	}
+	if (kites)
+		rows->Row<ui::Slider>(FormRow(1.9f), loc::Tr("map.cfg.keeprange"), 1.0f,
+							  10.0f, m_cfg.keepRange, [this](float v) {
+								  m_cfg.keepRange = v;
+								  Apply();
+							  });
 	// Flee threshold applies to any archetype (0 = never).
-	m_tabs->AddChild<ui::Slider>(tab, gfx::Rect{0.05f, y, 0.9f, 0.10f},
-								 loc::Tr("map.cfg.fleebelow"), 0.0f, 1.0f, m_cfg.fleeBelow,
-								 [this](float v) {
-									 m_cfg.fleeBelow = v;
-									 Apply();
-								 });
-	y += 0.17f;
+	rows->Row<ui::Slider>(FormRow(1.9f), loc::Tr("map.cfg.fleebelow"), 0.0f, 1.0f,
+						  m_cfg.fleeBelow, [this](float v) {
+							  m_cfg.fleeBelow = v;
+							  Apply();
+						  });
 	if (m_cfg.archetype == ai::Archetype::Caster) {
-		m_tabs->AddChild<ui::Label>(tab, gfx::Rect{0.05f, y, 0.9f, 0.06f},
-									loc::Tr("map.cfg.spell"));
-		y += 0.07f;
+		rows->Row<ui::Label>(FormRow(), loc::Tr("map.cfg.spell"))->centerV = true;
 		int sel = 0;
 		for (size_t i = 0; i < m_spellIds.size(); ++i)
 			if (m_spellIds[i] == m_cfg.spell) { sel = static_cast<int>(i); break; }
 		std::vector<std::string> items = m_spellIds;
 		if (items.empty()) items.push_back(loc::Tr("map.cfg.nospells"));
-		m_tabs->AddChild<ui::DropDown>(tab, gfx::Rect{0.05f, y, 0.62f, 0.08f}, items, sel,
-									   [this](int i) {
-										   if (i >= 0 && i < static_cast<int>(m_spellIds.size()))
-											   m_cfg.spell = m_spellIds[i];
-										   Apply();
-									   });
-		y += 0.13f;
+		rows->Row<ui::DropDown>(FormRow(), items, sel, [this](int i) {
+			if (i >= 0 && i < static_cast<int>(m_spellIds.size()))
+				m_cfg.spell = m_spellIds[i];
+			Apply();
+		});
 	}
 
 	// Per-type THREAT multipliers (× the balance.cat globals; 1 = unchanged) —
 	// this kind's targeting personality. Rows past the tab bottom scroll.
-	m_tabs->AddChild<ui::Label>(tab, gfx::Rect{0.05f, y, 0.9f, 0.06f},
-								loc::Tr("map.cfg.threat"));
-	y += 0.08f;
+	rows->Row<ui::Separator>(ui::Len::Fixed(0.6f));
+	rows->Row<ui::Label>(FormRow(), loc::Tr("map.cfg.threat"))->centerV = true;
 	struct ThreatRow {
 		const char* key;
 		float ThreatTuning::*field;
@@ -188,81 +180,94 @@ void MonsterConfigDialog::BuildBehaviorTab(size_t tab) {
 		{"map.cfg.threat_switch", &ThreatTuning::switchMargin},
 		{"map.cfg.threat_decay", &ThreatTuning::decay},
 	};
-	for (const ThreatRow& r : kThreatRows) {
-		m_tabs->AddChild<ui::Slider>(
-			tab, gfx::Rect{0.05f, y, 0.9f, 0.10f}, loc::Tr(r.key), 0.0f, 3.0f,
-			m_cfg.threat.*(r.field), [this, f = r.field](float v) {
-				m_cfg.threat.*f = v;
-				Apply();
-			});
-		y += 0.135f;
-	}
+	for (const ThreatRow& r : kThreatRows)
+		rows->Row<ui::Slider>(FormRow(1.9f), loc::Tr(r.key), 0.0f, 3.0f,
+							  m_cfg.threat.*(r.field), [this, f = r.field](float v) {
+								  m_cfg.threat.*f = v;
+								  Apply();
+							  });
 }
 
 void MonsterConfigDialog::BuildAnimationTab(size_t tab) {
-	constexpr float rowH = 0.062f, top = 0.09f;
-	m_tabs->AddChild<ui::Label>(tab, gfx::Rect{0.02f, 0.01f, 0.32f, 0.06f},
-								loc::Tr("map.cfg.states"));
-	m_tabs->AddChild<ui::Label>(
-		tab, gfx::Rect{0.37f, 0.01f, 0.6f, 0.06f},
-		loc::Format("map.cfg.anims",
-					StateLabel(static_cast<anim::CreatureState>(m_selState))));
+	// Two columns — the creature's states on the left, the selected state's
+	// clips on the right — laid out as ONE table of rows rather than two
+	// independent y cursors that happened to share a pitch. A row holds
+	// whichever cells still exist at its index, so the columns stay aligned
+	// however differently long they are.
+	constexpr float kStateFill = 1.0f, kClipFill = 2.0f;
+	ui::Stack* rows = TabStack(*m_tabs, tab);
 
-	// State column: a Button spans the row (click = pick this state's clips), with a
-	// Checkbox box at the right for its supported flag (added after, so it wins its
-	// area). Idle is the rest floor — always supported, no toggle.
-	for (int i = 0; i < N; ++i) {
-		const auto s = static_cast<anim::CreatureState>(i);
-		const float y = top + i * rowH;
-		auto* btn = m_tabs->AddChild<ui::Button>(
-			tab, gfx::Rect{0.02f, y, 0.24f, rowH * 0.9f}, StateLabel(s), [this, i] {
-				if (m_selState != i) {
-					m_selState = i;
-					m_selClip = FirstClipOf(i);
-					m_rebuild = true;
-				}
-			});
-		btn->active = (i == m_selState);
-		if (i != static_cast<int>(anim::CreatureState::Idle)) {
-			m_tabs->AddChild<ui::Checkbox>(tab, gfx::Rect{0.27f, y, 0.06f, rowH * 0.9f}, "",
-										   m_cfg.supported[i], [this, i](bool on) {
-											   m_cfg.supported[i] = on;
-											   Apply();
-										   });
-		}
-	}
+	ui::Stack* header = rows->Row<ui::Stack>(FormRow(), true);
+	header->gapRem = 0.5f;
+	header->Row<ui::Label>(ui::Len::Fill(kStateFill), loc::Tr("map.cfg.states"))
+		->centerV = true;
+	header->Row<ui::Label>(
+			  ui::Len::Fill(kClipFill),
+			  loc::Format("map.cfg.anims",
+						  StateLabel(static_cast<anim::CreatureState>(m_selState))))
+		->centerV = true;
 
-	// Clip column for the selected state (name-encoded or already assigned). Rows
-	// past the tab bottom scroll (TabControl handles it). Empty = a hint label.
+	// The clips of the selected state (name-encoded, or already assigned).
 	std::vector<int> clips;
 	for (int i = 0; i < static_cast<int>(m_modelClips.size()); ++i)
 		if (ClipBelongs(m_modelClips[i], m_selState)) clips.push_back(i);
-	if (clips.empty()) {
-		m_tabs->AddChild<ui::Label>(tab, gfx::Rect{0.37f, top, 0.6f, rowH},
-									loc::Tr("map.cfg.noclips"));
-		return;
-	}
+
 	const auto& vec = m_cfg.clips[m_selState];
-	for (size_t r = 0; r < clips.size(); ++r) {
+	const size_t count = std::max<size_t>(N, clips.size());
+	for (size_t r = 0; r < count; ++r) {
+		ui::Stack* row = rows->Row<ui::Stack>(FormRow(1.1f), true);
+		row->gapRem = 0.5f;
+
+		// State cell: a Button spanning the cell (click = pick this state's
+		// clips) with its supported flag beside it. Idle is the rest floor —
+		// always supported, so it has no toggle.
+		ui::Stack* state = row->Row<ui::Stack>(ui::Len::Fill(kStateFill), true);
+		if (r < static_cast<size_t>(N)) {
+			const int i = static_cast<int>(r);
+			auto* btn = state->Row<ui::Button>(
+				ui::Len::Fill(),
+				StateLabel(static_cast<anim::CreatureState>(i)), [this, i] {
+					if (m_selState != i) {
+						m_selState = i;
+						m_selClip = FirstClipOf(i);
+						m_rebuild = true;
+					}
+				});
+			btn->active = (i == m_selState);
+			if (i != static_cast<int>(anim::CreatureState::Idle))
+				state->Row<ui::Checkbox>(FooterButton(0.35f), "", m_cfg.supported[i],
+										 [this, i](bool on) {
+											 m_cfg.supported[i] = on;
+											 Apply();
+										 });
+			else
+				state->Space(FooterButton(0.35f)); // keep the column aligned
+		}
+
+		// Clip cell, or the "no clips" hint on the first row when there are none.
+		ui::Stack* clip = row->Row<ui::Stack>(ui::Len::Fill(kClipFill), true);
+		if (clips.empty()) {
+			if (r == 0)
+				clip->Row<ui::Label>(ui::Len::Fill(), loc::Tr("map.cfg.noclips"))
+					->centerV = true;
+			continue;
+		}
+		if (r >= clips.size()) continue;
 		const std::string name = m_modelClips[clips[r]]; // full <state>__<clip>
-		const float y = top + r * rowH;
-		auto* btn = m_tabs->AddChild<ui::Button>(
-			tab, gfx::Rect{0.37f, y, 0.46f, rowH * 0.9f}, ClipLabel(name), [this, name] {
-				m_selClip = name; // select for preview
-			});
+		auto* btn = clip->Row<ui::Button>(ui::Len::Fill(), ClipLabel(name),
+										  [this, name] {
+											  m_selClip = name; // select for preview
+										  });
 		btn->active = (name == m_selClip);
 		const bool on = std::find(vec.begin(), vec.end(), name) != vec.end();
-		m_tabs->AddChild<ui::Checkbox>(tab, gfx::Rect{0.85f, y, 0.06f, rowH * 0.9f}, "", on,
-									   [this, name](bool checked) {
-										   auto& v = m_cfg.clips[m_selState];
-										   const auto it = std::find(v.begin(), v.end(), name);
-										   if (checked && it == v.end())
-											   v.push_back(name);
-										   else if (!checked && it != v.end())
-											   v.erase(it);
-										   m_selClip = name; // toggling also previews it
-										   Apply();
-									   });
+		clip->Row<ui::Checkbox>(FooterButton(0.35f), "", on, [this, name](bool checked) {
+			auto& v = m_cfg.clips[m_selState];
+			const auto it = std::find(v.begin(), v.end(), name);
+			if (checked && it == v.end()) v.push_back(name);
+			else if (!checked && it != v.end()) v.erase(it);
+			m_selClip = name; // toggling also previews it
+			Apply();
+		});
 	}
 }
 

@@ -12,8 +12,16 @@ namespace dungeon::ui {
 gfx::Rect Stack::ContentRect() const {
 	const gfx::Rect& px = Pixel();
 	const float p = Rem(padRem);
-	return {px.x + p, px.y + p, std::max(px.w - 2 * p, 0.0f),
-			std::max(px.h - 2 * p, 0.0f)};
+	gfx::Rect content{px.x + p, px.y + p, std::max(px.w - 2 * p, 0.0f),
+					  std::max(px.h - 2 * p, 0.0f)};
+	// Content-sized: hand back the MEASURED extent, so the rows land correctly
+	// on the frame they were measured on. The pixel rect gets there next frame,
+	// once the parent has read the bounds this wrote.
+	if (fitContent) {
+		if (horizontal) content.w = m_fitExtent;
+		else content.h = m_fitExtent;
+	}
+	return content;
 }
 
 void Stack::LayoutSelf(UIContext&) {
@@ -22,13 +30,10 @@ void Stack::LayoutSelf(UIContext&) {
 	// is known. That is the whole point: the rows are sized in type, at the size
 	// the type will actually be drawn at, rather than in fractions guessed when
 	// the dialog was written.
-	const gfx::Rect content = ContentRect();
-	const float span = horizontal ? content.w : content.h;
-	if (span <= 0.0f) return;
-
 	const auto& kids = Children();
 	const size_t n = std::min(kids.size(), m_lens.size());
 	const float gap = Rem(gapRem);
+	const float pad = Rem(padRem);
 
 	// Fixed rows take their rem; the fills divide what is left. An invisible row
 	// takes no room at all — a stack with an optional row closes over it rather
@@ -42,6 +47,23 @@ void Stack::LayoutSelf(UIContext&) {
 		fills += m_lens[i].fill;
 	}
 	const float gaps = shown > 1 ? gap * static_cast<float>(shown - 1) : 0.0f;
+
+	// Content-sized: the extent is what the rows add up to, and it goes back
+	// into `bounds` so the container (a ScrollArea) knows how far to scroll.
+	if (fitContent) {
+		m_fitExtent = fixed + gaps;
+		const gfx::Rect& box = ContainerRect();
+		const float axis = horizontal ? box.w : box.h;
+		if (axis > 0.0f) {
+			const float frac = (m_fitExtent + 2 * pad) / axis;
+			if (horizontal) bounds.w = frac;
+			else bounds.h = frac;
+		}
+	}
+
+	const gfx::Rect content = ContentRect();
+	const float span = horizontal ? content.w : content.h;
+	if (span <= 0.0f) return;
 	const float free = std::max(span - fixed - gaps, 0.0f);
 	// A stack whose FIXED rows want more than it has: shrink them all to fit
 	// rather than letting the tail run out of the box. Overflowing is the one
@@ -50,8 +72,11 @@ void Stack::LayoutSelf(UIContext&) {
 	// under its own settings rows), and no sibling check can see it because the
 	// colliding pair are not siblings. Squeezed rows look wrong; overrunning
 	// ones look broken and hide their cause.
+	// (A content-sized stack never squeezes: its span IS the sum of its rows.)
 	const float squeeze =
-		fixed > 0.0f ? std::min(1.0f, std::max(span - gaps, 0.0f) / fixed) : 1.0f;
+		fitContent || fixed <= 0.0f
+			? 1.0f
+			: std::min(1.0f, std::max(span - gaps, 0.0f) / fixed);
 
 	// Bounds are fractions of ContentRect, since that is what the walk resolves
 	// the children against.

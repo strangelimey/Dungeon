@@ -20,14 +20,16 @@ namespace {
 // inside it is stacked (Game/DialogLayout.h).
 constexpr gfx::Rect kPanel{0.24f, 0.08f, 0.52f, 0.84f};
 
+// A row's label column against its value column.
+constexpr float kLabelFill = 1.3f, kFieldFill = 1.0f;
+
 // A numeric text field: shows `value` ({:g}), and while edited writes every
 // PARSEABLE state back through `commit` (a live apply). An unparseable
 // in-progress state ("", "-", "0.") just waits — the knob keeps its last
 // valid value until the text reads as a number again.
-void AddNumericField(ui::TabControl* tabs, size_t tab, const gfx::Rect& r,
-					 float value, std::function<void(float)> commit) {
-	auto* field =
-		tabs->AddChild<ui::TextField>(tab, r, std::format("{:g}", value));
+void AddNumericField(ui::Stack& row, ui::Len len, float value,
+					 std::function<void(float)> commit) {
+	auto* field = row.Row<ui::TextField>(len, std::format("{:g}", value));
 	// Mono: these are the tuning TABLES, read down a column. A proportional
 	// face gives every digit a different width, so the numbers will not line up
 	// with each other however the rows are placed.
@@ -84,57 +86,58 @@ void BalanceDialog::BuildUI() {
 }
 
 void BalanceDialog::BuildFormulaTab(size_t tab) {
-	// One row per knob, straight from the fields table (a new knob in
-	// Balance.h shows up here with no dialog change). Labels are the raw
-	// balance.cat keys — WYSIWYG with the file. Rows past the tab bottom
-	// scroll (TabControl's per-tab scrollbar).
-	// The row pitch has to clear the TEXT: these labels draw at
-	// ui::kDialogTextScale, and at 0.062 of the page they were pitched 29px
-	// apart around 40px type — every row sat on the one below it, which the
-	// overlap audit reported once it could see inside a tab page.
-	constexpr float rowH = 0.10f, top = 0.03f;
-	int row = 0;
+	// One row per knob, straight from the fields table (a new knob in Balance.h
+	// shows up here with no dialog change). Labels are the raw balance.cat keys
+	// — WYSIWYG with the file. The stack is content-sized, so the list is as
+	// long as the table and the page scrolls; the pitch used to be a fraction
+	// of the page (0.062 = 29px around 40px type, every row on the one below).
+	ui::Stack* rows = TabStack(*m_tabs, tab);
 	for (const BalanceField& f : BalanceFields()) {
-		const float y = top + row * rowH;
-		m_tabs->AddChild<ui::Label>(tab, gfx::Rect{0.05f, y, 0.5f, rowH * 0.85f},
-									f.key);
-		AddNumericField(m_tabs, tab, gfx::Rect{0.58f, y, 0.3f, rowH * 0.85f},
-						m_cfg.*(f.value), [this, &f](float v) {
+		ui::Stack* row = rows->Row<ui::Stack>(FormRow(), true);
+		row->gapRem = 0.5f;
+		row->Row<ui::Label>(ui::Len::Fill(kLabelFill), f.key)->centerV = true;
+		AddNumericField(*row, ui::Len::Fill(kFieldFill), m_cfg.*(f.value),
+						[this, &f](float v) {
 							m_cfg.*(f.value) = v;
 							Apply();
 						});
-		++row;
 	}
 }
 
 void BalanceDialog::BuildAttacksTab(size_t tab) {
-	// Header row (raw attacks.cat keys), then one row per attack: id + its
-	// damage type (identity, read-only) and the four numeric fields.
-	constexpr float rowH = 0.105f, top = 0.03f; // clears the text — see above
-	constexpr float colW = 0.155f;
-	constexpr float colX[4] = {0.26f, 0.435f, 0.61f, 0.785f};
+	// A table: a header row (raw attacks.cat keys), then one row per attack —
+	// id + damage type (identity, read-only) and the four numeric fields. Every
+	// row is the same horizontal stack, so the columns line up by construction
+	// instead of by four x constants agreeing with each other.
+	constexpr float kIdFill = 1.1f, kTypeFill = 0.9f, kNumFill = 1.0f;
+	ui::Stack* rows = TabStack(*m_tabs, tab);
+
+	ui::Stack* header = rows->Row<ui::Stack>(FormRow(), true);
+	header->gapRem = 0.4f;
+	header->Space(ui::Len::Fill(kIdFill + kTypeFill));
+	for (const char* h : {"damage", "accuracy", "speed", "stamina"})
+		header->Row<ui::Label>(ui::Len::Fill(kNumFill), h)->centerV = true;
 	// "?" — the column explainer overlay (what the four numbers do).
-	m_tabs->AddChild<ui::Button>(tab, gfx::Rect{0.95f, top, 0.045f, rowH * 0.85f},
-								 "?", [this] { m_helpOpen = true; });
-	const char* headers[4] = {"damage", "accuracy", "speed", "stamina"};
-	for (int c = 0; c < 4; ++c)
-		m_tabs->AddChild<ui::Label>(
-			tab, gfx::Rect{colX[c], top, colW, rowH * 0.8f}, headers[c]);
-	for (size_t i = 0; i < m_cfg.attacks.size(); ++i) {
-		AttackSpec& a = m_cfg.attacks[i];
-		const float y = top + (1 + static_cast<float>(i)) * rowH;
-		m_tabs->AddChild<ui::Label>(tab, gfx::Rect{0.02f, y, 0.13f, rowH * 0.85f},
-									a.id);
-		m_tabs->AddChild<ui::Label>(tab, gfx::Rect{0.15f, y, 0.10f, rowH * 0.85f},
-									DamageTypeId(a.type));
-		AddNumericField(m_tabs, tab, gfx::Rect{colX[0], y, colW, rowH * 0.85f},
-						a.dmg, [this, &a](float v) { a.dmg = v; Apply(); });
-		AddNumericField(m_tabs, tab, gfx::Rect{colX[1], y, colW, rowH * 0.85f},
-						a.acc, [this, &a](float v) { a.acc = v; Apply(); });
-		AddNumericField(m_tabs, tab, gfx::Rect{colX[2], y, colW, rowH * 0.85f},
-						a.pace, [this, &a](float v) { a.pace = v; Apply(); });
-		AddNumericField(m_tabs, tab, gfx::Rect{colX[3], y, colW, rowH * 0.85f},
-						a.stam, [this, &a](float v) { a.stam = v; Apply(); });
+	header->Row<ui::Button>(FooterButton(0.35f), "?", [this] { m_helpOpen = true; });
+
+	for (AttackSpec& a : m_cfg.attacks) {
+		ui::Stack* row = rows->Row<ui::Stack>(FormRow(), true);
+		row->gapRem = 0.4f;
+		row->Row<ui::Label>(ui::Len::Fill(kIdFill), a.id)->centerV = true;
+		ui::Label* type =
+			row->Row<ui::Label>(ui::Len::Fill(kTypeFill), DamageTypeId(a.type));
+		type->centerV = true;
+		type->dim = true;
+		AddNumericField(*row, ui::Len::Fill(kNumFill), a.dmg,
+						[this, &a](float v) { a.dmg = v; Apply(); });
+		AddNumericField(*row, ui::Len::Fill(kNumFill), a.acc,
+						[this, &a](float v) { a.acc = v; Apply(); });
+		AddNumericField(*row, ui::Len::Fill(kNumFill), a.pace,
+						[this, &a](float v) { a.pace = v; Apply(); });
+		AddNumericField(*row, ui::Len::Fill(kNumFill), a.stam,
+						[this, &a](float v) { a.stam = v; Apply(); });
+		// The header's "?" column keeps the numbers clear of the scrollbar.
+		row->Space(FooterButton(0.35f));
 	}
 }
 
