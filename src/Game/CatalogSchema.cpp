@@ -257,6 +257,43 @@ constexpr FieldSpec kDoorFields[] = {
 	{.key = "frame", .kind = FieldKind::CatalogRef, .sectionKey = kSectionRules,
 	 .help = "The surround this door hangs in — its own entry, so each type can pick a stone.",
 	 .options = "doors", .def = "door_frame"},
+	{.key = "opener", .kind = FieldKind::CatalogRef, .sectionKey = kSectionRules,
+	 .help = "The hand-hold on the jamb. EMPTY means none, and a door with none opens "
+			 "only to a button wired to its name.",
+	 .options = "doors"},
+	{.key = "opener_side", .kind = FieldKind::Enum, .sectionKey = kSectionRules,
+	 .help = "Which jamb the hand-hold hangs on. Either is free — the leaf's mortice "
+			 "runs inside the wall, not on its face.",
+	 .options = "left right", .def = "left"},
+	// `style` belongs to the OPENER entries rather than to the doors, but a
+	// schema is per CATALOG and openers live in this one — the shared-file cost
+	// of keeping a door and its parts together, the same as `hidden`.
+	// RESERVED for the sound phase: sound_open, sound_close, sound_locked.
+	{.key = "style", .kind = FieldKind::Enum, .sectionKey = kSectionRules,
+	 .help = "Opener entries only: how it moves when worked.",
+	 .options = "pad chain", .def = "pad"},
+	{.key = "mount", .kind = FieldKind::CatalogRef, .sectionKey = kSectionRules,
+	 .help = "Opener entries only: a STATIC part drawn with it but never moved — "
+			 "the socket a chain is drawn out of.",
+	 .options = "doors"},
+	{.key = "offset", .kind = FieldKind::Float, .sectionKey = kSectionRules,
+	 .help = "Opener entries only: how far out along the jamb it hangs, in squares "
+			 "from the door's centre (0.42 = centred on the jamb, 0.5 = the cell edge).",
+	 .lo = 0.30f, .hi = 0.49f, .step = 0.01f, .def = "0.42"},
+	// The two ENDS of this entry's motion, shaped independently — a leaf entry
+	// shapes the leaf, an opener entry shapes the opener. One pair of rows
+	// serves both because they are entries in the same catalog, and a heavy
+	// stone door wanting a slow start and a hard finish is exactly the case the
+	// pair exists for (ease_in = quart, ease_out = bounce).
+	{.key = "ease_in", .kind = FieldKind::Enum, .sectionKey = kSectionRules,
+	 .help = "How the motion STARTS — the shape it accelerates on.",
+	 .options = "linear quad cubic quart sine expo back elastic bounce",
+	 .def = "quad"},
+	{.key = "ease_out", .kind = FieldKind::Enum, .sectionKey = kSectionRules,
+	 .help = "How the motion ENDS — the shape it decelerates on. Bounce and elastic "
+			 "overshoot on purpose.",
+	 .options = "linear quad cubic quart sine expo back elastic bounce",
+	 .def = "quad"},
 };
 
 // --- stairs / pits ----------------------------------------------------------

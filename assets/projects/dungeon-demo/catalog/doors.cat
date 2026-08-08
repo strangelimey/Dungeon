@@ -10,6 +10,17 @@
 ;                 (a wooden door's iron straps cannot be iron in a wood-textured
 ;                 mesh — the import path binds one set per model)
 ;   frame         which surround it hangs in; see the frames section below
+;   opener        the hand-hold on the jamb; see the openers section. EMPTY
+;                 means NONE, and a door with none cannot be opened by the
+;                 party at all — only by a button wired to its name
+;   opener_side   left | right — which jamb the hand-hold hangs on
+;   ease_in       how the motion STARTS: the shape it accelerates on
+;   ease_out      how it ENDS: the shape it decelerates on
+;
+; The two ends are chosen SEPARATELY, which is the point — a heavy stone slab
+; wants a slow start and a hard finish, and no single curve says that. Shapes:
+; linear quad cubic quart sine expo back elastic bounce. The same two fields on
+; an OPENER entry shape the opener instead, since both live in this catalog.
 
 [wooden_door]
 display = Wooden Door
@@ -22,7 +33,15 @@ travel = 0.4
 open_seconds = 0.8
 trim = door_band_half
 frame = door_frame_split
+opener = door_chain
 
+; NO `opener` ON PURPOSE: a portcullis is worked from a gatehouse, so this is
+; the demo of a door the party cannot touch — the lever at (10,3), or nothing.
+;
+; `sconce` rather than rusted_iron for the same reason the bands take it: a
+; portcullis is a run of narrow bars, and rusted_iron's sheet panels and seams
+; are far wider than a bar, so every bar would pick up a different piece of the
+; scan. Feature size has to be read against the thing wearing the texture.
 [portcullis]
 display = Portcullis
 category = door
@@ -32,6 +51,9 @@ authored = 0
 motion = rise
 travel = 1.0
 open_seconds = 1.4
+; Hauled up on a winch and dropped: laboured going up, and it lands.
+ease_in = cubic
+ease_out = bounce
 trim = door_band
 frame = door_frame_temple
 
@@ -44,8 +66,75 @@ authored = 0
 motion = slide
 travel = 0.75
 open_seconds = 2.0
+; Tonnes of stone: it takes a long time to get going and stops against its
+; stop, hard. This is the case the two-ended curve was built for.
+ease_in = quart
+ease_out = bounce
 trim = door_bosses
 frame = door_frame_granite
+opener = door_pad
+opener_side = right
+
+; --- openers ---------------------------------------------------------------
+; What a hand takes hold of. Named by a door type's `opener` (or overridden per
+; placement by the .ent record's opener= param, where opener=none means THIS
+; door has none whatever its type says).
+;
+; `style` picks the BEHAVIOUR — how it moves when worked — and everything else
+; here is look. So a new opener that presses or pulls like one of these is a
+; catalog block and nothing more; only a genuinely new MOVEMENT costs code.
+; Hidden: an opener is part of a door, never placed on its own.
+
+; Dungeon Master: a square wooden pad on the jamb. Two parts like the chain —
+; `mount` is the surround, bolted to the stone, and only the centre square
+; sinks. A button whose frame goes in with it reads as the whole fitting being
+; shoved into the wall rather than as something being pressed.
+[door_pad]
+display = Jamb Pad
+model = door_pad
+texture = wood_planks_old8
+style = pad
+mount = door_pad_mount
+authored = 0
+hidden = 1
+
+[door_pad_mount]
+display = Jamb Pad Surround
+model = door_pad_mount
+texture = wood_planks_old8
+authored = 0
+hidden = 1
+
+; Grimrock: a chain hanging beside the door, pulled to work it. `mount` names
+; the STATIC socket it runs out of — the chain slides up behind that boss, so
+; working it draws more chain into the room instead of sliding the whole thing
+; down the jamb. The two have to be separate models to move differently.
+;
+; `offset` puts it further out along the jamb than the 0.42 default, which is
+; the jamb's CENTRE and right for a flat pad. A chain is not flat: the jamb
+; stones stand prouder than it hangs, so at the centre it vanished behind them
+; as soon as the door was looked at from an angle.
+[door_chain]
+display = Chain
+model = door_chain
+texture = sconce
+style = chain
+mount = door_chain_socket
+offset = 0.465
+; Snatched down and let go: the yank starts hard, the climb settles softly.
+; The asymmetry in SPEED comes from the two durations in code; these shape the
+; feel within each.
+ease_in = expo
+ease_out = sine
+authored = 0
+hidden = 1
+
+[door_chain_socket]
+display = Chain Socket
+model = door_chain_socket
+texture = sconce
+authored = 0
+hidden = 1
 
 ; --- frames ----------------------------------------------------------------
 ; The surround a leaf hangs in, named by the door type's `frame` (defaulting to

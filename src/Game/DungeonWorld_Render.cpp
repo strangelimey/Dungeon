@@ -291,8 +291,10 @@ void DungeonWorld::SubmitSceneGeometry(ID3D12GraphicsCommandList* list,
 			m_renderer.DrawMesh(list, *kind->mesh, w, material);
 		};
 		draw(door.frame, base);
-		const float t = door.openT;
-		const float s = t * t * (3.0f - 2.0f * t); // smoothstep
+		// The leaf's travel, shaped by the type's own two-ended curve. This was
+		// a hardcoded smoothstep, which made every door move identically —
+		// the one thing a stone slab and a wooden door should not share.
+		const float s = Ease(door.ease, door.openT);
 		// All model-space (pre-scale), so distances are in UNITS.
 		auto leafPair = [&](const XMMATRIX& m) {
 			const XMMATRIX w = m * base;
@@ -322,6 +324,37 @@ void DungeonWorld::SubmitSceneGeometry(ID3D12GraphicsCommandList* list,
 		default: // Slide: sideways, burying the leaf in the flanking wall.
 			leafPair(XMMatrixTranslation(s * door.travel, 0, 0));
 			break;
+		}
+		// The opener, on BOTH faces — a door is walked through in both
+		// directions, and a hand-hold you can only see from one side is worse
+		// than none at all, since the party would be told to pull something
+		// invisible. Openers are authored +Z out of the wall like every other
+		// wall prop (the sconce convention), so the far copy takes a half turn.
+		if (door.opener) {
+			// THE PULL, shaped by the opener's own curve. The asymmetry a chain
+			// needs — snatched down, climbing back — comes from the two
+			// DURATIONS (kPullDownSeconds against kPullSeconds), so the curve is
+			// free to be about feel rather than about direction. The hand-coded
+			// smoothstep-down / square-root-back this replaced could only ever
+			// express one opener's character.
+			const float pull = Ease(door.openerEase, door.pullT);
+			const bool chain = door.openerStyle == OpenerStyle::Chain;
+			const XMMATRIX worked =
+				chain ? XMMatrixTranslation(0, -pull * kChainDrop, 0)
+					  : XMMatrixTranslation(0, 0, -pull * kPadPress);
+			for (const float face : {-1.0f, 1.0f}) {
+				const XMMATRIX at =
+					(face > 0 ? XMMatrixIdentity() : XMMatrixRotationY(XM_PI)) *
+					XMMatrixTranslation(door.openerX, kOpenerY,
+										face * kOpenerFaceZ) *
+					base;
+				// The socket does NOT move, which is the whole trick: the chain
+				// slides behind it, so the links still inside are hidden and the
+				// ones below appear to be drawn OUT of it. Move both together
+				// and the chain would just slide down the wall.
+				draw(door.openerMount, at);
+				draw(door.opener, worked * at);
+			}
 		}
 	}
 

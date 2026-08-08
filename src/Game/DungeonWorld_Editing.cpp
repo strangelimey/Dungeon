@@ -586,6 +586,17 @@ bool DungeonWorld::DoorwayFacing(const DungeonMap& map, int x, int z,
 	return true;
 }
 
+// A catalog entry's motion shaping. One helper because door types and opener
+// entries live in the SAME catalog and use the same two field names — a leaf
+// entry shapes the leaf, an opener entry shapes the opener.
+static EaseSpan EaseSpanOf(const CatalogEntry* def) {
+	EaseSpan span;
+	if (!def) return span;
+	span.in = EaseShapeFromName(def->Get("ease_in", ""), span.in);
+	span.out = EaseShapeFromName(def->Get("ease_out", ""), span.out);
+	return span;
+}
+
 void DungeonWorld::SpawnDoor(const Entity& record) {
 	Door door;
 	door.id = record.id;
@@ -621,9 +632,71 @@ void DungeonWorld::SpawnDoor(const Entity& record) {
 		if (const std::string f = def->Get("frame", ""); !f.empty()
 			&& m_project.doors.Contains(f))
 			frame = f;
+		door.ease = EaseSpanOf(def);
 	}
 	door.frame = &DecorationKindFor(frame, m_project.doors);
+	// The leaf's shaping, overridable per placement like the opener is.
+	if (const std::string* e = record.Param("ease_in"))
+		door.ease.in = EaseShapeFromName(*e, door.ease.in);
+	if (const std::string* e = record.Param("ease_out"))
+		door.ease.out = EaseShapeFromName(*e, door.ease.out);
+	const std::string* o = record.Param("opener");
+	const std::string* s = record.Param("opener_side");
+	ResolveDoorOpener(door, record.type, o ? *o : std::string(),
+					  s ? *s : std::string());
+	if (const std::string* e = record.Param("opener_ease_in"))
+		door.openerEase.in = EaseShapeFromName(*e, door.openerEase.in);
+	if (const std::string* e = record.Param("opener_ease_out"))
+		door.openerEase.out = EaseShapeFromName(*e, door.openerEase.out);
 	m_doors.push_back(std::move(door));
+}
+
+// The type's opener, then the placement's own say over it. Shared by SpawnDoor
+// and the inspector's edit, which is the point of pulling it out: the editor
+// changes the overrides without respawning, so both paths have to land on the
+// same resolution or an edited door would differ from the same door reloaded.
+//
+// THREE STATES, and the empty one is not the same as "none": an absent override
+// INHERITS the type, while "none" is this door saying it has no hand-hold
+// whatever its type carries. Collapsing them would make "the type's default"
+// unsayable the moment an instance was edited once.
+void DungeonWorld::ResolveDoorOpener(Door& door, const std::string& type,
+									 const std::string& openerParam,
+									 const std::string& sideParam) {
+	std::string opener, side = "left";
+	if (const CatalogEntry* def = m_project.doors.Find(type)) {
+		opener = def->Get("opener", "");
+		side = def->Get("opener_side", "left");
+	}
+	if (!openerParam.empty()) opener = openerParam;
+	if (!sideParam.empty()) side = sideParam;
+	door.openerX = side == "right" ? kOpenerX : -kOpenerX;
+	door.opener = nullptr;
+	door.openerMount = nullptr;
+	door.openerStyle = OpenerStyle::Pad;
+	door.openerEase = {};
+	// Note the ORDER: the side is set before the early-outs below, so a door
+	// with no opener still carries a sensible jamb — the field is read by the
+	// editor and by anything that later wants to hang something there.
+	// An override naming a type the catalog has lost leaves the door with no
+	// hand-hold, which is the safe way round: it becomes button-only rather
+	// than opening on a click with nothing drawn to explain why.
+	if (opener.empty() || opener == "none" || !m_project.doors.Contains(opener))
+		return;
+	const CatalogEntry* def = m_project.doors.Find(opener);
+	// How far out along the jamb THIS opener wants to sit — see kOpenerX for why
+	// one number cannot serve both a pad and a chain.
+	const float off = def ? def->GetFloat("offset", kOpenerX) : kOpenerX;
+	door.openerX = side == "right" ? off : -off;
+	door.openerEase = EaseSpanOf(def);
+	door.opener = &DecorationKindFor(opener, m_project.doors);
+	door.openerStyle =
+		CatalogGet(def, "style", "pad") == "chain" ? OpenerStyle::Chain
+												  : OpenerStyle::Pad;
+	// The static half, if the opener has one — the socket a chain runs out of.
+	if (const std::string m = CatalogGet(def, "mount", "");
+		!m.empty() && m_project.doors.Contains(m))
+		door.openerMount = &DecorationKindFor(m, m_project.doors);
 }
 
 bool DungeonWorld::AddDoor(const std::string& type, int x, int z) {
@@ -687,10 +760,61 @@ bool DungeonWorld::ToggleDoor(Door& door) {
 	return true;
 }
 
-bool DungeonWorld::ToggleDoorAhead() {
+Vec3 DungeonWorld::OpenerPos(const Door& door, float face) const {
+	// The render's own placement, in world terms: the opener sits at
+	// (openerX, kOpenerY, face * kOpenerFaceZ) in the door's UNIT model space,
+	// which the door's base matrix scales, turns by its facing and drops on the
+	// cell. Kept in step with DungeonWorld_Render's door loop by construction —
+	// both read the same four constants.
+	const float s = kUnit * (door.frame ? door.frame->modelScale : 1.0f);
+	const Vec3 c = m_map.CellCenter(door.x, door.z);
+	const float yaw = DirYaw(door.facing);
+	const float ca = std::cos(yaw), sa = std::sin(yaw);
+	const float lx = door.openerX * s, lz = face * kOpenerFaceZ * s;
+	// Row-vector convention (v' = v * RotY), matching the render's matrices.
+	return {c.x + lx * ca + lz * sa, kOpenerY * s, c.z - lx * sa + lz * ca};
+}
+
+bool DungeonWorld::ToggleDoorAhead(float mx, float my, float w, float h) {
 	const Direction f = static_cast<Direction>(m_party.Facing());
 	Door* door = DoorAt(m_party.GridX() + DirDX(f), m_party.GridZ() + DirDZ(f));
 	if (!door) return false;
+	// NO HAND-HOLD, NO HAND. A door without an opener is worked from somewhere
+	// else — a lever down the corridor, a pressure plate, a spell — and the
+	// party has nothing to take hold of. This is what makes the setting mean
+	// anything: without the refusal, "opened by other means" would still open to
+	// anyone who walked up and clicked. Wired buttons go through ToggleDoorsNamed
+	// and never come here, so a mechanism is unaffected — as with key locks.
+	if (!door->opener) {
+		if (onMessage) onMessage(loc::Tr("log.door_nohandle"));
+		return true; // the click WAS for the door; it just found nothing to pull
+	}
+	// THE RAY HAS TO HIT THE HAND-HOLD. A sphere around it rather than the mesh:
+	// the same test the niche items use, and a chain is a thin thing to ask
+	// somebody to hit exactly. Both faces are tested because the party may be on
+	// either side and only one copy is theirs; the far one is behind the door
+	// and cannot be hit through it anyway.
+	const gfx::Camera::Ray ray = m_camera.ScreenRay(mx, my, w, h);
+	const float s = kUnit * (door->frame ? door->frame->modelScale : 1.0f);
+	const bool chain = door->openerStyle == OpenerStyle::Chain;
+	// Centre on the middle of what is DRAWN, not on the origin: a chain runs
+	// upward from its grip, so a sphere on the grip would leave the links
+	// unclickable — the part of it most people would aim at.
+	const float rise = chain ? 0.17f * s : 0.0f;
+	const float radius = (chain ? 0.26f : 0.13f) * s;
+	bool hit = false;
+	for (const float face : {-1.0f, 1.0f}) {
+		const Vec3 p = OpenerPos(*door, face);
+		const Vec3 oc{ray.origin.x - p.x, ray.origin.y - (p.y + rise),
+					  ray.origin.z - p.z};
+		const float bb = oc.x * ray.dir.x + oc.y * ray.dir.y + oc.z * ray.dir.z;
+		const float cc = oc.x * oc.x + oc.y * oc.y + oc.z * oc.z - radius * radius;
+		const float disc = bb * bb - cc;
+		if (disc >= 0.0f && -bb + std::sqrt(disc) > 0.0f) hit = true;
+	}
+	if (!hit) return false; // missed the hand-hold: not this door's click
+	door->pullT = 0.0f;     // the throw; DungeonWorld::Update runs it and eases
+	door->pullRising = true; // it back afterwards, slower
 	// A keyed door refuses the hand unless a member carries the key item (the
 	// key stays — the door re-locks when shut). Wired buttons still move it
 	// (mechanisms don't need the key).
@@ -712,24 +836,53 @@ bool DungeonWorld::PartyHasItem(std::string_view typeId) const {
 	return false;
 }
 
-bool DungeonWorld::DoorSettings(int x, int z, bool& open, std::string& key,
-								std::string& name) const {
+std::string DungeonWorld::DoorTypeAt(int x, int z) const {
+	// The type lives on the RECORD — a Door holds resolved meshes, not its id.
+	const Door* door = DoorAt(x, z);
+	if (!door) return {};
+	for (const Entity& e : m_entities.All())
+		if (e.id == door->id) return e.type;
+	return {};
+}
+
+bool DungeonWorld::DoorSettings(int x, int z, DoorEdit& out) const {
 	const Door* door = DoorAt(x, z);
 	if (!door) return false;
-	open = door->open;
-	key = door->key;
-	name = door->name;
+	out.open = door->open;
+	out.key = door->key;
+	out.name = door->name;
+	// The opener overrides come from the RECORD, not the door: the door holds
+	// the RESOLVED opener, which cannot tell "inherit" from "the type's value
+	// spelled out". The dialog needs that difference to offer a Default row.
+	out.opener.clear();
+	out.openerSide.clear();
+	out.easeIn.clear();
+	out.easeOut.clear();
+	out.openerEaseIn.clear();
+	out.openerEaseOut.clear();
+	for (const Entity& e : m_entities.All()) {
+		if (e.id != door->id) continue;
+		auto get = [&](const char* k, std::string& to) {
+			if (const std::string* v = e.Param(k)) to = *v;
+		};
+		get("opener", out.opener);
+		get("opener_side", out.openerSide);
+		get("ease_in", out.easeIn);
+		get("ease_out", out.easeOut);
+		get("opener_ease_in", out.openerEaseIn);
+		get("opener_ease_out", out.openerEaseOut);
+		break;
+	}
 	return true;
 }
 
-void DungeonWorld::SetDoorSettings(int x, int z, bool open, const std::string& key,
-								   const std::string& name) {
+void DungeonWorld::SetDoorSettings(int x, int z, const DoorEdit& in) {
 	Door* door = DoorAt(x, z);
 	if (!door) return;
-	door->open = open;
-	door->initialOpen = open; // the editor edits the AUTHORED state
-	door->key = key;
-	door->name = name;
+	door->open = in.open;
+	door->initialOpen = in.open; // the editor edits the AUTHORED state
+	door->key = in.key;
+	door->name = in.name;
 	// Mirror onto the .ent record so the writer/stash carry it. Default-valued
 	// params are removed to keep records minimal.
 	if (Entity* record = m_entities.MutableById(door->id)) {
@@ -738,10 +891,31 @@ void DungeonWorld::SetDoorSettings(int x, int z, bool open, const std::string& k
 						  [&](const auto& p) { return p.first == k; });
 			if (!v.empty()) record->params.emplace_back(k, v);
 		};
-		set("open", open ? "1" : "");
-		set("key", key);
-		set("name", name);
+		set("open", in.open ? "1" : "");
+		set("key", in.key);
+		set("name", in.name);
+		set("opener", in.opener);
+		set("opener_side", in.openerSide);
+		set("ease_in", in.easeIn);
+		set("ease_out", in.easeOut);
+		set("opener_ease_in", in.openerEaseIn);
+		set("opener_ease_out", in.openerEaseOut);
 		m_entsDirty = true;
+		// The opener is RESOLVED at spawn, so editing it has to re-resolve: the
+		// live door holds a mesh pointer and a style read from the old values.
+		// In place rather than by respawning the door — a respawn would go
+		// through the record path and take the open state, the animation and the
+		// runtime id with it, to re-derive four fields.
+		ResolveDoorOpener(*door, record->type, in.opener, in.openerSide);
+		// The curves too: both fall back to the TYPE's value when the override
+		// is cleared, which is what ResolveDoorOpener has already restored for
+		// the opener's pair, and what this re-reads for the leaf's.
+		door->ease = EaseSpanOf(m_project.doors.Find(record->type));
+		door->ease.in = EaseShapeFromName(in.easeIn, door->ease.in);
+		door->ease.out = EaseShapeFromName(in.easeOut, door->ease.out);
+		door->openerEase.in = EaseShapeFromName(in.openerEaseIn, door->openerEase.in);
+		door->openerEase.out =
+			EaseShapeFromName(in.openerEaseOut, door->openerEase.out);
 	}
 }
 

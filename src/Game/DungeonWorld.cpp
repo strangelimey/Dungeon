@@ -337,6 +337,19 @@ void DungeonWorld::Update(const Input& input, float dt, float time, bool acceptI
 			door.openT = std::min(target, door.openT + step);
 		else if (door.openT > target)
 			door.openT = std::max(target, door.openT - step);
+		// The opener's throw and its recovery, at two speeds — down fast, back
+		// slow. Both are animated: the first cut stepped straight to full travel
+		// on the click and it read as a glitch rather than as a pull, because
+		// nothing the eye can follow happened on the way down.
+		if (door.pullRising) {
+			door.pullT += dt / kPullDownSeconds;
+			if (door.pullT >= 1.0f) {
+				door.pullT = 1.0f;
+				door.pullRising = false;
+			}
+		} else if (door.pullT > 0.0f) {
+			door.pullT = std::max(0.0f, door.pullT - dt / kPullSeconds);
+		}
 	}
 
 	// Pit fall sequencing: let the step glide onto the pit play out, then run

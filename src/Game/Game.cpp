@@ -1272,9 +1272,10 @@ void Game::Update(float dt) {
 				m_heldItem.reset();
 			} else if (auto picked = m_world.TryPickItem(mx, my, w, h)) {
 				m_heldItem = std::move(picked);
-			} else if (!m_world.ToggleDoorAhead()) {
-				// No tablet, no door ahead: try the button on the wall the
-				// party faces (a lever in the party's own cell).
+			} else if (!m_world.ToggleDoorAhead(mx, my, w, h)) {
+				// No tablet, and nothing on the door ahead that the click
+				// actually landed on: try the button on the wall the party
+				// faces (a lever in the party's own cell).
 				m_world.PressButtonFacing();
 			}
 		}

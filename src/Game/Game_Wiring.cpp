@@ -330,9 +330,8 @@ void Game::WireModuleCallbacks() {
 			labels.push_back(loc::Tr("map.key.brazier"));
 		}
 		{
-			bool open;
-			std::string key, name;
-			if (m_world.DoorSettings(cx, cz, open, key, name)) {
+			DungeonWorld::DoorEdit door; // presence check only
+			if (m_world.DoorSettings(cx, cz, door)) {
 				m_inspectTargets.push_back(InspectTarget{InspectTarget::Kind::Door});
 				labels.push_back(loc::Tr("map.key.door"));
 			}
@@ -428,9 +427,21 @@ void Game::WireModuleCallbacks() {
 	};
 
 	// Door inspector: Open flips the live panel + the record's authored state;
-	// the key dropdown authors the key= param (locks the party's click).
+	// the key dropdown authors the key= param (locks the party's click), and the
+	// opener rows author opener=/opener_side= (which re-resolve the live door's
+	// hand-hold — see SetDoorSettings).
 	m_doorInspector.onApply = [this](const DoorInspector::Config& c) {
-		m_world.SetDoorSettings(c.x, c.z, c.open, c.key, c.name);
+		DungeonWorld::DoorEdit e;
+		e.open = c.open;
+		e.key = c.key;
+		e.name = c.name;
+		e.opener = c.opener;
+		e.openerSide = c.openerSide;
+		e.easeIn = c.easeIn;
+		e.easeOut = c.easeOut;
+		e.openerEaseIn = c.openerEaseIn;
+		e.openerEaseOut = c.openerEaseOut;
+		m_world.SetDoorSettings(c.x, c.z, e);
 	};
 	m_doorInspector.onSave = [this] {
 		if (!m_world.SaveLevel()) log::Warn("door inspector: failed to save level");

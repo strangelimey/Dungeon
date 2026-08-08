@@ -97,12 +97,37 @@ void Game::OpenInspectorFor(const InspectTarget& t) {
 		DoorInspector::Config c;
 		c.x = cx;
 		c.z = cz;
-		if (!m_world.DoorSettings(cx, cz, c.open, c.key, c.name))
+		DungeonWorld::DoorEdit edit;
+		if (!m_world.DoorSettings(cx, cz, edit))
 			return; // gone since the picker listed it
+		c.open = edit.open;
+		c.key = edit.key;
+		c.name = edit.name;
+		c.opener = edit.opener;
+		c.openerSide = edit.openerSide;
+		c.easeIn = edit.easeIn;
+		c.easeOut = edit.easeOut;
+		c.openerEaseIn = edit.openerEaseIn;
+		c.openerEaseOut = edit.openerEaseOut;
 		// Selectable keys: items.cat entries with category=key.
 		std::vector<std::pair<std::string, std::string>> keys;
 		for (const CatalogEntry& e : m_project.items.Entries())
 			if (e.Get("category", "") == "key") keys.emplace_back(e.id, e.Display());
+		// Selectable openers: door entries carrying a `style`, which is what
+		// makes an entry an opener rather than a leaf, a frame or a trim.
+		std::vector<std::pair<std::string, std::string>> openers;
+		for (const CatalogEntry& e : m_project.doors.Entries())
+			if (e.Find("style")) openers.emplace_back(e.id, e.Display());
+		// What the TYPE would give, so the two "Default (...)" rows can name it.
+		const CatalogEntry* type = m_project.doors.Find(m_world.DoorTypeAt(cx, cz));
+		const CatalogEntry* typeOpener =
+			m_project.doors.Find(CatalogGet(type, "opener", ""));
+		std::string typeOpenerName =
+			typeOpener ? typeOpener->Display() : loc::Tr("map.door.opener_none");
+		std::string typeSide =
+			loc::Tr(CatalogGet(type, "opener_side", "left") == "right"
+						? "map.door.side_right"
+						: "map.door.side_left");
 		PreviewSpec pv;
 		pv.subs = m_world.DoorPreviewSubs(cx, cz);
 		m_doorInspector.onDelete = [this, cx, cz] {
@@ -110,7 +135,9 @@ void Game::OpenInspectorFor(const InspectTarget& t) {
 			m_world.CommitUndoStep(m_world.RemoveDoorAt(cx, cz));
 			if (m_world.onMessage) m_world.onMessage(loc::Tr("map.erase.removed"));
 		};
-		m_doorInspector.Open(c, std::move(keys), std::move(pv));
+		m_doorInspector.Open(c, std::move(keys), std::move(openers),
+							 std::move(typeOpenerName), std::move(typeSide),
+							 std::move(pv));
 		break;
 	}
 	case InspectTarget::Kind::Button: {

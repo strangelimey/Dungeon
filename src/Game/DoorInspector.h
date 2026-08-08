@@ -13,7 +13,9 @@
 #pragma once
 
 #include "Game/InstanceInspector.h"
+#include "UI/Controls.h" // ui::TabControl (the grouped pages EaseRow appends to)
 
+#include <cstddef>
 #include <functional>
 #include <string>
 #include <utility>
@@ -28,14 +30,31 @@ public:
 		bool open = false;   // authored initial state (the live door follows)
 		std::string key;     // items.cat id required to open by hand ("" = none)
 		std::string name;    // button-target id ("" = unwired); record-safe chars
+		// The opener OVERRIDES, three-state: "" inherits the door type, "none"
+		// is this placement having no hand-hold whatever the type says, and an
+		// id picks one. Same for the side ("" / "left" / "right"). The dialog's
+		// first row names what the type would give, so inheriting stays
+		// expressible after an edit.
+		std::string opener;
+		std::string openerSide;
+		// Motion shaping, same three-state rule. Two pairs because the leaf and
+		// the hand-hold are two separate motions.
+		std::string easeIn, easeOut;
+		std::string openerEaseIn, openerEaseOut;
 	};
 
 	DoorInspector(gfx::GraphicsDevice& device, ui::FontLibrary& fonts)
 		: InstanceInspector(device, fonts) {}
 
 	// `keys` are the selectable key items as (id, display) pairs; the dialog
-	// prepends the "None" row itself.
+	// prepends the "None" row itself. `openers` are the door catalog's opener
+	// entries the same way. `typeOpener` and `typeSide` are what the door's TYPE
+	// would supply, already display-ready — they are what the "Default (...)"
+	// rows name, and a Default row that named the wrong thing would be worse
+	// than one that named nothing.
 	void Open(const Config& cfg, std::vector<std::pair<std::string, std::string>> keys,
+			  std::vector<std::pair<std::string, std::string>> openers,
+			  std::string typeOpener, std::string typeSide,
 			  PreviewSpec preview = {});
 
 	// Push the working state to the live door + its .ent record (both edits are
@@ -45,10 +64,18 @@ public:
 
 protected:
 	std::string Title() const override;
-	gfx::Rect Panel() const override { return {0.31f, 0.21f, 0.40f, 0.54f}; }
+	// WIDER than the other inspectors, and grouped into tabs rather than grown
+	// taller. A door instance now carries seven settings; stacked in one column
+	// beside the preview pane they were a scrolling ribbon of half-width
+	// dropdowns, which is busy however tall the panel gets.
+	gfx::Rect Panel() const override { return {0.22f, 0.13f, 0.56f, 0.70f}; }
 	// No facing row: the doorway's flanking walls fix the orientation.
 	std::vector<Direction> FacingChoices() const override { return {}; }
 	void BuildContent(const gfx::Rect& content) override;
+	// One label plus a side-by-side [ease in] [ease out] pair, appended to
+	// `tab`'s page at the cursor `y` (page fractions) and advancing it.
+	void EaseRow(ui::TabControl& tabs, std::size_t tab, float& y,
+				 const std::string& label, std::string& in, std::string& out);
 	void ApplyLive() override {} // no common-strip edits (no facing)
 	void Persist() override;
 	void Revert() override;
@@ -56,7 +83,9 @@ protected:
 private:
 	Config m_cfg;
 	Config m_original; // snapshot for revert on Close/Esc
-	std::vector<std::pair<std::string, std::string>> m_keys; // (id, display)
+	std::vector<std::pair<std::string, std::string>> m_keys;    // (id, display)
+	std::vector<std::pair<std::string, std::string>> m_openers; // (id, display)
+	std::string m_typeOpener, m_typeSide; // what the TYPE gives, for the Default rows
 };
 
 } // namespace dungeon::game

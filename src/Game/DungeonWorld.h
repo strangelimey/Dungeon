@@ -18,6 +18,7 @@
 #include "Animation/CreatureState.h"
 #include "Assets/Model.h"
 #include "Audio/AudioEngine.h"
+#include "Core/Easing.h" // EaseSpan (door + opener motion shaping)
 #include "Game/Balance.h"
 #include "Game/Character.h"
 #include "Game/Combat.h"
@@ -657,12 +658,22 @@ public:
 	// the level stash carry it) and spawns the live door closed. Refuses — with
 	// a specific onMessage line — when the cell isn't a doorway or is occupied.
 	bool AddDoor(const std::string& type, int x, int z);
-	// Click interaction: toggles the door on the cell directly AHEAD of the
-	// party (arm's reach), sliding the panel open/shut. A monster standing in
-	// the doorway jams a closing door. A keyed (key=) closed door opens only
-	// while some member carries that item (not consumed; wired buttons bypass
-	// the lock — mechanisms don't need the key). False if no door is ahead.
-	bool ToggleDoorAhead();
+	// Click interaction on the door directly AHEAD of the party (arm's reach).
+	//
+	// THE CLICK MUST LAND ON THE OPENER, not merely on the door: a chain is
+	// pulled and a pad is pressed, and a door that worked from a click anywhere
+	// in its general direction would make the hand-hold decorative. So the
+	// screen ray is tested against the opener itself and a miss falls THROUGH
+	// (returning false) to the button check, exactly as if the door were not
+	// there — silence, because a miss is not an error.
+	//
+	// The one case that still answers a click anywhere is a door with NO opener:
+	// there is nothing to hit, so the refusal message is the only way to say why
+	// nothing happens. A monster standing in the doorway jams a closing door. A
+	// keyed (key=) closed door opens only while some member carries that item
+	// (not consumed; wired buttons bypass both the lock and the opener —
+	// mechanisms need neither a key nor a hand).
+	bool ToggleDoorAhead(float mx, float my, float w, float h);
 	// True if any party member carries the item (equipment or pack contents).
 	bool PartyHasItem(std::string_view typeId) const;
 
@@ -727,16 +738,35 @@ public:
 	};
 	std::vector<DoorMarker> DoorMarkers() const;
 
-	// Door instance surface for the editor's inspector. DoorSettings reports
-	// the door on (x,z) (false = none); SetDoorSettings applies open/key/name
-	// to the LIVE door (slide anim, initialOpen follows — the editor edits the
-	// AUTHORED state) and to its .ent record's open=/key=/name= params
-	// (in-memory until savemap, like every editor edit). `name` is what a
-	// button's target= points at (ToggleDoorsNamed).
-	bool DoorSettings(int x, int z, bool& open, std::string& key,
-					  std::string& name) const;
-	void SetDoorSettings(int x, int z, bool open, const std::string& key,
-						 const std::string& name);
+	// Door instance surface for the editor's inspector. DoorSettings reports the
+	// door on (x,z) (false = none); SetDoorSettings applies the edit to the LIVE
+	// door (the leaf animates, initialOpen follows — the editor edits the
+	// AUTHORED state) and to its .ent record's params (in-memory until savemap,
+	// like every editor edit). `name` is what a button's target= points at
+	// (ToggleDoorsNamed).
+	//
+	// The OPENER fields are three-state on purpose and the empty one is not the
+	// same as "none": empty INHERITS the door type's `opener`, "none" is this
+	// placement overriding it to have no hand-hold at all. Collapse them and the
+	// type's default becomes unsayable the moment an instance is edited once.
+	struct DoorEdit {
+		bool open = false;
+		std::string key;         // items.cat id required by hand ("" = none)
+		std::string name;        // button-target id ("" = unwired)
+		std::string opener;      // "" = inherit type, "none", or a doors.cat id
+		std::string openerSide;  // "" = inherit type, else "left" / "right"
+		// Motion shaping, same three-state rule: "" inherits, else an
+		// EaseShape name. The leaf's pair and the opener's pair are separate
+		// because they are separate motions — a slab that grinds shut can hang
+		// off a chain that snaps back.
+		std::string easeIn, easeOut;
+		std::string openerEaseIn, openerEaseOut;
+	};
+	bool DoorSettings(int x, int z, DoorEdit& out) const;
+	void SetDoorSettings(int x, int z, const DoorEdit& in);
+	// The doors.cat id of the door on (x,z) ("" = none). The inspector needs it
+	// to look up what the TYPE would give, which is what its Default rows name.
+	std::string DoorTypeAt(int x, int z) const;
 	// The door's frame + panel meshes for the inspector's preview pane.
 	std::vector<gfx::PreviewSubmesh> DoorPreviewSubs(int x, int z) const;
 
@@ -1351,6 +1381,60 @@ private:
 		Split, // two halves parting, each into its own jamb
 	};
 
+	// How a door is WORKED BY HAND. The opener is the affordance on the jamb —
+	// Dungeon Master's square pad, Grimrock's hanging chain — and its absence is
+	// meaningful: a door with no opener cannot be opened by the party at all,
+	// only by a button wired to its name. That gate is the whole point of the
+	// setting, since "opened by other means" is otherwise indistinguishable from
+	// "opened by anyone who walks up to it".
+	//
+	// The STYLE picks the behaviour; the model, texture and placement come from
+	// the opener's own catalog entry, so a new kind that moves like one of these
+	// is data alone (the trim/frame pattern) and only a genuinely new MOVEMENT
+	// costs an enumerator here.
+	enum class OpenerStyle {
+		Pad,   // a plate pressed into the jamb
+		Chain, // a hanging chain, pulled down
+	};
+
+	// Where an opener hangs by DEFAULT, in the door's own UNIT model space: on
+	// the frame's face, centred on the jamb. The jamb face runs from the opening
+	// edge (0.34) to the cell edge (0.5), so its middle is 0.42.
+	//
+	// It is a default and not a rule, because "centred on the jamb" and "clear
+	// of the jamb" are different answers and different openers want different
+	// ones. A flat pad wants the middle. A CHAIN does not: the jamb stones stand
+	// prouder (0.095) than a chain hangs (~0.091), so anything within their
+	// reach vanishes behind them the moment you look at the door from an angle —
+	// which is how a door is normally approached. Openers override with
+	// `offset`; see doors.cat.
+	//
+	// The mortice is INTERNAL (mid-thickness, |z| < 0.032), so an opener on the
+	// face never fouls the slot its leaf runs into, whichever jamb it picks.
+	static constexpr float kOpenerX = 0.42f;
+	static constexpr float kOpenerFaceZ = 0.076f;
+	// How far a worked opener moves, and the two speeds it moves at. The pull is
+	// FAST and the recovery is slow, but neither is instant: a step to full
+	// travel in one frame reads as a glitch rather than a yank.
+	//
+	// The chain's drop is small on purpose. It EXTENDS out of its socket rather
+	// than sliding as a whole (the socket is a separate, static model that hides
+	// the links still inside it), so the travel has to stay inside the length of
+	// chain the socket conceals — go further and the chain's top end walks out
+	// of the bottom of its own anchor.
+	static constexpr float kChainDrop = 0.045f;  // units, down the wall
+	// The pad's face stands 2.4 cm above its surround, so this is bounded by the
+	// mesh: 1.75 cm sinks it nearly flush and still leaves a lip. It was 3.5 cm
+	// — deeper than the whole fitting — and the button disappeared into the
+	// stone rather than being pressed.
+	static constexpr float kPadPress = 0.007f;   // units, into the jamb
+	static constexpr float kPullDownSeconds = 0.13f;
+	static constexpr float kPullSeconds = 0.55f;
+	// HAND HEIGHT, derived from the eye and not from the wall. The eye sits at
+	// 0.62 of the wall, so a fraction of the WALL puts a "waist-high" prop well
+	// below the viewer's waist and it reads as fallen — the trap the lever hit.
+	static constexpr float kOpenerY = kEyeHeight / kUnit - 0.06f;
+
 	// A door filling a doorway cell (side walls flank the travel axis). Closed
 	// it blocks the party, monsters, and projectiles; the leaf gets out of the
 	// way per `motion` as openT animates toward `open`. `facing` is the travel
@@ -1377,6 +1461,10 @@ private:
 		DoorMotion motion = DoorMotion::Slide;
 		float travel = 0.75f;                // how far the leaf moves, UNITS
 		float openSeconds = 0.7f;            // how long the full throw takes
+		// The SHAPE of the leaf's travel, both ends chosen separately. This
+		// replaced a hardcoded smoothstep: every door moved the same way, which
+		// is the one thing a stone slab and a wooden door should not share.
+		EaseSpan ease;
 		const DecorationKind* panel = nullptr;
 		const DecorationKind* frame = nullptr;
 		// An optional second moving part drawn with the panel's matrix. The
@@ -1384,6 +1472,21 @@ private:
 		// straps have to be their own mesh to be iron — the same split the lever
 		// makes between its stone plate and its wooden handle.
 		const DecorationKind* trim = nullptr;
+		// The hand-hold. Null = none, and none means the party CANNOT work this
+		// door — see OpenerStyle. Resolved from the type, overridable per
+		// placement by the record's opener= param.
+		const DecorationKind* opener = nullptr;
+		// The opener's STATIC part, drawn at the same place but never moved: the
+		// socket a chain hangs out of. It is what makes the chain read as
+		// EXTENDING rather than sliding — the links still up inside the socket
+		// are hidden by it, so working the chain feeds more of it into the room
+		// instead of translating the whole thing down the wall.
+		const DecorationKind* openerMount = nullptr;
+		OpenerStyle openerStyle = OpenerStyle::Pad;
+		float openerX = -kOpenerX; // which jamb, signed: negative = left
+		float pullT = 0.0f;        // 0 at rest .. 1 fully worked
+		bool pullRising = false;   // true while it is being pulled, false coming back
+		EaseSpan openerEase;       // the hand-hold's own shaping, from its entry
 	};
 
 	// Static architecture decorations from the .map layer (column, archway,
@@ -1520,6 +1623,16 @@ private:
 	// Builds one live Door from its record (kinds lazily loaded via the doors
 	// catalog: the type's entry = the panel, [door_frame] = the shared frame).
 	void SpawnDoor(const Entity& record);
+	// The type's opener with the placement's override applied. Shared by
+	// SpawnDoor and the inspector's edit so both land on the same resolution.
+	void ResolveDoorOpener(Door& door, const std::string& type,
+						   const std::string& openerParam,
+						   const std::string& sideParam);
+	// Where an opener hangs in WORLD space, for `face` = +1 / -1 (the two sides
+	// of the door). Declared down here rather than beside ToggleDoorAhead
+	// because a member's SIGNATURE can only name nested types already declared,
+	// and Door is defined further down the class.
+	Vec3 OpenerPos(const Door& door, float face) const;
 	Door* DoorAt(int x, int z);
 	const Door* DoorAt(int x, int z) const;
 	// The travel direction for a door on (x,z): exactly ONE axis must be
