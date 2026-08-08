@@ -9,6 +9,7 @@
 ;   trim          a second model drawn with the leaf, carrying its OWN texture
 ;                 (a wooden door's iron straps cannot be iron in a wood-textured
 ;                 mesh — the import path binds one set per model)
+;   frame         which surround it hangs in; see the frames section below
 
 [wooden_door]
 display = Wooden Door
@@ -20,6 +21,7 @@ motion = split
 travel = 0.4
 open_seconds = 0.8
 trim = door_band_half
+frame = door_frame_split
 
 [portcullis]
 display = Portcullis
@@ -31,6 +33,7 @@ motion = rise
 travel = 1.0
 open_seconds = 1.4
 trim = door_band
+frame = door_frame_temple
 
 [stone_door]
 display = Stone Door
@@ -42,14 +45,54 @@ motion = slide
 travel = 0.75
 open_seconds = 2.0
 trim = door_bosses
+frame = door_frame_granite
 
-; Authored in tools/BuildDoorFrame.py and imported, so authored = 1: a closed
-; shell with correct winding back-culls, which the three boxes it replaced
-; could not.
+; --- frames ----------------------------------------------------------------
+; The surround a leaf hangs in, named by the door type's `frame` (defaulting to
+; [door_frame]). Since the field is a catalog reference and not a texture name,
+; a variant is free to change the STONE, the MESH, or both.
+;
+; THE MESH HAS TO MATCH THE MOTION, because a door needs somewhere to go: the
+; frame is cut with a MORTICE on whichever side its leaf travels into, and a
+; frame whose slot is on the wrong side leaves the leaf sliding into solid
+; stone. tools/BuildDoorFrame.py takes --left/--right/--head and emits one
+; model per combination:
+;   door_frame        no slot   — a doorway that never opens, or a hinged leaf
+;   door_frame_slide  --right   — `slide` moves the leaf +X
+;   door_frame_split  --left --right — `split` sends a half each way
+;   door_frame_rise   --head    — `rise` takes the leaf up
+;
+; authored = 1 on all of them: a closed shell with correct winding back-culls,
+; which the three boxes this replaced could not.
+
 [door_frame]
 display = Door Frame
 model = door_frame
 texture = wall_stone
+authored = 1
+hidden = 1
+
+; The wooden double door, in the wall's own stone.
+[door_frame_split]
+display = Door Frame (split)
+model = door_frame_split
+texture = wall_stone
+authored = 1
+hidden = 1
+
+; The portcullis stands in a gatehouse, not a corridor.
+[door_frame_temple]
+display = Door Frame (temple)
+model = door_frame_rise
+texture = wall_temple_ancient
+authored = 1
+hidden = 1
+
+; The vault frame matches its slab, so the door reads as cut from the surround.
+[door_frame_granite]
+display = Door Frame (granite)
+model = door_frame_slide
+texture = wall_stone_granite
 authored = 1
 hidden = 1
 

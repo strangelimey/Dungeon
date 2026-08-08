@@ -254,6 +254,9 @@ constexpr FieldSpec kDoorFields[] = {
 	{.key = "trim", .kind = FieldKind::CatalogRef, .sectionKey = kSectionRules,
 	 .help = "Second model drawn with the leaf, carrying its own texture (a wooden door's ironwork).",
 	 .options = "doors"},
+	{.key = "frame", .kind = FieldKind::CatalogRef, .sectionKey = kSectionRules,
+	 .help = "The surround this door hangs in — its own entry, so each type can pick a stone.",
+	 .options = "doors", .def = "door_frame"},
 };
 
 // --- stairs / pits ----------------------------------------------------------

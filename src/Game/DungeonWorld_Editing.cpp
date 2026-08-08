@@ -598,10 +598,11 @@ void DungeonWorld::SpawnDoor(const Entity& record) {
 	door.open = door.initialOpen;
 	door.openT = door.open ? 1.0f : 0.0f;
 	door.panel = &DecorationKindFor(record.type, m_project.doors);
-	door.frame = &DecorationKindFor("door_frame", m_project.doors);
-	// The motion knobs, resolved ONCE from the type's catalog entry. A legacy
-	// record naming a type the catalog has lost keeps the defaults, which are
-	// the sideways slide every door used before motion was authorable.
+	// The type's knobs, resolved ONCE from its catalog entry. A legacy record
+	// naming a type the catalog has lost keeps the defaults, which are the
+	// sideways slide and the shared frame every door had before either was
+	// authorable.
+	std::string frame = "door_frame";
 	if (const CatalogEntry* def = m_project.doors.Find(record.type)) {
 		const std::string m = def->Get("motion", "slide");
 		door.motion = m == "rise"    ? DoorMotion::Rise
@@ -613,7 +614,15 @@ void DungeonWorld::SpawnDoor(const Entity& record) {
 		door.openSeconds = secs > 0.05f ? secs : 0.05f;
 		if (const std::string t = def->Get("trim", ""); !t.empty())
 			door.trim = &DecorationKindFor(t, m_project.doors);
+		// The SURROUND is per type too: one mesh, but its own catalog entry, so
+		// a vault door can stand in granite while a cellar door stands in the
+		// wall's own stone. A named frame the catalog has lost falls back to the
+		// shared one rather than leaving the doorway with no surround at all.
+		if (const std::string f = def->Get("frame", ""); !f.empty()
+			&& m_project.doors.Contains(f))
+			frame = f;
 	}
+	door.frame = &DecorationKindFor(frame, m_project.doors);
 	m_doors.push_back(std::move(door));
 }
 

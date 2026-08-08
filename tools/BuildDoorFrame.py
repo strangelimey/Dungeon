@@ -77,12 +77,30 @@ SUBDIV = 2
 NOISE_AMP, NOISE_FREQ = 0.006, 22.0
 COARSE_AMP, COARSE_FREQ = 0.008, 7.0
 
+# --- the slot the leaf runs into --------------------------------------------
+# A door has to go SOMEWHERE. Without this the leaf simply travels into solid
+# stone and is hidden by it — which works, and looks like nothing: the frame
+# reads as having no idea a door is in it. The slot is a mortice cut through
+# the jamb (or the head), open onto the reveal, so an open door is visibly
+# INSIDE the wall and a shut one shows the dark line it came out of.
+#
+# Which sides get one follows the MOTION: `slide` moves the leaf +X so it wants
+# the right jamb, `split` sends a half each way so it wants both, `rise` takes
+# the leaf up so it wants the head.
+SLOT_T = 0.032      # half-height of the mortice; the leaf+band is 0.026
+SLOT_BACK = 0.480   # how far a jamb mortice runs before its back wall
+SLOT_HEAD = 0.980   # how high a head mortice runs
+
 TILE = 0.24         # texture repeat, matching the arch and the engine's TileUvs
 
 args = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
 EXPORT = bool(args)
 OUT = args[0] if args else "door_frame.glb"
 ROUGH = "--rough" in args
+SLOTS = set()
+for name in ("left", "right", "head"):
+    if f"--{name}" in args:
+        SLOTS.add(name)
 
 STONE_IN = OPEN - INSET
 STONE_OUT = STONE_IN + BAND
@@ -104,57 +122,95 @@ def quad(a, b, c, d):
 
 
 # ============================================================================
-# the wall slab — panels around the void, never a boolean
+# the wall slab — a SOLIDITY GRID whose boundary is emitted mechanically
 # ============================================================================
-# EMITTED ON A SHARED GRID, and that is not tidiness. The first version ran the
-# side panels floor-to-ceiling as one quad each and started the head panel at
-# DOOR_H, so the head's corner landed in the MIDDLE of the side panel's edge: a
-# T-junction. remove_doubles welds coincident VERTICES, not a vertex into an
-# edge, so those seams never closed and the shell came out with 20 boundary
-# edges. Cutting every face at the same x and z breaks makes each shared edge
-# meet a partner exactly.
-XS = (-HALF, -OPEN, OPEN, HALF)
-ZS = (0.0, DOOR_H, TOP)
+# The slab is described as which cells of a coarse grid hold stone, and then
+# every face between a solid cell and a hollow one (or the outside) is emitted.
+# Nothing is hand-listed.
+#
+# WHY, and it is worth the paragraph. The first version listed the panels by
+# hand — two side panels, a head panel, three reveal strips, the outer edges —
+# and it came out with 20 boundary edges, because the side panels ran
+# floor-to-ceiling as one quad each while the head panel started at DOOR_H, so
+# the head's corner landed in the MIDDLE of a side panel's edge. remove_doubles
+# welds coincident VERTICES, not a vertex into an edge, so a T-junction never
+# closes however tightly it is welded. Cutting everything on shared breaks
+# fixed that — and then the MORTICES arrived, which are internal cavities, and
+# hand-listing their walls, lips, mouths and back faces would have meant
+# re-deriving the whole case analysis for each combination of slotted sides.
+#
+# A grid boundary cannot have a T-junction (every face is one cell face) and
+# cannot leave a hole (a face is emitted exactly when solidity changes across
+# it). The closed-shell assert at the bottom then checks the result rather than
+# the reasoning, which is the point.
+XS = (-HALF, -SLOT_BACK, -OPEN, OPEN, SLOT_BACK, HALF)
+YS = (-SLAB_T, -SLOT_T, SLOT_T, SLAB_T)
+ZS = (0.0, DOOR_H, SLOT_HEAD, TOP)
+NX, NY, NZ = len(XS) - 1, len(YS) - 1, len(ZS) - 1
 
-for sy in (-SLAB_T, SLAB_T):
-    front = sy > 0
-    for i in range(3):
-        for j in range(2):
-            if i == 1 and j == 0:
-                continue  # the opening
-            x0, x1, z0, z1 = XS[i], XS[i + 1], ZS[j], ZS[j + 1]
-            a, b = (x0, sy, z0), (x1, sy, z0)
-            c, d = (x1, sy, z1), (x0, sy, z1)
-            quad(a, b, c, d) if front else quad(b, a, d, c)
 
-# The reveal: the surface swept through the opening. Three flat strips, so
-# unlike the arch's soffit this needs no unrolling — a dominant-axis projection
-# is valid on it, because the normal never rotates within a face.
-quad((-OPEN, -SLAB_T, 0.0), (-OPEN, -SLAB_T, DOOR_H),
-     (-OPEN, SLAB_T, DOOR_H), (-OPEN, SLAB_T, 0.0))
-quad((OPEN, SLAB_T, 0.0), (OPEN, SLAB_T, DOOR_H),
-     (OPEN, -SLAB_T, DOOR_H), (OPEN, -SLAB_T, 0.0))
-quad((-OPEN, -SLAB_T, DOOR_H), (OPEN, -SLAB_T, DOOR_H),
-     (OPEN, SLAB_T, DOOR_H), (-OPEN, SLAB_T, DOOR_H))
+def solid(i, j, k):
+    """Is there stone in grid cell (i, j, k)? Outside the grid there is not."""
+    if not (0 <= i < NX and 0 <= j < NY and 0 <= k < NZ):
+        return False
+    if i == 2 and k == 0:
+        return False                      # the doorway itself
+    if j != 1:
+        return True                       # mortices are all mid-thickness
+    if "left" in SLOTS and i == 1 and k == 0:
+        return False                      # mortice in the left jamb
+    if "right" in SLOTS and i == 3 and k == 0:
+        return False                      # ... the right jamb
+    if "head" in SLOTS and i == 2 and k == 1:
+        return False                      # ... the head, for a rising leaf
+    return True
 
-# Outer edges, so the slab closes where it meets the neighbouring walls — cut
-# on the same grid as the faces they join, for the T-junction reason above.
-for z0, z1 in zip(ZS, ZS[1:]):
-    quad((-HALF, -SLAB_T, z0), (-HALF, -SLAB_T, z1), (-HALF, SLAB_T, z1), (-HALF, SLAB_T, z0))
-    quad((HALF, SLAB_T, z0), (HALF, SLAB_T, z1), (HALF, -SLAB_T, z1), (HALF, -SLAB_T, z0))
-for x0, x1 in zip(XS, XS[1:]):
-    quad((x0, -SLAB_T, TOP), (x0, SLAB_T, TOP), (x1, SLAB_T, TOP), (x1, -SLAB_T, TOP))
-for x0, x1 in ((-HALF, -OPEN), (OPEN, HALF)):
-    quad((x0, SLAB_T, 0.0), (x1, SLAB_T, 0.0), (x1, -SLAB_T, 0.0), (x0, -SLAB_T, 0.0))
+
+def face(axis, at, u0, u1, v0, v1, positive):
+    """An axis-aligned quad, wound so its normal points along +/- `axis`."""
+    if axis == 0:
+        pts = [(at, u0, v0), (at, u1, v0), (at, u1, v1), (at, u0, v1)]
+    elif axis == 1:
+        pts = [(u0, at, v0), (u0, at, v1), (u1, at, v1), (u1, at, v0)]
+    else:
+        pts = [(u0, v0, at), (u1, v0, at), (u1, v1, at), (u0, v1, at)]
+    bm.faces.new([bm.verts.new(p) for p in (pts if positive else pts[::-1])])
+
+
+AXES = (XS, YS, ZS)
+for i in range(NX):
+    for j in range(NY):
+        for k in range(NZ):
+            if not solid(i, j, k):
+                continue
+            cell = (i, j, k)
+            for axis in range(3):
+                for step in (-1, 1):
+                    nb = list(cell)
+                    nb[axis] += step
+                    if solid(*nb):
+                        continue
+                    # The face sits at the low or high bound of this cell along
+                    # `axis`; the other two axes give its extent.
+                    at = AXES[axis][cell[axis] + (1 if step > 0 else 0)]
+                    a, b = (axis + 1) % 3, (axis + 2) % 3
+                    if axis == 1:
+                        a, b = 0, 2       # keep u = x, v = z so the winding holds
+                    elif axis == 2:
+                        a, b = 0, 1
+                    else:
+                        a, b = 1, 2
+                    face(axis, at, AXES[a][cell[a]], AXES[a][cell[a] + 1],
+                         AXES[b][cell[b]], AXES[b][cell[b] + 1], step > 0)
 
 
 # ============================================================================
 # the stones — each its own island, so weathering is a per-island transform
 # ============================================================================
-def add_stone(corners_xz, half_t):
-    """A solid from four (x, z) corners extruded through +/-half_t on Y."""
-    lo = [bm.verts.new((x, -half_t, z)) for x, z in corners_xz]
-    hi = [bm.verts.new((x, half_t, z)) for x, z in corners_xz]
+def add_stone(corners_xz, y0, y1):
+    """A solid from four (x, z) corners extruded between y0 and y1."""
+    lo = [bm.verts.new((x, y0, z)) for x, z in corners_xz]
+    hi = [bm.verts.new((x, y1, z)) for x, z in corners_xz]
     for i in range(4):
         j = (i + 1) % 4
         bm.faces.new((lo[i], lo[j], hi[j], hi[i]))
@@ -162,12 +218,26 @@ def add_stone(corners_xz, half_t):
     bm.faces.new(hi)
 
 
+def add_course(corners_xz, half_t, slotted):
+    """A stone through the full thickness — or, where a mortice runs behind it,
+    the two stones that flank it. A course laid across a slot would SEAL it:
+    the stones lap the opening and stand proud, so they sit exactly where the
+    leaf has to pass. Splitting them is also what a real slot looks like — two
+    faces of masonry with a channel between."""
+    if not slotted:
+        add_stone(corners_xz, -half_t, half_t)
+        return
+    add_stone(corners_xz, SLOT_T, half_t)
+    add_stone(corners_xz, -half_t, -SLOT_T)
+
+
 # Jamb courses, fitted to the head so the top one beds the lintel. The two
 # sides are stepped half a course out of phase, which is what stops a door
 # surround reading as two identical ladders.
 n_course = max(2, round(DOOR_H / COURSE_H))
 course = DOOR_H / n_course
-for side, phase in ((-1.0, 0.0), (1.0, 0.5)):
+for side, phase, slot in ((-1.0, 0.0, "left"), (1.0, 0.5, "right")):
+    slotted = slot in SLOTS
     z = 0.0
     first = True
     while z < DOOR_H - 1e-4:
@@ -175,17 +245,21 @@ for side, phase in ((-1.0, 0.0), (1.0, 0.5)):
         first = False
         z1 = min(z + h - MORTAR, DOOR_H)
         if z1 - z > MORTAR:
-            add_stone([(side * STONE_IN, z), (side * STONE_OUT, z),
-                       (side * STONE_OUT, z1), (side * STONE_IN, z1)], STONE_T)
+            add_course([(side * STONE_IN, z), (side * STONE_OUT, z),
+                        (side * STONE_OUT, z1), (side * STONE_IN, z1)],
+                       STONE_T, slotted)
         z += h
 
 # The lintel: one stone across the head, oversailing both jambs and standing a
 # little prouder than they do, so the head reads as carrying the wall above it.
 # Its underside laps the opening by INSET like the jambs — it does NOT sit on
-# the soffit, which would put two coplanar faces in the same place.
-add_stone([(-LINTEL_HALF, DOOR_H - INSET), (LINTEL_HALF, DOOR_H - INSET),
-           (LINTEL_HALF, DOOR_H - INSET + LINTEL_H),
-           (-LINTEL_HALF, DOOR_H - INSET + LINTEL_H)], STONE_T + LINTEL_PROUD)
+# the soffit, which would put two coplanar faces in the same place. A rising
+# leaf runs up through it, so there it becomes two stones with the mortice
+# between, the same as a slotted jamb course.
+add_course([(-LINTEL_HALF, DOOR_H - INSET), (LINTEL_HALF, DOOR_H - INSET),
+            (LINTEL_HALF, DOOR_H - INSET + LINTEL_H),
+            (-LINTEL_HALF, DOOR_H - INSET + LINTEL_H)],
+           STONE_T + LINTEL_PROUD, "head" in SLOTS)
 
 # Weld. Every quad above was emitted with fresh vertices, so the slab is a soup
 # of disconnected faces until now — and recalc_face_normals needs CONNECTIVITY
@@ -286,7 +360,8 @@ obj = bpy.data.objects.new("door_frame", mesh)
 bpy.context.scene.collection.objects.link(obj)
 
 co = [v.co for v in mesh.vertices]
-print(f"BuildDoorFrame: {'rough' if ROUGH else 'dressed'}, {len(stones)} stones, "
+print(f"BuildDoorFrame: {'rough' if ROUGH else 'dressed'}, "
+      f"slots {','.join(sorted(SLOTS)) or 'none'}, {len(stones)} stones, "
       f"{len(co)} verts, x {min(c.x for c in co):+.3f}..{max(c.x for c in co):+.3f}  "
       f"y {min(c.y for c in co):+.3f}..{max(c.y for c in co):+.3f}  "
       f"z {min(c.z for c in co):+.3f}..{max(c.z for c in co):+.3f}")
