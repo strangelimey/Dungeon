@@ -345,6 +345,9 @@ private:
 	// the editor will read and write it.
 	Project m_project;
 	SoundBank m_sounds;
+	// The dev console's `sound3d` test emitter. A looping voice holds its slot
+	// until stopped, so exactly one is kept and re-parked rather than layered.
+	audio::VoiceHandle m_testVoice;
 	// Party roster (up to four). Filled once in the constructor and never
 	// resized — the party-bar panels and the sheet hold pointers into it, so
 	// StartNewGame resets the members in place.

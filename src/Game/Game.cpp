@@ -904,6 +904,11 @@ void Game::Update(float dt) {
 	// now, for the same reason: the rebuild destroys the dropdown that triggered it.
 	m_ui.ApplyPendingVideoRebuild();
 
+	// Re-spatialize live positional voices and retire finished ones. Runs in
+	// every state, not just Playing: an ambient bed keeps its place while the
+	// pause menu or the map overlay is up, which is the whole point of a bed.
+	m_audio.Update();
+
 	m_ui.UpdateFonts(dt);
 	if (m_previewMesh) m_previewOrbit += dt * 0.6f; // spin the editor 3D preview
 

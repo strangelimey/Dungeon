@@ -134,20 +134,55 @@ is *not* a bad-loop fixture. It lands on a zero crossing, so the value is
 continuous and only the slope flips — a far quieter defect that this check does
 not target, and it will pass. Cut at a peak (100.25) to get a real step.
 
-### Phase 2 — The engine
+### Phase 2 — The engine — **BUILT** (settings sliders still to come)
 
-The load-bearing phase. Four things, together:
+The signal path:
 
-- **Voice handles.** `Play` returns something addressable so a sound can be
-  stopped, faded, looped, and repositioned while it plays. Everything below
-  needs this; nothing today has it.
-- **X3DAudio.** Listener from the camera — and it must read `Party::EyeYaw()`,
-  **not** the grid facing, or the world will refuse to turn under free-look.
-  Emitters carry a world position, an inner radius and a falloff.
-- **Submix buses** — Ambience / SFX / UI / Music. Real category volume sliders
-  fall out of this for free, replacing the lone master.
-- **Reverb.** The XAudio2 reverb XAPO on a wet bus, its parameters driven from
-  Phase 7's space measurement.
+```
+source voice ──> category submix (Sfx/Ambience/Ui/Music) ──> master
+            └──> reverb submix (positional voices only) ───┘
+```
+
+- **Voice handles.** `Play` returns a `VoiceHandle` — a POD `{slot, generation}`
+  rather than an RAII owner, so fire-and-forget stays free while the plays that
+  matter (an ambient loop, a projectile in flight) can hold one cheaply. The
+  generation is what makes it safe: a pooled voice bumps it when it ends or is
+  reused, so a handle to a sound that finished three plays ago addresses
+  nothing rather than somebody else's audio.
+- **X3DAudio**, listener fed from the camera in `UpdateCamera` — the **eye**
+  pose, so a free-look turn swings the world with the view.
+- **Four category submixes**, matching the master's channel count.
+- **Reverb** on its own bus, its send level computed per voice, so a distant
+  sound is wetter than a near one for free.
+- **`sound3d <x> <z>`** parks a looping test emitter on a square. Spatialization
+  cannot be eyeballed, and its failures sound like "the audio is a bit odd"
+  rather than like errors — so the check has to be walking around one.
+
+Three findings:
+
+- **The reverb bus is stereo on purpose, whatever the speakers are.** The
+  XAudio2 reverb XAPO only accepts fixed channel pairings, and this machine
+  reports an **8-channel** master — precisely the case where matching the reverb
+  submix to the master would have failed to create the effect at all. The dry
+  path still gets full surround placement; only the tail is folded.
+- **A custom distance curve, because X3DAudio's default never reaches zero.**
+  Its inverse-square rolloff leaves a drip six rooms away faintly audible
+  forever, with every emitter in the level competing for the mix. The curve here
+  lands on silence at `maxDistance`, which is what makes that number mean
+  anything.
+- **I3DL2 states its delays in seconds, not milliseconds.** A narrowing-
+  conversion warning is what surfaced it: `reflectionsDelayMs = 10` was being
+  handed over as a ten-second pre-delay.
+
+Distance also **dulls** rather than only quietening — X3DAudio's LPF coefficient
+drives a per-voice low-pass, which needs `XAUDIO2_VOICE_USEFILTER` set at voice
+creation (it cannot be turned on afterwards).
+
+Verified: `AllocTest.ps1` passes at 2880 frames / 0 violations with the
+per-frame spatialization running, so the steady-state rule still holds.
+
+**Still open in this phase:** the category volume sliders on Settings → Audio.
+The buses exist and obey `SetBusVolume`; nothing moves them yet but the master.
 
 ### Phase 3 — `sounds.cat`
 

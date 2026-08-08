@@ -427,6 +427,44 @@ void Game::RegisterDevCommands() {
 						   else
 							   m_console.Print(std::format("no button at {},{}", x, z));
 					   });
+	// The ear's A/B for Phase 2. There is no way to eyeball spatialization, and a
+	// positional bug (a listener reading the grid facing instead of the eye, a
+	// stereo source that cannot be placed) sounds like "the audio is a bit odd"
+	// rather than like an error — so the check has to be: park a sound on a
+	// square, walk around it, and hear it stay put.
+	m_console.Register(
+		"sound3d", "park a looping test sound at cell x,z (off to stop)",
+		[this](const std::vector<std::string>& args) {
+			if (!args.empty() && args[0] == "off") {
+				m_audio.Stop(m_testVoice);
+				m_testVoice = {};
+				m_console.Print("test emitter stopped");
+				return;
+			}
+			if (!Need(m_console, args, 2, "usage: sound3d <x> <z> | sound3d off"))
+				return;
+			const int x = std::atoi(args[0].c_str());
+			const int z = std::atoi(args[1].c_str());
+
+			m_audio.Stop(m_testVoice); // one at a time — moving it is the point
+			audio::Emitter emitter;
+			emitter.position = m_world.Map().CellCenter(x, z, 1.2f); // ear height
+			emitter.minDistance = 0.5f;
+			emitter.maxDistance = 20.0f;
+
+			audio::PlayParams params;
+			params.bus = audio::Bus::Ambience;
+			params.emitter = &emitter;
+			params.loop = true;
+			params.volume = 0.7f;
+			m_testVoice = m_audio.Play(m_sounds.click, params);
+
+			if (m_testVoice.Valid())
+				m_console.Print(std::format(
+					"test emitter at {},{} — walk around it (sound3d off to stop)", x, z));
+			else
+				m_console.Print("could not start the test emitter");
+		});
 	m_console.Register("lights", "print active point-light count",
 					   [this](const std::vector<std::string>&) {
 						   m_console.Print(std::format("{} active point lights",

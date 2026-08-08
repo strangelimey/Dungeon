@@ -520,6 +520,18 @@ void DungeonWorld::UpdateCamera() {
 					 static_cast<float>(m_device.Width()) /
 						 static_cast<float>(m_device.Height()),
 					 0.05f, 100.0f);
+
+	// The ears ride the EYE, not the grid. That distinction is load-bearing:
+	// EyeYaw carries the free-look offset, so when the player holds the right
+	// button and turns to look down a side passage, the drip in that passage
+	// swings across the stereo field with the view. Reading Facing() instead
+	// would pin every sound to the grid pose while the picture moved, and the
+	// mismatch reads as broken audio rather than as a design choice.
+	audio::Listener listener;
+	listener.position = m_camera.Position();
+	listener.forward = m_camera.Forward();
+	listener.up = {0.0f, 1.0f, 0.0f};
+	m_audio.SetListener(listener);
 }
 
 // A rune's "breath": one multiplier (~0.2 dim .. ~1.9 bright, phase-offset per
