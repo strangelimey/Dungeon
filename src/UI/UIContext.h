@@ -13,6 +13,13 @@
 //     A widget that uses the mouse calls ConsumeMouse() so widgets visited
 //     later ignore the same event. Keyboard input is not consumed — the party
 //     always receives movement keys.
+//
+//     THAT WALK ORDER *IS* EVENT BUBBLING: a widget is always visited before
+//     its ancestors, so anything it does not claim reaches its parent. What
+//     makes bubbling work is therefore not the walk but the DISCIPLINE —
+//     claim only what you actually handle, and per event KIND (see
+//     ConsumeMouse / ConsumeWheel below). A control that claims an event it
+//     ignores is the only way an outer container can be starved of one.
 //   Render(batch, w, h): the tree draws parent-behind-children in add order,
 //     then a second DrawOverlay pass lets popups (open drop-downs) paint above
 //     everything.
@@ -129,9 +136,29 @@ public:
 	float MouseY() const { return m_mouseY; }
 
 	// Input routing state (used by widgets during Update).
+	//
+	// THE WHEEL IS CLAIMED SEPARATELY FROM THE POINTER, and that separation is
+	// the point. Hovering a text box, a slider or a SHUT dropdown claims the
+	// mouse — those controls want the click and the hover — but none of them
+	// does anything with a WHEEL. While one flag covered both, a wheel over any
+	// such control was swallowed and the ScrollArea around it never moved: you
+	// had to find a gap between the controls to scroll a dialog, which is
+	// maddening in exactly the dialogs crowded enough to need scrolling.
+	//
+	// So: claim the pointer with ConsumeMouse, and claim the wheel ONLY if you
+	// act on it. A widget that must block everything beneath it — an open popup,
+	// an armed key capture, a modal row — calls ConsumeAll, because there the
+	// blocking IS the behaviour and a wheel reaching past it would scroll the
+	// popup out from under the user.
 	const Input* CurrentInput() const { return m_input; }
 	bool IsMouseConsumed() const { return m_mouseConsumed; }
 	void ConsumeMouse() { m_mouseConsumed = true; }
+	bool IsWheelConsumed() const { return m_wheelConsumed; }
+	void ConsumeWheel() { m_wheelConsumed = true; }
+	void ConsumeAll() {
+		m_mouseConsumed = true;
+		m_wheelConsumed = true;
+	}
 
 private:
 	// Exactly one of these backs m_font: an owned Font (legacy form) or one
@@ -151,6 +178,7 @@ private:
 	Widget m_root;
 	const Input* m_input = nullptr;
 	bool m_mouseConsumed = false;
+	bool m_wheelConsumed = false;
 	float m_width = 1.0f;
 	float m_height = 1.0f;
 	float m_mouseX = 0.0f;

@@ -54,8 +54,19 @@ void Separator::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 
 void Label::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 	const Theme& theme = ctx.GetTheme();
-	TextFont().Draw(batch, text, Pixel().x, Pixel().y,
-					   dim ? theme.textDim : theme.text);
+	const Font& font = TextFont();
+	const gfx::Rect& px = Pixel();
+	// VERTICALLY CENTRED IN ITS BOX, like every other control's text (compare
+	// Checkbox, Button, DropDown). It used to draw at px.y — the box TOP — with
+	// the font's own height and no regard for the box at all, so a label given a
+	// box shorter than a line hung its glyphs out of the bottom and onto
+	// whatever came next. That is not a fault of any one caller's numbers: it
+	// made the label's height mean nothing, so no caller could reserve space for
+	// one correctly. Centring gives a label with air in its box a margin at both
+	// ends for free, and a tight one degrades symmetrically instead of only
+	// downward.
+	const float y = px.y + (px.h - font.Height()) * 0.5f;
+	font.Draw(batch, text, px.x, y, dim ? theme.textDim : theme.text);
 }
 
 // --- TextOutput ----------------------------------------------------------
@@ -73,14 +84,14 @@ void TextOutput::AddLine(std::string line) {
 
 void TextOutput::UpdateSelf(UIContext& ctx) {
 	const Input* input = ctx.CurrentInput();
-	if (!input || ctx.IsMouseConsumed()) return;
+	if (!input || ctx.IsWheelConsumed()) return;
 	if (Pixel().Contains(input->MouseX(), input->MouseY()) && input->WheelDelta() != 0) {
 		m_scroll += input->WheelDelta() * 3.0f;
 		const float maxScroll =
 			std::max(0.0f, static_cast<float>(m_lines.size()) -
 							   Pixel().h / TextFont().LineAdvance());
 		m_scroll = std::clamp(m_scroll, 0.0f, maxScroll);
-		ctx.ConsumeMouse();
+		ctx.ConsumeWheel(); // the WHEEL only: a log takes no clicks
 	}
 }
 
@@ -342,7 +353,7 @@ void DropDown::UpdateSelf(UIContext& ctx) {
 				m_scroll = std::clamp(m_scroll - input->WheelDelta() * Pixel().h,
 									  0.0f, maxScroll);
 			if (m_scrollHot || m_scrollDragging || track.Contains(mx, my)) {
-				ctx.ConsumeMouse();
+				ctx.ConsumeAll();
 				return;
 			}
 		} else {
@@ -357,17 +368,23 @@ void DropDown::UpdateSelf(UIContext& ctx) {
 				if (input->WasMousePressed(MouseButton::Left)) {
 					m_selected = static_cast<int>(i);
 					m_open = false;
-					ctx.ConsumeMouse();
+					ctx.ConsumeAll();
 					if (onSelect) onSelect(m_selected);
 					return;
 				}
 			}
 		}
 		if (input->WasMousePressed(MouseButton::Left)) m_open = false;
-		ctx.ConsumeMouse();
+		// An OPEN list blocks everything beneath it, wheel included — otherwise
+		// the container behind would scroll the list out from under the cursor.
+		ctx.ConsumeAll();
 		return;
 	}
 
+	// SHUT, it is just a box that takes clicks. It must NOT claim the wheel:
+	// a dropdown is the commonest thing sitting inside a scrolling dialog, and
+	// claiming a wheel it ignores is exactly what stopped those dialogs
+	// scrolling wherever the cursor happened to rest.
 	m_hot = !ctx.IsMouseConsumed() && Pixel().Contains(mx, my);
 	if (m_hot) {
 		ctx.ConsumeMouse();
@@ -499,8 +516,10 @@ void ContextMenu::UpdateSelf(UIContext& ctx) {
 							  std::max(0.0f, ctx.Height() - childH));
 	}
 
-	// The open menu owns the mouse. The submenu is checked first (it can
-	// overlap the parent when flipped left): a leaf pick closes everything.
+	// The open menu owns the pointer AND the wheel — a menu that let the wheel
+	// past would scroll its own anchor away underneath itself.
+	// The submenu is checked first (it can overlap the parent when flipped
+	// left): a leaf pick closes everything.
 	m_hover = -1;
 	m_childHover = -1;
 	if (m_openChild >= 0 && m_openChild < static_cast<int>(m_entries.size())) {
@@ -512,11 +531,11 @@ void ContextMenu::UpdateSelf(UIContext& ctx) {
 			if (input->WasMousePressed(MouseButton::Left)) {
 				auto fn = kids[i].onSelect; // copy: the callback may rebuild us
 				Close();
-				ctx.ConsumeMouse();
+				ctx.ConsumeAll();
 				if (fn) fn();
 				return;
 			}
-			ctx.ConsumeMouse();
+			ctx.ConsumeAll();
 			return; // over the submenu — the parent rows don't hit-test
 		}
 	}
@@ -532,18 +551,18 @@ void ContextMenu::UpdateSelf(UIContext& ctx) {
 			} else {
 				auto fn = m_entries[i].onSelect; // copy: may rebuild us
 				Close();
-				ctx.ConsumeMouse();
+				ctx.ConsumeAll();
 				if (fn) fn();
 				return;
 			}
 		}
-		ctx.ConsumeMouse();
+		ctx.ConsumeAll();
 		return;
 	}
 	if (input->WasMousePressed(MouseButton::Left) ||
 		input->WasMousePressed(MouseButton::Right))
 		Close();
-	ctx.ConsumeMouse();
+	ctx.ConsumeAll();
 }
 
 void ContextMenu::DrawOverlaySelf(UIContext& ctx, gfx::SpriteBatch& batch) {
@@ -698,7 +717,7 @@ void ColorPicker::UpdateSelf(UIContext& ctx) {
 				if (onChange) onChange(m_color);
 			}
 		}
-		ctx.ConsumeMouse(); // the open popup owns the mouse entirely
+		ctx.ConsumeAll(); // an open popup owns the pointer AND the wheel
 		return;
 	}
 
@@ -800,7 +819,7 @@ void KeyBind::UpdateSelf(UIContext& ctx) {
 			SetKey(vkey);
 			if (onChange) onChange(m_vkey);
 		}
-		ctx.ConsumeMouse(); // the armed box owns the mouse entirely
+		ctx.ConsumeAll(); // an armed capture owns the pointer AND the wheel
 		return;
 	}
 
@@ -1001,7 +1020,7 @@ void SlotList::UpdateBeforeChildren(UIContext& ctx) {
 	if (m_confirmRow < 0) return;
 	const Input* input = ctx.CurrentInput();
 	if (!input) return;
-	ctx.ConsumeMouse();
+	ctx.ConsumeAll(); // an armed confirm is modal: nothing beneath it moves
 	const float mx = input->MouseX(), my = input->MouseY();
 	const gfx::Rect del = ConfirmButton(ctx, true);
 	const gfx::Rect cancel = ConfirmButton(ctx, false);
@@ -1239,12 +1258,17 @@ void ScrollArea::UpdateSelf(UIContext& ctx) {
 		if (m_scrollHot || m_scrollDragging) ctx.ConsumeMouse();
 	}
 
-	// Mouse wheel anywhere over the area.
-	if (!ctx.IsMouseConsumed() && Pixel().Contains(mx, my) &&
+	// Mouse wheel anywhere over the area — and it asks whether the WHEEL is
+	// spoken for, not whether the pointer is. The children ran first (the walk
+	// is bubble-ordered), so by here any of them that genuinely scrolls has
+	// claimed it; the ones that merely wanted a click or a hover have not, and
+	// their wheel bubbles up to here. That is the whole fix for "you have to
+	// find a gap between the controls before a dialog will scroll".
+	if (!ctx.IsWheelConsumed() && Pixel().Contains(mx, my) &&
 		input->WheelDelta() != 0.0f) {
 		m_scroll = std::clamp(m_scroll - input->WheelDelta() * Rem(1.75f), 0.0f,
 							  maxScroll);
-		ctx.ConsumeMouse();
+		ctx.ConsumeWheel();
 	}
 }
 

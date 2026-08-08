@@ -197,6 +197,15 @@ void TypeEditorDialog::BuildUI() {
 		float& y = nextY[tab];
 		const std::string label = PrettyFieldName(spec.key);
 		const std::string value = ValueOf(spec);
+		// How far to step DOWN after this row. Uniform for every control that is
+		// a single line, but a SLIDER is not: ui::Slider is self-contained — its
+		// label sits on a top line with the track in the band beneath — so it
+		// fills 0.92 of the row where a dropdown or a checkbox fills 0.55–0.62.
+		// At a uniform pitch it therefore eats its own gap and the next row lands
+		// on its track, which is exactly what "Offset" did to "Ease in" the first
+		// time a float sat above another field. The advance now follows the
+		// control's own height, so the GAP is the constant rather than the pitch.
+		float advance = kRowH;
 
 		switch (spec.kind) {
 		case FieldKind::Bool: {
@@ -226,6 +235,8 @@ void TypeEditorDialog::BuildUI() {
 			float v = spec.lo;
 			std::from_chars(value.data(), value.data() + value.size(), v);
 			const float sliderW = optional ? kRowW - 0.06f : kRowW;
+			// 0.92 tall + the same ~0.40 gap every other row leaves below itself.
+			advance = kRowH * 1.32f;
 			m_tabs->AddChild<ui::Slider>(tab, gfx::Rect{kRowX, y, sliderW, kRowH * 0.92f},
 										 label, spec.lo, spec.hi, v,
 										 [this, s](float f) {
@@ -315,7 +326,7 @@ void TypeEditorDialog::BuildUI() {
 			break;
 		}
 		}
-		y += kRowH;
+		y += advance;
 	}
 
 	m_ui.Add<ui::Button>(kSave, loc::Tr("map.cfg.save"), [this] {

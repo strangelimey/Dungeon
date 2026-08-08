@@ -86,7 +86,7 @@ void InventoryWindow::UpdateSelf(ui::UIContext& ctx) {
 		}
 	}
 	if ((left || right) && !panel.Contains(mx, my)) m_open = false;
-	ctx.ConsumeMouse();
+	ctx.ConsumeAll(); // an open window owns the pointer AND the wheel
 }
 
 void InventoryWindow::DrawOverlaySelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {

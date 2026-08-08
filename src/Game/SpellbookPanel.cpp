@@ -317,7 +317,7 @@ void SpellbookPanel::UpdateSelf(ui::UIContext& ctx) {
 			if (onClick) onClick();
 		}
 	}
-	ctx.ConsumeMouse(); // the open book owns clicks over its box
+	ctx.ConsumeAll(); // the open book owns the pointer AND the wheel over its box
 }
 
 void SpellbookPanel::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {

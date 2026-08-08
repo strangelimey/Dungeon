@@ -41,6 +41,7 @@ const Font& UIContext::FontAt(FontRole role, float pixelHeight) const {
 void UIContext::Update(const Input& input, float width, float height) {
 	m_input = &input;
 	m_mouseConsumed = false;
+	m_wheelConsumed = false;
 	m_width = width;
 	m_height = height;
 	m_mouseX = input.MouseX();
