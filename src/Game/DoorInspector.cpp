@@ -83,14 +83,22 @@ void DoorInspector::BuildContent(const gfx::Rect& c) {
 	// GROUPED INTO TABS, like the type dialog. The instance grew from three
 	// settings to seven and a single column could not hold them: first the last
 	// rows fell past the footer, then scrolling them turned the dialog into a
-	// ribbon you had to hunt through. Two pages split it where the seam already
-	// is — the DOOR and the thing that WORKS it are separate objects with
-	// separate motions, which is the same division the catalog makes.
+	// ribbon you had to hunt through. The pages split it where the seams already
+	// are — what the door IS, how it MOVES, and the thing that WORKS it are
+	// three objects, which is the division the catalog itself makes with
+	// motion/travel/open_seconds/ease_* sitting apart from key and name.
+	//
+	// MOTION EARNED ITS OWN PAGE when the speed slider arrived. The Door page
+	// already ran to 0.99 of its height, so one more setting would have started
+	// it scrolling — the exact regression the tabs were introduced to undo.
+	// Taking the curves across with the speed leaves every page short of its
+	// bottom again, and puts the two things that shape one movement together.
 	//
 	// Children are fractions of a tab page (a ScrollArea, so an overfull page
-	// would scroll rather than clip — but neither does).
+	// would scroll rather than clip — but none does).
 	ui::TabControl* tabs = UI().Add<ui::TabControl>(c, 0.09f);
 	const std::size_t tDoor = tabs->AddTab(loc::Tr("map.door.tab_door"));
+	const std::size_t tMotion = tabs->AddTab(loc::Tr("map.door.tab_motion"));
 	const std::size_t tOpener = tabs->AddTab(loc::Tr("map.door.tab_opener"));
 
 	// --- the door itself -----------------------------------------------------
@@ -126,8 +134,6 @@ void DoorInspector::BuildContent(const gfx::Rect& c) {
 								 });
 	y += kCtlH + kGap;
 
-	EaseRow(*tabs, tDoor, y, loc::Tr("map.door.ease"), m_cfg.easeIn, m_cfg.easeOut);
-
 	// Name: what a button's target= points at. Kept record-safe as it is typed
 	// (records are whitespace-tokenised key=value lines, so spaces/'=' would
 	// corrupt the .ent — the filter drops anything outside [A-Za-z0-9_-]).
@@ -146,6 +152,27 @@ void DoorInspector::BuildContent(const gfx::Rect& c) {
 		m_cfg.name = name->text;
 		if (onApply) onApply(m_cfg);
 	};
+
+	// --- how it moves --------------------------------------------------------
+	y = 0.02f;
+	// A Slider is SELF-CONTAINED — it draws its own label above its track — so
+	// this row needs no Label of its own and is given a box tall enough for
+	// both, unlike every other control here.
+	//
+	// The range runs from a door that snaps to one that groans: the shipped
+	// types sit at 0.8, 1.4 and 2.0, so a ceiling of 4 leaves room to make a
+	// vault door genuinely slow without the useful half of the track being a
+	// sliver. It shows the EFFECTIVE seconds and starts at the type's value —
+	// see the Config comment for why this one control is not three-state.
+	tabs->AddChild<ui::Slider>(tMotion, gfx::Rect{0.0f, y, 1.0f, 0.20f},
+							   loc::Tr("map.door.speed"), 0.2f, 4.0f, m_cfg.seconds,
+							   [this](float v) {
+								   m_cfg.seconds = v;
+								   if (onApply) onApply(m_cfg);
+							   });
+	y += 0.20f + kGap;
+
+	EaseRow(*tabs, tMotion, y, loc::Tr("map.door.ease"), m_cfg.easeIn, m_cfg.easeOut);
 
 	// --- the hand-hold -------------------------------------------------------
 	y = 0.02f;

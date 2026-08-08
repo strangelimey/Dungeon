@@ -3,11 +3,17 @@
 //
 // A concrete InstanceInspector (see that header). A door's orientation is the
 // doorway's own (auto-detected at placement), so there is no Facing row. The
-// body edits the door's AUTHORED state: Open (the panel slides live as the
-// checkbox flips, and the record's open= param follows) and the key item it
-// requires (items.cat entries with category=key; a keyed door opens to the
-// party's click only while a member carries the item — see
-// DungeonWorld::ToggleDoorAhead — while wired buttons bypass the lock).
+// body edits the door's AUTHORED state across three pages:
+//
+//   Door    Open (the leaf moves live as the checkbox flips, and the record's
+//           open= param follows), the key item it requires (items.cat entries
+//           with category=key; a keyed door opens to the party's click only
+//           while a member carries the item — see DungeonWorld::ToggleDoorAhead
+//           — while wired buttons bypass the lock), and the name a button's
+//           target= points at.
+//   Motion  how long the throw takes and the two curves that shape it.
+//   Opener  which hand-hold hangs on which jamb, and its own two curves.
+//
 // Save persists the level; Close/Esc reverts.
 // ============================================================================
 #pragma once
@@ -41,6 +47,18 @@ public:
 		// the hand-hold are two separate motions.
 		std::string easeIn, easeOut;
 		std::string openerEaseIn, openerEaseOut;
+		// The leaf's throw time, and the one field here that is NOT three-state.
+		// The slider always shows the EFFECTIVE number, starting at whatever the
+		// type gives, and the caller writes an override only where it DIFFERS
+		// (Game_Wiring's onApply). A slider cannot say "inherit" and a value at
+		// once — its label is fixed at construction — and both alternatives (a
+		// checkbox to arm it, or a minimum position meaning Default) cost a
+		// control or a lie for a distinction nothing can see. `typeSeconds` is
+		// what the type gives, so that comparison can be made. What it gives up
+		// is pinning an instance to a number its type happens to share, which
+		// only ever differs if the type is later retuned.
+		float seconds = 0.7f;
+		float typeSeconds = 0.7f;
 	};
 
 	DoorInspector(gfx::GraphicsDevice& device, ui::FontLibrary& fonts)

@@ -761,6 +761,16 @@ public:
 		// off a chain that snaps back.
 		std::string easeIn, easeOut;
 		std::string openerEaseIn, openerEaseOut;
+		// How long the leaf's full throw takes. The same three-state rule,
+		// spelled the way a NUMBER can spell it: 0 inherits the type's
+		// `open_seconds`, because a door that takes no time to open is not a
+		// thing anyone wants, so zero is free to mean something else.
+		//
+		// One number for both directions. A separate close time is easy to add
+		// and nothing yet wants one — no door in the game shuts differently from
+		// how it opens, and the pair of easing curves already carries the
+		// asymmetry that a stone slab actually needs.
+		float seconds = 0.0f;
 	};
 	bool DoorSettings(int x, int z, DoorEdit& out) const;
 	void SetDoorSettings(int x, int z, const DoorEdit& in);

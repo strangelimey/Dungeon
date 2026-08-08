@@ -8,6 +8,7 @@
 #include "Core/Log.h"
 #include "Game/AssetUtil.h"
 
+#include <cmath> // fabs — "is this slider still on the type's value?"
 #include <string>
 #include <utility>
 
@@ -441,6 +442,12 @@ void Game::WireModuleCallbacks() {
 		e.easeOut = c.easeOut;
 		e.openerEaseIn = c.openerEaseIn;
 		e.openerEaseOut = c.openerEaseOut;
+		// The slider carries the EFFECTIVE seconds, so an override is authored
+		// only where it DIFFERS from the type's — which is what keeps a door
+		// nobody touched inheriting, and keeps the record minimal like every
+		// other field here. Half a hundredth, because SetDoorSettings writes two
+		// decimals and anything finer could not survive the round trip anyway.
+		e.seconds = std::fabs(c.seconds - c.typeSeconds) < 0.005f ? 0.0f : c.seconds;
 		m_world.SetDoorSettings(c.x, c.z, e);
 	};
 	m_doorInspector.onSave = [this] {

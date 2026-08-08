@@ -12,6 +12,7 @@
 #include "Core/Paths.h"
 
 #include <algorithm>
+#include <cstdlib> // atof — the .ent `seconds=` override
 #include <filesystem>
 #include <format>
 #include <optional>
@@ -640,6 +641,14 @@ void DungeonWorld::SpawnDoor(const Entity& record) {
 		door.ease.in = EaseShapeFromName(*e, door.ease.in);
 	if (const std::string* e = record.Param("ease_out"))
 		door.ease.out = EaseShapeFromName(*e, door.ease.out);
+	// ... and its SPEED. Two doors of one type are rarely the same door: the
+	// cell door at the end of a corridor and the one the boss stands behind are
+	// both `stone_door`, and how long each takes to grind open is a thing about
+	// the PLACEMENT, not about stone. Guarded like the type's, since the record
+	// is hand-editable and a zero divides by zero in the animation tick.
+	if (const std::string* s = record.Param("seconds"))
+		if (const float v = static_cast<float>(std::atof(s->c_str())); v > 0.05f)
+			door.openSeconds = v;
 	const std::string* o = record.Param("opener");
 	const std::string* s = record.Param("opener_side");
 	ResolveDoorOpener(door, record.type, o ? *o : std::string(),
@@ -860,6 +869,7 @@ bool DungeonWorld::DoorSettings(int x, int z, DoorEdit& out) const {
 	out.easeOut.clear();
 	out.openerEaseIn.clear();
 	out.openerEaseOut.clear();
+	out.seconds = 0.0f;
 	for (const Entity& e : m_entities.All()) {
 		if (e.id != door->id) continue;
 		auto get = [&](const char* k, std::string& to) {
@@ -871,6 +881,8 @@ bool DungeonWorld::DoorSettings(int x, int z, DoorEdit& out) const {
 		get("ease_out", out.easeOut);
 		get("opener_ease_in", out.openerEaseIn);
 		get("opener_ease_out", out.openerEaseOut);
+		if (const std::string* v = e.Param("seconds"))
+			out.seconds = static_cast<float>(std::atof(v->c_str()));
 		break;
 	}
 	return true;
@@ -900,6 +912,10 @@ void DungeonWorld::SetDoorSettings(int x, int z, const DoorEdit& in) {
 		set("ease_out", in.easeOut);
 		set("opener_ease_in", in.openerEaseIn);
 		set("opener_ease_out", in.openerEaseOut);
+		// Two decimals, because a slider hands back whatever pixel it was let go
+		// on and a record line is read by people.
+		set("seconds",
+			in.seconds > 0.0f ? std::format("{:.2f}", in.seconds) : std::string());
 		m_entsDirty = true;
 		// The opener is RESOLVED at spawn, so editing it has to re-resolve: the
 		// live door holds a mesh pointer and a style read from the old values.
@@ -910,9 +926,16 @@ void DungeonWorld::SetDoorSettings(int x, int z, const DoorEdit& in) {
 		// The curves too: both fall back to the TYPE's value when the override
 		// is cleared, which is what ResolveDoorOpener has already restored for
 		// the opener's pair, and what this re-reads for the leaf's.
-		door->ease = EaseSpanOf(m_project.doors.Find(record->type));
+		const CatalogEntry* def = m_project.doors.Find(record->type);
+		door->ease = EaseSpanOf(def);
 		door->ease.in = EaseShapeFromName(in.easeIn, door->ease.in);
 		door->ease.out = EaseShapeFromName(in.easeOut, door->ease.out);
+		// And the throw time, resolved the same way and guarded the same way as
+		// at spawn: a zero would divide by zero in the animation tick.
+		const float secs =
+			in.seconds > 0.0f ? in.seconds
+							  : (def ? def->GetFloat("open_seconds", 0.7f) : 0.7f);
+		door->openSeconds = secs > 0.05f ? secs : 0.05f;
 		door->openerEase.in = EaseShapeFromName(in.openerEaseIn, door->openerEase.in);
 		door->openerEase.out =
 			EaseShapeFromName(in.openerEaseOut, door->openerEase.out);

@@ -128,6 +128,12 @@ void Game::OpenInspectorFor(const InspectTarget& t) {
 			loc::Tr(CatalogGet(type, "opener_side", "left") == "right"
 						? "map.door.side_right"
 						: "map.door.side_left");
+		// The speed slider shows the EFFECTIVE seconds, so an unoverridden door
+		// opens the dialog on its type's number rather than on a placeholder the
+		// user would then have to guess past. onApply turns it back into an
+		// override only where it differs — see DoorInspector::Config.
+		c.typeSeconds = type ? type->GetFloat("open_seconds", 0.7f) : 0.7f;
+		c.seconds = edit.seconds > 0.0f ? edit.seconds : c.typeSeconds;
 		PreviewSpec pv;
 		pv.subs = m_world.DoorPreviewSubs(cx, cz);
 		m_doorInspector.onDelete = [this, cx, cz] {

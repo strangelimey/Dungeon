@@ -5,7 +5,12 @@
 ;   travel        how far the leaf moves, in SQUARES — for a split, how far EACH
 ;                 half goes, so the model is authored as the LEFT HALF only and
 ;                 the render turns a second copy a half turn onto the right
-;   open_seconds  how long the full throw takes
+;   open_seconds  how long the full throw takes. Overridable PER PLACEMENT by
+;                 the .ent record's seconds= param (the editor's door inspector,
+;                 Motion tab), because two doors of one type are rarely the same
+;                 door — the cell door at the end of a corridor and the one the
+;                 boss stands behind are both stone, and how long each takes to
+;                 grind open is a thing about the placement
 ;   trim          a second model drawn with the leaf, carrying its OWN texture
 ;                 (a wooden door's iron straps cannot be iron in a wood-textured
 ;                 mesh — the import path binds one set per model)
