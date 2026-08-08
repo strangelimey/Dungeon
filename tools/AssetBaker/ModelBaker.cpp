@@ -2162,15 +2162,26 @@ assets::ModelData BuildDoorFrame() {
 // door-sized 17 cm. Any future leaf texture wants the same sum done.
 constexpr float kDoorTile = 2.7f;
 
-// The door panel filling the frame's opening, with two cross braces so it
-// reads as a built door rather than a plain slab. Slides sideways (+X in
-// authored space, into the neighbouring wall) as the door opens.
+// The leaf, and the pull sunk into its meeting edge. Shared by the leaf and its
+// trim band, because the pocket is cut through BOTH and a disagreement between
+// them would show as a ledge.
+constexpr float kLeafHalfW = 0.85f, kLeafH = 2.1f, kLeafHalfT = 0.05f;
+constexpr float kPullY = 1.05f;        // hand height on a 2.1 m leaf
+constexpr float kPullHalfH = 0.075f;   // 15 cm tall — a hand, not a fingertip
+constexpr float kPullHalfW = 0.045f;   // half the band's width, so both cut alike
+constexpr float kPullWebT = 0.018f;    // leaf left behind the pocket, half-thickness
+
+// The door panel filling the frame's opening. A PLAIN slab: it used to carry
+// two cross braces "so it reads as a built door rather than a plain slab", and
+// they were the wrong answer twice over. A brace in the leaf's own wood texture
+// reads as a scar across the boards, not as a strap — and a strap is IRON, so
+// it belongs in the `trim` model that carries its own texture, not here. With
+// the tile read off the texture (kDoorTile) the boards carry the door on their
+// own. Slides sideways (+X in authored space, into the neighbouring wall).
 assets::ModelData BuildDoorPanel() {
 	assets::MeshData mesh;
 	constexpr float kOpen = 0.85f, kH = 2.1f;
 	AddBox(mesh, {0.0f, kH * 0.5f, 0.0f}, {kOpen, kH * 0.5f, 0.05f});
-	AddBox(mesh, {0.0f, kH * 0.26f, 0.0f}, {kOpen * 0.96f, 0.07f, 0.075f});
-	AddBox(mesh, {0.0f, kH * 0.74f, 0.0f}, {kOpen * 0.96f, 0.07f, 0.075f});
 	return FinishProp(std::move(mesh), {0.45f, 0.33f, 0.20f, 1.0f}, kDoorTile);
 }
 
@@ -2180,13 +2191,133 @@ assets::ModelData BuildDoorPanel() {
 // as they open. Symmetric in section on purpose: the turned copy shows what was
 // the back face, and a leaf with a front and a back would read wrong on one
 // side. (Placeholder alongside BuildDoorPanel until the authored leaves land.)
+//
+// A HALF LEAF MUST REACH THE CENTRE EXACTLY. The braces here were inset to 96%
+// of the half width, which on a single panel is an unremarkable margin — but on
+// a split door the two insets meet, leaving a 3.4 cm notch at the centre line
+// with the leaf face recessed behind it. It read as a small downward arrow
+// stamped on the door. Anything a split leaf carries has to run out to x = 0 or
+// stop well short of it; a near miss is what shows.
+//
+// The leaf is cut away at the PULL, leaving only a thin web. The pocket was
+// first cut into the band alone, which made it 1.5 cm deep — the band's proud
+// height and nothing more — and it was invisible: the meeting stile is the
+// nearest surface to a torch carried at the eye, so it is the BRIGHTEST thing
+// on the door, and a 1.5 cm step throws no shadow against a hotspot. A recess
+// has to be deep enough to go dark. Cutting the leaf too takes it to 4.7 cm.
 assets::ModelData BuildDoorPanelHalf() {
 	assets::MeshData mesh;
-	constexpr float kOpen = 0.85f, kH = 2.1f, kHalf = kOpen * 0.5f;
-	AddBox(mesh, {-kHalf, kH * 0.5f, 0.0f}, {kHalf, kH * 0.5f, 0.05f});
-	AddBox(mesh, {-kHalf, kH * 0.26f, 0.0f}, {kHalf * 0.96f, 0.07f, 0.075f});
-	AddBox(mesh, {-kHalf, kH * 0.74f, 0.0f}, {kHalf * 0.96f, 0.07f, 0.075f});
+	constexpr float kHalf = kLeafHalfW * 0.5f;
+	const float py0 = kPullY - kPullHalfH, py1 = kPullY + kPullHalfH;
+	const float px = -2.0f * kPullHalfW; // pocket spans [px, 0] — out to the centre
+	// Everything but the pull, as four boxes: below it, above it, beside it, and
+	// the web behind it. (Boxes, not a boolean — there is no CSG here, and a
+	// decomposition is exact where a subtraction would be approximate.)
+	const float sideC = (-kLeafHalfW + px) * 0.5f, sideH = (px + kLeafHalfW) * 0.5f;
+	AddBox(mesh, {-kHalf, py0 * 0.5f, 0.0f}, {kHalf, py0 * 0.5f, kLeafHalfT});
+	AddBox(mesh, {-kHalf, (py1 + kLeafH) * 0.5f, 0.0f},
+		   {kHalf, (kLeafH - py1) * 0.5f, kLeafHalfT});
+	AddBox(mesh, {sideC, kPullY, 0.0f}, {sideH, kPullHalfH, kLeafHalfT});
+	AddBox(mesh, {px * 0.5f, kPullY, 0.0f}, {-px * 0.5f, kPullHalfH, kPullWebT});
 	return FinishProp(std::move(mesh), {0.45f, 0.33f, 0.20f, 1.0f}, kDoorTile);
+}
+
+// --- door trim ---------------------------------------------------------------
+// A leaf's EDGE TREATMENT, drawn with the leaf through the door type's `trim`
+// field so it carries its own texture (iron over wood, bronze over stone). It
+// exists to give the leaf a legible SILHOUETTE: without it a door is a flat
+// rectangle whose edges vanish against the frame, and a split door's centre
+// line — the thing that makes the motion read — vanishes with them.
+//
+// Wraps the leaf's 10 cm thickness and stands 1.5 cm proud of both faces, so it
+// reads from either side and shows as a raised edge in grazing torchlight.
+//
+// The TEXTURE these wear matters as much as the tile (doors.cat carries the
+// reasoning): a band is a run of 9 cm bars, so its set must have no feature
+// bigger than that, or every bar picks up a different part of the scan and the
+// strap looks assembled from offcuts.
+constexpr float kBandW = kPullHalfW;                 // half-width of a band bar
+constexpr float kBandT = kLeafHalfT + 0.015f;        // stands proud both faces
+
+// Lays a rectangular band inside [x0,x1] x [0,kLeafH]. The uprights run the
+// full height and the rails span only BETWEEN them: overlapping them at the
+// corners would put two coplanar faces in the same place, and one solid's face
+// buried in another's is exactly the kind of joint that z-fights.
+// `innerPull` breaks the x1 upright open at the pull, so the recess cut into
+// the leaf behind it is reachable — band and leaf are cut to the SAME rect
+// (kPull*), because a disagreement between them would leave a ledge.
+void AddBandRect(assets::MeshData& mesh, float x0, float x1, bool innerPull = false) {
+	const float xa = x0 + kBandW, xb = x1 - kBandW;
+	AddBox(mesh, {xa, kLeafH * 0.5f, 0.0f}, {kBandW, kLeafH * 0.5f, kBandT});
+	if (!innerPull) {
+		AddBox(mesh, {xb, kLeafH * 0.5f, 0.0f}, {kBandW, kLeafH * 0.5f, kBandT});
+	} else {
+		const float y0 = kPullY - kPullHalfH, y1 = kPullY + kPullHalfH;
+		AddBox(mesh, {xb, y0 * 0.5f, 0.0f}, {kBandW, y0 * 0.5f, kBandT});
+		AddBox(mesh, {xb, (y1 + kLeafH) * 0.5f, 0.0f},
+			   {kBandW, (kLeafH - y1) * 0.5f, kBandT});
+	}
+	const float railHalf = (xb - xa) * 0.5f - kBandW, railX = (xa + xb) * 0.5f;
+	AddBox(mesh, {railX, kBandW, 0.0f}, {railHalf, kBandW, kBandT});
+	AddBox(mesh, {railX, kLeafH - kBandW, 0.0f}, {railHalf, kBandW, kBandT});
+}
+
+// Iron band for a WHOLE leaf (the portcullis and any single-panel door).
+assets::ModelData BuildDoorBand() {
+	assets::MeshData mesh;
+	AddBandRect(mesh, -kLeafHalfW, kLeafHalfW);
+	return FinishProp(std::move(mesh), {0.30f, 0.28f, 0.27f, 1.0f}, 0.35f);
+}
+
+// Iron band for the LEFT HALF of a split leaf. Its inner upright runs out to
+// x = 0 EXACTLY, so the two halves' uprights meet into one broad meeting stile
+// closed — which is the whole point, since that bar is what makes the split
+// visible before the door ever moves. (See the near-miss note on the half leaf:
+// stopping this bar a centimetre short would read as a seam, not a stile.) That
+// upright also carries the flush pull, so the two halves' pockets meet into one
+// hand-wide recess on the centre line.
+assets::ModelData BuildDoorBandHalf() {
+	assets::MeshData mesh;
+	AddBandRect(mesh, -kLeafHalfW, 0.0f, /*innerPull=*/true);
+	return FinishProp(std::move(mesh), {0.30f, 0.28f, 0.27f, 1.0f}, 0.35f);
+}
+
+// Bronze bosses and a ring pull — the STONE door's answer to the same problem.
+// Iron banding on a stone slab reads as ironwork bolted to rock; a sealed vault
+// door instead marks its corners and hangs one heavy ring. Both faces get the
+// full set, because a door is walked through in both directions.
+assets::ModelData BuildDoorBosses() {
+	assets::MeshData mesh;
+	constexpr float kBossR = 0.055f, kInset = 0.16f;
+	for (const float sx : {-1.0f, 1.0f})
+		for (const float sy : {0.0f, 1.0f})
+			for (const float sz : {-1.0f, 1.0f}) {
+				const Vec3 c{sx * (kLeafHalfW - kInset),
+							 sy ? kLeafH - kInset : kInset, sz * kLeafHalfT};
+				// Squashed to a dome: a full sphere would float half-buried and
+				// read as a ball, where a boss is a swelling of the surface.
+				AddSphere(mesh, c, kBossR, 8, 12, -1, {1.0f, 1.0f, 0.5f});
+			}
+	// The ring, hanging in the leaf's plane. Built from chords rather than a
+	// swept torus — AddStrut is the only round primitive here, and at this size
+	// 20 segments is round enough that nobody counts them.
+	constexpr float kRingR = 0.15f, kTubeR = 0.022f;
+	constexpr int kSeg = 20;
+	for (const float sz : {-1.0f, 1.0f}) {
+		const float z = sz * (kLeafHalfT + kTubeR);
+		const float cy = kLeafH * 0.46f;
+		auto at = [&](int i) {
+			const float a = 2.0f * kPi * static_cast<float>(i) / kSeg;
+			return Vec3{kRingR * std::sin(a), cy + kRingR * std::cos(a) - kRingR, z};
+		};
+		for (int i = 0; i < kSeg; ++i) AddStrut(mesh, at(i), at(i + 1), kTubeR, kTubeR, 8);
+		// The mount the ring hangs from, at the ring's top.
+		AddBox(mesh, {0.0f, cy + 0.02f, sz * (kLeafHalfT + 0.02f)},
+			   {0.05f, 0.045f, 0.02f});
+	}
+	// 0.45 m over the hammered-brass set puts a planished dimple at about 1.7 cm
+	// — hammer marks at arm's length, rather than the fine speckle 0.30 gave.
+	return FinishProp(std::move(mesh), {0.55f, 0.42f, 0.20f, 1.0f}, 0.45f);
 }
 
 // RETIRED (2026-08-07): the wall lever is authored in tools/BuildLever.py now
@@ -2433,6 +2564,10 @@ bool BakeModels(const std::string& dir, const std::string& texturesDir) {
 	// door_panel, NOT door: door.gltf is the cosmetic wood_door decoration.
 	ok &= WriteGltf(BuildDoorPanel(), dir + "\\door_panel.gltf");
 	ok &= WriteGltf(BuildDoorPanelHalf(), dir + "\\door_panel_half.gltf");
+	// Leaf trim (doors.cat `trim`): iron bands over wood, bronze over stone.
+	ok &= WriteGltf(BuildDoorBand(), dir + "\\door_band.gltf");
+	ok &= WriteGltf(BuildDoorBandHalf(), dir + "\\door_band_half.gltf");
+	ok &= WriteGltf(BuildDoorBosses(), dir + "\\door_bosses.gltf");
 	// (the lever moved to tools/BuildLever.py — see the note at BuildLever's
 	// old site; lever_plate.gltf and lever_handle.gltf are import-model output)
 

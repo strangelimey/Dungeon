@@ -19,16 +19,18 @@ authored = 0
 motion = split
 travel = 0.4
 open_seconds = 0.8
+trim = door_band_half
 
 [portcullis]
 display = Portcullis
 category = door
 model = door_panel
-texture = rusted_iron
+texture = sconce
 authored = 0
 motion = rise
 travel = 1.0
 open_seconds = 1.4
+trim = door_band
 
 [stone_door]
 display = Stone Door
@@ -39,10 +41,50 @@ authored = 0
 motion = slide
 travel = 0.75
 open_seconds = 2.0
+trim = door_bosses
 
 [door_frame]
 display = Door Frame
 model = door_frame
 texture = wall_stone
+authored = 0
+hidden = 1
+
+; --- leaf trim -------------------------------------------------------------
+; Drawn with the leaf it belongs to (the type's `trim`), and hidden from the
+; palette: trim is never placed on its own. It exists to give a leaf a legible
+; EDGE — and on a split door, a legible CENTRE — since a flat rectangle loses
+; both against the frame. Each carries its own texture, which is the whole
+; reason it is a separate model: an iron strap cannot be iron inside a
+; wood-textured mesh.
+;
+; The iron is `sconce`, the game's uniform worn-metal set, NOT `rusted_iron`.
+; rusted_iron is a scan of a corrugated iron WALL — big sheet panels, hard
+; vertical seams, a pale weathered strip down one third — so at any tile rate
+; each bar of the band lands on a different panel of the scan and the strap
+; reads as assembled from mismatched pieces rather than forged in one. A band
+; wants a texture with NO features larger than the bar is wide. As a bonus this
+; is the set the sconces and braziers already wear, so the ironwork matches.
+
+[door_band]
+display = Door Band (iron)
+model = door_band
+texture = sconce
+authored = 0
+hidden = 1
+
+[door_band_half]
+display = Door Band, half leaf (iron)
+model = door_band_half
+texture = sconce
+authored = 0
+hidden = 1
+
+; Bronze, not iron: banding a stone slab reads as ironwork bolted to rock, so a
+; sealed vault door marks its corners and hangs a ring instead.
+[door_bosses]
+display = Door Bosses (bronze)
+model = door_bosses
+texture = brass
 authored = 0
 hidden = 1
