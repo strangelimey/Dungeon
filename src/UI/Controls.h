@@ -666,6 +666,18 @@ void DrawButtonFace(gfx::SpriteBatch& batch, const Font& font,
 					bool held = false, bool enabled = true,
 					const Skin* skin = nullptr);
 
+// Draws a drop-down's EXPANDER at the right end of `rect`: the authored box
+// (ui::ControlIcons::dropDown), turned half a rotation while `open`, brightened
+// while open or hovered — or the text arrow when no icon is installed. The look
+// belongs to the drop-down, not to any one drawing site: DropDown routes
+// through it, and so does hand-drawn chrome that presents a drop-down outside
+// the widget tree (the map editor's level picker), exactly as they already
+// share DrawButtonFace. `rect` is the whole CONTROL; the expander sizes and
+// insets itself off `font` so it clears the border at any text size.
+void DrawDropDownExpander(gfx::SpriteBatch& batch, const Font& font,
+						  const gfx::Rect& rect, const Theme& theme, bool open,
+						  bool hot);
+
 // The standard close affordance every dialog uses: a small square button in the
 // top-right CORNER of `panel` (window-fraction space, like the widgets it joins).
 // `icon` is the shared close box (assets/ui/icon_close); a null icon falls back

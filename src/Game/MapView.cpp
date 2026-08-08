@@ -1219,15 +1219,13 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 				const bool hot = b.enabled && m_hoverBtn == b.id;
 				if (hot && b.id != HoverBtn::LevelPick) tip = &b;
 				if (b.id == HoverBtn::LevelPick) {
+					// A drop-down drawn outside the widget tree: the face and
+					// the expander both come from ui, so it reads exactly like
+					// a ui::DropDown and follows it whenever that look changes
+					// (it used to hand-draw its own little triangle here).
 					face(b.rect, b.label, b.id, b.enabled);
-					// Dropdown marker: a small down triangle at the box's
-					// right edge (the label stays face-centered).
-					const float ts = b.rect.h * 0.16f;
-					const float cx = b.rect.x + b.rect.w - ts * 2.5f;
-					const float cy = b.rect.y + b.rect.h * 0.5f;
-					batch.DrawTriangle({cx - ts, cy - ts * 0.6f},
-									   {cx + ts, cy - ts * 0.6f},
-									   {cx, cy + ts * 0.8f}, theme.textDim);
+					ui::DrawDropDownExpander(batch, *m_font, b.rect, theme,
+											 m_levelsOpen, hot);
 				} else if (b.icon) {
 					const float d = std::min(b.rect.w, b.rect.h);
 					const float f = !b.enabled ? 0.32f : hot ? 1.15f : 0.85f;

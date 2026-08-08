@@ -402,28 +402,36 @@ void DropDown::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 			: kNoSelection;
 	const float textY = px.y + (px.h - font.Height()) * 0.5f;
 	font.Draw(batch, current, px.x + 8, textY, theme.text);
+	DrawDropDownExpander(batch, font, px, theme, m_open, m_hot);
+}
 
-	// Expander indicator. The authored box (ui::ControlIcons::dropDown) is a
-	// SQUARE sized off the control's height and inset so it clears the border,
-	// turned half a rotation while open — the triangle is the only asymmetric
-	// thing in it, so one asset serves both states. Brightness carries the
-	// hover/open read the flat glyph used to get from the accent color.
-	const ControlIcons& icons = GetControlIcons();
-	const float inset = Rem(0.12f);
-	if (icons.dropDown) {
-		const float d = px.h - inset * 2.0f;
-		const float f = (m_hot || m_open) ? 1.15f : 0.9f;
-		batch.DrawSpriteRotated({px.x + px.w - inset - d * 0.5f, px.y + px.h * 0.5f},
-								{d, d}, m_open ? kPi : 0.0f, {0, 0, 1, 1},
-								*icons.dropDown, {f, f, f, 1.0f});
+void DrawDropDownExpander(gfx::SpriteBatch& batch, const Font& font,
+						  const gfx::Rect& rect, const Theme& theme, bool open,
+						  bool hot) {
+	// The authored box is a SQUARE sized off the control's height and inset so
+	// it clears the border, turned half a rotation while open — the triangle is
+	// the only asymmetric thing in it, so ONE asset serves both states.
+	// Brightness carries the hover/open read the flat glyph used to get from
+	// the accent color (the same idiom Button's icon path uses).
+	//
+	// The inset is a fraction of the TEXT height, not of the rect: the box has
+	// to clear a 1px border beside type of whatever size, and a rect fraction
+	// would grow the gap on a tall control and lose it on a short one.
+	const float inset = font.Height() * 0.12f;
+	if (const gfx::Texture* icon = GetControlIcons().dropDown) {
+		const float d = rect.h - inset * 2.0f;
+		const float f = (hot || open) ? 1.15f : 0.9f;
+		batch.DrawSpriteRotated(
+			{rect.x + rect.w - inset - d * 0.5f, rect.y + rect.h * 0.5f}, {d, d},
+			open ? kPi : 0.0f, {0, 0, 1, 1}, *icon, {f, f, f, 1.0f});
 		return;
 	}
 	// Fallback with no icon installed: the text arrow, right-aligned with a
 	// margin so it clears the border at any font size (measure it rather than
 	// assume a fixed width).
-	const char* arrow = m_open ? "^" : "v";
-	const float arrowX = px.x + px.w - font.MeasureWidth(arrow) - Rem(0.35f);
-	font.Draw(batch, arrow, arrowX, textY, theme.accent);
+	const char* arrow = open ? "^" : "v";
+	font.Draw(batch, arrow, rect.x + rect.w - font.MeasureWidth(arrow) - inset * 3.0f,
+			  rect.y + (rect.h - font.Height()) * 0.5f, theme.accent);
 }
 
 void DropDown::DrawOverlaySelf(UIContext& ctx, gfx::SpriteBatch& batch) {
