@@ -50,6 +50,15 @@ fixture sconce 21 7 west
 fixture sconce 25 10 east
 fixture brazier 10 8
 fixture brazier 23 8
+floorfeature recess 13 8
+floorfeature recess 13 17
+floorfeature drain 12 8
+floorfeature cracked 14 8
+floorfeature cracked 11 9
+floorfeature drain 15 8
+ceilingfeature vault 12 11
+ceilingfeature vault 13 11
+ceilingfeature vault 14 11
 stairs stairs_up 25 11 north dest=start destx=50 destz=9 destfacing=south
 stairs stairs_spiral 21 11 north dest=start destx=50 destz=9 destfacing=south
 stairs stairs_spiral_down 21 6 north dest=start destx=50 destz=9 destfacing=south
@@ -135,6 +144,7 @@ variant ceiling 24 8 3
 variant floor 25 8 3
 variant ceiling 25 8 3
 variant wall 26 8 3
+variant wall 9 9 0
 variant wall 18 9 2
 variant wall 19 9 2
 variant wall 20 9 3
@@ -149,6 +159,7 @@ variant ceiling 24 9 3
 variant floor 25 9 3
 variant ceiling 25 9 3
 variant wall 26 9 3
+variant wall 9 10 0
 variant wall 20 10 3
 variant floor 21 10 3
 variant ceiling 21 10 3
@@ -161,6 +172,7 @@ variant ceiling 24 10 3
 variant floor 25 10 3
 variant ceiling 25 10 3
 variant wall 26 10 3
+variant wall 9 11 0
 variant wall 20 11 3
 variant floor 21 11 3
 variant ceiling 21 11 3
@@ -173,6 +185,7 @@ variant ceiling 24 11 3
 variant floor 25 11 3
 variant ceiling 25 11 3
 variant wall 26 11 3
+variant wall 9 12 0
 variant wall 20 12 3
 variant wall 21 12 3
 variant wall 22 12 3
@@ -180,7 +193,12 @@ variant wall 23 12 3
 variant wall 24 12 3
 variant wall 25 12 3
 variant wall 26 12 3
-variant wall 12 15 2
+variant wall 9 13 0
+variant wall 9 14 0
+variant wall 9 15 0
+variant wall 10 15 0
+variant wall 11 15 0
+variant wall 12 15 0
 variant floor 13 15 2
 variant ceiling 13 15 2
 variant wall 14 15 2
@@ -224,6 +242,7 @@ decoration column 16 5 south
 decoration column 16 8 south
 decoration column 16 11 south
 decoration statue 13 1 south
+decoration statue_sentinel 14 1 south
 decoration banner 10 6 west
 decoration banner 17 6 east
 decoration barrel 10 12 south
@@ -233,19 +252,10 @@ decoration boulder 24 6 south
 decoration mossy_rock 21 9 south
 decoration chest 25 6 south
 decoration wall_arch 13 16 north
-decoration floor_grate 13 8
-decoration floor_grate 13 17
-floorfeature recess 13 8
-floorfeature recess 13 17
-floorfeature drain 12 8
-floorfeature cracked 14 8
-floorfeature cracked 11 9
-floorfeature drain 15 8
-ceilingfeature vault 12 11
-ceilingfeature vault 13 11
-ceilingfeature vault 14 11
-decoration ceiling_beam 12 12
-decoration ceiling_beam 13 12
-decoration ceiling_beam 14 12
-decoration hanging_chain 12 13
-decoration hanging_chain 14 13
+decoration floor_grate 13 8 south
+decoration floor_grate 13 17 south
+decoration ceiling_beam 12 12 south
+decoration ceiling_beam 13 12 south
+decoration ceiling_beam 14 12 south
+decoration hanging_chain 12 13 south
+decoration hanging_chain 14 13 south
