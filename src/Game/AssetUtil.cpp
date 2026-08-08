@@ -8,6 +8,7 @@
 #include "Core/Assert.h"
 #include "Core/Log.h"
 #include "Core/Paths.h"
+#include "UI/ControlIcons.h"
 
 #include <algorithm>
 #include <cctype>
@@ -45,6 +46,10 @@ namespace {
 // slot is still alive. A static would destruct at exit, after the device.
 std::unique_ptr<gfx::Texture> g_closeIcon;
 bool g_closeIconTried = false;
+// The control library's own glyphs (ui::ControlIcons) — owned here, borrowed
+// there. Same explicit lifetime: ReleaseSharedIcons clears the registry BEFORE
+// dropping the texture, so no widget can name a freed SRV slot.
+std::unique_ptr<gfx::Texture> g_dropDownIcon;
 } // namespace
 
 const gfx::Texture* CloseIcon(gfx::GraphicsDevice& device) {
@@ -61,7 +66,20 @@ const gfx::Texture* CloseIcon(gfx::GraphicsDevice& device) {
 	return g_closeIcon.get();
 }
 
+void LoadSharedControlIcons(gfx::GraphicsDevice& device) {
+	const std::string stem = paths::Asset("ui\\icon_dropdown");
+	// Non-sRGB like every other assets/ui image, so its tone matches the rest
+	// of the chrome rather than the scene's albedo path.
+	g_dropDownIcon = TryLoadTextureFile(device, stem);
+	if (!g_dropDownIcon) log::Warn("dropdown icon missing: {}(.dds|.png)", stem);
+	ui::ControlIcons icons;
+	icons.dropDown = g_dropDownIcon.get();
+	ui::SetControlIcons(icons);
+}
+
 void ReleaseSharedIcons() {
+	ui::SetControlIcons({}); // before the textures die — the registry borrows
+	g_dropDownIcon.reset();
 	g_closeIcon.reset();
 	// Re-arm: a later device (the adapter-change relaunch builds a fresh one)
 	// must reload rather than be handed the dead texture.

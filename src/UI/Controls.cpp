@@ -1,5 +1,6 @@
 #include "UI/Controls.h"
 
+#include "UI/ControlIcons.h"
 #include "UI/Skin.h"
 #include "UI/Units.h"
 
@@ -400,11 +401,28 @@ void DropDown::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 			? items[static_cast<size_t>(m_selected)]
 			: kNoSelection;
 	const float textY = px.y + (px.h - font.Height()) * 0.5f;
-	// Arrow indicator, right-aligned with a margin so the glyph clears the
-	// border at any font size (measure it rather than assume a fixed width).
+	font.Draw(batch, current, px.x + 8, textY, theme.text);
+
+	// Expander indicator. The authored box (ui::ControlIcons::dropDown) is a
+	// SQUARE sized off the control's height and inset so it clears the border,
+	// turned half a rotation while open — the triangle is the only asymmetric
+	// thing in it, so one asset serves both states. Brightness carries the
+	// hover/open read the flat glyph used to get from the accent color.
+	const ControlIcons& icons = GetControlIcons();
+	const float inset = Rem(0.12f);
+	if (icons.dropDown) {
+		const float d = px.h - inset * 2.0f;
+		const float f = (m_hot || m_open) ? 1.15f : 0.9f;
+		batch.DrawSpriteRotated({px.x + px.w - inset - d * 0.5f, px.y + px.h * 0.5f},
+								{d, d}, m_open ? kPi : 0.0f, {0, 0, 1, 1},
+								*icons.dropDown, {f, f, f, 1.0f});
+		return;
+	}
+	// Fallback with no icon installed: the text arrow, right-aligned with a
+	// margin so it clears the border at any font size (measure it rather than
+	// assume a fixed width).
 	const char* arrow = m_open ? "^" : "v";
 	const float arrowX = px.x + px.w - font.MeasureWidth(arrow) - Rem(0.35f);
-	font.Draw(batch, current, px.x + 8, textY, theme.text);
 	font.Draw(batch, arrow, arrowX, textY, theme.accent);
 }
 

@@ -136,6 +136,10 @@ void GameUI::BuildStaticUi() {
 	// showed the real icon. Cheap to do here: CloseIcon loads once and hands
 	// back the same texture to everyone.
 	m_closeIcon = CloseIcon(m_device);
+	// Same reason, one step further: the drop-down's expander box is read from
+	// a shared registry by the CONTROL, so it has to be installed before any
+	// page — or any editor dialog — draws one.
+	LoadSharedControlIcons(m_device);
 	BuildMenu();
 	BuildPauseMenu();
 	BuildCharacterSheet();

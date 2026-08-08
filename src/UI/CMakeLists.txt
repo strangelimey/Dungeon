@@ -1,4 +1,5 @@
 add_library(UI STATIC
+	ControlIcons.cpp
 	Controls.cpp
 	Font.cpp
 	FontLibrary.cpp
