@@ -171,14 +171,47 @@ Because the pipeline's stages are already named and separate, three more cues
 come almost free: a **swing whoosh** on a miss (strike), a **deflect** ring
 (deflect), and an **absorb** cue (absorb) — each distinct from the landed blow.
 
-### Phase 7 — Derived acoustics
+### Phase 7 — Spells
+
+A spell is not one sample. **A fireball whooshes and then explodes**, and those
+are two different sounds in two different places — so the unit here is a
+sequence, not an id:
+
+- **Release** — at the caster. The cast voice that exists today, but per school.
+- **Flight** — a loop that **travels with the projectile**. This is the first
+  real consumer of *reposition a playing voice*, and it is why Phase 2 returns a
+  handle at all. `ProjectileSystem` already assigns each shot a stable runtime
+  id (the map overlay's projectile inspector uses it), so a voice keys off that
+  id and dies when the shot does — no new bookkeeping.
+- **Impact** — the explosion, at the point of the hit rather than at the caster.
+
+**Wards charge rather than fire**, and they are effects, not projectiles — so
+their sounds belong on **effects.cat, right beside `plume`**, which already
+holds an effect's look. Three moments, the same three the visuals already have:
+a **charge** on application, an optional **sustain** loop while it stands (a
+burning body crackles; a ward hums), and a **break** when it is spent or times
+out. Presentation stays derived — the same property that makes a burning body's
+plume and light restore for free after a load restores its crackle too.
+
+Authoring falls back rather than requiring a full matrix: an unauthored bolt
+takes **its damage type's** impact sound, so a new fire spell is audible the
+moment it exists and only gets its own voice if it earns one.
+
+One judgment call to make when this lands: `spells.cat` is documented as
+*numeric overrides only* — the class is the identity. Sound ids are neither
+numbers nor identity but presentation, so they sit alongside `icon`/`plume` in
+effects.cat comfortably and less comfortably in spells.cat. If it grates,
+per-spell sounds can key off the spell id from `sounds.cat` instead, leaving
+spells.cat untouched.
+
+### Phase 8 — Derived acoustics
 
 Measure the space around the listener from the map — an open-cell flood plus a
 cardinal raycast gives both a volume and a corridor-vs-hall aspect — and drive
 the reverb's decay and wet level from it, interpolated as the party moves so it
 never steps. Per-level override in `atmosphere` for when it reads wrong.
 
-Phases 4–7 are independent once 2 and 3 land.
+Phases 4–8 are independent once 2 and 3 land.
 
 ## Traps to build against
 
