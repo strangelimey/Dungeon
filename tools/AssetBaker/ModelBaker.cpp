@@ -2149,21 +2149,28 @@ assets::ModelData BuildPitCeiling() {
 
 // UV tile for the door leaves, and it is NOT the 0.6 m the other props take.
 // A prop's tile has to be read off the TEXTURE, not chosen for the prop: the
-// wood sets here are wall-scale scans of a whole boarded surface, so 0.6 m
-// crammed a full fence into two thirds of a metre and the door came out
-// striped in 1.3 cm slivers — "vertical lollipop sticks". `wood_planks_old8`
-// carries about 16 boards across a square scan, so 2.7 m lands them at a
-// door-sized 17 cm. Any future leaf texture wants the same sum done.
+// scans here are wall-scale, of a whole boarded or panelled surface, so 0.6 m
+// crammed a full fence into two thirds of a metre and the door came out striped
+// in 1.3 cm slivers — "vertical lollipop sticks". Any future leaf texture wants
+// the same sum done.
+//
+// The sum was done by COUNTING and got the count wrong: `wood_planks_old8` was
+// read as 16 boards across a square scan, which made 2.7 m sound like 17 cm
+// boards. It has ten (measured — column minima, confirmed by autocorrelation at
+// 101.5 px on 1024), so this laid 27 cm ones. The wooden leaf that mattered has
+// since moved to tools/BuildDoorLeaf.py, which reads the seam table off the
+// scan instead of assuming a pitch, and what is left here wears metal or
+// granite rather than wood — so the number stands, but not the reasoning.
 constexpr float kDoorTile = 2.7f;
 
 // The leaf, and the pull sunk into its meeting edge. Shared by the leaf and its
 // trim band, because the pocket is cut through BOTH and a disagreement between
-// them would show as a ledge.
+// them would show as a ledge — so tools/BuildDoorLeaf.py carries unit-space
+// copies of the kPull* three and says where they came from.
 constexpr float kLeafHalfW = 0.85f, kLeafH = 2.1f, kLeafHalfT = 0.05f;
 constexpr float kPullY = 1.05f;        // hand height on a 2.1 m leaf
 constexpr float kPullHalfH = 0.075f;   // 15 cm tall — a hand, not a fingertip
 constexpr float kPullHalfW = 0.045f;   // half the band's width, so both cut alike
-constexpr float kPullWebT = 0.018f;    // leaf left behind the pocket, half-thickness
 
 // The door panel filling the frame's opening. A PLAIN slab: it used to carry
 // two cross braces "so it reads as a built door rather than a plain slab", and
@@ -2179,42 +2186,32 @@ assets::ModelData BuildDoorPanel() {
 	return FinishProp(std::move(mesh), {0.45f, 0.33f, 0.20f, 1.0f}, kDoorTile);
 }
 
-// The LEFT HALF of a split door's leaf, spanning the opening's left half only.
-// A split door draws this mesh twice, the second copy turned a half turn about
-// Y, so the two halves meet at the centre closed and part into their own jambs
-// as they open. Symmetric in section on purpose: the turned copy shows what was
-// the back face, and a leaf with a front and a back would read wrong on one
-// side. (Placeholder alongside BuildDoorPanel until the authored leaves land.)
+// RETIRED (2026-08-08): the LEFT HALF of a split door's leaf is authored in
+// tools/BuildDoorLeaf.py now and imported, so it must NOT be baked here —
+// `AssetBaker models` would overwrite the imported door_panel_half.gltf with
+// four boxes again. It was a flat slab with a pocket in it; the authored one is
+// five real boards with grooves between them, each crowned and set a little
+// proud of its neighbours, and each wearing ONE board of the scan so the
+// painted seam falls in the modelled groove. Same move as BuildDoorFrame and
+// BuildLever above.
 //
-// A HALF LEAF MUST REACH THE CENTRE EXACTLY. The braces here were inset to 96%
-// of the half width, which on a single panel is an unremarkable margin — but on
-// a split door the two insets meet, leaving a 3.4 cm notch at the centre line
-// with the leaf face recessed behind it. It read as a small downward arrow
-// stamped on the door. Anything a split leaf carries has to run out to x = 0 or
-// stop well short of it; a near miss is what shows.
+// The kPull* constants below are still live — the trim band's pocket is cut to
+// the same rect as the leaf's, and a disagreement between them would show as a
+// ledge — and the Python holds their unit-space copies with that noted.
 //
-// The leaf is cut away at the PULL, leaving only a thin web. The pocket was
-// first cut into the band alone, which made it 1.5 cm deep — the band's proud
-// height and nothing more — and it was invisible: the meeting stile is the
-// nearest surface to a torch carried at the eye, so it is the BRIGHTEST thing
-// on the door, and a 1.5 cm step throws no shadow against a hotspot. A recess
-// has to be deep enough to go dark. Cutting the leaf too takes it to 4.7 cm.
-assets::ModelData BuildDoorPanelHalf() {
-	assets::MeshData mesh;
-	constexpr float kHalf = kLeafHalfW * 0.5f;
-	const float py0 = kPullY - kPullHalfH, py1 = kPullY + kPullHalfH;
-	const float px = -2.0f * kPullHalfW; // pocket spans [px, 0] — out to the centre
-	// Everything but the pull, as four boxes: below it, above it, beside it, and
-	// the web behind it. (Boxes, not a boolean — there is no CSG here, and a
-	// decomposition is exact where a subtraction would be approximate.)
-	const float sideC = (-kLeafHalfW + px) * 0.5f, sideH = (px + kLeafHalfW) * 0.5f;
-	AddBox(mesh, {-kHalf, py0 * 0.5f, 0.0f}, {kHalf, py0 * 0.5f, kLeafHalfT});
-	AddBox(mesh, {-kHalf, (py1 + kLeafH) * 0.5f, 0.0f},
-		   {kHalf, (kLeafH - py1) * 0.5f, kLeafHalfT});
-	AddBox(mesh, {sideC, kPullY, 0.0f}, {sideH, kPullHalfH, kLeafHalfT});
-	AddBox(mesh, {px * 0.5f, kPullY, 0.0f}, {-px * 0.5f, kPullHalfH, kPullWebT});
-	return FinishProp(std::move(mesh), {0.45f, 0.33f, 0.20f, 1.0f}, kDoorTile);
-}
+// TWO THINGS THAT SCRIPT INHERITED and must keep, both learned here:
+// A HALF LEAF MUST REACH THE CENTRE EXACTLY. The braces this once carried were
+// inset to 96% of the half width, which on a single panel is an unremarkable
+// margin — but on a split door the two insets meet, leaving a 3.4 cm notch at
+// the centre line with the leaf face recessed behind it. It read as a small
+// downward arrow stamped on the door. Anything a split leaf carries has to run
+// out to x = 0 or stop well short of it; a near miss is what shows.
+// THE PULL HAS TO CUT THE LEAF, not just the band. Cut into the band alone it
+// was 1.5 cm deep — the band's proud height and nothing more — and invisible:
+// the meeting stile is the nearest surface to a torch carried at the eye, so it
+// is the BRIGHTEST thing on the door, and a 1.5 cm step throws no shadow
+// against a hotspot. A recess has to be deep enough to go dark. Cutting the
+// leaf too takes it to 4.7 cm.
 
 // --- door trim ---------------------------------------------------------------
 // A leaf's EDGE TREATMENT, drawn with the leaf through the door type's `trim`
@@ -2664,7 +2661,8 @@ bool BakeModels(const std::string& dir, const std::string& texturesDir) {
 	// site; baking it here would overwrite the imported mesh)
 	// door_panel, NOT door: door.gltf is the cosmetic wood_door decoration.
 	ok &= WriteGltf(BuildDoorPanel(), dir + "\\door_panel.gltf");
-	ok &= WriteGltf(BuildDoorPanelHalf(), dir + "\\door_panel_half.gltf");
+	// (door_panel_half moved to tools/BuildDoorLeaf.py — see the note at its old
+	// site; baking it here would overwrite the imported mesh)
 	// Leaf trim (doors.cat `trim`): iron bands over wood, bronze over stone.
 	ok &= WriteGltf(BuildDoorBand(), dir + "\\door_band.gltf");
 	ok &= WriteGltf(BuildDoorBandHalf(), dir + "\\door_band_half.gltf");

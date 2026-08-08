@@ -26,8 +26,11 @@
 display = Wooden Door
 category = door
 model = door_panel_half
+; authored = 1: the leaf is tools/BuildDoorLeaf.py's now — five real boards,
+; a closed shell with correct winding, so it back-culls like the frame it hangs
+; in. The four-box slab it replaced could not.
+authored = 1
 texture = wood_planks_old8
-authored = 0
 motion = split
 travel = 0.4
 open_seconds = 0.8
