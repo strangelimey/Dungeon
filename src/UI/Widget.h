@@ -15,8 +15,10 @@
 //   Update  children in REVERSE add order, then self — so the topmost child
 //           owning a pixel claims the mouse before its parent sees it
 //   Draw    self, then children in add order (painter's: parent behind)
-// Input consumption is unchanged: a widget that uses the mouse calls
-// ConsumeMouse() and everything visited later ignores the same event.
+// Input consumption: a widget that uses the mouse calls ConsumeMouse() and
+// everything visited later ignores the same event. The WHEEL is a SEPARATE
+// claim (UIContext::ConsumeWheel) — a control that merely wants the click under
+// the cursor must not also stop the page beneath it scrolling.
 // ============================================================================
 #pragma once
 

@@ -114,12 +114,13 @@ void MessageLog::UpdateSelf(ui::UIContext& ctx) {
 	if (!ctx.IsMouseConsumed() && footer.Contains(mx, my)) {
 		m_hovered = true;
 		ctx.ConsumeMouse();
-		if (input->WheelDelta() != 0.0f) {
+		if (input->WheelDelta() != 0.0f && !ctx.IsWheelConsumed()) {
 			const float innerH = footer.h - 2.0f * Rem(kPadRem);
 			const float maxScroll = std::max(
 				0.0f, static_cast<float>(m_msgs.size()) - innerH / lineH);
 			m_scroll = std::clamp(m_scroll + input->WheelDelta() * 3.0f, 0.0f,
 								  maxScroll);
+			ctx.ConsumeWheel();
 		}
 	}
 }

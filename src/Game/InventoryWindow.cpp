@@ -87,6 +87,7 @@ void InventoryWindow::UpdateSelf(ui::UIContext& ctx) {
 	}
 	if ((left || right) && !panel.Contains(mx, my)) m_open = false;
 	ctx.ConsumeMouse();
+	ctx.ConsumeWheel(); // an open popup freezes what is behind it, scroll too
 }
 
 void InventoryWindow::DrawOverlaySelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {

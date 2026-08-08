@@ -83,14 +83,14 @@ void TextOutput::AddLine(std::string line) {
 
 void TextOutput::UpdateSelf(UIContext& ctx) {
 	const Input* input = ctx.CurrentInput();
-	if (!input || ctx.IsMouseConsumed()) return;
+	if (!input || ctx.IsWheelConsumed()) return;
 	if (Pixel().Contains(input->MouseX(), input->MouseY()) && input->WheelDelta() != 0) {
 		m_scroll += input->WheelDelta() * 3.0f;
 		const float maxScroll =
 			std::max(0.0f, static_cast<float>(m_lines.size()) -
 							   Pixel().h / TextFont().LineAdvance());
 		m_scroll = std::clamp(m_scroll, 0.0f, maxScroll);
-		ctx.ConsumeMouse();
+		ctx.ConsumeWheel();
 	}
 }
 
@@ -333,7 +333,10 @@ void DropDown::UpdateSelf(UIContext& ctx) {
 	const float mx = input->MouseX(), my = input->MouseY();
 
 	if (m_open) {
-		// The open popup owns the mouse entirely.
+		// The open popup owns the mouse entirely — including the wheel, which a
+		// modal claims whether or not it scrolls: a list open over a page must
+		// not let the page scroll out from under it.
+		ctx.ConsumeWheel();
 		const gfx::Rect popup = PopupRect(ctx);
 		const float maxScroll = MaxScroll(popup);
 		m_scroll = std::clamp(m_scroll, 0.0f, maxScroll);
@@ -743,7 +746,10 @@ void ColorPicker::UpdateSelf(UIContext& ctx) {
 				if (onChange) onChange(m_color);
 			}
 		}
-		ctx.ConsumeMouse(); // the open popup owns the mouse entirely
+		// The open popup owns the mouse entirely — wheel included, so the page
+		// behind cannot scroll the popup off its own swatch.
+		ctx.ConsumeMouse();
+		ctx.ConsumeWheel();
 		return;
 	}
 
@@ -1047,6 +1053,7 @@ void SlotList::UpdateBeforeChildren(UIContext& ctx) {
 	const Input* input = ctx.CurrentInput();
 	if (!input) return;
 	ctx.ConsumeMouse();
+	ctx.ConsumeWheel(); // a modal freezes the list behind it, scroll included
 	const float mx = input->MouseX(), my = input->MouseY();
 	const gfx::Rect del = ConfirmButton(ctx, true);
 	const gfx::Rect cancel = ConfirmButton(ctx, false);
@@ -1284,12 +1291,14 @@ void ScrollArea::UpdateSelf(UIContext& ctx) {
 		if (m_scrollHot || m_scrollDragging) ctx.ConsumeMouse();
 	}
 
-	// Mouse wheel anywhere over the area.
-	if (!ctx.IsMouseConsumed() && Pixel().Contains(mx, my) &&
+	// Mouse wheel anywhere over the area — including over the controls INSIDE
+	// it, which is the whole point of the wheel having its own claim: a slider
+	// under the cursor wants the click, not the scroll.
+	if (!ctx.IsWheelConsumed() && Pixel().Contains(mx, my) &&
 		input->WheelDelta() != 0.0f) {
 		m_scroll = std::clamp(m_scroll - input->WheelDelta() * Rem(1.75f), 0.0f,
 							  maxScroll);
-		ctx.ConsumeMouse();
+		ctx.ConsumeWheel();
 	}
 }
 

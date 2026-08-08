@@ -130,8 +130,22 @@ public:
 
 	// Input routing state (used by widgets during Update).
 	const Input* CurrentInput() const { return m_input; }
+
+	// The POINTER — position and buttons. A widget claims it when the cursor is
+	// over it, so a click cannot also land on whatever is behind.
 	bool IsMouseConsumed() const { return m_mouseConsumed; }
 	void ConsumeMouse() { m_mouseConsumed = true; }
+
+	// The WHEEL, claimed separately — and that separation is the point. Nearly
+	// every ConsumeMouse call is a hover claim by a control that has no use for
+	// the wheel at all (a Slider, a Button, a Checkbox). While the two shared
+	// one flag, resting the cursor on any of them stopped the page underneath
+	// scrolling: the settings page is mostly sliders, and the wheel did nothing
+	// over most of it. A widget that SCROLLS claims this one; a widget that
+	// merely wants the click does not, and the wheel falls through to whatever
+	// can use it. A modal (an open popup) claims both.
+	bool IsWheelConsumed() const { return m_wheelConsumed; }
+	void ConsumeWheel() { m_wheelConsumed = true; }
 
 private:
 	// Exactly one of these backs m_font: an owned Font (legacy form) or one
@@ -151,6 +165,7 @@ private:
 	Widget m_root;
 	const Input* m_input = nullptr;
 	bool m_mouseConsumed = false;
+	bool m_wheelConsumed = false;
 	float m_width = 1.0f;
 	float m_height = 1.0f;
 	float m_mouseX = 0.0f;
