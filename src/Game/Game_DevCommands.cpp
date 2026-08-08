@@ -456,11 +456,20 @@ void Game::RegisterDevCommands() {
 		});
 	m_console.Register(
 		"uioverlap",
-		"audit every visible widget tree for siblings sharing an area",
-		[this](const std::vector<std::string>&) {
+		"audit visible widget trees for overlaps (optional label -> dungeon.log)",
+		[this](const std::vector<std::string>& args) {
+			// A findings list is worth reading somewhere other than a console
+			// that scrolls, so it goes to dungeon.log too — which is what makes
+			// a scripted sweep of every screen collectable afterwards. An
+			// optional argument labels the run, so a log holding a dozen of them
+			// says which screen each was.
+			const std::string label = args.empty() ? std::string() : args[0];
 			m_console.Print("uioverlap: auditing the next frame's trees...");
-			ui::inspect::ArmOverlapAudit(
-				[this](const std::string& line) { m_console.Print(line); });
+			if (!label.empty()) log::Info("uioverlap [{}] ---", label);
+			ui::inspect::ArmOverlapAudit([this](const std::string& line) {
+				m_console.Print(line);
+				log::Info("uioverlap {}", line);
+			});
 		});
 	m_console.Register("ver", "print build and GPU info",
 					   [this](const std::vector<std::string>&) {

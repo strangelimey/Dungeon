@@ -85,6 +85,19 @@ std::string UseKey(const std::string& itemId) {
 	return itemId.empty() ? std::string("unarmed") : itemId;
 }
 
+// --- the HUD's vertical bands, as window fractions ---------------------------
+// Shared because two places need the same numbers: BuildHud authors the
+// below-bar container with them, and ApplyPartyBarScale re-derives its position
+// when the bar grows. They were duplicated between the two, which is fine right
+// up until one copy changes.
+constexpr float kBarTop = 0.018f;
+constexpr float kBarH0 = 0.107f; // party bar height at scale 1
+constexpr float kBarGap = 0.018f;
+constexpr float kBelowBar0 = kBarTop + kBarH0 + kBarGap; // ~0.143
+constexpr float kFooter = 0.071f; // the message-log footer along the bottom
+// What the below-bar column spans: bar to footer, neither included.
+constexpr float kBelowSpan = (1.0f - kFooter) - kBelowBar0;
+
 // --- settings page rows ------------------------------------------------------
 // In REM (UI/Units.h) — the settings context's own type size, which already
 // tracks the window (UpdateFonts). These replace the page fractions the old
@@ -1223,8 +1236,15 @@ void GameUI::BuildCharacterSheet() {
 								  if (onShowPartyInventory) onShowPartyInventory();
 							  });
 	// Close (= resume) is the shared corner box at the sheet panel's top-right,
-	// matching every other dialog — no footer Back button.
-	ui::AddCloseButton(m_sheetUi, sheet, m_closeIcon, [this] {
+	// matching every other dialog — no footer Back button. In a slot INSIDE the
+	// sheet, the way the editor dialogs reserve one: floated over the panel as a
+	// sibling it sat on top of it, which is a widget claiming an area it does
+	// not own however deliberate the corner looks.
+	constexpr float kCloseW = 0.0525f, kCloseH = 0.0717f; // ~42x40px of the sheet
+	auto* closeSlot = m_sheet->Add<ui::Box>(
+		gfx::Rect{1.0f - kCloseW - 0.016f, 0.013f, kCloseW, kCloseH});
+	closeSlot->debugName = "close";
+	ui::AddCloseButton(*closeSlot, m_closeIcon, [this] {
 		Click();
 		onResume();
 	});
@@ -1441,10 +1461,8 @@ void GameUI::BuildHud() {
 	//
 	// Layout fractions (window): bar top margin 0.018, bar height 0.107 at
 	// scale 1, gap under bar 0.018 → content starts at kBelowBar0.
-	constexpr float kBarTop = 0.018f;
-	constexpr float kBarH0 = 0.107f; // scale-1 height
-	constexpr float kBarGap = 0.018f;
-	constexpr float kBelowBar0 = kBarTop + kBarH0 + kBarGap; // ~0.143
+	// (kBarTop / kBarH0 / kBarGap / kBelowBar0 / kFooter / kBelowSpan are file
+	// scope — ApplyPartyBarScale needs the same numbers.)
 
 	// The bar owns the slots: ApplyPartyBarScale moves this one rect and every
 	// panel (and everything inside a panel) follows.
@@ -1462,12 +1480,15 @@ void GameUI::BuildHud() {
 	}
 
 	// Everything under the bar hangs off one container that slides down as the
-	// bar grows (ApplyPartyBarScale). It spans the whole window rather than
-	// just the area below the bar, so its children keep the window fractions
-	// they were authored with — the offset is the only thing it contributes.
-	// P4/P6 give it a real rect as those widgets become containers themselves.
+	// bar grows (ApplyPartyBarScale). It takes the area it actually holds — it
+	// used to span the whole window so its children could keep the window
+	// fractions they were authored with, which meant it sat on the party bar and
+	// the message log, and `uioverlap` said so. Its children divide their own
+	// spans through kBelowSpan below; the numbers in this block are still the
+	// window fractions they were authored in, so "same pixels, new structure"
+	// stays checkable.
 	m_belowBar = m_hudUi.Add<ui::Widget>();
-	m_belowBar->bounds = {0, 0, 1, 1};
+	m_belowBar->bounds = {0, kBelowBar0, 1, kBelowSpan};
 	m_belowBar->debugName = "BelowBar";
 	// Left column: the status plate (compass + position) over the options plate
 	// (torchlight + Wait/Help). Two padded panels, each laying its own rows out
@@ -1476,8 +1497,8 @@ void GameUI::BuildHud() {
 	constexpr float kStatusH = 0.071f, kOptionsH = 0.16f;
 	constexpr float kOptionsGap = 0.013f;
 
-	auto* status =
-		m_belowBar->Add<ui::Panel>(gfx::Rect{kLeftX, kBelowBar0, kLeftW, kStatusH});
+	auto* status = m_belowBar->Add<ui::Panel>(
+		gfx::Rect{kLeftX, 0.0f, kLeftW, kStatusH / kBelowSpan});
 	status->debugName = "StatusPlate";
 	status->padX = 0.0467f; // 0.007 of the window, as a fraction of the plate
 	status->padY = 0.1549f; // 0.011 likewise
@@ -1485,8 +1506,9 @@ void GameUI::BuildHud() {
 	m_position = status->Add<ui::Label>(gfx::Rect{0, 0.551f, 1, 0.449f}, "");
 	m_position->dim = true;
 
-	auto* options = m_belowBar->Add<ui::Panel>(gfx::Rect{
-		kLeftX, kBelowBar0 + kStatusH + kOptionsGap, kLeftW, kOptionsH});
+	auto* options = m_belowBar->Add<ui::Panel>(
+		gfx::Rect{kLeftX, (kStatusH + kOptionsGap) / kBelowSpan, kLeftW,
+				  kOptionsH / kBelowSpan});
 	options->debugName = "OptionsPlate";
 	options->padX = 0.0600f; // 0.009 of the window
 	options->padY = 0.0688f; // 0.011 of the window
@@ -1509,7 +1531,10 @@ void GameUI::BuildHud() {
 			Click();
 			m_log->AddLine(loc::Tr("log.wait"));
 		});
-	options->Add<ui::Button>(gfx::Rect{0.5379f, 0.7609f, kHalfBtn, 0.2246f},
+	// Flush with the plate's inner right edge. It was authored at x 0.5379,
+	// which plus the button's own 0.4773 comes to 1.0152 — three pixels out of
+	// the plate, which is what `uioverlap` reported.
+	options->Add<ui::Button>(gfx::Rect{1.0f - kHalfBtn, 0.7609f, kHalfBtn, 0.2246f},
 		loc::Tr("hud.help"), [this] {
 			Click();
 			m_log->AddLine(m_settings.MoveKeysHelp());
@@ -1520,8 +1545,7 @@ void GameUI::BuildHud() {
 	// own parts out (Game/ControlBar.h). Stops above the log footer.
 	constexpr float kPanelW = 0.156f; // ~250/1600
 	constexpr float kPanelX = 1.0f - kPanelW - 0.01f;
-	constexpr float kFooter = 0.071f;
-	const float panelH = (1.0f - kFooter) - kBelowBar0;
+	constexpr float panelH = kBelowSpan; // the column's whole height
 
 	ControlBarDeps deps;
 	deps.roster = &m_characters;
@@ -1533,7 +1557,7 @@ void GameUI::BuildHud() {
 	deps.onHandRight = [this](size_t i, size_t hand) { OnHandRightClick(i, hand); };
 	deps.magicLabel = loc::Tr("hud.magic");
 	auto* controlBar = m_belowBar->Add<ControlBar>(
-		gfx::Rect{kPanelX, kBelowBar0, kPanelW, panelH}, deps);
+		gfx::Rect{kPanelX, 0.0f, kPanelW, panelH / kBelowSpan}, deps);
 
 	m_spellbook = controlBar->Spellbook();
 	m_spellbook->onClick = [this] { Click(); };
@@ -1572,8 +1596,6 @@ void GameUI::ApplyPartyBarScale() {
 	const float s = m_settings.partyBarScale;
 	// Width only shrinks when s < 1; height grows with s.
 	const float ws = std::min(s, 1.0f);
-	constexpr float kBarTop = 0.018f;
-	constexpr float kBarH0 = 0.107f;
 	constexpr float kMargin = 0.01f;
 	constexpr float kGap0 = 0.006f;
 	const float gap = kGap0 * ws;
@@ -1582,7 +1604,11 @@ void GameUI::ApplyPartyBarScale() {
 	m_partyBar->bounds = {(1.0f - barW) * 0.5f, kBarTop, barW, kBarH0 * s};
 	m_partyBar->gap = gap / barW; // the same pixel gap, as a bar fraction
 
-	m_belowBar->bounds.y = kBarH0 * (s - 1.0f);
+	// Slide the container down by whatever the bar grew, from the authored
+	// position rather than by accumulating shifts. The HEIGHT stays put: its
+	// children divide their spans through it, so changing it would resize the
+	// control bar with the party-bar slider instead of just moving it.
+	m_belowBar->bounds.y = kBelowBar0 + kBarH0 * (s - 1.0f);
 }
 
 // ============================================================================
