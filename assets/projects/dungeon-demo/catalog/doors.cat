@@ -43,11 +43,14 @@ travel = 0.75
 open_seconds = 2.0
 trim = door_bosses
 
+; Authored in tools/BuildDoorFrame.py and imported, so authored = 1: a closed
+; shell with correct winding back-culls, which the three boxes it replaced
+; could not.
 [door_frame]
 display = Door Frame
 model = door_frame
 texture = wall_stone
-authored = 0
+authored = 1
 hidden = 1
 
 ; --- leaf trim -------------------------------------------------------------

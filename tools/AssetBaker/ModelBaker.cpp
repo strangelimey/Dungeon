@@ -2135,23 +2135,17 @@ assets::ModelData BuildPitCeiling() {
 	return FinishProp(std::move(mesh), {0.42f, 0.40f, 0.38f, 1.0f});
 }
 
-// A doorway frame: two posts bridging the panel opening out to the cell's side
-// walls, plus a lintel filling the space above the opening up to the ceiling.
-// Authored with travel along +Z (the panel plane spans X); placement rotates
-// by the door's facing. The sliding panel is a separate mesh (BuildDoorPanel)
-// so it can move while the frame stays put.
-assets::ModelData BuildDoorFrame() {
-	assets::MeshData mesh;
-	constexpr float kHalfCell = Metres(kCellHalf), kOpen = 0.85f, kH = 2.1f, kD = 0.14f;
-	constexpr float kCeil = Metres(kWallH); // lintel reaches the ceiling
-	AddBox(mesh, {(kOpen + kHalfCell) * 0.5f, kH * 0.5f, 0.0f},
-		   {(kHalfCell - kOpen) * 0.5f, kH * 0.5f, kD});
-	AddBox(mesh, {-(kOpen + kHalfCell) * 0.5f, kH * 0.5f, 0.0f},
-		   {(kHalfCell - kOpen) * 0.5f, kH * 0.5f, kD});
-	AddBox(mesh, {0.0f, (kH + kCeil) * 0.5f, 0.0f},
-		   {kHalfCell, (kCeil - kH) * 0.5f, kD});
-	return FinishProp(std::move(mesh), {0.50f, 0.48f, 0.45f, 1.0f});
-}
+// RETIRED (2026-08-07): the doorway frame is authored in tools/BuildDoorFrame.py
+// now and imported, so it must NOT be baked here — `AssetBaker models` would
+// overwrite the imported door_frame.gltf with three boxes again. It was two
+// posts and a lintel; the authored one is BuildWallArch's construction with a
+// square head: a slab whose opening is built from panels rather than booleaned,
+// jamb courses laid as separate stones with real mortar gaps, and a monolithic
+// lintel oversailing both jambs. See BuildLever's note above for the same move.
+//
+// THE OPENING IS A CONTRACT between that script and the leaves below: the
+// script asserts OPEN 0.34 x DOOR_H 0.84 units, which is kLeafHalfW 0.85 m and
+// kLeafH 2.1 m over kUnit. Change a leaf's size and the frame must follow.
 
 // UV tile for the door leaves, and it is NOT the 0.6 m the other props take.
 // A prop's tile has to be read off the TEXTURE, not chosen for the prop: the
@@ -2560,7 +2554,8 @@ bool BakeModels(const std::string& dir, const std::string& texturesDir) {
 	ok &= WriteGltf(BuildStairsDown(), dir + "\\stairs_down.gltf");
 	ok &= WriteGltf(BuildPit(), dir + "\\pit.gltf");
 	ok &= WriteGltf(BuildPitCeiling(), dir + "\\pit_ceiling.gltf");
-	ok &= WriteGltf(BuildDoorFrame(), dir + "\\door_frame.gltf");
+	// (door_frame moved to tools/BuildDoorFrame.py — see the note at its old
+	// site; baking it here would overwrite the imported mesh)
 	// door_panel, NOT door: door.gltf is the cosmetic wood_door decoration.
 	ok &= WriteGltf(BuildDoorPanel(), dir + "\\door_panel.gltf");
 	ok &= WriteGltf(BuildDoorPanelHalf(), dir + "\\door_panel_half.gltf");
