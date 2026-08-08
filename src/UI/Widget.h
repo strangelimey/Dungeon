@@ -159,6 +159,24 @@ public:
 	// sub-region (a tab's page below its strip). Defaults to the whole rect.
 	virtual gfx::Rect ContentRect() const { return m_pixel; }
 
+	// The rect this widget actually PAINTS INTO — its area as the eye sees it,
+	// where Pixel() is its area as the layout sees it. They differ whenever a
+	// widget draws text it was not given room for: a Label draws its whole
+	// string from its top-left corner however narrow its bounds, so a label too
+	// long for its row lands on whatever sits to the right of it. Overriding
+	// this is what lets the `uioverlap` audit (UI/TreeInspector.h) see that as
+	// the collision it is instead of passing the pair as disjoint.
+	//
+	// Defaults to Pixel(); override in any widget whose drawing is measured
+	// rather than bounded.
+	virtual gfx::Rect InkRect() const { return m_pixel; }
+
+	// Opts this widget out of the overlap audit: it is deliberately UNDER (or
+	// over) its siblings — a Panel used as a backdrop for the rows added after
+	// it, a popup that draws in the overlay pass. Not a licence to overlap by
+	// accident; every use should be a thing that is meant to be layered.
+	bool overlapOk = false;
+
 protected:
 	// --- what a subclass implements: itself, never its children --------------
 

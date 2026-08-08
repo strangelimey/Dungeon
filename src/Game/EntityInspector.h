@@ -61,7 +61,7 @@ public:
 protected:
 	std::string Title() const override;
 	gfx::Rect Panel() const override { return {0.26f, 0.13f, 0.50f, 0.74f}; }
-	void BuildContent(const gfx::Rect& content) override;
+	void BuildContent(ui::Stack& content) override;
 	void ApplyLive() override;
 	void Persist() override;
 	void Revert() override;

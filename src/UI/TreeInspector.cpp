@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <format>
+#include <set>
 #include <typeinfo>
 #include <vector>
 
@@ -159,6 +160,81 @@ void Draw(UIContext& ctx, gfx::SpriteBatch& batch) {
 void Dump(const UIContext& ctx,
 		  const std::function<void(const std::string&)>& out) {
 	DumpNode(ctx.Root(), 0, out);
+}
+
+// --- the overlap audit -------------------------------------------------------
+
+namespace {
+
+std::function<void(const std::string&)> g_auditOut;
+int g_auditFrames = 0; // frames left armed
+// Findings already reported this run. The window spans more than one frame and
+// the same pair collides on each of them; a report that repeated itself would
+// read as more broken than the UI is.
+std::set<std::string> g_auditSeen;
+
+// Overlap AREA, not just "do they touch": adjacent rows share an edge exactly,
+// and a rounding hair of that is not a collision anyone can see. A pair has to
+// share more than a hairline in BOTH axes to be worth reporting.
+bool Collides(const gfx::Rect& a, const gfx::Rect& b) {
+	constexpr float kSlack = 1.5f; // pixels; below this it is a shared edge
+	const float x = std::min(a.x + a.w, b.x + b.w) - std::max(a.x, b.x);
+	const float y = std::min(a.y + a.h, b.y + b.h) - std::max(a.y, b.y);
+	return x > kSlack && y > kSlack;
+}
+
+bool Auditable(const Widget& w) {
+	if (!w.visible || w.overlapOk) return false;
+	const gfx::Rect& px = w.Pixel();
+	return px.w > 0.0f && px.h > 0.0f;
+}
+
+void AuditNode(const Widget& parent, const std::string& path,
+			   const std::function<void(const std::string&)>& out) {
+	const auto& kids = parent.Children();
+	for (size_t i = 0; i < kids.size(); ++i) {
+		if (!Auditable(*kids[i])) continue;
+		for (size_t j = i + 1; j < kids.size(); ++j) {
+			if (!Auditable(*kids[j])) continue;
+			if (!Collides(kids[i]->InkRect(), kids[j]->InkRect())) continue;
+			std::string line =
+				std::format("  {} > {} [{}] overlaps {} [{}]", path,
+							Name(*kids[i]), RectText(kids[i]->InkRect()),
+							Name(*kids[j]), RectText(kids[j]->InkRect()));
+			if (g_auditSeen.insert(line).second) out(line);
+		}
+	}
+	for (const auto& child : kids) {
+		if (!child->visible) continue;
+		AuditNode(*child, path + " > " + Name(*child), out);
+	}
+}
+
+} // namespace
+
+void ArmOverlapAudit(std::function<void(const std::string&)> out) {
+	g_auditOut = std::move(out);
+	// Two frames, not one: a context that was rebuilt this frame has not laid
+	// its tree out yet, and a tree whose rects are all zero reports nothing.
+	g_auditFrames = 2;
+	g_auditSeen.clear();
+}
+
+void RunOverlapAudit(UIContext& ctx) {
+	if (g_auditFrames <= 0 || !g_auditOut) return;
+	AuditNode(ctx.Root(), "root", g_auditOut);
+}
+
+void EndOverlapAuditFrame() {
+	if (g_auditFrames <= 0) return;
+	if (--g_auditFrames > 0) return;
+	if (g_auditOut)
+		g_auditOut(g_auditSeen.empty()
+					   ? "uioverlap: clean — every widget kept to its own area"
+					   : std::format("uioverlap: {} overlapping pairs",
+									 g_auditSeen.size()));
+	g_auditOut = nullptr;
+	g_auditSeen.clear();
 }
 
 } // namespace dungeon::ui::inspect

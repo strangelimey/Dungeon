@@ -3,6 +3,7 @@ add_library(UI STATIC
 	Controls.cpp
 	Font.cpp
 	FontLibrary.cpp
+	Layout.cpp
 	Skin.cpp
 	TreeInspector.cpp
 	Units.cpp

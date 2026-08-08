@@ -72,9 +72,16 @@ public:
 	}
 	void UpdateSelf(UIContext&) override {}
 	void DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) override;
+	// A Label draws its whole string from its top-left corner, however narrow
+	// its bounds — so what it paints is measured, not bounded (Widget::InkRect).
+	gfx::Rect InkRect() const override;
 
 	std::string text;
 	bool dim = false;
+	// Center the text vertically in the bounds instead of drawing from the top.
+	// For a label that shares a row with a control: the control fills the row's
+	// height, and top-aligned text beside it sits high.
+	bool centerV = false;
 };
 
 // Scrolling multi-line text log (message window). New lines append at the
@@ -140,6 +147,8 @@ public:
 	void SetChecked(bool on) { m_checked = on; }
 	void UpdateSelf(UIContext& ctx) override;
 	void DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) override;
+	// The box is bounded but the label beside it is measured — see Label.
+	gfx::Rect InkRect() const override;
 
 	std::string label;
 	std::function<void(bool)> onChange;
@@ -686,6 +695,14 @@ void DrawDropDownExpander(gfx::SpriteBatch& batch, const Font& font,
 gfx::Rect CloseButtonRect(const gfx::Rect& panel);
 Button* AddCloseButton(UIContext& ui, const gfx::Rect& panel,
 					   const gfx::Texture* icon, std::function<void()> onClose);
+
+// The same affordance, placed INSIDE a slot a layout reserved for it (a Stack's
+// Space — UI/Layout.h). Prefer this wherever the dialog's chrome is stacked: the
+// panel-fraction form floats the button over whatever happens to be beneath it,
+// which is a collision waiting for a longer title, while a slot is an area the
+// layout has already kept clear. The icon self-squares inside the slot.
+Button* AddCloseButton(Widget& slot, const gfx::Texture* icon,
+					   std::function<void()> onClose);
 
 // How much larger than its context an editor dialog sets its two kinds of text.
 // Constants rather than a size each dialog picks, for the same reason

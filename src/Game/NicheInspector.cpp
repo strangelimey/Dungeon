@@ -27,33 +27,31 @@ std::string NicheInspector::Title() const {
 	return loc::Format("map.niche.title", m_cfg.x, m_cfg.z);
 }
 
-void NicheInspector::BuildContent(const gfx::Rect& c) {
+void NicheInspector::BuildContent(ui::Stack& c) {
 	// Type: the niche shape (wallfeatures.cat). Swapping it re-stamps the panel.
-	UI().Add<ui::Label>(gfx::Rect{c.x, c.y, c.w, 0.05f}, loc::Tr("map.niche.type"));
+	c.Row<ui::Label>(FormRow(), loc::Tr("map.niche.type"));
 	std::vector<std::string> names;
 	int sel = 0;
 	for (size_t i = 0; i < m_types.size(); ++i) {
 		names.push_back(m_types[i].second);
 		if (m_types[i].first == m_cfg.type) sel = static_cast<int>(i);
 	}
-	UI().Add<ui::DropDown>(gfx::Rect{c.x, c.y + 0.05f, c.w, 0.05f}, names, sel,
-						   [this](int i) {
-							   if (i >= 0 && i < static_cast<int>(m_types.size()))
-								   m_cfg.type = m_types[static_cast<size_t>(i)].first;
-							   if (onApply) onApply(m_cfg);
-						   });
+	c.Row<ui::DropDown>(FormRow(), names, sel, [this](int i) {
+		if (i >= 0 && i < static_cast<int>(m_types.size()))
+			m_cfg.type = m_types[static_cast<size_t>(i)].first;
+		if (onApply) onApply(m_cfg);
+	});
 
 	// Starts closed: a secret niche renders as blank wall until a button reveals it.
-	UI().Add<ui::Checkbox>(gfx::Rect{c.x, c.y + 0.14f, c.w, 0.055f},
-						   loc::Tr("map.niche.hidden"), m_cfg.hidden, [this](bool on) {
-							   m_cfg.hidden = on;
-							   if (onApply) onApply(m_cfg);
-						   });
+	c.Row<ui::Checkbox>(FormRow(), loc::Tr("map.niche.hidden"), m_cfg.hidden,
+						[this](bool on) {
+							m_cfg.hidden = on;
+							if (onApply) onApply(m_cfg);
+						});
 
 	// Name: what a button's target= points at (record-safe chars only, like doors).
-	UI().Add<ui::Label>(gfx::Rect{c.x, c.y + 0.23f, c.w, 0.05f}, loc::Tr("map.niche.name"));
-	ui::TextField* name =
-		UI().Add<ui::TextField>(gfx::Rect{c.x, c.y + 0.28f, c.w, 0.05f}, m_cfg.name);
+	c.Row<ui::Label>(FormRow(), loc::Tr("map.niche.name"));
+	ui::TextField* name = c.Row<ui::TextField>(FormRow(), m_cfg.name);
 	name->placeholder = loc::Tr("map.niche.namehint");
 	name->maxLength = 24;
 	name->onChange = [this, name] {

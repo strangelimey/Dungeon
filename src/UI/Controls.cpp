@@ -54,8 +54,17 @@ void Separator::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 
 void Label::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 	const Theme& theme = ctx.GetTheme();
-	TextFont().Draw(batch, text, Pixel().x, Pixel().y,
-					   dim ? theme.textDim : theme.text);
+	const gfx::Rect& px = Pixel();
+	const float y =
+		centerV ? px.y + (px.h - TextFont().Height()) * 0.5f : px.y;
+	TextFont().Draw(batch, text, px.x, y, dim ? theme.textDim : theme.text);
+}
+
+gfx::Rect Label::InkRect() const {
+	const gfx::Rect& px = Pixel();
+	const float h = TextFont().Height();
+	const float y = centerV ? px.y + (px.h - h) * 0.5f : px.y;
+	return {px.x, y, std::max(TextFont().MeasureWidth(text), px.w), h};
 }
 
 // --- TextOutput ----------------------------------------------------------
@@ -204,6 +213,16 @@ void Checkbox::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 	}
 	font.Draw(batch, label, b.x + b.w + Rem(0.3f), px.y + (px.h - font.Height()) * 0.5f,
 			  (m_checked || highlight) ? theme.text : theme.textDim);
+}
+
+gfx::Rect Checkbox::InkRect() const {
+	// Mirrors DrawSelf's geometry: the box is bounded, the label runs on past
+	// the bounds if it was not given the room.
+	const gfx::Rect& px = Pixel();
+	const float box = std::min(px.h * 0.6f, Rem(0.65f));
+	const float textX = px.x + Rem(0.15f) + box + Rem(0.3f);
+	const float right = std::max(px.x + px.w, textX + TextFont().MeasureWidth(label));
+	return {px.x, px.y, right - px.x, px.h};
 }
 
 // --- Slider --------------------------------------------------------------
@@ -1439,6 +1458,15 @@ Button* AddCloseButton(UIContext& ui, const gfx::Rect& panel,
 					   const gfx::Texture* icon, std::function<void()> onClose) {
 	Button* b = ui.Add<Button>(CloseButtonRect(panel), "x", std::move(onClose));
 	b->icon = icon; // the text "x" shows only if the asset is missing
+	return b;
+}
+
+Button* AddCloseButton(Widget& slot, const gfx::Texture* icon,
+					   std::function<void()> onClose) {
+	// Fills the slot; Button's icon path squares the icon to the smaller side
+	// and centres it, so the slot only has to be big enough.
+	Button* b = slot.Add<Button>(gfx::Rect{0, 0, 1, 1}, "x", std::move(onClose));
+	b->icon = icon;
 	return b;
 }
 

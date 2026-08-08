@@ -454,6 +454,14 @@ void Game::RegisterDevCommands() {
 			m_console.Print(on ? "ui tree overlay ON (hover a widget to see its chain)"
 							   : "ui tree overlay off");
 		});
+	m_console.Register(
+		"uioverlap",
+		"audit every visible widget tree for siblings sharing an area",
+		[this](const std::vector<std::string>&) {
+			m_console.Print("uioverlap: auditing the next frame's trees...");
+			ui::inspect::ArmOverlapAudit(
+				[this](const std::string& line) { m_console.Print(line); });
+		});
 	m_console.Register("ver", "print build and GPU info",
 					   [this](const std::vector<std::string>&) {
 #ifdef _DEBUG

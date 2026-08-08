@@ -43,8 +43,11 @@ void EntityInspector::Revert() {
 	if (onApply) onApply(m_original); // revert the live monster to the snapshot
 }
 
-void EntityInspector::BuildContent(const gfx::Rect& content) {
-	m_tabs = UI().Add<ui::TabControl>(content, 0.09f);
+void EntityInspector::BuildContent(ui::Stack& content) {
+	// One row that takes the whole content box. Inside the tab pages the rows
+	// are still authored as page fractions — a TabControl page is its own
+	// container, and converting those is a separate pass.
+	m_tabs = content.Row<ui::TabControl>(ui::Len::Fill(), 0.09f);
 	const size_t tabAi = m_tabs->AddTab(loc::Tr("map.insp.tab.ai"));
 	const size_t tabPatrol = m_tabs->AddTab(loc::Tr("map.insp.tab.patrol"));
 

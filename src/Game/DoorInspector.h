@@ -48,7 +48,7 @@ protected:
 	gfx::Rect Panel() const override { return {0.31f, 0.21f, 0.40f, 0.54f}; }
 	// No facing row: the doorway's flanking walls fix the orientation.
 	std::vector<Direction> FacingChoices() const override { return {}; }
-	void BuildContent(const gfx::Rect& content) override;
+	void BuildContent(ui::Stack& content) override;
 	void ApplyLive() override {} // no common-strip edits (no facing)
 	void Persist() override;
 	void Revert() override;

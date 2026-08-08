@@ -13,6 +13,7 @@
 #include "Graphics/DisplayEnum.h"
 #include "Graphics/Texture.h"
 #include "Platform/PerfMonitor.h"
+#include "UI/TreeInspector.h" // the frame hook for the `uioverlap` audit
 
 #include <algorithm>
 #include <cctype>
@@ -1536,6 +1537,9 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 	if (m_pendingQuality) DrawBusyNotice(loc::Tr("settings.applying"), dw, dh);
 	m_spriteBatch.End();
 
+	// Every UIContext that rendered has had its turn at the armed overlap audit;
+	// this is the only place that knows the frame is over. No-op unless armed.
+	ui::inspect::EndOverlapAuditFrame();
 	++m_framesRendered;
 }
 
