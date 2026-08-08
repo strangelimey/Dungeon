@@ -2174,6 +2174,13 @@ constexpr float kPullY = 1.05f;        // hand height on a 2.1 m leaf
 constexpr float kPullHalfH = 0.075f;   // 15 cm tall — a hand, not a fingertip
 constexpr float kPullHalfW = 0.045f;   // half a band bar's width
 
+// NO SHIPPED DOOR WEARS THIS ANY MORE (2026-08-08). It was the stand-in leaf
+// for every type before any was authored, and the last of them — the stone door
+// — moved to tools/BuildStoneSlab.py. It is kept deliberately, because a door
+// type created in the editor needs SOME model on the day it is made, and a
+// plain slab at exactly the frame's opening is the right thing to hand it. Its
+// old comment follows, and still explains why it carries nothing.
+//
 // The door panel filling the frame's opening. A PLAIN slab: it used to carry
 // two cross braces "so it reads as a built door rather than a plain slab", and
 // they were the wrong answer twice over. A brace in the leaf's own wood texture
@@ -2319,34 +2326,50 @@ assets::ModelData BuildDoorBandHalf() {
 // Bronze bosses and a ring pull — the STONE door's answer to the same problem.
 // Iron banding on a stone slab reads as ironwork bolted to rock; a sealed vault
 // door instead marks its corners and hangs one heavy ring. Both faces get the
-// full set, because a door is walked through in both directions.
+// full set, because a door is walked through in both directions. And on a slab
+// that is now COURSED MASONRY (tools/BuildStoneSlab.py — the door reads as a
+// section of wall that slides), the bronze is the only thing that says door at
+// all, which makes it worth more than it was.
+//
+// THE THICKNESS BUDGET IS THE HARD PART, and it is why the slab has a pocket.
+// The frame's jamb mortice is 8 cm half-high and everything that slides into it
+// has to fit: 5.5 cm of stone leaves 2.5 cm, and a ring standing off its face by
+// its own 2.2 cm thickness needs 4.4. So the ring hangs in a POCKET sunk into
+// the slab and measures from the pocket's FLOOR, while the studs measure from
+// the face. Both numbers live in that script too and are named there.
+constexpr float kSlabHalfT = 0.055f;   // BuildStoneSlab.py T (0.022 units)
+constexpr float kSlabPocket = 0.030f;  // ... its pocket floor, T - POCKET_D
+
 assets::ModelData BuildDoorBosses() {
 	assets::MeshData mesh;
-	constexpr float kBossR = 0.055f, kInset = 0.16f;
+	// 4 cm, not the 5.5 it was: a stud on the face has only the 2.5 cm the slab
+	// leaves, and a squashed sphere stands half its radius proud.
+	constexpr float kBossR = 0.040f, kInset = 0.16f;
 	for (const float sx : {-1.0f, 1.0f})
 		for (const float sy : {0.0f, 1.0f})
 			for (const float sz : {-1.0f, 1.0f}) {
 				const Vec3 c{sx * (kLeafHalfW - kInset),
-							 sy ? kLeafH - kInset : kInset, sz * kLeafHalfT};
+							 sy ? kLeafH - kInset : kInset, sz * kSlabHalfT};
 				// Squashed to a dome: a full sphere would float half-buried and
 				// read as a ball, where a boss is a swelling of the surface.
 				AddSphere(mesh, c, kBossR, 8, 12, -1, {1.0f, 1.0f, 0.5f});
 			}
-	// The ring, hanging in the leaf's plane. Built from chords rather than a
-	// swept torus — AddStrut is the only round primitive here, and at this size
-	// 20 segments is round enough that nobody counts them.
+	// The ring, hanging in the POCKET's plane — see the budget above. Built from
+	// chords rather than a swept torus: AddStrut is the only round primitive
+	// here, and at this size 20 segments is round enough that nobody counts them.
 	constexpr float kRingR = 0.15f, kTubeR = 0.022f;
 	constexpr int kSeg = 20;
 	for (const float sz : {-1.0f, 1.0f}) {
-		const float z = sz * (kLeafHalfT + kTubeR);
+		const float z = sz * (kSlabPocket + kTubeR);
 		const float cy = kLeafH * 0.46f;
 		auto at = [&](int i) {
 			const float a = 2.0f * kPi * static_cast<float>(i) / kSeg;
 			return Vec3{kRingR * std::sin(a), cy + kRingR * std::cos(a) - kRingR, z};
 		};
 		for (int i = 0; i < kSeg; ++i) AddStrut(mesh, at(i), at(i + 1), kTubeR, kTubeR, 8);
-		// The mount the ring hangs from, at the ring's top.
-		AddBox(mesh, {0.0f, cy + 0.02f, sz * (kLeafHalfT + 0.02f)},
+		// The mount the ring hangs from, at the ring's top — on the pocket floor
+		// with it, or the ring would hang off thin air.
+		AddBox(mesh, {0.0f, cy + 0.02f, sz * (kSlabPocket + 0.02f)},
 			   {0.05f, 0.045f, 0.02f});
 	}
 	// 0.45 m over the hammered-brass set puts a planished dimple at about 1.7 cm

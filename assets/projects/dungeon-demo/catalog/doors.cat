@@ -74,12 +74,18 @@ ease_in = cubic
 ease_out = bounce
 frame = door_frame_temple
 
+; The slab is COURSED MASONRY, not one stone: `wall_stone_granite` is a scan of
+; ashlar, so a monolith wearing it would be a single block with joints painted
+; on. tools/BuildStoneSlab.py takes the scan's own grid instead — five courses,
+; three and a half blocks, running bond — which makes this door literally what
+; the frame comment below claims: a piece of the wall that slides. The bronze is
+; then the only thing that says door, which is why it earns its keep.
 [stone_door]
 display = Stone Door
 category = door
-model = door_panel
+model = stone_slab
+authored = 1
 texture = wall_stone_granite
-authored = 0
 motion = slide
 travel = 0.75
 open_seconds = 2.0
