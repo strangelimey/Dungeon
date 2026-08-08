@@ -26,6 +26,25 @@ assets/models/skel_berserker.gltf
 assets/models/skel_spearman.gltf
 assets/models/skel_bare.gltf
 
+# Bought audio, normalized into the engine format by tools/FetchSounds.ps1 from
+# OneDrive\DungeonAssets\audio. Heavy and regenerable, so the tree is ignored
+# WHOLESALE — with the nine synthesized placeholders negated back in below.
+# Those are AssetBaker output too, committed only because they're tiny; as real
+# sounds replace them the negations retire and this collapses to one rule.
+# (A directory has to be un-ignored before git will look inside it, hence the
+# spells/ line — without it the three negations under it never get a chance.)
+assets/sounds/**
+!assets/sounds/bump.wav
+!assets/sounds/click.wav
+!assets/sounds/footstep.wav
+!assets/sounds/monster.wav
+!assets/sounds/oof.wav
+!assets/sounds/turn.wav
+!assets/sounds/spells/
+!assets/sounds/spells/cast.wav
+!assets/sounds/spells/fizzle.wav
+!assets/sounds/spells/impact.wav
+
 # Temp file for git commit -F (never track)
 .git-commit-msg.txt
 __pycache__/

@@ -103,13 +103,36 @@ rule.
 
 ## Phases
 
-### Phase 1 — Sourcing and the import path
+### Phase 1 — Sourcing and the import path — **BUILT**
 
-`tools\FetchSounds.ps1` with a `$soundSets` table (the `$propSets` /
-`$modelSets` idiom), plus an `AssetBaker import-sound` that resamples, trims,
-normalizes, **downmixes to mono when the entry is positional**, and verifies a
-loop is seamless. Raw stays pristine in OneDrive; `assets/sounds/` is the
-derived tree.
+`AssetBaker import-sound` and `tools\FetchSounds.ps1`, with the `$soundSets`
+table as the decision record (the `$propSets` / `$modelSets` idiom). Raw stays
+pristine in OneDrive; `assets/sounds/` is derived and gitignored wholesale, the
+nine placeholders negated back in.
+
+The table starts **empty** — nothing is bought yet. Both halves degrade
+politely on that: an empty table prints where to put a library rather than
+failing, and a missing source is reported rather than guessed past.
+
+Three things the tests changed, worth recording because none was obvious from
+the design:
+
+- **A cancelling mono fold is refused, not warned about.** Out-of-phase stereo
+  folded to *literal digital silence* and the importer wrote it anyway, warning
+  twice on the way. A file that loads, plays and produces nothing is the hardest
+  kind of defect to trace — so silence is now a hard error that names the fix.
+- **The resampler is windowed-sinc, cutoff following the lower rate.** Linear
+  interpolation would have been a false economy: a downsample folds everything
+  above the new Nyquist back into the audible band, which on anything bright
+  reads as a metallic ring no later EQ removes.
+- **Channel correlation is measured before folding.** Wide or mid-side material
+  thins out in mono; the warning fires at import, where the cause is visible,
+  rather than in-game where "this drip sounds weak" points nowhere near here.
+
+Testing note for whoever extends the seam check: a sine cut at **100.5 cycles**
+is *not* a bad-loop fixture. It lands on a zero crossing, so the value is
+continuous and only the slope flips — a far quieter defect that this check does
+not target, and it will pass. Cut at a peak (100.25) to get a real step.
 
 ### Phase 2 — The engine
 

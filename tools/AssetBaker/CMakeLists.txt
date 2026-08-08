@@ -4,6 +4,7 @@
 add_executable(AssetBaker
 	Bc7Encoder.cpp
 	GltfWriter.cpp
+	ImportSound.cpp
 	ImportTextures.cpp
 	Main.cpp
 	MipBaker.cpp

@@ -29,8 +29,19 @@
 //   AssetBaker runes <assets-dir>
 //       Regenerates the rune tablet model + carved per-element texture sets
 //       (fast; PNG only — run `mips` after to derive the .dds).
+//
+//   AssetBaker import-sound <file|folder> <assets-dir> <name>
+//                           [--stereo] [--loop] [--rate Hz] [--peak dBFS]
+//                           [--no-normalize] [--no-trim]
+//       Normalizes a bought sound into the engine format (16-bit PCM WAV).
+//       Defaults describe a POSITIONAL one-shot: downmixed to mono, because
+//       X3DAudio cannot place a stereo file. --stereo is for the sounds that
+//       are never positional (the level's ambient bed, UI). --loop seam-checks
+//       and never trims. A FOLDER imports as <name>_1..N — the variants a
+//       footstep needs so repeats don't machine-gun.
 
 #include "Core/Log.h"
+#include "ImportSound.h"
 #include "ImportTextures.h"
 #include "MipBaker.h"
 #include "ModelBaker.h"
@@ -143,6 +154,28 @@ int main(int argc, char** argv) {
 		// Tablet model + carved per-element texture sets + icons. PNG only — the
 		// _2k set loads fine without a .dds; run `mips` afterward to derive them.
 		return baker::BakeRunes(argv[2]) ? 0 : 1;
+	}
+
+	if (argc >= 2 && std::string(argv[1]) == "import-sound") {
+		if (argc < 5) {
+			log::Error("usage: AssetBaker import-sound <file|folder> <assets-dir> "
+					   "<name> [--stereo] [--loop] [--rate Hz] [--peak dBFS] "
+					   "[--no-normalize] [--no-trim]");
+			return 1;
+		}
+		baker::SoundImportOptions opts;
+		for (int i = 5; i < argc; ++i) {
+			const std::string a = argv[i];
+			if (a == "--stereo") opts.mono = false;
+			else if (a == "--loop") opts.loop = true;
+			else if (a == "--no-normalize") opts.normalize = false;
+			else if (a == "--no-trim") opts.trim = false;
+			else if (a == "--rate" && i + 1 < argc)
+				opts.rate = static_cast<u32>(std::stoul(argv[++i]));
+			else if (a == "--peak" && i + 1 < argc) opts.peakDbfs = std::stof(argv[++i]);
+			else log::Warn("Unknown flag {} — ignored", a);
+		}
+		return baker::ImportSound(argv[2], argv[3], argv[4], opts) ? 0 : 1;
 	}
 
 	if (argc >= 3 && std::string(argv[1]) == "sounds") {

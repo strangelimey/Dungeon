@@ -498,6 +498,34 @@ buffer, reused across all ~25 submissions).
 - `AssetBaker models <assets>` — rebakes only the .gltf models (fast). Worn
   blocks sample the installed texture height maps, so rerun after
   FetchTextures.ps1 or a texture import.
+- `AssetBaker import-sound <file|folder> <assets> <name> [--stereo] [--loop]
+  [--rate Hz] [--peak dBFS] [--no-normalize] [--no-trim]` — normalizes bought
+  audio into the engine format (16-bit PCM WAV, played zero-copy with no decode,
+  so everything a library varies is dealt with here, offline, once). THE
+  DEFAULTS DESCRIBE A POSITIONAL ONE-SHOT and the mono fold is the reason:
+  3D positional audio REQUIRES MONO SOURCES — X3DAudio computes a per-channel
+  output matrix from emitter/listener geometry, and a stereo file has already
+  committed its channels, so there is nothing left to place. `--stereo` is only
+  for sounds that are never positional (the level's ambient bed, UI). The
+  failure mode is silent, not loud: a stereo drip just refuses to move as you
+  walk past it. `--loop` seam-checks (measuring the step across the join against
+  the signal's own typical sample step — a bad loop ticks once per cycle,
+  forever) and never trims, since the tail is half of the seam. A FOLDER imports
+  as `<name>_1..N`, the variants that stop a footstep machine-gunning. Two
+  guards worth knowing, both put there by a test that caught the real thing:
+  a stereo fold whose channels CANCEL is refused rather than written (there is
+  no legitimate silent asset, and a file that loads, plays and produces nothing
+  is the hardest kind to trace), and the resampler is windowed-sinc with its
+  cutoff following the LOWER rate, because linear interpolation would alias a
+  downsample into a metallic ring no later EQ removes.
+- `tools\FetchSounds.ps1` — the audio analog of FetchTextures/FetchModels. Raw
+  libraries live in OneDrive\DungeonAssets\audio\<library>\; the `$soundSets`
+  table is the decision record (one row per sound: Name, Source, Role =
+  positional|stereo, Loop, Rate) and drives import-sound. Imported audio is
+  gitignored WHOLESALE (`assets/sounds/**`) with the nine synthesized
+  placeholders negated back in — as real sounds replace them the negations
+  retire and it collapses to one rule. A missing source is REPORTED, never
+  guessed past. Currently the table is EMPTY: nothing is bought yet.
 - `AssetBaker portraits <assets>` — rebakes only the party portraits
   (portrait_<name>.png, 256², PortraitBaker.cpp: SDF-mask busts, one
   headpiece per class) and their mip chains. Names must match the roster
@@ -1257,15 +1285,14 @@ Full per-phase history + gotchas live in the editor-overhaul memory.
   session collided in the same tree).
 - IMMEDIATELY AFTER `git worktree add`, PROVISION THE GITIGNORED ASSETS before
   launching — a fresh worktree only checks out TRACKED files, and the game
-  load-or-dies on derived/imported assets that are gitignored. There are TWO —
-  and only two, confirmed with `git status --ignored --porcelain assets` (a
-  missing-texture magenta-placeholder fallback exists, but there is NO fallback
-  for models — a missing `.glb` aborts hard at level load, e.g.
+  load-or-dies on derived/imported assets that are gitignored. There are THREE
+  since the sound thread, confirmed with `git status --ignored --porcelain
+  assets` (a missing-texture magenta-placeholder fallback exists, but there is
+  NO fallback for models — a missing `.glb` aborts hard at level load, e.g.
   `AssetUtil.cpp model.has_value()` "failed to parse glTF: ...viking_dagger.glb").
-  Copy both from a populated sibling worktree (e.g. `C:\Dev\Dungeon`). There is
-  NO third step: the game reads `<worktree>\assets` directly, so nothing is
-  mirrored into `build\<cfg>\bin` and a worktree costs one copy, not one per
-  config:
+  Copy them from a populated sibling worktree (e.g. `C:\Dev\Dungeon`). Nothing
+  is mirrored into `build\<cfg>\bin` — the game reads `<worktree>\assets`
+  directly — so a worktree costs one copy each, not one per config:
   - `assets\textures` — whole dir, BOTH `.dds` (BC7) and source `.png` (dds-only
     still renders magenta; ~273 dds + ~261 png).
   - `assets\models` gitignored files — the imported authored meshes (`.glb`) AND
@@ -1279,6 +1306,13 @@ Full per-phase history + gotchas live in the editor-overhaul memory.
     `git -C <populated> status --ignored --porcelain assets/models | grep '^!!'`
     (or just robocopy the whole `assets\models` dir — the committed `.gltf` that
     come with the checkout copy identically, so it's safe and future-proof).
+  - `assets\sounds` gitignored files — the imported audio (tools\FetchSounds.ps1
+    from OneDrive\DungeonAssets\audio). The tree is ignored WHOLESALE with the
+    nine synthesized placeholders negated back in, so robocopying the whole dir
+    is again the safe move. Unlike the other two this one is currently EMPTY and
+    a missing sound is survivable — `LoadSound` warns and the game runs silent
+    (AudioEngine's whole failure story is graceful) — so a worktree provisioned
+    without it works, just quietly.
   Use BACKSLASH paths (robocopy rejects forward slashes → copies nothing) and
   VERIFY with a file count afterward — robocopy returns exit 0 when it copied
   NOTHING (exit 1 = files copied), so a "successful" run can leave you empty. The
