@@ -481,6 +481,16 @@ proportions.
 - A widget's area is ITS OWN: no sibling may paint into it, and a child stays
   inside its parent. Stacked rows keep that true by construction; `uioverlap`
   says so when something else doesn't.
+- **RUN `uioverlap` AFTER TOUCHING A SCREEN.** It is the cheapest check in the
+  project — one console line, no wiring, covers whatever is on screen including
+  an open dialog — and the rule it guards is the one this whole document is
+  about. `uioverlap <label>` also writes to dungeon.log, which is what makes a
+  scripted sweep of every screen collectable. The full sweep on 2026-08-08 found
+  four defects nobody had reported, THREE of them placeholder bounds that
+  earlier phases of this document had promised to fix and hadn't: an intention
+  in a design doc is not a check. A finding is one of two things — a widget
+  drawing outside the area it was given, or an area claimed and not drawn in —
+  and both are layout bugs, never something to silence with `overlapOk`.
 - Rows go in a `Stack`. A site says how much room a row NEEDS, never where it
   goes — if you are writing a y coordinate or stepping a cursor, the layout is
   about to drift.

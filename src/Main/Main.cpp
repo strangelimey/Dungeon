@@ -18,11 +18,13 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
 	using namespace dungeon;
 
 #ifdef _DEBUG
-	// Show a console for logs in debug builds.
+	// Show a console for logs in debug builds. It is OURS — allocated here — so
+	// its code page is ours to set, and log lines are UTF-8 (see Core/Log.h).
 	AllocConsole();
 	FILE* unused = nullptr;
 	freopen_s(&unused, "CONOUT$", "w", stdout);
 	freopen_s(&unused, "CONOUT$", "w", stderr);
+	log::UseUtf8Console();
 #endif
 
 	// Names this thread for the allocation counters — and, because the operator

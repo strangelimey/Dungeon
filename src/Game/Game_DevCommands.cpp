@@ -466,9 +466,12 @@ void Game::RegisterDevCommands() {
 			const std::string label = args.empty() ? std::string() : args[0];
 			m_console.Print("uioverlap: auditing the next frame's trees...");
 			if (!label.empty()) log::Info("uioverlap [{}] ---", label);
+			// Verbatim: the summary line names itself and the findings are
+			// indented under the header above, so a tag here only read as
+			// "uioverlap uioverlap: clean".
 			ui::inspect::ArmOverlapAudit([this](const std::string& line) {
 				m_console.Print(line);
-				log::Info("uioverlap {}", line);
+				log::Info("{}", line);
 			});
 		});
 	m_console.Register("ver", "print build and GPU info",

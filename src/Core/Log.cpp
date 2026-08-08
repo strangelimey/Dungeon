@@ -37,6 +37,8 @@ FILE* LogFile() {
 }
 } // namespace
 
+void UseUtf8Console() { SetConsoleOutputCP(CP_UTF8); }
+
 void Write(Level level, std::string_view message) {
 	std::lock_guard lock(g_mutex);
 	std::string line = Prefix(level);
