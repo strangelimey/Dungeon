@@ -45,19 +45,33 @@ opener = door_chain
 ; portcullis is a run of narrow bars, and rusted_iron's sheet panels and seams
 ; are far wider than a bar, so every bar would pick up a different piece of the
 ; scan. Feature size has to be read against the thing wearing the texture.
+;
+; NO `trim` either, and unlike the opener that is not a statement — a portcullis
+; is iron all through, so the reason the wooden door splits into two models
+; (one texture set per model, and its straps cannot be iron inside a
+; wood-textured mesh) simply does not apply. tools/BuildPortcullis.py authors
+; the bars, rails, beam, spikes and rivets as one.
+;
+; `portcullis_leaf`, not `portcullis`: decorations.cat already has a cosmetic
+; [portcullis] filling a whole cell face, the same pairing as its cosmetic
+; [wood_door] beside this file's leaves. Different sizes, so one mesh cannot
+; serve both.
+;
+; travel = 1.0 is a CONTRACT, not a taste: `rise` has nothing to hide the leaf
+; in but the ceiling block over the cell, so the throw has to carry the spike
+; tips a full storey. The script asserts it.
 [portcullis]
 display = Portcullis
 category = door
-model = door_panel
+model = portcullis_leaf
+authored = 1
 texture = sconce
-authored = 0
 motion = rise
 travel = 1.0
 open_seconds = 1.4
 ; Hauled up on a winch and dropped: laboured going up, and it lands.
 ease_in = cubic
 ease_out = bounce
-trim = door_band
 frame = door_frame_temple
 
 [stone_door]
@@ -190,26 +204,21 @@ hidden = 1
 
 ; --- leaf trim -------------------------------------------------------------
 ; Drawn with the leaf it belongs to (the type's `trim`), and hidden from the
-; palette: trim is never placed on its own. It exists to give a leaf a legible
-; EDGE — and on a split door, a legible CENTRE — since a flat rectangle loses
-; both against the frame. Each carries its own texture, which is the whole
-; reason it is a separate model: an iron strap cannot be iron inside a
-; wood-textured mesh.
+; palette: trim is never placed on its own. A trim exists ONLY where a leaf
+; needs a second MATERIAL — the import path binds one texture set per model, so
+; a wooden door's iron cannot live inside its wood-textured mesh. A leaf that is
+; all one material (the portcullis) is one model and has no trim.
 ;
 ; The iron is `sconce`, the game's uniform worn-metal set, NOT `rusted_iron`.
 ; rusted_iron is a scan of a corrugated iron WALL — big sheet panels, hard
 ; vertical seams, a pale weathered strip down one third — so at any tile rate
-; each bar of the band lands on a different panel of the scan and the strap
-; reads as assembled from mismatched pieces rather than forged in one. A band
-; wants a texture with NO features larger than the bar is wide. As a bonus this
-; is the set the sconces and braziers already wear, so the ironwork matches.
-
-[door_band]
-display = Door Band (iron)
-model = door_band
-texture = sconce
-authored = 0
-hidden = 1
+; each bar of a strap lands on a different panel of the scan and it reads as
+; assembled from mismatched pieces rather than forged in one. Ironwork wants a
+; texture with NO features larger than the bar is wide. As a bonus this is the
+; set the sconces and braziers already wear, so the ironwork matches.
+;
+; ([door_band], the rectangular band for a whole leaf, is gone with the
+; portcullis's trim — it was its only user.)
 
 [door_band_half]
 display = Door Band, half leaf (iron)

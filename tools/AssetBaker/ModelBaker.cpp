@@ -2216,41 +2216,21 @@ assets::ModelData BuildDoorPanel() {
 // leaf too takes it to 4.7 cm.
 
 // --- door trim ---------------------------------------------------------------
-// A leaf's IRONWORK, drawn with the leaf through the door type's `trim` field
-// so it carries its own texture — an iron strap cannot be iron inside a
-// wood-textured mesh, which is the whole reason it is a separate model.
+// A leaf's IRONWORK, drawn with the leaf through the door type's `trim` field.
+// A trim exists for exactly ONE reason: a second MATERIAL. The import path
+// binds one texture set per model, so a wooden door's straps cannot be iron
+// inside a wood-textured mesh. A leaf that is all one material needs no trim
+// at all — which is why the portcullis lost its.
 //
 // The TEXTURE these wear matters as much as the tile (doors.cat carries the
 // reasoning): a strap is a 9 cm bar, so its set must have no feature bigger
 // than that, or every bar picks up a different part of the scan and the strap
 // looks assembled from offcuts.
-constexpr float kBandW = kPullHalfW;                 // half-width of a band bar
-constexpr float kBandT = kLeafHalfT + 0.015f;        // stands proud both faces
-
-// Lays a rectangular band inside [x0,x1] x [0,kLeafH]. The uprights run the
-// full height and the rails span only BETWEEN them: overlapping them at the
-// corners would put two coplanar faces in the same place, and one solid's face
-// buried in another's is exactly the kind of joint that z-fights.
 //
-// A FRAME, which is right for the portcullis and wrong for a plank door. A
-// portcullis is a lattice and a lattice needs a surround; a plank door is
-// boards, and boards are held by straps laid ACROSS them. See
-// BuildDoorBandHalf for what the wooden leaf takes instead, and why.
-void AddBandRect(assets::MeshData& mesh, float x0, float x1) {
-	const float xa = x0 + kBandW, xb = x1 - kBandW;
-	AddBox(mesh, {xa, kLeafH * 0.5f, 0.0f}, {kBandW, kLeafH * 0.5f, kBandT});
-	AddBox(mesh, {xb, kLeafH * 0.5f, 0.0f}, {kBandW, kLeafH * 0.5f, kBandT});
-	const float railHalf = (xb - xa) * 0.5f - kBandW, railX = (xa + xb) * 0.5f;
-	AddBox(mesh, {railX, kBandW, 0.0f}, {railHalf, kBandW, kBandT});
-	AddBox(mesh, {railX, kLeafH - kBandW, 0.0f}, {railHalf, kBandW, kBandT});
-}
-
-// Iron band for a WHOLE leaf (the portcullis and any single-panel door).
-assets::ModelData BuildDoorBand() {
-	assets::MeshData mesh;
-	AddBandRect(mesh, -kLeafHalfW, kLeafHalfW);
-	return FinishProp(std::move(mesh), {0.30f, 0.28f, 0.27f, 1.0f}, 0.35f);
-}
+// RETIRED (2026-08-08): AddBandRect and BuildDoorBand laid a rectangular band —
+// uprights down both edges, rails top and bottom — around a WHOLE leaf. Its
+// only user was the portcullis's `trim`, and a portcullis is now one authored
+// model (tools/BuildPortcullis.py) carrying its own beam, rails and rivets.
 
 // --- the plank door's ironwork: HINGE STRAPS ---------------------------------
 // This was a picture frame too — uprights down both edges, rails top and
@@ -2727,8 +2707,9 @@ bool BakeModels(const std::string& dir, const std::string& texturesDir) {
 	// (door_panel_half moved to tools/BuildDoorLeaf.py — see the note at its old
 	// site; baking it here would overwrite the imported mesh)
 	// Leaf trim (doors.cat `trim`): iron bands over wood, bronze over stone.
-	ok &= WriteGltf(BuildDoorBand(), dir + "\\door_band.gltf");
 	ok &= WriteGltf(BuildDoorBandHalf(), dir + "\\door_band_half.gltf");
+	// (the portcullis moved to tools/BuildPortcullis.py and took door_band with
+	// it — a lattice that is iron all through needs no separate trim)
 	ok &= WriteGltf(BuildDoorBosses(), dir + "\\door_bosses.gltf");
 	// Openers (doors.cat `opener`): the hand-hold on the jamb.
 	ok &= WriteGltf(BuildDoorPad(), dir + "\\door_pad.gltf");
