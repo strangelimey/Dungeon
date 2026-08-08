@@ -41,6 +41,7 @@
 #include "AssetBaker/Bc7Tables.h"
 #include "Assets/Image.h"
 #include "Bc7Decode.h"
+#include "Core/Log.h"
 #include "Core/Types.h"
 
 #include <algorithm>
@@ -801,6 +802,10 @@ void Usage() {
 } // namespace
 
 int main(int argc, char** argv) {
+	// This harness prints em-dashes; a console decodes bytes in its own code
+	// page unless told otherwise (Core/Log.h).
+	dungeon::log::UseUtf8Console();
+
 	baker::Bc7Options opt;
 	std::string assetsDir, baselinePath, writeBaselinePath;
 	std::vector<std::string> explicitImages;
