@@ -50,7 +50,7 @@ void DoorInspector::EaseRow(ui::Stack& page, const std::string& label,
 	// motion; stacked, they read as two unrelated settings. A HORIZONTAL Stack
 	// rather than two half-width rects: the pair splits whatever the page is
 	// wide, so neither end has to know the other's fraction.
-	ui::Stack* pair = page.Row<ui::Stack>(FormRow(), gfx::Rect{0, 0, 1, 1}, true);
+	ui::Stack* pair = page.Row<ui::Stack>(FormRow(), /*horizontal=*/true);
 	pair->gapRem = 0.4f;
 	pair->Row<ui::DropDown>(ui::Len::Fill(), names, indexOf(in),
 							[this, &in](int i) {
