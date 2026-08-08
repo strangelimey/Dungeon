@@ -2,7 +2,13 @@
 
 The plan for turning the UI from a flat list of window-relative widgets into a
 strict parent/child tree, where every control's `[0..1]` bounds resolve against
-its parent's pixel rect, recursively from the window down.
+its parent's pixel rect, recursively from the window down — and then the record
+of what that took.
+
+The tree answers WHOSE area a widget's is (P0–P6). Two later parts answer the
+questions it left open: P7, that the area is the widget's own and nothing may
+paint into it, which is what `ui::Stack` and the `uioverlap` audit are for; and
+P8, that "using the mouse" is two claims, not one.
 
 ## Where we start from
 
@@ -97,6 +103,12 @@ in add order, update children in reverse before the parent's own hit test, so th
 child that owns the pixel always claims the mouse first. Cost is a mechanical
 rename across the 21 subclasses.
 
+Three later additions to the base belong in this list, added by P7 (their
+reasons are there): **`InkRect()`**, what a widget PAINTS as against what the
+layout gave it; **`ContainerRect()`**, the rect this widget's own bounds
+resolved against, for a container that measures itself and writes the size back;
+and **`overlapOk`**, the opt-out for something deliberately layered.
+
 **Repeater.** Variable-count content (effect icons, rune grid, list rows) is a
 `Repeater` container: a factory that makes one child, a count read each frame, and
 an indexer that assigns child bounds. The pool GROWS to the high-water mark and
@@ -124,6 +136,9 @@ or from `Widget::debugName` when set.
 The hover pick descends into the SMALLEST child containing the point, which is
 deliberately NOT the input rule (reverse add order) — see the first finding
 below.
+
+The same file later grew `uioverlap`, the audit that checks the areas rather
+than showing them (P7).
 
 **P2 — `TabControl` onto the shared mechanism. DONE.** Scroll, clip and cull
 came out into `ui::ScrollArea`, a container that scrolls its children when they
@@ -252,6 +267,92 @@ Then, in a follow-up pass:
 - **The spellbook's selector row** is a `MemberRow` of `MemberButton`s — the
   sketch's "character selection".
 
+**P7 — stacks: an area no sibling can take. DONE.** The tree gave every widget
+an area. Nothing in it stopped two SIBLINGS being authored on top of each other,
+and hand-authored fractions drift the moment a font, a language or a panel size
+changes. It showed up as an editor dialog drawing its title over its first row
+and running a checkbox label under its preview pane — two symptoms of one defect,
+and nudging those fractions would have fixed that dialog and left the next to be
+found by eye.
+
+**`ui::Stack`** ([src/UI/Layout.h](../src/UI/Layout.h)) removes the possibility
+instead of policing it. Rows are added in order and their positions are COMPUTED
+in `LayoutSelf` — which is the moment the font, and therefore rem, is known, the
+thing build-time fractions could never see. Two rows of one Stack cannot overlap
+at any window size, in any language, at any font scale, because no authoring site
+writes their coordinates. What a site DOES write is how much room a row needs,
+which is the part a human can get right.
+
+Extents are typographic: `Len::Fixed(n)` is n rem, `Len::Fill(w)` shares what the
+fixed rows left over. Stacks nest — a row can itself be a horizontal Stack — and
+the same guarantee holds along that axis, which is how a table's columns come to
+line up by construction rather than by four x constants agreeing with each other.
+
+Two behaviours the class needs to be worth trusting:
+
+- **It shrinks rather than overruns.** If the fixed rows want more than the stack
+  has, they are all scaled down to fit. Overflowing is the one outcome the class
+  exists to prevent, and it is invisible to any sibling check: a row past the end
+  lands on whatever the PARENT put after the stack, and those two are not
+  siblings.
+- **`fitContent` inverts the relationship** for the inside of a scrolling page,
+  where the content is MEANT to be longer than the box and there is no span to
+  divide. The stack measures its rows, writes that extent back into `bounds` —
+  which is exactly what `ScrollArea` reads to size its scroll — and lays the rows
+  out against the measurement, so they are right on the frame they are measured
+  on; only the scroll RANGE is a frame behind. `Widget::ContainerRect()` is the
+  small piece that makes it possible: writing a measured size back into a
+  FRACTION means knowing what it was a fraction of.
+
+**The invariant, CHECKED.** `Widget::InkRect()` is what a widget PAINTS, where
+`Pixel()` is what the layout gave it. They differ whenever drawing is measured
+rather than bounded — a `Label` draws its whole string from its top-left corner
+however narrow its bounds — and without that distinction a check would pass the
+two rects as disjoint and miss the very bug that prompted the work. Dev console
+`uioverlap` arms a two-frame audit; every `UIContext` that renders reports both
+SIBLINGS whose ink intersects and any child that ESCAPES its parent's
+`ContentRect`. The second matters as much as the first, for the reason above.
+`overlapOk` opts out the deliberately layered; a parent that CLIPS is exempt from
+the escape check, because a scroll area's children are meant to run past it and
+the clip means the excess paints on nothing — that exemption is the difference
+between a check people trust and one they learn to ignore.
+
+It earned itself immediately, turning up four pre-existing defects nobody had
+filed: a dialog title that never fitted its card, tuning rows pitched 29px apart
+around 40px type, every schema Slider laying its track across the row below it,
+and a picker's count sitting on its close box.
+
+**What converted.** All ten editor dialogs, through one shared card
+(`game::BuildDialogChrome`, [src/Game/DialogLayout.h](../src/Game/DialogLayout.h)):
+each had been authoring the same five window fractions by hand — panel, title,
+content, footer, and a close box floated into the corner — every one an
+independent guess at where the one above it ended. Then the interiors of their
+tab pages, and finally the settings page, which retired `Flow`: a build-time
+cursor with CSS collapsing margins, good of its kind, but it placed rows in
+fractions of the page, so every height was written twice (`labelH = 0.057` of a
+0.55-tall page is 28px, which is one line of the menu font). Its other half was
+per-row collapsing margins, where a row carried two numbers describing its
+NEIGHBOURS rather than itself; a Stack has one gap and a section break adds a
+`Space`.
+
+Nothing in the project hand-places rows any more.
+
+**P8 — the wheel is its own claim. DONE.** `ConsumeMouse` meant "I am using the
+mouse", and a `Slider` calls it on HOVER — correctly, so a click cannot also land
+on what is behind. But one flag gated the wheel too, which a slider has no use
+for, so resting the cursor on any hover-claiming control stopped the page beneath
+it scrolling. The settings page is mostly sliders; the wheel did nothing over
+most of it.
+
+`UIContext::ConsumeWheel` / `IsWheelConsumed` is a separate claim, reset beside
+the pointer one. A widget that SCROLLS takes it; a widget that merely wants the
+click does not, and the wheel falls through to whatever can act on it. A MODAL
+takes both, because an open popup must freeze what is behind it whether or not it
+scrolls. The distinction is worth stating rather than deriving: **the pointer is
+claimed by whoever is UNDER it, the wheel by whoever can ACT on it.** Two
+different questions, and answering both with one boolean is how a slider came to
+own a gesture it ignores.
+
 ## Left undone, and why
 
 - **The spellbook's symbol grid and sequence/Cast/Clear.** Its rects are already
@@ -266,9 +367,17 @@ Then, in a follow-up pass:
 - **The sheet's Inventory and Stats bodies.** They fill the sheet, so fractions
   of the sheet are already parent-relative; a body container would buy structure
   without moving a constant anywhere more meaningful.
-- **The editor and asset dialogs.** Each owns a `UIContext` of flat widgets.
-  They work; converting them is a separate thread's worth of work and touches
-  the editor rather than the game UI.
+- **The editor and asset dialogs' TREE depth.** P7 gave every one of them a
+  stacked card, so nothing in them is hand-placed — but they are still flat-ish
+  inside: a dialog's rows are children of a stack rather than of meaningful
+  sub-containers. That is the same trade the sheet's Inventory body makes, and
+  for the same reason: the structure would not move a constant anywhere more
+  meaningful.
+- **The asset picker's tile grid.** It draws its own tiles, scroll and hit test
+  straight to the batch. P7 gave it a reserved `Box` so it holds a place in the
+  layout and every tile metric measures off THAT box, but the grid itself is not
+  a widget tree. Converting it would want a repeater inside a scroll area, which
+  is the P5 trap; it earns nothing today.
 
 ## What the inspector found
 
@@ -342,14 +451,24 @@ proportions.
 
 - A child's bounds are fractions of its parent's `ContentRect()`, never of the
   window.
+- A widget's area is ITS OWN: no sibling may paint into it, and a child stays
+  inside its parent. Stacked rows keep that true by construction; `uioverlap`
+  says so when something else doesn't.
+- Rows go in a `Stack`. A site says how much room a row NEEDS, never where it
+  goes — if you are writing a y coordinate or stepping a cursor, the layout is
+  about to drift.
 - Detail INSIDE a control is in rem, not fractions of the parent — see above.
+- The pointer is claimed by whoever is UNDER it; the wheel by whoever can ACT on
+  it. `ConsumeMouse` and `ConsumeWheel` are separate, and a modal takes both.
 - Screen-anchored things stay absolute and overlay-drawn, and say so in their
   header: `ContextMenu`'s absolute pixel position, and the `DropDown` /
   `ColorPicker` popups that clamp themselves to the window.
 - The existing "cached widget pointers die on `Clear()`" rule extends to any
   subtree rebuild. Repeater children are never cached by anyone.
 - A widget draws only itself. Anything that draws its children's content is a
-  container that hasn't been split yet.
+  container that hasn't been split yet — and furniture drawn OUTSIDE the tree
+  (a title, a preview pane) has no area anything can respect, which is how it
+  ends up under a neighbour. Make it a widget, or reserve it a `Space`.
 
 ## Out of scope
 
