@@ -326,14 +326,17 @@ void DungeonWorld::Update(const Input& input, float dt, float time, bool acceptI
 	if (acceptInput && !m_pendingFall) m_party.HandleInput(input);
 	m_party.Update(dt);
 
-	// Door panels slide toward their open/shut target (sideways into the wall).
-	constexpr float kDoorSlideSeconds = 0.7f;
+	// Door leaves travel toward their open/shut target. The DURATION is per type
+	// (doors.cat `open_seconds`), because a stone slab that grinds and a wooden
+	// door that swings are the same motion at different speeds; the render
+	// decides the shape of the movement, this only decides how long it takes.
 	for (Door& door : m_doors) {
 		const float target = door.open ? 1.0f : 0.0f;
+		const float step = dt / door.openSeconds;
 		if (door.openT < target)
-			door.openT = std::min(target, door.openT + dt / kDoorSlideSeconds);
+			door.openT = std::min(target, door.openT + step);
 		else if (door.openT > target)
-			door.openT = std::max(target, door.openT - dt / kDoorSlideSeconds);
+			door.openT = std::max(target, door.openT - step);
 	}
 
 	// Pit fall sequencing: let the step glide onto the pit play out, then run

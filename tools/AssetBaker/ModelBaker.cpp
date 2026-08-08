@@ -2165,6 +2165,21 @@ assets::ModelData BuildDoorPanel() {
 	return FinishProp(std::move(mesh), {0.45f, 0.33f, 0.20f, 1.0f});
 }
 
+// The LEFT HALF of a split door's leaf, spanning the opening's left half only.
+// A split door draws this mesh twice, the second copy turned a half turn about
+// Y, so the two halves meet at the centre closed and part into their own jambs
+// as they open. Symmetric in section on purpose: the turned copy shows what was
+// the back face, and a leaf with a front and a back would read wrong on one
+// side. (Placeholder alongside BuildDoorPanel until the authored leaves land.)
+assets::ModelData BuildDoorPanelHalf() {
+	assets::MeshData mesh;
+	constexpr float kOpen = 0.85f, kH = 2.1f, kHalf = kOpen * 0.5f;
+	AddBox(mesh, {-kHalf, kH * 0.5f, 0.0f}, {kHalf, kH * 0.5f, 0.05f});
+	AddBox(mesh, {-kHalf, kH * 0.26f, 0.0f}, {kHalf * 0.96f, 0.07f, 0.075f});
+	AddBox(mesh, {-kHalf, kH * 0.74f, 0.0f}, {kHalf * 0.96f, 0.07f, 0.075f});
+	return FinishProp(std::move(mesh), {0.45f, 0.33f, 0.20f, 1.0f});
+}
+
 // RETIRED (2026-08-07): the wall lever is authored in tools/BuildLever.py now
 // and imported as TWO models — lever_plate (static) and lever_handle (tilts) —
 // which is what lets the mount stay put while the handle swings, and lets the
@@ -2408,6 +2423,7 @@ bool BakeModels(const std::string& dir, const std::string& texturesDir) {
 	ok &= WriteGltf(BuildDoorFrame(), dir + "\\door_frame.gltf");
 	// door_panel, NOT door: door.gltf is the cosmetic wood_door decoration.
 	ok &= WriteGltf(BuildDoorPanel(), dir + "\\door_panel.gltf");
+	ok &= WriteGltf(BuildDoorPanelHalf(), dir + "\\door_panel_half.gltf");
 	// (the lever moved to tools/BuildLever.py — see the note at BuildLever's
 	// old site; lever_plate.gltf and lever_handle.gltf are import-model output)
 

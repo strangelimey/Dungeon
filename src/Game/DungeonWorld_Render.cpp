@@ -258,20 +258,25 @@ void DungeonWorld::SubmitSceneGeometry(ID3D12GraphicsCommandList* list,
 		m_renderer.DrawMesh(list, *deco.kind->mesh, deco.world, material);
 	}
 
-	// Doors: a static frame plus the panel sliding sideways into the wall by
-	// openT (smoothstepped so it starts and lands softly). Both draw through
-	// the prop material path, so they bump-map and cast shadows like the
-	// decorations above.
+	// Doors: a static frame plus a leaf that gets out of the way per the type's
+	// `motion` (smoothstepped so it starts and lands softly). All three motions
+	// are a MATRIX and nothing else — blocking is keyed to the cell, not to the
+	// leaf, so none of them costs more than another or touches walkability.
+	// Everything draws through the prop material path, so it bump-maps and casts
+	// shadows like the decorations above.
 	for (const Door& door : m_doors) {
 		const Vec3 c = m_map.CellCenter(door.x, door.z);
-		// The wider of the pair, and the panel slides a further 0.75 units out
-		// as it opens — so a frame taller or broader than a cell (the framed
-		// doorways this thread adds) stays whole at the screen edge.
-		const float doorRadius =
-			std::max(door.frame ? door.frame->cullRadius : 0.0f,
-					 (door.panel ? door.panel->cullRadius : 0.0f) + 0.75f * kUnit);
+		// The widest of the parts, plus how far the leaf gets from its closed
+		// pose — so a frame taller or broader than a cell (the framed doorways
+		// this thread adds), and an open leaf, stay whole at the screen edge.
+		const float reach = door.travel;
+		const float leafRadius =
+			std::max(door.panel ? door.panel->cullRadius : 0.0f,
+					 door.trim ? door.trim->cullRadius : 0.0f);
+		const float doorRadius = std::max(door.frame ? door.frame->cullRadius : 0.0f,
+										  leafRadius + reach * kUnit);
 		if (!visible({c.x, 0.0f, c.z}, doorRadius)) continue;
-		// Frame and panel are DecorationKinds, so they honour the catalog `scale`;
+		// Frame and leaf are DecorationKinds, so they honour the catalog `scale`;
 		// they share the frame's (a mismatched pair would not meet anyway).
 		const float ds = door.frame ? door.frame->modelScale : 1.0f;
 		const XMMATRIX base = UnitScale(ds) * XMMatrixRotationY(DirYaw(door.facing)) *
@@ -279,7 +284,7 @@ void DungeonWorld::SubmitSceneGeometry(ID3D12GraphicsCommandList* list,
 		auto draw = [&](const DecorationKind* kind, const XMMATRIX& world) {
 			if (!kind || !kind->mesh) return;
 			gfx::MaterialParams material;
-			material.doubleSided = true;
+			material.doubleSided = !kind->authored; // authored meshes back-cull
 			ApplyPropMaterial(material, *kind, 0.85f);
 			Mat4 w;
 			XMStoreFloat4x4(&w, world);
@@ -287,10 +292,37 @@ void DungeonWorld::SubmitSceneGeometry(ID3D12GraphicsCommandList* list,
 		};
 		draw(door.frame, base);
 		const float t = door.openT;
-		// Model-space (pre-scale) offset, so it is in UNITS: three quarters of a
-		// square sideways buries the panel in the flanking wall.
-		const float slide = (t * t * (3.0f - 2.0f * t)) * 0.75f; // into the wall
-		draw(door.panel, XMMatrixTranslation(slide, 0, 0) * base);
+		const float s = t * t * (3.0f - 2.0f * t); // smoothstep
+		// All model-space (pre-scale), so distances are in UNITS.
+		auto leafPair = [&](const XMMATRIX& m) {
+			const XMMATRIX w = m * base;
+			draw(door.panel, w);
+			draw(door.trim, w); // ironwork, moving with the leaf it is on
+		};
+		switch (door.motion) {
+		case DoorMotion::Rise:
+			// Straight up into the CEILING BLOCK, which is solid geometry over a
+			// walkable cell and hides the raised leaf — the Dungeon Master
+			// portcullis, needing no floor space at all. (A cell with a ceiling
+			// hole would show it, but a hole and a doorway cannot share a cell.)
+			leafPair(XMMatrixTranslation(0, s * door.travel, 0));
+			break;
+		case DoorMotion::Split:
+			// Two halves parting into their own jambs. The model is the LEFT
+			// half; the right one is the same mesh turned a HALF TURN about Y.
+			// That is a proper rotation, so the winding survives and an authored
+			// mesh still back-culls — a mirror (scale -1 on X) would invert it
+			// and turn the door inside out the moment it stopped being
+			// double-sided. A leaf authored symmetric in section reads the same
+			// either way round, which is what a real pair of doors looks like.
+			leafPair(XMMatrixTranslation(-s * door.travel, 0, 0));
+			leafPair(XMMatrixRotationY(XM_PI) *
+					 XMMatrixTranslation(s * door.travel, 0, 0));
+			break;
+		default: // Slide: sideways, burying the leaf in the flanking wall.
+			leafPair(XMMatrixTranslation(s * door.travel, 0, 0));
+			break;
+		}
 	}
 
 	// Buttons: wall levers at hand height, drawn as a STATIC MOUNT plus a

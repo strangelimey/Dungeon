@@ -1,11 +1,44 @@
-; Doors: sliding panel + shared frame (functional, block until opened).
+; Doors: a leaf plus the shared frame. Blocking is keyed to the CELL, so how a
+; leaf gets out of the way is pure presentation and lives here as data:
+;   motion        slide (into the flanking wall) | rise (into the ceiling block,
+;                 which hides it) | split (two halves parting into their jambs)
+;   travel        how far the leaf moves, in SQUARES — for a split, how far EACH
+;                 half goes, so the model is authored as the LEFT HALF only and
+;                 the render turns a second copy a half turn onto the right
+;   open_seconds  how long the full throw takes
+;   trim          a second model drawn with the leaf, carrying its OWN texture
+;                 (a wooden door's iron straps cannot be iron in a wood-textured
+;                 mesh — the import path binds one set per model)
 
 [wooden_door]
 display = Wooden Door
 category = door
-model = door_panel
+model = door_panel_half
 texture = wood_planks
 authored = 0
+motion = split
+travel = 0.4
+open_seconds = 0.8
+
+[portcullis]
+display = Portcullis
+category = door
+model = door_panel
+texture = rusted_iron
+authored = 0
+motion = rise
+travel = 1.0
+open_seconds = 1.4
+
+[stone_door]
+display = Stone Door
+category = door
+model = door_panel
+texture = wall_stone_granite
+authored = 0
+motion = slide
+travel = 0.75
+open_seconds = 2.0
 
 [door_frame]
 display = Door Frame

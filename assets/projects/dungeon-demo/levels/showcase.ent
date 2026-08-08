@@ -1,5 +1,14 @@
 ; showcase — written by the in-game editor (dynamic layer).
 
-; A lever on the west wall of the entry hall, for looking at the prop. It wires
-; to nothing yet (no doors on this level), so pressing it just flips the handle.
-button lever 10 3 west
+; A lever on the west wall of the entry hall. It opens the wooden door down the
+; entry corridor, which is also the demo of a button driving a door.
+button lever 10 3 west target=door_wood
+
+; One door per MOTION, so all three can be judged in one walk. The entry
+; corridor (x=13) runs north-south with rock both sides, so every cell in it is
+; a doorway; z=16/18/20 hold the framed-arch props, leaving 17 and 19 free.
+; The stone slab sits in the side-room passage instead, which runs east-west —
+; the other doorway axis, and worth proving.
+door wooden_door 13 19 north name=door_wood
+door portcullis 13 17 north name=door_gate
+door stone_door 18 8 east name=door_slab

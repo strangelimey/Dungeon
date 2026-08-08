@@ -599,6 +599,21 @@ void DungeonWorld::SpawnDoor(const Entity& record) {
 	door.openT = door.open ? 1.0f : 0.0f;
 	door.panel = &DecorationKindFor(record.type, m_project.doors);
 	door.frame = &DecorationKindFor("door_frame", m_project.doors);
+	// The motion knobs, resolved ONCE from the type's catalog entry. A legacy
+	// record naming a type the catalog has lost keeps the defaults, which are
+	// the sideways slide every door used before motion was authorable.
+	if (const CatalogEntry* def = m_project.doors.Find(record.type)) {
+		const std::string m = def->Get("motion", "slide");
+		door.motion = m == "rise"    ? DoorMotion::Rise
+					  : m == "split" ? DoorMotion::Split
+									 : DoorMotion::Slide;
+		door.travel = def->GetFloat("travel", 0.75f);
+		// Guarded: an open_seconds of 0 would divide by zero in the anim tick.
+		const float secs = def->GetFloat("open_seconds", 0.7f);
+		door.openSeconds = secs > 0.05f ? secs : 0.05f;
+		if (const std::string t = def->Get("trim", ""); !t.empty())
+			door.trim = &DecorationKindFor(t, m_project.doors);
+	}
 	m_doors.push_back(std::move(door));
 }
 

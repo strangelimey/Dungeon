@@ -1341,11 +1341,30 @@ private:
 		const DecorationKind* plate = nullptr;
 	};
 
+	// How a door's leaf gets out of the way. Blocking is keyed to the CELL, not
+	// to the leaf, so this is purely a render matrix — every motion costs the
+	// same and none of them touches walkability.
+	enum class DoorMotion {
+		Slide, // sideways into the flanking wall (a pocket door)
+		Rise,  // straight up into the ceiling block, which hides it (Dungeon
+		       // Master's portcullis idiom — wants no floor space at all)
+		Split, // two halves parting, each into its own jamb
+	};
+
 	// A door filling a doorway cell (side walls flank the travel axis). Closed
-	// it blocks the party, monsters, and projectiles; the panel slides sideways
-	// into the wall as it opens (openT animates toward `open`). `facing` is the
-	// travel direction through it; `name` is what buttons target (name= param).
+	// it blocks the party, monsters, and projectiles; the leaf gets out of the
+	// way per `motion` as openT animates toward `open`. `facing` is the travel
+	// direction through it; `name` is what buttons target (name= param).
+	//
+	// A SPLIT door's leaf model is authored as the LEFT HALF only, and the
+	// render draws it twice — the second copy turned a half turn about Y, which
+	// is a proper rotation (winding survives, so an authored mesh still
+	// back-culls) and lands the half on the right of the opening.
 	// Open-state diffs ride the save like button toggles (kind Door, activated).
+	//
+	// The motion knobs are resolved from the type's catalog entry at spawn, not
+	// read per frame — a door type is fixed for the life of a placement, and the
+	// render loop runs over every door every frame.
 	struct Door {
 		int id = -1;                         // source Entity::id (.ent record)
 		int x = 0, z = 0;
@@ -1354,9 +1373,17 @@ private:
 		std::string key;                     // item id that unlocks it ("" = none)
 		bool open = false;
 		bool initialOpen = false;            // authored state (open= param)
-		float openT = 0.0f;                  // slide anim, 0 closed .. 1 open
+		float openT = 0.0f;                  // open anim, 0 closed .. 1 open
+		DoorMotion motion = DoorMotion::Slide;
+		float travel = 0.75f;                // how far the leaf moves, UNITS
+		float openSeconds = 0.7f;            // how long the full throw takes
 		const DecorationKind* panel = nullptr;
 		const DecorationKind* frame = nullptr;
+		// An optional second moving part drawn with the panel's matrix. The
+		// import path binds ONE texture set per model, so a wooden door's iron
+		// straps have to be their own mesh to be iron — the same split the lever
+		// makes between its stone plate and its wooden handle.
+		const DecorationKind* trim = nullptr;
 	};
 
 	// Static architecture decorations from the .map layer (column, archway,

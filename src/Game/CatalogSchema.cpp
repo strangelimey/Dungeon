@@ -234,11 +234,26 @@ constexpr FieldSpec kButtonFields[] = {
 };
 
 // --- doors ------------------------------------------------------------------
+// A door's MOTION is data, because the three that read right in a dungeon want
+// different meshes but identical mechanics: blocking is keyed to the CELL, so
+// swinging, rising and sliding are each just a matrix on the leaf.
 constexpr FieldSpec kDoorFields[] = {
 	IDENTITY_DISPLAY, IDENTITY_CATEGORY, PROP_MODEL, PROP_TEXTURE, PROP_SCALE, PROP_AUTHORED,
 	{.key = "hidden", .kind = FieldKind::Bool, .sectionKey = kSectionRules,
 	 .help = "Internal type the palette never offers (the shared door frame).",
 	 .def = "0"},
+	{.key = "motion", .kind = FieldKind::Enum, .sectionKey = kSectionRules,
+	 .help = "How the leaf opens: slide into the wall, rise into the ceiling, or split in two.",
+	 .options = "slide rise split", .def = "slide"},
+	{.key = "travel", .kind = FieldKind::Float, .sectionKey = kSectionRules,
+	 .help = "How far the leaf moves, in squares (each half's own distance for a split).",
+	 .lo = 0.0f, .hi = 2.0f, .step = 0.05f, .def = "0.75"},
+	{.key = "open_seconds", .kind = FieldKind::Float, .sectionKey = kSectionRules,
+	 .help = "How long the full throw takes — a stone slab should grind, a wooden door should not.",
+	 .lo = 0.1f, .hi = 4.0f, .step = 0.1f, .def = "0.7"},
+	{.key = "trim", .kind = FieldKind::CatalogRef, .sectionKey = kSectionRules,
+	 .help = "Second model drawn with the leaf, carrying its own texture (a wooden door's ironwork).",
+	 .options = "doors"},
 };
 
 // --- stairs / pits ----------------------------------------------------------
