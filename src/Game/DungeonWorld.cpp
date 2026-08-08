@@ -21,6 +21,9 @@ namespace {
 // the albedo sRGB switch; the dev console's `ambient <x>` scales it live for
 // mood tuning (SetAmbientScale).
 constexpr Vec3 kBaseAmbient{0.052f, 0.048f, 0.064f};
+// A burning body's plume burns a little bigger than a brazier. Shared by the
+// plume itself and the buffer reserve that has to allow for one.
+constexpr float kPlumeScale = 1.1f;
 } // namespace
 
 // ============================================================================
@@ -376,7 +379,7 @@ void DungeonWorld::Update(const Input& input, float dt, float time, bool acceptI
 		}
 		if (!monster.plume)
 			monster.plume = std::make_unique<FireEffect>(
-				BurnOrigin(monster), 1.1f, monster.runtimeId * 2654435761u);
+				BurnOrigin(monster), kPlumeScale, monster.runtimeId * 2654435761u);
 		monster.plume->SetTint(BurnTint(burning->school));
 		monster.plume->SetOrigin(BurnOrigin(monster));
 		monster.plume->Update(dt);
@@ -394,6 +397,27 @@ void DungeonWorld::Update(const Input& input, float dt, float time, bool acceptI
 						  const Vec3 d = Sub(p.position, eye);
 						  return d.x * fwd.x + d.y * fwd.y + d.z * fwd.z;
 					  });
+}
+
+// Sizes m_particleScratch to the busiest frame this level can produce, so no
+// frame ever has to grow it. Called whenever the fire set changes — BuildFires
+// is the one funnel (level load, and the editor's RebuildFiresAndDust).
+void DungeonWorld::ReserveParticleScratch() {
+	// The fires are known and steady, so they are counted. The other two sources
+	// are transient — a plume exists only while its monster is alight, a bolt
+	// only while it flies — so both are provisioned for the WORST case rather
+	// than the current one: every monster on fire at once, and a busy fight's
+	// bolts and impact bursts. At 32 bytes an instance that insurance is cheap,
+	// and what it buys is not growing in the middle of the fight that needs it.
+	size_t peak = 0;
+	for (const Fire& fire : m_fires)
+		peak += static_cast<size_t>(fire.effect.SteadyCount());
+	peak += m_monsters.size() *
+			static_cast<size_t>(FireEffect::SteadyCountFor(kPlumeScale));
+	peak += 128; // projectiles in flight + their impact sparks (bursts of 6..14)
+	// Headroom over the mean: spawn times and lifetimes are both random, so the
+	// live count wanders above the settled figure SteadyCount reports.
+	m_particleScratch.reserve(peak + peak / 4);
 }
 
 void DungeonWorld::SetFov(float degrees) {

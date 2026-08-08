@@ -1389,6 +1389,10 @@ void DungeonWorld::BuildFires() {
 	log::Info("Lit {} fires ({} sconces, {} braziers, {} kinds)", m_fires.size(),
 			  m_map.Sconces().size(), m_map.Braziers().size(),
 			  m_fixtureKinds.size());
+	// The fire set is what the per-frame billboard buffer is sized from, and this
+	// is the only place it changes (monsters load before fires, so their plume
+	// allowance is countable here too).
+	ReserveParticleScratch();
 }
 
 // Per-cell turbidity as a top-down density grid: one texel per dungeon cell,
