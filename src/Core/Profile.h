@@ -76,6 +76,10 @@ inline constexpr u8 kLevelDetail = 2; // inner loops, per-item work
 
 inline constexpr i8 kDefaultThreshold = kLevelFrame;
 
+// Declared here and DEFINED only in a profiling build, so the external-slot
+// functions below can name it either way and a caller needs no #if of its own.
+class Collector;
+
 // A call site's identity, planted as a function-scope static by the macros
 // below. Its ADDRESS is the key — comparing zones is a pointer compare, and the
 // strings are never copied or hashed at runtime.
@@ -254,6 +258,27 @@ public:
 	// the whole pool.
 	u32 CopyAndReset(NodeView* out, u32 capacity);
 
+	// Records a span timed SOMEWHERE ELSE — on the GPU — rather than by this
+	// thread's clock. The zone becomes a ROOT of the tree rather than a child of
+	// whatever happens to be open here, because the work it describes did not
+	// nest inside anything on this side.
+	//
+	// `ticks` must already be in TSC units, so TicksToMs means the same thing for
+	// these as for everything else. The caller owns that conversion: only it
+	// knows what clock the span was measured against.
+	void AddSpan(const Zone& zone, u64 ticks) {
+		const u32 save = m_current;
+		m_current = kInvalidNode;
+		const u32 node = FindOrCreateChild(zone);
+		m_current = save;
+		if (node == kInvalidNode) return;
+
+		Node& n = m_nodes[node];
+		n.inclusive += ticks;
+		++n.calls;
+		if (ticks > n.maxTicks) n.maxTicks = ticks;
+	}
+
 	// Raises (or clears, with -1) the detail threshold on one node and, by
 	// inheritance, everything beneath it. Safe to call from another thread.
 	void SetDetail(u32 node, i8 level) {
@@ -404,6 +429,19 @@ void UnregisterThisThread();
 // Publishes the calling thread's tree and starts a new period (see
 // Collector::Publish — frame for the main thread, tick for a worker).
 void PublishThisThread();
+
+// --- externally-timed sources -----------------------------------------------
+// A slot belonging to no thread, for work measured on another clock entirely and
+// fed in afterwards with Collector::AddSpan.
+//
+// It exists so such work appears as one more row in the same tree, the same
+// panel, the same graph view and the same trace, instead of growing a parallel
+// readout beside them. Everything downstream of the registry already knows how
+// to draw a thread; the GPU is one more.
+//
+// Idempotent by name; returns null without DN_PROFILE or if the table is full.
+Collector* OpenExternal(std::string_view name);
+void PublishExternal(Collector* collector);
 
 // --- reading ----------------------------------------------------------------
 

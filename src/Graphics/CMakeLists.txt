@@ -1,5 +1,6 @@
 add_library(Graphics STATIC
 	DisplayEnum.cpp
+	GpuProfiler.cpp
 	GraphicsDevice.cpp
 	Mesh.cpp
 	ModelPreview.cpp

@@ -220,24 +220,61 @@ void UnregisterThisThread() {
 	t_collector = nullptr;
 }
 
-void PublishThisThread() {
-	Collector* c = t_collector;
-	if (!c) return;
+namespace {
 
-	// Find our slot. kMaxThreads is 16 and this runs once a frame, so a scan is
-	// cheaper than carrying an index through the thread_local.
+// Copies one slot's live tree into its published copy. Both publish paths — a
+// thread publishing its own, and an external source being published for — do
+// exactly this once they know WHICH slot.
+void PublishSlot(Slot& s) {
+	std::lock_guard lock(s.mx);
+	s.publishedCount = s.collector.CopyAndReset(s.published, kMaxNodes);
+	s.publishedRoot = s.collector.Root();
+	s.periods = s.collector.Periods();
+	s.nodeOverflows = s.collector.NodeOverflows();
+	s.depthOverflows = s.collector.DepthOverflows();
+}
+
+// The slot a Collector belongs to. kMaxThreads is 16 and these run once a frame,
+// so a scan beats threading an index through every caller.
+Slot* SlotFor(const Collector* c) {
+	for (u32 i = 0; i < kMaxThreads; ++i)
+		if (&g_slots[i].collector == c) return &g_slots[i];
+	return nullptr;
+}
+
+} // namespace
+
+void PublishThisThread() {
+	if (Slot* s = t_collector ? SlotFor(t_collector) : nullptr) PublishSlot(*s);
+}
+
+Collector* OpenExternal(std::string_view name) {
+	std::lock_guard lock(g_tableMx);
+
+	// By name, so asking twice hands back the same slot rather than opening a
+	// second one that then collects half the spans.
+	for (u32 i = 0; i < kMaxThreads; ++i)
+		if (g_slots[i].used && name == g_slots[i].name) return &g_slots[i].collector;
+
 	for (u32 i = 0; i < kMaxThreads; ++i) {
 		Slot& s = g_slots[i];
-		if (&s.collector != c) continue;
-
-		std::lock_guard lock(s.mx);
-		s.publishedCount = c->CopyAndReset(s.published, kMaxNodes);
-		s.publishedRoot = c->Root();
-		s.periods = c->Periods();
-		s.nodeOverflows = c->NodeOverflows();
-		s.depthOverflows = c->DepthOverflows();
-		return;
+		if (s.used) continue;
+		s.used = true;
+		s.live = true;
+		s.osId = 0; // no thread owns it
+		const size_t n = name.size() < sizeof(s.name) - 1 ? name.size() : sizeof(s.name) - 1;
+		std::memcpy(s.name, name.data(), n);
+		s.name[n] = 0;
+		return &s.collector;
 	}
+	log::Write(log::Level::Warn,
+		       std::format("Profile: no free slot for external source '{}'", name));
+	return nullptr;
+}
+
+void PublishExternal(Collector* collector) {
+	if (!collector) return;
+	if (Slot* s = SlotFor(collector)) PublishSlot(*s);
 }
 
 int SnapshotAll(ThreadReport* out, int capacity) {
@@ -473,6 +510,8 @@ void RegisterThread(std::string_view) {}
 void UnregisterThisThread() {}
 void PublishThisThread() {}
 int SnapshotAll(ThreadReport*, int) { return 0; }
+Collector* OpenExternal(std::string_view) { return nullptr; }
+void PublishExternal(Collector*) {}
 int SetDetail(std::string_view, i8) { return 0; }
 int ListDetails(DetailEntry*, int) { return 0; }
 TraceStats DumpTrace(const char*) { return {}; }

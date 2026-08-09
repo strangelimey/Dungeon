@@ -1438,6 +1438,7 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 		}
 		{
 			DN_PROFILE_ZONE_L(prof::kLevelSystem, "shadows");
+			DN_GPU_ZONE(m_device.Gpu(), list, "gpu.shadows");
 			m_world.RenderShadowMaps(list);
 		}
 		// The scene renders linear HDR into the post target; Resolve runs the
@@ -1445,11 +1446,13 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 		// the 2D pass below.
 		{
 			DN_PROFILE_ZONE_L(prof::kLevelSystem, "scene");
+			DN_GPU_ZONE(m_device.Gpu(), list, "gpu.scene");
 			m_postProcess.BeginScene(list);
 			m_world.RenderScene(list);
 		}
 		{
 			DN_PROFILE_ZONE_L(prof::kLevelSystem, "post");
+			DN_GPU_ZONE(m_device.Gpu(), list, "gpu.post");
 			m_postProcess.Resolve(list);
 		}
 	} else if (editorMap) {
@@ -1481,6 +1484,7 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 
 	// 2D pass.
 	DN_PROFILE_ZONE_L(prof::kLevelSystem, "ui2d");
+	DN_GPU_ZONE(m_device.Gpu(), list, "gpu.ui2d");
 	m_spriteBatch.Begin(list, m_device.Width(), m_device.Height());
 	switch (m_state) {
 	case AppState::Loading:     m_ui.RenderLoadingScreen(m_loadQueue); break;
