@@ -279,10 +279,11 @@ DevConsole::DevConsole(ui::FontLibrary& fonts, threads::Manager& threadManager)
 										   matched, matched == 1 ? "" : "s"));
 				 } else {
 					 if (!args.empty())
-						 m_showProfile = args[0] != "off" && args[0] != "0";
+						 m_profileExpanded = args[0] != "off" && args[0] != "0";
 					 else
-						 m_showProfile = !m_showProfile;
-					 Print(std::format("profile panel {}", m_showProfile ? "on" : "off"));
+						 m_profileExpanded = !m_profileExpanded;
+					 Print(std::format("profile panel {}",
+									   m_profileExpanded ? "expanded" : "collapsed"));
 				 }
 			 });
 	Register("echo", "echo the arguments", [this](const std::vector<std::string>& args) {
@@ -479,6 +480,8 @@ void DevConsole::Update(const Input& input, float dt, float windowW, float windo
 				m_threadMgr.Restart(t.id);
 			}
 		}
+		if (m_perfExpandBtn.Contains(mx, my)) m_perfExpanded = !m_perfExpanded;
+		if (m_profExpandBtn.Contains(mx, my)) m_profileExpanded = !m_profileExpanded;
 		if (m_profViewBtn.Contains(mx, my)) m_profileGraph = !m_profileGraph;
 		if (m_perfViewBtn.Contains(mx, my)) m_perfGraph = !m_perfGraph;
 		if (m_threadsBtn.Contains(mx, my)) m_threadsExpanded = !m_threadsExpanded;
@@ -584,22 +587,28 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 	const std::vector<threads::WorkerInfo> workers = m_threadMgr.SnapshotAll();
 	// Header, then five gauges (or five graphs in three two-column rows), then
 	// the two plain text rows.
+	// A collapsed section is its header row and nothing else. Every section can
+	// be reduced to one line, so the panel can be cut down to just the thing
+	// being watched rather than scrolled past everything else.
 	int perfVisible = 0;
 	for (int i = 0; i < kPerfLines; ++i)
 		if (!m_perfHidden[i]) ++perfVisible;
 	const int perfHiddenCount = kPerfLines - perfVisible;
 	const int perfGraphRows = (perfVisible + 1) / 2;
 	const float perfBody =
-		m_perfGraph ? static_cast<float>(perfGraphRows) * (graphH + graphGapY) +
-						  static_cast<float>(perfHiddenCount) * line
-					: line * 6.0f;
+		!m_perfExpanded ? 0.0f
+		: m_perfGraph   ? static_cast<float>(perfGraphRows) * (graphH + graphGapY) +
+							  static_cast<float>(perfHiddenCount) * line
+						: line * 6.0f;
+	// The two plain text rows belong to the body, not the header.
+	const float perfTail = m_perfExpanded ? line * 2.0f : 0.0f;
 	const float rowAdvance = line * 1.2f;
 
 	// PROFILE sits directly under the gauges; THREADS goes to the BOTTOM of the
 	// panel and starts COLLAPSED. It is a control surface — halt, rate, kill,
 	// boot — rather than something you watch, so it should not push the readout
 	// you are actually reading down the screen to make room for buttons.
-	const float profileTop = pad + line * 3.0f + perfBody;
+	const float profileTop = pad + line + perfBody + perfTail;
 	const float threadsBlock =
 		workers.empty()     ? 0.0f
 		: m_threadsExpanded ? line * 1.4f + rowAdvance * static_cast<float>(workers.size())
@@ -610,7 +619,8 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 	// DN_PROFILE this returns 0 rows and the section collapses to one line saying
 	// which configs have it.
 	ProfRow profRows[kMaxProfRows];
-	const int profRowCount = m_showProfile ? BuildProfileRows(profRows, kMaxProfRows) : 0;
+	const int profRowCount =
+		m_profileExpanded ? BuildProfileRows(profRows, kMaxProfRows) : 0;
 
 	// Graph view plots the zone rows only — a thread header has no measure of its
 	// own, and a graph of nothing would just be a flat line taking up a cell.
@@ -642,12 +652,13 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 	// natural height and the window decides how much of it you see.
 	const float profileHeaderH = line * 2.4f;
 	const float profileBody =
-		!prof::kEnabled ? rowAdvance
+		!m_profileExpanded ? 0.0f
+		: !prof::kEnabled ? rowAdvance
 		: m_profileGraph
 			? static_cast<float>(graphRows) * (graphH + graphGapY) +
 				  static_cast<float>(profHiddenCount) * line
 			: rowAdvance * static_cast<float>(listRows);
-	const float profileBlock = !m_showProfile ? 0.0f : profileHeaderH + profileBody;
+	const float profileBlock = profileHeaderH + profileBody;
 
 	// CONTENT height (everything, laid out) against the VISIBLE height (what the
 	// window can spare above the scrollback and the prompt). The panel is the
@@ -672,6 +683,18 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 	// better here than a drawn box would. Registers the hit rect only if it is
 	// actually ON the panel: input is clipped the same way drawing is, so a
 	// checkbox scrolled out of view cannot be clicked through the scrollback.
+	// The collapse control every section header carries. Its face names what a
+	// click DOES, not the current state, so "hide" is the button that hides.
+	auto expander = [&](float ey, bool expanded) {
+		const char* face = expanded ? " hide " : " show ";
+		const float bw2 = m_font->MeasureWidth(face);
+		const gfx::Rect r{width - pad * 2.0f - bw2, ey, bw2, line};
+		batch.DrawRect(r, kGaugeBg);
+		ui::DrawBorder(batch, r, kBorder);
+		m_font->Draw(batch, face, r.x, ey, kAccent);
+		return r;
+	};
+
 	auto checkbox = [&](float cx, float cy, bool on, int perfLine, u32 tid, u32 node) {
 		const char* face = on ? "[x] " : "[ ] ";
 		m_font->Draw(batch, face, cx, cy, on ? kAccent : kDim);
@@ -699,15 +722,23 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 	};
 
 	m_font->Draw(batch, "PERFORMANCE", labelX, y, kAccent);
-	{
-		// Same toggle idiom as the profile panel: Render lays the rect out, next
-		// frame's Update hit-tests it, and the label names the DESTINATION.
+	m_perfExpandBtn = expander(y, m_perfExpanded);
+	m_perfViewBtn = {};
+	if (m_perfExpanded) {
+		// The view toggle only exists while the section does — a control for a
+		// body that is not on screen is a control that cannot mean anything.
 		const char* face = m_perfGraph ? " bars " : " graph ";
 		const float bw2 = m_font->MeasureWidth(face);
-		m_perfViewBtn = {width - pad * 2.0f - bw2, y, bw2, line};
+		m_perfViewBtn = {m_perfExpandBtn.x - bw2 - pad, y, bw2, line};
 		batch.DrawRect(m_perfViewBtn, kGaugeBg);
 		ui::DrawBorder(batch, m_perfViewBtn, kBorder);
 		m_font->Draw(batch, face, m_perfViewBtn.x, y, kAccent);
+	} else {
+		// Collapsed, the header still answers the headline question.
+		m_font->Draw(batch,
+					std::format("FPS {:.0f}   CPU {:.0f}%   GPU {:.0f}%", m.fps,
+								m.cpuPercent, m.gpuPercent >= 0.0f ? m.gpuPercent : 0.0f),
+					width * 0.25f, y, kDim);
 	}
 	y += line;
 
@@ -769,7 +800,9 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 	// descriptor ceiling — the only two with no natural partner — heading them.
 	constexpr PerfLine kPerfOrder[kPerfLines] = {kFps, kSrv, kGpu, kCpu, kVram, kRam};
 
-	if (!m_perfGraph) {
+	if (!m_perfExpanded) {
+		// nothing: the header above is the whole section
+	} else if (!m_perfGraph) {
 		for (int oi = 0; oi < kPerfLines; ++oi) {
 			const int i = kPerfOrder[oi];
 			const PerfItem& it = items[i];
@@ -810,21 +843,32 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 		}
 	}
 
-	row(std::format("Process working set: {:.0f} MB", m.procMemMB));
-	row("GPU: " + device.AdapterName());
+	if (m_perfExpanded) {
+		row(std::format("Process working set: {:.0f} MB", m.procMemMB));
+		row("GPU: " + device.AdapterName());
+	}
 
 	// --- profile panel (below the gauges) -----------------------------------
 	// One tree per measured thread, deepest-first indentation, with a bar giving
 	// each node's share of what its thread recorded this period. The numbers are
 	// the LAST PUBLISHED period — a frame for the main thread, a tick for a
 	// worker — so this is a live readout rather than a running total.
-	if (m_showProfile) {
+	{
 		float py = profileTop + sy;
 		batch.DrawRect({0, py, width, 1.0f}, kBorder);
 		py += line * 0.4f;
 		m_font->Draw(batch, "PROFILE", labelX, py, kAccent);
+		m_profExpandBtn = expander(py, m_profileExpanded);
+		m_profViewBtn = {};
 
-		if constexpr (prof::kEnabled) {
+		if (!m_profileExpanded) {
+			// Collapsed: say what is being measured, so the reason to expand is
+			// visible without expanding.
+			m_font->Draw(batch,
+						std::format("{} zones over {} threads", profGraphCount,
+									profRowCount - profGraphCount),
+						width * 0.25f, py, kDim);
+		} else if constexpr (prof::kEnabled) {
 			const prof::Clock clock = prof::ClockInfo();
 			m_font->Draw(batch, std::format("TSC {:.0f} MHz", clock.mhz), width * 0.15f, py,
 						kDim);
@@ -839,7 +883,7 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 			{
 				const char* face = m_profileGraph ? " list " : " graph ";
 				const float bw2 = m_font->MeasureWidth(face);
-				m_profViewBtn = {width - pad * 2.0f - bw2, py, bw2, line};
+				m_profViewBtn = {m_profExpandBtn.x - bw2 - pad, py, bw2, line};
 				batch.DrawRect(m_profViewBtn, kGaugeBg);
 				ui::DrawBorder(batch, m_profViewBtn, kBorder);
 				m_font->Draw(batch, face, m_profViewBtn.x, py, kAccent);
@@ -1041,14 +1085,7 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 							ty, kWarn);
 		}
 
-		{
-			const char* face = m_threadsExpanded ? " hide " : " show ";
-			const float bw2 = m_font->MeasureWidth(face);
-			m_threadsBtn = {width - pad * 2.0f - bw2, ty, bw2, line};
-			batch.DrawRect(m_threadsBtn, kGaugeBg);
-			ui::DrawBorder(batch, m_threadsBtn, kBorder);
-			m_font->Draw(batch, face, m_threadsBtn.x, ty, kAccent);
-		}
+		m_threadsBtn = expander(ty, m_threadsExpanded);
 		ty += line;
 	}
 	if (!workers.empty() && m_threadsExpanded) {

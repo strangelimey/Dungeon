@@ -164,15 +164,22 @@ private:
 
 	bool m_open = false;
 	bool m_commandsEnabled = true;   // false while a staged load is mid-flight
-	bool m_showProfile = true;       // the profile panel costs real screen height
-	bool m_profileGraph = false;     // list of current values, or scrolling graphs
-	bool m_perfGraph = false;        // the five top gauges, as bars or as graphs
-	// THREADS is a control surface, not a readout, so it starts collapsed and
-	// sits at the BOTTOM: its buttons should not push the numbers you came to
-	// read further down the screen.
+	// Every section collapses to its header, so the panel can be cut down to just
+	// the one thing being watched. THREADS starts collapsed because it is a
+	// CONTROL surface — halt, rate, kill, boot — rather than a readout, and its
+	// buttons should not push the numbers you came to read down the screen.
+	bool m_perfExpanded = true;
+	bool m_profileExpanded = true;
 	bool m_threadsExpanded = false;
-	gfx::Rect m_profViewBtn{};       // the toggles, all laid out by Render
+
+	bool m_profileGraph = false; // list of current values, or scrolling graphs
+	bool m_perfGraph = false;    // the six top gauges, as bars or as graphs
+
+	// All laid out by Render, hit-tested by the next Update.
+	gfx::Rect m_profViewBtn{};
 	gfx::Rect m_perfViewBtn{};
+	gfx::Rect m_perfExpandBtn{};
+	gfx::Rect m_profExpandBtn{};
 	gfx::Rect m_threadsBtn{};
 
 	// The readout panel scrolls as ONE unit rather than per section: three scroll
