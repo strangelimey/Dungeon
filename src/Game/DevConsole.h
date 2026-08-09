@@ -111,6 +111,7 @@ private:
 		int depth = 0;
 		bool used = false;
 		bool seen = false;  // matched a live node this sample; else it has gone
+		bool hidden = false; // collapsed to a one-line row in the graph view
 		float pending = 0.0f; // max since the last commit
 		float samples[kProfHistory] = {};
 	};
@@ -131,6 +132,23 @@ private:
 		float samples[kProfHistory] = {};
 	};
 	PerfSeries m_perfSeries[kPerfLines];
+	bool m_perfHidden[kPerfLines] = {};
+
+	// Checkbox rects for the graph views, rebuilt by Render and hit-tested by the
+	// next Update — the same idiom as the thread controls, so the geometry of a
+	// clickable thing lives in exactly one place.
+	//
+	// HIDING DOES NOT REMOVE. A hidden graph collapses to a one-line row carrying
+	// the same checkbox, listed under the visible ones, so the control that hid it
+	// is the control that brings it back and it is still where you left it. That
+	// is why there is no separate "restore" UI to find.
+	struct GraphToggle {
+		gfx::Rect box;
+		int perfLine = -1; // >= 0 for a top gauge, else a profile node below
+		u32 tid = 0;
+		u32 node = 0;
+	};
+	std::vector<GraphToggle> m_graphToggles;
 
 	// One head and one timer for BOTH sets, so every graph on screen shares an
 	// x-axis and a spike in one lines up with a spike in another.
@@ -156,6 +174,19 @@ private:
 	gfx::Rect m_profViewBtn{};       // the toggles, all laid out by Render
 	gfx::Rect m_perfViewBtn{};
 	gfx::Rect m_threadsBtn{};
+
+	// The readout panel scrolls as ONE unit rather than per section: three scroll
+	// states and three pinned headers is machinery this does not need yet, and
+	// scrolling the gauges away to reach the profile is a normal thing to do.
+	//
+	// Deliberately NOT ui::ScrollArea. The console is outside the widget tree by
+	// design — its own palette, no Loc, immediate-mode drawing, and a scrollback
+	// that already scrolls itself — so it clips with SpriteBatch::SetScissor,
+	// which exists for exactly this. Converting the whole console to the control
+	// tree is a real option, just a separate one; see the note in the .cpp.
+	float m_panelScroll = 0.0f;
+	float m_panelH = 0.0f; // last frame's panel height, for wheel hit-testing
+	float m_lineH = 16.0f; // last frame's line advance, so Update can step by lines
 	std::string m_input;             // current edit line
 	std::deque<std::string> m_output; // scrollback (oldest front)
 	std::vector<std::string> m_history;

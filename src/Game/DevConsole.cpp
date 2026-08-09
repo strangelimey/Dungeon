@@ -42,7 +42,10 @@ const Vec4 kGaugeBg{0.13f, 0.13f, 0.17f, 1.0f};
 // is fine to reach through: it lives in registry storage until that thread's
 // next publish.
 constexpr int kMaxProfRows = 44;
-constexpr int kMaxGraphs = 12; // two columns of six; past that the panel eats the screen
+// Matches the series pool: every measure that HAS history can be graphed, since
+// the panel scrolls now and no longer has to fit them all on screen at once.
+// What keeps the cost down is culling the ones scrolled out of view, not a cap.
+constexpr int kMaxGraphs = 32;
 
 struct ProfRow {
 	char name[32] = {};
@@ -460,6 +463,21 @@ void DevConsole::Update(const Input& input, float dt, float windowW, float windo
 		if (m_profViewBtn.Contains(mx, my)) m_profileGraph = !m_profileGraph;
 		if (m_perfViewBtn.Contains(mx, my)) m_perfGraph = !m_perfGraph;
 		if (m_threadsBtn.Contains(mx, my)) m_threadsExpanded = !m_threadsExpanded;
+		for (const GraphToggle& g : m_graphToggles) {
+			if (!g.box.Contains(mx, my)) continue;
+			if (g.perfLine >= 0) {
+				m_perfHidden[g.perfLine] = !m_perfHidden[g.perfLine];
+			} else {
+				for (int j = 0; j < m_profSeriesCount; ++j) {
+					ProfSeries& c = m_profSeries[j];
+					if (c.used && c.tid == g.tid && c.node == g.node) {
+						c.hidden = !c.hidden;
+						break;
+					}
+				}
+			}
+			break;
+		}
 	}
 
 	// Typed characters (skip the toggle key so `~`/backtick never self-types).
@@ -499,14 +517,24 @@ void DevConsole::Update(const Input& input, float dt, float windowW, float windo
 		}
 	}
 
-	// Scroll the output (wheel, or PageUp/PageDown).
-	int scrollLines = static_cast<int>(input.WheelDelta());
-	if (input.WasKeyPressed(VK_PRIOR)) scrollLines += 5;
-	if (input.WasKeyPressed(VK_NEXT)) scrollLines -= 5;
-	if (scrollLines != 0) {
-		m_scroll = std::clamp(m_scroll + scrollLines, 0,
-							  static_cast<int>(m_output.size()));
-		m_caretBlink = 0.0f;
+	// The wheel goes to whatever is UNDER it: the readout panel while the cursor
+	// is over the panel, the scrollback otherwise. Same rule the widget tree
+	// states for ConsumeWheel — whoever can act on it claims it — arrived at here
+	// by hand because the console is not part of that tree.
+	const float wheel = input.WheelDelta();
+	if (wheel != 0.0f && input.MouseY() < m_panelH) {
+		// Clamped by Render, which is the only place the content height is known.
+		m_panelScroll -= wheel * m_lineH * 3.0f;
+	} else {
+		// Scroll the output (wheel, or PageUp/PageDown).
+		int scrollLines = static_cast<int>(wheel);
+		if (input.WasKeyPressed(VK_PRIOR)) scrollLines += 5;
+		if (input.WasKeyPressed(VK_NEXT)) scrollLines -= 5;
+		if (scrollLines != 0) {
+			m_scroll = std::clamp(m_scroll + scrollLines, 0,
+								  static_cast<int>(m_output.size()));
+			m_caretBlink = 0.0f;
+		}
 	}
 
 	if (input.WasKeyPressed(VK_ESCAPE)) m_open = false;
@@ -537,7 +565,15 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 	const std::vector<threads::WorkerInfo> workers = m_threadMgr.SnapshotAll();
 	// Header, then five gauges (or five graphs in three two-column rows), then
 	// the two plain text rows.
-	const float perfBody = m_perfGraph ? 3.0f * (graphH + graphGapY) : line * 6.0f;
+	int perfVisible = 0;
+	for (int i = 0; i < kPerfLines; ++i)
+		if (!m_perfHidden[i]) ++perfVisible;
+	const int perfHiddenCount = kPerfLines - perfVisible;
+	const int perfGraphRows = (perfVisible + 1) / 2;
+	const float perfBody =
+		m_perfGraph ? static_cast<float>(perfGraphRows) * (graphH + graphGapY) +
+						  static_cast<float>(perfHiddenCount) * line
+					: line * 6.0f;
 	const float rowAdvance = line * 1.2f;
 
 	// PROFILE sits directly under the gauges; THREADS goes to the BOTTOM of the
@@ -562,46 +598,74 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 	int profGraphCount = 0;
 	for (int i = 0; i < profRowCount; ++i)
 		if (!profRows[i].header) ++profGraphCount;
-	int graphsShown = std::min(profGraphCount, kMaxGraphs);
-	int graphRows = (graphsShown + 1) / 2; // two columns
-	int listRows = profRowCount;
-
-	// BOUNDED so the panel cannot grow down into the input line. With both panels
-	// graphed the natural height exceeds the window, and an overrun does not
-	// merely look untidy — it draws the profile over the prompt you would use to
-	// narrow it back down, which is the one control that would get you out. The
-	// profile body is what gives, since it is the most numerous and the easiest
-	// to shorten deliberately (raise detail on a narrower branch, or toggle back
-	// to the list).
-	const float profileHeaderH = line * 2.4f;
-	const float bodyAllowance = std::max(
-		0.0f,
-		(height - line * 4.0f) - (profileTop + profileHeaderH + threadsBlock + pad));
-	if (m_profileGraph) {
-		const int fits = static_cast<int>(bodyAllowance / (graphH + graphGapY));
-		graphRows = std::min(graphRows, std::max(fits, 1));
-		graphsShown = std::min(graphsShown, graphRows * 2);
-	} else {
-		const int fits = static_cast<int>(bodyAllowance / rowAdvance);
-		listRows = std::min(listRows, std::max(fits, 1));
+	// Split the zone rows by whether their series is hidden. The hidden ones are
+	// not dropped — they become one-line rows under the grid, still carrying the
+	// checkbox that brings them back.
+	int profVisible = 0, profHiddenCount = 0;
+	for (int i = 0; i < profRowCount; ++i) {
+		if (profRows[i].header) continue;
+		bool hid = false;
+		for (int j = 0; j < m_profSeriesCount; ++j) {
+			const ProfSeries& c = m_profSeries[j];
+			if (c.used && c.tid == profRows[i].tid && c.node == profRows[i].node) {
+				hid = c.hidden;
+				break;
+			}
+		}
+		if (hid) ++profHiddenCount; else ++profVisible;
 	}
+	const int graphsShown = std::min(profVisible, kMaxGraphs);
+	const int graphRows = (graphsShown + 1) / 2; // two columns
+	const int listRows = profRowCount;
 
-	// Header line + the TSC/toggle line, then the body.
+	// Header line + the TSC/toggle line, then the body. Nothing is dropped to
+	// make it fit any more: the panel SCROLLS, so the content is laid out at its
+	// natural height and the window decides how much of it you see.
+	const float profileHeaderH = line * 2.4f;
 	const float profileBody =
 		!prof::kEnabled ? rowAdvance
 		: m_profileGraph
-			? static_cast<float>(graphRows) * (graphH + graphGapY)
+			? static_cast<float>(graphRows) * (graphH + graphGapY) +
+				  static_cast<float>(profHiddenCount) * line
 			: rowAdvance * static_cast<float>(listRows);
 	const float profileBlock = !m_showProfile ? 0.0f : profileHeaderH + profileBody;
 
-	const float panelH = profileTop + profileBlock + threadsBlock + pad;
+	// CONTENT height (everything, laid out) against the VISIBLE height (what the
+	// window can spare above the scrollback and the prompt). The panel is the
+	// smaller; the difference is what there is to scroll through.
+	const float contentH = profileTop + profileBlock + threadsBlock + pad;
+	const float panelH = std::min(contentH, height - line * 6.0f);
+	m_panelScroll = std::clamp(m_panelScroll, 0.0f, std::max(0.0f, contentH - panelH));
+	m_panelH = panelH;
+	m_lineH = line;
+	const float sy = -m_panelScroll; // added to every content-space y below
 	batch.DrawRect({0, 0, width, panelH}, kPerfBg);
 	ui::DrawBorder(batch, {0, 0, width, panelH}, kBorder);
+
+	// Everything from here to the matching reset is CONTENT, drawn at
+	// content-space y plus `sy` and clipped to the panel. Without the scissor a
+	// scrolled-up row would draw over the border and out across the scrollback.
+	const gfx::Rect panelClip{0, 0, width, panelH};
+	batch.SetScissor(&panelClip);
+
+	m_graphToggles.clear();
+	// Text checkboxes, because this is a monospaced dev console and "[x]" reads
+	// better here than a drawn box would. Registers the hit rect only if it is
+	// actually ON the panel: input is clipped the same way drawing is, so a
+	// checkbox scrolled out of view cannot be clicked through the scrollback.
+	auto checkbox = [&](float cx, float cy, bool on, int perfLine, u32 tid, u32 node) {
+		const char* face = on ? "[x] " : "[ ] ";
+		m_font->Draw(batch, face, cx, cy, on ? kAccent : kDim);
+		const gfx::Rect box{cx, cy, m_font->MeasureWidth(face), line};
+		if (cy + line > 0.0f && cy < panelH)
+			m_graphToggles.push_back({box, perfLine, tid, node});
+		return box.w;
+	};
 
 	const float labelX = pad * 2.0f;
 	const float gaugeX = width * 0.40f;
 	const float gaugeW = width * 0.28f;
-	float y = pad;
+	float y = pad + sy;
 
 	auto gauge = [&](float gy, float frac, const Vec4& fill) {
 		const float gh = line * 0.7f;
@@ -689,17 +753,30 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 		}
 	} else {
 		const float pgw = (width - pad * 6.0f) * 0.5f;
+		int shown = 0;
 		for (int i = 0; i < kPerfLines; ++i) {
+			if (m_perfHidden[i]) continue;
 			const PerfItem& it = items[i];
-			const int col = i % 2, gr = i / 2;
+			const int col = shown % 2, gr = shown / 2;
+			++shown;
 			const float gx = pad * 2.0f + static_cast<float>(col) * (pgw + pad * 2.0f);
 			const float gy = y + static_cast<float>(gr) * (graphH + graphGapY);
-			m_font->Draw(batch, it.text, gx, gy, it.warn ? kWarn : kText);
+			if (gy > panelH || gy + graphH < 0.0f) continue; // scrolled out of view
+			const float cw = checkbox(gx, gy, true, i, 0, 0);
+			m_font->Draw(batch, it.text, gx + cw, gy, it.warn ? kWarn : kText);
 			DrawSeriesGraph(batch, {gx, gy + line, pgw, graphH - line},
 							m_perfSeries[i].samples, kProfHistory, m_profHead, it.scale,
 							it.color);
 		}
-		y += 3.0f * (graphH + graphGapY); // six graphs, two columns
+		y += static_cast<float>(perfGraphRows) * (graphH + graphGapY);
+
+		// The hidden ones, one line each, still checkable.
+		for (int i = 0; i < kPerfLines; ++i) {
+			if (!m_perfHidden[i]) continue;
+			const float cw = checkbox(pad * 2.0f, y, false, i, 0, 0);
+			m_font->Draw(batch, items[i].text, pad * 2.0f + cw, y, kDim);
+			y += line;
+		}
 	}
 
 	row(std::format("Process working set: {:.0f} MB", m.procMemMB));
@@ -711,7 +788,7 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 	// the LAST PUBLISHED period — a frame for the main thread, a tick for a
 	// worker — so this is a live readout rather than a running total.
 	if (m_showProfile) {
-		float py = profileTop;
+		float py = profileTop + sy;
 		batch.DrawRect({0, py, width, 1.0f}, kBorder);
 		py += line * 0.4f;
 		m_font->Draw(batch, "PROFILE", labelX, py, kAccent);
@@ -764,13 +841,21 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 							ser = &m_profSeries[j];
 							break;
 						}
+					if (ser && ser->hidden) continue; // drawn as a row below instead
 
 					const int col = drawn % 2, gr = drawn / 2;
 					const float gx = pad * 2.0f + static_cast<float>(col) * (gw + pad * 2.0f);
 					const float gy = py + static_cast<float>(gr) * (graphH + graphGapY);
 					++drawn;
 
-					m_font->Draw(batch, std::format("{}/{}", curThread, pr.name), gx, gy,
+					// Scrolled out of view: skip it. A graph is ~480 quads, so
+					// culling is what lets the cap be generous — the scissor would
+					// hide these anyway, after paying to build every one of them.
+					// `drawn` still advances, or the grid would reflow as it scrolls.
+					if (gy > panelH || gy + graphH < 0.0f) continue;
+
+					const float cw = checkbox(gx, gy, true, -1, pr.tid, pr.node);
+					m_font->Draw(batch, std::format("{}/{}", curThread, pr.name), gx + cw, gy,
 								kText);
 
 					// A timing has no natural ceiling, so unlike the five gauges
@@ -792,14 +877,41 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 						DrawSeriesGraph(batch, plot, nullptr, 0, 0, 0.0f, kDim);
 				}
 				py += static_cast<float>(graphRows) * (graphH + graphGapY);
+
+				// The hidden ones, one line each, still carrying the checkbox
+				// that brings them back — in tree order, where you left them.
+				curThread = "";
+				for (int i = 0; i < profRowCount; ++i) {
+					const ProfRow& pr = profRows[i];
+					if (pr.header) {
+						curThread = pr.name;
+						continue;
+					}
+					bool hid = false;
+					for (int j = 0; j < m_profSeriesCount; ++j) {
+						const ProfSeries& c = m_profSeries[j];
+						if (c.used && c.tid == pr.tid && c.node == pr.node) {
+							hid = c.hidden;
+							break;
+						}
+					}
+					if (!hid) continue;
+					const float cw = checkbox(pad * 2.0f, py, false, -1, pr.tid, pr.node);
+					m_font->Draw(batch, std::format("{}/{}", curThread, pr.name),
+								pad * 2.0f + cw, py, kDim);
+					m_font->Draw(batch, std::format("{:.3f} ms", pr.inclMs), width * 0.30f, py,
+								kDim);
+					py += line;
+				}
+
 				// NEVER drop silently. A panel showing eight of twelve measures
 				// looks exactly like a panel showing all of them, and the reader
 				// would go on believing the worker threads were being watched.
-				if (graphsShown < profGraphCount)
+				if (graphsShown < profVisible)
 					m_font->Draw(batch,
-								std::format("({} more not shown - no room)",
-											profGraphCount - graphsShown),
-								labelX, py - line * 0.9f, kDim);
+								std::format("({} more past the {} graph cap)",
+											profVisible - graphsShown, kMaxGraphs),
+								labelX, py, kDim);
 			} else
 			for (int i = 0; i < listRows; ++i) {
 				const ProfRow& pr = profRows[i];
@@ -872,7 +984,7 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 	m_threadHits.clear();
 	m_threadsBtn = {};
 	if (!workers.empty()) {
-		float ty = profileTop + profileBlock;
+		float ty = profileTop + profileBlock + sy;
 		batch.DrawRect({0, ty, width, 1.0f}, kBorder); // divider from the profile block
 		ty += line * 0.4f;
 		m_font->Draw(batch, "THREADS", labelX, ty, kAccent);
@@ -909,7 +1021,7 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 		ty += line;
 	}
 	if (!workers.empty() && m_threadsExpanded) {
-		float ty = profileTop + profileBlock + line * 1.4f;
+		float ty = profileTop + profileBlock + line * 1.4f + sy;
 
 		const Vec4 kPaused{0.90f, 0.75f, 0.30f, 1.0f};
 		const Vec4 kStalled{0.95f, 0.45f, 0.30f, 1.0f};
@@ -975,6 +1087,20 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 
 			ty += rowAdvance;
 		}
+	}
+
+	batch.SetScissor(nullptr);
+
+	// A thumb on the right edge, only when there is something to scroll to. The
+	// panel has no visible frame of its own beyond the border, so without this
+	// there is nothing to say the readout continues past the bottom.
+	if (contentH > panelH) {
+		const float tw = line * 0.35f;
+		const float frac = panelH / contentH;
+		const float th = std::max(panelH * frac, line);
+		const float ty2 = (panelH - th) * (m_panelScroll / (contentH - panelH));
+		batch.DrawRect({width - tw, 0, tw, panelH}, kGaugeBg);
+		batch.DrawRect({width - tw, ty2, tw, th}, kBorder);
 	}
 
 	// --- output log + input line (bottom) -----------------------------------
