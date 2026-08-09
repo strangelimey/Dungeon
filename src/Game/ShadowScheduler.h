@@ -101,7 +101,10 @@ private:
 	f64 m_nowSec = 0.0;
 	std::chrono::steady_clock::time_point m_epoch{};
 	bool m_haveEpoch = false;
-	f32 m_flickerHz = 14.0f; // fire reads convincingly well below 20 Hz
+	// 25 Hz: CHOSEN BY EYE, not derived. Michael compared 8 / 14 / 25 / 40 in
+	// the live `shadowrate` knob and this is where the fire stopped looking
+	// slowed down without costing what the old frame-counted pacing did.
+	f32 m_flickerHz = 25.0f;
 	int m_flickerBudget = 2; // cubes per frame, which also staggers them
 	int m_flickerLeft = 0;   // budget remaining this pass
 };
