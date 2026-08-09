@@ -206,14 +206,74 @@ than something each call site improvises.
 
 ### Phase 4 — Ambience *(the actual goal)*
 
-Two layers:
+**REWRITTEN 2026-08-08, after the first version was built and heard.** What
+shipped was a per-level bed plus a continuous loop on every fire, and Michael's
+verdict was that it is "all encompassing" — a global background where what he
+wants is "a drip here, a sigh there, a ripple".
 
-- **The bed** — one non-positional stereo loop per level, named in the
-  `atmosphere` record beside dust/haze/ambient.
-- **Emitters** — positional loops placed as **fixtures**. A dripping cell is a
-  fixture with a sound, which means it arrives in the editor palette, on the
-  map overlay, and in the level format with no new plumbing. This is the same
-  "compose, don't bake" instinct that retired the wall `columns` knob.
+He is right, and the fault is architectural rather than a matter of levels.
+**Everything in that build was continuous**: a bed that never stops and twenty
+fires that never stop. There is no silence anywhere in it, so it can only ever
+be a wash. Turning it all down produces a quieter wash.
+
+#### The principle: silence is the content
+
+Myst is mostly quiet. That is *why* the drip works — the gap before it is what
+makes it land. An ambience that is always sounding has spent the very resource
+it needs. So the unit of ambience is an EVENT with silence around it, not a
+layer.
+
+#### Three mechanisms
+
+1. **Ambient spots** — a sound that belongs to a place: a drip in that alcove,
+   a chain creaking on that beam. Placed, positional, and **intermittent** —
+   fixed position, stochastic timing, long gaps. This is the main event.
+2. **The bed** — kept, but demoted: per level, off by default, and quiet enough
+   to be a floor rather than a presence. Michael: *"some levels will have a
+   generic background noise (wind, water, whatever)"* — a flooded cistern earns
+   one, a dry crypt does not.
+3. **Continuous spots** — the honest exception. A fire really does crackle
+   without stopping, so it loops; the wash came from twenty audible at once, not
+   from looping as such. Short reach fixes it, and the director can add
+   occasional spits on top.
+
+Pacing default: **one event every 15–40 seconds**, per spot. Long enough that
+each is noticed. If it feels empty, that failure is audible and correctable;
+the busy failure is the one that cannot be un-heard.
+
+#### Position, for anything not anchored
+
+Should roaming events follow later, the rule that makes them work is: an open
+cell **beyond a minimum distance and preferably out of sight**. Hearing
+something whose cause you cannot see is the whole effect — a sigh from an empty
+visible corridor destroys it instantly. Not being built yet; anchored spots come
+first because Michael wants deliberate placement.
+
+#### What it needs
+
+- **`--clip <start> <length>`** — lift a single event out of a long recording.
+  `--make-loop` serves beds; a drip is a one-shot. This is needed even after
+  buying a dungeon pack, because those ship as one-minute LOOPS: a loop of
+  "eerie drips" is continuous drip ambience, which is the wash again.
+- **`ambience.cat`** — one entry per ambient kind: sound (+ variants), interval
+  range, gain range, pitch range, reach, and whether it loops.
+- **An `ambient <id> <x> <z>` level record**, hand-authorable first, with the
+  editor palette category following once the feel is settled.
+
+#### The content is the critical path
+
+The palette this wants — drips, sighs, ripples, scurries — is largely **not in
+the Sonniss bundle** (no drips at all, confirmed across all 347 files). Michael
+is buying a dungeon ambience pack. Until it lands, the system can be exercised
+on cut fragments of the Haunting Ambiences / Sinister Textures material.
+
+#### Suspect worth A/B-ing separately
+
+Reverb is on for every positional voice with one default preset, and twenty
+crackles sharing a single reverb bus will smear into exactly the
+"all-encompassing" quality being complained about. That may be a **second,
+independent cause** of the same symptom, so it wants testing on its own rather
+than being assumed fixed by the sparseness change.
 
 ### Phase 5 — Footsteps
 
