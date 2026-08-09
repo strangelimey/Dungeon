@@ -67,11 +67,35 @@ default import:
 | 10 | `CRWDWalla_Dinner Party Crowd... Atmos` |
 
 Ambisonic B-format is not four microphones. It is W (omnidirectional) plus
-X/Y/Z (directional gradients), and averaging the four — which is what the
-importer's mono fold does — is **not a downmix**: the gradient channels are
-signed and sum toward nothing, leaving a quieter, hollower W with added noise.
-The correct mono reduction of B-format is **W alone**. The campfire is
-otherwise good material, so this is worth handling rather than dodging.
+X/Y/Z (directional gradients), and averaging the four is **not a downmix**: the
+gradients are signed and sum toward nothing, leaving a quieter, hollower W with
+the gradient noise stirred in. The correct mono reduction is **W alone**.
+
+**Measured on the campfire**, importing the same file both ways:
+
+| Fold | Peak before normalize |
+|---|---|
+| Naive 4-channel average | **−15.0 dBFS** |
+| W alone (correct) | **−1.9 dBFS** |
+
+**13.1 dB of cancellation** — an amplitude factor of about 4.5. And the damage
+is worse than the level suggests, because normalization then pumps the wreckage
+back up by +14 dB and lifts the residual gradient noise with it, so what is lost
+is signal-to-noise, not just gain. The trim length gives the same story from
+another angle: the cancelled version sat below the silence floor for 2444 ms
+against the real one's 1366 ms.
+
+`import-sound` now detects this from the filename (`b-format`, `ambix`,
+`ambisonic`, `fuma`) on any 4-channel source, the same way the texture importer
+spots an OpenGL normal map — the convention is in the name because it is nowhere
+in the data. `--ambisonic` forces it. Asking for `--stereo` on a B-format file
+is refused outright: W/X/Y/Z are not speaker feeds and nothing downstream could
+rescue that.
+
+5.1 sources fold by the ITU rule (front pair at unity, centre and surrounds at
+−3 dB) with **LFE discarded** — the LFE is a separate band-limited effects
+channel already around 10 dB hot, not the bass of the mix, so averaging it in
+drops a low-frequency lump over everything.
 
 
 ## Ambience beds — 29 files, 591 MB

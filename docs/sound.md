@@ -129,6 +129,15 @@ the design:
   thins out in mono; the warning fires at import, where the cause is visible,
   rather than in-game where "this drip sounds weak" points nowhere near here.
 
+Later, the Sonniss survey (docs/sound-sources.md) forced a fourth: **a channel
+count does not tell you what the channels mean.** The layout is now established
+before the fold, because averaging is right for some layouts and destructive for
+others. Ambisonic B-format is W (omni) plus X/Y/Z signed gradients, so averaging
+it measured **13.1 dB of cancellation** against taking W alone; 5.1 folds by the
+ITU rule with LFE discarded. A 4-channel file is indistinguishable from a quad
+recording in the data, so B-format is detected by NAME — same as the texture
+importer spotting an OpenGL normal map, and for the same reason.
+
 Testing note for whoever extends the seam check: a sine cut at **100.5 cycles**
 is *not* a bad-loop fixture. It lands on a zero crossing, so the value is
 continuous and only the slope flips — a far quieter defect that this check does

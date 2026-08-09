@@ -159,14 +159,15 @@ int main(int argc, char** argv) {
 	if (argc >= 2 && std::string(argv[1]) == "import-sound") {
 		if (argc < 5) {
 			log::Error("usage: AssetBaker import-sound <file|folder> <assets-dir> "
-					   "<name> [--stereo] [--loop] [--rate Hz] [--peak dBFS] "
-					   "[--no-normalize] [--no-trim]");
+					   "<name> [--stereo] [--ambisonic] [--loop] [--rate Hz] "
+					   "[--peak dBFS] [--no-normalize] [--no-trim]");
 			return 1;
 		}
 		baker::SoundImportOptions opts;
 		for (int i = 5; i < argc; ++i) {
 			const std::string a = argv[i];
 			if (a == "--stereo") opts.mono = false;
+			else if (a == "--ambisonic") opts.ambisonic = true;
 			else if (a == "--loop") opts.loop = true;
 			else if (a == "--no-normalize") opts.normalize = false;
 			else if (a == "--no-trim") opts.trim = false;

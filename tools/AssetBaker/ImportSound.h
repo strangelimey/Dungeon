@@ -19,6 +19,11 @@ struct SoundImportOptions {
 	bool trim = true;      // strip silence either end (ignored when loop)
 	bool normalize = true; // scale to peakDbfs
 	float peakDbfs = -1.0f;
+	// Force ambisonic B-format handling (take W). Auto-detected from the
+	// filename for 4-channel sources — b-format / ambix / ambisonic / fuma —
+	// because a 4-channel file is otherwise indistinguishable from a quad
+	// recording, and the two want opposite folds.
+	bool ambisonic = false;
 };
 
 // Imports <src> (a .wav file, or a folder of them) into <assetsDir>/sounds as
