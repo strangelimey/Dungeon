@@ -1,5 +1,7 @@
 #include "Platform/PerfMonitor.h"
 
+#include "Core/Profile.h"
+
 #include <Windows.h>
 #include <pdh.h>
 #include <pdhmsg.h>
@@ -71,8 +73,18 @@ void PerfMonitor::Tick(float dt) {
 }
 
 void PerfMonitor::Sample() {
-	SampleCpu();
-	SampleGpu();
+	// Level 2, so these cost nothing until someone raises detail on the console.
+	// They exist because this function runs on a ~3 Hz throttle and a periodic
+	// cost is invisible in an average — it only shows as a rhythm in the graph.
+	{
+		DN_PROFILE_ZONE_L(prof::kLevelDetail, "os.cpu");
+		SampleCpu();
+	}
+	{
+		DN_PROFILE_ZONE_L(prof::kLevelDetail, "os.gpu");
+		SampleGpu();
+	}
+	DN_PROFILE_ZONE_L(prof::kLevelDetail, "os.mem");
 
 	MEMORYSTATUSEX mem{};
 	mem.dwLength = sizeof(mem);

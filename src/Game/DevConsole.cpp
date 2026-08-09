@@ -399,7 +399,13 @@ void DevConsole::SampleHistory(float dt, const gfx::GraphicsDevice& device) {
 	// Each slot keeps the MAX since the last commit, so a spike survives the
 	// downsampling rather than being averaged into the baseline around it.
 	const PerfMonitor::Metrics& m = m_perf.Get();
-	const gfx::GraphicsDevice::GpuMemoryInfo vram = device.QueryGpuMemory();
+	// Every frame, and a DXGI call rather than a cached value — worth its own
+	// zone so it can be told apart from the profiler snapshot beside it.
+	gfx::GraphicsDevice::GpuMemoryInfo vram{};
+	{
+		DN_PROFILE_ZONE_L(prof::kLevelDetail, "vram");
+		vram = device.QueryGpuMemory();
+	}
 	auto bump = [&](PerfLine which, float v) {
 		m_perfSeries[which].pending = std::max(m_perfSeries[which].pending, v);
 	};
@@ -410,7 +416,10 @@ void DevConsole::SampleHistory(float dt, const gfx::GraphicsDevice& device) {
 	bump(kVram, static_cast<float>(vram.usedBytes) / (1024.0f * 1024.0f));
 	bump(kSrv, static_cast<float>(device.SrvLive()));
 
-	SampleProfileSeries();
+	{
+		DN_PROFILE_ZONE_L(prof::kLevelDetail, "snapshot");
+		SampleProfileSeries();
+	}
 
 	m_profSampleTimer += dt;
 	if (m_profSampleTimer < kProfSampleSec) return;
@@ -429,10 +438,16 @@ void DevConsole::SampleHistory(float dt, const gfx::GraphicsDevice& device) {
 
 void DevConsole::Update(const Input& input, float dt, float windowW, float windowH,
 						const gfx::GraphicsDevice& device) {
-	m_perf.Tick(dt);
+	{
+		DN_PROFILE_ZONE_L(prof::kLevelDetail, "perfmon");
+		m_perf.Tick(dt);
+	}
 	// Every frame, open or closed: switching to a graph view should show the last
 	// twelve seconds, not start blank.
-	SampleHistory(dt, device);
+	{
+		DN_PROFILE_ZONE_L(prof::kLevelDetail, "history");
+		SampleHistory(dt, device);
+	}
 	if (!m_open) return;
 
 	m_caretBlink += dt;
