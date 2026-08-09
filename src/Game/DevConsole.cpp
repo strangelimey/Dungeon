@@ -835,10 +835,21 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 					if (pr.depth > 0) {
 						const float bh = line * 0.6f;
 						const float oy = py + (line - bh) * 0.5f;
-						batch.DrawRect({barX, oy, barW, bh}, kGaugeBg);
-						batch.DrawRect(
-							{barX, oy, barW * std::clamp(pr.frac, 0.0f, 1.0f), bh},
-							{0.45f, 0.70f, 0.95f, 1.0f});
+						// INDENTED BY THE SAME STEP AS THE NAME, so a bar sits
+						// under its parent's bar the way its label sits under its
+						// parent's label and the nesting reads down the column
+						// instead of having to be reconstructed from the text.
+						// The WIDTH is unchanged by depth — equal widths have to
+						// keep meaning equal shares, or the indent would quietly
+						// rescale every child.
+						const float bx = barX + indent * static_cast<float>(pr.depth + 1);
+						const float bw2 = std::min(barW, width - pad * 2.0f - bx);
+						if (bw2 > 0.0f) {
+							batch.DrawRect({bx, oy, bw2, bh}, kGaugeBg);
+							batch.DrawRect(
+								{bx, oy, bw2 * std::clamp(pr.frac, 0.0f, 1.0f), bh},
+								{0.45f, 0.70f, 0.95f, 1.0f});
+						}
 					}
 				}
 				py += rowAdvance;

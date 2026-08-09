@@ -905,7 +905,10 @@ void Game::Update(float dt) {
 	// now, for the same reason: the rebuild destroys the dropdown that triggered it.
 	m_ui.ApplyPendingVideoRebuild();
 
-	m_ui.UpdateFonts(dt);
+	{
+		DN_PROFILE_ZONE_L(prof::kLevelSystem, "fonts");
+		m_ui.UpdateFonts(dt);
+	}
 	if (m_previewMesh) m_previewOrbit += dt * 0.6f; // spin the editor 3D preview
 
 	// Poll the asset bake (P4c): non-blocking, so the "baking…" dialog stays
@@ -959,8 +962,14 @@ void Game::Update(float dt) {
 	const bool consoleWasOpen = m_console.IsOpen();
 	if (input.WasKeyPressed(VK_OEM_3)) m_console.Toggle();
 	m_console.SetCommandsEnabled(!loading);
-	m_console.Update(input, dt, static_cast<float>(m_window.Width()),
-					 static_cast<float>(m_window.Height()), m_device);
+	{
+		// The console is itself instrumented: it samples every graph's history
+		// each frame whether open or not, and a readout that costs more than
+		// what it reports would be worth knowing about.
+		DN_PROFILE_ZONE_L(prof::kLevelSystem, "console");
+		m_console.Update(input, dt, static_cast<float>(m_window.Width()),
+						 static_cast<float>(m_window.Height()), m_device);
+	}
 	UpdateGovernor(dt); // adaptive thread throttle (no-op unless `governor auto`)
 	// The console owns the whole frame's input if it was open at the start (or
 	// just opened) — so the very keystroke that closes it (Esc or `~`) never
@@ -1213,8 +1222,11 @@ void Game::Update(float dt) {
 			m_mapView.Close();
 			return;
 		}
-		m_mapView.Update(input, MapPanel(static_cast<float>(m_window.Width()),
-										 static_cast<float>(m_window.Height())));
+		{
+			DN_PROFILE_ZONE_L(prof::kLevelSystem, "map");
+			m_mapView.Update(input, MapPanel(static_cast<float>(m_window.Width()),
+											 static_cast<float>(m_window.Height())));
+		}
 		// The world keeps simulating while the map is open (the party still
 		// walks on the keyboard) — EXCEPT while the editor is PAUSED, where the
 		// whole world update is skipped so every persistent bit freezes:
@@ -1254,7 +1266,10 @@ void Game::Update(float dt) {
 	}
 
 	// UI first so it can consume the mouse; keyboard always reaches the party.
-	m_ui.UpdateHud(input, dt);
+	{
+		DN_PROFILE_ZONE_L(prof::kLevelSystem, "hud");
+		m_ui.UpdateHud(input, dt);
+	}
 	// A portrait click may have opened the character sheet — freeze now
 	// rather than simulating one more frame.
 	if (m_state != AppState::Playing) return;
