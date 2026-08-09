@@ -202,6 +202,10 @@ std::vector<std::string> Tokenize(const std::string& line) {
 DevConsole::DevConsole(ui::FontLibrary& fonts, threads::Manager& threadManager)
 	: m_fonts(fonts), m_font(&fonts.Get(ui::FontRole::Mono, kFontH)),
 	  m_threadMgr(threadManager) {
+	// The GPU-engine counter reads on its own worker rather than on the frame —
+	// see PerfMonitor::StartGpuWorker for what it measured at.
+	m_perf.StartGpuWorker(threadManager);
+
 	// Generic built-ins. Gameplay-aware commands are registered by the Game.
 	Register("help", "list available commands", [this](const std::vector<std::string>&) {
 		for (const Command& cmd : m_commands)

@@ -10,9 +10,17 @@
 // ============================================================================
 #pragma once
 
+#include "Core/Types.h"
+
+#include <atomic>
 #include <vector>
 
 namespace dungeon {
+
+namespace threads {
+class Manager;
+}
+
 
 // This process's working set right now, and the highest it has ever been, in
 // MB. The peak is the OS's own high-water mark (it survives a drop back), which
@@ -41,6 +49,18 @@ public:
 		double procMemMB = 0.0; // this process's working set
 	};
 
+	// Moves the GPU-engine query onto a managed worker. Call once, early; without
+	// it the GPU readout simply stays unavailable.
+	//
+	// WHY IT IS NOT ON THE MAIN THREAD: measured with the profiler, the PDH query
+	// costs ~578 us and fires every 333 ms — a metronome, and paid in EVERY build
+	// whether the console is open or not, because Tick runs before the console's
+	// own is-open check. It is a dev readout taxing shipping frames. PDH has to
+	// enumerate every GPU engine instance to find the 3D ones, so the cost is
+	// inherent to the counter rather than something to tune away; moving it off
+	// the frame is the fix.
+	void StartGpuWorker(threads::Manager& manager);
+
 	// dt in seconds; advances the FPS average every call and runs the throttled
 	// OS queries when enough time has elapsed.
 	void Tick(float dt);
@@ -65,9 +85,17 @@ private:
 	unsigned long long m_prevUser = 0;
 	bool m_haveCpuBaseline = false;
 
-	// PDH GPU query handles (void* keeps <pdh.h> out of the header).
+	// PDH GPU query handles (void* keeps <pdh.h> out of the header). Touched by
+	// the worker after StartGpuWorker, and by nothing else — the destructor stops
+	// the worker before closing the query.
 	void* m_pdhQuery = nullptr;
 	void* m_pdhCounter = nullptr;
+
+	// The worker's result, published for Tick to fold into m_metrics. Relaxed is
+	// enough: a readout one tick stale is not a readout that is wrong.
+	std::atomic<float> m_gpuPercent{-1.0f};
+	threads::Manager* m_threads = nullptr;
+	u32 m_gpuWorker = ~0u;
 	// Scratch for the PDH counter array, kept across samples (see SampleGpu).
 	std::vector<unsigned char> m_gpuBuffer;
 };

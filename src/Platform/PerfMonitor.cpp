@@ -1,6 +1,7 @@
 #include "Platform/PerfMonitor.h"
 
 #include "Core/Profile.h"
+#include "Core/ThreadManager.h"
 
 #include <Windows.h>
 #include <pdh.h>
@@ -51,7 +52,21 @@ PerfMonitor::PerfMonitor() {
 }
 
 PerfMonitor::~PerfMonitor() {
+	// Stop BEFORE closing the query: the job holds `this` and touches the PDH
+	// handles, so it has to be joined while they are still valid. Stop blocks
+	// until the worker has finished its tick and been joined.
+	if (m_threads && m_gpuWorker != ~0u) m_threads->Stop(m_gpuWorker);
 	if (m_pdhQuery) PdhCloseQuery(static_cast<PDH_HQUERY>(m_pdhQuery));
+}
+
+void PerfMonitor::StartGpuWorker(threads::Manager& manager) {
+	if (m_threads || !m_pdhQuery) return; // already started, or no counter to read
+
+	m_threads = &manager;
+	threads::Options opt;
+	opt.name = "perf.gpu";
+	opt.hz = 1.0f / kSampleInterval; // the same ~3 Hz, just not on the frame
+	m_gpuWorker = manager.Spawn([this](const threads::Tick&) { SampleGpu(); }, opt);
 }
 
 void PerfMonitor::Tick(float dt) {
@@ -64,6 +79,10 @@ void PerfMonitor::Tick(float dt) {
 		m_fpsFrames = 0;
 		m_fpsElapsed = 0.0f;
 	}
+
+	// Whatever the worker last published. Free, and no longer a 578 us hitch
+	// three times a second.
+	m_metrics.gpuPercent = m_gpuPercent.load(std::memory_order_relaxed);
 
 	m_sampleTimer += dt;
 	if (m_sampleTimer >= kSampleInterval) {
@@ -80,10 +99,8 @@ void PerfMonitor::Sample() {
 		DN_PROFILE_ZONE_L(prof::kLevelDetail, "os.cpu");
 		SampleCpu();
 	}
-	{
-		DN_PROFILE_ZONE_L(prof::kLevelDetail, "os.gpu");
-		SampleGpu();
-	}
+	// SampleGpu is NOT called here any more — it runs on the perf.gpu worker and
+	// publishes through m_gpuPercent, which Tick folds in.
 	DN_PROFILE_ZONE_L(prof::kLevelDetail, "os.mem");
 
 	MEMORYSTATUSEX mem{};
@@ -147,7 +164,10 @@ void PerfMonitor::SampleGpu() {
 			items[n].szName && wcsstr(items[n].szName, L"engtype_3D"))
 			sum += items[n].FmtValue.doubleValue;
 	}
-	m_metrics.gpuPercent = static_cast<float>(std::clamp(sum, 0.0, 100.0));
+	// Published rather than written into m_metrics: this runs on the worker, and
+	// m_metrics belongs to whoever calls Tick.
+	m_gpuPercent.store(static_cast<float>(std::clamp(sum, 0.0, 100.0)),
+					   std::memory_order_relaxed);
 }
 
 } // namespace dungeon
