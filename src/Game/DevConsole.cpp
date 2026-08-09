@@ -135,6 +135,58 @@ int BuildProfileRows(ProfRow* out, int cap) {
 int BuildProfileRows(ProfRow*, int) { return 0; }
 #endif
 
+// Draws one scrolling line graph: newest sample at the RIGHT, oldest at the left,
+// with `head` naming the next write slot (and therefore the oldest value).
+//
+// `scale` is the value at the top of the plot, passed in rather than derived,
+// because the two callers want opposite things. A profile timing has no natural
+// ceiling, so it autoscales to its own window. A percentage or a memory total
+// DOES have one, and autoscaling those would redraw 3% CPU as a full graph and
+// make an idle machine look pegged.
+//
+// SpriteBatch has no line primitive, so a segment is a thin rect rotated onto the
+// vector between two points (DrawRectRotated was already there for the map's
+// facing arrows).
+void DrawSeriesGraph(gfx::SpriteBatch& batch, const gfx::Rect& plot, const float* samples,
+					 int count, int head, float scale, const Vec4& color) {
+	batch.DrawRect(plot, kGaugeBg);
+	ui::DrawBorder(batch, plot, kBorder);
+	if (count < 2 || scale <= 0.0f) return;
+
+	const float stepX = plot.w / static_cast<float>(count - 1);
+	const float base = plot.y + plot.h;
+	auto yFor = [&](float v) {
+		return base - std::clamp(v / scale, 0.0f, 1.0f) * plot.h;
+	};
+
+	// FILLED UNDER THE LINE, and this is not decoration. On a fixed scale a real
+	// reading can be a small fraction of its ceiling — VRAM at 1 GB of an 11 GB
+	// budget is 9%, which on a plot this tall is a 1.5px line four pixels off the
+	// floor and reads as an EMPTY graph. A band cannot be mistaken for nothing.
+	const Vec4 fillColor{color.x, color.y, color.z, 0.22f};
+	for (int k = 0; k < count; ++k) {
+		const float top = yFor(samples[(head + k) % count]);
+		if (base - top < 0.5f) continue;
+		const float fx = plot.x + static_cast<float>(k) * stepX;
+		const float fw = std::min(stepX + 1.0f, plot.x + plot.w - fx);
+		if (fw > 0.0f) batch.DrawRect({fx, top, fw, base - top}, fillColor);
+	}
+
+	float lx = plot.x;
+	float ly = yFor(samples[head]);
+	for (int k = 1; k < count; ++k) {
+		const float nx = plot.x + static_cast<float>(k) * stepX;
+		const float ny = yFor(samples[(head + k) % count]);
+		const float dx = nx - lx, dy = ny - ly;
+		const float len = std::sqrt(dx * dx + dy * dy);
+		if (len >= 0.01f)
+			batch.DrawRectRotated({(lx + nx) * 0.5f, (ly + ny) * 0.5f}, {len, 1.5f},
+								  std::atan2(dy, dx), color);
+		lx = nx;
+		ly = ny;
+	}
+}
+
 std::vector<std::string> Tokenize(const std::string& line) {
 	std::vector<std::string> tokens;
 	std::istringstream stream(line);
@@ -279,7 +331,10 @@ void DevConsole::Execute(const std::string& line) {
 // Same preprocessor split as BuildProfileRows, and for the same reason: a
 // discarded `if constexpr` branch in a non-template is still compiled.
 #if DN_PROFILE
-void DevConsole::SampleProfile(float dt) {
+// The profile half. Split out so the perf half below keeps working in a build
+// with no profiler: CPU, GPU, memory and descriptor slots are not the
+// profiler's to report and must graph in every configuration.
+void DevConsole::SampleProfileSeries() {
 	ProfRow rows[kMaxProfRows];
 	const int n = BuildProfileRows(rows, kMaxProfRows);
 
@@ -321,10 +376,9 @@ void DevConsole::SampleProfile(float dt) {
 		s->seen = true;
 	}
 
-	m_profSampleTimer += dt;
-	if (m_profSampleTimer < kProfSampleSec) return;
-	m_profSampleTimer = 0.0f;
+}
 
+void DevConsole::CommitProfileSeries() {
 	for (int j = 0; j < m_profSeriesCount; ++j) {
 		ProfSeries& s = m_profSeries[j];
 		if (!s.used) continue;
@@ -332,17 +386,50 @@ void DevConsole::SampleProfile(float dt) {
 		s.pending = 0.0f;
 		if (!s.seen) s.used = false; // its thread went away; free the slot
 	}
-	m_profHead = (m_profHead + 1) % kProfHistory;
 }
 #else
-void DevConsole::SampleProfile(float) {}
+void DevConsole::SampleProfileSeries() {}
+void DevConsole::CommitProfileSeries() {}
 #endif
 
-void DevConsole::Update(const Input& input, float dt, float windowW, float windowH) {
+void DevConsole::SampleHistory(float dt, const gfx::GraphicsDevice& device) {
+	// Each slot keeps the MAX since the last commit, so a spike survives the
+	// downsampling rather than being averaged into the baseline around it.
+	const PerfMonitor::Metrics& m = m_perf.Get();
+	const gfx::GraphicsDevice::GpuMemoryInfo vram = device.QueryGpuMemory();
+	auto bump = [&](PerfLine which, float v) {
+		m_perfSeries[which].pending = std::max(m_perfSeries[which].pending, v);
+	};
+	bump(kFps, m.fps);
+	bump(kCpu, m.cpuPercent);
+	bump(kGpu, m.gpuPercent >= 0.0f ? m.gpuPercent : 0.0f); // < 0 means unavailable
+	bump(kRam, static_cast<float>(m.sysMemUsedMB));
+	bump(kVram, static_cast<float>(vram.usedBytes) / (1024.0f * 1024.0f));
+	bump(kSrv, static_cast<float>(device.SrvLive()));
+
+	SampleProfileSeries();
+
+	m_profSampleTimer += dt;
+	if (m_profSampleTimer < kProfSampleSec) return;
+	m_profSampleTimer = 0.0f;
+
+	for (PerfSeries& s : m_perfSeries) {
+		s.samples[m_profHead] = s.pending;
+		s.pending = 0.0f;
+	}
+	CommitProfileSeries();
+
+	// One cursor for both sets, advanced once: every graph on screen shares an
+	// x-axis, so a spike in one lines up with a spike in another.
+	m_profHead = (m_profHead + 1) % kProfHistory;
+}
+
+void DevConsole::Update(const Input& input, float dt, float windowW, float windowH,
+						const gfx::GraphicsDevice& device) {
 	m_perf.Tick(dt);
-	// Every frame, open or closed: switching to the graph view should show the
-	// last twelve seconds, not start blank.
-	SampleProfile(dt);
+	// Every frame, open or closed: switching to a graph view should show the last
+	// twelve seconds, not start blank.
+	SampleHistory(dt, device);
 	if (!m_open) return;
 
 	m_caretBlink += dt;
@@ -371,6 +458,8 @@ void DevConsole::Update(const Input& input, float dt, float windowW, float windo
 			}
 		}
 		if (m_profViewBtn.Contains(mx, my)) m_profileGraph = !m_profileGraph;
+		if (m_perfViewBtn.Contains(mx, my)) m_perfGraph = !m_perfGraph;
+		if (m_threadsBtn.Contains(mx, my)) m_threadsExpanded = !m_threadsExpanded;
 	}
 
 	// Typed characters (skip the toggle key so `~`/backtick never self-types).
@@ -439,12 +528,27 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 
 	// Threads section sits directly below the 8-line perf block; the panel grows
 	// to fit one row per managed worker.
+	// Graph geometry is shared by both panels, so it has to be known before the
+	// perf block's height can be — which is what everything below it is measured
+	// from.
+	const float graphH = line * 3.4f;
+	const float graphGapY = line * 0.4f;
+
 	const std::vector<threads::WorkerInfo> workers = m_threadMgr.SnapshotAll();
-	const float threadsTop = pad + line * 8.0f;
+	// Header, then five gauges (or five graphs in three two-column rows), then
+	// the two plain text rows.
+	const float perfBody = m_perfGraph ? 3.0f * (graphH + graphGapY) : line * 6.0f;
 	const float rowAdvance = line * 1.2f;
+
+	// PROFILE sits directly under the gauges; THREADS goes to the BOTTOM of the
+	// panel and starts COLLAPSED. It is a control surface — halt, rate, kill,
+	// boot — rather than something you watch, so it should not push the readout
+	// you are actually reading down the screen to make room for buttons.
+	const float profileTop = pad + line * 3.0f + perfBody;
 	const float threadsBlock =
-		workers.empty() ? 0.0f
-						: line * 1.4f + rowAdvance * static_cast<float>(workers.size());
+		workers.empty()     ? 0.0f
+		: m_threadsExpanded ? line * 1.4f + rowAdvance * static_cast<float>(workers.size())
+							: line * 1.4f;
 
 	// Flattened first: the panel's background is filled before anything is drawn
 	// into it, so its height has to be known up front. In a build without
@@ -458,20 +562,39 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 	int profGraphCount = 0;
 	for (int i = 0; i < profRowCount; ++i)
 		if (!profRows[i].header) ++profGraphCount;
-	const int graphsShown = std::min(profGraphCount, kMaxGraphs);
-	const int graphRows = (graphsShown + 1) / 2; // two columns
-	const float graphH = line * 3.4f;
-	const float graphGapY = line * 0.4f;
+	int graphsShown = std::min(profGraphCount, kMaxGraphs);
+	int graphRows = (graphsShown + 1) / 2; // two columns
+	int listRows = profRowCount;
+
+	// BOUNDED so the panel cannot grow down into the input line. With both panels
+	// graphed the natural height exceeds the window, and an overrun does not
+	// merely look untidy — it draws the profile over the prompt you would use to
+	// narrow it back down, which is the one control that would get you out. The
+	// profile body is what gives, since it is the most numerous and the easiest
+	// to shorten deliberately (raise detail on a narrower branch, or toggle back
+	// to the list).
+	const float profileHeaderH = line * 2.4f;
+	const float bodyAllowance = std::max(
+		0.0f,
+		(height - line * 4.0f) - (profileTop + profileHeaderH + threadsBlock + pad));
+	if (m_profileGraph) {
+		const int fits = static_cast<int>(bodyAllowance / (graphH + graphGapY));
+		graphRows = std::min(graphRows, std::max(fits, 1));
+		graphsShown = std::min(graphsShown, graphRows * 2);
+	} else {
+		const int fits = static_cast<int>(bodyAllowance / rowAdvance);
+		listRows = std::min(listRows, std::max(fits, 1));
+	}
 
 	// Header line + the TSC/toggle line, then the body.
 	const float profileBody =
 		!prof::kEnabled ? rowAdvance
 		: m_profileGraph
 			? static_cast<float>(graphRows) * (graphH + graphGapY)
-			: rowAdvance * static_cast<float>(profRowCount);
-	const float profileBlock = !m_showProfile ? 0.0f : line * 2.4f + profileBody;
+			: rowAdvance * static_cast<float>(listRows);
+	const float profileBlock = !m_showProfile ? 0.0f : profileHeaderH + profileBody;
 
-	const float panelH = threadsTop + threadsBlock + profileBlock + pad;
+	const float panelH = profileTop + profileBlock + threadsBlock + pad;
 	batch.DrawRect({0, 0, width, panelH}, kPerfBg);
 	ui::DrawBorder(batch, {0, 0, width, panelH}, kBorder);
 
@@ -493,67 +616,289 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 	};
 
 	m_font->Draw(batch, "PERFORMANCE", labelX, y, kAccent);
-	m_font->Draw(batch, std::format("FPS {:.0f}", m.fps), gaugeX, y, kAccent);
-	y += line;
-
-	m_font->Draw(batch, std::format("CPU  {:.0f}%", m.cpuPercent), labelX, y, kText);
-	gauge(y, m.cpuPercent / 100.0f, {0.45f, 0.70f, 0.95f, 1.0f});
-	y += line;
-
-	if (m.gpuPercent >= 0.0f) {
-		m_font->Draw(batch, std::format("GPU  {:.0f}%", m.gpuPercent), labelX, y, kText);
-		gauge(y, m.gpuPercent / 100.0f, {0.55f, 0.85f, 0.55f, 1.0f});
-	} else {
-		m_font->Draw(batch, "GPU  n/a", labelX, y, kDim);
+	{
+		// Same toggle idiom as the profile panel: Render lays the rect out, next
+		// frame's Update hit-tests it, and the label names the DESTINATION.
+		const char* face = m_perfGraph ? " bars " : " graph ";
+		const float bw2 = m_font->MeasureWidth(face);
+		m_perfViewBtn = {width - pad * 2.0f - bw2, y, bw2, line};
+		batch.DrawRect(m_perfViewBtn, kGaugeBg);
+		ui::DrawBorder(batch, m_perfViewBtn, kBorder);
+		m_font->Draw(batch, face, m_perfViewBtn.x, y, kAccent);
 	}
 	y += line;
 
-	const float sysFrac = m.sysMemTotalMB > 0
-							   ? static_cast<float>(m.sysMemUsedMB / m.sysMemTotalMB)
-							   : 0.0f;
-	m_font->Draw(batch,
-				std::format("RAM  {:.1f} / {:.1f} GB", m.sysMemUsedMB / 1024.0,
-							m.sysMemTotalMB / 1024.0),
-				labelX, y, kText);
-	gauge(y, sysFrac, {0.85f, 0.70f, 0.40f, 1.0f});
-	y += line;
+	// The five gauges as ONE table, so the bar view and the graph view cannot
+	// disagree about what a measure is or what it is measured against. Each
+	// carries its own SCALE — a real ceiling in every case, which is why these
+	// graph against a fixed axis while a profile timing autoscales.
+	const double sysTotalMB = m.sysMemTotalMB > 0 ? m.sysMemTotalMB : 1.0;
+	const double vramUsedMB = gpuUsedGB * 1024.0;
+	const double vramBudgetMB = gpuBudgetGB > 0 ? gpuBudgetGB * 1024.0 : 1.0;
+	const float srvLive = static_cast<float>(device.SrvLive());
+	const float srvCap = static_cast<float>(gfx::GraphicsDevice::SrvCapacity());
 
-	const float vramFrac = gpuBudgetGB > 0 ? static_cast<float>(gpuUsedGB / gpuBudgetGB) : 0.0f;
-	m_font->Draw(batch, std::format("VRAM {:.2f} / {:.2f} GB", gpuUsedGB, gpuBudgetGB),
-				labelX, y, kText);
-	gauge(y, vramFrac, {0.80f, 0.55f, 0.85f, 1.0f});
-	y += line;
+	struct PerfItem {
+		const char* name;
+		std::string text;
+		float value;
+		float scale;
+		Vec4 color;
+		bool warn;
+	};
+	const int refreshHz = device.RefreshHz();
+	const float fpsCeiling = refreshHz > 0 ? static_cast<float>(refreshHz) : 240.0f;
+	const PerfItem items[kPerfLines] = {
+		// Against the DISPLAY's refresh rate, not an arbitrary round number: a
+		// full bar then means "as fast as this screen can show", which is the
+		// only sense in which a frame rate is good enough.
+		{"FPS", std::format("FPS  {:.0f} / {} Hz", m.fps, refreshHz), m.fps, fpsCeiling,
+		 {0.55f, 0.85f, 0.55f, 1.0f}, false},
+		{"CPU", std::format("CPU  {:.0f}%", m.cpuPercent), m.cpuPercent, 100.0f,
+		 {0.45f, 0.70f, 0.95f, 1.0f}, false},
+		{"GPU",
+		 m.gpuPercent >= 0.0f ? std::format("GPU  {:.0f}%", m.gpuPercent)
+							  : std::string("GPU  n/a"),
+		 m.gpuPercent >= 0.0f ? m.gpuPercent : 0.0f, 100.0f,
+		 {0.55f, 0.85f, 0.55f, 1.0f}, false},
+		{"RAM",
+		 std::format("RAM  {:.1f} / {:.1f} GB", m.sysMemUsedMB / 1024.0,
+					 m.sysMemTotalMB / 1024.0),
+		 static_cast<float>(m.sysMemUsedMB), static_cast<float>(sysTotalMB),
+		 {0.85f, 0.70f, 0.40f, 1.0f}, false},
+		{"VRAM", std::format("VRAM {:.2f} / {:.2f} GB", gpuUsedGB, gpuBudgetGB),
+		 static_cast<float>(vramUsedMB), static_cast<float>(vramBudgetMB),
+		 {0.80f, 0.55f, 0.85f, 1.0f}, false},
+		// Descriptor slots: a FIXED ceiling, unlike the two above, so the peak
+		// rides along — a number that climbs and never comes back down is the
+		// shape of a leak.
+		{"SRV",
+		 std::format("SRV  {} / {} (peak {})", device.SrvLive(),
+					 gfx::GraphicsDevice::SrvCapacity(), device.SrvHighWater()),
+		 srvLive, srvCap, {0.60f, 0.75f, 0.90f, 1.0f}, srvLive / srvCap > 0.9f},
+	};
 
-	// Descriptor slots: a FIXED ceiling, unlike the two gauges above, so the
-	// gauge is against capacity and the peak rides along — a number that climbs
-	// and never comes back down is the shape of a leak.
-	const float srvFrac = static_cast<float>(device.SrvLive()) /
-						  static_cast<float>(gfx::GraphicsDevice::SrvCapacity());
-	m_font->Draw(batch,
-				std::format("SRV  {} / {} (peak {})", device.SrvLive(),
-							gfx::GraphicsDevice::SrvCapacity(), device.SrvHighWater()),
-				labelX, y, srvFrac > 0.9f ? kWarn : kText);
-	gauge(y, srvFrac, {0.60f, 0.75f, 0.90f, 1.0f});
-	y += line;
+	if (!m_perfGraph) {
+		for (int i = 0; i < kPerfLines; ++i) {
+			const PerfItem& it = items[i];
+			m_font->Draw(batch, it.text, labelX, y,
+						it.warn ? kWarn : (i == kGpu && m.gpuPercent < 0.0f) ? kDim : kText);
+			if (!(i == kGpu && m.gpuPercent < 0.0f))
+				gauge(y, it.value / it.scale, it.color);
+			y += line;
+		}
+	} else {
+		const float pgw = (width - pad * 6.0f) * 0.5f;
+		for (int i = 0; i < kPerfLines; ++i) {
+			const PerfItem& it = items[i];
+			const int col = i % 2, gr = i / 2;
+			const float gx = pad * 2.0f + static_cast<float>(col) * (pgw + pad * 2.0f);
+			const float gy = y + static_cast<float>(gr) * (graphH + graphGapY);
+			m_font->Draw(batch, it.text, gx, gy, it.warn ? kWarn : kText);
+			DrawSeriesGraph(batch, {gx, gy + line, pgw, graphH - line},
+							m_perfSeries[i].samples, kProfHistory, m_profHead, it.scale,
+							it.color);
+		}
+		y += 3.0f * (graphH + graphGapY); // six graphs, two columns
+	}
 
 	row(std::format("Process working set: {:.0f} MB", m.procMemMB));
 	row("GPU: " + device.AdapterName());
 
-	// --- threads panel (top, below perf) ------------------------------------
+	// --- profile panel (below the gauges) -----------------------------------
+	// One tree per measured thread, deepest-first indentation, with a bar giving
+	// each node's share of what its thread recorded this period. The numbers are
+	// the LAST PUBLISHED period — a frame for the main thread, a tick for a
+	// worker — so this is a live readout rather than a running total.
+	if (m_showProfile) {
+		float py = profileTop;
+		batch.DrawRect({0, py, width, 1.0f}, kBorder);
+		py += line * 0.4f;
+		m_font->Draw(batch, "PROFILE", labelX, py, kAccent);
+
+		if constexpr (prof::kEnabled) {
+			const prof::Clock clock = prof::ClockInfo();
+			m_font->Draw(batch, std::format("TSC {:.0f} MHz", clock.mhz), width * 0.15f, py,
+						kDim);
+			if (!clock.invariantTsc)
+				m_font->Draw(batch, "NOT INVARIANT - timings may drift", width * 0.28f, py,
+							kWarn);
+
+			// The list/graph toggle. Same idiom as the thread controls: Render
+			// lays the rect out, next frame's Update hit-tests it, so the geometry
+			// lives in exactly one place. The label names the DESTINATION, not the
+			// current state — a button saying "graph" takes you to the graph.
+			{
+				const char* face = m_profileGraph ? " list " : " graph ";
+				const float bw2 = m_font->MeasureWidth(face);
+				m_profViewBtn = {width - pad * 2.0f - bw2, py, bw2, line};
+				batch.DrawRect(m_profViewBtn, kGaugeBg);
+				ui::DrawBorder(batch, m_profViewBtn, kBorder);
+				m_font->Draw(batch, face, m_profViewBtn.x, py, kAccent);
+			}
+			py += line;
+
+			const float indent = m_font->MeasureWidth("  ");
+			const float barX = width * 0.62f;
+			const float barW = width * 0.26f;
+			if (m_profileGraph) {
+				// A line per measure, newest at the RIGHT and scrolling left as
+				// samples commit. Each graph autoscales to its own window, because
+				// a shared scale would flatten every worker into the floor next to
+				// a 4 ms frame; the peak is printed so the scale is never a
+				// mystery. Two columns, oldest-first left to right.
+				const float gw = (width - pad * 6.0f) * 0.5f;
+				int drawn = 0;
+				const char* curThread = "";
+				for (int i = 0; i < profRowCount && drawn < graphsShown; ++i) {
+					const ProfRow& pr = profRows[i];
+					if (pr.header) {
+						curThread = pr.name;
+						continue;
+					}
+
+					const ProfSeries* ser = nullptr;
+					for (int j = 0; j < m_profSeriesCount; ++j)
+						if (m_profSeries[j].used && m_profSeries[j].tid == pr.tid &&
+							m_profSeries[j].node == pr.node) {
+							ser = &m_profSeries[j];
+							break;
+						}
+
+					const int col = drawn % 2, gr = drawn / 2;
+					const float gx = pad * 2.0f + static_cast<float>(col) * (gw + pad * 2.0f);
+					const float gy = py + static_cast<float>(gr) * (graphH + graphGapY);
+					++drawn;
+
+					m_font->Draw(batch, std::format("{}/{}", curThread, pr.name), gx, gy,
+								kText);
+
+					// A timing has no natural ceiling, so unlike the five gauges
+					// above these autoscale to their own window. The peak is
+					// printed beside the current value so the axis is never a
+					// mystery.
+					float peak = 0.0f;
+					if (ser)
+						for (float v : ser->samples) peak = std::max(peak, v);
+					m_font->Draw(batch, std::format("{:.3f} peak {:.3f} ms", pr.inclMs, peak),
+								gx + gw * 0.42f, gy, kDim);
+
+					const gfx::Rect plot{gx, gy + line, gw, graphH - line};
+					if (ser)
+						DrawSeriesGraph(batch, plot, ser->samples, kProfHistory, m_profHead,
+										peak > 0.0001f ? peak : 0.0001f,
+										{0.45f, 0.70f, 0.95f, 1.0f});
+					else
+						DrawSeriesGraph(batch, plot, nullptr, 0, 0, 0.0f, kDim);
+				}
+				py += static_cast<float>(graphRows) * (graphH + graphGapY);
+				// NEVER drop silently. A panel showing eight of twelve measures
+				// looks exactly like a panel showing all of them, and the reader
+				// would go on believing the worker threads were being watched.
+				if (graphsShown < profGraphCount)
+					m_font->Draw(batch,
+								std::format("({} more not shown - no room)",
+											profGraphCount - graphsShown),
+								labelX, py - line * 0.9f, kDim);
+			} else
+			for (int i = 0; i < listRows; ++i) {
+				const ProfRow& pr = profRows[i];
+				if (pr.header) {
+					m_font->Draw(batch, pr.name, labelX, py, kAccent);
+					m_font->Draw(batch, std::format("{} periods", pr.periods), width * 0.30f,
+								py, kDim);
+					if (pr.dropped)
+						m_font->Draw(batch, "SCOPES DROPPED", width * 0.46f, py, kWarn);
+				} else {
+					m_font->Draw(batch, pr.name,
+								labelX + indent * static_cast<float>(pr.depth + 1), py,
+								kText);
+					m_font->Draw(batch, std::format("{:.3f}", pr.inclMs), width * 0.30f, py,
+								kText);
+					m_font->Draw(batch, std::format("{:.3f}", pr.exclMs), width * 0.38f, py,
+								kDim);
+					m_font->Draw(batch, std::format("x{}", pr.calls), width * 0.46f, py, kDim);
+					m_font->Draw(batch, std::format("max {:.3f}", pr.maxMs), width * 0.52f,
+								py, kDim);
+
+					// Share of everything this thread recorded in the period —
+					// NOT of the frame, since a worker ticking at 0.5 Hz has no
+					// relationship to a frame's wall clock and scaling it by one
+					// would read as permanently idle.
+					//
+					// ROOTS GET NO BAR. A root's share is trivially the whole
+					// tree, so drawing it gave every worker a full-width bar
+					// beside a 0.000 ms reading — the panel's first version said
+					// four idle threads were saturated. A bar that is always full
+					// carries no information and actively misleads, so the bar is
+					// only drawn where it discriminates.
+					if (pr.depth > 0) {
+						const float bh = line * 0.6f;
+						const float oy = py + (line - bh) * 0.5f;
+						batch.DrawRect({barX, oy, barW, bh}, kGaugeBg);
+						batch.DrawRect(
+							{barX, oy, barW * std::clamp(pr.frac, 0.0f, 1.0f), bh},
+							{0.45f, 0.70f, 0.95f, 1.0f});
+					}
+				}
+				py += rowAdvance;
+			}
+			if (listRows < profRowCount)
+				m_font->Draw(batch, std::format("({} more rows do not fit)",
+											   profRowCount - listRows),
+							labelX, py, kDim);
+		} else {
+			py += line;
+			m_font->Draw(batch, "not compiled in - build debug-profile or release-profile",
+						labelX, py, kDim);
+		}
+	}
+
+	// --- threads panel (bottom, collapsed by default) ------------------------
 	// One row per managed worker (Core/ThreadManager.h) with live stats and four
 	// clickable controls. m_threadHits records the button rects for next frame's
 	// click hit-testing (Update), so the layout lives in exactly one place.
 	m_threadHits.clear();
+	m_threadsBtn = {};
 	if (!workers.empty()) {
-		float ty = threadsTop;
-		batch.DrawRect({0, ty, width, 1.0f}, kBorder); // divider from the perf block
+		float ty = profileTop + profileBlock;
+		batch.DrawRect({0, ty, width, 1.0f}, kBorder); // divider from the profile block
 		ty += line * 0.4f;
 		m_font->Draw(batch, "THREADS", labelX, ty, kAccent);
 		const float gov = m_threadMgr.GlobalThrottle();
 		if (gov != 1.0f)
 			m_font->Draw(batch, std::format("governor {:.2f}x", gov), width * 0.15f, ty,
 						{0.55f, 0.85f, 0.95f, 1.0f});
+
+		// Collapsed, the header still has to answer the question the panel exists
+		// for at a glance: is anything WRONG? A count of workers plus any that are
+		// not simply running means an expand is a decision, not a fishing trip.
+		if (!m_threadsExpanded) {
+			int notRunning = 0;
+			for (const threads::WorkerInfo& w : workers)
+				if (w.paused || w.state == threads::State::Dead ||
+					w.state == threads::State::Stalled ||
+					w.state == threads::State::Quarantined)
+					++notRunning;
+			m_font->Draw(batch, std::format("{} workers", workers.size()), width * 0.25f, ty,
+						kDim);
+			if (notRunning > 0)
+				m_font->Draw(batch, std::format("{} not running", notRunning), width * 0.34f,
+							ty, kWarn);
+		}
+
+		{
+			const char* face = m_threadsExpanded ? " hide " : " show ";
+			const float bw2 = m_font->MeasureWidth(face);
+			m_threadsBtn = {width - pad * 2.0f - bw2, ty, bw2, line};
+			batch.DrawRect(m_threadsBtn, kGaugeBg);
+			ui::DrawBorder(batch, m_threadsBtn, kBorder);
+			m_font->Draw(batch, face, m_threadsBtn.x, ty, kAccent);
+		}
 		ty += line;
+	}
+	if (!workers.empty() && m_threadsExpanded) {
+		float ty = profileTop + profileBlock + line * 1.4f;
 
 		const Vec4 kPaused{0.90f, 0.75f, 0.30f, 1.0f};
 		const Vec4 kStalled{0.95f, 0.45f, 0.30f, 1.0f};
@@ -618,162 +963,6 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 			m_threadHits.push_back(hit);
 
 			ty += rowAdvance;
-		}
-	}
-
-	// --- profile panel (top, below threads) ---------------------------------
-	// One tree per measured thread, deepest-first indentation, with a bar giving
-	// each node's share of what its thread recorded this period. The numbers are
-	// the LAST PUBLISHED period — a frame for the main thread, a tick for a
-	// worker — so this is a live readout rather than a running total.
-	if (m_showProfile) {
-		float py = threadsTop + threadsBlock;
-		batch.DrawRect({0, py, width, 1.0f}, kBorder);
-		py += line * 0.4f;
-		m_font->Draw(batch, "PROFILE", labelX, py, kAccent);
-
-		if constexpr (prof::kEnabled) {
-			const prof::Clock clock = prof::ClockInfo();
-			m_font->Draw(batch, std::format("TSC {:.0f} MHz", clock.mhz), width * 0.15f, py,
-						kDim);
-			if (!clock.invariantTsc)
-				m_font->Draw(batch, "NOT INVARIANT - timings may drift", width * 0.28f, py,
-							kWarn);
-
-			// The list/graph toggle. Same idiom as the thread controls: Render
-			// lays the rect out, next frame's Update hit-tests it, so the geometry
-			// lives in exactly one place. The label names the DESTINATION, not the
-			// current state — a button saying "graph" takes you to the graph.
-			{
-				const char* face = m_profileGraph ? " list " : " graph ";
-				const float bw2 = m_font->MeasureWidth(face);
-				m_profViewBtn = {width - pad * 2.0f - bw2, py, bw2, line};
-				batch.DrawRect(m_profViewBtn, kGaugeBg);
-				ui::DrawBorder(batch, m_profViewBtn, kBorder);
-				m_font->Draw(batch, face, m_profViewBtn.x, py, kAccent);
-			}
-			py += line;
-
-			const float indent = m_font->MeasureWidth("  ");
-			const float barX = width * 0.62f;
-			const float barW = width * 0.26f;
-			if (m_profileGraph) {
-				// A line per measure, newest at the RIGHT and scrolling left as
-				// samples commit. Each graph autoscales to its own window, because
-				// a shared scale would flatten every worker into the floor next to
-				// a 4 ms frame; the peak is printed so the scale is never a
-				// mystery. Two columns, oldest-first left to right.
-				const float gw = (width - pad * 6.0f) * 0.5f;
-				const float plotTop = line;         // the label rides above the plot
-				const float plotH = graphH - line;
-				const float stepX = gw / static_cast<float>(kProfHistory - 1);
-
-				// SpriteBatch has no line primitive, so a segment is a thin rect
-				// rotated onto the vector between two samples.
-				auto segment = [&](float x0, float y0, float x1, float y1, const Vec4& c) {
-					const float dx = x1 - x0, dy = y1 - y0;
-					const float len = std::sqrt(dx * dx + dy * dy);
-					if (len < 0.01f) return;
-					batch.DrawRectRotated({(x0 + x1) * 0.5f, (y0 + y1) * 0.5f}, {len, 1.5f},
-										  std::atan2(dy, dx), c);
-				};
-
-				int drawn = 0;
-				const char* curThread = "";
-				for (int i = 0; i < profRowCount && drawn < graphsShown; ++i) {
-					const ProfRow& pr = profRows[i];
-					if (pr.header) {
-						curThread = pr.name;
-						continue;
-					}
-
-					const ProfSeries* ser = nullptr;
-					for (int j = 0; j < m_profSeriesCount; ++j)
-						if (m_profSeries[j].used && m_profSeries[j].tid == pr.tid &&
-							m_profSeries[j].node == pr.node) {
-							ser = &m_profSeries[j];
-							break;
-						}
-
-					const int col = drawn % 2, gr = drawn / 2;
-					const float gx = pad * 2.0f + static_cast<float>(col) * (gw + pad * 2.0f);
-					const float gy = py + static_cast<float>(gr) * (graphH + graphGapY);
-					++drawn;
-
-					batch.DrawRect({gx, gy + plotTop, gw, plotH}, kGaugeBg);
-					ui::DrawBorder(batch, {gx, gy + plotTop, gw, plotH}, kBorder);
-					m_font->Draw(batch, std::format("{}/{}", curThread, pr.name), gx, gy,
-								kText);
-
-					if (!ser) continue;
-					float peak = 0.0f;
-					for (float v : ser->samples) peak = std::max(peak, v);
-					m_font->Draw(batch, std::format("{:.3f} peak {:.3f} ms", pr.inclMs, peak),
-								gx + gw * 0.42f, gy, kDim);
-
-					const float scale = peak > 0.0001f ? peak : 0.0001f;
-					const float base = gy + plotTop + plotH;
-					float lx = gx;
-					float ly = base - (ser->samples[m_profHead] / scale) * plotH;
-					for (int k = 1; k < kProfHistory; ++k) {
-						const float v = ser->samples[(m_profHead + k) % kProfHistory];
-						const float nx = gx + static_cast<float>(k) * stepX;
-						const float ny = base - (v / scale) * plotH;
-						segment(lx, ly, nx, ny, {0.45f, 0.70f, 0.95f, 1.0f});
-						lx = nx;
-						ly = ny;
-					}
-				}
-				py += static_cast<float>(graphRows) * (graphH + graphGapY);
-			} else
-			for (int i = 0; i < profRowCount; ++i) {
-				const ProfRow& pr = profRows[i];
-				if (pr.header) {
-					m_font->Draw(batch, pr.name, labelX, py, kAccent);
-					m_font->Draw(batch, std::format("{} periods", pr.periods), width * 0.30f,
-								py, kDim);
-					if (pr.dropped)
-						m_font->Draw(batch, "SCOPES DROPPED", width * 0.46f, py, kWarn);
-				} else {
-					m_font->Draw(batch, pr.name,
-								labelX + indent * static_cast<float>(pr.depth + 1), py,
-								kText);
-					m_font->Draw(batch, std::format("{:.3f}", pr.inclMs), width * 0.30f, py,
-								kText);
-					m_font->Draw(batch, std::format("{:.3f}", pr.exclMs), width * 0.38f, py,
-								kDim);
-					m_font->Draw(batch, std::format("x{}", pr.calls), width * 0.46f, py, kDim);
-					m_font->Draw(batch, std::format("max {:.3f}", pr.maxMs), width * 0.52f,
-								py, kDim);
-
-					// Share of everything this thread recorded in the period —
-					// NOT of the frame, since a worker ticking at 0.5 Hz has no
-					// relationship to a frame's wall clock and scaling it by one
-					// would read as permanently idle.
-					//
-					// ROOTS GET NO BAR. A root's share is trivially the whole
-					// tree, so drawing it gave every worker a full-width bar
-					// beside a 0.000 ms reading — the panel's first version said
-					// four idle threads were saturated. A bar that is always full
-					// carries no information and actively misleads, so the bar is
-					// only drawn where it discriminates.
-					if (pr.depth > 0) {
-						const float bh = line * 0.6f;
-						const float oy = py + (line - bh) * 0.5f;
-						batch.DrawRect({barX, oy, barW, bh}, kGaugeBg);
-						batch.DrawRect(
-							{barX, oy, barW * std::clamp(pr.frac, 0.0f, 1.0f), bh},
-							{0.45f, 0.70f, 0.95f, 1.0f});
-					}
-				}
-				py += rowAdvance;
-			}
-			if (profRowCount == kMaxProfRows)
-				m_font->Draw(batch, "(truncated)", labelX, py, kDim);
-		} else {
-			py += line;
-			m_font->Draw(batch, "not compiled in - build debug-profile or release-profile",
-						labelX, py, kDim);
 		}
 	}
 

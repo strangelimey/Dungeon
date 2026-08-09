@@ -44,7 +44,12 @@ public:
 
 	// Called every frame (the FPS sampler keeps ticking even when closed).
 	// While open, consumes typed characters and editing/history/scroll keys.
-	void Update(const Input& input, float dt, float windowW, float windowH);
+	// The device is here only so the history the graph view draws keeps filling
+	// while the console is CLOSED — two of the five top gauges (VRAM, descriptor
+	// slots) are the device's to answer, and a graph you have to open the console
+	// to start recording is no use for catching what already happened.
+	void Update(const Input& input, float dt, float windowW, float windowH,
+				const gfx::GraphicsDevice& device);
 	// Drawn inside the caller's SpriteBatch Begin/End, after the HUD/overlays.
 	void Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& device,
 				float width, float height);
@@ -111,18 +116,46 @@ private:
 	};
 	ProfSeries m_profSeries[kProfSeries];
 	int m_profSeriesCount = 0;
-	int m_profHead = 0;          // shared write cursor: every series stays aligned
+
+	// The six gauges at the top of the panel, given the same treatment. These
+	// differ from the profile series in one way that matters: each has a NATURAL
+	// maximum (the display's refresh rate, 100%, installed RAM, the VRAM budget,
+	// the descriptor ceiling), so they are drawn against a fixed scale.
+	// Autoscaling would redraw 3% CPU as a full graph and make idle look like a
+	// crisis. FPS is the interesting one: its ceiling is the MONITOR's refresh
+	// rate, which is the only number that makes "is this fast enough" answerable
+	// rather than just large.
+	enum PerfLine { kFps, kCpu, kGpu, kRam, kVram, kSrv, kPerfLines };
+	struct PerfSeries {
+		float pending = 0.0f;
+		float samples[kProfHistory] = {};
+	};
+	PerfSeries m_perfSeries[kPerfLines];
+
+	// One head and one timer for BOTH sets, so every graph on screen shares an
+	// x-axis and a spike in one lines up with a spike in another.
+	int m_profHead = 0;
 	float m_profSampleTimer = 0.0f;
 
-	// Accumulates history every frame, open or closed, so switching to the graph
-	// view shows the last twelve seconds rather than starting blank.
-	void SampleProfile(float dt);
+	// Accumulates history every frame, open or closed, so switching to a graph
+	// view shows the last twelve seconds rather than starting blank. The profile
+	// halves are no-ops without DN_PROFILE; the perf half always runs.
+	void SampleHistory(float dt, const gfx::GraphicsDevice& device);
+	void SampleProfileSeries();
+	void CommitProfileSeries();
 
 	bool m_open = false;
 	bool m_commandsEnabled = true;   // false while a staged load is mid-flight
 	bool m_showProfile = true;       // the profile panel costs real screen height
 	bool m_profileGraph = false;     // list of current values, or scrolling graphs
-	gfx::Rect m_profViewBtn{};       // the list/graph toggle, laid out by Render
+	bool m_perfGraph = false;        // the five top gauges, as bars or as graphs
+	// THREADS is a control surface, not a readout, so it starts collapsed and
+	// sits at the BOTTOM: its buttons should not push the numbers you came to
+	// read further down the screen.
+	bool m_threadsExpanded = false;
+	gfx::Rect m_profViewBtn{};       // the toggles, all laid out by Render
+	gfx::Rect m_perfViewBtn{};
+	gfx::Rect m_threadsBtn{};
 	std::string m_input;             // current edit line
 	std::deque<std::string> m_output; // scrollback (oldest front)
 	std::vector<std::string> m_history;

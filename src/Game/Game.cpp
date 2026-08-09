@@ -960,7 +960,7 @@ void Game::Update(float dt) {
 	if (input.WasKeyPressed(VK_OEM_3)) m_console.Toggle();
 	m_console.SetCommandsEnabled(!loading);
 	m_console.Update(input, dt, static_cast<float>(m_window.Width()),
-					 static_cast<float>(m_window.Height()));
+					 static_cast<float>(m_window.Height()), m_device);
 	UpdateGovernor(dt); // adaptive thread throttle (no-op unless `governor auto`)
 	// The console owns the whole frame's input if it was open at the start (or
 	// just opened) — so the very keystroke that closes it (Esc or `~`) never
