@@ -149,7 +149,8 @@ DevConsole::DevConsole(ui::FontLibrary& fonts, threads::Manager& threadManager)
 		m_output.clear();
 		m_scroll = 0;
 	});
-	Register("profile", "profile panel [on|off], or 'profile dump [file]'",
+	Register("profile",
+			 "panel [on|off] | dump [file] | detail <path> <level>",
 			 [this](const std::vector<std::string>& args) {
 				 if constexpr (!prof::kEnabled) {
 					 Print("profiling is not compiled in (build debug-profile or "
@@ -179,6 +180,37 @@ DevConsole::DevConsole(ui::FontLibrary& fonts, threads::Manager& threadManager)
 											   st.overrun));
 						 Print("  open in Perfetto (ui.perfetto.dev) or speedscope");
 					 }
+				 } else if (!args.empty() && args[0] == "detail") {
+					 if (args.size() < 2) {
+						 prof::DetailEntry entries[32];
+						 const int n = prof::ListDetails(entries, 32);
+						 if (n == 0)
+							 Print("no detail overrides; try 'profile detail <path> "
+								   "<level>', e.g. 'profile detail frame/render 1'");
+						 for (int e = 0; e < n; ++e)
+							 Print(std::format("  [{}] {} = {}", entries[e].thread,
+											   entries[e].path, entries[e].level));
+						 return;
+					 }
+					 // Level defaults to 1 (a subsystem's phases). -1 clears.
+					 int level = 1;
+					 if (args.size() > 2) {
+						 try {
+							 level = std::stoi(args[2]);
+						 } catch (const std::exception&) {
+							 Print("level must be a number (-1 clears)");
+							 return;
+						 }
+					 }
+					 const int matched =
+						 prof::SetDetail(args[1], static_cast<i8>(std::clamp(level, -1, 127)));
+					 if (matched == 0)
+						 Print(std::format("'{}' matched no recorded node - the path must "
+										   "name a scope that has already run",
+										   args[1]));
+					 else
+						 Print(std::format("{} set to level {} on {} thread{}", args[1], level,
+										   matched, matched == 1 ? "" : "s"));
 				 } else {
 					 if (!args.empty())
 						 m_showProfile = args[0] != "off" && args[0] != "0";

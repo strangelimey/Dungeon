@@ -9,6 +9,7 @@
 #include "Core/Loc.h"
 #include "Core/Log.h"
 #include "Core/Paths.h"
+#include "Core/Profile.h"
 #include "Game/AssetUtil.h"
 #include "Graphics/DisplayEnum.h"
 #include "Graphics/Texture.h"
@@ -1415,15 +1416,27 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 	else if ((m_state == AppState::Playing || m_state == AppState::Paused ||
 			  m_state == AppState::CharacterSheet) &&
 			 !editorMap) {
-		m_world.UpdateItemIcons(list, m_spriteBatch); // 3D item icons (static + spin)
-		m_world.UpdateMapIcons(list, m_spriteBatch);  // map marker icons (one-shot)
-		m_world.RenderShadowMaps(list);
+		{
+			DN_PROFILE_ZONE_L(prof::kLevelSystem, "icons");
+			m_world.UpdateItemIcons(list, m_spriteBatch); // 3D item icons (static + spin)
+			m_world.UpdateMapIcons(list, m_spriteBatch);  // map marker icons (one-shot)
+		}
+		{
+			DN_PROFILE_ZONE_L(prof::kLevelSystem, "shadows");
+			m_world.RenderShadowMaps(list);
+		}
 		// The scene renders linear HDR into the post target; Resolve runs the
 		// bloom chain + ACES composite and leaves the back buffer bound for
 		// the 2D pass below.
-		m_postProcess.BeginScene(list);
-		m_world.RenderScene(list);
-		m_postProcess.Resolve(list);
+		{
+			DN_PROFILE_ZONE_L(prof::kLevelSystem, "scene");
+			m_postProcess.BeginScene(list);
+			m_world.RenderScene(list);
+		}
+		{
+			DN_PROFILE_ZONE_L(prof::kLevelSystem, "post");
+			m_postProcess.Resolve(list);
+		}
 	} else if (editorMap) {
 		// The editor covers the scene, but its map overlay draws the baked
 		// marker icons — keep the bakes running (a kind placed from the palette
@@ -1452,6 +1465,7 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 	}
 
 	// 2D pass.
+	DN_PROFILE_ZONE_L(prof::kLevelSystem, "ui2d");
 	m_spriteBatch.Begin(list, m_device.Width(), m_device.Height());
 	switch (m_state) {
 	case AppState::Loading:     m_ui.RenderLoadingScreen(m_loadQueue); break;

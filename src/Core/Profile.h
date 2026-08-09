@@ -427,6 +427,33 @@ struct ThreadReport {
 // lock briefly and never blocks a thread mid-scope.
 int SnapshotAll(ThreadReport* out, int capacity);
 
+// --- detail overrides -------------------------------------------------------
+// Turning one branch up to investigate a slowdown, while everything else stays
+// at the default level. The gate and the inheritance are in Collector; these are
+// how a path gets named from outside.
+//
+// `path` is slash-separated zone names from a ROOT, e.g. "frame/render". It is
+// matched against EVERY thread's tree and applied to every match, which is what
+// makes "tick" reach all four AI workers in one go. Level -1 clears the override
+// and returns that subtree to inheriting.
+//
+// A path can only name a node that ALREADY EXISTS, because that is the only way
+// a name is known to have been reached. Level-0 landmarks always record, so the
+// top of every tree is there to aim at and you drill down from what you can see:
+// raise a branch, look again, raise the branch that appeared.
+//
+// Returns how many nodes matched (0 = the path names nothing recorded yet).
+int SetDetail(std::string_view path, i8 level);
+
+struct DetailEntry {
+	char thread[32] = {};
+	char path[128] = {};
+	i8 level = -1;
+};
+
+// Every override currently in force, for the console to list back.
+int ListDetails(DetailEntry* out, int capacity);
+
 // --- the trace dump ---------------------------------------------------------
 
 struct TraceStats {

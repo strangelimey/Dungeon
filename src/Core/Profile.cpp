@@ -263,6 +263,102 @@ int SnapshotAll(ThreadReport* out, int capacity) {
 }
 
 // ----------------------------------------------------------------------------
+namespace {
+
+// Next '/'-separated segment of `path`, advancing it past the separator.
+std::string_view NextSegment(std::string_view& path) {
+	const size_t slash = path.find('/');
+	std::string_view seg = path.substr(0, slash);
+	path = slash == std::string_view::npos ? std::string_view{} : path.substr(slash + 1);
+	return seg;
+}
+
+// Walks `path` down one thread's PUBLISHED tree and returns the node index, or
+// kInvalidNode. Resolving against the published copy rather than the live tree
+// is what makes this safe to do from the console while the owning thread runs:
+// the copy is stable under the slot lock, and node INDICES match the live pool
+// one-for-one because publishing copies node i to slot i and the tree only ever
+// grows.
+u32 ResolvePath(const Slot& s, std::string_view path) {
+	u32 node = kInvalidNode;
+	u32 candidates = s.publishedRoot;
+
+	while (!path.empty()) {
+		const std::string_view seg = NextSegment(path);
+		if (seg.empty()) continue;
+
+		u32 found = kInvalidNode;
+		for (u32 c = candidates; c != kInvalidNode; c = s.published[c].nextSibling) {
+			const Zone* z = s.published[c].zone;
+			if (z && seg == z->name) {
+				found = c;
+				break;
+			}
+		}
+		if (found == kInvalidNode) return kInvalidNode;
+		node = found;
+		candidates = s.published[found].firstChild;
+	}
+	return node;
+}
+
+} // namespace
+
+int SetDetail(std::string_view path, i8 level) {
+	int matches = 0;
+	std::lock_guard table(g_tableMx);
+	for (u32 i = 0; i < kMaxThreads; ++i) {
+		Slot& s = g_slots[i];
+		if (!s.used) continue;
+
+		std::lock_guard lock(s.mx);
+		const u32 node = ResolvePath(s, path);
+		if (node == kInvalidNode) continue;
+
+		// Relaxed: the owning thread reading this a tick late is the intended
+		// behaviour, not a race.
+		s.collector.SetDetail(node, level);
+		++matches;
+	}
+	return matches;
+}
+
+int ListDetails(DetailEntry* out, int capacity) {
+	int count = 0;
+	std::lock_guard table(g_tableMx);
+	for (u32 i = 0; i < kMaxThreads && count < capacity; ++i) {
+		Slot& s = g_slots[i];
+		if (!s.used) continue;
+
+		std::lock_guard lock(s.mx);
+		for (u32 n = 0; n < s.publishedCount && count < capacity; ++n) {
+			if (s.published[n].detail < 0) continue;
+
+			DetailEntry& e = out[count++];
+			std::memcpy(e.thread, s.name, sizeof(e.thread));
+			e.level = s.published[n].detail;
+
+			// The path is rebuilt by walking UP to the root and then reversing —
+			// a node knows its parent, not its children's names.
+			const char* parts[kMaxDepth];
+			int depth = 0;
+			for (u32 at = n; at != kInvalidNode && depth < static_cast<int>(kMaxDepth);
+				 at = s.published[at].parent)
+				parts[depth++] = s.published[at].zone ? s.published[at].zone->name : "?";
+
+			size_t w = 0;
+			for (int d = depth - 1; d >= 0 && w + 1 < sizeof(e.path); --d) {
+				if (w > 0 && w + 1 < sizeof(e.path)) e.path[w++] = '/';
+				for (const char* c = parts[d]; *c && w + 1 < sizeof(e.path); ++c)
+					e.path[w++] = *c;
+			}
+			e.path[w] = '\0';
+		}
+	}
+	return count;
+}
+
+// ----------------------------------------------------------------------------
 // Chrome Trace Event JSON. "B"/"E" are begin/end of a duration on one thread,
 // `ts` is microseconds on a shared timeline, and a "M" metadata event names each
 // thread so the viewer shows "ai.bucket0" instead of a number.
@@ -377,6 +473,8 @@ void RegisterThread(std::string_view) {}
 void UnregisterThisThread() {}
 void PublishThisThread() {}
 int SnapshotAll(ThreadReport*, int) { return 0; }
+int SetDetail(std::string_view, i8) { return 0; }
+int ListDetails(DetailEntry*, int) { return 0; }
 TraceStats DumpTrace(const char*) { return {}; }
 Clock ClockInfo() { return {}; }
 
