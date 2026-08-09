@@ -255,7 +255,7 @@ VoiceHandle AudioEngine::Play(const assets::SoundData& sound, const PlayParams& 
 	// then any idle voice (recreated for this format).
 	size_t index = m_voices.size();
 	for (size_t i = 0; i < m_voices.size(); ++i) {
-		if (m_voices[i]->IsIdle() &&
+		if (m_voices[i] && m_voices[i]->IsIdle() &&
 			m_voices[i]->MatchesFormat(sound.channels, sound.sampleRate)) {
 			index = i;
 			break;
@@ -265,8 +265,8 @@ VoiceHandle AudioEngine::Play(const assets::SoundData& sound, const PlayParams& 
 		if (m_voices.size() < kMaxVoices) {
 			m_voices.emplace_back();
 		} else {
-			const auto it = std::ranges::find_if(m_voices,
-												 [](const auto& v) { return v->IsIdle(); });
+			const auto it = std::ranges::find_if(
+				m_voices, [](const auto& v) { return v && v->IsIdle(); });
 			if (it == m_voices.end()) return {}; // every voice busy — drop it
 			index = static_cast<size_t>(it - m_voices.begin());
 		}
@@ -274,7 +274,16 @@ VoiceHandle AudioEngine::Play(const assets::SoundData& sound, const PlayParams& 
 			!m_voices[index]->MatchesFormat(sound.channels, sound.sampleRate)) {
 			m_voices[index] =
 				std::make_unique<PooledVoice>(m_xaudio, sound.channels, sound.sampleRate);
-			if (!m_voices[index]->IsValid()) return {};
+			if (!m_voices[index]->IsValid()) {
+				// ERASE it. A PooledVoice whose CreateSourceVoice failed still
+				// reports idle and still matches its format, so leaving it in the
+				// pool poisons the slot: the NEXT Play finds it in the search
+				// above and calls Start on a null voice. The failure would show
+				// up as a crash on some unrelated later sound, nowhere near the
+				// device problem that actually caused it.
+				m_voices.erase(m_voices.begin() + static_cast<ptrdiff_t>(index));
+				return {};
+			}
 		}
 	}
 

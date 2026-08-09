@@ -255,6 +255,42 @@ Buffer ToMono(const Buffer& in, Layout layout, const std::string& label) {
 // Level and length
 // ---------------------------------------------------------------------------
 
+// Loudness normalization: set the RMS, then make sure the peak still fits.
+//
+// This exists because peak normalization answers the wrong question for
+// ambience. A bed's peak is whatever its loudest transient happens to be — one
+// distant clang in three minutes of room tone — so peak-normalizing pins THAT
+// to -1 dBFS and drags the bed up with it. What the ear judges is the steady
+// level, which is the RMS. Setting that directly is the difference between a
+// room you are standing in and a room being played at you.
+//
+// The peak ceiling is still enforced afterwards, so this can only ever come out
+// quieter than peak normalization, never hotter: no new clipping is possible.
+void NormalizeLoudness(Buffer& b, float rmsDbfs, float peakCeilingDbfs,
+					   const std::string& label) {
+	double sum = 0.0;
+	for (const float v : b.s) sum += static_cast<double>(v) * v;
+	const float rms = b.s.empty() ? 0.0f : static_cast<float>(std::sqrt(sum / b.s.size()));
+	if (rms < 1e-6f) {
+		log::Warn("{}: too quiet to measure loudness", label);
+		return;
+	}
+
+	float gain = FromDbfs(rmsDbfs) / rms;
+	const float peak = Peak(b);
+	const float ceiling = FromDbfs(peakCeilingDbfs);
+	bool limited = false;
+	if (peak * gain > ceiling) {
+		gain = ceiling / peak;
+		limited = true;
+	}
+	for (float& v : b.s) v = std::clamp(v * gain, -1.0f, 1.0f);
+
+	log::Info("  loudness: RMS {:.1f} -> {:.1f} dBFS ({:+.1f} dB){}", Dbfs(rms),
+			  Dbfs(rms * gain), Dbfs(gain),
+			  limited ? ", held back by the peak ceiling" : "");
+}
+
 void Normalize(Buffer& b, float peakDbfs, const std::string& label) {
 	const float peak = Peak(b);
 	if (peak < 1e-6f) {
@@ -525,7 +561,10 @@ bool ImportOne(const std::filesystem::path& src, const std::string& outPath,
 		return false;
 	}
 
-	if (opts.normalize) Normalize(b, opts.peakDbfs, label);
+	if (opts.rmsDbfs > -200.0f)
+		NormalizeLoudness(b, opts.rmsDbfs, opts.peakDbfs, label);
+	else if (opts.normalize)
+		Normalize(b, opts.peakDbfs, label);
 	if (opts.loop) CheckSeam(b, label);
 
 	if (!WriteWav(outPath, b)) return false;

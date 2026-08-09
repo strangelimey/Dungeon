@@ -175,6 +175,7 @@ int main(int argc, char** argv) {
 			else if (a == "--rate" && i + 1 < argc)
 				opts.rate = static_cast<u32>(std::stoul(argv[++i]));
 			else if (a == "--peak" && i + 1 < argc) opts.peakDbfs = std::stof(argv[++i]);
+			else if (a == "--rms" && i + 1 < argc) opts.rmsDbfs = std::stof(argv[++i]);
 			else if (a == "--make-loop" && i + 1 < argc) {
 				opts.loopSeconds = std::stof(argv[++i]);
 				opts.loop = true; // cutting one implies checking it

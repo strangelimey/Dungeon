@@ -19,6 +19,12 @@ struct SoundImportOptions {
 	bool trim = true;      // strip silence either end (ignored when loop)
 	bool normalize = true; // scale to peakDbfs
 	float peakDbfs = -1.0f;
+	// Normalize by LOUDNESS (RMS) to this target instead of by peak. Peak
+	// normalization is right for a one-shot, whose peak IS its loudness, and
+	// wrong for a bed: a quiet room tone with one door-slam in it gets shoved to
+	// full scale by the slam. Negative = off. The peak ceiling still applies as
+	// a limit, so this can only ever make something quieter than peak-normalizing.
+	float rmsDbfs = -1000.0f;
 	// Force ambisonic B-format handling (take W). Auto-detected from the
 	// filename for 4-channel sources — b-format / ambix / ambisonic / fuma —
 	// because a 4-channel file is otherwise indistinguishable from a quad

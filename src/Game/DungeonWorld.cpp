@@ -1332,7 +1332,7 @@ void DungeonWorld::RefreshAmbience() {
 		audio::PlayParams bed;
 		bed.bus = audio::Bus::Ambience;
 		bed.loop = true;
-		bed.volume = 0.55f;
+		bed.volume = m_ambBedVolume;
 		m_bedVoice = m_audio.Play(m_sounds.ambDungeon, bed);
 	}
 
@@ -1346,12 +1346,15 @@ void DungeonWorld::RefreshAmbience() {
 		// Roughly the light's reach: a fire you cannot see the glow of should
 		// not be one you can hear, or a big room turns into a wash of crackle.
 		emitter.minDistance = 0.8f;
-		emitter.maxDistance = fire.lightRadius * 1.5f;
+		emitter.maxDistance = fire.lightRadius * m_ambFireReach;
 
 		audio::PlayParams params;
 		params.bus = audio::Bus::Ambience;
 		params.loop = true;
-		params.volume = fire.brazier ? 0.7f : 0.5f; // a brazier is the bigger fire
+		// A brazier is the bigger fire, but only by a little: twenty of these
+		// are audible at once in the showcase level, so the per-fire level is
+		// really a budget divided among them rather than one sound's volume.
+		params.volume = m_ambFireVolume * (fire.brazier ? 1.3f : 1.0f);
 		// Detune each one. Identical loops at identical rates PHASE against each
 		// other — two sconces in a corridor beat in and out audibly, and a row of
 		// them combs. On a crackle a few percent reads as different fires rather
@@ -1367,6 +1370,30 @@ void DungeonWorld::RefreshAmbience() {
 		params.pitch = 0.93f + 0.14f * spread;
 		m_fireVoices.push_back(m_audio.Play(m_sounds.fireLoop, params));
 	}
+}
+
+// Volume changes apply to the LIVE voices, so a value can be judged instantly.
+// Reach cannot: it is baked into each emitter's falloff at Play, so changing it
+// restarts them — which is audible, and is the reason the two are separate.
+void DungeonWorld::SetAmbienceBedVolume(float v) {
+	m_ambBedVolume = std::clamp(v, 0.0f, 1.0f);
+	m_audio.SetVolume(m_bedVoice, m_ambBedVolume);
+}
+
+void DungeonWorld::SetAmbienceFireVolume(float v) {
+	m_ambFireVolume = std::clamp(v, 0.0f, 1.0f);
+	size_t i = 0;
+	for (const Fire& fire : m_fires) {
+		if (!fire.lit) continue;
+		if (i >= m_fireVoices.size()) break;
+		m_audio.SetVolume(m_fireVoices[i++],
+						  m_ambFireVolume * (fire.brazier ? 1.3f : 1.0f));
+	}
+}
+
+void DungeonWorld::SetAmbienceFireReach(float v) {
+	m_ambFireReach = std::clamp(v, 0.05f, 5.0f);
+	RefreshAmbience(); // falloff is fixed at Play, so these have to be restarted
 }
 
 void DungeonWorld::StopAmbience() {

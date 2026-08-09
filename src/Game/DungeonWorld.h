@@ -1763,6 +1763,16 @@ public:
 	void RefreshAmbience();
 	void StopAmbience();
 
+	// The ambience mix, live-tunable from the dev console (`ambience`) because
+	// these are ear judgements and a re-import per guess is far too slow a loop
+	// to converge in. Whatever they settle at becomes the default here.
+	float AmbienceBedVolume() const { return m_ambBedVolume; }
+	float AmbienceFireVolume() const { return m_ambFireVolume; }
+	float AmbienceFireReach() const { return m_ambFireReach; }
+	void SetAmbienceBedVolume(float v);
+	void SetAmbienceFireVolume(float v);
+	void SetAmbienceFireReach(float v);
+
 private:
 	// A structural repaint strands whatever occupied the cell: painted solid ⇒
 	// remove the monsters/items/buttons/decorations (and their .ent records)
@@ -2386,6 +2396,13 @@ private:
 	// and a looping voice never ends by itself — see RefreshAmbience.
 	audio::VoiceHandle m_bedVoice;
 	std::vector<audio::VoiceHandle> m_fireVoices;
+	// Starting points, not settled values — tuned by ear through the `ambience`
+	// dev command. The reach multiplies each fire's light radius: a fire you
+	// cannot see the glow of should not be one you can hear, or a room with
+	// twenty sconces becomes one undifferentiated wash of crackle.
+	float m_ambBedVolume = 0.30f;
+	float m_ambFireVolume = 0.30f;
+	float m_ambFireReach = 0.9f;
 	// Per-fixture flame attachment (fixtures.cat flame_height / flame_scale /
 	// flame_out, defaulting to the procedural meshes' constants) — an authored
 	// replacement prop declares where its fire burns instead of having to be

@@ -427,6 +427,34 @@ void Game::RegisterDevCommands() {
 						   else
 							   m_console.Print(std::format("no button at {},{}", x, z));
 					   });
+	// Levels are a matter for the EAR, and the round trip through a re-import to
+	// try a number is far too slow to converge. These set the live mix so the
+	// right values can be found in one sitting and then baked in.
+	m_console.Register(
+		"ambience", "bed|fire|reach <value> — tune the ambience mix live",
+		[this](const std::vector<std::string>& args) {
+			if (args.size() < 2) {
+				m_console.Print(std::format("bed {:.2f}  fire {:.2f}  reach {:.2f}x",
+											m_world.AmbienceBedVolume(),
+											m_world.AmbienceFireVolume(),
+											m_world.AmbienceFireReach()));
+				m_console.Print("usage: ambience <bed|fire|reach> <value>");
+				return;
+			}
+			const float v = static_cast<float>(std::atof(args[1].c_str()));
+			if (args[0] == "bed") m_world.SetAmbienceBedVolume(v);
+			else if (args[0] == "fire") m_world.SetAmbienceFireVolume(v);
+			else if (args[0] == "reach") m_world.SetAmbienceFireReach(v);
+			else {
+				m_console.Print("usage: ambience <bed|fire|reach> <value>");
+				return;
+			}
+			m_console.Print(std::format("bed {:.2f}  fire {:.2f}  reach {:.2f}x",
+										m_world.AmbienceBedVolume(),
+										m_world.AmbienceFireVolume(),
+										m_world.AmbienceFireReach()));
+		});
+
 	// The ear's A/B for Phase 2. There is no way to eyeball spatialization, and a
 	// positional bug (a listener reading the grid facing instead of the eye, a
 	// stereo source that cannot be placed) sounds like "the audio is a bit odd"
