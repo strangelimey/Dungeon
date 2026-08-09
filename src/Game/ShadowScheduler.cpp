@@ -6,6 +6,7 @@
 #include "Game/DungeonMap.h" // kCellSize
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <ranges>
 
@@ -91,11 +92,31 @@ void ShadowScheduler::AssignSlots(std::span<gfx::PointLight> lights, const Vec3&
 	}
 }
 
-void ShadowScheduler::BeginPass() { ++m_frameCounter; }
+void ShadowScheduler::BeginPass() {
+	++m_frameCounter;
+
+	// The scheduler's own wall clock. A flicker cadence is about how fast the
+	// fire LOOKS like it is moving, which is a property of seconds, not of frames
+	// or of simulation time.
+	const auto now = std::chrono::steady_clock::now();
+	if (!m_haveEpoch) {
+		m_epoch = now;
+		m_haveEpoch = true;
+	}
+	m_nowSec = std::chrono::duration<f64>(now - m_epoch).count();
+
+	// Refilled per pass. This is what stops every fire coming due on the same
+	// frame and spiking it — they end up naturally staggered instead.
+	m_flickerLeft = m_flickerBudget;
+}
+
+void ShadowScheduler::SetFlickerHz(float hz, int perFrameBudget) {
+	m_flickerHz = std::clamp(hz, 0.0f, 240.0f); // 0 = never re-render for flicker
+	if (perFrameBudget >= 0) m_flickerBudget = perFrameBudget;
+}
 
 bool ShadowScheduler::ShouldRender(const gfx::PointLight& light, size_t lightIndex,
 								   u32 mapRevision, bool animatedCasterNear) {
-	constexpr u64 kFlickerInterval = 2; // re-render wandering fire cubes at half rate
 	constexpr float kPosEps2 = 0.0004f; // 2 cm: a steady light re-renders once it moves
 
 	const int slot = light.shadowSlot;
@@ -103,12 +124,29 @@ bool ShadowScheduler::ShouldRender(const gfx::PointLight& light, size_t lightInd
 
 	const Vec3 d = Sub(light.position, cache.pos);
 	const bool moved = d.x * d.x + d.y * d.y + d.z * d.z > kPosEps2;
-	const bool flickerDue =
-		(m_frameCounter + static_cast<u64>(slot)) % kFlickerInterval == 0;
+	// A wandering fire cube is due only once its interval has ELAPSED, and only
+	// while the frame still has flicker budget left. Everything else in
+	// needsRender below is correctness — a new light, moved geometry, an animating
+	// caster — and is never budgeted away.
+	const f64 interval = m_flickerHz > 0.0f ? 1.0 / static_cast<f64>(m_flickerHz) : 1.0e9;
+	bool flickerDue = false;
+	if (light.flickerShadow && m_flickerLeft > 0 &&
+		m_nowSec - cache.lastFlickerSec >= interval) {
+		flickerDue = true;
+		--m_flickerLeft;
+	}
 	const bool needsRender = cache.lightId != static_cast<int>(lightIndex) ||
 							 cache.revision != mapRevision || animatedCasterNear ||
 							 (light.flickerShadow ? flickerDue : moved);
-	if (needsRender) cache = {static_cast<int>(lightIndex), light.position, mapRevision};
+	if (needsRender) {
+		cache.lightId = static_cast<int>(lightIndex);
+		cache.pos = light.position;
+		cache.revision = mapRevision;
+		// Only a FLICKER render re-paces the flicker clock. A cube re-rendered
+		// because a monster walked past should not also reset the aesthetic
+		// cadence, or a busy room would flicker faster than a quiet one.
+		if (flickerDue) cache.lastFlickerSec = m_nowSec;
+	}
 	return needsRender;
 }
 
