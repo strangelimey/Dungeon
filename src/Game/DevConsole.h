@@ -84,6 +84,7 @@ private:
 
 	bool m_open = false;
 	bool m_commandsEnabled = true;   // false while a staged load is mid-flight
+	bool m_showProfile = true;       // the profile panel costs real screen height
 	std::string m_input;             // current edit line
 	std::deque<std::string> m_output; // scrollback (oldest front)
 	std::vector<std::string> m_history;

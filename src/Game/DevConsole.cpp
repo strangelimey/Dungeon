@@ -3,6 +3,7 @@
 // ============================================================================
 #include "Game/DevConsole.h"
 
+#include "Core/Profile.h"
 #include "UI/Controls.h" // ui::DrawBorder
 
 #include <Windows.h> // VK_* codes
@@ -28,6 +29,104 @@ const Vec4 kAccent{0.55f, 0.85f, 0.55f, 1.0f};
 const Vec4 kWarn{0.95f, 0.65f, 0.35f, 1.0f}; // a readout near a hard ceiling
 const Vec4 kGaugeBg{0.13f, 0.13f, 0.17f, 1.0f};
 
+// --- the profile panel's rows -----------------------------------------------
+// Flattened ahead of drawing because the panel's HEIGHT has to be known before
+// its background is filled, and because it bounds the work: a tree is walked
+// once into a fixed array rather than twice against a live snapshot.
+//
+// Names are COPIED. A zone's name is a string literal and would survive, but a
+// thread's lives in the ThreadReport, which is a local of the builder — pointing
+// at it would dangle the moment the array outlived the snapshot. The node DATA
+// is fine to reach through: it lives in registry storage until that thread's
+// next publish.
+constexpr int kMaxProfRows = 44;
+
+struct ProfRow {
+	char name[32] = {};
+	int depth = 0;
+	double inclMs = 0.0;
+	double exclMs = 0.0;
+	double maxMs = 0.0;
+	u64 calls = 0;
+	float frac = 0.0f;  // of this thread's whole period, for the bar
+	bool header = false; // a thread's title row rather than a zone
+	u64 periods = 0;
+	bool dropped = false; // that thread has lost scopes to a full pool
+};
+
+void CopyName(char (&dst)[32], const char* src) {
+	if (!src) src = "?";
+	size_t i = 0;
+	for (; i + 1 < sizeof(dst) && src[i]; ++i) dst[i] = src[i];
+	dst[i] = '\0';
+}
+
+// Split on the PREPROCESSOR, not `if constexpr`: this is not a template, so a
+// discarded constexpr branch is still COMPILED, and every line of the body below
+// gets flagged unreachable in a build without DN_PROFILE.
+#if DN_PROFILE
+int BuildProfileRows(ProfRow* out, int cap) {
+	const prof::Clock clock = prof::ClockInfo();
+	prof::ThreadReport reports[prof::kMaxThreads];
+	const int threadCount = prof::SnapshotAll(reports, prof::kMaxThreads);
+
+	int count = 0;
+	for (int i = 0; i < threadCount && count < cap; ++i) {
+		const prof::ThreadReport& r = reports[i];
+
+		ProfRow& head = out[count++];
+		head.header = true;
+		CopyName(head.name, r.name);
+		head.periods = r.periods;
+		head.dropped = r.nodeOverflows > 0 || r.depthOverflows > 0;
+
+		// The bar is a fraction of everything this thread recorded in the period,
+		// summed over the roots — not of the frame's wall clock, which the worker
+		// threads have no relationship to.
+		u64 total = 0;
+		for (u32 c = r.root; c != prof::kInvalidNode; c = r.nodes[c].nextSibling)
+			total += r.nodes[c].inclusive;
+
+		// Depth-first with an explicit stack. Children are PREPENDED as they are
+		// discovered, so pushing them in list order and popping restores call
+		// order — the tree reads the way the code ran.
+		struct Visit {
+			u32 node;
+			int depth;
+		};
+		Visit stack[prof::kMaxDepth * 2];
+		constexpr int kStackCap = static_cast<int>(std::size(stack));
+		int top = 0;
+		for (u32 c = r.root; c != prof::kInvalidNode && top < kStackCap;
+			 c = r.nodes[c].nextSibling)
+			stack[top++] = {c, 0};
+
+		while (top > 0 && count < cap) {
+			const Visit v = stack[--top];
+			const prof::NodeView& node = r.nodes[v.node];
+
+			ProfRow& row = out[count++];
+			CopyName(row.name, node.zone ? node.zone->name : "?");
+			row.depth = v.depth;
+			row.inclMs = prof::TicksToMs(node.inclusive, clock);
+			row.exclMs = prof::TicksToMs(node.Exclusive(), clock);
+			row.maxMs = prof::TicksToMs(node.maxTicks, clock);
+			row.calls = node.calls;
+			row.frac = total > 0 ? static_cast<float>(static_cast<double>(node.inclusive) /
+													  static_cast<double>(total))
+								 : 0.0f;
+
+			for (u32 c = node.firstChild; c != prof::kInvalidNode && top < kStackCap;
+				 c = r.nodes[c].nextSibling)
+				stack[top++] = {c, v.depth + 1};
+		}
+	}
+	return count;
+}
+#else
+int BuildProfileRows(ProfRow*, int) { return 0; }
+#endif
+
 std::vector<std::string> Tokenize(const std::string& line) {
 	std::vector<std::string> tokens;
 	std::istringstream stream(line);
@@ -49,6 +148,18 @@ DevConsole::DevConsole(ui::FontLibrary& fonts, threads::Manager& threadManager)
 		m_output.clear();
 		m_scroll = 0;
 	});
+	Register("profile", "show/hide the profile panel [on|off]",
+			 [this](const std::vector<std::string>& args) {
+				 if (!args.empty())
+					 m_showProfile = args[0] != "off" && args[0] != "0";
+				 else
+					 m_showProfile = !m_showProfile;
+				 if constexpr (!prof::kEnabled)
+					 Print("profiling is not compiled in (build debug-profile or "
+						   "release-profile)");
+				 else
+					 Print(std::format("profile panel {}", m_showProfile ? "on" : "off"));
+			 });
 	Register("echo", "echo the arguments", [this](const std::vector<std::string>& args) {
 		std::string line;
 		for (size_t i = 0; i < args.size(); ++i)
@@ -202,7 +313,19 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 	const float threadsBlock =
 		workers.empty() ? 0.0f
 						: line * 1.4f + rowAdvance * static_cast<float>(workers.size());
-	const float panelH = threadsTop + threadsBlock + pad;
+
+	// Flattened first: the panel's background is filled before anything is drawn
+	// into it, so its height has to be known up front. In a build without
+	// DN_PROFILE this returns 0 rows and the section collapses to one line saying
+	// which configs have it.
+	ProfRow profRows[kMaxProfRows];
+	const int profRowCount = m_showProfile ? BuildProfileRows(profRows, kMaxProfRows) : 0;
+	const float profileBlock =
+		!m_showProfile ? 0.0f
+					   : line * 1.4f + rowAdvance * static_cast<float>(
+											prof::kEnabled ? profRowCount : 1);
+
+	const float panelH = threadsTop + threadsBlock + profileBlock + pad;
 	batch.DrawRect({0, 0, width, panelH}, kPerfBg);
 	ui::DrawBorder(batch, {0, 0, width, panelH}, kBorder);
 
@@ -349,6 +472,80 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 			m_threadHits.push_back(hit);
 
 			ty += rowAdvance;
+		}
+	}
+
+	// --- profile panel (top, below threads) ---------------------------------
+	// One tree per measured thread, deepest-first indentation, with a bar giving
+	// each node's share of what its thread recorded this period. The numbers are
+	// the LAST PUBLISHED period — a frame for the main thread, a tick for a
+	// worker — so this is a live readout rather than a running total.
+	if (m_showProfile) {
+		float py = threadsTop + threadsBlock;
+		batch.DrawRect({0, py, width, 1.0f}, kBorder);
+		py += line * 0.4f;
+		m_font->Draw(batch, "PROFILE", labelX, py, kAccent);
+
+		if constexpr (prof::kEnabled) {
+			const prof::Clock clock = prof::ClockInfo();
+			m_font->Draw(batch, std::format("TSC {:.0f} MHz", clock.mhz), width * 0.15f, py,
+						kDim);
+			if (!clock.invariantTsc)
+				m_font->Draw(batch, "NOT INVARIANT - timings may drift", width * 0.28f, py,
+							kWarn);
+			py += line;
+
+			const float indent = m_font->MeasureWidth("  ");
+			const float barX = width * 0.62f;
+			const float barW = width * 0.26f;
+			for (int i = 0; i < profRowCount; ++i) {
+				const ProfRow& pr = profRows[i];
+				if (pr.header) {
+					m_font->Draw(batch, pr.name, labelX, py, kAccent);
+					m_font->Draw(batch, std::format("{} periods", pr.periods), width * 0.30f,
+								py, kDim);
+					if (pr.dropped)
+						m_font->Draw(batch, "SCOPES DROPPED", width * 0.46f, py, kWarn);
+				} else {
+					m_font->Draw(batch, pr.name,
+								labelX + indent * static_cast<float>(pr.depth + 1), py,
+								kText);
+					m_font->Draw(batch, std::format("{:.3f}", pr.inclMs), width * 0.30f, py,
+								kText);
+					m_font->Draw(batch, std::format("{:.3f}", pr.exclMs), width * 0.38f, py,
+								kDim);
+					m_font->Draw(batch, std::format("x{}", pr.calls), width * 0.46f, py, kDim);
+					m_font->Draw(batch, std::format("max {:.3f}", pr.maxMs), width * 0.52f,
+								py, kDim);
+
+					// Share of everything this thread recorded in the period —
+					// NOT of the frame, since a worker ticking at 0.5 Hz has no
+					// relationship to a frame's wall clock and scaling it by one
+					// would read as permanently idle.
+					//
+					// ROOTS GET NO BAR. A root's share is trivially the whole
+					// tree, so drawing it gave every worker a full-width bar
+					// beside a 0.000 ms reading — the panel's first version said
+					// four idle threads were saturated. A bar that is always full
+					// carries no information and actively misleads, so the bar is
+					// only drawn where it discriminates.
+					if (pr.depth > 0) {
+						const float bh = line * 0.6f;
+						const float oy = py + (line - bh) * 0.5f;
+						batch.DrawRect({barX, oy, barW, bh}, kGaugeBg);
+						batch.DrawRect(
+							{barX, oy, barW * std::clamp(pr.frac, 0.0f, 1.0f), bh},
+							{0.45f, 0.70f, 0.95f, 1.0f});
+					}
+				}
+				py += rowAdvance;
+			}
+			if (profRowCount == kMaxProfRows)
+				m_font->Draw(batch, "(truncated)", labelX, py, kDim);
+		} else {
+			py += line;
+			m_font->Draw(batch, "not compiled in - build debug-profile or release-profile",
+						labelX, py, kDim);
 		}
 	}
 
