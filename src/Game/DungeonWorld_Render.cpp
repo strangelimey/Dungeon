@@ -7,6 +7,7 @@
 // ============================================================================
 #include "Game/DungeonWorld.h"
 
+#include "Core/Profile.h"
 #include "Assets/Image.h"
 #include "Graphics/Lights.h"
 #include "Graphics/ModelPreview.h"
@@ -126,8 +127,12 @@ void DungeonWorld::RenderShadowMaps(ID3D12GraphicsCommandList* list) {
 		if (!m_shadows.ShouldRender(light, i, rev, AnimatedCasterNear(light)))
 			continue; // reuse the cube already bound as an SRV
 
+		// One per CUBE actually re-rendered, so the zone's CALL COUNT is the answer
+		// to "how much of the shadow cache is missing this frame".
+		DN_PROFILE_ZONE_L(prof::kLevelDetail, "shadow.cube");
 		const ViewCull cull = ViewCull::FromSphere(light.position, light.radius);
 		for (u32 face = 0; face < 6; ++face) {
+			DN_PROFILE_ZONE_L(prof::kLevelDetail, "shadow.face");
 			m_renderer.BeginShadowFace(list, static_cast<u32>(light.shadowSlot), face,
 									   light.position, light.radius);
 			SubmitSceneGeometry(list, &cull);

@@ -943,6 +943,15 @@ public:
 	void SetFov(float degrees);
 	float Fov() const { return m_fovDegrees; }
 	// Toggle the shadow pass (off = lights still lit, just unshadowed).
+	// How fast a wandering fire may re-render its shadow cube, in hertz, and how
+	// many such re-renders one frame may spend. Live, because the right rate is a
+	// judgement made by looking at fire, not a number to be argued about.
+	void SetShadowFlicker(float hz, int perFrameBudget = -1) {
+		m_shadows.SetFlickerHz(hz, perFrameBudget);
+	}
+	float ShadowFlickerHz() const { return m_shadows.FlickerHz(); }
+	int ShadowFlickerBudget() const { return m_shadows.FlickerBudget(); }
+
 	void SetShadowsEnabled(bool on) { m_shadowsEnabled = on; }
 	bool ShadowsEnabled() const { return m_shadowsEnabled; }
 	// Toggle volumetric dust (off feeds the renderer clear air).

@@ -1,5 +1,8 @@
 #include "Platform/PerfMonitor.h"
 
+#include "Core/Profile.h"
+#include "Core/ThreadManager.h"
+
 #include <Windows.h>
 #include <pdh.h>
 #include <pdhmsg.h>
@@ -49,7 +52,21 @@ PerfMonitor::PerfMonitor() {
 }
 
 PerfMonitor::~PerfMonitor() {
+	// Stop BEFORE closing the query: the job holds `this` and touches the PDH
+	// handles, so it has to be joined while they are still valid. Stop blocks
+	// until the worker has finished its tick and been joined.
+	if (m_threads && m_gpuWorker != ~0u) m_threads->Stop(m_gpuWorker);
 	if (m_pdhQuery) PdhCloseQuery(static_cast<PDH_HQUERY>(m_pdhQuery));
+}
+
+void PerfMonitor::StartOsSampler(threads::Manager& manager) {
+	if (m_threads) return; // already started
+	m_threads = &manager;
+
+	threads::Options opt;
+	opt.name = "perf.os";
+	opt.hz = 1.0f / kSampleInterval; // the same ~3 Hz, just not on the frame
+	m_gpuWorker = manager.Spawn([this](const threads::Tick&) { Sample(); }, opt);
 }
 
 void PerfMonitor::Tick(float dt) {
@@ -63,27 +80,44 @@ void PerfMonitor::Tick(float dt) {
 		m_fpsElapsed = 0.0f;
 	}
 
-	m_sampleTimer += dt;
-	if (m_sampleTimer >= kSampleInterval) {
-		m_sampleTimer = 0.0f;
-		Sample();
-	}
+	// Whatever the worker last published. All of Tick is now FPS arithmetic and
+	// five relaxed loads, where it used to carry every OS query in the readout.
+	m_metrics.gpuPercent = m_gpuPercent.load(std::memory_order_relaxed);
+	m_metrics.cpuPercent = m_cpuPercent.load(std::memory_order_relaxed);
+	m_metrics.sysMemUsedMB = m_sysMemUsedMB.load(std::memory_order_relaxed);
+	m_metrics.sysMemTotalMB = m_sysMemTotalMB.load(std::memory_order_relaxed);
+	m_metrics.procMemMB = m_procMemMB.load(std::memory_order_relaxed);
 }
 
+// Runs on the perf.os WORKER, never on the frame. Nothing here touches
+// m_metrics: that belongs to whoever calls Tick, and each result is published
+// through its own atomic instead.
+//
+// Level-2 zones, so they cost nothing until someone raises detail on this
+// worker. They are what found the cost in the first place — a periodic hitch is
+// invisible in an average and only shows as a RHYTHM.
 void PerfMonitor::Sample() {
-	SampleCpu();
-	SampleGpu();
+	{
+		DN_PROFILE_ZONE_L(prof::kLevelDetail, "os.cpu");
+		SampleCpu();
+	}
+	{
+		DN_PROFILE_ZONE_L(prof::kLevelDetail, "os.gpu");
+		SampleGpu();
+	}
+	DN_PROFILE_ZONE_L(prof::kLevelDetail, "os.mem");
 
 	MEMORYSTATUSEX mem{};
 	mem.dwLength = sizeof(mem);
 	if (GlobalMemoryStatusEx(&mem)) {
-		m_metrics.sysMemTotalMB = ToMB(mem.ullTotalPhys);
-		m_metrics.sysMemUsedMB = ToMB(mem.ullTotalPhys - mem.ullAvailPhys);
+		m_sysMemTotalMB.store(ToMB(mem.ullTotalPhys), std::memory_order_relaxed);
+		m_sysMemUsedMB.store(ToMB(mem.ullTotalPhys - mem.ullAvailPhys),
+							 std::memory_order_relaxed);
 	}
 
 	PROCESS_MEMORY_COUNTERS pmc{};
 	if (GetProcessMemoryInfo(GetCurrentProcess(), &pmc, sizeof(pmc)))
-		m_metrics.procMemMB = ToMB(pmc.WorkingSetSize);
+		m_procMemMB.store(ToMB(pmc.WorkingSetSize), std::memory_order_relaxed);
 }
 
 void PerfMonitor::SampleCpu() {
@@ -98,8 +132,8 @@ void PerfMonitor::SampleCpu() {
 		if (total > 0) {
 			const double busy = static_cast<double>(total - idleD) /
 								static_cast<double>(total);
-			m_metrics.cpuPercent =
-				static_cast<float>(std::clamp(busy, 0.0, 1.0) * 100.0);
+			m_cpuPercent.store(static_cast<float>(std::clamp(busy, 0.0, 1.0) * 100.0),
+							   std::memory_order_relaxed);
 		}
 	}
 	m_prevIdle = i;
@@ -135,7 +169,10 @@ void PerfMonitor::SampleGpu() {
 			items[n].szName && wcsstr(items[n].szName, L"engtype_3D"))
 			sum += items[n].FmtValue.doubleValue;
 	}
-	m_metrics.gpuPercent = static_cast<float>(std::clamp(sum, 0.0, 100.0));
+	// Published rather than written into m_metrics: this runs on the worker, and
+	// m_metrics belongs to whoever calls Tick.
+	m_gpuPercent.store(static_cast<float>(std::clamp(sum, 0.0, 100.0)),
+					   std::memory_order_relaxed);
 }
 
 } // namespace dungeon

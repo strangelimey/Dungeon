@@ -1,6 +1,13 @@
 @echo off
 rem Build helper: sets up the VS developer environment, configures, and builds.
-rem Usage: build.cmd [debug|release]   (default: debug)
+rem Usage: build.cmd [debug|release|debug-profile|release-profile]  (default: debug)
+rem
+rem The -profile pair are those same two builds with the in-engine profiler
+rem compiled in (DN_PROFILE, see src/Core/CMakeLists.txt); without it every
+rem profiling macro expands to nothing. Each config has its OWN build tree, so
+rem switching between them costs no reconfigure, but also its own exe-side
+rem dungeon.log, settings.ini and shadercache\, since those live beside the exe.
+rem Assets are shared by all four (DN_ASSETS_DIR points at the repo).
 
 setlocal
 pushd "%~dp0"

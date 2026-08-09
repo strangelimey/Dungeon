@@ -133,6 +133,10 @@ GraphicsDevice::GraphicsDevice(HWND__* hwnd, u32 width, u32 height,
 
 	DN_HR(m_device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&m_fence)));
 	m_fenceEvent = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+
+	// GPU timestamps. Not fatal if the queue cannot do them (WARP) — the engine
+	// just reports no GPU rows.
+	m_gpu.Init(m_device.Get(), m_queue.Get(), kFrameCount);
 	DN_ASSERT(m_fenceEvent, "CreateEvent failed");
 
 	CreateSizeDependentResources();
@@ -284,6 +288,10 @@ ID3D12GraphicsCommandList* GraphicsDevice::BeginFrame(const float clearColor[4])
 		WaitForSingleObject(m_fenceEvent, INFINITE);
 	}
 
+	// The fence above is exactly the guarantee the GPU profiler needs: the GPU has
+	// finished the last frame that used this slot, so its timestamps are readable.
+	m_gpu.BeginFrame(m_frameIndex);
+
 	DN_HR(m_allocators[m_frameIndex]->Reset());
 	DN_HR(m_commandList->Reset(m_allocators[m_frameIndex].Get(), nullptr));
 
@@ -333,6 +341,7 @@ void GraphicsDevice::EndFrame() {
 									D3D12_RESOURCE_STATE_RENDER_TARGET,
 									D3D12_RESOURCE_STATE_PRESENT);
 	m_commandList->ResourceBarrier(1, &barrier);
+	m_gpu.EndFrame(m_commandList.Get()); // resolve the frame's timestamps
 	DN_HR(m_commandList->Close());
 
 	ID3D12CommandList* lists[] = {m_commandList.Get()};

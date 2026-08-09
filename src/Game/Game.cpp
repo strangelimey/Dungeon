@@ -9,6 +9,7 @@
 #include "Core/Loc.h"
 #include "Core/Log.h"
 #include "Core/Paths.h"
+#include "Core/Profile.h"
 #include "Game/AssetUtil.h"
 #include "Graphics/DisplayEnum.h"
 #include "Graphics/Texture.h"
@@ -904,7 +905,10 @@ void Game::Update(float dt) {
 	// now, for the same reason: the rebuild destroys the dropdown that triggered it.
 	m_ui.ApplyPendingVideoRebuild();
 
-	m_ui.UpdateFonts(dt);
+	{
+		DN_PROFILE_ZONE_L(prof::kLevelSystem, "fonts");
+		m_ui.UpdateFonts(dt);
+	}
 	if (m_previewMesh) m_previewOrbit += dt * 0.6f; // spin the editor 3D preview
 
 	// Poll the asset bake (P4c): non-blocking, so the "baking…" dialog stays
@@ -958,8 +962,14 @@ void Game::Update(float dt) {
 	const bool consoleWasOpen = m_console.IsOpen();
 	if (input.WasKeyPressed(VK_OEM_3)) m_console.Toggle();
 	m_console.SetCommandsEnabled(!loading);
-	m_console.Update(input, dt, static_cast<float>(m_window.Width()),
-					 static_cast<float>(m_window.Height()));
+	{
+		// The console is itself instrumented: it samples every graph's history
+		// each frame whether open or not, and a readout that costs more than
+		// what it reports would be worth knowing about.
+		DN_PROFILE_ZONE_L(prof::kLevelSystem, "console");
+		m_console.Update(input, dt, static_cast<float>(m_window.Width()),
+						 static_cast<float>(m_window.Height()), m_device);
+	}
 	UpdateGovernor(dt); // adaptive thread throttle (no-op unless `governor auto`)
 	// The console owns the whole frame's input if it was open at the start (or
 	// just opened) — so the very keystroke that closes it (Esc or `~`) never
@@ -1212,8 +1222,11 @@ void Game::Update(float dt) {
 			m_mapView.Close();
 			return;
 		}
-		m_mapView.Update(input, MapPanel(static_cast<float>(m_window.Width()),
-										 static_cast<float>(m_window.Height())));
+		{
+			DN_PROFILE_ZONE_L(prof::kLevelSystem, "map");
+			m_mapView.Update(input, MapPanel(static_cast<float>(m_window.Width()),
+											 static_cast<float>(m_window.Height())));
+		}
 		// The world keeps simulating while the map is open (the party still
 		// walks on the keyboard) — EXCEPT while the editor is PAUSED, where the
 		// whole world update is skipped so every persistent bit freezes:
@@ -1253,7 +1266,10 @@ void Game::Update(float dt) {
 	}
 
 	// UI first so it can consume the mouse; keyboard always reaches the party.
-	m_ui.UpdateHud(input, dt);
+	{
+		DN_PROFILE_ZONE_L(prof::kLevelSystem, "hud");
+		m_ui.UpdateHud(input, dt);
+	}
 	// A portrait click may have opened the character sheet — freeze now
 	// rather than simulating one more frame.
 	if (m_state != AppState::Playing) return;
@@ -1415,15 +1431,30 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 	else if ((m_state == AppState::Playing || m_state == AppState::Paused ||
 			  m_state == AppState::CharacterSheet) &&
 			 !editorMap) {
-		m_world.UpdateItemIcons(list, m_spriteBatch); // 3D item icons (static + spin)
-		m_world.UpdateMapIcons(list, m_spriteBatch);  // map marker icons (one-shot)
-		m_world.RenderShadowMaps(list);
+		{
+			DN_PROFILE_ZONE_L(prof::kLevelSystem, "icons");
+			m_world.UpdateItemIcons(list, m_spriteBatch); // 3D item icons (static + spin)
+			m_world.UpdateMapIcons(list, m_spriteBatch);  // map marker icons (one-shot)
+		}
+		{
+			DN_PROFILE_ZONE_L(prof::kLevelSystem, "shadows");
+			DN_GPU_ZONE(m_device.Gpu(), list, "gpu.shadows");
+			m_world.RenderShadowMaps(list);
+		}
 		// The scene renders linear HDR into the post target; Resolve runs the
 		// bloom chain + ACES composite and leaves the back buffer bound for
 		// the 2D pass below.
-		m_postProcess.BeginScene(list);
-		m_world.RenderScene(list);
-		m_postProcess.Resolve(list);
+		{
+			DN_PROFILE_ZONE_L(prof::kLevelSystem, "scene");
+			DN_GPU_ZONE(m_device.Gpu(), list, "gpu.scene");
+			m_postProcess.BeginScene(list);
+			m_world.RenderScene(list);
+		}
+		{
+			DN_PROFILE_ZONE_L(prof::kLevelSystem, "post");
+			DN_GPU_ZONE(m_device.Gpu(), list, "gpu.post");
+			m_postProcess.Resolve(list);
+		}
 	} else if (editorMap) {
 		// The editor covers the scene, but its map overlay draws the baked
 		// marker icons — keep the bakes running (a kind placed from the palette
@@ -1452,6 +1483,8 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 	}
 
 	// 2D pass.
+	DN_PROFILE_ZONE_L(prof::kLevelSystem, "ui2d");
+	DN_GPU_ZONE(m_device.Gpu(), list, "gpu.ui2d");
 	m_spriteBatch.Begin(list, m_device.Width(), m_device.Height());
 	switch (m_state) {
 	case AppState::Loading:     m_ui.RenderLoadingScreen(m_loadQueue); break;

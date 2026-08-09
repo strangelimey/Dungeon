@@ -26,6 +26,7 @@
 #include "Graphics/Lights.h"
 #include "Graphics/Renderer.h" // gfx::kShadowSlots
 
+#include <chrono>
 #include <span>
 #include <utility>
 #include <vector>
@@ -45,6 +46,21 @@ public:
 	// Call once at the start of the shadow pass (advances the flicker clock that
 	// throttles wandering fire cubes to half rate).
 	void BeginPass();
+
+	// How often a WANDERING fire cube may re-render, in hertz, and how many such
+	// re-renders one frame may spend on them.
+	//
+	// This used to be a FRAME count — every other frame — which is not a rate at
+	// all: at 240 fps it re-rendered each fire cube 120 times a second, and the
+	// flicker itself ran four times faster than at 60 fps. The look changed with
+	// the hardware, and the cost per second scaled with frame rate for no visual
+	// gain. Measured: 21 shadow faces a frame, about 5,000 a second.
+	//
+	// Live so the rate can be judged by eye rather than argued about — dev console
+	// `shadowrate <hz> [budget]`.
+	void SetFlickerHz(float hz, int perFrameBudget = -1);
+	float FlickerHz() const { return m_flickerHz; }
+	int FlickerBudget() const { return m_flickerBudget; }
 
 	// Whether slot `light.shadowSlot`'s cube must be re-rendered this frame for
 	// the light at list index `lightIndex`. `mapRevision` is the live geometry
@@ -72,9 +88,25 @@ private:
 		int lightId = -1;           // list index that last rendered this slot
 		Vec3 pos{};                 // light position at that render
 		u32 revision = 0xFFFFFFFFu; // map geometry revision at that render
+		// When this slot last re-rendered for FLICKER. Kept apart from the other
+		// fields because they are reset together on any render and this one paces
+		// only the aesthetic re-renders.
+		f64 lastFlickerSec = -1.0e9;
 	};
 	SlotCache m_cache[gfx::kShadowSlots];
 	u64 m_frameCounter = 0;
+	// Wall seconds since the first pass. The scheduler keeps its own clock rather
+	// than having dt threaded down the render path: a flicker cadence is about
+	// wall time, not about simulation time or frames.
+	f64 m_nowSec = 0.0;
+	std::chrono::steady_clock::time_point m_epoch{};
+	bool m_haveEpoch = false;
+	// 25 Hz: CHOSEN BY EYE, not derived. Michael compared 8 / 14 / 25 / 40 in
+	// the live `shadowrate` knob and this is where the fire stopped looking
+	// slowed down without costing what the old frame-counted pacing did.
+	f32 m_flickerHz = 25.0f;
+	int m_flickerBudget = 2; // cubes per frame, which also staggers them
+	int m_flickerLeft = 0;   // budget remaining this pass
 };
 
 } // namespace dungeon::game

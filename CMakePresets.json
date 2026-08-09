@@ -13,6 +13,15 @@
 			}
 		},
 		{
+			"name": "debug-profile",
+			"displayName": "Ninja Debug + profiler",
+			"inherits": "debug",
+			"binaryDir": "${sourceDir}/build/debug-profile",
+			"cacheVariables": {
+				"DN_PROFILE": "ON"
+			}
+		},
+		{
 			"name": "release",
 			"displayName": "Ninja Release",
 			"generator": "Ninja",
@@ -21,6 +30,15 @@
 				"CMAKE_BUILD_TYPE": "RelWithDebInfo",
 				"CMAKE_C_COMPILER": "cl",
 				"CMAKE_CXX_COMPILER": "cl"
+			}
+		},
+		{
+			"name": "release-profile",
+			"displayName": "Ninja Release + profiler",
+			"inherits": "release",
+			"binaryDir": "${sourceDir}/build/release-profile",
+			"cacheVariables": {
+				"DN_PROFILE": "ON"
 			}
 		},
 		{
@@ -33,7 +51,9 @@
 	],
 	"buildPresets": [
 		{ "name": "debug", "configurePreset": "debug" },
+		{ "name": "debug-profile", "configurePreset": "debug-profile" },
 		{ "name": "release", "configurePreset": "release" },
+		{ "name": "release-profile", "configurePreset": "release-profile" },
 		{ "name": "vs", "configurePreset": "vs", "configuration": "Debug" }
 	]
 }
