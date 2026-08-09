@@ -24,6 +24,12 @@ struct SoundImportOptions {
 	// because a 4-channel file is otherwise indistinguishable from a quad
 	// recording, and the two want opposite folds.
 	bool ambisonic = false;
+
+	// CUT a seamless loop out of a long recording. Field recordings are not
+	// loops and never will be — a bed has to be made from one. Zero = off.
+	float loopSeconds = 0.0f;
+	float loopFromSeconds = -1.0f; // < 0 = pick the most typical stretch
+	float loopFadeMs = 250.0f;     // equal-power crossfade across the join
 };
 
 // Imports <src> (a .wav file, or a folder of them) into <assetsDir>/sounds as

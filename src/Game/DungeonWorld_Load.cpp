@@ -225,6 +225,8 @@ void DungeonWorld::AppendLoadTasks(LoadQueue& queue) {
 		},
 		"fires");
 	queue.Add(loc::Tr("load.dust"), [this] { BuildTurbidityMap(); }, "turbidity");
+	// Last, because it needs the fires to exist to place a loop on each one.
+	queue.Add(loc::Tr("load.ambience"), [this] { RefreshAmbience(); }, "ambience");
 }
 
 void DungeonWorld::LoadDungeonBlocks() {

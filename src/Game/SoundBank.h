@@ -26,6 +26,12 @@ struct SoundBank {
 	assets::SoundData spellImpact; // a bolt strikes a monster
 	assets::SoundData spellFizzle; // no recipe / no mana / hits a wall
 
+	// Ambience. These are IMPORTED (bought) rather than synthesized, so they are
+	// gitignored and may simply be absent — Play no-ops on an empty SoundData,
+	// which is what lets an unprovisioned worktree run quiet instead of failing.
+	assets::SoundData ambDungeon; // the level bed: stereo, non-positional
+	assets::SoundData fireLoop;   // per sconce/brazier: MONO, so it can be placed
+
 	void Load();
 };
 

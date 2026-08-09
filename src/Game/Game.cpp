@@ -909,6 +909,18 @@ void Game::Update(float dt) {
 	// pause menu or the map overlay is up, which is the whole point of a bed.
 	m_audio.Update();
 
+	// The world's ambience is loaded before the title screen ever appears, so
+	// without this the menu would sit over a dungeon the player has not entered.
+	// Duck the BUS rather than stopping the voices — the bed keeps its position
+	// in the loop, so entering the game does not restart it from the top, and
+	// Paused/CharacterSheet/map stay audible, which is the point of being there.
+	const bool inWorld = m_state == AppState::Playing || m_state == AppState::Paused ||
+						 m_state == AppState::CharacterSheet;
+	if (inWorld != m_ambienceAudible) {
+		m_ambienceAudible = inWorld;
+		m_audio.SetBusVolume(audio::Bus::Ambience, inWorld ? 1.0f : 0.0f);
+	}
+
 	m_ui.UpdateFonts(dt);
 	if (m_previewMesh) m_previewOrbit += dt * 0.6f; // spin the editor 3D preview
 

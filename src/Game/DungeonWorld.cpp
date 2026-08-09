@@ -1308,6 +1308,72 @@ void DungeonWorld::RebuildFiresAndDust() {
 	m_fires.clear();
 	BuildFires();
 	BuildTurbidityMap();
+	RefreshAmbience();
+}
+
+// ============================================================================
+// Ambience
+// ============================================================================
+
+// The bed plus one positional loop per lit fire.
+//
+// These voices are OWNED, which the fire-and-forget ones are not, and the
+// difference is the loop: an infinite loop never raises OnStreamEnd, so it
+// holds its voice until something stops it. Nothing else will. A level swap
+// that simply forgot these handles would leave the previous level audible
+// underneath the new one, one more layer per swap, until the pool ran out.
+void DungeonWorld::RefreshAmbience() {
+	StopAmbience();
+
+	// The bed is stereo and deliberately NOT positional — it is the sound of
+	// being in this place, not the sound of a thing in it, so it must not swing
+	// around when the party turns.
+	if (!m_sounds.ambDungeon.samples.empty()) {
+		audio::PlayParams bed;
+		bed.bus = audio::Bus::Ambience;
+		bed.loop = true;
+		bed.volume = 0.55f;
+		m_bedVoice = m_audio.Play(m_sounds.ambDungeon, bed);
+	}
+
+	if (m_sounds.fireLoop.samples.empty()) return;
+	m_fireVoices.reserve(m_fires.size());
+	for (const Fire& fire : m_fires) {
+		if (!fire.lit) continue; // an unlit brazier is cold, not quiet-burning
+
+		audio::Emitter emitter;
+		emitter.position = fire.flamePos;
+		// Roughly the light's reach: a fire you cannot see the glow of should
+		// not be one you can hear, or a big room turns into a wash of crackle.
+		emitter.minDistance = 0.8f;
+		emitter.maxDistance = fire.lightRadius * 1.5f;
+
+		audio::PlayParams params;
+		params.bus = audio::Bus::Ambience;
+		params.loop = true;
+		params.volume = fire.brazier ? 0.7f : 0.5f; // a brazier is the bigger fire
+		// Detune each one. Identical loops at identical rates PHASE against each
+		// other — two sconces in a corridor beat in and out audibly, and a row of
+		// them combs. On a crackle a few percent reads as different fires rather
+		// than as detuning, so it is free.
+		//
+		// The spread is by the golden ratio rather than by a small modulus,
+		// because a level here can carry twenty fires (the showcase has 18
+		// sconces and 2 braziers): `% 4` would have made five exact twins of each
+		// pitch, which is the very thing this avoids. Fractional golden steps
+		// never repeat and stay maximally separated at any count.
+		constexpr float kPhi = 0.6180339887f;
+		const float spread = std::fmod(m_fireVoices.size() * kPhi, 1.0f);
+		params.pitch = 0.93f + 0.14f * spread;
+		m_fireVoices.push_back(m_audio.Play(m_sounds.fireLoop, params));
+	}
+}
+
+void DungeonWorld::StopAmbience() {
+	m_audio.Stop(m_bedVoice);
+	m_bedVoice = {};
+	for (const audio::VoiceHandle& voice : m_fireVoices) m_audio.Stop(voice);
+	m_fireVoices.clear();
 }
 
 bool DungeonWorld::RemountSconce(int cx, int cz, Direction from, Direction to) {

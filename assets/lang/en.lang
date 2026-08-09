@@ -51,6 +51,7 @@ load.monsters=Waking the monsters
 load.decorations=Dressing the halls
 load.fires=Kindling the fires
 load.dust=Stirring the dust
+load.ambience=Waking the echoes
 load.portraits=Painting the party
 load.hud=Lighting the torches
 load.done=Entering the dungeon...

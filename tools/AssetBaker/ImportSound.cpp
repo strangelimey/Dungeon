@@ -301,6 +301,109 @@ void Trim(Buffer& b) {
 			  b.frames(), (frames - b.frames()) * 1000.0f / b.rate);
 }
 
+// ---------------------------------------------------------------------------
+// Making a loop
+// ---------------------------------------------------------------------------
+
+// RMS over a window, in the units the level checks use.
+double WindowRms(const Buffer& b, size_t firstFrame, size_t frames) {
+	const size_t end = std::min(firstFrame + frames, b.frames());
+	if (end <= firstFrame) return 0.0;
+	double sum = 0.0;
+	for (size_t f = firstFrame; f < end; ++f)
+		for (u32 c = 0; c < b.channels; ++c) {
+			const double v = b.s[f * b.channels + c];
+			sum += v * v;
+		}
+	return std::sqrt(sum / ((end - firstFrame) * b.channels));
+}
+
+// Where to cut from, when the caller doesn't say. A field recording is not
+// uniform — it opens with the recordist settling, it has the one dramatic event
+// the library was sold on, and it has the long stretch of ordinary material in
+// between. A BED wants the ordinary stretch, so the candidate whose RMS sits
+// closest to the whole file's is chosen: not the loudest, not the quietest, the
+// most typical. It is a cheap heuristic and it is meant to be overridden by ear.
+size_t PickLoopStart(const Buffer& b, size_t loopFrames, size_t needFrames) {
+	if (b.frames() <= needFrames) return 0;
+	const double target = WindowRms(b, 0, b.frames());
+	const size_t last = b.frames() - needFrames;
+	const size_t stride = std::max<size_t>(loopFrames / 8, 1);
+
+	size_t best = 0;
+	double bestErr = 1e30;
+	for (size_t start = 0; start <= last; start += stride) {
+		const double err = std::abs(WindowRms(b, start, loopFrames) - target);
+		if (err < bestErr) {
+			bestErr = err;
+			best = start;
+		}
+	}
+	return best;
+}
+
+// Cut a segment and CROSSFADE its tail onto its head so it wraps seamlessly.
+//
+// This is the one place the module repairs rather than reports, and the reason
+// is that the material is different in kind. Crossfading something authored
+// seamless would smear it — but a field recording has no seam to preserve, and
+// ambience is stochastic, so a quarter-second equal-power blend of two arbitrary
+// moments of the same room is inaudible. It is how every ambient bed is made.
+//
+// EQUAL POWER, not linear: the two sides are uncorrelated, so their powers add
+// while their amplitudes do not. A linear fade would dip ~3 dB in the middle of
+// every wrap — a slow breathing pulse once per cycle, which is exactly the kind
+// of defect that is maddening to find later because it is not a click.
+Buffer MakeLoop(const Buffer& in, float seconds, float fromSeconds, float fadeMs,
+				const std::string& label) {
+	const size_t loopFrames = static_cast<size_t>(seconds * in.rate);
+	size_t fadeFrames = static_cast<size_t>(fadeMs * 0.001f * in.rate);
+	if (loopFrames < 2 || in.frames() < loopFrames + fadeFrames) {
+		log::Warn("{}: source is {:.1f}s — too short for a {:.1f}s loop plus its "
+				  "crossfade. Using the whole thing.",
+				  label, in.seconds(), seconds);
+		return in;
+	}
+	fadeFrames = std::min(fadeFrames, loopFrames / 2);
+
+	const size_t need = loopFrames + fadeFrames;
+	const size_t start = fromSeconds >= 0.0f
+							 ? std::min(static_cast<size_t>(fromSeconds * in.rate),
+										in.frames() - need)
+							 : PickLoopStart(in, loopFrames, need);
+
+	Buffer out;
+	out.channels = in.channels;
+	out.rate = in.rate;
+	out.s.assign(loopFrames * in.channels, 0.0f);
+
+	for (size_t f = 0; f < loopFrames; ++f)
+		for (u32 c = 0; c < in.channels; ++c)
+			out.s[f * out.channels + c] = in.s[(start + f) * in.channels + c];
+
+	// Blend the material that FOLLOWS the loop over the loop's opening, so the
+	// last sample runs into the first without a step.
+	for (size_t f = 0; f < fadeFrames; ++f) {
+		const float t = static_cast<float>(f) / fadeFrames;
+		const float rising = std::sin(t * 1.5707963f);
+		const float falling = std::cos(t * 1.5707963f);
+		for (u32 c = 0; c < in.channels; ++c) {
+			const float head = in.s[(start + f) * in.channels + c];
+			const float tail = in.s[(start + loopFrames + f) * in.channels + c];
+			out.s[f * out.channels + c] = head * rising + tail * falling;
+		}
+	}
+
+	const double whole = WindowRms(in, 0, in.frames());
+	const double cut = WindowRms(out, 0, out.frames());
+	log::Info("  loop: {:.1f}s cut at {:.1f}s, {:.0f}ms equal-power crossfade "
+			  "(segment is {:+.1f} dB against the whole recording)",
+			  seconds, static_cast<float>(start) / in.rate,
+			  static_cast<float>(fadeFrames) * 1000.0f / in.rate,
+			  Dbfs(static_cast<float>(cut)) - Dbfs(static_cast<float>(whole)));
+	return out;
+}
+
 // A loop's seam is the join from its last sample back to its first. Measure the
 // step across that join against the signal's own typical sample-to-sample step:
 // a seamless loop's seam is unremarkable, a bad one is a discontinuity an order
@@ -398,6 +501,12 @@ bool ImportOne(const std::filesystem::path& src, const std::string& outPath,
 		log::Info("  resample: {} -> {} Hz", b.rate, opts.rate);
 		b = Resample(b, opts.rate);
 	}
+	// Cut the loop after resampling, so the crossfade is computed at the rate
+	// the file will actually play at, and before levelling, so normalization
+	// measures the loop rather than the recording it came from.
+	if (opts.loopSeconds > 0.0f)
+		b = MakeLoop(b, opts.loopSeconds, opts.loopFromSeconds, opts.loopFadeMs, label);
+
 	if (opts.trim && !opts.loop) Trim(b);
 
 	// REFUSE to write silence. There is no legitimate silent asset, and every

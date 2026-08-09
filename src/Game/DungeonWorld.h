@@ -1754,6 +1754,16 @@ private:
 	void BuildFires();
 	void BuildTurbidityMap();
 	void RebuildFiresAndDust(); // WaitIdle + rebuild fires + dust (live sconce edits)
+
+public:
+	// Restart the level bed and the per-fire loops. Called after the fire set
+	// changes and once the level has finished loading; StopAmbience is also the
+	// teardown a level swap needs, since a looping voice outlives everything
+	// else on its own.
+	void RefreshAmbience();
+	void StopAmbience();
+
+private:
 	// A structural repaint strands whatever occupied the cell: painted solid ⇒
 	// remove the monsters/items/buttons/decorations (and their .ent records)
 	// standing on it; painted open ⇒ re-mount or drop the neighbouring buttons /
@@ -2372,6 +2382,10 @@ private:
 	bool m_surfacesDirty = false;
 
 	std::vector<Fire> m_fires;
+	// Ambience voices. Held rather than fired and forgotten because they LOOP,
+	// and a looping voice never ends by itself — see RefreshAmbience.
+	audio::VoiceHandle m_bedVoice;
+	std::vector<audio::VoiceHandle> m_fireVoices;
 	// Per-fixture flame attachment (fixtures.cat flame_height / flame_scale /
 	// flame_out, defaulting to the procedural meshes' constants) — an authored
 	// replacement prop declares where its fire burns instead of having to be

@@ -348,6 +348,9 @@ private:
 	// The dev console's `sound3d` test emitter. A looping voice holds its slot
 	// until stopped, so exactly one is kept and re-parked rather than layered.
 	audio::VoiceHandle m_testVoice;
+	// Whether the ambience bus is currently up. Tracked so the state test in
+	// Update only reaches into XAudio2 on a real transition, not every frame.
+	bool m_ambienceAudible = false;
 	// Party roster (up to four). Filled once in the constructor and never
 	// resized — the party-bar panels and the sheet hold pointers into it, so
 	// StartNewGame resets the members in place.

@@ -159,7 +159,8 @@ int main(int argc, char** argv) {
 	if (argc >= 2 && std::string(argv[1]) == "import-sound") {
 		if (argc < 5) {
 			log::Error("usage: AssetBaker import-sound <file|folder> <assets-dir> "
-					   "<name> [--stereo] [--ambisonic] [--loop] [--rate Hz] "
+					   "<name> [--stereo] [--ambisonic] [--loop] "
+					   "[--make-loop secs [--from secs] [--fade ms]] [--rate Hz] "
 					   "[--peak dBFS] [--no-normalize] [--no-trim]");
 			return 1;
 		}
@@ -174,6 +175,12 @@ int main(int argc, char** argv) {
 			else if (a == "--rate" && i + 1 < argc)
 				opts.rate = static_cast<u32>(std::stoul(argv[++i]));
 			else if (a == "--peak" && i + 1 < argc) opts.peakDbfs = std::stof(argv[++i]);
+			else if (a == "--make-loop" && i + 1 < argc) {
+				opts.loopSeconds = std::stof(argv[++i]);
+				opts.loop = true; // cutting one implies checking it
+			} else if (a == "--from" && i + 1 < argc)
+				opts.loopFromSeconds = std::stof(argv[++i]);
+			else if (a == "--fade" && i + 1 < argc) opts.loopFadeMs = std::stof(argv[++i]);
 			else log::Warn("Unknown flag {} — ignored", a);
 		}
 		return baker::ImportSound(argv[2], argv[3], argv[4], opts) ? 0 : 1;
