@@ -3,6 +3,7 @@
 // ============================================================================
 #include "Game/DevConsole.h"
 
+#include "Core/Paths.h"
 #include "Core/Profile.h"
 #include "UI/Controls.h" // ui::DrawBorder
 
@@ -148,17 +149,43 @@ DevConsole::DevConsole(ui::FontLibrary& fonts, threads::Manager& threadManager)
 		m_output.clear();
 		m_scroll = 0;
 	});
-	Register("profile", "show/hide the profile panel [on|off]",
+	Register("profile", "profile panel [on|off], or 'profile dump [file]'",
 			 [this](const std::vector<std::string>& args) {
-				 if (!args.empty())
-					 m_showProfile = args[0] != "off" && args[0] != "0";
-				 else
-					 m_showProfile = !m_showProfile;
-				 if constexpr (!prof::kEnabled)
+				 if constexpr (!prof::kEnabled) {
 					 Print("profiling is not compiled in (build debug-profile or "
 						   "release-profile)");
-				 else
+				 } else if (!args.empty() && args[0] == "dump") {
+					 // Beside the exe, next to dungeon.log, for the same reason:
+					 // per-run output, not content.
+					 const std::string name = args.size() > 1 ? args[1] : "trace.json";
+					 const std::string path = paths::ExecutableDir() + "\\" + name;
+					 const prof::TraceStats st = prof::DumpTrace(path.c_str());
+					 if (!st.ok) {
+						 Print("trace dump FAILED (see dungeon.log)");
+					 } else {
+						 Print(std::format("wrote {} events from {} threads over {:.1f} ms",
+										   st.events, st.threads, st.spanMs));
+						 if (st.truncated)
+							 Print(std::format("  {} scopes still open at the dump, closed "
+											   "at the last timestamp",
+											   st.truncated));
+						 if (st.discarded)
+							 Print(std::format("  {} discarded (the ring had wrapped past "
+											   "their opening scope)",
+											   st.discarded));
+						 if (st.overrun)
+							 Print(std::format("  WARNING: {} events overwritten mid-read; "
+											   "freeze the world and dump again",
+											   st.overrun));
+						 Print("  open in Perfetto (ui.perfetto.dev) or speedscope");
+					 }
+				 } else {
+					 if (!args.empty())
+						 m_showProfile = args[0] != "off" && args[0] != "0";
+					 else
+						 m_showProfile = !m_showProfile;
 					 Print(std::format("profile panel {}", m_showProfile ? "on" : "off"));
+				 }
 			 });
 	Register("echo", "echo the arguments", [this](const std::vector<std::string>& args) {
 		std::string line;

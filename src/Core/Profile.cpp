@@ -21,8 +21,11 @@
 
 #include "Core/Log.h"
 
+#include <cstdio>
 #include <cstring>
+#include <format>
 #include <mutex>
+#include <string>
 
 #if DN_PROFILE
 #include <intrin.h>
@@ -90,6 +93,7 @@ void Calibrate() {
 	g_clock.invariantTsc = InvariantTsc();
 	g_clock.ticksPerNs = seconds > 0.0 ? ticks / (seconds * 1e9) : 1.0;
 	g_clock.mhz = g_clock.ticksPerNs * 1000.0;
+	g_clock.epochTsc = t0;
 }
 
 } // namespace
@@ -258,6 +262,112 @@ int SnapshotAll(ThreadReport* out, int capacity) {
 	return written;
 }
 
+// ----------------------------------------------------------------------------
+// Chrome Trace Event JSON. "B"/"E" are begin/end of a duration on one thread,
+// `ts` is microseconds on a shared timeline, and a "M" metadata event names each
+// thread so the viewer shows "ai.bucket0" instead of a number.
+TraceStats DumpTrace(const char* path) {
+	TraceStats stats;
+
+	std::FILE* f = nullptr;
+	if (fopen_s(&f, path, "wb") != 0 || !f) {
+		log::Write(log::Level::Warn, std::format("Profile: cannot write trace to {}", path));
+		return stats;
+	}
+	std::fputs("{\"traceEvents\":[\n", f);
+
+	bool first = true;
+	u64 minTsc = ~0ull, maxTsc = 0;
+
+	std::lock_guard table(g_tableMx);
+	for (u32 i = 0; i < kMaxThreads; ++i) {
+		Slot& s = g_slots[i];
+		if (!s.used) continue;
+		++stats.threads;
+
+		// The window still in the ring: everything from `written - capacity` up,
+		// or from zero if it has not wrapped yet.
+		const u64 written = s.collector.EventsWritten();
+		const u64 oldest = written > kRingEvents ? written - kRingEvents : 0;
+
+		std::fprintf(f,
+					 "%s{\"name\":\"thread_name\",\"ph\":\"M\",\"pid\":1,\"tid\":%u,"
+					 "\"args\":{\"name\":\"%s\"}}",
+					 first ? "" : ",\n", s.osId, s.name);
+		first = false;
+
+		// Replaying needs a stack because an exit event carries no zone — it
+		// closes whatever is innermost. An exit with nothing open is the head of
+		// a wrapped ring: its enter is simply gone, so it is counted and dropped
+		// rather than attributed to the wrong scope.
+		const Zone* open[kMaxDepth];
+		u32 depth = 0;
+
+		for (u64 at = oldest; at < written; ++at) {
+			const Event e = s.collector.EventAt(at);
+			if (e.tsc < minTsc) minTsc = e.tsc;
+			if (e.tsc > maxTsc) maxTsc = e.tsc;
+
+			const f64 us = static_cast<f64>(e.tsc - g_clock.epochTsc) / g_clock.ticksPerNs /
+						   1000.0;
+			if (e.zone) {
+				if (depth < kMaxDepth) open[depth] = e.zone;
+				++depth;
+				std::fprintf(f,
+							 ",\n{\"name\":\"%s\",\"ph\":\"B\",\"ts\":%.3f,\"pid\":1,"
+							 "\"tid\":%u}",
+							 e.zone->name, us, s.osId);
+				++stats.events;
+			} else if (depth > 0) {
+				--depth;
+				std::fprintf(f, ",\n{\"ph\":\"E\",\"ts\":%.3f,\"pid\":1,\"tid\":%u}", us,
+							 s.osId);
+				++stats.events;
+			} else {
+				++stats.discarded; // an exit whose enter had already been overwritten
+			}
+		}
+
+		// Any scope still open at the newest event is mid-flight — the dump is
+		// running INSIDE the frame's own scopes, so on the main thread there are
+		// always a couple. They are closed at the last timestamp seen, because a
+		// bare "B" with no "E" makes the viewer draw a scope running to infinity
+		// and a well-formed file matters more than the last microsecond. Their
+		// durations are therefore a LOWER BOUND, which is what `truncated` says.
+		stats.truncated += depth;
+		for (u32 d = 0; d < depth && d < kMaxDepth; ++d)
+			std::fprintf(f, ",\n{\"ph\":\"E\",\"ts\":%.3f,\"pid\":1,\"tid\":%u}",
+						 static_cast<f64>(maxTsc - g_clock.epochTsc) / g_clock.ticksPerNs /
+							 1000.0,
+						 s.osId);
+
+		// Did that thread lap us while we read? The ring is large and this is
+		// fast, but "probably not" is not a thing to leave unchecked in a tool
+		// whose whole purpose is telling you what really happened.
+		const u64 after = s.collector.EventsWritten();
+		if (after - written >= kRingEvents) stats.overrun += after - written;
+	}
+
+	std::fputs("\n]}\n", f);
+	std::fclose(f);
+
+	stats.ok = true;
+	stats.spanMs = maxTsc > minTsc
+					   ? static_cast<f64>(maxTsc - minTsc) / g_clock.ticksPerNs / 1e6
+					   : 0.0;
+	log::Write(log::Level::Info,
+			   std::format("Profile: wrote {} events from {} threads spanning {:.1f} ms to {}"
+						   "{}{}{}",
+						   stats.events, stats.threads, stats.spanMs, path,
+						   stats.truncated ? std::format(" ({} truncated)", stats.truncated)
+										   : std::string{},
+						   stats.discarded ? std::format(" ({} discarded)", stats.discarded)
+										   : std::string{},
+						   stats.overrun ? std::format(" (OVERRUN {})", stats.overrun)
+										 : std::string{}));
+	return stats;
+}
+
 Clock ClockInfo() { return g_clock; }
 
 #else // !DN_PROFILE
@@ -267,6 +377,7 @@ void RegisterThread(std::string_view) {}
 void UnregisterThisThread() {}
 void PublishThisThread() {}
 int SnapshotAll(ThreadReport*, int) { return 0; }
+TraceStats DumpTrace(const char*) { return {}; }
 Clock ClockInfo() { return {}; }
 
 #endif // DN_PROFILE

@@ -98,6 +98,33 @@ inline constexpr u32 kMaxDepth = 64;   // nesting, per thread
 inline constexpr u32 kInvalidNode = ~0u;
 
 // ----------------------------------------------------------------------------
+// The event ring: the second sink, and the one that can see a HITCH. The tree
+// aggregates, so it can say the average frame spends 4 ms in render and can
+// never say that frame 8412 spent 40. This keeps the raw timeline.
+//
+// ALWAYS RECORDING, and it WRAPS rather than growing — a flight recorder, not a
+// press-record button, because by the time a stutter is noticed it has already
+// happened. Both sinks share the one level gate, so raising a subtree's detail
+// deepens the tree and fattens the ring together.
+//
+// AN EVENT IS 16 BYTES and holds no kind field: a null zone MEANS "exit of the
+// innermost open scope", which the reader is already tracking a stack to know.
+// That buys the packing for free and needs no interning of zone names — the
+// Zones are function-scope statics, so a pointer stays valid for the process and
+// the dump reads the name straight off it.
+struct Event {
+	u64 tsc = 0;
+	const Zone* zone = nullptr; // null = the matching exit
+};
+
+// Per thread. Power of two: the write index is masked, never compared. 64k
+// events is 1 MB a thread — at the frame-landmark level that is a window of
+// tens of seconds, and it SHRINKS as detail is turned up, which is why
+// TraceStats reports the span it actually captured rather than promising one.
+inline constexpr u32 kRingEvents = 65536;
+static_assert((kRingEvents & (kRingEvents - 1)) == 0, "ring capacity must be a power of two");
+
+// ----------------------------------------------------------------------------
 // One node of a thread's call tree. Children hang off firstChild/nextSibling as
 // indices rather than pointers so the whole pool is relocatable and a published
 // copy needs no fix-ups.
@@ -189,6 +216,7 @@ public:
 
 		m_current = node;
 		f.start = __rdtsc();
+		Record(&zone, f.start);
 	}
 
 	void Exit() {
@@ -200,7 +228,9 @@ public:
 		const Frame& f = m_stack[--m_depth];
 		if (f.node == kInvalidNode) return; // gated out or dropped
 
-		const u64 elapsed = __rdtsc() - f.start;
+		const u64 now = __rdtsc();
+		Record(nullptr, now);
+		const u64 elapsed = now - f.start;
 		Node& n = m_nodes[f.node];
 		n.inclusive += elapsed;
 		++n.calls;
@@ -243,11 +273,20 @@ public:
 		m_current = kInvalidNode;
 		m_depth = 0;
 		m_unpushed = 0;
+		m_written.store(0, std::memory_order_relaxed);
 		m_threshold = kDefaultThreshold;
 		m_nodeOverflows = 0;
 		m_depthOverflows = 0;
 		m_periods = 0;
 	}
+
+	// --- ring readout (the dump; see DumpTrace) -----------------------------
+	// Acquire pairs with Record's release store: every event below the returned
+	// index is fully written. Reading is otherwise unsynchronized on purpose —
+	// stopping a thread to read its ring would change the very timings the ring
+	// exists to capture.
+	u64 EventsWritten() const { return m_written.load(std::memory_order_acquire); }
+	const Event& EventAt(u64 index) const { return m_events[index & (kRingEvents - 1)]; }
 
 	u32 Root() const { return m_root; }
 	u64 Periods() const { return m_periods; }
@@ -260,6 +299,19 @@ private:
 		u64 start = 0;
 		i8 threshold = kDefaultThreshold;
 	};
+
+	// Appends to the ring. Only the owning thread ever writes, so no lock — but
+	// the index is PUBLISHED with a release store so a reader that acquires it
+	// knows every event below it is fully written. On x86 that is a plain store;
+	// it costs nothing and it is the difference between a dump reading whole
+	// events and reading half of one.
+	void Record(const Zone* zone, u64 tsc) {
+		const u64 at = m_written.load(std::memory_order_relaxed);
+		Event& e = m_events[at & (kRingEvents - 1)];
+		e.tsc = tsc;
+		e.zone = zone;
+		m_written.store(at + 1, std::memory_order_release);
+	}
 
 	// Children are a short list and a linear scan over them is cache-friendly,
 	// which is the whole reason the tree is shaped this way rather than hashed.
@@ -292,6 +344,13 @@ private:
 
 	Node m_nodes[kMaxNodes];
 	Frame m_stack[kMaxDepth];
+
+	// The ring, and a monotonic count of everything ever written to it. The count
+	// never wraps (a u64 at even a billion events a second outlives the hardware),
+	// so `written - kRingEvents` is exactly the oldest event still present and a
+	// reader can tell how much history it has without a separate flag.
+	Event m_events[kRingEvents];
+	std::atomic<u64> m_written{0};
 
 	u32 m_nodeCount = 0;
 	u32 m_root = kInvalidNode; // first top-level node; siblings chain from it
@@ -368,11 +427,47 @@ struct ThreadReport {
 // lock briefly and never blocks a thread mid-scope.
 int SnapshotAll(ThreadReport* out, int capacity);
 
+// --- the trace dump ---------------------------------------------------------
+
+struct TraceStats {
+	int threads = 0;
+	u64 events = 0;    // written to the file
+	u64 discarded = 0; // head exits whose opening enter had already been overwritten
+	u64 truncated = 0; // scopes still open at the dump, closed at the last timestamp
+	u64 overrun = 0;   // events a thread overwrote WHILE being read (see below)
+	f64 spanMs = 0.0;  // wall time the trace actually covers
+	bool ok = false;
+};
+
+// Writes every thread's ring to `path` as Chrome Trace Event JSON — the format
+// Perfetto and speedscope both read, so a flame graph and a searchable timeline
+// come for free instead of being a viewer project the size of the profiler.
+//
+// TWO HONEST LIMITS, both reported in TraceStats rather than hidden:
+//
+// A wrapped ring starts MID-FLIGHT, so its oldest events are exits whose enters
+// were overwritten. Those are discarded — an exit arriving with nothing open is
+// counted and dropped, not guessed at. At the other end, the dump runs INSIDE
+// the frame's own scopes, so a few are always still open; those are closed at
+// the last timestamp seen and counted as `truncated`, their durations being a
+// lower bound rather than a fiction.
+//
+// The world is NOT stopped while this reads. A thread writing fast enough could
+// lap the reader; the read is bracketed by the same published index it started
+// from, so an overrun is DETECTED and counted rather than silently producing a
+// trace with a plausible-looking hole in it. Freezing the editor (its pause
+// button) before dumping avoids it entirely for the main thread.
+TraceStats DumpTrace(const char* path);
+
 // Clock calibration, so a reader converts raw ticks once.
 struct Clock {
 	f64 ticksPerNs = 1.0;
 	f64 mhz = 0.0;
 	bool invariantTsc = false;
+	// TSC at Init. Every thread's events are stamped from the same counter, so
+	// subtracting one epoch is what puts them all on ONE timeline in the trace
+	// rather than four that happen to overlap.
+	u64 epochTsc = 0;
 };
 Clock ClockInfo();
 
