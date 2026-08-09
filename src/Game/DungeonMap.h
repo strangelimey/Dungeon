@@ -423,6 +423,16 @@ public:
 	// Removes the first bore on (x,z). Bumps Revision(); false if none.
 	bool RemoveBoreAt(int x, int z);
 
+	// An `ambient <kind> <x> <z>` record: a place that makes a sound every so
+	// often. No mesh, no light — pure map data (Game/AmbientDirector.h). It may
+	// sit inside solid rock on purpose; a sound with no visible cause is the
+	// whole effect.
+	struct AmbientSpot {
+		std::string kind; // an ambience.cat id
+		int x = 0, z = 0;
+	};
+	const std::vector<AmbientSpot>& AmbientSpots() const { return m_ambientSpots; }
+
 	// Static decoration records (banners, rubble, ...) from the .map file.
 	const std::vector<Entity>& Decorations() const { return m_decorations; }
 	// Replaces the decoration records wholesale. The static-map stash syncs the
@@ -549,6 +559,7 @@ private:
 	std::vector<WallBore> m_bores;
 	std::vector<SurfaceFeature> m_features;
 	std::vector<Entity> m_decorations;
+	std::vector<AmbientSpot> m_ambientSpots;
 	std::vector<StairLink> m_stairs;
 	std::vector<std::string> m_wallPalette;   // catalog ids (walls.cat)
 	std::vector<std::string> m_floorPalette;  // catalog ids (floors.cat)

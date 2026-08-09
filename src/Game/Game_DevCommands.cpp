@@ -431,28 +431,29 @@ void Game::RegisterDevCommands() {
 	// try a number is far too slow to converge. These set the live mix so the
 	// right values can be found in one sitting and then baked in.
 	m_console.Register(
-		"ambience", "bed|fire|reach <value> — tune the ambience mix live",
+		"ambience", "bed|spots|rate <value> - tune the ambient mix live",
 		[this](const std::vector<std::string>& args) {
+			const auto report = [this] {
+				m_console.Print(std::format(
+					"bed {:.2f}  spots x{:.2f}  rate x{:.2f}  ({} spots placed)",
+					m_world.AmbienceBedVolume(), m_world.AmbienceSpotGain(),
+					m_world.AmbienceInterval(), m_world.AmbienceSpotCount()));
+			};
 			if (args.size() < 2) {
-				m_console.Print(std::format("bed {:.2f}  fire {:.2f}  reach {:.2f}x",
-											m_world.AmbienceBedVolume(),
-											m_world.AmbienceFireVolume(),
-											m_world.AmbienceFireReach()));
-				m_console.Print("usage: ambience <bed|fire|reach> <value>");
+				report();
+				m_console.Print("usage: ambience <bed|spots|rate> <value>");
+				m_console.Print("  rate 0.1 fires the palette 10x faster, to audition it");
 				return;
 			}
 			const float v = static_cast<float>(std::atof(args[1].c_str()));
 			if (args[0] == "bed") m_world.SetAmbienceBedVolume(v);
-			else if (args[0] == "fire") m_world.SetAmbienceFireVolume(v);
-			else if (args[0] == "reach") m_world.SetAmbienceFireReach(v);
+			else if (args[0] == "spots") m_world.SetAmbienceSpotGain(v);
+			else if (args[0] == "rate") m_world.SetAmbienceInterval(v);
 			else {
-				m_console.Print("usage: ambience <bed|fire|reach> <value>");
+				m_console.Print("usage: ambience <bed|spots|rate> <value>");
 				return;
 			}
-			m_console.Print(std::format("bed {:.2f}  fire {:.2f}  reach {:.2f}x",
-										m_world.AmbienceBedVolume(),
-										m_world.AmbienceFireVolume(),
-										m_world.AmbienceFireReach()));
+			report();
 		});
 
 	// The ear's A/B for Phase 2. There is no way to eyeball spatialization, and a

@@ -210,7 +210,15 @@ Game::~Game() {
 void Game::BuildBootLoadTasks() {
 	m_loadQueue.Clear();
 	m_loadQueue.SetDoneLabel(loc::Tr("load.done"));
-	m_loadQueue.Add(loc::Tr("load.echoes"), [this] { m_sounds.Load(); }, "sounds");
+	m_loadQueue.Add(loc::Tr("load.echoes"),
+					[this] {
+						m_sounds.Load();
+						// The ambient palette is per PROJECT, not per level, so
+						// it loads once here beside the bank rather than with
+						// each level's spots.
+						m_world.LoadAmbience();
+					},
+					"sounds");
 	m_loadQueue.Add(loc::Tr("load.title_art"), [this] { m_ui.LoadTitleArt(); }, "title art");
 }
 

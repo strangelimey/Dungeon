@@ -321,6 +321,34 @@ DungeonMap::DungeonMap(const std::string& path, FixtureTypes fixtures) {
 			}
 			continue;
 		}
+		if (record.starts_with("ambient")) {
+			// ambient <kind> <x> <z> — a place that makes a sound every so often
+			// (Game/AmbientDirector.h). It has no mesh and no light, so unlike a
+			// fixture it is pure map data; the kind is checked against
+			// ambience.cat by the world, which is what holds the catalog.
+			const std::vector<std::string_view> tok = SplitRecordTokens(record);
+			DN_ASSERT(tok.size() >= 4,
+					  std::format("ambient needs <kind> <x> <z>: \"{}\" in {}", record, path));
+			const auto coord = [&](std::string_view t) {
+				int v = 0;
+				const auto [end, ec] = std::from_chars(t.data(), t.data() + t.size(), v);
+				DN_ASSERT(ec == std::errc{} && end == t.data() + t.size(),
+						  std::format("bad ambient coordinate \"{}\": \"{}\" in {}", t,
+									  record, path));
+				return v;
+			};
+			AmbientSpot spot;
+			spot.kind = std::string(tok[1]);
+			spot.x = coord(tok[2]);
+			spot.z = coord(tok[3]);
+			// Deliberately NOT required to be walkable. A drip belongs inside the
+			// rock as readily as in the room — behind a wall is exactly where an
+			// unexplainable sound should come from.
+			DN_ASSERT(spot.x >= 0 && spot.x < m_width && spot.z >= 0 && spot.z < m_height,
+					  std::format("ambient out of bounds: \"{}\" in {}", record, path));
+			m_ambientSpots.push_back(std::move(spot));
+			continue;
+		}
 		Entity e = ParseEntityRecord(record, path);
 		DN_ASSERT(e.kind == EntityKind::Decoration,
 				  std::format("only decorations are static — move \"{}\" to the .ent file ({})",

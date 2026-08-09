@@ -36,6 +36,12 @@ struct SoundImportOptions {
 	float loopSeconds = 0.0f;
 	float loopFromSeconds = -1.0f; // < 0 = pick the most typical stretch
 	float loopFadeMs = 250.0f;     // equal-power crossfade across the join
+
+	// CLIP one event out of a long recording — the one-shot counterpart to
+	// --make-loop. A drip is an event with silence around it, and no loop of
+	// drips can be made to sound like one. Zero = off; used with loopFromSeconds
+	// as the start point.
+	float clipSeconds = 0.0f;
 };
 
 // Imports <src> (a .wav file, or a folder of them) into <assetsDir>/sounds as

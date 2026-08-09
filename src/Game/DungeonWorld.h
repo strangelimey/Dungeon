@@ -19,6 +19,7 @@
 #include "Assets/Model.h"
 #include "Audio/AudioEngine.h"
 #include "Core/Easing.h" // EaseSpan (door + opener motion shaping)
+#include "Game/AmbientDirector.h"
 #include "Game/Balance.h"
 #include "Game/Character.h"
 #include "Game/Combat.h"
@@ -1760,6 +1761,9 @@ public:
 	// changes and once the level has finished loading; StopAmbience is also the
 	// teardown a level swap needs, since a looping voice outlives everything
 	// else on its own.
+	// Loads the project's ambience.cat + its wavs. Once per project, beside
+	// the sound bank — the palette is project data, the SPOTS are per level.
+	void LoadAmbience();
 	void RefreshAmbience();
 	void StopAmbience();
 
@@ -1767,11 +1771,12 @@ public:
 	// these are ear judgements and a re-import per guess is far too slow a loop
 	// to converge in. Whatever they settle at becomes the default here.
 	float AmbienceBedVolume() const { return m_ambBedVolume; }
-	float AmbienceFireVolume() const { return m_ambFireVolume; }
-	float AmbienceFireReach() const { return m_ambFireReach; }
+	float AmbienceSpotGain() const { return m_ambient.GainScale(); }
+	float AmbienceInterval() const { return m_ambient.IntervalScale(); }
+	size_t AmbienceSpotCount() const { return m_ambient.SpotCount(); }
 	void SetAmbienceBedVolume(float v);
-	void SetAmbienceFireVolume(float v);
-	void SetAmbienceFireReach(float v);
+	void SetAmbienceSpotGain(float v);
+	void SetAmbienceInterval(float v);
 
 private:
 	// A structural repaint strands whatever occupied the cell: painted solid ⇒
@@ -2395,14 +2400,11 @@ private:
 	// Ambience voices. Held rather than fired and forgotten because they LOOP,
 	// and a looping voice never ends by itself — see RefreshAmbience.
 	audio::VoiceHandle m_bedVoice;
-	std::vector<audio::VoiceHandle> m_fireVoices;
-	// Starting points, not settled values — tuned by ear through the `ambience`
-	// dev command. The reach multiplies each fire's light radius: a fire you
-	// cannot see the glow of should not be one you can hear, or a room with
-	// twenty sconces becomes one undifferentiated wash of crackle.
-	float m_ambBedVolume = 0.30f;
-	float m_ambFireVolume = 0.30f;
-	float m_ambFireReach = 0.9f;
+	AmbientDirector m_ambient;
+	// The bed is a FLOOR, not the content — off by default per level, and quiet
+	// where a level does ask for one. Everything the player actually notices is
+	// a spot, scheduled by the director with silence around it.
+	float m_ambBedVolume = 0.22f;
 	// Per-fixture flame attachment (fixtures.cat flame_height / flame_scale /
 	// flame_out, defaulting to the procedural meshes' constants) — an authored
 	// replacement prop declares where its fire burns instead of having to be

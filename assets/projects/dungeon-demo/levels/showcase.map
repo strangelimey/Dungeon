@@ -259,3 +259,8 @@ decoration ceiling_beam 13 12 south
 decoration ceiling_beam 14 12 south
 decoration hanging_chain 12 13 south
 decoration hanging_chain 14 13 south
+ambient drip 12 18
+ambient drip 13 17
+ambient clank 24 8
+ambient sigh 8 5
+ambient groan 19 14

@@ -179,7 +179,9 @@ int main(int argc, char** argv) {
 			else if (a == "--make-loop" && i + 1 < argc) {
 				opts.loopSeconds = std::stof(argv[++i]);
 				opts.loop = true; // cutting one implies checking it
-			} else if (a == "--from" && i + 1 < argc)
+			} else if (a == "--clip" && i + 1 < argc)
+				opts.clipSeconds = std::stof(argv[++i]);
+			else if (a == "--from" && i + 1 < argc)
 				opts.loopFromSeconds = std::stof(argv[++i]);
 			else if (a == "--fade" && i + 1 < argc) opts.loopFadeMs = std::stof(argv[++i]);
 			else log::Warn("Unknown flag {} — ignored", a);

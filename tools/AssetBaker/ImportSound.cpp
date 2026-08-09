@@ -440,6 +440,52 @@ Buffer MakeLoop(const Buffer& in, float seconds, float fromSeconds, float fadeMs
 	return out;
 }
 
+// Cut a single event out of a long recording.
+//
+// The counterpart to MakeLoop, and the two exist because ambience comes in two
+// kinds that cannot substitute for each other. A bed is a texture with no
+// beginning; an EVENT is a thing that happens, and the silence around it is
+// half of what it is. No loop of drips will ever sound like one drip.
+//
+// The edges get a short fade rather than a hard cut. A recording is never at
+// zero where the knife lands, and a step from silence to mid-signal is a click
+// that the ear hears as part of the sound — a drip that starts with a tick.
+Buffer Clip(const Buffer& in, float fromSeconds, float seconds, const std::string& label) {
+	const size_t start =
+		std::min(static_cast<size_t>(std::max(fromSeconds, 0.0f) * in.rate), in.frames());
+	const size_t want = static_cast<size_t>(seconds * in.rate);
+	const size_t count = std::min(want, in.frames() - start);
+	if (count < 2) {
+		log::Warn("{}: nothing at {:.2f}s in a {:.2f}s recording", label, fromSeconds,
+				  in.seconds());
+		return in;
+	}
+	if (count < want)
+		log::Warn("{}: only {:.2f}s available from {:.2f}s", label,
+				  static_cast<float>(count) / in.rate, fromSeconds);
+
+	Buffer out;
+	out.channels = in.channels;
+	out.rate = in.rate;
+	out.s.assign(count * in.channels, 0.0f);
+	for (size_t f = 0; f < count; ++f)
+		for (u32 c = 0; c < in.channels; ++c)
+			out.s[f * out.channels + c] = in.s[(start + f) * in.channels + c];
+
+	const auto edge = std::min<size_t>(static_cast<size_t>(0.005f * in.rate), count / 4);
+	for (size_t f = 0; f < edge; ++f) {
+		const float g = static_cast<float>(f) / edge;
+		for (u32 c = 0; c < out.channels; ++c) {
+			out.s[f * out.channels + c] *= g;
+			out.s[(count - 1 - f) * out.channels + c] *= g;
+		}
+	}
+	log::Info("  clip: {:.2f}s from {:.2f}s ({:.0f}ms edge fades)",
+			  static_cast<float>(count) / in.rate, fromSeconds,
+			  static_cast<float>(edge) * 1000.0f / in.rate);
+	return out;
+}
+
 // A loop's seam is the join from its last sample back to its first. Measure the
 // step across that join against the signal's own typical sample-to-sample step:
 // a seamless loop's seam is unremarkable, a bad one is a discontinuity an order
@@ -540,7 +586,9 @@ bool ImportOne(const std::filesystem::path& src, const std::string& outPath,
 	// Cut the loop after resampling, so the crossfade is computed at the rate
 	// the file will actually play at, and before levelling, so normalization
 	// measures the loop rather than the recording it came from.
-	if (opts.loopSeconds > 0.0f)
+	if (opts.clipSeconds > 0.0f)
+		b = Clip(b, std::max(opts.loopFromSeconds, 0.0f), opts.clipSeconds, label);
+	else if (opts.loopSeconds > 0.0f)
 		b = MakeLoop(b, opts.loopSeconds, opts.loopFromSeconds, opts.loopFadeMs, label);
 
 	if (opts.trim && !opts.loop) Trim(b);

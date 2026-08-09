@@ -376,6 +376,10 @@ void DungeonWorld::Update(const Input& input, float dt, float time, bool acceptI
 	m_projectiles.Update(dt); // fly bolts, resolve impacts/fizzles via the hooks
 	UpdateLights(time);
 	UpdateCamera();
+	// Fire whatever ambient spot is due. AFTER UpdateCamera so a sound that
+	// starts this frame is spatialized against where the listener actually is,
+	// not where it was — at a walking pace that is a whole cell of error.
+	m_ambient.Update(dt, m_audio);
 
 	// Advance the fires and gather their particles, sorted back-to-front so
 	// the alpha-blended smoke composites correctly (additive flames are
@@ -1322,6 +1326,8 @@ void DungeonWorld::RebuildFiresAndDust() {
 // holds its voice until something stops it. Nothing else will. A level swap
 // that simply forgot these handles would leave the previous level audible
 // underneath the new one, one more layer per swap, until the pool ran out.
+void DungeonWorld::LoadAmbience() { m_ambient.Load(m_project, m_audio); }
+
 void DungeonWorld::RefreshAmbience() {
 	StopAmbience();
 
@@ -1336,39 +1342,20 @@ void DungeonWorld::RefreshAmbience() {
 		m_bedVoice = m_audio.Play(m_sounds.ambDungeon, bed);
 	}
 
-	if (m_sounds.fireLoop.samples.empty()) return;
-	m_fireVoices.reserve(m_fires.size());
+	// Everything else the level sounds like is a SPOT, scheduled by the director
+	// rather than started here — the placed `ambient` records, plus one per lit
+	// fire. Fires stay continuous because a fire genuinely is; what was wrong
+	// before was twenty of them audible at once, which the kind's short reach
+	// (ambience.cat) is what fixes.
+	m_ambient.Clear(m_audio);
+	for (const DungeonMap::AmbientSpot& spot : m_map.AmbientSpots()) {
+		if (!m_ambient.AddSpot(spot.kind, m_map.CellCenter(spot.x, spot.z, 1.2f)))
+			log::Warn("ambient spot at {},{} names unknown kind '{}'", spot.x, spot.z,
+					  spot.kind);
+	}
 	for (const Fire& fire : m_fires) {
 		if (!fire.lit) continue; // an unlit brazier is cold, not quiet-burning
-
-		audio::Emitter emitter;
-		emitter.position = fire.flamePos;
-		// Roughly the light's reach: a fire you cannot see the glow of should
-		// not be one you can hear, or a big room turns into a wash of crackle.
-		emitter.minDistance = 0.8f;
-		emitter.maxDistance = fire.lightRadius * m_ambFireReach;
-
-		audio::PlayParams params;
-		params.bus = audio::Bus::Ambience;
-		params.loop = true;
-		// A brazier is the bigger fire, but only by a little: twenty of these
-		// are audible at once in the showcase level, so the per-fire level is
-		// really a budget divided among them rather than one sound's volume.
-		params.volume = m_ambFireVolume * (fire.brazier ? 1.3f : 1.0f);
-		// Detune each one. Identical loops at identical rates PHASE against each
-		// other — two sconces in a corridor beat in and out audibly, and a row of
-		// them combs. On a crackle a few percent reads as different fires rather
-		// than as detuning, so it is free.
-		//
-		// The spread is by the golden ratio rather than by a small modulus,
-		// because a level here can carry twenty fires (the showcase has 18
-		// sconces and 2 braziers): `% 4` would have made five exact twins of each
-		// pitch, which is the very thing this avoids. Fractional golden steps
-		// never repeat and stay maximally separated at any count.
-		constexpr float kPhi = 0.6180339887f;
-		const float spread = std::fmod(m_fireVoices.size() * kPhi, 1.0f);
-		params.pitch = 0.93f + 0.14f * spread;
-		m_fireVoices.push_back(m_audio.Play(m_sounds.fireLoop, params));
+		m_ambient.AddSpot("fire", fire.flamePos);
 	}
 }
 
@@ -1380,27 +1367,22 @@ void DungeonWorld::SetAmbienceBedVolume(float v) {
 	m_audio.SetVolume(m_bedVoice, m_ambBedVolume);
 }
 
-void DungeonWorld::SetAmbienceFireVolume(float v) {
-	m_ambFireVolume = std::clamp(v, 0.0f, 1.0f);
-	size_t i = 0;
-	for (const Fire& fire : m_fires) {
-		if (!fire.lit) continue;
-		if (i >= m_fireVoices.size()) break;
-		m_audio.SetVolume(m_fireVoices[i++],
-						  m_ambFireVolume * (fire.brazier ? 1.3f : 1.0f));
-	}
+void DungeonWorld::SetAmbienceSpotGain(float v) {
+	m_ambient.SetGainScale(std::clamp(v, 0.0f, 4.0f));
+	RefreshAmbience(); // a live one-shot has already been rolled at its old gain
 }
 
-void DungeonWorld::SetAmbienceFireReach(float v) {
-	m_ambFireReach = std::clamp(v, 0.05f, 5.0f);
-	RefreshAmbience(); // falloff is fixed at Play, so these have to be restarted
+void DungeonWorld::SetAmbienceInterval(float v) {
+	// Below 1 the palette fires faster than authored. Not a mix control — a way
+	// to audition a set of sounds without sitting through its real pacing, which
+	// at 15-40 seconds a spot is otherwise a long wait per judgement.
+	m_ambient.SetIntervalScale(std::clamp(v, 0.02f, 10.0f));
 }
 
 void DungeonWorld::StopAmbience() {
 	m_audio.Stop(m_bedVoice);
 	m_bedVoice = {};
-	for (const audio::VoiceHandle& voice : m_fireVoices) m_audio.Stop(voice);
-	m_fireVoices.clear();
+	m_ambient.Clear(m_audio);
 }
 
 bool DungeonWorld::RemountSconce(int cx, int cz, Direction from, Direction to) {

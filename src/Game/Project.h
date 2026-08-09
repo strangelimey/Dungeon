@@ -46,6 +46,9 @@ struct Project {
 	// effect id — numbers and look only. An effect's identity and behaviour
 	// are its class (Game/Effect/), exactly like a spell's.
 	Catalog effects;
+	// Ambient sound kinds: intermittent one-shots placed per level by an
+	// `ambient <id> <x> <z>` record. See Game/AmbientDirector.h.
+	Catalog ambience;
 	Catalog wallfeatures; // recessed wall niches (Phase 2)
 	// The same idea laid flat, pointing down or up: a tile stamped IN PLACE OF a
 	// cell's FLOOR or CEILING block, carrying a recess sunk into it or a vault

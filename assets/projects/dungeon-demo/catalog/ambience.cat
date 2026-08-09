@@ -1,0 +1,60 @@
+; ambience.cat — ambient sound kinds.
+;
+; THE UNIT OF AMBIENCE IS AN EVENT WITH SILENCE AROUND IT, not a layer. A
+; continuous background can only ever be a wash, however quiet it is: it has
+; already spent the silence that makes a drip land. So most entries here are
+; INTERMITTENT one-shots, and `loop = 1` is the exception for the few things
+; that genuinely never stop (a fire).
+;
+; Placed per level by an `ambient <id> <x> <z>` record in the .map.
+;
+; Fields:
+;   sound     the wav stem in assets/sounds (no extension)
+;   variants  N -> <sound>_1..N are picked at random instead of <sound>
+;   interval  min max seconds between firings (ignored when loop = 1)
+;   gain      min max volume 0..1, rolled per firing
+;   pitch     min max playback ratio, rolled per firing — the cheapest way to
+;             stop a repeated sample from reading as a repeated sample
+;   reach     metres at which it becomes inaudible (a cell is 2.5 m)
+;   loop      1 = continuous rather than intermittent
+
+[drip]
+display = Dripping water
+sound = amb_drip
+interval = 14 38
+gain = 0.35 0.6
+pitch = 0.88 1.12
+reach = 13
+
+[sigh]
+display = Distant sigh
+sound = amb_sigh
+interval = 25 70
+gain = 0.25 0.45
+pitch = 0.94 1.06
+reach = 18
+
+[groan]
+display = Settling stone
+sound = amb_groan
+interval = 30 90
+gain = 0.3 0.5
+pitch = 0.9 1.1
+reach = 20
+
+[clank]
+display = Distant metal
+sound = amb_clank
+interval = 20 55
+gain = 0.25 0.45
+pitch = 0.85 1.15
+reach = 16
+
+; The honest exception: a fire really does crackle without stopping. Twenty
+; audible at once was the fault, not looping — hence the short reach.
+[fire]
+display = Fire
+sound = fire_loop
+loop = 1
+gain = 0.3 0.3
+reach = 6

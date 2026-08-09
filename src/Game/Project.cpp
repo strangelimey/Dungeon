@@ -38,6 +38,7 @@ const CatalogSlot kCatalogs[] = {
 	{"attacks.cat", &Project::attacks, "Attacks: per-melee-verb numbers (damage/accuracy/speed multipliers); identity (damage type) is C++ (Balance.h)."},
 	{"balance.cat", &Project::balance, "Balance: the attack-formula knob sheet ([formula] block; docs/combat.md)."},
 	{"effects.cat", &Project::effects, "Status effects: display name/icon/stacking per effect id; identity and behaviour are C++ (Game/Effect/)."},
+	{"ambience.cat", &Project::ambience, "Ambient sound kinds: intermittent placed one-shots (interval/gain/pitch/reach). The unit of ambience is an EVENT with silence around it, not a layer."},
 	{"wallfeatures.cat", &Project::wallfeatures, "Wall features: recessed niches carved into a wall panel."},
 	{"surfacefeatures.cat", &Project::surfacefeatures, "Surface features: a tile stamped in place of a cell's floor or ceiling block (the wall-niche idea, laid flat). `surface` picks which."},
 	{"imports.cat", &Project::imports,
@@ -136,7 +137,7 @@ std::vector<const Catalog*> Project::AllCatalogs() const {
 	// if a category is added there, add it here.
 	return {&walls,  &floors,  &ceilings, &decorations,  &fixtures,
 			&monsters, &doors, &stairs,   &buttons,      &items,
-			&weapons, &armor,  &spells,   &effects,      &attacks,
+			&weapons, &armor,  &spells,   &effects,      &ambience,     &attacks,
 			&balance, &wallfeatures, &surfacefeatures};
 }
 
