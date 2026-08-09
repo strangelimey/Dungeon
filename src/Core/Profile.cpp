@@ -146,22 +146,51 @@ void Init() {
 	RegisterThread("main");
 }
 
+namespace {
+
+// Copies a name into a slot's fixed storage and claims it for this thread.
+void ClaimSlot(Slot& s, std::string_view name) {
+	s.used = true;
+	s.live = true;
+	s.osId = GetCurrentThreadId();
+	const size_t n = name.size() < sizeof(s.name) - 1 ? name.size() : sizeof(s.name) - 1;
+	std::memcpy(s.name, name.data(), n);
+	s.name[n] = '\0';
+	t_collector = &s.collector;
+}
+
+} // namespace
+
 void RegisterThread(std::string_view name) {
 	if (t_collector) return; // already registered; naming it twice is a no-op
 
 	std::lock_guard lock(g_tableMx);
+
+	// A dormant slot of the same name first: this is a worker being rebooted, and
+	// reusing its slot is what stops Restart (and the supervisor's automatic
+	// reboot of a stalled worker) from exhausting the table. Only a slot whose
+	// thread UNREGISTERED is eligible — one still flagged live belongs either to
+	// a running thread or to a force-killed one whose tree we are keeping.
+	for (u32 i = 0; i < kMaxThreads; ++i) {
+		Slot& s = g_slots[i];
+		if (!s.used || s.live) continue;
+		if (name != s.name) continue;
+
+		std::lock_guard slotLock(s.mx);
+		s.collector.Reset();
+		s.publishedCount = 0;
+		s.publishedRoot = kInvalidNode;
+		s.periods = 0;
+		s.nodeOverflows = 0;
+		s.depthOverflows = 0;
+		ClaimSlot(s, name);
+		return;
+	}
+
 	for (u32 i = 0; i < kMaxThreads; ++i) {
 		Slot& s = g_slots[i];
 		if (s.used) continue;
-
-		s.used = true;
-		s.live = true;
-		s.osId = GetCurrentThreadId();
-		const size_t n = name.size() < sizeof(s.name) - 1 ? name.size() : sizeof(s.name) - 1;
-		std::memcpy(s.name, name.data(), n);
-		s.name[n] = '\0';
-
-		t_collector = &s.collector;
+		ClaimSlot(s, name);
 		return;
 	}
 	// Past capacity we simply do not measure this thread, the same call this
@@ -169,6 +198,22 @@ void RegisterThread(std::string_view name) {
 	log::Write(log::Level::Warn,
 			   std::format("Profile: no free slot for thread '{}' ({} max); not measured",
 						   name, kMaxThreads));
+}
+
+void UnregisterThisThread() {
+	Collector* c = t_collector;
+	if (!c) return;
+
+	std::lock_guard lock(g_tableMx);
+	for (u32 i = 0; i < kMaxThreads; ++i) {
+		Slot& s = g_slots[i];
+		if (&s.collector != c) continue;
+		// `used` stays set and the published tree stays put, so a reader can still
+		// see what this thread was doing when it stopped.
+		s.live = false;
+		break;
+	}
+	t_collector = nullptr;
 }
 
 void PublishThisThread() {
@@ -219,6 +264,7 @@ Clock ClockInfo() { return g_clock; }
 
 void Init() {}
 void RegisterThread(std::string_view) {}
+void UnregisterThisThread() {}
 void PublishThisThread() {}
 int SnapshotAll(ThreadReport*, int) { return 0; }
 Clock ClockInfo() { return {}; }

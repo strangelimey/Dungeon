@@ -5,6 +5,7 @@
 
 #include "Core/AllocTrack.h"
 #include "Core/Log.h"
+#include "Core/Profile.h"
 
 #include <algorithm>
 #include <atomic>
@@ -142,6 +143,11 @@ void Manager::Run(Worker* w, std::stop_token st) {
 	// precisely to hold it. Registering here rather than inside the job keeps the
 	// one-time atexit bookkeeping out of the tick.
 	alloc::RegisterThread(w->name);
+	// And to the profiler, for the same reason and in the same place. Doing it
+	// HERE rather than in any particular client is what makes every managed
+	// thread measured — the AI buckets, the supervisor, a stress worker, and
+	// whatever spawns next — instead of only the ones someone remembered to wire.
+	prof::RegisterThread(w->name);
 #ifdef _WIN32
 	SetThreadPriority(GetCurrentThread(), Win32Priority(w->priority.load()));
 	if (const u64 mask = w->affinity.load())
@@ -163,14 +169,21 @@ void Manager::Run(Worker* w, std::stop_token st) {
 		// Crash capture: one bad tick records its error and the worker keeps
 		// running, instead of an unhandled exception calling std::terminate and
 		// taking the whole process down. (Restart/quarantine policy is a later step.)
-		try {
-			w->job(Tick{st, w->iterations.load(), w->id});
-		} catch (const std::exception& e) {
-			std::lock_guard<std::mutex> lk(w->errMx);
-			w->lastError = e.what();
-		} catch (...) {
-			std::lock_guard<std::mutex> lk(w->errMx);
-			w->lastError = "unknown exception";
+		{
+			// The root of this thread's tree. Named for what it is rather than
+			// for the worker — the thread's name rides the report, and every
+			// worker's tree is its own, so there is nothing to disambiguate.
+			// ScopedZone unwinds correctly if the job throws below.
+			DN_PROFILE_ZONE("tick");
+			try {
+				w->job(Tick{st, w->iterations.load(), w->id});
+			} catch (const std::exception& e) {
+				std::lock_guard<std::mutex> lk(w->errMx);
+				w->lastError = e.what();
+			} catch (...) {
+				std::lock_guard<std::mutex> lk(w->errMx);
+				w->lastError = "unknown exception";
+			}
 		}
 
 		const double ms = ToMs(Clock::now() - t0);
@@ -179,6 +192,12 @@ void Manager::Run(Worker* w, std::stop_token st) {
 		const double a = w->avgMs.load();
 		w->avgMs.store(a <= 0.0 ? ms : a * 0.9 + ms * 0.1); // EMA
 		w->iterations.fetch_add(1);
+
+		// This worker's publish boundary. A worker has no frames — the AI buckets
+		// tick at 251/499/997/1999 ms — so its TICK is the period, and publishing
+		// before the cadence sleep means a console draw sees the tick that just
+		// ran rather than one a second stale.
+		prof::PublishThisThread();
 
 		// Effective cadence = configured hz scaled by the global governor.
 		const float eff = w->hz.load() * m_globalScale.load();
@@ -194,6 +213,11 @@ void Manager::Run(Worker* w, std::stop_token st) {
 			});
 		}
 	}
+	// Frees the profiler slot for a same-named successor (Restart, or the
+	// supervisor rebooting a stalled worker) while leaving its last published
+	// tree readable. A worker that never reaches this line because it was hard
+	// Kill()ed keeps its slot on purpose — see prof::UnregisterThisThread.
+	prof::UnregisterThisThread();
 	w->state.store(State::Dead);
 }
 

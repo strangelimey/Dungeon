@@ -156,10 +156,15 @@ class Collector {
 public:
 	// --- the hot path -------------------------------------------------------
 	void Enter(const Zone& zone) {
-		// Past the depth limit we still push, so that Exit stays balanced and
-		// the tree does not silently re-root itself mid-frame.
+		// Past the depth limit there is no frame to push into, so the matching
+		// Exit is REMEMBERED instead. Letting it fall through to the normal pop
+		// would consume the parent's frame — the tree would re-root itself
+		// mid-period and every subsequent Exit would be off by one. The count is
+		// exact because these are always the innermost scopes: nothing can nest
+		// below the limit and come back, so their exits arrive first.
 		if (m_depth >= kMaxDepth) {
 			++m_depthOverflows;
+			++m_unpushed;
 			return;
 		}
 
@@ -187,6 +192,10 @@ public:
 	}
 
 	void Exit() {
+		if (m_unpushed > 0) { // matches an Enter the stack had no room for
+			--m_unpushed;
+			return;
+		}
 		if (m_depth == 0) return; // unbalanced; the macros make this unreachable
 		const Frame& f = m_stack[--m_depth];
 		if (f.node == kInvalidNode) return; // gated out or dropped
@@ -223,6 +232,22 @@ public:
 
 	void SetBaseThreshold(i8 level) { m_threshold = level; }
 	i8 BaseThreshold() const { return m_threshold; }
+
+	// Drops the tree and every counter. Used when a slot is handed to a rebooted
+	// worker, so its predecessor's numbers do not bleed into the new one. Only
+	// the bookkeeping is cleared: the node array keeps whatever it held, which
+	// nothing can reach with m_nodeCount back at zero.
+	void Reset() {
+		m_nodeCount = 0;
+		m_root = kInvalidNode;
+		m_current = kInvalidNode;
+		m_depth = 0;
+		m_unpushed = 0;
+		m_threshold = kDefaultThreshold;
+		m_nodeOverflows = 0;
+		m_depthOverflows = 0;
+		m_periods = 0;
+	}
 
 	u32 Root() const { return m_root; }
 	u64 Periods() const { return m_periods; }
@@ -272,6 +297,7 @@ private:
 	u32 m_root = kInvalidNode; // first top-level node; siblings chain from it
 	u32 m_current = kInvalidNode;
 	u32 m_depth = 0;
+	u32 m_unpushed = 0; // Enters past kMaxDepth, awaiting their Exits
 	i8 m_threshold = kDefaultThreshold;
 
 	u64 m_nodeOverflows = 0;
@@ -297,7 +323,24 @@ void Init();
 // Gives the calling thread a collector. A thread that never registers is simply
 // not measured. Names are copied into fixed storage; registration past
 // kMaxThreads is dropped rather than fatal.
+//
+// A slot left behind by a thread that unregistered is REUSED if the name
+// matches, which is what keeps ThreadManager::Restart from burning a slot per
+// reboot (the supervisor reboots a stalled worker on its own, so this is not a
+// rare path). The reused slot is reset, so a predecessor's numbers cannot bleed
+// into its replacement.
 void RegisterThread(std::string_view name);
+
+// Marks the calling thread's slot dormant, keeping its last published tree
+// readable, and makes the slot available for a same-named successor. Call at
+// the end of a thread that will exit cleanly.
+//
+// A thread that does NOT get here — one force-terminated by ThreadManager::Kill
+// — leaves its slot occupied and still flagged live. That is deliberate: the
+// tree it died holding is the evidence the kill was worth looking at, and with
+// kMaxThreads slots against an engine that runs about six threads there is room
+// to lose a few to quarantine.
+void UnregisterThisThread();
 
 // Publishes the calling thread's tree and starts a new period (see
 // Collector::Publish — frame for the main thread, tick for a worker).
