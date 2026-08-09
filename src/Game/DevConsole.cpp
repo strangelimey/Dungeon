@@ -742,8 +742,17 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 		 srvLive, srvCap, {0.60f, 0.75f, 0.90f, 1.0f}, srvLive / srvCap > 0.9f},
 	};
 
+	// ONE display order for both views, so nothing moves when you toggle between
+	// them. It is not the order the enum declares: filling the two-column grid in
+	// declaration order put CPU beside FPS and RAM beside GPU, pairs that mean
+	// nothing next to each other. Read down the columns it is the two PROCESSORS
+	// side by side and the two MEMORIES side by side, with the frame rate and the
+	// descriptor ceiling — the only two with no natural partner — heading them.
+	constexpr PerfLine kPerfOrder[kPerfLines] = {kFps, kSrv, kGpu, kCpu, kVram, kRam};
+
 	if (!m_perfGraph) {
-		for (int i = 0; i < kPerfLines; ++i) {
+		for (int oi = 0; oi < kPerfLines; ++oi) {
+			const int i = kPerfOrder[oi];
 			const PerfItem& it = items[i];
 			m_font->Draw(batch, it.text, labelX, y,
 						it.warn ? kWarn : (i == kGpu && m.gpuPercent < 0.0f) ? kDim : kText);
@@ -752,22 +761,10 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 			y += line;
 		}
 	} else {
-		// DISPLAY ORDER for the two-column grid, which is not the order the enum
-		// declares. Filling the grid in declaration order put CPU beside FPS and
-		// RAM beside GPU — pairs that mean nothing next to each other. This lays
-		// the rows out as the two PROCESSORS side by side and the two MEMORIES
-		// side by side, with the frame rate and the descriptor ceiling (the only
-		// two with no partner) heading their columns.
-		//
-		// The bar view keeps the declaration order: it is a single column, so
-		// "beside" does not arise there and CPU/GPU and RAM/VRAM already fall
-		// adjacent vertically.
-		constexpr PerfLine kGraphOrder[kPerfLines] = {kFps, kSrv, kGpu, kCpu, kVram, kRam};
-
 		const float pgw = (width - pad * 6.0f) * 0.5f;
 		int shown = 0;
 		for (int oi = 0; oi < kPerfLines; ++oi) {
-			const int i = kGraphOrder[oi];
+			const int i = kPerfOrder[oi];
 			if (m_perfHidden[i]) continue;
 			const PerfItem& it = items[i];
 			const int col = shown % 2, gr = shown / 2;
@@ -786,7 +783,7 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 		// The hidden ones, one line each, still checkable — in the same display
 		// order, so a graph reappears where you would look for it.
 		for (int oi = 0; oi < kPerfLines; ++oi) {
-			const int i = kGraphOrder[oi];
+			const int i = kPerfOrder[oi];
 			if (!m_perfHidden[i]) continue;
 			const float cw = checkbox(pad * 2.0f, y, false, i, 0, 0);
 			m_font->Draw(batch, items[i].text, pad * 2.0f + cw, y, kDim);
