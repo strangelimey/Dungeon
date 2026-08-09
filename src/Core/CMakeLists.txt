@@ -3,6 +3,7 @@ add_library(Core STATIC
 	Loc.cpp
 	Log.cpp
 	Paths.cpp
+	Profile.cpp
 	Time.cpp
 	StringUtil.cpp
 	ThreadManager.cpp
