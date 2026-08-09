@@ -82,9 +82,47 @@ private:
 	};
 	std::vector<ThreadHit> m_threadHits;
 
+	// --- profile history, for the graph view --------------------------------
+	// The instantaneous view answers "what is it doing"; this answers "what
+	// CHANGED", which is the question a stutter actually poses. Kept here rather
+	// than in the profiler because it is a presentation concern: the collector
+	// publishes a period and forgets it, and nothing in the engine should carry
+	// screen-history it does not use.
+	//
+	// SAMPLED ON A TIMER, NOT PER FRAME. At 240 fps a per-frame ring would hold
+	// about a second, which is too short to see anything travel across it. Each
+	// slot instead holds the MAXIMUM seen since the last commit — a mean would
+	// average away the one frame that spiked, and that frame is the whole reason
+	// to be looking.
+	static constexpr int kProfHistory = 240;   // samples per series
+	static constexpr int kProfSeries = 32;     // distinct nodes tracked
+	static constexpr float kProfSampleSec = 0.05f; // 240 x 50 ms = 12 s of history
+
+	struct ProfSeries {
+		u32 tid = 0;   // owning thread, half of the stable key
+		u32 node = 0;  // node index within that thread, the other half
+		char name[32] = {};
+		char thread[32] = {};
+		int depth = 0;
+		bool used = false;
+		bool seen = false;  // matched a live node this sample; else it has gone
+		float pending = 0.0f; // max since the last commit
+		float samples[kProfHistory] = {};
+	};
+	ProfSeries m_profSeries[kProfSeries];
+	int m_profSeriesCount = 0;
+	int m_profHead = 0;          // shared write cursor: every series stays aligned
+	float m_profSampleTimer = 0.0f;
+
+	// Accumulates history every frame, open or closed, so switching to the graph
+	// view shows the last twelve seconds rather than starting blank.
+	void SampleProfile(float dt);
+
 	bool m_open = false;
 	bool m_commandsEnabled = true;   // false while a staged load is mid-flight
 	bool m_showProfile = true;       // the profile panel costs real screen height
+	bool m_profileGraph = false;     // list of current values, or scrolling graphs
+	gfx::Rect m_profViewBtn{};       // the list/graph toggle, laid out by Render
 	std::string m_input;             // current edit line
 	std::deque<std::string> m_output; // scrollback (oldest front)
 	std::vector<std::string> m_history;

@@ -10,6 +10,7 @@
 #include <Windows.h> // VK_* codes
 
 #include <algorithm>
+#include <cmath>
 #include <format>
 #include <sstream>
 
@@ -41,9 +42,12 @@ const Vec4 kGaugeBg{0.13f, 0.13f, 0.17f, 1.0f};
 // is fine to reach through: it lives in registry storage until that thread's
 // next publish.
 constexpr int kMaxProfRows = 44;
+constexpr int kMaxGraphs = 12; // two columns of six; past that the panel eats the screen
 
 struct ProfRow {
 	char name[32] = {};
+	u32 tid = 0;  // owning thread + node index: the stable key the graph view
+	u32 node = 0; // uses to follow one measure across frames as the tree grows
 	int depth = 0;
 	double inclMs = 0.0;
 	double exclMs = 0.0;
@@ -77,6 +81,7 @@ int BuildProfileRows(ProfRow* out, int cap) {
 
 		ProfRow& head = out[count++];
 		head.header = true;
+		head.tid = r.osThreadId;
 		CopyName(head.name, r.name);
 		head.periods = r.periods;
 		head.dropped = r.nodeOverflows > 0 || r.depthOverflows > 0;
@@ -108,6 +113,8 @@ int BuildProfileRows(ProfRow* out, int cap) {
 
 			ProfRow& row = out[count++];
 			CopyName(row.name, node.zone ? node.zone->name : "?");
+			row.tid = r.osThreadId;
+			row.node = v.node;
 			row.depth = v.depth;
 			row.inclMs = prof::TicksToMs(node.inclusive, clock);
 			row.exclMs = prof::TicksToMs(node.Exclusive(), clock);
@@ -269,8 +276,73 @@ void DevConsole::Execute(const std::string& line) {
 	Print("unknown command: " + name);
 }
 
+// Same preprocessor split as BuildProfileRows, and for the same reason: a
+// discarded `if constexpr` branch in a non-template is still compiled.
+#if DN_PROFILE
+void DevConsole::SampleProfile(float dt) {
+	ProfRow rows[kMaxProfRows];
+	const int n = BuildProfileRows(rows, kMaxProfRows);
+
+	for (int i = 0; i < m_profSeriesCount; ++i) m_profSeries[i].seen = false;
+
+	const char* thread = "";
+	for (int i = 0; i < n; ++i) {
+		const ProfRow& r = rows[i];
+		if (r.header) {
+			thread = r.name;
+			continue;
+		}
+
+		// Keyed by (thread, node index), NEVER by row position: the tree grows as
+		// detail is raised, and a row-indexed history would smear one measure's
+		// past onto whichever measure inherited its row.
+		ProfSeries* s = nullptr;
+		for (int j = 0; j < m_profSeriesCount; ++j) {
+			ProfSeries& c = m_profSeries[j];
+			if (c.used && c.tid == r.tid && c.node == r.node) {
+				s = &c;
+				break;
+			}
+		}
+		if (!s) {
+			for (int j = 0; j < m_profSeriesCount && !s; ++j)
+				if (!m_profSeries[j].used) s = &m_profSeries[j];
+			if (!s && m_profSeriesCount < kProfSeries) s = &m_profSeries[m_profSeriesCount++];
+			if (!s) continue;  // full; a 33rd measure simply is not graphed
+			*s = ProfSeries{}; // a new measure starts with a blank past, not a stale one
+			s->used = true;
+			s->tid = r.tid;
+			s->node = r.node;
+		}
+		CopyName(s->name, r.name);
+		CopyName(s->thread, thread);
+		s->depth = r.depth;
+		s->pending = std::max(s->pending, static_cast<float>(r.inclMs));
+		s->seen = true;
+	}
+
+	m_profSampleTimer += dt;
+	if (m_profSampleTimer < kProfSampleSec) return;
+	m_profSampleTimer = 0.0f;
+
+	for (int j = 0; j < m_profSeriesCount; ++j) {
+		ProfSeries& s = m_profSeries[j];
+		if (!s.used) continue;
+		s.samples[m_profHead] = s.pending;
+		s.pending = 0.0f;
+		if (!s.seen) s.used = false; // its thread went away; free the slot
+	}
+	m_profHead = (m_profHead + 1) % kProfHistory;
+}
+#else
+void DevConsole::SampleProfile(float) {}
+#endif
+
 void DevConsole::Update(const Input& input, float dt, float windowW, float windowH) {
 	m_perf.Tick(dt);
+	// Every frame, open or closed: switching to the graph view should show the
+	// last twelve seconds, not start blank.
+	SampleProfile(dt);
 	if (!m_open) return;
 
 	m_caretBlink += dt;
@@ -298,6 +370,7 @@ void DevConsole::Update(const Input& input, float dt, float windowW, float windo
 				m_threadMgr.Restart(t.id);
 			}
 		}
+		if (m_profViewBtn.Contains(mx, my)) m_profileGraph = !m_profileGraph;
 	}
 
 	// Typed characters (skip the toggle key so `~`/backtick never self-types).
@@ -379,10 +452,24 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 	// which configs have it.
 	ProfRow profRows[kMaxProfRows];
 	const int profRowCount = m_showProfile ? BuildProfileRows(profRows, kMaxProfRows) : 0;
-	const float profileBlock =
-		!m_showProfile ? 0.0f
-					   : line * 1.4f + rowAdvance * static_cast<float>(
-											prof::kEnabled ? profRowCount : 1);
+
+	// Graph view plots the zone rows only — a thread header has no measure of its
+	// own, and a graph of nothing would just be a flat line taking up a cell.
+	int profGraphCount = 0;
+	for (int i = 0; i < profRowCount; ++i)
+		if (!profRows[i].header) ++profGraphCount;
+	const int graphsShown = std::min(profGraphCount, kMaxGraphs);
+	const int graphRows = (graphsShown + 1) / 2; // two columns
+	const float graphH = line * 3.4f;
+	const float graphGapY = line * 0.4f;
+
+	// Header line + the TSC/toggle line, then the body.
+	const float profileBody =
+		!prof::kEnabled ? rowAdvance
+		: m_profileGraph
+			? static_cast<float>(graphRows) * (graphH + graphGapY)
+			: rowAdvance * static_cast<float>(profRowCount);
+	const float profileBlock = !m_showProfile ? 0.0f : line * 2.4f + profileBody;
 
 	const float panelH = threadsTop + threadsBlock + profileBlock + pad;
 	batch.DrawRect({0, 0, width, panelH}, kPerfBg);
@@ -552,11 +639,93 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 			if (!clock.invariantTsc)
 				m_font->Draw(batch, "NOT INVARIANT - timings may drift", width * 0.28f, py,
 							kWarn);
+
+			// The list/graph toggle. Same idiom as the thread controls: Render
+			// lays the rect out, next frame's Update hit-tests it, so the geometry
+			// lives in exactly one place. The label names the DESTINATION, not the
+			// current state — a button saying "graph" takes you to the graph.
+			{
+				const char* face = m_profileGraph ? " list " : " graph ";
+				const float bw2 = m_font->MeasureWidth(face);
+				m_profViewBtn = {width - pad * 2.0f - bw2, py, bw2, line};
+				batch.DrawRect(m_profViewBtn, kGaugeBg);
+				ui::DrawBorder(batch, m_profViewBtn, kBorder);
+				m_font->Draw(batch, face, m_profViewBtn.x, py, kAccent);
+			}
 			py += line;
 
 			const float indent = m_font->MeasureWidth("  ");
 			const float barX = width * 0.62f;
 			const float barW = width * 0.26f;
+			if (m_profileGraph) {
+				// A line per measure, newest at the RIGHT and scrolling left as
+				// samples commit. Each graph autoscales to its own window, because
+				// a shared scale would flatten every worker into the floor next to
+				// a 4 ms frame; the peak is printed so the scale is never a
+				// mystery. Two columns, oldest-first left to right.
+				const float gw = (width - pad * 6.0f) * 0.5f;
+				const float plotTop = line;         // the label rides above the plot
+				const float plotH = graphH - line;
+				const float stepX = gw / static_cast<float>(kProfHistory - 1);
+
+				// SpriteBatch has no line primitive, so a segment is a thin rect
+				// rotated onto the vector between two samples.
+				auto segment = [&](float x0, float y0, float x1, float y1, const Vec4& c) {
+					const float dx = x1 - x0, dy = y1 - y0;
+					const float len = std::sqrt(dx * dx + dy * dy);
+					if (len < 0.01f) return;
+					batch.DrawRectRotated({(x0 + x1) * 0.5f, (y0 + y1) * 0.5f}, {len, 1.5f},
+										  std::atan2(dy, dx), c);
+				};
+
+				int drawn = 0;
+				const char* curThread = "";
+				for (int i = 0; i < profRowCount && drawn < graphsShown; ++i) {
+					const ProfRow& pr = profRows[i];
+					if (pr.header) {
+						curThread = pr.name;
+						continue;
+					}
+
+					const ProfSeries* ser = nullptr;
+					for (int j = 0; j < m_profSeriesCount; ++j)
+						if (m_profSeries[j].used && m_profSeries[j].tid == pr.tid &&
+							m_profSeries[j].node == pr.node) {
+							ser = &m_profSeries[j];
+							break;
+						}
+
+					const int col = drawn % 2, gr = drawn / 2;
+					const float gx = pad * 2.0f + static_cast<float>(col) * (gw + pad * 2.0f);
+					const float gy = py + static_cast<float>(gr) * (graphH + graphGapY);
+					++drawn;
+
+					batch.DrawRect({gx, gy + plotTop, gw, plotH}, kGaugeBg);
+					ui::DrawBorder(batch, {gx, gy + plotTop, gw, plotH}, kBorder);
+					m_font->Draw(batch, std::format("{}/{}", curThread, pr.name), gx, gy,
+								kText);
+
+					if (!ser) continue;
+					float peak = 0.0f;
+					for (float v : ser->samples) peak = std::max(peak, v);
+					m_font->Draw(batch, std::format("{:.3f} peak {:.3f} ms", pr.inclMs, peak),
+								gx + gw * 0.42f, gy, kDim);
+
+					const float scale = peak > 0.0001f ? peak : 0.0001f;
+					const float base = gy + plotTop + plotH;
+					float lx = gx;
+					float ly = base - (ser->samples[m_profHead] / scale) * plotH;
+					for (int k = 1; k < kProfHistory; ++k) {
+						const float v = ser->samples[(m_profHead + k) % kProfHistory];
+						const float nx = gx + static_cast<float>(k) * stepX;
+						const float ny = base - (v / scale) * plotH;
+						segment(lx, ly, nx, ny, {0.45f, 0.70f, 0.95f, 1.0f});
+						lx = nx;
+						ly = ny;
+					}
+				}
+				py += static_cast<float>(graphRows) * (graphH + graphGapY);
+			} else
 			for (int i = 0; i < profRowCount; ++i) {
 				const ProfRow& pr = profRows[i];
 				if (pr.header) {
