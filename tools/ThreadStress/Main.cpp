@@ -27,6 +27,7 @@
 // no "FORCE-TERMINATED" warning) — it would have risked the deadlock before.
 // ============================================================================
 #include "Game/MonsterAI.h"
+#include "Core/Diagnostics.h"
 #include "Core/Log.h"
 #include "Core/ThreadManager.h"
 
@@ -198,15 +199,48 @@ static void ReportPhase(threads::Manager& mgr, ai::AsyncDirector& dir,
 	}
 }
 
-int main() {
+int main(int argc, char** argv) {
 	// This harness prints em-dashes; a console decodes bytes in its own code
 	// page unless told otherwise (Core/Log.h).
 	dungeon::log::UseUtf8Console();
 	std::setvbuf(stdout, nullptr, _IONBF, 0);
+
+	// --self-test INVERTS THE VERDICT, like AllocTest / Bc7Test / HealthTest: it
+	// plants a worker that CANNOT be stopped cooperatively, so the supervisor's
+	// reboot falls through to TerminateThread — the exact outcome this harness
+	// exists to rule out. The run must come back FAIL. A checker nobody has
+	// watched fail is a checker nobody should trust, and this harness spent a
+	// long time returning 0 unconditionally while a whole phase measured nothing.
+	bool selfTest = false;
+	for (int i = 1; i < argc; ++i)
+		if (std::string(argv[i]) == "--self-test") selfTest = true;
+
 	std::printf("=== Thread-system stress harness =================================\n");
-	std::printf("HW concurrency: %u threads\n\n", std::thread::hardware_concurrency());
+	std::printf("HW concurrency: %u threads\n", std::thread::hardware_concurrency());
+	if (selfTest) std::printf("SELF-TEST: expecting this run to FAIL\n");
+	std::printf("\n");
+
+	// The health record is where the durable evidence of a force-terminate
+	// lives; see the final check.
+	diag::Init();
 
 	threads::Manager mgr;
+
+	if (selfTest) {
+		// Ignores its stop token, so cooperative stop cannot end it. The
+		// supervisor reboots it once its tick passes 5x the watchdog, and the
+		// reboot's 250 ms grace expires, and it is force-terminated.
+		//
+		// Safe to do deliberately: this job only sleeps. It holds no lock and
+		// allocates nothing, so terminating it leaks nothing that matters — the
+		// hazard StopOrTerminate warns about is a thread killed mid-malloc.
+		mgr.Spawn(
+			[](const threads::Tick&) {
+				while (true) std::this_thread::sleep_for(std::chrono::milliseconds(50));
+			},
+			{"stress.wedged", 1.0f, /*watchdogMs=*/200, /*autoRestart=*/true});
+		std::printf("  planted 'stress.wedged' (ignores its stop token)\n\n");
+	}
 	ai::AsyncDirector dir(mgr);
 	threads::WorkerId ids[4];
 	ResolveBuckets(mgr, ids);
@@ -401,8 +435,41 @@ int main() {
 		std::printf("\n");
 	}
 
-	std::printf("=== done — manager teardown joins/terminates all workers ===\n");
-	std::printf("\nthreadstress RESULT=%s checks=%d failures=%d\n",
-				g_failures == 0 ? "PASS" : "FAIL", g_checks, g_failures);
+	// THE DURABLE CHECK, and the one that actually holds the line. The per-phase
+	// scans above read State::Quarantined, which is a state Restart CLEARS on
+	// its way to relaunching — so a worker force-terminated by the supervisor is
+	// back to Running a moment later and the state scan sees nothing. The health
+	// record does not forget: StopOrTerminate writes a Killed event against the
+	// victim's timeline before the flag is cleared, so this is the assertion that
+	// survives the very recovery it is meant to notice.
+	std::printf("--- verdict ---\n");
+	const u64 killed = diag::ProcessTotals().Count(diag::Kind::Killed);
+	Check(killed == 0, "nothing was force-terminated all run (from the health record)");
+	if (killed > 0) {
+		diag::EventView ev[8];
+		diag::Slot slots[8];
+		const int n = diag::ReadAllEvents(ev, 8, slots);
+		diag::ThreadHealth th[diag::kMaxThreads];
+		const int tn = diag::SnapshotThreads(th, diag::kMaxThreads);
+		for (int i = 0; i < n; ++i) {
+			if (ev[i].kind != diag::Kind::Killed) continue;
+			const char* who = "?";
+			for (int j = 0; j < tn; ++j)
+				if (th[j].slot == slots[i]) who = th[j].name;
+			std::printf("      killed: '%s' — %s\n", who, ev[i].message);
+		}
+	}
+
+	std::printf("\n=== done — manager teardown joins/terminates all workers ===\n");
+	std::printf("\nthreadstress RESULT=%s checks=%d failures=%d self_test=%d\n",
+				g_failures == 0 ? "PASS" : "FAIL", g_checks, g_failures,
+				selfTest ? 1 : 0);
+	if (selfTest) {
+		std::printf(g_failures > 0
+						? "SELF-TEST PASSED — the harness caught the force-terminate\n"
+						: "SELF-TEST FAILED — a wedged worker was killed and nothing "
+						  "reported it\n");
+		return g_failures > 0 ? 0 : 1;
+	}
 	return g_failures == 0 ? 0 : 1;
 }

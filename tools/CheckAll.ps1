@@ -59,16 +59,19 @@ $checks = @(
 	@{
 		name = 'diag'; tier = 'quick'
 		what = 'the health record: ring, wrap, cross-thread writes, torn reads'
-		# 2>&1 keeps the tool's own warn lines (which go to stderr) in order with
-		# its stdout; without it they arrive unbuffered AFTER the suite summary
-		# and read like a failure that happened at the end. $LASTEXITCODE is
-		# unaffected by the ErrorRecord wrapping PS 5.1 does here.
-		run  = { & (Join-Path $bin 'DiagTest.exe') 2>&1 | Out-Host; $LASTEXITCODE }
+		# Streams merged by CMD, not by PowerShell. These tools log warnings to
+		# stderr, and without merging they arrive unbuffered AFTER the suite
+		# summary, reading like a late failure. But PowerShell's own `2>&1` wraps
+		# every stderr line in a four-line NativeCommandError banner, which is far
+		# worse than the ordering it fixes. cmd merges before PowerShell ever sees
+		# the stream, so the output is both ordered and clean.
+		run  = { & cmd /c "`"$(Join-Path $bin 'DiagTest.exe')`" 2>&1" | Out-Host; $LASTEXITCODE }
 	},
 	@{
 		name = 'threads'; tier = 'full'
 		what = 'ThreadManager + AI buckets under load: no force-terminate, clean reboots'
-		run  = { & (Join-Path $bin 'ThreadStress.exe') 2>&1 | Out-Host; $LASTEXITCODE }
+		run      = { & cmd /c "`"$(Join-Path $bin 'ThreadStress.exe')`" 2>&1" | Out-Host; $LASTEXITCODE }
+		selfTest = { & cmd /c "`"$(Join-Path $bin 'ThreadStress.exe')`" --self-test 2>&1" | Out-Host; $LASTEXITCODE }
 	},
 	@{
 		name = 'ingame'; tier = 'quick'
