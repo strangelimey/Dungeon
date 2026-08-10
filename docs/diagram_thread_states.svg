@@ -1,0 +1,125 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg viewBox="0 0 760 720" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, -apple-system, Segoe UI, sans-serif" role="img" aria-labelledby="t3 d3">
+<title id="t3">Worker lifecycle states and the control surface</title>
+<desc id="d3">A spawned worker goes Starting then Running, alternating with Sleeping for its cadence and Paused on request. Any stop request moves it to Cancelling, from which it reaches Dead if it stops cooperatively within a 250 millisecond grace, or Quarantined if it must be force-terminated. Restart returns either terminal state to Starting. Stalled is not a stored state but a view derived by Inspect from the heartbeat age. The supervisor reboots stalled auto-restart workers, and Reap drops fully stopped slots.</desc>
+<defs>
+<marker id="a4" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+<path d="M0 0 L10 5 L0 10 z" fill="#6b7280"/>
+</marker>
+<marker id="a4b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+<path d="M0 0 L10 5 L0 10 z" fill="#56a0e3"/>
+</marker>
+<marker id="a4r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+<path d="M0 0 L10 5 L0 10 z" fill="#d06060"/>
+</marker>
+<style>
+.b{rx:9;ry:9;stroke:#cfd8e6;stroke-width:1.4;}
+.f0{fill:#ffffff;}
+.f1{fill:#dceafa;}
+.f2{fill:#f5f8fc;}
+.fr{fill:#fdf2f2;stroke:#d06060;}
+.st{fill:#1f2430;font-size:12.5px;font-weight:700;}
+.anh{fill:#1f2430;font-size:11px;font-weight:700;}
+.s{fill:#6b7280;font-size:10.5px;}
+.m{fill:#1f2430;font-size:10.5px;font-family:ui-monospace,Consolas,monospace;}
+.phase{fill:#56a0e3;font-size:11px;font-weight:700;letter-spacing:.06em;}
+.fl{stroke:#6b7280;stroke-width:1.4;fill:none;marker-end:url(#a4);}
+.flb{stroke:#56a0e3;stroke-width:1.4;fill:none;marker-end:url(#a4b);}
+.flr{stroke:#d06060;stroke-width:1.4;fill:none;marker-end:url(#a4r);}
+.thin{stroke:#cfd8e6;stroke-width:1.1;fill:none;stroke-dasharray:3 3;}
+.lab{fill:#6b7280;font-size:10px;}
+.note{fill:#6b7280;font-size:10.5px;font-style:italic;}
+.ct{fill:#a33;font-size:11px;font-weight:700;}
+</style>
+</defs>
+<rect x="0" y="0" width="760" height="720" fill="#ffffff"/>
+
+<text class="phase" x="40" y="26">LIFECYCLE — the seven stored states</text>
+
+<text class="lab" x="360" y="24">Spawn(job, Options)</text>
+<path class="fl" d="M289 8 L289 34"/>
+
+<rect class="b f2" x="230" y="36" width="118" height="42"/>
+<text class="st" x="289" y="62" text-anchor="middle">Starting</text>
+
+<path class="fl" d="M289 78 L289 106"/>
+
+<rect class="b f1" x="230" y="110" width="118" height="42"/>
+<text class="st" x="289" y="136" text-anchor="middle">Running</text>
+
+<rect class="b f0" x="60" y="196" width="118" height="42"/>
+<text class="st" x="119" y="222" text-anchor="middle">Paused</text>
+
+<rect class="b f0" x="390" y="196" width="118" height="42"/>
+<text class="st" x="449" y="222" text-anchor="middle">Sleeping</text>
+
+<path class="fl" d="M345 148 L393 192"/>
+<path class="fl" d="M392 200 L344 156"/>
+<text class="lab" x="414" y="180">cadence</text>
+
+<path class="fl" d="M233 148 L185 192"/>
+<path class="fl" d="M186 200 L234 156"/>
+<text class="lab" x="72" y="180">Pause / Resume</text>
+
+<path class="fl" d="M289 152 L289 278"/>
+<text class="lab" x="296" y="200">RequestStop · Stop</text>
+<text class="lab" x="296" y="214">Kill · Restart</text>
+
+<rect class="b f2" x="230" y="282" width="118" height="42"/>
+<text class="st" x="289" y="308" text-anchor="middle">Cancelling</text>
+
+<path class="fl" d="M256 324 L190 364"/>
+<path class="flr" d="M322 324 L388 364"/>
+
+<rect class="b f0" x="110" y="368" width="118" height="42"/>
+<text class="st" x="169" y="394" text-anchor="middle">Dead</text>
+
+<rect class="b fr" x="330" y="368" width="140" height="42"/>
+<text class="st" x="400" y="394" text-anchor="middle">Quarantined</text>
+
+<text class="lab" x="120" y="348">stopped in time</text>
+<text class="lab" x="352" y="348">force-terminated</text>
+
+<path class="flb" d="M169 410 L169 434 L36 434 L36 57 L226 57"/>
+<path class="thin" d="M400 412 L400 434 L180 434"/>
+<text class="lab" x="46" y="452">Restart(id) — either terminal state reboots onto the same WorkerId</text>
+
+<path class="thin" d="M348 131 L526 131"/>
+
+<rect class="b f0" x="530" y="96" width="200" height="86"/>
+<text class="anh" x="544" y="116">Stalled is a VIEW</text>
+<text class="s" x="544" y="133">Inspect() overlays it when a tick is</text>
+<text class="s" x="544" y="148">still Running past watchdogMs. The</text>
+<text class="s" x="544" y="163">worker keeps going, and nothing</text>
+<text class="s" x="544" y="178">stores that it ever happened.</text>
+
+<rect class="b f0" x="530" y="196" width="200" height="102"/>
+<text class="anh" x="544" y="216">The supervisor</text>
+<text class="s" x="544" y="233">Its own jthread, started in the</text>
+<text class="s" x="544" y="248">Manager ctor and stopped first in</text>
+<text class="s" x="544" y="263">the dtor. Reboots a Running tick</text>
+<text class="s" x="544" y="278">whose beat exceeds 5 × watchdogMs,</text>
+<text class="s" x="544" y="293">if autoRestart and not userStopped.</text>
+
+<rect class="b f0" x="530" y="312" width="200" height="86"/>
+<text class="anh" x="544" y="332">Reap()</text>
+<text class="s" x="544" y="349">Drops Dead / Quarantined slots</text>
+<text class="s" x="544" y="364">whose thread is truly gone. Ids are</text>
+<text class="s" x="544" y="379">stable, so survivors keep the ones</text>
+<text class="s" x="544" y="394">the console already showed.</text>
+
+<text class="phase" x="40" y="486">THE GRACE — Kill() and Restart() both go through StopOrTerminate(w)</text>
+
+<rect class="b f2" x="40" y="498" width="680" height="96"/>
+<text class="m" x="56" y="520">request_stop()   →   poll state every 2 ms for 250 ms   →   Dead ? join() : TerminateThread + detach</text>
+<line x1="56" y1="534" x2="704" y2="534" stroke="#e6e8ec"/>
+<text class="s" x="56" y="552">A cooperative worker reaches the end of its loop inside the grace and is JOINED — no termination happens on the normal path.</text>
+<text class="s" x="56" y="570">A job that never checks its token cannot be stopped any other way, which is exactly what demo.wedged exists to reproduce.</text>
+<text class="s" x="56" y="586">Restart runs the same path first, so the old thread is entirely gone before the new one touches the Worker — no shared-state race.</text>
+
+<rect class="b fr" x="40" y="606" width="680" height="94"/>
+<text class="ct" x="56" y="626">Why TerminateThread is a genuine last resort</text>
+<text class="s" x="56" y="646">It runs NO unwinding: no destructor, no thread_local teardown, no exit hook — and any lock the job held is leaked forever.</text>
+<text class="s" x="56" y="664">If the thread was mid-allocation (the AI's BFS allocates), the leaked lock is the CRT HEAP LOCK, and the next allocation</text>
+<text class="s" x="56" y="682">anywhere in the process deadlocks. This is also why every registry owns its own storage instead of pointing into TLS.</text>
+</svg>

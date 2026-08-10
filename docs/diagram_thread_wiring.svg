@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg viewBox="0 0 760 700" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, -apple-system, Segoe UI, sans-serif" role="img" aria-labelledby="t1 d1">
+<title id="t1">How a thread is wired into the ThreadManager</title>
+<desc id="d1">Clients call Manager::Spawn with a job and Options to create named workers: AsyncDirector creates four AI buckets, the dev console creates stress workers. The Manager owns a supervisor jthread and a vector of Worker objects addressed by stable WorkerId. On entry every worker thread names itself to the OS and registers with the allocation, profile and diagnostics registries, whose storage is owned by the registry rather than being thread-local so that a force-terminated thread still leaves its evidence behind. The main thread initializes the same registries but is not a managed worker.</desc>
+<defs>
+<marker id="arw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+<path d="M0 0 L10 5 L0 10 z" fill="#6b7280"/>
+</marker>
+<marker id="arwr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+<path d="M0 0 L10 5 L0 10 z" fill="#d06060"/>
+</marker>
+<style>
+.b{rx:9;ry:9;stroke:#cfd8e6;stroke-width:1.4;}
+.fill0{fill:#ffffff;}
+.fill1{fill:#dceafa;}
+.fill2{fill:#f5f8fc;}
+.fillr{fill:#fdf2f2;stroke:#d06060;}
+.t{fill:#1f2430;font-size:13px;font-weight:600;}
+.tt{fill:#1f2430;font-size:12px;font-weight:600;}
+.s{fill:#6b7280;font-size:10.5px;}
+.m{fill:#1f2430;font-size:10.5px;font-family:ui-monospace,Consolas,monospace;}
+.mr{fill:#a33;font-size:10.5px;font-family:ui-monospace,Consolas,monospace;}
+.phase{fill:#56a0e3;font-size:11px;font-weight:700;letter-spacing:.06em;}
+.fl{stroke:#6b7280;stroke-width:1.4;fill:none;marker-end:url(#arw);}
+.flr{stroke:#d06060;stroke-width:1.4;fill:none;marker-end:url(#arwr);stroke-dasharray:4 3;}
+.lab{fill:#6b7280;font-size:10px;font-style:italic;}
+.note{fill:#6b7280;font-size:10.5px;font-style:italic;}
+</style>
+</defs>
+<rect x="0" y="0" width="760" height="700" fill="#ffffff"/>
+
+<text class="phase" x="40" y="26">1 · CLIENTS — everything threaded is a client of the one registry</text>
+
+<rect class="b fill1" x="40" y="38" width="330" height="86"/>
+<text class="tt" x="56" y="58">ai::AsyncDirector</text>
+<text class="m" x="56" y="76">ai.bucket0 .. ai.bucket3</text>
+<text class="s" x="56" y="92">one worker per IQ bucket · 251/499/997/1999 ms</text>
+<text class="s" x="56" y="108">watchdog 100 ms · autoRestart · priority −1</text>
+
+<rect class="b fill1" x="390" y="38" width="330" height="86"/>
+<text class="tt" x="406" y="58">DevConsole — stress workers</text>
+<text class="m" x="406" y="76">demo.worker · demo.wedged</text>
+<text class="s" x="406" y="92">cancellable long tick · one that ignores its token</text>
+<text class="s" x="406" y="108">watchdog 200 ms · the hard-Kill test case</text>
+
+<path class="fl" d="M205 124 L205 160"/>
+<path class="fl" d="M555 124 L555 160"/>
+<text class="lab" x="215" y="146">Spawn(job, Options) → WorkerId</text>
+
+<text class="phase" x="40" y="186">2 · THE MANAGER — owned by Game, declared BEFORE m_world so it outlives every client</text>
+
+<rect class="b fill2" x="40" y="198" width="680" height="168"/>
+
+<rect class="b fill0" x="56" y="216" width="316" height="72"/>
+<text class="tt" x="70" y="236">m_supervisor : std::jthread</text>
+<text class="s" x="70" y="253">polls every 100 ms, in 10 ms stop-checked slices</text>
+<text class="s" x="70" y="269">reboots a Running tick whose beat &gt; 5 × watchdogMs</text>
+<text class="s" x="70" y="283">skips userStopped / non-autoRestart workers</text>
+
+<rect class="b fill0" x="388" y="216" width="316" height="72"/>
+<text class="tt" x="402" y="236">m_workers : vector&lt;unique_ptr&lt;Worker&gt;&gt;</text>
+<text class="s" x="402" y="253">stable WorkerId from m_nextId — NOT the index,</text>
+<text class="s" x="402" y="269">so Reap() can drop dead slots and survivors</text>
+<text class="s" x="402" y="283">keep the ids the console already showed</text>
+
+<line x1="56" y1="302" x2="704" y2="302" stroke="#e6e8ec"/>
+<text class="s" x="70" y="320">m_mx guards the VECTOR STRUCTURE only · per-worker controlMx serialises Stop/Kill/Restart · m_globalScale scales every cadence</text>
+<text class="note" x="70" y="340">Lock order: m_mx → sleepMx. Inspect() and SnapshotAll() read atomics only, so a readout can never block a running worker.</text>
+<text class="note" x="70" y="356">A Worker's std::jthread member is declared LAST, so destruction joins it FIRST — while the fields its loop still touches are alive.</text>
+
+<text class="phase" x="40" y="392">3 · THREAD ENTRY — Manager::Run(w, st), before the first tick</text>
+
+<rect class="b fill0" x="40" y="404" width="330" height="118"/>
+<text class="m" x="56" y="426">SetOsThreadName(w-&gt;name)</text>
+<text class="s" x="56" y="441">debuggers and profilers show the name, not a TID</text>
+<text class="m" x="56" y="463">alloc::RegisterThread(w-&gt;name)</text>
+<text class="m" x="56" y="481">prof::RegisterThread(w-&gt;name)</text>
+<text class="mr" x="56" y="499">diag::RegisterThread(w-&gt;name)</text>
+<text class="s" x="56" y="514">registered HERE, so every managed thread is covered</text>
+
+<path class="fl" d="M370 458 L426 435"/>
+<path class="fl" d="M370 476 L426 485"/>
+<path class="flr" d="M370 496 L426 533"/>
+
+<rect class="b fill0" x="430" y="414" width="290" height="42"/>
+<text class="m" x="444" y="432">alloc  g_entries[64]</text>
+<text class="s" x="444" y="448">constinit — touched from inside operator new</text>
+
+<rect class="b fill0" x="430" y="464" width="290" height="42"/>
+<text class="m" x="444" y="482">prof   slots[16]</text>
+<text class="s" x="444" y="498">a thread holds a POINTER to registry storage</text>
+
+<rect class="b fillr" x="430" y="514" width="290" height="42"/>
+<text class="m" x="444" y="532">diag   ring[N]          ← phase 1</text>
+<text class="s" x="444" y="548">the health record this thread will write into</text>
+
+<text class="note" x="40" y="580">REGISTRY-OWNED STORAGE, never thread_local — and it is a safety property, not tidiness. Kill() force-terminates with</text>
+<text class="note" x="40" y="596">TerminateThread, which runs no destructors and releases the thread's TLS block underneath it. A table of pointers INTO TLS would</text>
+<text class="note" x="40" y="612">be left holding a dangler that the next read follows — in diagnostic code, on the path you reach for when something is already wrong.</text>
+
+<rect class="b fillr" x="40" y="628" width="680" height="56"/>
+<text class="tt" x="56" y="648">The main thread is NOT a managed worker</text>
+<text class="s" x="56" y="666">It calls alloc::Init() and prof::Init() and runs the frame loop itself — no slot, no watchdog, no catch. That is the phase-2 gap.</text>
+</svg>

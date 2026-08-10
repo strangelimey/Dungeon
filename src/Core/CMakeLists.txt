@@ -1,5 +1,6 @@
 add_library(Core STATIC
 	AllocTrack.cpp
+	Diagnostics.cpp
 	Loc.cpp
 	Log.cpp
 	Paths.cpp

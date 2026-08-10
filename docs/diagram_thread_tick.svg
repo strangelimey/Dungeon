@@ -1,0 +1,125 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg viewBox="0 0 760 780" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, -apple-system, Segoe UI, sans-serif" role="img" aria-labelledby="t2 d2">
+<title id="t2">One worker's tick loop inside Manager::Run</title>
+<desc id="d2">The loop a managed worker runs. While no stop is requested it checks for a pause, stamps its heartbeat and marks itself Running, runs one job tick inside a profiler scope and a try-catch, updates its timing statistics, publishes its profile period, then sleeps for its cadence on an interruptible condition variable. On exit it unregisters from the profiler and marks itself Dead. Annotations mark the heartbeat as the only stall signal, and the catch clause as the only thing between a throwing job and std::terminate — a catch that today stores a bare string, overwritten every tick and never logged.</desc>
+<defs>
+<marker id="a3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+<path d="M0 0 L10 5 L0 10 z" fill="#6b7280"/>
+</marker>
+<marker id="a3r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+<path d="M0 0 L10 5 L0 10 z" fill="#d06060"/>
+</marker>
+<style>
+.b{rx:9;ry:9;stroke:#cfd8e6;stroke-width:1.4;}
+.f0{fill:#ffffff;}
+.f1{fill:#dceafa;}
+.f2{fill:#f5f8fc;}
+.fr{fill:#fdf2f2;stroke:#d06060;}
+.t{fill:#1f2430;font-size:12px;font-weight:600;}
+.s{fill:#6b7280;font-size:10.5px;}
+.m{fill:#1f2430;font-size:10.5px;font-family:ui-monospace,Consolas,monospace;}
+.mr{fill:#a33;font-size:10.5px;font-family:ui-monospace,Consolas,monospace;}
+.phase{fill:#56a0e3;font-size:11px;font-weight:700;letter-spacing:.06em;}
+.fl{stroke:#6b7280;stroke-width:1.4;fill:none;marker-end:url(#a3);}
+.thin{stroke:#cfd8e6;stroke-width:1.1;fill:none;stroke-dasharray:3 3;}
+.loop{stroke:#56a0e3;stroke-width:1.4;fill:none;marker-end:url(#a3);}
+.note{fill:#6b7280;font-size:10.5px;font-style:italic;}
+.anh{fill:#1f2430;font-size:11px;font-weight:700;}
+.ct{fill:#a33;font-size:11px;font-weight:700;}
+</style>
+</defs>
+<rect x="0" y="0" width="760" height="780" fill="#ffffff"/>
+
+<text class="phase" x="40" y="26">ONE WORKER — Manager::Run(w, st) · the manager owns the loop</text>
+
+<rect class="b f2" x="40" y="40" width="390" height="520" stroke-dasharray="5 4"/>
+<text class="m" x="54" y="60">while (!st.stop_requested())</text>
+
+<rect class="b f0" x="70" y="72" width="344" height="56"/>
+<text class="t" x="84" y="92">paused?</text>
+<text class="m" x="84" y="110">state = Paused</text>
+<text class="s" x="84" y="124">sleepCv.wait(lk, st, !paused) — held, not joined</text>
+
+<path class="fl" d="M242 128 L242 150"/>
+
+<rect class="b f1" x="70" y="152" width="344" height="56"/>
+<text class="m" x="84" y="172">t0 = Clock::now()</text>
+<text class="m" x="84" y="188">beatNs.store(t0)   state = Running</text>
+<text class="s" x="84" y="202">the heartbeat every stall check reads</text>
+
+<path class="fl" d="M242 208 L242 230"/>
+
+<rect class="b fr" x="70" y="232" width="344" height="104"/>
+<text class="m" x="84" y="252">DN_PROFILE_ZONE("tick")</text>
+<text class="m" x="84" y="270">try   { job(Tick{st, iteration, id}) }</text>
+<text class="m" x="84" y="288">catch (const std::exception&amp; e)</text>
+<text class="m" x="98" y="304">lastError = e.what()</text>
+<text class="m" x="84" y="322">catch (...)  lastError = "unknown"</text>
+
+<path class="fl" d="M242 336 L242 358"/>
+
+<rect class="b f0" x="70" y="360" width="344" height="56"/>
+<text class="m" x="84" y="380">lastMs · maxMs · avgMs = a·0.9 + ms·0.1</text>
+<text class="m" x="84" y="396">iterations.fetch_add(1)</text>
+<text class="s" x="84" y="410">single-writer atomics — Inspect never blocks</text>
+
+<path class="fl" d="M242 416 L242 438"/>
+
+<rect class="b f0" x="70" y="440" width="344" height="40"/>
+<text class="m" x="84" y="460">prof::PublishThisThread()</text>
+<text class="s" x="84" y="474">a worker's PERIOD is its tick — it has no frames</text>
+
+<path class="fl" d="M242 480 L242 496"/>
+
+<rect class="b f1" x="70" y="498" width="344" height="54"/>
+<text class="m" x="84" y="518">eff = hz × m_globalScale</text>
+<text class="m" x="84" y="534">state = Sleeping · wait_for(1/eff, st, pred)</text>
+<text class="s" x="84" y="547">pred: paused || wakeGen != gen</text>
+
+<path class="loop" d="M70 525 L54 525 L54 100 L70 100"/>
+
+<path class="fl" d="M242 560 L242 584"/>
+
+<rect class="b f0" x="70" y="586" width="344" height="44"/>
+<text class="m" x="84" y="606">prof::UnregisterThisThread()</text>
+<text class="m" x="84" y="622">state = Dead</text>
+
+<text class="phase" x="452" y="26">WHAT EACH STEP BUYS</text>
+
+<path class="thin" d="M414 180 L452 180"/>
+<rect class="b f0" x="452" y="152" width="268" height="72"/>
+<text class="anh" x="466" y="172">beatNs is the only stall signal</text>
+<text class="s" x="466" y="189">Inspect derives Stalled from its age vs</text>
+<text class="s" x="466" y="204">watchdogMs; the supervisor reboots past</text>
+<text class="s" x="466" y="219">5×. Nothing records that it happened.</text>
+
+<path class="thin" d="M414 284 L452 284"/>
+<rect class="b fr" x="452" y="236" width="268" height="118"/>
+<text class="ct" x="466" y="256">The whole of today's safety net</text>
+<text class="s" x="466" y="273">This catch is all that stands between a</text>
+<text class="s" x="466" y="288">throwing job and std::terminate taking</text>
+<text class="s" x="466" y="303">the process down. What it keeps:</text>
+<text class="s" x="466" y="320">one string, overwritten every tick,</text>
+<text class="s" x="466" y="335">never logged — no stack, no time, no</text>
+<text class="s" x="466" y="350">iteration, no repeat count.</text>
+
+<path class="thin" d="M414 330 L450 388"/>
+<rect class="b f0" x="452" y="366" width="268" height="56"/>
+<text class="anh" x="466" y="386">ScopedZone unwinds on a throw</text>
+<text class="s" x="466" y="403">The zone closes as the exception passes,</text>
+<text class="s" x="466" y="418">so a throwing tick cannot skew the tree.</text>
+
+<path class="thin" d="M414 524 L452 524"/>
+<rect class="b f0" x="452" y="486" width="268" height="88"/>
+<text class="anh" x="466" y="506">The wake cannot be missed</text>
+<text class="s" x="466" y="523">Control calls flip the atomics UNDER</text>
+<text class="s" x="466" y="538">sleepMx and bump wakeGen, so a worker</text>
+<text class="s" x="466" y="553">between testing the predicate and</text>
+<text class="s" x="466" y="568">waiting still sees the change.</text>
+
+<line x1="40" y1="656" x2="720" y2="656" stroke="#e6e8ec"/>
+<text class="note" x="40" y="678">Cancellation is COOPERATIVE: the stop_token is passed into the job AND into both waits, so a stop wakes the thread instantly</text>
+<text class="note" x="40" y="694">instead of after its cadence. A job that never checks it can only be ended by the hard Kill path — see the state diagram.</text>
+<text class="note" x="40" y="716">The catch FALLS THROUGH rather than skipping ahead, so a tick that threw still stamps its timings and still counts as an</text>
+<text class="note" x="40" y="732">iteration. It is statistically indistinguishable from a healthy one — lastError is the single bit that says otherwise.</text>
+</svg>
