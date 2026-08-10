@@ -46,6 +46,23 @@ static double SinceMs(Clock::time_point t) {
 }
 
 // ---------------------------------------------------------------------------
+// The verdict. This harness used to compute every pass/fail condition below —
+// including the one it exists for, "was the worker force-terminated" — print it
+// as prose, and then `return 0` regardless. A test that cannot fail guards
+// nothing, and this one was in the tree looking like it did. Each condition is
+// now asserted, counted, and rolled into one machine-readable line so a suite
+// can run it unattended.
+// ---------------------------------------------------------------------------
+static int g_checks = 0;
+static int g_failures = 0;
+
+static void Check(bool ok, const char* what) {
+	++g_checks;
+	if (!ok) ++g_failures;
+	std::printf("    [%s] %s\n", ok ? "ok  " : "FAIL", what);
+}
+
+// ---------------------------------------------------------------------------
 // Synthetic world. Build an immutable ai::Snapshot with `counts[b]` monsters in
 // IQ bucket b, on a WxH open map. `reachable=false` walls the party's 8
 // neighbours so the chase target can never be reached => every engaged monster
@@ -98,6 +115,15 @@ BuildSnapshot(int W, int H, const int counts[4], bool reachable) {
 			a.z = z;
 			a.iq = kBucketIq[b];
 			a.aggroRange = 1e9f; // force engage => every monster runs a BFS
+			// AND `aware`, which is what actually makes that true now. This
+			// harness was written when a huge aggroRange was enough; ai::Agent
+			// has since grown a perception model (archetypes, a sight cone,
+			// `directional`), and an UNAWARE directional monster facing yaw 0
+			// must pass the cone test before it engages. Almost none did — so
+			// the load phases were driving 4488 monsters that paid no BFS at
+			// all, at 0.4 ms a tick, while printing a table that looked fine.
+			// Nothing caught it because this harness always returned 0.
+			a.aware = true; // sticky "has noticed the party": engages on range alone
 			snap->monsters.push_back(a);
 			snap->blocked[static_cast<size_t>(z) * W + x] = 1;
 			++placedInB;
@@ -200,6 +226,14 @@ int main() {
 		PhaseStats st;
 		DrivePhase(mgr, dir, ids, snap, secs, st);
 		ReportPhase(mgr, dir, ids, counts, secs, st);
+		// The floor every load phase has to clear: no amount of work may end with
+		// a worker force-terminated. Quarantine means cooperative stop failed,
+		// which is the deadlock hazard this whole design avoids.
+		bool anyQuarantined = false;
+		for (int b = 0; b < 4; ++b)
+			if (mgr.Inspect(ids[b]).state == threads::State::Quarantined)
+				anyQuarantined = true;
+		Check(!anyQuarantined, "no bucket was force-terminated under this load");
 		std::printf("\n");
 	};
 
@@ -273,12 +307,11 @@ int main() {
 		std::printf("  verdict: bucket0 restarts %u->%u, final state '%s', recovery plans/0.8s=%llu\n",
 					reStart, info.restarts, threads::StateName(info.state),
 					static_cast<unsigned long long>(recoverPlans));
-		std::printf("           %s\n",
-					quarantined ? "QUARANTINED — force-terminated (BAD: cooperative stop failed)"
-					: (rebooted && recoverPlans > 0)
-						? "rebooted cleanly + plans resumed — no force-terminate (cooperative stop works)"
-					: rebooted ? "rebooted but no recovery plans (investigate)"
-							   : "never reached the reboot zone (raise the ramp)");
+		// The three facts this phase exists to establish, in order of severity.
+		Check(!quarantined,
+			  "bucket0 was NOT force-terminated (cooperative stop survived the overload)");
+		Check(rebooted, "the ramp reached the reboot zone and the supervisor rebooted it");
+		Check(recoverPlans > 0, "plans resumed after the reboot (the worker really recovered)");
 		std::printf("\n");
 	}
 
@@ -289,20 +322,32 @@ int main() {
 		std::printf("--- E governor throttle under load (map 64x64, reachable) ---\n");
 		int c[4] = {120, 8, 40, 4};
 		auto snap = BuildSnapshot(64, 64, c, true);
-		for (float scale : {1.0f, 0.5f, 0.25f, 1.0f}) {
-			mgr.SetGlobalThrottle(scale);
+		const float scales[4] = {1.0f, 0.5f, 0.25f, 1.0f};
+		double b3Hz[4] = {}; // bucket 3 is the least loaded, so its rate tracks the
+							 // governor rather than the work — the cleanest signal
+		for (int i = 0; i < 4; ++i) {
+			mgr.SetGlobalThrottle(scales[i]);
 			PhaseStats st;
 			DrivePhase(mgr, dir, ids, snap, 2.5, st);
-			std::printf("  throttle %.2fx -> effHz", scale);
+			std::printf("  throttle %.2fx -> effHz", scales[i]);
 			for (int b = 0; b < 4; ++b) {
 				const auto info = mgr.Inspect(ids[b]);
 				const long long ticks =
 					static_cast<long long>(info.iterations) - st.iterStart[b];
-				std::printf("  b%d=%.2f", b, ticks / 2.5);
+				const double hz = ticks / 2.5;
+				if (b == 3) b3Hz[i] = hz;
+				std::printf("  b%d=%.2f", b, hz);
 			}
 			std::printf("\n");
 		}
 		mgr.SetGlobalThrottle(1.0f);
+		// The governor has to actually govern, and has to let go again. Asserted
+		// loosely (0.7x / 0.6x rather than exact ratios) because these are real
+		// threads on a shared machine, and a flaky check gets ignored, which is
+		// worse than no check.
+		Check(b3Hz[2] < b3Hz[0] * 0.7, "clamping to 0.25x measurably slowed the cadence");
+		Check(b3Hz[3] > b3Hz[2] * 1.5 || b3Hz[3] > b3Hz[0] * 0.6,
+			  "releasing the governor restored it");
 		std::printf("\n");
 	}
 
@@ -317,6 +362,7 @@ int main() {
 		dir.Publish(snap);
 		std::this_thread::sleep_for(std::chrono::milliseconds(300));
 		std::printf("  killing bucket2 and bucket3...\n");
+		const u32 reBefore[2] = {mgr.Inspect(ids[2]).restarts, mgr.Inspect(ids[3]).restarts};
 		mgr.Kill(ids[2]);
 		mgr.Kill(ids[3]);
 		std::this_thread::sleep_for(std::chrono::milliseconds(100));
@@ -324,6 +370,12 @@ int main() {
 			std::printf("    bucket%d after kill: %s (re %u)\n", b,
 						threads::StateName(mgr.Inspect(ids[b]).state),
 						mgr.Inspect(ids[b]).restarts);
+		// A kill under LIGHT load must be cooperative: the worker is asleep in its
+		// cadence wait, the kill wakes it, and it exits on its own. Reaching
+		// Quarantined here would mean the 250 ms grace expired on an idle thread.
+		Check(mgr.Inspect(ids[2]).state != threads::State::Quarantined &&
+				  mgr.Inspect(ids[3]).state != threads::State::Quarantined,
+			  "an idle worker stopped cooperatively rather than being terminated");
 		std::printf("  restarting them...\n");
 		mgr.Restart(ids[2]);
 		mgr.Restart(ids[3]);
@@ -333,15 +385,24 @@ int main() {
 			dir.Publish(snap);
 			std::this_thread::sleep_for(std::chrono::milliseconds(5));
 		}
+		bool bothAlive = true, bothCounted = true;
 		for (int b = 2; b <= 3; ++b) {
 			const auto info = mgr.Inspect(ids[b]);
 			std::printf("    bucket%d after restart: %s  it=%llu  re=%u\n", b,
 						threads::StateName(info.state),
 						static_cast<unsigned long long>(info.iterations), info.restarts);
+			if (info.state == threads::State::Dead ||
+				info.state == threads::State::Quarantined)
+				bothAlive = false;
+			if (info.iterations == 0 || info.restarts <= reBefore[b - 2]) bothCounted = false;
 		}
+		Check(bothAlive, "both rebooted workers came back alive");
+		Check(bothCounted, "both ticked again and their restart counters climbed");
 		std::printf("\n");
 	}
 
 	std::printf("=== done — manager teardown joins/terminates all workers ===\n");
-	return 0;
+	std::printf("\nthreadstress RESULT=%s checks=%d failures=%d\n",
+				g_failures == 0 ? "PASS" : "FAIL", g_checks, g_failures);
+	return g_failures == 0 ? 0 : 1;
 }
