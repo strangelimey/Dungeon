@@ -7,6 +7,7 @@
 #include "Core/Diagnostics.h"
 #include "Core/Log.h"
 #include "Core/Profile.h"
+#include "Core/StackTrace.h"
 #include "Core/Time.h"
 #include "Game/Game.h"
 #include "Game/GameSettings.h"
@@ -95,9 +96,14 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
 	bool fatal = false;
 
 	const auto frameFailed = [&](const char* what) {
+		// The throw-time stack, not this catch site's — see Core/StackTrace.
+		void* frames[stack::kMaxFrames];
+		const int n = stack::ThrowFrames(frames, stack::kMaxFrames);
 		diag::Record({.kind = diag::Kind::Exception,
 					  .iteration = frameIndex,
-					  .message = what});
+					  .message = what,
+					  .frames = n > 0 ? frames : nullptr,
+					  .frameCount = n});
 		if (++consecutiveFailures < kMaxConsecutiveFrameFailures) return;
 		crash::ReportFatal(
 			std::format("the main thread threw on {} consecutive frames — giving up. "

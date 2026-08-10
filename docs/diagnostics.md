@@ -1,8 +1,9 @@
 # Diagnostics: exceptions, stalls and thread health
 
 **Status:** IN PROGRESS (Michael, 2026-08-10), branch `exception-handling`.
-**Phase 1 is built and checked** — `Core/Diagnostics` + `tools/DiagTest`
-(35 checks, `diagtest RESULT=PASS`). Phases 2–6 are still plan.
+**Phases 1–3 are built and checked** — the record (`Core/Diagnostics` +
+`tools/DiagTest`, 35 checks), the capture sites, and the stacks
+(`Core/StackTrace`). Phases 4–6 are still plan.
 
 When the game dies, it should say why. Today it does not: it disappears, and
 the log stops mid-sentence. This is the machinery that replaces that silence —
@@ -165,8 +166,25 @@ nothing is built untested.
    | access violation | process vanished | `fault on 'main': access violation writing 0x0 at 0x7ff7…` + 33.6 MB dump |
    | worker throws every tick | one overwritten string, no log | every tick recorded with its number; worker keeps running |
    | assertion | log line, then a CRT dialog | FATAL recorded + dump written **before** `abort()` |
-3. **Stacks.** Lift the symbolizer out of `AllocTrack` into `Core/StackTrace`;
-   vectored handler for throw-time capture; symbolized stacks in the log.
+3. **Stacks — DONE.** `Core/StackTrace` holds the capture, the DbgHelp
+   symbolizer (serialized — DbgHelp is single-threaded by contract), the
+   `SeenSet`, and two walkers the record could not get any other way:
+
+   - **Throw-time capture.** A vectored exception handler installed FIRST in the
+     chain records the stack of every C++ throw (`0xE06D7363`) on the throwing
+     thread, before any unwinding. Catch sites read it back through
+     `ThrowFrames`. Measured: a `crashpoke throw` now names
+     `Game_DevCommands.cpp:275` — the `throw` itself — where the catch site is
+     `Main.cpp:131`.
+   - **Fault-context walk.** `StackWalk64` over the `CONTEXT_RECORD`, since a
+     filter's own stack says only that a filter ran. Measured: a null write
+     names `Game_DevCommands.cpp:299`, the faulting line. Run LAST on the crash
+     path, after the record and the dump, because it is the riskiest step there.
+
+   `AllocTrack`'s private symbolizer is gone (~45 lines) and it now shares this
+   one, keeping its own `SeenSet` so crash sites and allocation sites cannot
+   mask each other. A stack is logged ONCE per distinct site, or a repeating
+   failure would undo the rate limit.
 4. **The probe.** Console THREADS panel health columns, `health` command,
    suspend-and-walk for a live stalled thread.
 5. **The timeline.** Health marks on the profiler's per-thread rows, clickable

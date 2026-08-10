@@ -7,6 +7,7 @@
 #include "Core/Diagnostics.h"
 #include "Core/Log.h"
 #include "Core/Profile.h"
+#include "Core/StackTrace.h"
 
 #include <algorithm>
 #include <atomic>
@@ -178,14 +179,19 @@ void Manager::Run(Worker* w, std::stop_token st) {
 			std::lock_guard<std::mutex> lk(w->errMx);
 			w->lastError = what;
 		}
-		// Records against THIS thread's slot — we are on the worker. The stack
-		// captured here is the catch site, not the throw: the throw point has
-		// already unwound away, and recovering it needs the throw-time handler
-		// (phase 3), which will supply a better one through Event::frames.
+		// The stack the VECTORED handler took at the moment of the throw. By the
+		// time control reaches this catch the frames between throw and catch have
+		// unwound, so capturing here would name the catch site — which we already
+		// know — and never the code that threw. Falls back to a catch-site
+		// capture if the throw capture is not installed.
+		void* frames[stack::kMaxFrames];
+		const int n = stack::ThrowFrames(frames, stack::kMaxFrames);
 		diag::Record({.kind = diag::Kind::Exception,
 					  .workerId = w->id,
 					  .iteration = w->iterations.load(),
-					  .message = what});
+					  .message = what,
+					  .frames = n > 0 ? frames : nullptr,
+					  .frameCount = n});
 	};
 
 	while (!st.stop_requested()) {

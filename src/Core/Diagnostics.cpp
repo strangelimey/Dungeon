@@ -21,6 +21,7 @@
 
 #include "Core/AllocTrack.h"
 #include "Core/Log.h"
+#include "Core/StackTrace.h"
 
 #include <chrono>
 #include <cstring>
@@ -191,6 +192,24 @@ void LogEvent(const Entry& e, const EventSlot& s, u64 repeat) {
 	log::Write(s.kind == Kind::Fatal ? log::Level::Error : log::Level::Warn,
 			   std::format("diag {} · {} on {}: {}{}", when, KindName(s.kind), who,
 						   s.message, again));
+
+	// The stack, ONCE per distinct site. A failure that repeats is the ordinary
+	// case and its stack is identical every time, so printing thirty frames on
+	// every occurrence would undo the throttling above and bury the next problem.
+	if (s.frameCount > 0) {
+		// Function-local so the set is created on first use rather than at load,
+		// and guarded because this can be reached from any thread — unlike the
+		// RECORD above, the LOG path is allowed a lock (log::Write takes one
+		// anyway).
+		static std::mutex seenMx;
+		static stack::SeenSet seen;
+		bool first = false;
+		{
+			std::lock_guard lk(seenMx);
+			first = seen.FirstSighting(stack::Hash(s.frames, s.frameCount));
+		}
+		if (first) stack::LogStack(s.frames, s.frameCount);
+	}
 }
 
 // Reads one ring position, if it still holds the event asked for. `out` is

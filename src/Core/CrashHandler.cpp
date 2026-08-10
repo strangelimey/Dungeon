@@ -13,6 +13,7 @@
 #include "Core/Diagnostics.h"
 #include "Core/Log.h"
 #include "Core/Paths.h"
+#include "Core/StackTrace.h"
 
 #include <atomic>
 #include <cstdio>
@@ -102,6 +103,25 @@ LONG WINAPI FaultFilter(EXCEPTION_POINTERS* info) {
 				   dumped ? " A minidump was written beside the exe." : "");
 	}
 
+	// The stack LAST, and deliberately so. A fault's real frames are in the
+	// CONTEXT_RECORD — the filter's own stack says only that a filter ran — but
+	// walking it loads PDBs and takes DbgHelp's lock, which is the riskiest thing
+	// done anywhere on this path. By the time it runs the record is in memory and
+	// the dump is on disk, so if the walk dies it costs a convenience, not the
+	// evidence. (The dump carries the same stack for a debugger regardless; this
+	// is so the ANSWER is in dungeon.log without opening one.)
+	if (info && info->ContextRecord) {
+		void* frames[stack::kMaxFrames];
+		const int n = stack::WalkContext(info->ContextRecord, frames, stack::kMaxFrames);
+		if (n > 0) {
+			{
+				alloc::Excused excuse;
+				log::Error("  faulting stack:");
+			}
+			stack::LogStack(frames, n, "    ");
+		}
+	}
+
 	// EXECUTE_HANDLER, not CONTINUE_SEARCH: the report is written, and letting
 	// it fall through would hand the process to the OS error dialog with nothing
 	// gained. The process ends here, deliberately, with evidence on disk.
@@ -146,9 +166,13 @@ void Install() {
 
 	::SetUnhandledExceptionFilter(&FaultFilter);
 	std::set_terminate(&TerminateHandler);
+	// The throw-time stack capture. Without it every exception in the record
+	// carries its CATCH site's frames, which name the handler and never the
+	// thrower — see Core/StackTrace.
+	stack::InstallThrowCapture();
 
-	log::Info("crash handlers installed (fault filter, terminate handler; up to {} "
-			  "minidumps per run)",
+	log::Info("crash handlers installed (fault filter, terminate handler, throw-time "
+			  "stack capture; up to {} minidumps per run)",
 			  kMaxDumps);
 }
 
