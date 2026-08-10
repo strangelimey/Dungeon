@@ -4,6 +4,7 @@
 #include "Core/ThreadManager.h"
 
 #include "Core/AllocTrack.h"
+#include "Core/Diagnostics.h"
 #include "Core/Log.h"
 #include "Core/Profile.h"
 
@@ -12,6 +13,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <exception>
+#include <format>
 #include <thread>
 
 #ifdef _WIN32
@@ -95,6 +97,12 @@ struct Manager::Worker {
 	std::mutex errMx;
 	std::string lastError;
 
+	// This worker's slot in the health record, published by Run at thread entry
+	// so ANOTHER thread can record against it — the supervisor logging a stall,
+	// Kill logging a termination. Those events belong on the worker's timeline,
+	// which is where a reader looks for them, not on the reporter's.
+	std::atomic<diag::Slot> diagSlot{diag::kInvalidSlot};
+
 	// Interruptible cadence/pause sleep. Control calls flip the atomics under this
 	// mutex then notify, so a sleeping worker can't miss the wake.
 	std::mutex sleepMx;
@@ -148,11 +156,38 @@ void Manager::Run(Worker* w, std::stop_token st) {
 	// thread measured — the AI buckets, the supervisor, a stress worker, and
 	// whatever spawns next — instead of only the ones someone remembered to wire.
 	prof::RegisterThread(w->name);
+	// And to the health record, in the same place and for the same reason: being
+	// MANAGED is what gets a thread covered, rather than somebody having
+	// remembered to wire it up. A worker rebooting adopts the slot it had, so the
+	// events that got it rebooted are still sitting there when it comes back.
+	w->diagSlot.store(diag::RegisterThread(w->name));
 #ifdef _WIN32
 	SetThreadPriority(GetCurrentThread(), Win32Priority(w->priority.load()));
 	if (const u64 mask = w->affinity.load())
 		SetThreadAffinityMask(GetCurrentThread(), static_cast<DWORD_PTR>(mask));
 #endif
+	// One tick's failure, kept two ways because they answer different questions.
+	// lastError is "is this worker unhappy RIGHT NOW", which the console panel
+	// shows; the health record is "what happened, when, how often, and on what
+	// tick", which is what you read afterwards. Before the record existed this
+	// string was the whole story — overwritten by the next failure and never
+	// logged, so a worker that threw a thousand times was indistinguishable from
+	// one that threw once, and neither left a trace in dungeon.log.
+	const auto noteFailure = [w](const char* what) {
+		{
+			std::lock_guard<std::mutex> lk(w->errMx);
+			w->lastError = what;
+		}
+		// Records against THIS thread's slot — we are on the worker. The stack
+		// captured here is the catch site, not the throw: the throw point has
+		// already unwound away, and recovering it needs the throw-time handler
+		// (phase 3), which will supply a better one through Event::frames.
+		diag::Record({.kind = diag::Kind::Exception,
+					  .workerId = w->id,
+					  .iteration = w->iterations.load(),
+					  .message = what});
+	};
+
 	while (!st.stop_requested()) {
 		// Paused: hold here (not joined) until resumed or stopped, running no job.
 		if (w->paused.load()) {
@@ -178,11 +213,9 @@ void Manager::Run(Worker* w, std::stop_token st) {
 			try {
 				w->job(Tick{st, w->iterations.load(), w->id});
 			} catch (const std::exception& e) {
-				std::lock_guard<std::mutex> lk(w->errMx);
-				w->lastError = e.what();
+				noteFailure(e.what());
 			} catch (...) {
-				std::lock_guard<std::mutex> lk(w->errMx);
-				w->lastError = "unknown exception";
+				noteFailure("unknown exception (not derived from std::exception)");
 			}
 		}
 
@@ -218,6 +251,12 @@ void Manager::Run(Worker* w, std::stop_token st) {
 	// tree readable. A worker that never reaches this line because it was hard
 	// Kill()ed keeps its slot on purpose — see prof::UnregisterThisThread.
 	prof::UnregisterThisThread();
+	// Frees the health slot for a same-named successor too — which is what makes
+	// a reboot ADOPT its own history rather than start blank. A force-terminated
+	// worker never reaches this line, so its slot stays live and its successor
+	// takes a fresh one: the two lives are then recorded separately, which is the
+	// honest answer when one of them was killed mid-tick.
+	diag::UnregisterThisThread();
 	w->state.store(State::Dead);
 }
 
@@ -352,6 +391,17 @@ void Manager::StopOrTerminate(Worker* w) {
 #endif
 	w->thread.detach();
 	w->quarantined.store(true);
+	// On the VICTIM's timeline, not the killer's — and with no stack, because the
+	// only stack available here is the stack of whoever called Kill, which says
+	// nothing about the thread that would not stop. Walking the wedged thread's
+	// own stack is the probe in phase 4, and it has to happen BEFORE this point.
+	diag::RecordFor(w->diagSlot.load(),
+					{.kind = diag::Kind::Killed,
+					 .workerId = w->id,
+					 .iteration = w->iterations.load(),
+					 .message = "force-terminated: would not stop cooperatively; any "
+								"lock it held is leaked",
+					 .captureStack = false});
 	log::Warn("thread '{}' would not stop — FORCE-TERMINATED; process may be unstable "
 			  "(leaked locks). Restart soon.",
 			  w->name);
@@ -376,6 +426,18 @@ void Manager::Restart(WorkerId id) {
 	// race, and a stuck worker can't block the reboot.
 	w->state.store(State::Cancelling);
 	StopOrTerminate(w);
+
+	// Recorded BEFORE the counters are cleared, so the event carries the tick the
+	// worker died on rather than the zero it is about to be reset to. Covers both
+	// callers — the supervisor's automatic reboot and a manual one from the
+	// console — because both come through here.
+	diag::RecordFor(w->diagSlot.load(),
+					{.kind = diag::Kind::Restart,
+					 .workerId = w->id,
+					 .iteration = w->iterations.load(),
+					 .message = std::format("rebooted (restart #{}) after {} ticks",
+											w->restarts.load() + 1, w->iterations.load()),
+					 .captureStack = false});
 
 	// Fresh slate; keep the stored job + config. Booting clears the user-stopped
 	// and quarantine flags so the worker runs again and is supervised again.
@@ -414,8 +476,24 @@ void Manager::SupervisorLoop(std::stop_token st) {
 			if (!beat) continue;
 			const double age =
 				ToMs(Clock::now() - Clock::time_point(Clock::duration(beat)));
-			if (age > static_cast<double>(w->watchdogMs) * 5.0)
+			if (age > static_cast<double>(w->watchdogMs) * 5.0) {
+				// The stall is recorded SEPARATELY from the reboot that answers
+				// it, so the record says a tick hung for this long AND that it
+				// was rebooted — two facts, where the old code left neither. A
+				// stall that the supervisor does not reboot (no autoRestart)
+				// still goes unrecorded; catching those needs a check that does
+				// not ride the reboot path, which is phase 4's readout.
+				diag::RecordFor(
+					w->diagSlot.load(),
+					{.kind = diag::Kind::Stall,
+					 .workerId = id,
+					 .iteration = w->iterations.load(),
+					 .message = std::format("tick has run {:.0f} ms — past 5x its {} ms "
+											"watchdog; rebooting",
+											age, w->watchdogMs),
+					 .captureStack = false});
 				Restart(id); // stalled well past the watchdog: reboot it
+			}
 		}
 		// Coarse poll; checks the stop flag often so shutdown is prompt.
 		for (int i = 0; i < 10 && !st.stop_requested(); ++i)

@@ -149,9 +149,22 @@ nothing is built untested.
    owned storage, cross-thread `RecordFor`, the merged newest-first view, and
    throttled log output. Checked by `tools/DiagTest` (build, then run
    `DiagTest.exe`; one verdict line, exit 0 = PASS).
-2. **Capture.** Worker catch, supervisor stall/restart, `Kill`, the main
-   thread's slot and repeat policy, the process-level filter and
-   `set_terminate`, `DN_ASSERT` routing, minidump writing.
+2. **Capture — DONE.** The worker catch records a full event (kind, worker id,
+   tick, message) instead of overwriting a string; the supervisor records the
+   stall AND the reboot as two separate facts; `Kill` records against the
+   victim's timeline; the main thread has a slot, a frame try/catch and the
+   die-after-10-consecutive policy. `Core/CrashHandler` adds what no catch can
+   see — `SetUnhandledExceptionFilter` for SEH faults, `set_terminate`,
+   `DN_ASSERT` routed through `ReportFatal`, and minidumps (capped at 3 a run).
+   Injected with the `crashpoke <throw|worker|fault|assert>` dev command and
+   read back with `health`. Measured against the running game:
+
+   | injection | before | after |
+   |---|---|---|
+   | main-thread throw | process vanished | recorded, logged, **game keeps playing** |
+   | access violation | process vanished | `fault on 'main': access violation writing 0x0 at 0x7ff7…` + 33.6 MB dump |
+   | worker throws every tick | one overwritten string, no log | every tick recorded with its number; worker keeps running |
+   | assertion | log line, then a CRT dialog | FATAL recorded + dump written **before** `abort()` |
 3. **Stacks.** Lift the symbolizer out of `AllocTrack` into `Core/StackTrace`;
    vectored handler for throw-time capture; symbolized stacks in the log.
 4. **The probe.** Console THREADS panel health columns, `health` command,

@@ -6,6 +6,8 @@
 
 #include "Assets/File.h"
 #include "Core/AllocTrack.h"
+#include "Core/Assert.h"
+#include "Core/Diagnostics.h"
 #include "Core/Loc.h"
 #include "Core/Log.h"
 #include "Core/Paths.h"
@@ -17,6 +19,7 @@
 #include <chrono>
 #include <cstdlib>
 #include <format>
+#include <stdexcept>
 #include <string>
 #include <thread>
 #include <utility>
@@ -257,6 +260,81 @@ void Game::RegisterDevCommands() {
 				},
 				{"demo.wedged", 1.0f, /*watchdogMs=*/200});
 			m_console.Print(std::format("spawned WEDGED worker #{} (use kill)", id));
+		});
+	m_console.Register(
+		"crashpoke",
+		"break something on purpose: throw | worker | fault | assert (proves the "
+		"health record catches it)",
+		[this](const std::vector<std::string>& args) {
+			const std::string what = args.empty() ? "throw" : args[0];
+
+			// Thrown from a console callback, which runs inside Game::Update,
+			// which runs inside the main loop's try — so this exercises the real
+			// main-thread path, not a special case built to be caught.
+			if (what == "throw")
+				throw std::runtime_error("crashpoke: a deliberate main-thread throw");
+
+			// A worker failing a DIFFERENT way every tick: the case that made the
+			// log throttle key on the thread rather than the message.
+			if (what == "worker") {
+				const threads::WorkerId id = m_threads.Spawn(
+					[](const threads::Tick& t) {
+						throw std::runtime_error(
+							std::format("crashpoke: deliberate failure on tick {}",
+										t.iteration));
+					},
+					{"demo.thrower", 2.0f, /*watchdogMs=*/0});
+				m_console.Print(std::format(
+					"spawned THROWING worker #{} — it fails every tick and keeps "
+					"running; watch `health` and dungeon.log",
+					id));
+				return;
+			}
+
+			// The two that END the process, which is the point: each should leave
+			// a report and a minidump where today there is silence.
+			if (what == "fault") {
+				m_console.Print("crashpoke: dereferencing null — expect a crash report");
+				volatile int* p = nullptr;
+				*p = 1;
+				return;
+			}
+			if (what == "assert") {
+				m_console.Print("crashpoke: firing an assert — expect a crash report");
+				DN_ASSERT(false, "crashpoke: a deliberate assertion failure");
+				return;
+			}
+			m_console.Print("usage: crashpoke <throw|worker|fault|assert>");
+		});
+	m_console.Register(
+		"health", "the health record: recent failures across every thread",
+		[this](const std::vector<std::string>&) {
+			const diag::Totals t = diag::ProcessTotals();
+			m_console.Print(std::format(
+				"{} events — {} exception, {} fault, {} stall, {} restart, {} killed, "
+				"{} fatal",
+				t.total, t.Count(diag::Kind::Exception), t.Count(diag::Kind::Fault),
+				t.Count(diag::Kind::Stall), t.Count(diag::Kind::Restart),
+				t.Count(diag::Kind::Killed), t.Count(diag::Kind::Fatal)));
+			if (t.total == 0) {
+				m_console.Print("nothing has gone wrong yet");
+				return;
+			}
+
+			// Newest first, across every thread, so the last thing to go wrong is
+			// the first line you read.
+			diag::EventView events[16];
+			diag::Slot slots[16];
+			const int n = diag::ReadAllEvents(events, 16, slots);
+			diag::ThreadHealth threads[diag::kMaxThreads];
+			const int tn = diag::SnapshotThreads(threads, diag::kMaxThreads);
+			for (int i = 0; i < n; ++i) {
+				const char* owner = "?";
+				for (int j = 0; j < tn; ++j)
+					if (threads[j].slot == slots[i]) owner = threads[j].name;
+				m_console.Print(std::format("  {} [{}] {}", diag::KindName(events[i].kind),
+											owner, events[i].message));
+			}
 		});
 	m_console.Register("throttle", "manual global cadence scale (arg: e.g. 0.5; 1 = normal)",
 					   [this](const std::vector<std::string>& args) {

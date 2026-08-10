@@ -1,5 +1,6 @@
 add_library(Core STATIC
 	AllocTrack.cpp
+	CrashHandler.cpp
 	Diagnostics.cpp
 	Loc.cpp
 	Log.cpp
