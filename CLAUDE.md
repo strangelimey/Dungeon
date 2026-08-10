@@ -26,7 +26,10 @@ Built collaboratively with Claude across sessions; this file is the handoff.
   `settings.ini`, `shadercache\`.
 - `gen-vs.cmd` → `build\vs\Dungeon.slnx` (VS 2026 emits .slnx, not .sln).
 - Debug builds open a console for logs; DN_ASSERT failures abort() — in
-  debug that means a CRT dialog and the process LOOKS alive but is stuck.
+  debug that means a CRT dialog and the process LOOKS alive but is stuck. The
+  REPORT lands before the abort now (it is routed through crash::ReportFatal —
+  see Diagnostics), so the evidence is on disk even when the dialog is the only
+  thing you can see.
 - The full log also writes to `dungeon.log` NEXT TO THE EXE (truncated per
   run, flushed per line so the tail survives a crash/abort) — read that
   instead of scraping the console window. The file is named after the RUNNING
@@ -35,6 +38,12 @@ Built collaboratively with Claude across sessions; this file is the handoff.
   because they all share `build\<cfg>\bin`: with the old hardcoded name an
   asset import silently truncated the GAME's log and wrote its own output
   over it, which destroyed the evidence mid-debug once.
+- A CRASH also drops a MINIDUMP beside the exe — `dungeon-<fault|fatal|
+  terminate>-<pid>-<n>.dmp`, up to 3 a run, ~34 MB each (ignored by the blanket
+  `build/` rule AND by an explicit `*.dmp`, since one accidental commit of one
+  costs a history rewrite). Open it in VS for the faulting register state and
+  every thread's stack; the log already carries the symbolized faulting stack,
+  so reach for the dump only when that is not enough.
 
 ## Architecture (docs/ARCHITECTURE.md has the full version)
 
@@ -849,14 +858,119 @@ fire together (cicada pattern) instead of resonating like power-of-two harmonics
 
 Dev console (`~`) THREADS panel (top, under the perf gauges): a live row per
 worker (name / state[colored] / iterations / last+avg ms / hz / pN priority /
-reN restarts) with clickable halt|run, << / >> (halve/double rate), kill, and
+reN restarts / `!N ~M` health — see Diagnostics) with clickable halt|run, << / >>
+(halve/double rate), kill, and
 boot (reboot a dead/quarantined slot). Layout lives in one place — Render records
 the button rects, next frame's Update hit-tests clicks. Commands: throttle
 <scale> (manual governor), governor auto [targetFps] | off (ADAPTIVE — eases all
 background cadences when the frame's over budget, asymmetric easing so it
 recovers; opt-in, keys off whole-frame time so it's a coarse heuristic, can be
 GPU-bound), threadprio/threadaffinity <id> ..., threadspawn/threadwedge (stress
-workers — the latter ignores its token, to exercise the hard Kill), threadreap.
+workers — the latter ignores its token, to exercise the hard Kill), threadreap,
+and the diagnostics side: health / health probe / crashpoke.
+
+## Diagnostics — exceptions, faults, stalls (docs/diagnostics.md is the model)
+
+The game used to die with NO useful information: `wWinMain` had no try/catch, no
+fault filter, no dump writer, and ThreadManager's worker catch kept only a bare
+`lastError` string that the next failure overwrote and nothing ever logged. A
+worker that threw a thousand times looked exactly like one that threw once — the
+catch FALLS THROUGH, so a thrown tick still stamps its timings and still counts
+as an iteration, making it statistically indistinguishable from a healthy one.
+Four layers replace that, and the rule behind all of them is that a crash, a
+hang and a reboot must each leave EVIDENCE.
+
+- THE RECORD (Core/Diagnostics) — six kinds (Exception/Fault/Stall/Restart/
+  Killed/Fatal), a 16-event ring per thread across 32 slots, each event carrying
+  wall time, TSC (so it sits on the profiler's timeline), worker id, iteration,
+  a 192-char message and a 32-frame stack. ALWAYS COMPILED IN, unlike
+  Core/Profile — the crash worth reporting happens in a plain debug or release
+  run, so a record gated behind a profiling preset would be absent exactly when
+  wanted. THE REGISTRY OWNS THE STORAGE and a thread holds only a slot index
+  (the same choice, for the same reason, as Core/AllocTrack): `Kill`
+  force-terminates with TerminateThread, which runs no destructors and frees the
+  thread's TLS, so a table of pointers INTO TLS would dangle exactly when the
+  evidence is wanted. Writes are LOCK-FREE — a mutex here would be taken on the
+  failure path, including by Kill moments before it ends a thread that might
+  hold it. A writer claims a slot with one fetch_add and publishes with a
+  release store to that slot's SEQUENCE NUMBER, which is the ABSOLUTE CLAIM
+  INDEX (slot i holds event n only if seq == n+1, re-checked after copying);
+  absolute indices are also what makes it ABA-immune, since a full lap lands on
+  n+17. A REBOOT DOES NOT CLEAR THE RECORD — Profile resets a rebooted worker's
+  slot, this deliberately does the opposite, because "it threw twice, stalled
+  and was restarted" IS the history being asked for.
+- THE LOG THROTTLE is TWO layers, because they catch different failures.
+  Identical consecutive events collapse to powers of ten; DISTINCT ones are
+  rate-limited per THREAD (8 lines/sec, with a line saying how many were
+  swallowed). The second layer exists because the collapse is blind to a message
+  carrying a tick number — measured, 16k such events wrote a 1.2 MB log, and
+  2.7 KB after. The RECORD still takes every event; only the log is throttled.
+  Anything added here must key on the thread, not the message: the message is
+  exactly the part a failing worker varies.
+- THE CAPTURE SITES — ThreadManager's worker catch (records kind/worker/tick/
+  message); the supervisor, which records the STALL and the REBOOT as two
+  separate facts, once per stall EPISODE (it polls at 100 ms; a minute-long
+  wedge would otherwise write 600 identical events and flush the ring) and
+  detects INDEPENDENTLY of whether it reboots, so a worker with no autoRestart
+  is covered; `Kill` (against the VICTIM's timeline, with no stack — the only
+  stack there belongs to the killer); and the main thread, which has a slot, a
+  frame try/catch and a DIE-AFTER-10-CONSECUTIVE policy. Sharp edge commented at
+  the site: a throw between BeginFrame and EndFrame leaves the command list
+  open, so the following frame is unlikely to be sound — the counter bounds it.
+  Core/CrashHandler adds what no catch can see: SetUnhandledExceptionFilter for
+  SEH faults (access violation, divide-by-zero, stack overflow — MOST of what
+  actually kills a game), set_terminate, DN_ASSERT routed through ReportFatal,
+  and minidumps capped at 3 a run. Everything there assumes a damaged process:
+  no heap, no locks, paths snapshotted into fixed buffers at Install, a
+  re-entrancy guard, and the record written BEFORE the dump and the dump before
+  the log — decreasing order of how likely each is to survive.
+- THE STACKS (Core/StackTrace, lifted out of AllocTrack's private symbolizer;
+  AllocTrack keeps its own SeenSet so crash sites and allocation sites cannot
+  mask each other). THE HARD PART: at a `catch` site the stack has ALREADY
+  UNWOUND, so capturing there names the handler and never the thrower. A
+  VECTORED EXCEPTION HANDLER installed first in the chain records every C++
+  throw (0xE06D7363) on the throwing thread before unwinding, and catch sites
+  read it back through ThrowFrames (caveat: it is the LAST throw, so a throw
+  during unwinding can leave an outer catch holding the inner one's stack).
+  A FAULT is the mirror image — nothing unwinds, but the frames are in the
+  CONTEXT_RECORD, so WalkContext runs StackWalk64 over a COPY of it (the walk
+  mutates what it walks and the dump writer needs the original). WalkThread —
+  the live probe — suspends another thread and walks it with
+  RtlLookupFunctionEntry + RtlVirtualUnwind, NOT StackWalk64, because that takes
+  DbgHelp's lock and the thread you just froze might be holding it: the probe
+  would deadlock the process it was meant to diagnose. Nothing between Suspend
+  and Resume touches DbgHelp, allocates or logs; symbolizing happens after. A
+  frame with no unwind entry STOPS the walk rather than guessing a return
+  address — invented frames look real. DbgHelp is single-threaded by contract,
+  so every Sym* call serializes on one mutex, which is also why symbolizing is
+  not part of recording. IsPlumbingFrame is ONE rule for every readout (a stack
+  that reads differently in two places cannot be compared) and is deliberately
+  NOT applied to the probe, where the OS frame IS the diagnosis
+  (NtWaitForSingleObject names a lock). A stack is logged ONCE per distinct
+  site, or a repeating failure would undo the rate limit.
+- THE READOUTS — the console's HEALTH section: one strip per thread that has
+  failed, on the profile graphs' x-axis (240 samples x 50 ms = 12 s), marks
+  coloured by kind, oldest at the left, CLICK A MARK for the event and its
+  stack (it snaps to the nearest mark within 4 cells — a cell is about a pixel).
+  A cell keeps the MOST SEVERE kind in its window, not the last. Deliberately
+  its own strip rather than rows on the profile graphs: those are per NODE while
+  health is per THREAD, and the profiler is compiled out of plain builds while
+  this is not. The section only exists once something has gone wrong. Plus the
+  THREADS panel's `!N ~M` column (exceptions/stalls — without it a worker that
+  threw 18 times reads `sleeping · it 18 · 2.00hz`, every column normal), and
+  `health` / `health <thread>` / `health probe <id|name>`.
+- CHECKED, NOT ASSUMED. `DiagTest.exe` (tools/DiagTest) exercises the ring
+  directly — 35 checks, including the one that matters: four writers hammering
+  one slot while a reader walks it, every event self-describing so a torn read
+  cannot pass (measured 16k writes, 39k live reads, 0 torn). `tools\HealthTest.
+  ps1` breaks the REAL game seven ways and reads dungeon.log and nothing else —
+  if the answer is not in the file you open after a crash, it does not count.
+  `-SelfTest` skips every injection and requires FAIL, and all 7 cases plus
+  every expectation do fail, which is the evidence none is vacuously satisfied.
+  Dev: `crashpoke <throw|worker|fault|assert>`, `threadwedge`, `threadspawn
+  <ms>`. NOT covered: the Killed kind (a hard kill is a panel button, not a
+  command) — the harness says so on every run rather than leaving it to be
+  discovered.
 
 ## Map overlay / editor (MapView)
 

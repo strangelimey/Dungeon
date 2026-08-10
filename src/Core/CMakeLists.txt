@@ -1,16 +1,21 @@
 add_library(Core STATIC
 	AllocTrack.cpp
+	CrashHandler.cpp
+	Diagnostics.cpp
 	Loc.cpp
 	Log.cpp
 	Paths.cpp
 	Profile.cpp
+	StackTrace.cpp
 	Time.cpp
 	StringUtil.cpp
 	ThreadManager.cpp
 )
 target_include_directories(Core PUBLIC ${CMAKE_SOURCE_DIR}/src)
-# AllocTrack: SymFromAddr/SymGetLineFromAddr64 name the call site that broke a
-# steady-state frame (DbgHelp is only touched when one actually does).
+# Core/StackTrace: SymFromAddr / SymGetLineFromAddr64 / StackWalk64 name the call
+# site that broke a steady-state frame or threw, and MiniDumpWriteDump
+# (Core/CrashHandler) writes the dump. DbgHelp is only touched when something has
+# actually gone wrong.
 target_link_libraries(Core PRIVATE dbghelp)
 # The repo's source assets dir, so a dev build's editor can write edits back to
 # the git tree (paths::RepoAssetsDir); empty/undefined in a shipped build.

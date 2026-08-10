@@ -150,6 +150,52 @@ private:
 	};
 	std::vector<GraphToggle> m_graphToggles;
 
+	// --- health over time ---------------------------------------------------
+	// A mark per sample window per thread: when it threw, when it stalled, when
+	// it was rebooted. Shares the profile history's x-axis (m_profHead,
+	// kProfSampleSec), so a mark lines up with the spike it caused.
+	//
+	// NOT drawn as rows on the profile graphs, for two reasons. Those rows are
+	// per NODE and health is per THREAD, so the granularity does not match; and
+	// the profiler is compiled out of plain debug and release builds while the
+	// health record is not — a crash happens in an ordinary build, which is
+	// exactly where a timeline is most wanted. It gets its own strip on the same
+	// axis instead.
+	//
+	// A cell keeps the MOST SEVERE kind in its window rather than the last, for
+	// the same reason the profile series keeps the max: the one event worth
+	// seeing must not be averaged away by the three around it.
+	struct HealthCell {
+		u8 count = 0;      // events recorded in this window
+		u8 kind = 0xFF;    // most severe diag::Kind seen, 0xFF = nothing
+		u32 lastIndex = 0; // its per-thread event index, for the click-through
+	};
+	static constexpr int kHealthRows = 12; // threads shown on the timeline
+	struct HealthRow {
+		char name[32] = {};
+		u32 slot = 0;
+		bool used = false;
+		u64 prev[6] = {}; // per-kind totals at the last commit (diag::kKindCount)
+		HealthCell cells[kProfHistory];
+	};
+	HealthRow m_healthRows[kHealthRows];
+	int m_healthRowCount = 0;
+	bool m_healthExpanded = true;
+	gfx::Rect m_healthBtn{};
+
+	// Laid out by Render, hit-tested by the next Update — the panel's standing
+	// idiom, so a clickable thing's geometry lives in exactly one place.
+	struct HealthHit {
+		gfx::Rect strip;
+		int row = 0;
+	};
+	std::vector<HealthHit> m_healthHits;
+
+	// Diffs the record's per-thread counters into this sample's cells.
+	void SampleHealth();
+	// Prints one cell's event — message, thread, tick, stack — to the scrollback.
+	void ReportHealthCell(int row, int cell);
+
 	// One head and one timer for BOTH sets, so every graph on screen shares an
 	// x-axis and a spike in one lines up with a spike in another.
 	int m_profHead = 0;

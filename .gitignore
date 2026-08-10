@@ -35,3 +35,8 @@ assets/models/*.anim.cat
 
 # Blender bridge transcript (working material; the distilled tools\Build*.py is the asset)
 tools/.bridge-log.py
+
+# Crash minidumps (Core/CrashHandler). They land beside the exe, so build/ above
+# already covers the dev case — this is the belt to that braces, because a dump
+# is ~34 MB and a single accidental commit costs a history rewrite to undo.
+*.dmp

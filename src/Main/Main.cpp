@@ -3,8 +3,11 @@
 
 #include "Audio/AudioEngine.h"
 #include "Core/AllocTrack.h"
+#include "Core/CrashHandler.h"
+#include "Core/Diagnostics.h"
 #include "Core/Log.h"
 #include "Core/Profile.h"
+#include "Core/StackTrace.h"
 #include "Core/Time.h"
 #include "Game/Game.h"
 #include "Game/GameSettings.h"
@@ -39,6 +42,13 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
 	// Calibrates the TSC and names this thread "main". No-op without DN_PROFILE.
 	prof::Init();
 
+	// The health record, then the handlers that feed it what no catch clause can
+	// see. Installed HERE, before the window and the device exist, because a
+	// fault during device creation is exactly as worth reporting as one during
+	// play — and until now was exactly as silent.
+	diag::Init();
+	crash::Install();
+
 	log::Info("Dungeon starting...");
 
 	// Display config is needed before the window/device exist, so read settings
@@ -67,17 +77,54 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
 	Timer timer;
 	const float clearColor[4] = {0.01f, 0.01f, 0.015f, 1.0f};
 
+	// The main thread's failure policy (docs/diagnostics.md): a frame that throws
+	// is survived, and the SAME thing happening ten frames running is not.
+	//
+	// One bad frame is worth surviving — the world is still there and the next
+	// frame usually draws — but a fault that repeats every frame is a broken
+	// build, and spinning on it forever buys nothing except thousands of
+	// identical reports and a game nobody can play.
+	//
+	// KNOWN SHARP EDGE: a throw between device.BeginFrame and device.EndFrame
+	// leaves the command list open, so the following frame is unlikely to be
+	// sound. The counter below is what bounds that — a render fault that really
+	// has broken the device will trip it within ten frames rather than limping on
+	// indefinitely.
+	constexpr int kMaxConsecutiveFrameFailures = 10;
+	int consecutiveFailures = 0;
+	u64 frameIndex = 0;
+	bool fatal = false;
+
+	const auto frameFailed = [&](const char* what) {
+		// The throw-time stack, not this catch site's — see Core/StackTrace.
+		void* frames[stack::kMaxFrames];
+		const int n = stack::ThrowFrames(frames, stack::kMaxFrames);
+		diag::Record({.kind = diag::Kind::Exception,
+					  .iteration = frameIndex,
+					  .message = what,
+					  .frames = n > 0 ? frames : nullptr,
+					  .frameCount = n});
+		if (++consecutiveFailures < kMaxConsecutiveFrameFailures) return;
+		crash::ReportFatal(
+			std::format("the main thread threw on {} consecutive frames — giving up. "
+						"Last failure: {}",
+						consecutiveFailures, what));
+		fatal = true;
+	};
+
 	while (window.PumpMessages()) {
 		const float dt = timer.Tick();
+		++frameIndex;
 
 		// The steady-state allocation guard brackets the WHOLE frame — update,
 		// render and present — because the rule covers all of it. Game::Update
 		// decides whether this frame counts (alloc::ArmFrame).
 		alloc::BeginFrame();
-		{
+		try {
 			// The profiler's root scope. Everything instrumented below hangs off
 			// this one, so the tree has a single trunk and "frame" is a real node
-			// with a total rather than an implied one.
+			// with a total rather than an implied one. ScopedZone unwinds
+			// correctly if anything below throws.
 			DN_PROFILE_ZONE("frame");
 			{
 				DN_PROFILE_ZONE("update");
@@ -91,6 +138,11 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
 				game.Render(list);
 				device.EndFrame();
 			}
+			consecutiveFailures = 0; // a frame that finished clears the streak
+		} catch (const std::exception& e) {
+			frameFailed(e.what());
+		} catch (...) {
+			frameFailed("unknown exception (not derived from std::exception)");
 		}
 
 		// Ends the frame's period for THIS thread; a worker publishes per tick
@@ -103,7 +155,7 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
 
 		// Esc is state-dependent (pause in-game, back out of menus); the
 		// game raises this when it actually means quit.
-		if (game.QuitRequested()) break;
+		if (game.QuitRequested() || fatal) break;
 	}
 
 	device.WaitIdle();

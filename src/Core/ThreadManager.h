@@ -150,6 +150,16 @@ public:
 	// is supervised again.
 	void Restart(WorkerId id);
 
+	// THE PROBE: what is this worker doing RIGHT NOW. Suspends it, walks its
+	// stack, resumes it — the only way to answer "what is it stuck on" for a
+	// thread that is stalled rather than crashed, since a stalled thread is still
+	// running and has thrown nothing to record.
+	//
+	// Costs the worker a pause of microseconds. Returns 0 for an unknown, dead or
+	// self-referencing id. See stack::WalkThread for why the walk uses the PE
+	// unwind tables rather than DbgHelp.
+	int CaptureStack(WorkerId id, void** out, int max) const;
+
 	// Lock-free reads of live worker state. Inspect returns a Dead-stated default
 	// for an unknown id.
 	WorkerInfo Inspect(WorkerId id) const;
