@@ -47,6 +47,22 @@ int Capture(void** out, int max, int skip = 1);
 // is a CONTEXT*. Serializes on the DbgHelp lock.
 int WalkContext(void* context, void** out, int max);
 
+// ANOTHER thread's stack, right now — the answer to "what is it stuck on".
+// `thread` is a HANDLE. Suspends it, walks, resumes.
+//
+// IT DOES NOT TOUCH DBGHELP WHILE THE THREAD IS SUSPENDED, and that is the whole
+// design. StackWalk64 calls SymFunctionTableAccess64, which takes DbgHelp's
+// lock — and if the thread you just froze is the one holding that lock (it might
+// be, since it could be stalled inside its own crash report) the probe deadlocks
+// the process it was meant to diagnose. So the walk is done with
+// RtlLookupFunctionEntry + RtlVirtualUnwind, which read the PE unwind tables
+// directly and need no library state at all. Symbolizing happens afterwards,
+// once the thread is running again.
+//
+// Returns 0 for a null handle, or if asked to walk the CALLING thread — freezing
+// yourself does not return.
+int WalkThread(void* thread, void** out, int max);
+
 // One frame as "func (file:line)", best effort: a build without a PDB falls
 // back to the bare address. Serializes on the DbgHelp lock.
 std::string Describe(void* address);

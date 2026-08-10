@@ -3,6 +3,7 @@
 // ============================================================================
 #include "Game/DevConsole.h"
 
+#include "Core/Diagnostics.h"
 #include "Core/Paths.h"
 #include "Core/Profile.h"
 #include "UI/Controls.h" // ui::DrawBorder
@@ -1104,6 +1105,13 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 			m_font->Draw(batch, label, r.x + (r.w - tw) * 0.5f, r.y, col);
 		};
 
+		// The health record, snapshotted ONCE for the whole panel rather than
+		// per row: the snapshot takes the registry lock, and taking it eight
+		// times a frame to draw eight rows would be the readout getting in the
+		// way of the thing it reports on.
+		diag::ThreadHealth health[diag::kMaxThreads];
+		const int healthCount = diag::SnapshotThreads(health, diag::kMaxThreads);
+
 		for (const threads::WorkerInfo& w : workers) {
 			const bool quar = w.state == threads::State::Quarantined;
 			const bool dead = w.state == threads::State::Dead || quar;
@@ -1128,6 +1136,23 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 			if (w.restarts > 0)
 				m_font->Draw(batch, std::format("re {}", w.restarts), width * 0.585f, ty,
 							kDim);
+
+			// What this worker has recorded. A worker that threw and recovered
+			// looks identical to a healthy one in every other column — its
+			// timings, its tick count and its state all read normal — so without
+			// this the panel actively hides the thing worth knowing.
+			for (int i = 0; i < healthCount; ++i) {
+				if (w.name != health[i].name || health[i].total == 0) continue;
+				const u64 bad = health[i].Count(diag::Kind::Exception) +
+								health[i].Count(diag::Kind::Fault) +
+								health[i].Count(diag::Kind::Fatal);
+				const u64 stalls = health[i].Count(diag::Kind::Stall);
+				m_font->Draw(batch,
+							 stalls > 0 ? std::format("!{} ~{}", bad, stalls)
+										: std::format("!{}", bad),
+							 width * 0.635f, ty, bad > 0 ? kStalled : kPaused);
+				break;
+			}
 
 			const float killX = width - pad * 2.0f - bw;
 			const float fastX = killX - (bw + bgap);

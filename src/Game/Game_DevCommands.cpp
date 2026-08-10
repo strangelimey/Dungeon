@@ -11,6 +11,7 @@
 #include "Core/Loc.h"
 #include "Core/Log.h"
 #include "Core/Paths.h"
+#include "Core/StackTrace.h"
 #include "Game/AssetUtil.h"
 #include "UI/TreeInspector.h"
 
@@ -307,34 +308,117 @@ void Game::RegisterDevCommands() {
 			m_console.Print("usage: crashpoke <throw|worker|fault|assert>");
 		});
 	m_console.Register(
-		"health", "the health record: recent failures across every thread",
-		[this](const std::vector<std::string>&) {
+		"health",
+		"health record: `health` recent failures | `health <thread>` one thread's "
+		"events + stacks | `health probe <id>` what a live worker is doing NOW",
+		[this](const std::vector<std::string>& args) {
+			// --- the probe ---------------------------------------------------
+			// A STALLED thread has thrown nothing, so the record has nothing to
+			// show: it is still running, just not finishing. The only way to
+			// answer "what is it stuck on" is to go and look.
+			if (!args.empty() && args[0] == "probe") {
+				if (!Need(m_console, args, 2, "usage: health probe <worker id|name>"))
+					return;
+				// By id or by name — a name is what the THREADS panel shows and
+				// what you actually remember ("demo.wedged", "ai.bucket2").
+				const std::string& who = args[1];
+				threads::WorkerId id = threads::kInvalidWorker;
+				if (!who.empty() && std::isdigit(static_cast<unsigned char>(who[0]))) {
+					id = static_cast<threads::WorkerId>(std::atoi(who.c_str()));
+				} else {
+					for (const threads::WorkerInfo& w : m_threads.SnapshotAll())
+						if (w.name == who) { id = w.id; break; }
+				}
+				const threads::WorkerInfo info = m_threads.Inspect(id);
+				if (info.id == threads::kInvalidWorker) {
+					m_console.Print(std::format("no worker '{}' (see `threads`)", who));
+					return;
+				}
+				void* frames[stack::kMaxFrames];
+				const int n = m_threads.CaptureStack(id, frames, stack::kMaxFrames);
+				if (n == 0) {
+					m_console.Print(std::format(
+						"could not walk '{}' (#{}, {}) — dead, quarantined, or this thread",
+						info.name, id, threads::StateName(info.state)));
+					return;
+				}
+				// To the console AND the log: a probe is evidence, and dungeon.log
+				// is where evidence is read afterwards (the console scrolls away
+				// and screenshots of it are not greppable).
+				const std::string head =
+					std::format("probe '{}' #{} [{}] tick {}, beat {:.0f} ms ago:",
+								info.name, id, threads::StateName(info.state),
+								info.iterations, info.heartbeatAgeMs);
+				m_console.Print(head);
+				log::Info("{}", head);
+				// EVERY frame, unfiltered — unlike a crash report. For a wedged
+				// thread the OS frame IS the answer: NtWaitForSingleObject names a
+				// lock it is blocked on, NtDelayExecution a sleep it is sitting in.
+				// Filtering those out would throw away the diagnosis.
+				for (int i = 0; i < n && i < 20; ++i) {
+					const std::string line = "  " + stack::Describe(frames[i]);
+					m_console.Print(line);
+					log::Info("{}", line);
+				}
+				return;
+			}
+
+			diag::ThreadHealth all[diag::kMaxThreads];
+			const int tn = diag::SnapshotThreads(all, diag::kMaxThreads);
+
+			// --- one thread: its counts, its events, and their stacks ---------
+			if (!args.empty()) {
+				bool found = false;
+				for (int j = 0; j < tn; ++j) {
+					if (args[0] != all[j].name) continue;
+					found = true;
+					m_console.Print(std::format(
+						"'{}' [{}] — {} events: {} exception, {} fault, {} stall, {} "
+						"restart, {} killed, {} fatal",
+						all[j].name, all[j].live ? "live" : "gone", all[j].total,
+						all[j].Count(diag::Kind::Exception), all[j].Count(diag::Kind::Fault),
+						all[j].Count(diag::Kind::Stall), all[j].Count(diag::Kind::Restart),
+						all[j].Count(diag::Kind::Killed), all[j].Count(diag::Kind::Fatal)));
+
+					diag::EventView ev[diag::kEventsPerThread];
+					const int n = diag::ReadEvents(all[j].slot, ev, diag::kEventsPerThread);
+					for (int i = n - 1; i >= 0; --i) { // newest first
+						m_console.Print(std::format("  #{} {} tick {}: {}", ev[i].index,
+													diag::KindName(ev[i].kind),
+													ev[i].iteration, ev[i].message));
+						for (int f = 0; f < ev[i].frameCount && f < 6; ++f)
+							m_console.Print("      " + stack::Describe(ev[i].frames[f]));
+					}
+				}
+				if (!found)
+					m_console.Print(std::format("no thread named '{}' in the record", args[0]));
+				return;
+			}
+
+			// --- everything, newest first ------------------------------------
 			const diag::Totals t = diag::ProcessTotals();
 			m_console.Print(std::format(
 				"{} events — {} exception, {} fault, {} stall, {} restart, {} killed, "
-				"{} fatal",
+				"{} fatal ({} throws seen)",
 				t.total, t.Count(diag::Kind::Exception), t.Count(diag::Kind::Fault),
 				t.Count(diag::Kind::Stall), t.Count(diag::Kind::Restart),
-				t.Count(diag::Kind::Killed), t.Count(diag::Kind::Fatal)));
+				t.Count(diag::Kind::Killed), t.Count(diag::Kind::Fatal),
+				stack::ThrowsSeen()));
 			if (t.total == 0) {
 				m_console.Print("nothing has gone wrong yet");
 				return;
 			}
-
-			// Newest first, across every thread, so the last thing to go wrong is
-			// the first line you read.
-			diag::EventView events[16];
-			diag::Slot slots[16];
-			const int n = diag::ReadAllEvents(events, 16, slots);
-			diag::ThreadHealth threads[diag::kMaxThreads];
-			const int tn = diag::SnapshotThreads(threads, diag::kMaxThreads);
+			diag::EventView events[12];
+			diag::Slot slots[12];
+			const int n = diag::ReadAllEvents(events, 12, slots);
 			for (int i = 0; i < n; ++i) {
 				const char* owner = "?";
 				for (int j = 0; j < tn; ++j)
-					if (threads[j].slot == slots[i]) owner = threads[j].name;
+					if (all[j].slot == slots[i]) owner = all[j].name;
 				m_console.Print(std::format("  {} [{}] {}", diag::KindName(events[i].kind),
 											owner, events[i].message));
 			}
+			m_console.Print("`health <thread>` for stacks, `health probe <id>` for a live one");
 		});
 	m_console.Register("throttle", "manual global cadence scale (arg: e.g. 0.5; 1 = normal)",
 					   [this](const std::vector<std::string>& args) {

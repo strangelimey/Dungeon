@@ -185,8 +185,32 @@ nothing is built untested.
    one, keeping its own `SeenSet` so crash sites and allocation sites cannot
    mask each other. A stack is logged ONCE per distinct site, or a repeating
    failure would undo the rate limit.
-4. **The probe.** Console THREADS panel health columns, `health` command,
-   suspend-and-walk for a live stalled thread.
+4. **The probe — DONE.** `health probe <id|name>` suspends a live worker, walks
+   it and resumes — the answer to "what is it stuck on", which the record alone
+   can never give because a stalled thread has thrown nothing. Measured against
+   a wedged worker:
+
+   ```
+   probe 'demo.wedged' #6 [stalled] tick 0, beat 5159 ms ago:
+     ZwDelayExecution → SleepEx → sleep_for
+     Game_DevCommands.cpp:260        <- the line it is stuck on
+   ```
+
+   The walk uses `RtlLookupFunctionEntry` + `RtlVirtualUnwind`, **not**
+   `StackWalk64`, because StackWalk64 takes DbgHelp's lock and the thread you
+   just froze might be the one holding it — the probe would deadlock the process
+   it was meant to diagnose. Symbolizing happens after the resume. Probe output
+   goes to `dungeon.log` as well as the console: a probe is evidence, and the
+   console scrolls away.
+
+   Unlike a crash report, the probe prints EVERY frame — for a wedged thread the
+   OS frame is the diagnosis (`NtWaitForSingleObject` names a lock,
+   `NtDelayExecution` a sleep).
+
+   Also here: `health <thread>` (that thread's events with stacks), and a health
+   column on the THREADS panel. And the phase-2 gap is closed — stall DETECTION
+   no longer rides the reboot path, so a stall on a worker with no `autoRestart`
+   is recorded too (once per episode, not once per 100 ms poll).
 5. **The timeline.** Health marks on the profiler's per-thread rows, clickable
    detail. Profile builds only.
 6. **The harness.** `tools\HealthTest.ps1`, in the `AllocTest.ps1` idiom.

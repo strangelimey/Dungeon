@@ -88,6 +88,9 @@ struct Manager::Worker {
 	std::atomic<u64> wakeGen{0}; // bumped by a control call to wake the cadence sleep
 
 	bool autoRestart = false;        // set once at spawn
+	// One Stall event per stall EPISODE. Set when the supervisor records one,
+	// cleared when the worker gets back under its watchdog — see SupervisorLoop.
+	std::atomic<bool> stallReported{false};
 	std::atomic<bool> userStopped{false}; // a kill/stop the supervisor must respect
 	std::atomic<bool> quarantined{false}; // force-terminated; slot poisoned until reboot
 	std::atomic<u32> restarts{0};
@@ -475,36 +478,64 @@ void Manager::SupervisorLoop(std::stop_token st) {
 		}
 		for (WorkerId id : ids) {
 			Worker* w = Get(id);
-			if (!w || !w->autoRestart || w->userStopped.load() || w->watchdogMs == 0)
+			if (!w || w->watchdogMs == 0) continue;
+
+			// DETECTION is separate from the reboot, and deliberately so. It used
+			// to ride the reboot path, which meant a stall on a worker with no
+			// autoRestart — demo.wedged, say — was never recorded at all: the
+			// panel showed `stalled` live and the history showed nothing, so it
+			// vanished the moment you looked away.
+			if (w->state.load() != State::Running) { // only a stuck LIVE tick
+				w->stallReported.store(false);
 				continue;
-			if (w->state.load() != State::Running) continue; // only a stuck live tick
+			}
 			const i64 beat = w->beatNs.load();
 			if (!beat) continue;
 			const double age =
 				ToMs(Clock::now() - Clock::time_point(Clock::duration(beat)));
-			if (age > static_cast<double>(w->watchdogMs) * 5.0) {
-				// The stall is recorded SEPARATELY from the reboot that answers
-				// it, so the record says a tick hung for this long AND that it
-				// was rebooted — two facts, where the old code left neither. A
-				// stall that the supervisor does not reboot (no autoRestart)
-				// still goes unrecorded; catching those needs a check that does
-				// not ride the reboot path, which is phase 4's readout.
-				diag::RecordFor(
-					w->diagSlot.load(),
-					{.kind = diag::Kind::Stall,
-					 .workerId = id,
-					 .iteration = w->iterations.load(),
-					 .message = std::format("tick has run {:.0f} ms — past 5x its {} ms "
-											"watchdog; rebooting",
-											age, w->watchdogMs),
-					 .captureStack = false});
-				Restart(id); // stalled well past the watchdog: reboot it
+			if (age <= static_cast<double>(w->watchdogMs)) {
+				w->stallReported.store(false); // it finished; arm for the next one
+				continue;
 			}
+
+			// Once per STALL EPISODE, not once per poll: the supervisor looks
+			// every 100 ms, and a tick wedged for a minute would otherwise write
+			// six hundred identical events and push everything else out of the
+			// ring. The flag clears above, when the worker gets back under its
+			// watchdog or leaves Running.
+			if (!w->stallReported.exchange(true)) {
+				diag::RecordFor(w->diagSlot.load(),
+								{.kind = diag::Kind::Stall,
+								 .workerId = id,
+								 .iteration = w->iterations.load(),
+								 .message = std::format(
+									 "tick has run {:.0f} ms — past its {} ms watchdog",
+									 age, w->watchdogMs),
+								 .captureStack = false});
+			}
+
+			// The reboot is the separate fact, and Restart records it itself.
+			if (w->autoRestart && !w->userStopped.load() &&
+				age > static_cast<double>(w->watchdogMs) * 5.0)
+				Restart(id);
 		}
 		// Coarse poll; checks the stop flag often so shutdown is prompt.
 		for (int i = 0; i < 10 && !st.stop_requested(); ++i)
 			std::this_thread::sleep_for(10ms);
 	}
+}
+
+int Manager::CaptureStack(WorkerId id, void** out, int max) const {
+	Worker* w = Get(id);
+	if (!w || !w->thread.joinable()) return 0;
+#ifdef _WIN32
+	// A quarantined slot's thread was force-terminated and detached; the handle
+	// may name nothing, or worse, something reused. Never probe one.
+	if (w->quarantined.load()) return 0;
+	return stack::WalkThread(static_cast<void*>(w->thread.native_handle()), out, max);
+#else
+	return 0;
+#endif
 }
 
 WorkerInfo Manager::Inspect(WorkerId id) const {

@@ -115,6 +115,43 @@ int WalkContext(void* context, void** out, int max) {
 	return n;
 }
 
+int WalkThread(void* thread, void** out, int max) {
+#if !defined(_M_X64)
+#error "StackTrace::WalkThread needs an unwind implementation for this architecture"
+#endif
+	if (!thread || max <= 0) return 0;
+	const HANDLE h = static_cast<HANDLE>(thread);
+	// Freezing the calling thread is a hang, not a diagnostic.
+	if (::GetThreadId(h) == ::GetCurrentThreadId()) return 0;
+
+	if (::SuspendThread(h) == static_cast<DWORD>(-1)) return 0;
+
+	// Everything between here and ResumeThread must be library-free — no
+	// DbgHelp, no allocation, no logging. See the header.
+	CONTEXT ctx{};
+	ctx.ContextFlags = CONTEXT_FULL;
+	int n = 0;
+	if (::GetThreadContext(h, &ctx)) {
+		while (n < max && ctx.Rip) {
+			out[n++] = reinterpret_cast<void*>(ctx.Rip);
+
+			DWORD64 imageBase = 0;
+			PRUNTIME_FUNCTION fn = ::RtlLookupFunctionEntry(ctx.Rip, &imageBase, nullptr);
+			// No unwind entry: a leaf function, or a frame we cannot follow.
+			// Stopping is honest — guessing the return address off the stack
+			// pointer produces frames that look real and are not.
+			if (!fn) break;
+
+			PVOID handlerData = nullptr;
+			DWORD64 establisher = 0;
+			::RtlVirtualUnwind(UNW_FLAG_NHANDLER, imageBase, ctx.Rip, fn, &ctx,
+							   &handlerData, &establisher, nullptr);
+		}
+	}
+	::ResumeThread(h);
+	return n;
+}
+
 std::string Describe(void* address) {
 	std::lock_guard lock(g_symMx);
 	EnsureSymbols();
