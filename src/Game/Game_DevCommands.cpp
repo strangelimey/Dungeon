@@ -19,6 +19,7 @@
 #include <cctype>
 #include <chrono>
 #include <cstdlib>
+#include <filesystem>
 #include <format>
 #include <stdexcept>
 #include <string>
@@ -261,6 +262,61 @@ void Game::RegisterDevCommands() {
 				},
 				{"demo.wedged", 1.0f, /*watchdogMs=*/200});
 			m_console.Print(std::format("spawned WEDGED worker #{} (use kill)", id));
+		});
+	m_console.Register(
+		"levelcheck",
+		"verify every level file is present and every model a type names is installed",
+		[this](const std::vector<std::string>&) {
+			// WHAT THIS GUARDS, and why it is scoped this narrowly: the baked pool
+			// (assets/models, assets/textures) is GITIGNORED, so a fresh clone — or
+			// a new worktree provisioned from a stale file list — has catalog
+			// entries whose assets are absent. A missing TEXTURE renders magenta
+			// and is survivable; a missing MODEL is a LoadModelOrDie and takes the
+			// process down at level load, possibly on a level nobody has visited
+			// in weeks. That asymmetry is why only models are fatal here.
+			//
+			// It does NOT re-validate records against the map (bounds, walkability,
+			// a button facing a wall) — the loader already does that, and a second
+			// copy of those rules here would be the very drift this suite exists
+			// to catch.
+			const std::vector<std::string> installed = InstalledModels();
+			const auto haveModel = [&installed](const std::string& m) {
+				return std::ranges::find(installed, m) != installed.end();
+			};
+
+			int types = 0, missingModels = 0, missingFiles = 0;
+			for (const Catalog* cat : m_project.AllCatalogs()) {
+				for (const CatalogEntry& e : cat->Entries()) {
+					++types;
+					const std::string model = e.Get("model", "");
+					if (model.empty() || haveModel(model)) continue;
+					++missingModels;
+					m_console.Print(std::format("  MISSING MODEL '{}' named by type '{}'",
+												model, e.id));
+					log::Warn("levelcheck: missing model '{}' named by type '{}'", model,
+							  e.id);
+				}
+			}
+
+			for (const std::string& stem : m_project.levels) {
+				for (const std::string& path :
+					 {m_project.LevelMapPath(stem), m_project.LevelEntPath(stem)}) {
+					std::error_code ec;
+					if (std::filesystem::exists(path, ec)) continue;
+					++missingFiles;
+					m_console.Print(std::format("  MISSING LEVEL FILE {}", path));
+					log::Warn("levelcheck: missing level file {}", path);
+				}
+			}
+
+			const bool ok = missingModels == 0 && missingFiles == 0;
+			const std::string verdict = std::format(
+				"levelcheck RESULT={} levels={} types={} missing_models={} "
+				"missing_files={} installed_models={}",
+				ok ? "PASS" : "FAIL", m_project.levels.size(), types, missingModels,
+				missingFiles, installed.size());
+			m_console.Print(verdict);
+			log::Info("{}", verdict); // the harness reads this from dungeon.log
 		});
 	m_console.Register(
 		"crashpoke",
