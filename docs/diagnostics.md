@@ -1,9 +1,18 @@
 # Diagnostics: exceptions, stalls and thread health
 
-**Status:** IN PROGRESS (Michael, 2026-08-10), branch `exception-handling`.
-**Phases 1–3 are built and checked** — the record (`Core/Diagnostics` +
-`tools/DiagTest`, 35 checks), the capture sites, and the stacks
-(`Core/StackTrace`). Phases 4–6 are still plan.
+**Status:** BUILT (Michael, 2026-08-10), branch `exception-handling`. All six
+phases are done and checked:
+
+```
+diagtest   RESULT=PASS checks=35 failures=0     # the record, incl. torn-read detection
+healthtest RESULT=PASS cases=7  failures=0      # the real game, broken on purpose
+healthtest RESULT=FAIL ... self_test=1          # and the harness proven able to fail
+alloctest  RESULT=PASS frames=1921 violations=0 # the symbolizer lift changed nothing
+```
+
+Left undone deliberately: the `Killed` event kind has no scripted coverage (a
+hard kill is a panel button, not a command), and balance/tuning of the log rate
+limit is a matter of living with it.
 
 When the game dies, it should say why. Today it does not: it disappears, and
 the log stops mid-sentence. This is the machinery that replaces that silence —
@@ -227,7 +236,27 @@ nothing is built untested.
    reason the profile series keeps the max: the one event worth seeing must not
    be averaged away by the three around it. The section only exists once
    something has gone wrong — a permanently empty strip trains you to skip it.
-6. **The harness.** `tools\HealthTest.ps1`, in the `AllocTest.ps1` idiom.
+6. **The harness — DONE.** `tools\HealthTest.ps1`: seven cases, each breaking
+   the real game and then reading `dungeon.log`, because that is the surface a
+   crash is meant to be found on. Nothing inspects engine internals — if the
+   answer is not in the log, it does not count.
+
+   ```
+   healthtest RESULT=PASS cases=7 failures=0
+   ```
+
+   Cases: `throw` (recorded, game plays on) · `worker` (per-tick, keeps running)
+   · `stall` · `probe` (a live wedged worker names its own line) · `restart`
+   (supervisor reboot) · `fault` (report + dump) · `assert` (report + dump
+   before the abort).
+
+   `-SelfTest` skips every injection and requires the run to come back FAIL.
+   Measured: all 7 cases and every single expectation fail, so no check is
+   vacuously satisfied by an ordinary run.
+
+   **Not covered, said out loud rather than quietly skipped:** the `Killed`
+   kind. A hard force-terminate is the THREADS panel's kill button, not a
+   console command, so it cannot be driven from a script.
 
 ## The harness
 
