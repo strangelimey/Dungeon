@@ -812,6 +812,19 @@ void Game::RegisterDevCommands() {
 						   m_console.Print(m_world.ShadowsEnabled() ? "shadows on"
 																	: "shadows off");
 					   });
+	m_console.Register("shadowrate",
+				"fire shadow re-render rate: <hz> [per-frame budget]",
+				[this](const std::vector<std::string>& args) {
+					if (!args.empty()) {
+						const float hz = std::strtof(args[0].c_str(), nullptr);
+						const int budget =
+							args.size() > 1 ? std::atoi(args[1].c_str()) : -1;
+						m_world.SetShadowFlicker(hz, budget);
+					}
+					m_console.Print(std::format(
+						"fire shadows re-render at {:.1f} Hz, at most {} cube(s)/frame",
+						m_world.ShadowFlickerHz(), m_world.ShadowFlickerBudget()));
+				});
 	m_console.Register("dust", "volumetric dust: on/off, or a density (default 0.075)",
 					   [this](const std::vector<std::string>& args) {
 						   if (!args.empty()) {

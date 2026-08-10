@@ -21,6 +21,7 @@
 // ============================================================================
 #pragma once
 
+#include "Graphics/GpuProfiler.h"
 #include "Core/Types.h"
 #include "Graphics/D3DUtil.h"
 #include "Graphics/DisplayEnum.h" // FullscreenMode
@@ -65,6 +66,9 @@ public:
 	GraphicsDevice& operator=(const GraphicsDevice&) = delete;
 
 	ID3D12Device* Device() const { return m_device.Get(); }
+	// GPU timestamp queries for the render passes. Collected in BeginFrame and
+	// resolved in EndFrame, so a caller only has to mark passes (DN_GPU_ZONE).
+	GpuProfiler& Gpu() { return m_gpu; }
 	u32 Width() const { return m_width; }
 	u32 Height() const { return m_height; }
 	u32 FrameIndex() const { return m_frameIndex; } // 0..kFrameCount-1
@@ -180,6 +184,7 @@ private:
 	ComPtr<ID3D12GraphicsCommandList> m_commandList;
 
 	ComPtr<ID3D12Fence> m_fence;
+	GpuProfiler m_gpu;
 	u64 m_fenceValues[kFrameCount]{};
 	u64 m_nextFenceValue = 1;
 	void* m_fenceEvent = nullptr;

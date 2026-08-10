@@ -4,6 +4,7 @@
 #include "Audio/AudioEngine.h"
 #include "Core/AllocTrack.h"
 #include "Core/Log.h"
+#include "Core/Profile.h"
 #include "Core/Time.h"
 #include "Game/Game.h"
 #include "Game/GameSettings.h"
@@ -13,6 +14,9 @@
 #include "Platform/Window.h"
 
 #include <Windows.h>
+
+#include <format>
+#include <string>
 
 int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
 	using namespace dungeon;
@@ -31,6 +35,9 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
 	// new replacements live in that translation unit, is what makes the linker
 	// pull them in at all (see Core/AllocTrack.h's linker note).
 	alloc::Init();
+
+	// Calibrates the TSC and names this thread "main". No-op without DN_PROFILE.
+	prof::Init();
 
 	log::Info("Dungeon starting...");
 
@@ -67,11 +74,28 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
 		// render and present — because the rule covers all of it. Game::Update
 		// decides whether this frame counts (alloc::ArmFrame).
 		alloc::BeginFrame();
-		game.Update(dt);
+		{
+			// The profiler's root scope. Everything instrumented below hangs off
+			// this one, so the tree has a single trunk and "frame" is a real node
+			// with a total rather than an implied one.
+			DN_PROFILE_ZONE("frame");
+			{
+				DN_PROFILE_ZONE("update");
+				game.Update(dt);
+			}
 
-		ID3D12GraphicsCommandList* list = device.BeginFrame(clearColor);
-		game.Render(list);
-		device.EndFrame();
+			ID3D12GraphicsCommandList* list = nullptr;
+			{
+				DN_PROFILE_ZONE("render");
+				list = device.BeginFrame(clearColor);
+				game.Render(list);
+				device.EndFrame();
+			}
+		}
+
+		// Ends the frame's period for THIS thread; a worker publishes per tick
+		// instead (see Collector::CopyAndReset).
+		prof::PublishThisThread();
 
 		alloc::ReportFrame(alloc::EndFrame());
 
@@ -96,6 +120,56 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
 			log::Info("heap[{}] tid {}: {} allocs ({} excused), {} frees, {:.1f} MB requested",
 					  reports[i].name, reports[i].osThreadId, c.allocs, c.excused, c.frees,
 					  static_cast<double>(c.bytes) / (1024.0 * 1024.0));
+		}
+	}
+
+	// The LAST published period per thread, as an indented tree. A stand-in for
+	// the console panel until that exists: the collector needs to be checkable
+	// from a plain run, and an all-zero tree is the tell that instrumentation
+	// never reached the registry.
+	//
+	// It is the last FRAME, not the run — counters reset every publish, which is
+	// what keeps a live readout live. A whole-run total is a different feature
+	// and would want its own accumulator.
+	if constexpr (prof::kEnabled) {
+		const prof::Clock clock = prof::ClockInfo();
+		prof::ThreadReport reports[prof::kMaxThreads];
+		const int n = prof::SnapshotAll(reports, prof::kMaxThreads);
+		for (int i = 0; i < n; ++i) {
+			const prof::ThreadReport& r = reports[i];
+			log::Info("profile[{}] tid {}: {} nodes, final period of {}{}", r.name,
+					  r.osThreadId, r.nodeCount, r.periods,
+					  r.nodeOverflows || r.depthOverflows
+						  ? std::format(" (DROPPED {} nodes, {} depth)", r.nodeOverflows,
+										r.depthOverflows)
+						  : std::string{});
+
+			// The published tree is flat, with sibling/child indices, so walking
+			// it takes an explicit stack rather than recursion into a depth we do
+			// not know. Sized for the deepest possible nesting times the widest
+			// sibling list we would ever queue at once.
+			struct Visit {
+				u32 node;
+				int depth;
+			};
+			constexpr int kVisitMax = static_cast<int>(prof::kMaxNodes);
+			Visit stack[kVisitMax];
+			int top = 0;
+			for (u32 c = r.root; c != prof::kInvalidNode && top < kVisitMax;
+				 c = r.nodes[c].nextSibling)
+				stack[top++] = {c, 0};
+
+			while (top > 0) {
+				const Visit v = stack[--top];
+				const prof::NodeView& node = r.nodes[v.node];
+				log::Info("  {:>{}}{} {:.3f} ms incl, {:.3f} ms excl, {} calls", "",
+						  v.depth * 2, node.zone ? node.zone->name : "?",
+						  prof::TicksToMs(node.inclusive, clock),
+						  prof::TicksToMs(node.Exclusive(), clock), node.calls);
+				for (u32 c = node.firstChild; c != prof::kInvalidNode && top < kVisitMax;
+					 c = r.nodes[c].nextSibling)
+					stack[top++] = {c, v.depth + 1};
+			}
 		}
 	}
 	return 0;

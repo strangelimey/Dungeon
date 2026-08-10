@@ -5,6 +5,7 @@
 
 #include "Core/Loc.h"
 #include "Core/Log.h"
+#include "Core/Profile.h"
 #include "Game/DungeonMeshBuilder.h"
 
 #include <algorithm>
@@ -317,6 +318,13 @@ void DungeonWorld::SetTorchPalette(int index) {
 static constexpr float kPitFallSeconds = 0.55f;
 
 void DungeonWorld::Update(const Input& input, float dt, float time, bool acceptInput) {
+	// Instrumented HERE, in the callee, rather than at the call site. Game::Update
+	// reaches this from TWO places — the normal playing path and the one taken
+	// while the dev console owns input — and a zone on one of them would have the
+	// profile quietly omit the world's cost exactly when you are looking at the
+	// console to read it. Which is what the first attempt did.
+	DN_PROFILE_ZONE_L(prof::kLevelSystem, "world");
+
 	m_time = time; // drives the rune emissive pulse in SubmitSceneGeometry
 	// Landed from a pit on the level just below: the shaft's own blow, charged
 	// at the TOP of the first frame after the arrival — the flag is raised at

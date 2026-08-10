@@ -2,14 +2,22 @@
 // Core/AllocTrack.cpp — the ::operator new replacements and the slot table.
 //
 // Counting is LOCK-FREE: every allocation touches only the calling thread's
-// own thread_local Slot, which is constant-initialized (no dynamic init, so
-// first touch cannot re-enter the allocator). The mutex here guards the slot
-// TABLE — a registry of who to report — and is taken by registration and by
-// SnapshotAll, never by Note().
+// own Slot, reached through a constant-initialized thread_local pointer (no
+// dynamic init, so first touch cannot re-enter the allocator). The mutex here
+// guards the slot TABLE — a registry of who to report — and is taken by
+// registration and by SnapshotAll, never by Note().
 //
-// The table holds POINTERS to live thread_local slots plus a copy of the final
-// counters, so a worker that exits (or is rebooted by ThreadManager) leaves its
-// totals behind instead of a dangling read.
+// THE REGISTRY OWNS THE COUNTERS. The slots live in the module-level table and
+// the thread_local holds only a POINTER into it, rather than the other way
+// round. That is a safety property, not tidiness: ThreadManager::Kill
+// force-terminates a wedged worker with TerminateThread, which runs NO
+// destructors — no thread_local is destroyed and no exit hook fires — and the
+// thread's TLS block is released underneath it anyway. A table of pointers INTO
+// TLS would therefore be left holding a dangler that the next SnapshotAll reads,
+// which is the worst place for a silent bad read: diagnostic code, on the path
+// you reach for when something is already wrong. Registry-owned storage cannot
+// be freed under a reader, so a killed thread simply leaves its last counters
+// behind, exactly like one that exited cleanly.
 // ============================================================================
 #include "Core/AllocTrack.h"
 
@@ -35,7 +43,6 @@ namespace {
 struct Slot {
 	Counters counters;
 	int excusedDepth = 0;
-	int tableIndex = -1;
 
 	// Frame guard (main thread today; per-thread so a worker tick can use it).
 	Counters frameStart;
@@ -46,30 +53,50 @@ struct Slot {
 	void* stacks[kMaxFrameStacks][kStackDepth] = {};
 };
 
-// Constant-initialized POD: touching it never allocates, which is what makes
-// it safe to read from inside operator new.
-thread_local Slot t_slot{};
-
 struct Entry {
-	Slot* live = nullptr; // null once that thread exited
-	Counters last;        // its counters at exit, so a dead worker still reports
+	Slot slot;         // the counters themselves — see the file banner
+	bool live = false; // is a thread currently writing to this slot
 	char name[32] = {};
 	u32 osId = 0;
 	bool used = false;
 };
 
 std::mutex g_mx;
-Entry g_entries[kMaxThreads];
+// constinit is the checked form of "no dynamic initialization": this table is
+// touched from inside operator new, so an initializer that ran lazily on first
+// use could re-enter the allocator. ~1.6 KB a slot (the captured stacks
+// dominate) x kMaxThreads is ~100 KB of BSS, which buys the kill-safety above.
+constinit Entry g_entries[kMaxThreads]{};
 bool g_inited = false;
 
-// Clears this thread's table entry at thread exit, keeping its final numbers.
+// Where an UNREGISTERED thread counts. Its numbers are never reported (nothing
+// in the table points here), so it can safely be thread_local: the dangling
+// risk only exists for storage a reader can reach. Constant-initialized POD, so
+// touching it never allocates — which is what makes it safe inside operator new.
+thread_local constinit Slot t_fallback{};
+
+// This thread's slot: a registry entry once registered, else null. Constant-
+// initialized (a null pointer literal) for the same re-entrancy reason.
+thread_local constinit Slot* t_slot = nullptr;
+thread_local constinit int t_index = -1; // its index in g_entries, or -1
+
+// Never allocates, never locks. The null test is the unregistered case.
+inline Slot& Mine() noexcept { return t_slot ? *t_slot : t_fallback; }
+
+// Detaches this thread from its table entry at thread exit, leaving the final
+// counters behind in registry-owned storage. Nulling t_slot under the same lock
+// that clears `live` is what makes the entry safe to hand to a later thread:
+// afterwards this thread writes only to its fallback, so any allocation during
+// the rest of CRT teardown (other thread_locals being destroyed) can no longer
+// land in a slot somebody else now owns. Those last few are lost from the
+// report, which is the same as before and not worth a lock in Note().
 struct ExitHook {
 	~ExitHook() {
-		if (t_slot.tableIndex < 0) return;
+		if (t_index < 0) return;
 		std::lock_guard lock(g_mx);
-		Entry& e = g_entries[t_slot.tableIndex];
-		e.last = t_slot.counters;
-		e.live = nullptr;
+		g_entries[t_index].live = false;
+		t_slot = nullptr;
+		t_index = -1;
 	}
 };
 
@@ -78,7 +105,7 @@ struct ExitHook {
 // Called from the operator new/delete replacements below. Never allocates,
 // never locks, never throws.
 void Note(size_t bytes) noexcept {
-	Slot& s = t_slot;
+	Slot& s = Mine();
 	++s.counters.allocs;
 	s.counters.bytes += bytes;
 	if (s.excusedDepth > 0) {
@@ -96,7 +123,7 @@ void Note(size_t bytes) noexcept {
 	}
 }
 
-void NoteFree() noexcept { ++t_slot.counters.frees; }
+void NoteFree() noexcept { ++Mine().counters.frees; }
 
 void RegisterThread(std::string_view name) {
 	// The ExitHook's dynamic init may itself allocate (atexit bookkeeping), so
@@ -105,20 +132,31 @@ void RegisterThread(std::string_view name) {
 	(void)&hook;
 
 	std::lock_guard lock(g_mx);
-	if (t_slot.tableIndex >= 0) return; // already registered
+	if (t_index >= 0) return; // already registered
 	for (int i = 0; i < kMaxThreads; ++i) {
 		Entry& e = g_entries[i];
+		// A slot still marked live belongs to a thread that never released it.
+		// Usually that thread is simply running; it can also be one Kill()
+		// force-terminated, whose ExitHook never fired. Both are skipped, so a
+		// killed thread's totals stay readable instead of being overwritten by
+		// the worker that replaces it. That leaks a slot per hard kill, bounded
+		// by kMaxThreads and by Kill being a genuine last resort.
 		if (e.used && e.live) continue;
 		// A free slot, or a dead thread's slot being reused (a rebooted worker
 		// takes a fresh one rather than inheriting the old totals).
 		e = Entry{};
 		e.used = true;
-		e.live = &t_slot;
+		e.live = true;
 		e.osId = static_cast<u32>(::GetCurrentThreadId());
 		const size_t n = name.size() < sizeof(e.name) - 1 ? name.size() : sizeof(e.name) - 1;
 		std::memcpy(e.name, name.data(), n);
 		e.name[n] = '\0';
-		t_slot.tableIndex = i;
+		// Whatever this thread counted before it registered came out of its
+		// fallback; carry it over so the totals stay honest across the switch.
+		e.slot.counters = t_fallback.counters;
+		t_fallback = Slot{};
+		t_index = i;
+		t_slot = &e.slot;
 		return;
 	}
 	// Table full: the thread still counts, it just cannot be reported.
@@ -133,9 +171,9 @@ void Init() {
 	RegisterThread("main");
 }
 
-Counters ThisThread() { return t_slot.counters; }
+Counters ThisThread() { return Mine().counters; }
 
-void ResetThisThread() { t_slot.counters = Counters{}; }
+void ResetThisThread() { Mine().counters = Counters{}; }
 
 int SnapshotAll(ThreadReport* out, int capacity) {
 	std::lock_guard lock(g_mx);
@@ -148,8 +186,10 @@ int SnapshotAll(ThreadReport* out, int capacity) {
 		r.osThreadId = e.osId;
 		// A live thread's counters are read without synchronization: they are
 		// monotonic per-thread totals and this is a diagnostic, so a torn read
-		// costs at worst one stale figure on a 32-bit boundary.
-		r.counters = e.live ? e.live->counters : e.last;
+		// costs at worst one stale figure on a 32-bit boundary. Reading a DEAD
+		// thread's is likewise safe with no special case — the storage is ours,
+		// so it does not matter whether that thread exited or was terminated.
+		r.counters = e.slot.counters;
 	}
 	return n;
 }
@@ -213,7 +253,7 @@ std::string Describe(void* address) {
 } // namespace
 
 void BeginFrame() {
-	Slot& s = t_slot;
+	Slot& s = Mine();
 	s.frameStart = s.counters;
 	// Last frame's verdict decides this frame's capture — see the header.
 	s.capturing = s.armed;
@@ -221,10 +261,10 @@ void BeginFrame() {
 	s.stackCount = 0;
 }
 
-void ArmFrame(bool steady) { t_slot.armed = steady; }
+void ArmFrame(bool steady) { Mine().armed = steady; }
 
 FrameResult EndFrame() {
-	Slot& s = t_slot;
+	Slot& s = Mine();
 	FrameResult result;
 	result.armed = s.armed;
 	if (!s.armed) return result;
@@ -247,7 +287,7 @@ void ReportFrame(const FrameResult& result) {
 	if (!result.armed || result.violations == 0) return;
 	Excused excused; // symbolizing and logging both allocate
 
-	Slot& s = t_slot;
+	Slot& s = Mine();
 	int fresh = 0;
 	for (int i = 0; i < s.stackCount; ++i) {
 		const u64 hash = HashStack(s.stacks[i], s.stackDepth[i]);
@@ -288,8 +328,8 @@ void ResetStats() {
 	g_seenCount = 0;
 }
 
-Excused::Excused() { ++t_slot.excusedDepth; }
-Excused::~Excused() { --t_slot.excusedDepth; }
+Excused::Excused() { ++Mine().excusedDepth; }
+Excused::~Excused() { --Mine().excusedDepth; }
 
 } // namespace dungeon::alloc
 
