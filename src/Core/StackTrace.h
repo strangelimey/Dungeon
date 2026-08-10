@@ -70,6 +70,15 @@ std::string Describe(void* address);
 // Identity of a stack, for "have I already reported this one".
 u64 Hash(void* const* frames, int depth);
 
+// True for a frame that carries no information about which code failed: the
+// throw machinery, the OS exception dispatcher, container internals. ONE rule,
+// shared by every readout — the log and the console had drifted apart, and a
+// stack that reads differently in two places is a stack you cannot compare.
+//
+// NOT used by the live thread probe, where an OS frame is the entire diagnosis
+// (NtWaitForSingleObject names the lock it is blocked on).
+bool IsPlumbingFrame(std::string_view frame);
+
 // A bounded set of stacks already reported. Fixed storage: a standing failure
 // must not grow anything, and 64 distinct sites in one session is long past the
 // point where the log has made its case. Each consumer owns its own, so the

@@ -193,23 +193,24 @@ bool SeenSet::FirstSighting(u64 hash) {
 	return true;
 }
 
+bool IsPlumbingFrame(std::string_view frame) {
+	// A dozen frames of std::_Allocate / _Buy_raw say only "a container grew",
+	// which is already known — the answer is the first frame of OUR code under
+	// it. Likewise the throw machinery: a throw-time capture always starts inside
+	// ntdll's exception dispatcher (measured: RtlLocateExtendedFeature /
+	// RtlRaiseException / RaiseException / CxxThrowException sit on top of every
+	// one), and no Rtl*/Ki* frame is ever ours. Filtered BY NAME rather than by a
+	// fixed skip count, because the dispatcher's depth is not ours to depend on.
+	return frame.starts_with("std::") || frame.starts_with("operator new") ||
+		   frame.starts_with("Rtl") || frame.starts_with("Ki") ||
+		   frame.starts_with("RaiseException") || frame.contains("CxxThrowException");
+}
+
 void LogStack(void* const* frames, int depth, const char* indent) {
 	alloc::Excused excuse; // symbolizing and logging both allocate
 	for (int i = 0; i < depth; ++i) {
 		const std::string frame = Describe(frames[i]);
-		// Skip the plumbing. A dozen frames of std::_Allocate / _Buy_raw say only
-		// "a container grew", which is already known — the answer is the first
-		// frame of OUR code under it. Likewise the throw machinery: a throw-time
-		// capture always starts inside ntdll's exception dispatcher (measured:
-		// RtlLocateExtendedFeature / RtlRaiseException / CxxThrowException sit on
-		// top of every one), and no Rtl* frame is ever ours. Filtered BY NAME
-		// rather than by a fixed skip count, because the dispatcher's depth is
-		// not ours to depend on.
-		const bool plumbing =
-			frame.starts_with("std::") || frame.starts_with("operator new") ||
-			frame.starts_with("Rtl") || frame.starts_with("Ki") ||
-			frame.contains("CxxThrowException") || frame.starts_with("RaiseException");
-		if (!plumbing) log::Warn("{}{}", indent, frame);
+		if (!IsPlumbingFrame(frame)) log::Warn("{}{}", indent, frame);
 		// Stop at the entry point: above it is CRT scaffolding that says nothing
 		// about which system failed.
 		if (frame.starts_with("wWinMain") || frame.starts_with("main")) break;

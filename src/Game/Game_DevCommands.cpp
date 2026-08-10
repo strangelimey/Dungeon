@@ -386,8 +386,14 @@ void Game::RegisterDevCommands() {
 						m_console.Print(std::format("  #{} {} tick {}: {}", ev[i].index,
 													diag::KindName(ev[i].kind),
 													ev[i].iteration, ev[i].message));
-						for (int f = 0; f < ev[i].frameCount && f < 6; ++f)
-							m_console.Print("      " + stack::Describe(ev[i].frames[f]));
+						// Same plumbing rule as the log and the timeline; `shown`
+						// counts survivors so the budget is not spent on ntdll.
+						for (int f = 0, shown = 0; f < ev[i].frameCount && shown < 6; ++f) {
+							const std::string fr = stack::Describe(ev[i].frames[f]);
+							if (stack::IsPlumbingFrame(fr)) continue;
+							m_console.Print("      " + fr);
+							++shown;
+						}
 					}
 				}
 				if (!found)

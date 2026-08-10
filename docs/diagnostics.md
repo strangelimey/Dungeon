@@ -211,8 +211,22 @@ nothing is built untested.
    column on the THREADS panel. And the phase-2 gap is closed — stall DETECTION
    no longer rides the reboot path, so a stall on a worker with no `autoRestart`
    is recorded too (once per episode, not once per 100 ms poll).
-5. **The timeline.** Health marks on the profiler's per-thread rows, clickable
-   detail. Profile builds only.
+5. **The timeline — DONE.** A HEALTH section in the console: one strip per
+   thread that has failed, sharing the profile graphs' x-axis (240 samples ×
+   50 ms = 12 s), marks coloured by kind, click a mark for the event and its
+   stack.
+
+   **Not** rows on the profile graphs, as originally planned, for two reasons
+   found while building it: those rows are per NODE and health is per THREAD, so
+   the granularity does not match; and the profiler is compiled out of plain
+   debug and release while the record is not — a crash happens in an ordinary
+   build, which is exactly where a timeline is most wanted. Its own strip on the
+   same axis gets both.
+
+   A cell keeps the MOST SEVERE kind in its window, not the last, for the same
+   reason the profile series keeps the max: the one event worth seeing must not
+   be averaged away by the three around it. The section only exists once
+   something has gone wrong — a permanently empty strip trains you to skip it.
 6. **The harness.** `tools\HealthTest.ps1`, in the `AllocTest.ps1` idiom.
 
 ## The harness
