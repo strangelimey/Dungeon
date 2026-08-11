@@ -74,6 +74,12 @@ struct Project {
 	// "fixtures", "monsters", "doors", "stairs", "buttons", "items", "weapons",
 	// "armor", "spells", "attacks", "balance"), or null if unknown.
 	Catalog* CatalogForKey(const std::string& key);
+	// Const overload, for the read-only paths (the placement resolver runs on a
+	// const Project every frame from the hover). Delegates, so the key table
+	// stays in one place.
+	const Catalog* CatalogForKey(const std::string& key) const {
+		return const_cast<Project*>(this)->CatalogForKey(key);
+	}
 
 	// Every CONTENT catalog, for sweeps that don't care which category a type is
 	// in — the asset picker's "does anything bind this asset" check. `imports` is

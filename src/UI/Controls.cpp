@@ -927,12 +927,28 @@ void TextField::DrawSelf(UIContext& ctx, gfx::SpriteBatch& batch) {
 
 	const float pad = Rem(0.3f);
 	const float ty = px.y + (px.h - font.Height()) * 0.5f;
+	// Text is CLIPPED to the field, and scrolled to follow the caret. Without
+	// this a value wider than the box simply paints past its own border: the
+	// control was fine for as long as every field held a short number, and the
+	// first long value put in one (a list of theme tags) spilled ink outside the
+	// control and over the panel edge. That breaks the rule the whole layout
+	// rests on — a widget's area is its own — and `uioverlap` scores it as an
+	// escape.
+	const gfx::Rect inner{px.x + 1.0f, px.y + 1.0f, px.w - 2.0f, px.h - 2.0f};
+	ScopedClip clip(batch, inner);
 	if (text.empty() && !m_focused) {
 		font.Draw(batch, placeholder, px.x + pad, ty, theme.textDim);
 	} else {
-		font.Draw(batch, text, px.x + pad, ty, theme.text);
+		// FOCUSED: slide left so the caret stays in view — you have to be able to
+		// see what you are typing. UNFOCUSED: show the START of the value, which
+		// is the part that identifies it, and snapping back on blur is what every
+		// other text field does.
+		const float textW = font.MeasureWidth(text);
+		const float avail = std::max(px.w - pad * 2.0f, 0.0f);
+		const float scroll = m_focused ? std::max(0.0f, textW - avail) : 0.0f;
+		font.Draw(batch, text, px.x + pad - scroll, ty, theme.text);
 		if (m_focused) {
-			const float caretX = px.x + pad + font.MeasureWidth(text) + 1.0f;
+			const float caretX = px.x + pad - scroll + textW + 1.0f;
 			// 2px caret is a hairline and stays one (Units.h).
 			batch.DrawRect({caretX, px.y + Rem(0.22f), 2.0f, px.h - Rem(0.44f)},
 						   theme.accent);

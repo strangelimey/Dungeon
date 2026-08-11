@@ -496,19 +496,22 @@ bool MapEditor::OnRightClick(float mx, float my, const gfx::Rect& panel) {
 	return false;
 }
 
-bool MapEditor::BrushIsWallMounted() const {
+// The armed brush's mount, from the type's own `mount` field or its category's
+// default (Placement.h). Floor when nothing is armed — the caller then has no
+// placement to make anyway.
+Mount MapEditor::BrushMount() const {
+	if (m_sel.index < 0 || !CategoryPlaceable(m_sel.cat)) return Mount::Floor;
 	const std::vector<PaletteItem> items = CategoryItems(m_sel.cat);
-	if (m_sel.index < 0 || m_sel.index >= static_cast<int>(items.size())) return false;
-	const std::string& id = items[m_sel.index].id;
-	// Both wall features resolve from a face: a niche carves the face itself, a
-	// bore tunnels through the block behind it (the face gives the axis).
-	if (m_sel.cat == PaletteCat::WallFeatures) return true;
-	// Everything else is data-driven: the kind's own `mount` field decides.
-	const Catalog* cat = nullptr;
-	if (m_sel.cat == PaletteCat::Fixtures) cat = &m_world.GetProject().fixtures;
-	else if (m_sel.cat == PaletteCat::Decorations) cat = &m_world.GetProject().decorations;
-	if (!cat) return false;
-	return CatalogGet(cat->Find(id), "mount", "floor") == "wall";
+	if (m_sel.index >= static_cast<int>(items.size())) return Mount::Floor;
+	const char* key = CategoryCatalogKey(m_sel.cat);
+	const Catalog* cat = m_world.GetProject().CatalogForKey(key);
+	return MountFor(key, cat ? cat->Find(items[m_sel.index].id) : nullptr);
+}
+
+bool MapEditor::BrushIsWallMounted() const { return BrushMount() == Mount::Wall; }
+
+Placement MapEditor::ResolveBrush(int cx, int cz, const WallFace& face) const {
+	return Resolve(m_view.ViewedMap(), BrushMount(), cx, cz, face);
 }
 
 void MapEditor::ApplyBrush(int cx, int cz, bool dragging, const WallFace& face) {
@@ -567,17 +570,19 @@ void MapEditor::ApplyBrush(int cx, int cz, bool dragging, const WallFace& face) 
 		if (m_sel.index < 0 || m_sel.index >= static_cast<int>(items.size())) break;
 		const std::string& id = items[m_sel.index].id;
 		bool ok = false;
-		// A wall-mounted brush targets the FACE the pointer resolved to, never
-		// just the square under it: the click names one wall of one cell, so a
-		// corridor's two walls (or a lone block's four faces) are each reachable,
-		// and repeat clicks no longer march around the cell in N/E/S/W order.
-		const bool wallBrush = BrushIsWallMounted();
-		if (wallBrush && !face.valid) {
-			log(loc::Format("map.place.blocked", items[m_sel.index].label));
-			break; // pointer isn't over a floor/rock boundary — nothing to hang on
+		// THE SAME resolver the hover ghost drew from, so the click lands exactly
+		// where the preview said it would (Placement.h). A refusal carries its own
+		// reason — "nothing to hang this on" is a different problem from "that
+		// square is rock", and the ghost has already been saying which.
+		const Placement place = ResolveBrush(cx, cz, face);
+		if (!place.valid) {
+			log(loc::Format(place.refusalKey ? place.refusalKey : "map.place.blocked",
+							items[m_sel.index].label));
+			break;
 		}
-		const int px = wallBrush ? face.x : cx;
-		const int pz = wallBrush ? face.z : cz;
+		const bool wallBrush = place.mount == Mount::Wall;
+		const int px = place.x;
+		const int pz = place.z;
 		if (m_sel.cat == PaletteCat::Monsters)
 			ok = remote ? m_world.AddMonsterRemote(stem, id, cx, cz)
 						: m_world.AddMonster(id, cx, cz, Direction::South);

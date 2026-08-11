@@ -647,6 +647,16 @@ Cell DungeonMap::At(int x, int z) const {
 
 bool DungeonMap::IsWalkable(int x, int z) const { return At(x, z) == Cell::Floor; }
 
+bool DungeonMap::DoorwayFacing(const DungeonMap& map, int x, int z, Direction& out) {
+	if (!map.IsWalkable(x, z)) return false;
+	const bool sidesEW = !map.IsWalkable(x - 1, z) && !map.IsWalkable(x + 1, z);
+	const bool sidesNS = !map.IsWalkable(x, z - 1) && !map.IsWalkable(x, z + 1);
+	if (sidesEW == sidesNS) return false; // open room, or boxed in — no doorway
+	// Walls east+west -> the panel spans them, travel runs north-south.
+	out = sidesEW ? Direction::North : Direction::East;
+	return true;
+}
+
 bool DungeonMap::FreeSconceWall(int x, int z, Direction& out) const {
 	constexpr Direction kScan[4] = {Direction::North, Direction::East,
 									Direction::South, Direction::West};

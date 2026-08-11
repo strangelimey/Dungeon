@@ -19,6 +19,7 @@
 
 #include "Core/MathTypes.h"        // Vec4
 #include "Game/Entity.h"           // Direction, WallFace
+#include "Game/Placement.h"        // Mount, Placement
 #include "Graphics/SpriteBatch.h"  // gfx::Rect, gfx::SpriteBatch
 #include "UI/UIContext.h"          // ui::Theme
 
@@ -145,12 +146,26 @@ public:
 	void Paint(int cx, int cz, bool dragging, const WallFace& face = {}) {
 		ApplyBrush(cx, cz, dragging, face);
 	}
+	// True when something is armed AND it is a thing that gets PLACED (not a
+	// surface paint, not a non-placeable category). The hover ghost keys off
+	// this: a wall-texture brush has no pose to preview, only a cell to fill.
+	bool ArmedPlaceable() const {
+		return m_sel.index >= 0 && CategoryPlaceable(m_sel.cat) &&
+			   !PaintableCat(m_sel.cat);
+	}
+	// The armed brush's mount — what it attaches to (Placement.h). Data-driven:
+	// the type's own `mount` field, or its category's default.
+	Mount BrushMount() const;
 	// True when the armed brush hangs on a WALL FACE rather than occupying a
 	// square: a niche, or any catalog kind declaring `mount = wall` (the sconce
 	// today, any future wall decoration for free). MapView keys its edge-pick and
 	// hover highlight off this, so adding a wall-mounted kind is a catalog edit,
 	// not a code change.
 	bool BrushIsWallMounted() const;
+	// Where the armed brush would land for this cell + picked face, and whether
+	// it may land at all. THE hover preview and THE commit both call this — see
+	// the header note in Placement.h about why there may be only one resolver.
+	Placement ResolveBrush(int cx, int cz, const WallFace& face) const;
 	// Modifier gestures (MapView routes by the modifier held at the press).
 	// All three work on the paint brushes (the surface categories);
 	// rect/flood fall back to a normal click for the placement categories.

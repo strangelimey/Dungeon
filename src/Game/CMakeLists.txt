@@ -48,6 +48,7 @@ add_library(Game STATIC
 	NicheInspector.cpp
 	MessageLog.cpp
 	Party.cpp
+	Placement.cpp
 	PartyHudDraw.cpp
 	PartyBar.cpp
 	CharacterPanel.cpp

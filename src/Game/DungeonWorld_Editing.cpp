@@ -576,17 +576,6 @@ const DungeonWorld::Door* DungeonWorld::DoorAt(int x, int z) const {
 	return nullptr;
 }
 
-bool DungeonWorld::DoorwayFacing(const DungeonMap& map, int x, int z,
-								 Direction& out) {
-	if (!map.IsWalkable(x, z)) return false;
-	const bool sidesEW = !map.IsWalkable(x - 1, z) && !map.IsWalkable(x + 1, z);
-	const bool sidesNS = !map.IsWalkable(x, z - 1) && !map.IsWalkable(x, z + 1);
-	if (sidesEW == sidesNS) return false; // open room, or boxed in — no doorway
-	// Walls east+west -> the panel spans them, travel runs north-south.
-	out = sidesEW ? Direction::North : Direction::East;
-	return true;
-}
-
 // A catalog entry's motion shaping. One helper because door types and opener
 // entries live in the SAME catalog and use the same two field names — a leaf
 // entry shapes the leaf, an opener entry shapes the opener.
@@ -714,7 +703,7 @@ bool DungeonWorld::AddDoor(const std::string& type, int x, int z) {
 	};
 	if (!m_project.doors.Contains(type) || DoorAt(x, z)) return false;
 	Direction facing;
-	if (!DoorwayFacing(m_map, x, z, facing)) {
+	if (!DungeonMap::DoorwayFacing(m_map, x, z, facing)) {
 		say(loc::Tr("map.door.nodoorway"));
 		return false;
 	}
@@ -741,7 +730,7 @@ bool DungeonWorld::AddDoorRemote(const std::string& stem,
 	const DungeonMap& map = *m_levelMaps.find(stem)->second;
 	if (!m_project.doors.Contains(type)) return false;
 	Direction facing;
-	if (!DoorwayFacing(map, x, z, facing)) {
+	if (!DungeonMap::DoorwayFacing(map, x, z, facing)) {
 		if (onMessage) onMessage(loc::Tr("map.door.nodoorway"));
 		return false;
 	}

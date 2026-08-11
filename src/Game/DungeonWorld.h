@@ -1658,9 +1658,8 @@ private:
 	Vec3 OpenerPos(const Door& door, float face) const;
 	Door* DoorAt(int x, int z);
 	const Door* DoorAt(int x, int z) const;
-	// The travel direction for a door on (x,z): exactly ONE axis must be
-	// flanked by solid walls (the panel spans it); false = no doorway there.
-	static bool DoorwayFacing(const DungeonMap& map, int x, int z, Direction& out);
+	// (DoorwayFacing moved to DungeonMap — it only ever read the map, and the
+	// placement resolver needs it without dragging the whole world in.)
 	// Toggles one door (with the doorway-occupied jam check + message/anim) /
 	// every door whose name matches a button's target.
 	bool ToggleDoor(Door& door);

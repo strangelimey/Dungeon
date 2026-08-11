@@ -31,6 +31,12 @@ inline const Vec4 kMarkerInk{0.96f, 0.96f, 0.98f, 1.0f};  // initials drawn over
 inline const Vec4 kFacingArrow{0.25f, 1.0f, 0.40f, 1.0f}; // editor: which way a placed thing faces
 // Editor: the wall FACE a wall-mounted brush (niche/sconce/hung prop) will use.
 inline const Vec4 kFaceHighlight{0.40f, 0.95f, 1.0f, 0.95f};
+// Editor: the placement GHOST — where the armed brush would land. Two inks, and
+// the refused one is deliberately DRAWN rather than the ghost being hidden: a
+// preview that silently vanishes says only "no", where one that stays and turns
+// red says "here, and no" — and which cell it was refusing is the useful half.
+inline const Vec4 kGhostOk{0.45f, 1.0f, 0.65f, 0.55f};
+inline const Vec4 kGhostNo{1.0f, 0.35f, 0.35f, 0.45f};
 
 // Editor textured cell fill. The dim base view draws each cell's albedo with a
 // CURVE, not a pure multiply: the texture (alpha < 1) composites over a flat

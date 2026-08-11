@@ -31,6 +31,7 @@
 
 #include "Game/DungeonWorld.h"
 #include "Game/GameSettings.h" // collapse-state persistence
+#include "Game/Placement.h"    // Placement (the hover ghost)
 #include "Graphics/GraphicsDevice.h"
 #include "Graphics/SpriteBatch.h"
 #include "Platform/Input.h"
@@ -277,6 +278,12 @@ private:
 	// draws it as a highlight bar on the target edge, so the face a click will
 	// take is visible BEFORE committing — the gesture explains itself.
 	WallFace m_hoverFace;
+	// Where the armed PLACEMENT brush would land, resolved every Update from the
+	// hovered cell + face through MapEditor::ResolveBrush — the same call the
+	// click makes, which is the whole point (Placement.h). Render draws it as a
+	// ghost, including its REFUSALS: a preview that only vanishes teaches nothing,
+	// so an invalid pose still draws, in the refusal colour.
+	Placement m_hoverPlace;
 	// Which chrome button the mouse is over, tracked the same way (Update
 	// hit-tests in window pixels; Render styles the matching device-pixel rect
 	// by IDENTITY, since the two spaces disagree numerically). Drives the shared

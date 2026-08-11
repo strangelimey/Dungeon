@@ -382,6 +382,14 @@ bool MapView::Update(const Input& input, const gfx::Rect& panel) {
 	if (editor && overGrid && m_editor && m_editor->BrushIsWallMounted())
 		m_hoverFace = FaceAt(mx, my, panel);
 
+	// The GHOST: where the armed brush would actually land, resolved through the
+	// same call the click will make (MapEditor::ResolveBrush -> game::Resolve).
+	// Nothing here re-derives a rule — a preview computed separately from the
+	// commit is a preview that can lie, and that is worse than none.
+	m_hoverPlace = {};
+	if (editor && overGrid && m_editor && m_hoverX >= 0 && m_editor->ArmedPlaceable())
+		m_hoverPlace = m_editor->ResolveBrush(m_hoverX, m_hoverZ, m_hoverFace);
+
 	// Track the hovered chrome button (Render styles it via the shared
 	// ui::DrawButtonFace). Mirrors the click gating: hidden/unavailable
 	// buttons never read as hot. The browse arrows are Player-mode chrome
@@ -803,6 +811,25 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 		default:               bar = {r.x + r.w - thick, r.y, thick, r.h}; break;
 		}
 		batch.DrawRect(bar, kFaceHighlight);
+	}
+
+	// 2c) The PLACEMENT GHOST: the pose the armed brush resolved to, drawn before
+	// the click commits it (Placement.h). Three things are worth seeing, and the
+	// grid hides all three: WHICH cell it lands in (a wall mount moves it to the
+	// face's walkable neighbour, which need not be the square under the pointer),
+	// WHICH WAY it will face when that was derived rather than chosen, and whether
+	// it may land at all.
+	if (m_hoverPlace.x >= 0 && (m_hoverPlace.valid || m_hoverPlace.refusalKey)) {
+		const Vec4 ink = m_hoverPlace.valid ? kGhostOk : kGhostNo;
+		const gfx::Rect r = cellRect(m_hoverPlace.x, m_hoverPlace.z);
+		batch.DrawRect(r, {ink.x, ink.y, ink.z, ink.w * 0.45f});
+		ui::DrawBorder(batch, r, ink);
+		// The derived facing, through the SAME arrow every placed thing already
+		// draws — so "which way will this end up pointing" is answered in the
+		// vocabulary on screen rather than a second one invented here, and the
+		// preview and the placed result look alike because they ARE alike.
+		if (m_hoverPlace.valid && m_hoverPlace.facingDerived)
+			facingArrow(m_hoverPlace.x, m_hoverPlace.z, m_hoverPlace.facing);
 	}
 
 	// A baked-icon marker: the kind's own model rendered into a small RT

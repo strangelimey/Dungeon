@@ -149,9 +149,13 @@ void LevelSettingsDialog::BuildUI() {
 	{
 		ui::Stack* row = chrome.body->Row<ui::Stack>(FormRow(), true);
 		row->gapRem = 0.5f;
-		row->Row<ui::Label>(ui::Len::Fill(kLabelFill), loc::Tr("map.level.theme"))
+		// A wider field than the numeric rows get: those hold "0.075", this holds
+		// a list of words. The clip in ui::TextField keeps a long list inside its
+		// box either way, but a value you cannot read without focusing the field
+		// is still a worse row than one you can.
+		row->Row<ui::Label>(ui::Len::Fill(1.0f), loc::Tr("map.level.theme"))
 			->centerV = true;
-		auto* field = row->Row<ui::TextField>(ui::Len::Fill(kFieldFill), m_theme);
+		auto* field = row->Row<ui::TextField>(ui::Len::Fill(1.4f), m_theme);
 		field->maxLength = 48;
 		ui::TextField* raw = field;
 		raw->onChange = [this, raw] {

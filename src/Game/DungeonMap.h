@@ -219,6 +219,14 @@ public:
 	bool IsWalkable(int x, int z) const;
 	Cell At(int x, int z) const;
 
+	// The travel direction for a door on (x,z): exactly ONE axis must be flanked
+	// by solid walls (the panel spans it); false = no doorway there. Static and
+	// map-only — it lived on DungeonWorld until the placement resolver needed it
+	// (Placement.h), which had no business including the whole world to ask a
+	// question about a cell. Callers: door placement AND the hover ghost, which
+	// is what makes the preview incapable of disagreeing with the commit.
+	static bool DoorwayFacing(const DungeonMap& map, int x, int z, Direction& out);
+
 	// --- editing seam (in-game map editor) ----------------------------------
 	// Sets a cell's type, bumping Revision() when the value actually changes so
 	// the world can rebuild geometry. Out-of-bounds writes are ignored (the
