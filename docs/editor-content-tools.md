@@ -243,7 +243,7 @@ Each phase is independently useful and independently mergeable, in the order the
 dependencies demand. The branch is long, so the early phases are deliberately the
 ones that pay off on their own.
 
-### Phase 1 — `tags` (Theme C)
+### Phase 1 — `tags` (Theme C) — DONE (a541076)
 
 - `tags` FieldSpec on every placeable catalog's schema table; space-separated,
   free-form. `CatalogTags()` helper beside `CatalogGet`/`CatalogBool`.
@@ -253,6 +253,21 @@ ones that pay off on their own.
   record beside `atmosphere`.
 - Palette lens: on-theme rows first, a divider, everything else below —
   ranking only, never exclusion. The existing text filter is untouched.
+
+What the build taught: ranking items WITHIN a run is nearly useless on its own,
+because `category` and `tags` correlate hard on real content — the Skeleton
+group IS the undead ones — so every run comes out uniformly on- or off-theme
+and the divider never fires. Ranking the GROUPS is the half that works, a group
+counting as on-theme if ANY member is. Worth remembering for Phase 4: the same
+correlation means a tag query over a category is usually a query over one or two
+whole groups, not a scattering of individual types.
+
+Also settled here, because Phase 1 ran into it: the block-format writer now
+emits CRLF (`serialize::kEol`) and `.gitattributes` pins the checkout, after the
+catalogs were found sitting at 19 LF files and one CRLF. The lesson generalises
+to anything that rewrites authored files — normalising the FILES would have held
+for about a day, since the next editor save rewrites a whole `.cat`. Consistency
+has to live in the writer.
 
 ### Phase 2 — placement contract (Theme A)
 
