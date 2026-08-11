@@ -92,6 +92,20 @@ $checks = @(
 		selfTest = { & (Join-Path $root 'tools\HealthTest.ps1') -Config $Config -SelfTest | Out-Host; $LASTEXITCODE }
 	},
 	@{
+		name = 'build-profile'; tier = 'full'
+		what = 'the release-profile build compiles clean (DN_PROFILE rots unwatched too)'
+		run  = { & cmd /c ".\build.cmd release-profile > `"$env:TEMP\checkall-build-profile.txt`" 2>&1"; $LASTEXITCODE }
+	},
+	@{
+		name = 'profile'; tier = 'full'
+		what = 'the frame budget still adds up, and the verdict still reacts to load'
+		# release-profile on purpose, and NOT $Config: the budget only exists with
+		# DN_PROFILE, and debug's D3D12 debug layer inflates command recording
+		# enough to change which term dominates. Depends on build-profile above.
+		run      = { & (Join-Path $root 'tools\ProfileTest.ps1') -Config release-profile | Out-Host; $LASTEXITCODE }
+		selfTest = { & (Join-Path $root 'tools\ProfileTest.ps1') -Config release-profile -SelfTest | Out-Host; $LASTEXITCODE }
+	},
+	@{
 		name = 'bc7'; tier = 'full'
 		what = 'the BC7 encoder error estimate against an independent decoder'
 		# Release on purpose: the debug encoder is too slow to be worth the wait,

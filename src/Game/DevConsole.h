@@ -118,6 +118,58 @@ private:
 	ProfSeries m_profSeries[kProfSeries];
 	int m_profSeriesCount = 0;
 
+	// --- readout smoothing (the LIST view's numbers) ------------------------
+	// Every row is one PUBLISHED PERIOD — a frame for the main thread — so at
+	// 240 fps the digits changed 240 times a second and could not be read at
+	// all. Averaging alone does not fix that: a mean recomputed every frame is
+	// smoother but still repaints its low digits every frame, and the eye needs
+	// the number to HOLD STILL more than it needs it to be exact.
+	//
+	// So the window is a TUMBLING one, not a sliding one. Samples accumulate for
+	// kProfSmoothSec, then the mean is committed and DISPLAYED UNCHANGED until
+	// the next commit. One mechanism buys both halves: the value stops being a
+	// single noisy sample, and it stops moving long enough to read.
+	//
+	// The exception is `max`, which takes the MAXIMUM over the window rather than
+	// the mean, for the same reason the graph history does — a mean would average
+	// away the one call that spiked, and that call is the whole reason the column
+	// is there. Averaging a worst case produces a number that is neither.
+	static constexpr int kProfSmoothSlots = 256; // >= kMaxProfRows (asserted)
+	static constexpr float kProfSmoothSec = 0.25f; // 4 readable updates a second
+
+	struct ProfSmooth {
+		u32 tid = 0;  // the same (thread, node index) key the series use, and
+		u32 node = 0; // for the same reason: row position is not an identity
+		bool used = false;
+		bool seen = false; // matched a live row this frame; else the node has gone
+
+		// Accumulating over the current window.
+		double sumIncl = 0.0, sumExcl = 0.0, sumCalls = 0.0, sumFrac = 0.0;
+		double winMax = 0.0;
+		int count = 0;
+
+		// Committed at the end of a window — what the list actually draws, held
+		// steady until the next one. `ready` is false only for a node discovered
+		// mid-window, which draws its raw values for the remainder rather than a
+		// zero it never measured.
+		bool ready = false;
+		double incl = 0.0, excl = 0.0, calls = 0.0, maxMs = 0.0, frac = 0.0;
+	};
+	ProfSmooth m_profSmooth[kProfSmoothSlots];
+	int m_profSmoothCount = 0;
+	float m_profSmoothTimer = 0.0f;
+	// Runtime-tunable, because 250 ms is a guess at what reads well and the right
+	// answer differs between watching a steady frame and chasing a spike. Zero
+	// commits every frame, which is exactly the old unsmoothed behaviour — "off"
+	// needs no separate code path.
+	float m_profSmoothSec = kProfSmoothSec;
+
+	// Accumulates one frame's rows / commits the window. Both no-ops without
+	// DN_PROFILE, like the series pair above.
+	void CommitProfileSmooth();
+	// The committed values for a row, or null if it has none yet.
+	const ProfSmooth* SmoothFor(u32 tid, u32 node) const;
+
 	// The six gauges at the top of the panel, given the same treatment. These
 	// differ from the profile series in one way that matters: each has a NATURAL
 	// maximum (the display's refresh rate, 100%, installed RAM, the VRAM budget,
@@ -134,6 +186,64 @@ private:
 	PerfSeries m_perfSeries[kPerfLines];
 	bool m_perfHidden[kPerfLines] = {};
 
+	// --- the frame budget over time ------------------------------------------
+	// The verdict says what is holding the frame back NOW. This is the same
+	// three numbers with twelve seconds of history behind them, which is the only
+	// way to see an INTERMITTENT bound — a hitch that is GPU-bound for 200 ms
+	// inside an otherwise display-bound run never shows up in an instantaneous
+	// readout, because by the time you have read it, it is over.
+	//
+	// Shares m_profHead with every other graph, so a spike here lines up with the
+	// zone that caused it.
+	//
+	// KEPT AS MAXIMA PER WINDOW, independently per line — so these are three
+	// ENVELOPES, not a decomposition. cpu and gpu at one x may come from
+	// different frames inside that 50 ms, and reading them as slices that should
+	// sum to frame would be wrong. The stacked bar is where the decomposition
+	// lives; this is where the trends do.
+	enum BudgetLine { kBudFrame, kBudCpu, kBudGpu, kBudgetLines };
+	PerfSeries m_budgetSeries[kBudgetLines];
+
+	// THE TWO PROCESSORS GET ONE COLOUR EACH, WHEREVER THEY APPEAR. The gauges at
+	// the top of the panel and the frame budget below it are read together and
+	// describe the same two pieces of silicon, so a reader is entitled to assume
+	// the colours agree. They did not: the budget's first palette painted CPU
+	// work in the gauges' RAM amber and Present in the gauges' CPU blue, which
+	// made the biggest block on the bar look like CPU time — the exact
+	// misreading the bar was built to prevent.
+	//
+	// Defined here and used by BOTH the gauge table and the budget, so agreement
+	// is structural rather than a thing to remember.
+	static constexpr Vec4 kCpuColor{0.45f, 0.70f, 0.95f, 1.0f};
+	static constexpr Vec4 kGpuColor{0.55f, 0.85f, 0.55f, 1.0f};
+
+	// The budget's four, three of them derived from that rule:
+	//   cpu     = the CPU's colour, because it IS CPU time
+	//   gpu     = the GPU's colour, likewise
+	//   wait    = the GPU's colour DIMMED — time the CPU lost to the GPU, so it
+	//             belongs to the GPU's story without being GPU work
+	//   present = neutral grey, because it is not work at all. Idle should look
+	//             idle rather than borrow a colour that means something ran.
+	static constexpr Vec4 kBudgetCpuColor = kCpuColor;
+	static constexpr Vec4 kBudgetGpuColor = kGpuColor;
+	static constexpr Vec4 kBudgetWaitColor{0.34f, 0.52f, 0.36f, 1.0f};
+	static constexpr Vec4 kBudgetPresentColor{0.44f, 0.44f, 0.48f, 1.0f};
+	// The frame cap: idle like Present, so grey like Present — but a LIGHTER
+	// grey, since the two sit side by side in the same bar and must be told
+	// apart. Lighter rather than darker because this colour also draws the
+	// `bound by cap` verdict, and the first attempt at a darker grey was very
+	// nearly unreadable as text on a dark panel — the verdict is the one line
+	// that has to survive a glance.
+	static constexpr Vec4 kBudgetCapColor{0.60f, 0.61f, 0.68f, 1.0f};
+
+	// The ordinary per-node share bar, and it is deliberately NOT the CPU's blue
+	// any more. Once blue means "CPU time", a blue bar on the `present` row —
+	// which is the CPU doing nothing — says the opposite of the grey segment
+	// standing for that same measurement in the frame bar directly above it. A
+	// generic proportion needs a colour that claims nothing, so it gets a muted
+	// steel and the meaningful colours stay meaningful.
+	static constexpr Vec4 kShareColor{0.42f, 0.52f, 0.62f, 1.0f};
+
 	// Checkbox rects for the graph views, rebuilt by Render and hit-tested by the
 	// next Update — the same idiom as the thread controls, so the geometry of a
 	// clickable thing lives in exactly one place.
@@ -149,6 +259,116 @@ private:
 		u32 node = 0;
 	};
 	std::vector<GraphToggle> m_graphToggles;
+
+	// --- the frame bar's hover tooltip ---------------------------------------
+	// The stacked bar says the proportions at a glance but names none of them;
+	// the colour key is up on the section header, which is the wrong place to
+	// look when the thing you are pointing at is down here. Hovering draws the
+	// same bar again, larger, with every part labelled and measured.
+	//
+	// Only the FLAG crosses frames. The rect is recorded by Render and
+	// hit-tested by the next Update like every other control on this panel, but
+	// the numbers are re-read from the live budget at draw time — storing them
+	// would give the tooltip its own copy that could disagree with the bar it is
+	// explaining.
+	gfx::Rect m_frameBarRect{};
+	bool m_frameBarHover = false;
+
+	// The section header carries seven terms in four colours and explains none
+	// of them. Hovering it names each one. Same idiom, and deliberately ONE
+	// tooltip for the whole line rather than seven: the terms are a single
+	// sentence about where a frame went, and reading them one hover at a time
+	// would hide the relationship that makes them worth having.
+	gfx::Rect m_profHeaderRect{};
+	bool m_profHeaderHover = false;
+
+	// Render's canvas size, kept so Update can put the mouse into the same space
+	// as the rects Render recorded. Update is handed WINDOW pixels and Render
+	// DEVICE pixels, which are equal until something scales them apart; the
+	// panel's existing hit-tests compare the two directly and have simply never
+	// met a case where they differ.
+	float m_renderW = 0.0f;
+	float m_renderH = 0.0f;
+
+	// --- click-to-expand on the tree ----------------------------------------
+	// A zone row in the LIST view is a control: clicking it raises that subtree's
+	// detail a level, so the inner zones under it start recording and appear
+	// beneath it next frame. Same laid-out-by-Render, hit-tested-by-Update idiom
+	// as everything else on the panel.
+	//
+	// Addressed by (slot, node), NOT by the path the `profile detail` command
+	// takes. A path names a node in every thread whose tree has it, which is the
+	// right behaviour for a typed command reaching all four AI workers at once
+	// and the wrong one for a click that landed on exactly one row.
+	//
+	// The path is carried anyway, purely to say what happened in the scrollback:
+	// a click whose subtree has no deeper zones changes nothing visible, and a
+	// control that silently does nothing reads as a broken one.
+	struct ProfDetailHit {
+		gfx::Rect box;
+		u32 slot = 0;
+		u32 node = 0;
+		i8 next = -1;     // the level this click applies (-1 clears)
+		bool atMax = false; // already as deep as call sites go; report, don't act
+		char path[128] = {};
+	};
+	std::vector<ProfDetailHit> m_profDetailHits;
+
+	// --- snapshots: this scene against that one ------------------------------
+	// A profiler that only shows NOW cannot answer the question anyone actually
+	// has, which is "did that change help". Reading two numbers off two
+	// screenshots taken a minute apart is not a comparison — the panel is live,
+	// both were sampled over different moments, and nothing lines the rows up.
+	//
+	// A snapshot RECORDS over a few seconds rather than freezing an instant, for
+	// the same reason the readout is smoothed: one frame is not a measurement.
+	// Means for the timings, MAX for `worst` — averaging worst cases produces a
+	// number that is neither, the same rule the window already follows.
+	//
+	// Rows are keyed by thread + SLASH PATH, not by index. Between two snapshots
+	// the tree will usually have changed shape — that is half the point of
+	// taking them — so a positional key would diff one scope against another and
+	// report confident nonsense.
+	static constexpr int kSnapRows = 192;
+	// EIGHT, not four. A real session is a chain — low, ultra, shadowmax, then a
+	// baseline for the next question — and four ran out mid-investigation, after
+	// which `snap` refused and the `diff` that followed reported an unknown name.
+	// The refusal is right (silently evicting the baseline you are measuring
+	// against would be worse), so the fix is headroom.
+	static constexpr int kSnapSlots = 8;
+	struct SnapRow {
+		char thread[32] = {};
+		char path[128] = {};
+		double incl = 0.0, excl = 0.0, calls = 0.0;
+		double worst = 0.0;
+	};
+	struct Snapshot {
+		char name[32] = {};
+		bool used = false;
+		float seconds = 0.0f; // how long it actually recorded for
+		int samples = 0;
+		int rows = 0;
+		SnapRow row[kSnapRows];
+		// The frame budget, averaged over the same window.
+		double frameMs = 0.0, cpuMs = 0.0, waitMs = 0.0, presentMs = 0.0, capMs = 0.0,
+			   gpuMs = 0.0;
+		bool budgetValid = false;
+	};
+	Snapshot m_snaps[kSnapSlots];
+
+	// Recording state. Only one at a time: two overlapping recordings would each
+	// be measuring the other's cost as well as the scene's.
+	int m_snapTarget = -1;
+	float m_snapLeft = 0.0f;
+
+	int SnapSlot(std::string_view name) const; // existing slot, or -1
+	int SnapFreeSlot();                        // reuse by name, else a free one
+	// Walks the tree itself rather than borrowing the sampler's rows: the row
+	// type is a drawing detail private to the .cpp, and one extra tree walk for
+	// the few seconds a recording lasts is not worth leaking it into the header.
+	void SnapAccumulate(float dt);
+	void SnapFinish();
+	void SnapDiff(const Snapshot& a, const Snapshot& b);
 
 	// --- health over time ---------------------------------------------------
 	// A mark per sample window per thread: when it threw, when it stalled, when

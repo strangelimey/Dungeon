@@ -1,6 +1,7 @@
 #include "Graphics/GraphicsDevice.h"
 
 #include "Core/Log.h"
+#include "Core/Profile.h"
 #include "Core/StringUtil.h"
 #include "Graphics/DisplayEnum.h" // PackLuid
 
@@ -154,6 +155,7 @@ GraphicsDevice::~GraphicsDevice() {
 		if (fs) m_swapchain->SetFullscreenState(FALSE, nullptr);
 	}
 	if (m_fenceEvent) CloseHandle(m_fenceEvent);
+	if (m_capTimer) CloseHandle(m_capTimer);
 }
 
 void GraphicsDevice::CreateSizeDependentResources() {
@@ -283,9 +285,19 @@ void GraphicsDevice::SetFullscreen(bool exclusive, u32 outputIndex, u32 width,
 // ----------------------------------------------------------------------------
 ID3D12GraphicsCommandList* GraphicsDevice::BeginFrame(const float clearColor[4]) {
 	// Wait until the GPU has finished the previous frame that used this slot.
-	if (m_fence->GetCompletedValue() < m_fenceValues[m_frameIndex]) {
-		DN_HR(m_fence->SetEventOnCompletion(m_fenceValues[m_frameIndex], m_fenceEvent));
-		WaitForSingleObject(m_fenceEvent, INFINITE);
+	//
+	// ZONED, and this is the point of it: time spent here is the main thread
+	// STOPPED because the GPU is kFrameCount frames behind, which is the signature
+	// of a GPU-bound frame and nothing else. Folded into `render` — as it was —
+	// it read as expensive rendering, which is the opposite conclusion. The zone
+	// brackets the test as well as the wait so a frame that does not block still
+	// reports the (near-zero) cost of asking.
+	{
+		DN_PROFILE_ZONE(prof::kZoneWaitGpu);
+		if (m_fence->GetCompletedValue() < m_fenceValues[m_frameIndex]) {
+			DN_HR(m_fence->SetEventOnCompletion(m_fenceValues[m_frameIndex], m_fenceEvent));
+			WaitForSingleObject(m_fenceEvent, INFINITE);
+		}
 	}
 
 	// The fence above is exactly the guarantee the GPU profiler needs: the GPU has
@@ -349,7 +361,20 @@ void GraphicsDevice::EndFrame() {
 	// Sync interval 1 = present every vblank (full refresh); 2/3/4 present every
 	// Nth vblank, dividing the frame rate while staying vblank-aligned (tear-
 	// free). See SetPresentInterval / the Video tab's Frame Rate dropdown.
-	DN_HR(m_swapchain->Present(m_presentInterval, 0));
+	//
+	// ZONED because this blocks, but read it with the caveat that it is the one
+	// AMBIGUOUS wait of the three: Present parks here either waiting for the
+	// vblank it is synced to — being ahead of the display, which is healthy — or
+	// waiting for a back buffer the GPU has not released yet, which is not.
+	// Nothing in the call distinguishes those. What disambiguates them is GPU BUSY
+	// TIME measured elsewhere (the gpu source's spans): a saturated GPU means the
+	// second reading, a mostly idle one means the first. The console's verdict is
+	// built that way round for exactly this reason, and a waitable swapchain is
+	// what would separate them at the source.
+	{
+		DN_PROFILE_ZONE(prof::kZonePresent);
+		DN_HR(m_swapchain->Present(m_presentInterval, 0));
+	}
 
 	m_fenceValues[m_frameIndex] = m_nextFenceValue;
 	DN_HR(m_queue->Signal(m_fence.Get(), m_nextFenceValue));
@@ -378,6 +403,82 @@ int GraphicsDevice::RefreshHz() const {
 			return static_cast<int>(dm.dmDisplayFrequency);
 	}
 	return 60; // safe default when the OS reports a placeholder (0/1) or fails
+}
+
+int GraphicsDevice::FrameCapHz() const {
+	if (!m_frameCap) return 0;
+	// Cached: re-read at most a few times a second. RefreshHz is three Win32
+	// calls including EnumDisplaySettings, which is not something to do on every
+	// frame for a number that changes when a window is dragged between monitors.
+	LARGE_INTEGER now{};
+	QueryPerformanceCounter(&now);
+	if (m_capHzCached == 0 || m_qpcFreq <= 0 ||
+		now.QuadPart - m_capHzCheckedQpc > m_qpcFreq / 2) {
+		m_capHzCached = RefreshHz();
+		m_capHzCheckedQpc = now.QuadPart;
+	}
+	const int interval = static_cast<int>(m_presentInterval < 1 ? 1 : m_presentInterval);
+	return m_capHzCached > 0 ? m_capHzCached / interval : 0;
+}
+
+void GraphicsDevice::WaitFrameCap() {
+	const int hz = FrameCapHz();
+	if (hz <= 0) {
+		m_capDeadlineQpc = 0;
+		return;
+	}
+	if (m_qpcFreq <= 0) {
+		LARGE_INTEGER f{};
+		QueryPerformanceFrequency(&f);
+		m_qpcFreq = f.QuadPart;
+		if (m_qpcFreq <= 0) return;
+	}
+	if (!m_capTimer) {
+		// HIGH_RESOLUTION (Win10 1803+) gets sub-millisecond granularity without
+		// timeBeginPeriod, which is a PROCESS-WIDE setting that slows every other
+		// timer in the process and is rude to do for one loop's benefit. If the
+		// flag is unsupported the call fails and we fall back to spinning, which
+		// is accurate but burns a core — so the failure is worth not hiding.
+		m_capTimer = CreateWaitableTimerExW(nullptr, nullptr,
+											CREATE_WAITABLE_TIMER_HIGH_RESOLUTION,
+											TIMER_ALL_ACCESS);
+		if (!m_capTimer)
+			log::Warn("frame cap: no high-resolution timer; falling back to spin-wait");
+	}
+
+	const i64 slice = m_qpcFreq / hz;
+	LARGE_INTEGER now{};
+	QueryPerformanceCounter(&now);
+
+	// RESYNC rather than catch up. After a hitch, a load screen or a paused
+	// debugger the deadline can be many slices in the past, and honouring it
+	// would run a burst of uncapped frames trying to make the time back — the
+	// one moment the cap is most visible and least wanted.
+	if (m_capDeadlineQpc == 0 || now.QuadPart - m_capDeadlineQpc > slice * 4)
+		m_capDeadlineQpc = now.QuadPart;
+	m_capDeadlineQpc += slice;
+
+	for (;;) {
+		QueryPerformanceCounter(&now);
+		const i64 left = m_capDeadlineQpc - now.QuadPart;
+		if (left <= 0) break;
+
+		const double leftMs = static_cast<double>(left) * 1000.0 / static_cast<double>(m_qpcFreq);
+		// Sleep the bulk, SPIN the last stretch. A timer is only accurate to a
+		// fraction of a millisecond and overshooting the deadline is what the cap
+		// exists to prevent, so the tail is spun; a quarter of a millisecond of
+		// spinning is cheap next to sleeping through the vblank we are aiming at.
+		if (m_capTimer && leftMs > 0.75) {
+			LARGE_INTEGER due{};
+			due.QuadPart = -static_cast<LONGLONG>((leftMs - 0.5) * 10000.0); // 100ns, relative
+			if (SetWaitableTimer(m_capTimer, &due, 0, nullptr, nullptr, FALSE))
+				WaitForSingleObject(m_capTimer, INFINITE);
+			else
+				YieldProcessor();
+		} else {
+			YieldProcessor();
+		}
+	}
 }
 
 void GraphicsDevice::WaitIdle() {

@@ -125,18 +125,41 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
 			// this one, so the tree has a single trunk and "frame" is a real node
 			// with a total rather than an implied one. ScopedZone unwinds
 			// correctly if anything below throws.
-			DN_PROFILE_ZONE("frame");
+			DN_PROFILE_ZONE(prof::kZoneFrame);
 			{
-				DN_PROFILE_ZONE("update");
+				DN_PROFILE_ZONE(prof::kZoneUpdate);
 				game.Update(dt);
 			}
 
 			ID3D12GraphicsCommandList* list = nullptr;
 			{
-				DN_PROFILE_ZONE("render");
+				DN_PROFILE_ZONE(prof::kZoneRender);
 				list = device.BeginFrame(clearColor);
-				game.Render(list);
+				// The CPU work of a frame, separated from the two WAITS either side
+				// of it (wait.gpu inside BeginFrame, present inside EndFrame). Those
+				// three partition `render` into the only three things it can be
+				// doing, and which of them dominates IS the answer to whether the
+				// frame is CPU-bound, GPU-bound or display-bound. Undivided, all
+				// three read as "rendering is expensive".
+				{
+					DN_PROFILE_ZONE(prof::kZoneRecord);
+					game.Render(list);
+				}
 				device.EndFrame();
+			}
+
+			// Hold the frame to the refresh rate of the monitor the window is on
+			// (GraphicsDevice::WaitFrameCap explains why Present cannot do this).
+			//
+			// A SIBLING of `render`, not part of it, and its own zone: this is a
+			// wait we chose, and folding it into anything else would show up as
+			// that thing getting slower. Named so the budget can subtract it from
+			// CPU time — otherwise capping the frame rate would make the console
+			// report the engine as CPU-bound, which is the precise opposite of
+			// what a frame spent deliberately idle means.
+			{
+				DN_PROFILE_ZONE(prof::kZoneWaitCap);
+				device.WaitFrameCap();
 			}
 			consecutiveFailures = 0; // a frame that finished clears the streak
 		} catch (const std::exception& e) {

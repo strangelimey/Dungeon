@@ -71,7 +71,7 @@ bool GpuProfiler::Init(ID3D12Device* device, ID3D12CommandQueue* queue, u32 fram
 	const f64 tscHz = clock.ticksPerNs * 1e9;
 	m_gpuToTsc = tscHz / static_cast<f64>(gpuHz);
 
-	m_sink = prof::OpenExternal("gpu");
+	m_sink = prof::OpenExternal(prof::kSourceGpu);
 	m_enabled = m_sink != nullptr;
 	if (m_enabled)
 		log::Write(log::Level::Info,
