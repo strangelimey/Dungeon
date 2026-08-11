@@ -147,7 +147,7 @@ void Init() {
 			   std::format("Profile: TSC {:.1f} MHz, invariant {}", g_clock.mhz,
 						   g_clock.invariantTsc ? "yes" : "NO"));
 
-	RegisterThread("main");
+	RegisterThread(kThreadMain);
 }
 
 namespace {

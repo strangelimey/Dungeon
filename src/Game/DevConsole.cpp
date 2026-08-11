@@ -13,6 +13,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring> // strcmp, matching zone landmarks by name
 #include <format>
 #include <sstream>
 
@@ -150,6 +151,22 @@ int BuildProfileRows(ProfRow* out, int cap, int* total = nullptr) {
 			const Visit v = stack[--top];
 			const prof::NodeView& node = r.nodes[v.node];
 
+			// THE SAME GATE Collector::Enter applies, asked of the published tree:
+			// would this scope be recorded right now? A node is never removed once
+			// created — that is what keeps node indices stable across publishes,
+			// which the graph series and the smoothing both key on — so without
+			// this test a subtree stayed on screen forever after it was revealed,
+			// frozen at x0 calls, and lowering the detail back down looked like it
+			// had done nothing at all.
+			//
+			// So the list shows what is BEING MEASURED, not what once was, and
+			// clearing an override collapses the branch it opened. A node admitted
+			// by the gate but simply not called this period still shows, at x0 —
+			// "ran nothing" and "is not being watched" are different facts and only
+			// the second should remove a row.
+			const i8 level = node.zone ? static_cast<i8>(node.zone->level) : i8{0};
+			if (level > v.inherited) continue; // and with it, its whole subtree
+
 			if (ProfRow* row = claim()) {
 				CopyName(row->name, node.zone ? node.zone->name : "?");
 				row->tid = r.osThreadId;
@@ -217,6 +234,85 @@ i8 NextDetail(const ProfRow& r) {
 // and leave a raised subtree with no way to put it back but the typed command.
 bool AtMaxDetail(const ProfRow& r) {
 	return r.detail < 0 && r.inherited >= static_cast<i8>(prof::kLevelDetail);
+}
+
+// ----------------------------------------------------------------------------
+// WHAT IS HOLDING THE FRAME RATE DOWN. The panel measured work but never WAITING,
+// and the CPU-versus-GPU question lives entirely in the waiting: a frame's wall
+// clock is CPU work plus two blocks, one on the frame fence and one in Present.
+// With those three separated (prof::kZoneWaitGpu / kZoneRecord / kZonePresent)
+// the answer is arithmetic rather than inference.
+struct FrameBudget {
+	bool valid = false;    // the main thread's landmarks were found
+	bool gpuKnown = false; // GPU timestamps exist (they do not on WARP)
+	double frameMs = 0.0;
+	double waitGpuMs = 0.0; // stopped, because the GPU is frames behind
+	double presentMs = 0.0; // stopped, in Present
+	double cpuMs = 0.0;     // the frame minus both blocks: work, by elimination
+	double gpuBusyMs = 0.0; // the GPU source's spans, summed
+
+	enum class Bound { Unknown, Cpu, Gpu, Display };
+	Bound bound = Bound::Unknown;
+};
+
+// Fractions of the frame at which a reading is called. Not tuned — chosen so the
+// verdict only speaks when one thing clearly dominates, because a confident wrong
+// answer here sends someone optimizing the wrong half of the engine for a day.
+constexpr double kGpuSaturated = 0.85; // GPU busy this much of the frame = the ceiling
+constexpr double kBarelyWaiting = 0.15; // blocked less than this = the CPU fills the frame
+
+template <typename ShownFn>
+FrameBudget MeasureFrameBudget(const ProfRow* rows, int count, ShownFn&& shownIncl) {
+	FrameBudget b;
+	auto is = [](const char* a, const char* lit) { return std::strcmp(a, lit) == 0; };
+
+	const char* thread = "";
+	for (int i = 0; i < count; ++i) {
+		const ProfRow& r = rows[i];
+		if (r.header) {
+			thread = r.name;
+			continue;
+		}
+		if (is(thread, prof::kThreadMain)) {
+			// By name, which is the only identity a zone has — see the landmark
+			// constants in Profile.h, which exist so this cannot drift.
+			if (is(r.name, prof::kZoneFrame) && r.depth == 0) {
+				b.frameMs = shownIncl(r);
+				b.valid = true;
+			} else if (is(r.name, prof::kZoneWaitGpu)) {
+				b.waitGpuMs = shownIncl(r);
+			} else if (is(r.name, prof::kZonePresent)) {
+				b.presentMs = shownIncl(r);
+			}
+		} else if (is(thread, prof::kSourceGpu) && r.depth == 0) {
+			// The GPU's spans are FLAT roots by construction (GpuProfiler.h), so
+			// summing the depth-0 rows is the frame's GPU busy time and double-
+			// counts nothing.
+			b.gpuBusyMs += shownIncl(r);
+			b.gpuKnown = true;
+		}
+	}
+	if (!b.valid) return b;
+
+	// Work by ELIMINATION rather than by reading `record`: whatever the frame did
+	// not spend blocked, it spent doing something, and that includes update and
+	// the parts of render that no zone happens to cover. Reading `record` alone
+	// would quietly under-count and make the CPU look cheaper than it is.
+	b.cpuMs = b.frameMs - b.waitGpuMs - b.presentMs;
+	if (b.cpuMs < 0.0) b.cpuMs = 0.0; // the waits are sampled inside the frame; clamp
+	if (b.frameMs <= 0.0) return b;
+
+	const double gpuFrac = b.gpuBusyMs / b.frameMs;
+	const double waitFrac = (b.waitGpuMs + b.presentMs) / b.frameMs;
+
+	// ORDER MATTERS, and GPU is tested first on purpose. A saturated GPU shows up
+	// as a long block in EITHER wait — on the fence, or in Present with no back
+	// buffer free — so asking "which wait was longest" cannot tell GPU-bound from
+	// display-bound. Asking the GPU how busy it was can.
+	if (b.gpuKnown && gpuFrac >= kGpuSaturated) b.bound = FrameBudget::Bound::Gpu;
+	else if (waitFrac < kBarelyWaiting) b.bound = FrameBudget::Bound::Cpu;
+	else b.bound = FrameBudget::Bound::Display;
+	return b;
 }
 
 // Draws one scrolling line graph: newest sample at the RIGHT, oldest at the left,
@@ -1246,6 +1342,62 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 								? std::format("avg {:.0f} ms", m_profSmoothSec * 1000.0f)
 								: std::string("live"),
 							width * 0.25f, py, kDim);
+
+			// THE VERDICT, on the section header rather than buried in the tree:
+			// it is the one line worth reading before any of the numbers, because
+			// it says which half of the engine the numbers are even about.
+			//
+			// Computed from the SMOOTHED readings, not the raw ones. A verdict
+			// recomputed per frame would flip between two answers several times a
+			// second near a boundary and be worth nothing; the window that made the
+			// digits readable makes this stable for the same reason.
+			{
+				const FrameBudget fb = MeasureFrameBudget(
+					profRows, profRowCount,
+					[&](const ProfRow& r) {
+						const ProfSmooth* sm = SmoothFor(r.tid, r.node);
+						return sm ? sm->incl : r.inclMs;
+					});
+
+				if (fb.valid && fb.bound != FrameBudget::Bound::Unknown) {
+					// Coloured by what it asks of you: display-bound is the
+					// healthy answer and stays quiet, the other two are things to
+					// go and look at. GPU takes the same purple as the VRAM gauge.
+					const char* face = "";
+					Vec4 col = kDim;
+					switch (fb.bound) {
+					case FrameBudget::Bound::Cpu:
+						face = "bound by CPU";
+						col = {0.85f, 0.70f, 0.40f, 1.0f};
+						break;
+					case FrameBudget::Bound::Gpu:
+						face = "bound by GPU";
+						col = {0.80f, 0.55f, 0.85f, 1.0f};
+						break;
+					case FrameBudget::Bound::Display:
+						face = "bound by display";
+						col = kDim;
+						break;
+					default: break;
+					}
+					const float vx = width * 0.40f;
+					m_font->Draw(batch, face, vx, py, col);
+
+					// THE EVIDENCE, always beside the verdict. A one-word answer
+					// with no working shown is a thing to be believed rather than
+					// checked, and this one is a heuristic over three numbers that
+					// are all right there.
+					const float ew = m_font->MeasureWidth("bound by display  ");
+					m_font->Draw(
+						batch,
+						fb.gpuKnown
+							? std::format("cpu {:.2f} · wait {:.2f} · present {:.2f} · gpu {:.2f}",
+										  fb.cpuMs, fb.waitGpuMs, fb.presentMs, fb.gpuBusyMs)
+							: std::format("cpu {:.2f} · wait {:.2f} · present {:.2f} · gpu n/a",
+										  fb.cpuMs, fb.waitGpuMs, fb.presentMs),
+						vx + ew, py, kDim);
+				}
+			}
 			if (!clock.invariantTsc)
 				m_font->Draw(batch, "NOT INVARIANT - timings may drift", width * 0.28f, py,
 							kWarn);

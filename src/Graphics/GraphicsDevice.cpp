@@ -1,6 +1,7 @@
 #include "Graphics/GraphicsDevice.h"
 
 #include "Core/Log.h"
+#include "Core/Profile.h"
 #include "Core/StringUtil.h"
 #include "Graphics/DisplayEnum.h" // PackLuid
 
@@ -283,9 +284,19 @@ void GraphicsDevice::SetFullscreen(bool exclusive, u32 outputIndex, u32 width,
 // ----------------------------------------------------------------------------
 ID3D12GraphicsCommandList* GraphicsDevice::BeginFrame(const float clearColor[4]) {
 	// Wait until the GPU has finished the previous frame that used this slot.
-	if (m_fence->GetCompletedValue() < m_fenceValues[m_frameIndex]) {
-		DN_HR(m_fence->SetEventOnCompletion(m_fenceValues[m_frameIndex], m_fenceEvent));
-		WaitForSingleObject(m_fenceEvent, INFINITE);
+	//
+	// ZONED, and this is the point of it: time spent here is the main thread
+	// STOPPED because the GPU is kFrameCount frames behind, which is the signature
+	// of a GPU-bound frame and nothing else. Folded into `render` — as it was —
+	// it read as expensive rendering, which is the opposite conclusion. The zone
+	// brackets the test as well as the wait so a frame that does not block still
+	// reports the (near-zero) cost of asking.
+	{
+		DN_PROFILE_ZONE(prof::kZoneWaitGpu);
+		if (m_fence->GetCompletedValue() < m_fenceValues[m_frameIndex]) {
+			DN_HR(m_fence->SetEventOnCompletion(m_fenceValues[m_frameIndex], m_fenceEvent));
+			WaitForSingleObject(m_fenceEvent, INFINITE);
+		}
 	}
 
 	// The fence above is exactly the guarantee the GPU profiler needs: the GPU has
@@ -349,7 +360,20 @@ void GraphicsDevice::EndFrame() {
 	// Sync interval 1 = present every vblank (full refresh); 2/3/4 present every
 	// Nth vblank, dividing the frame rate while staying vblank-aligned (tear-
 	// free). See SetPresentInterval / the Video tab's Frame Rate dropdown.
-	DN_HR(m_swapchain->Present(m_presentInterval, 0));
+	//
+	// ZONED because this blocks, but read it with the caveat that it is the one
+	// AMBIGUOUS wait of the three: Present parks here either waiting for the
+	// vblank it is synced to — being ahead of the display, which is healthy — or
+	// waiting for a back buffer the GPU has not released yet, which is not.
+	// Nothing in the call distinguishes those. What disambiguates them is GPU BUSY
+	// TIME measured elsewhere (the gpu source's spans): a saturated GPU means the
+	// second reading, a mostly idle one means the first. The console's verdict is
+	// built that way round for exactly this reason, and a waitable swapchain is
+	// what would separate them at the source.
+	{
+		DN_PROFILE_ZONE(prof::kZonePresent);
+		DN_HR(m_swapchain->Present(m_presentInterval, 0));
+	}
 
 	m_fenceValues[m_frameIndex] = m_nextFenceValue;
 	DN_HR(m_queue->Signal(m_fence.Get(), m_nextFenceValue));

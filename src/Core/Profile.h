@@ -76,6 +76,28 @@ inline constexpr u8 kLevelDetail = 2; // inner loops, per-item work
 
 inline constexpr i8 kDefaultThreshold = kLevelFrame;
 
+// ----------------------------------------------------------------------------
+// The frame's LANDMARKS, named once. A reader that wants to say what a frame was
+// spent on has to find these in the tree, and it can only find them BY NAME —
+// there is no other identity a zone carries. Declared here so the sites that
+// plant them and the readout that looks for them cannot drift apart in a rename.
+//
+// All at kLevelFrame, and that is load-bearing rather than a default: the
+// console's frame-budget verdict is computed FROM them, so a level that could be
+// gated out would leave the verdict unable to answer in exactly the default
+// configuration everyone reads it in.
+inline constexpr const char* kZoneFrame = "frame";
+inline constexpr const char* kZoneUpdate = "update";
+inline constexpr const char* kZoneRender = "render";
+inline constexpr const char* kZoneWaitGpu = "wait.gpu"; // blocked on the frame fence
+inline constexpr const char* kZoneRecord = "record";    // building command lists
+inline constexpr const char* kZonePresent = "present";  // blocked in Present
+
+// Source names, for the same reason: the readout pairs the main thread's frame
+// against the GPU's busy time and has to find both.
+inline constexpr const char* kThreadMain = "main";
+inline constexpr const char* kSourceGpu = "gpu";
+
 // Declared here and DEFINED only in a profiling build, so the external-slot
 // functions below can name it either way and a caller needs no #if of its own.
 class Collector;
