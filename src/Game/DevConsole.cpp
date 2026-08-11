@@ -43,7 +43,13 @@ const Vec4 kGaugeBg{0.13f, 0.13f, 0.17f, 1.0f};
 // at it would dangle the moment the array outlived the snapshot. The node DATA
 // is fine to reach through: it lives in registry storage until that thread's
 // next publish.
-constexpr int kMaxProfRows = 44;
+// Sized for a tree with detail RAISED, not for the default one. Turning a branch
+// up is the whole point of the click-to-expand control below, and it is exactly
+// what multiplies the row count — at 44 (what fitted on screen before the panel
+// scrolled) two raised subtrees ran the array out and the rest of the tree
+// silently stopped existing. Overflow is reported now rather than trusted not to
+// happen; this is a stack array in two frames, ~26 KB each.
+constexpr int kMaxProfRows = 256;
 // Matches the series pool: every measure that HAS history can be graphed, since
 // the panel scrolls now and no longer has to fit them all on screen at once.
 // What keeps the cost down is culling the ones scrolled out of view, not a cap.
@@ -53,7 +59,15 @@ struct ProfRow {
 	char name[32] = {};
 	u32 tid = 0;  // owning thread + node index: the stable key the graph view
 	u32 node = 0; // uses to follow one measure across frames as the tree grows
+	u32 slot = 0; // registry slot: the key that addresses ONE source (see below)
 	int depth = 0;
+	// The two halves of this node's detail state. `detail` is its own override
+	// (-1 = inherit) and `inherited` what its ancestors grant it; together they
+	// say what the row's control should show and what a click on it should do.
+	// Kept apart rather than pre-combined because "raised here" and "raised by a
+	// parent" are different things to look at and only the first is clearable.
+	i8 detail = -1;
+	i8 inherited = 0;
 	double inclMs = 0.0;
 	double exclMs = 0.0;
 	double maxMs = 0.0;
@@ -75,70 +89,135 @@ void CopyName(char (&dst)[32], const char* src) {
 // discarded constexpr branch is still COMPILED, and every line of the body below
 // gets flagged unreachable in a build without DN_PROFILE.
 #if DN_PROFILE
-int BuildProfileRows(ProfRow* out, int cap) {
+// Fills `out` with at most `cap` rows and, through `total`, says how many the
+// tree ACTUALLY has. The two differ once a raised subtree outgrows the array,
+// and the caller draws the difference: a tree that quietly stopped at the cap
+// reads as a tree that ends there, which is the one reading a profiler must
+// never invite.
+int BuildProfileRows(ProfRow* out, int cap, int* total = nullptr) {
 	const prof::Clock clock = prof::ClockInfo();
 	prof::ThreadReport reports[prof::kMaxThreads];
 	const int threadCount = prof::SnapshotAll(reports, prof::kMaxThreads);
 
-	int count = 0;
-	for (int i = 0; i < threadCount && count < cap; ++i) {
+	int count = 0; // rows written
+	int seen = 0;  // rows the tree holds, whether or not they fitted
+	auto claim = [&]() -> ProfRow* {
+		++seen;
+		return count < cap ? &out[count++] : nullptr;
+	};
+
+	for (int i = 0; i < threadCount; ++i) {
 		const prof::ThreadReport& r = reports[i];
 
-		ProfRow& head = out[count++];
-		head.header = true;
-		head.tid = r.osThreadId;
-		CopyName(head.name, r.name);
-		head.periods = r.periods;
-		head.dropped = r.nodeOverflows > 0 || r.depthOverflows > 0;
+		if (ProfRow* head = claim()) {
+			head->header = true;
+			head->tid = r.osThreadId;
+			head->slot = r.slot;
+			CopyName(head->name, r.name);
+			head->periods = r.periods;
+			head->dropped = r.nodeOverflows > 0 || r.depthOverflows > 0;
+		}
 
 		// The bar is a fraction of everything this thread recorded in the period,
 		// summed over the roots — not of the frame's wall clock, which the worker
 		// threads have no relationship to.
-		u64 total = 0;
+		u64 threadTotal = 0;
 		for (u32 c = r.root; c != prof::kInvalidNode; c = r.nodes[c].nextSibling)
-			total += r.nodes[c].inclusive;
+			threadTotal += r.nodes[c].inclusive;
 
 		// Depth-first with an explicit stack. Children are PREPENDED as they are
 		// discovered, so pushing them in list order and popping restores call
 		// order — the tree reads the way the code ran.
+		//
+		// `inherited` rides the stack because a node's effective level is a
+		// property of the PATH taken to it, not of the node: it is whatever the
+		// nearest ancestor carrying an override grants, and walking back up to
+		// find that ancestor per row would re-derive on every node what coming
+		// down already knew.
 		struct Visit {
 			u32 node;
 			int depth;
+			i8 inherited;
 		};
 		Visit stack[prof::kMaxDepth * 2];
 		constexpr int kStackCap = static_cast<int>(std::size(stack));
 		int top = 0;
 		for (u32 c = r.root; c != prof::kInvalidNode && top < kStackCap;
 			 c = r.nodes[c].nextSibling)
-			stack[top++] = {c, 0};
+			stack[top++] = {c, 0, r.baseThreshold};
 
-		while (top > 0 && count < cap) {
+		while (top > 0) {
 			const Visit v = stack[--top];
 			const prof::NodeView& node = r.nodes[v.node];
 
-			ProfRow& row = out[count++];
-			CopyName(row.name, node.zone ? node.zone->name : "?");
-			row.tid = r.osThreadId;
-			row.node = v.node;
-			row.depth = v.depth;
-			row.inclMs = prof::TicksToMs(node.inclusive, clock);
-			row.exclMs = prof::TicksToMs(node.Exclusive(), clock);
-			row.maxMs = prof::TicksToMs(node.maxTicks, clock);
-			row.calls = node.calls;
-			row.frac = total > 0 ? static_cast<float>(static_cast<double>(node.inclusive) /
-													  static_cast<double>(total))
-								 : 0.0f;
+			if (ProfRow* row = claim()) {
+				CopyName(row->name, node.zone ? node.zone->name : "?");
+				row->tid = r.osThreadId;
+				row->node = v.node;
+				row->slot = r.slot;
+				row->depth = v.depth;
+				row->detail = node.detail;
+				row->inherited = v.inherited;
+				row->inclMs = prof::TicksToMs(node.inclusive, clock);
+				row->exclMs = prof::TicksToMs(node.Exclusive(), clock);
+				row->maxMs = prof::TicksToMs(node.maxTicks, clock);
+				row->calls = node.calls;
+				row->frac = threadTotal > 0
+								? static_cast<float>(static_cast<double>(node.inclusive) /
+													 static_cast<double>(threadTotal))
+								: 0.0f;
+			}
 
+			// A node's own override governs its CHILDREN — Collector::Enter applies
+			// it to the frame it just pushed — so it is passed down, never applied
+			// to the row it sits on.
+			const i8 grants = node.detail >= 0 ? node.detail : v.inherited;
 			for (u32 c = node.firstChild; c != prof::kInvalidNode && top < kStackCap;
 				 c = r.nodes[c].nextSibling)
-				stack[top++] = {c, v.depth + 1};
+				stack[top++] = {c, v.depth + 1, grants};
 		}
 	}
+	if (total) *total = seen;
 	return count;
 }
 #else
-int BuildProfileRows(ProfRow*, int) { return 0; }
+int BuildProfileRows(ProfRow*, int, int* total = nullptr) {
+	if (total) *total = 0;
+	return 0;
+}
 #endif
+
+// ----------------------------------------------------------------------------
+// The detail control on a tree row, as ONE rule the marker and the click both
+// ask, so what a row shows and what clicking it does cannot drift apart.
+//
+// What a row grants its children right now: its own override if it carries one,
+// else whatever it inherited.
+i8 EffectiveDetail(const ProfRow& r) { return r.detail >= 0 ? r.detail : r.inherited; }
+
+// Where a click takes it. One step deeper each time, then back to inheriting —
+// a single target that both expands and undoes, rather than a widen button
+// beside a reset nobody would find. Returns -1 to CLEAR.
+//
+// The cycle counts from the EFFECTIVE level, not from the override, so the first
+// click on a row under an already-raised parent still deepens by one instead of
+// re-granting a level it was getting anyway and looking broken.
+i8 NextDetail(const ProfRow& r) {
+	const i8 next = static_cast<i8>(EffectiveDetail(r) + 1);
+	return next > static_cast<i8>(prof::kLevelDetail) ? static_cast<i8>(-1) : next;
+}
+
+// A click here can do NOTHING: the row is already granting the deepest level
+// call sites use, and it is inheriting that rather than holding an override, so
+// there is not even one to clear. Reported rather than silently absorbed.
+//
+// Note what this deliberately does NOT cover: a row at the deepest level by its
+// OWN override still has somewhere to go — back to inheriting — and that is the
+// third step of the cycle. Testing the effective level alone would swallow it
+// and leave a raised subtree with no way to put it back but the typed command.
+bool AtMaxDetail(const ProfRow& r) {
+	return r.detail < 0 && r.inherited >= static_cast<i8>(prof::kLevelDetail);
+}
 
 // Draws one scrolling line graph: newest sample at the RIGHT, oldest at the left,
 // with `head` naming the next write slot (and therefore the oldest value).
@@ -254,7 +333,8 @@ DevConsole::DevConsole(ui::FontLibrary& fonts, threads::Manager& threadManager)
 						 const int n = prof::ListDetails(entries, 32);
 						 if (n == 0)
 							 Print("no detail overrides; try 'profile detail <path> "
-								   "<level>', e.g. 'profile detail frame/render 1'");
+								   "<level>', e.g. 'profile detail frame/render 1' - "
+								   "or click a row of the tree above");
 						 for (int e = 0; e < n; ++e)
 							 Print(std::format("  [{}] {} = {}", entries[e].thread,
 											   entries[e].path, entries[e].level));
@@ -617,6 +697,30 @@ void DevConsole::Update(const Input& input, float dt, float windowW, float windo
 			ReportHealthCell(h.row, cell);
 			break;
 		}
+		// Clicking a row of the tree drills into it: one level deeper each time,
+		// then back to inheriting. The zones it reveals are already compiled in and
+		// were being gated out, so they start recording on the owning thread's next
+		// tick and appear beneath the row a frame or two later.
+		for (const ProfDetailHit& d : m_profDetailHits) {
+			if (!d.box.Contains(mx, my)) continue;
+
+			// A subtree with nothing deeper authored under it would take the click,
+			// change a number nothing reads, and show no new rows. Say so instead:
+			// the reason is the call sites, not the control.
+			if (d.atMax) {
+				Print(std::format("profile: {} is at the deepest level call sites use",
+								  d.path));
+			} else if (!prof::SetDetailNode(d.slot, d.node, d.next)) {
+				// The snapshot this rect was laid out from is a frame old, so the
+				// node can have gone in between — a rebooted worker Resets its tree.
+				Print(std::format("profile: {} is no longer recorded", d.path));
+			} else if (d.next < 0) {
+				Print(std::format("profile: {} detail cleared", d.path));
+			} else {
+				Print(std::format("profile: {} detail {}", d.path, d.next));
+			}
+			break;
+		}
 		for (const GraphToggle& g : m_graphToggles) {
 			if (!g.box.Contains(mx, my)) continue;
 			if (g.perfLine >= 0) {
@@ -761,8 +865,9 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 	// DN_PROFILE this returns 0 rows and the section collapses to one line saying
 	// which configs have it.
 	ProfRow profRows[kMaxProfRows];
+	int profRowTotal = 0;
 	const int profRowCount =
-		m_profileExpanded ? BuildProfileRows(profRows, kMaxProfRows) : 0;
+		m_profileExpanded ? BuildProfileRows(profRows, kMaxProfRows, &profRowTotal) : 0;
 
 	// Graph view plots the zone rows only — a thread header has no measure of its
 	// own, and a graph of nothing would just be a flat line taking up a cell.
@@ -787,7 +892,9 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 	}
 	const int graphsShown = std::min(profVisible, kMaxGraphs);
 	const int graphRows = (graphsShown + 1) / 2; // two columns
-	const int listRows = profRowCount;
+	// One more line for the "do not fit" note, so a truncated tree's last row is
+	// not the thing the panel clips.
+	const int listRows = profRowCount + (profRowCount < profRowTotal ? 1 : 0);
 
 	// Header line + the TSC/toggle line, then the body. Nothing is dropped to
 	// make it fit any more: the panel SCROLLS, so the content is laid out at its
@@ -821,6 +928,7 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 	batch.SetScissor(&panelClip);
 
 	m_graphToggles.clear();
+	m_profDetailHits.clear();
 	// Text checkboxes, because this is a monospaced dev console and "[x]" reads
 	// better here than a drawn box would. Registers the hit rect only if it is
 	// actually ON the panel: input is clipped the same way drawing is, so a
@@ -1033,6 +1141,9 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 			py += line;
 
 			const float indent = m_font->MeasureWidth("  ");
+			// Every detail marker is three characters, so one measurement places
+			// the name column for all of them and it cannot shift as levels change.
+			const float markerW = m_font->MeasureWidth("[+] ");
 			const float barX = width * 0.62f;
 			const float barW = width * 0.26f;
 			if (m_profileGraph) {
@@ -1129,8 +1240,13 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 								std::format("({} more past the {} graph cap)",
 											profVisible - graphsShown, kMaxGraphs),
 								labelX, py, kDim);
-			} else
-			for (int i = 0; i < listRows; ++i) {
+			} else {
+			// The path of the row being drawn, kept as the names at each depth so
+			// far. The walk is pre-order, so by the time a row is reached its
+			// ancestors are exactly the entries below it — no second traversal to
+			// reconstruct what coming down already passed through.
+			const char* nameAtDepth[prof::kMaxDepth] = {};
+			for (int i = 0; i < profRowCount; ++i) {
 				const ProfRow& pr = profRows[i];
 				if (pr.header) {
 					m_font->Draw(batch, pr.name, labelX, py, kAccent);
@@ -1139,9 +1255,22 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 					if (pr.dropped)
 						m_font->Draw(batch, "SCOPES DROPPED", width * 0.46f, py, kWarn);
 				} else {
-					m_font->Draw(batch, pr.name,
-								labelX + indent * static_cast<float>(pr.depth + 1), py,
-								kText);
+					const float nameX = labelX + indent * static_cast<float>(pr.depth + 1);
+
+					// The detail marker, and it distinguishes three states rather
+					// than two: an override set HERE reads differently from a level
+					// inherited from a parent, because only the first is this row's
+					// to clear. All three faces are the same width so raising a
+					// level cannot shuffle the name column sideways.
+					const i8 eff = EffectiveDetail(pr);
+					const bool own = pr.detail >= 0;
+					const std::string face = own    ? std::format("[{}]", pr.detail)
+											 : eff > 0 ? std::format("({})", eff)
+													   : std::string("[+]");
+					m_font->Draw(batch, face, nameX, py,
+								own ? kAccent : eff > 0 ? kText : kDim);
+
+					m_font->Draw(batch, pr.name, nameX + markerW, py, kText);
 					m_font->Draw(batch, std::format("{:.3f}", pr.inclMs), width * 0.30f, py,
 								kText);
 					m_font->Draw(batch, std::format("{:.3f}", pr.exclMs), width * 0.38f, py,
@@ -1180,13 +1309,50 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 								{0.45f, 0.70f, 0.95f, 1.0f});
 						}
 					}
+
+					// The whole marker-and-name run is the click target, not just
+					// the marker: the row's NAME is what you are pointing at when
+					// you decide you want more detail there, and a three-character
+					// box is a small thing to ask someone to hit.
+					//
+					// Registered only while actually on the panel, exactly as the
+					// graph checkboxes are — input is clipped the same way drawing
+					// is, so a row scrolled out of view must not stay clickable
+					// through the scrollback.
+					if (pr.depth < static_cast<int>(prof::kMaxDepth)) {
+						nameAtDepth[pr.depth] = pr.name;
+						if (py + line > 0.0f && py < panelH) {
+							ProfDetailHit hit;
+							hit.box = {nameX, py,
+									   markerW + m_font->MeasureWidth(pr.name), line};
+							hit.slot = pr.slot;
+							hit.node = pr.node;
+							hit.next = NextDetail(pr);
+							hit.atMax = AtMaxDetail(pr);
+
+							size_t w = 0;
+							for (int d = 0; d <= pr.depth && w + 1 < sizeof(hit.path); ++d) {
+								if (!nameAtDepth[d]) continue;
+								if (w > 0) hit.path[w++] = '/';
+								for (const char* c = nameAtDepth[d];
+									 *c && w + 1 < sizeof(hit.path); ++c)
+									hit.path[w++] = *c;
+							}
+							hit.path[w] = '\0';
+							m_profDetailHits.push_back(hit);
+						}
+					}
 				}
 				py += rowAdvance;
 			}
-			if (listRows < profRowCount)
+			// Only reachable now that the array can actually run out — the tree
+			// grows every time a subtree is raised, which is what the rows above
+			// are for.
+			if (profRowCount < profRowTotal)
 				m_font->Draw(batch, std::format("({} more rows do not fit)",
-											   profRowCount - listRows),
+											   profRowTotal - profRowCount),
 							labelX, py, kDim);
+			}
 		} else {
 			py += line;
 			m_font->Draw(batch, "not compiled in - build debug-profile or release-profile",

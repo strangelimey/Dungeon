@@ -451,13 +451,23 @@ void PublishExternal(Collector* collector);
 struct ThreadReport {
 	char name[32] = {};
 	u32 osThreadId = 0;
+	// The registry slot. UNLIKE osThreadId this is unique for every source: an
+	// external one (the GPU) owns no thread and reports id 0, so two of them
+	// would be indistinguishable. Anything addressing a source rather than
+	// merely labelling it — SetDetailNode below — keys on this.
+	u32 slot = 0;
 	const NodeView* nodes = nullptr;
 	u32 nodeCount = 0;
 	u32 root = kInvalidNode;
 	u64 periods = 0;        // frames (or ticks) published
 	u64 nodeOverflows = 0;  // scopes dropped because the pool was full
 	u64 depthOverflows = 0; // scopes dropped because nesting was too deep
-	bool live = false;      // false once that thread has exited or been killed
+	// What the roots are gated against, and so the level the whole tree inherits
+	// before any per-node override. Reported rather than assumed to be
+	// kDefaultThreshold, since a reader computing a node's EFFECTIVE level has to
+	// start the inheritance chain somewhere.
+	i8 baseThreshold = kDefaultThreshold;
+	bool live = false; // false once that thread has exited or been killed
 };
 
 // Copies every registered thread's latest published tree into `out` (capacity
@@ -482,6 +492,20 @@ int SnapshotAll(ThreadReport* out, int capacity);
 //
 // Returns how many nodes matched (0 = the path names nothing recorded yet).
 int SetDetail(std::string_view path, i8 level);
+
+// The same override, aimed at ONE node of ONE source — what a click on a row of
+// the console's tree wants, where a path does not say enough. The four AI
+// workers run identical trees, so "tick/think" names a node in all four and the
+// path form deliberately hits them all; a click lands on one row and must move
+// only that row's thread.
+//
+// `slot` is ThreadReport::slot and `node` an index into that report's `nodes`.
+// Both come straight from a snapshot, and indices are stable across publishes
+// (node i is copied to slot i and the tree only ever grows), so a report read
+// last frame still addresses the right node this one. Returns false if the slot
+// is unused or the index is past that source's tree — a node that vanished
+// (its thread was rebooted and Reset the tree) simply misses.
+bool SetDetailNode(u32 slot, u32 node, i8 level);
 
 struct DetailEntry {
 	char thread[32] = {};

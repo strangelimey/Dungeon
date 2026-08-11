@@ -150,6 +150,30 @@ private:
 	};
 	std::vector<GraphToggle> m_graphToggles;
 
+	// --- click-to-expand on the tree ----------------------------------------
+	// A zone row in the LIST view is a control: clicking it raises that subtree's
+	// detail a level, so the inner zones under it start recording and appear
+	// beneath it next frame. Same laid-out-by-Render, hit-tested-by-Update idiom
+	// as everything else on the panel.
+	//
+	// Addressed by (slot, node), NOT by the path the `profile detail` command
+	// takes. A path names a node in every thread whose tree has it, which is the
+	// right behaviour for a typed command reaching all four AI workers at once
+	// and the wrong one for a click that landed on exactly one row.
+	//
+	// The path is carried anyway, purely to say what happened in the scrollback:
+	// a click whose subtree has no deeper zones changes nothing visible, and a
+	// control that silently does nothing reads as a broken one.
+	struct ProfDetailHit {
+		gfx::Rect box;
+		u32 slot = 0;
+		u32 node = 0;
+		i8 next = -1;     // the level this click applies (-1 clears)
+		bool atMax = false; // already as deep as call sites go; report, don't act
+		char path[128] = {};
+	};
+	std::vector<ProfDetailHit> m_profDetailHits;
+
 	// --- health over time ---------------------------------------------------
 	// A mark per sample window per thread: when it threw, when it stalled, when
 	// it was rebooted. Shares the profile history's x-axis (m_profHead,

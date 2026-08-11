@@ -288,12 +288,14 @@ int SnapshotAll(ThreadReport* out, int capacity) {
 		ThreadReport& r = out[written++];
 		std::memcpy(r.name, s.name, sizeof(r.name));
 		r.osThreadId = s.osId;
+		r.slot = i;
 		r.nodes = s.published;
 		r.nodeCount = s.publishedCount;
 		r.root = s.publishedRoot;
 		r.periods = s.periods;
 		r.nodeOverflows = s.nodeOverflows;
 		r.depthOverflows = s.depthOverflows;
+		r.baseThreshold = s.collector.BaseThreshold();
 		r.live = s.live;
 	}
 	return written;
@@ -358,6 +360,24 @@ int SetDetail(std::string_view path, i8 level) {
 		++matches;
 	}
 	return matches;
+}
+
+bool SetDetailNode(u32 slot, u32 node, i8 level) {
+	if (slot >= kMaxThreads) return false;
+
+	std::lock_guard table(g_tableMx);
+	Slot& s = g_slots[slot];
+	if (!s.used) return false;
+
+	// Bounded against the PUBLISHED count, which is what the caller's snapshot
+	// showed it. Collector::SetDetail bounds against the live count as well, so a
+	// node published and then lost to a Reset is refused there rather than
+	// writing into a stale entry.
+	std::lock_guard lock(s.mx);
+	if (node >= s.publishedCount) return false;
+
+	s.collector.SetDetail(node, level);
+	return true;
 }
 
 int ListDetails(DetailEntry* out, int capacity) {
@@ -513,6 +533,7 @@ int SnapshotAll(ThreadReport*, int) { return 0; }
 Collector* OpenExternal(std::string_view) { return nullptr; }
 void PublishExternal(Collector*) {}
 int SetDetail(std::string_view, i8) { return 0; }
+bool SetDetailNode(u32, u32, i8) { return false; }
 int ListDetails(DetailEntry*, int) { return 0; }
 TraceStats DumpTrace(const char*) { return {}; }
 Clock ClockInfo() { return {}; }
