@@ -1926,10 +1926,13 @@ bool DungeonWorld::SaveLevel() const {
 		e += SerializeRecord(KindName(ent.kind), ent);
 	}
 
-	const bool okMap =
-		assets::WriteBinaryFile(m_project.LevelMapPath(m_currentLevel), m.data(), m.size());
-	const bool okEnt =
-		assets::WriteBinaryFile(m_project.LevelEntPath(m_currentLevel), e.data(), e.size());
+	// Both serializers build with '\n'; the line ending is decided once, here at
+	// the boundary (serialize::NormalizeEol), so no append site has to know it.
+	const std::string mOut = serialize::NormalizeEol(m), eOut = serialize::NormalizeEol(e);
+	const bool okMap = assets::WriteBinaryFile(m_project.LevelMapPath(m_currentLevel),
+											   mOut.data(), mOut.size());
+	const bool okEnt = assets::WriteBinaryFile(m_project.LevelEntPath(m_currentLevel),
+											   eOut.data(), eOut.size());
 	if (okMap && okEnt)
 		log::Info("Saved level {}: {} decorations, {} monsters", m_currentLevel,
 				  m_decorations.size(), m_monsters.size());
@@ -1949,7 +1952,7 @@ bool DungeonWorld::WriteStashedLevel(const std::string& stem) const {
 	for (const Entity& e : map.Decorations())
 		deco += SerializeRecord("decoration", e);
 
-	const std::string m = SerializeMapStatic(stem, map, deco);
+	const std::string m = serialize::NormalizeEol(SerializeMapStatic(stem, map, deco));
 	bool ok = assets::WriteBinaryFile(m_project.LevelMapPath(stem), m.data(),
 									  m.size());
 
@@ -1960,6 +1963,7 @@ bool DungeonWorld::WriteStashedLevel(const std::string& stem) const {
 			"; {} — written by the in-game editor (dynamic layer).\n\n", stem);
 		for (const Entity& ent : es->second->All())
 			e += SerializeRecord(KindName(ent.kind), ent);
+		e = serialize::NormalizeEol(std::move(e));
 		ok &= assets::WriteBinaryFile(m_project.LevelEntPath(stem), e.data(),
 									  e.size());
 	}

@@ -10,3 +10,11 @@
 # rewrite of one of them would have shown it.
 *.cat text eol=crlf
 project.ini text eol=crlf
+
+# The level layers. Same rule, different writers: the .map/.ent serializers build
+# their text with plain '\n' across dozens of append sites, so they normalise
+# once at the write boundary (serialize::NormalizeEol) rather than threading the
+# ending through every one — a record line added later is then correct without
+# its author knowing the rule exists.
+*.map text eol=crlf
+*.ent text eol=crlf

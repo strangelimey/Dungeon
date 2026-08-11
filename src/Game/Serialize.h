@@ -81,6 +81,16 @@ struct Block {
 // line, which is worse than the drift it was meant to fix.
 inline constexpr std::string_view kEol = "\r\n";
 
+// Rewrites any mix of '\n' and "\r\n" to kEol, idempotently.
+//
+// For the LINE-BASED writers — the .map and .ent serializers — which build their
+// text with plain '\n' across dozens of append sites. Normalising ONCE at the
+// write boundary cannot miss a site, where threading kEol through every `m +=
+// '\n'` invites exactly that; and a record line added later comes out right
+// without its author having to know the rule exists. WriteBlocks is small and
+// controlled enough to use kEol directly.
+std::string NormalizeEol(std::string text);
+
 // Parses block-format text. Fields before the first "[id]" go into a block with
 // an empty id. Whitespace around keys/values is trimmed. Malformed lines (no
 // '=', no enclosing brackets) are skipped. Tolerant of either line ending.

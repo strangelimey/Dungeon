@@ -54,6 +54,23 @@ void Set(std::vector<Field>& fields, std::string key, std::string value) {
 	fields.push_back({std::move(key), std::move(value)});
 }
 
+std::string NormalizeEol(std::string text) {
+	// Strip every '\r' that belongs to a "\r\n", then expand every '\n' — so any
+	// mix lands on kEol exactly once and a second pass changes nothing. A lone
+	// '\r' (old-Mac) is not a line ending this format has ever produced and is
+	// left alone rather than guessed at.
+	std::string out;
+	out.reserve(text.size() + text.size() / 8);
+	for (size_t i = 0; i < text.size(); ++i) {
+		if (text[i] == '\r' && i + 1 < text.size() && text[i + 1] == '\n') continue;
+		if (text[i] == '\n')
+			out += kEol;
+		else
+			out += text[i];
+	}
+	return out;
+}
+
 std::vector<Block> ParseBlocks(std::string_view text) {
 	std::vector<Block> blocks;
 	blocks.push_back({}); // the leading unnamed block (manifest fields)

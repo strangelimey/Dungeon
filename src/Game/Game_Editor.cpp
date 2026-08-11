@@ -175,10 +175,13 @@ std::string Game::CreateNewLevel() {
 		map += '\n';
 	}
 	const std::string ent = "; " + stem + " - dynamic layer (empty).\n";
-	if (!assets::WriteBinaryFile(m_project.LevelMapPath(stem), map.data(),
-								 map.size()) ||
-		!assets::WriteBinaryFile(m_project.LevelEntPath(stem), ent.data(),
-								 ent.size())) {
+	// Same boundary rule as the level writers: built with '\n', ended once here.
+	const std::string mapOut = serialize::NormalizeEol(map);
+	const std::string entOut = serialize::NormalizeEol(ent);
+	if (!assets::WriteBinaryFile(m_project.LevelMapPath(stem), mapOut.data(),
+								 mapOut.size()) ||
+		!assets::WriteBinaryFile(m_project.LevelEntPath(stem), entOut.data(),
+								 entOut.size())) {
 		log::Warn("new level: failed to write {} files", stem);
 		return {};
 	}
