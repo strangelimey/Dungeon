@@ -4,6 +4,7 @@
 #include "Game/DevConsole.h"
 
 #include "Core/Diagnostics.h"
+#include "Core/Log.h"
 #include "Core/Paths.h"
 #include "Core/Profile.h"
 #include "Core/StackTrace.h"
@@ -409,7 +410,7 @@ DevConsole::DevConsole(ui::FontLibrary& fonts, threads::Manager& threadManager)
 		m_scroll = 0;
 	});
 	Register("profile",
-			 "panel [on|off] | dump [file] | detail <path> <level> | smooth <secs|off>",
+			 "panel|dump|detail <path> <lvl>|smooth <secs>|snap <name> [secs]|snaps|diff <a> <b>",
 			 [this](const std::vector<std::string>& args) {
 				 if constexpr (!prof::kEnabled) {
 					 Print("profiling is not compiled in (build debug-profile or "
@@ -471,6 +472,61 @@ DevConsole::DevConsole(ui::FontLibrary& fonts, threads::Manager& threadManager)
 					 else
 						 Print(std::format("{} set to level {} on {} thread{}", args[1], level,
 										   matched, matched == 1 ? "" : "s"));
+				 } else if (!args.empty() && args[0] == "snap") {
+					 if (args.size() < 2) {
+						 Print("usage: profile snap <name> [seconds]");
+						 return;
+					 }
+					 if (m_snapTarget >= 0) {
+						 Print("a recording is already running");
+						 return;
+					 }
+					 float secs = 3.0f;
+					 if (args.size() > 2) {
+						 try {
+							 secs = std::stof(args[2]);
+						 } catch (const std::exception&) {
+							 Print("seconds must be a number");
+							 return;
+						 }
+					 }
+					 // Reuse the slot of the same name so re-taking a reading
+					 // after a tweak does not silently fill the table with
+					 // near-identical entries.
+					 int slot = SnapSlot(args[1]);
+					 if (slot < 0) slot = SnapFreeSlot();
+					 if (slot < 0) {
+						 Print(std::format("all {} snapshot slots are used - "
+										   "'profile snap <existing name>' overwrites one",
+										   kSnapSlots));
+						 return;
+					 }
+					 m_snaps[slot] = Snapshot{};
+					 m_snaps[slot].used = true;
+					 CopyName(m_snaps[slot].name, args[1].c_str());
+					 m_snapTarget = slot;
+					 m_snapLeft = std::clamp(secs, 0.25f, 60.0f);
+					 Print(std::format("recording '{}' for {:.1f}s...", args[1], m_snapLeft));
+				 } else if (!args.empty() && args[0] == "snaps") {
+					 int n = 0;
+					 for (const Snapshot& s : m_snaps) {
+						 if (!s.used) continue;
+						 ++n;
+						 Print(std::format("  {:<12} {} rows, {:.1f}s, frame {:.3f} ms", s.name,
+										   s.rows, s.seconds, s.frameMs));
+					 }
+					 if (n == 0) Print("no snapshots; 'profile snap <name> [secs]'");
+				 } else if (!args.empty() && args[0] == "diff") {
+					 if (args.size() < 3) {
+						 Print("usage: profile diff <before> <after>");
+						 return;
+					 }
+					 const int a = SnapSlot(args[1]), b = SnapSlot(args[2]);
+					 if (a < 0 || b < 0) {
+						 Print(std::format("unknown snapshot '{}'", a < 0 ? args[1] : args[2]));
+						 return;
+					 }
+					 SnapDiff(m_snaps[a], m_snaps[b]);
 				 } else if (!args.empty() && args[0] == "smooth") {
 					 // How long the list's digits hold still. `off` is 0, which
 					 // commits every frame and is the unsmoothed readout exactly.
@@ -707,6 +763,202 @@ void DevConsole::CommitProfileSmooth() {
 	}
 }
 
+// ----------------------------------------------------------------------------
+// Snapshots. See the header for why these record over seconds and key by path.
+int DevConsole::SnapSlot(std::string_view name) const {
+	for (int i = 0; i < kSnapSlots; ++i)
+		if (m_snaps[i].used && name == m_snaps[i].name) return i;
+	return -1;
+}
+
+int DevConsole::SnapFreeSlot() {
+	for (int i = 0; i < kSnapSlots; ++i)
+		if (!m_snaps[i].used) return i;
+	return -1;
+}
+
+void DevConsole::SnapAccumulate(float dt) {
+	if (m_snapTarget < 0) return;
+	Snapshot& s = m_snaps[m_snapTarget];
+
+	ProfRow rows[kMaxProfRows];
+	const int n = BuildProfileRows(rows, kMaxProfRows);
+
+	// Same pre-order path rebuild the list view uses: ancestors are whatever is
+	// sitting at the shallower depths when this row comes up.
+	const char* nameAtDepth[prof::kMaxDepth] = {};
+	const char* thread = "";
+	for (int i = 0; i < n; ++i) {
+		const ProfRow& r = rows[i];
+		if (r.header) {
+			thread = r.name;
+			continue;
+		}
+		if (r.depth >= static_cast<int>(prof::kMaxDepth)) continue;
+		nameAtDepth[r.depth] = r.name;
+
+		char path[128];
+		size_t w = 0;
+		for (int d = 0; d <= r.depth && w + 1 < sizeof(path); ++d) {
+			if (!nameAtDepth[d]) continue;
+			if (w > 0) path[w++] = '/';
+			for (const char* c = nameAtDepth[d]; *c && w + 1 < sizeof(path); ++c)
+				path[w++] = *c;
+		}
+		path[w] = '\0';
+
+		SnapRow* dst = nullptr;
+		for (int j = 0; j < s.rows; ++j)
+			if (std::strcmp(s.row[j].thread, thread) == 0 &&
+				std::strcmp(s.row[j].path, path) == 0) {
+				dst = &s.row[j];
+				break;
+			}
+		if (!dst) {
+			if (s.rows >= kSnapRows) continue; // full; the deepest rows drop
+			dst = &s.row[s.rows++];
+			CopyName(dst->thread, thread);
+			std::memcpy(dst->path, path, w + 1);
+		}
+		dst->incl += r.inclMs;
+		dst->excl += r.exclMs;
+		dst->calls += static_cast<double>(r.calls);
+		dst->worst = std::max(dst->worst, r.maxMs); // MAX, not a mean of maxima
+	}
+
+	const FrameBudget fb =
+		MeasureFrameBudget(rows, n, [](const ProfRow& r) { return r.inclMs; });
+	if (fb.valid) {
+		s.frameMs += fb.frameMs;
+		s.cpuMs += fb.cpuMs;
+		s.waitMs += fb.waitGpuMs;
+		s.presentMs += fb.presentMs;
+		s.gpuMs += fb.gpuBusyMs;
+		s.budgetValid = true;
+	}
+
+	++s.samples;
+	s.seconds += dt;
+	m_snapLeft -= dt;
+	if (m_snapLeft <= 0.0f) SnapFinish();
+}
+
+void DevConsole::SnapFinish() {
+	if (m_snapTarget < 0) return;
+	Snapshot& s = m_snaps[m_snapTarget];
+	m_snapTarget = -1;
+
+	if (s.samples <= 0) {
+		s.used = false;
+		Print("snapshot recorded nothing (is the profiler compiled in?)");
+		return;
+	}
+	const double inv = 1.0 / static_cast<double>(s.samples);
+	for (int i = 0; i < s.rows; ++i) {
+		s.row[i].incl *= inv;
+		s.row[i].excl *= inv;
+		s.row[i].calls *= inv;
+		// worst is already a max over the window
+	}
+	s.frameMs *= inv;
+	s.cpuMs *= inv;
+	s.waitMs *= inv;
+	s.presentMs *= inv;
+	s.gpuMs *= inv;
+
+	// Logged as well as printed. A snapshot's summary is the only durable record
+	// of a state you have already left — by the time it is interesting, the
+	// setting has been changed and the console line has scrolled — and a
+	// recording that survives nowhere is a measurement you have to retake.
+	auto say = [&](const std::string& line) {
+		Print(line);
+		log::Write(log::Level::Info, line);
+	};
+	say(std::format("snapshot '{}' recorded: {} rows over {:.1f}s ({} frames)", s.name, s.rows,
+					s.seconds, s.samples));
+	if (s.budgetValid)
+		say(std::format("  frame {:.3f}  cpu {:.3f}  wait {:.3f}  present {:.3f}  gpu {:.3f}",
+						s.frameMs, s.cpuMs, s.waitMs, s.presentMs, s.gpuMs));
+}
+
+void DevConsole::SnapDiff(const Snapshot& a, const Snapshot& b) {
+	// ALSO TO THE LOG, and this is not a nicety. A diff is twenty-odd lines and
+	// the console shows three of them above the prompt, so the answer scrolls
+	// past the moment it is printed — the first real use of this feature
+	// produced a correct comparison that could not be read. dungeon.log is
+	// where a multi-line answer belongs; the console keeps the headline.
+	auto say = [&](const std::string& s) {
+		Print(s);
+		log::Write(log::Level::Info, s);
+	};
+
+	// Budget first: it is the headline, and the only part that answers "is it
+	// faster" rather than "what moved".
+	say(std::format("diff '{}' -> '{}'  ({:.1f}s vs {:.1f}s)", a.name, b.name, a.seconds,
+					b.seconds));
+	auto delta = [&](const char* label, double x, double y) {
+		const double d = y - x;
+		const double pct = x > 0.0001 ? d / x * 100.0 : 0.0;
+		say(std::format("  {:<9} {:>8.3f} -> {:>8.3f}   {:+8.3f} ms  {:+7.1f}%", label, x, y,
+						d, pct));
+	};
+	if (a.budgetValid && b.budgetValid) {
+		delta("frame", a.frameMs, b.frameMs);
+		delta("cpu", a.cpuMs, b.cpuMs);
+		delta("wait.gpu", a.waitMs, b.waitMs);
+		delta("present", a.presentMs, b.presentMs);
+		delta("gpu", a.gpuMs, b.gpuMs);
+	}
+
+	// Then the rows that MOVED, biggest absolute change first — a diff sorted by
+	// name buries the one line worth reading among forty that did not budge.
+	struct Change {
+		const SnapRow* from;
+		const SnapRow* to;
+		double d;
+	};
+	std::vector<Change> changes;
+	for (int j = 0; j < b.rows; ++j) {
+		const SnapRow& to = b.row[j];
+		const SnapRow* from = nullptr;
+		for (int i = 0; i < a.rows; ++i)
+			if (std::strcmp(a.row[i].thread, to.thread) == 0 &&
+				std::strcmp(a.row[i].path, to.path) == 0) {
+				from = &a.row[i];
+				break;
+			}
+		changes.push_back({from, &to, to.incl - (from ? from->incl : 0.0)});
+	}
+	// Rows that VANISHED matter as much as rows that appeared: a scope that
+	// stopped running is a change, and a diff that only walks `b` would miss it.
+	for (int i = 0; i < a.rows; ++i) {
+		const SnapRow& from = a.row[i];
+		bool found = false;
+		for (int j = 0; j < b.rows && !found; ++j)
+			found = std::strcmp(b.row[j].thread, from.thread) == 0 &&
+					std::strcmp(b.row[j].path, from.path) == 0;
+		if (!found) changes.push_back({&from, nullptr, -from.incl});
+	}
+	std::ranges::sort(changes, [](const Change& x, const Change& y) {
+		return std::abs(x.d) > std::abs(y.d);
+	});
+
+	int shown = 0;
+	for (const Change& c : changes) {
+		if (shown >= 16) break;
+		if (std::abs(c.d) < 0.0005) break; // below the readout's own precision
+		const char* thread = c.to ? c.to->thread : c.from->thread;
+		const char* path = c.to ? c.to->path : c.from->path;
+		const double x = c.from ? c.from->incl : 0.0;
+		const double y = c.to ? c.to->incl : 0.0;
+		say(std::format("  {:<7} {:<28} {:>7.3f} -> {:>7.3f}  {:+7.3f} ms{}", thread, path, x,
+						y, c.d, !c.from ? "  (new)" : (!c.to ? "  (gone)" : "")));
+		++shown;
+	}
+	if (shown == 0) say("  no row moved by more than 0.001 ms");
+	Print("  (full diff also written to dungeon.log)");
+}
+
 const DevConsole::ProfSmooth* DevConsole::SmoothFor(u32 tid, u32 node) const {
 	for (int j = 0; j < m_profSmoothCount; ++j) {
 		const ProfSmooth& s = m_profSmooth[j];
@@ -719,6 +971,11 @@ void DevConsole::SampleProfileSeries() {}
 void DevConsole::CommitProfileSeries() {}
 void DevConsole::CommitProfileSmooth() {}
 const DevConsole::ProfSmooth* DevConsole::SmoothFor(u32, u32) const { return nullptr; }
+int DevConsole::SnapSlot(std::string_view) const { return -1; }
+int DevConsole::SnapFreeSlot() { return -1; }
+void DevConsole::SnapAccumulate(float) {}
+void DevConsole::SnapFinish() {}
+void DevConsole::SnapDiff(const Snapshot&, const Snapshot&) {}
 #endif
 
 void DevConsole::SampleHistory(float dt, const gfx::GraphicsDevice& device) {
@@ -746,6 +1003,11 @@ void DevConsole::SampleHistory(float dt, const gfx::GraphicsDevice& device) {
 		DN_PROFILE_ZONE_L(prof::kLevelDetail, "snapshot");
 		SampleProfileSeries();
 	}
+
+	// A recording in progress takes every frame, not the smoothed value: it is
+	// building its own average over its own window and wants the raw samples to
+	// do it from.
+	SnapAccumulate(dt);
 
 	// Its own cadence, slower than the graph's: the graphs are SHAPES and want
 	// the fine sampling, while the digits beside them want to sit still long
@@ -1150,15 +1412,16 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 	// make it fit any more: the panel SCROLLS, so the content is laid out at its
 	// natural height and the window decides how much of it you see.
 	const float profileHeaderH = line * 2.4f;
-	// The graph view leads with the full-width frame-budget plot, so it is one
-	// more graph's worth of height than the per-node grid accounts for. Counted
-	// unconditionally rather than on fb.valid, which is not known this early —
-	// over-reserving one row costs a little scroll, under-reserving clips.
+	// The graph view leads with TWO full-width plots — the frame budget in ms and
+	// utilisation in per cent — so it is two graphs' worth of height more than
+	// the per-node grid accounts for. Counted unconditionally rather than on
+	// fb.valid, which is not known this early: over-reserving costs a little
+	// scroll, under-reserving clips.
 	const float profileBody =
 		!m_profileExpanded ? 0.0f
 		: !prof::kEnabled ? rowAdvance
 		: m_profileGraph
-			? static_cast<float>(graphRows + 1) * (graphH + graphGapY) +
+			? static_cast<float>(graphRows + 2) * (graphH + graphGapY) +
 				  static_cast<float>(profHiddenCount) * line
 			: rowAdvance * static_cast<float>(listRows);
 	const float profileBlock = profileHeaderH + profileBody;
@@ -1531,6 +1794,65 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 					if (fb.gpuKnown) key("gpu", kBudgetGpuColor);
 
 					py += graphH + graphGapY;
+
+					// UTILISATION, on a FIXED 0..100% scale — the same three
+					// numbers asked the other question. The budget graph above is
+					// in milliseconds and autoscales, so "the frame got busier"
+					// and "the frame got longer" look identical on it; here the
+					// ceiling is fixed at fully-occupied, so height means load and
+					// the EMPTY SPACE ABOVE THE LINES IS THE HEADROOM. That gap is
+					// the whole reading: 7% and 27% is a picture of an engine
+					// doing almost nothing, which no ms graph can show you because
+					// it has no idea what "full" would be.
+					//
+					// Two lines, not a stack. The CPU's idle and the GPU's idle
+					// are different quantities — they run concurrently, so their
+					// busy fractions do not add up to anything meaningful.
+					{
+						float cpuPct[kProfHistory], gpuPct[kProfHistory];
+						for (int k = 0; k < kProfHistory; ++k) {
+							const float f = m_budgetSeries[kBudFrame].samples[k];
+							cpuPct[k] = f > 0.0f
+											? m_budgetSeries[kBudCpu].samples[k] / f * 100.0f
+											: 0.0f;
+							gpuPct[k] = f > 0.0f
+											? m_budgetSeries[kBudGpu].samples[k] / f * 100.0f
+											: 0.0f;
+						}
+						const gfx::Rect uplot{pad * 2.0f, py + line, bgw, graphH - line};
+
+						const double cpuNow = fb.frameMs > 0.0 ? fb.cpuMs / fb.frameMs * 100.0
+															   : 0.0;
+						const double gpuNow = fb.frameMs > 0.0
+												  ? fb.gpuBusyMs / fb.frameMs * 100.0
+												  : 0.0;
+						m_font->Draw(batch, "UTILISATION", pad * 2.0f, py, kAccent);
+						float ux = pad * 2.0f + m_font->MeasureWidth("UTILISATION  ");
+						auto uterm = [&](const std::string& s, const Vec4& c) {
+							m_font->Draw(batch, s, ux, py, c);
+							ux += m_font->MeasureWidth(s);
+						};
+						uterm(std::format("cpu {:.0f}%", cpuNow), kBudgetCpuColor);
+						uterm("  ", kDim);
+						if (fb.gpuKnown) {
+							uterm(std::format("gpu {:.0f}%", gpuNow), kBudgetGpuColor);
+							uterm("  ", kDim);
+						}
+						// Named for what it is: the MAIN THREAD's idle. The GPU
+						// has its own, and calling either "the" idle would be a
+						// claim about the wrong processor.
+						uterm(std::format("main thread idle {:.0f}%", 100.0 - cpuNow), kDim);
+
+						// Filled, both of them: at 7% a bare line is four pixels
+						// off the floor and reads as an empty graph — the same
+						// reason DrawSeriesGraph fills at all.
+						DrawSeriesGraph(batch, uplot, cpuPct, kProfHistory, m_profHead, 100.0f,
+										kBudgetCpuColor, true, true);
+						if (fb.gpuKnown)
+							DrawSeriesGraph(batch, uplot, gpuPct, kProfHistory, m_profHead,
+											100.0f, kBudgetGpuColor, false, true);
+						py += graphH + graphGapY;
+					}
 				}
 
 				// A line per measure, newest at the RIGHT and scrolling left as

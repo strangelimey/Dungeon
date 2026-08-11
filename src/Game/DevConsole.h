@@ -277,6 +277,61 @@ private:
 	};
 	std::vector<ProfDetailHit> m_profDetailHits;
 
+	// --- snapshots: this scene against that one ------------------------------
+	// A profiler that only shows NOW cannot answer the question anyone actually
+	// has, which is "did that change help". Reading two numbers off two
+	// screenshots taken a minute apart is not a comparison — the panel is live,
+	// both were sampled over different moments, and nothing lines the rows up.
+	//
+	// A snapshot RECORDS over a few seconds rather than freezing an instant, for
+	// the same reason the readout is smoothed: one frame is not a measurement.
+	// Means for the timings, MAX for `worst` — averaging worst cases produces a
+	// number that is neither, the same rule the window already follows.
+	//
+	// Rows are keyed by thread + SLASH PATH, not by index. Between two snapshots
+	// the tree will usually have changed shape — that is half the point of
+	// taking them — so a positional key would diff one scope against another and
+	// report confident nonsense.
+	static constexpr int kSnapRows = 192;
+	// EIGHT, not four. A real session is a chain — low, ultra, shadowmax, then a
+	// baseline for the next question — and four ran out mid-investigation, after
+	// which `snap` refused and the `diff` that followed reported an unknown name.
+	// The refusal is right (silently evicting the baseline you are measuring
+	// against would be worse), so the fix is headroom.
+	static constexpr int kSnapSlots = 8;
+	struct SnapRow {
+		char thread[32] = {};
+		char path[128] = {};
+		double incl = 0.0, excl = 0.0, calls = 0.0;
+		double worst = 0.0;
+	};
+	struct Snapshot {
+		char name[32] = {};
+		bool used = false;
+		float seconds = 0.0f; // how long it actually recorded for
+		int samples = 0;
+		int rows = 0;
+		SnapRow row[kSnapRows];
+		// The frame budget, averaged over the same window.
+		double frameMs = 0.0, cpuMs = 0.0, waitMs = 0.0, presentMs = 0.0, gpuMs = 0.0;
+		bool budgetValid = false;
+	};
+	Snapshot m_snaps[kSnapSlots];
+
+	// Recording state. Only one at a time: two overlapping recordings would each
+	// be measuring the other's cost as well as the scene's.
+	int m_snapTarget = -1;
+	float m_snapLeft = 0.0f;
+
+	int SnapSlot(std::string_view name) const; // existing slot, or -1
+	int SnapFreeSlot();                        // reuse by name, else a free one
+	// Walks the tree itself rather than borrowing the sampler's rows: the row
+	// type is a drawing detail private to the .cpp, and one extra tree walk for
+	// the few seconds a recording lasts is not worth leaking it into the header.
+	void SnapAccumulate(float dt);
+	void SnapFinish();
+	void SnapDiff(const Snapshot& a, const Snapshot& b);
+
 	// --- health over time ---------------------------------------------------
 	// A mark per sample window per thread: when it threw, when it stalled, when
 	// it was rebooted. Shares the profile history's x-axis (m_profHead,
