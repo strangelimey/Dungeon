@@ -260,6 +260,36 @@ private:
 	};
 	std::vector<GraphToggle> m_graphToggles;
 
+	// --- the frame bar's hover tooltip ---------------------------------------
+	// The stacked bar says the proportions at a glance but names none of them;
+	// the colour key is up on the section header, which is the wrong place to
+	// look when the thing you are pointing at is down here. Hovering draws the
+	// same bar again, larger, with every part labelled and measured.
+	//
+	// Only the FLAG crosses frames. The rect is recorded by Render and
+	// hit-tested by the next Update like every other control on this panel, but
+	// the numbers are re-read from the live budget at draw time — storing them
+	// would give the tooltip its own copy that could disagree with the bar it is
+	// explaining.
+	gfx::Rect m_frameBarRect{};
+	bool m_frameBarHover = false;
+
+	// The section header carries seven terms in four colours and explains none
+	// of them. Hovering it names each one. Same idiom, and deliberately ONE
+	// tooltip for the whole line rather than seven: the terms are a single
+	// sentence about where a frame went, and reading them one hover at a time
+	// would hide the relationship that makes them worth having.
+	gfx::Rect m_profHeaderRect{};
+	bool m_profHeaderHover = false;
+
+	// Render's canvas size, kept so Update can put the mouse into the same space
+	// as the rects Render recorded. Update is handed WINDOW pixels and Render
+	// DEVICE pixels, which are equal until something scales them apart; the
+	// panel's existing hit-tests compare the two directly and have simply never
+	// met a case where they differ.
+	float m_renderW = 0.0f;
+	float m_renderH = 0.0f;
+
 	// --- click-to-expand on the tree ----------------------------------------
 	// A zone row in the LIST view is a control: clicking it raises that subtree's
 	// detail a level, so the inner zones under it start recording and appear

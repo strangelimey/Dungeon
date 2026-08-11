@@ -1193,15 +1193,27 @@ void DevConsole::Update(const Input& input, float dt, float windowW, float windo
 	if (!m_open) return;
 
 	m_caretBlink += dt;
-	(void)windowW;
 	// Re-resolve rather than re-bake: same size + same face is a map lookup.
 	// GameUI::UpdateFonts commits every library font, this one included.
 	m_font = &m_fonts.Get(ui::FontRole::Mono, kFontH * (windowH / kDesignWindowH));
 
+	// Into the space Render laid its rects out in. The scale is 1 whenever the
+	// window and the swapchain agree, which is the only case anything here has
+	// ever run in — but multiplying by 1 costs nothing and stops the whole panel
+	// silently mis-aiming the day they do not.
+	const float hitScale = (windowW > 0.0f && m_renderW > 0.0f) ? m_renderW / windowW : 1.0f;
+
+	// Hover is tracked every frame, not only on a click: the frame bar's tooltip
+	// is the one thing on this panel that answers to the pointer merely resting.
+	m_frameBarHover = m_frameBarRect.Contains(input.MouseX() * hitScale,
+											  input.MouseY() * hitScale);
+	m_profHeaderHover = m_profHeaderRect.Contains(input.MouseX() * hitScale,
+												  input.MouseY() * hitScale);
+
 	// Thread-panel control buttons (hit-tested against the rects Render laid out
 	// last frame). Left-click toggles pause, halves/doubles the rate, or kills.
 	if (input.WasMousePressed(MouseButton::Left)) {
-		const float mx = input.MouseX(), my = input.MouseY();
+		const float mx = input.MouseX() * hitScale, my = input.MouseY() * hitScale;
 		for (const ThreadHit& t : m_threadHits) {
 			const threads::WorkerInfo info = m_threadMgr.Inspect(t.id);
 			if (t.pause.Contains(mx, my)) {
@@ -1772,6 +1784,11 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 				ui::DrawBorder(batch, m_profViewBtn, kBorder);
 				m_font->Draw(batch, face, m_profViewBtn.x, py, kAccent);
 			}
+			// The header's hover strip, stopping short of the two BUTTONS on the
+			// same line: a tooltip popping up over `graph` and `hide` while you
+			// were reaching for them would fight the controls.
+			m_profHeaderRect = {labelX, py,
+								std::max(0.0f, m_profViewBtn.x - pad - labelX), line};
 			py += line;
 
 			const float indent = m_font->MeasureWidth("  ");
@@ -2043,6 +2060,10 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 			// the gaps — behind, they would disappear under exactly the long bars
 			// whose length is hardest to judge.
 			float gridTop = -1.0f, gridBot = -1.0f;
+			// Where the frame bar ended up, so the tooltip — drawn after every
+			// row, or the rows below would paint over it — can be placed against
+			// it without recomputing the layout.
+			gfx::Rect tipAnchor{};
 
 			// GROUP FRAMES, drawn in their own pass BEFORE the rows so every one
 			// of them sits behind the text rather than over whichever rows happen
@@ -2211,6 +2232,16 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 							// other, so the run of gridlines starts here.
 							if (gridTop < 0.0f) gridTop = oy;
 							gridBot = oy + bh;
+
+							// The hover target covers the stack AND the GPU
+							// hairline under it: they are one reading, and a
+							// tooltip that vanished when the pointer drifted two
+							// pixels onto the green would be a puzzle rather than
+							// a control. Recorded for the next Update to test;
+							// remembered here so the tooltip drawn after the rows
+							// knows where to sit.
+							m_frameBarRect = {barX, oy, bw2, (gridBot + line * 0.20f) - oy};
+							tipAnchor = m_frameBarRect;
 						}
 					}
 
@@ -2342,6 +2373,152 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 					batch.DrawRect({barX + gw * (static_cast<float>(q) * 0.25f), gridTop,
 									1.0f, gridBot - gridTop},
 								   kGridOver);
+			}
+
+			// --- tooltips ------------------------------------------------
+			// Drawn LAST, so no row can paint over them, and still inside the
+			// panel's scissor so they cannot escape onto the scrollback.
+			//
+			// Placement is shared: BELOW the thing being explained by
+			// preference, ABOVE when that would run past the panel, and never ON
+			// it — the row under the pointer is what the tooltip is about, and
+			// covering it would answer a question by hiding it.
+			auto placeTip = [&](const gfx::Rect& anchor, float w, float h) {
+				float tx = anchor.x;
+				if (tx + w > width - pad) tx = width - pad - w;
+				if (tx < pad) tx = pad;
+				float ty = anchor.y + anchor.h + line * 0.3f;
+				if (ty + h > panelH - pad) ty = anchor.y - h - line * 0.3f;
+				if (ty < 0.0f) ty = anchor.y + anchor.h + line * 0.3f; // neither fits
+				return gfx::Rect{tx, ty, w, h};
+			};
+			auto tipPanel = [&](const gfx::Rect& r) {
+				// Near-opaque on purpose: it is a panel over a busy readout, and
+				// a translucent one would leave the numbers behind it legible
+				// through the numbers in front.
+				batch.DrawRect(r, {0.10f, 0.10f, 0.13f, 0.97f});
+				ui::DrawBorder(batch, r, kBorder);
+			};
+
+			// What every term on the header line means. One tooltip for the whole
+			// line: they are a single sentence about where a frame went, and
+			// seven separate hovers would hide the relationship between them.
+			if (m_profHeaderHover) {
+				struct Term {
+					const char* name;
+					const char* what;
+					Vec4 col;
+				};
+				const Term terms[] = {
+					{"TSC", "the CPU timestamp clock; every timing converts through it",
+					 kDim},
+					{"avg", "the digits are a mean over this window ('worst' is a max)",
+					 kDim},
+					{"bound by", "what is holding the frame back right now", kText},
+					{"cpu", "the main thread WORKING: the frame minus every block below",
+					 kBudgetCpuColor},
+					{"wait", "blocked on the GPU - it is running frames behind",
+					 kBudgetWaitColor},
+					{"present", "blocked in Present - waiting for the display",
+					 kBudgetPresentColor},
+					{"cap", "held back by the frame cap (dev: framecap on|off)",
+					 kBudgetCapColor},
+					{"gpu", "GPU busy time - CONCURRENT, not a slice of the frame",
+					 kBudgetGpuColor},
+				};
+				const float tipPad = line * 0.5f;
+				const float nameW = m_font->MeasureWidth("bound by  ");
+				float widest = 0.0f;
+				for (const Term& t : terms)
+					widest = std::max(widest, nameW + m_font->MeasureWidth(t.what));
+				const gfx::Rect tip = placeTip(m_profHeaderRect, widest + tipPad * 2.0f,
+											   tipPad * 2.0f +
+												   line * static_cast<float>(std::size(terms)));
+				tipPanel(tip);
+				float ry = tip.y + tipPad;
+				for (const Term& t : terms) {
+					// The term in ITS OWN COLOUR, so the tooltip doubles as the
+					// key for the bar and the graph rather than being a third
+					// place the same four colours are described.
+					m_font->Draw(batch, t.name, tip.x + tipPad, ry, t.col);
+					m_font->Draw(batch, t.what, tip.x + tipPad + nameW, ry, kText);
+					ry += line;
+				}
+			}
+
+			if (m_frameBarHover && fb.valid && fb.frameMs > 0.0 && tipAnchor.w > 0.0f) {
+				struct Part {
+					const char* name;
+					double ms;
+					Vec4 col;
+					bool stacked; // false = drawn under the stack, not part of it
+				};
+				const Part parts[] = {
+					{"cpu", fb.cpuMs, kBudgetCpuColor, true},
+					{"wait.gpu", fb.waitGpuMs, kBudgetWaitColor, true},
+					{"present", fb.presentMs, kBudgetPresentColor, true},
+					{"cap", fb.capMs, kBudgetCapColor, true},
+					{"gpu busy", fb.gpuBusyMs, kBudgetGpuColor, false},
+				};
+				constexpr int kParts = static_cast<int>(std::size(parts));
+
+				// Sized to its widest row rather than to a guess, so a three-digit
+				// millisecond reading cannot run out through the border.
+				const float sw = line * 0.6f;             // colour swatch
+				const float gap = m_font->MeasureWidth("  ");
+				float widest = m_font->MeasureWidth("frame 000.000 ms");
+				for (const Part& p : parts)
+					widest = std::max(widest,
+									  sw + gap +
+										  m_font->MeasureWidth(
+											  std::format("{:<9} {:>7.3f} ms  {:>3.0f}%",
+														  p.name, p.ms, 0.0)));
+				const float tipPad = line * 0.5f;
+				const float miniH = line * 0.7f;
+				const float tipW = widest + tipPad * 2.0f;
+				const float tipH = tipPad * 2.0f + miniH + line * 0.4f +
+								   line * static_cast<float>(kParts + 1) + line * 0.3f;
+
+				const gfx::Rect tip = placeTip(tipAnchor, tipW, tipH);
+				const float tx = tip.x, ty = tip.y;
+				tipPanel(tip);
+
+				// The same bar again, wider, so the tooltip is recognisably about
+				// the thing under the pointer rather than a table that happens to
+				// share its numbers.
+				const gfx::Rect mini{tx + tipPad, ty + tipPad, tipW - tipPad * 2.0f, miniH};
+				batch.DrawRect(mini, kGaugeBg);
+				float sx2 = mini.x;
+				for (const Part& p : parts) {
+					if (!p.stacked) continue;
+					const float w =
+						mini.w * static_cast<float>(std::clamp(p.ms / fb.frameMs, 0.0, 1.0));
+					if (w > 0.0f) batch.DrawRect({sx2, mini.y, w, mini.h}, p.col);
+					sx2 += w;
+				}
+				ui::DrawBorder(batch, mini, kBorder);
+
+				float ry = mini.y + miniH + line * 0.4f;
+				for (const Part& p : parts) {
+					// A rule before the GPU row: it is measured against the same
+					// frame but does not SIT in the stack — it overlaps the next
+					// frame's work — and the separation has to be visible or the
+					// tooltip teaches the double-count the bar was built to avoid.
+					if (!p.stacked) {
+						batch.DrawRect({tx + tipPad, ry + line * 0.1f, tipW - tipPad * 2.0f,
+										1.0f},
+									   kBorder);
+						ry += line * 0.3f;
+					}
+					batch.DrawRect({tx + tipPad, ry + (line - sw) * 0.5f, sw, sw}, p.col);
+					m_font->Draw(batch,
+								std::format("{:<9} {:>7.3f} ms  {:>3.0f}%", p.name, p.ms,
+											p.ms / fb.frameMs * 100.0),
+								tx + tipPad + sw + gap, ry, kText);
+					ry += line;
+				}
+				m_font->Draw(batch, std::format("frame {:.3f} ms", fb.frameMs), tx + tipPad,
+							ry, kAccent);
 			}
 
 			// Only reachable now that the array can actually run out — the tree
