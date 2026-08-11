@@ -297,7 +297,7 @@ DevConsole::DevConsole(ui::FontLibrary& fonts, threads::Manager& threadManager)
 		m_scroll = 0;
 	});
 	Register("profile",
-			 "panel [on|off] | dump [file] | detail <path> <level>",
+			 "panel [on|off] | dump [file] | detail <path> <level> | smooth <secs|off>",
 			 [this](const std::vector<std::string>& args) {
 				 if constexpr (!prof::kEnabled) {
 					 Print("profiling is not compiled in (build debug-profile or "
@@ -359,6 +359,34 @@ DevConsole::DevConsole(ui::FontLibrary& fonts, threads::Manager& threadManager)
 					 else
 						 Print(std::format("{} set to level {} on {} thread{}", args[1], level,
 										   matched, matched == 1 ? "" : "s"));
+				 } else if (!args.empty() && args[0] == "smooth") {
+					 // How long the list's digits hold still. `off` is 0, which
+					 // commits every frame and is the unsmoothed readout exactly.
+					 if (args.size() < 2) {
+						 Print(m_profSmoothSec > 0.0f
+								   ? std::format("readout averaged over {:.0f} ms",
+												 m_profSmoothSec * 1000.0f)
+								   : std::string("readout is live (unsmoothed)"));
+						 return;
+					 }
+					 float secs = 0.0f;
+					 if (args[1] != "off") {
+						 try {
+							 secs = std::stof(args[1]);
+						 } catch (const std::exception&) {
+							 Print("seconds must be a number, or 'off'");
+							 return;
+						 }
+					 }
+					 // Upper bound is a readout that looks frozen, not a limit of
+					 // the machinery: past a couple of seconds a stale number is
+					 // indistinguishable from a hung one.
+					 m_profSmoothSec = std::clamp(secs, 0.0f, 2.0f);
+					 m_profSmoothTimer = 0.0f;
+					 Print(m_profSmoothSec > 0.0f
+							   ? std::format("readout averaged over {:.0f} ms",
+											 m_profSmoothSec * 1000.0f)
+							   : std::string("readout is live (unsmoothed)"));
 				 } else {
 					 if (!args.empty())
 						 m_profileExpanded = args[0] != "off" && args[0] != "0";
@@ -425,10 +453,14 @@ void DevConsole::Execute(const std::string& line) {
 // with no profiler: CPU, GPU, memory and descriptor slots are not the
 // profiler's to report and must graph in every configuration.
 void DevConsole::SampleProfileSeries() {
+	static_assert(kMaxProfRows <= DevConsole::kProfSmoothSlots,
+				  "every listed row needs a smoothing slot");
+
 	ProfRow rows[kMaxProfRows];
 	const int n = BuildProfileRows(rows, kMaxProfRows);
 
 	for (int i = 0; i < m_profSeriesCount; ++i) m_profSeries[i].seen = false;
+	for (int i = 0; i < m_profSmoothCount; ++i) m_profSmooth[i].seen = false;
 
 	const char* thread = "";
 	for (int i = 0; i < n; ++i) {
@@ -436,6 +468,42 @@ void DevConsole::SampleProfileSeries() {
 		if (r.header) {
 			thread = r.name;
 			continue;
+		}
+
+		// Smoothing FIRST, and deliberately not inside the series lookup below:
+		// the graph pool holds 32 measures while the list draws every row there
+		// is, so gating this on a free series slot would leave the 33rd row
+		// flickering at frame rate while its neighbours sat still.
+		{
+			ProfSmooth* sm = nullptr;
+			for (int j = 0; j < m_profSmoothCount; ++j) {
+				ProfSmooth& c = m_profSmooth[j];
+				if (c.used && c.tid == r.tid && c.node == r.node) {
+					sm = &c;
+					break;
+				}
+			}
+			if (!sm) {
+				for (int j = 0; j < m_profSmoothCount && !sm; ++j)
+					if (!m_profSmooth[j].used) sm = &m_profSmooth[j];
+				if (!sm && m_profSmoothCount < kProfSmoothSlots)
+					sm = &m_profSmooth[m_profSmoothCount++];
+				if (sm) {
+					*sm = ProfSmooth{};
+					sm->used = true;
+					sm->tid = r.tid;
+					sm->node = r.node;
+				}
+			}
+			if (sm) {
+				sm->sumIncl += r.inclMs;
+				sm->sumExcl += r.exclMs;
+				sm->sumCalls += static_cast<double>(r.calls);
+				sm->sumFrac += r.frac;
+				sm->winMax = std::max(sm->winMax, r.maxMs);
+				++sm->count;
+				sm->seen = true;
+			}
 		}
 
 		// Keyed by (thread, node index), NEVER by row position: the tree grows as
@@ -477,9 +545,45 @@ void DevConsole::CommitProfileSeries() {
 		if (!s.seen) s.used = false; // its thread went away; free the slot
 	}
 }
+
+void DevConsole::CommitProfileSmooth() {
+	for (int j = 0; j < m_profSmoothCount; ++j) {
+		ProfSmooth& s = m_profSmooth[j];
+		if (!s.used) continue;
+
+		// A window that caught nothing keeps the last committed reading rather
+		// than dropping to zero. A node the tree still lists but that did not run
+		// this window has not measured 0.000 ms; it has measured nothing, and
+		// showing zero would claim the first when the row means the second.
+		if (s.count > 0) {
+			const double inv = 1.0 / static_cast<double>(s.count);
+			s.incl = s.sumIncl * inv;
+			s.excl = s.sumExcl * inv;
+			s.calls = s.sumCalls * inv;
+			s.frac = s.sumFrac * inv;
+			s.maxMs = s.winMax; // the worst call in the window, NOT the mean of them
+			s.ready = true;
+		}
+
+		s.sumIncl = s.sumExcl = s.sumCalls = s.sumFrac = 0.0;
+		s.winMax = 0.0;
+		s.count = 0;
+		if (!s.seen) s.used = false; // the node is gone; free the slot
+	}
+}
+
+const DevConsole::ProfSmooth* DevConsole::SmoothFor(u32 tid, u32 node) const {
+	for (int j = 0; j < m_profSmoothCount; ++j) {
+		const ProfSmooth& s = m_profSmooth[j];
+		if (s.used && s.ready && s.tid == tid && s.node == node) return &s;
+	}
+	return nullptr;
+}
 #else
 void DevConsole::SampleProfileSeries() {}
 void DevConsole::CommitProfileSeries() {}
+void DevConsole::CommitProfileSmooth() {}
+const DevConsole::ProfSmooth* DevConsole::SmoothFor(u32, u32) const { return nullptr; }
 #endif
 
 void DevConsole::SampleHistory(float dt, const gfx::GraphicsDevice& device) {
@@ -506,6 +610,16 @@ void DevConsole::SampleHistory(float dt, const gfx::GraphicsDevice& device) {
 	{
 		DN_PROFILE_ZONE_L(prof::kLevelDetail, "snapshot");
 		SampleProfileSeries();
+	}
+
+	// Its own cadence, slower than the graph's: the graphs are SHAPES and want
+	// the fine sampling, while the digits beside them want to sit still long
+	// enough to be read. A window of 0 commits every frame, which is the old
+	// unsmoothed behaviour and needs no branch of its own.
+	m_profSmoothTimer += dt;
+	if (m_profSmoothTimer >= m_profSmoothSec) {
+		m_profSmoothTimer = 0.0f;
+		CommitProfileSmooth();
 	}
 
 	m_profSampleTimer += dt;
@@ -1122,6 +1236,15 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 			const prof::Clock clock = prof::ClockInfo();
 			m_font->Draw(batch, std::format("TSC {:.0f} MHz", clock.mhz), width * 0.15f, py,
 						kDim);
+			// A mean has to SAY it is one. Left unlabelled these read as this
+			// frame's cost, and someone would chase a 4 ms average as though it
+			// were the frame in front of them.
+			if (!m_profileGraph)
+				m_font->Draw(batch,
+							m_profSmoothSec > 0.0f
+								? std::format("avg {:.0f} ms", m_profSmoothSec * 1000.0f)
+								: std::string("live"),
+							width * 0.25f, py, kDim);
 			if (!clock.invariantTsc)
 				m_font->Draw(batch, "NOT INVARIANT - timings may drift", width * 0.28f, py,
 							kWarn);
@@ -1271,12 +1394,26 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 								own ? kAccent : eff > 0 ? kText : kDim);
 
 					m_font->Draw(batch, pr.name, nameX + markerW, py, kText);
-					m_font->Draw(batch, std::format("{:.3f}", pr.inclMs), width * 0.30f, py,
+
+					// The held window if there is one, the raw period if this node
+					// only appeared mid-window. Falling back to raw rather than to
+					// nothing matters most right after a subtree is expanded, which
+					// is exactly when every new row would otherwise read 0.000.
+					const ProfSmooth* sm = SmoothFor(pr.tid, pr.node);
+					const double dIncl = sm ? sm->incl : pr.inclMs;
+					const double dExcl = sm ? sm->excl : pr.exclMs;
+					const double dMax = sm ? sm->maxMs : pr.maxMs;
+					const double dCalls = sm ? sm->calls
+											 : static_cast<double>(pr.calls);
+					const float dFrac = sm ? static_cast<float>(sm->frac) : pr.frac;
+
+					m_font->Draw(batch, std::format("{:.3f}", dIncl), width * 0.30f, py,
 								kText);
-					m_font->Draw(batch, std::format("{:.3f}", pr.exclMs), width * 0.38f, py,
+					m_font->Draw(batch, std::format("{:.3f}", dExcl), width * 0.38f, py,
 								kDim);
-					m_font->Draw(batch, std::format("x{}", pr.calls), width * 0.46f, py, kDim);
-					m_font->Draw(batch, std::format("max {:.3f}", pr.maxMs), width * 0.52f,
+					m_font->Draw(batch, std::format("x{:.0f}", dCalls), width * 0.46f, py,
+								kDim);
+					m_font->Draw(batch, std::format("max {:.3f}", dMax), width * 0.52f,
 								py, kDim);
 
 					// Share of everything this thread recorded in the period —
@@ -1304,8 +1441,11 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 						const float bw2 = std::min(barW, width - pad * 2.0f - bx);
 						if (bw2 > 0.0f) {
 							batch.DrawRect({bx, oy, bw2, bh}, kGaugeBg);
+							// The SAME smoothed reading as the digits beside it. A
+							// bar still twitching at frame rate next to a number
+							// holding still reads as the two disagreeing.
 							batch.DrawRect(
-								{bx, oy, bw2 * std::clamp(pr.frac, 0.0f, 1.0f), bh},
+								{bx, oy, bw2 * std::clamp(dFrac, 0.0f, 1.0f), bh},
 								{0.45f, 0.70f, 0.95f, 1.0f});
 						}
 					}

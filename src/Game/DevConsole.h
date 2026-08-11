@@ -118,6 +118,58 @@ private:
 	ProfSeries m_profSeries[kProfSeries];
 	int m_profSeriesCount = 0;
 
+	// --- readout smoothing (the LIST view's numbers) ------------------------
+	// Every row is one PUBLISHED PERIOD — a frame for the main thread — so at
+	// 240 fps the digits changed 240 times a second and could not be read at
+	// all. Averaging alone does not fix that: a mean recomputed every frame is
+	// smoother but still repaints its low digits every frame, and the eye needs
+	// the number to HOLD STILL more than it needs it to be exact.
+	//
+	// So the window is a TUMBLING one, not a sliding one. Samples accumulate for
+	// kProfSmoothSec, then the mean is committed and DISPLAYED UNCHANGED until
+	// the next commit. One mechanism buys both halves: the value stops being a
+	// single noisy sample, and it stops moving long enough to read.
+	//
+	// The exception is `max`, which takes the MAXIMUM over the window rather than
+	// the mean, for the same reason the graph history does — a mean would average
+	// away the one call that spiked, and that call is the whole reason the column
+	// is there. Averaging a worst case produces a number that is neither.
+	static constexpr int kProfSmoothSlots = 256; // >= kMaxProfRows (asserted)
+	static constexpr float kProfSmoothSec = 0.25f; // 4 readable updates a second
+
+	struct ProfSmooth {
+		u32 tid = 0;  // the same (thread, node index) key the series use, and
+		u32 node = 0; // for the same reason: row position is not an identity
+		bool used = false;
+		bool seen = false; // matched a live row this frame; else the node has gone
+
+		// Accumulating over the current window.
+		double sumIncl = 0.0, sumExcl = 0.0, sumCalls = 0.0, sumFrac = 0.0;
+		double winMax = 0.0;
+		int count = 0;
+
+		// Committed at the end of a window — what the list actually draws, held
+		// steady until the next one. `ready` is false only for a node discovered
+		// mid-window, which draws its raw values for the remainder rather than a
+		// zero it never measured.
+		bool ready = false;
+		double incl = 0.0, excl = 0.0, calls = 0.0, maxMs = 0.0, frac = 0.0;
+	};
+	ProfSmooth m_profSmooth[kProfSmoothSlots];
+	int m_profSmoothCount = 0;
+	float m_profSmoothTimer = 0.0f;
+	// Runtime-tunable, because 250 ms is a guess at what reads well and the right
+	// answer differs between watching a steady frame and chasing a spike. Zero
+	// commits every frame, which is exactly the old unsmoothed behaviour — "off"
+	// needs no separate code path.
+	float m_profSmoothSec = kProfSmoothSec;
+
+	// Accumulates one frame's rows / commits the window. Both no-ops without
+	// DN_PROFILE, like the series pair above.
+	void CommitProfileSmooth();
+	// The committed values for a row, or null if it has none yet.
+	const ProfSmooth* SmoothFor(u32 tid, u32 node) const;
+
 	// The six gauges at the top of the panel, given the same treatment. These
 	// differ from the profile series in one way that matters: each has a NATURAL
 	// maximum (the display's refresh rate, 100%, installed RAM, the VRAM budget,
