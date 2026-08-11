@@ -204,14 +204,38 @@ private:
 	enum BudgetLine { kBudFrame, kBudCpu, kBudGpu, kBudgetLines };
 	PerfSeries m_budgetSeries[kBudgetLines];
 
-	// ONE palette for the budget, because it is read in three places — the
-	// stacked bar on the frame row, this graph, and the evidence text that acts
-	// as their shared legend. Three sites picking their own colours is three
-	// chances for "amber" to mean something different in each.
-	static constexpr Vec4 kBudgetCpuColor{0.85f, 0.70f, 0.40f, 1.0f};
-	static constexpr Vec4 kBudgetWaitColor{0.80f, 0.55f, 0.85f, 1.0f};
-	static constexpr Vec4 kBudgetPresentColor{0.45f, 0.70f, 0.95f, 1.0f};
-	static constexpr Vec4 kBudgetGpuColor{0.55f, 0.85f, 0.55f, 1.0f};
+	// THE TWO PROCESSORS GET ONE COLOUR EACH, WHEREVER THEY APPEAR. The gauges at
+	// the top of the panel and the frame budget below it are read together and
+	// describe the same two pieces of silicon, so a reader is entitled to assume
+	// the colours agree. They did not: the budget's first palette painted CPU
+	// work in the gauges' RAM amber and Present in the gauges' CPU blue, which
+	// made the biggest block on the bar look like CPU time — the exact
+	// misreading the bar was built to prevent.
+	//
+	// Defined here and used by BOTH the gauge table and the budget, so agreement
+	// is structural rather than a thing to remember.
+	static constexpr Vec4 kCpuColor{0.45f, 0.70f, 0.95f, 1.0f};
+	static constexpr Vec4 kGpuColor{0.55f, 0.85f, 0.55f, 1.0f};
+
+	// The budget's four, three of them derived from that rule:
+	//   cpu     = the CPU's colour, because it IS CPU time
+	//   gpu     = the GPU's colour, likewise
+	//   wait    = the GPU's colour DIMMED — time the CPU lost to the GPU, so it
+	//             belongs to the GPU's story without being GPU work
+	//   present = neutral grey, because it is not work at all. Idle should look
+	//             idle rather than borrow a colour that means something ran.
+	static constexpr Vec4 kBudgetCpuColor = kCpuColor;
+	static constexpr Vec4 kBudgetGpuColor = kGpuColor;
+	static constexpr Vec4 kBudgetWaitColor{0.34f, 0.52f, 0.36f, 1.0f};
+	static constexpr Vec4 kBudgetPresentColor{0.44f, 0.44f, 0.48f, 1.0f};
+
+	// The ordinary per-node share bar, and it is deliberately NOT the CPU's blue
+	// any more. Once blue means "CPU time", a blue bar on the `present` row —
+	// which is the CPU doing nothing — says the opposite of the grey segment
+	// standing for that same measurement in the frame bar directly above it. A
+	// generic proportion needs a colour that claims nothing, so it gets a muted
+	// steel and the meaningful colours stay meaningful.
+	static constexpr Vec4 kShareColor{0.42f, 0.52f, 0.62f, 1.0f};
 
 	// Checkbox rects for the graph views, rebuilt by Render and hit-tested by the
 	// next Update — the same idiom as the thread controls, so the geometry of a

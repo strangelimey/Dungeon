@@ -1272,13 +1272,15 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 		// only sense in which a frame rate is good enough.
 		{"FPS", std::format("FPS  {:.0f} / {} Hz", m.fps, refreshHz), m.fps, fpsCeiling,
 		 {0.55f, 0.85f, 0.55f, 1.0f}, false},
-		{"CPU", std::format("CPU  {:.0f}%", m.cpuPercent), m.cpuPercent, 100.0f,
-		 {0.45f, 0.70f, 0.95f, 1.0f}, false},
+		// The two processors take the shared colours (DevConsole.h): the frame
+		// budget below paints CPU and GPU time in these, and a reader comparing
+		// the two sections is entitled to assume they agree.
+		{"CPU", std::format("CPU  {:.0f}%", m.cpuPercent), m.cpuPercent, 100.0f, kCpuColor,
+		 false},
 		{"GPU",
 		 m.gpuPercent >= 0.0f ? std::format("GPU  {:.0f}%", m.gpuPercent)
 							  : std::string("GPU  n/a"),
-		 m.gpuPercent >= 0.0f ? m.gpuPercent : 0.0f, 100.0f,
-		 {0.55f, 0.85f, 0.55f, 1.0f}, false},
+		 m.gpuPercent >= 0.0f ? m.gpuPercent : 0.0f, 100.0f, kGpuColor, false},
 		{"RAM",
 		 std::format("RAM  {:.1f} / {:.1f} GB", m.sysMemUsedMB / 1024.0,
 					 m.sysMemTotalMB / 1024.0),
@@ -1644,6 +1646,43 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 			m_font->Draw(batch, "share", barX, py, kDim);
 			py += rowAdvance;
 
+			// THE TRACK EVERY BAR SITS IN. A bar filled to 96% has no visible
+			// right-hand edge — the fill runs into the border and the eye reads
+			// the coloured part as the whole, which is precisely the misreading a
+			// share bar exists to prevent. Quarter gridlines give the width a
+			// scale, so a segment can be judged against the total instead of
+			// against nothing.
+			//
+			// DRAWN TWICE, once behind the fill and once faintly over it, because
+			// behind alone vanishes under exactly the bars that need it most. The
+			// over-draw is weak enough to read as a tick on a filled span and the
+			// under-draw is what shows on an empty one.
+			//
+			// 1px, which the UI rules allow only for hairlines — a fractional
+			// gridline blurs across two columns and stops being a line.
+			const Vec4 kGridUnder{1.0f, 1.0f, 1.0f, 0.10f};
+			const Vec4 kGridOver{1.0f, 1.0f, 1.0f, 0.16f};
+			auto barQuarters = [&](const gfx::Rect& r, const Vec4& c) {
+				for (int q = 1; q < 4; ++q)
+					batch.DrawRect({r.x + r.w * (static_cast<float>(q) * 0.25f), r.y, 1.0f,
+									r.h},
+								   c);
+			};
+			auto barTrack = [&](const gfx::Rect& r) {
+				batch.DrawRect(r, kGaugeBg);
+				barQuarters(r, kGridUnder);
+			};
+			auto barEdge = [&](const gfx::Rect& r) {
+				barQuarters(r, kGridOver);
+				ui::DrawBorder(batch, r, kBorder);
+			};
+			// Vertical extent of the bar column, gathered as the rows draw so the
+			// gridlines can be run down the whole of it afterwards. Drawn after
+			// rather than before because they have to cross the FILLS as well as
+			// the gaps — behind, they would disappear under exactly the long bars
+			// whose length is hardest to judge.
+			float gridTop = -1.0f, gridBot = -1.0f;
+
 			// The path of the row being drawn, kept as the names at each depth so
 			// far. The walk is pre-order, so by the time a row is reached its
 			// ancestors are exactly the entries below it — no second traversal to
@@ -1728,7 +1767,8 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 						const float oy = py + (line - bh) * 0.5f - line * 0.10f;
 						const float bw2 = std::min(barW, width - pad * 2.0f - barX);
 						if (bw2 > 0.0f) {
-							batch.DrawRect({barX, oy, bw2, bh}, kGaugeBg);
+							const gfx::Rect track{barX, oy, bw2, bh};
+							barTrack(track);
 							const auto seg = [&](double ms, float x, const Vec4& c) {
 								const float w =
 									bw2 * static_cast<float>(
@@ -1740,18 +1780,28 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 							sx = seg(fb.cpuMs, sx, kBudgetCpuColor);
 							sx = seg(fb.waitGpuMs, sx, kBudgetWaitColor);
 							seg(fb.presentMs, sx, kBudgetPresentColor);
-							ui::DrawBorder(batch, {barX, oy, bw2, bh}, kBorder);
+							barEdge(track);
 
 							if (fb.gpuKnown) {
+								// The same quarters on the same width, so the GPU
+								// hairline can be read against the frame above it
+								// rather than only against itself. No border: at
+								// two pixels tall a border is the whole bar.
 								const float gh = line * 0.14f;
 								const float gy = oy + bh + line * 0.06f;
+								const gfx::Rect gtrack{barX, gy, bw2, gh};
 								const float gw =
 									bw2 * static_cast<float>(
 											  std::clamp(fb.gpuBusyMs / fb.frameMs, 0.0, 1.0));
-								batch.DrawRect({barX, gy, bw2, gh}, kGaugeBg);
+								barTrack(gtrack);
 								if (gw > 0.0f)
 									batch.DrawRect({barX, gy, gw, gh}, kBudgetGpuColor);
+								barQuarters(gtrack, kGridOver);
 							}
+							// The frame's bar shares the column's axis like every
+							// other, so the run of gridlines starts here.
+							if (gridTop < 0.0f) gridTop = oy;
+							gridBot = oy + bh;
 						}
 					}
 
@@ -1769,23 +1819,42 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 					if (pr.depth > 0) {
 						const float bh = line * 0.6f;
 						const float oy = py + (line - bh) * 0.5f;
-						// INDENTED BY THE SAME STEP AS THE NAME, so a bar sits
-						// under its parent's bar the way its label sits under its
-						// parent's label and the nesting reads down the column
-						// instead of having to be reconstructed from the text.
-						// The WIDTH is unchanged by depth — equal widths have to
-						// keep meaning equal shares, or the indent would quietly
-						// rescale every child.
-						const float bx = barX + indent * static_cast<float>(pr.depth + 1);
-						const float bw2 = std::min(barW, width - pad * 2.0f - bx);
+						// ONE ORIGIN FOR EVERY BAR — no longer indented by depth.
+						// The indent used to echo the name column so nesting read
+						// down the bars too, but it put each depth's 0% at a
+						// different x, which means the bars never shared an axis
+						// and two of them could not be compared by eye at all.
+						// A common origin is what lets the gridlines run the whole
+						// height and mean the same thing on every row; nesting is
+						// still fully carried by the names, where it was never
+						// ambiguous.
+						const float bw2 = std::min(barW, width - pad * 2.0f - barX);
 						if (bw2 > 0.0f) {
-							batch.DrawRect({bx, oy, bw2, bh}, kGaugeBg);
+							const gfx::Rect track{barX, oy, bw2, bh};
+							barTrack(track);
+
+							// A LANDMARK ROW TAKES ITS SEGMENT'S COLOUR from the
+							// frame bar above, so the stack and the rows it
+							// decomposes cannot contradict each other — `present`
+							// grey up there and blue down here was saying the CPU
+							// worked for 3.9 ms and did nothing for 3.9 ms at once.
+							Vec4 fill = kShareColor;
+							if (fb.valid && pr.tid == fb.tid) {
+								if (std::strcmp(pr.name, prof::kZoneRecord) == 0)
+									fill = kBudgetCpuColor;
+								else if (std::strcmp(pr.name, prof::kZoneWaitGpu) == 0)
+									fill = kBudgetWaitColor;
+								else if (std::strcmp(pr.name, prof::kZonePresent) == 0)
+									fill = kBudgetPresentColor;
+							}
 							// The SAME smoothed reading as the digits beside it. A
 							// bar still twitching at frame rate next to a number
 							// holding still reads as the two disagreeing.
 							batch.DrawRect(
-								{bx, oy, bw2 * std::clamp(dFrac, 0.0f, 1.0f), bh},
-								{0.45f, 0.70f, 0.95f, 1.0f});
+								{barX, oy, bw2 * std::clamp(dFrac, 0.0f, 1.0f), bh}, fill);
+							barEdge(track);
+							if (gridTop < 0.0f) gridTop = oy;
+							gridBot = oy + bh;
 						}
 					}
 
@@ -1824,6 +1893,19 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 				}
 				py += rowAdvance;
 			}
+			// THE COLUMN'S AXIS, run down the whole readout in one pass now that
+			// every bar shares an origin. Per-bar ticks said "this bar is 3/4
+			// full"; a continuous line says "these two bars cross the same mark",
+			// which is the comparison the column exists to support and the one
+			// short ticks on separate rows cannot make.
+			if (gridTop >= 0.0f && gridBot > gridTop) {
+				const float gw = std::min(barW, width - pad * 2.0f - barX);
+				for (int q = 1; q < 4; ++q)
+					batch.DrawRect({barX + gw * (static_cast<float>(q) * 0.25f), gridTop,
+									1.0f, gridBot - gridTop},
+								   kGridOver);
+			}
+
 			// Only reachable now that the array can actually run out — the tree
 			// grows every time a subtree is raised, which is what the rows above
 			// are for.
