@@ -152,12 +152,11 @@ bool WriteSave(const SaveData& data, const std::string& path) {
 						 c.baseStamina, c.baseMana);
 		// "dead <i>" — the overkill flag (v18), written only when set.
 		if (c.dead) t += std::format("dead {}\n", i);
-		// "share <i> <left> <right>" — the per-hand offense share (v23),
-		// written only when a hand is off all-out. An all-out party is the
-		// overwhelming case and a line each would be noise.
-		if (c.handOffense[0] != 1.0f || c.handOffense[1] != 1.0f)
-			t += std::format("share {} {:.3f} {:.3f}\n", i, c.handOffense[0],
-							 c.handOffense[1]);
+		// "share <i> <value>" — the offense stance (v23), written only when it
+		// is off all-out. An all-out party is the overwhelming case and a line
+		// per member per save would be noise.
+		if (c.offenseShare != 1.0f)
+			t += std::format("share {} {:.3f}\n", i, c.offenseShare);
 	}
 
 	// One block per visited level: a "level <stem>" header, then its entity
@@ -354,12 +353,13 @@ std::optional<SaveData> ReadSave(const std::string& path) {
 			c.vitality = IntOf(tok[4]);
 			c.willpower = IntOf(tok[5]);
 			c.intelligence = IntOf(tok[6]);
-		} else if (kw == "share" && tok.size() >= 4) {
-			// Per-hand offense share (v23). Absent = 1.0 both hands, which is
-			// what every pre-v23 save meant.
+		} else if (kw == "share" && tok.size() >= 3) {
+			// The offense stance (v23). Absent = 1.0, which is what every
+			// pre-v23 save meant. A 4-token form was written briefly while the
+			// share was per HAND; its first value is the same stance, so those
+			// saves read correctly by simply ignoring the extra token.
 			SaveData::CharState& c = CharAt(data, tok[1]);
-			c.handOffense[0] = FloatOf(tok[2]);
-			c.handOffense[1] = FloatOf(tok[3]);
+			c.offenseShare = FloatOf(tok[2]);
 		} else if (kw == "base" && tok.size() >= 5) {
 			// Resource bases: "base <i> <health> <stamina> <mana>" (v17).
 			SaveData::CharState& c = CharAt(data, tok[1]);

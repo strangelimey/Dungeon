@@ -57,6 +57,7 @@ add_library(Game STATIC
 	CharacterPanel.cpp
 	ControlBar.cpp
 	HandSlot.cpp
+	GuardSlider.cpp
 	SpellbookPanel.cpp
 	InventoryWindow.cpp
 	CharacterSheet.cpp

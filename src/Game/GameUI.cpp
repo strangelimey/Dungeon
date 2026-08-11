@@ -1555,6 +1555,9 @@ void GameUI::BuildHud() {
 	deps.onMove = [this](MoveAction action) { onMoveAction(action); };
 	deps.onHandLeft = [this](size_t i, size_t hand) { OnHandLeftClick(i, hand); };
 	deps.onHandRight = [this](size_t i, size_t hand) { OnHandRightClick(i, hand); };
+	deps.onGuardChange = [this](size_t i, float share) {
+		if (onGuardChange) onGuardChange(i, share);
+	};
 	deps.magicLabel = loc::Tr("hud.magic");
 	auto* controlBar = m_belowBar->Add<ControlBar>(
 		gfx::Rect{kPanelX, 0.0f, kPanelW, panelH / kBelowSpan}, deps);

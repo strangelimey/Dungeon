@@ -161,15 +161,17 @@ float DungeonWorld::PartyTarget::Evasion(DamageType type) const {
 	//
 	// The cooldown is deliberately NOT consulted: a stance is not an action,
 	// so a hand still guards while it recovers from a swing.
+	// ONE stance for the character; what differs between the hands is what
+	// they can parry WITH, not how much is held back.
+	const float held = 1.0f - m_member.offenseShare;
+	if (held <= 0.0f) return guard; // all-out attack guards with nothing
+
 	SpellSymbol school{};
 	const bool magical = m_world.m_damageTypes.SchoolOf(type, school);
 	const bool physical = m_world.m_damageTypes.IsPhysical(type);
 
 	float best = 0.0f;
 	for (int hand = 0; hand < 2; ++hand) {
-		const float held = 1.0f - m_member.handOffense[hand];
-		if (held <= 0.0f) continue; // all-out attack guards with nothing
-
 		std::string_view skillId;
 		if (physical) {
 			const ItemSlot& slot = m_member.inventory.Hand(hand);

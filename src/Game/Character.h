@@ -73,18 +73,21 @@ struct Character {
 	// independently (dual-wield, weapon + shield, etc.).
 	float handCooldown[2] = {0.0f, 0.0f};
 
-	// THE OFFENSE SHARE per hand (docs/damage-system.md): how much of this
-	// hand's skill goes into ATTACKING. 1.0 spends it all and guards with
-	// nothing; 0.4 puts 40% behind the swing and holds 60% back to defend
-	// with. The held-back part guards PHYSICAL blows for a weapon hand and its
-	// OWN SCHOOL for a casting one, and it applies while the hand is on
-	// COOLDOWN too — a stance is not an action, so recovering from a swing
-	// does not drop your guard.
+	// THE OFFENSE SHARE (docs/damage-system.md): how much of this character's
+	// skill goes into ATTACKING. 1.0 spends it all and guards with nothing;
+	// 0.4 puts 40% behind every swing and holds 60% back to defend with. It is
+	// ONE stance for the character, not one per hand — the two hands still
+	// guard DIFFERENTLY (a sword parries physical blows off its weapon class, a
+	// casting hand guards its own school off that school's skill) and the
+	// better of the two answers each incoming blow, but the fighter makes one
+	// decision about how hard to press. It applies while a hand is on COOLDOWN
+	// too: a stance is not an action, so recovering from a swing does not drop
+	// your guard.
 	//
 	// NOT clamped to 1: over-exertion (spending past 100% by burning stamina,
 	// health or a stat) pushes this ABOVE 1, so nothing may assume the offense
 	// and defense shares sum to the skill.
-	float handOffense[2] = {1.0f, 1.0f};
+	float offenseShare = 1.0f;
 
 	// Hit-feedback splat shown over this member's portrait when a monster lands
 	// a blow: hitFlash counts down (seconds) while the party bar draws the icon,

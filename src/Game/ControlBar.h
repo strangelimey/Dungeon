@@ -46,6 +46,9 @@ struct ControlBarDeps {
 	std::function<void(MoveAction)> onMove;
 	std::function<void(size_t member, size_t hand)> onHandLeft;
 	std::function<void(size_t member, size_t hand)> onHandRight;
+	// The offense/defense stance slider under a member's hands: the widget
+	// mutates nothing itself, it reports where it was dragged to.
+	std::function<void(size_t member, float share)> onGuardChange;
 	std::string magicLabel; // localized "Magic" heading
 };
 
@@ -57,10 +60,25 @@ public:
 	MovementPad(const gfx::Rect& rect, const ControlBarDeps& deps);
 };
 
-// One member's two hand boxes, side by side.
+// One member's two hand boxes side by side, with the stance slider spanning
+// the full width beneath BOTH of them — one decision for the character, not
+// one per hand.
 class HandPair : public ui::Widget {
 public:
 	HandPair(const gfx::Rect& rect, size_t member, const ControlBarDeps& deps);
+
+private:
+	// The boxes are SQUARE, and squareness cannot be authored: `bounds` are
+	// fractions of the parent in each axis independently, so a w/h pair only
+	// comes out square when the parent's own pixel aspect happens to agree —
+	// which is exactly how these went rectangular when the tree moved to
+	// [0..1] bounds. The side is therefore COMPUTED here, once the pixel rect
+	// is known, which is what LayoutSelf is for (docs/ui-hierarchy.md: bounds
+	// may be derived when a child is aspect-locked).
+	void LayoutSelf(ui::UIContext& ctx) override;
+
+	ui::Widget* m_slots[2]{nullptr, nullptr};
+	ui::Widget* m_guard = nullptr;
 };
 
 // The hand grid: one HandPair per member, two per row.

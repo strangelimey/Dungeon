@@ -3,6 +3,8 @@
 // ============================================================================
 #include "Game/ControlBar.h"
 
+#include "Game/GuardSlider.h"
+
 #include <algorithm>
 
 namespace dungeon::game {
@@ -84,15 +86,12 @@ HandPair::HandPair(const gfx::Rect& rect, size_t member,
 				   const ControlBarDeps& deps) {
 	bounds = rect;
 	debugName = "HandPair";
-	// Two boxes side by side; each is square in the ORIGINAL authoring's terms
-	// (equal window-width and -height fractions), so the pair's own box is a
-	// little taller than the boxes and they sit at its top.
-	const float w = kHandW / kSetW, gap = kHandGap / kSetW;
-	const float h = kHandW / kSetH;
+	// Bounds here are placeholders: LayoutSelf computes the real ones once the
+	// pixel rect is known, because a SQUARE box cannot be expressed as a pair
+	// of independent axis fractions.
 	for (int hand = 0; hand < 2; ++hand) {
-		Add<HandSlot>(
-			gfx::Rect{(w + gap) * static_cast<float>(hand), 0.0f, w, h},
-			deps.roster, member, hand, deps.icons,
+		m_slots[hand] = Add<HandSlot>(
+			gfx::Rect{0, 0, 0.5f, 1.0f}, deps.roster, member, hand, deps.icons,
 			[onLeft = deps.onHandLeft, member, hand] {
 				onLeft(member, static_cast<size_t>(hand));
 			},
@@ -100,6 +99,34 @@ HandPair::HandPair(const gfx::Rect& rect, size_t member,
 				onRight(member, static_cast<size_t>(hand));
 			});
 	}
+	// ONE stance for the character, spanning both boxes — the fighter decides
+	// how hard to press, and the two hands then guard with whatever each holds.
+	m_guard = Add<GuardSlider>(gfx::Rect{0, 0.85f, 1.0f, 0.15f}, deps.roster,
+							   member, deps.onGuardChange);
+}
+
+void HandPair::LayoutSelf(ui::UIContext&) {
+	const gfx::Rect& px = Pixel();
+	if (px.w <= 0.0f || px.h <= 0.0f) return;
+
+	// The slider is a thin band at the bottom; the boxes take the rest, and
+	// their side is whichever of "half the width" or "the remaining height"
+	// runs out first, so the pair fits its box at any aspect.
+	const float gap = px.w * (kHandGap / kSetW);
+	const float band = std::max(Rem(0.35f), px.h * 0.10f);
+	const float side = std::min((px.w - gap) * 0.5f, px.h - band - Rem(0.15f));
+	if (side <= 0.0f) return;
+
+	for (int hand = 0; hand < 2; ++hand) {
+		if (!m_slots[hand]) continue;
+		m_slots[hand]->bounds = {(side + gap) * static_cast<float>(hand) / px.w,
+								 0.0f, side / px.w, side / px.h};
+	}
+	// Spans the full width of both boxes plus the gap between them — the
+	// visual claim that it governs the pair rather than either hand.
+	if (m_guard)
+		m_guard->bounds = {0.0f, (side + Rem(0.15f)) / px.h,
+						   (side * 2.0f + gap) / px.w, band / px.h};
 }
 
 // --- HandsArea -------------------------------------------------------------

@@ -91,6 +91,15 @@ void Game::WireModuleCallbacks() {
 		RestartApp();
 	};
 	m_ui.onTorchPalette = [this](int index) { m_world.SetTorchPalette(index); };
+	// The stance slider under a member's hands (docs/damage-system.md). Clamped
+	// to 0..1 HERE rather than in the widget: the model deliberately allows
+	// MORE than 1 (over-exertion), and a drag is simply not the way to reach
+	// it — spending past everything you have should cost something, and that
+	// mechanism is still to be designed. The dev `guard` command has no clamp.
+	m_ui.onGuardChange = [this](size_t member, float share) {
+		if (member < m_characters.size())
+			m_characters[member].offenseShare = std::clamp(share, 0.0f, 1.0f);
+	};
 	m_ui.onMoveAction = [this](MoveAction action) {
 		// A pit fall swallows movement (the keyboard path gates in
 		// DungeonWorld::Update; this is the HUD arrow-button path).

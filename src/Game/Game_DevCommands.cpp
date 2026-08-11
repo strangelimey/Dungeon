@@ -825,7 +825,7 @@ void Game::RegisterDevCommands() {
 	m_console.Register("guard", "set a hand's offense share 0..N (dev)",
 					   [this](const std::vector<std::string>& args) {
 						   if (!Need(m_console, args, 1,
-									 "usage: guard <share 0..N> [member 0-3] [hand 0/1]"))
+									 "usage: guard <share 0..N> [member 0-3]"))
 							   return;
 						   const float share =
 							   static_cast<float>(std::atof(args[0].c_str()));
@@ -843,19 +843,12 @@ void Game::RegisterDevCommands() {
 							   return;
 						   }
 						   Character& c = m_characters[m];
-						   if (args.size() > 2) {
-							   const int hand =
-								   std::clamp(std::atoi(args[2].c_str()), 0, 1);
-							   c.handOffense[hand] = share;
-						   } else {
-							   c.handOffense[0] = c.handOffense[1] = share;
-						   }
+						   c.offenseShare = share;
 						   m_console.Print(std::format(
-							   "{} offense L{:.2f} R{:.2f} (guarding with "
-							   "{:.0f}%/{:.0f}% of hand skill)",
-							   c.name, c.handOffense[0], c.handOffense[1],
-							   std::max(0.0f, 1.0f - c.handOffense[0]) * 100.0f,
-							   std::max(0.0f, 1.0f - c.handOffense[1]) * 100.0f));
+							   "{} offense {:.2f} (guarding with {:.0f}% of "
+							   "hand skill)",
+							   c.name, share,
+							   std::max(0.0f, 1.0f - share) * 100.0f));
 					   });
 
 	// `give` fills the pack; this puts a weapon straight in a hand, which is

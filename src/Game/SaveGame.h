@@ -32,11 +32,11 @@ namespace dungeon::game {
 
 // The serializable dynamic state of one in-progress game.
 struct SaveData {
-	// v23: per-member OFFENSE SHARE per hand ("share <i> <left> <right>", the
-	//      0..N slider — docs/damage-system.md). Written only when a hand is
-	//      not at 1.0, since an all-out party is the overwhelming case and a
-	//      line per member per save would be noise. Absent = both hands
-	//      attacking with everything, which is what every pre-v23 save meant.
+	// v23: per-member OFFENSE SHARE ("share <i> <value>", the 0..N stance —
+	//      docs/damage-system.md). Written only when it is off 1.0, since an
+	//      all-out party is the overwhelming case and a line per member per
+	//      save would be noise. Absent = attacking with everything, which is
+	//      what every pre-v23 save meant.
 	// v22: per-MONSTER status effects ("enteffect <id> <school> <time>
 	//      <duration> <magnitude> <source>" lines, each attaching to the entity
 	//      line just above it) — a monster carries the same effect list a member
@@ -156,11 +156,11 @@ struct SaveData {
 		// in pre-v12 saves (rebuilds by casting); a pre-v16 flat "mru" line
 		// loads into BOTH hands.
 		std::array<std::vector<std::string>, 2> mruSpells;
-		// The offense share per hand (Character::handOffense) — how much of
-		// the hand's skill goes into attacking, the rest held back to guard
+		// The offense share (Character::offenseShare) — how much of the
+		// character's skill goes into attacking, the rest held back to guard
 		// with. 1.0 = all-out (the default, and what every pre-v23 save
 		// means). NOT clamped to 1: over-exertion goes past it.
-		std::array<float, 2> handOffense{1.0f, 1.0f};
+		float offenseShare = 1.0f;
 		// Active status effects (Character::effects) — one "effect" line each
 		// (v14). A v13 "shield" line loads as the matching ward (duration =
 		// time left, name derived from the school); pre-v13 saves carry none.

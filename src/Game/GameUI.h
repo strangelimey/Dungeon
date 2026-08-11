@@ -170,6 +170,10 @@ public:
 	std::function<void(int)> onFrameLimitSelected; // Video tab frame-rate dropdown
 	std::function<void(int)> onTorchPalette;    // HUD torchlight dropdown
 	std::function<void(MoveAction)> onMoveAction; // HUD movement buttons
+	// The offense/defense stance slider under a member's hands: (member,
+	// share). The widget reports where it was dragged; Game owns the roster
+	// and does the writing.
+	std::function<void(size_t, float)> onGuardChange;
 	// HUD hand-slot click (member, hand 0=L/1=R, melee verb — the executed
 	// command id, e.g. "stab" = the ATTACK, Balance::FindAttack).
 	std::function<void(size_t, size_t, const std::string&)> onHandAttack;
