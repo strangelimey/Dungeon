@@ -19,6 +19,7 @@
 //   stairs <type> <x> <z> [facing] dest= destx= destz= [destfacing=]
 //   variant <wall|floor|ceiling> <x> <z> <index>   per-cell surface override
 //   atmosphere [dust=] [haze=] [ambient=]  the level's mood knobs
+//   theme <tag> <tag> ...             the level's content lens (Theme())
 //   decoration <type> <x> <z> [facing] [wall=]
 //                                     static entity (Entity.h) — and the
 //                                     FALL-THROUGH: any record matching none
@@ -269,6 +270,19 @@ public:
 		m_hazeAmbient = haze;
 		m_ambientScale = ambient;
 	}
+
+	// --- per-level theme (the content lens) ----------------------------------
+	// The tag words this level is built from — `theme undead stone` — matched
+	// against each catalog entry's `tags` (Catalog.h). Empty = no theme, and
+	// then nothing is off-theme.
+	//
+	// A PREFERENCE, NOT A CONSTRAINT. It ranks the editor palette and seeds the
+	// generator's picks; it never stops a type being placed, because the one-off
+	// that breaks a theme is usually the memorable thing in a dungeon. Nothing
+	// downstream of placement reads it — a placed record is a placed record,
+	// which is what keeps this safe to change on a finished level.
+	const std::vector<std::string>& Theme() const { return m_theme; }
+	void SetTheme(std::vector<std::string> tags) { m_theme = std::move(tags); }
 
 	Vec3 CellCenter(int x, int z, float y = 0.0f) const {
 		return {(static_cast<float>(x) + 0.5f) * kCellSize, y,
@@ -541,6 +555,7 @@ private:
 	std::vector<u8> m_dusty;        // authored 'D' cells (for the writer)
 	// Per-level atmosphere overrides (< 0 = unset; see SetAtmosphere).
 	float m_dustDensity = -1.0f, m_hazeAmbient = -1.0f, m_ambientScale = -1.0f;
+	std::vector<std::string> m_theme; // the `theme` record's tags (see Theme())
 	// Per-cell variant overrides, parallel to m_cells; -1 = use the hash default.
 	std::vector<int> m_wallVar, m_floorVar, m_ceilingVar;
 	std::vector<WallSconce> m_torches;

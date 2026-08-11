@@ -5,6 +5,7 @@
 #include "Core/Log.h"
 
 #include <algorithm>
+#include <cctype>
 #include <charconv>
 #include <cmath>
 #include <format>
@@ -293,6 +294,21 @@ DungeonMap::DungeonMap(const std::string& path, FixtureTypes fixtures) {
 		}
 		if (record.starts_with("variant")) {
 			ParseVariantRecord(record, path);
+			continue;
+		}
+		if (record.starts_with("theme")) {
+			// theme <tag> <tag> ... — the level's content lens (DungeonMap::Theme).
+			// Unlike every other record here there is nothing to validate against:
+			// a tag naming no content is not an error, just a theme nothing has
+			// joined yet, and refusing it would make tagging content and theming
+			// a level order-dependent. Lowercased to match Catalog.h's parse.
+			const std::vector<std::string_view> tok = SplitRecordTokens(record);
+			for (size_t i = 1; i < tok.size(); ++i) {
+				std::string tag(tok[i]);
+				for (char& ch : tag)
+					ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+				m_theme.push_back(std::move(tag));
+			}
 			continue;
 		}
 		if (record.starts_with("atmosphere")) {

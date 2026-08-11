@@ -977,6 +977,10 @@ public:
 									float& haze, float& ambient);
 	void SetLevelAtmosphere(const std::string& stem, float dust, float haze,
 							float ambient);
+	// The level's THEME tags (same dialog, persisted as the .map `theme`
+	// record; same active-vs-stash routing). Nothing in the running world reads
+	// them — see the definition.
+	void SetLevelTheme(const std::string& stem, std::vector<std::string> tags);
 
 	// HUD log feedback (bump lines, monster announcements, palette flavor).
 	// Set before play starts; the party/monster callbacks route through it.

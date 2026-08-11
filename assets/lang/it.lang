@@ -424,6 +424,7 @@ map.level.title=Impostazioni del livello
 map.level.dust=Densità della polvere
 map.level.haze=Ambiente della foschia
 map.level.ambient=Luce ambientale
+map.level.theme=Tag del tema
 map.level.applied=Impostazioni applicate a '{}' — salva la mappa per conservarle.
 map.level.created=Livello '{}' creato — salva la mappa per conservarne le celle.
 map.level.renamed=Livello '{}' rinominato in '{}' — i salvataggi esistenti mantengono il vecchio nome.

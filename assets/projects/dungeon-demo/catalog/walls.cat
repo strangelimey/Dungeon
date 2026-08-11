@@ -10,54 +10,63 @@
 
 [wall_brick]
 display = Brick
+tags = brick ruin
 texture = wall_brick
 height_scale = 0.055
 category = brick
 
 [wall_stone]
 display = Cut Stone
+tags = stone
 texture = wall_stone
 height_scale = 0.055
 category = stone
 
 [wall_moss]
 display = Mossy Wall
+tags = stone outdoor ruin
 texture = wall_moss
 height_scale = 0.055
 category = stone
 
 [wall_cobblestone]
 display = Cobblestone
+tags = stone cobble
 texture = cobblestone_wall
 height_scale = 0.055
 category = stone
 
 [wall_stacked_stone]
 display = Stacked Stone
+tags = stone rock cave
 texture = stacked_stone
 height_scale = 0.055
 category = stone
 
 [wall_brick_red]
 display = Red Brick
+tags = brick
 texture = brick_red
 height_scale = 0.055
 category = brick
 
 [wall_plaster]
 display = Plaster
+tags = plaster
 texture = plaster
 height_scale = 0.04
 category = smooth
 
 [wall_rock]
 display = Cave Rock
+tags = rock cave outdoor
 texture = rock_cliff
 height_scale = 0.06
 category = rock
 
 [wall_marble]
 display = Marble
+tags = marble temple
 texture = marble_white
 height_scale = 0.02
 category = smooth
@@ -72,114 +81,133 @@ category = smooth
 
 [wall_cobble_mixed]
 display = Mixed Cobblestone
+tags = stone cobble
 texture = wall_cobble_mixed
 height_scale = 0.07
 category = stone
 
 [wall_cobble_mixed4]
 display = Mixed Cobblestone 2
+tags = stone cobble
 texture = wall_cobble_mixed4
 height_scale = 0.065
 category = stone
 
 [wall_cobble_mossy]
 display = Mossy Cobblestone
+tags = stone cobble outdoor ruin
 texture = wall_cobble_mossy
 height_scale = 0.07
 category = stone
 
 [wall_cobble_round]
 display = Round Cobblestone
+tags = stone cobble
 texture = wall_cobble_round
 height_scale = 0.075
 category = stone
 
 [wall_stone_plain]
 display = Plain Stone
+tags = stone
 texture = wall_stone_plain
 height_scale = 0.055
 category = stone
 
 [wall_stone_granite]
 display = Granite
+tags = stone
 texture = wall_stone_granite
 height_scale = 0.05
 category = stone
 
 [wall_stone_28]
 display = Rubble Stone
+tags = stone
 texture = wall_stone_28
 height_scale = 0.06
 category = stone
 
 [wall_stone_30]
 display = Coursed Stone
+tags = stone
 texture = wall_stone_30
 height_scale = 0.06
 category = stone
 
 [wall_stone_34]
 display = Mixed Stone
+tags = stone
 texture = wall_stone_34
 height_scale = 0.055
 category = stone
 
 [wall_brick_weathered]
 display = Weathered Brick
+tags = brick ruin
 texture = wall_brick_weathered
 height_scale = 0.05
 category = brick
 
 [wall_brick_coarse]
 display = Coarse Brick
+tags = brick
 texture = wall_brick_coarse
 height_scale = 0.055
 category = brick
 
 [wall_brick_plaster]
 display = Bricks with Plaster
+tags = brick plaster
 texture = wall_brick_plaster
 height_scale = 0.04
 category = brick
 
 [wall_brick_distorted]
 display = Distorted Brick
+tags = brick ruin
 texture = wall_brick_distorted
 height_scale = 0.05
 category = brick
 
 [wall_brick_old]
 display = Old Brick
+tags = brick ruin
 texture = wall_brick_old
 height_scale = 0.045
 category = brick
 
 [wall_sandstone_blocks]
 display = Sandstone Blocks
+tags = sandstone
 texture = wall_sandstone_blocks
 height_scale = 0.045
 category = sandstone
 
 [wall_sandstone_block2]
 display = Sandstone Blocks 2
+tags = sandstone
 texture = wall_sandstone_block2
 height_scale = 0.045
 category = sandstone
 
 [wall_temple_sandstone]
 display = Temple Sandstone
+tags = sandstone temple
 texture = wall_temple_sandstone
 height_scale = 0.04
 category = temple
 
 [wall_temple_ancient]
 display = Ancient Temple
+tags = temple ruin
 texture = wall_temple_ancient
 height_scale = 0.045
 category = temple
 
 [wall_carved]
 display = Carved Sandstone
+tags = stone temple
 texture = wall_carved
 height_scale = 0.035
 category = temple

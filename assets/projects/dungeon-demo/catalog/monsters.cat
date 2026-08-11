@@ -17,6 +17,7 @@
 [skeleton]
 display = Skeleton
 category = skeleton
+tags = undead
 model = skeleton
 texture = skeleton
 hp = 16
@@ -35,6 +36,7 @@ dmgtype = slash
 [skel_archer]
 display = Skeleton Archer
 category = skeleton
+tags = undead
 model = skeleton
 texture = skeleton
 hp = 12
@@ -54,6 +56,7 @@ dmgtype = pierce
 [skel_mage]
 display = Skeleton Mage
 category = skeleton
+tags = undead
 model = skeleton
 texture = skeleton
 hp = 14
@@ -73,6 +76,7 @@ resists = pierce 0.5, slash 0.25, bash -0.5
 [skel_coward]
 display = Skittish Skeleton
 category = skeleton
+tags = undead
 model = skeleton
 texture = skeleton
 hp = 10
@@ -90,6 +94,7 @@ resists = pierce 0.5, slash 0.25, bash -0.5
 [skel_swarm]
 display = Bone Swarm
 category = skeleton
+tags = undead
 model = skeleton
 texture = skeleton
 hp = 6
@@ -109,6 +114,7 @@ dmgtype = slash
 [skel_lurker]
 display = Lurking Skeleton
 category = skeleton
+tags = undead
 model = skeleton
 texture = skeleton
 hp = 20
@@ -128,6 +134,7 @@ on_hit = bleed 2 10 0.5
 [blob]
 display = Blob
 category = slime
+tags = ooze cave
 model = blob
 texture = blob
 hp = 28
@@ -148,6 +155,7 @@ on_hit = poison 1 20 1
 [mummy]
 display = Mummy
 category = undead
+tags = undead crypt
 model = mummy
 texture = burlap
 hp = 22
@@ -165,6 +173,7 @@ dmgtype = bash
 [giant_spider]
 display = Giant Spider
 category = vermin
+tags = vermin beast cave
 model = giant_spider
 texture = giant_spider
 hp = 20
@@ -192,6 +201,7 @@ anim_die = Death
 [centipede]
 display = Giant Centipede
 category = vermin
+tags = vermin beast cave
 model = centipede
 texture = centipede
 hp = 14
@@ -221,6 +231,7 @@ anim_die = Dead Dead2 Dead3
 [skel_warrior]
 display = Skeleton Warrior
 category = skeleton
+tags = undead
 ; A single-minded brute: locks onto its tormentor at 0.6x the global threat
 ; threshold (see the threat_* note at the top of this file).
 threat_threshold = 0.6
@@ -251,6 +262,7 @@ anim_die = die__dying die__falling_back_death die__falling_forward_death die__st
 [skel_bare]
 display = Skeleton Raider
 category = skeleton
+tags = undead
 model = skel_bare
 hp = 16
 damage = 6
@@ -278,6 +290,7 @@ anim_die = die__dying die__falling_back_death die__falling_forward_death die__st
 [skel_berserker]
 display = Skeleton Berserker
 category = skeleton
+tags = undead
 model = skel_berserker
 hp = 19
 damage = 8
@@ -305,6 +318,7 @@ anim_die = die__dying die__falling_back_death die__falling_forward_death die__st
 [skel_spearman]
 display = Skeleton Spearman
 category = skeleton
+tags = undead
 model = skel_spearman
 hp = 17
 damage = 7

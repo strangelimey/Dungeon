@@ -98,7 +98,8 @@ bool Project::Save() const {
 	m.Set("default_sconce", defaultSconce);
 	m.Set("default_brazier", defaultBrazier);
 
-	const std::string text = std::format("; {} — project manifest.\n\n", name) +
+	const std::string text = std::format("; {} — project manifest.{}{}", name,
+										 serialize::kEol, serialize::kEol) +
 							 serialize::WriteBlocks(manifest);
 	bool ok = assets::WriteBinaryFile(folder + "\\project.ini", text.data(),
 									  text.size());

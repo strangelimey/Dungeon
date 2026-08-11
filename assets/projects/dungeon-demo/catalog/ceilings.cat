@@ -2,18 +2,21 @@
 
 [ceiling_rough]
 display = Rough
+tags = stone
 texture = ceiling_rough
 height_scale = 0.035
 category = stone
 
 [ceiling_cracked]
 display = Cracked
+tags = stone ruin
 texture = ceiling_cracked
 height_scale = 0.035
 category = stone
 
 [ceiling_stone]
 display = Stone
+tags = stone
 texture = limestone
 height_scale = 0.035
 category = stone
@@ -26,18 +29,21 @@ category = stone
 
 [ceiling_rock]
 display = Rock Face
+tags = rock cave
 texture = ceiling_rock
 height_scale = 0.045
 category = rock
 
 [ceiling_rock_layered]
 display = Layered Rock
+tags = rock cave
 texture = ceiling_rock_layered
 height_scale = 0.04
 category = rock
 
 [ceiling_rock_porous]
 display = Porous Rock
+tags = rock cave
 texture = ceiling_rock_porous
 height_scale = 0.035
 category = rock

@@ -444,6 +444,7 @@ map.level.title=Level settings
 map.level.dust=Dust density
 map.level.haze=Haze ambient
 map.level.ambient=Ambient light
+map.level.theme=Theme tags
 map.level.applied=Level settings applied to '{}' — Save the map to persist.
 map.level.created=Level '{}' created — Save the map to persist its cells.
 map.level.renamed=Level '{}' renamed to '{}' — existing saves keep the old name.

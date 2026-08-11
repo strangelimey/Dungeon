@@ -47,5 +47,6 @@ model = floor_cracked
 ; A cloister vault springs from all four edges and meets its neighbours flat.
 [vault]
 display = Cloister Vault
+tags = temple stone
 surface = ceiling
 model = ceiling_vault

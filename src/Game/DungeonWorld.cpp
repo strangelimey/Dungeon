@@ -480,6 +480,18 @@ void DungeonWorld::SetLevelAtmosphere(const std::string& stem, float dust,
 	}
 }
 
+// The theme's counterpart. Nothing to apply to the running world: the tags are
+// read by the editor palette straight off the map, and no placed object or
+// rendered thing consults them — which is what makes retheming a finished level
+// a safe, reversible edit rather than a migration.
+void DungeonWorld::SetLevelTheme(const std::string& stem,
+								 std::vector<std::string> tags) {
+	if (stem == m_currentLevel)
+		m_map.SetTheme(std::move(tags));
+	else
+		EnsureMapStash(stem).SetTheme(std::move(tags));
+}
+
 std::vector<std::string> DungeonWorld::MonsterList() const {
 	std::vector<std::string> out;
 	out.reserve(m_monsters.size());

@@ -207,19 +207,28 @@ private:
 	// `icon` (surface rows) is the entry's loaded albedo, drawn as the row
 	// swatch so the palette shows the same texture the map fill does; null
 	// falls back to the flat `swatch` color.
+	// `onTheme` is the viewed level's theme lens (DungeonMap::Theme vs the
+	// entry's `tags`): on-theme items list FIRST in their run, off-theme ones
+	// after a divider. Ranking only — every type stays clickable, because the
+	// one-off that breaks a theme is usually the memorable thing in a dungeon.
+	// True for everything when the level has no theme.
 	struct PaletteItem {
 		std::string label;
 		Vec4 swatch{1, 1, 1, 1};
 		std::string id;
 		std::string group;
 		const gfx::Texture* icon = nullptr;
+		bool onTheme = true;
 	};
 
 	// Accordion layout, shared by hit-test and draw: one row per category header,
 	// per visible item, per group sub-header, and per empty-expanded placeholder.
 	// Rects are in panel pixel space with the scroll already applied.
+	// Divider: the theme lens's boundary inside one run of items — everything
+	// below it is off-theme. Emitted only when both sides are non-empty, so an
+	// unthemed level (or a fully on-theme one) never sees one.
 	struct PaletteRow {
-		enum class Kind { Header, NewButton, SubHeader, Item, Empty } kind;
+		enum class Kind { Header, NewButton, SubHeader, Item, Empty, Divider } kind;
 		PaletteCat cat;
 		int index; // item index for Kind::Item
 		gfx::Rect rect;

@@ -424,6 +424,7 @@ map.level.title=Ebenen-Einstellungen
 map.level.dust=Staubdichte
 map.level.haze=Dunst-Umgebungslicht
 map.level.ambient=Umgebungslicht
+map.level.theme=Themen-Tags
 map.level.applied=Ebenen-Einstellungen auf '{}' angewendet — Karte speichern, um sie zu behalten.
 map.level.created=Ebene '{}' erstellt — Karte speichern, um die Zellen zu behalten.
 map.level.renamed=Ebene '{}' in '{}' umbenannt — bestehende Spielstände behalten den alten Namen.

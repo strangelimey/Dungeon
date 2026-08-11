@@ -106,13 +106,14 @@ std::string WriteBlocks(const std::vector<Block>& blocks) {
 	std::string out;
 	bool first = true;
 	for (const Block& b : blocks) {
-		if (!first) out += '\n';
+		if (!first) out += kEol;
 		first = false;
-		for (const std::string& comment : b.lead) out += comment + "\n";
-		if (!b.id.empty()) out += std::format("[{}]\n", b.id);
+		for (const std::string& comment : b.lead) out += std::format("{}{}", comment, kEol);
+		if (!b.id.empty()) out += std::format("[{}]{}", b.id, kEol);
 		for (const Field& f : b.fields) {
-			for (const std::string& comment : f.lead) out += comment + "\n";
-			out += std::format("{} = {}\n", f.key, f.value);
+			for (const std::string& comment : f.lead)
+				out += std::format("{}{}", comment, kEol);
+			out += std::format("{} = {}{}", f.key, f.value, kEol);
 		}
 	}
 	return out;

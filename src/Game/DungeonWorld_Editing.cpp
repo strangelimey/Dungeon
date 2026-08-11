@@ -1776,6 +1776,14 @@ static std::string SerializeMapStatic(const std::string& stem,
 	palette("wall", map.WallPalette());
 	palette("floor", map.FloorPalette());
 	palette("ceiling", map.CeilingPalette());
+	// The level's theme tags (DungeonMap::Theme), written beside the palette
+	// because they are the same kind of fact: what this level is made of. An
+	// unthemed level carries no record.
+	if (!map.Theme().empty()) {
+		m += "theme";
+		for (const std::string& tag : map.Theme()) m += " " + tag;
+		m += '\n';
+	}
 	// Per-level atmosphere (the Level settings dialog's mood knobs): only set
 	// values are written — an untouched level carries no record and follows
 	// the world defaults.

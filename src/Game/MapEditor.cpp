@@ -86,6 +86,9 @@ std::vector<MapEditor::PaletteItem> MapEditor::CategoryItems(PaletteCat cat) con
 	// level, and each declares its own palette ids).
 	const DungeonMap& map = m_view.ViewedMap();
 	const Project& proj = m_world.GetProject();
+	// The theme lens, from the VIEWED level for the same reason: browsing a
+	// level should rank its palette by ITS theme, not by the party's.
+	const std::vector<std::string>& theme = map.Theme();
 
 	// A surface palette (list of catalog ids) resolved to display name + swatch;
 	// the entry's `category` groups it under a sub-accordion like the entity
@@ -113,7 +116,8 @@ std::vector<MapEditor::PaletteItem> MapEditor::CategoryItems(PaletteCat cat) con
 			const CatalogEntry* e = catalog.Find(id);
 			items.push_back({e ? e->Display() : id, swatch, id,
 							 e ? e->Get("category", "") : std::string(),
-							 m_world.SurfaceAlbedoForId(sel, id)});
+							 m_world.SurfaceAlbedoForId(sel, id),
+							 CatalogMatchesTags(e, theme)});
 		}
 		return items;
 	};
@@ -125,7 +129,8 @@ std::vector<MapEditor::PaletteItem> MapEditor::CategoryItems(PaletteCat cat) con
 		std::vector<PaletteItem> items;
 		for (const CatalogEntry& e : catalog.Entries()) {
 			if (CatalogBool(&e, "hidden", false)) continue;
-			items.push_back({e.Display(), swatch, e.id, e.Get("category", "")});
+			items.push_back({e.Display(), swatch, e.id, e.Get("category", ""),
+							 /*icon*/ nullptr, CatalogMatchesTags(&e, theme)});
 		}
 		return items;
 	};
@@ -333,20 +338,60 @@ void MapEditor::BuildPaletteRows(const gfx::Rect& panel, std::vector<PaletteRow>
 								   {body.x, y, body.w, itemH}, items[i].group});
 					y += itemH;
 				};
+				// The THEME LENS, applied per run (the ungrouped items, and each
+				// open group's body): on-theme first, then a divider, then the
+				// rest. Indices are what get reordered, never `items` — the armed
+				// selection and every dispatch below address CategoryItems
+				// POSITIONS, so sorting the vector itself would silently re-point
+				// the brush at whatever slid into its index.
+				auto run = [&](auto&& belongs) {
+					std::vector<int> idx;
+					for (int i = 0; i < static_cast<int>(items.size()); ++i)
+						if (belongs(items[i])) idx.push_back(i);
+					const auto off = std::stable_partition(
+						idx.begin(), idx.end(),
+						[&](int i) { return items[i].onTheme; });
+					for (auto it = idx.begin(); it != idx.end(); ++it) {
+						// Only between the two groups, and only when there ARE two.
+						if (it == off && it != idx.begin()) {
+							out.push_back({PaletteRow::Kind::Divider, cat, -1,
+										   {body.x, y, body.w, itemH * 0.5f}});
+							y += itemH * 0.5f;
+						}
+						itemRow(*it);
+					}
+				};
 				std::vector<std::string> groups;
 				for (const PaletteItem& it : items)
 					if (!it.group.empty() &&
 						std::find(groups.begin(), groups.end(), it.group) == groups.end())
 						groups.push_back(it.group);
-				for (int i = 0; i < static_cast<int>(items.size()); ++i)
-					if (items[i].group.empty()) itemRow(i);
-				for (const std::string& g : groups) {
+				// GROUPS take the lens too, and this is the half that does the
+				// work: `category` and `tags` correlate hard on real content (the
+				// Skeleton group is exactly the undead ones), so ranking only
+				// WITHIN a group leaves every group uniformly on- or off-theme
+				// and the item divider never fires. A group is on-theme if ANY
+				// member is — the question being asked of a collapsed group is
+				// "is there anything for me in here".
+				const auto offGroup = std::stable_partition(
+					groups.begin(), groups.end(), [&](const std::string& g) {
+						return std::any_of(items.begin(), items.end(),
+										   [&](const PaletteItem& it) {
+											   return it.group == g && it.onTheme;
+										   });
+					});
+				run([](const PaletteItem& it) { return it.group.empty(); });
+				for (auto g = groups.begin(); g != groups.end(); ++g) {
+					if (g == offGroup && g != groups.begin()) {
+						out.push_back({PaletteRow::Kind::Divider, cat, -1,
+									   {body.x, y, body.w, itemH * 0.5f}});
+						y += itemH * 0.5f;
+					}
 					out.push_back({PaletteRow::Kind::SubHeader, cat, -1,
-								   {body.x, y, body.w, itemH}, g});
+								   {body.x, y, body.w, itemH}, *g});
 					y += itemH;
-					if (GroupOpen(cat, g))
-						for (int i = 0; i < static_cast<int>(items.size()); ++i)
-							if (items[i].group == g) itemRow(i);
+					if (GroupOpen(cat, *g))
+						run([&](const PaletteItem& it) { return it.group == *g; });
 				}
 			}
 		}
@@ -937,6 +982,16 @@ void MapEditor::RenderBody(gfx::SpriteBatch& batch, const ui::Theme& theme,
 		case PaletteRow::Kind::Empty:
 			font.Draw(batch, loc::Tr("map.cat.empty"), rc.x + dpad * 3, ty, theme.textDim);
 			break;
+		case PaletteRow::Kind::Divider: {
+			// The theme boundary: a hairline across the run's width, inset to the
+			// items' indent. Deliberately a RULE and not a labelled "off-theme"
+			// header — the rows below it are ordinary, clickable types, and a
+			// header would read as a section you are not supposed to use.
+			const float inset = dpad * 3;
+			batch.DrawRect({rc.x + inset, rc.y + rc.h * 0.5f, rc.w - inset * 2, 1.0f},
+						   theme.panelBorder);
+			break;
+		}
 		case PaletteRow::Kind::SubHeader: {
 			// A group sub-header: indented +/- toggle, the free-form category
 			// token (first letter up-cased) and the member count. Tokens are

@@ -22,6 +22,15 @@ namespace {
 #define IDENTITY_CATEGORY                                                       \
 	{.key = "category", .kind = FieldKind::Text, .sectionKey = kSectionIdentity, \
 	 .help = "Groups this type under a collapsible sub-accordion in the palette."}
+// Sits beside `category` on purpose: they are the two halves of what a type is,
+// and reading them together is what stops them being confused. `category` says
+// what it IS (a weapon, a key); `tags` says what WORLD it belongs to (undead,
+// stone, outdoor) — see Catalog.h. Every placeable category carries it, because
+// both consumers (the generator, the palette lens) work across all of them.
+#define IDENTITY_TAGS                                                            \
+	{.key = "tags", .kind = FieldKind::Text, .sectionKey = kSectionIdentity,      \
+	 .help = "Space-separated theme words (undead, stone, outdoor). Empty fits "  \
+			 "any theme; never excluded."}
 #define PROP_MODEL                                                        \
 	{.key = "model", .kind = FieldKind::Model, .sectionKey = kSectionLook, \
 	 .help = "The mesh in assets/models (without the extension)."}
@@ -68,6 +77,7 @@ namespace {
 constexpr FieldSpec kWallFields[] = {
 	IDENTITY_DISPLAY,
 	IDENTITY_CATEGORY,
+	IDENTITY_TAGS,
 	{.key = "texture", .kind = FieldKind::TextureSet, .sectionKey = kSectionLook,
 	 .help = "The PBR set this surface paints with; its height map drives the worn relief.",
 	 .rebakes = true},
@@ -91,6 +101,7 @@ constexpr FieldSpec kWallFields[] = {
 constexpr FieldSpec kFloorFields[] = {
 	IDENTITY_DISPLAY,
 	IDENTITY_CATEGORY,
+	IDENTITY_TAGS,
 	{.key = "texture", .kind = FieldKind::TextureSet, .sectionKey = kSectionLook,
 	 .help = "The PBR set this surface paints with; its height map drives the worn relief.",
 	 .rebakes = true},
@@ -113,6 +124,7 @@ constexpr FieldSpec kFloorFields[] = {
 constexpr FieldSpec kCeilingFields[] = {
 	IDENTITY_DISPLAY,
 	IDENTITY_CATEGORY,
+	IDENTITY_TAGS,
 	{.key = "texture", .kind = FieldKind::TextureSet, .sectionKey = kSectionLook,
 	 .help = "The PBR set this surface paints with; its height map drives the worn relief.",
 	 .rebakes = true},
@@ -133,6 +145,7 @@ constexpr FieldSpec kCeilingFields[] = {
 constexpr FieldSpec kDecorationFields[] = {
 	IDENTITY_DISPLAY,
 	IDENTITY_CATEGORY,
+	IDENTITY_TAGS,
 	PROP_MODEL,
 	PROP_TEXTURE,
 	PROP_SCALE,
@@ -157,6 +170,7 @@ constexpr FieldSpec kDecorationFields[] = {
 constexpr FieldSpec kFixtureFields[] = {
 	IDENTITY_DISPLAY,
 	IDENTITY_CATEGORY,
+	IDENTITY_TAGS,
 	PROP_MODEL,
 	PROP_TEXTURE,
 	PROP_SCALE,
@@ -186,6 +200,7 @@ constexpr FieldSpec kFixtureFields[] = {
 constexpr FieldSpec kMonsterFields[] = {
 	IDENTITY_DISPLAY,
 	IDENTITY_CATEGORY,
+	IDENTITY_TAGS,
 	PROP_MODEL,
 	PROP_TEXTURE,
 	{.key = "modelscale", .kind = FieldKind::Float, .sectionKey = kSectionLook,
@@ -230,7 +245,8 @@ constexpr FieldSpec kMonsterFields[] = {
 
 // --- buttons ----------------------------------------------------------------
 constexpr FieldSpec kButtonFields[] = {
-	IDENTITY_DISPLAY, IDENTITY_CATEGORY, PROP_MODEL, PROP_TEXTURE, PROP_SCALE, PROP_AUTHORED,
+	IDENTITY_DISPLAY, IDENTITY_CATEGORY, IDENTITY_TAGS, PROP_MODEL, PROP_TEXTURE,
+	PROP_SCALE, PROP_AUTHORED,
 };
 
 // --- doors ------------------------------------------------------------------
@@ -238,7 +254,8 @@ constexpr FieldSpec kButtonFields[] = {
 // different meshes but identical mechanics: blocking is keyed to the CELL, so
 // swinging, rising and sliding are each just a matrix on the leaf.
 constexpr FieldSpec kDoorFields[] = {
-	IDENTITY_DISPLAY, IDENTITY_CATEGORY, PROP_MODEL, PROP_TEXTURE, PROP_SCALE, PROP_AUTHORED,
+	IDENTITY_DISPLAY, IDENTITY_CATEGORY, IDENTITY_TAGS, PROP_MODEL, PROP_TEXTURE,
+	PROP_SCALE, PROP_AUTHORED,
 	{.key = "hidden", .kind = FieldKind::Bool, .sectionKey = kSectionRules,
 	 .help = "Internal type the palette never offers (the shared door frame).",
 	 .def = "0"},
@@ -300,6 +317,7 @@ constexpr FieldSpec kDoorFields[] = {
 constexpr FieldSpec kStairFields[] = {
 	IDENTITY_DISPLAY,
 	IDENTITY_CATEGORY,
+	IDENTITY_TAGS,
 	PROP_MODEL,
 	PROP_TEXTURE,
 	PROP_SCALE,
@@ -339,6 +357,7 @@ constexpr FieldSpec kStairFields[] = {
 constexpr FieldSpec kItemFields[] = {
 	ITEM_NAME,
 	IDENTITY_CATEGORY,
+	IDENTITY_TAGS,
 	PROP_MODEL,
 	PROP_TEXTURE,
 	PROP_SCALE,
@@ -364,6 +383,7 @@ constexpr FieldSpec kWeaponFields[] = {
 	{.key = "category", .kind = FieldKind::Text, .sectionKey = kSectionIdentity,
 	 .help = "Groups it in the palette; keep 'weapon' so the runtime treats it as one.",
 	 .def = "weapon"},
+	IDENTITY_TAGS,
 	PROP_MODEL,
 	PROP_TEXTURE,
 	PROP_SCALE,
@@ -403,6 +423,7 @@ constexpr FieldSpec kArmorFields[] = {
 	{.key = "category", .kind = FieldKind::Text, .sectionKey = kSectionIdentity,
 	 .help = "Groups it in the palette (armor / clothing); keep it a worn kind.",
 	 .def = "armor"},
+	IDENTITY_TAGS,
 	PROP_MODEL,
 	PROP_TEXTURE,
 	PROP_SCALE,
@@ -450,6 +471,7 @@ constexpr FieldSpec kEffectFields[] = {
 constexpr FieldSpec kWallFeatureFields[] = {
 	IDENTITY_DISPLAY,
 	IDENTITY_CATEGORY,
+	IDENTITY_TAGS,
 	{.key = "model", .kind = FieldKind::Model, .sectionKey = kSectionLook,
 	 .help = "The panel mesh stamped in place of the plain wall panel."},
 	{.key = "bore", .kind = FieldKind::Bool, .sectionKey = kSectionRules,
@@ -464,6 +486,7 @@ constexpr const char* kSurfaceOptions = "floor ceiling";
 constexpr FieldSpec kSurfaceFeatureFields[] = {
 	IDENTITY_DISPLAY,
 	IDENTITY_CATEGORY,
+	IDENTITY_TAGS,
 	{.key = "surface", .kind = FieldKind::Enum, .sectionKey = kSectionRules,
 	 .help = "Which block this replaces — a recess sunk into the floor, or a "
 			 "vault raised into the ceiling.",

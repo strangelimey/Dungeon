@@ -3,6 +3,7 @@
 palette wall wall_temple_ancient wall_marble wall_brick_old wall_cobble_mossy
 palette floor floor_temple floor_ancient_stone floor_slabs floor_cobble_mossy
 palette ceiling ceiling_rock_layered ceiling_stone ceiling_cracked ceiling_rock_porous
+theme temple marble undead
 atmosphere dust=0.075 haze=0.8 ambient=1.55
 ;
 ############################

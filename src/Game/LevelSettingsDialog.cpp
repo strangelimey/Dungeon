@@ -17,14 +17,18 @@
 namespace dungeon::game {
 
 namespace {
-// A compact centered card (three rows + footer), the BalanceDialog proportions
+// A compact centered card (four rows + footer), the BalanceDialog proportions
 // shrunk. The panel is the only rect now; the card inside it is stacked
 // (Game/DialogLayout.h).
 // Wide enough for the TITLE: "Level settings — <stem>" is drawn at
 // kDialogTitleScale, and the old 0.28-wide card could not hold it — the stem
 // ran out past the panel edge and under the close box long before any of this
 // was stacked. A card has to be sized for the text it carries.
-constexpr gfx::Rect kPanel{0.30f, 0.26f, 0.40f, 0.48f};
+// Grown 0.48 -> 0.54 when the theme row landed. The Stack would have absorbed
+// the row into its trailing Fill without complaint, which is exactly why the
+// height is adjusted deliberately: a card that silently swallows its own slack
+// looks fine until the row after next has nowhere to go.
+constexpr gfx::Rect kPanel{0.30f, 0.24f, 0.40f, 0.54f};
 // A settings row's label column against its value column.
 constexpr float kLabelFill = 1.4f, kFieldFill = 1.0f;
 
@@ -59,12 +63,13 @@ LevelSettingsDialog::LevelSettingsDialog(gfx::GraphicsDevice& device, ui::FontLi
 }
 
 void LevelSettingsDialog::Open(const std::string& stem, float dust, float haze,
-							   float ambient) {
+							   float ambient, const std::string& theme) {
 	m_open = true;
 	m_stem = stem;
 	m_dust = m_oDust = dust;
 	m_haze = m_oHaze = haze;
 	m_ambient = m_oAmbient = ambient;
+	m_theme = theme;
 	m_editName = false;
 	m_uiRebuild = false;
 	BuildUI();
@@ -138,11 +143,33 @@ void LevelSettingsDialog::BuildUI() {
 							Apply();
 						});
 	}
+	// The theme row. A text field, not a dropdown: tags are free-form words that
+	// content joins by being tagged, so there is no closed list to offer — and
+	// typing one no catalog carries yet is how a theme gets started, not an error.
+	{
+		ui::Stack* row = chrome.body->Row<ui::Stack>(FormRow(), true);
+		row->gapRem = 0.5f;
+		row->Row<ui::Label>(ui::Len::Fill(kLabelFill), loc::Tr("map.level.theme"))
+			->centerV = true;
+		auto* field = row->Row<ui::TextField>(ui::Len::Fill(kFieldFill), m_theme);
+		field->maxLength = 48;
+		ui::TextField* raw = field;
+		raw->onChange = [this, raw] {
+			// Records are whitespace-tokenised, so SPACE is the separator here
+			// and everything a tag may not contain is stripped as typed — the
+			// DoorInspector name-filter idiom, one character class wider.
+			std::erase_if(raw->text, [](char ch) {
+				const unsigned char u = static_cast<unsigned char>(ch);
+				return !(std::isalnum(u) || ch == '_' || ch == '-' || ch == ' ');
+			});
+			m_theme = raw->text;
+		};
+	}
 	chrome.body->Space(ui::Len::Fill()); // the rows sit at the top
 
 	chrome.footer->Space(ui::Len::Fill());
 	chrome.footer->Row<ui::Button>(FooterButton(), loc::Tr("map.cfg.save"), [this] {
-		if (onSave) onSave(m_dust, m_haze, m_ambient);
+		if (onSave) onSave(m_dust, m_haze, m_ambient, m_theme);
 		Close();
 	});
 	chrome.footer->Space(ui::Len::Fill());

@@ -2,36 +2,42 @@
 
 [floor_slabs]
 display = Slabs
+tags = stone
 texture = floor_slabs
 height_scale = 0.045
 category = stone
 
 [floor_cobble]
 display = Cobblestone
+tags = stone cobble
 texture = floor_cobble
 height_scale = 0.045
 category = stone
 
 [floor_cobblestone]
 display = Medieval Cobblestone
+tags = stone cobble
 texture = cobblestone_floor
 height_scale = 0.045
 category = stone
 
 [floor_broken_tile]
 display = Broken Tile
+tags = stone ruin
 texture = broken_tile
 height_scale = 0.045
 category = tile
 
 [floor_rubble]
 display = Rubble
+tags = stone ruin cave
 texture = rubble
 height_scale = 0.06
 category = rock
 
 [floor_rock]
 display = Cave Rock
+tags = rock cave
 texture = rock_smooth
 height_scale = 0.045
 category = rock
@@ -43,54 +49,63 @@ category = rock
 
 [floor_medieval]
 display = Medieval Floor
+tags = stone
 texture = floor_medieval
 height_scale = 0.045
 category = stone
 
 [floor_cobble_path]
 display = Cobblestone Path
+tags = cobble outdoor
 texture = floor_cobble_path
 height_scale = 0.05
 category = stone
 
 [floor_cobble_medieval]
 display = Medieval Cobble
+tags = stone cobble
 texture = floor_cobble_medieval
 height_scale = 0.05
 category = stone
 
 [floor_cobble_mossy]
 display = Mossy Cobble
+tags = cobble outdoor ruin
 texture = floor_cobble_mossy
 height_scale = 0.05
 category = stone
 
 [floor_stone_pavement]
 display = Stone Pavement
+tags = stone
 texture = floor_stone_pavement
 height_scale = 0.04
 category = stone
 
 [floor_paving_mossy]
 display = Mossy Paving
+tags = stone outdoor ruin
 texture = floor_paving_mossy
 height_scale = 0.05
 category = stone
 
 [floor_slate]
 display = Slate Pavement
+tags = slate stone
 texture = floor_slate
 height_scale = 0.035
 category = stone
 
 [floor_temple]
 display = Temple Floor
+tags = marble temple
 texture = floor_temple
 height_scale = 0.035
 category = temple
 
 [floor_ancient_stone]
 display = Ancient Stone
+tags = stone temple ruin
 texture = floor_ancient_stone
 height_scale = 0.04
 category = temple
@@ -99,30 +114,35 @@ category = temple
 ; mesh can bind the plain texture set either way.
 [floor_stairs]
 display = Stair Treads
+tags = stone
 texture = floor_stairs
 height_scale = 0.045
 category = stone
 
 [ground_rockbed]
 display = Rock Bed
+tags = rock cave outdoor
 texture = ground_rockbed
 height_scale = 0.055
 category = ground
 
 [ground_soil_dusty]
 display = Dusty Soil
+tags = cave outdoor
 texture = ground_soil_dusty
 height_scale = 0.03
 category = ground
 
 [ground_soil_rocky]
 display = Rocky Soil
+tags = rock cave outdoor
 texture = ground_soil_rocky
 height_scale = 0.05
 category = ground
 
 [ground_gravel]
 display = Gravel
+tags = cave outdoor
 texture = ground_gravel
 height_scale = 0.05
 category = ground

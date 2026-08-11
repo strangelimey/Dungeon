@@ -138,7 +138,11 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	m_mapView.onLevelSettings = [this] {
 		float dust, haze, ambient;
 		DungeonWorld::EffectiveAtmosphere(m_mapView.ViewedMap(), dust, haze, ambient);
-		m_levelSettingsDialog.Open(m_mapView.ViewedLevel(), dust, haze, ambient);
+		// The theme goes in as the user types it: space-separated words.
+		std::string theme;
+		for (const std::string& tag : m_mapView.ViewedMap().Theme())
+			theme += (theme.empty() ? "" : " ") + tag;
+		m_levelSettingsDialog.Open(m_mapView.ViewedLevel(), dust, haze, ambient, theme);
 	};
 	m_levelSettingsDialog.onApply = [this](float dust, float haze, float ambient) {
 		if (m_levelSettingsDialog.Level() != m_world.CurrentLevel()) return;
@@ -146,8 +150,10 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 		m_world.SetHazeAmbient(haze);
 		m_world.SetAmbientScale(ambient);
 	};
-	m_levelSettingsDialog.onSave = [this](float dust, float haze, float ambient) {
+	m_levelSettingsDialog.onSave = [this](float dust, float haze, float ambient,
+										 const std::string& theme) {
 		m_world.SetLevelAtmosphere(m_levelSettingsDialog.Level(), dust, haze, ambient);
+		m_world.SetLevelTheme(m_levelSettingsDialog.Level(), ParseTags(theme));
 		if (m_world.onMessage)
 			m_world.onMessage(loc::Format("map.level.applied",
 										  m_levelSettingsDialog.Level()));

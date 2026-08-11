@@ -30,6 +30,7 @@
 [wooden_door]
 display = Wooden Door
 category = door
+tags = wood
 model = door_panel_half
 ; authored = 1: the leaf is tools/BuildDoorLeaf.py's now — five real boards,
 ; a closed shell with correct winding, so it back-culls like the frame it hangs
@@ -68,6 +69,7 @@ opener = door_chain
 [portcullis]
 display = Portcullis
 category = door
+tags = iron
 model = portcullis_leaf
 authored = 1
 texture = sconce
@@ -88,6 +90,7 @@ frame = door_frame_temple
 [stone_door]
 display = Stone Door
 category = door
+tags = stone temple
 model = stone_slab
 authored = 1
 texture = wall_stone_granite
@@ -206,6 +209,7 @@ hidden = 1
 ; The portcullis stands in a gatehouse, not a corridor.
 [door_frame_temple]
 display = Door Frame (temple)
+tags = temple
 model = door_frame_rise
 texture = wall_temple_ancient
 authored = 1
@@ -214,6 +218,7 @@ hidden = 1
 ; The vault frame matches its slab, so the door reads as cut from the surround.
 [door_frame_granite]
 display = Door Frame (granite)
+tags = stone
 model = door_frame_slide
 texture = wall_stone_granite
 authored = 1

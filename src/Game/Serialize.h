@@ -66,13 +66,29 @@ struct Block {
 	}
 };
 
+// The line ending every block-format file is WRITTEN with. READING accepts
+// either — ParseBlocks splits on '\n' and Trim eats the '\r' — so this governs
+// only what lands on disk, and it is CRLF because these are Windows-side
+// authored files a person opens in an editor beside the game's own .ini and
+// .log. (2026-08-11: the catalogs had drifted to 19 LF files and one CRLF,
+// because the writer emitted '\n' while one file had arrived from a Python
+// tool. Normalising the files alone would not have held — the next editor save
+// rewrites a whole .cat, so consistency has to come from the WRITER.)
+//
+// It lives HERE, in the header, because three writers emit into these same
+// files — WriteBlocks plus the .cat and manifest header lines their callers
+// prepend — and a disagreement between them would give one file two kinds of
+// line, which is worse than the drift it was meant to fix.
+inline constexpr std::string_view kEol = "\r\n";
+
 // Parses block-format text. Fields before the first "[id]" go into a block with
 // an empty id. Whitespace around keys/values is trimmed. Malformed lines (no
-// '=', no enclosing brackets) are skipped.
+// '=', no enclosing brackets) are skipped. Tolerant of either line ending.
 std::vector<Block> ParseBlocks(std::string_view text);
 
 // Serializes blocks back to text: the unnamed block's fields first, then each
 // "[id]" header with its "key = value" lines, a blank line between blocks.
+// Lines end with kEol.
 std::string WriteBlocks(const std::vector<Block>& blocks);
 
 } // namespace dungeon::game::serialize

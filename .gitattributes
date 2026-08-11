@@ -1,0 +1,12 @@
+# Line endings for the block-format data files (Game/Serialize.h).
+#
+# The game WRITES these with CRLF (serialize::kEol) and reads either, so without
+# a rule here their endings would depend on whoever cloned the repo and how
+# their core.autocrlf happened to be set. `eol=crlf` pins the working copy to
+# what the writer emits, so an editor save is never a whole-file diff.
+#
+# This clone has core.autocrlf=false, which is why the drift was invisible: the
+# catalogs sat at 19 LF files and one CRLF for as long as they had, and only a
+# rewrite of one of them would have shown it.
+*.cat text eol=crlf
+project.ini text eol=crlf
