@@ -70,7 +70,14 @@ struct Balance {
 	float accBase = 0.55f;      // the to-hit line (stat term is ALWAYS DEX)
 	float accStat = 0.02f;
 	float accSkill = 0.02f;
-	float hitFloor = 0.05f, hitCeil = 0.95f; // nothing's ever sure
+	float hitFloor = 0.05f, hitCeil = 0.95f; // legacy, unused by the opposed roll
+	// The opposed roll (docs/damage-system.md). roll_scale bridges the old
+	// 0..1 accuracy/evasion onto d100 points and retires with them in P3.
+	float rollScale = 40.0f;
+	float critThreshold = 95.0f;
+	float fumbleThreshold = 5.0f;
+	float marginDamage = 0.01f; // damage multiplier per point of margin
+	float marginCap = 3.0f;     // ceiling on that multiplier
 	float resistClamp = 0.8f;   // max summed resist (nature 1.0 = immunity)
 	float woundFloor = 1.0f;    // a landed blow stings
 	float speedBase = 1.15f;    // interval = speed × (speedBase − speedStat×DEX)
@@ -128,7 +135,17 @@ struct Balance {
 
 	// The resolver's knob subset, handed to ResolveAttack.
 	StrikeRules Strike() const {
-		return {hitFloor, hitCeil, damageJitter, woundFloor};
+		StrikeRules r;
+		r.hitFloor = hitFloor;
+		r.hitCeil = hitCeil;
+		r.damageJitter = damageJitter;
+		r.woundFloor = woundFloor;
+		r.rollScale = rollScale;
+		r.critThreshold = critThreshold;
+		r.fumbleThreshold = fumbleThreshold;
+		r.marginDamage = marginDamage;
+		r.marginCap = marginCap;
+		return r;
 	}
 
 	// The spec for a melee verb; null for unknown/empty (callers use Neutral()).

@@ -3,143 +3,47 @@
 // ============================================================================
 #include "Game/Combat.h"
 
-#include "Core/Log.h"
-#include "Game/Catalog.h"
+#include "Game/Roll.h"
 
 namespace dungeon::game {
-
-namespace {
-
-// The seven the game shipped with, seeded ONLY when a project defines no types
-// of its own (see the class comment: a compatibility floor, not a default).
-// Order matches the retired enum, so a project that predates damagetypes.cat
-// keeps the exact indices its content was authored against.
-struct Seed {
-	const char* id;
-	bool physical;
-	bool hasSchool;
-	SpellSymbol school;
-};
-constexpr Seed kSeeds[] = {
-	{"slash", true, false, SpellSymbol::Fire},
-	{"pierce", true, false, SpellSymbol::Fire},
-	{"bash", true, false, SpellSymbol::Fire},
-	{"fire", false, true, SpellSymbol::Fire},
-	{"earth", false, true, SpellSymbol::Earth},
-	{"air", false, true, SpellSymbol::Air},
-	{"water", false, true, SpellSymbol::Water},
-};
-
-const std::string kNoId; // returned for an out-of-range index
-
-} // namespace
-
-void DamageTypeBook::Build(const Catalog& catalog) {
-	m_entries.clear();
-	m_hasSchool.fill(false);
-	m_bySchool.fill(DamageType{});
-
-	for (const CatalogEntry& e : catalog.Entries()) {
-		if (m_entries.size() >= kMaxDamageTypes) {
-			log::Warn("damagetypes.cat: more than {} types; '{}' and any after "
-					  "it are ignored (kMaxDamageTypes sizes every ResistTable)",
-					  kMaxDamageTypes, e.id);
-			break;
-		}
-		Entry entry;
-		entry.id = e.id;
-		entry.nameKey = e.Get("name", "dmg." + e.id);
-		entry.physical = e.GetBool("physical", false);
-		if (const std::string school = e.Get("school", ""); !school.empty()) {
-			if (ParseSymbol(school, entry.school)) {
-				entry.hasSchool = true;
-			} else {
-				log::Warn("damagetypes.cat [{}]: unknown school '{}'", e.id, school);
-			}
-		}
-		m_entries.push_back(std::move(entry));
-	}
-
-	if (m_entries.empty()) {
-		log::Warn("damagetypes.cat is missing or empty — seeding the seven "
-				  "built-in damage types");
-		for (const Seed& s : kSeeds) {
-			Entry entry;
-			entry.id = s.id;
-			entry.nameKey = std::string("dmg.") + s.id;
-			entry.physical = s.physical;
-			entry.hasSchool = s.hasSchool;
-			entry.school = s.school;
-			m_entries.push_back(std::move(entry));
-		}
-	}
-
-	// Resolve school -> type ONCE. A per-tick lookup is then an array index,
-	// which matters because every DoT bite and every enchanted blow asks.
-	for (size_t i = 0; i < m_entries.size(); ++i) {
-		const Entry& e = m_entries[i];
-		if (!e.hasSchool) continue;
-		const size_t s = static_cast<size_t>(e.school);
-		if (m_hasSchool[s]) {
-			log::Warn("damagetypes.cat [{}]: school '{}' is already claimed by "
-					  "'{}'; the first one wins",
-					  e.id, SymbolId(e.school), m_entries[m_bySchool[s].index].id);
-			continue;
-		}
-		m_hasSchool[s] = true;
-		m_bySchool[s] = DamageType{static_cast<u8>(i)};
-	}
-
-	log::Info("damage types: {} loaded", m_entries.size());
-}
-
-bool DamageTypeBook::Find(std::string_view id, DamageType& out) const {
-	for (size_t i = 0; i < m_entries.size(); ++i)
-		if (m_entries[i].id == id) {
-			out = DamageType{static_cast<u8>(i)};
-			return true;
-		}
-	return false;
-}
-
-DamageType DamageTypeBook::FindOr(std::string_view id, DamageType fallback) const {
-	DamageType t;
-	return Find(id, t) ? t : fallback;
-}
-
-const std::string& DamageTypeBook::Id(DamageType t) const {
-	return t.index < m_entries.size() ? m_entries[t.index].id : kNoId;
-}
-
-const std::string& DamageTypeBook::NameKey(DamageType t) const {
-	return t.index < m_entries.size() ? m_entries[t.index].nameKey : kNoId;
-}
-
-bool DamageTypeBook::IsPhysical(DamageType t) const {
-	return t.index < m_entries.size() && m_entries[t.index].physical;
-}
-
-DamageType DamageTypeBook::ForSchool(SpellSymbol school) const {
-	const size_t s = static_cast<size_t>(school);
-	// The form runes (Project/Protect/Sight) claim no type — they never deal
-	// damage on their own, and index 0 is the honest "no element" answer.
-	return s < m_hasSchool.size() && m_hasSchool[s] ? m_bySchool[s] : DamageType{};
-}
 
 AttackResult ResolveAttack(const AttackProfile& atk, const DefenseProfile& def,
 						   const StrikeRules& rules, std::mt19937& rng) {
 	AttackResult result;
 
-	float chance = atk.accuracy - def.evasion;
-	if (chance < rules.hitFloor) chance = rules.hitFloor;
-	if (chance > rules.hitCeil) chance = rules.hitCeil;
+	// THE OPPOSED ROLL (docs/damage-system.md). Both sides add a d100 to a
+	// bonus and the higher total wins; both sides can crit and fumble. This
+	// replaced a one-sided (accuracy - evasion) probability check, and the two
+	// are not the same shape at all: a probability difference is linear, while
+	// an opposed roll turns the same difference into a triangular-ish curve, so
+	// `rollScale` is what maps one onto the other until P3 assembles real
+	// Rolemaster bonuses and both retire.
+	RollRules rr;
+	rr.critThreshold = static_cast<int>(rules.critThreshold);
+	rr.fumbleThreshold = static_cast<int>(rules.fumbleThreshold);
+	rr.maxEscalations = static_cast<int>(rules.maxEscalations);
+	const int atkBonus = static_cast<int>(atk.accuracy * rules.rollScale);
+	const int defBonus = static_cast<int>(def.evasion * rules.rollScale);
 
-	std::uniform_real_distribution<float> roll(0.0f, 1.0f);
-	if (roll(rng) > chance) return result; // miss
+	const Opposed o = Resolve(atkBonus, defBonus, rr, rng);
+	result.crit = o.attack.crit;
+	result.fumble = o.attack.fumble;
+	result.margin = o.margin;
+	if (!o.hit) return result; // missed, or blocked
+
+	// THE MARGIN MULTIPLIES. Beating a defense by a hair lands a normal blow;
+	// overwhelming it lands a devastating one. Capped: the roll is open-ended,
+	// so a lucky swing widens the margin AND the margin scales the damage, and
+	// uncapped that product has a very long tail (RollTest measures the extreme
+	// margin at ~9x the typical winning one).
+	float marginMul = 1.0f + rules.marginDamage * static_cast<float>(o.margin);
+	if (marginMul < 1.0f) marginMul = 1.0f; // a 1-point win is still a hit
+	if (marginMul > rules.marginCap) marginMul = rules.marginCap;
 
 	std::uniform_real_distribution<float> jitter(1.0f - rules.damageJitter,
 												 1.0f + rules.damageJitter);
-	float dmg = (atk.damage * jitter(rng) - def.soak) * (1.0f - def.resist);
+	float dmg =
+		(atk.damage * marginMul * jitter(rng) - def.soak) * (1.0f - def.resist);
 	// A landed blow always stings — but only a blow that got THROUGH. At resist
 	// 1 the result is exactly nothing (a fire golem takes no fire), and past 1
 	// it goes NEGATIVE: the target drinks the element and is healed by it.

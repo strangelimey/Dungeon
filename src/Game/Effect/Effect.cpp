@@ -207,6 +207,9 @@ void Deal(DamageEvent& ev, ITarget& target, const StrikeRules& rules,
 		const AttackResult r = ResolveAttack({ev.amount, ev.accuracy, ev.type},
 											 def, rules, rng);
 		ev.hit = r.hit;
+		ev.crit = r.crit;
+		ev.fumble = r.fumble;
+		ev.margin = r.margin;
 		damage = r.damage;
 	} else {
 		ev.hit = true;

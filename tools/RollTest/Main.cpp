@@ -21,6 +21,7 @@
 // a harness that cannot catch a broken distribution FAILS instead of passing
 // vacuously.
 // ============================================================================
+#include "Game/Combat.h"
 #include "Game/Roll.h"
 
 #include <algorithm>
@@ -237,6 +238,98 @@ int main(int argc, char** argv) {
 			std::printf("  extreme margin is %.1fx the typical winning margin "
 						"(p99.99 / p75)\n",
 						Pct(margins, 0.9999) / typical);
+	}
+
+	// --- the strike, end to end (informational + guards) --------------------
+	// ResolveAttack is the ONE place damage is rolled (fx::Deal's strike
+	// stage), so this measures the real thing: what the opposed roll did to
+	// hit rates, and what the margin multiplier does to damage.
+	//
+	// The OLD model was a one-sided probability: clamp(accuracy - evasion) and
+	// a flat damage jitter. The new one is an opposed d100 with a margin
+	// multiplier. They are different shapes, so the point is not that the
+	// numbers match — it is to SEE the change rather than discover it in play.
+	{
+		std::printf("\nthe strike, end to end — old model vs the opposed roll\n");
+		StrikeRules sr; // the shipped defaults
+		struct Case { const char* what; float acc, eva; };
+		const Case cases[] = {
+			{"green fighter vs plain monster", 0.75f, 0.20f},
+			{"skilled fighter vs plain monster", 0.95f, 0.20f},
+			{"green fighter vs evasive monster", 0.75f, 0.45f},
+			{"outmatched (acc below evasion)", 0.40f, 0.60f},
+		};
+		std::printf("  %-34s %8s %8s %9s %9s\n", "", "old", "new", "dmg x1.0",
+					"p99 dmg");
+		for (const Case& c : cases) {
+			std::mt19937 rng(4242);
+			constexpr int kN = 200'000;
+			long long hits = 0;
+			std::vector<int> dmg;
+			dmg.reserve(kN);
+			for (int i = 0; i < kN; ++i) {
+				const AttackResult r = ResolveAttack({10.0f, c.acc, {}},
+													 {c.eva, 0.0f, 0.0f}, sr, rng);
+				if (!r.hit) continue;
+				++hits;
+				dmg.push_back(static_cast<int>(r.damage + 0.5f));
+			}
+			std::sort(dmg.begin(), dmg.end());
+			float old = c.acc - c.eva;
+			if (old < sr.hitFloor) old = sr.hitFloor;
+			if (old > sr.hitCeil) old = sr.hitCeil;
+			double mean = 0;
+			for (int d : dmg) mean += d;
+			mean = dmg.empty() ? 0 : mean / dmg.size();
+			std::printf("  %-34s %8.3f %8.3f %9.2f %9.0f\n", c.what, old,
+						double(hits) / kN, mean, Pct(dmg, 0.99));
+		}
+		// THE FINDING THIS TABLE EXISTS FOR: an opposed d100 has a combined
+		// standard deviation of ~41 points, so a bonus SPREAD much smaller than
+		// that is drowned by the dice. Sweep rollScale to see how much of the
+		// character actually reaches the outcome.
+		std::printf("%s  rollScale sweep — hit rate, green (0.75/0.20) vs "
+					"outmatched (0.40/0.60)%s", "\n", "\n");
+		for (const float scale : {40.0f, 80.0f, 150.0f, 300.0f}) {
+			StrikeRules sw = sr;
+			sw.rollScale = scale;
+			std::mt19937 rng(555);
+			long long g = 0, o = 0;
+			constexpr int kN = 200'000;
+			for (int i = 0; i < kN; ++i) {
+				g += ResolveAttack({10.0f, 0.75f, {}}, {0.20f, 0, 0}, sw, rng).hit;
+				o += ResolveAttack({10.0f, 0.40f, {}}, {0.60f, 0, 0}, sw, rng).hit;
+			}
+			std::printf("    scale %5.0f   green %.3f   outmatched %.3f   "
+						"spread %.3f\n",
+						scale, double(g) / kN, double(o) / kN,
+						double(g - o) / kN);
+		}
+		std::printf("  (base damage 10, no soak, no resist; \"dmg\" is the mean "
+					"LANDED hit)\n");
+
+		// GUARDS, not observations. These are the properties the swap must not
+		// break however the knobs are later tuned.
+		std::mt19937 rng(11);
+		long long hi = 0, lo = 0;
+		float worst = 0.0f;
+		for (int i = 0; i < 200'000; ++i) {
+			const AttackResult a = ResolveAttack({10.0f, 0.95f, {}},
+												 {0.20f, 0.0f, 0.0f}, sr, rng);
+			const AttackResult b = ResolveAttack({10.0f, 0.40f, {}},
+												 {0.60f, 0.0f, 0.0f}, sr, rng);
+			hi += a.hit;
+			lo += b.hit;
+			if (a.hit) worst = std::max(worst, a.damage);
+		}
+		std::printf("\nthe swap's invariants\n");
+		CheckTrue("a better attacker hits more often", hi > lo);
+		CheckTrue("even the outmatched sometimes land", lo > 0);
+		CheckTrue("even the skilled sometimes miss", hi < 200'000);
+		// The cap is the whole reason marginCap exists: uncapped, the margin
+		// multiplier and the open-ended roll compound without limit.
+		CheckTrue("margin multiplier respects marginCap",
+				  worst <= 10.0f * sr.marginCap * (1.0f + sr.damageJitter) + 0.01f);
 	}
 
 	// --- verdict ------------------------------------------------------------

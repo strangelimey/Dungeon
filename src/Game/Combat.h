@@ -137,15 +137,38 @@ struct DefenseProfile {
 
 // The resolver's knobs, filled from Balance (balance.cat) by Balance::Strike().
 struct StrikeRules {
-	float hitFloor = 0.05f, hitCeil = 0.95f; // nothing's ever sure
+	float hitFloor = 0.05f, hitCeil = 0.95f; // (legacy, unused by the roll)
 	float damageJitter = 0.15f;              // ± roll on every hit
 	float woundFloor = 1.0f;                 // a landed blow always stings
+
+	// --- the opposed roll (docs/damage-system.md) ---------------------------
+	// Attacker and defender each add a d100 to a bonus and the higher total
+	// wins. `rollScale` is what turns the profile's 0..1 accuracy and evasion
+	// into d100 POINTS — a temporary bridge: P3 replaces the 0..1 pair with
+	// bonuses assembled the Rolemaster way (weapon x skill x stat against
+	// AG + dodge/armor skill) and this knob retires with them.
+	float rollScale = 40.0f;
+	float critThreshold = 95.0f;  // >= this face re-rolls and adds
+	float fumbleThreshold = 5.0f; // <= this on the first face is a fumble
+	float maxEscalations = 20.0f; // termination guard, NOT balance (Roll.h)
+
+	// The margin (attack total - defense total) MULTIPLIES the hit: a
+	// massively superior attack does not merely land, it lands harder. Capped
+	// because the two compound — the roll is open-ended, so a lucky swing
+	// widens the margin AND the margin scales the damage, and RollTest
+	// measures the extreme margin at ~9x the typical winning one.
+	float marginDamage = 0.01f; // + this much multiplier per point of margin
+	float marginCap = 3.0f;     // ceiling on the resulting multiplier
 };
 
 // One resolved strike.
 struct AttackResult {
 	bool hit = false;
 	float damage = 0.0f; // damage to apply (>= 0; 0 on a miss)
+	// What the dice did, for the narration and for the crit/fumble hooks (P8).
+	bool crit = false;   // the attack roll went open-ended
+	bool fumble = false; // the attack's first face was <= fumbleThreshold
+	int margin = 0;      // attack total - defense total (negative on a miss)
 };
 
 // Resolves a single strike with `rng`. Hit chance is (accuracy - evasion)

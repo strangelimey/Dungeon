@@ -144,6 +144,12 @@ struct DamageEvent {
 	// --- filled in by the stages ---
 	bool deflected = false; // an effect turned it aside outright
 	bool hit = false;       // the strike landed (always true when unrolled)
+	// What the dice did on a ROLLED event (both false when unrolled). The
+	// pipeline is the only place these exist, so it carries them out rather
+	// than discarding them at the one site that knows.
+	bool crit = false;
+	bool fumble = false;
+	int margin = 0;
 	float dealt = 0.0f;     // what actually reached hit points
 	// This event finished the target. The apply stage sets it; the CALLER says
 	// the line, because only the caller knows what killed them ("slain" /

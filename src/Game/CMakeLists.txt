@@ -9,6 +9,7 @@ add_library(Game STATIC
 	CatalogSchema.cpp
 	Character.cpp
 	Combat.cpp
+	DamageTypes.cpp
 	DevConsole.cpp
 	DialogLayout.cpp
 	DoorInspector.cpp
