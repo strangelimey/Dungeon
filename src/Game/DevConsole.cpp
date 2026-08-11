@@ -245,6 +245,11 @@ bool AtMaxDetail(const ProfRow& r) {
 struct FrameBudget {
 	bool valid = false;    // the main thread's landmarks were found
 	bool gpuKnown = false; // GPU timestamps exist (they do not on WARP)
+	// Whose `frame` row this describes. Carried so the stacked bar can be drawn
+	// on that row and no other: "frame" is not a reserved word, and a worker that
+	// one day names a zone the same would otherwise get the main thread's budget
+	// painted beside its own unrelated timings.
+	u32 tid = 0;
 	double frameMs = 0.0;
 	double waitGpuMs = 0.0; // stopped, because the GPU is frames behind
 	double presentMs = 0.0; // stopped, in Present
@@ -278,6 +283,7 @@ FrameBudget MeasureFrameBudget(const ProfRow* rows, int count, ShownFn&& shownIn
 			// constants in Profile.h, which exist so this cannot drift.
 			if (is(r.name, prof::kZoneFrame) && r.depth == 0) {
 				b.frameMs = shownIncl(r);
+				b.tid = r.tid;
 				b.valid = true;
 			} else if (is(r.name, prof::kZoneWaitGpu)) {
 				b.waitGpuMs = shownIncl(r);
@@ -327,10 +333,18 @@ FrameBudget MeasureFrameBudget(const ProfRow* rows, int count, ShownFn&& shownIn
 // SpriteBatch has no line primitive, so a segment is a thin rect rotated onto the
 // vector between two points (DrawRectRotated was already there for the map's
 // facing arrows).
+//
+// `background` and `fill` exist so several series can share one plot. An overlay
+// draws the frame first, filled, as the envelope everything else sits inside,
+// then the others as bare lines over it — three translucent bands stacked on one
+// another turn to mud and stop reading as anything.
 void DrawSeriesGraph(gfx::SpriteBatch& batch, const gfx::Rect& plot, const float* samples,
-					 int count, int head, float scale, const Vec4& color) {
-	batch.DrawRect(plot, kGaugeBg);
-	ui::DrawBorder(batch, plot, kBorder);
+					 int count, int head, float scale, const Vec4& color,
+					 bool background = true, bool fill = true) {
+	if (background) {
+		batch.DrawRect(plot, kGaugeBg);
+		ui::DrawBorder(batch, plot, kBorder);
+	}
 	if (count < 2 || scale <= 0.0f) return;
 
 	const float stepX = plot.w / static_cast<float>(count - 1);
@@ -343,13 +357,15 @@ void DrawSeriesGraph(gfx::SpriteBatch& batch, const gfx::Rect& plot, const float
 	// reading can be a small fraction of its ceiling — VRAM at 1 GB of an 11 GB
 	// budget is 9%, which on a plot this tall is a 1.5px line four pixels off the
 	// floor and reads as an EMPTY graph. A band cannot be mistaken for nothing.
-	const Vec4 fillColor{color.x, color.y, color.z, 0.22f};
-	for (int k = 0; k < count; ++k) {
-		const float top = yFor(samples[(head + k) % count]);
-		if (base - top < 0.5f) continue;
-		const float fx = plot.x + static_cast<float>(k) * stepX;
-		const float fw = std::min(stepX + 1.0f, plot.x + plot.w - fx);
-		if (fw > 0.0f) batch.DrawRect({fx, top, fw, base - top}, fillColor);
+	if (fill) {
+		const Vec4 fillColor{color.x, color.y, color.z, 0.22f};
+		for (int k = 0; k < count; ++k) {
+			const float top = yFor(samples[(head + k) % count]);
+			if (base - top < 0.5f) continue;
+			const float fx = plot.x + static_cast<float>(k) * stepX;
+			const float fw = std::min(stepX + 1.0f, plot.x + plot.w - fx);
+			if (fw > 0.0f) batch.DrawRect({fx, top, fw, base - top}, fillColor);
+		}
 	}
 
 	float lx = plot.x;
@@ -558,6 +574,23 @@ void DevConsole::SampleProfileSeries() {
 	for (int i = 0; i < m_profSeriesCount; ++i) m_profSeries[i].seen = false;
 	for (int i = 0; i < m_profSmoothCount; ++i) m_profSmooth[i].seen = false;
 
+	// The frame budget's history, sampled from the RAW rows rather than the
+	// smoothed ones: a graph is a SHAPE and wants the spike the smoothing exists
+	// to iron out of the digits. Maxima per window, like every other series here.
+	{
+		const FrameBudget fb =
+			MeasureFrameBudget(rows, n, [](const ProfRow& r) { return r.inclMs; });
+		if (fb.valid) {
+			auto bump = [&](BudgetLine which, double v) {
+				m_budgetSeries[which].pending =
+					std::max(m_budgetSeries[which].pending, static_cast<float>(v));
+			};
+			bump(kBudFrame, fb.frameMs);
+			bump(kBudCpu, fb.cpuMs);
+			if (fb.gpuKnown) bump(kBudGpu, fb.gpuBusyMs);
+		}
+	}
+
 	const char* thread = "";
 	for (int i = 0; i < n; ++i) {
 		const ProfRow& r = rows[i];
@@ -639,6 +672,12 @@ void DevConsole::CommitProfileSeries() {
 		s.samples[m_profHead] = s.pending;
 		s.pending = 0.0f;
 		if (!s.seen) s.used = false; // its thread went away; free the slot
+	}
+	// On the same head as everything else, so a budget spike lines up with the
+	// zone graph that explains it.
+	for (PerfSeries& s : m_budgetSeries) {
+		s.samples[m_profHead] = s.pending;
+		s.pending = 0.0f;
 	}
 }
 
@@ -1111,11 +1150,15 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 	// make it fit any more: the panel SCROLLS, so the content is laid out at its
 	// natural height and the window decides how much of it you see.
 	const float profileHeaderH = line * 2.4f;
+	// The graph view leads with the full-width frame-budget plot, so it is one
+	// more graph's worth of height than the per-node grid accounts for. Counted
+	// unconditionally rather than on fb.valid, which is not known this early —
+	// over-reserving one row costs a little scroll, under-reserving clips.
 	const float profileBody =
 		!m_profileExpanded ? 0.0f
 		: !prof::kEnabled ? rowAdvance
 		: m_profileGraph
-			? static_cast<float>(graphRows) * (graphH + graphGapY) +
+			? static_cast<float>(graphRows + 1) * (graphH + graphGapY) +
 				  static_cast<float>(profHiddenCount) * line
 			: rowAdvance * static_cast<float>(listRows);
 	const float profileBlock = profileHeaderH + profileBody;
@@ -1351,14 +1394,15 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 			// recomputed per frame would flip between two answers several times a
 			// second near a boundary and be worth nothing; the window that made the
 			// digits readable makes this stable for the same reason.
+			// Hoisted: the verdict text below and the stacked bar on the `frame`
+			// row further down are two views of ONE measurement, and computing it
+			// twice would let them disagree on screen.
+			const FrameBudget fb = MeasureFrameBudget(
+				profRows, profRowCount, [&](const ProfRow& r) {
+					const ProfSmooth* sm = SmoothFor(r.tid, r.node);
+					return sm ? sm->incl : r.inclMs;
+				});
 			{
-				const FrameBudget fb = MeasureFrameBudget(
-					profRows, profRowCount,
-					[&](const ProfRow& r) {
-						const ProfSmooth* sm = SmoothFor(r.tid, r.node);
-						return sm ? sm->incl : r.inclMs;
-					});
-
 				if (fb.valid && fb.bound != FrameBudget::Bound::Unknown) {
 					// Coloured by what it asks of you: display-bound is the
 					// healthy answer and stays quiet, the other two are things to
@@ -1387,15 +1431,25 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 					// with no working shown is a thing to be believed rather than
 					// checked, and this one is a heuristic over three numbers that
 					// are all right there.
-					const float ew = m_font->MeasureWidth("bound by display  ");
-					m_font->Draw(
-						batch,
-						fb.gpuKnown
-							? std::format("cpu {:.2f} · wait {:.2f} · present {:.2f} · gpu {:.2f}",
-										  fb.cpuMs, fb.waitGpuMs, fb.presentMs, fb.gpuBusyMs)
-							: std::format("cpu {:.2f} · wait {:.2f} · present {:.2f} · gpu n/a",
-										  fb.cpuMs, fb.waitGpuMs, fb.presentMs),
-						vx + ew, py, kDim);
+					//
+					// EACH TERM IN ITS SEGMENT'S COLOUR, which makes this line the
+					// legend for the stacked bar below and for the budget graph,
+					// at no cost in space. A separate legend would be a fourth
+					// place for the same four colours to disagree.
+					float ex = vx + m_font->MeasureWidth("bound by display  ");
+					auto term = [&](const std::string& s, const Vec4& c) {
+						m_font->Draw(batch, s, ex, py, c);
+						ex += m_font->MeasureWidth(s);
+					};
+					term(std::format("cpu {:.2f}", fb.cpuMs), kBudgetCpuColor);
+					term(" · ", kDim);
+					term(std::format("wait {:.2f}", fb.waitGpuMs), kBudgetWaitColor);
+					term(" · ", kDim);
+					term(std::format("present {:.2f}", fb.presentMs), kBudgetPresentColor);
+					term(" · ", kDim);
+					term(fb.gpuKnown ? std::format("gpu {:.2f}", fb.gpuBusyMs)
+									 : std::string("gpu n/a"),
+						 fb.gpuKnown ? kBudgetGpuColor : kDim);
 				}
 			}
 			if (!clock.invariantTsc)
@@ -1423,6 +1477,60 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 			const float barX = width * 0.62f;
 			const float barW = width * 0.26f;
 			if (m_profileGraph) {
+				// THE BUDGET OVERLAY, first and full width, because it is the one
+				// graph that answers a question rather than reporting a number:
+				// three lines on ONE shared scale, so which of them is tracking
+				// the frame IS which one is the ceiling. Per-node graphs below
+				// each autoscale to themselves, which makes them unusable for
+				// exactly this comparison — everything looks equally full.
+				//
+				// Why it earns full width: an intermittent bound is a shape a few
+				// samples wide, and at half width in a two-column grid it would be
+				// a handful of pixels.
+				if (fb.valid) {
+					const float bgw = width - pad * 4.0f;
+					const gfx::Rect plot{pad * 2.0f, py + line, bgw, graphH - line};
+
+					// ONE scale for all three, taken from the frame's own peak: the
+					// whole point is that they are commensurable. Autoscaling each
+					// would redraw a 0.2 ms CPU line as tall as a 4 ms frame and
+					// invert the reading.
+					float peak = 0.0f;
+					for (int k = 0; k < kProfHistory; ++k)
+						peak = std::max(peak, m_budgetSeries[kBudFrame].samples[k]);
+					if (peak <= 0.0f) peak = 1.0f;
+
+					m_font->Draw(batch, "FRAME BUDGET", pad * 2.0f, py, kAccent);
+					m_font->Draw(batch, std::format("peak {:.2f} ms", peak),
+								pad * 2.0f + m_font->MeasureWidth("FRAME BUDGET  "), py, kDim);
+
+					// Frame filled as the envelope, the other two as bare lines
+					// over it — see DrawSeriesGraph's note on stacked bands.
+					DrawSeriesGraph(batch, plot, m_budgetSeries[kBudFrame].samples,
+									kProfHistory, m_profHead, peak, kDim, true, true);
+					DrawSeriesGraph(batch, plot, m_budgetSeries[kBudCpu].samples,
+									kProfHistory, m_profHead, peak, kBudgetCpuColor, false,
+									false);
+					if (fb.gpuKnown)
+						DrawSeriesGraph(batch, plot, m_budgetSeries[kBudGpu].samples,
+										kProfHistory, m_profHead, peak, kBudgetGpuColor,
+										false, false);
+
+					// Named in their own colours, on the plot, because a line has
+					// no other way to say which it is.
+					float lx = plot.x + pad;
+					const float ly = plot.y + pad * 0.5f;
+					auto key = [&](const char* s, const Vec4& c) {
+						m_font->Draw(batch, s, lx, ly, c);
+						lx += m_font->MeasureWidth(s);
+					};
+					key("frame ", kText);
+					key("cpu ", kBudgetCpuColor);
+					if (fb.gpuKnown) key("gpu", kBudgetGpuColor);
+
+					py += graphH + graphGapY;
+				}
+
 				// A line per measure, newest at the RIGHT and scrolling left as
 				// samples commit. Each graph autoscales to its own window, because
 				// a shared scale would flatten every worker into the floor next to
@@ -1596,6 +1704,56 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 					// times to say what one line already says.
 					m_font->Draw(batch, std::format("{:.3f}", dMax), width * 0.52f, py,
 								kDim);
+
+					// THE FRAME'S OWN BAR is the exception to the rule below, and
+					// it earns the space precisely because a root's share bar
+					// would have been the useless always-full one: the slot is
+					// free. Three segments — work, blocked on the GPU, blocked in
+					// Present — which DO partition the frame's wall clock, since
+					// cpu is defined as what is left after the two waits. So this
+					// bar is a decomposition and always exactly fills its width,
+					// and its proportions are the verdict's reasoning made visible.
+					//
+					// The GPU's own busy time is a SEPARATE hairline beneath, not
+					// a fourth segment, and that is not a layout preference: GPU
+					// work overlaps the next frame's CPU work rather than
+					// following it, so it is not a slice of this frame's serial
+					// budget and stacking it into one would claim time twice.
+					const bool frameRow = fb.valid && fb.frameMs > 0.0 &&
+										  pr.depth == 0 &&
+										  std::strcmp(pr.name, prof::kZoneFrame) == 0 &&
+										  pr.tid == fb.tid;
+					if (frameRow) {
+						const float bh = line * 0.40f;
+						const float oy = py + (line - bh) * 0.5f - line * 0.10f;
+						const float bw2 = std::min(barW, width - pad * 2.0f - barX);
+						if (bw2 > 0.0f) {
+							batch.DrawRect({barX, oy, bw2, bh}, kGaugeBg);
+							const auto seg = [&](double ms, float x, const Vec4& c) {
+								const float w =
+									bw2 * static_cast<float>(
+											  std::clamp(ms / fb.frameMs, 0.0, 1.0));
+								if (w > 0.0f) batch.DrawRect({x, oy, w, bh}, c);
+								return x + w;
+							};
+							float sx = barX;
+							sx = seg(fb.cpuMs, sx, kBudgetCpuColor);
+							sx = seg(fb.waitGpuMs, sx, kBudgetWaitColor);
+							seg(fb.presentMs, sx, kBudgetPresentColor);
+							ui::DrawBorder(batch, {barX, oy, bw2, bh}, kBorder);
+
+							if (fb.gpuKnown) {
+								const float gh = line * 0.14f;
+								const float gy = oy + bh + line * 0.06f;
+								const float gw =
+									bw2 * static_cast<float>(
+											  std::clamp(fb.gpuBusyMs / fb.frameMs, 0.0, 1.0));
+								batch.DrawRect({barX, gy, bw2, gh}, kGaugeBg);
+								if (gw > 0.0f)
+									batch.DrawRect({barX, gy, gw, gh}, kBudgetGpuColor);
+							}
+						}
+					}
 
 					// Share of everything this thread recorded in the period —
 					// NOT of the frame, since a worker ticking at 0.5 Hz has no

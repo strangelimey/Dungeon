@@ -186,6 +186,33 @@ private:
 	PerfSeries m_perfSeries[kPerfLines];
 	bool m_perfHidden[kPerfLines] = {};
 
+	// --- the frame budget over time ------------------------------------------
+	// The verdict says what is holding the frame back NOW. This is the same
+	// three numbers with twelve seconds of history behind them, which is the only
+	// way to see an INTERMITTENT bound — a hitch that is GPU-bound for 200 ms
+	// inside an otherwise display-bound run never shows up in an instantaneous
+	// readout, because by the time you have read it, it is over.
+	//
+	// Shares m_profHead with every other graph, so a spike here lines up with the
+	// zone that caused it.
+	//
+	// KEPT AS MAXIMA PER WINDOW, independently per line — so these are three
+	// ENVELOPES, not a decomposition. cpu and gpu at one x may come from
+	// different frames inside that 50 ms, and reading them as slices that should
+	// sum to frame would be wrong. The stacked bar is where the decomposition
+	// lives; this is where the trends do.
+	enum BudgetLine { kBudFrame, kBudCpu, kBudGpu, kBudgetLines };
+	PerfSeries m_budgetSeries[kBudgetLines];
+
+	// ONE palette for the budget, because it is read in three places — the
+	// stacked bar on the frame row, this graph, and the evidence text that acts
+	// as their shared legend. Three sites picking their own colours is three
+	// chances for "amber" to mean something different in each.
+	static constexpr Vec4 kBudgetCpuColor{0.85f, 0.70f, 0.40f, 1.0f};
+	static constexpr Vec4 kBudgetWaitColor{0.80f, 0.55f, 0.85f, 1.0f};
+	static constexpr Vec4 kBudgetPresentColor{0.45f, 0.70f, 0.95f, 1.0f};
+	static constexpr Vec4 kBudgetGpuColor{0.55f, 0.85f, 0.55f, 1.0f};
+
 	// Checkbox rects for the graph views, rebuilt by Render and hit-tested by the
 	// next Update — the same idiom as the thread controls, so the geometry of a
 	// clickable thing lives in exactly one place.
