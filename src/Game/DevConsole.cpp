@@ -1805,6 +1805,35 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 						}
 					}
 
+					// DEPTH PIPS, in the gutter — one per level, right-aligned so
+					// they end just short of the 0% line and deepen leftward.
+					//
+					// This is the nesting cue the bars gave up when they stopped
+					// being indented, put back WITHOUT costing the axis: it lives
+					// outside the measured area entirely, so nothing here can be
+					// mistaken for a quantity. That is the whole trick — depth and
+					// value both wanted to be encoded in x, and they can coexist
+					// only by not sharing a region.
+					//
+					// Structural, not data: a low-alpha hairline tone, so a glance
+					// down the column reads the bars and has to look for these.
+					if (pr.depth > 0) {
+						constexpr float kPipW = 2.0f;
+						const float pipH = line * 0.30f;
+						const float pipGap = 3.0f;
+						const float pipY = py + (line - pipH) * 0.5f;
+						// Never let them reach the numbers: past this the deepest
+						// levels simply stop drawing pips rather than colliding
+						// with the `worst ms` column.
+						const float pipLimit = width * 0.575f;
+						for (int d = 0; d < pr.depth; ++d) {
+							const float px =
+								barX - pad - kPipW - static_cast<float>(d) * (kPipW + pipGap);
+							if (px < pipLimit) break;
+							batch.DrawRect({px, pipY, kPipW, pipH}, {1.0f, 1.0f, 1.0f, 0.22f});
+						}
+					}
+
 					// Share of everything this thread recorded in the period —
 					// NOT of the frame, since a worker ticking at 0.5 Hz has no
 					// relationship to a frame's wall clock and scaling it by one
