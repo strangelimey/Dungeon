@@ -22,6 +22,7 @@
 // vacuously.
 // ============================================================================
 #include "Game/Combat.h"
+#include "Game/Curve.h"
 #include "Game/Roll.h"
 
 #include <algorithm>
@@ -330,6 +331,99 @@ int main(int argc, char** argv) {
 		// multiplier and the open-ended roll compound without limit.
 		CheckTrue("margin multiplier respects marginCap",
 				  worst <= 10.0f * sr.marginCap * (1.0f + sr.damageJitter) + 0.01f);
+	}
+
+	// --- the contribution curves --------------------------------------------
+	// Skill and stat reach the roll through a diminishing-returns curve
+	// (Game/Curve.h). Each form makes PROMISES, and the promises are what is
+	// checked — not the arithmetic, which would just be the code restated:
+	//
+	//   every form   rises at `slope` from the origin, so "+5 a level" means
+	//                the same thing whichever is picked and the graph can be
+	//                compared without re-tuning
+	//   every form   is monotonic (more skill is never worse) and odd about
+	//                the baseline (a poor stat is a penalty of equal size)
+	//   bounded ones stay under the cap FOREVER, which is the whole reason a
+	//                cap is worth having: "nobody is ever better than +120"
+	//                has to be true to be balanced around
+	//   logarithmic  passes the cap — it is the unbounded one on purpose
+	{
+		std::printf("\nthe contribution curves\n");
+		const CurveForm forms[] = {CurveForm::Hyperbolic, CurveForm::Exponential,
+								   CurveForm::Logarithmic};
+		for (const CurveForm f : forms) {
+			CurveRules cr;
+			cr.form = f;
+			cr.slope = 5.0f;
+			cr.cap = 120.0f;
+
+			// The slope at the origin, measured as a secant over a tiny step.
+			const float rise = (CurveValue(0.01f, cr) - CurveValue(0.0f, cr)) / 0.01f;
+			bool monotonic = true, oddSym = true;
+			float last = CurveValue(0.0f, cr);
+			for (float x = 0.5f; x <= 400.0f; x += 0.5f) {
+				const float v = CurveValue(x, cr);
+				if (v < last) monotonic = false;
+				if (std::fabs(v + CurveValue(-x, cr)) > 0.001f) oddSym = false;
+				last = v;
+			}
+			char label[96];
+			std::snprintf(label, sizeof label, "%s: rises at slope",
+						  CurveFormId(f));
+			Check(label, rise, 5.0, 0.05);
+			std::snprintf(label, sizeof label, "%s: monotonic to level 400",
+						  CurveFormId(f));
+			CheckTrue(label, monotonic);
+			std::snprintf(label, sizeof label, "%s: odd about the baseline",
+						  CurveFormId(f));
+			CheckTrue(label, oddSym);
+
+			// NEVER EXCEEDS, not "never reaches". The bounded forms approach
+			// the cap asymptotically in maths, but in float the exponential
+			// ARRIVES: by x ~ 100 the e-term has underflown to zero and the
+			// result is exactly `cap`. That is harmless — the promise worth
+			// balancing around is that nobody ever gets BETTER than the cap —
+			// but the strict phrasing was wrong, and the check caught it.
+			const float far = CurveValue(100'000.0f, cr);
+			std::snprintf(label, sizeof label, "%s: %s the cap", CurveFormId(f),
+						  f == CurveForm::Logarithmic ? "passes" : "never exceeds");
+			CheckTrue(label, f == CurveForm::Logarithmic ? far > cr.cap
+														 : far <= cr.cap);
+		}
+
+		// The shape table — what a player's skill is actually worth, against
+		// the number that decides whether it matters (the ~41-point combined
+		// deviation of two d100s, measured above).
+		std::printf("\n  bonus by skill level (slope 5, cap 120)\n");
+		std::printf("  %-14s %6s %6s %6s %6s %6s %6s\n", "form", "L5", "L10",
+					"L20", "L40", "L80", "L160");
+		for (const CurveForm f : forms) {
+			CurveRules cr;
+			cr.form = f;
+			cr.slope = 5.0f;
+			cr.cap = 120.0f;
+			std::printf("  %-14s %6.0f %6.0f %6.0f %6.0f %6.0f %6.0f\n",
+						CurveFormId(f), CurveValue(5, cr), CurveValue(10, cr),
+						CurveValue(20, cr), CurveValue(40, cr),
+						CurveValue(80, cr), CurveValue(160, cr));
+		}
+		std::printf("  (two opposed d100s deviate by ~41 points; a gap much "
+					"under that is noise)\n");
+
+		// A stat's contribution, with the baseline that makes 10 worth nothing.
+		CurveRules st;
+		st.slope = 2.0f;
+		st.cap = 35.0f;
+		st.baseline = 10.0f;
+		std::printf("\n  stat bonus (slope 2, cap 35, baseline 10): "
+					"4 %+.0f   7 %+.0f   10 %+.0f   14 %+.0f   20 %+.0f   "
+					"40 %+.0f\n",
+					CurveValue(4, st), CurveValue(7, st), CurveValue(10, st),
+					CurveValue(14, st), CurveValue(20, st), CurveValue(40, st));
+		Check("an average stat is worth nothing", CurveValue(10, st), 0.0, 0.001);
+		CheckTrue("a poor stat is a penalty", CurveValue(4, st) < 0.0f);
+		CheckTrue("stats stay far under skill at the defaults",
+				  CurveValue(40, st) < 40.0f);
 	}
 
 	// --- verdict ------------------------------------------------------------

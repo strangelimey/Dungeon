@@ -18,6 +18,7 @@
 #pragma once
 
 #include "Game/Combat.h"
+#include "Game/Curve.h"
 #include "Game/Spells.h"
 
 #include <span>
@@ -78,6 +79,26 @@ struct Balance {
 	float fumbleThreshold = 5.0f;
 	float marginDamage = 0.01f; // damage multiplier per point of margin
 	float marginCap = 3.0f;     // ceiling on that multiplier
+
+	// --- the contribution curves (Game/Curve.h) -----------------------------
+	// Skill and stat each turn a live value into d100 POINTS through a
+	// diminishing-returns curve. `*_bonus` is the rise at the origin (the
+	// Rolemaster "+5 a level"), `*_cap` the asymptote, `*_curve` the shape as
+	// a CurveForm index. The Balance dialog draws both curves live, against
+	// the ~41-point dice deviation RollTest measured — which is the number
+	// that says whether a difference in skill can actually beat the noise.
+	float skillCurve = 0.0f; // CurveForm index (0 = hyperbolic)
+	float skillBonus = 5.0f;
+	float skillCap = 120.0f;
+	// Stats taper too, and BASELINE 10 makes an average stat worth nothing
+	// while a poor one is a real penalty. Bounded far below skill on purpose:
+	// unbounded skill against an unbounded stat would make one of them
+	// decoration, and Rolemaster kept stats in roughly -25..+35 for the same
+	// reason.
+	float statCurve = 0.0f;
+	float statBonus = 2.0f;
+	float statCap = 35.0f;
+	float statBaseline = 10.0f;
 	float resistClamp = 0.8f;   // max summed resist (nature 1.0 = immunity)
 	float woundFloor = 1.0f;    // a landed blow stings
 	float speedBase = 1.15f;    // interval = speed × (speedBase − speedStat×DEX)
@@ -155,6 +176,16 @@ struct Balance {
 	// would have to guess an index, and index 0 is whatever the project happens
 	// to list first.
 	const AttackSpec& Neutral() const { return m_neutral; }
+
+	// The two contribution curves, assembled from the knobs above.
+	CurveRules SkillCurve() const {
+		return {static_cast<CurveForm>(static_cast<int>(skillCurve)), skillBonus,
+				skillCap, 0.0f};
+	}
+	CurveRules StatCurve() const {
+		return {static_cast<CurveForm>(static_cast<int>(statCurve)), statBonus,
+				statCap, statBaseline};
+	}
 
 	// Clamps a SUMMED resist to ±resistClamp — except an authored nature cell
 	// at 1.0+, which reaches true immunity (docs/combat.md part 4).

@@ -13,6 +13,7 @@ add_executable(RollTest
 	Main.cpp
 	${CMAKE_SOURCE_DIR}/src/Game/Roll.cpp
 	${CMAKE_SOURCE_DIR}/src/Game/Combat.cpp
+	${CMAKE_SOURCE_DIR}/src/Game/Curve.cpp
 )
 # src/ on the include path so the harness and the engine both say "Game/Roll.h".
 target_include_directories(RollTest PRIVATE ${CMAKE_SOURCE_DIR}/src)

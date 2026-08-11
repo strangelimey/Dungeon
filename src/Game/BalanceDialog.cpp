@@ -2,6 +2,7 @@
 // Game/BalanceDialog.cpp — see BalanceDialog.h.
 // ============================================================================
 #include "Game/BalanceDialog.h"
+#include "Game/CurvePlot.h"
 
 #include "Core/Loc.h"
 #include "Core/Paths.h"
@@ -92,6 +93,12 @@ void BalanceDialog::BuildFormulaTab(size_t tab) {
 	// long as the table and the page scrolls; the pitch used to be a fraction
 	// of the page (0.062 = 29px around 40px type, every row on the one below).
 	ui::Stack* rows = TabStack(*m_tabs, tab);
+	// THE CURVES, FIRST — they are the shape of the formula, and the knobs
+	// below are only numbers until you can see what they do (Game/CurvePlot.h).
+	// Live by construction: the plot borrows the same working copy the fields
+	// edit, so dragging skill_bonus redraws it with no wiring between them.
+	rows->Row<CurvePlot>(ui::Len::Fixed(7.0f), &m_cfg);
+	rows->Row<ui::Separator>(ui::Len::Fixed(0.5f));
 	for (const BalanceField& f : BalanceFields()) {
 		ui::Stack* row = rows->Row<ui::Stack>(FormRow(), true);
 		row->gapRem = 0.5f;

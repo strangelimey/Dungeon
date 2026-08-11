@@ -700,3 +700,7 @@ anim.state.attack=Attack
 anim.state.defend=Defend
 anim.state.hit=Hit
 anim.state.die=Die
+map.balance.curve.skill=skill (0-{})
+map.balance.curve.stat=stat (0-{})
+map.balance.curve.dice=--- dice deviation (~41)
+map.balance.curve.peak=peak: skill {} / stat {}

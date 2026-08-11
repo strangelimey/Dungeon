@@ -9,6 +9,8 @@ add_library(Game STATIC
 	CatalogSchema.cpp
 	Character.cpp
 	Combat.cpp
+	Curve.cpp
+	CurvePlot.cpp
 	DamageTypes.cpp
 	DevConsole.cpp
 	DialogLayout.cpp
