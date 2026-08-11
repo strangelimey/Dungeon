@@ -1006,9 +1006,10 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 	}
 	const int graphsShown = std::min(profVisible, kMaxGraphs);
 	const int graphRows = (graphsShown + 1) / 2; // two columns
-	// One more line for the "do not fit" note, so a truncated tree's last row is
-	// not the thing the panel clips.
-	const int listRows = profRowCount + (profRowCount < profRowTotal ? 1 : 0);
+	// The tree's rows, plus the column header above them, plus the "do not fit"
+	// note when it shows — so neither of those is the thing the panel clips.
+	const int listRows =
+		profRowCount + 1 + (profRowCount < profRowTotal ? 1 : 0);
 
 	// Header line + the TSC/toggle line, then the body. Nothing is dropped to
 	// make it fit any more: the panel SCROLLS, so the content is laid out at its
@@ -1364,6 +1365,25 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 											profVisible - graphsShown, kMaxGraphs),
 								labelX, py, kDim);
 			} else {
+			// The column header. The numbers were self-labelling before — each
+			// carried a "max " prefix or was left to be inferred — and inferring
+			// is exactly what nobody could do: inclusive and exclusive are two
+			// three-decimal numbers side by side with nothing to tell them apart.
+			// One line of vertical space buys that permanently, and it lets the
+			// values below drop their inline prefixes and read as a table.
+			//
+			// WORST, not "max": max reads as a ceiling — a limit something is
+			// bounded by — when the column is the worst single call actually seen
+			// in the window. Naming it after what it is stops it being read as a
+			// budget.
+			m_font->Draw(batch, "scope", labelX, py, kDim);
+			m_font->Draw(batch, "incl ms", width * 0.30f, py, kDim);
+			m_font->Draw(batch, "excl ms", width * 0.38f, py, kDim);
+			m_font->Draw(batch, "calls", width * 0.46f, py, kDim);
+			m_font->Draw(batch, "worst ms", width * 0.52f, py, kDim);
+			m_font->Draw(batch, "share", barX, py, kDim);
+			py += rowAdvance;
+
 			// The path of the row being drawn, kept as the names at each depth so
 			// far. The walk is pre-order, so by the time a row is reached its
 			// ancestors are exactly the entries below it — no second traversal to
@@ -1413,8 +1433,11 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 								kDim);
 					m_font->Draw(batch, std::format("x{:.0f}", dCalls), width * 0.46f, py,
 								kDim);
-					m_font->Draw(batch, std::format("max {:.3f}", dMax), width * 0.52f,
-								py, kDim);
+					// Bare, no "worst " prefix: the header above names the column,
+					// and repeating it on every row would be the label drawn forty
+					// times to say what one line already says.
+					m_font->Draw(batch, std::format("{:.3f}", dMax), width * 0.52f, py,
+								kDim);
 
 					// Share of everything this thread recorded in the period —
 					// NOT of the frame, since a worker ticking at 0.5 Hz has no
