@@ -92,3 +92,7 @@ add_library(Game STATIC
 	TypeEditorDialog.cpp
 )
 target_link_libraries(Game PUBLIC Core Platform Assets Animation Graphics UI Audio)
+
+# Solution Explorer: headers visible, folders mirrored (dn_ide_layout, root
+# CMakeLists). MUST be called here — source_group is directory-scoped.
+dn_ide_layout(Game ${CMAKE_CURRENT_SOURCE_DIR})

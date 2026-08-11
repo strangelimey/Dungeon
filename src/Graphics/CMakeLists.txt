@@ -16,3 +16,7 @@ target_link_libraries(Graphics
 	PUBLIC Core Platform Assets
 	PRIVATE d3d12.lib dxgi.lib d3dcompiler.lib dxguid.lib
 )
+
+# Solution Explorer: headers visible, folders mirrored (dn_ide_layout, root
+# CMakeLists). MUST be called here — source_group is directory-scoped.
+dn_ide_layout(Graphics ${CMAKE_CURRENT_SOURCE_DIR})
