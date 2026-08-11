@@ -38,13 +38,10 @@ ProjectileSpec BoltSpell::MakeBolt(const Vec3& origin, const Vec3& dir,
 }
 
 void BoltSpell::Cast(CastContext& ctx) const {
-	// Accuracy rides intelligence plus school skill, so a trained caster
-	// lands reliably; power arrives already skill-scaled in the context.
-	const float accuracy =
-		0.70f + static_cast<float>(ctx.caster.intelligence) * 0.012f +
-		0.02f * static_cast<float>(ctx.schoolLevel);
-	ProjectileSpec bolt =
-		MakeBolt(ctx.origin, ctx.dir, ctx.power, accuracy, TargetSide::Monsters);
+	// The bonus rides school skill and the caster's stat, both already curved
+	// by the host (CastContext::attackBonus); power arrives skill-scaled too.
+	ProjectileSpec bolt = MakeBolt(ctx.origin, ctx.dir, ctx.power,
+								   ctx.attackBonus, TargetSide::Monsters);
 	bolt.attacker = ctx.casterIndex; // the impact credits its caster (threat)
 	ctx.services.spawnBolt(bolt);
 }

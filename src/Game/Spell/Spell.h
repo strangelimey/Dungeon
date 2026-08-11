@@ -64,6 +64,12 @@ struct CastContext {
 	// The caster's roster index (-1 when unknown) — rides a spawned bolt so
 	// the impact can credit the hit to its caster (the threat system).
 	int casterIndex = -1;
+	// The caster's opposed-roll bonus in d100 POINTS, already assembled from
+	// the school skill and stat curves by the host. Handed in rather than
+	// computed here so a spell never learns what a Balance is. (LAST on
+	// purpose: the one construction site initialises this aggregate
+	// positionally, so a field inserted mid-struct silently mis-assigns.)
+	float attackBonus = 50.0f;
 };
 
 class Spell {

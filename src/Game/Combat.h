@@ -121,18 +121,24 @@ private:
 // A combatant's offensive profile for one strike (built from the weapon +
 // attack + stats formula, a monster's catalog stats, or a spell's power).
 struct AttackProfile {
-	float damage = 1.0f;   // base damage on a clean hit (formula-assembled)
-	float accuracy = 0.7f; // 0..1 base chance to land before evasion
-	DamageType type{};     // what the defender resists it AS
+	float damage = 1.0f; // base damage on a clean hit (formula-assembled)
+	// The attacker's side of the opposed roll, in d100 POINTS — skill curve +
+	// stat curve + the verb's own modifier for a party member, an authored
+	// figure for a monster. NOT a probability: it is added to a d100 and
+	// compared against the defender's total, so 40 points is roughly the
+	// deviation of the dice themselves and 100 is decisive.
+	float attackBonus = 50.0f;
+	DamageType type{}; // what the defender resists it AS
 };
 
 // A combatant's defensive response to ONE incoming strike. The caller resolves
 // the per-type resist (summed + clamped) before building this, so the resolver
 // stays a pure function of numbers.
 struct DefenseProfile {
-	float evasion = 0.0f; // 0..1 subtracted from the attacker's accuracy
-	float soak = 0.0f;    // small flat damage soaked on a hit (armor)
-	float resist = 0.0f;  // resolved resist[type]: fraction shrugged (+) / amplified (−)
+	// The defender's side of the opposed roll, in the same POINTS.
+	float defenseBonus = 0.0f;
+	float soak = 0.0f;   // small flat damage soaked on a hit (armor)
+	float resist = 0.0f; // resolved resist[type]: fraction shrugged (+) / amplified (−)
 };
 
 // The resolver's knobs, filled from Balance (balance.cat) by Balance::Strike().
@@ -143,11 +149,8 @@ struct StrikeRules {
 
 	// --- the opposed roll (docs/damage-system.md) ---------------------------
 	// Attacker and defender each add a d100 to a bonus and the higher total
-	// wins. `rollScale` is what turns the profile's 0..1 accuracy and evasion
-	// into d100 POINTS — a temporary bridge: P3 replaces the 0..1 pair with
-	// bonuses assembled the Rolemaster way (weapon x skill x stat against
-	// AG + dodge/armor skill) and this knob retires with them.
-	float rollScale = 40.0f;
+	// wins. The bonuses arrive already in POINTS — rollScale is gone, and with
+	// it the last of the 0..1 accuracy model it was bridging.
 	float critThreshold = 95.0f;  // >= this face re-rolls and adds
 	float fumbleThreshold = 5.0f; // <= this on the first face is a fumble
 	float maxEscalations = 20.0f; // termination guard, NOT balance (Roll.h)

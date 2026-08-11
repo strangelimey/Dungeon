@@ -36,7 +36,7 @@ public:
 		std::string side;    // "Party spell" / "Monster shot"
 		std::string dmgType; // localized damage-type name
 		float damage = 0.0f;
-		float accuracy = 0.0f; // 0..1
+		float accuracy = 0.0f; // the attacker's opposed-roll bonus, in d100 points
 		float speed = 0.0f;    // m/s
 		float rangeLeft = 0.0f; // metres
 	};

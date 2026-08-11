@@ -478,8 +478,8 @@ DungeonWorld::MonsterKind& DungeonWorld::MonsterKindFor(const std::string& type)
 		if (def) {
 			assets->maxHp = def->GetFloat("hp", 12.0f);
 			assets->damage = def->GetFloat("damage", 4.0f);
-			assets->accuracy = def->GetFloat("accuracy", 0.65f);
-			assets->evasion = def->GetFloat("defense", 0.1f);
+			assets->accuracy = def->GetFloat("accuracy", 60.0f);
+			assets->evasion = def->GetFloat("defense", 10.0f);
 			assets->armor = def->GetFloat("armor", 0.0f);
 			// The defender side (docs/combat.md part 4): per-type resist
 			// cells + what this monster's melee deals AS (default bash).

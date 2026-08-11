@@ -6,6 +6,8 @@
 // ============================================================================
 #include "Game/DungeonWorld.h"
 
+#include "Game/Curve.h"
+
 #include "Core/Loc.h"
 
 #include <algorithm>
@@ -135,7 +137,15 @@ void DungeonWorld::RecomputePartyMaxima() {
 // EFFECT term is no longer a hard-coded Stone Skin branch but a sum over
 // whatever effects the target happens to carry.
 
-float DungeonWorld::PartyTarget::Evasion() const { return m_member.Evasion(); }
+float DungeonWorld::PartyTarget::Evasion() const {
+	// The defender's side, in the same points: an innate base plus DEX. The
+	// dodge and armor SKILLS join it in P5, and the held-back weapon skill
+	// (the offense/defense split) after that — at which point the base can
+	// come back down, since it exists to stand in for them.
+	return m_world.m_balance.defenseBase +
+		   CurveValue(static_cast<float>(m_member.dexterity),
+					  m_world.m_balance.StatCurve());
+}
 
 float DungeonWorld::PartyTarget::Soak() const {
 	float soak = 0.0f;
@@ -812,14 +822,19 @@ bool DungeonWorld::PartyAttack(size_t member, size_t hand, std::string_view verb
 		(base + m_balance.statDamage * statAvg) * spec->dmg *
 			(1.0f + m_balance.skillDamage * static_cast<float>(level)) *
 			(winded ? m_balance.exhaustDamage : 1.0f),
-		m_balance.accBase +
-			m_balance.accStat * static_cast<float>(attacker.dexterity) +
-			m_balance.accSkill * static_cast<float>(level) + spec->acc,
+		// THE ATTACK BONUS (docs/damage-system.md): skill is the main driver,
+		// through its diminishing-returns curve; DEX shades it through its own,
+		// much shallower one; the verb adds its authored points. All three are
+		// in d100 points, against the ~41 the dice themselves deviate by.
+		CurveValue(static_cast<float>(level), m_balance.SkillCurve()) +
+			CurveValue(static_cast<float>(attacker.dexterity),
+					   m_balance.StatCurve()) +
+			spec->acc,
 		spec->type};
 	const std::string name = loc::Tr("monster." + target->kind->name);
 	PartyTarget striker{*this, attacker};
 	MonsterTarget defender{*this, *target};
-	fx::DamageEvent ev = fx::DamageEvent::Blow(atk.type, atk.damage, atk.accuracy,
+	fx::DamageEvent ev = fx::DamageEvent::Blow(atk.type, atk.damage, atk.attackBonus,
 											   static_cast<int>(member));
 	fx::Deal(ev, defender, m_balance.Strike(), m_combatRng);
 
@@ -994,7 +1009,8 @@ bool DungeonWorld::ResolveSpellHit(const ProjectileImpact& impact) {
 	const std::string name = loc::Tr("monster." + hit->kind->name);
 	MonsterTarget defender{*this, *hit};
 	fx::DamageEvent ev = fx::DamageEvent::Bolt(impact.atk.type, impact.atk.damage,
-											   impact.atk.accuracy, impact.attacker);
+											   impact.atk.attackBonus,
+											   impact.attacker);
 	fx::Deal(ev, defender, m_balance.Strike(), m_combatRng);
 	if (ev.hit) {
 		if (ev.dealt >= 0.5f)
@@ -1082,7 +1098,7 @@ bool DungeonWorld::ResolveMonsterProjectileHit(const ProjectileImpact& impact) {
 	// not at bolts. All of that is the effects' business, not this resolver's.
 	PartyTarget defender{*this, target};
 	fx::DamageEvent ev = fx::DamageEvent::Bolt(impact.atk.type, impact.atk.damage,
-											   impact.atk.accuracy);
+											   impact.atk.attackBonus);
 	fx::Deal(ev, defender, m_balance.Strike(), m_combatRng);
 	if (ev.deflected) return true; // spent against the wind
 	if (!ev.hit) {

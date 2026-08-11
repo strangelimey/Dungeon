@@ -241,7 +241,7 @@ void Game::OpenInspectorFor(const InspectTarget& t) {
 		// has never heard of still reads correctly here.
 		c.dmgType = loc::Tr(m_world.DamageTypes().NameKey(p.atk.type));
 		c.damage = p.atk.damage;
-		c.accuracy = p.atk.accuracy;
+		c.accuracy = p.atk.attackBonus;
 		c.speed = p.speed;
 		c.rangeLeft = p.rangeLeft;
 		m_projectileInspector.onRemove = [this, id = p.id] {

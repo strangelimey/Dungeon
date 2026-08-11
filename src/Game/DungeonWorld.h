@@ -1061,8 +1061,10 @@ private:
 		// Combat stats from monsters.cat (fallbacks in MonsterKindFor).
 		float maxHp = 12.0f;
 		float damage = 4.0f;
-		float accuracy = 0.65f;
-		float evasion = 0.1f;
+		// Both in d100 POINTS, authored directly: a monster has no skills or
+		// stats to run through the curves, so its competence IS the number.
+		float accuracy = 60.0f;
+		float evasion = 10.0f;
 		float armor = 0.0f; // flat soak (docs/combat.md part 4)
 		// The defender side (docs/combat.md part 4): per-type resists
 		// (catalog `resists = pierce 0.5, bash -0.5`; a cell of 1.0 =

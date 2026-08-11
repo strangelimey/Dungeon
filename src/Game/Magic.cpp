@@ -3,6 +3,8 @@
 // ============================================================================
 #include "Game/Magic.h"
 
+#include "Game/Curve.h"
+
 #include "Game/Balance.h"
 #include "Game/Character.h"
 
@@ -55,7 +57,19 @@ MagicSystem::CastReport MagicSystem::Cast(Character& caster, int casterIndex,
 	if (m_balance)
 		power *= 1.0f + m_balance->spellStat *
 							caster.StatAvg(SchoolStats(spell->School()));
-	CastContext ctx{caster, origin, dir, power, level, m_services, casterIndex};
+	// The caster's side of the opposed roll, assembled HERE because this is
+	// where Balance is: the school skill through the skill curve, the school's
+	// associated stat through the stat curve. The spell class receives the
+	// finished number and stays ignorant of both.
+	float attackBonus = 50.0f;
+	if (m_balance) {
+		attackBonus =
+			CurveValue(static_cast<float>(level), m_balance->SkillCurve()) +
+			CurveValue(caster.StatAvg(SchoolStats(spell->School())),
+					   m_balance->StatCurve());
+	}
+	CastContext ctx{caster,    origin,      dir,         power,
+					level,     m_services,  casterIndex, attackBonus};
 	spell->Cast(ctx);
 
 	return {CastOutcome::Cast, spell};

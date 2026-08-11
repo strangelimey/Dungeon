@@ -251,17 +251,42 @@ int main(int argc, char** argv) {
 	// multiplier. They are different shapes, so the point is not that the
 	// numbers match — it is to SEE the change rather than discover it in play.
 	{
-		std::printf("\nthe strike, end to end — old model vs the opposed roll\n");
+		std::printf("\nthe strike, end to end — a real fighter against a monster\n");
 		StrikeRules sr; // the shipped defaults
-		struct Case { const char* what; float acc, eva; };
-		const Case cases[] = {
-			{"green fighter vs plain monster", 0.75f, 0.20f},
-			{"skilled fighter vs plain monster", 0.95f, 0.20f},
-			{"green fighter vs evasive monster", 0.75f, 0.45f},
-			{"outmatched (acc below evasion)", 0.40f, 0.60f},
+
+		// The shipped curve values, restated. RollTest cannot link Balance
+		// (that would drag the catalog reader and the file layer in behind it),
+		// so these are the DEFAULTS UNDER TEST rather than a live read — if
+		// balance.cat is tuned, the shapes below move and this table describes
+		// the shipped starting point, which is what it is for.
+		CurveRules skill;
+		skill.slope = 5.0f;
+		skill.cap = 120.0f;
+		CurveRules stat;
+		stat.slope = 2.0f;
+		stat.cap = 35.0f;
+		stat.baseline = 10.0f;
+
+		// A party attacker's bonus is skill + stat + the verb's points; a
+		// monster's is simply authored (monsters.cat accuracy/defense).
+		const auto attacker = [&](float level, float dex, float verb) {
+			return CurveValue(level, skill) + CurveValue(dex, stat) + verb;
 		};
-		std::printf("  %-34s %8s %8s %9s %9s\n", "", "old", "new", "dmg x1.0",
-					"p99 dmg");
+
+		struct Case { const char* what; float atk, def; };
+		const Case cases[] = {
+			{"green (skill 1, DEX 10) vs plain (10)", attacker(1, 10, 0), 10},
+			{"trained (skill 10, DEX 12) vs plain", attacker(10, 12, 0), 10},
+			{"veteran (skill 30, DEX 14) vs plain", attacker(30, 14, 0), 10},
+			{"green vs a nimble monster (50)", attacker(1, 10, 0), 50},
+			{"veteran vs a nimble monster (50)", attacker(30, 14, 0), 50},
+			// The party's defense is an innate base plus DEX until the dodge
+			// and armor skills land; without the base this measured 0.88.
+			{"a monster (60) vs a party member (DEX 12)", 60,
+			 25.0f + CurveValue(12, stat)},
+		};
+		std::printf("  %-40s %6s %6s %6s %8s %7s\n", "", "atk", "def", "hit",
+					"dmg x1.0", "p99");
 		for (const Case& c : cases) {
 			std::mt19937 rng(4242);
 			constexpr int kN = 200'000;
@@ -269,45 +294,37 @@ int main(int argc, char** argv) {
 			std::vector<int> dmg;
 			dmg.reserve(kN);
 			for (int i = 0; i < kN; ++i) {
-				const AttackResult r = ResolveAttack({10.0f, c.acc, {}},
-													 {c.eva, 0.0f, 0.0f}, sr, rng);
+				const AttackResult r = ResolveAttack({10.0f, c.atk, {}},
+													 {c.def, 0.0f, 0.0f}, sr, rng);
 				if (!r.hit) continue;
 				++hits;
 				dmg.push_back(static_cast<int>(r.damage + 0.5f));
 			}
 			std::sort(dmg.begin(), dmg.end());
-			float old = c.acc - c.eva;
-			if (old < sr.hitFloor) old = sr.hitFloor;
-			if (old > sr.hitCeil) old = sr.hitCeil;
 			double mean = 0;
 			for (int d : dmg) mean += d;
 			mean = dmg.empty() ? 0 : mean / dmg.size();
-			std::printf("  %-34s %8.3f %8.3f %9.2f %9.0f\n", c.what, old,
-						double(hits) / kN, mean, Pct(dmg, 0.99));
-		}
-		// THE FINDING THIS TABLE EXISTS FOR: an opposed d100 has a combined
-		// standard deviation of ~41 points, so a bonus SPREAD much smaller than
-		// that is drowned by the dice. Sweep rollScale to see how much of the
-		// character actually reaches the outcome.
-		std::printf("%s  rollScale sweep — hit rate, green (0.75/0.20) vs "
-					"outmatched (0.40/0.60)%s", "\n", "\n");
-		for (const float scale : {40.0f, 80.0f, 150.0f, 300.0f}) {
-			StrikeRules sw = sr;
-			sw.rollScale = scale;
-			std::mt19937 rng(555);
-			long long g = 0, o = 0;
-			constexpr int kN = 200'000;
-			for (int i = 0; i < kN; ++i) {
-				g += ResolveAttack({10.0f, 0.75f, {}}, {0.20f, 0, 0}, sw, rng).hit;
-				o += ResolveAttack({10.0f, 0.40f, {}}, {0.60f, 0, 0}, sw, rng).hit;
-			}
-			std::printf("    scale %5.0f   green %.3f   outmatched %.3f   "
-						"spread %.3f\n",
-						scale, double(g) / kN, double(o) / kN,
-						double(g - o) / kN);
+			std::printf("  %-40s %6.0f %6.0f %6.3f %8.2f %7.0f\n", c.what, c.atk,
+						c.def, double(hits) / kN, mean, Pct(dmg, 0.99));
 		}
 		std::printf("  (base damage 10, no soak, no resist; \"dmg\" is the mean "
 					"LANDED hit)\n");
+
+		// WHAT A LIFETIME OF TRAINING IS WORTH — the question the whole design
+		// turns on, now answerable in one column: how much does the hit rate
+		// actually move as a skill grows, against a fixed opponent?
+		std::printf("\n  hit rate by skill level (DEX 10, vs a defense of 30)\n    ");
+		for (const float lvl : {0.0f, 1.0f, 5.0f, 10.0f, 20.0f, 40.0f, 80.0f}) {
+			std::mt19937 rng(777);
+			long long h = 0;
+			constexpr int kN = 100'000;
+			for (int i = 0; i < kN; ++i)
+				h += ResolveAttack({10.0f, attacker(lvl, 10, 0), {}},
+								   {30.0f, 0, 0}, sr, rng)
+						 .hit;
+			std::printf("L%-3.0f %.3f   ", lvl, double(h) / kN);
+		}
+		std::printf("\n");
 
 		// GUARDS, not observations. These are the properties the swap must not
 		// break however the knobs are later tuned.
@@ -315,10 +332,12 @@ int main(int argc, char** argv) {
 		long long hi = 0, lo = 0;
 		float worst = 0.0f;
 		for (int i = 0; i < 200'000; ++i) {
-			const AttackResult a = ResolveAttack({10.0f, 0.95f, {}},
-												 {0.20f, 0.0f, 0.0f}, sr, rng);
-			const AttackResult b = ResolveAttack({10.0f, 0.40f, {}},
-												 {0.60f, 0.0f, 0.0f}, sr, rng);
+			const AttackResult a =
+				ResolveAttack({10.0f, attacker(30, 14, 0), {}}, {10.0f, 0.0f, 0.0f},
+							  sr, rng);
+			const AttackResult b =
+				ResolveAttack({10.0f, attacker(1, 8, 0), {}}, {60.0f, 0.0f, 0.0f},
+							  sr, rng);
 			hi += a.hit;
 			lo += b.hit;
 			if (a.hit) worst = std::max(worst, a.damage);

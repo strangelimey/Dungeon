@@ -15,15 +15,15 @@ AttackResult ResolveAttack(const AttackProfile& atk, const DefenseProfile& def,
 	// bonus and the higher total wins; both sides can crit and fumble. This
 	// replaced a one-sided (accuracy - evasion) probability check, and the two
 	// are not the same shape at all: a probability difference is linear, while
-	// an opposed roll turns the same difference into a triangular-ish curve, so
-	// `rollScale` is what maps one onto the other until P3 assembles real
-	// Rolemaster bonuses and both retire.
+	// an opposed roll turns the same difference into a triangular-ish curve.
+	// The bonuses now arrive in points from the contribution curves, which is
+	// what let the bridging scale factor go.
 	RollRules rr;
 	rr.critThreshold = static_cast<int>(rules.critThreshold);
 	rr.fumbleThreshold = static_cast<int>(rules.fumbleThreshold);
 	rr.maxEscalations = static_cast<int>(rules.maxEscalations);
-	const int atkBonus = static_cast<int>(atk.accuracy * rules.rollScale);
-	const int defBonus = static_cast<int>(def.evasion * rules.rollScale);
+	const int atkBonus = static_cast<int>(atk.attackBonus);
+	const int defBonus = static_cast<int>(def.defenseBonus);
 
 	const Opposed o = Resolve(atkBonus, defBonus, rr, rng);
 	result.crit = o.attack.crit;

@@ -67,15 +67,15 @@ float EffectKind::SpeedScale(const Inst&) const { return 1.0f; }
 
 // --- the event presets --------------------------------------------------------
 
-DamageEvent DamageEvent::Blow(DamageType type, float amount, float accuracy,
+DamageEvent DamageEvent::Blow(DamageType type, float amount, float attackBonus,
 							  int source) {
-	return {.type = type, .amount = amount, .accuracy = accuracy,
+	return {.type = type, .amount = amount, .attackBonus = attackBonus,
 			.delivery = Delivery::Melee, .source = source};
 }
 
-DamageEvent DamageEvent::Bolt(DamageType type, float amount, float accuracy,
+DamageEvent DamageEvent::Bolt(DamageType type, float amount, float attackBonus,
 							  int source) {
-	return {.type = type, .amount = amount, .accuracy = accuracy,
+	return {.type = type, .amount = amount, .attackBonus = attackBonus,
 			.delivery = Delivery::Ranged, .source = source};
 }
 
@@ -204,7 +204,7 @@ void Deal(DamageEvent& ev, ITarget& target, const StrikeRules& rules,
 	if (ev.rolled) {
 		const DefenseProfile def{target.Evasion(), ev.soaked ? target.Soak() : 0.0f,
 								 ev.resisted ? target.Resist(ev.type) : 0.0f};
-		const AttackResult r = ResolveAttack({ev.amount, ev.accuracy, ev.type},
+		const AttackResult r = ResolveAttack({ev.amount, ev.attackBonus, ev.type},
 											 def, rules, rng);
 		ev.hit = r.hit;
 		ev.crit = r.crit;

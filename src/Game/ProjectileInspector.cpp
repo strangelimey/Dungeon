@@ -50,7 +50,7 @@ void ProjectileInspector::BuildUI() {
 		{loc::Tr("map.proj.side"), m_cfg.side},
 		{loc::Tr("map.proj.dmgtype"), m_cfg.dmgType},
 		{loc::Tr("map.proj.damage"), std::format("{:.1f}", m_cfg.damage)},
-		{loc::Tr("map.proj.accuracy"), std::format("{:.0f}%", m_cfg.accuracy * 100.0f)},
+		{loc::Tr("map.proj.accuracy"), std::format("{:.0f} pts", m_cfg.accuracy)},
 		{loc::Tr("map.proj.speed"), std::format("{:.1f} m/s", m_cfg.speed)},
 		{loc::Tr("map.proj.range"), std::format("{:.1f} m", m_cfg.rangeLeft)},
 	}};

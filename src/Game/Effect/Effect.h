@@ -132,7 +132,9 @@ enum class Delivery : u8 {
 struct DamageEvent {
 	DamageType type{};
 	float amount = 0.0f;   // the attacker's assembled damage, before defenses
-	float accuracy = 0.0f; // 0..1, against the defender's evasion (if rolled)
+	// The attacker's opposed-roll bonus in d100 POINTS (only meaningful when
+	// `rolled`). Named for what it is: it is not a probability.
+	float attackBonus = 0.0f;
 	Delivery delivery = Delivery::Melee;
 	// The roster index behind this damage (threat credit), or -1 for none —
 	// a monster's own blow, a wall, an unattributed tick.
@@ -174,9 +176,9 @@ struct DamageEvent {
 	//   Tick         a DoT's bite: resisted as it lands, so a ward raised
 	//                mid-burn helps at once. Never soaked (armour does not
 	//                help with poison already in the blood).
-	static DamageEvent Blow(DamageType type, float amount, float accuracy,
+	static DamageEvent Blow(DamageType type, float amount, float attackBonus,
 							int source = -1);
-	static DamageEvent Bolt(DamageType type, float amount, float accuracy,
+	static DamageEvent Bolt(DamageType type, float amount, float attackBonus,
 							int source = -1);
 	static DamageEvent Impact(DamageType type, float amount, int source = -1);
 	static DamageEvent Burst(DamageType type, float amount, int source = -1);

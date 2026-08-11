@@ -41,7 +41,7 @@ struct AttackSpec {
 	std::string typeId;
 	DamageType type{};
 	float dmg = 1.0f;  // × the profile damage
-	float acc = 0.0f;  // + the profile accuracy
+	float acc = 0.0f;  // + the attack bonus, in d100 POINTS
 	float pace = 1.0f; // × the swing interval (a whiff pays it too)
 	float stam = 1.0f; // × the swing's stamina cost (chop exerts, jab doesn't)
 };
@@ -68,13 +68,9 @@ struct Balance {
 	float statDamage = 0.25f;   // damage per point of statAvg
 	float skillDamage = 0.08f;  // damage multiplier per skill level
 	float damageJitter = 0.15f; // ± roll on every hit
-	float accBase = 0.55f;      // the to-hit line (stat term is ALWAYS DEX)
-	float accStat = 0.02f;
-	float accSkill = 0.02f;
 	float hitFloor = 0.05f, hitCeil = 0.95f; // legacy, unused by the opposed roll
 	// The opposed roll (docs/damage-system.md). roll_scale bridges the old
 	// 0..1 accuracy/evasion onto d100 points and retires with them in P3.
-	float rollScale = 40.0f;
 	float critThreshold = 95.0f;
 	float fumbleThreshold = 5.0f;
 	float marginDamage = 0.01f; // damage multiplier per point of margin
@@ -99,6 +95,13 @@ struct Balance {
 	float statBonus = 2.0f;
 	float statCap = 35.0f;
 	float statBaseline = 10.0f;
+	// A party member's INNATE defense in d100 points, before anything trained.
+	// A monster authors its whole defense as one number (monsters.cat
+	// `defense`); a member assembles theirs, and until the dodge and armor
+	// SKILLS land (P5) the stat curve is all they have — DEX 12 is 4 points
+	// against a monster's 60, which measured at an 88% hit rate. This is the
+	// floor those skills will sit on top of, not a permanent term.
+	float defenseBase = 25.0f;
 	float resistClamp = 0.8f;   // max summed resist (nature 1.0 = immunity)
 	float woundFloor = 1.0f;    // a landed blow stings
 	float speedBase = 1.15f;    // interval = speed × (speedBase − speedStat×DEX)
@@ -161,7 +164,6 @@ struct Balance {
 		r.hitCeil = hitCeil;
 		r.damageJitter = damageJitter;
 		r.woundFloor = woundFloor;
-		r.rollScale = rollScale;
 		r.critThreshold = critThreshold;
 		r.fumbleThreshold = fumbleThreshold;
 		r.marginDamage = marginDamage;
