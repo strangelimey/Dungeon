@@ -1683,6 +1683,53 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 			// whose length is hardest to judge.
 			float gridTop = -1.0f, gridBot = -1.0f;
 
+			// GROUP FRAMES, drawn in their own pass BEFORE the rows so every one
+			// of them sits behind the text rather than over whichever rows happen
+			// to come after it.
+			//
+			// A frame encloses a parent and its whole subtree and runs the full
+			// width of the readout — names, numbers and bar alike — because the
+			// grouping is a fact about the ROW, not about the name column. Reading
+			// across, it says which parent's total the number in front of you is
+			// part of, which the indentation alone only says back at the far left.
+			//
+			// The LEFT edge steps in with depth, tracking the name it belongs to,
+			// so nested groups are told apart by where they start; the right edge
+			// is common, so they stack into one clean margin instead of a ragged
+			// staircase. Very low alpha: this is grouping, and it must not compete
+			// with the bars it encloses.
+			{
+				const float rowsTop = py;
+				const float groupW = std::min(barW, width - pad * 2.0f - barX);
+				// Alpha found by looking, not by taste: 0.07 was invisible at 1:1
+				// and only showed up magnified, which is a decoration rather than
+				// a cue. This is the lightest value that survives a glance without
+				// competing with the gridlines (0.16) inside it.
+				const Vec4 kGroupFrame{1.0f, 1.0f, 1.0f, 0.11f};
+				for (int i = 0; i < profRowCount; ++i) {
+					const ProfRow& pr = profRows[i];
+					if (pr.header) continue;
+
+					// The subtree is the run of rows deeper than this one — the
+					// walk is pre-order, so it is contiguous and ends at the first
+					// row that is not. A thread header carries depth 0 and so
+					// terminates any group, which is what stops a frame running
+					// off the end of its own thread.
+					int last = i;
+					for (int j = i + 1; j < profRowCount; ++j) {
+						if (profRows[j].header || profRows[j].depth <= pr.depth) break;
+						last = j;
+					}
+					if (last == i) continue; // a leaf is not a group
+
+					const float gx =
+						labelX + indent * static_cast<float>(pr.depth + 1) - pad * 0.4f;
+					const float gy = rowsTop + static_cast<float>(i) * rowAdvance;
+					const float gh = static_cast<float>(last - i + 1) * rowAdvance;
+					ui::DrawBorder(batch, {gx, gy, barX + groupW - gx, gh}, kGroupFrame);
+				}
+			}
+
 			// The path of the row being drawn, kept as the names at each depth so
 			// far. The walk is pre-order, so by the time a row is reached its
 			// ancestors are exactly the entries below it — no second traversal to
