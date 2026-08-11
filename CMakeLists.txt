@@ -95,6 +95,7 @@ add_subdirectory(src/Main)
 add_subdirectory(tools/AssetBaker)
 add_subdirectory(tools/Bc7Test)
 add_subdirectory(tools/DiagTest)
+add_subdirectory(tools/RollTest)
 add_subdirectory(tools/ThreadStress)
 
 # Visual Studio solution: open with the game as the startup project.
