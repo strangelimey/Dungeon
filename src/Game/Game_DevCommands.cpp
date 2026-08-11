@@ -818,6 +818,46 @@ void Game::RegisterDevCommands() {
 							   m_console.Print(std::format("{} pack += {}",
 														   m_characters[m].name, args[0]));
 					   });
+	// The offense/defense split before its slider exists
+	// (docs/damage-system.md). Worth keeping once the UI lands: setting an
+	// exact share is how the split gets MEASURED, where dragging a slider is
+	// how it gets FELT, and those are different questions.
+	m_console.Register("guard", "set a hand's offense share 0..N (dev)",
+					   [this](const std::vector<std::string>& args) {
+						   if (!Need(m_console, args, 1,
+									 "usage: guard <share 0..N> [member 0-3] [hand 0/1]"))
+							   return;
+						   const float share =
+							   static_cast<float>(std::atof(args[0].c_str()));
+						   const size_t m = args.size() > 1
+							   ? static_cast<size_t>(std::atoi(args[1].c_str())) : 0;
+						   if (m >= m_characters.size()) {
+							   m_console.Print("no such member");
+							   return;
+						   }
+						   // Deliberately NO upper clamp: over-exertion is
+						   // meant to go past 1, and this is the only way to
+						   // try it until its resource cost is designed.
+						   if (share < 0.0f) {
+							   m_console.Print("share cannot be negative");
+							   return;
+						   }
+						   Character& c = m_characters[m];
+						   if (args.size() > 2) {
+							   const int hand =
+								   std::clamp(std::atoi(args[2].c_str()), 0, 1);
+							   c.handOffense[hand] = share;
+						   } else {
+							   c.handOffense[0] = c.handOffense[1] = share;
+						   }
+						   m_console.Print(std::format(
+							   "{} offense L{:.2f} R{:.2f} (guarding with "
+							   "{:.0f}%/{:.0f}% of hand skill)",
+							   c.name, c.handOffense[0], c.handOffense[1],
+							   std::max(0.0f, 1.0f - c.handOffense[0]) * 100.0f,
+							   std::max(0.0f, 1.0f - c.handOffense[1]) * 100.0f));
+					   });
+
 	// `give` fills the pack; this puts a weapon straight in a hand, which is
 	// what a combat test actually needs (no cursor drag, no HUD clicking).
 	m_console.Register("equip", "put an item in a member's hand (dev)",

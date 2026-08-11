@@ -126,6 +126,12 @@ bool DamageTypeBook::IsPhysical(DamageType t) const {
 	return t.index < m_entries.size() && m_entries[t.index].physical;
 }
 
+bool DamageTypeBook::SchoolOf(DamageType t, SpellSymbol& out) const {
+	if (t.index >= m_entries.size() || !m_entries[t.index].hasSchool) return false;
+	out = m_entries[t.index].school;
+	return true;
+}
+
 DamageType DamageTypeBook::ForSchool(SpellSymbol school) const {
 	const size_t s = static_cast<size_t>(school);
 	// The form runes (Project/Protect/Sight) claim no type — they never deal

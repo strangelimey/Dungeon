@@ -195,7 +195,11 @@ public:
 
 	// The defender's numbers. Resist is FINAL — nature/catalog + equipment +
 	// this target's effects, summed and clamped by the host's rule.
-	virtual float Evasion() const = 0;
+	// TYPED, unlike the flat number it replaced: a combatant's guard is no
+	// longer one figure. A member holding a weapon hand back parries PHYSICAL
+	// blows; a defensively-cast spell guards its OWN SCHOOL. So the stage has
+	// to say what is arriving before the defender can say how well it is met.
+	virtual float Evasion(DamageType type) const = 0;
 	virtual float Soak() const = 0;
 	virtual float Resist(DamageType type) const = 0;
 

@@ -137,14 +137,56 @@ void DungeonWorld::RecomputePartyMaxima() {
 // EFFECT term is no longer a hard-coded Stone Skin branch but a sum over
 // whatever effects the target happens to carry.
 
-float DungeonWorld::PartyTarget::Evasion() const {
-	// The defender's side, in the same points: an innate base plus DEX. The
-	// dodge and armor SKILLS join it in P5, and the held-back weapon skill
-	// (the offense/defense split) after that — at which point the base can
-	// come back down, since it exists to stand in for them.
-	return m_world.m_balance.defenseBase +
-		   CurveValue(static_cast<float>(m_member.dexterity),
-					  m_world.m_balance.StatCurve());
+float DungeonWorld::PartyTarget::Evasion(DamageType type) const {
+	const Balance& b = m_world.m_balance;
+	// The innate floor plus DEX. The dodge and armor SKILLS join these in P5,
+	// at which point defenseBase can come back down — it stands in for them.
+	float guard = b.defenseBase +
+				  CurveValue(static_cast<float>(m_member.dexterity), b.StatCurve());
+
+	// THE HELD-BACK SKILL (docs/damage-system.md). Each hand puts
+	// handOffense into its attacks and keeps the REST to defend with, and
+	// which incoming damage that guard answers depends on what the hand does:
+	//
+	//   a weapon hand   parries PHYSICAL blows, off its weapon class (an
+	//                   empty hand parries unarmed — bare-handed, but not
+	//                   nothing)
+	//   a casting hand  guards its OWN SCHOOL only, off that school's skill:
+	//                   casting defensively with fire does not help against a
+	//                   frost bolt
+	//
+	// THE HANDS COMBINE BY MAX, NOT SUM. Summing would make holding both
+	// hands back strictly better than one and turn the slider into a free
+	// defense button; taking the best guard keeps it an honest trade.
+	//
+	// The cooldown is deliberately NOT consulted: a stance is not an action,
+	// so a hand still guards while it recovers from a swing.
+	SpellSymbol school{};
+	const bool magical = m_world.m_damageTypes.SchoolOf(type, school);
+	const bool physical = m_world.m_damageTypes.IsPhysical(type);
+
+	float best = 0.0f;
+	for (int hand = 0; hand < 2; ++hand) {
+		const float held = 1.0f - m_member.handOffense[hand];
+		if (held <= 0.0f) continue; // all-out attack guards with nothing
+
+		std::string_view skillId;
+		if (physical) {
+			const ItemSlot& slot = m_member.inventory.Hand(hand);
+			const ItemKind* weapon =
+				slot.Empty() ? nullptr : &m_world.ItemKindFor(slot.typeId);
+			skillId = weapon ? std::string_view(weapon->skill)
+							 : std::string_view("unarmed");
+		} else if (magical) {
+			skillId = SymbolId(school);
+		} else {
+			continue; // a type that is neither: nothing to parry it with
+		}
+
+		const float level = static_cast<float>(m_member.SkillLevel(skillId));
+		best = std::max(best, held * CurveValue(level, b.SkillCurve()));
+	}
+	return guard + best;
 }
 
 float DungeonWorld::PartyTarget::Soak() const {
@@ -199,7 +241,10 @@ void DungeonWorld::PartyTarget::SayApplied(const fx::EffectKind& kind) const {
 	if (!key.empty()) Say(loc::Format(key, m_member.name));
 }
 
-float DungeonWorld::MonsterTarget::Evasion() const {
+float DungeonWorld::MonsterTarget::Evasion(DamageType) const {
+	// A monster authors its whole guard as one number and has no hands to
+	// split, so the incoming type buys it nothing — for now. A per-type
+	// monster defense would be a monsters.cat column, not a code change.
 	return m_monster.kind->evasion;
 }
 

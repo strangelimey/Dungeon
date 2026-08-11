@@ -202,7 +202,8 @@ void Deal(DamageEvent& ev, ITarget& target, const StrikeRules& rules,
 	// flags admit.
 	float damage = 0.0f;
 	if (ev.rolled) {
-		const DefenseProfile def{target.Evasion(), ev.soaked ? target.Soak() : 0.0f,
+		const DefenseProfile def{target.Evasion(ev.type),
+								 ev.soaked ? target.Soak() : 0.0f,
 								 ev.resisted ? target.Resist(ev.type) : 0.0f};
 		const AttackResult r = ResolveAttack({ev.amount, ev.attackBonus, ev.type},
 											 def, rules, rng);

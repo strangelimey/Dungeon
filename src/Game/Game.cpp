@@ -547,6 +547,9 @@ void Game::SaveGame(const std::string& name) {
 		c.baseStamina = member.baseStamina;
 		c.baseMana = member.baseMana;
 		c.dead = member.dead; // the overkill flag (v18)
+		// The per-hand offense share (v23) — the slider's live position.
+		c.handOffense[0] = member.handOffense[0];
+		c.handOffense[1] = member.handOffense[1];
 		data.characters.push_back(std::move(c));
 	}
 	WriteSave(data, SaveSlotPath(name));
@@ -634,6 +637,10 @@ bool Game::LoadGame(const std::string& path) {
 		// current values arrived above and clamp/carry as usual.
 		const Balance& bal = m_world.GetBalance();
 		Character& member = m_characters[i];
+		// The offense share (v23). A pre-v23 save leaves the CharState at its
+		// 1.0 default, which is exactly what those saves meant: all-out.
+		member.handOffense[0] = c.handOffense[0];
+		member.handOffense[1] = c.handOffense[1];
 		if (c.hasBases) {
 			member.baseHealth = c.baseHealth;
 			member.baseStamina = c.baseStamina;

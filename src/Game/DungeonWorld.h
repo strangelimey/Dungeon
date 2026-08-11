@@ -1976,7 +1976,7 @@ private:
 	public:
 		PartyTarget(DungeonWorld& world, Character& member)
 			: m_world(world), m_member(member) {}
-		float Evasion() const override;
+		float Evasion(DamageType type) const override;
 		float Soak() const override;
 		float Resist(DamageType type) const override;
 		std::vector<fx::Inst>& Effects() override { return m_member.effects; }
@@ -2002,7 +2002,7 @@ private:
 	public:
 		MonsterTarget(DungeonWorld& world, Monster& monster)
 			: m_world(world), m_monster(monster) {}
-		float Evasion() const override;
+		float Evasion(DamageType type) const override;
 		float Soak() const override;
 		float Resist(DamageType type) const override;
 		std::vector<fx::Inst>& Effects() override { return m_monster.effects; }

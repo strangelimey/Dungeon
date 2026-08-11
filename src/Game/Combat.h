@@ -106,6 +106,12 @@ public:
 	// The damage type a school's magic deals, or the fallback when no type
 	// claims that school (the form runes never deal damage on their own).
 	DamageType ForSchool(SpellSymbol school) const;
+	// The reverse: the school a type belongs to, if any. False for the
+	// physical types and for any elemental one a project leaves school-less.
+	// This is what makes a PER-SCHOOL magic defense expressible — a ward held
+	// in a casting hand has to know whether the incoming damage is its
+	// business.
+	bool SchoolOf(DamageType t, SpellSymbol& out) const;
 
 	size_t Count() const { return m_entries.size(); }
 	const std::vector<Entry>& Entries() const { return m_entries; }
