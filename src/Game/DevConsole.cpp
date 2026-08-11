@@ -1583,7 +1583,13 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 								kText);
 					m_font->Draw(batch, std::format("{:.3f}", dExcl), width * 0.38f, py,
 								kDim);
-					m_font->Draw(batch, std::format("x{:.0f}", dCalls), width * 0.46f, py,
+					// ONE DECIMAL, because this is a mean over the window and means
+					// are fractional. Rounded to an integer it printed `x0` for
+					// gpu.shadows — a pass whose cube cache genuinely skips most
+					// frames — beside a non-zero time, which reads as a
+					// contradiction rather than as "runs about a third of the
+					// time". The fraction IS the measurement here.
+					m_font->Draw(batch, std::format("x{:.1f}", dCalls), width * 0.46f, py,
 								kDim);
 					// Bare, no "worst " prefix: the header above names the column,
 					// and repeating it on every row would be the label drawn forty
