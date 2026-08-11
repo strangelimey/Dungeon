@@ -157,10 +157,18 @@ DungeonWorld::DungeonWorld(gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	// Rebuilt every frame into retained capacity — no steady-state allocation.
 	m_lights.points.reserve(gfx::kMaxPointLights);
 
+	// The damage types themselves (docs/damage-system.md) — the vocabulary
+	// everything below is written in, so it is built before all of it.
+	m_damageTypes.Build(m_project.damagetypes);
+	if (!m_damageTypes.Find("bash", m_bashType))
+		log::Warn("damagetypes.cat defines no 'bash' type; collisions (wall "
+				  "bumps, pit landings) will deal '{}' instead",
+				  m_damageTypes.Id(m_bashType));
+
 	// The attack formula's tuning (docs/combat.md): knob sheet + per-attack
 	// numbers from the project's balance.cat/attacks.cat (missing files keep
 	// the C++ first-cut defaults). Magic reads it too (spell_stat).
-	m_balance.Load(m_project.balance, m_project.attacks);
+	m_balance.Load(m_project.balance, m_project.attacks, m_damageTypes);
 
 	// Magic system: build the spell registry (the Spell classes + the
 	// project's spells.cat numeric overrides), and wire the CAST SERVICES —
@@ -169,9 +177,9 @@ DungeonWorld::DungeonWorld(gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	// Status effects (docs/effects.md): the kind registry — every class in
 	// Game/Effect/ plus the project's effects.cat overrides. Built BEFORE the
 	// cast services, which hand spells an applyEffect resolving through it.
-	m_effects.Build(m_project.effects);
+	m_effects.Build(m_project.effects, m_damageTypes);
 
-	m_magic.LoadSpells(m_project.spells);
+	m_magic.LoadSpells(m_project.spells, m_damageTypes);
 	m_magic.SetBalance(&m_balance);
 	m_magic.SetCastServices(
 		{[this](const ProjectileSpec& bolt) { m_projectiles.Spawn(bolt); },

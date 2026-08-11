@@ -237,10 +237,9 @@ void Game::OpenInspectorFor(const InspectTarget& t) {
 		// A shot targeting the PARTY was fired by a monster, and vice versa.
 		c.side = loc::Tr(p.target == TargetSide::Party ? "map.proj.frommonster"
 													   : "map.proj.fromparty");
-		static constexpr std::array<const char*, kDamageTypeCount> kDmgKeys = {
-			"dmg.slash", "dmg.pierce", "dmg.bash",
-			"dmg.fire", "dmg.earth", "dmg.air", "dmg.water"};
-		c.dmgType = loc::Tr(kDmgKeys[static_cast<size_t>(p.atk.type)]);
+		// The type names itself through the book — a project type the engine
+		// has never heard of still reads correctly here.
+		c.dmgType = loc::Tr(m_world.DamageTypes().NameKey(p.atk.type));
 		c.damage = p.atk.damage;
 		c.accuracy = p.atk.accuracy;
 		c.speed = p.speed;

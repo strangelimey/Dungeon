@@ -12,7 +12,9 @@ namespace dungeon::game {
 
 MagicSystem::MagicSystem() = default;
 
-void MagicSystem::LoadSpells(const Catalog& spells) { m_spellBook.Build(spells); }
+void MagicSystem::LoadSpells(const Catalog& spells, const DamageTypeBook& types) {
+	m_spellBook.Build(spells, types);
+}
 
 MagicSystem::CastReport MagicSystem::Cast(Character& caster, int casterIndex,
 										  std::span<const SpellSymbol> sequence,

@@ -26,7 +26,8 @@ ProjectileSpec BoltSpell::MakeBolt(const Vec3& origin, const Vec3& dir,
 	// A damaging spell's type is its SCHOOL (docs/combat.md part 1) — the
 	// defender resists a fire bolt as fire. One line types every bolt, party-
 	// and monster-cast alike.
-	bolt.atk = {power, accuracy, SchoolDamageType(School())};
+	bolt.atk = {power, accuracy,
+				m_types ? m_types->ForSchool(School()) : DamageType{}};
 	const Vec4 g = ElementColor(School());
 	bolt.color = {g.x * 1.7f, g.y * 1.7f, g.z * 1.7f, 0.0f}; // bright additive
 	bolt.size = 0.2f;

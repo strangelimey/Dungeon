@@ -486,7 +486,7 @@ float DungeonWorld::CollideParty(float amount) {
 	for (Character& member : *m_roster) {
 		if (!member.IsAlive()) continue;
 		PartyTarget jarred{*this, member};
-		fx::DamageEvent ev = fx::DamageEvent::Impact(DamageType::Bash, amount);
+		fx::DamageEvent ev = fx::DamageEvent::Impact(m_bashType, amount);
 		fx::Deal(ev, jarred, m_balance.Strike(), m_combatRng);
 		jarred.NarrateFall();
 		// The collision answers itself: whatever guards a member scorches the
@@ -773,7 +773,7 @@ bool DungeonWorld::PartyAttack(size_t member, size_t hand, std::string_view verb
 	// the base damage/pace (unarmed knobs when bare/unstated); the associated
 	// stats' average is the attack bonus; accuracy is ALWAYS DEX.
 	const AttackSpec* spec = m_balance.FindAttack(verb);
-	if (!spec) spec = &Balance::Neutral();
+	if (!spec) spec = &m_balance.Neutral();
 	const std::span<const std::string> stats =
 		weapon && !weapon->stats.empty() ? std::span<const std::string>(weapon->stats)
 										 : std::span<const std::string>(UnarmedStats());
@@ -835,7 +835,7 @@ bool DungeonWorld::PartyAttack(size_t member, size_t hand, std::string_view verb
 	float elemental = 0.0f;
 	if (weapon && weapon->enchanted && weapon->elementBonus > 0.0f) {
 		fx::DamageEvent burst = fx::DamageEvent::Burst(
-			SchoolDamageType(weapon->element), atk.damage * weapon->elementBonus,
+			m_damageTypes.ForSchool(weapon->element), atk.damage * weapon->elementBonus,
 			static_cast<int>(member));
 		fx::Deal(burst, defender, m_balance.Strike(), m_combatRng);
 		elemental = burst.dealt;

@@ -24,7 +24,10 @@
 
 namespace dungeon::game {
 
-class Catalog; // Catalog.h — SpellBook::Build reads the spells catalog.
+class Catalog;
+// Combat.h includes THIS header, so the type book can only be forward
+// declared here — every use is by reference.
+class DamageTypeBook; // Catalog.h — SpellBook::Build reads the spells catalog.
 
 // The spell symbols: the four tier-1 SCHOOL elements first, then the shared
 // tier-2 FORM symbols (Project = "throw it ahead", Protect = "guard the
@@ -89,7 +92,7 @@ public:
 	// spells catalog's numeric overrides (matched by entry id). Catalog
 	// entries with no matching class — or stale `symbols` fields that no
 	// longer agree with the class recipe — are warned about, never trusted.
-	void Build(const Catalog& catalog);
+	void Build(const Catalog& catalog, const DamageTypeBook& types);
 	// The spell whose recipe exactly equals `seq`, or null if none matches.
 	const Spell* Match(std::span<const SpellSymbol> seq) const;
 	// The spell with id `id`, or null if none. Lets a non-party caster (a

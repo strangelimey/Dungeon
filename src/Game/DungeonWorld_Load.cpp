@@ -484,9 +484,11 @@ DungeonWorld::MonsterKind& DungeonWorld::MonsterKindFor(const std::string& type)
 			// The defender side (docs/combat.md part 4): per-type resist
 			// cells + what this monster's melee deals AS (default bash).
 			ParseResists(CatalogGet(def, "resists", ""), assets->resists,
-						 "monsters.cat [" + type + "]");
+						 "monsters.cat [" + type + "]", m_damageTypes);
+			// Default bash: a monster that names no dmgtype hits like a club.
+			assets->damageType = m_bashType;
 			if (const std::string t = CatalogGet(def, "dmgtype", "");
-				!t.empty() && !ParseDamageType(t, assets->damageType))
+				!t.empty() && !m_damageTypes.Find(t, assets->damageType))
 				log::Warn("monsters.cat [{}]: unknown dmgtype '{}'", type, t);
 			// What its blows leave behind, named by effect id.
 			ParseOnHit(def, assets->onHit, "monsters.cat [" + type + "]");
@@ -836,7 +838,7 @@ DungeonWorld::ItemKind& DungeonWorld::ItemKindFor(const std::string& type) {
 			}
 		}
 		ParseResists(CatalogGet(def, "resists", ""), kind->resists,
-					 "items.cat [" + type + "]");
+					 "items.cat [" + type + "]", m_damageTypes);
 		kind->armor = def ? def->GetFloat("armor", 0.0f) : 0.0f;
 		kind->weight = def ? def->GetFloat("weight", 0.0f) : 0.0f;
 		// `command` is a free-form list (whitespace/comma separated) of command ids

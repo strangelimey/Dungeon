@@ -25,6 +25,9 @@ namespace dungeon::game {
 struct Balance;
 struct Character;
 class Catalog;
+// Combat.h includes THIS header, so the type book can only be forward
+// declared here — every use is by reference.
+class DamageTypeBook;
 
 class MagicSystem {
 public:
@@ -32,7 +35,7 @@ public:
 
 	// (Re)builds the spell registry (classes + the catalog's numeric
 	// overrides). Call once.
-	void LoadSpells(const Catalog& spells);
+	void LoadSpells(const Catalog& spells, const DamageTypeBook& types);
 	bool HasRecipes() const { return !m_spellBook.Empty(); }
 
 	// What a successful Cast() may DO to the world — wired once by the owner

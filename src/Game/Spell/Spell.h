@@ -94,6 +94,11 @@ public:
 	// class-only — identity never comes from data.
 	virtual void ApplyOverrides(const CatalogEntry& e);
 
+	// The damage-type book this spell resolved against (SpellBook::Build), so a
+	// bolt can ask what its school deals. Borrowed; DungeonWorld owns it and it
+	// outlives the registry.
+	void SetTypes(const DamageTypeBook* types) { m_types = types; }
+
 	const std::string& Id() const { return m_id; }
 	const std::string& NameKey() const { return m_nameKey; } // "spell.<id>"
 	const std::string& DescKey() const { return m_descKey; } // "spell.<id>.desc"
@@ -106,6 +111,8 @@ public:
 	float Mana() const { return m_mana; }
 
 protected:
+	const DamageTypeBook* m_types = nullptr;
+
 	std::string m_id;
 	std::string m_nameKey;
 	std::string m_descKey;

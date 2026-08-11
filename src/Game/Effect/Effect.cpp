@@ -24,15 +24,24 @@ std::string_view EffectKind::NameKey(const Inst&) const { return m_nameKey; }
 
 DamageType EffectKind::DamageTypeOf(const Inst&) const { return m_damageType; }
 
-void EffectKind::ApplyOverrides(const CatalogEntry& e) {
+void EffectKind::ApplyOverrides(const CatalogEntry& e, const DamageTypeBook& types) {
+	m_types = &types;
+	// The class's own id first (set in its constructor), then any effects.cat
+	// override on top — so a project can retype an effect without a rebuild.
+	if (!m_damageTypeId.empty() && !types.Find(m_damageTypeId, m_damageType))
+		log::Warn("effect '{}' deals damage type '{}', which this project does "
+				  "not define (damagetypes.cat)", m_id, m_damageTypeId);
 	m_nameKey = e.Get("name", m_nameKey);
 	m_iconItem = e.Get("icon", m_iconItem);
 	m_applyParty = e.Get("apply_party", m_applyParty);
 	m_applyMonster = e.Get("apply_monster", m_applyMonster);
 	m_plume = e.GetBool("plume", m_plume);
-	if (const std::string type = e.Get("damage_type", ""); !type.empty())
-		if (!ParseDamageType(type, m_damageType))
+	if (const std::string type = e.Get("damage_type", ""); !type.empty()) {
+		if (types.Find(type, m_damageType))
+			m_damageTypeId = type;
+		else
 			log::Warn("effects.cat [{}]: unknown damage_type '{}'", m_id, type);
+	}
 	if (const std::string school = e.Get("school", ""); !school.empty())
 		if (!ParseSymbol(school, m_school))
 			log::Warn("effects.cat [{}]: unknown school '{}'", m_id, school);
@@ -265,10 +274,13 @@ Inst& Apply(std::vector<Inst>& effects, const EffectKind& kind,
 
 // --- EffectBook ---------------------------------------------------------------
 
-void EffectBook::Build(const Catalog& catalog) {
+void EffectBook::Build(const Catalog& catalog, const DamageTypeBook& types) {
 	// The classes ARE the effect table (Effect/AllEffects.cpp); the catalog
 	// gets the last word on numbers and look only.
 	m_kinds = MakeAllEffects();
+	// Every kind resolves its damage type even when the project authors no
+	// entry for it — a class-default "fire" still has to become an index.
+	for (const auto& k : m_kinds) k->ApplyOverrides(CatalogEntry{}, types);
 	for (const CatalogEntry& e : catalog.Entries()) {
 		EffectKind* kind = nullptr;
 		for (const auto& k : m_kinds)
@@ -277,7 +289,7 @@ void EffectBook::Build(const Catalog& catalog) {
 			log::Warn("effects.cat entry '{}' has no effect class; ignored", e.id);
 			continue;
 		}
-		kind->ApplyOverrides(e);
+		kind->ApplyOverrides(e, types);
 	}
 }
 

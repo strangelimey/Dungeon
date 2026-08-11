@@ -22,7 +22,10 @@ namespace dungeon::game::fx {
 
 class DotEffect : public EffectKind {
 public:
-	DotEffect(std::string id, std::string nameKey, DamageType type);
+	// `typeId` names a damagetypes.cat entry rather than an enumerator: these
+	// classes are constructed before any project is loaded, so a DoT can only
+	// say what it burns AS and let ApplyOverrides resolve which index that is.
+	DotEffect(std::string id, std::string nameKey, std::string typeId);
 };
 
 // Venom in the blood — earth's nature damage. (Its HUD tint is earth green

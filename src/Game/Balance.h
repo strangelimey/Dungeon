@@ -33,7 +33,12 @@ class Catalog;
 // numbers shade the weapon-derived strike and are attacks.cat data.
 struct AttackSpec {
 	std::string id;
-	DamageType type = DamageType::Bash;
+	// The damage type this verb deals, as an ID — identity, and C++ still owns
+	// it (the closed list below), but it names a damagetypes.cat entry rather
+	// than an enumerator, so a project can retype a verb or add one dealing a
+	// type the engine has never heard of. Resolved to `type` by Load.
+	std::string typeId;
+	DamageType type{};
 	float dmg = 1.0f;  // × the profile damage
 	float acc = 0.0f;  // + the profile accuracy
 	float pace = 1.0f; // × the swing interval (a whiff pays it too)
@@ -128,7 +133,11 @@ struct Balance {
 
 	// The spec for a melee verb; null for unknown/empty (callers use Neutral()).
 	const AttackSpec* FindAttack(std::string_view id) const;
-	static const AttackSpec& Neutral(); // dmg ×1, acc +0, pace ×1, bash
+	// dmg ×1, acc +0, pace ×1, bash. No longer static: its damage type is a
+	// LOOKUP now, so it needs the book Load resolved against — a file-static
+	// would have to guess an index, and index 0 is whatever the project happens
+	// to list first.
+	const AttackSpec& Neutral() const { return m_neutral; }
 
 	// Clamps a SUMMED resist to ±resistClamp — except an authored nature cell
 	// at 1.0+, which reaches true immunity (docs/combat.md part 4).
@@ -136,9 +145,13 @@ struct Balance {
 
 	// balance.cat [formula] knobs + attacks.cat numeric overrides. Missing
 	// files/fields keep the defaults, so a project without them still runs.
-	void Load(const Catalog& balanceCat, const Catalog& attacksCat);
+	void Load(const Catalog& balanceCat, const Catalog& attacksCat,
+			  const DamageTypeBook& types);
 	// Writes the live values back into the catalogs (the editor's Save path).
 	void Save(Catalog& balanceCat, Catalog& attacksCat) const;
+
+private:
+	AttackSpec m_neutral;
 };
 
 // The knob fields table: catalog key ↔ Balance member. Drives Load/Save and
@@ -164,6 +177,6 @@ std::vector<std::string> ParseStatList(std::string_view spec,
 									   std::string_view owner);
 // "pierce 0.5, slash 0.25, bash -0.5" → the cells named (others untouched).
 void ParseResists(std::string_view spec, ResistTable& out,
-				  std::string_view owner);
+				  std::string_view owner, const DamageTypeBook& types);
 
 } // namespace dungeon::game

@@ -130,7 +130,7 @@ enum class Delivery : u8 {
 // enchanted weapon's elemental term is resisted by element but neither rolled
 // nor soaked (plate turns a blade, not a flame).
 struct DamageEvent {
-	DamageType type = DamageType::Bash;
+	DamageType type{};
 	float amount = 0.0f;   // the attacker's assembled damage, before defenses
 	float accuracy = 0.0f; // 0..1, against the defender's evasion (if rolled)
 	Delivery delivery = Delivery::Melee;
@@ -237,7 +237,12 @@ public:
 	// Lay the project's effects.cat numbers over the class defaults, matched
 	// by id (EffectBook::Build calls this once per load). The base takes the
 	// name/icon/stacking; a derived kind adds its own fields.
-	virtual void ApplyOverrides(const CatalogEntry& e);
+	//
+	// The type book comes in here because this is the FIRST moment a kind can
+	// resolve one: the classes are constructed by MakeAllEffects() before any
+	// project is loaded, so a DoT knows only that it burns as "fire" — which
+	// index that is depends on the project.
+	virtual void ApplyOverrides(const CatalogEntry& e, const DamageTypeBook& types);
 
 	// --- the pipeline hooks (docs/effects.md) --------------------------------
 	// One per stage an effect can intervene at. All default to doing nothing,
@@ -294,13 +299,20 @@ public:
 	SpellSymbol DefaultSchool() const { return m_school; }
 
 protected:
+	// The book this kind resolved against, borrowed for the lifetime of the
+	// load (DungeonWorld owns both, and the book is built first). It is what
+	// lets a hook answer a question about a type — "is this physical?", "what
+	// does fire deal?" — without every hook signature growing a parameter.
+	const DamageTypeBook* m_types = nullptr;
+
 	std::string m_id;
 	std::string m_nameKey;
 	std::string m_iconItem;
 	std::string m_applyParty, m_applyMonster;
+	std::string m_damageTypeId; // resolved into m_damageType at ApplyOverrides
 	Category m_category;
 	Stacking m_stacking;
-	DamageType m_damageType = DamageType::Bash;
+	DamageType m_damageType{};
 	SpellSymbol m_school = SpellSymbol::Fire;
 	bool m_plume = false;
 };
@@ -380,7 +392,7 @@ void React(const DamageEvent& ev, ITarget& target, ITarget* attacker,
 // world points into it — so it must outlive them (DungeonWorld owns it).
 class EffectBook {
 public:
-	void Build(const Catalog& catalog);
+	void Build(const Catalog& catalog, const DamageTypeBook& types);
 	// The kind with this id, or null. Also resolves the LEGACY save tokens
 	// ("ward" + school, "poison", "bleed", "sight") so an old save loads.
 	const EffectKind* Find(std::string_view id) const;

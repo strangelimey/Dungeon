@@ -193,6 +193,9 @@ public:
 	// kind. The save loader (Game::ApplyState) reads it to rebuild a member's
 	// effects; everything else already holds kind pointers.
 	const fx::EffectBook& Effects() const { return m_effects; }
+	// The damage-type vocabulary, for anything that has to NAME a type it was
+	// handed (the projectile inspector, the type editor).
+	const DamageTypeBook& DamageTypes() const { return m_damageTypes; }
 	// Land an effect on the monster the party faces (dev console). False if
 	// there is nothing ahead or no such effect. The monster side of the effect
 	// list has no other hand-authored entry point.
@@ -1066,7 +1069,7 @@ private:
 		// authored immunity) and what this monster's melee deals AS
 		// (`dmgtype`, default bash). Ranged/spell attacks type by school.
 		ResistTable resists;
-		DamageType damageType = DamageType::Bash;
+		DamageType damageType{}; // resolved from `dmgtype` at load
 		// What a LANDED melee blow may leave behind (monsters.cat `on_hit =
 		// poison 1 20, bleed 2 10 0.5`): effects named by ID, rolled and
 		// landed by fx::ApplyProcs. The older one-per-line `poison =` /
@@ -1902,11 +1905,13 @@ private:
 	template <class OnExpire>
 	void TickEffects(fx::ITarget& target, std::vector<fx::Inst>& effects,
 					 float dt, OnExpire onExpire) {
-		std::array<float, kDamageTypeCount> bite{};
+		// Sized by the CEILING, not the live count: this is a stack array on a
+		// per-frame path, so it must have a compile-time size.
+		std::array<float, kMaxDamageTypes> bite{};
 		for (fx::Inst& e : effects) {
 			e.timeLeft -= dt;
 			if (e.IsDot())
-				bite[static_cast<size_t>(e.kind->DamageTypeOf(e))] +=
+				bite[e.kind->DamageTypeOf(e).index] +=
 					e.magnitude * dt;
 			if (e.timeLeft <= 0.0f) onExpire(e);
 		}
@@ -1915,7 +1920,7 @@ private:
 		for (size_t i = 0; i < bite.size(); ++i) {
 			if (bite[i] <= 0.0f) continue;
 			fx::DamageEvent ev = fx::DamageEvent::Tick(
-				static_cast<DamageType>(i), bite[i], DotSource(effects));
+				DamageType{static_cast<u8>(i)}, bite[i], DotSource(effects));
 			fx::Deal(ev, target, m_balance.Strike(), m_combatRng);
 		}
 	}
@@ -2233,6 +2238,15 @@ private:
 	// once from the classes + the project's effects.cat. EVERY fx::Inst in the
 	// world — on a party member, and on a monster from P3 — points into it, so
 	// it must outlive them all; being a member here, it does.
+	// The damage-type vocabulary (damagetypes.cat). Built FIRST of the three
+	// registries, because Balance resolves its attack types against it and
+	// every effect kind resolves the type it deals — and it must outlive both,
+	// since a DamageType anywhere in the world is an index into it.
+	DamageTypeBook m_damageTypes;
+	// The type a COLLISION deals (a wall, a door, a pit landing). Resolved once
+	// at load: the world's two blows are not attacks and have no verb to ask,
+	// so this is the one place the engine still needs a type by name.
+	DamageType m_bashType{};
 	fx::EffectBook m_effects;
 
 	// The shared moving-item engine (Projectiles.h): flies + resolves + draws every

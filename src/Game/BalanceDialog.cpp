@@ -125,7 +125,7 @@ void BalanceDialog::BuildAttacksTab(size_t tab) {
 		row->gapRem = 0.4f;
 		row->Row<ui::Label>(ui::Len::Fill(kIdFill), a.id)->centerV = true;
 		ui::Label* type =
-			row->Row<ui::Label>(ui::Len::Fill(kTypeFill), DamageTypeId(a.type));
+			row->Row<ui::Label>(ui::Len::Fill(kTypeFill), a.typeId);
 		type->centerV = true;
 		type->dim = true;
 		AddNumericField(*row, ui::Len::Fill(kNumFill), a.dmg,
