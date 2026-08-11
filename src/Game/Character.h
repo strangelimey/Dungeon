@@ -76,11 +76,11 @@ struct Character {
 	// THE OFFENSE SHARE (docs/damage-system.md): how much of this character's
 	// skill goes into ATTACKING. 1.0 spends it all and guards with nothing;
 	// 0.4 puts 40% behind every swing and holds 60% back to defend with. It is
-	// ONE stance for the character, not one per hand — the two hands still
-	// guard DIFFERENTLY (a sword parries physical blows off its weapon class, a
-	// casting hand guards its own school off that school's skill) and the
-	// better of the two answers each incoming blow, but the fighter makes one
-	// decision about how hard to press. It applies while a hand is on COOLDOWN
+	// ONE stance for the character, not one per hand. Against a PHYSICAL blow
+	// the two hands still guard differently — each parries off its own weapon
+	// class and the better of them answers — but a MAGICAL one is warded with
+	// the skill in ITS OWN school (knowing fire is what turns fire aside), and
+	// the hands play no part in that at all. It applies while a hand is on COOLDOWN
 	// too: a stance is not an action, so recovering from a swing does not drop
 	// your guard.
 	//

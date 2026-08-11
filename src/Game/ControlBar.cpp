@@ -105,27 +105,49 @@ HandPair::HandPair(const gfx::Rect& rect, size_t member,
 							   member, deps.onGuardChange);
 }
 
+// How tall one pair must be for boxes of the largest square its width allows.
+// Static and public because ControlBar has to ask it BEFORE laying the grid
+// out — the grid's height is a consequence of the bar's width, and only this
+// function knows the shape of that consequence.
+float HandPair::NeededHeight(float widthPx, float emPx) {
+	return SquareSide(widthPx, emPx) + emPx * 0.35f + BandHeight(emPx);
+}
+
+float HandPair::SquareSide(float widthPx, float emPx) {
+	// 1em of margin down each side, the authored sliver between the boxes,
+	// and the rest split in two. WIDTH ALONE decides — the height then follows
+	// from it, which is the whole point: a box clamped by the height it was
+	// given comes out tiny the moment the parent is short.
+	const float gap = widthPx * (kHandGap / kSetW);
+	const float avail = widthPx - emPx * 2.0f - gap;
+	return std::max(0.0f, avail * 0.5f);
+}
+
+float HandPair::BandHeight(float emPx) { return emPx * 0.5f; }
+
 void HandPair::LayoutSelf(ui::UIContext&) {
 	const gfx::Rect& px = Pixel();
 	if (px.w <= 0.0f || px.h <= 0.0f) return;
 
-	// The slider is a thin band at the bottom; the boxes take the rest, and
-	// their side is whichever of "half the width" or "the remaining height"
-	// runs out first, so the pair fits its box at any aspect.
+	const float em = Rem(1.0f);
 	const float gap = px.w * (kHandGap / kSetW);
-	const float band = std::max(Rem(0.35f), px.h * 0.10f);
-	const float side = std::min((px.w - gap) * 0.5f, px.h - band - Rem(0.15f));
+	const float side = SquareSide(px.w, em);
+	const float band = BandHeight(em);
 	if (side <= 0.0f) return;
 
+	// SQUARE IN PIXELS, which is why the two axes are divided by different
+	// extents: `bounds` are fractions of the parent per axis, so equal
+	// fractions are only a square when the parent happens to be square.
 	for (int hand = 0; hand < 2; ++hand) {
 		if (!m_slots[hand]) continue;
-		m_slots[hand]->bounds = {(side + gap) * static_cast<float>(hand) / px.w,
-								 0.0f, side / px.w, side / px.h};
+		m_slots[hand]->bounds = {
+			(em + (side + gap) * static_cast<float>(hand)) / px.w, 0.0f,
+			side / px.w, side / px.h};
 	}
-	// Spans the full width of both boxes plus the gap between them — the
-	// visual claim that it governs the pair rather than either hand.
+	// Spans both boxes and the gap between them — the visual claim that it
+	// governs the pair rather than either hand.
 	if (m_guard)
-		m_guard->bounds = {0.0f, (side + Rem(0.15f)) / px.h,
+		m_guard->bounds = {em / px.w, (side + em * 0.35f) / px.h,
 						   (side * 2.0f + gap) / px.w, band / px.h};
 }
 
@@ -180,8 +202,29 @@ ControlBar::ControlBar(const gfx::Rect& rect, const ControlBarDeps& deps) {
 	const float magicTop = handsTop + handsH;
 
 	Add<MovementPad>(gfx::Rect{0.0f, 0.0f, 1.0f, padH}, deps);
-	Add<HandsArea>(gfx::Rect{0.0f, handsTop, 1.0f, handsH}, deps);
+	// handsH here is only a starting guess; LayoutSelf replaces it with the
+	// height the square boxes actually need once the pixel width is known.
+	m_hands = Add<HandsArea>(gfx::Rect{0.0f, handsTop, 1.0f, handsH}, deps);
 	m_magic = Add<MagicArea>(gfx::Rect{0.0f, magicTop, 1.0f, 1.0f - magicTop}, deps);
+	m_rows = HandRows(MemberCount(deps));
+}
+
+void ControlBar::LayoutSelf(ui::UIContext&) {
+	if (!m_hands || !m_magic) return;
+	const gfx::Rect inner = ContentRect();
+	if (inner.w <= 0.0f || inner.h <= 0.0f) return;
+
+	// Walk the same nesting the widgets do, in PIXELS, to find how tall one
+	// row of square boxes has to be: the interior splits into member sets, a
+	// set into two boxes plus the stance band beneath them.
+	const float setW = inner.w * (kSetW / kInnerW);
+	const float rowH = HandPair::NeededHeight(setW, Rem(1.0f));
+	const float handsH = rowH * static_cast<float>(m_rows);
+
+	const float top = m_hands->bounds.y;
+	m_hands->bounds.h = handsH / inner.h;
+	m_magic->bounds.y = top + m_hands->bounds.h;
+	m_magic->bounds.h = std::max(0.0f, 1.0f - m_magic->bounds.y);
 }
 
 // The interior every area resolves against: inset by the bar's padding, a

@@ -67,6 +67,13 @@ class HandPair : public ui::Widget {
 public:
 	HandPair(const gfx::Rect& rect, size_t member, const ControlBarDeps& deps);
 
+	// The height a pair of this width needs, and the pieces it is made of.
+	// ControlBar asks BEFORE laying out, because the hand grid's height is a
+	// consequence of the bar's width and nothing else can know that.
+	static float NeededHeight(float widthPx, float emPx);
+	static float SquareSide(float widthPx, float emPx);
+	static float BandHeight(float emPx);
+
 private:
 	// The boxes are SQUARE, and squareness cannot be authored: `bounds` are
 	// fractions of the parent in each axis independently, so a w/h pair only
@@ -113,8 +120,17 @@ public:
 
 private:
 	void DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) override;
+	// The hand grid's height is DERIVED, not authored. The boxes are square
+	// and sized from the WIDTH, so how tall the grid must be depends on how
+	// wide the bar is — a fraction-of-height authored at build time cannot
+	// know that. (The old kSetH did exactly that, dividing a width-derived
+	// figure by the bar's height, which only ever came out right at one
+	// window aspect.) Magic takes whatever is left.
+	void LayoutSelf(ui::UIContext& ctx) override;
 
+	ui::Widget* m_hands = nullptr;
 	MagicArea* m_magic = nullptr;
+	size_t m_rows = 1;
 };
 
 } // namespace dungeon::game

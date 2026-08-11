@@ -144,16 +144,22 @@ float DungeonWorld::PartyTarget::Evasion(DamageType type) const {
 	float guard = b.defenseBase +
 				  CurveValue(static_cast<float>(m_member.dexterity), b.StatCurve());
 
-	// THE HELD-BACK SKILL (docs/damage-system.md). Each hand puts
-	// handOffense into its attacks and keeps the REST to defend with, and
-	// which incoming damage that guard answers depends on what the hand does:
+	// THE HELD-BACK SKILL (docs/damage-system.md). The character keeps
+	// (1 - offenseShare) of their skill back to defend with — ONE stance, not
+	// one per hand. What that guard is worth depends on what is arriving:
 	//
-	//   a weapon hand   parries PHYSICAL blows, off its weapon class (an
-	//                   empty hand parries unarmed — bare-handed, but not
-	//                   nothing)
-	//   a casting hand  guards its OWN SCHOOL only, off that school's skill:
-	//                   casting defensively with fire does not help against a
-	//                   frost bolt
+	//   PHYSICAL   parried with a HAND, off its weapon class — so the two
+	//              hands can differ, and the better of them answers the blow.
+	//              An empty hand parries `unarmed`: bare-handed, but not
+	//              nothing.
+	//   MAGICAL    warded with the SKILL IN THE INCOMING SCHOOL. Knowing fire
+	//              is what lets you turn fire aside, so a fire specialist
+	//              shrugs off a firebolt and is no better than anyone else
+	//              against frost. The HANDS ARE IRRELEVANT here — which is
+	//              worth stating plainly, because the alternative rule (the
+	//              guard belongs to a hand and covers only the school that
+	//              hand is set to cast) is the one this comment used to
+	//              describe, and it is NOT what happens.
 	//
 	// THE HANDS COMBINE BY MAX, NOT SUM. Summing would make holding both
 	// hands back strictly better than one and turn the slider into a free
@@ -161,32 +167,29 @@ float DungeonWorld::PartyTarget::Evasion(DamageType type) const {
 	//
 	// The cooldown is deliberately NOT consulted: a stance is not an action,
 	// so a hand still guards while it recovers from a swing.
-	// ONE stance for the character; what differs between the hands is what
-	// they can parry WITH, not how much is held back.
 	const float held = 1.0f - m_member.offenseShare;
 	if (held <= 0.0f) return guard; // all-out attack guards with nothing
 
-	SpellSymbol school{};
-	const bool magical = m_world.m_damageTypes.SchoolOf(type, school);
-	const bool physical = m_world.m_damageTypes.IsPhysical(type);
+	const auto skillGuard = [&](std::string_view skillId) {
+		return held * CurveValue(static_cast<float>(m_member.SkillLevel(skillId)),
+								 b.SkillCurve());
+	};
+
+	// Magic: one lookup, no hands. (It sat inside the hand loop once, which
+	// computed the same number twice and took the max of it with itself.)
+	if (SpellSymbol school{}; m_world.m_damageTypes.SchoolOf(type, school))
+		return guard + skillGuard(SymbolId(school));
+
+	if (!m_world.m_damageTypes.IsPhysical(type))
+		return guard; // neither physical nor a school: nothing to parry it with
 
 	float best = 0.0f;
 	for (int hand = 0; hand < 2; ++hand) {
-		std::string_view skillId;
-		if (physical) {
-			const ItemSlot& slot = m_member.inventory.Hand(hand);
-			const ItemKind* weapon =
-				slot.Empty() ? nullptr : &m_world.ItemKindFor(slot.typeId);
-			skillId = weapon ? std::string_view(weapon->skill)
-							 : std::string_view("unarmed");
-		} else if (magical) {
-			skillId = SymbolId(school);
-		} else {
-			continue; // a type that is neither: nothing to parry it with
-		}
-
-		const float level = static_cast<float>(m_member.SkillLevel(skillId));
-		best = std::max(best, held * CurveValue(level, b.SkillCurve()));
+		const ItemSlot& slot = m_member.inventory.Hand(hand);
+		const ItemKind* weapon =
+			slot.Empty() ? nullptr : &m_world.ItemKindFor(slot.typeId);
+		best = std::max(best, skillGuard(weapon ? std::string_view(weapon->skill)
+												: std::string_view("unarmed")));
 	}
 	return guard + best;
 }
