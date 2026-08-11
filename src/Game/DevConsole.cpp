@@ -845,6 +845,7 @@ void DevConsole::SnapAccumulate(float dt) {
 		s.cpuMs += fb.cpuMs;
 		s.waitMs += fb.waitGpuMs;
 		s.presentMs += fb.presentMs;
+		s.capMs += fb.capMs;
 		s.gpuMs += fb.gpuBusyMs;
 		s.budgetValid = true;
 	}
@@ -876,6 +877,7 @@ void DevConsole::SnapFinish() {
 	s.cpuMs *= inv;
 	s.waitMs *= inv;
 	s.presentMs *= inv;
+	s.capMs *= inv;
 	s.gpuMs *= inv;
 
 	// Logged as well as printed. A snapshot's summary is the only durable record
@@ -889,8 +891,21 @@ void DevConsole::SnapFinish() {
 	say(std::format("snapshot '{}' recorded: {} rows over {:.1f}s ({} frames)", s.name, s.rows,
 					s.seconds, s.samples));
 	if (s.budgetValid)
-		say(std::format("  frame {:.3f}  cpu {:.3f}  wait {:.3f}  present {:.3f}  gpu {:.3f}",
-						s.frameMs, s.cpuMs, s.waitMs, s.presentMs, s.gpuMs));
+		say(std::format("  frame {:.3f}  cpu {:.3f}  wait {:.3f}  present {:.3f}  cap {:.3f}  "
+						"gpu {:.3f}",
+						s.frameMs, s.cpuMs, s.waitMs, s.presentMs, s.capMs, s.gpuMs));
+
+	// A MACHINE-READABLE twin, log only. The line above is laid out for a person
+	// and a harness parsing it would break the moment a column is widened or a
+	// term added — which is exactly what just happened to it when the frame cap
+	// landed. key=value survives both.
+	if (s.budgetValid)
+		log::Write(log::Level::Info,
+				   std::format("profilesnap {} frame={:.4f} cpu={:.4f} wait={:.4f} "
+							   "present={:.4f} cap={:.4f} gpu={:.4f} rows={} samples={} "
+							   "secs={:.2f}",
+							   s.name, s.frameMs, s.cpuMs, s.waitMs, s.presentMs, s.capMs,
+							   s.gpuMs, s.rows, s.samples, s.seconds));
 }
 
 void DevConsole::SnapDiff(const Snapshot& a, const Snapshot& b) {
@@ -919,6 +934,7 @@ void DevConsole::SnapDiff(const Snapshot& a, const Snapshot& b) {
 		delta("cpu", a.cpuMs, b.cpuMs);
 		delta("wait.gpu", a.waitMs, b.waitMs);
 		delta("present", a.presentMs, b.presentMs);
+		delta("cap", a.capMs, b.capMs);
 		delta("gpu", a.gpuMs, b.gpuMs);
 	}
 

@@ -166,6 +166,12 @@ void Game::RegisterDevCommands() {
 					   [this](const std::vector<std::string>& args) {
 						   if (!args.empty()) m_device.SetFrameCapEnabled(ArgOn(args[0]));
 						   const int hz = m_device.FrameCapHz();
+						   // key=value to the log so a harness can read the target it
+						   // is meant to hold the frame rate against, rather than
+						   // hardcoding this machine's monitor.
+						   log::Info("framecap enabled={} hz={} monitor={}",
+									 m_device.FrameCapEnabled() ? 1 : 0, hz,
+									 m_device.RefreshHz());
 						   m_console.Print(
 							   m_device.FrameCapEnabled()
 								   ? std::format("frame cap ON - {} Hz (monitor {} Hz / "

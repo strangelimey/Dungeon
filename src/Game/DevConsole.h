@@ -320,7 +320,8 @@ private:
 		int rows = 0;
 		SnapRow row[kSnapRows];
 		// The frame budget, averaged over the same window.
-		double frameMs = 0.0, cpuMs = 0.0, waitMs = 0.0, presentMs = 0.0, gpuMs = 0.0;
+		double frameMs = 0.0, cpuMs = 0.0, waitMs = 0.0, presentMs = 0.0, capMs = 0.0,
+			   gpuMs = 0.0;
 		bool budgetValid = false;
 	};
 	Snapshot m_snaps[kSnapSlots];
