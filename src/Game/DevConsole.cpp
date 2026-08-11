@@ -1684,12 +1684,16 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 			// A mean has to SAY it is one. Left unlabelled these read as this
 			// frame's cost, and someone would chase a 4 ms average as though it
 			// were the frame in front of them.
-			if (!m_profileGraph)
-				m_font->Draw(batch,
-							m_profSmoothSec > 0.0f
-								? std::format("avg {:.0f} ms", m_profSmoothSec * 1000.0f)
-								: std::string("live"),
-							width * 0.25f, py, kDim);
+			//
+			// Shown in BOTH views. It was list-only while the graph view's
+			// figures were raw; now that they are held too, hiding the label
+			// there would leave a whole view quietly reporting means as
+			// instants — the precise thing the label exists to prevent.
+			m_font->Draw(batch,
+						m_profSmoothSec > 0.0f
+							? std::format("avg {:.0f} ms", m_profSmoothSec * 1000.0f)
+							: std::string("live"),
+						width * 0.25f, py, kDim);
 
 			// THE VERDICT, on the section header rather than buried in the tree:
 			// it is the one line worth reading before any of the numbers, because
@@ -1957,7 +1961,15 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 					float peak = 0.0f;
 					if (ser)
 						for (float v : ser->samples) peak = std::max(peak, v);
-					m_font->Draw(batch, std::format("{:.3f} peak {:.3f} ms", pr.inclMs, peak),
+					// The SAME held reading the list view shows. The plot wants raw
+					// samples — a graph is a shape, and smoothing it would iron out
+					// the spike it exists to show — but the NUMBER beside it is read
+					// rather than watched, and at frame rate it cannot be. The peak
+					// needs no help: it is already a max over the whole window.
+					const ProfSmooth* gsm = SmoothFor(pr.tid, pr.node);
+					m_font->Draw(batch,
+								std::format("{:.3f} peak {:.3f} ms",
+											gsm ? gsm->incl : pr.inclMs, peak),
 								gx + gw * 0.42f, gy, kDim);
 
 					const gfx::Rect plot{gx, gy + line, gw, graphH - line};
@@ -1991,8 +2003,12 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 					const float cw = checkbox(pad * 2.0f, py, false, -1, pr.tid, pr.node);
 					m_font->Draw(batch, std::format("{}/{}", curThread, pr.name),
 								pad * 2.0f + cw, py, kDim);
-					m_font->Draw(batch, std::format("{:.3f} ms", pr.inclMs), width * 0.30f, py,
-								kDim);
+					// Held too. A collapsed measure is still a number someone is
+					// reading, and it has no graph beside it to read instead.
+					const ProfSmooth* hsm = SmoothFor(pr.tid, pr.node);
+					m_font->Draw(batch,
+								std::format("{:.3f} ms", hsm ? hsm->incl : pr.inclMs),
+								width * 0.30f, py, kDim);
 					py += line;
 				}
 
