@@ -254,10 +254,16 @@ struct FrameBudget {
 	double frameMs = 0.0;
 	double waitGpuMs = 0.0; // stopped, because the GPU is frames behind
 	double presentMs = 0.0; // stopped, in Present
-	double cpuMs = 0.0;     // the frame minus both blocks: work, by elimination
+	double capMs = 0.0;     // stopped, because WE said so (the frame cap)
+	double cpuMs = 0.0;     // the frame minus every block: work, by elimination
 	double gpuBusyMs = 0.0; // the GPU source's spans, summed
 
-	enum class Bound { Unknown, Cpu, Gpu, Display };
+	// Cap is its own verdict rather than being folded into Display. Both mean
+	// "not the hardware", but they call for opposite actions: display-bound is
+	// finished — the screen cannot show more — while cap-bound is a limit YOU
+	// set and can raise. Reporting a self-imposed ceiling as a hardware one
+	// would send someone hunting for a bottleneck that is a config line.
+	enum class Bound { Unknown, Cpu, Gpu, Display, Cap };
 	Bound bound = Bound::Unknown;
 };
 
@@ -290,6 +296,8 @@ FrameBudget MeasureFrameBudget(const ProfRow* rows, int count, ShownFn&& shownIn
 				b.waitGpuMs = shownIncl(r);
 			} else if (is(r.name, prof::kZonePresent)) {
 				b.presentMs = shownIncl(r);
+			} else if (is(r.name, prof::kZoneWaitCap)) {
+				b.capMs = shownIncl(r);
 			}
 		} else if (is(thread, prof::kSourceGpu) && r.depth == 0) {
 			// The GPU's spans are FLAT roots by construction (GpuProfiler.h), so
@@ -305,12 +313,12 @@ FrameBudget MeasureFrameBudget(const ProfRow* rows, int count, ShownFn&& shownIn
 	// not spend blocked, it spent doing something, and that includes update and
 	// the parts of render that no zone happens to cover. Reading `record` alone
 	// would quietly under-count and make the CPU look cheaper than it is.
-	b.cpuMs = b.frameMs - b.waitGpuMs - b.presentMs;
+	b.cpuMs = b.frameMs - b.waitGpuMs - b.presentMs - b.capMs;
 	if (b.cpuMs < 0.0) b.cpuMs = 0.0; // the waits are sampled inside the frame; clamp
 	if (b.frameMs <= 0.0) return b;
 
 	const double gpuFrac = b.gpuBusyMs / b.frameMs;
-	const double waitFrac = (b.waitGpuMs + b.presentMs) / b.frameMs;
+	const double waitFrac = (b.waitGpuMs + b.presentMs + b.capMs) / b.frameMs;
 
 	// ORDER MATTERS, and GPU is tested first on purpose. A saturated GPU shows up
 	// as a long block in EITHER wait — on the fence, or in Present with no back
@@ -318,6 +326,10 @@ FrameBudget MeasureFrameBudget(const ProfRow* rows, int count, ShownFn&& shownIn
 	// display-bound. Asking the GPU how busy it was can.
 	if (b.gpuKnown && gpuFrac >= kGpuSaturated) b.bound = FrameBudget::Bound::Gpu;
 	else if (waitFrac < kBarelyWaiting) b.bound = FrameBudget::Bound::Cpu;
+	// Between the two kinds of doing-nothing, whichever consumed more of the
+	// frame names the reason. A capped frame still parks briefly in Present, so
+	// the presence of either wait proves nothing on its own.
+	else if (b.capMs > b.presentMs) b.bound = FrameBudget::Bound::Cap;
 	else b.bound = FrameBudget::Bound::Display;
 	return b;
 }
@@ -1687,6 +1699,10 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 						face = "bound by display";
 						col = kDim;
 						break;
+					case FrameBudget::Bound::Cap:
+						face = "bound by cap";
+						col = kBudgetCapColor;
+						break;
 					default: break;
 					}
 					const float vx = width * 0.40f;
@@ -1712,6 +1728,13 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 					term(" · ", kDim);
 					term(std::format("present {:.2f}", fb.presentMs), kBudgetPresentColor);
 					term(" · ", kDim);
+					// Only when it is doing something. An always-present `cap 0.00`
+					// would be a permanent column reporting the absence of a
+					// feature most of the time.
+					if (fb.capMs > 0.005) {
+						term(std::format("cap {:.2f}", fb.capMs), kBudgetCapColor);
+						term(" · ", kDim);
+					}
 					term(fb.gpuKnown ? std::format("gpu {:.2f}", fb.gpuBusyMs)
 									 : std::string("gpu n/a"),
 						 fb.gpuKnown ? kBudgetGpuColor : kDim);
@@ -2148,7 +2171,8 @@ void DevConsole::Render(gfx::SpriteBatch& batch, const gfx::GraphicsDevice& devi
 							float sx = barX;
 							sx = seg(fb.cpuMs, sx, kBudgetCpuColor);
 							sx = seg(fb.waitGpuMs, sx, kBudgetWaitColor);
-							seg(fb.presentMs, sx, kBudgetPresentColor);
+							sx = seg(fb.presentMs, sx, kBudgetPresentColor);
+							seg(fb.capMs, sx, kBudgetCapColor);
 							barEdge(track);
 
 							if (fb.gpuKnown) {

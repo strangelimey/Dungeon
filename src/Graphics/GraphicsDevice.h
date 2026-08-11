@@ -101,6 +101,29 @@ public:
 	// labels the intervals with the resulting frame rates (refresh / interval).
 	int RefreshHz() const;
 
+	// --- the frame cap -------------------------------------------------------
+	// Sleeps out whatever is left of this frame's slice, so the engine presents
+	// at the refresh rate of the monitor the WINDOW IS ON.
+	//
+	// WHY THIS IS NEEDED AT ALL, given a sync interval of 1: a windowed
+	// flip-model swapchain is paced by DWM, and on a mixed-refresh desktop DWM
+	// composes at the FASTEST attached display's rate, not the one the window
+	// occupies. Measured here: 4.163 ms frames — 240 fps — in a window sitting on
+	// a 144 Hz monitor, with three 240 Hz monitors elsewhere on the desk. Present
+	// blocked for 3.85 ms of it, so it was genuinely syncing; just to the wrong
+	// clock. Two of every five frames were rendered and then discarded.
+	//
+	// Present cannot be asked to do this — its interval divides DWM's clock, not
+	// the output's — so the cap is a deliberate wait of our own on top of it.
+	// It divides by the present interval too, which has the side effect of making
+	// the Video tab's Frame Rate labels true: they were already computed as
+	// RefreshHz/interval and were describing a cap nothing enforced.
+	void WaitFrameCap();
+	void SetFrameCapEnabled(bool on) { m_frameCap = on; }
+	bool FrameCapEnabled() const { return m_frameCap; }
+	// What the cap is currently aiming at, in Hz (0 = not capping).
+	int FrameCapHz() const;
+
 	// Re-binds the back buffer RT/DSV + full viewport after an offscreen pass
 	// (e.g. shadow rendering) redirected the output merger. No clear.
 	void BindBackBuffer(ID3D12GraphicsCommandList* list);
@@ -194,6 +217,22 @@ private:
 	// Present sync interval (Settings → Video Frame Rate). 1 = every vblank
 	// (full refresh); 2/3/4 divide the rate tear-free. See SetPresentInterval.
 	u32 m_presentInterval = 1;
+
+	// --- frame cap state (WaitFrameCap) --------------------------------------
+	bool m_frameCap = true;
+	void* m_capTimer = nullptr; // high-resolution waitable timer, or null
+	// The deadline ACCUMULATES a slice per frame rather than being set from
+	// "now" each time. Restarting from now would fold every frame's overshoot
+	// into the next slice and drift the rate permanently slow; accumulating
+	// makes the average exact and lets a frame that ran long be absorbed by the
+	// one after it.
+	i64 m_capDeadlineQpc = 0;
+	i64 m_qpcFreq = 0;
+	// The refresh rate is re-read on a timer, not per frame: it is three Win32
+	// calls and it only changes when the window is dragged to another monitor or
+	// the mode is changed.
+	mutable int m_capHzCached = 0;
+	mutable i64 m_capHzCheckedQpc = 0;
 };
 
 } // namespace dungeon::gfx

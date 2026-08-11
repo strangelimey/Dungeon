@@ -147,6 +147,20 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
 				}
 				device.EndFrame();
 			}
+
+			// Hold the frame to the refresh rate of the monitor the window is on
+			// (GraphicsDevice::WaitFrameCap explains why Present cannot do this).
+			//
+			// A SIBLING of `render`, not part of it, and its own zone: this is a
+			// wait we chose, and folding it into anything else would show up as
+			// that thing getting slower. Named so the budget can subtract it from
+			// CPU time — otherwise capping the frame rate would make the console
+			// report the engine as CPU-bound, which is the precise opposite of
+			// what a frame spent deliberately idle means.
+			{
+				DN_PROFILE_ZONE(prof::kZoneWaitCap);
+				device.WaitFrameCap();
+			}
 			consecutiveFailures = 0; // a frame that finished clears the streak
 		} catch (const std::exception& e) {
 			frameFailed(e.what());

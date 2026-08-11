@@ -161,6 +161,21 @@ void Game::RegisterDevCommands() {
 						   m_pendingQuality = static_cast<Quality>(q); // applied next frame
 						   m_console.Print(std::format("quality set to {}", q));
 					   });
+	m_console.Register("framecap",
+					   "cap the frame rate to the window's monitor (on/off)",
+					   [this](const std::vector<std::string>& args) {
+						   if (!args.empty()) m_device.SetFrameCapEnabled(ArgOn(args[0]));
+						   const int hz = m_device.FrameCapHz();
+						   m_console.Print(
+							   m_device.FrameCapEnabled()
+								   ? std::format("frame cap ON - {} Hz (monitor {} Hz / "
+												 "present interval)",
+												 hz, m_device.RefreshHz())
+								   : std::format("frame cap OFF - paced by DWM, which on a "
+												 "mixed-refresh desktop is the FASTEST "
+												 "monitor, not this one ({} Hz)",
+												 m_device.RefreshHz()));
+					   });
 	m_console.Register("lang", "switch language by code (e.g. en, de)",
 					   [this](const std::vector<std::string>& args) {
 						   if (!Need(m_console, args, 1, "usage: lang <code>")) return;

@@ -92,6 +92,7 @@ inline constexpr const char* kZoneRender = "render";
 inline constexpr const char* kZoneWaitGpu = "wait.gpu"; // blocked on the frame fence
 inline constexpr const char* kZoneRecord = "record";    // building command lists
 inline constexpr const char* kZonePresent = "present";  // blocked in Present
+inline constexpr const char* kZoneWaitCap = "wait.cap"; // held back by the frame cap
 
 // Source names, for the same reason: the readout pairs the main thread's frame
 // against the GPU's busy time and has to find both.

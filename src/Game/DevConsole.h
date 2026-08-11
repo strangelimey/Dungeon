@@ -228,6 +228,13 @@ private:
 	static constexpr Vec4 kBudgetGpuColor = kGpuColor;
 	static constexpr Vec4 kBudgetWaitColor{0.34f, 0.52f, 0.36f, 1.0f};
 	static constexpr Vec4 kBudgetPresentColor{0.44f, 0.44f, 0.48f, 1.0f};
+	// The frame cap: idle like Present, so grey like Present — but a LIGHTER
+	// grey, since the two sit side by side in the same bar and must be told
+	// apart. Lighter rather than darker because this colour also draws the
+	// `bound by cap` verdict, and the first attempt at a darker grey was very
+	// nearly unreadable as text on a dark panel — the verdict is the one line
+	// that has to survive a glance.
+	static constexpr Vec4 kBudgetCapColor{0.60f, 0.61f, 0.68f, 1.0f};
 
 	// The ordinary per-node share bar, and it is deliberately NOT the CPU's blue
 	// any more. Once blue means "CPU time", a blue bar on the `present` row —
