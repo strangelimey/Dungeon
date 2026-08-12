@@ -29,9 +29,14 @@ defense = defense bonus + d100
 hit if attack > defense
 ```
 
-**Open-ended.** A face of 95 or more rolls again and adds, and a further
-95 re-triggers, without limit. A first face of 5 or less is a **fumble**.
+**Open-ended.** A face of **95 or more** rolls again and adds, and a further
+95 re-triggers, without limit. A first face of **5 or less** is a **fumble**.
 Both sides roll, so a defender can crit a dodge or fumble a block.
+
+Both are inclusive, settled (Michael, 2026-08-11), and the difference
+mattered: `>= 95` fires on 6% of rolls where `== 95` would fire on 1%, and
+the escalation compounds that. **Fumbling does not escalate downward** — it
+is a flag on the first face, not a mirror of the crit.
 
 Two rules that are decisions rather than arithmetic, stated at the header
 because neither is inferable from the code:
