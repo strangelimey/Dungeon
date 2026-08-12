@@ -392,6 +392,7 @@ void DungeonWorld::Update(const Input& input, float dt, float time, bool acceptI
 	}
 	UpdateMonsters(dt);
 	m_projectiles.Update(dt); // fly bolts, resolve impacts/fizzles via the hooks
+	UpdateBlasts(dt);         // advance live blasts a tick at their own speed
 	UpdateLights(time);
 	UpdateCamera();
 

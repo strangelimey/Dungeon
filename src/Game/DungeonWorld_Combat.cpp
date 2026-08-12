@@ -1392,35 +1392,165 @@ bool DungeonWorld::ResolveMonsterProjectileHit(const ProjectileImpact& impact) {
 }
 
 // ============================================================================
+// The dungeon as a target
+// ============================================================================
+
+float DungeonWorld::BreakableTarget::Resist(DamageType type) const {
+	// Authored resists plus whatever is riding it, clamped by the shared rule. A
+	// nature cell of 1.0 is immunity and past it the thing DRINKS that element —
+	// an iron door fed by lightning — exactly as for a combatant, because it goes
+	// through the same clamp.
+	float resist = m_brk.resists[type];
+	resist += fx::EffectResist(m_brk.effects, type, m_world.EffectKnobs());
+	return m_world.m_balance.ClampResist(resist, m_brk.resists[type]);
+}
+
+void DungeonWorld::BreakableTarget::Wound(float amount, fx::DamageEvent& ev) {
+	if (!m_brk.Alive()) return; // already broken, or never breakable
+	m_brk.hp -= amount;
+	if (m_brk.hp > 0.0f) return;
+	m_brk.hp = 0.0f;
+	m_brk.broken = true;
+	ev.slew = true; // this is the blow that finished it
+	// The CONSEQUENCE is the owner's, not the pipeline's: a door's way opens for
+	// good, a prop vanishes, a brazier goes dark.
+	if (m_onBroken) m_onBroken();
+}
+
+void DungeonWorld::BreakableTarget::Absorb(float amount, fx::DamageEvent& ev) {
+	if (!m_brk.Alive() || amount <= 0.0f) return;
+	m_brk.hp = std::min(m_brk.maxHp, m_brk.hp + amount);
+	if (ev.Quiet()) return; // a tick feeding it is a trickle, not news
+	Say(loc::Format("log.monster_absorbs", Name(),
+					static_cast<int>(amount + 0.5f)));
+}
+
+std::string DungeonWorld::BreakableTarget::Name() const {
+	return loc::Tr(m_nameKey);
+}
+
+void DungeonWorld::BreakableTarget::Say(const std::string& line) const {
+	if (m_world.onMessage) m_world.onMessage(line);
+}
+
+void DungeonWorld::BreakableTarget::SayApplied(const fx::EffectKind& kind) const {
+	// A door catches fire the way a monster does, not the way a party member
+	// does — it is a thing in the world being described, not one of ours.
+	if (m_world.onMessage)
+		m_world.onMessage(loc::Format(kind.ApplyLine(/*onMonster=*/true), Name()));
+}
+
+void DungeonWorld::ForEachBreakableAt(
+	int x, int z, const std::function<void(BreakableTarget&)>& fn) {
+	// THE one place that knows what pieces of dungeon live in a cell and can be
+	// hurt. Every source of damage goes through it, so adding a fourth breakable
+	// kind reaches blasts, bolts and anything later, all at once.
+	for (Door& d : m_doors) {
+		if (d.x != x || d.z != z || !d.brk.Alive()) continue;
+		BreakableTarget t{*this, d.brk, "door." + d.type, [this, &d] {
+							  // The way is open FOR GOOD. Not `open = true` alone:
+							  // a smashed door must not be closeable again, which
+							  // is the whole difference from opening one.
+							  d.open = true;
+							  d.openT = 1.0f;
+							  if (onMessage)
+								  onMessage(loc::Format("log.door_broken",
+														loc::Tr("door." + d.type)));
+						  }};
+		fn(t);
+	}
+	for (size_t i = 0; i < m_decorations.size(); ++i) {
+		Decoration& p = m_decorations[i];
+		if (p.x != x || p.z != z || !p.brk.Alive()) continue;
+		const std::string nameKey = "item." + p.kind->id;
+		BreakableTarget t{*this, p.brk, nameKey, [this, i, nameKey] {
+							  // Smashed props are swept up AFTER the walk — erasing
+							  // mid-iteration would invalidate the Breakable
+							  // reference the adapter is still holding.
+							  m_brokenProps.push_back(i);
+							  if (onMessage)
+								  onMessage(loc::Format("log.prop_broken",
+														loc::Tr(nameKey)));
+						  }};
+		fn(t);
+	}
+}
+
+void DungeonWorld::SweepBrokenProps() {
+	if (m_brokenProps.empty()) return;
+	// Descending, so each erase cannot shift an index still to be removed.
+	std::sort(m_brokenProps.begin(), m_brokenProps.end(), std::greater<size_t>());
+	for (const size_t i : m_brokenProps)
+		if (i < m_decorations.size())
+			m_decorations.erase(m_decorations.begin() + static_cast<long>(i));
+	m_brokenProps.clear();
+}
+
+// ============================================================================
 // Area blasts
 // ============================================================================
 
 void DungeonWorld::Detonate(int cx, int cz, const BlastSpec& spec, DamageType type,
 							int attacker) {
-	if (!spec.Any()) return;
+	if (!spec.rules.Any()) return;
 
-	// What a blast may fill: an open cell, no closed door. The SAME test that
+	// What a blast may enter: an open cell, no closed door. The SAME test that
 	// stops a bolt, which is why a blast cannot leak into the corridor behind a
 	// wall or through a shut door — Game/Blast.h does the geometry, this only says
 	// what counts as open.
-	const blast::Result r = blast::Spread(
-		cx, cz, spec.force, spec.damage, spec.falloff, [this](int x, int z) {
-			if (!m_map.IsWalkable(x, z)) return false;
-			const Door* d = DoorAt(x, z);
-			return !d || d->open;
-		});
-	if (r.clamped)
-		log::Warn("a blast of force {} was clamped to {} squares", spec.force,
-				  blast::kMaxCells);
+	ActiveBlast active;
+	active.result = blast::Propagate(cx, cz, spec.rules, [this](int x, int z) {
+		if (!m_map.IsWalkable(x, z)) return false;
+		const Door* d = DoorAt(x, z);
+		return !d || d->open;
+	});
+	if (active.result.clamped)
+		log::Warn("a blast of force {} was clamped ({} squares / {} ticks max)",
+				  spec.rules.force, blast::kMaxCells, blast::kMaxTicks);
+	if (active.result.count == 0) return;
 
-	// A blast is MAGIC ARRIVING, so it goes through the pipeline as a Burst:
-	// resisted but NOT soaked — plate turns a blade, not a blast (docs/effects.md).
-	// It is also not rolled: an explosion filling your square is not something you
-	// parry, so there is no opposed roll and no evasion. That is the trade for the
-	// friendly fire below.
-	for (int i = 0; i < r.count; ++i) {
-		const blast::Cell& c = r.cells[i];
-		if (c.damage <= 0.0f) continue; // reached it, but spent
+	// The whole propagation is computed at once and PLAYED OUT over time: each
+	// tick's hits land `rate` seconds apart, which is the spell's expansion speed
+	// (a fireball rushes, a gas cloud creeps). Tick 0 — the detonation square —
+	// lands immediately, so a blast always does something on the frame it goes off.
+	active.rate = std::max(0.0f, spec.rules.rate);
+	active.type = type;
+	active.attacker = attacker;
+	m_activeBlasts.push_back(std::move(active));
+	m_audio.Play(m_sounds.spellImpact, 0.9f);
+	UpdateBlasts(0.0f); // tick 0 now, not next frame
+}
+
+void DungeonWorld::UpdateBlasts(float dt) {
+	for (size_t b = 0; b < m_activeBlasts.size();) {
+		ActiveBlast& a = m_activeBlasts[b];
+		a.elapsed += dt;
+		// Everything whose tick has come due. A rate of 0 means the whole thing
+		// resolves at once, which is what an instantaneous blast is.
+		while (a.next < a.result.count) {
+			const blast::Hit& h = a.result.hits[a.next];
+			if (a.rate > 0.0f &&
+				static_cast<float>(h.tick) * a.rate > a.elapsed + 1e-4f)
+				break;
+			++a.next;
+			ApplyBlastHit(h, a.type, a.attacker);
+		}
+		if (a.next >= a.result.count)
+			m_activeBlasts.erase(m_activeBlasts.begin() + static_cast<long>(b));
+		else
+			++b;
+	}
+}
+
+void DungeonWorld::ApplyBlastHit(const blast::Hit& c, DamageType type,
+								 int attacker) {
+	if (c.damage <= 0.0f) return; // reached it, but the falloff spent it
+	{
+		// A blast is MAGIC ARRIVING, so it goes through the pipeline as a Burst:
+		// resisted but NOT soaked — plate turns a blade, not a blast
+		// (docs/effects.md). It is also not rolled: an explosion filling your square
+		// is not something you parry, so no opposed roll and no evasion. That is the
+		// trade for the friendly fire below.
 
 		// MONSTERS in the cell — all of them, every lane. A blast has no lane.
 		for (Monster& m : m_monsters) {
@@ -1465,7 +1595,13 @@ void DungeonWorld::Detonate(int cx, int cz, const BlastSpec& spec, DamageType ty
 			CheckPartyWipe();
 		}
 	}
-	m_audio.Play(m_sounds.spellImpact, 0.9f);
+	// Whatever pieces of DUNGEON stand here take it too — a blast is the first
+	// thing that reaches them, and it reaches them through the same pipeline.
+	ForEachBreakableAt(c.x, c.z, [&](BreakableTarget& t) {
+		fx::DamageEvent ev = fx::DamageEvent::Burst(type, c.damage, attacker);
+		fx::Deal(ev, t, m_balance.Strike(), m_combatRng);
+	});
+	SweepBrokenProps();
 }
 
 // ============================================================================

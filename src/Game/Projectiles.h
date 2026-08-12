@@ -28,6 +28,7 @@
 #pragma once
 
 #include "Core/MathTypes.h"
+#include "Game/Blast.h"
 #include "Game/Combat.h"
 #include "Game/Effect/Effect.h"
 #include "Graphics/ParticleBatch.h"
@@ -76,10 +77,8 @@ inline constexpr size_t kMaxPayloadProcs = 4;
 // paths, where the side is the whole rule — an explosion does not check whose
 // side you are on, and positioning is the price of throwing one.
 struct BlastSpec {
-	int force = 0;         // squares of blast; 0 = not an area effect
-	float damage = 0.0f;   // the figure at the centre
-	float falloff = 0.0f;  // taken off per step of distance
-	bool Any() const { return force > 0; }
+	blast::Rules rules; // Game/Blast.h — force, falloff, expansion rate, persistence
+	bool Any() const { return rules.Any(); }
 };
 
 struct ProjectilePayload {

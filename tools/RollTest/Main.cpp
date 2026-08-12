@@ -924,170 +924,244 @@ int main(int argc, char** argv) {
 		}
 	}
 
+
 	// --- the area blast ------------------------------------------------------
-	// Michael's model (docs/damage-system.md "The area blast"): force is measured
-	// in SQUARES, stone consumes none of it, so a hemmed-in blast reaches FURTHER;
-	// and force that cannot be spent even by expanding CONCENTRATES on what was
-	// reached. Both halves are geometric, which is exactly the kind of rule that
-	// looks right in a comment and is wrong in a corridor.
+	// Michael's model (docs/damage-system.md "The area blast"): a WAVEFRONT that
+	// expands over ticks, deflecting sideways off walls and REFLECTING back when
+	// there is nowhere sideways to go, with units converging on one square
+	// MULTIPLYING it. Every one of those is geometric, which is exactly the kind of
+	// rule that reads correctly in a comment and is wrong in a corridor.
 	{
 		std::printf("\n--- the area blast ---\n");
 		using namespace dungeon::game::blast;
 
-		// An open plain: everything passable. The blast has room to spend its whole
-		// force, so nothing concentrates.
+		const auto hitAt = [](const Result& r, int x, int z, int tick) -> const Hit* {
+			for (int i = 0; i < r.count; ++i)
+				if (r.hits[i].x == x && r.hits[i].z == z && r.hits[i].tick == tick)
+					return &r.hits[i];
+			return nullptr;
+		};
+		const auto hitsOnTick = [](const Result& r, int tick) {
+			int n = 0;
+			for (int i = 0; i < r.count; ++i) n += (r.hits[i].tick == tick);
+			return n;
+		};
+
+		Rules fire;
+		fire.damage = 20.0f;
+		fire.falloff = 4.0f;
+		fire.force = 5;
+		fire.rate = 0.05f;
+
+		// AN OPEN ROOM GIVES A RING. Everything passable, so nothing is deflected
+		// and nothing converges: four neighbours, one unit each.
 		const PassableFn open = [](int, int) { return true; };
-
 		{
-			const Result r = Spread(10, 10, 9, 20.0f, 4.0f, open);
-			Check("open ground: force is spent in full", r.count, 9.0, 0.0);
-			Check("open ground: nothing left over", r.leftover, 0.0, 0.0);
-			Check("open ground: no concentration", r.concentration, 1.0, 0.0);
-			CheckTrue("the centre is first and at distance 0",
-					  r.cells[0].x == 10 && r.cells[0].z == 10 &&
-						  r.cells[0].distance == 0);
-			Check("the centre takes the full figure", r.cells[0].damage, 20.0, 0.001);
-
-			// BFS order: distance never decreases, and every cell is 4-cardinally
-			// adjacent to an earlier one (no diagonal leaks).
-			bool ordered = true, connected = true, orthogonal = true;
-			for (int i = 1; i < r.count; ++i) {
-				if (r.cells[i].distance < r.cells[i - 1].distance) ordered = false;
-				bool touches = false;
-				for (int j = 0; j < i; ++j) {
-					const int dx = std::abs(r.cells[i].x - r.cells[j].x);
-					const int dz = std::abs(r.cells[i].z - r.cells[j].z);
-					if (dx + dz == 1 &&
-						r.cells[j].distance == r.cells[i].distance - 1)
-						touches = true;
-					if (dx == 1 && dz == 1 && r.cells[j].distance ==
-													r.cells[i].distance - 1)
-						orthogonal = false; // reached diagonally in one step
-				}
-				if (!touches) connected = false;
+			const Result r = Propagate(10, 10, fire, open);
+			const Hit* centre = hitAt(r, 10, 10, 0);
+			CheckTrue("the detonation square is hit on tick 0", centre != nullptr);
+			if (centre) {
+				Check("...for the full figure", centre->damage, 20.0, 0.001);
+				Check("...at distance 0", centre->distance, 0.0, 0.0);
 			}
-			CheckTrue("distance never decreases in the result", ordered);
-			CheckTrue("every cell is reached from a nearer one", connected);
-			CheckTrue("nothing is reached diagonally", orthogonal);
-
-			// Falloff is per STEP, and a square whose figure has fallen to nothing
-			// still counts as filled — the blast got there, it just did nothing.
-			const Result far = Spread(0, 0, 40, 8.0f, 4.0f, open);
-			bool zeroedButFilled = false, neverNegative = true;
-			for (int i = 0; i < far.count; ++i) {
-				if (far.cells[i].damage < 0.0f) neverNegative = false;
-				if (far.cells[i].distance >= 2 && far.cells[i].damage == 0.0f)
-					zeroedButFilled = true;
+			Check("open room: a ring of four on tick 1", hitsOnTick(r, 1), 4.0, 0.0);
+			bool ring = true;
+			for (const auto& [dx, dz] : {std::pair{0, -1}, std::pair{0, 1},
+										 std::pair{-1, 0}, std::pair{1, 0}}) {
+				const Hit* h = hitAt(r, 10 + dx, 10 + dz, 1);
+				if (!h || h->arrivals != 1 || h->distance != 1) ring = false;
 			}
-			CheckTrue("damage never goes negative", neverNegative);
-			CheckTrue("a spent square is still filled", zeroedButFilled);
-			Check("one step off centre costs the falloff",
-				  far.cells[1].damage, 8.0 - 4.0, 0.001);
+			CheckTrue("open room: each ring square takes one unit", ring);
+			const Hit* side = hitAt(r, 11, 10, 1);
+			if (side)
+				Check("a ring square costs one step of falloff", side->damage,
+					  20.0 - 4.0, 0.001);
+			Check("open room: the force is spent in full", r.spent, 5.0, 0.0);
 		}
 
-		// A DEAD-END CORRIDOR running east, one square wide: the blast goes off at
-		// its closed end, so all but one neighbour is stone. THE POINT OF THE WHOLE
-		// MODEL — the same force reaches much further than it would in the open.
-		const PassableFn corridor = [](int x, int z) { return z == 10 && x >= 10; };
+		// A DEAD-END CORRIDOR: the blast goes off at the closed end of a 1-wide
+		// passage running east. THE CASE THE WHOLE MODEL EXISTS FOR — three of the
+		// four units cannot go their way, two deflect east and the one facing the
+		// closed end reflects east, so ALL FOUR converge on the first open square
+		// and it takes a x4 tick. That is the firewall.
+		const PassableFn deadEnd = [](int x, int z) { return z == 10 && x >= 10; };
 		{
-			const Result r = Spread(10, 10, 9, 20.0f, 2.0f, corridor);
-			Check("dead end: the force is still spent in full", r.count, 9.0, 0.0);
-			Check("dead end: nothing concentrates", r.concentration, 1.0, 0.0);
-			// Nine squares in a line, so the far end is eight steps out — where in
-			// the open it would have been two.
-			CheckTrue("dead end: the blast runs down the corridor",
-					  r.cells[r.count - 1].distance == 8);
-			const Result openSame = Spread(10, 10, 9, 20.0f, 2.0f, open);
-			CheckTrue("a hemmed-in blast reaches further than an open one",
-					  r.cells[r.count - 1].distance >
-						  openSame.cells[openSame.count - 1].distance);
-			// ...and it stays in the corridor.
+			const Result r = Propagate(10, 10, fire, deadEnd);
+			Check("dead end: one square reached on tick 1", hitsOnTick(r, 1), 1.0, 0.0);
+			const Hit* h = hitAt(r, 11, 10, 1);
+			CheckTrue("dead end: it is the one open neighbour", h != nullptr);
+			if (h) {
+				Check("dead end: all four units converge there", h->arrivals, 4.0, 0.0);
+				Check("dead end: so it takes a x4 tick", h->damage,
+					  (20.0 - 4.0) * 4.0, 0.001);
+				Check("dead end: still only one step out", h->distance, 1.0, 0.0);
+			}
+			// Nothing leaks into the stone either side.
 			bool inCorridor = true;
 			for (int i = 0; i < r.count; ++i)
-				if (r.cells[i].z != 10 || r.cells[i].x < 10) inCorridor = false;
+				if (r.hits[i].z != 10 || r.hits[i].x < 10) inCorridor = false;
 			CheckTrue("dead end: nothing leaks through the walls", inCorridor);
+			// ...and the confined blast hurts far more than the open one did.
+			const Hit* openSide = nullptr;
+			const Result openR = Propagate(10, 10, fire, open);
+			openSide = hitAt(openR, 11, 10, 1);
+			CheckTrue("a confined tick beats an open one",
+					  h && openSide && h->damage > openSide->damage * 3.0f);
 		}
 
-		// SEALED IN: a single open square. Nothing to expand into, so the entire
-		// force concentrates on it.
-		const PassableFn sealed = [](int x, int z) { return x == 10 && z == 10; };
-		{
-			const Result r = Spread(10, 10, 9, 20.0f, 4.0f, sealed);
-			Check("sealed: only its own square is filled", r.count, 1.0, 0.0);
-			Check("sealed: the rest of the force has nowhere to go", r.leftover, 8.0, 0.0);
-			Check("sealed: it all concentrates", r.concentration, 9.0, 0.001);
-			Check("sealed: nine squares' worth land on one", r.cells[0].damage,
-				  20.0 * 9.0, 0.001);
-			CheckTrue("a sealed blast hurts far more than an open one",
-					  r.cells[0].damage > Spread(10, 10, 9, 20.0f, 4.0f, open)
-											  .cells[0].damage);
-		}
-
-		// A TWO-SQUARE pocket: partial concentration, and the arithmetic is the
-		// same rule rather than a special case.
-		const PassableFn pocket = [](int x, int z) {
-			return z == 10 && (x == 10 || x == 11);
+		// A T-JUNCTION splits three ways: the branch north, and east/west each
+		// taking a deflected unit as well as their own.
+		const PassableFn tee = [](int x, int z) {
+			return (z == 10 && x >= 8 && x <= 12) || (x == 10 && z <= 10 && z >= 8);
 		};
 		{
-			const Result r = Spread(10, 10, 8, 12.0f, 3.0f, pocket);
-			Check("pocket: two squares filled", r.count, 2.0, 0.0);
-			Check("pocket: six left over", r.leftover, 6.0, 0.0);
-			Check("pocket: concentration is 1 + 6/2", r.concentration, 4.0, 0.001);
-			Check("pocket: the centre takes 4x its figure", r.cells[0].damage,
-				  12.0 * 4.0, 0.001);
-			// Concentration multiplies the figure a square would have taken AT ITS
-			// OWN DISTANCE — it is not a flat share.
-			Check("pocket: the far square keeps its falloff", r.cells[1].damage,
-				  (12.0 - 3.0) * 4.0, 0.001);
+			Rules wide = fire;
+			wide.force = 9;
+			const Result r = Propagate(10, 10, wide, tee);
+			Check("T-junction: three ways out on tick 1", hitsOnTick(r, 1), 3.0, 0.0);
+			const Hit* north = hitAt(r, 10, 9, 1);
+			const Hit* west = hitAt(r, 9, 10, 1);
+			const Hit* east = hitAt(r, 11, 10, 1);
+			CheckTrue("T-junction: all three branches are reached",
+					  north && west && east);
+			if (north) Check("T-junction: the open branch takes one unit",
+							 north->arrivals, 1.0, 0.0);
+			// The unit that would have gone south has nowhere to go but sideways,
+			// and BOTH perpendiculars are open, so it splits rather than picking a
+			// side — there is no honest handedness to pick.
+			CheckTrue("T-junction: a blocked unit splits both ways",
+					  west && east && west->arrivals == 2 && east->arrivals == 2);
 		}
 
-		// A BURST AGAINST STONE: the centre is solid, as when a bolt dies on a
-		// wall. Nothing stands in the wall, so it is not a filled square — but the
-		// blast still starts there, so the room beyond is at distance 1.
-		const PassableFn wallCentre = [](int x, int z) { return x >= 11 && z == 10; };
+		// PERSISTENCE. A gas cloud fills squares and keeps biting, and a unit
+		// re-entering a filled square adds to its CONCENTRATION — so poison
+		// contained is more poisonous, exactly as fire contained is (Michael,
+		// 2026-08-11).
+		Rules gas = fire;
+		gas.persistence = Persistence::Persistent;
+		gas.rate = 1.5f; // creeps, where the fire rushed
+		gas.force = 12;
 		{
-			const Result r = Spread(10, 10, 4, 20.0f, 5.0f, wallCentre);
-			CheckTrue("a burst inside stone fills no wall square",
-					  r.count > 0 && !(r.cells[0].x == 10 && r.cells[0].z == 10));
-			Check("the square beyond the wall is one step out",
-				  r.cells[0].distance, 1.0, 0.0);
-			Check("...and takes one step of falloff", r.cells[0].damage,
-				  20.0 - 5.0, 0.001);
+			const Result pocket = Propagate(10, 10, gas, deadEnd);
+			// The detonation square is bitten again on a later tick, which a
+			// transient front would never do.
+			bool reBitten = false;
+			for (int i = 0; i < pocket.count; ++i)
+				if (pocket.hits[i].x == 10 && pocket.hits[i].z == 10 &&
+					pocket.hits[i].tick > 0)
+					reBitten = true;
+			CheckTrue("a persistent cloud keeps biting its own square", reBitten);
+
+			// Concentration BUILDS: the most units ever seen in one square grows
+			// past the one it started with.
+			int peak = 0;
+			for (int i = 0; i < pocket.count; ++i)
+				peak = std::max(peak, pocket.hits[i].arrivals);
+			CheckTrue("confinement concentrates a cloud", peak > 1);
+
+			// A transient front VACATES — tested in the OPEN, because in a dead end
+			// it rightly does come back: reflection returning to the square behind
+			// is the firewall, not lingering. So the two have to be told apart by
+			// geometry, and only open ground isolates "does it stay of its own
+			// accord". (This check first ran on the corridor and failed for exactly
+			// that reason, which is the distinction worth pinning.)
+			const Result front = Propagate(10, 10, fire, open);
+			bool transientLingered = false;
+			for (int i = 0; i < front.count; ++i)
+				if (front.hits[i].x == 10 && front.hits[i].z == 10 &&
+					front.hits[i].tick > 0)
+					transientLingered = true;
+			CheckTrue("a transient front does not linger in the open",
+					  !transientLingered);
+			// ...and in a dead end it DOES return, which is the firewall.
+			const Result wall = Propagate(10, 10, fire, deadEnd);
+			bool firewallReturned = false;
+			for (int i = 0; i < wall.count; ++i)
+				if (wall.hits[i].x == 10 && wall.hits[i].z == 10 &&
+					wall.hits[i].tick > 0)
+					firewallReturned = true;
+			CheckTrue("a reflected front sweeps back over its origin",
+					  firewallReturned);
+		}
+
+		// Ordering and geometry invariants over every shape above.
+		{
+			const PassableFn* shapes[] = {&open, &deadEnd, &tee};
+			bool ordered = true, orthogonal = true, nonNegative = true;
+			for (const PassableFn* fn : shapes) {
+				for (const Rules& rr : {fire, gas}) {
+					const Result r = Propagate(10, 10, rr, *fn);
+					for (int i = 1; i < r.count; ++i)
+						if (r.hits[i].tick < r.hits[i - 1].tick) ordered = false;
+					for (int i = 0; i < r.count; ++i) {
+						if (r.hits[i].damage < 0.0f) nonNegative = false;
+						// Every hit is a Manhattan-reachable square: no diagonal
+						// ever appears, whatever deflection did.
+						const int md = std::abs(r.hits[i].x - 10) +
+									   std::abs(r.hits[i].z - 10);
+						if (md > r.hits[i].tick + 1) orthogonal = false;
+					}
+				}
+			}
+			CheckTrue("hits come back in tick order", ordered);
+			CheckTrue("damage never goes negative", nonNegative);
+			CheckTrue("nothing outruns orthogonal steps", orthogonal);
 		}
 
 		// Degenerate inputs, which content can produce.
-		Check("no force fills nothing", Spread(0, 0, 0, 20.0f, 1.0f, open).count,
-			  0.0, 0.0);
-		Check("negative force fills nothing",
-			  Spread(0, 0, -5, 20.0f, 1.0f, open).count, 0.0, 0.0);
+		Check("no force does nothing", Propagate(0, 0, Rules{}, open).count, 0.0, 0.0);
 		{
-			const Result r = Spread(0, 0, kMaxCells + 50, 20.0f, 0.0f, open);
-			CheckTrue("force past the ceiling is clamped and says so",
-					  r.clamped && r.count == kMaxCells);
+			Rules noDamage = fire;
+			noDamage.damage = 0.0f;
+			Check("no damage is not an area effect",
+				  Propagate(0, 0, noDamage, open).count, 0.0, 0.0);
 		}
 		{
-			// A blast in a place it cannot even start: no open square anywhere.
-			const PassableFn solid = [](int, int) { return false; };
-			const Result r = Spread(5, 5, 9, 20.0f, 1.0f, solid);
-			Check("entombed: nothing is filled", r.count, 0.0, 0.0);
-			Check("entombed: no divide by the count", r.concentration, 1.0, 0.0);
+			// Entombed: nowhere to go at all. It must still burn its own square and
+			// then stop, rather than spinning on an empty frontier.
+			const PassableFn sealed = [](int x, int z) { return x == 10 && z == 10; };
+			const Result r = Propagate(10, 10, sealed ? fire : fire, sealed);
+			Check("entombed: only its own square", r.count, 1.0, 0.0);
+			CheckTrue("entombed: force is left unspent", r.leftover > 0);
+		}
+		{
+			// A burst whose centre is INSIDE stone, as when a bolt breaks on a wall.
+			const PassableFn beyond = [](int x, int z) { return x >= 11 && z == 10; };
+			const Result r = Propagate(10, 10, fire, beyond);
+			CheckTrue("a burst in stone burns no wall square",
+					  hitAt(r, 10, 10, 0) == nullptr);
+			CheckTrue("...but the room beyond is reached", hitAt(r, 11, 10, 1));
+		}
+		{
+			Rules huge = fire;
+			huge.force = kMaxCells + 40;
+			const Result r = Propagate(0, 0, huge, open);
+			CheckTrue("force past the ceiling is clamped and says so", r.clamped);
 		}
 
-		// The shape table — INFORMATIONAL: the same force in three geometries.
-		std::printf("\n  one force-9 blast, full 20, falloff 4 (INFORMATIONAL)\n");
-		std::printf("  %-16s %6s %6s %8s %10s\n", "geometry", "cells", "reach",
-					"concn", "centre dmg");
-		const std::pair<const char*, const PassableFn*> shapes[] = {
-			{"open room", &open}, {"dead-end corridor", &corridor},
-			{"two-square pocket", &pocket}, {"sealed cell", &sealed}};
-		for (const auto& [name, fn] : shapes) {
-			const Result r = Spread(10, 10, 9, 20.0f, 4.0f, *fn);
-			std::printf("  %-16s %6d %6d %8.2f %10.1f\n", name, r.count,
-						r.count ? r.cells[r.count - 1].distance : 0,
-						r.concentration, r.count ? r.cells[0].damage : 0.0f);
+		// The shape table — INFORMATIONAL: one fire blast in three geometries.
+		std::printf("\n  one fire blast, force 9, full 20, falloff 4 "
+					"(INFORMATIONAL)\n");
+		std::printf("  %-18s %6s %6s %9s %11s\n", "geometry", "hits", "ticks",
+					"peak x", "peak dmg");
+		Rules show = fire;
+		show.force = 9;
+		const std::pair<const char*, const PassableFn*> named[] = {
+			{"open room", &open}, {"dead-end corridor", &deadEnd},
+			{"T-junction", &tee}};
+		for (const auto& [name, fn] : named) {
+			const Result r = Propagate(10, 10, show, *fn);
+			int peak = 0;
+			float worst = 0.0f;
+			for (int i = 0; i < r.count; ++i) {
+				peak = std::max(peak, r.hits[i].arrivals);
+				worst = std::max(worst, r.hits[i].damage);
+			}
+			std::printf("  %-18s %6d %6d %9d %11.1f\n", name, r.count, r.ticks, peak,
+						worst);
 		}
-		std::printf("  (same force throughout — geometry decides whether it "
-					"travels or concentrates)\n");
+		std::printf("  (same blast throughout — the geometry decides whether it "
+					"rings, splits or reflects)\n");
 	}
 
 	// --- verdict ------------------------------------------------------------

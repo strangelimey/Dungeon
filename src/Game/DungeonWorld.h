@@ -1518,8 +1518,36 @@ private:
 	// The motion knobs are resolved from the type's catalog entry at spawn, not
 	// read per frame — a door type is fixed for the life of a placement, and the
 	// render loop runs over every door every frame.
+	// THE DAMAGEABLE HALF OF A PIECE OF DUNGEON (docs/damage-system.md). A door,
+	// a barrel, a brazier — whatever can be broken carries one of these, and one
+	// fx::ITarget adapter (BreakableTarget) serves them all, so the dungeon
+	// reaches the damage pipeline through exactly the same door a combatant does.
+	//
+	// DAMAGEABILITY IS OPT-IN AND OFF BY DEFAULT (`destructible` in the catalog,
+	// Michael's requirement): if props and doors were breakable unless told
+	// otherwise, keys and switches would stop mattering the moment a party could
+	// swing at a door. maxHp of 0 means "not a target at all" and every ask below
+	// short-circuits on it.
+	//
+	// It carries an `effects` list like a combatant, which is not decoration: it
+	// means a DoT works on the dungeon for free, so a burning door burns DOWN.
+	// This is dynamic state and lives here rather than on the static .map records
+	// it describes — the same split m_seen makes.
+	struct Breakable {
+		float hp = 0.0f;
+		float maxHp = 0.0f; // 0 = indestructible; nothing else is consulted
+		float soak = 0.0f;  // catalog `armor`
+		ResistTable resists;
+		std::vector<fx::Inst> effects;
+		bool broken = false;
+
+		bool Damageable() const { return maxHp > 0.0f; }
+		bool Alive() const { return Damageable() && !broken; }
+	};
+
 	struct Door {
 		int id = -1;                         // source Entity::id (.ent record)
+		std::string type;                    // doors.cat id, for naming + breakage
 		int x = 0, z = 0;
 		Direction facing = Direction::South; // travel axis (panel spans the other)
 		std::string name;                    // button-target id ("" = unwired)
@@ -1556,6 +1584,12 @@ private:
 		float pullT = 0.0f;        // 0 at rest .. 1 fully worked
 		bool pullRising = false;   // true while it is being pulled, false coming back
 		EaseSpan openerEase;       // the hand-hold's own shaping, from its entry
+		// Can it be broken down? OFF unless doors.cat says `destructible = 1`
+		// (Michael's requirement — otherwise a party would simply chop through
+		// every locked door and keys and switches would stop mattering). A broken
+		// door's way is open FOR GOOD: it cannot be shut again, which is the
+		// difference between smashing one and opening it.
+		Breakable brk;
 	};
 
 	// Static architecture decorations from the .map layer (column, archway,
@@ -1593,6 +1627,13 @@ private:
 		// leave the resolved material alone). metallic/roughness REPLACE the draw's
 		// factors — with an ORM map the shader multiplies them over the map, flat
 		// fallbacks take them directly. tint replaces baseColor (over the albedo).
+		// Breakability, OFF unless decorations.cat says `destructible = 1` — the
+		// gate, with `hp`/`armor`/`resists` for how tough it is. Copied into each
+		// instance's Breakable at placement.
+		bool destructible = false;
+		float hp = 0.0f;
+		float soak = 0.0f;
+		ResistTable resists;
 		float metallic = -1.0f;
 		float roughness = -1.0f;
 		float heightScale = -1.0f;
@@ -1623,6 +1664,10 @@ private:
 		bool wallMounted = false;        // hung on a wall (wall= record param)
 		Direction wall = Direction::North;
 		bool stair = false;              // a stair prop (written as a stairs record)
+		// Breakable if its type opted in (decorations.cat `destructible = 1`).
+		// Smashing one REMOVES it — the prop is gone and its cell stops being
+		// blocked, which is the point of smashing a crate in a doorway.
+		Breakable brk;
 	};
 
 	// Fires: wall sconces (at 'T' cells, mounted on the adjacent wall) and
@@ -1900,12 +1945,42 @@ private:
 	// lands its payload on every combatant of its target side in the cell it died
 	// in — CELL-WIDE, where a hit is lane-wide (see the definition for why).
 	void ResolveProjectileExpiry(const ProjectileExpiry& expiry);
-	// Set off an AREA blast centred on a cell: Game/Blast.h does the geometry
-	// (force in squares, stone consumes none, leftover concentrates) and this
-	// applies what lands. Unrolled Bursts, and it catches EVERYONE in its squares
-	// including the party — a blast has no side and no lane.
+	// Set off an AREA blast on a cell: Game/Blast.h propagates it (a wavefront over
+	// ticks, deflecting and reflecting off walls, converging units multiplying) and
+	// this plays the result out over time. Unrolled Bursts, and it catches EVERYONE
+	// in its squares including the party — a blast has no side and no lane.
 	void Detonate(int cx, int cz, const BlastSpec& spec, DamageType type,
 				  int attacker);
+	// A blast PLAYING OUT. The propagation is computed once at detonation — the
+	// geometry cannot change mid-blast — and its ticks land `rate` seconds apart,
+	// which is what makes a fireball rush and a gas cloud creep.
+	struct ActiveBlast {
+		blast::Result result;
+		float rate = 0.0f;
+		DamageType type{};
+		int attacker = -1;
+		float elapsed = 0.0f;
+		int next = 0; // index of the first hit not yet applied
+	};
+	std::vector<ActiveBlast> m_activeBlasts;
+	// Advance every live blast and apply whatever has come due. Called per frame.
+	void UpdateBlasts(float dt);
+	// Apply one tick's worth at one square: monsters, the party (friendly fire),
+	// and whatever pieces of dungeon stand there.
+	void ApplyBlastHit(const blast::Hit& hit, DamageType type, int attacker);
+	// Walk every breakable piece of dungeon standing in a cell — THE one place
+	// that knows which kinds those are, so a new one reaches blasts, bolts and
+	// whatever comes later all at once. (Forward-declared: the adapter itself is
+	// defined further down beside the two combatant ones, and a reference in a
+	// std::function needs only an incomplete type.)
+	class BreakableTarget;
+	void ForEachBreakableAt(int x, int z,
+							const std::function<void(BreakableTarget&)>& fn);
+	// Erase props broken during a walk. Deferred because erasing mid-iteration
+	// would invalidate the Breakable reference its adapter is still holding.
+	void SweepBrokenProps();
+	// Indices into m_decorations of props broken this pass, swept afterwards.
+	std::vector<size_t> m_brokenProps;
 	// Skirmisher executor (intent == Kite): hold `keepRange` from the party (greedy
 	// 1-step, LoS-preferring), and fire a ranged bolt when it has a clear line and is
 	// off cooldown. `selfIndex` is the monster's index in m_monsters (for slot tests).
@@ -2075,6 +2150,44 @@ private:
 	private:
 		DungeonWorld& m_world;
 		Monster& m_monster;
+	};
+
+	// THE DUNGEON AS A TARGET — the third implementation of fx::ITarget, after the
+	// two combatant kinds, and the one that is not a combatant at all. A door, a
+	// barrel or a brazier reaches the damage pipeline through exactly the same
+	// interface a monster does, so everything already built works on it for free:
+	// resists, absorption past 1.0, DoTs (a burning door burns DOWN), a blast.
+	//
+	// ONE adapter serves every breakable kind. What differs between them is only
+	// what BREAKING means — a door's way opens for good, a prop is removed, a
+	// brazier goes dark — and that is a callback rather than a subclass, because
+	// the damage side of a barrel and of a door are identical and only their
+	// consequence differs.
+	//
+	// It does not dodge: Evasion is 0 whatever arrives. An inert thing has no
+	// guard, which is the honest answer and also what makes a swing at scenery
+	// feel different from a swing at something that is trying not to be hit.
+	class BreakableTarget final : public fx::ITarget {
+	public:
+		BreakableTarget(DungeonWorld& world, Breakable& brk, std::string nameKey,
+						std::function<void()> onBroken)
+			: m_world(world), m_brk(brk), m_nameKey(std::move(nameKey)),
+			  m_onBroken(std::move(onBroken)) {}
+		float Evasion(DamageType) const override { return 0.0f; }
+		float Soak() const override { return m_brk.soak; }
+		float Resist(DamageType type) const override;
+		std::vector<fx::Inst>& Effects() override { return m_brk.effects; }
+		void Wound(float amount, fx::DamageEvent& ev) override;
+		void Absorb(float amount, fx::DamageEvent& ev) override;
+		std::string Name() const override;
+		void Say(const std::string& line) const override;
+		void SayApplied(const fx::EffectKind& kind) const override;
+
+	private:
+		DungeonWorld& m_world;
+		Breakable& m_brk;
+		std::string m_nameKey;
+		std::function<void()> m_onBroken;
 	};
 
 	// The balance knobs an effect's own maths needs, in the shape the module

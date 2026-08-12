@@ -30,12 +30,19 @@ void Spell::ApplyOverrides(const CatalogEntry& e) {
 		m_procs.clear();
 		fx::ParseProcs(e.Get("on_hit", ""), m_procs, "spells.cat [" + m_id + "]");
 	}
-	// The AREA burst, if this spell is one. `blast_force` in squares is the gate;
-	// the other two only mean anything alongside it.
-	m_blast.force = static_cast<int>(
-		e.GetFloat("blast_force", static_cast<float>(m_blast.force)));
-	m_blast.damage = e.GetFloat("blast_damage", m_blast.damage);
-	m_blast.falloff = e.GetFloat("blast_falloff", m_blast.falloff);
+	// The AREA blast, if this spell is one. `blast_force` in squares is the gate;
+	// the rest only mean anything alongside it. `blast_rate` is the EXPANSION
+	// SPEED in seconds per tick — small for a fireball, large for a creeping gas —
+	// and `blast_persist` decides whether squares vacate behind the front (fire) or
+	// fill and keep biting (gas).
+	blast::Rules& b = m_blast.rules;
+	b.force = static_cast<int>(e.GetFloat("blast_force", static_cast<float>(b.force)));
+	b.damage = e.GetFloat("blast_damage", b.damage);
+	b.falloff = e.GetFloat("blast_falloff", b.falloff);
+	b.rate = e.GetFloat("blast_rate", b.rate);
+	b.linger = e.GetFloat("blast_linger", b.linger);
+	if (e.GetBool("blast_persist", b.persistence == blast::Persistence::Persistent))
+		b.persistence = blast::Persistence::Persistent;
 }
 
 ProjectilePayload Spell::MakePayload() const {
