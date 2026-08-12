@@ -660,6 +660,23 @@ void Game::RegisterDevCommands() {
 						   }
 						   for (const std::string& l : list) m_console.Print("  " + l);
 					   });
+	m_console.Register("smash",
+					   "damage what is breakable in a cell (dev): smash <x> <z> [amount]",
+					   [this](const std::vector<std::string>& args) {
+						   if (!Need(m_console, args, 2,
+									 "usage: smash <x> <z> [amount]"))
+							   return;
+						   const int x = std::atoi(args[0].c_str());
+						   const int z = std::atoi(args[1].c_str());
+						   const float amount =
+							   args.size() > 2 ? std::strtof(args[2].c_str(), nullptr)
+											   : 100.0f;
+						   const int n = m_world.SmashAt(x, z, amount);
+						   m_console.Print(
+							   n > 0 ? std::format("struck {} breakable(s) at {},{}", n,
+												   x, z)
+									 : std::format("nothing breakable at {},{}", x, z));
+					   });
 	m_console.Register("press", "toggle the button in cell x,z (exercises save)",
 					   [this](const std::vector<std::string>& args) {
 						   if (!Need(m_console, args, 2, "usage: press <x> <z>")) return;

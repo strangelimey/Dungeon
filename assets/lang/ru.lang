@@ -221,6 +221,14 @@ log.spell_misses=Сгусток проносится мимо — {} уклон�
 log.spell_slain=Рассыпается в прах {}!
 log.spell_pushes=Заклинание отбрасывает {} назад!
 log.blast_hits=Взрыв задевает {}, нанося {} урона!
+log.door_broken={} срывает с петель!
+log.door_wrecked=Проём разрушен — закрывать больше нечего.
+log.prop_broken={} разлетается на куски!
+
+; разрушаемые части подземелья
+decoration.barrel=бочка
+decoration.crate=ящик
+door.wooden_door=деревянная дверь
 log.blast_hits_member={} попадает под взрыв и получает {} урона!
 log.shield_up=Защитная пелена окутывает {}.
 log.shield_fades=Защита {} рассеивается.

@@ -1665,9 +1665,16 @@ private:
 		Direction wall = Direction::North;
 		bool stair = false;              // a stair prop (written as a stairs record)
 		// Breakable if its type opted in (decorations.cat `destructible = 1`).
-		// Smashing one REMOVES it — the prop is gone and its cell stops being
-		// blocked, which is the point of smashing a crate in a doorway.
 		Breakable brk;
+
+		// A smashed prop is GONE for every purpose — not drawn, not blocking, not on
+		// the map — but its record STAYS in the list. Erasing it would dangle the
+		// reference its damage adapter holds, and the save has to be able to name
+		// what was broken after the fact, which an erased record cannot do.
+		bool Gone() const { return brk.broken; }
+		// Does it stop the party? Smashing a crate in a doorway clears the way,
+		// which is most of the point of being able to smash it.
+		bool Blocks() const { return solid && !brk.broken; }
 	};
 
 	// Fires: wall sconces (at 'T' cells, mounted on the adjacent wall) and
@@ -1976,11 +1983,20 @@ private:
 	class BreakableTarget;
 	void ForEachBreakableAt(int x, int z,
 							const std::function<void(BreakableTarget&)>& fn);
-	// Erase props broken during a walk. Deferred because erasing mid-iteration
-	// would invalidate the Breakable reference its adapter is still holding.
-	void SweepBrokenProps();
-	// Indices into m_decorations of props broken this pass, swept afterwards.
-	std::vector<size_t> m_brokenProps;
+	// Fill an instance's Breakable from its type. ONE place, so a prop placed at
+	// load and one placed by the editor are breakable on the same terms.
+	static void SeedBreakable(Breakable& brk, const DecorationKind& kind);
+
+public:
+	// Deal `amount` of bash damage to everything breakable in a cell; returns how
+	// many were struck. The dev console's `smash`, and the seam a future weapon
+	// swing at scenery would use.
+	int SmashAt(int x, int z, float amount);
+
+private:
+	// Say what a blow did to a breakable, and what it broke — in that order.
+	void NarrateBreak(const BreakableTarget& t, const fx::DamageEvent& ev);
+
 	// Skirmisher executor (intent == Kite): hold `keepRange` from the party (greedy
 	// 1-step, LoS-preferring), and fire a ranged bolt when it has a clear line and is
 	// off cooldown. `selfIndex` is the monster's index in m_monsters (for slot tests).
@@ -2170,9 +2186,16 @@ private:
 	class BreakableTarget final : public fx::ITarget {
 	public:
 		BreakableTarget(DungeonWorld& world, Breakable& brk, std::string nameKey,
-						std::function<void()> onBroken)
+						std::string brokenKey, std::function<void()> onBroken)
 			: m_world(world), m_brk(brk), m_nameKey(std::move(nameKey)),
+			  m_brokenKey(std::move(brokenKey)),
 			  m_onBroken(std::move(onBroken)) {}
+		// The line for "this broke", said by the CALLER once it has narrated the
+		// blow — the same rule a monster's death line follows, and for the same
+		// reason: "the barrel is smashed" has to read AFTER the hit that smashed it,
+		// and a callback fired from inside the pipeline runs before the caller has
+		// said anything at all.
+		const std::string& BrokenKey() const { return m_brokenKey; }
 		float Evasion(DamageType) const override { return 0.0f; }
 		float Soak() const override { return m_brk.soak; }
 		float Resist(DamageType type) const override;
@@ -2187,6 +2210,7 @@ private:
 		DungeonWorld& m_world;
 		Breakable& m_brk;
 		std::string m_nameKey;
+		std::string m_brokenKey;
 		std::function<void()> m_onBroken;
 	};
 

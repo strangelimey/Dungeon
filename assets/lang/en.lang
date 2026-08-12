@@ -215,6 +215,14 @@ log.spell_misses=The bolt streaks past the {}.
 log.spell_slain=The {} is destroyed!
 log.spell_pushes=The {} is hurled back!
 log.blast_hits=The blast catches the {} for {} damage!
+log.door_broken=The {} is smashed from its frame!
+log.door_wrecked=The doorway is wrecked — there is nothing left to close.
+log.prop_broken=The {} is smashed to pieces!
+
+; breakable pieces of dungeon (named like monster.<type>)
+decoration.barrel=barrel
+decoration.crate=crate
+door.wooden_door=wooden door
 log.blast_hits_member={} is caught in the blast for {} damage!
 log.shield_up=A ward settles over {}.
 log.shield_fades={}'s ward fades.

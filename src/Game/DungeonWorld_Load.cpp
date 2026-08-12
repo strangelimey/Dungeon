@@ -1310,6 +1310,17 @@ DungeonWorld::DecorationKind& DungeonWorld::DecorationKindFor(const std::string&
 			// Uniform size trim on top of the authored unit size (monsters' long-
 			// standing `modelscale`, now available to every prop): 1 = as authored.
 			kind->modelScale = def->GetFloat("scale", 1.0f);
+			// BREAKABILITY, opt-in and OFF by default: a prop is scenery unless its
+			// type says otherwise. `hp` is how much it takes, `armor`/`resists` how
+			// it takes it — the same two fields armour wears, so a stone statue can
+			// shrug off a blade and an iron grate can drink lightning.
+			kind->destructible = CatalogBool(def, "destructible", false);
+			if (kind->destructible) {
+				kind->hp = def->GetFloat("hp", 10.0f);
+				kind->soak = def->GetFloat("armor", 0.0f);
+				ParseResists(CatalogGet(def, "resists", ""), kind->resists,
+							 "decorations.cat [" + type + "]", m_damageTypes);
+			}
 		}
 		// Every kind bakes a whole-model map icon; a fresh kind re-arms the
 		// one-shot bake pass (UpdateMapIcons).
@@ -1421,6 +1432,7 @@ void DungeonWorld::LoadDecorations() {
 			deco.solid = kind.solidDefault; // passages (archway) let the party through
 		}
 		if (const std::string* s = record.Param("solid")) deco.solid = *s != "0";
+		SeedBreakable(deco.brk, kind);
 		m_decorations.push_back(std::move(deco));
 	}
 	log::Info("Placed {} decorations ({} kinds)", m_decorations.size(),

@@ -135,7 +135,7 @@ DungeonWorld::DungeonWorld(gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 			return true;
 		}
 		for (const Decoration& deco : m_decorations) {
-			if (deco.solid && deco.x == x && deco.z == z) {
+			if (deco.Blocks() && deco.x == x && deco.z == z) {
 				m_audio.Play(m_sounds.bump, 0.7f);
 				onMessage(loc::Tr("log.decoration_blocks"));
 				return true;
@@ -1360,7 +1360,7 @@ bool DungeonWorld::BrazierAt(int cx, int cz) const {
 
 bool DungeonWorld::SolidDecorationAt(int cx, int cz) const {
 	for (const Decoration& deco : m_decorations)
-		if (deco.solid && deco.x == cx && deco.z == cz) return true;
+		if (deco.Blocks() && deco.x == cx && deco.z == cz) return true;
 	return false;
 }
 
@@ -1730,7 +1730,7 @@ void DungeonWorld::BuildAISnapshot() {
 	// the cached grid: an editor placement takes effect on the next snapshot with
 	// no invalidation to get wrong.
 	for (const Decoration& deco : m_decorations)
-		if (deco.solid)
+		if (deco.Blocks())
 			snap->blocked[static_cast<size_t>(deco.z) * snap->mapW + deco.x] = 1;
 	// Closed doors block like solid decorations — and for the same reason they
 	// live in the per-frame grid, not the cached one: opening one must take

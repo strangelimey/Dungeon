@@ -218,6 +218,14 @@ log.spell_slain={} si disintegra!
 log.spell_pushes={} viene scagliato all'indietro!
 log.blast_hits=L'esplosione travolge {} per {} danni!
 log.blast_hits_member={} è travolto dall'esplosione e subisce {} danni!
+log.door_broken={} viene sfondata e strappata dai cardini!
+log.door_wrecked=Il vano è distrutto: non resta nulla da chiudere.
+log.prop_broken={} va in pezzi!
+
+; parti distruttibili del dungeon
+decoration.barrel=barile
+decoration.crate=cassa
+door.wooden_door=porta di legno
 log.shield_up=Un sigillo protettivo avvolge {}.
 log.shield_fades=La protezione di {} svanisce.
 log.poisoned={} è avvelenato!

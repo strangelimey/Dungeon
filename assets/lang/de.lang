@@ -217,6 +217,14 @@ log.spell_misses={} weicht dem Zauberblitz aus.
 log.spell_slain={} wird vernichtet!
 log.spell_pushes={} wird zurückgeschleudert!
 log.blast_hits=Die Explosion erfasst {} für {} Schaden!
+log.door_broken={} wird aus dem Rahmen geschlagen!
+log.door_wrecked=Der Durchgang ist zerstört — es gibt nichts mehr zu schließen.
+log.prop_broken={} wird in Stücke geschlagen!
+
+; zerstoerbare Teile des Dungeons
+decoration.barrel=Fass
+decoration.crate=Kiste
+door.wooden_door=Holztür
 log.blast_hits_member={} wird von der Explosion erfasst und erleidet {} Schaden!
 log.shield_up=Ein Schutzzauber legt sich um {}.
 log.shield_fades=Der Schutzzauber von {} verblasst.

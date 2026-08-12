@@ -210,6 +210,9 @@ bool WriteSave(const SaveData& data, const std::string& path) {
 		// v20: wall-niche reveal-state diffs (open != authored default).
 		for (const SaveData::NicheOpen& n : lvl.niches)
 			t += std::format("niche {} {} {} {}\n", n.x, n.z, n.wall, n.open ? 1 : 0);
+		// v24: props smashed on this level, by cell + type (see BrokenProp).
+		for (const SaveData::BrokenProp& b : lvl.broken)
+			t += std::format("broken {} {} {}\n", b.x, b.z, b.type);
 		if (!lvl.seen.empty()) {
 			t += "seen";
 			for (const auto& [x, z] : lvl.seen) t += std::format(" {},{}", x, z);
@@ -509,6 +512,14 @@ std::optional<SaveData> ReadSave(const std::string& path) {
 			n.wall = IntOf(tok[3]);
 			n.open = IntOf(tok[4]) != 0;
 			currentBlock().niches.push_back(n);
+		} else if (kw == "broken" && tok.size() >= 4) {
+			// v24: a smashed prop, <x> <z> <type>. Absent from older saves, which
+			// simply means nothing was broken — no migration needed.
+			SaveData::BrokenProp b;
+			b.x = IntOf(tok[1]);
+			b.z = IntOf(tok[2]);
+			b.type = std::string(tok[3]);
+			currentBlock().broken.push_back(b);
 		} else if (kw == "seen") {
 			SaveData::LevelState& lvl = currentBlock();
 			for (size_t i = 1; i < tok.size(); ++i) {

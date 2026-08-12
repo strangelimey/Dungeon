@@ -218,6 +218,14 @@ log.spell_slain=¡{} se desintegra!
 log.spell_pushes=¡{} sale despedido hacia atrás!
 log.blast_hits=¡La explosión alcanza a {} causando {} de daño!
 log.blast_hits_member=¡{} queda atrapado en la explosión y sufre {} de daño!
+log.door_broken=¡{} salta de su marco hecha pedazos!
+log.door_wrecked=El vano está destrozado; ya no queda nada que cerrar.
+log.prop_broken=¡{} queda destrozado!
+
+; partes destructibles de la mazmorra
+decoration.barrel=barril
+decoration.crate=caja
+door.wooden_door=puerta de madera
 log.shield_up=Un escudo protector envuelve a {}.
 log.shield_fades=El escudo de {} se desvanece.
 log.poisoned=¡{} está envenenado!

@@ -412,6 +412,76 @@ the party read "The blast catches the bone swarm for 10 damage!" then "caught in
 the blast for 7 damage" for all four members — full at the centre, full minus one
 step of falloff at distance 1, and friendly fire doing what it says.
 
+## The dungeon as a target
+
+`fx::ITarget` was implemented twice, for the two combatant kinds. **`BreakableTarget`
+is the third, and the first that is not a combatant** — so a door, a barrel or a
+crate reaches the damage pipeline through the same interface a monster does, and
+everything already built works on them for free: soak, typed resists, absorption
+past 1.0, DoTs (a burning door burns *down*), and a blast.
+
+**Damageability is opt-in and OFF by default** — `destructible` in the catalog,
+Michael's requirement: *"otherwise switches and keys will be useless"*. If props
+and doors were breakable unless told otherwise, a party would chop through every
+locked door the moment it could swing at one. `maxHp` of 0 means "not a target at
+all" and every ask short-circuits on it. Toughness is `hp`, `armor` and `resists`
+— the same two mitigation fields armour wears, so a barrel can be weak to fire
+(`fire -0.6`) and stone can shrug off a blade.
+
+One adapter serves every kind; what differs is only what *breaking* means, and
+that is a callback rather than a subclass, because the damage side of a barrel and
+of a door are identical:
+
+- **A door's way opens for good.** Not `open = true` alone — a broken door can
+  never be shut again, which is the whole difference from opening one. The
+  invariant is enforced in `ToggleDoor`, the one place every route in arrives:
+  the party's click, a wired button, and the editor's inspector.
+- **A prop is gone** for drawing, collision and the map — but its record *stays in
+  the list*, flagged broken. Erasing it would dangle the reference its adapter
+  still holds, and the save has to be able to name what broke, which an erased
+  record cannot do. `Decoration::Gone()` / `::Blocks()` are how everything else
+  skips it, so smashing a crate in a doorway clears the way.
+
+Reached today by a **blast** and by the dev command `smash <x> <z> [amount]`. A
+smash is a `Blow` — rolled and soaked like any swing, so a door's `armor` and
+resists both answer it, and it can **fumble**: the first scripted smash of the
+wooden door missed for exactly that reason, which is correct and not a bug.
+
+The break line is said by the **caller**, after it has narrated the blow — the
+same rule a monster's death line follows. A callback fired from inside the
+pipeline runs before the caller has said anything, which read as *"the barrel is
+smashed to pieces!"* then *"the blast catches the barrel for 313 damage!"*.
+
+### Persistence (save v24)
+
+Decorations are **static `.map` records**, so being broken is dynamic state and
+rides the save — the same split `seen` makes. One `broken <x> <z> <type>` line per
+level, mirroring the `niche` record.
+
+**Keyed by cell + type, deliberately not by index.** An index into the prop list
+is stable only until the editor inserts a record ahead of it, at which point every
+saved index past it names the wrong prop. Doors go through the same record even
+though they *do* ride `entities` — that only carries open/closed, and a broken
+door is not merely an open one: it must not come back at full hp to be broken
+again. A saved entry naming a prop the level no longer has is dropped, which is
+the outcome the entry wanted anyway.
+
+Verified after a true reload, with a control: the smashed barrel and the wrecked
+door both came back broken (`"nothing breakable"`), while the crate that was
+*not* smashed that session was still struck — so the answers are specific to what
+actually broke, not a blanket failure.
+
+### Not done: fixtures
+
+Sconces and braziers were part of the plan and are **not** built. They are
+`WallSconce` / `FloorBrazier` in `DungeonMap` — the *static* layer — so unlike a
+decoration they have no instance struct of their own to carry a `Breakable`, and
+their dynamic state needs a side-table keyed by (x, z, wall), the way `m_seen`
+works. Everything else is in place: they would need seeding from `fixtures.cat`,
+an entry in `ForEachBreakableAt`, and destruction meaning *the light goes out*
+(which is the interesting part, since fixtures drive the point-light budget and
+the turbidity rings).
+
 ## Traps
 
 **A measurement that omits a term is not weaker, it is wrong.** The defender

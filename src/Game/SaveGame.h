@@ -89,7 +89,7 @@ struct SaveData {
 	//     buttons as a diff (keyed by .ent id) or a whole spawn (no baseline);
 	//     replaces the v6 split of "ent"/"monster" rows + a whole "floor" item
 	//     snapshot. v6: free-look offset ("look" line); v5 folded hands into equip[].
-	int version = 23;
+	int version = 24; // v24: broken props (the dungeon as a target)
 
 	// ONE active status effect, as it survives a save. Shared by both sides —
 	// a party member's list and (v22) a monster's — because the effects system
@@ -234,11 +234,27 @@ struct SaveData {
 		bool open = true;
 	};
 
+	// A piece of DUNGEON that has been broken (v24). Doors ride `entities` like
+	// every other .ent record, so this is for the pieces that do NOT: decorations
+	// are STATIC .map records, and their destroyed state is dynamic — the same
+	// split `seen` makes.
+	//
+	// KEYED BY CELL + TYPE, deliberately not by index into the prop list. An index
+	// is only stable until the editor inserts or removes a record, at which point
+	// every saved index past it would name the wrong prop; a cell and a type name
+	// the thing itself. Several props can share a cell, but not two of the same
+	// TYPE in one cell, which is what makes the pair unique enough.
+	struct BrokenProp {
+		int x = 0, z = 0;
+		std::string type;
+	};
+
 	struct LevelState {
 		std::string stem;
 		std::vector<std::pair<int, int>> seen;
 		std::vector<EntityState> entities; // all kinds, diffs + spawns
 		std::vector<NicheOpen> niches;     // v20: reveal-state diffs
+		std::vector<BrokenProp> broken;    // v24: smashed props
 		// v6 read compat: a v6 save stored every floor item as a whole "floor"
 		// snapshot (no per-item diff). When loaded, those rows land in `entities`
 		// as Item spawns and this flag is set, so ApplyActiveSnapshot REPLACES the

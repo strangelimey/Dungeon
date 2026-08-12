@@ -1447,43 +1447,60 @@ void DungeonWorld::ForEachBreakableAt(
 	// kind reaches blasts, bolts and anything later, all at once.
 	for (Door& d : m_doors) {
 		if (d.x != x || d.z != z || !d.brk.Alive()) continue;
-		BreakableTarget t{*this, d.brk, "door." + d.type, [this, &d] {
+		BreakableTarget t{*this, d.brk, "door." + d.type, "log.door_broken", [&d] {
 							  // The way is open FOR GOOD. Not `open = true` alone:
-							  // a smashed door must not be closeable again, which
-							  // is the whole difference from opening one.
+							  // a smashed door must not be closeable again, which is
+							  // the whole difference from opening one. STATE only —
+							  // the line is the caller's (see BrokenKey).
 							  d.open = true;
 							  d.openT = 1.0f;
-							  if (onMessage)
-								  onMessage(loc::Format("log.door_broken",
-														loc::Tr("door." + d.type)));
 						  }};
 		fn(t);
 	}
-	for (size_t i = 0; i < m_decorations.size(); ++i) {
-		Decoration& p = m_decorations[i];
+	for (Decoration& p : m_decorations) {
 		if (p.x != x || p.z != z || !p.brk.Alive()) continue;
-		const std::string nameKey = "item." + p.kind->id;
-		BreakableTarget t{*this, p.brk, nameKey, [this, i, nameKey] {
-							  // Smashed props are swept up AFTER the walk — erasing
-							  // mid-iteration would invalidate the Breakable
-							  // reference the adapter is still holding.
-							  m_brokenProps.push_back(i);
-							  if (onMessage)
-								  onMessage(loc::Format("log.prop_broken",
-														loc::Tr(nameKey)));
-						  }};
+		// A smashed prop STAYS IN THE LIST, flagged broken, rather than being
+		// erased. Two reasons, the second load-bearing: erasing while the adapter
+		// still holds a reference into the vector would dangle it, and the SAVE has
+		// to be able to name what was broken afterwards — an erased record cannot be
+		// reported. Draw, collision and the map all skip a broken prop instead
+		// (Decoration::Gone / ::Blocks), so nothing else has to know.
+		BreakableTarget t{*this, p.brk, "decoration." + p.kind->id,
+						  "log.prop_broken", nullptr};
 		fn(t);
 	}
 }
 
-void DungeonWorld::SweepBrokenProps() {
-	if (m_brokenProps.empty()) return;
-	// Descending, so each erase cannot shift an index still to be removed.
-	std::sort(m_brokenProps.begin(), m_brokenProps.end(), std::greater<size_t>());
-	for (const size_t i : m_brokenProps)
-		if (i < m_decorations.size())
-			m_decorations.erase(m_decorations.begin() + static_cast<long>(i));
-	m_brokenProps.clear();
+int DungeonWorld::SmashAt(int x, int z, float amount) {
+	int struck = 0;
+	// A BLOW, not a burst: rolled and soaked like any swing, so a door's `armor`
+	// and its resists both answer it. Bash, because smashing is what this is.
+	ForEachBreakableAt(x, z, [&](BreakableTarget& t) {
+		++struck;
+		fx::DamageEvent ev = fx::DamageEvent::Blow(m_bashType, amount, 500.0f, -1);
+		fx::Deal(ev, t, m_balance.Strike(), m_combatRng);
+		NarrateBreak(t, ev);
+	});
+	return struck;
+}
+
+void DungeonWorld::NarrateBreak(const BreakableTarget& t,
+								const fx::DamageEvent& ev) {
+	// The blow FIRST, then what it broke — the order the effects doc insists on and
+	// the reason the break line is not said from inside the pipeline.
+	if (!onMessage) return;
+	if (ev.dealt >= 0.5f)
+		onMessage(loc::Format("log.blast_hits", t.Name(),
+							  static_cast<int>(ev.dealt + 0.5f)));
+	if (ev.slew) onMessage(loc::Format(t.BrokenKey(), t.Name()));
+}
+
+void DungeonWorld::SeedBreakable(Breakable& brk, const DecorationKind& kind) {
+	if (!kind.destructible || kind.hp <= 0.0f) return; // scenery: maxHp stays 0
+	brk.maxHp = kind.hp;
+	brk.hp = kind.hp;
+	brk.soak = kind.soak;
+	brk.resists = kind.resists;
 }
 
 // ============================================================================
@@ -1600,8 +1617,8 @@ void DungeonWorld::ApplyBlastHit(const blast::Hit& c, DamageType type,
 	ForEachBreakableAt(c.x, c.z, [&](BreakableTarget& t) {
 		fx::DamageEvent ev = fx::DamageEvent::Burst(type, c.damage, attacker);
 		fx::Deal(ev, t, m_balance.Strike(), m_combatRng);
+		NarrateBreak(t, ev);
 	});
-	SweepBrokenProps();
 }
 
 // ============================================================================
