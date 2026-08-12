@@ -190,9 +190,8 @@ struct DefenseProfile {
 
 // The resolver's knobs, filled from Balance (balance.cat) by Balance::Strike().
 struct StrikeRules {
-	float hitFloor = 0.05f, hitCeil = 0.95f; // (legacy, unused by the roll)
-	float damageJitter = 0.15f;              // ± roll on every hit
-	float woundFloor = 1.0f;                 // a landed blow always stings
+	float damageJitter = 0.15f; // ± roll on every hit
+	float woundFloor = 1.0f;    // a landed blow always stings
 
 	// --- the opposed roll (docs/damage-system.md) ---------------------------
 	// Attacker and defender each add a d100 to a bonus and the higher total

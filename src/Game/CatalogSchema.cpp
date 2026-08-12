@@ -198,9 +198,9 @@ constexpr FieldSpec kMonsterFields[] = {
 	 .help = "Hit points.", .lo = 1.0f, .hi = 200.0f, .step = 1.0f, .def = "10"},
 	{.key = "damage", .kind = FieldKind::Float, .sectionKey = kSectionStats,
 	 .help = "Damage per landed blow.", .lo = 0.0f, .hi = 50.0f, .step = 1.0f, .def = "3"},
-	{.key = "dmgtype", .kind = FieldKind::Enum, .sectionKey = kSectionStats,
+	{.key = "dmgtype", .kind = FieldKind::DamageType, .sectionKey = kSectionStats,
 	 .help = "Damage type its melee deals (resists key off this).",
-	 .options = "slash pierce bash fire earth air water", .def = "bash"},
+	 .def = "bash"},
 	// POINTS on the opposed d100 roll, not the 0..1 probabilities these were
 	// before the damage-system work. The ranges here still said 0..1, which
 	// would have clamped every authored value to a rounding error the moment
@@ -452,10 +452,10 @@ constexpr FieldSpec kEffectFields[] = {
 	// and `burn` omits it deliberately — its class resolves the type per
 	// instance. Hence the second sentence: without it the row reads as a claim
 	// that a burn deals bash damage.
-	{.key = "damage_type", .kind = FieldKind::Enum, .sectionKey = kSectionStats,
+	{.key = "damage_type", .kind = FieldKind::DamageType, .sectionKey = kSectionStats,
 	 .help = "What a DoT is RESISTED as — not its tint (bleeding is pierce). "
 			 "A burn ignores this: it answers to whatever element lit it.",
-	 .options = "slash pierce bash fire earth air water", .def = "bash"},
+	 .def = "bash"},
 	{.key = "stacking", .kind = FieldKind::Enum, .sectionKey = kSectionRules,
 	 .help = "refresh = replace it; school = replace only the same school's; stack = pile up.",
 	 .options = "refresh school stack", .def = "refresh"},

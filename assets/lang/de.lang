@@ -684,3 +684,25 @@ anim.state.attack=Angriff
 anim.state.defend=Verteidigen
 anim.state.hit=Getroffen
 anim.state.die=Sterben
+
+; --- the damage system (docs/damage-system.md) ---
+map.balance.curve.dice=--- Würfelstreuung (~41)
+map.balance.curve.peak=Spitze: Fertigkeit {} / Attribut {}
+map.balance.curve.skill=Fertigkeit (0-{})
+map.balance.curve.stat=Attribut (0-{})
+sheet.def.armor=Rüstung
+sheet.def.armorpen=Rüstung
+sheet.def.avoid=Ausweichen
+sheet.def.base=Basis
+sheet.def.dex=GES
+sheet.def.roll=Wurf
+sheet.def.soak=Absorption
+sheet.def.stance=Haltung
+sheet.def.str=STÄ
+sheet.def.unarmored=Keine
+sheet.def.withlevel={} (Stufe {})
+sheet.defense=Verteidigung
+skill.avoid=Ausweichen
+skill.heavy_armor=Schwere Rüstung
+skill.light_armor=Leichte Rüstung
+skill.medium_armor=Mittlere Rüstung

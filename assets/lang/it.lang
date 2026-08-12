@@ -684,3 +684,25 @@ anim.state.attack=Attacco
 anim.state.defend=Difesa
 anim.state.hit=Colpito
 anim.state.die=Morte
+
+; --- the damage system (docs/damage-system.md) ---
+map.balance.curve.dice=--- deviazione del dado (~41)
+map.balance.curve.peak=picco: abilità {} / attributo {}
+map.balance.curve.skill=abilità (0-{})
+map.balance.curve.stat=attributo (0-{})
+sheet.def.armor=Armatura
+sheet.def.armorpen=armatura
+sheet.def.avoid=elusione
+sheet.def.base=base
+sheet.def.dex=DES
+sheet.def.roll=Tiro
+sheet.def.soak=Assorbimento
+sheet.def.stance=postura
+sheet.def.str=FOR
+sheet.def.unarmored=Nessuna
+sheet.def.withlevel={} (liv {})
+sheet.defense=Difesa
+skill.avoid=Elusione
+skill.heavy_armor=Armatura pesante
+skill.light_armor=Armatura leggera
+skill.medium_armor=Armatura media

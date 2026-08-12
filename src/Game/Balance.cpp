@@ -20,8 +20,6 @@ constexpr BalanceField kBalanceFields[] = {
 	{"stat_damage", &Balance::statDamage},
 	{"skill_damage", &Balance::skillDamage},
 	{"damage_jitter", &Balance::damageJitter},
-	{"hit_floor", &Balance::hitFloor},
-	{"hit_ceil", &Balance::hitCeil},
 	{"crit_threshold", &Balance::critThreshold},
 	{"fumble_threshold", &Balance::fumbleThreshold},
 	{"margin_damage", &Balance::marginDamage},

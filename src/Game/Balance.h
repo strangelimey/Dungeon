@@ -68,7 +68,6 @@ struct Balance {
 	float statDamage = 0.25f;   // damage per point of statAvg
 	float skillDamage = 0.08f;  // damage multiplier per skill level
 	float damageJitter = 0.15f; // ± roll on every hit
-	float hitFloor = 0.05f, hitCeil = 0.95f; // legacy, unused by the opposed roll
 	// The opposed roll (docs/damage-system.md). roll_scale bridges the old
 	// 0..1 accuracy/evasion onto d100 points and retires with them in P3.
 	float critThreshold = 95.0f;
@@ -194,8 +193,6 @@ struct Balance {
 	// The resolver's knob subset, handed to ResolveAttack.
 	StrikeRules Strike() const {
 		StrikeRules r;
-		r.hitFloor = hitFloor;
-		r.hitCeil = hitCeil;
 		r.damageJitter = damageJitter;
 		r.woundFloor = woundFloor;
 		r.critThreshold = critThreshold;

@@ -204,6 +204,15 @@ void Game::WireModuleCallbacks() {
 		switch (spec.kind) {
 		case FieldKind::TextureSet: return InstalledTextureSets();
 		case FieldKind::Model: return InstalledModels();
+		case FieldKind::DamageType: {
+			// What the game will actually accept, asked of the registry that
+			// accepts it — so a project type appears here the moment it is
+			// authored, and a removed one stops being offered.
+			std::vector<std::string> ids;
+			for (const DamageTypeBook::Entry& e : m_world.DamageTypes().Entries())
+				ids.push_back(e.id);
+			return ids;
+		}
 		case FieldKind::CatalogRef: {
 			std::vector<std::string> ids;
 			if (const Catalog* c = m_project.CatalogForKey(spec.options))

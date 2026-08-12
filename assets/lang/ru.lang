@@ -688,3 +688,25 @@ anim.state.attack=Атака
 anim.state.defend=Защита
 anim.state.hit=Попадание
 anim.state.die=Смерть
+
+; --- the damage system (docs/damage-system.md) ---
+map.balance.curve.dice=--- разброс кубика (~41)
+map.balance.curve.peak=пик: навык {} / характеристика {}
+map.balance.curve.skill=навык (0-{})
+map.balance.curve.stat=характеристика (0-{})
+sheet.def.armor=Броня
+sheet.def.armorpen=броня
+sheet.def.avoid=уклонение
+sheet.def.base=база
+sheet.def.dex=ЛОВ
+sheet.def.roll=Бросок
+sheet.def.soak=Поглощение
+sheet.def.stance=стойка
+sheet.def.str=СИЛ
+sheet.def.unarmored=Нет
+sheet.def.withlevel={} (ур. {})
+sheet.defense=Защита
+skill.avoid=Уклонение
+skill.heavy_armor=Тяжёлая броня
+skill.light_armor=Лёгкая броня
+skill.medium_armor=Средняя броня

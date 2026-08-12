@@ -253,7 +253,6 @@ struct Character {
 	float MaxCarryLoad() const { return static_cast<float>(strength) * 5.0f; }
 	// Dodging is agility (settled: party evasion derives from DEX; monsters
 	// stay authored). Type-agnostic — the first defense gate.
-	float Evasion() const { return 0.05f + static_cast<float>(dexterity) * 0.015f; }
 
 	// The RACE/NATURE defense layer (docs/combat.md part 4): per-damage-type
 	// resists summed with equipment and wards. All zero for the default human
