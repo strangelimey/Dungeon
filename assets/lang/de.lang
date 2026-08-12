@@ -220,6 +220,9 @@ log.blast_hits=Die Explosion erfasst {} für {} Schaden!
 log.door_broken={} wird aus dem Rahmen geschlagen!
 log.door_wrecked=Der Durchgang ist zerstört — es gibt nichts mehr zu schließen.
 log.prop_broken={} wird in Stücke geschlagen!
+log.fixture_broken={} wird zerstört, und das Licht erlischt.
+fixture.sconce=Wandhalter
+fixture.brazier=Kohlenbecken
 
 ; zerstoerbare Teile des Dungeons
 decoration.barrel=Fass

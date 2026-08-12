@@ -1545,6 +1545,21 @@ private:
 		bool Alive() const { return Damageable() && !broken; }
 	};
 
+	// A FIXTURE's damage state, kept beside the map rather than on it. Sconces and
+	// braziers are STATIC .map records (WallSconce / FloorBrazier in DungeonMap), so
+	// unlike a decoration they have no instance struct of their own to carry a
+	// Breakable — and hanging dynamic state on a static record is exactly the split
+	// this project keeps (the same reason m_seen is not baked into DungeonMap).
+	//
+	// Keyed by cell + WALL, because several sconces may share a cell on different
+	// walls; `wall` is -1 for a floor-standing brazier, which has none.
+	struct FixtureBreak {
+		int x = 0, z = 0;
+		int wall = -1; // Direction as int; -1 = floor-standing
+		std::string type;
+		Breakable brk;
+	};
+
 	struct Door {
 		int id = -1;                         // source Entity::id (.ent record)
 		std::string type;                    // doors.cat id, for naming + breakage
@@ -1986,6 +2001,13 @@ private:
 	// Fill an instance's Breakable from its type. ONE place, so a prop placed at
 	// load and one placed by the editor are breakable on the same terms.
 	static void SeedBreakable(Breakable& brk, const DecorationKind& kind);
+	// Build the fixture damage side-table from the map's sconces and braziers.
+	// Called once the fixtures are placed; only destructible kinds get an entry, so
+	// the table is empty in a dungeon that authored none.
+	void SeedFixtureBreakables();
+	// Douse a broken fixture: its light, flame and smoke all go with `lit`.
+	void DouseFixture(const FixtureBreak& fb);
+	std::vector<FixtureBreak> m_fixtureBreaks;
 
 public:
 	// Deal `amount` of bash damage to everything breakable in a cell; returns how
@@ -2623,7 +2645,13 @@ private:
 		float modelScale = 1.0f; // fixtures.cat `scale`, like DecorationKind's
 		FixtureFlame flame{0.0f, 0.0f, 0.0f};
 		std::unique_ptr<gfx::Texture> iconTarget; // baked map icon
+		// Breakability, off unless the type opts in (fixtures.cat `destructible`).
+		bool destructible = false;
+		float hp = 0.0f;
+		float soak = 0.0f;
+		ResistTable resists;
 	};
+
 	std::flat_map<std::string, std::unique_ptr<FixtureKind>> m_fixtureKinds;
 	bool m_fixtureIconsBaked = false; // re-armed by a fresh kind (like decorations)
 	FixtureKind& FixtureKindFor(const std::string& type);

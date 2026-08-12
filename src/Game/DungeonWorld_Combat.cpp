@@ -1469,6 +1469,15 @@ void DungeonWorld::ForEachBreakableAt(
 						  "log.prop_broken", nullptr};
 		fn(t);
 	}
+	// FIXTURES, from the side-table rather than the map: their records are static,
+	// so their damage state lives beside them (see FixtureBreak). Breaking one puts
+	// its light out.
+	for (FixtureBreak& fb : m_fixtureBreaks) {
+		if (fb.x != x || fb.z != z || !fb.brk.Alive()) continue;
+		BreakableTarget t{*this, fb.brk, "fixture." + fb.type, "log.fixture_broken",
+						  [this, &fb] { DouseFixture(fb); }};
+		fn(t);
+	}
 }
 
 int DungeonWorld::SmashAt(int x, int z, float amount) {
@@ -1493,6 +1502,58 @@ void DungeonWorld::NarrateBreak(const BreakableTarget& t,
 		onMessage(loc::Format("log.blast_hits", t.Name(),
 							  static_cast<int>(ev.dealt + 0.5f)));
 	if (ev.slew) onMessage(loc::Format(t.BrokenKey(), t.Name()));
+}
+
+void DungeonWorld::SeedFixtureBreakables() {
+	// THE TABLE IS DERIVED FROM THE MAP, BUT THE BROKEN FLAGS ARE NOT. Rebuilding it
+	// must therefore CARRY THEM OVER, because the rebuild can run after a save has
+	// already been applied — which is exactly what happened: a restored broken
+	// brazier came back whole, because re-seeding replaced its entry. Preserving
+	// here rather than chasing the load-task order means it cannot break again if
+	// that order changes.
+	std::vector<FixtureBreak> prior = std::move(m_fixtureBreaks);
+	m_fixtureBreaks.clear();
+	const auto seed = [this, &prior](int x, int z, int wall,
+									 const std::string& type) {
+		const FixtureKind& k = FixtureKindFor(type);
+		if (!k.destructible || k.hp <= 0.0f) return; // authored as scenery
+		FixtureBreak fb;
+		fb.x = x;
+		fb.z = z;
+		fb.wall = wall;
+		fb.type = type;
+		fb.brk.maxHp = k.hp;
+		fb.brk.hp = k.hp;
+		fb.brk.soak = k.soak;
+		fb.brk.resists = k.resists;
+		for (const FixtureBreak& old : prior)
+			if (old.x == x && old.z == z && old.wall == wall && old.type == type) {
+				fb.brk.broken = old.brk.broken; // whatever was already wrecked
+				fb.brk.hp = old.brk.hp;         // ...and however battered
+				fb.brk.effects = old.brk.effects;
+				break;
+			}
+		m_fixtureBreaks.push_back(std::move(fb));
+	};
+	for (const WallSconce& s : m_map.Sconces())
+		seed(s.x, s.z, static_cast<int>(s.wall), s.type);
+	for (const FloorBrazier& b : m_map.Braziers()) seed(b.x, b.z, -1, b.type);
+}
+
+void DungeonWorld::DouseFixture(const FixtureBreak& fb) {
+	// Breaking a light source means THE LIGHT GOES OUT, which is the whole point of
+	// being able to break one — `lit` gates its point light, its flame particles and
+	// its smoke together, so one flag does all three. The mesh stays: a wrecked
+	// sconce is still bolted to the wall, just dark.
+	if (fb.wall >= 0)
+		m_map.SetSconceProps(fb.x, fb.z, static_cast<Direction>(fb.wall),
+							 /*lit=*/false, kSconceBrightness, kSconceTurbidity);
+	else
+		m_map.SetBrazierProps(fb.x, fb.z, /*lit=*/false, kBrazierBrightness,
+							  kBrazierTurbidity);
+	// The haze it was feeding has to go with it, or a doused brazier leaves its own
+	// god rays hanging in the air.
+	BuildTurbidityMap();
 }
 
 void DungeonWorld::SeedBreakable(Breakable& brk, const DecorationKind& kind) {

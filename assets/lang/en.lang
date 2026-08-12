@@ -218,6 +218,9 @@ log.blast_hits=The blast catches the {} for {} damage!
 log.door_broken=The {} is smashed from its frame!
 log.door_wrecked=The doorway is wrecked — there is nothing left to close.
 log.prop_broken=The {} is smashed to pieces!
+log.fixture_broken=The {} is wrecked, and its light dies.
+fixture.sconce=sconce
+fixture.brazier=brazier
 
 ; breakable pieces of dungeon (named like monster.<type>)
 decoration.barrel=barrel

@@ -471,16 +471,38 @@ door both came back broken (`"nothing breakable"`), while the crate that was
 *not* smashed that session was still struck — so the answers are specific to what
 actually broke, not a blanket failure.
 
-### Not done: fixtures
+### Fixtures, and why they needed a side-table
 
-Sconces and braziers were part of the plan and are **not** built. They are
-`WallSconce` / `FloorBrazier` in `DungeonMap` — the *static* layer — so unlike a
-decoration they have no instance struct of their own to carry a `Breakable`, and
-their dynamic state needs a side-table keyed by (x, z, wall), the way `m_seen`
-works. Everything else is in place: they would need seeding from `fixtures.cat`,
-an entry in `ForEachBreakableAt`, and destruction meaning *the light goes out*
-(which is the interesting part, since fixtures drive the point-light budget and
-the turbidity rings).
+Sconces and braziers are `WallSconce` / `FloorBrazier` in `DungeonMap` — the
+*static* layer — so unlike a decoration they have no instance struct of their own
+to carry a `Breakable`. Their damage state lives in `m_fixtureBreaks`, keyed by
+**cell + wall** because several sconces may share a cell (`wall = -1` for a
+floor-standing brazier). That is the same static/dynamic split `m_seen` makes,
+rather than hanging dynamic state on a static record.
+
+**Breaking one puts its light out** — which is the point of being able to break
+one. `lit` gates the point light, the flame particles and the smoke together, so
+one flag does all three, and the turbidity map is rebuilt so a doused brazier does
+not leave its own god rays hanging in the air. The mesh stays: a wrecked sconce is
+still bolted to the wall, just dark.
+
+Not all of them opt in, deliberately, the same way most doors don't: `sconce` (hp
+6 — a torch in a bracket) and `brazier` (hp 30, `armor` 4 — cast iron on three
+legs) are breakable; **`brazier_empty` authors none of the fields and cannot be
+touched**. Both are `fire 1.0` — immune to fire, since they are already alight.
+
+**The bug worth remembering.** A restored broken brazier came back *whole*. The
+record was written and read correctly; the problem was that the table is *derived
+from the map*, so re-seeding it after a save had been applied replaced the entry
+and lost the flag. `SeedFixtureBreakables` now **carries broken/hp/effects over**
+from the entries it replaces. Fixing it that way rather than by reordering the load
+tasks means it cannot break again if that order changes — a derived table holding
+dynamic state has to preserve it across a rebuild, or the rebuild is a data-loss
+bug waiting for a reorder.
+
+That one also hid behind a *false positive*: a fixture missing from the table
+reports "nothing breakable" — exactly what a correctly-broken one reports. The
+control that separated them was smashing an untouched fixture in the same run.
 
 ## Traps
 

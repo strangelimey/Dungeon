@@ -247,6 +247,11 @@ struct SaveData {
 	struct BrokenProp {
 		int x = 0, z = 0;
 		std::string type;
+		// Which wall, for a FIXTURE: several sconces may share a cell on different
+		// walls, so the cell and type alone do not name one. -1 for anything that
+		// has no wall — a prop, a door, a floor-standing brazier. Written as a
+		// fourth token, and a v24 line without it reads as -1.
+		int wall = -1;
 	};
 
 	struct LevelState {

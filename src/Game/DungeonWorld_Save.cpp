@@ -180,6 +180,10 @@ SaveData::LevelState DungeonWorld::SnapshotActive() const {
 	// key, so both kinds restore through one path.
 	for (const Door& d : m_doors)
 		if (d.brk.broken) ls.broken.push_back({d.x, d.z, d.type});
+	// Fixtures, from the side-table their damage state lives in. The WALL matters
+	// here and nowhere else: two sconces can share a cell.
+	for (const FixtureBreak& fb : m_fixtureBreaks)
+		if (fb.brk.broken) ls.broken.push_back({fb.x, fb.z, fb.type, fb.wall});
 	return ls;
 }
 
@@ -343,6 +347,16 @@ void DungeonWorld::ApplyActiveSnapshot() {
 				d.brk.hp = 0.0f;
 				d.open = true; // the way stays open, and stays unclosable
 				d.openT = 1.0f;
+				found = true;
+				break;
+			}
+		if (found) continue;
+		for (FixtureBreak& fb : m_fixtureBreaks)
+			if (fb.x == b.x && fb.z == b.z && fb.type == b.type &&
+				fb.wall == b.wall) {
+				fb.brk.broken = true;
+				fb.brk.hp = 0.0f;
+				DouseFixture(fb); // and it comes back DARK, not merely broken
 				break;
 			}
 	}

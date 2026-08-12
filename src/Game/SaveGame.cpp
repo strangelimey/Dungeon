@@ -212,7 +212,7 @@ bool WriteSave(const SaveData& data, const std::string& path) {
 			t += std::format("niche {} {} {} {}\n", n.x, n.z, n.wall, n.open ? 1 : 0);
 		// v24: props smashed on this level, by cell + type (see BrokenProp).
 		for (const SaveData::BrokenProp& b : lvl.broken)
-			t += std::format("broken {} {} {}\n", b.x, b.z, b.type);
+			t += std::format("broken {} {} {} {}\n", b.x, b.z, b.type, b.wall);
 		if (!lvl.seen.empty()) {
 			t += "seen";
 			for (const auto& [x, z] : lvl.seen) t += std::format(" {},{}", x, z);
@@ -519,6 +519,9 @@ std::optional<SaveData> ReadSave(const std::string& path) {
 			b.x = IntOf(tok[1]);
 			b.z = IntOf(tok[2]);
 			b.type = std::string(tok[3]);
+			// The wall is a fourth token for fixtures; an earlier v24 line without
+			// it, or anything with no wall, reads as -1.
+			if (tok.size() >= 5) b.wall = IntOf(tok[4]);
 			currentBlock().broken.push_back(b);
 		} else if (kw == "seen") {
 			SaveData::LevelState& lvl = currentBlock();

@@ -221,6 +221,9 @@ log.blast_hits_member={} è travolto dall'esplosione e subisce {} danni!
 log.door_broken={} viene sfondata e strappata dai cardini!
 log.door_wrecked=Il vano è distrutto: non resta nulla da chiudere.
 log.prop_broken={} va in pezzi!
+log.fixture_broken={} è distrutto e la sua luce si spegne.
+fixture.sconce=torciera
+fixture.brazier=braciere
 
 ; parti distruttibili del dungeon
 decoration.barrel=barile

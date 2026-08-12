@@ -222,6 +222,9 @@ void DungeonWorld::AppendLoadTasks(LoadQueue& queue) {
 			// DecorationKind pattern) — BuildFires pulls in whatever the level uses.
 			m_particleBatch = std::make_unique<gfx::ParticleBatch>(m_device);
 			BuildFires();
+			// Their damage side-table, once the kinds are resolved — it asks each
+			// kind whether it is breakable at all, so it must run after BuildFires.
+			SeedFixtureBreakables();
 		},
 		"fires");
 	queue.Add(loc::Tr("load.dust"), [this] { BuildTurbidityMap(); }, "turbidity");
@@ -1366,6 +1369,16 @@ DungeonWorld::FixtureKind& DungeonWorld::FixtureKindFor(const std::string& type)
 		kind->id = type;
 		kind->wallMount = CatalogGet(def, "mount", "floor") == "wall";
 		kind->flameless = !CatalogBool(def, "flame", true);
+		// Breakability, opt-in and OFF by default like every other kind: a torch
+		// bracket can be knocked off a wall, a heavy iron brazier takes rather more,
+		// and an empty one authored without the field cannot be touched at all.
+		kind->destructible = CatalogBool(def, "destructible", false);
+		if (kind->destructible && def) {
+			kind->hp = def->GetFloat("hp", 10.0f);
+			kind->soak = def->GetFloat("armor", 0.0f);
+			ParseResists(CatalogGet(def, "resists", ""), kind->resists,
+						 "fixtures.cat [" + type + "]", m_damageTypes);
+		}
 		kind->model = LoadModelOrDie(model + ".gltf");
 		kind->mesh = std::make_unique<gfx::Mesh>(m_device, kind->model.meshes[0]);
 		kind->color = kind->model.materials[0].baseColorFactor;
