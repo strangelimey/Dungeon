@@ -34,6 +34,8 @@ constexpr BalanceField kBalanceFields[] = {
 	{"stat_cap", &Balance::statCap},
 	{"stat_baseline", &Balance::statBaseline},
 	{"defense_base", &Balance::defenseBase},
+	{"avoid_slope", &Balance::avoidSlope},
+	{"avoid_cap", &Balance::avoidCap},
 	{"armor_light_penalty", &Balance::armorLightPenalty},
 	{"armor_light_floor", &Balance::armorLightFloor},
 	{"armor_light_str", &Balance::armorLightStr},

@@ -310,6 +310,59 @@ int main(int argc, char** argv) {
 		std::printf("  (base damage 10, no soak, no resist; \"dmg\" is the mean "
 					"LANDED hit)\n");
 
+		// THE DEFENDING SIDE — what a monster swinging at 70 actually achieves
+		// against a party member, which is the number the armor trade lives or
+		// dies by. The defense terms are restated here (RollTest cannot link
+		// Balance); they are the shipped defaults.
+		{
+			constexpr float kBase = 45.0f;   // defense_base
+			constexpr float kMonster = 70.0f; // a typical monsters.cat accuracy
+			CurveRules avoid;
+			avoid.slope = 3.0f;
+			avoid.cap = 60.0f;
+			// Armor: floor + (offsettable - offset), the offset curve capped at
+			// what training may ever claw back (Balance::ArmorRules).
+			const auto armorPenalty = [&](float penalty, float floor, float level) {
+				CurveRules off = skill;
+				off.slope = 2.0f;
+				off.cap = penalty - floor;
+				return floor + (off.cap - CurveValue(level, off));
+			};
+			struct Def { const char* what; float bonus; float soak; };
+			const Def defs[] = {
+				{"fresh, unarmored (DEX 11)", kBase + CurveValue(11, stat), 0.0f},
+				{"trained dodger (avoid 20)",
+				 kBase + CurveValue(11, stat) + CurveValue(20, avoid), 0.0f},
+				{"veteran dodger (avoid 60)",
+				 kBase + CurveValue(11, stat) + CurveValue(60, avoid), 0.0f},
+				{"brigandine, untrained", kBase + CurveValue(11, stat) - armorPenalty(25, 10, 0), 3.5f},
+				{"brigandine, skill 20", kBase + CurveValue(11, stat) - armorPenalty(25, 10, 20), 3.5f},
+				{"plate, untrained", kBase + CurveValue(11, stat) - armorPenalty(45, 20, 0), 7.0f},
+				{"plate, skill 30", kBase + CurveValue(11, stat) - armorPenalty(45, 20, 30), 7.0f},
+			};
+			std::printf("\n  a monster (attack 70) against a party member\n");
+			std::printf("    %-30s %6s %6s %8s %9s\n", "", "def", "hit", "soak",
+						"dmg/swing");
+			for (const Def& d : defs) {
+				std::mt19937 rng(31337);
+				constexpr int kN = 200'000;
+				long long hits = 0;
+				double total = 0;
+				for (int i = 0; i < kN; ++i) {
+					const AttackResult r = ResolveAttack({6.0f, kMonster, {}},
+														 {d.bonus, d.soak, 0.0f},
+														 sr, rng);
+					if (!r.hit) continue;
+					++hits;
+					total += r.damage;
+				}
+				std::printf("    %-30s %6.0f %6.3f %8.1f %9.2f\n", d.what, d.bonus,
+							double(hits) / kN, d.soak, total / kN);
+			}
+			std::printf("    (monster damage 6, no resists; \"dmg/swing\" averages "
+						"misses in — what the fight actually costs)\n");
+		}
+
 		// WHAT A LIFETIME OF TRAINING IS WORTH — the question the whole design
 		// turns on, now answerable in one column: how much does the hit rate
 		// actually move as a skill grows, against a fixed opponent?

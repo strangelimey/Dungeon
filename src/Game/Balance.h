@@ -123,13 +123,19 @@ struct Balance {
 	// to learn to live in.
 	float armorLightLearn = 1.0f, armorMediumLearn = 0.7f, armorHeavyLearn = 0.45f;
 
-	// A party member's INNATE defense in d100 points, before anything trained.
-	// A monster authors its whole defense as one number (monsters.cat
-	// `defense`); a member assembles theirs, and until the dodge and armor
-	// SKILLS land (P5) the stat curve is all they have — DEX 12 is 4 points
-	// against a monster's 60, which measured at an 88% hit rate. This is the
-	// floor those skills will sit on top of, not a permanent term.
-	float defenseBase = 25.0f;
+	// A party member's INNATE defense in d100 points — what a bare novice is
+	// worth before any training. It is a real term rather than the stopgap it
+	// began as: monsters attack at 60-75 points, so a floor much under this
+	// leaves a fresh character hit almost every swing, and armor (which SPENDS
+	// defense to buy soak) had nothing to spend.
+	float defenseBase = 45.0f;
+	// The AVOID skill's own curve — the unarmored answer to being swung at.
+	// Its own cap rather than the shared skill curve's 120: defense is bounded
+	// by what it is defending against, and a term that can reach twice the
+	// hardest attack in the game makes a trained dodger untouchable instead of
+	// merely hard to hit.
+	float avoidSlope = 3.0f;
+	float avoidCap = 60.0f;
 	float resistClamp = 0.8f;   // max summed resist (nature 1.0 = immunity)
 	float woundFloor = 1.0f;    // a landed blow stings
 	float speedBase = 1.15f;    // interval = speed × (speedBase − speedStat×DEX)
@@ -220,6 +226,11 @@ struct Balance {
 	CurveRules SkillCurve() const {
 		return {static_cast<CurveForm>(static_cast<int>(skillCurve)), skillBonus,
 				skillCap, 0.0f};
+	}
+	// The avoid skill's curve: its own slope and ceiling, the shared form.
+	CurveRules AvoidCurve() const {
+		return {static_cast<CurveForm>(static_cast<int>(skillCurve)), avoidSlope,
+				avoidCap, 0.0f};
 	}
 	CurveRules StatCurve() const {
 		return {static_cast<CurveForm>(static_cast<int>(statCurve)), statBonus,

@@ -248,7 +248,7 @@ DefenseReadout DungeonWorld::DefenseFor(const Character& member) {
 		r.skillKey = std::string("skill.") + kAvoidSkill;
 		r.skillLevel = member.SkillLevel(kAvoidSkill);
 		r.skillBonus =
-			CurveValue(static_cast<float>(r.skillLevel), b.SkillCurve());
+			CurveValue(static_cast<float>(r.skillLevel), b.AvoidCurve());
 	} else {
 		r.armorPenalty = ArmorPenalty(member, r.armorClass);
 		r.strengthNeeded = static_cast<int>(b.Armor(r.armorClass).strength);
@@ -287,7 +287,7 @@ float DungeonWorld::PartyTarget::Evasion(DamageType type) const {
 	const ArmorClass worn = m_world.WornArmorClass(m_member);
 	if (worn == ArmorClass::None)
 		guard += CurveValue(static_cast<float>(m_member.SkillLevel(kAvoidSkill)),
-							b.SkillCurve());
+							b.AvoidCurve());
 	else
 		guard -= m_world.ArmorPenalty(m_member, worn);
 
