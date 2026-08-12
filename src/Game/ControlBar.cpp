@@ -42,6 +42,13 @@ constexpr float kMagicLabelTop = 0.009f;
 constexpr float kMagicLabelH = 0.022f;
 constexpr float kBookTop = 0.036f;
 
+// Spacing, in EMs of the bar's own type. Stated here rather than scattered
+// through the layout code, because these are the numbers Michael tunes by eye
+// and they should be findable in one place.
+constexpr float kSideMargin = 0.5f;  // total, down both sides of a grid
+constexpr float kSliderGap = 0.25f;  // hand boxes -> the stance slider
+constexpr float kHandRowGap = 0.5f;  // between one member's row and the next
+
 // Rows the hand grid needs for `count` members, two per row.
 size_t HandRows(size_t count) { return (std::min<size_t>(count, 4) + 1) / 2; }
 
@@ -66,17 +73,46 @@ MovementPad::MovementPad(const gfx::Rect& rect, const ControlBarDeps& deps) {
 		{"»", MoveAction::TurnRight, true, 0}, {"<", MoveAction::StrafeLeft, false, 2},
 		{"v", MoveAction::Back, false, 1},     {">", MoveAction::StrafeRight, false, 0},
 	};
-	// Cells as fractions of the pad: three across, two down, gaps between.
-	const float w = kMoveW / kInnerW, gapX = kMoveGap / kInnerW;
-	const float h = kMoveW / kPadH, gapY = kMoveGap / kPadH;
+	// Placeholder bounds: LayoutSelf computes square cells once the pixel
+	// width is known (see HandPair — a square cannot be authored as a pair of
+	// independent axis fractions).
 	for (size_t i = 0; i < std::size(moves); ++i) {
 		auto* btn = Add<ui::Button>(
-			gfx::Rect{(w + gapX) * static_cast<float>(i % 3),
-					  (h + gapY) * static_cast<float>(i / 3), w, h},
-			moves[i].glyph,
+			gfx::Rect{0, 0, 0.3f, 0.5f}, moves[i].glyph,
 			[onMove = deps.onMove, action = moves[i].action] { onMove(action); });
 		btn->icon = moves[i].turn ? deps.chevron2 : deps.chevron;
 		btn->iconTurns = moves[i].quarters;
+	}
+}
+
+float MovementPad::CellSide(float widthPx, float emPx) {
+	// Three across: kSideMargin of margin in total, two gaps between the
+	// cells, and the rest split three ways. WIDTH alone decides.
+	const float gap = widthPx * (kMoveGap / kInnerW);
+	return std::max(0.0f, (widthPx - emPx * kSideMargin - gap * 2.0f) / 3.0f);
+}
+
+float MovementPad::NeededHeight(float widthPx, float emPx) {
+	const float gap = widthPx * (kMoveGap / kInnerW);
+	return CellSide(widthPx, emPx) * 2.0f + gap; // two rows
+}
+
+void MovementPad::LayoutSelf(ui::UIContext&) {
+	const gfx::Rect& px = Pixel();
+	if (px.w <= 0.0f || px.h <= 0.0f) return;
+	const float em = Rem(1.0f);
+	const float gap = px.w * (kMoveGap / kInnerW);
+	const float side = CellSide(px.w, em);
+	if (side <= 0.0f) return;
+
+	size_t i = 0;
+	for (const auto& child : Children()) {
+		const float col = static_cast<float>(i % 3), row = static_cast<float>(i / 3);
+		// Divided by DIFFERENT extents per axis, which is what makes it square
+		// in pixels rather than merely equal in fractions.
+		child->bounds = {(em * kSideMargin * 0.5f + (side + gap) * col) / px.w,
+						 ((side + gap) * row) / px.h, side / px.w, side / px.h};
+		++i;
 	}
 }
 
@@ -110,20 +146,20 @@ HandPair::HandPair(const gfx::Rect& rect, size_t member,
 // out — the grid's height is a consequence of the bar's width, and only this
 // function knows the shape of that consequence.
 float HandPair::NeededHeight(float widthPx, float emPx) {
-	return SquareSide(widthPx, emPx) + emPx * 0.35f + BandHeight(emPx);
+	return SquareSide(widthPx, emPx) + emPx * kSliderGap + BandHeight(emPx);
 }
 
 float HandPair::SquareSide(float widthPx, float emPx) {
-	// 1em of margin down each side, the authored sliver between the boxes,
+	// kSideMargin of margin in total, the authored sliver between the boxes,
 	// and the rest split in two. WIDTH ALONE decides — the height then follows
 	// from it, which is the whole point: a box clamped by the height it was
 	// given comes out tiny the moment the parent is short.
 	const float gap = widthPx * (kHandGap / kSetW);
-	const float avail = widthPx - emPx * 2.0f - gap;
+	const float avail = widthPx - emPx * kSideMargin - gap;
 	return std::max(0.0f, avail * 0.5f);
 }
 
-float HandPair::BandHeight(float emPx) { return emPx * 0.5f; }
+float HandPair::BandHeight(float emPx) { return emPx * 0.25f; }
 
 void HandPair::LayoutSelf(ui::UIContext&) {
 	const gfx::Rect& px = Pixel();
@@ -141,13 +177,14 @@ void HandPair::LayoutSelf(ui::UIContext&) {
 	for (int hand = 0; hand < 2; ++hand) {
 		if (!m_slots[hand]) continue;
 		m_slots[hand]->bounds = {
-			(em + (side + gap) * static_cast<float>(hand)) / px.w, 0.0f,
-			side / px.w, side / px.h};
+			(em * kSideMargin * 0.5f + (side + gap) * static_cast<float>(hand)) / px.w,
+			0.0f, side / px.w, side / px.h};
 	}
 	// Spans both boxes and the gap between them — the visual claim that it
 	// governs the pair rather than either hand.
 	if (m_guard)
-		m_guard->bounds = {em / px.w, (side + em * 0.35f) / px.h,
+		m_guard->bounds = {em * kSideMargin * 0.5f / px.w,
+						   (side + em * kSliderGap) / px.h,
 						   (side * 2.0f + gap) / px.w, band / px.h};
 }
 
@@ -157,13 +194,40 @@ HandsArea::HandsArea(const gfx::Rect& rect, const ControlBarDeps& deps) {
 	bounds = rect;
 	debugName = "HandsArea";
 	const size_t members = MemberCount(deps);
-	const float rows = static_cast<float>(HandRows(members));
 	const float w = kSetW / kInnerW, gap = kSetGap / kInnerW;
-	const float h = 1.0f / rows; // the area is sized to exactly its rows
+	// Vertical placement is LayoutSelf's: a row's height depends on the pixel
+	// width (square boxes), and the gap between rows is in ems, so neither is
+	// known here.
 	for (size_t i = 0; i < members; ++i)
-		Add<HandPair>(gfx::Rect{(w + gap) * static_cast<float>(i % 2),
-								h * static_cast<float>(i / 2), w, h},
+		Add<HandPair>(gfx::Rect{(w + gap) * static_cast<float>(i % 2), 0.0f, w,
+								1.0f},
 					  i, deps);
+}
+
+float HandsArea::NeededHeight(float widthPx, float emPx, size_t rows) {
+	if (rows == 0) return 0.0f;
+	const float setW = widthPx * (kSetW / kInnerW);
+	const float rowH = HandPair::NeededHeight(setW, emPx);
+	// The gap goes BETWEEN rows, not after the last one — trailing space here
+	// would push the Magic panel down for nothing.
+	return rowH * static_cast<float>(rows) +
+		   emPx * kHandRowGap * static_cast<float>(rows - 1);
+}
+
+void HandsArea::LayoutSelf(ui::UIContext&) {
+	const gfx::Rect& px = Pixel();
+	if (px.w <= 0.0f || px.h <= 0.0f) return;
+	const float em = Rem(1.0f);
+	const float setW = px.w * (kSetW / kInnerW);
+	const float rowH = HandPair::NeededHeight(setW, em);
+	const float pitch = rowH + em * kHandRowGap;
+
+	size_t i = 0;
+	for (const auto& child : Children()) {
+		child->bounds.y = pitch * static_cast<float>(i / 2) / px.h;
+		child->bounds.h = rowH / px.h;
+		++i;
+	}
 }
 
 // --- MagicArea -------------------------------------------------------------
@@ -201,7 +265,7 @@ ControlBar::ControlBar(const gfx::Rect& rect, const ControlBarDeps& deps) {
 		kSetH * static_cast<float>(HandRows(MemberCount(deps))) / kInnerH;
 	const float magicTop = handsTop + handsH;
 
-	Add<MovementPad>(gfx::Rect{0.0f, 0.0f, 1.0f, padH}, deps);
+	m_pad = Add<MovementPad>(gfx::Rect{0.0f, 0.0f, 1.0f, padH}, deps);
 	// handsH here is only a starting guess; LayoutSelf replaces it with the
 	// height the square boxes actually need once the pixel width is known.
 	m_hands = Add<HandsArea>(gfx::Rect{0.0f, handsTop, 1.0f, handsH}, deps);
@@ -217,13 +281,15 @@ void ControlBar::LayoutSelf(ui::UIContext&) {
 	// Walk the same nesting the widgets do, in PIXELS, to find how tall one
 	// row of square boxes has to be: the interior splits into member sets, a
 	// set into two boxes plus the stance band beneath them.
-	const float setW = inner.w * (kSetW / kInnerW);
-	const float rowH = HandPair::NeededHeight(setW, Rem(1.0f));
-	const float handsH = rowH * static_cast<float>(m_rows);
+	const float em = Rem(1.0f);
+	const float padH = MovementPad::NeededHeight(inner.w, em);
+	const float handsH = HandsArea::NeededHeight(inner.w, em, m_rows);
+	const float clearPx = inner.w * (kHandsClear / kInnerW);
 
-	const float top = m_hands->bounds.y;
+	if (m_pad) m_pad->bounds.h = padH / inner.h;
+	m_hands->bounds.y = (padH + clearPx) / inner.h;
 	m_hands->bounds.h = handsH / inner.h;
-	m_magic->bounds.y = top + m_hands->bounds.h;
+	m_magic->bounds.y = m_hands->bounds.y + m_hands->bounds.h;
 	m_magic->bounds.h = std::max(0.0f, 1.0f - m_magic->bounds.y);
 }
 

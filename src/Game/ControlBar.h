@@ -58,6 +58,14 @@ struct ControlBarDeps {
 class MovementPad : public ui::Widget {
 public:
 	MovementPad(const gfx::Rect& rect, const ControlBarDeps& deps);
+
+	// Square cells sized from the WIDTH, and the height that follows. Asked by
+	// ControlBar before it lays the areas out, for the same reason HandPair is.
+	static float CellSide(float widthPx, float emPx);
+	static float NeededHeight(float widthPx, float emPx);
+
+private:
+	void LayoutSelf(ui::UIContext& ctx) override;
 };
 
 // One member's two hand boxes side by side, with the stance slider spanning
@@ -92,6 +100,13 @@ private:
 class HandsArea : public ui::Widget {
 public:
 	HandsArea(const gfx::Rect& rect, const ControlBarDeps& deps);
+
+	// The height `rows` of pairs need at this width, gaps between them
+	// included. ControlBar asks before laying the areas out.
+	static float NeededHeight(float widthPx, float emPx, size_t rows);
+
+private:
+	void LayoutSelf(ui::UIContext& ctx) override;
 };
 
 // The magic box: the heading, then the spellbook filling the rest.
@@ -128,6 +143,7 @@ private:
 	// window aspect.) Magic takes whatever is left.
 	void LayoutSelf(ui::UIContext& ctx) override;
 
+	ui::Widget* m_pad = nullptr;
 	ui::Widget* m_hands = nullptr;
 	MagicArea* m_magic = nullptr;
 	size_t m_rows = 1;
