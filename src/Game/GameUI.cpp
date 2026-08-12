@@ -1213,6 +1213,9 @@ void GameUI::BuildCharacterSheet() {
 	m_sheet->defenseFor = [this](const Character& c) {
 		return defenseFor ? defenseFor(c) : DefenseReadout{};
 	};
+	m_sheet->defenseWith = [this](const Character& c, const std::string& id) {
+		return defenseWith ? defenseWith(c, id) : DefenseReadout{};
+	};
 	// Right-clicked backpack slot → its use menu (a rune memorizes from the
 	// pack too, not just a hand).
 	m_sheet->onSlotMenu = [this](int slot) { OpenPackUseMenu(slot); };

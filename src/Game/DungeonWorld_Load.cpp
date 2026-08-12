@@ -854,6 +854,9 @@ DungeonWorld::ItemKind& DungeonWorld::ItemKindFor(const std::string& type) {
 			if (!ParseArmorClass(cls, kind->armorClass))
 				log::Warn("armor.cat [{}]: unknown class '{}' (light/medium/heavy)",
 						  type, cls);
+		if (const std::string wear = CatalogGet(def, "wear", ""); !wear.empty())
+			if (!ParseWearSlot(wear, kind->wearSlot))
+				log::Warn("[{}]: unknown wear slot '{}'", type, wear);
 		kind->armor = def ? def->GetFloat("armor", 0.0f) : 0.0f;
 		kind->weight = def ? def->GetFloat("weight", 0.0f) : 0.0f;
 		// `command` is a free-form list (whitespace/comma separated) of command ids

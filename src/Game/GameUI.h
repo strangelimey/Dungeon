@@ -177,6 +177,7 @@ public:
 	// The character sheet's defense breakdown, sourced from the world by the
 	// owner — the sheet cannot resolve worn items or balance knobs itself.
 	std::function<DefenseReadout(const Character&)> defenseFor;
+	std::function<DefenseReadout(const Character&, const std::string&)> defenseWith;
 	// HUD hand-slot click (member, hand 0=L/1=R, melee verb — the executed
 	// command id, e.g. "stab" = the ATTACK, Balance::FindAttack).
 	std::function<void(size_t, size_t, const std::string&)> onHandAttack;

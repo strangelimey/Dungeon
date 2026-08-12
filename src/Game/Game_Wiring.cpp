@@ -94,6 +94,9 @@ void Game::WireModuleCallbacks() {
 	// The sheet's defense breakdown: only the world can resolve worn items,
 	// balance knobs and the live evasion formula.
 	m_ui.defenseFor = [this](const Character& c) { return m_world.DefenseFor(c); };
+	m_ui.defenseWith = [this](const Character& c, const std::string& id) {
+		return m_world.DefenseWith(c, id);
+	};
 	// The stance slider under a member's hands (docs/damage-system.md). Clamped
 	// to 0..1 HERE rather than in the widget: the model deliberately allows
 	// MORE than 1 (over-exertion), and a drag is simply not the way to reach

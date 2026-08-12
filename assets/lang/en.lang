@@ -724,3 +724,5 @@ sheet.def.armorpen=armor
 sheet.def.avoid=avoidance
 sheet.def.str=Str
 sheet.def.withlevel={} (lvl {})
+sheet.tip.worn=worn
+sheet.tip.this=this

@@ -169,6 +169,8 @@ public:
 	// the world (DungeonWorld::DefenseFor). Null = the section is skipped, so
 	// the sheet still builds in a context with no world behind it.
 	std::function<DefenseReadout(const Character&)> defenseFor;
+	// The same AS IF an item were worn — what the pack tooltip compares to.
+	std::function<DefenseReadout(const Character&, const std::string&)> defenseWith;
 	// Fired by a RIGHT-click on a non-empty backpack slot (the slot's index in
 	// the selected pack) — GameUI opens the item's use menu there (a rune's
 	// Memorize works from the pack, not just a hand; Michael, 2026-07-10).
@@ -188,6 +190,14 @@ private:
 	void BuildParts();
 	// The two bodies that neither scroll nor take a container of their own; they
 	// fill the sheet and draw against it directly.
+	// The armor tooltip (docs/damage-system.md). Hovering a WORN piece explains
+	// the defense it gives; hovering one in the PACK compares it against what
+	// is worn, so the two can be judged without swapping and swapping back.
+	// Drawn in the overlay pass so no slot can paint over it.
+	void DrawArmorTip(ui::UIContext& ctx, gfx::SpriteBatch& batch,
+					  const gfx::Rect& px) const;
+	void DrawOverlaySelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) override;
+
 	void DrawInventory(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 					   const gfx::Rect& px);
 	void DrawStats(ui::UIContext& ctx, gfx::SpriteBatch& batch, const gfx::Rect& px);
@@ -242,6 +252,10 @@ private:
 	const ItemIconBank* m_slotIcons; // equipment-slot outline silhouettes
 	const ItemCategoryBank* m_categories; // item id → category (pack = container)
 	std::optional<std::string>* m_held;
+	// What the pointer is over, refreshed every Update: the doll cell index, or
+	// the pack slot index, or neither. Only ever one of them.
+	int m_hoverDoll = -1;
+	int m_hoverPack = -1;
 	Mode m_mode = Mode::Inventory;
 	// The mode as a plain index, for the button strip to read live.
 	int m_modeIndex = 0;

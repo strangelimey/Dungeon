@@ -204,6 +204,11 @@ public:
 	// The sheet's defense breakdown (Combat.h). Assembled here because only
 	// the world can resolve items, knobs and the live formula.
 	DefenseReadout DefenseFor(const Character& member);
+	// The same, AS IF `itemId` were worn in its own slot — what the backpack
+	// tooltip compares against. Computed by copying the member and swapping the
+	// piece in, so the answer comes from the live formula rather than a second
+	// implementation of it that could disagree.
+	DefenseReadout DefenseWith(const Character& member, const std::string& itemId);
 
 	// Trains `avoid` on an evaded blow or the worn armor on a blunted one —
 	// call once per RESOLVED attack against a member.
@@ -1341,6 +1346,10 @@ private:
 		// itself stays per ITEM (`armor` below) — a breastplate and a mail
 		// shirt are both heavy and do not blunt alike.
 		ArmorClass armorClass = ArmorClass::None;
+		// Which doll slot it is worn in (armor.cat/items.cat `wear`). The UI
+		// keeps its own copy in ItemCategoryBank for hit-testing; the world
+		// needs it too, to answer "what would this be worth if worn".
+		WearSlot wearSlot = WearSlot::None;
 		// ENCHANTMENT (the fire sword, catalog `element = fire`): the weapon
 		// carries a school's element into every LANDED blow, on top of the
 		// physical damage — `element_bonus` of the blow's assembled damage as

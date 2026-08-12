@@ -183,6 +183,13 @@ void CharacterSheet::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	}
 }
 
+// The armor tooltip goes in the OVERLAY pass so no slot, icon or child widget
+// can paint over it — it is drawn last by definition, which is what a tooltip
+// has to be.
+void CharacterSheet::DrawOverlaySelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
+	if (m_mode == Mode::Inventory) DrawArmorTip(ctx, batch, Pixel());
+}
+
 // --- SheetPortrait ---------------------------------------------------------
 
 SheetPortrait::SheetPortrait(const gfx::Rect& rect,

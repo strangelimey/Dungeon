@@ -274,6 +274,22 @@ DefenseReadout DungeonWorld::DefenseFor(const Character& member) {
 	return r;
 }
 
+DefenseReadout DungeonWorld::DefenseWith(const Character& member,
+										 const std::string& itemId) {
+	// A COPY with the piece put on. The alternative — deriving "what would this
+	// be worth" from its catalog fields — would be a second implementation of
+	// the defense formula, and the two would drift the first time a term was
+	// added to one of them.
+	Character what = member;
+	const WearSlot wear = ItemKindFor(itemId).wearSlot;
+	for (int i = 0; i < kEquipCount; ++i) {
+		if (!WearSlotFits(wear, static_cast<EquipSlot>(i))) continue;
+		what.inventory.equipment[static_cast<size_t>(i)].typeId = itemId;
+		break;
+	}
+	return DefenseFor(what);
+}
+
 float DungeonWorld::PartyTarget::Evasion(DamageType type) const {
 	const Balance& b = m_world.m_balance;
 	// The innate floor plus DEX.

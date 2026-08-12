@@ -17,8 +17,12 @@ inline gfx::Rect At(const gfx::Rect& px, float x, float y, float w, float h) {
 inline float Ax(const gfx::Rect& px, float x) { return px.x + x * px.w; }
 inline float Ay(const gfx::Rect& px, float y) { return px.y + y * px.h; }
 
-// THE PANEL GREW 30% WIDER (GameUI kSheetW 0.50 -> 0.65) to give the backpack
-// tab three real columns: paper doll, defense numbers, backpack.
+// THE PANEL IS 30% WIDER than it was (GameUI kSheetW 0.50 -> 0.65). It briefly
+// carried three columns — doll, defense numbers, backpack — but the numbers
+// moved to a hover TOOLTIP and the tab is two columns again: the backpack is
+// going to grow a lot of slots as the game does, and it should have the room
+// rather than a readout that is only wanted while you are looking at a
+// particular piece of armor.
 //
 // Every fraction here is of the PANEL, so widening it stretches all of them —
 // and a SIZE expressed as an x-fraction against an h-fraction stops being
@@ -64,33 +68,30 @@ inline constexpr float kPackW = 0.092f * kWiden;
 inline constexpr float kPackH = 0.129f;
 inline constexpr float kPackGapX = 0.013f * kWiden;
 inline constexpr float kPackGapY = 0.018f;
-// COLUMN 3 of the backpack tab. Right-aligned to the panel's margin so the
-// grid's own edge is the edge of the content, whatever the middle column does.
+// COLUMN 2 (of two). Right-aligned to the panel margin, so the grid's own edge
+// is the edge of the content however many columns it grows to.
 inline constexpr float kPackGridW =
-	4.0f * (0.092f * kWiden) + 3.0f * (0.013f * kWiden);
+	6.0f * (0.092f * kWiden) + 5.0f * (0.013f * kWiden);
 inline constexpr float kPackX = 1.0f - 0.045f - kPackGridW;
-inline constexpr int kPackCols = 4;
+// Six across rather than four: the width freed by moving the defense readout
+// out goes to the pack, which is the half of this tab that grows.
+inline constexpr int kPackCols = 6;
 inline constexpr float kPackRowY = kBodyTop;
 inline constexpr float kPackSepY = 0.520f;
 inline constexpr float kPackY = 0.536f;
 
-// --- defense readout: COLUMN 2 of the backpack tab ---------------------------
-// The doll's widest cells are its RINGS, which sit at column -0.3 and 2.3 —
-// that is what the middle column has to clear, and the reason the numbers used
-// to overlap the doll horizontally even though they never collided on screen
-// (the rings sit lower than the text). Derived from the doll rather than
-// authored, so the columns cannot drift apart if the doll is retuned.
+// --- the defense TOOLTIP -----------------------------------------------------
+// The readout that used to be a column. It is a hover panel now, drawn in
+// PIXELS rather than panel fractions: a tooltip is placed against the thing it
+// explains, not against the sheet, so its geometry belongs in rem (UI/Units.h)
+// like every other piece of chrome sized by its own text.
 inline constexpr float kDollRight = kLeft + 2.3f * kDollStepX + kEquipW;
-inline constexpr float kDefX = kDollRight + 0.030f;
-// Its TITLE sits on the same line as the pack's "Load" heading — they are the
-// two column headings of the same content area and should read as a row.
-inline constexpr float kDefTitleY = kHeaderY;
-inline constexpr float kDefY = kBodyTop;
-inline constexpr float kDefRow = 0.038f;   // line pitch, in panel fractions
-inline constexpr float kDefIndent = 0.014f; // the breakdown rows under "Roll"
-// The value column: far enough right that a label never reaches it, and still
-// clear of the pack grid.
-inline constexpr float kDefValueX = kDefX + 0.150f;
+inline constexpr float kTipPadRem = 0.6f;    // inside the panel edge
+inline constexpr float kTipRowRem = 1.35f;   // line pitch
+inline constexpr float kTipGapRem = 0.8f;    // between the two compared columns
+inline constexpr float kTipLabelRem = 6.5f;  // label column width
+inline constexpr float kTipValueRem = 5.0f;  // one value column width
+inline constexpr float kTipIconRem = 2.2f;   // the column-heading item icons
 
 // --- mode toggle buttons under the portrait ---------------------------------
 inline constexpr int kModeCount = 5;
