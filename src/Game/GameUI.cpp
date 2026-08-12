@@ -1207,6 +1207,9 @@ void GameUI::BuildCharacterSheet() {
 		m_audio.Play(m_sounds.bump, 0.5f);
 		AddLogLine(loc::Format("log.cant_hold", loc::Tr("item." + item)));
 	};
+	m_sheet->defenseFor = [this](const Character& c) {
+		return defenseFor ? defenseFor(c) : DefenseReadout{};
+	};
 	// Right-clicked backpack slot → its use menu (a rune memorizes from the
 	// pack too, not just a hand).
 	m_sheet->onSlotMenu = [this](int slot) { OpenPackUseMenu(slot); };

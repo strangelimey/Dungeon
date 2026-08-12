@@ -58,6 +58,18 @@ inline constexpr float kPackRowY = kBodyTop;
 inline constexpr float kPackSepY = 0.520f;
 inline constexpr float kPackY = 0.536f;
 
+// --- defense readout (backpack tab) -----------------------------------------
+// The column between the paper doll and the pack grid, which nothing else uses.
+// Provisional placement: Michael asked for it on this tab "first, we might move
+// it", so it is one x/y pair and a row pitch rather than anything woven in.
+inline constexpr float kDefX = 0.375f;
+inline constexpr float kDefY = kBodyTop;
+inline constexpr float kDefRow = 0.038f; // line pitch, in panel fractions
+// The value column. The labels are short on purpose — the space between the
+// doll and the pack is about 0.17 of the panel, and a long label ran straight
+// into its own number.
+inline constexpr float kDefValueX = 0.492f;
+
 // --- mode toggle buttons under the portrait ---------------------------------
 inline constexpr int kModeCount = 5;
 inline constexpr float kModeBtnW = 0.038f;

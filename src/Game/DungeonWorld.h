@@ -201,6 +201,10 @@ public:
 	// HEAVIEST piece worn) and what it costs them on the defense roll.
 	ArmorClass WornArmorClass(const Character& member); // non-const: ItemKindFor caches
 	float ArmorPenalty(const Character& member, ArmorClass c) const;
+	// The sheet's defense breakdown (Combat.h). Assembled here because only
+	// the world can resolve items, knobs and the live formula.
+	DefenseReadout DefenseFor(const Character& member);
+
 	// Trains `avoid` on an evaded blow or the worn armor on a blunted one —
 	// call once per RESOLVED attack against a member.
 	void TrainDefense(Character& member, const fx::DamageEvent& ev);

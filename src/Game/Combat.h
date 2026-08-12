@@ -138,6 +138,33 @@ private:
 	std::array<bool, kSymbolCount> m_hasSchool{};
 };
 
+// Everything the character sheet says about a member's defense, in one
+// snapshot. The sheet has no world — it cannot resolve an item id, ask a
+// balance knob or run the pipeline — so the numbers are assembled here and
+// handed over, the way every other sheet dependency arrives.
+//
+// It is a BREAKDOWN and not just a total on purpose: the total alone tells
+// you a fight is going badly, while the parts tell you which knob to reach
+// for, and this readout exists to be tuned against.
+struct DefenseReadout {
+	ArmorClass armorClass = ArmorClass::None;
+	std::string armorName;   // the worn piece's display name (localized)
+	float soak = 0.0f;       // flat damage the armor blunts
+	float base = 0.0f;       // the innate floor (defense_base)
+	float stat = 0.0f;       // the DEX curve
+	float stance = 0.0f;     // held-back skill, against a PHYSICAL blow
+	float armorPenalty = 0.0f; // what the armor costs (already includes the
+							   // strength shortfall); 0 unarmored
+	float total = 0.0f;      // what an incoming physical blow is rolled against
+	int strength = 0, strengthNeeded = 0; // short = both penalties bite
+	std::string skillKey;    // loc key of the skill that applies here
+	int skillLevel = 0;
+	// What that skill is WORTH right now: the avoid curve's points when
+	// unarmored, and 0 when armored (there the skill's value is already
+	// inside `armorPenalty`, as the part of it training clawed back).
+	float skillBonus = 0.0f;
+};
+
 // A combatant's offensive profile for one strike (built from the weapon +
 // attack + stats formula, a monster's catalog stats, or a spell's power).
 struct AttackProfile {

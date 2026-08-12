@@ -11,6 +11,10 @@
 #include <format>
 
 namespace dungeon::game {
+
+// The one warning colour this tab uses: an armor penalty, or a strength it
+// cannot carry.
+constexpr Vec4 kDefBad{0.85f, 0.25f, 0.20f, 1.0f};
 using namespace sheet;
 
 gfx::Rect CharacterSheet::EquipRect(const gfx::Rect& px, int i) const {
@@ -210,6 +214,64 @@ void CharacterSheet::DrawInventory(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 						static_cast<float>(kPackCols - 1) * kPackGapX;
 	batch.DrawRect({Ax(px, kPackX), Ay(px, kPackSepY), gridW * px.w, 1.0f},
 				   theme.panelBorder);
+
+	// --- the defense breakdown ---------------------------------------------
+	// Provisional home (see kDefX): the empty column between the doll and the
+	// pack. A total alone would say a fight is going badly; the PARTS say which
+	// knob to reach for, which is the only reason this exists.
+	if (defenseFor) {
+		const DefenseReadout d = defenseFor(*m_character);
+		float y = kDefY;
+		const auto line = [&](std::string_view label, const std::string& value,
+							  const Vec4& colour) {
+			font.Draw(batch, std::string(label), Ax(px, kDefX), Ay(px, y), theme.textDim);
+			font.Draw(batch, value, Ax(px, kDefValueX), Ay(px, y), colour);
+			y += kDefRow;
+		};
+		// Rounds toward zero FIRST, so a term of -0.4 prints "+0" and not the
+		// "-0" that had every unarmored member looking mildly penalised.
+		const auto signed_ = [](float v) {
+			const int n = static_cast<int>(v < 0.0f ? v - 0.5f : v + 0.5f);
+			return std::format("{}{}", n >= 0 ? "+" : "", n);
+		};
+
+		font.Draw(batch, loc::Tr("sheet.defense"), Ax(px, kDefX), Ay(px, y),
+				  theme.accent);
+		y += kDefRow;
+
+		// What is worn, and what it blunts.
+		line(loc::Tr("sheet.def.armor"),
+			 d.armorClass == ArmorClass::None
+				 ? loc::Tr("sheet.def.unarmored")
+				 : (d.armorName.empty() ? ArmorClassId(d.armorClass) : d.armorName),
+			 theme.text);
+		line(loc::Tr("sheet.def.soak"), std::format("{:.1f}", d.soak), theme.text);
+
+		// The roll a physical blow is compared against, then its parts.
+		line(loc::Tr("sheet.def.roll"), std::format("{:.0f}", d.total),
+			 theme.accent);
+		line(loc::Tr("sheet.def.base"), signed_(d.base), theme.textDim);
+		line(loc::Tr("sheet.def.dex"), signed_(d.stat), theme.textDim);
+		line(loc::Tr("sheet.def.stance"), signed_(d.stance), theme.textDim);
+		if (d.armorClass != ArmorClass::None)
+			line(loc::Tr("sheet.def.armorpen"), signed_(-d.armorPenalty),
+				 kDefBad); // always a cost, so always the warning colour
+		else
+			line(loc::Tr("sheet.def.avoid"), signed_(d.skillBonus), theme.textDim);
+
+		// The skill that applies here. "lvl" distinguishes it from the
+		// breakdown line above, which is that skill's worth in POINTS — two
+		// lines both reading "Avoidance 0" told you nothing.
+		line(loc::Tr(d.skillKey),
+			 loc::Format("sheet.def.level", std::to_string(d.skillLevel)),
+			 theme.text);
+		if (d.strengthNeeded > 0) {
+			const bool short_ = d.strength < d.strengthNeeded;
+			line(loc::Tr("sheet.def.str"),
+				 std::format("{} / {}", d.strength, d.strengthNeeded),
+				 short_ ? kDefBad : theme.text);
+		}
+	}
 
 	const auto& pack = inv.SelectedContents();
 	for (int i = 0; i < static_cast<int>(pack.size()); ++i) {

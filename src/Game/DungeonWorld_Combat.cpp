@@ -229,6 +229,51 @@ float DungeonWorld::ArmorPenalty(const Character& member, ArmorClass c) const {
 	return penalty;
 }
 
+// The sheet's view of a member's defense. Built by ASKING the live path rather
+// than re-deriving it: `total` is PartyTarget::Evasion itself, so a readout can
+// never quietly disagree with the roll it claims to describe — which is the
+// failure mode that makes a debug display worse than none at all.
+DefenseReadout DungeonWorld::DefenseFor(const Character& member) {
+	DefenseReadout r;
+	const Balance& b = m_balance;
+	r.armorClass = WornArmorClass(member);
+	r.base = b.defenseBase;
+	r.stat = CurveValue(static_cast<float>(member.dexterity), b.StatCurve());
+	r.strength = member.strength;
+
+	for (const ItemSlot& slot : member.inventory.equipment)
+		if (!slot.Empty()) r.soak += ItemKindFor(slot.typeId).armor;
+
+	if (r.armorClass == ArmorClass::None) {
+		r.skillKey = std::string("skill.") + kAvoidSkill;
+		r.skillLevel = member.SkillLevel(kAvoidSkill);
+		r.skillBonus =
+			CurveValue(static_cast<float>(r.skillLevel), b.SkillCurve());
+	} else {
+		r.armorPenalty = ArmorPenalty(member, r.armorClass);
+		r.strengthNeeded = static_cast<int>(b.Armor(r.armorClass).strength);
+		r.skillKey = std::string("skill.") + ArmorSkillId(r.armorClass);
+		r.skillLevel = member.SkillLevel(ArmorSkillId(r.armorClass));
+		// Name the piece that decided the class, not merely the class.
+		for (const ItemSlot& slot : member.inventory.equipment) {
+			if (slot.Empty()) continue;
+			const ItemKind& k = ItemKindFor(slot.typeId);
+			if (k.armorClass == r.armorClass) {
+				r.armorName = loc::Tr(k.nameKey);
+				break;
+			}
+		}
+	}
+	// A PHYSICAL blow is the case worth showing: it is what the stance guards
+	// with a weapon and what armor is for.
+	r.total = PartyTarget{*this, const_cast<Character&>(member)}.Evasion(m_bashType);
+	// Whatever the total is not otherwise accounted for IS the stance guard —
+	// derived by subtraction so it cannot drift from the live formula if a term
+	// is added there and forgotten here.
+	r.stance = r.total - r.base - r.stat - r.skillBonus + r.armorPenalty;
+	return r;
+}
+
 float DungeonWorld::PartyTarget::Evasion(DamageType type) const {
 	const Balance& b = m_world.m_balance;
 	// The innate floor plus DEX.

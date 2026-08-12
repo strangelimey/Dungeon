@@ -165,6 +165,10 @@ public:
 	// Fired when a held non-holdable item is refused by a hand doll cell (item
 	// id) — GameUI wires it to the shared "can't be held" log line + sound.
 	std::function<void(const std::string&)> onRejectHold;
+	// The defense breakdown for the shown member, assembled by whoever knows
+	// the world (DungeonWorld::DefenseFor). Null = the section is skipped, so
+	// the sheet still builds in a context with no world behind it.
+	std::function<DefenseReadout(const Character&)> defenseFor;
 	// Fired by a RIGHT-click on a non-empty backpack slot (the slot's index in
 	// the selected pack) — GameUI opens the item's use menu there (a rune's
 	// Memorize works from the pack, not just a hand; Michael, 2026-07-10).
