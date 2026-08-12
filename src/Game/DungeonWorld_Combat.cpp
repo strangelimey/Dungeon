@@ -7,6 +7,7 @@
 #include "Game/DungeonWorld.h"
 
 #include "Game/Curve.h"
+#include "Game/Defense.h"
 
 #include "Core/Loc.h"
 
@@ -102,25 +103,32 @@ void DungeonWorld::GrantSkillXp(Character& member, std::string_view skillId,
 // evaded and never turned, so counting them would train a skill that did no
 // work. Call this once per resolved attack against a member.
 void DungeonWorld::TrainDefense(Character& member, const fx::DamageEvent& ev) {
-	if (!ev.rolled || !member.IsAlive()) return;
+	if (!member.IsAlive()) return;
+	// An early-out, not the rule: LessonFrom is still the authority on `rolled`,
+	// but returning here saves an unrolled event (a DoT tick, a bump, a fall)
+	// walking the equipment twice to be told it teaches nothing.
+	if (!ev.rolled) return;
 	const ArmorClass worn = WornArmorClass(member);
 	constexpr float kXp = 1.0f; // the same unit a landed blow trains at
 
-	if (!ev.hit) {
-		if (worn != ArmorClass::None) return; // armor took the swing, not skill
-		static const std::vector<std::string> kDex{"dexterity"};
-		GrantSkillXp(member, kAvoidSkill, kXp, kDex);
-		return;
-	}
-	// A landed blow only teaches the armor something if the armor was there to
-	// blunt it.
-	if (worn == ArmorClass::None) return;
-	const float soak = PartyTarget{*this, member}.Soak();
-	if (soak <= 0.0f) return;
+	// WHICH loop this blow feeds is defense::LessonFrom's decision — the two
+	// train on opposite outcomes, and that rule is measured rather than reread
+	// here. This function only pays out whatever it is told.
 	static const std::vector<std::string> kDexStat{"dexterity"};
 	static const std::vector<std::string> kStrStat{"strength"};
-	GrantSkillXp(member, ArmorSkillId(worn), kXp * m_balance.Armor(worn).learn,
-				 worn == ArmorClass::Heavy ? kStrStat : kDexStat);
+	switch (defense::LessonFrom(ev.rolled, ev.hit, worn,
+								PartyTarget{*this, member}.Soak())) {
+	case defense::Lesson::Nothing:
+		return;
+	case defense::Lesson::Avoid:
+		GrantSkillXp(member, kAvoidSkill, kXp, kDexStat);
+		return;
+	case defense::Lesson::Armor:
+		GrantSkillXp(member, ArmorSkillId(worn),
+					 kXp * m_balance.Armor(worn).learn,
+					 worn == ArmorClass::Heavy ? kStrStat : kDexStat);
+		return;
+	}
 }
 
 // A whole stat point lands: increment, log, and re-derive the resource maxima
@@ -206,27 +214,18 @@ ArmorClass DungeonWorld::WornArmorClass(const Character& member) {
 
 // What wearing `c` costs this member on the defense roll, training included.
 // Returns 0 unarmored — where the `avoid` skill takes over instead.
+// The ADAPTER: gather this member's inputs and hand them to the arithmetic in
+// Game/Defense.h, which is where the floor rule lives and is measured.
 float DungeonWorld::ArmorPenalty(const Character& member, ArmorClass c) const {
 	if (c == ArmorClass::None) return 0.0f;
 	const Balance& b = m_balance;
 	const Balance::ArmorRules r = b.Armor(c);
-
-	// THE FLOOR IS THE CURVE'S CAP, not a clamp bolted on afterwards: a
-	// hyperbolic curve approaches its ceiling and never arrives, so "no matter
-	// how much you practise, plate still makes you easier to hit" is a property
-	// of the maths rather than a rule enforced beside it.
 	CurveRules offsetCurve = b.SkillCurve();
 	offsetCurve.slope = b.armorOffsetSlope;
-	offsetCurve.cap = r.Offsettable();
-	const float level =
-		static_cast<float>(member.SkillLevel(ArmorSkillId(c)));
-	float penalty = r.floor + (r.Offsettable() - CurveValue(level, offsetCurve));
-
-	// Too weak for it: easier to hit AND quickly spent (the stamina half is in
-	// SpendStamina). The same story told twice, which is the point.
-	const float short_ = r.strength - static_cast<float>(member.strength);
-	if (short_ > 0.0f) penalty += short_ * b.armorShortPenalty;
-	return penalty;
+	return defense::ArmorPenalty(
+		r.floor, r.Offsettable(), offsetCurve,
+		static_cast<float>(member.SkillLevel(ArmorSkillId(c))), r.strength,
+		static_cast<float>(member.strength), b.armorShortPenalty);
 }
 
 // The sheet's view of a member's defense. Built by ASKING the live path rather
@@ -324,37 +323,36 @@ float DungeonWorld::PartyTarget::Evasion(DamageType type) const {
 	//              hand is set to cast) is the one this comment used to
 	//              describe, and it is NOT what happens.
 	//
-	// THE HANDS COMBINE BY MAX, NOT SUM. Summing would make holding both
-	// hands back strictly better than one and turn the slider into a free
-	// defense button; taking the best guard keeps it an honest trade.
+	// THE HANDS COMBINE BY MAX, NOT SUM (defense::HandGuard, where that rule is
+	// measured). Summing would make holding both hands back strictly better than
+	// one and turn the slider into a free defense button.
 	//
 	// The cooldown is deliberately NOT consulted: a stance is not an action,
 	// so a hand still guards while it recovers from a swing.
 	const float held = 1.0f - m_member.offenseShare;
 	if (held <= 0.0f) return guard; // all-out attack guards with nothing
 
-	const auto skillGuard = [&](std::string_view skillId) {
-		return held * CurveValue(static_cast<float>(m_member.SkillLevel(skillId)),
-								 b.SkillCurve());
-	};
-
 	// Magic: one lookup, no hands. (It sat inside the hand loop once, which
 	// computed the same number twice and took the max of it with itself.)
 	if (SpellSymbol school{}; m_world.m_damageTypes.SchoolOf(type, school))
-		return guard + skillGuard(SymbolId(school));
+		return guard + held * CurveValue(static_cast<float>(
+											 m_member.SkillLevel(SymbolId(school))),
+										 b.SkillCurve());
 
 	if (!m_world.m_damageTypes.IsPhysical(type))
 		return guard; // neither physical nor a school: nothing to parry it with
 
-	float best = 0.0f;
-	for (int hand = 0; hand < 2; ++hand) {
+	// The adapter's share: a held item to the skill it parries off. An empty hand
+	// parries `unarmed`.
+	const auto handLevel = [&](int hand) {
 		const ItemSlot& slot = m_member.inventory.Hand(hand);
 		const ItemKind* weapon =
 			slot.Empty() ? nullptr : &m_world.ItemKindFor(slot.typeId);
-		best = std::max(best, skillGuard(weapon ? std::string_view(weapon->skill)
-												: std::string_view("unarmed")));
-	}
-	return guard + best;
+		return static_cast<float>(m_member.SkillLevel(
+			weapon ? std::string_view(weapon->skill) : std::string_view("unarmed")));
+	};
+	return guard +
+		   defense::HandGuard(held, b.SkillCurve(), handLevel(0), handLevel(1));
 }
 
 float DungeonWorld::PartyTarget::Soak() const {

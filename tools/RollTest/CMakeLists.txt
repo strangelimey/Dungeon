@@ -9,11 +9,17 @@
 # worth nothing. It links because the damage-type BOOK lives in its own TU
 # (DamageTypes.cpp): the resolver itself touches no catalog, no file layer and
 # no Assets, which is exactly the purity Combat.h claims.
+# Defense.cpp comes in for the same reason: the armor floor, the two-hand MAX
+# rule and the training-loop split are DECISIONS, and a copy of them here would
+# measure the copy. It was lifted out of DungeonWorld precisely so it could be
+# linked without the map, the monsters and the catalogs coming with it — so if
+# this ever stops linking, something world-shaped has been added to it.
 add_executable(RollTest
 	Main.cpp
 	${CMAKE_SOURCE_DIR}/src/Game/Roll.cpp
 	${CMAKE_SOURCE_DIR}/src/Game/Combat.cpp
 	${CMAKE_SOURCE_DIR}/src/Game/Curve.cpp
+	${CMAKE_SOURCE_DIR}/src/Game/Defense.cpp
 )
 # src/ on the include path so the harness and the engine both say "Game/Roll.h".
 target_include_directories(RollTest PRIVATE ${CMAKE_SOURCE_DIR}/src)

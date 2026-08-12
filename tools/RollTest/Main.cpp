@@ -15,14 +15,24 @@
 // tail section is INFORMATIONAL — it exists so the balance numbers are chosen
 // against measured behaviour instead of intuition.
 //
+// THE ARMOR AND STANCE SECTION covers the DEFENDER's half, which nothing
+// covered until 2026-08-11: the penalty floor training can never reach past, the
+// two hands combining by MAX and never by sum, and the two training loops keying
+// on opposite outcomes. Its arithmetic was lifted out of DungeonWorld into
+// Game/Defense.h for exactly this reason — so the shipping rules could be linked
+// without the map and the catalogs coming with them.
+//
 //   RollTest.exe [--self-test]   — one verdict line, exit 0 = PASS
 //
 // --self-test feeds the checks a 90-sided die while they still expect 100, so
 // a harness that cannot catch a broken distribution FAILS instead of passing
-// vacuously.
+// vacuously. It ALSO swaps the armor offset curve for the logarithmic form,
+// which passes its cap — because a self-test that only breaks the dice would
+// leave every armor check below unproven.
 // ============================================================================
 #include "Game/Combat.h"
 #include "Game/Curve.h"
+#include "Game/Defense.h"
 #include "Game/Roll.h"
 
 #include <algorithm>
@@ -553,6 +563,227 @@ int main(int argc, char** argv) {
 		CheckTrue("a poor stat is a penalty", CurveValue(4, st) < 0.0f);
 		CheckTrue("stats stay far under skill at the defaults",
 				  CurveValue(40, st) < 40.0f);
+	}
+
+	// --- armor and the stance ------------------------------------------------
+	// The DEFENDER's half (docs/damage-system.md "Armor", "The stance"). The dice
+	// and the curves were already covered; these three rules were covered by
+	// nothing, and each is a DECISION rather than a sum:
+	//   * the penalty floor training can never reach past,
+	//   * the two hands combining by MAX and never by sum,
+	//   * the two training loops keying on OPPOSITE outcomes.
+	//
+	// Written against the RULES, not against particular knob values, and swept
+	// over several armor profiles including the shipping three — so balance.cat
+	// can be retuned freely without falsifying any of it. Only the printed table
+	// goes stale, and it is marked informational.
+	{
+		std::printf("\n--- armor and the stance ---\n");
+
+		struct Profile {
+			const char* name;
+			float penalty, floor, strength;
+		};
+		// The shipping defaults (Balance.h) plus two deliberately awkward ones: a
+		// class whose floor IS its whole penalty (nothing offsettable at all) and
+		// a featherweight. The rules must hold for all of them.
+		const Profile profiles[] = {
+			{"light", 10.0f, 3.0f, 8.0f},
+			{"medium", 25.0f, 10.0f, 11.0f},
+			{"heavy", 45.0f, 20.0f, 14.0f},
+			{"floor==penalty", 12.0f, 12.0f, 10.0f},
+			{"tiny", 1.0f, 0.25f, 5.0f},
+		};
+		constexpr float kOffsetSlope = 2.0f;  // Balance::armorOffsetSlope
+		constexpr float kShortPenalty = 4.0f; // Balance::armorShortPenalty
+
+		// The offset curve. Under --self-test it becomes the LOGARITHMIC form,
+		// which by design passes its cap — so the floor stops holding and these
+		// checks MUST catch it. Without that the armor section would pass
+		// vacuously while only the dice section had proved itself.
+		CurveRules offsetCurve;
+		offsetCurve.form = selfTest ? CurveForm::Logarithmic : CurveForm::Hyperbolic;
+		offsetCurve.slope = kOffsetSlope;
+
+		// Trained to absurdity: if the floor survives this it is a property of the
+		// maths, not of a plausible level range.
+		constexpr float kSaturated = 100'000.0f;
+
+		for (const Profile& p : profiles) {
+			const float offsettable = std::max(0.0f, p.penalty - p.floor);
+			const float met = p.strength; // STR met, so this is purely training
+			const auto penaltyAt = [&](float level, float strength) {
+				return defense::ArmorPenalty(p.floor, offsettable, offsetCurve,
+											 level, p.strength, strength,
+											 kShortPenalty);
+			};
+			char label[96];
+
+			// THE FLOOR: training never gets past it, however absurd the level.
+			// Strictly ABOVE it while anything is offsettable; exactly AT it when
+			// nothing is, which is the degenerate class whose cost cannot be
+			// trained away at all.
+			std::snprintf(label, sizeof label, "%s: floor never passed", p.name);
+			CheckTrue(label, penaltyAt(kSaturated, met) >= p.floor);
+			std::snprintf(label, sizeof label, "%s: floor never reached", p.name);
+			CheckTrue(label, offsettable > 0.0f
+								 ? penaltyAt(kSaturated, met) > p.floor
+								 : penaltyAt(kSaturated, met) == p.floor);
+
+			std::snprintf(label, sizeof label, "%s: untrained pays in full", p.name);
+			Check(label, penaltyAt(0.0f, met), p.penalty, 0.001);
+
+			// Training only ever helps, and never past the floor.
+			bool monotonic = true, aboveFloor = true;
+			float prev = penaltyAt(0.0f, met);
+			for (float level = 1.0f; level <= 400.0f; level += 1.0f) {
+				const float now = penaltyAt(level, met);
+				if (now > prev + 1e-4f) monotonic = false;
+				if (now < p.floor) aboveFloor = false; // never BELOW it
+				prev = now;
+			}
+			std::snprintf(label, sizeof label, "%s: training only helps", p.name);
+			CheckTrue(label, monotonic);
+			std::snprintf(label, sizeof label, "%s: never below the floor", p.name);
+			CheckTrue(label, aboveFloor);
+
+			// ARMOR ALWAYS COSTS YOU THE ROLL — the trade, not an imbalance.
+			std::snprintf(label, sizeof label, "%s: never free", p.name);
+			CheckTrue(label, penaltyAt(kSaturated, met) > 0.0f);
+
+			// A STRENGTH SHORTFALL IS PAID TWICE; this is the roll half, exactly
+			// armor_short_penalty per missing point. A surplus buys nothing.
+			std::snprintf(label, sizeof label, "%s: 3 STR short costs 3x", p.name);
+			Check(label, penaltyAt(0.0f, met - 3.0f) - penaltyAt(0.0f, met),
+				  3.0 * kShortPenalty, 0.001);
+			std::snprintf(label, sizeof label, "%s: STR surplus buys nothing",
+						  p.name);
+			Check(label, penaltyAt(0.0f, met + 6.0f), penaltyAt(0.0f, met), 0.001);
+		}
+
+		// Heavier armor costs more, at equal (zero) training with STR met.
+		const auto bare = [&](const Profile& p) {
+			return defense::ArmorPenalty(p.floor,
+										 std::max(0.0f, p.penalty - p.floor),
+										 offsetCurve, 0.0f, p.strength, p.strength,
+										 kShortPenalty);
+		};
+		CheckTrue("heavier armor costs more on the roll",
+				  bare(profiles[0]) < bare(profiles[1]) &&
+					  bare(profiles[1]) < bare(profiles[2]));
+
+		// --- the stance: the hands combine by MAX, never by sum ---------------
+		CurveRules skillCurve;
+		skillCurve.form = CurveForm::Hyperbolic;
+		skillCurve.slope = 5.0f;
+		skillCurve.cap = 120.0f;
+
+		const float lo = 4.0f, hi = 30.0f; // two unequal hands
+		const float guardBoth = defense::HandGuard(1.0f, skillCurve, lo, hi);
+		const float guardBest = defense::HandGuard(1.0f, skillCurve, hi, 0.0f);
+		const double sum = static_cast<double>(CurveValue(lo, skillCurve)) +
+						   CurveValue(hi, skillCurve);
+
+		Check("the better hand answers the blow", guardBoth,
+			  CurveValue(hi, skillCurve), 0.001);
+		CheckTrue("two hands are NOT summed", guardBoth < sum - 1.0);
+		// THE ANTI-EXPLOIT: a second, weaker hand held back adds exactly nothing,
+		// which is what stops the stance slider being a free defense button.
+		Check("a weaker second hand adds nothing", guardBoth, guardBest, 0.001);
+		CheckTrue("order does not matter",
+				  defense::HandGuard(1.0f, skillCurve, hi, lo) == guardBoth);
+
+		// All-out attack guards with nothing; the guard is linear in the share.
+		Check("all-out attack guards with nothing",
+			  defense::HandGuard(0.0f, skillCurve, hi, hi), 0.0, 0.0);
+		Check("an over-exerted share guards with nothing",
+			  defense::HandGuard(-0.5f, skillCurve, hi, hi), 0.0, 0.0);
+		Check("half held back guards half as well",
+			  defense::HandGuard(0.5f, skillCurve, lo, hi), guardBoth * 0.5, 0.001);
+		// An empty hand parries `unarmed` — bare-handed, but not nothing. At level
+		// 0 that is worth 0, so the claim worth checking is that a TRAINED bare
+		// hand still guards.
+		CheckTrue("a trained empty hand still guards",
+				  defense::HandGuard(1.0f, skillCurve, 12.0f, 0.0f) > 0.0f);
+
+		// --- the two training loops key on OPPOSITE outcomes ------------------
+		using defense::Lesson;
+		const ArmorClass armored[] = {ArmorClass::Light, ArmorClass::Medium,
+									  ArmorClass::Heavy};
+		bool unrolledTeaches = false, armorTaughtAvoid = false, wrongLoop = false;
+		for (const bool hit : {false, true}) {
+			for (const float soak : {0.0f, 5.0f}) {
+				// Never rolled, never taught: a bump, a fall, a poison tick.
+				if (defense::LessonFrom(false, hit, ArmorClass::None, soak) !=
+						Lesson::Nothing ||
+					defense::LessonFrom(false, hit, ArmorClass::Heavy, soak) !=
+						Lesson::Nothing)
+					unrolledTeaches = true;
+
+				// Unarmored: a miss teaches avoid, a landed blow teaches nothing.
+				if (defense::LessonFrom(true, hit, ArmorClass::None, soak) !=
+					(hit ? Lesson::Nothing : Lesson::Avoid))
+					wrongLoop = true;
+
+				for (const ArmorClass c : armored) {
+					// Armored: a miss teaches nothing (the armor was not tested);
+					// a landed blow teaches the class only if it blunted anything.
+					const Lesson want = !hit ? Lesson::Nothing
+											 : (soak > 0.0f ? Lesson::Armor
+															: Lesson::Nothing);
+					const Lesson got = defense::LessonFrom(true, hit, c, soak);
+					if (got != want) wrongLoop = true;
+					if (got == Lesson::Avoid) armorTaughtAvoid = true;
+				}
+			}
+		}
+		CheckTrue("an unrolled event teaches nothing", !unrolledTeaches);
+		CheckTrue("each outcome feeds the one right loop", !wrongLoop);
+		CheckTrue("armor never trains avoidance", !armorTaughtAvoid);
+		// The claim that makes going bare a BUILD rather than the poor man's
+		// option: a loadout trains exactly one loop, so you cannot practise both.
+		bool oneLoopPerLoadout = true;
+		for (const float soak : {0.0f, 5.0f}) {
+			const bool bareTrainsAvoid =
+				defense::LessonFrom(true, false, ArmorClass::None, soak) ==
+				Lesson::Avoid;
+			const bool bareTrainsArmor =
+				defense::LessonFrom(true, true, ArmorClass::None, soak) ==
+				Lesson::Armor;
+			const bool wornTrainsArmor =
+				defense::LessonFrom(true, true, ArmorClass::Heavy, soak) ==
+				Lesson::Armor;
+			const bool wornTrainsAvoid =
+				defense::LessonFrom(true, false, ArmorClass::Heavy, soak) ==
+				Lesson::Avoid;
+			if (!bareTrainsAvoid || bareTrainsArmor) oneLoopPerLoadout = false;
+			if (wornTrainsAvoid) oneLoopPerLoadout = false;
+			if (wornTrainsArmor != (soak > 0.0f)) oneLoopPerLoadout = false;
+		}
+		CheckTrue("a loadout trains exactly one loop", oneLoopPerLoadout);
+
+		// The shape table — INFORMATIONAL, and the one thing here that goes stale
+		// if balance.cat is retuned. Penalty in d100 points, STR met.
+		std::printf("\n  armor penalty by training (INFORMATIONAL, shipping "
+					"defaults; ~41 pts = the dice deviation)\n");
+		std::printf("  %-14s %7s %7s %7s %7s %7s %7s\n", "class", "L0", "L5",
+					"L20", "L50", "L200", "floor");
+		for (int i = 0; i < 3; ++i) {
+			const Profile& p = profiles[i];
+			const float off = std::max(0.0f, p.penalty - p.floor);
+			const auto at = [&](float level) {
+				return defense::ArmorPenalty(p.floor, off, offsetCurve, level,
+											 p.strength, p.strength, kShortPenalty);
+			};
+			std::printf("  %-14s %7.1f %7.1f %7.1f %7.1f %7.1f %7.1f\n", p.name,
+						at(0), at(5), at(20), at(50), at(200), p.floor);
+		}
+		std::printf("  (a floor column never reached is the point — training "
+					"cannot make plate agile)\n");
+		std::printf("  NOT covered here: `avoid` applying only while unarmored, "
+					"and typed defense\n  (physical->hands, magical->the incoming "
+					"school) — both still live inside\n  PartyTarget::Evasion, "
+					"which needs the world.\n");
 	}
 
 	// --- verdict ------------------------------------------------------------

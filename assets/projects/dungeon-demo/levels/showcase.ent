@@ -12,3 +12,10 @@ button lever 10 3 west target=door_wood
 door wooden_door 13 19 north name=door_wood
 door portcullis 13 17 north name=door_gate
 door stone_door 18 8 east name=door_slab
+
+monster skel_swarm 13 13 north
+monster skeleton 12 6 south
+monster skel_coward 12 1 south
+monster skel_archer 25 7 west
+monster skel_warrior 23 9 west
+monster skel_mage 24 10 west

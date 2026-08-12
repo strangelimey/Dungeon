@@ -12,6 +12,7 @@ add_library(Game STATIC
 	Curve.cpp
 	CurvePlot.cpp
 	DamageTypes.cpp
+	Defense.cpp
 	DevConsole.cpp
 	DialogLayout.cpp
 	DoorInspector.cpp
