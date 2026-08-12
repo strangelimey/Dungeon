@@ -196,6 +196,14 @@ public:
 	// The damage-type vocabulary, for anything that has to NAME a type it was
 	// handed (the projectile inspector, the type editor).
 	const DamageTypeBook& DamageTypes() const { return m_damageTypes; }
+
+	// Armor (docs/damage-system.md): the class governing a member (the
+	// HEAVIEST piece worn) and what it costs them on the defense roll.
+	ArmorClass WornArmorClass(const Character& member); // non-const: ItemKindFor caches
+	float ArmorPenalty(const Character& member, ArmorClass c) const;
+	// Trains `avoid` on an evaded blow or the worn armor on a blunted one —
+	// call once per RESOLVED attack against a member.
+	void TrainDefense(Character& member, const fx::DamageEvent& ev);
 	// Land an effect on the monster the party faces (dev console). False if
 	// there is nothing ahead or no such effect. The monster side of the effect
 	// list has no other hand-authored entry point.
@@ -1324,6 +1332,11 @@ private:
 		// from the party's REAR rank (roster slots 2-3); everything else —
 		// bare hands included — is front-rank only.
 		bool polearm = false;
+		// Worn armor's WEIGHT CLASS (armor.cat `class`): what it costs to
+		// evade in, which skill it trains, and what STR it asks. The soak
+		// itself stays per ITEM (`armor` below) — a breastplate and a mail
+		// shirt are both heavy and do not blunt alike.
+		ArmorClass armorClass = ArmorClass::None;
 		// ENCHANTMENT (the fire sword, catalog `element = fire`): the weapon
 		// carries a school's element into every LANDED blow, on top of the
 		// physical damage — `element_bonus` of the blow's assembled damage as

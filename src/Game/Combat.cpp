@@ -7,6 +7,32 @@
 
 namespace dungeon::game {
 
+namespace {
+constexpr const char* kArmorClassIds[] = {"none", "light", "medium", "heavy"};
+constexpr const char* kArmorSkillIds[] = {"", "light_armor", "medium_armor",
+										  "heavy_armor"};
+} // namespace
+
+const char* ArmorClassId(ArmorClass c) {
+	const size_t i = static_cast<size_t>(c);
+	return i < static_cast<size_t>(ArmorClass::Count) ? kArmorClassIds[i]
+													 : kArmorClassIds[0];
+}
+
+const char* ArmorSkillId(ArmorClass c) {
+	const size_t i = static_cast<size_t>(c);
+	return i < static_cast<size_t>(ArmorClass::Count) ? kArmorSkillIds[i] : "";
+}
+
+bool ParseArmorClass(std::string_view token, ArmorClass& out) {
+	for (size_t i = 0; i < static_cast<size_t>(ArmorClass::Count); ++i)
+		if (token == kArmorClassIds[i]) {
+			out = static_cast<ArmorClass>(i);
+			return true;
+		}
+	return false;
+}
+
 AttackResult ResolveAttack(const AttackProfile& atk, const DefenseProfile& def,
 						   const StrikeRules& rules, std::mt19937& rng) {
 	AttackResult result;

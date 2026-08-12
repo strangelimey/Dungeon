@@ -704,3 +704,7 @@ map.balance.curve.skill=skill (0-{})
 map.balance.curve.stat=stat (0-{})
 map.balance.curve.dice=--- dice deviation (~41)
 map.balance.curve.peak=peak: skill {} / stat {}
+skill.avoid=Avoidance
+skill.light_armor=Light Armor
+skill.medium_armor=Medium Armor
+skill.heavy_armor=Heavy Armor

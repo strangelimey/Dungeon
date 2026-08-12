@@ -850,6 +850,10 @@ DungeonWorld::ItemKind& DungeonWorld::ItemKindFor(const std::string& type) {
 		}
 		ParseResists(CatalogGet(def, "resists", ""), kind->resists,
 					 "items.cat [" + type + "]", m_damageTypes);
+		if (const std::string cls = CatalogGet(def, "class", ""); !cls.empty())
+			if (!ParseArmorClass(cls, kind->armorClass))
+				log::Warn("armor.cat [{}]: unknown class '{}' (light/medium/heavy)",
+						  type, cls);
 		kind->armor = def ? def->GetFloat("armor", 0.0f) : 0.0f;
 		kind->weight = def ? def->GetFloat("weight", 0.0f) : 0.0f;
 		// `command` is a free-form list (whitespace/comma separated) of command ids

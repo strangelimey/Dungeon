@@ -418,6 +418,10 @@ constexpr FieldSpec kArmorFields[] = {
 	PROP_TEXTURE,
 	PROP_SCALE,
 	ITEM_WEIGHT,
+	{.key = "class", .kind = FieldKind::Enum, .sectionKey = kSectionStats,
+	 .help = "Weight class: what it costs to evade in, which skill it trains, "
+			 "and the STR it asks for. Empty = clothing (still unarmored).",
+	 .options = "light medium heavy", .def = ""},
 	{.key = "armor", .kind = FieldKind::Float, .sectionKey = kSectionStats,
 	 .help = "Flat damage soak when worn.", .lo = 0.0f, .hi = 20.0f, .step = 0.25f, .def = "1"},
 	{.key = "resists", .kind = FieldKind::Text, .sectionKey = kSectionStats,

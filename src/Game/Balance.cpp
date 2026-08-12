@@ -34,6 +34,21 @@ constexpr BalanceField kBalanceFields[] = {
 	{"stat_cap", &Balance::statCap},
 	{"stat_baseline", &Balance::statBaseline},
 	{"defense_base", &Balance::defenseBase},
+	{"armor_light_penalty", &Balance::armorLightPenalty},
+	{"armor_light_floor", &Balance::armorLightFloor},
+	{"armor_light_str", &Balance::armorLightStr},
+	{"armor_light_learn", &Balance::armorLightLearn},
+	{"armor_medium_penalty", &Balance::armorMediumPenalty},
+	{"armor_medium_floor", &Balance::armorMediumFloor},
+	{"armor_medium_str", &Balance::armorMediumStr},
+	{"armor_medium_learn", &Balance::armorMediumLearn},
+	{"armor_heavy_penalty", &Balance::armorHeavyPenalty},
+	{"armor_heavy_floor", &Balance::armorHeavyFloor},
+	{"armor_heavy_str", &Balance::armorHeavyStr},
+	{"armor_heavy_learn", &Balance::armorHeavyLearn},
+	{"armor_offset_slope", &Balance::armorOffsetSlope},
+	{"armor_short_penalty", &Balance::armorShortPenalty},
+	{"armor_short_stamina", &Balance::armorShortStamina},
 	{"resist_clamp", &Balance::resistClamp},
 	{"wound_floor", &Balance::woundFloor},
 	{"speed_base", &Balance::speedBase},
@@ -120,6 +135,20 @@ Balance::Balance() {
 		{"kick", "bash", {}, 1.15f, 0.0f, 1.15f, 1.2f},
 	};
 	m_neutral = {"", "bash", {}, 1.0f, 0.0f, 1.0f, 1.0f};
+}
+
+Balance::ArmorRules Balance::Armor(ArmorClass c) const {
+	switch (c) {
+	case ArmorClass::Light:
+		return {armorLightPenalty, armorLightFloor, armorLightStr, armorLightLearn};
+	case ArmorClass::Medium:
+		return {armorMediumPenalty, armorMediumFloor, armorMediumStr,
+				armorMediumLearn};
+	case ArmorClass::Heavy:
+		return {armorHeavyPenalty, armorHeavyFloor, armorHeavyStr, armorHeavyLearn};
+	default:
+		return {}; // unarmored: no penalty, no floor, nothing to ask of STR
+	}
 }
 
 const AttackSpec* Balance::FindAttack(std::string_view id) const {

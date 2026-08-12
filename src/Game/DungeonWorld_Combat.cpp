@@ -86,6 +86,43 @@ void DungeonWorld::GrantSkillXp(Character& member, std::string_view skillId,
 	}
 }
 
+// THE DEFENSIVE FEEDBACK LOOPS (docs/damage-system.md). You learn what you
+// actually survive, so the two loops train on opposite outcomes and never both
+// fire for the same blow:
+//
+//   a MISS while unarmored  -> `avoid`, creeping DEX. Only unarmored: armor is
+//                              the other answer to being swung at, and a
+//                              member cannot be practising both.
+//   a HIT that armor blunted -> that class's skill, creeping its stat (DEX for
+//                              light and medium, STR for heavy). Trained by
+//                              being struck, which is how you learn to live in
+//                              a suit of plate.
+//
+// Only a ROLLED blow trains anything: a bump, a fall or a poison tick was never
+// evaded and never turned, so counting them would train a skill that did no
+// work. Call this once per resolved attack against a member.
+void DungeonWorld::TrainDefense(Character& member, const fx::DamageEvent& ev) {
+	if (!ev.rolled || !member.IsAlive()) return;
+	const ArmorClass worn = WornArmorClass(member);
+	constexpr float kXp = 1.0f; // the same unit a landed blow trains at
+
+	if (!ev.hit) {
+		if (worn != ArmorClass::None) return; // armor took the swing, not skill
+		static const std::vector<std::string> kDex{"dexterity"};
+		GrantSkillXp(member, kAvoidSkill, kXp, kDex);
+		return;
+	}
+	// A landed blow only teaches the armor something if the armor was there to
+	// blunt it.
+	if (worn == ArmorClass::None) return;
+	const float soak = PartyTarget{*this, member}.Soak();
+	if (soak <= 0.0f) return;
+	static const std::vector<std::string> kDexStat{"dexterity"};
+	static const std::vector<std::string> kStrStat{"strength"};
+	GrantSkillXp(member, ArmorSkillId(worn), kXp * m_balance.Armor(worn).learn,
+				 worn == ArmorClass::Heavy ? kStrStat : kDexStat);
+}
+
 // A whole stat point lands: increment, log, and re-derive the resource maxima
 // (the resource formula — a VIT point is FELT as a bigger health/stamina pool,
 // and the growth carries the current value so it reads as growth, not damage).
@@ -108,6 +145,15 @@ void DungeonWorld::GrantStatPoint(Character& member, std::string_view stat) {
 // hysteresis in the regen tick). Swings and marching both arrive here.
 void DungeonWorld::SpendStamina(Character& member, float points) {
 	if (points <= 0.0f || !member.IsAlive()) return;
+	// Armor you are too weak for is paid for twice: once on the defense roll
+	// (ArmorPenalty) and again here, on every swing and every step. An
+	// underpowered fighter in plate is easier to hit AND quickly spent.
+	if (const ArmorClass worn = WornArmorClass(member); worn != ArmorClass::None) {
+		const float short_ = m_balance.Armor(worn).strength -
+							 static_cast<float>(member.strength);
+		if (short_ > 0.0f)
+			points *= 1.0f + short_ * m_balance.armorShortStamina;
+	}
 	member.stamina -= points;
 	member.staminaHoldoff = m_balance.staminaHoldoff;
 	if (member.stamina <= 0.0f) {
@@ -137,12 +183,60 @@ void DungeonWorld::RecomputePartyMaxima() {
 // EFFECT term is no longer a hard-coded Stone Skin branch but a sum over
 // whatever effects the target happens to carry.
 
+// The heaviest armor a member is wearing, which is the class that governs
+// them: a plate cuirass over leather greaves is heavy armor with extra padding,
+// not an average of the two.
+ArmorClass DungeonWorld::WornArmorClass(const Character& member) {
+	ArmorClass worst = ArmorClass::None;
+	for (const ItemSlot& slot : member.inventory.equipment) {
+		if (slot.Empty()) continue;
+		const ArmorClass c = ItemKindFor(slot.typeId).armorClass;
+		if (static_cast<int>(c) > static_cast<int>(worst)) worst = c;
+	}
+	return worst;
+}
+
+// What wearing `c` costs this member on the defense roll, training included.
+// Returns 0 unarmored — where the `avoid` skill takes over instead.
+float DungeonWorld::ArmorPenalty(const Character& member, ArmorClass c) const {
+	if (c == ArmorClass::None) return 0.0f;
+	const Balance& b = m_balance;
+	const Balance::ArmorRules r = b.Armor(c);
+
+	// THE FLOOR IS THE CURVE'S CAP, not a clamp bolted on afterwards: a
+	// hyperbolic curve approaches its ceiling and never arrives, so "no matter
+	// how much you practise, plate still makes you easier to hit" is a property
+	// of the maths rather than a rule enforced beside it.
+	CurveRules offsetCurve = b.SkillCurve();
+	offsetCurve.slope = b.armorOffsetSlope;
+	offsetCurve.cap = r.Offsettable();
+	const float level =
+		static_cast<float>(member.SkillLevel(ArmorSkillId(c)));
+	float penalty = r.floor + (r.Offsettable() - CurveValue(level, offsetCurve));
+
+	// Too weak for it: easier to hit AND quickly spent (the stamina half is in
+	// SpendStamina). The same story told twice, which is the point.
+	const float short_ = r.strength - static_cast<float>(member.strength);
+	if (short_ > 0.0f) penalty += short_ * b.armorShortPenalty;
+	return penalty;
+}
+
 float DungeonWorld::PartyTarget::Evasion(DamageType type) const {
 	const Balance& b = m_world.m_balance;
-	// The innate floor plus DEX. The dodge and armor SKILLS join these in P5,
-	// at which point defenseBase can come back down — it stands in for them.
+	// The innate floor plus DEX.
 	float guard = b.defenseBase +
 				  CurveValue(static_cast<float>(m_member.dexterity), b.StatCurve());
+
+	// ARMOR (docs/damage-system.md). Wearing anything costs you the roll and
+	// pays you back in soak; wearing NOTHING is the only way the `avoid` skill
+	// applies at all, which is what makes going bare a real build rather than
+	// simply the poor man's option.
+	const ArmorClass worn = m_world.WornArmorClass(m_member);
+	if (worn == ArmorClass::None)
+		guard += CurveValue(static_cast<float>(m_member.SkillLevel(kAvoidSkill)),
+							b.SkillCurve());
+	else
+		guard -= m_world.ArmorPenalty(m_member, worn);
 
 	// THE HELD-BACK SKILL (docs/damage-system.md). The character keeps
 	// (1 - offenseShare) of their skill back to defend with — ONE stance, not
@@ -510,6 +604,7 @@ void DungeonWorld::MonsterAttack(Monster& monster) {
 		monster.kind->damageType, monster.kind->damage,
 		monster.kind->accuracy * monster.kind->offense, victim);
 	fx::Deal(ev, defender, m_balance.Strike(), m_combatRng);
+	TrainDefense(target, ev); // avoid on a miss, armor on a blunted hit
 
 	if (!ev.hit) {
 		MemberMessage(target, loc::Format("log.monster_misses", name, target.name));
@@ -1155,6 +1250,7 @@ bool DungeonWorld::ResolveMonsterProjectileHit(const ProjectileImpact& impact) {
 	fx::DamageEvent ev = fx::DamageEvent::Bolt(impact.atk.type, impact.atk.damage,
 											   impact.atk.attackBonus);
 	fx::Deal(ev, defender, m_balance.Strike(), m_combatRng);
+	TrainDefense(target, ev); // a dodged bolt teaches too
 	if (ev.deflected) return true; // spent against the wind
 	if (!ev.hit) {
 		MemberMessage(target, loc::Format("log.monster_ranged_misses", target.name));

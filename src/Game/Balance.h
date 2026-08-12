@@ -95,6 +95,34 @@ struct Balance {
 	float statBonus = 2.0f;
 	float statCap = 35.0f;
 	float statBaseline = 10.0f;
+	// --- armor (docs/damage-system.md) --------------------------------------
+	// Per WEIGHT CLASS, in d100 points. `penalty` is what the armor costs your
+	// defense roll before any training; `floor` is the part training can NEVER
+	// reach past, so the difference is all a skill may ever claw back. The
+	// floor is what keeps the choice a choice: no amount of practice makes
+	// plate as evadable as leather.
+	//
+	// The floor is ENFORCED BY THE CURVE rather than by a clamp — the offset is
+	// CurveValue with its cap set to (penalty - floor), and a hyperbolic curve
+	// approaches its cap without reaching it. The rule falls out of machinery
+	// that is already tested.
+	float armorLightPenalty = 10.0f, armorLightFloor = 3.0f;
+	float armorMediumPenalty = 25.0f, armorMediumFloor = 10.0f;
+	float armorHeavyPenalty = 45.0f, armorHeavyFloor = 20.0f;
+	// Points of offset per level at the START of the curve; it tapers to the
+	// class's own ceiling from there.
+	float armorOffsetSlope = 2.0f;
+	// The STRENGTH each class asks for, and what falling short costs: more
+	// points off the defense roll, and a much steeper stamina bill on every
+	// swing and every step. The same story told twice — easier to hit AND
+	// quickly spent.
+	float armorLightStr = 8.0f, armorMediumStr = 11.0f, armorHeavyStr = 14.0f;
+	float armorShortPenalty = 4.0f;  // + points per point of STR short
+	float armorShortStamina = 0.15f; // + fraction of stamina cost per point
+	// How fast each class trains, relative to the usual rate: plate is harder
+	// to learn to live in.
+	float armorLightLearn = 1.0f, armorMediumLearn = 0.7f, armorHeavyLearn = 0.45f;
+
 	// A party member's INNATE defense in d100 points, before anything trained.
 	// A monster authors its whole defense as one number (monsters.cat
 	// `defense`); a member assembles theirs, and until the dodge and armor
@@ -178,6 +206,15 @@ struct Balance {
 	// would have to guess an index, and index 0 is whatever the project happens
 	// to list first.
 	const AttackSpec& Neutral() const { return m_neutral; }
+
+	// One armor class's numbers, gathered so the defense maths reads as one
+	// lookup rather than three parallel switch statements.
+	struct ArmorRules {
+		float penalty = 0.0f, floor = 0.0f, strength = 0.0f, learn = 1.0f;
+		// What a skill may ever claw back — the curve's cap.
+		float Offsettable() const { return std::max(0.0f, penalty - floor); }
+	};
+	ArmorRules Armor(ArmorClass c) const;
 
 	// The two contribution curves, assembled from the knobs above.
 	CurveRules SkillCurve() const {

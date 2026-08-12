@@ -58,6 +58,20 @@ struct DamageType {
 	friend bool operator==(DamageType, DamageType) = default;
 };
 
+// ARMOR WEIGHT CLASS (docs/damage-system.md). The trade the whole system turns
+// on: heavier armor blunts more and is HARDER TO AVOID IN, and the penalty has
+// a FLOOR that training can never reach past — so plate is a permanent
+// commitment rather than a phase you grow out of. `None` is not a gap in the
+// list: going unarmored is the only way to use the `avoid` skill at all.
+enum class ArmorClass : u8 { None, Light, Medium, Heavy, Count };
+const char* ArmorClassId(ArmorClass c);
+bool ParseArmorClass(std::string_view token, ArmorClass& out);
+// The skill trained by wearing one ("light_armor" ...), and the skill trained
+// by dodging in none ("avoid"). Both are ordinary skill ids: they level, creep
+// their stat, and read out of the sheet like every weapon class.
+const char* ArmorSkillId(ArmorClass c);
+inline constexpr const char* kAvoidSkill = "avoid";
+
 // A defender's per-type resistance cells: the fraction of that type shrugged
 // off (0.5 = half), NEGATIVE = vulnerability (-0.5 = half again). Sources
 // (nature, equipment, wards) each hold one of these and SUM into the defense;

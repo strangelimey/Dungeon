@@ -1,8 +1,19 @@
 ; Armor: worn items granting defense (armor soak + per-type resists).
+;
+; class = light | medium | heavy - the WEIGHT CLASS (docs/damage-system.md).
+;   It decides what the piece costs you on the defense roll, which skill it
+;   trains, and how much STRENGTH it asks for; the numbers per class are
+;   balance.cat knobs (armor_<class>_*). The SOAK stays per item below, since
+;   a breastplate and a mail shirt are both heavy and do not blunt alike.
+;   Omitted = no class: it is clothing, and you still count as unarmored.
+;
+; Wearing ANY class stops the `avoid` skill applying at all - that skill is
+; the unarmored answer to being swung at, and you cannot practise both.
 
 [leather_armor]
 name = item.leather_armor
 category = armor
+class = light
 weight = 8.0
 model = leather_armor
 armor = 1.5
