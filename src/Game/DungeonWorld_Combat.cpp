@@ -188,7 +188,15 @@ void DungeonWorld::RecomputePartyMaxima() {
 // not an average of the two.
 ArmorClass DungeonWorld::WornArmorClass(const Character& member) {
 	ArmorClass worst = ArmorClass::None;
-	for (const ItemSlot& slot : member.inventory.equipment) {
+	for (int i = 0; i < kEquipCount; ++i) {
+		// HANDS DON'T COUNT. They are part of the equipment array, so a
+		// cuirass carried in a fist would otherwise hand you heavy armor's
+		// whole penalty for holding it. (Soak has always summed the hands
+		// too, which is the same bug being quieter about it.)
+		if (i == static_cast<int>(EquipSlot::LeftHand) ||
+			i == static_cast<int>(EquipSlot::RightHand))
+			continue;
+		const ItemSlot& slot = member.inventory.equipment[static_cast<size_t>(i)];
 		if (slot.Empty()) continue;
 		const ArmorClass c = ItemKindFor(slot.typeId).armorClass;
 		if (static_cast<int>(c) > static_cast<int>(worst)) worst = c;

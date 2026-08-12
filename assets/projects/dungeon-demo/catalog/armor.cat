@@ -10,14 +10,62 @@
 ; Wearing ANY class stops the `avoid` skill applying at all - that skill is
 ; the unarmored answer to being swung at, and you cannot practise both.
 
+; --- light ------------------------------------------------------------------
+; Cloth and padding: cheap to move in, and it stops very little.
+
+[padded_jack]
+name = item.padded_jack
+category = armor
+class = light
+weight = 4.0
+model = leather_armor
+armor = 1.0
+resists = slash 0.1, bash 0.1
+
+; --- medium -----------------------------------------------------------------
+; The compromise: worth wearing, worth training, and it costs you the roll.
+
 [leather_armor]
 name = item.leather_armor
 category = armor
-class = light
+class = medium
 weight = 8.0
 model = leather_armor
-armor = 1.5
+armor = 2.5
 resists = slash 0.2, pierce 0.1, bash 0.1
+
+[brigandine]
+name = item.brigandine
+category = armor
+class = medium
+weight = 12.0
+model = leather_armor
+armor = 3.5
+resists = slash 0.25, pierce 0.2, bash 0.1
+
+; --- heavy ------------------------------------------------------------------
+; Plate and mail. A permanent -20 to the defense roll however long you train
+; (balance.cat armor_heavy_floor), bought back in soak and resistance. The
+; strength requirement is 14: wear these under it and you are easier to hit AND
+; out of breath (armor_short_penalty / armor_short_stamina).
+
+[mail_hauberk]
+name = item.mail_hauberk
+category = armor
+class = heavy
+weight = 18.0
+model = leather_armor
+armor = 5.0
+resists = slash 0.4, pierce 0.15, bash 0.05
+
+[plate_cuirass]
+name = item.plate_cuirass
+category = armor
+class = heavy
+weight = 25.0
+model = leather_armor
+armor = 7.0
+resists = slash 0.5, pierce 0.4, bash 0.2
 
 [tunic]
 name = item.tunic
