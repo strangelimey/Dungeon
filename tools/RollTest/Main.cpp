@@ -328,17 +328,25 @@ int main(int argc, char** argv) {
 				off.cap = penalty - floor;
 				return floor + (off.cap - CurveValue(level, off));
 			};
-			struct Def { const char* what; float bonus; float soak; };
+			// `resist` is the FRACTIONAL half of mitigation, which the armor
+			// content already carries (armor.cat `resists`) and which the first
+			// pass of this table wrongly ignored. It is the half that SCALES:
+			// flat soak is a fixed subtraction and shrinks to nothing beside a
+			// big blow, while a fraction is worth the same proportion however
+			// hard the monster hits.
+			struct Def { const char* what; float bonus; float soak; float resist; };
+			// Soak and resist are the pieces authored in armor.cat: brigandine
+			// 3.5 / slash 0.25, plate 7.0 / slash 0.5.
 			const Def defs[] = {
-				{"fresh, unarmored (DEX 11)", kBase + CurveValue(11, stat), 0.0f},
+				{"fresh, unarmored (DEX 11)", kBase + CurveValue(11, stat), 0.0f, 0.0f},
 				{"trained dodger (avoid 20)",
-				 kBase + CurveValue(11, stat) + CurveValue(20, avoid), 0.0f},
+				 kBase + CurveValue(11, stat) + CurveValue(20, avoid), 0.0f, 0.0f},
 				{"veteran dodger (avoid 60)",
-				 kBase + CurveValue(11, stat) + CurveValue(60, avoid), 0.0f},
-				{"brigandine, untrained", kBase + CurveValue(11, stat) - armorPenalty(25, 10, 0), 3.5f},
-				{"brigandine, skill 20", kBase + CurveValue(11, stat) - armorPenalty(25, 10, 20), 3.5f},
-				{"plate, untrained", kBase + CurveValue(11, stat) - armorPenalty(45, 20, 0), 7.0f},
-				{"plate, skill 30", kBase + CurveValue(11, stat) - armorPenalty(45, 20, 30), 7.0f},
+				 kBase + CurveValue(11, stat) + CurveValue(60, avoid), 0.0f, 0.0f},
+				{"brigandine, untrained", kBase + CurveValue(11, stat) - armorPenalty(25, 10, 0), 3.5f, 0.25f},
+				{"brigandine, skill 20", kBase + CurveValue(11, stat) - armorPenalty(25, 10, 20), 3.5f, 0.25f},
+				{"plate, untrained", kBase + CurveValue(11, stat) - armorPenalty(45, 20, 0), 7.0f, 0.5f},
+				{"plate, skill 30", kBase + CurveValue(11, stat) - armorPenalty(45, 20, 30), 7.0f, 0.5f},
 			};
 			std::printf("\n  a monster (attack 70) against a party member\n");
 			std::printf("    %-30s %6s %6s %8s %9s\n", "", "def", "hit", "soak",
@@ -349,9 +357,8 @@ int main(int argc, char** argv) {
 				long long hits = 0;
 				double total = 0;
 				for (int i = 0; i < kN; ++i) {
-					const AttackResult r = ResolveAttack({6.0f, kMonster, {}},
-														 {d.bonus, d.soak, 0.0f},
-														 sr, rng);
+					const AttackResult r = ResolveAttack(
+						{6.0f, kMonster, {}}, {d.bonus, d.soak, d.resist}, sr, rng);
 					if (!r.hit) continue;
 					++hits;
 					total += r.damage;
@@ -359,8 +366,32 @@ int main(int argc, char** argv) {
 				std::printf("    %-30s %6.0f %6.3f %8.1f %9.2f\n", d.what, d.bonus,
 							double(hits) / kN, d.soak, total / kN);
 			}
-			std::printf("    (monster damage 6, no resists; \"dmg/swing\" averages "
+			std::printf("    (monster damage 6, armor.cat soak + slash resist; \"dmg/swing\" "
 						"misses in — what the fight actually costs)\n");
+
+			// HOW HARD SHOULD A MONSTER HIT? Flat soak is a fixed subtraction,
+			// so its worth is entirely relative to the blow: at damage 6 plate
+			// erases most of a hit; at damage 30 it barely dents one. This
+			// sweep is the crossover — the number deciding whether armor is a
+			// WALL or a DISCOUNT, and whether medium is worth its penalty.
+			std::printf("\n  dmg/swing by monster damage (the flat-soak crossover)\n");
+			std::printf("    %-26s %8s %8s %8s %8s\n", "", "dmg 6", "dmg 12",
+						"dmg 20", "dmg 30");
+			for (const Def& d : defs) {
+				std::printf("    %-26s", d.what);
+				for (const float dmg : {6.0f, 12.0f, 20.0f, 30.0f}) {
+					std::mt19937 rng(4711);
+					constexpr int kN = 120'000;
+					double total = 0;
+					for (int i = 0; i < kN; ++i) {
+						const AttackResult r = ResolveAttack(
+							{dmg, kMonster, {}}, {d.bonus, d.soak, d.resist}, sr, rng);
+						if (r.hit) total += r.damage;
+					}
+					std::printf(" %8.2f", total / kN);
+				}
+				std::printf("\n");
+			}
 		}
 
 		// WHAT A LIFETIME OF TRAINING IS WORTH — the question the whole design

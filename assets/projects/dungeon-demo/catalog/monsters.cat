@@ -7,6 +7,14 @@
 ;   threat_decay     x how fast the grudge fades (> 1 = short memory)
 ; Editable live in the editor's monster config dialog (Behavior tab).
 ;
+; damage - DOUBLED 2026-08-11, from a 4-8 band to 8-16. Armor's mitigation is
+;   part flat soak and part fractional resist, and which of those dominates
+;   depends entirely on how hard the blow is: measured (tools/RollTest), armor
+;   beats evasion against many small hits and evasion beats armor against few
+;   big ones, with the crossover around 12-20 damage. At the old 4-8 the choice
+;   never arose - armor simply won. This puts the band across the crossover so
+;   the decision is a real one.
+;
 ; offense - the STANCE (docs/damage-system.md): how much of `accuracy` goes
 ;   into pressing the attack, the rest held back to guard with. 1 = all-out.
 ;   It is per KIND and not per archetype on purpose: an archetype says how a
@@ -30,7 +38,7 @@ category = skeleton
 model = skeleton
 texture = skeleton
 hp = 16
-damage = 5
+damage = 10
 accuracy = 70
 defense = 0.1
 armor = 0
@@ -50,7 +58,7 @@ category = skeleton
 model = skeleton
 texture = skeleton
 hp = 12
-damage = 4
+damage = 8
 accuracy = 70
 defense = 0.1
 armor = 0
@@ -71,7 +79,7 @@ category = skeleton
 model = skeleton
 texture = skeleton
 hp = 14
-damage = 4
+damage = 8
 accuracy = 75
 defense = 0.1
 armor = 0
@@ -111,7 +119,7 @@ category = skeleton
 model = skeleton
 texture = skeleton
 hp = 6
-damage = 2
+damage = 4
 accuracy = 60
 defense = 0.15
 armor = 0
@@ -132,7 +140,7 @@ category = skeleton
 model = skeleton
 texture = skeleton
 hp = 20
-damage = 7
+damage = 14
 accuracy = 75
 defense = 0.1
 armor = 1
@@ -153,7 +161,7 @@ category = slime
 model = blob
 texture = blob
 hp = 28
-damage = 4
+damage = 8
 accuracy = 60
 defense = 0.0
 armor = 1
@@ -175,7 +183,7 @@ category = undead
 model = mummy
 texture = burlap
 hp = 22
-damage = 8
+damage = 16
 accuracy = 65
 defense = 0.05
 armor = 1
@@ -194,7 +202,7 @@ category = vermin
 model = giant_spider
 texture = giant_spider
 hp = 20
-damage = 6
+damage = 12
 accuracy = 70
 defense = 0.15
 armor = 0
@@ -223,7 +231,7 @@ category = vermin
 model = centipede
 texture = centipede
 hp = 14
-damage = 4
+damage = 8
 accuracy = 65
 defense = 0.1
 armor = 1
@@ -256,7 +264,7 @@ category = skeleton
 threat_threshold = 0.6
 model = skel_warrior
 hp = 22
-damage = 7
+damage = 14
 accuracy = 70
 defense = 0.12
 armor = 2
@@ -285,7 +293,7 @@ display = Skeleton Raider
 category = skeleton
 model = skel_bare
 hp = 16
-damage = 6
+damage = 12
 accuracy = 65
 defense = 0.15
 armor = 0
@@ -314,7 +322,7 @@ display = Skeleton Berserker
 category = skeleton
 model = skel_berserker
 hp = 19
-damage = 8
+damage = 16
 accuracy = 68
 defense = 0.13
 armor = 1
@@ -343,7 +351,7 @@ display = Skeleton Spearman
 category = skeleton
 model = skel_spearman
 hp = 17
-damage = 7
+damage = 14
 accuracy = 70
 defense = 0.13
 armor = 1
