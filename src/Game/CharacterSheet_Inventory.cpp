@@ -257,19 +257,20 @@ void CharacterSheet::DrawInventory(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 		line(loc::Tr("sheet.def.base"), signed_(d.base), theme.textDim, true);
 		line(loc::Tr("sheet.def.dex"), signed_(d.stat), theme.textDim, true);
 		line(loc::Tr("sheet.def.stance"), signed_(d.stance), theme.textDim, true);
+		// ONE line for the skill, carrying both what it is WORTH and what it
+		// IS: "+35 (lvl 10)". These were two lines — the contribution and the
+		// level — which at level 0 both read "0" and looked like the same fact
+		// printed twice. They are not the same fact, but a readout you have to
+		// be told how to read is a broken readout.
+		const std::string skillValue =
+			loc::Format("sheet.def.withlevel",
+						signed_(d.armorClass == ArmorClass::None ? d.skillBonus
+																 : -d.armorPenalty),
+						std::to_string(d.skillLevel));
 		if (d.armorClass != ArmorClass::None)
-			line(loc::Tr("sheet.def.armorpen"), signed_(-d.armorPenalty), kDefBad,
-				 true); // always a cost, so always the warning colour
+			line(loc::Tr("sheet.def.armorpen"), skillValue, kDefBad, true);
 		else
-			line(loc::Tr("sheet.def.avoid"), signed_(d.skillBonus), theme.textDim,
-				 true);
-
-		// The skill that applies here. "lvl" distinguishes it from the
-		// breakdown line above, which is that skill's worth in POINTS — two
-		// lines both reading "Avoidance 0" told you nothing.
-		line(loc::Tr(d.skillKey),
-			 loc::Format("sheet.def.level", std::to_string(d.skillLevel)),
-			 theme.text);
+			line(loc::Tr("sheet.def.avoid"), skillValue, theme.textDim, true);
 		if (d.strengthNeeded > 0) {
 			const bool short_ = d.strength < d.strengthNeeded;
 			line(loc::Tr("sheet.def.str"),

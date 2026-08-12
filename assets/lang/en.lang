@@ -723,4 +723,4 @@ sheet.def.stance=stance
 sheet.def.armorpen=armor
 sheet.def.avoid=avoidance
 sheet.def.str=Str
-sheet.def.level=lvl {}
+sheet.def.withlevel={} (lvl {})

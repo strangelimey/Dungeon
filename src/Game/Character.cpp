@@ -124,6 +124,19 @@ std::vector<Character> CreateDefaultParty() {
 		for (u32 i = 0; i < kSymbolCount; ++i)
 			caster->inventory.Stow(RuneItemId(static_cast<SpellSymbol>(i)));
 
+	// Brand starts carrying one piece of each armor WEIGHT CLASS, for the same
+	// reason the casters start with runes: the trade the armor system is built
+	// around (harder to hit you, harder to hurt you — docs/damage-system.md) is
+	// unreachable from a fresh game without first finding three specific items,
+	// and it is the thing most worth feeling early. Stowed, not worn: putting
+	// one ON is the interaction, and the sheet's Defense column is where the
+	// difference shows.
+	//
+	// Brand is the front-line fighter and, at STR 10 against plate's 14, also
+	// the demonstration of wearing something you cannot carry.
+	for (const char* piece : {"padded_jack", "brigandine", "plate_cuirass"})
+		party[0].inventory.Stow(piece);
+
 	return party;
 }
 
