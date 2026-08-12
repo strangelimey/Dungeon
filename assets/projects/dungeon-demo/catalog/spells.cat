@@ -60,6 +60,15 @@ range = 8
 ; The directed fire cast always ignites — it is the tier-2 spell, and the
 ; certainty is most of what it buys over [flame]'s coin-flip.
 on_hit = burn 3 6
+; ...and it BURSTS: an area blast where it stops. `blast_force` is the size in
+; SQUARES, not a radius — stone consumes none of it, so this fills a room five
+; squares wide and runs five squares down a corridor, and if it goes off in a
+; dead end the force with nowhere to go concentrates instead (Game/Blast.h).
+; A BLAST HAS NO SIDE: it catches the party too, so do not throw it at your own
+; front rank.
+blast_force = 5
+blast_damage = 10
+blast_falloff = 3
 
 [slingshot]
 name = spell.slingshot

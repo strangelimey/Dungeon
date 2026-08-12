@@ -77,7 +77,7 @@ void ProjectileSystem::SpawnSparkBurst(const Vec3& pos, const Vec4& color, int c
 
 void ProjectileSystem::Expire(const Item& it, ExpiryCause cause) {
 	if (!onExpire) return;
-	onExpire({it.pos, it.dir, cause, it.target, it.payload, it.attacker,
+	onExpire({it.pos, it.dir, cause, it.target, it.atk, it.payload, it.attacker,
 			  it.shooter});
 }
 

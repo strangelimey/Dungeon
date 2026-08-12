@@ -351,6 +351,67 @@ The refactor is behaviour-preserving: the same walk into the bone swarm produces
 byte-identical combat log — same misses, same 5/7/8/6 damage, same Avoidance tick,
 same crit.
 
+## The area blast (`Game/Blast.h`)
+
+**A blast has a FORCE, measured in SQUARES, and stone consumes none of it**
+(Michael, 2026-08-11). It is deliberately *not* a radius. The blast floods
+outward from where it went off, 4-cardinally — the grid's own rule, which LoS,
+movement and projectiles all hold to — spending one of its force per square it
+fills, and keeps going until the force is used up.
+
+So the same blast fills a room nine squares wide and runs **eight squares** down a
+dead-end corridor: the force that would have gone into the walls goes down the
+corridor instead. Distance is measured *through open squares*, so a blast that has
+to come round a corner arrives weakened by the journey rather than by how close it
+looks on the map.
+
+Then the second half, for when even expanding cannot spend it: force with nowhere
+left to go **concentrates** on what the blast did reach. Sealed into a single
+cell, a nine-square blast puts all nine squares' worth into that square — which is
+what a confined explosion does.
+
+One force-9 blast, `full` 10, `falloff` 3, in four geometries (measured):
+
+| geometry | cells | reach | concentration | centre |
+|---|---|---|---|---|
+| open room | 9 | 2 | 1.00 | 20.0 |
+| dead-end corridor | 9 | **8** | 1.00 | 20.0 |
+| two-square pocket | 2 | 1 | 4.50 | 90.0 |
+| sealed cell | 1 | 0 | 9.00 | 180.0 |
+
+Same force throughout — the geometry decides whether it travels or concentrates.
+
+**A BLAST HAS NO SIDE AND NO LANE.** It catches everything in its squares, the
+party included (Michael's call): friendly fire is the price of throwing one, and
+positioning is how you avoid paying it. That is deliberately unlike every
+single-target path, where `TargetSide` is the whole rule. It is also **not
+rolled** — an explosion filling your square is not something you parry, so there
+is no opposed roll and no evasion — and it arrives as a `Burst`, so it is resisted
+but **not soaked**: plate turns a blade, not a blast.
+
+Authored on a spell as `blast_force` (squares — the gate; 0 means "not an area
+effect"), `blast_damage` and `blast_falloff`. `fireburst` is the first, and the
+carrier detonates at **either** of its two moments: a bomb that connects explodes
+where it touched, and one that breaks against a wall explodes there — a centre
+inside stone is handled, since nothing stands in a wall and the room beyond is one
+step out.
+
+`kMaxCells` (64) is a **ceiling, not a knob**: the spread runs on a fixed array so
+a detonation allocates nothing, and `Result::clamped` says when force exceeded it
+rather than letting it pass silently.
+
+`Spread` is pure — no map, no catalogs, no combatants; the caller says which cells
+are open. That is what lets `RollTest` measure the geometry (**142 checks**),
+including the corridor reach, the concentration arithmetic, that nothing leaks
+diagonally or through walls, a burst centred inside stone, and the degenerate
+cases content can produce (zero force, force past the ceiling, a blast entombed
+with nowhere to go at all).
+
+Verified in game as well as measured: a Fire Burst on a bone swarm one step from
+the party read "The blast catches the bone swarm for 10 damage!" then "caught in
+the blast for 7 damage" for all four members — full at the centre, full minus one
+step of falloff at distance 1, and friendly fire doing what it says.
+
 ## Traps
 
 **A measurement that omits a term is not weaker, it is wrong.** The defender

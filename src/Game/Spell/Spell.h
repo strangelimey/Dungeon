@@ -134,6 +134,9 @@ protected:
 	// What a landed cast leaves behind (spells.cat `on_hit`), parsed once at
 	// load. Empty for most spells — a ward's business is the ward it applies.
 	std::vector<fx::Proc> m_procs;
+	// The area burst it sets off, if any (spells.cat `blast_force` and friends).
+	// Zero force for every spell that is a plain single-target bolt.
+	BlastSpec m_blast;
 };
 
 // Every concrete spell, freshly constructed at class defaults — the registry

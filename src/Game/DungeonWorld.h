@@ -1883,6 +1883,10 @@ private:
 	// travel (walls/occupants stop it early). The moving-item engine
 	// (m_projectiles) owns the bolt; this is the TargetSide::Monsters branch of
 	// its impact hook.
+	// Index into m_monsters of the first live monster in (cx,cz) that sits in this
+	// bolt's LANE, or -1. Shared by the single-target strike and an area carrier's
+	// detonation so both ask one question.
+	int MonsterInLane(const ProjectileImpact& impact, int cx, int cz) const;
 	bool ResolveSpellHit(const ProjectileImpact& impact);
 	// TargetSide::Party branch of the moving-item engine's impact hook: a
 	// monster bolt reaching the party's cell strikes a random standing member
@@ -1896,6 +1900,12 @@ private:
 	// lands its payload on every combatant of its target side in the cell it died
 	// in — CELL-WIDE, where a hit is lane-wide (see the definition for why).
 	void ResolveProjectileExpiry(const ProjectileExpiry& expiry);
+	// Set off an AREA blast centred on a cell: Game/Blast.h does the geometry
+	// (force in squares, stone consumes none, leftover concentrates) and this
+	// applies what lands. Unrolled Bursts, and it catches EVERYONE in its squares
+	// including the party — a blast has no side and no lane.
+	void Detonate(int cx, int cz, const BlastSpec& spec, DamageType type,
+				  int attacker);
 	// Skirmisher executor (intent == Kite): hold `keepRange` from the party (greedy
 	// 1-step, LoS-preferring), and fire a ranged bolt when it has a clear line and is
 	// off cooldown. `selfIndex` is the monster's index in m_monsters (for slot tests).

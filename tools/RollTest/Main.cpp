@@ -35,6 +35,7 @@
 // which passes its cap — because a self-test that only breaks the dice would
 // leave every armor check below unproven.
 // ============================================================================
+#include "Game/Blast.h"
 #include "Game/Combat.h"
 #include "Game/Curve.h"
 #include "Game/Defense.h"
@@ -921,6 +922,172 @@ int main(int argc, char** argv) {
 					  defense::Guard(allOut), defense::Guard(allOutBare), 0.0);
 			}
 		}
+	}
+
+	// --- the area blast ------------------------------------------------------
+	// Michael's model (docs/damage-system.md "The area blast"): force is measured
+	// in SQUARES, stone consumes none of it, so a hemmed-in blast reaches FURTHER;
+	// and force that cannot be spent even by expanding CONCENTRATES on what was
+	// reached. Both halves are geometric, which is exactly the kind of rule that
+	// looks right in a comment and is wrong in a corridor.
+	{
+		std::printf("\n--- the area blast ---\n");
+		using namespace dungeon::game::blast;
+
+		// An open plain: everything passable. The blast has room to spend its whole
+		// force, so nothing concentrates.
+		const PassableFn open = [](int, int) { return true; };
+
+		{
+			const Result r = Spread(10, 10, 9, 20.0f, 4.0f, open);
+			Check("open ground: force is spent in full", r.count, 9.0, 0.0);
+			Check("open ground: nothing left over", r.leftover, 0.0, 0.0);
+			Check("open ground: no concentration", r.concentration, 1.0, 0.0);
+			CheckTrue("the centre is first and at distance 0",
+					  r.cells[0].x == 10 && r.cells[0].z == 10 &&
+						  r.cells[0].distance == 0);
+			Check("the centre takes the full figure", r.cells[0].damage, 20.0, 0.001);
+
+			// BFS order: distance never decreases, and every cell is 4-cardinally
+			// adjacent to an earlier one (no diagonal leaks).
+			bool ordered = true, connected = true, orthogonal = true;
+			for (int i = 1; i < r.count; ++i) {
+				if (r.cells[i].distance < r.cells[i - 1].distance) ordered = false;
+				bool touches = false;
+				for (int j = 0; j < i; ++j) {
+					const int dx = std::abs(r.cells[i].x - r.cells[j].x);
+					const int dz = std::abs(r.cells[i].z - r.cells[j].z);
+					if (dx + dz == 1 &&
+						r.cells[j].distance == r.cells[i].distance - 1)
+						touches = true;
+					if (dx == 1 && dz == 1 && r.cells[j].distance ==
+													r.cells[i].distance - 1)
+						orthogonal = false; // reached diagonally in one step
+				}
+				if (!touches) connected = false;
+			}
+			CheckTrue("distance never decreases in the result", ordered);
+			CheckTrue("every cell is reached from a nearer one", connected);
+			CheckTrue("nothing is reached diagonally", orthogonal);
+
+			// Falloff is per STEP, and a square whose figure has fallen to nothing
+			// still counts as filled — the blast got there, it just did nothing.
+			const Result far = Spread(0, 0, 40, 8.0f, 4.0f, open);
+			bool zeroedButFilled = false, neverNegative = true;
+			for (int i = 0; i < far.count; ++i) {
+				if (far.cells[i].damage < 0.0f) neverNegative = false;
+				if (far.cells[i].distance >= 2 && far.cells[i].damage == 0.0f)
+					zeroedButFilled = true;
+			}
+			CheckTrue("damage never goes negative", neverNegative);
+			CheckTrue("a spent square is still filled", zeroedButFilled);
+			Check("one step off centre costs the falloff",
+				  far.cells[1].damage, 8.0 - 4.0, 0.001);
+		}
+
+		// A DEAD-END CORRIDOR running east, one square wide: the blast goes off at
+		// its closed end, so all but one neighbour is stone. THE POINT OF THE WHOLE
+		// MODEL — the same force reaches much further than it would in the open.
+		const PassableFn corridor = [](int x, int z) { return z == 10 && x >= 10; };
+		{
+			const Result r = Spread(10, 10, 9, 20.0f, 2.0f, corridor);
+			Check("dead end: the force is still spent in full", r.count, 9.0, 0.0);
+			Check("dead end: nothing concentrates", r.concentration, 1.0, 0.0);
+			// Nine squares in a line, so the far end is eight steps out — where in
+			// the open it would have been two.
+			CheckTrue("dead end: the blast runs down the corridor",
+					  r.cells[r.count - 1].distance == 8);
+			const Result openSame = Spread(10, 10, 9, 20.0f, 2.0f, open);
+			CheckTrue("a hemmed-in blast reaches further than an open one",
+					  r.cells[r.count - 1].distance >
+						  openSame.cells[openSame.count - 1].distance);
+			// ...and it stays in the corridor.
+			bool inCorridor = true;
+			for (int i = 0; i < r.count; ++i)
+				if (r.cells[i].z != 10 || r.cells[i].x < 10) inCorridor = false;
+			CheckTrue("dead end: nothing leaks through the walls", inCorridor);
+		}
+
+		// SEALED IN: a single open square. Nothing to expand into, so the entire
+		// force concentrates on it.
+		const PassableFn sealed = [](int x, int z) { return x == 10 && z == 10; };
+		{
+			const Result r = Spread(10, 10, 9, 20.0f, 4.0f, sealed);
+			Check("sealed: only its own square is filled", r.count, 1.0, 0.0);
+			Check("sealed: the rest of the force has nowhere to go", r.leftover, 8.0, 0.0);
+			Check("sealed: it all concentrates", r.concentration, 9.0, 0.001);
+			Check("sealed: nine squares' worth land on one", r.cells[0].damage,
+				  20.0 * 9.0, 0.001);
+			CheckTrue("a sealed blast hurts far more than an open one",
+					  r.cells[0].damage > Spread(10, 10, 9, 20.0f, 4.0f, open)
+											  .cells[0].damage);
+		}
+
+		// A TWO-SQUARE pocket: partial concentration, and the arithmetic is the
+		// same rule rather than a special case.
+		const PassableFn pocket = [](int x, int z) {
+			return z == 10 && (x == 10 || x == 11);
+		};
+		{
+			const Result r = Spread(10, 10, 8, 12.0f, 3.0f, pocket);
+			Check("pocket: two squares filled", r.count, 2.0, 0.0);
+			Check("pocket: six left over", r.leftover, 6.0, 0.0);
+			Check("pocket: concentration is 1 + 6/2", r.concentration, 4.0, 0.001);
+			Check("pocket: the centre takes 4x its figure", r.cells[0].damage,
+				  12.0 * 4.0, 0.001);
+			// Concentration multiplies the figure a square would have taken AT ITS
+			// OWN DISTANCE — it is not a flat share.
+			Check("pocket: the far square keeps its falloff", r.cells[1].damage,
+				  (12.0 - 3.0) * 4.0, 0.001);
+		}
+
+		// A BURST AGAINST STONE: the centre is solid, as when a bolt dies on a
+		// wall. Nothing stands in the wall, so it is not a filled square — but the
+		// blast still starts there, so the room beyond is at distance 1.
+		const PassableFn wallCentre = [](int x, int z) { return x >= 11 && z == 10; };
+		{
+			const Result r = Spread(10, 10, 4, 20.0f, 5.0f, wallCentre);
+			CheckTrue("a burst inside stone fills no wall square",
+					  r.count > 0 && !(r.cells[0].x == 10 && r.cells[0].z == 10));
+			Check("the square beyond the wall is one step out",
+				  r.cells[0].distance, 1.0, 0.0);
+			Check("...and takes one step of falloff", r.cells[0].damage,
+				  20.0 - 5.0, 0.001);
+		}
+
+		// Degenerate inputs, which content can produce.
+		Check("no force fills nothing", Spread(0, 0, 0, 20.0f, 1.0f, open).count,
+			  0.0, 0.0);
+		Check("negative force fills nothing",
+			  Spread(0, 0, -5, 20.0f, 1.0f, open).count, 0.0, 0.0);
+		{
+			const Result r = Spread(0, 0, kMaxCells + 50, 20.0f, 0.0f, open);
+			CheckTrue("force past the ceiling is clamped and says so",
+					  r.clamped && r.count == kMaxCells);
+		}
+		{
+			// A blast in a place it cannot even start: no open square anywhere.
+			const PassableFn solid = [](int, int) { return false; };
+			const Result r = Spread(5, 5, 9, 20.0f, 1.0f, solid);
+			Check("entombed: nothing is filled", r.count, 0.0, 0.0);
+			Check("entombed: no divide by the count", r.concentration, 1.0, 0.0);
+		}
+
+		// The shape table — INFORMATIONAL: the same force in three geometries.
+		std::printf("\n  one force-9 blast, full 20, falloff 4 (INFORMATIONAL)\n");
+		std::printf("  %-16s %6s %6s %8s %10s\n", "geometry", "cells", "reach",
+					"concn", "centre dmg");
+		const std::pair<const char*, const PassableFn*> shapes[] = {
+			{"open room", &open}, {"dead-end corridor", &corridor},
+			{"two-square pocket", &pocket}, {"sealed cell", &sealed}};
+		for (const auto& [name, fn] : shapes) {
+			const Result r = Spread(10, 10, 9, 20.0f, 4.0f, *fn);
+			std::printf("  %-16s %6d %6d %8.2f %10.1f\n", name, r.count,
+						r.count ? r.cells[r.count - 1].distance : 0,
+						r.concentration, r.count ? r.cells[0].damage : 0.0f);
+		}
+		std::printf("  (same force throughout — geometry decides whether it "
+					"travels or concentrates)\n");
 	}
 
 	// --- verdict ------------------------------------------------------------

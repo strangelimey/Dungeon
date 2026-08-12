@@ -6,6 +6,7 @@
 // ============================================================================
 #include "Game/DungeonWorld.h"
 
+#include "Game/Blast.h"
 #include "Game/Curve.h"
 #include "Game/Defense.h"
 
@@ -1225,9 +1226,35 @@ float LaneOffset(const ProjectileImpact& impact, const Vec3& pos) {
 }
 } // namespace
 
+// The first live monster in this cell that is IN the bolt's lane, or -1. Split out
+// so the single-target strike and an area carrier's detonation ask the same
+// question — an area bolt flying past a wrong-lane body must fly on, exactly like
+// a plain one, or a bomb would go off on contact with a monster it never touched.
+int DungeonWorld::MonsterInLane(const ProjectileImpact& impact, int cx,
+								int cz) const {
+	for (size_t i = 0; i < m_monsters.size(); ++i) {
+		const Monster& m = m_monsters[i];
+		if (!m.Alive() || m.x != cx || m.z != cz) continue;
+		const Vec3 mp = SlotCenter(m.x, m.z, m.kind->size, m.slot);
+		if (std::abs(LaneOffset(impact, mp)) > kLaneHalfWidth)
+			continue; // opposite side
+		return static_cast<int>(i);
+	}
+	return -1;
+}
+
 bool DungeonWorld::ResolveSpellHit(const ProjectileImpact& impact) {
 	const int cx = static_cast<int>(std::floor(impact.pos.x / kCellSize));
 	const int cz = static_cast<int>(std::floor(impact.pos.z / kCellSize));
+	// AN AREA CARRIER THAT CONNECTS STILL EXPLODES, and the blast is the whole of
+	// what it does — no separate single-target strike, or the body it happened to
+	// touch would take the blow twice. It goes off wherever it made contact, so a
+	// bomb that hits the front rank catches everything around them.
+	if (impact.payload.blast.Any()) {
+		if (MonsterInLane(impact, cx, cz) < 0) return false; // flew past: not yet
+		Detonate(cx, cz, impact.payload.blast, impact.atk.type, impact.attacker);
+		return true;
+	}
 	// A bolt flies down its LANE (the caster's quadrant line): it hits a
 	// monster on the same side or in the middle of the cell, and flies
 	// straight past one hugging the opposite side (Michael, 2026-07-10).
@@ -1235,19 +1262,9 @@ bool DungeonWorld::ResolveSpellHit(const ProjectileImpact& impact) {
 	// monster's sub-cell slot: 0 same side, cell/4 for a centered (large)
 	// body, ~cell/2+ for the opposite quadrant — 0.35 splits hit from miss.
 	// (kLaneHalfWidth — shared with the party mirror below.)
-	Monster* hit = nullptr;
-	int hitIndex = -1;
-	for (size_t i = 0; i < m_monsters.size(); ++i) {
-		Monster& m = m_monsters[i];
-		if (!m.Alive() || m.x != cx || m.z != cz) continue;
-		const Vec3 mp = SlotCenter(m.x, m.z, m.kind->size, m.slot);
-		if (std::abs(LaneOffset(impact, mp)) > kLaneHalfWidth)
-			continue; // opposite side
-		hit = &m;
-		hitIndex = static_cast<int>(i);
-		break;
-	}
-	if (!hit) return false; // open air (or only wrong-lane bodies) — flies on
+	const int hitIndex = MonsterInLane(impact, cx, cz);
+	if (hitIndex < 0) return false; // open air (or only wrong-lane bodies) — flies on
+	Monster* hit = &m_monsters[static_cast<size_t>(hitIndex)];
 
 	const std::string name = loc::Tr("monster." + hit->kind->name);
 	MonsterTarget defender{*this, *hit};
@@ -1375,10 +1392,97 @@ bool DungeonWorld::ResolveMonsterProjectileHit(const ProjectileImpact& impact) {
 }
 
 // ============================================================================
+// Area blasts
+// ============================================================================
+
+void DungeonWorld::Detonate(int cx, int cz, const BlastSpec& spec, DamageType type,
+							int attacker) {
+	if (!spec.Any()) return;
+
+	// What a blast may fill: an open cell, no closed door. The SAME test that
+	// stops a bolt, which is why a blast cannot leak into the corridor behind a
+	// wall or through a shut door — Game/Blast.h does the geometry, this only says
+	// what counts as open.
+	const blast::Result r = blast::Spread(
+		cx, cz, spec.force, spec.damage, spec.falloff, [this](int x, int z) {
+			if (!m_map.IsWalkable(x, z)) return false;
+			const Door* d = DoorAt(x, z);
+			return !d || d->open;
+		});
+	if (r.clamped)
+		log::Warn("a blast of force {} was clamped to {} squares", spec.force,
+				  blast::kMaxCells);
+
+	// A blast is MAGIC ARRIVING, so it goes through the pipeline as a Burst:
+	// resisted but NOT soaked — plate turns a blade, not a blast (docs/effects.md).
+	// It is also not rolled: an explosion filling your square is not something you
+	// parry, so there is no opposed roll and no evasion. That is the trade for the
+	// friendly fire below.
+	for (int i = 0; i < r.count; ++i) {
+		const blast::Cell& c = r.cells[i];
+		if (c.damage <= 0.0f) continue; // reached it, but spent
+
+		// MONSTERS in the cell — all of them, every lane. A blast has no lane.
+		for (Monster& m : m_monsters) {
+			if (!m.Alive() || m.x != c.x || m.z != c.z) continue;
+			const std::string name = loc::Tr("monster." + m.kind->name);
+			MonsterTarget defender{*this, m};
+			fx::DamageEvent ev = fx::DamageEvent::Burst(type, c.damage, attacker);
+			fx::Deal(ev, defender, m_balance.Strike(), m_combatRng);
+			if (ev.dealt >= 0.5f)
+				onMessage(loc::Format("log.blast_hits", name,
+									  static_cast<int>(ev.dealt + 0.5f)));
+			else if (ev.dealt >= 0.0f)
+				onMessage(loc::Format("log.monster_unharmed", name));
+			fx::React(ev, defender, nullptr, Reaction());
+			if (!m.Alive())
+				onMessage(loc::Format("log.spell_slain", name));
+			else
+				m.hitReq = true;
+		}
+
+		// THE PARTY, if this is their cell — FRIENDLY FIRE (Michael, 2026-08-11).
+		// Every standing member, because they share the square; the blast does not
+		// care who threw it. This is the one path where a party spell can hurt the
+		// party, and it is why a blast wants room.
+		if (m_roster && !m_partyWiped && c.x == m_party.GridX() &&
+			c.z == m_party.GridZ()) {
+			for (Character& member : *m_roster) {
+				if (!member.IsAlive()) continue;
+				PartyTarget defender{*this, member};
+				fx::DamageEvent ev = fx::DamageEvent::Burst(type, c.damage, -1);
+				fx::Deal(ev, defender, m_balance.Strike(), m_combatRng);
+				if (ev.dealt >= 0.5f)
+					MemberMessage(member, loc::Format("log.blast_hits_member",
+													  member.name,
+													  static_cast<int>(ev.dealt + 0.5f)));
+				else if (ev.dealt >= 0.0f)
+					MemberMessage(member, loc::Format("log.member_unharmed",
+													  member.name));
+				defender.NarrateFall();
+				fx::React(ev, defender, nullptr, Reaction());
+			}
+			CheckPartyWipe();
+		}
+	}
+	m_audio.Play(m_sounds.spellImpact, 0.9f);
+}
+
+// ============================================================================
 // Expiry — a carrier that stopped without striking anything
 // ============================================================================
 
 void DungeonWorld::ResolveProjectileExpiry(const ProjectileExpiry& expiry) {
+	const int bx = static_cast<int>(std::floor(expiry.pos.x / kCellSize));
+	const int bz = static_cast<int>(std::floor(expiry.pos.z / kCellSize));
+	// AN AREA CARRIER GOES OFF WHERE IT STOPS, which is the whole point of a
+	// thrown bomb: the wall it broke against is the centre. Detonate handles a
+	// centre inside stone (nothing stands there, and the room beyond is one step
+	// out), so a bolt that burst on a wall still fills the corridor it came down.
+	if (expiry.payload.blast.Any()) {
+		Detonate(bx, bz, expiry.payload.blast, expiry.atk.type, expiry.attacker);
+		return; // the blast IS the effect; no separate cell-wide proc pass
+	}
 	m_audio.Play(m_sounds.spellFizzle, 0.6f); // the soft fizzle, as before
 	if (expiry.payload.Empty()) return;       // a plain bolt just goes out
 
@@ -1389,15 +1493,14 @@ void DungeonWorld::ResolveProjectileExpiry(const ProjectileExpiry& expiry) {
 	// past you down the far side of the corridor and broke on the wall behind you
 	// still catches you. Nothing here reads kLaneHalfWidth, deliberately.
 	//
-	// It stays on its TARGET SIDE: a carrier may only ever affect the side it was
-	// flying against (TargetSide is that rule everywhere else in the engine), so a
-	// burst cannot friendly-fire. Whether it SHOULD is a live design question and
-	// is deliberately not answered here.
+	// A PROC burst stays on its TARGET SIDE: a plain carrier may only ever affect
+	// the side it was flying against (TargetSide is that rule everywhere else in
+	// the engine). An AREA blast is the deliberate exception and left above — it
+	// has no side at all.
 	//
 	// `expiry.cause` distinguishes bursting on stone from running out of reach; it
 	// is carried but not yet acted on — both burst identically today.
-	const int cx = static_cast<int>(std::floor(expiry.pos.x / kCellSize));
-	const int cz = static_cast<int>(std::floor(expiry.pos.z / kCellSize));
+	const int cx = bx, cz = bz;
 
 	switch (expiry.target) {
 	case TargetSide::Monsters:

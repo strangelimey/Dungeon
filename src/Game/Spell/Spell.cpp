@@ -30,10 +30,18 @@ void Spell::ApplyOverrides(const CatalogEntry& e) {
 		m_procs.clear();
 		fx::ParseProcs(e.Get("on_hit", ""), m_procs, "spells.cat [" + m_id + "]");
 	}
+	// The AREA burst, if this spell is one. `blast_force` in squares is the gate;
+	// the other two only mean anything alongside it.
+	m_blast.force = static_cast<int>(
+		e.GetFloat("blast_force", static_cast<float>(m_blast.force)));
+	m_blast.damage = e.GetFloat("blast_damage", m_blast.damage);
+	m_blast.falloff = e.GetFloat("blast_falloff", m_blast.falloff);
 }
 
 ProjectilePayload Spell::MakePayload() const {
-	return PackPayload(m_procs, "spells.cat [" + m_id + "]");
+	ProjectilePayload out = PackPayload(m_procs, "spells.cat [" + m_id + "]");
+	out.blast = m_blast;
+	return out;
 }
 
 } // namespace dungeon::game

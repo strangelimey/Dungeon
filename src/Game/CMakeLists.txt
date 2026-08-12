@@ -3,6 +3,7 @@ add_library(Game STATIC
 	AssetPicker.cpp
 	AssetUtil.cpp
 	Balance.cpp
+	Blast.cpp
 	BalanceDialog.cpp
 	ButtonInspector.cpp
 	Catalog.cpp

@@ -67,9 +67,25 @@ inline constexpr size_t kMaxPayloadProcs = 4;
 // an effect on the target" — one payload, two moments. What differs is WHO is
 // caught, and that is the host's rule, not this engine's (a hit is lane-wide, an
 // expiry is cell-wide — see DungeonWorld::ResolveProjectileExpiry).
+// An AREA burst the carrier sets off where it stops (Game/Blast.h). `force` is
+// the blast's size in SQUARES and 0 — the default — means the carrier is not an
+// area effect at all, which is what every bolt authored before this was.
+//
+// A BLAST IGNORES TargetSide: it catches EVERYONE in its squares, the party
+// included (Michael, 2026-08-11). That is deliberately unlike the single-target
+// paths, where the side is the whole rule — an explosion does not check whose
+// side you are on, and positioning is the price of throwing one.
+struct BlastSpec {
+	int force = 0;         // squares of blast; 0 = not an area effect
+	float damage = 0.0f;   // the figure at the centre
+	float falloff = 0.0f;  // taken off per step of distance
+	bool Any() const { return force > 0; }
+};
+
 struct ProjectilePayload {
 	std::array<fx::Proc, kMaxPayloadProcs> procs{};
 	size_t count = 0;
+	BlastSpec blast{};
 	// The element these effects arrive in, when the source has one to lend — a
 	// firebolt's burn is fire. Unset lets each effect keep its own colours, which
 	// is what a monster's plain shot does (a creature lends no element, exactly as
@@ -151,6 +167,7 @@ struct ProjectileExpiry {
 	Vec3 dir{};
 	ExpiryCause cause = ExpiryCause::Range;
 	TargetSide target = TargetSide::Monsters;
+	AttackProfile atk{}; // for the damage TYPE an expiry's effects arrive as
 	ProjectilePayload payload{};
 	int attacker = -1; // party roster index, -1 = not a party shot
 	u32 shooter = 0;   // monster runtimeId, 0 = not a monster shot
