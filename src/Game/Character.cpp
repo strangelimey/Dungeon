@@ -1,8 +1,49 @@
 #include "Game/Character.h"
 
+#include <iterator> // std::size
+
 #include "Game/GameSettings.h" // kDefaultMemberColors — the one authored palette
 
 namespace dungeon::game {
+
+namespace {
+// Parallel to WearSlot. "ring" covers both ring slots (see Inventory.h).
+constexpr const char* kWearSlotIds[] = {"",      "head",   "body", "legs",
+										"feet",  "cloak",  "amulet", "ring"};
+} // namespace
+
+const char* WearSlotId(WearSlot s) {
+	const size_t i = static_cast<size_t>(s);
+	return i < std::size(kWearSlotIds) ? kWearSlotIds[i] : "";
+}
+
+bool ParseWearSlot(std::string_view token, WearSlot& out) {
+	for (size_t i = 1; i < std::size(kWearSlotIds); ++i)
+		if (token == kWearSlotIds[i]) {
+			out = static_cast<WearSlot>(i);
+			return true;
+		}
+	return false;
+}
+
+bool WearSlotFits(WearSlot wear, EquipSlot slot) {
+	switch (slot) {
+	case EquipSlot::Head:   return wear == WearSlot::Head;
+	case EquipSlot::Body:   return wear == WearSlot::Body;
+	case EquipSlot::Legs:   return wear == WearSlot::Legs;
+	case EquipSlot::Feet:   return wear == WearSlot::Feet;
+	case EquipSlot::Cloak:  return wear == WearSlot::Cloak;
+	case EquipSlot::Amulet: return wear == WearSlot::Amulet;
+	case EquipSlot::Ring1:
+	case EquipSlot::Ring2:  return wear == WearSlot::Ring;
+	// The hands take anything HOLDABLE, which is a different question asked
+	// elsewhere — never route them through here.
+	case EquipSlot::LeftHand:
+	case EquipSlot::RightHand:
+	default: return false;
+	}
+}
+
 
 // (The status-effect kind tokens used to live here: an enum plus an id table
 // indexed by it. An effect names ITSELF now — the kind's id, resolved through

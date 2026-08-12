@@ -79,6 +79,26 @@ enum class EquipSlot {
 };
 inline constexpr int kEquipCount = static_cast<int>(EquipSlot::Count);
 
+// WHICH SLOT AN ITEM BELONGS IN. The hands are the general-purpose pair — a
+// hand will hold anything the catalog marks `holdable`, which is what makes
+// carrying a cuirass around, or brandishing a loaf of bread, expressible. Every
+// OTHER slot on the doll is TYPE-SPECIFIC: a helm goes on the head and nowhere
+// else, and a sword cannot be worn as a hat.
+//
+// An item that names no slot can only ever be held or packed. That is the safe
+// default: a new item is not silently wearable on the head because nobody said
+// otherwise.
+//
+// `Ring` is one token for two slots — a ring is a ring, and which finger it
+// goes on is not a distinction worth authoring.
+enum class WearSlot : u8 { None, Head, Body, Legs, Feet, Cloak, Amulet, Ring };
+const char* WearSlotId(WearSlot s);
+bool ParseWearSlot(std::string_view token, WearSlot& out);
+// True if an item declaring `wear` may go in doll slot `slot`. The hands are
+// NOT decided here — they ask `holdable` instead (ItemCategories::Holdable),
+// because the question is a different one.
+bool WearSlotFits(WearSlot wear, EquipSlot slot);
+
 // Loc keys for each equipment slot, parallel to EquipSlot. Both hands show
 // "Hand" and both rings show "Ring".
 inline constexpr const char* kEquipLabels[kEquipCount] = {

@@ -418,6 +418,10 @@ constexpr FieldSpec kArmorFields[] = {
 	PROP_TEXTURE,
 	PROP_SCALE,
 	ITEM_WEIGHT,
+	{.key = "wear", .kind = FieldKind::Enum, .sectionKey = kSectionStats,
+	 .help = "Which doll slot it is worn in. Hands take anything holdable; "
+			 "every other slot is type-specific. Empty = held or packed only.",
+	 .options = "head body legs feet cloak amulet ring", .def = ""},
 	{.key = "class", .kind = FieldKind::Enum, .sectionKey = kSectionStats,
 	 .help = "Weight class: what it costs to evade in, which skill it trains, "
 			 "and the STR it asks for. Empty = clothing (still unarmored).",

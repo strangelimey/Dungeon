@@ -96,12 +96,13 @@ void CharacterSheet::UpdateInventory(ui::UIContext& ctx, const gfx::Rect& px,
 		for (int i = 0; i < kDollCellCount; ++i)
 			if (EquipRect(px, i).Contains(mx, my)) {
 				const size_t s = static_cast<size_t>(kDollCells[i].slot);
-				// The two weapon hands only take catalog-holdable items; a held
-				// non-holdable stays on the cursor and we signal the refusal.
-				const bool handCell = kDollCells[i].slot == EquipSlot::LeftHand ||
-									  kDollCells[i].slot == EquipSlot::RightHand;
-				if (handCell && m_held && m_held->has_value() && m_categories &&
-					!m_categories->Holdable(**m_held)) {
+				// EVERY doll slot is now checked, not just the hands. A hand
+				// takes anything `holdable`; the rest are type-specific, so a
+				// sword cannot be worn as a hat (Inventory.h). A refused item
+				// stays on the cursor and says so — the same path the hands
+				// already used for a non-holdable.
+				if (m_held && m_held->has_value() && m_categories &&
+					!m_categories->FitsSlot(**m_held, kDollCells[i].slot)) {
 					if (onRejectHold) onRejectHold(**m_held);
 				} else {
 					ClickSlot(m_character->inventory.equipment[s]);

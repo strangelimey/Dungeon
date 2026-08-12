@@ -7,6 +7,11 @@
 ;   a breastplate and a mail shirt are both heavy and do not blunt alike.
 ;   Omitted = no class: it is clothing, and you still count as unarmored.
 ;
+; wear = head | body | legs | feet | cloak | amulet | ring - WHICH DOLL SLOT
+;   this goes in. The hands take anything `holdable`; every other slot is
+;   type-specific, so a helm cannot be worn on the feet. An item naming no
+;   `wear` can only be held or packed.
+;
 ; Wearing ANY class stops the `avoid` skill applying at all - that skill is
 ; the unarmored answer to being swung at, and you cannot practise both.
 
@@ -17,6 +22,7 @@
 name = item.padded_jack
 category = armor
 class = light
+wear = body
 weight = 4.0
 model = leather_armor
 armor = 1.0
@@ -29,6 +35,7 @@ resists = slash 0.1, bash 0.1
 name = item.leather_armor
 category = armor
 class = medium
+wear = body
 weight = 8.0
 model = leather_armor
 armor = 2.5
@@ -38,6 +45,7 @@ resists = slash 0.2, pierce 0.1, bash 0.1
 name = item.brigandine
 category = armor
 class = medium
+wear = body
 weight = 12.0
 model = leather_armor
 armor = 3.5
@@ -53,6 +61,7 @@ resists = slash 0.25, pierce 0.2, bash 0.1
 name = item.mail_hauberk
 category = armor
 class = heavy
+wear = body
 weight = 18.0
 model = leather_armor
 armor = 5.0
@@ -62,6 +71,7 @@ resists = slash 0.4, pierce 0.15, bash 0.05
 name = item.plate_cuirass
 category = armor
 class = heavy
+wear = body
 weight = 25.0
 model = leather_armor
 armor = 7.0
@@ -69,6 +79,7 @@ resists = slash 0.5, pierce 0.4, bash 0.2
 
 [tunic]
 name = item.tunic
+wear = body
 category = clothing
 weight = 2.0
 armor = 0.25

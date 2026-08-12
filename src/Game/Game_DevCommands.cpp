@@ -851,6 +851,60 @@ void Game::RegisterDevCommands() {
 							   std::max(0.0f, 1.0f - share) * 100.0f));
 					   });
 
+	// `equip` reaches a HAND; this reaches the doll — the only place worn armor
+	// counts (DungeonWorld::WornArmorClass). Without it there is no scriptable
+	// way to put armor ON a character, which made the whole armor system
+	// untestable except by dragging things in the sheet.
+	m_console.Register("wear", "put an item in its worn doll slot (dev)",
+					   [this](const std::vector<std::string>& args) {
+						   if (!Need(m_console, args, 1,
+									 "usage: wear <item id|none> [member 0-3]"))
+							   return;
+						   const size_t m = args.size() > 1
+							   ? static_cast<size_t>(std::atoi(args[1].c_str())) : 0;
+						   if (m >= m_characters.size()) {
+							   m_console.Print("no such member");
+							   return;
+						   }
+						   Character& c = m_characters[m];
+						   if (args[0] == "none") {
+							   // Strip the worn doll, hands untouched — the
+							   // quickest way back to a bare-skinned baseline
+							   // for comparing against armored numbers.
+							   for (int i = 0; i < kEquipCount; ++i) {
+								   if (i == static_cast<int>(EquipSlot::LeftHand) ||
+									   i == static_cast<int>(EquipSlot::RightHand))
+									   continue;
+								   c.inventory.equipment[static_cast<size_t>(i)].typeId.clear();
+							   }
+							   m_console.Print(std::format("{} is unarmored", c.name));
+							   return;
+						   }
+						   if (!m_project.HasItem(args[0])) {
+							   m_console.Print(std::format(
+								   "no item '{}' in items/weapons/armor", args[0]));
+							   return;
+						   }
+						   // The item says where it goes — the same rule the
+						   // paper doll enforces, so the console cannot put
+						   // something somewhere the UI would refuse.
+						   const WearSlot w = m_itemCategories.WornAt(args[0]);
+						   if (w == WearSlot::None) {
+							   m_console.Print(std::format(
+								   "'{}' has no `wear` slot — hold it instead (equip)",
+								   args[0]));
+							   return;
+						   }
+						   for (int i = 0; i < kEquipCount; ++i) {
+							   const EquipSlot slot = static_cast<EquipSlot>(i);
+							   if (!WearSlotFits(w, slot)) continue;
+							   c.inventory.equipment[static_cast<size_t>(i)].typeId = args[0];
+							   m_console.Print(std::format("{} wears {} ({})", c.name,
+														   args[0], WearSlotId(w)));
+							   return;
+						   }
+					   });
+
 	// `give` fills the pack; this puts a weapon straight in a hand, which is
 	// what a combat test actually needs (no cursor drag, no HUD clicking).
 	m_console.Register("equip", "put an item in a member's hand (dev)",

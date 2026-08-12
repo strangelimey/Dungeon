@@ -411,6 +411,8 @@ void Game::LoadItemIcons() {
 		m_itemCategories.acceptsByType[def.id] = splitList(def.Get("accepts", ""));
 		if (def.GetBool("holdable", false))
 			m_itemCategories.holdableTypes.insert(def.id);
+		if (WearSlot w{}; ParseWearSlot(def.Get("wear", ""), w))
+			m_itemCategories.wearByType[def.id] = w;
 	}
 
 	// Equipment-slot outline silhouettes (slot_<type>.png), the ghost behind an
