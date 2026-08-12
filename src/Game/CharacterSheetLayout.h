@@ -17,16 +17,28 @@ inline gfx::Rect At(const gfx::Rect& px, float x, float y, float w, float h) {
 inline float Ax(const gfx::Rect& px, float x) { return px.x + x * px.w; }
 inline float Ay(const gfx::Rect& px, float y) { return px.y + y * px.h; }
 
+// THE PANEL GREW 30% WIDER (GameUI kSheetW 0.50 -> 0.65) to give the backpack
+// tab three real columns: paper doll, defense numbers, backpack.
+//
+// Every fraction here is of the PANEL, so widening it stretches all of them —
+// and a SIZE expressed as an x-fraction against an h-fraction stops being
+// square the moment the panel's aspect changes. That is the same axis-mixing
+// that made the HUD's hand boxes rectangular. So the width fractions of
+// anything SQUARE (doll cells, pack cells, the portrait, the mode buttons) are
+// divided by the growth factor below, which keeps them the pixel size they
+// already were; only the POSITIONS were re-laid.
+inline constexpr float kWiden = 0.50f / 0.65f; // old panel width / new
+
 // --- shared tab body columns ------------------------------------------------
-inline constexpr float kLeft = 0.072f;
+inline constexpr float kLeft = 0.055f;
 inline constexpr float kHeaderY = 0.325f;
 inline constexpr float kBodyTop = 0.375f;
 inline constexpr float kEmptyListY = 0.411f;
 
 // --- equipment paper doll ---------------------------------------------------
-inline constexpr float kEquipW = 0.092f;
+inline constexpr float kEquipW = 0.092f * kWiden;
 inline constexpr float kEquipH = 0.129f;
-inline constexpr float kDollStepX = 0.105f;
+inline constexpr float kDollStepX = 0.105f * kWiden;
 inline constexpr float kDollStepY = 0.146f;
 struct DollCell {
 	EquipSlot slot;
@@ -48,40 +60,50 @@ inline constexpr int kDollCellCount =
 	static_cast<int>(sizeof(kDollCells) / sizeof(kDollCells[0]));
 
 // --- pack row + backpack grid -----------------------------------------------
-inline constexpr float kPackW = 0.092f;
+inline constexpr float kPackW = 0.092f * kWiden;
 inline constexpr float kPackH = 0.129f;
-inline constexpr float kPackGapX = 0.013f;
+inline constexpr float kPackGapX = 0.013f * kWiden;
 inline constexpr float kPackGapY = 0.018f;
-inline constexpr float kPackX = 0.551f;
+// COLUMN 3 of the backpack tab. Right-aligned to the panel's margin so the
+// grid's own edge is the edge of the content, whatever the middle column does.
+inline constexpr float kPackGridW =
+	4.0f * (0.092f * kWiden) + 3.0f * (0.013f * kWiden);
+inline constexpr float kPackX = 1.0f - 0.045f - kPackGridW;
 inline constexpr int kPackCols = 4;
 inline constexpr float kPackRowY = kBodyTop;
 inline constexpr float kPackSepY = 0.520f;
 inline constexpr float kPackY = 0.536f;
 
-// --- defense readout (backpack tab) -----------------------------------------
-// The column between the paper doll and the pack grid, which nothing else uses.
-// Provisional placement: Michael asked for it on this tab "first, we might move
-// it", so it is one x/y pair and a row pitch rather than anything woven in.
-inline constexpr float kDefX = 0.375f;
+// --- defense readout: COLUMN 2 of the backpack tab ---------------------------
+// The doll's widest cells are its RINGS, which sit at column -0.3 and 2.3 —
+// that is what the middle column has to clear, and the reason the numbers used
+// to overlap the doll horizontally even though they never collided on screen
+// (the rings sit lower than the text). Derived from the doll rather than
+// authored, so the columns cannot drift apart if the doll is retuned.
+inline constexpr float kDollRight = kLeft + 2.3f * kDollStepX + kEquipW;
+inline constexpr float kDefX = kDollRight + 0.030f;
+// Its TITLE sits on the same line as the pack's "Load" heading — they are the
+// two column headings of the same content area and should read as a row.
+inline constexpr float kDefTitleY = kHeaderY;
 inline constexpr float kDefY = kBodyTop;
-inline constexpr float kDefRow = 0.038f; // line pitch, in panel fractions
-// The value column. The labels are short on purpose — the space between the
-// doll and the pack is about 0.17 of the panel, and a long label ran straight
-// into its own number.
-inline constexpr float kDefValueX = 0.492f;
+inline constexpr float kDefRow = 0.038f;   // line pitch, in panel fractions
+inline constexpr float kDefIndent = 0.014f; // the breakdown rows under "Roll"
+// The value column: far enough right that a label never reaches it, and still
+// clear of the pack grid.
+inline constexpr float kDefValueX = kDefX + 0.150f;
 
 // --- mode toggle buttons under the portrait ---------------------------------
 inline constexpr int kModeCount = 5;
-inline constexpr float kModeBtnW = 0.038f;
+inline constexpr float kModeBtnW = 0.038f * kWiden;
 inline constexpr float kModeBtnH = 0.054f;
-inline constexpr float kModeBtnGap = 0.006f;
-inline constexpr float kModeBtnX = 0.031f;
+inline constexpr float kModeBtnGap = 0.006f * kWiden;
+inline constexpr float kModeBtnX = 0.031f * kWiden;
 inline constexpr float kModeBtnY = 0.236f;
 
 // --- header portrait / name -------------------------------------------------
-inline constexpr float kPortraitX = 0.031f, kPortraitY = 0.036f;
-inline constexpr float kPortraitW = 0.128f, kPortraitH = 0.179f;
-inline constexpr float kNameX = 0.179f, kNameY = 0.054f;
+inline constexpr float kPortraitX = 0.031f * kWiden, kPortraitY = 0.036f;
+inline constexpr float kPortraitW = 0.128f * kWiden, kPortraitH = 0.179f;
+inline constexpr float kNameX = 0.179f * kWiden, kNameY = 0.054f;
 
 // --- stats / skills columns -------------------------------------------------
 inline constexpr float kLabelX = 0.072f;
@@ -100,7 +122,7 @@ inline constexpr float kSkillBarW = 0.436f;
 // --- list scroll band -------------------------------------------------------
 inline constexpr float kScrollTop = 0.368f;
 inline constexpr float kScrollBottomPad = 0.021f;
-inline constexpr float kScrollBarW = 0.013f;
+inline constexpr float kScrollBarW = 0.013f * kWiden;
 // In REM (UI/Units.h) — the sheet's chrome tracks its own text size.
 inline constexpr float kScrollBarPadRem = 0.2f;
 inline constexpr float kScrollThumbMinRem = 1.1f;

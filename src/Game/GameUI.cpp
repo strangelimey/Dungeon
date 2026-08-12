@@ -1182,7 +1182,10 @@ void GameUI::DisarmOverwrite() {
 void GameUI::BuildCharacterSheet() {
 	// Parent-relative layout (fractions of the window) — no design-pixel Norm.
 	// Centered panel, slightly above geometric center so the footer buttons fit.
-	constexpr float kSheetW = 0.50f;
+	// 30% wider than it was, so the backpack tab has room for three real
+	// columns: paper doll, defense numbers, backpack (CharacterSheetLayout.h
+	// kWiden, which keeps the square cells square through the change).
+	constexpr float kSheetW = 0.65f;
 	constexpr float kSheetH = 0.62f;
 	constexpr float kSheetX = (1.0f - kSheetW) * 0.5f;
 	constexpr float kSheetY = (1.0f - kSheetH) * 0.5f - 0.03f;

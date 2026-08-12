@@ -221,10 +221,18 @@ void CharacterSheet::DrawInventory(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 	// knob to reach for, which is the only reason this exists.
 	if (defenseFor) {
 		const DefenseReadout d = defenseFor(*m_character);
+		// The heading sits on the pack's "Load" line — the two are the column
+		// headings of one content area and should read as a row.
+		font.Draw(batch, loc::Tr("sheet.defense"), Ax(px, kDefX),
+				  Ay(px, kDefTitleY), theme.accent);
 		float y = kDefY;
+		// `indent` marks the rows that BREAK DOWN the roll above them, so the
+		// column reads as a total with its parts rather than nine equal facts.
 		const auto line = [&](std::string_view label, const std::string& value,
-							  const Vec4& colour) {
-			font.Draw(batch, std::string(label), Ax(px, kDefX), Ay(px, y), theme.textDim);
+							  const Vec4& colour, bool indent = false) {
+			font.Draw(batch, std::string(label),
+					  Ax(px, kDefX) + (indent ? kDefIndent * px.w : 0.0f),
+					  Ay(px, y), theme.textDim);
 			font.Draw(batch, value, Ax(px, kDefValueX), Ay(px, y), colour);
 			y += kDefRow;
 		};
@@ -234,10 +242,6 @@ void CharacterSheet::DrawInventory(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 			const int n = static_cast<int>(v < 0.0f ? v - 0.5f : v + 0.5f);
 			return std::format("{}{}", n >= 0 ? "+" : "", n);
 		};
-
-		font.Draw(batch, loc::Tr("sheet.defense"), Ax(px, kDefX), Ay(px, y),
-				  theme.accent);
-		y += kDefRow;
 
 		// What is worn, and what it blunts.
 		line(loc::Tr("sheet.def.armor"),
@@ -250,14 +254,15 @@ void CharacterSheet::DrawInventory(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 		// The roll a physical blow is compared against, then its parts.
 		line(loc::Tr("sheet.def.roll"), std::format("{:.0f}", d.total),
 			 theme.accent);
-		line(loc::Tr("sheet.def.base"), signed_(d.base), theme.textDim);
-		line(loc::Tr("sheet.def.dex"), signed_(d.stat), theme.textDim);
-		line(loc::Tr("sheet.def.stance"), signed_(d.stance), theme.textDim);
+		line(loc::Tr("sheet.def.base"), signed_(d.base), theme.textDim, true);
+		line(loc::Tr("sheet.def.dex"), signed_(d.stat), theme.textDim, true);
+		line(loc::Tr("sheet.def.stance"), signed_(d.stance), theme.textDim, true);
 		if (d.armorClass != ArmorClass::None)
-			line(loc::Tr("sheet.def.armorpen"), signed_(-d.armorPenalty),
-				 kDefBad); // always a cost, so always the warning colour
+			line(loc::Tr("sheet.def.armorpen"), signed_(-d.armorPenalty), kDefBad,
+				 true); // always a cost, so always the warning colour
 		else
-			line(loc::Tr("sheet.def.avoid"), signed_(d.skillBonus), theme.textDim);
+			line(loc::Tr("sheet.def.avoid"), signed_(d.skillBonus), theme.textDim,
+				 true);
 
 		// The skill that applies here. "lvl" distinguishes it from the
 		// breakdown line above, which is that skill's worth in POINTS — two
