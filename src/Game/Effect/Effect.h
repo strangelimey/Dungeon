@@ -151,6 +151,7 @@ struct DamageEvent {
 	// than discarding them at the one site that knows.
 	bool crit = false;
 	bool fumble = false;
+	bool defenderFumbled = false;
 	int margin = 0;
 	float dealt = 0.0f;     // what actually reached hit points
 	// This event finished the target. The apply stage sets it; the CALLER says

@@ -217,6 +217,10 @@ struct AttackResult {
 	// What the dice did, for the narration and for the crit/fumble hooks (P8).
 	bool crit = false;   // the attack roll went open-ended
 	bool fumble = false; // the attack's first face was <= fumbleThreshold
+	// The DEFENDER botched their guard — a hit that landed because of it,
+	// rather than because the attack was good. Narration wants to tell those
+	// apart; the damage does not care.
+	bool defenderFumbled = false;
 	int margin = 0;      // attack total - defense total (negative on a miss)
 };
 

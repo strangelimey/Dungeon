@@ -210,6 +210,7 @@ void Deal(DamageEvent& ev, ITarget& target, const StrikeRules& rules,
 		ev.hit = r.hit;
 		ev.crit = r.crit;
 		ev.fumble = r.fumble;
+		ev.defenderFumbled = r.defenderFumbled;
 		ev.margin = r.margin;
 		damage = r.damage;
 	} else {

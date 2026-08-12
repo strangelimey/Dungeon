@@ -1100,6 +1100,12 @@ private:
 		// (`dmgtype`, default bash). Ranged/spell attacks type by school.
 		ResistTable resists;
 		DamageType damageType{}; // resolved from `dmgtype` at load
+		// What a CRITICAL blow leaves behind, on top of on_hit — the same
+		// authored form (`on_crit = bleed 2 10`), rolled only when the attack
+		// roll went open-ended. Reuses the proc machinery entirely: a crit is
+		// not a new kind of thing that happens, it is the same thing happening
+		// because the dice said so.
+		std::vector<fx::Proc> onCrit;
 		// What a LANDED melee blow may leave behind (monsters.cat `on_hit =
 		// poison 1 20, bleed 2 10 0.5`): effects named by ID, rolled and
 		// landed by fx::ApplyProcs. The older one-per-line `poison =` /
@@ -1364,6 +1370,8 @@ private:
 		// one blade and as a freezing burn on another. The older `element_dot`
 		// line still loads, appended as an `on_hit = burn ...` proc.
 		std::vector<fx::Proc> onHit;
+		// The same, but only on a CRITICAL (`on_crit = bleed 2 10`).
+		std::vector<fx::Proc> onCrit;
 		// The defender side of a WORN piece (part 4): per-type resist cells
 		// plus a small flat soak, summed across the equipment slots.
 		ResistTable resists;

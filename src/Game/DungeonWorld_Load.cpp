@@ -492,6 +492,8 @@ DungeonWorld::MonsterKind& DungeonWorld::MonsterKindFor(const std::string& type)
 				log::Warn("monsters.cat [{}]: unknown dmgtype '{}'", type, t);
 			// What its blows leave behind, named by effect id.
 			ParseOnHit(def, assets->onHit, "monsters.cat [" + type + "]");
+			fx::ParseProcs(CatalogGet(def, "on_crit", ""), assets->onCrit,
+						   "monsters.cat [" + type + "]");
 			// Melee reach in cells (Phase 7): 2 = a pike melees from its
 			// queue post down a clear shared row/column.
 			assets->reach = std::max(
@@ -829,6 +831,8 @@ DungeonWorld::ItemKind& DungeonWorld::ItemKindFor(const std::string& type) {
 		// What its blows leave behind, named by effect id — the same authored
 		// form a monster uses. A plain weapon has none and swings as before.
 		ParseOnHit(def, kind->onHit, "weapons.cat [" + type + "]");
+		fx::ParseProcs(CatalogGet(def, "on_crit", ""), kind->onCrit,
+					   "weapons.cat [" + type + "]");
 		// ENCHANTMENT: `element = fire` turns the weapon elemental — every
 		// landed blow adds `element_bonus` of its damage as that element, and
 		// the element becomes the FLAVOUR its on-hit effects arrive with (so

@@ -426,6 +426,32 @@ int main(int argc, char** argv) {
 			lo += b.hit;
 			if (a.hit) worst = std::max(worst, a.damage);
 		}
+		// --- a fumble is AUTOMATIC -----------------------------------------
+		// The rule that makes fumbles worth having: they decide the exchange
+		// rather than contributing a low number to it, so a veteran with an
+		// overwhelming bonus can still drop his guard. Both halves are exactly
+		// derivable, which is why they are checked tightly:
+		//
+		//   attacker cannot lose  -> hits everything EXCEPT its own fumbles,
+		//                            = 1 - 0.05 = 0.95
+		//   attacker cannot win   -> lands only when the DEFENDER fumbles and
+		//                            it does not, = 0.95 x 0.05 = 0.0475
+		{
+			std::mt19937 rng(90210);
+			constexpr int kN = 400'000;
+			long long sure = 0, hopeless = 0;
+			for (int i = 0; i < kN; ++i) {
+				sure += ResolveAttack({10.0f, 5000.0f, {}}, {0, 0, 0}, sr, rng).hit;
+				hopeless +=
+					ResolveAttack({10.0f, 0.0f, {}}, {5000.0f, 0, 0}, sr, rng).hit;
+			}
+			std::printf("\nfumbles decide the exchange\n");
+			Check("an unloseable attack still fumbles", double(sure) / kN, 0.95,
+				  0.004);
+			Check("a hopeless attack lands on a fumbled guard",
+				  double(hopeless) / kN, 0.0475, 0.003);
+		}
+
 		std::printf("\nthe swap's invariants\n");
 		CheckTrue("a better attacker hits more often", hi > lo);
 		CheckTrue("even the outmatched sometimes land", lo > 0);

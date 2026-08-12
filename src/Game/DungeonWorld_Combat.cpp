@@ -675,6 +675,13 @@ void DungeonWorld::MonsterAttack(Monster& monster) {
 	fx::Deal(ev, defender, m_balance.Strike(), m_combatRng);
 	TrainDefense(target, ev); // avoid on a miss, armor on a blunted hit
 
+	if (ev.fumble)
+		MemberMessage(target, loc::Format("log.foe_fumbles", name));
+	else if (ev.crit && ev.hit)
+		MemberMessage(target, loc::Format("log.foe_critical", name));
+	else if (ev.defenderFumbled)
+		MemberMessage(target, loc::Format("log.fumble_guard", target.name));
+
 	if (!ev.hit) {
 		MemberMessage(target, loc::Format("log.monster_misses", name, target.name));
 		return;
@@ -693,6 +700,12 @@ void DungeonWorld::MonsterAttack(Monster& monster) {
 	// effect arrives in its own colours.
 	fx::ApplyProcs(defender, monster.kind->onHit, std::nullopt, -1, m_effects,
 				   m_combatRng);
+	// A CRITICAL leaves more behind than an ordinary blow. Rolled after the
+	// on_hit list, so a weapon that burns on every hit and bleeds on a crit
+	// applies both rather than one instead of the other.
+	if (ev.crit)
+		fx::ApplyProcs(defender, monster.kind->onCrit, std::nullopt, -1,
+					   m_effects, m_combatRng);
 	// ...and now the blow has been reported, whatever guards them answers it
 	// (the fire shield scorches its attacker). Its own death line comes from
 	// the ward, since nothing else is narrating this reprisal.
@@ -1057,6 +1070,17 @@ bool DungeonWorld::PartyAttack(size_t member, size_t hand, std::string_view verb
 											   static_cast<int>(member));
 	fx::Deal(ev, defender, m_balance.Strike(), m_combatRng);
 
+	// WHAT THE DICE DID, said before the outcome it caused. The open-ended roll
+	// has been driving damage since P2 and was invisible: a critical arrived as
+	// a big number with no explanation, and a fumble as an ordinary miss. The
+	// line is the point — a mechanic nobody can see is a mechanic nobody has.
+	if (ev.fumble)
+		MemberMessage(attacker, loc::Format("log.fumble", attacker.name));
+	else if (ev.crit && ev.hit)
+		MemberMessage(attacker, loc::Format("log.critical", attacker.name));
+	else if (ev.defenderFumbled)
+		MemberMessage(attacker, loc::Format("log.foe_fumbles", name));
+
 	if (!ev.hit) {
 		MemberMessage(attacker, loc::Format("log.party_misses", attacker.name, name));
 		return true;
@@ -1091,10 +1115,13 @@ bool DungeonWorld::PartyAttack(size_t member, size_t hand, std::string_view verb
 		// enchanted blade, bleeding from a serrated one. An enchanted weapon
 		// lends its element as the flavour; a plain one lets each effect keep
 		// its own.
-		fx::ApplyProcs(defender, weapon->onHit,
-					   weapon->enchanted ? std::optional{weapon->element}
-										 : std::nullopt,
+		const std::optional<SpellSymbol> flavour =
+			weapon->enchanted ? std::optional{weapon->element} : std::nullopt;
+		fx::ApplyProcs(defender, weapon->onHit, flavour,
 					   static_cast<int>(member), m_effects, m_combatRng);
+		if (ev.crit)
+			fx::ApplyProcs(defender, weapon->onCrit, flavour,
+						   static_cast<int>(member), m_effects, m_combatRng);
 	}
 	return true;
 }

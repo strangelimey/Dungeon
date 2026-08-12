@@ -79,6 +79,9 @@ holdable = 1
 command = stab, slash
 model = snake_dagger
 on_hit = bleed 2 8 0.45
+; A critical with a saw-toothed edge opens a real wound — the same effect the
+; blade sometimes causes anyway, landed for certain and harder.
+on_crit = bleed 4 12
 
 [snake_dagger]
 name = item.snake_dagger

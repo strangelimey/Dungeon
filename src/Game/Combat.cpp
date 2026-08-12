@@ -55,7 +55,28 @@ AttackResult ResolveAttack(const AttackProfile& atk, const DefenseProfile& def,
 	result.crit = o.attack.crit;
 	result.fumble = o.attack.fumble;
 	result.margin = o.margin;
-	if (!o.hit) return result; // missed, or blocked
+
+	// A FUMBLE IS AUTOMATIC — "a roll of <= 5 is an automatic fumble", so it
+	// decides the exchange rather than merely contributing a low number to it.
+	// A veteran with a +90 bonus can still drop his guard, which is the whole
+	// reason the rule is worth having: without the override a fumble is
+	// invisible to anyone good at fighting.
+	//
+	// Deliberately HERE and not in Resolve(): the dice module reports what the
+	// dice DID, and what a fumble MEANS is a rule of this game. Keeping the two
+	// apart is also what leaves RollTest's opposed-roll statistics describing
+	// the roll rather than the ruleset laid over it.
+	//
+	// The attacker's fumble wins: a swing that goes that badly cannot land even
+	// against a guard that went equally badly.
+	bool hit = o.hit;
+	if (o.attack.fumble) {
+		hit = false;
+	} else if (o.defense.fumble) {
+		hit = true;
+		result.defenderFumbled = true;
+	}
+	if (!hit) return result; // missed, blocked, or fumbled away
 
 	// THE MARGIN MULTIPLIES. Beating a defense by a hair lands a normal blow;
 	// overwhelming it lands a devastating one. Capped: the roll is open-ended,

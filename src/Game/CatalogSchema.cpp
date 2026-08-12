@@ -398,6 +398,10 @@ constexpr FieldSpec kWeaponFields[] = {
 	 .lo = 0.0f, .hi = 2.0f, .step = 0.05f, .def = "0"},
 	{.key = "on_hit", .kind = FieldKind::Text, .sectionKey = kSectionStats,
 	 .help = "Effects a landed blow leaves, by id: 'burn 3 6 0.5, bleed 2 10'."},
+	{.key = "on_crit", .kind = FieldKind::Text, .sectionKey = kSectionStats,
+	 .help = "Effects a CRITICAL leaves, same form as on_hit. Landed on top of "
+			 "on_hit, not instead of it."},
+
 	{.key = "reach", .kind = FieldKind::Enum, .sectionKey = kSectionRules,
 	 .help = "melee = adjacent only; polearm strikes from the rear rank; ranged flies.",
 	 .options = "melee polearm ranged", .def = "melee"},
