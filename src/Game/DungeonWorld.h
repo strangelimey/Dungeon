@@ -1067,8 +1067,10 @@ private:
 		float evasion = 10.0f;
 		// THE STANCE (docs/damage-system.md), the monster half of the party's
 		// slider: how much of `accuracy` goes into pressing the attack, the
-		// rest held back to guard with. 1 = all-out. Defaults per ARCHETYPE
-		// (StanceFor) and overridable per kind with monsters.cat `offense`.
+		// rest held back to guard with. 1 = all-out. Authored PER KIND
+		// (monsters.cat `offense`) — an archetype describes how a creature
+		// moves and perceives, not how boldly it fights, and the two vary
+		// independently: a wild caster and a cautious one share an archetype.
 		//
 		// This couples the two sides from ONE number, which is the point: a
 		// cautious monster is genuinely worse at hitting BECAUSE it is harder

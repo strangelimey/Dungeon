@@ -7,6 +7,14 @@
 ;   threat_decay     x how fast the grudge fades (> 1 = short memory)
 ; Editable live in the editor's monster config dialog (Behavior tab).
 ;
+; offense - the STANCE (docs/damage-system.md): how much of `accuracy` goes
+;   into pressing the attack, the rest held back to guard with. 1 = all-out.
+;   It is per KIND and not per archetype on purpose: an archetype says how a
+;   creature moves and perceives, not how boldly it fights. A wild caster and
+;   a cautious one are both `archetype = caster`.
+;   The trade is real in both directions - dropping it takes the same points
+;   off the attack that it adds to the guard.
+;
 ; modelscale — uniform trim on top of UnitScale (Game/DungeonMap.h). A model
 ; authored to convention needs none, and none here has one: every model on disk
 ; is unit space (1.0 = one dungeon square, docs/authoring-scale.md), which the
@@ -15,6 +23,8 @@
 ; mis-sized import — fix that where it was sized.
 
 [skeleton]
+; a plain animated warrior: presses, but not mindlessly
+offense = 0.9
 display = Skeleton
 category = skeleton
 model = skeleton
@@ -33,6 +43,8 @@ resists = pierce 0.5, slash 0.25, bash -0.5
 dmgtype = slash
 
 [skel_archer]
+; shoots from range, so little is spent guarding
+offense = 0.85
 display = Skeleton Archer
 category = skeleton
 model = skeleton
@@ -52,6 +64,8 @@ resists = pierce 0.5, slash 0.25, bash -0.5
 dmgtype = pierce
 
 [skel_mage]
+; hangs back warding and mending; casts to survive
+offense = 0.45
 display = Skeleton Mage
 category = skeleton
 model = skeleton
@@ -71,6 +85,8 @@ spell = flame
 resists = pierce 0.5, slash 0.25, bash -0.5
 
 [skel_coward]
+; skittish — guards first and swings second
+offense = 0.4
 display = Skittish Skeleton
 category = skeleton
 model = skeleton
@@ -88,6 +104,8 @@ fleebelow = 2.0
 resists = pierce 0.5, slash 0.25, bash -0.5
 
 [skel_swarm]
+; numbers, not self-preservation
+offense = 1.0
 display = Bone Swarm
 category = skeleton
 model = skeleton
@@ -107,6 +125,8 @@ resists = pierce 0.5, slash 0.25, bash -0.5
 dmgtype = slash
 
 [skel_lurker]
+; commits the moment it springs
+offense = 0.95
 display = Lurking Skeleton
 category = skeleton
 model = skeleton
@@ -126,6 +146,8 @@ dmgtype = slash
 on_hit = bleed 2 10 0.5
 
 [blob]
+; no notion of defending itself
+offense = 1.0
 display = Blob
 category = slime
 model = blob
@@ -146,6 +168,8 @@ dmgtype = bash
 on_hit = poison 1 20 1
 
 [mummy]
+; implacable rather than reckless
+offense = 0.8
 display = Mummy
 category = undead
 model = mummy
@@ -163,6 +187,8 @@ resists = pierce 0.4, slash 0.1, fire -1.0
 dmgtype = bash
 
 [giant_spider]
+; darts in; some caution in the legs
+offense = 0.9
 display = Giant Spider
 category = vermin
 model = giant_spider
@@ -190,6 +216,8 @@ anim_hit = Hit Hit2
 anim_die = Death
 
 [centipede]
+; all mandibles, no second thoughts
+offense = 1.0
 display = Giant Centipede
 category = vermin
 model = centipede
@@ -219,6 +247,8 @@ anim_hit = Hit Hit2
 anim_die = Dead Dead2 Dead3
 
 [skel_warrior]
+; drilled: a real guard between blows
+offense = 0.7
 display = Skeleton Warrior
 category = skeleton
 ; A single-minded brute: locks onto its tormentor at 0.6x the global threat
@@ -249,6 +279,8 @@ anim_hit = hit__big_hit_to_head_1 hit__big_hit_to_head_2 hit__big_hit_to_head hi
 anim_die = die__dying die__falling_back_death die__falling_forward_death die__standing_death_forward_01 die__standing_death_left_01 die__standing_react_death_backward die__standing_react_death_forward
 
 [skel_bare]
+; nothing to lose
+offense = 0.95
 display = Skeleton Raider
 category = skeleton
 model = skel_bare
@@ -276,6 +308,8 @@ anim_hit = hit__big_hit_to_head_1 hit__big_hit_to_head_2 hit__big_hit_to_head hi
 anim_die = die__dying die__falling_back_death die__falling_forward_death die__standing_death_forward_01 die__standing_death_left_01 die__standing_react_death_backward die__standing_react_death_forward
 
 [skel_berserker]
+; the whole point is holding nothing back
+offense = 1.0
 display = Skeleton Berserker
 category = skeleton
 model = skel_berserker
@@ -303,6 +337,8 @@ anim_hit = hit__big_hit_to_head_1 hit__big_hit_to_head_2 hit__big_hit_to_head hi
 anim_die = die__dying die__falling_back_death die__falling_forward_death die__standing_death_forward_01 die__standing_death_left_01 die__standing_react_death_backward die__standing_react_death_forward
 
 [skel_spearman]
+; a spear wall is a defensive weapon
+offense = 0.65
 display = Skeleton Spearman
 category = skeleton
 model = skel_spearman
