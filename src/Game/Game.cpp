@@ -996,21 +996,28 @@ void Game::Update(float dt) {
 
 	switch (m_state) {
 	case AppState::Loading:
-		if (!consoleOwnsInput && input.WasKeyPressed(VK_ESCAPE)) m_quitRequested = true;
+		// No Esc handling at all: ESC NEVER QUITS, in any state (Michael,
+		// 2026-08-11). See the Menu case below for why. A loading screen shows no
+		// Exit button, so during a load the ways out are the console's
+		// `quit`/`exit` and the window's own close button — which is independent of
+		// all of this (Window.cpp's WM_CLOSE sets m_closed), so a load can never
+		// become unquittable.
 		if (RunLoadTasks()) m_state = AppState::Menu;
 		return;
 
 	case AppState::Menu:
 		// The menu sits on baked title art; nothing in the world simulates.
 		// Esc backs out of settings — and does NOTHING on the landing list, where
-		// it used to QUIT (Michael, 2026-08-11). Quitting is deliberate now: the
-		// landing list's Exit entry, the pause menu's, or `quit` in the console.
+		// it used to QUIT (Michael, 2026-08-11). ESC NEVER QUITS, IN ANY STATE:
+		// quitting is deliberate, and means an Exit entry (landing or pause) or
+		// `quit`/`exit` in the console.
 		//
 		// It read as a crash, which is why it went. A party wipe drops you here,
 		// and a reflexive Esc at a screen that had just appeared by itself killed
 		// the process with no confirmation and no log line — indistinguishable
 		// from the game falling over. Nothing about "back out" should be able to
-		// end the process.
+		// end the process, which is why the two LOADING states lost it too rather
+		// than keeping it as an abort hatch.
 		//
 		// (Key-bind capture still swallows Esc first, to cancel the capture.)
 		if (input.WasKeyPressed(VK_ESCAPE) && !m_ui.KeyCaptureActive())
@@ -1019,7 +1026,7 @@ void Game::Update(float dt) {
 		return;
 
 	case AppState::LoadingGame:
-		if (!consoleOwnsInput && input.WasKeyPressed(VK_ESCAPE)) m_quitRequested = true;
+		// (no Esc quit — see AppState::Loading)
 		if (RunLoadTasks()) {
 			m_gameLoaded = true;
 			if (!m_pendingLoadPath.empty()) {
