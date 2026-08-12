@@ -43,6 +43,44 @@ float HandGuard(float held, CurveRules skillCurve, float leftLevel,
 						   CurveValue(rightLevel, skillCurve));
 }
 
+GuardKind GuardKindFor(TypeFacts facts) {
+	// School FIRST: knowing fire is what turns fire aside, and that holds even for
+	// a type a project also marked physical.
+	if (facts.hasSchool) return GuardKind::Magical;
+	if (facts.physical) return GuardKind::Physical;
+	return GuardKind::Neither;
+}
+
+float Guard(const GuardInputs& in) {
+	// The innate floor plus DEX.
+	float guard = in.base + CurveValue(in.dexterity, in.statCurve);
+
+	// Wearing anything costs you the roll and pays you back in soak; wearing
+	// NOTHING is the only way `avoid` applies at all. The two are exclusive by
+	// construction here — an armored defender's avoidLevel is never read, so
+	// training it while armored can never leak into the roll.
+	if (in.worn == ArmorClass::None)
+		guard += CurveValue(in.avoidLevel, in.avoidCurve);
+	else
+		guard -= in.armorPenalty;
+
+	if (in.held <= 0.0f) return guard; // all-out attack guards with nothing
+
+	switch (in.kind) {
+	case GuardKind::Magical:
+		// The hands play NO part. Worth stating as code rather than as a comment
+		// beside a hand loop, which is what it used to be — and that loop once
+		// computed the same number twice and took the max of it with itself.
+		return guard + in.held * CurveValue(in.schoolLevel, in.skillCurve);
+	case GuardKind::Physical:
+		return guard +
+			   HandGuard(in.held, in.skillCurve, in.leftLevel, in.rightLevel);
+	case GuardKind::Neither:
+		break;
+	}
+	return guard;
+}
+
 Lesson LessonFrom(bool rolled, bool hit, ArmorClass worn, float soak) {
 	if (!rolled) return Lesson::Nothing; // never evaded, never turned
 	if (!hit) {

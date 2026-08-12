@@ -53,6 +53,56 @@ float ArmorPenalty(float floor, float offsettable, CurveRules offsetCurve,
 float HandGuard(float held, CurveRules skillCurve, float leftLevel,
 				float rightLevel);
 
+// What the damage-type BOOK says about an incoming type: the two flags, passed
+// in rather than looked up. DamageTypes.cpp includes Game/Catalog.h, and linking
+// it into tools/RollTest would drag the catalog layer through the purity wall
+// that harness deliberately keeps up — so the world asks the book and hands the
+// answers here, and what stays testable is the DECISION made from them.
+struct TypeFacts {
+	bool hasSchool = false; // DamageTypeBook::SchoolOf found a school
+	bool physical = false;  // DamageTypeBook::IsPhysical
+};
+
+// How a defender answers an incoming blow.
+enum class GuardKind : u8 {
+	Physical, // parried with a HAND, off its weapon class
+	Magical,  // warded with the skill in the INCOMING SCHOOL; hands play no part
+	Neither,  // no school and not physical: nothing parries it at all
+};
+
+// A SCHOOL WINS OVER PHYSICAL. Worth pinning rather than leaving to the order two
+// ifs happen to sit in: nothing stops a project marking a school's type physical
+// as well, and the two branches guard with completely different skills.
+GuardKind GuardKindFor(TypeFacts facts);
+
+// Everything the defender's side of the roll needs, resolved from the world by
+// PartyTarget::Evasion — which is now only that resolution, so the arithmetic and
+// the two rules below can be measured (docs/damage-system.md).
+struct GuardInputs {
+	float base = 0.0f;    // Balance::defenseBase, the innate floor
+	float dexterity = 0.0f;
+	CurveRules statCurve;
+
+	// AVOID IS UNARMORED-ONLY, which is what makes going bare a BUILD rather than
+	// the poor man's option — and it also settles a design problem: light and
+	// medium armor creep DEX and so does avoid, and since you cannot practise
+	// both, exactly one loop runs at a time (see LessonFrom).
+	ArmorClass worn = ArmorClass::None;
+	float armorPenalty = 0.0f; // from ArmorPenalty(); ignored when unarmored
+	float avoidLevel = 0.0f;   // the `avoid` skill; ignored when ARMORED
+	CurveRules avoidCurve;
+
+	// The stance's held-back share (1 - offenseShare) and what it can guard with.
+	float held = 0.0f;
+	CurveRules skillCurve;
+	GuardKind kind = GuardKind::Physical;
+	float schoolLevel = 0.0f;             // the INCOMING school's skill
+	float leftLevel = 0.0f, rightLevel = 0.0f; // each hand's parry skill
+};
+
+// The defender's total, in d100 points.
+float Guard(const GuardInputs& in);
+
 // What a resolved defensive event teaches its defender.
 //
 // THE TWO LOOPS TRAIN ON OPPOSITE OUTCOMES, so no single blow can train both: a

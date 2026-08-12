@@ -17,10 +17,15 @@
 //
 // THE ARMOR AND STANCE SECTION covers the DEFENDER's half, which nothing
 // covered until 2026-08-11: the penalty floor training can never reach past, the
-// two hands combining by MAX and never by sum, and the two training loops keying
-// on opposite outcomes. Its arithmetic was lifted out of DungeonWorld into
-// Game/Defense.h for exactly this reason — so the shipping rules could be linked
-// without the map and the catalogs coming with them.
+// two hands combining by MAX and never by sum, the two training loops keying on
+// opposite outcomes, `avoid` applying only while unarmored, and TYPED defense
+// (physical -> the hands, magical -> the incoming school with the hands playing
+// no part, neither -> nothing). Its arithmetic was lifted out of DungeonWorld
+// into Game/Defense.h for exactly this reason — so the shipping rules could be
+// linked without the map and the catalogs coming with them. What stayed in the
+// world is only RESOLUTION: an inventory to a worn class, a damage type to its
+// two flags, a skill id to a level. Those are lookups with nothing a test would
+// catch; every DECISION is measured here.
 //
 //   RollTest.exe [--self-test]   — one verdict line, exit 0 = PASS
 //
@@ -780,10 +785,142 @@ int main(int argc, char** argv) {
 		}
 		std::printf("  (a floor column never reached is the point — training "
 					"cannot make plate agile)\n");
-		std::printf("  NOT covered here: `avoid` applying only while unarmored, "
-					"and typed defense\n  (physical->hands, magical->the incoming "
-					"school) — both still live inside\n  PartyTarget::Evasion, "
-					"which needs the world.\n");
+
+		// --- avoid is UNARMORED-ONLY, and defense is TYPED --------------------
+		// The last two rules that lived in PartyTarget::Evasion. What the world
+		// still owns is only the RESOLUTION (an inventory to a worn class, a type
+		// to its two flags, a skill id to a level); every decision is here.
+		//
+		// THESE CHECKS CANNOT PASS VACUOUSLY, and that is by construction rather
+		// than by assertion: every "ignores X" is PAIRED with a "reads Y" against
+		// the same defender, so a Guard that ignored everything would fail the
+		// second half of each pair. Confirmed by mutation — making the magical
+		// branch also add HandGuard fails "magical ignores the hands entirely" and
+		// nothing else. (The --self-test curve injection cannot reach these: they
+		// are dispatch decisions, not curve shapes.)
+		std::printf("\n  avoid is unarmored-only, and defense is typed\n");
+
+		// A defender with real training in everything, so any rule that wrongly
+		// lets a term through shows up as a difference rather than a zero.
+		const auto inputs = [&](ArmorClass worn, defense::GuardKind kind) {
+			defense::GuardInputs in;
+			in.base = 30.0f;
+			in.dexterity = 14.0f;
+			in.statCurve = CurveRules{CurveForm::Hyperbolic, 2.0f, 35.0f, 10.0f};
+			in.worn = worn;
+			in.armorPenalty = 25.0f; // as if medium, untrained
+			in.avoidLevel = 40.0f;
+			in.avoidCurve = CurveRules{CurveForm::Hyperbolic, 3.0f, 60.0f, 0.0f};
+			in.held = 1.0f;
+			in.skillCurve = skillCurve;
+			in.kind = kind;
+			in.schoolLevel = 25.0f;
+			in.leftLevel = 30.0f;
+			in.rightLevel = 4.0f;
+			return in;
+		};
+
+		// THE PRECEDENCE: a school wins over physical, and only a type that is
+		// neither leaves the defender nothing to parry with.
+		using defense::GuardKind;
+		CheckTrue("a school guards magically",
+				  defense::GuardKindFor({true, false}) == GuardKind::Magical);
+		CheckTrue("a school beats physical",
+				  defense::GuardKindFor({true, true}) == GuardKind::Magical);
+		CheckTrue("physical without a school parries",
+				  defense::GuardKindFor({false, true}) == GuardKind::Physical);
+		CheckTrue("neither leaves nothing to parry with",
+				  defense::GuardKindFor({false, false}) == GuardKind::Neither);
+
+		// AVOID IS UNARMORED-ONLY. Armored, the avoid skill must be invisible to
+		// the roll however high it is trained — otherwise light armor plus a
+		// trained dodge would stack the two loops that cannot both be practised.
+		{
+			defense::GuardInputs bareIn = inputs(ArmorClass::None, GuardKind::Physical);
+			defense::GuardInputs wornIn = inputs(ArmorClass::Medium, GuardKind::Physical);
+			const float bareGuard = defense::Guard(bareIn);
+			const float wornGuard = defense::Guard(wornIn);
+
+			// Unarmored: the avoid skill is worth something.
+			defense::GuardInputs bareUntrained = bareIn;
+			bareUntrained.avoidLevel = 0.0f;
+			CheckTrue("unarmored, avoid training helps",
+					  bareGuard > defense::Guard(bareUntrained) + 1.0f);
+
+			// Armored: it is worth exactly nothing, at any level.
+			defense::GuardInputs wornSaturated = wornIn;
+			wornSaturated.avoidLevel = 100'000.0f;
+			Check("armored, avoid training is worth nothing",
+				  defense::Guard(wornSaturated), wornGuard, 0.0);
+
+			// And the armor penalty is SUBTRACTED where avoid is added — the trade.
+			defense::GuardInputs noPenalty = wornIn;
+			noPenalty.armorPenalty = 0.0f;
+			Check("the armor penalty comes off the roll",
+				  wornGuard - defense::Guard(noPenalty), -25.0, 0.001);
+			// Conversely the unarmored defender pays no penalty however heavy the
+			// number handed in — the branch, not the value, decides.
+			defense::GuardInputs barePenalised = bareIn;
+			barePenalised.armorPenalty = 999.0f;
+			Check("unarmored, an armor penalty is ignored",
+				  defense::Guard(barePenalised), bareGuard, 0.0);
+		}
+
+		// TYPED DEFENSE: each kind reads its own term and no other.
+		{
+			const defense::GuardInputs phys = inputs(ArmorClass::None, GuardKind::Physical);
+			const defense::GuardInputs magi = inputs(ArmorClass::None, GuardKind::Magical);
+			const defense::GuardInputs none = inputs(ArmorClass::None, GuardKind::Neither);
+
+			// Physical: the hands decide, the school is irrelevant.
+			defense::GuardInputs physNoSchool = phys;
+			physNoSchool.schoolLevel = 0.0f;
+			Check("physical ignores the school skill", defense::Guard(physNoSchool),
+				  defense::Guard(phys), 0.0);
+			defense::GuardInputs physNoHands = phys;
+			physNoHands.leftLevel = physNoHands.rightLevel = 0.0f;
+			CheckTrue("physical reads the hands",
+					  defense::Guard(physNoHands) < defense::Guard(phys) - 1.0f);
+
+			// MAGICAL: THE HANDS PLAY NO PART. This is the rule most easily got
+			// wrong, and the one the old comment described incorrectly.
+			defense::GuardInputs magiNoHands = magi;
+			magiNoHands.leftLevel = magiNoHands.rightLevel = 0.0f;
+			Check("magical ignores the hands entirely", defense::Guard(magiNoHands),
+				  defense::Guard(magi), 0.0);
+			defense::GuardInputs magiNoSchool = magi;
+			magiNoSchool.schoolLevel = 0.0f;
+			CheckTrue("magical reads the incoming school",
+					  defense::Guard(magiNoSchool) < defense::Guard(magi) - 1.0f);
+			// A fire specialist shrugs off fire and is no better than anyone else
+			// against frost — the same term read at two different levels.
+			defense::GuardInputs specialist = magi;
+			specialist.schoolLevel = 80.0f;
+			CheckTrue("a specialist turns their own school aside better",
+					  defense::Guard(specialist) > defense::Guard(magi) + 1.0f);
+
+			// NEITHER: nothing parries it, so the stance contributes nothing —
+			// but armor and DEX still do, which is what makes it a guard and not
+			// an auto-hit.
+			defense::GuardInputs noneLoaded = none;
+			noneLoaded.schoolLevel = 999.0f;
+			noneLoaded.leftLevel = noneLoaded.rightLevel = 999.0f;
+			Check("nothing parries an unschooled non-physical blow",
+				  defense::Guard(noneLoaded), defense::Guard(none), 0.0);
+			CheckTrue("but DEX and the base still guard", defense::Guard(none) > 0.0f);
+
+			// An all-out attacker guards with none of the three, whatever arrives.
+			for (const GuardKind k : {GuardKind::Physical, GuardKind::Magical,
+									  GuardKind::Neither}) {
+				defense::GuardInputs allOut = inputs(ArmorClass::None, k);
+				allOut.held = 0.0f;
+				defense::GuardInputs allOutBare = allOut;
+				allOutBare.schoolLevel = 0.0f;
+				allOutBare.leftLevel = allOutBare.rightLevel = 0.0f;
+				Check("all-out attack guards with no skill at all",
+					  defense::Guard(allOut), defense::Guard(allOutBare), 0.0);
+			}
+		}
 	}
 
 	// --- verdict ------------------------------------------------------------

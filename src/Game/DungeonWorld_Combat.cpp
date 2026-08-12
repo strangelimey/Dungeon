@@ -289,70 +289,63 @@ DefenseReadout DungeonWorld::DefenseWith(const Character& member,
 	return DefenseFor(what);
 }
 
+// THE ADAPTER, and only that: resolve this member and this damage type into the
+// numbers defense::Guard works on. Every RULE it used to carry now lives in
+// Game/Defense.h where it is measured (docs/damage-system.md) —
+//
+//   * avoid is UNARMORED-ONLY, which makes going bare a build rather than the
+//     poor man's option (and, since light/medium armor creep DEX just as avoid
+//     does, means exactly one training loop ever runs);
+//   * PHYSICAL is parried with a HAND, off its weapon class, the better of the
+//     two answering; MAGICAL is warded with the skill in the INCOMING SCHOOL and
+//     THE HANDS PLAY NO PART (the alternative rule — a guard belonging to a hand
+//     and covering only the school that hand casts — is what this comment used to
+//     describe and is NOT what happens); anything neither has nothing to parry
+//     it with;
+//   * the hands combine by MAX, not sum.
+//
+// The cooldown is deliberately NOT consulted: a stance is not an action, so a
+// hand still guards while it recovers from a swing.
 float DungeonWorld::PartyTarget::Evasion(DamageType type) const {
 	const Balance& b = m_world.m_balance;
-	// The innate floor plus DEX.
-	float guard = b.defenseBase +
-				  CurveValue(static_cast<float>(m_member.dexterity), b.StatCurve());
+	defense::GuardInputs in;
+	in.base = b.defenseBase;
+	in.dexterity = static_cast<float>(m_member.dexterity);
+	in.statCurve = b.StatCurve();
 
-	// ARMOR (docs/damage-system.md). Wearing anything costs you the roll and
-	// pays you back in soak; wearing NOTHING is the only way the `avoid` skill
-	// applies at all, which is what makes going bare a real build rather than
-	// simply the poor man's option.
-	const ArmorClass worn = m_world.WornArmorClass(m_member);
-	if (worn == ArmorClass::None)
-		guard += CurveValue(static_cast<float>(m_member.SkillLevel(kAvoidSkill)),
-							b.AvoidCurve());
-	else
-		guard -= m_world.ArmorPenalty(m_member, worn);
+	in.worn = m_world.WornArmorClass(m_member);
+	in.armorPenalty = m_world.ArmorPenalty(m_member, in.worn);
+	in.avoidLevel = static_cast<float>(m_member.SkillLevel(kAvoidSkill));
+	in.avoidCurve = b.AvoidCurve();
 
-	// THE HELD-BACK SKILL (docs/damage-system.md). The character keeps
-	// (1 - offenseShare) of their skill back to defend with — ONE stance, not
-	// one per hand. What that guard is worth depends on what is arriving:
-	//
-	//   PHYSICAL   parried with a HAND, off its weapon class — so the two
-	//              hands can differ, and the better of them answers the blow.
-	//              An empty hand parries `unarmed`: bare-handed, but not
-	//              nothing.
-	//   MAGICAL    warded with the SKILL IN THE INCOMING SCHOOL. Knowing fire
-	//              is what lets you turn fire aside, so a fire specialist
-	//              shrugs off a firebolt and is no better than anyone else
-	//              against frost. The HANDS ARE IRRELEVANT here — which is
-	//              worth stating plainly, because the alternative rule (the
-	//              guard belongs to a hand and covers only the school that
-	//              hand is set to cast) is the one this comment used to
-	//              describe, and it is NOT what happens.
-	//
-	// THE HANDS COMBINE BY MAX, NOT SUM (defense::HandGuard, where that rule is
-	// measured). Summing would make holding both hands back strictly better than
-	// one and turn the slider into a free defense button.
-	//
-	// The cooldown is deliberately NOT consulted: a stance is not an action,
-	// so a hand still guards while it recovers from a swing.
-	const float held = 1.0f - m_member.offenseShare;
-	if (held <= 0.0f) return guard; // all-out attack guards with nothing
+	in.held = 1.0f - m_member.offenseShare;
+	in.skillCurve = b.SkillCurve();
 
-	// Magic: one lookup, no hands. (It sat inside the hand loop once, which
-	// computed the same number twice and took the max of it with itself.)
-	if (SpellSymbol school{}; m_world.m_damageTypes.SchoolOf(type, school))
-		return guard + held * CurveValue(static_cast<float>(
-											 m_member.SkillLevel(SymbolId(school))),
-										 b.SkillCurve());
+	SpellSymbol school{};
+	const bool hasSchool = m_world.m_damageTypes.SchoolOf(type, school);
+	in.kind = defense::GuardKindFor(
+		{hasSchool, m_world.m_damageTypes.IsPhysical(type)});
+	if (hasSchool)
+		in.schoolLevel = static_cast<float>(m_member.SkillLevel(SymbolId(school)));
 
-	if (!m_world.m_damageTypes.IsPhysical(type))
-		return guard; // neither physical nor a school: nothing to parry it with
+	// A held item to the skill it parries off; an empty hand parries `unarmed`.
+	// Resolved only for a PHYSICAL blow — Guard ignores these otherwise, so this
+	// is purely about not paying for two catalog lookups per firebolt. The rule
+	// still lives in Guard; this only declines to compute what it will not read.
+	if (in.kind == defense::GuardKind::Physical) {
+		const auto handLevel = [&](int hand) {
+			const ItemSlot& slot = m_member.inventory.Hand(hand);
+			const ItemKind* weapon =
+				slot.Empty() ? nullptr : &m_world.ItemKindFor(slot.typeId);
+			return static_cast<float>(m_member.SkillLevel(
+				weapon ? std::string_view(weapon->skill)
+					   : std::string_view("unarmed")));
+		};
+		in.leftLevel = handLevel(0);
+		in.rightLevel = handLevel(1);
+	}
 
-	// The adapter's share: a held item to the skill it parries off. An empty hand
-	// parries `unarmed`.
-	const auto handLevel = [&](int hand) {
-		const ItemSlot& slot = m_member.inventory.Hand(hand);
-		const ItemKind* weapon =
-			slot.Empty() ? nullptr : &m_world.ItemKindFor(slot.typeId);
-		return static_cast<float>(m_member.SkillLevel(
-			weapon ? std::string_view(weapon->skill) : std::string_view("unarmed")));
-	};
-	return guard +
-		   defense::HandGuard(held, b.SkillCurve(), handLevel(0), handLevel(1));
+	return defense::Guard(in);
 }
 
 float DungeonWorld::PartyTarget::Soak() const {

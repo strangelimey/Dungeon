@@ -315,12 +315,41 @@ penalty *is* the floor. The lesson generalises — two correct designs collided 
 their shared edge (a cap used as a ceiling vs. a cap of zero meaning "unshaped"),
 and only a deliberately awkward test profile sat on that edge.
 
-### Still not covered
+### Typed defense and unarmored-only avoid, also checked
 
-`avoid` applying only while unarmored, and typed defense (physical → the hands,
-magical → the incoming school). Both live inside `PartyTarget::Evasion`, which
-needs the world. The harness says so on every run rather than leaving it to be
-discovered.
+The last two rules followed into `Defense.h`, and `PartyTarget::Evasion` is now
+*only* resolution — an inventory to a worn class, a damage type to its two flags,
+a skill id to a level. **108 checks.**
+
+`avoid` is unarmored-only: an armored defender's `avoidLevel` is never read, so
+training it while armored cannot leak into the roll at any level. Checked at
+100,000. And the armor penalty is *subtracted* where avoid is *added* — while an
+unarmored defender ignores a penalty however large a number is handed in, because
+the branch decides, not the value.
+
+Typed defense is a three-way dispatch, each kind reading its own term and no
+other, with **a school winning over physical**. That precedence is pinned rather
+than left to the order two `if`s sat in: nothing stops a project marking a
+school's type physical as well, and the branches guard with completely different
+skills. Magical reads the incoming school and **the hands play no part** — the
+rule most easily got wrong, and the one the old comment in `Evasion` described
+*incorrectly*.
+
+The damage-type book is *not* linked into the harness: `DamageTypes.cpp` includes
+`Game/Catalog.h`, which would drag the catalog layer through the purity wall. The
+world asks the book and passes the two flags in, so what stays measured is the
+decision made from them.
+
+**These checks cannot pass vacuously, by construction rather than by assertion:**
+every "ignores X" is paired with a "reads Y" against the same defender, so a
+`Guard` that ignored everything would fail the second half of each pair. Confirmed
+by mutation — making the magical branch also add `HandGuard` fails "magical
+ignores the hands entirely" and nothing else. (The `--self-test` curve injection
+cannot reach these; they are dispatch decisions, not curve shapes.)
+
+The refactor is behaviour-preserving: the same walk into the bone swarm produces a
+byte-identical combat log — same misses, same 5/7/8/6 damage, same Avoidance tick,
+same crit.
 
 ## Traps
 
