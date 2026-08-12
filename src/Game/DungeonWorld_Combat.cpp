@@ -247,10 +247,13 @@ void DungeonWorld::PartyTarget::SayApplied(const fx::EffectKind& kind) const {
 }
 
 float DungeonWorld::MonsterTarget::Evasion(DamageType) const {
-	// A monster authors its whole guard as one number and has no hands to
-	// split, so the incoming type buys it nothing — for now. A per-type
-	// monster defense would be a monsters.cat column, not a code change.
-	return m_monster.kind->evasion;
+	// A monster's guard is its authored evasion plus whatever its STANCE held
+	// back from its own competence — the mirror of a party member keeping part
+	// of a hand's skill in reserve. The incoming type buys it nothing: a
+	// monster has no hands to split and no schools to know, and a per-type
+	// monster defense would be a monsters.cat column rather than a code change.
+	const float held = std::max(0.0f, 1.0f - m_monster.kind->offense);
+	return m_monster.kind->evasion + held * m_monster.kind->accuracy;
 }
 
 float DungeonWorld::MonsterTarget::Soak() const { return m_monster.kind->armor; }
@@ -501,9 +504,11 @@ void DungeonWorld::MonsterAttack(Monster& monster) {
 	// — all of that is the stages' business now, not this function's.
 	PartyTarget defender{*this, target};
 	MonsterTarget striker{*this, monster};
+	// The stance spends part of its competence on the swing; MonsterTarget's
+	// guard keeps the rest (docs/damage-system.md).
 	fx::DamageEvent ev = fx::DamageEvent::Blow(
-		monster.kind->damageType, monster.kind->damage, monster.kind->accuracy,
-		victim);
+		monster.kind->damageType, monster.kind->damage,
+		monster.kind->accuracy * monster.kind->offense, victim);
 	fx::Deal(ev, defender, m_balance.Strike(), m_combatRng);
 
 	if (!ev.hit) {

@@ -92,6 +92,28 @@ static bool ParseCell(const std::string& s, int& x, int& z) {
 	return true;
 }
 
+// A kind's default STANCE (docs/damage-system.md): how much of its competence
+// it presses with, the rest held back to guard. Per ARCHETYPE, because that is
+// already the word this project uses for how a monster carries itself — a
+// brute's recklessness and a sentry's caution are the same fact as their
+// aggro behaviour, not a second one to author separately.
+//
+// The coupling is what makes these worth having: dropping the stance takes the
+// SAME points off the attack that it adds to the guard, so a defensive monster
+// is genuinely harder to hit AND genuinely worse at hitting. Authoring evasion
+// and accuracy independently could never say that.
+static float StanceFor(ai::Archetype a) {
+	switch (a) {
+	case ai::Archetype::Brute: return 1.00f;      // all-out; guards with nothing
+	case ai::Archetype::Swarm: return 1.00f;      // numbers, not self-preservation
+	case ai::Archetype::Lurker: return 0.90f;     // commits once it springs
+	case ai::Archetype::Skirmisher: return 0.75f; // fights on the move
+	case ai::Archetype::Caster: return 0.60f;     // keeps itself alive to cast
+	case ai::Archetype::Sentry: return 0.50f;     // its whole job is not yielding
+	}
+	return 1.0f;
+}
+
 static ai::Archetype ParseArchetype(const std::string& v) {
 	if (v == "skirmisher") return ai::Archetype::Skirmisher;
 	if (v == "caster") return ai::Archetype::Caster;
@@ -501,6 +523,10 @@ DungeonWorld::MonsterKind& DungeonWorld::MonsterKindFor(const std::string& type)
 			assets->moveInterval = def->GetFloat("movecd", 0.6f);
 			assets->iq = def->GetFloat("iq", 100.0f);
 			assets->archetype = ParseArchetype(CatalogGet(def, "archetype", "brute"));
+			// The stance defaults from the archetype and may be overridden per
+			// kind — the archetype is the rule, `offense` the exception.
+			assets->offense =
+				def->GetFloat("offense", StanceFor(assets->archetype));
 			assets->keepRange = def->GetFloat("keeprange", 4.0f);
 			assets->fleeBelow = def->GetFloat("fleebelow", 0.0f);
 			assets->spell = CatalogGet(def, "spell", "");

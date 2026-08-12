@@ -1065,6 +1065,15 @@ private:
 		// stats to run through the curves, so its competence IS the number.
 		float accuracy = 60.0f;
 		float evasion = 10.0f;
+		// THE STANCE (docs/damage-system.md), the monster half of the party's
+		// slider: how much of `accuracy` goes into pressing the attack, the
+		// rest held back to guard with. 1 = all-out. Defaults per ARCHETYPE
+		// (StanceFor) and overridable per kind with monsters.cat `offense`.
+		//
+		// This couples the two sides from ONE number, which is the point: a
+		// cautious monster is genuinely worse at hitting BECAUSE it is harder
+		// to hit, rather than being handed good numbers on both.
+		float offense = 1.0f;
 		float armor = 0.0f; // flat soak (docs/combat.md part 4)
 		// The defender side (docs/combat.md part 4): per-type resists
 		// (catalog `resists = pierce 0.5, bash -0.5`; a cell of 1.0 =

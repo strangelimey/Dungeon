@@ -201,12 +201,23 @@ constexpr FieldSpec kMonsterFields[] = {
 	{.key = "dmgtype", .kind = FieldKind::Enum, .sectionKey = kSectionStats,
 	 .help = "Damage type its melee deals (resists key off this).",
 	 .options = "slash pierce bash fire earth air water", .def = "bash"},
+	// POINTS on the opposed d100 roll, not the 0..1 probabilities these were
+	// before the damage-system work. The ranges here still said 0..1, which
+	// would have clamped every authored value to a rounding error the moment
+	// anyone opened the dialog.
 	{.key = "accuracy", .kind = FieldKind::Float, .sectionKey = kSectionStats,
-	 .help = "Chance to land a blow before the defender's evasion.",
-	 .lo = 0.0f, .hi = 1.0f, .step = 0.05f, .def = "0.6"},
+	 .help = "Attack bonus in d100 points. Two opposed d100s deviate by ~41, "
+			 "so 40 is a modest edge and 100 is decisive.",
+	 .lo = 0.0f, .hi = 200.0f, .step = 5.0f, .def = "60"},
 	{.key = "defense", .kind = FieldKind::Float, .sectionKey = kSectionStats,
-	 .help = "Evasion against incoming attacks.",
-	 .lo = 0.0f, .hi = 1.0f, .step = 0.05f, .def = "0"},
+	 .help = "Defense bonus in the same d100 points, before the stance adds "
+			 "back whatever `offense` held in reserve.",
+	 .lo = 0.0f, .hi = 200.0f, .step = 5.0f, .def = "10"},
+	{.key = "offense", .kind = FieldKind::Float, .sectionKey = kSectionStats,
+	 .help = "Stance: how much of `accuracy` goes into pressing the attack, "
+			 "the rest held back to guard with. 1 = all-out. Untouched takes "
+			 "the archetype's default (brute 1.0 ... sentry 0.5).",
+	 .lo = 0.0f, .hi = 1.0f, .step = 0.05f, .def = "1"},
 	{.key = "armor", .kind = FieldKind::Float, .sectionKey = kSectionStats,
 	 .help = "Flat damage soak.", .lo = 0.0f, .hi = 20.0f, .step = 1.0f, .def = "0"},
 	{.key = "resists", .kind = FieldKind::Text, .sectionKey = kSectionStats,
