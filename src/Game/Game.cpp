@@ -1002,11 +1002,19 @@ void Game::Update(float dt) {
 
 	case AppState::Menu:
 		// The menu sits on baked title art; nothing in the world simulates.
-		// Esc backs out of settings, or quits from the landing list — unless
-		// a key-bind box is armed, where Esc just cancels the capture.
-		if (input.WasKeyPressed(VK_ESCAPE) && !m_ui.KeyCaptureActive()) {
-			if (!m_ui.CloseSettingsPage()) m_quitRequested = true;
-		}
+		// Esc backs out of settings — and does NOTHING on the landing list, where
+		// it used to QUIT (Michael, 2026-08-11). Quitting is deliberate now: the
+		// landing list's Exit entry, the pause menu's, or `quit` in the console.
+		//
+		// It read as a crash, which is why it went. A party wipe drops you here,
+		// and a reflexive Esc at a screen that had just appeared by itself killed
+		// the process with no confirmation and no log line — indistinguishable
+		// from the game falling over. Nothing about "back out" should be able to
+		// end the process.
+		//
+		// (Key-bind capture still swallows Esc first, to cancel the capture.)
+		if (input.WasKeyPressed(VK_ESCAPE) && !m_ui.KeyCaptureActive())
+			m_ui.CloseSettingsPage();
 		m_ui.UpdateMenu(input);
 		return;
 

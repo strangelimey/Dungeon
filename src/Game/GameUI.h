@@ -155,7 +155,8 @@ public:
 
 	// --- callbacks into the app state machine -------------------------------------
 	std::function<void()> onStartNewGame;       // landing "Start New Game"
-	std::function<void()> onQuit;               // pause "Exit"
+	std::function<void()> onQuit;               // landing + pause "Exit" (the ONLY
+												// click that quits — Esc does not)
 	std::function<void()> onResume;             // pause/sheet "Back"
 	// A save slot was chosen to load (landing Continue/Load, pause Load). The
 	// receiver loads it — from the landing page that may first stage the

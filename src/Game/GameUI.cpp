@@ -531,7 +531,9 @@ void GameUI::BuildMenuList() {
 	// half each with just Start + Settings). Bounds are window fractions.
 	const bool hasSaves = !ListSaves().empty();
 	m_menuHasSaves = hasSaves;
-	const int itemCount = hasSaves ? 4 : 2;
+	// +1 for Exit, which is always present: it is the ONLY pointer-driven way out
+	// of the title screen now that Esc no longer quits (see Game.cpp's Menu case).
+	const int itemCount = (hasSaves ? 4 : 2) + 1;
 	constexpr float kMenuW = 0.26f;   // ~420/1600
 	constexpr float kItemH = 0.064f;  // ~58/900
 	const float menuH = kItemH * static_cast<float>(itemCount);
@@ -560,6 +562,12 @@ void GameUI::BuildMenuList() {
 	menu->AddItem(loc::Tr("menu.settings"), [this] {
 		Click();
 		m_menuPage = MenuPage::Settings;
+	});
+	// Exit LAST, the way the pause menu ends with it. Deliberately the only click
+	// that quits from here, since Esc no longer does.
+	menu->AddItem(loc::Tr("menu.exit"), [this] {
+		Click();
+		onQuit();
 	});
 }
 
