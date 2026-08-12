@@ -219,7 +219,9 @@ DungeonWorld::DungeonWorld(gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 		}
 		return false;
 	};
-	m_projectiles.onFizzle = [this](const Vec3&) { m_audio.Play(m_sounds.spellFizzle, 0.6f); };
+	m_projectiles.onExpire = [this](const ProjectileExpiry& expiry) {
+		ResolveProjectileExpiry(expiry);
+	};
 }
 
 // ============================================================================
@@ -491,8 +493,20 @@ void DungeonWorld::SetLevelAtmosphere(const std::string& stem, float dust,
 std::vector<std::string> DungeonWorld::MonsterList() const {
 	std::vector<std::string> out;
 	out.reserve(m_monsters.size());
-	for (const Monster& m : m_monsters)
-		out.push_back(std::format("{} @ {},{}", m.kind ? m.kind->name : "?", m.x, m.z));
+	for (const Monster& m : m_monsters) {
+		// Cell, HEALTH and the EFFECTS it is carrying. The last two were added
+		// because the list used to say only what a monster was and where, which
+		// cannot answer the question the console is usually open to answer — did
+		// that blow land, and did it leave anything behind. An effect's remaining
+		// seconds is the part that says it is still running.
+		std::string line = std::format("{} @ {},{}  hp {:.0f}",
+									   m.kind ? m.kind->name : "?", m.x, m.z, m.hp);
+		if (!m.Alive()) line += " (dead)";
+		for (const fx::Inst& e : m.effects)
+			line += std::format("  [{} {:.1f} {:.1f}s]", e.Id(), e.magnitude,
+								e.timeLeft);
+		out.push_back(std::move(line));
+	}
 	return out;
 }
 

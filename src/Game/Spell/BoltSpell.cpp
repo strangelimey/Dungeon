@@ -34,6 +34,12 @@ ProjectileSpec BoltSpell::MakeBolt(const Vec3& origin, const Vec3& dir,
 	bolt.target = target;
 	bolt.push = m_push; // displacement rides the bolt (party impacts only —
 						// the monster-bolt hit path never shoves)
+	// What it delivers when it lands OR expires — a firebolt's burn catches a
+	// body it strikes, and scorches the cell it bursts in. The school lends the
+	// flavour, the same way an enchanted weapon's element does, so one authored
+	// `on_hit = burn` reads as fire on a firebolt and as frost on a waterbolt.
+	bolt.payload = MakePayload();
+	bolt.payload.flavour = School();
 	return bolt;
 }
 

@@ -17,10 +17,17 @@
 namespace dungeon::game {
 
 namespace {
-// A compact centered card: title, six info rows, a Remove footer — the
+// A compact centered card: title, seven info rows, a Remove footer — the
 // LevelSettingsDialog proportions. The panel is the only rect; the card inside
 // it is stacked (Game/DialogLayout.h).
-constexpr gfx::Rect kPanel{0.36f, 0.28f, 0.28f, 0.40f};
+//
+// SEVEN rows now, where it was six — the payload joined them. Grown by exactly
+// one row's advance (0.050 of the window height, the figure the fonts audit
+// derived for these dialogs: 0.020 x kDialogTextScale x 1.25) and re-centred on
+// the same 0.48, rather than left to squeeze: a Stack shrinks its fixed rows to
+// fit its body, so a card too short does not spill, it crushes the rows under
+// text drawn at an unchanged size — the overlap that audit found here.
+constexpr gfx::Rect kPanel{0.36f, 0.255f, 0.28f, 0.45f};
 // The label column's share of an info row; the value takes the rest.
 constexpr float kLabelFill = 1.0f, kValueFill = 1.1f;
 } // namespace
@@ -46,13 +53,17 @@ void ProjectileInspector::BuildUI() {
 	// Read-only info rows: label (dim) + value (bright). They used to be drawn
 	// straight to the batch from a hand-stepped y cursor, which is furniture the
 	// layout could not see — as widgets they get areas like everything else.
-	const std::array<std::pair<std::string, std::string>, 6> rows = {{
+	const std::array<std::pair<std::string, std::string>, 7> rows = {{
 		{loc::Tr("map.proj.side"), m_cfg.side},
 		{loc::Tr("map.proj.dmgtype"), m_cfg.dmgType},
 		{loc::Tr("map.proj.damage"), std::format("{:.1f}", m_cfg.damage)},
 		{loc::Tr("map.proj.accuracy"), std::format("{:.0f} pts", m_cfg.accuracy)},
 		{loc::Tr("map.proj.speed"), std::format("{:.1f} m/s", m_cfg.speed)},
 		{loc::Tr("map.proj.range"), std::format("{:.1f} m", m_cfg.rangeLeft)},
+		// What it leaves behind when it lands or expires — a plain bolt says so
+		// with an em dash rather than a blank, which would read as a missing value.
+		{loc::Tr("map.proj.payload"),
+		 m_cfg.payload.empty() ? "—" : m_cfg.payload},
 	}};
 	for (const auto& [label, value] : rows) {
 		ui::Stack* row = chrome.body->Row<ui::Stack>(FormRow(), true);

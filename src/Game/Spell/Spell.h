@@ -96,9 +96,15 @@ public:
 
 	// Lay the project's spells.cat NUMBERS over the class defaults (matching
 	// entry by id; SpellBook::Build calls this once per load). The base takes
-	// name/power/mana; derived classes add their own fields. The RECIPE is
+	// name/power/mana/on_hit; derived classes add their own fields. The RECIPE is
 	// class-only — identity never comes from data.
 	virtual void ApplyOverrides(const CatalogEntry& e);
+
+	// The payload a cast hands its carrier: this spell's on-hit effects packed
+	// into the projectile's inline array. One place, so a bolt spell and any
+	// future thrown form fill it identically — and so the "more than
+	// kMaxPayloadProcs authored" warning has a single home.
+	ProjectilePayload MakePayload() const;
 
 	// The damage-type book this spell resolved against (SpellBook::Build), so a
 	// bolt can ask what its school deals. Borrowed; DungeonWorld owns it and it
@@ -125,6 +131,9 @@ protected:
 	std::vector<SpellSymbol> m_sequence;
 	float m_power;
 	float m_mana;
+	// What a landed cast leaves behind (spells.cat `on_hit`), parsed once at
+	// load. Empty for most spells — a ward's business is the ward it applies.
+	std::vector<fx::Proc> m_procs;
 };
 
 // Every concrete spell, freshly constructed at class defaults — the registry

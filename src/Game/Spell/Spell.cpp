@@ -22,6 +22,18 @@ void Spell::ApplyOverrides(const CatalogEntry& e) {
 	m_nameKey = e.Get("name", m_nameKey);
 	m_power = e.GetFloat("power", m_power);
 	m_mana = e.GetFloat("mana", m_mana);
+	// What the cast LEAVES BEHIND, authored exactly as a weapon's is
+	// (`on_hit = burn 3 6 0.5`) — parsed once here, at load, so a cast copies a
+	// ready list into its carrier instead of parsing per shot. An absent field
+	// keeps the class default, like every other override.
+	if (e.Find("on_hit")) {
+		m_procs.clear();
+		fx::ParseProcs(e.Get("on_hit", ""), m_procs, "spells.cat [" + m_id + "]");
+	}
+}
+
+ProjectilePayload Spell::MakePayload() const {
+	return PackPayload(m_procs, "spells.cat [" + m_id + "]");
 }
 
 } // namespace dungeon::game

@@ -16,18 +16,28 @@
 //   - isBlocked   : does this world position stop an item (a wall / off-map)?
 //   - resolveHit  : an item reached here — resolve a strike against whatever on
 //                   its TARGET SIDE lives at it (combat + feedback); did it hit?
-//   - onFizzle    : an item died on a wall / at max range (for a sound).
+//   - onExpire    : an item died on a wall / at max range WITHOUT striking —
+//                   the owner decides what that means (see ProjectileExpiry).
 // So spawning "adds a moving item to the map" and that item later damages a
 // monster (or the party) without this engine depending on the map or combat.
+//
+// A carrier delivers a PAYLOAD at one of two moments — it strikes something, or
+// it expires. This engine never interprets a payload; it carries it and hands it
+// back through the hooks, exactly as it already does with the AttackProfile.
 // ============================================================================
 #pragma once
 
 #include "Core/MathTypes.h"
 #include "Game/Combat.h"
+#include "Game/Effect/Effect.h"
 #include "Graphics/ParticleBatch.h"
 
+#include <array>
 #include <functional>
+#include <optional>
 #include <random>
+#include <span>
+#include <string_view>
 #include <vector>
 
 namespace dungeon::game {
@@ -35,6 +45,62 @@ namespace dungeon::game {
 // Which side of the fight a moving item may strike. A party spell resolves
 // against monsters; a monster's ranged attack resolves against the party.
 enum class TargetSide { Party, Monsters };
+
+// The most effects one carrier delivers. INLINE (a fixed array, not a vector)
+// for two reasons, both worth keeping:
+//   - a spawn happens mid-fight and an Item lives in a per-frame-simulated
+//     vector, so a heap allocation per shot would violate the steady-state rule
+//     (docs/ARCHITECTURE.md "Memory strategy" — the alloc guard asserts on it);
+//   - the list is COPIED rather than borrowed from the spell that fired it, so a
+//     bolt still in flight survives an editor catalog rebuild reseating the
+//     registry underneath it.
+// Effect ids are short enough to sit in std::string's small-buffer, so a
+// realistic payload really does allocate nothing.
+inline constexpr size_t kMaxPayloadProcs = 4;
+
+// What a carrier DELIVERS, at either of its two moments. The effects are
+// fx::Procs — the same "<id> <magnitude> <seconds> [chance]" list weapons and
+// monsters already author as `on_hit`, so a bolt names an effect exactly the way
+// a serrated blade does and the engine learns no new vocabulary.
+//
+// Michael's framing (2026-08-11): "when it hits something OR EXPIRES, it causes
+// an effect on the target" — one payload, two moments. What differs is WHO is
+// caught, and that is the host's rule, not this engine's (a hit is lane-wide, an
+// expiry is cell-wide — see DungeonWorld::ResolveProjectileExpiry).
+struct ProjectilePayload {
+	std::array<fx::Proc, kMaxPayloadProcs> procs{};
+	size_t count = 0;
+	// The element these effects arrive in, when the source has one to lend — a
+	// firebolt's burn is fire. Unset lets each effect keep its own colours, which
+	// is what a monster's plain shot does (a creature lends no element, exactly as
+	// its melee doesn't). The same rule as an enchanted weapon's `element`.
+	std::optional<SpellSymbol> flavour;
+
+	bool Empty() const { return count == 0; }
+	std::span<const fx::Proc> Procs() const { return {procs.data(), count}; }
+	// Appends a proc if there is room; false when the payload is already full, so
+	// the FILLING site can warn about the content it had to drop (this engine has
+	// no log).
+	bool Add(const fx::Proc& p) {
+		if (count >= procs.size()) return false;
+		procs[count++] = p;
+		return true;
+	}
+};
+
+// Pack an authored proc list into a carrier's payload. THE one place the inline
+// capacity is enforced, so every kind of carrier reports dropped content the same
+// way; `where` names the catalog entry in that warning.
+ProjectilePayload PackPayload(std::span<const fx::Proc> procs,
+							  std::string_view where);
+
+// Why an item's flight ended without striking anything. The host reads it to
+// decide what an expiry means: a bolt that burst against stone is a different
+// event from one that simply ran out of reach in open air.
+enum class ExpiryCause {
+	Wall,  // stopped by geometry — a wall, or a closed door
+	Range, // ran out of reach in open air
+};
 
 // A request to launch one moving item. The caller fills this and hands it to
 // ProjectileSystem::Spawn; the engine copies out what it needs.
@@ -54,17 +120,38 @@ struct ProjectileSpec {
 	// shooter's threat table to prefer its target in the lane).
 	int attacker = -1;       // party roster index, -1 = not a party shot
 	u32 shooter = 0;         // monster runtimeId, 0 = not a monster shot
+	ProjectilePayload payload{}; // what it leaves behind, on a hit or on expiry
 };
 
 // Everything the owner needs to resolve one impact: where it landed, the strike
 // profile, the item's travel direction + push so displacement effects (the
-// air school's shove) know which way and how far to move the target, and who
-// launched it (threat attribution/preference — see ProjectileSpec).
+// air school's shove) know which way and how far to move the target, who
+// launched it (threat attribution/preference — see ProjectileSpec), and the
+// payload the landed blow leaves on whatever it struck.
 struct ProjectileImpact {
 	Vec3 pos{};
 	Vec3 dir{};
 	AttackProfile atk{};
 	int push = 0;
+	int attacker = -1; // party roster index, -1 = not a party shot
+	u32 shooter = 0;   // monster runtimeId, 0 = not a monster shot
+	ProjectilePayload payload{};
+};
+
+// An item's flight ended without striking anything. Everything the owner needs
+// to decide what that means: where and why it died, the payload it was carrying,
+// which side it was flying against, and who launched it (an expiry's effects are
+// credited like a hit's).
+//
+// This REPLACED a hook that passed only a position, for a sound. An expiry
+// telling nobody anything was the hole P7 exists to close: a carrier is defined
+// by causing something when it stops, and half of "when it stops" was dead.
+struct ProjectileExpiry {
+	Vec3 pos{};
+	Vec3 dir{};
+	ExpiryCause cause = ExpiryCause::Range;
+	TargetSide target = TargetSide::Monsters;
+	ProjectilePayload payload{};
 	int attacker = -1; // party roster index, -1 = not a party shot
 	u32 shooter = 0;   // monster runtimeId, 0 = not a monster shot
 };
@@ -80,6 +167,7 @@ struct ProjectileInfo {
 	float rangeLeft = 0.0f;
 	AttackProfile atk{};
 	TargetSide target = TargetSide::Monsters;
+	ProjectilePayload payload{}; // what it will leave behind (inspector reads it)
 };
 
 class ProjectileSystem {
@@ -116,8 +204,10 @@ public:
 	// An item reached `impact.pos`; resolve a strike there on `side`. Return true
 	// if it struck a target (the item is consumed). The owner does combat + feedback.
 	std::function<bool(TargetSide side, const ProjectileImpact& impact)> resolveHit;
-	// An item died on a wall / at max range at `p` (for a soft fizzle sound).
-	std::function<void(const Vec3& p)> onFizzle;
+	// An item's flight ended without striking anything (a wall, or out of reach).
+	// The owner decides what that means — the fizzle sound, and whatever the
+	// payload does to the cell it died in.
+	std::function<void(const ProjectileExpiry& expiry)> onExpire;
 
 private:
 	// A live moving item in flight. Flies its direction at `speed`, carries the
@@ -136,6 +226,7 @@ private:
 		int push = 0;           // cells the struck target is shoved along `dir`
 		int attacker = -1;      // party roster index (threat; see ProjectileSpec)
 		u32 shooter = 0;        // monster runtimeId (threat; see ProjectileSpec)
+		ProjectilePayload payload{}; // delivered on a hit, or on expiry
 	};
 	// A short-lived impact/fizzle spark (a burst of these sells a hit). Flies out,
 	// fades over its life, additive.
@@ -149,6 +240,8 @@ private:
 	};
 
 	void SpawnSparkBurst(const Vec3& pos, const Vec4& color, int count);
+	// Report a flight that ended without a strike, through onExpire.
+	void Expire(const Item& it, ExpiryCause cause);
 
 	std::vector<Item> m_items;
 	std::vector<Spark> m_sparks;

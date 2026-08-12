@@ -205,6 +205,80 @@ party health was deliberately left alone.
 worse at being missed than wearing nothing. That is the trade, not an
 imbalance: armor buys mitigation with evasion.
 
+## The carrier and its payload
+
+A projectile is a **carrier**: as Michael put it (2026-08-11), "when it hits
+something *or expires*, it causes an effect on the target". Impact worked;
+**expiry was dead** — a shot out of range fizzled into sparks and told nobody,
+and the hook it fizzled through passed only a position, for a sound.
+
+What a carrier delivers is a `ProjectilePayload`: a list of `fx::Proc`, the
+same `"<id> <magnitude> <seconds> [chance]"` form a weapon already authors as
+`on_hit`. So a firebolt names an effect exactly the way a serrated blade does,
+and neither the projectile engine nor the effects module learns a new
+vocabulary. Everything it lands still goes through the one pipeline
+(`docs/effects.md`) — a payload is a *source*, not a second path.
+
+**The payload rides the CARRIER, not the spell.** Optional `hit`/`expire`
+overrides on `Spell` were the obvious shape and were rejected: `Projectiles.h`
+promises to be the one home for "a cast spell bolt today, a monster's ranged
+attack next, thrown items / traps later", and a hook on `Spell` serves only the
+first of those. A monster's plain shot carries its kind's `on_hit` — a
+venomous thing's dart is venomous too — and a trap dart will need no new
+mechanism. It also keeps the payload *data*, which is what lets the editor's
+ProjectileInspector show it.
+
+### A hit is lane-wide; an expiry is cell-wide
+
+This is the mechanic, not an inconsistency. A bolt reaches only what stands in
+its lane (`kLaneHalfWidth`, the quadrant rule); a bolt that **bursts** fills
+the square it burst in. So the shot that flew past you down the far side of the
+corridor and broke on the wall behind you *still catches you*. Nothing in the
+expiry resolver reads the lane width, deliberately.
+
+Michael chose "the cell it died in" as an expiry's target over an area burst,
+which would have needed `fx::ITarget` iterated over a *set* — something nothing
+does today, since it is implemented exactly twice, for one party member and one
+monster. An area effect is now a short step from here rather than a rewrite.
+
+A burst stays on its **target side**: a carrier may only ever affect the side it
+was flying against, which is what `TargetSide` means everywhere else in the
+engine, so it cannot friendly-fire. Whether it *should* is a live design
+question and is deliberately unanswered.
+
+`ExpiryCause` distinguishes bursting on stone from running out of reach. It is
+carried and not yet acted on — both burst identically — because the reason a
+flight ended is exactly the kind of thing a future spell will want and the
+hardest thing to add afterwards.
+
+### Two details that are decisions
+
+**The school lends the flavour.** One authored `on_hit = burn` reads as fire
+from a firebolt and as frost from a waterbolt, the same rule an enchanted
+weapon's `element` follows. A monster's plain shot lends nothing, so each
+effect keeps its own colours — matching what its melee already does.
+
+**The proc list is an inline fixed array, copied.** Not a vector, because a
+spawn happens mid-fight and an `Item` lives in a per-frame-simulated vector, so
+allocating per shot would violate the steady-state rule the alloc guard
+asserts on. Not a borrowed span into the spell that fired it, because a bolt in
+flight has to survive an editor catalog rebuild reseating the registry
+underneath it. Effect ids fit `std::string`'s small buffer, so a realistic
+payload really does allocate nothing.
+
+### What is verified (in-game, 2026-08-11)
+
+Both moments, using `monsters` — which now prints hp and carried effects, since
+the old name-and-cell line could not answer the question the console is usually
+open to answer:
+
+- **hit** — `hp 16` → bolt lands → `hp 2` → `[burn ...]` ticks → *"skeleton
+  raider burns away to nothing!"*
+- **expiry** — a medium body out of the caster's lane, flame's range cut so the
+  bolt dies inside its cell: `hp 6` → `hp 3  [burn 2.0 2.6s]`. **Zero bolt
+  damage**; the lost hp is the burn's own ticks. A lane hit does ~14 and would
+  have killed a 6-hp body outright, so the burst is what caught it.
+
 ## Traps
 
 **A measurement that omits a term is not weaker, it is wrong.** The defender
@@ -241,3 +315,28 @@ Damage types are data too (`damagetypes.cat`) — C++ names none of them.
 only way to try over-exertion before its cost exists.
 `wear <item|none> [member]` — put armor on the doll, where worn armor
 counts.
+`monsters` — each monster's cell, **hp and carried effects**; the readout that
+makes a landed blow and whatever it left behind observable at all.
+
+### Driving a combat test from a script
+
+Four things cost a run each, all avoidable (`docs/drive.ps1`):
+
+- The title menu opens with **Settings** pre-selected (it is the last entry), and
+  a posted arrow key is sometimes dropped. **Click** "Start New Game" instead.
+- The party knows **no spells** at start, so `cast` needs a `learn <member>
+  <school>` first — and a caster with mana (Tilo, member 3).
+- Dev commands reach the **world** even from the menu, because it is built at
+  load. A `cast away` in the console is *not* evidence the game is in Playing.
+- A monster adjacent to a fresh party nearly wipes it in seconds. `timescale
+  0.02` while setting up, back to 1 to act.
+
+`Send` types through **WM_CHAR**, which is what `Input::OnChar` reads, so it
+handles shifted characters — underscores included, contrary to the long-held
+belief that `wear plate_cuirass 0` could not be driven. (It is not named `Type`:
+that is a built-in alias for `Get-Content` and silently shadows the function.)
+
+**No level in the demo project places a single monster**, so combat is
+unreachable in ordinary play — which is most of why every number here is
+measured and none is played. A test needs one added to a `.ent` by hand or via
+the editor.

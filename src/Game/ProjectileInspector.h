@@ -39,6 +39,14 @@ public:
 		float accuracy = 0.0f; // the attacker's opposed-roll bonus, in d100 points
 		float speed = 0.0f;    // m/s
 		float rangeLeft = 0.0f; // metres
+		// What the carrier will DELIVER when it lands or expires, as ONE line
+		// ("burn 3.0/s for 6.0s", or just the ids when it carries several). An em
+		// dash for a plain bolt. Composed by the owner, like the localized strings
+		// above — and one line rather than one row per effect so the card keeps a
+		// FIXED row count: a Stack shrinks its fixed rows to fit, so rows that
+		// vary with content would squeeze text drawn at an unchanged font, which
+		// is the overlap the fonts audit already had to fix in this dialog once.
+		std::string payload;
 	};
 
 	ProjectileInspector(gfx::GraphicsDevice& device, ui::FontLibrary& fonts);

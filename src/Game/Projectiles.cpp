@@ -3,9 +3,22 @@
 // ============================================================================
 #include "Game/Projectiles.h"
 
+#include "Core/Log.h"
+
 #include <algorithm> // std::erase_if
 
 namespace dungeon::game {
+
+ProjectilePayload PackPayload(std::span<const fx::Proc> procs,
+							  std::string_view where) {
+	ProjectilePayload out;
+	for (const fx::Proc& p : procs)
+		if (!out.Add(p))
+			log::Warn("{} authors more than {} on-hit effects; '{}' and any "
+					  "after it are dropped",
+					  where, kMaxPayloadProcs, p.id);
+	return out;
+}
 
 void ProjectileSystem::Spawn(const ProjectileSpec& spec) {
 	Item it;
@@ -21,6 +34,7 @@ void ProjectileSystem::Spawn(const ProjectileSpec& spec) {
 	it.push = spec.push;
 	it.attacker = spec.attacker;
 	it.shooter = spec.shooter;
+	it.payload = spec.payload;
 	m_items.push_back(it);
 }
 
@@ -29,14 +43,15 @@ std::vector<ProjectileInfo> ProjectileSystem::Live() const {
 	out.reserve(m_items.size());
 	for (const Item& it : m_items)
 		out.push_back({it.id, it.pos, it.dir, it.speed, it.rangeLeft, it.atk,
-					   it.target});
+					   it.target, it.payload});
 	return out;
 }
 
 bool ProjectileSystem::Find(u32 id, ProjectileInfo& out) const {
 	for (const Item& it : m_items)
 		if (it.id == id) {
-			out = {it.id, it.pos, it.dir, it.speed, it.rangeLeft, it.atk, it.target};
+			out = {it.id,  it.pos,       it.dir,     it.speed,
+				   it.rangeLeft, it.atk, it.target, it.payload};
 			return true;
 		}
 	return false;
@@ -60,6 +75,12 @@ void ProjectileSystem::SpawnSparkBurst(const Vec3& pos, const Vec4& color, int c
 	}
 }
 
+void ProjectileSystem::Expire(const Item& it, ExpiryCause cause) {
+	if (!onExpire) return;
+	onExpire({it.pos, it.dir, cause, it.target, it.payload, it.attacker,
+			  it.shooter});
+}
+
 void ProjectileSystem::Update(float dt) {
 	// Age the impact/fizzle sparks (drift out + slight gravity, then expire).
 	for (Spark& s : m_sparks) {
@@ -69,8 +90,9 @@ void ProjectileSystem::Update(float dt) {
 	}
 	std::erase_if(m_sparks, [](const Spark& s) { return s.age >= s.life; });
 
-	// Fly each item: a wall/out-of-range fizzles, a target on its side in its cell
-	// takes a strike. rangeLeft < 0 marks an item spent (erased below).
+	// Fly each item: a wall/out-of-range EXPIRES it, a target on its side in its
+	// cell takes a strike. Both moments deliver the payload — the owner decides
+	// what each means. rangeLeft < 0 marks an item spent (erased below).
 	for (Item& it : m_items) {
 		const float step = it.speed * dt;
 		it.pos = Add(it.pos, Scale(it.dir, step));
@@ -78,14 +100,14 @@ void ProjectileSystem::Update(float dt) {
 
 		if (isBlocked && isBlocked(it.pos, it.dir)) { // hit a wall (or left the map)
 			SpawnSparkBurst(it.pos, it.color, 8);
-			if (onFizzle) onFizzle(it.pos);
+			Expire(it, ExpiryCause::Wall);
 			it.rangeLeft = -1.0f;
 			continue;
 		}
 
 		if (resolveHit &&
 			resolveHit(it.target, {it.pos, it.dir, it.atk, it.push, it.attacker,
-								   it.shooter})) { // struck a target
+								   it.shooter, it.payload})) { // struck a target
 			SpawnSparkBurst(it.pos, it.color, 14);
 			it.rangeLeft = -1.0f;
 			continue;
@@ -93,7 +115,7 @@ void ProjectileSystem::Update(float dt) {
 
 		if (it.rangeLeft <= 0.0f) { // ran out of reach in open air
 			SpawnSparkBurst(it.pos, it.color, 6);
-			if (onFizzle) onFizzle(it.pos);
+			Expire(it, ExpiryCause::Range);
 		}
 	}
 	std::erase_if(m_items, [](const Item& it) { return it.rangeLeft <= 0.0f; });

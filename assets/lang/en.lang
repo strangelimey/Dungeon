@@ -542,6 +542,7 @@ map.proj.damage=Damage
 map.proj.accuracy=Accuracy
 map.proj.speed=Speed
 map.proj.range=Range left
+map.proj.payload=Leaves behind
 map.proj.remove=Remove
 map.proj.removed=Projectile removed.
 ; damage types (shared with combat)

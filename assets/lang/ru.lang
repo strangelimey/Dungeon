@@ -526,6 +526,7 @@ map.proj.damage=Урон
 map.proj.accuracy=Точность
 map.proj.speed=Скорость
 map.proj.range=Остаток дальности
+map.proj.payload=Оставляет
 map.proj.remove=Убрать
 map.proj.removed=Снаряд убран.
 ; damage types (shared with combat)

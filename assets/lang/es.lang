@@ -522,6 +522,7 @@ map.proj.damage=Daño
 map.proj.accuracy=Precisión
 map.proj.speed=Velocidad
 map.proj.range=Alcance restante
+map.proj.payload=Deja tras sí
 map.proj.remove=Eliminar
 map.proj.removed=Proyectil eliminado.
 ; damage types (shared with combat)

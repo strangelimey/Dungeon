@@ -1891,6 +1891,11 @@ private:
 	// picks) and is consumed (true, hit or miss). False while it is short of
 	// the party or slides through an empty lane.
 	bool ResolveMonsterProjectileHit(const ProjectileImpact& impact);
+	// The moving-item engine's EXPIRY hook: a carrier stopped without striking
+	// anything (a wall, or out of reach). Fizzles audibly as it always did, and
+	// lands its payload on every combatant of its target side in the cell it died
+	// in — CELL-WIDE, where a hit is lane-wide (see the definition for why).
+	void ResolveProjectileExpiry(const ProjectileExpiry& expiry);
 	// Skirmisher executor (intent == Kite): hold `keepRange` from the party (greedy
 	// 1-step, LoS-preferring), and fire a ranged bolt when it has a clear line and is
 	// off cooldown. `selfIndex` is the monster's index in m_monsters (for slot tests).

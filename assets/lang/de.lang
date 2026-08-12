@@ -522,6 +522,7 @@ map.proj.damage=Schaden
 map.proj.accuracy=Genauigkeit
 map.proj.speed=Geschwindigkeit
 map.proj.range=Restreichweite
+map.proj.payload=Hinterlässt
 map.proj.remove=Entfernen
 map.proj.removed=Geschoss entfernt.
 ; damage types (shared with combat)

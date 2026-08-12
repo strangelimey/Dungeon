@@ -953,6 +953,12 @@ void DungeonWorld::MonsterRangedAttack(Monster& monster) {
 	bolt.color = {1.6f, 0.5f, 0.2f, 0.0f}; // ember-orange additive
 	bolt.size = 0.18f;
 	bolt.shooter = monster.runtimeId; // the impact reads its threat
+	// A shot leaves what its melee leaves: `on_hit` is what this creature's
+	// attacks carry, and a venomous thing's dart is venomous too. (A CASTER's
+	// bolt above takes the SPELL's payload instead — the spell is the source
+	// there, not the creature.)
+	bolt.payload = PackPayload(monster.kind->onHit,
+							   "monsters.cat [" + monster.kind->name + "]");
 	m_projectiles.Spawn(bolt);
 	m_audio.Play(m_sounds.monster, 0.5f); // soft launch cue (reuse the monster voice)
 }
@@ -1270,6 +1276,13 @@ bool DungeonWorld::ResolveSpellHit(const ProjectileImpact& impact) {
 			onMessage(loc::Format("log.spell_slain", name));
 		} else {
 			hit->hitReq = true; // survivor flinches (a fatal blow goes straight to Die)
+			// A survivor wears whatever the carrier left — the payload, in its
+			// source's element (see ProjectilePayload::flavour). The bolt's own
+			// damage was resolved above; this is what it leaves BEHIND.
+			if (!impact.payload.Empty())
+				fx::ApplyProcs(defender, impact.payload.Procs(),
+							   impact.payload.flavour, impact.attacker, m_effects,
+							   m_combatRng);
 			// Displacement (the air-school shove): a landed hit with `push` walks
 			// the survivor up to that many cells along the bolt's travel, one
 			// StepMonsterTo per cell so occupancy commits atomically; the first
@@ -1359,11 +1372,62 @@ bool DungeonWorld::ResolveMonsterProjectileHit(const ProjectileImpact& impact) {
 		MemberMessage(target, loc::Format("log.member_unharmed", target.name));
 	defender.NarrateFall();
 	m_audio.Play(m_sounds.monster, 0.6f);
+	// Whatever the carrier left — applied even if the bolt downed them, matching
+	// the melee path: the ticks finish the job.
+	if (!impact.payload.Empty())
+		fx::ApplyProcs(defender, impact.payload.Procs(), impact.payload.flavour,
+					   -1, m_effects, m_combatRng);
 	// (a fire shield answers blows, not bolts)
 	fx::React(ev, defender, nullptr, Reaction());
 	CheckPartyWipe();
 	return true;
 }
 
+// ============================================================================
+// Expiry — a carrier that stopped without striking anything
+// ============================================================================
+
+void DungeonWorld::ResolveProjectileExpiry(const ProjectileExpiry& expiry) {
+	m_audio.Play(m_sounds.spellFizzle, 0.6f); // the soft fizzle, as before
+	if (expiry.payload.Empty()) return;       // a plain bolt just goes out
+
+	// AN EXPIRY IS CELL-WIDE WHERE A HIT IS LANE-WIDE (Michael, 2026-08-11 — he
+	// chose "the cell it died in" as an expiry's target). That difference is the
+	// mechanic, not an inconsistency: a bolt reaches only what stands in its lane,
+	// but a bolt that BURSTS fills the square it burst in — so the shot that flew
+	// past you down the far side of the corridor and broke on the wall behind you
+	// still catches you. Nothing here reads kLaneHalfWidth, deliberately.
+	//
+	// It stays on its TARGET SIDE: a carrier may only ever affect the side it was
+	// flying against (TargetSide is that rule everywhere else in the engine), so a
+	// burst cannot friendly-fire. Whether it SHOULD is a live design question and
+	// is deliberately not answered here.
+	//
+	// `expiry.cause` distinguishes bursting on stone from running out of reach; it
+	// is carried but not yet acted on — both burst identically today.
+	const int cx = static_cast<int>(std::floor(expiry.pos.x / kCellSize));
+	const int cz = static_cast<int>(std::floor(expiry.pos.z / kCellSize));
+
+	switch (expiry.target) {
+	case TargetSide::Monsters:
+		for (Monster& m : m_monsters) {
+			if (!m.Alive() || m.x != cx || m.z != cz) continue;
+			MonsterTarget caught{*this, m};
+			fx::ApplyProcs(caught, expiry.payload.Procs(), expiry.payload.flavour,
+						   expiry.attacker, m_effects, m_combatRng);
+		}
+		break;
+	case TargetSide::Party:
+		if (!m_roster || m_partyWiped) break;
+		if (cx != m_party.GridX() || cz != m_party.GridZ()) break;
+		for (Character& member : *m_roster) {
+			if (!member.IsAlive()) continue;
+			PartyTarget caught{*this, member};
+			fx::ApplyProcs(caught, expiry.payload.Procs(), expiry.payload.flavour,
+						   -1, m_effects, m_combatRng);
+		}
+		break;
+	}
+}
 
 } // namespace dungeon::game

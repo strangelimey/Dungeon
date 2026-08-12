@@ -1,4 +1,11 @@
 ; Spells: symbol-sequence recipes -> effect + element + power/mana/speed/range.
+;
+; `on_hit` is the PAYLOAD the cast's carrier delivers, authored exactly as a
+; weapon's is: "<effect id> <magnitude> <seconds> [chance]", comma-separated.
+; It lands twice over — on the body a bolt strikes, and on everything in the
+; cell a bolt BURSTS in when it stops without striking anything (a wall, or the
+; end of its reach). The spell's school lends the flavour, so one authored
+; `burn` is fire from a firebolt and frost from a waterbolt.
 
 [flame]
 name = spell.flame
@@ -9,6 +16,7 @@ power = 8
 mana = 4
 speed = 7
 range = 8
+on_hit = burn 2 4 0.5
 
 [rock]
 name = spell.rock
@@ -49,6 +57,9 @@ power = 14
 mana = 8
 speed = 8
 range = 8
+; The directed fire cast always ignites — it is the tier-2 spell, and the
+; certainty is most of what it buys over [flame]'s coin-flip.
+on_hit = burn 3 6
 
 [slingshot]
 name = spell.slingshot

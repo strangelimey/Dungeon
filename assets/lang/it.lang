@@ -522,6 +522,7 @@ map.proj.damage=Danno
 map.proj.accuracy=Precisione
 map.proj.speed=Velocità
 map.proj.range=Gittata rimasta
+map.proj.payload=Lascia dietro
 map.proj.remove=Rimuovi
 map.proj.removed=Proiettile rimosso.
 ; damage types (shared with combat)
