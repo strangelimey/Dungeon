@@ -1982,7 +1982,10 @@ private:
 	// ticks, deflecting and reflecting off walls, converging units multiplying) and
 	// this plays the result out over time. Unrolled Bursts, and it catches EVERYONE
 	// in its squares including the party — a blast has no side and no lane.
-	void Detonate(int cx, int cz, const BlastSpec& spec, DamageType type,
+	// `payload` carries both the blast's shape and what it LEAVES — a transient
+	// front's procs are how fire "catches", so a square the blast passes through
+	// keeps burning on its own through the effects pipeline.
+	void Detonate(int cx, int cz, const ProjectilePayload& payload, DamageType type,
 				  int attacker);
 	// A blast PLAYING OUT. The propagation is computed once at detonation — the
 	// geometry cannot change mid-blast — and its ticks land `rate` seconds apart,
@@ -1992,6 +1995,7 @@ private:
 		float rate = 0.0f;
 		DamageType type{};
 		int attacker = -1;
+		ProjectilePayload payload{}; // what each square it reaches is left with
 		float elapsed = 0.0f;
 		int next = 0; // index of the first hit not yet applied
 	};
@@ -2000,7 +2004,7 @@ private:
 	void UpdateBlasts(float dt);
 	// Apply one tick's worth at one square: monsters, the party (friendly fire),
 	// and whatever pieces of dungeon stand there.
-	void ApplyBlastHit(const blast::Hit& hit, DamageType type, int attacker);
+	void ApplyBlastHit(const blast::Hit& hit, const ActiveBlast& active);
 	// Walk every breakable piece of dungeon standing in a cell — THE one place
 	// that knows which kinds those are, so a new one reaches blasts, bolts and
 	// whatever comes later all at once. (Forward-declared: the adapter itself is

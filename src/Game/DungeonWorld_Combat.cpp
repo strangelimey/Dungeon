@@ -1302,7 +1302,7 @@ bool DungeonWorld::ResolveSpellHit(const ProjectileImpact& impact) {
 	// bomb that hits the front rank catches everything around them.
 	if (impact.payload.blast.Any()) {
 		if (MonsterInLane(impact, cx, cz) < 0) return false; // flew past: not yet
-		Detonate(cx, cz, impact.payload.blast, impact.atk.type, impact.attacker);
+		Detonate(cx, cz, impact.payload, impact.atk.type, impact.attacker);
 		return true;
 	}
 	// A bolt flies down its LANE (the caster's quadrant line): it hits a
@@ -1627,8 +1627,9 @@ void DungeonWorld::SeedBreakable(Breakable& brk, const DecorationKind& kind) {
 // Area blasts
 // ============================================================================
 
-void DungeonWorld::Detonate(int cx, int cz, const BlastSpec& spec, DamageType type,
-							int attacker) {
+void DungeonWorld::Detonate(int cx, int cz, const ProjectilePayload& payload,
+							DamageType type, int attacker) {
+	const BlastSpec& spec = payload.blast;
 	if (!spec.rules.Any()) return;
 
 	// What a blast may enter: an open cell, no closed door. The SAME test that
@@ -1653,6 +1654,7 @@ void DungeonWorld::Detonate(int cx, int cz, const BlastSpec& spec, DamageType ty
 	active.rate = std::max(0.0f, spec.rules.rate);
 	active.type = type;
 	active.attacker = attacker;
+	active.payload = payload; // what every square it reaches is left burning with
 	m_activeBlasts.push_back(std::move(active));
 	m_audio.Play(m_sounds.spellImpact, 0.9f);
 	UpdateBlasts(0.0f); // tick 0 now, not next frame
@@ -1670,7 +1672,7 @@ void DungeonWorld::UpdateBlasts(float dt) {
 				static_cast<float>(h.tick) * a.rate > a.elapsed + 1e-4f)
 				break;
 			++a.next;
-			ApplyBlastHit(h, a.type, a.attacker);
+			ApplyBlastHit(h, a);
 		}
 		if (a.next >= a.result.count)
 			m_activeBlasts.erase(m_activeBlasts.begin() + static_cast<long>(b));
@@ -1679,8 +1681,11 @@ void DungeonWorld::UpdateBlasts(float dt) {
 	}
 }
 
-void DungeonWorld::ApplyBlastHit(const blast::Hit& c, DamageType type,
-								 int attacker) {
+void DungeonWorld::ApplyBlastHit(const blast::Hit& c,
+								 const ActiveBlast& active) {
+	// Not named `blast`: that is the namespace this Hit comes from.
+	const DamageType type = active.type;
+	const int attacker = active.attacker;
 	if (c.damage <= 0.0f) return; // reached it, but the falloff spent it
 	// The launcher's type axis scales every square the blast touches — one figure
 	// for the whole detonation, so a fire-attuned caster's burst is hotter
@@ -1706,10 +1711,19 @@ void DungeonWorld::ApplyBlastHit(const blast::Hit& c, DamageType type,
 			else if (ev.dealt >= 0.0f)
 				onMessage(loc::Format("log.monster_unharmed", name));
 			fx::React(ev, defender, nullptr, Reaction());
-			if (!m.Alive())
+			if (!m.Alive()) {
 				onMessage(loc::Format("log.spell_slain", name));
-			else
+			} else {
 				m.hitReq = true;
+				// WHAT THE FRONT LEAVES: a transient blast passes on, but what it
+				// set alight keeps burning through the effects pipeline on its own.
+				// That is how "fire that catches" works without the blast itself
+				// having to simulate persistence.
+				if (!active.payload.Empty())
+					fx::ApplyProcs(defender, active.payload.Procs(),
+								   active.payload.flavour, attacker, m_effects,
+								   m_combatRng);
+			}
 		}
 
 		// THE PARTY, if this is their cell — FRIENDLY FIRE (Michael, 2026-08-11).
@@ -1732,6 +1746,10 @@ void DungeonWorld::ApplyBlastHit(const blast::Hit& c, DamageType type,
 													  member.name));
 				defender.NarrateFall();
 				fx::React(ev, defender, nullptr, Reaction());
+				if (!active.payload.Empty())
+					fx::ApplyProcs(defender, active.payload.Procs(),
+								   active.payload.flavour, -1, m_effects,
+								   m_combatRng);
 			}
 			CheckPartyWipe();
 		}
@@ -1741,6 +1759,10 @@ void DungeonWorld::ApplyBlastHit(const blast::Hit& c, DamageType type,
 	ForEachBreakableAt(c.x, c.z, [&](BreakableTarget& t) {
 		fx::DamageEvent ev = fx::DamageEvent::Burst(type, dmg, attacker);
 		fx::Deal(ev, t, m_balance.Strike(), m_combatRng);
+		// A door the blast washed over is left ALIGHT, and burns down on its own.
+		if (!active.payload.Empty())
+			fx::ApplyProcs(t, active.payload.Procs(), active.payload.flavour,
+						   attacker, m_effects, m_combatRng);
 		NarrateBreak(t, ev);
 	});
 }
@@ -1757,7 +1779,7 @@ void DungeonWorld::ResolveProjectileExpiry(const ProjectileExpiry& expiry) {
 	// centre inside stone (nothing stands there, and the room beyond is one step
 	// out), so a bolt that burst on a wall still fills the corridor it came down.
 	if (expiry.payload.blast.Any()) {
-		Detonate(bx, bz, expiry.payload.blast, expiry.atk.type, expiry.attacker);
+		Detonate(bx, bz, expiry.payload, expiry.atk.type, expiry.attacker);
 		return; // the blast IS the effect; no separate cell-wide proc pass
 	}
 	m_audio.Play(m_sounds.spellFizzle, 0.6f); // the soft fizzle, as before

@@ -551,6 +551,45 @@ Verified live rather than only measured: the skeleton mage authors
 `powers = fire 0.45, bash -0.3`, and a probe on its real bolt read
 **`authored 8.00 -> potent 11.60`** — exactly ×1.45.
 
+### Tuning a blast (worked example: `fireburst`)
+
+The numbers `fireburst` carried were the **flood model's**, and that model was
+replaced — so they were retuned against the propagation rather than adjusted by
+eye. The measured matrix, one candidate per row, is what the choice was made from:
+
+| candidate | open room | dead end at your feet | T-junction centre |
+|---|---|---|---|
+| f5 d10 fall3 *(old)* | 10 centre / 7 at d1 | **35** | 14 |
+| f7 d7 fall3 | 7 / 4 | 20 | **42** |
+| f7 d5 fall1.5 ✔ | 5 / 3.5 | 17.5 | 30 |
+| f8 d4 fall1 | 4 / 3 | 15 | 24 |
+
+Against party health (Brand ~40, Maren ~33, Sera ~30, Tilo ~25).
+
+**The ceiling is set by the ×6 a junction can converge, not by the open case** —
+which was the surprise. A T-junction's arms reflect off their far ends and slosh
+back onto the square you detonated in, so the worst number in the game is a
+point-blank cast at a junction, not one in a dead end. The old `d10` made that 35–42:
+an instant death for the caster. `d5` puts it at 30 — lethal to Tilo, survivable by
+everyone else, and only reachable by detonating at your own feet in a junction.
+
+The chosen row reads: **barely singes you when well placed** (3.5 at one step), an
+unmistakable lesson when careless (17.5 each in a dead end), and a genuine
+catastrophe only when you earn it.
+
+**`on_hit` had to come down too.** Once the blast applies its payload's procs, a
+`burn 3 6` lands 18 damage of DoT on *everything* in up to seven squares — more
+than the blast itself, on every target at once. `burn 2 4` keeps fire's lingering
+without the DoT quietly becoming the whole spell.
+
+`blast_rate = 0.06` is fire rushing: a two-tick blast resolves in about an eighth
+of a second. No `blast_persist`, because fire is transient — the front passes and
+what it set alight keeps burning through `on_hit`.
+
+Verified in play: a Fire Burst on a bone swarm one step from the party read *"caught
+in the blast for 4 damage"* for all four (5 − 1.5, rounded) and *"catches fire"* on
+each; the swarm died to the burn rather than the blow.
+
 ## Traps
 
 **A measurement that omits a term is not weaker, it is wrong.** The defender

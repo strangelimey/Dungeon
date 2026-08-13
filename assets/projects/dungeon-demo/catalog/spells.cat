@@ -57,18 +57,30 @@ power = 14
 mana = 8
 speed = 8
 range = 8
-; The directed fire cast always ignites — it is the tier-2 spell, and the
-; certainty is most of what it buys over [flame]'s coin-flip.
-on_hit = burn 3 6
-; ...and it BURSTS: an area blast where it stops. `blast_force` is the size in
-; SQUARES, not a radius — stone consumes none of it, so this fills a room five
-; squares wide and runs five squares down a corridor, and if it goes off in a
-; dead end the force with nowhere to go concentrates instead (Game/Blast.h).
+; It always ignites — the certainty is most of what tier 2 buys over [flame]'s
+; coin-flip. DELIBERATELY SMALLER than a single-target burn: the blast lands this
+; on everything in up to seven squares, so 2/s for 4s across a group already
+; outweighs what one bolt leaves on one body.
+on_hit = burn 2 4
+; ...and it BURSTS: a wavefront that expands over ticks, deflecting off walls and
+; reflecting back where it cannot (Game/Blast.h). `blast_force` is its size in
+; SQUARES, not a radius — stone consumes none of it, so the same blast fills a room
+; or runs down a corridor, and units converging on one square MULTIPLY it.
+;
+; TUNED AGAINST THE PROPAGATION, not guessed (docs/damage-system.md "Tuning"):
+;   open room        5 at the centre, 3.5 around, 7 squares — barely singes you
+;   dead end at feet 17.5 each        — painful, survivable, an obvious lesson
+;   T-junction centre 30              — lethal to the mage, and only point-blank
+; The ceiling is set by the x6 a junction can converge, not by the open case.
+;
 ; A BLAST HAS NO SIDE: it catches the party too, so do not throw it at your own
-; front rank.
-blast_force = 5
-blast_damage = 10
-blast_falloff = 3
+; front rank. Fire is TRANSIENT (no blast_persist) — the front passes and what it
+; set alight keeps burning through `on_hit`, which is how fire lingers without the
+; blast simulating it.
+blast_force = 7
+blast_damage = 5
+blast_falloff = 1.5
+blast_rate = 0.06
 
 [slingshot]
 name = spell.slingshot
