@@ -76,6 +76,8 @@ constexpr BalanceField kBalanceFields[] = {
 	{"exhaust_recover", &Balance::exhaustRecover},
 	{"exert_cost", &Balance::exertCost},
 	{"exert_max", &Balance::exertMax},
+	{"fumble_severe_face", &Balance::fumbleSevereFace},
+	{"fumble_recover", &Balance::fumbleRecover},
 	{"stabilize_time", &Balance::stabilizeTime},
 	{"stabilize_health", &Balance::stabilizeHealth},
 	{"overkill", &Balance::overkill},

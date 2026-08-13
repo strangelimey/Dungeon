@@ -444,6 +444,19 @@ constexpr FieldSpec kWeaponFields[] = {
 	{.key = "on_crit", .kind = FieldKind::Text, .sectionKey = kSectionStats,
 	 .help = "Effects a CRITICAL leaves, same form as on_hit. Landed on top of "
 			 "on_hit, not instead of it."},
+	{.key = "crit", .kind = FieldKind::Enum, .sectionKey = kSectionStats,
+	 .help = "pierce = a critical goes UNDER armour (soak ignored). Resists "
+			 "still answer it.",
+	 .options = "none pierce", .def = "none"},
+	{.key = "on_fumble", .kind = FieldKind::Text, .sectionKey = kSectionStats,
+	 .help = "Effects a FUMBLE leaves on the WIELDER, same form as on_hit — a "
+			 "blade that bites the hand holding it."},
+	{.key = "fumble", .kind = FieldKind::Text, .sectionKey = kSectionStats,
+	 .help = "What a fumble costs its thrower: recover <mul>, stumble <pts>, "
+			 "drop, fling, self_hit <frac>, wild. Empty = the balance default."},
+	{.key = "fumble_severe", .kind = FieldKind::Text, .sectionKey = kSectionStats,
+	 .help = "The same, fired ONLY at a die face of fumble_severe_face or less "
+			 "(about 1 swing in 100). Empty = the balance default."},
 
 	{.key = "reach", .kind = FieldKind::Enum, .sectionKey = kSectionRules,
 	 .help = "melee = adjacent only; polearm strikes from the rear rank; ranged flies.",

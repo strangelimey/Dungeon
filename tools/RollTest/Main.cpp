@@ -39,6 +39,7 @@
 #include "Game/Combat.h"
 #include "Game/Curve.h"
 #include "Game/Defense.h"
+#include "Game/Mishap.h"
 #include "Game/Roll.h"
 
 #include <algorithm>
@@ -1023,6 +1024,200 @@ int main(int argc, char** argv) {
 		CheckTrue("a deeper skill borrows more at the same share",
 				  defense::ExertionPoints(1.5f, 60.0f, skillCurve) >
 					  defense::ExertionPoints(1.5f, lvl, skillCurve));
+	}
+
+	// --- when it goes wrong: fumble consequences --------------------------------
+	// docs/damage-system.md "When it goes wrong". Two things are measured here and
+	// neither is arithmetic: WHICH entries a table parses to (the surface content
+	// authors actually touch) and WHETHER a given fumble was a severe one. The
+	// consequences themselves need the world and are executed in DungeonWorld.
+	{
+		std::printf("\n--- when it goes wrong: fumble consequences ---\n");
+		using namespace dungeon::game::mishap;
+
+		// --- severity comes from the die face, not a second draw --------------
+		// Face 0 is "no fumble was recorded", NOT a catastrophic roll. Without
+		// that guard every unrolled event in the game reads as a severe fumble,
+		// which is why it is a function and not an inline `face <= knob`.
+		CheckTrue("no fumble is never severe", !Severe(0, 1));
+		CheckTrue("the worst face is severe", Severe(1, 1));
+		CheckTrue("a mild fumble is not", !Severe(5, 1));
+		CheckTrue("the knob widens the severe band", Severe(2, 2));
+		CheckTrue("...and only that far", !Severe(3, 2));
+		// A knob of 0 turns the severe table OFF entirely rather than making
+		// every fumble severe — the failure mode a naive comparison would have.
+		CheckTrue("a knob of zero disables severity", !Severe(1, 0));
+
+		// --- the parser: what an author writes is what fires ------------------
+		{
+			std::vector<Entry> out;
+			Parse("recover 2.5, drop", out, "test");
+			Check("two entries parsed", static_cast<double>(out.size()), 2.0, 0.0);
+			CheckTrue("the first is recover", !out.empty() &&
+												  out[0].kind == Kind::Recover);
+			Check("...with its value", out.empty() ? 0.0 : out[0].value, 2.5, 0.001);
+			CheckTrue("the second is drop",
+					  out.size() > 1 && out[1].kind == Kind::Drop);
+			// Drop takes no value and does not need one: an entry with nothing
+			// after it must still parse, or half the vocabulary is unwritable.
+			Check("...and needs no value of its own",
+				  out.size() > 1 ? out[1].value : -1.0, 0.0, 0.0);
+		}
+		{
+			// EVERY token round-trips. Paired with TokenFor so a Kind added
+			// without its token — or a table whose two directions disagree —
+			// fails here rather than in a fight.
+			bool allRoundTrip = true;
+			for (const Kind k : {Kind::Recover, Kind::Stumble, Kind::Drop,
+								 Kind::Fling, Kind::SelfHit, Kind::Wild}) {
+				Kind back{};
+				if (!KindFromToken(TokenFor(k), back) || back != k)
+					allRoundTrip = false;
+			}
+			CheckTrue("every consequence round-trips through its token",
+					  allRoundTrip);
+		}
+		{
+			// A TYPO IS DROPPED, NOT GUESSED AT. The failure this prevents is
+			// silent: a table that fell back to `recover` would look authored
+			// and do something else forever.
+			std::vector<Entry> out;
+			Parse("recovr 2.0", out, "test");
+			Check("an unknown token adds nothing",
+				  static_cast<double>(out.size()), 0.0, 0.0);
+			// ...and the same for a value-taking token with no value, which
+			// would otherwise land as a zero-multiplier no-op.
+			out.clear();
+			Parse("recover", out, "test");
+			Check("a value-taking token needs its value",
+				  static_cast<double>(out.size()), 0.0, 0.0);
+			// Non-vacuous by pairing: the valueless three must NOT be rejected
+			// by that same rule, or the check above passes for the wrong reason.
+			out.clear();
+			Parse("drop; fling; wild", out, "test");
+			Check("the valueless three parse bare",
+				  static_cast<double>(out.size()), 3.0, 0.0);
+		}
+		{
+			// Blank entries are not errors — a trailing comma is how a list gets
+			// edited, and an empty spec is how most weapons say "use the default".
+			std::vector<Entry> out;
+			Parse("drop,", out, "test");
+			Check("a trailing comma is harmless",
+				  static_cast<double>(out.size()), 1.0, 0.0);
+			out.clear();
+			Parse("", out, "test");
+			Check("an empty table parses to nothing",
+				  static_cast<double>(out.size()), 0.0, 0.0);
+		}
+
+		// --- the defaults -----------------------------------------------------
+		// The mild default is TEMPO and nothing else: at 5% of every swing, what
+		// happens on most fumbles has to be survivable enough to shrug at.
+		{
+			const std::vector<Entry> mild = DefaultFumble(2.2f);
+			Check("the default fumble is one consequence",
+				  static_cast<double>(mild.size()), 1.0, 0.0);
+			CheckTrue("...and it is tempo, not damage",
+					  !mild.empty() && mild[0].kind == Kind::Recover);
+			Check("...carrying the knob it was given",
+				  mild.empty() ? 0.0 : mild[0].value, 2.2, 0.001);
+			const std::vector<Entry> bad = DefaultSevere();
+			CheckTrue("the severe default disarms you",
+					  bad.size() == 1 && bad[0].kind == Kind::Drop);
+		}
+	}
+
+	// --- a critical that pierces ------------------------------------------------
+	// The one crit consequence. Measured through the SHIPPING resolver rather than
+	// by inspection, because what it has to skip (the soak subtraction) sits in the
+	// middle of the damage expression, and it must skip it ONLY on a critical.
+	{
+		std::printf("\n--- a critical that pierces ---\n");
+		StrikeRules rules;
+		rules.damageJitter = 0.0f; // measure the rule, not the noise
+		DefenseProfile def{/*defenseBonus=*/0.0f, /*soak=*/8.0f, /*resist=*/0.0f};
+
+		// A bonus high enough that the defender never wins, so every sample is a
+		// landed blow and the only variable left is whether the roll went
+		// open-ended. Crits are ~6% of rolls, so a few thousand finds plenty.
+		std::mt19937 rng(20260813u);
+		double plainCrit = 0.0, plainNormal = 0.0, pierceCrit = 0.0;
+		int nPlainCrit = 0, nPlainNormal = 0, nPierceCrit = 0;
+		for (int i = 0; i < 20000; ++i) {
+			const AttackResult a =
+				ResolveAttack({20.0f, 400.0f, DamageType{}, false}, def, rules, rng);
+			if (!a.hit) continue;
+			if (a.crit) { plainCrit += a.damage; ++nPlainCrit; }
+			else { plainNormal += a.damage; ++nPlainNormal; }
+		}
+		for (int i = 0; i < 20000; ++i) {
+			const AttackResult a =
+				ResolveAttack({20.0f, 400.0f, DamageType{}, true}, def, rules, rng);
+			if (a.hit && a.crit) { pierceCrit += a.damage; ++nPierceCrit; }
+		}
+		CheckTrue("the sample found criticals of both kinds",
+				  nPlainCrit > 50 && nPierceCrit > 50 && nPlainNormal > 100);
+		// THE RULE: a piercing critical keeps the soak an ordinary one loses.
+		CheckTrue("a piercing critical beats an ordinary one",
+				  nPlainCrit && nPierceCrit &&
+					  pierceCrit / nPierceCrit > plainCrit / nPlainCrit + 1.0);
+		// ...and does it by exactly the soak, not by some other multiplier that
+		// happened to be applied. The margins differ between the two samples, so
+		// this is bounded rather than exact — but a change of the RIGHT SIZE is
+		// what distinguishes "skipped the soak" from "got a bonus".
+		CheckTrue("...by about the soak it ignored",
+				  nPlainCrit && nPierceCrit &&
+					  std::abs((pierceCrit / nPierceCrit) -
+							   (plainCrit / nPlainCrit) - 8.0) < 2.0);
+		// NON-VACUOUS BY PAIRING: pierce must do nothing at all on a NON-critical,
+		// or the flag is just a damage bonus wearing a crit's name. Same seed,
+		// same rolls, so the two normal-hit averages are comparable.
+		{
+			std::mt19937 a(777u), b(777u);
+			double normalPlain = 0.0, normalPierce = 0.0;
+			int nA = 0, nB = 0;
+			for (int i = 0; i < 8000; ++i) {
+				const AttackResult ra =
+					ResolveAttack({20.0f, 400.0f, DamageType{}, false}, def, rules, a);
+				const AttackResult rb =
+					ResolveAttack({20.0f, 400.0f, DamageType{}, true}, def, rules, b);
+				if (ra.hit && !ra.crit) { normalPlain += ra.damage; ++nA; }
+				if (rb.hit && !rb.crit) { normalPierce += rb.damage; ++nB; }
+			}
+			CheckTrue("pierce changes nothing on an ordinary hit",
+					  nA == nB && std::abs(normalPlain - normalPierce) < 0.001);
+		}
+	}
+
+	// --- the fumble face travels ------------------------------------------------
+	// The plumbing the whole severity rule stands on: ResolveAttack must report
+	// WHICH face fumbled, and must report 0 when nothing did. A silent 0 here would
+	// make every fumble mild and the severe table dead code that still passes its
+	// own unit checks.
+	{
+		std::printf("\n--- the fumble face travels ---\n");
+		StrikeRules rules;
+		DefenseProfile def{0.0f, 0.0f, 0.0f};
+		std::mt19937 rng(4242u);
+		int fumbles = 0, faceInBand = 0, faceOnNonFumble = 0;
+		for (int i = 0; i < 20000; ++i) {
+			const AttackResult a =
+				ResolveAttack({10.0f, 50.0f, DamageType{}, false}, def, rules, rng);
+			if (a.fumble) {
+				++fumbles;
+				if (a.fumbleFace >= 1 &&
+					a.fumbleFace <= static_cast<int>(rules.fumbleThreshold))
+					++faceInBand;
+			} else if (a.fumbleFace != 0) {
+				++faceOnNonFumble;
+			}
+		}
+		CheckTrue("the sample fumbled at all", fumbles > 200);
+		Check("every fumble reported a face in the band",
+			  static_cast<double>(faceInBand), static_cast<double>(fumbles), 0.0);
+		Check("...and nothing else reported one at all",
+			  static_cast<double>(faceOnNonFumble), 0.0, 0.0);
 	}
 
 

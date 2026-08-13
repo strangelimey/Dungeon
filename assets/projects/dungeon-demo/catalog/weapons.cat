@@ -33,6 +33,22 @@ model = khukri
 ; its element as the flavour those effects arrive with: the same `on_hit = burn`
 ; is fire on the flamebrand below and a freezing burn on the frostbrand. An
 ; enchanted blade also glows on the floor in its element.
+;
+; WHAT THE DICE'S EXTREMES DO (docs/damage-system.md "When it goes wrong"):
+;   crit = pierce           a critical goes UNDER armour — soak ignored.
+;   on_fumble = <effects>   landed on the WIELDER, same form as on_hit.
+;   fumble = <consequences> what a fumble costs its thrower:
+;                             recover <mul>   the hand takes longer to come back
+;                             stumble <pts>   a burst of stamina, billed as exertion
+;                             drop            the weapon hits the floor at your feet
+;                             fling           ...or clatters into the next square
+;                             self_hit <frac> the blow lands on YOU instead
+;                             wild            ...or on whoever stands beside you
+;   fumble_severe = ...     the same, only at a die face of fumble_severe_face
+;                           or less (about 1 swing in 100).
+; BOTH fumble lines default from balance.cat when absent, so a weapon only
+; authors them to say something the default does not. An authored line REPLACES
+; its default rather than adding to it.
 [flamebrand]
 name = item.flamebrand
 category = weapon
@@ -84,8 +100,16 @@ command = stab, slash
 model = snake_dagger
 on_hit = bleed 2 8 0.45
 ; A critical with a saw-toothed edge opens a real wound — the same effect the
-; blade sometimes causes anyway, landed for certain and harder.
+; blade sometimes causes anyway, landed for certain and harder — and it finds
+; the gap between plates rather than trying to cut through them.
 on_crit = bleed 4 12
+crit = pierce
+; ...and the same teeth catch on the way back. A snagged blade costs more of the
+; beat than a clean one would, and at the very bottom of the band it opens the
+; hand that holds it as readily as anything else.
+fumble = recover 2.6
+fumble_severe = drop
+on_fumble = bleed 2 5 0.35
 
 [snake_dagger]
 name = item.snake_dagger
@@ -121,3 +145,11 @@ stats = str
 weight = 3.0
 holdable = 1
 command = bash, swing
+; THREE KILOS OF SWUNG WOOD fumbles nothing like a blade does. It has no edge to
+; find a gap with, so no `crit = pierce`; a mis-swing carries its own weight past
+; you rather than snagging, which is a long recovery and a wrenched shoulder; and
+; at the bottom of the band it goes right on round into whoever is beside you.
+; The default table would have had it slip out of the hand instead — which is the
+; point of a per-weapon table: a club is not dropped, it is followed.
+fumble = recover 3.0, stumble 4
+fumble_severe = wild

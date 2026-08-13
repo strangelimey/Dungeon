@@ -874,6 +874,36 @@ void Game::RegisterDevCommands() {
 							   share > 1.0f ? " — OVER-EXERTED" : ""));
 					   });
 
+	// THE PARTY'S SWING, from the console. `equip` and `wear` exist because the
+	// armor system was untestable without them; this is the same gap one step
+	// further on — every attack-side rule (the stance, crit pierce, and now the
+	// whole fumble consequence table) could only be reached by clicking a hand
+	// slot in the HUD, which no script drives reliably. A verb of "" takes the
+	// neutral attack, exactly as the hand menu's default does.
+	m_console.Register("swing", "attack with a member's hand (dev): swing <member> [hand] [verb]",
+					   [this](const std::vector<std::string>& args) {
+						   if (!Need(m_console, args, 1,
+									 "usage: swing <member 0-3> [hand 0/1] [verb]"))
+							   return;
+						   const size_t m =
+							   static_cast<size_t>(std::atoi(args[0].c_str()));
+						   if (m >= m_characters.size()) {
+							   m_console.Print("no such member");
+							   return;
+						   }
+						   const size_t hand = args.size() > 1
+							   ? static_cast<size_t>(std::atoi(args[1].c_str())) : 0;
+						   const std::string verb = args.size() > 2 ? args[2] : "";
+						   // Reports what the hand did rather than staying silent:
+						   // false means the swing never happened at all (down,
+						   // still on cooldown, rear rank without a polearm), which
+						   // is a different thing from a swing that missed and
+						   // otherwise looks identical from a script.
+						   m_console.Print(m_world.PartyAttack(m, hand, verb)
+											   ? "swung"
+											   : "that hand cannot swing now");
+					   });
+
 	// `equip` reaches a HAND; this reaches the doll — the only place worn armor
 	// counts (DungeonWorld::WornArmorClass). Without it there is no scriptable
 	// way to put armor ON a character, which made the whole armor system

@@ -501,6 +501,18 @@ DungeonWorld::MonsterKind& DungeonWorld::MonsterKindFor(const std::string& type)
 			ParseOnHit(def, assets->onHit, "monsters.cat [" + type + "]");
 			fx::ParseProcs(CatalogGet(def, "on_crit", ""), assets->onCrit,
 						   "monsters.cat [" + type + "]");
+			// What the dice's EXTREMES do. The fumble tables stay empty when
+			// unauthored rather than being filled with the default here — the
+			// default is resolved at the moment of the fumble, so a Balance
+			// dialog change to fumble_recover takes effect on the next swing
+			// instead of on the next level load.
+			assets->critPierce = CatalogGet(def, "crit", "") == "pierce";
+			fx::ParseProcs(CatalogGet(def, "on_fumble", ""), assets->onFumble,
+						   "monsters.cat [" + type + "]");
+			mishap::Parse(CatalogGet(def, "fumble", ""), assets->fumble,
+						  "monsters.cat [" + type + "]");
+			mishap::Parse(CatalogGet(def, "fumble_severe", ""),
+						  assets->fumbleSevere, "monsters.cat [" + type + "]");
 			// Melee reach in cells (Phase 7): 2 = a pike melees from its
 			// queue post down a clear shared row/column.
 			assets->reach = std::max(
@@ -840,6 +852,16 @@ DungeonWorld::ItemKind& DungeonWorld::ItemKindFor(const std::string& type) {
 		ParseOnHit(def, kind->onHit, "weapons.cat [" + type + "]");
 		fx::ParseProcs(CatalogGet(def, "on_crit", ""), kind->onCrit,
 					   "weapons.cat [" + type + "]");
+		// What the dice's EXTREMES do — `crit = pierce` on the way out, and the
+		// fumble tables on the way back at the wielder. Left empty when
+		// unauthored so the default resolves per swing (see the monster site).
+		kind->critPierce = CatalogGet(def, "crit", "") == "pierce";
+		fx::ParseProcs(CatalogGet(def, "on_fumble", ""), kind->onFumble,
+					   "weapons.cat [" + type + "]");
+		mishap::Parse(CatalogGet(def, "fumble", ""), kind->fumble,
+					  "weapons.cat [" + type + "]");
+		mishap::Parse(CatalogGet(def, "fumble_severe", ""), kind->fumbleSevere,
+					  "weapons.cat [" + type + "]");
 		// ENCHANTMENT: `element = fire` turns the weapon elemental — every
 		// landed blow adds `element_bonus` of its damage as that element, and
 		// the element becomes the FLAVOUR its on-hit effects arrive with (so

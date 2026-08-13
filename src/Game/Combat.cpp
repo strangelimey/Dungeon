@@ -54,6 +54,11 @@ AttackResult ResolveAttack(const AttackProfile& atk, const DefenseProfile& def,
 	const Opposed o = Resolve(atkBonus, defBonus, rr, rng);
 	result.crit = o.attack.crit;
 	result.fumble = o.attack.fumble;
+	// The face travels only when it MEANS something. Reporting the first face
+	// unconditionally would hand the consequence layer a number it then has to
+	// re-test `fumble` against anyway, giving mishap::Severe two ways to be
+	// asked the same question — and 0 is what says "no fumble was recorded".
+	if (o.attack.fumble) result.fumbleFace = o.attack.first;
 	result.margin = o.margin;
 
 	// A FUMBLE IS AUTOMATIC — "a roll of <= 5 is an automatic fumble", so it
@@ -89,8 +94,13 @@ AttackResult ResolveAttack(const AttackProfile& atk, const DefenseProfile& def,
 
 	std::uniform_real_distribution<float> jitter(1.0f - rules.damageJitter,
 												 1.0f + rules.damageJitter);
+	// PIERCE (weapons.cat `crit = pierce`): a critical with the right edge goes
+	// UNDER the armour, so soak is not subtracted at all. Resist still answers
+	// it — soak is a thing you WEAR and a gap can be found in it, while a
+	// resist is what the target IS and no edge finds a gap in that.
+	const float soak = (result.crit && atk.pierceOnCrit) ? 0.0f : def.soak;
 	float dmg =
-		(atk.damage * marginMul * jitter(rng) - def.soak) * (1.0f - def.resist);
+		(atk.damage * marginMul * jitter(rng) - soak) * (1.0f - def.resist);
 	// A landed blow always stings — but only a blow that got THROUGH. At resist
 	// 1 the result is exactly nothing (a fire golem takes no fire), and past 1
 	// it goes NEGATIVE: the target drinks the element and is healed by it.

@@ -29,6 +29,7 @@
 #include "Game/GameSettings.h"
 #include "Game/LoadQueue.h"
 #include "Game/Magic.h"
+#include "Game/Mishap.h" // fumble consequence tables on the kind structs
 #include "Game/MonsterAI.h"
 #include "Game/Party.h"
 #include "Game/Project.h"
@@ -1122,6 +1123,16 @@ private:
 		// landed by fx::ApplyProcs. The older one-per-line `poison =` /
 		// `bleed =` fields still load, appended as the same procs.
 		std::vector<fx::Proc> onHit;
+		// --- what the dice's extremes do (docs/damage-system.md) -------------
+		// `crit = pierce`: a critical goes under armour instead of through it.
+		bool critPierce = false;
+		// What a FUMBLE costs THIS monster — procs landed on itself
+		// (`on_fumble = bleed 1 4`) plus the named consequences
+		// (`fumble = recover 2.5`, `fumble_severe = self_hit 0.4`). An empty
+		// list takes the balance.cat default table; see Game/Mishap.h.
+		std::vector<fx::Proc> onFumble;
+		std::vector<mishap::Entry> fumble;
+		std::vector<mishap::Entry> fumbleSevere;
 		// Melee reach in cells (Phase 7, catalog `reach`): 1 = must be in the
 		// adjacent ring; 2 = a pike — melees from its QUEUE post down a clear
 		// shared row/column (the monster mirror of the party's rear-rank
@@ -1383,6 +1394,18 @@ private:
 		std::vector<fx::Proc> onHit;
 		// The same, but only on a CRITICAL (`on_crit = bleed 2 10`).
 		std::vector<fx::Proc> onCrit;
+		// --- what the dice's extremes do (docs/damage-system.md) -------------
+		// `crit = pierce`: a critical with this edge goes UNDER armour rather
+		// than through it — soak is not subtracted. The only crit consequence.
+		bool critPierce = false;
+		// What a FUMBLE with this weapon costs its WIELDER: procs landed on the
+		// attacker themselves (`on_fumble = bleed 1 4` — a blade that bites the
+		// hand holding it), plus the named consequences a status effect cannot
+		// express (`fumble = recover 2.5`, `fumble_severe = drop`). An empty
+		// list takes the balance.cat default table; see Game/Mishap.h.
+		std::vector<fx::Proc> onFumble;
+		std::vector<mishap::Entry> fumble;
+		std::vector<mishap::Entry> fumbleSevere;
 		// The defender side of a WORN piece (part 4): per-type resist cells
 		// plus a small flat soak, summed across the equipment slots.
 		ResistTable resists;
@@ -2090,6 +2113,32 @@ private:
 	// the cause reads before the effect. `quiet` is the DoT ticks' mode: no
 	// splat (a per-frame tick must not flash one every frame).
 	Fall WoundMember(Character& target, float damage, bool quiet = false);
+
+	// WHAT A FUMBLE COSTS THE PERSON WHO THREW IT (docs/damage-system.md "When
+	// it goes wrong"). `face` is the die face the fumble was judged on — at
+	// fumble_severe_face or below the severe table fires as well.
+	//
+	// Two functions rather than one taking an abstraction, deliberately: the six
+	// consequences act on inventories, stamina bars and neighbours, and the two
+	// sides of this game share none of those. It is the same split as
+	// PartyTarget/MonsterTarget, and it keeps the part that IS shared — WHICH
+	// entries fire — in the pure, tested mishap:: layer where it belongs.
+	//
+	// A consequence with nothing to act on is a NO-OP, never an error: `drop`
+	// with an empty hand, `stumble` on a monster that has no stamina bar. That
+	// is what lets one default table serve a knight, a bare fist and a claw.
+	void PartyFumble(Character& attacker, size_t hand, const ItemKind* weapon,
+					 const AttackProfile& atk, int face);
+	void MonsterFumble(Monster& monster, const AttackProfile& atk, int face);
+	// The consequence table a source actually uses: its own when it authored
+	// one, else the balance.cat default. Resolved per fumble so a Balance dialog
+	// change lands on the next swing rather than on the next level load.
+	std::vector<mishap::Entry> FumbleTable(const std::vector<mishap::Entry>& own,
+										   bool severe) const;
+	// Lay an item on the floor of a cell as a RUNTIME drop (negative id, saved
+	// as a `drop` diff) — NOT an .ent record, which is what an editor placement
+	// authors. Shared by the cursor drop and by a fumbled weapon.
+	void DropItemInCell(const std::string& typeId, int cx, int cz);
 	// A landed monster blow rolls its type's on-hit DoT (Phase 6): chance,
 	// then land/refresh the effect with its log line. No-op for dps 0.
 	// Strip a monster's effects (and with them its plume) — a corpse carries

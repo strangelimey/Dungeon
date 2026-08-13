@@ -135,6 +135,11 @@ struct DamageEvent {
 	// The attacker's opposed-roll bonus in d100 POINTS (only meaningful when
 	// `rolled`). Named for what it is: it is not a probability.
 	float attackBonus = 0.0f;
+	// The attacker's crit consequence (weapons.cat `crit = pierce`): on a
+	// critical, soak is not subtracted. Set by whoever assembled the blow,
+	// since only they know what swung it; ignored on an unrolled event, which
+	// has no critical to consequence.
+	bool pierceOnCrit = false;
 	Delivery delivery = Delivery::Melee;
 	// The roster index behind this damage (threat credit), or -1 for none —
 	// a monster's own blow, a wall, an unattributed tick.
@@ -152,6 +157,10 @@ struct DamageEvent {
 	bool crit = false;
 	bool fumble = false;
 	bool defenderFumbled = false;
+	// The face the fumble was judged on (0 when there was none) — HOW BADLY it
+	// went, which is what decides whether the severe consequence table also
+	// fires. See Game/Mishap.h; this module only carries it out.
+	int fumbleFace = 0;
 	int margin = 0;
 	float dealt = 0.0f;     // what actually reached hit points
 	// This event finished the target. The apply stage sets it; the CALLER says

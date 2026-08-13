@@ -176,6 +176,18 @@ struct AttackProfile {
 	// deviation of the dice themselves and 100 is decisive.
 	float attackBonus = 50.0f;
 	DamageType type{}; // what the defender resists it AS
+	// THE CRIT CONSEQUENCE (weapons.cat / monsters.cat `crit = pierce`): on a
+	// critical this blow goes UNDER the armour rather than through it, so soak
+	// is not subtracted. Authored per weapon, which is why it rides the profile
+	// rather than the rules — a saw-toothed edge finds the gap between plates
+	// and a club does not.
+	//
+	// Deliberately the ONLY crit consequence. A separate crit damage multiplier
+	// was specced and CUT: the margin already multiplies, and a critical already
+	// widens the margin because the re-roll adds to it. Two multipliers riding
+	// one lucky roll is exactly the compounding long tail marginCap exists to
+	// stop.
+	bool pierceOnCrit = false;
 };
 
 // A combatant's defensive response to ONE incoming strike. The caller resolves
@@ -217,6 +229,13 @@ struct AttackResult {
 	// What the dice did, for the narration and for the crit/fumble hooks (P8).
 	bool crit = false;   // the attack roll went open-ended
 	bool fumble = false; // the attack's first face was <= fumbleThreshold
+	// THE FACE that fumble was judged on (1..fumbleThreshold), 0 when there was
+	// no fumble. Carried out because HOW BADLY you fumbled is HOW BADLY you
+	// rolled: a 01 is a worse slip than a 05, and mishap::Severe reads this
+	// against a balance knob to decide whether the severe table also fires. It
+	// costs a second random draw to ask this question any other way, and the
+	// dice have already answered it.
+	int fumbleFace = 0;
 	// The DEFENDER botched their guard — a hit that landed because of it,
 	// rather than because the attack was good. Narration wants to tell those
 	// apart; the damage does not care.

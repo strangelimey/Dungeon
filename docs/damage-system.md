@@ -1,8 +1,8 @@
 # The damage system
 
 **Status:** BUILT on the `damage-system` branch (Michael, 2026-08-11;
-over-exertion 2026-08-13). Everything below is live except fumble
-consequences, which are still Michael's to design.
+over-exertion and the crit/fumble consequences 2026-08-13). Everything below is
+live.
 
 Rolemaster-shaped resolution, replacing the probability check the game
 shipped with. Attacker and defender each add a **d100** to a bonus and the
@@ -189,6 +189,130 @@ not what the bar could afford.
 full-commit mark. Left of the mark the fill is the ordinary accent; right of
 it, its own alarm colour — a different *kind* of spending deserves a different
 colour, not more of the same bar.
+
+## When it goes wrong (`Game/Mishap.h`)
+
+A fumble has always *decided* the exchange — the swing cannot land, whatever the
+bonus behind it — and then done nothing else. A critical has always fired its
+source's `on_crit` procs. This is what the two extremes cost beyond that.
+
+### The crit side is one word
+
+```
+crit = pierce
+```
+
+A critical with the right edge goes **under** the armour, so soak is not
+subtracted. Resists still answer it: soak is a thing you *wear* and a gap can be
+found in it, while a resist is what the target *is* and no edge finds a gap in
+that.
+
+A separate crit damage multiplier was specced and **cut**. The margin already
+multiplies, and a critical already widens the margin because the re-roll adds to
+it — two multipliers riding one lucky roll is exactly the compounding tail
+`margin_cap` exists to stop.
+
+### The fumble side is a table
+
+Two authored lines, plus a proc list for anything that genuinely *is* an effect:
+
+```
+on_fumble     = bleed 2 5 0.35   ; effects, landed on the WIELDER
+fumble        = recover 2.6      ; what a fumble costs its thrower
+fumble_severe = drop             ; ...and what a BAD one costs
+```
+
+`on_fumble` and `fumble` coexist rather than one subsuming the other, because a
+proc names an *effect* and lands it on a target, while the interesting fumbles
+are one-shot events against the attacker and the exchange that no status can
+express — "the weapon leaves your hand" is not a condition anyone is *in*.
+
+The vocabulary, all acting on the person who threw the swing:
+
+| token | does |
+|---|---|
+| `recover <mul>` | the hand takes longer to come back — the tempo consequence |
+| `stumble <pts>` | a burst of stamina, billed as **exertion** (so it feeds VIT and can reach health) |
+| `drop` | the weapon hits the floor at your feet |
+| `fling` | ...or clatters into a random adjacent walkable square |
+| `self_hit <frac>` | the blow you threw lands on **you** at a fraction of its force |
+| `wild` | ...or at full force on whoever stands beside you |
+
+A consequence with nothing to act on is a **no-op, never an error** — `drop`
+with an empty hand, `stumble` on a monster with no stamina bar. That is what
+lets one default table serve a knight, a bare fist and a claw.
+
+### Severity comes from the dice you already rolled
+
+**No second random draw.** The first face is already `1..fumble_threshold`, and
+a 01 is a worse slip than a 05. `mishap::Severe` reads that face against
+`fumble_severe_face`, so the mild table fires on every fumble and the severe one
+only at the bottom of the band:
+
+| | share of fumbles | share of swings |
+|---|---|---|
+| a fumble at all | — | 5% |
+| severe (face 1) | 1 in 5 | **1%** — about one every two or three fights |
+
+A property that falls out for free: widening `fumble_threshold` produces
+proportionally *more mild* fumbles, which is the right direction — a clumsier
+fighter flails more often without flailing more catastrophically.
+
+The face travels only when it means something (`AttackResult::fumbleFace` is 0
+when nothing fumbled), so `Severe` cannot be asked the same question two ways.
+That zero is also why it is a function and not an inline comparison: without the
+`face > 0` guard every unrolled event in the game reads as a severe fumble.
+
+### Defaults, and what an authored table means
+
+An authored line **replaces** its default outright rather than adding to it — a
+table you cannot turn off is not a table. But the two lines default
+*independently*, so a weapon that authors only `fumble` still gets the default
+severe one; most weapons want to say how they slip, not to redesign the disaster.
+
+The defaults live in **C++** (`mishap::DefaultFumble` / `DefaultSevere`) rather
+than in balance.cat, because a table is a vocabulary and not a number — the
+spells.cat rule. Their *numbers* are knobs and arrive as arguments, and the table
+is resolved at the moment of the fumble, so a Balance-dialog change to
+`fumble_recover` lands on the next swing rather than the next level load.
+
+The default is tempo and nothing else (`recover`), with `drop` at the bottom of
+the band. At 5% of every swing, what happens on *most* fumbles has to be
+survivable enough to shrug at.
+
+### Both sides fumble
+
+Monsters carry the same four fields. `PartyFumble` and `MonsterFumble` are two
+functions rather than one taking an abstraction, deliberately: the six
+consequences act on inventories, stamina bars and neighbours, and the two sides
+share none of those. It is the same split as `PartyTarget`/`MonsterTarget`, and
+it keeps the part that *is* shared — which entries fire — in the pure, tested
+`mishap::` layer. Three of the six are silent no-ops for a monster, which is
+exactly what lets every clawed creature in the game share the default table.
+
+A monster's `wild` catches the nearest adjacent monster, which is the reason
+that token was worth keeping on both sides: a swarm hurting itself in a corridor
+is the fumble a player most enjoys watching.
+
+**Deliberately NOT built:** consequences for a *defender's* fumble. The
+`defenderFumbled` flag exists and still just means the blow lands automatically.
+
+### Authoring, and why two weapons should not fumble alike
+
+```
+[serrated_blade]                    [club]
+on_crit       = bleed 4 12          fumble        = recover 3.0, stumble 4
+crit          = pierce              fumble_severe = wild
+on_fumble     = bleed 2 5 0.35
+fumble        = recover 2.6
+fumble_severe = drop
+```
+
+The saw edge finds a gap on the way out and catches on the way back, opening the
+hand that holds it. Three kilos of swung wood has no edge to find a gap with, so
+no `pierce`; a mis-swing carries its own weight *past* you rather than snagging —
+a long recovery and a wrenched shoulder — and at the bottom of the band it goes
+right on round into whoever is beside you. A club is not dropped, it is followed.
 
 ## Armor
 

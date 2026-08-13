@@ -210,6 +210,199 @@ float DungeonWorld::SpendStamina(Character& member, float points) {
 //
 // Narrated before the wound so the cause reads ahead of the effect it caused —
 // the same ordering the reaction stage uses.
+// ============================================================================
+// Fumble consequences (docs/damage-system.md "When it goes wrong").
+// ============================================================================
+
+std::vector<mishap::Entry>
+DungeonWorld::FumbleTable(const std::vector<mishap::Entry>& own,
+						  bool severe) const {
+	// An authored table REPLACES the default rather than adding to it — a table
+	// you cannot turn off is not a table. So a weapon that authors only
+	// `fumble` still gets the default SEVERE one, which is the common case: most
+	// weapons want to say how they slip, not to redesign the disaster.
+	if (!own.empty()) return own;
+	return severe ? mishap::DefaultSevere()
+				  : mishap::DefaultFumble(m_balance.fumbleRecover);
+}
+
+void DungeonWorld::DropItemInCell(const std::string& typeId, int cx, int cz) {
+	ItemKind& kind = ItemKindFor(typeId);
+	const Vec3 c = m_map.CellCenter(cx, cz);
+	const int slot = FreeItemSlotNear(cx, cz, c.x, c.z, -1);
+	// A RUNTIME drop (negative id), not an .ent record: a weapon knocked out of
+	// a hand is dynamic state that rides the save, exactly like the cursor drop
+	// beside it. Authoring a record would write it into the LEVEL.
+	m_items.push_back({&kind, m_nextDropId--, cx, cz, false, slot});
+	MarkSeen(cx, cz);
+}
+
+void DungeonWorld::PartyFumble(Character& attacker, size_t hand,
+							   const ItemKind* weapon, const AttackProfile& atk,
+							   int face) {
+	if (!m_roster) return;
+	const bool severe =
+		mishap::Severe(face, static_cast<int>(m_balance.fumbleSevereFace + 0.5f));
+
+	// The procs first — a blade that bites the hand holding it is an EFFECT, and
+	// it lands on the attacker like any other. The striker is already an
+	// fx::ITarget; nothing here is new machinery.
+	PartyTarget self{*this, attacker};
+	if (weapon && !weapon->onFumble.empty())
+		fx::ApplyProcs(self, weapon->onFumble, std::nullopt,
+					   /*source=*/-1, m_effects, m_combatRng);
+
+	const auto run = [&](const std::vector<mishap::Entry>& table) {
+		for (const mishap::Entry& e : table) switch (e.kind) {
+			case mishap::Kind::Recover:
+				// Off balance: the hand takes longer to come back. The one
+				// consequence every fumble can always deliver.
+				attacker.handCooldown[hand] *= std::max(1.0f, e.value);
+				MemberMessage(attacker,
+							  loc::Format("log.fumble_recover", attacker.name));
+				break;
+			case mishap::Kind::Stumble:
+				// Billed as EXERTION, so it feeds VIT's creep and can reach
+				// health on an empty bar like any other overspend.
+				MemberMessage(attacker,
+							  loc::Format("log.fumble_stumble", attacker.name));
+				SpendExertion(attacker, e.value / std::max(0.01f, m_balance.exertCost));
+				break;
+			case mishap::Kind::Drop:
+			case mishap::Kind::Fling: {
+				// Nothing in the hand is nothing to lose — a bare fist fumbles
+				// without disarming itself.
+				ItemSlot& held = attacker.inventory.Hand(static_cast<int>(hand));
+				if (held.Empty()) break;
+				const std::string id = held.typeId;
+				int cx = m_party.GridX(), cz = m_party.GridZ();
+				if (e.kind == mishap::Kind::Fling) {
+					// Somewhere adjacent and walkable, chosen from the cardinals
+					// that qualify — never diagonally (the grid rule), and never
+					// into stone, where it could not be picked up again.
+					std::array<int, 4> dirs{0, 1, 2, 3};
+					std::shuffle(dirs.begin(), dirs.end(), m_combatRng);
+					for (const int d : dirs) {
+						const int nx = cx + DirDX(static_cast<Direction>(d));
+						const int nz = cz + DirDZ(static_cast<Direction>(d));
+						if (m_map.IsWalkable(nx, nz)) { cx = nx; cz = nz; break; }
+					}
+				}
+				held = ItemSlot{};
+				DropItemInCell(id, cx, cz);
+				MemberMessage(attacker,
+							  loc::Format(e.kind == mishap::Kind::Fling
+											  ? "log.fumble_fling"
+											  : "log.fumble_drop",
+										  attacker.name,
+										  loc::Tr(ItemKindFor(id).nameKey)));
+				break;
+			}
+			case mishap::Kind::SelfHit: {
+				// The blow you just threw, landing on you at a fraction of its
+				// force. Through the ONE pipeline like everything else, so your
+				// own armour and resists answer it — and it is a Blow, so it can
+				// itself be evaded, crit, or (yes) fumbled away.
+				MemberMessage(attacker,
+							  loc::Format("log.fumble_self", attacker.name));
+				fx::DamageEvent ev = fx::DamageEvent::Blow(
+					atk.type, atk.damage * std::max(0.0f, e.value),
+					atk.attackBonus, -1);
+				fx::Deal(ev, self, m_balance.Strike(), m_combatRng);
+				self.NarrateFall();
+				break;
+			}
+			case mishap::Kind::Wild: {
+				// A wild swing catches whoever is standing beside you. The
+				// QUADRANTS are the ranks (roster 0-1 front, 2-3 rear), so the
+				// neighbour is the other member of your own rank — the one an
+				// arm's length away, not the one behind you.
+				const size_t me = static_cast<size_t>(&attacker - m_roster->data());
+				const size_t beside = me ^ 1u; // 0<->1, 2<->3
+				if (beside >= m_roster->size()) break;
+				Character& victim = (*m_roster)[beside];
+				if (!victim.IsAlive()) break;
+				MemberMessage(attacker, loc::Format("log.fumble_wild",
+													attacker.name, victim.name));
+				PartyTarget hit{*this, victim};
+				fx::DamageEvent ev = fx::DamageEvent::Blow(
+					atk.type, atk.damage, atk.attackBonus, -1);
+				fx::Deal(ev, hit, m_balance.Strike(), m_combatRng);
+				hit.NarrateFall();
+				break;
+			}
+			}
+	};
+	run(FumbleTable(weapon ? weapon->fumble : std::vector<mishap::Entry>{}, false));
+	if (severe)
+		run(FumbleTable(weapon ? weapon->fumbleSevere : std::vector<mishap::Entry>{},
+						true));
+}
+
+void DungeonWorld::MonsterFumble(Monster& monster, const AttackProfile& atk,
+								 int face) {
+	const bool severe =
+		mishap::Severe(face, static_cast<int>(m_balance.fumbleSevereFace + 0.5f));
+	MonsterTarget self{*this, monster};
+	if (!monster.kind->onFumble.empty())
+		fx::ApplyProcs(self, monster.kind->onFumble, std::nullopt, -1, m_effects,
+					   m_combatRng);
+
+	const auto run = [&](const std::vector<mishap::Entry>& table) {
+		for (const mishap::Entry& e : table) switch (e.kind) {
+			case mishap::Kind::Recover:
+				monster.attackCd *= std::max(1.0f, e.value);
+				break;
+			// A monster carries no inventory and no stamina bar, so three of the
+			// six have nothing to act on. They are silent no-ops rather than
+			// warnings: the DEFAULT severe table is `drop`, and every clawed
+			// creature in the game shares it.
+			case mishap::Kind::Stumble:
+			case mishap::Kind::Drop:
+			case mishap::Kind::Fling:
+				break;
+			case mishap::Kind::SelfHit: {
+				fx::DamageEvent ev = fx::DamageEvent::Blow(
+					atk.type, atk.damage * std::max(0.0f, e.value),
+					atk.attackBonus, -1);
+				fx::Deal(ev, self, m_balance.Strike(), m_combatRng);
+				if (!monster.Alive())
+					onMessage(loc::Format("log.monster_slain",
+										  loc::Tr("monster." + monster.kind->name)));
+				break;
+			}
+			case mishap::Kind::Wild: {
+				// The nearest OTHER monster in the adjacent ring wears it. Same
+				// mechanic as the party's, and it is the reason `wild` was worth
+				// keeping on this side: a swarm hurting itself in a corridor is
+				// the fumble a player most enjoys watching.
+				Monster* beside = nullptr;
+				for (Monster& m : m_monsters) {
+					if (&m == &monster || !m.Alive()) continue;
+					if (std::abs(m.x - monster.x) + std::abs(m.z - monster.z) != 1)
+						continue;
+					beside = &m;
+					break;
+				}
+				if (!beside) break;
+				MonsterTarget hit{*this, *beside};
+				fx::DamageEvent ev = fx::DamageEvent::Blow(atk.type, atk.damage,
+														   atk.attackBonus, -1);
+				fx::Deal(ev, hit, m_balance.Strike(), m_combatRng);
+				onMessage(loc::Format("log.fumble_wild_foe",
+									  loc::Tr("monster." + monster.kind->name),
+									  loc::Tr("monster." + beside->kind->name)));
+				if (!beside->Alive())
+					onMessage(loc::Format("log.monster_slain",
+										  loc::Tr("monster." + beside->kind->name)));
+				break;
+			}
+			}
+	};
+	run(FumbleTable(monster.kind->fumble, false));
+	if (severe) run(FumbleTable(monster.kind->fumbleSevere, true));
+}
+
 void DungeonWorld::SpendExertion(Character& member, float points) {
 	if (points <= 0.0f || !member.IsAlive()) return;
 	const float unpaid = SpendStamina(member, points * m_balance.exertCost);
@@ -737,17 +930,23 @@ void DungeonWorld::MonsterAttack(Monster& monster) {
 	// guard keeps the rest (docs/damage-system.md).
 	// Its POTENCY in what it deals (`powers`) scales the blow — a monster's whole
 	// answer to the skill a character trains, since it has none.
-	fx::DamageEvent ev = fx::DamageEvent::Blow(
-		monster.kind->damageType,
+	const AttackProfile atk{
 		m_balance.Potent(monster.kind->damage, monster.kind->powers,
 						 monster.kind->damageType),
-		monster.kind->accuracy * monster.kind->offense, victim);
+		monster.kind->accuracy * monster.kind->offense,
+		monster.kind->damageType, monster.kind->critPierce};
+	fx::DamageEvent ev =
+		fx::DamageEvent::Blow(atk.type, atk.damage, atk.attackBonus, victim);
+	ev.pierceOnCrit = atk.pierceOnCrit;
 	fx::Deal(ev, defender, m_balance.Strike(), m_combatRng);
 	TrainDefense(target, ev); // avoid on a miss, armor on a blunted hit
 
-	if (ev.fumble)
+	if (ev.fumble) {
 		MemberMessage(target, loc::Format("log.foe_fumbles", name));
-	else if (ev.crit && ev.hit)
+		// A monster's swing costs it too — the same tables, minus the three
+		// consequences a creature with no hands and no stamina cannot pay.
+		MonsterFumble(monster, atk, ev.fumbleFace);
+	} else if (ev.crit && ev.hit)
 		MemberMessage(target, loc::Format("log.foe_critical", name));
 	else if (ev.defenderFumbled)
 		MemberMessage(target, loc::Format("log.fumble_guard", target.name));
@@ -1158,7 +1357,9 @@ bool DungeonWorld::PartyAttack(size_t member, size_t hand, std::string_view verb
 			CurveValue(static_cast<float>(attacker.dexterity),
 					   m_balance.StatCurve()) +
 			spec->acc,
-		spec->type};
+		spec->type,
+		// `crit = pierce`: this edge finds the gap between the plates.
+		weapon && weapon->critPierce};
 	const std::string name = loc::Tr("monster." + target->kind->name);
 	PartyTarget striker{*this, attacker};
 	MonsterTarget defender{*this, *target};
@@ -1170,15 +1371,20 @@ bool DungeonWorld::PartyAttack(size_t member, size_t hand, std::string_view verb
 		m_balance.Potent(atk.damage, PartyPowers(attacker, static_cast<int>(hand)),
 						 atk.type),
 		atk.attackBonus, static_cast<int>(member));
+	ev.pierceOnCrit = atk.pierceOnCrit;
 	fx::Deal(ev, defender, m_balance.Strike(), m_combatRng);
 
 	// WHAT THE DICE DID, said before the outcome it caused. The open-ended roll
 	// has been driving damage since P2 and was invisible: a critical arrived as
 	// a big number with no explanation, and a fumble as an ordinary miss. The
 	// line is the point — a mechanic nobody can see is a mechanic nobody has.
-	if (ev.fumble)
+	if (ev.fumble) {
 		MemberMessage(attacker, loc::Format("log.fumble", attacker.name));
-	else if (ev.crit && ev.hit)
+		// ...and what that cost you, said after the line that announced it. The
+		// swing is over — it cannot land — so the consequences are the rest of
+		// this exchange, and `finish` below still bills any over-exertion.
+		PartyFumble(attacker, hand, weapon, atk, ev.fumbleFace);
+	} else if (ev.crit && ev.hit)
 		MemberMessage(attacker, loc::Format("log.critical", attacker.name));
 	else if (ev.defenderFumbled)
 		MemberMessage(attacker, loc::Format("log.foe_fumbles", name));

@@ -173,6 +173,17 @@ struct Balance {
 	// whole mechanic turns on; 3 is a first cut and expected to move.
 	float exertCost = 3.0f;
 	float exertMax = 2.0f;
+	// FUMBLE CONSEQUENCES (docs/damage-system.md "When it goes wrong"). A fumble
+	// fires its source's mild table; at a first face of fumble_severe_face or
+	// LESS it fires the severe one as well. At the default thresholds (fumble on
+	// 5, severe on 1) that is 5% of swings mild and 1% severe — about one
+	// disaster every two or three fights.
+	//
+	// fumble_recover is the DEFAULT table's number, not a global multiplier: it
+	// is the cooldown factor a source that authors no `fumble` of its own gets.
+	// A source with its own table never reads it.
+	float fumbleSevereFace = 1.0f;
+	float fumbleRecover = 2.2f;
 	// Death & revive (docs/combat.md Phase 5). 0 HP = UNCONSCIOUS: after
 	// stabilize_time seconds with no monster in aggro of the party, the member
 	// wakes at stabilize_health of max. DEAD needs deliberate overkill — one

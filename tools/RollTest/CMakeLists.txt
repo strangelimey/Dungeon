@@ -14,12 +14,18 @@
 # measure the copy. It was lifted out of DungeonWorld precisely so it could be
 # linked without the map, the monsters and the catalogs coming with it — so if
 # this ever stops linking, something world-shaped has been added to it.
+# Mishap.cpp is that same bargain once more: the fumble PARSER is what content
+# authors actually hit, and the severity rule decides how often a fight goes
+# sideways. What it deliberately does NOT hold — dropping a weapon, finding the
+# ally a wild swing catches — is the half that needs the world, and that half
+# stayed in DungeonWorld beside the effects adapters.
 add_executable(RollTest
 	Main.cpp
 	${CMAKE_SOURCE_DIR}/src/Game/Roll.cpp
 	${CMAKE_SOURCE_DIR}/src/Game/Combat.cpp
 	${CMAKE_SOURCE_DIR}/src/Game/Curve.cpp
 	${CMAKE_SOURCE_DIR}/src/Game/Defense.cpp
+	${CMAKE_SOURCE_DIR}/src/Game/Mishap.cpp
 	${CMAKE_SOURCE_DIR}/src/Game/Blast.cpp
 )
 # NOT linked, and the attempt is worth recording: pulling Balance.cpp in for the

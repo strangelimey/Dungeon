@@ -205,11 +205,12 @@ void Deal(DamageEvent& ev, ITarget& target, const StrikeRules& rules,
 		const DefenseProfile def{target.Evasion(ev.type),
 								 ev.soaked ? target.Soak() : 0.0f,
 								 ev.resisted ? target.Resist(ev.type) : 0.0f};
-		const AttackResult r = ResolveAttack({ev.amount, ev.attackBonus, ev.type},
-											 def, rules, rng);
+		const AttackResult r = ResolveAttack(
+			{ev.amount, ev.attackBonus, ev.type, ev.pierceOnCrit}, def, rules, rng);
 		ev.hit = r.hit;
 		ev.crit = r.crit;
 		ev.fumble = r.fumble;
+		ev.fumbleFace = r.fumbleFace;
 		ev.defenderFumbled = r.defenderFumbled;
 		ev.margin = r.margin;
 		damage = r.damage;
