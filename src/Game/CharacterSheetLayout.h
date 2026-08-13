@@ -17,16 +17,32 @@ inline gfx::Rect At(const gfx::Rect& px, float x, float y, float w, float h) {
 inline float Ax(const gfx::Rect& px, float x) { return px.x + x * px.w; }
 inline float Ay(const gfx::Rect& px, float y) { return px.y + y * px.h; }
 
+// THE PANEL IS 30% WIDER than it was (GameUI kSheetW 0.50 -> 0.65). It briefly
+// carried three columns — doll, defense numbers, backpack — but the numbers
+// moved to a hover TOOLTIP and the tab is two columns again: the backpack is
+// going to grow a lot of slots as the game does, and it should have the room
+// rather than a readout that is only wanted while you are looking at a
+// particular piece of armor.
+//
+// Every fraction here is of the PANEL, so widening it stretches all of them —
+// and a SIZE expressed as an x-fraction against an h-fraction stops being
+// square the moment the panel's aspect changes. That is the same axis-mixing
+// that made the HUD's hand boxes rectangular. So the width fractions of
+// anything SQUARE (doll cells, pack cells, the portrait, the mode buttons) are
+// divided by the growth factor below, which keeps them the pixel size they
+// already were; only the POSITIONS were re-laid.
+inline constexpr float kWiden = 0.50f / 0.65f; // old panel width / new
+
 // --- shared tab body columns ------------------------------------------------
-inline constexpr float kLeft = 0.072f;
+inline constexpr float kLeft = 0.055f;
 inline constexpr float kHeaderY = 0.325f;
 inline constexpr float kBodyTop = 0.375f;
 inline constexpr float kEmptyListY = 0.411f;
 
 // --- equipment paper doll ---------------------------------------------------
-inline constexpr float kEquipW = 0.092f;
+inline constexpr float kEquipW = 0.092f * kWiden;
 inline constexpr float kEquipH = 0.129f;
-inline constexpr float kDollStepX = 0.105f;
+inline constexpr float kDollStepX = 0.105f * kWiden;
 inline constexpr float kDollStepY = 0.146f;
 struct DollCell {
 	EquipSlot slot;
@@ -48,28 +64,47 @@ inline constexpr int kDollCellCount =
 	static_cast<int>(sizeof(kDollCells) / sizeof(kDollCells[0]));
 
 // --- pack row + backpack grid -----------------------------------------------
-inline constexpr float kPackW = 0.092f;
+inline constexpr float kPackW = 0.092f * kWiden;
 inline constexpr float kPackH = 0.129f;
-inline constexpr float kPackGapX = 0.013f;
+inline constexpr float kPackGapX = 0.013f * kWiden;
 inline constexpr float kPackGapY = 0.018f;
-inline constexpr float kPackX = 0.551f;
-inline constexpr int kPackCols = 4;
+// COLUMN 2 (of two). Right-aligned to the panel margin, so the grid's own edge
+// is the edge of the content however many columns it grows to.
+inline constexpr float kPackGridW =
+	6.0f * (0.092f * kWiden) + 5.0f * (0.013f * kWiden);
+inline constexpr float kPackX = 1.0f - 0.045f - kPackGridW;
+// Six across rather than four: the width freed by moving the defense readout
+// out goes to the pack, which is the half of this tab that grows.
+inline constexpr int kPackCols = 6;
 inline constexpr float kPackRowY = kBodyTop;
 inline constexpr float kPackSepY = 0.520f;
 inline constexpr float kPackY = 0.536f;
 
+// --- the defense TOOLTIP -----------------------------------------------------
+// The readout that used to be a column. It is a hover panel now, drawn in
+// PIXELS rather than panel fractions: a tooltip is placed against the thing it
+// explains, not against the sheet, so its geometry belongs in rem (UI/Units.h)
+// like every other piece of chrome sized by its own text.
+inline constexpr float kDollRight = kLeft + 2.3f * kDollStepX + kEquipW;
+inline constexpr float kTipPadRem = 0.6f;    // inside the panel edge
+inline constexpr float kTipRowRem = 1.35f;   // line pitch
+inline constexpr float kTipGapRem = 0.8f;    // between the two compared columns
+inline constexpr float kTipLabelRem = 6.5f;  // label column width
+inline constexpr float kTipValueRem = 5.0f;  // one value column width
+inline constexpr float kTipIconRem = 2.2f;   // the column-heading item icons
+
 // --- mode toggle buttons under the portrait ---------------------------------
 inline constexpr int kModeCount = 5;
-inline constexpr float kModeBtnW = 0.038f;
+inline constexpr float kModeBtnW = 0.038f * kWiden;
 inline constexpr float kModeBtnH = 0.054f;
-inline constexpr float kModeBtnGap = 0.006f;
-inline constexpr float kModeBtnX = 0.031f;
+inline constexpr float kModeBtnGap = 0.006f * kWiden;
+inline constexpr float kModeBtnX = 0.031f * kWiden;
 inline constexpr float kModeBtnY = 0.236f;
 
 // --- header portrait / name -------------------------------------------------
-inline constexpr float kPortraitX = 0.031f, kPortraitY = 0.036f;
-inline constexpr float kPortraitW = 0.128f, kPortraitH = 0.179f;
-inline constexpr float kNameX = 0.179f, kNameY = 0.054f;
+inline constexpr float kPortraitX = 0.031f * kWiden, kPortraitY = 0.036f;
+inline constexpr float kPortraitW = 0.128f * kWiden, kPortraitH = 0.179f;
+inline constexpr float kNameX = 0.179f * kWiden, kNameY = 0.054f;
 
 // --- stats / skills columns -------------------------------------------------
 inline constexpr float kLabelX = 0.072f;
@@ -88,7 +123,7 @@ inline constexpr float kSkillBarW = 0.436f;
 // --- list scroll band -------------------------------------------------------
 inline constexpr float kScrollTop = 0.368f;
 inline constexpr float kScrollBottomPad = 0.021f;
-inline constexpr float kScrollBarW = 0.013f;
+inline constexpr float kScrollBarW = 0.013f * kWiden;
 // In REM (UI/Units.h) — the sheet's chrome tracks its own text size.
 inline constexpr float kScrollBarPadRem = 0.2f;
 inline constexpr float kScrollThumbMinRem = 1.1f;

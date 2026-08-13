@@ -25,6 +25,23 @@ function Key([int]$vk) {
 	Start-Sleep -Milliseconds 250
 }
 
+# Types a string into whatever has focus (the dev console, a text field). Posts
+# WM_CHAR per character rather than key-downs, which is what Input::OnChar
+# actually reads — so this handles SHIFTED characters, underscores included. (A
+# Key-only approach cannot: PostMessage delivers no shift state, which is why
+# `wear plate_cuirass 0` was long believed undrivable from a script.)
+#
+# NOT named Type: that is a built-in PowerShell alias for Get-Content, and a
+# function by that name is silently shadowed — "cast 0 fire" comes back as
+# "cannot find path .../cast 0 fire" instead of typing anything.
+function Send([string]$text) {
+	foreach ($ch in $text.ToCharArray()) {
+		[Win]::PostMessage($script:hwnd, 0x102, [IntPtr][int]$ch, [IntPtr]1) | Out-Null
+		Start-Sleep -Milliseconds 30
+	}
+	Start-Sleep -Milliseconds 150
+}
+
 function Click([int]$x, [int]$y) {
 	$l = [IntPtr](($y -shl 16) -bor ($x -band 0xFFFF))
 	[Win]::PostMessage($script:hwnd, 0x200, [IntPtr]0, $l) | Out-Null # WM_MOUSEMOVE

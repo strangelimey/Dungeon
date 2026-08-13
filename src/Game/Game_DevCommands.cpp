@@ -660,6 +660,23 @@ void Game::RegisterDevCommands() {
 						   }
 						   for (const std::string& l : list) m_console.Print("  " + l);
 					   });
+	m_console.Register("smash",
+					   "damage what is breakable in a cell (dev): smash <x> <z> [amount]",
+					   [this](const std::vector<std::string>& args) {
+						   if (!Need(m_console, args, 2,
+									 "usage: smash <x> <z> [amount]"))
+							   return;
+						   const int x = std::atoi(args[0].c_str());
+						   const int z = std::atoi(args[1].c_str());
+						   const float amount =
+							   args.size() > 2 ? std::strtof(args[2].c_str(), nullptr)
+											   : 100.0f;
+						   const int n = m_world.SmashAt(x, z, amount);
+						   m_console.Print(
+							   n > 0 ? std::format("struck {} breakable(s) at {},{}", n,
+												   x, z)
+									 : std::format("nothing breakable at {},{}", x, z));
+					   });
 	m_console.Register("press", "toggle the button in cell x,z (exercises save)",
 					   [this](const std::vector<std::string>& args) {
 						   if (!Need(m_console, args, 2, "usage: press <x> <z>")) return;
@@ -818,6 +835,129 @@ void Game::RegisterDevCommands() {
 							   m_console.Print(std::format("{} pack += {}",
 														   m_characters[m].name, args[0]));
 					   });
+	// The offense/defense split before its slider exists
+	// (docs/damage-system.md). Worth keeping once the UI lands: setting an
+	// exact share is how the split gets MEASURED, where dragging a slider is
+	// how it gets FELT, and those are different questions.
+	m_console.Register("guard", "set a hand's offense share 0..N (dev)",
+					   [this](const std::vector<std::string>& args) {
+						   if (!Need(m_console, args, 1,
+									 "usage: guard <share 0..N> [member 0-3]"))
+							   return;
+						   const float share =
+							   static_cast<float>(std::atof(args[0].c_str()));
+						   const size_t m = args.size() > 1
+							   ? static_cast<size_t>(std::atoi(args[1].c_str())) : 0;
+						   if (m >= m_characters.size()) {
+							   m_console.Print("no such member");
+							   return;
+						   }
+						   // Deliberately NO upper clamp, unlike the slider (which
+						   // stops at exert_max): this is how a stance past what
+						   // the UI allows gets tried at all.
+						   if (share < 0.0f) {
+							   m_console.Print("share cannot be negative");
+							   return;
+						   }
+						   Character& c = m_characters[m];
+						   c.offenseShare = share;
+						   // The held-back share is reported UNCLAMPED, because a
+						   // negative one is the whole point past 1 — the guard
+						   // becomes a penalty, and a readout that floored it at
+						   // 0% would say an over-exerted stance and an all-out
+						   // one were the same thing.
+						   const float held = (1.0f - share) * 100.0f;
+						   m_console.Print(std::format(
+							   "{} offense {:.2f} (guarding with {:.0f}% of hand "
+							   "skill{})",
+							   c.name, share, held,
+							   share > 1.0f ? " — OVER-EXERTED" : ""));
+					   });
+
+	// THE PARTY'S SWING, from the console. `equip` and `wear` exist because the
+	// armor system was untestable without them; this is the same gap one step
+	// further on — every attack-side rule (the stance, crit pierce, and now the
+	// whole fumble consequence table) could only be reached by clicking a hand
+	// slot in the HUD, which no script drives reliably. A verb of "" takes the
+	// neutral attack, exactly as the hand menu's default does.
+	m_console.Register("swing", "attack with a member's hand (dev): swing <member> [hand] [verb]",
+					   [this](const std::vector<std::string>& args) {
+						   if (!Need(m_console, args, 1,
+									 "usage: swing <member 0-3> [hand 0/1] [verb]"))
+							   return;
+						   const size_t m =
+							   static_cast<size_t>(std::atoi(args[0].c_str()));
+						   if (m >= m_characters.size()) {
+							   m_console.Print("no such member");
+							   return;
+						   }
+						   const size_t hand = args.size() > 1
+							   ? static_cast<size_t>(std::atoi(args[1].c_str())) : 0;
+						   const std::string verb = args.size() > 2 ? args[2] : "";
+						   // Reports what the hand did rather than staying silent:
+						   // false means the swing never happened at all (down,
+						   // still on cooldown, rear rank without a polearm), which
+						   // is a different thing from a swing that missed and
+						   // otherwise looks identical from a script.
+						   m_console.Print(m_world.PartyAttack(m, hand, verb)
+											   ? "swung"
+											   : "that hand cannot swing now");
+					   });
+
+	// `equip` reaches a HAND; this reaches the doll — the only place worn armor
+	// counts (DungeonWorld::WornArmorClass). Without it there is no scriptable
+	// way to put armor ON a character, which made the whole armor system
+	// untestable except by dragging things in the sheet.
+	m_console.Register("wear", "put an item in its worn doll slot (dev)",
+					   [this](const std::vector<std::string>& args) {
+						   if (!Need(m_console, args, 1,
+									 "usage: wear <item id|none> [member 0-3]"))
+							   return;
+						   const size_t m = args.size() > 1
+							   ? static_cast<size_t>(std::atoi(args[1].c_str())) : 0;
+						   if (m >= m_characters.size()) {
+							   m_console.Print("no such member");
+							   return;
+						   }
+						   Character& c = m_characters[m];
+						   if (args[0] == "none") {
+							   // Strip the worn doll, hands untouched — the
+							   // quickest way back to a bare-skinned baseline
+							   // for comparing against armored numbers.
+							   for (int i = 0; i < kEquipCount; ++i) {
+								   if (i == static_cast<int>(EquipSlot::LeftHand) ||
+									   i == static_cast<int>(EquipSlot::RightHand))
+									   continue;
+								   c.inventory.equipment[static_cast<size_t>(i)].typeId.clear();
+							   }
+							   m_console.Print(std::format("{} is unarmored", c.name));
+							   return;
+						   }
+						   if (!m_project.HasItem(args[0])) {
+							   m_console.Print(std::format(
+								   "no item '{}' in items/weapons/armor", args[0]));
+							   return;
+						   }
+						   // The item says where it goes — the same rule the
+						   // paper doll enforces, so the console cannot put
+						   // something somewhere the UI would refuse.
+						   const WearSlot w = m_itemCategories.WornAt(args[0]);
+						   if (w == WearSlot::None) {
+							   m_console.Print(std::format(
+								   "'{}' has no `wear` slot — hold it instead (equip)",
+								   args[0]));
+							   return;
+						   }
+						   for (int i = 0; i < kEquipCount; ++i) {
+							   const EquipSlot slot = static_cast<EquipSlot>(i);
+							   if (!WearSlotFits(w, slot)) continue;
+							   c.inventory.equipment[static_cast<size_t>(i)].typeId = args[0];
+							   m_console.Print(std::format("{} wears {} ({})", c.name,
+														   args[0], WearSlotId(w)));
+							   return;
+						   }
+					   });
+
 	// `give` fills the pack; this puts a weapon straight in a hand, which is
 	// what a combat test actually needs (no cursor drag, no HUD clicking).
 	m_console.Register("equip", "put an item in a member's hand (dev)",

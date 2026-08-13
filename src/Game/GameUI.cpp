@@ -531,7 +531,9 @@ void GameUI::BuildMenuList() {
 	// half each with just Start + Settings). Bounds are window fractions.
 	const bool hasSaves = !ListSaves().empty();
 	m_menuHasSaves = hasSaves;
-	const int itemCount = hasSaves ? 4 : 2;
+	// +1 for Exit, which is always present: it is the ONLY pointer-driven way out
+	// of the title screen now that Esc no longer quits (see Game.cpp's Menu case).
+	const int itemCount = (hasSaves ? 4 : 2) + 1;
 	constexpr float kMenuW = 0.26f;   // ~420/1600
 	constexpr float kItemH = 0.064f;  // ~58/900
 	const float menuH = kItemH * static_cast<float>(itemCount);
@@ -560,6 +562,12 @@ void GameUI::BuildMenuList() {
 	menu->AddItem(loc::Tr("menu.settings"), [this] {
 		Click();
 		m_menuPage = MenuPage::Settings;
+	});
+	// Exit LAST, the way the pause menu ends with it. Deliberately the only click
+	// that quits from here, since Esc no longer does.
+	menu->AddItem(loc::Tr("menu.exit"), [this] {
+		Click();
+		onQuit();
 	});
 }
 
@@ -1182,7 +1190,10 @@ void GameUI::DisarmOverwrite() {
 void GameUI::BuildCharacterSheet() {
 	// Parent-relative layout (fractions of the window) — no design-pixel Norm.
 	// Centered panel, slightly above geometric center so the footer buttons fit.
-	constexpr float kSheetW = 0.50f;
+	// 30% wider than it was, so the backpack tab has room for three real
+	// columns: paper doll, defense numbers, backpack (CharacterSheetLayout.h
+	// kWiden, which keeps the square cells square through the change).
+	constexpr float kSheetW = 0.65f;
 	constexpr float kSheetH = 0.62f;
 	constexpr float kSheetX = (1.0f - kSheetW) * 0.5f;
 	constexpr float kSheetY = (1.0f - kSheetH) * 0.5f - 0.03f;
@@ -1206,6 +1217,12 @@ void GameUI::BuildCharacterSheet() {
 	m_sheet->onRejectHold = [this](const std::string& item) {
 		m_audio.Play(m_sounds.bump, 0.5f);
 		AddLogLine(loc::Format("log.cant_hold", loc::Tr("item." + item)));
+	};
+	m_sheet->defenseFor = [this](const Character& c) {
+		return defenseFor ? defenseFor(c) : DefenseReadout{};
+	};
+	m_sheet->defenseWith = [this](const Character& c, const std::string& id) {
+		return defenseWith ? defenseWith(c, id) : DefenseReadout{};
 	};
 	// Right-clicked backpack slot → its use menu (a rune memorizes from the
 	// pack too, not just a hand).
@@ -1555,6 +1572,9 @@ void GameUI::BuildHud() {
 	deps.onMove = [this](MoveAction action) { onMoveAction(action); };
 	deps.onHandLeft = [this](size_t i, size_t hand) { OnHandLeftClick(i, hand); };
 	deps.onHandRight = [this](size_t i, size_t hand) { OnHandRightClick(i, hand); };
+	deps.onGuardChange = [this](size_t i, float share) {
+		if (onGuardChange) onGuardChange(i, share);
+	};
 	deps.magicLabel = loc::Tr("hud.magic");
 	auto* controlBar = m_belowBar->Add<ControlBar>(
 		gfx::Rect{kPanelX, 0.0f, kPanelW, panelH / kBelowSpan}, deps);

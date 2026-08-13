@@ -411,6 +411,8 @@ void Game::LoadItemIcons() {
 		m_itemCategories.acceptsByType[def.id] = splitList(def.Get("accepts", ""));
 		if (def.GetBool("holdable", false))
 			m_itemCategories.holdableTypes.insert(def.id);
+		if (WearSlot w{}; ParseWearSlot(def.Get("wear", ""), w))
+			m_itemCategories.wearByType[def.id] = w;
 	}
 
 	// Equipment-slot outline silhouettes (slot_<type>.png), the ghost behind an
@@ -547,6 +549,7 @@ void Game::SaveGame(const std::string& name) {
 		c.baseStamina = member.baseStamina;
 		c.baseMana = member.baseMana;
 		c.dead = member.dead; // the overkill flag (v18)
+		c.offenseShare = member.offenseShare; // the stance (v23)
 		data.characters.push_back(std::move(c));
 	}
 	WriteSave(data, SaveSlotPath(name));
@@ -634,6 +637,9 @@ bool Game::LoadGame(const std::string& path) {
 		// current values arrived above and clamp/carry as usual.
 		const Balance& bal = m_world.GetBalance();
 		Character& member = m_characters[i];
+		// The offense stance (v23). A pre-v23 save leaves the CharState at its
+		// 1.0 default, which is exactly what those saves meant: all-out.
+		member.offenseShare = c.offenseShare;
 		if (c.hasBases) {
 			member.baseHealth = c.baseHealth;
 			member.baseStamina = c.baseStamina;
@@ -990,22 +996,37 @@ void Game::Update(float dt) {
 
 	switch (m_state) {
 	case AppState::Loading:
-		if (!consoleOwnsInput && input.WasKeyPressed(VK_ESCAPE)) m_quitRequested = true;
+		// No Esc handling at all: ESC NEVER QUITS, in any state (Michael,
+		// 2026-08-11). See the Menu case below for why. A loading screen shows no
+		// Exit button, so during a load the ways out are the console's
+		// `quit`/`exit` and the window's own close button — which is independent of
+		// all of this (Window.cpp's WM_CLOSE sets m_closed), so a load can never
+		// become unquittable.
 		if (RunLoadTasks()) m_state = AppState::Menu;
 		return;
 
 	case AppState::Menu:
 		// The menu sits on baked title art; nothing in the world simulates.
-		// Esc backs out of settings, or quits from the landing list — unless
-		// a key-bind box is armed, where Esc just cancels the capture.
-		if (input.WasKeyPressed(VK_ESCAPE) && !m_ui.KeyCaptureActive()) {
-			if (!m_ui.CloseSettingsPage()) m_quitRequested = true;
-		}
+		// Esc backs out of settings — and does NOTHING on the landing list, where
+		// it used to QUIT (Michael, 2026-08-11). ESC NEVER QUITS, IN ANY STATE:
+		// quitting is deliberate, and means an Exit entry (landing or pause) or
+		// `quit`/`exit` in the console.
+		//
+		// It read as a crash, which is why it went. A party wipe drops you here,
+		// and a reflexive Esc at a screen that had just appeared by itself killed
+		// the process with no confirmation and no log line — indistinguishable
+		// from the game falling over. Nothing about "back out" should be able to
+		// end the process, which is why the two LOADING states lost it too rather
+		// than keeping it as an abort hatch.
+		//
+		// (Key-bind capture still swallows Esc first, to cancel the capture.)
+		if (input.WasKeyPressed(VK_ESCAPE) && !m_ui.KeyCaptureActive())
+			m_ui.CloseSettingsPage();
 		m_ui.UpdateMenu(input);
 		return;
 
 	case AppState::LoadingGame:
-		if (!consoleOwnsInput && input.WasKeyPressed(VK_ESCAPE)) m_quitRequested = true;
+		// (no Esc quit — see AppState::Loading)
 		if (RunLoadTasks()) {
 			m_gameLoaded = true;
 			if (!m_pendingLoadPath.empty()) {

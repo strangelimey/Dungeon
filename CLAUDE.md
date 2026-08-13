@@ -743,11 +743,20 @@ to 2k with a warning if 4k not installed.
 ## Game state machine
 
 Loading (staged tasks, one per frame, progress screen) → Menu (baked title
-art title_bg, MenuList: Continue/Load/Start New Game/Settings — Continue/Load
+art title_bg, MenuList: Continue/Load/Start New Game/Settings/Exit — Continue/Load
 appear only when a save exists; all entries work) → Playing ⇄ Paused (Esc in-game freezes
 the world and shows Save/Load/Settings/Exit/Back over the scene; Esc backs
-out / resumes). Esc on the landing page quits; in-game quit is the pause
-menu's Exit (Game::QuitRequested polled by the main loop). During the three
+out / resumes). QUITTING IS ALWAYS DELIBERATE (Michael, 2026-08-11): an Exit
+entry (landing or pause) or the console's `quit`/`exit`. **ESC NEVER QUITS, IN
+ANY STATE** — it only backs out (settings page, pause, sheet, overlays) and does
+nothing on the landing list. It used to quit from the landing list AND from both
+LOADING states, which read as a CRASH: a party wipe drops you on the title
+screen, and a reflexive Esc at a screen that appeared by itself killed the
+process with no confirmation and no log line. During a load, where no Exit button
+is up, the ways out are the console and the WINDOW'S OWN CLOSE BUTTON — which is
+independent of all this (Platform/Window.cpp's WM_CLOSE sets m_closed), so no
+state can ever be unquittable. Everything else routes through
+Game::QuitRequested, polled by the main loop. During the three
 loading states the world is only PARTIALLY built (the HUD log, meshes,
 monsters arrive task by task), so dev-console COMMANDS are gated off
 (DevConsole::SetCommandsEnabled — Enter prints a notice; a `cast` mid-load

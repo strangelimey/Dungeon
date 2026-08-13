@@ -135,7 +135,7 @@ DungeonWorld::DungeonWorld(gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 			return true;
 		}
 		for (const Decoration& deco : m_decorations) {
-			if (deco.solid && deco.x == x && deco.z == z) {
+			if (deco.Blocks() && deco.x == x && deco.z == z) {
 				m_audio.Play(m_sounds.bump, 0.7f);
 				onMessage(loc::Tr("log.decoration_blocks"));
 				return true;
@@ -157,10 +157,18 @@ DungeonWorld::DungeonWorld(gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	// Rebuilt every frame into retained capacity — no steady-state allocation.
 	m_lights.points.reserve(gfx::kMaxPointLights);
 
+	// The damage types themselves (docs/damage-system.md) — the vocabulary
+	// everything below is written in, so it is built before all of it.
+	m_damageTypes.Build(m_project.damagetypes);
+	if (!m_damageTypes.Find("bash", m_bashType))
+		log::Warn("damagetypes.cat defines no 'bash' type; collisions (wall "
+				  "bumps, pit landings) will deal '{}' instead",
+				  m_damageTypes.Id(m_bashType));
+
 	// The attack formula's tuning (docs/combat.md): knob sheet + per-attack
 	// numbers from the project's balance.cat/attacks.cat (missing files keep
 	// the C++ first-cut defaults). Magic reads it too (spell_stat).
-	m_balance.Load(m_project.balance, m_project.attacks);
+	m_balance.Load(m_project.balance, m_project.attacks, m_damageTypes);
 
 	// Magic system: build the spell registry (the Spell classes + the
 	// project's spells.cat numeric overrides), and wire the CAST SERVICES —
@@ -169,9 +177,9 @@ DungeonWorld::DungeonWorld(gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	// Status effects (docs/effects.md): the kind registry — every class in
 	// Game/Effect/ plus the project's effects.cat overrides. Built BEFORE the
 	// cast services, which hand spells an applyEffect resolving through it.
-	m_effects.Build(m_project.effects);
+	m_effects.Build(m_project.effects, m_damageTypes);
 
-	m_magic.LoadSpells(m_project.spells);
+	m_magic.LoadSpells(m_project.spells, m_damageTypes);
 	m_magic.SetBalance(&m_balance);
 	m_magic.SetCastServices(
 		{[this](const ProjectileSpec& bolt) { m_projectiles.Spawn(bolt); },
@@ -211,7 +219,9 @@ DungeonWorld::DungeonWorld(gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 		}
 		return false;
 	};
-	m_projectiles.onFizzle = [this](const Vec3&) { m_audio.Play(m_sounds.spellFizzle, 0.6f); };
+	m_projectiles.onExpire = [this](const ProjectileExpiry& expiry) {
+		ResolveProjectileExpiry(expiry);
+	};
 }
 
 // ============================================================================
@@ -382,6 +392,7 @@ void DungeonWorld::Update(const Input& input, float dt, float time, bool acceptI
 	}
 	UpdateMonsters(dt);
 	m_projectiles.Update(dt); // fly bolts, resolve impacts/fizzles via the hooks
+	UpdateBlasts(dt);         // advance live blasts a tick at their own speed
 	UpdateLights(time);
 	UpdateCamera();
 
@@ -483,8 +494,20 @@ void DungeonWorld::SetLevelAtmosphere(const std::string& stem, float dust,
 std::vector<std::string> DungeonWorld::MonsterList() const {
 	std::vector<std::string> out;
 	out.reserve(m_monsters.size());
-	for (const Monster& m : m_monsters)
-		out.push_back(std::format("{} @ {},{}", m.kind ? m.kind->name : "?", m.x, m.z));
+	for (const Monster& m : m_monsters) {
+		// Cell, HEALTH and the EFFECTS it is carrying. The last two were added
+		// because the list used to say only what a monster was and where, which
+		// cannot answer the question the console is usually open to answer — did
+		// that blow land, and did it leave anything behind. An effect's remaining
+		// seconds is the part that says it is still running.
+		std::string line = std::format("{} @ {},{}  hp {:.0f}",
+									   m.kind ? m.kind->name : "?", m.x, m.z, m.hp);
+		if (!m.Alive()) line += " (dead)";
+		for (const fx::Inst& e : m.effects)
+			line += std::format("  [{} {:.1f} {:.1f}s]", e.Id(), e.magnitude,
+								e.timeLeft);
+		out.push_back(std::move(line));
+	}
 	return out;
 }
 
@@ -1337,7 +1360,7 @@ bool DungeonWorld::BrazierAt(int cx, int cz) const {
 
 bool DungeonWorld::SolidDecorationAt(int cx, int cz) const {
 	for (const Decoration& deco : m_decorations)
-		if (deco.solid && deco.x == cx && deco.z == cz) return true;
+		if (deco.Blocks() && deco.x == cx && deco.z == cz) return true;
 	return false;
 }
 
@@ -1707,7 +1730,7 @@ void DungeonWorld::BuildAISnapshot() {
 	// the cached grid: an editor placement takes effect on the next snapshot with
 	// no invalidation to get wrong.
 	for (const Decoration& deco : m_decorations)
-		if (deco.solid)
+		if (deco.Blocks())
 			snap->blocked[static_cast<size_t>(deco.z) * snap->mapW + deco.x] = 1;
 	// Closed doors block like solid decorations — and for the same reason they
 	// live in the per-frame grid, not the cached one: opening one must take

@@ -167,6 +167,23 @@ SaveData::LevelState DungeonWorld::SnapshotActive() const {
 	for (const WallNiche& n : m_map.Niches())
 		if (n.open != !n.hidden)
 			ls.niches.push_back({n.x, n.z, static_cast<int>(n.wall), n.open});
+	// Smashed props (v24). Decorations are STATIC .map records, so being broken is
+	// dynamic state and belongs here — the same split `seen` makes. Keyed by cell +
+	// type, never by index: an index survives only until the editor inserts a record
+	// ahead of it. This is also why a broken prop keeps its place in m_decorations
+	// rather than being erased — an erased record could not be named here.
+	for (const Decoration& d : m_decorations)
+		if (d.Gone()) ls.broken.push_back({d.x, d.z, d.kind->id});
+	// Doors too, even though they DO ride `entities`: that only carries open/closed,
+	// and a broken door is not merely an open one — it can never be shut again, and
+	// must not come back at full hp to be broken a second time. Same record, same
+	// key, so both kinds restore through one path.
+	for (const Door& d : m_doors)
+		if (d.brk.broken) ls.broken.push_back({d.x, d.z, d.type});
+	// Fixtures, from the side-table their damage state lives in. The WALL matters
+	// here and nowhere else: two sconces can share a cell.
+	for (const FixtureBreak& fb : m_fixtureBreaks)
+		if (fb.brk.broken) ls.broken.push_back({fb.x, fb.z, fb.type, fb.wall});
 	return ls;
 }
 
@@ -311,6 +328,38 @@ void DungeonWorld::ApplyActiveSnapshot() {
 	for (const SaveData::NicheOpen& n : ls.niches)
 		if (m_map.SetNicheOpenAt(n.x, n.z, static_cast<Direction>(n.wall), n.open))
 			RebuildChunksAround(n.x, n.z);
+	// Re-break what was broken (v24). A saved entry naming a prop this level no
+	// longer has is simply dropped — the level was edited under the save, and a
+	// missing prop is exactly the outcome the entry wanted anyway.
+	for (const SaveData::BrokenProp& b : ls.broken) {
+		bool found = false;
+		for (Decoration& d : m_decorations)
+			if (d.x == b.x && d.z == b.z && d.kind->id == b.type) {
+				d.brk.broken = true;
+				d.brk.hp = 0.0f;
+				found = true;
+				break;
+			}
+		if (found) continue;
+		for (Door& d : m_doors)
+			if (d.x == b.x && d.z == b.z && d.type == b.type) {
+				d.brk.broken = true;
+				d.brk.hp = 0.0f;
+				d.open = true; // the way stays open, and stays unclosable
+				d.openT = 1.0f;
+				found = true;
+				break;
+			}
+		if (found) continue;
+		for (FixtureBreak& fb : m_fixtureBreaks)
+			if (fb.x == b.x && fb.z == b.z && fb.type == b.type &&
+				fb.wall == b.wall) {
+				fb.brk.broken = true;
+				fb.brk.hp = 0.0f;
+				DouseFixture(fb); // and it comes back DARK, not merely broken
+				break;
+			}
+	}
 	m_levelStates.erase(it); // the live state is authoritative now
 }
 

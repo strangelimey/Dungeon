@@ -6,3 +6,7 @@ add_executable(DiagTest
 	Main.cpp
 )
 target_link_libraries(DiagTest PRIVATE Core)
+
+# Solution Explorer: headers visible, folders mirrored (dn_ide_layout, root
+# CMakeLists). MUST be called here — source_group is directory-scoped.
+dn_ide_layout(DiagTest ${CMAKE_CURRENT_SOURCE_DIR})

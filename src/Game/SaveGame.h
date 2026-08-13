@@ -32,6 +32,11 @@ namespace dungeon::game {
 
 // The serializable dynamic state of one in-progress game.
 struct SaveData {
+	// v23: per-member OFFENSE SHARE ("share <i> <value>", the 0..N stance —
+	//      docs/damage-system.md). Written only when it is off 1.0, since an
+	//      all-out party is the overwhelming case and a line per member per
+	//      save would be noise. Absent = attacking with everything, which is
+	//      what every pre-v23 save meant.
 	// v22: per-MONSTER status effects ("enteffect <id> <school> <time>
 	//      <duration> <magnitude> <source>" lines, each attaching to the entity
 	//      line just above it) — a monster carries the same effect list a member
@@ -84,7 +89,7 @@ struct SaveData {
 	//     buttons as a diff (keyed by .ent id) or a whole spawn (no baseline);
 	//     replaces the v6 split of "ent"/"monster" rows + a whole "floor" item
 	//     snapshot. v6: free-look offset ("look" line); v5 folded hands into equip[].
-	int version = 22;
+	int version = 24; // v24: broken props (the dungeon as a target)
 
 	// ONE active status effect, as it survives a save. Shared by both sides —
 	// a party member's list and (v22) a monster's — because the effects system
@@ -151,6 +156,11 @@ struct SaveData {
 		// in pre-v12 saves (rebuilds by casting); a pre-v16 flat "mru" line
 		// loads into BOTH hands.
 		std::array<std::vector<std::string>, 2> mruSpells;
+		// The offense share (Character::offenseShare) — how much of the
+		// character's skill goes into attacking, the rest held back to guard
+		// with. 1.0 = all-out (the default, and what every pre-v23 save
+		// means). NOT clamped to 1: over-exertion goes past it.
+		float offenseShare = 1.0f;
 		// Active status effects (Character::effects) — one "effect" line each
 		// (v14). A v13 "shield" line loads as the matching ward (duration =
 		// time left, name derived from the school); pre-v13 saves carry none.
@@ -224,11 +234,32 @@ struct SaveData {
 		bool open = true;
 	};
 
+	// A piece of DUNGEON that has been broken (v24). Doors ride `entities` like
+	// every other .ent record, so this is for the pieces that do NOT: decorations
+	// are STATIC .map records, and their destroyed state is dynamic — the same
+	// split `seen` makes.
+	//
+	// KEYED BY CELL + TYPE, deliberately not by index into the prop list. An index
+	// is only stable until the editor inserts or removes a record, at which point
+	// every saved index past it would name the wrong prop; a cell and a type name
+	// the thing itself. Several props can share a cell, but not two of the same
+	// TYPE in one cell, which is what makes the pair unique enough.
+	struct BrokenProp {
+		int x = 0, z = 0;
+		std::string type;
+		// Which wall, for a FIXTURE: several sconces may share a cell on different
+		// walls, so the cell and type alone do not name one. -1 for anything that
+		// has no wall — a prop, a door, a floor-standing brazier. Written as a
+		// fourth token, and a v24 line without it reads as -1.
+		int wall = -1;
+	};
+
 	struct LevelState {
 		std::string stem;
 		std::vector<std::pair<int, int>> seen;
 		std::vector<EntityState> entities; // all kinds, diffs + spawns
 		std::vector<NicheOpen> niches;     // v20: reveal-state diffs
+		std::vector<BrokenProp> broken;    // v24: smashed props
 		// v6 read compat: a v6 save stored every floor item as a whole "floor"
 		// snapshot (no per-item diff). When loaded, those rows land in `entities`
 		// as Item spawns and this flag is set, so ApplyActiveSnapshot REPLACES the

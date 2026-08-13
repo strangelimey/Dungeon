@@ -91,6 +91,24 @@ void Game::WireModuleCallbacks() {
 		RestartApp();
 	};
 	m_ui.onTorchPalette = [this](int index) { m_world.SetTorchPalette(index); };
+	// The sheet's defense breakdown: only the world can resolve worn items,
+	// balance knobs and the live evasion formula.
+	m_ui.defenseFor = [this](const Character& c) { return m_world.DefenseFor(c); };
+	m_ui.defenseWith = [this](const Character& c, const std::string& id) {
+		return m_world.DefenseWith(c, id);
+	};
+	// The stance slider under a member's hands (docs/damage-system.md). Its
+	// travel runs PAST 1, as far as exert_max: over-exertion costs something now
+	// (a per-swing bill out of stamina and then health — DungeonWorld::
+	// SpendExertion), so dragging into it is a legitimate choice rather than a
+	// free win. The clamp lives here rather than in the widget so the balance
+	// knob stays the one authority on how far the stance goes; the dev `guard`
+	// command still has no clamp at all.
+	m_ui.onGuardChange = [this](size_t member, float share) {
+		if (member < m_characters.size())
+			m_characters[member].offenseShare =
+				std::clamp(share, 0.0f, m_world.GetBalance().exertMax);
+	};
 	m_ui.onMoveAction = [this](MoveAction action) {
 		// A pit fall swallows movement (the keyboard path gates in
 		// DungeonWorld::Update; this is the HUD arrow-button path).
@@ -189,6 +207,15 @@ void Game::WireModuleCallbacks() {
 		switch (spec.kind) {
 		case FieldKind::TextureSet: return InstalledTextureSets();
 		case FieldKind::Model: return InstalledModels();
+		case FieldKind::DamageType: {
+			// What the game will actually accept, asked of the registry that
+			// accepts it — so a project type appears here the moment it is
+			// authored, and a removed one stops being offered.
+			std::vector<std::string> ids;
+			for (const DamageTypeBook::Entry& e : m_world.DamageTypes().Entries())
+				ids.push_back(e.id);
+			return ids;
+		}
 		case FieldKind::CatalogRef: {
 			std::vector<std::string> ids;
 			if (const Catalog* c = m_project.CatalogForKey(spec.options))

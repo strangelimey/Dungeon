@@ -18,6 +18,7 @@
 #pragma once
 
 #include "Game/Combat.h"
+#include "Game/Curve.h"
 #include "Game/Spells.h"
 
 #include <span>
@@ -33,9 +34,14 @@ class Catalog;
 // numbers shade the weapon-derived strike and are attacks.cat data.
 struct AttackSpec {
 	std::string id;
-	DamageType type = DamageType::Bash;
+	// The damage type this verb deals, as an ID — identity, and C++ still owns
+	// it (the closed list below), but it names a damagetypes.cat entry rather
+	// than an enumerator, so a project can retype a verb or add one dealing a
+	// type the engine has never heard of. Resolved to `type` by Load.
+	std::string typeId;
+	DamageType type{};
 	float dmg = 1.0f;  // × the profile damage
-	float acc = 0.0f;  // + the profile accuracy
+	float acc = 0.0f;  // + the attack bonus, in d100 POINTS
 	float pace = 1.0f; // × the swing interval (a whiff pays it too)
 	float stam = 1.0f; // × the swing's stamina cost (chop exerts, jab doesn't)
 };
@@ -62,11 +68,79 @@ struct Balance {
 	float statDamage = 0.25f;   // damage per point of statAvg
 	float skillDamage = 0.08f;  // damage multiplier per skill level
 	float damageJitter = 0.15f; // ± roll on every hit
-	float accBase = 0.55f;      // the to-hit line (stat term is ALWAYS DEX)
-	float accStat = 0.02f;
-	float accSkill = 0.02f;
-	float hitFloor = 0.05f, hitCeil = 0.95f; // nothing's ever sure
+	// The opposed roll (docs/damage-system.md). roll_scale bridges the old
+	// 0..1 accuracy/evasion onto d100 points and retires with them in P3.
+	float critThreshold = 95.0f;
+	float fumbleThreshold = 5.0f;
+	float marginDamage = 0.01f; // damage multiplier per point of margin
+	float marginCap = 3.0f;     // ceiling on that multiplier
+
+	// --- the contribution curves (Game/Curve.h) -----------------------------
+	// Skill and stat each turn a live value into d100 POINTS through a
+	// diminishing-returns curve. `*_bonus` is the rise at the origin (the
+	// Rolemaster "+5 a level"), `*_cap` the asymptote, `*_curve` the shape as
+	// a CurveForm index. The Balance dialog draws both curves live, against
+	// the ~41-point dice deviation RollTest measured — which is the number
+	// that says whether a difference in skill can actually beat the noise.
+	float skillCurve = 0.0f; // CurveForm index (0 = hyperbolic)
+	float skillBonus = 5.0f;
+	float skillCap = 120.0f;
+	// Stats taper too, and BASELINE 10 makes an average stat worth nothing
+	// while a poor one is a real penalty. Bounded far below skill on purpose:
+	// unbounded skill against an unbounded stat would make one of them
+	// decoration, and Rolemaster kept stats in roughly -25..+35 for the same
+	// reason.
+	float statCurve = 0.0f;
+	float statBonus = 2.0f;
+	float statCap = 35.0f;
+	float statBaseline = 10.0f;
+	// --- armor (docs/damage-system.md) --------------------------------------
+	// Per WEIGHT CLASS, in d100 points. `penalty` is what the armor costs your
+	// defense roll before any training; `floor` is the part training can NEVER
+	// reach past, so the difference is all a skill may ever claw back. The
+	// floor is what keeps the choice a choice: no amount of practice makes
+	// plate as evadable as leather.
+	//
+	// The floor is ENFORCED BY THE CURVE rather than by a clamp — the offset is
+	// CurveValue with its cap set to (penalty - floor), and a hyperbolic curve
+	// approaches its cap without reaching it. The rule falls out of machinery
+	// that is already tested.
+	float armorLightPenalty = 10.0f, armorLightFloor = 3.0f;
+	float armorMediumPenalty = 25.0f, armorMediumFloor = 10.0f;
+	float armorHeavyPenalty = 45.0f, armorHeavyFloor = 20.0f;
+	// Points of offset per level at the START of the curve; it tapers to the
+	// class's own ceiling from there.
+	float armorOffsetSlope = 2.0f;
+	// The STRENGTH each class asks for, and what falling short costs: more
+	// points off the defense roll, and a much steeper stamina bill on every
+	// swing and every step. The same story told twice — easier to hit AND
+	// quickly spent.
+	float armorLightStr = 8.0f, armorMediumStr = 11.0f, armorHeavyStr = 14.0f;
+	float armorShortPenalty = 4.0f;  // + points per point of STR short
+	float armorShortStamina = 0.15f; // + fraction of stamina cost per point
+	// How fast each class trains, relative to the usual rate: plate is harder
+	// to learn to live in.
+	float armorLightLearn = 1.0f, armorMediumLearn = 0.7f, armorHeavyLearn = 0.45f;
+
+	// A party member's INNATE defense in d100 points — what a bare novice is
+	// worth before any training. It is a real term rather than the stopgap it
+	// began as: monsters attack at 60-75 points, so a floor much under this
+	// leaves a fresh character hit almost every swing, and armor (which SPENDS
+	// defense to buy soak) had nothing to spend.
+	float defenseBase = 45.0f;
+	// The AVOID skill's own curve — the unarmored answer to being swung at.
+	// Its own cap rather than the shared skill curve's 120: defense is bounded
+	// by what it is defending against, and a term that can reach twice the
+	// hardest attack in the game makes a trained dodger untouchable instead of
+	// merely hard to hit.
+	float avoidSlope = 3.0f;
+	float avoidCap = 60.0f;
 	float resistClamp = 0.8f;   // max summed resist (nature 1.0 = immunity)
+	// THE ATTACKER'S HALF of the type axis (docs/damage-system.md "Two axes"), the
+	// mirror of resistClamp: how far a summed POTENCY may push a blow either way.
+	// Tighter than the resist clamp on purpose — potency stacks from a weapon AND
+	// every worn piece, so it has more sources to pile up than a resist does.
+	float potencyClamp = 0.6f;
 	float woundFloor = 1.0f;    // a landed blow stings
 	float speedBase = 1.15f;    // interval = speed × (speedBase − speedStat×DEX)
 	float speedStat = 0.015f;
@@ -91,6 +165,25 @@ struct Balance {
 	float exhaustDamage = 0.5f;
 	float exhaustPace = 1.5f;
 	float exhaustRecover = 0.1f;
+	// OVER-EXERTION (docs/damage-system.md "Over-exertion"). The stance may be
+	// pushed past 1 as far as exert_max, buying attack points at the price of a
+	// guard that goes NEGATIVE. Every swing or cast thrown from such a stance is
+	// billed exert_cost × the points it bought — out of stamina first, and out of
+	// HEALTH for whatever stamina could not cover. exert_cost is the dial the
+	// whole mechanic turns on; 3 is a first cut and expected to move.
+	float exertCost = 3.0f;
+	float exertMax = 2.0f;
+	// FUMBLE CONSEQUENCES (docs/damage-system.md "When it goes wrong"). A fumble
+	// fires its source's mild table; at a first face of fumble_severe_face or
+	// LESS it fires the severe one as well. At the default thresholds (fumble on
+	// 5, severe on 1) that is 5% of swings mild and 1% severe — about one
+	// disaster every two or three fights.
+	//
+	// fumble_recover is the DEFAULT table's number, not a global multiplier: it
+	// is the cooldown factor a source that authors no `fumble` of its own gets.
+	// A source with its own table never reads it.
+	float fumbleSevereFace = 1.0f;
+	float fumbleRecover = 2.2f;
 	// Death & revive (docs/combat.md Phase 5). 0 HP = UNCONSCIOUS: after
 	// stabilize_time seconds with no monster in aggro of the party, the member
 	// wakes at stabilize_health of max. DEAD needs deliberate overkill — one
@@ -123,22 +216,67 @@ struct Balance {
 
 	// The resolver's knob subset, handed to ResolveAttack.
 	StrikeRules Strike() const {
-		return {hitFloor, hitCeil, damageJitter, woundFloor};
+		StrikeRules r;
+		r.damageJitter = damageJitter;
+		r.woundFloor = woundFloor;
+		r.critThreshold = critThreshold;
+		r.fumbleThreshold = fumbleThreshold;
+		r.marginDamage = marginDamage;
+		r.marginCap = marginCap;
+		return r;
 	}
 
 	// The spec for a melee verb; null for unknown/empty (callers use Neutral()).
 	const AttackSpec* FindAttack(std::string_view id) const;
-	static const AttackSpec& Neutral(); // dmg ×1, acc +0, pace ×1, bash
+	// dmg ×1, acc +0, pace ×1, bash. No longer static: its damage type is a
+	// LOOKUP now, so it needs the book Load resolved against — a file-static
+	// would have to guess an index, and index 0 is whatever the project happens
+	// to list first.
+	const AttackSpec& Neutral() const { return m_neutral; }
+
+	// One armor class's numbers, gathered so the defense maths reads as one
+	// lookup rather than three parallel switch statements.
+	struct ArmorRules {
+		float penalty = 0.0f, floor = 0.0f, strength = 0.0f, learn = 1.0f;
+		// What a skill may ever claw back — the curve's cap.
+		float Offsettable() const { return std::max(0.0f, penalty - floor); }
+	};
+	ArmorRules Armor(ArmorClass c) const;
+
+	// The two contribution curves, assembled from the knobs above.
+	CurveRules SkillCurve() const {
+		return {static_cast<CurveForm>(static_cast<int>(skillCurve)), skillBonus,
+				skillCap, 0.0f};
+	}
+	// The avoid skill's curve: its own slope and ceiling, the shared form.
+	CurveRules AvoidCurve() const {
+		return {static_cast<CurveForm>(static_cast<int>(skillCurve)), avoidSlope,
+				avoidCap, 0.0f};
+	}
+	CurveRules StatCurve() const {
+		return {static_cast<CurveForm>(static_cast<int>(statCurve)), statBonus,
+				statCap, statBaseline};
+	}
 
 	// Clamps a SUMMED resist to ±resistClamp — except an authored nature cell
 	// at 1.0+, which reaches true immunity (docs/combat.md part 4).
 	float ClampResist(float sum, float natureCell) const;
+	// Scales `amount` by the attacker's potency in `type` — THE one place the
+	// attack-side axis is applied, so every source of damage gets it the same way
+	// and none can quietly skip it. A cell of 0 is ordinary, positive is potent,
+	// negative is feeble; the sum is clamped to ±potencyClamp, and the result never
+	// goes below zero (a deeply feeble blow does nothing, it does not heal).
+	float Potent(float amount, const ResistTable& potency, DamageType type) const;
 
 	// balance.cat [formula] knobs + attacks.cat numeric overrides. Missing
 	// files/fields keep the defaults, so a project without them still runs.
-	void Load(const Catalog& balanceCat, const Catalog& attacksCat);
+	void Load(const Catalog& balanceCat, const Catalog& attacksCat,
+			  const DamageTypeBook& types);
 	// Writes the live values back into the catalogs (the editor's Save path).
 	void Save(Catalog& balanceCat, Catalog& attacksCat) const;
+
+private:
+	AttackSpec m_neutral;
 };
 
 // The knob fields table: catalog key ↔ Balance member. Drives Load/Save and
@@ -164,6 +302,6 @@ std::vector<std::string> ParseStatList(std::string_view spec,
 									   std::string_view owner);
 // "pierce 0.5, slash 0.25, bash -0.5" → the cells named (others untouched).
 void ParseResists(std::string_view spec, ResistTable& out,
-				  std::string_view owner);
+				  std::string_view owner, const DamageTypeBook& types);
 
 } // namespace dungeon::game

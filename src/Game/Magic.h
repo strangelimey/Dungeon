@@ -25,6 +25,9 @@ namespace dungeon::game {
 struct Balance;
 struct Character;
 class Catalog;
+// Combat.h includes THIS header, so the type book can only be forward
+// declared here — every use is by reference.
+class DamageTypeBook;
 
 class MagicSystem {
 public:
@@ -32,7 +35,7 @@ public:
 
 	// (Re)builds the spell registry (classes + the catalog's numeric
 	// overrides). Call once.
-	void LoadSpells(const Catalog& spells);
+	void LoadSpells(const Catalog& spells, const DamageTypeBook& types);
 	bool HasRecipes() const { return !m_spellBook.Empty(); }
 
 	// What a successful Cast() may DO to the world — wired once by the owner
@@ -60,6 +63,14 @@ public:
 	struct CastReport {
 		CastOutcome outcome = CastOutcome::NoRecipe;
 		const Spell* spell = nullptr; // the matched spell (set on Cast)
+		// OVER-EXERTION's attack points, for the owner to BILL (docs/damage-
+		// system.md "Over-exertion"). Reported rather than charged here because
+		// this module knows mana and nothing else — stamina, health and the wound
+		// a shortfall becomes are all the world's, and MagicSystem stays ignorant
+		// of them the same way a Spell stays ignorant of Balance. Non-zero only
+		// for a stance past 1, and set on a FUMBLE as well as a Cast: the effort
+		// was spent whether or not the casting held together.
+		float exertion = 0.0f;
 	};
 
 	// Resolves a cast for `caster` from the symbol `sequence`. The caster must

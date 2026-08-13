@@ -75,6 +75,8 @@ struct ItemCategoryBank {
 	// (control bar or sheet doll) accepts. Everything else is refused.
 	// (A set, not flat_map<...,bool>: vector<bool> can't back a flat_map.)
 	std::flat_set<std::string> holdableTypes;
+	// Where each item is WORN (catalog `wear`); absent = nowhere.
+	std::flat_map<std::string, WearSlot, std::less<>> wearByType;
 	bool Is(const std::string& typeId, std::string_view category) const {
 		const auto it = byType.find(typeId);
 		return it != byType.end() && it->second == category;
@@ -105,6 +107,19 @@ struct ItemCategoryBank {
 	// True if a hand slot may hold this item (catalog holdable=1).
 	bool Holdable(const std::string& typeId) const {
 		return holdableTypes.contains(typeId);
+	}
+	// The doll slot this item is WORN in (catalog `wear`), or None for
+	// something that can only be held or packed.
+	WearSlot WornAt(const std::string& typeId) const {
+		const auto it = wearByType.find(typeId);
+		return it == wearByType.end() ? WearSlot::None : it->second;
+	}
+	// True if this item may go in `slot`. The hands ask `holdable`; every
+	// other slot is type-specific (Inventory.h).
+	bool FitsSlot(const std::string& typeId, EquipSlot slot) const {
+		if (slot == EquipSlot::LeftHand || slot == EquipSlot::RightHand)
+			return Holdable(typeId);
+		return WearSlotFits(WornAt(typeId), slot);
 	}
 };
 

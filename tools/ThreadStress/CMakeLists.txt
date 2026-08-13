@@ -8,3 +8,7 @@ add_executable(ThreadStress
 	${CMAKE_SOURCE_DIR}/src/Game/MonsterAI.cpp
 )
 target_link_libraries(ThreadStress PRIVATE Core)
+
+# Solution Explorer: headers visible, folders mirrored (dn_ide_layout, root
+# CMakeLists). MUST be called here — source_group is directory-scoped.
+dn_ide_layout(ThreadStress ${CMAKE_CURRENT_SOURCE_DIR})

@@ -3,12 +3,17 @@ add_library(Game STATIC
 	AssetPicker.cpp
 	AssetUtil.cpp
 	Balance.cpp
+	Blast.cpp
 	BalanceDialog.cpp
 	ButtonInspector.cpp
 	Catalog.cpp
 	CatalogSchema.cpp
 	Character.cpp
 	Combat.cpp
+	Curve.cpp
+	CurvePlot.cpp
+	DamageTypes.cpp
+	Defense.cpp
 	DevConsole.cpp
 	DialogLayout.cpp
 	DoorInspector.cpp
@@ -43,16 +48,19 @@ add_library(Game STATIC
 	Magic.cpp
 	MapEditor.cpp
 	MapView.cpp
+	Mishap.cpp
 	MonsterAI.cpp
 	MonsterConfigDialog.cpp
 	NicheInspector.cpp
 	MessageLog.cpp
 	Party.cpp
 	PartyHudDraw.cpp
+	Roll.cpp
 	PartyBar.cpp
 	CharacterPanel.cpp
 	ControlBar.cpp
 	HandSlot.cpp
+	GuardSlider.cpp
 	SpellbookPanel.cpp
 	InventoryWindow.cpp
 	CharacterSheet.cpp
@@ -92,3 +100,7 @@ add_library(Game STATIC
 	TypeEditorDialog.cpp
 )
 target_link_libraries(Game PUBLIC Core Platform Assets Animation Graphics UI Audio)
+
+# Solution Explorer: headers visible, folders mirrored (dn_ide_layout, root
+# CMakeLists). MUST be called here — source_group is directory-scoped.
+dn_ide_layout(Game ${CMAKE_CURRENT_SOURCE_DIR})

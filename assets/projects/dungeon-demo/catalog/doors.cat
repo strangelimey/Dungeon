@@ -42,6 +42,15 @@ open_seconds = 0.8
 trim = door_band_half
 frame = door_frame_split
 opener = door_chain
+; THE ONE breakable door in this project, and deliberately the plain wooden one:
+; `destructible` is OFF by default precisely so a locked door's key and its switch
+; keep mattering (Michael, 2026-08-11). Boards give way to an axe and burn well;
+; the portcullis and the stone slab do NOT take these fields and cannot be broken
+; at all. Breaking it opens the way FOR GOOD — it cannot be shut again.
+destructible = 1
+hp = 40
+armor = 2
+resists = slash -0.25, fire -0.5, bash 0.2
 
 ; NO `opener` ON PURPOSE: a portcullis is worked from a gatehouse, so this is
 ; the demo of a door the party cannot touch — the lever at (10,3), or nothing.

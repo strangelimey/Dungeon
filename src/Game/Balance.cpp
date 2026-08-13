@@ -3,6 +3,8 @@
 // ============================================================================
 #include "Game/Balance.h"
 
+#include "Game/Defense.h" // the attacker's type axis, kept pure for the harness
+
 #include "Core/Log.h"
 #include "Game/Catalog.h"
 
@@ -20,12 +22,37 @@ constexpr BalanceField kBalanceFields[] = {
 	{"stat_damage", &Balance::statDamage},
 	{"skill_damage", &Balance::skillDamage},
 	{"damage_jitter", &Balance::damageJitter},
-	{"acc_base", &Balance::accBase},
-	{"acc_stat", &Balance::accStat},
-	{"acc_skill", &Balance::accSkill},
-	{"hit_floor", &Balance::hitFloor},
-	{"hit_ceil", &Balance::hitCeil},
+	{"crit_threshold", &Balance::critThreshold},
+	{"fumble_threshold", &Balance::fumbleThreshold},
+	{"margin_damage", &Balance::marginDamage},
+	{"margin_cap", &Balance::marginCap},
+	{"skill_curve", &Balance::skillCurve},
+	{"skill_bonus", &Balance::skillBonus},
+	{"skill_cap", &Balance::skillCap},
+	{"stat_curve", &Balance::statCurve},
+	{"stat_bonus", &Balance::statBonus},
+	{"stat_cap", &Balance::statCap},
+	{"stat_baseline", &Balance::statBaseline},
+	{"defense_base", &Balance::defenseBase},
+	{"avoid_slope", &Balance::avoidSlope},
+	{"avoid_cap", &Balance::avoidCap},
+	{"armor_light_penalty", &Balance::armorLightPenalty},
+	{"armor_light_floor", &Balance::armorLightFloor},
+	{"armor_light_str", &Balance::armorLightStr},
+	{"armor_light_learn", &Balance::armorLightLearn},
+	{"armor_medium_penalty", &Balance::armorMediumPenalty},
+	{"armor_medium_floor", &Balance::armorMediumFloor},
+	{"armor_medium_str", &Balance::armorMediumStr},
+	{"armor_medium_learn", &Balance::armorMediumLearn},
+	{"armor_heavy_penalty", &Balance::armorHeavyPenalty},
+	{"armor_heavy_floor", &Balance::armorHeavyFloor},
+	{"armor_heavy_str", &Balance::armorHeavyStr},
+	{"armor_heavy_learn", &Balance::armorHeavyLearn},
+	{"armor_offset_slope", &Balance::armorOffsetSlope},
+	{"armor_short_penalty", &Balance::armorShortPenalty},
+	{"armor_short_stamina", &Balance::armorShortStamina},
 	{"resist_clamp", &Balance::resistClamp},
+	{"potency_clamp", &Balance::potencyClamp},
 	{"wound_floor", &Balance::woundFloor},
 	{"speed_base", &Balance::speedBase},
 	{"speed_stat", &Balance::speedStat},
@@ -47,6 +74,10 @@ constexpr BalanceField kBalanceFields[] = {
 	{"exhaust_damage", &Balance::exhaustDamage},
 	{"exhaust_pace", &Balance::exhaustPace},
 	{"exhaust_recover", &Balance::exhaustRecover},
+	{"exert_cost", &Balance::exertCost},
+	{"exert_max", &Balance::exertMax},
+	{"fumble_severe_face", &Balance::fumbleSevereFace},
+	{"fumble_recover", &Balance::fumbleRecover},
 	{"stabilize_time", &Balance::stabilizeTime},
 	{"stabilize_health", &Balance::stabilizeHealth},
 	{"overkill", &Balance::overkill},
@@ -95,29 +126,42 @@ std::string_view NormalizeStat(std::string_view tok) {
 Balance::Balance() {
 	// The attack identity table (docs/combat.md part 1): id + damage type is
 	// C++ — the closed list — with first-cut numbers attacks.cat overrides.
+	// The type is an ID here; Load resolves it against the project's
+	// damagetypes.cat. A verb naming a type the project does not define is a
+	// warning at load, not a silent retype.
 	attacks = {
-		{"stab", DamageType::Pierce, 0.8f, 0.05f, 0.8f, 0.8f},
-		{"jab", DamageType::Pierce, 0.7f, 0.05f, 0.7f, 0.7f},
-		{"thrust", DamageType::Pierce, 1.2f, 0.0f, 1.15f, 1.3f},
-		{"slash", DamageType::Slash, 1.0f, 0.0f, 1.0f, 1.0f},
-		{"hack", DamageType::Slash, 1.15f, -0.03f, 1.15f, 1.3f},
-		{"chop", DamageType::Slash, 1.3f, -0.05f, 1.25f, 1.5f},
-		{"bash", DamageType::Bash, 1.15f, -0.05f, 1.2f, 1.5f},
-		{"swing", DamageType::Bash, 1.0f, 0.0f, 1.0f, 1.2f},
-		{"punch", DamageType::Bash, 1.0f, 0.0f, 1.0f, 0.8f},
-		{"kick", DamageType::Bash, 1.15f, 0.0f, 1.15f, 1.2f},
+		{"stab", "pierce", {}, 0.8f, 5.0f, 0.8f, 0.8f},
+		{"jab", "pierce", {}, 0.7f, 5.0f, 0.7f, 0.7f},
+		{"thrust", "pierce", {}, 1.2f, 0.0f, 1.15f, 1.3f},
+		{"slash", "slash", {}, 1.0f, 0.0f, 1.0f, 1.0f},
+		{"hack", "slash", {}, 1.15f, -3.0f, 1.15f, 1.3f},
+		{"chop", "slash", {}, 1.3f, -5.0f, 1.25f, 1.5f},
+		{"bash", "bash", {}, 1.15f, -5.0f, 1.2f, 1.5f},
+		{"swing", "bash", {}, 1.0f, 0.0f, 1.0f, 1.2f},
+		{"punch", "bash", {}, 1.0f, 0.0f, 1.0f, 0.8f},
+		{"kick", "bash", {}, 1.15f, 0.0f, 1.15f, 1.2f},
 	};
+	m_neutral = {"", "bash", {}, 1.0f, 0.0f, 1.0f, 1.0f};
+}
+
+Balance::ArmorRules Balance::Armor(ArmorClass c) const {
+	switch (c) {
+	case ArmorClass::Light:
+		return {armorLightPenalty, armorLightFloor, armorLightStr, armorLightLearn};
+	case ArmorClass::Medium:
+		return {armorMediumPenalty, armorMediumFloor, armorMediumStr,
+				armorMediumLearn};
+	case ArmorClass::Heavy:
+		return {armorHeavyPenalty, armorHeavyFloor, armorHeavyStr, armorHeavyLearn};
+	default:
+		return {}; // unarmored: no penalty, no floor, nothing to ask of STR
+	}
 }
 
 const AttackSpec* Balance::FindAttack(std::string_view id) const {
 	for (const AttackSpec& a : attacks)
 		if (a.id == id) return &a;
 	return nullptr;
-}
-
-const AttackSpec& Balance::Neutral() {
-	static const AttackSpec neutral{"", DamageType::Bash, 1.0f, 0.0f, 1.0f};
-	return neutral;
 }
 
 float Balance::ClampResist(float sum, float natureCell) const {
@@ -131,10 +175,30 @@ float Balance::ClampResist(float sum, float natureCell) const {
 	return sum;
 }
 
-void Balance::Load(const Catalog& balanceCat, const Catalog& attacksCat) {
+float Balance::Potent(float amount, const ResistTable& potency,
+					  DamageType type) const {
+	// The adapter: the arithmetic and its reasoning live in Game/Defense.h, which is
+	// pure and therefore measurable; this only hands it the knob.
+	return defense::Potent(amount, potency, type, potencyClamp);
+}
+
+void Balance::Load(const Catalog& balanceCat, const Catalog& attacksCat,
+				   const DamageTypeBook& types) {
 	if (const CatalogEntry* e = balanceCat.Find("formula"))
 		for (const BalanceField& f : kBalanceFields)
 			this->*(f.value) = e->GetFloat(f.key, this->*(f.value));
+
+	// Resolve every verb's damage type against the loaded book. This is the
+	// moment the C++ identity table meets the project's vocabulary.
+	auto resolve = [&types](AttackSpec& a) {
+		if (!types.Find(a.typeId, a.type))
+			log::Warn("attack '{}' deals damage type '{}', which this project "
+					  "does not define (damagetypes.cat)",
+					  a.id.empty() ? "unarmed" : a.id, a.typeId);
+	};
+	for (AttackSpec& a : attacks) resolve(a);
+	resolve(m_neutral);
+
 	for (AttackSpec& a : attacks)
 		if (const CatalogEntry* e = attacksCat.Find(a.id)) {
 			a.dmg = e->GetFloat("damage", a.dmg);
@@ -197,11 +261,11 @@ std::vector<std::string> ParseStatList(std::string_view spec,
 }
 
 void ParseResists(std::string_view spec, ResistTable& out,
-				  std::string_view owner) {
+				  std::string_view owner, const DamageTypeBook& types) {
 	const std::vector<std::string> toks = Tokens(spec);
 	for (size_t i = 0; i + 1 < toks.size(); i += 2) {
 		DamageType type;
-		if (!ParseDamageType(toks[i], type)) {
+		if (!types.Find(toks[i], type)) {
 			log::Warn("{}: unknown damage type '{}' in resists=", owner, toks[i]);
 			continue;
 		}

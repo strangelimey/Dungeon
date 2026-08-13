@@ -155,7 +155,8 @@ public:
 
 	// --- callbacks into the app state machine -------------------------------------
 	std::function<void()> onStartNewGame;       // landing "Start New Game"
-	std::function<void()> onQuit;               // pause "Exit"
+	std::function<void()> onQuit;               // landing + pause "Exit" (the ONLY
+												// click that quits — Esc does not)
 	std::function<void()> onResume;             // pause/sheet "Back"
 	// A save slot was chosen to load (landing Continue/Load, pause Load). The
 	// receiver loads it — from the landing page that may first stage the
@@ -170,6 +171,14 @@ public:
 	std::function<void(int)> onFrameLimitSelected; // Video tab frame-rate dropdown
 	std::function<void(int)> onTorchPalette;    // HUD torchlight dropdown
 	std::function<void(MoveAction)> onMoveAction; // HUD movement buttons
+	// The offense/defense stance slider under a member's hands: (member,
+	// share). The widget reports where it was dragged; Game owns the roster
+	// and does the writing.
+	std::function<void(size_t, float)> onGuardChange;
+	// The character sheet's defense breakdown, sourced from the world by the
+	// owner — the sheet cannot resolve worn items or balance knobs itself.
+	std::function<DefenseReadout(const Character&)> defenseFor;
+	std::function<DefenseReadout(const Character&, const std::string&)> defenseWith;
 	// HUD hand-slot click (member, hand 0=L/1=R, melee verb — the executed
 	// command id, e.g. "stab" = the ATTACK, Balance::FindAttack).
 	std::function<void(size_t, size_t, const std::string&)> onHandAttack;

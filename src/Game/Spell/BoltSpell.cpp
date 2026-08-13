@@ -26,24 +26,28 @@ ProjectileSpec BoltSpell::MakeBolt(const Vec3& origin, const Vec3& dir,
 	// A damaging spell's type is its SCHOOL (docs/combat.md part 1) — the
 	// defender resists a fire bolt as fire. One line types every bolt, party-
 	// and monster-cast alike.
-	bolt.atk = {power, accuracy, SchoolDamageType(School())};
+	bolt.atk = {power, accuracy,
+				m_types ? m_types->ForSchool(School()) : DamageType{}};
 	const Vec4 g = ElementColor(School());
 	bolt.color = {g.x * 1.7f, g.y * 1.7f, g.z * 1.7f, 0.0f}; // bright additive
 	bolt.size = 0.2f;
 	bolt.target = target;
 	bolt.push = m_push; // displacement rides the bolt (party impacts only —
 						// the monster-bolt hit path never shoves)
+	// What it delivers when it lands OR expires — a firebolt's burn catches a
+	// body it strikes, and scorches the cell it bursts in. The school lends the
+	// flavour, the same way an enchanted weapon's element does, so one authored
+	// `on_hit = burn` reads as fire on a firebolt and as frost on a waterbolt.
+	bolt.payload = MakePayload();
+	bolt.payload.flavour = School();
 	return bolt;
 }
 
 void BoltSpell::Cast(CastContext& ctx) const {
-	// Accuracy rides intelligence plus school skill, so a trained caster
-	// lands reliably; power arrives already skill-scaled in the context.
-	const float accuracy =
-		0.70f + static_cast<float>(ctx.caster.intelligence) * 0.012f +
-		0.02f * static_cast<float>(ctx.schoolLevel);
-	ProjectileSpec bolt =
-		MakeBolt(ctx.origin, ctx.dir, ctx.power, accuracy, TargetSide::Monsters);
+	// The bonus rides school skill and the caster's stat, both already curved
+	// by the host (CastContext::attackBonus); power arrives skill-scaled too.
+	ProjectileSpec bolt = MakeBolt(ctx.origin, ctx.dir, ctx.power,
+								   ctx.attackBonus, TargetSide::Monsters);
 	bolt.attacker = ctx.casterIndex; // the impact credits its caster (threat)
 	ctx.services.spawnBolt(bolt);
 }

@@ -6,6 +6,10 @@
 // ============================================================================
 #include "Game/DungeonWorld.h"
 
+#include "Game/Blast.h"
+#include "Game/Curve.h"
+#include "Game/Defense.h"
+
 #include "Core/Loc.h"
 
 #include <algorithm>
@@ -84,6 +88,50 @@ void DungeonWorld::GrantSkillXp(Character& member, std::string_view skillId,
 	}
 }
 
+// THE DEFENSIVE FEEDBACK LOOPS (docs/damage-system.md). You learn what you
+// actually survive, so the two loops train on opposite outcomes and never both
+// fire for the same blow:
+//
+//   a MISS while unarmored  -> `avoid`, creeping DEX. Only unarmored: armor is
+//                              the other answer to being swung at, and a
+//                              member cannot be practising both.
+//   a HIT that armor blunted -> that class's skill, creeping its stat (DEX for
+//                              light and medium, STR for heavy). Trained by
+//                              being struck, which is how you learn to live in
+//                              a suit of plate.
+//
+// Only a ROLLED blow trains anything: a bump, a fall or a poison tick was never
+// evaded and never turned, so counting them would train a skill that did no
+// work. Call this once per resolved attack against a member.
+void DungeonWorld::TrainDefense(Character& member, const fx::DamageEvent& ev) {
+	if (!member.IsAlive()) return;
+	// An early-out, not the rule: LessonFrom is still the authority on `rolled`,
+	// but returning here saves an unrolled event (a DoT tick, a bump, a fall)
+	// walking the equipment twice to be told it teaches nothing.
+	if (!ev.rolled) return;
+	const ArmorClass worn = WornArmorClass(member);
+	constexpr float kXp = 1.0f; // the same unit a landed blow trains at
+
+	// WHICH loop this blow feeds is defense::LessonFrom's decision — the two
+	// train on opposite outcomes, and that rule is measured rather than reread
+	// here. This function only pays out whatever it is told.
+	static const std::vector<std::string> kDexStat{"dexterity"};
+	static const std::vector<std::string> kStrStat{"strength"};
+	switch (defense::LessonFrom(ev.rolled, ev.hit, worn,
+								PartyTarget{*this, member}.Soak())) {
+	case defense::Lesson::Nothing:
+		return;
+	case defense::Lesson::Avoid:
+		GrantSkillXp(member, kAvoidSkill, kXp, kDexStat);
+		return;
+	case defense::Lesson::Armor:
+		GrantSkillXp(member, ArmorSkillId(worn),
+					 kXp * m_balance.Armor(worn).learn,
+					 worn == ArmorClass::Heavy ? kStrStat : kDexStat);
+		return;
+	}
+}
+
 // A whole stat point lands: increment, log, and re-derive the resource maxima
 // (the resource formula — a VIT point is FELT as a bigger health/stamina pool,
 // and the growth carries the current value so it reads as growth, not damage).
@@ -104,22 +152,264 @@ void DungeonWorld::GrantStatPoint(Character& member, std::string_view stat) {
 // every point spent feeds VIT's creep pool, holds regen off for a beat, and
 // an emptied bar latches EXHAUSTED (the swing penalties; cleared with
 // hysteresis in the regen tick). Swings and marching both arrive here.
-void DungeonWorld::SpendStamina(Character& member, float points) {
-	if (points <= 0.0f || !member.IsAlive()) return;
+// RETURNS THE SHORTFALL — how much of the bill the bar could not cover, AFTER
+// the armor scaling below. Every ordinary caller ignores it and so keeps the old
+// behaviour exactly (an emptied bar clamps at zero and latches EXHAUSTED, and
+// that is all marching or an honest swing ever costs). Only over-exertion reads
+// it, because only over-exertion may charge the remainder to health.
+//
+// The shortfall is deliberately measured HERE rather than split by the caller
+// against the raw points: the armor scale is applied on the way out of the bar,
+// so a caller-side split would drop the scaled excess on the floor instead of
+// passing it on.
+float DungeonWorld::SpendStamina(Character& member, float points) {
+	if (points <= 0.0f || !member.IsAlive()) return 0.0f;
+	// Armor you are too weak for is paid for twice: once on the defense roll
+	// (ArmorPenalty) and again here, on every swing and every step. An
+	// underpowered fighter in plate is easier to hit AND quickly spent.
+	if (const ArmorClass worn = WornArmorClass(member); worn != ArmorClass::None) {
+		const float short_ = m_balance.Armor(worn).strength -
+							 static_cast<float>(member.strength);
+		if (short_ > 0.0f)
+			points *= 1.0f + short_ * m_balance.armorShortStamina;
+	}
 	member.stamina -= points;
 	member.staminaHoldoff = m_balance.staminaHoldoff;
+	float unpaid = 0.0f;
 	if (member.stamina <= 0.0f) {
+		unpaid = -member.stamina;
 		member.stamina = 0.0f;
 		if (!member.exhausted) {
 			member.exhausted = true;
 			MemberMessage(member, loc::Format("log.exhausted", member.name));
 		}
 	}
+	// The WHOLE bill trains VIT, the part paid in blood included — conditioning
+	// is what the body did, not what the bar could afford.
 	float& pool = member.statProgress["vitality"];
 	pool += points * m_balance.vitExertion;
-	if (pool < 1.0f) return;
+	if (pool < 1.0f) return unpaid;
 	pool -= 1.0f;
 	GrantStatPoint(member, "vitality");
+	return unpaid;
+}
+
+// OVER-EXERTION'S BILL (docs/damage-system.md), charged once per swing or cast
+// thrown from a stance past 1. `points` is what the over-exertion bought on the
+// attack roll (defense::ExertionPoints); the cost is exert_cost times that, out
+// of stamina first and out of HEALTH for whatever stamina could not cover.
+//
+// The health half goes through WoundMember like any other injury, so a fighter
+// CAN put themselves down this way. But EXERTION SPENDS ONLY THE HEALTH YOU
+// HAVE — the payment is capped at what is left in the bar, so it can empty it
+// and never exceed it. That is what keeps it out of the overkill rule
+// (docs/combat.md Phase 5): a shortfall past `overkill × maxHealth` would
+// otherwise read as a definitive blow and kill outright, and at exert_max the
+// bill genuinely can be several times a low-level member's whole health. You can
+// collapse from over-exertion; you cannot burst.
+//
+// Narrated before the wound so the cause reads ahead of the effect it caused —
+// the same ordering the reaction stage uses.
+// ============================================================================
+// Fumble consequences (docs/damage-system.md "When it goes wrong").
+// ============================================================================
+
+std::vector<mishap::Entry>
+DungeonWorld::FumbleTable(const std::vector<mishap::Entry>& own,
+						  bool severe) const {
+	// An authored table REPLACES the default rather than adding to it — a table
+	// you cannot turn off is not a table. So a weapon that authors only
+	// `fumble` still gets the default SEVERE one, which is the common case: most
+	// weapons want to say how they slip, not to redesign the disaster.
+	if (!own.empty()) return own;
+	return severe ? mishap::DefaultSevere()
+				  : mishap::DefaultFumble(m_balance.fumbleRecover);
+}
+
+void DungeonWorld::DropItemInCell(const std::string& typeId, int cx, int cz) {
+	ItemKind& kind = ItemKindFor(typeId);
+	const Vec3 c = m_map.CellCenter(cx, cz);
+	const int slot = FreeItemSlotNear(cx, cz, c.x, c.z, -1);
+	// A RUNTIME drop (negative id), not an .ent record: a weapon knocked out of
+	// a hand is dynamic state that rides the save, exactly like the cursor drop
+	// beside it. Authoring a record would write it into the LEVEL.
+	m_items.push_back({&kind, m_nextDropId--, cx, cz, false, slot});
+	MarkSeen(cx, cz);
+}
+
+void DungeonWorld::PartyFumble(Character& attacker, size_t hand,
+							   const ItemKind* weapon, const AttackProfile& atk,
+							   int face) {
+	if (!m_roster) return;
+	const bool severe =
+		mishap::Severe(face, static_cast<int>(m_balance.fumbleSevereFace + 0.5f));
+
+	// The procs first — a blade that bites the hand holding it is an EFFECT, and
+	// it lands on the attacker like any other. The striker is already an
+	// fx::ITarget; nothing here is new machinery.
+	PartyTarget self{*this, attacker};
+	if (weapon && !weapon->onFumble.empty())
+		fx::ApplyProcs(self, weapon->onFumble, std::nullopt,
+					   /*source=*/-1, m_effects, m_combatRng);
+
+	const auto run = [&](const std::vector<mishap::Entry>& table) {
+		for (const mishap::Entry& e : table) switch (e.kind) {
+			case mishap::Kind::Recover:
+				// Off balance: the hand takes longer to come back. The one
+				// consequence every fumble can always deliver.
+				attacker.handCooldown[hand] *= std::max(1.0f, e.value);
+				MemberMessage(attacker,
+							  loc::Format("log.fumble_recover", attacker.name));
+				break;
+			case mishap::Kind::Stumble:
+				// Billed as EXERTION, so it feeds VIT's creep and can reach
+				// health on an empty bar like any other overspend.
+				MemberMessage(attacker,
+							  loc::Format("log.fumble_stumble", attacker.name));
+				SpendExertion(attacker, e.value / std::max(0.01f, m_balance.exertCost));
+				break;
+			case mishap::Kind::Drop:
+			case mishap::Kind::Fling: {
+				// Nothing in the hand is nothing to lose — a bare fist fumbles
+				// without disarming itself.
+				ItemSlot& held = attacker.inventory.Hand(static_cast<int>(hand));
+				if (held.Empty()) break;
+				const std::string id = held.typeId;
+				int cx = m_party.GridX(), cz = m_party.GridZ();
+				if (e.kind == mishap::Kind::Fling) {
+					// Somewhere adjacent and walkable, chosen from the cardinals
+					// that qualify — never diagonally (the grid rule), and never
+					// into stone, where it could not be picked up again.
+					std::array<int, 4> dirs{0, 1, 2, 3};
+					std::shuffle(dirs.begin(), dirs.end(), m_combatRng);
+					for (const int d : dirs) {
+						const int nx = cx + DirDX(static_cast<Direction>(d));
+						const int nz = cz + DirDZ(static_cast<Direction>(d));
+						if (m_map.IsWalkable(nx, nz)) { cx = nx; cz = nz; break; }
+					}
+				}
+				held = ItemSlot{};
+				DropItemInCell(id, cx, cz);
+				MemberMessage(attacker,
+							  loc::Format(e.kind == mishap::Kind::Fling
+											  ? "log.fumble_fling"
+											  : "log.fumble_drop",
+										  attacker.name,
+										  loc::Tr(ItemKindFor(id).nameKey)));
+				break;
+			}
+			case mishap::Kind::SelfHit: {
+				// The blow you just threw, landing on you at a fraction of its
+				// force. Through the ONE pipeline like everything else, so your
+				// own armour and resists answer it — and it is a Blow, so it can
+				// itself be evaded, crit, or (yes) fumbled away.
+				MemberMessage(attacker,
+							  loc::Format("log.fumble_self", attacker.name));
+				fx::DamageEvent ev = fx::DamageEvent::Blow(
+					atk.type, atk.damage * std::max(0.0f, e.value),
+					atk.attackBonus, -1);
+				fx::Deal(ev, self, m_balance.Strike(), m_combatRng);
+				self.NarrateFall();
+				break;
+			}
+			case mishap::Kind::Wild: {
+				// A wild swing catches whoever is standing beside you. The
+				// QUADRANTS are the ranks (roster 0-1 front, 2-3 rear), so the
+				// neighbour is the other member of your own rank — the one an
+				// arm's length away, not the one behind you.
+				const size_t me = static_cast<size_t>(&attacker - m_roster->data());
+				const size_t beside = me ^ 1u; // 0<->1, 2<->3
+				if (beside >= m_roster->size()) break;
+				Character& victim = (*m_roster)[beside];
+				if (!victim.IsAlive()) break;
+				MemberMessage(attacker, loc::Format("log.fumble_wild",
+													attacker.name, victim.name));
+				PartyTarget hit{*this, victim};
+				fx::DamageEvent ev = fx::DamageEvent::Blow(
+					atk.type, atk.damage, atk.attackBonus, -1);
+				fx::Deal(ev, hit, m_balance.Strike(), m_combatRng);
+				hit.NarrateFall();
+				break;
+			}
+			}
+	};
+	run(FumbleTable(weapon ? weapon->fumble : std::vector<mishap::Entry>{}, false));
+	if (severe)
+		run(FumbleTable(weapon ? weapon->fumbleSevere : std::vector<mishap::Entry>{},
+						true));
+}
+
+void DungeonWorld::MonsterFumble(Monster& monster, const AttackProfile& atk,
+								 int face) {
+	const bool severe =
+		mishap::Severe(face, static_cast<int>(m_balance.fumbleSevereFace + 0.5f));
+	MonsterTarget self{*this, monster};
+	if (!monster.kind->onFumble.empty())
+		fx::ApplyProcs(self, monster.kind->onFumble, std::nullopt, -1, m_effects,
+					   m_combatRng);
+
+	const auto run = [&](const std::vector<mishap::Entry>& table) {
+		for (const mishap::Entry& e : table) switch (e.kind) {
+			case mishap::Kind::Recover:
+				monster.attackCd *= std::max(1.0f, e.value);
+				break;
+			// A monster carries no inventory and no stamina bar, so three of the
+			// six have nothing to act on. They are silent no-ops rather than
+			// warnings: the DEFAULT severe table is `drop`, and every clawed
+			// creature in the game shares it.
+			case mishap::Kind::Stumble:
+			case mishap::Kind::Drop:
+			case mishap::Kind::Fling:
+				break;
+			case mishap::Kind::SelfHit: {
+				fx::DamageEvent ev = fx::DamageEvent::Blow(
+					atk.type, atk.damage * std::max(0.0f, e.value),
+					atk.attackBonus, -1);
+				fx::Deal(ev, self, m_balance.Strike(), m_combatRng);
+				if (!monster.Alive())
+					onMessage(loc::Format("log.monster_slain",
+										  loc::Tr("monster." + monster.kind->name)));
+				break;
+			}
+			case mishap::Kind::Wild: {
+				// The nearest OTHER monster in the adjacent ring wears it. Same
+				// mechanic as the party's, and it is the reason `wild` was worth
+				// keeping on this side: a swarm hurting itself in a corridor is
+				// the fumble a player most enjoys watching.
+				Monster* beside = nullptr;
+				for (Monster& m : m_monsters) {
+					if (&m == &monster || !m.Alive()) continue;
+					if (std::abs(m.x - monster.x) + std::abs(m.z - monster.z) != 1)
+						continue;
+					beside = &m;
+					break;
+				}
+				if (!beside) break;
+				MonsterTarget hit{*this, *beside};
+				fx::DamageEvent ev = fx::DamageEvent::Blow(atk.type, atk.damage,
+														   atk.attackBonus, -1);
+				fx::Deal(ev, hit, m_balance.Strike(), m_combatRng);
+				onMessage(loc::Format("log.fumble_wild_foe",
+									  loc::Tr("monster." + monster.kind->name),
+									  loc::Tr("monster." + beside->kind->name)));
+				if (!beside->Alive())
+					onMessage(loc::Format("log.monster_slain",
+										  loc::Tr("monster." + beside->kind->name)));
+				break;
+			}
+			}
+	};
+	run(FumbleTable(monster.kind->fumble, false));
+	if (severe) run(FumbleTable(monster.kind->fumbleSevere, true));
+}
+
+void DungeonWorld::SpendExertion(Character& member, float points) {
+	if (points <= 0.0f || !member.IsAlive()) return;
+	const float unpaid = SpendStamina(member, points * m_balance.exertCost);
+	if (unpaid <= 0.0f) return;
+	MemberMessage(member, loc::Format("log.overexert", member.name));
+	if (WoundMember(member, std::min(unpaid, member.health)) == Fall::Down)
+		MemberMessage(member, loc::Format("log.member_down", member.name));
 }
 
 void DungeonWorld::RecomputePartyMaxima() {
@@ -135,7 +425,196 @@ void DungeonWorld::RecomputePartyMaxima() {
 // EFFECT term is no longer a hard-coded Stone Skin branch but a sum over
 // whatever effects the target happens to carry.
 
-float DungeonWorld::PartyTarget::Evasion() const { return m_member.Evasion(); }
+// The heaviest armor a member is wearing, which is the class that governs
+// them: a plate cuirass over leather greaves is heavy armor with extra padding,
+// not an average of the two.
+ArmorClass DungeonWorld::WornArmorClass(const Character& member) {
+	ArmorClass worst = ArmorClass::None;
+	for (int i = 0; i < kEquipCount; ++i) {
+		// HANDS DON'T COUNT. They are part of the equipment array, so a
+		// cuirass carried in a fist would otherwise hand you heavy armor's
+		// whole penalty for holding it. (Soak has always summed the hands
+		// too, which is the same bug being quieter about it.)
+		if (i == static_cast<int>(EquipSlot::LeftHand) ||
+			i == static_cast<int>(EquipSlot::RightHand))
+			continue;
+		const ItemSlot& slot = member.inventory.equipment[static_cast<size_t>(i)];
+		if (slot.Empty()) continue;
+		const ArmorClass c = ItemKindFor(slot.typeId).armorClass;
+		if (static_cast<int>(c) > static_cast<int>(worst)) worst = c;
+	}
+	return worst;
+}
+
+// What wearing `c` costs this member on the defense roll, training included.
+// Returns 0 unarmored — where the `avoid` skill takes over instead.
+// The ADAPTER: gather this member's inputs and hand them to the arithmetic in
+// Game/Defense.h, which is where the floor rule lives and is measured.
+float DungeonWorld::ArmorPenalty(const Character& member, ArmorClass c) const {
+	if (c == ArmorClass::None) return 0.0f;
+	const Balance& b = m_balance;
+	const Balance::ArmorRules r = b.Armor(c);
+	CurveRules offsetCurve = b.SkillCurve();
+	offsetCurve.slope = b.armorOffsetSlope;
+	return defense::ArmorPenalty(
+		r.floor, r.Offsettable(), offsetCurve,
+		static_cast<float>(member.SkillLevel(ArmorSkillId(c))), r.strength,
+		static_cast<float>(member.strength), b.armorShortPenalty);
+}
+
+// The sheet's view of a member's defense. Built by ASKING the live path rather
+// than re-deriving it: `total` is PartyTarget::Evasion itself, so a readout can
+// never quietly disagree with the roll it claims to describe — which is the
+// failure mode that makes a debug display worse than none at all.
+DefenseReadout DungeonWorld::DefenseFor(const Character& member) {
+	DefenseReadout r;
+	const Balance& b = m_balance;
+	r.armorClass = WornArmorClass(member);
+	r.base = b.defenseBase;
+	r.stat = CurveValue(static_cast<float>(member.dexterity), b.StatCurve());
+	r.strength = member.strength;
+
+	for (const ItemSlot& slot : member.inventory.equipment)
+		if (!slot.Empty()) r.soak += ItemKindFor(slot.typeId).armor;
+
+	if (r.armorClass == ArmorClass::None) {
+		r.skillKey = std::string("skill.") + kAvoidSkill;
+		r.skillLevel = member.SkillLevel(kAvoidSkill);
+		r.skillBonus =
+			CurveValue(static_cast<float>(r.skillLevel), b.AvoidCurve());
+	} else {
+		r.armorPenalty = ArmorPenalty(member, r.armorClass);
+		r.strengthNeeded = static_cast<int>(b.Armor(r.armorClass).strength);
+		r.skillKey = std::string("skill.") + ArmorSkillId(r.armorClass);
+		r.skillLevel = member.SkillLevel(ArmorSkillId(r.armorClass));
+		// Name the piece that decided the class, not merely the class.
+		for (const ItemSlot& slot : member.inventory.equipment) {
+			if (slot.Empty()) continue;
+			const ItemKind& k = ItemKindFor(slot.typeId);
+			if (k.armorClass == r.armorClass) {
+				r.armorName = loc::Tr(k.nameKey);
+				break;
+			}
+		}
+	}
+	// A PHYSICAL blow is the case worth showing: it is what the stance guards
+	// with a weapon and what armor is for.
+	r.total = PartyTarget{*this, const_cast<Character&>(member)}.Evasion(m_bashType);
+	// Whatever the total is not otherwise accounted for IS the stance guard —
+	// derived by subtraction so it cannot drift from the live formula if a term
+	// is added there and forgotten here.
+	r.stance = r.total - r.base - r.stat - r.skillBonus + r.armorPenalty;
+	return r;
+}
+
+DefenseReadout DungeonWorld::DefenseWith(const Character& member,
+										 const std::string& itemId) {
+	// A COPY with the piece put on. The alternative — deriving "what would this
+	// be worth" from its catalog fields — would be a second implementation of
+	// the defense formula, and the two would drift the first time a term was
+	// added to one of them.
+	Character what = member;
+	const WearSlot wear = ItemKindFor(itemId).wearSlot;
+	for (int i = 0; i < kEquipCount; ++i) {
+		if (!WearSlotFits(wear, static_cast<EquipSlot>(i))) continue;
+		what.inventory.equipment[static_cast<size_t>(i)].typeId = itemId;
+		break;
+	}
+	return DefenseFor(what);
+}
+
+// THE ADAPTER, and only that: resolve this member and this damage type into the
+// numbers defense::Guard works on. Every RULE it used to carry now lives in
+// Game/Defense.h where it is measured (docs/damage-system.md) —
+//
+//   * avoid is UNARMORED-ONLY, which makes going bare a build rather than the
+//     poor man's option (and, since light/medium armor creep DEX just as avoid
+//     does, means exactly one training loop ever runs);
+//   * PHYSICAL is parried with a HAND, off its weapon class, the better of the
+//     two answering; MAGICAL is warded with the skill in the INCOMING SCHOOL and
+//     THE HANDS PLAY NO PART (the alternative rule — a guard belonging to a hand
+//     and covering only the school that hand casts — is what this comment used to
+//     describe and is NOT what happens); anything neither has nothing to parry
+//     it with;
+//   * the hands combine by MAX, not sum.
+//
+// The cooldown is deliberately NOT consulted: a stance is not an action, so a
+// hand still guards while it recovers from a swing.
+float DungeonWorld::PartyTarget::Evasion(DamageType type) const {
+	const Balance& b = m_world.m_balance;
+	defense::GuardInputs in;
+	in.base = b.defenseBase;
+	in.dexterity = static_cast<float>(m_member.dexterity);
+	in.statCurve = b.StatCurve();
+
+	in.worn = m_world.WornArmorClass(m_member);
+	in.armorPenalty = m_world.ArmorPenalty(m_member, in.worn);
+	in.avoidLevel = static_cast<float>(m_member.SkillLevel(kAvoidSkill));
+	in.avoidCurve = b.AvoidCurve();
+
+	in.held = 1.0f - m_member.offenseShare;
+	in.skillCurve = b.SkillCurve();
+
+	SpellSymbol school{};
+	const bool hasSchool = m_world.m_damageTypes.SchoolOf(type, school);
+	in.kind = defense::GuardKindFor(
+		{hasSchool, m_world.m_damageTypes.IsPhysical(type)});
+	if (hasSchool)
+		in.schoolLevel = static_cast<float>(m_member.SkillLevel(SymbolId(school)));
+
+	// A held item to the skill it parries off; an empty hand parries `unarmed`.
+	// Resolved only for a PHYSICAL blow — Guard ignores these otherwise, so this
+	// is purely about not paying for two catalog lookups per firebolt. The rule
+	// still lives in Guard; this only declines to compute what it will not read.
+	if (in.kind == defense::GuardKind::Physical) {
+		const auto handLevel = [&](int hand) {
+			const ItemSlot& slot = m_member.inventory.Hand(hand);
+			const ItemKind* weapon =
+				slot.Empty() ? nullptr : &m_world.ItemKindFor(slot.typeId);
+			return static_cast<float>(m_member.SkillLevel(
+				weapon ? std::string_view(weapon->skill)
+					   : std::string_view("unarmed")));
+		};
+		in.leftLevel = handLevel(0);
+		in.rightLevel = handLevel(1);
+	}
+
+	return defense::Guard(in);
+}
+
+ResistTable DungeonWorld::PartyPowers(const Character& member, int hand) {
+	// Sums like a resist does: the wielded weapon plus every worn piece. A hand of
+	// -1 means nothing is wielded — a spell — so only what is worn answers, which
+	// is what lets a fire-attuned ring lend itself to a firebolt.
+	ResistTable out;
+	for (size_t i = 0; i < member.inventory.equipment.size(); ++i) {
+		const ItemSlot& slot = member.inventory.equipment[i];
+		if (slot.Empty()) continue;
+		const bool isHand = i == static_cast<size_t>(EquipSlot::LeftHand) ||
+							i == static_cast<size_t>(EquipSlot::RightHand);
+		// The OTHER hand's weapon lends nothing to this swing: what is in your left
+		// hand does not make your right hand's blade burn.
+		if (isHand) {
+			const bool thisHand =
+				hand >= 0 && &slot == &member.inventory.Hand(hand);
+			if (!thisHand) continue;
+		}
+		out.Add(ItemKindFor(slot.typeId).powers);
+	}
+	return out;
+}
+
+ResistTable DungeonWorld::AttackerPowers(int attacker, u32 shooter) {
+	if (const Monster* m = MonsterByRuntimeId(shooter); m && m->kind)
+		return m->kind->powers;
+	if (m_roster && attacker >= 0 &&
+		attacker < static_cast<int>(m_roster->size()))
+		// WORN only: a bolt carries no hand, so what a caster happens to be holding
+		// cannot be credited. Worn attunement is the honest half, and it is also the
+		// half a robe-and-ring build is about.
+		return PartyPowers((*m_roster)[static_cast<size_t>(attacker)], -1);
+	return {};
+}
 
 float DungeonWorld::PartyTarget::Soak() const {
 	float soak = 0.0f;
@@ -189,8 +668,14 @@ void DungeonWorld::PartyTarget::SayApplied(const fx::EffectKind& kind) const {
 	if (!key.empty()) Say(loc::Format(key, m_member.name));
 }
 
-float DungeonWorld::MonsterTarget::Evasion() const {
-	return m_monster.kind->evasion;
+float DungeonWorld::MonsterTarget::Evasion(DamageType) const {
+	// A monster's guard is its authored evasion plus whatever its STANCE held
+	// back from its own competence — the mirror of a party member keeping part
+	// of a hand's skill in reserve. The incoming type buys it nothing: a
+	// monster has no hands to split and no schools to know, and a per-type
+	// monster defense would be a monsters.cat column rather than a code change.
+	const float held = std::max(0.0f, 1.0f - m_monster.kind->offense);
+	return m_monster.kind->evasion + held * m_monster.kind->accuracy;
 }
 
 float DungeonWorld::MonsterTarget::Soak() const { return m_monster.kind->armor; }
@@ -441,10 +926,30 @@ void DungeonWorld::MonsterAttack(Monster& monster) {
 	// — all of that is the stages' business now, not this function's.
 	PartyTarget defender{*this, target};
 	MonsterTarget striker{*this, monster};
-	fx::DamageEvent ev = fx::DamageEvent::Blow(
-		monster.kind->damageType, monster.kind->damage, monster.kind->accuracy,
-		victim);
+	// The stance spends part of its competence on the swing; MonsterTarget's
+	// guard keeps the rest (docs/damage-system.md).
+	// Its POTENCY in what it deals (`powers`) scales the blow — a monster's whole
+	// answer to the skill a character trains, since it has none.
+	const AttackProfile atk{
+		m_balance.Potent(monster.kind->damage, monster.kind->powers,
+						 monster.kind->damageType),
+		monster.kind->accuracy * monster.kind->offense,
+		monster.kind->damageType, monster.kind->critPierce};
+	fx::DamageEvent ev =
+		fx::DamageEvent::Blow(atk.type, atk.damage, atk.attackBonus, victim);
+	ev.pierceOnCrit = atk.pierceOnCrit;
 	fx::Deal(ev, defender, m_balance.Strike(), m_combatRng);
+	TrainDefense(target, ev); // avoid on a miss, armor on a blunted hit
+
+	if (ev.fumble) {
+		MemberMessage(target, loc::Format("log.foe_fumbles", name));
+		// A monster's swing costs it too — the same tables, minus the three
+		// consequences a creature with no hands and no stamina cannot pay.
+		MonsterFumble(monster, atk, ev.fumbleFace);
+	} else if (ev.crit && ev.hit)
+		MemberMessage(target, loc::Format("log.foe_critical", name));
+	else if (ev.defenderFumbled)
+		MemberMessage(target, loc::Format("log.fumble_guard", target.name));
 
 	if (!ev.hit) {
 		MemberMessage(target, loc::Format("log.monster_misses", name, target.name));
@@ -464,6 +969,12 @@ void DungeonWorld::MonsterAttack(Monster& monster) {
 	// effect arrives in its own colours.
 	fx::ApplyProcs(defender, monster.kind->onHit, std::nullopt, -1, m_effects,
 				   m_combatRng);
+	// A CRITICAL leaves more behind than an ordinary blow. Rolled after the
+	// on_hit list, so a weapon that burns on every hit and bleeds on a crit
+	// applies both rather than one instead of the other.
+	if (ev.crit)
+		fx::ApplyProcs(defender, monster.kind->onCrit, std::nullopt, -1,
+					   m_effects, m_combatRng);
 	// ...and now the blow has been reported, whatever guards them answers it
 	// (the fire shield scorches its attacker). Its own death line comes from
 	// the ward, since nothing else is narrating this reprisal.
@@ -486,7 +997,7 @@ float DungeonWorld::CollideParty(float amount) {
 	for (Character& member : *m_roster) {
 		if (!member.IsAlive()) continue;
 		PartyTarget jarred{*this, member};
-		fx::DamageEvent ev = fx::DamageEvent::Impact(DamageType::Bash, amount);
+		fx::DamageEvent ev = fx::DamageEvent::Impact(m_bashType, amount);
 		fx::Deal(ev, jarred, m_balance.Strike(), m_combatRng);
 		jarred.NarrateFall();
 		// The collision answers itself: whatever guards a member scorches the
@@ -711,6 +1222,12 @@ void DungeonWorld::MonsterRangedAttack(Monster& monster) {
 	bolt.color = {1.6f, 0.5f, 0.2f, 0.0f}; // ember-orange additive
 	bolt.size = 0.18f;
 	bolt.shooter = monster.runtimeId; // the impact reads its threat
+	// A shot leaves what its melee leaves: `on_hit` is what this creature's
+	// attacks carry, and a venomous thing's dart is venomous too. (A CASTER's
+	// bolt above takes the SPELL's payload instead — the spell is the source
+	// there, not the creature.)
+	bolt.payload = PackPayload(monster.kind->onHit,
+							   "monsters.cat [" + monster.kind->name + "]");
 	m_projectiles.Spawn(bolt);
 	m_audio.Play(m_sounds.monster, 0.5f); // soft launch cue (reuse the monster voice)
 }
@@ -773,7 +1290,7 @@ bool DungeonWorld::PartyAttack(size_t member, size_t hand, std::string_view verb
 	// the base damage/pace (unarmed knobs when bare/unstated); the associated
 	// stats' average is the attack bonus; accuracy is ALWAYS DEX.
 	const AttackSpec* spec = m_balance.FindAttack(verb);
-	if (!spec) spec = &Balance::Neutral();
+	if (!spec) spec = &m_balance.Neutral();
 	const std::span<const std::string> stats =
 		weapon && !weapon->stats.empty() ? std::span<const std::string>(weapon->stats)
 										 : std::span<const std::string>(UnarmedStats());
@@ -803,29 +1320,78 @@ bool DungeonWorld::PartyAttack(size_t member, size_t hand, std::string_view verb
 				 (m_balance.staminaSwing +
 				  m_balance.staminaWeight * (weapon ? weapon->weight : 0.0f)) *
 					 spec->stam);
+
+	// OVER-EXERTION is billed when the swing is DONE rather than when it begins,
+	// through every exit — a whiff at air committed just as much as a landed
+	// blow. The order is the reason for the lambda: the bill can put its own
+	// owner down, and that line has to read AFTER the blow it paid for, not
+	// before it. Zero unless the stance is past 1, in which case SpendExertion
+	// is a no-op and this costs nothing.
+	const float exertion = defense::ExertionPoints(
+		attacker.offenseShare, static_cast<float>(level), m_balance.SkillCurve());
+	const auto finish = [&] {
+		SpendExertion(attacker, exertion);
+		return true;
+	};
+
 	if (!target) {
 		MemberMessage(attacker, loc::Tr("log.attack_air"));
-		return true;
+		return finish();
 	}
 
 	const AttackProfile atk{
 		(base + m_balance.statDamage * statAvg) * spec->dmg *
 			(1.0f + m_balance.skillDamage * static_cast<float>(level)) *
 			(winded ? m_balance.exhaustDamage : 1.0f),
-		m_balance.accBase +
-			m_balance.accStat * static_cast<float>(attacker.dexterity) +
-			m_balance.accSkill * static_cast<float>(level) + spec->acc,
-		spec->type};
+		// THE ATTACK BONUS (docs/damage-system.md): skill is the main driver,
+		// through its diminishing-returns curve; DEX shades it through its own,
+		// much shallower one; the verb adds its authored points. All three are
+		// in d100 points, against the ~41 the dice themselves deviate by.
+		//
+		// The STANCE scales the skill term and only the skill term — the same
+		// points it takes off the guard are the ones it puts behind the swing, so
+		// one number moves both sides (defense::StanceAttack). DEX is not skill
+		// and rides at full weight whatever the stance.
+		defense::StanceAttack(attacker.offenseShare, static_cast<float>(level),
+							  m_balance.SkillCurve()) +
+			CurveValue(static_cast<float>(attacker.dexterity),
+					   m_balance.StatCurve()) +
+			spec->acc,
+		spec->type,
+		// `crit = pierce`: this edge finds the gap between the plates.
+		weapon && weapon->critPierce};
 	const std::string name = loc::Tr("monster." + target->kind->name);
 	PartyTarget striker{*this, attacker};
 	MonsterTarget defender{*this, *target};
-	fx::DamageEvent ev = fx::DamageEvent::Blow(atk.type, atk.damage, atk.accuracy,
-											   static_cast<int>(member));
+	// The attacker's type axis: potency summed from THIS hand's weapon and every
+	// worn piece (PartyPowers). A character has no innate cell — their own axis is
+	// skill — so this is entirely what they carry.
+	fx::DamageEvent ev = fx::DamageEvent::Blow(
+		atk.type,
+		m_balance.Potent(atk.damage, PartyPowers(attacker, static_cast<int>(hand)),
+						 atk.type),
+		atk.attackBonus, static_cast<int>(member));
+	ev.pierceOnCrit = atk.pierceOnCrit;
 	fx::Deal(ev, defender, m_balance.Strike(), m_combatRng);
+
+	// WHAT THE DICE DID, said before the outcome it caused. The open-ended roll
+	// has been driving damage since P2 and was invisible: a critical arrived as
+	// a big number with no explanation, and a fumble as an ordinary miss. The
+	// line is the point — a mechanic nobody can see is a mechanic nobody has.
+	if (ev.fumble) {
+		MemberMessage(attacker, loc::Format("log.fumble", attacker.name));
+		// ...and what that cost you, said after the line that announced it. The
+		// swing is over — it cannot land — so the consequences are the rest of
+		// this exchange, and `finish` below still bills any over-exertion.
+		PartyFumble(attacker, hand, weapon, atk, ev.fumbleFace);
+	} else if (ev.crit && ev.hit)
+		MemberMessage(attacker, loc::Format("log.critical", attacker.name));
+	else if (ev.defenderFumbled)
+		MemberMessage(attacker, loc::Format("log.foe_fumbles", name));
 
 	if (!ev.hit) {
 		MemberMessage(attacker, loc::Format("log.party_misses", attacker.name, name));
-		return true;
+		return finish();
 	}
 	// ENCHANTMENT: a landed blow with an elemental weapon carries its element
 	// through as well — a SECOND event of that element, `element_bonus` of the
@@ -834,8 +1400,14 @@ bool DungeonWorld::PartyAttack(size_t member, size_t hand, std::string_view verb
 	// element still answers it.
 	float elemental = 0.0f;
 	if (weapon && weapon->enchanted && weapon->elementBonus > 0.0f) {
+		// The enchantment gets the type axis too, and in ITS OWN element rather than
+		// the blade's physical one — which is the case the whole feature is for: a
+		// fire-attuned wielder's burning sword burns hotter.
+		const DamageType elemType = m_damageTypes.ForSchool(weapon->element);
 		fx::DamageEvent burst = fx::DamageEvent::Burst(
-			SchoolDamageType(weapon->element), atk.damage * weapon->elementBonus,
+			elemType,
+			m_balance.Potent(atk.damage * weapon->elementBonus,
+							 PartyPowers(attacker, static_cast<int>(hand)), elemType),
 			static_cast<int>(member));
 		fx::Deal(burst, defender, m_balance.Strike(), m_combatRng);
 		elemental = burst.dealt;
@@ -857,12 +1429,15 @@ bool DungeonWorld::PartyAttack(size_t member, size_t hand, std::string_view verb
 		// enchanted blade, bleeding from a serrated one. An enchanted weapon
 		// lends its element as the flavour; a plain one lets each effect keep
 		// its own.
-		fx::ApplyProcs(defender, weapon->onHit,
-					   weapon->enchanted ? std::optional{weapon->element}
-										 : std::nullopt,
+		const std::optional<SpellSymbol> flavour =
+			weapon->enchanted ? std::optional{weapon->element} : std::nullopt;
+		fx::ApplyProcs(defender, weapon->onHit, flavour,
 					   static_cast<int>(member), m_effects, m_combatRng);
+		if (ev.crit)
+			fx::ApplyProcs(defender, weapon->onCrit, flavour,
+						   static_cast<int>(member), m_effects, m_combatRng);
 	}
-	return true;
+	return finish();
 }
 
 // ============================================================================
@@ -927,12 +1502,18 @@ bool DungeonWorld::CastSpell(size_t member, std::span<const SpellSymbol> sequenc
 		GrantSkillXp(caster, SymbolId(r.spell->School()), r.spell->Mana() * 0.25f,
 					 SchoolStats(r.spell->School()));
 		m_audio.Play(m_sounds.spellCast, 0.7f);
+		// OVER-EXERTION's bill, last — like a swing's, so the collapse it can
+		// cause reads after the cast that paid for it. Zero unless the caster's
+		// stance is past 1.
+		SpendExertion(caster, r.exertion);
 		return true;
 	case MagicSystem::CastOutcome::Fumble:
 		// The skill roll failed: the mana is spent, nothing happens, and
 		// nothing is learned — the recipe stays anonymous until a cast lands.
 		MemberMessage(caster, loc::Format("log.cast_fumble", caster.name));
 		m_audio.Play(m_sounds.spellFizzle, 0.6f);
+		// A fumbled cast was still THROWN, so it is billed like any other.
+		SpendExertion(caster, r.exertion);
 		return false;
 	case MagicSystem::CastOutcome::NoMana:
 		MemberMessage(caster, loc::Format("log.cast_nomana", caster.name));
@@ -967,9 +1548,35 @@ float LaneOffset(const ProjectileImpact& impact, const Vec3& pos) {
 }
 } // namespace
 
+// The first live monster in this cell that is IN the bolt's lane, or -1. Split out
+// so the single-target strike and an area carrier's detonation ask the same
+// question — an area bolt flying past a wrong-lane body must fly on, exactly like
+// a plain one, or a bomb would go off on contact with a monster it never touched.
+int DungeonWorld::MonsterInLane(const ProjectileImpact& impact, int cx,
+								int cz) const {
+	for (size_t i = 0; i < m_monsters.size(); ++i) {
+		const Monster& m = m_monsters[i];
+		if (!m.Alive() || m.x != cx || m.z != cz) continue;
+		const Vec3 mp = SlotCenter(m.x, m.z, m.kind->size, m.slot);
+		if (std::abs(LaneOffset(impact, mp)) > kLaneHalfWidth)
+			continue; // opposite side
+		return static_cast<int>(i);
+	}
+	return -1;
+}
+
 bool DungeonWorld::ResolveSpellHit(const ProjectileImpact& impact) {
 	const int cx = static_cast<int>(std::floor(impact.pos.x / kCellSize));
 	const int cz = static_cast<int>(std::floor(impact.pos.z / kCellSize));
+	// AN AREA CARRIER THAT CONNECTS STILL EXPLODES, and the blast is the whole of
+	// what it does — no separate single-target strike, or the body it happened to
+	// touch would take the blow twice. It goes off wherever it made contact, so a
+	// bomb that hits the front rank catches everything around them.
+	if (impact.payload.blast.Any()) {
+		if (MonsterInLane(impact, cx, cz) < 0) return false; // flew past: not yet
+		Detonate(cx, cz, impact.payload, impact.atk.type, impact.attacker);
+		return true;
+	}
 	// A bolt flies down its LANE (the caster's quadrant line): it hits a
 	// monster on the same side or in the middle of the cell, and flies
 	// straight past one hugging the opposite side (Michael, 2026-07-10).
@@ -977,24 +1584,20 @@ bool DungeonWorld::ResolveSpellHit(const ProjectileImpact& impact) {
 	// monster's sub-cell slot: 0 same side, cell/4 for a centered (large)
 	// body, ~cell/2+ for the opposite quadrant — 0.35 splits hit from miss.
 	// (kLaneHalfWidth — shared with the party mirror below.)
-	Monster* hit = nullptr;
-	int hitIndex = -1;
-	for (size_t i = 0; i < m_monsters.size(); ++i) {
-		Monster& m = m_monsters[i];
-		if (!m.Alive() || m.x != cx || m.z != cz) continue;
-		const Vec3 mp = SlotCenter(m.x, m.z, m.kind->size, m.slot);
-		if (std::abs(LaneOffset(impact, mp)) > kLaneHalfWidth)
-			continue; // opposite side
-		hit = &m;
-		hitIndex = static_cast<int>(i);
-		break;
-	}
-	if (!hit) return false; // open air (or only wrong-lane bodies) — flies on
+	const int hitIndex = MonsterInLane(impact, cx, cz);
+	if (hitIndex < 0) return false; // open air (or only wrong-lane bodies) — flies on
+	Monster* hit = &m_monsters[static_cast<size_t>(hitIndex)];
 
 	const std::string name = loc::Tr("monster." + hit->kind->name);
 	MonsterTarget defender{*this, *hit};
-	fx::DamageEvent ev = fx::DamageEvent::Bolt(impact.atk.type, impact.atk.damage,
-											   impact.atk.accuracy, impact.attacker);
+	// The launcher's type axis (docs/damage-system.md "Two axes") — applied here
+	// because this is the only place both the roster and the monster list are known.
+	fx::DamageEvent ev = fx::DamageEvent::Bolt(
+		impact.atk.type,
+		m_balance.Potent(impact.atk.damage,
+						 AttackerPowers(impact.attacker, impact.shooter),
+						 impact.atk.type),
+		impact.atk.attackBonus, impact.attacker);
 	fx::Deal(ev, defender, m_balance.Strike(), m_combatRng);
 	if (ev.hit) {
 		if (ev.dealt >= 0.5f)
@@ -1008,6 +1611,13 @@ bool DungeonWorld::ResolveSpellHit(const ProjectileImpact& impact) {
 			onMessage(loc::Format("log.spell_slain", name));
 		} else {
 			hit->hitReq = true; // survivor flinches (a fatal blow goes straight to Die)
+			// A survivor wears whatever the carrier left — the payload, in its
+			// source's element (see ProjectilePayload::flavour). The bolt's own
+			// damage was resolved above; this is what it leaves BEHIND.
+			if (!impact.payload.Empty())
+				fx::ApplyProcs(defender, impact.payload.Procs(),
+							   impact.payload.flavour, impact.attacker, m_effects,
+							   m_combatRng);
 			// Displacement (the air-school shove): a landed hit with `push` walks
 			// the survivor up to that many cells along the bolt's travel, one
 			// StepMonsterTo per cell so occupancy commits atomically; the first
@@ -1081,9 +1691,14 @@ bool DungeonWorld::ResolveMonsterProjectileHit(const ProjectileImpact& impact) {
 	// through, and the Fire Shield stays out of it — it burns back at blows,
 	// not at bolts. All of that is the effects' business, not this resolver's.
 	PartyTarget defender{*this, target};
-	fx::DamageEvent ev = fx::DamageEvent::Bolt(impact.atk.type, impact.atk.damage,
-											   impact.atk.accuracy);
+	fx::DamageEvent ev = fx::DamageEvent::Bolt(
+		impact.atk.type,
+		m_balance.Potent(impact.atk.damage,
+						 AttackerPowers(impact.attacker, impact.shooter),
+						 impact.atk.type),
+		impact.atk.attackBonus);
 	fx::Deal(ev, defender, m_balance.Strike(), m_combatRng);
+	TrainDefense(target, ev); // a dodged bolt teaches too
 	if (ev.deflected) return true; // spent against the wind
 	if (!ev.hit) {
 		MemberMessage(target, loc::Format("log.monster_ranged_misses", target.name));
@@ -1096,11 +1711,388 @@ bool DungeonWorld::ResolveMonsterProjectileHit(const ProjectileImpact& impact) {
 		MemberMessage(target, loc::Format("log.member_unharmed", target.name));
 	defender.NarrateFall();
 	m_audio.Play(m_sounds.monster, 0.6f);
+	// Whatever the carrier left — applied even if the bolt downed them, matching
+	// the melee path: the ticks finish the job.
+	if (!impact.payload.Empty())
+		fx::ApplyProcs(defender, impact.payload.Procs(), impact.payload.flavour,
+					   -1, m_effects, m_combatRng);
 	// (a fire shield answers blows, not bolts)
 	fx::React(ev, defender, nullptr, Reaction());
 	CheckPartyWipe();
 	return true;
 }
 
+// ============================================================================
+// The dungeon as a target
+// ============================================================================
+
+float DungeonWorld::BreakableTarget::Resist(DamageType type) const {
+	// Authored resists plus whatever is riding it, clamped by the shared rule. A
+	// nature cell of 1.0 is immunity and past it the thing DRINKS that element —
+	// an iron door fed by lightning — exactly as for a combatant, because it goes
+	// through the same clamp.
+	float resist = m_brk.resists[type];
+	resist += fx::EffectResist(m_brk.effects, type, m_world.EffectKnobs());
+	return m_world.m_balance.ClampResist(resist, m_brk.resists[type]);
+}
+
+void DungeonWorld::BreakableTarget::Wound(float amount, fx::DamageEvent& ev) {
+	if (!m_brk.Alive()) return; // already broken, or never breakable
+	m_brk.hp -= amount;
+	if (m_brk.hp > 0.0f) return;
+	m_brk.hp = 0.0f;
+	m_brk.broken = true;
+	ev.slew = true; // this is the blow that finished it
+	// The CONSEQUENCE is the owner's, not the pipeline's: a door's way opens for
+	// good, a prop vanishes, a brazier goes dark.
+	if (m_onBroken) m_onBroken();
+}
+
+void DungeonWorld::BreakableTarget::Absorb(float amount, fx::DamageEvent& ev) {
+	if (!m_brk.Alive() || amount <= 0.0f) return;
+	m_brk.hp = std::min(m_brk.maxHp, m_brk.hp + amount);
+	if (ev.Quiet()) return; // a tick feeding it is a trickle, not news
+	Say(loc::Format("log.monster_absorbs", Name(),
+					static_cast<int>(amount + 0.5f)));
+}
+
+std::string DungeonWorld::BreakableTarget::Name() const {
+	return loc::Tr(m_nameKey);
+}
+
+void DungeonWorld::BreakableTarget::Say(const std::string& line) const {
+	if (m_world.onMessage) m_world.onMessage(line);
+}
+
+void DungeonWorld::BreakableTarget::SayApplied(const fx::EffectKind& kind) const {
+	// A door catches fire the way a monster does, not the way a party member
+	// does — it is a thing in the world being described, not one of ours.
+	if (m_world.onMessage)
+		m_world.onMessage(loc::Format(kind.ApplyLine(/*onMonster=*/true), Name()));
+}
+
+void DungeonWorld::ForEachBreakableAt(
+	int x, int z, const std::function<void(BreakableTarget&)>& fn) {
+	// THE one place that knows what pieces of dungeon live in a cell and can be
+	// hurt. Every source of damage goes through it, so adding a fourth breakable
+	// kind reaches blasts, bolts and anything later, all at once.
+	for (Door& d : m_doors) {
+		if (d.x != x || d.z != z || !d.brk.Alive()) continue;
+		BreakableTarget t{*this, d.brk, "door." + d.type, "log.door_broken", [&d] {
+							  // The way is open FOR GOOD. Not `open = true` alone:
+							  // a smashed door must not be closeable again, which is
+							  // the whole difference from opening one. STATE only —
+							  // the line is the caller's (see BrokenKey).
+							  d.open = true;
+							  d.openT = 1.0f;
+						  }};
+		fn(t);
+	}
+	for (Decoration& p : m_decorations) {
+		if (p.x != x || p.z != z || !p.brk.Alive()) continue;
+		// A smashed prop STAYS IN THE LIST, flagged broken, rather than being
+		// erased. Two reasons, the second load-bearing: erasing while the adapter
+		// still holds a reference into the vector would dangle it, and the SAVE has
+		// to be able to name what was broken afterwards — an erased record cannot be
+		// reported. Draw, collision and the map all skip a broken prop instead
+		// (Decoration::Gone / ::Blocks), so nothing else has to know.
+		BreakableTarget t{*this, p.brk, "decoration." + p.kind->id,
+						  "log.prop_broken", nullptr};
+		fn(t);
+	}
+	// FIXTURES, from the side-table rather than the map: their records are static,
+	// so their damage state lives beside them (see FixtureBreak). Breaking one puts
+	// its light out.
+	for (FixtureBreak& fb : m_fixtureBreaks) {
+		if (fb.x != x || fb.z != z || !fb.brk.Alive()) continue;
+		BreakableTarget t{*this, fb.brk, "fixture." + fb.type, "log.fixture_broken",
+						  [this, &fb] { DouseFixture(fb); }};
+		fn(t);
+	}
+}
+
+int DungeonWorld::SmashAt(int x, int z, float amount) {
+	int struck = 0;
+	// A BLOW, not a burst: rolled and soaked like any swing, so a door's `armor`
+	// and its resists both answer it. Bash, because smashing is what this is.
+	ForEachBreakableAt(x, z, [&](BreakableTarget& t) {
+		++struck;
+		fx::DamageEvent ev = fx::DamageEvent::Blow(m_bashType, amount, 500.0f, -1);
+		fx::Deal(ev, t, m_balance.Strike(), m_combatRng);
+		NarrateBreak(t, ev);
+	});
+	return struck;
+}
+
+void DungeonWorld::NarrateBreak(const BreakableTarget& t,
+								const fx::DamageEvent& ev) {
+	// The blow FIRST, then what it broke — the order the effects doc insists on and
+	// the reason the break line is not said from inside the pipeline.
+	if (!onMessage) return;
+	if (ev.dealt >= 0.5f)
+		onMessage(loc::Format("log.blast_hits", t.Name(),
+							  static_cast<int>(ev.dealt + 0.5f)));
+	if (ev.slew) onMessage(loc::Format(t.BrokenKey(), t.Name()));
+}
+
+void DungeonWorld::SeedFixtureBreakables() {
+	// THE TABLE IS DERIVED FROM THE MAP, BUT THE BROKEN FLAGS ARE NOT. Rebuilding it
+	// must therefore CARRY THEM OVER, because the rebuild can run after a save has
+	// already been applied — which is exactly what happened: a restored broken
+	// brazier came back whole, because re-seeding replaced its entry. Preserving
+	// here rather than chasing the load-task order means it cannot break again if
+	// that order changes.
+	std::vector<FixtureBreak> prior = std::move(m_fixtureBreaks);
+	m_fixtureBreaks.clear();
+	const auto seed = [this, &prior](int x, int z, int wall,
+									 const std::string& type) {
+		const FixtureKind& k = FixtureKindFor(type);
+		if (!k.destructible || k.hp <= 0.0f) return; // authored as scenery
+		FixtureBreak fb;
+		fb.x = x;
+		fb.z = z;
+		fb.wall = wall;
+		fb.type = type;
+		fb.brk.maxHp = k.hp;
+		fb.brk.hp = k.hp;
+		fb.brk.soak = k.soak;
+		fb.brk.resists = k.resists;
+		for (const FixtureBreak& old : prior)
+			if (old.x == x && old.z == z && old.wall == wall && old.type == type) {
+				fb.brk.broken = old.brk.broken; // whatever was already wrecked
+				fb.brk.hp = old.brk.hp;         // ...and however battered
+				fb.brk.effects = old.brk.effects;
+				break;
+			}
+		m_fixtureBreaks.push_back(std::move(fb));
+	};
+	for (const WallSconce& s : m_map.Sconces())
+		seed(s.x, s.z, static_cast<int>(s.wall), s.type);
+	for (const FloorBrazier& b : m_map.Braziers()) seed(b.x, b.z, -1, b.type);
+}
+
+void DungeonWorld::DouseFixture(const FixtureBreak& fb) {
+	// Breaking a light source means THE LIGHT GOES OUT, which is the whole point of
+	// being able to break one — `lit` gates its point light, its flame particles and
+	// its smoke together, so one flag does all three. The mesh stays: a wrecked
+	// sconce is still bolted to the wall, just dark.
+	if (fb.wall >= 0)
+		m_map.SetSconceProps(fb.x, fb.z, static_cast<Direction>(fb.wall),
+							 /*lit=*/false, kSconceBrightness, kSconceTurbidity);
+	else
+		m_map.SetBrazierProps(fb.x, fb.z, /*lit=*/false, kBrazierBrightness,
+							  kBrazierTurbidity);
+	// The haze it was feeding has to go with it, or a doused brazier leaves its own
+	// god rays hanging in the air.
+	BuildTurbidityMap();
+}
+
+void DungeonWorld::SeedBreakable(Breakable& brk, const DecorationKind& kind) {
+	if (!kind.destructible || kind.hp <= 0.0f) return; // scenery: maxHp stays 0
+	brk.maxHp = kind.hp;
+	brk.hp = kind.hp;
+	brk.soak = kind.soak;
+	brk.resists = kind.resists;
+}
+
+// ============================================================================
+// Area blasts
+// ============================================================================
+
+void DungeonWorld::Detonate(int cx, int cz, const ProjectilePayload& payload,
+							DamageType type, int attacker) {
+	const BlastSpec& spec = payload.blast;
+	if (!spec.rules.Any()) return;
+
+	// What a blast may enter: an open cell, no closed door. The SAME test that
+	// stops a bolt, which is why a blast cannot leak into the corridor behind a
+	// wall or through a shut door — Game/Blast.h does the geometry, this only says
+	// what counts as open.
+	ActiveBlast active;
+	active.result = blast::Propagate(cx, cz, spec.rules, [this](int x, int z) {
+		if (!m_map.IsWalkable(x, z)) return false;
+		const Door* d = DoorAt(x, z);
+		return !d || d->open;
+	});
+	if (active.result.clamped)
+		log::Warn("a blast of force {} was clamped ({} squares / {} ticks max)",
+				  spec.rules.force, blast::kMaxCells, blast::kMaxTicks);
+	if (active.result.count == 0) return;
+
+	// The whole propagation is computed at once and PLAYED OUT over time: each
+	// tick's hits land `rate` seconds apart, which is the spell's expansion speed
+	// (a fireball rushes, a gas cloud creeps). Tick 0 — the detonation square —
+	// lands immediately, so a blast always does something on the frame it goes off.
+	active.rate = std::max(0.0f, spec.rules.rate);
+	active.type = type;
+	active.attacker = attacker;
+	active.payload = payload; // what every square it reaches is left burning with
+	m_activeBlasts.push_back(std::move(active));
+	m_audio.Play(m_sounds.spellImpact, 0.9f);
+	UpdateBlasts(0.0f); // tick 0 now, not next frame
+}
+
+void DungeonWorld::UpdateBlasts(float dt) {
+	for (size_t b = 0; b < m_activeBlasts.size();) {
+		ActiveBlast& a = m_activeBlasts[b];
+		a.elapsed += dt;
+		// Everything whose tick has come due. A rate of 0 means the whole thing
+		// resolves at once, which is what an instantaneous blast is.
+		while (a.next < a.result.count) {
+			const blast::Hit& h = a.result.hits[a.next];
+			if (a.rate > 0.0f &&
+				static_cast<float>(h.tick) * a.rate > a.elapsed + 1e-4f)
+				break;
+			++a.next;
+			ApplyBlastHit(h, a);
+		}
+		if (a.next >= a.result.count)
+			m_activeBlasts.erase(m_activeBlasts.begin() + static_cast<long>(b));
+		else
+			++b;
+	}
+}
+
+void DungeonWorld::ApplyBlastHit(const blast::Hit& c,
+								 const ActiveBlast& active) {
+	// Not named `blast`: that is the namespace this Hit comes from.
+	const DamageType type = active.type;
+	const int attacker = active.attacker;
+	if (c.damage <= 0.0f) return; // reached it, but the falloff spent it
+	// The launcher's type axis scales every square the blast touches — one figure
+	// for the whole detonation, so a fire-attuned caster's burst is hotter
+	// everywhere rather than only where it went off.
+	const float dmg = m_balance.Potent(c.damage, AttackerPowers(attacker, 0), type);
+	{
+		// A blast is MAGIC ARRIVING, so it goes through the pipeline as a Burst:
+		// resisted but NOT soaked — plate turns a blade, not a blast
+		// (docs/effects.md). It is also not rolled: an explosion filling your square
+		// is not something you parry, so no opposed roll and no evasion. That is the
+		// trade for the friendly fire below.
+
+		// MONSTERS in the cell — all of them, every lane. A blast has no lane.
+		for (Monster& m : m_monsters) {
+			if (!m.Alive() || m.x != c.x || m.z != c.z) continue;
+			const std::string name = loc::Tr("monster." + m.kind->name);
+			MonsterTarget defender{*this, m};
+			fx::DamageEvent ev = fx::DamageEvent::Burst(type, dmg, attacker);
+			fx::Deal(ev, defender, m_balance.Strike(), m_combatRng);
+			if (ev.dealt >= 0.5f)
+				onMessage(loc::Format("log.blast_hits", name,
+									  static_cast<int>(ev.dealt + 0.5f)));
+			else if (ev.dealt >= 0.0f)
+				onMessage(loc::Format("log.monster_unharmed", name));
+			fx::React(ev, defender, nullptr, Reaction());
+			if (!m.Alive()) {
+				onMessage(loc::Format("log.spell_slain", name));
+			} else {
+				m.hitReq = true;
+				// WHAT THE FRONT LEAVES: a transient blast passes on, but what it
+				// set alight keeps burning through the effects pipeline on its own.
+				// That is how "fire that catches" works without the blast itself
+				// having to simulate persistence.
+				if (!active.payload.Empty())
+					fx::ApplyProcs(defender, active.payload.Procs(),
+								   active.payload.flavour, attacker, m_effects,
+								   m_combatRng);
+			}
+		}
+
+		// THE PARTY, if this is their cell — FRIENDLY FIRE (Michael, 2026-08-11).
+		// Every standing member, because they share the square; the blast does not
+		// care who threw it. This is the one path where a party spell can hurt the
+		// party, and it is why a blast wants room.
+		if (m_roster && !m_partyWiped && c.x == m_party.GridX() &&
+			c.z == m_party.GridZ()) {
+			for (Character& member : *m_roster) {
+				if (!member.IsAlive()) continue;
+				PartyTarget defender{*this, member};
+				fx::DamageEvent ev = fx::DamageEvent::Burst(type, dmg, -1);
+				fx::Deal(ev, defender, m_balance.Strike(), m_combatRng);
+				if (ev.dealt >= 0.5f)
+					MemberMessage(member, loc::Format("log.blast_hits_member",
+													  member.name,
+													  static_cast<int>(ev.dealt + 0.5f)));
+				else if (ev.dealt >= 0.0f)
+					MemberMessage(member, loc::Format("log.member_unharmed",
+													  member.name));
+				defender.NarrateFall();
+				fx::React(ev, defender, nullptr, Reaction());
+				if (!active.payload.Empty())
+					fx::ApplyProcs(defender, active.payload.Procs(),
+								   active.payload.flavour, -1, m_effects,
+								   m_combatRng);
+			}
+			CheckPartyWipe();
+		}
+	}
+	// Whatever pieces of DUNGEON stand here take it too — a blast is the first
+	// thing that reaches them, and it reaches them through the same pipeline.
+	ForEachBreakableAt(c.x, c.z, [&](BreakableTarget& t) {
+		fx::DamageEvent ev = fx::DamageEvent::Burst(type, dmg, attacker);
+		fx::Deal(ev, t, m_balance.Strike(), m_combatRng);
+		// A door the blast washed over is left ALIGHT, and burns down on its own.
+		if (!active.payload.Empty())
+			fx::ApplyProcs(t, active.payload.Procs(), active.payload.flavour,
+						   attacker, m_effects, m_combatRng);
+		NarrateBreak(t, ev);
+	});
+}
+
+// ============================================================================
+// Expiry — a carrier that stopped without striking anything
+// ============================================================================
+
+void DungeonWorld::ResolveProjectileExpiry(const ProjectileExpiry& expiry) {
+	const int bx = static_cast<int>(std::floor(expiry.pos.x / kCellSize));
+	const int bz = static_cast<int>(std::floor(expiry.pos.z / kCellSize));
+	// AN AREA CARRIER GOES OFF WHERE IT STOPS, which is the whole point of a
+	// thrown bomb: the wall it broke against is the centre. Detonate handles a
+	// centre inside stone (nothing stands there, and the room beyond is one step
+	// out), so a bolt that burst on a wall still fills the corridor it came down.
+	if (expiry.payload.blast.Any()) {
+		Detonate(bx, bz, expiry.payload, expiry.atk.type, expiry.attacker);
+		return; // the blast IS the effect; no separate cell-wide proc pass
+	}
+	m_audio.Play(m_sounds.spellFizzle, 0.6f); // the soft fizzle, as before
+	if (expiry.payload.Empty()) return;       // a plain bolt just goes out
+
+	// AN EXPIRY IS CELL-WIDE WHERE A HIT IS LANE-WIDE (Michael, 2026-08-11 — he
+	// chose "the cell it died in" as an expiry's target). That difference is the
+	// mechanic, not an inconsistency: a bolt reaches only what stands in its lane,
+	// but a bolt that BURSTS fills the square it burst in — so the shot that flew
+	// past you down the far side of the corridor and broke on the wall behind you
+	// still catches you. Nothing here reads kLaneHalfWidth, deliberately.
+	//
+	// A PROC burst stays on its TARGET SIDE: a plain carrier may only ever affect
+	// the side it was flying against (TargetSide is that rule everywhere else in
+	// the engine). An AREA blast is the deliberate exception and left above — it
+	// has no side at all.
+	//
+	// `expiry.cause` distinguishes bursting on stone from running out of reach; it
+	// is carried but not yet acted on — both burst identically today.
+	const int cx = bx, cz = bz;
+
+	switch (expiry.target) {
+	case TargetSide::Monsters:
+		for (Monster& m : m_monsters) {
+			if (!m.Alive() || m.x != cx || m.z != cz) continue;
+			MonsterTarget caught{*this, m};
+			fx::ApplyProcs(caught, expiry.payload.Procs(), expiry.payload.flavour,
+						   expiry.attacker, m_effects, m_combatRng);
+		}
+		break;
+	case TargetSide::Party:
+		if (!m_roster || m_partyWiped) break;
+		if (cx != m_party.GridX() || cz != m_party.GridZ()) break;
+		for (Character& member : *m_roster) {
+			if (!member.IsAlive()) continue;
+			PartyTarget caught{*this, member};
+			fx::ApplyProcs(caught, expiry.payload.Procs(), expiry.payload.flavour,
+						   -1, m_effects, m_combatRng);
+		}
+		break;
+	}
+}
 
 } // namespace dungeon::game

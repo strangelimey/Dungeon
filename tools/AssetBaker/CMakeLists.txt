@@ -14,3 +14,7 @@ add_executable(AssetBaker
 	TextureBaker.cpp
 )
 target_link_libraries(AssetBaker PRIVATE Core Assets ThirdPartyImpl)
+
+# Solution Explorer: headers visible, folders mirrored (dn_ide_layout, root
+# CMakeLists). MUST be called here — source_group is directory-scoped.
+dn_ide_layout(AssetBaker ${CMAKE_CURRENT_SOURCE_DIR})

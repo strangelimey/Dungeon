@@ -73,6 +73,22 @@ struct Character {
 	// independently (dual-wield, weapon + shield, etc.).
 	float handCooldown[2] = {0.0f, 0.0f};
 
+	// THE OFFENSE SHARE (docs/damage-system.md): how much of this character's
+	// skill goes into ATTACKING. 1.0 spends it all and guards with nothing;
+	// 0.4 puts 40% behind every swing and holds 60% back to defend with. It is
+	// ONE stance for the character, not one per hand. Against a PHYSICAL blow
+	// the two hands still guard differently — each parries off its own weapon
+	// class and the better of them answers — but a MAGICAL one is warded with
+	// the skill in ITS OWN school (knowing fire is what turns fire aside), and
+	// the hands play no part in that at all. It applies while a hand is on COOLDOWN
+	// too: a stance is not an action, so recovering from a swing does not drop
+	// your guard.
+	//
+	// NOT clamped to 1: over-exertion (spending past 100% by burning stamina,
+	// health or a stat) pushes this ABOVE 1, so nothing may assume the offense
+	// and defense shares sum to the skill.
+	float offenseShare = 1.0f;
+
 	// Hit-feedback splat shown over this member's portrait when a monster lands
 	// a blow: hitFlash counts down (seconds) while the party bar draws the icon,
 	// and hitSeverity picks which one (0 = small, 1 = medium, 2 = hard). The
@@ -237,7 +253,6 @@ struct Character {
 	float MaxCarryLoad() const { return static_cast<float>(strength) * 5.0f; }
 	// Dodging is agility (settled: party evasion derives from DEX; monsters
 	// stay authored). Type-agnostic — the first defense gate.
-	float Evasion() const { return 0.05f + static_cast<float>(dexterity) * 0.015f; }
 
 	// The RACE/NATURE defense layer (docs/combat.md part 4): per-damage-type
 	// resists summed with equipment and wards. All zero for the default human
