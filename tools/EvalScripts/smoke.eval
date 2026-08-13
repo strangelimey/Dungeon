@@ -1,0 +1,36 @@
+; smoke.eval — the harness proving it can drive the game unattended.
+;
+; Run:  Dungeon.exe -eval <path to this file>
+; Exit: 0 if every line matched a command and the queue emptied.
+;
+; It starts at the TITLE SCREEN, so the first job is getting into a world. The
+; runner holds each line back while a staged load is in flight, so there is no
+; wait directive here and nothing to tune — `newgame` is simply followed by the
+; next line once the world actually exists.
+
+logecho on
+state
+
+; Into a world. The lines after this one wait for the load by themselves.
+newgame
+state
+
+; THE TWO RULES (docs/eval-harness.md "Driving it"). timescale 0 means normal
+; frames advance the world by nothing, so ONLY `step` moves time and the
+; measurement cannot be contaminated by however long the frames took. lockstep
+; means the monsters actually think during that step instead of walking a
+; cached path toward where the party used to be.
+timescale 0
+lockstep on
+seed 7
+
+; Stand next to the skeleton in the north corridor and take twenty seconds of it.
+tp 12 8
+echo --- before ---
+party
+monsters
+step 20
+echo --- after ---
+party
+monsters
+state

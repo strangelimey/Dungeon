@@ -1113,6 +1113,33 @@ void Game::RegisterDevCommands() {
 						   m_console.Print(std::format("logecho {}", on ? "on" : "off"));
 					   });
 
+	// The only route from the title screen into a fight that does not involve
+	// clicking a menu entry. A scripted run starts at the menu, so without this
+	// the harness would be back to posting mouse clicks at hardcoded pixels —
+	// which is exactly what it exists to stop doing.
+	//
+	// It goes through the MENU ENTRY'S OWN CALLBACK rather than calling
+	// StartNewGame directly, and that is not tidiness — the first version called
+	// StartNewGame and crashed the process on its first unattended run. From a
+	// cold boot `m_gameLoaded` is false and the HUD has never been built (it is a
+	// LOAD TASK), so StartNewGame set AppState::Playing and the same frame's
+	// state machine then dereferenced a HUD with no widgets. onStartNewGame is
+	// where the "already loaded, or load first?" decision lives; a dev command
+	// that reimplements a UI action will drift from it, and this one drifted
+	// immediately.
+	m_console.Register("newgame", "start a new game (dev)",
+					   [this](const std::vector<std::string>&) {
+						   if (!m_ui.onStartNewGame) {
+							   m_console.Print("newgame: not wired yet");
+							   return;
+						   }
+						   m_ui.onStartNewGame();
+						   // A cold boot now runs a staged load with commands
+						   // disabled, so a script's next line waits for the
+						   // world by itself.
+						   m_console.Print("starting a new game");
+					   });
+
 	// The party's side of an encounter, in one machine-readable block. `monsters`
 	// has printed the other side for a while; without this a harness can watch a
 	// fight and never learn what it COST, which is most of what a balance pass

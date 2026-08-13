@@ -1,7 +1,7 @@
 # The eval harness
 
-**Status:** P1 built (2026-08-13). The harness itself does not exist yet — this
-is the clock it will run on.
+**Status:** P1 and P2 built (2026-08-13). The suites do not exist yet — this is
+the clock they will run on and the runner that will drive them.
 
 The damage system has a great many knobs (`balance.cat` alone is fifty-odd) and
 almost none of them have been played against. Tuning them by hand means fighting
@@ -91,6 +91,66 @@ after a party wipe, `tp` and `monsters` answer perfectly normally while nothing
 is being simulated at all. A harness that could not see this would report a whole
 suite of encounters that never ran.
 
+## P2: the game runs its own script
+
+```
+Dungeon.exe -eval tools\EvalScripts\smoke.eval
+```
+
+A script is console commands, one per line, `;` or `#` to comment. The game
+queues it and runs **one line per frame**, then emits a verdict and exits with
+it:
+
+```
+eval RESULT=PASS script=smoke.eval lines=16 unknown=0
+```
+
+Exit codes are the harness's actual interface: **0** every line matched a command
+and the queue emptied · **1** a line matched nothing, or the run timed out · **2**
+the script could not be read at all. That last one is deliberately distinct — a
+"test run" that silently sat at the title screen would report whatever the
+harness assumed rather than what happened.
+
+**Waiting is free and there is no `wait` directive.** While a staged load is in
+flight the console's commands are disabled, and the pump respects the same gate,
+so `newgame` is simply followed by the next line once the world actually exists.
+Nothing to tune, and nothing that can be tuned wrong.
+
+**One line per frame**, because a command that changes state — `newgame`, a level
+transition, a quality swap — needs its frame to land before the next line reasons
+about the result.
+
+`logecho` is forced ON for a scripted run rather than left to the script: a run
+whose author forgot the line would leave no readable record of itself, which is
+the one outcome a harness must not have.
+
+### It is checked against failure, like everything else here
+
+`tools/EvalScripts/selftest-bad.eval` contains one line that is not a command. It
+must exit **1**; if it passes, the runner's verdict means nothing. A missing
+script file must exit **2**. Both verified.
+
+### Determinism, measured
+
+The same script run twice produces **byte-identical** console output (48 lines).
+That is the promise P1 made and could not yet test, and it is what makes a knob
+change show up as an exact diff rather than as noise — the same technique that
+proved the `Defense.h` refactor behaviour-preserving.
+
+### What the first unattended run found
+
+It crashed the process. `newgame` called `StartNewGame()` directly, but from a
+cold boot `m_gameLoaded` is false and **the HUD has never been built — it is a
+load task** — so setting `AppState::Playing` left the same frame's state machine
+dereferencing a HUD with no widgets. The menu entry had always handled this;
+`onStartNewGame` is where the "already loaded, or load first?" decision lives.
+The command now calls that callback instead of reimplementing it.
+
+*A dev command that duplicates a UI action will drift from it, and this one
+drifted immediately.* Worth noting the diagnostics work paid for itself here: the
+fault filter caught it, symbolized `GameUI::SetHudStatus`, and wrote a minidump,
+so a crash in an unattended headless-ish run was a two-minute diagnosis.
+
 ## Driving it: two rules learned the hard way
 
 **Set `timescale 0` first.** Otherwise real time passes between console commands
@@ -120,8 +180,9 @@ That is the capability everything else is built on.
 
 ## Next
 
-P2 the `-eval <script>` batch runner and structured `RESULT=` output; P3 `arena`
-+ `spawn` (an empty room with a monster where you want it — the showcase level
-fought every attempt to verify P1, which is exactly what generated arenas are
-for); P4 `setstat`/`setskill`/`preset`; P5 the encounter summary and the N-seed
-sweep; P6 the progression ladder; P7 blast geometry; P8 `tools/Eval.ps1`.
+P3 `arena` + `spawn` — an empty room with a monster exactly where you want it.
+The showcase level fought every attempt to verify P1 (a monster already adjacent,
+an unwalkable target cell, one that would not engage), which is precisely what
+generated arenas are for. Then P4 `setstat`/`setskill`/`preset`; P5 the encounter
+summary and the N-seed sweep; P6 the progression ladder; P7 blast geometry; P8
+`tools/Eval.ps1` and a `/check-eval` skill, outside the quick tier.

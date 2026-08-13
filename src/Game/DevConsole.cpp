@@ -610,10 +610,10 @@ void DevConsole::Print(std::string line) {
 	m_scroll = 0; // jump to the newest line
 }
 
-void DevConsole::Execute(const std::string& line) {
+bool DevConsole::Execute(const std::string& line) {
 	Print("> " + line);
 	const std::vector<std::string> tokens = Tokenize(line);
-	if (tokens.empty()) return;
+	if (tokens.empty()) return true; // a blank line is not a failure
 
 	std::string name = tokens[0];
 	std::ranges::transform(name, name.begin(), [](char c) {
@@ -624,10 +624,11 @@ void DevConsole::Execute(const std::string& line) {
 	for (const Command& cmd : m_commands) {
 		if (cmd.name == name) {
 			cmd.fn(args);
-			return;
+			return true;
 		}
 	}
 	Print("unknown command: " + name);
+	return false;
 }
 
 // Same preprocessor split as BuildProfileRows, and for the same reason: a

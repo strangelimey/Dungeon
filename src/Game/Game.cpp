@@ -19,7 +19,9 @@
 #include <algorithm>
 #include <cctype>
 #include <chrono>
+#include <filesystem>
 #include <format>
+#include <fstream>
 #include <string>
 #include <utility>
 
@@ -854,6 +856,72 @@ bool Game::SteadyStateFrame() {
 	return m_steadyFrames > kWarmupFrames;
 }
 
+bool Game::LoadEvalScript(const std::string& path) {
+	std::ifstream in(path);
+	if (!in) {
+		log::Error("eval: cannot open script '{}'", path);
+		return false;
+	}
+	m_evalName = std::filesystem::path(path).filename().string();
+	std::string line;
+	while (std::getline(in, line)) {
+		// Strip a trailing CR (a script edited on Windows and read as text can
+		// still carry one through some editors), then comments, then whitespace.
+		if (!line.empty() && line.back() == '\r') line.pop_back();
+		const size_t hash = line.find_first_of(";#");
+		if (hash != std::string::npos) line.erase(hash);
+		const size_t from = line.find_first_not_of(" \t");
+		if (from == std::string::npos) continue; // blank or comment-only
+		const size_t to = line.find_last_not_of(" \t");
+		m_evalLines.push_back(line.substr(from, to - from + 1));
+	}
+	// Mirroring is forced ON rather than left to the script: a run whose author
+	// forgot the line would produce no readable record of itself, which is the
+	// one outcome a harness must not have.
+	m_console.SetMirrorToLog(true);
+	log::Info("eval: '{}' queued, {} line(s)", m_evalName, m_evalLines.size());
+	return true;
+}
+
+void Game::PumpEvalScript(float dt) {
+	if (m_evalLines.empty() || m_evalFinished) return;
+	m_evalDeadline -= dt;
+
+	if (m_evalIndex >= m_evalLines.size()) {
+		// THE VERDICT, in the house format every other checker in this project
+		// emits, so one reader handles them all.
+		m_evalFinished = true;
+		log::Info("eval RESULT={} script={} lines={} unknown={}",
+				  m_evalUnknown == 0 ? "PASS" : "FAIL", m_evalName,
+				  m_evalLines.size(), m_evalUnknown);
+		m_quitRequested = true; // a batch run exits; nobody is watching the window
+		return;
+	}
+	if (m_evalDeadline <= 0.0f) {
+		// Deliberately NOT marked finished: EvalExitCode reads that, so a timed-
+		// out run fails even though every line it managed to run succeeded.
+		log::Error("eval RESULT=FAIL script={} lines={} unknown={} — TIMED OUT at "
+				   "line {} ('{}')",
+				   m_evalName, m_evalLines.size(), m_evalUnknown, m_evalIndex + 1,
+				   m_evalLines[m_evalIndex]);
+		m_quitRequested = true;
+		m_evalLines.clear();
+		return;
+	}
+	// The load gate does the waiting for free: while a staged load runs, commands
+	// are disabled, so a script that starts a new game simply resumes when the
+	// world is actually there. No `wait` directive, and nothing to tune.
+	if (!m_console.CommandsEnabled()) return;
+	// ONE LINE PER FRAME. A command that changes state (newgame, a level
+	// transition, a quality swap) needs the frame to land before the next line
+	// reasons about the result.
+	const std::string& line = m_evalLines[m_evalIndex++];
+	if (!m_console.RunLine(line)) {
+		++m_evalUnknown;
+		log::Error("eval: line {} matched no command: '{}'", m_evalIndex, line);
+	}
+}
+
 const char* Game::StateName() const {
 	switch (m_state) {
 	case AppState::Loading: return "loading";
@@ -1004,6 +1072,9 @@ void Game::Update(float dt) {
 	const bool consoleWasOpen = m_console.IsOpen();
 	if (input.WasKeyPressed(VK_OEM_3)) m_console.Toggle();
 	m_console.SetCommandsEnabled(!loading);
+	// Immediately after the gate it reads, so a scripted line runs on exactly the
+	// same footing as a typed one — including being held back through a load.
+	PumpEvalScript(dt);
 	{
 		// The console is itself instrumented: it samples every graph's history
 		// each frame whether open or not, and a readout that costs more than

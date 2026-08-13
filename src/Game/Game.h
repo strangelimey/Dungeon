@@ -121,6 +121,27 @@ public:
 	// suite of encounters that never ran.
 	const char* StateName() const;
 
+	// --- the eval batch runner (`-eval <script>`; docs/eval-harness.md) ------
+	// Queue a script of console commands for the game to run on ITSELF. This is
+	// the whole reason the harness is drivable: PostMessage-and-screenshot has
+	// no way to know when a load finished, cannot read the console's answers,
+	// and silently swallows everything after an accidental console toggle. A
+	// script the game owns has none of those failure modes.
+	//
+	// Returns false if the file could not be read — the caller should not then
+	// sit at the title screen forever pretending to be a test run.
+	bool LoadEvalScript(const std::string& path);
+	// True while a queued script still has lines to run.
+	bool EvalRunning() const { return m_evalIndex < m_evalLines.size(); }
+	// The process exit code a scripted run should return: 0 when every line
+	// matched a command AND the queue emptied, 1 otherwise. An ordinary play
+	// session loaded no script and is always 0 — checked FIRST, because
+	// "finished" is false for it too and it must not read as a failed run.
+	int EvalExitCode() const {
+		if (m_evalName.empty()) return 0; // no script: not a test run
+		return m_evalUnknown == 0 && m_evalFinished ? 0 : 1;
+	}
+
 private:
 	enum class AppState {
 		Loading,
@@ -244,6 +265,20 @@ private:
 	// window is measured in ARMED frames, so time spent loading, warming up or
 	// with the console open does not spend it.
 	void UpdateAllocTest(float dt, bool steady);
+	// One line per frame from the queued eval script, and the run's verdict when
+	// it empties. Called from Update.
+	void PumpEvalScript(float dt);
+
+	// --- eval script state (docs/eval-harness.md) ---------------------------
+	std::vector<std::string> m_evalLines; // the queued script, comments stripped
+	size_t m_evalIndex = 0;               // next line to run
+	int m_evalUnknown = 0;                // lines that matched no command
+	bool m_evalFinished = false;          // the queue emptied (vs timed out)
+	std::string m_evalName;               // the script's filename, for the verdict
+	// Wall-clock seconds the whole run may take. A script that waits on a load
+	// which never completes would otherwise hang a machine with no window worth
+	// looking at and no way to tell it went wrong.
+	float m_evalDeadline = 600.0f;
 	bool RunLoadTasks();       // executes one task per frame; true when done
 	// Dumps the finished queue's per-task time/allocation table to the log —
 	// once as the last task lands, and again on demand (`loadstats`, which also

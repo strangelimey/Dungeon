@@ -66,6 +66,7 @@ public:
 	// would touch objects a later load task creates. A gated Enter prints a
 	// notice and keeps the line in history for an easy re-run after the load.
 	void SetCommandsEnabled(bool enabled) { m_commandsEnabled = enabled; }
+	bool CommandsEnabled() const { return m_commandsEnabled; }
 
 	// MIRROR EVERY CONSOLE LINE TO dungeon.log (the eval harness; `logecho`).
 	// The console's scrollback is a WINDOW: reading it means taking a
@@ -81,8 +82,15 @@ public:
 	void SetMirrorToLog(bool on) { m_mirrorToLog = on; }
 	bool MirrorToLog() const { return m_mirrorToLog; }
 
+	// Run one line as if it had been typed, and REPORT whether a command matched.
+	// The eval runner needs the answer: a script line that quietly did nothing —
+	// a typo, or a command that only exists on another branch — would otherwise
+	// leave the run reporting a clean pass over an encounter it never set up.
+	// The interactive path (Enter) discards the bool; only a script counts them.
+	bool RunLine(const std::string& line) { return Execute(line); }
+
 private:
-	void Execute(const std::string& line);
+	bool Execute(const std::string& line); // false = no such command
 
 	ui::FontLibrary& m_fonts;
 	// Borrowed from the library (Mono: this is a column-aligned readout).

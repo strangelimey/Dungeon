@@ -18,8 +18,11 @@
 
 #include <Windows.h>
 
+#include <shellapi.h> // CommandLineToArgvW — the `-eval` flag
+
 #include <format>
 #include <string>
+#include <string_view>
 
 int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
 	using namespace dungeon;
@@ -73,6 +76,27 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
 	window.onResize = [&device](u32 w, u32 h) { device.Resize(w, h); };
 
 	game::Game game(window, device, renderer, spriteBatch, audioEngine);
+
+	// `-eval <script>`: run a console script and exit with its verdict instead of
+	// waiting for someone to play. Read HERE rather than up with the display
+	// settings because the script is the Game's to own — nothing earlier could
+	// hold it. A script that fails to LOAD is fatal on the spot: a "test run"
+	// that silently sat at the title screen would report whatever the harness
+	// assumed rather than what happened.
+	{
+		int argc = 0;
+		LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+		bool bad = false;
+		for (int i = 1; argv && i + 1 < argc; ++i) {
+			if (std::wstring_view(argv[i]) != L"-eval") continue;
+			const std::wstring wide(argv[i + 1]);
+			const std::string path(wide.begin(), wide.end()); // ASCII paths only
+			bad = !game.LoadEvalScript(path);
+			break;
+		}
+		if (argv) LocalFree(argv);
+		if (bad) return 2; // distinct from a FAILING script: this one never ran
+	}
 
 	Timer timer;
 	const float clearColor[4] = {0.01f, 0.01f, 0.015f, 1.0f};
@@ -247,5 +271,9 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
 			}
 		}
 	}
-	return 0;
+	// A scripted run's verdict IS the process's: 0 only when every line matched a
+	// command AND the queue emptied. A run that timed out fails even though every
+	// line it managed to run succeeded. An ordinary play session has no script,
+	// and EvalExitCode is 0 for it.
+	return game.EvalExitCode();
 }
