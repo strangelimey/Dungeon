@@ -854,6 +854,42 @@ bool Game::SteadyStateFrame() {
 	return m_steadyFrames > kWarmupFrames;
 }
 
+const char* Game::StateName() const {
+	switch (m_state) {
+	case AppState::Loading: return "loading";
+	case AppState::Menu: return "menu";
+	case AppState::LoadingGame: return "loadinggame";
+	case AppState::LoadingLevel: return "loadinglevel";
+	case AppState::Playing: return "playing";
+	case AppState::Paused: return "paused";
+	case AppState::CharacterSheet: return "sheet";
+	}
+	return "?";
+}
+
+int Game::StepWorld(float seconds) {
+	if (m_state != AppState::Playing || seconds <= 0.0f) return 0;
+	// The eval's tick. 60Hz because that is the rate the game's timers were
+	// tuned against, not because anything requires it — but it is FIXED, and
+	// that is what makes two runs of the same script comparable.
+	constexpr float kTick = 1.0f / 60.0f;
+	// A ceiling per call, not per second: an eval script asking for an hour by
+	// mistake should come back and say how far it got, rather than appearing to
+	// hang with a black window and no way to interrupt it.
+	constexpr int kMaxSteps = 200000; // ~55 minutes of sim
+	const int want = static_cast<int>(seconds / kTick + 0.5f);
+	const int steps = want < kMaxSteps ? want : kMaxSteps;
+	static const Input kNoInput; // no keys, no mouse: the script is driving
+	int ran = 0;
+	for (; ran < steps; ++ran) {
+		m_world.Update(kNoInput, kTick, m_time, /*acceptInput=*/false);
+		m_time += kTick; // lights, flicker and rune pulses ride sim time too
+		// Followed nowhere: see the header. Reported by the caller as a short run.
+		if (m_world.ConsumeLevelTransition()) { ++ran; break; }
+	}
+	return ran;
+}
+
 // One `alloctest` window: spend the budget only on frames that actually armed,
 // so the load, the warm-up and the console being open cost the test nothing. The
 // verdict is the guard's own stats, differenced across the window.

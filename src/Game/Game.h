@@ -96,6 +96,31 @@ public:
 	// main loop polls it to leave cleanly.
 	bool QuitRequested() const { return m_quitRequested; }
 
+	// THE EVAL HARNESS'S CLOCK (docs/eval-harness.md). Advance the world by
+	// `seconds` of SIM time, right now, in fixed sub-steps — no frames
+	// presented, no input read. Returns how many sub-steps actually ran.
+	//
+	// FIXED SUB-STEPS, not one big dt, and this is the load-bearing part: nearly
+	// everything that paces this game counts DOWN a timer by dt — hand
+	// cooldowns, monster attack and move cooldowns, stamina holdoff, the AI's
+	// bucket clocks — so a single 30-second dt would let a monster take ONE step
+	// and swing ONCE, and report the resulting non-fight as a measurement.
+	// Stepping at a fixed tick makes thirty simulated seconds mean thirty
+	// seconds of fighting, and makes it mean the same thing every run.
+	//
+	// Only steps while Playing; a level transition mid-step (a monster shoves
+	// the party onto a stair) stops the run early rather than being followed,
+	// since an eval that changed level is no longer measuring what it set up.
+	int StepWorld(float seconds);
+
+	// What the app is doing, as a word — for the eval harness and the `state`
+	// command. A script CANNOT otherwise tell: dev commands reach the world from
+	// the MENU too (it is built at load), so `tp` and `monsters` answer happily
+	// while the party is dead and the title screen is up. That trap cost a
+	// debugging session, and a harness that cannot see it would report a whole
+	// suite of encounters that never ran.
+	const char* StateName() const;
+
 private:
 	enum class AppState {
 		Loading,

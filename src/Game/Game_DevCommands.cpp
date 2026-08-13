@@ -1088,6 +1088,115 @@ void Game::RegisterDevCommands() {
 						   m_timeScale = v;
 						   m_console.Print(std::format("timescale {:.2f}", v));
 					   });
+
+	// --- the eval harness's three primitives (docs/eval-harness.md) ---------
+	// Everything else the harness needs is CONTENT — arenas, presets, spawns.
+	// These three are what make a measurement mean anything at all.
+
+	// The combat RNG is otherwise constant-seeded, so every run of the game rolls
+	// the identical sequence: perfectly reproducible, and a single sample
+	// forever. An eval varies this per encounter and reports the DISTRIBUTION —
+	// tuning against one seeded fight is tuning against one lucky afternoon.
+	// The console answers in a WINDOW, and a window can only be read with a
+	// screenshot — which captures whatever happens to be in front of it. This
+	// puts every console line into dungeon.log instead, which is what makes the
+	// existing command surface drivable from a script at all.
+	m_console.Register("logecho", "mirror console output to dungeon.log",
+					   [this](const std::vector<std::string>& args) {
+						   if (args.empty()) {
+							   m_console.Print(std::format(
+								   "logecho {}", m_console.MirrorToLog() ? "on" : "off"));
+							   return;
+						   }
+						   const bool on = args[0] == "on" || args[0] == "1";
+						   m_console.SetMirrorToLog(on);
+						   m_console.Print(std::format("logecho {}", on ? "on" : "off"));
+					   });
+
+	// The party's side of an encounter, in one machine-readable block. `monsters`
+	// has printed the other side for a while; without this a harness can watch a
+	// fight and never learn what it COST, which is most of what a balance pass
+	// is trying to find out.
+	m_console.Register("party", "each member's hp/stamina/mana + stance (dev)",
+					   [this](const std::vector<std::string>&) {
+						   for (size_t i = 0; i < m_characters.size(); ++i) {
+							   const Character& c = m_characters[i];
+							   m_console.Print(std::format(
+								   "  [{}] {:<6} hp {:.1f}/{:.1f}  st {:.1f}/{:.1f}  "
+								   "mp {:.1f}/{:.1f}  share {:.2f}{}{}",
+								   i, c.name, c.health, c.maxHealth, c.stamina,
+								   c.maxStamina, c.mana, c.maxMana, c.offenseShare,
+								   c.dead ? "  DEAD" : (c.IsAlive() ? "" : "  DOWN"),
+								   c.exhausted ? "  EXHAUSTED" : ""));
+						   }
+					   });
+
+	// A script cannot otherwise tell whether it is measuring anything at all.
+	m_console.Register("state", "what the app is doing (loading/menu/playing/...)",
+					   [this](const std::vector<std::string>&) {
+						   m_console.Print(std::format("state {}", StateName()));
+					   });
+
+	m_console.Register("seed", "reseed the combat RNG (dev): seed <n>",
+					   [this](const std::vector<std::string>& args) {
+						   if (!Need(m_console, args, 1, "usage: seed <n>")) return;
+						   const auto n = static_cast<u32>(
+							   std::strtoul(args[0].c_str(), nullptr, 10));
+						   m_world.SeedCombat(n);
+						   m_console.Print(std::format("combat seed {}", n));
+					   });
+
+	// Without this a stepped run is a fiction: the AI's four bucket workers tick
+	// on WALL-CLOCK, so simulating thirty seconds inside a few frames lets the
+	// monsters think perhaps twice. See ai::AsyncDirector::SetLockstep.
+	m_console.Register("lockstep", "drive monster AI from sim time, not the clock",
+					   [this](const std::vector<std::string>& args) {
+						   if (args.empty()) {
+							   m_console.Print(std::format(
+								   "lockstep {}", m_world.LockstepAI() ? "on" : "off"));
+							   return;
+						   }
+						   const bool on = args[0] == "on" || args[0] == "1";
+						   m_world.SetLockstepAI(on);
+						   m_console.Print(std::format("lockstep {}", on ? "on" : "off"));
+					   });
+
+	// Advance the world by sim seconds, now, in fixed ticks. Reports what it
+	// actually RAN rather than what was asked for: a short answer means the run
+	// hit the ceiling or changed level, and an eval that silently measured less
+	// time than it believes is worse than one that failed outright.
+	m_console.Register("step", "advance the sim by N seconds (dev): step <seconds>",
+					   [this](const std::vector<std::string>& args) {
+						   if (!Need(m_console, args, 1, "usage: step <seconds>")) return;
+						   const float secs =
+							   static_cast<float>(std::atof(args[0].c_str()));
+						   if (secs <= 0.0f) {
+							   m_console.Print("step needs a positive number of seconds");
+							   return;
+						   }
+						   // SAY WHY, never a bare zero. Dev commands reach the
+						   // world from the MENU too, so a script whose party
+						   // has wiped would otherwise watch `tp` and `monsters`
+						   // answer normally while every `step` quietly did
+						   // nothing — a whole suite of encounters that never
+						   // ran, reported as results.
+						   if (std::string_view(StateName()) != "playing") {
+							   m_console.Print(std::format(
+								   "step: not playing (state: {}) — nothing stepped",
+								   StateName()));
+							   return;
+						   }
+						   // Warned, not refused: stepping without lockstep is
+						   // still useful for eyeballing, and silently producing
+						   // a meaningless number is the thing to avoid.
+						   if (!m_world.LockstepAI())
+							   m_console.Print("warning: lockstep is OFF — monsters "
+											   "will barely think during this step");
+						   const int ran = StepWorld(secs);
+						   m_console.Print(std::format("stepped {} ticks ({:.2f}s)", ran,
+													   static_cast<float>(ran) / 60.0f));
+					   });
+
 	m_console.Register("noclip", "toggle walking through walls",
 					   [this](const std::vector<std::string>&) {
 						   Party& p = m_world.GetParty();

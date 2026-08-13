@@ -855,6 +855,11 @@ void DungeonWorld::UpdateMonsters(float dt) {
 	ReconcileGroups();
 	AssignFormation();
 	BuildAISnapshot();
+	// Between the publish and the adopt, because that is exactly where the
+	// worker threads would have done their thinking. A no-op unless lockstep is
+	// on, in which case the workers are paused and this is the only thinking
+	// that happens.
+	TickLockstepAI(dt);
 	ConsumeAIPlans();
 
 	for (size_t i = 0; i < m_monsters.size(); ++i) {
@@ -1787,6 +1792,29 @@ void DungeonWorld::BuildAISnapshot() {
 // apply a batch only once (tracked by its sequence). Plans are keyed by stable
 // runtimeId, so a plan whose monster has died/moved buckets/been erased simply
 // finds no match here — it can never be misapplied to a different monster.
+void DungeonWorld::TickLockstepAI(float dt) {
+	if (!m_director.Lockstep()) return;
+	for (int b = 0; b < ai::Scheduler::kBucketCount; ++b) {
+		const float interval = ai::Scheduler::BucketInterval(b);
+		if (interval <= 0.0f) continue;
+		m_bucketClock[b] += dt;
+		if (m_bucketClock[b] < interval) continue;
+		// ONE think per bucket per frame, with the remainder CARRIED rather than
+		// dropped, so the long-run rate is exactly the bucket's cadence.
+		//
+		// Deliberately not a catch-up loop. Thinking twice against one frame's
+		// world would produce two identical plans, because a monster does not
+		// MOVE until its executor runs later in this same update — so the second
+		// pass would reason from the positions the first one did. The rate is
+		// kept honest instead by `step` feeding small fixed dt (see
+		// Game::StepWorld): a bucket owed forty thinks gets them across forty
+		// steps, which is also the only way the movement and attack cooldowns
+		// those thinks feed can pace correctly.
+		m_bucketClock[b] -= interval;
+		m_director.ComputeInline(b);
+	}
+}
+
 void DungeonWorld::ConsumeAIPlans() {
 	for (int b = 0; b < ai::Scheduler::kBucketCount; ++b) {
 		const ai::AsyncDirector::Batch batch = m_director.TakePlans(b);

@@ -601,6 +601,10 @@ void DevConsole::Register(std::string name, std::string help,
 }
 
 void DevConsole::Print(std::string line) {
+	// Mirrored BEFORE the move, and through the ordinary log so a mirrored run
+	// interleaves correctly with everything else the frame wrote — the point
+	// is to read ONE file and see the whole story in order.
+	if (m_mirrorToLog) log::Info("console: {}", line);
 	m_output.push_back(std::move(line));
 	while (m_output.size() > kMaxOutput) m_output.pop_front();
 	m_scroll = 0; // jump to the newest line

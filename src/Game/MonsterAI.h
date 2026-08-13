@@ -252,6 +252,29 @@ public:
 	};
 	Batch TakePlans(int bucket) const;
 
+	// --- LOCKSTEP (the eval harness; docs/eval-harness.md) -------------------
+	// OFF, the four bucket workers tick on WALL-CLOCK at their prime-millisecond
+	// cadences. That is right for a game and useless for measurement: an eval
+	// running thirty sim-seconds inside one frame would let its monsters think
+	// perhaps twice, then report a confident number for a fight that never
+	// happened.
+	//
+	// ON, the workers are PAUSED and the host drives ComputeInline() itself at
+	// those same cadences counted in SIM time. It runs the very same
+	// ComputeBucket the worker runs — not a reimplementation — so the two modes
+	// cannot drift apart in WHAT they decide, only in when.
+	//
+	// BE HONEST ABOUT WHAT THIS IS. It is not a bit-exact reproduction of the
+	// async mode and it cannot be: async plan latency depends on thread
+	// scheduling, so "the same as async" is not a well-defined target to aim at.
+	// This is the REPRODUCIBLE version — the same decisions at the same sim
+	// cadence, with the wall-clock jitter taken out.
+	void SetLockstep(bool on);
+	bool Lockstep() const { return m_lockstep; }
+	// Main thread, lockstep only: run one bucket's compute NOW. A no-op unless
+	// lockstep is on, so a stray call can never race a running worker.
+	void ComputeInline(int bucket);
+
 private:
 	// One bucket's compute pass — the body the worker runs each tick (reads the
 	// snapshot, thinks + paths this bucket's monsters, publishes a plan batch).
@@ -263,6 +286,16 @@ private:
 
 	threads::Manager& m_manager;
 	threads::WorkerId m_workers[Scheduler::kBucketCount];
+
+	// Lockstep state. The inline Brain is the director's OWN — a Brain carries
+	// BFS scratch that must not be shared, and although the workers are paused
+	// while lockstep is on, borrowing one of theirs would make that safety
+	// depend on the pause actually having taken effect. The stop_source is never
+	// requested: ComputeBucket wants a token so a worker can be cancelled
+	// mid-BFS, and an inline call on the main thread has nobody to cancel it.
+	bool m_lockstep = false;
+	Brain m_inlineBrain;
+	std::stop_source m_neverStops;
 
 	mutable std::mutex m_snapMutex;
 	std::shared_ptr<const Snapshot> m_snapshot;

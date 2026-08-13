@@ -193,6 +193,22 @@ public:
 	// Re-derive every member's resource maxima from the balance k's — after a
 	// save-apply, a stat change, or an editor Balance apply.
 	void RecomputePartyMaxima();
+
+	// --- the eval harness (docs/eval-harness.md) ----------------------------
+	// Reseed the combat RNG. Every roll in the game comes off this one stream —
+	// attacks, fumble chances, blast jitter, proc chances — and it is otherwise
+	// constant-seeded, which makes a run perfectly reproducible AND makes every
+	// run the same run. An eval needs a SAMPLE, so it varies this per encounter.
+	void SeedCombat(u32 seed) { m_combatRng.seed(seed); }
+	// Drive the monster AI from sim time instead of wall-clock; see
+	// ai::AsyncDirector::SetLockstep for what that does and does not promise.
+	// Clears the bucket accumulators so switching it on does not immediately
+	// fire every bucket with a debt of however long the game had been running.
+	void SetLockstepAI(bool on) {
+		m_director.SetLockstep(on);
+		for (float& c : m_bucketClock) c = 0.0f;
+	}
+	bool LockstepAI() const { return m_director.Lockstep(); }
 	// The live combat tuning (balance.cat + attacks.cat knobs, Balance.h). The
 	// editor's Balance dialog edits it in place and Save()s it via the project.
 	Balance& GetBalance() { return m_balance; }
@@ -2574,6 +2590,11 @@ private:
 	u32 m_nextGroupId = 1;
 	// Last plan-batch sequence applied per bucket, so we adopt a batch only once.
 	uint64_t m_lastPlanSeq[ai::Scheduler::kBucketCount] = {};
+	// Per-bucket SIM-time accumulator for lockstep (TickLockstepAI). Unused
+	// while the workers run themselves; reset when lockstep is switched on, so
+	// enabling it does not immediately fire every bucket with a debt of
+	// whatever wall-clock time happened to have passed.
+	float m_bucketClock[ai::Scheduler::kBucketCount] = {};
 	// Walkability grid shared into snapshots, rebuilt only when the map changes.
 	std::shared_ptr<const std::vector<uint8_t>> m_walkableCache;
 	u32 m_walkableRev = 0xFFFFFFFFu; // map Revision() the cache was built for
@@ -2591,6 +2612,12 @@ private:
 	void BuildAISnapshot();
 	// Adopt the freshest plan batches into each monster's intent + cached path.
 	void ConsumeAIPlans();
+	// LOCKSTEP AI (docs/eval-harness.md): with the bucket workers paused, run
+	// each bucket's compute inline whenever its cadence has elapsed in SIM time.
+	// `dt` is the world dt already scaled by timescale, so a run at timescale 20
+	// — or one stepping whole seconds per frame — thinks exactly as often per
+	// simulated second as a run at 1 does. That equivalence IS the feature.
+	void TickLockstepAI(float dt);
 	// Live monster with this stable runtimeId, or null if none (died/erased/level
 	// changed). Linear scan — fine at this scale; swap for a map if counts explode.
 	Monster* MonsterByRuntimeId(u32 id);
