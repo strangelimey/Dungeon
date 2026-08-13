@@ -493,6 +493,10 @@ DungeonWorld::MonsterKind& DungeonWorld::MonsterKindFor(const std::string& type)
 			if (const std::string t = CatalogGet(def, "dmgtype", "");
 				!t.empty() && !m_damageTypes.Find(t, assets->damageType))
 				log::Warn("monsters.cat [{}]: unknown dmgtype '{}'", type, t);
+			// The ATTACKER half of the type axis — what it is dangerous WITH, the
+			// mirror of the `resists` above it.
+			ParseResists(CatalogGet(def, "powers", ""), assets->powers,
+						 "monsters.cat [" + type + "]", m_damageTypes);
 			// What its blows leave behind, named by effect id.
 			ParseOnHit(def, assets->onHit, "monsters.cat [" + type + "]");
 			fx::ParseProcs(CatalogGet(def, "on_crit", ""), assets->onCrit,
@@ -865,6 +869,9 @@ DungeonWorld::ItemKind& DungeonWorld::ItemKindFor(const std::string& type) {
 			if (!ParseWearSlot(wear, kind->wearSlot))
 				log::Warn("[{}]: unknown wear slot '{}'", type, wear);
 		kind->armor = def ? def->GetFloat("armor", 0.0f) : 0.0f;
+		// The attacker half: what wielding or wearing this makes you potent WITH.
+		ParseResists(CatalogGet(def, "powers", ""), kind->powers,
+					 "[" + type + "]", m_damageTypes);
 		kind->weight = def ? def->GetFloat("weight", 0.0f) : 0.0f;
 		// `command` is a free-form list (whitespace/comma separated) of command ids
 		// the hand right-click menu offers; runes implicitly gain "memorize" below.

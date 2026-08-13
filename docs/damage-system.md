@@ -504,6 +504,53 @@ That one also hid behind a *false positive*: a fixture missing from the table
 reports "nothing breakable" — exactly what a correctly-broken one reports. The
 control that separated them was smashing an untouched fixture in the same run.
 
+## Two axes: the attacker's type potency
+
+The defender's half — `resists` — was there from the start. This is its mirror:
+**`powers`**, a per-damage-type table saying how hard a thing strikes *with* that
+type. `0` is ordinary, positive is potent, negative is feeble. The two axes meet in
+one multiplication — potency scales the blow, the resist answers it.
+
+| | defender | attacker |
+|---|---|---|
+| field | `resists` | `powers` |
+| clamp | `resist_clamp` (0.8) | `potency_clamp` (0.6) |
+| escapes | 1.0 = immunity, past it = **absorption** | **none** |
+
+The clamp is **tighter** on the attack side because potency stacks from a weapon
+*and* every worn piece, so it has more sources to pile up than a resist does. And
+it has **no escapes**, deliberately: a resist of 1.0 means immunity and past it
+absorption because those say what a thing *is* — a fire golem — whereas "I deal
+150% fire" is stacking, not identity, so there is nothing to exempt. A feeble blow
+also never becomes healing; that is the absorb stage's business on the defender's
+side and must not be reachable from here.
+
+**Who carries it.** Monsters (`monsters.cat powers`) and equipment — weapons and
+armor both, summed across the wielded hand plus every worn piece, exactly the way
+`PartyTarget::Resist` sums the defender's. Characters carry no innate cell, because
+**their attack-side axis is already skill**; adding a second one would be two knobs
+doing the same job. For a monster it is the reverse: it has no skills, so `powers`
+*is* its "this one is dangerous with fire specifically".
+
+The other hand's weapon lends nothing to this swing — what is in your left hand does
+not make your right hand's blade burn — and a bolt carries no hand at all, so a cast
+gets the worn half only.
+
+Applied wherever an attack's `DamageEvent` is built: party melee, the enchanted
+weapon's elemental burst (in **its own** element, not the blade's physical one —
+the case the feature is for), both bolt-impact sites, and every square of a blast.
+
+`defense::Potent` holds the arithmetic and `Balance::Potent` is a thin adapter
+passing the knob — the same split the armor floor uses, and for the same reason:
+linking `Balance.cpp` into `RollTest` dragged `Catalog` → `assets::ReadBinaryFile`,
+i.e. the file layer. That is the purity wall working, and the attempt is recorded in
+the harness's CMakeLists so nobody repeats it. **12 checks**, including that 1.0 is
+*not* special on this side and that a feeble blow never heals.
+
+Verified live rather than only measured: the skeleton mage authors
+`powers = fire 0.45, bash -0.3`, and a probe on its real bolt read
+**`authored 8.00 -> potent 11.60`** — exactly ×1.45.
+
 ## Traps
 
 **A measurement that omits a term is not weaker, it is wrong.** The defender

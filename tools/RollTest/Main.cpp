@@ -1164,6 +1164,64 @@ int main(int argc, char** argv) {
 					"rings, splits or reflects)\n");
 	}
 
+	// --- the attacker's type axis --------------------------------------------
+	// docs/damage-system.md "Two axes". The defender's half (resists) was always
+	// there; this is its mirror, and the rules worth pinning are the ones that make
+	// it a MIRROR rather than a second resist table: it is clamped BOTH ways with no
+	// escapes (unlike a resist, where 1.0 is immunity and past it absorption), and
+	// it can never turn a blow into healing.
+	{
+		std::printf("\n--- the attacker's type axis ---\n");
+		// The shipping clamps, mirrored from Balance's defaults. The arithmetic is
+		// the real defense::Potent; only these two numbers are restated, and the
+		// checks below are written against the RULES rather than the values.
+		constexpr float kPotencyClamp = 0.6f, kResistClamp = 0.8f;
+		const DamageType fire{2}, slash{0};
+		ResistTable p;
+
+		Check("no potency leaves a blow alone", defense::Potent(20.0f, p, fire, kPotencyClamp), 20.0, 0.001);
+		p[fire] = 0.5f;
+		Check("potent in fire hits harder", defense::Potent(20.0f, p, fire, kPotencyClamp), 30.0, 0.001);
+		Check("...and only in that type", defense::Potent(20.0f, p, slash, kPotencyClamp), 20.0, 0.001);
+		p[fire] = -0.5f;
+		Check("feeble in fire hits softer", defense::Potent(20.0f, p, fire, kPotencyClamp), 10.0, 0.001);
+
+		// CLAMPED BOTH WAYS, with none of the resist side's escapes. A resist of 1.0
+		// means immunity and past it absorption — identity, not stacking — but
+		// "I deal 150% fire" is stacking, so there is nothing to exempt.
+		p[fire] = 5.0f;
+		Check("an absurd potency is clamped up", defense::Potent(20.0f, p, fire, kPotencyClamp),
+			  20.0 * (1.0 + kPotencyClamp), 0.001);
+		p[fire] = 1.0f; // the resist side's IMMUNITY value: no meaning here
+		Check("1.0 is not special on the attack side", defense::Potent(20.0f, p, fire, kPotencyClamp),
+			  20.0 * (1.0 + kPotencyClamp), 0.001);
+		p[fire] = -5.0f;
+		Check("an absurd feebleness is clamped down", defense::Potent(20.0f, p, fire, kPotencyClamp),
+			  20.0 * (1.0 - kPotencyClamp), 0.001);
+		CheckTrue("the clamp is tighter than the resist clamp",
+				  kPotencyClamp < kResistClamp);
+
+		// A blow never becomes healing, however feeble — that is the ABSORB stage's
+		// business on the defender's side, and it must not be reachable from here.
+		p[fire] = -50.0f;
+		CheckTrue("a feeble blow never heals", defense::Potent(20.0f, p, fire, kPotencyClamp) >= 0.0f);
+		Check("zero damage stays zero", defense::Potent(0.0f, p, fire, kPotencyClamp), 0.0, 0.0);
+
+		// Potency SUMS across sources (a weapon plus each worn piece), which is what
+		// ResistTable::Add gives both halves for free.
+		ResistTable weapon, worn;
+		weapon[fire] = 0.2f;
+		worn[fire] = 0.1f;
+		ResistTable total = weapon;
+		total.Add(worn);
+		Check("potency sums across weapon and worn", total[fire], 0.3, 0.001);
+		Check("...and the sum is what scales the blow", defense::Potent(10.0f, total, fire, kPotencyClamp),
+			  13.0, 0.001);
+
+		std::printf("  (the two axes meet in one multiplication: potency scales the "
+					"blow, the resist answers it)\n");
+	}
+
 	// --- verdict ------------------------------------------------------------
 	const bool pass = (g_failed == 0);
 	std::printf("\n%s — %d checks, %d failed\n", pass ? "PASS" : "FAIL",

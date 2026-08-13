@@ -53,6 +53,23 @@ float ArmorPenalty(float floor, float offsettable, CurveRules offsetCurve,
 float HandGuard(float held, CurveRules skillCurve, float leftLevel,
 				float rightLevel);
 
+// THE ATTACKER'S HALF OF THE TYPE AXIS (docs/damage-system.md "Two axes"), the
+// mirror of the defender's resists: how much harder — or, negative, more feebly —
+// an attacker strikes with a given damage type. `clamp` bounds it BOTH ways.
+//
+// Deliberately WITHOUT the two escapes a resist has. A resist of 1.0 means immunity
+// and past it absorption, because those say what a thing IS; "I deal 150% fire" is
+// stacking, not identity, so there is nothing here to exempt from the clamp. And it
+// never returns less than zero: a feeble blow does nothing, it does not heal —
+// healing is the ABSORB stage's business and must not be reachable from the attack
+// side.
+//
+// Lives here rather than on Balance because Balance drags the catalog and file
+// layers with it, which tools/RollTest cannot link — the same reason the armor floor
+// lives here, with Balance::Potent as the thin adapter that passes its knob.
+float Potent(float amount, const ResistTable& potency, DamageType type,
+			 float clamp);
+
 // What the damage-type BOOK says about an incoming type: the two flags, passed
 // in rather than looked up. DamageTypes.cpp includes Game/Catalog.h, and linking
 // it into tools/RollTest would drag the catalog layer through the purity wall

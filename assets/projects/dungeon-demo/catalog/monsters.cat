@@ -91,6 +91,10 @@ archetype = caster
 keeprange = 5
 spell = flame
 resists = pierce 0.5, slash 0.25, bash -0.5
+; It has no skills, so `powers` is where "this one is dangerous with fire" lives —
+; the attacker's mirror of the resists above. Its flame bolts land harder; its
+; feeble staff does not.
+powers = fire 0.45, bash -0.3
 
 [skel_coward]
 ; skittish — guards first and swings second

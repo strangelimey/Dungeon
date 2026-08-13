@@ -43,6 +43,12 @@ float HandGuard(float held, CurveRules skillCurve, float leftLevel,
 						   CurveValue(rightLevel, skillCurve));
 }
 
+float Potent(float amount, const ResistTable& potency, DamageType type,
+			 float clamp) {
+	const float p = std::clamp(potency[type], -clamp, clamp);
+	return std::max(0.0f, amount * (1.0f + p));
+}
+
 GuardKind GuardKindFor(TypeFacts facts) {
 	// School FIRST: knowing fire is what turns fire aside, and that holds even for
 	// a type a project also marked physical.

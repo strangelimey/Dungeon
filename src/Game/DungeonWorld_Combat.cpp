@@ -349,6 +349,40 @@ float DungeonWorld::PartyTarget::Evasion(DamageType type) const {
 	return defense::Guard(in);
 }
 
+ResistTable DungeonWorld::PartyPowers(const Character& member, int hand) {
+	// Sums like a resist does: the wielded weapon plus every worn piece. A hand of
+	// -1 means nothing is wielded — a spell — so only what is worn answers, which
+	// is what lets a fire-attuned ring lend itself to a firebolt.
+	ResistTable out;
+	for (size_t i = 0; i < member.inventory.equipment.size(); ++i) {
+		const ItemSlot& slot = member.inventory.equipment[i];
+		if (slot.Empty()) continue;
+		const bool isHand = i == static_cast<size_t>(EquipSlot::LeftHand) ||
+							i == static_cast<size_t>(EquipSlot::RightHand);
+		// The OTHER hand's weapon lends nothing to this swing: what is in your left
+		// hand does not make your right hand's blade burn.
+		if (isHand) {
+			const bool thisHand =
+				hand >= 0 && &slot == &member.inventory.Hand(hand);
+			if (!thisHand) continue;
+		}
+		out.Add(ItemKindFor(slot.typeId).powers);
+	}
+	return out;
+}
+
+ResistTable DungeonWorld::AttackerPowers(int attacker, u32 shooter) {
+	if (const Monster* m = MonsterByRuntimeId(shooter); m && m->kind)
+		return m->kind->powers;
+	if (m_roster && attacker >= 0 &&
+		attacker < static_cast<int>(m_roster->size()))
+		// WORN only: a bolt carries no hand, so what a caster happens to be holding
+		// cannot be credited. Worn attunement is the honest half, and it is also the
+		// half a robe-and-ring build is about.
+		return PartyPowers((*m_roster)[static_cast<size_t>(attacker)], -1);
+	return {};
+}
+
 float DungeonWorld::PartyTarget::Soak() const {
 	float soak = 0.0f;
 	for (const ItemSlot& slot : m_member.inventory.equipment)
@@ -661,8 +695,12 @@ void DungeonWorld::MonsterAttack(Monster& monster) {
 	MonsterTarget striker{*this, monster};
 	// The stance spends part of its competence on the swing; MonsterTarget's
 	// guard keeps the rest (docs/damage-system.md).
+	// Its POTENCY in what it deals (`powers`) scales the blow — a monster's whole
+	// answer to the skill a character trains, since it has none.
 	fx::DamageEvent ev = fx::DamageEvent::Blow(
-		monster.kind->damageType, monster.kind->damage,
+		monster.kind->damageType,
+		m_balance.Potent(monster.kind->damage, monster.kind->powers,
+						 monster.kind->damageType),
 		monster.kind->accuracy * monster.kind->offense, victim);
 	fx::Deal(ev, defender, m_balance.Strike(), m_combatRng);
 	TrainDefense(target, ev); // avoid on a miss, armor on a blunted hit
@@ -1064,8 +1102,14 @@ bool DungeonWorld::PartyAttack(size_t member, size_t hand, std::string_view verb
 	const std::string name = loc::Tr("monster." + target->kind->name);
 	PartyTarget striker{*this, attacker};
 	MonsterTarget defender{*this, *target};
-	fx::DamageEvent ev = fx::DamageEvent::Blow(atk.type, atk.damage, atk.attackBonus,
-											   static_cast<int>(member));
+	// The attacker's type axis: potency summed from THIS hand's weapon and every
+	// worn piece (PartyPowers). A character has no innate cell — their own axis is
+	// skill — so this is entirely what they carry.
+	fx::DamageEvent ev = fx::DamageEvent::Blow(
+		atk.type,
+		m_balance.Potent(atk.damage, PartyPowers(attacker, static_cast<int>(hand)),
+						 atk.type),
+		atk.attackBonus, static_cast<int>(member));
 	fx::Deal(ev, defender, m_balance.Strike(), m_combatRng);
 
 	// WHAT THE DICE DID, said before the outcome it caused. The open-ended roll
@@ -1090,8 +1134,14 @@ bool DungeonWorld::PartyAttack(size_t member, size_t hand, std::string_view verb
 	// element still answers it.
 	float elemental = 0.0f;
 	if (weapon && weapon->enchanted && weapon->elementBonus > 0.0f) {
+		// The enchantment gets the type axis too, and in ITS OWN element rather than
+		// the blade's physical one — which is the case the whole feature is for: a
+		// fire-attuned wielder's burning sword burns hotter.
+		const DamageType elemType = m_damageTypes.ForSchool(weapon->element);
 		fx::DamageEvent burst = fx::DamageEvent::Burst(
-			m_damageTypes.ForSchool(weapon->element), atk.damage * weapon->elementBonus,
+			elemType,
+			m_balance.Potent(atk.damage * weapon->elementBonus,
+							 PartyPowers(attacker, static_cast<int>(hand)), elemType),
 			static_cast<int>(member));
 		fx::Deal(burst, defender, m_balance.Strike(), m_combatRng);
 		elemental = burst.dealt;
@@ -1268,9 +1318,14 @@ bool DungeonWorld::ResolveSpellHit(const ProjectileImpact& impact) {
 
 	const std::string name = loc::Tr("monster." + hit->kind->name);
 	MonsterTarget defender{*this, *hit};
-	fx::DamageEvent ev = fx::DamageEvent::Bolt(impact.atk.type, impact.atk.damage,
-											   impact.atk.attackBonus,
-											   impact.attacker);
+	// The launcher's type axis (docs/damage-system.md "Two axes") — applied here
+	// because this is the only place both the roster and the monster list are known.
+	fx::DamageEvent ev = fx::DamageEvent::Bolt(
+		impact.atk.type,
+		m_balance.Potent(impact.atk.damage,
+						 AttackerPowers(impact.attacker, impact.shooter),
+						 impact.atk.type),
+		impact.atk.attackBonus, impact.attacker);
 	fx::Deal(ev, defender, m_balance.Strike(), m_combatRng);
 	if (ev.hit) {
 		if (ev.dealt >= 0.5f)
@@ -1364,8 +1419,12 @@ bool DungeonWorld::ResolveMonsterProjectileHit(const ProjectileImpact& impact) {
 	// through, and the Fire Shield stays out of it — it burns back at blows,
 	// not at bolts. All of that is the effects' business, not this resolver's.
 	PartyTarget defender{*this, target};
-	fx::DamageEvent ev = fx::DamageEvent::Bolt(impact.atk.type, impact.atk.damage,
-											   impact.atk.attackBonus);
+	fx::DamageEvent ev = fx::DamageEvent::Bolt(
+		impact.atk.type,
+		m_balance.Potent(impact.atk.damage,
+						 AttackerPowers(impact.attacker, impact.shooter),
+						 impact.atk.type),
+		impact.atk.attackBonus);
 	fx::Deal(ev, defender, m_balance.Strike(), m_combatRng);
 	TrainDefense(target, ev); // a dodged bolt teaches too
 	if (ev.deflected) return true; // spent against the wind
@@ -1623,6 +1682,10 @@ void DungeonWorld::UpdateBlasts(float dt) {
 void DungeonWorld::ApplyBlastHit(const blast::Hit& c, DamageType type,
 								 int attacker) {
 	if (c.damage <= 0.0f) return; // reached it, but the falloff spent it
+	// The launcher's type axis scales every square the blast touches — one figure
+	// for the whole detonation, so a fire-attuned caster's burst is hotter
+	// everywhere rather than only where it went off.
+	const float dmg = m_balance.Potent(c.damage, AttackerPowers(attacker, 0), type);
 	{
 		// A blast is MAGIC ARRIVING, so it goes through the pipeline as a Burst:
 		// resisted but NOT soaked — plate turns a blade, not a blast
@@ -1635,7 +1698,7 @@ void DungeonWorld::ApplyBlastHit(const blast::Hit& c, DamageType type,
 			if (!m.Alive() || m.x != c.x || m.z != c.z) continue;
 			const std::string name = loc::Tr("monster." + m.kind->name);
 			MonsterTarget defender{*this, m};
-			fx::DamageEvent ev = fx::DamageEvent::Burst(type, c.damage, attacker);
+			fx::DamageEvent ev = fx::DamageEvent::Burst(type, dmg, attacker);
 			fx::Deal(ev, defender, m_balance.Strike(), m_combatRng);
 			if (ev.dealt >= 0.5f)
 				onMessage(loc::Format("log.blast_hits", name,
@@ -1658,7 +1721,7 @@ void DungeonWorld::ApplyBlastHit(const blast::Hit& c, DamageType type,
 			for (Character& member : *m_roster) {
 				if (!member.IsAlive()) continue;
 				PartyTarget defender{*this, member};
-				fx::DamageEvent ev = fx::DamageEvent::Burst(type, c.damage, -1);
+				fx::DamageEvent ev = fx::DamageEvent::Burst(type, dmg, -1);
 				fx::Deal(ev, defender, m_balance.Strike(), m_combatRng);
 				if (ev.dealt >= 0.5f)
 					MemberMessage(member, loc::Format("log.blast_hits_member",
@@ -1676,7 +1739,7 @@ void DungeonWorld::ApplyBlastHit(const blast::Hit& c, DamageType type,
 	// Whatever pieces of DUNGEON stand here take it too — a blast is the first
 	// thing that reaches them, and it reaches them through the same pipeline.
 	ForEachBreakableAt(c.x, c.z, [&](BreakableTarget& t) {
-		fx::DamageEvent ev = fx::DamageEvent::Burst(type, c.damage, attacker);
+		fx::DamageEvent ev = fx::DamageEvent::Burst(type, dmg, attacker);
 		fx::Deal(ev, t, m_balance.Strike(), m_combatRng);
 		NarrateBreak(t, ev);
 	});

@@ -247,6 +247,10 @@ constexpr FieldSpec kMonsterFields[] = {
 	 .help = "Flat damage soak.", .lo = 0.0f, .hi = 20.0f, .step = 1.0f, .def = "0"},
 	{.key = "resists", .kind = FieldKind::Text, .sectionKey = kSectionStats,
 	 .help = "Per-type resistance, e.g. 'pierce 0.5, slash 0.25' (1 = immune, negative = weakness)."},
+	{.key = "powers", .kind = FieldKind::Text, .sectionKey = kSectionStats,
+	 .help = "Per-type POTENCY: how hard it strikes with each type, e.g. 'fire 0.5' "
+			 "(negative = feeble with it). The attacker's mirror of Resists, and a "
+			 "monster's stand-in for the skill a character trains."},
 	{.key = "reach", .kind = FieldKind::Float, .sectionKey = kSectionStats,
 	 .help = "Melee range in squares; 2 lets it strike from one square back.",
 	 .lo = 1.0f, .hi = 3.0f, .step = 1.0f, .def = "1"},
@@ -473,6 +477,9 @@ constexpr FieldSpec kArmorFields[] = {
 	 .help = "Flat damage soak when worn.", .lo = 0.0f, .hi = 20.0f, .step = 0.25f, .def = "1"},
 	{.key = "resists", .kind = FieldKind::Text, .sectionKey = kSectionStats,
 	 .help = "Per-type resistance granted when worn, e.g. 'slash 0.2, fire 0.1'."},
+	{.key = "powers", .kind = FieldKind::Text, .sectionKey = kSectionStats,
+	 .help = "Per-type POTENCY granted, e.g. 'fire 0.3'. Sums across the wielded "
+			 "weapon and every worn piece, and scales what its bearer deals."},
 };
 
 // --- status effects ---------------------------------------------------------

@@ -47,6 +47,10 @@ model = khukri
 element = fire
 element_bonus = 0.5
 on_hit = burn 3 6 0.5
+; The ATTACKER's half of the type axis: wielding this makes you potent with fire,
+; so its enchantment bites harder AND a firebolt from the same hand's owner does
+; too (it sums with anything worn). The mirror of a defender's `resists`.
+powers = fire 0.3
 
 ; The same enchantment in a different element. Its burn is the FREEZING kind —
 ; resisted as water, and its plume runs cold blue.

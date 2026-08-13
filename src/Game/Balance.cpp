@@ -3,6 +3,8 @@
 // ============================================================================
 #include "Game/Balance.h"
 
+#include "Game/Defense.h" // the attacker's type axis, kept pure for the harness
+
 #include "Core/Log.h"
 #include "Game/Catalog.h"
 
@@ -50,6 +52,7 @@ constexpr BalanceField kBalanceFields[] = {
 	{"armor_short_penalty", &Balance::armorShortPenalty},
 	{"armor_short_stamina", &Balance::armorShortStamina},
 	{"resist_clamp", &Balance::resistClamp},
+	{"potency_clamp", &Balance::potencyClamp},
 	{"wound_floor", &Balance::woundFloor},
 	{"speed_base", &Balance::speedBase},
 	{"speed_stat", &Balance::speedStat},
@@ -166,6 +169,13 @@ float Balance::ClampResist(float sum, float natureCell) const {
 	if (sum > resistClamp) return resistClamp;
 	if (sum < -resistClamp) return -resistClamp;
 	return sum;
+}
+
+float Balance::Potent(float amount, const ResistTable& potency,
+					  DamageType type) const {
+	// The adapter: the arithmetic and its reasoning live in Game/Defense.h, which is
+	// pure and therefore measurable; this only hands it the knob.
+	return defense::Potent(amount, potency, type, potencyClamp);
 }
 
 void Balance::Load(const Catalog& balanceCat, const Catalog& attacksCat,

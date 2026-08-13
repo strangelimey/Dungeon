@@ -136,6 +136,11 @@ struct Balance {
 	float avoidSlope = 3.0f;
 	float avoidCap = 60.0f;
 	float resistClamp = 0.8f;   // max summed resist (nature 1.0 = immunity)
+	// THE ATTACKER'S HALF of the type axis (docs/damage-system.md "Two axes"), the
+	// mirror of resistClamp: how far a summed POTENCY may push a blow either way.
+	// Tighter than the resist clamp on purpose — potency stacks from a weapon AND
+	// every worn piece, so it has more sources to pile up than a resist does.
+	float potencyClamp = 0.6f;
 	float woundFloor = 1.0f;    // a landed blow stings
 	float speedBase = 1.15f;    // interval = speed × (speedBase − speedStat×DEX)
 	float speedStat = 0.015f;
@@ -237,6 +242,12 @@ struct Balance {
 	// Clamps a SUMMED resist to ±resistClamp — except an authored nature cell
 	// at 1.0+, which reaches true immunity (docs/combat.md part 4).
 	float ClampResist(float sum, float natureCell) const;
+	// Scales `amount` by the attacker's potency in `type` — THE one place the
+	// attack-side axis is applied, so every source of damage gets it the same way
+	// and none can quietly skip it. A cell of 0 is ordinary, positive is potent,
+	// negative is feeble; the sum is clamped to ±potencyClamp, and the result never
+	// goes below zero (a deeply feeble blow does nothing, it does not heal).
+	float Potent(float amount, const ResistTable& potency, DamageType type) const;
 
 	// balance.cat [formula] knobs + attacks.cat numeric overrides. Missing
 	// files/fields keep the defaults, so a project without them still runs.

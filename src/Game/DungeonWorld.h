@@ -1099,6 +1099,10 @@ private:
 		// authored immunity) and what this monster's melee deals AS
 		// (`dmgtype`, default bash). Ranged/spell attacks type by school.
 		ResistTable resists;
+		// The ATTACKER half of the type axis (`powers = fire 0.5`), which is a
+		// monster's whole answer to the skill a character trains: it has no skills,
+		// so this is where "this thing is dangerous WITH FIRE specifically" lives.
+		ResistTable powers;
 		DamageType damageType{}; // resolved from `dmgtype` at load
 		// What a CRITICAL blow leaves behind, on top of on_hit — the same
 		// authored form (`on_crit = bleed 2 10`), rolled only when the attack
@@ -1375,6 +1379,13 @@ private:
 		// The defender side of a WORN piece (part 4): per-type resist cells
 		// plus a small flat soak, summed across the equipment slots.
 		ResistTable resists;
+		// THE ATTACKER SIDE, the mirror of the above (`powers = fire 0.4`): how much
+		// harder — or, negative, more feebly — its bearer strikes with each damage
+		// type. It sums across the WIELDED weapon and every WORN piece, exactly as
+		// resists do, so a fire-forged gauntlet lends its element to whatever hand
+		// swings. Characters get their type axis this way rather than innately:
+		// their own is skill, per weapon class and per school.
+		ResistTable powers;
 		float armor = 0.0f;
 		float weight = 0.0f;     // carry weight (kg); sums into a member's load
 		std::vector<std::string> commands; // hand right-click command ids (data-driven)
@@ -2018,6 +2029,16 @@ public:
 private:
 	// Say what a blow did to a breakable, and what it broke — in that order.
 	void NarrateBreak(const BreakableTarget& t, const fx::DamageEvent& ev);
+	// A member's ATTACK-side type axis: the potency summed from the weapon in
+	// `hand` (-1 = none, for a spell) and every worn piece — the mirror of the way
+	// PartyTarget::Resist sums the defender's. Characters have no innate cell; what
+	// they carry is what they get, because their own axis is skill.
+	ResistTable PartyPowers(const Character& member, int hand);
+	// The potency of whoever LAUNCHED a carrier: a party member's worn gear (by
+	// roster index) or a monster's own table (by runtimeId). Applied where the
+	// carrier's DamageEvent is built, which is the only place both are known —
+	// MagicSystem is walled off from equipment and cannot do it at cast time.
+	ResistTable AttackerPowers(int attacker, u32 shooter);
 
 	// Skirmisher executor (intent == Kite): hold `keepRange` from the party (greedy
 	// 1-step, LoS-preferring), and fire a ranged bolt when it has a clear line and is

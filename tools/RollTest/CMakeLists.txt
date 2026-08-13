@@ -22,6 +22,11 @@ add_executable(RollTest
 	${CMAKE_SOURCE_DIR}/src/Game/Defense.cpp
 	${CMAKE_SOURCE_DIR}/src/Game/Blast.cpp
 )
+# NOT linked, and the attempt is worth recording: pulling Balance.cpp in for the
+# attacker's type axis dragged Catalog -> assets::ReadBinaryFile, i.e. the file
+# layer. That is the wall doing exactly what it was built for. The arithmetic moved
+# into Defense.cpp instead (defense::Potent) with Balance::Potent as a thin adapter
+# passing its clamp — the same split the armor floor already uses.
 # src/ on the include path so the harness and the engine both say "Game/Roll.h".
 target_include_directories(RollTest PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_link_libraries(RollTest PRIVATE Core)
