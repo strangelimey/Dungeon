@@ -178,6 +178,7 @@ log.party_hits={} hiere a {} y causa {} de daño.
 log.no_reach=No alcanza desde la fila trasera.
 log.party_misses={} ataca a {} y falla.
 log.exhausted=¡{} está agotado!
+log.overexert=¡{} se esfuerza más allá del límite!
 log.recovered={} recupera el aliento.
 log.member_dies=¡{} ha muerto!
 log.member_wakes={} vuelve en sí.

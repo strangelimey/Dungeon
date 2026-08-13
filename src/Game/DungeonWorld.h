@@ -180,8 +180,15 @@ public:
 	bool PartyAttack(size_t member, size_t hand, std::string_view verb = {});
 	// Spend stamina as EXERTION (docs/combat.md part 3): drains the bar and
 	// feeds VIT's creep pool at the vit_exertion knob. The Phase 4 stamina
-	// costs (swings, marching) all route through here.
-	void SpendStamina(Character& member, float points);
+	// costs (swings, marching) all route through here. RETURNS the shortfall
+	// the bar could not cover, which every caller but SpendExertion ignores —
+	// see the definition for why it is measured there and not by the caller.
+	float SpendStamina(Character& member, float points);
+	// OVER-EXERTION's bill, once per swing or cast thrown from a stance past 1:
+	// `points` is what the over-exertion bought on the attack roll
+	// (defense::ExertionPoints), charged at exert_cost out of stamina and then
+	// out of health. Can put a member down; never kills.
+	void SpendExertion(Character& member, float points);
 	// Re-derive every member's resource maxima from the balance k's — after a
 	// save-apply, a stat change, or an editor Balance apply.
 	void RecomputePartyMaxima();

@@ -1,7 +1,8 @@
 # The damage system
 
-**Status:** BUILT on the `damage-system` branch (Michael, 2026-08-11).
-Over-exertion is designed but deferred; everything else below is live.
+**Status:** BUILT on the `damage-system` branch (Michael, 2026-08-11;
+over-exertion 2026-08-13). Everything below is live except fumble
+consequences, which are still Michael's to design.
 
 Rolemaster-shaped resolution, replacing the probability check the game
 shipped with. Attacker and defender each add a **d100** to a bonus and the
@@ -122,16 +123,72 @@ What a held-back hand answers depends on what it holds:
   fire is what turns fire aside, so a fire specialist shrugs off a firebolt
   and is no better than anyone else against frost. *The hands play no part.*
 
-The share is **0..N, not 0..1**. Over-exertion — spending past 100% by
-burning stamina, health or a stat for one last huge hit — pushes it above 1.
-That mechanism is deferred, but its shape is not: a clamp added now would
-only have to be found and removed later.
-
 Monsters take a stance too (`monsters.cat offense`), authored **per kind**
 rather than per archetype: an archetype says how a creature moves and
 perceives, not how boldly it does so, and a wild caster and a cautious one
-share one. It couples both sides from one number — dropping the stance takes
-the same points off the attack that it adds to the guard.
+share one.
+
+### One number, both sides
+
+The share scales the **skill term of the attack bonus** and the held-back
+remainder guards with what is left, so `attack + guard` is constant across
+every share — the points the stance takes off one side are exactly the ones
+it puts on the other (`defense::StanceAttack`, checked as an identity across
+seven shares rather than at a point). A stat is *not* skill: DEX on a swing,
+and the school's stat on a cast, ride at full weight whatever the stance.
+
+Monsters were coupled this way from the start (`accuracy × offense`), and
+**characters were not** — until 2026-08-13 a member's slider only ever
+subtracted, so pressing the attack cost you your guard and bought nothing.
+The slider was a defense dial wearing a trade's clothes. Both sides now trade
+on the same terms.
+
+## Over-exertion
+
+The share is **0..exert_max, not 0..1**. Past 1 a fighter is spending skill
+they have not got, and the arithmetic simply continues: the attack term keeps
+climbing and the held-back share goes **negative**, so the guard becomes a
+penalty rather than merely nothing. Over-committing does not just fail to
+defend you — it leaves you wide open, which is what makes it a decision
+instead of a damage button.
+
+The bill is charged **per swing, per cast**, on the points the over-exertion
+bought (`defense::ExertionPoints` — the attack above what an honest full
+commitment would have given):
+
+```
+stamina, then health  ←  exert_cost × (StanceAttack(share) − StanceAttack(1))
+```
+
+`exert_cost` (3) and `exert_max` (2) are balance.cat knobs like everything
+else; 3 is a first cut and expected to move. Four properties are worth
+knowing, each of which is a decision rather than an implementation detail:
+
+- **Every exit pays.** A whiff at air, a miss, a landed blow and a *fumbled
+  cast* are all billed — the effort was spent whether or not it connected.
+  Only the outcomes where nothing was thrown at all (no recipe, no mana) are
+  free.
+- **The bill is charged last**, after the blow resolves, because it can put
+  its own owner down and that line has to read *after* the blow it paid for.
+- **It can down you; it cannot kill you.** The health payment is capped at the
+  health you have, which keeps it clear of the overkill rule (`docs/combat.md`
+  Phase 5). At `exert_max` the raw bill genuinely can exceed a low-level
+  member's whole health several times over, so without the cap a single
+  reckless swing would have been instant death by a rule meant for definitive
+  blows. You can collapse from over-exertion; you cannot burst.
+- **An untrained fighter borrows nothing.** The points scale with the skill
+  curve, so a reckless stance on a skill you do not have is free *and*
+  useless — there is nothing to over-spend. Recklessness is a veteran's option.
+
+The whole bill trains VIT (it routes through `SpendStamina`, the one exertion
+path, so the armor-shortfall scale and the exhaustion latch apply to it too) —
+including the part paid in blood, because conditioning is what the body did,
+not what the bar could afford.
+
+**Reading the slider:** the track now runs to 2.0 with a hairline at the
+full-commit mark. Left of the mark the fill is the ordinary accent; right of
+it, its own alarm colour — a different *kind* of spending deserves a different
+colour, not more of the same bar.
 
 ## Armor
 
@@ -622,8 +679,9 @@ Damage types are data too (`damagetypes.cat`) — C++ names none of them.
 
 ## Dev commands
 
-`guard <share> [member]` — set the stance; **no upper clamp**, so it is the
-only way to try over-exertion before its cost exists.
+`guard <share> [member]` — set the stance; **no upper clamp at all**, unlike
+the slider (which stops at `exert_max`), so it is the way to try a stance past
+what the UI will let a player reach.
 `wear <item|none> [member]` — put armor on the doll, where worn armor
 counts.
 `monsters` — each monster's cell, **hp and carried effects**; the readout that

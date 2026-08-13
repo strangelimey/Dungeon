@@ -702,10 +702,23 @@ int main(int argc, char** argv) {
 		// All-out attack guards with nothing; the guard is linear in the share.
 		Check("all-out attack guards with nothing",
 			  defense::HandGuard(0.0f, skillCurve, hi, hi), 0.0, 0.0);
-		Check("an over-exerted share guards with nothing",
-			  defense::HandGuard(-0.5f, skillCurve, hi, hi), 0.0, 0.0);
 		Check("half held back guards half as well",
 			  defense::HandGuard(0.5f, skillCurve, lo, hi), guardBoth * 0.5, 0.001);
+		// OVER-EXERTION: a NEGATIVE held is a penalty, not a floor at zero. The
+		// linearity above is what makes this a continuation of one rule rather
+		// than a second one bolted on at the sign change.
+		Check("an over-exerted share guards WORSE than nothing",
+			  defense::HandGuard(-0.5f, skillCurve, hi, hi),
+			  -CurveValue(hi, skillCurve) * 0.5, 0.001);
+		CheckTrue("over-exertion's penalty is strictly negative",
+				  defense::HandGuard(-0.5f, skillCurve, hi, hi) < 0.0f);
+		// The max rule is applied UNBRANCHED at negative held, so the BETTER hand
+		// is also the one that over-commits furthest. Paired with the positive
+		// case above, this fails if anyone re-introduces a sign-dependent branch:
+		// taking the min instead would make the skilled hand the safer one.
+		CheckTrue("the better hand also over-commits the furthest",
+				  defense::HandGuard(-1.0f, skillCurve, lo, hi) <
+					  defense::HandGuard(-1.0f, skillCurve, lo, lo));
 		// An empty hand parries `unarmed` — bare-handed, but not nothing. At level
 		// 0 that is worth 0, so the claim worth checking is that a TRAINED bare
 		// hand still guards.
@@ -921,7 +934,95 @@ int main(int argc, char** argv) {
 				Check("all-out attack guards with no skill at all",
 					  defense::Guard(allOut), defense::Guard(allOutBare), 0.0);
 			}
+
+			// OVER-EXERTION reaches the whole guard, not just HandGuard: a share
+			// past 1 must come out the far side of Guard() as a number BELOW what
+			// an all-out attacker gets, in every branch that reads the stance.
+			// Paired with the "guards with no skill at all" check above, so a
+			// Guard() that clamped the sign would fail one of the two.
+			for (const GuardKind k : {GuardKind::Physical, GuardKind::Magical}) {
+				defense::GuardInputs allOut = inputs(ArmorClass::None, k);
+				allOut.held = 0.0f;
+				defense::GuardInputs over = allOut;
+				over.held = -0.5f; // share 1.5
+				CheckTrue("over-exerting guards worse than all-out attacking",
+						  defense::Guard(over) < defense::Guard(allOut) - 1.0f);
+			}
+			// ...and Neither still ignores it, because nothing parries that at all
+			// — the stance can only make you worse at a defense you HAVE.
+			{
+				defense::GuardInputs allOut = inputs(ArmorClass::None,
+													 GuardKind::Neither);
+				allOut.held = 0.0f;
+				defense::GuardInputs over = allOut;
+				over.held = -0.5f;
+				Check("over-exertion cannot worsen a guard nothing parries",
+					  defense::Guard(over), defense::Guard(allOut), 0.0);
+			}
 		}
+	}
+
+	// --- the stance couples both sides ------------------------------------------
+	// docs/damage-system.md "The stance" + "Over-exertion". One number moves the
+	// attack and the guard together: the points the share takes off one it puts
+	// onto the other. Over-exertion is that same line continued past 1, bought
+	// with stamina and then hide.
+	{
+		std::printf("\n--- the stance couples both sides ---\n");
+		CurveRules skillCurve;
+		skillCurve.form = CurveForm::Hyperbolic;
+		skillCurve.slope = 5.0f;
+		skillCurve.cap = 120.0f;
+		const float lvl = 20.0f;
+		const double full = CurveValue(lvl, skillCurve);
+
+		Check("a full commitment is the plain curve value",
+			  defense::StanceAttack(1.0f, lvl, skillCurve), full, 0.001);
+		Check("half the share puts half the skill behind the swing",
+			  defense::StanceAttack(0.5f, lvl, skillCurve), full * 0.5, 0.001);
+		Check("guarding with everything attacks with nothing",
+			  defense::StanceAttack(0.0f, lvl, skillCurve), 0.0, 0.0);
+
+		// THE COUPLING ITSELF, which is the whole point of the change: what the
+		// share adds to the attack is exactly what it takes off the guard. Checked
+		// as an identity across several shares rather than at one point, so a
+		// factor slipped into one side alone cannot pass.
+		bool coupled = true;
+		for (const float share : {0.0f, 0.25f, 0.5f, 0.75f, 1.0f, 1.5f, 2.0f}) {
+			const double attack = defense::StanceAttack(share, lvl, skillCurve);
+			const double guard =
+				defense::HandGuard(1.0f - share, skillCurve, lvl, lvl);
+			if (std::abs((attack + guard) - full) > 0.001) coupled = false;
+		}
+		CheckTrue("attack + guard is constant across every share", coupled);
+
+		// --- what over-exertion BUYS -----------------------------------------
+		Check("an honest stance buys nothing",
+			  defense::ExertionPoints(1.0f, lvl, skillCurve), 0.0, 0.0);
+		Check("a defensive stance buys nothing either",
+			  defense::ExertionPoints(0.3f, lvl, skillCurve), 0.0, 0.0);
+		Check("half again buys half a skill's worth",
+			  defense::ExertionPoints(1.5f, lvl, skillCurve), full * 0.5, 0.001);
+		Check("double buys a whole second skill's worth",
+			  defense::ExertionPoints(2.0f, lvl, skillCurve), full, 0.001);
+		// The points bought are exactly the attack ABOVE an honest full swing —
+		// stated against StanceAttack rather than re-derived, because the bill is
+		// charged against this number and the two must not drift apart.
+		Check("the points bought are the attack past a full commitment",
+			  defense::ExertionPoints(1.7f, lvl, skillCurve),
+			  defense::StanceAttack(1.7f, lvl, skillCurve) -
+				  defense::StanceAttack(1.0f, lvl, skillCurve),
+			  0.001);
+		// A skill you do not have cannot be over-spent: there is nothing to
+		// borrow, so an untrained fighter's reckless stance is free AND useless.
+		// Non-vacuous by pairing — the same share on a trained fighter is not.
+		Check("an untrained fighter borrows nothing",
+			  defense::ExertionPoints(2.0f, 0.0f, skillCurve), 0.0, 0.001);
+		CheckTrue("...while a trained one borrows plenty",
+				  defense::ExertionPoints(2.0f, lvl, skillCurve) > 1.0f);
+		CheckTrue("a deeper skill borrows more at the same share",
+				  defense::ExertionPoints(1.5f, 60.0f, skillCurve) >
+					  defense::ExertionPoints(1.5f, lvl, skillCurve));
 	}
 
 

@@ -36,11 +36,27 @@ float ArmorPenalty(float floor, float offsettable, CurveRules offsetCurve,
 
 float HandGuard(float held, CurveRules skillCurve, float leftLevel,
 				float rightLevel) {
-	if (held <= 0.0f) return 0.0f; // all-out attack guards with nothing
+	if (held == 0.0f) return 0.0f; // the whole skill is on the attack
 	// MAX, not sum. Taking the max of the CURVED values rather than curving the
 	// max is the same number for any monotonic curve, and says the rule out loud.
+	// Applied UNBRANCHED at negative held too — see the header for why the better
+	// hand should also be the one that over-commits the furthest.
 	return held * std::max(CurveValue(leftLevel, skillCurve),
 						   CurveValue(rightLevel, skillCurve));
+}
+
+float StanceAttack(float share, float skillLevel, CurveRules skillCurve) {
+	return share * CurveValue(skillLevel, skillCurve);
+}
+
+float ExertionPoints(float share, float skillLevel, CurveRules skillCurve) {
+	if (share <= 1.0f) return 0.0f; // not over-exerting: nothing was borrowed
+	// The DIFFERENCE against a fully-committed honest swing, written as two calls
+	// to the same function the attack roll uses rather than as (share - 1) × curve.
+	// Identical arithmetic today, but it cannot drift from the attack side if the
+	// stance ever stops scaling the skill term linearly.
+	return StanceAttack(share, skillLevel, skillCurve) -
+		   StanceAttack(1.0f, skillLevel, skillCurve);
 }
 
 float Potent(float amount, const ResistTable& potency, DamageType type,
@@ -70,7 +86,10 @@ float Guard(const GuardInputs& in) {
 	else
 		guard -= in.armorPenalty;
 
-	if (in.held <= 0.0f) return guard; // all-out attack guards with nothing
+	// An all-out attack guards with NOTHING; an over-exerted one guards with less
+	// than nothing (held < 0, so every branch below subtracts). Only the exact
+	// zero short-circuits — the sign carries the rest.
+	if (in.held == 0.0f) return guard;
 
 	switch (in.kind) {
 	case GuardKind::Magical:

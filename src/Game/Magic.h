@@ -63,6 +63,14 @@ public:
 	struct CastReport {
 		CastOutcome outcome = CastOutcome::NoRecipe;
 		const Spell* spell = nullptr; // the matched spell (set on Cast)
+		// OVER-EXERTION's attack points, for the owner to BILL (docs/damage-
+		// system.md "Over-exertion"). Reported rather than charged here because
+		// this module knows mana and nothing else — stamina, health and the wound
+		// a shortfall becomes are all the world's, and MagicSystem stays ignorant
+		// of them the same way a Spell stays ignorant of Balance. Non-zero only
+		// for a stance past 1, and set on a FUMBLE as well as a Cast: the effort
+		// was spent whether or not the casting held together.
+		float exertion = 0.0f;
 	};
 
 	// Resolves a cast for `caster` from the symbol `sequence`. The caster must

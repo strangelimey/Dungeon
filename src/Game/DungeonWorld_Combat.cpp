@@ -152,8 +152,18 @@ void DungeonWorld::GrantStatPoint(Character& member, std::string_view stat) {
 // every point spent feeds VIT's creep pool, holds regen off for a beat, and
 // an emptied bar latches EXHAUSTED (the swing penalties; cleared with
 // hysteresis in the regen tick). Swings and marching both arrive here.
-void DungeonWorld::SpendStamina(Character& member, float points) {
-	if (points <= 0.0f || !member.IsAlive()) return;
+// RETURNS THE SHORTFALL — how much of the bill the bar could not cover, AFTER
+// the armor scaling below. Every ordinary caller ignores it and so keeps the old
+// behaviour exactly (an emptied bar clamps at zero and latches EXHAUSTED, and
+// that is all marching or an honest swing ever costs). Only over-exertion reads
+// it, because only over-exertion may charge the remainder to health.
+//
+// The shortfall is deliberately measured HERE rather than split by the caller
+// against the raw points: the armor scale is applied on the way out of the bar,
+// so a caller-side split would drop the scaled excess on the floor instead of
+// passing it on.
+float DungeonWorld::SpendStamina(Character& member, float points) {
+	if (points <= 0.0f || !member.IsAlive()) return 0.0f;
 	// Armor you are too weak for is paid for twice: once on the defense roll
 	// (ArmorPenalty) and again here, on every swing and every step. An
 	// underpowered fighter in plate is easier to hit AND quickly spent.
@@ -165,18 +175,48 @@ void DungeonWorld::SpendStamina(Character& member, float points) {
 	}
 	member.stamina -= points;
 	member.staminaHoldoff = m_balance.staminaHoldoff;
+	float unpaid = 0.0f;
 	if (member.stamina <= 0.0f) {
+		unpaid = -member.stamina;
 		member.stamina = 0.0f;
 		if (!member.exhausted) {
 			member.exhausted = true;
 			MemberMessage(member, loc::Format("log.exhausted", member.name));
 		}
 	}
+	// The WHOLE bill trains VIT, the part paid in blood included — conditioning
+	// is what the body did, not what the bar could afford.
 	float& pool = member.statProgress["vitality"];
 	pool += points * m_balance.vitExertion;
-	if (pool < 1.0f) return;
+	if (pool < 1.0f) return unpaid;
 	pool -= 1.0f;
 	GrantStatPoint(member, "vitality");
+	return unpaid;
+}
+
+// OVER-EXERTION'S BILL (docs/damage-system.md), charged once per swing or cast
+// thrown from a stance past 1. `points` is what the over-exertion bought on the
+// attack roll (defense::ExertionPoints); the cost is exert_cost times that, out
+// of stamina first and out of HEALTH for whatever stamina could not cover.
+//
+// The health half goes through WoundMember like any other injury, so a fighter
+// CAN put themselves down this way. But EXERTION SPENDS ONLY THE HEALTH YOU
+// HAVE — the payment is capped at what is left in the bar, so it can empty it
+// and never exceed it. That is what keeps it out of the overkill rule
+// (docs/combat.md Phase 5): a shortfall past `overkill × maxHealth` would
+// otherwise read as a definitive blow and kill outright, and at exert_max the
+// bill genuinely can be several times a low-level member's whole health. You can
+// collapse from over-exertion; you cannot burst.
+//
+// Narrated before the wound so the cause reads ahead of the effect it caused —
+// the same ordering the reaction stage uses.
+void DungeonWorld::SpendExertion(Character& member, float points) {
+	if (points <= 0.0f || !member.IsAlive()) return;
+	const float unpaid = SpendStamina(member, points * m_balance.exertCost);
+	if (unpaid <= 0.0f) return;
+	MemberMessage(member, loc::Format("log.overexert", member.name));
+	if (WoundMember(member, std::min(unpaid, member.health)) == Fall::Down)
+		MemberMessage(member, loc::Format("log.member_down", member.name));
 }
 
 void DungeonWorld::RecomputePartyMaxima() {
@@ -1081,9 +1121,23 @@ bool DungeonWorld::PartyAttack(size_t member, size_t hand, std::string_view verb
 				 (m_balance.staminaSwing +
 				  m_balance.staminaWeight * (weapon ? weapon->weight : 0.0f)) *
 					 spec->stam);
+
+	// OVER-EXERTION is billed when the swing is DONE rather than when it begins,
+	// through every exit — a whiff at air committed just as much as a landed
+	// blow. The order is the reason for the lambda: the bill can put its own
+	// owner down, and that line has to read AFTER the blow it paid for, not
+	// before it. Zero unless the stance is past 1, in which case SpendExertion
+	// is a no-op and this costs nothing.
+	const float exertion = defense::ExertionPoints(
+		attacker.offenseShare, static_cast<float>(level), m_balance.SkillCurve());
+	const auto finish = [&] {
+		SpendExertion(attacker, exertion);
+		return true;
+	};
+
 	if (!target) {
 		MemberMessage(attacker, loc::Tr("log.attack_air"));
-		return true;
+		return finish();
 	}
 
 	const AttackProfile atk{
@@ -1094,7 +1148,13 @@ bool DungeonWorld::PartyAttack(size_t member, size_t hand, std::string_view verb
 		// through its diminishing-returns curve; DEX shades it through its own,
 		// much shallower one; the verb adds its authored points. All three are
 		// in d100 points, against the ~41 the dice themselves deviate by.
-		CurveValue(static_cast<float>(level), m_balance.SkillCurve()) +
+		//
+		// The STANCE scales the skill term and only the skill term — the same
+		// points it takes off the guard are the ones it puts behind the swing, so
+		// one number moves both sides (defense::StanceAttack). DEX is not skill
+		// and rides at full weight whatever the stance.
+		defense::StanceAttack(attacker.offenseShare, static_cast<float>(level),
+							  m_balance.SkillCurve()) +
 			CurveValue(static_cast<float>(attacker.dexterity),
 					   m_balance.StatCurve()) +
 			spec->acc,
@@ -1125,7 +1185,7 @@ bool DungeonWorld::PartyAttack(size_t member, size_t hand, std::string_view verb
 
 	if (!ev.hit) {
 		MemberMessage(attacker, loc::Format("log.party_misses", attacker.name, name));
-		return true;
+		return finish();
 	}
 	// ENCHANTMENT: a landed blow with an elemental weapon carries its element
 	// through as well — a SECOND event of that element, `element_bonus` of the
@@ -1171,7 +1231,7 @@ bool DungeonWorld::PartyAttack(size_t member, size_t hand, std::string_view verb
 			fx::ApplyProcs(defender, weapon->onCrit, flavour,
 						   static_cast<int>(member), m_effects, m_combatRng);
 	}
-	return true;
+	return finish();
 }
 
 // ============================================================================
@@ -1236,12 +1296,18 @@ bool DungeonWorld::CastSpell(size_t member, std::span<const SpellSymbol> sequenc
 		GrantSkillXp(caster, SymbolId(r.spell->School()), r.spell->Mana() * 0.25f,
 					 SchoolStats(r.spell->School()));
 		m_audio.Play(m_sounds.spellCast, 0.7f);
+		// OVER-EXERTION's bill, last — like a swing's, so the collapse it can
+		// cause reads after the cast that paid for it. Zero unless the caster's
+		// stance is past 1.
+		SpendExertion(caster, r.exertion);
 		return true;
 	case MagicSystem::CastOutcome::Fumble:
 		// The skill roll failed: the mana is spent, nothing happens, and
 		// nothing is learned — the recipe stays anonymous until a cast lands.
 		MemberMessage(caster, loc::Format("log.cast_fumble", caster.name));
 		m_audio.Play(m_sounds.spellFizzle, 0.6f);
+		// A fumbled cast was still THROWN, so it is billed like any other.
+		SpendExertion(caster, r.exertion);
 		return false;
 	case MagicSystem::CastOutcome::NoMana:
 		MemberMessage(caster, loc::Format("log.cast_nomana", caster.name));

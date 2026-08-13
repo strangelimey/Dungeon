@@ -852,20 +852,26 @@ void Game::RegisterDevCommands() {
 							   m_console.Print("no such member");
 							   return;
 						   }
-						   // Deliberately NO upper clamp: over-exertion is
-						   // meant to go past 1, and this is the only way to
-						   // try it until its resource cost is designed.
+						   // Deliberately NO upper clamp, unlike the slider (which
+						   // stops at exert_max): this is how a stance past what
+						   // the UI allows gets tried at all.
 						   if (share < 0.0f) {
 							   m_console.Print("share cannot be negative");
 							   return;
 						   }
 						   Character& c = m_characters[m];
 						   c.offenseShare = share;
+						   // The held-back share is reported UNCLAMPED, because a
+						   // negative one is the whole point past 1 — the guard
+						   // becomes a penalty, and a readout that floored it at
+						   // 0% would say an over-exerted stance and an all-out
+						   // one were the same thing.
+						   const float held = (1.0f - share) * 100.0f;
 						   m_console.Print(std::format(
-							   "{} offense {:.2f} (guarding with {:.0f}% of "
-							   "hand skill)",
-							   c.name, share,
-							   std::max(0.0f, 1.0f - share) * 100.0f));
+							   "{} offense {:.2f} (guarding with {:.0f}% of hand "
+							   "skill{})",
+							   c.name, share, held,
+							   share > 1.0f ? " — OVER-EXERTED" : ""));
 					   });
 
 	// `equip` reaches a HAND; this reaches the doll — the only place worn armor

@@ -182,6 +182,7 @@ log.party_hits={} наносит удар, и {} получает {} урона.
 log.no_reach=Из заднего ряда не дотянуться.
 log.party_misses={} наносит удар, но {} уворачивается.
 log.exhausted={} выбился из сил!
+log.overexert={} надрывается сверх всяких сил!
 log.recovered={} переводит дыхание.
 log.member_dies={} погибает!
 log.member_wakes={} приходит в себя.

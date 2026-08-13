@@ -16,7 +16,19 @@ namespace {
 // bar is drawn against this ceiling rather than against 1.0 — otherwise the
 // one state worth SEEING (spent past everything you have) would look identical
 // to an ordinary all-out swing.
-constexpr float kTrackMax = 1.0f;
+//
+// This is the DRAG's travel, not the rule. Balance::exertMax is the authority on
+// how far a stance may go and Game's onGuardChange clamps to it; the two are
+// deliberately not plumbed together, because the widget is built once while the
+// knob is editable live in the Balance dialog, so a captured copy would go stale
+// the moment it was tuned. Setting exert_max below this only makes the last
+// stretch of track unreachable — self-correcting, since the fill is drawn from
+// the CLAMPED share the character actually holds.
+constexpr float kTrackMax = 2.0f;
+
+// Where an honest full commitment sits on that track: everything right of this
+// is borrowed against stamina and hide.
+constexpr float kFullCommit = 1.0f;
 } // namespace
 
 GuardSlider::GuardSlider(const gfx::Rect& rect,
@@ -61,21 +73,31 @@ void GuardSlider::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 
 	batch.DrawRect(px, theme.control);
 
-	// The OFFENSE portion fills from the left; what is left of the track is
-	// what the character is guarding with, so the split is legible without a
-	// number — the bar IS the stance.
+	// The OFFENSE portion fills from the left; what is left of the track up to
+	// the full-commit mark is what the character is guarding with, so the split
+	// is legible without a number — the bar IS the stance.
 	const float share = std::clamp(c->offenseShare, 0.0f, kTrackMax);
-	const float fill = px.w * (share / kTrackMax);
+	const float honest = std::min(share, kFullCommit);
+	const float fill = px.w * (honest / kTrackMax);
 	if (fill > 0.0f)
 		batch.DrawRect({px.x, px.y, fill, px.h},
 					   m_dragging ? theme.controlActive : theme.accent);
 
-	// OVER-EXERTION reads as a warning stripe across the whole track: past 1
-	// the fill is already hard right, so the only way to show "and then some"
-	// is a change of colour, not of length.
-	if (c->offenseShare > 1.0f)
-		batch.DrawRect({px.x, px.y, px.w, std::max(1.0f, px.h * 0.35f)},
-					   {0.85f, 0.25f, 0.20f, 0.9f});
+	// OVER-EXERTION is the stretch past the mark, and it is drawn in its own
+	// alarming colour rather than as more of the same fill. It is a different
+	// KIND of spending — everything left of the mark comes out of skill you
+	// have, everything right of it out of stamina and then hide — so it must not
+	// read as simply more attack.
+	if (share > kFullCommit) {
+		const float over = px.w * ((share - kFullCommit) / kTrackMax);
+		batch.DrawRect({px.x + fill, px.y, over, px.h}, {0.85f, 0.25f, 0.20f, 0.9f});
+	}
+
+	// The full-commit mark: a hairline at 1.0, so the point where the cost
+	// changes character is visible BEFORE you drag past it rather than only
+	// after. 1px — the one place raw pixels are allowed (UI/Units.h).
+	batch.DrawRect({px.x + px.w * (kFullCommit / kTrackMax), px.y, 1.0f, px.h},
+				   theme.panelBorder);
 
 	// A hairline under the track: 1px, the one place raw pixels are allowed
 	// (UI/Units.h), because a fractional hairline blurs or vanishes.

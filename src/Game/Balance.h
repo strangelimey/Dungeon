@@ -165,6 +165,14 @@ struct Balance {
 	float exhaustDamage = 0.5f;
 	float exhaustPace = 1.5f;
 	float exhaustRecover = 0.1f;
+	// OVER-EXERTION (docs/damage-system.md "Over-exertion"). The stance may be
+	// pushed past 1 as far as exert_max, buying attack points at the price of a
+	// guard that goes NEGATIVE. Every swing or cast thrown from such a stance is
+	// billed exert_cost × the points it bought — out of stamina first, and out of
+	// HEALTH for whatever stamina could not cover. exert_cost is the dial the
+	// whole mechanic turns on; 3 is a first cut and expected to move.
+	float exertCost = 3.0f;
+	float exertMax = 2.0f;
 	// Death & revive (docs/combat.md Phase 5). 0 HP = UNCONSCIOUS: after
 	// stabilize_time seconds with no monster in aggro of the party, the member
 	// wakes at stabilize_health of max. DEAD needs deliberate overkill — one

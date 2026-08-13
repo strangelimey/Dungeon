@@ -177,6 +177,7 @@ log.party_hits={} hits the {} for {} damage.
 log.no_reach=Can't reach from the rear rank.
 log.party_misses={} swings at the {} and misses.
 log.exhausted={} is exhausted!
+log.overexert={} strains past breaking point!
 log.recovered={} catches their breath.
 log.member_dies={} has died!
 log.member_wakes={} comes to.

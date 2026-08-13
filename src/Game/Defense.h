@@ -50,8 +50,43 @@ float ArmorPenalty(float floor, float offsettable, CurveRules offsetCurve,
 // THE HANDS COMBINE BY MAX, NOT SUM. Summing would make holding both hands back
 // strictly better than one and turn the stance slider into a free defense
 // button; the better hand answering the blow keeps it an honest trade.
+//
+// `held` MAY BE NEGATIVE (over-exertion, below), and the max rule is applied
+// unchanged rather than switched on the sign: a negative held scaled by the
+// BETTER hand is the largest penalty, which says the right thing — the more
+// skilled the fighter, the further they can over-commit, and the wider open it
+// leaves them. A sign-dependent rule would quietly hand the two-weapon fighter
+// a discount on recklessness.
 float HandGuard(float held, CurveRules skillCurve, float leftLevel,
 				float rightLevel);
+
+// THE STANCE'S ATTACK HALF (docs/damage-system.md "The stance"). The share
+// scales the SKILL term of the attack bonus and nothing else — a stat is not
+// skill, so DEX (or a school's stat) rides at full weight whatever the stance.
+//
+// This is what couples the two sides from ONE number: the points the share
+// takes off the guard are the same points it puts behind the swing. Before it
+// existed a character's slider only ever SUBTRACTED — pressing the attack cost
+// you your guard and bought nothing — while a monster's `offense` already
+// coupled both. Characters and monsters now trade on the same terms.
+float StanceAttack(float share, float skillLevel, CurveRules skillCurve);
+
+// OVER-EXERTION (docs/damage-system.md "Over-exertion"): the attack points
+// bought by pushing the share PAST 1.0 — everything `StanceAttack` returns
+// above what a full-committed-but-honest swing would. Zero at or below 1.0.
+//
+// This is the quantity the bill is charged against, so it is deliberately the
+// same expression the attack roll used, not a re-derivation that could drift
+// from it.
+float ExertionPoints(float share, float skillLevel, CurveRules skillCurve);
+//
+// Deliberately NOT here: the SPLIT of the bill across stamina and health. It
+// looks like pure arithmetic and is not — the bill is scaled by the wearer's
+// armor shortfall on its way out of the bar, so a split computed against the raw
+// points would lose that scaling's excess instead of passing it on to health.
+// It therefore lives at the one place that already owns the scaling
+// (DungeonWorld::SpendStamina, which reports its shortfall). A pure copy here
+// would be a second rule that agrees with the shipping one only by luck.
 
 // THE ATTACKER'S HALF OF THE TYPE AXIS (docs/damage-system.md "Two axes"), the
 // mirror of the defender's resists: how much harder — or, negative, more feebly —
@@ -110,6 +145,9 @@ struct GuardInputs {
 	CurveRules avoidCurve;
 
 	// The stance's held-back share (1 - offenseShare) and what it can guard with.
+	// NEGATIVE when the wearer is over-exerting (share > 1): the guard becomes a
+	// PENALTY rather than merely nothing, because a fighter spending past
+	// everything they have is not just failing to defend — they are wide open.
 	float held = 0.0f;
 	CurveRules skillCurve;
 	GuardKind kind = GuardKind::Physical;
