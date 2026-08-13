@@ -991,8 +991,11 @@ void DungeonWorld::MonsterAttack(Monster& monster) {
 	// Its POTENCY in what it deals (`powers`) scales the blow — a monster's whole
 	// answer to the skill a character trains, since it has none.
 	const AttackProfile atk{
-		m_balance.Potent(monster.kind->damage, monster.kind->powers,
-						 monster.kind->damageType),
+		// Per-instance strength scales what it DEALS as well as what it can
+		// take (Monster::MaxHp) — a scaled monster that hit like the authored
+		// one would just be a longer fight, not a harder one.
+		m_balance.Potent(monster.kind->damage * monster.strength,
+						 monster.kind->powers, monster.kind->damageType),
 		monster.kind->accuracy * monster.kind->offense,
 		monster.kind->damageType, monster.kind->critPierce};
 	fx::DamageEvent ev =

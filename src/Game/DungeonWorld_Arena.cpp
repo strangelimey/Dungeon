@@ -104,6 +104,26 @@ bool DungeonWorld::BuildArena(ArenaShape shape, int w, int h, ArenaInfo& out) {
 		out = {cx, cz, cx + w - 1, cz + kCorridorWidth - 1, cx, cz};
 		carve(out.x0, out.z0, out.x1, out.z1);
 		break;
+	case ArenaShape::Room: {
+		// THE LADDER'S ARENA (Michael's protocol): a room with a corridor coming
+		// off it. The monster waits at the room's centre; the party starts at the
+		// FAR END of the corridor and walks in. The distance is the point — an
+		// encounter that begins with the two sides already adjacent skips the
+		// approach, and the approach is where the monster notices, closes, and
+		// the corridor decides how many of them can reach you at once.
+		//
+		// `w` is the room's side, `h` the corridor's length. The corridor runs
+		// SOUTH (+z) from the middle of the room's south wall.
+		const int half = w / 2;
+		const int roomZ1 = cz + half;
+		const int endZ = std::min(H - 2, roomZ1 + h);
+		out = {cx - half, cz - half, cx + half, endZ, cx, cz};
+		carve(cx - half, cz - half, cx + half, roomZ1); // the room
+		carve(cx, roomZ1 + 1, cx, endZ);               // the corridor
+		out.sx = cx;
+		out.sz = endZ; // the far end: the party's start
+		break;
+	}
 	case ArenaShape::TJunction: {
 		// A bar with a stem meeting it at the middle. The junction cell is the
 		// centre, because that is the square a blast's arms reflect back onto and
@@ -117,14 +137,18 @@ bool DungeonWorld::BuildArena(ArenaShape shape, int w, int h, ArenaInfo& out) {
 	}
 
 	// --- 4. the party, and a clean slate around them ------------------------
-	m_map.SetStart(out.cx, out.cz);
-	m_party.Reset(out.cx, out.cz);
+	// Every shape but Room starts the party ON the centre; Room puts them at
+	// the far end of its corridor, which is set in the case above.
+	if (shape != ArenaShape::Room) { out.sx = out.cx; out.sz = out.cz; }
+	m_map.SetStart(out.sx, out.sz);
+	m_party.Reset(out.sx, out.sz);
 	// The whole arena revealed: fog is a PLAYER concern, and an eval that could
 	// not see what it built would be reading a blank map overlay.
 	m_seen.assign(static_cast<size_t>(W) * H, 0);
 	for (int z = out.z0; z <= out.z1; ++z)
 		for (int x = out.x0; x <= out.x1; ++x) MarkSeen(x, z);
 	MarkSeen(out.cx, out.cz);
+	MarkSeen(out.sx, out.sz); // the corridor end, outside the room's bounds
 
 	// --- 5. make it real ----------------------------------------------------
 	// The full bake, not RebuildChunksAround: every cell in the map changed, and
@@ -166,6 +190,7 @@ bool DungeonWorld::ArenaShapeFromName(std::string_view name, ArenaShape& out) {
 	if (name == "corridor") { out = ArenaShape::Corridor; return true; }
 	if (name == "deadend") { out = ArenaShape::DeadEnd; return true; }
 	if (name == "tjunction") { out = ArenaShape::TJunction; return true; }
+	if (name == "room") { out = ArenaShape::Room; return true; }
 	return false;
 }
 

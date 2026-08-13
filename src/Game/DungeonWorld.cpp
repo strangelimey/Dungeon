@@ -856,6 +856,15 @@ void DungeonWorld::UpdateMonsters(float dt) {
 	// cadence because that is where a fight happens, and both are no-ops in an
 	// ordinary play session.
 	m_tally.seconds += dt;
+	// Feed the queued walk one step at a time, as each tween finishes — see
+	// QueueForward for why a loop cannot do this. A step the map refuses (a
+	// wall, a monster in the way) still consumes one from the queue, so
+	// `forward 20` down a six-cell corridor stops at the end instead of
+	// shoving forever.
+	if (m_pendingSteps > 0 && !m_party.IsMoving()) {
+		--m_pendingSteps;
+		m_party.Act(MoveAction::Forward);
+	}
 	TickAutoAttack();
 
 	ReconcileGroups();

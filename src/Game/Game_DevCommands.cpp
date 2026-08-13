@@ -1193,6 +1193,27 @@ void Game::RegisterDevCommands() {
 				info.x1, info.z1, info.cx, info.cz));
 		});
 
+	// WALK. `tp` puts the party somewhere; this makes them GO there, which is a
+	// different measurement: an encounter that begins already adjacent skips the
+	// approach, and the approach is where the monster notices you, closes the
+	// distance, and the corridor decides how many of them can reach you at once.
+	//
+	// The steps are QUEUED as the same discrete MoveActions a key press or a HUD
+	// arrow produces — they play out over the following `step`, at the party's
+	// own pace, rather than teleporting a cell at a time. A blocked step is
+	// simply refused by Party::Act, as it would be for a player walking into a
+	// wall, so `forward 20` down a six-cell corridor stops at the end.
+	m_console.Register("forward", "walk the party (dev): forward [n]",
+					   [this](const std::vector<std::string>& args) {
+						   const int n = args.empty() ? 1 : std::atoi(args[0].c_str());
+						   if (n < 1) {
+							   m_console.Print("forward needs a positive count");
+							   return;
+						   }
+						   m_world.QueueForward(n);
+						   m_console.Print(std::format("forward x{}", n));
+					   });
+
 	// Monsters hold still while everything that happens TO them keeps running.
 	// A geometry probe's instruments must not wander off the cells they measure.
 	m_console.Register("freeze", "monsters stop acting (dev): freeze on|off",
@@ -1254,6 +1275,13 @@ void Game::RegisterDevCommands() {
 							   default: break;
 							   }
 						   }
+						   // An optional 5th argument SCALES this instance's hp and
+						   // damage, leaving its catalog entry alone — for
+						   // sweeping difficulty finely between authored types.
+						   const float strength =
+							   args.size() > 4
+								   ? static_cast<float>(std::atof(args[4].c_str()))
+								   : 1.0f;
 						   if (!m_world.AddMonster(args[0], x, z, facing)) {
 							   m_console.Print(std::format(
 								   "spawn: refused '{}' at {},{} (unknown type, "
@@ -1261,8 +1289,10 @@ void Game::RegisterDevCommands() {
 								   args[0], x, z));
 							   return;
 						   }
-						   m_console.Print(
-							   std::format("spawned {} at {},{}", args[0], x, z));
+						   if (strength > 0.0f && strength != 1.0f)
+						   m_world.ScaleLastMonster(strength);
+					   m_console.Print(std::format("spawned {} at {},{} x{:.2f}",
+											   args[0], x, z, strength));
 					   });
 
 	// --- seeding a rung (docs/eval-harness.md) ------------------------------

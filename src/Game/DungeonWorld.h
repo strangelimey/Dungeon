@@ -233,6 +233,17 @@ public:
 	// simulated seconds of nothing as a result.
 	void ClearWipeLatch() { m_partyWiped = false; }
 
+	// Scale the MOST RECENTLY SPAWNED monster's hp and damage (the eval
+	// harness's `spawn ... <strength>`). Applied after AddMonster rather than
+	// passed through it, so the editor's placement path keeps its signature
+	// and nothing but the harness can reach this.
+	void ScaleLastMonster(float strength) {
+		if (m_monsters.empty() || strength <= 0.0f) return;
+		Monster& m = m_monsters.back();
+		m.strength = strength;
+		m.hp = m.MaxHp(); // spawned at full, and full has just changed
+	}
+
 	// DETONATE A NAMED SPELL'S BLAST at a cell, with no caster, no mana, no
 	// skill roll and no bolt flight — the eval harness's way of asking a
 	// geometry question directly (`blast <spell> <x> <z>`).
@@ -256,15 +267,27 @@ public:
 	// probe needs its instruments to hold still: monsters parked on known cells
 	// to read a blast's falloff will otherwise walk off those cells mid-
 	// measurement and report where they ended up instead.
+	// QUEUE walking steps (the harness's `forward`). They CANNOT simply be
+	// applied in a loop: Party::Act starts a tween and refuses a new move
+	// while one is in flight, so nine calls in a single frame perform ONE
+	// step and silently drop eight — which read as a party that would not
+	// advance. They are fed one at a time as each completes.
+	void QueueForward(int steps) { m_pendingSteps += steps; }
+	int PendingSteps() const { return m_pendingSteps; }
 	void SetFreezeMonsters(bool on) { m_freezeMonsters = on; }
 	bool FrozenMonsters() const { return m_freezeMonsters; }
 
-	enum class ArenaShape : u8 { Open, Corridor, DeadEnd, TJunction };
+	enum class ArenaShape : u8 { Open, Corridor, DeadEnd, TJunction, Room };
 	// Where the arena ended up. Derivable from the map size (it is centred), so
 	// a script can hardcode the cells; reported so a log reader can check them.
 	struct ArenaInfo {
 		int x0 = 0, z0 = 0, x1 = 0, z1 = 0; // inclusive bounds
 		int cx = 0, cz = 0;                 // the cell that matters for the shape
+		// Where the PARTY is placed. Same as the centre for every shape except
+		// Room, whose whole point is that the two are FAR APART: the monster
+		// waits in the room and the party walks the corridor to reach it, so
+		// the approach is part of what gets measured.
+		int sx = 0, sz = 0;
 	};
 	bool BuildArena(ArenaShape shape, int w, int h, ArenaInfo& out);
 	static bool ArenaShapeFromName(std::string_view name, ArenaShape& out);
@@ -1402,7 +1425,16 @@ private:
 		std::vector<ai::Cell> aiPath; // cached chase route (start cell excluded)
 		size_t aiCursor = 0;          // next unstepped cell in aiPath
 
-		float MaxHp() const { return kind ? kind->maxHp : 1.0f; }
+		// PER-INSTANCE STRENGTH (the eval harness's `spawn ... <x N>`): scales
+		// this creature's hit points and the damage it deals, leaving its
+		// catalog entry alone. A ladder climbs by TYPE first — those measure
+		// content that ships — and uses this to sweep finely BETWEEN authored
+		// types, where a result points at a monster that does not exist and so
+		// says where to author one rather than what to fix.
+		float strength = 1.0f;
+		float MaxHp() const {
+			return (kind ? kind->maxHp : 1.0f) * strength;
+		}
 		bool Alive() const { return hp > 0.0f; }
 	};
 
@@ -2666,6 +2698,7 @@ private:
 	Tally m_tally;             // the eval harness's encounter counters
 	bool m_autoAttack = false; // eval: members swing off cooldown (see SetAutoAttack)
 	bool m_freezeMonsters = false; // eval: monsters do not ACT (see SetFreezeMonsters)
+	int m_pendingSteps = 0;        // eval: queued `forward` steps (see QueueForward)
 	// Drives that: for each standing member, swing any hand whose cooldown has
 	// run out. Called from UpdateMonsters' cadence, no-op unless armed.
 	void TickAutoAttack();
