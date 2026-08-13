@@ -1158,6 +1158,74 @@ void Game::RegisterDevCommands() {
 						   }
 					   });
 
+	// --- the arena (docs/eval-harness.md) -----------------------------------
+	// Carve a controlled space into the loaded map and empty the world into it.
+	// Writes NO files: the editor's new-level button would author a .map/.ent
+	// into the git tree, which an eval must not do on every run.
+	m_console.Register(
+		"arena", "carve a test arena (dev): arena <open|corridor|deadend|tjunction> [w] [h]",
+		[this](const std::vector<std::string>& args) {
+			if (!Need(m_console, args, 1,
+					  "usage: arena <open|corridor|deadend|tjunction> [w] [h]"))
+				return;
+			DungeonWorld::ArenaShape shape{};
+			if (!DungeonWorld::ArenaShapeFromName(args[0], shape)) {
+				m_console.Print("unknown shape: " + args[0] +
+								" (open|corridor|deadend|tjunction)");
+				return;
+			}
+			const int w = args.size() > 1 ? std::atoi(args[1].c_str()) : 9;
+			const int h = args.size() > 2 ? std::atoi(args[2].c_str()) : w;
+			DungeonWorld::ArenaInfo info;
+			if (!m_world.BuildArena(shape, w, h, info)) {
+				m_console.Print("arena: refused (see the log)");
+				return;
+			}
+			// The bounds are PRINTED because a script cannot read a return value
+			// — it can only hardcode cells and have a human check in the log
+			// that they were the cells it got. Reported as the extent ACTUALLY
+			// carved rather than as the arguments: a corridor ignores `h`, and
+			// echoing the request would have had `arena corridor 11` claim an
+			// 11x11 room in the one record anybody reads.
+			m_console.Print(std::format(
+				"arena {} {}x{}  floor {},{}..{},{}  centre {},{}", args[0],
+				info.x1 - info.x0 + 1, info.z1 - info.z0 + 1, info.x0, info.z0,
+				info.x1, info.z1, info.cx, info.cz));
+		});
+
+	// Place a monster, live. The editor's placement path (AddMonster) refuses an
+	// unwalkable or occupied cell, and so does this — reported rather than
+	// silent, because a spawn that did not happen is an encounter that is not
+	// the one the script described.
+	m_console.Register("spawn", "place a monster (dev): spawn <type> <x> <z> [n|e|s|w]",
+					   [this](const std::vector<std::string>& args) {
+						   if (!Need(m_console, args, 3,
+									 "usage: spawn <type> <x> <z> [facing]"))
+							   return;
+						   const int x = std::atoi(args[1].c_str());
+						   const int z = std::atoi(args[2].c_str());
+						   Direction facing = Direction::South;
+						   if (args.size() > 3) {
+							   switch (std::tolower(
+								   static_cast<unsigned char>(args[3][0]))) {
+							   case 'n': facing = Direction::North; break;
+							   case 'e': facing = Direction::East; break;
+							   case 's': facing = Direction::South; break;
+							   case 'w': facing = Direction::West; break;
+							   default: break;
+							   }
+						   }
+						   if (!m_world.AddMonster(args[0], x, z, facing)) {
+							   m_console.Print(std::format(
+								   "spawn: refused '{}' at {},{} (unknown type, "
+								   "not walkable, or cell taken)",
+								   args[0], x, z));
+							   return;
+						   }
+						   m_console.Print(
+							   std::format("spawned {} at {},{}", args[0], x, z));
+					   });
+
 	// A script cannot otherwise tell whether it is measuring anything at all.
 	m_console.Register("state", "what the app is doing (loading/menu/playing/...)",
 					   [this](const std::vector<std::string>&) {

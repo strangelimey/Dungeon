@@ -200,6 +200,20 @@ public:
 	// constant-seeded, which makes a run perfectly reproducible AND makes every
 	// run the same run. An eval needs a SAMPLE, so it varies this per encounter.
 	void SeedCombat(u32 seed) { m_combatRng.seed(seed); }
+
+	// THE ARENA (DungeonWorld_Arena.cpp): carve a controlled space into the
+	// LOADED map — no files written — and empty the world of everything the
+	// authored level put there. The shapes are the geometries a propagating
+	// blast has to be measured in.
+	enum class ArenaShape : u8 { Open, Corridor, DeadEnd, TJunction };
+	// Where the arena ended up. Derivable from the map size (it is centred), so
+	// a script can hardcode the cells; reported so a log reader can check them.
+	struct ArenaInfo {
+		int x0 = 0, z0 = 0, x1 = 0, z1 = 0; // inclusive bounds
+		int cx = 0, cz = 0;                 // the cell that matters for the shape
+	};
+	bool BuildArena(ArenaShape shape, int w, int h, ArenaInfo& out);
+	static bool ArenaShapeFromName(std::string_view name, ArenaShape& out);
 	// Drive the monster AI from sim time instead of wall-clock; see
 	// ai::AsyncDirector::SetLockstep for what that does and does not promise.
 	// Clears the bucket accumulators so switching it on does not immediately

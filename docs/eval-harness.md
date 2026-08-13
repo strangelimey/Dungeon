@@ -1,7 +1,7 @@
 # The eval harness
 
-**Status:** P1 and P2 built (2026-08-13). The suites do not exist yet — this is
-the clock they will run on and the runner that will drive them.
+**Status:** P1–P3 built (2026-08-13). The suites do not exist yet — this is the
+clock they run on, the runner that drives them, and the room they happen in.
 
 The damage system has a great many knobs (`balance.cat` alone is fifty-odd) and
 almost none of them have been played against. Tuning them by hand means fighting
@@ -151,6 +151,57 @@ drifted immediately.* Worth noting the diagnostics work paid for itself here: th
 fault filter caught it, symbolized `GameUI::SetHudStatus`, and wrote a minidump,
 so a crash in an unattended headless-ish run was a two-minute diagnosis.
 
+## P3: the arena
+
+```
+arena <open|corridor|deadend|tjunction> [w] [h]
+spawn <type> <x> <z> [n|e|s|w]
+```
+
+Every attempt to verify P1 against the **showcase** level fought back: a monster
+already standing adjacent so it had nothing to walk toward, a target cell that
+turned out not to be walkable, one creature that would not engage in either AI
+mode. None of those are bugs — they are a hand-authored level being
+hand-authored — but they make it impossible to say what a measurement measured.
+An arena is a room whose entire contents you chose.
+
+**It writes no files.** The editor's new-level button authors a `.map`/`.ent`
+pair and appends the project manifest, which in a dev build lands straight in the
+git tree (`paths::Asset` *is* the source tree). An eval that dirtied the working
+copy every run would be intolerable, so `arena` carves into the **loaded** map
+and empties the world into it. Nothing persists unless someone types `savemap`,
+which a script never does.
+
+The shapes are the geometries a propagating blast has to be measured in: an open
+room lets a wavefront ring outward; a corridor reflects it off both ends; a dead
+end reflects it back onto the caster; a **T-junction** is where arms converge and
+multiply, which is where the worst number in the game lives.
+
+The arena is **centred on the map**, so its cells are derivable from the map size
+and a script can hardcode them — a script cannot read a command's answer. The
+command prints the extent **actually carved** (not the arguments) so a log reader
+can confirm they were the cells assumed. A corridor ignores `h`; echoing the
+request would have had `arena corridor 11` claim an 11×11 room in the one record
+anybody reads.
+
+`deadend` is not a different shape from `corridor` — it is a different place to
+stand in one, so its reported centre is the **closed end** rather than the middle.
+
+### His blast case, in nine lines
+
+```
+arena open 9 9
+spawn skel_swarm 13 11 south      ; ...and the other eight, 13..15 x 11..13
+```
+
+### What it finally proved
+
+A skeleton spawned at 14,8 **pathfound across an empty room to 14,11** to reach
+the party at 14,12, inside a single `step 30`, and took three of the four members
+down. That is lockstep AI demonstrated end to end — a monster that had to think,
+path and close the distance — which the showcase level had prevented four times
+over.
+
 ## Driving it: two rules learned the hard way
 
 **Set `timescale 0` first.** Otherwise real time passes between console commands
@@ -180,9 +231,14 @@ That is the capability everything else is built on.
 
 ## Next
 
-P3 `arena` + `spawn` — an empty room with a monster exactly where you want it.
-The showcase level fought every attempt to verify P1 (a monster already adjacent,
-an unwalkable target cell, one that would not engage), which is precisely what
-generated arenas are for. Then P4 `setstat`/`setskill`/`preset`; P5 the encounter
-summary and the N-seed sweep; P6 the progression ladder; P7 blast geometry; P8
-`tools/Eval.ps1` and a `/check-eval` skill, outside the quick tier.
+P4 `setstat`/`setskill`/`preset` — seeding a rung at mid-game without playing
+there. (`setskill` closes a real gap: training a caster's fire skill for a test
+currently means casting thirty times.) Then P5 the encounter summary and the
+N-seed sweep; P6 the progression ladder; P7 blast geometry; P8 `tools/Eval.ps1`
+and a `/check-eval` skill, outside the quick tier.
+
+**A balance signal already, unasked for:** one skeleton — 16 hp, the second-
+weakest thing in the game — took three of four fresh members down in thirty
+seconds. An unarmoured low-level party being about three swings from death is
+Michael's explicit design decision and must not be "fixed", but it is now a
+number rather than an impression, which is the entire point of this.
