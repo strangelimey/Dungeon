@@ -1,7 +1,8 @@
 # The eval harness
 
-**Status:** P1–P3 built (2026-08-13). The suites do not exist yet — this is the
-clock they run on, the runner that drives them, and the room they happen in.
+**Status:** P1–P4 built (2026-08-13). The suites do not exist yet — this is the
+clock they run on, the runner that drives them, the room they happen in and the
+way a rung is seeded.
 
 The damage system has a great many knobs (`balance.cat` alone is fifty-odd) and
 almost none of them have been played against. Tuning them by hand means fighting
@@ -202,6 +203,69 @@ down. That is lockstep AI demonstrated end to end — a monster that had to thin
 path and close the distance — which the showcase level had prevented four times
 over.
 
+## P4: seeding a rung
+
+```
+setstat  <member> <str|dex|vit|wil|int> <n>
+setskill <member> <skill id> <level>
+heal     [member]
+char     <member>
+include  <path>          ; script-level, resolved against the root script's folder
+```
+
+A single run cannot play from fresh characters to end-game, so a rung has to
+**start** where it wants to measure.
+
+`setstat` calls `RecomputePartyMaxima` afterwards, because health, stamina and
+mana all **derive** from stats — a stat set without it leaves a level-20 fighter
+with a novice's hit points and every number after it measured wrong.
+
+`setskill` squares what it is given, since levels derive from `floor(sqrt(xp))`.
+Squaring is the honest inverse, so a seeded skill trains onward from exactly
+where a played one would have.
+
+### A preset is a script fragment, not a table
+
+`include` is handled by the runner rather than as a console command — it edits
+the queue the pump is walking, which a command handler has no business reaching
+into. Included lines are **spliced in place**, so they are indistinguishable from
+inline ones: same one-per-frame pacing, same load gate, same counting. Nesting
+works for free.
+
+That makes a preset a file (`tools/EvalScripts/presets/*.eval`) instead of a
+hardcoded loadout in C++ — editable, diffable and composable like the rest of the
+suite. `presets/novice.eval` deliberately sets almost nothing: a fresh roster *is*
+the novice tier, and writing its numbers out would create a second definition
+that drifts from `CreateDefaultParty` the first time that changes.
+
+### `heal`, and why a ladder cannot run without it
+
+**A wipe returns to the title screen.** So the first rung that wipes ends the run
+— every later `step` is correctly refused and every later rung measures nothing.
+The first two-tier script did exactly that: rung 2 never ran, and only the
+`state` guard made it obvious rather than silently plausible.
+
+`heal` restores in place (a `newgame` per rung would cost a full staged reload
+each time) and deliberately does **not** touch stats, skills, gear or stance —
+those are what the preset seeded, and a heal that undid them would make rung 2
+measure rung 1's party.
+
+### What two tiers look like
+
+Same seed, same room, same monster, thirty seconds:
+
+| | novice | veteran |
+|---|---|---|
+| party after | all four **DOWN** | all four **untouched** |
+
+### The gap this exposed: the party does not fight back
+
+The skeleton finishes on 16 hp in **both** runs. Nothing swings for the party —
+`PartyAttack` is driven by a hand-slot click or the `swing` command, so a rung as
+written measures the party's **defence** and nothing else. A real two-way rung
+needs the party attacking on its own; that is P5's problem, and it changes what
+every ladder number means.
+
 ## Driving it: two rules learned the hard way
 
 **Set `timescale 0` first.** Otherwise real time passes between console commands
@@ -231,10 +295,9 @@ That is the capability everything else is built on.
 
 ## Next
 
-P4 `setstat`/`setskill`/`preset` — seeding a rung at mid-game without playing
-there. (`setskill` closes a real gap: training a caster's fire skill for a test
-currently means casting thirty times.) Then P5 the encounter summary and the
-N-seed sweep; P6 the progression ladder; P7 blast geometry; P8 `tools/Eval.ps1`
+**P5 first has to make the party fight back** (see above) — an auto-attack mode,
+or rungs are measuring defence only. Then the encounter summary and the N-seed
+sweep; P6 the progression ladder; P7 blast geometry; P8 `tools/Eval.ps1`
 and a `/check-eval` skill, outside the quick tier.
 
 **A balance signal already, unasked for:** one skeleton — 16 hp, the second-

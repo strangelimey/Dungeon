@@ -856,13 +856,12 @@ bool Game::SteadyStateFrame() {
 	return m_steadyFrames > kWarmupFrames;
 }
 
-bool Game::LoadEvalScript(const std::string& path) {
+bool Game::ReadEvalLines(const std::string& path, std::vector<std::string>& out) {
 	std::ifstream in(path);
 	if (!in) {
 		log::Error("eval: cannot open script '{}'", path);
 		return false;
 	}
-	m_evalName = std::filesystem::path(path).filename().string();
 	std::string line;
 	while (std::getline(in, line)) {
 		// Strip a trailing CR (a script edited on Windows and read as text can
@@ -873,8 +872,31 @@ bool Game::LoadEvalScript(const std::string& path) {
 		const size_t from = line.find_first_not_of(" \t");
 		if (from == std::string::npos) continue; // blank or comment-only
 		const size_t to = line.find_last_not_of(" \t");
-		m_evalLines.push_back(line.substr(from, to - from + 1));
+		out.push_back(line.substr(from, to - from + 1));
 	}
+	return true;
+}
+
+std::string Game::ResolveEvalPath(std::string_view spec) const {
+	// Trim, then resolve RELATIVE TO THE ROOT SCRIPT'S FOLDER. A suite lives in
+	// one directory and refers to its presets by a short name; making that
+	// relative to the process's working directory instead would tie every script
+	// to wherever the exe happened to be launched from, which for this project is
+	// a build folder several levels away from the scripts.
+	const size_t from = spec.find_first_not_of(" \t");
+	if (from == std::string_view::npos) return {};
+	const size_t to = spec.find_last_not_of(" \t");
+	const std::string rel(spec.substr(from, to - from + 1));
+	const std::filesystem::path p(rel);
+	if (p.is_absolute() || m_evalDir.empty()) return rel;
+	return (std::filesystem::path(m_evalDir) / p).string();
+}
+
+bool Game::LoadEvalScript(const std::string& path) {
+	if (!ReadEvalLines(path, m_evalLines)) return false;
+	const std::filesystem::path p(path);
+	m_evalName = p.filename().string();
+	m_evalDir = p.parent_path().string(); // what `include` resolves against
 	// Mirroring is forced ON rather than left to the script: a run whose author
 	// forgot the line would produce no readable record of itself, which is the
 	// one outcome a harness must not have.
@@ -915,7 +937,32 @@ void Game::PumpEvalScript(float dt) {
 	// ONE LINE PER FRAME. A command that changes state (newgame, a level
 	// transition, a quality swap) needs the frame to land before the next line
 	// reasons about the result.
-	const std::string& line = m_evalLines[m_evalIndex++];
+	const std::string line = m_evalLines[m_evalIndex++]; // by value: splicing below
+	// `include <path>` is handled HERE rather than as a console command, because
+	// it edits the queue the pump is walking — something a command handler has
+	// no business reaching into. It is what makes a PRESET a reusable script
+	// fragment (tools/EvalScripts/presets/*.eval) instead of a hardcoded table
+	// of loadouts in C++: a rung says `include presets/veteran.eval` and the
+	// preset stays editable, diffable and composable like the rest of the suite.
+	if (line.starts_with("include ")) {
+		const std::string path = ResolveEvalPath(line.substr(8));
+		std::vector<std::string> nested;
+		if (!ReadEvalLines(path, nested)) {
+			++m_evalUnknown;
+			log::Error("eval: line {} cannot include '{}'", m_evalIndex, path);
+			return;
+		}
+		// SPLICED IN PLACE, so an included line is indistinguishable from one
+		// written inline — same one-per-frame pacing, same load gate, same
+		// counting. Nesting works for free and needs no depth tracking of its
+		// own; a cycle is bounded by the deadline rather than by a guard, which
+		// is deliberate — the deadline exists precisely to catch a run that will
+		// not end, whatever the reason.
+		m_evalLines.insert(m_evalLines.begin() + static_cast<ptrdiff_t>(m_evalIndex),
+						   nested.begin(), nested.end());
+		log::Info("eval: included '{}' ({} line(s))", path, nested.size());
+		return;
+	}
 	if (!m_console.RunLine(line)) {
 		++m_evalUnknown;
 		log::Error("eval: line {} matched no command: '{}'", m_evalIndex, line);

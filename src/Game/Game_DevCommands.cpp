@@ -1226,6 +1226,166 @@ void Game::RegisterDevCommands() {
 							   std::format("spawned {} at {},{}", args[0], x, z));
 					   });
 
+	// --- seeding a rung (docs/eval-harness.md) ------------------------------
+	// A single eval run cannot play from fresh characters to end-game, so a rung
+	// has to START where it wants to measure. These two put a member wherever on
+	// the curve the test needs.
+	m_console.Register("setstat", "set a stat (dev): setstat <member> <stat> <n>",
+					   [this](const std::vector<std::string>& args) {
+						   if (!Need(m_console, args, 3,
+									 "usage: setstat <member 0-3> "
+									 "<str|dex|vit|wil|int> <n>"))
+							   return;
+						   const size_t m =
+							   static_cast<size_t>(std::atoi(args[0].c_str()));
+						   if (m >= m_characters.size()) {
+							   m_console.Print("no such member");
+							   return;
+						   }
+						   Character& c = m_characters[m];
+						   const int n = std::atoi(args[2].c_str());
+						   const std::string& s = args[1];
+						   if (s.starts_with("str")) c.strength = n;
+						   else if (s.starts_with("dex")) c.dexterity = n;
+						   else if (s.starts_with("vit")) c.vitality = n;
+						   else if (s.starts_with("wil")) c.willpower = n;
+						   else if (s.starts_with("int")) c.intelligence = n;
+						   else {
+							   m_console.Print("unknown stat: " + s);
+							   return;
+						   }
+						   // Health/stamina/mana maxima DERIVE from stats
+						   // (Character::RecomputeMaxima), so a stat set without
+						   // this leaves a level-20 fighter with a novice's hit
+						   // points and every number after it measured wrong.
+						   m_world.RecomputePartyMaxima();
+						   m_console.Print(std::format("{} {} = {}", c.name, s, n));
+					   });
+
+	// Levels DERIVE from raw xp (floor(sqrt)), so this sets the xp that yields
+	// the level asked for — squaring is the honest inverse, and it means a
+	// seeded skill trains onward from exactly where a played one would have.
+	// Without it, giving a caster a usable fire skill for a test means casting
+	// thirty times and hoping the mana holds out.
+	m_console.Register("setskill", "set a skill level (dev): setskill <member> <skill> <level>",
+					   [this](const std::vector<std::string>& args) {
+						   if (!Need(m_console, args, 3,
+									 "usage: setskill <member 0-3> <skill id> <level>"))
+							   return;
+						   const size_t m =
+							   static_cast<size_t>(std::atoi(args[0].c_str()));
+						   if (m >= m_characters.size()) {
+							   m_console.Print("no such member");
+							   return;
+						   }
+						   const int level = std::atoi(args[2].c_str());
+						   if (level < 0) {
+							   m_console.Print("level cannot be negative");
+							   return;
+						   }
+						   Character& c = m_characters[m];
+						   const float xp = static_cast<float>(level) * level;
+						   c.skillXp[args[1]] = xp;
+						   m_console.Print(std::format("{} {} = level {} ({:.0f} xp)",
+													   c.name, args[1],
+													   c.SkillLevel(args[1]), xp));
+					   });
+
+	// RESET THE PARTY BETWEEN RUNGS. A ladder runs many encounters in one
+	// process, and the first one that wipes ends the run: a wipe returns to the
+	// TITLE SCREEN (Game_Wiring's onPartyWipe), after which every `step` is
+	// correctly refused and every rung after it measures nothing. Found exactly
+	// that way — rung 2 of the first two-tier script never ran.
+	//
+	// `newgame` would also fix it and costs a full staged reload per rung; this
+	// restores in place. It deliberately does NOT touch stats, skills, gear or
+	// stance: those are what a preset SEEDED, and a heal that undid the seeding
+	// would make the second rung measure the first one's party.
+	m_console.Register("heal", "restore the party to full (dev): heal [member]",
+					   [this](const std::vector<std::string>& args) {
+						   const auto restore = [this](Character& c) {
+							   c.dead = false;
+							   c.health = c.maxHealth;
+							   c.stamina = c.maxStamina;
+							   c.mana = c.maxMana;
+							   c.exhausted = false;
+							   c.staminaHoldoff = 0.0f;
+							   c.stabilize = 0.0f;
+							   c.hitFlash = 0.0f;
+							   c.handCooldown[0] = c.handCooldown[1] = 0.0f;
+							   // A burn carried over from the previous rung
+							   // would tick into the next one's numbers.
+							   c.effects.clear();
+						   };
+						   if (!args.empty()) {
+							   const size_t m =
+								   static_cast<size_t>(std::atoi(args[0].c_str()));
+							   if (m >= m_characters.size()) {
+								   m_console.Print("no such member");
+								   return;
+							   }
+							   restore(m_characters[m]);
+							   m_console.Print(
+								   std::format("healed {}", m_characters[m].name));
+							   return;
+						   }
+						   for (Character& c : m_characters) restore(c);
+						   // A wipe left the app on the title screen; put it back
+						   // in play, or the heal fixes the party and the next
+						   // `step` still refuses.
+						   m_ui.ResetHudStatus();
+						   ResumeAfterHeal();
+						   m_console.Print(std::format("healed the party ({})",
+													   StateName()));
+					   });
+
+	// The seeding half of `party`: what a member IS, rather than how they are
+	// doing. A rung that seeded nothing (a typo'd skill id, a member index past
+	// the roster) would otherwise run and report a perfectly plausible number
+	// for the wrong character.
+	m_console.Register("char", "a member's stats, skills and gear (dev): char <member>",
+					   [this](const std::vector<std::string>& args) {
+						   if (!Need(m_console, args, 1, "usage: char <member 0-3>")) return;
+						   const size_t m =
+							   static_cast<size_t>(std::atoi(args[0].c_str()));
+						   if (m >= m_characters.size()) {
+							   m_console.Print("no such member");
+							   return;
+						   }
+						   const Character& c = m_characters[m];
+						   m_console.Print(std::format(
+							   "  {}  str {} dex {} vit {} wil {} int {}", c.name,
+							   c.strength, c.dexterity, c.vitality, c.willpower,
+							   c.intelligence));
+						   m_console.Print(std::format(
+							   "    hp {:.1f}/{:.1f}  st {:.1f}/{:.1f}  mp {:.1f}/{:.1f}",
+							   c.health, c.maxHealth, c.stamina, c.maxStamina, c.mana,
+							   c.maxMana));
+						   for (const auto& [id, xp] : c.skillXp)
+							   m_console.Print(std::format("    skill {:<10} level {} ({:.0f} xp)",
+														   id, Character::LevelForXp(xp), xp));
+						   for (int h = 0; h < 2; ++h) {
+							   const ItemSlot& slot = c.inventory.Hand(h);
+							   m_console.Print(std::format(
+								   "    hand{} {}", h,
+								   slot.Empty() ? "(empty)" : slot.typeId));
+						   }
+						   for (int e = 0; e < kEquipCount; ++e) {
+							   // The HANDS are equipment slots too (Inventory::
+							   // Hand indexes this same array), so listing every
+							   // slot printed each weapon twice and read as a
+							   // member wearing their own sword.
+							   const auto id = static_cast<EquipSlot>(e);
+							   if (id == EquipSlot::LeftHand ||
+								   id == EquipSlot::RightHand)
+								   continue;
+							   const ItemSlot& slot = c.inventory.equipment[
+								   static_cast<size_t>(e)];
+							   if (!slot.Empty())
+								   m_console.Print(std::format("    worn  {}", slot.typeId));
+						   }
+					   });
+
 	// A script cannot otherwise tell whether it is measuring anything at all.
 	m_console.Register("state", "what the app is doing (loading/menu/playing/...)",
 					   [this](const std::vector<std::string>&) {

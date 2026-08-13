@@ -121,6 +121,14 @@ public:
 	// suite of encounters that never ran.
 	const char* StateName() const;
 
+	// Put the app back in Playing after a party wipe sent it to the title (see
+	// the `heal` command). Only valid once a game has been loaded — from the
+	// menu with no world behind it, the HUD does not exist and Playing would
+	// dereference nothing (the crash the eval runner found on its first run).
+	void ResumeAfterHeal() {
+		if (m_gameLoaded && m_state == AppState::Menu) m_state = AppState::Playing;
+	}
+
 	// --- the eval batch runner (`-eval <script>`; docs/eval-harness.md) ------
 	// Queue a script of console commands for the game to run on ITSELF. This is
 	// the whole reason the harness is drivable: PostMessage-and-screenshot has
@@ -268,6 +276,15 @@ private:
 	// One line per frame from the queued eval script, and the run's verdict when
 	// it empties. Called from Update.
 	void PumpEvalScript(float dt);
+	// Read a script file into `out`, stripping comments and blank lines. Shared
+	// by the root script and by `include`, so a fragment is parsed exactly as
+	// the file that pulled it in.
+	static bool ReadEvalLines(const std::string& path, std::vector<std::string>& out);
+	// An `include` argument resolved against the ROOT SCRIPT's folder — a suite
+	// names its presets by a short relative path, and resolving against the
+	// process's working directory would tie every script to wherever the exe was
+	// launched from (for this project, a build folder well away from the scripts).
+	std::string ResolveEvalPath(std::string_view spec) const;
 
 	// --- eval script state (docs/eval-harness.md) ---------------------------
 	std::vector<std::string> m_evalLines; // the queued script, comments stripped
@@ -275,6 +292,7 @@ private:
 	int m_evalUnknown = 0;                // lines that matched no command
 	bool m_evalFinished = false;          // the queue emptied (vs timed out)
 	std::string m_evalName;               // the script's filename, for the verdict
+	std::string m_evalDir;                // its folder — what `include` resolves against
 	// Wall-clock seconds the whole run may take. A script that waits on a load
 	// which never completes would otherwise hang a machine with no window worth
 	// looking at and no way to tell it went wrong.
