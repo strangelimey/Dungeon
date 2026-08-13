@@ -1,6 +1,6 @@
 # The eval harness
 
-**Status:** P1–P5 and P7 built (2026-08-13). A rung can be built, seeded, fought and
+**Status:** COMPLETE, P1–P8 built (2026-08-13). A rung can be built, seeded, fought and
 measured over N seeds, and the blast geometries are measured. What remains is
 the PROGRESSION LADDER (P6, blocked below) and the outer runner (P8).
 
@@ -438,11 +438,38 @@ today; what is undecided is how the party is supposed to *arrive* at the next
 fight, and until that is answered a ladder's rungs are joined by a `heal` that
 the game itself cannot perform.
 
-~~P7 blast geometry~~ **DONE** — it was not blocked by the healing question (a
-blast is one detonation, not a sequence of fights), so it was built first.
+## P8: the runner
 
-What is left is **P8**: `tools/Eval.ps1` and a `/check-eval` skill, outside the
-quick tier — and P6 whenever the healing model is settled.
+```
+.	ools\Eval.ps1              # every suite, with its measurements
+.	ools\Eval.ps1 -Table       # the measurements alone
+.	ools\Eval.ps1 -Only ladder
+.	ools\Eval.ps1 -List
+.	ools\Eval.ps1 -SelfTest    # the runner must FAIL on purpose
+```
+
+Six suites, about two minutes. `/check-eval` is the command form.
+
+**It is deliberately OUTSIDE `CheckAll`'s tiers.** Every check in that suite
+guards a rule; this one guards nothing — a green verdict means the scripts RAN,
+not that the numbers are good. Folding it in would put a measurement among
+assertions and invite someone to read PASS as "balance is fine".
+
+What IS checked is that the runner still works: a suite that had silently
+stopped measuring would read exactly like one whose numbers had not changed.
+`-SelfTest` hands it a script with a non-command (must exit 1) and a path that
+does not exist (must exit 2).
+
+Measurements are read back from `dungeon.log`, not captured from the process —
+the same file a human opens after a run, so the harness cannot show something
+the log does not. The match is CASE-SENSITIVE, because `TALLY` is a result and
+`tally reset` is the command that begins a rung.
+
+## Next
+
+The harness is done. What it is FOR has not started: the balance pass, and
+the health/healing system (docs/health-and-healing.md) whose five open
+questions are still Michael's to answer.
 
 **A balance signal already, unasked for:** one skeleton — 16 hp, the second-
 weakest thing in the game — took three of four fresh members down in thirty
