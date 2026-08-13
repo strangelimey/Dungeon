@@ -1,8 +1,16 @@
 # The eval harness
 
-**Status:** P1–P4 built (2026-08-13). The suites do not exist yet — this is the
-clock they run on, the runner that drives them, the room they happen in and the
-way a rung is seeded.
+**Status:** P1–P5 built (2026-08-13). A rung can now be built, seeded, fought
+and measured over N seeds; what remains is the SUITES — the progression ladder
+and the blast geometries — and the outer runner.
+
+**OPEN DESIGN QUESTION THAT SHAPES P6:** the game has no healing source at all
+beyond unconscious self-stabilize. `heal` is a HARNESS FIAT — it restores to full
+because a rung needs some starting state, not because a player could. So a ladder
+that heals between rungs measures a dungeon nobody can actually run, and "how does
+the party arrive at the next fight" is a design call that comes before the ladder
+means anything. It is also why the tally records absolute damage rather than
+fractions of health: those numbers survive whatever the answer turns out to be.
 
 The damage system has a great many knobs (`balance.cat` alone is fifty-odd) and
 almost none of them have been played against. Tuning them by hand means fighting
@@ -266,6 +274,90 @@ written measures the party's **defence** and nothing else. A real two-way rung
 needs the party attacking on its own; that is P5's problem, and it changes what
 every ladder number means.
 
+## P5: measuring an encounter
+
+```
+autoattack on|off
+tally [reset]
+sweep <count> <script>      ; runner-level
+```
+
+### The party has to fight back
+
+`PartyAttack` is driven by a hand-slot click or `swing`, so before this a
+measured encounter was **the party standing still being hit** — and it did not
+look wrong. `autoattack` swings every hand that is off cooldown, and **turns the
+party to face an adjacent monster**: a rung should not have to predict which side
+something will approach from, and the first sweep measured twelve fights in which
+the party stared at a wall while a skeleton chewed on them from behind.
+
+It swings only when something is actually adjacent. A whiff at air costs the
+attack's pace *and* its full stamina bill (`PartyAttack` pays both before it
+looks for a target), so a party auto-swinging into an empty corridor would arrive
+at the fight exhausted and every number after would describe an exhausted party.
+
+### The tally is counted in the pipeline, not at the attack sites
+
+`dealt` and `taken` are counted inside `PartyTarget::Wound` and
+`MonsterTarget::Wound` — the two `fx::ITarget` adapters. **Every** source of
+damage goes through the one pipeline (`docs/effects.md`), so a blast, a DoT tick,
+a ward's reprisal and an ordinary sword blow are all caught by the same two
+lines. A tally hung off the attack sites would have missed four of those five.
+
+Damage is recorded in **absolute points**, never as a fraction of health: the
+healing model is still to be designed, and fractions would silently change
+meaning the day it lands.
+
+Output is one grep-able key=value line per rung:
+
+```
+TALLY dealt=19.9 taken=0.0 swings=2 hits=1 misses=1 hitrate=0.500 crits=0
+      fumbles=0 slain=1 downed=0 secs=45.0
+```
+
+### `sweep` — one rung, N seeds, a distribution
+
+`sweep 12 rungs/novice-1skeleton.eval` splices the rung twelve times, each
+preceded by its own `seed` (1..count, so two sweeps are comparable
+sample-for-sample). Combat is dice: one encounter is an anecdote, and a 5% fumble
+cannot show up honestly in a single fight.
+
+A **rung** assumes nothing about what ran before — `heal`, fresh arena, fresh
+spawn, `tally reset` — and deliberately does *not* set its own seed; the sweep
+owns that, or a distribution silently becomes one number repeated N times.
+
+**Include paths are always relative to the ROOT script's folder**, never to the
+including file's. The queue is spliced flat, so by the time a line runs there is
+no "including file" left to be relative to.
+
+### What the first working sweep found
+
+Twelve seeds, novice party, one skeleton, 45 seconds:
+
+| | result |
+|---|---|
+| skeleton slain | **12 / 12** |
+| party members downed | **0** |
+| damage taken | 0 in eleven runs, 9.6 in one |
+| swings to kill | 1–9, hit rate 0.22–1.00 |
+
+**This inverts P4's tier comparison entirely.** That earlier "novice: all four
+DOWN" was the party *never swinging back* — a defence-only measurement that made
+the game look far harder than it is. The same encounter, fought properly, is a
+comfortable win. Nothing about the earlier output looked wrong, which is the
+whole argument for the tally and the auto-attack existing before any ladder does.
+
+### Two latches a harness has to know about
+
+Neither is a bug; both are game rules that a *repeated* encounter runs into and a
+played one never does.
+
+- **`m_partyWiped` gates every monster attack** and only `ResetForNewGame` clears
+  it. So a ladder that healed between rungs ran rung 2 onward against monsters
+  that had permanently stopped swinging — and reported forty-five simulated
+  seconds of nothing, twelve times, as a result. `heal` now clears it.
+- **A wipe returns to the title screen** (see P4's `heal`).
+
 ## Driving it: two rules learned the hard way
 
 **Set `timescale 0` first.** Otherwise real time passes between console commands
@@ -295,10 +387,15 @@ That is the capability everything else is built on.
 
 ## Next
 
-**P5 first has to make the party fight back** (see above) — an auto-attack mode,
-or rungs are measuring defence only. Then the encounter summary and the N-seed
-sweep; P6 the progression ladder; P7 blast geometry; P8 `tools/Eval.ps1`
-and a `/check-eval` skill, outside the quick tier.
+**P6, the progression ladder, is BLOCKED on the healing question at the top of
+this file** — not on machinery. A rung can be built, seeded, fought and swept
+today; what is undecided is how the party is supposed to *arrive* at the next
+fight, and until that is answered a ladder's rungs are joined by a `heal` that
+the game itself cannot perform.
+
+P7 blast geometry is **not** blocked: the arenas and the tally are both ready,
+and a blast measurement is a single detonation rather than a sequence of fights.
+P8 is `tools/Eval.ps1` and a `/check-eval` skill, outside the quick tier.
 
 **A balance signal already, unasked for:** one skeleton — 16 hp, the second-
 weakest thing in the game — took three of four fresh members down in thirty

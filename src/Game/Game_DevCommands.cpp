@@ -1291,6 +1291,50 @@ void Game::RegisterDevCommands() {
 													   c.SkillLevel(args[1]), xp));
 					   });
 
+	// --- measuring an encounter (docs/eval-harness.md) ----------------------
+	// Without this a measured encounter is the party STANDING STILL BEING HIT.
+	// PartyAttack is driven by a hand-slot click or `swing`, so the first
+	// two-tier comparison had the monster finish on full hp in both rungs and
+	// still looked like a complete result.
+	m_console.Register("autoattack", "party swings off cooldown (dev): autoattack on|off",
+					   [this](const std::vector<std::string>& args) {
+						   if (args.empty()) {
+							   m_console.Print(std::format(
+								   "autoattack {}",
+								   m_world.AutoAttack() ? "on" : "off"));
+							   return;
+						   }
+						   const bool on = args[0] == "on" || args[0] == "1";
+						   m_world.SetAutoAttack(on);
+						   m_console.Print(std::format("autoattack {}", on ? "on" : "off"));
+					   });
+
+	// The encounter's numbers, in one machine-readable line. `tally reset` marks
+	// the start of a rung; `tally` prints what has happened since.
+	m_console.Register("tally", "encounter counters (dev): tally [reset]",
+					   [this](const std::vector<std::string>& args) {
+						   if (!args.empty() && args[0] == "reset") {
+							   m_world.ResetTally();
+							   m_console.Print("tally reset");
+							   return;
+						   }
+						   const DungeonWorld::Tally& t = m_world.GetTally();
+						   const int swings = t.hits + t.misses;
+						   // ONE LINE, key=value, so a sweep's output can be
+						   // grepped and diffed without parsing prose. Damage is
+						   // in absolute POINTS, never a fraction of health —
+						   // the healing model is still to be designed, and
+						   // fractions would change meaning the day it lands.
+						   m_console.Print(std::format(
+							   "TALLY dealt={:.1f} taken={:.1f} swings={} hits={} "
+							   "misses={} hitrate={:.3f} crits={} fumbles={} "
+							   "slain={} downed={} secs={:.1f}",
+							   t.dealt, t.taken, swings, t.hits, t.misses,
+							   swings > 0 ? static_cast<float>(t.hits) / swings : 0.0f,
+							   t.crits, t.fumbles, t.monstersSlain, t.membersDowned,
+							   t.seconds));
+					   });
+
 	// RESET THE PARTY BETWEEN RUNGS. A ladder runs many encounters in one
 	// process, and the first one that wipes ends the run: a wipe returns to the
 	// TITLE SCREEN (Game_Wiring's onPartyWipe), after which every `step` is
@@ -1334,6 +1378,11 @@ void Game::RegisterDevCommands() {
 						   // in play, or the heal fixes the party and the next
 						   // `step` still refuses.
 						   m_ui.ResetHudStatus();
+						   // ...and clear the wipe LATCH, which gates every
+						   // monster attack. Without it the party stands up and
+						   // nothing ever swings at them again — a whole sweep
+						   // of rungs reporting forty-five seconds of nothing.
+						   m_world.ClearWipeLatch();
 						   ResumeAfterHeal();
 						   m_console.Print(std::format("healed the party ({})",
 													   StateName()));

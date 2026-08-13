@@ -205,6 +205,41 @@ public:
 	// LOADED map — no files written — and empty the world of everything the
 	// authored level put there. The shapes are the geometries a propagating
 	// blast has to be measured in.
+	// THE ENCOUNTER TALLY (docs/eval-harness.md). Counted in the two fx::ITarget
+	// adapters, which is the whole reason it is trustworthy: EVERY source of
+	// damage in this game goes through the one pipeline (docs/effects.md), so a
+	// blast, a DoT tick, a fire shield's reprisal and an ordinary sword blow are
+	// all caught by the same two lines. A tally hung off the attack sites would
+	// have quietly missed four of those five.
+	//
+	// Damage is recorded in ABSOLUTE points, not as a fraction of health. The
+	// healing model is still to be designed, and fractions would silently change
+	// meaning the day it lands; points will not.
+	struct Tally {
+		float dealt = 0.0f;   // reached monster hit points
+		float taken = 0.0f;   // reached member hit points
+		int hits = 0, misses = 0, crits = 0, fumbles = 0;
+		int monstersSlain = 0, membersDowned = 0;
+		float seconds = 0.0f; // SIM seconds since the last reset
+	};
+	const Tally& GetTally() const { return m_tally; }
+	void ResetTally() { m_tally = {}; }
+
+	// UN-WIPE THE PARTY (the `heal` command). `m_partyWiped` latches so
+	// onPartyWipe fires once — but it also gates every monster attack, so once
+	// it is set the world never fights again and only ResetForNewGame clears it.
+	// A ladder healing between rungs therefore ran rung 2 onward against
+	// monsters that had permanently stopped swinging, and reported forty-five
+	// simulated seconds of nothing as a result.
+	void ClearWipeLatch() { m_partyWiped = false; }
+
+	// AUTO-ATTACK: every member swings whenever a hand is off cooldown and
+	// something is in reach. A harness behaviour, not a game one — the player
+	// clicks a hand slot — but without it a measured encounter is the party
+	// standing still being hit, which is half a fight and reads as a whole one.
+	void SetAutoAttack(bool on) { m_autoAttack = on; }
+	bool AutoAttack() const { return m_autoAttack; }
+
 	enum class ArenaShape : u8 { Open, Corridor, DeadEnd, TJunction };
 	// Where the arena ended up. Derivable from the map size (it is centred), so
 	// a script can hardcode the cells; reported so a log reader can check them.
@@ -2609,6 +2644,11 @@ private:
 	// enabling it does not immediately fire every bucket with a debt of
 	// whatever wall-clock time happened to have passed.
 	float m_bucketClock[ai::Scheduler::kBucketCount] = {};
+	Tally m_tally;             // the eval harness's encounter counters
+	bool m_autoAttack = false; // eval: members swing off cooldown (see SetAutoAttack)
+	// Drives that: for each standing member, swing any hand whose cooldown has
+	// run out. Called from UpdateMonsters' cadence, no-op unless armed.
+	void TickAutoAttack();
 	// Walkability grid shared into snapshots, rebuilt only when the map changes.
 	std::shared_ptr<const std::vector<uint8_t>> m_walkableCache;
 	u32 m_walkableRev = 0xFFFFFFFFu; // map Revision() the cache was built for

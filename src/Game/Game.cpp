@@ -944,6 +944,36 @@ void Game::PumpEvalScript(float dt) {
 	// fragment (tools/EvalScripts/presets/*.eval) instead of a hardcoded table
 	// of loadouts in C++: a rung says `include presets/veteran.eval` and the
 	// preset stays editable, diffable and composable like the rest of the suite.
+	// `sweep <count> <path>` — the same rung run `count` times, each preceded by
+	// its own `seed`. Combat is dice, so ONE encounter is an anecdote: a 5%
+	// fumble or a 6% critical only shows up honestly in a distribution, and this
+	// is what produces one without a process launch per sample.
+	//
+	// Seeds are 1..count, so a sweep is reproducible and two sweeps of the same
+	// rung are comparable sample-for-sample — which is the whole point when the
+	// thing being compared is a knob change.
+	if (line.starts_with("sweep ")) {
+		const size_t sp = line.find(' ', 6);
+		const int count = std::atoi(line.substr(6, sp - 6).c_str());
+		const std::string path =
+			sp == std::string::npos ? std::string() : ResolveEvalPath(line.substr(sp));
+		std::vector<std::string> body;
+		if (count < 1 || path.empty() || !ReadEvalLines(path, body)) {
+			++m_evalUnknown;
+			log::Error("eval: line {} bad sweep ('{}')", m_evalIndex, line);
+			return;
+		}
+		std::vector<std::string> spliced;
+		spliced.reserve(body.size() * static_cast<size_t>(count) + count);
+		for (int i = 1; i <= count; ++i) {
+			spliced.push_back(std::format("seed {}", i));
+			spliced.insert(spliced.end(), body.begin(), body.end());
+		}
+		m_evalLines.insert(m_evalLines.begin() + static_cast<ptrdiff_t>(m_evalIndex),
+						   spliced.begin(), spliced.end());
+		log::Info("eval: sweeping '{}' x{} ({} line(s))", path, count, spliced.size());
+		return;
+	}
 	if (line.starts_with("include ")) {
 		const std::string path = ResolveEvalPath(line.substr(8));
 		std::vector<std::string> nested;

@@ -852,6 +852,12 @@ void DungeonWorld::UpdateMonsters(float dt) {
 	// group — merge/split as they converge/spread), then assign formation targets
 	// (surround), publish the world for the worker threads, and adopt their plans.
 	// All cheap main-thread work — the pathfinding itself runs on the bucket threads.
+	// The eval tally's clock, and the party's own swings. Both ride the monster
+	// cadence because that is where a fight happens, and both are no-ops in an
+	// ordinary play session.
+	m_tally.seconds += dt;
+	TickAutoAttack();
+
 	ReconcileGroups();
 	AssignFormation();
 	BuildAISnapshot();

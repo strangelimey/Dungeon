@@ -403,6 +403,55 @@ void DungeonWorld::MonsterFumble(Monster& monster, const AttackProfile& atk,
 	if (severe) run(FumbleTable(monster.kind->fumbleSevere, true));
 }
 
+void DungeonWorld::TickAutoAttack() {
+	if (!m_autoAttack || !m_roster) return;
+	// NOTHING THERE, NOTHING SWUNG. A whiff at air costs the attack's pace and
+	// its full stamina bill (PartyAttack pays both before it checks for a
+	// target), so a party auto-swinging into an empty corridor would exhaust
+	// itself before the fight and every number after it would be measuring an
+	// exhausted party. A player clicking a hand slot at nothing gets that too —
+	// but they stop, and this would not.
+	const auto monsterAt = [&](int x, int z) {
+		for (const Monster& mon : m_monsters)
+			if (mon.Alive() && mon.x == x && mon.z == z) return true;
+		return false;
+	};
+	const int px = m_party.GridX(), pz = m_party.GridZ();
+	Direction faced = static_cast<Direction>(m_party.Facing());
+	if (!monsterAt(px + DirDX(faced), pz + DirDZ(faced))) {
+		// TURN TO THE THREAT. A player faces what is attacking them; a rung
+		// should not have to PREDICT which side a monster will approach from,
+		// and the first sweep measured twelve fights in which the party stared
+		// at a wall while something chewed on them from behind. Cardinals only —
+		// the grid rule (movement, reach and lanes are never diagonal).
+		bool found = false;
+		for (int d = 0; d < 4 && !found; ++d) {
+			const auto dir = static_cast<Direction>(d);
+			if (!monsterAt(px + DirDX(dir), pz + DirDZ(dir))) continue;
+			faced = dir;
+			m_party.SetFacing(static_cast<int>(dir));
+			found = true;
+		}
+		// NOTHING ADJACENT, NOTHING SWUNG. A whiff at air costs the attack's
+		// pace and its full stamina bill (PartyAttack pays both before it looks
+		// for a target), so a party auto-swinging into an empty corridor would
+		// arrive at the fight exhausted and every number after would describe an
+		// exhausted party.
+		if (!found) return;
+	}
+
+	// Every standing member, every hand that has come off cooldown. PartyAttack
+	// owns the rules that decide whether a given swing is legal — the rear rank
+	// needs a polearm, a hand still recovering does nothing — so this decides
+	// only WHEN to ask, never whether.
+	for (size_t m = 0; m < m_roster->size(); ++m) {
+		const Character& member = (*m_roster)[m];
+		if (!member.IsAlive()) continue;
+		for (size_t hand = 0; hand < 2; ++hand)
+			if (member.handCooldown[hand] <= 0.0f) PartyAttack(m, hand);
+	}
+}
+
 void DungeonWorld::SpendExertion(Character& member, float points) {
 	if (points <= 0.0f || !member.IsAlive()) return;
 	const float unpaid = SpendStamina(member, points * m_balance.exertCost);
@@ -634,6 +683,12 @@ float DungeonWorld::PartyTarget::Resist(DamageType type) const {
 void DungeonWorld::PartyTarget::Wound(float amount, fx::DamageEvent& ev) {
 	m_fall = m_world.WoundMember(m_member, amount, ev.Quiet());
 	ev.slew = m_fall != Fall::None;
+	// The eval tally (docs/eval-harness.md). HERE rather than at the attack
+	// sites, because everything that damages a member arrives through this one
+	// line — a monster's blow, a blast, a DoT bite, a ward's reprisal. A tally
+	// hung off the attack sites would have missed four of those five.
+	m_world.m_tally.taken += amount;
+	if (m_fall != Fall::None) ++m_world.m_tally.membersDowned;
 }
 
 // Fed rather than hurt: a member whose nature DRINKS this element (a resist
@@ -719,6 +774,10 @@ void DungeonWorld::MonsterTarget::Absorb(float amount, fx::DamageEvent& ev) {
 // come after the caller's own "hits for N").
 void DungeonWorld::MonsterTarget::Wound(float amount, fx::DamageEvent& ev) {
 	m_monster.hp -= amount;
+	// The eval tally's other half — see PartyTarget::Wound. Counted BEFORE the
+	// death check below, so the blow that kills is still counted as damage
+	// dealt rather than vanishing into the kill.
+	m_world.m_tally.dealt += amount;
 	if (ev.source >= 0)
 		m_world.AddThreat(m_monster, static_cast<size_t>(ev.source), amount);
 	// A per-frame tick doesn't re-provoke or re-flinch every frame; anything
@@ -728,6 +787,7 @@ void DungeonWorld::MonsterTarget::Wound(float amount, fx::DamageEvent& ev) {
 		m_monster.hp = 0.0f; // a downed monster stays in the list (save restore)
 		Extinguish(m_monster); // a corpse stops burning
 		ev.slew = true;
+		++m_world.m_tally.monstersSlain;
 	} else if (!ev.Quiet()) {
 		m_monster.hitReq = true; // survivor flinches (a fatal blow plays Die)
 	}
@@ -1373,6 +1433,12 @@ bool DungeonWorld::PartyAttack(size_t member, size_t hand, std::string_view verb
 		atk.attackBonus, static_cast<int>(member));
 	ev.pierceOnCrit = atk.pierceOnCrit;
 	fx::Deal(ev, defender, m_balance.Strike(), m_combatRng);
+	// The dice half of the eval tally. Counted for the PARTY's swings only: a
+	// hit rate that mixed both sides together would answer no question anyone
+	// has, and the monsters' side is visible as `taken` anyway.
+	if (ev.hit) ++m_tally.hits; else ++m_tally.misses;
+	if (ev.crit) ++m_tally.crits;
+	if (ev.fumble) ++m_tally.fumbles;
 
 	// WHAT THE DICE DID, said before the outcome it caused. The open-ended roll
 	// has been driving damage since P2 and was invisible: a critical arrived as

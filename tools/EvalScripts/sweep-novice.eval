@@ -1,0 +1,15 @@
+; sweep-novice.eval — the same rung twelve times, twelve different seeds.
+;
+; Combat is dice. One encounter is an anecdote: a 5% fumble or a 6% critical
+; cannot show up honestly in a single fight, and tuning against one is tuning
+; against one lucky afternoon. The artefact here is the TABLE of TALLY lines —
+; grep them out and compare distributions across a knob change.
+
+logecho on
+newgame
+timescale 0
+lockstep on
+
+sweep 12 rungs/novice-1skeleton.eval
+
+state
