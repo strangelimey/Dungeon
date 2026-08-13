@@ -2330,6 +2330,19 @@ private:
 	// award site (successful cast, landed blow) routes through it.
 	void GrantSkillXp(Character& member, std::string_view skillId, float xp,
 					  std::span<const std::string> stats);
+	// THE RESOURCE PRACTICES, awarded by THROUGHPUT (docs/health-and-healing.md):
+	// `points` is stamina spent / mana spent / health regained, scaled by that
+	// pool's own xp knob. One expensive spell therefore trains attunement more
+	// than three cheap ones — "the more it channels through you" meant literally.
+	//
+	// THE WHOLE REASON THIS IS NOT JUST A GrantSkillXp CALL AT THREE SITES: these
+	// three skills must creep NO stat. Every other skill in the game drips its
+	// associated stats forward, and each of these three feeds a pool that its
+	// aptitude ALSO feeds — so the ordinary award would close a loop on itself
+	// (spend stamina, creep vitality, grow max stamina). Routing them through one
+	// function that passes an empty stat list makes that a property of the code
+	// rather than a rule three call sites have to keep remembering.
+	void GrantResourceXp(Character& member, resource::Kind kind, float points);
 	// A whole stat point lands: increment, log, and re-derive the resource
 	// maxima (stats feed them now). Shared by the creep pools and SpendStamina.
 	void GrantStatPoint(Character& member, std::string_view stat);

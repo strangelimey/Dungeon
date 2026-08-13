@@ -72,6 +72,7 @@ add_library(Game STATIC
 	Projectiles.cpp
 	ProjectileInspector.cpp
 	PropInspector.cpp
+	Resource.cpp
 	SaveGame.cpp
 	Serialize.cpp
 	ShadowScheduler.cpp

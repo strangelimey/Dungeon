@@ -40,6 +40,7 @@
 #include "Game/Curve.h"
 #include "Game/Defense.h"
 #include "Game/Mishap.h"
+#include "Game/Resource.h"
 #include "Game/Roll.h"
 
 #include <algorithm>
@@ -1516,6 +1517,131 @@ int main(int argc, char** argv) {
 
 		std::printf("  (the two axes meet in one multiplication: potency scales the "
 					"blow, the resist answers it)\n");
+	}
+
+	// --- the resource pools: aptitude and practice ------------------------------
+	// docs/health-and-healing.md. Every pool takes a LINEAR share from its
+	// aptitude and a TAPERING one from its practice, and the same pair drives
+	// the regeneration rate. The arithmetic is small; what is worth measuring is
+	// the edge it shares with the armor floor, and the fact that the two
+	// formulas cannot drift apart from the save loader's inverse of one of them.
+	{
+		std::printf("\n--- the resource pools ---\n");
+		using namespace dungeon::game::resource;
+		CurveRules statCurve;
+		statCurve.form = CurveForm::Hyperbolic;
+		statCurve.slope = 2.0f;
+		statCurve.cap = 35.0f;
+		statCurve.baseline = 10.0f;
+
+		Rules r;
+		r.perAptitude = 1.0f;
+		r.skillMax = {CurveForm::Hyperbolic, 1.0f, 25.0f, 0.0f};
+		r.regenBase = 0.15f;
+		r.regenPerAptitude = 0.01f;
+		r.regenPerMax = 0.0f;
+		r.skillRegen = {CurveForm::Hyperbolic, 0.02f, 0.45f, 0.0f};
+
+		// The two ends of the practice term. An untrained one is worth exactly
+		// nothing (so an unplayed character is unchanged by the whole system),
+		// and a preposterously trained one still has not reached the cap — which
+		// is what makes "nobody is ever better than +cap" a true sentence to
+		// balance around rather than an aspiration.
+		Check("an untrained practice adds nothing to the pool",
+			  Maximum(r, 20.0f, 10.0f, 0.0f), 30.0, 0.001);
+		CheckTrue("a deep practice approaches the cap without reaching it",
+				  Maximum(r, 20.0f, 10.0f, 100000.0f) < 30.0 + r.skillMax.cap);
+		CheckTrue("...and gets most of the way there",
+				  Maximum(r, 20.0f, 10.0f, 100000.0f) > 30.0 + 0.99 * r.skillMax.cap);
+
+		// THE ZERO-CAP RULE, and it is the reason this TU exists. CurveValue
+		// answers a non-positive cap with the straight line its slope describes
+		// — right for a curve in general, catastrophic for a resource, and
+		// EXACTLY the shape of the armor-floor bug this project already paid for
+		// once. A cap of zero must switch the term off, not unbound it.
+		Rules capless = r;
+		capless.skillMax.cap = 0.0f;
+		Check("a zero cap switches the practice OFF",
+			  Maximum(capless, 20.0f, 10.0f, 400.0f), 30.0, 0.001);
+		// Non-vacuous by pairing: the same skill level through the raw curve is
+		// enormous, so the check above cannot be passing because 400 is small.
+		CheckTrue("...and is NOT the unbounded line the raw curve would give",
+				  CurveValue(400.0f, capless.skillMax) > 100.0f);
+		Rules regenCapless = r;
+		regenCapless.skillRegen.cap = 0.0f;
+		Check("the same rule holds for the regen term",
+			  RegenPerSec(regenCapless, statCurve, 10.0f, 30.0f, 400.0f),
+			  RegenPerSec(regenCapless, statCurve, 10.0f, 30.0f, 0.0f), 0.0001);
+
+		// THE SAVE LOADER'S INVERSE. A pre-v17 save stored maxima and no bases,
+		// and Game.cpp recovers each base by subtracting Contribution — so if the
+		// two ever disagree, every such save loads with the wrong pool, silently,
+		// because a wrong amount of health still looks like an amount of health.
+		//
+		// BE HONEST ABOUT WHAT THIS CHECK IS: it CANNOT fail today, because
+		// Maximum is *defined* as base + Contribution and a tautology is what
+		// that delegation buys. Mutating Contribution moves both sides together
+		// and the round trip still holds (measured). Its job is the day someone
+		// inlines the arithmetic back into Maximum and adds a fourth term to it
+		// alone — which is exactly how a formula and its inverse drift apart, and
+		// exactly what the delegation exists to prevent. A regression check for a
+		// property currently guaranteed by construction, and no more than that.
+		bool roundTrips = true;
+		for (const float apt : {4.0f, 10.0f, 17.0f})
+			for (const float lvl : {0.0f, 3.0f, 25.0f}) {
+				const float base = 21.0f;
+				const float max = Maximum(r, base, apt, lvl);
+				if (std::fabs((max - Contribution(r, apt, lvl)) - base) > 0.001f)
+					roundTrips = false;
+			}
+		CheckTrue("max minus Contribution recovers the authored base", roundTrips);
+
+		// A pool is a capacity and a rate is a performance, so the aptitude
+		// enters them differently — linearly and through the (baselined) stat
+		// curve. The consequence worth pinning: an AVERAGE aptitude is worth
+		// nothing to the RATE, while it is worth plenty to the MAXIMUM.
+		Check("an average aptitude adds nothing to the rate",
+			  RegenPerSec(r, statCurve, 10.0f, 0.0f, 0.0f), r.regenBase, 0.001);
+		CheckTrue("...while it adds its whole self to the maximum",
+				  Maximum(r, 0.0f, 10.0f, 0.0f) > 9.99f);
+		CheckTrue("a poor aptitude is a real penalty to the rate",
+				  RegenPerSec(r, statCurve, 4.0f, 0.0f, 0.0f) < r.regenBase);
+
+		// Neither formula may go negative. A hopeless aptitude empties a pool; it
+		// does not invert one, and a rate that drained the bar would be a DoT
+		// wearing regeneration's clothes — that mechanic exists, and it lives in
+		// the effects pipeline where everything else that hurts you lives.
+		Rules cruel = r;
+		cruel.regenBase = 0.0f;
+		cruel.regenPerAptitude = 5.0f;
+		CheckTrue("a savage aptitude penalty floors the rate at zero",
+				  RegenPerSec(cruel, statCurve, 1.0f, 0.0f, 0.0f) >= 0.0f);
+		CheckTrue("a savage aptitude penalty floors the pool at zero",
+				  Maximum(r, 0.0f, -500.0f, 0.0f) >= 0.0f);
+
+		// Each pool names ONE practice and the mapping is total — a resource with
+		// no skill id would train nothing and never grow, silently.
+		CheckTrue("every pool names a practice",
+				  *SkillId(Kind::Health) && *SkillId(Kind::Stamina) &&
+					  *SkillId(Kind::Mana));
+		CheckTrue("...and they are three different ones",
+				  std::strcmp(SkillId(Kind::Health), SkillId(Kind::Stamina)) &&
+					  std::strcmp(SkillId(Kind::Stamina), SkillId(Kind::Mana)) &&
+					  std::strcmp(SkillId(Kind::Health), SkillId(Kind::Mana)));
+		// PoolRules::For must not alias — three pools sharing one knob set would
+		// make every balance change move all three together.
+		PoolRules pools;
+		pools.health.perAptitude = 1.0f;
+		pools.stamina.perAptitude = 2.0f;
+		pools.mana.perAptitude = 3.0f;
+		CheckTrue("PoolRules hands each pool its own knobs",
+				  pools.For(Kind::Health).perAptitude == 1.0f &&
+					  pools.For(Kind::Stamina).perAptitude == 2.0f &&
+					  pools.For(Kind::Mana).perAptitude == 3.0f);
+
+		std::printf("  (the ORDERING the model asks for — stamina > mana > health\n"
+					"   at equal investment — is a property of the AUTHORED knobs,\n"
+					"   not of this arithmetic, so the eval harness checks it)\n");
 	}
 
 	// --- verdict ------------------------------------------------------------

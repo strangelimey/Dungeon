@@ -78,6 +78,11 @@ $suites = @(
 		name = 'sweep'; script = 'sweep-novice.eval'
 		what = 'one rung over twelve seeds - a distribution, not an anecdote'
 		measure = 'TALLY '
+	},
+	@{
+		name = 'resources'; script = 'resources.eval'
+		what = 'the three pools: rates, the state gate, and what recovery trains'
+		measure = '===|  \[[0-9]\]|  ref |    skill |    creep '
 	}
 )
 

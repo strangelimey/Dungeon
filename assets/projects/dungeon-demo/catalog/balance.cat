@@ -1,4 +1,13 @@
 ; Balance: the attack-formula knob sheet ([formula] block; docs/combat.md).
+;
+; The three resources (k_<r> ... conditioning_xp) are the aptitude/practice model
+; in docs/health-and-healing.md: each pool takes a linear share from its APTITUDE
+; (a stat) and a tapering one from its PRACTICE (a skill). <r>_skill_slope/cap and
+; <r>_regen_slope/cap are that curve, in points of maximum and points per second
+; respectively -- A CAP OF 0 SWITCHES THE TERM OFF, it does not mean unbounded.
+; `vit_exertion` was RETIRED here: stamina spent now trains the conditioning
+; skill instead of creeping vitality, and vitality feeds max stamina, so keeping
+; both was a loop feeding itself.
 
 [formula]
 unarmed_base = 4
@@ -15,15 +24,37 @@ interval_max = 2
 spell_stat = 0.01
 stoneskin_resist = 0.05
 creep_rate = 0.04
-vit_exertion = 0.02
 k_health = 1
+health_skill_slope = 1
+health_skill_cap = 25
+health_regen = 0.15
+health_regen_stat = 0.01
+health_regen_max = 0
+health_regen_slope = 0.02
+health_regen_cap = 0.45
 k_stamina = 1
+stamina_skill_slope = 1
+stamina_skill_cap = 25
 k_mana = 1
+mana_skill_slope = 1
+mana_skill_cap = 25
+mana_regen = 0.3
+mana_regen_stat = 0.03
+mana_regen_max = 0
+mana_regen_slope = 0.02
+mana_regen_cap = 0.5
+mana_exert = 0.25
+conditioning_xp = 0.3
+attunement_xp = 0.25
+constitution_xp = 0.4
 stamina_swing = 1
 stamina_weight = 0.4
 stamina_step = 0.1
 stamina_regen = 0.5
+stamina_regen_stat = 0.02
 stamina_regen_max = 0.02
+stamina_regen_slope = 0.03
+stamina_regen_cap = 0.6
 stamina_holdoff = 1.5
 exhaust_damage = 0.5
 exhaust_pace = 1.5

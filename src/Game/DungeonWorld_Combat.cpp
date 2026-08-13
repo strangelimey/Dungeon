@@ -67,7 +67,16 @@ void DungeonWorld::GrantSkillXp(Character& member, std::string_view skillId,
 								float xp, std::span<const std::string> stats) {
 	if (skillId.empty() || xp <= 0.0f || !member.IsAlive()) return;
 
-	float& total = member.skillXp[std::string(skillId)];
+	// Look the skill up before inserting it. The subscript alone would build a
+	// std::string on EVERY award, which was harmless while every award was an
+	// event (a landed blow, a cast) and is not any more: the resource practices
+	// train off regeneration, so constitution is awarded every frame a member is
+	// healing. `skillXp` has a transparent comparator precisely so a string_view
+	// can query it without allocating — only the first award of a given skill
+	// ever reaches the insert. (docs/ARCHITECTURE.md "Memory strategy".)
+	const auto it = member.skillXp.find(skillId);
+	float& total = it != member.skillXp.end() ? it->second
+											  : member.skillXp[std::string(skillId)];
 	const int before = Character::LevelForXp(total);
 	total += xp;
 	const int after = Character::LevelForXp(total);
@@ -132,6 +141,33 @@ void DungeonWorld::TrainDefense(Character& member, const fx::DamageEvent& ev) {
 	}
 }
 
+// The three resource practices (see the declaration). Throughput in, XP out,
+// and NO stat creep — the empty stat span below is the entire mechanism that
+// keeps the model from feeding itself, so it is deliberately not a defaulted
+// parameter on GrantSkillXp: an omission would read as a defensible oversight,
+// whereas passing `{}` here is a statement.
+//
+// A resource skill grows the pool it practises, so a level-up must re-derive
+// the maxima exactly as a stat point does. GrantSkillXp only logs the level —
+// it has no reason to know a skill might be a resource one — so the re-derive
+// happens here, and only when the level actually moved.
+void DungeonWorld::GrantResourceXp(Character& member, resource::Kind kind,
+								   float points) {
+	if (points <= 0.0f || !member.IsAlive()) return;
+	float rate = 0.0f;
+	switch (kind) {
+	case resource::Kind::Health: rate = m_balance.constitutionXp; break;
+	case resource::Kind::Stamina: rate = m_balance.conditioningXp; break;
+	case resource::Kind::Mana: rate = m_balance.attunementXp; break;
+	default: return;
+	}
+	if (rate <= 0.0f) return; // a zeroed knob switches the practice off entirely
+	const char* skill = resource::SkillId(kind);
+	const int before = member.SkillLevel(skill);
+	GrantSkillXp(member, skill, points * rate, {});
+	if (member.SkillLevel(skill) != before) member.RecomputeMaxima(m_balance.Resources());
+}
+
 // A whole stat point lands: increment, log, and re-derive the resource maxima
 // (the resource formula — a VIT point is FELT as a bigger health/stamina pool,
 // and the growth carries the current value so it reads as growth, not damage).
@@ -143,7 +179,7 @@ void DungeonWorld::GrantStatPoint(Character& member, std::string_view stat) {
 	else if (stat == "willpower") value = ++member.willpower;
 	else if (stat == "intelligence") value = ++member.intelligence;
 	else return; // unknown id — parse already warned
-	member.RecomputeMaxima(m_balance.kHealth, m_balance.kStamina, m_balance.kMana);
+	member.RecomputeMaxima(m_balance.Resources());
 	MemberMessage(member, loc::Format("log.stat_up", member.name,
 									  loc::Tr("stat." + std::string(stat)), value));
 }
@@ -184,13 +220,18 @@ float DungeonWorld::SpendStamina(Character& member, float points) {
 			MemberMessage(member, loc::Format("log.exhausted", member.name));
 		}
 	}
-	// The WHOLE bill trains VIT, the part paid in blood included — conditioning
-	// is what the body did, not what the bar could afford.
-	float& pool = member.statProgress["vitality"];
-	pool += points * m_balance.vitExertion;
-	if (pool < 1.0f) return unpaid;
-	pool -= 1.0f;
-	GrantStatPoint(member, "vitality");
+	// The WHOLE bill trains, the part paid in blood included — conditioning is
+	// what the body did, not what the bar could afford.
+	//
+	// THIS REPLACED A VIT CREEP AND DID NOT JOIN IT (docs/health-and-healing.md).
+	// The exertion used to drip vitality forward through statProgress, and
+	// vitality drives max stamina — so spending stamina made the stamina pool
+	// bigger, which is a loop feeding itself. Now the same throughput trains the
+	// CONDITIONING skill, and that skill owns the pool instead. Leaving both in
+	// would be precisely the double-dip the whole model exists to prevent, which
+	// is why `vit_exertion` is gone rather than set to zero: a knob that must
+	// stay at zero to keep the game correct is a trap with a dial on it.
+	GrantResourceXp(member, resource::Kind::Stamina, points);
 	return unpaid;
 }
 
@@ -463,9 +504,9 @@ void DungeonWorld::SpendExertion(Character& member, float points) {
 
 void DungeonWorld::RecomputePartyMaxima() {
 	if (!m_roster) return;
+	const resource::PoolRules pools = m_balance.Resources();
 	for (Character& member : *m_roster)
-		member.RecomputeMaxima(m_balance.kHealth, m_balance.kStamina,
-							   m_balance.kMana);
+		member.RecomputeMaxima(pools);
 }
 
 // --- the pipeline's two faces (docs/effects.md) -------------------------------
@@ -1570,6 +1611,13 @@ bool DungeonWorld::CastSpell(size_t member, std::span<const SpellSymbol> sequenc
 		// the spell's mana (a dearer spell teaches more) — docs/skills.md.
 		GrantSkillXp(caster, SymbolId(r.spell->School()), r.spell->Mana() * 0.25f,
 					 SchoolStats(r.spell->School()));
+		// ATTUNEMENT trains off the same throughput, and the two are NOT a
+		// double-dip: the school skill is what you know about fire and creeps
+		// INT/WIL for it, while attunement is what your body can pass — it
+		// grows the mana POOL and creeps nothing. Two different lessons from
+		// one act, which is the whole aptitude/practice split
+		// (docs/health-and-healing.md).
+		GrantResourceXp(caster, resource::Kind::Mana, r.spell->Mana());
 		m_audio.Play(m_sounds.spellCast, 0.7f);
 		// OVER-EXERTION's bill, last — like a swing's, so the collapse it can
 		// cause reads after the cast that paid for it. Zero unless the caster's

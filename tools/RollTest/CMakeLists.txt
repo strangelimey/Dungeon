@@ -14,6 +14,12 @@
 # measure the copy. It was lifted out of DungeonWorld precisely so it could be
 # linked without the map, the monsters and the catalogs coming with it — so if
 # this ever stops linking, something world-shaped has been added to it.
+# Resource.cpp joins them for the edge it shares with the armor floor: a curve
+# whose cap is zero falls back to an UNBOUNDED straight line, which is right for
+# a curve and ruinous for a pool, so "a zero cap switches the practice off" is a
+# decision and not a sum. It also holds the inverse the save loader depends on —
+# a pre-v17 save recovers its authored base by subtracting Contribution — and a
+# formula and its inverse living in two files is how they drift.
 # Mishap.cpp is that same bargain once more: the fumble PARSER is what content
 # authors actually hit, and the severity rule decides how often a fight goes
 # sideways. What it deliberately does NOT hold — dropping a weapon, finding the
@@ -27,6 +33,7 @@ add_executable(RollTest
 	${CMAKE_SOURCE_DIR}/src/Game/Defense.cpp
 	${CMAKE_SOURCE_DIR}/src/Game/Mishap.cpp
 	${CMAKE_SOURCE_DIR}/src/Game/Blast.cpp
+	${CMAKE_SOURCE_DIR}/src/Game/Resource.cpp
 )
 # NOT linked, and the attempt is worth recording: pulling Balance.cpp in for the
 # attacker's type axis dragged Catalog -> assets::ReadBinaryFile, i.e. the file

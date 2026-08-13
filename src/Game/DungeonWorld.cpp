@@ -771,6 +771,12 @@ void DungeonWorld::UpdateMonsters(float dt) {
 	// intelligence) so spent spell points recover between casts, age any
 	// active ward (the Protect shields) so it fades with a log line, and run
 	// the unconscious members' stabilize clocks.
+	// The resource knobs, gathered ONCE for the whole roster rather than per
+	// member per pool: they are the same for everyone and assembling them is
+	// pure arithmetic over the balance sheet, but a steady-state frame is not
+	// the place to do it four times over.
+	const resource::PoolRules pools = m_balance.Resources();
+	const CurveRules statCurve = m_balance.StatCurve();
 	if (m_roster)
 		for (Character& member : *m_roster) {
 			// Self-stabilize: an UNCONSCIOUS (not dead) member accrues safe
@@ -792,29 +798,59 @@ void DungeonWorld::UpdateMonsters(float dt) {
 			for (float& cd : member.handCooldown)
 				if (cd > 0.0f) cd -= dt;
 			if (member.hitFlash > 0.0f) member.hitFlash -= dt;
-			if (member.IsAlive() && member.mana < member.maxMana) {
-				member.mana += member.ManaRegenPerSec() * dt;
-				if (member.mana > member.maxMana) member.mana = member.maxMana;
-			}
-			// Stamina regen (docs/combat.md Phase 4): the holdoff after any
-			// spend keeps sustained exertion a net drain; then the bar
-			// refills and the exhausted latch clears with hysteresis (past
-			// the exhaust_recover fraction, so it can't flicker at zero).
-			if (member.IsAlive() && member.staminaHoldoff > 0.0f) {
-				member.staminaHoldoff -= dt;
-			} else if (member.IsAlive() && member.stamina < member.maxStamina) {
-				member.stamina +=
-					(m_balance.staminaRegen +
-					 m_balance.staminaRegenMax * member.maxStamina) *
-					dt;
-				if (member.stamina > member.maxStamina)
-					member.stamina = member.maxStamina;
-				if (member.exhausted &&
-					member.stamina >=
-						m_balance.exhaustRecover * member.maxStamina) {
-					member.exhausted = false;
-					MemberMessage(member,
-								  loc::Format("log.recovered", member.name));
+			// --- REGENERATION (docs/health-and-healing.md) --------------------
+			// ONE model for all three pools: a rate built from the member's
+			// APTITUDE and PRACTICE (Character::RegenPerSec), gated by what
+			// they are doing. The stamina holdoff after any spend already IS
+			// the "exerting" signal, so the gate needed no new state:
+			//
+			//   exerting  stamina 0 · mana x mana_exert · health 0
+			//   idle      all three at full flow
+			//
+			// Resting is deliberately not a third row — it is a TIME
+			// multiplier, so it feeds these same rates more seconds rather
+			// than different numbers, and cannot drift out of step with them.
+			//
+			// The whole block is skipped for a DOWNED member: recovery from 0
+			// is the stabilize clock above, which is a different rule.
+			const bool exerting = member.staminaHoldoff > 0.0f;
+			if (member.IsAlive() && exerting) member.staminaHoldoff -= dt;
+			if (member.IsAlive()) {
+				// Returns the points actually restored — which is what the
+				// practice trains on, and is zero at a full pool. That is the
+				// property that makes constitution unfarmable: standing still
+				// at full health regains nothing, so it teaches nothing.
+				const auto regen = [&](resource::Kind kind, float& value,
+									   float max, float scale) {
+					if (scale <= 0.0f || value >= max) return 0.0f;
+					const float gained = std::min(
+						max - value,
+						member.RegenPerSec(kind, pools.For(kind), statCurve) *
+							scale * dt);
+					value += gained;
+					return gained;
+				};
+				regen(resource::Kind::Mana, member.mana, member.maxMana,
+					  exerting ? m_balance.manaExert : 1.0f);
+				// HEALTH is the only pool whose RECOVERY trains its practice
+				// (the other two train on being SPENT), so this is the one
+				// regen whose return value is used.
+				GrantResourceXp(member, resource::Kind::Health,
+								regen(resource::Kind::Health, member.health,
+									  member.maxHealth, exerting ? 0.0f : 1.0f));
+				// Stamina, and the exhausted latch clearing with hysteresis
+				// (past the exhaust_recover fraction, so it can't flicker at
+				// zero) — docs/combat.md Phase 4.
+				if (!exerting) {
+					regen(resource::Kind::Stamina, member.stamina,
+						  member.maxStamina, 1.0f);
+					if (member.exhausted &&
+						member.stamina >=
+							m_balance.exhaustRecover * member.maxStamina) {
+						member.exhausted = false;
+						MemberMessage(member,
+									  loc::Format("log.recovered", member.name));
+					}
 				}
 			}
 			// Age the effects and let their DoTs bite (the shared TickEffects —

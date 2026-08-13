@@ -16,6 +16,7 @@
 #include "Game/Combat.h" // ResistTable (the race/nature defense layer)
 #include "Game/Effect/Effect.h" // fx::Inst (the status-effect list)
 #include "Game/Inventory.h"
+#include "Game/Resource.h" // the aptitude/practice pool formulas
 #include "Game/Spells.h"
 
 #include <cmath>
@@ -167,11 +168,46 @@ struct Character {
 		std::erase(spellMru[hand], id);
 		spellMru[hand].insert(spellMru[hand].begin(), id);
 	}
-	// Mana points regenerated per second, scaled by intelligence. STUB: a real
-	// "mana draw efficiency / capacity" stat will drive this later; intelligence
-	// is the stand-in until that system is designed.
-	float ManaRegenPerSec() const {
-		return 0.4f + static_cast<float>(intelligence) * 0.08f;
+	// --- the three pools (docs/health-and-healing.md) -------------------------
+	// THE APTITUDE MAPPING LIVES HERE AND NOWHERE ELSE. Which stat drives which
+	// pool is a fact about a character, not about the knob sheet, and it is
+	// needed by both formulas — so the maximum and the regen rate both ask this
+	// rather than each spelling out `0.5 * (strength + vitality)` and drifting
+	// apart the day a race or a class shades one of them.
+	float Aptitude(resource::Kind kind) const {
+		switch (kind) {
+		case resource::Kind::Health:
+			return static_cast<float>(vitality);
+		case resource::Kind::Stamina:
+			return 0.5f * static_cast<float>(strength + vitality);
+		case resource::Kind::Mana:
+			return 0.5f * static_cast<float>(intelligence + willpower);
+		default:
+			return 0.0f;
+		}
+	}
+	// This member's live level in the practice that feeds `kind`.
+	float PracticeLevel(resource::Kind kind) const {
+		return static_cast<float>(SkillLevel(resource::SkillId(kind)));
+	}
+	// The pool's live maximum, for whoever needs it before RecomputeMaxima has
+	// stored it (the regen rate's per-max term wants the CURRENT ceiling).
+	float ResourceMax(resource::Kind kind) const {
+		switch (kind) {
+		case resource::Kind::Health: return maxHealth;
+		case resource::Kind::Stamina: return maxStamina;
+		case resource::Kind::Mana: return maxMana;
+		default: return 0.0f;
+		}
+	}
+	// Points per second at FULL FLOW. The caller still owns the state gate
+	// (exerting / idle / resting) and the "only while below maximum" rule —
+	// this answers only "how fast does this body recover", which is the part
+	// that depends on the character rather than on the situation.
+	float RegenPerSec(resource::Kind kind, const resource::Rules& rules,
+					  const CurveRules& statCurve) const {
+		return resource::RegenPerSec(rules, statCurve, Aptitude(kind),
+									 ResourceMax(kind), PracticeLevel(kind));
 	}
 
 	// --- skills (docs/skills.md) ---------------------------------------------
@@ -279,26 +315,32 @@ struct Character {
 		return sum / static_cast<float>(ids.size());
 	}
 
-	// Re-derives the resource maxima from the bases + stats (the resource
-	// formula: health ← VIT, stamina ← (STR+VIT)/2, mana ← (INT+WIL)/2; the
-	// k's are Balance knobs). Growth carries the CURRENT value with it (a
-	// stat point shows as growth, not damage); a shrunk max (a knob turned
-	// down) clamps. Call after any stat change or balance apply.
-	void RecomputeMaxima(float kHealth, float kStamina, float kMana) {
-		const auto derive = [](float& current, float& max, float base, float stat) {
-			const float grown = base + stat;
+	// Re-derives the resource maxima from the authored bases, the APTITUDES
+	// (Aptitude above) and the PRACTICES — the aptitude/practice model in
+	// docs/health-and-healing.md, whose arithmetic lives in the pure
+	// Game/Resource.h so it can be measured. Call after any stat change, any
+	// resource-skill gain, or a balance apply.
+	//
+	// GROWTH CARRIES THE CURRENT VALUE with it, so a vitality point or a
+	// constitution level reads as growth rather than as damage; a SHRUNK max (a
+	// knob turned down in the editor) clamps instead. And growth must never
+	// revive a downed member — a bigger pool is not a resurrection, so 0 health
+	// is restored after the derive.
+	void RecomputeMaxima(const resource::PoolRules& rules) {
+		const auto derive = [](float& current, float& max, float grown) {
 			current += grown > max ? grown - max : 0.0f;
 			max = grown;
 			if (current > max) current = max;
 		};
-		const bool down = health <= 0.0f; // growth must not revive a downed member
-		derive(health, maxHealth, baseHealth,
-			   kHealth * static_cast<float>(vitality));
+		const auto grown = [&](resource::Kind kind, float base) {
+			return resource::Maximum(rules.For(kind), base, Aptitude(kind),
+									 PracticeLevel(kind));
+		};
+		const bool down = health <= 0.0f;
+		derive(health, maxHealth, grown(resource::Kind::Health, baseHealth));
 		if (down) health = 0.0f;
-		derive(stamina, maxStamina, baseStamina,
-			   kStamina * 0.5f * static_cast<float>(strength + vitality));
-		derive(mana, maxMana, baseMana,
-			   kMana * 0.5f * static_cast<float>(intelligence + willpower));
+		derive(stamina, maxStamina, grown(resource::Kind::Stamina, baseStamina));
+		derive(mana, maxMana, grown(resource::Kind::Mana, baseMana));
 	}
 
 	// Movement-pace multiplier (1 = baseline, lower = slower). The party

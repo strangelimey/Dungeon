@@ -193,12 +193,13 @@ Key conventions (memorize, they bite):
   resist[type]) floored — resists SUM nature (monsters.cat `resists`;
   Character::natureResists is the future race layer) + worn equipment
   (`resists`/`armor`) + Stone Skin as physical, clamped ±resist_clamp
-  (a nature cell of 1.0 = immunity). Resources DERIVE: max = base + k ×
-  statAvg (Character::RecomputeMaxima; authored bases ride save v17,
-  pre-v17 back-solves). STAMINA is the exertion meter (swings spend
+  (a nature cell of 1.0 = immunity). Resources DERIVE — see RESOURCES below,
+  which superseded the old flat `max = base + k × statAvg`. STAMINA is the
+  exertion meter (swings spend
   (stamina_swing + stamina_weight×kg) × the attack's stamina column, steps
-  spend stamina_step, every spend feeds VIT's creep — part 3's conditioning
-  loop; an empty bar latches EXHAUSTED penalties with hysteresis). 0 HP =
+  spend stamina_step, every spend trains CONDITIONING — the old `vit_exertion`
+  VIT creep is GONE, see RESOURCES; an empty bar latches EXHAUSTED penalties
+  with hysteresis). 0 HP =
   UNCONSCIOUS (self-stabilizes at stabilize_health after stabilize_time
   safe seconds — any monster in aggro resets the clock); DEAD only by
   OVERKILL (a blow on a downed member, or ≥ overkill×max; v18 "dead" line;
@@ -219,6 +220,32 @@ Key conventions (memorize, they bite):
   through the target's resist for that element (no soak, no separate to-hit
   roll), and the element becomes the FLAVOUR its on-hit effects arrive with.
   Dev: `equip <item> [member] [hand]`.
+- RESOURCES (full model: docs/health-and-healing.md; the pools half built
+  2026-08-13, food/water/rest/sheet still design). Every pool has an APTITUDE
+  (a stat — `Character::Aptitude`, the ONE home of health←VIT,
+  stamina←(STR+VIT)/2, mana←(INT+WIL)/2) and a PRACTICE (a skill:
+  `conditioning`/`attunement`/`constitution`). max = base + k_<r>×aptitude +
+  Curve(practice); rate = <r>_regen + <r>_regen_stat×Curve(aptitude) +
+  <r>_regen_max×max + Curve(practice). The arithmetic is the PURE TU
+  `Game/Resource.h` (Curve.h only, so RollTest links it — the Defense.h
+  bargain); `Balance::Resources()` is the adapter, `Character::RecomputeMaxima`
+  takes a `resource::PoolRules`. **"Constitution" is a SKILL, not a sixth
+  stat** — which is why this needed NO save bump (skillXp rides v15).
+  THREE RULES THAT BITE: (1) the practices train and CREEP NOTHING — they all
+  go through `GrantResourceXp`, whose whole job is passing an empty stat list,
+  because each feeds a pool its aptitude also feeds and the ordinary award
+  closes the loop (`vit_exertion` was DELETED, not zeroed); (2) a
+  `<r>_skill_cap` of 0 switches that term OFF — `CurveValue` reads a
+  non-positive cap as an UNBOUNDED straight line, the armor-floor bug's exact
+  shape, so `resource::SkillTerm` owns the guard; (3) health regen now runs
+  EVERY FRAME while hurt, so `GrantSkillXp` looks a skill up before inserting
+  it (the subscript's `std::string` was a steady-state allocation).
+  State gate: the 1.5s `staminaHoldoff` IS the "exerting" signal — stamina 0,
+  mana ×`mana_exert`, health 0. Dev: `regen` (all three rates + the ordering,
+  read on its `ref` rows NOT the members — the party is unequal on purpose),
+  and `char` prints the creep pools so a leak is visible. Checked by
+  `RollTest`, `AllocTest.ps1 -Wounded` (a fresh party never runs regen at all)
+  and the `resources` eval suite.
 - EFFECTS (full model: docs/effects.md — the system every source of damage
   goes through; built in six phases 2026-07-24): ONE pipeline for everything
   that happens to a combatant. A source builds an `fx::DamageEvent` and calls

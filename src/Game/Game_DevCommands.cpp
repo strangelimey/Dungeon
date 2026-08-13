@@ -1158,6 +1158,66 @@ void Game::RegisterDevCommands() {
 						   }
 					   });
 
+	// The three regeneration RATES, which nothing else can show: a bar's VALUE
+	// is visible and its SLOPE is not, so the ordering the model asks for —
+	// stamina/sec > mana/sec > health/sec at equal investment
+	// (docs/health-and-healing.md) — was a claim no measurement could reach.
+	//
+	// Rates are printed AT FULL FLOW, before the state gate, because that is
+	// what the knobs describe; the live gate is named at the end of each line so
+	// a reading taken mid-swing is not mistaken for the tuning.
+	//
+	// THE ORDERING IS CHECKED ON A REFERENCE ROW, NOT PER MEMBER, and getting
+	// that wrong the first time is worth recording: a per-member verdict called
+	// Brand BROKEN, and Brand is right — he is a brute with INT 8, so his mana
+	// crawls and ought to. The claim is about the KNOBS at EQUAL investment, and
+	// a party of four deliberately unequal characters can never test it. So the
+	// reference member has every aptitude at the stat curve's baseline (worth
+	// exactly nothing, by construction) and one practice level shared by all
+	// three pools — measured UNTRAINED and TRAINED, since a crossing can hide at
+	// either end. Reporting whether an authored property holds is measurement;
+	// what to do about it is Michael's.
+	m_console.Register("regen", "health/stamina/mana per second, and the ordering (dev)",
+					   [this](const std::vector<std::string>&) {
+						   const Balance& bal = m_world.GetBalance();
+						   const resource::PoolRules pools = bal.Resources();
+						   const CurveRules statCurve = bal.StatCurve();
+						   for (size_t i = 0; i < m_characters.size(); ++i) {
+							   const Character& c = m_characters[i];
+							   const auto rate = [&](resource::Kind k) {
+								   return c.RegenPerSec(k, pools.For(k), statCurve);
+							   };
+							   m_console.Print(std::format(
+								   "  [{}] {:<6} health {:.3f}/s  stamina {:.3f}/s  "
+								   "mana {:.3f}/s  {}",
+								   i, c.name, rate(resource::Kind::Health),
+								   rate(resource::Kind::Stamina),
+								   rate(resource::Kind::Mana),
+								   c.staminaHoldoff > 0.0f ? "exerting" : "idle"));
+						   }
+						   // The reference rows. Each pool is sized at the same
+						   // investment it is being rated at, so the per-max term
+						   // is honest rather than borrowed from someone else's
+						   // body: max = aptitude + practice, with no authored base.
+						   const float apt = statCurve.baseline;
+						   for (const float lvl : {0.0f, 10.0f}) {
+							   const auto rate = [&](resource::Kind k) {
+								   const resource::Rules& r = pools.For(k);
+								   return resource::RegenPerSec(
+									   r, statCurve, apt,
+									   resource::Maximum(r, 0.0f, apt, lvl), lvl);
+							   };
+							   const float hp = rate(resource::Kind::Health);
+							   const float st = rate(resource::Kind::Stamina);
+							   const float mp = rate(resource::Kind::Mana);
+							   m_console.Print(std::format(
+								   "  ref  practice {:<2.0f} health {:.3f}/s  "
+								   "stamina {:.3f}/s  mana {:.3f}/s  order {}",
+								   lvl, hp, st, mp,
+								   st > mp && mp > hp ? "ok" : "BROKEN"));
+						   }
+					   });
+
 	// --- the arena (docs/eval-harness.md) -----------------------------------
 	// Carve a controlled space into the loaded map and empty the world into it.
 	// Writes NO files: the editor's new-level button would author a .map/.ent
@@ -1480,8 +1540,21 @@ void Game::RegisterDevCommands() {
 							   c.health, c.maxHealth, c.stamina, c.maxStamina, c.mana,
 							   c.maxMana));
 						   for (const auto& [id, xp] : c.skillXp)
-							   m_console.Print(std::format("    skill {:<10} level {} ({:.0f} xp)",
+							   m_console.Print(std::format("    skill {:<12} level {} ({:.1f} xp)",
 														   id, Character::LevelForXp(xp), xp));
+						   // THE CREEP POOLS, and they are here for one reason:
+						   // the resource practices must creep NOTHING
+						   // (docs/health-and-healing.md). Without this line the
+						   // only evidence is that a stat has not moved yet — and
+						   // a slow leak reads exactly like no leak until the pool
+						   // crosses 1.0, which is the "absent and correct report
+						   // identically" trap this project has already paid for.
+						   // A non-zero pool beside a resource skill IS the bug.
+						   for (const auto& [stat, pool] : c.statProgress)
+							   if (pool > 0.0f)
+								   m_console.Print(std::format(
+									   "    creep {:<12} {:.3f} toward the next point",
+									   stat, pool));
 						   for (int h = 0; h < 2; ++h) {
 							   const ItemSlot& slot = c.inventory.Hand(h);
 							   m_console.Print(std::format(

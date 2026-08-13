@@ -1,0 +1,94 @@
+; resources.eval — the aptitude/practice pools, measured (docs/health-and-healing.md).
+;
+; Run:  Dungeon.exe -eval tools\EvalScripts\resources.eval
+;
+; THIS IS A MEASUREMENT, NOT A PASS/FAIL. It prints three tables and the reader
+; compares them across a knob change. What it is looking for:
+;
+;   1. THE ORDERING the model asks for — stamina/sec > mana/sec > health/sec at
+;      equal investment. That is a property of the AUTHORED knobs and not of the
+;      arithmetic, so RollTest cannot check it and this is where it lives.
+;   2. HEALTH REGENERATES AT ALL, which it never did before this system.
+;   3. The practices TRAIN off throughput, and — the rule the whole model exists
+;      to protect — creep NO stat while doing it.
+
+logecho on
+newgame
+
+timescale 0
+lockstep on
+seed 7
+
+; An empty room, so nothing wanders in and turns a regen measurement into a
+; combat one. The party is the instrument here.
+arena open 9 9
+
+echo === 1. the pools at rest, fresh party ===
+party
+regen
+char 0
+char 3
+
+; NOTE the two `ref` rows `regen` prints beneath the party. Those — not the
+; member rows — are where the ordering claim is read: the four members differ in
+; every stat on purpose, so Brand's mana crawling behind his health is his BUILD
+; and not a broken knob.
+
+; Hurt everyone and drain the casters, then let it all come back untouched.
+; `effect` puts a real DoT on them rather than a harness fiat, so the damage
+; goes through the one pipeline like anything else.
+echo === 2. wounded, then sixty idle seconds ===
+effect bleed 0 6 4
+effect bleed 1 6 4
+effect bleed 2 6 4
+effect bleed 3 6 4
+step 6
+echo --- after the bleed ---
+party
+step 60
+echo --- after 60s idle ---
+party
+
+echo === 3. what the recovery TRAINED ===
+; Constitution should have grown off the points regained, and NOTHING else
+; should have moved: no vitality, no other skill. A stat that crept here is the
+; runaway walking back in (docs/health-and-healing.md).
+char 0
+char 3
+
+echo === 4. exertion: the state gate, and conditioning ===
+; Marching spends stamina, which holds regen off and trains conditioning. Health
+; must NOT come back while that holdoff is up — that is the gate.
+effect bleed 0 8 2
+step 3
+echo --- hurt, about to march ---
+party
+forward 4
+step 1
+echo --- mid-march (holdoff up: health and stamina frozen, mana at mana_exert) ---
+party
+step 30
+echo --- 30s standing still afterwards ---
+party
+char 0
+
+echo === 5. mana: attunement trains, and the school skill is the CONTROL ===
+; THE OBSERVATION THAT PROVES TWO THINGS AT ONCE. One cast trains two skills for
+; two different reasons: `fire` is what Tilo KNOWS, and it creeps INT/WIL like
+; every other skill in the game; `attunement` is what his body PASSED, and it
+; must creep nothing at all. Both appear below, and the `creep` lines must name
+; the school's stats and only those. Without the school skill in the same run,
+; an empty creep list would prove nothing — it would look identical to a run in
+; which no skill trained at all.
+learn 3 fire
+echo --- before casting ---
+char 3
+cast 3 fire
+cast 3 fire
+cast 3 fire
+step 1
+echo --- after three casts (12 mana) ---
+char 3
+regen
+
+state

@@ -638,6 +638,7 @@ bool Game::LoadGame(const std::string& path) {
 		// exactly under unchanged knobs). RecomputeMaxima then re-derives —
 		// current values arrived above and clamp/carry as usual.
 		const Balance& bal = m_world.GetBalance();
+		const resource::PoolRules pools = bal.Resources();
 		Character& member = m_characters[i];
 		// The offense stance (v23). A pre-v23 save leaves the CharState at its
 		// 1.0 default, which is exactly what those saves meant: all-out.
@@ -647,18 +648,22 @@ bool Game::LoadGame(const std::string& path) {
 			member.baseStamina = c.baseStamina;
 			member.baseMana = c.baseMana;
 		} else {
-			member.baseHealth =
-				c.maxHealth - bal.kHealth * static_cast<float>(member.vitality);
-			member.baseStamina =
-				c.maxStamina - bal.kStamina * 0.5f *
-								   static_cast<float>(member.strength +
-													  member.vitality);
-			member.baseMana =
-				c.maxMana - bal.kMana * 0.5f *
-								static_cast<float>(member.intelligence +
-												   member.willpower);
+			// Run the formula BACKWARDS. This subtracts resource::Contribution
+			// rather than a hand-written copy of the aptitude term, so a save
+			// old enough to lack bases still reproduces its maxima exactly
+			// however many terms the model grows — which is the whole reason
+			// that helper is exposed. The copy that used to live here was
+			// written when the aptitude WAS the only term.
+			const auto solve = [&](resource::Kind kind, float savedMax) {
+				return savedMax - resource::Contribution(pools.For(kind),
+														 member.Aptitude(kind),
+														 member.PracticeLevel(kind));
+			};
+			member.baseHealth = solve(resource::Kind::Health, c.maxHealth);
+			member.baseStamina = solve(resource::Kind::Stamina, c.maxStamina);
+			member.baseMana = solve(resource::Kind::Mana, c.maxMana);
 		}
-		member.RecomputeMaxima(bal.kHealth, bal.kStamina, bal.kMana);
+		member.RecomputeMaxima(pools);
 		// The exhausted latch is a live transient (not saved) — re-derive it
 		// from the restored bar so a save made mid-exhaustion resumes winded.
 		member.exhausted = member.stamina <= 0.0f;

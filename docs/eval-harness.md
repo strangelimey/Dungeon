@@ -448,7 +448,7 @@ the game itself cannot perform.
 .	ools\Eval.ps1 -SelfTest    # the runner must FAIL on purpose
 ```
 
-Six suites, about two minutes. `/check-eval` is the command form.
+Seven suites, about two minutes. `/check-eval` is the command form.
 
 **It is deliberately OUTSIDE `CheckAll`'s tiers.** Every check in that suite
 guards a rule; this one guards nothing — a green verdict means the scripts RAN,
@@ -465,11 +465,34 @@ the same file a human opens after a run, so the harness cannot show something
 the log does not. The match is CASE-SENSITIVE, because `TALLY` is a result and
 `tally reset` is the command that begins a rung.
 
+## The `resources` suite (added with the health-and-healing build)
+
+`resources.eval` measures the three pools: the rates, the state gate, and what
+recovery TRAINS. It is the standing home for one claim the pure harness cannot
+reach — **stamina/sec > mana/sec > health/sec at equal investment** — because
+that is a property of the AUTHORED knobs, and RollTest deliberately cannot link
+`Balance` (it would drag the file layer in). The dev command `regen` prints it.
+
+Two things it does that are worth copying into any suite measuring a rate:
+
+- **It reads the ordering off REFERENCE rows, not off the party.** The four
+  members differ in every stat on purpose, so a per-member verdict flags Brand —
+  a brute with INT 8 whose mana rightly crawls — as broken. A claim about knobs
+  at equal investment cannot be tested on deliberately unequal characters.
+- **It puts a CONTROL in the same run.** The resource practices must creep no
+  stat, and an empty creep list proves that only if something in the same run
+  does creep. So it casts: `fire` trains and creeps intelligence, `attunement`
+  trains the identical 3.0 xp and creeps nothing. One observation, two facts.
+
+`AllocTest.ps1` gained `-Wounded` for the same family of reason: regeneration
+only runs BELOW maximum, so the default fresh-party run walks straight past the
+whole resource tick and reports a confident PASS for code it never executed.
+
 ## Next
 
-The harness is done. What it is FOR has not started: the balance pass, and
-the health/healing system (docs/health-and-healing.md) whose five open
-questions are still Michael's to answer.
+The harness itself is done, and the health/healing system's first part is built
+on top of it (docs/health-and-healing.md — the pools; food, water, rest and the
+sheet are still design). The balance pass has not started.
 
 **A balance signal already, unasked for:** one skeleton — 16 hp, the second-
 weakest thing in the game — took three of four fresh members down in thirty
