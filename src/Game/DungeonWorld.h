@@ -233,12 +233,31 @@ public:
 	// simulated seconds of nothing as a result.
 	void ClearWipeLatch() { m_partyWiped = false; }
 
+	// DETONATE A NAMED SPELL'S BLAST at a cell, with no caster, no mana, no
+	// skill roll and no bolt flight — the eval harness's way of asking a
+	// geometry question directly (`blast <spell> <x> <z>`).
+	//
+	// It reads the spell's AUTHORED rules rather than taking numbers of its own,
+	// so what a measurement describes is the content that ships. False if the id
+	// names no spell, or names one that is not an area effect at all — reported,
+	// because a blast that did not happen would otherwise read as a blast that
+	// did nothing, and those are opposite answers.
+	bool DetonateSpell(std::string_view spellId, int cx, int cz);
+
 	// AUTO-ATTACK: every member swings whenever a hand is off cooldown and
 	// something is in reach. A harness behaviour, not a game one — the player
 	// clicks a hand slot — but without it a measured encounter is the party
 	// standing still being hit, which is half a fight and reads as a whole one.
 	void SetAutoAttack(bool on) { m_autoAttack = on; }
 	bool AutoAttack() const { return m_autoAttack; }
+
+	// FREEZE monster ACTION (movement and attacks) while leaving everything that
+	// HAPPENS TO them running — animation, effects, blasts, damage. A geometry
+	// probe needs its instruments to hold still: monsters parked on known cells
+	// to read a blast's falloff will otherwise walk off those cells mid-
+	// measurement and report where they ended up instead.
+	void SetFreezeMonsters(bool on) { m_freezeMonsters = on; }
+	bool FrozenMonsters() const { return m_freezeMonsters; }
 
 	enum class ArenaShape : u8 { Open, Corridor, DeadEnd, TJunction };
 	// Where the arena ended up. Derivable from the map size (it is centred), so
@@ -2646,6 +2665,7 @@ private:
 	float m_bucketClock[ai::Scheduler::kBucketCount] = {};
 	Tally m_tally;             // the eval harness's encounter counters
 	bool m_autoAttack = false; // eval: members swing off cooldown (see SetAutoAttack)
+	bool m_freezeMonsters = false; // eval: monsters do not ACT (see SetFreezeMonsters)
 	// Drives that: for each standing member, swing any hand whose cooldown has
 	// run out. Called from UpdateMonsters' cadence, no-op unless armed.
 	void TickAutoAttack();

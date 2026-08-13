@@ -134,6 +134,33 @@ bool DungeonWorld::BuildArena(ArenaShape shape, int w, int h, ArenaInfo& out) {
 	return true;
 }
 
+bool DungeonWorld::DetonateSpell(std::string_view spellId, int cx, int cz) {
+	const Spell* spell = m_magic.FindSpell(spellId);
+	if (!spell) {
+		log::Warn("blast: no spell '{}'", spellId);
+		return false;
+	}
+	if (!spell->Blast().Any()) {
+		// Refused rather than detonated as a nothing, because "the spell is not
+		// an area effect" and "the blast reached nobody" produce the same empty
+		// table and mean opposite things.
+		log::Warn("blast: spell '{}' has no blast (needs blast_force)", spellId);
+		return false;
+	}
+	// The spell's own payload, unchanged: its blast rules, its on-hit procs and
+	// its school's damage type. No caster (-1) — nothing here is credited with
+	// threat, and a blast has no side anyway.
+	ProjectilePayload payload;
+	payload.blast = spell->Blast();
+	for (const fx::Proc& p : spell->Procs()) {
+		if (payload.count >= payload.procs.size()) break;
+		payload.procs[payload.count++] = p;
+	}
+	payload.flavour = spell->School(); // its burn arrives in the school's colours
+	Detonate(cx, cz, payload, m_damageTypes.ForSchool(spell->School()), -1);
+	return true;
+}
+
 bool DungeonWorld::ArenaShapeFromName(std::string_view name, ArenaShape& out) {
 	if (name == "open") { out = ArenaShape::Open; return true; }
 	if (name == "corridor") { out = ArenaShape::Corridor; return true; }

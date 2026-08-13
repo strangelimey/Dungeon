@@ -1193,6 +1193,45 @@ void Game::RegisterDevCommands() {
 				info.x1, info.z1, info.cx, info.cz));
 		});
 
+	// Monsters hold still while everything that happens TO them keeps running.
+	// A geometry probe's instruments must not wander off the cells they measure.
+	m_console.Register("freeze", "monsters stop acting (dev): freeze on|off",
+					   [this](const std::vector<std::string>& args) {
+						   if (args.empty()) {
+							   m_console.Print(std::format(
+								   "freeze {}",
+								   m_world.FrozenMonsters() ? "on" : "off"));
+							   return;
+						   }
+						   const bool on = args[0] == "on" || args[0] == "1";
+						   m_world.SetFreezeMonsters(on);
+						   m_console.Print(std::format("freeze {}", on ? "on" : "off"));
+					   });
+
+	// Detonate a spell's authored blast at a cell — no caster, no mana, no skill
+	// roll, no bolt flight. The geometry question asked directly.
+	//
+	// A blast plays out over TICKS (blast_rate seconds apart), so a script must
+	// `step` afterwards to let it land; detonating and reading `monsters` in the
+	// same breath measures the moment before it went off.
+	m_console.Register("blast", "detonate a spell's blast (dev): blast <spell> <x> <z>",
+					   [this](const std::vector<std::string>& args) {
+						   if (!Need(m_console, args, 3,
+									 "usage: blast <spell id> <x> <z>"))
+							   return;
+						   const int x = std::atoi(args[1].c_str());
+						   const int z = std::atoi(args[2].c_str());
+						   if (!m_world.DetonateSpell(args[0], x, z)) {
+							   m_console.Print(std::format(
+								   "blast: refused '{}' (unknown spell, or it has "
+								   "no blast_force)",
+								   args[0]));
+							   return;
+						   }
+						   m_console.Print(std::format("blast {} at {},{}", args[0],
+													   x, z));
+					   });
+
 	// Place a monster, live. The editor's placement path (AddMonster) refuses an
 	// unwalkable or occupied cell, and so does this — reported rather than
 	// silent, because a spawn that did not happen is an encounter that is not

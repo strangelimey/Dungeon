@@ -1,0 +1,106 @@
+; blast-geometry.eval — the same detonation in four geometries.
+;
+; A propagating blast is the kind of rule that reads correctly in a comment and
+; is wrong in a corridor. `fireburst` was tuned against a THROWAWAY harness over
+; pure geometry (docs/damage-system.md "Tuning a blast"); this measures the same
+; thing in the REAL world, with real monsters taking real damage through the
+; whole effects pipeline — resists, soak, on-hit procs and all.
+;
+; The monsters ARE the instrument. Each is a fixed-hp probe parked on a known
+; cell, so the hp left after the blast reads off the falloff and the convergence
+; directly. skel_swarm has 6 hp and dies to almost anything, so these use
+; skel_warrior (22 hp) to leave headroom for a reading.
+;
+; spells.cat records what the tuning expected, and this is the check on it:
+;   open room        5 at the centre, 3.5 around, 7 squares
+;   dead end at feet 17.5 each
+;   T-junction       30 at the junction  <- the worst number in the game
+;
+; The party is teleported OUT of each blast: a blast has no side and would catch
+; them, and their deaths are not what is being measured here.
+
+logecho on
+newgame
+timescale 0
+lockstep on
+seed 5
+
+; FREEZE. The instruments must hold still: the first run of this suite had two
+; of its nine warriors walk out of the squares being measured and then maul the
+; party, so the table described where they ended up rather than what the blast
+; did to where they were. Frozen monsters still burn, still take the blast and
+; still die — they simply do not act.
+freeze on
+
+; --- 1. HIS CASE: one in the middle, eight around it ----------------------
+; Centre 14,12. The ring is 13..15 x 11..13; the centre cell holds the ninth.
+arena open 9 9
+tp 10 16
+spawn skel_warrior 13 11 south
+spawn skel_warrior 14 11 south
+spawn skel_warrior 15 11 south
+spawn skel_warrior 13 12 south
+spawn skel_warrior 14 12 south
+spawn skel_warrior 15 12 south
+spawn skel_warrior 13 13 south
+spawn skel_warrior 14 13 south
+spawn skel_warrior 15 13 south
+tally reset
+echo === open 9x9: 3x3 surround, before ===
+monsters
+blast fireburst 14 12
+step 5
+echo === open 9x9: 3x3 surround, after ===
+monsters
+tally
+
+; --- 2. a corridor: the front reflects off both ends ----------------------
+arena corridor 11
+tp 9 12
+spawn skel_warrior 12 12 south
+spawn skel_warrior 13 12 south
+spawn skel_warrior 14 12 south
+spawn skel_warrior 15 12 south
+spawn skel_warrior 16 12 south
+tally reset
+echo === corridor 11: before ===
+monsters
+blast fireburst 14 12
+step 5
+echo === corridor 11: after ===
+monsters
+tally
+
+; --- 3. a dead end: it reflects back onto the detonation ------------------
+; The arena reports its centre AS the closed end, so 14,12 has rock behind it.
+arena deadend 7
+tp 20 12
+spawn skel_warrior 14 12 south
+spawn skel_warrior 15 12 south
+spawn skel_warrior 16 12 south
+tally reset
+echo === dead end 7: before ===
+monsters
+blast fireburst 14 12
+step 5
+echo === dead end 7: after ===
+monsters
+tally
+
+; --- 4. the T-junction: arms converge and MULTIPLY ------------------------
+; The junction cell is 14,12 — the square the tuning says is the ceiling.
+arena tjunction 9 5
+tp 10 12
+spawn skel_warrior 14 12 south
+spawn skel_warrior 13 12 south
+spawn skel_warrior 15 12 south
+spawn skel_warrior 14 13 south
+tally reset
+echo === t-junction: before ===
+monsters
+blast fireburst 14 12
+step 5
+echo === t-junction: after ===
+monsters
+tally
+state

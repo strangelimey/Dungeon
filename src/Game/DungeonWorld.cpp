@@ -999,6 +999,14 @@ void DungeonWorld::UpdateMonsters(float dt) {
 			monster.yaw += d * std::min(1.0f, dt * kTurnLerp);
 		}
 
+		// FROZEN (the eval harness's `freeze`): the monster still animates,
+		// still burns, still takes a blast — it simply does not ACT. A geometry
+		// probe needs its instruments to hold still: the first blast suite had
+		// two of its nine warriors walk out of the squares they were measuring
+		// and then maul the party, so the table described where they ended up
+		// rather than what the blast did to where they were.
+		if (m_freezeMonsters) continue;
+
 		if (monster.intent.mode == ai::Intent::Mode::Idle) {
 			// Idle behaviour: a patroller walks its route (which also carries it back
 			// to post after a chase); else a leashed monster displaced from its anchor

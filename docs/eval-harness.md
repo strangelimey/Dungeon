@@ -1,8 +1,8 @@
 # The eval harness
 
-**Status:** P1–P5 built (2026-08-13). A rung can now be built, seeded, fought
-and measured over N seeds; what remains is the SUITES — the progression ladder
-and the blast geometries — and the outer runner.
+**Status:** P1–P5 and P7 built (2026-08-13). A rung can be built, seeded, fought and
+measured over N seeds, and the blast geometries are measured. What remains is
+the PROGRESSION LADDER (P6, blocked below) and the outer runner (P8).
 
 **OPEN DESIGN QUESTION THAT SHAPES P6:** the game has no healing source at all
 beyond unconscious self-stabilize. `heal` is a HARNESS FIAT — it restores to full
@@ -358,6 +358,51 @@ played one never does.
   seconds of nothing, twelve times, as a result. `heal` now clears it.
 - **A wipe returns to the title screen** (see P4's `heal`).
 
+## P7: the blast geometries
+
+```
+blast  <spell id> <x> <z>
+freeze on|off
+```
+
+`blast` detonates a spell's **authored** rules at a cell — no caster, no mana, no
+skill roll, no bolt flight. It reads the spell's own `BlastSpec` and procs, so
+what a measurement describes is the content that ships rather than numbers the
+harness invented. It refuses a spell with no `blast_force` rather than detonating
+a nothing, because "not an area effect" and "reached nobody" produce the same
+empty table and mean opposite things.
+
+**The monsters are the instrument.** Each is a fixed-hp probe parked on a known
+cell, so the hp left after the blast reads the falloff and the convergence
+straight off. `freeze` is what makes that honest: the first run had two of nine
+warriors walk out of the squares being measured and then maul the party, so the
+table described where they ended up rather than what the blast did to where they
+were. Frozen monsters still burn, still take the blast and still die — they
+simply do not act.
+
+A blast plays out over **ticks**, so a script must `step` after detonating;
+reading `monsters` in the same breath measures the moment before it went off.
+
+### The table
+
+`fireburst` (`blast_force = 7`), `skel_warrior` probes at 22 hp:
+
+| geometry | detonation cell | ring | outer | total dealt |
+|---|---|---|---|---|
+| open 9×9 | 13 | 12 (orthogonal only) | — | 71.2 |
+| corridor 11 | **dead** | 19 | 14 | 90.4 |
+| dead end 7 (at the closed end) | **dead** | **dead** | 14 | 71.3 |
+| T-junction | **dead** | 15 (arms) | 10 (stem) | 76.9 |
+
+This **reproduces the tuning** recorded in `spells.cat` — open is mild, the dead
+end and the junction are lethal — but it does so in the real world, with real
+monsters, through the whole effects pipeline (resists, soak, on-hit procs),
+where the original tuning ran a throwaway harness over pure geometry.
+
+Two things visible in the data rather than asserted by a comment: the open case
+leaves the **diagonals untouched**, which is the 4-cardinal propagation rule; and
+the seven squares it does fill are exactly the authored `blast_force`.
+
 ## Driving it: two rules learned the hard way
 
 **Set `timescale 0` first.** Otherwise real time passes between console commands
@@ -393,9 +438,11 @@ today; what is undecided is how the party is supposed to *arrive* at the next
 fight, and until that is answered a ladder's rungs are joined by a `heal` that
 the game itself cannot perform.
 
-P7 blast geometry is **not** blocked: the arenas and the tally are both ready,
-and a blast measurement is a single detonation rather than a sequence of fights.
-P8 is `tools/Eval.ps1` and a `/check-eval` skill, outside the quick tier.
+~~P7 blast geometry~~ **DONE** — it was not blocked by the healing question (a
+blast is one detonation, not a sequence of fights), so it was built first.
+
+What is left is **P8**: `tools/Eval.ps1` and a `/check-eval` skill, outside the
+quick tier — and P6 whenever the healing model is settled.
 
 **A balance signal already, unasked for:** one skeleton — 16 hp, the second-
 weakest thing in the game — took three of four fresh members down in thirty
