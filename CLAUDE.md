@@ -246,6 +246,20 @@ Key conventions (memorize, they bite):
   and `char` prints the creep pools so a leak is visible. Checked by
   `RollTest`, `AllocTest.ps1 -Wounded` (a fresh party never runs regen at all)
   and the `resources` eval suite.
+  SUPPLIES: `food`/`water` per character (0..`food_max`, save v25 `supply` line;
+  a pre-v25 save loads FULL). They drain by TIME — scaled by conditioning, which
+  is the design's only downward pressure — and by EXERTION off `SpendStamina`,
+  water heavier than food (sweat). Eating is `nutrition`/`hydration` on any
+  items.cat entry, and `eat`/`drink` are ONE handler because an apple does both;
+  `GameUI::onConsume` → `DungeonWorld::ConsumeItem`, which refuses (keeping the
+  item) when it would restore nothing. AN EMPTY METER KILLS: `starving`/`parched`
+  are ordinary DoT effects dealing a `starve` damage type nothing resists, so a
+  Tick on a downed member is lethal under the existing overkill rule and NO new
+  death path exists. **The effect is the METER'S SHADOW** — `TickSupplies` tops
+  its `timeLeft` up while empty and erases it when fed, so there is no
+  "permanent effect" concept and exactly one place a member stops starving
+  (`ConsumeItem` deliberately does not lift it). Dev: `supplies` (in HOURS LEFT,
+  since a meter reading means nothing without its rate), `setsupply`, `consume`.
 - EFFECTS (full model: docs/effects.md — the system every source of damage
   goes through; built in six phases 2026-07-24): ONE pipeline for everything
   that happens to a combatant. A source builds an `fx::DamageEvent` and calls

@@ -21,6 +21,15 @@ const char* SkillId(Kind kind) {
 	return i < static_cast<size_t>(Kind::Count) ? kSkillIds[i] : "";
 }
 
+float DrainPerSec(const SupplyRules& rules, float practice) {
+	// SkillTerm, not CurveValue, so the zero-cap rule holds here too: an
+	// unauthored `<supply>_cond_cap` must mean "conditioning costs nothing
+	// extra", not "conditioning costs unboundedly more the fitter you get".
+	// Same trap, same guard, and it is worse here — the runaway would be in the
+	// thing that exists to PREVENT runaways.
+	return std::max(0.0f, rules.perSecond + SkillTerm(rules.condDrain, practice));
+}
+
 const Rules& PoolRules::For(Kind kind) const {
 	switch (kind) {
 	case Kind::Stamina: return stamina;

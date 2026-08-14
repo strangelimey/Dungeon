@@ -198,6 +198,11 @@ public:
 	// kBookHands: a book cast credits both hands' quick-cast MRU.
 	std::function<void(size_t, size_t, const std::vector<SpellSymbol>&)>
 		onCastSequence;
+	// Member `i` eats or drinks the item with this catalog id — wired to
+	// DungeonWorld::ConsumeItem, which owns the catalogs and the two meters.
+	// Returns what it actually RESTORED, so the caller can refuse the action
+	// (and keep the item) when it would do nothing.
+	std::function<resource::Refill(size_t, const std::string&)> onConsume;
 	std::function<void()> onKeysChanged;        // a movement key was rebound
 	std::function<void()> onLookChanged;        // a mouse-look knob changed (push to Party)
 	std::function<void()> onHeadBobChanged;     // the head-bob checkbox (push to Party)

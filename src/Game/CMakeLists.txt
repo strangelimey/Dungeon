@@ -31,6 +31,7 @@ add_library(Game STATIC
 	Effect/DotEffect.cpp
 	Effect/Effect.cpp
 	Effect/SightEffect.cpp
+	Effect/SupplyEffect.cpp
 	Effect/WardEffect.cpp
 	Entity.cpp
 	EntityInspector.cpp

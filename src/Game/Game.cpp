@@ -449,10 +449,16 @@ void Game::ResetRoster() {
 	// CreateDefaultParty seeds the derived maxima at k=1; re-derive under the
 	// project's live balance knobs (fresh members are at full, so top them up).
 	m_world.RecomputePartyMaxima();
+	const Balance& bal = m_world.GetBalance();
 	for (Character& member : m_characters) {
 		member.health = member.maxHealth;
 		member.stamina = member.maxStamina;
 		member.mana = member.maxMana;
+		// Supplies start FULL and come from the knobs, not from Character's
+		// defaults — a project that raises food_max should have its new parties
+		// begin at the raised value, not at whatever the header happened to say.
+		member.food = bal.foodMax;
+		member.water = bal.waterMax;
 	}
 	ApplyMemberColors(); // the settings palette wins over the authored defaults
 }
@@ -552,6 +558,9 @@ void Game::SaveGame(const std::string& name) {
 		c.baseMana = member.baseMana;
 		c.dead = member.dead; // the overkill flag (v18)
 		c.offenseShare = member.offenseShare; // the stance (v23)
+		c.hasSupplies = true; // food and water (v25)
+		c.food = member.food;
+		c.water = member.water;
 		data.characters.push_back(std::move(c));
 	}
 	WriteSave(data, SaveSlotPath(name));
@@ -643,6 +652,12 @@ bool Game::LoadGame(const std::string& path) {
 		// The offense stance (v23). A pre-v23 save leaves the CharState at its
 		// 1.0 default, which is exactly what those saves meant: all-out.
 		member.offenseShare = c.offenseShare;
+		// Food and water (v25). A save older than supplies arrives FULL — it
+		// predates the mechanic, so its party has not been starving off-screen,
+		// and defaulting the new fields to zero would open every existing save
+		// onto four members taking starvation damage.
+		member.food = c.hasSupplies ? c.food : bal.foodMax;
+		member.water = c.hasSupplies ? c.water : bal.waterMax;
 		if (c.hasBases) {
 			member.baseHealth = c.baseHealth;
 			member.baseStamina = c.baseStamina;

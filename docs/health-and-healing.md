@@ -8,7 +8,7 @@ second source.
 | part | state |
 |---|---|
 | **aptitude and practice** — the three skills, the maxima, the regen rates, the state gate, the training loops | **BUILT** |
-| food and water, and starving | design only |
+| **food and water** — the two meters, conditioning's price, exertion, eating and drinking, starving and parched, save v25 | **BUILT** |
 | rest | design only |
 | movement pace from conditioning | design only |
 | the resource skills on the sheet | design only |
@@ -22,8 +22,11 @@ vitality, because vitality feeds max stamina and the loop closed on itself.
 
 Every rate is measurable: the dev console's **`regen`** prints all three per
 second for each member, plus two reference rows at equal investment that are
-where the stamina > mana > health ordering is actually read. The eval harness's
-`resources` suite is the standing measurement (`.\tools\Eval.ps1 -Only resources`).
+where the stamina > mana > health ordering is actually read. **`supplies`** does
+the same for the two meters, in HOURS REMAINING rather than in units, because a
+meter reading 62 means nothing until you know the drain rate behind it. The eval
+harness's `resources` and `supplies` suites are the standing measurements
+(`.\tools\Eval.ps1 -Only resources,supplies`).
 
 It came out of the eval harness: a progression ladder needs to know how the party
 *arrives* at the next fight, and the answer turned out to be a whole system
@@ -360,6 +363,38 @@ classes with their `effects.cat` blocks and lang keys.
 **Water first.** Thirst should reach zero before hunger and bite harder when it
 does, so the parched effect carries the larger magnitude.
 
+### As built
+
+`starving` and `parched` are ordinary DoT classes (`src/Game/Effect/
+SupplyEffect.*`) dealing the new `starve` type. They differ from poison and
+bleed in exactly one way, and it is not in the class: **a DoT runs out and these
+do not**, so the SUPPLY TICK holds `timeLeft` topped up while the meter is empty
+and erases the effect when it is not.
+
+That is deliberate rather than a shortcut. A "permanent effect" concept would
+have needed its own rule for what clears it, and the meter already IS that rule
+— so keeping one truth means an eaten apple cannot leave a member starving, and
+a reloaded save cannot restore a starving member who is not hungry. **The effect
+is the meter's shadow.**
+
+The transition is owned by ONE place for the same reason. `ConsumeItem` refills
+the meter and deliberately does not lift the effect; the next supply tick sees a
+non-empty meter and lifts it, with its relief line. Two sites that could remove
+it would eventually disagree.
+
+Measured at the shipped defaults (`.\tools\Eval.ps1 -Only supplies`):
+
+| | food | water |
+|---|---|---|
+| a fresh, untrained member | 7.9 h | 5.0 h |
+| the same member at conditioning 25 | 5.0 h | 3.2 h |
+
+**A measurement worth Michael's eye, not a proposal:** exertion is currently a
+much smaller drain than time. Eight steps cost about 0.06 food and 0.12 water,
+so marching is nearly free; a fight spending ~30 stamina costs about 2.4 food and
+4.5 water, which is a real 4.5% of the water meter. Time dominates, and whether
+that is the right split is a playtest question.
+
 ### What this does to the shape of a run
 
 **Attrition moves from health to supplies.** You always arrive at the next fight
@@ -451,16 +486,27 @@ only trained skills from opening on three rows nobody selected.
   pools. `tools/RollTest` +15 checks; `tools/AllocTest.ps1 -Wounded`;
   `tools/EvalScripts/resources.eval` as the `resources` eval suite.
 
+### Done — supplies
+
+- `resource::Supply` / `SupplyRules` / `DrainPerSec` / `Refill` in the pure TU;
+  `Balance::SupplyOf`. `Character::food` / `water` / `SupplyLevel`.
+- `DungeonWorld::TickSupplies` (drain by time, raise or lift the effect),
+  `DrainSuppliesByExertion` (hung off `SpendStamina`, so every swing, cast and
+  step in the game pays it), `ConsumeItem`.
+- **starving / parched**: `Effect/SupplyEffect.*`, `AllEffects.cpp`, CMakeLists,
+  `effects.cat`, and a `starve` damage type in `damagetypes.cat` that nothing
+  resists.
+- `GameUI::EatFromHand` re-pointed from its 25%-stamina placeholder onto the
+  meters, through a new `onConsume` callback; `eat` and `drink` are ONE handler.
+  `nutrition` / `hydration` on items.cat + the item schema; a `waterskin`.
+- Save **v25** (`supply <i> <food> <water>`); a pre-v25 save loads FULL.
+- Dev: `supplies`, `setsupply`, `consume`. Lang keys ×5 for both effects, the
+  damage type, the waterskin and five log lines. RollTest +8; the `supplies`
+  eval suite.
+
 ### Still to build
 
-- `Character`: two supply meters and their save lines (**v25**).
-- **The starving / parched effects**: two classes in `src/Game/Effect/`, their
-  `AllEffects.cpp` + CMakeLists lines, `effects.cat` blocks, and a `starve`
-  damage type in `damagetypes.cat` that nothing resists.
 - **Rest**: one flag on the world, the time multiplier, and the hit-breaks-it rule.
-- `GameUI::EatFromHand`: re-point at the food meter (it restores stamina today),
-  plus a nutrition catalog field — and a drink item with a `drink` verb, which
-  does not exist.
 - `moveSpeed` from conditioning, through the existing slowest-member rule.
 - The character sheet's Skills tab: the resource skills as their own group.
 - The eval harness: a rung that measures a *sequence* of fights, which is the

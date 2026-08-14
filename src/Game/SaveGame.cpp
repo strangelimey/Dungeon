@@ -150,6 +150,10 @@ bool WriteSave(const SaveData& data, const std::string& path) {
 		// maxima derive from these + the attributes, docs/combat.md part 3).
 		t += std::format("base {} {:.3f} {:.3f} {:.3f}\n", i, c.baseHealth,
 						 c.baseStamina, c.baseMana);
+		// "supply <i> <food> <water>" — the two meters (v25). Always written,
+		// unlike `share`: an absent line means "a save older than supplies",
+		// which loads FULL, so it cannot double as "this member is empty".
+		t += std::format("supply {} {:.3f} {:.3f}\n", i, c.food, c.water);
 		// "dead <i>" — the overkill flag (v18), written only when set.
 		if (c.dead) t += std::format("dead {}\n", i);
 		// "share <i> <value>" — the offense stance (v23), written only when it
@@ -370,6 +374,12 @@ std::optional<SaveData> ReadSave(const std::string& path) {
 			c.baseHealth = FloatOf(tok[2]);
 			c.baseStamina = FloatOf(tok[3]);
 			c.baseMana = FloatOf(tok[4]);
+		} else if (kw == "supply" && tok.size() >= 4) {
+			// Food and water: "supply <i> <food> <water>" (v25).
+			SaveData::CharState& c = CharAt(data, tok[1]);
+			c.hasSupplies = true;
+			c.food = FloatOf(tok[2]);
+			c.water = FloatOf(tok[3]);
 		} else if (kw == "dead" && tok.size() >= 2) {
 			// The overkill flag (v18): present = this member is DEAD.
 			CharAt(data, tok[1]).dead = true;

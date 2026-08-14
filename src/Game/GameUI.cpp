@@ -77,7 +77,8 @@ bool IsMenuOnlyUse(std::string_view cmd) { return cmd == "memorize"; }
 // True if ExecuteUse can dispatch this id — unknown ids (a catalog typo) get
 // no menu entry rather than a dead one.
 bool IsExecutableUse(std::string_view cmd) {
-	return cmd == "eat" || cmd == "memorize" || IsMeleeUse(cmd) || IsCastUse(cmd);
+	return cmd == "eat" || cmd == "drink" || cmd == "memorize" ||
+		   IsMeleeUse(cmd) || IsCastUse(cmd);
 }
 // The useDefaults key a hand's contents map to ("unarmed" for a bare hand —
 // item ids are catalog tokens, so the sentinel can never collide).
@@ -400,7 +401,11 @@ void GameUI::ExecuteUse(size_t i, size_t hand, const std::string& cmd) {
 	if (i >= m_characters.size() || hand > 1 || cmd.empty()) return;
 	if (cmd == "memorize") {
 		MemorizeFromHand(i, hand);
-	} else if (cmd == "eat") {
+	} else if (cmd == "eat" || cmd == "drink") {
+		// ONE handler for both verbs. An apple feeds AND waters a little, so
+		// splitting by verb would have meant writing the other half twice; the
+		// item's `nutrition`/`hydration` say what it does and the verb only says
+		// how it reads in the menu.
 		EatFromHand(i, hand);
 	} else if (IsCastUse(cmd)) {
 		// A "cast:<id>" default: the world's cast façade gates vocabulary and
@@ -497,16 +502,29 @@ void GameUI::EatFromHand(size_t i, size_t hand) {
 	Character& c = m_characters[i];
 	ItemSlot& slot = c.inventory.Hand(static_cast<int>(hand));
 	if (slot.Empty()) return;
-	// Food restores a fraction of max stamina (scale-independent). A per-food
-	// nutrition value is a future catalog field; flat for this first slice.
-	constexpr float kRestoreFrac = 0.25f;
-	c.stamina = std::min(c.maxStamina, c.stamina + kRestoreFrac * c.maxStamina);
-	// Localized food name by the item.<id> convention (matches ItemKind::nameKey).
+	// Localized name by the item.<id> convention (matches ItemKind::nameKey);
+	// read BEFORE the slot is cleared.
 	const std::string foodName = loc::Tr(std::format("item.{}", slot.typeId));
-	slot.Clear(); // the food is consumed
+	// The world owns the catalogs and the meters, so it owns the arithmetic
+	// (docs/health-and-healing.md). This used to restore a flat 25% of max
+	// STAMINA — a placeholder from the items thread, kept only because nothing
+	// consumed food. It is re-pointed here rather than replaced: an existing
+	// seam, like SpendStamina's creep.
+	const resource::Refill got =
+		onConsume ? onConsume(i, slot.typeId) : resource::Refill{};
+	if (!got.Any()) {
+		// It fed nobody — either the item has no nutrition at all, or this
+		// member is already full. Refuse rather than silently eating it: losing
+		// the last apple to a full stomach is the kind of thing a player never
+		// forgives, and never notices happening.
+		AddLogLine(loc::Format("log.eat_no_effect", c.name, foodName),
+				   c.portraitColor);
+		return;
+	}
+	slot.Clear(); // consumed
 	Click();
 	AddLogLine(loc::Format("log.eat", c.name, foodName), c.portraitColor);
-	RefreshSheet(); // stamina bar / carry load on the sheet may be on screen
+	RefreshSheet(); // the supply bars / carry load may be on screen
 }
 
 // ============================================================================

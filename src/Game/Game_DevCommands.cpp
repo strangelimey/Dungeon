@@ -1218,6 +1218,103 @@ void Game::RegisterDevCommands() {
 						   }
 					   });
 
+	// Food and water, and how long they have left. The REMAINING TIME is the
+	// point of the readout: a meter at 62 means nothing on its own, because the
+	// drain rate depends on the member's conditioning — the fitter member burns
+	// more, which is the brake the whole design rests on. Printed in hours,
+	// because a supply run is a question about hours and not about seconds.
+	m_console.Register("supplies", "each member's food and water, and hours left (dev)",
+					   [this](const std::vector<std::string>&) {
+						   const Balance& bal = m_world.GetBalance();
+						   const resource::SupplyRules food =
+							   bal.SupplyOf(resource::Supply::Food);
+						   const resource::SupplyRules water =
+							   bal.SupplyOf(resource::Supply::Water);
+						   for (size_t i = 0; i < m_characters.size(); ++i) {
+							   const Character& c = m_characters[i];
+							   const float cond =
+								   c.PracticeLevel(resource::Kind::Stamina);
+							   const auto hours = [&](const resource::SupplyRules& r,
+													  float level) {
+								   const float rate = resource::DrainPerSec(r, cond);
+								   return rate > 0.0f ? level / rate / 3600.0f : 0.0f;
+							   };
+							   m_console.Print(std::format(
+								   "  [{}] {:<6} food {:5.1f}/{:.0f} ({:4.1f}h)  "
+								   "water {:5.1f}/{:.0f} ({:4.1f}h)  cond {:.0f}{}{}",
+								   i, c.name, c.food, food.max, hours(food, c.food),
+								   c.water, water.max, hours(water, c.water), cond,
+								   c.FindEffect("starving") ? "  STARVING" : "",
+								   c.FindEffect("parched") ? "  PARCHED" : ""));
+						   }
+					   });
+
+	// Eat or drink a catalog item outright — no inventory, no hand slot. The UI
+	// path (a hand-menu `eat`/`drink`) runs the very same DungeonWorld::
+	// ConsumeItem, so this exercises the arithmetic and the effect-lifting that
+	// a script cannot reach by clicking (see [[hands-on-visual-testing]]).
+	m_console.Register("consume", "eat or drink an item (dev): consume <item> [member]",
+					   [this](const std::vector<std::string>& args) {
+						   if (!Need(m_console, args, 1,
+									 "usage: consume <item id> [member 0-3]"))
+							   return;
+						   const size_t m =
+							   args.size() > 1
+								   ? static_cast<size_t>(std::atoi(args[1].c_str()))
+								   : 0;
+						   if (m >= m_characters.size()) {
+							   m_console.Print("no such member");
+							   return;
+						   }
+						   const resource::Refill got =
+							   m_world.ConsumeItem(m_characters[m], args[0]);
+						   m_console.Print(
+							   got.Any()
+								   ? std::format("{} consumes {}: food +{:.1f} water +{:.1f}",
+												 m_characters[m].name, args[0],
+												 got.food, got.water)
+								   : std::format("{} gains nothing from {} "
+												 "(not consumable, or already full)",
+												 m_characters[m].name, args[0]));
+					   });
+
+	// Seeding a supply state, so a script can start a rung hungry instead of
+	// stepping eight hours to get there.
+	m_console.Register("setsupply",
+					   "set food/water (dev): setsupply <member|all> <food|water> <n>",
+					   [this](const std::vector<std::string>& args) {
+						   if (!Need(m_console, args, 3,
+									 "usage: setsupply <member 0-3|all> "
+									 "<food|water> <n>"))
+							   return;
+						   const bool all = args[0] == "all";
+						   const size_t one =
+							   static_cast<size_t>(std::atoi(args[0].c_str()));
+						   if (!all && one >= m_characters.size()) {
+							   m_console.Print("no such member");
+							   return;
+						   }
+						   resource::Supply which{};
+						   if (args[1] == "food") which = resource::Supply::Food;
+						   else if (args[1] == "water") which = resource::Supply::Water;
+						   else {
+							   m_console.Print("expected food or water");
+							   return;
+						   }
+						   const float max =
+							   m_world.GetBalance().SupplyOf(which).max;
+						   const float v = std::clamp(
+							   static_cast<float>(std::atof(args[2].c_str())), 0.0f,
+							   max);
+						   for (size_t i = 0; i < m_characters.size(); ++i) {
+							   if (!all && i != one) continue;
+							   m_characters[i].SupplyLevel(which) = v;
+						   }
+						   m_console.Print(std::format("{} {} = {:.1f}",
+													   all ? "party" : m_characters[one].name,
+													   args[1], v));
+					   });
+
 	// --- the arena (docs/eval-harness.md) -----------------------------------
 	// Carve a controlled space into the loaded map and empty the world into it.
 	// Writes NO files: the editor's new-level button would author a .map/.ent

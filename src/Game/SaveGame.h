@@ -89,7 +89,7 @@ struct SaveData {
 	//     buttons as a diff (keyed by .ent id) or a whole spawn (no baseline);
 	//     replaces the v6 split of "ent"/"monster" rows + a whole "floor" item
 	//     snapshot. v6: free-look offset ("look" line); v5 folded hands into equip[].
-	int version = 24; // v24: broken props (the dungeon as a target)
+	int version = 25; // v25: food and water ("supply" line)
 
 	// ONE active status effect, as it survives a save. Shared by both sides —
 	// a party member's list and (v22) a monster's — because the effects system
@@ -180,6 +180,12 @@ struct SaveData {
 		// the stored maxima at apply time.
 		bool hasBases = false;
 		float baseHealth = 0, baseStamina = 0, baseMana = 0;
+		// FOOD and WATER ("supply" line, v25). hasSupplies=false (an older save)
+		// arrives FULL rather than empty — a party loaded from a v24 save has
+		// not been starving off-screen, and defaulting a new meter to zero would
+		// have every existing save open onto four members taking damage.
+		bool hasSupplies = false;
+		float food = 0, water = 0;
 		// DEAD (v18, "dead" line, written only when set): a downed member who
 		// took deliberate overkill — never self-stabilizes. Absent = alive or
 		// unconscious.

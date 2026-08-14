@@ -847,6 +847,15 @@ DungeonWorld::ItemKind& DungeonWorld::ItemKindFor(const std::string& type) {
 									"items.cat [" + type + "]");
 		// Weapon reach (Phase 7): `reach = polearm` swings from the rear rank.
 		kind->polearm = CatalogGet(def, "reach", "melee") == "polearm";
+		// What eating or drinking it restores (docs/health-and-healing.md).
+		// BOTH, on every item, because most real food is partly one and partly
+		// the other — an apple waters a little, a stew does both properly — and
+		// splitting them by VERB would have forced bread and a waterskin into
+		// different code for the same statement. The verb is flavour; these are
+		// the content. Absent = 0 = the item feeds nobody, and a consume of it
+		// is refused rather than silently eating a rock.
+		kind->nutrition = def ? def->GetFloat("nutrition", 0.0f) : 0.0f;
+		kind->hydration = def ? def->GetFloat("hydration", 0.0f) : 0.0f;
 		// What its blows leave behind, named by effect id — the same authored
 		// form a monster uses. A plain weapon has none and swings as before.
 		ParseOnHit(def, kind->onHit, "weapons.cat [" + type + "]");

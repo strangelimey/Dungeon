@@ -47,6 +47,27 @@ mana_exert = 0.25
 conditioning_xp = 0.3
 attunement_xp = 0.25
 constitution_xp = 0.4
+
+; Supplies: the two meters, out of 100. Base drain is per second of world time
+; -- about 8 hours to empty on food, 5 on water, because thirst should kill
+; first. <s>_cond_* is CONDITIONING'S PRICE (extra drain, tapering to its cap):
+; the fitter member burns more, which is the one loop in this design that taxes
+; the compounding instead of adding to it. <s>_exertion is per point of stamina
+; SPENT, and WATER IS THE HEAVIER -- sweat is water, so a heavy fight in armour
+; makes you thirsty rather than merely hungry. hunger_/thirst_damage are health
+; per second once a meter is EMPTY, which is fatal (Michael's call).
+food_max = 100
+food_rate = 0.0035
+food_cond_slope = 0.0002
+food_cond_cap = 0.0035
+food_exertion = 0.08
+hunger_damage = 0.5
+water_max = 100
+water_rate = 0.0056
+water_cond_slope = 0.0003
+water_cond_cap = 0.0056
+water_exertion = 0.15
+thirst_damage = 0.8
 stamina_swing = 1
 stamina_weight = 0.4
 stamina_step = 0.1

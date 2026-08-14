@@ -93,6 +93,44 @@ struct Rules {
 	CurveRules skillRegen{};
 };
 
+// --- supplies (docs/health-and-healing.md "Food and water") -----------------
+// The two meters that make rest cost something, and therefore make every rate
+// above matter. They are NOT pools: nothing regenerates them, they only ever
+// fall, and they are refilled by an ITEM. So they get their own small shape
+// rather than being bent into Rules.
+enum class Supply : u8 { Food, Water, Count };
+
+// One meter's knobs. `max` is a flat knob and not a derived maximum on purpose
+// — the size of a stomach is not an attribute, and making it one would put two
+// more fields in every save for a number nobody would tune per character.
+struct SupplyRules {
+	float max = 100.0f;
+	float perSecond = 0.0f; // drained by time passing
+	// CONDITIONING'S PRICE, in extra units per second, tapering to its cap. This
+	// is the brake on the whole design: every other loop compounds upward, and
+	// this is the one that taxes the compounding — the fitter member burns more
+	// food and water, so training is not free.
+	CurveRules condDrain{};
+	float perExertion = 0.0f;  // drained per point of stamina SPENT
+	float starveDamage = 0.0f; // health per second once the meter is empty
+};
+
+// Units per second at conditioning level `practice`, before exertion. Never
+// negative: a meter that filled itself by standing still would undo the point.
+float DrainPerSec(const SupplyRules& rules, float practice);
+
+// What consuming something actually RESTORED — not what it was worth. A full
+// member gains nothing from an apple, and the caller needs to know that to
+// refuse the action and keep the item rather than eat it for no effect.
+//
+// It lives here, in the pure header, rather than nested in DungeonWorld: the
+// UI raises the action and the world answers it, so the type sits on a seam
+// between them and belongs to neither.
+struct Refill {
+	float food = 0.0f, water = 0.0f;
+	bool Any() const { return food > 0.0f || water > 0.0f; }
+};
+
 // All three pools' knobs together. Bundled because they are always needed
 // together: one stat point moves more than one pool, so RecomputeMaxima can
 // never usefully be handed just one of these — and a single argument keeps the

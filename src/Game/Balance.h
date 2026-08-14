@@ -189,6 +189,32 @@ struct Balance {
 	float conditioningXp = 0.3f;  // per stamina point spent
 	float attunementXp = 0.25f;   // per mana point spent
 	float constitutionXp = 0.4f;  // per health point REGAINED
+	// --- SUPPLIES (docs/health-and-healing.md "Food and water") --------------
+	// The two meters, out of 100 so a reading is legible as a percentage. Base
+	// drain is per second of world time: ~8 hours to empty on food, ~5 on water,
+	// because thirst should kill first and the two meters should behave
+	// differently rather than being one meter drawn twice.
+	//
+	// `<s>_cond_slope`/`_cap` are CONDITIONING'S PRICE — extra drain per second,
+	// tapering. A cap of 0 switches it off (resource::SkillTerm's rule).
+	// `<s>_exertion` is per point of stamina SPENT, and **water is the heavier
+	// of the two by design**: sweat is water, so a heavy fight in armour makes
+	// you thirsty faster than hungry, and water becomes the supply that decides
+	// how deep a stamina-heavy party can go.
+	//
+	// `hunger_damage`/`thirst_damage` are health per second once the meter is
+	// EMPTY. They are the magnitudes of the starving/parched effects, not a
+	// separate damage path — see the effect classes.
+	float foodMax = 100.0f;
+	float foodRate = 0.0035f;
+	float foodCondSlope = 0.0002f, foodCondCap = 0.0035f;
+	float foodExertion = 0.08f;
+	float hungerDamage = 0.5f;
+	float waterMax = 100.0f;
+	float waterRate = 0.0056f;
+	float waterCondSlope = 0.0003f, waterCondCap = 0.0056f;
+	float waterExertion = 0.15f;
+	float thirstDamage = 0.8f;
 	// Stamina costs + exhaustion (docs/combat.md Phase 4). A swing spends
 	// (stamina_swing + stamina_weight × weapon kg) × attack.stam; a step
 	// spends stamina_step per standing member. Regen is the resource model
@@ -292,6 +318,8 @@ struct Balance {
 	resource::Rules Resource(resource::Kind kind) const;
 	// All three at once — what Character::RecomputeMaxima takes.
 	resource::PoolRules Resources() const;
+	// One supply meter's knobs, gathered the same way.
+	resource::SupplyRules SupplyOf(resource::Supply which) const;
 
 	// The two contribution curves, assembled from the knobs above.
 	CurveRules SkillCurve() const {

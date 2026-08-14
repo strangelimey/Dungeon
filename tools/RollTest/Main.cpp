@@ -1639,9 +1639,42 @@ int main(int argc, char** argv) {
 					  pools.For(Kind::Stamina).perAptitude == 2.0f &&
 					  pools.For(Kind::Mana).perAptitude == 3.0f);
 
-		std::printf("  (the ORDERING the model asks for — stamina > mana > health\n"
-					"   at equal investment — is a property of the AUTHORED knobs,\n"
-					"   not of this arithmetic, so the eval harness checks it)\n");
+		// --- supplies ---------------------------------------------------------
+		// The same zero-cap trap, and it is WORSE here: an unbounded conditioning
+		// term would make the fitter member's drain rise forever, which is a
+		// runaway inside the mechanism that exists to prevent runaways.
+		SupplyRules food;
+		food.perSecond = 0.0035f;
+		food.condDrain = {CurveForm::Hyperbolic, 0.0002f, 0.0035f, 0.0f};
+
+		Check("an untrained member drains at the base rate",
+			  DrainPerSec(food, 0.0f), food.perSecond, 1e-6);
+		CheckTrue("conditioning costs more, which is the brake",
+				  DrainPerSec(food, 25.0f) > DrainPerSec(food, 0.0f));
+		CheckTrue("...and that cost is bounded",
+				  DrainPerSec(food, 100000.0f) <
+					  food.perSecond + food.condDrain.cap);
+		SupplyRules freeCond = food;
+		freeCond.condDrain.cap = 0.0f;
+		Check("a zero cap makes conditioning free, not unbounded",
+			  DrainPerSec(freeCond, 400.0f), freeCond.perSecond, 1e-6);
+		// A meter that filled itself by standing still would undo the whole
+		// point of supplies, so the rate floors at zero however the knobs are set.
+		SupplyRules perverse;
+		perverse.perSecond = -5.0f;
+		CheckTrue("a negative rate cannot refill a meter",
+				  DrainPerSec(perverse, 10.0f) >= 0.0f);
+
+		// Refill reports what it RESTORED, and "nothing" has to be answerable —
+		// it is what lets the caller keep the item instead of eating it for no
+		// effect.
+		CheckTrue("an empty refill is not Any()", !Refill{}.Any());
+		CheckTrue("water alone counts", (Refill{0.0f, 1.0f}).Any());
+		CheckTrue("food alone counts", (Refill{1.0f, 0.0f}).Any());
+
+		std::printf("  (two orderings live in the AUTHORED knobs, not in this\n"
+					"   arithmetic — stamina > mana > health per second, and water\n"
+					"   draining faster than food — so the eval harness checks both)\n");
 	}
 
 	// --- verdict ------------------------------------------------------------

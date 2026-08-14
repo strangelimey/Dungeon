@@ -10,6 +10,7 @@
 
 #include "Game/Effect/DotEffect.h"
 #include "Game/Effect/SightEffect.h"
+#include "Game/Effect/SupplyEffect.h"
 #include "Game/Effect/WardEffect.h"
 
 #include <memory>
@@ -27,6 +28,10 @@ std::vector<std::unique_ptr<EffectKind>> MakeAllEffects() {
 	all.push_back(std::make_unique<PoisonEffect>());
 	all.push_back(std::make_unique<BleedEffect>());
 	all.push_back(std::make_unique<BurnEffect>());
+	// An empty supply meter (docs/health-and-healing.md). DoTs like the three
+	// above, but held open by the METER rather than by a timer.
+	all.push_back(std::make_unique<StarvingEffect>());
+	all.push_back(std::make_unique<ParchedEffect>());
 	// The see-through mark (all four Sight spells).
 	all.push_back(std::make_unique<SightEffect>());
 	return all;

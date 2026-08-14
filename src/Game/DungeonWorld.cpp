@@ -853,6 +853,12 @@ void DungeonWorld::UpdateMonsters(float dt) {
 					}
 				}
 			}
+			// Food and water (docs/health-and-healing.md). BEFORE the effect
+			// tick, deliberately: an emptied meter raises its starving/parched
+			// effect and that effect must bite on the SAME frame, or the first
+			// moment of deprivation is silently free. It also means an eaten
+			// apple lifts the effect before it can bite again.
+			TickSupplies(member, dt);
 			// Age the effects and let their DoTs bite (the shared TickEffects —
 			// the monster loop below runs the very same call). An expired one
 			// leaves with its category's fade line; spend-to-die wards — the

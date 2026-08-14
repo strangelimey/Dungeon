@@ -87,6 +87,19 @@ constexpr BalanceField kBalanceFields[] = {
 	{"conditioning_xp", &Balance::conditioningXp},
 	{"attunement_xp", &Balance::attunementXp},
 	{"constitution_xp", &Balance::constitutionXp},
+	// Supplies — grouped per meter, like the pools.
+	{"food_max", &Balance::foodMax},
+	{"food_rate", &Balance::foodRate},
+	{"food_cond_slope", &Balance::foodCondSlope},
+	{"food_cond_cap", &Balance::foodCondCap},
+	{"food_exertion", &Balance::foodExertion},
+	{"hunger_damage", &Balance::hungerDamage},
+	{"water_max", &Balance::waterMax},
+	{"water_rate", &Balance::waterRate},
+	{"water_cond_slope", &Balance::waterCondSlope},
+	{"water_cond_cap", &Balance::waterCondCap},
+	{"water_exertion", &Balance::waterExertion},
+	{"thirst_damage", &Balance::thirstDamage},
 	{"stamina_swing", &Balance::staminaSwing},
 	{"stamina_weight", &Balance::staminaWeight},
 	{"stamina_step", &Balance::staminaStep},
@@ -230,6 +243,16 @@ resource::Rules Balance::Resource(resource::Kind kind) const {
 resource::PoolRules Balance::Resources() const {
 	return {Resource(resource::Kind::Health), Resource(resource::Kind::Stamina),
 			Resource(resource::Kind::Mana)};
+}
+
+resource::SupplyRules Balance::SupplyOf(resource::Supply which) const {
+	const auto form = static_cast<CurveForm>(static_cast<int>(skillCurve));
+	if (which == resource::Supply::Water)
+		return {waterMax, waterRate,
+				{form, waterCondSlope, waterCondCap, 0.0f}, waterExertion,
+				thirstDamage};
+	return {foodMax, foodRate, {form, foodCondSlope, foodCondCap, 0.0f},
+			foodExertion, hungerDamage};
 }
 
 const AttackSpec* Balance::FindAttack(std::string_view id) const {

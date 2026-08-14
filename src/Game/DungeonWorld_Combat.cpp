@@ -168,6 +168,110 @@ void DungeonWorld::GrantResourceXp(Character& member, resource::Kind kind,
 	if (member.SkillLevel(skill) != before) member.RecomputeMaxima(m_balance.Resources());
 }
 
+// --- supplies (docs/health-and-healing.md "Food and water") ------------------
+// One frame of one member's two meters. THE EFFECTS DO THE DAMAGE, not this:
+// all this does is decide whether the meter is empty and make the effect list
+// agree with that. Everything downstream — resists, the ward stages, a Tick on
+// a downed member being lethal under the overkill rule — is then the ordinary
+// effects pipeline, unchanged and already tested.
+//
+// THE EFFECT IS THE METER'S SHADOW, and that is why `timeLeft` is topped up
+// rather than the kind being given some notion of permanence. A permanent
+// effect would need its own rule for what clears it, and the meter already IS
+// that rule; keeping one truth means an eaten apple cannot leave a member
+// starving, and a save cannot restore a starving member who is not hungry.
+void DungeonWorld::TickSupplies(Character& member, float dt) {
+	if (!member.IsAlive() || dt <= 0.0f) return;
+	// The dead do not eat. The DOWNED do — they are unconscious, not gone, and
+	// a party that leaves someone bleeding out on the floor for hours should
+	// find them worse rather than perfectly preserved. (IsAlive already
+	// excluded them above; this comment is here because the opposite reading is
+	// the tempting one.)
+	const float practice = member.PracticeLevel(resource::Kind::Stamina);
+	for (const resource::Supply which :
+		 {resource::Supply::Food, resource::Supply::Water}) {
+		const resource::SupplyRules rules = m_balance.SupplyOf(which);
+		float& level = member.SupplyLevel(which);
+		level = std::clamp(level - resource::DrainPerSec(rules, practice) * dt,
+						   0.0f, rules.max);
+
+		const char* id = which == resource::Supply::Water ? "parched" : "starving";
+		fx::Inst* held = member.FindEffect(id);
+		if (level > 0.0f) {
+			// Fed. The effect goes, and says so — a relief line, because the
+			// moment you stop starving is worth as much of the player's
+			// attention as the moment you start.
+			if (held) {
+				member.RemoveEffect(id);
+				MemberMessage(member,
+							  loc::Format(which == resource::Supply::Water
+											  ? "log.no_longer_parched"
+											  : "log.no_longer_starving",
+										  member.name));
+			}
+			continue;
+		}
+		if (rules.starveDamage <= 0.0f) continue; // the meter is off
+		const fx::EffectKind* kind = m_effects.Find(id);
+		if (!kind) continue; // effects.cat dropped it; warned at load
+		if (held) {
+			// Hold it open. The duration is nominal — it exists so the ordinary
+			// aging loop has something to age, and is refreshed faster than it
+			// can ever run out.
+			held->timeLeft = kDeprivationHold;
+			held->magnitude = rules.starveDamage; // a live knob edit takes effect
+			continue;
+		}
+		PartyTarget starved{*this, member};
+		fx::Apply(member.effects, *kind, kind->DefaultSchool(),
+				  rules.starveDamage, kDeprivationHold);
+		starved.SayApplied(*kind);
+	}
+}
+
+// Every exertion in the game pays this, because it hangs off SpendStamina — the
+// one place a swing, a cast and a step all arrive. WATER COSTS MORE THAN FOOD
+// (Michael's call): sweat is water, so a heavy fight in armour makes you
+// thirsty rather than merely hungry, and the armour surcharge SpendStamina
+// already applies is inside `points`, so a badly-fitted suit is paid for a
+// third time here. That compounding is the intent.
+void DungeonWorld::DrainSuppliesByExertion(Character& member, float points) {
+	if (points <= 0.0f) return;
+	for (const resource::Supply which :
+		 {resource::Supply::Food, resource::Supply::Water}) {
+		const resource::SupplyRules rules = m_balance.SupplyOf(which);
+		float& level = member.SupplyLevel(which);
+		level = std::clamp(level - points * rules.perExertion, 0.0f, rules.max);
+	}
+	// Deliberately NOT raising the starving/parched effect here even when this
+	// empties a meter: TickSupplies runs every frame and owns that decision, so
+	// there is exactly one place that can put the effect on. Two would drift.
+}
+
+// Eating and drinking are ONE operation with two verbs. An apple both feeds and
+// waters a little, so a handler per verb would have had to duplicate the other
+// half — and a stew or a waterskin is the same statement with the numbers moved.
+// The verb is flavour; `nutrition`/`hydration` are the content.
+resource::Refill DungeonWorld::ConsumeItem(Character& member,
+										   const std::string& typeId) {
+	resource::Refill got;
+	const ItemKind& kind = ItemKindFor(typeId);
+	const resource::SupplyRules foodRules = m_balance.SupplyOf(resource::Supply::Food);
+	const resource::SupplyRules waterRules = m_balance.SupplyOf(resource::Supply::Water);
+	// What it RESTORED, not what it was worth: a full member gains nothing from
+	// an apple, and the caller needs to know that to refuse the action rather
+	// than consume it for no effect.
+	const float beforeFood = member.food, beforeWater = member.water;
+	member.food = std::clamp(member.food + kind.nutrition, 0.0f, foodRules.max);
+	member.water = std::clamp(member.water + kind.hydration, 0.0f, waterRules.max);
+	got.food = member.food - beforeFood;
+	got.water = member.water - beforeWater;
+	// The starving/parched effects are NOT cleared here — TickSupplies sees the
+	// refilled meter next frame and lifts them, with their relief lines, from
+	// the one place that owns that transition.
+	return got;
+}
+
 // A whole stat point lands: increment, log, and re-derive the resource maxima
 // (the resource formula — a VIT point is FELT as a bigger health/stamina pool,
 // and the growth carries the current value so it reads as growth, not damage).
@@ -232,6 +336,10 @@ float DungeonWorld::SpendStamina(Character& member, float points) {
 	// is why `vit_exertion` is gone rather than set to zero: a knob that must
 	// stay at zero to keep the game correct is a trap with a dial on it.
 	GrantResourceXp(member, resource::Kind::Stamina, points);
+	// And it costs SUPPLIES — the same throughput, billed a third way. This is
+	// where conditioning stops being free: a fitter member spends more stamina
+	// over a day AND burns more food and water per point of it.
+	DrainSuppliesByExertion(member, points);
 	return unpaid;
 }
 

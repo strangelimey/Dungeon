@@ -61,6 +61,16 @@ struct Character {
 	float mana = 1.0f, maxMana = 1.0f;
 	float baseHealth = 1.0f, baseStamina = 1.0f, baseMana = 1.0f;
 
+	// SUPPLIES (docs/health-and-healing.md). Not pools: nothing regenerates
+	// them, they only fall, and only an item refills them. Their maximum is a
+	// flat balance knob rather than a field here — the size of a stomach is not
+	// an attribute — so only the current level rides the save (v25).
+	//
+	// PER CHARACTER, and deliberately so: Michael plans to split the party for
+	// sub-quests, and a shared food pool would read as a harmless simplification
+	// today and be the expensive thing to unpick the day someone walks off alone.
+	float food = 100.0f, water = 100.0f;
+
 	int strength = 10;
 	int dexterity = 10;
 	int vitality = 10;
@@ -189,6 +199,14 @@ struct Character {
 	// This member's live level in the practice that feeds `kind`.
 	float PracticeLevel(resource::Kind kind) const {
 		return static_cast<float>(SkillLevel(resource::SkillId(kind)));
+	}
+	// A supply meter by id, so the two can be walked in a loop instead of every
+	// site writing the food case and then the water case beside it.
+	float& SupplyLevel(resource::Supply which) {
+		return which == resource::Supply::Water ? water : food;
+	}
+	float SupplyLevel(resource::Supply which) const {
+		return which == resource::Supply::Water ? water : food;
 	}
 	// The pool's live maximum, for whoever needs it before RecomputeMaxima has
 	// stored it (the regen rate's per-max term wants the CURRENT ceiling).

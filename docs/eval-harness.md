@@ -448,7 +448,7 @@ the game itself cannot perform.
 .	ools\Eval.ps1 -SelfTest    # the runner must FAIL on purpose
 ```
 
-Seven suites, about two minutes. `/check-eval` is the command form.
+Eight suites, about two and a half minutes. `/check-eval` is the command form.
 
 **It is deliberately OUTSIDE `CheckAll`'s tiers.** Every check in that suite
 guards a rule; this one guards nothing — a green verdict means the scripts RAN,
@@ -487,6 +487,13 @@ Two things it does that are worth copying into any suite measuring a rate:
 `AllocTest.ps1` gained `-Wounded` for the same family of reason: regeneration
 only runs BELOW maximum, so the default fresh-party run walks straight past the
 whole resource tick and reports a confident PASS for code it never executed.
+
+The `supplies` suite that followed measures food and water the same way, and its
+readout is in HOURS REMAINING rather than in units — a meter at 62 means nothing
+until you know the drain rate behind it, and that rate depends on the member's
+conditioning. It also ends by round-tripping the two new fields through a save,
+because a field that does not persist is a bug that surfaces hours later on
+somebody else's machine.
 
 ## Next
 

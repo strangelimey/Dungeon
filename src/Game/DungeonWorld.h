@@ -193,6 +193,11 @@ public:
 	// Re-derive every member's resource maxima from the balance k's — after a
 	// save-apply, a stat change, or an editor Balance apply.
 	void RecomputePartyMaxima();
+	// Eat or drink `typeId`, returning what it actually RESTORED — 0 when the
+	// item feeds nobody or the member is already full, which is how the caller
+	// knows to refuse the action and keep the item. Public because the HUD
+	// raises it (GameUI::onConsume) and only the world has the catalogs.
+	resource::Refill ConsumeItem(Character& member, const std::string& typeId);
 
 	// --- the eval harness (docs/eval-harness.md) ----------------------------
 	// Reseed the combat RNG. Every roll in the game comes off this one stream —
@@ -1485,6 +1490,11 @@ private:
 		// from the party's REAR rank (roster slots 2-3); everything else —
 		// bare hands included — is front-rank only.
 		bool polearm = false;
+		// What consuming it restores (items.cat `nutrition` / `hydration`).
+		// Both on every item: most food is partly one and partly the other, and
+		// 0/0 means it feeds nobody, which is how a consume is refused.
+		float nutrition = 0.0f;
+		float hydration = 0.0f;
 		// Worn armor's WEIGHT CLASS (armor.cat `class`): what it costs to
 		// evade in, which skill it trains, and what STR it asks. The soak
 		// itself stays per ITEM (`armor` below) — a breastplate and a mail
@@ -2343,6 +2353,20 @@ private:
 	// function that passes an empty stat list makes that a property of the code
 	// rather than a rule three call sites have to keep remembering.
 	void GrantResourceXp(Character& member, resource::Kind kind, float points);
+	// --- supplies (docs/health-and-healing.md "Food and water") ---------------
+	// One frame of a member's food and water: drain by time (scaled by
+	// conditioning — its price), then raise or clear the starving/parched
+	// effect. It does NOT deal the damage; the effects do, through the ordinary
+	// DoT tick, which is the whole reason they are effects.
+	void TickSupplies(Character& member, float dt);
+	// How long a starving/parched instance is given each frame it is held open.
+	// Nominal — long enough that the aging loop can never expire it between two
+	// supply ticks, short enough that if this code ever stopped running the
+	// effect would lift by itself rather than sticking forever.
+	static constexpr float kDeprivationHold = 5.0f;
+	// Drain both meters by a stamina SPEND (water more than food — sweat is
+	// water). Called from SpendStamina, so every exertion in the game pays it.
+	void DrainSuppliesByExertion(Character& member, float points);
 	// A whole stat point lands: increment, log, and re-derive the resource
 	// maxima (stats feed them now). Shared by the creep pools and SpendStamina.
 	void GrantStatPoint(Character& member, std::string_view stat);

@@ -137,6 +137,12 @@ void Game::WireModuleCallbacks() {
 								 const std::vector<SpellSymbol>& seq) {
 		m_world.CastSpell(member, seq, static_cast<int>(hand));
 	};
+	// Eating and drinking: the world owns the catalogs and the two supply
+	// meters, so it does the arithmetic and reports what it actually restored.
+	m_ui.onConsume = [this](size_t member, const std::string& id) {
+		if (member >= m_characters.size()) return resource::Refill{};
+		return m_world.ConsumeItem(m_characters[member], id);
+	};
 	m_ui.onKeysChanged = [this] {
 		m_world.GetParty().SetKeys(m_settings.moveKeys);
 	};
