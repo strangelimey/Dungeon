@@ -356,6 +356,33 @@ Key conventions (memorize, they bite):
   they restore for free. Save v22 round-trips both sides. Adding an effect:
   a class + AllEffects.cpp + CMakeLists + an effects.cat block + effect.<id>
   lang keys ×5. Dev: `effect <id> [member|ahead] [magnitude] [seconds]`.
+  THE ONE-PIPELINE RULE IS CHECKED, not held (docs/effects.md "The invariant,
+  CHECKED"): `Game/DamageLedger.h` gives every health value the pipeline can
+  reach a BASELINE, anything allowed to move it declares itself through a
+  `ledger::Explained` scope naming a `Reason`, and four checkpoints a frame
+  demand the arithmetic come out — a leftover is a write that went around
+  `fx::Deal`. FIVE sanctioned reasons: `pipeline` (the adapters), `exertion`
+  (over-exertion's health half, a DECLARED exception — not resisted, soaked or
+  warded, because collapsing under your own effort is not something armour
+  turns), `regen`, `growth` (a stat or resource-practice level raises a ceiling
+  and carries the current value up — this one fires MID-FIGHT, and the check
+  found it), `stabilize`. Wholesale replacement (load / respawn / `heal`)
+  REBASES instead of crediting, which is why there is deliberately no `setup`
+  reason. IT IS A RUNTIME CHECK BECAUSE A GREP CANNOT WORK: regeneration writes
+  health through a lambda taking `float&`, so the identifier never appears on
+  the assignment and a source scan reports that file clean. It names the PHASE,
+  not the line — the stack is long gone by the checkpoint, and making health a
+  guarded type would ripple through save/load, the UI and all of combat. Dev:
+  `pipeline`, `pipelineguard [on|off|strict|reset]`, `pipelinepoke`; armed by
+  default in debug, off in release. Harness: `tools\PipelineTest.ps1` /
+  `/check-pipeline`, in CheckAll's QUICK tier (16 s — the eval `reset` recycles
+  the world instead of reloading it). IT DEMANDS MORE THAN PASS: the app must
+  still be `playing` and EVERY route must have moved health, because the suite's
+  own first run wiped the party on a T-junction blast and then printed a
+  confident PASS for four sections that simulated nothing. The ledger itself is
+  a PURE TU linked into RollTest (the Defense.h rule), and its checks are
+  non-vacuous by MUTATION — one of which passed clean at first because the test
+  covered the rule but not the branch.
 - ALL user-facing text goes through Core/Loc (loc::Tr(key) /
   loc::Format(key, args...) for {} placeholders), loaded from
   assets/lang/<code>.lang (UTF-8 key=value, ';' comments; en.lang is the

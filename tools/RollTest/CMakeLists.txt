@@ -25,8 +25,15 @@
 # sideways. What it deliberately does NOT hold — dropping a weapon, finding the
 # ally a wild swing catches — is the half that needs the world, and that half
 # stayed in DungeonWorld beside the effects adapters.
+# DamageLedger.cpp is here for the same bargain a third time: it is the machinery
+# that turns docs/effects.md's one-pipeline invariant into a checked rule, so the
+# checker itself has to be checked. It links because it is deliberately pure —
+# Core/Types.h and the standard library — and knows nothing of members, monsters
+# or the world it watches. The moment a Character or a DungeonWorld appears in
+# it, this line stops compiling, which is the wall doing its job.
 add_executable(RollTest
 	Main.cpp
+	${CMAKE_SOURCE_DIR}/src/Game/DamageLedger.cpp
 	${CMAKE_SOURCE_DIR}/src/Game/Roll.cpp
 	${CMAKE_SOURCE_DIR}/src/Game/Combat.cpp
 	${CMAKE_SOURCE_DIR}/src/Game/Curve.cpp

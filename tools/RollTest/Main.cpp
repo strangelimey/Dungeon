@@ -38,6 +38,7 @@
 #include "Game/Blast.h"
 #include "Game/Combat.h"
 #include "Game/Curve.h"
+#include "Game/DamageLedger.h"
 #include "Game/Defense.h"
 #include "Game/Mishap.h"
 #include "Game/Resource.h"
@@ -1675,6 +1676,208 @@ int main(int argc, char** argv) {
 		std::printf("  (two orderings live in the AUTHORED knobs, not in this\n"
 					"   arithmetic — stamina > mana > health per second, and water\n"
 					"   draining faster than food — so the eval harness checks both)\n");
+	}
+
+	// --- the one-pipeline check's own arithmetic ----------------------------
+	// Game/DamageLedger.h is what turns docs/effects.md's invariant from a hand
+	// sweep into a standing rule, so it gets the same treatment every other rule
+	// in this file gets: the SHIPPING ledger linked straight in, and the
+	// properties the check depends on stated one at a time.
+	//
+	// NON-VACUOUS BY MUTATION, not by --self-test: the injected 90-sided die
+	// cannot reach a float comparison, so these were confirmed the way the
+	// defense section's were — by breaking the ledger on purpose and MEASURING.
+	// Making Credit a no-op fails 6; comparing exactly instead of against the
+	// epsilon fails 1; reporting an unmatched address as a violation fails 1.
+	//
+	// The third of those is why the mutations were run rather than reasoned
+	// about: it passed CLEAN the first time. The test watched a prefix of the
+	// array, so every value that came back with no baseline arrived after the
+	// end of the baseline run and fell out of the merge instead of reaching the
+	// branch being mutated. A test can cover the RULE and still miss the BRANCH.
+	{
+		using namespace dungeon::game::ledger;
+		std::printf("\nThe one-pipeline ledger (Game/DamageLedger.h)\n");
+
+		// Members of a fixed array, so the addresses the ledger keys on are
+		// stable for the whole section — the same property the real roster and
+		// monster vectors have between two checkpoints.
+		float hp[4] = {30.0f, 30.0f, 30.0f, 30.0f};
+		Violation found[4];
+		const auto sweep = [&](Ledger& led, int count) {
+			led.BeginSweep();
+			for (int i = 0; i < count; ++i)
+				led.Observe(hp[i], Key{Subject::Member, i});
+		};
+
+		{
+			Ledger led;
+			led.Arm(true);
+			sweep(led, 4);
+			led.Checkpoint("baseline", found); // first sweep: nothing to judge
+
+			// The rule itself: a move nobody claimed is a violation, and a move
+			// somebody claimed is not. Both in ONE checkpoint, because a check
+			// that only ever sees the failing case cannot tell a working ledger
+			// from one that reports everything.
+			hp[0] -= 5.0f;
+			led.Credit(hp[0], -5.0f, Reason::Pipeline);
+			hp[1] -= 5.0f; // ...and this one went around it
+			sweep(led, 4);
+			const int n = led.Checkpoint("blow", found);
+			Check("one unexplained move, one explained", n, 1.0, 0.0);
+			CheckTrue("...and it names the member who was not accounted for",
+					  n == 1 && found[0].key.id == 1);
+			Check("...reporting the whole unexplained amount",
+				  n == 1 ? found[0].Unexplained() : 0.0, -5.0, 1e-4);
+			// FOUR, not eight: the checkpoint that TAKES the first baseline
+			// judges nothing, because there is nothing yet to judge it against.
+			// That is the property that makes `pipelineguard on` safe to type in
+			// the middle of a fight — arming can never manufacture a violation
+			// out of whatever happened before it.
+			Check("only the second checkpoint judged anything",
+				  static_cast<double>(led.GetStats().valuesChecked), 4.0, 0.0);
+		}
+		{
+			// TWO reasons on one value in one region — a blow and a regen tick
+			// land on the same member between two checkpoints all the time, and
+			// they have to SUM rather than the last one winning.
+			Ledger led;
+			led.Arm(true);
+			hp[2] = 20.0f;
+			sweep(led, 4);
+			led.Checkpoint("baseline", found);
+			{
+				const Explained a{led, hp[2], Reason::Pipeline};
+				hp[2] -= 8.0f;
+			}
+			{
+				const Explained b{led, hp[2], Reason::Regen};
+				hp[2] += 3.0f;
+			}
+			sweep(led, 4);
+			Check("two reasons on one value sum instead of racing",
+				  led.Checkpoint("mixed", found), 0.0, 0.0);
+			Check("...and each is credited to its own route",
+				  led.GetStats().credited[static_cast<size_t>(Reason::Regen)],
+				  3.0, 1e-4);
+		}
+		{
+			// THE PROPERTY THE WHOLE `Explained` FORM EXISTS FOR: it measures
+			// what the float DID, not what the caller meant. A wound of 40 on a
+			// member with 20 left moves 20 — and a scope told "40" would report
+			// a 20-point violation on the one line that is behaving perfectly.
+			Ledger led;
+			led.Arm(true);
+			hp[3] = 20.0f;
+			sweep(led, 4);
+			led.Checkpoint("baseline", found);
+			{
+				const Explained clamped{led, hp[3], Reason::Pipeline};
+				hp[3] -= 40.0f;
+				if (hp[3] < 0.0f) hp[3] = 0.0f; // WoundMember's clamp
+			}
+			sweep(led, 4);
+			Check("a clamped wound explains what it actually took",
+				  led.Checkpoint("overkill", found), 0.0, 0.0);
+		}
+		{
+			// A value that appears between checkpoints (a spawned monster) has
+			// no baseline, and one that disappears (a level swap, a container
+			// that moved) has nothing left to compare. NEITHER is a violation —
+			// but a vanished baseline IS counted, because silently losing a
+			// vector's worth of coverage is the failure this check would
+			// otherwise hide from itself.
+			Ledger led;
+			led.Arm(true);
+			// Watch the two MIDDLE values, so what comes back later sorts on
+			// BOTH SIDES of the baseline. That detail is the check, not
+			// decoration: entries are matched by walking two sorted runs
+			// together, and a new address before the baseline takes a different
+			// branch from one after it. A first version of this test watched a
+			// prefix, so every new value arrived at the tail — and a mutation
+			// that reported unmatched addresses as violations passed it clean.
+			led.BeginSweep();
+			led.Observe(hp[1], Key{Subject::Member, 1});
+			led.Observe(hp[2], Key{Subject::Member, 2});
+			led.Checkpoint("baseline", found);
+
+			hp[0] -= 7.0f; // both of these moved while nobody was watching
+			hp[3] -= 7.0f;
+			sweep(led, 4); // ...and are now watched, with no baseline
+			Check("a value with no baseline is not judged, either side of it",
+				  led.Checkpoint("grown", found), 0.0, 0.0);
+
+			led.BeginSweep();
+			led.Observe(hp[1], Key{Subject::Member, 1});
+			Check("a vanished value is not a violation",
+				  led.Checkpoint("shrunk", found), 0.0, 0.0);
+			Check("...but it is counted as coverage lost",
+				  static_cast<double>(led.GetStats().dropped), 3.0, 0.0);
+		}
+		{
+			// Float noise must not read as a write. The epsilon sits far above a
+			// few ulps of a health bar and far below the smallest damage the
+			// game can deal, so both halves are stated.
+			Ledger led;
+			led.Arm(true);
+			hp[0] = 30.0f;
+			sweep(led, 4);
+			led.Checkpoint("baseline", found);
+			hp[0] -= kEpsilon * 0.5f;
+			sweep(led, 4);
+			Check("noise below the epsilon is not a violation",
+				  led.Checkpoint("noise", found), 0.0, 0.0);
+			hp[0] -= kEpsilon * 4.0f;
+			sweep(led, 4);
+			Check("...and a real move just above it is",
+				  led.Checkpoint("small", found), 1.0, 0.0);
+		}
+		{
+			// Rebase is what every load, respawn and dev-console fiat calls. It
+			// must take the new baseline WITHOUT judging the old one, or turning
+			// a save on would report the whole party as unexplained.
+			Ledger led;
+			led.Arm(true);
+			hp[0] = 30.0f;
+			sweep(led, 4);
+			led.Checkpoint("baseline", found);
+			hp[0] = 1.0f; // a load replacing state wholesale
+			sweep(led, 4);
+			led.Rebase();
+			sweep(led, 4);
+			Check("a rebase forgives the state it replaced",
+				  led.Checkpoint("after load", found), 0.0, 0.0);
+			CheckTrue("...and a rebase is not counted as a checkpoint",
+					  led.GetStats().checkpoints == 2);
+		}
+		{
+			// A standing violation must not drown the log: the first of a given
+			// (phase, subject) is reported and the rest are counted only. Same
+			// rule Core/Diagnostics follows for stacks, and for the same reason.
+			Ledger led;
+			Violation v{"phase", Key{Subject::Member, 0}, -1.0f, 0.0f};
+			CheckTrue("the first of a kind is reported", led.ShouldReport(v));
+			CheckTrue("...and the second is not", !led.ShouldReport(v));
+			Violation other{"phase", Key{Subject::Monster, 0}, -1.0f, 0.0f};
+			CheckTrue("a different subject is its own report",
+					  led.ShouldReport(other));
+		}
+		{
+			// Disarmed, it costs nothing and claims nothing — including the
+			// stats, which is what makes a disarmed release build's `pipeline`
+			// readout say checks=0 rather than a confident PASS it did not earn.
+			Ledger led;
+			led.Arm(false);
+			sweep(led, 4);
+			led.Checkpoint("baseline", found);
+			hp[0] -= 9.0f;
+			sweep(led, 4);
+			Check("a disarmed ledger finds nothing",
+				  led.Checkpoint("ignored", found), 0.0, 0.0);
+			Check("...and claims to have checked nothing",
+				  static_cast<double>(led.GetStats().valuesChecked), 0.0, 0.0);
+		}
 	}
 
 	// --- verdict ------------------------------------------------------------

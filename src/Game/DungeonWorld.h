@@ -22,6 +22,7 @@
 #include "Game/Balance.h"
 #include "Game/Character.h"
 #include "Game/Combat.h"
+#include "Game/DamageLedger.h" // the one-pipeline invariant, checked
 #include "Game/DungeonEntities.h"
 #include "Game/DungeonMap.h"
 #include "Game/DungeonMeshBuilder.h" // WallPanels (the worn wall block's variants)
@@ -1114,6 +1115,18 @@ public:
 	// --- dev console hooks ---------------------------------------------------
 	// "kind @ x,z" for each live monster.
 	std::vector<std::string> MonsterList() const;
+	// --- the one-pipeline check (Game/DamageLedger.h) ------------------------
+	// Arming, strictness and the counters live on the ledger itself; the console
+	// reaches them through here. Anything that REPLACES party or world state
+	// wholesale (a load, a save restore, a respawn, a `heal`) must call
+	// RebaseDamageLedger afterwards — the values it overwrote no longer exist to
+	// be reconciled, and without a fresh baseline the next checkpoint reports the
+	// replacement itself as a violation.
+	ledger::Ledger& DamageLedger() { return m_damageLedger; }
+	void RebaseDamageLedger();
+	// The `pipeline` command's lines: the RESULT= verdict, then how much health
+	// moved by each sanctioned route.
+	std::vector<std::string> DamageLedgerReport() const;
 	// Toggles the activated state of the button in cell (x,z) (no-op if none),
 	// returning the new state via `out`. Exercises the button save path until the
 	// P5 mechanism wiring drives it from gameplay; the map overlay reflects it.
@@ -2527,6 +2540,16 @@ private:
 	// goes back out via fx::Deal like any other damage), so every React call
 	// site hands over the same two things this world resolves damage with.
 	fx::ReactCtx Reaction() { return {m_balance.Strike(), m_combatRng}; }
+	// --- the one-pipeline check's world side (DungeonWorld_Ledger.cpp) --------
+	// Observe every value the damage pipeline can reach. The ONE place targets
+	// are enumerated: a future fourth kind of thing that can be hurt is covered
+	// by adding it there, and if it is not there it is not checked.
+	void SweepDamageLedger();
+	// Verify the region since the last checkpoint and take a new baseline.
+	// `phase` names that region and must outlive the call (a string literal).
+	void CheckDamageLedger(const char* phase);
+	std::string LedgerSubjectName(ledger::Key key) const;
+	ledger::Ledger m_damageLedger;
 	// The world lands a blow: Impact bash damage on every standing member,
 	// through the ordinary pipeline (armour, Stone Skin and a water veil all
 	// answer it), returning the WORST amount dealt for the caller's line.

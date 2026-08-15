@@ -155,6 +155,8 @@ bool DungeonWorld::BuildArena(ArenaShape shape, int w, int h, ArenaInfo& out) {
 	// the chunk-local path exists for a brush stroke.
 	BuildDungeonMeshes();
 	RebuildFiresAndDust(); // no fires left — this clears their light and smoke
+	// The world the one-pipeline check was watching is gone (Game/DamageLedger.h).
+	RebaseDamageLedger();
 	return true;
 }
 

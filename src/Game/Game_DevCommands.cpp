@@ -108,6 +108,61 @@ void Game::RegisterDevCommands() {
 										seconds));
 			if (m_console.IsOpen()) m_console.Toggle();
 		});
+	// --- the one-pipeline check (Game/DamageLedger.h, docs/effects.md) --------
+	// The same three-command shape the allocation guard uses, for the same
+	// reason: a readout, an arming switch, and a way to make it FAIL on purpose.
+	m_console.Register(
+		"pipeline", "one-pipeline check: what moved health, and whether anything went around it",
+		[this](const std::vector<std::string>&) {
+			for (const std::string& line : m_world.DamageLedgerReport())
+				m_console.Print(line);
+		});
+	m_console.Register(
+		"pipelineguard", "arm the one-pipeline check: pipelineguard [on|off|strict on|strict off|reset]",
+		[this](const std::vector<std::string>& args) {
+			ledger::Ledger& led = m_world.DamageLedger();
+			if (!args.empty()) {
+				const std::string& a = args[0];
+				if (a == "on" || a == "off") {
+					led.Arm(a == "on");
+					// An arming takes a FRESH baseline: whatever moved while it was
+					// off is not a violation, it is simply unobserved, and reporting
+					// it would make turning the check on look like finding a bug.
+					m_world.RebaseDamageLedger();
+				} else if (a == "strict") {
+					led.SetStrict(args.size() < 2 || args[1] == "on");
+				} else if (a == "reset") {
+					led.ResetStats();
+					m_world.RebaseDamageLedger();
+				} else {
+					m_console.Print("usage: pipelineguard [on|off|strict on|strict off|reset]");
+					return;
+				}
+			}
+			m_console.Print(std::format("pipelineguard: armed={} strict={}",
+										led.Armed() ? "on" : "off",
+										led.Strict() ? "on" : "off"));
+		});
+	m_console.Register(
+		"pipelinepoke", "move health WITHOUT the pipeline (proves the check can fail): pipelinepoke [member]",
+		[this](const std::vector<std::string>& args) {
+			const size_t m =
+				args.empty() ? 0 : static_cast<size_t>(std::atoi(args[0].c_str()));
+			if (m >= m_characters.size()) {
+				m_console.Print("no such member");
+				return;
+			}
+			Character& c = m_characters[m];
+			// A point either way, whichever direction the bar has room for — a
+			// poke that clamps to no change would report nothing and read exactly
+			// like a check that missed it.
+			const float delta = c.health > 1.0f ? -1.0f : 1.0f;
+			c.health += delta;
+			m_console.Print(std::format(
+				"pipelinepoke: {} health {:+.1f} with no DamageEvent — the next "
+				"checkpoint should report it",
+				c.name, delta));
+		});
 	m_console.Register(
 		"allocguard", "steady-state allocation guard: status | strict on|off | reset",
 		[this](const std::vector<std::string>& args) {
@@ -1730,11 +1785,17 @@ void Game::RegisterDevCommands() {
 								   return;
 							   }
 							   restore(m_characters[m]);
+							   // A harness fiat, not a game rule: nothing a player
+							   // can do heals like this, so it is REBASED rather
+							   // than sanctioned — there is no route worth naming
+							   // (Game/DamageLedger.h).
+							   m_world.RebaseDamageLedger();
 							   m_console.Print(
 								   std::format("healed {}", m_characters[m].name));
 							   return;
 						   }
 						   for (Character& c : m_characters) restore(c);
+						   m_world.RebaseDamageLedger();
 						   // A wipe left the app on the title screen; put it back
 						   // in play, or the heal fixes the party and the next
 						   // `step` still refuses.

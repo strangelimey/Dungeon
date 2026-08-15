@@ -12,6 +12,7 @@ add_library(Game STATIC
 	Combat.cpp
 	Curve.cpp
 	CurvePlot.cpp
+	DamageLedger.cpp
 	DamageTypes.cpp
 	Defense.cpp
 	DevConsole.cpp
@@ -24,6 +25,7 @@ add_library(Game STATIC
 	DungeonWorld_Arena.cpp
 	DungeonWorld_Combat.cpp
 	DungeonWorld_Editing.cpp
+	DungeonWorld_Ledger.cpp
 	DungeonWorld_Load.cpp
 	DungeonWorld_Render.cpp
 	DungeonWorld_Save.cpp

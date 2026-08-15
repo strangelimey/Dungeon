@@ -790,6 +790,22 @@ whole design expressed in a 25-point range is drowned by the dice. This was
 measured once with a bridging scale factor and the entire span of the old
 0..1 model came to a 0.25 spread in hit rate.
 
+## Over-exertion is the one route that skips the pipeline
+
+Every other source of damage in this document builds an `fx::DamageEvent` and
+goes through `fx::Deal`. Over-exertion's health half does not: `SpendExertion`
+calls `WoundMember` directly, so the bill is not resisted, not soaked, and not
+answered by a ward. **That is a decision, taken by Michael on 2026-08-15 when the
+one-pipeline check turned it up** — collapsing under your own effort is not
+something armour turns, and a "second wind" ward absorbing your own exhaustion
+would be a different game.
+
+It is *declared* rather than quietly permitted: it is the `exertion` row in the
+`pipeline` readout, and `tools\PipelineTest.ps1` fails if that row is ever zero.
+So the exception cannot rot into an accident, and the day it should become a
+`Burst` it is one edit rather than a discovery. See docs/effects.md, "The
+invariant, CHECKED".
+
 ## Knobs
 
 All in `balance.cat` and the editor's Balance dialog: `crit_threshold`,
@@ -802,6 +818,11 @@ All in `balance.cat` and the editor's Balance dialog: `crit_threshold`,
 Damage types are data too (`damagetypes.cat`) — C++ names none of them.
 
 ## Dev commands
+
+`pipeline` / `pipelineguard [on|off|strict on|off|reset]` / `pipelinepoke
+[member]` — the one-pipeline check (docs/effects.md): what moved health and by
+which route, the arming switch, and a deliberate violation so the check can be
+seen to catch one.
 
 `guard <share> [member]` — set the stance; **no upper clamp at all**, unlike
 the slider (which stops at `exert_max`), so it is the way to try a stance past

@@ -490,6 +490,66 @@ job, not a pipeline one, and it is left for the ranged-weapon thread.
 
 ---
 
+## The invariant, CHECKED (P9, 2026-08-15)
+
+The sweep above dates the moment it was written. Everything since — a whole
+damage system, a health-and-healing model — was built on a rule verified once,
+by hand, and never since. `Game/DamageLedger.h` is what makes it standing.
+
+**How it works.** Every health value the pipeline can reach carries a
+*baseline*. Anything allowed to move it says so, through a `ledger::Explained`
+scope that credits whatever changed to a named `Reason`. Four times a frame the
+world re-walks its combatants and the arithmetic has to come out; a leftover is
+a write that went around `fx::Deal`. Console: `pipeline`, `pipelineguard`,
+`pipelinepoke`. Harness: `tools\PipelineTest.ps1`, in CheckAll's **quick** tier
+at 16 seconds.
+
+**Why it is a runtime check and not a grep.** The cheap version scans the source
+for writes to `health` against an allowlist, and was measured against the code as
+it stands: it does not work. Resource regeneration writes health through a lambda
+taking `float&` — `value += gained` — so the identifier never appears on the
+assignment and the scan reports that file clean. An invariant guarded by
+something that cannot see the write is this project's oldest failure, *absent and
+correct reporting identically*, installed inside the check meant to prevent it.
+
+**It names the phase, not the line.** A violation is found at a checkpoint, by
+which time the stack that caused it has gone — the same problem Core/Diagnostics
+has at a `catch` site, without the vectored-handler trick to solve it, since
+there is no OS event for "someone stored a float". Catching the culprit
+red-handed would mean making health a guarded type, rippling through save/load,
+the UI and all of combat. So the checkpoints sit at phase boundaries and a report
+gives the phase, the victim and the amount, which between them have been enough.
+
+**The five sanctioned routes**, each one a decision rather than a permission:
+
+| reason | what it is |
+|---|---|
+| `pipeline` | an `fx::ITarget` adapter — the rule itself |
+| `exertion` | over-exertion's health half. **A declared exception** (Michael, 2026-08-15): it reaches `WoundMember` without building a `DamageEvent`, so exhaustion is not resisted, soaked or warded. Collapsing under your own effort is not something armour turns |
+| `regen` | resource regeneration (docs/health-and-healing.md) |
+| `growth` | a stat or resource practice levelling, so `RecomputeMaxima` carries a raised ceiling onto the current value |
+| `stabilize` | the unconscious coming round by themselves |
+
+Wholesale replacement — a load, a save restore, a respawn, a `heal` — does not
+explain its writes, it **rebases**: the values it overwrote no longer exist to be
+reconciled. There is deliberately no `setup` reason; one was written and removed
+when the suite showed its row could only ever be zero.
+
+**What it found immediately.** Two of the three `growth` routes had been
+enumerated by reading the code and the third had not: a resource *practice*
+levelling mid-fight grows the pool, so a member's health rises by about a point
+in the middle of an exchange with no `DamageEvent` near it. It was reported as an
+unexplained +0.96 on Brand and Sera on the suite's first run.
+
+**The harness demands more than PASS**, and that is not caution — it is what the
+suite's own first run taught. It wiped the party on a T-junction blast, dropped
+the app to the title screen, and then printed a confident `RESULT=PASS` for four
+more sections while nothing simulated at all. So `PipelineTest.ps1` also requires
+that the app is still `playing` at the end and that **every route moved a
+non-zero amount of health**. That row check immediately caught a second empty
+section: over-exertion billing nothing, because an untrained fighter cannot
+over-exert by design and the script had used a novice.
+
 ## Status — all six phases landed
 
 What began as "the fire sword needs somewhere to put a burn" is now one

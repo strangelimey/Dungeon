@@ -57,6 +57,11 @@ void DungeonWorld::ResetForNewGame() {
 	MarkSeen(m_party.GridX(), m_party.GridZ());
 	SetTorchPalette(0);
 	m_levelStates.clear(); // forget any explored levels
+	// Every monster is back at full and the world is a different world: the
+	// baselines the one-pipeline check was holding describe state that no longer
+	// exists (Game/DamageLedger.h). Take a fresh one rather than reporting the
+	// reset itself as a hundred writes that went around the pipeline.
+	RebaseDamageLedger();
 }
 
 // See the declaration for why this is defined as "where a new game would leave
@@ -432,6 +437,7 @@ void DungeonWorld::ApplyActiveSnapshot() {
 			}
 	}
 	m_levelStates.erase(it); // the live state is authoritative now
+	RebaseDamageLedger();    // restored hit points are not writes to explain
 }
 
 void DungeonWorld::CaptureState(SaveData& out) const {

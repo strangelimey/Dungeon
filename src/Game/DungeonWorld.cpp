@@ -336,6 +336,16 @@ void DungeonWorld::Update(const Input& input, float dt, float time, bool acceptI
 	DN_PROFILE_ZONE_L(prof::kLevelSystem, "world");
 
 	m_time = time; // drives the rune emissive pulse in SubmitSceneGeometry
+
+	// THE ONE-PIPELINE CHECK (Game/DamageLedger.h), four checkpoints a frame.
+	// A violation is found at a checkpoint, long after the stack that caused it
+	// has gone, so the boundaries are placed where the phases genuinely divide:
+	// the phase name plus the victim is what stands in for a stack.
+	//
+	// This first one covers the gap OUTSIDE the world update — a hand-slot click
+	// resolving a swing, a dev command, an editor edit — which is where a party
+	// attack actually lands, since Game::Update drives it rather than this loop.
+	CheckDamageLedger("outside the world update");
 	// Landed from a pit on the level just below: the shaft's own blow, charged
 	// at the TOP of the first frame after the arrival — the flag is raised at
 	// the bottom of the frame that raised the transition, and the host clears
@@ -390,9 +400,16 @@ void DungeonWorld::Update(const Input& input, float dt, float time, bool acceptI
 			m_fellPending = true;
 		}
 	}
+	// Everything the party's own movement can cost them: a wall bump, a pit
+	// landing, and the exertion of the steps themselves.
+	CheckDamageLedger("party movement");
 	UpdateMonsters(dt);
+	// The busiest phase by far — monster blows, every DoT bite on both sides,
+	// regeneration, supplies, and the unconscious waking up.
+	CheckDamageLedger("monsters, effects and regeneration");
 	m_projectiles.Update(dt); // fly bolts, resolve impacts/fizzles via the hooks
 	UpdateBlasts(dt);         // advance live blasts a tick at their own speed
+	CheckDamageLedger("projectiles and blasts");
 	UpdateLights(time);
 	UpdateCamera();
 
@@ -788,6 +805,13 @@ void DungeonWorld::UpdateMonsters(float dt) {
 					member.stabilize += dt;
 					if (member.stabilize >= m_balance.stabilizeTime) {
 						member.stabilize = 0.0f;
+						// The other end of the one-pipeline rule (docs/effects.md
+						// named this exception when the invariant was first swept
+						// by hand): coming round is not damage arriving, it is the
+						// one place health goes UP for a reason no effect owns.
+						const ledger::Explained accounted{
+							m_damageLedger, member.health,
+							ledger::Reason::Stabilize};
 						member.health =
 							m_balance.stabilizeHealth * member.maxHealth;
 						MemberMessage(member, loc::Format("log.member_wakes",
@@ -823,6 +847,14 @@ void DungeonWorld::UpdateMonsters(float dt) {
 				const auto regen = [&](resource::Kind kind, float& value,
 									   float max, float scale) {
 					if (scale <= 0.0f || value >= max) return 0.0f;
+					// THE WRITE A SOURCE SCAN CANNOT SEE, and the reason the
+					// one-pipeline check is a runtime one (Game/DamageLedger.h):
+					// `value` aliases health here, so the identifier never
+					// appears on the assignment. The ledger keys on the ADDRESS,
+					// so the alias costs it nothing — and the mana and stamina
+					// calls, whose pools are not watched, credit nothing.
+					const ledger::Explained accounted{m_damageLedger, value,
+													  ledger::Reason::Regen};
 					const float gained = std::min(
 						max - value,
 						member.RegenPerSec(kind, pools.For(kind), statCurve) *

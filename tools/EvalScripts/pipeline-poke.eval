@@ -1,0 +1,30 @@
+; pipeline-poke.eval — the one-pipeline check, handed a violation on purpose.
+;
+; tools\PipelineTest.ps1 -SelfTest runs this and REQUIRES it to report at least
+; one violation. Without it, "the pipeline suite passed" could equally mean the
+; check had stopped looking — which is the failure every harness in this project
+; is built to rule out first (tools\HealthTest.ps1, Bc7Test, AllocTest, Eval).
+;
+; `pipelinepoke` moves a member's health by a point with no DamageEvent anywhere
+; near it: exactly the write the invariant forbids, from a place no game rule
+; would ever write from.
+
+logecho on
+reset
+timescale 0
+lockstep on
+seed 11
+
+pipelineguard on
+pipelineguard reset
+
+echo === poking health outside the pipeline ===
+party
+pipelinepoke 0
+; One step, so a checkpoint runs and finds it. The poke happens between frames,
+; which is what the "outside the world update" checkpoint at the top of
+; DungeonWorld::Update is there to cover.
+step 1
+party
+pipeline
+state

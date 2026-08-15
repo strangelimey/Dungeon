@@ -173,6 +173,16 @@ void DungeonWorld::GrantResourceXp(Character& member, resource::Kind kind,
 	const int before = member.SkillLevel(skill);
 	GrantSkillXp(member, skill, points * rate, {});
 	if (member.SkillLevel(skill) == before) return;
+	// THE THIRD GROWTH ROUTE, and the one-pipeline check is what found it: a
+	// resource PRACTICE levelling mid-fight grows the pool, and RecomputeMaxima
+	// carries the growth onto the current value — so a member's health rises by
+	// about a point in the middle of an exchange, with no DamageEvent anywhere
+	// near it. It was reported as an unexplained +0.96 on Brand and Sera the
+	// first time the pipeline suite ran, which is precisely the job: two of the
+	// three growth routes had been enumerated by reading the code, and this one
+	// had not.
+	const ledger::Explained accounted{m_damageLedger, member.health,
+									  ledger::Reason::Growth};
 	member.RecomputeMaxima(m_balance.Resources());
 	// CONDITIONING also drives the walking pace, and the party takes the
 	// minimum — so a level here can change how fast everyone moves, and it has
@@ -375,6 +385,13 @@ void DungeonWorld::GrantStatPoint(Character& member, std::string_view stat) {
 	else if (stat == "willpower") value = ++member.willpower;
 	else if (stat == "intelligence") value = ++member.intelligence;
 	else return; // unknown id — parse already warned
+	// A stat point can land in the MIDDLE of a fight (vitality creeps off
+	// exertion), and RecomputeMaxima carries the growth onto the current value —
+	// so health genuinely ticks up here, outside the pipeline, while blows are
+	// landing. It is the "odd number you will see and should not chase" from
+	// docs/damage-system.md, now named instead of merely noted.
+	const ledger::Explained accounted{m_damageLedger, member.health,
+									  ledger::Reason::Growth};
 	member.RecomputeMaxima(m_balance.Resources());
 	MemberMessage(member, loc::Format("log.stat_up", member.name,
 									  loc::Tr("stat." + std::string(stat)), value));
@@ -698,6 +715,15 @@ void DungeonWorld::SpendExertion(Character& member, float points) {
 	const float unpaid = SpendStamina(member, points * m_balance.exertCost);
 	if (unpaid <= 0.0f) return;
 	MemberMessage(member, loc::Format("log.overexert", member.name));
+	// A DECLARED EXCEPTION to the one-pipeline rule (Game/DamageLedger.h), and
+	// Michael's call on 2026-08-15 when the check turned it up: this reaches
+	// WoundMember directly rather than building a DamageEvent, so exhaustion is
+	// not resisted, not soaked and not answered by a ward. Collapsing under your
+	// own effort is not something armour turns. Named here rather than quietly
+	// permitted, so the day it should become a Burst it is one edit and not a
+	// discovery.
+	const ledger::Explained accounted{m_damageLedger, member.health,
+									  ledger::Reason::Exertion};
 	if (WoundMember(member, std::min(unpaid, member.health)) == Fall::Down)
 		MemberMessage(member, loc::Format("log.member_down", member.name));
 }
@@ -708,6 +734,11 @@ void DungeonWorld::RecomputePartyMaxima() {
 	const float foodMax = m_balance.SupplyOf(resource::Supply::Food).max;
 	const float waterMax = m_balance.SupplyOf(resource::Supply::Water).max;
 	for (Character& member : *m_roster) {
+		// Same growth rule as GrantStatPoint, reached the other way: a balance
+		// apply or a load re-derives every maximum, and a raised ceiling carries
+		// the current value up with it.
+		const ledger::Explained accounted{m_damageLedger, member.health,
+										  ledger::Reason::Growth};
 		member.RecomputeMaxima(pools);
 		// The supply ceilings are a knob, mirrored onto the member so the sheet
 		// can draw a bar without reaching for Balance. Clamped with them, since
@@ -948,6 +979,12 @@ float DungeonWorld::PartyTarget::Resist(DamageType type) const {
 }
 
 void DungeonWorld::PartyTarget::Wound(float amount, fx::DamageEvent& ev) {
+	// THE RULE ITSELF (Game/DamageLedger.h): this is one of the six lines in the
+	// game allowed to move a combatant's health, so it declares what it moved.
+	// The scope MEASURES the change rather than being told `amount` — the clamp
+	// at zero means those are not the same number.
+	const ledger::Explained accounted{m_world.m_damageLedger, m_member.health,
+									  ledger::Reason::Pipeline};
 	m_fall = m_world.WoundMember(m_member, amount, ev.Quiet());
 	ev.slew = m_fall != Fall::None;
 	// The eval tally (docs/eval-harness.md). HERE rather than at the attack
@@ -964,6 +1001,8 @@ void DungeonWorld::PartyTarget::Wound(float amount, fx::DamageEvent& ev) {
 // stuff that was just thrown at you.
 void DungeonWorld::PartyTarget::Absorb(float amount, fx::DamageEvent& ev) {
 	if (m_member.dead || amount <= 0.0f) return;
+	const ledger::Explained accounted{m_world.m_damageLedger, m_member.health,
+									  ledger::Reason::Pipeline};
 	m_member.health = std::min(m_member.maxHealth, m_member.health + amount);
 	// Quiet for a per-frame tick: a burn feeding something that drinks fire is
 	// a steady trickle, not news forty times a second.
@@ -1027,6 +1066,8 @@ void DungeonWorld::MonsterTarget::SayApplied(const fx::EffectKind& kind) const {
 // since threat is a record of harm done.
 void DungeonWorld::MonsterTarget::Absorb(float amount, fx::DamageEvent& ev) {
 	if (!m_monster.Alive() || amount <= 0.0f) return;
+	const ledger::Explained accounted{m_world.m_damageLedger, m_monster.hp,
+									  ledger::Reason::Pipeline};
 	m_monster.hp = std::min(m_monster.MaxHp(), m_monster.hp + amount);
 	if (ev.Quiet()) return; // a tick feeding it is a trickle, not news
 	m_world.ProvokeMonster(m_monster);
@@ -1040,6 +1081,8 @@ void DungeonWorld::MonsterTarget::Absorb(float amount, fx::DamageEvent& ev) {
 // "slain" / "destroyed" / "burns away" depending on what did it, and has to
 // come after the caller's own "hits for N").
 void DungeonWorld::MonsterTarget::Wound(float amount, fx::DamageEvent& ev) {
+	const ledger::Explained accounted{m_world.m_damageLedger, m_monster.hp,
+									  ledger::Reason::Pipeline};
 	m_monster.hp -= amount;
 	// The eval tally's other half — see PartyTarget::Wound. Counted BEFORE the
 	// death check below, so the blow that kills is still counted as damage
@@ -2081,6 +2124,8 @@ float DungeonWorld::BreakableTarget::Resist(DamageType type) const {
 
 void DungeonWorld::BreakableTarget::Wound(float amount, fx::DamageEvent& ev) {
 	if (!m_brk.Alive()) return; // already broken, or never breakable
+	const ledger::Explained accounted{m_world.m_damageLedger, m_brk.hp,
+									  ledger::Reason::Pipeline};
 	m_brk.hp -= amount;
 	if (m_brk.hp > 0.0f) return;
 	m_brk.hp = 0.0f;
@@ -2093,6 +2138,8 @@ void DungeonWorld::BreakableTarget::Wound(float amount, fx::DamageEvent& ev) {
 
 void DungeonWorld::BreakableTarget::Absorb(float amount, fx::DamageEvent& ev) {
 	if (!m_brk.Alive() || amount <= 0.0f) return;
+	const ledger::Explained accounted{m_world.m_damageLedger, m_brk.hp,
+									  ledger::Reason::Pipeline};
 	m_brk.hp = std::min(m_brk.maxHp, m_brk.hp + amount);
 	if (ev.Quiet()) return; // a tick feeding it is a trickle, not news
 	Say(loc::Format("log.monster_absorbs", Name(),

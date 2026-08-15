@@ -464,6 +464,9 @@ void Game::ResetRoster() {
 		member.water = bal.waterMax;
 	}
 	ApplyMemberColors(); // the settings palette wins over the authored defaults
+	// The roster these are is not the roster the one-pipeline check was watching
+	// (Game/DamageLedger.h) — same storage, replaced contents.
+	m_world.RebaseDamageLedger();
 }
 
 void Game::ApplyMemberColors() {
@@ -691,6 +694,9 @@ bool Game::LoadGame(const std::string& path) {
 		member.stabilize = 0.0f;
 	}
 	m_world.ApplyState(*data); // fills the per-level store + party pose/torch
+	// Restored hit points are not writes to explain (Game/DamageLedger.h): the
+	// values they replaced belong to a session that is over.
+	m_world.RebaseDamageLedger();
 
 	m_ui.RefreshSheet();
 	ApplyPartySpeed();

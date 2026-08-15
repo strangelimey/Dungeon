@@ -607,6 +607,27 @@ This harness lost twelve ladder rungs to that exact shape once already.
 last two are the ones that keep the speedup honest — mutation-checked by dropping
 the map restore, which they catch.
 
+## The one suite that is not a measurement
+
+`pipeline.eval` lives in `tools\EvalScripts\` and is deliberately **not** in
+`Eval.ps1`'s suite list. It borrows the machinery — `-eval` scripting, `arena`,
+`reset`, `step`, lockstep AI — but it is a CHECK: it guards docs/effects.md's
+one-pipeline invariant, so it has a right answer, its own harness
+(`tools\PipelineTest.ps1`), and a place in CheckAll's quick tier with the other
+checked rules. Everything in `Eval.ps1` produces tables nobody has decided the
+right answer for, which is exactly why that runner stays outside those tiers.
+
+Worth carrying forward from building it: **its own first run demonstrated the
+failure this project keeps meeting.** The party was wiped by a blast, the app
+dropped to the title screen, and the next four sections printed a confident
+`RESULT=PASS` while nothing simulated at all. `PipelineTest.ps1` therefore
+demands the app is still `playing` at the end and that every sanctioned route
+moved a non-zero amount of health — and that second rule immediately caught a
+*different* empty section, over-exertion billing nothing because an untrained
+fighter cannot over-exert by design. Two empty passes, in the suite written to
+be immune to empty passes. **Assume the run stopped early until something in the
+output proves it did not.**
+
 ## Next
 
 The harness is done and so is the system it was waiting for
