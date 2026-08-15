@@ -286,6 +286,13 @@ Key conventions (memorize, they bite):
   TRAP: any dev command that seeds a SKILL must re-derive — `setskill` wrote xp
   and nothing else, which since P1 leaves a conditioned member with a novice's
   bars and the old walking pace. Same lesson `setstat` learned.
+  MEASURED by the `expedition` eval suite (fight → retreat → `rest until` →
+  repeat): three full recover cycles cost 2.9 food / 5.2 water of 100, so a load
+  buys ~55 fights — and the party dies to DIFFICULTY long first. Supplies are
+  not the constraint at the shipped numbers; that is the balance pass's starting
+  point. TRAP when scripting rest: `rest on` then `step N` does NOT measure a
+  rest — the auto-stop is dt-independent so it fires on the next ordinary frame,
+  which at timescale 0 falls BETWEEN the two commands; use `rest until`.
 - EFFECTS (full model: docs/effects.md — the system every source of damage
   goes through; built in six phases 2026-07-24): ONE pipeline for everything
   that happens to a combatant. A source builds an `fx::DamageEvent` and calls

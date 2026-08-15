@@ -236,18 +236,28 @@ void DungeonWorld::UpdateRest() {
 		}
 	// 2. FULLY RECOVERED. Continuing past this point burns food and water for
 	//    nothing at all, and the player cannot see the instant it stops paying.
-	//    Only members who are STANDING count: a downed one recovers through the
-	//    stabilize clock first, so resting through that wait is exactly what the
-	//    state is for, and a DEAD one would never be full and would rest forever.
-	bool anyStanding = false, allFull = true;
+	//
+	//    "Recovered" has to include A MEMBER STILL ON THE FLOOR. An unconscious
+	//    one is not full and never will be while they are down — they come round
+	//    through the stabilize clock, which wants safe seconds — and waiting for
+	//    that is one of the things resting is FOR. An earlier version counted
+	//    only the standing, so a fight that left one member down and the others
+	//    unhurt ended the rest after 0.02 seconds with everyone walking away and
+	//    their friend face-down behind them. It reported "recovered", which is
+	//    the part that would have made it hard to find.
+	//
+	//    The DEAD are excluded, and they are the reason this is not simply "is
+	//    everyone full": death is permanent here, so a party carrying a corpse
+	//    would rest until its supplies ran out.
+	bool anyRecoverable = false, allFull = true;
 	for (const Character& member : *m_roster) {
-		if (!member.IsAlive()) continue;
-		anyStanding = true;
-		if (member.health < member.maxHealth || member.stamina < member.maxStamina ||
-			member.mana < member.maxMana)
+		if (member.dead) continue;
+		anyRecoverable = true;
+		if (!member.IsAlive() || member.health < member.maxHealth ||
+			member.stamina < member.maxStamina || member.mana < member.maxMana)
 			allFull = false;
 	}
-	if (anyStanding && allFull) BreakRest("recovered", "log.rest_done");
+	if (anyRecoverable && allFull) BreakRest("recovered", "log.rest_done");
 }
 
 // --- supplies (docs/health-and-healing.md "Food and water") ------------------

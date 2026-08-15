@@ -448,7 +448,7 @@ the game itself cannot perform.
 .	ools\Eval.ps1 -SelfTest    # the runner must FAIL on purpose
 ```
 
-Nine suites, about two and a half minutes. `/check-eval` is the command form.
+Ten suites, about three minutes. `/check-eval` is the command form.
 
 **It is deliberately OUTSIDE `CheckAll`'s tiers.** Every check in that suite
 guards a rule; this one guards nothing — a green verdict means the scripts RAN,
@@ -495,11 +495,67 @@ conditioning. It also ends by round-tripping the two new fields through a save,
 because a field that does not persist is a bug that surfaces hours later on
 somebody else's machine.
 
+## P6 answered at last: the `expedition` suite
+
+The ladder was built to ask *how does the party arrive at the next fight?* and
+could only ever answer "worse" — there was no healing, so it measured ATTRITION
+and stopped. With the health-and-healing model built, `expedition.eval` asks the
+real question: fight, retreat, rest, repeat, until something gives.
+
+Measured (seed 31, novice party, 4x skel_warrior escalating by strength):
+
+| rung | taken | rest | after | food | water |
+|---|---|---|---|---|---|
+| — | — | — | 42/42 | 100.0 | 100.0 |
+| 4x | 24.3 | 39 s | 44/44 | 99.2 | 98.6 |
+| 4x ×1.5 | 35.6 | 72 s | 45/45 | 98.1 | 96.6 |
+| 4x ×2.0 | 96.7, one down | 151 s | 46/46 | 97.1 | 94.8 |
+| 4x ×2.5 | 268.1 | — | **WIPED** | 96.1 | 92.9 |
+
+**THE HEADLINE, and it is a balance finding rather than a bug:** three full
+fight-and-recover cycles cost **2.9 food and 5.2 water out of 100**. Water is the
+binding meter, at roughly 1.7 per cycle — so a load of supplies buys somewhere
+near **fifty-five fights**, and the party died to DIFFICULTY at the fourth having
+spent 7% of its water. As tuned today, supplies are not the constraint on a run;
+the monsters are. Whether that is right is Michael's to decide, and the knobs are
+all in the Balance dialog.
+
+Two smaller things it shows: the rest LENGTH tracks the damage (39 s → 72 s →
+151 s), and Brand's maximum health climbs 42 → 46 across the run, because
+constitution trains on the recovery. Surviving damage is what makes you harder to
+kill, exactly as the model claims.
+
+**Three ways this suite lied before it told the truth**, all worth keeping:
+
+1. **Built on `ladder.eval`'s rungs it reported `taken=0.0` everywhere.** A
+   novice party is not troubled by skeleton swarms, so every rest had nothing to
+   do — a full table measuring none of the thing it was written for. *An
+   encounter that does not hurt cannot demonstrate recovery.*
+2. **`rest on` followed by `step 900` does not measure a rest.** The auto-stop
+   does not depend on `dt`, so it fires on the next ORDINARY frame — and at
+   `timescale 0` that frame falls between the two console commands. With nothing
+   to recover, rest was over before the step began, and the step then ran its
+   whole budget with no rest in progress: fifteen minutes of supplies drained,
+   reported as the cost of resting. `rest until` enters the state and runs the
+   clock inside ONE command, so no frame can fall in the gap.
+3. **It rested in a room that still had monsters in it.** A blow breaks rest and
+   a downed member's stabilize clock resets on any monster in aggro, so the party
+   sat paying for time and recovering nothing. The protocol is retreat FIRST,
+   then rest — which is also what a player does.
+
+It also found a real defect in the rest rules: the auto-stop counted only
+STANDING members, so a fight that left one member down and the others unhurt
+ended the rest after 0.02 seconds and walked away, reporting `recovered`. The
+unconscious are recoverable and waiting for them is one of the things resting is
+FOR; only the DEAD are excluded now.
+
 ## Next
 
-The harness itself is done, and the health/healing system's first part is built
-on top of it (docs/health-and-healing.md — the pools; food, water, rest and the
-sheet are still design). The balance pass has not started.
+The harness is done and so is the system it was waiting for
+(docs/health-and-healing.md). What is left is the BALANCE PASS — and for the
+first time the questions are numeric rather than rhetorical: recovery is cheap,
+exertion is a small drain beside time, and a run ends to monsters long before it
+ends to hunger.
 
 **A balance signal already, unasked for:** one skeleton — 16 hp, the second-
 weakest thing in the game — took three of four fresh members down in thirty

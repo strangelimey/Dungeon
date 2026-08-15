@@ -1045,12 +1045,23 @@ int Game::StepWorld(float seconds) {
 	const int want = static_cast<int>(seconds / kTick + 0.5f);
 	const int steps = want < kMaxSteps ? want : kMaxSteps;
 	static const Input kNoInput; // no keys, no mouse: the script is driving
+	// A step that BEGINS while resting ENDS when the rest does — because that is
+	// what the player does, and because it is the only way to measure what a
+	// rest actually cost. Rest stops itself the moment there is nothing left to
+	// gain, but `step` would keep the world running past that point, and the
+	// supplies drained by the overshoot are indistinguishable in the table from
+	// the supplies the rest itself spent.
+	//
+	// Only when it STARTS resting: an ordinary step must not acquire a new way
+	// to end early, or every other measurement in the harness changes meaning.
+	const bool restingStep = m_world.Resting();
 	int ran = 0;
 	for (; ran < steps; ++ran) {
 		m_world.Update(kNoInput, kTick, m_time, /*acceptInput=*/false);
 		m_time += kTick; // lights, flicker and rune pulses ride sim time too
 		// Followed nowhere: see the header. Reported by the caller as a short run.
 		if (m_world.ConsumeLevelTransition()) { ++ran; break; }
+		if (restingStep && !m_world.Resting()) { ++ran; break; }
 	}
 	return ran;
 }

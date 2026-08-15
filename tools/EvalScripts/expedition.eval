@@ -1,0 +1,162 @@
+; expedition.eval — a SEQUENCE of fights, with rest between them.
+;
+; Run:  Dungeon.exe -eval tools\EvalScripts\expedition.eval
+;
+; THE QUESTION THIS EXISTS TO ANSWER, and the reason the whole health-and-
+; healing model was designed (docs/eval-harness.md P6): *how does the party
+; arrive at the next fight?* Until there was healing, a ladder could only measure
+; ATTRITION — damage piling up with no way back — so it answered "how many fights
+; until they fall over" and nothing else.
+;
+; Now there is a way back and it costs something, so the run reads differently:
+; the party arrives at every fight HEALED and POORER, and the question becomes
+; HOW MANY FIGHTS A LOAD OF SUPPLIES BUYS. That number is the length of a
+; dungeon, and this table is what it is read off.
+;
+; Same protocol as ladder.eval — a room with a corridor, the party at the far
+; end, monsters in the middle, walk in and engage — with a RETREAT and a REST
+; between rungs. The `arena` rebuild is the retreat: it clears the monsters and
+; returns the party to the corridor end, and touches nothing about their
+; condition.
+;
+; THE ORDER MATTERS: retreat FIRST, then rest. Resting in a room that still has
+; something alive in it is not a rest — a blow breaks the state, and a downed
+; member's stabilize clock resets on any monster in aggro, so the party would sit
+; there paying for time and recovering nothing. That is correct behaviour and a
+; fine thing to measure deliberately; it is a terrible thing to measure by
+; accident in every rung of a ladder.
+;
+; TWO THINGS THIS SUITE GOT WRONG FIRST, both worth keeping written down.
+;
+; 1. IT WAS BUILT ON ladder.eval's RUNGS and reported `taken=0.0` at every one —
+;    a novice party simply is not troubled by skeleton swarms. So every rest had
+;    nothing to do, and the table was full of numbers measuring none of the thing
+;    it was written for. An encounter that does not hurt cannot demonstrate
+;    recovery. Measured thresholds, seed 31: 2x skel_warrior costs nothing, 4x
+;    costs 8, and 4x at strength 2.0 costs 45 and leaves the front rank at a
+;    quarter health. The ladder starts where the damage starts.
+;
+; 2. IT USED `rest on` FOLLOWED BY `step 900`, which does not measure a rest at
+;    all. The auto-stop does not depend on dt, so it fires on the next ORDINARY
+;    frame — and at timescale 0 that frame falls BETWEEN the two commands. With
+;    nothing to recover, rest was over before the step began, and the step then
+;    ran its full budget of dungeon time with no rest in progress: fifteen
+;    minutes of supplies drained, and the table read as "resting is expensive".
+;    `rest until` enters the state and runs the clock from inside one command,
+;    so no frame can fall in the gap.
+;
+; READ THREE COLUMNS DOWN THE FILE:
+;   TALLY     `taken` is the fight's bill. It should CLIMB.
+;   party     health after the rest. It should return to full at every rung —
+;             when it stops, recovery has fallen behind and the run is over.
+;   supplies  the real cost, and the only column that never recovers.
+;
+; Each `rest until` prints THE SECONDS IT RAN and why it stopped, so the rest's
+; length is measured rather than guessed. Those are DUNGEON seconds: a player at
+; rest_scale (x60) watches 1/60 of them, so a 200-second recovery is three
+; seconds of sitting there. Supplies are spent on the dungeon's clock, not the
+; player's, which is why this is the one reported.
+
+logecho on
+newgame
+timescale 0
+lockstep on
+seed 31
+autoattack on
+
+echo === the party as it sets out ===
+party
+supplies
+
+; --- rung 1: where the damage starts -----------------------------------------
+arena room 7 6
+spawn skel_warrior 14 12 south
+spawn skel_warrior 13 12 south
+spawn skel_warrior 15 12 south
+spawn skel_warrior 14 11 south
+tally reset
+face n
+forward 9
+step 40
+echo === RUNG 1: 4x skel_warrior — the fight ===
+party
+tally
+arena room 7 6
+rest until 900
+echo --- retreated and rested ---
+party
+supplies
+
+; --- rung 2 ------------------------------------------------------------------
+arena room 7 6
+spawn skel_warrior 14 12 south 1.5
+spawn skel_warrior 13 12 south 1.5
+spawn skel_warrior 15 12 south 1.5
+spawn skel_warrior 14 11 south 1.5
+tally reset
+face n
+forward 9
+step 40
+echo === RUNG 2: 4x skel_warrior x1.5 — the fight ===
+party
+tally
+arena room 7 6
+rest until 900
+echo --- retreated and rested ---
+party
+supplies
+
+; --- rung 3: the one that really hurts ---------------------------------------
+arena room 7 6
+spawn skel_warrior 14 12 south 2.0
+spawn skel_warrior 13 12 south 2.0
+spawn skel_warrior 15 12 south 2.0
+spawn skel_warrior 14 11 south 2.0
+tally reset
+face n
+forward 9
+step 40
+echo === RUNG 3: 4x skel_warrior x2.0 — the fight ===
+party
+tally
+arena room 7 6
+rest until 900
+echo --- retreated and rested ---
+party
+supplies
+state
+
+; --- rung 4 ------------------------------------------------------------------
+; `state` is printed from here on. A rung that downs the last member sends the
+; game to the TITLE SCREEN, and dev commands still answer perfectly normally
+; from there — so without this line a wiped run keeps printing tidy, empty
+; rungs and reads like a party that simply stopped taking damage.
+arena room 7 6
+spawn skel_warrior 14 12 south 2.5
+spawn skel_warrior 13 12 south 2.5
+spawn skel_warrior 15 12 south 2.5
+spawn skel_warrior 14 11 south 2.5
+tally reset
+face n
+forward 9
+step 40
+echo === RUNG 4: 4x skel_warrior x2.5 — the fight ===
+party
+tally
+arena room 7 6
+rest until 900
+echo --- retreated and rested ---
+party
+supplies
+state
+
+echo === what the expedition cost, and what it earned ===
+; Supplies are the bill for the whole sequence; the skills are what the party has
+; to show for it. Both are the outcome — one spent, one earned — and the pace
+; line says whether the training reached the party's legs or stopped at the
+; fastest member's.
+supplies
+char 0
+char 3
+regen
+state

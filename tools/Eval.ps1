@@ -93,6 +93,11 @@ $suites = @(
 		name = 'rest'; script = 'rest.eval'
 		what = 'the rest state: what it costs, and the three ways it ends'
 		measure = '===|  \[0\]|rest (on|off) \(world'
+	},
+	@{
+		name = 'expedition'; script = 'expedition.eval'
+		what = 'fight, retreat, rest, repeat - how many fights a load of supplies buys'
+		measure = '===|TALLY |rested [0-9.]+s|  \[0\] Brand|^state '
 	}
 )
 

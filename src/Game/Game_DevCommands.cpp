@@ -1293,8 +1293,38 @@ void Game::RegisterDevCommands() {
 	// query at four places — each of which silently turned the state back on and
 	// made the auto-stop rules look broken when they were working. A query that
 	// mutates is a trap, and this one caught its own author.
-	m_console.Register("rest", "the rest state (dev): rest [on|off], bare = report",
+	m_console.Register("rest",
+					   "the rest state (dev): rest [on|off|until [secs]], bare = report",
 					   [this](const std::vector<std::string>& args) {
+						   // `rest until` — enter rest AND run the world until it
+						   // ends. This is the form a script wants, and the reason
+						   // it exists is a trap worth recording: `rest on` followed
+						   // by `step N` does NOT measure a rest. UpdateRest does not
+						   // depend on dt, so it fires on the very next ORDINARY
+						   // frame — and with timescale 0 that frame happens between
+						   // the two console commands. If there was nothing to
+						   // recover, rest was already over before the step began,
+						   // and the step then ran its FULL budget of dungeon time
+						   // with no rest in progress: supplies drained for fifteen
+						   // minutes and the table read as "resting is expensive".
+						   //
+						   // Stepping from inside the same command leaves no frame
+						   // in between, so the state cannot end before the clock
+						   // starts. StepWorld already stops the moment rest ends.
+						   if (!args.empty() && args[0] == "until") {
+							   const float cap =
+								   args.size() > 1
+									   ? static_cast<float>(std::atof(args[1].c_str()))
+									   : 3600.0f;
+							   m_world.SetResting(true);
+							   const int ran = StepWorld(cap);
+							   m_console.Print(std::format(
+								   "rested {:.2f}s — {}",
+								   static_cast<float>(ran) / 60.0f,
+								   m_world.Resting() ? "still resting (hit the cap)"
+													 : m_world.RestEndReason()));
+							   return;
+						   }
 						   if (!args.empty()) m_world.SetResting(args[0] != "off");
 						   const char* why = m_world.RestEndReason();
 						   m_console.Print(std::format(
@@ -1798,9 +1828,18 @@ void Game::RegisterDevCommands() {
 						   if (!m_world.LockstepAI())
 							   m_console.Print("warning: lockstep is OFF — monsters "
 											   "will barely think during this step");
+						   const bool wasResting = m_world.Resting();
 						   const int ran = StepWorld(secs);
-						   m_console.Print(std::format("stepped {} ticks ({:.2f}s)", ran,
-													   static_cast<float>(ran) / 60.0f));
+						   // A rested step says so, and says WHY it stopped: the
+						   // seconds it ran ARE the length of the rest, which is
+						   // the number a supply measurement is after.
+						   m_console.Print(std::format(
+							   "stepped {} ticks ({:.2f}s){}", ran,
+							   static_cast<float>(ran) / 60.0f,
+							   wasResting && !m_world.Resting()
+								   ? std::format(" — rest ended: {}",
+												 m_world.RestEndReason())
+								   : ""));
 					   });
 
 	m_console.Register("noclip", "toggle walking through walls",

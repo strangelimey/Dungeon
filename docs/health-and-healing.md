@@ -627,7 +627,21 @@ every number measured afterwards was quietly wrong. It is the same lesson
 `setstat` learned in P1, arriving at a second command the day the model changed
 underneath it.
 
-### Still to build
+### Done — the sequence, measured
 
-- The eval harness: a rung that measures a *sequence* of fights, which is the
-  whole reason this was designed (docs/eval-harness.md P6).
+`tools/EvalScripts/expedition.eval` (the `expedition` suite) is the rung the
+whole model was designed to make possible: fight, retreat, rest, repeat.
+`rest until [secs]` is the primitive it needed — see docs/eval-harness.md for
+the table, the three ways the suite lied before it told the truth, and the
+defect it found in the rest rules.
+
+**What it says about the tuning**, and this is the balance pass's starting point:
+three full fight-and-recover cycles cost 2.9 food and 5.2 water out of 100. Water
+binds first at ~1.7 a cycle, so a load buys roughly **fifty-five fights** — and
+the party in that run died to DIFFICULTY at the fourth, having spent 7% of its
+water. **Supplies are not the constraint today; the monsters are.**
+
+Which is the thing to weigh before turning any knob: this model was built so a
+run could be lost to logistics, and at the shipped numbers it cannot be. The
+three levers are health regen (down), supply drain (up), and a floor on what a
+rest costs. All three are playtest questions.
