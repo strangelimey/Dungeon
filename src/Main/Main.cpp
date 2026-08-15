@@ -59,8 +59,32 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
 	game::GameSettings boot;
 	boot.Load();
 
+	// `-headless` (docs/eval-harness.md): no window on screen and no drawing —
+	// the game simulates, the dev console still runs, and everything worth
+	// reading comes out of dungeon.log. Read BEFORE the window exists, because
+	// whether it is ever shown is a property of its creation.
+	//
+	// WHAT IT DOES NOT DO is remove the graphics device. The swapchain is bound
+	// to an HWND, and prising the device out would mean a null path at every gfx
+	// call site — mesh building, texture upload, icon bakes, font atlases — for
+	// no gain, because what a headless run saves is the PER-FRAME cost, not the
+	// once-per-process cost of owning a device. A machine with no GPU is already
+	// handled a layer down: GraphicsDevice falls back to WARP.
+	//
+	// It is a FLAG rather than something `-eval` implies, because watching an
+	// eval run play out is exactly how several of these scripts were debugged.
+	bool headless = false;
+	{
+		int argc = 0;
+		LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+		for (int i = 1; argv && i < argc; ++i)
+			if (std::wstring_view(argv[i]) == L"-headless") headless = true;
+		if (argv) LocalFree(argv);
+	}
+
 	WindowDesc desc;
 	desc.title = "Dungeon";
+	desc.hidden = headless;
 	if (boot.displayWidth > 0 && boot.displayHeight > 0) {
 		desc.width = static_cast<u32>(boot.displayWidth);
 		desc.height = static_cast<u32>(boot.displayHeight);
@@ -170,35 +194,56 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
 				game.Update(dt);
 			}
 
-			ID3D12GraphicsCommandList* list = nullptr;
-			{
-				DN_PROFILE_ZONE(prof::kZoneRender);
-				list = device.BeginFrame(clearColor);
-				// The CPU work of a frame, separated from the two WAITS either side
-				// of it (wait.gpu inside BeginFrame, present inside EndFrame). Those
-				// three partition `render` into the only three things it can be
-				// doing, and which of them dominates IS the answer to whether the
-				// frame is CPU-bound, GPU-bound or display-bound. Undivided, all
-				// three read as "rendering is expensive".
-				{
-					DN_PROFILE_ZONE(prof::kZoneRecord);
-					game.Render(list);
-				}
-				device.EndFrame();
-			}
-
-			// Hold the frame to the refresh rate of the monitor the window is on
-			// (GraphicsDevice::WaitFrameCap explains why Present cannot do this).
+			// HEADLESS: the whole render half of the frame goes, and with it the
+			// frame cap. That cap is the bigger of the two savings and the less
+			// obvious one — it holds every frame to the monitor's refresh, and an
+			// eval script runs one line per frame, so a run with nothing to show
+			// would otherwise be paced by a display nobody is looking at.
 			//
-			// A SIBLING of `render`, not part of it, and its own zone: this is a
-			// wait we chose, and folding it into anything else would show up as
-			// that thing getting slower. Named so the budget can subtract it from
-			// CPU time — otherwise capping the frame rate would make the console
-			// report the engine as CPU-bound, which is the precise opposite of
-			// what a frame spent deliberately idle means.
-			{
-				DN_PROFILE_ZONE(prof::kZoneWaitCap);
-				device.WaitFrameCap();
+			// EndHeadlessFrame is not optional bookkeeping: the staged loader
+			// gates on the frame counter that lives at the bottom of Render, so
+			// without it the run never finishes loading (see its definition).
+			//
+			// Written as a BRANCH rather than an early `continue`, deliberately:
+			// the loop's tail publishes the profiler's frame, ends the allocation
+			// guard's, and ends the input frame, and a headless run that skipped
+			// those would drift from a normal one in three ways that would each
+			// take a while to notice.
+			if (headless) {
+				game.EndHeadlessFrame();
+			} else {
+				ID3D12GraphicsCommandList* list = nullptr;
+				{
+					DN_PROFILE_ZONE(prof::kZoneRender);
+					list = device.BeginFrame(clearColor);
+					// The CPU work of a frame, separated from the two WAITS either
+					// side of it (wait.gpu inside BeginFrame, present inside
+					// EndFrame). Those three partition `render` into the only three
+					// things it can be doing, and which of them dominates IS the
+					// answer to whether the frame is CPU-bound, GPU-bound or
+					// display-bound. Undivided, all three read as "rendering is
+					// expensive".
+					{
+						DN_PROFILE_ZONE(prof::kZoneRecord);
+						game.Render(list);
+					}
+					device.EndFrame();
+				}
+
+				// Hold the frame to the refresh rate of the monitor the window is
+				// on (GraphicsDevice::WaitFrameCap explains why Present cannot do
+				// this).
+				//
+				// A SIBLING of `render`, not part of it, and its own zone: this is
+				// a wait we chose, and folding it into anything else would show up
+				// as that thing getting slower. Named so the budget can subtract it
+				// from CPU time — otherwise capping the frame rate would make the
+				// console report the engine as CPU-bound, which is the precise
+				// opposite of what a frame spent deliberately idle means.
+				{
+					DN_PROFILE_ZONE(prof::kZoneWaitCap);
+					device.WaitFrameCap();
+				}
 			}
 			consecutiveFailures = 0; // a frame that finished clears the streak
 		} catch (const std::exception& e) {

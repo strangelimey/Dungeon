@@ -91,6 +91,11 @@ public:
 
 	void Update(float dt);
 	void Render(ID3D12GraphicsCommandList* list);
+	// The end-of-frame bookkeeping Render does, for a `-headless` run that never
+	// calls it. NOT optional: the staged loader gates on the frame counter that
+	// lives at the bottom of Render, so without this a headless run never
+	// finishes loading. See the definition.
+	void EndHeadlessFrame();
 
 	// Set by the pause menu's Exit entry (and Esc outside of play); the
 	// main loop polls it to leave cleanly.

@@ -607,6 +607,55 @@ This harness lost twelve ladder rungs to that exact shape once already.
 last two are the ones that keep the speedup honest — mutation-checked by dropping
 the map restore, which they catch.
 
+## Headless (`-headless`)
+
+`Dungeon.exe -headless -eval <script...>` runs with **no window on screen and no
+drawing**. The simulation, the dev console and the log are unchanged;
+`Eval.ps1 -Headless` and `PipelineTest.ps1 -Headless` pass it through.
+
+**It is not really a speed switch, and it is worth saying so before somebody
+measures it hopefully.** Ten suites go **42 s → 37 s**, about 12%. The time is
+the asset load plus the `step` loops, and a `step` runs many simulated seconds
+inside ONE frame — there are simply not many frames to save. What it buys is a
+run that does not steal focus, that survives being launched over RDP or from a
+scheduled task, and that can be run several at a time without contending for the
+GPU. It also retires `docs/drive.ps1`'s worst failure, `Shot` grabbing whatever
+window happened to be in front.
+
+**What it does NOT do is remove the graphics device.** The swapchain is bound to
+an HWND, so the window still exists — it is merely never shown. Prising the
+device out would mean a null path at every `gfx` call site (mesh building,
+texture upload, icon bakes, font atlases) for no gain, because what a headless
+run saves is the per-frame cost, not the once-per-process cost of owning a
+device. A machine with no GPU is already handled a layer down: `GraphicsDevice`
+falls back to WARP.
+
+### The one thing that made it non-trivial
+
+`Game::Render` is pure drawing — except for its last line, `++m_framesRendered`,
+and `RunLoadTasks` gates on it: a staged task runs only once the state's screen
+has been *presented* at least once, so a multi-second bake never lands on a frame
+nobody has seen. Skip rendering naively and that counter never moves, the load
+queue never advances, and the run sits on the loading screen until the 600-second
+script timeout — a hang, reported as a timeout, ten minutes later.
+
+So `Game::EndHeadlessFrame` does that bookkeeping in its own words. The increment
+stays where it is for the normal path: moving it would change what "presented"
+means for everybody in order to fix a case that has no screen.
+
+**The equivalence is CHECKED, not assumed.** `Eval.ps1 -SelfTest` now runs a
+suite both ways and requires the console output to match line for line (161 lines,
+identical). Without that, a headless mode that quietly measured something else
+would look exactly like one that worked — the same argument as the
+batched-matches-solo check beside it, and the frame counter is the proof that the
+risk is real rather than theoretical, since something the simulation depended on
+genuinely was living in the render pass.
+
+**Two things deliberately NOT run headless:** `/check-ingame`, because
+`uioverlap` measures what widgets PAINT and nothing paints; and `/check-alloc`,
+because the allocation guard brackets update *and* render, so a headless frame is
+a different frame from the one the rule is about.
+
 ## The one suite that is not a measurement
 
 `pipeline.eval` lives in `tools\EvalScripts\` and is deliberately **not** in

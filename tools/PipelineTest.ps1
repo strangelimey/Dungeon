@@ -35,6 +35,7 @@
 [CmdletBinding()]
 param(
 	[switch]$SelfTest,
+	[switch]$Headless,
 	[ValidateSet('debug', 'release')][string]$Config = 'debug'
 )
 
@@ -76,7 +77,12 @@ function Expect($what, $ok, $detail) {
 # ---------------------------------------------------------------------------
 function Run-Script($name) {
 	$path = Join-Path $scripts $name
-	$p = Start-Process -FilePath $exe -ArgumentList '-eval', $path -PassThru -Wait
+	# -Headless changes only whether a window appears: the output is IDENTICAL,
+	# which Eval.ps1 -SelfTest checks line for line rather than assuming.
+	$a = @()
+	if ($Headless) { $a += '-headless' }
+	$a += @('-eval', $path)
+	$p = Start-Process -FilePath $exe -ArgumentList $a -PassThru -Wait
 	$lines = @(Get-Content $log)
 	return @{
 		exit = $p.ExitCode

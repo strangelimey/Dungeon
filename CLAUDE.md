@@ -307,6 +307,27 @@ Key conventions (memorize, they bite):
   point. TRAP when scripting rest: `rest on` then `step N` does NOT measure a
   rest — the auto-stop is dt-independent so it fires on the next ordinary frame,
   which at timescale 0 falls BETWEEN the two commands; use `rest until`.
+  HEADLESS: `Dungeon.exe -headless -eval …` (also `Eval.ps1 -Headless`,
+  `PipelineTest.ps1 -Headless`) hides the window and skips the whole render half
+  of the frame. It is NOT mainly a speed switch — ten suites go 42 s → 37 s,
+  because the cost is the asset load plus `step` loops, and a `step` runs many
+  simulated seconds inside ONE frame, so there are few frames to save. What it
+  buys is a run that steals no focus, survives RDP / a scheduled task, and can be
+  run several at a time. It does NOT remove the graphics device: the swapchain is
+  bound to an HWND, so the window still exists and is merely never shown, and
+  prising the device out would mean a null path at every gfx call site for no
+  gain (a GPU-less machine is already covered — GraphicsDevice falls back to
+  WARP). THE ONE THING THAT MADE IT NON-TRIVIAL: `Game::Render` is pure drawing
+  EXCEPT its last line, `++m_framesRendered`, which `RunLoadTasks` gates on ("the
+  screen has been presented once") — skip rendering naively and the load queue
+  never advances, so the run sits on the loading screen until the 600 s script
+  timeout. `Game::EndHeadlessFrame` does that bookkeeping instead; the normal
+  path's increment is left where it is. EQUIVALENCE IS CHECKED, not assumed:
+  `Eval.ps1 -SelfTest` runs a suite both ways and demands the console output
+  match line for line. NOT run headless on purpose: `/check-ingame` (uioverlap
+  measures what widgets PAINT) and `/check-alloc` (the guard brackets update AND
+  render, so a headless frame is a different frame from the one the rule is
+  about).
 - EFFECTS (full model: docs/effects.md — the system every source of damage
   goes through; built in six phases 2026-07-24): ONE pipeline for everything
   that happens to a combatant. A source builds an `fx::DamageEvent` and calls

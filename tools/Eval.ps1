@@ -6,6 +6,15 @@
 #   .\tools\Eval.ps1 -List
 #   .\tools\Eval.ps1 -SelfTest          # the runner must FAIL on purpose
 #   .\tools\Eval.ps1 -Table             # print ONLY the measurements
+#   .\tools\Eval.ps1 -Headless          # no window, no drawing
+#
+# -Headless is NOT primarily a speed switch, and saying so up front saves
+# somebody measuring it hopefully: ten suites go 42s -> 37s, because the time is
+# the asset load plus the `step` loops, and a `step` runs many sim ticks inside
+# ONE frame. There are simply not many frames to save. What it buys is a run that
+# does not steal focus, survives being run over RDP or from a scheduled task, and
+# can be run several at a time without contending for the GPU. The numbers are
+# identical either way - that equivalence is checked under -SelfTest.
 #
 # Exit 0 = every suite's script ran to completion with no unknown lines.
 #
@@ -29,6 +38,7 @@ param(
 	[switch]$List,
 	[switch]$SelfTest,
 	[switch]$Table,
+	[switch]$Headless,
 	[ValidateSet('debug', 'release')][string]$Config = 'debug'
 )
 
@@ -190,10 +200,28 @@ if ($SelfTest) {
 	Write-Host ("  {0} lines compared - {1}" -f $solo.Count,
 		$(if ($batchOk) { 'identical batched and solo' } else { 'DIFFERENT' }))
 
-	$ok = ($p.ExitCode -eq 1) -and ($q.ExitCode -eq 2) -and $resetOk -and $batchOk
+	# --- and HEADLESS changes nothing ----------------------------------------
+	# Same argument as the batching check above, for the same reason: a mode that
+	# quietly measured something else would look exactly like a mode that worked.
+	# Headless skips the whole render half of the frame, and the risk is that
+	# something the simulation depends on was living in there - the staged
+	# loader's frame counter already was, and only turned up because the load hung.
+	Write-Host ''
+	Write-Host '=== a headless run must match a windowed one ==='
+	$grabAll = { @(Get-Content $log) | Where-Object { $_ -cmatch '^\[info \] console: ' } }
+	Start-Process -FilePath $exe -ArgumentList '-eval', $probe -Wait
+	$windowed = & $grabAll
+	Start-Process -FilePath $exe -ArgumentList '-headless', '-eval', $probe -Wait
+	$hidden = & $grabAll
+	$headOk = ($windowed.Count -gt 0) -and ($windowed.Count -eq $hidden.Count) -and
+			  -not @(0..($windowed.Count - 1) | Where-Object { $windowed[$_] -cne $hidden[$_] }).Count
+	Write-Host ("  {0} lines compared - {1}" -f $windowed.Count,
+		$(if ($headOk) { 'identical headless and windowed' } else { 'DIFFERENT' }))
+
+	$ok = ($p.ExitCode -eq 1) -and ($q.ExitCode -eq 2) -and $resetOk -and $batchOk -and $headOk
 	Write-Host ''
 	Write-Host ("eval RESULT={0} self_test=1" -f $(if ($ok) { 'PASS' } else { 'FAIL' }))
-	if ($ok) { Write-Host 'the runner reports both failures, and recycling changes nothing' }
+	if ($ok) { Write-Host 'the runner reports both failures; recycling and going headless change nothing' }
 	else { Write-Host 'A RUNNER THAT CANNOT FAIL MEANS NOTHING' -ForegroundColor Red }
 	exit $(if ($ok) { 0 } else { 1 })
 }
@@ -206,8 +234,11 @@ if (-not $run) { Write-Host "eval: nothing matched -Only"; exit 2 }
 # 155s -> 37s. Each script opens with `reset`, which loads for the first one in
 # the batch and recycles for the rest (docs/eval-harness.md).
 $paths = @($run | ForEach-Object { Join-Path $scripts $_.script })
+$args = @()
+if ($Headless) { $args += '-headless' }
+$args += @('-eval') + $paths
 $t0 = Get-Date
-$p = Start-Process -FilePath $exe -ArgumentList (@('-eval') + $paths) -PassThru -Wait
+$p = Start-Process -FilePath $exe -ArgumentList $args -PassThru -Wait
 $totalSecs = [int]((Get-Date) - $t0).TotalSeconds
 
 # THE MEASUREMENT. Read back from dungeon.log rather than captured from the

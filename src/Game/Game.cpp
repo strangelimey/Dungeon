@@ -1913,4 +1913,26 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 	++m_framesRendered;
 }
 
+// HEADLESS (`-headless`): the end-of-frame bookkeeping without the drawing.
+//
+// This exists because of ONE line above — `++m_framesRendered`. The staged
+// loader gates on it (`RunLoadTasks`: a task runs only once the state's screen
+// has been PRESENTED at least once, so a multi-second bake never happens on a
+// frame nobody has seen). Skip Render naively and that counter never moves, the
+// load queue never advances, and a headless run sits on the loading screen
+// forever, reporting nothing, looking exactly like a hang.
+//
+// So the counter is frame accounting that merely LIVED in the render pass. The
+// increment stays where it is for the normal path — moving it would change what
+// "presented" means for everyone to fix a case that has no screen — and headless
+// says the same thing in its own words. The overlap audit is ended too, for the
+// same reason it is ended there: something has to say the frame is over, and
+// `uioverlap` armed in a headless run must not wait forever for a pass that will
+// never come. (It will report nothing, of course — a widget that never drew has
+// no ink. `/check-ingame` deliberately does NOT run headless.)
+void Game::EndHeadlessFrame() {
+	ui::inspect::EndOverlapAuditFrame();
+	++m_framesRendered;
+}
+
 } // namespace dungeon::game
