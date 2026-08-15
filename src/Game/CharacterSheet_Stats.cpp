@@ -22,6 +22,10 @@ void CharacterSheet::BakeStats() {
 								static_cast<int>(character.maxStamina));
 	m_manaText = std::format("{} / {}", static_cast<int>(character.mana),
 							 static_cast<int>(character.maxMana));
+	m_foodText = std::format("{} / {}", static_cast<int>(character.food),
+							 static_cast<int>(character.maxFood));
+	m_waterText = std::format("{} / {}", static_cast<int>(character.water),
+							  static_cast<int>(character.maxWater));
 	m_attrValues = {std::to_string(character.strength),
 					std::to_string(character.dexterity),
 					std::to_string(character.vitality),
@@ -67,6 +71,13 @@ void CharacterSheet::DrawStats(ui::UIContext& ctx, gfx::SpriteBatch& batch,
 		 m_barColors->stamina, m_staminaText},
 		{m_manaLabel, m_character->mana, m_character->maxMana, m_barColors->mana,
 		 m_manaText},
+		// The two SUPPLIES, below the three pools they pay for
+		// (docs/health-and-healing.md). Five bars against the five attributes in
+		// the left column, which is how the two halves of the tab now line up.
+		{m_foodLabel, m_character->food, m_character->maxFood, m_barColors->food,
+		 m_foodText},
+		{m_waterLabel, m_character->water, m_character->maxWater,
+		 m_barColors->water, m_waterText},
 	};
 	for (size_t i = 0; i < std::size(bars); ++i) {
 		const auto& b = bars[i];

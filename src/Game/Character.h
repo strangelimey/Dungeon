@@ -69,7 +69,13 @@ struct Character {
 	// PER CHARACTER, and deliberately so: Michael plans to split the party for
 	// sub-quests, and a shared food pool would read as a harmless simplification
 	// today and be the expensive thing to unpick the day someone walks off alone.
+	//
+	// The MAXIMA are a flat balance knob (the size of a stomach is not an
+	// attribute), mirrored here as DERIVED fields — unsaved, refreshed by
+	// RecomputePartyMaxima — so that a reader with no Balance in reach can still
+	// draw the bar. Exactly what maxHealth is to its own knobs.
 	float food = 100.0f, water = 100.0f;
+	float maxFood = 100.0f, maxWater = 100.0f;
 
 	int strength = 10;
 	int dexterity = 10;
@@ -361,10 +367,21 @@ struct Character {
 		derive(mana, maxMana, grown(resource::Kind::Mana, baseMana));
 	}
 
-	// Movement-pace multiplier (1 = baseline, lower = slower). The party
-	// moves at the pace of its slowest member: the Game feeds the roster
-	// minimum into Party::SetSpeed, which scales step and turn rates.
+	// AUTHORED movement pace (1 = baseline, lower = slower) — class identity,
+	// like baseHealth. Sera is fleet-footed at 1.2, Tilo the anchor at 0.9.
+	// Read MoveSpeed() rather than this: conditioning adds to it.
 	float moveSpeed = 1.0f;
+	// The pace this member actually walks at: the authored base plus what
+	// CONDITIONING has added (docs/health-and-healing.md "Movement").
+	//
+	// The party moves at the pace of its SLOWEST member, so the benefit is
+	// invisible until the worst-trained one has it — one unconditioned mage
+	// still caps the whole party. That rule now has teeth it did not have
+	// before, because conditioning makes members genuinely diverge.
+	float MoveSpeed(const CurveRules& paceCurve) const {
+		return moveSpeed +
+			   resource::SkillTerm(paceCurve, PracticeLevel(resource::Kind::Stamina));
+	}
 
 	// Baked portrait (portrait_<name>.png), wired by the Game after the
 	// texture loads; null draws the tinted-initial fallback instead.

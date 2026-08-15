@@ -172,7 +172,12 @@ void DungeonWorld::GrantResourceXp(Character& member, resource::Kind kind,
 	const char* skill = resource::SkillId(kind);
 	const int before = member.SkillLevel(skill);
 	GrantSkillXp(member, skill, points * rate, {});
-	if (member.SkillLevel(skill) != before) member.RecomputeMaxima(m_balance.Resources());
+	if (member.SkillLevel(skill) == before) return;
+	member.RecomputeMaxima(m_balance.Resources());
+	// CONDITIONING also drives the walking pace, and the party takes the
+	// minimum — so a level here can change how fast everyone moves, and it has
+	// to reach the Party now rather than at the next load.
+	if (kind == resource::Kind::Stamina) ApplyPartyPace();
 }
 
 // --- rest (docs/health-and-healing.md "Rest is a STATE") ---------------------
@@ -690,8 +695,34 @@ void DungeonWorld::SpendExertion(Character& member, float points) {
 void DungeonWorld::RecomputePartyMaxima() {
 	if (!m_roster) return;
 	const resource::PoolRules pools = m_balance.Resources();
-	for (Character& member : *m_roster)
+	const float foodMax = m_balance.SupplyOf(resource::Supply::Food).max;
+	const float waterMax = m_balance.SupplyOf(resource::Supply::Water).max;
+	for (Character& member : *m_roster) {
 		member.RecomputeMaxima(pools);
+		// The supply ceilings are a knob, mirrored onto the member so the sheet
+		// can draw a bar without reaching for Balance. Clamped with them, since
+		// turning the knob DOWN in the editor must not leave someone over full.
+		member.maxFood = foodMax;
+		member.maxWater = waterMax;
+		member.food = std::min(member.food, foodMax);
+		member.water = std::min(member.water, waterMax);
+	}
+	// Conditioning feeds the PACE as well as the pool, and both are re-derived
+	// from the same places (a load, a stat change, a balance apply), so they are
+	// refreshed together rather than leaving one caller to remember the other.
+	ApplyPartyPace();
+}
+
+// The party moves as fast as its SLOWEST member — the rule was already here;
+// what is new is that the number it takes the minimum of is now a DERIVED pace
+// rather than an authored one.
+void DungeonWorld::ApplyPartyPace() {
+	if (!m_roster || m_roster->empty()) return;
+	const CurveRules pace = m_balance.PaceCurve();
+	float slowest = (*m_roster)[0].MoveSpeed(pace);
+	for (const Character& member : *m_roster)
+		slowest = std::min(slowest, member.MoveSpeed(pace));
+	m_party.SetSpeed(slowest);
 }
 
 // --- the pipeline's two faces (docs/effects.md) -------------------------------

@@ -84,6 +84,10 @@ public:
 	// Pace multiplier from the slowest party member (1 = baseline). Scales
 	// both the step rate (shortens/stretches kMoveDuration) and kTurnSpeed.
 	void SetSpeed(float speed) { m_speed = speed; }
+	// The pace actually in force. Readable so a measurement can see it:
+	// conditioning feeds it now, and the whole point of the slowest-member rule
+	// is that one member's training may change this number by nothing at all.
+	float Speed() const { return m_speed; }
 
 	void SetKeys(const MoveKeys& keys) { m_moveKeys = keys; }
 

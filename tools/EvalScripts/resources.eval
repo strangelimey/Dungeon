@@ -91,4 +91,20 @@ echo --- after three casts (12 mana) ---
 char 3
 regen
 
+echo === 6. pace: conditioning speeds you up, the party waits anyway ===
+; docs/health-and-healing.md "Movement". Conditioning ADDS to a member's
+; authored pace, and the party moves at its SLOWEST member's — so the whole
+; point is the second row here: training the FASTEST member changes the party
+; number by NOTHING. Either everyone trains, or everyone crawls.
+;
+; Authored: Brand 0.95, Sera 1.20, Maren 1.00, Tilo 0.90 (the anchor).
+echo --- as authored ---
+regen
+echo --- Sera (already fastest) trains hard: no party gain ---
+setskill 1 conditioning 30
+regen
+echo --- Tilo (the anchor) trains instead: the party finally moves ---
+setskill 3 conditioning 30
+regen
+
 state

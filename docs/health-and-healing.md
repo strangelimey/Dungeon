@@ -10,8 +10,13 @@ second source.
 | **aptitude and practice** — the three skills, the maxima, the regen rates, the state gate, the training loops | **BUILT** |
 | **food and water** — the two meters, conditioning's price, exertion, eating and drinking, starving and parched, save v25 | **BUILT** |
 | **rest** — the state, the time multiplier, lockstep AI, the three ways it ends | **BUILT** |
-| movement pace from conditioning | design only |
-| the resource skills on the sheet | design only |
+| **movement pace from conditioning**, through the slowest-member rule | **BUILT** |
+| **the sheet** — the practices in their own group, and the two supply bars | **BUILT** |
+
+**The system is complete.** What is left is not design: a balance pass over the
+numbers (see the two measurements below, both of which want playtesting rather
+than a guess), and the eval harness's ladder rung that measures a *sequence* of
+fights — the thing this whole model was designed to make answerable.
 
 What the built part changed that is worth knowing immediately: **health
 regenerates**, which it never did before; **mana is much slower** and no longer
@@ -322,19 +327,39 @@ log where a script cannot read it:
 ## Movement
 
 Conditioning makes a character faster, using the `moveSpeed` field that already
-exists:
+exists. As built it **ADDS** to the authored value rather than replacing it:
 
 ```
-moveSpeed = 1 + move_skill × Curve(conditioning)
+pace = moveSpeed + Curve(conditioning)     ; pace_slope .. pace_cap
 ```
 
-**The party moves at the pace of its slowest member** (`ApplyPartySpeed` feeds
-the roster minimum into `Party::SetSpeed`) — confirmed as intended. So the speed
-benefit is invisible until the *worst-trained* member has it: one unconditioned
-mage caps the whole party. Either everyone trains, or everyone crawls.
+`moveSpeed` is class identity — Sera fleet-footed at 1.20, Tilo the anchor at
+0.90 — in exactly the way `baseHealth` is, and training should close that gap
+rather than erase it. (The sketch above said `1 + …`, which would have flattened
+the four members into one starting pace.)
 
-That rule now has teeth it did not have before, because conditioning makes
-members genuinely diverge in pace.
+**The party moves at the pace of its slowest member** — confirmed as intended.
+So the benefit is invisible until the *worst-trained* member has it: one
+unconditioned mage caps the whole party. Either everyone trains, or everyone
+crawls. That rule now has teeth it did not have before, and the teeth are
+measurable (`regen` prints each member's pace and the party's beneath them):
+
+| | Brand | Sera | Maren | Tilo | **party** |
+|---|---|---|---|---|---|
+| as authored | 0.95 | 1.20 | 1.00 | 0.90 | **0.90** |
+| Sera (already fastest) trains to 30 | 0.95 | 1.44 | 1.00 | 0.90 | **0.90** |
+| Tilo (the anchor) trains to 30 | 0.95 | 1.44 | 1.00 | 1.14 | **0.95** |
+
+The middle row is the whole point: training the fastest member buys the party
+*nothing*. The third shows the anchor moving and Brand silently becoming the new
+one — so the payoff is capped by whoever is worst, every time.
+
+**Where it is applied from matters.** `DungeonWorld::ApplyPartyPace` owns the
+rule, not `Game`: conditioning levels deep inside the combat tick, where Game is
+not in the call chain, so the pace has to be re-derived from somewhere the world
+can reach. It runs on a conditioning level-up and inside `RecomputePartyMaxima`
+(which covers load, new game and a balance apply); `Game::ApplyPartySpeed` is now
+a forwarder for the callers that always drove it.
 
 ## Food and water
 
@@ -578,9 +603,31 @@ auto-stop rules read as broken when they were working perfectly. A query that
 mutates is a trap, and this one caught its own author within the hour. Bare
 `rest` now reports and nothing else.
 
+### Done — pace and the sheet
+
+- `Balance::paceSlope`/`paceCap` + `PaceCurve()`; `Character::MoveSpeed`;
+  `DungeonWorld::ApplyPartyPace`, driven from a conditioning level-up and from
+  `RecomputePartyMaxima`. `Party::Speed()` so the result is readable.
+- The sheet's Skills tab groups under **Training** and **Reserves** headings
+  (`SkillRow::header` — one flag, not a second row type; a heading is a row that
+  draws less). A group with no rows prints no heading.
+- **Food and water bars** on the Stats tab, beneath the three pools — five bars
+  against the five attributes, which is how the two halves now line up. Themed
+  from `kBarFields` like the others rather than being the only two a player
+  cannot recolour. `Character::maxFood`/`maxWater` are derived mirrors of the
+  knobs, refreshed by `RecomputePartyMaxima`, so a reader with no `Balance` in
+  reach can still draw the bar.
+- Dev: `sheet <member|off>`, and `regen` grew a pace column plus a party line.
+
+**A bug this found in an older command:** `setskill` wrote XP and re-derived
+NOTHING. That was harmless when skills only shaded a roll; now a practice feeds
+the pool maxima and the walking pace, so a seeded skill left a conditioned member
+carrying a novice's stamina bar and the party walking at the old speed — and
+every number measured afterwards was quietly wrong. It is the same lesson
+`setstat` learned in P1, arriving at a second command the day the model changed
+underneath it.
+
 ### Still to build
 
-- `moveSpeed` from conditioning, through the existing slowest-member rule.
-- The character sheet's Skills tab: the resource skills as their own group.
 - The eval harness: a rung that measures a *sequence* of fights, which is the
   whole reason this was designed (docs/eval-harness.md P6).

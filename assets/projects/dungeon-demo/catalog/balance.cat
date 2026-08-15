@@ -75,6 +75,14 @@ thirst_damage = 0.8
 ; so no second set of resting rates can drift from the ordinary ones.
 ; 60 = a minute of dungeon time per second of watching.
 rest_scale = 60
+
+; Pace: what CONDITIONING adds to a member's authored move speed, tapering to
+; its cap. It ADDS rather than replaces -- moveSpeed is class identity (Sera
+; fleet-footed, Tilo the anchor) the way baseHealth is, and training should close
+; that gap, not erase it. The party still moves at its SLOWEST member's pace, so
+; the benefit is invisible until the worst-trained one has it.
+pace_slope = 0.02
+pace_cap = 0.4
 stamina_swing = 1
 stamina_weight = 0.4
 stamina_step = 0.1

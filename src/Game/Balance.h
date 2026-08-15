@@ -222,6 +222,15 @@ struct Balance {
 	// no second set of resting rates can drift out of step with the ordinary
 	// ones. 60 = a minute of dungeon time per second of watching.
 	float restScale = 60.0f;
+	// PACE (docs/health-and-healing.md "Movement"). What CONDITIONING adds to a
+	// member's authored move speed, tapering to its cap — so a trained member
+	// walks faster, and the cap is how much faster anyone can ever get.
+	//
+	// It ADDS to the authored value rather than replacing it: `moveSpeed` is
+	// class identity (Sera fleet-footed at 1.2, Tilo the anchor at 0.9) in
+	// exactly the way `baseHealth` is, and training should close that gap rather
+	// than erase it. A cap of 0 switches the term off (resource::SkillTerm).
+	float paceSlope = 0.02f, paceCap = 0.4f;
 	// Stamina costs + exhaustion (docs/combat.md Phase 4). A swing spends
 	// (stamina_swing + stamina_weight × weapon kg) × attack.stam; a step
 	// spends stamina_step per standing member. Regen is the resource model
@@ -327,6 +336,11 @@ struct Balance {
 	resource::PoolRules Resources() const;
 	// One supply meter's knobs, gathered the same way.
 	resource::SupplyRules SupplyOf(resource::Supply which) const;
+	// What conditioning adds to a move speed, as a curve in PACE UNITS.
+	CurveRules PaceCurve() const {
+		return {static_cast<CurveForm>(static_cast<int>(skillCurve)), paceSlope,
+				paceCap, 0.0f};
+	}
 
 	// The two contribution curves, assembled from the knobs above.
 	CurveRules SkillCurve() const {

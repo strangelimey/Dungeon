@@ -193,6 +193,12 @@ public:
 	// Re-derive every member's resource maxima from the balance k's — after a
 	// save-apply, a stat change, or an editor Balance apply.
 	void RecomputePartyMaxima();
+	// Feed the SLOWEST member's effective pace into the Party. Lives here rather
+	// than on Game because it has to run the moment CONDITIONING levels — which
+	// happens deep inside the combat tick — and the world holds both the roster
+	// and the party. Game::ApplyPartySpeed forwards to it for the load and
+	// new-game paths.
+	void ApplyPartyPace();
 	// --- rest (docs/health-and-healing.md "Rest is a STATE") ------------------
 	// A STATE you enter and leave, not a command with a duration (Michael's
 	// call): time runs fast until you stop it, so you watch the meters fill and

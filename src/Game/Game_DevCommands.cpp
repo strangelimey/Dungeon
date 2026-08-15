@@ -1182,6 +1182,7 @@ void Game::RegisterDevCommands() {
 						   const Balance& bal = m_world.GetBalance();
 						   const resource::PoolRules pools = bal.Resources();
 						   const CurveRules statCurve = bal.StatCurve();
+						   const CurveRules paceCurve = bal.PaceCurve();
 						   for (size_t i = 0; i < m_characters.size(); ++i) {
 							   const Character& c = m_characters[i];
 							   const auto rate = [&](resource::Kind k) {
@@ -1189,12 +1190,19 @@ void Game::RegisterDevCommands() {
 							   };
 							   m_console.Print(std::format(
 								   "  [{}] {:<6} health {:.3f}/s  stamina {:.3f}/s  "
-								   "mana {:.3f}/s  {}",
+								   "mana {:.3f}/s  pace {:.2f}  {}",
 								   i, c.name, rate(resource::Kind::Health),
 								   rate(resource::Kind::Stamina),
 								   rate(resource::Kind::Mana),
+								   c.MoveSpeed(paceCurve),
 								   c.staminaHoldoff > 0.0f ? "exerting" : "idle"));
 						   }
+						   // The PARTY's pace is the slowest member's, so it is
+						   // its own line: the interesting case is a member
+						   // training hard and the number not moving at all.
+						   m_console.Print(std::format(
+							   "  party pace {:.2f} (the slowest member's)",
+							   m_world.GetParty().Speed()));
 						   // The reference rows. Each pool is sized at the same
 						   // investment it is being rated at, so the per-max term
 						   // is honest rather than borrowed from someone else's
@@ -1247,6 +1255,34 @@ void Game::RegisterDevCommands() {
 								   c.FindEffect("starving") ? "  STARVING" : "",
 								   c.FindEffect("parched") ? "  PARCHED" : ""));
 						   }
+					   });
+
+	// Open (or close) the character sheet. It exists because the sheet was
+	// reachable ONLY by clicking a portrait, which is why `/check-ingame`
+	// reports it as a screen it cannot sweep — so the one screen with the most
+	// hand-laid-out content in the game was also the one screen `uioverlap`
+	// never saw. `sheet <n>` then `uioverlap` closes half of that gap.
+	m_console.Register("sheet", "open the character sheet (dev): sheet <member|off>",
+					   [this](const std::vector<std::string>& args) {
+						   if (!args.empty() && args[0] == "off") {
+							   if (m_state == AppState::CharacterSheet)
+								   m_state = AppState::Playing;
+							   m_console.Print("sheet closed");
+							   return;
+						   }
+						   const size_t m =
+							   args.empty()
+								   ? 0
+								   : static_cast<size_t>(std::atoi(args[0].c_str()));
+						   if (m >= m_characters.size()) {
+							   m_console.Print("no such member");
+							   return;
+						   }
+						   // Through the same entry point the portrait click uses,
+						   // so this cannot drift from what a player sees.
+						   OpenCharacterSheet(m);
+						   m_console.Print(
+							   std::format("sheet open: {}", m_characters[m].name));
 					   });
 
 	// The rest STATE, for a script and for a quick look. It reports the world
@@ -1532,6 +1568,13 @@ void Game::RegisterDevCommands() {
 						   Character& c = m_characters[m];
 						   const float xp = static_cast<float>(level) * level;
 						   c.skillXp[args[1]] = xp;
+						   // RE-DERIVE, for exactly the reason `setstat` already
+						   // had to: a RESOURCE practice feeds the pool maxima
+						   // and the walking pace now, so a skill set without
+						   // this leaves a conditioned member carrying a novice's
+						   // stamina bar and the party walking at the old speed —
+						   // and everything measured afterwards is quietly wrong.
+						   m_world.RecomputePartyMaxima();
 						   m_console.Print(std::format("{} {} = level {} ({:.0f} xp)",
 													   c.name, args[1],
 													   c.SkillLevel(args[1]), xp));

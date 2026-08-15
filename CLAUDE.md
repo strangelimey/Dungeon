@@ -273,6 +273,19 @@ Key conventions (memorize, they bite):
   `quiet` flag is exactly that line), `hungry` (an empty meter). Transient: not
   saved. NOTE `step` advances SIM seconds, so the harness cannot see the
   multiplier at all — it measures the STATE's rules instead.
+  PACE: conditioning ADDS to a member's authored `moveSpeed` (class identity,
+  like baseHealth) through `pace_slope`/`pace_cap`; the party still moves at its
+  SLOWEST member's, so training the fastest buys nothing. `DungeonWorld::
+  ApplyPartyPace` owns the rule (Game only forwards) because conditioning levels
+  inside the combat tick where Game is not in the call chain. SHEET: the Skills
+  tab groups under Training / Reserves headings (`SkillRow::header`), and the
+  Stats tab draws five bars — the three pools plus food and water, themed from
+  `kBarFields` like the rest. Dev: `sheet <member|off>`, which also let the
+  sheet JOIN `/check-ingame`'s uioverlap sweep (it was the one screen no audit
+  reached; note that sweep sees WIDGETS, and the bars are direct draws).
+  TRAP: any dev command that seeds a SKILL must re-derive — `setskill` wrote xp
+  and nothing else, which since P1 leaves a conditioned member with a novice's
+  bars and the old walking pace. Same lesson `setstat` learned.
 - EFFECTS (full model: docs/effects.md — the system every source of damage
   goes through; built in six phases 2026-07-24): ONE pipeline for everything
   that happens to a combatant. A source builds an `fx::DamageEvent` and calls

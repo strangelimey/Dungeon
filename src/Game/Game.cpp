@@ -172,8 +172,11 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 
 	m_characters = CreateDefaultParty();
 	ApplyMemberColors(); // the settings palette wins over the authored defaults
-	ApplyPartySpeed();
 	m_world.SetRoster(&m_characters); // combat drains these; reset in place
+	// AFTER SetRoster, not before: the pace rule reads the roster through the
+	// world now (conditioning feeds it), so it has nothing to average until the
+	// world has been handed the members.
+	ApplyPartySpeed();
 	m_ui.SetHitSplats(&m_hitSplats);  // stable address; LoadHitSplats fills it in
 	m_ui.SetItemIcons(&m_itemIcons);    // stable; LoadItemIcons fills it in
 	m_ui.SetItemWeights(&m_itemWeights); // stable; LoadItemIcons fills it in
@@ -730,14 +733,11 @@ void Game::OpenCharacterSheet(size_t index) {
 	m_state = AppState::CharacterSheet;
 }
 
-// The party moves as fast as its slowest member: take the roster minimum and
-// hand it to the Party, which scales its step and turn rates by it.
-void Game::ApplyPartySpeed() {
-	float slowest = m_characters.empty() ? 1.0f : m_characters[0].moveSpeed;
-	for (const Character& member : m_characters)
-		slowest = std::min(slowest, member.moveSpeed);
-	m_world.GetParty().SetSpeed(slowest);
-}
+// The party moves as fast as its slowest member. The rule itself moved to
+// DungeonWorld::ApplyPartyPace, because conditioning feeds the pace and levels
+// deep inside the combat tick — where Game is not in the call chain. This
+// forwards for the load / new-game / startup paths that always drove it.
+void Game::ApplyPartySpeed() { m_world.ApplyPartyPace(); }
 
 void Game::ApplyLanguage(bool rebuild) {
 	if (!m_pendingLanguage.empty()) {
