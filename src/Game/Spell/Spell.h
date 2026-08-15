@@ -121,6 +121,13 @@ public:
 	int Difficulty() const { return static_cast<int>(m_sequence.size()); }
 	float Power() const { return m_power; }
 	float Mana() const { return m_mana; }
+	// What this spell BURSTS as, and what it leaves behind — for the eval
+	// harness's `blast` command, which detonates a spell's AUTHORED numbers at a
+	// chosen cell. Exposed rather than letting the harness invent its own rules:
+	// a geometry measurement is only worth something if it describes the content
+	// that actually ships (docs/eval-harness.md).
+	const BlastSpec& Blast() const { return m_blast; }
+	std::span<const fx::Proc> Procs() const { return m_procs; }
 
 protected:
 	const DamageTypeBook* m_types = nullptr;

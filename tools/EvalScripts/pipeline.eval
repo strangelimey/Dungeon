@@ -1,0 +1,208 @@
+; pipeline.eval — every source of damage in the game, through the one-pipeline
+; check (Game/DamageLedger.h, docs/effects.md).
+;
+; THIS SUITE IS NOT LIKE THE OTHERS. The nine eval suites beside it MEASURE — a
+; table to compare across knob changes, with no notion of a right answer. This
+; one guards a RULE: outside the fx::ITarget adapters, nothing writes health.
+; So it has a verdict, it lives in CheckAll's tier alongside the other checked
+; rules, and tools\PipelineTest.ps1 reads its numbers rather than a human doing it.
+;
+; WHAT IT HAS TO DO IS FIRE EVERY ROUTE. A run that exercises three damage
+; sources and reports PASS says nothing about the other nine — it is the same
+; shape of empty pass the harness has produced twice before (a fresh party never
+; runs the regeneration path; a reset check that prints no map geometry passes on
+; a wrecked map). So the `pipeline` readout below prints per-route TOTALS, and
+; PipelineTest.ps1 fails a run in which the pipeline route moved NOTHING. A check
+; that ran no damage cannot report that damage behaved.
+;
+; DELIBERATELY NOT COVERED, and said out loud rather than left to be discovered:
+; a PIT FALL. It is the one collision that needs a pit to fall down, arenas carve
+; no stairs, and teleporting onto the showcase's pit mid-suite would take the
+; party to another level and end the run. OnFallImpact shares CollideParty with
+; the wall bump, which IS covered below, so the pipeline seam is exercised even
+; though that entry point is not.
+
+logecho on
+reset
+timescale 0
+lockstep on
+seed 11
+
+; Arm, then zero. `pipelineguard on` takes a fresh baseline (so arming can never
+; manufacture a violation out of whatever happened before it) and `reset` clears
+; the counters, so the totals below belong to this suite and not to the one that
+; ran before it in the same process.
+pipelineguard on
+pipelineguard reset
+
+; --- 1. THE DUNGEON AS A TARGET -------------------------------------------
+; First, because it is the only section that needs the AUTHORED level: `reset`
+; leaves showcase intact, and an arena strips every prop, door and fixture out of
+; the map. All three breakable kinds are here, which is the point — the ledger
+; watches decorations, doors and fixtures separately and each has its own adapter
+; call to account for.
+echo === 1. breakables: a prop, a door and a fixture ===
+smash 10 12 6   ; the barrel   (Decoration)
+smash 17 12 6   ; the crate    (Decoration)
+smash 13 19 9   ; the wooden door AND the sconce sharing that cell
+step 2
+pipeline
+
+; --- 2. MELEE, BOTH WAYS --------------------------------------------------
+; A real encounter: the party swings (PartyTarget on the monster) and the monster
+; swings back (MonsterTarget on a member). Two routes, one fight.
+arena open 9 9
+heal
+tp 14 14
+face north
+spawn skel_warrior 14 13 south
+autoattack on
+step 25
+autoattack off
+echo === 2. melee, both ways ===
+party
+monsters
+pipeline
+
+; --- 3. A BOLT, THROUGH THE PROJECTILE ENGINE -----------------------------
+; The carrier path: a cast spawns a ProjectileSpec, which lands a DamageEvent
+; through the same adapters. Tilo (member 3) is the caster with mana.
+arena corridor 11
+heal
+tp 10 12
+face east
+spawn skel_warrior 16 12 west
+freeze on
+learn 3 fire
+cast 3 fire
+cast 3 fire
+step 8
+echo === 3. a bolt in flight ===
+monsters
+pipeline
+
+; --- 4. AN AREA BLAST -----------------------------------------------------
+; A blast has no side and reaches several targets at once; every square it fills
+; is a separate Deal. The party is teleported clear — their deaths are not what
+; is being checked.
+arena tjunction 9 5
+; 10,12 — INSIDE the bar. A tp to a cell outside the arena is REFUSED and leaves
+; the party where the carve put them, which is the centre: ground zero. The first
+; run of this suite said `tp 20 12`, wiped the party on the junction's x6
+; convergence, and then reported PASS for four more sections while nothing
+; simulated at all. Every section below now opens with `heal` for the same reason.
+tp 10 12
+spawn skel_warrior 14 12 south
+spawn skel_warrior 13 12 south
+spawn skel_warrior 15 12 south
+blast fireburst 14 12
+step 6
+echo === 4. a blast at a junction ===
+monsters
+pipeline
+
+; --- 5. DoTs ON BOTH SIDES, AND A WARD'S REPRISAL -------------------------
+; A DoT bites as a Tick through Deal, resisted as it goes; a fire shield answers
+; a blow with a Burst that is itself deflected, absorbed and resisted like any
+; other damage. The reprisal is the subtle one — it used to do its own
+; arithmetic, and putting it through the pipeline is what let a fire-eating
+; monster be FED by punching a fire shield.
+arena open 9 9
+heal
+tp 14 14
+face north
+freeze off
+spawn skel_warrior 14 13 south
+effect burn 0 4 8          ; a member burns
+effect burn ahead 4 8      ; ...and so does the monster
+effect fireshield 0 6 30   ; and hitting that member costs the monster
+step 25
+echo === 5. DoTs both ways, and a reprisal ===
+party
+monsters
+pipeline
+
+; --- 6. THE WORLD'S OWN BLOW: A WALL BUMP ---------------------------------
+; Impact damage, shared with the pit landing (CollideParty). Walking into rock
+; is the reachable half of that pair.
+arena corridor 11
+heal
+tp 10 12
+face west
+forward 4
+step 6
+echo === 6. walked into a wall ===
+party
+pipeline
+
+; --- 7. OVER-EXERTION: THE DECLARED EXCEPTION ------------------------------
+; The one route that reaches health WITHOUT building a DamageEvent (Michael's
+; call, 2026-08-15): exhaustion is not resisted, soaked or warded. It is named in
+; the ledger rather than quietly permitted, so it shows in the readout as its own
+; row — and a day when it moves to the pipeline, that row goes to zero and this
+; comment is what says the change was deliberate.
+;
+; A stance past 1 is what buys the points that get billed, and the bill only
+; reaches HEALTH once stamina is gone, so the bar is emptied first by swinging.
+heal
+tp 14 14
+face north
+spawn skel_warrior 14 13 south
+; A TRAINED fighter, because an untrained one cannot over-exert at all: the
+; points a stance past 1 buys scale with the skill curve, so recklessness is a
+; veteran's option (docs/damage-system.md). The first version of this section
+; put a novice Brand at share 2.0, swung fourteen times, and billed nothing —
+; the `exertion` row stayed at zero and the declared exception went unexercised.
+setskill 0 unarmed 12
+guard 2 0
+swing 0
+swing 0
+swing 0
+swing 0
+swing 0
+swing 0
+swing 0
+swing 0
+swing 0
+swing 0
+swing 0
+swing 0
+swing 0
+swing 0
+step 4
+echo === 7. over-exertion ===
+party
+pipeline
+
+; --- 8. COMING ROUND BY YOURSELF ------------------------------------------
+; The one route where health goes UP for a reason no effect owns: an unconscious
+; member accrues safe seconds and wakes at stabilize_health (docs/combat.md
+; Phase 5). Over-exertion above is the clean way to get someone there — it can
+; empty the bar and by design can never kill — and the arena clears the monster
+; whose presence would otherwise keep resetting the safe-seconds clock. NO heal
+; here, obviously: healing him is the one thing that would stop this measuring.
+arena open 9 9
+step 40
+echo === 8. woke up by himself ===
+party
+pipeline
+
+; --- 9. STARVATION: A METER'S SHADOW BITING -------------------------------
+; An emptied food meter raises `starving`, which ticks damage like any other DoT.
+; docs/health-and-healing.md bought "starvation can kill you" from the overkill
+; rule rather than writing a death path, and this is the seam that makes that
+; true: it arrives as a Tick through Deal.
+heal
+setsupply 0 food 0
+setsupply 0 water 0
+step 20
+echo === 9. starving ===
+party
+supplies
+
+; --- the verdict ----------------------------------------------------------
+; PipelineTest.ps1 reads the RESULT= line, and reads the per-route totals to
+; confirm the suite actually ran damage rather than passing by doing nothing.
+echo === one-pipeline check ===
+pipeline
+state

@@ -44,6 +44,7 @@ inline Vec4 CategoryTint(std::string_view category) {
 	if (category == "armor")    return {0.46f, 0.31f, 0.18f, 1.0f}; // leather brown
 	if (category == "clothing") return {0.30f, 0.46f, 0.56f, 1.0f}; // cloth blue
 	if (category == "food")     return {0.74f, 0.34f, 0.26f, 1.0f}; // warm red
+	if (category == "drink")    return {0.28f, 0.48f, 0.68f, 1.0f}; // water blue
 	if (category == "container") return {0.40f, 0.26f, 0.14f, 1.0f}; // dark leather
 	if (category == "ingredient") return {0.34f, 0.60f, 0.32f, 1.0f}; // herb green
 	if (category == "key")      return {0.72f, 0.58f, 0.22f, 1.0f}; // brass gold

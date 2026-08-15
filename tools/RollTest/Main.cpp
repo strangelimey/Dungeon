@@ -38,8 +38,10 @@
 #include "Game/Blast.h"
 #include "Game/Combat.h"
 #include "Game/Curve.h"
+#include "Game/DamageLedger.h"
 #include "Game/Defense.h"
 #include "Game/Mishap.h"
+#include "Game/Resource.h"
 #include "Game/Roll.h"
 
 #include <algorithm>
@@ -1516,6 +1518,366 @@ int main(int argc, char** argv) {
 
 		std::printf("  (the two axes meet in one multiplication: potency scales the "
 					"blow, the resist answers it)\n");
+	}
+
+	// --- the resource pools: aptitude and practice ------------------------------
+	// docs/health-and-healing.md. Every pool takes a LINEAR share from its
+	// aptitude and a TAPERING one from its practice, and the same pair drives
+	// the regeneration rate. The arithmetic is small; what is worth measuring is
+	// the edge it shares with the armor floor, and the fact that the two
+	// formulas cannot drift apart from the save loader's inverse of one of them.
+	{
+		std::printf("\n--- the resource pools ---\n");
+		using namespace dungeon::game::resource;
+		CurveRules statCurve;
+		statCurve.form = CurveForm::Hyperbolic;
+		statCurve.slope = 2.0f;
+		statCurve.cap = 35.0f;
+		statCurve.baseline = 10.0f;
+
+		Rules r;
+		r.perAptitude = 1.0f;
+		r.skillMax = {CurveForm::Hyperbolic, 1.0f, 25.0f, 0.0f};
+		r.regenBase = 0.15f;
+		r.regenPerAptitude = 0.01f;
+		r.regenPerMax = 0.0f;
+		r.skillRegen = {CurveForm::Hyperbolic, 0.02f, 0.45f, 0.0f};
+
+		// The two ends of the practice term. An untrained one is worth exactly
+		// nothing (so an unplayed character is unchanged by the whole system),
+		// and a preposterously trained one still has not reached the cap — which
+		// is what makes "nobody is ever better than +cap" a true sentence to
+		// balance around rather than an aspiration.
+		Check("an untrained practice adds nothing to the pool",
+			  Maximum(r, 20.0f, 10.0f, 0.0f), 30.0, 0.001);
+		CheckTrue("a deep practice approaches the cap without reaching it",
+				  Maximum(r, 20.0f, 10.0f, 100000.0f) < 30.0 + r.skillMax.cap);
+		CheckTrue("...and gets most of the way there",
+				  Maximum(r, 20.0f, 10.0f, 100000.0f) > 30.0 + 0.99 * r.skillMax.cap);
+
+		// THE ZERO-CAP RULE, and it is the reason this TU exists. CurveValue
+		// answers a non-positive cap with the straight line its slope describes
+		// — right for a curve in general, catastrophic for a resource, and
+		// EXACTLY the shape of the armor-floor bug this project already paid for
+		// once. A cap of zero must switch the term off, not unbound it.
+		Rules capless = r;
+		capless.skillMax.cap = 0.0f;
+		Check("a zero cap switches the practice OFF",
+			  Maximum(capless, 20.0f, 10.0f, 400.0f), 30.0, 0.001);
+		// Non-vacuous by pairing: the same skill level through the raw curve is
+		// enormous, so the check above cannot be passing because 400 is small.
+		CheckTrue("...and is NOT the unbounded line the raw curve would give",
+				  CurveValue(400.0f, capless.skillMax) > 100.0f);
+		Rules regenCapless = r;
+		regenCapless.skillRegen.cap = 0.0f;
+		Check("the same rule holds for the regen term",
+			  RegenPerSec(regenCapless, statCurve, 10.0f, 30.0f, 400.0f),
+			  RegenPerSec(regenCapless, statCurve, 10.0f, 30.0f, 0.0f), 0.0001);
+
+		// THE SAVE LOADER'S INVERSE. A pre-v17 save stored maxima and no bases,
+		// and Game.cpp recovers each base by subtracting Contribution — so if the
+		// two ever disagree, every such save loads with the wrong pool, silently,
+		// because a wrong amount of health still looks like an amount of health.
+		//
+		// BE HONEST ABOUT WHAT THIS CHECK IS: it CANNOT fail today, because
+		// Maximum is *defined* as base + Contribution and a tautology is what
+		// that delegation buys. Mutating Contribution moves both sides together
+		// and the round trip still holds (measured). Its job is the day someone
+		// inlines the arithmetic back into Maximum and adds a fourth term to it
+		// alone — which is exactly how a formula and its inverse drift apart, and
+		// exactly what the delegation exists to prevent. A regression check for a
+		// property currently guaranteed by construction, and no more than that.
+		bool roundTrips = true;
+		for (const float apt : {4.0f, 10.0f, 17.0f})
+			for (const float lvl : {0.0f, 3.0f, 25.0f}) {
+				const float base = 21.0f;
+				const float max = Maximum(r, base, apt, lvl);
+				if (std::fabs((max - Contribution(r, apt, lvl)) - base) > 0.001f)
+					roundTrips = false;
+			}
+		CheckTrue("max minus Contribution recovers the authored base", roundTrips);
+
+		// A pool is a capacity and a rate is a performance, so the aptitude
+		// enters them differently — linearly and through the (baselined) stat
+		// curve. The consequence worth pinning: an AVERAGE aptitude is worth
+		// nothing to the RATE, while it is worth plenty to the MAXIMUM.
+		Check("an average aptitude adds nothing to the rate",
+			  RegenPerSec(r, statCurve, 10.0f, 0.0f, 0.0f), r.regenBase, 0.001);
+		CheckTrue("...while it adds its whole self to the maximum",
+				  Maximum(r, 0.0f, 10.0f, 0.0f) > 9.99f);
+		CheckTrue("a poor aptitude is a real penalty to the rate",
+				  RegenPerSec(r, statCurve, 4.0f, 0.0f, 0.0f) < r.regenBase);
+
+		// Neither formula may go negative. A hopeless aptitude empties a pool; it
+		// does not invert one, and a rate that drained the bar would be a DoT
+		// wearing regeneration's clothes — that mechanic exists, and it lives in
+		// the effects pipeline where everything else that hurts you lives.
+		Rules cruel = r;
+		cruel.regenBase = 0.0f;
+		cruel.regenPerAptitude = 5.0f;
+		CheckTrue("a savage aptitude penalty floors the rate at zero",
+				  RegenPerSec(cruel, statCurve, 1.0f, 0.0f, 0.0f) >= 0.0f);
+		CheckTrue("a savage aptitude penalty floors the pool at zero",
+				  Maximum(r, 0.0f, -500.0f, 0.0f) >= 0.0f);
+
+		// Each pool names ONE practice and the mapping is total — a resource with
+		// no skill id would train nothing and never grow, silently.
+		CheckTrue("every pool names a practice",
+				  *SkillId(Kind::Health) && *SkillId(Kind::Stamina) &&
+					  *SkillId(Kind::Mana));
+		CheckTrue("...and they are three different ones",
+				  std::strcmp(SkillId(Kind::Health), SkillId(Kind::Stamina)) &&
+					  std::strcmp(SkillId(Kind::Stamina), SkillId(Kind::Mana)) &&
+					  std::strcmp(SkillId(Kind::Health), SkillId(Kind::Mana)));
+		// PoolRules::For must not alias — three pools sharing one knob set would
+		// make every balance change move all three together.
+		PoolRules pools;
+		pools.health.perAptitude = 1.0f;
+		pools.stamina.perAptitude = 2.0f;
+		pools.mana.perAptitude = 3.0f;
+		CheckTrue("PoolRules hands each pool its own knobs",
+				  pools.For(Kind::Health).perAptitude == 1.0f &&
+					  pools.For(Kind::Stamina).perAptitude == 2.0f &&
+					  pools.For(Kind::Mana).perAptitude == 3.0f);
+
+		// --- supplies ---------------------------------------------------------
+		// The same zero-cap trap, and it is WORSE here: an unbounded conditioning
+		// term would make the fitter member's drain rise forever, which is a
+		// runaway inside the mechanism that exists to prevent runaways.
+		SupplyRules food;
+		food.perSecond = 0.0035f;
+		food.condDrain = {CurveForm::Hyperbolic, 0.0002f, 0.0035f, 0.0f};
+
+		Check("an untrained member drains at the base rate",
+			  DrainPerSec(food, 0.0f), food.perSecond, 1e-6);
+		CheckTrue("conditioning costs more, which is the brake",
+				  DrainPerSec(food, 25.0f) > DrainPerSec(food, 0.0f));
+		CheckTrue("...and that cost is bounded",
+				  DrainPerSec(food, 100000.0f) <
+					  food.perSecond + food.condDrain.cap);
+		SupplyRules freeCond = food;
+		freeCond.condDrain.cap = 0.0f;
+		Check("a zero cap makes conditioning free, not unbounded",
+			  DrainPerSec(freeCond, 400.0f), freeCond.perSecond, 1e-6);
+		// A meter that filled itself by standing still would undo the whole
+		// point of supplies, so the rate floors at zero however the knobs are set.
+		SupplyRules perverse;
+		perverse.perSecond = -5.0f;
+		CheckTrue("a negative rate cannot refill a meter",
+				  DrainPerSec(perverse, 10.0f) >= 0.0f);
+
+		// Refill reports what it RESTORED, and "nothing" has to be answerable —
+		// it is what lets the caller keep the item instead of eating it for no
+		// effect.
+		CheckTrue("an empty refill is not Any()", !Refill{}.Any());
+		CheckTrue("water alone counts", (Refill{0.0f, 1.0f}).Any());
+		CheckTrue("food alone counts", (Refill{1.0f, 0.0f}).Any());
+
+		std::printf("  (two orderings live in the AUTHORED knobs, not in this\n"
+					"   arithmetic — stamina > mana > health per second, and water\n"
+					"   draining faster than food — so the eval harness checks both)\n");
+	}
+
+	// --- the one-pipeline check's own arithmetic ----------------------------
+	// Game/DamageLedger.h is what turns docs/effects.md's invariant from a hand
+	// sweep into a standing rule, so it gets the same treatment every other rule
+	// in this file gets: the SHIPPING ledger linked straight in, and the
+	// properties the check depends on stated one at a time.
+	//
+	// NON-VACUOUS BY MUTATION, not by --self-test: the injected 90-sided die
+	// cannot reach a float comparison, so these were confirmed the way the
+	// defense section's were — by breaking the ledger on purpose and MEASURING.
+	// Making Credit a no-op fails 6; comparing exactly instead of against the
+	// epsilon fails 1; reporting an unmatched address as a violation fails 1.
+	//
+	// The third of those is why the mutations were run rather than reasoned
+	// about: it passed CLEAN the first time. The test watched a prefix of the
+	// array, so every value that came back with no baseline arrived after the
+	// end of the baseline run and fell out of the merge instead of reaching the
+	// branch being mutated. A test can cover the RULE and still miss the BRANCH.
+	{
+		using namespace dungeon::game::ledger;
+		std::printf("\nThe one-pipeline ledger (Game/DamageLedger.h)\n");
+
+		// Members of a fixed array, so the addresses the ledger keys on are
+		// stable for the whole section — the same property the real roster and
+		// monster vectors have between two checkpoints.
+		float hp[4] = {30.0f, 30.0f, 30.0f, 30.0f};
+		Violation found[4];
+		const auto sweep = [&](Ledger& led, int count) {
+			led.BeginSweep();
+			for (int i = 0; i < count; ++i)
+				led.Observe(hp[i], Key{Subject::Member, i});
+		};
+
+		{
+			Ledger led;
+			led.Arm(true);
+			sweep(led, 4);
+			led.Checkpoint("baseline", found); // first sweep: nothing to judge
+
+			// The rule itself: a move nobody claimed is a violation, and a move
+			// somebody claimed is not. Both in ONE checkpoint, because a check
+			// that only ever sees the failing case cannot tell a working ledger
+			// from one that reports everything.
+			hp[0] -= 5.0f;
+			led.Credit(hp[0], -5.0f, Reason::Pipeline);
+			hp[1] -= 5.0f; // ...and this one went around it
+			sweep(led, 4);
+			const int n = led.Checkpoint("blow", found);
+			Check("one unexplained move, one explained", n, 1.0, 0.0);
+			CheckTrue("...and it names the member who was not accounted for",
+					  n == 1 && found[0].key.id == 1);
+			Check("...reporting the whole unexplained amount",
+				  n == 1 ? found[0].Unexplained() : 0.0, -5.0, 1e-4);
+			// FOUR, not eight: the checkpoint that TAKES the first baseline
+			// judges nothing, because there is nothing yet to judge it against.
+			// That is the property that makes `pipelineguard on` safe to type in
+			// the middle of a fight — arming can never manufacture a violation
+			// out of whatever happened before it.
+			Check("only the second checkpoint judged anything",
+				  static_cast<double>(led.GetStats().valuesChecked), 4.0, 0.0);
+		}
+		{
+			// TWO reasons on one value in one region — a blow and a regen tick
+			// land on the same member between two checkpoints all the time, and
+			// they have to SUM rather than the last one winning.
+			Ledger led;
+			led.Arm(true);
+			hp[2] = 20.0f;
+			sweep(led, 4);
+			led.Checkpoint("baseline", found);
+			{
+				const Explained a{led, hp[2], Reason::Pipeline};
+				hp[2] -= 8.0f;
+			}
+			{
+				const Explained b{led, hp[2], Reason::Regen};
+				hp[2] += 3.0f;
+			}
+			sweep(led, 4);
+			Check("two reasons on one value sum instead of racing",
+				  led.Checkpoint("mixed", found), 0.0, 0.0);
+			Check("...and each is credited to its own route",
+				  led.GetStats().credited[static_cast<size_t>(Reason::Regen)],
+				  3.0, 1e-4);
+		}
+		{
+			// THE PROPERTY THE WHOLE `Explained` FORM EXISTS FOR: it measures
+			// what the float DID, not what the caller meant. A wound of 40 on a
+			// member with 20 left moves 20 — and a scope told "40" would report
+			// a 20-point violation on the one line that is behaving perfectly.
+			Ledger led;
+			led.Arm(true);
+			hp[3] = 20.0f;
+			sweep(led, 4);
+			led.Checkpoint("baseline", found);
+			{
+				const Explained clamped{led, hp[3], Reason::Pipeline};
+				hp[3] -= 40.0f;
+				if (hp[3] < 0.0f) hp[3] = 0.0f; // WoundMember's clamp
+			}
+			sweep(led, 4);
+			Check("a clamped wound explains what it actually took",
+				  led.Checkpoint("overkill", found), 0.0, 0.0);
+		}
+		{
+			// A value that appears between checkpoints (a spawned monster) has
+			// no baseline, and one that disappears (a level swap, a container
+			// that moved) has nothing left to compare. NEITHER is a violation —
+			// but a vanished baseline IS counted, because silently losing a
+			// vector's worth of coverage is the failure this check would
+			// otherwise hide from itself.
+			Ledger led;
+			led.Arm(true);
+			// Watch the two MIDDLE values, so what comes back later sorts on
+			// BOTH SIDES of the baseline. That detail is the check, not
+			// decoration: entries are matched by walking two sorted runs
+			// together, and a new address before the baseline takes a different
+			// branch from one after it. A first version of this test watched a
+			// prefix, so every new value arrived at the tail — and a mutation
+			// that reported unmatched addresses as violations passed it clean.
+			led.BeginSweep();
+			led.Observe(hp[1], Key{Subject::Member, 1});
+			led.Observe(hp[2], Key{Subject::Member, 2});
+			led.Checkpoint("baseline", found);
+
+			hp[0] -= 7.0f; // both of these moved while nobody was watching
+			hp[3] -= 7.0f;
+			sweep(led, 4); // ...and are now watched, with no baseline
+			Check("a value with no baseline is not judged, either side of it",
+				  led.Checkpoint("grown", found), 0.0, 0.0);
+
+			led.BeginSweep();
+			led.Observe(hp[1], Key{Subject::Member, 1});
+			Check("a vanished value is not a violation",
+				  led.Checkpoint("shrunk", found), 0.0, 0.0);
+			Check("...but it is counted as coverage lost",
+				  static_cast<double>(led.GetStats().dropped), 3.0, 0.0);
+		}
+		{
+			// Float noise must not read as a write. The epsilon sits far above a
+			// few ulps of a health bar and far below the smallest damage the
+			// game can deal, so both halves are stated.
+			Ledger led;
+			led.Arm(true);
+			hp[0] = 30.0f;
+			sweep(led, 4);
+			led.Checkpoint("baseline", found);
+			hp[0] -= kEpsilon * 0.5f;
+			sweep(led, 4);
+			Check("noise below the epsilon is not a violation",
+				  led.Checkpoint("noise", found), 0.0, 0.0);
+			hp[0] -= kEpsilon * 4.0f;
+			sweep(led, 4);
+			Check("...and a real move just above it is",
+				  led.Checkpoint("small", found), 1.0, 0.0);
+		}
+		{
+			// Rebase is what every load, respawn and dev-console fiat calls. It
+			// must take the new baseline WITHOUT judging the old one, or turning
+			// a save on would report the whole party as unexplained.
+			Ledger led;
+			led.Arm(true);
+			hp[0] = 30.0f;
+			sweep(led, 4);
+			led.Checkpoint("baseline", found);
+			hp[0] = 1.0f; // a load replacing state wholesale
+			sweep(led, 4);
+			led.Rebase();
+			sweep(led, 4);
+			Check("a rebase forgives the state it replaced",
+				  led.Checkpoint("after load", found), 0.0, 0.0);
+			CheckTrue("...and a rebase is not counted as a checkpoint",
+					  led.GetStats().checkpoints == 2);
+		}
+		{
+			// A standing violation must not drown the log: the first of a given
+			// (phase, subject) is reported and the rest are counted only. Same
+			// rule Core/Diagnostics follows for stacks, and for the same reason.
+			Ledger led;
+			Violation v{"phase", Key{Subject::Member, 0}, -1.0f, 0.0f};
+			CheckTrue("the first of a kind is reported", led.ShouldReport(v));
+			CheckTrue("...and the second is not", !led.ShouldReport(v));
+			Violation other{"phase", Key{Subject::Monster, 0}, -1.0f, 0.0f};
+			CheckTrue("a different subject is its own report",
+					  led.ShouldReport(other));
+		}
+		{
+			// Disarmed, it costs nothing and claims nothing — including the
+			// stats, which is what makes a disarmed release build's `pipeline`
+			// readout say checks=0 rather than a confident PASS it did not earn.
+			Ledger led;
+			led.Arm(false);
+			sweep(led, 4);
+			led.Checkpoint("baseline", found);
+			hp[0] -= 9.0f;
+			sweep(led, 4);
+			Check("a disarmed ledger finds nothing",
+				  led.Checkpoint("ignored", found), 0.0, 0.0);
+			Check("...and claims to have checked nothing",
+				  static_cast<double>(led.GetStats().valuesChecked), 0.0, 0.0);
+		}
 	}
 
 	// --- verdict ------------------------------------------------------------

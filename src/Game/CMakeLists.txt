@@ -12,6 +12,7 @@ add_library(Game STATIC
 	Combat.cpp
 	Curve.cpp
 	CurvePlot.cpp
+	DamageLedger.cpp
 	DamageTypes.cpp
 	Defense.cpp
 	DevConsole.cpp
@@ -21,8 +22,10 @@ add_library(Game STATIC
 	DungeonMap.cpp
 	DungeonMeshBuilder.cpp
 	DungeonWorld.cpp
+	DungeonWorld_Arena.cpp
 	DungeonWorld_Combat.cpp
 	DungeonWorld_Editing.cpp
+	DungeonWorld_Ledger.cpp
 	DungeonWorld_Load.cpp
 	DungeonWorld_Render.cpp
 	DungeonWorld_Save.cpp
@@ -30,6 +33,7 @@ add_library(Game STATIC
 	Effect/DotEffect.cpp
 	Effect/Effect.cpp
 	Effect/SightEffect.cpp
+	Effect/SupplyEffect.cpp
 	Effect/WardEffect.cpp
 	Entity.cpp
 	EntityInspector.cpp
@@ -38,6 +42,7 @@ add_library(Game STATIC
 	Game.cpp
 	Game_DevCommands.cpp
 	Game_Editor.cpp
+	Game_Eval.cpp
 	Game_Inspect.cpp
 	Game_Wiring.cpp
 	GameSettings.cpp
@@ -71,6 +76,7 @@ add_library(Game STATIC
 	Projectiles.cpp
 	ProjectileInspector.cpp
 	PropInspector.cpp
+	Resource.cpp
 	SaveGame.cpp
 	Serialize.cpp
 	ShadowScheduler.cpp

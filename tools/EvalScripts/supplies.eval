@@ -1,0 +1,100 @@
+; supplies.eval — food, water, and what an empty meter does.
+;
+; Run:  Dungeon.exe -eval tools\EvalScripts\supplies.eval
+;
+; A MEASUREMENT, not a pass/fail. What a reader is looking for:
+;
+;   1. WATER RUNS OUT FIRST and bites harder. Both meters drain by time and by
+;      exertion, and water is the heavier on both counts — thirst is meant to be
+;      what kills you, so if food ever empties first the knobs are wrong.
+;   2. CONDITIONING HAS A PRICE. A fitter member burns more food and water per
+;      second. Every other loop in this design compounds upward; this is the one
+;      that taxes the compounding, so it is the one to watch.
+;   3. AN EMPTY METER KILLS (Michael's call). Starving/parched are ordinary
+;      effects dealing an ordinary Tick, so they go through the one damage
+;      pipeline — which means a tick on a DOWNED member is lethal under the
+;      existing overkill rule, with no separate death path written.
+
+logecho on
+reset
+
+timescale 0
+lockstep on
+seed 7
+arena open 9 9
+
+echo === 1. a fresh party, and how long its supplies last ===
+supplies
+
+echo === 2. conditioning's price ===
+; Brand is trained hard and Tilo left untrained. Their `h` columns are the
+; measurement: the fitter member should run out SOONER on both meters, at the
+; same level, which is the brake the whole design rests on.
+setskill 0 conditioning 25
+setskill 3 conditioning 0
+supplies
+
+echo === 3. an hour of standing still ===
+step 3600
+supplies
+
+echo === 4. exertion costs supplies, and water more than food ===
+; Marching spends stamina, and every stamina point spent bills both meters.
+; Compare the DROP in each: water should fall further for the same effort.
+setsupply all food 50
+setsupply all water 50
+echo --- before the march ---
+supplies
+forward 8
+step 20
+echo --- after eight steps ---
+supplies
+
+echo === 5. an empty meter kills ===
+; Water first, since that is the one a real run meets. The effect should appear,
+; bite every frame, and lift the moment the member drinks.
+setsupply 0 water 0
+step 1
+echo --- parched ---
+supplies
+party
+char 0
+step 20
+echo --- twenty seconds of it ---
+party
+supplies
+
+echo === 6. drinking is the cure ===
+; `consume` runs the same DungeonWorld::ConsumeItem the hand menu's drink verb
+; does. The effect must lift on the NEXT tick, from the supply tick that owns
+; that transition — not from the consume itself, so there is one place a member
+; can stop being parched.
+consume waterskin 0
+supplies
+step 1
+echo --- after one tick ---
+supplies
+party
+; And the two refusals. A rock feeds nobody; and a member already at maximum
+; gains nothing, which must REFUSE rather than consume the item for no effect —
+; losing the last waterskin to a full stomach is the kind of thing a player
+; never forgives and never notices happening.
+consume iron_key 0
+setsupply 0 water 100
+consume waterskin 0
+
+echo === 7. the meters ride the save (v25) ===
+; A new field that does not round-trip is a bug that only shows up hours later,
+; on someone else's machine. Set two members to distinctive levels, save, wreck
+; them, reload, and read them back.
+setsupply 1 food 37
+setsupply 2 water 12
+save supplytest
+setsupply all food 5
+setsupply all water 5
+echo --- wrecked, before the reload ---
+supplies
+load supplytest
+echo --- reloaded: 37 food on Sera, 12 water on Maren ---
+supplies
+state

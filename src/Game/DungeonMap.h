@@ -323,6 +323,10 @@ public:
 
 	int StartX() const { return m_startX; }
 	int StartZ() const { return m_startZ; }
+	// Move the 'P' cell. Only the eval arena does this (it rebuilds the whole
+	// grid, so the authored start would be inside rock); the loader owns it
+	// otherwise, and an editor placement re-paints the glyph instead.
+	void SetStart(int x, int z) { m_startX = x; m_startZ = z; }
 	const std::vector<WallSconce>& Sconces() const { return m_torches; }
 	const std::vector<FloorBrazier>& Braziers() const { return m_braziers; }
 

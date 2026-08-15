@@ -26,6 +26,13 @@ struct ResourceBarColors {
 	Vec4 health{0.62f, 0.18f, 0.14f, 1.0f};
 	Vec4 stamina{0.26f, 0.52f, 0.22f, 1.0f};
 	Vec4 mana{0.22f, 0.36f, 0.68f, 1.0f};
+	// The two SUPPLY meters (docs/health-and-healing.md). Not pools — nothing
+	// regenerates them — but they are bars on the same sheet, so they are themed
+	// from the same table rather than being the only two a player cannot
+	// recolour. Warm bread against cold water, so a glance tells them apart
+	// without reading the labels.
+	Vec4 food{0.58f, 0.40f, 0.18f, 1.0f};
+	Vec4 water{0.24f, 0.50f, 0.60f, 1.0f};
 };
 
 // The three hit-feedback splat icons, indexed by severity (0 = small, 1 =

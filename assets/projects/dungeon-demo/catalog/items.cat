@@ -98,12 +98,25 @@ category = key
 weight = 0.1
 holdable = 1
 
+; --- food and drink ---------------------------------------------------------
+; `nutrition` and `hydration` are what CONSUMING it restores, out of 100
+; (docs/health-and-healing.md). BOTH fields on every consumable, because most
+; real food is partly one and partly the other -- an apple waters a little,
+; bread does not at all, a waterskin is nearly pure water. The `command` verb is
+; only how it reads in the hand menu; these two are what it actually does, so
+; `eat` and `drink` run the same code.
+;
+; An item with neither is not consumable: the action is REFUSED rather than
+; silently eating it, which is also what a full member gets.
+
 [apple]
 name = item.apple
 category = food
 weight = 0.3
 holdable = 1
 command = eat
+nutrition = 8
+hydration = 4
 
 [bread]
 name = item.bread
@@ -111,3 +124,14 @@ category = food
 weight = 0.5
 holdable = 1
 command = eat
+nutrition = 18
+hydration = 0
+
+[waterskin]
+name = item.waterskin
+category = drink
+weight = 1.2
+holdable = 1
+command = drink
+nutrition = 0
+hydration = 45

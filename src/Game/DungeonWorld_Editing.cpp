@@ -2141,6 +2141,9 @@ void DungeonWorld::RespawnFromRecords(bool geometryToo) {
 	// Wall features are stamped INTO the surface chunks, so retyping one only
 	// shows after a re-stamp; deferred like the undo restore's.
 	if (geometryToo) m_geometryDirty = true;
+	// Every monster, door and prop in the world is a different object now — the
+	// one-pipeline check's baselines point at freed storage (Game/DamageLedger.h).
+	RebaseDamageLedger();
 }
 
 void DungeonWorld::FlushGeometry() {

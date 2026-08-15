@@ -263,6 +263,7 @@ private:
 	// Effects); only the active one is visible. Owned as children.
 	std::array<SheetList*, 3> m_lists{nullptr, nullptr, nullptr};
 	std::string m_healthText, m_staminaText, m_manaText; // "42 / 42"
+	std::string m_foodText, m_waterText;                 // ditto, out of 100
 	std::array<std::string, 5> m_attrValues;             // per-attribute numbers
 	// Skills-tab rows, baked by SetCharacter like the attribute values: the
 	// localized skill name, the level number, the progress fraction toward
@@ -273,6 +274,13 @@ private:
 		std::string level;
 		float frac = 0.0f;
 		Vec4 tint{0, 0, 0, 0};
+		// A GROUP HEADING rather than a skill: label only, no number, no bar.
+		// The resource practices are shown in their own group
+		// (docs/health-and-healing.md) because the trained skills are things you
+		// CHOSE to practise and those are things your body did. One flag rather
+		// than a second row type — the list walks one vector, and a heading is
+		// simply a row that draws less.
+		bool header = false;
 	};
 	std::vector<SkillRow> m_skillRows;
 	// Spells-tab rows, baked by SetCharacter: the member's LEARNED spells in
@@ -302,6 +310,7 @@ private:
 	// Static page text, localized once at construction (the sheet is rebuilt
 	// on a language change) so Draw stays allocation-free.
 	std::string m_healthLabel, m_staminaLabel, m_manaLabel;
+	std::string m_foodLabel, m_waterLabel; // the two supply meters
 	std::string m_attributesLabel, m_skillsLabel, m_noSkills;
 	std::string m_effectsLabel, m_noEffects;
 	std::string m_spellsLabel, m_noSpells;

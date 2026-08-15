@@ -16,6 +16,7 @@
 #include "Game/Combat.h" // ResistTable (the race/nature defense layer)
 #include "Game/Effect/Effect.h" // fx::Inst (the status-effect list)
 #include "Game/Inventory.h"
+#include "Game/Resource.h" // the aptitude/practice pool formulas
 #include "Game/Spells.h"
 
 #include <cmath>
@@ -59,6 +60,22 @@ struct Character {
 	float stamina = 1.0f, maxStamina = 1.0f;
 	float mana = 1.0f, maxMana = 1.0f;
 	float baseHealth = 1.0f, baseStamina = 1.0f, baseMana = 1.0f;
+
+	// SUPPLIES (docs/health-and-healing.md). Not pools: nothing regenerates
+	// them, they only fall, and only an item refills them. Their maximum is a
+	// flat balance knob rather than a field here — the size of a stomach is not
+	// an attribute — so only the current level rides the save (v25).
+	//
+	// PER CHARACTER, and deliberately so: Michael plans to split the party for
+	// sub-quests, and a shared food pool would read as a harmless simplification
+	// today and be the expensive thing to unpick the day someone walks off alone.
+	//
+	// The MAXIMA are a flat balance knob (the size of a stomach is not an
+	// attribute), mirrored here as DERIVED fields — unsaved, refreshed by
+	// RecomputePartyMaxima — so that a reader with no Balance in reach can still
+	// draw the bar. Exactly what maxHealth is to its own knobs.
+	float food = 100.0f, water = 100.0f;
+	float maxFood = 100.0f, maxWater = 100.0f;
 
 	int strength = 10;
 	int dexterity = 10;
@@ -167,11 +184,54 @@ struct Character {
 		std::erase(spellMru[hand], id);
 		spellMru[hand].insert(spellMru[hand].begin(), id);
 	}
-	// Mana points regenerated per second, scaled by intelligence. STUB: a real
-	// "mana draw efficiency / capacity" stat will drive this later; intelligence
-	// is the stand-in until that system is designed.
-	float ManaRegenPerSec() const {
-		return 0.4f + static_cast<float>(intelligence) * 0.08f;
+	// --- the three pools (docs/health-and-healing.md) -------------------------
+	// THE APTITUDE MAPPING LIVES HERE AND NOWHERE ELSE. Which stat drives which
+	// pool is a fact about a character, not about the knob sheet, and it is
+	// needed by both formulas — so the maximum and the regen rate both ask this
+	// rather than each spelling out `0.5 * (strength + vitality)` and drifting
+	// apart the day a race or a class shades one of them.
+	float Aptitude(resource::Kind kind) const {
+		switch (kind) {
+		case resource::Kind::Health:
+			return static_cast<float>(vitality);
+		case resource::Kind::Stamina:
+			return 0.5f * static_cast<float>(strength + vitality);
+		case resource::Kind::Mana:
+			return 0.5f * static_cast<float>(intelligence + willpower);
+		default:
+			return 0.0f;
+		}
+	}
+	// This member's live level in the practice that feeds `kind`.
+	float PracticeLevel(resource::Kind kind) const {
+		return static_cast<float>(SkillLevel(resource::SkillId(kind)));
+	}
+	// A supply meter by id, so the two can be walked in a loop instead of every
+	// site writing the food case and then the water case beside it.
+	float& SupplyLevel(resource::Supply which) {
+		return which == resource::Supply::Water ? water : food;
+	}
+	float SupplyLevel(resource::Supply which) const {
+		return which == resource::Supply::Water ? water : food;
+	}
+	// The pool's live maximum, for whoever needs it before RecomputeMaxima has
+	// stored it (the regen rate's per-max term wants the CURRENT ceiling).
+	float ResourceMax(resource::Kind kind) const {
+		switch (kind) {
+		case resource::Kind::Health: return maxHealth;
+		case resource::Kind::Stamina: return maxStamina;
+		case resource::Kind::Mana: return maxMana;
+		default: return 0.0f;
+		}
+	}
+	// Points per second at FULL FLOW. The caller still owns the state gate
+	// (exerting / idle / resting) and the "only while below maximum" rule —
+	// this answers only "how fast does this body recover", which is the part
+	// that depends on the character rather than on the situation.
+	float RegenPerSec(resource::Kind kind, const resource::Rules& rules,
+					  const CurveRules& statCurve) const {
+		return resource::RegenPerSec(rules, statCurve, Aptitude(kind),
+									 ResourceMax(kind), PracticeLevel(kind));
 	}
 
 	// --- skills (docs/skills.md) ---------------------------------------------
@@ -279,32 +339,49 @@ struct Character {
 		return sum / static_cast<float>(ids.size());
 	}
 
-	// Re-derives the resource maxima from the bases + stats (the resource
-	// formula: health ← VIT, stamina ← (STR+VIT)/2, mana ← (INT+WIL)/2; the
-	// k's are Balance knobs). Growth carries the CURRENT value with it (a
-	// stat point shows as growth, not damage); a shrunk max (a knob turned
-	// down) clamps. Call after any stat change or balance apply.
-	void RecomputeMaxima(float kHealth, float kStamina, float kMana) {
-		const auto derive = [](float& current, float& max, float base, float stat) {
-			const float grown = base + stat;
+	// Re-derives the resource maxima from the authored bases, the APTITUDES
+	// (Aptitude above) and the PRACTICES — the aptitude/practice model in
+	// docs/health-and-healing.md, whose arithmetic lives in the pure
+	// Game/Resource.h so it can be measured. Call after any stat change, any
+	// resource-skill gain, or a balance apply.
+	//
+	// GROWTH CARRIES THE CURRENT VALUE with it, so a vitality point or a
+	// constitution level reads as growth rather than as damage; a SHRUNK max (a
+	// knob turned down in the editor) clamps instead. And growth must never
+	// revive a downed member — a bigger pool is not a resurrection, so 0 health
+	// is restored after the derive.
+	void RecomputeMaxima(const resource::PoolRules& rules) {
+		const auto derive = [](float& current, float& max, float grown) {
 			current += grown > max ? grown - max : 0.0f;
 			max = grown;
 			if (current > max) current = max;
 		};
-		const bool down = health <= 0.0f; // growth must not revive a downed member
-		derive(health, maxHealth, baseHealth,
-			   kHealth * static_cast<float>(vitality));
+		const auto grown = [&](resource::Kind kind, float base) {
+			return resource::Maximum(rules.For(kind), base, Aptitude(kind),
+									 PracticeLevel(kind));
+		};
+		const bool down = health <= 0.0f;
+		derive(health, maxHealth, grown(resource::Kind::Health, baseHealth));
 		if (down) health = 0.0f;
-		derive(stamina, maxStamina, baseStamina,
-			   kStamina * 0.5f * static_cast<float>(strength + vitality));
-		derive(mana, maxMana, baseMana,
-			   kMana * 0.5f * static_cast<float>(intelligence + willpower));
+		derive(stamina, maxStamina, grown(resource::Kind::Stamina, baseStamina));
+		derive(mana, maxMana, grown(resource::Kind::Mana, baseMana));
 	}
 
-	// Movement-pace multiplier (1 = baseline, lower = slower). The party
-	// moves at the pace of its slowest member: the Game feeds the roster
-	// minimum into Party::SetSpeed, which scales step and turn rates.
+	// AUTHORED movement pace (1 = baseline, lower = slower) — class identity,
+	// like baseHealth. Sera is fleet-footed at 1.2, Tilo the anchor at 0.9.
+	// Read MoveSpeed() rather than this: conditioning adds to it.
 	float moveSpeed = 1.0f;
+	// The pace this member actually walks at: the authored base plus what
+	// CONDITIONING has added (docs/health-and-healing.md "Movement").
+	//
+	// The party moves at the pace of its SLOWEST member, so the benefit is
+	// invisible until the worst-trained one has it — one unconditioned mage
+	// still caps the whole party. That rule now has teeth it did not have
+	// before, because conditioning makes members genuinely diverge.
+	float MoveSpeed(const CurveRules& paceCurve) const {
+		return moveSpeed +
+			   resource::SkillTerm(paceCurve, PracticeLevel(resource::Kind::Stamina));
+	}
 
 	// Baked portrait (portrait_<name>.png), wired by the Game after the
 	// texture loads; null draws the tinted-initial fallback instead.

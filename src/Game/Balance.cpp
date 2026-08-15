@@ -61,15 +61,56 @@ constexpr BalanceField kBalanceFields[] = {
 	{"spell_stat", &Balance::spellStat},
 	{"stoneskin_resist", &Balance::stoneskinResist},
 	{"creep_rate", &Balance::creepRate},
-	{"vit_exertion", &Balance::vitExertion},
+	// The three resources (docs/health-and-healing.md). Grouped per pool rather
+	// than per term so a row in the Balance dialog sits beside the ones it
+	// trades against — health's whole story reads top to bottom, then stamina's.
 	{"k_health", &Balance::kHealth},
+	{"health_skill_slope", &Balance::healthSkillSlope},
+	{"health_skill_cap", &Balance::healthSkillCap},
+	{"health_regen", &Balance::healthRegen},
+	{"health_regen_stat", &Balance::healthRegenStat},
+	{"health_regen_max", &Balance::healthRegenMax},
+	{"health_regen_slope", &Balance::healthRegenSlope},
+	{"health_regen_cap", &Balance::healthRegenCap},
 	{"k_stamina", &Balance::kStamina},
+	{"stamina_skill_slope", &Balance::staminaSkillSlope},
+	{"stamina_skill_cap", &Balance::staminaSkillCap},
 	{"k_mana", &Balance::kMana},
+	{"mana_skill_slope", &Balance::manaSkillSlope},
+	{"mana_skill_cap", &Balance::manaSkillCap},
+	{"mana_regen", &Balance::manaRegen},
+	{"mana_regen_stat", &Balance::manaRegenStat},
+	{"mana_regen_max", &Balance::manaRegenMax},
+	{"mana_regen_slope", &Balance::manaRegenSlope},
+	{"mana_regen_cap", &Balance::manaRegenCap},
+	{"mana_exert", &Balance::manaExert},
+	{"conditioning_xp", &Balance::conditioningXp},
+	{"attunement_xp", &Balance::attunementXp},
+	{"constitution_xp", &Balance::constitutionXp},
+	// Supplies — grouped per meter, like the pools.
+	{"food_max", &Balance::foodMax},
+	{"food_rate", &Balance::foodRate},
+	{"food_cond_slope", &Balance::foodCondSlope},
+	{"food_cond_cap", &Balance::foodCondCap},
+	{"food_exertion", &Balance::foodExertion},
+	{"hunger_damage", &Balance::hungerDamage},
+	{"water_max", &Balance::waterMax},
+	{"water_rate", &Balance::waterRate},
+	{"water_cond_slope", &Balance::waterCondSlope},
+	{"water_cond_cap", &Balance::waterCondCap},
+	{"water_exertion", &Balance::waterExertion},
+	{"thirst_damage", &Balance::thirstDamage},
+	{"rest_scale", &Balance::restScale},
+	{"pace_slope", &Balance::paceSlope},
+	{"pace_cap", &Balance::paceCap},
 	{"stamina_swing", &Balance::staminaSwing},
 	{"stamina_weight", &Balance::staminaWeight},
 	{"stamina_step", &Balance::staminaStep},
 	{"stamina_regen", &Balance::staminaRegen},
+	{"stamina_regen_stat", &Balance::staminaRegenStat},
 	{"stamina_regen_max", &Balance::staminaRegenMax},
+	{"stamina_regen_slope", &Balance::staminaRegenSlope},
+	{"stamina_regen_cap", &Balance::staminaRegenCap},
 	{"stamina_holdoff", &Balance::staminaHoldoff},
 	{"exhaust_damage", &Balance::exhaustDamage},
 	{"exhaust_pace", &Balance::exhaustPace},
@@ -156,6 +197,65 @@ Balance::ArmorRules Balance::Armor(ArmorClass c) const {
 	default:
 		return {}; // unarmored: no penalty, no floor, nothing to ask of STR
 	}
+}
+
+// The knob sheet's flat floats, gathered into the shape the pure arithmetic
+// wants. THE CURVE FORM IS SHARED (skillCurve) and only the slope and cap
+// differ per resource — the same bargain AvoidCurve makes, and for the same
+// reason: which SHAPE feels right is one judgement made once against the
+// Balance dialog's graph, while how far each particular term may reach is a
+// per-resource decision.
+//
+// The BASELINE stays 0 on both skill curves: an untrained practice is simply no
+// help, never a handicap. Only stats get a baseline of 10, and that curve is
+// passed separately (RegenPerSec takes it) precisely because it is the STAT's
+// curve and not this resource's.
+resource::Rules Balance::Resource(resource::Kind kind) const {
+	const auto form = static_cast<CurveForm>(static_cast<int>(skillCurve));
+	resource::Rules r;
+	switch (kind) {
+	case resource::Kind::Health:
+		r.perAptitude = kHealth;
+		r.skillMax = {form, healthSkillSlope, healthSkillCap, 0.0f};
+		r.regenBase = healthRegen;
+		r.regenPerAptitude = healthRegenStat;
+		r.regenPerMax = healthRegenMax;
+		r.skillRegen = {form, healthRegenSlope, healthRegenCap, 0.0f};
+		return r;
+	case resource::Kind::Stamina:
+		r.perAptitude = kStamina;
+		r.skillMax = {form, staminaSkillSlope, staminaSkillCap, 0.0f};
+		r.regenBase = staminaRegen;
+		r.regenPerAptitude = staminaRegenStat;
+		r.regenPerMax = staminaRegenMax;
+		r.skillRegen = {form, staminaRegenSlope, staminaRegenCap, 0.0f};
+		return r;
+	case resource::Kind::Mana:
+		r.perAptitude = kMana;
+		r.skillMax = {form, manaSkillSlope, manaSkillCap, 0.0f};
+		r.regenBase = manaRegen;
+		r.regenPerAptitude = manaRegenStat;
+		r.regenPerMax = manaRegenMax;
+		r.skillRegen = {form, manaRegenSlope, manaRegenCap, 0.0f};
+		return r;
+	default:
+		return r; // an out-of-range kind gets the inert defaults, not a guess
+	}
+}
+
+resource::PoolRules Balance::Resources() const {
+	return {Resource(resource::Kind::Health), Resource(resource::Kind::Stamina),
+			Resource(resource::Kind::Mana)};
+}
+
+resource::SupplyRules Balance::SupplyOf(resource::Supply which) const {
+	const auto form = static_cast<CurveForm>(static_cast<int>(skillCurve));
+	if (which == resource::Supply::Water)
+		return {waterMax, waterRate,
+				{form, waterCondSlope, waterCondCap, 0.0f}, waterExertion,
+				thirstDamage};
+	return {foodMax, foodRate, {form, foodCondSlope, foodCondCap, 0.0f},
+			foodExertion, hungerDamage};
 }
 
 const AttackSpec* Balance::FindAttack(std::string_view id) const {

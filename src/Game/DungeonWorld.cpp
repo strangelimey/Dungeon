@@ -336,6 +336,16 @@ void DungeonWorld::Update(const Input& input, float dt, float time, bool acceptI
 	DN_PROFILE_ZONE_L(prof::kLevelSystem, "world");
 
 	m_time = time; // drives the rune emissive pulse in SubmitSceneGeometry
+
+	// THE ONE-PIPELINE CHECK (Game/DamageLedger.h), four checkpoints a frame.
+	// A violation is found at a checkpoint, long after the stack that caused it
+	// has gone, so the boundaries are placed where the phases genuinely divide:
+	// the phase name plus the victim is what stands in for a stack.
+	//
+	// This first one covers the gap OUTSIDE the world update — a hand-slot click
+	// resolving a swing, a dev command, an editor edit — which is where a party
+	// attack actually lands, since Game::Update drives it rather than this loop.
+	CheckDamageLedger("outside the world update");
 	// Landed from a pit on the level just below: the shaft's own blow, charged
 	// at the TOP of the first frame after the arrival — the flag is raised at
 	// the bottom of the frame that raised the transition, and the host clears
@@ -390,9 +400,16 @@ void DungeonWorld::Update(const Input& input, float dt, float time, bool acceptI
 			m_fellPending = true;
 		}
 	}
+	// Everything the party's own movement can cost them: a wall bump, a pit
+	// landing, and the exertion of the steps themselves.
+	CheckDamageLedger("party movement");
 	UpdateMonsters(dt);
+	// The busiest phase by far — monster blows, every DoT bite on both sides,
+	// regeneration, supplies, and the unconscious waking up.
+	CheckDamageLedger("monsters, effects and regeneration");
 	m_projectiles.Update(dt); // fly bolts, resolve impacts/fizzles via the hooks
 	UpdateBlasts(dt);         // advance live blasts a tick at their own speed
+	CheckDamageLedger("projectiles and blasts");
 	UpdateLights(time);
 	UpdateCamera();
 
@@ -771,6 +788,12 @@ void DungeonWorld::UpdateMonsters(float dt) {
 	// intelligence) so spent spell points recover between casts, age any
 	// active ward (the Protect shields) so it fades with a log line, and run
 	// the unconscious members' stabilize clocks.
+	// The resource knobs, gathered ONCE for the whole roster rather than per
+	// member per pool: they are the same for everyone and assembling them is
+	// pure arithmetic over the balance sheet, but a steady-state frame is not
+	// the place to do it four times over.
+	const resource::PoolRules pools = m_balance.Resources();
+	const CurveRules statCurve = m_balance.StatCurve();
 	if (m_roster)
 		for (Character& member : *m_roster) {
 			// Self-stabilize: an UNCONSCIOUS (not dead) member accrues safe
@@ -782,6 +805,13 @@ void DungeonWorld::UpdateMonsters(float dt) {
 					member.stabilize += dt;
 					if (member.stabilize >= m_balance.stabilizeTime) {
 						member.stabilize = 0.0f;
+						// The other end of the one-pipeline rule (docs/effects.md
+						// named this exception when the invariant was first swept
+						// by hand): coming round is not damage arriving, it is the
+						// one place health goes UP for a reason no effect owns.
+						const ledger::Explained accounted{
+							m_damageLedger, member.health,
+							ledger::Reason::Stabilize};
 						member.health =
 							m_balance.stabilizeHealth * member.maxHealth;
 						MemberMessage(member, loc::Format("log.member_wakes",
@@ -792,31 +822,75 @@ void DungeonWorld::UpdateMonsters(float dt) {
 			for (float& cd : member.handCooldown)
 				if (cd > 0.0f) cd -= dt;
 			if (member.hitFlash > 0.0f) member.hitFlash -= dt;
-			if (member.IsAlive() && member.mana < member.maxMana) {
-				member.mana += member.ManaRegenPerSec() * dt;
-				if (member.mana > member.maxMana) member.mana = member.maxMana;
-			}
-			// Stamina regen (docs/combat.md Phase 4): the holdoff after any
-			// spend keeps sustained exertion a net drain; then the bar
-			// refills and the exhausted latch clears with hysteresis (past
-			// the exhaust_recover fraction, so it can't flicker at zero).
-			if (member.IsAlive() && member.staminaHoldoff > 0.0f) {
-				member.staminaHoldoff -= dt;
-			} else if (member.IsAlive() && member.stamina < member.maxStamina) {
-				member.stamina +=
-					(m_balance.staminaRegen +
-					 m_balance.staminaRegenMax * member.maxStamina) *
-					dt;
-				if (member.stamina > member.maxStamina)
-					member.stamina = member.maxStamina;
-				if (member.exhausted &&
-					member.stamina >=
-						m_balance.exhaustRecover * member.maxStamina) {
-					member.exhausted = false;
-					MemberMessage(member,
-								  loc::Format("log.recovered", member.name));
+			// --- REGENERATION (docs/health-and-healing.md) --------------------
+			// ONE model for all three pools: a rate built from the member's
+			// APTITUDE and PRACTICE (Character::RegenPerSec), gated by what
+			// they are doing. The stamina holdoff after any spend already IS
+			// the "exerting" signal, so the gate needed no new state:
+			//
+			//   exerting  stamina 0 · mana x mana_exert · health 0
+			//   idle      all three at full flow
+			//
+			// Resting is deliberately not a third row — it is a TIME
+			// multiplier, so it feeds these same rates more seconds rather
+			// than different numbers, and cannot drift out of step with them.
+			//
+			// The whole block is skipped for a DOWNED member: recovery from 0
+			// is the stabilize clock above, which is a different rule.
+			const bool exerting = member.staminaHoldoff > 0.0f;
+			if (member.IsAlive() && exerting) member.staminaHoldoff -= dt;
+			if (member.IsAlive()) {
+				// Returns the points actually restored — which is what the
+				// practice trains on, and is zero at a full pool. That is the
+				// property that makes constitution unfarmable: standing still
+				// at full health regains nothing, so it teaches nothing.
+				const auto regen = [&](resource::Kind kind, float& value,
+									   float max, float scale) {
+					if (scale <= 0.0f || value >= max) return 0.0f;
+					// THE WRITE A SOURCE SCAN CANNOT SEE, and the reason the
+					// one-pipeline check is a runtime one (Game/DamageLedger.h):
+					// `value` aliases health here, so the identifier never
+					// appears on the assignment. The ledger keys on the ADDRESS,
+					// so the alias costs it nothing — and the mana and stamina
+					// calls, whose pools are not watched, credit nothing.
+					const ledger::Explained accounted{m_damageLedger, value,
+													  ledger::Reason::Regen};
+					const float gained = std::min(
+						max - value,
+						member.RegenPerSec(kind, pools.For(kind), statCurve) *
+							scale * dt);
+					value += gained;
+					return gained;
+				};
+				regen(resource::Kind::Mana, member.mana, member.maxMana,
+					  exerting ? m_balance.manaExert : 1.0f);
+				// HEALTH is the only pool whose RECOVERY trains its practice
+				// (the other two train on being SPENT), so this is the one
+				// regen whose return value is used.
+				GrantResourceXp(member, resource::Kind::Health,
+								regen(resource::Kind::Health, member.health,
+									  member.maxHealth, exerting ? 0.0f : 1.0f));
+				// Stamina, and the exhausted latch clearing with hysteresis
+				// (past the exhaust_recover fraction, so it can't flicker at
+				// zero) — docs/combat.md Phase 4.
+				if (!exerting) {
+					regen(resource::Kind::Stamina, member.stamina,
+						  member.maxStamina, 1.0f);
+					if (member.exhausted &&
+						member.stamina >=
+							m_balance.exhaustRecover * member.maxStamina) {
+						member.exhausted = false;
+						MemberMessage(member,
+									  loc::Format("log.recovered", member.name));
+					}
 				}
 			}
+			// Food and water (docs/health-and-healing.md). BEFORE the effect
+			// tick, deliberately: an emptied meter raises its starving/parched
+			// effect and that effect must bite on the SAME frame, or the first
+			// moment of deprivation is silently free. It also means an eaten
+			// apple lifts the effect before it can bite again.
+			TickSupplies(member, dt);
 			// Age the effects and let their DoTs bite (the shared TickEffects —
 			// the monster loop below runs the very same call). An expired one
 			// leaves with its category's fade line; spend-to-die wards — the
@@ -847,14 +921,38 @@ void DungeonWorld::UpdateMonsters(float dt) {
 	// A DoT tick can down (or finish) the last standing member — the wipe
 	// latch must notice without a monster swinging.
 	if (m_roster) CheckPartyWipe();
+	// The two ways rest ends by itself (deprivation, or nothing left to gain).
+	// After the supply and regen ticks, so it judges this frame's state rather
+	// than the last one's.
+	UpdateRest();
 
 	// Re-derive groups from current co-location (monsters sharing a cell are one
 	// group — merge/split as they converge/spread), then assign formation targets
 	// (surround), publish the world for the worker threads, and adopt their plans.
 	// All cheap main-thread work — the pathfinding itself runs on the bucket threads.
+	// The eval tally's clock, and the party's own swings. Both ride the monster
+	// cadence because that is where a fight happens, and both are no-ops in an
+	// ordinary play session.
+	m_harness.tally.seconds += dt;
+	// Feed the queued walk one step at a time, as each tween finishes — see
+	// Harness::pendingSteps for why a loop cannot do this. A step the map
+	// refuses (a wall, a monster in the way) still consumes one from the queue,
+	// so `forward 20` down a six-cell corridor stops at the end instead of
+	// shoving forever.
+	if (m_harness.pendingSteps > 0 && !m_party.IsMoving()) {
+		--m_harness.pendingSteps;
+		m_party.Act(MoveAction::Forward);
+	}
+	TickAutoAttack();
+
 	ReconcileGroups();
 	AssignFormation();
 	BuildAISnapshot();
+	// Between the publish and the adopt, because that is exactly where the
+	// worker threads would have done their thinking. A no-op unless lockstep is
+	// on, in which case the workers are paused and this is the only thinking
+	// that happens.
+	TickLockstepAI(dt);
 	ConsumeAIPlans();
 
 	for (size_t i = 0; i < m_monsters.size(); ++i) {
@@ -987,6 +1085,14 @@ void DungeonWorld::UpdateMonsters(float dt) {
 			while (d < -kPi) d += 2.0f * kPi;
 			monster.yaw += d * std::min(1.0f, dt * kTurnLerp);
 		}
+
+		// FROZEN (the eval harness's `freeze`): the monster still animates,
+		// still burns, still takes a blast — it simply does not ACT. A geometry
+		// probe needs its instruments to hold still: the first blast suite had
+		// two of its nine warriors walk out of the squares they were measuring
+		// and then maul the party, so the table described where they ended up
+		// rather than what the blast did to where they were.
+		if (m_harness.frozen) continue;
 
 		if (monster.intent.mode == ai::Intent::Mode::Idle) {
 			// Idle behaviour: a patroller walks its route (which also carries it back
@@ -1787,6 +1893,29 @@ void DungeonWorld::BuildAISnapshot() {
 // apply a batch only once (tracked by its sequence). Plans are keyed by stable
 // runtimeId, so a plan whose monster has died/moved buckets/been erased simply
 // finds no match here — it can never be misapplied to a different monster.
+void DungeonWorld::TickLockstepAI(float dt) {
+	if (!m_director.Lockstep()) return;
+	for (int b = 0; b < ai::Scheduler::kBucketCount; ++b) {
+		const float interval = ai::Scheduler::BucketInterval(b);
+		if (interval <= 0.0f) continue;
+		m_bucketClock[b] += dt;
+		if (m_bucketClock[b] < interval) continue;
+		// ONE think per bucket per frame, with the remainder CARRIED rather than
+		// dropped, so the long-run rate is exactly the bucket's cadence.
+		//
+		// Deliberately not a catch-up loop. Thinking twice against one frame's
+		// world would produce two identical plans, because a monster does not
+		// MOVE until its executor runs later in this same update — so the second
+		// pass would reason from the positions the first one did. The rate is
+		// kept honest instead by `step` feeding small fixed dt (see
+		// Game::StepWorld): a bucket owed forty thinks gets them across forty
+		// steps, which is also the only way the movement and attack cooldowns
+		// those thinks feed can pace correctly.
+		m_bucketClock[b] -= interval;
+		m_director.ComputeInline(b);
+	}
+}
+
 void DungeonWorld::ConsumeAIPlans() {
 	for (int b = 0; b < ai::Scheduler::kBucketCount; ++b) {
 		const ai::AsyncDirector::Batch batch = m_director.TakePlans(b);

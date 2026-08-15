@@ -87,6 +87,9 @@ public:
 	// Convenience: pull facing/grid straight from the party (the usual caller).
 	void SetHudStatus(const Party& party);
 	void ResetHudStatus(); // forces the next SetHudStatus to reformat
+	// Re-label the Rest button from the world's live state. Pushed per frame
+	// because rest ends by itself as often as by a click.
+	void SetResting(bool resting);
 
 	// Esc handling support: leaves the settings page if it is open (returns
 	// true); false means the caller owns the Esc (quit / resume).
@@ -198,6 +201,13 @@ public:
 	// kBookHands: a book cast credits both hands' quick-cast MRU.
 	std::function<void(size_t, size_t, const std::vector<SpellSymbol>&)>
 		onCastSequence;
+	// Member `i` eats or drinks the item with this catalog id — wired to
+	// DungeonWorld::ConsumeItem, which owns the catalogs and the two meters.
+	// Returns what it actually RESTORED, so the caller can refuse the action
+	// (and keep the item) when it would do nothing.
+	std::function<resource::Refill(size_t, const std::string&)> onConsume;
+	// The Options panel's Rest button — wired to DungeonWorld::SetResting.
+	std::function<void()> onToggleRest;
 	std::function<void()> onKeysChanged;        // a movement key was rebound
 	std::function<void()> onLookChanged;        // a mouse-look knob changed (push to Party)
 	std::function<void()> onHeadBobChanged;     // the head-bob checkbox (push to Party)
@@ -421,6 +431,8 @@ private:
 	MessageLog* m_log = nullptr;
 	ui::Label* m_compass = nullptr;
 	ui::Label* m_position = nullptr;
+	ui::Button* m_restButton = nullptr; // Options panel; label tracks the world
+	bool m_restLabelState = false;      // what the label currently says
 	CharacterSheet* m_sheet = nullptr;
 	size_t m_sheetIndex = 0; // member shown by the character sheet
 

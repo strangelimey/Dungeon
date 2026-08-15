@@ -1,0 +1,6 @@
+; selftest-bad.eval — handed to the runner to prove it can FAIL.
+; `checkall`-style self-test: if this passes, the runner's verdict means nothing.
+logecho on
+state
+thiscommanddoesnotexist
+state

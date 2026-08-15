@@ -1,0 +1,49 @@
+; tiers.eval — the SAME encounter at two tiers. This is the shape every
+; progression-ladder rung will have: seed a party, build the room, place the
+; monsters, run a fixed span, print both sides before and after.
+;
+; The comparison is the artefact. One tier's numbers say nothing on their own;
+; two tiers against identical monsters, identical geometry and an identical seed
+; say what the seeding was worth.
+
+logecho on
+reset
+timescale 0
+lockstep on
+
+; --- rung 1: novice -------------------------------------------------------
+seed 101
+include presets/novice.eval
+arena open 9 9
+spawn skeleton 14 9 south
+tp 14 12
+echo === novice vs 1 skeleton: before ===
+char 0
+party
+step 30
+echo === novice vs 1 skeleton: after ===
+party
+monsters
+
+; --- rung 2: veteran, same fight -----------------------------------------
+; `heal` FIRST, and it is not optional: rung 1 wipes, a wipe returns to the title
+; screen, and every `step` after that is correctly refused — the first version of
+; this script measured nothing at all from here down. Heal restores the party in
+; place without disturbing what a preset seeded.
+;
+; A fresh arena wipes the previous encounter, and the same seed makes the dice
+; the same dice — so any difference is the seeding and nothing else.
+heal
+seed 101
+include presets/veteran.eval
+arena open 9 9
+spawn skeleton 14 9 south
+tp 14 12
+echo === veteran vs 1 skeleton: before ===
+char 0
+party
+step 30
+echo === veteran vs 1 skeleton: after ===
+party
+monsters
+state

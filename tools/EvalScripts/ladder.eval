@@ -1,0 +1,138 @@
+; ladder.eval — the progression ladder, in Michael's protocol.
+;
+;   a room with a corridor coming off it
+;   the party at the FAR END of the corridor
+;   monster(s) in the middle of the room
+;   the party WALKS in and engages
+;   the battle is recorded
+;   then tp away, summon the next, repeat
+;
+; TWO THINGS MAKE THIS A LADDER RATHER THAN A LIST OF FIGHTS.
+;
+; NO HEALING BETWEEN RUNGS. This measures ATTRITION — how the party arrives at
+; the next fight is the entire question — so nothing here restores anything.
+; Whatever regen happens during the walk in is the only recovery there is, and
+; today that is stamina and mana but NOT health (docs/health-and-healing.md).
+; Watch `taken` accumulate down the file: that is the ladder working.
+;
+; THE ESCALATION IS COUNT FIRST, THEN STRENGTH. Three of the same weak monster
+; one after another, then two at once, then three, then four — and only then a
+; tougher type. Difficulty is not one axis, and a party that handles four weak
+; monsters is not the same as one that handles a single strong one.
+;
+; The arena is rebuilt for every rung, which IS the "tp away": it clears the
+; previous monsters and returns the party to the corridor end. It does not touch
+; their health, which is the point.
+;
+; Geometry (7x7 room, 6-cell corridor, map 28x24):
+;   room centre  14,12   <- monsters
+;   corridor end 14,21   <- the party starts here, facing NORTH to walk in
+; The `arena` line prints what it actually carved; check it against those.
+
+logecho on
+reset
+timescale 0
+lockstep on
+seed 31
+autoattack on
+
+; ============ TIER 1: one skel_swarm, three times over ====================
+; The same trivial encounter repeatedly. If the party cannot clear three of
+; these without recovery, nothing further up the ladder means anything.
+
+arena room 7 6
+spawn skel_swarm 14 12 south
+tally reset
+face n
+forward 9
+step 40
+echo === RUNG 1.1: 1x skel_swarm ===
+party
+tally
+
+arena room 7 6
+spawn skel_swarm 14 12 south
+tally reset
+face n
+forward 9
+step 40
+echo === RUNG 1.2: 1x skel_swarm ===
+party
+tally
+
+arena room 7 6
+spawn skel_swarm 14 12 south
+tally reset
+face n
+forward 9
+step 40
+echo === RUNG 1.3: 1x skel_swarm ===
+party
+tally
+
+; ============ TIER 2: the same monster, two at once ========================
+arena room 7 6
+spawn skel_swarm 14 12 south
+spawn skel_swarm 13 12 south
+tally reset
+face n
+forward 9
+step 40
+echo === RUNG 2: 2x skel_swarm ===
+party
+tally
+
+; ============ TIER 3: three at once ========================================
+arena room 7 6
+spawn skel_swarm 14 12 south
+spawn skel_swarm 13 12 south
+spawn skel_swarm 15 12 south
+tally reset
+face n
+forward 9
+step 40
+echo === RUNG 3: 3x skel_swarm ===
+party
+tally
+
+; ============ TIER 4: four at once =========================================
+arena room 7 6
+spawn skel_swarm 14 12 south
+spawn skel_swarm 13 12 south
+spawn skel_swarm 15 12 south
+spawn skel_swarm 14 11 south
+tally reset
+face n
+forward 9
+step 40
+echo === RUNG 4: 4x skel_swarm ===
+party
+tally
+
+; ============ TIER 5: a tougher TYPE, back to one ==========================
+; The other axis. A skeleton is 16 hp against the swarm's 6.
+arena room 7 6
+spawn skeleton 14 12 south
+tally reset
+face n
+forward 9
+step 40
+echo === RUNG 5: 1x skeleton ===
+party
+tally
+
+; ============ TIER 6: the same type, SCALED ================================
+; The second axis Michael asked for: a strength multiplier sweeps difficulty
+; BETWEEN authored types. A result here points at where a monster is missing
+; rather than at one to retune.
+arena room 7 6
+spawn skeleton 14 12 south 2.0
+tally reset
+face n
+forward 9
+step 40
+echo === RUNG 6: 1x skeleton x2.0 ===
+party
+tally
+monsters
+state

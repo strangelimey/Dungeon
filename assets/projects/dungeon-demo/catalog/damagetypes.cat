@@ -54,3 +54,15 @@ school = air
 [water]
 name = dmg.water
 school = water
+
+; --- deprivation ------------------------------------------------------------
+; What an empty food or water meter deals (docs/health-and-healing.md). NOT
+; physical and belonging to NO school, which is the whole point: armour does not
+; answer hunger, and a fire-drinking monster is not fed by it. So by default
+; nothing resists it and nothing is immune to it.
+;
+; A creature that genuinely does not eat is still expressible -- author
+; `resists = starve 1.0` on it, which says exactly that and reads as it.
+
+[starve]
+name = dmg.starve

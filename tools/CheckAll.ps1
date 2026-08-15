@@ -80,6 +80,17 @@ $checks = @(
 		selfTest = { & (Join-Path $root 'tools\InGameTest.ps1') -Config $Config -SelfTest | Out-Host; $LASTEXITCODE }
 	},
 	@{
+		name = 'pipeline'; tier = 'quick'
+		what = 'every source of damage goes through fx::Deal; nothing else writes health'
+		# QUICK despite driving the whole game: 16 seconds, because the eval
+		# harness recycles the world with `reset` instead of reloading it. It is
+		# also the check most worth running often - the rule it guards is one a
+		# perfectly reasonable new feature breaks by accident, which is exactly
+		# how the resource-practice growth route arrived unaccounted for.
+		run      = { & (Join-Path $root 'tools\PipelineTest.ps1') -Config $Config | Out-Host; $LASTEXITCODE }
+		selfTest = { & (Join-Path $root 'tools\PipelineTest.ps1') -Config $Config -SelfTest | Out-Host; $LASTEXITCODE }
+	},
+	@{
 		name = 'alloc'; tier = 'full'
 		what = 'a steady-state frame allocates nothing on the heap'
 		run      = { & (Join-Path $root 'tools\AllocTest.ps1') -Config $Config -Seconds 10 | Out-Host; $LASTEXITCODE }

@@ -47,6 +47,13 @@ DungeonWorld::Fall DungeonWorld::WoundMember(Character& target, float damage,
 	if (!quiet) {
 		target.hitFlash = kHitFlashSeconds;
 		target.hitSeverity = damage < 5.0f ? 0 : (damage < 10.0f ? 1 : 2);
+		// A BLOW BREAKS REST, and `quiet` is exactly the right line to draw it
+		// on: it is set for a Tick, so a poison or a burn does NOT wake the
+		// party — you can rest through those, and they simply cost you — while
+		// anything swung, shot or dropped on you does. Being hit while the world
+		// runs at 60x is how a rest becomes a wipe with no input, which is the
+		// one thing a state with no duration has to defend against.
+		BreakRest("attacked", "log.rest_attacked");
 	}
 	if (target.IsAlive()) return Fall::None;
 	target.stabilize = 0.0f; // the wound that downed them restarts the clock
@@ -67,7 +74,16 @@ void DungeonWorld::GrantSkillXp(Character& member, std::string_view skillId,
 								float xp, std::span<const std::string> stats) {
 	if (skillId.empty() || xp <= 0.0f || !member.IsAlive()) return;
 
-	float& total = member.skillXp[std::string(skillId)];
+	// Look the skill up before inserting it. The subscript alone would build a
+	// std::string on EVERY award, which was harmless while every award was an
+	// event (a landed blow, a cast) and is not any more: the resource practices
+	// train off regeneration, so constitution is awarded every frame a member is
+	// healing. `skillXp` has a transparent comparator precisely so a string_view
+	// can query it without allocating — only the first award of a given skill
+	// ever reaches the insert. (docs/ARCHITECTURE.md "Memory strategy".)
+	const auto it = member.skillXp.find(skillId);
+	float& total = it != member.skillXp.end() ? it->second
+											  : member.skillXp[std::string(skillId)];
 	const int before = Character::LevelForXp(total);
 	total += xp;
 	const int after = Character::LevelForXp(total);
@@ -132,6 +148,232 @@ void DungeonWorld::TrainDefense(Character& member, const fx::DamageEvent& ev) {
 	}
 }
 
+// The three resource practices (see the declaration). Throughput in, XP out,
+// and NO stat creep — the empty stat span below is the entire mechanism that
+// keeps the model from feeding itself, so it is deliberately not a defaulted
+// parameter on GrantSkillXp: an omission would read as a defensible oversight,
+// whereas passing `{}` here is a statement.
+//
+// A resource skill grows the pool it practises, so a level-up must re-derive
+// the maxima exactly as a stat point does. GrantSkillXp only logs the level —
+// it has no reason to know a skill might be a resource one — so the re-derive
+// happens here, and only when the level actually moved.
+void DungeonWorld::GrantResourceXp(Character& member, resource::Kind kind,
+								   float points) {
+	if (points <= 0.0f || !member.IsAlive()) return;
+	float rate = 0.0f;
+	switch (kind) {
+	case resource::Kind::Health: rate = m_balance.constitutionXp; break;
+	case resource::Kind::Stamina: rate = m_balance.conditioningXp; break;
+	case resource::Kind::Mana: rate = m_balance.attunementXp; break;
+	default: return;
+	}
+	if (rate <= 0.0f) return; // a zeroed knob switches the practice off entirely
+	const char* skill = resource::SkillId(kind);
+	const int before = member.SkillLevel(skill);
+	GrantSkillXp(member, skill, points * rate, {});
+	if (member.SkillLevel(skill) == before) return;
+	// THE THIRD GROWTH ROUTE, and the one-pipeline check is what found it: a
+	// resource PRACTICE levelling mid-fight grows the pool, and RecomputeMaxima
+	// carries the growth onto the current value — so a member's health rises by
+	// about a point in the middle of an exchange, with no DamageEvent anywhere
+	// near it. It was reported as an unexplained +0.96 on Brand and Sera the
+	// first time the pipeline suite ran, which is precisely the job: two of the
+	// three growth routes had been enumerated by reading the code, and this one
+	// had not.
+	const ledger::Explained accounted{m_damageLedger, member.health,
+									  ledger::Reason::Growth};
+	member.RecomputeMaxima(m_balance.Resources());
+	// CONDITIONING also drives the walking pace, and the party takes the
+	// minimum — so a level here can change how fast everyone moves, and it has
+	// to reach the Party now rather than at the next load.
+	if (kind == resource::Kind::Stamina) ApplyPartyPace();
+}
+
+// --- rest (docs/health-and-healing.md "Rest is a STATE") ---------------------
+// Entering rest does two things, and the second is the one that matters.
+//
+// THE AI GOES INTO LOCKSTEP, and this is not a convenience — it is what makes
+// rest safe to build at all. `ai::AsyncDirector` paces its bucket workers in
+// WALL-CLOCK milliseconds, so running the world 60x faster would give a monster
+// 1/60th as many chances to think per simulated second. It would still MOVE and
+// still SWING (execution is per-frame and cooldowns tick with dt) — it would
+// simply be walking a stale path toward where the party used to be. That is the
+// exact failure the eval harness already paid for once: a stale-but-plausible
+// behaviour is far worse than a dead one, because nothing about it looks wrong.
+//
+// Lockstep runs each bucket's thinking inline off SIM time, so it thinks as
+// often per simulated second at 60x as at 1x. The mode built to make the
+// harness reproducible turns out to be the thing that makes a fast-forward
+// honest — and the danger the design wants from "the world runs while you rest"
+// is real rather than decorative.
+//
+// The PREVIOUS mode is remembered rather than assumed: an eval run may already
+// be in lockstep, and rest must hand it back what it found.
+void DungeonWorld::SetResting(bool on) {
+	if (on == m_resting) return;
+	if (on) {
+		m_restLockstep = LockstepAI();
+		SetLockstepAI(true);
+	} else {
+		SetLockstepAI(m_restLockstep);
+	}
+	m_resting = on;
+	// "woken" is the default reason — a plain click on the button. A caller with
+	// a better one (BreakRest) overwrites it immediately after.
+	if (!on) m_restEndReason = "woken";
+	onMessage(loc::Tr(on ? "log.rest_begin" : "log.rest_end"));
+}
+
+void DungeonWorld::BreakRest(const char* reason, const char* reasonKey) {
+	if (!m_resting) return;
+	SetResting(false);
+	m_restEndReason = reason;
+	onMessage(loc::Tr(reasonKey));
+}
+
+// The reasons rest ends WITHOUT the player saying so. There are only two, and
+// both exist to stop the state quietly costing something.
+void DungeonWorld::UpdateRest() {
+	if (!m_resting || !m_roster) return;
+	// 1. DEPRIVATION. Resting while a meter is empty spends health to pass time
+	//    you are already losing health for — the one configuration where the
+	//    state is purely harmful. You have to eat first.
+	for (const Character& member : *m_roster)
+		if (member.FindEffect("starving") || member.FindEffect("parched")) {
+			BreakRest("hungry", "log.rest_hungry");
+			return;
+		}
+	// 2. FULLY RECOVERED. Continuing past this point burns food and water for
+	//    nothing at all, and the player cannot see the instant it stops paying.
+	//
+	//    "Recovered" has to include A MEMBER STILL ON THE FLOOR. An unconscious
+	//    one is not full and never will be while they are down — they come round
+	//    through the stabilize clock, which wants safe seconds — and waiting for
+	//    that is one of the things resting is FOR. An earlier version counted
+	//    only the standing, so a fight that left one member down and the others
+	//    unhurt ended the rest after 0.02 seconds with everyone walking away and
+	//    their friend face-down behind them. It reported "recovered", which is
+	//    the part that would have made it hard to find.
+	//
+	//    The DEAD are excluded, and they are the reason this is not simply "is
+	//    everyone full": death is permanent here, so a party carrying a corpse
+	//    would rest until its supplies ran out.
+	bool anyRecoverable = false, allFull = true;
+	for (const Character& member : *m_roster) {
+		if (member.dead) continue;
+		anyRecoverable = true;
+		if (!member.IsAlive() || member.health < member.maxHealth ||
+			member.stamina < member.maxStamina || member.mana < member.maxMana)
+			allFull = false;
+	}
+	if (anyRecoverable && allFull) BreakRest("recovered", "log.rest_done");
+}
+
+// --- supplies (docs/health-and-healing.md "Food and water") ------------------
+// One frame of one member's two meters. THE EFFECTS DO THE DAMAGE, not this:
+// all this does is decide whether the meter is empty and make the effect list
+// agree with that. Everything downstream — resists, the ward stages, a Tick on
+// a downed member being lethal under the overkill rule — is then the ordinary
+// effects pipeline, unchanged and already tested.
+//
+// THE EFFECT IS THE METER'S SHADOW, and that is why `timeLeft` is topped up
+// rather than the kind being given some notion of permanence. A permanent
+// effect would need its own rule for what clears it, and the meter already IS
+// that rule; keeping one truth means an eaten apple cannot leave a member
+// starving, and a save cannot restore a starving member who is not hungry.
+void DungeonWorld::TickSupplies(Character& member, float dt) {
+	if (!member.IsAlive() || dt <= 0.0f) return;
+	// The dead do not eat. The DOWNED do — they are unconscious, not gone, and
+	// a party that leaves someone bleeding out on the floor for hours should
+	// find them worse rather than perfectly preserved. (IsAlive already
+	// excluded them above; this comment is here because the opposite reading is
+	// the tempting one.)
+	const float practice = member.PracticeLevel(resource::Kind::Stamina);
+	for (const resource::Supply which :
+		 {resource::Supply::Food, resource::Supply::Water}) {
+		const resource::SupplyRules rules = m_balance.SupplyOf(which);
+		float& level = member.SupplyLevel(which);
+		level = std::clamp(level - resource::DrainPerSec(rules, practice) * dt,
+						   0.0f, rules.max);
+
+		const char* id = which == resource::Supply::Water ? "parched" : "starving";
+		fx::Inst* held = member.FindEffect(id);
+		if (level > 0.0f) {
+			// Fed. The effect goes, and says so — a relief line, because the
+			// moment you stop starving is worth as much of the player's
+			// attention as the moment you start.
+			if (held) {
+				member.RemoveEffect(id);
+				MemberMessage(member,
+							  loc::Format(which == resource::Supply::Water
+											  ? "log.no_longer_parched"
+											  : "log.no_longer_starving",
+										  member.name));
+			}
+			continue;
+		}
+		if (rules.starveDamage <= 0.0f) continue; // the meter is off
+		const fx::EffectKind* kind = m_effects.Find(id);
+		if (!kind) continue; // effects.cat dropped it; warned at load
+		if (held) {
+			// Hold it open. The duration is nominal — it exists so the ordinary
+			// aging loop has something to age, and is refreshed faster than it
+			// can ever run out.
+			held->timeLeft = kDeprivationHold;
+			held->magnitude = rules.starveDamage; // a live knob edit takes effect
+			continue;
+		}
+		PartyTarget starved{*this, member};
+		fx::Apply(member.effects, *kind, kind->DefaultSchool(),
+				  rules.starveDamage, kDeprivationHold);
+		starved.SayApplied(*kind);
+	}
+}
+
+// Every exertion in the game pays this, because it hangs off SpendStamina — the
+// one place a swing, a cast and a step all arrive. WATER COSTS MORE THAN FOOD
+// (Michael's call): sweat is water, so a heavy fight in armour makes you
+// thirsty rather than merely hungry, and the armour surcharge SpendStamina
+// already applies is inside `points`, so a badly-fitted suit is paid for a
+// third time here. That compounding is the intent.
+void DungeonWorld::DrainSuppliesByExertion(Character& member, float points) {
+	if (points <= 0.0f) return;
+	for (const resource::Supply which :
+		 {resource::Supply::Food, resource::Supply::Water}) {
+		const resource::SupplyRules rules = m_balance.SupplyOf(which);
+		float& level = member.SupplyLevel(which);
+		level = std::clamp(level - points * rules.perExertion, 0.0f, rules.max);
+	}
+	// Deliberately NOT raising the starving/parched effect here even when this
+	// empties a meter: TickSupplies runs every frame and owns that decision, so
+	// there is exactly one place that can put the effect on. Two would drift.
+}
+
+// Eating and drinking are ONE operation with two verbs. An apple both feeds and
+// waters a little, so a handler per verb would have had to duplicate the other
+// half — and a stew or a waterskin is the same statement with the numbers moved.
+// The verb is flavour; `nutrition`/`hydration` are the content.
+resource::Refill DungeonWorld::ConsumeItem(Character& member,
+										   const std::string& typeId) {
+	resource::Refill got;
+	const ItemKind& kind = ItemKindFor(typeId);
+	const resource::SupplyRules foodRules = m_balance.SupplyOf(resource::Supply::Food);
+	const resource::SupplyRules waterRules = m_balance.SupplyOf(resource::Supply::Water);
+	// What it RESTORED, not what it was worth: a full member gains nothing from
+	// an apple, and the caller needs to know that to refuse the action rather
+	// than consume it for no effect.
+	const float beforeFood = member.food, beforeWater = member.water;
+	member.food = std::clamp(member.food + kind.nutrition, 0.0f, foodRules.max);
+	member.water = std::clamp(member.water + kind.hydration, 0.0f, waterRules.max);
+	got.food = member.food - beforeFood;
+	got.water = member.water - beforeWater;
+	// The starving/parched effects are NOT cleared here — TickSupplies sees the
+	// refilled meter next frame and lifts them, with their relief lines, from
+	// the one place that owns that transition.
+	return got;
+}
+
 // A whole stat point lands: increment, log, and re-derive the resource maxima
 // (the resource formula — a VIT point is FELT as a bigger health/stamina pool,
 // and the growth carries the current value so it reads as growth, not damage).
@@ -143,7 +385,14 @@ void DungeonWorld::GrantStatPoint(Character& member, std::string_view stat) {
 	else if (stat == "willpower") value = ++member.willpower;
 	else if (stat == "intelligence") value = ++member.intelligence;
 	else return; // unknown id — parse already warned
-	member.RecomputeMaxima(m_balance.kHealth, m_balance.kStamina, m_balance.kMana);
+	// A stat point can land in the MIDDLE of a fight (vitality creeps off
+	// exertion), and RecomputeMaxima carries the growth onto the current value —
+	// so health genuinely ticks up here, outside the pipeline, while blows are
+	// landing. It is the "odd number you will see and should not chase" from
+	// docs/damage-system.md, now named instead of merely noted.
+	const ledger::Explained accounted{m_damageLedger, member.health,
+									  ledger::Reason::Growth};
+	member.RecomputeMaxima(m_balance.Resources());
 	MemberMessage(member, loc::Format("log.stat_up", member.name,
 									  loc::Tr("stat." + std::string(stat)), value));
 }
@@ -184,13 +433,22 @@ float DungeonWorld::SpendStamina(Character& member, float points) {
 			MemberMessage(member, loc::Format("log.exhausted", member.name));
 		}
 	}
-	// The WHOLE bill trains VIT, the part paid in blood included — conditioning
-	// is what the body did, not what the bar could afford.
-	float& pool = member.statProgress["vitality"];
-	pool += points * m_balance.vitExertion;
-	if (pool < 1.0f) return unpaid;
-	pool -= 1.0f;
-	GrantStatPoint(member, "vitality");
+	// The WHOLE bill trains, the part paid in blood included — conditioning is
+	// what the body did, not what the bar could afford.
+	//
+	// THIS REPLACED A VIT CREEP AND DID NOT JOIN IT (docs/health-and-healing.md).
+	// The exertion used to drip vitality forward through statProgress, and
+	// vitality drives max stamina — so spending stamina made the stamina pool
+	// bigger, which is a loop feeding itself. Now the same throughput trains the
+	// CONDITIONING skill, and that skill owns the pool instead. Leaving both in
+	// would be precisely the double-dip the whole model exists to prevent, which
+	// is why `vit_exertion` is gone rather than set to zero: a knob that must
+	// stay at zero to keep the game correct is a trap with a dial on it.
+	GrantResourceXp(member, resource::Kind::Stamina, points);
+	// And it costs SUPPLIES — the same throughput, billed a third way. This is
+	// where conditioning stops being free: a fitter member spends more stamina
+	// over a day AND burns more food and water per point of it.
+	DrainSuppliesByExertion(member, points);
 	return unpaid;
 }
 
@@ -403,20 +661,109 @@ void DungeonWorld::MonsterFumble(Monster& monster, const AttackProfile& atk,
 	if (severe) run(FumbleTable(monster.kind->fumbleSevere, true));
 }
 
+void DungeonWorld::TickAutoAttack() {
+	if (!m_harness.autoAttack || !m_roster) return;
+	// NOTHING THERE, NOTHING SWUNG. A whiff at air costs the attack's pace and
+	// its full stamina bill (PartyAttack pays both before it checks for a
+	// target), so a party auto-swinging into an empty corridor would exhaust
+	// itself before the fight and every number after it would be measuring an
+	// exhausted party. A player clicking a hand slot at nothing gets that too —
+	// but they stop, and this would not.
+	const auto monsterAt = [&](int x, int z) {
+		for (const Monster& mon : m_monsters)
+			if (mon.Alive() && mon.x == x && mon.z == z) return true;
+		return false;
+	};
+	const int px = m_party.GridX(), pz = m_party.GridZ();
+	Direction faced = static_cast<Direction>(m_party.Facing());
+	if (!monsterAt(px + DirDX(faced), pz + DirDZ(faced))) {
+		// TURN TO THE THREAT. A player faces what is attacking them; a rung
+		// should not have to PREDICT which side a monster will approach from,
+		// and the first sweep measured twelve fights in which the party stared
+		// at a wall while something chewed on them from behind. Cardinals only —
+		// the grid rule (movement, reach and lanes are never diagonal).
+		bool found = false;
+		for (int d = 0; d < 4 && !found; ++d) {
+			const auto dir = static_cast<Direction>(d);
+			if (!monsterAt(px + DirDX(dir), pz + DirDZ(dir))) continue;
+			faced = dir;
+			m_party.SetFacing(static_cast<int>(dir));
+			found = true;
+		}
+		// NOTHING ADJACENT, NOTHING SWUNG. A whiff at air costs the attack's
+		// pace and its full stamina bill (PartyAttack pays both before it looks
+		// for a target), so a party auto-swinging into an empty corridor would
+		// arrive at the fight exhausted and every number after would describe an
+		// exhausted party.
+		if (!found) return;
+	}
+
+	// Every standing member, every hand that has come off cooldown. PartyAttack
+	// owns the rules that decide whether a given swing is legal — the rear rank
+	// needs a polearm, a hand still recovering does nothing — so this decides
+	// only WHEN to ask, never whether.
+	for (size_t m = 0; m < m_roster->size(); ++m) {
+		const Character& member = (*m_roster)[m];
+		if (!member.IsAlive()) continue;
+		for (size_t hand = 0; hand < 2; ++hand)
+			if (member.handCooldown[hand] <= 0.0f) PartyAttack(m, hand);
+	}
+}
+
 void DungeonWorld::SpendExertion(Character& member, float points) {
 	if (points <= 0.0f || !member.IsAlive()) return;
 	const float unpaid = SpendStamina(member, points * m_balance.exertCost);
 	if (unpaid <= 0.0f) return;
 	MemberMessage(member, loc::Format("log.overexert", member.name));
+	// A DECLARED EXCEPTION to the one-pipeline rule (Game/DamageLedger.h), and
+	// Michael's call on 2026-08-15 when the check turned it up: this reaches
+	// WoundMember directly rather than building a DamageEvent, so exhaustion is
+	// not resisted, not soaked and not answered by a ward. Collapsing under your
+	// own effort is not something armour turns. Named here rather than quietly
+	// permitted, so the day it should become a Burst it is one edit and not a
+	// discovery.
+	const ledger::Explained accounted{m_damageLedger, member.health,
+									  ledger::Reason::Exertion};
 	if (WoundMember(member, std::min(unpaid, member.health)) == Fall::Down)
 		MemberMessage(member, loc::Format("log.member_down", member.name));
 }
 
 void DungeonWorld::RecomputePartyMaxima() {
 	if (!m_roster) return;
-	for (Character& member : *m_roster)
-		member.RecomputeMaxima(m_balance.kHealth, m_balance.kStamina,
-							   m_balance.kMana);
+	const resource::PoolRules pools = m_balance.Resources();
+	const float foodMax = m_balance.SupplyOf(resource::Supply::Food).max;
+	const float waterMax = m_balance.SupplyOf(resource::Supply::Water).max;
+	for (Character& member : *m_roster) {
+		// Same growth rule as GrantStatPoint, reached the other way: a balance
+		// apply or a load re-derives every maximum, and a raised ceiling carries
+		// the current value up with it.
+		const ledger::Explained accounted{m_damageLedger, member.health,
+										  ledger::Reason::Growth};
+		member.RecomputeMaxima(pools);
+		// The supply ceilings are a knob, mirrored onto the member so the sheet
+		// can draw a bar without reaching for Balance. Clamped with them, since
+		// turning the knob DOWN in the editor must not leave someone over full.
+		member.maxFood = foodMax;
+		member.maxWater = waterMax;
+		member.food = std::min(member.food, foodMax);
+		member.water = std::min(member.water, waterMax);
+	}
+	// Conditioning feeds the PACE as well as the pool, and both are re-derived
+	// from the same places (a load, a stat change, a balance apply), so they are
+	// refreshed together rather than leaving one caller to remember the other.
+	ApplyPartyPace();
+}
+
+// The party moves as fast as its SLOWEST member — the rule was already here;
+// what is new is that the number it takes the minimum of is now a DERIVED pace
+// rather than an authored one.
+void DungeonWorld::ApplyPartyPace() {
+	if (!m_roster || m_roster->empty()) return;
+	const CurveRules pace = m_balance.PaceCurve();
+	float slowest = (*m_roster)[0].MoveSpeed(pace);
+	for (const Character& member : *m_roster)
+		slowest = std::min(slowest, member.MoveSpeed(pace));
+	m_party.SetSpeed(slowest);
 }
 
 // --- the pipeline's two faces (docs/effects.md) -------------------------------
@@ -632,8 +979,20 @@ float DungeonWorld::PartyTarget::Resist(DamageType type) const {
 }
 
 void DungeonWorld::PartyTarget::Wound(float amount, fx::DamageEvent& ev) {
+	// THE RULE ITSELF (Game/DamageLedger.h): this is one of the six lines in the
+	// game allowed to move a combatant's health, so it declares what it moved.
+	// The scope MEASURES the change rather than being told `amount` — the clamp
+	// at zero means those are not the same number.
+	const ledger::Explained accounted{m_world.m_damageLedger, m_member.health,
+									  ledger::Reason::Pipeline};
 	m_fall = m_world.WoundMember(m_member, amount, ev.Quiet());
 	ev.slew = m_fall != Fall::None;
+	// The eval tally (docs/eval-harness.md). HERE rather than at the attack
+	// sites, because everything that damages a member arrives through this one
+	// line — a monster's blow, a blast, a DoT bite, a ward's reprisal. A tally
+	// hung off the attack sites would have missed four of those five.
+	m_world.m_harness.tally.taken += amount;
+	if (m_fall != Fall::None) ++m_world.m_harness.tally.membersDowned;
 }
 
 // Fed rather than hurt: a member whose nature DRINKS this element (a resist
@@ -642,6 +1001,8 @@ void DungeonWorld::PartyTarget::Wound(float amount, fx::DamageEvent& ev) {
 // stuff that was just thrown at you.
 void DungeonWorld::PartyTarget::Absorb(float amount, fx::DamageEvent& ev) {
 	if (m_member.dead || amount <= 0.0f) return;
+	const ledger::Explained accounted{m_world.m_damageLedger, m_member.health,
+									  ledger::Reason::Pipeline};
 	m_member.health = std::min(m_member.maxHealth, m_member.health + amount);
 	// Quiet for a per-frame tick: a burn feeding something that drinks fire is
 	// a steady trickle, not news forty times a second.
@@ -705,6 +1066,8 @@ void DungeonWorld::MonsterTarget::SayApplied(const fx::EffectKind& kind) const {
 // since threat is a record of harm done.
 void DungeonWorld::MonsterTarget::Absorb(float amount, fx::DamageEvent& ev) {
 	if (!m_monster.Alive() || amount <= 0.0f) return;
+	const ledger::Explained accounted{m_world.m_damageLedger, m_monster.hp,
+									  ledger::Reason::Pipeline};
 	m_monster.hp = std::min(m_monster.MaxHp(), m_monster.hp + amount);
 	if (ev.Quiet()) return; // a tick feeding it is a trickle, not news
 	m_world.ProvokeMonster(m_monster);
@@ -718,7 +1081,13 @@ void DungeonWorld::MonsterTarget::Absorb(float amount, fx::DamageEvent& ev) {
 // "slain" / "destroyed" / "burns away" depending on what did it, and has to
 // come after the caller's own "hits for N").
 void DungeonWorld::MonsterTarget::Wound(float amount, fx::DamageEvent& ev) {
+	const ledger::Explained accounted{m_world.m_damageLedger, m_monster.hp,
+									  ledger::Reason::Pipeline};
 	m_monster.hp -= amount;
+	// The eval tally's other half — see PartyTarget::Wound. Counted BEFORE the
+	// death check below, so the blow that kills is still counted as damage
+	// dealt rather than vanishing into the kill.
+	m_world.m_harness.tally.dealt += amount;
 	if (ev.source >= 0)
 		m_world.AddThreat(m_monster, static_cast<size_t>(ev.source), amount);
 	// A per-frame tick doesn't re-provoke or re-flinch every frame; anything
@@ -728,6 +1097,7 @@ void DungeonWorld::MonsterTarget::Wound(float amount, fx::DamageEvent& ev) {
 		m_monster.hp = 0.0f; // a downed monster stays in the list (save restore)
 		Extinguish(m_monster); // a corpse stops burning
 		ev.slew = true;
+		++m_world.m_harness.tally.monstersSlain;
 	} else if (!ev.Quiet()) {
 		m_monster.hitReq = true; // survivor flinches (a fatal blow plays Die)
 	}
@@ -931,8 +1301,11 @@ void DungeonWorld::MonsterAttack(Monster& monster) {
 	// Its POTENCY in what it deals (`powers`) scales the blow — a monster's whole
 	// answer to the skill a character trains, since it has none.
 	const AttackProfile atk{
-		m_balance.Potent(monster.kind->damage, monster.kind->powers,
-						 monster.kind->damageType),
+		// Per-instance strength scales what it DEALS as well as what it can
+		// take (Monster::MaxHp) — a scaled monster that hit like the authored
+		// one would just be a longer fight, not a harder one.
+		m_balance.Potent(monster.kind->damage * monster.strength,
+						 monster.kind->powers, monster.kind->damageType),
 		monster.kind->accuracy * monster.kind->offense,
 		monster.kind->damageType, monster.kind->critPierce};
 	fx::DamageEvent ev =
@@ -1373,6 +1746,12 @@ bool DungeonWorld::PartyAttack(size_t member, size_t hand, std::string_view verb
 		atk.attackBonus, static_cast<int>(member));
 	ev.pierceOnCrit = atk.pierceOnCrit;
 	fx::Deal(ev, defender, m_balance.Strike(), m_combatRng);
+	// The dice half of the eval tally. Counted for the PARTY's swings only: a
+	// hit rate that mixed both sides together would answer no question anyone
+	// has, and the monsters' side is visible as `taken` anyway.
+	if (ev.hit) ++m_harness.tally.hits; else ++m_harness.tally.misses;
+	if (ev.crit) ++m_harness.tally.crits;
+	if (ev.fumble) ++m_harness.tally.fumbles;
 
 	// WHAT THE DICE DID, said before the outcome it caused. The open-ended roll
 	// has been driving damage since P2 and was invisible: a critical arrived as
@@ -1501,6 +1880,13 @@ bool DungeonWorld::CastSpell(size_t member, std::span<const SpellSymbol> sequenc
 		// the spell's mana (a dearer spell teaches more) — docs/skills.md.
 		GrantSkillXp(caster, SymbolId(r.spell->School()), r.spell->Mana() * 0.25f,
 					 SchoolStats(r.spell->School()));
+		// ATTUNEMENT trains off the same throughput, and the two are NOT a
+		// double-dip: the school skill is what you know about fire and creeps
+		// INT/WIL for it, while attunement is what your body can pass — it
+		// grows the mana POOL and creeps nothing. Two different lessons from
+		// one act, which is the whole aptitude/practice split
+		// (docs/health-and-healing.md).
+		GrantResourceXp(caster, resource::Kind::Mana, r.spell->Mana());
 		m_audio.Play(m_sounds.spellCast, 0.7f);
 		// OVER-EXERTION's bill, last — like a swing's, so the collapse it can
 		// cause reads after the cast that paid for it. Zero unless the caster's
@@ -1738,6 +2124,8 @@ float DungeonWorld::BreakableTarget::Resist(DamageType type) const {
 
 void DungeonWorld::BreakableTarget::Wound(float amount, fx::DamageEvent& ev) {
 	if (!m_brk.Alive()) return; // already broken, or never breakable
+	const ledger::Explained accounted{m_world.m_damageLedger, m_brk.hp,
+									  ledger::Reason::Pipeline};
 	m_brk.hp -= amount;
 	if (m_brk.hp > 0.0f) return;
 	m_brk.hp = 0.0f;
@@ -1750,6 +2138,8 @@ void DungeonWorld::BreakableTarget::Wound(float amount, fx::DamageEvent& ev) {
 
 void DungeonWorld::BreakableTarget::Absorb(float amount, fx::DamageEvent& ev) {
 	if (!m_brk.Alive() || amount <= 0.0f) return;
+	const ledger::Explained accounted{m_world.m_damageLedger, m_brk.hp,
+									  ledger::Reason::Pipeline};
 	m_brk.hp = std::min(m_brk.maxHp, m_brk.hp + amount);
 	if (ev.Quiet()) return; // a tick feeding it is a trickle, not news
 	Say(loc::Format("log.monster_absorbs", Name(),

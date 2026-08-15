@@ -91,10 +91,78 @@ public:
 
 	void Update(float dt);
 	void Render(ID3D12GraphicsCommandList* list);
+	// The end-of-frame bookkeeping Render does, for a `-headless` run that never
+	// calls it. NOT optional: the staged loader gates on the frame counter that
+	// lives at the bottom of Render, so without this a headless run never
+	// finishes loading. See the definition.
+	void EndHeadlessFrame();
 
 	// Set by the pause menu's Exit entry (and Esc outside of play); the
 	// main loop polls it to leave cleanly.
 	bool QuitRequested() const { return m_quitRequested; }
+
+	// THE EVAL HARNESS'S CLOCK (docs/eval-harness.md). Advance the world by
+	// `seconds` of SIM time, right now, in fixed sub-steps — no frames
+	// presented, no input read. Returns how many sub-steps actually ran.
+	//
+	// FIXED SUB-STEPS, not one big dt, and this is the load-bearing part: nearly
+	// everything that paces this game counts DOWN a timer by dt — hand
+	// cooldowns, monster attack and move cooldowns, stamina holdoff, the AI's
+	// bucket clocks — so a single 30-second dt would let a monster take ONE step
+	// and swing ONCE, and report the resulting non-fight as a measurement.
+	// Stepping at a fixed tick makes thirty simulated seconds mean thirty
+	// seconds of fighting, and makes it mean the same thing every run.
+	//
+	// Only steps while Playing; a level transition mid-step (a monster shoves
+	// the party onto a stair) stops the run early rather than being followed,
+	// since an eval that changed level is no longer measuring what it set up.
+	int StepWorld(float seconds);
+
+	// What the app is doing, as a word — for the eval harness and the `state`
+	// command. A script CANNOT otherwise tell: dev commands reach the world from
+	// the MENU too (it is built at load), so `tp` and `monsters` answer happily
+	// while the party is dead and the title screen is up. That trap cost a
+	// debugging session, and a harness that cannot see it would report a whole
+	// suite of encounters that never ran.
+	const char* StateName() const;
+
+	// Put the app back in Playing after a party wipe sent it to the title (see
+	// the `heal` command). Only valid once a game has been loaded — from the
+	// menu with no world behind it, the HUD does not exist and Playing would
+	// dereference nothing (the crash the eval runner found on its first run).
+	void ResumeAfterHeal() {
+		if (m_gameLoaded && m_state == AppState::Menu) m_state = AppState::Playing;
+	}
+
+	// --- the eval batch runner (`-eval <script>`; docs/eval-harness.md) ------
+	// Queue a script of console commands for the game to run on ITSELF. This is
+	// the whole reason the harness is drivable: PostMessage-and-screenshot has
+	// no way to know when a load finished, cannot read the console's answers,
+	// and silently swallows everything after an accidental console toggle. A
+	// script the game owns has none of those failure modes.
+	//
+	// Returns false if the file could not be read — the caller should not then
+	// sit at the title screen forever pretending to be a test run.
+	bool LoadEvalScript(const std::string& path);
+	// Append a script to run AFTER the current one, in the same process. This is
+	// what makes a long run affordable: a level load is ~12 seconds against a
+	// `reset`'s ~340 ms, so one process running twenty scripts costs one load
+	// instead of twenty (docs/eval-harness.md "Recycling the world").
+	//
+	// The runner does NOT reset between scripts — a script says `reset` when it
+	// wants a clean baseline, and a progression series deliberately does not
+	// (Michael's call). Queueing is therefore purely "run these in order".
+	void QueueEvalScript(const std::string& path) { m_evalPending.push_back(path); }
+	// True while a queued script still has lines to run.
+	bool EvalRunning() const { return m_evalIndex < m_evalLines.size(); }
+	// The process exit code a scripted run should return: 0 when every script
+	// finished with every line matching a command, 1 otherwise. An ordinary play
+	// session loaded no script and is always 0 — checked FIRST, because
+	// "finished" is false for it too and it must not read as a failed run.
+	int EvalExitCode() const {
+		if (m_evalName.empty() && m_evalScripts == 0) return 0; // not a test run
+		return m_evalFailed == 0 && m_evalFinished ? 0 : 1;
+	}
 
 private:
 	enum class AppState {
@@ -219,6 +287,38 @@ private:
 	// window is measured in ARMED frames, so time spent loading, warming up or
 	// with the console open does not spend it.
 	void UpdateAllocTest(float dt, bool steady);
+	// One line per frame from the queued eval script, and the run's verdict when
+	// it empties. Called from Update.
+	void PumpEvalScript(float dt);
+	// Read a script file into `out`, stripping comments and blank lines. Shared
+	// by the root script and by `include`, so a fragment is parsed exactly as
+	// the file that pulled it in.
+	static bool ReadEvalLines(const std::string& path, std::vector<std::string>& out);
+	// An `include` argument resolved against the ROOT SCRIPT's folder — a suite
+	// names its presets by a short relative path, and resolving against the
+	// process's working directory would tie every script to wherever the exe was
+	// launched from (for this project, a build folder well away from the scripts).
+	std::string ResolveEvalPath(std::string_view spec) const;
+
+	// --- eval script state (docs/eval-harness.md) ---------------------------
+	std::vector<std::string> m_evalLines; // the queued script, comments stripped
+	size_t m_evalIndex = 0;               // next line to run
+	int m_evalUnknown = 0;                // lines that matched no command
+	bool m_evalFinished = false;          // the LAST script emptied (vs timed out)
+	std::string m_evalName;               // the script's filename, for the verdict
+	std::string m_evalDir;                // its folder — what `include` resolves against
+	// Scripts still to run in THIS process, in order. Popped by PumpEvalScript
+	// when the current one empties, instead of quitting.
+	std::vector<std::string> m_evalPending;
+	int m_evalScripts = 0; // how many have run, for the summary
+	int m_evalFailed = 0;  // how many came back FAIL — the exit code reads this
+	// Wall-clock seconds ONE SCRIPT may take, re-armed by LoadEvalScript. Per
+	// script rather than per run, because a batch of twenty is deliberately
+	// long-lived and a whole-run budget would either strangle it or stop
+	// catching the hang it exists for. A script waiting on a load that never
+	// completes would otherwise hang a machine with no window worth looking at.
+	static constexpr float kEvalScriptTimeout = 600.0f;
+	float m_evalDeadline = kEvalScriptTimeout;
 	bool RunLoadTasks();       // executes one task per frame; true when done
 	// Dumps the finished queue's per-task time/allocation table to the log —
 	// once as the last task lands, and again on demand (`loadstats`, which also
@@ -269,6 +369,11 @@ private:
 	// Feeds the slowest member's moveSpeed into the Party as its pace
 	// multiplier; call whenever the roster's stats are (re)filled.
 	void ApplyPartySpeed();
+	// Put the game where `newgame` would, WITHOUT the level load — the eval
+	// harness's world recycling (docs/eval-harness.md). Falls back to a real new
+	// game when nothing is loaded yet, so a batch's FIRST script pays the twelve
+	// seconds and none of the rest do.
+	bool ResetForEval();
 	// Pushes the settings' per-slot identity colors (member_<n>=, Settings →
 	// UI pickers) onto the roster; call whenever the roster is (re)filled.
 	// The pickers also write the live roster directly while playing.

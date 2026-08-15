@@ -22,6 +22,7 @@
 #include "Game/Balance.h"
 #include "Game/Character.h"
 #include "Game/Combat.h"
+#include "Game/DamageLedger.h" // the one-pipeline invariant, checked
 #include "Game/DungeonEntities.h"
 #include "Game/DungeonMap.h"
 #include "Game/DungeonMeshBuilder.h" // WallPanels (the worn wall block's variants)
@@ -193,6 +194,189 @@ public:
 	// Re-derive every member's resource maxima from the balance k's — after a
 	// save-apply, a stat change, or an editor Balance apply.
 	void RecomputePartyMaxima();
+	// Feed the SLOWEST member's effective pace into the Party. Lives here rather
+	// than on Game because it has to run the moment CONDITIONING levels — which
+	// happens deep inside the combat tick — and the world holds both the roster
+	// and the party. Game::ApplyPartySpeed forwards to it for the load and
+	// new-game paths.
+	void ApplyPartyPace();
+	// THE WORLD HALF OF `reset` (docs/eval-harness.md "Recycling the world").
+	// Put the world back where a NEW GAME would leave it, WITHOUT the twelve
+	// seconds of level load — which is 80% of what a suite costs, and the whole
+	// reason a run of hundreds of tests was not practical.
+	//
+	// "Where a new game would leave it" is the definition ON PURPOSE, because it
+	// is the only one that can be CHECKED: run the same script after `newgame`
+	// and after `reset` and the output must be byte-identical. Anything looser
+	// ("clear the obvious things") is a promise nothing can test, and an
+	// incomplete reset is the worst kind of defect here — every later suite in
+	// the run is quietly contaminated and its numbers still look plausible.
+	// The harness has already been bitten by exactly this shape once: the
+	// m_partyWiped latch survived a heal and twelve rungs measured nothing.
+	//
+	// ResetForNewGame does most of it. This adds what a new game gets from the
+	// LOAD rather than from that call, plus the harness's own modes.
+	void ResetForEval();
+	// --- rest (docs/health-and-healing.md "Rest is a STATE") ------------------
+	// A STATE you enter and leave, not a command with a duration (Michael's
+	// call): time runs fast until you stop it, so you watch the meters fill and
+	// decide when enough is enough instead of guessing an interval up front.
+	// That also means the PLAYER is the interrupt rule, and no argument about
+	// what counts as "something nearby" has to be settled.
+	//
+	// It multiplies TIME and nothing else. `RestTimeScale` is what Game folds
+	// into the world dt, so every rate, timer and cooldown in the game
+	// accelerates together — which is the whole reason rest is one knob rather
+	// than a second set of resting rates that could drift.
+	void SetResting(bool on);
+	bool Resting() const { return m_resting; }
+	float RestTimeScale() const { return m_resting ? m_balance.restScale : 1.0f; }
+	// WHY rest last ended ("recovered" / "attacked" / "hungry" / "woken"), or ""
+	// if it never has. The state ends by itself more often than by a click, and
+	// its reason goes to the HUD message log — which a script cannot read. So
+	// the one fact a measurement actually wants is kept here in English, next to
+	// the flag, rather than being recoverable only by a human watching the game.
+	const char* RestEndReason() const { return m_restEndReason; }
+	// Eat or drink `typeId`, returning what it actually RESTORED — 0 when the
+	// item feeds nobody or the member is already full, which is how the caller
+	// knows to refuse the action and keep the item. Public because the HUD
+	// raises it (GameUI::onConsume) and only the world has the catalogs.
+	resource::Refill ConsumeItem(Character& member, const std::string& typeId);
+
+	// --- the eval harness (docs/eval-harness.md) ----------------------------
+	// Reseed the combat RNG. Every roll in the game comes off this one stream —
+	// attacks, fumble chances, blast jitter, proc chances — and it is otherwise
+	// constant-seeded, which makes a run perfectly reproducible AND makes every
+	// run the same run. An eval needs a SAMPLE, so it varies this per encounter.
+	void SeedCombat(u32 seed) { m_combatRng.seed(seed); }
+
+	// THE ARENA (DungeonWorld_Arena.cpp): carve a controlled space into the
+	// LOADED map — no files written — and empty the world of everything the
+	// authored level put there. The shapes are the geometries a propagating
+	// blast has to be measured in.
+	// THE ENCOUNTER TALLY (docs/eval-harness.md). Counted in the two fx::ITarget
+	// adapters, which is the whole reason it is trustworthy: EVERY source of
+	// damage in this game goes through the one pipeline (docs/effects.md), so a
+	// blast, a DoT tick, a fire shield's reprisal and an ordinary sword blow are
+	// all caught by the same two lines. A tally hung off the attack sites would
+	// have quietly missed four of those five.
+	//
+	// Damage is recorded in ABSOLUTE points, not as a fraction of health. The
+	// healing model is still to be designed, and fractions would silently change
+	// meaning the day it lands; points will not.
+	struct Tally {
+		float dealt = 0.0f;   // reached monster hit points
+		float taken = 0.0f;   // reached member hit points
+		int hits = 0, misses = 0, crits = 0, fumbles = 0;
+		int monstersSlain = 0, membersDowned = 0;
+		float seconds = 0.0f; // SIM seconds since the last reset
+	};
+
+	// ========================================================================
+	// THE HARNESS SEAM (docs/eval-harness.md) — every piece of state the eval
+	// harness needs the world to hold that a PLAYER never asks for, in ONE
+	// place with ONE name.
+	//
+	// It is GATHERED rather than compiled out, and that is a decision (Michael,
+	// 2026-08-15, reviewing exactly this). The harness's entire value is that it
+	// measures the SHIPPING binary — the same rule tools/RollTest's CMakeLists
+	// states for the roll engine, "the real thing straight in, not a copy of
+	// it". Behind `#ifdef` these fields would only exist in a build nobody
+	// ships, the suites and /check-pipeline would be measuring that build, and
+	// the project would carry a fourth configuration to rot unwatched beside
+	// release and release-profile. What it costs instead is four fields and a
+	// handful of predictable branches.
+	//
+	// The point of the struct is that a touch site in the simulation reads
+	// `m_harness.frozen` and says what it is, where a bare `m_freezeMonsters`
+	// read like world state somebody forgot to explain.
+	//
+	// DELIBERATELY NOT IN HERE: lockstep AI. It looks like harness machinery
+	// and is not — SetResting turns it on, because rest runs the world at 60x
+	// and lockstep is what makes the monsters think honestly through a
+	// fast-forward. It would have to exist if the harness never had.
+	// ========================================================================
+	struct Harness {
+		Tally tally;
+		// Every member swings whenever a hand is off cooldown and something is
+		// in reach. A harness behaviour, not a game one — the player clicks a
+		// hand slot — but without it a measured encounter is the party standing
+		// still being hit, which is half a fight and reads as a whole one.
+		bool autoAttack = false;
+		// Monster ACTION (movement and attacks) stops while everything that
+		// HAPPENS TO them keeps running — animation, effects, blasts, damage. A
+		// geometry probe needs its instruments to hold still: monsters parked on
+		// known cells to read a blast's falloff otherwise walk off those cells
+		// mid-measurement and report where they ended up instead.
+		bool frozen = false;
+		// Queued walking steps (`forward`). They CANNOT simply be applied in a
+		// loop: Party::Act starts a tween and refuses a new move while one is in
+		// flight, so nine calls in a single frame perform ONE step and silently
+		// drop eight — which reads as a party that will not advance. They are
+		// fed one at a time as each completes.
+		int pendingSteps = 0;
+	};
+	Harness& GetHarness() { return m_harness; }
+	const Harness& GetHarness() const { return m_harness; }
+
+	// UN-WIPE THE PARTY (the `heal` command). `m_partyWiped` latches so
+	// onPartyWipe fires once — but it also gates every monster attack, so once
+	// it is set the world never fights again and only ResetForNewGame clears it.
+	// A ladder healing between rungs therefore ran rung 2 onward against
+	// monsters that had permanently stopped swinging, and reported forty-five
+	// simulated seconds of nothing as a result.
+	void ClearWipeLatch() { m_partyWiped = false; }
+
+	// Scale the MOST RECENTLY SPAWNED monster's hp and damage (the eval
+	// harness's `spawn ... <strength>`). Applied after AddMonster rather than
+	// passed through it, so the editor's placement path keeps its signature
+	// and nothing but the harness can reach this.
+	void ScaleLastMonster(float strength) {
+		if (m_monsters.empty() || strength <= 0.0f) return;
+		Monster& m = m_monsters.back();
+		m.strength = strength;
+		m.hp = m.MaxHp(); // spawned at full, and full has just changed
+	}
+
+	// DETONATE A NAMED SPELL'S BLAST at a cell, with no caster, no mana, no
+	// skill roll and no bolt flight — the eval harness's way of asking a
+	// geometry question directly (`blast <spell> <x> <z>`).
+	//
+	// It reads the spell's AUTHORED rules rather than taking numbers of its own,
+	// so what a measurement describes is the content that ships. False if the id
+	// names no spell, or names one that is not an area effect at all — reported,
+	// because a blast that did not happen would otherwise read as a blast that
+	// did nothing, and those are opposite answers.
+	bool DetonateSpell(std::string_view spellId, int cx, int cz);
+
+	// (The four pieces of harness STATE those used to be are fields on
+	// `Harness` above; the operations that need the world — an arena, a spawn,
+	// a detonation — stay methods, because they are things done TO the world
+	// rather than switches held on it.)
+
+	enum class ArenaShape : u8 { Open, Corridor, DeadEnd, TJunction, Room };
+	// Where the arena ended up. Derivable from the map size (it is centred), so
+	// a script can hardcode the cells; reported so a log reader can check them.
+	struct ArenaInfo {
+		int x0 = 0, z0 = 0, x1 = 0, z1 = 0; // inclusive bounds
+		int cx = 0, cz = 0;                 // the cell that matters for the shape
+		// Where the PARTY is placed. Same as the centre for every shape except
+		// Room, whose whole point is that the two are FAR APART: the monster
+		// waits in the room and the party walks the corridor to reach it, so
+		// the approach is part of what gets measured.
+		int sx = 0, sz = 0;
+	};
+	bool BuildArena(ArenaShape shape, int w, int h, ArenaInfo& out);
+	static bool ArenaShapeFromName(std::string_view name, ArenaShape& out);
+	// Drive the monster AI from sim time instead of wall-clock; see
+	// ai::AsyncDirector::SetLockstep for what that does and does not promise.
+	// Clears the bucket accumulators so switching it on does not immediately
+	// fire every bucket with a debt of however long the game had been running.
+	void SetLockstepAI(bool on) {
+		m_director.SetLockstep(on);
+		for (float& c : m_bucketClock) c = 0.0f;
+	}
+	bool LockstepAI() const { return m_director.Lockstep(); }
 	// The live combat tuning (balance.cat + attacks.cat knobs, Balance.h). The
 	// editor's Balance dialog edits it in place and Save()s it via the project.
 	Balance& GetBalance() { return m_balance; }
@@ -959,6 +1143,18 @@ public:
 	// --- dev console hooks ---------------------------------------------------
 	// "kind @ x,z" for each live monster.
 	std::vector<std::string> MonsterList() const;
+	// --- the one-pipeline check (Game/DamageLedger.h) ------------------------
+	// Arming, strictness and the counters live on the ledger itself; the console
+	// reaches them through here. Anything that REPLACES party or world state
+	// wholesale (a load, a save restore, a respawn, a `heal`) must call
+	// RebaseDamageLedger afterwards — the values it overwrote no longer exist to
+	// be reconciled, and without a fresh baseline the next checkpoint reports the
+	// replacement itself as a violation.
+	ledger::Ledger& DamageLedger() { return m_damageLedger; }
+	void RebaseDamageLedger();
+	// The `pipeline` command's lines: the RESULT= verdict, then how much health
+	// moved by each sanctioned route.
+	std::vector<std::string> DamageLedgerReport() const;
 	// Toggles the activated state of the button in cell (x,z) (no-op if none),
 	// returning the new state via `out`. Exercises the button save path until the
 	// P5 mechanism wiring drives it from gameplay; the map overlay reflects it.
@@ -1318,7 +1514,16 @@ private:
 		std::vector<ai::Cell> aiPath; // cached chase route (start cell excluded)
 		size_t aiCursor = 0;          // next unstepped cell in aiPath
 
-		float MaxHp() const { return kind ? kind->maxHp : 1.0f; }
+		// PER-INSTANCE STRENGTH (the eval harness's `spawn ... <x N>`): scales
+		// this creature's hit points and the damage it deals, leaving its
+		// catalog entry alone. A ladder climbs by TYPE first — those measure
+		// content that ships — and uses this to sweep finely BETWEEN authored
+		// types, where a result points at a monster that does not exist and so
+		// says where to author one rather than what to fix.
+		float strength = 1.0f;
+		float MaxHp() const {
+			return (kind ? kind->maxHp : 1.0f) * strength;
+		}
 		bool Alive() const { return hp > 0.0f; }
 	};
 
@@ -1369,6 +1574,11 @@ private:
 		// from the party's REAR rank (roster slots 2-3); everything else —
 		// bare hands included — is front-rank only.
 		bool polearm = false;
+		// What consuming it restores (items.cat `nutrition` / `hydration`).
+		// Both on every item: most food is partly one and partly the other, and
+		// 0/0 means it feeds nobody, which is how a consume is refused.
+		float nutrition = 0.0f;
+		float hydration = 0.0f;
 		// Worn armor's WEIGHT CLASS (armor.cat `class`): what it costs to
 		// evade in, which skill it trains, and what STR it asks. The soak
 		// itself stays per ITEM (`armor` below) — a breastplate and a mail
@@ -2214,6 +2424,40 @@ private:
 	// award site (successful cast, landed blow) routes through it.
 	void GrantSkillXp(Character& member, std::string_view skillId, float xp,
 					  std::span<const std::string> stats);
+	// THE RESOURCE PRACTICES, awarded by THROUGHPUT (docs/health-and-healing.md):
+	// `points` is stamina spent / mana spent / health regained, scaled by that
+	// pool's own xp knob. One expensive spell therefore trains attunement more
+	// than three cheap ones — "the more it channels through you" meant literally.
+	//
+	// THE WHOLE REASON THIS IS NOT JUST A GrantSkillXp CALL AT THREE SITES: these
+	// three skills must creep NO stat. Every other skill in the game drips its
+	// associated stats forward, and each of these three feeds a pool that its
+	// aptitude ALSO feeds — so the ordinary award would close a loop on itself
+	// (spend stamina, creep vitality, grow max stamina). Routing them through one
+	// function that passes an empty stat list makes that a property of the code
+	// rather than a rule three call sites have to keep remembering.
+	void GrantResourceXp(Character& member, resource::Kind kind, float points);
+	// --- supplies (docs/health-and-healing.md "Food and water") ---------------
+	// One frame of a member's food and water: drain by time (scaled by
+	// conditioning — its price), then raise or clear the starving/parched
+	// effect. It does NOT deal the damage; the effects do, through the ordinary
+	// DoT tick, which is the whole reason they are effects.
+	void TickSupplies(Character& member, float dt);
+	// One frame of the rest STATE: the reasons it ends by itself. A no-op when
+	// not resting, so the ordinary frame pays a bool for it.
+	void UpdateRest();
+	// End rest because something happened, saying why. Safe to call when not
+	// resting (it does nothing), which is what lets the wound path call it
+	// unconditionally rather than testing the flag at the call site.
+	void BreakRest(const char* reason, const char* reasonKey);
+	// How long a starving/parched instance is given each frame it is held open.
+	// Nominal — long enough that the aging loop can never expire it between two
+	// supply ticks, short enough that if this code ever stopped running the
+	// effect would lift by itself rather than sticking forever.
+	static constexpr float kDeprivationHold = 5.0f;
+	// Drain both meters by a stamina SPEND (water more than food — sweat is
+	// water). Called from SpendStamina, so every exertion in the game pays it.
+	void DrainSuppliesByExertion(Character& member, float points);
 	// A whole stat point lands: increment, log, and re-derive the resource
 	// maxima (stats feed them now). Shared by the creep pools and SpendStamina.
 	void GrantStatPoint(Character& member, std::string_view stat);
@@ -2324,6 +2568,16 @@ private:
 	// goes back out via fx::Deal like any other damage), so every React call
 	// site hands over the same two things this world resolves damage with.
 	fx::ReactCtx Reaction() { return {m_balance.Strike(), m_combatRng}; }
+	// --- the one-pipeline check's world side (DungeonWorld_Ledger.cpp) --------
+	// Observe every value the damage pipeline can reach. The ONE place targets
+	// are enumerated: a future fourth kind of thing that can be hurt is covered
+	// by adding it there, and if it is not there it is not checked.
+	void SweepDamageLedger();
+	// Verify the region since the last checkpoint and take a new baseline.
+	// `phase` names that region and must outlive the call (a string literal).
+	void CheckDamageLedger(const char* phase);
+	std::string LedgerSubjectName(ledger::Key key) const;
+	ledger::Ledger m_damageLedger;
 	// The world lands a blow: Impact bash damage on every standing member,
 	// through the ordinary pipeline (armour, Stone Skin and a water veil all
 	// answer it), returning the WORST amount dealt for the caller's line.
@@ -2574,6 +2828,25 @@ private:
 	u32 m_nextGroupId = 1;
 	// Last plan-batch sequence applied per bucket, so we adopt a batch only once.
 	uint64_t m_lastPlanSeq[ai::Scheduler::kBucketCount] = {};
+	// Per-bucket SIM-time accumulator for lockstep (TickLockstepAI). Unused
+	// while the workers run themselves; reset when lockstep is switched on, so
+	// enabling it does not immediately fire every bucket with a debt of
+	// whatever wall-clock time happened to have passed.
+	float m_bucketClock[ai::Scheduler::kBucketCount] = {};
+	// EVERY eval-harness field the world holds, in one member (see `Harness`).
+	// Four bools-and-counters that used to sit loose among the world's own state
+	// reading like something nobody had got round to explaining.
+	Harness m_harness;
+	// REST. Transient by design — not saved, so a save made mid-rest loads
+	// standing up. `m_restLockstep` remembers the AI mode rest replaced, because
+	// the eval harness may already have lockstep on and rest must give it back
+	// rather than assume it was off.
+	bool m_resting = false;
+	bool m_restLockstep = false;
+	const char* m_restEndReason = ""; // a literal; see RestEndReason
+	// For each standing member, swing any hand whose cooldown has run out.
+	// Called from UpdateMonsters' cadence, no-op unless m_harness.autoAttack.
+	void TickAutoAttack();
 	// Walkability grid shared into snapshots, rebuilt only when the map changes.
 	std::shared_ptr<const std::vector<uint8_t>> m_walkableCache;
 	u32 m_walkableRev = 0xFFFFFFFFu; // map Revision() the cache was built for
@@ -2591,6 +2864,12 @@ private:
 	void BuildAISnapshot();
 	// Adopt the freshest plan batches into each monster's intent + cached path.
 	void ConsumeAIPlans();
+	// LOCKSTEP AI (docs/eval-harness.md): with the bucket workers paused, run
+	// each bucket's compute inline whenever its cadence has elapsed in SIM time.
+	// `dt` is the world dt already scaled by timescale, so a run at timescale 20
+	// — or one stepping whole seconds per frame — thinks exactly as often per
+	// simulated second as a run at 1 does. That equivalence IS the feature.
+	void TickLockstepAI(float dt);
 	// Live monster with this stable runtimeId, or null if none (died/erased/level
 	// changed). Linear scan — fine at this scale; swap for a map if counts explode.
 	Monster* MonsterByRuntimeId(u32 id);

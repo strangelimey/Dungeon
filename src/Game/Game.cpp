@@ -19,7 +19,9 @@
 #include <algorithm>
 #include <cctype>
 #include <chrono>
+#include <filesystem>
 #include <format>
+#include <fstream>
 #include <string>
 #include <utility>
 
@@ -170,8 +172,11 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 
 	m_characters = CreateDefaultParty();
 	ApplyMemberColors(); // the settings palette wins over the authored defaults
-	ApplyPartySpeed();
 	m_world.SetRoster(&m_characters); // combat drains these; reset in place
+	// AFTER SetRoster, not before: the pace rule reads the roster through the
+	// world now (conditioning feeds it), so it has nothing to average until the
+	// world has been handed the members.
+	ApplyPartySpeed();
 	m_ui.SetHitSplats(&m_hitSplats);  // stable address; LoadHitSplats fills it in
 	m_ui.SetItemIcons(&m_itemIcons);    // stable; LoadItemIcons fills it in
 	m_ui.SetItemWeights(&m_itemWeights); // stable; LoadItemIcons fills it in
@@ -447,12 +452,21 @@ void Game::ResetRoster() {
 	// CreateDefaultParty seeds the derived maxima at k=1; re-derive under the
 	// project's live balance knobs (fresh members are at full, so top them up).
 	m_world.RecomputePartyMaxima();
+	const Balance& bal = m_world.GetBalance();
 	for (Character& member : m_characters) {
 		member.health = member.maxHealth;
 		member.stamina = member.maxStamina;
 		member.mana = member.maxMana;
+		// Supplies start FULL and come from the knobs, not from Character's
+		// defaults — a project that raises food_max should have its new parties
+		// begin at the raised value, not at whatever the header happened to say.
+		member.food = bal.foodMax;
+		member.water = bal.waterMax;
 	}
 	ApplyMemberColors(); // the settings palette wins over the authored defaults
+	// The roster these are is not the roster the one-pipeline check was watching
+	// (Game/DamageLedger.h) — same storage, replaced contents.
+	m_world.RebaseDamageLedger();
 }
 
 void Game::ApplyMemberColors() {
@@ -550,6 +564,9 @@ void Game::SaveGame(const std::string& name) {
 		c.baseMana = member.baseMana;
 		c.dead = member.dead; // the overkill flag (v18)
 		c.offenseShare = member.offenseShare; // the stance (v23)
+		c.hasSupplies = true; // food and water (v25)
+		c.food = member.food;
+		c.water = member.water;
 		data.characters.push_back(std::move(c));
 	}
 	WriteSave(data, SaveSlotPath(name));
@@ -636,27 +653,38 @@ bool Game::LoadGame(const std::string& path) {
 		// exactly under unchanged knobs). RecomputeMaxima then re-derives —
 		// current values arrived above and clamp/carry as usual.
 		const Balance& bal = m_world.GetBalance();
+		const resource::PoolRules pools = bal.Resources();
 		Character& member = m_characters[i];
 		// The offense stance (v23). A pre-v23 save leaves the CharState at its
 		// 1.0 default, which is exactly what those saves meant: all-out.
 		member.offenseShare = c.offenseShare;
+		// Food and water (v25). A save older than supplies arrives FULL — it
+		// predates the mechanic, so its party has not been starving off-screen,
+		// and defaulting the new fields to zero would open every existing save
+		// onto four members taking starvation damage.
+		member.food = c.hasSupplies ? c.food : bal.foodMax;
+		member.water = c.hasSupplies ? c.water : bal.waterMax;
 		if (c.hasBases) {
 			member.baseHealth = c.baseHealth;
 			member.baseStamina = c.baseStamina;
 			member.baseMana = c.baseMana;
 		} else {
-			member.baseHealth =
-				c.maxHealth - bal.kHealth * static_cast<float>(member.vitality);
-			member.baseStamina =
-				c.maxStamina - bal.kStamina * 0.5f *
-								   static_cast<float>(member.strength +
-													  member.vitality);
-			member.baseMana =
-				c.maxMana - bal.kMana * 0.5f *
-								static_cast<float>(member.intelligence +
-												   member.willpower);
+			// Run the formula BACKWARDS. This subtracts resource::Contribution
+			// rather than a hand-written copy of the aptitude term, so a save
+			// old enough to lack bases still reproduces its maxima exactly
+			// however many terms the model grows — which is the whole reason
+			// that helper is exposed. The copy that used to live here was
+			// written when the aptitude WAS the only term.
+			const auto solve = [&](resource::Kind kind, float savedMax) {
+				return savedMax - resource::Contribution(pools.For(kind),
+														 member.Aptitude(kind),
+														 member.PracticeLevel(kind));
+			};
+			member.baseHealth = solve(resource::Kind::Health, c.maxHealth);
+			member.baseStamina = solve(resource::Kind::Stamina, c.maxStamina);
+			member.baseMana = solve(resource::Kind::Mana, c.maxMana);
 		}
-		member.RecomputeMaxima(bal.kHealth, bal.kStamina, bal.kMana);
+		member.RecomputeMaxima(pools);
 		// The exhausted latch is a live transient (not saved) — re-derive it
 		// from the restored bar so a save made mid-exhaustion resumes winded.
 		member.exhausted = member.stamina <= 0.0f;
@@ -666,6 +694,9 @@ bool Game::LoadGame(const std::string& path) {
 		member.stabilize = 0.0f;
 	}
 	m_world.ApplyState(*data); // fills the per-level store + party pose/torch
+	// Restored hit points are not writes to explain (Game/DamageLedger.h): the
+	// values they replaced belong to a session that is over.
+	m_world.RebaseDamageLedger();
 
 	m_ui.RefreshSheet();
 	ApplyPartySpeed();
@@ -702,20 +733,29 @@ bool Game::LoadGame(const std::string& path) {
 	return true;
 }
 
+// RECYCLE THE WORLD (docs/eval-harness.md). A dungeon load is ~12 seconds and
+// 80% of what a suite costs, so a run of hundreds of tests cannot afford one per
+// test. This puts the game where `newgame` would and skips the load.
+//
+// It falls back to a REAL new game when nothing is loaded yet, which is what
+// lets every script open with `reset` and only the first one in a batch pay.
+//
+// Returns false only if it could not get to a playing state at all.
+// (ResetForEval, StepWorld and the whole eval script runner live in
+// Game_Eval.cpp — see its banner for why they are a separate TU and not an
+// #ifdef.)
+
 void Game::OpenCharacterSheet(size_t index) {
 	m_audio.Play(m_sounds.click, 0.5f);
 	m_ui.ShowSheet(index);
 	m_state = AppState::CharacterSheet;
 }
 
-// The party moves as fast as its slowest member: take the roster minimum and
-// hand it to the Party, which scales its step and turn rates by it.
-void Game::ApplyPartySpeed() {
-	float slowest = m_characters.empty() ? 1.0f : m_characters[0].moveSpeed;
-	for (const Character& member : m_characters)
-		slowest = std::min(slowest, member.moveSpeed);
-	m_world.GetParty().SetSpeed(slowest);
-}
+// The party moves as fast as its slowest member. The rule itself moved to
+// DungeonWorld::ApplyPartyPace, because conditioning feeds the pace and levels
+// deep inside the combat tick — where Game is not in the call chain. This
+// forwards for the load / new-game / startup paths that always drove it.
+void Game::ApplyPartySpeed() { m_world.ApplyPartyPace(); }
 
 void Game::ApplyLanguage(bool rebuild) {
 	if (!m_pendingLanguage.empty()) {
@@ -854,6 +894,19 @@ bool Game::SteadyStateFrame() {
 	return m_steadyFrames > kWarmupFrames;
 }
 
+const char* Game::StateName() const {
+	switch (m_state) {
+	case AppState::Loading: return "loading";
+	case AppState::Menu: return "menu";
+	case AppState::LoadingGame: return "loadinggame";
+	case AppState::LoadingLevel: return "loadinglevel";
+	case AppState::Playing: return "playing";
+	case AppState::Paused: return "paused";
+	case AppState::CharacterSheet: return "sheet";
+	}
+	return "?";
+}
+
 // One `alloctest` window: spend the budget only on frames that actually armed,
 // so the load, the warm-up and the console being open cost the test nothing. The
 // verdict is the guard's own stats, differenced across the window.
@@ -893,7 +946,14 @@ void Game::Update(float dt) {
 		m_pokeScratch = std::make_unique<u32>(m_framesRendered);
 	}
 
-	const float wdt = dt * m_timeScale; // world dt (dev console `timescale`)
+	// World dt: the dev console's `timescale`, times the REST multiplier
+	// (docs/health-and-healing.md). Rest is folded in HERE, at the one place the
+	// world's clock is set, rather than into any particular rate — which is what
+	// makes "rest is a time multiplier, not a regen multiplier" true of the code
+	// and not just of the doc. Health, supplies, effect timers, monster
+	// cooldowns and the AI's own cadence all accelerate together because they
+	// all read this number.
+	const float wdt = dt * m_timeScale * m_world.RestTimeScale();
 	m_time += wdt;
 
 	// A language picked last frame applies now, before any widget updates —
@@ -968,6 +1028,9 @@ void Game::Update(float dt) {
 	const bool consoleWasOpen = m_console.IsOpen();
 	if (input.WasKeyPressed(VK_OEM_3)) m_console.Toggle();
 	m_console.SetCommandsEnabled(!loading);
+	// Immediately after the gate it reads, so a scripted line runs on exactly the
+	// same footing as a typed one — including being held back through a load.
+	PumpEvalScript(dt);
 	{
 		// The console is itself instrumented: it samples every graph's history
 		// each frame whether open or not, and a readout that costs more than
@@ -1353,6 +1416,10 @@ void Game::Update(float dt) {
 
 	Party& party = m_world.GetParty();
 	m_ui.SetHudStatus(party);
+	// The Rest button's face, from the world rather than from its own callback:
+	// rest ends by itself as often as by a click, so the label has to follow the
+	// state and not the input that usually causes it.
+	m_ui.SetResting(m_world.Resting());
 }
 
 // ============================================================================
@@ -1594,6 +1661,28 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 
 	// Every UIContext that rendered has had its turn at the armed overlap audit;
 	// this is the only place that knows the frame is over. No-op unless armed.
+	ui::inspect::EndOverlapAuditFrame();
+	++m_framesRendered;
+}
+
+// HEADLESS (`-headless`): the end-of-frame bookkeeping without the drawing.
+//
+// This exists because of ONE line above — `++m_framesRendered`. The staged
+// loader gates on it (`RunLoadTasks`: a task runs only once the state's screen
+// has been PRESENTED at least once, so a multi-second bake never happens on a
+// frame nobody has seen). Skip Render naively and that counter never moves, the
+// load queue never advances, and a headless run sits on the loading screen
+// forever, reporting nothing, looking exactly like a hang.
+//
+// So the counter is frame accounting that merely LIVED in the render pass. The
+// increment stays where it is for the normal path — moving it would change what
+// "presented" means for everyone to fix a case that has no screen — and headless
+// says the same thing in its own words. The overlap audit is ended too, for the
+// same reason it is ended there: something has to say the frame is over, and
+// `uioverlap` armed in a headless run must not wait forever for a pass that will
+// never come. (It will report nothing, of course — a widget that never drew has
+// no ink. `/check-ingame` deliberately does NOT run headless.)
+void Game::EndHeadlessFrame() {
 	ui::inspect::EndOverlapAuditFrame();
 	++m_framesRendered;
 }

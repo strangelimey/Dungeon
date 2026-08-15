@@ -66,9 +66,31 @@ public:
 	// would touch objects a later load task creates. A gated Enter prints a
 	// notice and keeps the line in history for an easy re-run after the load.
 	void SetCommandsEnabled(bool enabled) { m_commandsEnabled = enabled; }
+	bool CommandsEnabled() const { return m_commandsEnabled; }
+
+	// MIRROR EVERY CONSOLE LINE TO dungeon.log (the eval harness; `logecho`).
+	// The console's scrollback is a WINDOW: reading it means taking a
+	// screenshot, and a screenshot captures whatever window is in FRONT. So the
+	// console's output — which is where `monsters`, `step` and every other
+	// command answer — is invisible to a script driving the game, and that is
+	// most of what makes the game hard to drive without clicking.
+	//
+	// Mirroring turns the whole existing command surface into something readable
+	// from a file, and does it without a second reporting path that could
+	// disagree with what the console shows. Off by default: a play session
+	// should not pay for it.
+	void SetMirrorToLog(bool on) { m_mirrorToLog = on; }
+	bool MirrorToLog() const { return m_mirrorToLog; }
+
+	// Run one line as if it had been typed, and REPORT whether a command matched.
+	// The eval runner needs the answer: a script line that quietly did nothing —
+	// a typo, or a command that only exists on another branch — would otherwise
+	// leave the run reporting a clean pass over an encounter it never set up.
+	// The interactive path (Enter) discards the bool; only a script counts them.
+	bool RunLine(const std::string& line) { return Execute(line); }
 
 private:
-	void Execute(const std::string& line);
+	bool Execute(const std::string& line); // false = no such command
 
 	ui::FontLibrary& m_fonts;
 	// Borrowed from the library (Mono: this is a column-aligned readout).
@@ -430,6 +452,7 @@ private:
 
 	bool m_open = false;
 	bool m_commandsEnabled = true;   // false while a staged load is mid-flight
+	bool m_mirrorToLog = false;      // `logecho`: every console line also to dungeon.log
 	// Every section collapses to its header, so the panel can be cut down to just
 	// the one thing being watched. THREADS starts collapsed because it is a
 	// CONTROL surface — halt, rate, kill, boot — rather than a readout, and its

@@ -1,0 +1,52 @@
+; arena.eval — the controlled space, exercised.
+;
+; The showcase level fought every attempt to measure anything in it (a monster
+; already adjacent, an unwalkable target cell, one that would not engage). This
+; builds its own room instead, and everything in it was put there on purpose.
+;
+; The map is 28x24, so the arena centres on 14,12. Those coordinates are
+; hardcoded below because a script cannot read a command's answer — the `arena`
+; line PRINTS its bounds so a log reader can confirm they were what was assumed.
+
+logecho on
+reset
+timescale 0
+lockstep on
+seed 11
+
+; --- 1. an open room, one monster, one fight ------------------------------
+arena open 9 9
+spawn skeleton 14 8 south
+tp 14 12
+echo --- open: before ---
+party
+monsters
+step 30
+echo --- open: after ---
+party
+monsters
+
+; --- 2. HIS BLAST CASE: one in the middle, eight around it ----------------
+; A fresh room wipes the previous fight entirely, so this starts clean.
+arena open 9 9
+spawn skel_swarm 13 11 south
+spawn skel_swarm 14 11 south
+spawn skel_swarm 15 11 south
+spawn skel_swarm 13 12 south
+spawn skel_swarm 14 12 south
+spawn skel_swarm 15 12 south
+spawn skel_swarm 13 13 south
+spawn skel_swarm 14 13 south
+spawn skel_swarm 15 13 south
+echo --- 3x3 surround: nine placed ---
+monsters
+
+; --- 3. the geometries a blast reflects in --------------------------------
+arena corridor 11
+echo --- corridor ---
+monsters
+arena deadend 7
+echo --- dead end (centre IS the closed end) ---
+arena tjunction 9 5
+echo --- t-junction (centre IS the junction) ---
+state

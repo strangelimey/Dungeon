@@ -108,6 +108,61 @@ void Game::RegisterDevCommands() {
 										seconds));
 			if (m_console.IsOpen()) m_console.Toggle();
 		});
+	// --- the one-pipeline check (Game/DamageLedger.h, docs/effects.md) --------
+	// The same three-command shape the allocation guard uses, for the same
+	// reason: a readout, an arming switch, and a way to make it FAIL on purpose.
+	m_console.Register(
+		"pipeline", "one-pipeline check: what moved health, and whether anything went around it",
+		[this](const std::vector<std::string>&) {
+			for (const std::string& line : m_world.DamageLedgerReport())
+				m_console.Print(line);
+		});
+	m_console.Register(
+		"pipelineguard", "arm the one-pipeline check: pipelineguard [on|off|strict on|strict off|reset]",
+		[this](const std::vector<std::string>& args) {
+			ledger::Ledger& led = m_world.DamageLedger();
+			if (!args.empty()) {
+				const std::string& a = args[0];
+				if (a == "on" || a == "off") {
+					led.Arm(a == "on");
+					// An arming takes a FRESH baseline: whatever moved while it was
+					// off is not a violation, it is simply unobserved, and reporting
+					// it would make turning the check on look like finding a bug.
+					m_world.RebaseDamageLedger();
+				} else if (a == "strict") {
+					led.SetStrict(args.size() < 2 || args[1] == "on");
+				} else if (a == "reset") {
+					led.ResetStats();
+					m_world.RebaseDamageLedger();
+				} else {
+					m_console.Print("usage: pipelineguard [on|off|strict on|strict off|reset]");
+					return;
+				}
+			}
+			m_console.Print(std::format("pipelineguard: armed={} strict={}",
+										led.Armed() ? "on" : "off",
+										led.Strict() ? "on" : "off"));
+		});
+	m_console.Register(
+		"pipelinepoke", "move health WITHOUT the pipeline (proves the check can fail): pipelinepoke [member]",
+		[this](const std::vector<std::string>& args) {
+			const size_t m =
+				args.empty() ? 0 : static_cast<size_t>(std::atoi(args[0].c_str()));
+			if (m >= m_characters.size()) {
+				m_console.Print("no such member");
+				return;
+			}
+			Character& c = m_characters[m];
+			// A point either way, whichever direction the bar has room for — a
+			// poke that clamps to no change would report nothing and read exactly
+			// like a check that missed it.
+			const float delta = c.health > 1.0f ? -1.0f : 1.0f;
+			c.health += delta;
+			m_console.Print(std::format(
+				"pipelinepoke: {} health {:+.1f} with no DamageEvent — the next "
+				"checkpoint should report it",
+				c.name, delta));
+		});
 	m_console.Register(
 		"allocguard", "steady-state allocation guard: status | strict on|off | reset",
 		[this](const std::vector<std::string>& args) {
@@ -239,13 +294,25 @@ void Game::RegisterDevCommands() {
 						   m_console.Print(std::format("{},{} facing {}", p.GridX(),
 													   p.GridZ(), kDirs[p.Facing() & 3]));
 					   });
-	m_console.Register("mapinfo", "print dungeon size and counts",
+	// A FINGERPRINT OF THE STATIC LAYER, not just its size. Every other readout
+	// in the harness describes the party or the creatures standing on the map —
+	// which is exactly how the first `reset` equivalence test came back
+	// "identical" while the world was still an empty carved box. The WALKABLE
+	// count is the load-bearing one: `arena` walls every cell before carving, so
+	// a map that never came back shows up here and nowhere else.
+	m_console.Register("mapinfo", "print dungeon size and a static-layer fingerprint",
 					   [this](const std::vector<std::string>&) {
 						   const DungeonMap& map = m_world.Map();
+						   int walkable = 0;
+						   for (int z = 0; z < map.Height(); ++z)
+							   for (int x = 0; x < map.Width(); ++x)
+								   if (map.IsWalkable(x, z)) ++walkable;
 						   m_console.Print(std::format(
-							   "{}x{} map, {} monsters, {} torches", map.Width(),
-							   map.Height(), m_world.MonsterCount(),
-							   map.Sconces().size()));
+							   "{}x{} map, start {},{}, {} walkable, {} monsters, "
+							   "{} torches, {} braziers",
+							   map.Width(), map.Height(), map.StartX(), map.StartZ(),
+							   walkable, m_world.MonsterCount(),
+							   map.Sconces().size(), map.Braziers().size()));
 					   });
 	m_console.Register("groups", "list monster groups (id: count [kinds] @ cell#slot)",
 					   [this](const std::vector<std::string>&) {
@@ -1088,6 +1155,796 @@ void Game::RegisterDevCommands() {
 						   m_timeScale = v;
 						   m_console.Print(std::format("timescale {:.2f}", v));
 					   });
+
+	// --- the eval harness's three primitives (docs/eval-harness.md) ---------
+	// Everything else the harness needs is CONTENT — arenas, presets, spawns.
+	// These three are what make a measurement mean anything at all.
+
+	// The combat RNG is otherwise constant-seeded, so every run of the game rolls
+	// the identical sequence: perfectly reproducible, and a single sample
+	// forever. An eval varies this per encounter and reports the DISTRIBUTION —
+	// tuning against one seeded fight is tuning against one lucky afternoon.
+	// The console answers in a WINDOW, and a window can only be read with a
+	// screenshot — which captures whatever happens to be in front of it. This
+	// puts every console line into dungeon.log instead, which is what makes the
+	// existing command surface drivable from a script at all.
+	m_console.Register("logecho", "mirror console output to dungeon.log",
+					   [this](const std::vector<std::string>& args) {
+						   if (args.empty()) {
+							   m_console.Print(std::format(
+								   "logecho {}", m_console.MirrorToLog() ? "on" : "off"));
+							   return;
+						   }
+						   const bool on = args[0] == "on" || args[0] == "1";
+						   m_console.SetMirrorToLog(on);
+						   m_console.Print(std::format("logecho {}", on ? "on" : "off"));
+					   });
+
+	// The only route from the title screen into a fight that does not involve
+	// clicking a menu entry. A scripted run starts at the menu, so without this
+	// the harness would be back to posting mouse clicks at hardcoded pixels —
+	// which is exactly what it exists to stop doing.
+	//
+	// It goes through the MENU ENTRY'S OWN CALLBACK rather than calling
+	// StartNewGame directly, and that is not tidiness — the first version called
+	// StartNewGame and crashed the process on its first unattended run. From a
+	// cold boot `m_gameLoaded` is false and the HUD has never been built (it is a
+	// LOAD TASK), so StartNewGame set AppState::Playing and the same frame's
+	// state machine then dereferenced a HUD with no widgets. onStartNewGame is
+	// where the "already loaded, or load first?" decision lives; a dev command
+	// that reimplements a UI action will drift from it, and this one drifted
+	// immediately.
+	m_console.Register("newgame", "start a new game (dev)",
+					   [this](const std::vector<std::string>&) {
+						   if (!m_ui.onStartNewGame) {
+							   m_console.Print("newgame: not wired yet");
+							   return;
+						   }
+						   m_ui.onStartNewGame();
+						   // A cold boot now runs a staged load with commands
+						   // disabled, so a script's next line waits for the
+						   // world by itself.
+						   m_console.Print("starting a new game");
+					   });
+
+	// The party's side of an encounter, in one machine-readable block. `monsters`
+	// has printed the other side for a while; without this a harness can watch a
+	// fight and never learn what it COST, which is most of what a balance pass
+	// is trying to find out.
+	m_console.Register("party", "each member's hp/stamina/mana + stance (dev)",
+					   [this](const std::vector<std::string>&) {
+						   for (size_t i = 0; i < m_characters.size(); ++i) {
+							   const Character& c = m_characters[i];
+							   m_console.Print(std::format(
+								   "  [{}] {:<6} hp {:.1f}/{:.1f}  st {:.1f}/{:.1f}  "
+								   "mp {:.1f}/{:.1f}  share {:.2f}{}{}",
+								   i, c.name, c.health, c.maxHealth, c.stamina,
+								   c.maxStamina, c.mana, c.maxMana, c.offenseShare,
+								   c.dead ? "  DEAD" : (c.IsAlive() ? "" : "  DOWN"),
+								   c.exhausted ? "  EXHAUSTED" : ""));
+						   }
+					   });
+
+	// The three regeneration RATES, which nothing else can show: a bar's VALUE
+	// is visible and its SLOPE is not, so the ordering the model asks for —
+	// stamina/sec > mana/sec > health/sec at equal investment
+	// (docs/health-and-healing.md) — was a claim no measurement could reach.
+	//
+	// Rates are printed AT FULL FLOW, before the state gate, because that is
+	// what the knobs describe; the live gate is named at the end of each line so
+	// a reading taken mid-swing is not mistaken for the tuning.
+	//
+	// THE ORDERING IS CHECKED ON A REFERENCE ROW, NOT PER MEMBER, and getting
+	// that wrong the first time is worth recording: a per-member verdict called
+	// Brand BROKEN, and Brand is right — he is a brute with INT 8, so his mana
+	// crawls and ought to. The claim is about the KNOBS at EQUAL investment, and
+	// a party of four deliberately unequal characters can never test it. So the
+	// reference member has every aptitude at the stat curve's baseline (worth
+	// exactly nothing, by construction) and one practice level shared by all
+	// three pools — measured UNTRAINED and TRAINED, since a crossing can hide at
+	// either end. Reporting whether an authored property holds is measurement;
+	// what to do about it is Michael's.
+	m_console.Register("regen", "health/stamina/mana per second, and the ordering (dev)",
+					   [this](const std::vector<std::string>&) {
+						   const Balance& bal = m_world.GetBalance();
+						   const resource::PoolRules pools = bal.Resources();
+						   const CurveRules statCurve = bal.StatCurve();
+						   const CurveRules paceCurve = bal.PaceCurve();
+						   for (size_t i = 0; i < m_characters.size(); ++i) {
+							   const Character& c = m_characters[i];
+							   const auto rate = [&](resource::Kind k) {
+								   return c.RegenPerSec(k, pools.For(k), statCurve);
+							   };
+							   m_console.Print(std::format(
+								   "  [{}] {:<6} health {:.3f}/s  stamina {:.3f}/s  "
+								   "mana {:.3f}/s  pace {:.2f}  {}",
+								   i, c.name, rate(resource::Kind::Health),
+								   rate(resource::Kind::Stamina),
+								   rate(resource::Kind::Mana),
+								   c.MoveSpeed(paceCurve),
+								   c.staminaHoldoff > 0.0f ? "exerting" : "idle"));
+						   }
+						   // The PARTY's pace is the slowest member's, so it is
+						   // its own line: the interesting case is a member
+						   // training hard and the number not moving at all.
+						   m_console.Print(std::format(
+							   "  party pace {:.2f} (the slowest member's)",
+							   m_world.GetParty().Speed()));
+						   // The reference rows. Each pool is sized at the same
+						   // investment it is being rated at, so the per-max term
+						   // is honest rather than borrowed from someone else's
+						   // body: max = aptitude + practice, with no authored base.
+						   const float apt = statCurve.baseline;
+						   for (const float lvl : {0.0f, 10.0f}) {
+							   const auto rate = [&](resource::Kind k) {
+								   const resource::Rules& r = pools.For(k);
+								   return resource::RegenPerSec(
+									   r, statCurve, apt,
+									   resource::Maximum(r, 0.0f, apt, lvl), lvl);
+							   };
+							   const float hp = rate(resource::Kind::Health);
+							   const float st = rate(resource::Kind::Stamina);
+							   const float mp = rate(resource::Kind::Mana);
+							   m_console.Print(std::format(
+								   "  ref  practice {:<2.0f} health {:.3f}/s  "
+								   "stamina {:.3f}/s  mana {:.3f}/s  order {}",
+								   lvl, hp, st, mp,
+								   st > mp && mp > hp ? "ok" : "BROKEN"));
+						   }
+					   });
+
+	// Food and water, and how long they have left. The REMAINING TIME is the
+	// point of the readout: a meter at 62 means nothing on its own, because the
+	// drain rate depends on the member's conditioning — the fitter member burns
+	// more, which is the brake the whole design rests on. Printed in hours,
+	// because a supply run is a question about hours and not about seconds.
+	m_console.Register("supplies", "each member's food and water, and hours left (dev)",
+					   [this](const std::vector<std::string>&) {
+						   const Balance& bal = m_world.GetBalance();
+						   const resource::SupplyRules food =
+							   bal.SupplyOf(resource::Supply::Food);
+						   const resource::SupplyRules water =
+							   bal.SupplyOf(resource::Supply::Water);
+						   for (size_t i = 0; i < m_characters.size(); ++i) {
+							   const Character& c = m_characters[i];
+							   const float cond =
+								   c.PracticeLevel(resource::Kind::Stamina);
+							   const auto hours = [&](const resource::SupplyRules& r,
+													  float level) {
+								   const float rate = resource::DrainPerSec(r, cond);
+								   return rate > 0.0f ? level / rate / 3600.0f : 0.0f;
+							   };
+							   m_console.Print(std::format(
+								   "  [{}] {:<6} food {:5.1f}/{:.0f} ({:4.1f}h)  "
+								   "water {:5.1f}/{:.0f} ({:4.1f}h)  cond {:.0f}{}{}",
+								   i, c.name, c.food, food.max, hours(food, c.food),
+								   c.water, water.max, hours(water, c.water), cond,
+								   c.FindEffect("starving") ? "  STARVING" : "",
+								   c.FindEffect("parched") ? "  PARCHED" : ""));
+						   }
+					   });
+
+	// RECYCLE THE WORLD instead of reloading it (docs/eval-harness.md). A level
+	// load is ~12 seconds and 80% of a suite's cost; this is the same baseline
+	// for nothing. A script that wants a CLEAN test opens with it; a script
+	// measuring PROGRESSION across a series simply does not call it, and inherits
+	// whatever the previous one left — Michael's call, and the reason this is a
+	// directive a script chooses rather than something the runner imposes.
+	m_console.Register("reset",
+					   "recycle the world to a new-game baseline, no reload (dev)",
+					   [this](const std::vector<std::string>&) {
+						   const bool fresh = !m_gameLoaded;
+						   // TIMED, because the whole justification is the number:
+						   // a level load is ~12000 ms and a run of hundreds of
+						   // tests cannot pay it each time. If this ever creeps
+						   // toward that, the recycling has stopped being worth
+						   // its own risk and the reader should be able to see so.
+						   const auto t0 = std::chrono::steady_clock::now();
+						   if (!ResetForEval()) {
+							   m_console.Print("reset: not wired yet");
+							   return;
+						   }
+						   const double ms =
+							   std::chrono::duration<double, std::milli>(
+								   std::chrono::steady_clock::now() - t0)
+								   .count();
+						   m_console.Print(
+							   fresh ? std::format("reset: loaded in {:.0f} ms "
+												   "(nothing to recycle yet)", ms)
+									 : std::format("reset: recycled in {:.0f} ms", ms));
+					   });
+
+	// Open (or close) the character sheet. It exists because the sheet was
+	// reachable ONLY by clicking a portrait, which is why `/check-ingame`
+	// reports it as a screen it cannot sweep — so the one screen with the most
+	// hand-laid-out content in the game was also the one screen `uioverlap`
+	// never saw. `sheet <n>` then `uioverlap` closes half of that gap.
+	m_console.Register("sheet", "open the character sheet (dev): sheet <member|off>",
+					   [this](const std::vector<std::string>& args) {
+						   if (!args.empty() && args[0] == "off") {
+							   if (m_state == AppState::CharacterSheet)
+								   m_state = AppState::Playing;
+							   m_console.Print("sheet closed");
+							   return;
+						   }
+						   const size_t m =
+							   args.empty()
+								   ? 0
+								   : static_cast<size_t>(std::atoi(args[0].c_str()));
+						   if (m >= m_characters.size()) {
+							   m_console.Print("no such member");
+							   return;
+						   }
+						   // Through the same entry point the portrait click uses,
+						   // so this cannot drift from what a player sees.
+						   OpenCharacterSheet(m);
+						   m_console.Print(
+							   std::format("sheet open: {}", m_characters[m].name));
+					   });
+
+	// The rest STATE, for a script and for a quick look. It reports the world
+	// speed too, since that is the whole mechanism and the number a reader needs
+	// to interpret how much simulated time a `step` just covered.
+	// BARE `rest` REPORTS AND DOES NOT TOGGLE. It was a toggle for about ten
+	// minutes, and the eval script written against it read `rest` as a status
+	// query at four places — each of which silently turned the state back on and
+	// made the auto-stop rules look broken when they were working. A query that
+	// mutates is a trap, and this one caught its own author.
+	m_console.Register("rest",
+					   "the rest state (dev): rest [on|off|until [secs]], bare = report",
+					   [this](const std::vector<std::string>& args) {
+						   // `rest until` — enter rest AND run the world until it
+						   // ends. This is the form a script wants, and the reason
+						   // it exists is a trap worth recording: `rest on` followed
+						   // by `step N` does NOT measure a rest. UpdateRest does not
+						   // depend on dt, so it fires on the very next ORDINARY
+						   // frame — and with timescale 0 that frame happens between
+						   // the two console commands. If there was nothing to
+						   // recover, rest was already over before the step began,
+						   // and the step then ran its FULL budget of dungeon time
+						   // with no rest in progress: supplies drained for fifteen
+						   // minutes and the table read as "resting is expensive".
+						   //
+						   // Stepping from inside the same command leaves no frame
+						   // in between, so the state cannot end before the clock
+						   // starts. StepWorld already stops the moment rest ends.
+						   if (!args.empty() && args[0] == "until") {
+							   const float cap =
+								   args.size() > 1
+									   ? static_cast<float>(std::atof(args[1].c_str()))
+									   : 3600.0f;
+							   m_world.SetResting(true);
+							   const int ran = StepWorld(cap);
+							   m_console.Print(std::format(
+								   "rested {:.2f}s — {}",
+								   static_cast<float>(ran) / 60.0f,
+								   m_world.Resting() ? "still resting (hit the cap)"
+													 : m_world.RestEndReason()));
+							   return;
+						   }
+						   if (!args.empty()) m_world.SetResting(args[0] != "off");
+						   const char* why = m_world.RestEndReason();
+						   m_console.Print(std::format(
+							   "rest {} (world x{:.0f}){}{}",
+							   m_world.Resting() ? "on" : "off",
+							   m_world.RestTimeScale(),
+							   *why && !m_world.Resting() ? "  last ended: " : "",
+							   *why && !m_world.Resting() ? why : ""));
+					   });
+
+	// Eat or drink a catalog item outright — no inventory, no hand slot. The UI
+	// path (a hand-menu `eat`/`drink`) runs the very same DungeonWorld::
+	// ConsumeItem, so this exercises the arithmetic and the effect-lifting that
+	// a script cannot reach by clicking (see [[hands-on-visual-testing]]).
+	m_console.Register("consume", "eat or drink an item (dev): consume <item> [member]",
+					   [this](const std::vector<std::string>& args) {
+						   if (!Need(m_console, args, 1,
+									 "usage: consume <item id> [member 0-3]"))
+							   return;
+						   const size_t m =
+							   args.size() > 1
+								   ? static_cast<size_t>(std::atoi(args[1].c_str()))
+								   : 0;
+						   if (m >= m_characters.size()) {
+							   m_console.Print("no such member");
+							   return;
+						   }
+						   const resource::Refill got =
+							   m_world.ConsumeItem(m_characters[m], args[0]);
+						   m_console.Print(
+							   got.Any()
+								   ? std::format("{} consumes {}: food +{:.1f} water +{:.1f}",
+												 m_characters[m].name, args[0],
+												 got.food, got.water)
+								   : std::format("{} gains nothing from {} "
+												 "(not consumable, or already full)",
+												 m_characters[m].name, args[0]));
+					   });
+
+	// Seeding a supply state, so a script can start a rung hungry instead of
+	// stepping eight hours to get there.
+	m_console.Register("setsupply",
+					   "set food/water (dev): setsupply <member|all> <food|water> <n>",
+					   [this](const std::vector<std::string>& args) {
+						   if (!Need(m_console, args, 3,
+									 "usage: setsupply <member 0-3|all> "
+									 "<food|water> <n>"))
+							   return;
+						   const bool all = args[0] == "all";
+						   const size_t one =
+							   static_cast<size_t>(std::atoi(args[0].c_str()));
+						   if (!all && one >= m_characters.size()) {
+							   m_console.Print("no such member");
+							   return;
+						   }
+						   resource::Supply which{};
+						   if (args[1] == "food") which = resource::Supply::Food;
+						   else if (args[1] == "water") which = resource::Supply::Water;
+						   else {
+							   m_console.Print("expected food or water");
+							   return;
+						   }
+						   const float max =
+							   m_world.GetBalance().SupplyOf(which).max;
+						   const float v = std::clamp(
+							   static_cast<float>(std::atof(args[2].c_str())), 0.0f,
+							   max);
+						   for (size_t i = 0; i < m_characters.size(); ++i) {
+							   if (!all && i != one) continue;
+							   m_characters[i].SupplyLevel(which) = v;
+						   }
+						   m_console.Print(std::format("{} {} = {:.1f}",
+													   all ? "party" : m_characters[one].name,
+													   args[1], v));
+					   });
+
+	// --- the arena (docs/eval-harness.md) -----------------------------------
+	// Carve a controlled space into the loaded map and empty the world into it.
+	// Writes NO files: the editor's new-level button would author a .map/.ent
+	// into the git tree, which an eval must not do on every run.
+	m_console.Register(
+		"arena", "carve a test arena (dev): arena <open|corridor|deadend|tjunction> [w] [h]",
+		[this](const std::vector<std::string>& args) {
+			if (!Need(m_console, args, 1,
+					  "usage: arena <open|corridor|deadend|tjunction> [w] [h]"))
+				return;
+			DungeonWorld::ArenaShape shape{};
+			if (!DungeonWorld::ArenaShapeFromName(args[0], shape)) {
+				m_console.Print("unknown shape: " + args[0] +
+								" (open|corridor|deadend|tjunction)");
+				return;
+			}
+			const int w = args.size() > 1 ? std::atoi(args[1].c_str()) : 9;
+			const int h = args.size() > 2 ? std::atoi(args[2].c_str()) : w;
+			DungeonWorld::ArenaInfo info;
+			if (!m_world.BuildArena(shape, w, h, info)) {
+				m_console.Print("arena: refused (see the log)");
+				return;
+			}
+			// The bounds are PRINTED because a script cannot read a return value
+			// — it can only hardcode cells and have a human check in the log
+			// that they were the cells it got. Reported as the extent ACTUALLY
+			// carved rather than as the arguments: a corridor ignores `h`, and
+			// echoing the request would have had `arena corridor 11` claim an
+			// 11x11 room in the one record anybody reads.
+			m_console.Print(std::format(
+				"arena {} {}x{}  floor {},{}..{},{}  centre {},{}", args[0],
+				info.x1 - info.x0 + 1, info.z1 - info.z0 + 1, info.x0, info.z0,
+				info.x1, info.z1, info.cx, info.cz));
+		});
+
+	// WALK. `tp` puts the party somewhere; this makes them GO there, which is a
+	// different measurement: an encounter that begins already adjacent skips the
+	// approach, and the approach is where the monster notices you, closes the
+	// distance, and the corridor decides how many of them can reach you at once.
+	//
+	// The steps are QUEUED as the same discrete MoveActions a key press or a HUD
+	// arrow produces — they play out over the following `step`, at the party's
+	// own pace, rather than teleporting a cell at a time. A blocked step is
+	// simply refused by Party::Act, as it would be for a player walking into a
+	// wall, so `forward 20` down a six-cell corridor stops at the end.
+	m_console.Register("forward", "walk the party (dev): forward [n]",
+					   [this](const std::vector<std::string>& args) {
+						   const int n = args.empty() ? 1 : std::atoi(args[0].c_str());
+						   if (n < 1) {
+							   m_console.Print("forward needs a positive count");
+							   return;
+						   }
+						   m_world.GetHarness().pendingSteps += n;
+						   m_console.Print(std::format("forward x{}", n));
+					   });
+
+	// Monsters hold still while everything that happens TO them keeps running.
+	// A geometry probe's instruments must not wander off the cells they measure.
+	m_console.Register("freeze", "monsters stop acting (dev): freeze on|off",
+					   [this](const std::vector<std::string>& args) {
+						   if (args.empty()) {
+							   m_console.Print(std::format(
+								   "freeze {}",
+								   m_world.GetHarness().frozen ? "on" : "off"));
+							   return;
+						   }
+						   const bool on = args[0] == "on" || args[0] == "1";
+						   m_world.GetHarness().frozen = on;
+						   m_console.Print(std::format("freeze {}", on ? "on" : "off"));
+					   });
+
+	// Detonate a spell's authored blast at a cell — no caster, no mana, no skill
+	// roll, no bolt flight. The geometry question asked directly.
+	//
+	// A blast plays out over TICKS (blast_rate seconds apart), so a script must
+	// `step` afterwards to let it land; detonating and reading `monsters` in the
+	// same breath measures the moment before it went off.
+	m_console.Register("blast", "detonate a spell's blast (dev): blast <spell> <x> <z>",
+					   [this](const std::vector<std::string>& args) {
+						   if (!Need(m_console, args, 3,
+									 "usage: blast <spell id> <x> <z>"))
+							   return;
+						   const int x = std::atoi(args[1].c_str());
+						   const int z = std::atoi(args[2].c_str());
+						   if (!m_world.DetonateSpell(args[0], x, z)) {
+							   m_console.Print(std::format(
+								   "blast: refused '{}' (unknown spell, or it has "
+								   "no blast_force)",
+								   args[0]));
+							   return;
+						   }
+						   m_console.Print(std::format("blast {} at {},{}", args[0],
+													   x, z));
+					   });
+
+	// Place a monster, live. The editor's placement path (AddMonster) refuses an
+	// unwalkable or occupied cell, and so does this — reported rather than
+	// silent, because a spawn that did not happen is an encounter that is not
+	// the one the script described.
+	m_console.Register("spawn", "place a monster (dev): spawn <type> <x> <z> [n|e|s|w]",
+					   [this](const std::vector<std::string>& args) {
+						   if (!Need(m_console, args, 3,
+									 "usage: spawn <type> <x> <z> [facing]"))
+							   return;
+						   const int x = std::atoi(args[1].c_str());
+						   const int z = std::atoi(args[2].c_str());
+						   Direction facing = Direction::South;
+						   if (args.size() > 3) {
+							   switch (std::tolower(
+								   static_cast<unsigned char>(args[3][0]))) {
+							   case 'n': facing = Direction::North; break;
+							   case 'e': facing = Direction::East; break;
+							   case 's': facing = Direction::South; break;
+							   case 'w': facing = Direction::West; break;
+							   default: break;
+							   }
+						   }
+						   // An optional 5th argument SCALES this instance's hp and
+						   // damage, leaving its catalog entry alone — for
+						   // sweeping difficulty finely between authored types.
+						   const float strength =
+							   args.size() > 4
+								   ? static_cast<float>(std::atof(args[4].c_str()))
+								   : 1.0f;
+						   if (!m_world.AddMonster(args[0], x, z, facing)) {
+							   m_console.Print(std::format(
+								   "spawn: refused '{}' at {},{} (unknown type, "
+								   "not walkable, or cell taken)",
+								   args[0], x, z));
+							   return;
+						   }
+						   if (strength > 0.0f && strength != 1.0f)
+						   m_world.ScaleLastMonster(strength);
+					   m_console.Print(std::format("spawned {} at {},{} x{:.2f}",
+											   args[0], x, z, strength));
+					   });
+
+	// --- seeding a rung (docs/eval-harness.md) ------------------------------
+	// A single eval run cannot play from fresh characters to end-game, so a rung
+	// has to START where it wants to measure. These two put a member wherever on
+	// the curve the test needs.
+	m_console.Register("setstat", "set a stat (dev): setstat <member> <stat> <n>",
+					   [this](const std::vector<std::string>& args) {
+						   if (!Need(m_console, args, 3,
+									 "usage: setstat <member 0-3> "
+									 "<str|dex|vit|wil|int> <n>"))
+							   return;
+						   const size_t m =
+							   static_cast<size_t>(std::atoi(args[0].c_str()));
+						   if (m >= m_characters.size()) {
+							   m_console.Print("no such member");
+							   return;
+						   }
+						   Character& c = m_characters[m];
+						   const int n = std::atoi(args[2].c_str());
+						   const std::string& s = args[1];
+						   if (s.starts_with("str")) c.strength = n;
+						   else if (s.starts_with("dex")) c.dexterity = n;
+						   else if (s.starts_with("vit")) c.vitality = n;
+						   else if (s.starts_with("wil")) c.willpower = n;
+						   else if (s.starts_with("int")) c.intelligence = n;
+						   else {
+							   m_console.Print("unknown stat: " + s);
+							   return;
+						   }
+						   // Health/stamina/mana maxima DERIVE from stats
+						   // (Character::RecomputeMaxima), so a stat set without
+						   // this leaves a level-20 fighter with a novice's hit
+						   // points and every number after it measured wrong.
+						   m_world.RecomputePartyMaxima();
+						   m_console.Print(std::format("{} {} = {}", c.name, s, n));
+					   });
+
+	// Levels DERIVE from raw xp (floor(sqrt)), so this sets the xp that yields
+	// the level asked for — squaring is the honest inverse, and it means a
+	// seeded skill trains onward from exactly where a played one would have.
+	// Without it, giving a caster a usable fire skill for a test means casting
+	// thirty times and hoping the mana holds out.
+	m_console.Register("setskill", "set a skill level (dev): setskill <member> <skill> <level>",
+					   [this](const std::vector<std::string>& args) {
+						   if (!Need(m_console, args, 3,
+									 "usage: setskill <member 0-3> <skill id> <level>"))
+							   return;
+						   const size_t m =
+							   static_cast<size_t>(std::atoi(args[0].c_str()));
+						   if (m >= m_characters.size()) {
+							   m_console.Print("no such member");
+							   return;
+						   }
+						   const int level = std::atoi(args[2].c_str());
+						   if (level < 0) {
+							   m_console.Print("level cannot be negative");
+							   return;
+						   }
+						   Character& c = m_characters[m];
+						   const float xp = static_cast<float>(level) * level;
+						   c.skillXp[args[1]] = xp;
+						   // RE-DERIVE, for exactly the reason `setstat` already
+						   // had to: a RESOURCE practice feeds the pool maxima
+						   // and the walking pace now, so a skill set without
+						   // this leaves a conditioned member carrying a novice's
+						   // stamina bar and the party walking at the old speed —
+						   // and everything measured afterwards is quietly wrong.
+						   m_world.RecomputePartyMaxima();
+						   m_console.Print(std::format("{} {} = level {} ({:.0f} xp)",
+													   c.name, args[1],
+													   c.SkillLevel(args[1]), xp));
+					   });
+
+	// --- measuring an encounter (docs/eval-harness.md) ----------------------
+	// Without this a measured encounter is the party STANDING STILL BEING HIT.
+	// PartyAttack is driven by a hand-slot click or `swing`, so the first
+	// two-tier comparison had the monster finish on full hp in both rungs and
+	// still looked like a complete result.
+	m_console.Register("autoattack", "party swings off cooldown (dev): autoattack on|off",
+					   [this](const std::vector<std::string>& args) {
+						   if (args.empty()) {
+							   m_console.Print(std::format(
+								   "autoattack {}",
+								   m_world.GetHarness().autoAttack ? "on" : "off"));
+							   return;
+						   }
+						   const bool on = args[0] == "on" || args[0] == "1";
+						   m_world.GetHarness().autoAttack = on;
+						   m_console.Print(std::format("autoattack {}", on ? "on" : "off"));
+					   });
+
+	// The encounter's numbers, in one machine-readable line. `tally reset` marks
+	// the start of a rung; `tally` prints what has happened since.
+	m_console.Register("tally", "encounter counters (dev): tally [reset]",
+					   [this](const std::vector<std::string>& args) {
+						   if (!args.empty() && args[0] == "reset") {
+							   m_world.GetHarness().tally = {};
+							   m_console.Print("tally reset");
+							   return;
+						   }
+						   const DungeonWorld::Tally& t = m_world.GetHarness().tally;
+						   const int swings = t.hits + t.misses;
+						   // ONE LINE, key=value, so a sweep's output can be
+						   // grepped and diffed without parsing prose. Damage is
+						   // in absolute POINTS, never a fraction of health —
+						   // the healing model is still to be designed, and
+						   // fractions would change meaning the day it lands.
+						   m_console.Print(std::format(
+							   "TALLY dealt={:.1f} taken={:.1f} swings={} hits={} "
+							   "misses={} hitrate={:.3f} crits={} fumbles={} "
+							   "slain={} downed={} secs={:.1f}",
+							   t.dealt, t.taken, swings, t.hits, t.misses,
+							   swings > 0 ? static_cast<float>(t.hits) / swings : 0.0f,
+							   t.crits, t.fumbles, t.monstersSlain, t.membersDowned,
+							   t.seconds));
+					   });
+
+	// RESET THE PARTY BETWEEN RUNGS. A ladder runs many encounters in one
+	// process, and the first one that wipes ends the run: a wipe returns to the
+	// TITLE SCREEN (Game_Wiring's onPartyWipe), after which every `step` is
+	// correctly refused and every rung after it measures nothing. Found exactly
+	// that way — rung 2 of the first two-tier script never ran.
+	//
+	// `newgame` would also fix it and costs a full staged reload per rung; this
+	// restores in place. It deliberately does NOT touch stats, skills, gear or
+	// stance: those are what a preset SEEDED, and a heal that undid the seeding
+	// would make the second rung measure the first one's party.
+	m_console.Register("heal", "restore the party to full (dev): heal [member]",
+					   [this](const std::vector<std::string>& args) {
+						   const auto restore = [this](Character& c) {
+							   c.dead = false;
+							   c.health = c.maxHealth;
+							   c.stamina = c.maxStamina;
+							   c.mana = c.maxMana;
+							   c.exhausted = false;
+							   c.staminaHoldoff = 0.0f;
+							   c.stabilize = 0.0f;
+							   c.hitFlash = 0.0f;
+							   c.handCooldown[0] = c.handCooldown[1] = 0.0f;
+							   // A burn carried over from the previous rung
+							   // would tick into the next one's numbers.
+							   c.effects.clear();
+						   };
+						   if (!args.empty()) {
+							   const size_t m =
+								   static_cast<size_t>(std::atoi(args[0].c_str()));
+							   if (m >= m_characters.size()) {
+								   m_console.Print("no such member");
+								   return;
+							   }
+							   restore(m_characters[m]);
+							   // A harness fiat, not a game rule: nothing a player
+							   // can do heals like this, so it is REBASED rather
+							   // than sanctioned — there is no route worth naming
+							   // (Game/DamageLedger.h).
+							   m_world.RebaseDamageLedger();
+							   m_console.Print(
+								   std::format("healed {}", m_characters[m].name));
+							   return;
+						   }
+						   for (Character& c : m_characters) restore(c);
+						   m_world.RebaseDamageLedger();
+						   // A wipe left the app on the title screen; put it back
+						   // in play, or the heal fixes the party and the next
+						   // `step` still refuses.
+						   m_ui.ResetHudStatus();
+						   // ...and clear the wipe LATCH, which gates every
+						   // monster attack. Without it the party stands up and
+						   // nothing ever swings at them again — a whole sweep
+						   // of rungs reporting forty-five seconds of nothing.
+						   m_world.ClearWipeLatch();
+						   ResumeAfterHeal();
+						   m_console.Print(std::format("healed the party ({})",
+													   StateName()));
+					   });
+
+	// The seeding half of `party`: what a member IS, rather than how they are
+	// doing. A rung that seeded nothing (a typo'd skill id, a member index past
+	// the roster) would otherwise run and report a perfectly plausible number
+	// for the wrong character.
+	m_console.Register("char", "a member's stats, skills and gear (dev): char <member>",
+					   [this](const std::vector<std::string>& args) {
+						   if (!Need(m_console, args, 1, "usage: char <member 0-3>")) return;
+						   const size_t m =
+							   static_cast<size_t>(std::atoi(args[0].c_str()));
+						   if (m >= m_characters.size()) {
+							   m_console.Print("no such member");
+							   return;
+						   }
+						   const Character& c = m_characters[m];
+						   m_console.Print(std::format(
+							   "  {}  str {} dex {} vit {} wil {} int {}", c.name,
+							   c.strength, c.dexterity, c.vitality, c.willpower,
+							   c.intelligence));
+						   m_console.Print(std::format(
+							   "    hp {:.1f}/{:.1f}  st {:.1f}/{:.1f}  mp {:.1f}/{:.1f}",
+							   c.health, c.maxHealth, c.stamina, c.maxStamina, c.mana,
+							   c.maxMana));
+						   for (const auto& [id, xp] : c.skillXp)
+							   m_console.Print(std::format("    skill {:<12} level {} ({:.1f} xp)",
+														   id, Character::LevelForXp(xp), xp));
+						   // THE CREEP POOLS, and they are here for one reason:
+						   // the resource practices must creep NOTHING
+						   // (docs/health-and-healing.md). Without this line the
+						   // only evidence is that a stat has not moved yet — and
+						   // a slow leak reads exactly like no leak until the pool
+						   // crosses 1.0, which is the "absent and correct report
+						   // identically" trap this project has already paid for.
+						   // A non-zero pool beside a resource skill IS the bug.
+						   for (const auto& [stat, pool] : c.statProgress)
+							   if (pool > 0.0f)
+								   m_console.Print(std::format(
+									   "    creep {:<12} {:.3f} toward the next point",
+									   stat, pool));
+						   for (int h = 0; h < 2; ++h) {
+							   const ItemSlot& slot = c.inventory.Hand(h);
+							   m_console.Print(std::format(
+								   "    hand{} {}", h,
+								   slot.Empty() ? "(empty)" : slot.typeId));
+						   }
+						   for (int e = 0; e < kEquipCount; ++e) {
+							   // The HANDS are equipment slots too (Inventory::
+							   // Hand indexes this same array), so listing every
+							   // slot printed each weapon twice and read as a
+							   // member wearing their own sword.
+							   const auto id = static_cast<EquipSlot>(e);
+							   if (id == EquipSlot::LeftHand ||
+								   id == EquipSlot::RightHand)
+								   continue;
+							   const ItemSlot& slot = c.inventory.equipment[
+								   static_cast<size_t>(e)];
+							   if (!slot.Empty())
+								   m_console.Print(std::format("    worn  {}", slot.typeId));
+						   }
+					   });
+
+	// A script cannot otherwise tell whether it is measuring anything at all.
+	m_console.Register("state", "what the app is doing (loading/menu/playing/...)",
+					   [this](const std::vector<std::string>&) {
+						   m_console.Print(std::format("state {}", StateName()));
+					   });
+
+	m_console.Register("seed", "reseed the combat RNG (dev): seed <n>",
+					   [this](const std::vector<std::string>& args) {
+						   if (!Need(m_console, args, 1, "usage: seed <n>")) return;
+						   const auto n = static_cast<u32>(
+							   std::strtoul(args[0].c_str(), nullptr, 10));
+						   m_world.SeedCombat(n);
+						   m_console.Print(std::format("combat seed {}", n));
+					   });
+
+	// Without this a stepped run is a fiction: the AI's four bucket workers tick
+	// on WALL-CLOCK, so simulating thirty seconds inside a few frames lets the
+	// monsters think perhaps twice. See ai::AsyncDirector::SetLockstep.
+	m_console.Register("lockstep", "drive monster AI from sim time, not the clock",
+					   [this](const std::vector<std::string>& args) {
+						   if (args.empty()) {
+							   m_console.Print(std::format(
+								   "lockstep {}", m_world.LockstepAI() ? "on" : "off"));
+							   return;
+						   }
+						   const bool on = args[0] == "on" || args[0] == "1";
+						   m_world.SetLockstepAI(on);
+						   m_console.Print(std::format("lockstep {}", on ? "on" : "off"));
+					   });
+
+	// Advance the world by sim seconds, now, in fixed ticks. Reports what it
+	// actually RAN rather than what was asked for: a short answer means the run
+	// hit the ceiling or changed level, and an eval that silently measured less
+	// time than it believes is worse than one that failed outright.
+	m_console.Register("step", "advance the sim by N seconds (dev): step <seconds>",
+					   [this](const std::vector<std::string>& args) {
+						   if (!Need(m_console, args, 1, "usage: step <seconds>")) return;
+						   const float secs =
+							   static_cast<float>(std::atof(args[0].c_str()));
+						   if (secs <= 0.0f) {
+							   m_console.Print("step needs a positive number of seconds");
+							   return;
+						   }
+						   // SAY WHY, never a bare zero. Dev commands reach the
+						   // world from the MENU too, so a script whose party
+						   // has wiped would otherwise watch `tp` and `monsters`
+						   // answer normally while every `step` quietly did
+						   // nothing — a whole suite of encounters that never
+						   // ran, reported as results.
+						   if (std::string_view(StateName()) != "playing") {
+							   m_console.Print(std::format(
+								   "step: not playing (state: {}) — nothing stepped",
+								   StateName()));
+							   return;
+						   }
+						   // Warned, not refused: stepping without lockstep is
+						   // still useful for eyeballing, and silently producing
+						   // a meaningless number is the thing to avoid.
+						   if (!m_world.LockstepAI())
+							   m_console.Print("warning: lockstep is OFF — monsters "
+											   "will barely think during this step");
+						   const bool wasResting = m_world.Resting();
+						   const int ran = StepWorld(secs);
+						   // A rested step says so, and says WHY it stopped: the
+						   // seconds it ran ARE the length of the rest, which is
+						   // the number a supply measurement is after.
+						   m_console.Print(std::format(
+							   "stepped {} ticks ({:.2f}s){}", ran,
+							   static_cast<float>(ran) / 60.0f,
+							   wasResting && !m_world.Resting()
+								   ? std::format(" — rest ended: {}",
+												 m_world.RestEndReason())
+								   : ""));
+					   });
+
 	m_console.Register("noclip", "toggle walking through walls",
 					   [this](const std::vector<std::string>&) {
 						   Party& p = m_world.GetParty();

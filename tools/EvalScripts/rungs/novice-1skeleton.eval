@@ -1,0 +1,25 @@
+; rungs/novice-1skeleton.eval — ONE encounter, self-contained and repeatable.
+;
+; A rung is written to be run MANY TIMES with different seeds (`sweep`), so it
+; must leave the world exactly as it found it and assume nothing about what ran
+; before. Hence: heal, fresh arena, fresh spawn, tally reset — in that order.
+;
+; It does NOT set the seed. The sweep owns that; a rung that seeded itself would
+; produce the same fight every sample and quietly turn a distribution into one
+; number repeated N times.
+
+; NOTE: include paths are always relative to the ROOT script's folder, not
+; to this file's. The queue is spliced flat, so by the time a line runs there
+; is no "including file" left to be relative to. `../presets/...` looked right
+; from here and resolved outside the script tree; the runner reported it as an
+; unknown line twelve times rather than failing silently.
+
+heal
+include presets/novice.eval
+arena open 9 9
+spawn skeleton 14 9 south
+tp 14 12
+autoattack on
+tally reset
+step 45
+tally
