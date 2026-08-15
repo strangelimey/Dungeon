@@ -1,0 +1,87 @@
+; resettest.eval — does `reset` really equal a new game?
+;
+; Run:  Dungeon.exe -eval tools\EvalScripts\resettest.eval
+;
+; THIS IS THE CHECK THE WHOLE RECYCLING IDEA RESTS ON. `reset` exists so a long
+; run can skip the ~12-second level load between tests, and it is defined as
+; "put the world where `newgame` would". That definition was chosen BECAUSE it
+; can be tested: take a baseline after a real new game, wreck the world every way
+; the harness knows how, reset, and take the baseline again. The two blocks must
+; match line for line.
+;
+; WHY IT MATTERS MORE THAN IT LOOKS. An incomplete reset does not crash and does
+; not print anything wrong — it quietly contaminates every later test in the run,
+; and their numbers stay entirely plausible. This harness has already been bitten
+; by exactly that shape once: the m_partyWiped latch survived a heal, and twelve
+; ladder rungs reported 45 simulated seconds of nothing at all.
+;
+; READ IT BY DIFFING the two `=== BASELINE` blocks. Anything that differs is
+; something `reset` failed to put back. (The RNG seed is deliberately NOT reset —
+; it is how a run is DRIVEN, not what the world contains — so the script reseeds
+; either side, exactly as a real suite would.)
+
+logecho on
+newgame
+timescale 0
+lockstep on
+
+; --- the baseline, after a real new game -------------------------------------
+seed 7
+echo === BASELINE A (after newgame) ===
+state
+party
+supplies
+regen
+monsters
+char 0
+; THE MAP, and it is here because leaving it out is how the first version of
+; this test passed on a world that was still an empty carved box. `arena` walls
+; every cell and strips the map's fixtures, stairs and decorations; none of the
+; probes above would show any of that. `mapinfo` prints the counts, and a
+; walkability sample proves the CELLS came back and not just the records.
+mapinfo
+
+; --- now wreck it, every way the harness can ---------------------------------
+echo === wrecking the world ===
+arena open 9 9
+spawn skel_warrior 14 11
+spawn skel_warrior 15 12
+effect bleed 0 6 5
+effect bleed 1 6 5
+setstat 2 vitality 20
+setskill 3 fire 9
+setskill 0 conditioning 12
+setsupply all food 20
+setsupply all water 15
+give waterskin 1
+learn 3 fire
+autoattack on
+freeze on
+tally reset
+forward 3
+step 8
+cast 3 fire
+step 2
+echo --- wrecked ---
+party
+supplies
+monsters
+tally
+
+; --- and put it back ----------------------------------------------------------
+reset
+seed 7
+echo === BASELINE B (after reset) ===
+state
+party
+supplies
+regen
+monsters
+char 0
+; THE MAP, and it is here because leaving it out is how the first version of
+; this test passed on a world that was still an empty carved box. `arena` walls
+; every cell and strips the map's fixtures, stairs and decorations; none of the
+; probes above would show any of that. `mapinfo` prints the counts, and a
+; walkability sample proves the CELLS came back and not just the records.
+mapinfo
+state

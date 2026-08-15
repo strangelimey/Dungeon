@@ -727,6 +727,32 @@ bool Game::LoadGame(const std::string& path) {
 	return true;
 }
 
+// RECYCLE THE WORLD (docs/eval-harness.md). A dungeon load is ~12 seconds and
+// 80% of what a suite costs, so a run of hundreds of tests cannot afford one per
+// test. This puts the game where `newgame` would and skips the load.
+//
+// It falls back to a REAL new game when nothing is loaded yet, which is what
+// lets every script open with `reset` and only the first one in a batch pay.
+//
+// Returns false only if it could not get to a playing state at all.
+bool Game::ResetForEval() {
+	if (!m_gameLoaded) {
+		StartNewGame(); // the first test in a batch: nothing to recycle yet
+		return true;
+	}
+	m_world.ResetForEval();
+	ResetRoster();  // fresh members, keeping each slot's loaded portrait
+	m_ui.RefreshSheet();
+	m_ui.ClearLog();
+	ApplyPartySpeed();
+	m_ui.ResetHudStatus(); // the compass/position labels re-derive next frame
+	// A wipe left the app on the TITLE SCREEN, and dev commands answer perfectly
+	// normally from there — so a reset that did not come back to Playing would
+	// hand the next test a world that never simulates, reported as clean rungs.
+	m_state = AppState::Playing;
+	return true;
+}
+
 void Game::OpenCharacterSheet(size_t index) {
 	m_audio.Play(m_sounds.click, 0.5f);
 	m_ui.ShowSheet(index);

@@ -199,6 +199,23 @@ public:
 	// and the party. Game::ApplyPartySpeed forwards to it for the load and
 	// new-game paths.
 	void ApplyPartyPace();
+	// THE WORLD HALF OF `reset` (docs/eval-harness.md "Recycling the world").
+	// Put the world back where a NEW GAME would leave it, WITHOUT the twelve
+	// seconds of level load — which is 80% of what a suite costs, and the whole
+	// reason a run of hundreds of tests was not practical.
+	//
+	// "Where a new game would leave it" is the definition ON PURPOSE, because it
+	// is the only one that can be CHECKED: run the same script after `newgame`
+	// and after `reset` and the output must be byte-identical. Anything looser
+	// ("clear the obvious things") is a promise nothing can test, and an
+	// incomplete reset is the worst kind of defect here — every later suite in
+	// the run is quietly contaminated and its numbers still look plausible.
+	// The harness has already been bitten by exactly this shape once: the
+	// m_partyWiped latch survived a heal and twelve rungs measured nothing.
+	//
+	// ResetForNewGame does most of it. This adds what a new game gets from the
+	// LOAD rather than from that call, plus the harness's own modes.
+	void ResetForEval();
 	// --- rest (docs/health-and-healing.md "Rest is a STATE") ------------------
 	// A STATE you enter and leave, not a command with a duration (Michael's
 	// call): time runs fast until you stop it, so you watch the meters fill and

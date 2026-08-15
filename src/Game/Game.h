@@ -347,6 +347,11 @@ private:
 	// Feeds the slowest member's moveSpeed into the Party as its pace
 	// multiplier; call whenever the roster's stats are (re)filled.
 	void ApplyPartySpeed();
+	// Put the game where `newgame` would, WITHOUT the level load — the eval
+	// harness's world recycling (docs/eval-harness.md). Falls back to a real new
+	// game when nothing is loaded yet, so a batch's FIRST script pays the twelve
+	// seconds and none of the rest do.
+	bool ResetForEval();
 	// Pushes the settings' per-slot identity colors (member_<n>=, Settings →
 	// UI pickers) onto the roster; call whenever the roster is (re)filled.
 	// The pickers also write the live roster directly while playing.

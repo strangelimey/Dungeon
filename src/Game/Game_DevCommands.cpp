@@ -239,13 +239,25 @@ void Game::RegisterDevCommands() {
 						   m_console.Print(std::format("{},{} facing {}", p.GridX(),
 													   p.GridZ(), kDirs[p.Facing() & 3]));
 					   });
-	m_console.Register("mapinfo", "print dungeon size and counts",
+	// A FINGERPRINT OF THE STATIC LAYER, not just its size. Every other readout
+	// in the harness describes the party or the creatures standing on the map —
+	// which is exactly how the first `reset` equivalence test came back
+	// "identical" while the world was still an empty carved box. The WALKABLE
+	// count is the load-bearing one: `arena` walls every cell before carving, so
+	// a map that never came back shows up here and nowhere else.
+	m_console.Register("mapinfo", "print dungeon size and a static-layer fingerprint",
 					   [this](const std::vector<std::string>&) {
 						   const DungeonMap& map = m_world.Map();
+						   int walkable = 0;
+						   for (int z = 0; z < map.Height(); ++z)
+							   for (int x = 0; x < map.Width(); ++x)
+								   if (map.IsWalkable(x, z)) ++walkable;
 						   m_console.Print(std::format(
-							   "{}x{} map, {} monsters, {} torches", map.Width(),
-							   map.Height(), m_world.MonsterCount(),
-							   map.Sconces().size()));
+							   "{}x{} map, start {},{}, {} walkable, {} monsters, "
+							   "{} torches, {} braziers",
+							   map.Width(), map.Height(), map.StartX(), map.StartZ(),
+							   walkable, m_world.MonsterCount(),
+							   map.Sconces().size(), map.Braziers().size()));
 					   });
 	m_console.Register("groups", "list monster groups (id: count [kinds] @ cell#slot)",
 					   [this](const std::vector<std::string>&) {
@@ -1255,6 +1267,33 @@ void Game::RegisterDevCommands() {
 								   c.FindEffect("starving") ? "  STARVING" : "",
 								   c.FindEffect("parched") ? "  PARCHED" : ""));
 						   }
+					   });
+
+	// RECYCLE THE WORLD instead of reloading it (docs/eval-harness.md). A level
+	// load is ~12 seconds and 80% of a suite's cost; this is the same baseline
+	// for nothing. A script that wants a CLEAN test opens with it; a script
+	// measuring PROGRESSION across a series simply does not call it, and inherits
+	// whatever the previous one left — Michael's call, and the reason this is a
+	// directive a script chooses rather than something the runner imposes.
+	m_console.Register("reset",
+					   "recycle the world to a new-game baseline, no reload (dev)",
+					   [this](const std::vector<std::string>&) {
+						   const bool fresh = !m_gameLoaded;
+						   // TIMED, because the whole justification is the number:
+						   // a level load is ~12000 ms and a run of hundreds of
+						   // tests cannot pay it each time. If this ever creeps
+						   // toward that, the recycling has stopped being worth
+						   // its own risk and the reader should be able to see so.
+						   const auto t0 = std::chrono::steady_clock::now();
+						   ResetForEval();
+						   const double ms =
+							   std::chrono::duration<double, std::milli>(
+								   std::chrono::steady_clock::now() - t0)
+								   .count();
+						   m_console.Print(
+							   fresh ? std::format("reset: loaded in {:.0f} ms "
+												   "(nothing to recycle yet)", ms)
+									 : std::format("reset: recycled in {:.0f} ms", ms));
 					   });
 
 	// Open (or close) the character sheet. It exists because the sheet was

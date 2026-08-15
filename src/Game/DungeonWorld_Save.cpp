@@ -59,6 +59,77 @@ void DungeonWorld::ResetForNewGame() {
 	m_levelStates.clear(); // forget any explored levels
 }
 
+// See the declaration for why this is defined as "where a new game would leave
+// it". Everything below is something a real new game gets from the LEVEL LOAD
+// rather than from ResetForNewGame — plus the harness's own modes, which no
+// player path has any reason to touch.
+void DungeonWorld::ResetForEval() {
+	// --- 1. THE STATIC LAYER, back from the project files -------------------
+	// `arena` sets EVERY cell to wall before carving, and strips the map's own
+	// fixtures, stairs, niches and features on the way past — so a reset that
+	// only rewound the dynamic side would hand the next test an empty box with
+	// the authored monsters standing in rock.
+	//
+	// THIS IS THE PART THE FIRST VERSION MISSED, and the way it was missed is
+	// worth more than the fix: the equivalence check passed, because it printed
+	// the party, the supplies and the monsters, and NONE of those show map
+	// geometry. A test that does not look at the thing that differs reports
+	// "identical" just as loudly as one that does.
+	//
+	// Re-parsing costs a text file and the mesh bake; the twelve seconds a real
+	// load costs are MODELS AND TEXTURES, and those are cached by now.
+	m_map = DungeonMap(m_project.LevelMapPath(m_currentLevel),
+					   FixtureTypesOf(m_project));
+	m_entities = DungeonEntities(m_project.LevelEntPath(m_currentLevel), m_map);
+	// Every live object re-placed from those records. Also the reason harness
+	// `spawn`s disappear: they were never records, only instances.
+	RespawnFromRecords(/*geometryToo=*/false);
+	SeedFixtureBreakables();
+
+	// --- 2. the dynamic layer -----------------------------------------------
+	// Party pose, monster hp/threat/awareness, the wipe latch, projectiles,
+	// items, buttons, doors, niches, fog, torch palette. AFTER the map, because
+	// it puts the party on the map's start cell.
+	ResetForNewGame();
+
+	// A blast is a wavefront mid-flight; a `step` that ends between its ticks
+	// leaves one live, and it would detonate into the next test.
+	m_activeBlasts.clear();
+	// Damage done to the DUNGEON (save v24). A smashed decoration KEEPS its
+	// record — the adapter holds a reference and the save has to be able to name
+	// what broke — so the flag is lifted rather than the entry erased. Fixtures
+	// live in their own side-table keyed by cell+wall, so that is rebuilt whole.
+	for (Decoration& deco : m_decorations) {
+		deco.brk.broken = false;
+		deco.brk.hp = deco.brk.maxHp;
+		deco.brk.effects.clear();
+	}
+	m_fixtureBreaks.clear();
+	SeedFixtureBreakables();
+
+	// --- 3. make it real -----------------------------------------------------
+	// The FULL bake, as `arena` does: every cell in the map may have changed.
+	BuildDungeonMeshes();
+	RebuildFiresAndDust(); // the level's fires are back, and a doused one burns
+
+	// A pit fall caught mid-plunge would swap levels on the first frame of the
+	// next test, and the bruise is latched separately from the transition.
+	m_pendingFall.reset();
+	m_fellPending = false;
+	m_fallT = -1.0f;
+
+	// The harness's own modes. NOT `lockstep` or the RNG seed: those are how the
+	// run is DRIVEN rather than what it contains, and silently changing them
+	// under a script would be its own kind of contamination — a script that set
+	// them once at the top would find them gone after its first reset.
+	m_tally = {};
+	m_autoAttack = false;
+	m_freezeMonsters = false;
+	m_pendingSteps = 0;
+	m_resting = false;
+	m_restEndReason = "";
+}
+
 SaveData::LevelState DungeonWorld::SnapshotActive() const {
 	SaveData::LevelState ls;
 	ls.stem = m_currentLevel;
