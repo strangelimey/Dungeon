@@ -1550,7 +1550,7 @@ void Game::RegisterDevCommands() {
 							   m_console.Print("forward needs a positive count");
 							   return;
 						   }
-						   m_world.QueueForward(n);
+						   m_world.GetHarness().pendingSteps += n;
 						   m_console.Print(std::format("forward x{}", n));
 					   });
 
@@ -1561,11 +1561,11 @@ void Game::RegisterDevCommands() {
 						   if (args.empty()) {
 							   m_console.Print(std::format(
 								   "freeze {}",
-								   m_world.FrozenMonsters() ? "on" : "off"));
+								   m_world.GetHarness().frozen ? "on" : "off"));
 							   return;
 						   }
 						   const bool on = args[0] == "on" || args[0] == "1";
-						   m_world.SetFreezeMonsters(on);
+						   m_world.GetHarness().frozen = on;
 						   m_console.Print(std::format("freeze {}", on ? "on" : "off"));
 					   });
 
@@ -1717,11 +1717,11 @@ void Game::RegisterDevCommands() {
 						   if (args.empty()) {
 							   m_console.Print(std::format(
 								   "autoattack {}",
-								   m_world.AutoAttack() ? "on" : "off"));
+								   m_world.GetHarness().autoAttack ? "on" : "off"));
 							   return;
 						   }
 						   const bool on = args[0] == "on" || args[0] == "1";
-						   m_world.SetAutoAttack(on);
+						   m_world.GetHarness().autoAttack = on;
 						   m_console.Print(std::format("autoattack {}", on ? "on" : "off"));
 					   });
 
@@ -1730,11 +1730,11 @@ void Game::RegisterDevCommands() {
 	m_console.Register("tally", "encounter counters (dev): tally [reset]",
 					   [this](const std::vector<std::string>& args) {
 						   if (!args.empty() && args[0] == "reset") {
-							   m_world.ResetTally();
+							   m_world.GetHarness().tally = {};
 							   m_console.Print("tally reset");
 							   return;
 						   }
-						   const DungeonWorld::Tally& t = m_world.GetTally();
+						   const DungeonWorld::Tally& t = m_world.GetHarness().tally;
 						   const int swings = t.hits + t.misses;
 						   // ONE LINE, key=value, so a sweep's output can be
 						   // grepped and diffed without parsing prose. Damage is

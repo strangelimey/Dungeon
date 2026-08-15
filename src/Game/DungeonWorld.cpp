@@ -933,14 +933,14 @@ void DungeonWorld::UpdateMonsters(float dt) {
 	// The eval tally's clock, and the party's own swings. Both ride the monster
 	// cadence because that is where a fight happens, and both are no-ops in an
 	// ordinary play session.
-	m_tally.seconds += dt;
+	m_harness.tally.seconds += dt;
 	// Feed the queued walk one step at a time, as each tween finishes — see
-	// QueueForward for why a loop cannot do this. A step the map refuses (a
-	// wall, a monster in the way) still consumes one from the queue, so
-	// `forward 20` down a six-cell corridor stops at the end instead of
+	// Harness::pendingSteps for why a loop cannot do this. A step the map
+	// refuses (a wall, a monster in the way) still consumes one from the queue,
+	// so `forward 20` down a six-cell corridor stops at the end instead of
 	// shoving forever.
-	if (m_pendingSteps > 0 && !m_party.IsMoving()) {
-		--m_pendingSteps;
+	if (m_harness.pendingSteps > 0 && !m_party.IsMoving()) {
+		--m_harness.pendingSteps;
 		m_party.Act(MoveAction::Forward);
 	}
 	TickAutoAttack();
@@ -1092,7 +1092,7 @@ void DungeonWorld::UpdateMonsters(float dt) {
 		// two of its nine warriors walk out of the squares they were measuring
 		// and then maul the party, so the table described where they ended up
 		// rather than what the blast did to where they were.
-		if (m_freezeMonsters) continue;
+		if (m_harness.frozen) continue;
 
 		if (monster.intent.mode == ai::Intent::Mode::Idle) {
 			// Idle behaviour: a patroller walks its route (which also carries it back

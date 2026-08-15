@@ -42,6 +42,7 @@ add_library(Game STATIC
 	Game.cpp
 	Game_DevCommands.cpp
 	Game_Editor.cpp
+	Game_Eval.cpp
 	Game_Inspect.cpp
 	Game_Wiring.cpp
 	GameSettings.cpp

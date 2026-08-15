@@ -307,6 +307,20 @@ Key conventions (memorize, they bite):
   point. TRAP when scripting rest: `rest on` then `step N` does NOT measure a
   rest — the auto-stop is dt-independent so it fires on the next ordinary frame,
   which at timescale 0 falls BETWEEN the two commands; use `rest until`.
+  WHAT THE HARNESS COSTS THE SHIPPING CODE (audited 2026-08-15, docs/eval-
+  harness.md "What the harness costs"): ALL harness state the world holds is ONE
+  member, `DungeonWorld::m_harness` (`struct Harness`: tally / autoAttack /
+  frozen / pendingSteps), touched in six places in the simulation, each reading
+  `m_harness.x` so it says what it is; `ResetForEval` is `m_harness = {}`. The
+  script runner is its own TU, `Game_Eval.cpp`. Headless is one branch in Main.
+  NOT harness machinery despite appearances: lockstep AI (SetResting uses it —
+  rest runs the world at 60x and lockstep makes the fast-forward honest), the dev
+  console (90 commands; allocguard/crashpoke/uioverlap predate eval), and the
+  damage ledger (a shipping rule check). NONE OF IT IS BEHIND `#ifdef`, and that
+  is a decision: the harness's value is that it measures the SHIPPING binary
+  (RollTest's rule — the real thing linked in, never a copy), and a fourth build
+  configuration would rot the way `build-release` and `build-profile` checks
+  exist to prevent.
   HEADLESS: `Dungeon.exe -headless -eval …` (also `Eval.ps1 -Headless`,
   `PipelineTest.ps1 -Headless`) hides the window and skips the whole render half
   of the frame. It is NOT mainly a speed switch — ten suites go 42 s → 37 s,

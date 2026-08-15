@@ -127,10 +127,9 @@ void DungeonWorld::ResetForEval() {
 	// run is DRIVEN rather than what it contains, and silently changing them
 	// under a script would be its own kind of contamination — a script that set
 	// them once at the top would find them gone after its first reset.
-	m_tally = {};
-	m_autoAttack = false;
-	m_freezeMonsters = false;
-	m_pendingSteps = 0;
+	// One member, so a field added to Harness is reset here for free — the four
+	// loose bools this replaced were four chances to forget one.
+	m_harness = {};
 	m_resting = false;
 	m_restEndReason = "";
 }

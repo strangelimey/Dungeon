@@ -607,6 +607,57 @@ This harness lost twelve ladder rungs to that exact shape once already.
 last two are the ones that keep the speedup honest — mutation-checked by dropping
 the map restore, which they catch.
 
+## What the harness costs the shipping code (audited 2026-08-15)
+
+Michael's review question was the right one: *is this magic flags and special
+processing everywhere, and if so should it be behind `#ifdef`?* So here is the
+complete inventory, which is the point of writing it down — it should be
+auditable in one read rather than trusted.
+
+**All harness STATE the world holds is one member**, `DungeonWorld::m_harness`
+(`struct Harness`): the encounter `tally`, `autoAttack`, `frozen`, and
+`pendingSteps`. It is touched in six places in the simulation — the two
+`fx::ITarget` adapters and `ResolveAttack` (the tally), one `continue` in the
+monster loop (`frozen`), one guard on `TickAutoAttack`, and three lines feeding
+queued steps. Every one of them reads `m_harness.something` and says what it is.
+`ResetForEval` is `m_harness = {}`, so a field added to the struct is reset for
+free — the four loose bools this replaced were four chances to forget one.
+
+**The script runner is its own TU**, `Game_Eval.cpp`: `PumpEvalScript`,
+`LoadEvalScript`, `ReadEvalLines`, `ResolveEvalPath`, `StepWorld`,
+`ResetForEval`. `Game::Update` calls the pump, which returns on its first line
+when no script is loaded. Its ten `m_eval*` members stay on `Game` (they are
+already prefixed and under one banner, so they self-label without a struct).
+
+**Headless is one branch** in Main's frame loop plus `Game::EndHeadlessFrame`.
+
+**Three things that look like harness machinery and are not:**
+
+- **Lockstep AI.** `SetResting` turns it on, because rest runs the world at 60x
+  and lockstep is what makes the monsters think honestly through a fast-forward.
+  It would have to exist if the harness never had.
+- **The dev console.** 90 commands, of which `allocguard`, `allocpoke`,
+  `crashpoke`, `threadwedge` and `uioverlap` predate eval entirely. The console
+  is the designated home for dev facilities and ships in every build by design.
+- **The damage ledger** (`Game/DamageLedger.h`) is a shipping invariant check
+  like `Core/AllocTrack`, not harness machinery. Its sanction sites are the
+  documentation of a rule, not scaffolding for a test.
+
+### Why none of it is behind `#ifdef`
+
+It was considered and rejected on 2026-08-15. **The harness's entire value is
+that it measures the shipping binary** — the rule `tools/RollTest`'s CMakeLists
+states for the roll engine: the real thing linked straight in, never a copy.
+Compile these hooks out of release and the suites, and `/check-pipeline`, would
+be measuring a build that is not what ships. It would also add a fourth build
+configuration to a project that already runs `build-release` and `build-profile`
+checks *because* a configuration nobody builds rots.
+
+The consolidation was proven behaviour-preserving the way the `Defense.h`
+refactor was: the pipeline suite is deterministic, and every number came back
+identical across it (816,146 values checked over 33,048 checkpoints, all five
+route totals unchanged).
+
 ## Headless (`-headless`)
 
 `Dungeon.exe -headless -eval <script...>` runs with **no window on screen and no

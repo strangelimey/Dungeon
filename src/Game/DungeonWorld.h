@@ -271,8 +271,53 @@ public:
 		int monstersSlain = 0, membersDowned = 0;
 		float seconds = 0.0f; // SIM seconds since the last reset
 	};
-	const Tally& GetTally() const { return m_tally; }
-	void ResetTally() { m_tally = {}; }
+
+	// ========================================================================
+	// THE HARNESS SEAM (docs/eval-harness.md) — every piece of state the eval
+	// harness needs the world to hold that a PLAYER never asks for, in ONE
+	// place with ONE name.
+	//
+	// It is GATHERED rather than compiled out, and that is a decision (Michael,
+	// 2026-08-15, reviewing exactly this). The harness's entire value is that it
+	// measures the SHIPPING binary — the same rule tools/RollTest's CMakeLists
+	// states for the roll engine, "the real thing straight in, not a copy of
+	// it". Behind `#ifdef` these fields would only exist in a build nobody
+	// ships, the suites and /check-pipeline would be measuring that build, and
+	// the project would carry a fourth configuration to rot unwatched beside
+	// release and release-profile. What it costs instead is four fields and a
+	// handful of predictable branches.
+	//
+	// The point of the struct is that a touch site in the simulation reads
+	// `m_harness.frozen` and says what it is, where a bare `m_freezeMonsters`
+	// read like world state somebody forgot to explain.
+	//
+	// DELIBERATELY NOT IN HERE: lockstep AI. It looks like harness machinery
+	// and is not — SetResting turns it on, because rest runs the world at 60x
+	// and lockstep is what makes the monsters think honestly through a
+	// fast-forward. It would have to exist if the harness never had.
+	// ========================================================================
+	struct Harness {
+		Tally tally;
+		// Every member swings whenever a hand is off cooldown and something is
+		// in reach. A harness behaviour, not a game one — the player clicks a
+		// hand slot — but without it a measured encounter is the party standing
+		// still being hit, which is half a fight and reads as a whole one.
+		bool autoAttack = false;
+		// Monster ACTION (movement and attacks) stops while everything that
+		// HAPPENS TO them keeps running — animation, effects, blasts, damage. A
+		// geometry probe needs its instruments to hold still: monsters parked on
+		// known cells to read a blast's falloff otherwise walk off those cells
+		// mid-measurement and report where they ended up instead.
+		bool frozen = false;
+		// Queued walking steps (`forward`). They CANNOT simply be applied in a
+		// loop: Party::Act starts a tween and refuses a new move while one is in
+		// flight, so nine calls in a single frame perform ONE step and silently
+		// drop eight — which reads as a party that will not advance. They are
+		// fed one at a time as each completes.
+		int pendingSteps = 0;
+	};
+	Harness& GetHarness() { return m_harness; }
+	const Harness& GetHarness() const { return m_harness; }
 
 	// UN-WIPE THE PARTY (the `heal` command). `m_partyWiped` latches so
 	// onPartyWipe fires once — but it also gates every monster attack, so once
@@ -304,27 +349,10 @@ public:
 	// did nothing, and those are opposite answers.
 	bool DetonateSpell(std::string_view spellId, int cx, int cz);
 
-	// AUTO-ATTACK: every member swings whenever a hand is off cooldown and
-	// something is in reach. A harness behaviour, not a game one — the player
-	// clicks a hand slot — but without it a measured encounter is the party
-	// standing still being hit, which is half a fight and reads as a whole one.
-	void SetAutoAttack(bool on) { m_autoAttack = on; }
-	bool AutoAttack() const { return m_autoAttack; }
-
-	// FREEZE monster ACTION (movement and attacks) while leaving everything that
-	// HAPPENS TO them running — animation, effects, blasts, damage. A geometry
-	// probe needs its instruments to hold still: monsters parked on known cells
-	// to read a blast's falloff will otherwise walk off those cells mid-
-	// measurement and report where they ended up instead.
-	// QUEUE walking steps (the harness's `forward`). They CANNOT simply be
-	// applied in a loop: Party::Act starts a tween and refuses a new move
-	// while one is in flight, so nine calls in a single frame perform ONE
-	// step and silently drop eight — which read as a party that would not
-	// advance. They are fed one at a time as each completes.
-	void QueueForward(int steps) { m_pendingSteps += steps; }
-	int PendingSteps() const { return m_pendingSteps; }
-	void SetFreezeMonsters(bool on) { m_freezeMonsters = on; }
-	bool FrozenMonsters() const { return m_freezeMonsters; }
+	// (The four pieces of harness STATE those used to be are fields on
+	// `Harness` above; the operations that need the world — an arena, a spawn,
+	// a detonation — stay methods, because they are things done TO the world
+	// rather than switches held on it.)
 
 	enum class ArenaShape : u8 { Open, Corridor, DeadEnd, TJunction, Room };
 	// Where the arena ended up. Derivable from the map size (it is centred), so
@@ -2805,7 +2833,10 @@ private:
 	// enabling it does not immediately fire every bucket with a debt of
 	// whatever wall-clock time happened to have passed.
 	float m_bucketClock[ai::Scheduler::kBucketCount] = {};
-	Tally m_tally;             // the eval harness's encounter counters
+	// EVERY eval-harness field the world holds, in one member (see `Harness`).
+	// Four bools-and-counters that used to sit loose among the world's own state
+	// reading like something nobody had got round to explaining.
+	Harness m_harness;
 	// REST. Transient by design — not saved, so a save made mid-rest loads
 	// standing up. `m_restLockstep` remembers the AI mode rest replaced, because
 	// the eval harness may already have lockstep on and rest must give it back
@@ -2813,11 +2844,8 @@ private:
 	bool m_resting = false;
 	bool m_restLockstep = false;
 	const char* m_restEndReason = ""; // a literal; see RestEndReason
-	bool m_autoAttack = false; // eval: members swing off cooldown (see SetAutoAttack)
-	bool m_freezeMonsters = false; // eval: monsters do not ACT (see SetFreezeMonsters)
-	int m_pendingSteps = 0;        // eval: queued `forward` steps (see QueueForward)
-	// Drives that: for each standing member, swing any hand whose cooldown has
-	// run out. Called from UpdateMonsters' cadence, no-op unless armed.
+	// For each standing member, swing any hand whose cooldown has run out.
+	// Called from UpdateMonsters' cadence, no-op unless m_harness.autoAttack.
 	void TickAutoAttack();
 	// Walkability grid shared into snapshots, rebuilt only when the map changes.
 	std::shared_ptr<const std::vector<uint8_t>> m_walkableCache;

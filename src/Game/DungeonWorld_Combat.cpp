@@ -662,7 +662,7 @@ void DungeonWorld::MonsterFumble(Monster& monster, const AttackProfile& atk,
 }
 
 void DungeonWorld::TickAutoAttack() {
-	if (!m_autoAttack || !m_roster) return;
+	if (!m_harness.autoAttack || !m_roster) return;
 	// NOTHING THERE, NOTHING SWUNG. A whiff at air costs the attack's pace and
 	// its full stamina bill (PartyAttack pays both before it checks for a
 	// target), so a party auto-swinging into an empty corridor would exhaust
@@ -991,8 +991,8 @@ void DungeonWorld::PartyTarget::Wound(float amount, fx::DamageEvent& ev) {
 	// sites, because everything that damages a member arrives through this one
 	// line — a monster's blow, a blast, a DoT bite, a ward's reprisal. A tally
 	// hung off the attack sites would have missed four of those five.
-	m_world.m_tally.taken += amount;
-	if (m_fall != Fall::None) ++m_world.m_tally.membersDowned;
+	m_world.m_harness.tally.taken += amount;
+	if (m_fall != Fall::None) ++m_world.m_harness.tally.membersDowned;
 }
 
 // Fed rather than hurt: a member whose nature DRINKS this element (a resist
@@ -1087,7 +1087,7 @@ void DungeonWorld::MonsterTarget::Wound(float amount, fx::DamageEvent& ev) {
 	// The eval tally's other half — see PartyTarget::Wound. Counted BEFORE the
 	// death check below, so the blow that kills is still counted as damage
 	// dealt rather than vanishing into the kill.
-	m_world.m_tally.dealt += amount;
+	m_world.m_harness.tally.dealt += amount;
 	if (ev.source >= 0)
 		m_world.AddThreat(m_monster, static_cast<size_t>(ev.source), amount);
 	// A per-frame tick doesn't re-provoke or re-flinch every frame; anything
@@ -1097,7 +1097,7 @@ void DungeonWorld::MonsterTarget::Wound(float amount, fx::DamageEvent& ev) {
 		m_monster.hp = 0.0f; // a downed monster stays in the list (save restore)
 		Extinguish(m_monster); // a corpse stops burning
 		ev.slew = true;
-		++m_world.m_tally.monstersSlain;
+		++m_world.m_harness.tally.monstersSlain;
 	} else if (!ev.Quiet()) {
 		m_monster.hitReq = true; // survivor flinches (a fatal blow plays Die)
 	}
@@ -1749,9 +1749,9 @@ bool DungeonWorld::PartyAttack(size_t member, size_t hand, std::string_view verb
 	// The dice half of the eval tally. Counted for the PARTY's swings only: a
 	// hit rate that mixed both sides together would answer no question anyone
 	// has, and the monsters' side is visible as `taken` anyway.
-	if (ev.hit) ++m_tally.hits; else ++m_tally.misses;
-	if (ev.crit) ++m_tally.crits;
-	if (ev.fumble) ++m_tally.fumbles;
+	if (ev.hit) ++m_harness.tally.hits; else ++m_harness.tally.misses;
+	if (ev.crit) ++m_harness.tally.crits;
+	if (ev.fumble) ++m_harness.tally.fumbles;
 
 	// WHAT THE DICE DID, said before the outcome it caused. The open-ended roll
 	// has been driving damage since P2 and was invisible: a critical arrived as
