@@ -193,6 +193,26 @@ public:
 	// Re-derive every member's resource maxima from the balance k's — after a
 	// save-apply, a stat change, or an editor Balance apply.
 	void RecomputePartyMaxima();
+	// --- rest (docs/health-and-healing.md "Rest is a STATE") ------------------
+	// A STATE you enter and leave, not a command with a duration (Michael's
+	// call): time runs fast until you stop it, so you watch the meters fill and
+	// decide when enough is enough instead of guessing an interval up front.
+	// That also means the PLAYER is the interrupt rule, and no argument about
+	// what counts as "something nearby" has to be settled.
+	//
+	// It multiplies TIME and nothing else. `RestTimeScale` is what Game folds
+	// into the world dt, so every rate, timer and cooldown in the game
+	// accelerates together — which is the whole reason rest is one knob rather
+	// than a second set of resting rates that could drift.
+	void SetResting(bool on);
+	bool Resting() const { return m_resting; }
+	float RestTimeScale() const { return m_resting ? m_balance.restScale : 1.0f; }
+	// WHY rest last ended ("recovered" / "attacked" / "hungry" / "woken"), or ""
+	// if it never has. The state ends by itself more often than by a click, and
+	// its reason goes to the HUD message log — which a script cannot read. So
+	// the one fact a measurement actually wants is kept here in English, next to
+	// the flag, rather than being recoverable only by a human watching the game.
+	const char* RestEndReason() const { return m_restEndReason; }
 	// Eat or drink `typeId`, returning what it actually RESTORED — 0 when the
 	// item feeds nobody or the member is already full, which is how the caller
 	// knows to refuse the action and keep the item. Public because the HUD
@@ -2359,6 +2379,13 @@ private:
 	// effect. It does NOT deal the damage; the effects do, through the ordinary
 	// DoT tick, which is the whole reason they are effects.
 	void TickSupplies(Character& member, float dt);
+	// One frame of the rest STATE: the reasons it ends by itself. A no-op when
+	// not resting, so the ordinary frame pays a bool for it.
+	void UpdateRest();
+	// End rest because something happened, saying why. Safe to call when not
+	// resting (it does nothing), which is what lets the wound path call it
+	// unconditionally rather than testing the flag at the call site.
+	void BreakRest(const char* reason, const char* reasonKey);
 	// How long a starving/parched instance is given each frame it is held open.
 	// Nominal — long enough that the aging loop can never expire it between two
 	// supply ticks, short enough that if this code ever stopped running the
@@ -2733,6 +2760,13 @@ private:
 	// whatever wall-clock time happened to have passed.
 	float m_bucketClock[ai::Scheduler::kBucketCount] = {};
 	Tally m_tally;             // the eval harness's encounter counters
+	// REST. Transient by design — not saved, so a save made mid-rest loads
+	// standing up. `m_restLockstep` remembers the AI mode rest replaced, because
+	// the eval harness may already have lockstep on and rest must give it back
+	// rather than assume it was off.
+	bool m_resting = false;
+	bool m_restLockstep = false;
+	const char* m_restEndReason = ""; // a literal; see RestEndReason
 	bool m_autoAttack = false; // eval: members swing off cooldown (see SetAutoAttack)
 	bool m_freezeMonsters = false; // eval: monsters do not ACT (see SetFreezeMonsters)
 	int m_pendingSteps = 0;        // eval: queued `forward` steps (see QueueForward)

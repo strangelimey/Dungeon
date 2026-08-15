@@ -1249,6 +1249,26 @@ void Game::RegisterDevCommands() {
 						   }
 					   });
 
+	// The rest STATE, for a script and for a quick look. It reports the world
+	// speed too, since that is the whole mechanism and the number a reader needs
+	// to interpret how much simulated time a `step` just covered.
+	// BARE `rest` REPORTS AND DOES NOT TOGGLE. It was a toggle for about ten
+	// minutes, and the eval script written against it read `rest` as a status
+	// query at four places — each of which silently turned the state back on and
+	// made the auto-stop rules look broken when they were working. A query that
+	// mutates is a trap, and this one caught its own author.
+	m_console.Register("rest", "the rest state (dev): rest [on|off], bare = report",
+					   [this](const std::vector<std::string>& args) {
+						   if (!args.empty()) m_world.SetResting(args[0] != "off");
+						   const char* why = m_world.RestEndReason();
+						   m_console.Print(std::format(
+							   "rest {} (world x{:.0f}){}{}",
+							   m_world.Resting() ? "on" : "off",
+							   m_world.RestTimeScale(),
+							   *why && !m_world.Resting() ? "  last ended: " : "",
+							   *why && !m_world.Resting() ? why : ""));
+					   });
+
 	// Eat or drink a catalog item outright — no inventory, no hand slot. The UI
 	// path (a hand-menu `eat`/`drink`) runs the very same DungeonWorld::
 	// ConsumeItem, so this exercises the arithmetic and the effect-lifting that

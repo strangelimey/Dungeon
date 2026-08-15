@@ -88,6 +88,11 @@ $suites = @(
 		name = 'supplies'; script = 'supplies.eval'
 		what = 'food and water: what they cost, and what an empty meter does'
 		measure = '===|  \[[0-9]\]|consumes|gains nothing'
+	},
+	@{
+		name = 'rest'; script = 'rest.eval'
+		what = 'the rest state: what it costs, and the three ways it ends'
+		measure = '===|  \[0\]|rest (on|off) \(world'
 	}
 )
 

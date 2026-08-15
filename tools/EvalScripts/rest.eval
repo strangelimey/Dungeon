@@ -1,0 +1,129 @@
+; rest.eval — rest as a STATE, and what it costs (docs/health-and-healing.md).
+;
+; Run:  Dungeon.exe -eval tools\EvalScripts\rest.eval
+;
+; WHAT THIS SUITE DOES *NOT* MEASURE, and why. Rest's headline is a TIME
+; MULTIPLIER — the world runs 60x while you rest — and that is invisible here by
+; construction: `step` advances SIM seconds directly, so it is already a
+; fast-forward of its own. `rest on; step 300` is five minutes of dungeon time
+; whether the multiplier is 60 or 6000. The multiplier is a NORMAL-PLAY concern
+; (how long the player sits watching) and the harness quite properly cannot see
+; it; what it CAN see is reported by the `rest` command's `world x60`.
+;
+; So what is measured here is the STATE, which is the half with rules in it:
+;
+;   1. THE TRADE — you come out healed and POORER. Moving attrition off the
+;      health bar and onto supplies is the whole point, and this is the row that
+;      shows it happening.
+;   2. THE THREE WAYS IT ENDS BY ITSELF: fully recovered, out of food, attacked.
+;      A state with no duration has to be able to stop, and each of these exists
+;      to stop it quietly costing something.
+;   3. A DoT DOES NOT BREAK IT but a BLOW DOES — the `quiet` line. You can rest
+;      through a poison and simply pay for it; you cannot sleep through a sword.
+;
+; Lockstep is ON from the start, which also exercises the thing rest does to the
+; AI: it forces lockstep while resting and must hand back what it FOUND, not
+; assume it was off. Watch for the `warning: lockstep is OFF` line — its absence
+; after a rest is the evidence.
+
+logecho on
+newgame
+
+timescale 0
+lockstep on
+seed 7
+arena open 9 9
+
+echo === 1. the multiplier the harness cannot see ===
+; Bare `rest` REPORTS; only `rest on`/`rest off` change anything. (It toggled at
+; first, and this script used it as a query in four places — each of which
+; turned the state back on and made the auto-stop rules read as broken.)
+rest
+rest on
+rest
+rest off
+rest
+
+echo === 2. the trade: healed, and poorer ===
+heal
+setsupply all food 90
+setsupply all water 90
+; Mauled but STANDING — a bleed heavy enough to kill outright would measure the
+; death path instead of the rest path (10/s for 6s is 60 damage; Brand has 42).
+effect bleed 0 3 5
+effect bleed 1 3 5
+step 6
+echo --- mauled ---
+party
+supplies
+; WHAT A REST TO FULL RECOVERY ACTUALLY COSTS. Not a fixed duration — the state
+; ends itself the moment there is nothing left to gain, so the honest number is
+; whatever it spent getting there. `step 600` is more than enough room; the
+; auto-stop decides when it is over.
+;
+; NOTE what rest does NOT do: it adds no cost of its own. TIME costs, and rest
+; is only how you spend a lot of time quickly. An hour resting and an hour
+; walking bill the same food and water; `step` bills it either way, which is why
+; the auto-stop matters in PLAY (it stops the clock) and not in this table.
+rest on
+step 600
+echo --- recovered, and what it cost ---
+party
+supplies
+rest
+
+echo === 3. an hour of world time, for comparison ===
+; The control for section 2: the SAME hour, spent awake. If these two supply
+; drops match — and they do — then rest genuinely has no cost of its own, which
+; is the claim "rest is a time multiplier, not a regen multiplier" makes about
+; the SUPPLY side as well as the recovery side.
+; (`step` caps at 200000 ticks, so an hour arrives as 3333 seconds.)
+heal
+setsupply all food 90
+setsupply all water 90
+step 3600
+echo --- an hour awake ---
+supplies
+
+echo === 4. an empty stomach refuses ===
+; Resting while a meter is empty spends health to pass time you are already
+; losing health for — the one configuration where the state is purely harmful.
+heal
+setsupply 0 water 0
+step 1
+rest on
+step 1
+echo --- rest should have broken on the empty meter ---
+rest
+supplies
+
+echo === 5. a DoT does not break it ===
+; Brand must be HURT here, and that is not incidental: `heal` alone would leave
+; the party fully recovered, the auto-stop would fire on the first frame, and
+; the run would read as "the bleed broke rest" when nothing of the sort
+; happened. Two rules that end the same state look identical from outside —
+; which is exactly why `rest` reports WHICH one fired.
+heal
+consume waterskin 0
+consume waterskin 0
+consume waterskin 0
+effect bleed 0 4 4
+step 5
+effect bleed 0 1 90
+rest on
+step 5
+echo --- still resting: a bleed is not an attack ---
+rest
+party
+
+echo === 6. a blow does ===
+; Being hit while the world runs at 60x is how a rest becomes a wipe with no
+; input, so the blow has to drop the state. The monster is spawned adjacent and
+; swings within a few seconds.
+spawn skel_warrior 14 11
+step 15
+echo --- rest should have broken on the blow ---
+rest
+party
+monsters
+state

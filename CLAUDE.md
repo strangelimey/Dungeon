@@ -260,6 +260,19 @@ Key conventions (memorize, they bite):
   "permanent effect" concept and exactly one place a member stops starving
   (`ConsumeItem` deliberately does not lift it). Dev: `supplies` (in HOURS LEFT,
   since a meter reading means nothing without its rate), `setsupply`, `consume`.
+  REST is a STATE (the HUD Options panel's Rest button, which replaced the dead
+  "Wait" placeholder; dev `rest [on|off]`, bare = REPORT not toggle). It
+  multiplies TIME at ONE place — `Game::Update`'s `wdt` — so every rate, timer
+  and cooldown accelerates together and no second set of resting rates can
+  drift. **It forces LOCKSTEP AI while resting** and hands the previous mode
+  back: the AI buckets are WALL-CLOCK paced, so a 60x world would give a monster
+  1/60th the thinking per simulated second and it would chase stale paths — the
+  harness's own "stale orders are worse than frozen" lesson. Ends three ways
+  (`RestEndReason()`): `recovered` (nothing left to gain; only STANDING members
+  counted), `attacked` (a blow — a DoT does NOT break it, `WoundMember`'s
+  `quiet` flag is exactly that line), `hungry` (an empty meter). Transient: not
+  saved. NOTE `step` advances SIM seconds, so the harness cannot see the
+  multiplier at all — it measures the STATE's rules instead.
 - EFFECTS (full model: docs/effects.md — the system every source of damage
   goes through; built in six phases 2026-07-24): ONE pipeline for everything
   that happens to a combatant. A source builds an `fx::DamageEvent` and calls

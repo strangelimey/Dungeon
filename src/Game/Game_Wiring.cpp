@@ -143,6 +143,7 @@ void Game::WireModuleCallbacks() {
 		if (member >= m_characters.size()) return resource::Refill{};
 		return m_world.ConsumeItem(m_characters[member], id);
 	};
+	m_ui.onToggleRest = [this] { m_world.SetResting(!m_world.Resting()); };
 	m_ui.onKeysChanged = [this] {
 		m_world.GetParty().SetKeys(m_settings.moveKeys);
 	};

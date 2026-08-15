@@ -215,6 +215,13 @@ struct Balance {
 	float waterCondSlope = 0.0003f, waterCondCap = 0.0056f;
 	float waterExertion = 0.15f;
 	float thirstDamage = 0.8f;
+	// REST (docs/health-and-healing.md "Rest is a time multiplier"): how much
+	// faster the world runs while the party rests. ONE knob, and it multiplies
+	// TIME rather than any rate — so health, stamina, mana, food, water, effect
+	// timers, monster cooldowns and the AI's own cadence all move together and
+	// no second set of resting rates can drift out of step with the ordinary
+	// ones. 60 = a minute of dungeon time per second of watching.
+	float restScale = 60.0f;
 	// Stamina costs + exhaustion (docs/combat.md Phase 4). A swing spends
 	// (stamina_swing + stamina_weight × weapon kg) × attack.stam; a step
 	// spends stamina_step per standing member. Regen is the resource model

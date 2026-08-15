@@ -1560,12 +1560,23 @@ void GameUI::BuildHud() {
 			onTorchPalette(index);
 		});
 	constexpr float kHalfBtn = 0.4773f; // 0.063 of the window, of the inner width
-	options->Add<ui::Button>(gfx::Rect{0, 0.7609f, kHalfBtn, 0.2246f},
-		loc::Tr("hud.wait"),
-		[this] {
-			Click();
-			m_log->AddLine(loc::Tr("log.wait"));
-		});
+	// REST — the toggle for the rest STATE (docs/health-and-healing.md). This
+	// button was "Wait", which logged a line and did nothing else; rest is what
+	// waiting was always a placeholder for, so it takes the slot rather than
+	// crowding a second button in beside a dead one.
+	//
+	// The LABEL SHOWS THE ACTION, not the state — "Rest" while awake, "Wake"
+	// while resting — the same convention the editor's play-pause button uses,
+	// because a button labelled with the state it is already in reads as broken.
+	// It is re-labelled every frame from the world, so the rest ending BY ITSELF
+	// (fully recovered, attacked, out of food) puts the label back with no
+	// callback and no chance of the two disagreeing.
+	m_restButton =
+		options->Add<ui::Button>(gfx::Rect{0, 0.7609f, kHalfBtn, 0.2246f},
+			loc::Tr("hud.rest"), [this] {
+				Click();
+				if (onToggleRest) onToggleRest();
+			});
 	// Flush with the plate's inner right edge. It was authored at x 0.5379,
 	// which plus the button's own 0.4773 comes to 1.0152 — three pixels out of
 	// the plate, which is what `uioverlap` reported.
@@ -1777,6 +1788,16 @@ void GameUI::SetHudStatus(int facing, int gridX, int gridZ) {
 
 void GameUI::SetHudStatus(const Party& party) {
 	SetHudStatus(party.Facing(), party.GridX(), party.GridZ());
+}
+
+// The rest button's face, pushed from the world every frame rather than set by
+// the callback that toggles it — because rest ends BY ITSELF as often as by a
+// click (fully recovered, attacked, out of food), and a label maintained at the
+// click site would be wrong every one of those times.
+void GameUI::SetResting(bool resting) {
+	if (!m_restButton || resting == m_restLabelState) return;
+	m_restLabelState = resting;
+	m_restButton->text = loc::Tr(resting ? "hud.wake" : "hud.rest");
 }
 
 void GameUI::ResetHudStatus() { m_lastFacing = m_lastGridX = m_lastGridZ = -1; }

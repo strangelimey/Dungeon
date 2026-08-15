@@ -9,7 +9,7 @@ second source.
 |---|---|
 | **aptitude and practice** — the three skills, the maxima, the regen rates, the state gate, the training loops | **BUILT** |
 | **food and water** — the two meters, conditioning's price, exertion, eating and drinking, starving and parched, save v25 | **BUILT** |
-| rest | design only |
+| **rest** — the state, the time multiplier, lockstep AI, the three ways it ends | **BUILT** |
 | movement pace from conditioning | design only |
 | the resource skills on the sheet | design only |
 
@@ -259,6 +259,35 @@ step with the ordinary ones. It is also what Dungeon Master actually did.
 keep thinking and moving through those fast-forwarded seconds — so resting near
 something awake is genuinely risky with no wandering-monster mechanic to build.
 
+### As built
+
+Rest folds into the world dt at **one place** — `Game::Update`'s `wdt` — rather
+than into any particular rate, which is what makes "a time multiplier, not a
+regen multiplier" true of the code and not just of this document. Health,
+stamina, mana, food, water, effect timers, monster cooldowns and the AI's own
+cadence all accelerate together because they all read that number.
+
+**THE AI GOES INTO LOCKSTEP WHILE RESTING**, and this is the part that makes the
+whole thing safe to build. `ai::AsyncDirector` paces its bucket workers in
+WALL-CLOCK milliseconds, so running the world 60x faster would hand a monster
+1/60th as many chances to think per simulated second. It would still move and
+still swing — execution is per-frame and cooldowns tick with `dt` — it would
+simply be walking a stale path toward where the party used to be. That is the
+precise failure the eval harness already paid for once: *a stale-but-plausible
+behaviour is far worse than a dead one, because nothing about it looks wrong.*
+Lockstep runs each bucket's thinking off SIM time, so 60x thinks as often per
+simulated second as 1x. **The mode built to make the harness reproducible turns
+out to be the thing that makes a fast-forward honest** — and the danger the
+design wants from "the world runs while you rest" is real rather than
+decorative. The previous mode is remembered and handed back, not assumed off.
+
+The **Rest button** took the Options panel's "Wait" slot, which logged a line
+and did nothing else — waiting was always a placeholder for this. Its label
+shows the ACTION (Rest / Wake) and is pushed from the world every frame, because
+rest ends by itself as often as by a click.
+
+**Rest is transient**: not saved, so a save made mid-rest loads standing up.
+
 ### Rest is a STATE, not a command (settled)
 
 You enter it and you leave it, rather than committing to "rest 8 hours" up front.
@@ -278,6 +307,17 @@ choice:
 - **It is one flag, so it saves and scripts trivially.** The eval harness enters
   rest, `step`s, and leaves — no new duration plumbing, and a ladder rung can
   finally answer *how does the party arrive at the next fight*.
+
+**THREE ways it ends by itself**, and each exists to stop the state quietly
+costing something. `RestEndReason()` reports which fired, in English, because
+they are otherwise indistinguishable from outside and the reason goes to the HUD
+log where a script cannot read it:
+
+| reason | why |
+|---|---|
+| `recovered` | nothing left to gain; continuing burns supplies for nothing, and the player cannot see the instant it stops paying. Only STANDING members count — a downed one recovers through the stabilize clock first (resting through that wait is exactly what the state is for) and a dead one would never be full and would rest forever |
+| `attacked` | a blow landed. **A DoT does NOT break rest** — `WoundMember`'s `quiet` flag already draws exactly that line, so you can rest through a poison and simply pay for it, but you cannot sleep through a sword |
+| `hungry` | a meter is empty. Resting then spends health to pass time you are already losing health for — the one configuration where the state is purely harmful. Eat first |
 
 ## Movement
 
@@ -395,6 +435,23 @@ so marching is nearly free; a fight spending ~30 stamina costs about 2.4 food an
 4.5 water, which is a real 4.5% of the water meter. Time dominates, and whether
 that is the right split is a playtest question.
 
+**And a second one, from the rest suite — the more consequential of the two.**
+Rest adds no cost of its own: TIME costs, and rest is only how you spend a lot of
+time quickly. An hour resting and an hour walking bill the same supplies. So the
+price of a rest is the price of the time it takes, and health regenerates fast
+relative to how fast supplies drain:
+
+| | food | water |
+|---|---|---|
+| a rest from 2/3 health back to full | 2.2 | 3.3 |
+| an hour of world time, either way | 12.2 | 18.3 |
+
+That is roughly 2-3% of a full load of supplies per full heal — about thirty
+rests on one load. **Recovering is currently cheap; the pressure is in how long
+a dungeon takes, not in how often you rest.** If supplies are meant to be the
+thing that ends a run, the knobs to look at are health regen (down), supply drain
+(up), or a floor on what a rest costs. His call, and a playtest question.
+
 ### What this does to the shape of a run
 
 **Attrition moves from health to supplies.** You always arrive at the next fight
@@ -504,9 +561,25 @@ only trained skills from opening on three rows nobody selected.
   damage type, the waterskin and five log lines. RollTest +8; the `supplies`
   eval suite.
 
+### Done — rest
+
+- `Balance::restScale`; `DungeonWorld::SetResting` / `Resting` / `RestTimeScale`
+  / `RestEndReason`, `UpdateRest`, `BreakRest`; folded into `Game::Update`'s
+  `wdt`. Lockstep forced while resting and handed back afterwards.
+- The Options panel's "Wait" placeholder became the **Rest** button, labelled
+  with the action and pushed from the world each frame.
+- Dev `rest [on|off]` (bare = REPORT, see below). Lang keys ×5 for five lines;
+  `hud.wait`/`log.wait` retired. The `rest` eval suite.
+
+**A trap this build set for itself, worth remembering:** `rest` was a TOGGLE
+when given no argument, and the eval script used bare `rest` as a status query
+in four places — each of which silently turned the state back on and made the
+auto-stop rules read as broken when they were working perfectly. A query that
+mutates is a trap, and this one caught its own author within the hour. Bare
+`rest` now reports and nothing else.
+
 ### Still to build
 
-- **Rest**: one flag on the world, the time multiplier, and the hit-breaks-it rule.
 - `moveSpeed` from conditioning, through the existing slowest-member rule.
 - The character sheet's Skills tab: the resource skills as their own group.
 - The eval harness: a rung that measures a *sequence* of fights, which is the

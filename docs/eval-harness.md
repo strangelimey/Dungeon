@@ -448,7 +448,7 @@ the game itself cannot perform.
 .	ools\Eval.ps1 -SelfTest    # the runner must FAIL on purpose
 ```
 
-Eight suites, about two and a half minutes. `/check-eval` is the command form.
+Nine suites, about two and a half minutes. `/check-eval` is the command form.
 
 **It is deliberately OUTSIDE `CheckAll`'s tiers.** Every check in that suite
 guards a rule; this one guards nothing — a green verdict means the scripts RAN,

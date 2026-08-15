@@ -100,6 +100,7 @@ constexpr BalanceField kBalanceFields[] = {
 	{"water_cond_cap", &Balance::waterCondCap},
 	{"water_exertion", &Balance::waterExertion},
 	{"thirst_damage", &Balance::thirstDamage},
+	{"rest_scale", &Balance::restScale},
 	{"stamina_swing", &Balance::staminaSwing},
 	{"stamina_weight", &Balance::staminaWeight},
 	{"stamina_step", &Balance::staminaStep},

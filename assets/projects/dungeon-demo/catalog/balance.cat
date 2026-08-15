@@ -68,6 +68,13 @@ water_cond_slope = 0.0003
 water_cond_cap = 0.0056
 water_exertion = 0.15
 thirst_damage = 0.8
+
+; Rest: how much faster the world runs while the party rests. ONE knob, and it
+; multiplies TIME rather than any rate -- health, stamina, mana, food, water,
+; effect timers, monster cooldowns and the AI's cadence all accelerate together,
+; so no second set of resting rates can drift from the ordinary ones.
+; 60 = a minute of dungeon time per second of watching.
+rest_scale = 60
 stamina_swing = 1
 stamina_weight = 0.4
 stamina_step = 0.1

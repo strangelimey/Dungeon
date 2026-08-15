@@ -1094,7 +1094,14 @@ void Game::Update(float dt) {
 		m_pokeScratch = std::make_unique<u32>(m_framesRendered);
 	}
 
-	const float wdt = dt * m_timeScale; // world dt (dev console `timescale`)
+	// World dt: the dev console's `timescale`, times the REST multiplier
+	// (docs/health-and-healing.md). Rest is folded in HERE, at the one place the
+	// world's clock is set, rather than into any particular rate — which is what
+	// makes "rest is a time multiplier, not a regen multiplier" true of the code
+	// and not just of the doc. Health, supplies, effect timers, monster
+	// cooldowns and the AI's own cadence all accelerate together because they
+	// all read this number.
+	const float wdt = dt * m_timeScale * m_world.RestTimeScale();
 	m_time += wdt;
 
 	// A language picked last frame applies now, before any widget updates —
@@ -1557,6 +1564,10 @@ void Game::Update(float dt) {
 
 	Party& party = m_world.GetParty();
 	m_ui.SetHudStatus(party);
+	// The Rest button's face, from the world rather than from its own callback:
+	// rest ends by itself as often as by a click, so the label has to follow the
+	// state and not the input that usually causes it.
+	m_ui.SetResting(m_world.Resting());
 }
 
 // ============================================================================

@@ -889,6 +889,10 @@ void DungeonWorld::UpdateMonsters(float dt) {
 	// A DoT tick can down (or finish) the last standing member — the wipe
 	// latch must notice without a monster swinging.
 	if (m_roster) CheckPartyWipe();
+	// The two ways rest ends by itself (deprivation, or nothing left to gain).
+	// After the supply and regen ticks, so it judges this frame's state rather
+	// than the last one's.
+	UpdateRest();
 
 	// Re-derive groups from current co-location (monsters sharing a cell are one
 	// group — merge/split as they converge/spread), then assign formation targets

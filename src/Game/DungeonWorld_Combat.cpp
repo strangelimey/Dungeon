@@ -47,6 +47,13 @@ DungeonWorld::Fall DungeonWorld::WoundMember(Character& target, float damage,
 	if (!quiet) {
 		target.hitFlash = kHitFlashSeconds;
 		target.hitSeverity = damage < 5.0f ? 0 : (damage < 10.0f ? 1 : 2);
+		// A BLOW BREAKS REST, and `quiet` is exactly the right line to draw it
+		// on: it is set for a Tick, so a poison or a burn does NOT wake the
+		// party — you can rest through those, and they simply cost you — while
+		// anything swung, shot or dropped on you does. Being hit while the world
+		// runs at 60x is how a rest becomes a wipe with no input, which is the
+		// one thing a state with no duration has to defend against.
+		BreakRest("attacked", "log.rest_attacked");
 	}
 	if (target.IsAlive()) return Fall::None;
 	target.stabilize = 0.0f; // the wound that downed them restarts the clock
@@ -166,6 +173,76 @@ void DungeonWorld::GrantResourceXp(Character& member, resource::Kind kind,
 	const int before = member.SkillLevel(skill);
 	GrantSkillXp(member, skill, points * rate, {});
 	if (member.SkillLevel(skill) != before) member.RecomputeMaxima(m_balance.Resources());
+}
+
+// --- rest (docs/health-and-healing.md "Rest is a STATE") ---------------------
+// Entering rest does two things, and the second is the one that matters.
+//
+// THE AI GOES INTO LOCKSTEP, and this is not a convenience — it is what makes
+// rest safe to build at all. `ai::AsyncDirector` paces its bucket workers in
+// WALL-CLOCK milliseconds, so running the world 60x faster would give a monster
+// 1/60th as many chances to think per simulated second. It would still MOVE and
+// still SWING (execution is per-frame and cooldowns tick with dt) — it would
+// simply be walking a stale path toward where the party used to be. That is the
+// exact failure the eval harness already paid for once: a stale-but-plausible
+// behaviour is far worse than a dead one, because nothing about it looks wrong.
+//
+// Lockstep runs each bucket's thinking inline off SIM time, so it thinks as
+// often per simulated second at 60x as at 1x. The mode built to make the
+// harness reproducible turns out to be the thing that makes a fast-forward
+// honest — and the danger the design wants from "the world runs while you rest"
+// is real rather than decorative.
+//
+// The PREVIOUS mode is remembered rather than assumed: an eval run may already
+// be in lockstep, and rest must hand it back what it found.
+void DungeonWorld::SetResting(bool on) {
+	if (on == m_resting) return;
+	if (on) {
+		m_restLockstep = LockstepAI();
+		SetLockstepAI(true);
+	} else {
+		SetLockstepAI(m_restLockstep);
+	}
+	m_resting = on;
+	// "woken" is the default reason — a plain click on the button. A caller with
+	// a better one (BreakRest) overwrites it immediately after.
+	if (!on) m_restEndReason = "woken";
+	onMessage(loc::Tr(on ? "log.rest_begin" : "log.rest_end"));
+}
+
+void DungeonWorld::BreakRest(const char* reason, const char* reasonKey) {
+	if (!m_resting) return;
+	SetResting(false);
+	m_restEndReason = reason;
+	onMessage(loc::Tr(reasonKey));
+}
+
+// The reasons rest ends WITHOUT the player saying so. There are only two, and
+// both exist to stop the state quietly costing something.
+void DungeonWorld::UpdateRest() {
+	if (!m_resting || !m_roster) return;
+	// 1. DEPRIVATION. Resting while a meter is empty spends health to pass time
+	//    you are already losing health for — the one configuration where the
+	//    state is purely harmful. You have to eat first.
+	for (const Character& member : *m_roster)
+		if (member.FindEffect("starving") || member.FindEffect("parched")) {
+			BreakRest("hungry", "log.rest_hungry");
+			return;
+		}
+	// 2. FULLY RECOVERED. Continuing past this point burns food and water for
+	//    nothing at all, and the player cannot see the instant it stops paying.
+	//    Only members who are STANDING count: a downed one recovers through the
+	//    stabilize clock first, so resting through that wait is exactly what the
+	//    state is for, and a DEAD one would never be full and would rest forever.
+	bool anyStanding = false, allFull = true;
+	for (const Character& member : *m_roster) {
+		if (!member.IsAlive()) continue;
+		anyStanding = true;
+		if (member.health < member.maxHealth || member.stamina < member.maxStamina ||
+			member.mana < member.maxMana)
+			allFull = false;
+	}
+	if (anyStanding && allFull) BreakRest("recovered", "log.rest_done");
 }
 
 // --- supplies (docs/health-and-healing.md "Food and water") ------------------
