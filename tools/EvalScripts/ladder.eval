@@ -30,7 +30,7 @@
 ; The `arena` line prints what it actually carved; check it against those.
 
 logecho on
-newgame
+reset
 timescale 0
 lockstep on
 seed 31

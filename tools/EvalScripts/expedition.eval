@@ -58,7 +58,7 @@
 ; player's, which is why this is the one reported.
 
 logecho on
-newgame
+reset
 timescale 0
 lockstep on
 seed 31

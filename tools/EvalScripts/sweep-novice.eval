@@ -6,7 +6,7 @@
 ; grep them out and compare distributions across a knob change.
 
 logecho on
-newgame
+reset
 timescale 0
 lockstep on
 

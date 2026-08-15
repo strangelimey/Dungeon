@@ -286,6 +286,20 @@ Key conventions (memorize, they bite):
   TRAP: any dev command that seeds a SKILL must re-derive — `setskill` wrote xp
   and nothing else, which since P1 leaves a conditioned member with a novice's
   bars and the old walking pace. Same lesson `setstat` learned.
+  THE HARNESS RECYCLES THE WORLD rather than reloading it: `-eval a b c` runs
+  many scripts in ONE process, and `reset` puts the world where `newgame` would
+  in ~340 ms against a ~12 s level load (the load is models/textures, cached
+  after the first). Ten suites: 155 s → 38 s. `reset` is a directive a SCRIPT
+  calls — a specific test opens with it, a PROGRESSION series deliberately does
+  not and inherits the last one's party. Its definition is "where a new game
+  would leave it" BECAUSE that can be tested: `Eval.ps1 -SelfTest` diffs a
+  baseline taken after a real load against one after a reset, and also checks a
+  batched suite matches a solo one. TRAPS, all found the hard way: the first
+  reset skipped the MAP and the equivalence test passed anyway (nothing it
+  printed showed geometry — `mapinfo`'s walkable count is now the only readout
+  that can see an arena); `ReadEvalLines` APPENDS, so a batch re-ran every
+  earlier script and merely took longer; and `ResetForEval` must go through
+  `m_ui.onStartNewGame`, never `StartNewGame()` (P2's cold-boot HUD crash).
   MEASURED by the `expedition` eval suite (fight → retreat → `rest until` →
   repeat): three full recover cycles cost 2.9 food / 5.2 water of 100, so a load
   buys ~55 fights — and the party dies to DIFFICULTY long first. Supplies are

@@ -20,7 +20,7 @@
 ; them, and their deaths are not what is being measured here.
 
 logecho on
-newgame
+reset
 timescale 0
 lockstep on
 seed 5

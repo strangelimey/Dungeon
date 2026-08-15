@@ -9,7 +9,7 @@
 ; line PRINTS its bounds so a log reader can confirm they were what was assumed.
 
 logecho on
-newgame
+reset
 timescale 0
 lockstep on
 seed 11

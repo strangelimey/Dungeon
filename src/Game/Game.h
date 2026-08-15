@@ -139,15 +139,24 @@ public:
 	// Returns false if the file could not be read — the caller should not then
 	// sit at the title screen forever pretending to be a test run.
 	bool LoadEvalScript(const std::string& path);
+	// Append a script to run AFTER the current one, in the same process. This is
+	// what makes a long run affordable: a level load is ~12 seconds against a
+	// `reset`'s ~340 ms, so one process running twenty scripts costs one load
+	// instead of twenty (docs/eval-harness.md "Recycling the world").
+	//
+	// The runner does NOT reset between scripts — a script says `reset` when it
+	// wants a clean baseline, and a progression series deliberately does not
+	// (Michael's call). Queueing is therefore purely "run these in order".
+	void QueueEvalScript(const std::string& path) { m_evalPending.push_back(path); }
 	// True while a queued script still has lines to run.
 	bool EvalRunning() const { return m_evalIndex < m_evalLines.size(); }
-	// The process exit code a scripted run should return: 0 when every line
-	// matched a command AND the queue emptied, 1 otherwise. An ordinary play
+	// The process exit code a scripted run should return: 0 when every script
+	// finished with every line matching a command, 1 otherwise. An ordinary play
 	// session loaded no script and is always 0 — checked FIRST, because
 	// "finished" is false for it too and it must not read as a failed run.
 	int EvalExitCode() const {
-		if (m_evalName.empty()) return 0; // no script: not a test run
-		return m_evalUnknown == 0 && m_evalFinished ? 0 : 1;
+		if (m_evalName.empty() && m_evalScripts == 0) return 0; // not a test run
+		return m_evalFailed == 0 && m_evalFinished ? 0 : 1;
 	}
 
 private:
@@ -290,13 +299,21 @@ private:
 	std::vector<std::string> m_evalLines; // the queued script, comments stripped
 	size_t m_evalIndex = 0;               // next line to run
 	int m_evalUnknown = 0;                // lines that matched no command
-	bool m_evalFinished = false;          // the queue emptied (vs timed out)
+	bool m_evalFinished = false;          // the LAST script emptied (vs timed out)
 	std::string m_evalName;               // the script's filename, for the verdict
 	std::string m_evalDir;                // its folder — what `include` resolves against
-	// Wall-clock seconds the whole run may take. A script that waits on a load
-	// which never completes would otherwise hang a machine with no window worth
-	// looking at and no way to tell it went wrong.
-	float m_evalDeadline = 600.0f;
+	// Scripts still to run in THIS process, in order. Popped by PumpEvalScript
+	// when the current one empties, instead of quitting.
+	std::vector<std::string> m_evalPending;
+	int m_evalScripts = 0; // how many have run, for the summary
+	int m_evalFailed = 0;  // how many came back FAIL — the exit code reads this
+	// Wall-clock seconds ONE SCRIPT may take, re-armed by LoadEvalScript. Per
+	// script rather than per run, because a batch of twenty is deliberately
+	// long-lived and a whole-run budget would either strangle it or stop
+	// catching the hang it exists for. A script waiting on a load that never
+	// completes would otherwise hang a machine with no window worth looking at.
+	static constexpr float kEvalScriptTimeout = 600.0f;
+	float m_evalDeadline = kEvalScriptTimeout;
 	bool RunLoadTasks();       // executes one task per frame; true when done
 	// Dumps the finished queue's per-task time/allocation table to the log —
 	// once as the last task lands, and again on demand (`loadstats`, which also

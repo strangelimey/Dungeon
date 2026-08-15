@@ -16,7 +16,7 @@
 ;      existing overkill rule, with no separate death path written.
 
 logecho on
-newgame
+reset
 
 timescale 0
 lockstep on

@@ -77,22 +77,37 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
 
 	game::Game game(window, device, renderer, spriteBatch, audioEngine);
 
-	// `-eval <script>`: run a console script and exit with its verdict instead of
-	// waiting for someone to play. Read HERE rather than up with the display
-	// settings because the script is the Game's to own — nothing earlier could
-	// hold it. A script that fails to LOAD is fatal on the spot: a "test run"
-	// that silently sat at the title screen would report whatever the harness
-	// assumed rather than what happened.
+	// `-eval <script> [script...]`: run console scripts and exit with their
+	// verdict instead of waiting for someone to play. Read HERE rather than up
+	// with the display settings because the scripts are the Game's to own —
+	// nothing earlier could hold them.
+	//
+	// SEVERAL SCRIPTS RUN IN ONE PROCESS, which is the whole point: a dungeon
+	// load is ~12 seconds and a `reset` is ~340 ms, so twenty scripts in one
+	// process pay one load instead of twenty (docs/eval-harness.md). Every
+	// non-flag argument after `-eval` is a script, and `-eval` may be repeated.
+	//
+	// THE FIRST script failing to LOAD is fatal on the spot: a "test run" that
+	// silently sat at the title screen would report whatever the harness assumed
+	// rather than what happened. A LATER one failing is handled by the runner,
+	// which counts it and carries on with the rest.
 	{
 		int argc = 0;
 		LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
-		bool bad = false;
-		for (int i = 1; argv && i + 1 < argc; ++i) {
+		bool bad = false, first = true;
+		for (int i = 1; argv && i < argc; ++i) {
 			if (std::wstring_view(argv[i]) != L"-eval") continue;
-			const std::wstring wide(argv[i + 1]);
-			const std::string path(wide.begin(), wide.end()); // ASCII paths only
-			bad = !game.LoadEvalScript(path);
-			break;
+			// Consume every following argument that is not itself a flag.
+			for (int j = i + 1; j < argc && argv[j][0] != L'-'; ++j) {
+				const std::wstring wide(argv[j]);
+				const std::string path(wide.begin(), wide.end()); // ASCII paths only
+				if (first) {
+					bad = !game.LoadEvalScript(path);
+					first = false;
+				} else {
+					game.QueueEvalScript(path);
+				}
+			}
 		}
 		if (argv) LocalFree(argv);
 		if (bad) return 2; // distinct from a FAILING script: this one never ran

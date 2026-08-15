@@ -737,7 +737,16 @@ bool Game::LoadGame(const std::string& path) {
 // Returns false only if it could not get to a playing state at all.
 bool Game::ResetForEval() {
 	if (!m_gameLoaded) {
-		StartNewGame(); // the first test in a batch: nothing to recycle yet
+		// THE FIRST TEST IN A BATCH: nothing to recycle, so run a real new game
+		// — THROUGH THE UI CALLBACK, not StartNewGame(). From a cold boot the HUD
+		// has never been built (it is a load task), and setting AppState::Playing
+		// with no widgets crashed the very first unattended eval run. The
+		// callback is where the "already loaded, or load first?" decision lives.
+		// (This function reached for StartNewGame first and re-introduced it; the
+		// lesson is docs/eval-harness.md P2's — a dev path that duplicates a UI
+		// action drifts from it.)
+		if (!m_ui.onStartNewGame) return false;
+		m_ui.onStartNewGame();
 		return true;
 	}
 	m_world.ResetForEval();
@@ -939,10 +948,22 @@ std::string Game::ResolveEvalPath(std::string_view spec) const {
 }
 
 bool Game::LoadEvalScript(const std::string& path) {
+	// CLEAR FIRST. ReadEvalLines APPENDS — which is right for `include`, its
+	// other caller, and wrong here: without this a batch's second script ran the
+	// first one again ahead of itself, the third ran both, and the tenth ran all
+	// ten. It came back PASS every time and simply took longer, which is the only
+	// reason it was caught (the cumulative `lines=` in the verdicts).
+	m_evalLines.clear();
 	if (!ReadEvalLines(path, m_evalLines)) return false;
 	const std::filesystem::path p(path);
 	m_evalName = p.filename().string();
 	m_evalDir = p.parent_path().string(); // what `include` resolves against
+	// PER-SCRIPT state, reset here rather than at the call site — this is also
+	// the mid-batch entry point, and a second script inheriting the first's
+	// line index would start half way through itself.
+	m_evalIndex = 0;
+	m_evalUnknown = 0;
+	m_evalDeadline = kEvalScriptTimeout; // the budget is per script, not per run
 	// Mirroring is forced ON rather than left to the script: a run whose author
 	// forgot the line would produce no readable record of itself, which is the
 	// one outcome a harness must not have.
@@ -952,16 +973,41 @@ bool Game::LoadEvalScript(const std::string& path) {
 }
 
 void Game::PumpEvalScript(float dt) {
-	if (m_evalLines.empty() || m_evalFinished) return;
+	// NOT `m_evalLines.empty()`: an empty script has to reach the completion
+	// branch below and hand the batch on, or one blank file stalls the whole run
+	// until the timeout.
+	if (m_evalFinished || m_evalName.empty()) return;
 	m_evalDeadline -= dt;
 
 	if (m_evalIndex >= m_evalLines.size()) {
 		// THE VERDICT, in the house format every other checker in this project
-		// emits, so one reader handles them all.
-		m_evalFinished = true;
+		// emits, so one reader handles them all. ONE PER SCRIPT — a batch that
+		// reported only at the end would make a reader count lines to work out
+		// which of twenty scripts went wrong.
+		++m_evalScripts;
+		if (m_evalUnknown != 0) ++m_evalFailed;
 		log::Info("eval RESULT={} script={} lines={} unknown={}",
 				  m_evalUnknown == 0 ? "PASS" : "FAIL", m_evalName,
 				  m_evalLines.size(), m_evalUnknown);
+		// NEXT SCRIPT IN THE SAME PROCESS, if there is one — the whole point of
+		// the batch form. Deliberately WITHOUT a reset: the script decides
+		// whether it wants a clean baseline (`reset` at the top) or to inherit
+		// what the last one left, which is how a progression series is written.
+		if (!m_evalPending.empty()) {
+			const std::string next = m_evalPending.front();
+			m_evalPending.erase(m_evalPending.begin());
+			if (LoadEvalScript(next)) return;
+			// Unreadable mid-batch. Counted as a failure and the run CARRIES ON:
+			// the remaining scripts are still worth measuring, and stopping here
+			// would lose them to a typo in one filename.
+			++m_evalScripts;
+			++m_evalFailed;
+			log::Error("eval RESULT=FAIL script={} — could not be read", next);
+			if (!m_evalPending.empty()) return; // try the rest next frame
+		}
+		m_evalFinished = true;
+		log::Info("eval BATCH RESULT={} scripts={} failed={}",
+				  m_evalFailed == 0 ? "PASS" : "FAIL", m_evalScripts, m_evalFailed);
 		m_quitRequested = true; // a batch run exits; nobody is watching the window
 		return;
 	}
@@ -972,7 +1018,18 @@ void Game::PumpEvalScript(float dt) {
 				   "line {} ('{}')",
 				   m_evalName, m_evalLines.size(), m_evalUnknown, m_evalIndex + 1,
 				   m_evalLines[m_evalIndex]);
+		// A TIMEOUT ENDS THE WHOLE BATCH, unlike an unreadable script. Something
+		// is wedged — a load that never finished, a state the script cannot get
+		// out of — and the remaining scripts would inherit it, so they would not
+		// be measuring what they claim. Better one honest failure than twenty
+		// plausible ones.
+		++m_evalScripts;
+		++m_evalFailed;
+		log::Error("eval BATCH RESULT=FAIL scripts={} failed={} — abandoned after "
+				   "a timeout ({} script(s) never ran)",
+				   m_evalScripts, m_evalFailed, m_evalPending.size());
 		m_quitRequested = true;
+		m_evalPending.clear();
 		m_evalLines.clear();
 		return;
 	}

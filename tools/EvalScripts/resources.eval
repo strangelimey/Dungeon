@@ -13,7 +13,7 @@
 ;      to protect — creep NO stat while doing it.
 
 logecho on
-newgame
+reset
 
 timescale 0
 lockstep on

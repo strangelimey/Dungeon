@@ -5,14 +5,18 @@
 ;
 ; It starts at the TITLE SCREEN, so the first job is getting into a world. The
 ; runner holds each line back while a staged load is in flight, so there is no
-; wait directive here and nothing to tune — `newgame` is simply followed by the
+; wait directive here and nothing to tune — `reset` is simply followed by the
 ; next line once the world actually exists.
+;
+; `reset` rather than `newgame`: as the FIRST script in a process it loads (there
+; is nothing to recycle), and as a later one in a batch it recycles in ~340 ms
+; instead of reloading in ~12 s. Every suite opens this way now.
 
 logecho on
 state
 
 ; Into a world. The lines after this one wait for the load by themselves.
-newgame
+reset
 state
 
 ; THE TWO RULES (docs/eval-harness.md "Driving it"). timescale 0 means normal

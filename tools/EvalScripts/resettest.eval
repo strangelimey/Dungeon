@@ -21,13 +21,16 @@
 ; either side, exactly as a real suite would.)
 
 logecho on
-newgame
+reset
 timescale 0
 lockstep on
 
 ; --- the baseline, after a real new game -------------------------------------
 seed 7
-echo === BASELINE A (after newgame) ===
+; The FIRST `reset` above was a real load — nothing was loaded to recycle — so
+; this baseline is a genuine new game, and the one at the bottom is a recycle.
+; That is the comparison, and it is the same one either way round.
+echo === BASELINE A (after a real load) ===
 state
 party
 supplies
@@ -84,4 +87,6 @@ char 0
 ; probes above would show any of that. `mapinfo` prints the counts, and a
 ; walkability sample proves the CELLS came back and not just the records.
 mapinfo
-state
+; NOTHING after this line. The two baselines are compared line for line, so a
+; trailing readout here would make block B one longer than block A and fail the
+; check for a reason that has nothing to do with the reset.

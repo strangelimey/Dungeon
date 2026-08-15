@@ -7,7 +7,7 @@
 ; say what the seeding was worth.
 
 logecho on
-newgame
+reset
 timescale 0
 lockstep on
 

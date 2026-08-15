@@ -27,7 +27,7 @@
 ; after a rest is the evidence.
 
 logecho on
-newgame
+reset
 
 timescale 0
 lockstep on

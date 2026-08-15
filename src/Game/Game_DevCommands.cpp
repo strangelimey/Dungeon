@@ -1285,7 +1285,10 @@ void Game::RegisterDevCommands() {
 						   // toward that, the recycling has stopped being worth
 						   // its own risk and the reader should be able to see so.
 						   const auto t0 = std::chrono::steady_clock::now();
-						   ResetForEval();
+						   if (!ResetForEval()) {
+							   m_console.Print("reset: not wired yet");
+							   return;
+						   }
 						   const double ms =
 							   std::chrono::duration<double, std::milli>(
 								   std::chrono::steady_clock::now() - t0)

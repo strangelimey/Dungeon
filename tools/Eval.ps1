@@ -140,10 +140,60 @@ if ($SelfTest) {
 	$q = Start-Process -FilePath $exe -ArgumentList '-eval', $missing -PassThru -Wait
 	Write-Host ("  missing script exited {0} (want 2)" -f $q.ExitCode)
 
-	$ok = ($p.ExitCode -eq 1) -and ($q.ExitCode -eq 2)
+	# --- `reset` really equals a new game ------------------------------------
+	# The recycling the whole batch form rests on. resettest.eval takes a
+	# baseline after a real load, wrecks the world every way the harness can,
+	# resets, and takes it again; the two blocks must match line for line.
+	#
+	# It is HERE rather than in the suite list because it is not a measurement -
+	# nothing about it is a number to compare across knob changes. It is a check,
+	# and a check belongs with the other checks.
+	Write-Host ''
+	Write-Host '=== reset must equal a new game ==='
+	Start-Process -FilePath $exe -ArgumentList '-eval', (Join-Path $scripts 'resettest.eval') -Wait
+	$rt = @(Get-Content $log)
+	$blocks = @(@(), @())
+	$which = -1
+	foreach ($line in $rt) {
+		if ($line -match 'console: === BASELINE A') { $which = 0; continue }
+		if ($line -match 'console: === BASELINE B') { $which = 1; continue }
+		if ($line -match 'console: === wrecking')   { $which = -1; continue }
+		# Only the readouts, never the echoed commands that produced them.
+		if ($which -ge 0 -and $line -match '^\[info \] console: (?!> )(.+)$') {
+			$blocks[$which] += $Matches[1]
+		}
+	}
+	$diff = if ($blocks[0].Count -eq 0) { 'no baseline captured' }
+			elseif ($blocks[0].Count -ne $blocks[1].Count) { "line counts differ ($($blocks[0].Count) vs $($blocks[1].Count))" }
+			else {
+				$bad = @(0..($blocks[0].Count - 1) | Where-Object { $blocks[0][$_] -cne $blocks[1][$_] })
+				if ($bad.Count) { "$($bad.Count) line(s) differ, first: '$($blocks[0][$bad[0]])' vs '$($blocks[1][$bad[0]])'" } else { '' }
+			}
+	$resetOk = ($diff -eq '')
+	Write-Host ("  {0} baseline lines compared - {1}" -f $blocks[0].Count,
+		$(if ($resetOk) { 'identical' } else { $diff }))
+
+	# --- and BATCHING changes nothing ----------------------------------------
+	# A suite must measure the same thing whether it ran alone or after another.
+	# Without this the speedup could be quietly buying wrong numbers - which is
+	# the failure mode that matters, because it looks exactly like a fast run.
+	Write-Host ''
+	Write-Host '=== a batched suite must match a solo one ==='
+	$probe = Join-Path $scripts 'supplies.eval'
+	$grab = { @(Get-Content $log) | Where-Object { $_ -cmatch '^\[info \] console:   \[0\] Brand' } }
+	Start-Process -FilePath $exe -ArgumentList '-eval', $probe -Wait
+	$solo = & $grab
+	Start-Process -FilePath $exe -ArgumentList '-eval', (Join-Path $scripts 'resources.eval'), $probe -Wait
+	$batched = @(& $grab | Select-Object -Last $solo.Count)
+	$batchOk = ($solo.Count -gt 0) -and ($solo.Count -eq $batched.Count) -and
+			   -not @(0..($solo.Count - 1) | Where-Object { $solo[$_] -cne $batched[$_] }).Count
+	Write-Host ("  {0} lines compared - {1}" -f $solo.Count,
+		$(if ($batchOk) { 'identical batched and solo' } else { 'DIFFERENT' }))
+
+	$ok = ($p.ExitCode -eq 1) -and ($q.ExitCode -eq 2) -and $resetOk -and $batchOk
 	Write-Host ''
 	Write-Host ("eval RESULT={0} self_test=1" -f $(if ($ok) { 'PASS' } else { 'FAIL' }))
-	if ($ok) { Write-Host 'the runner correctly reported both failures' }
+	if ($ok) { Write-Host 'the runner reports both failures, and recycling changes nothing' }
 	else { Write-Host 'A RUNNER THAT CANNOT FAIL MEANS NOTHING' -ForegroundColor Red }
 	exit $(if ($ok) { 0 } else { 1 })
 }
@@ -151,45 +201,72 @@ if ($SelfTest) {
 $run = if ($Only.Count -gt 0) { $suites | Where-Object { $Only -contains $_.name } } else { $suites }
 if (-not $run) { Write-Host "eval: nothing matched -Only"; exit 2 }
 
+# ONE PROCESS FOR EVERY SUITE. A dungeon load is ~12 seconds and a `reset` is
+# ~340 ms, so ten suites in one process pay one load instead of ten - measured
+# 155s -> 37s. Each script opens with `reset`, which loads for the first one in
+# the batch and recycles for the rest (docs/eval-harness.md).
+$paths = @($run | ForEach-Object { Join-Path $scripts $_.script })
+$t0 = Get-Date
+$p = Start-Process -FilePath $exe -ArgumentList (@('-eval') + $paths) -PassThru -Wait
+$totalSecs = [int]((Get-Date) - $t0).TotalSeconds
+
+# THE MEASUREMENT. Read back from dungeon.log rather than captured from the
+# process: the game writes there, and it is the same file a human opens after a
+# run. One source, so the harness cannot show something the log does not
+# (docs/eval-harness.md - `logecho`).
+#
+# With one process the log holds every suite's output end to end, so it is split
+# on the runner's own markers - `eval: 'x' queued` opens a section and
+# `eval RESULT=... script=x` closes it. Splitting on the RUNNER's lines rather
+# than on the suites' own echoes means a suite cannot break the split by
+# printing something that looks like a header.
+$logLines = @(Get-Content $log)
+$section = @{}
+$verdicts = @{}
+$current = $null
+foreach ($line in $logLines) {
+	if ($line -match "^\[info \] eval: '([^']+)' queued") { $current = $Matches[1]; $section[$current] = @() ; continue }
+	if ($line -match '^\[(info |ERROR)\] eval RESULT=(\w+) script=(\S+)') { $verdicts[$Matches[3]] = $Matches[2]; $current = $null; continue }
+	if ($current) { $section[$current] += $line }
+}
+
 $failed = 0
 $results = @()
 foreach ($s in $run) {
-	$path = Join-Path $scripts $s.script
 	if (-not $Table) {
 		Write-Host ''
 		Write-Host ('=' * 78)
 		Write-Host ("{0} - {1}" -f $s.name, $s.what)
 		Write-Host ('=' * 78)
 	}
-	$t0 = Get-Date
-	$p = Start-Process -FilePath $exe -ArgumentList '-eval', $path -PassThru -Wait
-	$secs = [int]((Get-Date) - $t0).TotalSeconds
-	$verdict = if ($p.ExitCode -eq 0) { 'PASS' } else { 'FAIL' }
-	if ($p.ExitCode -ne 0) { $failed++ }
+	# A suite whose section is MISSING never ran - the batch was abandoned by a
+	# timeout, say. That has to read as a failure and not as a quiet blank.
+	$verdict = if ($verdicts.ContainsKey($s.script)) { $verdicts[$s.script] } else { 'NOTRUN' }
+	if ($verdict -ne 'PASS') { $failed++ }
 
-	# THE MEASUREMENT. Read back from dungeon.log rather than captured from the
-	# process: the game writes there, and it is the same file a human opens
-	# after a run. One source, so the harness cannot show something the log does
-	# not (docs/eval-harness.md - `logecho`).
-	if ($s.measure) {
+	if ($s.measure -and $section.ContainsKey($s.script)) {
 		if ($Table) { Write-Host ''; Write-Host ("--- {0} ---" -f $s.name) }
 		# CASE-SENSITIVE on purpose: `TALLY` is the result and `tally reset` is
 		# the command that begins a rung. Without this the table carries a line
 		# of bookkeeping for every measurement it prints.
-		Select-String -Path $log -CaseSensitive -Pattern ("^\[info \] console: ({0})" -f $s.measure) |
-			ForEach-Object { Write-Host ('  ' + ($_.Line -replace '^\[info \] console: ', '')) }
+		$section[$s.script] |
+			Where-Object { $_ -cmatch ("^\[info \] console: ({0})" -f $s.measure) } |
+			ForEach-Object { Write-Host ('  ' + ($_ -replace '^\[info \] console: ', '')) }
 	}
-	$results += [pscustomobject]@{ Name = $s.name; Verdict = $verdict; Seconds = $secs }
+	$results += [pscustomobject]@{ Name = $s.name; Verdict = $verdict }
 }
 
 Write-Host ''
 Write-Host ('=' * 78)
 foreach ($r in $results) {
-	Write-Host ("  {0,-8} {1,-6} {2,4}s" -f $r.Name, $r.Verdict, $r.Seconds)
+	Write-Host ("  {0,-12} {1}" -f $r.Name, $r.Verdict)
 }
 Write-Host ''
-Write-Host ("eval RESULT={0} suites={1} failures={2} self_test=0" -f `
-	$(if ($failed -eq 0) { 'PASS' } else { 'FAIL' }), $results.Count, $failed)
+# ONE total rather than a column of per-suite times: they all ran in one process
+# now, so a per-suite wall clock would be a number the harness cannot honestly
+# produce. The load is paid once and shows up in whichever suite went first.
+Write-Host ("eval RESULT={0} suites={1} failures={2} seconds={3} self_test=0" -f `
+	$(if ($failed -eq 0) { 'PASS' } else { 'FAIL' }), $results.Count, $failed, $totalSecs)
 if ($failed -eq 0) {
 	Write-Host 'every suite ran; the NUMBERS above are the result, not this line'
 }

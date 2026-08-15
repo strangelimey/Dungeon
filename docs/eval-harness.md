@@ -448,7 +448,7 @@ the game itself cannot perform.
 .	ools\Eval.ps1 -SelfTest    # the runner must FAIL on purpose
 ```
 
-Ten suites, about three minutes. `/check-eval` is the command form.
+Ten suites in ONE PROCESS, about 40 seconds. `/check-eval` is the command form.
 
 **It is deliberately OUTSIDE `CheckAll`'s tiers.** Every check in that suite
 guards a rule; this one guards nothing — a green verdict means the scripts RAN,
@@ -548,6 +548,64 @@ STANDING members, so a fight that left one member down and the others unhurt
 ended the rest after 0.02 seconds and walked away, reporting `recovered`. The
 unconscious are recoverable and waiting for them is one of the things resting is
 FOR; only the DEAD are excluded now.
+
+## Recycling the world: one process, many scripts
+
+Built when Michael asked for runs lasting hours. **Measured first**, because the
+whole thing turns on one number: a dungeon load is **11,900 ms** and a suite took
+14–18 s, so about **80% of an eval run was loading the same level ten times.**
+
+`reset` is the answer — *put the world where `newgame` would, without the load*.
+It costs **338 ms**, a 35× saving, because the twelve seconds are models,
+textures and icons and those are cached by the time a second script asks. Ten
+suites went from ~155 s to **38 s**.
+
+**It is a directive a script CALLS, not something the runner imposes.** Michael's
+call and the right shape: a suite testing something specific opens with `reset`;
+one measuring PROGRESSION across a series deliberately does not, and inherits
+whatever the last one left. `-eval a.eval b.eval …` queues them in one process,
+each with its own `RESULT=` line and a `BATCH RESULT=` at the end.
+
+Two failure policies differ on purpose. A script that cannot be READ mid-batch is
+counted and the run **carries on** — the rest are still worth measuring, and one
+typo should not cost them. A **timeout ends the batch**: something is wedged, the
+remaining scripts would inherit it, and one honest failure beats twenty plausible
+ones.
+
+### Why the definition is "where a new game would leave it"
+
+Because it is the only definition that can be TESTED. `resettest.eval` takes a
+baseline after a real load, wrecks the world every way the harness knows how,
+resets, and takes it again; the blocks must match line for line. Anything looser
+would be a promise nothing could check — and an incomplete reset is the worst
+defect available here: it does not crash, it prints nothing wrong, and every
+later suite in the run is quietly contaminated with entirely plausible numbers.
+This harness lost twelve ladder rungs to that exact shape once already.
+
+### Three defects the recycling work found, and the one worth remembering
+
+1. **The first `reset` did not restore the MAP — and the equivalence test passed
+   anyway.** `arena` walls every cell before carving and strips the map's own
+   fixtures, stairs, niches and decorations, so the world afterwards was still an
+   empty box with the authored monsters standing in rock. The check printed the
+   party, the supplies, the regen rates, the monsters and the skills, and **not
+   one of those shows map geometry.** *A test that does not look at the thing
+   that differs reports "identical" just as loudly as one that does* — and this
+   time it happened inside the check written to prevent it. `mapinfo` now carries
+   a static-layer fingerprint whose walkable-cell count is the only readout in
+   the harness that can see an arena.
+2. **A batch re-ran every earlier script.** `ReadEvalLines` APPENDS (right for
+   `include`, its other caller) so the second script ran the first ahead of
+   itself and the tenth ran all ten. It came back PASS every time and merely took
+   longer — visible only in the cumulative `lines=` counts.
+3. **`ResetForEval` reached for `StartNewGame()` directly**, re-introducing the
+   crash P2 fixed: from a cold boot the HUD has never been built. It goes through
+   `m_ui.onStartNewGame` like the `newgame` command does.
+
+`-SelfTest` now checks four things: a bad script exits 1, a missing one exits 2,
+**`reset` equals a new game**, and **a batched suite matches a solo one**. The
+last two are the ones that keep the speedup honest — mutation-checked by dropping
+the map restore, which they catch.
 
 ## Next
 
