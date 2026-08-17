@@ -992,7 +992,19 @@ void DungeonWorld::PartyTarget::Wound(float amount, fx::DamageEvent& ev) {
 	// line — a monster's blow, a blast, a DoT bite, a ward's reprisal. A tally
 	// hung off the attack sites would have missed four of those five.
 	m_world.m_harness.tally.taken += amount;
-	if (m_fall != Fall::None) ++m_world.m_harness.tally.membersDowned;
+	// ONCE PER MEMBER, not once per fall — see Tally::downedMask. The roster
+	// index is what identifies them; a slot past the mask's width is simply not
+	// counted rather than aliasing onto somebody else's bit.
+	if (m_fall != Fall::None) {
+		const int slot = m_world.MemberIndex(m_member);
+		if (slot >= 0 && slot < 8) {
+			const u8 bit = static_cast<u8>(1u << slot);
+			if ((m_world.m_harness.tally.downedMask & bit) == 0) {
+				m_world.m_harness.tally.downedMask |= bit;
+				++m_world.m_harness.tally.membersDowned;
+			}
+		}
+	}
 }
 
 // Fed rather than hurt: a member whose nature DRINKS this element (a resist

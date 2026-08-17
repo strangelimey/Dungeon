@@ -517,7 +517,15 @@ std::vector<std::string> DungeonWorld::MonsterList() const {
 		// cannot answer the question the console is usually open to answer — did
 		// that blow land, and did it leave anything behind. An effect's remaining
 		// seconds is the part that says it is still running.
-		std::string line = std::format("{} @ {},{}  hp {:.0f}",
+		// ONE DECIMAL, not none. These monsters ARE the blast suite's instrument
+		// — a row of fixed-hp probes whose remaining health reads the falloff off
+		// directly — and spells.cat states the numbers being checked to one
+		// decimal ("3.5 around, 17.5 at the feet"). Truncating to whole points
+		// made a nine-probe table carry up to +/-9 of accumulated rounding
+		// against a `dealt` of 71.2, which is 12% of the measurement
+		// (docs/eval-audit.md F20): one-decimal claims read with integer
+		// instruments.
+		std::string line = std::format("{} @ {},{}  hp {:.1f}",
 									   m.kind ? m.kind->name : "?", m.x, m.z, m.hp);
 		if (!m.Alive()) line += " (dead)";
 		for (const fx::Inst& e : m.effects)

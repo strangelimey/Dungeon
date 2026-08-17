@@ -1060,8 +1060,16 @@ void Game::RegisterDevCommands() {
 	// the bearer before you see the ward DO anything.
 	m_console.Register("effect", "apply a status effect to a member or the monster ahead (dev)",
 					   [this](const std::vector<std::string>& args) {
+						   // MAGNITUDE IS PER SECOND for a DoT, and the default
+						   // pair (8 for 60s) is therefore 480 damage against a
+						   // 42 hp member. Spelled out in the usage because the
+						   // argument order reads as "10 damage over 20 seconds"
+						   // and means almost the opposite: `effect bleed 0 10
+						   // 20` deals 200 and annihilates the party
+						   // (docs/eval-audit.md).
 						   if (!Need(m_console, args, 1,
-									 "usage: effect <id> [member 0-3 | ahead] [magnitude] [seconds]"))
+									 "usage: effect <id> [member 0-3 | ahead] "
+									 "[magnitude, PER SECOND for a DoT] [seconds]"))
 							   return;
 						   const float mag = args.size() > 2
 							   ? std::strtof(args[2].c_str(), nullptr) : 8.0f;
@@ -1746,6 +1754,24 @@ void Game::RegisterDevCommands() {
 							   return;
 						   }
 						   const DungeonWorld::Tally& t = m_world.GetHarness().tally;
+						   // WHAT THE FIELDS MEAN, because two of them were
+						   // guessed wrong by the audit that checked them
+						   // (docs/eval-audit.md):
+						   //
+						   //   dealt   post-mitigation damage delivered to
+						   //           monsters, INCLUDING the part that
+						   //           overshoots a kill. Measured: a blast
+						   //           doing 15.3 to a 6 hp target reports
+						   //           15.3, not 6. Against a survivor it
+						   //           reconciles exactly with the hp drop.
+						   //   taken   the same on the party's side, and it is
+						   //           PARTY-WIDE — a suite printing one
+						   //           member's health beside it is comparing
+						   //           two different populations.
+						   //   swings  the party's MELEE swings only, so a
+						   //           blast reports damage with zero swings
+						   //           and hitrate `n/a`.
+						   //   downed  distinct MEMBERS, not falls.
 						   const int swings = t.hits + t.misses;
 						   // ONE LINE, key=value, so a sweep's output can be
 						   // grepped and diffed without parsing prose. Damage is

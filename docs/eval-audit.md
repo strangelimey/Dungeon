@@ -692,7 +692,7 @@ recorded under "Tier 1, as built" below.
 13. **Widen the batch-equivalence check** (F26) to the same line set headless
     uses.
 
-### Tier 4 — precision
+### Tier 4 — precision — **DONE** (see "Tier 4, as built")
 
 14. **`monsters` should print hp to one decimal** (F20) so the blast suite can
     check one-decimal claims.
@@ -864,7 +864,7 @@ than fixed — they come from the harness's own console printing inside a guarde
 frame, which is the documented "must excuse itself" case. Visible and expected
 beats invisible; whether to excuse them is a separate question from this audit.
 
-Tier 4 is untouched. Tier 3 item 10 and Tier 2 are below.
+All four tiers are done; each is written up below.
 
 ---
 
@@ -990,7 +990,7 @@ every time" — which is the pair a blast table (`swings=0` by nature) sits righ
 next to. Parsers should read `[0-9.]+|n/a`; the responsiveness check excludes
 such samples from its average rather than counting them as zero.
 
-### F27 — a `^` inside a measure can never match (found while doing this)
+### F27 — a `^` inside a measure can never match (found while doing Tier 2)
 
 The filter is `^\[info \] console: (<measure>)`, so a caret inside the
 alternation asserts start-of-STRING in the middle of the pattern.
@@ -1005,6 +1005,61 @@ understanding: the suite's *other* alternatives still match, so the measure is
 not empty — only one branch of it is dead. A per-alternative check would be the
 fix; a comment at the table saying "the line is already anchored, just write the
 text" is what is there instead.
+
+---
+
+## Tier 4, as built (2026-08-17)
+
+### 14. `monsters` prints hp to one decimal
+
+The blast suite's probes ARE its instrument, and `spells.cat` states the numbers
+being checked to one decimal ("3.5 around, 17.5 at the feet"). They were being
+read with `{:.0f}`.
+
+The open-room case is the one that should reconcile exactly, since nothing dies
+there and so no overkill is in play:
+
+| | before | after |
+|---|---|---|
+| nine probes summed | 125 (as displayed) | **127.0** |
+| implied drop from 198 | 73, ±9 | **71.0** |
+| `dealt` | 71.2 | 71.2 |
+| disagreement | up to 9 (12%) | **0.2** |
+
+Four of the nine probes were sitting at `10.5` and displaying as `10`. The
+other three geometries still differ from `dealt` — by 3.4, 13.3 and 13.4 — and
+that is now readable as exactly what it is: overkill on the 1, 2 and 1 probes
+that died in each.
+
+### 15. `downed` counts members, not falls
+
+`Tally::downedMask`, one bit per roster slot, cleared with the rest of the
+struct by `tally reset`. A member who drops unconscious and is then killed sets
+the same bit twice and counts once.
+
+Demonstrated: one member bled to death reported `downed=2` before and reports
+`downed=1` now; the whole party reports `downed=4`, which is now bounded by the
+roster size and therefore interpretable at a glance.
+
+The roster index comes from `DungeonWorld::MemberIndex` — pointer arithmetic
+into the one `std::vector<Character>` both sides already share, so it needs no
+extra bookkeeping and cannot drift from the roster's order. No container, no
+allocation: the steady-state rule applies to this code path like any other.
+
+### 16. What the fields mean, written down
+
+At the `tally` print site, because two of them were guessed wrong by the audit
+that checked them: `dealt` includes overkill, `taken` is party-wide, `swings` is
+melee only, `downed` is members. And `effect`'s usage now says
+`[magnitude, PER SECOND for a DoT] [seconds]` — the argument order reads as "10
+damage over 20 seconds" and means 200.
+
+### What did not change, and why that is the answer
+
+The ten suites' numbers are otherwise identical across this change, and the
+`downed` figures in the current run happen to be the same because no member fell
+twice in them. That is the correct outcome: Tier 4 is a precision and naming
+pass, not a behaviour change. The probe is what proves the semantics moved.
 
 ### The pattern, three steps in
 
