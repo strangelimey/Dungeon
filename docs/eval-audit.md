@@ -624,6 +624,7 @@ same `PASS`. It belongs to F19 and F25, not to itself.
 | F24 | Report cannot show a `[warn ]` or `[ERROR]` line at all | honest | **high** |
 | F25 | "No measure", "regex matched nothing" and "printed nothing" look identical | honest | **high** |
 | F26 | Batch-equivalence check compares 14 lines; headless compares 161 | honest | medium |
+| F27 | A `^` inside a measure regex can never match — `expedition`'s `^state ` never printed a line | legible | medium |
 
 **Withdrawn:** F6 (`tiers` measures nothing after the wipe) — `tiers.eval` has
 a `heal` on the next line with a comment explaining precisely this, and it
@@ -666,7 +667,7 @@ recorded under "Tier 1, as built" below.
 5. **Assert the party is alive and `state playing` at the end of each script**
    (F19). One line per suite, or better, checked by the runner.
 
-### Tier 2 — make the report readable (medium work)
+### Tier 2 — make the report readable — **DONE** (see "Tier 2, as built")
 
 6. **Make the report capturable** (F2) — `Write-Output`, or a `-OutFile`. This
    is what unlocks diffing a knob change, which is the harness's stated purpose.
@@ -863,7 +864,7 @@ than fixed — they come from the harness's own console printing inside a guarde
 frame, which is the documented "must excuse itself" case. Visible and expected
 beats invisible; whether to excuse them is a separate question from this audit.
 
-Tiers 2 and 4 are untouched. Tier 3 item 10 is below.
+Tier 4 is untouched. Tier 3 item 10 and Tier 2 are below.
 
 ---
 
@@ -925,6 +926,85 @@ other's check green. The four rows are genuinely independent.
 
 `DungeonWorld_Combat.cpp` was confirmed byte-identical to HEAD afterwards and
 all four rows returned to ok.
+
+---
+
+## Tier 2, as built (2026-08-17)
+
+### 6. The report can be saved — `-OutFile`
+
+Every report line now goes through one `Say` helper that writes to the host
+(keeping the colour that makes a FAIL findable in 300 lines of numbers) **and**
+appends to a buffer that `-OutFile` writes out. `Write-Output` alone would have
+lost the colour; `Write-Host` alone was F2.
+
+The workflow this exists for, verified end to end:
+
+```
+.\tools\Eval.ps1 -Headless -Table -OutFile before.txt
+...edit balance.cat...
+.\tools\Eval.ps1 -Headless -Table -OutFile after.txt
+Compare-Object (gc before.txt) (gc after.txt)
+```
+
+Two identical runs diff to **exactly one line** — `seconds=`, which changes run
+to run on the same build and is documented at the call site as the line a
+reader should expect to differ.
+
+Written with `[IO.File]::WriteAllLines`, not `Set-Content`: PS 5.1's
+`-Encoding utf8` prepends a BOM, and a BOM makes the first line of every diff
+spurious. Verified — the file starts `13,10`, not `239,187,191`.
+
+### 7. Every suite says how much it suppressed
+
+`[16 of 110 lines shown; the rest is in dungeon.log]`. Across the ten suites the
+report shows roughly 30% of what the run produced, and that is where every
+integrity signal in this audit was hiding. One line per suite is what tells a
+reader there is a log worth opening.
+
+### 8. `smoke` and `arena` measure something
+
+Both had plenty to show and nobody had said so. `arena` now calls `mapinfo`
+after every carve, and **that immediately put F14 on the report**:
+
+| arena | printed "floor" bounds | actually walkable |
+|---|---|---|
+| `open 9x9` | 81 cells | 81 |
+| `corridor 11x1` | 11 | 11 |
+| `deadend 7x1` | 7 | 7 |
+| `tjunction 9x5` | 45 | **13** |
+
+So the bounding-box-labelled-floor problem is not confined to `room`: the
+t-junction names 45 cells as floor and carves 13.
+
+### 9. The two cosmetic defects
+
+`Get-Content -Encoding UTF8` (via one `ReadLog` helper) fixes the mojibake at
+the source — PS 5.1 defaults to the ANSI code page and the game writes UTF-8, so
+every em-dash was arriving as three characters. This fixes the DATA; how a
+console then draws it is the console's code page and not this script's business.
+
+`hitrate=n/a` replaces `hitrate=0.000` when nothing swung. A rate over no trials
+is undefined, not zero, and `0.000` made "never swung" identical to "missed
+every time" — which is the pair a blast table (`swings=0` by nature) sits right
+next to. Parsers should read `[0-9.]+|n/a`; the responsiveness check excludes
+such samples from its average rather than counting them as zero.
+
+### F27 — a `^` inside a measure can never match (found while doing this)
+
+The filter is `^\[info \] console: (<measure>)`, so a caret inside the
+alternation asserts start-of-STRING in the middle of the pattern.
+
+**`expedition` has carried `|^state ` since the day it was written and has never
+printed one `state` line.** With it fixed, the very first run shows `state menu`
+immediately after rung 4 — the wipe that F19 was about, now visible on the report
+instead of only in the verdict.
+
+The NOMEASURE check from Tier 1 cannot catch this, and that is worth
+understanding: the suite's *other* alternatives still match, so the measure is
+not empty — only one branch of it is dead. A per-alternative check would be the
+fix; a comment at the table saying "the line is already anchored, just write the
+text" is what is there instead.
 
 ### The pattern, three steps in
 

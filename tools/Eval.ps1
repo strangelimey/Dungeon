@@ -7,6 +7,17 @@
 #   .\tools\Eval.ps1 -SelfTest          # the runner must FAIL on purpose
 #   .\tools\Eval.ps1 -Table             # print ONLY the measurements
 #   .\tools\Eval.ps1 -Headless          # no window, no drawing
+#   .\tools\Eval.ps1 -OutFile before.txt # ...and SAVE it, to diff against later
+#
+# DIFFING TWO RUNS is the whole point of the numbers, and until -OutFile existed
+# there was no supported way to keep one: every line here goes to the host, so
+# `Eval.ps1 > before.txt` wrote an EMPTY FILE (docs/eval-audit.md F2). The shape
+# a knob change is measured in:
+#
+#   .\tools\Eval.ps1 -Headless -Table -OutFile before.txt
+#   ...edit balance.cat...
+#   .\tools\Eval.ps1 -Headless -Table -OutFile after.txt
+#   Compare-Object (gc before.txt) (gc after.txt)
 #
 # -Headless is NOT primarily a speed switch, and saying so up front saves
 # somebody measuring it hopefully: ten suites go 42s -> 37s, because the time is
@@ -49,6 +60,7 @@ param(
 	[switch]$SelfTest,
 	[switch]$Table,
 	[switch]$Headless,
+	[string]$OutFile = '',
 	[ValidateSet('debug', 'release')][string]$Config = 'debug'
 )
 
@@ -59,25 +71,69 @@ $scripts = Join-Path $root 'tools\EvalScripts'
 $exe = Join-Path $bin 'Dungeon.exe'
 $log = Join-Path $bin 'dungeon.log'
 
+# EVERY REPORT LINE GOES THROUGH HERE so the run can be both coloured on screen
+# and saved to a file. Write-Host alone cannot be redirected (that is F2) and
+# Write-Output alone loses the colour that makes a FAIL findable in 300 lines of
+# numbers, so this does both and -OutFile writes the buffer at the end.
+$transcript = New-Object System.Collections.Generic.List[string]
+function Say {
+	param([string]$Text = '', [string]$Colour = '')
+	$transcript.Add($Text) | Out-Null
+	if ($Colour) { Write-Host $Text -ForegroundColor $Colour } else { Write-Host $Text }
+}
+function SaveTranscript {
+	if (-not $OutFile) { return }
+	# WriteAllLines, not Set-Content: PS 5.1's -Encoding utf8 prepends a BOM, and
+	# a BOM in the first line makes the first line of every diff spurious.
+	$path = if ([IO.Path]::IsPathRooted($OutFile)) { $OutFile }
+			else { Join-Path (Get-Location).Path $OutFile }
+	[IO.File]::WriteAllLines($path, [string[]]$transcript)
+	Write-Host ("saved to {0} ({1} lines)" -f $OutFile, $transcript.Count) -ForegroundColor DarkGray
+}
+
+# READ THE LOG AS UTF-8. The game writes it as UTF-8 and PS 5.1's Get-Content
+# defaults to the ANSI code page, so every em-dash arrived as three characters
+# and the report could not be pasted anywhere (F10). This fixes the DATA; how a
+# console then draws it is the console's code page and not this script's
+# business - see the utf8-console-codepage note.
+function ReadLog { @(Get-Content $log -Encoding UTF8) }
+
 # ---------------------------------------------------------------------------
 # THE SUITES. `measure` is the regex whose matching log lines ARE the result -
 # what a reader compares across runs. A suite with no measure line is a smoke
 # test: it proves the machinery, and has nothing to say about balance.
+#
+# NEVER PUT `^` INSIDE A MEASURE. The filter is `^\[info \] console: (<measure>)`,
+# so a caret in the alternation asserts start-of-STRING in the middle of the
+# pattern and can never match. `expedition` carried `|^state ` from the day it
+# was written and has never printed one `state` line; the NOMEASURE check cannot
+# catch it either, because the suite's other alternatives still match. The line
+# is already anchored for you - just write the text.
 #
 # Only top-level scripts appear here. rungs\ and presets\ are FRAGMENTS pulled
 # in by `include`/`sweep`; running one on its own would start from whatever the
 # world happened to be in.
 # ---------------------------------------------------------------------------
 $suites = @(
+	# These two used to carry `measure = $null` and print a header over blank
+	# space. That was indistinguishable from a suite whose regex had stopped
+	# matching, and since the blank shape appeared on EVERY run a reader was
+	# trained to skim past exactly the shape that means the measurement is gone
+	# (docs/eval-audit.md F5/F25). Both had plenty to show; nobody had said so.
 	@{
 		name = 'smoke'; script = 'smoke.eval'
 		what = 'the runner drives the game unattended, start to finish'
-		measure = $null
+		measure = '--- |state |  \[[0-9]\] |  \w+ @ '
 	},
 	@{
 		name = 'arena'; script = 'arena.eval'
 		what = 'arenas carve, monsters spawn where asked, a fight resolves'
-		measure = $null
+		# `mapinfo`'s walkable count is the ONLY readout that can see an arena
+		# that failed to carve, which is exactly the blindness F15 walked
+		# through: a script places monsters inside bounds the `arena` line
+		# reported, two of the cells are rock, the spawns are refused and the
+		# rung measures a third of what its header claims.
+		measure = '--- |arena \w|\d+x\d+ map|  \w+ @ |no monsters'
 	},
 	@{
 		name = 'tiers'; script = 'tiers.eval'
@@ -117,7 +173,7 @@ $suites = @(
 	@{
 		name = 'expedition'; script = 'expedition.eval'
 		what = 'fight, retreat, rest, repeat - how many fights a load of supplies buys'
-		measure = '===|TALLY |rested [0-9.]+s|  \[0\] Brand|^state '
+		measure = '===|TALLY |rested [0-9.]+s|  \[0\] Brand|state '
 	}
 )
 
@@ -147,6 +203,13 @@ if (-not (Test-Path $exe)) {
 # stopped noticing anything at all.
 # ---------------------------------------------------------------------------
 if ($SelfTest) {
+	# -OutFile is for the MEASUREMENT report, which is the thing anybody diffs
+	# across a knob change. The self-test is a pass/fail artefact and its output
+	# is not comparable run to run, so it does not build a transcript - say so
+	# rather than write nothing and let the caller wonder.
+	if ($OutFile) {
+		Write-Host '-OutFile is ignored with -SelfTest (it saves the measurement report, not this)' -ForegroundColor Yellow
+	}
 	$bad = Join-Path $scripts 'selftest-bad.eval'
 	Write-Host ''
 	Write-Host '=== eval self-test: a bad script must FAIL ==='
@@ -171,7 +234,7 @@ if ($SelfTest) {
 	Write-Host ''
 	Write-Host '=== reset must equal a new game ==='
 	Start-Process -FilePath $exe -ArgumentList '-eval', (Join-Path $scripts 'resettest.eval') -Wait
-	$rt = @(Get-Content $log)
+	$rt = ReadLog
 	$blocks = @(@(), @())
 	$which = -1
 	foreach ($line in $rt) {
@@ -200,7 +263,7 @@ if ($SelfTest) {
 	Write-Host ''
 	Write-Host '=== a batched suite must match a solo one ==='
 	$probe = Join-Path $scripts 'supplies.eval'
-	$grab = { @(Get-Content $log) | Where-Object { $_ -cmatch '^\[info \] console:   \[0\] Brand' } }
+	$grab = { ReadLog | Where-Object { $_ -cmatch '^\[info \] console:   \[0\] Brand' } }
 	Start-Process -FilePath $exe -ArgumentList '-eval', $probe -Wait
 	$solo = & $grab
 	Start-Process -FilePath $exe -ArgumentList '-eval', (Join-Path $scripts 'resources.eval'), $probe -Wait
@@ -218,7 +281,7 @@ if ($SelfTest) {
 	# loader's frame counter already was, and only turned up because the load hung.
 	Write-Host ''
 	Write-Host '=== a headless run must match a windowed one ==='
-	$grabAll = { @(Get-Content $log) | Where-Object { $_ -cmatch '^\[info \] console: ' } }
+	$grabAll = { ReadLog | Where-Object { $_ -cmatch '^\[info \] console: ' } }
 	Start-Process -FilePath $exe -ArgumentList '-eval', $probe -Wait
 	$windowed = & $grabAll
 	Start-Process -FilePath $exe -ArgumentList '-headless', '-eval', $probe -Wait
@@ -246,14 +309,20 @@ if ($SelfTest) {
 	Start-Process -FilePath $exe -ArgumentList '-eval', (Join-Path $scripts 'respond.eval') -Wait
 	$arm = $null
 	$samples = @{}
-	foreach ($line in @(Get-Content $log)) {
+	foreach ($line in ReadLog) {
 		if ($line -cmatch '^\[info \] console: ARM (\S+)$') { $arm = $Matches[1]; $samples[$arm] = @(); continue }
+		# hitrate is `n/a` when nothing swung - a rate over no trials is undefined,
+		# not zero. Such a sample contributes its damage and its downs but must
+		# not drag a hit-rate average toward 0, so Rate is $null and the average
+		# below skips it.
 		if ($arm -and $line -cmatch ('^\[info \] console: TALLY dealt=([0-9.]+) taken=([0-9.]+) ' +
-									 'swings=(\d+) hits=(\d+) misses=(\d+) hitrate=([0-9.]+) ' +
+									 'swings=(\d+) hits=(\d+) misses=(\d+) hitrate=([0-9.]+|n/a) ' +
 									 'crits=(\d+) fumbles=(\d+) slain=(\d+) downed=(\d+)')) {
 			$samples[$arm] += [pscustomobject]@{
 				Dealt = [double]$Matches[1]; Taken = [double]$Matches[2]
-				Swings = [int]$Matches[3]; Rate = [double]$Matches[6]; Downed = [int]$Matches[10]
+				Swings = [int]$Matches[3]
+				Rate = $(if ($Matches[6] -eq 'n/a') { $null } else { [double]$Matches[6] })
+				Downed = [int]$Matches[10]
 			}
 		}
 	}
@@ -272,9 +341,13 @@ if ($SelfTest) {
 		foreach ($a in $armNames) {
 			$g = $samples[$a]
 			$sw = ($g | Measure-Object Swings -Sum).Sum
+			# Samples with no swings carry Rate = $null and are EXCLUDED from the
+			# average rather than counted as zero, which is the same distinction
+			# the `n/a` exists to make.
+			$rated = @($g | Where-Object { $null -ne $_.Rate })
 			$agg[$a] = [pscustomobject]@{
 				N = $g.Count
-				Rate = ($g | Measure-Object Rate -Average).Average
+				Rate = $(if ($rated.Count) { ($rated | Measure-Object Rate -Average).Average } else { 0 })
 				Swings = $sw
 				PerSwing = $(if ($sw -gt 0) { ($g | Measure-Object Dealt -Sum).Sum / $sw } else { 0 })
 				Taken = ($g | Measure-Object Taken -Average).Average
@@ -344,7 +417,7 @@ $totalSecs = [int]((Get-Date) - $t0).TotalSeconds
 # `eval RESULT=... script=x` closes it. Splitting on the RUNNER's lines rather
 # than on the suites' own echoes means a suite cannot break the split by
 # printing something that looks like a header.
-$logLines = @(Get-Content $log)
+$logLines = ReadLog
 $section = @{}
 $verdicts = @{}
 $current = $null
@@ -358,10 +431,10 @@ $failed = 0
 $results = @()
 foreach ($s in $run) {
 	if (-not $Table) {
-		Write-Host ''
-		Write-Host ('=' * 78)
-		Write-Host ("{0} - {1}" -f $s.name, $s.what)
-		Write-Host ('=' * 78)
+		Say ''
+		Say ('=' * 78)
+		Say ("{0} - {1}" -f $s.name, $s.what)
+		Say ('=' * 78)
 	}
 	# A suite whose section is MISSING never ran - the batch was abandoned by a
 	# timeout, say. That has to read as a failure and not as a quiet blank.
@@ -369,15 +442,22 @@ foreach ($s in $run) {
 	$note = ''
 
 	$shown = 0
+	$produced = 0
+	if ($section.ContainsKey($s.script)) {
+		# Everything the suite SAID, minus the runner's echo of each command it
+		# was given - those are the script, not its answers.
+		$produced = @($section[$s.script] |
+			Where-Object { $_ -cmatch '^\[info \] console: ' -and $_ -cnotmatch '^\[info \] console: > ' }).Count
+	}
 	if ($s.measure -and $section.ContainsKey($s.script)) {
-		if ($Table) { Write-Host ''; Write-Host ("--- {0} ---" -f $s.name) }
+		if ($Table) { Say ''; Say ("--- {0} ---" -f $s.name) }
 		# CASE-SENSITIVE on purpose: `TALLY` is the result and `tally reset` is
 		# the command that begins a rung. Without this the table carries a line
 		# of bookkeeping for every measurement it prints.
 		$hits = @($section[$s.script] |
 			Where-Object { $_ -cmatch ("^\[info \] console: ({0})" -f $s.measure) })
 		$shown = $hits.Count
-		$hits | ForEach-Object { Write-Host ('  ' + ($_ -replace '^\[info \] console: ', '')) }
+		$hits | ForEach-Object { Say ('  ' + ($_ -replace '^\[info \] console: ', '')) }
 	}
 
 	# A MEASURE THAT MATCHED NOTHING IS A BROKEN SUITE, NOT A QUIET ONE, and
@@ -387,10 +467,19 @@ foreach ($s in $run) {
 	# measurement has been silently lost (docs/eval-audit.md F25). Editing an
 	# `echo` a regex keys on is all it takes.
 	if ($s.measure -and $shown -eq 0) {
-		Write-Host '  MEASURED NOTHING - the suite ran but its measure regex matched no line' -ForegroundColor Red
-		Write-Host ("  regex: {0}" -f $s.measure) -ForegroundColor Red
+		Say '  MEASURED NOTHING - the suite ran but its measure regex matched no line' 'Red'
+		Say ("  regex: {0}" -f $s.measure) 'Red'
 		$note = 'measured nothing'
 		if ($verdict -eq 'PASS') { $verdict = 'NOMEASURE' }
+	}
+
+	# HOW MUCH WAS SUPPRESSED. The report shows what a per-suite regex matched and
+	# silently drops the rest, which across the ten suites is about 70% of what the
+	# run produced - and that 70% is where every integrity signal in this audit was
+	# hiding (docs/eval-audit.md F4). One line per suite is what tells a reader
+	# there is a log worth opening, and roughly where the interesting part is.
+	if ($produced -gt 0 -and -not $Table) {
+		Say ("  [{0} of {1} lines shown; the rest is in dungeon.log]" -f $shown, $produced) 'DarkGray'
 	}
 
 	# WARNINGS AND ERRORS THE GAME WROTE MID-SUITE. The measure filter only ever
@@ -406,9 +495,9 @@ foreach ($s in $run) {
 			ForEach-Object { $_ -replace '^\[(warn |ERROR)\] ', '' } |
 			Select-Object -Unique)
 		if ($noise.Count -gt 0) {
-			Write-Host ("  {0} warning/error line(s) in the log:" -f $noise.Count) -ForegroundColor Yellow
-			$noise | Select-Object -First 6 | ForEach-Object { Write-Host ("    ! {0}" -f $_) -ForegroundColor Yellow }
-			if ($noise.Count -gt 6) { Write-Host ("    ... and {0} more (see dungeon.log)" -f ($noise.Count - 6)) -ForegroundColor Yellow }
+			Say ("  {0} warning/error line(s) in the log:" -f $noise.Count) 'Yellow'
+			$noise | Select-Object -First 6 | ForEach-Object { Say ("    ! {0}" -f $_) 'Yellow' }
+			if ($noise.Count -gt 6) { Say ("    ... and {0} more (see dungeon.log)" -f ($noise.Count - 6)) 'Yellow' }
 			if ($note) { $note += '; ' }
 			$note += ("{0} warn/error" -f $noise.Count)
 		}
@@ -418,18 +507,25 @@ foreach ($s in $run) {
 	$results += [pscustomobject]@{ Name = $s.name; Verdict = $verdict; Note = $note }
 }
 
-Write-Host ''
-Write-Host ('=' * 78)
+Say ''
+Say ('=' * 78)
 foreach ($r in $results) {
-	Write-Host ("  {0,-12} {1,-10} {2}" -f $r.Name, $r.Verdict, $r.Note)
+	Say ("  {0,-12} {1,-10} {2}" -f $r.Name, $r.Verdict, $r.Note) `
+		$(if ($r.Verdict -eq 'PASS') { '' } else { 'Red' })
 }
-Write-Host ''
+Say ''
 # ONE total rather than a column of per-suite times: they all ran in one process
 # now, so a per-suite wall clock would be a number the harness cannot honestly
 # produce. The load is paid once and shows up in whichever suite went first.
-Write-Host ("eval RESULT={0} suites={1} failures={2} seconds={3} self_test=0" -f `
+#
+# THE SECONDS ARE DELIBERATELY NOT IN THE SAVED TRANSCRIPT'S COMPARISON VALUE:
+# they change run to run on the same build, so a diff of two -OutFile reports
+# would always show this line. It stays because a human wants it; a reader
+# diffing two runs should expect exactly this one line to differ.
+Say ("eval RESULT={0} suites={1} failures={2} seconds={3} self_test=0" -f `
 	$(if ($failed -eq 0) { 'PASS' } else { 'FAIL' }), $results.Count, $failed, $totalSecs)
 if ($failed -eq 0) {
-	Write-Host 'every suite ran; the NUMBERS above are the result, not this line'
+	Say 'every suite ran; the NUMBERS above are the result, not this line'
 }
+SaveTranscript
 exit $(if ($failed -eq 0) { 0 } else { 1 })

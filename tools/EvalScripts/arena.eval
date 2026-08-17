@@ -14,8 +14,16 @@ timescale 0
 lockstep on
 seed 11
 
+; MAPINFO AFTER EVERY CARVE. The `arena` line reports its BOUNDS, and for a
+; `room` those bounds are a bounding box: `arena room 7 6` prints
+; `floor 11,9..17,21` — 91 cells — of which 55 are carved and 36 are rock
+; (docs/eval-audit.md F14). The walkable count is the only readout that can tell
+; the difference, and it is the only one that can see an arena that never came
+; back at all.
+
 ; --- 1. an open room, one monster, one fight ------------------------------
 arena open 9 9
+mapinfo
 spawn skeleton 14 8 south
 tp 14 12
 echo --- open: before ---
@@ -29,6 +37,7 @@ monsters
 ; --- 2. HIS BLAST CASE: one in the middle, eight around it ----------------
 ; A fresh room wipes the previous fight entirely, so this starts clean.
 arena open 9 9
+mapinfo
 spawn skel_swarm 13 11 south
 spawn skel_swarm 14 11 south
 spawn skel_swarm 15 11 south
@@ -43,10 +52,13 @@ monsters
 
 ; --- 3. the geometries a blast reflects in --------------------------------
 arena corridor 11
+mapinfo
 echo --- corridor ---
 monsters
 arena deadend 7
+mapinfo
 echo --- dead end (centre IS the closed end) ---
 arena tjunction 9 5
+mapinfo
 echo --- t-junction (centre IS the junction) ---
 state

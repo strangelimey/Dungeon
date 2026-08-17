@@ -1752,12 +1752,23 @@ void Game::RegisterDevCommands() {
 						   // in absolute POINTS, never a fraction of health —
 						   // the healing model is still to be designed, and
 						   // fractions would change meaning the day it lands.
+						   // `n/a` RATHER THAN 0.000 WHEN NOTHING SWUNG. A rate
+						   // over no trials is not zero, it is undefined, and
+						   // printing 0.000 made "the party never swung" look
+						   // identical to "the party missed every time" — which
+						   // is exactly the pair a blast table (swings=0 by
+						   // nature) sits next to (docs/eval-audit.md F8).
+						   // Parsers should read hitrate as [0-9.]+|n/a.
+						   const std::string rate =
+							   swings > 0
+								   ? std::format("{:.3f}", static_cast<float>(t.hits) /
+															   swings)
+								   : std::string("n/a");
 						   m_console.Print(std::format(
 							   "TALLY dealt={:.1f} taken={:.1f} swings={} hits={} "
-							   "misses={} hitrate={:.3f} crits={} fumbles={} "
+							   "misses={} hitrate={} crits={} fumbles={} "
 							   "slain={} downed={} secs={:.1f}",
-							   t.dealt, t.taken, swings, t.hits, t.misses,
-							   swings > 0 ? static_cast<float>(t.hits) / swings : 0.0f,
+							   t.dealt, t.taken, swings, t.hits, t.misses, rate,
 							   t.crits, t.fumbles, t.monstersSlain, t.membersDowned,
 							   t.seconds));
 					   });
