@@ -60,6 +60,31 @@ public:
 				  std::function<void(const std::vector<std::string>&)> fn);
 	void Print(std::string line);
 
+	// A command that RAN and DECLINED to do what it was asked: a `tp` onto rock,
+	// a `spawn` into a wall, an unknown spell, a `step` that could not run the
+	// time it was given. Printed exactly like any other line — the difference is
+	// that the eval runner COUNTS it.
+	//
+	// This exists because RunLine's bool answers "was there a command by that
+	// name", which is not the question a measurement script needs answered. A
+	// rung that asked for three monsters, got one because two cells were rock,
+	// and printed a perfectly plausible TALLY under a header claiming three,
+	// came back PASS (docs/eval-audit.md F11/F15).
+	//
+	// NOT for a query with nothing to say. `monsters` printing "no monsters" is
+	// an ANSWER and stays a Print. Refuse means "you asked me to change the
+	// world and I did not" — the distinction is whether a script that carried
+	// on regardless would be measuring something other than what it wrote.
+	void Refuse(std::string line);
+
+	// True once if the last Execute refused. Clears on read, and Execute clears
+	// it before dispatching, so a refusal can never carry into the next line.
+	bool ConsumeRefusal() {
+		const bool refused = m_refused;
+		m_refused = false;
+		return refused;
+	}
+
 	// Gates command EXECUTION (typing/scrollback stay live). The Game disables
 	// commands while a staged load is mid-flight — the world is only partially
 	// built then, and a handler that reaches into it (cast/save/quality/...)
@@ -87,10 +112,15 @@ public:
 	// a typo, or a command that only exists on another branch — would otherwise
 	// leave the run reporting a clean pass over an encounter it never set up.
 	// The interactive path (Enter) discards the bool; only a script counts them.
+	//
+	// This bool is only HALF the question, and the other half is ConsumeRefusal
+	// above: a command whose name exists and which then refused returns true
+	// here. Ask both, or the run is only checked for typos.
 	bool RunLine(const std::string& line) { return Execute(line); }
 
 private:
 	bool Execute(const std::string& line); // false = no such command
+	bool m_refused = false;                // the running command called Refuse
 
 	ui::FontLibrary& m_fonts;
 	// Borrowed from the library (Mono: this is a column-aligned readout).

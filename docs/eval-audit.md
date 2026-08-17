@@ -645,9 +645,11 @@ counts overkill; `-SelfTest` passes all five of its checks.
 Ranked by how much trust each buys per unit of work. Grouped because several
 share one change.
 
-### Tier 1 — connect the signals that already exist (high value, small work)
+### Tier 1 — connect the signals that already exist — **DONE**
 
-These need no new measurement. The game already prints all of it.
+These needed no new measurement. The game already printed all of it. Landed
+2026-08-17; what each change did, and what it caught the first time it ran, is
+recorded under "Tier 1, as built" below.
 
 1. **Fail a script on a refusal, not just on an unknown command** (F11, F15).
    `RunLine` returns whether a command *matched*; it needs a second signal for
@@ -722,6 +724,149 @@ numbers, verify the setup.** A run's TALLY is honest about what happened. It is
 not evidence that what happened was what the script asked for.
 
 Tier 1 closes that gap, and it is mostly plumbing rather than new machinery.
+
+---
+
+## Tier 1, as built (2026-08-17)
+
+Five changes. None adds a measurement; every one connects a signal the game was
+already writing to the verdict or the report.
+
+### 1. A refusal is a failure — `DevConsole::Refuse`
+
+`RunLine`'s bool answers "was there a command by that name", which catches typos
+and nothing else. `DevConsole` gains a second signal:
+
+```cpp
+void Refuse(std::string line);   // printed like any other line, and COUNTED
+bool ConsumeRefusal();           // read once per line by the eval pump
+```
+
+Converted sites are the ones that change the world and can decline to: `Need()`
+(one change covering every command's arity error), `tp`, `spawn`, `blast`,
+`arena`, `effect ... ahead`, `step`, `forward`, `face`, `speed`, `timescale`,
+and the whole `no such member` family.
+
+**The rule for future sites**, which is the part worth keeping: `Refuse` means
+"you asked me to change the world and I did not". A query with nothing to say
+stays a `Print` — `monsters` printing `no monsters` is an ANSWER. The test is
+whether a script that carried on regardless would be measuring something other
+than what it wrote.
+
+Deliberately left as `Print`: `cast` reporting a fizzle (a fizzle is a game
+outcome, not a refusal), "that hand cannot swing now" (a cooldown), and the
+editor/UI commands (`savemap`, `font`, `uitree`, `quality`) which no measurement
+script drives.
+
+### 2. `step` refuses a truncated call — `Game::StepStop`
+
+`StepWorld` now says WHY it stopped rather than leaving a caller to subtract two
+numbers: `Complete` / `Ceiling` / `LevelChange` / `RestEnded` / `NotPlaying`. A
+`Ceiling` stop is a refusal quoting the shortfall, and the ceiling constants live
+in `Game.h` so `step` can name them instead of restating them.
+
+### 3. Warnings and errors reach the report
+
+`Eval.ps1`'s filter only ever looked at `[info ] console:` lines, so `[warn ]`
+and `[ERROR]` were invisible by construction. Now surfaced per suite,
+deduplicated, capped at six, with stack frames dropped (they are indented under
+their message, so requiring a non-space after the tag keeps the message and
+drops the forty symbol lines beneath it).
+
+### 4. A measure that matched nothing is a failure
+
+New verdict `NOMEASURE`, plus the regex printed so it can be repaired. This
+closes the case where editing an `echo` silently kills a suite's measurement and
+leaves it looking exactly like `smoke` and `arena`, which legitimately print
+nothing on every run.
+
+### 5. A script must end in play
+
+Checked in `PumpEvalScript`'s completion branch. The existing guard — `step`
+refusing when not `Playing` — only ever fires on the NEXT step, and a script's
+last encounter has no next step.
+
+### What it caught on its first run
+
+Three suites failed immediately, and all three failures were real:
+
+| suite | what the new check said |
+|---|---|
+| `supplies` | `line 14 REFUSED: 'step 3600'` |
+| `rest` | `line 33 REFUSED: 'step 3600'` |
+| `expedition` | `ended in state 'menu', not playing` |
+
+`rest.eval` turned out to have known about the ceiling all along — an inline
+comment reading "so an hour arrives as 3333 seconds" — while still titling the
+section "an hour of world time". `supplies.eval` did not know at all. **The same
+fact was documented in one of the two files that needed it**, which is the
+argument for a runtime check over a comment, made by the code itself.
+
+### And one more, in the suite least likely to have it
+
+`PipelineTest.ps1` drives the same runner, so it inherited the checks. It failed
+too, on two refusals:
+
+```
+eval: line 73 REFUSED: 'tp 14 14'
+eval: line 75 REFUSED: 'spawn skel_warrior 14 13 south'
+```
+
+`pipeline.eval`'s section 7 — over-exertion, the DECLARED exception to the
+one-pipeline rule — has **no `arena` of its own**. It inherited section 6's
+`arena corridor 11`, which is one cell tall at z=12, so 14,14 and 14,13 are
+solid rock. The party never moved there and the monster never spawned. That
+section has been swinging at empty air, from wherever the wall bump left the
+party, for the life of the file.
+
+It passed every time, and for a defensible reason: `PipelineTest` asks whether
+each route MOVED HEALTH, and over-exertion bills stamina for a swing whether or
+not it connects. Giving section 7 its own `arena open 9 9`:
+
+| route | before | after |
+|---|---|---|
+| `exertion` | -42.96 | **-42.96** |
+| `pipeline` | -226.36 | **-248.36** |
+
+`exertion` unchanged to the penny — confirming the swings always billed — and
+`pipeline` up by 22, which is the monster that was never there trading blows.
+
+This is the audit's thesis restated by a third party: a suite can check its own
+invariant rigorously and still never ask whether the setup was what the script
+said.
+
+### The corrected numbers
+
+Both hour-long steps became two calls of 1800s. The drain figures moved by the
+ratio that predicts:
+
+| reading | before (3333.3s) | after (3600.0s) | change |
+|---|---|---|---|
+| supplies, Brand water drop | 29.0 | 31.3 | +7.9% |
+| supplies, Sera food drop | 12.2 | 13.2 | +8.2% |
+| rest, Brand food drop | 12.2 | 13.2 | +8.2% |
+
+Duration correction is +8.0%. The measurements moved with it, which is the
+check that the fix was a correction rather than a change.
+
+`expedition` gains a `heal` before its closing section, with the reasoning at
+the call site: the party dying at rung 4 IS the suite's answer, and what was
+wrong was reading the closing figures off the corpse. `heal` restores health,
+stamina and mana only — food and water are untouched, so the supply bill is
+still the real one, and the wipe stays on the record in rung 4's `party` line
+and its `downed=4`.
+
+### Still open after Tier 1
+
+The six steady-state allocation warnings are now VISIBLE on every run rather
+than fixed — they come from the harness's own console printing inside a guarded
+frame, which is the documented "must excuse itself" case. Visible and expected
+beats invisible; whether to excuse them is a separate question from this audit.
+
+Tiers 2-4 are untouched. The one that matters most is **Tier 3 item 10, the
+responsiveness self-test**: everything above makes the harness fail honestly
+when the setup is wrong, and none of it would notice if the numbers themselves
+went dead.
 
 ### The pattern, three steps in
 

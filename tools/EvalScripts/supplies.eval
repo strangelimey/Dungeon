@@ -35,7 +35,14 @@ setskill 3 conditioning 0
 supplies
 
 echo === 3. an hour of standing still ===
-step 3600
+; TWO CALLS, and that is not cosmetic. `step` runs at most 200000 ticks — 3333.33
+; simulated seconds — so `step 3600` quietly delivered 55.6 minutes and this
+; section called it an hour for a whole release (docs/eval-audit.md F3). The
+; drain figures below are 8% larger than they used to be because they are now
+; measured over the hour they claim. `step` refuses a truncated call now, so this
+; cannot silently come back.
+step 1800
+step 1800
 supplies
 
 echo === 4. exertion costs supplies, and water more than food ===

@@ -16,7 +16,17 @@
 # can be run several at a time without contending for the GPU. The numbers are
 # identical either way - that equivalence is checked under -SelfTest.
 #
-# Exit 0 = every suite's script ran to completion with no unknown lines.
+# Exit 0 = every suite's script ran to completion, every line did what it said,
+# and every suite measured something. That is FOUR conditions, and it used to be
+# one (docs/eval-audit.md). A line now fails the run if it named no command
+# (a typo), if it named one that then REFUSED (a spawn onto rock, a tp into a
+# wall, a `step` past its per-call ceiling), if the script ended out of play (a
+# party wipe returns to the title screen and every dev command keeps answering
+# from there), or if a suite's measure regex matched nothing at all.
+#
+# The first run with those checks failed three of the ten suites and all three
+# were real: two had been measuring 55.6 minutes and calling it an hour, and one
+# had been printing its closing figures off a dead party.
 #
 # THIS IS A MEASUREMENT HARNESS, NOT A PASS/FAIL ONE, and the distinction is
 # the whole reason it is not in CheckAll's tiers. A green verdict here means the
@@ -273,24 +283,62 @@ foreach ($s in $run) {
 	# A suite whose section is MISSING never ran - the batch was abandoned by a
 	# timeout, say. That has to read as a failure and not as a quiet blank.
 	$verdict = if ($verdicts.ContainsKey($s.script)) { $verdicts[$s.script] } else { 'NOTRUN' }
-	if ($verdict -ne 'PASS') { $failed++ }
+	$note = ''
 
+	$shown = 0
 	if ($s.measure -and $section.ContainsKey($s.script)) {
 		if ($Table) { Write-Host ''; Write-Host ("--- {0} ---" -f $s.name) }
 		# CASE-SENSITIVE on purpose: `TALLY` is the result and `tally reset` is
 		# the command that begins a rung. Without this the table carries a line
 		# of bookkeeping for every measurement it prints.
-		$section[$s.script] |
-			Where-Object { $_ -cmatch ("^\[info \] console: ({0})" -f $s.measure) } |
-			ForEach-Object { Write-Host ('  ' + ($_ -replace '^\[info \] console: ', '')) }
+		$hits = @($section[$s.script] |
+			Where-Object { $_ -cmatch ("^\[info \] console: ({0})" -f $s.measure) })
+		$shown = $hits.Count
+		$hits | ForEach-Object { Write-Host ('  ' + ($_ -replace '^\[info \] console: ', '')) }
 	}
-	$results += [pscustomobject]@{ Name = $s.name; Verdict = $verdict }
+
+	# A MEASURE THAT MATCHED NOTHING IS A BROKEN SUITE, NOT A QUIET ONE, and
+	# until now the two were indistinguishable: both print a header and blank
+	# space, which is exactly what `smoke` and `arena` legitimately do on every
+	# run - so a reader is trained to skim past the one shape that means the
+	# measurement has been silently lost (docs/eval-audit.md F25). Editing an
+	# `echo` a regex keys on is all it takes.
+	if ($s.measure -and $shown -eq 0) {
+		Write-Host '  MEASURED NOTHING - the suite ran but its measure regex matched no line' -ForegroundColor Red
+		Write-Host ("  regex: {0}" -f $s.measure) -ForegroundColor Red
+		$note = 'measured nothing'
+		if ($verdict -eq 'PASS') { $verdict = 'NOMEASURE' }
+	}
+
+	# WARNINGS AND ERRORS THE GAME WROTE MID-SUITE. The measure filter only ever
+	# looks at `[info ] console:` lines, so every `[warn ]` and `[ERROR]` in the
+	# log was invisible to the report BY CONSTRUCTION - a failed model load or a
+	# steady-state allocation violation showed up as ten green PASS lines
+	# (docs/eval-audit.md F24). Stack frames are indented under their message, so
+	# requiring a non-space right after the tag keeps the message and drops the
+	# forty lines of symbols beneath it.
+	if ($section.ContainsKey($s.script)) {
+		$noise = @($section[$s.script] |
+			Where-Object { $_ -cmatch '^\[(warn |ERROR)\] [^\s]' } |
+			ForEach-Object { $_ -replace '^\[(warn |ERROR)\] ', '' } |
+			Select-Object -Unique)
+		if ($noise.Count -gt 0) {
+			Write-Host ("  {0} warning/error line(s) in the log:" -f $noise.Count) -ForegroundColor Yellow
+			$noise | Select-Object -First 6 | ForEach-Object { Write-Host ("    ! {0}" -f $_) -ForegroundColor Yellow }
+			if ($noise.Count -gt 6) { Write-Host ("    ... and {0} more (see dungeon.log)" -f ($noise.Count - 6)) -ForegroundColor Yellow }
+			if ($note) { $note += '; ' }
+			$note += ("{0} warn/error" -f $noise.Count)
+		}
+	}
+
+	if ($verdict -ne 'PASS') { $failed++ }
+	$results += [pscustomobject]@{ Name = $s.name; Verdict = $verdict; Note = $note }
 }
 
 Write-Host ''
 Write-Host ('=' * 78)
 foreach ($r in $results) {
-	Write-Host ("  {0,-12} {1}" -f $r.Name, $r.Verdict)
+	Write-Host ("  {0,-12} {1,-10} {2}" -f $r.Name, $r.Verdict, $r.Note)
 }
 Write-Host ''
 # ONE total rather than a column of per-suite times: they all ran in one process

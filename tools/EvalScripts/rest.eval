@@ -77,11 +77,16 @@ echo === 3. an hour of world time, for comparison ===
 ; drops match — and they do — then rest genuinely has no cost of its own, which
 ; is the claim "rest is a time multiplier, not a regen multiplier" makes about
 ; the SUPPLY side as well as the recovery side.
-; (`step` caps at 200000 ticks, so an hour arrives as 3333 seconds.)
+; (`step` caps at 200000 ticks = 3333.33s, so an hour needs TWO calls. This file
+; knew that and said so in a comment while still calling the result an hour;
+; supplies.eval did not know it at all. A comment in one of two places is why
+; `step` now REFUSES a truncated call rather than noting it — docs/eval-audit.md
+; F3.)
 heal
 setsupply all food 90
 setsupply all water 90
-step 3600
+step 1800
+step 1800
 echo --- an hour awake ---
 supplies
 

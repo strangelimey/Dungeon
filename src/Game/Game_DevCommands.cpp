@@ -33,10 +33,13 @@ namespace {
 // repeated guards/parsing so each command body is just its action).
 
 // Arg-count guard: prints `usage` and returns false when fewer than n args.
+// REFUSES rather than prints, so a script that mis-called a command fails
+// instead of measuring whatever the world happened to hold — one change here
+// covers every command's arity error (docs/eval-audit.md F11).
 bool Need(DevConsole& console, const std::vector<std::string>& args, size_t n,
 		  const char* usage) {
 	if (args.size() < n) {
-		console.Print(usage);
+		console.Refuse(usage);
 		return false;
 	}
 	return true;
@@ -149,7 +152,7 @@ void Game::RegisterDevCommands() {
 			const size_t m =
 				args.empty() ? 0 : static_cast<size_t>(std::atoi(args[0].c_str()));
 			if (m >= m_characters.size()) {
-				m_console.Print("no such member");
+				m_console.Refuse("no such member");
 				return;
 			}
 			Character& c = m_characters[m];
@@ -251,7 +254,8 @@ void Game::RegisterDevCommands() {
 						   if (m_world.GetParty().SetGridPosition(x, z))
 							   m_console.Print(std::format("teleported to {},{}", x, z));
 						   else
-							   m_console.Print(std::format("{},{} is not walkable", x, z));
+							   m_console.Refuse(
+								   std::format("{},{} is not walkable", x, z));
 					   });
 
 	// --- save / load ---
@@ -826,7 +830,7 @@ void Game::RegisterDevCommands() {
 						   case 'w': facing = 3; break;
 						   }
 						   if (facing < 0) {
-							   m_console.Print("direction must be n/e/s/w");
+							   m_console.Refuse("direction must be n/e/s/w");
 							   return;
 						   }
 						   m_world.GetParty().SetFacing(facing);
@@ -844,7 +848,7 @@ void Game::RegisterDevCommands() {
 						   if (!Need(m_console, args, 1, "usage: speed <mult>")) return;
 						   const float v = static_cast<float>(std::atof(args[0].c_str()));
 						   if (v <= 0.0f) {
-							   m_console.Print("speed must be > 0");
+							   m_console.Refuse("speed must be > 0");
 							   return;
 						   }
 						   m_world.GetParty().SetSpeed(v);
@@ -858,7 +862,7 @@ void Game::RegisterDevCommands() {
 						   const size_t m = static_cast<size_t>(std::atoi(args[0].c_str()));
 						   SpellSymbol sym;
 						   if (m >= m_characters.size()) {
-							   m_console.Print("no such member");
+							   m_console.Refuse("no such member");
 							   return;
 						   }
 						   if (!ParseSymbolArg(m_console, args[1], sym)) return;
@@ -889,7 +893,7 @@ void Game::RegisterDevCommands() {
 						   const size_t m = args.size() > 1
 							   ? static_cast<size_t>(std::atoi(args[1].c_str())) : 0;
 						   if (m >= m_characters.size()) {
-							   m_console.Print("no such member");
+							   m_console.Refuse("no such member");
 							   return;
 						   }
 						   if (!m_project.HasItem(args[0])) {
@@ -916,14 +920,14 @@ void Game::RegisterDevCommands() {
 						   const size_t m = args.size() > 1
 							   ? static_cast<size_t>(std::atoi(args[1].c_str())) : 0;
 						   if (m >= m_characters.size()) {
-							   m_console.Print("no such member");
+							   m_console.Refuse("no such member");
 							   return;
 						   }
 						   // Deliberately NO upper clamp, unlike the slider (which
 						   // stops at exert_max): this is how a stance past what
 						   // the UI allows gets tried at all.
 						   if (share < 0.0f) {
-							   m_console.Print("share cannot be negative");
+							   m_console.Refuse("share cannot be negative");
 							   return;
 						   }
 						   Character& c = m_characters[m];
@@ -955,7 +959,7 @@ void Game::RegisterDevCommands() {
 						   const size_t m =
 							   static_cast<size_t>(std::atoi(args[0].c_str()));
 						   if (m >= m_characters.size()) {
-							   m_console.Print("no such member");
+							   m_console.Refuse("no such member");
 							   return;
 						   }
 						   const size_t hand = args.size() > 1
@@ -983,7 +987,7 @@ void Game::RegisterDevCommands() {
 						   const size_t m = args.size() > 1
 							   ? static_cast<size_t>(std::atoi(args[1].c_str())) : 0;
 						   if (m >= m_characters.size()) {
-							   m_console.Print("no such member");
+							   m_console.Refuse("no such member");
 							   return;
 						   }
 						   Character& c = m_characters[m];
@@ -1037,7 +1041,7 @@ void Game::RegisterDevCommands() {
 						   const int hand = args.size() > 2
 							   ? std::clamp(std::atoi(args[2].c_str()), 0, 1) : 0;
 						   if (m >= m_characters.size()) {
-							   m_console.Print("no such member");
+							   m_console.Refuse("no such member");
 							   return;
 						   }
 						   if (!m_project.HasItem(args[0])) {
@@ -1068,15 +1072,18 @@ void Game::RegisterDevCommands() {
 						   // and the way to watch one tick without a weapon that
 						   // procs it (docs/effects.md P3).
 						   if (args.size() > 1 && args[1] == "ahead") {
-							   m_console.Print(m_world.ApplyEffectAhead(args[0], mag, secs)
-												   ? std::format("monster ahead gains {}", args[0])
-												   : "no monster ahead (or no such effect)");
+							   if (m_world.ApplyEffectAhead(args[0], mag, secs))
+								   m_console.Print(std::format(
+									   "monster ahead gains {}", args[0]));
+							   else
+								   m_console.Refuse(
+									   "no monster ahead (or no such effect)");
 							   return;
 						   }
 						   const size_t m = args.size() > 1
 							   ? static_cast<size_t>(std::atoi(args[1].c_str())) : 0;
 						   if (m >= m_characters.size()) {
-							   m_console.Print("no such member");
+							   m_console.Refuse("no such member");
 							   return;
 						   }
 						   const fx::EffectKind* kind = m_world.Effects().Find(args[0]);
@@ -1120,7 +1127,7 @@ void Game::RegisterDevCommands() {
 							   return;
 						   const size_t m = static_cast<size_t>(std::atoi(args[0].c_str()));
 						   if (m >= m_characters.size()) {
-							   m_console.Print("no such member");
+							   m_console.Refuse("no such member");
 							   return;
 						   }
 						   // Optional hand (credits that hand's quick-cast MRU) —
@@ -1149,7 +1156,7 @@ void Game::RegisterDevCommands() {
 						   }
 						   const float v = static_cast<float>(std::atof(args[0].c_str()));
 						   if (v < 0.0f) {
-							   m_console.Print("timescale must be >= 0");
+							   m_console.Refuse("timescale must be >= 0");
 							   return;
 						   }
 						   m_timeScale = v;
@@ -1372,7 +1379,7 @@ void Game::RegisterDevCommands() {
 								   ? 0
 								   : static_cast<size_t>(std::atoi(args[0].c_str()));
 						   if (m >= m_characters.size()) {
-							   m_console.Print("no such member");
+							   m_console.Refuse("no such member");
 							   return;
 						   }
 						   // Through the same entry point the portrait click uses,
@@ -1414,7 +1421,11 @@ void Game::RegisterDevCommands() {
 									   ? static_cast<float>(std::atof(args[1].c_str()))
 									   : 3600.0f;
 							   m_world.SetResting(true);
-							   const int ran = StepWorld(cap);
+							   // A cap is an upper BOUND, not a claim about elapsed time, so
+								   // unlike `step` this does not refuse when it is
+								   // wider than one call can run.
+								   StepStop stop{};
+								   const int ran = StepWorld(cap, stop);
 							   m_console.Print(std::format(
 								   "rested {:.2f}s — {}",
 								   static_cast<float>(ran) / 60.0f,
@@ -1446,7 +1457,7 @@ void Game::RegisterDevCommands() {
 								   ? static_cast<size_t>(std::atoi(args[1].c_str()))
 								   : 0;
 						   if (m >= m_characters.size()) {
-							   m_console.Print("no such member");
+							   m_console.Refuse("no such member");
 							   return;
 						   }
 						   const resource::Refill got =
@@ -1474,7 +1485,7 @@ void Game::RegisterDevCommands() {
 						   const size_t one =
 							   static_cast<size_t>(std::atoi(args[0].c_str()));
 						   if (!all && one >= m_characters.size()) {
-							   m_console.Print("no such member");
+							   m_console.Refuse("no such member");
 							   return;
 						   }
 						   resource::Supply which{};
@@ -1510,15 +1521,15 @@ void Game::RegisterDevCommands() {
 				return;
 			DungeonWorld::ArenaShape shape{};
 			if (!DungeonWorld::ArenaShapeFromName(args[0], shape)) {
-				m_console.Print("unknown shape: " + args[0] +
-								" (open|corridor|deadend|tjunction)");
+				m_console.Refuse("unknown shape: " + args[0] +
+								 " (open|corridor|deadend|tjunction)");
 				return;
 			}
 			const int w = args.size() > 1 ? std::atoi(args[1].c_str()) : 9;
 			const int h = args.size() > 2 ? std::atoi(args[2].c_str()) : w;
 			DungeonWorld::ArenaInfo info;
 			if (!m_world.BuildArena(shape, w, h, info)) {
-				m_console.Print("arena: refused (see the log)");
+				m_console.Refuse("arena: refused (see the log)");
 				return;
 			}
 			// The bounds are PRINTED because a script cannot read a return value
@@ -1547,7 +1558,7 @@ void Game::RegisterDevCommands() {
 					   [this](const std::vector<std::string>& args) {
 						   const int n = args.empty() ? 1 : std::atoi(args[0].c_str());
 						   if (n < 1) {
-							   m_console.Print("forward needs a positive count");
+							   m_console.Refuse("forward needs a positive count");
 							   return;
 						   }
 						   m_world.GetHarness().pendingSteps += n;
@@ -1583,7 +1594,7 @@ void Game::RegisterDevCommands() {
 						   const int x = std::atoi(args[1].c_str());
 						   const int z = std::atoi(args[2].c_str());
 						   if (!m_world.DetonateSpell(args[0], x, z)) {
-							   m_console.Print(std::format(
+							   m_console.Refuse(std::format(
 								   "blast: refused '{}' (unknown spell, or it has "
 								   "no blast_force)",
 								   args[0]));
@@ -1623,7 +1634,7 @@ void Game::RegisterDevCommands() {
 								   ? static_cast<float>(std::atof(args[4].c_str()))
 								   : 1.0f;
 						   if (!m_world.AddMonster(args[0], x, z, facing)) {
-							   m_console.Print(std::format(
+							   m_console.Refuse(std::format(
 								   "spawn: refused '{}' at {},{} (unknown type, "
 								   "not walkable, or cell taken)",
 								   args[0], x, z));
@@ -1648,7 +1659,7 @@ void Game::RegisterDevCommands() {
 						   const size_t m =
 							   static_cast<size_t>(std::atoi(args[0].c_str()));
 						   if (m >= m_characters.size()) {
-							   m_console.Print("no such member");
+							   m_console.Refuse("no such member");
 							   return;
 						   }
 						   Character& c = m_characters[m];
@@ -1660,7 +1671,7 @@ void Game::RegisterDevCommands() {
 						   else if (s.starts_with("wil")) c.willpower = n;
 						   else if (s.starts_with("int")) c.intelligence = n;
 						   else {
-							   m_console.Print("unknown stat: " + s);
+							   m_console.Refuse("unknown stat: " + s);
 							   return;
 						   }
 						   // Health/stamina/mana maxima DERIVE from stats
@@ -1684,12 +1695,12 @@ void Game::RegisterDevCommands() {
 						   const size_t m =
 							   static_cast<size_t>(std::atoi(args[0].c_str()));
 						   if (m >= m_characters.size()) {
-							   m_console.Print("no such member");
+							   m_console.Refuse("no such member");
 							   return;
 						   }
 						   const int level = std::atoi(args[2].c_str());
 						   if (level < 0) {
-							   m_console.Print("level cannot be negative");
+							   m_console.Refuse("level cannot be negative");
 							   return;
 						   }
 						   Character& c = m_characters[m];
@@ -1781,7 +1792,7 @@ void Game::RegisterDevCommands() {
 							   const size_t m =
 								   static_cast<size_t>(std::atoi(args[0].c_str()));
 							   if (m >= m_characters.size()) {
-								   m_console.Print("no such member");
+								   m_console.Refuse("no such member");
 								   return;
 							   }
 							   restore(m_characters[m]);
@@ -1820,7 +1831,7 @@ void Game::RegisterDevCommands() {
 						   const size_t m =
 							   static_cast<size_t>(std::atoi(args[0].c_str()));
 						   if (m >= m_characters.size()) {
-							   m_console.Print("no such member");
+							   m_console.Refuse("no such member");
 							   return;
 						   }
 						   const Character& c = m_characters[m];
@@ -1910,7 +1921,8 @@ void Game::RegisterDevCommands() {
 						   const float secs =
 							   static_cast<float>(std::atof(args[0].c_str()));
 						   if (secs <= 0.0f) {
-							   m_console.Print("step needs a positive number of seconds");
+							   m_console.Refuse(
+								   "step needs a positive number of seconds");
 							   return;
 						   }
 						   // SAY WHY, never a bare zero. Dev commands reach the
@@ -1920,7 +1932,7 @@ void Game::RegisterDevCommands() {
 						   // nothing — a whole suite of encounters that never
 						   // ran, reported as results.
 						   if (std::string_view(StateName()) != "playing") {
-							   m_console.Print(std::format(
+							   m_console.Refuse(std::format(
 								   "step: not playing (state: {}) — nothing stepped",
 								   StateName()));
 							   return;
@@ -1932,17 +1944,34 @@ void Game::RegisterDevCommands() {
 							   m_console.Print("warning: lockstep is OFF — monsters "
 											   "will barely think during this step");
 						   const bool wasResting = m_world.Resting();
-						   const int ran = StepWorld(secs);
+						   StepStop why = StepStop::Complete;
+						   const int ran = StepWorld(secs, why);
+						   const float got = static_cast<float>(ran) /
+											 kStepTicksPerSecond;
 						   // A rested step says so, and says WHY it stopped: the
 						   // seconds it ran ARE the length of the rest, which is
 						   // the number a supply measurement is after.
-						   m_console.Print(std::format(
-							   "stepped {} ticks ({:.2f}s){}", ran,
-							   static_cast<float>(ran) / 60.0f,
-							   wasResting && !m_world.Resting()
-								   ? std::format(" — rest ended: {}",
-												 m_world.RestEndReason())
-								   : ""));
+						   std::string tail;
+						   if (wasResting && !m_world.Resting())
+							   tail = std::format(" — rest ended: {}",
+												  m_world.RestEndReason());
+						   else if (why == StepStop::LevelChange)
+							   tail = " — stopped: the party changed level";
+						   m_console.Print(std::format("stepped {} ticks ({:.2f}s){}",
+													   ran, got, tail));
+						   // THE CEILING IS A REFUSAL, not a footnote. This line
+						   // has always reported the truth and nothing read it:
+						   // `step 3600` runs 3333.33s, and supplies.eval and
+						   // rest.eval both called that "an hour" for a whole
+						   // release (docs/eval-audit.md F3). A measurement taken
+						   // over 92.6% of the time it claims is a wrong number,
+						   // not a rounding note.
+						   if (why == StepStop::Ceiling)
+							   m_console.Refuse(std::format(
+								   "step: asked for {:.2f}s but one call tops out "
+								   "at {:.2f}s — this measured {:.2f}s LESS than "
+								   "the script believes; split it across calls",
+								   secs, kMaxStepSeconds, secs - got));
 					   });
 
 	m_console.Register("noclip", "toggle walking through walls",
