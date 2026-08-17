@@ -1,0 +1,130 @@
+; respond.eval - THE CHECK THAT THE NUMBERS STILL MOVE.
+;
+; Run by `Eval.ps1 -SelfTest`, not listed as a suite: it is a check, not a
+; measurement, and nothing it prints is a number to compare across knob changes.
+; Same reasoning as resettest.eval.
+;
+; WHY IT EXISTS. Everything else in -SelfTest checks the RUNNER: a bad script
+; exits 1, a missing one exits 2, `reset` equals a new game, batching and
+; headless change nothing. Every one of those is plumbing. Not one of them asks
+; whether the TALLY still describes the fight — so the harness could report ten
+; green suites forever with a counter that had gone dead, and the audit that
+; found this (docs/eval-audit.md F1) is the only reason anybody looked.
+;
+; THE METHOD. Three pairs of arms. Each pair is identical except for ONE knob
+; that the combat model says MUST move one of the three headline numbers, and the
+; encounter itself is a shared fragment so there is no second copy to drift:
+;
+;   hitrate  <- DEX             accuracy is always DEX (docs/combat.md)
+;   dealt    <- weapon skill    damage scales with (1 + skill_damage x level)
+;   taken    <- monster strength a different COUNTING SITE, not just a different
+;                                number: `dealt` is summed at MonsterTarget::Wound
+;                                and `taken` at PartyTarget::Wound, so one can go
+;                                dead while the other still reports
+;
+; MEASURED SEPARATIONS, which is what the thresholds are set from rather than
+; guessed at: hitrate 0.336 -> 0.668 (2.0x), dealt/swing 11.02 -> 17.84 (1.6x),
+; taken 19.2 -> 234.4 (12x, and the two arms' ranges do not come close to
+; overlapping).
+;
+; Each arm sweeps its encounter over several seeds, because combat is dice and
+; one sample is an anecdote — a 5% fumble decides a single fight.
+;
+; THE ASSERTIONS LIVE IN Eval.ps1, with the thresholds and the reasoning for
+; each. They are deliberately loose: this is a check that the instrument is
+; ALIVE, not a balance test. A number that has stopped responding fails it; a
+; number that responds differently after a balance change does not.
+
+logecho on
+
+; ---- pair 1: hitrate must respond to DEX ---------------------------------
+; Measured 0.307 at dex 5 against 0.630 at dex 25 - a 2x separation, which is
+; what makes a 1.3x threshold safe.
+
+echo ARM dex-low
+reset
+timescale 0
+lockstep on
+autoattack on
+setstat 0 dex 5
+setstat 1 dex 5
+setstat 2 dex 5
+setstat 3 dex 5
+sweep 5 rungs/respond-offence.eval
+
+echo ARM dex-high
+reset
+timescale 0
+lockstep on
+autoattack on
+setstat 0 dex 25
+setstat 1 dex 25
+setstat 2 dex 25
+setstat 3 dex 25
+sweep 5 rungs/respond-offence.eval
+
+; ---- pair 2: dealt-per-swing must respond to WEAPON SKILL ----------------
+; Measured 10.58/swing at blade 0 against 19.34 at blade 10. PER SWING, not
+; total: a knob that changed the swing RATE would otherwise look like one that
+; changed damage.
+;
+; Both arms carry the same blade, so the weapon is not the variable. (It is worth
+; knowing that at skill 0 that blade is WORSE per swing than bare hands - a real
+; content finding from the audit, and the reason the low arm is skill 0 with a
+; weapon rather than no weapon at all.)
+
+echo ARM skill-low
+reset
+timescale 0
+lockstep on
+autoattack on
+equip serrated_blade 0 0
+equip serrated_blade 1 0
+equip serrated_blade 2 0
+equip serrated_blade 3 0
+sweep 5 rungs/respond-offence.eval
+
+echo ARM skill-high
+reset
+timescale 0
+lockstep on
+autoattack on
+equip serrated_blade 0 0
+equip serrated_blade 1 0
+equip serrated_blade 2 0
+equip serrated_blade 3 0
+setskill 0 blade 10
+setskill 1 blade 10
+setskill 2 blade 10
+setskill 3 blade 10
+sweep 5 rungs/respond-offence.eval
+
+; ---- pair 3: taken must respond to how dangerous the monsters are --------
+; `taken` is counted at a DIFFERENT SITE from `dealt` (PartyTarget::Wound rather
+; than MonsterTarget::Wound), so it needs its own arm — one can go dead while the
+; other reports perfectly.
+;
+; This is the one pair whose knob is on the MONSTER, so it is the one pair that
+; needs two fragment files; both say so at the top. The first version of this
+; used armour, which shares a fragment and reads better, and it was dropped
+; because it moved `taken` by 17% against noise of the same size.
+
+echo ARM threat-low
+reset
+timescale 0
+lockstep on
+autoattack on
+sweep 5 rungs/respond-defence-weak.eval
+
+echo ARM threat-high
+reset
+timescale 0
+lockstep on
+autoattack on
+sweep 5 rungs/respond-defence-strong.eval
+
+; The defence arms leave the party wiped as often as not, and a script that ends
+; out of play is a failure now (docs/eval-audit.md F19). This is the one place
+; that rule needs an explicit answer rather than a fix.
+heal
+state

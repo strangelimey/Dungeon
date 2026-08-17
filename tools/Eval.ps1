@@ -228,10 +228,93 @@ if ($SelfTest) {
 	Write-Host ("  {0} lines compared - {1}" -f $windowed.Count,
 		$(if ($headOk) { 'identical headless and windowed' } else { 'DIFFERENT' }))
 
-	$ok = ($p.ExitCode -eq 1) -and ($q.ExitCode -eq 2) -and $resetOk -and $batchOk -and $headOk
+	# --- and the NUMBERS still move ------------------------------------------
+	# EVERY CHECK ABOVE IS PLUMBING. They prove the runner runs, that recycling
+	# and batching and headless change nothing - and not one of them asks whether
+	# the TALLY still describes the fight. A counting site could be deleted
+	# tomorrow and this harness would report ten green suites forever
+	# (docs/eval-audit.md F1, which is the finding the whole audit turned on).
+	#
+	# respond.eval runs three pairs of arms, each identical but for one knob the
+	# combat model says MUST move one of the three headline numbers. Thresholds
+	# are set from MEASURED separations and left deliberately loose: this asks
+	# whether the instrument is ALIVE, not whether the balance is right. A number
+	# that stops responding fails; a number that responds differently after a
+	# balance change does not.
+	Write-Host ''
+	Write-Host '=== a knob that must move a number, moves it ==='
+	Start-Process -FilePath $exe -ArgumentList '-eval', (Join-Path $scripts 'respond.eval') -Wait
+	$arm = $null
+	$samples = @{}
+	foreach ($line in @(Get-Content $log)) {
+		if ($line -cmatch '^\[info \] console: ARM (\S+)$') { $arm = $Matches[1]; $samples[$arm] = @(); continue }
+		if ($arm -and $line -cmatch ('^\[info \] console: TALLY dealt=([0-9.]+) taken=([0-9.]+) ' +
+									 'swings=(\d+) hits=(\d+) misses=(\d+) hitrate=([0-9.]+) ' +
+									 'crits=(\d+) fumbles=(\d+) slain=(\d+) downed=(\d+)')) {
+			$samples[$arm] += [pscustomobject]@{
+				Dealt = [double]$Matches[1]; Taken = [double]$Matches[2]
+				Swings = [int]$Matches[3]; Rate = [double]$Matches[6]; Downed = [int]$Matches[10]
+			}
+		}
+	}
+	# A MISSING OR EMPTY ARM MUST FAIL, not divide by zero and pass. This is the
+	# guard that keeps the whole check non-vacuous: if the tally went dead every
+	# aggregate below would be 0, and a ratio of 0/0 must not read as "unchanged".
+	$armNames = @('dex-low', 'dex-high', 'skill-low', 'skill-high', 'threat-low', 'threat-high')
+	$respondOk = $true
+	$missing = @($armNames | Where-Object { -not $samples.ContainsKey($_) -or $samples[$_].Count -lt 3 })
+	if ($missing.Count) {
+		Write-Host ("  arms missing or too small: {0}" -f ($missing -join ', ')) -ForegroundColor Red
+		$respondOk = $false
+	}
+	if ($respondOk) {
+		$agg = @{}
+		foreach ($a in $armNames) {
+			$g = $samples[$a]
+			$sw = ($g | Measure-Object Swings -Sum).Sum
+			$agg[$a] = [pscustomobject]@{
+				N = $g.Count
+				Rate = ($g | Measure-Object Rate -Average).Average
+				Swings = $sw
+				PerSwing = $(if ($sw -gt 0) { ($g | Measure-Object Dealt -Sum).Sum / $sw } else { 0 })
+				Taken = ($g | Measure-Object Taken -Average).Average
+				Downed = ($g | Measure-Object Downed -Sum).Sum
+			}
+		}
+		# Each row: what must be true, why that threshold, and what was measured
+		# when it was written. Ratios are 1.3x against separations of 2.0x and
+		# 1.6x; the `taken` pair is a difference rather than a ratio because its
+		# low arm sits near zero and a ratio there is meaningless.
+		$tests = @(
+			@{ what = 'hitrate responds to DEX'
+			   got  = $agg['dex-high'].Rate; ref = $agg['dex-low'].Rate
+			   ok   = ($agg['dex-low'].Rate -gt 0) -and ($agg['dex-high'].Rate -ge $agg['dex-low'].Rate * 1.3)
+			   note = 'want high >= low x1.3 (measured 0.336 -> 0.668)' }
+			@{ what = 'dealt-per-swing responds to weapon skill'
+			   got  = $agg['skill-high'].PerSwing; ref = $agg['skill-low'].PerSwing
+			   ok   = ($agg['skill-low'].PerSwing -gt 0) -and ($agg['skill-high'].PerSwing -ge $agg['skill-low'].PerSwing * 1.3)
+			   note = 'want high >= low x1.3 (measured 11.02 -> 17.84)' }
+			@{ what = 'taken responds to monster strength'
+			   got  = $agg['threat-high'].Taken; ref = $agg['threat-low'].Taken
+			   ok   = ($agg['threat-high'].Taken -gt 50) -and (($agg['threat-high'].Taken - $agg['threat-low'].Taken) -gt 60)
+			   note = 'want high > 50 and high - low > 60 (measured 19.2 -> 234.4)' }
+			@{ what = 'downed is counted at all'
+			   got  = $agg['threat-high'].Downed; ref = $agg['threat-low'].Downed
+			   ok   = ($agg['threat-high'].Downed -gt 0)
+			   note = 'want high > 0 (measured 0 -> 17)' }
+		)
+		foreach ($t in $tests) {
+			Write-Host ("  {0,-42} {1,8:N2} vs {2,8:N2}  {3}" -f $t.what, $t.got, $t.ref,
+				$(if ($t.ok) { 'ok' } else { 'FAIL - ' + $t.note })) `
+				-ForegroundColor $(if ($t.ok) { 'Gray' } else { 'Red' })
+			if (-not $t.ok) { $respondOk = $false }
+		}
+	}
+
+	$ok = ($p.ExitCode -eq 1) -and ($q.ExitCode -eq 2) -and $resetOk -and $batchOk -and $headOk -and $respondOk
 	Write-Host ''
 	Write-Host ("eval RESULT={0} self_test=1" -f $(if ($ok) { 'PASS' } else { 'FAIL' }))
-	if ($ok) { Write-Host 'the runner reports both failures; recycling and going headless change nothing' }
+	if ($ok) { Write-Host 'the runner reports both failures, recycling and headless change nothing, and the numbers still move' }
 	else { Write-Host 'A RUNNER THAT CANNOT FAIL MEANS NOTHING' -ForegroundColor Red }
 	exit $(if ($ok) { 0 } else { 1 })
 }

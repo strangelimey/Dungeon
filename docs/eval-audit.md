@@ -863,10 +863,68 @@ than fixed — they come from the harness's own console printing inside a guarde
 frame, which is the documented "must excuse itself" case. Visible and expected
 beats invisible; whether to excuse them is a separate question from this audit.
 
-Tiers 2-4 are untouched. The one that matters most is **Tier 3 item 10, the
-responsiveness self-test**: everything above makes the harness fail honestly
-when the setup is wrong, and none of it would notice if the numbers themselves
-went dead.
+Tiers 2 and 4 are untouched. Tier 3 item 10 is below.
+
+---
+
+## Tier 3 item 10 — the responsiveness self-test (2026-08-17)
+
+The gap the whole audit turned on (F1). Everything in `-SelfTest` was plumbing:
+a bad script exits 1, a missing one exits 2, `reset` equals a new game, batching
+and headless change nothing. **Not one of them asked whether the tally still
+describes the fight**, so a counting site could be deleted and the harness would
+report ten green suites forever.
+
+`tools/EvalScripts/respond.eval` runs three pairs of arms, each identical but
+for one knob the combat model says must move one of the headline numbers. It is
+run by `-SelfTest` and is deliberately NOT a suite — nothing it prints is a
+number to compare across knob changes, the same argument `resettest.eval` makes.
+
+| number | knob | counting site | measured |
+|---|---|---|---|
+| `hitrate` | DEX 5 -> 25 | `ResolveAttack` | 0.336 -> 0.668 (2.0x) |
+| `dealt`/swing | blade skill 0 -> 10 | `MonsterTarget::Wound` | 11.02 -> 17.84 (1.6x) |
+| `taken` | monster x2 -> x4 | `PartyTarget::Wound` | 19.2 -> 234.4 (12x) |
+| `downed` | monster x2 -> x4 | `PartyTarget::Wound` | 2 -> 17 |
+
+Three design decisions worth keeping:
+
+- **The encounter is a shared fragment** (`rungs/respond-offence.eval`) so the
+  two arms of a pair cannot drift apart. The defence pair is the exception and
+  needs two files, because its knob is on the MONSTER and the monster is spawned
+  inside the encounter; both files say so at the top.
+- **`dealt` is measured PER SWING.** A knob that changed the swing rate would
+  otherwise masquerade as one that changed damage.
+- **The offence target is a frozen 1100 hp punchbag.** A first attempt used 220
+  hp, it sometimes died, and both arms converged because they were measuring the
+  monster rather than the party.
+
+**The knob that was tried and rejected:** armour for the `taken` pair, which
+would have shared the offence fragment and read better. Measured, `plate_cuirass`
++ `avoid 8` moved `taken` by 17% against an x3 monster, and at x1.5 and x2 the
+effect was smaller than the sample noise and sometimes inverted — soak is flat,
+so it matters least against exactly the heavy blows a reliable check needs. A
+subtle knob makes a flaky check.
+
+### Non-vacuous by mutation
+
+A check that cannot fail is worth nothing, so each counting site was broken in
+turn and the suite re-run. **Four mutations, four failures, each exactly the
+right one and no collateral:**
+
+| mutation | hitrate | dealt/swing | taken | downed |
+|---|---|---|---|---|
+| `tally.dealt += 1.0f` (constant) | ok | **FAIL** 17.44 vs 16.41 | ok | ok |
+| `tally.taken += 0.0f` (dead) | ok | ok | **FAIL** 0.00 vs 0.00 | ok |
+| `++tally.hits` unconditionally | **FAIL** 1.00 vs 1.00 | ok | ok | ok |
+| `if (false) ++membersDowned` | ok | ok | ok | **FAIL** 0.00 |
+
+The second and fourth are the interesting pair: `taken` and `membersDowned` are
+incremented two lines apart in the same function, and killing one leaves the
+other's check green. The four rows are genuinely independent.
+
+`DungeonWorld_Combat.cpp` was confirmed byte-identical to HEAD afterwards and
+all four rows returned to ok.
 
 ### The pattern, three steps in
 
