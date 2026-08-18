@@ -51,6 +51,7 @@ add_library(Game STATIC
 	MessageLog.cpp
 	Party.cpp
 	Generate.cpp
+	GenerateDialog.cpp
 	Validate.cpp
 	ValidateDialog.cpp
 	Placement.cpp

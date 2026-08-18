@@ -2090,6 +2090,15 @@ void DungeonWorld::RestoreEditorState(EditorSnapshot snap) {
 	for (auto&& [stem, ents] : snap.stashEnts)
 		m_levelEnts.insert_or_assign(stem, std::move(ents));
 
+	// The fog mask is parallel to the CELLS, and until the generator existed a
+	// restore could never change their number — every snapshot was of this same
+	// level. A regenerate can hand back a level of a different size, and undoing
+	// one then indexed the old mask out of range. RESIZED rather than cleared, so
+	// an ordinary same-size undo still leaves the fog exactly as it was.
+	if (const size_t cells = static_cast<size_t>(m_map.Width()) * m_map.Height();
+		m_seen.size() != cells)
+		m_seen.assign(cells, 0);
+
 	// Dynamic layer: respawn from the records, then apply the captured live
 	// diffs — the same flow a level re-entry uses (editor-placed monsters ride
 	// the snapshot's whole-spawn rows).
@@ -2102,6 +2111,14 @@ void DungeonWorld::RestoreEditorState(EditorSnapshot snap) {
 	// would be the full quality-swap rebuild — but the full-screen editor
 	// hides the scene, so the stale chunks are never drawn, undo stays fast,
 	// and a whole editing session pays for one rebake on the way out.
+	// Same reason as the fog mask: the party is standing where the level it just
+	// left put them, which the restored one may not have made floor at all. Only
+	// moved when that is actually true, so an ordinary undo never teleports you.
+	if (!m_map.IsWalkable(m_party.GridX(), m_party.GridZ())) {
+		m_party.SetGridPosition(m_map.StartX(), m_map.StartZ());
+		MarkSeen(m_map.StartX(), m_map.StartZ());
+	}
+
 	RebuildFiresAndDust();
 	m_geometryDirty = true;
 	if (paletteChanged) m_surfacesDirty = true;

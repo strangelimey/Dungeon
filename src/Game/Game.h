@@ -57,6 +57,7 @@
 #include "Game/InspectPicker.h"
 #include "Game/LevelSettingsDialog.h"
 #include "Game/Generate.h"
+#include "Game/GenerateDialog.h"
 #include "Game/ValidateDialog.h"
 #include "Game/MonsterConfigDialog.h"
 #include "Game/ButtonInspector.h"
@@ -203,6 +204,17 @@ private:
 	// itself never sees a catalog (Game/Generate.h).
 	std::string GenerateLevel(generate::Params params,
 							  const std::vector<std::string>& theme);
+	// Regenerate the VIEWED level in place, as ONE undo step. Destructive by
+	// design (the decision on record): the reroll replaces the level and Ctrl+Z
+	// brings the old one back — which is why it must not go through a level
+	// transition, since that clears the history the promise rests on.
+	bool RegenerateViewedLevel(generate::Params params);
+	// Shared by both: build the level text, parse it, and hand it to the world.
+	bool BuildAndInstall(const std::string& stem, const generate::Params& params,
+						 const std::vector<std::string>& theme);
+	// Resolve the theme into the id pools the generator picks from.
+	void FillPools(generate::Params& params,
+				   const std::vector<std::string>& theme);
 
 	// The Level dialog's inline rename: validates (unique stem), drives
 	// DungeonWorld::RenameLevel (files, stashes, stair dests), then updates
@@ -445,6 +457,7 @@ private:
 	// opened by the editor toolbar's Level button for the VIEWED level.
 	LevelSettingsDialog m_levelSettingsDialog;
 	ValidateDialog m_validateDialog;
+	GenerateDialog m_generateDialog;
 	// Per-TYPE catalog editor, opened by right-clicking any palette row: a form
 	// rendered from CatalogSchema, so it serves every category. Save writes the
 	// .cat (and re-bakes the worn meshes when a surface's look changed).

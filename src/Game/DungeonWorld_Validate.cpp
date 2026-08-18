@@ -17,6 +17,68 @@
 
 namespace dungeon::game {
 
+bool DungeonWorld::CellFreeForStair(const std::string& stem, int x, int z) {
+	const DungeonMap& m = stem == m_currentLevel ? m_map : EnsureMapStash(stem);
+	return m.IsWalkable(x, z) && !m.StairAt(x, z) && !m.BrazierAt(x, z);
+}
+
+bool DungeonWorld::InstallLevelFromFiles(const std::string& stem,
+										 const std::string& mapPath,
+										 const std::string& entPath) {
+	DungeonMap map(mapPath, FixtureTypesOf(m_project));
+	DungeonEntities ents(entPath, map);
+
+	if (stem != m_currentLevel) {
+		// An inactive level is just its stash — the ordinary remote-edit path.
+		EnsureMapStash(stem); // create the slots before taking references
+		EnsureEntStash(stem);
+		*m_levelMaps.find(stem)->second = std::move(map);
+		*m_levelEnts.find(stem)->second = std::move(ents);
+		return true;
+	}
+
+	// The ACTIVE level, replaced in place. This is RestoreEditorState's tail,
+	// and for the same reasons: Party holds a reference to m_map so the object
+	// must persist and only its data change; the surface rebake is deferred
+	// because any cell may differ and the full-screen editor hides the scene
+	// meanwhile (FlushGeometry pays for it once, on the way out).
+	m_device.WaitIdle();
+	const bool paletteChanged = m_map.WallPalette() != map.WallPalette() ||
+								m_map.FloorPalette() != map.FloorPalette() ||
+								m_map.CeilingPalette() != map.CeilingPalette();
+	m_map = std::move(map);
+	m_entities = std::move(ents);
+	m_entsDirty = true;
+	// THE PART RestoreEditorState DOES NOT NEED, and the reason this is not just
+	// a call to it: a snapshot restores a map of the SAME dimensions, so nothing
+	// sized to the grid ever had to change. A regenerate can hand back a level of
+	// a different size, and everything parallel to the cells must be resized with
+	// it — the fog mask first, which is indexed by MarkSeen a few lines below and
+	// asserted out of range the first time this ran against a bigger level.
+	m_seen.assign(static_cast<size_t>(m_map.Width()) * m_map.Height(), 0);
+	m_walkableCache.reset(); // a grid built for the old map's bounds
+	// Transient things positioned in the level that just ceased to exist.
+	m_projectiles.Clear();
+	m_pendingTransition.reset();
+	m_pendingFall.reset();
+	m_fallT = -1.0f;
+	m_shadows.InvalidateCubes();
+	// The dynamic layer comes from the new records alone: a regenerate discards
+	// the old level, so there are no live diffs left worth carrying over — and
+	// applying stale ones would resurrect objects from a dungeon that is gone.
+	m_levelStates.erase(m_currentLevel);
+	RespawnFromRecords();
+	// The party is standing wherever the OLD level put it, which the new one may
+	// have made solid rock. Put it on the new start cell — the one square the
+	// generator guarantees is floor.
+	m_party.SetGridPosition(m_map.StartX(), m_map.StartZ());
+	MarkSeen(m_map.StartX(), m_map.StartZ());
+	RebuildFiresAndDust();
+	m_geometryDirty = true;
+	if (paletteChanged) m_surfacesDirty = true;
+	return true;
+}
+
 std::vector<validate::Issue> DungeonWorld::Validate() {
 	// The catalog half of the rules. Both are id SETS rather than lookups so the
 	// inner flood never touches a Catalog.

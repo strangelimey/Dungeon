@@ -80,6 +80,7 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	  m_assetDialog(device, window),
 	  m_monsterDialog(device, m_fonts), m_balanceDialog(device, m_fonts),
 	  m_levelSettingsDialog(device, m_fonts), m_validateDialog(device, m_fonts),
+	  m_generateDialog(device, m_fonts),
 	  m_typeDialog(device, m_fonts),
 	  m_assetPicker(device, m_fonts),
 	  m_entityInspector(device, m_fonts), m_fixtureInspector(device, m_fonts),
@@ -149,6 +150,18 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	// what it found. Reads live state, so it answers for unsaved edits too —
 	// which is exactly when you want to hear that a door just became unopenable.
 	m_mapView.onValidate = [this] { m_validateDialog.Open(m_world.Validate()); };
+	// The Generate toolbar button + its knobs. A reroll replaces the VIEWED
+	// level as one undo step, then the check runs immediately — the whole reason
+	// the lock ordering is built by construction is so that comes back clean, and
+	// showing it is how anyone finds out it stopped.
+	m_mapView.onGenerate = [this] { m_generateDialog.Open(m_mapView.ViewedLevel()); };
+	m_generateDialog.onGenerate = [this](const generate::Params& p) {
+		if (!RegenerateViewedLevel(p)) return;
+		if (m_world.onMessage)
+			m_world.onMessage(loc::Format("map.gen.done", m_mapView.ViewedLevel(),
+										  p.seed));
+		m_validateDialog.Open(m_world.Validate());
+	};
 	// Clicking a finding shows it: browse to its level, and select the cell so
 	// the highlight says which square. A finding about a level as a whole
 	// (x < 0) just browses there.
@@ -1115,6 +1128,12 @@ void Game::Update(float dt) {
 									 static_cast<float>(m_window.Height()));
 		return;
 	}
+	// The generator knobs are likewise modal over the editor.
+	if (m_generateDialog.IsOpen() && !m_validateDialog.IsOpen()) {
+		m_generateDialog.Update(input, static_cast<float>(m_window.Width()),
+								static_cast<float>(m_window.Height()));
+		return;
+	}
 	// The check report is likewise modal over the editor.
 	if (m_validateDialog.IsOpen()) {
 		m_validateDialog.Update(input, static_cast<float>(m_window.Width()),
@@ -1563,6 +1582,8 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 		m_balanceDialog.Render(m_spriteBatch, m_settings.theme, dw, dh);
 	if (m_levelSettingsDialog.IsOpen())
 		m_levelSettingsDialog.Render(m_spriteBatch, m_settings.theme, dw, dh);
+	if (m_generateDialog.IsOpen())
+		m_generateDialog.Render(m_spriteBatch, m_settings.theme, dw, dh);
 	if (m_validateDialog.IsOpen())
 		m_validateDialog.Render(m_spriteBatch, m_settings.theme, dw, dh);
 	if (m_typeDialog.IsOpen())

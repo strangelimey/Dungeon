@@ -171,6 +171,7 @@ std::vector<MapView::ToolButton> MapView::ToolbarButtons(const gfx::Rect& panel)
 	add(HoverBtn::Undo, loc::Tr("map.btn.undo"), m_icoUndo.get(),
 		m_world.CanUndo() && !busy);
 	add(HoverBtn::Check, loc::Tr("map.btn.check"), m_icoCheck.get(), true);
+	add(HoverBtn::Generate, loc::Tr("map.btn.generate"), m_icoGen.get(), true);
 	add(HoverBtn::Balance, loc::Tr("map.btn.balance"), m_icoBalance.get(), true);
 	add(HoverBtn::LevelSettings, loc::Tr("map.btn.level"), m_icoLevel.get(), true);
 	// Pause/play: the button shows the ACTION available — a pause glyph while
@@ -494,6 +495,7 @@ bool MapView::Update(const Input& input, const gfx::Rect& panel) {
 				case HoverBtn::Balance:       if (onBalance) onBalance(); break;
 				case HoverBtn::LevelSettings: if (onLevelSettings) onLevelSettings(); break;
 				case HoverBtn::Check: if (onValidate) onValidate(); break;
+				case HoverBtn::Generate: if (onGenerate) onGenerate(); break;
 				case HoverBtn::LevelPick:     m_levelsOpen = true; break;
 				case HoverBtn::PlayPause:     m_editorPaused = !m_editorPaused; break;
 				case HoverBtn::NewLevel:
@@ -1304,7 +1306,16 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 						{d, d}, 0.0f, {0.0f, 0.0f, 1.0f, 1.0f}, *b.icon,
 						{f, f, f, 1.0f});
 				} else {
-					face(b.rect, b.label, b.id, b.enabled);
+					// No icon art for this tool yet. The face falls back to the
+					// LABEL, which is written for the tooltip and is far wider
+					// than a disc — two icon-less buttons side by side drew their
+					// words straight over each other. Trim it to what the button
+					// can actually hold; the full name is still one hover away.
+					std::string fit = b.label;
+					while (fit.size() > 1 &&
+						   m_font->MeasureWidth(fit) > b.rect.w - dpad)
+						fit.pop_back();
+					face(b.rect, fit, b.id, b.enabled);
 				}
 			}
 

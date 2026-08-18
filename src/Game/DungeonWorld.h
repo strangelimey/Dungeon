@@ -576,6 +576,27 @@ public:
 	// (RespawnFromRecords) and saves (`savemap`) to persist.
 	TypeUsage SweepTypeRefs(const std::string& catalogKey, const std::string& id,
 							const std::string* newId = nullptr);
+	// --- generator support ----------------------------------------------------
+	// Could a stair stand on (x,z) of `stem`? Walkable, and nothing already
+	// there that a stair cannot share a square with. Public so the generator's
+	// seam can find a cell that suits BOTH levels of a link before authoring it.
+	// Loads the level on demand, like every other cross-level query here.
+	bool CellFreeForStair(const std::string& stem, int x, int z);
+
+	// Replace a level's CONTENT wholesale — the generator's regenerate.
+	//
+	// The active level is replaced IN PLACE (move-assign, respawn, defer the
+	// surface rebake) rather than by a level transition, because a transition
+	// clears the undo history and the whole promise of a destructive regenerate
+	// is that Ctrl+Z brings the old level back. Any other level replaces its
+	// stash, which is the ordinary remote-edit path. Bracket the call in
+	// Begin/CommitUndoStep and it is one undo step like any edit.
+	// Takes the two files' PATHS rather than parsed objects so the fixture-type
+	// table (a private detail of this class) stays here, and the caller only has
+	// to know how to write the text.
+	bool InstallLevelFromFiles(const std::string& stem, const std::string& mapPath,
+							   const std::string& entPath);
+
 	// --- validation (the editor's playability check) --------------------------
 	// Runs Game/Validate.h over EVERY level in the project — the active one from
 	// its live state, the rest from their stashes or parsed on demand, exactly as

@@ -328,7 +328,7 @@ and three of showcase's stairs plus both halves of the start/level2 link do not
 match that. The generator must author pairs the way the editor does, or it will
 manufacture this same drift at scale.
 
-### Phase 4 — the generator (Theme B) — CORE DONE, shell outstanding
+### Phase 4 — the generator (Theme B) — DONE
 
 - The site container, carrying difficulty / reward / theme / monster set.
 - Rooms and corridors from size + branching; start, exit and stairs; monsters by
@@ -358,17 +358,28 @@ travel axis, so the panel would slide across the corridor rather than along the
 wall), and both keys landed on the SAME square because the placement loop
 consulted reachability and nothing else.
 
-**Still outstanding, and the generated level is not yet playable without it:**
+**All three shell pieces landed after that.** Stair linking goes through
+`AddStairAt`, so a generated level joins the project the way the editor would
+write it (a new level now checks 0 errors, where it used to report `levellost`).
+The knobs dialog carries the seed and rerolls in place. Regeneration replaces the
+VIEWED level through `InstallLevelFromFiles` — the `RestoreEditorState` tail
+rather than a level transition, because a transition clears the undo history the
+destructive-reroll decision depends on. Parsing goes via a TEMP file so the real
+`.map`/`.ent` stay untouched until `savemap`, which is what keeps an undo
+complete instead of leaving the generated version on disk.
 
-1. **Stair linking.** A generated level has no stair joining it to the project,
-   so the checker correctly reports `levellost`. The pair must be authored the
-   way `AddStairAt` does — `destX = x, destZ = z`, each side arriving on its
-   counterpart — or the generator manufactures at scale exactly the drift Phase 3
-   found five instances of by hand. It needs a cell walkable in BOTH levels.
-2. **The knobs dialog**, with the seed and a Regenerate button.
-3. **In-place regenerate under one undo step.** Today `generate` writes a NEW
-   level, which sidesteps the hard part: rewriting the VIEWED level without a
-   level swap, since undo history clears on a transition.
+THE BUG BOTH HALVES SHARED, and the reason to record it: everything parallel to
+the CELLS is sized at level load, and until a generator existed nothing could
+change a map's size in place — every snapshot restore was of the same level. A
+regenerate can hand back a level of a different size, and the fog mask then
+indexed out of range. It crashed twice, symmetrically: once generating INTO a
+bigger level, once undoing BACK to a smaller one. `RestoreEditorState` had
+carried the latent assumption all along. The fix RESIZES rather than clears, so
+an ordinary same-size undo still leaves the fog exactly as it was, and the party
+is moved only when the restored level does not actually have floor under them.
+
+Worth carrying: WHEN A NEW FEATURE CAN VARY SOMETHING THAT WAS PREVIOUSLY FIXED,
+the old code does not announce that it depended on it.
 
 ### Deferred
 
