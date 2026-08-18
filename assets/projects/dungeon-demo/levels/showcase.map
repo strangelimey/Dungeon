@@ -60,9 +60,6 @@ floorfeature drain 15 8
 ceilingfeature vault 12 11
 ceilingfeature vault 13 11
 ceilingfeature vault 14 11
-stairs stairs_up 25 11 north dest=start destx=50 destz=9 destfacing=south
-stairs stairs_spiral 21 11 north dest=start destx=50 destz=9 destfacing=south
-stairs stairs_spiral_down 21 6 north dest=start destx=50 destz=9 destfacing=south
 stairs stairs_down 11 2 south dest=start destx=11 destz=2 destfacing=south
 variant wall 10 0 1
 variant wall 11 0 1
