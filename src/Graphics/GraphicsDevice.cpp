@@ -1,5 +1,6 @@
 #include "Graphics/GraphicsDevice.h"
 
+#include "Core/AllocTrack.h"
 #include "Core/Log.h"
 #include "Core/Profile.h"
 #include "Core/StringUtil.h"
@@ -8,6 +9,8 @@
 #include <Windows.h>
 
 #include <algorithm>
+#include <format>
+#include <mutex>
 
 namespace dungeon::gfx {
 
@@ -80,6 +83,8 @@ GraphicsDevice::GraphicsDevice(HWND__* hwnd, u32 width, u32 height,
 		m_adapterName = "WARP (software)";
 		log::Warn("Using WARP software rasterizer");
 	}
+
+	InstallDebugMessageLog();
 
 	D3D12_COMMAND_QUEUE_DESC queueDesc{};
 	queueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
@@ -156,6 +161,13 @@ GraphicsDevice::~GraphicsDevice() {
 	}
 	if (m_fenceEvent) CloseHandle(m_fenceEvent);
 	if (m_capTimer) CloseHandle(m_capTimer);
+	// Before the device drops, so a message raised by D3D's own teardown cannot
+	// arrive after the log has been finalized.
+	if (m_msgCookie) {
+		ComPtr<ID3D12InfoQueue1> q1;
+		if (SUCCEEDED(m_device.As(&q1))) q1->UnregisterMessageCallback(m_msgCookie);
+		m_msgCookie = 0;
+	}
 }
 
 void GraphicsDevice::CreateSizeDependentResources() {
@@ -348,7 +360,150 @@ void GraphicsDevice::BindBackBuffer(ID3D12GraphicsCommandList* list) {
 	list->RSSetScissorRects(1, &scissor);
 }
 
+// ============================================================================
+// Debug-layer validation messages -> dungeon.log
+//
+// EnableDebugLayer (in the constructor) turns validation ON, but the layer on
+// its own only talks to OutputDebugString: run the game outside a debugger and
+// its diagnosis is written to nobody. That is backwards for the failure it
+// exists to catch — an object released while a command list still references it
+// surfaces as an access violation INSIDE D3D12SDKLayers at submit time, and the
+// message naming the object is the whole answer. A fault of exactly that shape
+// (2026-08-18, in ExecuteCommandLists) is what this was added for; the layer had
+// almost certainly already said why, into a stream nothing was reading.
+//
+// THE CALLBACK IS THE POINT, not the queue. ID3D12InfoQueue1 delivers a message
+// synchronously from inside the offending D3D call, so log::Write — which
+// flushes per line — has it on disk BEFORE that call returns. A queue polled at
+// the end of the frame loses precisely the message that mattered, because the
+// process dies inside the call the drain was going to follow. Polling is the
+// fallback for a runtime without InfoQueue1, and it says so at startup.
+//
+// INFO/MESSAGE severities are dropped: the layer narrates every resource
+// creation at those levels, and a log too noisy to read is the failure being
+// fixed, not a milder version of it.
+// ============================================================================
+namespace {
+
+log::Level LevelFor(D3D12_MESSAGE_SEVERITY sev) {
+	switch (sev) {
+	case D3D12_MESSAGE_SEVERITY_CORRUPTION:
+	case D3D12_MESSAGE_SEVERITY_ERROR:   return log::Level::Error;
+	case D3D12_MESSAGE_SEVERITY_WARNING: return log::Level::Warn;
+	default:                             return log::Level::Debug;
+	}
+}
+
+const char* SeverityName(D3D12_MESSAGE_SEVERITY sev) {
+	switch (sev) {
+	case D3D12_MESSAGE_SEVERITY_CORRUPTION: return "CORRUPTION";
+	case D3D12_MESSAGE_SEVERITY_ERROR:      return "error";
+	case D3D12_MESSAGE_SEVERITY_WARNING:    return "warning";
+	case D3D12_MESSAGE_SEVERITY_INFO:       return "info";
+	default:                                return "message";
+	}
+}
+
+// IDENTICAL CONSECUTIVE messages collapse to powers of ten, the same throttle
+// Core/Diagnostics applies to a worker throwing the same thing every tick — and
+// for the same reason, sharpened by a measurement. The back-buffer clear warns
+// ONCE A FRAME for good (id 820: a swapchain buffer is created by DXGI with no
+// optimized clear value, so no clear can ever match it, and there is nothing to
+// fix at the call site). Unthrottled that is 3096 lines a minute, which would
+// bury the one message this whole path exists to deliver. The count is kept and
+// printed, so nothing is hidden — only repeated.
+bool IsLogPoint(u64 n) { // 1, 10, 100, 1000, ...
+	while (n >= 10 && n % 10 == 0) n /= 10;
+	return n == 1;
+}
+
+// One formatting site for both collection paths, so a message reads identically
+// however it arrived — the same reason IsPlumbingFrame is one rule for every
+// stack readout. Callable from any thread: InfoQueue1 delivers on whichever
+// thread made the D3D call.
+std::mutex g_msgMutex;
+D3D12_MESSAGE_ID g_lastId = static_cast<D3D12_MESSAGE_ID>(-1);
+u64 g_repeat = 0;
+
+void ReportMessage(D3D12_MESSAGE_SEVERITY sev, D3D12_MESSAGE_ID id, const char* desc) {
+	if (sev == D3D12_MESSAGE_SEVERITY_INFO || sev == D3D12_MESSAGE_SEVERITY_MESSAGE)
+		return;
+	// This reports from inside a frame the allocation guard may be bracketing,
+	// and formatting the line allocates — so it excuses itself, like every other
+	// reporter that can fire mid-frame.
+	alloc::Excused excuse;
+
+	u64 repeat = 1;
+	{
+		std::lock_guard lock(g_msgMutex);
+		g_repeat = (id == g_lastId) ? g_repeat + 1 : 1;
+		g_lastId = id;
+		repeat = g_repeat;
+	}
+	if (repeat > 1 && !IsLogPoint(repeat)) return;
+
+	const std::string again =
+		repeat > 1 ? std::format(" — repeated {} times", repeat) : std::string{};
+	log::Write(LevelFor(sev),
+			   std::format("d3d12 {} [{}]: {}{}", SeverityName(sev), static_cast<int>(id),
+						   desc ? desc : "(no description)", again));
+}
+
+void CALLBACK OnD3D12Message(D3D12_MESSAGE_CATEGORY, D3D12_MESSAGE_SEVERITY severity,
+							 D3D12_MESSAGE_ID id, LPCSTR description, void*) {
+	ReportMessage(severity, id, description);
+}
+
+} // namespace
+
+void GraphicsDevice::InstallDebugMessageLog() {
+	if (!m_device) return;
+
+	// WHICH PATH INSTALLED IS LOGGED, because silence here is ambiguous: "the
+	// layer found nothing wrong" and "nothing was ever listening" read the same
+	// in a log file, and the second is the state this code exists to end.
+	ComPtr<ID3D12InfoQueue1> queue1;
+	if (SUCCEEDED(m_device.As(&queue1))) {
+		DWORD cookie = 0;
+		if (SUCCEEDED(queue1->RegisterMessageCallback(
+				OnD3D12Message, D3D12_MESSAGE_CALLBACK_FLAG_NONE, nullptr, &cookie))) {
+			m_msgCookie = static_cast<u32>(cookie);
+			log::Info("D3D12 validation -> dungeon.log (callback)");
+			return;
+		}
+	}
+
+	if (SUCCEEDED(m_device.As(&m_infoQueue))) {
+		log::Info("D3D12 validation -> dungeon.log (polled per frame; a message "
+				  "raised by the call that crashes will be lost)");
+		return;
+	}
+	// Neither interface = no debug layer, which is the normal release build.
+	// Nothing to say: validation was never asked for.
+}
+
+void GraphicsDevice::DrainDebugMessages() {
+	if (!m_infoQueue) return;
+	const u64 count = m_infoQueue->GetNumStoredMessages();
+	if (count == 0) return; // the steady-state case: no work, no allocation
+
+	alloc::Excused excuse;
+	for (u64 i = 0; i < count; ++i) {
+		SIZE_T bytes = 0;
+		if (FAILED(m_infoQueue->GetMessage(i, nullptr, &bytes)) || bytes == 0) continue;
+		m_msgScratch.resize(bytes); // grows to the longest message, then stays
+		auto* msg = reinterpret_cast<D3D12_MESSAGE*>(m_msgScratch.data());
+		if (FAILED(m_infoQueue->GetMessage(i, msg, &bytes))) continue;
+		ReportMessage(msg->Severity, msg->ID, msg->pDescription);
+	}
+	m_infoQueue->ClearStoredMessages();
+}
+
 void GraphicsDevice::EndFrame() {
+	// Ahead of Close/Execute, not after: on the polling path this is the last
+	// chance to write out what recording produced before the submit that a
+	// corrupt list faults inside of.
+	DrainDebugMessages();
 	const auto barrier = Transition(m_backBuffers[m_frameIndex].Get(),
 									D3D12_RESOURCE_STATE_RENDER_TARGET,
 									D3D12_RESOURCE_STATE_PRESENT);
