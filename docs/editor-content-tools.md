@@ -294,14 +294,39 @@ already true (same function, same pointer, same frame); handing the answer over
 removes the question, and with it the chance that a later edit makes the two
 drift.
 
-### Phase 3 — validation (Theme D)
+### Phase 3 — validation (Theme D) — DONE
 
 - The lock-and-key reachability fixpoint, over a whole site rather than one
   level, since a key may legitimately live a floor away.
 - Explicit stair-pairing check reported separately, with drift named as the
   cause.
 - A results panel listing each problem, click-to-jump to the offending cell.
-- Toolbar button, and an automatic run after every generate.
+- Toolbar button. (The automatic run after a generate waits for Phase 4 to have
+  a generate to run after.)
+
+Built as `Game/Validate.h` — a PURE module taking a snapshot of levels, so it can
+be reasoned about without a game, plus a gathering seam in
+`DungeonWorld_Validate.cpp`. The report is `ValidateDialog`, and clicking a row
+jumps the map to that level and square, which is most of its value: a fault you
+cannot navigate to is a fault you will not fix.
+
+Two things the build taught. FIRST, checked by MUTATION, not by looking: locking
+one door in the demo project produced the expected `doorlocked` error AND stranded
+two whole levels — a correct cascade — but the second half of the test was the
+one that mattered, because placing the key back where it could be reached
+returned the count to zero. A check that has never been seen to change its answer
+is not yet a check. SECOND, that mutation exposed a real defect: an unreachable
+level suppressed its own STRUCTURAL findings (stair pairing, button wiring),
+which are facts about the records and true whether or not anything can walk
+there. Hiding them behind a reachability fault would mean fixing the first fault
+only to discover the next.
+
+Worth carrying into Phase 4: the check found FIVE genuine stair-pairing faults in
+the existing hand-authored demo content on its very first run. `AddStairAt`
+writes `destX = x, destZ = z` — each side arrives standing on its counterpart —
+and three of showcase's stairs plus both halves of the start/level2 link do not
+match that. The generator must author pairs the way the editor does, or it will
+manufacture this same drift at scale.
 
 ### Phase 4 — the generator (Theme B)
 

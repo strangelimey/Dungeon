@@ -21,6 +21,7 @@ add_library(Game STATIC
 	DungeonWorld_Load.cpp
 	DungeonWorld_Render.cpp
 	DungeonWorld_Save.cpp
+	DungeonWorld_Validate.cpp
 	Effect/AllEffects.cpp
 	Effect/DotEffect.cpp
 	Effect/Effect.cpp
@@ -48,6 +49,8 @@ add_library(Game STATIC
 	NicheInspector.cpp
 	MessageLog.cpp
 	Party.cpp
+	Validate.cpp
+	ValidateDialog.cpp
 	Placement.cpp
 	PartyHudDraw.cpp
 	PartyBar.cpp

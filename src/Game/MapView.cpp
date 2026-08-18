@@ -170,6 +170,7 @@ std::vector<MapView::ToolButton> MapView::ToolbarButtons(const gfx::Rect& panel)
 		m_world.CanRedo() && !busy);
 	add(HoverBtn::Undo, loc::Tr("map.btn.undo"), m_icoUndo.get(),
 		m_world.CanUndo() && !busy);
+	add(HoverBtn::Check, loc::Tr("map.btn.check"), m_icoCheck.get(), true);
 	add(HoverBtn::Balance, loc::Tr("map.btn.balance"), m_icoBalance.get(), true);
 	add(HoverBtn::LevelSettings, loc::Tr("map.btn.level"), m_icoLevel.get(), true);
 	// Pause/play: the button shows the ACTION available — a pause glyph while
@@ -492,6 +493,7 @@ bool MapView::Update(const Input& input, const gfx::Rect& panel) {
 				case HoverBtn::SaveSource:    if (onSave) onSave(true); break;
 				case HoverBtn::Balance:       if (onBalance) onBalance(); break;
 				case HoverBtn::LevelSettings: if (onLevelSettings) onLevelSettings(); break;
+				case HoverBtn::Check: if (onValidate) onValidate(); break;
 				case HoverBtn::LevelPick:     m_levelsOpen = true; break;
 				case HoverBtn::PlayPause:     m_editorPaused = !m_editorPaused; break;
 				case HoverBtn::NewLevel:

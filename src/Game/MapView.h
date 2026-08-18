@@ -75,6 +75,8 @@ public:
 	// (LevelSettingsDialog — the .map `atmosphere` record's front-end) for
 	// the level the viewport is SHOWING (ViewedLevel/ViewedMap).
 	std::function<void()> onLevelSettings;
+	// The toolbar's Check button: run the playability check and show its report.
+	std::function<void()> onValidate;
 	// The toolbar's [+] button: the owner (Game) creates a fresh level on disk
 	// (minimal .map/.ent + a manifest append) and returns its stem so the view
 	// can jump straight to it — or "" if creation failed.
@@ -120,6 +122,11 @@ public:
 	bool EditorPaused() const {
 		return m_mode == Mode::Editor && m_editorPaused;
 	}
+
+	// Jump the viewport to a level by stem (the dropdown's pick; the arrows'
+	// StepViewLevel folds into this). Public because the check report navigates
+	// by it: a finding names a level, and clicking it has to take you there.
+	void SetViewLevel(const std::string& stem);
 
 	// A level was renamed (the Level dialog's inline edit): if the viewport is
 	// browsing it, rebuild the snapshot under the new stem so ViewedLevel()
@@ -254,6 +261,7 @@ private:
 	// Toolbar icon discs (Wenrexa house style, baked by the icon factory —
 	// see the editor-polish thread notes). A missing file leaves the pointer
 	// null and that button falls back to its text face.
+	std::unique_ptr<gfx::Texture> m_icoCheck;
 	std::unique_ptr<gfx::Texture> m_icoLevel, m_icoBalance, m_icoUndo,
 		m_icoRedo, m_icoSave, m_icoSource, m_icoNew, m_icoPlay, m_icoPause;
 	bool m_editorPaused = false; // pause/play toolbar toggle (see EditorPaused)
@@ -290,7 +298,7 @@ private:
 	// ui::DrawButtonFace hover styling on the hand-drawn buttons.
 	enum class HoverBtn {
 		None, LevelUp, LevelDown, Undo, Redo, Save, SaveSource, Balance,
-		LevelSettings, NewLevel, LevelPick, PlayPause, CollapseL, CollapseR
+		LevelSettings, Check, NewLevel, LevelPick, PlayPause, CollapseL, CollapseR
 	};
 	HoverBtn m_hoverBtn = HoverBtn::None;
 
@@ -323,9 +331,6 @@ private:
 	gfx::Rect LevelPickRect(const gfx::Rect& panel) const;
 	gfx::Rect LevelItemRect(int index, const gfx::Rect& panel) const;
 	gfx::Rect NewLevelButton(const gfx::Rect& panel) const; // [+], right of it
-	// Jump the viewport to a level by stem (the dropdown's pick; the arrows'
-	// StepViewLevel folds into this).
-	void SetViewLevel(const std::string& stem);
 	bool m_levelsOpen = false; // dropdown popup showing
 	int m_levelsHover = -1;    // hovered popup row (Update-tracked, like m_hoverBtn)
 

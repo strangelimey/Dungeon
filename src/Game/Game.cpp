@@ -79,7 +79,8 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	  m_modelPreview(device, 512),
 	  m_assetDialog(device, window),
 	  m_monsterDialog(device, m_fonts), m_balanceDialog(device, m_fonts),
-	  m_levelSettingsDialog(device, m_fonts), m_typeDialog(device, m_fonts),
+	  m_levelSettingsDialog(device, m_fonts), m_validateDialog(device, m_fonts),
+	  m_typeDialog(device, m_fonts),
 	  m_assetPicker(device, m_fonts),
 	  m_entityInspector(device, m_fonts), m_fixtureInspector(device, m_fonts),
 	  m_propInspector(device, m_fonts), m_doorInspector(device, m_fonts),
@@ -143,6 +144,17 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 		for (const std::string& tag : m_mapView.ViewedMap().Theme())
 			theme += (theme.empty() ? "" : " ") + tag;
 		m_levelSettingsDialog.Open(m_mapView.ViewedLevel(), dust, haze, ambient, theme);
+	};
+	// The Check toolbar button: run the whole-project playability check and show
+	// what it found. Reads live state, so it answers for unsaved edits too —
+	// which is exactly when you want to hear that a door just became unopenable.
+	m_mapView.onValidate = [this] { m_validateDialog.Open(m_world.Validate()); };
+	// Clicking a finding shows it: browse to its level, and select the cell so
+	// the highlight says which square. A finding about a level as a whole
+	// (x < 0) just browses there.
+	m_validateDialog.onJump = [this](const std::string& level, int x, int z) {
+		m_mapView.SetViewLevel(level);
+		if (x >= 0) m_mapEditor.SelectCell(x, z);
 	};
 	m_levelSettingsDialog.onApply = [this](float dust, float haze, float ambient) {
 		if (m_levelSettingsDialog.Level() != m_world.CurrentLevel()) return;
@@ -1103,6 +1115,12 @@ void Game::Update(float dt) {
 									 static_cast<float>(m_window.Height()));
 		return;
 	}
+	// The check report is likewise modal over the editor.
+	if (m_validateDialog.IsOpen()) {
+		m_validateDialog.Update(input, static_cast<float>(m_window.Width()),
+								static_cast<float>(m_window.Height()));
+		return;
+	}
 	// The per-type catalog editor is likewise modal over the editor.
 	if (m_typeDialog.IsOpen()) {
 		m_typeDialog.Update(input, static_cast<float>(m_window.Width()),
@@ -1545,6 +1563,8 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 		m_balanceDialog.Render(m_spriteBatch, m_settings.theme, dw, dh);
 	if (m_levelSettingsDialog.IsOpen())
 		m_levelSettingsDialog.Render(m_spriteBatch, m_settings.theme, dw, dh);
+	if (m_validateDialog.IsOpen())
+		m_validateDialog.Render(m_spriteBatch, m_settings.theme, dw, dh);
 	if (m_typeDialog.IsOpen())
 		m_typeDialog.Render(m_spriteBatch, m_settings.theme, dw, dh);
 	// The asset picker draws OVER the type editor it was opened from, and blits

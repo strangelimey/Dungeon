@@ -85,6 +85,15 @@ public:
 	// The currently SELECTED square (Select tool), for the highlight + route overlay.
 	// -1 = nothing selected; SelectedMonster is the creature there at select time (0
 	// = none), captured so its route still draws after it walks off the square.
+	// Select a square from outside (the check report's click-to-jump). Only the
+	// highlight — it deliberately does NOT open an inspector, because the report
+	// is naming a place, not an object, and half the findings are about a cell
+	// that holds nothing at all.
+	void SelectCell(int x, int z) {
+		m_selX = x;
+		m_selZ = z;
+		m_selMonster = 0;
+	}
 	bool HasSelection() const { return m_selX >= 0; }
 	int SelX() const { return m_selX; }
 	int SelZ() const { return m_selZ; }

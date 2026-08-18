@@ -587,6 +587,36 @@ void Game::RegisterDevCommands() {
 						   BeginLevelTransition(stem, -1, -1, Direction::South);
 						   m_console.Print("loading " + stem + "...");
 					   });
+	m_console.Register("validate", "check the whole project for playability faults",
+					   [this](const std::vector<std::string>&) {
+						   if (!m_gameLoaded || (m_state != AppState::Playing &&
+												 m_state != AppState::Paused)) {
+							   m_console.Print("validate only works in-game");
+							   return;
+						   }
+						   const std::vector<validate::Issue> issues = m_world.Validate();
+						   if (issues.empty()) {
+							   m_console.Print("validate: clean - no faults found");
+							   return;
+						   }
+						   int errors = 0;
+						   for (const validate::Issue& i : issues)
+							   if (i.severity == validate::Severity::Error) ++errors;
+						   m_console.Print(std::format("validate: {} error(s), {} warning(s)",
+													   errors, issues.size() - errors));
+						   for (const validate::Issue& i : issues) {
+							   // The console is dev-facing, so the loc KEY is
+							   // printed rather than the translation: it names the
+							   // check that fired, which is what you want when the
+							   // question is "why did this fire".
+							   std::string where = i.level;
+							   if (i.x >= 0) where += std::format(" @{},{}", i.x, i.z);
+							   m_console.Print(std::format(
+								   "  {} {} {} {}",
+								   i.severity == validate::Severity::Error ? "ERR " : "warn",
+								   where, i.messageKey, i.a));
+						   }
+					   });
 	m_console.Register("savemap", "write every edited level's .map/.ent to the project",
 					   [this](const std::vector<std::string>&) {
 						   if (!m_gameLoaded || (m_state != AppState::Playing &&

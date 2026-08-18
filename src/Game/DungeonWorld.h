@@ -23,6 +23,7 @@
 #include "Game/Character.h"
 #include "Game/Combat.h"
 #include "Game/DungeonEntities.h"
+#include "Game/Validate.h"
 #include "Game/DungeonMap.h"
 #include "Game/DungeonMeshBuilder.h" // WallPanels (the worn wall block's variants)
 #include "Game/FireEffect.h"
@@ -575,6 +576,18 @@ public:
 	// (RespawnFromRecords) and saves (`savemap`) to persist.
 	TypeUsage SweepTypeRefs(const std::string& catalogKey, const std::string& id,
 							const std::string* newId = nullptr);
+	// --- validation (the editor's playability check) --------------------------
+	// Runs Game/Validate.h over EVERY level in the project — the active one from
+	// its live state, the rest from their stashes or parsed on demand, exactly as
+	// SweepTypeRefs walks them. Whole-project on purpose: a key may legitimately
+	// live a floor away from its door, so a per-level check would report a
+	// correct dungeon as broken.
+	//
+	// NOT const: reaching a level that is not in memory parses and stashes it.
+	// That is the same lazy load the map overlay does to browse one, and it is
+	// cheaper than keeping every level resident to keep a checker const.
+	std::vector<validate::Issue> Validate();
+
 	// Rebuilds the live dynamic objects from the current records — the tail of
 	// an undo restore, reused after a type rename retypes those records.
 	// Surfaces are untouched (a rename doesn't move geometry) EXCEPT wall

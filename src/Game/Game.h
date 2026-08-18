@@ -56,6 +56,7 @@
 #include "Game/BalanceDialog.h"
 #include "Game/InspectPicker.h"
 #include "Game/LevelSettingsDialog.h"
+#include "Game/ValidateDialog.h"
 #include "Game/MonsterConfigDialog.h"
 #include "Game/ButtonInspector.h"
 #include "Game/DoorInspector.h"
@@ -436,6 +437,7 @@ private:
 	// Per-level atmosphere dialog (the .map `atmosphere` record front-end),
 	// opened by the editor toolbar's Level button for the VIEWED level.
 	LevelSettingsDialog m_levelSettingsDialog;
+	ValidateDialog m_validateDialog;
 	// Per-TYPE catalog editor, opened by right-clicking any palette row: a form
 	// rendered from CatalogSchema, so it serves every category. Save writes the
 	// .cat (and re-bakes the worn meshes when a surface's look changed).
