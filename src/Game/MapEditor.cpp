@@ -510,11 +510,24 @@ Mount MapEditor::BrushMount() const {
 
 bool MapEditor::BrushIsWallMounted() const { return BrushMount() == Mount::Wall; }
 
-Placement MapEditor::ResolveBrush(int cx, int cz, const WallFace& face) const {
-	return Resolve(m_view.ViewedMap(), BrushMount(), cx, cz, face);
+Placement MapEditor::ResolveBrush(int cx, int cz, const WallFace& face, float fx,
+								  float fz) const {
+	Placement p = Resolve(m_view.ViewedMap(), BrushMount(), cx, cz, face, fx, fz);
+	// The one part the pure resolver cannot answer: WHICH quarter is still free.
+	// That is world state, not map state, so it is refined here — through the
+	// same search the loader and the player's own drop already use, rather than
+	// a second quarter-picking rule that could disagree with them.
+	//
+	// A BROWSED level deliberately gets no quarter: its items live as records in
+	// a stash with no live instances to consult, so any answer here would be a
+	// guess, and the placement falls back to the loader's fill order.
+	if (p.valid && p.mount == Mount::FloorSlot && !m_view.Browsing())
+		p.slot = m_world.FreeItemSlotNear(p.x, p.z, p.subX, p.subZ, -1);
+	return p;
 }
 
-void MapEditor::ApplyBrush(int cx, int cz, bool dragging, const WallFace& face) {
+void MapEditor::ApplyBrush(int cx, int cz, bool dragging, const WallFace& face,
+						   const Placement* pre) {
 	// Edit target: the VIEWED level. The active level edits live world state;
 	// a browsed level routes to DungeonWorld's remote seam (its in-memory
 	// stash — see the level-browsing section in MapView.h).
@@ -574,7 +587,7 @@ void MapEditor::ApplyBrush(int cx, int cz, bool dragging, const WallFace& face) 
 		// where the preview said it would (Placement.h). A refusal carries its own
 		// reason — "nothing to hang this on" is a different problem from "that
 		// square is rock", and the ghost has already been saying which.
-		const Placement place = ResolveBrush(cx, cz, face);
+		const Placement place = pre ? *pre : ResolveBrush(cx, cz, face);
 		if (!place.valid) {
 			log(loc::Format(place.refusalKey ? place.refusalKey : "map.place.blocked",
 							items[m_sel.index].label));
@@ -631,8 +644,12 @@ void MapEditor::ApplyBrush(int cx, int cz, bool dragging, const WallFace& face) 
 					changed = ok;
 					break;
 				}
+			// The quarter the ghost drew. Remote placement has no live items to
+			// pick a free quarter against, so it authors none and the loader
+			// fills in order — which is why ResolveBrush leaves `slot` at -1
+			// there rather than inventing one.
 			ok = remote ? m_world.AddItemRemote(stem, id, cx, cz)
-						: m_world.AddItem(id, cx, cz);
+						: m_world.AddItem(id, cx, cz, place.slot);
 		}
 		else if (wallBrush) // a `mount = wall` decoration hangs on the picked face
 			ok = remote ? m_world.AddDecorationRemote(stem, id, px, pz, face.wall)
@@ -660,10 +677,21 @@ void MapEditor::ApplyBrush(int cx, int cz, bool dragging, const WallFace& face) 
 		const std::vector<PaletteItem> items = CategoryItems(m_sel.cat);
 		if (m_sel.index < 0 || m_sel.index >= static_cast<int>(items.size())) break;
 		const std::string& id = items[m_sel.index].id;
-		// AddDoor messages the doorway failure itself (auto-orientation needs
-		// flanking walls); the generic done/blocked line covers the rest.
-		const bool ok = remote ? m_world.AddDoorRemote(stem, id, cx, cz)
-							   : m_world.AddDoor(id, cx, cz);
+		// Doors go through the resolver like everything else now. They used to
+		// call AddDoor and let IT find the doorway, which gave the same answer —
+		// both bottom out in DungeonMap::DoorwayFacing — but by coincidence
+		// rather than by construction, and it left the ghost describing a
+		// decision the commit was making again on its own. One refusal path too:
+		// the "no doorway here" line is the resolver's, so a door refuses in the
+		// same voice as every other brush.
+		const Placement place = pre ? *pre : ResolveBrush(cx, cz, face);
+		if (!place.valid) {
+			log(loc::Format(place.refusalKey ? place.refusalKey : "map.place.blocked",
+							items[m_sel.index].label));
+			break;
+		}
+		const bool ok = remote ? m_world.AddDoorRemote(stem, id, place.x, place.z)
+							   : m_world.AddDoor(id, place.x, place.z, place.facing);
 		if (ok)
 			log(loc::Format("map.place.done", items[m_sel.index].label));
 		changed = ok;

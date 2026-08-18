@@ -367,12 +367,16 @@ bool MapView::Update(const Input& input, const gfx::Rect& panel) {
 		else if (input.WasKeyPressed('Y')) m_pendingHistory = +1;
 	}
 
-	// Track the hovered cell (for Render highlights, e.g. the faint item icon).
-	if (int hx, hz; overGrid && CellAt(mx, my, panel, hx, hz)) {
+	// Track the hovered cell (for Render highlights, e.g. the faint item icon)
+	// and the pointer's position INSIDE it — a floor item goes in one of four
+	// quarters, so for those the cell alone does not say where the click landed.
+	float hfx = 0.5f, hfz = 0.5f;
+	if (int hx, hz; overGrid && CellAtF(mx, my, panel, hx, hz, hfx, hfz)) {
 		m_hoverX = hx;
 		m_hoverZ = hz;
 	} else {
 		m_hoverX = m_hoverZ = -1;
+		hfx = hfz = 0.5f;
 	}
 
 	// The wall FACE under the pointer, tracked only while a wall-mounted brush is
@@ -388,7 +392,8 @@ bool MapView::Update(const Input& input, const gfx::Rect& panel) {
 	// commit is a preview that can lie, and that is worse than none.
 	m_hoverPlace = {};
 	if (editor && overGrid && m_editor && m_hoverX >= 0 && m_editor->ArmedPlaceable())
-		m_hoverPlace = m_editor->ResolveBrush(m_hoverX, m_hoverZ, m_hoverFace);
+		m_hoverPlace =
+			m_editor->ResolveBrush(m_hoverX, m_hoverZ, m_hoverFace, hfx, hfz);
 
 	// Track the hovered chrome button (Render styles it via the shared
 	// ui::DrawButtonFace). Mirrors the click gating: hidden/unavailable
@@ -599,13 +604,17 @@ bool MapView::Update(const Input& input, const gfx::Rect& panel) {
 			if (alt) m_editor->PickAt(cx, cz); // never mutates — no refresh needed
 			else if (shift) { m_editor->PaintRect(cx, cz); painted = true; }
 			else if (ctrl) { m_editor->FloodFill(cx, cz); painted = true; }
-			// m_hoverFace was resolved from this same pointer position earlier
-			// this frame, so a wall-mounted brush lands on the highlighted face.
-			else { m_editor->Paint(cx, cz, /*dragging*/ false, m_hoverFace); painted = true; }
+			// m_hoverFace and m_hoverPlace were both resolved from this same
+			// pointer position earlier this frame, so the click commits the pose
+			// that was on screen — the ghost is handed over, not recomputed.
+			else {
+				m_editor->Paint(cx, cz, /*dragging*/ false, m_hoverFace, &m_hoverPlace);
+				painted = true;
+			}
 		} else if (!shift && !ctrl && !alt &&
 				   input.IsMouseDown(MouseButton::Left) &&
 				   CellAt(mx, my, panel, cx, cz)) {
-			m_editor->Paint(cx, cz, /*dragging*/ true, m_hoverFace);
+			m_editor->Paint(cx, cz, /*dragging*/ true, m_hoverFace, &m_hoverPlace);
 			painted = true;
 		}
 		if (painted && m_browse) m_browse = m_world.BrowseLevel(m_browse->stem);
@@ -824,6 +833,20 @@ void MapView::Render(gfx::SpriteBatch& batch, const ui::Theme& theme,
 		const gfx::Rect r = cellRect(m_hoverPlace.x, m_hoverPlace.z);
 		batch.DrawRect(r, {ink.x, ink.y, ink.z, ink.w * 0.45f});
 		ui::DrawBorder(batch, r, ink);
+		// A SUB-CELL placement (a floor item) lands in one of the cell's four
+		// quarters, so the cell outline alone would be a vaguer promise than the
+		// editor actually makes. The quarter drawn is the one the commit will
+		// use — including the case where the nearest quarter is taken and the
+		// pick slid to a free one, which is exactly when a guess would be wrong.
+		if (m_hoverPlace.valid && m_hoverPlace.slot >= 0) {
+			const float half = r.w * 0.5f, halfH = r.h * 0.5f;
+			// Slot layout is the Medium 2x2 grid: col = slot%2 along X, row =
+			// slot/2 along Z (SlotGrid.h), and the map draws +X right, +Z down.
+			const gfx::Rect q{r.x + (m_hoverPlace.slot % 2) * half,
+							  r.y + (m_hoverPlace.slot / 2) * halfH, half, halfH};
+			batch.DrawRect(q, {ink.x, ink.y, ink.z, ink.w * 0.55f});
+			ui::DrawBorder(batch, q, ink);
+		}
 		// The derived facing, through the SAME arrow every placed thing already
 		// draws — so "which way will this end up pointing" is answered in the
 		// vocabulary on screen rather than a second one invented here, and the

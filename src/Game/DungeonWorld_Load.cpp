@@ -18,6 +18,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <cstdlib>
 #include <filesystem>
 #include <format>
 #include <queue>
@@ -922,8 +923,19 @@ void DungeonWorld::LoadItems() {
 				{&kind, spawn.id, spawn.x, spawn.z, false, 0, static_cast<int>(nd)});
 			continue;
 		}
-		const Vec3 c = m_map.CellCenter(spawn.x, spawn.z);
-		const int slot = FreeItemSlotNear(spawn.x, spawn.z, c.x, c.z, -1);
+		// An authored `slot=` (the editor's sub-cell placement) is honoured as
+		// written — that is the whole point of persisting it. Anything absent or
+		// out of range falls back to the fill-order pick, so hand-written records
+		// and everything authored before the field existed load exactly as before.
+		int slot = -1;
+		if (const std::string* sp = spawn.Param("slot"); sp) {
+			const int v = std::atoi(sp->c_str());
+			if (v >= 0 && v < 4) slot = v;
+		}
+		if (slot < 0) {
+			const Vec3 c = m_map.CellCenter(spawn.x, spawn.z);
+			slot = FreeItemSlotNear(spawn.x, spawn.z, c.x, c.z, -1);
+		}
 		m_items.push_back({&kind, spawn.id, spawn.x, spawn.z, false, slot});
 	}
 }

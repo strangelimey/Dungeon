@@ -41,9 +41,10 @@ struct CatalogEntry; // a struct, and C4099 is loud about the difference
 
 // What a type attaches to. The authored `mount` token, parsed.
 enum class Mount : u8 {
-	Floor,   // the square itself: monsters, standing props, buttons, features
-	Wall,    // a wall FACE: sconces, banners, niches, bores
-	Doorway, // a cell with solid walls flanking exactly one axis: doors
+	Floor,     // the square itself: monsters, standing props, buttons, features
+	FloorSlot, // a QUARTER of the square: floor items, which come four to a cell
+	Wall,      // a wall FACE: sconces, banners, niches, bores
+	Doorway,   // a cell with solid walls flanking exactly one axis: doors
 };
 
 // Where a placement actually lands, and whether it may happen at all.
@@ -60,6 +61,16 @@ struct Placement {
 	Mount mount = Mount::Floor;
 	int x = 0, z = 0;
 	Direction facing = Direction::South;
+	// FloorSlot only: the world point inside the cell that the pointer named.
+	// The QUARTER is not chosen here — picking one needs to know which quarters
+	// are already taken, which is world state and not map state. Resolve() hands
+	// the point out and the editor refines it against occupancy (see `slot`), so
+	// the quarter-picking maths stays in the one place that already did it
+	// (DungeonWorld::FreeItemSlotNear) instead of being written a second time.
+	float subX = 0.0f, subZ = 0.0f;
+	// The quarter it will actually land in, filled in by that refinement.
+	// -1 = not a sub-cell placement.
+	int slot = -1;
 	// Whether `facing` was DERIVED (a wall to hang on, a doorway axis) rather
 	// than defaulted. The ghost draws an arrow only when it means something.
 	bool facingDerived = false;
@@ -75,7 +86,9 @@ Mount MountFor(std::string_view catalogKey, const CatalogEntry* entry);
 //
 // `face` may be invalid — that is itself an answer for a Wall mount (the
 // pointer is not over a floor/rock boundary, so there is nothing to hang on).
+// `fx`/`fz` are the pointer's FRACTIONAL position inside the cell (0..1 on each
+// axis), which is what a FloorSlot mount needs and every other mount ignores.
 Placement Resolve(const DungeonMap& map, Mount mount, int cx, int cz,
-				  const WallFace& face);
+				  const WallFace& face, float fx = 0.5f, float fz = 0.5f);
 
 } // namespace dungeon::game

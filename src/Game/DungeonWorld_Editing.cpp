@@ -698,15 +698,17 @@ void DungeonWorld::ResolveDoorOpener(Door& door, const std::string& type,
 }
 
 bool DungeonWorld::AddDoor(const std::string& type, int x, int z) {
-	auto say = [&](const std::string& s) {
-		if (onMessage) onMessage(s);
-	};
-	if (!m_project.doors.Contains(type) || DoorAt(x, z)) return false;
 	Direction facing;
 	if (!DungeonMap::DoorwayFacing(m_map, x, z, facing)) {
-		say(loc::Tr("map.door.nodoorway"));
+		if (onMessage) onMessage(loc::Tr("map.door.nodoorway"));
 		return false;
 	}
+	return AddDoor(type, x, z, facing);
+}
+
+bool DungeonWorld::AddDoor(const std::string& type, int x, int z,
+						   Direction facing) {
+	if (!m_project.doors.Contains(type) || DoorAt(x, z)) return false;
 	// Spawning a CLOSED door under the party or a monster would wall them in.
 	if ((x == m_party.GridX() && z == m_party.GridZ()) ||
 		MonsterRuntimeIdAt(x, z) != 0)
@@ -1072,7 +1074,7 @@ bool DungeonWorld::AddButtonRemote(const std::string& stem,
 	return true;
 }
 
-bool DungeonWorld::AddItem(const std::string& type, int x, int z) {
+bool DungeonWorld::AddItem(const std::string& type, int x, int z, int slot) {
 	if (!m_project.HasItem(type) || !m_map.IsWalkable(x, z)) return false;
 	// One item per quarter slot — a full cell (4 on the floor) refuses rather
 	// than letting FreeItemSlotNear stack overlapping tablets. Niche items pile
@@ -1086,11 +1088,17 @@ bool DungeonWorld::AddItem(const std::string& type, int x, int z) {
 	record.type = type;
 	record.x = x;
 	record.z = z;
+	// An explicit quarter is authored into the record so it survives a reload;
+	// without one, fall back to the nearest free quarter to the cell centre,
+	// which is what the loader itself does for a record that carries none.
+	if (slot >= 0 && slot < 4) record.params.emplace_back("slot", std::to_string(slot));
 	record.id = m_entities.Add(record);
 	m_entsDirty = true;
 	ItemKind& kind = ItemKindFor(type);
-	const Vec3 c = m_map.CellCenter(x, z);
-	const int slot = FreeItemSlotNear(x, z, c.x, c.z, -1);
+	if (slot < 0 || slot > 3) {
+		const Vec3 c = m_map.CellCenter(x, z);
+		slot = FreeItemSlotNear(x, z, c.x, c.z, -1);
+	}
 	m_items.push_back({&kind, record.id, x, z, false, slot});
 	MarkSeen(x, z);
 	return true;

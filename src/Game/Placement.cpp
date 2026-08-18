@@ -5,6 +5,8 @@
 
 #include "Game/Catalog.h"
 
+#include <algorithm>
+
 namespace dungeon::game {
 
 namespace {
@@ -13,6 +15,11 @@ namespace {
 // ALWAYS a doorway, so the type never says so and could not usefully disagree.
 Mount DefaultMount(std::string_view catalogKey) {
 	if (catalogKey == "doors") return Mount::Doorway;
+	// Floor items come FOUR to a cell (the Medium 2x2 quarter grid), so the cell
+	// is not the unit for them and the pointer's position inside it matters.
+	// All three item catalogs are one runtime kind, so all three agree here.
+	if (catalogKey == "items" || catalogKey == "weapons" || catalogKey == "armor")
+		return Mount::FloorSlot;
 	// Both wall features resolve from a face: a niche carves the face itself, a
 	// bore tunnels through the block behind it (the face gives the axis).
 	if (catalogKey == "wallfeatures") return Mount::Wall;
@@ -44,7 +51,7 @@ Mount MountFor(std::string_view catalogKey, const CatalogEntry* entry) {
 }
 
 Placement Resolve(const DungeonMap& map, Mount mount, int cx, int cz,
-				  const WallFace& face) {
+				  const WallFace& face, float fx, float fz) {
 	Placement p;
 	p.mount = mount;
 	p.x = cx;
@@ -76,6 +83,19 @@ Placement Resolve(const DungeonMap& map, Mount mount, int cx, int cz,
 			return p;
 		}
 		p.facingDerived = true;
+		p.valid = true;
+		return p;
+
+	case Mount::FloorSlot:
+		// Same floor rule, plus the sub-cell point the pointer named. Carried as
+		// a WORLD position rather than a quarter index so the editor can hand it
+		// straight to the existing nearest-free-quarter search.
+		if (!map.IsWalkable(cx, cz)) {
+			p.refusalKey = "map.place.nofloor";
+			return p;
+		}
+		p.subX = (static_cast<float>(cx) + std::clamp(fx, 0.0f, 1.0f)) * kCellSize;
+		p.subZ = (static_cast<float>(cz) + std::clamp(fz, 0.0f, 1.0f)) * kCellSize;
 		p.valid = true;
 		return p;
 

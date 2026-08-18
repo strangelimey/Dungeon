@@ -657,7 +657,12 @@ public:
 	// so the brush needs no facing UI. Authors the .ent record (the writer and
 	// the level stash carry it) and spawns the live door closed. Refuses — with
 	// a specific onMessage line — when the cell isn't a doorway or is occupied.
+	// `facing` is the doorway axis. The no-argument form derives it (the dev
+	// console and any non-editor caller); the editor passes the one its ghost
+	// already showed, so the door lands on the previewed axis rather than on a
+	// second derivation that merely happens to agree.
 	bool AddDoor(const std::string& type, int x, int z);
+	bool AddDoor(const std::string& type, int x, int z, Direction facing);
 	// Click interaction on the door directly AHEAD of the party (arm's reach).
 	//
 	// THE CLICK MUST LAND ON THE OPENER, not merely on the door: a chain is
@@ -687,7 +692,12 @@ public:
 	// slot nearest the cell centre. Refused when the cell already holds four
 	// items (one per quarter). The party can pick a placed item up in play like
 	// any authored one (baseline record + collected save diff).
-	bool AddItem(const std::string& type, int x, int z);
+	// `slot` is the Medium quarter (0..3) it should occupy, or -1 to fall back to
+	// the nearest-free-to-centre pick. A given slot is PERSISTED as a `slot=`
+	// record param: without that the quarter would be re-derived from the cell
+	// centre on the next load and the editor's placement would silently move,
+	// which would make previewing the quarter a promise the reload breaks.
+	bool AddItem(const std::string& type, int x, int z, int slot = -1);
 	// Click interaction: presses the button on the party's OWN cell mounted on
 	// the wall the party faces. False if there isn't one.
 	bool PressButtonFacing();

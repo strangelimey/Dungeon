@@ -269,7 +269,7 @@ to anything that rewrites authored files — normalising the FILES would have he
 for about a day, since the next editor save rewrites a whole `.cat`. Consistency
 has to live in the writer.
 
-### Phase 2 — placement contract (Theme A)
+### Phase 2 — placement contract (Theme A) — DONE (81bdc8f, + this)
 
 - `surface` / `snap` / `facing` FieldSpecs; one `ResolvePlacement(type, cell,
   wallFace)` returning a resolved pose or a refusal.
@@ -278,6 +278,21 @@ has to live in the writer.
   auto-orient, wall-decoration edge-pick — so there is one path and not two. This
   is the part that makes the phase worth doing; adding a contract beside the
   hardcoded rules would leave the codebase worse than it started.
+
+What the build taught, for Phase 4's benefit: SUB-CELL PLACEMENT WAS NOT
+PERSISTABLE. Floor items come four to a cell, but the quarter was re-derived from
+the cell centre at every load and stored nowhere — so previewing it would have
+been a promise the next reload broke. Persisting `slot=` had to come first, and
+the ghost only became honest once it did. The general shape is worth carrying:
+BEFORE PREVIEWING A DECISION, CHECK THE DECISION IS ACTUALLY RECORDED. A
+generator that places content precisely will meet the same question for anything
+else the format derives rather than stores.
+
+The other half is that the commit no longer re-resolves at all — MapView hands
+`ApplyBrush` the very Placement the ghost drew. Agreeing by construction was
+already true (same function, same pointer, same frame); handing the answer over
+removes the question, and with it the chance that a later edit makes the two
+drift.
 
 ### Phase 3 — validation (Theme D)
 

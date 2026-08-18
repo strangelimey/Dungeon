@@ -143,8 +143,15 @@ public:
 	// a fresh press and per-frame while held; `dragging` is true for held strokes
 	// (only paint brushes act on a drag; placement acts on the click only). A
 	// no-op until a palette row is armed.
-	void Paint(int cx, int cz, bool dragging, const WallFace& face = {}) {
-		ApplyBrush(cx, cz, dragging, face);
+	// `pre` is the placement the HOVER GHOST already resolved and drew this
+	// frame. Passing it is what makes the commit literally the previewed pose
+	// rather than a second resolve that agrees by construction — the pointer has
+	// not moved between the two, but handing the answer over removes the
+	// question. Null re-resolves at the cell centre (the rect/flood fallbacks,
+	// which have no pointer inside a cell to speak of).
+	void Paint(int cx, int cz, bool dragging, const WallFace& face = {},
+			   const Placement* pre = nullptr) {
+		ApplyBrush(cx, cz, dragging, face, pre);
 	}
 	// True when something is armed AND it is a thing that gets PLACED (not a
 	// surface paint, not a non-placeable category). The hover ghost keys off
@@ -165,7 +172,10 @@ public:
 	// Where the armed brush would land for this cell + picked face, and whether
 	// it may land at all. THE hover preview and THE commit both call this — see
 	// the header note in Placement.h about why there may be only one resolver.
-	Placement ResolveBrush(int cx, int cz, const WallFace& face) const;
+	// `fx`/`fz` are the pointer's fractional position inside the cell, which a
+	// sub-cell (FloorSlot) mount needs and the rest ignore.
+	Placement ResolveBrush(int cx, int cz, const WallFace& face, float fx = 0.5f,
+						   float fz = 0.5f) const;
 	// Modifier gestures (MapView routes by the modifier held at the press).
 	// All three work on the paint brushes (the surface categories);
 	// rect/flood fall back to a normal click for the placement categories.
@@ -298,7 +308,8 @@ private:
 						  float& contentHeight) const;
 	// Applies the armed selection to cell (cx,cz): structural/variant paints, tool
 	// actions, or entity placement.
-	void ApplyBrush(int cx, int cz, bool dragging, const WallFace& face = {});
+	void ApplyBrush(int cx, int cz, bool dragging, const WallFace& face = {},
+					const Placement* pre = nullptr);
 	// True for the brushes that PAINT cells (rect/flood/drag apply); the
 	// placement categories act per click only.
 	static bool PaintableCat(PaletteCat cat) {
