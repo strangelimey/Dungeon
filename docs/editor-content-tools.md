@@ -328,7 +328,7 @@ and three of showcase's stairs plus both halves of the start/level2 link do not
 match that. The generator must author pairs the way the editor does, or it will
 manufacture this same drift at scale.
 
-### Phase 4 — the generator (Theme B)
+### Phase 4 — the generator (Theme B) — CORE DONE, shell outstanding
 
 - The site container, carrying difficulty / reward / theme / monster set.
 - Rooms and corridors from size + branching; start, exit and stairs; monsters by
@@ -340,6 +340,35 @@ manufacture this same drift at scale.
   Phase 3's validator stays a *check*, never a filter the generator leans on.
 - Emit ordinary `.map`/`.ent` text through the `CreateNewLevel` path.
 - Knobs dialog with seed and Regenerate; one undo step, in place, no level swap.
+
+**Landed:** `Game/Generate.h` (pure, deterministic — rooms by rejection, a
+connection TREE whose shape `branching` reshapes, locks placed by construction),
+the catalog seam in `Game_Generate.cpp` (theme tags → content pools, output
+written as ordinary `.map`/`.ent`), a `generate` dev command, and the automatic
+check afterwards.
+
+The lock ordering was verified by re-implementing the reachability walk against
+the generated FILES, independently of the C++ that wrote them — both doors
+openable, no key stranded. A tree rather than a graph is what makes this cheap:
+"everything beyond this door" is only well defined without loops.
+
+Two defects the first generated level exposed, both invisible until content was
+actually read: every door was authored facing SOUTH (a door's facing IS its
+travel axis, so the panel would slide across the corridor rather than along the
+wall), and both keys landed on the SAME square because the placement loop
+consulted reachability and nothing else.
+
+**Still outstanding, and the generated level is not yet playable without it:**
+
+1. **Stair linking.** A generated level has no stair joining it to the project,
+   so the checker correctly reports `levellost`. The pair must be authored the
+   way `AddStairAt` does — `destX = x, destZ = z`, each side arriving on its
+   counterpart — or the generator manufactures at scale exactly the drift Phase 3
+   found five instances of by hand. It needs a cell walkable in BOTH levels.
+2. **The knobs dialog**, with the seed and a Regenerate button.
+3. **In-place regenerate under one undo step.** Today `generate` writes a NEW
+   level, which sidesteps the hard part: rewriting the VIEWED level without a
+   level swap, since undo history clears on a transition.
 
 ### Deferred
 

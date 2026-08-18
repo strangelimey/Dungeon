@@ -34,6 +34,7 @@ add_library(Game STATIC
 	Game.cpp
 	Game_DevCommands.cpp
 	Game_Editor.cpp
+	Game_Generate.cpp
 	Game_Inspect.cpp
 	Game_Wiring.cpp
 	GameSettings.cpp
@@ -49,6 +50,7 @@ add_library(Game STATIC
 	NicheInspector.cpp
 	MessageLog.cpp
 	Party.cpp
+	Generate.cpp
 	Validate.cpp
 	ValidateDialog.cpp
 	Placement.cpp

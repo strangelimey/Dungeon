@@ -587,6 +587,48 @@ void Game::RegisterDevCommands() {
 						   BeginLevelTransition(stem, -1, -1, Direction::South);
 						   m_console.Print("loading " + stem + "...");
 					   });
+	m_console.Register("generate",
+					   "rough out a new level: generate [rooms] [branching] [locks] [seed]",
+					   [this](const std::vector<std::string>& args) {
+						   if (!m_gameLoaded || (m_state != AppState::Playing &&
+												 m_state != AppState::Paused)) {
+							   m_console.Print("generate only works in-game");
+							   return;
+						   }
+						   generate::Params p;
+						   if (args.size() > 0) p.rooms = std::atoi(args[0].c_str());
+						   if (args.size() > 1) p.branching = std::stof(args[1]);
+						   if (args.size() > 2) p.locks = std::atoi(args[2].c_str());
+						   if (args.size() > 3)
+							   p.seed = static_cast<u32>(std::atoi(args[3].c_str()));
+						   const std::string stem =
+							   GenerateLevel(p, m_mapView.ViewedMap().Theme());
+						   if (stem.empty()) {
+							   m_console.Print("generate: failed");
+							   return;
+						   }
+						   m_console.Print(std::format(
+							   "generate: wrote {} ({}x{}, seed {})", stem, p.width,
+							   p.height, p.seed));
+						   // A generated level is CHECKED immediately: the whole
+						   // reason the lock ordering is built by construction is
+						   // so this passes, and saying so is how you find out it
+						   // stopped.
+						   const std::vector<validate::Issue> issues = m_world.Validate();
+						   int errors = 0;
+						   for (const validate::Issue& i : issues)
+							   if (i.severity == validate::Severity::Error) ++errors;
+						   m_console.Print(std::format(
+							   "generate: check says {} error(s), {} warning(s)",
+							   errors, issues.size() - errors));
+						   for (const validate::Issue& i : issues)
+							   if (i.level == stem)
+								   m_console.Print(std::format(
+									   "  {} {} @{},{} {} {}",
+									   i.severity == validate::Severity::Error ? "ERR"
+																			   : "warn",
+									   i.level, i.x, i.z, i.messageKey, i.a));
+					   });
 	m_console.Register("validate", "check the whole project for playability faults",
 					   [this](const std::vector<std::string>&) {
 						   if (!m_gameLoaded || (m_state != AppState::Playing &&

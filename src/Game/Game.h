@@ -56,6 +56,7 @@
 #include "Game/BalanceDialog.h"
 #include "Game/InspectPicker.h"
 #include "Game/LevelSettingsDialog.h"
+#include "Game/Generate.h"
 #include "Game/ValidateDialog.h"
 #include "Game/MonsterConfigDialog.h"
 #include "Game/ButtonInspector.h"
@@ -196,6 +197,12 @@ private:
 	// the project's other levels, appends the stem to the manifest, and returns
 	// it ("" on failure) so the map view can jump straight onto the new canvas.
 	std::string CreateNewLevel();
+	// Rough out a whole level from knobs and write it as a NEW level (files +
+	// manifest), returning its stem or "" on failure. The knobs' content pools
+	// are resolved HERE from the project's catalogs by theme tag — the generator
+	// itself never sees a catalog (Game/Generate.h).
+	std::string GenerateLevel(generate::Params params,
+							  const std::vector<std::string>& theme);
 
 	// The Level dialog's inline rename: validates (unique stem), drives
 	// DungeonWorld::RenameLevel (files, stashes, stair dests), then updates
