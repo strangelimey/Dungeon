@@ -76,6 +76,8 @@ MapView::MapView(gfx::GraphicsDevice& device, DungeonWorld& world,
 	// Toolbar icon discs; a missing file leaves that button on its text face.
 	m_icoLevel = TryLoadTextureFile(device, paths::Asset("ui\\icon_tb_level"));
 	m_icoBalance = TryLoadTextureFile(device, paths::Asset("ui\\icon_tb_balance"));
+	m_icoCheck = TryLoadTextureFile(device, paths::Asset("ui\\icon_tb_check"));
+	m_icoGen = TryLoadTextureFile(device, paths::Asset("ui\\icon_tb_generate"));
 	m_icoUndo = TryLoadTextureFile(device, paths::Asset("ui\\icon_tb_undo"));
 	m_icoRedo = TryLoadTextureFile(device, paths::Asset("ui\\icon_tb_redo"));
 	m_icoSave = TryLoadTextureFile(device, paths::Asset("ui\\icon_tb_save"));
