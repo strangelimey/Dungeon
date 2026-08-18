@@ -453,6 +453,7 @@ map.check.buttondead=Dieser Hebel zielt auf '{}', doch keine Tür trägt diesen 
 map.check.stairnolevel=Führt zu '{}', das keine Ebene dieses Projekts ist
 map.check.stairblocked=Endet im massiven Fels in '{}'
 map.check.stairunpaired=Keine passende Treppe zurück aus '{}'
+map.check.stairoffset=Führt in '{}' auf das falsche Feld — eine Treppe muss auf ihre eigenen Koordinaten führen
 map.check.itemslost={} Gegenstand/Gegenstände hier sind unerreichbar
 map.level.applied=Ebenen-Einstellungen auf '{}' angewendet — Karte speichern, um sie zu behalten.
 map.level.created=Ebene '{}' erstellt — Karte speichern, um die Zellen zu behalten.

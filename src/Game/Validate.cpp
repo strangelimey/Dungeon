@@ -220,15 +220,31 @@ std::vector<Issue> Run(const std::vector<LevelView>& levels,
 								  "map.check.stairblocked", s.destLevel});
 				continue;
 			}
-			// The far side should hold a stair pointing back. A WARNING only: a
-			// one-way drop is legitimate content (a pit), and this check cannot
-			// tell that from a broken pair — so it reports what it sees and lets
-			// the author judge, rather than crying wolf about a working dungeon.
+			// THE RULE: a stair leads to its OWN coordinates on the other level,
+			// where its counterpart stands. That is what makes going down and
+			// back up return you to the square you left — and it is what
+			// AddStairAt authors, so anything else is drift from a hand edit.
+			//
+			// Checked directly rather than inferred from the far side, because
+			// this says precisely what is wrong: the destination is the wrong
+			// SQUARE, which is a one-line fix, where "no matching stair" sends
+			// you looking for a missing record that may not be the problem.
+			if (s.destX != s.x || s.destZ != s.z) {
+				issues.push_back({Severity::Error, stem, s.x, s.z,
+								  "map.check.stairoffset", s.destLevel});
+				continue;
+			}
+			// And the counterpart has to actually be there. An ERROR now, not a
+			// warning: the earlier reasoning — that a one-way drop might be
+			// deliberate — was wrong. A pit authors its pit_ceiling half at the
+			// same cell pointing back (it is merely `traverse = 0`, scenery you
+			// cannot climb), so a correct one-way drop still PASSES this. Nothing
+			// legitimate is left that fails it.
 			const auto back = lv[d->second].stairs.find(CellKey(s.destX, s.destZ));
 			if (back == lv[d->second].stairs.end() ||
 				back->second->destLevel != stem || back->second->destX != s.x ||
 				back->second->destZ != s.z)
-				issues.push_back({Severity::Warning, stem, s.x, s.z,
+				issues.push_back({Severity::Error, stem, s.x, s.z,
 								  "map.check.stairunpaired", s.destLevel});
 		}
 

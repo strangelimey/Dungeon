@@ -107,7 +107,7 @@ fixture brazier 29 9
 fixture brazier 37 9
 fixture brazier 45 9
 fixture brazier 53 9
-stairs stairs_down 49 9 south dest=level2 destx=2 destz=1 destfacing=south
+stairs stairs_down 49 9 south dest=level2 destx=49 destz=9 destfacing=south
 stairs stairs_up 11 2 south dest=showcase destx=11 destz=2 destfacing=south
 variant wall 0 0 0
 variant wall 1 0 0

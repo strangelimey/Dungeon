@@ -453,6 +453,7 @@ map.check.buttondead=Esta palanca apunta a '{}', y ninguna puerta se llama así
 map.check.stairnolevel=Lleva a '{}', que no es un nivel de este proyecto
 map.check.stairblocked=Termina en roca maciza en '{}'
 map.check.stairunpaired=No hay escalera de vuelta desde '{}'
+map.check.stairoffset=Lleva a la casilla equivocada en '{}' — una escalera debe llevar a sus propias coordenadas
 map.check.itemslost={} objeto(s) aquí son inalcanzables
 map.level.applied=Ajustes aplicados a '{}' — guarda el mapa para conservarlos.
 map.level.created=Nivel '{}' creado — guarda el mapa para conservar sus celdas.

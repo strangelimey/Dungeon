@@ -474,6 +474,7 @@ map.check.buttondead=This lever targets '{}', which no door is named
 map.check.stairnolevel=Leads to '{}', which is not a level in this project
 map.check.stairblocked=Lands on solid rock in '{}'
 map.check.stairunpaired=No matching stair back from '{}'
+map.check.stairoffset=Leads to the wrong square in '{}' — a stair must lead to its own coordinates
 map.check.itemslost={} item(s) here cannot be reached
 map.level.applied=Level settings applied to '{}' — Save the map to persist.
 map.level.created=Level '{}' created — Save the map to persist its cells.
