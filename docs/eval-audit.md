@@ -295,7 +295,7 @@ notes the editor's pause skips `Update` entirely because "monster actions fire
 off cooldowns not dt", which suggested a zeroed dt might not be enough. It is
 enough. The one-line-per-frame pacing does not silently simulate time.
 
-### F16 — `heal` leaves one member wounded when it also resumes from a wipe (REAL BUG)
+### F16 — a member is wounded between `heal` and the next line (REAL BUG — DIAGNOSED AND FIXED, see below)
 
 `heal` does `c.health = c.maxHealth` for every member, unconditionally. It does
 not always take:
@@ -309,9 +309,10 @@ heal ; party ->   Brand  42/42  Sera  30/30  Maren 34.0/34  Tilo  24/24
 
 The **first** heal — the one that also runs `ClearWipeLatch()` and
 `ResumeAfterHeal()` to bring the app back from the title screen — leaves member
-2 at 22.4 of 34. A **second** heal, from `Playing`, restores her fully. So
-`heal` is reliable from `Playing` and unreliable on the frame it resumes from a
-wipe. Root cause not yet chased; that is fix-pass work.
+2 at 22.4 of 34. A **second** heal, from `Playing`, restores her fully.
+
+**Diagnosed 2026-08-17, and `heal` turned out to be innocent — a monster is
+landing a real blow.** Written up under "The F16 diagnosis" below.
 
 **What it costs:** `tiers.eval` is built on exactly this line. Its comment says
 
@@ -1054,12 +1055,81 @@ melee only, `downed` is members. And `effect`'s usage now says
 `[magnitude, PER SECOND for a DoT] [seconds]` — the argument order reads as "10
 damage over 20 seconds" and means 200.
 
-### What did not change, and why that is the answer
+### What did not change, and why that is the answer (Tier 4)
 
 The ten suites' numbers are otherwise identical across this change, and the
 `downed` figures in the current run happen to be the same because no member fell
 twice in them. That is the correct outcome: Tier 4 is a precision and naming
 pass, not a behaviour change. The probe is what proves the semantics moved.
+
+---
+
+## The F16 diagnosis (2026-08-17)
+
+`heal` is not broken. **A monster is landing a real blow.**
+
+1. The party wipes. `m_partyWiped` latches, the app goes to the title screen,
+   and the world stops updating.
+2. At that instant a skeleton is adjacent to member 2 with `attackCd` already
+   at or below zero — **it is owed a swing.**
+3. `heal` restores everyone to full, clears the latch and resumes to `Playing`.
+   All correct.
+4. On the very next frame `UpdateMonsters` sees `attackCd <= 0` and an adjacent
+   standing member, and swings. **A cooldown only ever counts DOWN with dt; it
+   never needs dt to FIRE.** So the blow lands at `timescale 0`, with zero
+   simulated seconds elapsed.
+5. The script's `party` readout is the frame after that.
+
+### How it was pinned down
+
+| probe | result |
+|---|---|
+| ledger immediately after the heal | `pipeline -11.57`, **`violations=0`** — a legitimate blow through `fx::Deal`, not a write that went around anything |
+| `freeze on` before the heal | member 2 stays **34.0** |
+| then `freeze off`, one ordinary frame | drops to **22.4**, `secs=0.0` |
+| seeds 7 and 31 | Brand survived, so no wipe, no `menu`, no latch — healed perfectly |
+| `heal 0..3` individually from the menu | all four full: the per-member restore was never the problem |
+
+The single-member path neither clears the latch nor resumes, which is exactly
+why it does not trigger it.
+
+The ledger is what made this quick. It exists to answer "what moved health and
+why", and its `violations=0` ruled out the entire class of hypotheses this
+audit would otherwise have spent a build cycle each on. **Reach for the
+instrument that already attributes the change before reasoning about causes.**
+
+### Not a shipping bug
+
+A real wipe sends the player to the title screen to load a save, and
+`ResetForNewGame` rebuilds the world — there is no route to "latch cleared while
+the same monster is still standing there" outside the dev `heal`. The same
+mechanism sits behind the pause menu (`Game.cpp`'s map branch says so in as many
+words: "they act off cooldowns, not dt, so dt=0 alone wouldn't stop a ready
+monster"), but there the swing was already owed before the pause — deferred, not
+granted.
+
+What it *did* break is `tiers.eval`'s stated invariant.
+
+### The fix
+
+`ClearWipeLatch()` now also re-arms every living monster's `attackCd` to its
+full `attackInterval` — **guarded on the latch having actually been set.**
+
+The principle: a swing owed from a stretch of time the world was not running is
+not a swing the party should take on standing up. The guard matters because
+`heal` is also used mid-fight, and silently resetting cooldowns there would
+perturb the very encounter somebody is measuring.
+
+`tiers` now opens its veteran rung with all four members at full — member 2 at
+`35.0/35.0` where it read `23.4/35.0` — and the outcome moves with it (Brand
+finishes at 8.6 rather than 11.3). The two tiers are finally being compared on
+the footing the suite claims.
+
+**It moved the responsiveness check too**, which is worth recording: the defence
+arms wipe often, so several samples had been collecting one free blow each.
+`taken` fell 234.4 -> 185.1 and `downed` 17 -> 11. Both still clear their
+thresholds by a wide margin — which is the argument for setting a threshold from
+a *separation* rather than from the measured number itself.
 
 ### The pattern, three steps in
 

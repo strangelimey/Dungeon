@@ -508,6 +508,15 @@ void DungeonWorld::SetLevelAtmosphere(const std::string& stem, float dust,
 	}
 }
 
+// See the header for why the cooldowns move with the latch, and why only when
+// it was actually set.
+void DungeonWorld::ClearWipeLatch() {
+	if (!m_partyWiped) return; // a mid-fight heal: leave the encounter alone
+	m_partyWiped = false;
+	for (Monster& m : m_monsters)
+		if (m.Alive() && m.kind) m.attackCd = m.kind->attackInterval;
+}
+
 std::vector<std::string> DungeonWorld::MonsterList() const {
 	std::vector<std::string> out;
 	out.reserve(m_monsters.size());

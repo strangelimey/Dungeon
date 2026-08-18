@@ -24,8 +24,14 @@
 ;
 ; MEASURED SEPARATIONS, which is what the thresholds are set from rather than
 ; guessed at: hitrate 0.336 -> 0.668 (2.0x), dealt/swing 11.02 -> 17.84 (1.6x),
-; taken 19.2 -> 234.4 (12x, and the two arms' ranges do not come close to
+; taken 19.2 -> 185.1 (9.6x, and the two arms' ranges do not come close to
 ; overlapping).
+;
+; The `taken` figures fell from 234.4 when ClearWipeLatch stopped handing the
+; monsters a stored swing on the frame a wipe is healed: these arms wipe the
+; party often, so several samples had been collecting one free blow each. The
+; thresholds were loose enough to absorb it, which is the argument for setting
+; them from a separation rather than from the number itself.
 ;
 ; Each arm sweeps its encounter over several seeds, because combat is dice and
 ; one sample is an anecdote — a 5% fumble decides a single fight.

@@ -370,11 +370,11 @@ if ($SelfTest) {
 			@{ what = 'taken responds to monster strength'
 			   got  = $agg['threat-high'].Taken; ref = $agg['threat-low'].Taken
 			   ok   = ($agg['threat-high'].Taken -gt 50) -and (($agg['threat-high'].Taken - $agg['threat-low'].Taken) -gt 60)
-			   note = 'want high > 50 and high - low > 60 (measured 19.2 -> 234.4)' }
+			   note = 'want high > 50 and high - low > 60 (measured 19.2 -> 185.1)' }
 			@{ what = 'downed is counted at all'
 			   got  = $agg['threat-high'].Downed; ref = $agg['threat-low'].Downed
 			   ok   = ($agg['threat-high'].Downed -gt 0)
-			   note = 'want high > 0 (measured 0 -> 17)' }
+			   note = 'want high > 0 (measured 2 -> 11)' }
 		)
 		foreach ($t in $tests) {
 			Write-Host ("  {0,-42} {1,8:N2} vs {2,8:N2}  {3}" -f $t.what, $t.got, $t.ref,

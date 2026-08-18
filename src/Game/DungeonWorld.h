@@ -337,7 +337,25 @@ public:
 	// A ladder healing between rungs therefore ran rung 2 onward against
 	// monsters that had permanently stopped swinging, and reported forty-five
 	// simulated seconds of nothing as a result.
-	void ClearWipeLatch() { m_partyWiped = false; }
+	//
+	// IT ALSO PUTS EVERY MONSTER BACK ON COOLDOWN, and that is the subtle half.
+	// An attack fires on `attackCd <= 0`, and a cooldown only ever counts DOWN
+	// with dt — it never needs dt to FIRE. While the party is wiped the app sits
+	// on the title screen and the world stops updating entirely, so any monster
+	// that was adjacent and ready at the moment of the wipe stays ready for as
+	// long as the party is down, and swings on the very FIRST frame this gate
+	// re-opens. Measured: a skeleton took 11.57 off a member between `heal` and
+	// the next line of a script, at `timescale 0`, with zero simulated seconds
+	// elapsed — and `tiers.eval` read that as the veteran rung's starting health
+	// while claiming "any difference is the seeding and nothing else"
+	// (docs/eval-audit.md F16).
+	//
+	// A swing owed from a stretch of time the world was not running is not a
+	// swing the party should take on standing up, so they are re-armed as if
+	// they had just swung. GUARDED on the latch actually being set: `heal` is
+	// also used mid-fight, and silently resetting cooldowns there would perturb
+	// the very encounter somebody is measuring.
+	void ClearWipeLatch();
 
 	// Scale the MOST RECENTLY SPAWNED monster's hp and damage (the eval
 	// harness's `spawn ... <strength>`). Applied after AddMonster rather than
