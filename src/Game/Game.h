@@ -116,7 +116,29 @@ public:
 	// Only steps while Playing; a level transition mid-step (a monster shoves
 	// the party onto a stair) stops the run early rather than being followed,
 	// since an eval that changed level is no longer measuring what it set up.
-	int StepWorld(float seconds);
+	//
+	// WHY it stopped, not just how far it got. The seconds actually run were
+	// always reported, and for a whole release nothing read them: `step 3600`
+	// runs 3333.33s against the ceiling below, and two suites labelled that "an
+	// hour" (docs/eval-audit.md F3). A caller that has to compare two numbers to
+	// notice a truncation will not notice it; one handed `Ceiling` will.
+	enum class StepStop {
+		Complete,    // ran every tick asked for
+		Ceiling,     // hit kMaxStepTicks — the script asked for more than one call gives
+		LevelChange, // the party left the level being measured
+		RestEnded,   // a rest finished, which is the length a rest measurement wants
+		NotPlaying,  // the app is not in play; nothing ran at all
+	};
+	int StepWorld(float seconds, StepStop& why);
+
+	// The per-call ceiling, named so `step` can quote it rather than restate it.
+	// A ceiling PER CALL, not per second: a script asking for an hour by mistake
+	// should come back and say how far it got, rather than appearing to hang
+	// with a black window and no way to interrupt it.
+	static constexpr int kStepTicksPerSecond = 60;
+	static constexpr int kMaxStepTicks = 200000; // ~55 minutes of sim
+	static constexpr float kMaxStepSeconds =
+		static_cast<float>(kMaxStepTicks) / kStepTicksPerSecond;
 
 	// What the app is doing, as a word — for the eval harness and the `state`
 	// command. A script CANNOT otherwise tell: dev commands reach the world from
@@ -304,6 +326,11 @@ private:
 	std::vector<std::string> m_evalLines; // the queued script, comments stripped
 	size_t m_evalIndex = 0;               // next line to run
 	int m_evalUnknown = 0;                // lines that matched no command
+	// Lines whose command EXISTED and then declined to act — a spawn onto rock,
+	// a tp into a wall, a step that hit its ceiling. Counted separately from
+	// unknown because they are a different fault: the script is well formed and
+	// the world is not what it assumed (docs/eval-audit.md F11).
+	int m_evalRefused = 0;
 	bool m_evalFinished = false;          // the LAST script emptied (vs timed out)
 	std::string m_evalName;               // the script's filename, for the verdict
 	std::string m_evalDir;                // its folder — what `include` resolves against

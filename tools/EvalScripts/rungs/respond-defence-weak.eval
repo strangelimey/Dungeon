@@ -1,0 +1,24 @@
+; rungs/respond-defence-weak.eval - the LOW arm of the `taken` pair.
+;
+; PARTNER FILE: rungs/respond-defence-strong.eval. THE ONLY LINE THAT MAY DIFFER
+; BETWEEN THEM IS THE `spawn` — everything else must stay identical or the pair
+; stops being an A/B. They are two files rather than one shared fragment because
+; the knob is on the MONSTER, and the monster is spawned inside the encounter;
+; the offence pair shares one fragment precisely because its knob is on the party
+; and can be set before the sweep.
+;
+; Why the monster and not the party's armour, which would have shared a fragment:
+; measured, `wear plate_cuirass` + `avoid 8` moved `taken` by 17% against an x3
+; monster, and at x1.5 and x2 the effect was smaller than the sample noise and
+; sometimes inverted. Soak is flat, so it matters least against exactly the heavy
+; blows a self-test needs in order to be reliable. A subtle knob makes a flaky
+; check (docs/eval-audit.md, Tier 3 item 10).
+
+heal
+arena open 9 9
+freeze off
+spawn skel_warrior 14 11 south 2
+tp 14 12
+tally reset
+step 20
+tally

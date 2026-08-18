@@ -610,8 +610,20 @@ void DevConsole::Print(std::string line) {
 	m_scroll = 0; // jump to the newest line
 }
 
+// Printed like anything else; the flag is what the eval runner reads. Kept next
+// to Print rather than inline in the header so the two stay visibly the same
+// operation with one extra bit — see the header for what earns a Refuse.
+void DevConsole::Refuse(std::string line) {
+	m_refused = true;
+	Print(std::move(line));
+}
+
 bool DevConsole::Execute(const std::string& line) {
 	Print("> " + line);
+	// Cleared before dispatch, never after: a handler that refuses sets it, and
+	// the runner reads it immediately. Clearing afterwards would race the very
+	// read it exists for.
+	m_refused = false;
 	const std::vector<std::string> tokens = Tokenize(line);
 	if (tokens.empty()) return true; // a blank line is not a failure
 

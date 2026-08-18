@@ -728,6 +728,55 @@ fighter cannot over-exert by design. Two empty passes, in the suite written to
 be immune to empty passes. **Assume the run stopped early until something in the
 output proves it did not.**
 
+## What PASS means (tightened 2026-08-17)
+
+The harness was audited end to end because Michael could not tell, from a run
+that prints little and reports ten greens, whether it was measuring anything.
+The full findings are docs/eval-audit.md; the short version is that the
+MEASUREMENTS were sound — five knobs moved, five numbers responded, `dealt`
+reconciles against monster health — and the VERDICT was not.
+
+`PASS` used to mean one thing: every line matched a registered command name and
+the queue emptied. It now means four:
+
+1. every line named a command (unchanged — this is what catches a typo);
+2. **every line DID what it said.** `DevConsole::Refuse` is the second signal
+   `RunLine`'s bool never carried. A `spawn` onto rock, a `tp` into a wall, an
+   unknown spell and a mis-called command all returned "true, a command by that
+   name exists" and the run reported PASS over an encounter it never set up;
+3. **every `step` ran the time it was given.** `StepWorld` reports a `StepStop`
+   reason, and `Ceiling` is a refusal. It always printed the seconds it really
+   ran and nothing read them;
+4. **every suite measured something,** and the script ended in play.
+
+THE RULE FOR A NEW REFUSAL SITE: `Refuse` means "you asked me to change the
+world and I did not". A query with nothing to say stays a `Print` — `monsters`
+answering `no monsters` is an ANSWER, not a refusal. The test is whether a
+script that carried on regardless would be measuring something other than what
+it wrote.
+
+### What it caught, immediately
+
+Three of the ten suites failed on the first run and all three were real. Two —
+`supplies` and `rest` — had been asking for `step 3600` and getting 3333.33s,
+the per-call ceiling, while calling the result "an hour"; both are now two calls
+of 1800 and their drain figures rose by the 8% the correction predicts.
+`expedition` had been ending at the MENU, printing "what the expedition cost,
+and what it earned" off a party that was already dead.
+
+**The lesson is not that somebody was careless.** `rest.eval` carried an inline
+comment saying "`step` caps at 200000 ticks, so an hour arrives as 3333
+seconds" — it KNEW — and still titled the section "an hour of world time".
+`supplies.eval` did not know at all. The same fact was documented in one of the
+two files that needed it, which is the whole argument for a runtime check over a
+comment, made by this codebase about itself.
+
+The end-in-play rule is also not new to the project: `PipelineTest.ps1` learned
+it the same way one section up on this page, after a T-junction blast wiped its
+party and four sections printed a confident PASS over nothing. The eval runner
+simply had not adopted it. **When one harness here learns that a run can die
+quietly, check whether the others have been told.**
+
 ## Next
 
 The harness is done and so is the system it was waiting for

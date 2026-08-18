@@ -58,18 +58,20 @@ bool Game::ResetForEval() {
 	return true;
 }
 
-int Game::StepWorld(float seconds) {
-	if (m_state != AppState::Playing || seconds <= 0.0f) return 0;
+int Game::StepWorld(float seconds, StepStop& why) {
+	why = StepStop::Complete;
+	if (m_state != AppState::Playing || seconds <= 0.0f) {
+		why = StepStop::NotPlaying;
+		return 0;
+	}
 	// The eval's tick. 60Hz because that is the rate the game's timers were
 	// tuned against, not because anything requires it — but it is FIXED, and
 	// that is what makes two runs of the same script comparable.
-	constexpr float kTick = 1.0f / 60.0f;
-	// A ceiling per call, not per second: an eval script asking for an hour by
-	// mistake should come back and say how far it got, rather than appearing to
-	// hang with a black window and no way to interrupt it.
-	constexpr int kMaxSteps = 200000; // ~55 minutes of sim
+	constexpr float kTick = 1.0f / kStepTicksPerSecond;
 	const int want = static_cast<int>(seconds / kTick + 0.5f);
-	const int steps = want < kMaxSteps ? want : kMaxSteps;
+	const int steps = want < kMaxStepTicks ? want : kMaxStepTicks;
+	// SAID, not left to be inferred from two numbers the caller must subtract.
+	if (steps < want) why = StepStop::Ceiling;
 	static const Input kNoInput; // no keys, no mouse: the script is driving
 	// A step that BEGINS while resting ENDS when the rest does — because that is
 	// what the player does, and because it is the only way to measure what a
@@ -86,8 +88,16 @@ int Game::StepWorld(float seconds) {
 		m_world.Update(kNoInput, kTick, m_time, /*acceptInput=*/false);
 		m_time += kTick; // lights, flicker and rune pulses ride sim time too
 		// Followed nowhere: see the header. Reported by the caller as a short run.
-		if (m_world.ConsumeLevelTransition()) { ++ran; break; }
-		if (restingStep && !m_world.Resting()) { ++ran; break; }
+		if (m_world.ConsumeLevelTransition()) {
+			++ran;
+			why = StepStop::LevelChange;
+			break;
+		}
+		if (restingStep && !m_world.Resting()) {
+			++ran;
+			why = StepStop::RestEnded;
+			break;
+		}
 	}
 	return ran;
 }
@@ -144,6 +154,7 @@ bool Game::LoadEvalScript(const std::string& path) {
 	// line index would start half way through itself.
 	m_evalIndex = 0;
 	m_evalUnknown = 0;
+	m_evalRefused = 0;
 	m_evalDeadline = kEvalScriptTimeout; // the budget is per script, not per run
 	// Mirroring is forced ON rather than left to the script: a run whose author
 	// forgot the line would produce no readable record of itself, which is the
@@ -161,15 +172,34 @@ void Game::PumpEvalScript(float dt) {
 	m_evalDeadline -= dt;
 
 	if (m_evalIndex >= m_evalLines.size()) {
+		// A SCRIPT MUST END IN PLAY. A party wipe returns to the title screen and
+		// every dev command keeps answering perfectly normally from there, so a
+		// run that died on its last encounter prints a full set of plausible
+		// readouts and exits 0. That is not hypothetical: expedition.eval has
+		// been ending at the menu, with its closing "what the expedition cost"
+		// readouts taken after the party was already dead
+		// (docs/eval-audit.md F19). The existing guard — `step` refusing when
+		// not playing — only fires on the NEXT step, and a script's last
+		// encounter has no next step.
+		const bool endedOutOfPlay = m_state != AppState::Playing;
+		if (endedOutOfPlay)
+			log::Error("eval: script {} ended in state '{}', not playing — the "
+					   "run did not survive its own last encounter, so whatever "
+					   "it printed after that point describes a dead party",
+					   m_evalName, StateName());
+
 		// THE VERDICT, in the house format every other checker in this project
 		// emits, so one reader handles them all. ONE PER SCRIPT — a batch that
 		// reported only at the end would make a reader count lines to work out
 		// which of twenty scripts went wrong.
+		const int problems =
+			m_evalUnknown + m_evalRefused + (endedOutOfPlay ? 1 : 0);
 		++m_evalScripts;
-		if (m_evalUnknown != 0) ++m_evalFailed;
-		log::Info("eval RESULT={} script={} lines={} unknown={}",
-				  m_evalUnknown == 0 ? "PASS" : "FAIL", m_evalName,
-				  m_evalLines.size(), m_evalUnknown);
+		if (problems != 0) ++m_evalFailed;
+		log::Info("eval RESULT={} script={} lines={} unknown={} refused={} "
+				  "endstate={}",
+				  problems == 0 ? "PASS" : "FAIL", m_evalName,
+				  m_evalLines.size(), m_evalUnknown, m_evalRefused, StateName());
 		// NEXT SCRIPT IN THE SAME PROCESS, if there is one — the whole point of
 		// the batch form. Deliberately WITHOUT a reset: the script decides
 		// whether it wants a clean baseline (`reset` at the top) or to inherit
@@ -280,6 +310,14 @@ void Game::PumpEvalScript(float dt) {
 	if (!m_console.RunLine(line)) {
 		++m_evalUnknown;
 		log::Error("eval: line {} matched no command: '{}'", m_evalIndex, line);
+	} else if (m_console.ConsumeRefusal()) {
+		// THE OTHER HALF of "did this line do what it said". RunLine's bool only
+		// answers whether a command by that name exists, which catches typos and
+		// nothing else. A `spawn` onto rock, a `tp` into a wall and a `step` past
+		// its ceiling all returned true here and the run reported PASS over an
+		// encounter it never set up (docs/eval-audit.md F11/F15).
+		++m_evalRefused;
+		log::Error("eval: line {} REFUSED: '{}'", m_evalIndex, line);
 	}
 }
 

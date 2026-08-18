@@ -268,7 +268,19 @@ public:
 		float dealt = 0.0f;   // reached monster hit points
 		float taken = 0.0f;   // reached member hit points
 		int hits = 0, misses = 0, crits = 0, fumbles = 0;
-		int monstersSlain = 0, membersDowned = 0;
+		int monstersSlain = 0;
+		// DISTINCT MEMBERS who went down since the last `tally reset`, not the
+		// number of times somebody fell. It used to count FALL EVENTS, and a
+		// member who dropped unconscious and was then killed produced two of
+		// them — so `downed=4` could mean four members down or two members down
+		// and then finished off, which are very different readings of a rung
+		// (docs/eval-audit.md F17).
+		//
+		// The mask is how it stays a member count without a container: one bit
+		// per roster slot, cleared with the rest of the struct by `tally reset`
+		// (which is `= {}`). u8 covers eight slots against a roster of four.
+		int membersDowned = 0;
+		u8 downedMask = 0;
 		float seconds = 0.0f; // SIM seconds since the last reset
 	};
 
@@ -325,7 +337,25 @@ public:
 	// A ladder healing between rungs therefore ran rung 2 onward against
 	// monsters that had permanently stopped swinging, and reported forty-five
 	// simulated seconds of nothing as a result.
-	void ClearWipeLatch() { m_partyWiped = false; }
+	//
+	// IT ALSO PUTS EVERY MONSTER BACK ON COOLDOWN, and that is the subtle half.
+	// An attack fires on `attackCd <= 0`, and a cooldown only ever counts DOWN
+	// with dt — it never needs dt to FIRE. While the party is wiped the app sits
+	// on the title screen and the world stops updating entirely, so any monster
+	// that was adjacent and ready at the moment of the wipe stays ready for as
+	// long as the party is down, and swings on the very FIRST frame this gate
+	// re-opens. Measured: a skeleton took 11.57 off a member between `heal` and
+	// the next line of a script, at `timescale 0`, with zero simulated seconds
+	// elapsed — and `tiers.eval` read that as the veteran rung's starting health
+	// while claiming "any difference is the seeding and nothing else"
+	// (docs/eval-audit.md F16).
+	//
+	// A swing owed from a stretch of time the world was not running is not a
+	// swing the party should take on standing up, so they are re-armed as if
+	// they had just swung. GUARDED on the latch actually being set: `heal` is
+	// also used mid-fight, and silently resetting cooldowns there would perturb
+	// the very encounter somebody is measuring.
+	void ClearWipeLatch();
 
 	// Scale the MOST RECENTLY SPAWNED monster's hp and damage (the eval
 	// harness's `spawn ... <strength>`). Applied after AddMonster rather than
@@ -2323,6 +2353,17 @@ private:
 	// the cause reads before the effect. `quiet` is the DoT ticks' mode: no
 	// splat (a per-frame tick must not flash one every frame).
 	Fall WoundMember(Character& target, float damage, bool quiet = false);
+
+	// Which roster slot a member is, or -1 if it is not in the roster at all.
+	// Pointer arithmetic into the one vector both sides already share, so it
+	// needs no extra bookkeeping and cannot drift from the roster's order.
+	int MemberIndex(const Character& who) const {
+		if (!m_roster || m_roster->empty()) return -1;
+		const ptrdiff_t i = &who - m_roster->data();
+		return (i >= 0 && i < static_cast<ptrdiff_t>(m_roster->size()))
+				   ? static_cast<int>(i)
+				   : -1;
+	}
 
 	// WHAT A FUMBLE COSTS THE PERSON WHO THREW IT (docs/damage-system.md "When
 	// it goes wrong"). `face` is the die face the fumble was judged on — at

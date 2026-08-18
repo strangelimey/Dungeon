@@ -1,0 +1,19 @@
+; rungs/respond-defence-strong.eval - the HIGH arm of the `taken` pair.
+;
+; PARTNER FILE: rungs/respond-defence-weak.eval. THE ONLY LINE THAT MAY DIFFER
+; BETWEEN THEM IS THE `spawn` below — x4 here against x2 there. Read that file
+; for why this pair is two files while the offence pair is one.
+;
+; The party is wiped in most samples at x4, which is intended: it is what makes
+; `downed` non-zero so that counter is checked too, and `heal` opens each sample
+; so the wipe cannot carry into the next one. respond.eval heals at the end so
+; the SCRIPT does not finish out of play.
+
+heal
+arena open 9 9
+freeze off
+spawn skel_warrior 14 11 south 4
+tp 14 12
+tally reset
+step 20
+tally

@@ -144,6 +144,16 @@ pipeline
 ;
 ; A stance past 1 is what buys the points that get billed, and the bill only
 ; reaches HEALTH once stamina is gone, so the bar is emptied first by swinging.
+;
+; THE ARENA IS NOT OPTIONAL, and its absence went unnoticed for the life of this
+; file: section 6 leaves `arena corridor 11` standing — one cell tall at z=12 —
+; so 14,14 and 14,13 are solid rock, the `tp` was refused, the `spawn` was
+; refused, and this section swung at empty air from wherever the wall bump left
+; the party. It still PASSED, because the check above asks whether the exertion
+; route moved health and swinging at nothing spends stamina just the same
+; (docs/eval-audit.md — the harness now fails a refused line, which is what
+; found this).
+arena open 9 9
 heal
 tp 14 14
 face north

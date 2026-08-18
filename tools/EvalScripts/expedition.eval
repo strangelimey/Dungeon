@@ -150,6 +150,18 @@ party
 supplies
 state
 
+; THE PARTY IS DEAD BY HERE, and that is the expedition's ANSWER: rung 4 at
+; x2.5 wipes it, so difficulty runs out long before supplies do. What was wrong
+; was reading the closing figures off the corpse — a wipe returns to the title
+; screen and every dev command keeps answering from there, so the four lines
+; below were printed after the run had ended and looked exactly like the three
+; healthy rungs above (docs/eval-audit.md F19).
+;
+; `heal` puts the app back in play so the closing readouts describe a party that
+; exists. It restores health/stamina/mana ONLY — food and water are untouched,
+; which is why the supply bill below is still the real one. The wipe itself
+; stays on the record in rung 4's `party` line and its `downed=4`.
+heal
 echo === what the expedition cost, and what it earned ===
 ; Supplies are the bill for the whole sequence; the skills are what the party has
 ; to show for it. Both are the outcome — one spent, one earned — and the pace

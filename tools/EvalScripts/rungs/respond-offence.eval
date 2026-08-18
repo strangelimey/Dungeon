@@ -1,0 +1,26 @@
+; rungs/respond-offence.eval - ONE offence sample for the responsiveness check.
+;
+; SHARED BY BOTH ARMS OF EVERY OFFENCE PAIR, and that sharing is the point: the
+; encounter has to be identical or the difference between two arms is not the
+; knob. Each arm applies its knob in respond.eval and then sweeps THIS, so there
+; is no second copy of the encounter to drift.
+;
+; `heal` rather than `reset`, because a reset would also wipe the stat and skill
+; the arm just seeded. It restores health/stamina/mana and the hand cooldowns and
+; leaves everything else alone.
+;
+; FROZEN, and a target nothing can kill. The monster is a 1100 hp punchbag
+; (skel_warrior 22 hp x50) that never acts, which buys three things: `dealt`
+; cannot be capped by the target dying, `taken` stays 0 so no sample can wipe the
+; party and end the run, and the number measured is the party's offence alone.
+; The first version of this used a 220 hp target, it sometimes died, and the arms
+; converged because both were measuring the monster instead of the party.
+
+heal
+arena open 9 9
+freeze on
+spawn skel_warrior 14 11 south 50
+tp 14 12
+tally reset
+step 20
+tally
