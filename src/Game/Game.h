@@ -235,6 +235,9 @@ private:
 	// True when the frame now starting is one the steady-state allocation rule
 	// covers (Core/AllocTrack). Stateful — it counts the warm-up.
 	bool SteadyStateFrame();
+	// Called when an overlay opens PART WAY THROUGH an already-armed frame:
+	// disarms the guard for it and restarts the warm-up. See the definition.
+	void OverlayOpenedThisFrame();
 	// Advances a running `alloctest` window and reports when it closes. The
 	// window is measured in ARMED frames, so time spent loading, warming up or
 	// with the console open does not spend it.

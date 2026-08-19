@@ -564,8 +564,13 @@ void Game::SaveGame(const std::string& name) {
 								 std::string(e.NameKey())});
 		// Skills, stat-creep pools, and the five attributes (they grow now).
 		for (const auto& [id, xp] : member.skillXp) c.skills.emplace_back(id, xp);
-		for (const auto& [stat, progress] : member.statProgress)
-			c.statProgress.emplace_back(stat, progress);
+		// Written as NAME/value pairs still, so the save file is unchanged and
+		// stays readable when the stat set moves — the array is an in-memory
+		// shape, not a file format. A zero pool writes nothing, as before.
+		for (int s = 0; s < kStatCount; ++s)
+			if (member.statProgress[static_cast<size_t>(s)] != 0.0f)
+				c.statProgress.emplace_back(std::string(kStats[static_cast<size_t>(s)].id),
+											member.statProgress[static_cast<size_t>(s)]);
 		c.hasAttrs = true;
 		c.strength = member.strength;
 		c.dexterity = member.dexterity;
@@ -649,8 +654,12 @@ bool Game::LoadGame(const std::string& path) {
 		// Skills, stat-creep pools, and the grown attributes (pre-v15 saves
 		// carry none — skills fresh, archetype attributes stand).
 		for (const auto& [id, xp] : c.skills) m_characters[i].skillXp[id] = xp;
+		// A name the table no longer knows is DROPPED rather than fatal: a stat
+		// removed while the set is in flux should cost its creep pool, not the
+		// save. (Every other id in a save is treated the same way.)
 		for (const auto& [stat, progress] : c.statProgress)
-			m_characters[i].statProgress[stat] = progress;
+			if (const int s = StatIndex(stat); s >= 0)
+				m_characters[i].statProgress[static_cast<size_t>(s)] = progress;
 		if (c.hasAttrs) {
 			m_characters[i].strength = c.strength;
 			m_characters[i].dexterity = c.dexterity;
@@ -879,6 +888,25 @@ bool Game::SteadyStateFrame() {
 	return m_steadyFrames > kWarmupFrames;
 }
 
+// An overlay just opened, PART WAY THROUGH the frame the guard already armed.
+//
+// SteadyStateFrame runs at the top of Update and judges the frame on the state
+// at that instant; the console and map toggles are handled further down the same
+// Update, and whatever they open then DRAWS in the same frame's Render. So the
+// guard was arming a frame, watching an overlay appear inside it, and reporting
+// the overlay's allocations as a steady-state violation — a false alarm every
+// time the console was opened, blamed on ThreadManager::SnapshotAll.
+//
+// Disarm instead, and reset the warm-up: a frame an overlay opened in is not a
+// steady-state frame, and the frames right after it are settling. This matters
+// more than the handful of bytes it was reporting — a checker that cries wolf
+// teaches you to ignore it, and this one had already talked me into calling a
+// real report "safe to ignore".
+void Game::OverlayOpenedThisFrame() {
+	alloc::ArmFrame(false);
+	m_steadyFrames = 0;
+}
+
 // One `alloctest` window: spend the budget only on frames that actually armed,
 // so the load, the warm-up and the console being open cost the test nothing. The
 // verdict is the guard's own stats, differenced across the window.
@@ -991,7 +1019,10 @@ void Game::Update(float dt) {
 						 m_state == AppState::LoadingGame ||
 						 m_state == AppState::LoadingLevel;
 	const bool consoleWasOpen = m_console.IsOpen();
-	if (input.WasKeyPressed(VK_OEM_3)) m_console.Toggle();
+	if (input.WasKeyPressed(VK_OEM_3)) {
+		m_console.Toggle();
+		OverlayOpenedThisFrame(); // this frame is no longer a steady-state one
+	}
 	m_console.SetCommandsEnabled(!loading);
 	{
 		// The console is itself instrumented: it samples every graph's history
@@ -1219,7 +1250,10 @@ void Game::Update(float dt) {
 	const bool typingFilter = m_mapView.IsOpen() &&
 							  m_mapView.CurrentMode() == MapView::Mode::Editor &&
 							  m_mapEditor.KeyboardCaptured();
-	if (!typingFilter && input.WasKeyPressed('M')) m_mapView.Toggle();
+	if (!typingFilter && input.WasKeyPressed('M')) {
+		m_mapView.Toggle();
+		OverlayOpenedThisFrame(); // as the console toggle above
+	}
 
 	// The editor's pause/play button freezes the world so the level can be
 	// edited against a still scene: no sim time step and no party input. Never

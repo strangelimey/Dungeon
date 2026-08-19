@@ -18,6 +18,7 @@
 #include "Game/Inventory.h"
 #include "Game/Spells.h"
 
+#include <array>
 #include <cmath>
 #include <flat_map>
 #include <flat_set>
@@ -47,6 +48,23 @@ namespace dungeon::game {
 // the point of the effects system, and why the type lives in its own module
 // instead of here.
 // ============================================================================
+
+// ============================================================================
+// The five stats, in ONE place (the table itself is kStats, below Character —
+// it names member pointers, so it needs the complete type).
+//
+// They used to be known in four: the members here, Character::StatValue's
+// if-chain, DungeonWorld::GrantStatPoint's if-chain, and Balance's
+// NormalizeStat. Four copies of one fact, so adding a stat meant finding all
+// four — and a fifth place, statProgress, was a name-keyed dictionary purely to
+// avoid being a fifth place, at the cost of allocating during play.
+//
+// Now a stat is ONE table row plus its member. That is CHEAPER than before, not
+// dearer, which matters while the set is still in flux: everything that resolves
+// a stat name reads the table, and statProgress is an array the table sizes, so
+// it cannot fall out of step with it.
+// ============================================================================
+inline constexpr int kStatCount = 5;
 
 struct Character {
 	std::string name; // proper noun — not localized
@@ -166,8 +184,18 @@ struct Character {
 	// drips the skill's associated stat forward through statProgress — the
 	// per-stat creep pool that grants a stat point when it passes 1. Both
 	// saved per slot (v15 "skill"/"statxp" lines).
+	//
+	// skillXp is keyed by NAME because skill ids are open-ended: four schools,
+	// every weapon class items.cat defines, the three resource practices. New
+	// content invents new ones, so it has to be late-bound.
 	std::flat_map<std::string, float, std::less<>> skillXp;
-	std::flat_map<std::string, float, std::less<>> statProgress;
+	// statProgress is NOT, and used to be for no better reason than being
+	// declared next to skillXp. There are five stats and the code already knew
+	// it in three separate places (see kStats below), so a name-keyed dictionary
+	// bought no flexibility — it only meant the first stamina spend of a run
+	// INSERTED into it, allocating inside a steady-state frame, which is the one
+	// thing that rule forbids. Indexed by StatIndex(), sized by the table.
+	std::array<float, kStatCount> statProgress{};
 	static int LevelForXp(float xp) {
 		return xp <= 0.0f ? 0 : static_cast<int>(std::sqrt(xp));
 	}
@@ -246,14 +274,9 @@ struct Character {
 
 	// A stat's live value by its id ("strength", ... "intelligence"); 0 for an
 	// unknown id (a catalog typo warns at parse, not here).
-	int StatValue(std::string_view id) const {
-		if (id == "strength") return strength;
-		if (id == "dexterity") return dexterity;
-		if (id == "vitality") return vitality;
-		if (id == "willpower") return willpower;
-		if (id == "intelligence") return intelligence;
-		return 0;
-	}
+	// Defined below the kStats table, which needs the complete type to name
+	// member pointers.
+	int StatValue(std::string_view id) const;
 	// The associated-stat AVERAGE (docs/combat.md part 2) — the stat input to
 	// the attack bonus. Empty list = 0 (an unclassed source gets no bonus).
 	float StatAvg(std::span<const std::string> ids) const {
@@ -297,6 +320,37 @@ struct Character {
 	// Fallback portrait tint, also the slot's identity color.
 	Vec4 portraitColor{0.3f, 0.3f, 0.3f, 1.0f};
 };
+
+// One row per stat: the id catalogs and saves use, the short form catalogs may
+// abbreviate it to, and the member it lives in. Adding a stat is a row here plus
+// the `int` on Character — nothing else resolves a stat name by hand.
+struct StatDef {
+	std::string_view id;     // "strength" — the catalog / save-file spelling
+	std::string_view abbrev; // "str" — what a catalog may write instead
+	int Character::* value;  // where it lives
+};
+inline constexpr std::array<StatDef, kStatCount> kStats{{
+	{"strength", "str", &Character::strength},
+	{"dexterity", "dex", &Character::dexterity},
+	{"vitality", "vit", &Character::vitality},
+	{"willpower", "wil", &Character::willpower},
+	{"intelligence", "int", &Character::intelligence},
+}};
+
+// A stat id (full or abbreviated) to its index in kStats / statProgress; -1 when
+// nothing matches, which every caller treats as "unknown id, already warned at
+// parse". "will" is accepted too — willpower had two abbreviations in the wild.
+inline int StatIndex(std::string_view id) {
+	for (int i = 0; i < kStatCount; ++i)
+		if (id == kStats[i].id || id == kStats[i].abbrev) return i;
+	if (id == "will") return StatIndex("willpower");
+	return -1;
+}
+
+inline int Character::StatValue(std::string_view id) const {
+	const int i = StatIndex(id);
+	return i < 0 ? 0 : this->*kStats[i].value;
+}
 
 // The default four-member starting party, fresh at full health.
 std::vector<Character> CreateDefaultParty();

@@ -76,7 +76,9 @@ void DungeonWorld::GrantSkillXp(Character& member, std::string_view skillId,
 	const float gain =
 		xp * m_balance.creepRate / static_cast<float>(stats.size());
 	for (const std::string& stat : stats) {
-		float& pool = member.statProgress[stat];
+		const int i = StatIndex(stat);
+		if (i < 0) continue; // unknown id — parse already warned
+		float& pool = member.statProgress[static_cast<size_t>(i)];
 		pool += gain;
 		if (pool < 1.0f) continue;
 		pool -= 1.0f;
@@ -88,13 +90,9 @@ void DungeonWorld::GrantSkillXp(Character& member, std::string_view skillId,
 // (the resource formula — a VIT point is FELT as a bigger health/stamina pool,
 // and the growth carries the current value so it reads as growth, not damage).
 void DungeonWorld::GrantStatPoint(Character& member, std::string_view stat) {
-	int value = 0;
-	if (stat == "strength") value = ++member.strength;
-	else if (stat == "dexterity") value = ++member.dexterity;
-	else if (stat == "vitality") value = ++member.vitality;
-	else if (stat == "willpower") value = ++member.willpower;
-	else if (stat == "intelligence") value = ++member.intelligence;
-	else return; // unknown id — parse already warned
+	const int i = StatIndex(stat);
+	if (i < 0) return; // unknown id — parse already warned
+	const int value = ++(member.*kStats[static_cast<size_t>(i)].value);
 	member.RecomputeMaxima(m_balance.kHealth, m_balance.kStamina, m_balance.kMana);
 	MemberMessage(member, loc::Format("log.stat_up", member.name,
 									  loc::Tr("stat." + std::string(stat)), value));
@@ -115,7 +113,12 @@ void DungeonWorld::SpendStamina(Character& member, float points) {
 			MemberMessage(member, loc::Format("log.exhausted", member.name));
 		}
 	}
-	float& pool = member.statProgress["vitality"];
+	// The VIT slot by index — this used to subscript a name-keyed dictionary,
+	// and the first spend of a run INSERTED, allocating inside a steady-state
+	// frame. That was the alloc guard's one true report.
+	static constexpr int kVit = 2; // kStats order; the static_assert below pins it
+	static_assert(kStats[kVit].id == std::string_view("vitality"));
+	float& pool = member.statProgress[kVit];
 	pool += points * m_balance.vitExertion;
 	if (pool < 1.0f) return;
 	pool -= 1.0f;

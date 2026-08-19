@@ -5,6 +5,7 @@
 
 #include "Core/Log.h"
 #include "Game/Catalog.h"
+#include "Game/Character.h" // the one stat table (kStats / StatIndex)
 
 #include <charconv>
 #include <format>
@@ -80,14 +81,12 @@ float FloatOf(const std::string& tok, float fallback) {
 	return v;
 }
 
-// Short/full stat-name tokens → the Character stat id ("" = unknown).
+// Short/full stat-name tokens → the Character stat id ("" = unknown). Reads the
+// one stat table (Character.h) rather than repeating the five names, so a stat
+// added there is understood by catalogs without a second edit here.
 std::string_view NormalizeStat(std::string_view tok) {
-	if (tok == "str" || tok == "strength") return "strength";
-	if (tok == "dex" || tok == "dexterity") return "dexterity";
-	if (tok == "vit" || tok == "vitality") return "vitality";
-	if (tok == "wil" || tok == "will" || tok == "willpower") return "willpower";
-	if (tok == "int" || tok == "intelligence") return "intelligence";
-	return {};
+	const int i = StatIndex(tok);
+	return i < 0 ? std::string_view{} : kStats[static_cast<size_t>(i)].id;
 }
 
 } // namespace
