@@ -281,6 +281,28 @@ AsyncDirector::Batch AsyncDirector::TakePlans(int bucket) const {
 	return {m_plans[bucket], m_planSeq[bucket]};
 }
 
+void AsyncDirector::SetLockstep(bool on) {
+	if (on == m_lockstep) return;
+	m_lockstep = on;
+	// PAUSE, not stop-and-respawn: the workers keep their identities, iteration
+	// counts and diagnostic rings, so a run that toggled lockstep still reads as
+	// one thread's history in the console THREADS panel rather than as four
+	// reboots. It also means a paused worker cannot be mid-tick when the first
+	// inline compute lands — Pause takes effect at a tick boundary.
+	for (int b = 0; b < Scheduler::kBucketCount; ++b) {
+		if (on) m_manager.Pause(m_workers[b]);
+		else m_manager.Resume(m_workers[b]);
+	}
+}
+
+void AsyncDirector::ComputeInline(int bucket) {
+	// Guarded rather than asserted, and the guard is the point: a caller that
+	// forgot to enable lockstep gets NOTHING, instead of a main-thread compute
+	// racing four live workers over the same plan slots.
+	if (!m_lockstep) return;
+	ComputeBucket(bucket, m_inlineBrain, m_neverStops.get_token());
+}
+
 void AsyncDirector::ComputeBucket(int bucket, Brain& brain, const std::stop_token& stop) {
 	// One tick: grab the freshest snapshot (a cheap shared_ptr copy), think +
 	// path this bucket's monsters, publish the batch. The manager owns the loop

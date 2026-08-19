@@ -37,6 +37,7 @@ const CatalogSlot kCatalogs[] = {
 	{"spells.cat", &Project::spells, "Spells: symbol-sequence recipes -> effect + element + power/mana/speed/range."},
 	{"attacks.cat", &Project::attacks, "Attacks: per-melee-verb numbers (damage/accuracy/speed multipliers); identity (damage type) is C++ (Balance.h)."},
 	{"balance.cat", &Project::balance, "Balance: the attack-formula knob sheet ([formula] block; docs/combat.md)."},
+	{"damagetypes.cat", &Project::damagetypes, "Damage types: the vocabulary the combat maths is written in (physical flag + school); C++ names none of them."},
 	{"effects.cat", &Project::effects, "Status effects: display name/icon/stacking per effect id; identity and behaviour are C++ (Game/Effect/)."},
 	{"wallfeatures.cat", &Project::wallfeatures, "Wall features: recessed niches carved into a wall panel."},
 	{"surfacefeatures.cat", &Project::surfacefeatures, "Surface features: a tile stamped in place of a cell's floor or ceiling block (the wall-niche idea, laid flat). `surface` picks which."},
@@ -125,6 +126,7 @@ Catalog* Project::CatalogForKey(const std::string& key) {
 	if (key == "armor") return &armor;
 	if (key == "spells") return &spells;
 	if (key == "effects") return &effects;
+	if (key == "damagetypes") return &damagetypes;
 	if (key == "attacks") return &attacks;
 	if (key == "balance") return &balance;
 	if (key == "wallfeatures") return &wallfeatures;
@@ -138,7 +140,7 @@ std::vector<const Catalog*> Project::AllCatalogs() const {
 	return {&walls,  &floors,  &ceilings, &decorations,  &fixtures,
 			&monsters, &doors, &stairs,   &buttons,      &items,
 			&weapons, &armor,  &spells,   &effects,      &attacks,
-			&balance, &wallfeatures, &surfacefeatures};
+			&balance, &damagetypes, &wallfeatures, &surfacefeatures};
 }
 
 const CatalogEntry* Project::FindItem(std::string_view id) const {

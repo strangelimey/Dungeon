@@ -64,6 +64,12 @@ struct CastContext {
 	// The caster's roster index (-1 when unknown) — rides a spawned bolt so
 	// the impact can credit the hit to its caster (the threat system).
 	int casterIndex = -1;
+	// The caster's opposed-roll bonus in d100 POINTS, already assembled from
+	// the school skill and stat curves by the host. Handed in rather than
+	// computed here so a spell never learns what a Balance is. (LAST on
+	// purpose: the one construction site initialises this aggregate
+	// positionally, so a field inserted mid-struct silently mis-assigns.)
+	float attackBonus = 50.0f;
 };
 
 class Spell {
@@ -90,9 +96,20 @@ public:
 
 	// Lay the project's spells.cat NUMBERS over the class defaults (matching
 	// entry by id; SpellBook::Build calls this once per load). The base takes
-	// name/power/mana; derived classes add their own fields. The RECIPE is
+	// name/power/mana/on_hit; derived classes add their own fields. The RECIPE is
 	// class-only — identity never comes from data.
 	virtual void ApplyOverrides(const CatalogEntry& e);
+
+	// The payload a cast hands its carrier: this spell's on-hit effects packed
+	// into the projectile's inline array. One place, so a bolt spell and any
+	// future thrown form fill it identically — and so the "more than
+	// kMaxPayloadProcs authored" warning has a single home.
+	ProjectilePayload MakePayload() const;
+
+	// The damage-type book this spell resolved against (SpellBook::Build), so a
+	// bolt can ask what its school deals. Borrowed; DungeonWorld owns it and it
+	// outlives the registry.
+	void SetTypes(const DamageTypeBook* types) { m_types = types; }
 
 	const std::string& Id() const { return m_id; }
 	const std::string& NameKey() const { return m_nameKey; } // "spell.<id>"
@@ -104,14 +121,29 @@ public:
 	int Difficulty() const { return static_cast<int>(m_sequence.size()); }
 	float Power() const { return m_power; }
 	float Mana() const { return m_mana; }
+	// What this spell BURSTS as, and what it leaves behind — for the eval
+	// harness's `blast` command, which detonates a spell's AUTHORED numbers at a
+	// chosen cell. Exposed rather than letting the harness invent its own rules:
+	// a geometry measurement is only worth something if it describes the content
+	// that actually ships (docs/eval-harness.md).
+	const BlastSpec& Blast() const { return m_blast; }
+	std::span<const fx::Proc> Procs() const { return m_procs; }
 
 protected:
+	const DamageTypeBook* m_types = nullptr;
+
 	std::string m_id;
 	std::string m_nameKey;
 	std::string m_descKey;
 	std::vector<SpellSymbol> m_sequence;
 	float m_power;
 	float m_mana;
+	// What a landed cast leaves behind (spells.cat `on_hit`), parsed once at
+	// load. Empty for most spells — a ward's business is the ward it applies.
+	std::vector<fx::Proc> m_procs;
+	// The area burst it sets off, if any (spells.cat `blast_force` and friends).
+	// Zero force for every spell that is a plain single-target bolt.
+	BlastSpec m_blast;
 };
 
 // Every concrete spell, freshly constructed at class defaults — the registry

@@ -1,15 +1,85 @@
 ; Armor: worn items granting defense (armor soak + per-type resists).
+;
+; class = light | medium | heavy - the WEIGHT CLASS (docs/damage-system.md).
+;   It decides what the piece costs you on the defense roll, which skill it
+;   trains, and how much STRENGTH it asks for; the numbers per class are
+;   balance.cat knobs (armor_<class>_*). The SOAK stays per item below, since
+;   a breastplate and a mail shirt are both heavy and do not blunt alike.
+;   Omitted = no class: it is clothing, and you still count as unarmored.
+;
+; wear = head | body | legs | feet | cloak | amulet | ring - WHICH DOLL SLOT
+;   this goes in. The hands take anything `holdable`; every other slot is
+;   type-specific, so a helm cannot be worn on the feet. An item naming no
+;   `wear` can only be held or packed.
+;
+; Wearing ANY class stops the `avoid` skill applying at all - that skill is
+; the unarmored answer to being swung at, and you cannot practise both.
+
+; --- light ------------------------------------------------------------------
+; Cloth and padding: cheap to move in, and it stops very little.
+
+[padded_jack]
+name = item.padded_jack
+category = armor
+class = light
+wear = body
+weight = 4.0
+model = leather_armor
+armor = 1.0
+resists = slash 0.1, bash 0.1
+
+; --- medium -----------------------------------------------------------------
+; The compromise: worth wearing, worth training, and it costs you the roll.
 
 [leather_armor]
 name = item.leather_armor
 category = armor
+class = medium
+wear = body
 weight = 8.0
 model = leather_armor
-armor = 1.5
+armor = 2.5
 resists = slash 0.2, pierce 0.1, bash 0.1
+
+[brigandine]
+name = item.brigandine
+category = armor
+class = medium
+wear = body
+weight = 12.0
+model = leather_armor
+armor = 3.5
+resists = slash 0.25, pierce 0.2, bash 0.1
+
+; --- heavy ------------------------------------------------------------------
+; Plate and mail. A permanent -20 to the defense roll however long you train
+; (balance.cat armor_heavy_floor), bought back in soak and resistance. The
+; strength requirement is 14: wear these under it and you are easier to hit AND
+; out of breath (armor_short_penalty / armor_short_stamina).
+
+[mail_hauberk]
+name = item.mail_hauberk
+category = armor
+class = heavy
+wear = body
+weight = 18.0
+model = leather_armor
+armor = 5.0
+resists = slash 0.4, pierce 0.15, bash 0.05
+
+[plate_cuirass]
+name = item.plate_cuirass
+category = armor
+class = heavy
+wear = body
+weight = 25.0
+model = leather_armor
+armor = 7.0
+resists = slash 0.5, pierce 0.4, bash 0.2
 
 [tunic]
 name = item.tunic
+wear = body
 category = clothing
 weight = 2.0
 armor = 0.25

@@ -1,0 +1,11 @@
+; presets/novice.eval — the party as the game actually starts you.
+;
+; Included, not hardcoded: a preset is a script fragment so it stays editable,
+; diffable and composable like the rest of the suite.
+;
+; This one deliberately sets almost nothing. A fresh roster IS the novice tier,
+; and writing out its numbers here would create a second definition of "starting
+; party" that drifts from CreateDefaultParty the first time that changes. The
+; file exists so a rung can SAY which tier it meant.
+
+echo preset novice: a fresh roster, bare hands

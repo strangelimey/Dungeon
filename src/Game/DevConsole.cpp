@@ -601,15 +601,31 @@ void DevConsole::Register(std::string name, std::string help,
 }
 
 void DevConsole::Print(std::string line) {
+	// Mirrored BEFORE the move, and through the ordinary log so a mirrored run
+	// interleaves correctly with everything else the frame wrote — the point
+	// is to read ONE file and see the whole story in order.
+	if (m_mirrorToLog) log::Info("console: {}", line);
 	m_output.push_back(std::move(line));
 	while (m_output.size() > kMaxOutput) m_output.pop_front();
 	m_scroll = 0; // jump to the newest line
 }
 
-void DevConsole::Execute(const std::string& line) {
+// Printed like anything else; the flag is what the eval runner reads. Kept next
+// to Print rather than inline in the header so the two stay visibly the same
+// operation with one extra bit — see the header for what earns a Refuse.
+void DevConsole::Refuse(std::string line) {
+	m_refused = true;
+	Print(std::move(line));
+}
+
+bool DevConsole::Execute(const std::string& line) {
 	Print("> " + line);
+	// Cleared before dispatch, never after: a handler that refuses sets it, and
+	// the runner reads it immediately. Clearing afterwards would race the very
+	// read it exists for.
+	m_refused = false;
 	const std::vector<std::string> tokens = Tokenize(line);
-	if (tokens.empty()) return;
+	if (tokens.empty()) return true; // a blank line is not a failure
 
 	std::string name = tokens[0];
 	std::ranges::transform(name, name.begin(), [](char c) {
@@ -620,10 +636,11 @@ void DevConsole::Execute(const std::string& line) {
 	for (const Command& cmd : m_commands) {
 		if (cmd.name == name) {
 			cmd.fn(args);
-			return;
+			return true;
 		}
 	}
 	Print("unknown command: " + name);
+	return false;
 }
 
 // Same preprocessor split as BuildProfileRows, and for the same reason: a

@@ -2,12 +2,17 @@
 // Game/BalanceDialog.cpp — see BalanceDialog.h.
 // ============================================================================
 #include "Game/BalanceDialog.h"
+#include "Game/CurvePlot.h"
 
 #include "Core/Loc.h"
 #include "Core/Paths.h"
 #include "Game/AssetUtil.h"
 #include "Game/DialogLayout.h"
 #include "UI/Controls.h"
+
+#include <algorithm>  // clamp — the form index against the live form count
+#include <string_view>
+#include <vector>
 
 #include <charconv>
 #include <format>
@@ -92,7 +97,60 @@ void BalanceDialog::BuildFormulaTab(size_t tab) {
 	// long as the table and the page scrolls; the pitch used to be a fraction
 	// of the page (0.062 = 29px around 40px type, every row on the one below).
 	ui::Stack* rows = TabStack(*m_tabs, tab);
+	// THE CURVES, FIRST — they are the shape of the formula, and the knobs
+	// below are only numbers until you can see what they do (Game/CurvePlot.h).
+	// Live by construction: the plot borrows the same working copy the fields
+	// edit, so dragging skill_bonus redraws it with no wiring between them.
+	rows->Row<CurvePlot>(ui::Len::Fixed(7.0f), &m_cfg);
+	rows->Row<ui::Separator>(ui::Len::Fixed(0.5f));
+
+	// The curve knobs sit DIRECTLY UNDER the plot they drive, not down in the
+	// alphabet of the general list — a control that redraws a graph belongs
+	// beside the graph, or you tune it by scrolling back and forth. The rest of
+	// the sheet follows below, still generated from the table.
+	static constexpr std::string_view kCurveKeys[] = {
+		"skill_curve", "skill_bonus", "skill_cap",
+		"stat_curve",  "stat_bonus",  "stat_cap", "stat_baseline"};
+	const auto isCurveKey = [](std::string_view key) {
+		for (std::string_view k : kCurveKeys)
+			if (k == key) return true;
+		return false;
+	};
+
+	// A form is a CHOICE among three shapes, so it gets a dropdown naming them
+	// rather than a box you type 0/1/2 into. (It rides the float field table
+	// like every other knob — a form index round-trips through balance.cat as a
+	// number — but the number is an implementation detail, not the interface.)
+	std::vector<std::string> formNames;
+	for (int i = 0; i < static_cast<int>(CurveForm::Count); ++i)
+		formNames.push_back(CurveFormId(static_cast<CurveForm>(i)));
+
 	for (const BalanceField& f : BalanceFields()) {
+		if (!isCurveKey(f.key)) continue;
+		ui::Stack* row = rows->Row<ui::Stack>(FormRow(), true);
+		row->gapRem = 0.5f;
+		row->Row<ui::Label>(ui::Len::Fill(kLabelFill), f.key)->centerV = true;
+		const std::string_view key = f.key;
+		if (key == "skill_curve" || key == "stat_curve") {
+			const int sel = std::clamp(static_cast<int>(m_cfg.*(f.value)), 0,
+									   static_cast<int>(CurveForm::Count) - 1);
+			row->Row<ui::DropDown>(ui::Len::Fill(kFieldFill), formNames, sel,
+								   [this, &f](int i) {
+									   m_cfg.*(f.value) = static_cast<float>(i);
+									   Apply();
+								   });
+		} else {
+			AddNumericField(*row, ui::Len::Fill(kFieldFill), m_cfg.*(f.value),
+							[this, &f](float v) {
+								m_cfg.*(f.value) = v;
+								Apply();
+							});
+		}
+	}
+	rows->Row<ui::Separator>(ui::Len::Fixed(0.5f));
+
+	for (const BalanceField& f : BalanceFields()) {
+		if (isCurveKey(f.key)) continue; // drawn above, beside the plot
 		ui::Stack* row = rows->Row<ui::Stack>(FormRow(), true);
 		row->gapRem = 0.5f;
 		row->Row<ui::Label>(ui::Len::Fill(kLabelFill), f.key)->centerV = true;
@@ -125,7 +183,7 @@ void BalanceDialog::BuildAttacksTab(size_t tab) {
 		row->gapRem = 0.4f;
 		row->Row<ui::Label>(ui::Len::Fill(kIdFill), a.id)->centerV = true;
 		ui::Label* type =
-			row->Row<ui::Label>(ui::Len::Fill(kTypeFill), DamageTypeId(a.type));
+			row->Row<ui::Label>(ui::Len::Fill(kTypeFill), a.typeId);
 		type->centerV = true;
 		type->dim = true;
 		AddNumericField(*row, ui::Len::Fill(kNumFill), a.dmg,

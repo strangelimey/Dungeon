@@ -18,8 +18,11 @@
 
 #include <Windows.h>
 
+#include <shellapi.h> // CommandLineToArgvW — the `-eval` flag
+
 #include <format>
 #include <string>
+#include <string_view>
 
 int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
 	using namespace dungeon;
@@ -56,8 +59,32 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
 	game::GameSettings boot;
 	boot.Load();
 
+	// `-headless` (docs/eval-harness.md): no window on screen and no drawing —
+	// the game simulates, the dev console still runs, and everything worth
+	// reading comes out of dungeon.log. Read BEFORE the window exists, because
+	// whether it is ever shown is a property of its creation.
+	//
+	// WHAT IT DOES NOT DO is remove the graphics device. The swapchain is bound
+	// to an HWND, and prising the device out would mean a null path at every gfx
+	// call site — mesh building, texture upload, icon bakes, font atlases — for
+	// no gain, because what a headless run saves is the PER-FRAME cost, not the
+	// once-per-process cost of owning a device. A machine with no GPU is already
+	// handled a layer down: GraphicsDevice falls back to WARP.
+	//
+	// It is a FLAG rather than something `-eval` implies, because watching an
+	// eval run play out is exactly how several of these scripts were debugged.
+	bool headless = false;
+	{
+		int argc = 0;
+		LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+		for (int i = 1; argv && i < argc; ++i)
+			if (std::wstring_view(argv[i]) == L"-headless") headless = true;
+		if (argv) LocalFree(argv);
+	}
+
 	WindowDesc desc;
 	desc.title = "Dungeon";
+	desc.hidden = headless;
 	if (boot.displayWidth > 0 && boot.displayHeight > 0) {
 		desc.width = static_cast<u32>(boot.displayWidth);
 		desc.height = static_cast<u32>(boot.displayHeight);
@@ -73,6 +100,42 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
 	window.onResize = [&device](u32 w, u32 h) { device.Resize(w, h); };
 
 	game::Game game(window, device, renderer, spriteBatch, audioEngine);
+
+	// `-eval <script> [script...]`: run console scripts and exit with their
+	// verdict instead of waiting for someone to play. Read HERE rather than up
+	// with the display settings because the scripts are the Game's to own —
+	// nothing earlier could hold them.
+	//
+	// SEVERAL SCRIPTS RUN IN ONE PROCESS, which is the whole point: a dungeon
+	// load is ~12 seconds and a `reset` is ~340 ms, so twenty scripts in one
+	// process pay one load instead of twenty (docs/eval-harness.md). Every
+	// non-flag argument after `-eval` is a script, and `-eval` may be repeated.
+	//
+	// THE FIRST script failing to LOAD is fatal on the spot: a "test run" that
+	// silently sat at the title screen would report whatever the harness assumed
+	// rather than what happened. A LATER one failing is handled by the runner,
+	// which counts it and carries on with the rest.
+	{
+		int argc = 0;
+		LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
+		bool bad = false, first = true;
+		for (int i = 1; argv && i < argc; ++i) {
+			if (std::wstring_view(argv[i]) != L"-eval") continue;
+			// Consume every following argument that is not itself a flag.
+			for (int j = i + 1; j < argc && argv[j][0] != L'-'; ++j) {
+				const std::wstring wide(argv[j]);
+				const std::string path(wide.begin(), wide.end()); // ASCII paths only
+				if (first) {
+					bad = !game.LoadEvalScript(path);
+					first = false;
+				} else {
+					game.QueueEvalScript(path);
+				}
+			}
+		}
+		if (argv) LocalFree(argv);
+		if (bad) return 2; // distinct from a FAILING script: this one never ran
+	}
 
 	Timer timer;
 	const float clearColor[4] = {0.01f, 0.01f, 0.015f, 1.0f};
@@ -131,35 +194,56 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
 				game.Update(dt);
 			}
 
-			ID3D12GraphicsCommandList* list = nullptr;
-			{
-				DN_PROFILE_ZONE(prof::kZoneRender);
-				list = device.BeginFrame(clearColor);
-				// The CPU work of a frame, separated from the two WAITS either side
-				// of it (wait.gpu inside BeginFrame, present inside EndFrame). Those
-				// three partition `render` into the only three things it can be
-				// doing, and which of them dominates IS the answer to whether the
-				// frame is CPU-bound, GPU-bound or display-bound. Undivided, all
-				// three read as "rendering is expensive".
-				{
-					DN_PROFILE_ZONE(prof::kZoneRecord);
-					game.Render(list);
-				}
-				device.EndFrame();
-			}
-
-			// Hold the frame to the refresh rate of the monitor the window is on
-			// (GraphicsDevice::WaitFrameCap explains why Present cannot do this).
+			// HEADLESS: the whole render half of the frame goes, and with it the
+			// frame cap. That cap is the bigger of the two savings and the less
+			// obvious one — it holds every frame to the monitor's refresh, and an
+			// eval script runs one line per frame, so a run with nothing to show
+			// would otherwise be paced by a display nobody is looking at.
 			//
-			// A SIBLING of `render`, not part of it, and its own zone: this is a
-			// wait we chose, and folding it into anything else would show up as
-			// that thing getting slower. Named so the budget can subtract it from
-			// CPU time — otherwise capping the frame rate would make the console
-			// report the engine as CPU-bound, which is the precise opposite of
-			// what a frame spent deliberately idle means.
-			{
-				DN_PROFILE_ZONE(prof::kZoneWaitCap);
-				device.WaitFrameCap();
+			// EndHeadlessFrame is not optional bookkeeping: the staged loader
+			// gates on the frame counter that lives at the bottom of Render, so
+			// without it the run never finishes loading (see its definition).
+			//
+			// Written as a BRANCH rather than an early `continue`, deliberately:
+			// the loop's tail publishes the profiler's frame, ends the allocation
+			// guard's, and ends the input frame, and a headless run that skipped
+			// those would drift from a normal one in three ways that would each
+			// take a while to notice.
+			if (headless) {
+				game.EndHeadlessFrame();
+			} else {
+				ID3D12GraphicsCommandList* list = nullptr;
+				{
+					DN_PROFILE_ZONE(prof::kZoneRender);
+					list = device.BeginFrame(clearColor);
+					// The CPU work of a frame, separated from the two WAITS either
+					// side of it (wait.gpu inside BeginFrame, present inside
+					// EndFrame). Those three partition `render` into the only three
+					// things it can be doing, and which of them dominates IS the
+					// answer to whether the frame is CPU-bound, GPU-bound or
+					// display-bound. Undivided, all three read as "rendering is
+					// expensive".
+					{
+						DN_PROFILE_ZONE(prof::kZoneRecord);
+						game.Render(list);
+					}
+					device.EndFrame();
+				}
+
+				// Hold the frame to the refresh rate of the monitor the window is
+				// on (GraphicsDevice::WaitFrameCap explains why Present cannot do
+				// this).
+				//
+				// A SIBLING of `render`, not part of it, and its own zone: this is
+				// a wait we chose, and folding it into anything else would show up
+				// as that thing getting slower. Named so the budget can subtract it
+				// from CPU time — otherwise capping the frame rate would make the
+				// console report the engine as CPU-bound, which is the precise
+				// opposite of what a frame spent deliberately idle means.
+				{
+					DN_PROFILE_ZONE(prof::kZoneWaitCap);
+					device.WaitFrameCap();
+				}
 			}
 			consecutiveFailures = 0; // a frame that finished clears the streak
 		} catch (const std::exception& e) {
@@ -247,5 +331,9 @@ int WINAPI wWinMain(HINSTANCE, HINSTANCE, PWSTR, int) {
 			}
 		}
 	}
-	return 0;
+	// A scripted run's verdict IS the process's: 0 only when every line matched a
+	// command AND the queue emptied. A run that timed out fails even though every
+	// line it managed to run succeeded. An ordinary play session has no script,
+	// and EvalExitCode is 0 for it.
+	return game.EvalExitCode();
 }

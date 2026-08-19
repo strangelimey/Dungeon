@@ -77,6 +77,8 @@ inline constexpr BarField kBarFields[] = {
 	{"health", "bar.health", &ResourceBarColors::health},
 	{"stamina", "bar.stamina", &ResourceBarColors::stamina},
 	{"mana", "bar.mana", &ResourceBarColors::mana},
+	{"food", "bar.food", &ResourceBarColors::food},
+	{"water", "bar.water", &ResourceBarColors::water},
 };
 
 // Party identity colors, one per roster slot (portrait border, hand-slot

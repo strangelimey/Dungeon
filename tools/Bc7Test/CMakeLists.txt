@@ -12,3 +12,7 @@ add_executable(Bc7Test
 # and AssetBaker/Bc7Tables.h without relative escapes.
 target_include_directories(Bc7Test PRIVATE ${CMAKE_SOURCE_DIR}/tools)
 target_link_libraries(Bc7Test PRIVATE Core Assets ThirdPartyImpl)
+
+# Solution Explorer: headers visible, folders mirrored (dn_ide_layout, root
+# CMakeLists). MUST be called here — source_group is directory-scoped.
+dn_ide_layout(Bc7Test ${CMAKE_CURRENT_SOURCE_DIR})

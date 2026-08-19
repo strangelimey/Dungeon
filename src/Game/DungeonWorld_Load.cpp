@@ -223,6 +223,9 @@ void DungeonWorld::AppendLoadTasks(LoadQueue& queue) {
 			// DecorationKind pattern) — BuildFires pulls in whatever the level uses.
 			m_particleBatch = std::make_unique<gfx::ParticleBatch>(m_device);
 			BuildFires();
+			// Their damage side-table, once the kinds are resolved — it asks each
+			// kind whether it is breakable at all, so it must run after BuildFires.
+			SeedFixtureBreakables();
 		},
 		"fires");
 	queue.Add(loc::Tr("load.dust"), [this] { BuildTurbidityMap(); }, "turbidity");
@@ -479,18 +482,38 @@ DungeonWorld::MonsterKind& DungeonWorld::MonsterKindFor(const std::string& type)
 		if (def) {
 			assets->maxHp = def->GetFloat("hp", 12.0f);
 			assets->damage = def->GetFloat("damage", 4.0f);
-			assets->accuracy = def->GetFloat("accuracy", 0.65f);
-			assets->evasion = def->GetFloat("defense", 0.1f);
+			assets->accuracy = def->GetFloat("accuracy", 60.0f);
+			assets->evasion = def->GetFloat("defense", 10.0f);
 			assets->armor = def->GetFloat("armor", 0.0f);
 			// The defender side (docs/combat.md part 4): per-type resist
 			// cells + what this monster's melee deals AS (default bash).
 			ParseResists(CatalogGet(def, "resists", ""), assets->resists,
-						 "monsters.cat [" + type + "]");
+						 "monsters.cat [" + type + "]", m_damageTypes);
+			// Default bash: a monster that names no dmgtype hits like a club.
+			assets->damageType = m_bashType;
 			if (const std::string t = CatalogGet(def, "dmgtype", "");
-				!t.empty() && !ParseDamageType(t, assets->damageType))
+				!t.empty() && !m_damageTypes.Find(t, assets->damageType))
 				log::Warn("monsters.cat [{}]: unknown dmgtype '{}'", type, t);
+			// The ATTACKER half of the type axis — what it is dangerous WITH, the
+			// mirror of the `resists` above it.
+			ParseResists(CatalogGet(def, "powers", ""), assets->powers,
+						 "monsters.cat [" + type + "]", m_damageTypes);
 			// What its blows leave behind, named by effect id.
 			ParseOnHit(def, assets->onHit, "monsters.cat [" + type + "]");
+			fx::ParseProcs(CatalogGet(def, "on_crit", ""), assets->onCrit,
+						   "monsters.cat [" + type + "]");
+			// What the dice's EXTREMES do. The fumble tables stay empty when
+			// unauthored rather than being filled with the default here — the
+			// default is resolved at the moment of the fumble, so a Balance
+			// dialog change to fumble_recover takes effect on the next swing
+			// instead of on the next level load.
+			assets->critPierce = CatalogGet(def, "crit", "") == "pierce";
+			fx::ParseProcs(CatalogGet(def, "on_fumble", ""), assets->onFumble,
+						   "monsters.cat [" + type + "]");
+			mishap::Parse(CatalogGet(def, "fumble", ""), assets->fumble,
+						  "monsters.cat [" + type + "]");
+			mishap::Parse(CatalogGet(def, "fumble_severe", ""),
+						  assets->fumbleSevere, "monsters.cat [" + type + "]");
 			// Melee reach in cells (Phase 7): 2 = a pike melees from its
 			// queue post down a clear shared row/column.
 			assets->reach = std::max(
@@ -500,6 +523,17 @@ DungeonWorld::MonsterKind& DungeonWorld::MonsterKindFor(const std::string& type)
 			assets->moveInterval = def->GetFloat("movecd", 0.6f);
 			assets->iq = def->GetFloat("iq", 100.0f);
 			assets->archetype = ParseArchetype(CatalogGet(def, "archetype", "brute"));
+			// THE STANCE IS PER KIND, not per archetype. An archetype says how
+			// a monster MOVES and PERCEIVES — a caster keeps range and throws
+			// spells — and says nothing about whether it is reckless doing so.
+			// Some casters hurl everything they have; others hang back healing
+			// and buffing. That is a personality, it varies WITHIN an
+			// archetype, and it belongs in the catalog where it can be seen and
+			// edited rather than inferred in C++.
+			//
+			// All-out is the default because it is the simple behaviour: a
+			// monster that has not been told to hedge does not hedge.
+			assets->offense = def->GetFloat("offense", 1.0f);
 			assets->keepRange = def->GetFloat("keeprange", 4.0f);
 			assets->fleeBelow = def->GetFloat("fleebelow", 0.0f);
 			assets->spell = CatalogGet(def, "spell", "");
@@ -814,9 +848,30 @@ DungeonWorld::ItemKind& DungeonWorld::ItemKindFor(const std::string& type) {
 									"items.cat [" + type + "]");
 		// Weapon reach (Phase 7): `reach = polearm` swings from the rear rank.
 		kind->polearm = CatalogGet(def, "reach", "melee") == "polearm";
+		// What eating or drinking it restores (docs/health-and-healing.md).
+		// BOTH, on every item, because most real food is partly one and partly
+		// the other — an apple waters a little, a stew does both properly — and
+		// splitting them by VERB would have forced bread and a waterskin into
+		// different code for the same statement. The verb is flavour; these are
+		// the content. Absent = 0 = the item feeds nobody, and a consume of it
+		// is refused rather than silently eating a rock.
+		kind->nutrition = def ? def->GetFloat("nutrition", 0.0f) : 0.0f;
+		kind->hydration = def ? def->GetFloat("hydration", 0.0f) : 0.0f;
 		// What its blows leave behind, named by effect id — the same authored
 		// form a monster uses. A plain weapon has none and swings as before.
 		ParseOnHit(def, kind->onHit, "weapons.cat [" + type + "]");
+		fx::ParseProcs(CatalogGet(def, "on_crit", ""), kind->onCrit,
+					   "weapons.cat [" + type + "]");
+		// What the dice's EXTREMES do — `crit = pierce` on the way out, and the
+		// fumble tables on the way back at the wielder. Left empty when
+		// unauthored so the default resolves per swing (see the monster site).
+		kind->critPierce = CatalogGet(def, "crit", "") == "pierce";
+		fx::ParseProcs(CatalogGet(def, "on_fumble", ""), kind->onFumble,
+					   "weapons.cat [" + type + "]");
+		mishap::Parse(CatalogGet(def, "fumble", ""), kind->fumble,
+					  "weapons.cat [" + type + "]");
+		mishap::Parse(CatalogGet(def, "fumble_severe", ""), kind->fumbleSevere,
+					  "weapons.cat [" + type + "]");
 		// ENCHANTMENT: `element = fire` turns the weapon elemental — every
 		// landed blow adds `element_bonus` of its damage as that element, and
 		// the element becomes the FLAVOUR its on-hit effects arrive with (so
@@ -837,8 +892,18 @@ DungeonWorld::ItemKind& DungeonWorld::ItemKindFor(const std::string& type) {
 			}
 		}
 		ParseResists(CatalogGet(def, "resists", ""), kind->resists,
-					 "items.cat [" + type + "]");
+					 "items.cat [" + type + "]", m_damageTypes);
+		if (const std::string cls = CatalogGet(def, "class", ""); !cls.empty())
+			if (!ParseArmorClass(cls, kind->armorClass))
+				log::Warn("armor.cat [{}]: unknown class '{}' (light/medium/heavy)",
+						  type, cls);
+		if (const std::string wear = CatalogGet(def, "wear", ""); !wear.empty())
+			if (!ParseWearSlot(wear, kind->wearSlot))
+				log::Warn("[{}]: unknown wear slot '{}'", type, wear);
 		kind->armor = def ? def->GetFloat("armor", 0.0f) : 0.0f;
+		// The attacker half: what wielding or wearing this makes you potent WITH.
+		ParseResists(CatalogGet(def, "powers", ""), kind->powers,
+					 "[" + type + "]", m_damageTypes);
 		kind->weight = def ? def->GetFloat("weight", 0.0f) : 0.0f;
 		// `command` is a free-form list (whitespace/comma separated) of command ids
 		// the hand right-click menu offers; runes implicitly gain "memorize" below.
@@ -1298,6 +1363,17 @@ DungeonWorld::DecorationKind& DungeonWorld::DecorationKindFor(const std::string&
 			// Uniform size trim on top of the authored unit size (monsters' long-
 			// standing `modelscale`, now available to every prop): 1 = as authored.
 			kind->modelScale = def->GetFloat("scale", 1.0f);
+			// BREAKABILITY, opt-in and OFF by default: a prop is scenery unless its
+			// type says otherwise. `hp` is how much it takes, `armor`/`resists` how
+			// it takes it — the same two fields armour wears, so a stone statue can
+			// shrug off a blade and an iron grate can drink lightning.
+			kind->destructible = CatalogBool(def, "destructible", false);
+			if (kind->destructible) {
+				kind->hp = def->GetFloat("hp", 10.0f);
+				kind->soak = def->GetFloat("armor", 0.0f);
+				ParseResists(CatalogGet(def, "resists", ""), kind->resists,
+							 "decorations.cat [" + type + "]", m_damageTypes);
+			}
 		}
 		// Every kind bakes a whole-model map icon; a fresh kind re-arms the
 		// one-shot bake pass (UpdateMapIcons).
@@ -1343,6 +1419,16 @@ DungeonWorld::FixtureKind& DungeonWorld::FixtureKindFor(const std::string& type)
 		kind->id = type;
 		kind->wallMount = CatalogGet(def, "mount", "floor") == "wall";
 		kind->flameless = !CatalogBool(def, "flame", true);
+		// Breakability, opt-in and OFF by default like every other kind: a torch
+		// bracket can be knocked off a wall, a heavy iron brazier takes rather more,
+		// and an empty one authored without the field cannot be touched at all.
+		kind->destructible = CatalogBool(def, "destructible", false);
+		if (kind->destructible && def) {
+			kind->hp = def->GetFloat("hp", 10.0f);
+			kind->soak = def->GetFloat("armor", 0.0f);
+			ParseResists(CatalogGet(def, "resists", ""), kind->resists,
+						 "fixtures.cat [" + type + "]", m_damageTypes);
+		}
 		kind->model = LoadModelOrDie(model + ".gltf");
 		kind->mesh = std::make_unique<gfx::Mesh>(m_device, kind->model.meshes[0]);
 		kind->color = kind->model.materials[0].baseColorFactor;
@@ -1409,6 +1495,7 @@ void DungeonWorld::LoadDecorations() {
 			deco.solid = kind.solidDefault; // passages (archway) let the party through
 		}
 		if (const std::string* s = record.Param("solid")) deco.solid = *s != "0";
+		SeedBreakable(deco.brk, kind);
 		m_decorations.push_back(std::move(deco));
 	}
 	log::Info("Placed {} decorations ({} kinds)", m_decorations.size(),

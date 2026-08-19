@@ -146,6 +146,14 @@ the big mana base):
 Resources grow because stats grow. This also fixes maxMana never growing
 at all today, and finally gives vitality a job.
 
+> **SUPERSEDED BELOW BY docs/health-and-healing.md.** The paragraph that
+> follows is the original part-3 design and is kept because the reasoning still
+> holds — stamina IS the exertion meter, and spending it is what trains. What
+> changed is WHAT it trains: the throughput fed VITALITY's creep pool, and
+> vitality feeds max stamina, so the loop closed on itself. It now trains the
+> **conditioning** skill, which owns the pool instead. Read that doc for the
+> live model; everything below about *what counts as exertion* is unchanged.
+
 **VIT trains from exertion, and STAMINA IS THE EXERTION METER**: every
 point of stamina SPENT feeds VIT's creep pool — no separate tracking of
 swings-per-minute or distance-run. Use drains it in the moment, builds
@@ -241,8 +249,14 @@ The knob sheet (first cut):
 | speed_stat / interval_min / interval_max | 0.015 / 0.6 / 2.0 | DEX shaves swing pace, clamped |
 | spell_stat | 0.01 | % spell power per statAvg point |
 | creep_rate | 0.04 | stat creep per skill-XP (today's kStatCreepPerXp) |
-| vit_exertion | 0.02 | VIT creep per stamina point spent (part 3) |
-| k_health / k_stamina / k_mana | 1.0 | resource points per stat point (part 3 maxima) |
+| k_health / k_stamina / k_mana | 1.0 | resource points per APTITUDE point (the linear half of the maxima) |
+| the rest of the resource block | — | **docs/health-and-healing.md**, which owns the pools now: each has a practice (a skill) beside its aptitude, and its own regen curve |
+
+**`vit_exertion` IS GONE**, and the reason belongs here because part 3 described
+it: stamina spent used to creep VITALITY, and vitality feeds max stamina, so the
+loop fed itself. The same throughput now trains the **conditioning** skill, and
+that skill owns the pool. It was deleted rather than zeroed — a knob that has to
+stay at zero for the game to be correct is a trap with a dial on it.
 
 **Where the knobs live (Michael's requirement: editor-tweakable for the
 whole dungeon):** a `balance.cat` in the PROJECT catalog folder —

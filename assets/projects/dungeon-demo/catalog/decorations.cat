@@ -158,6 +158,12 @@ solid = 1
 authored = 0
 category = container
 facing_arrow = 0
+; Wooden and hollow: it smashes. `destructible` is the gate and is OFF for every
+; other prop — a statue or a pillar is scenery and stays scenery. Fire eats a
+; barrel (a negative resist is a WEAKNESS), a blade rather less.
+destructible = 1
+hp = 8
+resists = slash 0.3, fire -0.6
 
 [crate]
 display = Crate
@@ -167,6 +173,9 @@ texture = wood_planks
 solid = 1
 authored = 0
 category = container
+destructible = 1
+hp = 10
+resists = slash 0.3, fire -0.6
 
 [chest]
 display = Chest

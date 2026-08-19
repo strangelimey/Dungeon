@@ -1,4 +1,13 @@
 ; Balance: the attack-formula knob sheet ([formula] block; docs/combat.md).
+;
+; The three resources (k_<r> ... conditioning_xp) are the aptitude/practice model
+; in docs/health-and-healing.md: each pool takes a linear share from its APTITUDE
+; (a stat) and a tapering one from its PRACTICE (a skill). <r>_skill_slope/cap and
+; <r>_regen_slope/cap are that curve, in points of maximum and points per second
+; respectively -- A CAP OF 0 SWITCHES THE TERM OFF, it does not mean unbounded.
+; `vit_exertion` was RETIRED here: stamina spent now trains the conditioning
+; skill instead of creeping vitality, and vitality feeds max stamina, so keeping
+; both was a loop feeding itself.
 
 [formula]
 unarmed_base = 4
@@ -6,11 +15,6 @@ unarmed_speed = 1.4
 stat_damage = 0.25
 skill_damage = 0.08
 damage_jitter = 0.15
-acc_base = 0.55
-acc_stat = 0.02
-acc_skill = 0.02
-hit_floor = 0.05
-hit_ceil = 0.95
 resist_clamp = 0.8
 wound_floor = 1
 speed_base = 1.15
@@ -20,19 +24,81 @@ interval_max = 2
 spell_stat = 0.01
 stoneskin_resist = 0.05
 creep_rate = 0.04
-vit_exertion = 0.02
 k_health = 1
+health_skill_slope = 1
+health_skill_cap = 25
+health_regen = 0.15
+health_regen_stat = 0.01
+health_regen_max = 0
+health_regen_slope = 0.02
+health_regen_cap = 0.45
 k_stamina = 1
+stamina_skill_slope = 1
+stamina_skill_cap = 25
 k_mana = 1
+mana_skill_slope = 1
+mana_skill_cap = 25
+mana_regen = 0.3
+mana_regen_stat = 0.03
+mana_regen_max = 0
+mana_regen_slope = 0.02
+mana_regen_cap = 0.5
+mana_exert = 0.25
+conditioning_xp = 0.3
+attunement_xp = 0.25
+constitution_xp = 0.4
+
+; Supplies: the two meters, out of 100. Base drain is per second of world time
+; -- about 8 hours to empty on food, 5 on water, because thirst should kill
+; first. <s>_cond_* is CONDITIONING'S PRICE (extra drain, tapering to its cap):
+; the fitter member burns more, which is the one loop in this design that taxes
+; the compounding instead of adding to it. <s>_exertion is per point of stamina
+; SPENT, and WATER IS THE HEAVIER -- sweat is water, so a heavy fight in armour
+; makes you thirsty rather than merely hungry. hunger_/thirst_damage are health
+; per second once a meter is EMPTY, which is fatal (Michael's call).
+food_max = 100
+food_rate = 0.0035
+food_cond_slope = 0.0002
+food_cond_cap = 0.0035
+food_exertion = 0.08
+hunger_damage = 0.5
+water_max = 100
+water_rate = 0.0056
+water_cond_slope = 0.0003
+water_cond_cap = 0.0056
+water_exertion = 0.15
+thirst_damage = 0.8
+
+; Rest: how much faster the world runs while the party rests. ONE knob, and it
+; multiplies TIME rather than any rate -- health, stamina, mana, food, water,
+; effect timers, monster cooldowns and the AI's cadence all accelerate together,
+; so no second set of resting rates can drift from the ordinary ones.
+; 60 = a minute of dungeon time per second of watching.
+rest_scale = 60
+
+; Pace: what CONDITIONING adds to a member's authored move speed, tapering to
+; its cap. It ADDS rather than replaces -- moveSpeed is class identity (Sera
+; fleet-footed, Tilo the anchor) the way baseHealth is, and training should close
+; that gap, not erase it. The party still moves at its SLOWEST member's pace, so
+; the benefit is invisible until the worst-trained one has it.
+pace_slope = 0.02
+pace_cap = 0.4
 stamina_swing = 1
 stamina_weight = 0.4
 stamina_step = 0.1
 stamina_regen = 0.5
+stamina_regen_stat = 0.02
 stamina_regen_max = 0.02
+stamina_regen_slope = 0.03
+stamina_regen_cap = 0.6
 stamina_holdoff = 1.5
 exhaust_damage = 0.5
 exhaust_pace = 1.5
 exhaust_recover = 0.1
+exert_cost = 3
+exert_max = 2
+fumble_severe_face = 1
+fumble_recover = 2.2
 stabilize_time = 30
 stabilize_health = 0.2
 overkill = 1.5

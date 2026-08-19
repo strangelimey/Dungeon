@@ -82,11 +82,14 @@ Vec4 ElementColor(SpellSymbol s) {
 SpellBook::SpellBook() = default;
 SpellBook::~SpellBook() = default;
 
-void SpellBook::Build(const Catalog& catalog) {
+void SpellBook::Build(const Catalog& catalog, const DamageTypeBook& types) {
 	// The concrete classes ARE the recipe table (Spell/AllSpells.cpp); the
 	// catalog gets the last word on NUMBERS only. Guard the class-authored
 	// recipes anyway — a broken one should fail at load, loudly.
 	m_spells = MakeAllSpells();
+	// Hand every spell the damage-type vocabulary before anything asks a bolt
+	// what it deals — the classes were constructed before a project existed.
+	for (const auto& spell : m_spells) spell->SetTypes(&types);
 	for (const auto& spell : m_spells) {
 		const auto seq = spell->Sequence();
 		const auto schools = std::ranges::count_if(seq, IsSchoolSymbol);

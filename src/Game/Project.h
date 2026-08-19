@@ -46,6 +46,11 @@ struct Project {
 	// effect id — numbers and look only. An effect's identity and behaviour
 	// are its class (Game/Effect/), exactly like a spell's.
 	Catalog effects;
+	// The damage types themselves (docs/damage-system.md). Unlike every other
+	// catalog here this one is not content ON a system — it IS the vocabulary
+	// the combat maths is written in, so C++ names none of its entries and
+	// resists elsewhere are authored against its ids.
+	Catalog damagetypes;
 	Catalog wallfeatures; // recessed wall niches (Phase 2)
 	// The same idea laid flat, pointing down or up: a tile stamped IN PLACE OF a
 	// cell's FLOOR or CEILING block, carrying a recess sunk into it or a vault

@@ -199,12 +199,13 @@ Key conventions (memorize, they bite):
   resist[type]) floored — resists SUM nature (monsters.cat `resists`;
   Character::natureResists is the future race layer) + worn equipment
   (`resists`/`armor`) + Stone Skin as physical, clamped ±resist_clamp
-  (a nature cell of 1.0 = immunity). Resources DERIVE: max = base + k ×
-  statAvg (Character::RecomputeMaxima; authored bases ride save v17,
-  pre-v17 back-solves). STAMINA is the exertion meter (swings spend
+  (a nature cell of 1.0 = immunity). Resources DERIVE — see RESOURCES below,
+  which superseded the old flat `max = base + k × statAvg`. STAMINA is the
+  exertion meter (swings spend
   (stamina_swing + stamina_weight×kg) × the attack's stamina column, steps
-  spend stamina_step, every spend feeds VIT's creep — part 3's conditioning
-  loop; an empty bar latches EXHAUSTED penalties with hysteresis). 0 HP =
+  spend stamina_step, every spend trains CONDITIONING — the old `vit_exertion`
+  VIT creep is GONE, see RESOURCES; an empty bar latches EXHAUSTED penalties
+  with hysteresis). 0 HP =
   UNCONSCIOUS (self-stabilizes at stabilize_health after stabilize_time
   safe seconds — any monster in aggro resets the clock); DEAD only by
   OVERKILL (a blow on a downed member, or ≥ overkill×max; v18 "dead" line;
@@ -225,6 +226,128 @@ Key conventions (memorize, they bite):
   through the target's resist for that element (no soak, no separate to-hit
   roll), and the element becomes the FLAVOUR its on-hit effects arrive with.
   Dev: `equip <item> [member] [hand]`.
+- RESOURCES (full model: docs/health-and-healing.md; the pools half built
+  2026-08-13, food/water/rest/sheet still design). Every pool has an APTITUDE
+  (a stat — `Character::Aptitude`, the ONE home of health←VIT,
+  stamina←(STR+VIT)/2, mana←(INT+WIL)/2) and a PRACTICE (a skill:
+  `conditioning`/`attunement`/`constitution`). max = base + k_<r>×aptitude +
+  Curve(practice); rate = <r>_regen + <r>_regen_stat×Curve(aptitude) +
+  <r>_regen_max×max + Curve(practice). The arithmetic is the PURE TU
+  `Game/Resource.h` (Curve.h only, so RollTest links it — the Defense.h
+  bargain); `Balance::Resources()` is the adapter, `Character::RecomputeMaxima`
+  takes a `resource::PoolRules`. **"Constitution" is a SKILL, not a sixth
+  stat** — which is why this needed NO save bump (skillXp rides v15).
+  THREE RULES THAT BITE: (1) the practices train and CREEP NOTHING — they all
+  go through `GrantResourceXp`, whose whole job is passing an empty stat list,
+  because each feeds a pool its aptitude also feeds and the ordinary award
+  closes the loop (`vit_exertion` was DELETED, not zeroed); (2) a
+  `<r>_skill_cap` of 0 switches that term OFF — `CurveValue` reads a
+  non-positive cap as an UNBOUNDED straight line, the armor-floor bug's exact
+  shape, so `resource::SkillTerm` owns the guard; (3) health regen now runs
+  EVERY FRAME while hurt, so `GrantSkillXp` looks a skill up before inserting
+  it (the subscript's `std::string` was a steady-state allocation).
+  State gate: the 1.5s `staminaHoldoff` IS the "exerting" signal — stamina 0,
+  mana ×`mana_exert`, health 0. Dev: `regen` (all three rates + the ordering,
+  read on its `ref` rows NOT the members — the party is unequal on purpose),
+  and `char` prints the creep pools so a leak is visible. Checked by
+  `RollTest`, `AllocTest.ps1 -Wounded` (a fresh party never runs regen at all)
+  and the `resources` eval suite.
+  SUPPLIES: `food`/`water` per character (0..`food_max`, save v25 `supply` line;
+  a pre-v25 save loads FULL). They drain by TIME — scaled by conditioning, which
+  is the design's only downward pressure — and by EXERTION off `SpendStamina`,
+  water heavier than food (sweat). Eating is `nutrition`/`hydration` on any
+  items.cat entry, and `eat`/`drink` are ONE handler because an apple does both;
+  `GameUI::onConsume` → `DungeonWorld::ConsumeItem`, which refuses (keeping the
+  item) when it would restore nothing. AN EMPTY METER KILLS: `starving`/`parched`
+  are ordinary DoT effects dealing a `starve` damage type nothing resists, so a
+  Tick on a downed member is lethal under the existing overkill rule and NO new
+  death path exists. **The effect is the METER'S SHADOW** — `TickSupplies` tops
+  its `timeLeft` up while empty and erases it when fed, so there is no
+  "permanent effect" concept and exactly one place a member stops starving
+  (`ConsumeItem` deliberately does not lift it). Dev: `supplies` (in HOURS LEFT,
+  since a meter reading means nothing without its rate), `setsupply`, `consume`.
+  REST is a STATE (the HUD Options panel's Rest button, which replaced the dead
+  "Wait" placeholder; dev `rest [on|off]`, bare = REPORT not toggle). It
+  multiplies TIME at ONE place — `Game::Update`'s `wdt` — so every rate, timer
+  and cooldown accelerates together and no second set of resting rates can
+  drift. **It forces LOCKSTEP AI while resting** and hands the previous mode
+  back: the AI buckets are WALL-CLOCK paced, so a 60x world would give a monster
+  1/60th the thinking per simulated second and it would chase stale paths — the
+  harness's own "stale orders are worse than frozen" lesson. Ends three ways
+  (`RestEndReason()`): `recovered` (nothing left to gain; only STANDING members
+  counted), `attacked` (a blow — a DoT does NOT break it, `WoundMember`'s
+  `quiet` flag is exactly that line), `hungry` (an empty meter). Transient: not
+  saved. NOTE `step` advances SIM seconds, so the harness cannot see the
+  multiplier at all — it measures the STATE's rules instead.
+  PACE: conditioning ADDS to a member's authored `moveSpeed` (class identity,
+  like baseHealth) through `pace_slope`/`pace_cap`; the party still moves at its
+  SLOWEST member's, so training the fastest buys nothing. `DungeonWorld::
+  ApplyPartyPace` owns the rule (Game only forwards) because conditioning levels
+  inside the combat tick where Game is not in the call chain. SHEET: the Skills
+  tab groups under Training / Reserves headings (`SkillRow::header`), and the
+  Stats tab draws five bars — the three pools plus food and water, themed from
+  `kBarFields` like the rest. Dev: `sheet <member|off>`, which also let the
+  sheet JOIN `/check-ingame`'s uioverlap sweep (it was the one screen no audit
+  reached; note that sweep sees WIDGETS, and the bars are direct draws).
+  TRAP: any dev command that seeds a SKILL must re-derive — `setskill` wrote xp
+  and nothing else, which since P1 leaves a conditioned member with a novice's
+  bars and the old walking pace. Same lesson `setstat` learned.
+  THE HARNESS RECYCLES THE WORLD rather than reloading it: `-eval a b c` runs
+  many scripts in ONE process, and `reset` puts the world where `newgame` would
+  in ~340 ms against a ~12 s level load (the load is models/textures, cached
+  after the first). Ten suites: 155 s → 38 s. `reset` is a directive a SCRIPT
+  calls — a specific test opens with it, a PROGRESSION series deliberately does
+  not and inherits the last one's party. Its definition is "where a new game
+  would leave it" BECAUSE that can be tested: `Eval.ps1 -SelfTest` diffs a
+  baseline taken after a real load against one after a reset, and also checks a
+  batched suite matches a solo one. TRAPS, all found the hard way: the first
+  reset skipped the MAP and the equivalence test passed anyway (nothing it
+  printed showed geometry — `mapinfo`'s walkable count is now the only readout
+  that can see an arena); `ReadEvalLines` APPENDS, so a batch re-ran every
+  earlier script and merely took longer; and `ResetForEval` must go through
+  `m_ui.onStartNewGame`, never `StartNewGame()` (P2's cold-boot HUD crash).
+  MEASURED by the `expedition` eval suite (fight → retreat → `rest until` →
+  repeat): three full recover cycles cost 2.9 food / 5.2 water of 100, so a load
+  buys ~55 fights — and the party dies to DIFFICULTY long first. Supplies are
+  not the constraint at the shipped numbers; that is the balance pass's starting
+  point. TRAP when scripting rest: `rest on` then `step N` does NOT measure a
+  rest — the auto-stop is dt-independent so it fires on the next ordinary frame,
+  which at timescale 0 falls BETWEEN the two commands; use `rest until`.
+  WHAT THE HARNESS COSTS THE SHIPPING CODE (audited 2026-08-15, docs/eval-
+  harness.md "What the harness costs"): ALL harness state the world holds is ONE
+  member, `DungeonWorld::m_harness` (`struct Harness`: tally / autoAttack /
+  frozen / pendingSteps), touched in six places in the simulation, each reading
+  `m_harness.x` so it says what it is; `ResetForEval` is `m_harness = {}`. The
+  script runner is its own TU, `Game_Eval.cpp`. Headless is one branch in Main.
+  NOT harness machinery despite appearances: lockstep AI (SetResting uses it —
+  rest runs the world at 60x and lockstep makes the fast-forward honest), the dev
+  console (90 commands; allocguard/crashpoke/uioverlap predate eval), and the
+  damage ledger (a shipping rule check). NONE OF IT IS BEHIND `#ifdef`, and that
+  is a decision: the harness's value is that it measures the SHIPPING binary
+  (RollTest's rule — the real thing linked in, never a copy), and a fourth build
+  configuration would rot the way `build-release` and `build-profile` checks
+  exist to prevent.
+  HEADLESS: `Dungeon.exe -headless -eval …` (also `Eval.ps1 -Headless`,
+  `PipelineTest.ps1 -Headless`) hides the window and skips the whole render half
+  of the frame. It is NOT mainly a speed switch — ten suites go 42 s → 37 s,
+  because the cost is the asset load plus `step` loops, and a `step` runs many
+  simulated seconds inside ONE frame, so there are few frames to save. What it
+  buys is a run that steals no focus, survives RDP / a scheduled task, and can be
+  run several at a time. It does NOT remove the graphics device: the swapchain is
+  bound to an HWND, so the window still exists and is merely never shown, and
+  prising the device out would mean a null path at every gfx call site for no
+  gain (a GPU-less machine is already covered — GraphicsDevice falls back to
+  WARP). THE ONE THING THAT MADE IT NON-TRIVIAL: `Game::Render` is pure drawing
+  EXCEPT its last line, `++m_framesRendered`, which `RunLoadTasks` gates on ("the
+  screen has been presented once") — skip rendering naively and the load queue
+  never advances, so the run sits on the loading screen until the 600 s script
+  timeout. `Game::EndHeadlessFrame` does that bookkeeping instead; the normal
+  path's increment is left where it is. EQUIVALENCE IS CHECKED, not assumed:
+  `Eval.ps1 -SelfTest` runs a suite both ways and demands the console output
+  match line for line. NOT run headless on purpose: `/check-ingame` (uioverlap
+  measures what widgets PAINT) and `/check-alloc` (the guard brackets update AND
+  render, so a headless frame is a different frame from the one the rule is
+  about).
 - EFFECTS (full model: docs/effects.md — the system every source of damage
   goes through; built in six phases 2026-07-24): ONE pipeline for everything
   that happens to a combatant. A source builds an `fx::DamageEvent` and calls
@@ -274,6 +397,33 @@ Key conventions (memorize, they bite):
   they restore for free. Save v22 round-trips both sides. Adding an effect:
   a class + AllEffects.cpp + CMakeLists + an effects.cat block + effect.<id>
   lang keys ×5. Dev: `effect <id> [member|ahead] [magnitude] [seconds]`.
+  THE ONE-PIPELINE RULE IS CHECKED, not held (docs/effects.md "The invariant,
+  CHECKED"): `Game/DamageLedger.h` gives every health value the pipeline can
+  reach a BASELINE, anything allowed to move it declares itself through a
+  `ledger::Explained` scope naming a `Reason`, and four checkpoints a frame
+  demand the arithmetic come out — a leftover is a write that went around
+  `fx::Deal`. FIVE sanctioned reasons: `pipeline` (the adapters), `exertion`
+  (over-exertion's health half, a DECLARED exception — not resisted, soaked or
+  warded, because collapsing under your own effort is not something armour
+  turns), `regen`, `growth` (a stat or resource-practice level raises a ceiling
+  and carries the current value up — this one fires MID-FIGHT, and the check
+  found it), `stabilize`. Wholesale replacement (load / respawn / `heal`)
+  REBASES instead of crediting, which is why there is deliberately no `setup`
+  reason. IT IS A RUNTIME CHECK BECAUSE A GREP CANNOT WORK: regeneration writes
+  health through a lambda taking `float&`, so the identifier never appears on
+  the assignment and a source scan reports that file clean. It names the PHASE,
+  not the line — the stack is long gone by the checkpoint, and making health a
+  guarded type would ripple through save/load, the UI and all of combat. Dev:
+  `pipeline`, `pipelineguard [on|off|strict|reset]`, `pipelinepoke`; armed by
+  default in debug, off in release. Harness: `tools\PipelineTest.ps1` /
+  `/check-pipeline`, in CheckAll's QUICK tier (16 s — the eval `reset` recycles
+  the world instead of reloading it). IT DEMANDS MORE THAN PASS: the app must
+  still be `playing` and EVERY route must have moved health, because the suite's
+  own first run wiped the party on a T-junction blast and then printed a
+  confident PASS for four sections that simulated nothing. The ledger itself is
+  a PURE TU linked into RollTest (the Defense.h rule), and its checks are
+  non-vacuous by MUTATION — one of which passed clean at first because the test
+  covered the rule but not the branch.
 - ALL user-facing text goes through Core/Loc (loc::Tr(key) /
   loc::Format(key, args...) for {} placeholders), loaded from
   assets/lang/<code>.lang (UTF-8 key=value, ';' comments; en.lang is the
@@ -749,11 +899,20 @@ to 2k with a warning if 4k not installed.
 ## Game state machine
 
 Loading (staged tasks, one per frame, progress screen) → Menu (baked title
-art title_bg, MenuList: Continue/Load/Start New Game/Settings — Continue/Load
+art title_bg, MenuList: Continue/Load/Start New Game/Settings/Exit — Continue/Load
 appear only when a save exists; all entries work) → Playing ⇄ Paused (Esc in-game freezes
 the world and shows Save/Load/Settings/Exit/Back over the scene; Esc backs
-out / resumes). Esc on the landing page quits; in-game quit is the pause
-menu's Exit (Game::QuitRequested polled by the main loop). During the three
+out / resumes). QUITTING IS ALWAYS DELIBERATE (Michael, 2026-08-11): an Exit
+entry (landing or pause) or the console's `quit`/`exit`. **ESC NEVER QUITS, IN
+ANY STATE** — it only backs out (settings page, pause, sheet, overlays) and does
+nothing on the landing list. It used to quit from the landing list AND from both
+LOADING states, which read as a CRASH: a party wipe drops you on the title
+screen, and a reflexive Esc at a screen that appeared by itself killed the
+process with no confirmation and no log line. During a load, where no Exit button
+is up, the ways out are the console and the WINDOW'S OWN CLOSE BUTTON — which is
+independent of all this (Platform/Window.cpp's WM_CLOSE sets m_closed), so no
+state can ever be unquittable. Everything else routes through
+Game::QuitRequested, polled by the main loop. During the three
 loading states the world is only PARTIALLY built (the HUD log, meshes,
 monsters arrive task by task), so dev-console COMMANDS are gated off
 (DevConsole::SetCommandsEnabled — Enter prints a notice; a `cast` mid-load

@@ -160,6 +160,26 @@ void CharacterSheet::BakeSkills() {
 							   std::clamp((xp - base) / (next - base), 0.0f, 1.0f),
 							   tint});
 	};
+	// A heading, added only when its group turns out to have rows — so a member
+	// who has trained nothing gets the "No skills yet." line rather than two
+	// labels over empty space.
+	auto addHeader = [&](const char* key) {
+		m_skillRows.push_back({loc::Tr(key), {}, 0.0f, {0, 0, 0, 0}, true});
+	};
+	// The RESOURCE practices are told apart from the rest by id, not by any flag
+	// on the row — resource::SkillId is the one place that mapping lives, and
+	// asking it means a fourth pool would land in the right group for free.
+	const auto isPractice = [](std::string_view id) {
+		for (u8 k = 0; k < static_cast<u8>(resource::Kind::Count); ++k)
+			if (id == resource::SkillId(static_cast<resource::Kind>(k))) return true;
+		return false;
+	};
+
+	// --- what you chose to practise: schools first (symbol order, tinted by
+	// school), then everything else in the map's alphabetical order.
+	const size_t trainedStart = m_skillRows.size();
+	addHeader("sheet.skills.training");
+	const size_t afterHeader = m_skillRows.size();
 	for (u32 s = 0; s < kSymbolCount; ++s) {
 		const SpellSymbol sym = static_cast<SpellSymbol>(s);
 		if (!IsSchoolSymbol(sym)) continue;
@@ -171,8 +191,17 @@ void CharacterSheet::BakeSkills() {
 	for (const auto& [id, xp] : character.skillXp) {
 		SpellSymbol sym;
 		if (ParseSymbol(id, sym)) continue; // schools already listed above
-		if (xp > 0.0f) addRow(id, xp, {0, 0, 0, 0});
+		if (xp > 0.0f && !isPractice(id)) addRow(id, xp, {0, 0, 0, 0});
 	}
+	if (m_skillRows.size() == afterHeader) m_skillRows.resize(trainedStart);
+
+	// --- and what your body did. Same shape, its own heading.
+	const size_t bodyStart = m_skillRows.size();
+	addHeader("sheet.skills.reserves");
+	const size_t afterBody = m_skillRows.size();
+	for (const auto& [id, xp] : character.skillXp)
+		if (xp > 0.0f && isPractice(id)) addRow(id, xp, {0, 0, 0, 0});
+	if (m_skillRows.size() == afterBody) m_skillRows.resize(bodyStart);
 }
 
 void CharacterSheet::BakeEffects() {
@@ -225,12 +254,24 @@ void CharacterSheet::BakeSpells() {
 // A row owns its Y (the list stacks it); the X fractions still resolve against
 // the SHEET, which is what keeps the columns lined up with the rest of the page.
 
-float CharacterSheet::MeasureSkillRow(size_t, ui::UIContext& ctx, const ui::Font&,
-									  float) const {
+// Air above a group heading, so it reads as a divider rather than as another
+// row. Measured and drawn from the SAME constant — the height and the offset
+// have to agree or the gap lands under the heading instead of over it.
+namespace {
+constexpr float kSkillGroupGapRem = 0.8f;
+} // namespace
+
+float CharacterSheet::MeasureSkillRow(size_t i, ui::UIContext& ctx,
+									  const ui::Font&, float) const {
 	// One line plus a small gap, measured — not a fixed pitch. A skill row is a
 	// single line of text, so anything more is dead space in a list that grows.
 	const ui::Font& font = ctx.FontAt(ui::FontRole::Body, Rem(kSkillRem));
-	return font.LineAdvance() + kSkillRowGap * Pixel().h;
+	float h = font.LineAdvance() + kSkillRowGap * Pixel().h;
+	// Not the FIRST heading, which would push the whole list off the tab's top
+	// edge for no gain — there is nothing above it to be separated from.
+	if (i > 0 && i < m_skillRows.size() && m_skillRows[i].header)
+		h += Rem(kSkillGroupGapRem);
+	return h;
 }
 
 void CharacterSheet::DrawSkillRow(size_t i, ui::UIContext& ctx,
@@ -240,6 +281,15 @@ void CharacterSheet::DrawSkillRow(size_t i, ui::UIContext& ctx,
 	const ui::Theme& theme = ctx.GetTheme();
 	const ui::Font& font = ctx.FontAt(ui::FontRole::Body, Rem(kSkillRem));
 	const gfx::Rect& px = Pixel();
+	// A group heading: the label alone, in the accent the Stats tab uses for its
+	// column headings, and hard against the left margin rather than indented
+	// with the skills under it.
+	if (row.header) {
+		// Pushed down by the leading Measure reserved above it (see there).
+		const float top = r.y + (i > 0 ? Rem(kSkillGroupGapRem) : 0.0f);
+		font.Draw(batch, row.label, Ax(px, kLeft), top, theme.accent);
+		return;
+	}
 	font.Draw(batch, row.label, Ax(px, kLabelX), r.y, theme.textDim);
 	const float vw = font.MeasureWidth(row.level);
 	font.Draw(batch, row.level, Ax(px, kValueRight) - vw, r.y, theme.text);

@@ -45,3 +45,7 @@ target_compile_definitions(Core PUBLIC
 # to get a profiling solution, and its Debug AND Release both carry it.
 target_compile_definitions(Core PUBLIC
 	$<$<BOOL:${DN_PROFILE}>:DN_PROFILE=1>)
+
+# Solution Explorer: headers visible, folders mirrored (dn_ide_layout, root
+# CMakeLists). MUST be called here — source_group is directory-scoped.
+dn_ide_layout(Core ${CMAKE_CURRENT_SOURCE_DIR})

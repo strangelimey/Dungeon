@@ -27,6 +27,7 @@ is caught while you still remember what you changed.
 | `/check-health` | crashes are caught and explained |
 | `/check-alloc` | steady-state frames allocate nothing |
 | `/check-ingame` | levels, models, and a UI overlap sweep |
+| `/check-pipeline` | every source of damage goes through `fx::Deal` |
 | `/check-bc7` | the BC7 encoder |
 
 ## How to report — applies to every command in this family

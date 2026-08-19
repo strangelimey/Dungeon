@@ -26,6 +26,13 @@ struct ResourceBarColors {
 	Vec4 health{0.62f, 0.18f, 0.14f, 1.0f};
 	Vec4 stamina{0.26f, 0.52f, 0.22f, 1.0f};
 	Vec4 mana{0.22f, 0.36f, 0.68f, 1.0f};
+	// The two SUPPLY meters (docs/health-and-healing.md). Not pools — nothing
+	// regenerates them — but they are bars on the same sheet, so they are themed
+	// from the same table rather than being the only two a player cannot
+	// recolour. Warm bread against cold water, so a glance tells them apart
+	// without reading the labels.
+	Vec4 food{0.58f, 0.40f, 0.18f, 1.0f};
+	Vec4 water{0.24f, 0.50f, 0.60f, 1.0f};
 };
 
 // The three hit-feedback splat icons, indexed by severity (0 = small, 1 =
@@ -75,6 +82,8 @@ struct ItemCategoryBank {
 	// (control bar or sheet doll) accepts. Everything else is refused.
 	// (A set, not flat_map<...,bool>: vector<bool> can't back a flat_map.)
 	std::flat_set<std::string> holdableTypes;
+	// Where each item is WORN (catalog `wear`); absent = nowhere.
+	std::flat_map<std::string, WearSlot, std::less<>> wearByType;
 	bool Is(const std::string& typeId, std::string_view category) const {
 		const auto it = byType.find(typeId);
 		return it != byType.end() && it->second == category;
@@ -105,6 +114,19 @@ struct ItemCategoryBank {
 	// True if a hand slot may hold this item (catalog holdable=1).
 	bool Holdable(const std::string& typeId) const {
 		return holdableTypes.contains(typeId);
+	}
+	// The doll slot this item is WORN in (catalog `wear`), or None for
+	// something that can only be held or packed.
+	WearSlot WornAt(const std::string& typeId) const {
+		const auto it = wearByType.find(typeId);
+		return it == wearByType.end() ? WearSlot::None : it->second;
+	}
+	// True if this item may go in `slot`. The hands ask `holdable`; every
+	// other slot is type-specific (Inventory.h).
+	bool FitsSlot(const std::string& typeId, EquipSlot slot) const {
+		if (slot == EquipSlot::LeftHand || slot == EquipSlot::RightHand)
+			return Holdable(typeId);
+		return WearSlotFits(WornAt(typeId), slot);
 	}
 };
 

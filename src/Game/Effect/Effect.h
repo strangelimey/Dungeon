@@ -130,9 +130,16 @@ enum class Delivery : u8 {
 // enchanted weapon's elemental term is resisted by element but neither rolled
 // nor soaked (plate turns a blade, not a flame).
 struct DamageEvent {
-	DamageType type = DamageType::Bash;
+	DamageType type{};
 	float amount = 0.0f;   // the attacker's assembled damage, before defenses
-	float accuracy = 0.0f; // 0..1, against the defender's evasion (if rolled)
+	// The attacker's opposed-roll bonus in d100 POINTS (only meaningful when
+	// `rolled`). Named for what it is: it is not a probability.
+	float attackBonus = 0.0f;
+	// The attacker's crit consequence (weapons.cat `crit = pierce`): on a
+	// critical, soak is not subtracted. Set by whoever assembled the blow,
+	// since only they know what swung it; ignored on an unrolled event, which
+	// has no critical to consequence.
+	bool pierceOnCrit = false;
 	Delivery delivery = Delivery::Melee;
 	// The roster index behind this damage (threat credit), or -1 for none —
 	// a monster's own blow, a wall, an unattributed tick.
@@ -144,6 +151,17 @@ struct DamageEvent {
 	// --- filled in by the stages ---
 	bool deflected = false; // an effect turned it aside outright
 	bool hit = false;       // the strike landed (always true when unrolled)
+	// What the dice did on a ROLLED event (both false when unrolled). The
+	// pipeline is the only place these exist, so it carries them out rather
+	// than discarding them at the one site that knows.
+	bool crit = false;
+	bool fumble = false;
+	bool defenderFumbled = false;
+	// The face the fumble was judged on (0 when there was none) — HOW BADLY it
+	// went, which is what decides whether the severe consequence table also
+	// fires. See Game/Mishap.h; this module only carries it out.
+	int fumbleFace = 0;
+	int margin = 0;
 	float dealt = 0.0f;     // what actually reached hit points
 	// This event finished the target. The apply stage sets it; the CALLER says
 	// the line, because only the caller knows what killed them ("slain" /
@@ -168,9 +186,9 @@ struct DamageEvent {
 	//   Tick         a DoT's bite: resisted as it lands, so a ward raised
 	//                mid-burn helps at once. Never soaked (armour does not
 	//                help with poison already in the blood).
-	static DamageEvent Blow(DamageType type, float amount, float accuracy,
+	static DamageEvent Blow(DamageType type, float amount, float attackBonus,
 							int source = -1);
-	static DamageEvent Bolt(DamageType type, float amount, float accuracy,
+	static DamageEvent Bolt(DamageType type, float amount, float attackBonus,
 							int source = -1);
 	static DamageEvent Impact(DamageType type, float amount, int source = -1);
 	static DamageEvent Burst(DamageType type, float amount, int source = -1);
@@ -187,7 +205,11 @@ public:
 
 	// The defender's numbers. Resist is FINAL — nature/catalog + equipment +
 	// this target's effects, summed and clamped by the host's rule.
-	virtual float Evasion() const = 0;
+	// TYPED, unlike the flat number it replaced: a combatant's guard is no
+	// longer one figure. A member holding a weapon hand back parries PHYSICAL
+	// blows; a defensively-cast spell guards its OWN SCHOOL. So the stage has
+	// to say what is arriving before the defender can say how well it is met.
+	virtual float Evasion(DamageType type) const = 0;
 	virtual float Soak() const = 0;
 	virtual float Resist(DamageType type) const = 0;
 
@@ -239,7 +261,12 @@ public:
 	// Lay the project's effects.cat numbers over the class defaults, matched
 	// by id (EffectBook::Build calls this once per load). The base takes the
 	// name/icon/stacking; a derived kind adds its own fields.
-	virtual void ApplyOverrides(const CatalogEntry& e);
+	//
+	// The type book comes in here because this is the FIRST moment a kind can
+	// resolve one: the classes are constructed by MakeAllEffects() before any
+	// project is loaded, so a DoT knows only that it burns as "fire" — which
+	// index that is depends on the project.
+	virtual void ApplyOverrides(const CatalogEntry& e, const DamageTypeBook& types);
 
 	// --- the pipeline hooks (docs/effects.md) --------------------------------
 	// One per stage an effect can intervene at. All default to doing nothing,
@@ -296,13 +323,20 @@ public:
 	SpellSymbol DefaultSchool() const { return m_school; }
 
 protected:
+	// The book this kind resolved against, borrowed for the lifetime of the
+	// load (DungeonWorld owns both, and the book is built first). It is what
+	// lets a hook answer a question about a type — "is this physical?", "what
+	// does fire deal?" — without every hook signature growing a parameter.
+	const DamageTypeBook* m_types = nullptr;
+
 	std::string m_id;
 	std::string m_nameKey;
 	std::string m_iconItem;
 	std::string m_applyParty, m_applyMonster;
+	std::string m_damageTypeId; // resolved into m_damageType at ApplyOverrides
 	Category m_category;
 	Stacking m_stacking;
-	DamageType m_damageType = DamageType::Bash;
+	DamageType m_damageType{};
 	SpellSymbol m_school = SpellSymbol::Fire;
 	bool m_plume = false;
 };
@@ -382,7 +416,7 @@ void React(const DamageEvent& ev, ITarget& target, ITarget* attacker,
 // world points into it — so it must outlive them (DungeonWorld owns it).
 class EffectBook {
 public:
-	void Build(const Catalog& catalog);
+	void Build(const Catalog& catalog, const DamageTypeBook& types);
 	// The kind with this id, or null. Also resolves the LEGACY save tokens
 	// ("ward" + school, "poison", "bleed", "sight") so an old save loads.
 	const EffectKind* Find(std::string_view id) const;

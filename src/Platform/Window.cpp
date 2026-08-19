@@ -34,8 +34,9 @@ Window::Window(const WindowDesc& desc) : m_width(desc.width), m_height(desc.heig
 							 rect.bottom - rect.top, nullptr, nullptr, instance, this);
 	DN_ASSERT(m_hwnd != nullptr, "CreateWindowExW failed");
 
-	ShowWindow(m_hwnd, SW_SHOW);
-	log::Info("Window created ({}x{})", m_width, m_height);
+	ShowWindow(m_hwnd, desc.hidden ? SW_HIDE : SW_SHOW);
+	log::Info("Window created ({}x{}){}", m_width, m_height,
+			  desc.hidden ? " [hidden — headless]" : "");
 }
 
 Window::~Window() {

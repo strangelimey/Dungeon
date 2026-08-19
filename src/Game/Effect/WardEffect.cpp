@@ -30,7 +30,11 @@ StoneskinEffect::StoneskinEffect() : WardEffect("stoneskin", "spell.stoneskin") 
 
 float StoneskinEffect::ResistFor(const Inst& inst, DamageType type,
 								 const Knobs& knobs) const {
-	return IsPhysical(type) ? inst.magnitude * knobs.stoneskinResist : 0.0f;
+	// "Physical" is a FIELD on the damage type now, not the old `t <= Bash`
+	// ordering trick — so a project can add a physical type and Stone Skin
+	// hardens against it with no code change.
+	const bool physical = m_types && m_types->IsPhysical(type);
+	return physical ? inst.magnitude * knobs.stoneskinResist : 0.0f;
 }
 
 // --- fire: burn back ----------------------------------------------------------
@@ -52,7 +56,12 @@ void FireshieldEffect::OnStruck(Inst& inst, const DamageEvent& ev, ITarget& self
 	//
 	// The reprisal is the ward-BEARER's damage, so it feeds their threat: it
 	// carries the struck event's own source (the member the blow landed on).
-	DamageEvent back = DamageEvent::Burst(DamageType::Fire, inst.magnitude, ev.source);
+	// The shield's own school decides what it burns AS — asked of the book, so
+	// a project that retypes fire (or gives the fire school a different damage
+	// type entirely) gets a shield that agrees with its own spells.
+	const DamageType burnType =
+		m_types ? m_types->ForSchool(SpellSymbol::Fire) : DamageType{};
+	DamageEvent back = DamageEvent::Burst(burnType, inst.magnitude, ev.source);
 	Deal(back, *attacker, ctx.rules, ctx.rng);
 	// Nothing came of it (immune): no line. Being FED says so through the
 	// attacker's own Absorb, so only a real burn reports a number here.

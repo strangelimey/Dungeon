@@ -20,8 +20,8 @@ std::string_view SightEffect::NameKey(const Inst& inst) const {
 	return school < m_schoolNames.size() ? m_schoolNames[school] : m_nameKey;
 }
 
-void SightEffect::ApplyOverrides(const CatalogEntry& e) {
-	EffectKind::ApplyOverrides(e);
+void SightEffect::ApplyOverrides(const CatalogEntry& e, const DamageTypeBook& types) {
+	EffectKind::ApplyOverrides(e, types);
 	// Per-school display names, should a project rename its sight spells:
 	// name_fire = ... / name_earth = ... / name_air = ... / name_water = ...
 	static constexpr const char* kSchoolKeys[] = {"name_fire", "name_earth",

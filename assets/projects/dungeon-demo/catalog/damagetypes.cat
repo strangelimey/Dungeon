@@ -1,0 +1,68 @@
+; Damage types (docs/damage-system.md). THE TYPES THEMSELVES — this file is the
+; whole list, and C++ names none of them. Everything that used to be a fact
+; about the old enum's ORDER is a field here.
+;
+; Fields:
+;   name      = display loc key (defaults to "damage.<id>")
+;   physical  = 1 for a type armour and Stone Skin treat as a physical blow.
+;               This was `type <= Bash` in the code, which was only ever true
+;               by accident of ordering.
+;   school    = the spell school whose magic deals this type (fire | earth |
+;               air | water). At most one type per school; the first wins.
+;
+; ORDER IS THE ON-DISK INDEX for nothing at all — resists are authored BY ID
+; (monsters.cat / armor.cat `resists = fire 0.5`) and no save stores an index —
+; so rows may be reordered or removed freely. Adding one costs a row here plus
+; a damage.<id> lang key; nothing needs a rebuild or a rebake.
+;
+; RESIST SCALE, worth stating where the types are: 0 = neutral, positive =
+; resistant (1.0 = immune, and past 1.0 the target DRINKS it and is healed),
+; NEGATIVE = vulnerable. A mummy authors `fire -1.0`.
+
+; --- physical ---------------------------------------------------------------
+; The three a weapon deals. Armour soaks these and Stone Skin hardens against
+; them.
+
+[slash]
+name = dmg.slash
+physical = 1
+
+[pierce]
+name = dmg.pierce
+physical = 1
+
+[bash]
+name = dmg.bash
+physical = 1
+
+; --- elemental --------------------------------------------------------------
+; One per school. A spell types by its school automatically, as does an
+; enchanted weapon's element and the burn it leaves behind.
+
+[fire]
+name = dmg.fire
+school = fire
+
+[earth]
+name = dmg.earth
+school = earth
+
+[air]
+name = dmg.air
+school = air
+
+[water]
+name = dmg.water
+school = water
+
+; --- deprivation ------------------------------------------------------------
+; What an empty food or water meter deals (docs/health-and-healing.md). NOT
+; physical and belonging to NO school, which is the whole point: armour does not
+; answer hunger, and a fire-drinking monster is not fed by it. So by default
+; nothing resists it and nothing is immune to it.
+;
+; A creature that genuinely does not eat is still expressible -- author
+; `resists = starve 1.0` on it, which says exactly that and reads as it.
+
+[starve]
+name = dmg.starve

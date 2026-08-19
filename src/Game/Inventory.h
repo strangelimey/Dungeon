@@ -44,6 +44,7 @@ inline Vec4 CategoryTint(std::string_view category) {
 	if (category == "armor")    return {0.46f, 0.31f, 0.18f, 1.0f}; // leather brown
 	if (category == "clothing") return {0.30f, 0.46f, 0.56f, 1.0f}; // cloth blue
 	if (category == "food")     return {0.74f, 0.34f, 0.26f, 1.0f}; // warm red
+	if (category == "drink")    return {0.28f, 0.48f, 0.68f, 1.0f}; // water blue
 	if (category == "container") return {0.40f, 0.26f, 0.14f, 1.0f}; // dark leather
 	if (category == "ingredient") return {0.34f, 0.60f, 0.32f, 1.0f}; // herb green
 	if (category == "key")      return {0.72f, 0.58f, 0.22f, 1.0f}; // brass gold
@@ -78,6 +79,26 @@ enum class EquipSlot {
 	Head, Body, Legs, Feet, Cloak, Amulet, LeftHand, RightHand, Ring1, Ring2, Count
 };
 inline constexpr int kEquipCount = static_cast<int>(EquipSlot::Count);
+
+// WHICH SLOT AN ITEM BELONGS IN. The hands are the general-purpose pair — a
+// hand will hold anything the catalog marks `holdable`, which is what makes
+// carrying a cuirass around, or brandishing a loaf of bread, expressible. Every
+// OTHER slot on the doll is TYPE-SPECIFIC: a helm goes on the head and nowhere
+// else, and a sword cannot be worn as a hat.
+//
+// An item that names no slot can only ever be held or packed. That is the safe
+// default: a new item is not silently wearable on the head because nobody said
+// otherwise.
+//
+// `Ring` is one token for two slots — a ring is a ring, and which finger it
+// goes on is not a distinction worth authoring.
+enum class WearSlot : u8 { None, Head, Body, Legs, Feet, Cloak, Amulet, Ring };
+const char* WearSlotId(WearSlot s);
+bool ParseWearSlot(std::string_view token, WearSlot& out);
+// True if an item declaring `wear` may go in doll slot `slot`. The hands are
+// NOT decided here — they ask `holdable` instead (ItemCategories::Holdable),
+// because the question is a different one.
+bool WearSlotFits(WearSlot wear, EquipSlot slot);
 
 // Loc keys for each equipment slot, parallel to EquipSlot. Both hands show
 // "Hand" and both rings show "Ring".

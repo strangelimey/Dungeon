@@ -70,6 +70,34 @@ apply_party = log.member_ignites
 apply_monster = log.monster_ignites
 stacking = refresh
 
+; --- an empty supply meter --------------------------------------------------
+; docs/health-and-healing.md. DoTs like the three above, but their DURATION is
+; meaningless: the supply tick holds them open while the meter is empty and
+; erases them the moment it is not, so the meter is the truth and the effect is
+; only its shadow. Their MAGNITUDE is likewise not authored here -- it is the
+; balance.cat hunger_damage / thirst_damage knob, so the two sit beside the
+; drain rates they have to be tuned against.
+;
+; Both deal `starve`, a type nothing resists by default (damagetypes.cat).
+; Stacking MUST stay refresh: the tick re-applies while the meter is empty, and
+; anything that piled up would multiply the bite every frame.
+
+[starving]
+name = effect.starving
+damage_type = starve
+school = earth
+apply_party = log.starving
+apply_monster = log.monster_starving
+stacking = refresh
+
+[parched]
+name = effect.parched
+damage_type = starve
+school = water
+apply_party = log.parched
+apply_monster = log.monster_parched
+stacking = refresh
+
 ; --- the see-through mark ---------------------------------------------------
 ; All four Sight spells share this kind; the school on the instance picks both
 ; the flavour the world reads and the name shown, so it stacks per school.

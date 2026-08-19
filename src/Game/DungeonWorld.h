@@ -22,6 +22,7 @@
 #include "Game/Balance.h"
 #include "Game/Character.h"
 #include "Game/Combat.h"
+#include "Game/DamageLedger.h" // the one-pipeline invariant, checked
 #include "Game/DungeonEntities.h"
 #include "Game/Validate.h"
 #include "Game/DungeonMap.h"
@@ -30,6 +31,7 @@
 #include "Game/GameSettings.h"
 #include "Game/LoadQueue.h"
 #include "Game/Magic.h"
+#include "Game/Mishap.h" // fumble consequence tables on the kind structs
 #include "Game/MonsterAI.h"
 #include "Game/Party.h"
 #include "Game/Project.h"
@@ -181,11 +183,231 @@ public:
 	bool PartyAttack(size_t member, size_t hand, std::string_view verb = {});
 	// Spend stamina as EXERTION (docs/combat.md part 3): drains the bar and
 	// feeds VIT's creep pool at the vit_exertion knob. The Phase 4 stamina
-	// costs (swings, marching) all route through here.
-	void SpendStamina(Character& member, float points);
+	// costs (swings, marching) all route through here. RETURNS the shortfall
+	// the bar could not cover, which every caller but SpendExertion ignores —
+	// see the definition for why it is measured there and not by the caller.
+	float SpendStamina(Character& member, float points);
+	// OVER-EXERTION's bill, once per swing or cast thrown from a stance past 1:
+	// `points` is what the over-exertion bought on the attack roll
+	// (defense::ExertionPoints), charged at exert_cost out of stamina and then
+	// out of health. Can put a member down; never kills.
+	void SpendExertion(Character& member, float points);
 	// Re-derive every member's resource maxima from the balance k's — after a
 	// save-apply, a stat change, or an editor Balance apply.
 	void RecomputePartyMaxima();
+	// Feed the SLOWEST member's effective pace into the Party. Lives here rather
+	// than on Game because it has to run the moment CONDITIONING levels — which
+	// happens deep inside the combat tick — and the world holds both the roster
+	// and the party. Game::ApplyPartySpeed forwards to it for the load and
+	// new-game paths.
+	void ApplyPartyPace();
+	// THE WORLD HALF OF `reset` (docs/eval-harness.md "Recycling the world").
+	// Put the world back where a NEW GAME would leave it, WITHOUT the twelve
+	// seconds of level load — which is 80% of what a suite costs, and the whole
+	// reason a run of hundreds of tests was not practical.
+	//
+	// "Where a new game would leave it" is the definition ON PURPOSE, because it
+	// is the only one that can be CHECKED: run the same script after `newgame`
+	// and after `reset` and the output must be byte-identical. Anything looser
+	// ("clear the obvious things") is a promise nothing can test, and an
+	// incomplete reset is the worst kind of defect here — every later suite in
+	// the run is quietly contaminated and its numbers still look plausible.
+	// The harness has already been bitten by exactly this shape once: the
+	// m_partyWiped latch survived a heal and twelve rungs measured nothing.
+	//
+	// ResetForNewGame does most of it. This adds what a new game gets from the
+	// LOAD rather than from that call, plus the harness's own modes.
+	void ResetForEval();
+	// --- rest (docs/health-and-healing.md "Rest is a STATE") ------------------
+	// A STATE you enter and leave, not a command with a duration (Michael's
+	// call): time runs fast until you stop it, so you watch the meters fill and
+	// decide when enough is enough instead of guessing an interval up front.
+	// That also means the PLAYER is the interrupt rule, and no argument about
+	// what counts as "something nearby" has to be settled.
+	//
+	// It multiplies TIME and nothing else. `RestTimeScale` is what Game folds
+	// into the world dt, so every rate, timer and cooldown in the game
+	// accelerates together — which is the whole reason rest is one knob rather
+	// than a second set of resting rates that could drift.
+	void SetResting(bool on);
+	bool Resting() const { return m_resting; }
+	float RestTimeScale() const { return m_resting ? m_balance.restScale : 1.0f; }
+	// WHY rest last ended ("recovered" / "attacked" / "hungry" / "woken"), or ""
+	// if it never has. The state ends by itself more often than by a click, and
+	// its reason goes to the HUD message log — which a script cannot read. So
+	// the one fact a measurement actually wants is kept here in English, next to
+	// the flag, rather than being recoverable only by a human watching the game.
+	const char* RestEndReason() const { return m_restEndReason; }
+	// Eat or drink `typeId`, returning what it actually RESTORED — 0 when the
+	// item feeds nobody or the member is already full, which is how the caller
+	// knows to refuse the action and keep the item. Public because the HUD
+	// raises it (GameUI::onConsume) and only the world has the catalogs.
+	resource::Refill ConsumeItem(Character& member, const std::string& typeId);
+
+	// --- the eval harness (docs/eval-harness.md) ----------------------------
+	// Reseed the combat RNG. Every roll in the game comes off this one stream —
+	// attacks, fumble chances, blast jitter, proc chances — and it is otherwise
+	// constant-seeded, which makes a run perfectly reproducible AND makes every
+	// run the same run. An eval needs a SAMPLE, so it varies this per encounter.
+	void SeedCombat(u32 seed) { m_combatRng.seed(seed); }
+
+	// THE ARENA (DungeonWorld_Arena.cpp): carve a controlled space into the
+	// LOADED map — no files written — and empty the world of everything the
+	// authored level put there. The shapes are the geometries a propagating
+	// blast has to be measured in.
+	// THE ENCOUNTER TALLY (docs/eval-harness.md). Counted in the two fx::ITarget
+	// adapters, which is the whole reason it is trustworthy: EVERY source of
+	// damage in this game goes through the one pipeline (docs/effects.md), so a
+	// blast, a DoT tick, a fire shield's reprisal and an ordinary sword blow are
+	// all caught by the same two lines. A tally hung off the attack sites would
+	// have quietly missed four of those five.
+	//
+	// Damage is recorded in ABSOLUTE points, not as a fraction of health. The
+	// healing model is still to be designed, and fractions would silently change
+	// meaning the day it lands; points will not.
+	struct Tally {
+		float dealt = 0.0f;   // reached monster hit points
+		float taken = 0.0f;   // reached member hit points
+		int hits = 0, misses = 0, crits = 0, fumbles = 0;
+		int monstersSlain = 0;
+		// DISTINCT MEMBERS who went down since the last `tally reset`, not the
+		// number of times somebody fell. It used to count FALL EVENTS, and a
+		// member who dropped unconscious and was then killed produced two of
+		// them — so `downed=4` could mean four members down or two members down
+		// and then finished off, which are very different readings of a rung
+		// (docs/eval-audit.md F17).
+		//
+		// The mask is how it stays a member count without a container: one bit
+		// per roster slot, cleared with the rest of the struct by `tally reset`
+		// (which is `= {}`). u8 covers eight slots against a roster of four.
+		int membersDowned = 0;
+		u8 downedMask = 0;
+		float seconds = 0.0f; // SIM seconds since the last reset
+	};
+
+	// ========================================================================
+	// THE HARNESS SEAM (docs/eval-harness.md) — every piece of state the eval
+	// harness needs the world to hold that a PLAYER never asks for, in ONE
+	// place with ONE name.
+	//
+	// It is GATHERED rather than compiled out, and that is a decision (Michael,
+	// 2026-08-15, reviewing exactly this). The harness's entire value is that it
+	// measures the SHIPPING binary — the same rule tools/RollTest's CMakeLists
+	// states for the roll engine, "the real thing straight in, not a copy of
+	// it". Behind `#ifdef` these fields would only exist in a build nobody
+	// ships, the suites and /check-pipeline would be measuring that build, and
+	// the project would carry a fourth configuration to rot unwatched beside
+	// release and release-profile. What it costs instead is four fields and a
+	// handful of predictable branches.
+	//
+	// The point of the struct is that a touch site in the simulation reads
+	// `m_harness.frozen` and says what it is, where a bare `m_freezeMonsters`
+	// read like world state somebody forgot to explain.
+	//
+	// DELIBERATELY NOT IN HERE: lockstep AI. It looks like harness machinery
+	// and is not — SetResting turns it on, because rest runs the world at 60x
+	// and lockstep is what makes the monsters think honestly through a
+	// fast-forward. It would have to exist if the harness never had.
+	// ========================================================================
+	struct Harness {
+		Tally tally;
+		// Every member swings whenever a hand is off cooldown and something is
+		// in reach. A harness behaviour, not a game one — the player clicks a
+		// hand slot — but without it a measured encounter is the party standing
+		// still being hit, which is half a fight and reads as a whole one.
+		bool autoAttack = false;
+		// Monster ACTION (movement and attacks) stops while everything that
+		// HAPPENS TO them keeps running — animation, effects, blasts, damage. A
+		// geometry probe needs its instruments to hold still: monsters parked on
+		// known cells to read a blast's falloff otherwise walk off those cells
+		// mid-measurement and report where they ended up instead.
+		bool frozen = false;
+		// Queued walking steps (`forward`). They CANNOT simply be applied in a
+		// loop: Party::Act starts a tween and refuses a new move while one is in
+		// flight, so nine calls in a single frame perform ONE step and silently
+		// drop eight — which reads as a party that will not advance. They are
+		// fed one at a time as each completes.
+		int pendingSteps = 0;
+	};
+	Harness& GetHarness() { return m_harness; }
+	const Harness& GetHarness() const { return m_harness; }
+
+	// UN-WIPE THE PARTY (the `heal` command). `m_partyWiped` latches so
+	// onPartyWipe fires once — but it also gates every monster attack, so once
+	// it is set the world never fights again and only ResetForNewGame clears it.
+	// A ladder healing between rungs therefore ran rung 2 onward against
+	// monsters that had permanently stopped swinging, and reported forty-five
+	// simulated seconds of nothing as a result.
+	//
+	// IT ALSO PUTS EVERY MONSTER BACK ON COOLDOWN, and that is the subtle half.
+	// An attack fires on `attackCd <= 0`, and a cooldown only ever counts DOWN
+	// with dt — it never needs dt to FIRE. While the party is wiped the app sits
+	// on the title screen and the world stops updating entirely, so any monster
+	// that was adjacent and ready at the moment of the wipe stays ready for as
+	// long as the party is down, and swings on the very FIRST frame this gate
+	// re-opens. Measured: a skeleton took 11.57 off a member between `heal` and
+	// the next line of a script, at `timescale 0`, with zero simulated seconds
+	// elapsed — and `tiers.eval` read that as the veteran rung's starting health
+	// while claiming "any difference is the seeding and nothing else"
+	// (docs/eval-audit.md F16).
+	//
+	// A swing owed from a stretch of time the world was not running is not a
+	// swing the party should take on standing up, so they are re-armed as if
+	// they had just swung. GUARDED on the latch actually being set: `heal` is
+	// also used mid-fight, and silently resetting cooldowns there would perturb
+	// the very encounter somebody is measuring.
+	void ClearWipeLatch();
+
+	// Scale the MOST RECENTLY SPAWNED monster's hp and damage (the eval
+	// harness's `spawn ... <strength>`). Applied after AddMonster rather than
+	// passed through it, so the editor's placement path keeps its signature
+	// and nothing but the harness can reach this.
+	void ScaleLastMonster(float strength) {
+		if (m_monsters.empty() || strength <= 0.0f) return;
+		Monster& m = m_monsters.back();
+		m.strength = strength;
+		m.hp = m.MaxHp(); // spawned at full, and full has just changed
+	}
+
+	// DETONATE A NAMED SPELL'S BLAST at a cell, with no caster, no mana, no
+	// skill roll and no bolt flight — the eval harness's way of asking a
+	// geometry question directly (`blast <spell> <x> <z>`).
+	//
+	// It reads the spell's AUTHORED rules rather than taking numbers of its own,
+	// so what a measurement describes is the content that ships. False if the id
+	// names no spell, or names one that is not an area effect at all — reported,
+	// because a blast that did not happen would otherwise read as a blast that
+	// did nothing, and those are opposite answers.
+	bool DetonateSpell(std::string_view spellId, int cx, int cz);
+
+	// (The four pieces of harness STATE those used to be are fields on
+	// `Harness` above; the operations that need the world — an arena, a spawn,
+	// a detonation — stay methods, because they are things done TO the world
+	// rather than switches held on it.)
+
+	enum class ArenaShape : u8 { Open, Corridor, DeadEnd, TJunction, Room };
+	// Where the arena ended up. Derivable from the map size (it is centred), so
+	// a script can hardcode the cells; reported so a log reader can check them.
+	struct ArenaInfo {
+		int x0 = 0, z0 = 0, x1 = 0, z1 = 0; // inclusive bounds
+		int cx = 0, cz = 0;                 // the cell that matters for the shape
+		// Where the PARTY is placed. Same as the centre for every shape except
+		// Room, whose whole point is that the two are FAR APART: the monster
+		// waits in the room and the party walks the corridor to reach it, so
+		// the approach is part of what gets measured.
+		int sx = 0, sz = 0;
+	};
+	bool BuildArena(ArenaShape shape, int w, int h, ArenaInfo& out);
+	static bool ArenaShapeFromName(std::string_view name, ArenaShape& out);
+	// Drive the monster AI from sim time instead of wall-clock; see
+	// ai::AsyncDirector::SetLockstep for what that does and does not promise.
+	// Clears the bucket accumulators so switching it on does not immediately
+	// fire every bucket with a debt of however long the game had been running.
+	void SetLockstepAI(bool on) {
+		m_director.SetLockstep(on);
+		for (float& c : m_bucketClock) c = 0.0f;
+	}
+	bool LockstepAI() const { return m_director.Lockstep(); }
 	// The live combat tuning (balance.cat + attacks.cat knobs, Balance.h). The
 	// editor's Balance dialog edits it in place and Save()s it via the project.
 	Balance& GetBalance() { return m_balance; }
@@ -194,6 +416,26 @@ public:
 	// kind. The save loader (Game::ApplyState) reads it to rebuild a member's
 	// effects; everything else already holds kind pointers.
 	const fx::EffectBook& Effects() const { return m_effects; }
+	// The damage-type vocabulary, for anything that has to NAME a type it was
+	// handed (the projectile inspector, the type editor).
+	const DamageTypeBook& DamageTypes() const { return m_damageTypes; }
+
+	// Armor (docs/damage-system.md): the class governing a member (the
+	// HEAVIEST piece worn) and what it costs them on the defense roll.
+	ArmorClass WornArmorClass(const Character& member); // non-const: ItemKindFor caches
+	float ArmorPenalty(const Character& member, ArmorClass c) const;
+	// The sheet's defense breakdown (Combat.h). Assembled here because only
+	// the world can resolve items, knobs and the live formula.
+	DefenseReadout DefenseFor(const Character& member);
+	// The same, AS IF `itemId` were worn in its own slot — what the backpack
+	// tooltip compares against. Computed by copying the member and swapping the
+	// piece in, so the answer comes from the live formula rather than a second
+	// implementation of it that could disagree.
+	DefenseReadout DefenseWith(const Character& member, const std::string& itemId);
+
+	// Trains `avoid` on an evaded blow or the worn armor on a blunted one —
+	// call once per RESOLVED attack against a member.
+	void TrainDefense(Character& member, const fx::DamageEvent& ev);
 	// Land an effect on the monster the party faces (dev console). False if
 	// there is nothing ahead or no such effect. The monster side of the effect
 	// list has no other hand-authored entry point.
@@ -975,6 +1217,18 @@ public:
 	// --- dev console hooks ---------------------------------------------------
 	// "kind @ x,z" for each live monster.
 	std::vector<std::string> MonsterList() const;
+	// --- the one-pipeline check (Game/DamageLedger.h) ------------------------
+	// Arming, strictness and the counters live on the ledger itself; the console
+	// reaches them through here. Anything that REPLACES party or world state
+	// wholesale (a load, a save restore, a respawn, a `heal`) must call
+	// RebaseDamageLedger afterwards — the values it overwrote no longer exist to
+	// be reconciled, and without a fresh baseline the next checkpoint reports the
+	// replacement itself as a violation.
+	ledger::Ledger& DamageLedger() { return m_damageLedger; }
+	void RebaseDamageLedger();
+	// The `pipeline` command's lines: the RESULT= verdict, then how much health
+	// moved by each sanctioned route.
+	std::vector<std::string> DamageLedgerReport() const;
 	// Toggles the activated state of the button in cell (x,z) (no-op if none),
 	// returning the new state via `out`. Exercises the button save path until the
 	// P5 mechanism wiring drives it from gameplay; the map overlay reflects it.
@@ -1110,20 +1364,53 @@ private:
 		// Combat stats from monsters.cat (fallbacks in MonsterKindFor).
 		float maxHp = 12.0f;
 		float damage = 4.0f;
-		float accuracy = 0.65f;
-		float evasion = 0.1f;
+		// Both in d100 POINTS, authored directly: a monster has no skills or
+		// stats to run through the curves, so its competence IS the number.
+		float accuracy = 60.0f;
+		float evasion = 10.0f;
+		// THE STANCE (docs/damage-system.md), the monster half of the party's
+		// slider: how much of `accuracy` goes into pressing the attack, the
+		// rest held back to guard with. 1 = all-out. Authored PER KIND
+		// (monsters.cat `offense`) — an archetype describes how a creature
+		// moves and perceives, not how boldly it fights, and the two vary
+		// independently: a wild caster and a cautious one share an archetype.
+		//
+		// This couples the two sides from ONE number, which is the point: a
+		// cautious monster is genuinely worse at hitting BECAUSE it is harder
+		// to hit, rather than being handed good numbers on both.
+		float offense = 1.0f;
 		float armor = 0.0f; // flat soak (docs/combat.md part 4)
 		// The defender side (docs/combat.md part 4): per-type resists
 		// (catalog `resists = pierce 0.5, bash -0.5`; a cell of 1.0 =
 		// authored immunity) and what this monster's melee deals AS
 		// (`dmgtype`, default bash). Ranged/spell attacks type by school.
 		ResistTable resists;
-		DamageType damageType = DamageType::Bash;
+		// The ATTACKER half of the type axis (`powers = fire 0.5`), which is a
+		// monster's whole answer to the skill a character trains: it has no skills,
+		// so this is where "this thing is dangerous WITH FIRE specifically" lives.
+		ResistTable powers;
+		DamageType damageType{}; // resolved from `dmgtype` at load
+		// What a CRITICAL blow leaves behind, on top of on_hit — the same
+		// authored form (`on_crit = bleed 2 10`), rolled only when the attack
+		// roll went open-ended. Reuses the proc machinery entirely: a crit is
+		// not a new kind of thing that happens, it is the same thing happening
+		// because the dice said so.
+		std::vector<fx::Proc> onCrit;
 		// What a LANDED melee blow may leave behind (monsters.cat `on_hit =
 		// poison 1 20, bleed 2 10 0.5`): effects named by ID, rolled and
 		// landed by fx::ApplyProcs. The older one-per-line `poison =` /
 		// `bleed =` fields still load, appended as the same procs.
 		std::vector<fx::Proc> onHit;
+		// --- what the dice's extremes do (docs/damage-system.md) -------------
+		// `crit = pierce`: a critical goes under armour instead of through it.
+		bool critPierce = false;
+		// What a FUMBLE costs THIS monster — procs landed on itself
+		// (`on_fumble = bleed 1 4`) plus the named consequences
+		// (`fumble = recover 2.5`, `fumble_severe = self_hit 0.4`). An empty
+		// list takes the balance.cat default table; see Game/Mishap.h.
+		std::vector<fx::Proc> onFumble;
+		std::vector<mishap::Entry> fumble;
+		std::vector<mishap::Entry> fumbleSevere;
 		// Melee reach in cells (Phase 7, catalog `reach`): 1 = must be in the
 		// adjacent ring; 2 = a pike — melees from its QUEUE post down a clear
 		// shared row/column (the monster mirror of the party's rear-rank
@@ -1309,7 +1596,16 @@ private:
 		std::vector<ai::Cell> aiPath; // cached chase route (start cell excluded)
 		size_t aiCursor = 0;          // next unstepped cell in aiPath
 
-		float MaxHp() const { return kind ? kind->maxHp : 1.0f; }
+		// PER-INSTANCE STRENGTH (the eval harness's `spawn ... <x N>`): scales
+		// this creature's hit points and the damage it deals, leaving its
+		// catalog entry alone. A ladder climbs by TYPE first — those measure
+		// content that ships — and uses this to sweep finely BETWEEN authored
+		// types, where a result points at a monster that does not exist and so
+		// says where to author one rather than what to fix.
+		float strength = 1.0f;
+		float MaxHp() const {
+			return (kind ? kind->maxHp : 1.0f) * strength;
+		}
 		bool Alive() const { return hp > 0.0f; }
 	};
 
@@ -1360,6 +1656,20 @@ private:
 		// from the party's REAR rank (roster slots 2-3); everything else —
 		// bare hands included — is front-rank only.
 		bool polearm = false;
+		// What consuming it restores (items.cat `nutrition` / `hydration`).
+		// Both on every item: most food is partly one and partly the other, and
+		// 0/0 means it feeds nobody, which is how a consume is refused.
+		float nutrition = 0.0f;
+		float hydration = 0.0f;
+		// Worn armor's WEIGHT CLASS (armor.cat `class`): what it costs to
+		// evade in, which skill it trains, and what STR it asks. The soak
+		// itself stays per ITEM (`armor` below) — a breastplate and a mail
+		// shirt are both heavy and do not blunt alike.
+		ArmorClass armorClass = ArmorClass::None;
+		// Which doll slot it is worn in (armor.cat/items.cat `wear`). The UI
+		// keeps its own copy in ItemCategoryBank for hit-testing; the world
+		// needs it too, to answer "what would this be worth if worn".
+		WearSlot wearSlot = WearSlot::None;
 		// ENCHANTMENT (the fire sword, catalog `element = fire`): the weapon
 		// carries a school's element into every LANDED blow, on top of the
 		// physical damage — `element_bonus` of the blow's assembled damage as
@@ -1374,9 +1684,30 @@ private:
 		// one blade and as a freezing burn on another. The older `element_dot`
 		// line still loads, appended as an `on_hit = burn ...` proc.
 		std::vector<fx::Proc> onHit;
+		// The same, but only on a CRITICAL (`on_crit = bleed 2 10`).
+		std::vector<fx::Proc> onCrit;
+		// --- what the dice's extremes do (docs/damage-system.md) -------------
+		// `crit = pierce`: a critical with this edge goes UNDER armour rather
+		// than through it — soak is not subtracted. The only crit consequence.
+		bool critPierce = false;
+		// What a FUMBLE with this weapon costs its WIELDER: procs landed on the
+		// attacker themselves (`on_fumble = bleed 1 4` — a blade that bites the
+		// hand holding it), plus the named consequences a status effect cannot
+		// express (`fumble = recover 2.5`, `fumble_severe = drop`). An empty
+		// list takes the balance.cat default table; see Game/Mishap.h.
+		std::vector<fx::Proc> onFumble;
+		std::vector<mishap::Entry> fumble;
+		std::vector<mishap::Entry> fumbleSevere;
 		// The defender side of a WORN piece (part 4): per-type resist cells
 		// plus a small flat soak, summed across the equipment slots.
 		ResistTable resists;
+		// THE ATTACKER SIDE, the mirror of the above (`powers = fire 0.4`): how much
+		// harder — or, negative, more feebly — its bearer strikes with each damage
+		// type. It sums across the WIELDED weapon and every WORN piece, exactly as
+		// resists do, so a fire-forged gauntlet lends its element to whatever hand
+		// swings. Characters get their type axis this way rather than innately:
+		// their own is skill, per weapon class and per school.
+		ResistTable powers;
 		float armor = 0.0f;
 		float weight = 0.0f;     // carry weight (kg); sums into a member's load
 		std::vector<std::string> commands; // hand right-click command ids (data-driven)
@@ -1520,8 +1851,51 @@ private:
 	// The motion knobs are resolved from the type's catalog entry at spawn, not
 	// read per frame — a door type is fixed for the life of a placement, and the
 	// render loop runs over every door every frame.
+	// THE DAMAGEABLE HALF OF A PIECE OF DUNGEON (docs/damage-system.md). A door,
+	// a barrel, a brazier — whatever can be broken carries one of these, and one
+	// fx::ITarget adapter (BreakableTarget) serves them all, so the dungeon
+	// reaches the damage pipeline through exactly the same door a combatant does.
+	//
+	// DAMAGEABILITY IS OPT-IN AND OFF BY DEFAULT (`destructible` in the catalog,
+	// Michael's requirement): if props and doors were breakable unless told
+	// otherwise, keys and switches would stop mattering the moment a party could
+	// swing at a door. maxHp of 0 means "not a target at all" and every ask below
+	// short-circuits on it.
+	//
+	// It carries an `effects` list like a combatant, which is not decoration: it
+	// means a DoT works on the dungeon for free, so a burning door burns DOWN.
+	// This is dynamic state and lives here rather than on the static .map records
+	// it describes — the same split m_seen makes.
+	struct Breakable {
+		float hp = 0.0f;
+		float maxHp = 0.0f; // 0 = indestructible; nothing else is consulted
+		float soak = 0.0f;  // catalog `armor`
+		ResistTable resists;
+		std::vector<fx::Inst> effects;
+		bool broken = false;
+
+		bool Damageable() const { return maxHp > 0.0f; }
+		bool Alive() const { return Damageable() && !broken; }
+	};
+
+	// A FIXTURE's damage state, kept beside the map rather than on it. Sconces and
+	// braziers are STATIC .map records (WallSconce / FloorBrazier in DungeonMap), so
+	// unlike a decoration they have no instance struct of their own to carry a
+	// Breakable — and hanging dynamic state on a static record is exactly the split
+	// this project keeps (the same reason m_seen is not baked into DungeonMap).
+	//
+	// Keyed by cell + WALL, because several sconces may share a cell on different
+	// walls; `wall` is -1 for a floor-standing brazier, which has none.
+	struct FixtureBreak {
+		int x = 0, z = 0;
+		int wall = -1; // Direction as int; -1 = floor-standing
+		std::string type;
+		Breakable brk;
+	};
+
 	struct Door {
 		int id = -1;                         // source Entity::id (.ent record)
+		std::string type;                    // doors.cat id, for naming + breakage
 		int x = 0, z = 0;
 		Direction facing = Direction::South; // travel axis (panel spans the other)
 		std::string name;                    // button-target id ("" = unwired)
@@ -1558,6 +1932,12 @@ private:
 		float pullT = 0.0f;        // 0 at rest .. 1 fully worked
 		bool pullRising = false;   // true while it is being pulled, false coming back
 		EaseSpan openerEase;       // the hand-hold's own shaping, from its entry
+		// Can it be broken down? OFF unless doors.cat says `destructible = 1`
+		// (Michael's requirement — otherwise a party would simply chop through
+		// every locked door and keys and switches would stop mattering). A broken
+		// door's way is open FOR GOOD: it cannot be shut again, which is the
+		// difference between smashing one and opening it.
+		Breakable brk;
 	};
 
 	// Static architecture decorations from the .map layer (column, archway,
@@ -1595,6 +1975,13 @@ private:
 		// leave the resolved material alone). metallic/roughness REPLACE the draw's
 		// factors — with an ORM map the shader multiplies them over the map, flat
 		// fallbacks take them directly. tint replaces baseColor (over the albedo).
+		// Breakability, OFF unless decorations.cat says `destructible = 1` — the
+		// gate, with `hp`/`armor`/`resists` for how tough it is. Copied into each
+		// instance's Breakable at placement.
+		bool destructible = false;
+		float hp = 0.0f;
+		float soak = 0.0f;
+		ResistTable resists;
 		float metallic = -1.0f;
 		float roughness = -1.0f;
 		float heightScale = -1.0f;
@@ -1625,6 +2012,17 @@ private:
 		bool wallMounted = false;        // hung on a wall (wall= record param)
 		Direction wall = Direction::North;
 		bool stair = false;              // a stair prop (written as a stairs record)
+		// Breakable if its type opted in (decorations.cat `destructible = 1`).
+		Breakable brk;
+
+		// A smashed prop is GONE for every purpose — not drawn, not blocking, not on
+		// the map — but its record STAYS in the list. Erasing it would dangle the
+		// reference its damage adapter holds, and the save has to be able to name
+		// what was broken after the fact, which an erased record cannot do.
+		bool Gone() const { return brk.broken; }
+		// Does it stop the party? Smashing a crate in a doorway clears the way,
+		// which is most of the point of being able to smash it.
+		bool Blocks() const { return solid && !brk.broken; }
 	};
 
 	// Fires: wall sconces (at 'T' cells, mounted on the adjacent wall) and
@@ -1884,6 +2282,10 @@ private:
 	// travel (walls/occupants stop it early). The moving-item engine
 	// (m_projectiles) owns the bolt; this is the TargetSide::Monsters branch of
 	// its impact hook.
+	// Index into m_monsters of the first live monster in (cx,cz) that sits in this
+	// bolt's LANE, or -1. Shared by the single-target strike and an area carrier's
+	// detonation so both ask one question.
+	int MonsterInLane(const ProjectileImpact& impact, int cx, int cz) const;
 	bool ResolveSpellHit(const ProjectileImpact& impact);
 	// TargetSide::Party branch of the moving-item engine's impact hook: a
 	// monster bolt reaching the party's cell strikes a random standing member
@@ -1892,6 +2294,77 @@ private:
 	// picks) and is consumed (true, hit or miss). False while it is short of
 	// the party or slides through an empty lane.
 	bool ResolveMonsterProjectileHit(const ProjectileImpact& impact);
+	// The moving-item engine's EXPIRY hook: a carrier stopped without striking
+	// anything (a wall, or out of reach). Fizzles audibly as it always did, and
+	// lands its payload on every combatant of its target side in the cell it died
+	// in — CELL-WIDE, where a hit is lane-wide (see the definition for why).
+	void ResolveProjectileExpiry(const ProjectileExpiry& expiry);
+	// Set off an AREA blast on a cell: Game/Blast.h propagates it (a wavefront over
+	// ticks, deflecting and reflecting off walls, converging units multiplying) and
+	// this plays the result out over time. Unrolled Bursts, and it catches EVERYONE
+	// in its squares including the party — a blast has no side and no lane.
+	// `payload` carries both the blast's shape and what it LEAVES — a transient
+	// front's procs are how fire "catches", so a square the blast passes through
+	// keeps burning on its own through the effects pipeline.
+	void Detonate(int cx, int cz, const ProjectilePayload& payload, DamageType type,
+				  int attacker);
+	// A blast PLAYING OUT. The propagation is computed once at detonation — the
+	// geometry cannot change mid-blast — and its ticks land `rate` seconds apart,
+	// which is what makes a fireball rush and a gas cloud creep.
+	struct ActiveBlast {
+		blast::Result result;
+		float rate = 0.0f;
+		DamageType type{};
+		int attacker = -1;
+		ProjectilePayload payload{}; // what each square it reaches is left with
+		float elapsed = 0.0f;
+		int next = 0; // index of the first hit not yet applied
+	};
+	std::vector<ActiveBlast> m_activeBlasts;
+	// Advance every live blast and apply whatever has come due. Called per frame.
+	void UpdateBlasts(float dt);
+	// Apply one tick's worth at one square: monsters, the party (friendly fire),
+	// and whatever pieces of dungeon stand there.
+	void ApplyBlastHit(const blast::Hit& hit, const ActiveBlast& active);
+	// Walk every breakable piece of dungeon standing in a cell — THE one place
+	// that knows which kinds those are, so a new one reaches blasts, bolts and
+	// whatever comes later all at once. (Forward-declared: the adapter itself is
+	// defined further down beside the two combatant ones, and a reference in a
+	// std::function needs only an incomplete type.)
+	class BreakableTarget;
+	void ForEachBreakableAt(int x, int z,
+							const std::function<void(BreakableTarget&)>& fn);
+	// Fill an instance's Breakable from its type. ONE place, so a prop placed at
+	// load and one placed by the editor are breakable on the same terms.
+	static void SeedBreakable(Breakable& brk, const DecorationKind& kind);
+	// Build the fixture damage side-table from the map's sconces and braziers.
+	// Called once the fixtures are placed; only destructible kinds get an entry, so
+	// the table is empty in a dungeon that authored none.
+	void SeedFixtureBreakables();
+	// Douse a broken fixture: its light, flame and smoke all go with `lit`.
+	void DouseFixture(const FixtureBreak& fb);
+	std::vector<FixtureBreak> m_fixtureBreaks;
+
+public:
+	// Deal `amount` of bash damage to everything breakable in a cell; returns how
+	// many were struck. The dev console's `smash`, and the seam a future weapon
+	// swing at scenery would use.
+	int SmashAt(int x, int z, float amount);
+
+private:
+	// Say what a blow did to a breakable, and what it broke — in that order.
+	void NarrateBreak(const BreakableTarget& t, const fx::DamageEvent& ev);
+	// A member's ATTACK-side type axis: the potency summed from the weapon in
+	// `hand` (-1 = none, for a spell) and every worn piece — the mirror of the way
+	// PartyTarget::Resist sums the defender's. Characters have no innate cell; what
+	// they carry is what they get, because their own axis is skill.
+	ResistTable PartyPowers(const Character& member, int hand);
+	// The potency of whoever LAUNCHED a carrier: a party member's worn gear (by
+	// roster index) or a monster's own table (by runtimeId). Applied where the
+	// carrier's DamageEvent is built, which is the only place both are known —
+	// MagicSystem is walled off from equipment and cannot do it at cast time.
+	ResistTable AttackerPowers(int attacker, u32 shooter);
+
 	// Skirmisher executor (intent == Kite): hold `keepRange` from the party (greedy
 	// 1-step, LoS-preferring), and fire a ranged bolt when it has a clear line and is
 	// off cooldown. `selfIndex` is the monster's index in m_monsters (for slot tests).
@@ -1931,6 +2404,43 @@ private:
 	// the cause reads before the effect. `quiet` is the DoT ticks' mode: no
 	// splat (a per-frame tick must not flash one every frame).
 	Fall WoundMember(Character& target, float damage, bool quiet = false);
+
+	// Which roster slot a member is, or -1 if it is not in the roster at all.
+	// Pointer arithmetic into the one vector both sides already share, so it
+	// needs no extra bookkeeping and cannot drift from the roster's order.
+	int MemberIndex(const Character& who) const {
+		if (!m_roster || m_roster->empty()) return -1;
+		const ptrdiff_t i = &who - m_roster->data();
+		return (i >= 0 && i < static_cast<ptrdiff_t>(m_roster->size()))
+				   ? static_cast<int>(i)
+				   : -1;
+	}
+
+	// WHAT A FUMBLE COSTS THE PERSON WHO THREW IT (docs/damage-system.md "When
+	// it goes wrong"). `face` is the die face the fumble was judged on — at
+	// fumble_severe_face or below the severe table fires as well.
+	//
+	// Two functions rather than one taking an abstraction, deliberately: the six
+	// consequences act on inventories, stamina bars and neighbours, and the two
+	// sides of this game share none of those. It is the same split as
+	// PartyTarget/MonsterTarget, and it keeps the part that IS shared — WHICH
+	// entries fire — in the pure, tested mishap:: layer where it belongs.
+	//
+	// A consequence with nothing to act on is a NO-OP, never an error: `drop`
+	// with an empty hand, `stumble` on a monster that has no stamina bar. That
+	// is what lets one default table serve a knight, a bare fist and a claw.
+	void PartyFumble(Character& attacker, size_t hand, const ItemKind* weapon,
+					 const AttackProfile& atk, int face);
+	void MonsterFumble(Monster& monster, const AttackProfile& atk, int face);
+	// The consequence table a source actually uses: its own when it authored
+	// one, else the balance.cat default. Resolved per fumble so a Balance dialog
+	// change lands on the next swing rather than on the next level load.
+	std::vector<mishap::Entry> FumbleTable(const std::vector<mishap::Entry>& own,
+										   bool severe) const;
+	// Lay an item on the floor of a cell as a RUNTIME drop (negative id, saved
+	// as a `drop` diff) — NOT an .ent record, which is what an editor placement
+	// authors. Shared by the cursor drop and by a fumbled weapon.
+	void DropItemInCell(const std::string& typeId, int cx, int cz);
 	// A landed monster blow rolls its type's on-hit DoT (Phase 6): chance,
 	// then land/refresh the effect with its log line. No-op for dps 0.
 	// Strip a monster's effects (and with them its plume) — a corpse carries
@@ -1953,11 +2463,13 @@ private:
 	template <class OnExpire>
 	void TickEffects(fx::ITarget& target, std::vector<fx::Inst>& effects,
 					 float dt, OnExpire onExpire) {
-		std::array<float, kDamageTypeCount> bite{};
+		// Sized by the CEILING, not the live count: this is a stack array on a
+		// per-frame path, so it must have a compile-time size.
+		std::array<float, kMaxDamageTypes> bite{};
 		for (fx::Inst& e : effects) {
 			e.timeLeft -= dt;
 			if (e.IsDot())
-				bite[static_cast<size_t>(e.kind->DamageTypeOf(e))] +=
+				bite[e.kind->DamageTypeOf(e).index] +=
 					e.magnitude * dt;
 			if (e.timeLeft <= 0.0f) onExpire(e);
 		}
@@ -1966,7 +2478,7 @@ private:
 		for (size_t i = 0; i < bite.size(); ++i) {
 			if (bite[i] <= 0.0f) continue;
 			fx::DamageEvent ev = fx::DamageEvent::Tick(
-				static_cast<DamageType>(i), bite[i], DotSource(effects));
+				DamageType{static_cast<u8>(i)}, bite[i], DotSource(effects));
 			fx::Deal(ev, target, m_balance.Strike(), m_combatRng);
 		}
 	}
@@ -2004,6 +2516,40 @@ private:
 	// award site (successful cast, landed blow) routes through it.
 	void GrantSkillXp(Character& member, std::string_view skillId, float xp,
 					  std::span<const std::string> stats);
+	// THE RESOURCE PRACTICES, awarded by THROUGHPUT (docs/health-and-healing.md):
+	// `points` is stamina spent / mana spent / health regained, scaled by that
+	// pool's own xp knob. One expensive spell therefore trains attunement more
+	// than three cheap ones — "the more it channels through you" meant literally.
+	//
+	// THE WHOLE REASON THIS IS NOT JUST A GrantSkillXp CALL AT THREE SITES: these
+	// three skills must creep NO stat. Every other skill in the game drips its
+	// associated stats forward, and each of these three feeds a pool that its
+	// aptitude ALSO feeds — so the ordinary award would close a loop on itself
+	// (spend stamina, creep vitality, grow max stamina). Routing them through one
+	// function that passes an empty stat list makes that a property of the code
+	// rather than a rule three call sites have to keep remembering.
+	void GrantResourceXp(Character& member, resource::Kind kind, float points);
+	// --- supplies (docs/health-and-healing.md "Food and water") ---------------
+	// One frame of a member's food and water: drain by time (scaled by
+	// conditioning — its price), then raise or clear the starving/parched
+	// effect. It does NOT deal the damage; the effects do, through the ordinary
+	// DoT tick, which is the whole reason they are effects.
+	void TickSupplies(Character& member, float dt);
+	// One frame of the rest STATE: the reasons it ends by itself. A no-op when
+	// not resting, so the ordinary frame pays a bool for it.
+	void UpdateRest();
+	// End rest because something happened, saying why. Safe to call when not
+	// resting (it does nothing), which is what lets the wound path call it
+	// unconditionally rather than testing the flag at the call site.
+	void BreakRest(const char* reason, const char* reasonKey);
+	// How long a starving/parched instance is given each frame it is held open.
+	// Nominal — long enough that the aging loop can never expire it between two
+	// supply ticks, short enough that if this code ever stopped running the
+	// effect would lift by itself rather than sticking forever.
+	static constexpr float kDeprivationHold = 5.0f;
+	// Drain both meters by a stamina SPEND (water more than food — sweat is
+	// water). Called from SpendStamina, so every exertion in the game pays it.
+	void DrainSuppliesByExertion(Character& member, float points);
 	// A whole stat point lands: increment, log, and re-derive the resource
 	// maxima (stats feed them now). Shared by the creep pools and SpendStamina.
 	void GrantStatPoint(Character& member, std::string_view stat);
@@ -2020,7 +2566,7 @@ private:
 	public:
 		PartyTarget(DungeonWorld& world, Character& member)
 			: m_world(world), m_member(member) {}
-		float Evasion() const override;
+		float Evasion(DamageType type) const override;
 		float Soak() const override;
 		float Resist(DamageType type) const override;
 		std::vector<fx::Inst>& Effects() override { return m_member.effects; }
@@ -2046,7 +2592,7 @@ private:
 	public:
 		MonsterTarget(DungeonWorld& world, Monster& monster)
 			: m_world(world), m_monster(monster) {}
-		float Evasion() const override;
+		float Evasion(DamageType type) const override;
 		float Soak() const override;
 		float Resist(DamageType type) const override;
 		std::vector<fx::Inst>& Effects() override { return m_monster.effects; }
@@ -2061,6 +2607,52 @@ private:
 		Monster& m_monster;
 	};
 
+	// THE DUNGEON AS A TARGET — the third implementation of fx::ITarget, after the
+	// two combatant kinds, and the one that is not a combatant at all. A door, a
+	// barrel or a brazier reaches the damage pipeline through exactly the same
+	// interface a monster does, so everything already built works on it for free:
+	// resists, absorption past 1.0, DoTs (a burning door burns DOWN), a blast.
+	//
+	// ONE adapter serves every breakable kind. What differs between them is only
+	// what BREAKING means — a door's way opens for good, a prop is removed, a
+	// brazier goes dark — and that is a callback rather than a subclass, because
+	// the damage side of a barrel and of a door are identical and only their
+	// consequence differs.
+	//
+	// It does not dodge: Evasion is 0 whatever arrives. An inert thing has no
+	// guard, which is the honest answer and also what makes a swing at scenery
+	// feel different from a swing at something that is trying not to be hit.
+	class BreakableTarget final : public fx::ITarget {
+	public:
+		BreakableTarget(DungeonWorld& world, Breakable& brk, std::string nameKey,
+						std::string brokenKey, std::function<void()> onBroken)
+			: m_world(world), m_brk(brk), m_nameKey(std::move(nameKey)),
+			  m_brokenKey(std::move(brokenKey)),
+			  m_onBroken(std::move(onBroken)) {}
+		// The line for "this broke", said by the CALLER once it has narrated the
+		// blow — the same rule a monster's death line follows, and for the same
+		// reason: "the barrel is smashed" has to read AFTER the hit that smashed it,
+		// and a callback fired from inside the pipeline runs before the caller has
+		// said anything at all.
+		const std::string& BrokenKey() const { return m_brokenKey; }
+		float Evasion(DamageType) const override { return 0.0f; }
+		float Soak() const override { return m_brk.soak; }
+		float Resist(DamageType type) const override;
+		std::vector<fx::Inst>& Effects() override { return m_brk.effects; }
+		void Wound(float amount, fx::DamageEvent& ev) override;
+		void Absorb(float amount, fx::DamageEvent& ev) override;
+		std::string Name() const override;
+		void Say(std::string_view line) const override;
+		void SayApplied(const fx::EffectKind& kind) const override;
+
+	private:
+		DungeonWorld& m_world;
+		Breakable& m_brk;
+		std::string m_nameKey;
+		std::string m_brokenKey;
+		std::function<void()> m_onBroken;
+	};
+
 	// The balance knobs an effect's own maths needs, in the shape the module
 	// takes them (it never sees Balance.h).
 	fx::Knobs EffectKnobs() const { return {m_balance.stoneskinResist}; }
@@ -2068,6 +2660,16 @@ private:
 	// goes back out via fx::Deal like any other damage), so every React call
 	// site hands over the same two things this world resolves damage with.
 	fx::ReactCtx Reaction() { return {m_balance.Strike(), m_combatRng}; }
+	// --- the one-pipeline check's world side (DungeonWorld_Ledger.cpp) --------
+	// Observe every value the damage pipeline can reach. The ONE place targets
+	// are enumerated: a future fourth kind of thing that can be hurt is covered
+	// by adding it there, and if it is not there it is not checked.
+	void SweepDamageLedger();
+	// Verify the region since the last checkpoint and take a new baseline.
+	// `phase` names that region and must outlive the call (a string literal).
+	void CheckDamageLedger(const char* phase);
+	std::string LedgerSubjectName(ledger::Key key) const;
+	ledger::Ledger m_damageLedger;
 	// The world lands a blow: Impact bash damage on every standing member,
 	// through the ordinary pipeline (armour, Stone Skin and a water veil all
 	// answer it), returning the WORST amount dealt for the caller's line.
@@ -2284,6 +2886,15 @@ private:
 	// once from the classes + the project's effects.cat. EVERY fx::Inst in the
 	// world — on a party member, and on a monster from P3 — points into it, so
 	// it must outlive them all; being a member here, it does.
+	// The damage-type vocabulary (damagetypes.cat). Built FIRST of the three
+	// registries, because Balance resolves its attack types against it and
+	// every effect kind resolves the type it deals — and it must outlive both,
+	// since a DamageType anywhere in the world is an index into it.
+	DamageTypeBook m_damageTypes;
+	// The type a COLLISION deals (a wall, a door, a pit landing). Resolved once
+	// at load: the world's two blows are not attacks and have no verb to ask,
+	// so this is the one place the engine still needs a type by name.
+	DamageType m_bashType{};
 	fx::EffectBook m_effects;
 
 	// The shared moving-item engine (Projectiles.h): flies + resolves + draws every
@@ -2309,6 +2920,25 @@ private:
 	u32 m_nextGroupId = 1;
 	// Last plan-batch sequence applied per bucket, so we adopt a batch only once.
 	uint64_t m_lastPlanSeq[ai::Scheduler::kBucketCount] = {};
+	// Per-bucket SIM-time accumulator for lockstep (TickLockstepAI). Unused
+	// while the workers run themselves; reset when lockstep is switched on, so
+	// enabling it does not immediately fire every bucket with a debt of
+	// whatever wall-clock time happened to have passed.
+	float m_bucketClock[ai::Scheduler::kBucketCount] = {};
+	// EVERY eval-harness field the world holds, in one member (see `Harness`).
+	// Four bools-and-counters that used to sit loose among the world's own state
+	// reading like something nobody had got round to explaining.
+	Harness m_harness;
+	// REST. Transient by design — not saved, so a save made mid-rest loads
+	// standing up. `m_restLockstep` remembers the AI mode rest replaced, because
+	// the eval harness may already have lockstep on and rest must give it back
+	// rather than assume it was off.
+	bool m_resting = false;
+	bool m_restLockstep = false;
+	const char* m_restEndReason = ""; // a literal; see RestEndReason
+	// For each standing member, swing any hand whose cooldown has run out.
+	// Called from UpdateMonsters' cadence, no-op unless m_harness.autoAttack.
+	void TickAutoAttack();
 	// Walkability grid shared into snapshots, rebuilt only when the map changes.
 	std::shared_ptr<const std::vector<uint8_t>> m_walkableCache;
 	u32 m_walkableRev = 0xFFFFFFFFu; // map Revision() the cache was built for
@@ -2326,6 +2956,12 @@ private:
 	void BuildAISnapshot();
 	// Adopt the freshest plan batches into each monster's intent + cached path.
 	void ConsumeAIPlans();
+	// LOCKSTEP AI (docs/eval-harness.md): with the bucket workers paused, run
+	// each bucket's compute inline whenever its cadence has elapsed in SIM time.
+	// `dt` is the world dt already scaled by timescale, so a run at timescale 20
+	// — or one stepping whole seconds per frame — thinks exactly as often per
+	// simulated second as a run at 1 does. That equivalence IS the feature.
+	void TickLockstepAI(float dt);
 	// Live monster with this stable runtimeId, or null if none (died/erased/level
 	// changed). Linear scan — fine at this scale; swap for a map if counts explode.
 	Monster* MonsterByRuntimeId(u32 id);
@@ -2461,7 +3097,13 @@ private:
 		float modelScale = 1.0f; // fixtures.cat `scale`, like DecorationKind's
 		FixtureFlame flame{0.0f, 0.0f, 0.0f};
 		std::unique_ptr<gfx::Texture> iconTarget; // baked map icon
+		// Breakability, off unless the type opts in (fixtures.cat `destructible`).
+		bool destructible = false;
+		float hp = 0.0f;
+		float soak = 0.0f;
+		ResistTable resists;
 	};
+
 	std::flat_map<std::string, std::unique_ptr<FixtureKind>> m_fixtureKinds;
 	bool m_fixtureIconsBaked = false; // re-armed by a fresh kind (like decorations)
 	FixtureKind& FixtureKindFor(const std::string& type);

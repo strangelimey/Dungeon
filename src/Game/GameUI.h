@@ -87,6 +87,9 @@ public:
 	// Convenience: pull facing/grid straight from the party (the usual caller).
 	void SetHudStatus(const Party& party);
 	void ResetHudStatus(); // forces the next SetHudStatus to reformat
+	// Re-label the Rest button from the world's live state. Pushed per frame
+	// because rest ends by itself as often as by a click.
+	void SetResting(bool resting);
 
 	// Esc handling support: leaves the settings page if it is open (returns
 	// true); false means the caller owns the Esc (quit / resume).
@@ -157,7 +160,8 @@ public:
 
 	// --- callbacks into the app state machine -------------------------------------
 	std::function<void()> onStartNewGame;       // landing "Start New Game"
-	std::function<void()> onQuit;               // pause "Exit"
+	std::function<void()> onQuit;               // landing + pause "Exit" (the ONLY
+												// click that quits — Esc does not)
 	std::function<void()> onResume;             // pause/sheet "Back"
 	// A save slot was chosen to load (landing Continue/Load, pause Load). The
 	// receiver loads it — from the landing page that may first stage the
@@ -172,6 +176,14 @@ public:
 	std::function<void(int)> onFrameLimitSelected; // Video tab frame-rate dropdown
 	std::function<void(int)> onTorchPalette;    // HUD torchlight dropdown
 	std::function<void(MoveAction)> onMoveAction; // HUD movement buttons
+	// The offense/defense stance slider under a member's hands: (member,
+	// share). The widget reports where it was dragged; Game owns the roster
+	// and does the writing.
+	std::function<void(size_t, float)> onGuardChange;
+	// The character sheet's defense breakdown, sourced from the world by the
+	// owner — the sheet cannot resolve worn items or balance knobs itself.
+	std::function<DefenseReadout(const Character&)> defenseFor;
+	std::function<DefenseReadout(const Character&, const std::string&)> defenseWith;
 	// HUD hand-slot click (member, hand 0=L/1=R, melee verb — the executed
 	// command id, e.g. "stab" = the ATTACK, Balance::FindAttack).
 	std::function<void(size_t, size_t, const std::string&)> onHandAttack;
@@ -191,6 +203,13 @@ public:
 	// kBookHands: a book cast credits both hands' quick-cast MRU.
 	std::function<void(size_t, size_t, const std::vector<SpellSymbol>&)>
 		onCastSequence;
+	// Member `i` eats or drinks the item with this catalog id — wired to
+	// DungeonWorld::ConsumeItem, which owns the catalogs and the two meters.
+	// Returns what it actually RESTORED, so the caller can refuse the action
+	// (and keep the item) when it would do nothing.
+	std::function<resource::Refill(size_t, const std::string&)> onConsume;
+	// The Options panel's Rest button — wired to DungeonWorld::SetResting.
+	std::function<void()> onToggleRest;
 	std::function<void()> onKeysChanged;        // a movement key was rebound
 	std::function<void()> onLookChanged;        // a mouse-look knob changed (push to Party)
 	std::function<void()> onHeadBobChanged;     // the head-bob checkbox (push to Party)
@@ -414,6 +433,8 @@ private:
 	MessageLog* m_log = nullptr;
 	ui::Label* m_compass = nullptr;
 	ui::Label* m_position = nullptr;
+	ui::Button* m_restButton = nullptr; // Options panel; label tracks the world
+	bool m_restLabelState = false;      // what the label currently says
 	CharacterSheet* m_sheet = nullptr;
 	size_t m_sheetIndex = 0; // member shown by the character sheet
 

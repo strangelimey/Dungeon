@@ -237,14 +237,34 @@ void Game::OpenInspectorFor(const InspectTarget& t) {
 		// A shot targeting the PARTY was fired by a monster, and vice versa.
 		c.side = loc::Tr(p.target == TargetSide::Party ? "map.proj.frommonster"
 													   : "map.proj.fromparty");
-		static constexpr std::array<const char*, kDamageTypeCount> kDmgKeys = {
-			"dmg.slash", "dmg.pierce", "dmg.bash",
-			"dmg.fire", "dmg.earth", "dmg.air", "dmg.water"};
-		c.dmgType = loc::Tr(kDmgKeys[static_cast<size_t>(p.atk.type)]);
+		// The type names itself through the book — a project type the engine
+		// has never heard of still reads correctly here.
+		c.dmgType = loc::Tr(m_world.DamageTypes().NameKey(p.atk.type));
 		c.damage = p.atk.damage;
-		c.accuracy = p.atk.accuracy;
+		c.accuracy = p.atk.attackBonus;
 		c.speed = p.speed;
 		c.rangeLeft = p.rangeLeft;
+		// What it will leave behind when it lands or expires, on ONE line (the card
+		// keeps a fixed row count — see ProjectileInspector::Config::payload).
+		// Effects are named by their AUTHORED id rather than a localized name,
+		// unlike the damage type above: an effect names itself per INSTANCE
+		// (EffectKind::NameKey takes an Inst, so a ward can name itself by school)
+		// and nothing has landed yet — and the id is what the builder wrote in
+		// `on_hit`, which is what they came here to check. A lone effect gets its
+		// numbers spelled out; several would not fit, so those list ids only.
+		const std::span<const fx::Proc> procs = p.payload.Procs();
+		if (procs.size() == 1) {
+			const fx::Proc& proc = procs.front();
+			c.payload = proc.id;
+			if (proc.magnitude > 0.0f || proc.duration > 0.0f)
+				c.payload += std::format(" {:.1f}/s for {:.1f}s", proc.magnitude,
+										 proc.duration);
+			if (proc.chance < 1.0f)
+				c.payload += std::format(" ({:.0f}%)", proc.chance * 100.0f);
+		} else {
+			for (const fx::Proc& proc : procs)
+				c.payload += (c.payload.empty() ? "" : ", ") + proc.id;
+		}
 		m_projectileInspector.onRemove = [this, id = p.id] {
 			if (m_world.RemoveProjectile(id) && m_world.onMessage)
 				m_world.onMessage(loc::View("map.proj.removed"));

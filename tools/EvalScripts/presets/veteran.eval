@@ -1,0 +1,53 @@
+; presets/veteran.eval — a mid-game party: trained, armed and armoured.
+;
+; A single eval run cannot play from fresh characters to end-game, so a rung
+; that wants to measure mid-game combat has to START there. This is that seed.
+;
+; The numbers are a FIRST CUT and are meant to move — the point of a preset is
+; that "what mid-game means" lives in one editable file instead of being spread
+; across every script that wanted it.
+
+echo preset veteran: trained, armed and armoured
+
+; --- stats ---------------------------------------------------------------
+; Roughly double the starting spread. RecomputeMaxima re-derives hp/stamina/mana
+; from these, so the order here does not matter but the setting of them does —
+; a seeded skill on unseeded stats is a veteran with a novice's hit points.
+setstat 0 str 18
+setstat 0 dex 16
+setstat 0 vit 18
+setstat 1 str 14
+setstat 1 dex 20
+setstat 1 vit 15
+setstat 2 str 12
+setstat 2 dex 15
+setstat 2 vit 14
+setstat 2 wil 18
+setstat 3 dex 14
+setstat 3 wil 20
+setstat 3 int 20
+
+; --- skills --------------------------------------------------------------
+; Levels derive from floor(sqrt(xp)), so `setskill` squares what it is given.
+; The front rank fights, the back rank casts; `avoid` is the unarmoured-only
+; defensive loop, so the armoured members below are given little of it.
+setskill 0 blade 8
+setskill 0 blunt 6
+setskill 0 unarmed 4
+setskill 1 blade 9
+setskill 1 avoid 7
+setskill 2 fire 6
+setskill 2 earth 5
+setskill 2 avoid 4
+setskill 3 fire 9
+setskill 3 water 7
+setskill 3 air 5
+
+; --- gear ----------------------------------------------------------------
+; `equip` reaches a hand, `wear` reaches the doll — worn armour only counts on
+; the doll (DungeonWorld::WornArmorClass).
+equip serrated_blade 0 0
+equip club 0 1
+equip flamebrand 1 0
+wear plate_cuirass 0
+wear leather_armor 1

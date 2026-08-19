@@ -11,3 +11,7 @@ add_library(UI STATIC
 	Widget.cpp
 )
 target_link_libraries(UI PUBLIC Core Platform Graphics PRIVATE ThirdPartyImpl)
+
+# Solution Explorer: headers visible, folders mirrored (dn_ide_layout, root
+# CMakeLists). MUST be called here — source_group is directory-scoped.
+dn_ide_layout(UI ${CMAKE_CURRENT_SOURCE_DIR})

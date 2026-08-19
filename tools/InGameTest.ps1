@@ -97,14 +97,24 @@ $screens = @(
 	@{ label = 'sweep_hud';    viaConsole = $true;  open = { };                 close = { } },
 	@{ label = 'sweep_paused'; viaConsole = $false; open = { Send-Key 0x1B };    close = { Send-Key 0x1B } },
 	@{ label = 'sweep_map';    viaConsole = $false; open = { Send-Key 0x4D };    close = { Send-Key 0x4D } },
-	@{ label = 'sweep_editor'; viaConsole = $true;  open = { Run-Cmd 'editor' }; close = { Run-Cmd 'editor off' } }
+	@{ label = 'sweep_editor'; viaConsole = $true;  open = { Run-Cmd 'editor' }; close = { Run-Cmd 'editor off' } },
+	# The character SHEET, which was on the not-swept list purely because it
+	# opened only by clicking a portrait. It carries more hand-laid-out content
+	# than any other screen, so being the one nobody audited was exactly
+	# backwards; the `sheet` dev command opens it through the same entry point
+	# the click uses, and it is swept like everything else now.
+	@{ label = 'sweep_sheet';  viaConsole = $true;  open = { Run-Cmd 'sheet 0' }; close = { Run-Cmd 'sheet off' } }
 )
-# NOT swept, and named rather than left to be assumed: the settings page and the
-# character sheet. Settings is reached by menu navigation whose entry order
-# shifts with whether a save exists, and the sheet opens only by clicking a
-# portrait. Both want a click, and a scripted click against a moving layout is
-# how a sweep starts silently auditing the wrong screen.
-$notSwept = 'settings page, character sheet (both need a mouse click)'
+# NOT swept, and named rather than left to be assumed. The settings page is
+# reached by menu navigation whose entry order shifts with whether a save
+# exists, and a scripted click against a moving layout is how a sweep starts
+# silently auditing the wrong screen.
+#
+# And a LIMIT worth stating even for the screen that IS swept now: uioverlap
+# audits the WIDGET TREE, while the sheet's stat bars and skill rows are drawn
+# directly. A clean sweep there says its tree is sound, not that every painted
+# bar fits inside the panel.
+$notSwept = 'settings page (needs a mouse click); the sheet''s hand-drawn bars (uioverlap sees widgets, not direct draws)'
 
 Remove-Item $log -ErrorAction SilentlyContinue
 Write-Host "launching $exe"

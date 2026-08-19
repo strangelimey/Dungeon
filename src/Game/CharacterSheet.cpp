@@ -32,6 +32,7 @@ CharacterSheet::CharacterSheet(const gfx::Rect& rect,
 	  m_categories(categories), m_held(held),
 	  m_healthLabel(loc::Tr("bar.health")),
 	  m_staminaLabel(loc::Tr("bar.stamina")), m_manaLabel(loc::Tr("bar.mana")),
+	  m_foodLabel(loc::Tr("bar.food")), m_waterLabel(loc::Tr("bar.water")),
 	  m_attributesLabel(loc::Tr("sheet.attributes")),
 	  m_skillsLabel(loc::Tr("sheet.skills")), m_noSkills(loc::Tr("sheet.no_skills")),
 	  m_effectsLabel(loc::Tr("sheet.effects")),
@@ -181,6 +182,13 @@ void CharacterSheet::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 	case Mode::Stats:     DrawStats(ctx, batch, px); break;
 	default:              break;
 	}
+}
+
+// The armor tooltip goes in the OVERLAY pass so no slot, icon or child widget
+// can paint over it — it is drawn last by definition, which is what a tooltip
+// has to be.
+void CharacterSheet::DrawOverlaySelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
+	if (m_mode == Mode::Inventory) DrawArmorTip(ctx, batch, Pixel());
 }
 
 // --- SheetPortrait ---------------------------------------------------------

@@ -60,15 +60,67 @@ public:
 				  std::function<void(const std::vector<std::string>&)> fn);
 	void Print(std::string line);
 
+	// A command that RAN and DECLINED to do what it was asked: a `tp` onto rock,
+	// a `spawn` into a wall, an unknown spell, a `step` that could not run the
+	// time it was given. Printed exactly like any other line — the difference is
+	// that the eval runner COUNTS it.
+	//
+	// This exists because RunLine's bool answers "was there a command by that
+	// name", which is not the question a measurement script needs answered. A
+	// rung that asked for three monsters, got one because two cells were rock,
+	// and printed a perfectly plausible TALLY under a header claiming three,
+	// came back PASS (docs/eval-audit.md F11/F15).
+	//
+	// NOT for a query with nothing to say. `monsters` printing "no monsters" is
+	// an ANSWER and stays a Print. Refuse means "you asked me to change the
+	// world and I did not" — the distinction is whether a script that carried
+	// on regardless would be measuring something other than what it wrote.
+	void Refuse(std::string line);
+
+	// True once if the last Execute refused. Clears on read, and Execute clears
+	// it before dispatching, so a refusal can never carry into the next line.
+	bool ConsumeRefusal() {
+		const bool refused = m_refused;
+		m_refused = false;
+		return refused;
+	}
+
 	// Gates command EXECUTION (typing/scrollback stay live). The Game disables
 	// commands while a staged load is mid-flight — the world is only partially
 	// built then, and a handler that reaches into it (cast/save/quality/...)
 	// would touch objects a later load task creates. A gated Enter prints a
 	// notice and keeps the line in history for an easy re-run after the load.
 	void SetCommandsEnabled(bool enabled) { m_commandsEnabled = enabled; }
+	bool CommandsEnabled() const { return m_commandsEnabled; }
+
+	// MIRROR EVERY CONSOLE LINE TO dungeon.log (the eval harness; `logecho`).
+	// The console's scrollback is a WINDOW: reading it means taking a
+	// screenshot, and a screenshot captures whatever window is in FRONT. So the
+	// console's output — which is where `monsters`, `step` and every other
+	// command answer — is invisible to a script driving the game, and that is
+	// most of what makes the game hard to drive without clicking.
+	//
+	// Mirroring turns the whole existing command surface into something readable
+	// from a file, and does it without a second reporting path that could
+	// disagree with what the console shows. Off by default: a play session
+	// should not pay for it.
+	void SetMirrorToLog(bool on) { m_mirrorToLog = on; }
+	bool MirrorToLog() const { return m_mirrorToLog; }
+
+	// Run one line as if it had been typed, and REPORT whether a command matched.
+	// The eval runner needs the answer: a script line that quietly did nothing —
+	// a typo, or a command that only exists on another branch — would otherwise
+	// leave the run reporting a clean pass over an encounter it never set up.
+	// The interactive path (Enter) discards the bool; only a script counts them.
+	//
+	// This bool is only HALF the question, and the other half is ConsumeRefusal
+	// above: a command whose name exists and which then refused returns true
+	// here. Ask both, or the run is only checked for typos.
+	bool RunLine(const std::string& line) { return Execute(line); }
 
 private:
-	void Execute(const std::string& line);
+	bool Execute(const std::string& line); // false = no such command
+	bool m_refused = false;                // the running command called Refuse
 
 	ui::FontLibrary& m_fonts;
 	// Borrowed from the library (Mono: this is a column-aligned readout).
@@ -430,6 +482,7 @@ private:
 
 	bool m_open = false;
 	bool m_commandsEnabled = true;   // false while a staged load is mid-flight
+	bool m_mirrorToLog = false;      // `logecho`: every console line also to dungeon.log
 	// Every section collapses to its header, so the panel can be cut down to just
 	// the one thing being watched. THREADS starts collapsed because it is a
 	// CONTROL surface — halt, rate, kill, boot — rather than a readout, and its

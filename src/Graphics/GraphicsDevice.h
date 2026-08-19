@@ -26,6 +26,7 @@
 #include "Graphics/D3DUtil.h"
 #include "Graphics/DisplayEnum.h" // FullscreenMode
 
+#include <d3d12sdklayers.h> // ID3D12InfoQueue/1 (validation messages)
 #include <dxgi1_6.h>
 
 #include <functional>
@@ -173,6 +174,10 @@ public:
 private:
 	void CreateSizeDependentResources();
 	void ReleaseSizeDependentResources();
+	// Routes the debug layer's validation messages into dungeon.log. See the
+	// definitions — the callback path is the one that matters.
+	void InstallDebugMessageLog();
+	void DrainDebugMessages();
 	// Unconditional back-buffer rebuild at the current size — required by
 	// flip-model swap chains after every fullscreen<->windowed transition.
 	void RecreateSwapChainBuffers();
@@ -208,6 +213,15 @@ private:
 
 	ComPtr<ID3D12Fence> m_fence;
 	GpuProfiler m_gpu;
+
+	// Debug-layer validation messages. m_infoQueue is only held for the POLLING
+	// fallback; when the callback registered, it stays null and nothing is
+	// drained per frame. Both are empty in a release build, where the layer
+	// itself is never enabled.
+	ComPtr<ID3D12InfoQueue> m_infoQueue;
+	u32 m_msgCookie = 0;          // RegisterMessageCallback's, 0 = not registered
+	std::vector<u8> m_msgScratch; // reused by the drain so a quiet frame allocates nothing
+
 	u64 m_fenceValues[kFrameCount]{};
 	u64 m_nextFenceValue = 1;
 	void* m_fenceEvent = nullptr;

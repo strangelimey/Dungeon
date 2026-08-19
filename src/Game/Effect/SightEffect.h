@@ -30,7 +30,7 @@ public:
 	// a view into m_schoolNames, never a temporary (the HUD calls it per frame).
 	std::string_view NameKey(const Inst& inst) const override;
 
-	void ApplyOverrides(const CatalogEntry& e) override;
+	void ApplyOverrides(const CatalogEntry& e, const DamageTypeBook& types) override;
 
 private:
 	// Indexed by school (Fire, Earth, Air, Water — the SpellSymbol order).

@@ -57,6 +57,81 @@ void DungeonWorld::ResetForNewGame() {
 	MarkSeen(m_party.GridX(), m_party.GridZ());
 	SetTorchPalette(0);
 	m_levelStates.clear(); // forget any explored levels
+	// Every monster is back at full and the world is a different world: the
+	// baselines the one-pipeline check was holding describe state that no longer
+	// exists (Game/DamageLedger.h). Take a fresh one rather than reporting the
+	// reset itself as a hundred writes that went around the pipeline.
+	RebaseDamageLedger();
+}
+
+// See the declaration for why this is defined as "where a new game would leave
+// it". Everything below is something a real new game gets from the LEVEL LOAD
+// rather than from ResetForNewGame — plus the harness's own modes, which no
+// player path has any reason to touch.
+void DungeonWorld::ResetForEval() {
+	// --- 1. THE STATIC LAYER, back from the project files -------------------
+	// `arena` sets EVERY cell to wall before carving, and strips the map's own
+	// fixtures, stairs, niches and features on the way past — so a reset that
+	// only rewound the dynamic side would hand the next test an empty box with
+	// the authored monsters standing in rock.
+	//
+	// THIS IS THE PART THE FIRST VERSION MISSED, and the way it was missed is
+	// worth more than the fix: the equivalence check passed, because it printed
+	// the party, the supplies and the monsters, and NONE of those show map
+	// geometry. A test that does not look at the thing that differs reports
+	// "identical" just as loudly as one that does.
+	//
+	// Re-parsing costs a text file and the mesh bake; the twelve seconds a real
+	// load costs are MODELS AND TEXTURES, and those are cached by now.
+	m_map = DungeonMap(m_project.LevelMapPath(m_currentLevel),
+					   FixtureTypesOf(m_project));
+	m_entities = DungeonEntities(m_project.LevelEntPath(m_currentLevel), m_map);
+	// Every live object re-placed from those records. Also the reason harness
+	// `spawn`s disappear: they were never records, only instances.
+	RespawnFromRecords(/*geometryToo=*/false);
+	SeedFixtureBreakables();
+
+	// --- 2. the dynamic layer -----------------------------------------------
+	// Party pose, monster hp/threat/awareness, the wipe latch, projectiles,
+	// items, buttons, doors, niches, fog, torch palette. AFTER the map, because
+	// it puts the party on the map's start cell.
+	ResetForNewGame();
+
+	// A blast is a wavefront mid-flight; a `step` that ends between its ticks
+	// leaves one live, and it would detonate into the next test.
+	m_activeBlasts.clear();
+	// Damage done to the DUNGEON (save v24). A smashed decoration KEEPS its
+	// record — the adapter holds a reference and the save has to be able to name
+	// what broke — so the flag is lifted rather than the entry erased. Fixtures
+	// live in their own side-table keyed by cell+wall, so that is rebuilt whole.
+	for (Decoration& deco : m_decorations) {
+		deco.brk.broken = false;
+		deco.brk.hp = deco.brk.maxHp;
+		deco.brk.effects.clear();
+	}
+	m_fixtureBreaks.clear();
+	SeedFixtureBreakables();
+
+	// --- 3. make it real -----------------------------------------------------
+	// The FULL bake, as `arena` does: every cell in the map may have changed.
+	BuildDungeonMeshes();
+	RebuildFiresAndDust(); // the level's fires are back, and a doused one burns
+
+	// A pit fall caught mid-plunge would swap levels on the first frame of the
+	// next test, and the bruise is latched separately from the transition.
+	m_pendingFall.reset();
+	m_fellPending = false;
+	m_fallT = -1.0f;
+
+	// The harness's own modes. NOT `lockstep` or the RNG seed: those are how the
+	// run is DRIVEN rather than what it contains, and silently changing them
+	// under a script would be its own kind of contamination — a script that set
+	// them once at the top would find them gone after its first reset.
+	// One member, so a field added to Harness is reset here for free — the four
+	// loose bools this replaced were four chances to forget one.
+	m_harness = {};
+	m_resting = false;
+	m_restEndReason = "";
 }
 
 SaveData::LevelState DungeonWorld::SnapshotActive() const {
@@ -167,6 +242,23 @@ SaveData::LevelState DungeonWorld::SnapshotActive() const {
 	for (const WallNiche& n : m_map.Niches())
 		if (n.open != !n.hidden)
 			ls.niches.push_back({n.x, n.z, static_cast<int>(n.wall), n.open});
+	// Smashed props (v24). Decorations are STATIC .map records, so being broken is
+	// dynamic state and belongs here — the same split `seen` makes. Keyed by cell +
+	// type, never by index: an index survives only until the editor inserts a record
+	// ahead of it. This is also why a broken prop keeps its place in m_decorations
+	// rather than being erased — an erased record could not be named here.
+	for (const Decoration& d : m_decorations)
+		if (d.Gone()) ls.broken.push_back({d.x, d.z, d.kind->id});
+	// Doors too, even though they DO ride `entities`: that only carries open/closed,
+	// and a broken door is not merely an open one — it can never be shut again, and
+	// must not come back at full hp to be broken a second time. Same record, same
+	// key, so both kinds restore through one path.
+	for (const Door& d : m_doors)
+		if (d.brk.broken) ls.broken.push_back({d.x, d.z, d.type});
+	// Fixtures, from the side-table their damage state lives in. The WALL matters
+	// here and nowhere else: two sconces can share a cell.
+	for (const FixtureBreak& fb : m_fixtureBreaks)
+		if (fb.brk.broken) ls.broken.push_back({fb.x, fb.z, fb.type, fb.wall});
 	return ls;
 }
 
@@ -311,7 +403,40 @@ void DungeonWorld::ApplyActiveSnapshot() {
 	for (const SaveData::NicheOpen& n : ls.niches)
 		if (m_map.SetNicheOpenAt(n.x, n.z, static_cast<Direction>(n.wall), n.open))
 			RebuildChunksAround(n.x, n.z);
+	// Re-break what was broken (v24). A saved entry naming a prop this level no
+	// longer has is simply dropped — the level was edited under the save, and a
+	// missing prop is exactly the outcome the entry wanted anyway.
+	for (const SaveData::BrokenProp& b : ls.broken) {
+		bool found = false;
+		for (Decoration& d : m_decorations)
+			if (d.x == b.x && d.z == b.z && d.kind->id == b.type) {
+				d.brk.broken = true;
+				d.brk.hp = 0.0f;
+				found = true;
+				break;
+			}
+		if (found) continue;
+		for (Door& d : m_doors)
+			if (d.x == b.x && d.z == b.z && d.type == b.type) {
+				d.brk.broken = true;
+				d.brk.hp = 0.0f;
+				d.open = true; // the way stays open, and stays unclosable
+				d.openT = 1.0f;
+				found = true;
+				break;
+			}
+		if (found) continue;
+		for (FixtureBreak& fb : m_fixtureBreaks)
+			if (fb.x == b.x && fb.z == b.z && fb.type == b.type &&
+				fb.wall == b.wall) {
+				fb.brk.broken = true;
+				fb.brk.hp = 0.0f;
+				DouseFixture(fb); // and it comes back DARK, not merely broken
+				break;
+			}
+	}
 	m_levelStates.erase(it); // the live state is authoritative now
+	RebaseDamageLedger();    // restored hit points are not writes to explain
 }
 
 void DungeonWorld::CaptureState(SaveData& out) const {

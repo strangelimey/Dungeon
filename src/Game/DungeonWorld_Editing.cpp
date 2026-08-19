@@ -590,6 +590,7 @@ static EaseSpan EaseSpanOf(const CatalogEntry* def) {
 void DungeonWorld::SpawnDoor(const Entity& record) {
 	Door door;
 	door.id = record.id;
+	door.type = record.type; // names it, and gates whether it can be broken
 	door.x = record.x;
 	door.z = record.z;
 	door.facing = record.facing;
@@ -610,6 +611,18 @@ void DungeonWorld::SpawnDoor(const Entity& record) {
 					  : m == "split" ? DoorMotion::Split
 									 : DoorMotion::Slide;
 		door.travel = def->GetFloat("travel", 0.75f);
+		// CAN IT BE BROKEN DOWN? Off unless the type says so (Michael's
+		// requirement): if doors were breakable by default, a party would chop
+		// through every locked one and keys and switches would stop mattering. A
+		// door authored `destructible = 1` is the deliberate exception — an
+		// alternative route that costs time and noise instead of a key.
+		if (CatalogBool(def, "destructible", false)) {
+			door.brk.maxHp = def->GetFloat("hp", 40.0f);
+			door.brk.hp = door.brk.maxHp;
+			door.brk.soak = def->GetFloat("armor", 0.0f);
+			ParseResists(CatalogGet(def, "resists", ""), door.brk.resists,
+						 "doors.cat [" + record.type + "]", m_damageTypes);
+		}
 		// Guarded: an open_seconds of 0 would divide by zero in the anim tick.
 		const float secs = def->GetFloat("open_seconds", 0.7f);
 		door.openSeconds = secs > 0.05f ? secs : 0.05f;
@@ -749,6 +762,13 @@ bool DungeonWorld::AddDoorRemote(const std::string& stem,
 }
 
 bool DungeonWorld::ToggleDoor(Door& door) {
+	// A BROKEN door is open for good — there is no panel left to work. This is the
+	// one place the invariant has to hold, because it covers every route in: the
+	// party's click, a wired button, and the editor's inspector all arrive here.
+	if (door.brk.broken) {
+		if (onMessage) onMessage(loc::View("log.door_wrecked"));
+		return false;
+	}
 	// Anything standing in the doorway jams a closing panel.
 	if (door.open && MonsterRuntimeIdAt(door.x, door.z) != 0) {
 		if (onMessage) onMessage(loc::View("log.door_jammed"));
@@ -2150,6 +2170,9 @@ void DungeonWorld::RespawnFromRecords(bool geometryToo) {
 	// Wall features are stamped INTO the surface chunks, so retyping one only
 	// shows after a re-stamp; deferred like the undo restore's.
 	if (geometryToo) m_geometryDirty = true;
+	// Every monster, door and prop in the world is a different object now — the
+	// one-pipeline check's baselines point at freed storage (Game/DamageLedger.h).
+	RebaseDamageLedger();
 }
 
 void DungeonWorld::FlushGeometry() {

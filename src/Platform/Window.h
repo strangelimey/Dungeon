@@ -23,6 +23,13 @@ struct WindowDesc {
 	std::string title = "Dungeon";
 	u32 width = 1600;
 	u32 height = 900;
+	// HEADLESS (`-headless`, docs/eval-harness.md): the window is created but
+	// never shown. It still EXISTS, because the swapchain is bound to an HWND and
+	// removing that would mean removing the graphics device with it — which is a
+	// refactor across every gfx call site for no gain, since what costs a headless
+	// run is drawing every frame, not owning a device. So the window is real,
+	// pumps messages, and is simply invisible.
+	bool hidden = false;
 };
 
 // Owns the Win32 window and message pump, and feeds the Input state.

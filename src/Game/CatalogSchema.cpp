@@ -152,6 +152,19 @@ constexpr FieldSpec kDecorationFields[] = {
 	PROP_AUTHORED,
 	{.key = "solid", .kind = FieldKind::Bool, .sectionKey = kSectionRules,
 	 .help = "Blocks the square (the party and monsters can't enter).", .def = "0"},
+	{.key = "destructible", .kind = FieldKind::Bool, .sectionKey = kSectionRules,
+	 .help = "Can be smashed. Off = scenery, which is the default: nothing in the "
+			 "dungeon is breakable unless its type says so.",
+	 .def = "0"},
+	{.key = "hp", .kind = FieldKind::Float, .sectionKey = kSectionRules,
+	 .help = "How much punishment it takes before it breaks (needs Destructible).",
+	 .lo = 0.0f, .hi = 200.0f, .step = 1.0f, .def = "10"},
+	{.key = "armor", .kind = FieldKind::Float, .sectionKey = kSectionRules,
+	 .help = "Flat soak off every blow — stone shrugs where a crate splinters.",
+	 .lo = 0.0f, .hi = 40.0f, .step = 1.0f, .def = "0"},
+	{.key = "resists", .kind = FieldKind::Text, .sectionKey = kSectionRules,
+	 .help = "Per-type resists, e.g. \"slash 0.5, fire -0.5\". 1.0 is immunity; "
+			 "past 1.0 it is HEALED by that element."},
 	{.key = "mount", .kind = FieldKind::Enum, .sectionKey = kSectionRules,
 	 .help = "Where the brush hangs it: on a wall face, or standing on the floor.",
 	 .options = "floor wall", .def = "floor"},
@@ -174,6 +187,18 @@ constexpr FieldSpec kFixtureFields[] = {
 	PROP_MODEL,
 	PROP_TEXTURE,
 	PROP_SCALE,
+	{.key = "destructible", .kind = FieldKind::Bool, .sectionKey = kSectionRules,
+	 .help = "Can be broken, which PUTS ITS LIGHT OUT. Off = scenery, the default.",
+	 .def = "0"},
+	{.key = "hp", .kind = FieldKind::Float, .sectionKey = kSectionRules,
+	 .help = "How much it takes before it is wrecked (needs Destructible).",
+	 .lo = 0.0f, .hi = 200.0f, .step = 1.0f, .def = "10"},
+	{.key = "armor", .kind = FieldKind::Float, .sectionKey = kSectionRules,
+	 .help = "Flat soak off every blow — cast iron blunts what a bracket won't.",
+	 .lo = 0.0f, .hi = 40.0f, .step = 1.0f, .def = "0"},
+	{.key = "resists", .kind = FieldKind::Text, .sectionKey = kSectionRules,
+	 .help = "Per-type resists, e.g. \"fire 1.0, bash -0.3\". 1.0 is immunity; past "
+			 "1.0 it is HEALED by that element."},
 	{.key = "part2_model", .kind = FieldKind::Model, .sectionKey = kSectionLook,
 	 .help = "Optional second mesh drawn with it (the brazier's coals)."},
 	{.key = "part2_texture", .kind = FieldKind::TextureSet, .sectionKey = kSectionLook,
@@ -213,19 +238,34 @@ constexpr FieldSpec kMonsterFields[] = {
 	 .help = "Hit points.", .lo = 1.0f, .hi = 200.0f, .step = 1.0f, .def = "10"},
 	{.key = "damage", .kind = FieldKind::Float, .sectionKey = kSectionStats,
 	 .help = "Damage per landed blow.", .lo = 0.0f, .hi = 50.0f, .step = 1.0f, .def = "3"},
-	{.key = "dmgtype", .kind = FieldKind::Enum, .sectionKey = kSectionStats,
+	{.key = "dmgtype", .kind = FieldKind::DamageType, .sectionKey = kSectionStats,
 	 .help = "Damage type its melee deals (resists key off this).",
-	 .options = "slash pierce bash fire earth air water", .def = "bash"},
+	 .def = "bash"},
+	// POINTS on the opposed d100 roll, not the 0..1 probabilities these were
+	// before the damage-system work. The ranges here still said 0..1, which
+	// would have clamped every authored value to a rounding error the moment
+	// anyone opened the dialog.
 	{.key = "accuracy", .kind = FieldKind::Float, .sectionKey = kSectionStats,
-	 .help = "Chance to land a blow before the defender's evasion.",
-	 .lo = 0.0f, .hi = 1.0f, .step = 0.05f, .def = "0.6"},
+	 .help = "Attack bonus in d100 points. Two opposed d100s deviate by ~41, "
+			 "so 40 is a modest edge and 100 is decisive.",
+	 .lo = 0.0f, .hi = 200.0f, .step = 5.0f, .def = "60"},
 	{.key = "defense", .kind = FieldKind::Float, .sectionKey = kSectionStats,
-	 .help = "Evasion against incoming attacks.",
-	 .lo = 0.0f, .hi = 1.0f, .step = 0.05f, .def = "0"},
+	 .help = "Defense bonus in the same d100 points, before the stance adds "
+			 "back whatever `offense` held in reserve.",
+	 .lo = 0.0f, .hi = 200.0f, .step = 5.0f, .def = "10"},
+	{.key = "offense", .kind = FieldKind::Float, .sectionKey = kSectionStats,
+	 .help = "Stance: how much of `accuracy` goes into pressing the attack, "
+			 "the rest held back to guard with. 1 = all-out. Untouched takes "
+			 "the archetype's default (brute 1.0 ... sentry 0.5).",
+	 .lo = 0.0f, .hi = 1.0f, .step = 0.05f, .def = "1"},
 	{.key = "armor", .kind = FieldKind::Float, .sectionKey = kSectionStats,
 	 .help = "Flat damage soak.", .lo = 0.0f, .hi = 20.0f, .step = 1.0f, .def = "0"},
 	{.key = "resists", .kind = FieldKind::Text, .sectionKey = kSectionStats,
 	 .help = "Per-type resistance, e.g. 'pierce 0.5, slash 0.25' (1 = immune, negative = weakness)."},
+	{.key = "powers", .kind = FieldKind::Text, .sectionKey = kSectionStats,
+	 .help = "Per-type POTENCY: how hard it strikes with each type, e.g. 'fire 0.5' "
+			 "(negative = feeble with it). The attacker's mirror of Resists, and a "
+			 "monster's stand-in for the skill a character trains."},
 	{.key = "reach", .kind = FieldKind::Float, .sectionKey = kSectionStats,
 	 .help = "Melee range in squares; 2 lets it strike from one square back.",
 	 .lo = 1.0f, .hi = 3.0f, .step = 1.0f, .def = "1"},
@@ -262,6 +302,20 @@ constexpr FieldSpec kDoorFields[] = {
 	{.key = "motion", .kind = FieldKind::Enum, .sectionKey = kSectionRules,
 	 .help = "How the leaf opens: slide into the wall, rise into the ceiling, or split in two.",
 	 .options = "slide rise split", .def = "slide"},
+	{.key = "destructible", .kind = FieldKind::Bool, .sectionKey = kSectionRules,
+	 .help = "Can be broken down, opening the way FOR GOOD. Leave OFF for most "
+			 "doors — a breakable locked door makes its key and its switch "
+			 "pointless.",
+	 .def = "0"},
+	{.key = "hp", .kind = FieldKind::Float, .sectionKey = kSectionRules,
+	 .help = "How much it takes before it gives way (needs Destructible).",
+	 .lo = 0.0f, .hi = 400.0f, .step = 5.0f, .def = "40"},
+	{.key = "armor", .kind = FieldKind::Float, .sectionKey = kSectionRules,
+	 .help = "Flat soak off every blow — a bound oak door blunts what a plank won't.",
+	 .lo = 0.0f, .hi = 40.0f, .step = 1.0f, .def = "0"},
+	{.key = "resists", .kind = FieldKind::Text, .sectionKey = kSectionRules,
+	 .help = "Per-type resists, e.g. \"slash 0.5, fire -0.5\" (fire burns wood "
+			 "faster). 1.0 is immunity; past 1.0 it is HEALED by that element."},
 	{.key = "travel", .kind = FieldKind::Float, .sectionKey = kSectionRules,
 	 .help = "How far the leaf moves, in squares (each half's own distance for a split).",
 	 .lo = 0.0f, .hi = 2.0f, .step = 0.05f, .def = "0.75"},
@@ -365,7 +419,13 @@ constexpr FieldSpec kItemFields[] = {
 	{.key = "holdable", .kind = FieldKind::Bool, .sectionKey = kSectionRules,
 	 .help = "Can be held in a hand slot.", .def = "1"},
 	{.key = "command", .kind = FieldKind::Text, .sectionKey = kSectionRules,
-	 .help = "Hand-menu verbs this item offers, e.g. 'eat'."},
+	 .help = "Hand-menu verbs this item offers, e.g. 'eat' or 'drink'."},
+	{.key = "nutrition", .kind = FieldKind::Float, .sectionKey = kSectionStats,
+	 .help = "Food restored when consumed, out of 100. Both at 0 = not consumable.",
+	 .lo = 0.0f, .hi = 100.0f, .step = 1.0f, .def = "0"},
+	{.key = "hydration", .kind = FieldKind::Float, .sectionKey = kSectionStats,
+	 .help = "Water restored when consumed, out of 100. Most food gives a little.",
+	 .lo = 0.0f, .hi = 100.0f, .step = 1.0f, .def = "0"},
 	{.key = "symbol", .kind = FieldKind::Enum, .sectionKey = kSectionRules,
 	 .help = "Rune symbol this item teaches (runes only).",
 	 .options = "fire earth air water project protect sight"},
@@ -407,6 +467,23 @@ constexpr FieldSpec kWeaponFields[] = {
 	 .lo = 0.0f, .hi = 2.0f, .step = 0.05f, .def = "0"},
 	{.key = "on_hit", .kind = FieldKind::Text, .sectionKey = kSectionStats,
 	 .help = "Effects a landed blow leaves, by id: 'burn 3 6 0.5, bleed 2 10'."},
+	{.key = "on_crit", .kind = FieldKind::Text, .sectionKey = kSectionStats,
+	 .help = "Effects a CRITICAL leaves, same form as on_hit. Landed on top of "
+			 "on_hit, not instead of it."},
+	{.key = "crit", .kind = FieldKind::Enum, .sectionKey = kSectionStats,
+	 .help = "pierce = a critical goes UNDER armour (soak ignored). Resists "
+			 "still answer it.",
+	 .options = "none pierce", .def = "none"},
+	{.key = "on_fumble", .kind = FieldKind::Text, .sectionKey = kSectionStats,
+	 .help = "Effects a FUMBLE leaves on the WIELDER, same form as on_hit — a "
+			 "blade that bites the hand holding it."},
+	{.key = "fumble", .kind = FieldKind::Text, .sectionKey = kSectionStats,
+	 .help = "What a fumble costs its thrower: recover <mul>, stumble <pts>, "
+			 "drop, fling, self_hit <frac>, wild. Empty = the balance default."},
+	{.key = "fumble_severe", .kind = FieldKind::Text, .sectionKey = kSectionStats,
+	 .help = "The same, fired ONLY at a die face of fumble_severe_face or less "
+			 "(about 1 swing in 100). Empty = the balance default."},
+
 	{.key = "reach", .kind = FieldKind::Enum, .sectionKey = kSectionRules,
 	 .help = "melee = adjacent only; polearm strikes from the rear rank; ranged flies.",
 	 .options = "melee polearm ranged", .def = "melee"},
@@ -428,10 +505,21 @@ constexpr FieldSpec kArmorFields[] = {
 	PROP_TEXTURE,
 	PROP_SCALE,
 	ITEM_WEIGHT,
+	{.key = "wear", .kind = FieldKind::Enum, .sectionKey = kSectionStats,
+	 .help = "Which doll slot it is worn in. Hands take anything holdable; "
+			 "every other slot is type-specific. Empty = held or packed only.",
+	 .options = "head body legs feet cloak amulet ring", .def = ""},
+	{.key = "class", .kind = FieldKind::Enum, .sectionKey = kSectionStats,
+	 .help = "Weight class: what it costs to evade in, which skill it trains, "
+			 "and the STR it asks for. Empty = clothing (still unarmored).",
+	 .options = "light medium heavy", .def = ""},
 	{.key = "armor", .kind = FieldKind::Float, .sectionKey = kSectionStats,
 	 .help = "Flat damage soak when worn.", .lo = 0.0f, .hi = 20.0f, .step = 0.25f, .def = "1"},
 	{.key = "resists", .kind = FieldKind::Text, .sectionKey = kSectionStats,
 	 .help = "Per-type resistance granted when worn, e.g. 'slash 0.2, fire 0.1'."},
+	{.key = "powers", .kind = FieldKind::Text, .sectionKey = kSectionStats,
+	 .help = "Per-type POTENCY granted, e.g. 'fire 0.3'. Sums across the wielded "
+			 "weapon and every worn piece, and scales what its bearer deals."},
 };
 
 // --- status effects ---------------------------------------------------------
@@ -454,10 +542,10 @@ constexpr FieldSpec kEffectFields[] = {
 	// and `burn` omits it deliberately — its class resolves the type per
 	// instance. Hence the second sentence: without it the row reads as a claim
 	// that a burn deals bash damage.
-	{.key = "damage_type", .kind = FieldKind::Enum, .sectionKey = kSectionStats,
+	{.key = "damage_type", .kind = FieldKind::DamageType, .sectionKey = kSectionStats,
 	 .help = "What a DoT is RESISTED as — not its tint (bleeding is pierce). "
 			 "A burn ignores this: it answers to whatever element lit it.",
-	 .options = "slash pierce bash fire earth air water", .def = "bash"},
+	 .def = "bash"},
 	{.key = "stacking", .kind = FieldKind::Enum, .sectionKey = kSectionRules,
 	 .help = "refresh = replace it; school = replace only the same school's; stack = pile up.",
 	 .options = "refresh school stack", .def = "refresh"},

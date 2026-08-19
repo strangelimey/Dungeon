@@ -20,3 +20,7 @@ set_target_properties(Dungeon PROPERTIES
 # (baked in as DN_ASSETS_DIR, see src/Core/CMakeLists.txt), so every config shares
 # one copy. PACKAGING a build is what copies assets\ beside the exe — paths::AssetsDir
 # falls back to that when the baked-in source path isn't there.
+
+# Solution Explorer: headers visible, folders mirrored (dn_ide_layout, root
+# CMakeLists). MUST be called here — source_group is directory-scoped.
+dn_ide_layout(Dungeon ${CMAKE_CURRENT_SOURCE_DIR})

@@ -242,6 +242,7 @@ void DungeonWorld::SubmitSceneGeometry(ID3D12GraphicsCommandList* list,
 	// textured stone/wood with bump + parallax + ORM, falling back to the flat
 	// glTF material color if the texture set is missing.
 	for (const Decoration& deco : m_decorations) {
+		if (deco.Gone()) continue; // smashed: the record survives, the prop does not
 		// Per-KIND sphere measured from the model (DecorationKind::cullRadius),
 		// centred on the instance's own origin. A fixed 0.85-unit radius used to
 		// stand in for "the widest prop", which quietly clipped the edges off

@@ -77,7 +77,8 @@ bool IsMenuOnlyUse(std::string_view cmd) { return cmd == "memorize"; }
 // True if ExecuteUse can dispatch this id — unknown ids (a catalog typo) get
 // no menu entry rather than a dead one.
 bool IsExecutableUse(std::string_view cmd) {
-	return cmd == "eat" || cmd == "memorize" || IsMeleeUse(cmd) || IsCastUse(cmd);
+	return cmd == "eat" || cmd == "drink" || cmd == "memorize" ||
+		   IsMeleeUse(cmd) || IsCastUse(cmd);
 }
 // The useDefaults key a hand's contents map to ("unarmed" for a bare hand —
 // item ids are catalog tokens, so the sentinel can never collide).
@@ -400,7 +401,11 @@ void GameUI::ExecuteUse(size_t i, size_t hand, const std::string& cmd) {
 	if (i >= m_characters.size() || hand > 1 || cmd.empty()) return;
 	if (cmd == "memorize") {
 		MemorizeFromHand(i, hand);
-	} else if (cmd == "eat") {
+	} else if (cmd == "eat" || cmd == "drink") {
+		// ONE handler for both verbs. An apple feeds AND waters a little, so
+		// splitting by verb would have meant writing the other half twice; the
+		// item's `nutrition`/`hydration` say what it does and the verb only says
+		// how it reads in the menu.
 		EatFromHand(i, hand);
 	} else if (IsCastUse(cmd)) {
 		// A "cast:<id>" default: the world's cast façade gates vocabulary and
@@ -497,16 +502,29 @@ void GameUI::EatFromHand(size_t i, size_t hand) {
 	Character& c = m_characters[i];
 	ItemSlot& slot = c.inventory.Hand(static_cast<int>(hand));
 	if (slot.Empty()) return;
-	// Food restores a fraction of max stamina (scale-independent). A per-food
-	// nutrition value is a future catalog field; flat for this first slice.
-	constexpr float kRestoreFrac = 0.25f;
-	c.stamina = std::min(c.maxStamina, c.stamina + kRestoreFrac * c.maxStamina);
-	// Localized food name by the item.<id> convention (matches ItemKind::nameKey).
+	// Localized name by the item.<id> convention (matches ItemKind::nameKey);
+	// read BEFORE the slot is cleared.
 	const std::string foodName = loc::Tr(std::format("item.{}", slot.typeId));
-	slot.Clear(); // the food is consumed
+	// The world owns the catalogs and the meters, so it owns the arithmetic
+	// (docs/health-and-healing.md). This used to restore a flat 25% of max
+	// STAMINA — a placeholder from the items thread, kept only because nothing
+	// consumed food. It is re-pointed here rather than replaced: an existing
+	// seam, like SpendStamina's creep.
+	const resource::Refill got =
+		onConsume ? onConsume(i, slot.typeId) : resource::Refill{};
+	if (!got.Any()) {
+		// It fed nobody — either the item has no nutrition at all, or this
+		// member is already full. Refuse rather than silently eating it: losing
+		// the last apple to a full stomach is the kind of thing a player never
+		// forgives, and never notices happening.
+		AddLogLine(loc::FormatLine("log.eat_no_effect", c.name, foodName),
+				   c.portraitColor);
+		return;
+	}
+	slot.Clear(); // consumed
 	Click();
 	AddLogLine(loc::FormatLine("log.eat", c.name, foodName), c.portraitColor);
-	RefreshSheet(); // stamina bar / carry load on the sheet may be on screen
+	RefreshSheet(); // the supply bars / carry load may be on screen
 }
 
 // ============================================================================
@@ -531,7 +549,9 @@ void GameUI::BuildMenuList() {
 	// half each with just Start + Settings). Bounds are window fractions.
 	const bool hasSaves = !ListSaves().empty();
 	m_menuHasSaves = hasSaves;
-	const int itemCount = hasSaves ? 4 : 2;
+	// +1 for Exit, which is always present: it is the ONLY pointer-driven way out
+	// of the title screen now that Esc no longer quits (see Game.cpp's Menu case).
+	const int itemCount = (hasSaves ? 4 : 2) + 1;
 	constexpr float kMenuW = 0.26f;   // ~420/1600
 	constexpr float kItemH = 0.064f;  // ~58/900
 	const float menuH = kItemH * static_cast<float>(itemCount);
@@ -560,6 +580,12 @@ void GameUI::BuildMenuList() {
 	menu->AddItem(loc::Tr("menu.settings"), [this] {
 		Click();
 		m_menuPage = MenuPage::Settings;
+	});
+	// Exit LAST, the way the pause menu ends with it. Deliberately the only click
+	// that quits from here, since Esc no longer does.
+	menu->AddItem(loc::Tr("menu.exit"), [this] {
+		Click();
+		onQuit();
 	});
 }
 
@@ -1182,7 +1208,10 @@ void GameUI::DisarmOverwrite() {
 void GameUI::BuildCharacterSheet() {
 	// Parent-relative layout (fractions of the window) — no design-pixel Norm.
 	// Centered panel, slightly above geometric center so the footer buttons fit.
-	constexpr float kSheetW = 0.50f;
+	// 30% wider than it was, so the backpack tab has room for three real
+	// columns: paper doll, defense numbers, backpack (CharacterSheetLayout.h
+	// kWiden, which keeps the square cells square through the change).
+	constexpr float kSheetW = 0.65f;
 	constexpr float kSheetH = 0.62f;
 	constexpr float kSheetX = (1.0f - kSheetW) * 0.5f;
 	constexpr float kSheetY = (1.0f - kSheetH) * 0.5f - 0.03f;
@@ -1206,6 +1235,12 @@ void GameUI::BuildCharacterSheet() {
 	m_sheet->onRejectHold = [this](const std::string& item) {
 		m_audio.Play(m_sounds.bump, 0.5f);
 		AddLogLine(loc::FormatLine("log.cant_hold", loc::ViewKey("item.", item)));
+	};
+	m_sheet->defenseFor = [this](const Character& c) {
+		return defenseFor ? defenseFor(c) : DefenseReadout{};
+	};
+	m_sheet->defenseWith = [this](const Character& c, const std::string& id) {
+		return defenseWith ? defenseWith(c, id) : DefenseReadout{};
 	};
 	// Right-clicked backpack slot → its use menu (a rune memorizes from the
 	// pack too, not just a hand).
@@ -1525,12 +1560,23 @@ void GameUI::BuildHud() {
 			onTorchPalette(index);
 		});
 	constexpr float kHalfBtn = 0.4773f; // 0.063 of the window, of the inner width
-	options->Add<ui::Button>(gfx::Rect{0, 0.7609f, kHalfBtn, 0.2246f},
-		loc::Tr("hud.wait"),
-		[this] {
-			Click();
-			m_log->AddLine(loc::View("log.wait"));
-		});
+	// REST — the toggle for the rest STATE (docs/health-and-healing.md). This
+	// button was "Wait", which logged a line and did nothing else; rest is what
+	// waiting was always a placeholder for, so it takes the slot rather than
+	// crowding a second button in beside a dead one.
+	//
+	// The LABEL SHOWS THE ACTION, not the state — "Rest" while awake, "Wake"
+	// while resting — the same convention the editor's play-pause button uses,
+	// because a button labelled with the state it is already in reads as broken.
+	// It is re-labelled every frame from the world, so the rest ending BY ITSELF
+	// (fully recovered, attacked, out of food) puts the label back with no
+	// callback and no chance of the two disagreeing.
+	m_restButton =
+		options->Add<ui::Button>(gfx::Rect{0, 0.7609f, kHalfBtn, 0.2246f},
+			loc::Tr("hud.rest"), [this] {
+				Click();
+				if (onToggleRest) onToggleRest();
+			});
 	// Flush with the plate's inner right edge. It was authored at x 0.5379,
 	// which plus the button's own 0.4773 comes to 1.0152 — three pixels out of
 	// the plate, which is what `uioverlap` reported.
@@ -1555,6 +1601,9 @@ void GameUI::BuildHud() {
 	deps.onMove = [this](MoveAction action) { onMoveAction(action); };
 	deps.onHandLeft = [this](size_t i, size_t hand) { OnHandLeftClick(i, hand); };
 	deps.onHandRight = [this](size_t i, size_t hand) { OnHandRightClick(i, hand); };
+	deps.onGuardChange = [this](size_t i, float share) {
+		if (onGuardChange) onGuardChange(i, share);
+	};
 	deps.magicLabel = loc::Tr("hud.magic");
 	auto* controlBar = m_belowBar->Add<ControlBar>(
 		gfx::Rect{kPanelX, 0.0f, kPanelW, panelH / kBelowSpan}, deps);
@@ -1739,6 +1788,16 @@ void GameUI::SetHudStatus(int facing, int gridX, int gridZ) {
 
 void GameUI::SetHudStatus(const Party& party) {
 	SetHudStatus(party.Facing(), party.GridX(), party.GridZ());
+}
+
+// The rest button's face, pushed from the world every frame rather than set by
+// the callback that toggles it — because rest ends BY ITSELF as often as by a
+// click (fully recovered, attacked, out of food), and a label maintained at the
+// click site would be wrong every one of those times.
+void GameUI::SetResting(bool resting) {
+	if (!m_restButton || resting == m_restLabelState) return;
+	m_restLabelState = resting;
+	m_restButton->text = loc::Tr(resting ? "hud.wake" : "hud.rest");
 }
 
 void GameUI::ResetHudStatus() { m_lastFacing = m_lastGridX = m_lastGridZ = -1; }

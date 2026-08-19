@@ -39,6 +39,14 @@ enum class FieldKind {
 	TextureSet, // dropdown over the installed texture sets (assets/textures)
 	Model,      // dropdown over the installed models (assets/models)
 	CatalogRef, // dropdown over the ids of the catalog named by `options`
+	// Dropdown over the DAMAGE TYPES the project defines (damagetypes.cat).
+	// Its own kind rather than a CatalogRef because the types are loaded into a
+	// registry that resolves and validates them (DamageTypeBook), and the
+	// dropdown should offer exactly what the game will accept. It replaced a
+	// hardcoded "slash pierce bash fire earth air water" that went stale the
+	// moment types became data — a project could author a type the editor
+	// could not name.
+	DamageType,
 };
 
 // One editable field of one category.

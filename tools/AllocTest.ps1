@@ -8,6 +8,7 @@
 #
 #   .\tools\AllocTest.ps1                    # debug build, 10-second window
 #   .\tools\AllocTest.ps1 -Seconds 30
+#   .\tools\AllocTest.ps1 -Wounded           # the REGENERATING steady state
 #   .\tools\AllocTest.ps1 -Config release    # needs -DDN_TRACK_ALLOCS=ON
 #
 # The party stands still on purpose. Player-driven EVENTS (a bump message, a
@@ -15,6 +16,21 @@
 # what the rule forbids - so the assertion is about frames where nothing
 # happened, which is where zero is unambiguously the right answer. Anything
 # that does allocate is named with a full call stack in dungeon.log.
+#
+# WHY -Wounded EXISTS, and it is the same trap this project keeps meeting: a
+# FRESH party is at full health, and regeneration only runs BELOW maximum - so
+# the default run walks straight past the whole resource tick and reports a
+# confident PASS for code it never executed (docs/health-and-healing.md). The
+# regenerating party is a real steady state (it is what walking away from a
+# fight looks like) and it is where the per-frame skill-XP award lives, so it
+# needs its own run. Absent and correct report identically; give the check
+# something to be wrong about.
+#
+# It wounds with a SHORT bleed and lets it expire before measuring, so the DoT's
+# own event lines fall outside the window, and it sets the resource practices
+# high first - not to make the numbers big, but because a level-up mid-window is
+# an event that would allocate legitimately and muddy the verdict. At level 20 a
+# practice needs 41 more XP, which ten seconds of regeneration cannot reach.
 #
 # Every step is driven by what the log actually says rather than by sleeps, so
 # a slow cold-cache load stretches the wait instead of failing the run.
@@ -27,6 +43,9 @@ param(
 	[ValidateSet('debug', 'release')][string]$Config = 'debug',
 	[int]$Seconds = 10,
 	[int]$LoadTimeoutSec = 240,
+	# Measures a WOUNDED party instead of a fresh one. See the note above: a
+	# full-health party never runs the regeneration path at all.
+	[switch]$Wounded,
 	# Checks the CHECKER: makes the game allocate every frame on purpose
 	# (`allocpoke`) and passes only if the run comes back FAIL.
 	[switch]$SelfTest
@@ -99,6 +118,39 @@ try {
 	Write-Host 'starting a new game'
 	Send-Key 0x0D
 	Wait-ForLog 'Game loaded: ' $LoadTimeoutSec 'the dungeon load' | Out-Null
+
+	if ($Wounded) {
+		Write-Host 'wounding the party so the regeneration path actually runs'
+		Send-Key 0xC0
+		Start-Sleep -Milliseconds 500
+		# Echo to the log, because a PASS here is only worth anything if the
+		# wounding actually happened - and a swallowed keystroke (0xC0 toggles,
+		# so one stray press eats every command after it) would leave a run that
+		# looks exactly like a clean one. The `party` line below is the evidence.
+		Send-Text 'logecho on'; Send-Key 0x0D
+		foreach ($m in 0, 1, 2, 3) {
+			# Level the practices first (a level-up inside the window is an
+			# event, and events are allowed to allocate - see the header).
+			foreach ($s in 'constitution', 'conditioning', 'attunement') {
+				Send-Text "setskill $m $s 20"; Send-Key 0x0D
+			}
+			Send-Text "effect bleed $m 6 2"; Send-Key 0x0D
+		}
+		# Let the bleed run out, so only the recovery is inside the window.
+		Start-Sleep -Seconds 4
+		Send-Text 'party'; Send-Key 0x0D
+		Start-Sleep -Milliseconds 300
+		Send-Text 'logecho off'; Send-Key 0x0D
+		Send-Key 0xC0 # close the console again; alloctest reopens it below
+		Start-Sleep -Milliseconds 400
+		# Refuse to report on a party that is not actually hurt. Without this the
+		# switch could silently degrade into the plain run it exists to replace.
+		$hurt = Select-String -Path $log -Pattern 'hp \d+\.\d+/\d+\.\d+' |
+			Where-Object { $_.Line -match 'hp (\d+\.\d+)/(\d+\.\d+)' -and
+						   [double]$Matches[1] -lt [double]$Matches[2] }
+		if (-not $hurt) { throw 'the party is at full health - the wounding did not land' }
+		Write-Host "  wounded: $((($hurt | Select-Object -Last 4).Line -replace '^.*console: ', '') -join '; ')"
+	}
 
 	if ($SelfTest) {
 		Write-Host 'self-test: arming allocpoke, expecting the run to FAIL'

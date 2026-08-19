@@ -3,12 +3,18 @@ add_library(Game STATIC
 	AssetPicker.cpp
 	AssetUtil.cpp
 	Balance.cpp
+	Blast.cpp
 	BalanceDialog.cpp
 	ButtonInspector.cpp
 	Catalog.cpp
 	CatalogSchema.cpp
 	Character.cpp
 	Combat.cpp
+	Curve.cpp
+	CurvePlot.cpp
+	DamageLedger.cpp
+	DamageTypes.cpp
+	Defense.cpp
 	DevConsole.cpp
 	DialogLayout.cpp
 	DoorInspector.cpp
@@ -16,8 +22,10 @@ add_library(Game STATIC
 	DungeonMap.cpp
 	DungeonMeshBuilder.cpp
 	DungeonWorld.cpp
+	DungeonWorld_Arena.cpp
 	DungeonWorld_Combat.cpp
 	DungeonWorld_Editing.cpp
+	DungeonWorld_Ledger.cpp
 	DungeonWorld_Load.cpp
 	DungeonWorld_Render.cpp
 	DungeonWorld_Save.cpp
@@ -26,6 +34,7 @@ add_library(Game STATIC
 	Effect/DotEffect.cpp
 	Effect/Effect.cpp
 	Effect/SightEffect.cpp
+	Effect/SupplyEffect.cpp
 	Effect/WardEffect.cpp
 	Entity.cpp
 	EntityInspector.cpp
@@ -34,6 +43,7 @@ add_library(Game STATIC
 	Game.cpp
 	Game_DevCommands.cpp
 	Game_Editor.cpp
+	Game_Eval.cpp
 	Game_Generate.cpp
 	Game_Inspect.cpp
 	Game_Wiring.cpp
@@ -45,6 +55,7 @@ add_library(Game STATIC
 	Magic.cpp
 	MapEditor.cpp
 	MapView.cpp
+	Mishap.cpp
 	MonsterAI.cpp
 	MonsterConfigDialog.cpp
 	NicheInspector.cpp
@@ -56,10 +67,12 @@ add_library(Game STATIC
 	ValidateDialog.cpp
 	Placement.cpp
 	PartyHudDraw.cpp
+	Roll.cpp
 	PartyBar.cpp
 	CharacterPanel.cpp
 	ControlBar.cpp
 	HandSlot.cpp
+	GuardSlider.cpp
 	SpellbookPanel.cpp
 	InventoryWindow.cpp
 	CharacterSheet.cpp
@@ -70,6 +83,7 @@ add_library(Game STATIC
 	Projectiles.cpp
 	ProjectileInspector.cpp
 	PropInspector.cpp
+	Resource.cpp
 	SaveGame.cpp
 	Serialize.cpp
 	ShadowScheduler.cpp
@@ -99,3 +113,7 @@ add_library(Game STATIC
 	TypeEditorDialog.cpp
 )
 target_link_libraries(Game PUBLIC Core Platform Assets Animation Graphics UI Audio)
+
+# Solution Explorer: headers visible, folders mirrored (dn_ide_layout, root
+# CMakeLists). MUST be called here — source_group is directory-scoped.
+dn_ide_layout(Game ${CMAKE_CURRENT_SOURCE_DIR})
