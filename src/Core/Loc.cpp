@@ -6,6 +6,8 @@
 #include "Core/Log.h"
 
 #include <algorithm>
+#include <cstring>
+#include <iterator>
 #include <filesystem>
 #include <fstream>
 #include <unordered_map>
@@ -83,19 +85,70 @@ size_t LogMissingKeys(const std::string& referencePath) {
 	return missing.size();
 }
 
-std::string Tr(std::string_view key) {
+std::string Tr(std::string_view key) { return std::string(View(key)); }
+
+std::string_view View(std::string_view key) {
 	const auto it = g_table.find(key);
-	return it != g_table.end() ? it->second : std::string(key);
+	// A missing key yields the KEY itself. Every caller passes a string literal
+	// or a table-owned id, so the view outlives the call either way.
+	return it != g_table.end() ? std::string_view(it->second) : key;
+}
+
+void Line::Assign(std::string_view text) {
+	m_len = std::min(text.size(), kCapacity);
+	std::memcpy(m_buf, text.data(), m_len);
+	m_buf[m_len] = '\0';
 }
 
 std::string VFormat(std::string_view key, std::format_args args) {
-	const std::string pattern = Tr(key);
+	const std::string_view pattern = View(key);
 	try {
 		return std::vformat(pattern, args);
 	} catch (const std::format_error&) {
 		log::Warn("Bad format placeholders in language entry '{}'", key);
-		return pattern;
+		return std::string(pattern);
 	}
+}
+
+namespace {
+// An output iterator that writes into a fixed buffer and DROPS anything past
+// it. std::vformat_to is the only type-erased formatting sink the standard
+// offers — format_to_n needs a compile-time format string, which a runtime
+// language table cannot give it — so the clipping has to live in the iterator.
+struct ClipIter {
+	using iterator_category = std::output_iterator_tag;
+	using value_type = void;
+	using difference_type = std::ptrdiff_t;
+	using pointer = void;
+	using reference = void;
+
+	char* buf = nullptr;
+	size_t cap = 0;
+	size_t* len = nullptr;
+
+	ClipIter& operator=(char c) {
+		if (*len < cap) buf[(*len)++] = c;
+		return *this;
+	}
+	ClipIter& operator*() { return *this; }
+	ClipIter& operator++() { return *this; }
+	ClipIter operator++(int) { return *this; }
+};
+} // namespace
+
+Line VFormatLine(std::string_view key, std::format_args args) {
+	const std::string_view pattern = View(key);
+	char buf[Line::kCapacity];
+	size_t len = 0;
+	Line out;
+	try {
+		std::vformat_to(ClipIter{buf, Line::kCapacity, &len}, pattern, args);
+		out.Assign({buf, len});
+	} catch (const std::format_error&) {
+		log::Warn("Bad format placeholders in language entry '{}'", key);
+		out.Assign(pattern);
+	}
+	return out;
 }
 
 std::vector<LanguageInfo> ScanLanguages(const std::string& dir) {
