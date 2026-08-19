@@ -206,7 +206,9 @@ public:
 
 	// For the lines effects write about their bearer.
 	virtual std::string Name() const = 0;
-	virtual void Say(const std::string& line) const = 0;
+	// Borrows the line — an effect builds it in a loc::Line on its own stack
+	// and it is copied only once, into the log's ring (docs/message-allocation.md).
+	virtual void Say(std::string_view line) const = 0;
 	// Announce that `kind` has just taken hold. The two sides word the same
 	// affliction differently — "Sera is poisoned!" against "The blob catches
 	// fire!" — so each effect supplies BOTH lines (effects.cat apply_party /

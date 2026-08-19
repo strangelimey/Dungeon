@@ -137,11 +137,13 @@ public:
 	void RefreshSheet();          // re-caches after the roster resets in place
 
 	// --- message log ---------------------------------------------------------------
-	void AddLogLine(const std::string& line);
+	// Borrows the line: it is copied once, into the log's own ring slot, so
+	// printing a message allocates nothing (docs/message-allocation.md).
+	void AddLogLine(std::string_view line);
 	// A line ABOUT a party member, tinted with their identity color (the
 	// portrait/hand-stripe color, brightened to read as text ink on the dark
 	// footer). Casting, learning, eating, being struck — anything personal.
-	void AddLogLine(const std::string& line, const Vec4& memberColor);
+	void AddLogLine(std::string_view line, const Vec4& memberColor);
 	void ClearLog();
 
 	// --- rendering (inside the caller's SpriteBatch Begin/End) -------------------

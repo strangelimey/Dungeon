@@ -188,7 +188,7 @@ std::string Game::CreateNewLevel() {
 	m_project.levels.push_back(stem);
 	m_project.Save();
 	if (m_world.onMessage)
-		m_world.onMessage(loc::Format("map.level.created", stem));
+		m_world.onMessage(loc::FormatLine("map.level.created", stem));
 	return stem;
 }
 
@@ -202,7 +202,7 @@ bool Game::RenameLevel(const std::string& oldStem, const std::string& newStem) {
 	if (it == levels.end()) return false;
 	if (std::find(levels.begin(), levels.end(), newStem) != levels.end()) {
 		if (m_world.onMessage)
-			m_world.onMessage(loc::Format("map.level.dupname", newStem));
+			m_world.onMessage(loc::FormatLine("map.level.dupname", newStem));
 		return false;
 	}
 	if (!m_world.RenameLevel(oldStem, newStem)) return false;
@@ -210,7 +210,7 @@ bool Game::RenameLevel(const std::string& oldStem, const std::string& newStem) {
 	m_project.Save();
 	m_mapView.OnLevelRenamed(oldStem, newStem);
 	if (m_world.onMessage)
-		m_world.onMessage(loc::Format("map.level.renamed", oldStem, newStem));
+		m_world.onMessage(loc::FormatLine("map.level.renamed", oldStem, newStem));
 	return true;
 }
 
@@ -301,7 +301,7 @@ void Game::CreateCatalogEntry(const AssetDialog::CreateRequest& req) {
 	const MapEditor::PaletteCat pcat = MapEditor::CatForCatalogKey(req.catalogKey);
 	if (MapEditor::SurfaceCat(pcat)) m_mapEditor.AddToPalette(pcat, req.name);
 	else if (m_world.onMessage)
-		m_world.onMessage(loc::Format("newasset.created", req.name));
+		m_world.onMessage(loc::FormatLine("newasset.created", req.name));
 }
 
 // Opens the per-type catalog editor for a palette row. The dialog edits a COPY
@@ -317,7 +317,7 @@ void Game::OpenTypeEditor(MapEditor::PaletteCat cat, const std::string& id) {
 		// A level palette can name an id its catalog doesn't define (hand-edited
 		// map, or a foreign project) — there is nothing to edit.
 		log::Warn("type editor: '{}' is not in {}.cat", id, key);
-		if (m_world.onMessage) m_world.onMessage(loc::Format("map.type.unknown", id));
+		if (m_world.onMessage) m_world.onMessage(loc::FormatLine("map.type.unknown", id));
 		return;
 	}
 	TypeEditorDialog::Config cfg;
@@ -473,7 +473,7 @@ bool Game::RenameType(const std::string& catalogKey, const std::string& id,
 	log::Info("Renamed type '{}' -> '{}' ({} record(s) in {} level(s))", id, newId,
 			  used.count, used.levels.size());
 	if (m_world.onMessage)
-		m_world.onMessage(loc::Format("map.type.renamed", id, newId, used.count));
+		m_world.onMessage(loc::FormatLine("map.type.renamed", id, newId, used.count));
 	WarnStaleSaves(id);
 	return true;
 }
@@ -488,7 +488,7 @@ void Game::WarnStaleSaves(const std::string& id) {
 		list += (list.empty() ? "" : ", ") + name;
 	log::Warn("Save file(s) still reference type '{}': {}", id, list);
 	if (m_world.onMessage)
-		m_world.onMessage(loc::Format("map.type.stalesaves", id, list));
+		m_world.onMessage(loc::FormatLine("map.type.stalesaves", id, list));
 }
 
 // Deletes a type — but only an UNUSED one. A record naming a missing type is
@@ -521,7 +521,7 @@ bool Game::DeleteType(const std::string& catalogKey, const std::string& id,
 	cat->Remove(id);
 	if (!m_project.Save()) log::Warn("delete type: failed to save catalogs");
 	log::Info("Deleted type '{}' from {}", id, catalogKey);
-	if (m_world.onMessage) m_world.onMessage(loc::Format("map.type.deleted", id));
+	if (m_world.onMessage) m_world.onMessage(loc::FormatLine("map.type.deleted", id));
 	WarnStaleSaves(id); // a save's spawn rows are outside the level sweep
 	return true;
 }
@@ -633,7 +633,7 @@ void Game::WriteMonsterAnim(const MonsterConfigDialog::Config& cfg) {
 	if (!m_project.Save())
 		log::Warn("monster config: failed to save project catalogs");
 	else if (m_world.onMessage)
-		m_world.onMessage(loc::Format("map.cfg.saved", cfg.type));
+		m_world.onMessage(loc::FormatLine("map.cfg.saved", cfg.type));
 }
 
 // Runs one queued task per rendered frame (never before the current loading

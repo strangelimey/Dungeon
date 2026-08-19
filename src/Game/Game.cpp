@@ -99,13 +99,13 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 		if (ok && toSource) ok = SyncProjectToSource();
 		if (!m_world.onMessage) return;
 		if (!ok) {
-			m_world.onMessage(loc::Tr("map.save.failed"));
+			m_world.onMessage(loc::View("map.save.failed"));
 			return;
 		}
 		std::string list;
 		for (const std::string& s : saved) list += (list.empty() ? "" : ", ") + s;
 		m_world.onMessage(
-			loc::Format(toSource ? "map.save.synced" : "map.save.done", list));
+			loc::FormatLine(toSource ? "map.save.synced" : "map.save.done", list));
 	};
 	// The editor's Balance header button → the combat-tuning dialog. Edits
 	// apply LIVE (the world's Balance is the one every formula reads, and the
@@ -129,7 +129,7 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 								   "(damage/accuracy/speed multipliers); "
 								   "identity (damage type) is C++ (Balance.h).");
 		if (m_world.onMessage)
-			m_world.onMessage(loc::Tr(ok ? "map.balance.saved" : "map.save.failed"));
+			m_world.onMessage(loc::View(ok ? "map.balance.saved" : "map.save.failed"));
 	};
 	// The editor toolbar's Level button → the per-level atmosphere dialog,
 	// opened on the VIEWED level's effective values (a browsed level's come
@@ -158,8 +158,8 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	m_generateDialog.onGenerate = [this](const generate::Params& p) {
 		if (!RegenerateViewedLevel(p)) return;
 		if (m_world.onMessage)
-			m_world.onMessage(loc::Format("map.gen.done", m_mapView.ViewedLevel(),
-										  p.seed));
+			m_world.onMessage(loc::FormatLine("map.gen.done", m_mapView.ViewedLevel(),
+											  p.seed));
 		m_validateDialog.Open(m_world.Validate());
 	};
 	// Clicking a finding shows it: browse to its level, and select the cell so
@@ -180,8 +180,8 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 		m_world.SetLevelAtmosphere(m_levelSettingsDialog.Level(), dust, haze, ambient);
 		m_world.SetLevelTheme(m_levelSettingsDialog.Level(), ParseTags(theme));
 		if (m_world.onMessage)
-			m_world.onMessage(loc::Format("map.level.applied",
-										  m_levelSettingsDialog.Level()));
+			m_world.onMessage(loc::FormatLine("map.level.applied",
+											  m_levelSettingsDialog.Level()));
 	};
 	// The editor toolbar's [+] button: mint a fresh level (files + manifest)
 	// and hand the stem back so the view jumps onto the new canvas.
@@ -506,8 +506,8 @@ void Game::StartNewGame() {
 	}
 
 	m_ui.ClearLog();
-	m_ui.AddLogLine(loc::Tr("log.descend"));
-	m_ui.AddLogLine(loc::Tr("log.shuffle"));
+	m_ui.AddLogLine(loc::View("log.descend"));
+	m_ui.AddLogLine(loc::View("log.shuffle"));
 	m_ui.AddLogLine(m_settings.MoveKeysHelp());
 
 	m_ui.ResetHudStatus();
@@ -727,7 +727,7 @@ bool Game::LoadGame(const std::string& path) {
 	m_looking = m_world.GetParty().IsLooking();
 	m_world.ApplyActiveSnapshot(); // restore the active level's fog + entity diff
 	m_ui.ClearLog(); // SetTorchPalette logged a line during ApplyState
-	m_ui.AddLogLine(loc::Tr("log.descend"));
+	m_ui.AddLogLine(loc::View("log.descend"));
 	const Party& party = m_world.GetParty();
 	m_ui.ResetHudStatus();
 	m_ui.SetHudStatus(party);
@@ -995,7 +995,7 @@ void Game::Update(float dt) {
 			m_restyleBake = false;
 			m_baking = false;
 			m_typeDialog.Close();
-			if (m_world.onMessage) m_world.onMessage(loc::Tr("map.wallstyle.applied"));
+			if (m_world.onMessage) m_world.onMessage(loc::View("map.wallstyle.applied"));
 		} else {
 			FinishBake();
 			m_baking = false;

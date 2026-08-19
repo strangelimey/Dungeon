@@ -10,7 +10,7 @@
 namespace dungeon::game {
 
 namespace {
-constexpr size_t kMaxLines = 200;
+// (kMaxLines is the ring's capacity and lives on the class — see MessageLog.h.)
 constexpr float kHold = 6.0f;          // seconds a message stays fully opaque
 constexpr float kFade = 5.0f;          // seconds it then takes to fade out
 constexpr float kShrinkDelay = 0.5f;   // pause before collapsing once unhovered
@@ -27,14 +27,26 @@ float Approach(float value, float target, float rate, float dt) {
 }
 } // namespace
 
-void MessageLog::AddLine(std::string line, std::optional<Vec4> color) {
-	m_msgs.push_back({std::move(line), color, 0.0f});
-	while (m_msgs.size() > kMaxLines) m_msgs.pop_front();
+void MessageLog::AddLine(std::string_view line, std::optional<Vec4> color) {
+	// Claim the next slot, evicting the oldest once the ring is full. Nothing
+	// is constructed or destroyed here — the slot already exists and its text
+	// buffer is inline, so this is a copy into storage the log already owns.
+	Msg& slot = m_ring[(m_head + m_count) % kMaxLines];
+	if (m_count == kMaxLines)
+		m_head = (m_head + 1) % kMaxLines; // overwrote the oldest
+	else
+		++m_count;
+	slot.text.Assign(line);
+	slot.color = color;
+	slot.age = 0.0f;
 	m_scroll = 0.0f; // snap to the newest line
 }
 
 void MessageLog::Clear() {
-	m_msgs.clear();
+	// Drops the history without releasing the ring: the slots stay put and are
+	// simply forgotten, so clearing costs nothing and refilling costs nothing.
+	m_head = 0;
+	m_count = 0;
 	m_scroll = 0.0f;
 }
 
@@ -117,7 +129,7 @@ void MessageLog::UpdateSelf(ui::UIContext& ctx) {
 		if (input->WheelDelta() != 0.0f && !ctx.IsWheelConsumed()) {
 			const float innerH = footer.h - 2.0f * Rem(kPadRem);
 			const float maxScroll = std::max(
-				0.0f, static_cast<float>(m_msgs.size()) - innerH / lineH);
+				0.0f, static_cast<float>(Count()) - innerH / lineH);
 			m_scroll = std::clamp(m_scroll + input->WheelDelta() * 3.0f, 0.0f,
 								  maxScroll);
 			ctx.ConsumeWheel();
@@ -137,12 +149,13 @@ void MessageLog::Tick(float dt) {
 
 	// Messages age only while collapsed, so reading (expanded) freezes the fade.
 	if (!m_expanded)
-		for (Msg& msg : m_msgs) msg.age += dt;
+		for (size_t i = 0; i < Count(); ++i) At(i).age += dt;
 
 	// The footer shows while expanded or while any message is still visible;
 	// otherwise it fades out (cross-fading into the restore button).
 	float maxAlpha = 0.0f;
-	for (const Msg& msg : m_msgs) maxAlpha = std::max(maxAlpha, MsgAlpha(msg));
+	for (size_t i = 0; i < Count(); ++i)
+		maxAlpha = std::max(maxAlpha, MsgAlpha(At(i)));
 	const float chromeTarget = (m_expanded || maxAlpha > 0.01f) ? 1.0f : 0.0f;
 	m_chromeAlpha = Approach(m_chromeAlpha, chromeTarget, kAlphaRate, dt);
 
@@ -170,10 +183,10 @@ void MessageLog::DrawSelf(ui::UIContext& ctx, gfx::SpriteBatch& batch) {
 		const float lineH = font.LineAdvance();
 		// Newest at the bottom, offset upward by the scroll.
 		const int last =
-			static_cast<int>(m_msgs.size()) - 1 - static_cast<int>(m_scroll);
+			static_cast<int>(Count()) - 1 - static_cast<int>(m_scroll);
 		float y = inner.y + inner.h - lineH;
 		for (int i = last; i >= 0 && y + lineH > inner.y; --i) {
-			const Msg& msg = m_msgs[static_cast<size_t>(i)];
+			const Msg& msg = At(static_cast<size_t>(i));
 			Vec4 col = msg.color.value_or(theme.text);
 			col.w *= ca * MsgAlpha(msg);
 			font.Draw(batch, msg.text, inner.x, y, col);

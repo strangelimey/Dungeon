@@ -89,12 +89,18 @@ Key conventions (memorize, they bite):
   (one machine-readable verdict line), `allocguard [status|strict on|off|
   reset]`, `allocpoke` (violate on purpose); `tools\AllocTest.ps1` is the
   re-runnable regression run (`-SelfTest` inverts the verdict, so the harness
-  must catch a real violation to pass). TWO POLICIES to know before "fixing" a
-  report: EVENT frames (a bump message → loc::Tr + MessageLog::AddLine) DO
-  allocate and are reported but not asserted on — allocation proportional to
-  events isn't what the rule forbids, and they are deliberately NOT wrapped in
-  alloc::Excused because that would also hide something logging every frame;
-  and anything reporting from inside a guarded frame must excuse ITSELF
+  must catch a real violation to pass). THE EVENT-FRAME EXEMPTION IS GONE
+  (2026-08-18, docs/message-allocation.md): a bump message used to allocate —
+  loc::Tr returned a COPY of text the table already owned, and MessageLog kept
+  a std::string per line — and that was written up here as a POLICY, "allocation
+  proportional to events isn't what the rule forbids". It was a rationalisation
+  of a defect, and its real cost was that a guard which fires during ordinary
+  play teaches you to ignore it. Printing a message now allocates nothing
+  (loc::View / loc::ViewKey / loc::FormatLine + a fixed MessageLog ring), so the
+  rule needs no notion of an event and no exception list: an allocation in a
+  settled frame is a bug, full stop. Something firing events every frame is a
+  MESSAGE-RATE problem, visible in the log on its own terms. ONE POLICY is left:
+  anything reporting from inside a guarded frame must excuse ITSELF
   (log::Write formats a string). Staged loading is measured too — LoadQueue
   times/counts every task and dumps a table when the last lands (`loadstats`
   reprints; each Add takes an English dev name beside its localized label),

@@ -64,30 +64,67 @@ type. That is the whole-codebase migration (below) arriving uninvited in the
 middle of a feature branch. Backed out; the non-allocating path is additive, and
 the migration is its own job.
 
-## What remains — the pipeline (do this next)
+## The pipeline — DONE
 
-Making a bump message allocation-free end to end:
+1. **Signatures to `std::string_view`** — `DungeonWorld::onMessage` /
+   `onMemberMessage` / `MemberMessage`, `GameUI::AddLogLine` (both overloads),
+   `fx::ITarget::Say` and its two adapters. Nothing along the path owns a
+   message any more; it is copied exactly once, into the log's own slot.
+2. **`MessageLog` is a fixed ring.** Not the planned ring of `std::string`s
+   reusing capacity — a ring of `loc::Line`, whose text is INLINE. That is a
+   stronger property and a far easier one to state: it allocates nothing from
+   the FIRST line, rather than nothing once every slot has grown big enough.
+   The ring is one allocation at construction, and `Clear()` forgets its slots
+   rather than releasing them.
+3. **152 lookups at message call sites** moved to `loc::FormatLine` /
+   `loc::View`, by a call-AWARE pass — a blind replace would have been wrong,
+   since a `loc::Tr` feeding a widget label still wants to own its string.
 
-1. **Signatures to `std::string_view`** — the message path currently takes and
-   stores `std::string`:
-   - `DungeonWorld::onMessage`, `DungeonWorld::onMemberMessage`
-   - `DungeonWorld::MemberMessage`
-   - `GameUI::AddLogLine`
-   - `fx::ITarget::Say` (and its two adapters, PartyTarget / MonsterTarget)
-2. **`MessageLog` stops allocating per line.** Today it is
-   `std::deque<Msg>` with a `std::string text` per entry. Make it a FIXED RING
-   whose slots are allocated once and assigned into — `assign()` reuses capacity,
-   so a steady stream of messages costs nothing after warm-up.
-3. **~100 message call sites** switch `loc::Format` → `loc::FormatLine` and
-   `loc::Tr` → `loc::View`. Mechanical; they are the sites matching
-   `onMessage(loc::`, `MemberMessage(.*loc::`, `AddLogLine(loc::`.
+### One thing the plan did not foresee: the KEY allocated too
 
-### How to know it worked
+11 sites built the key by concatenation — `loc::Tr("monster." + kind->name)`,
+the convention dynamic ids follow (`monster.`/`item.`/`skill.`/`stat.`). That
+temporary `std::string` is an allocation per message, and those are most of
+what combat says out loud. `loc::ViewKey(prefix, id)` assembles the key in a
+stack buffer instead.
 
-Run the game, walk the party into a wall a few times, toggle the console, and
-read `dungeon.log`. Success is **no `[warn]` lines at all** from a session where
-nothing is wrong. Today that same run produces three, all `loc::Tr` /
-`loc::Format` under `TryStep` and `OnBumpImpact`.
+It also closes a hazard the conversion would otherwise have INTRODUCED:
+`View` returns a missing key AS ITSELF, so a view of a concatenated temporary
+dangles the moment anyone holds on to it. `ViewKey` returns by value, so the
+fallback is owned. (A `std::formatter<loc::Line>` comes with it —
+`make_format_args` resolves on the static type, so Line's implicit conversion
+to `string_view` never got a look in.)
+
+### Measured
+
+Identical session both times: new game, walk into the wall six times, toggle
+the console, read `dungeon.log`.
+
+| | guard reports | allocating sites |
+|---|---|---|
+| before | 3 | `loc::Tr`, `loc::VFormat`, `GameUI::AddLogLine`, `MessageLog::AddLine`, `MessageLog::Msg::Msg`, `AudioEngine::Play` |
+| after | 1 | `AudioEngine::Play` |
+
+Every message allocation is gone. The report left is not a message — below.
+
+## Still open
+
+**`AudioEngine::Play` allocates** (`AudioEngine.cpp:148`). The pool reuses an
+idle voice of a MATCHING format, but the first play of each format
+`make_unique`s a `PooledVoice`. So it is once-per-format WARM-UP rather than a
+per-event cost — a different shape from the message defect, and a real choice
+rather than an oversight: either that counts as legitimate warm-up (and the
+harness warms the sound before it measures), or the pool is built up front at
+load and the guard's promise holds with no asterisk at all. Deliberately not
+decided here.
+
+**`tools\AllocTest.ps1` cannot catch this class of defect** — and says so in
+its own header: *"The party stands still on purpose. Player-driven EVENTS (a
+bump message, a level line) legitimately allocate."* It encodes the very
+rationalisation this document retired, which is why it passed throughout: it
+passes on the UNFIXED build too. Once the audio question is settled, the
+harness should bump a wall inside the measured window. That is the run that
+would have caught this, and the one that stops it coming back.
 
 ## The half after that (optional, larger)
 

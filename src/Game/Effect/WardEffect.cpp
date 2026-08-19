@@ -57,12 +57,12 @@ void FireshieldEffect::OnStruck(Inst& inst, const DamageEvent& ev, ITarget& self
 	// Nothing came of it (immune): no line. Being FED says so through the
 	// attacker's own Absorb, so only a real burn reports a number here.
 	if (back.dealt <= 0.0f) return;
-	self.Say(loc::Format("log.shield_burns", attacker->Name(),
-						 static_cast<int>(back.dealt + 0.5f)));
+	self.Say(loc::FormatLine("log.shield_burns", attacker->Name(),
+							 static_cast<int>(back.dealt + 0.5f)));
 	// Nothing else narrates a death here, so the ward does: through the
 	// ATTACKER's own channel, which is the plain world log a monster's death
 	// has always used.
-	if (back.slew) attacker->Say(loc::Format("log.monster_slain", attacker->Name()));
+	if (back.slew) attacker->Say(loc::FormatLine("log.monster_slain", attacker->Name()));
 }
 
 // --- water: absorb ------------------------------------------------------------
@@ -75,11 +75,11 @@ void WaterveilEffect::OnAbsorb(Inst& inst, float& remaining,
 	const float soaked = std::min(inst.magnitude, remaining);
 	inst.magnitude -= soaked;
 	remaining -= soaked;
-	if (!ev.Quiet()) self.Say(loc::Format("log.shield_soaks", self.Name()));
+	if (!ev.Quiet()) self.Say(loc::FormatLine("log.shield_soaks", self.Name()));
 	if (inst.magnitude > 0.0f) return;
 	// Spent — it BURSTS rather than fading, so it says its own line and zeroes
 	// its timer; Deal drops it before the aging tick can add a fade line.
-	self.Say(loc::Format("log.shield_bursts", self.Name()));
+	self.Say(loc::FormatLine("log.shield_bursts", self.Name()));
 	inst.timeLeft = 0.0f;
 }
 
@@ -91,9 +91,9 @@ void WindwardEffect::OnDeflect(Inst& inst, DamageEvent& ev, ITarget& self) const
 	if (ev.delivery != Delivery::Ranged) return; // it turns bolts, not blows
 	inst.magnitude -= 1.0f;                      // one charge per deflection
 	ev.deflected = true;
-	self.Say(loc::Format("log.shield_deflects", self.Name()));
+	self.Say(loc::FormatLine("log.shield_deflects", self.Name()));
 	if (inst.magnitude > 0.0f) return;
-	self.Say(loc::Format("log.shield_stills", self.Name())); // the wind stills
+	self.Say(loc::FormatLine("log.shield_stills", self.Name())); // the wind stills
 	inst.timeLeft = 0.0f;
 }
 

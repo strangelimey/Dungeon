@@ -1028,12 +1028,16 @@ public:
 
 	// HUD log feedback (bump lines, monster announcements, palette flavor).
 	// Set before play starts; the party/monster callbacks route through it.
-	std::function<void(const std::string&)> onMessage;
+	//
+	// BORROWS its text (docs/message-allocation.md): callers hand over a
+	// loc::Line built on their own stack, so nothing along this path owns,
+	// copies or allocates a message until the log copies it into its ring.
+	std::function<void(std::string_view)> onMessage;
 	// Like onMessage, for lines ABOUT a party member (casting, learning,
 	// being struck, going down): carries the member's identity color so the
 	// log tints the line in it. MemberMessage routes here, falling back to
 	// plain onMessage when unwired.
-	std::function<void(const std::string&, const Vec4&)> onMemberMessage;
+	std::function<void(std::string_view, const Vec4&)> onMemberMessage;
 
 private:
 	// A texture variant set: parallel albedo / normal+height pairs plus the
@@ -1989,7 +1993,7 @@ private:
 						   std::string_view where);
 	// A log line ABOUT `member`: routes through onMemberMessage with their
 	// identity color (the HUD tints it), falling back to plain onMessage.
-	void MemberMessage(const Character& member, const std::string& line) const;
+	void MemberMessage(const Character& member, std::string_view line) const;
 	// If no member is standing, latch the one-shot party wipe (message + callback).
 	// Returns true the frame it latches. Shared by the melee/ranged/bump paths.
 	bool CheckPartyWipe();
@@ -2023,7 +2027,7 @@ private:
 		void Wound(float amount, fx::DamageEvent& ev) override;
 		void Absorb(float amount, fx::DamageEvent& ev) override;
 		std::string Name() const override { return m_member.name; }
-		void Say(const std::string& line) const override;
+		void Say(std::string_view line) const override;
 		void SayApplied(const fx::EffectKind& kind) const override;
 
 		// Say the one-shot fall line for the wound just applied ("has
@@ -2049,7 +2053,7 @@ private:
 		void Wound(float amount, fx::DamageEvent& ev) override;
 		void Absorb(float amount, fx::DamageEvent& ev) override;
 		std::string Name() const override;
-		void Say(const std::string& line) const override;
+		void Say(std::string_view line) const override;
 		void SayApplied(const fx::EffectKind& kind) const override;
 
 	private:

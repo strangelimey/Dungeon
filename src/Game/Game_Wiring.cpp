@@ -16,10 +16,10 @@ namespace dungeon::game {
 void Game::WireModuleCallbacks() {
 	// Wire the modules together: world feedback goes to the HUD log, UI
 	// actions drive the state machine.
-	m_world.onMessage = [this](const std::string& line) { m_ui.AddLogLine(line); };
+	m_world.onMessage = [this](std::string_view line) { m_ui.AddLogLine(line); };
 	// Lines about a specific member arrive with their identity color; the log
 	// tints them so each character's doings read at a glance.
-	m_world.onMemberMessage = [this](const std::string& line, const Vec4& color) {
+	m_world.onMemberMessage = [this](std::string_view line, const Vec4& color) {
 		m_ui.AddLogLine(line, color);
 	};
 	// The party fell: end the run back at the title (Start New Game resets the
@@ -212,7 +212,7 @@ void Game::WireModuleCallbacks() {
 			else
 				m_world.ReloadTypeKind(cfg.catalogKey, cfg.id);
 			if (m_world.onMessage)
-				m_world.onMessage(loc::Format("map.type.saved", cfg.id));
+				m_world.onMessage(loc::FormatLine("map.type.saved", cfg.id));
 			return;
 		}
 		const CatalogEntry* e = m_project.CatalogForKey(cfg.catalogKey)
@@ -393,7 +393,7 @@ void Game::WireModuleCallbacks() {
 	// each grid click appends a waypoint; Clear wipes the route.
 	m_entityInspector.onEditRoute = [this](u32 id) {
 		m_mapEditor.BeginRoute(id);
-		if (m_world.onMessage) m_world.onMessage(loc::Tr("map.route.hint"));
+		if (m_world.onMessage) m_world.onMessage(loc::View("map.route.hint"));
 	};
 	m_entityInspector.onClearRoute = [this](u32 id) { m_world.ClearPatrol(id); };
 	m_mapEditor.onRouteWaypoint = [this](u32 id, int cx, int cz) {
@@ -409,7 +409,7 @@ void Game::WireModuleCallbacks() {
 		if (!m_world.SaveLevel())
 			log::Warn("entity inspector: failed to save level .ent");
 		else if (m_world.onMessage)
-			m_world.onMessage(loc::Format("map.insp.saved", c.type));
+			m_world.onMessage(loc::FormatLine("map.insp.saved", c.type));
 	};
 
 	// Torch (sconce) inspector: the Facing dropdown re-mounts it live, the body

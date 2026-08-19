@@ -57,7 +57,7 @@ void Game::OpenInspectorFor(const InspectTarget& t) {
 		m_entityInspector.onDelete = [this, id = t.runtimeId] {
 			m_world.BeginUndoStep();
 			m_world.CommitUndoStep(m_world.RemoveMonsterByRuntimeId(id));
-			if (m_world.onMessage) m_world.onMessage(loc::Tr("map.erase.removed"));
+			if (m_world.onMessage) m_world.onMessage(loc::View("map.erase.removed"));
 		};
 		m_entityInspector.Open(c, m_world.SpellIds(), std::move(pv));
 		break;
@@ -139,7 +139,7 @@ void Game::OpenInspectorFor(const InspectTarget& t) {
 		m_doorInspector.onDelete = [this, cx, cz] {
 			m_world.BeginUndoStep();
 			m_world.CommitUndoStep(m_world.RemoveDoorAt(cx, cz));
-			if (m_world.onMessage) m_world.onMessage(loc::Tr("map.erase.removed"));
+			if (m_world.onMessage) m_world.onMessage(loc::View("map.erase.removed"));
 		};
 		m_doorInspector.Open(c, std::move(keys), std::move(openers),
 							 std::move(typeOpenerName), std::move(typeSide),
@@ -160,7 +160,7 @@ void Game::OpenInspectorFor(const InspectTarget& t) {
 		m_buttonInspector.onDelete = [this, cx, cz] {
 			m_world.BeginUndoStep();
 			m_world.CommitUndoStep(m_world.RemoveButtonAt(cx, cz));
-			if (m_world.onMessage) m_world.onMessage(loc::Tr("map.erase.removed"));
+			if (m_world.onMessage) m_world.onMessage(loc::View("map.erase.removed"));
 		};
 		m_buttonInspector.Open(c, std::move(targets), std::move(pv));
 		break;
@@ -179,7 +179,7 @@ void Game::OpenInspectorFor(const InspectTarget& t) {
 		m_propInspector.onDelete = [this, handle = t.handle] {
 			m_world.BeginUndoStep();
 			m_world.CommitUndoStep(m_world.RemoveDecorationByIndex(handle));
-			if (m_world.onMessage) m_world.onMessage(loc::Tr("map.erase.removed"));
+			if (m_world.onMessage) m_world.onMessage(loc::View("map.erase.removed"));
 		};
 		// "Map arrow" beside the Facing dropdown: the TYPE's facing_arrow flag
 		// (a column/pot has no meaningful facing to point out). A toggle edits
@@ -222,7 +222,7 @@ void Game::OpenInspectorFor(const InspectTarget& t) {
 		m_propInspector.onDelete = [this, handle = t.handle] {
 			m_world.BeginUndoStep();
 			m_world.CommitUndoStep(m_world.RemoveItemById(handle));
-			if (m_world.onMessage) m_world.onMessage(loc::Tr("map.erase.removed"));
+			if (m_world.onMessage) m_world.onMessage(loc::View("map.erase.removed"));
 		};
 		m_propInspector.facingExtra.reset(); // items draw no map arrow anyway
 		m_propInspector.Open(c, std::move(pv));
@@ -247,7 +247,7 @@ void Game::OpenInspectorFor(const InspectTarget& t) {
 		c.rangeLeft = p.rangeLeft;
 		m_projectileInspector.onRemove = [this, id = p.id] {
 			if (m_world.RemoveProjectile(id) && m_world.onMessage)
-				m_world.onMessage(loc::Tr("map.proj.removed"));
+				m_world.onMessage(loc::View("map.proj.removed"));
 		};
 		m_projectileInspector.Open(c);
 		break;
@@ -269,7 +269,7 @@ void Game::OpenInspectorFor(const InspectTarget& t) {
 		m_nicheInspector.onDelete = [this, x = t.nicheX, z = t.nicheZ, w = t.wall] {
 			m_world.BeginUndoStep();
 			m_world.CommitUndoStep(m_world.RemoveNiche(x, z, w));
-			if (m_world.onMessage) m_world.onMessage(loc::Tr("map.erase.removed"));
+			if (m_world.onMessage) m_world.onMessage(loc::View("map.erase.removed"));
 		};
 		// Faces it may move to: the cell's SOLID walls that aren't already carved,
 		// plus the one it currently occupies (so the dropdown can show itself).
@@ -307,7 +307,7 @@ void Game::OpenFixtureInspector(const FixtureInspector::Config& fc,
 		m_world.BeginUndoStep();
 		m_world.CommitUndoStep(fc.brazier ? m_world.RemoveFixtureAt(fc.x, fc.z)
 										  : m_world.RemoveFixtureAtFace(fc.x, fc.z, fc.wall));
-		if (m_world.onMessage) m_world.onMessage(loc::Tr("map.erase.removed"));
+		if (m_world.onMessage) m_world.onMessage(loc::View("map.erase.removed"));
 	};
 	m_fixtureInspector.Open(fc, walls, std::move(pv));
 }

@@ -1028,7 +1028,7 @@ std::optional<std::string> DungeonWorld::TryPickItem(float mx, float my, float w
 	Item& picked = m_items[static_cast<size_t>(best)];
 	picked.collected = true; // off the floor
 	m_audio.Play(m_sounds.click, 0.6f); // placeholder pickup cue
-	if (onMessage) onMessage(loc::Format("log.take_rune", loc::Tr(picked.kind->nameKey)));
+	if (onMessage) onMessage(loc::FormatLine("log.take_rune", loc::View(picked.kind->nameKey)));
 	return picked.kind->id;
 }
 
@@ -1059,7 +1059,7 @@ void DungeonWorld::DropItemAt(const std::string& typeId, float mx, float my,
 		m_items.push_back(
 			{&kind, m_nextDropId--, n.x, n.z, false, 0, static_cast<int>(n.wall)});
 		m_audio.Play(m_sounds.click, 0.5f);
-		if (onMessage) onMessage(loc::Format("log.drop_rune", loc::Tr(kind.nameKey)));
+		if (onMessage) onMessage(loc::FormatLine("log.drop_rune", loc::View(kind.nameKey)));
 		return;
 	}
 	int cx = px, cz = pz; // fallback: drop at the party's feet
@@ -1084,7 +1084,7 @@ void DungeonWorld::DropItemAt(const std::string& typeId, float mx, float my,
 	const int slot = FreeItemSlotNear(cx, cz, wx, wz, -1);
 	m_items.push_back({&kind, m_nextDropId--, cx, cz, false, slot});
 	m_audio.Play(m_sounds.click, 0.5f);
-	if (onMessage) onMessage(loc::Format("log.drop_rune", loc::Tr(kind.nameKey)));
+	if (onMessage) onMessage(loc::FormatLine("log.drop_rune", loc::View(kind.nameKey)));
 }
 
 // Floor items occupy the Medium 2x2 quarter grid (up to 4 per cell). Pick the

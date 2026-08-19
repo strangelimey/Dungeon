@@ -233,16 +233,16 @@ void GameUI::OnPortraitClick(size_t i) {
 		// Honour the selected pack's content restriction (same as the sheet drop).
 		if (m_itemCategories && !m_itemCategories->PackAcceptsItem(packId, **m_held)) {
 			m_audio.Play(m_sounds.bump, 0.5f);
-			AddLogLine(loc::Format("log.pack_rejects", loc::Tr("item." + **m_held),
-								   loc::Tr("item." + packId)));
+			AddLogLine(loc::FormatLine("log.pack_rejects", loc::ViewKey("item.", **m_held),
+									   loc::ViewKey("item.", packId)));
 		} else if (c.inventory.Stow(**m_held)) {
-			AddLogLine(loc::Format("log.stow", c.name,
-								   loc::Tr(std::format("item.{}", **m_held))),
+			AddLogLine(loc::FormatLine("log.stow", c.name,
+									   loc::View(std::format("item.{}", **m_held))),
 					   c.portraitColor);
 			m_held->reset();
 			Click();
 		} else {
-			AddLogLine(loc::Tr("log.pack_full")); // full — keep carrying it
+			AddLogLine(loc::View("log.pack_full")); // full — keep carrying it
 		}
 		return;
 	}
@@ -281,8 +281,8 @@ void GameUI::OnHandLeftClick(size_t i, size_t hand) {
 		// cursor (a click never silently destroys an item) — but only holdable
 		// items enter a hand; anything else stays on the cursor with a log line.
 		if (!m_itemCategories || !m_itemCategories->Holdable(**m_held)) {
-			AddLogLine(loc::Format("log.cant_hold",
-								   loc::Tr(std::format("item.{}", **m_held))));
+			AddLogLine(loc::FormatLine("log.cant_hold",
+									   loc::View(std::format("item.{}", **m_held))));
 			return;
 		}
 		std::string incoming = **m_held;
@@ -465,8 +465,8 @@ void GameUI::MemorizeSlot(size_t i, ItemSlot& slot) {
 	m_characters[i].Learn(sym);
 	slot.Clear(); // the tablet is consumed
 	Click();
-	AddLogLine(loc::Format("log.memorize", m_characters[i].name,
-						   loc::Tr(SymbolKey(sym))),
+	AddLogLine(loc::FormatLine("log.memorize", m_characters[i].name,
+							   loc::View(SymbolKey(sym))),
 			   m_characters[i].portraitColor);
 	RefreshSheet(); // the sheet's known symbols may be on screen later
 }
@@ -505,7 +505,7 @@ void GameUI::EatFromHand(size_t i, size_t hand) {
 	const std::string foodName = loc::Tr(std::format("item.{}", slot.typeId));
 	slot.Clear(); // the food is consumed
 	Click();
-	AddLogLine(loc::Format("log.eat", c.name, foodName), c.portraitColor);
+	AddLogLine(loc::FormatLine("log.eat", c.name, foodName), c.portraitColor);
 	RefreshSheet(); // stamina bar / carry load on the sheet may be on screen
 }
 
@@ -1198,14 +1198,14 @@ void GameUI::BuildCharacterSheet() {
 	// names follow the item.<id> loc convention (same as ItemKind::nameKey).
 	m_sheet->onRejectDrop = [this](const std::string& item, const std::string& pack) {
 		m_audio.Play(m_sounds.bump, 0.5f);
-		AddLogLine(loc::Format("log.pack_rejects", loc::Tr("item." + item),
-							   loc::Tr("item." + pack)));
+		AddLogLine(loc::FormatLine("log.pack_rejects", loc::ViewKey("item.", item),
+								   loc::ViewKey("item.", pack)));
 	};
 	// A hand doll cell refused a non-holdable item: same thud, the shared
 	// "can't be held" line (also used by the control-bar hand slots).
 	m_sheet->onRejectHold = [this](const std::string& item) {
 		m_audio.Play(m_sounds.bump, 0.5f);
-		AddLogLine(loc::Format("log.cant_hold", loc::Tr("item." + item)));
+		AddLogLine(loc::FormatLine("log.cant_hold", loc::ViewKey("item.", item)));
 	};
 	// Right-clicked backpack slot → its use menu (a rune memorizes from the
 	// pack too, not just a hand).
@@ -1529,7 +1529,7 @@ void GameUI::BuildHud() {
 		loc::Tr("hud.wait"),
 		[this] {
 			Click();
-			m_log->AddLine(loc::Tr("log.wait"));
+			m_log->AddLine(loc::View("log.wait"));
 		});
 	// Flush with the plate's inner right edge. It was authored at x 0.5379,
 	// which plus the button's own 0.4773 comes to 1.0152 — three pixels out of
@@ -1538,7 +1538,7 @@ void GameUI::BuildHud() {
 		loc::Tr("hud.help"), [this] {
 			Click();
 			m_log->AddLine(m_settings.MoveKeysHelp());
-			m_log->AddLine(loc::Tr("log.scroll_hint"));
+			m_log->AddLine(loc::View("log.scroll_hint"));
 		});
 
 	// Right control panel: movement, hands, magic — one container that lays its
@@ -1775,11 +1775,11 @@ bool GameUI::KeyCaptureActive() const {
 // task), but world feedback can be raised before then — a dev-console command
 // against the loading world, say. A null m_log drops the line instead of
 // crashing on it.
-void GameUI::AddLogLine(const std::string& line) {
+void GameUI::AddLogLine(std::string_view line) {
 	if (m_log) m_log->AddLine(line);
 }
 
-void GameUI::AddLogLine(const std::string& line, const Vec4& memberColor) {
+void GameUI::AddLogLine(std::string_view line, const Vec4& memberColor) {
 	if (!m_log) return;
 	// Identity colors are authored DARK (portrait fills, slot stripes); as
 	// text ink on the dark footer they'd read as mud, so brighten toward

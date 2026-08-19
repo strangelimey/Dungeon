@@ -21,7 +21,7 @@ namespace {
 constexpr float kHitFlashSeconds = 0.7f;
 } // namespace
 void DungeonWorld::MemberMessage(const Character& member,
-								 const std::string& line) const {
+								 std::string_view line) const {
 	if (onMemberMessage) onMemberMessage(line, member.portraitColor);
 	else onMessage(line);
 }
@@ -69,8 +69,8 @@ void DungeonWorld::GrantSkillXp(Character& member, std::string_view skillId,
 	const int after = Character::LevelForXp(total);
 	if (after > before)
 		MemberMessage(member,
-					  loc::Format("log.skill_up", member.name,
-								  loc::Tr("skill." + std::string(skillId)), after));
+					  loc::FormatLine("log.skill_up", member.name,
+									  loc::ViewKey("skill.", skillId), after));
 
 	if (stats.empty()) return; // an unclassed source trains no stat
 	const float gain =
@@ -94,8 +94,8 @@ void DungeonWorld::GrantStatPoint(Character& member, std::string_view stat) {
 	if (i < 0) return; // unknown id — parse already warned
 	const int value = ++(member.*kStats[static_cast<size_t>(i)].value);
 	member.RecomputeMaxima(m_balance.kHealth, m_balance.kStamina, m_balance.kMana);
-	MemberMessage(member, loc::Format("log.stat_up", member.name,
-									  loc::Tr("stat." + std::string(stat)), value));
+	MemberMessage(member, loc::FormatLine("log.stat_up", member.name,
+										  loc::ViewKey("stat.", stat), value));
 }
 
 // Exertion (docs/combat.md part 3 + Phase 4): stamina is the exertion meter —
@@ -110,7 +110,7 @@ void DungeonWorld::SpendStamina(Character& member, float points) {
 		member.stamina = 0.0f;
 		if (!member.exhausted) {
 			member.exhausted = true;
-			MemberMessage(member, loc::Format("log.exhausted", member.name));
+			MemberMessage(member, loc::FormatLine("log.exhausted", member.name));
 		}
 	}
 	// The VIT slot by index — this used to subscript a name-keyed dictionary,
@@ -170,26 +170,26 @@ void DungeonWorld::PartyTarget::Absorb(float amount, fx::DamageEvent& ev) {
 	// Quiet for a per-frame tick: a burn feeding something that drinks fire is
 	// a steady trickle, not news forty times a second.
 	if (!ev.Quiet())
-		Say(loc::Format("log.member_absorbs", m_member.name,
+		Say(loc::FormatLine("log.member_absorbs", m_member.name,
 						static_cast<int>(amount + 0.5f)));
 }
 
 void DungeonWorld::PartyTarget::NarrateFall() const {
 	if (m_fall == Fall::Dead)
 		m_world.MemberMessage(m_member,
-							  loc::Format("log.member_dies", m_member.name));
+							  loc::FormatLine("log.member_dies", m_member.name));
 	else if (m_fall == Fall::Down)
 		m_world.MemberMessage(m_member,
-							  loc::Format("log.member_down", m_member.name));
+							  loc::FormatLine("log.member_down", m_member.name));
 }
 
-void DungeonWorld::PartyTarget::Say(const std::string& line) const {
+void DungeonWorld::PartyTarget::Say(std::string_view line) const {
 	m_world.MemberMessage(m_member, line);
 }
 
 void DungeonWorld::PartyTarget::SayApplied(const fx::EffectKind& kind) const {
 	const std::string& key = kind.ApplyLine(/*onMonster=*/false);
-	if (!key.empty()) Say(loc::Format(key, m_member.name));
+	if (!key.empty()) Say(loc::FormatLine(key, m_member.name));
 }
 
 float DungeonWorld::MonsterTarget::Evasion() const {
@@ -209,13 +209,13 @@ std::string DungeonWorld::MonsterTarget::Name() const {
 	return loc::Tr("monster." + m_monster.kind->name);
 }
 
-void DungeonWorld::MonsterTarget::Say(const std::string& line) const {
+void DungeonWorld::MonsterTarget::Say(std::string_view line) const {
 	m_world.onMessage(line);
 }
 
 void DungeonWorld::MonsterTarget::SayApplied(const fx::EffectKind& kind) const {
 	const std::string& key = kind.ApplyLine(/*onMonster=*/true);
-	if (!key.empty()) Say(loc::Format(key, Name()));
+	if (!key.empty()) Say(loc::FormatLine(key, Name()));
 }
 
 // The monster mirror: a fire golem drinking a fire bolt. It still PROVOKES —
@@ -226,8 +226,8 @@ void DungeonWorld::MonsterTarget::Absorb(float amount, fx::DamageEvent& ev) {
 	m_monster.hp = std::min(m_monster.MaxHp(), m_monster.hp + amount);
 	if (ev.Quiet()) return; // a tick feeding it is a trickle, not news
 	m_world.ProvokeMonster(m_monster);
-	m_world.onMessage(loc::Format("log.monster_absorbs", Name(),
-								  static_cast<int>(amount + 0.5f)));
+	m_world.onMessage(loc::FormatLine("log.monster_absorbs", Name(),
+									  static_cast<int>(amount + 0.5f)));
 }
 
 // The monster half of the apply stage: hit points, the grudge, the flinch, and
@@ -317,7 +317,7 @@ bool DungeonWorld::CheckPartyWipe() {
 	for (const Character& m : *m_roster)
 		if (m.IsAlive()) return false; // someone still up
 	m_partyWiped = true;
-	onMessage(loc::Tr("log.party_wipe"));
+	onMessage(loc::View("log.party_wipe"));
 	if (onPartyWipe) onPartyWipe();
 	return true;
 }
@@ -450,16 +450,16 @@ void DungeonWorld::MonsterAttack(Monster& monster) {
 	fx::Deal(ev, defender, m_balance.Strike(), m_combatRng);
 
 	if (!ev.hit) {
-		MemberMessage(target, loc::Format("log.monster_misses", name, target.name));
+		MemberMessage(target, loc::FormatLine("log.monster_misses", name, target.name));
 		return;
 	}
 	// Nothing got through (immune) says so; drinking it says so through the
 	// adapter, so only a real wound reports a number.
 	if (ev.dealt >= 0.5f)
-		MemberMessage(target, loc::Format("log.monster_hits", name, target.name,
-										  static_cast<int>(ev.dealt + 0.5f)));
+		MemberMessage(target, loc::FormatLine("log.monster_hits", name, target.name,
+											  static_cast<int>(ev.dealt + 0.5f)));
 	else if (ev.dealt >= 0.0f)
-		MemberMessage(target, loc::Format("log.member_unharmed", target.name));
+		MemberMessage(target, loc::FormatLine("log.member_unharmed", target.name));
 	defender.NarrateFall();
 	m_audio.Play(m_sounds.monster, 0.6f);
 	// Whatever its blows leave behind — applied even if the blow itself downed
@@ -510,7 +510,7 @@ void DungeonWorld::OnBumpImpact() {
 	const int shown = static_cast<int>(worst + 0.5f);
 	if (shown <= 0) return;
 
-	onMessage(loc::Format("log.bump_hurt", shown));
+	onMessage(loc::FormatLine("log.bump_hurt", shown));
 	m_audio.Play(m_sounds.oof, 0.8f);
 	CheckPartyWipe();
 }
@@ -524,7 +524,7 @@ void DungeonWorld::OnFallImpact() {
 	const int shown = static_cast<int>(worst + 0.5f);
 	if (shown <= 0) return;
 
-	onMessage(loc::Format("log.fall_hurt", shown));
+	onMessage(loc::FormatLine("log.fall_hurt", shown));
 	m_audio.Play(m_sounds.oof, 0.9f);
 	CheckPartyWipe();
 }
@@ -574,7 +574,7 @@ void DungeonWorld::UpdateKiter(Monster& monster, int selfIndex) {
 	// Announce once, like a brute, when it first has the party in reach.
 	if (!monster.announced) {
 		monster.announced = true;
-		onMessage(loc::Format("log.monster_stirs", loc::Tr("monster." + monster.kind->name)));
+		onMessage(loc::FormatLine("log.monster_stirs", loc::ViewKey("monster.", monster.kind->name)));
 		m_audio.Play(m_sounds.monster, 0.7f);
 	}
 
@@ -764,7 +764,7 @@ bool DungeonWorld::PartyAttack(size_t member, size_t hand, std::string_view verb
 	// polearm`); everything else, bare hands included, whiffs on distance
 	// alone. Ranged and spells ignore rank (CastSpell has no gate).
 	if (member >= 2 && !(weapon && weapon->polearm)) {
-		MemberMessage(attacker, loc::Tr("log.no_reach"));
+		MemberMessage(attacker, loc::View("log.no_reach"));
 		return true;
 	}
 
@@ -807,7 +807,7 @@ bool DungeonWorld::PartyAttack(size_t member, size_t hand, std::string_view verb
 				  m_balance.staminaWeight * (weapon ? weapon->weight : 0.0f)) *
 					 spec->stam);
 	if (!target) {
-		MemberMessage(attacker, loc::Tr("log.attack_air"));
+		MemberMessage(attacker, loc::View("log.attack_air"));
 		return true;
 	}
 
@@ -827,7 +827,7 @@ bool DungeonWorld::PartyAttack(size_t member, size_t hand, std::string_view verb
 	fx::Deal(ev, defender, m_balance.Strike(), m_combatRng);
 
 	if (!ev.hit) {
-		MemberMessage(attacker, loc::Format("log.party_misses", attacker.name, name));
+		MemberMessage(attacker, loc::FormatLine("log.party_misses", attacker.name, name));
 		return true;
 	}
 	// ENCHANTMENT: a landed blow with an elemental weapon carries its element
@@ -845,16 +845,16 @@ bool DungeonWorld::PartyAttack(size_t member, size_t hand, std::string_view verb
 	}
 	const float landed = ev.dealt + elemental;
 	if (landed >= 0.5f)
-		MemberMessage(attacker, loc::Format("log.party_hits", attacker.name, name,
+		MemberMessage(attacker, loc::FormatLine("log.party_hits", attacker.name, name,
 											static_cast<int>(landed + 0.5f)));
 	else if (landed >= 0.0f)
-		MemberMessage(attacker, loc::Format("log.monster_unharmed", name));
+		MemberMessage(attacker, loc::FormatLine("log.monster_unharmed", name));
 	GrantSkillXp(attacker, skillId, 1.0f, stats); // a LANDED blow trains its class
 	m_audio.Play(m_sounds.monster, 0.7f);
 
 	fx::React(ev, defender, &striker, Reaction()); // whatever guards it answers
 	if (!target->Alive()) {
-		onMessage(loc::Format("log.monster_slain", name));
+		onMessage(loc::FormatLine("log.monster_slain", name));
 	} else if (weapon && !weapon->onHit.empty()) {
 		// A survivor wears whatever the weapon leaves — burning from an
 		// enchanted blade, bleeding from a serrated one. An enchanted weapon
@@ -908,13 +908,13 @@ bool DungeonWorld::CastSpell(size_t member, std::span<const SpellSymbol> sequenc
 		// through the cast services (Spell/Spell.h) — a bolt is flying, a
 		// ward settled. What remains is the COMMON aftermath every success
 		// shares, whatever the spell did.
-		MemberMessage(caster, loc::Format("log.cast", caster.name,
-										  loc::Tr(r.spell->NameKey())));
+		MemberMessage(caster, loc::FormatLine("log.cast", caster.name,
+											  loc::View(r.spell->NameKey())));
 		// A spell is LEARNED the first time it is successfully cast — the
 		// failed outcomes below (a Fumble included) teach nothing.
 		if (caster.learnedSpells.insert(r.spell->Id()).second)
-			MemberMessage(caster, loc::Format("log.spell_learned", caster.name,
-											  loc::Tr(r.spell->NameKey())));
+			MemberMessage(caster, loc::FormatLine("log.spell_learned", caster.name,
+												  loc::View(r.spell->NameKey())));
 		// The freshest cast leads the FIRING hand's quick list (each hand keeps
 		// its own repertoire); a hand-less cast (dev console) touches neither,
 		// and a spellbook cast (kBookHands — member-driven, not hand-fired)
@@ -934,18 +934,18 @@ bool DungeonWorld::CastSpell(size_t member, std::span<const SpellSymbol> sequenc
 	case MagicSystem::CastOutcome::Fumble:
 		// The skill roll failed: the mana is spent, nothing happens, and
 		// nothing is learned — the recipe stays anonymous until a cast lands.
-		MemberMessage(caster, loc::Format("log.cast_fumble", caster.name));
+		MemberMessage(caster, loc::FormatLine("log.cast_fumble", caster.name));
 		m_audio.Play(m_sounds.spellFizzle, 0.6f);
 		return false;
 	case MagicSystem::CastOutcome::NoMana:
-		MemberMessage(caster, loc::Format("log.cast_nomana", caster.name));
+		MemberMessage(caster, loc::FormatLine("log.cast_nomana", caster.name));
 		return false;
 	case MagicSystem::CastOutcome::Unknown:
-		MemberMessage(caster, loc::Format("log.cast_unknown", caster.name));
+		MemberMessage(caster, loc::FormatLine("log.cast_unknown", caster.name));
 		return false;
 	case MagicSystem::CastOutcome::NoRecipe:
 	default:
-		onMessage(loc::Tr("log.spell_fizzles"));
+		onMessage(loc::View("log.spell_fizzles"));
 		return false;
 	}
 }
@@ -1001,14 +1001,14 @@ bool DungeonWorld::ResolveSpellHit(const ProjectileImpact& impact) {
 	fx::Deal(ev, defender, m_balance.Strike(), m_combatRng);
 	if (ev.hit) {
 		if (ev.dealt >= 0.5f)
-			onMessage(loc::Format("log.spell_hits", name,
-								  static_cast<int>(ev.dealt + 0.5f)));
+			onMessage(loc::FormatLine("log.spell_hits", name,
+									  static_cast<int>(ev.dealt + 0.5f)));
 		else if (ev.dealt >= 0.0f)
-			onMessage(loc::Format("log.monster_unharmed", name));
+			onMessage(loc::FormatLine("log.monster_unharmed", name));
 		m_audio.Play(m_sounds.spellImpact, 0.7f);
 		fx::React(ev, defender, nullptr, Reaction()); // whatever guards it answers
 		if (!hit->Alive()) {
-			onMessage(loc::Format("log.spell_slain", name));
+			onMessage(loc::FormatLine("log.spell_slain", name));
 		} else {
 			hit->hitReq = true; // survivor flinches (a fatal blow goes straight to Die)
 			// Displacement (the air-school shove): a landed hit with `push` walks
@@ -1029,11 +1029,11 @@ bool DungeonWorld::ResolveSpellHit(const ProjectileImpact& impact) {
 					++pushed;
 				}
 				if (pushed > 0)
-					onMessage(loc::Format("log.spell_pushes", name));
+					onMessage(loc::FormatLine("log.spell_pushes", name));
 			}
 		}
 	} else {
-		onMessage(loc::Format("log.spell_misses", name));
+		onMessage(loc::FormatLine("log.spell_misses", name));
 	}
 	return true; // a monster was here, so the bolt is consumed (hit or miss)
 }
@@ -1089,14 +1089,14 @@ bool DungeonWorld::ResolveMonsterProjectileHit(const ProjectileImpact& impact) {
 	fx::Deal(ev, defender, m_balance.Strike(), m_combatRng);
 	if (ev.deflected) return true; // spent against the wind
 	if (!ev.hit) {
-		MemberMessage(target, loc::Format("log.monster_ranged_misses", target.name));
+		MemberMessage(target, loc::FormatLine("log.monster_ranged_misses", target.name));
 		return true;
 	}
 	if (ev.dealt >= 0.5f)
-		MemberMessage(target, loc::Format("log.monster_ranged_hits", target.name,
-										  static_cast<int>(ev.dealt + 0.5f)));
+		MemberMessage(target, loc::FormatLine("log.monster_ranged_hits", target.name,
+											  static_cast<int>(ev.dealt + 0.5f)));
 	else if (ev.dealt >= 0.0f)
-		MemberMessage(target, loc::Format("log.member_unharmed", target.name));
+		MemberMessage(target, loc::FormatLine("log.member_unharmed", target.name));
 	defender.NarrateFall();
 	m_audio.Play(m_sounds.monster, 0.6f);
 	// (a fire shield answers blows, not bolts)

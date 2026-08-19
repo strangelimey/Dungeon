@@ -700,7 +700,7 @@ void DungeonWorld::ResolveDoorOpener(Door& door, const std::string& type,
 bool DungeonWorld::AddDoor(const std::string& type, int x, int z) {
 	Direction facing;
 	if (!DungeonMap::DoorwayFacing(m_map, x, z, facing)) {
-		if (onMessage) onMessage(loc::Tr("map.door.nodoorway"));
+		if (onMessage) onMessage(loc::View("map.door.nodoorway"));
 		return false;
 	}
 	return AddDoor(type, x, z, facing);
@@ -733,7 +733,7 @@ bool DungeonWorld::AddDoorRemote(const std::string& stem,
 	if (!m_project.doors.Contains(type)) return false;
 	Direction facing;
 	if (!DungeonMap::DoorwayFacing(map, x, z, facing)) {
-		if (onMessage) onMessage(loc::Tr("map.door.nodoorway"));
+		if (onMessage) onMessage(loc::View("map.door.nodoorway"));
 		return false;
 	}
 	for (const Entity& e : ents.At(x, z))
@@ -751,12 +751,12 @@ bool DungeonWorld::AddDoorRemote(const std::string& stem,
 bool DungeonWorld::ToggleDoor(Door& door) {
 	// Anything standing in the doorway jams a closing panel.
 	if (door.open && MonsterRuntimeIdAt(door.x, door.z) != 0) {
-		if (onMessage) onMessage(loc::Tr("log.door_jammed"));
+		if (onMessage) onMessage(loc::View("log.door_jammed"));
 		return false;
 	}
 	door.open = !door.open;
 	if (onMessage)
-		onMessage(loc::Tr(door.open ? "log.door_open" : "log.door_close"));
+		onMessage(loc::View(door.open ? "log.door_open" : "log.door_close"));
 	return true;
 }
 
@@ -786,7 +786,7 @@ bool DungeonWorld::ToggleDoorAhead(float mx, float my, float w, float h) {
 	// anyone who walked up and clicked. Wired buttons go through ToggleDoorsNamed
 	// and never come here, so a mechanism is unaffected — as with key locks.
 	if (!door->opener) {
-		if (onMessage) onMessage(loc::Tr("log.door_nohandle"));
+		if (onMessage) onMessage(loc::View("log.door_nohandle"));
 		return true; // the click WAS for the door; it just found nothing to pull
 	}
 	// THE RAY HAS TO HIT THE HAND-HOLD. A sphere around it rather than the mesh:
@@ -820,10 +820,10 @@ bool DungeonWorld::ToggleDoorAhead(float mx, float my, float w, float h) {
 	// (mechanisms don't need the key).
 	if (!door->open && !door->key.empty()) {
 		if (!PartyHasItem(door->key)) {
-			if (onMessage) onMessage(loc::Tr("log.door_locked"));
+			if (onMessage) onMessage(loc::View("log.door_locked"));
 			return true;
 		}
-		if (onMessage) onMessage(loc::Tr("log.door_unlock"));
+		if (onMessage) onMessage(loc::View("log.door_unlock"));
 	}
 	ToggleDoor(*door);
 	return true; // the click was for the door even if it jammed
@@ -1019,7 +1019,7 @@ bool DungeonWorld::AddButton(const std::string& type, int x, int z) {
 			break;
 		}
 	if (!found) {
-		if (onMessage) onMessage(loc::Tr("map.button.nowall"));
+		if (onMessage) onMessage(loc::View("map.button.nowall"));
 		return false;
 	}
 	Entity record;
@@ -1061,7 +1061,7 @@ bool DungeonWorld::AddButtonRemote(const std::string& stem,
 			break;
 		}
 	if (!found) {
-		if (onMessage) onMessage(loc::Tr("map.button.nowall"));
+		if (onMessage) onMessage(loc::View("map.button.nowall"));
 		return false;
 	}
 	Entity record;
@@ -1165,7 +1165,7 @@ bool DungeonWorld::PressButtonFacing() {
 		if (b.x == m_party.GridX() && b.z == m_party.GridZ() && b.facing == f) {
 			b.activated = !b.activated;
 			m_audio.Play(m_sounds.bump, 0.4f); // a soft clunk until a click exists
-			if (onMessage) onMessage(loc::Tr("log.button_press"));
+			if (onMessage) onMessage(loc::View("log.button_press"));
 			ToggleDoorsNamed(b.target);
 			ToggleNichesNamed(b.target); // secret-niche reveal
 			return true;
@@ -1385,9 +1385,12 @@ bool DungeonWorld::RemoveStairAt(int x, int z) {
 	});
 	RebuildChunksAround(x, z); // a down stair's floor hole closes
 	const bool pair = RemovePairedStair(m_currentLevel, removed);
-	if (onMessage)
-		onMessage(pair ? loc::Format("map.stairs.removed", removed.destLevel)
-					   : loc::Tr("map.erase.removed"));
+	// Split rather than a conditional: the two arms are now a loc::Line and a
+	// string_view, which have no common type to pick.
+	if (onMessage) {
+		if (pair) onMessage(loc::FormatLine("map.stairs.removed", removed.destLevel));
+		else onMessage(loc::View("map.erase.removed"));
+	}
 	return true;
 }
 
@@ -2185,26 +2188,26 @@ void DungeonWorld::CommitUndoStep(bool changed) {
 
 void DungeonWorld::Undo() {
 	if (m_undoStack.empty()) {
-		if (onMessage) onMessage(loc::Tr("map.undo.none"));
+		if (onMessage) onMessage(loc::View("map.undo.none"));
 		return;
 	}
 	m_redoStack.push_back(CaptureEditorState());
 	EditorSnapshot snap = std::move(m_undoStack.back());
 	m_undoStack.pop_back();
 	RestoreEditorState(std::move(snap));
-	if (onMessage) onMessage(loc::Tr("map.undo.done"));
+	if (onMessage) onMessage(loc::View("map.undo.done"));
 }
 
 void DungeonWorld::Redo() {
 	if (m_redoStack.empty()) {
-		if (onMessage) onMessage(loc::Tr("map.redo.none"));
+		if (onMessage) onMessage(loc::View("map.redo.none"));
 		return;
 	}
 	m_undoStack.push_back(CaptureEditorState());
 	EditorSnapshot snap = std::move(m_redoStack.back());
 	m_redoStack.pop_back();
 	RestoreEditorState(std::move(snap));
-	if (onMessage) onMessage(loc::Tr("map.redo.done"));
+	if (onMessage) onMessage(loc::View("map.redo.done"));
 }
 
 void DungeonWorld::ClearUndoHistory() {

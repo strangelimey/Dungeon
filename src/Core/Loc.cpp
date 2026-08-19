@@ -94,6 +94,17 @@ std::string_view View(std::string_view key) {
 	return it != g_table.end() ? std::string_view(it->second) : key;
 }
 
+Line ViewKey(std::string_view prefix, std::string_view id) {
+	// Assemble the key in a stack buffer rather than with `+`. Clipped the same
+	// way a Line is: a key too long to fit was never going to match an entry.
+	char key[Line::kCapacity];
+	const size_t pn = std::min(prefix.size(), Line::kCapacity);
+	const size_t in = std::min(id.size(), Line::kCapacity - pn);
+	std::memcpy(key, prefix.data(), pn);
+	std::memcpy(key + pn, id.data(), in);
+	return Line(View(std::string_view(key, pn + in)));
+}
+
 void Line::Assign(std::string_view text) {
 	m_len = std::min(text.size(), kCapacity);
 	std::memcpy(m_buf, text.data(), m_len);

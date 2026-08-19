@@ -19,15 +19,27 @@
 // height/opacity easing) runs in Tick(dt), called once per frame; Update(ctx)
 // handles hover, the wheel scroll, and the restore-button click. AddLine/Clear
 // match ui::TextOutput so it drops in where the old log lived.
+//
+// PRINTING A MESSAGE ALLOCATES NOTHING (docs/message-allocation.md). The
+// history is a FIXED RING whose slots are built once at construction, each
+// holding its text in an inline loc::Line rather than a std::string — so a
+// steady stream of messages neither grows a container nor reaches the heap,
+// from the FIRST line rather than after a warm-up. A ring of owned strings
+// would only have been free once every slot had grown big enough, which is a
+// weaker property and a harder one to state. It matters because the
+// steady-state allocation guard (Core/AllocTrack) reports any allocation in a
+// settled frame, and a log that allocated per line made ordinary play — walking
+// into a wall — look like a leak.
 // ============================================================================
 #pragma once
 
+#include "Core/Loc.h"
 #include "UI/UIContext.h"
 #include "UI/Widget.h"
 
-#include <deque>
 #include <optional>
 #include <string>
+#include <vector>
 
 namespace dungeon::game {
 
@@ -39,7 +51,11 @@ public:
 
 	// `color` tints the line (a character's identity color for lines about
 	// them); unset draws the theme's text ink. Fades apply either way.
-	void AddLine(std::string line, std::optional<Vec4> color = std::nullopt);
+	//
+	// Takes a VIEW and copies into the ring's own slot: the caller's text is
+	// almost always a loc::Line living on its stack, so there is nothing to take
+	// ownership of and nothing to allocate.
+	void AddLine(std::string_view line, std::optional<Vec4> color = std::nullopt);
 	void Clear();
 
 	// Advances per-message fades and the height/opacity animation. Drive once
@@ -56,10 +72,12 @@ public:
 
 private:
 	struct Msg {
-		std::string text;
+		loc::Line text;            // inline, so a slot never reaches the heap
 		std::optional<Vec4> color; // line tint; unset = theme text ink
 		float age = 0.0f;          // seconds since added (frozen while expanded)
 	};
+
+	static constexpr size_t kMaxLines = 200; // ring capacity = history depth
 
 	gfx::Rect FooterRect(ui::UIContext& ctx) const;  // animated, bottom-anchored
 	gfx::Rect RestoreRect(ui::UIContext& ctx) const; // small bottom-left button
@@ -67,7 +85,16 @@ private:
 	// Faded out: only the restore button is live, and it is what `bounds` holds.
 	bool Dormant() const { return m_chromeAlpha < 0.5f && !m_expanded; }
 
-	std::deque<Msg> m_msgs;
+	// The ring, oldest-first: index 0 is the oldest line held, Count()-1 the
+	// newest. Callers index in that order and never see the wrap, so the draw
+	// and scroll maths read exactly as they did against the old deque.
+	size_t Count() const { return m_count; }
+	Msg& At(size_t i) { return m_ring[(m_head + i) % kMaxLines]; }
+	const Msg& At(size_t i) const { return m_ring[(m_head + i) % kMaxLines]; }
+
+	std::vector<Msg> m_ring = std::vector<Msg>(kMaxLines); // one allocation, ever
+	size_t m_head = 0;  // ring index of the OLDEST line
+	size_t m_count = 0; // lines held (saturates at kMaxLines)
 
 	// Target footer heights as fractions of the window height (resolution-
 	// independent, font-proportional); recomputed in Update, eased in Tick.

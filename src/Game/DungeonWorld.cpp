@@ -96,7 +96,7 @@ DungeonWorld::DungeonWorld(gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 				const CatalogEntry* e = m_project.stairs.Find(s.type);
 				if (!CatalogBool(e, "traverse", true)) break;
 				if (CatalogBool(e, "fall", false)) {
-					if (onMessage) onMessage(loc::Tr("world.pitfall"));
+					if (onMessage) onMessage(loc::View("world.pitfall"));
 					m_pendingFall = LevelTransition{
 						s.destLevel, s.destX, s.destZ,
 						static_cast<Direction>(m_party.Facing())};
@@ -111,7 +111,7 @@ DungeonWorld::DungeonWorld(gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	};
 	m_party.onBlocked = [this] {
 		m_audio.Play(m_sounds.bump, 0.9f);
-		onMessage(loc::Tr("log.bump"));
+		onMessage(loc::View("log.bump"));
 	};
 	m_party.onTurn = [this] { m_audio.Play(m_sounds.turn, 0.6f); };
 	m_party.onBumpImpact = [this] { OnBumpImpact(); };
@@ -119,25 +119,25 @@ DungeonWorld::DungeonWorld(gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 		for (const Monster& monster : m_monsters) {
 			if (monster.Alive() && monster.x == x && monster.z == z) {
 				m_audio.Play(m_sounds.monster, 0.8f);
-				onMessage(loc::Format("log.monster_blocks",
-									  loc::Tr("monster." + monster.kind->name)));
+				onMessage(loc::FormatLine("log.monster_blocks",
+										  loc::ViewKey("monster.", monster.kind->name)));
 				return true;
 			}
 		}
 		if (m_map.BrazierAt(x, z)) {
 			m_audio.Play(m_sounds.bump, 0.7f);
-			onMessage(loc::Tr("log.brazier_blocks"));
+			onMessage(loc::View("log.brazier_blocks"));
 			return true;
 		}
 		if (const Door* door = DoorAt(x, z); door && !door->open) {
 			m_audio.Play(m_sounds.bump, 0.7f);
-			onMessage(loc::Tr("log.door_blocks"));
+			onMessage(loc::View("log.door_blocks"));
 			return true;
 		}
 		for (const Decoration& deco : m_decorations) {
 			if (deco.solid && deco.x == x && deco.z == z) {
 				m_audio.Play(m_sounds.bump, 0.7f);
-				onMessage(loc::Tr("log.decoration_blocks"));
+				onMessage(loc::View("log.decoration_blocks"));
 				return true;
 			}
 		}
@@ -308,9 +308,9 @@ void DungeonWorld::MarkSeen(int x, int z) {
 void DungeonWorld::SetTorchPalette(int index) {
 	m_torchPalette = index;
 	switch (index) {
-	case 1:  m_torchColor = {0.45f, 0.65f, 1.0f}; onMessage(loc::Tr("log.torch_cold")); break;
-	case 2:  m_torchColor = {0.55f, 1.0f, 0.45f}; onMessage(loc::Tr("log.torch_eerie")); break;
-	default: m_torchColor = {1.0f, 0.62f, 0.28f}; onMessage(loc::Tr("log.torch_warm")); break;
+	case 1:  m_torchColor = {0.45f, 0.65f, 1.0f}; onMessage(loc::View("log.torch_cold")); break;
+	case 2:  m_torchColor = {0.55f, 1.0f, 0.45f}; onMessage(loc::View("log.torch_eerie")); break;
+	default: m_torchColor = {1.0f, 0.62f, 0.28f}; onMessage(loc::View("log.torch_warm")); break;
 	}
 }
 
@@ -773,8 +773,8 @@ void DungeonWorld::UpdateMonsters(float dt) {
 						member.stabilize = 0.0f;
 						member.health =
 							m_balance.stabilizeHealth * member.maxHealth;
-						MemberMessage(member, loc::Format("log.member_wakes",
-														  member.name));
+						MemberMessage(member, loc::FormatLine("log.member_wakes",
+															  member.name));
 					}
 				}
 			}
@@ -803,7 +803,7 @@ void DungeonWorld::UpdateMonsters(float dt) {
 						m_balance.exhaustRecover * member.maxStamina) {
 					member.exhausted = false;
 					MemberMessage(member,
-								  loc::Format("log.recovered", member.name));
+								  loc::FormatLine("log.recovered", member.name));
 				}
 			}
 			// Age the effects and let their DoTs bite (the shared TickEffects —
@@ -819,15 +819,15 @@ void DungeonWorld::UpdateMonsters(float dt) {
 			TickEffects(bitten, member.effects, dt, [&](const fx::Inst& e) {
 				switch (e.kind->Kind()) {
 				case fx::Category::Ward:
-					MemberMessage(member, loc::Format("log.shield_fades", member.name));
+					MemberMessage(member, loc::FormatLine("log.shield_fades", member.name));
 					break;
 				case fx::Category::Marker:
-					MemberMessage(member, loc::Format("log.sight_fades", member.name));
+					MemberMessage(member, loc::FormatLine("log.sight_fades", member.name));
 					break;
 				case fx::Category::Dot:
 					MemberMessage(member,
-								  loc::Format("log.effect_fades", member.name,
-											  loc::Tr(e.NameKey())));
+								  loc::FormatLine("log.effect_fades", member.name,
+												  loc::View(e.NameKey())));
 					break;
 				}
 			});
@@ -862,15 +862,15 @@ void DungeonWorld::UpdateMonsters(float dt) {
 			MonsterTarget afflicted{*this, monster};
 			TickEffects(afflicted, monster.effects, dt, [&](const fx::Inst& e) {
 				onMessage(e.Is("burn")
-							  ? loc::Format("log.monster_burns_out", name)
-							  : loc::Format("log.effect_fades", name,
-											loc::Tr(e.NameKey())));
+							  ? loc::FormatLine("log.monster_burns_out", name)
+							  : loc::FormatLine("log.effect_fades", name,
+											loc::View(e.NameKey())));
 			});
 			// A DoT that finished it says so — the counterpart of the "slain"
 			// a blow's caller would have printed. (The corpse was stripped of
 			// its effects by the apply stage on the way through.)
 			if (wasUp && !monster.Alive())
-				onMessage(loc::Format(
+				onMessage(loc::FormatLine(
 					wasBurning ? "log.monster_burns_away" : "log.monster_slain",
 					name));
 		}
@@ -1027,8 +1027,8 @@ void DungeonWorld::UpdateMonsters(float dt) {
 		// already close enough to strike from its queue post).
 		if (!monster.announced && (orthoDist <= 1 || atPost)) {
 			monster.announced = true;
-			onMessage(loc::Format("log.monster_stirs",
-								  loc::Tr("monster." + monster.kind->name)));
+			onMessage(loc::FormatLine("log.monster_stirs",
+									  loc::ViewKey("monster.", monster.kind->name)));
 			m_audio.Play(m_sounds.monster, 0.7f);
 		}
 
@@ -1853,8 +1853,8 @@ void DungeonWorld::UpdateThreatLock(Monster& monster, bool announce) {
 	monster.threatLock = next;
 	if (announce && next >= 0 && next != prev)
 		MemberMessage((*m_roster)[next],
-					  loc::Format("log.monster_locks",
-								  loc::Tr("monster." + monster.kind->name),
+					  loc::FormatLine("log.monster_locks",
+									  loc::ViewKey("monster.", monster.kind->name),
 								  (*m_roster)[next].name));
 }
 

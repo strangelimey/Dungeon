@@ -50,6 +50,11 @@ std::string Tr(std::string_view key);
 //
 // Valid until the language table is reloaded (a language switch), which
 // rebuilds every UI string anyway.
+//
+// CAVEAT, which ViewKey (below the Line class) exists to handle: a MISSING key
+// is returned AS ITSELF, so in that case the result borrows the KEY's storage
+// rather than the table's. That is safe for the string literals this is
+// normally handed; it is not safe for a key assembled on the fly.
 std::string_view View(std::string_view key);
 
 // A formatted line, held INLINE — no heap, no lifetime rules, cheap to pass.
@@ -75,6 +80,17 @@ private:
 	char m_buf[kCapacity + 1] = {};
 	size_t m_len = 0;
 };
+
+// The lookup for a key built from a fixed PREFIX and a runtime id — the
+// convention dynamic ids follow (monster.<type>, item.<id>, skill.<id>,
+// stat.<id>; see CLAUDE.md's Core/Loc notes).
+//
+// Composing such a key with `+` allocated a std::string every time, and that is
+// most of what combat says out loud. This assembles it in a stack buffer
+// instead. Returning BY VALUE also closes View()'s caveat above: when the
+// translation is missing the key comes back as the text, and a view of a
+// concatenated temporary would dangle the moment a caller held on to it.
+Line ViewKey(std::string_view prefix, std::string_view id);
 
 // Tr() + std::vformat. Bad placeholder syntax in a translation returns the
 // unformatted pattern instead of throwing.
@@ -111,3 +127,14 @@ struct LanguageInfo {
 std::vector<LanguageInfo> ScanLanguages(const std::string& dir);
 
 } // namespace dungeon::loc
+
+// Lets a Line be a format ARGUMENT — FormatLine("log.x", ViewKey("monster.", t)).
+// Needed explicitly: std::make_format_args resolves a formatter for the static
+// type, so Line's implicit conversion to string_view never gets a look in.
+template <>
+struct std::formatter<dungeon::loc::Line> : std::formatter<std::string_view> {
+	template <typename Ctx>
+	auto format(const dungeon::loc::Line& line, Ctx& ctx) const {
+		return std::formatter<std::string_view>::format(line.View(), ctx);
+	}
+};

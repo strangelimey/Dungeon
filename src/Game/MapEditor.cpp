@@ -757,8 +757,8 @@ void MapEditor::PaintRect(int cx, int cz) {
 	m_lastX = cx; // chainable: the far corner anchors the next rectangle
 	m_lastZ = cz;
 	if (m_world.onMessage)
-		m_world.onMessage(loc::Format("map.fill.done",
-									  (x1 - x0 + 1) * (z1 - z0 + 1)));
+		m_world.onMessage(loc::FormatLine("map.fill.done",
+										  (x1 - x0 + 1) * (z1 - z0 + 1)));
 }
 
 void MapEditor::FloodFill(int cx, int cz) {
@@ -815,7 +815,7 @@ void MapEditor::FloodFill(int cx, int cz) {
 	m_lastX = cx;
 	m_lastZ = cz;
 	if (m_world.onMessage)
-		m_world.onMessage(loc::Format("map.fill.done", region.size()));
+		m_world.onMessage(loc::FormatLine("map.fill.done", region.size()));
 }
 
 void MapEditor::PickAt(int cx, int cz) {
@@ -848,7 +848,7 @@ void MapEditor::PickAt(int cx, int cz) {
 		if (items[i].id == id) {
 			m_sel = {cat, i};
 			if (m_world.onMessage)
-				m_world.onMessage(loc::Format("map.pick.done", items[i].label));
+				m_world.onMessage(loc::FormatLine("map.pick.done", items[i].label));
 			return;
 		}
 }
