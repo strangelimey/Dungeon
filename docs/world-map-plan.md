@@ -144,6 +144,14 @@ encounter never touches disk — the same "writes no files" property
 answer 4); note only that determinism means a seed plus params would reproduce
 the space exactly, if that is ever the answer chosen.
 
+**P3.5 — effects while travelling, and camp.** NEW, from Michael's answer of
+2026-09-09 (docs/world-map.md "Time, and what a journey costs"): DoTs must bite
+on the road and travel may kill. That needs the PARTY-TICK EXTRACTION this plan
+dropped at P3 — the same work, for the opposite reason — settled in SLICES so a
+DoT kills at the hour it would, plus a CAMP button as the recovery counterweight.
+Ordered before P6 but after P4/P5 unless he says otherwise; P4 must in any case
+cope with a party that wipes while travelling.
+
 **P6 — quests.** `quests.cat` for definitions, global state in the save, and the
 two content hooks the dump actually names: an item that sets a flag when found,
 and a found map/clue that reveals a location. Deliberately thin — no journal UI

@@ -171,14 +171,44 @@ ask the same function for a large span and get an answer that CANNOT disagree
 with the dungeon's. Lifting the rest of the cost loop out of `DungeonWorld` is
 deferred — his call — and is cheaper than it looks for the same reason.
 
-**OPEN, and now a live gap rather than a hypothetical one:** a journey settles
-SUPPLIES and world time, and deliberately does not touch effects, regeneration
-or the stabilize clock. Those are not rates — they are state machines whose
-ORDER matters (a DoT that would kill someone partway, an unconscious member who
-would come round mid-journey), and collapsing them into one lump is not the
-same as ticking them. Until that is answered, a poisoned party travels for
-free, and the code says so at the settlement site rather than pretending to
-have resolved it.
+**DECIDED, NOT YET BUILT** (Michael, 2026-09-09): *"DoT should still affect the
+party members. Travelling on the world map COULD easily kill affected members."*
+So a journey must tick effects — and regeneration and the stabilize clock with
+them, since they are the same kind of state and a journey that burns you but
+never heals you is not a model of anything.
+
+Today it settles SUPPLIES and world time only, and says so at the settlement
+site rather than pretending otherwise. A poisoned party still travels for free
+until the work below lands.
+
+**WHAT IT COSTS, and why it is not a two-line change:** the party's effect tick
+lives INSIDE `DungeonWorld::UpdateMonsters`, interleaved with the monster loop.
+Calling it would run the AI, so honouring the decision needs the PARTY-TICK
+EXTRACTION this plan originally called for and then dropped — dropped on the
+grounds that nothing ticks on the world map, which this decision reverses. The
+same work, for a different reason. Two properties must survive it: the ORDER
+inside that block is load-bearing and commented as such (supplies before
+effects, so an emptied meter bites on the same frame), and every health write
+in it is bracketed by the damage ledger, which is what makes the one-pipeline
+rule checkable.
+
+It must also be settled in SLICES rather than one lump, or the ordering
+question the parked design note raised comes back: a DoT that would kill
+someone three hours into a six-hour march has to kill them there, not at the
+end, and an unconscious member has to come round at the hour it happens.
+
+**A DEATH DURING TRAVEL IS A NEW PATH**, and P4 has to cope with it: a party
+that wipes on the world map is not in a level to wipe out of.
+
+### Camp — flagged, not designed
+
+A **camp** button on the world map: rest, take potions, deal with what the road
+has done to you (Michael, 2026-09-09 — flagged and deliberately not designed
+here). It is the counterweight to the decision above; travel that can kill needs
+somewhere to recover that is not "walk to a dungeon and hope". Rest already
+exists as a STATE that multiplies time at one seam, so camp is likely that same
+state reached from here rather than a second recovery model — but that is a
+guess, and the design belongs to whoever picks it up.
 
 ### The grid
 
