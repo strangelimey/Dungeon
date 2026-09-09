@@ -317,6 +317,14 @@ private:
 	// Enter or leave the world map. P4 gives this a reason to happen (a
 	// location, a dungeon exit); for now the dev console is the way in.
 	void SetOnWorldMap(bool on);
+	// Enter the dungeon behind a world-map location, at its entry level. False
+	// (with a reason said or logged) when the location is unknown, undiscovered,
+	// not a dungeon, or names one with no levels.
+	bool EnterLocation(const std::string& id);
+	// Leave the dungeon for the world map, landing at the location the party
+	// came in by.
+	bool LeaveDungeon();
+
 	// The playability check, with the world tier included. Every caller goes
 	// through here rather than DungeonWorld::Validate directly, so no route can
 	// quietly check the dungeons and skip the world.
@@ -483,6 +491,13 @@ private:
 	// an unconditional "resume means Playing" would quietly teleport a
 	// travelling party into whatever level was last loaded.
 	AppState m_resumeState = AppState::Playing;
+	// THE EVAL HARNESS ASKS FOR A LEVEL (Game_Eval.cpp). `reset` means "where a
+	// new game would leave it", and since P4 that is the WORLD MAP, where
+	// nothing simulates — ten combat suites would have gone on printing
+	// plausible readouts about a party standing in a field
+	// (docs/world-map.md "Obligations"). So the harness states what it wants
+	// and StartNewGame honours it, instead of the two silently tracking each
+	// other. Never set outside the harness.
 	LoadQueue m_loadQueue;
 	bool m_gameLoaded = false; // dungeon assets resident (first start done)
 	u32 m_framesRendered = 0;
@@ -557,6 +572,7 @@ private:
 	// Party roster (up to four). Filled once in the constructor and never
 	// resized — the party-bar panels and the sheet hold pointers into it, so
 	// StartNewGame resets the members in place.
+	bool m_harnessOpensInLevel = false;
 	std::vector<Character> m_characters;
 	// Baked portrait textures, parallel to m_characters (entries may be null
 	// when the asset is missing; Character::portrait points in here).

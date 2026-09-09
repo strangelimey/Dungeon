@@ -42,6 +42,18 @@ bool Game::ResetForEval() {
 		// lesson is docs/eval-harness.md P2's — a dev path that duplicates a UI
 		// action drifts from it.)
 		if (!m_ui.onStartNewGame) return false;
+		// SAY WHAT THE HARNESS WANTS BEFORE ASKING FOR IT. A new game now opens
+		// on the WORLD MAP (P4), and ten suites measure combat in a level.
+		//
+		// This is a FLAG rather than "start the game, then enter a dungeon",
+		// which is what it was first written as and which crashed: on a cold
+		// boot onStartNewGame queues the world AND the portraits AND the HUD,
+		// and entering a dungeon straight afterwards calls BeginLevelTransition,
+		// which clears the queue and re-stages the world half alone — so the HUD
+		// was never built and the first frame dereferenced its widgets. P2 left
+		// exactly this lesson about this exact function; it came back wearing
+		// different clothes.
+		m_harnessOpensInLevel = true;
 		m_ui.onStartNewGame();
 		return true;
 	}
@@ -55,8 +67,15 @@ bool Game::ResetForEval() {
 	// normally from there — so a reset that did not come back to Playing would
 	// hand the next test a world that never simulates, reported as clean rungs.
 	m_state = AppState::Playing;
+	// The world tier is reset too, or a script that travelled would hand the
+	// next one a party recorded as being out on the map while it stands in a
+	// level. This path RECYCLES the loaded level rather than transitioning —
+	// that is what makes a reset 340 ms instead of a 12 s reload — so there is
+	// nothing to enter: the party is already in a dungeon.
+	ResetWorldState();
 	return true;
 }
+
 
 int Game::StepWorld(float seconds, StepStop& why) {
 	why = StepStop::Complete;

@@ -1,0 +1,31 @@
+; worldenter.eval — in and out of a dungeon through the world map (P4).
+;
+; The round trip is the point: leave by the exit stair's route, enter by the
+; location, and land back in the entry level. Two things it is really watching:
+;
+;   - `reset` must still leave the party in a LEVEL. A new game now opens on
+;     the world map, so if reset ever inherits that, ten combat suites start
+;     measuring a party standing in a field. The first `state`/`mapinfo` pair
+;     is that check.
+;   - an UNDISCOVERED location cannot be entered. The script discovers the
+;     waystation explicitly, and the refusal before it is deliberate evidence
+;     that discovery is a gate rather than decoration.
+logecho on
+reset
+state
+mapinfo
+
+; --- out to the world -------------------------------------------------------
+leave
+state
+world
+
+; --- the gate: unknown places cannot be entered -----------------------------
+enter waystation
+
+; --- and once found, they can -----------------------------------------------
+discover waystation
+enter waystation
+state
+mapinfo
+world

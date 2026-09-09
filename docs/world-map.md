@@ -223,6 +223,31 @@ QUESTIONS — what is at this position, what does travel here cost, is this
 discovered — rather than indexing its cells, so a later switch to free
 positions is one class rather than a sweep.
 
+### In and out
+
+A **location** is entered from the world map (Enter, or the `enter` dev
+command) and opens its dungeon at the dungeon's `entry` level — or the first of
+its levels, the same fallback the checker validates against. The party arrives
+at the level's own start cell: a dungeon entrance is not a stair with a
+matching cell on the far side, so there is nowhere else it could sensibly mean.
+
+**An undiscovered location cannot be entered.** Discovery is a gate, not
+decoration — a location the party has no idea exists should not be walkable
+into, or finding it would mean nothing.
+
+Coming back out is an **exit stair**: `stairs.cat` `exit = 1`, which makes a
+stair step LEAVE rather than change level. It authors no `dest` and takes no
+`pair`, because there is nothing on the far side to pair with, and the
+validator skips the destination checks for it rather than reading its empty one
+as a broken link. The party lands at the LOCATION it came in by — recorded in
+`WorldState::atLocation`, the location and not the dungeon, because two
+locations could open one dungeon and coming out of the wrong one would be a
+teleport.
+
+A NEW GAME opens on the world map when the project has one. A project with no
+world still opens on a level exactly as before — that is what keeps the world
+an optional tier rather than a requirement.
+
 ### Discovery
 
 A location is either discovered or not, and that is dynamic state: it lives in
@@ -333,11 +358,18 @@ is worse than no entry, and the log is where the reason lives.
 
 Two, recorded here because both are the kind of thing that passes silently:
 
-1. **`reset` still means A LEVEL.** The eval harness resets to "where a new
-   game would leave it", via `m_ui.onStartNewGame`. The day a new game opens
-   on the world map, ten suites follow it there and keep passing while
-   measuring nothing. The phase that moves the opening must give the harness
-   its own explicit entry.
+1. **`reset` still means A LEVEL** — DISCHARGED in P4. The harness sets
+   `m_harnessOpensInLevel` BEFORE calling `onStartNewGame`, so it states what
+   it wants instead of inheriting the opening, and the two can now differ on
+   purpose.
+
+   It was first written the other way — start the game, then enter a dungeon —
+   and that CRASHED. On a cold boot `onStartNewGame` queues the world, the
+   portraits AND the HUD; entering a dungeon immediately afterwards calls
+   `BeginLevelTransition`, which clears the queue and re-stages the world half
+   alone, so the HUD was never built and the first frame dereferenced its
+   widgets. P2 left exactly that lesson about exactly that function. It came
+   back wearing different clothes.
 2. **The alloc guard only arms in `Playing`.** A travel frame is unwatched
    until `SteadyStateFrame` learns about the new state, and a world map that
    allocates per frame is exactly what would go unnoticed. `uioverlap` must

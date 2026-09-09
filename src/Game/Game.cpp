@@ -522,6 +522,29 @@ void Game::StartNewGame() {
 	m_ui.RefreshSheet();
 	ApplyPartySpeed();
 
+	// A NEW GAME OPENS ON THE WORLD MAP when the project has one (P4): the party
+	// starts out in the world and goes looking for a way down, rather than
+	// beginning underground with no idea how it got there.
+	//
+	// A project with NO world still opens on a level exactly as before. That is
+	// not a courtesy — it is what keeps a world an optional tier rather than a
+	// requirement — and the EVAL HARNESS asks for that same path explicitly
+	// (m_harnessOpensInLevel), because `reset` has to keep meaning a level.
+	if (m_worldMap && !m_harnessOpensInLevel) {
+		// Reveal what the party can see from where it stands — which discovers a
+		// location only if one is right there. Everything else has to be FOUND,
+		// and that is the design, not an oversight: a new game opens on a map
+		// that is mostly fog with nowhere marked on it, and walking is how you
+		// learn where the dungeons are.
+		RevealAround(m_worldState.x, m_worldState.z);
+		SetOnWorldMap(true);
+		m_ui.ClearLog();
+		m_ui.AddLogLine(loc::View("world.begin"));
+		log::Info("New game started on the world map at {},{}", m_worldState.x,
+				  m_worldState.z);
+		return;
+	}
+
 	// A new game always begins on the first level; if a prior game left the world
 	// on a deeper level, load the first one fresh (the loading screen handles it).
 	const std::string first =
@@ -1263,6 +1286,17 @@ void Game::Update(float dt) {
 			else if (input.WasKeyPressed(k.strafeRight)) dx = 1;
 			if ((dx || dz) && !m_console.IsOpen() && !TravelStep(dx, dz))
 				m_ui.AddLogLine(loc::View("world.blocked"));
+			// Enter goes IN, at whatever the party is standing on. No key
+			// binding of its own: the world map has one verb beyond moving,
+			// and inventing a bindable action for it before there are several
+			// would be guessing at a control scheme.
+			if (input.WasKeyPressed(VK_RETURN) && !m_console.IsOpen()) {
+				if (const WorldMap::Location* l =
+						m_worldMap->LocationAt(m_worldState.x, m_worldState.z))
+					EnterLocation(l->id);
+				else
+					m_ui.AddLogLine(loc::View("world.nothing_here"));
+			}
 		}
 		return;
 	}
@@ -1458,7 +1492,9 @@ void Game::Update(float dt) {
 			m_world.Update(typingFilter ? kNoInput : input, wdt, m_time);
 			if (auto t = m_world.ConsumeLevelTransition()) {
 				m_mapView.Close(); // a stair step starts a new level load
-				BeginLevelTransition(t->level, t->x, t->z, t->facing);
+				// An EXIT stair leaves the dungeon rather than changing level.
+				if (t->toWorld) LeaveDungeon();
+				else BeginLevelTransition(t->level, t->x, t->z, t->facing);
 				return;
 			}
 			Party& party = m_world.GetParty();
@@ -1544,7 +1580,8 @@ void Game::Update(float dt) {
 	}
 	m_world.Update(input, wdt, m_time);
 	if (auto t = m_world.ConsumeLevelTransition()) {
-		BeginLevelTransition(t->level, t->x, t->z, t->facing);
+		if (t->toWorld) LeaveDungeon(); // an exit stair, not a level change
+		else BeginLevelTransition(t->level, t->x, t->z, t->facing);
 		return;
 	}
 

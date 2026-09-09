@@ -68,6 +68,14 @@ struct WorldState {
 	bool onWorldMap = false;
 	int x = 0, z = 0;   // the party's world cell
 	float time = 0.0f;  // hours elapsed in the world
+	// The location the party ENTERED, while it is inside a dungeon — where
+	// leaving puts it back. Empty when on the world map, and empty in a project
+	// with no world at all (a game that is all dungeon still works: it simply
+	// never has anywhere to come back to).
+	//
+	// The LOCATION, not the dungeon: two locations could open the same dungeon,
+	// and coming out of the wrong one would be a teleport.
+	std::string atLocation;
 
 	// Revealed world cells — the world's fog of war, the same shape a level's
 	// `seen` set has.

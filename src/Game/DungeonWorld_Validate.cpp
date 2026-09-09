@@ -85,8 +85,10 @@ std::vector<validate::Issue> DungeonWorld::Validate(const validate::WorldView& w
 	validate::Rules rules;
 	for (const CatalogEntry* e : m_project.AllItems())
 		if (e && e->Get("category", "") == "key") rules.keyItems.insert(e->id);
-	for (const CatalogEntry& e : m_project.stairs.Entries())
+	for (const CatalogEntry& e : m_project.stairs.Entries()) {
 		if (CatalogBool(&e, "traverse", true)) rules.traversableStairs.insert(e.id);
+		if (CatalogBool(&e, "exit", false)) rules.exitStairs.insert(e.id);
+	}
 
 	// The active level's decorations live as instances rather than records, and
 	// the same is true of nothing else the checker reads — doors, items and

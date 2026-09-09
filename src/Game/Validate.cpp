@@ -286,6 +286,7 @@ std::vector<Issue> Run(const std::vector<LevelView>& levels,
 		// pair is auto-authored on placement, so a broken one means a hand edit,
 		// a rename or a cross-level delete rather than a design choice.
 		for (const StairLink& s : L.view->map->Stairs()) {
+			if (rules.exitStairs.count(s.type)) continue; // leaves the dungeon
 			const auto d = byStem.find(s.destLevel);
 			if (d == byStem.end()) {
 				issues.push_back({Severity::Error, stem, s.x, s.z,

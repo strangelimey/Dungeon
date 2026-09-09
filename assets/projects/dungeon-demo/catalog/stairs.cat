@@ -81,3 +81,18 @@ up = 1
 pair = pit
 hole = ceiling
 traverse = 0
+
+; The way OUT of a dungeon, back to the world map (docs/world-map.md). `exit`
+; makes the transition leave rather than change level, so this type authors no
+; `dest` and takes no `pair` — there is nothing on the far side to pair with.
+; It reuses the up-stairs mesh: from inside, the way out looks like stairs up.
+[stairs_exit]
+display = Way Out
+category = stairs
+model = stairs
+texture = wall_stone
+solid = 0
+authored = 0
+up = 1
+exit = 1
+hole = ceiling

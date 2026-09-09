@@ -734,6 +734,12 @@ public:
 		std::string level;
 		int x = 0, z = 0;
 		Direction facing = Direction::South;
+		// This stair leaves the DUNGEON rather than changing level
+		// (stairs.cat `exit = 1`). `level` is then meaningless and the host
+		// puts the party back on the world map. A flag rather than a reserved
+		// level name like "world": a name in the same namespace as real stems
+		// is one rename away from colliding with a level someone authored.
+		bool toWorld = false;
 	};
 	// A pit fall is in progress (the step glide onto the pit, then the camera
 	// drop). Movement is swallowed while it runs — the keyboard path gates in

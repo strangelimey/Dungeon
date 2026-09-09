@@ -174,6 +174,11 @@ bool WriteSave(const SaveData& data, const std::string& path) {
 		for (const auto& [x, z] : data.world.seen) t += std::format(" {},{}", x, z);
 		t += '\n';
 	}
+	// Where the party went IN, while it is inside a dungeon. Its own line
+	// rather than a token on "world": absent simply means "not in one", and
+	// a field that is usually empty should not widen every save's world line.
+	if (!data.world.atLocation.empty())
+		t += std::format("atlocation {}\n", data.world.atLocation);
 	if (!data.world.discovered.empty()) {
 		t += "discovered";
 		for (const std::string& id : data.world.discovered) t += " " + id;
@@ -315,6 +320,8 @@ std::optional<SaveData> ReadSave(const std::string& path) {
 				data.world.seen.emplace_back(IntOf(tok[i].substr(0, comma)),
 											 IntOf(tok[i].substr(comma + 1)));
 			}
+		} else if (kw == "atlocation" && tok.size() >= 2) {
+			data.world.atLocation = std::string(tok[1]);
 		} else if (kw == "discovered") {
 			for (size_t i = 1; i < tok.size(); ++i)
 				data.world.discovered.emplace_back(tok[i]);

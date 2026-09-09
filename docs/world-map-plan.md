@@ -127,7 +127,7 @@ than the first draft had it. Left OPEN by the design doc: what a journey does
 with the things that have a state machine inside them rather than a rate — a
 DoT that would kill someone partway, a downed member's stabilize clock.
 
-**P4 — entering and leaving.** A location on the world map opens its dungeon at
+**P4 — entering and leaving.** DONE (2026-09-09). A location on the world map opens its dungeon at
 its entry level; leaving the dungeon returns the party to the world map at that
 location. This replaces "a new game starts on a level" as the game's opening,
 which is the moment several other things notice (see Risks).

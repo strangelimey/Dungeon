@@ -370,6 +370,35 @@ void Game::RegisterDevCommands() {
 				moved < count ? " (blocked)" : ""));
 		});
 	m_console.Register(
+		"enter", "enter a world location's dungeon: enter [id] (default: here)",
+		[this](const std::vector<std::string>& args) {
+			if (!m_worldMap) {
+				m_console.Print("no world map loaded");
+				return;
+			}
+			std::string id = args.empty() ? std::string() : args[0];
+			if (id.empty()) {
+				const WorldMap::Location* l =
+					m_worldMap->LocationAt(m_worldState.x, m_worldState.z);
+				if (!l) {
+					m_console.Print(std::format("nothing at {},{}", m_worldState.x,
+												m_worldState.z));
+					return;
+				}
+				id = l->id;
+			}
+			m_console.Print(EnterLocation(id)
+								? std::format("entering {}", id)
+								: std::format("could not enter {}", id));
+		});
+	m_console.Register(
+		"leave", "leave the dungeon for the world map",
+		[this](const std::vector<std::string>&) {
+			m_console.Print(LeaveDungeon() ? std::format("back on the world at {},{}",
+														 m_worldState.x, m_worldState.z)
+										   : "no world map to leave to");
+		});
+	m_console.Register(
 		"worldpos", "move the party's world cell: worldpos <x> <z>",
 		[this](const std::vector<std::string>& args) {
 			if (!m_worldMap) {

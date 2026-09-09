@@ -130,6 +130,75 @@ void Game::SetOnWorldMap(bool on) {
 	if (m_state == AppState::WorldMap) m_state = AppState::Playing;
 }
 
+bool Game::EnterLocation(const std::string& id) {
+	if (!m_worldMap) return false;
+	const WorldMap::Location* loc = nullptr;
+	for (const WorldMap::Location& l : m_worldMap->Locations())
+		if (l.id == id) loc = &l;
+	if (!loc) {
+		log::Warn("enter: no location '{}' on the world map", id);
+		return false;
+	}
+	// Only what the party KNOWS is there can be entered. Discovery is not
+	// decoration: an undiscovered location is one the party has no idea exists,
+	// and being able to walk into it would make finding it meaningless.
+	if (!m_worldState.Discovered(id)) {
+		if (m_world.onMessage) m_world.onMessage(loc::View("world.undiscovered"));
+		return false;
+	}
+	if (loc->kind != "dungeon") {
+		// Towns are a location KIND with no content behind them yet (they need
+		// money and trade — see docs/world-map.md). Saying so is better than
+		// silently doing nothing at a place the map draws.
+		if (m_world.onMessage) m_world.onMessage(loc::View("world.nothing_here"));
+		return false;
+	}
+
+	const CatalogEntry* d = m_project.dungeons.Find(loc->id);
+	if (!d) {
+		log::Warn("enter: location '{}' names no dungeon", id);
+		return false;
+	}
+	// The entry level, or the first of its levels — the same fallback the
+	// checker validates against, stated in one place.
+	const std::vector<std::string> levels = ParseTags(d->Get("levels", ""));
+	if (levels.empty()) {
+		log::Warn("enter: dungeon '{}' has no levels", loc->id);
+		return false;
+	}
+	std::string entry = d->Get("entry", "");
+	if (entry.empty() ||
+		std::find(levels.begin(), levels.end(), entry) == levels.end())
+		entry = levels.front();
+
+	m_worldState.onWorldMap = false;
+	m_worldState.atLocation = id; // where LeaveDungeon puts the party back
+	// -1,-1 means "the level's own start cell", the same arrival a new game
+	// gets. A dungeon entrance is not a stair with a matching cell on the far
+	// side, so there is nowhere else it could sensibly mean.
+	BeginLevelTransition(entry, -1, -1, Direction::South, /*stashCurrent=*/false);
+	if (m_world.onMessage)
+		m_world.onMessage(loc::FormatLine("world.entered", d->Display()));
+	return true;
+}
+
+bool Game::LeaveDungeon() {
+	if (!m_worldMap) return false;
+	// Back to the location the party came in by, and if that is somehow unknown
+	// (a save from before it was recorded, a dungeon entered by dev command),
+	// to where it stands on the world rather than nowhere.
+	if (!m_worldState.atLocation.empty()) {
+		for (const WorldMap::Location& l : m_worldMap->Locations())
+			if (l.id == m_worldState.atLocation) {
+				m_worldState.x = l.x;
+				m_worldState.z = l.z;
+			}
+	}
+	m_worldState.atLocation.clear();
+	SetOnWorldMap(true);
+	return true;
+}
+
 bool Game::TravelStep(int dx, int dz) {
 	if (!m_worldMap) return false;
 	const int nx = m_worldState.x + dx, nz = m_worldState.z + dz;
@@ -232,7 +301,10 @@ std::vector<std::string> Game::WorldReport() const {
 	out.push_back(std::format(
 		"  party   {},{} ({})  time {:.2f}h  seen {}  discovered {}  flags {}",
 		m_worldState.x, m_worldState.z,
-		m_worldState.onWorldMap ? "on the world map" : "in a dungeon",
+		m_worldState.onWorldMap ? std::string("on the world map")
+		: m_worldState.atLocation.empty()
+			? std::string("in a dungeon")
+			: std::format("inside {}", m_worldState.atLocation),
 		m_worldState.time, m_worldState.seen.size(),
 		m_worldState.discovered.size(), m_worldState.flags.size()));
 	for (size_t i = 0; i < w.Terrains().size(); ++i) {

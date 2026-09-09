@@ -2,7 +2,7 @@
 #
 # Run:  python tools\WorldTest.py      (needs a debug build)
 #
-# Four phases, all built on one principle: a check that never fires reports
+# Five phases, all built on one principle: a check that never fires reports
 # "clean" just as loudly as one that works, so every expectation here is paired
 # with something that makes it fail.
 #
@@ -15,6 +15,9 @@
 #      new-game values are read first and used as the control.
 #   3. THE VERSION FLOOR — downgrade a save on disk and demand the load is
 #      REFUSED rather than half-understood.
+#   5. ENTERING AND LEAVING — the round trip through a location, and the
+#      obligation that `reset` still means a LEVEL now that a new game opens on
+#      the world map.
 #   4. TRAVEL — a journey costs the time its terrain says and the supplies that
 #      span buys, refuses an impassable square instead of clamping, and reveals
 #      what walking past a place should reveal. The times are read off
@@ -198,6 +201,38 @@ try:
           "discovered 1" in disc[-1],
           "stepping within sight of a location discovers it",
           " / ".join(x.strip() for x in disc[-2:]))
+    # --- phase 5: in and out of a dungeon ------------------------------------
+    print("\n5 - entering and leaving a dungeon")
+    log = run("worldenter.eval")
+    states = [l.split("console: state ")[-1].strip()
+              for l in log.splitlines() if "console: state " in l]
+    maps = [l for l in log.splitlines() if "map, start" in l]
+
+    # THE OBLIGATION: `reset` still leaves the party in a LEVEL, even though a
+    # new game now opens on the world map. Both halves are checked - the state
+    # AND that a real map is loaded under it, because "playing" alone would be
+    # satisfied by a party standing in a field.
+    check(states and states[0] == "playing",
+          "reset still leaves the party in a level, not on the world map",
+          f"states: {states}")
+    check(any("28x24 map" in m for m in maps),
+          "and a real level is loaded under it", " / ".join(maps[:1]))
+
+    check("state worldmap" in log, "leaving a dungeon reaches the world map",
+          f"states: {states}")
+    # Discovery is a GATE, not decoration: the refusal before the discover is
+    # the evidence, and without it the success after would prove nothing.
+    check("could not enter waystation" in log,
+          "an undiscovered location refuses to be entered")
+    check("entering waystation" in log, "and a discovered one lets you in")
+    check(states and states[-1] == "playing",
+          "which lands the party back in a level", f"states: {states}")
+    check("inside waystation" in log,
+          "and the world remembers which location it went in by")
+
+    print("\nNOT covered here: the EXIT STAIR itself. It fires on a party STEP,")
+    print("and the console can only teleport (`tp` sets the cell without")
+    print("stepping), so walking onto it is checked by driving the real game.")
 finally:
     for p, s in originals.items():
         write(p, s)

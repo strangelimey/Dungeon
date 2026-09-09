@@ -58,6 +58,11 @@ struct Rules {
 	// `traverse` != 0). A pit's ceiling half is scenery and must not be read as
 	// a way up, or the reachability answer is nonsense.
 	std::unordered_set<std::string> traversableStairs;
+	// Stair types that LEAVE the dungeon for the world map (stairs.cat
+	// `exit`). They author no destination, so the dest checks must not read
+	// their empty one as a broken link — and for reachability they are a dead
+	// end, not a way on: the world is not a level the flood can reach.
+	std::unordered_set<std::string> exitStairs;
 };
 
 // One dungeon, as the checker needs to see it: the level stems it claims and
