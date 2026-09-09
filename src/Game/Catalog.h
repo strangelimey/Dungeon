@@ -15,6 +15,7 @@
 // ============================================================================
 #pragma once
 
+#include "Core/MathTypes.h" // Vec4 (the shared "color" field)
 #include "Game/Serialize.h"
 
 #include <string>
@@ -86,6 +87,16 @@ std::vector<std::string> CatalogTags(const CatalogEntry* e);
 // Does `e` carry any of `wanted`? An empty `wanted` — no theme picked — is true
 // for everything, and so is an entry with no tags of its own (see above).
 bool CatalogMatchesTags(const CatalogEntry* e, const std::vector<std::string>& wanted);
+
+// --- the shared "color" field ------------------------------------------------
+// "r,g,b[,a]", floats 0..1, whitespace- and/or comma-separated. Malformed or
+// absent leaves `out` untouched and returns false, so a caller's default stands.
+//
+// It lives HERE rather than in whichever loader wanted it first because the
+// FIELD is a catalog convention: decoration tints, prop material colours and
+// world terrain inks all spell it the same way, and a second parser is a second
+// grammar waiting to disagree with the first.
+bool CatalogColor(const CatalogEntry* e, std::string_view key, Vec4& out);
 
 // An ordered set of entries with id lookup. Loading a missing file yields an
 // empty catalog (a project need not define every category).

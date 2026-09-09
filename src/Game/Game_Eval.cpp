@@ -181,7 +181,15 @@ void Game::PumpEvalScript(float dt) {
 		// (docs/eval-audit.md F19). The existing guard — `step` refusing when
 		// not playing — only fires on the NEXT step, and a script's last
 		// encounter has no next step.
-		const bool endedOutOfPlay = m_state != AppState::Playing;
+		//
+		// WorldMap COUNTS AS IN PLAY (docs/world-map.md): the party is alive and
+		// standing somewhere, it is simply not in a level. Widening this was a
+		// deliberate act rather than a convenience — the guard is aimed at the
+		// run that FELL OUT of the game (a wipe returns to the title screen),
+		// and a travelling party has not. A script that means to end in a
+		// dungeon still says so by ending there.
+		const bool endedOutOfPlay =
+			m_state != AppState::Playing && m_state != AppState::WorldMap;
 		if (endedOutOfPlay)
 			log::Error("eval: script {} ended in state '{}', not playing — the "
 					   "run did not survive its own last encounter, so whatever "

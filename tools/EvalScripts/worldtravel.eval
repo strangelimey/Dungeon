@@ -1,0 +1,35 @@
+; worldtravel.eval — travel as a JOURNEY (P3, docs/world-map.md).
+;
+; What this measures, and why each line is where it is:
+;   - a journey COSTS TIME by the square entered, and the costs are settled for
+;     that span rather than accrued per frame. `step` is never used: nothing on
+;     the world map ticks, so simulated seconds would prove nothing either way.
+;   - supplies fall BECAUSE of the journey. `supplies` reports hours left, so
+;     the before/after pair is the measurement.
+;   - an impassable square REFUSES rather than clamping, and the travel command
+;     reports what it did instead of what it was asked.
+logecho on
+reset
+
+worldmap on
+supplies
+world
+
+; --- east along the road, then into the hills: two different travel costs ----
+travel e 3
+travel n 2
+world
+supplies
+
+; --- west into the water: the run must stop short and say so ----------------
+worldpos 3 8
+travel w 4
+world
+
+; --- discovery: walking within sight of a location finds it -----------------
+; `worldpos` is a raw teleport (it applies no travel rules and discovers
+; nothing), so the discovery below is the STEP's doing, not the placement's.
+worldpos 10 8
+world
+travel s 1
+world

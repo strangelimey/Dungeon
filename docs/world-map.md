@@ -123,6 +123,30 @@ coordinates, with no level loaded. `Game::Render` already has the precedent
 for a full-screen 2D screen that skips the shadow and scene passes (the
 `editorMap` flag).
 
+`WorldMapView` is its own class rather than a third `MapView` mode. What the
+two share is the LOOK — MapColors' ink and the same fit-to-view pan/zoom feel
+— and that is a convention worth copying rather than a base class worth
+extracting from two objects with almost no state in common. It DRAWS and it
+PICKS; it does not travel. A keypress becomes a direction and `Game` turns
+that into a journey, which is what lets the harness travel with no window.
+
+Two consequences of the state existing at all, both found by adding it:
+
+- **Pause and the sheet can now be opened from two places.** `m_resumeState`
+  records which, because an unconditional "resume means Playing" would quietly
+  teleport a travelling party into whatever level was last loaded.
+- **The eval harness's end-state guard had to learn the state.** It exists to
+  catch a run that FELL OUT of the game (a wipe returns to the title screen,
+  where every dev command keeps answering normally). A travelling party has
+  not fallen out, so `WorldMap` counts as in play — widened deliberately, at
+  the one place that decides it.
+
+**Not covered by the allocation guard**, and that is the existing precedent
+rather than an oversight: `SteadyStateFrame` already excludes the map overlay,
+and the world map is the same kind of screen — formatted captions, redrawn on
+demand, no simulation behind it. Worth revisiting when the world map becomes
+the primary way the party spends time, which is P4's doing, not P3's.
+
 ### Time, and what a journey costs
 
 **Two cost models, deliberately** (Michael, 2026-09-09). In a DUNGEON time runs
@@ -147,11 +171,14 @@ ask the same function for a large span and get an answer that CANNOT disagree
 with the dungeon's. Lifting the rest of the cost loop out of `DungeonWorld` is
 deferred — his call — and is cheaper than it looks for the same reason.
 
-**OPEN:** what a journey does with the things that have a state machine inside
-them rather than a rate — a DoT that would kill someone partway, a downed
-member's stabilize clock, a ward expiring. Settling those in one lump is not
-the same as ticking them, and the difference can be a death. Not decided
-here.
+**OPEN, and now a live gap rather than a hypothetical one:** a journey settles
+SUPPLIES and world time, and deliberately does not touch effects, regeneration
+or the stabilize clock. Those are not rates — they are state machines whose
+ORDER matters (a DoT that would kill someone partway, an unconscious member who
+would come round mid-journey), and collapsing them into one lump is not the
+same as ticking them. Until that is answered, a poisoned party travels for
+free, and the code says so at the settlement site rather than pretending to
+have resolved it.
 
 ### The grid
 
@@ -175,6 +202,29 @@ the save, never in `world.map`. Two ways in, both the same write:
   walking a dungeon reveals cells.
 - **A map or a clue** — a found item names a location and reveals it outright.
   This is why locations have ids.
+
+### What a step costs
+
+**The cost of a step is the cost of the square you ENTER**, not an average of
+the two. It is the rule a player can read straight off the map — the caption
+quotes exactly that number for the square under the cursor — and a rule you can
+see before you act is worth more than a smoother one you cannot.
+
+A step then advances world time by that many hours and settles the same span's
+supply cost through `resource::DrainPerSec`, the same pure function the
+per-frame dungeon tick calls. Measured: three road squares (0.5h each) plus
+grass (1.0h) plus moor (1.4h) is 3.90h, and the party's water falls at exactly
+the rate the dungeon would have charged it.
+
+Walking into water REFUSES rather than clamping, and a multi-step travel
+command reports what it did rather than what it was asked — a run that silently
+came up short is how a test measures the wrong journey.
+
+**Discovery falls out of seeing the ground.** A step reveals its cell and the
+eight around it (the same reach `DungeonWorld::MarkSeen` uses underground), and
+a location standing on any revealed cell becomes discovered. The other way in —
+a map or a clue naming a location outright — writes the same list without
+touching `seen`, which is exactly why the two are separate fields.
 
 ### Encounters
 

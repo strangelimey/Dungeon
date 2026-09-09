@@ -59,23 +59,6 @@ static std::vector<std::string> SplitTokens(const std::string& s) {
 	return out;
 }
 
-// Parses a catalog "color" field — "r,g,b[,a]" floats 0..1 — into `out`.
-// Malformed values leave `out` untouched and return false (the field is then
-// ignored, like an absent one).
-static bool ParseColorField(const std::string& s, Vec4& out) {
-	const std::vector<std::string> t = SplitTokens(s);
-	if (t.size() < 3) return false;
-	Vec4 c{0, 0, 0, 1};
-	float* dst[4] = {&c.x, &c.y, &c.z, &c.w};
-	for (size_t i = 0; i < t.size() && i < 4; ++i) {
-		char* end = nullptr;
-		*dst[i] = std::strtof(t[i].c_str(), &end);
-		if (end == t[i].c_str()) return false;
-	}
-	out = c;
-	return true;
-}
-
 // monsters.cat `archetype` token -> the behaviour strategy enum. Unknown tokens
 // warn and fall back to brute (the pre-archetype behaviour), so a typo is loud but
 // never fatal and an undescribed monster keeps working.
@@ -1258,7 +1241,7 @@ void DungeonWorld::BakeCatalogMaterial(MultiMaterialModel& model,
 	const float metallic = def->GetFloat("metallic", -1.0f);
 	const float roughness = def->GetFloat("roughness", -1.0f);
 	Vec4 tint;
-	const bool hasTint = ParseColorField(CatalogGet(def, "color", ""), tint);
+	const bool hasTint = CatalogColor(def, "color", tint);
 	for (auto& sub : model.subs) {
 		if (metallic >= 0.0f) sub.material.metallic = metallic;
 		if (roughness >= 0.0f) sub.material.roughness = roughness;
@@ -1369,7 +1352,7 @@ DungeonWorld::DecorationKind& DungeonWorld::DecorationKindFor(const std::string&
 			kind->metallic = def->GetFloat("metallic", -1.0f);
 			kind->roughness = def->GetFloat("roughness", -1.0f);
 			kind->heightScale = def->GetFloat("height_scale", -1.0f);
-			kind->hasTint = ParseColorField(CatalogGet(def, "color", ""), kind->tint);
+			kind->hasTint = CatalogColor(def, "color", kind->tint);
 			// Uniform size trim on top of the authored unit size (monsters' long-
 			// standing `modelscale`, now available to every prop): 1 = as authored.
 			kind->modelScale = def->GetFloat("scale", 1.0f);

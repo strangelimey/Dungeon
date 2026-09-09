@@ -509,6 +509,15 @@ map.check.dungeonentry=Подземелье «{}» входит через «{}�
 map.check.levelshared=Уровень «{}» уже принадлежит подземелью «{}»
 map.check.dungeonunreached=У подземелья «{}» нет места на карте мира
 map.check.levelorphan=Уровень «{}» не принадлежит ни одному подземелью
+
+; --- карта мира (docs/world-map.md) ---
+world.caption.here={} в {} — в пути {} ч
+world.caption.over={} — {} ч на переход, опасность {}
+world.caption.location={} ({})
+world.caption.blocked={} — непроходимо
+world.caption.help=Двигайтесь клавишами движения. Перетаскивание — сдвиг, колесо — масштаб.
+world.blocked=Путь непроходим.
+world.discovered=Вы нашли: {}.
 map.level.applied=Настройки уровня '{}' применены — сохраните карту, чтобы они остались.
 map.level.created=Уровень '{}' создан — сохраните карту, чтобы его клетки остались.
 map.level.renamed=Уровень '{}' переименован в '{}' — старые сохранения хранят прежнее имя.

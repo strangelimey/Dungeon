@@ -40,7 +40,7 @@ void Game::WireModuleCallbacks() {
 		}
 	};
 	m_ui.onQuit = [this] { m_quitRequested = true; };
-	m_ui.onResume = [this] { m_state = AppState::Playing; };
+	m_ui.onResume = [this] { m_state = m_resumeState; };
 	m_ui.onLoadSave = [this](const std::string& path) {
 		if (m_gameLoaded) {
 			LoadGame(path); // dungeon resident (pause-menu Load): apply now
@@ -55,13 +55,13 @@ void Game::WireModuleCallbacks() {
 	};
 	m_ui.onSaveSlot = [this](const std::string& name) {
 		SaveGame(name);
-		m_state = AppState::Playing; // resume play after saving from the pause menu
+		m_state = m_resumeState; // resume after saving from the pause menu
 	};
 	m_ui.onOpenSheet = [this](size_t index) { OpenCharacterSheet(index); };
 	// Sheet "All" button: leave the sheet and bring up the combined party
 	// backpacks (over the live world) for cross-character item swaps.
 	m_ui.onShowPartyInventory = [this] {
-		m_state = AppState::Playing;
+		m_state = m_resumeState;
 		m_ui.OpenInventory();
 	};
 	// Quality: recorded, not applied — the swap blocks for seconds, so Update

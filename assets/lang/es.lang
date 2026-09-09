@@ -505,6 +505,15 @@ map.check.dungeonentry=La mazmorra '{}' entra por '{}', que no es uno de sus pro
 map.check.levelshared=El nivel '{}' ya pertenece a la mazmorra '{}'
 map.check.dungeonunreached=La mazmorra '{}' no tiene lugar en el mapa del mundo
 map.check.levelorphan=El nivel '{}' no pertenece a ninguna mazmorra
+
+; --- el mapa del mundo (docs/world-map.md) ---
+world.caption.here={} en {} — {} horas de viaje
+world.caption.over={} — {}h para cruzar, peligro {}
+world.caption.location={} ({})
+world.caption.blocked={} — intransitable
+world.caption.help=Muévete con tus teclas de movimiento. Arrastra para desplazar, rueda para acercar.
+world.blocked=El camino es intransitable.
+world.discovered=Habéis encontrado {}.
 map.level.applied=Ajustes aplicados a '{}' — guarda el mapa para conservarlos.
 map.level.created=Nivel '{}' creado — guarda el mapa para conservar sus celdas.
 map.level.renamed=Nivel '{}' renombrado a '{}' — las partidas guardadas conservan el nombre antiguo.

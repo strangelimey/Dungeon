@@ -8,6 +8,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdlib>
 #include <format>
 #include <utility>
 
@@ -15,6 +16,33 @@ namespace dungeon::game {
 
 // CatalogEntry's field accessors are inline (delegating to serialize::); only
 // the display fallback needs an out-of-line definition.
+bool CatalogColor(const CatalogEntry* e, std::string_view key, Vec4& out) {
+	if (!e) return false;
+	const std::string s = e->Get(key, "");
+	// Whitespace- and/or comma-separated, like every other list field here.
+	std::vector<std::string> tok;
+	for (size_t i = 0; i < s.size();) {
+		while (i < s.size() &&
+			   (std::isspace(static_cast<unsigned char>(s[i])) || s[i] == ','))
+			++i;
+		const size_t start = i;
+		while (i < s.size() &&
+			   !std::isspace(static_cast<unsigned char>(s[i])) && s[i] != ',')
+			++i;
+		if (i > start) tok.push_back(s.substr(start, i - start));
+	}
+	if (tok.size() < 3) return false;
+	Vec4 c{0, 0, 0, 1};
+	float* dst[4] = {&c.x, &c.y, &c.z, &c.w};
+	for (size_t i = 0; i < tok.size() && i < 4; ++i) {
+		char* end = nullptr;
+		*dst[i] = std::strtof(tok[i].c_str(), &end);
+		if (end == tok[i].c_str()) return false; // leave `out` alone
+	}
+	out = c;
+	return true;
+}
+
 std::string CatalogEntry::Display() const {
 	const std::string* v = Find("display");
 	return v && !v->empty() ? *v : id;

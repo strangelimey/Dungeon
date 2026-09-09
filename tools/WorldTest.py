@@ -2,7 +2,7 @@
 #
 # Run:  python tools\WorldTest.py      (needs a debug build)
 #
-# Three phases, all built on one principle: a check that never fires reports
+# Four phases, all built on one principle: a check that never fires reports
 # "clean" just as loudly as one that works, so every expectation here is paired
 # with something that makes it fail.
 #
@@ -15,6 +15,10 @@
 #      new-game values are read first and used as the control.
 #   3. THE VERSION FLOOR — downgrade a save on disk and demand the load is
 #      REFUSED rather than half-understood.
+#   4. TRAVEL — a journey costs the time its terrain says and the supplies that
+#      span buys, refuses an impassable square instead of clamping, and reveals
+#      what walking past a place should reveal. The times are read off
+#      terrain.cat, never off the run.
 #
 # Every file this touches is restored, including the save it downgrades.
 import io
@@ -156,6 +160,44 @@ try:
             check("eval RESULT=PASS" in log, "while the game itself kept running")
         finally:
             shutil.move(SAVE + ".bak", SAVE)
+
+    # --- phase 4: travel is a journey ---------------------------------------
+    print("\n4 - travel costs what the terrain says")
+    log = run("worldtravel.eval")
+    travelled = [l.strip() for l in log.splitlines() if "console: travelled" in l]
+    party = party_lines(log)
+    supplies = [l for l in log.splitlines() if "console:   [0] Brand" in l]
+
+    # 3 road squares at 0.50h, then grass 1.00h + moor 1.40h. Read off
+    # terrain.cat, NOT off the run: a test that checks a number against itself
+    # would pass whatever the travel cost happened to become.
+    check(any("to 9,6 - 1.50h" in l for l in travelled),
+          "3 road squares cost 3 x 0.50h", " / ".join(travelled[:2]))
+    check(any("to 9,4 - 3.90h" in l for l in travelled),
+          "then grass 1.00h + moor 1.40h = 3.90h total", " / ".join(travelled[:3]))
+
+    # The impassable case: SOME movement, then a stop, and a report saying so.
+    check(any("1 of 4" in l and "(blocked)" in l for l in travelled),
+          "walking into water stops short and says it was blocked",
+          " / ".join(travelled))
+
+    # Supplies fall BECAUSE of the journey - the before/after pair is the
+    # check, and the before line is the control.
+    check(len(supplies) >= 2,
+          f"supplies reported before and after (got {len(supplies)})")
+    if len(supplies) >= 2:
+        check("100.0/100" in supplies[0], "the party set out fully supplied",
+              supplies[0].strip())
+        check("100.0/100" not in supplies[-1],
+              "and 3.90h of travel cost it food and water", supplies[-1].strip())
+
+    # Discovery is the STEP's doing: the line before it must say discovered 0,
+    # or a location found earlier would make this pass for the wrong reason.
+    disc = [l for l in party if "discovered" in l]
+    check(len(disc) >= 2 and "discovered 0" in disc[-2] and
+          "discovered 1" in disc[-1],
+          "stepping within sight of a location discovers it",
+          " / ".join(x.strip() for x in disc[-2:]))
 finally:
     for p, s in originals.items():
         write(p, s)

@@ -60,6 +60,7 @@
 #include "Game/GenerateDialog.h"
 #include "Game/ValidateDialog.h"
 #include "Game/WorldMap.h"
+#include "Game/WorldMapView.h"
 #include "Game/MonsterConfigDialog.h"
 #include "Game/ButtonInspector.h"
 #include "Game/DoorInspector.h"
@@ -197,6 +198,10 @@ private:
 		LoadingGame,
 		LoadingLevel, // mid-game level transition (P6): re-stage the world load
 		Playing,
+		// On the overworld, travelling between dungeons (docs/world-map.md).
+		// A STATE, not an overlay: no level is loaded and no scene is drawn
+		// behind it — this is where the party IS, not a view of where it is.
+		WorldMap,
 		Paused,
 		CharacterSheet
 	};
@@ -297,6 +302,21 @@ private:
 	// cell, revealed, nothing discovered, no time elapsed. A project with no
 	// world leaves it blank.
 	void ResetWorldState();
+	// One step on the world map. False when the target is off the grid or
+	// impassable — the caller says so rather than the move silently not
+	// happening. A successful step advances world time by the cost of the
+	// square ENTERED, settles that span's supply cost, and reveals what the
+	// party can now see.
+	bool TravelStep(int dx, int dz);
+	// Charges `hours` of travel against the party. Supplies only — see the
+	// comment at the definition for what is deliberately NOT settled.
+	void SettleJourney(float hours);
+	// Reveals a world cell and its eight neighbours, discovering any location
+	// standing on them.
+	void RevealAround(int x, int z);
+	// Enter or leave the world map. P4 gives this a reason to happen (a
+	// location, a dungeon exit); for now the dev console is the way in.
+	void SetOnWorldMap(bool on);
 	// The playability check, with the world tier included. Every caller goes
 	// through here rather than DungeonWorld::Validate directly, so no route can
 	// quietly check the dungeons and skip the world.
@@ -458,6 +478,11 @@ private:
 
 	// --- app state -------------------------------------------------------------
 	AppState m_state = AppState::Loading;
+	// Where Esc/Resume goes back TO. Pause and the character sheet can now be
+	// opened from two places — inside a dungeon and out on the world map — and
+	// an unconditional "resume means Playing" would quietly teleport a
+	// travelling party into whatever level was last loaded.
+	AppState m_resumeState = AppState::Playing;
 	LoadQueue m_loadQueue;
 	bool m_gameLoaded = false; // dungeon assets resident (first start done)
 	u32 m_framesRendered = 0;
@@ -591,6 +616,10 @@ private:
 	// Map/editor overlay (toggle with `M` while playing). Like the console it
 	// does NOT pause the world — the party keeps walking; the overlay only
 	// claims the mouse for panning/zooming/editing.
+	// The overworld screen (docs/world-map.md). Its own class, not a third
+	// MapView mode: MapView is built around a DungeonMap and its docks,
+	// palette and brushes, none of which mean anything on the world.
+	WorldMapView m_worldMapView;
 	MapView m_mapView;
 	// The Editor-mode brush palette + tools, driven by m_mapView while it is in
 	// Editor mode (see MapEditor.h). Declared after m_mapView so it can take a

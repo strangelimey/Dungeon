@@ -12,8 +12,11 @@
 // ============================================================================
 #include "Game/Game.h"
 
+#include "Core/Loc.h"
 #include "Core/Log.h"
+#include "Game/Resource.h"
 
+#include <algorithm>
 #include <format>
 
 namespace dungeon::game {
@@ -56,6 +59,7 @@ void Game::LoadWorldMap() {
 		t.travel = e.GetFloat("travel", 1.0f);
 		t.difficulty = e.GetFloat("difficulty", 0.0f);
 		t.tags = CatalogTags(&e);
+		CatalogColor(&e, "color", t.color); // absent leaves the neutral default
 		rules.push_back(std::move(t));
 	}
 
@@ -106,6 +110,88 @@ std::vector<validate::Issue> Game::ValidateProject() {
 		view.dungeons.push_back(std::move(d));
 	}
 	return m_world.Validate(view);
+}
+
+void Game::SetOnWorldMap(bool on) {
+	if (on) {
+		if (!m_worldMap) {
+			log::Warn("world map: the project has none to travel");
+			return;
+		}
+		// Reveal where the party is standing before the first frame draws, or
+		// it appears in the middle of unexplored ground it has plainly reached.
+		RevealAround(m_worldState.x, m_worldState.z);
+		m_worldState.onWorldMap = true;
+		m_worldMapView.Reset(); // fit the whole world, like opening any map
+		m_state = AppState::WorldMap;
+		return;
+	}
+	m_worldState.onWorldMap = false;
+	if (m_state == AppState::WorldMap) m_state = AppState::Playing;
+}
+
+bool Game::TravelStep(int dx, int dz) {
+	if (!m_worldMap) return false;
+	const int nx = m_worldState.x + dx, nz = m_worldState.z + dz;
+	if (!m_worldMap->InBounds(nx, nz) || !m_worldMap->Passable(nx, nz)) return false;
+
+	// THE COST OF A STEP IS THE COST OF THE SQUARE YOU ENTER, not an average of
+	// the two. It is the rule a player can read off the map before moving — the
+	// caption quotes exactly this number for the square under the cursor — and a
+	// rule you can see is worth more here than a smoother one you cannot.
+	const float hours = m_worldMap->TravelHours(nx, nz);
+	m_worldState.x = nx;
+	m_worldState.z = nz;
+	m_worldState.time += hours;
+	SettleJourney(hours);
+	RevealAround(nx, nz);
+	return true;
+}
+
+void Game::SettleJourney(float hours) {
+	// A JOURNEY SETTLES A BILL; it does not run the dungeon's clock fast
+	// (docs/world-map.md "Time, and what a journey costs"). The arithmetic is
+	// the SAME pure function the per-frame tick calls — asked for a large span
+	// instead of a frame — so the two cost models cannot disagree about what an
+	// hour of walking costs.
+	const float seconds = hours * 3600.0f;
+	if (seconds <= 0.0f) return;
+	for (Character& member : m_characters) {
+		if (!member.IsAlive()) continue;
+		const float practice = member.PracticeLevel(resource::Kind::Stamina);
+		for (const resource::Supply which :
+			 {resource::Supply::Food, resource::Supply::Water}) {
+			const resource::SupplyRules rules = m_world.GetBalance().SupplyOf(which);
+			float& level = member.SupplyLevel(which);
+			level = std::clamp(level - resource::DrainPerSec(rules, practice) * seconds,
+							   0.0f, rules.max);
+		}
+	}
+	// DELIBERATELY NOT SETTLED HERE: effects, regeneration and the stabilize
+	// clock. Those are not rates — they are state machines whose ORDER matters
+	// (a DoT that would kill someone partway, an unconscious member who would
+	// come round mid-journey), and collapsing them into one lump is not the same
+	// as ticking them. docs/world-map.md leaves that open; until it is answered
+	// a journey must not pretend to have resolved them.
+}
+
+void Game::RevealAround(int x, int z) {
+	if (!m_worldMap) return;
+	// A cell and its eight neighbours, the same reach a step reveals underground
+	// (DungeonWorld::MarkSeen) — one rule for "what walking shows you".
+	for (int oz = -1; oz <= 1; ++oz)
+		for (int ox = -1; ox <= 1; ++ox) {
+			const int cx = x + ox, cz = z + oz;
+			if (!m_worldMap->InBounds(cx, cz)) continue;
+			m_worldState.MarkSeen(cx, cz);
+			// Discovery falls out of seeing the ground it stands on. The other
+			// way in — a map or a clue naming a location outright — writes the
+			// same list without touching `seen`, which is why the two are
+			// separate fields.
+			if (const WorldMap::Location* l = m_worldMap->LocationAt(cx, cz))
+				if (m_worldState.Discover(l->id) && m_world.onMessage)
+					m_world.onMessage(loc::FormatLine("world.discovered", l->id));
+		}
 }
 
 std::vector<std::string> Game::WorldReport() const {

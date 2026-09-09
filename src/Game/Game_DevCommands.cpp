@@ -325,6 +325,51 @@ void Game::RegisterDevCommands() {
 							   m_console.Print(line);
 					   });
 	m_console.Register(
+		"worldmap", "enter or leave the world map: worldmap [on|off]",
+		[this](const std::vector<std::string>& args) {
+			// Bare `worldmap` REPORTS rather than toggles — the same choice
+			// `rest` made, and for the same reason: a state command whose
+			// meaning depends on the state you cannot see is a coin flip.
+			if (args.empty()) {
+				m_console.Print(m_state == AppState::WorldMap
+									? "on the world map"
+									: "in a dungeon");
+				return;
+			}
+			SetOnWorldMap(args[0] == "on" || args[0] == "1");
+			m_console.Print(m_state == AppState::WorldMap
+								? "on the world map"
+								: "in a dungeon");
+		});
+	m_console.Register(
+		"travel", "step on the world map: travel <n|s|e|w> [count]",
+		[this](const std::vector<std::string>& args) {
+			if (args.empty()) {
+				m_console.Print("usage: travel <n|s|e|w> [count]");
+				return;
+			}
+			int dx = 0, dz = 0;
+			const char d = args[0].empty() ? ' ' : args[0][0];
+			if (d == 'n') dz = -1;
+			else if (d == 's') dz = 1;
+			else if (d == 'w') dx = -1;
+			else if (d == 'e') dx = 1;
+			else {
+				m_console.Print("direction must be n, s, e or w");
+				return;
+			}
+			const int count = args.size() > 1 ? std::max(1, std::atoi(args[1].c_str())) : 1;
+			int moved = 0;
+			for (int i = 0; i < count && TravelStep(dx, dz); ++i) ++moved;
+			// Reports what it DID, not what it was asked to do: a step into
+			// water stops the run, and a count that silently came up short is
+			// how a test measures the wrong journey.
+			m_console.Print(std::format(
+				"travelled {} of {} to {},{} - {:.2f}h elapsed{}", moved, count,
+				m_worldState.x, m_worldState.z, m_worldState.time,
+				moved < count ? " (blocked)" : ""));
+		});
+	m_console.Register(
 		"worldpos", "move the party's world cell: worldpos <x> <z>",
 		[this](const std::vector<std::string>& args) {
 			if (!m_worldMap) {

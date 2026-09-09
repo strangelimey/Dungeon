@@ -75,6 +75,7 @@ Game::Game(Window& window, gfx::GraphicsDevice& device, gfx::Renderer& renderer,
 	  m_fonts(MakeFontLibrary(device)),
 	  m_ui(window, device, spriteBatch, audio, m_sounds, m_settings,
 		   m_characters, m_fonts),
+	  m_worldMapView(m_fonts),
 	  m_mapView(device, m_world, m_settings, m_fonts),
 	  m_mapEditor(m_mapView, m_world, m_settings),
 	  m_console(m_fonts, m_threads),
@@ -808,6 +809,7 @@ bool Game::LoadGame(const std::string& path) {
 void Game::OpenCharacterSheet(size_t index) {
 	m_audio.Play(m_sounds.click, 0.5f);
 	m_ui.ShowSheet(index);
+	m_resumeState = m_state; // the sheet opens from a dungeon or from the world
 	m_state = AppState::CharacterSheet;
 }
 
@@ -980,6 +982,7 @@ const char* Game::StateName() const {
 	case AppState::LoadingGame: return "loadinggame";
 	case AppState::LoadingLevel: return "loadinglevel";
 	case AppState::Playing: return "playing";
+	case AppState::WorldMap: return "worldmap";
 	case AppState::Paused: return "paused";
 	case AppState::CharacterSheet: return "sheet";
 	}
@@ -1215,21 +1218,54 @@ void Game::Update(float dt) {
 		// gets it first, as its cancel), or resumes play.
 		if (input.WasKeyPressed(VK_ESCAPE) && !m_ui.KeyCaptureActive()) {
 			m_audio.Play(m_sounds.click, 0.5f);
-			if (!m_ui.CloseSettingsPage()) m_state = AppState::Playing;
+			if (!m_ui.CloseSettingsPage()) m_state = m_resumeState;
 			return;
 		}
 		m_ui.UpdatePause(input);
 		return;
 
 	case AppState::CharacterSheet:
-		// Frozen like Paused; only the sheet page updates. Esc resumes.
+		// Frozen like Paused; only the sheet page updates. Esc resumes — to
+		// wherever the sheet was opened FROM (see m_resumeState).
 		if (input.WasKeyPressed(VK_ESCAPE)) {
 			m_audio.Play(m_sounds.click, 0.5f);
-			m_state = AppState::Playing;
+			m_state = m_resumeState;
 			return;
 		}
 		m_ui.UpdateSheet(input);
 		return;
+
+	case AppState::WorldMap: {
+		// Travelling. The world simulates nothing — a journey is RESOLVED, not
+		// simulated (docs/world-map.md) — so this state only reads input and
+		// draws. Esc opens the pause menu, which resumes back HERE.
+		if (input.WasKeyPressed(VK_ESCAPE) && !m_console.IsOpen()) {
+			m_audio.Play(m_sounds.click, 0.5f);
+			m_ui.ResetToMainPage();
+			m_ui.RebuildPauseMenu();
+			m_resumeState = m_state;
+			m_state = AppState::Paused;
+			return;
+		}
+		if (m_worldMap) {
+			m_worldMapView.Update(input, *m_worldMap,
+								  MapPanel(static_cast<float>(m_window.Width()),
+										   static_cast<float>(m_window.Height())));
+			// The BOUND movement keys, read as compass directions: there is no
+			// facing out here, so forward/back/strafe are north/south/west/east
+			// and the turn keys mean nothing. Using the bindings rather than
+			// hardcoded arrows keeps one set of movement keys in the game.
+			const MoveKeys& k = m_settings.moveKeys;
+			int dx = 0, dz = 0;
+			if (input.WasKeyPressed(k.forward)) dz = -1;
+			else if (input.WasKeyPressed(k.back)) dz = 1;
+			else if (input.WasKeyPressed(k.strafeLeft)) dx = -1;
+			else if (input.WasKeyPressed(k.strafeRight)) dx = 1;
+			if ((dx || dz) && !m_console.IsOpen() && !TravelStep(dx, dz))
+				m_ui.AddLogLine(loc::View("world.blocked"));
+		}
+		return;
+	}
 
 	case AppState::Playing:
 		break;
@@ -1442,6 +1478,7 @@ void Game::Update(float dt) {
 		m_audio.Play(m_sounds.click, 0.5f);
 		m_ui.ResetToMainPage();
 		m_ui.RebuildPauseMenu(); // Load entry tracks whether a save now exists
+		m_resumeState = m_state;
 		m_state = AppState::Paused;
 		return;
 	}
@@ -1695,6 +1732,13 @@ void Game::Render(ID3D12GraphicsCommandList* list) {
 		if (m_geomNoticeLatched) DrawBusyNotice(loc::Tr("map.rebuilding"), dw, dh);
 		break;
 	}
+	case AppState::WorldMap:
+		if (m_worldMap)
+			m_worldMapView.Render(m_spriteBatch, m_settings.theme, *m_worldMap,
+								  m_worldState,
+								  MapPanel(static_cast<float>(m_device.Width()),
+										   static_cast<float>(m_device.Height())));
+		break;
 	case AppState::Paused:      m_ui.RenderPauseOverlay(); break;
 	case AppState::CharacterSheet: m_ui.RenderCharacterSheetOverlay(); break;
 	}

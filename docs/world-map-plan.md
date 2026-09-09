@@ -117,7 +117,7 @@ saves outright, with a clear message, rather than half-loading them — "early
 saves are WIP only". So the read path gains a floor rather than another rung,
 and the version comment block records where the ladder was cut.
 
-**P3 — the view and travel.** `AppState::WorldMap`, a `WorldMapView` built on
+**P3 — the view and travel.** DONE (2026-09-09). `AppState::WorldMap`, a `WorldMapView` built on
 what MapView already does (pan/zoom, cell render, baked model icons, fog), and
 movement as a JOURNEY: terrain travel costs give the move a duration, and the
 costs are settled over that span through the same pure `resource::` arithmetic

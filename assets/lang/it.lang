@@ -505,6 +505,15 @@ map.check.dungeonentry=Il sotterraneo '{}' entra da '{}', che non è uno dei suo
 map.check.levelshared=Il livello '{}' appartiene già al sotterraneo '{}'
 map.check.dungeonunreached=Il sotterraneo '{}' non ha alcun luogo sulla mappa del mondo
 map.check.levelorphan=Il livello '{}' non appartiene ad alcun sotterraneo
+
+; --- la mappa del mondo (docs/world-map.md) ---
+world.caption.here={} a {} — {} ore di viaggio
+world.caption.over={} — {}h per attraversare, pericolo {}
+world.caption.location={} ({})
+world.caption.blocked={} — impraticabile
+world.caption.help=Muoviti con i tasti di movimento. Trascina per spostare, rotella per ingrandire.
+world.blocked=La via è impraticabile.
+world.discovered=Avete trovato {}.
 map.level.applied=Impostazioni applicate a '{}' — salva la mappa per conservarle.
 map.level.created=Livello '{}' creato — salva la mappa per conservarne le celle.
 map.level.renamed=Livello '{}' rinominato in '{}' — i salvataggi esistenti mantengono il vecchio nome.

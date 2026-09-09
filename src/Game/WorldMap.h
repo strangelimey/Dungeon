@@ -38,6 +38,7 @@
 // ============================================================================
 #pragma once
 
+#include "Core/MathTypes.h" // Vec4
 #include "Core/Types.h"
 
 #include <optional>
@@ -104,6 +105,9 @@ public:
 		float travel = 1.0f;
 		float difficulty = 0.0f;
 		std::vector<std::string> tags;
+		// The world map's ink for this kind (terrain.cat `color`). The map has
+		// its own palette rather than the UI theme's, like the dungeon map.
+		Vec4 color{0.5f, 0.5f, 0.5f, 1.0f};
 	};
 	using TerrainRules = std::vector<Terrain>;
 
