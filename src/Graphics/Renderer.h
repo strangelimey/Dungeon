@@ -131,6 +131,9 @@ private:
 	// Skinning palettes uploaded once per frame: a skinned mesh is re-submitted
 	// up to 25x (shadow faces + scene) with the same pose, so cache the upload
 	// keyed by the animator's palette buffer and reuse the GPU address.
+	// Distinct skinned meshes one frame is expected to show. A FLOOR for the
+	// reserve in NewFrame, not a limit — every monster on screen at once, with room.
+	static constexpr size_t kPaletteCacheReserve = 64;
 	std::vector<std::pair<const void*, D3D12_GPU_VIRTUAL_ADDRESS>> m_paletteCache;
 
 	// Shadow cube targets (R16_FLOAT distance) + shared per-slot depth.

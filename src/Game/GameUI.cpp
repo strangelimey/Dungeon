@@ -1904,7 +1904,10 @@ void GameUI::DrawLoadProgress(const LoadQueue& queue, float barY) {
 
 // Title face, horizontally centered at y in the accent color — every title
 // screen draws "DUNGEON" this way.
-void GameUI::DrawCenteredTitle(const std::string& text, float y) {
+// Takes a VIEW, so a caller can hand it loc::View and pay nothing. Font's own
+// Draw/MeasureWidth have always taken string_view; only this signature stood
+// between them and the table's own storage.
+void GameUI::DrawCenteredTitle(std::string_view text, float y) {
 	const float titleW = m_titleFont->MeasureWidth(text);
 	m_titleFont->Draw(m_spriteBatch, text, (DeviceW() - titleW) * 0.5f, y,
 					 m_menuUi.GetTheme().accent);
@@ -1912,7 +1915,7 @@ void GameUI::DrawCenteredTitle(const std::string& text, float y) {
 
 void GameUI::RenderLoadingScreen(const LoadQueue& queue) {
 	const float h = DeviceH();
-	DrawCenteredTitle(loc::Tr("title"), h * 0.32f);
+	DrawCenteredTitle(loc::View("title"), h * 0.32f);
 	DrawLoadProgress(queue, h * 0.52f);
 }
 
@@ -1927,9 +1930,9 @@ void GameUI::RenderGameLoadingScreen(const LoadQueue& queue) {
 							 {1, 1, 1, 1});
 	m_spriteBatch.DrawRect({0, 0, w, h}, {0, 0, 0, 0.55f});
 
-	DrawCenteredTitle(loc::Tr("title"), h * kMenuTitleY);
+	DrawCenteredTitle(loc::View("title"), h * kMenuTitleY);
 
-	const std::string subtitle = loc::Tr("loading.descending");
+	const std::string_view subtitle = loc::View("loading.descending");
 	ui::Font& font = m_menuUi.GetFont();
 	const float subW = font.MeasureWidth(subtitle);
 	font.Draw(m_spriteBatch, subtitle, (w - subW) * 0.5f,
@@ -1950,14 +1953,14 @@ void GameUI::RenderMenuOverlay() {
 	m_spriteBatch.DrawRect({0, 0, w, h}, {0, 0, 0, 0.30f});
 
 	// Title + subtitle.
-	DrawCenteredTitle(loc::Tr("title"), h * kMenuTitleY);
+	DrawCenteredTitle(loc::View("title"), h * kMenuTitleY);
 
 	const char* subKey = "menu.subtitle";
 	if (m_menuPage == MenuPage::Settings) subKey = "menu.subtitle_settings";
 	else if (m_menuPage == MenuPage::Saves)
 		subKey = m_savesMode == SavesMode::Save ? "menu.subtitle_save"
 												: "menu.subtitle_load";
-	const std::string subtitle = loc::Tr(subKey);
+	const std::string_view subtitle = loc::View(subKey);
 	ui::Font& font = m_menuUi.GetFont();
 	const float subW = font.MeasureWidth(subtitle);
 	font.Draw(m_spriteBatch, subtitle, (w - subW) * 0.5f,
@@ -1987,13 +1990,13 @@ void GameUI::RenderPauseOverlay() {
 
 	m_spriteBatch.DrawRect({0, 0, w, h}, {0, 0, 0, 0.55f});
 
-	DrawCenteredTitle(loc::Tr("pause.title"), h * kMenuTitleY);
+	DrawCenteredTitle(loc::View("pause.title"), h * kMenuTitleY);
 
 	if (m_menuPage != MenuPage::Main) {
 		const char* subKey = "menu.subtitle_load";
 		if (m_menuPage == MenuPage::Settings) subKey = "menu.subtitle_settings";
 		else if (m_savesMode == SavesMode::Save) subKey = "menu.subtitle_save";
-		const std::string subtitle = loc::Tr(subKey);
+		const std::string_view subtitle = loc::View(subKey);
 		ui::Font& font = m_pauseUi.GetFont();
 		const float subW = font.MeasureWidth(subtitle);
 		font.Draw(m_spriteBatch, subtitle, (w - subW) * 0.5f,

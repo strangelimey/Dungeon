@@ -353,6 +353,12 @@ void Renderer::NewFrame(u32 frameIndex) {
 	m_frameIndex = frameIndex;
 	m_frameAllocators[m_frameIndex]->Reset(); // reclaim last use of this slot
 	m_paletteCache.clear();                   // arena reset invalidates last frame's VAs
+	// clear() keeps the capacity, so this only ever allocates when a frame shows
+	// more distinct skinned meshes than any frame before it — which is a settled
+	// frame reaching for the heap. Reserve a working floor once; the vector can
+	// still grow past it, and a report from here would then mean a scene denser
+	// than kPaletteCacheReserve expects rather than a bug.
+	m_paletteCache.reserve(kPaletteCacheReserve);
 }
 
 void Renderer::BeginScene(ID3D12GraphicsCommandList* list, const Camera& camera,

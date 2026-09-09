@@ -276,7 +276,7 @@ private:
 	void DrawLoadProgress(const LoadQueue& queue, float barY); // shared bar
 	// Title face centered horizontally at y (accent color); returns y so a
 	// subtitle can be placed relative to it. Shared by every title screen.
-	void DrawCenteredTitle(const std::string& text, float y);
+	void DrawCenteredTitle(std::string_view text, float y);
 	void Click(float volume = 0.5f); // UI click feedback
 	void DrawHeldCursor();           // the cursor-carried item icon (HUD + sheet)
 
