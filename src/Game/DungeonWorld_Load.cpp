@@ -781,6 +781,16 @@ DungeonWorld::Monster DungeonWorld::MakeMonster(MonsterKind& kind, int id, int x
 	// spawn clip first if the kind has one, via the default spawnReq).
 	const std::string idle = PickClip(kind, anim::CreatureState::Idle);
 	monster.animator.Play(idle.empty() ? "idle" : idle);
+	// The chase route is REFILLED by ConsumeAIPlans every time this monster's
+	// bucket publishes, and a copy into a vector too small to hold it allocates —
+	// in the middle of a settled frame, whenever a monster first gets a longer
+	// path than it has ever held. The producer side already pools its path
+	// vectors so a worker tick allocates nothing (AsyncDirector::ComputeBucket);
+	// this is the same promise kept on the consumer side. A BFS route cannot
+	// revisit a cell, so the cell count is the true ceiling and not an estimate —
+	// a few KB per monster, taken at spawn where allocating costs nothing.
+	monster.aiPath.reserve(
+		static_cast<size_t>(std::max(0, m_map.Width() * m_map.Height())));
 	return monster;
 }
 

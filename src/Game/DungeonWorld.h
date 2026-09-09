@@ -195,6 +195,23 @@ public:
 	// Re-derive every member's resource maxima from the balance k's — after a
 	// save-apply, a stat change, or an editor Balance apply.
 	void RecomputePartyMaxima();
+	// Put every id a member could ever train into `skillXp` at zero, so that
+	// GrantSkillXp's insert branch is only ever reached HERE, at setup.
+	//
+	// The map is name-keyed because skill ids are open-ended (Character.h says
+	// why), and an open-ended key means the first award of one INSERTS — which
+	// allocates, in whatever frame the player first happens to swing or walk.
+	// That is not an event exemption the memory rule grants any more
+	// (docs/message-allocation.md), and the shape of the fix is the same one
+	// statProgress took: the set is not actually open-ended at RUNTIME. The
+	// four schools, the three resource practices and every weapon class the
+	// catalogs define are all knowable the moment a project is loaded, so they
+	// are seeded once and the steady-state path only ever finds.
+	//
+	// A zero entry is invisible: every readout of skillXp already filters on
+	// xp > 0 (the sheet's two lists, the save writer, `char`), because a skill
+	// you have not trained is not one you have.
+	void SeedPartySkills();
 	// Feed the SLOWEST member's effective pace into the Party. Lives here rather
 	// than on Game because it has to run the moment CONDITIONING levels — which
 	// happens deep inside the combat tick — and the world holds both the roster

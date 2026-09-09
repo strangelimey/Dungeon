@@ -1953,8 +1953,9 @@ void Game::RegisterDevCommands() {
 							   c.health, c.maxHealth, c.stamina, c.maxStamina, c.mana,
 							   c.maxMana));
 						   for (const auto& [id, xp] : c.skillXp)
-							   m_console.Print(std::format("    skill {:<12} level {} ({:.1f} xp)",
-														   id, Character::LevelForXp(xp), xp));
+							   if (xp > 0.0f) // the untrained rest is the seed, not news
+								   m_console.Print(std::format("    skill {:<12} level {} ({:.1f} xp)",
+															   id, Character::LevelForXp(xp), xp));
 						   // THE CREEP POOLS, and they are here for one reason:
 						   // the resource practices must creep NOTHING
 						   // (docs/health-and-healing.md). Without this line the

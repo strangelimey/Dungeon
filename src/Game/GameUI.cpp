@@ -1539,6 +1539,11 @@ void GameUI::BuildHud() {
 	status->padY = 0.1549f; // 0.011 likewise
 	m_compass = status->Add<ui::Label>(gfx::Rect{0, 0, 1, 0.449f}, "");
 	m_position = status->Add<ui::Label>(gfx::Rect{0, 0.551f, 1, 0.449f}, "");
+	// SetHudStatus rewrites both every time the party turns or steps, and does it
+	// by assigning into this storage. A line is clipped to loc::Line's capacity, so
+	// taking that much here means the assignment can never need more.
+	m_compass->text.reserve(loc::Line::kCapacity);
+	m_position->text.reserve(loc::Line::kCapacity);
 	m_position->dim = true;
 
 	auto* options = m_belowBar->Add<ui::Panel>(
@@ -1773,16 +1778,24 @@ void GameUI::UpdateHud(const Input& input, float dt) {
 	if (m_log) m_log->Tick(dt);
 }
 
+// The two labels are rewritten by a STEP or a TURN, which is exactly the kind
+// of thing the memory rule stopped exempting (docs/message-allocation.md): a
+// std::string built by loc::Format and handed to a label allocated whenever the
+// text outgrew the one already there — "Position: 13, 19" is one character past
+// the small-string buffer, so walking east out of a single-digit column paid for
+// a heap block. Format into a loc::Line and ASSIGN, which reuses the label's own
+// storage; the reserve below is what guarantees there is enough of it, once, at
+// a point where allocating is free.
 void GameUI::SetHudStatus(int facing, int gridX, int gridZ) {
 	if (facing != m_lastFacing) {
 		m_lastFacing = facing;
-		m_compass->text =
-			loc::Format("hud.facing", loc::Tr(Party::FacingName(facing)));
+		m_compass->text.assign(
+			loc::FormatLine("hud.facing", loc::View(Party::FacingName(facing))).View());
 	}
 	if (gridX != m_lastGridX || gridZ != m_lastGridZ) {
 		m_lastGridX = gridX;
 		m_lastGridZ = gridZ;
-		m_position->text = loc::Format("hud.position", gridX, gridZ);
+		m_position->text.assign(loc::FormatLine("hud.position", gridX, gridZ).View());
 	}
 }
 

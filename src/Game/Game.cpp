@@ -483,6 +483,10 @@ void Game::ResetRoster() {
 	// CreateDefaultParty seeds the derived maxima at k=1; re-derive under the
 	// project's live balance knobs (fresh members are at full, so top them up).
 	m_world.RecomputePartyMaxima();
+	// Fresh members carry an EMPTY skill map, so the first step of the run would
+	// insert "conditioning" into it — a steady-state allocation. Seed the whole
+	// trainable set now, while allocating is free.
+	m_world.SeedPartySkills();
 	const Balance& bal = m_world.GetBalance();
 	for (Character& member : m_characters) {
 		member.health = member.maxHealth;
@@ -579,7 +583,11 @@ void Game::SaveGame(const std::string& name) {
 								 e.timeLeft, e.duration, e.magnitude, e.source,
 								 std::string(e.NameKey())});
 		// Skills, stat-creep pools, and the five attributes (they grow now).
-		for (const auto& [id, xp] : member.skillXp) c.skills.emplace_back(id, xp);
+		// Zero-XP entries are the seed (DungeonWorld::SeedPartySkills), not
+		// progress — writing them would put a dozen dead lines per member in every
+		// save, and the seed is rebuilt on load anyway.
+		for (const auto& [id, xp] : member.skillXp)
+			if (xp > 0.0f) c.skills.emplace_back(id, xp);
 		// Written as NAME/value pairs still, so the save file is unchanged and
 		// stays readable when the stat set moves — the array is an in-memory
 		// shape, not a file format. A zero pool writes nothing, as before.

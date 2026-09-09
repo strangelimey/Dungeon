@@ -726,6 +726,34 @@ void DungeonWorld::SpendExertion(Character& member, float points) {
 		MemberMessage(member, loc::FormatLine("log.member_down", member.name));
 }
 
+void DungeonWorld::SeedPartySkills() {
+	if (!m_roster) return;
+	// Built fresh rather than cached: a project reload or an editor catalog edit
+	// can add a weapon class, and this runs once per new game / load.
+	std::vector<std::string> ids;
+	for (u32 s = 0; s < kSymbolCount; ++s) {
+		const SpellSymbol sym = static_cast<SpellSymbol>(s);
+		if (IsSchoolSymbol(sym)) ids.emplace_back(SymbolId(sym));
+	}
+	for (int k = 0; k < static_cast<int>(resource::Kind::Count); ++k)
+		ids.emplace_back(resource::SkillId(static_cast<resource::Kind>(k)));
+	ids.emplace_back("unarmed"); // the bare-hand class, which no catalog entry names
+	// The DEFENSIVE skills (TrainDefense above). Easy to forget precisely because
+	// nothing in a catalog names them — the guard caught their absence the first
+	// time a skeleton landed a blow on this seed.
+	ids.emplace_back(kAvoidSkill);
+	for (int c = 0; c < static_cast<int>(ArmorClass::Count); ++c)
+		if (const char* skill = ArmorSkillId(static_cast<ArmorClass>(c)); *skill)
+			ids.emplace_back(skill);
+	for (const CatalogEntry* item : m_project.AllItems())
+		if (std::string skill = CatalogGet(item, "skill", ""); !skill.empty())
+			ids.push_back(std::move(skill));
+
+	for (Character& member : *m_roster)
+		for (const std::string& id : ids)
+			if (!member.skillXp.contains(id)) member.skillXp[id] = 0.0f;
+}
+
 void DungeonWorld::RecomputePartyMaxima() {
 	if (!m_roster) return;
 	const resource::PoolRules pools = m_balance.Resources();
