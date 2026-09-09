@@ -161,8 +161,15 @@ void PostProcess::CreateTargets() {
 
 	// The scene target is the only one that clears (BeginScene); the bloom
 	// pair is fully overwritten by each pass, so no optimized clear there.
+	//
+	// Must match the clear in BeginScene EXACTLY, all four channels — the same
+	// rule the shadow cubes carry (Renderer.cpp). A value-initialized
+	// D3D12_CLEAR_VALUE is transparent black, and BeginScene clears to OPAQUE
+	// black, so alpha alone was enough to miss: the driver lost the fast-clear
+	// path and the debug layer said so once a frame, forever.
 	D3D12_CLEAR_VALUE sceneClear{};
 	sceneClear.Format = kSceneColorFormat;
+	sceneClear.Color[3] = 1.0f;
 	makeTarget(m_width, m_height, &sceneClear, m_scene);
 	makeTarget(halfW, halfH, nullptr, m_bloom[0]);
 	makeTarget(halfW, halfH, nullptr, m_bloom[1]);
